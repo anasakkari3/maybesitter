@@ -48,27 +48,41 @@ const clock = z.string().regex(/^\d{2}:\d{2}$/);
 const weeklySchema = z.object({ weekdays: z.array(z.number().int().min(0).max(6)), start: clock, end: clock });
 
 /**
- * One step's place in the time proposal. Read by shape, not by a tag: a step
- * after day 14 carries `later` and nothing to choose; a commitment carries a
- * slot (or null with a reason); a habit carries a weekly timing.
+ * One step's place in the time proposal — exactly one of three shapes (WIRE):
+ * a step after day 14 carries only its week; a commitment its slot (or null
+ * with a reason) and slot alternatives; a habit its weekly timing and weekly
+ * alternatives. Strict, so an impossible mix (a later step with a slot, a
+ * commitment with a weekly timing) is refused rather than drawn and sent.
  */
-export const goalPlanTimesStepSchema = z.object({
+const laterTimesStepSchema = z.object({
   stepId: z.string(),
   kind: z.enum(['commitment', 'habit']),
-  slot: slotSchema.nullable().optional(),
-  weekly: weeklySchema.nullable().optional(),
-  later: z.object({ weekIndex: z.number().int().positive() }).optional(),
-  alternatives: z.array(z.union([slotSchema, weeklySchema])).default([]),
+  later: z.object({ weekIndex: z.number().int().positive() }),
+}).strict();
+const commitmentTimesStepSchema = z.object({
+  stepId: z.string(),
+  kind: z.literal('commitment'),
+  slot: slotSchema.nullable(),
+  alternatives: z.array(slotSchema),
   reason: z.string().optional(),
-  choice: z.enum(['proposed', 'none']).optional(),
-}).passthrough();
+  choice: z.enum(['proposed', 'none']),
+}).strict();
+const habitTimesStepSchema = z.object({
+  stepId: z.string(),
+  kind: z.literal('habit'),
+  weekly: weeklySchema.nullable(),
+  alternatives: z.array(weeklySchema),
+  reason: z.string().optional(),
+  choice: z.enum(['proposed', 'none']),
+}).strict();
+export const goalPlanTimesStepSchema = z.union([laterTimesStepSchema, commitmentTimesStepSchema, habitTimesStepSchema]);
 
 export const goalPlanTimesSchema = z.object({
   timesId: z.string(),
   timesRevision: z.number().int().nonnegative(),
   planId: z.string(),
   planRevision: z.number().int().nonnegative(),
-  anchor: z.object({ localDate: z.string(), timezone: z.string() }).optional(),
+  anchor: z.object({ localDate: z.string(), timezone: z.string() }),
   steps: z.array(goalPlanTimesStepSchema),
 }).passthrough();
 
@@ -106,6 +120,8 @@ export const goalPlanViewSchema = z.object({
 export const goalPlanResponseSchema = z.object({ success: z.literal(true), plan: goalPlanSchema }).passthrough();
 export const goalPlanApproveResponseSchema = z.object({ success: z.literal(true), times: goalPlanTimesSchema }).passthrough();
 export const goalPlanTimesResponseSchema = z.object({ success: z.literal(true), times: goalPlanTimesSchema }).passthrough();
+/** A later week's times come with the confirmed plan, so each step can be named. */
+export const laterWeekTimesResponseSchema = z.object({ success: z.literal(true), plan: goalPlanSchema, times: goalPlanTimesSchema }).passthrough();
 
 export const upcomingPlanItemSchema = z.object({
   goalId: z.string(),

@@ -31,6 +31,9 @@ import { IntelligencePanel } from './IntelligencePanel';
 
 type LinkedNode = Extract<GoalGraph['nodes'][number], { kind: 'linked_commitment' | 'linked_habit' }>;
 
+/** What the goal screen can do for a plan failure: leave for capture or thoughts, show what was saved, go back, open the new goal. */
+const GOAL_RECOVERIES: readonly PlanRecovery[] = ['capture', 'thoughts', 'see_saved', 'back_to_goals', 'open_new_goal'];
+
 export function GoalExecutionScreen() {
   const { t, p, rtl, lang, actions, s } = useApp();
   const memory = useMemory();
@@ -168,12 +171,13 @@ function GoalDetail({ goalId, title, onBack }: { goalId: string; title: string; 
           />)}
         </ProductSection> : null}
 
-        {showEntry ? <ProductSection title={draft ? t.xPlanOpenDraft : t.xPlanOpen} why={{ id: 'goal-plan', body: t.xPlanEntryWhy }} icon="spark">
+        {showEntry ? <ProductSection title={t.xPlanEntryTitle} why={{ id: 'goal-plan', body: t.xPlanEntryWhy }} icon="spark">
           <Pill testID="goal-plan-open" label={draft ? t.xPlanOpenDraft : t.xPlanOpen} onPress={() => flow.openGoal(goalId, draft)} />
         </ProductSection> : null}
         {flow.state.goalId ? <PlanFlowView
           flow={flow}
           onRecover={onRecover}
+          hostRecoveries={GOAL_RECOVERIES}
           linkedWork={linked.length > 0 ? <LinkedWorkNote nodes={linked} /> : null}
         /> : null}
         {unlink.error ? <Txt role="supporting" color={p.wm}>{userFacingMessage(unlink.error, t)}</Txt> : null}

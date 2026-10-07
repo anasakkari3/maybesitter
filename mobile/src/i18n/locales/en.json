@@ -1884,5 +1884,9 @@
   "xPlanBuildDailyCap": "That's today's plans used up. We'll continue tomorrow.",
   "xPlanBuildOffline": "No internet, so today's plan didn't arrive.",
   "xPlanBuildUnavailable": "I couldn't arrange your day right now. Try again in a bit.",
-  "xPlanFailProjectionPending": "Saved. Your day is still updating."
+  "xPlanFailProjectionPending": "Saved. Your day is still updating.",
+  "xPlanConfirmPlan": "Confirm the plan",
+  "xPlanAnyTime": "Any time",
+  "xPlanTimeOfDayLabel": "Time of day",
+  "xPlanEntryTitle": "A plan for this goal"
 }

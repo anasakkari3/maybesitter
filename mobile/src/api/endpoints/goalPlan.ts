@@ -5,6 +5,7 @@ import {
   goalPlanResponseSchema,
   goalPlanTimesResponseSchema,
   goalPlanViewSchema,
+  laterWeekTimesResponseSchema,
   statementAcceptResponseSchema,
   statementPreviewResponseSchema,
   upcomingPlansResponseSchema,
@@ -88,12 +89,12 @@ export function confirmGoalPlan(goalId: string, times: GoalPlanTimes, idempotenc
 }
 
 /** A later week's steps, placed when that week is near (M3A-012), against the then-current calendar. */
-export async function laterWeekTimes(goalId: string, planId: string, weekIndex: number, idempotencyKey: string): Promise<GoalPlanTimes> {
+export async function laterWeekTimes(goalId: string, planId: string, weekIndex: number, idempotencyKey: string): Promise<{ plan: GoalPlan; times: GoalPlanTimes }> {
   const response = await apiRequest('POST', `${plan(goalId, planId)}/later/${weekIndex}/times`, {
     body: { idempotencyKey },
-    schema: goalPlanTimesResponseSchema,
+    schema: laterWeekTimesResponseSchema,
   });
-  return response.times;
+  return { plan: response.plan, times: response.times };
 }
 
 export async function listUpcomingPlans(): Promise<readonly UpcomingPlanItem[]> {

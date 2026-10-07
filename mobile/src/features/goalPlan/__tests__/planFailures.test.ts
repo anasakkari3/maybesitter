@@ -45,7 +45,7 @@ describe('plan failures', () => {
   it('a vague goal brings its question on its own line, and the answer action', () => {
     const failure = planFailureOf(new GoalPlanRefusedError('goal_too_vague', 422, { question: 'What would change?' }), strings.en)!;
     expect(failure.question).toBe('What would change?');
-    expect(failure.recoveries).toEqual(['answer']);
+    expect(failure.recoveries).toEqual(['answer', 'template']);
   });
 
   it('no signal and the daily cap say so even without a typed refusal', () => {
@@ -70,12 +70,12 @@ describe('the day plan build («اعمل خطة اليوم»)', () => {
 });
 
 describe('what the confirm will do with each step', () => {
-  const base = { stepId: 's', kind: 'commitment' as const, alternatives: [] };
+  const commitment = { stepId: 's', kind: 'commitment' as const, alternatives: [], choice: 'proposed' as const };
   it('a slot or a weekly time is saved; a later week waits; no room stays; no time and no reason is «بلا وقت», saved', () => {
-    expect(stepOutcome({ ...base, slot: { startsAt: '2030-01-08T09:00:00.000Z', endsAt: '2030-01-08T09:30:00.000Z' } })).toBe('save');
-    expect(stepOutcome({ ...base, kind: 'habit', weekly: { weekdays: [1], start: '09:00', end: '09:30' } })).toBe('save');
-    expect(stepOutcome({ ...base, later: { weekIndex: 3 } })).toBe('later');
-    expect(stepOutcome({ ...base, slot: null, reason: 'no_free_time_in_phase', choice: 'none' })).toBe('no_room');
-    expect(stepOutcome({ ...base, slot: null, choice: 'none' })).toBe('save');
+    expect(stepOutcome({ ...commitment, slot: { startsAt: '2030-01-08T09:00:00.000Z', endsAt: '2030-01-08T09:30:00.000Z' } })).toBe('save');
+    expect(stepOutcome({ stepId: 's', kind: 'habit', weekly: { weekdays: [1], start: '09:00', end: '09:30' }, alternatives: [], choice: 'proposed' })).toBe('save');
+    expect(stepOutcome({ stepId: 's', kind: 'commitment', later: { weekIndex: 3 } })).toBe('later');
+    expect(stepOutcome({ ...commitment, slot: null, reason: 'no_free_time_in_phase', choice: 'none' })).toBe('no_room');
+    expect(stepOutcome({ ...commitment, slot: null, choice: 'none' })).toBe('save');
   });
 });

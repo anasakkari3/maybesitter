@@ -31,6 +31,9 @@ import { usePlanPathAvailable } from '../goalPlan/planAvailability';
 import type { PlanRecovery } from '../goalPlan/planFailures';
 import { useGoalPlanFlow } from '../goalPlan/useGoalPlanFlow';
 
+/** What the panel can do for a plan failure (inspection A-009); «ارجع للأهداف» is not offered where the goals already are. */
+const PANEL_RECOVERIES: readonly PlanRecovery[] = ['capture', 'thoughts', 'see_saved', 'open_new_goal'];
+
 /** The person's own records are facts already; only what was read from their words is asked about. */
 const SELF_CONFIRMED_SOURCES: ReadonlySet<string> = new Set(['memory', 'commitment', 'behavior']);
 /** At most this many "is this right?" cards at once, below the suggestions. */
@@ -125,6 +128,8 @@ function IntelligencePanelForAccount({ onChanged, autoGenerate = false, whenOff 
     if (recovery === 'thoughts') return actions.go('seeds');
     if (recovery === 'open_today') return actions.go('today');
     if (recovery === 'open_new_goal' && detail.currentGoalId) return actions.openGoal(detail.currentGoalId);
+    // What was saved lives on the goal the statement became.
+    if (recovery === 'see_saved' && plan.state.goalId) return actions.openGoal(plan.state.goalId);
     return plan.reset();
   };
   const [phase, setPhase] = React.useState<'loading' | 'ready' | 'off' | 'failed'>('loading');
@@ -466,7 +471,7 @@ function IntelligencePanelForAccount({ onChanged, autoGenerate = false, whenOff 
       </View> : null}
       </View> : null}
     </LiveRegion>
-    {plan.state.stage.kind !== 'idle' || plan.state.busy || plan.state.error ? <PlanFlowView flow={plan} onRecover={onPlanRecover} /> : null}
+    {plan.state.stage.kind !== 'idle' || plan.state.busy || plan.state.error ? <PlanFlowView flow={plan} onRecover={onPlanRecover} hostRecoveries={PANEL_RECOVERIES} /> : null}
     {gmailScanProgress !== null && gmailScanProgress > 0
       ? <Txt role="supporting" color={p.mu} testID="intelligence-gmail-progress">{tr('xIntelligenceGmailScanProgress', { count: gmailScanProgress })}</Txt> : null}
     <Disclosure id="intelligence-gmail-monitor-info" body={t.xIntelligenceGmailMonitorInfo} label={gmailMonitor?.enabled ? t.xIntelligenceGmailMonitorOff : t.xIntelligenceGmailMonitorOn}>

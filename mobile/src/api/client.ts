@@ -328,10 +328,13 @@ function goalPlanRefusal(status: number, body: unknown): GoalPlanRefusedError | 
 }
 
 /** «اعمل خطة اليوم» (image 2): the build route answers a closed reason when it cannot finish. */
+/** The build's own reasons. Anything else (`date_out_of_range` is a 400) keeps its ordinary class. */
+const PLAN_BUILD_REASONS = new Set(['build_unavailable', 'nothing_to_plan', 'model_unavailable', 'daily_cap_reached', 'offline']);
+
 function planBuildRefusal(status: number, body: unknown): PlanBuildRefusedError | null {
   if (status < 400 || !body || typeof body !== 'object') return null;
   const record = body as { reason?: unknown; retryable?: unknown };
-  if (typeof record.reason !== 'string' || !/^[a-z_]{1,64}$/.test(record.reason)) return null;
+  if (typeof record.reason !== 'string' || !PLAN_BUILD_REASONS.has(record.reason)) return null;
   return new PlanBuildRefusedError(record.reason, record.retryable === true);
 }
 

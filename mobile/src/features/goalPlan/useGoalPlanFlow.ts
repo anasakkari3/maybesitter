@@ -95,15 +95,22 @@ export function useGoalPlanFlow(): PlanFlow {
   const uidRef = React.useRef(uid);
   const lastAction = React.useRef<(() => void) | null>(null);
   const inFlight = React.useRef(false);
+  // The one request whose answer may land. A new account, or a reset, clears
+  // it, so a late answer neither draws nor frees the guard of the next one.
+  const activeRequest = React.useRef<object | null>(null);
   // One key per reviewed proposal, kept until that proposal is confirmed: a
   // retried confirm of the same times is the same confirm.
   const confirmKeys = React.useRef(new Map<string, string>());
   const generateKey = React.useRef<string | null>(null);
   const acceptKey = React.useRef<string | null>(null);
 
-  React.useEffect(() => {
+  // A layout effect, not a passive one: it runs before anything else can
+  // settle against the new account, so an old answer never lands in the gap
+  // between the account switch and the reset (inspection A-002).
+  React.useLayoutEffect(() => {
     if (uidRef.current === uid) return;
     uidRef.current = uid;
+    activeRequest.current = null;
     inFlight.current = false;
     confirmKeys.current.clear();
     generateKey.current = null;
@@ -116,22 +123,25 @@ export function useGoalPlanFlow(): PlanFlow {
 
   /** Runs one request with the live line, drops it if the account changed, and keeps it for «جرّب كمان مرة». */
   const run = React.useCallback(<T,>(step: LiveStep, request: () => Promise<T>, onDone: (value: T) => Partial<PlanFlowState>, onRefused?: (error: GoalPlanRefusedError) => Partial<PlanFlowState>) => {
-    const owner = uidRef.current;
     const attempt = () => {
       // Two presses in one frame both see `busy === false`; this ref is set
       // before either returns, so the second does nothing (the M1 rule).
       if (inFlight.current) return;
       inFlight.current = true;
+      const token = {};
+      activeRequest.current = token;
       setState(current => ({ ...current, busy: true, error: null, live: { phase: 'started', step } }));
       // The line moves from «بلّشت» to the step it is on once the request is out.
       queueMicrotask(() => setState(current => current.busy ? { ...current, live: { phase: 'thinking', step } } : current));
       request().then(value => {
+        if (activeRequest.current !== token) return;
+        activeRequest.current = null;
         inFlight.current = false;
-        if (uidRef.current !== owner) return;
         setState(current => ({ ...current, ...onDone(value), busy: false, error: null, live: { phase: 'done' } }));
       }, (error: unknown) => {
+        if (activeRequest.current !== token) return;
+        activeRequest.current = null;
         inFlight.current = false;
-        if (uidRef.current !== owner) return;
         const adopted = error instanceof GoalPlanRefusedError && onRefused ? onRefused(error) : {};
         setState(current => ({ ...current, ...adopted, busy: false, error, live: { phase: 'failed' } }));
       });
@@ -232,19 +242,27 @@ export function useGoalPlanFlow(): PlanFlow {
     setState({ ...IDLE, goalId });
     stateRef.current = { ...IDLE, goalId };
     const key = Crypto.randomUUID();
-    run('times', () => laterWeekTimes(goalId, planId, weekIndex, key), times => ({ stage: { kind: 'times', plan: null, times } }));
+    run('times', () => laterWeekTimes(goalId, planId, weekIndex, key), ({ plan, times }) => ({ stage: { kind: 'times', plan, times } }));
   }, [run]);
 
   const showLatest = React.useCallback(() => {
     const { goalId } = stateRef.current;
     if (!goalId) return;
-    run('plan', () => getGoalPlan(goalId), view => view.draft ? { stage: { kind: 'plan', plan: view.draft } } : { stage: { kind: 'idle' } });
-  }, [run]);
+    // No draft any more (saved elsewhere, or replaced): the flow closes and
+    // the host shows what the goal has now (inspection A-003).
+    run('plan', () => getGoalPlan(goalId), view => {
+      if (view.draft) return { stage: { kind: 'plan', plan: view.draft } };
+      invalidate();
+      return { goalId: null, stage: { kind: 'idle' } };
+    });
+  }, [invalidate, run]);
 
   const retry = React.useCallback(() => lastAction.current?.(), []);
   const dismissError = React.useCallback(() => update({ error: null }), [update]);
   const reset = React.useCallback(() => {
     lastAction.current = null;
+    activeRequest.current = null;
+    inFlight.current = false;
     generateKey.current = null;
     setState(IDLE);
   }, []);

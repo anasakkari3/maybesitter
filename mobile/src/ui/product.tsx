@@ -1,5 +1,5 @@
-import React, { createContext, useContext } from 'react';
-import { View } from 'react-native';
+import React, { createContext, useCallback, useContext, useRef } from 'react';
+import { View, type ScrollView } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
 import { useApp } from '../state/AppContext';
 import { Btn, Card, Txt } from './primitives';
@@ -11,8 +11,19 @@ import { ChevronIcon } from './icons';
 import { availabilityKey, type Availability } from '../features/product/capabilities';
 import { AvoidKeyboard } from './keyboard';
 import { Disclosure } from './Disclosure';
+import { useReducedMotion } from './motion';
 
 const GroupedRows = createContext(false);
+
+/**
+ * Brings a view into sight inside the page's scroll. A flow that moves on in
+ * place (the plan path's next step) calls it so a sighted person sees the new
+ * step without hunting for it; outside a product page it does nothing.
+ */
+const RevealInPage = createContext<(node: View | null) => void>(() => undefined);
+export function useRevealInPage(): (node: View | null) => void {
+  return useContext(RevealInPage);
+}
 
 export type ProductIconName = 'spark' | 'calendar' | 'person' | 'link' | 'file' | 'goal' | 'habit' | 'watch' | 'shield' | 'check' | 'photo';
 const paths: Record<ProductIconName, string> = {
@@ -44,6 +55,17 @@ export function AvailabilityBadge({ status, testID }: { status: Availability; te
 export function ProductPage({ title, subtitle, children, id, overlay }: { title: string; subtitle?: string; children: React.ReactNode; id: string; overlay?: React.ReactNode }) {
   const { actions, p, t } = useApp();
   const stacked = useLayoutMode() !== 'normal';
+  const reduceMotion = useReducedMotion();
+  const scrollRef = useRef<ScrollView>(null);
+  const reveal = useCallback((node: View | null) => {
+    const scroll = scrollRef.current;
+    // The content view the node is laid out in: a host ref on Fabric (the
+    // method exists at runtime though the types omit it), a node handle before.
+    const handle = scroll as unknown as { getInnerViewRef?: () => unknown; getInnerViewNode?: () => unknown } | null;
+    const inner = handle?.getInnerViewRef?.() ?? handle?.getInnerViewNode?.();
+    if (!node || !scroll || !inner) return;
+    node.measureLayout(inner as never, (_x, y) => scroll.scrollTo({ y: Math.max(0, y - 24), animated: !reduceMotion }), () => undefined);
+  }, [reduceMotion]);
   return <Screen overlay={overlay} testID={`product-${id}`} pinned={<View style={{ gap: 12, paddingBottom: 6 }}>
     {!stacked ? <BrandLockup compact /> : null}
     <View style={{ flexDirection: stacked ? 'column' : 'row', gap: 12, alignItems: stacked ? 'flex-start' : 'center' }}>
@@ -52,10 +74,10 @@ export function ProductPage({ title, subtitle, children, id, overlay }: { title:
     </View>
   </View>}>
     <AvoidKeyboard>
-      <ScreenScroll testID={`product-scroll-${id}`} gap={16} keyboardShouldPersistTaps="handled">
+      <ScreenScroll testID={`product-scroll-${id}`} gap={16} keyboardShouldPersistTaps="handled" scrollRef={scrollRef}>
         {stacked ? <Txt role="section">{title}</Txt> : null}
         {subtitle ? <Txt role="supporting" color={p.mu}>{subtitle}</Txt> : null}
-        {children}
+        <RevealInPage.Provider value={reveal}>{children}</RevealInPage.Provider>
       </ScreenScroll>
     </AvoidKeyboard>
   </Screen>;

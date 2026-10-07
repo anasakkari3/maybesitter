@@ -10,6 +10,9 @@ import { PlanFlowView } from './PlanFlow';
 import type { PlanRecovery } from './planFailures';
 import { useGoalPlanFlow } from './useGoalPlanFlow';
 
+/** What Today's card can do for a plan failure: show the goal (what was saved, or the new goal). */
+const CARD_RECOVERIES: readonly PlanRecovery[] = ['see_saved', 'open_new_goal'];
+
 /**
  * «أسبوع 3 قرّب: حطّلها وقت» on Today (M3A-012, -033).
  *
@@ -28,14 +31,14 @@ export function UpcomingPlanCard() {
   const open = flow.state.goalId !== null;
   const onRecover = (recovery: PlanRecovery | 'open_today', detail: { currentGoalId?: string | undefined }) => {
     if (recovery === 'open_new_goal' && detail.currentGoalId) return actions.openGoal(detail.currentGoalId);
-    if (recovery === 'capture') return actions.go('capture');
+    if (recovery === 'see_saved' && flow.state.goalId) return actions.openGoal(flow.state.goalId);
     return flow.reset();
   };
   if (!first && !open) return null;
   return <View style={{ gap: 10 }}>
     {first && !open ? <Btn
       testID="plan-upcoming-card"
-      label={`${fill(t.xPlanUpcomingTitle, { n: first.weekIndex })}. ${tr('xPlanUpcomingBodyN', { n: first.stepCount, goal: first.goalTitle })} ${t.xPlanUpcomingCta}`}
+      label={`${fill(t.xPlanUpcomingTitle, { n: first.weekIndex })}. ${tr('xPlanUpcomingBodyN', { n: first.stepCount, goal: isolateAuto(first.goalTitle) })} ${t.xPlanUpcomingCta}`}
       onPress={() => flow.laterWeek(first.goalId, first.planId, first.weekIndex)}
       style={{ borderRadius: 20 }}
     >
@@ -45,6 +48,6 @@ export function UpcomingPlanCard() {
         <Txt size={14} weight={600} color={p.ac}>{t.xPlanUpcomingCta}</Txt>
       </ReferenceCard>
     </Btn> : null}
-    {open ? <ReferenceCard pad={18}><PlanFlowView flow={flow} onRecover={onRecover} /></ReferenceCard> : null}
+    {open ? <ReferenceCard pad={18}><PlanFlowView flow={flow} onRecover={onRecover} hostRecoveries={CARD_RECOVERIES} /></ReferenceCard> : null}
   </View>;
 }

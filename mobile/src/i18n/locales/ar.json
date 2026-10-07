@@ -1884,5 +1884,9 @@
   "xPlanBuildDailyCap": "خلصت خطط اليوم. بكرا منكمّل.",
   "xPlanBuildOffline": "ما في إنترنت، فخطة اليوم ما وصلت.",
   "xPlanBuildUnavailable": "ما قدرت رتّب يومك هلّق. جرّب كمان شوي.",
-  "xPlanFailProjectionPending": "انحفظت. يومك لسّا عم يتحدّث."
+  "xPlanFailProjectionPending": "انحفظت. يومك لسّا عم يتحدّث.",
+  "xPlanConfirmPlan": "ثبّت الخطة",
+  "xPlanAnyTime": "أي وقت",
+  "xPlanTimeOfDayLabel": "إمتى باليوم",
+  "xPlanEntryTitle": "خطة لهالهدف"
 }

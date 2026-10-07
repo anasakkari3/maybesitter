@@ -1887,5 +1887,9 @@
   "xPlanBuildDailyCap": "נגמרו התוכניות של היום. נמשיך מחר.",
   "xPlanBuildOffline": "אין אינטרנט, אז התוכנית של היום לא הגיעה.",
   "xPlanBuildUnavailable": "לא הצלחתי לסדר את היום שלך עכשיו. נסה שוב עוד מעט.",
-  "xPlanFailProjectionPending": "נשמר. היום שלך עדיין מתעדכן."
+  "xPlanFailProjectionPending": "נשמר. היום שלך עדיין מתעדכן.",
+  "xPlanConfirmPlan": "אשר את התוכנית",
+  "xPlanAnyTime": "כל שעה",
+  "xPlanTimeOfDayLabel": "באיזה חלק של היום",
+  "xPlanEntryTitle": "תוכנית למטרה הזו"
 }

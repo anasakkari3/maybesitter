@@ -12,7 +12,7 @@ import { useLayoutMode } from '../../theme/textScale';
 import { LiveRegion } from '../../ui/liveRegion';
 import { useAnnounceOnIos } from '../../ui/announce';
 import { Btn, Card, Pill, Txt } from '../../ui/primitives';
-import { ProductActions } from '../../ui/product';
+import { ProductActions, useRevealInPage } from '../../ui/product';
 import { ReferenceIcon } from '../../ui/referenceIcons';
 import { planFailureOf, recoveryLabel, type PlanRecovery } from './planFailures';
 import type { LiveStep, PlanFlow as Flow } from './useGoalPlanFlow';
@@ -29,10 +29,16 @@ import type { LiveStep, PlanFlow as Flow } from './useGoalPlanFlow';
  * - Every failure names what happened and offers one way on (planFailures).
  * - One live line says where the request is: started, the step, done, could not.
  */
-export function PlanFlowView({ flow, onRecover, linkedWork }: {
+export function PlanFlowView({ flow, onRecover, hostRecoveries, linkedWork }: {
   flow: Flow;
   /** The ways on that leave the flow: capture, thoughts, goals, the new goal, Today. */
   onRecover: (recovery: PlanRecovery | 'open_today', detail: { currentGoalId?: string | undefined }) => void;
+  /**
+   * Which of those ways this host really performs. A failure never offers a
+   * button its screen cannot carry out (inspection A-009); the flow's own
+   * recoveries (try again, the simple plan, the new times…) are always there.
+   */
+  hostRecoveries: readonly PlanRecovery[];
   /** Work already linked to this goal, listed above a new plan so a repeat can be removed (S1). */
   linkedWork?: React.ReactNode;
 }) {
@@ -45,7 +51,7 @@ export function PlanFlowView({ flow, onRecover, linkedWork }: {
     {stage.kind === 'times' ? <TimesStep flow={flow} times={stage.times} plan={stage.plan} /> : null}
     {stage.kind === 'confirm' ? <ConfirmStep flow={flow} times={stage.times} plan={stage.plan} /> : null}
     {stage.kind === 'result' ? <ResultStep result={stage.result} onOpenToday={() => onRecover('open_today', {})} /> : null}
-    <FailureCard flow={flow} onRecover={onRecover} />
+    <FailureCard flow={flow} onRecover={onRecover} hostRecoveries={hostRecoveries} />
   </View>;
 }
 
@@ -66,8 +72,12 @@ function LiveStatus({ flow }: { flow: Flow }) {
   // and on a failure what went wrong, which the line alone does not say.
   const failure = live.phase === 'failed' ? planFailureOf(flow.state.error, t) : null;
   useAnnounceOnIos(failure ? `${line} ${failure.message}` : line);
+  // TalkBack reads the region's line as it changes; on a failure the line
+  // carries what went wrong, which the short visible «ما زبط» alone does not.
   return <LiveRegion testID="plan-live-status">
-    {line ? <Txt role="metadata" color={live.phase === 'failed' ? p.wm : p.mu}>{line}</Txt> : null}
+    {line ? <View accessible accessibilityLabel={failure ? `${line}. ${failure.message}` : line}>
+      <Txt role="metadata" color={live.phase === 'failed' ? p.wm : p.mu}>{line}</Txt>
+    </View> : null}
   </LiveRegion>;
 }
 
@@ -78,10 +88,17 @@ function LiveStatus({ flow }: { flow: Flow }) {
  */
 function StepHeading({ children, testID, color }: { children: string; testID?: string; color?: string }) {
   const ref = React.useRef<View>(null);
+  const reveal = useRevealInPage();
   React.useEffect(() => {
-    const timer = setTimeout(() => { if (ref.current) AccessibilityInfo.sendAccessibilityEvent(ref.current, 'focus'); }, 50);
+    const timer = setTimeout(() => {
+      if (!ref.current) return;
+      // Seen and heard: the page scrolls to the new step (simulator pass A-3),
+      // and a screen reader moves to its heading.
+      reveal(ref.current);
+      AccessibilityInfo.sendAccessibilityEvent(ref.current, 'focus');
+    }, 50);
     return () => clearTimeout(timer);
-  }, []);
+  }, [reveal]);
   return <View ref={ref} accessible accessibilityRole="header" {...(testID ? { testID } : {})}><Txt role="section" color={color}>{children}</Txt></View>;
 }
 
@@ -103,7 +120,7 @@ function SummaryStep({ flow }: { flow: Flow }) {
       multiline
       autoFocus
       style={{ color: p.tx, backgroundColor: p.bg, padding: 14, minHeight: 60, borderRadius: 14, fontSize: 17, textAlign: rtl ? 'right' : 'left' }}
-    /> : <Txt testID="plan-summary-text">{fill(t.xPlanSummaryLine, { goal: isolateAuto(stage.text) })}</Txt>}
+    /> : <Txt testID="plan-summary-text" role="body" weight={600}>{stage.text}</Txt>}
     <ProductActions>
       <Pill testID="plan-summary-confirm" label={t.xPlanSummaryConfirm} disabled={flow.state.busy || !stage.text.trim()} onPress={flow.acceptSummary} />
       {!editing ? <Pill testID="plan-summary-edit" label={t.xPlanSummaryEdit} kind="outline" disabled={flow.state.busy} onPress={() => setEditing(true)} /> : null}
@@ -202,6 +219,7 @@ function StepCard({ step, plan, editing, busy, first, last, onEdit }: {
 }) {
   const { t, tr, p } = useApp();
   const [open, setOpen] = React.useState(false);
+  const editToggle = React.useRef<View>(null);
   const title = isolateAuto(step.title);
   return <Card testID={`plan-step-${step.stepId}`} style={{ gap: 8 }}>
     <Txt role="body" weight={700}>{step.title}</Txt>
@@ -218,11 +236,14 @@ function StepCard({ step, plan, editing, busy, first, last, onEdit }: {
           onPress={() => onEdit({ op: 'reorder', stepId: step.stepId, toOrder: step.order - 1 })} />
         <Pill testID={`plan-move-down-${step.stepId}`} label={t.xPlanMoveDown} accessibilityLabel={fill(t.xPlanMoveDownLabel, { step: title })} kind="outline" disabled={busy || last}
           onPress={() => onEdit({ op: 'reorder', stepId: step.stepId, toOrder: step.order + 1 })} />
-        <Pill testID={`plan-edit-step-${step.stepId}`} label={t.xPlanEditStep} kind="outline" disabled={busy} expanded={open} onPress={() => setOpen(v => !v)} />
+        <View ref={editToggle} collapsable={false}>
+          <Pill testID={`plan-edit-step-${step.stepId}`} label={t.xPlanEditStep} kind="outline" disabled={busy} expanded={open} onPress={() => setOpen(v => !v)} />
+        </View>
         <Pill testID={`plan-remove-${step.stepId}`} label={t.xPlanRemove} kind="warm" disabled={busy || plan.steps.length <= 1}
           onPress={() => onEdit({ op: 'remove', stepId: step.stepId })} />
       </ProductActions>
       {open ? <StepEditor
+        returnFocusTo={editToggle}
         idPrefix={`plan-edit`}
         idSuffix={step.stepId}
         plan={plan}
@@ -271,6 +292,7 @@ interface StepFields {
 
 const DURATIONS = [15, 30, 45, 60, 90] as const;
 const TIMES_PER_WEEK = [1, 2, 3, 4, 5, 7] as const;
+const TIMES_OF_DAY = ['any', 'morning', 'afternoon', 'evening'] as const;
 
 /**
  * One choice among a few, as a row of pills. The row takes a value through
@@ -305,7 +327,9 @@ function Choice<T>({ testID, label, options, value, onValueChange, describe }: {
   </View>;
 }
 
-function StepEditor({ idPrefix, idSuffix, plan, initial, busy, saveTestID, onSave, onCancel }: {
+function StepEditor({ idPrefix, idSuffix, plan, initial, busy, saveTestID, onSave, onCancel, returnFocusTo }: {
+  /** Where a screen reader goes back to when the editor closes (inspection A-010). */
+  returnFocusTo?: React.RefObject<View | null>;
   idPrefix: string;
   idSuffix?: string;
   plan: GoalPlan;
@@ -317,6 +341,17 @@ function StepEditor({ idPrefix, idSuffix, plan, initial, busy, saveTestID, onSav
 }) {
   const { t, tr, p, rtl } = useApp();
   const [fields, setFields] = React.useState<StepFields>(initial);
+  // Opening moves a screen reader into the editor; closing returns it to the
+  // control that opened it, so nobody has to hunt for where they were.
+  const titleField = React.useRef<TextInput>(null);
+  React.useEffect(() => {
+    const opened = setTimeout(() => { if (titleField.current) AccessibilityInfo.sendAccessibilityEvent(titleField.current as never, 'focus'); }, 50);
+    const back = returnFocusTo;
+    return () => {
+      clearTimeout(opened);
+      setTimeout(() => { if (back?.current) AccessibilityInfo.sendAccessibilityEvent(back.current, 'focus'); }, 50);
+    };
+  }, [returnFocusTo]);
   const id = (name: string) => idSuffix ? `${idPrefix}-${name}-${idSuffix}` : `${idPrefix}-${name}`;
   const unit: 'day' | 'week' = plan.horizon === 'days' ? 'day' : 'week';
   const maxIndex = Math.max(unit === 'day' ? 7 : 4, ...plan.steps.map(step => step.phase.index), fields.phase.index);
@@ -327,6 +362,7 @@ function StepEditor({ idPrefix, idSuffix, plan, initial, busy, saveTestID, onSav
   const valid = fields.title.trim().length > 0 && fields.title.trim().length <= 120;
   return <Card style={{ gap: 12 }}>
     <TextInput
+      ref={titleField}
       testID={id('title')}
       accessibilityLabel={t.xPlanStepTitleLabel}
       placeholder={t.xPlanStepTitleLabel}
@@ -342,6 +378,10 @@ function StepEditor({ idPrefix, idSuffix, plan, initial, busy, saveTestID, onSav
     {fields.kind === 'habit' ? <Choice testID={id('rhythm')} label={t.xPlanRhythmLabel}
       options={TIMES_PER_WEEK.map(timesPerWeek => ({ ...rhythm, timesPerWeek }))} value={rhythm}
       onValueChange={next => set({ rhythm: next })} describe={value => tr('xPlanTimesPerWeek', { n: value.timesPerWeek })} /> : null}
+    {fields.kind === 'habit' ? <Choice testID={id('time-of-day')} label={t.xPlanTimeOfDayLabel}
+      options={TIMES_OF_DAY} value={rhythm.timeOfDay ?? 'any'}
+      onValueChange={(when: typeof TIMES_OF_DAY[number]) => set({ rhythm: when === 'any' ? { timesPerWeek: rhythm.timesPerWeek } : { timesPerWeek: rhythm.timesPerWeek, timeOfDay: when } })}
+      describe={when => when === 'morning' ? t.xPlanMorning : when === 'afternoon' ? t.xPlanAfternoon : when === 'evening' ? t.xPlanEvening : t.xPlanAnyTime} /> : null}
     <Choice testID={id('duration')} label={t.xPlanDurationLabel} options={durations} value={fields.durationMinutes}
       onValueChange={durationMinutes => set({ durationMinutes })} describe={minutes => tr('xMinutes', { count: minutes })} />
     <Choice testID={id('phase')} label={t.xPlanPhaseLabel} options={phases} value={fields.phase}
@@ -378,18 +418,31 @@ function useWeeklyLine(): (weekly: GoalPlanWeekly) => string {
 
 const isSlot = (value: GoalPlanSlot | GoalPlanWeekly): value is GoalPlanSlot => 'startsAt' in value;
 
+/** A step's place in the proposal is one of three shapes (WIRE); these read it without guessing. */
+const laterOf = (step: GoalPlanTimesStep) => ('later' in step ? step.later : null);
+const slotOf = (step: GoalPlanTimesStep) => ('slot' in step ? step.slot : null);
+const weeklyOf = (step: GoalPlanTimesStep) => ('weekly' in step ? step.weekly : null);
+const reasonOf = (step: GoalPlanTimesStep) => ('reason' in step ? step.reason ?? null : null);
+const alternativesOf = (step: GoalPlanTimesStep): (GoalPlanSlot | GoalPlanWeekly)[] => ('alternatives' in step ? step.alternatives : []);
+
 /** What a step will be when the person presses «احفظ» — the same rule the result is read by. */
 export function stepOutcome(step: GoalPlanTimesStep): 'save' | 'later' | 'no_room' {
-  if (step.later) return 'later';
-  if (step.slot || step.weekly) return 'save';
+  if (laterOf(step)) return 'later';
+  if (slotOf(step) || weeklyOf(step)) return 'save';
   // A reason means there was no room for it, and it stays a suggestion. No
   // time and no reason means the person chose «بلا وقت», which saves it
   // without one (M3A-024); choosing that clears the reason on the server.
-  return step.reason ? 'no_room' : 'save';
+  return reasonOf(step) ? 'no_room' : 'save';
 }
 
 function noRoomLine(reason: string, t: { xPlanNoRoomInPhase: string; xPlanNoRoomOutsideHours: string; xPlanNoRoom: string }): string {
   return reason === 'no_free_time_in_phase' ? t.xPlanNoRoomInPhase : reason === 'outside_work_hours' ? t.xPlanNoRoomOutsideHours : t.xPlanNoRoom;
+}
+
+/** The step's words, from the plan the times belong to; null when the screen cannot name it. */
+function titleIn(plan: GoalPlan | null, stepId: string): string | null {
+  const title = plan?.steps.find(step => step.stepId === stepId)?.title?.trim();
+  return title ? title : null;
 }
 
 function TimesStep({ flow, times, plan }: { flow: Flow; times: GoalPlanTimes; plan: GoalPlan | null }) {
@@ -404,7 +457,6 @@ function TimesStep({ flow, times, plan }: { flow: Flow; times: GoalPlanTimes; pl
   const error = flow.state.error;
   const reopened = error instanceof GoalPlanRefusedError && error.detail.times ? lastChosen : null;
   const changing = toggled ?? reopened;
-  const title = (stepId: string) => plan?.steps.find(step => step.stepId === stepId)?.title;
   const choose = (stepId: string, choice: Parameters<Flow['choose']>[1]) => {
     setLastChosen(stepId);
     setChanging(null);
@@ -414,23 +466,28 @@ function TimesStep({ flow, times, plan }: { flow: Flow; times: GoalPlanTimes; pl
   return <View style={{ gap: 12 }}>
     <StepHeading>{t.xPlanTimesTitle}</StepHeading>
     {times.steps.map(step => {
-      const name = title(step.stepId);
+      const name = titleIn(plan, step.stepId);
+      const later = laterOf(step);
+      const slot = slotOf(step);
+      const weekly = weeklyOf(step);
+      const reason = reasonOf(step);
+      const alternatives = alternativesOf(step);
       return <Card key={step.stepId} testID={`plan-times-step-${step.stepId}`} style={{ gap: 8 }}>
         {name ? <Txt role="body" weight={700}>{name}</Txt> : null}
-        {step.later ? <Txt role="supporting" color={p.mu} testID={`plan-times-later-${step.stepId}`}>{fill(t.xPlanTimesLater, { n: step.later.weekIndex })}</Txt> : <>
-          {step.slot ? <Txt testID={`plan-times-slot-${step.stepId}`}>{slotLine(step.slot)}</Txt> : null}
-          {step.weekly ? <Txt testID={`plan-times-weekly-${step.stepId}`}>{weeklyLine(step.weekly)}</Txt> : null}
-          {!step.slot && !step.weekly && step.reason ? <Txt role="supporting" color={p.wm} testID={`plan-times-reason-${step.stepId}`}>{noRoomLine(step.reason, t)}</Txt> : null}
-          {!step.slot && !step.weekly && !step.reason ? <Txt role="supporting" color={p.mu} testID={`plan-times-none-chosen-${step.stepId}`}>{t.xPlanTimesNone}</Txt> : null}
+        {later ? <Txt role="supporting" color={p.mu} testID={`plan-times-later-${step.stepId}`}>{fill(t.xPlanTimesLater, { n: later.weekIndex })}</Txt> : <>
+          {slot ? <Txt testID={`plan-times-slot-${step.stepId}`}>{slotLine(slot)}</Txt> : null}
+          {weekly ? <Txt testID={`plan-times-weekly-${step.stepId}`}>{weeklyLine(weekly)}</Txt> : null}
+          {!slot && !weekly && reason ? <Txt role="supporting" color={p.wm} testID={`plan-times-reason-${step.stepId}`}>{noRoomLine(reason, t)}</Txt> : null}
+          {!slot && !weekly && !reason ? <Txt role="supporting" color={p.mu} testID={`plan-times-none-chosen-${step.stepId}`}>{t.xPlanTimesNone}</Txt> : null}
           <ProductActions>
-            {step.alternatives.length > 0 ? <Pill testID={`plan-times-change-${step.stepId}`} label={t.xPlanTimesChange} kind="outline" expanded={changing === step.stepId}
+            {alternatives.length > 0 ? <Pill testID={`plan-times-change-${step.stepId}`} label={t.xPlanTimesChange} kind="outline" expanded={changing === step.stepId}
               disabled={busy} onPress={() => setChanging(current => current === step.stepId ? null : step.stepId)} /> : null}
             <Pill testID={`plan-times-none-${step.stepId}`} label={t.xPlanTimesNone} kind="outline" disabled={busy}
               onPress={() => choose(step.stepId, { none: true })} />
           </ProductActions>
           {changing === step.stepId ? <View style={{ gap: 8 }} accessibilityLabel={t.xPlanTimesAlternatives}>
             <Txt role="metadata" color={p.mu}>{t.xPlanTimesAlternatives}</Txt>
-            {step.alternatives.map((alternative, index) => <Pill key={index} testID={`plan-times-alt-${step.stepId}-${index + 1}`}
+            {alternatives.map((alternative, index) => <Pill key={index} testID={`plan-times-alt-${step.stepId}-${index + 1}`}
               label={isSlot(alternative) ? slotLine(alternative) : weeklyLine(alternative)} kind="outline" disabled={busy}
               onPress={() => choose(step.stepId, isSlot(alternative) ? { slot: alternative } : { weekly: alternative })} />)}
           </View> : null}
@@ -449,32 +506,44 @@ function ConfirmStep({ flow, times, plan }: { flow: Flow; times: GoalPlanTimes; 
   const { t, tr, p } = useApp();
   const slotLine = useSlotLine();
   const weeklyLine = useWeeklyLine();
-  const title = (stepId: string) => plan?.steps.find(step => step.stepId === stepId)?.title ?? '';
   const saved = times.steps.filter(step => stepOutcome(step) === 'save');
   const stayed = times.steps.filter(step => stepOutcome(step) !== 'save');
   const removed = plan?.removedSteps ?? [];
   const busy = flow.state.busy;
+  // Nothing is confirmed that the person cannot read: every step on this
+  // screen must be named (inspection A-001: a later week came back unnamed).
+  const unnamed = times.steps.some(step => titleIn(plan, step.stepId) === null);
+  // A plan whose steps all wait for later weeks, or have no room yet, is still
+  // confirmed as a plan: its later weeks are what the confirm keeps (A-007).
+  const label = saved.length > 0 ? tr('xPlanConfirmN', { n: saved.length }) : t.xPlanConfirmPlan;
   return <View style={{ gap: 12 }}>
-    <Card testID="plan-will-save" style={{ gap: 8 }}>
+    {saved.length > 0 ? <Card testID="plan-will-save" style={{ gap: 8 }}>
       <StepHeading>{t.xPlanWillSave}</StepHeading>
-      {saved.map(step => <View key={step.stepId} testID={`plan-will-save-${step.stepId}`} style={{ gap: 2 }}>
-        <Txt role="body">{title(step.stepId)}</Txt>
-        <Txt role="metadata" color={p.mu}>{step.slot ? slotLine(step.slot) : step.weekly ? weeklyLine(step.weekly) : t.xPlanTimesNone}</Txt>
-      </View>)}
-    </Card>
+      {saved.map(step => {
+        const slot = slotOf(step);
+        const weekly = weeklyOf(step);
+        return <View key={step.stepId} testID={`plan-will-save-${step.stepId}`} style={{ gap: 2 }}>
+          <Txt role="body">{titleIn(plan, step.stepId) ?? ''}</Txt>
+          <Txt role="metadata" color={p.mu}>{slot ? slotLine(slot) : weekly ? weeklyLine(weekly) : t.xPlanTimesNone}</Txt>
+        </View>;
+      })}
+    </Card> : null}
     {stayed.length + removed.length > 0 ? <Card testID="plan-will-stay" style={{ gap: 8 }}>
-      <Txt role="section">{t.xPlanWillStay}</Txt>
-      {stayed.map(step => <View key={step.stepId} testID={`plan-will-stay-${step.stepId}`} style={{ gap: 2 }}>
-        <Txt role="body">{title(step.stepId)}</Txt>
-        <Txt role="metadata" color={p.mu}>{step.later ? fill(t.xPlanStayLaterWeek, { n: step.later.weekIndex }) : t.xPlanStayNoRoom}</Txt>
-      </View>)}
+      {saved.length > 0 ? <Txt role="section">{t.xPlanWillStay}</Txt> : <StepHeading>{t.xPlanWillStay}</StepHeading>}
+      {stayed.map(step => {
+        const later = laterOf(step);
+        return <View key={step.stepId} testID={`plan-will-stay-${step.stepId}`} style={{ gap: 2 }}>
+          <Txt role="body">{titleIn(plan, step.stepId) ?? ''}</Txt>
+          <Txt role="metadata" color={p.mu}>{later ? fill(t.xPlanStayLaterWeek, { n: later.weekIndex }) : t.xPlanStayNoRoom}</Txt>
+        </View>;
+      })}
       {removed.map(step => <View key={step.stepId} testID={`plan-will-stay-${step.stepId}`} style={{ gap: 2 }}>
         <Txt role="body">{step.title}</Txt>
         <Txt role="metadata" color={p.mu}>{t.xPlanStayRemoved}</Txt>
       </View>)}
     </Card> : null}
     <ProductActions>
-      <Pill testID="plan-confirm" label={tr('xPlanConfirmN', { n: saved.length })} disabled={busy || saved.length === 0} onPress={flow.confirm} />
+      <Pill testID="plan-confirm" label={label} disabled={busy || unnamed || times.steps.length === 0} onPress={flow.confirm} />
       <Pill testID="plan-back-times" label={t.xPlanBackToPlan} kind="outline" disabled={busy} onPress={flow.backToTimes} />
     </ProductActions>
   </View>;
@@ -506,7 +575,13 @@ function ResultStep({ result, onOpenToday }: { result: import('../../api/schemas
 
 /* ── could not ─────────────────────────────────────────────────────── */
 
-function FailureCard({ flow, onRecover }: { flow: Flow; onRecover: (recovery: PlanRecovery, detail: { currentGoalId?: string | undefined }) => void }) {
+const FLOW_RECOVERIES: ReadonlySet<PlanRecovery> = new Set(['retry', 'template', 'new_plan', 'show_latest', 'new_times', 'pick_another', 'when_online']);
+
+function FailureCard({ flow, onRecover, hostRecoveries }: {
+  flow: Flow;
+  onRecover: (recovery: PlanRecovery, detail: { currentGoalId?: string | undefined }) => void;
+  hostRecoveries: readonly PlanRecovery[];
+}) {
   const { t, p, lang, rtl } = useApp();
   const stacked = useLayoutMode() !== 'normal';
   // The answer belongs to the failure it answers: a new failure starts closed.
@@ -525,7 +600,7 @@ function FailureCard({ flow, onRecover }: { flow: Flow; onRecover: (recovery: Pl
       case 'new_plan': return flow.regenerate();
       // The current plan or times already came back with the refusal and are
       // on screen; without them, read the plan again.
-      case 'show_latest': return detail.plan ? flow.dismissError() : flow.showLatest();
+      case 'show_latest': return detail.plan || detail.times ? flow.dismissError() : flow.showLatest();
       case 'new_times': case 'pick_another': return flow.dismissError();
       // A statement entry is answered here, in the same words: the question
       // stays on screen and the answer goes back with what was said.
@@ -539,7 +614,12 @@ function FailureCard({ flow, onRecover }: { flow: Flow; onRecover: (recovery: Pl
     const said = failure.reason === 'goal_too_vague' ? `${statement}\n${answering.trim()}` : answering.trim();
     flow.fromStatement(said, lang);
   };
-  const [first, second] = failure.recoveries;
+  // Answering or rephrasing goes back through the statement's summary, so it
+  // is offered only before a goal exists; after that the simple plan is.
+  const canRestate = statement !== null && flow.state.goalId === null;
+  const offered = failure.recoveries.filter(recovery => FLOW_RECOVERIES.has(recovery)
+    || ((recovery === 'answer' || recovery === 'rephrase') ? canRestate : hostRecoveries.includes(recovery)));
+  const [first, second] = offered;
   return <Card testID="plan-failure" style={{ gap: 10, borderColor: p.wm }}>
     <Txt role="supporting" color={p.wm}>{failure.message}</Txt>
     {failure.question ? <Txt role="body" testID="plan-failure-question">{failure.question}</Txt> : null}

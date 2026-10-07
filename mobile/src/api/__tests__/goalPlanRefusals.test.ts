@@ -28,8 +28,8 @@ const PLAN = {
   steps: [{ stepId: 's1', order: 1, phase: { unit: 'week', index: 1 }, title: 'Walk', kind: 'commitment', durationMinutes: 30, buildsOn: null, expectedOutcome: null }],
 };
 const TIMES = {
-  timesId: 't1', timesRevision: 2, planId: 'p1', planRevision: 4,
-  steps: [{ stepId: 's1', kind: 'commitment', slot: { startsAt: '2030-01-08T09:00:00.000Z', endsAt: '2030-01-08T09:30:00.000Z' }, alternatives: [] }],
+  timesId: 't1', timesRevision: 2, planId: 'p1', planRevision: 4, anchor: { localDate: '2030-01-07', timezone: 'UTC' },
+  steps: [{ stepId: 's1', kind: 'commitment', slot: { startsAt: '2030-01-08T09:00:00.000Z', endsAt: '2030-01-08T09:30:00.000Z' }, alternatives: [], choice: 'proposed' }],
 };
 
 function respond(status: number, body: unknown): void {
@@ -101,11 +101,16 @@ describe('a plan route refusal', () => {
 
 describe('«اعمل خطة اليوم» (image 2)', () => {
   it('a build that cannot finish keeps its reason and whether to try again', async () => {
-    respond(503, { success: false, error: 'x', reason: 'plan_unavailable', retryable: true });
+    respond(503, { success: false, error: 'x', reason: 'build_unavailable', retryable: true });
     const error = await refusalOf('/api/mobile/plans/2030-01-07/build');
     expect(error).toBeInstanceOf(PlanBuildRefusedError);
-    expect((error as PlanBuildRefusedError).reason).toBe('plan_unavailable');
+    expect((error as PlanBuildRefusedError).reason).toBe('build_unavailable');
     expect((error as PlanBuildRefusedError).retryable).toBe(true);
+  });
+
+  it('a date out of range stays a validation refusal, not a build failure (inspection A-005)', async () => {
+    respond(400, { success: false, error: 'x', reason: 'date_out_of_range', retryable: false });
+    expect(await refusalOf('/api/mobile/plans/2030-01-07/build')).not.toBeInstanceOf(PlanBuildRefusedError);
   });
 
   it('a build answer with no reason is still the generic server error', async () => {

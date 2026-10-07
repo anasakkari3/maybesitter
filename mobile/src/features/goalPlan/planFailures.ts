@@ -71,14 +71,14 @@ function refusal(error: GoalPlanRefusedError, t: Strings): PlanFailure {
     case 'model_unavailable':
       return { reason, message: t.xPlanFailModelUnavailable, recoveries: detail.recovery === 'retry' ? ['retry', 'template'] : ['template', 'retry'] };
     case 'daily_cap_reached': return { reason, message: t.xPlanFailDailyCap, recoveries: [] };
-    case 'no_steps': return { reason, message: t.xPlanFailNoSteps, recoveries: ['rephrase'] };
+    case 'no_steps': return { reason, message: t.xPlanFailNoSteps, recoveries: ['rephrase', 'template'] };
     case 'stale': return { reason, message: t.xPlanFailStale, recoveries: ['show_latest'] };
     case 'schedule_changed': return { reason, message: t.xPlanFailScheduleChanged, recoveries: ['new_times'] };
     case 'slot_in_past': return { reason, message: t.xPlanFailSlotInPast, recoveries: ['new_times'] };
     case 'not_free': return { reason, message: t.xPlanFailNotFree, recoveries: ['pick_another'] };
     case 'offline': return { reason, message: t.xPlanFailOffline, recoveries: ['when_online'] };
     case 'goal_too_vague':
-      return { reason, message: t.xPlanFailVague, ...(detail.question ? { question: detail.question } : {}), recoveries: ['answer'] };
+      return { reason, message: t.xPlanFailVague, ...(detail.question ? { question: detail.question } : {}), recoveries: ['answer', 'template'] };
     case 'not_a_goal':
       return detail.classification === 'thought'
         ? { reason, message: t.xPlanFailThought, recoveries: ['thoughts'] }
