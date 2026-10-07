@@ -85,7 +85,7 @@ test('F3: the joiner goes only when the very next word opens a point (F3-001)', 
   assert.equal(withoutClauseJoiner('وسجّل موعد دكتور'), 'سجّل موعد دكتور');
   assert.equal(withoutClauseJoiner('ولازم أشتري هدية'), 'لازم أشتري هدية');
   assert.equal(withoutClauseJoiner('وعم بفكر أتعلم عود'), 'عم بفكر أتعلم عود');
-  assert.equal(withoutClauseJoiner('and buy bread'), 'buy bread');
+  assert.equal(withoutClauseJoiner('and I need to buy bread'), 'I need to buy bread');
   // An attached Hebrew «ו» goes only before a request or an intent (F3-008).
   assert.equal(withoutClauseJoiner('ותקנה לחם'), 'ותקנה לחם');
   assert.equal(withoutClauseJoiner('וטרינר לחתול'), 'וטרינר לחתול');
@@ -98,8 +98,10 @@ test('F3: the joiner goes only when the very next word opens a point (F3-001)', 
   assert.equal(withoutClauseJoiner('وردة لأمي لازم أجيبها'), 'وردة لأمي لازم أجيبها');
   assert.equal(withoutClauseJoiner('ووقت الغدا'), 'ووقت الغدا');
   assert.equal(withoutClauseJoiner('וורד'), 'וורד');
-  // "and" is a word of its own, so it always goes.
-  assert.equal(withoutClauseJoiner('and the gym'), 'the gym');
+  // "and" is no different: kept unless a request or an intent follows (F3-011).
+  assert.equal(withoutClauseJoiner('and the gym'), 'and the gym');
+  assert.equal(withoutClauseJoiner('And Then There Were None rehearsal'), 'And Then There Were None rehearsal');
+  assert.equal(withoutClauseJoiner('and buy bread'), 'and buy bread');
   assert.equal(withoutClauseJoiner("and I'm thinking about travelling"), "I'm thinking about travelling");
   assert.equal(withoutClauseJoiner('ואני חושב על נסיעה'), 'אני חושב על נסיעה');
   assert.equal(withoutClauseJoiner('ויזה חדשה'), 'ויזה חדשה');

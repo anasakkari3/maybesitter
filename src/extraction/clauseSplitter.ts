@@ -594,11 +594,10 @@ export function withoutClauseJoiner(clause: string): string {
   if (!joined) return clause;
   const remainder = clause.slice(joined[0].length).trimStart();
   if (!remainder) return clause;
-  // "and" is a word of its own: dropping it can never take a letter with it.
-  if (/^and\s/i.test(joined[0])) return remainder;
-  // An attached «و»/«ו» goes only before a word no word of the language
-  // starts with: a request («ولازم», «وبدي») or an intent («وعم بفكر»,
-  // «وبستنى»). Never before a verb: the verb lexicon cannot tell «واتصل»
+  // A joiner goes only before a word no word of the language starts with:
+  // a request («ولازم», «وبدي», "and I need to") or an intent («وعم بفكر»,
+  // «وبستنى»). Not even "and" otherwise: "And Then There Were None" is a
+  // name (Codex inspection F3-011). Never before a verb: the verb lexicon cannot tell «واتصل»
   // (and call) from «ورد» (roses → «رد», reply), «وطرينر», «وزارة»
   // (Codex inspections F3-001, F3-008, F3-009). A «و» kept there is
   // kept on the card and in the summary alike. Read with vowel marks folded
