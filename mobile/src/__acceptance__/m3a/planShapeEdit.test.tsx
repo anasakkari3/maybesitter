@@ -92,6 +92,7 @@ describe('M3a A2 whole-plan editing', () => {
       }),
     );
 
+    await waitFor(() => expect(screen.queryByTestId('plan-restore-step-2')).not.toBeNull());
     await press('plan-restore-step-2');
     await waitFor(() =>
       expect(harness.server.matching('PATCH', new RegExp(`/plans/${PLAN_ID}$`))).toHaveLength(2),
@@ -99,7 +100,7 @@ describe('M3a A2 whole-plan editing', () => {
     expect(lastRequest(harness.server, 'PATCH', new RegExp(`/plans/${PLAN_ID}$`)).body).toEqual(
       expect.objectContaining({
         revision: PLAN.revision + 1,
-        op: expect.objectContaining({ op: 'restore', stepId: 'step-2' }),
+        op: { op: 'restore', stepId: 'step-2' },
       }),
     );
   });
@@ -137,6 +138,7 @@ describe('M3a A2 whole-plan editing', () => {
   it('A2 whole-plan edit: update words, kind, rhythm, duration and phase are one atomic op', async () => {
     await openDraft();
     await press('plan-edit');
+    await press('plan-edit-step-step-1');
     await changeText('plan-edit-title-step-1', 'Prepare lunches');
     await valueChange('plan-edit-kind-step-1', 'habit');
     await valueChange('plan-edit-rhythm-step-1', { timesPerWeek: 4, timeOfDay: 'morning' });

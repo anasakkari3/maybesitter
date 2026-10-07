@@ -268,8 +268,34 @@ export function defaultReply(request: RecordedRequest): RouteReply {
       },
     };
   }
-  if (/\/times\/[^/]+$/.test(request.path))
-    return { status: 200, body: envelope({ ...TIMES, timesRevision: TIMES.timesRevision + 1 }, 'times') };
+  if (/\/times\/[^/]+$/.test(request.path)) {
+    const noneChosen =
+      typeof request.body === 'object' &&
+      request.body !== null &&
+      'choice' in request.body &&
+      typeof request.body.choice === 'object' &&
+      request.body.choice !== null &&
+      'none' in request.body.choice &&
+      request.body.choice.none === true;
+    const stepId = request.path.split('/').at(-1);
+    const steps = noneChosen
+      ? TIMES.steps.map((step) =>
+          step.stepId === stepId
+            ? {
+                stepId: step.stepId,
+                kind: step.kind,
+                slot: null,
+                ...('alternatives' in step ? { alternatives: step.alternatives } : {}),
+                choice: 'none',
+              }
+            : step,
+        )
+      : TIMES.steps;
+    return {
+      status: 200,
+      body: envelope({ ...TIMES, timesRevision: TIMES.timesRevision + 1, steps }, 'times'),
+    };
+  }
   if (/\/later\/\d+\/times$/.test(request.path)) {
     return {
       status: 200,
@@ -281,6 +307,33 @@ export function defaultReply(request: RecordedRequest): RouteReply {
   }
   if (request.path.endsWith('/confirm')) return { status: 200, body: { success: true, ...RESULT } };
   if (/\/plans\/[^/]+$/.test(request.path) && request.method === 'PATCH') {
+    const op =
+      typeof request.body === 'object' && request.body !== null && 'op' in request.body
+        ? request.body.op
+        : null;
+    if (typeof op === 'object' && op !== null && 'op' in op && op.op === 'remove' && 'stepId' in op) {
+      const removed = PLAN.steps.find((step) => step.stepId === op.stepId);
+      return {
+        status: 200,
+        body: envelope(
+          {
+            ...PLAN,
+            revision: PLAN.revision + 1,
+            steps: PLAN.steps.filter((step) => step.stepId !== op.stepId),
+            removedSteps: removed
+              ? [...PLAN.removedSteps, { stepId: removed.stepId, title: removed.title }]
+              : PLAN.removedSteps,
+          },
+          'plan',
+        ),
+      };
+    }
+    if (typeof op === 'object' && op !== null && 'op' in op && op.op === 'restore' && 'stepId' in op) {
+      return {
+        status: 200,
+        body: envelope({ ...PLAN, revision: PLAN.revision + 2 }, 'plan'),
+      };
+    }
     return { status: 200, body: envelope({ ...PLAN, revision: PLAN.revision + 1 }, 'plan') };
   }
   if (request.method === 'GET' && request.path.endsWith(`/goals/${GOAL_ID}/plan`)) {

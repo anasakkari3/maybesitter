@@ -6,6 +6,7 @@ import {
   PLAN,
   SUMMARY_ID,
   TIMES,
+  changeText,
   defaultReply,
   openGoal,
   prepare,
@@ -48,6 +49,7 @@ describe('M3a A5 entries use one flow', () => {
   it('A5 panel entry: preview shows summary, accept sends the versioned idempotent body, then opens the plan', async () => {
     await renderGoals(harness);
     await waitFor(() => expect(screen.queryByTestId('intelligence-plan-flow')).not.toBeNull());
+    await changeText('intelligence-statement', 'Lose weight');
     await press('intelligence-plan-flow');
     await waitFor(() => expect(screen.queryByTestId('plan-summary')).not.toBeNull());
     await press('plan-summary-confirm');
@@ -73,6 +75,7 @@ describe('M3a A5 entries use one flow', () => {
     } as never);
     await renderGoals(harness);
     await waitFor(() => expect(screen.queryByTestId('intelligence-statement')).not.toBeNull());
+    await changeText('intelligence-statement', 'Lose weight');
     await screen.findByTestId('intelligence-analyze');
     await press('intelligence-analyze');
     const confirm = screen.queryByTestId('intelligence-analyze-confirm');
@@ -100,6 +103,8 @@ describe('M3a A5 entries use one flow', () => {
           }
         : defaultReply(request);
     await renderGoals(harness);
+    await waitFor(() => expect(screen.queryByTestId('intelligence-statement')).not.toBeNull());
+    await changeText('intelligence-statement', 'Lose weight');
     await press('intelligence-plan-flow');
 
     await waitFor(() => expect(screen.queryByTestId('plan-failure')).not.toBeNull());
@@ -121,6 +126,8 @@ describe('M3a A5 entries use one flow', () => {
           }
         : defaultReply(request);
     await renderGoals(harness);
+    await waitFor(() => expect(screen.queryByTestId('intelligence-statement')).not.toBeNull());
+    await changeText('intelligence-statement', 'Lose weight');
     await press('intelligence-plan-flow');
 
     await waitFor(() => expect(screen.queryByText('What would be different?')).not.toBeNull());
@@ -294,6 +301,8 @@ describe('M3a account and confirmed-plan boundaries', () => {
     harness.server.handler = (request) =>
       request.path.endsWith('/from-statement/preview') ? pending : defaultReply(request);
     await renderGoals(harness);
+    await waitFor(() => expect(screen.queryByTestId('intelligence-statement')).not.toBeNull());
+    await changeText('intelligence-statement', 'Lose weight');
     await press('intelligence-plan-flow');
     harness.repository.emit(ACCOUNT_B);
     release({
@@ -325,9 +334,7 @@ describe('M3a account and confirmed-plan boundaries', () => {
                 saved: [],
                 pendingLater: [{ weekIndex: 3, stepIds: ['step-3'] }],
               },
-              linkedWork: [
-                { entity: 'commitment', id: 'commitment-1', title: 'Plan three lunches' },
-              ],
+              linkedWork: [{ entity: 'commitment', id: 'commitment-1', title: 'Plan three lunches' }],
             },
           }
         : defaultReply(request);
