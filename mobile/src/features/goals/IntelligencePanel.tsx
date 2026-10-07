@@ -31,8 +31,8 @@ import { usePlanPathAvailable } from '../goalPlan/planAvailability';
 import type { PlanRecovery } from '../goalPlan/planFailures';
 import { useGoalPlanFlow } from '../goalPlan/useGoalPlanFlow';
 
-/** What the panel can do for a plan failure (inspection A-009); «ارجع للأهداف» is not offered where the goals already are. */
-const PANEL_RECOVERIES: readonly PlanRecovery[] = ['capture', 'thoughts', 'see_saved', 'open_new_goal'];
+/** What the panel can do for a plan failure (inspection A-009); «ارجع للأهداف» closes the flow, because the goals are right here. */
+const PANEL_RECOVERIES: readonly PlanRecovery[] = ['capture', 'thoughts', 'see_saved', 'open_new_goal', 'back_to_goals'];
 
 /** The person's own records are facts already; only what was read from their words is asked about. */
 const SELF_CONFIRMED_SOURCES: ReadonlySet<string> = new Set(['memory', 'commitment', 'behavior']);
@@ -430,7 +430,7 @@ function IntelligencePanelForAccount({ onChanged, autoGenerate = false, whenOff 
       accessibilityLabel={t.xIntelligenceTitle}
       value={draft}
       onChangeText={setDraft}
-      editable={!busy && confirming === null}
+      editable={!busy && !plan.state.busy && confirming === null}
       placeholder={t.xIntelligencePlaceholder}
       placeholderTextColor={p.mu}
       maxLength={2000}
@@ -441,7 +441,7 @@ function IntelligencePanelForAccount({ onChanged, autoGenerate = false, whenOff 
         opens a one-line explanation; only «كمّل» runs it. */}
     <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
       <Pill style={actionStyle} testID={ACTION_TEST_ID.analyze} label={t.xIntelligenceAnalyze} size={13} pad={10} kind={confirming === 'analyze' ? 'accent' : 'outline'} expanded={confirming === 'analyze'}
-        disabled={busy || !draft.trim()} onPress={() => openConfirm('analyze')} />
+        disabled={busy || plan.state.busy || !draft.trim()} onPress={() => openConfirm('analyze')} />
       {planPathOn ? <Pill style={actionStyle} testID="intelligence-plan-flow" label={t.xPlanFromStatement} size={13} pad={10} kind="outline"
         disabled={busy || plan.state.busy || !draft.trim()} onPress={() => {
           Keyboard.dismiss();

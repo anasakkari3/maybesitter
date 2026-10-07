@@ -49,7 +49,7 @@ export function GoalExecutionScreen() {
   // No subtitle: the owner struck «أهدافك، من الاقتراح لخطوات بتأكدها بنفسك.»
   // (audit 2026-10-06, image 8); each card explains itself behind its arrow.
   return <ProductPage id="goals" title={t.xGoals}>
-    {openGoal ? <GoalDetail goalId={openGoal.id} title={openGoal.title} onBack={actions.back} /> : forbiddenReason(memory.error) === 'feature_disabled' ? (
+    {openGoal ? <GoalDetail key={openGoal.id} goalId={openGoal.id} title={openGoal.title} onBack={actions.back} /> : forbiddenReason(memory.error) === 'feature_disabled' ? (
       // Goals are kept in memory. With memory switched off on the server there
       // is nowhere to save one, so the screen says so once instead of offering
       // an input whose save can only fail.
@@ -122,7 +122,7 @@ function GoalDetail({ goalId, title, onBack }: { goalId: string; title: string; 
       case 'capture': return actions.go('capture');
       case 'thoughts': return actions.go('seeds');
       case 'open_today': return actions.go('today');
-      case 'open_new_goal': return detail.currentGoalId ? actions.openGoal(detail.currentGoalId) : onBack();
+      case 'open_new_goal': flow.reset(); return detail.currentGoalId ? actions.openGoal(detail.currentGoalId) : onBack();
       case 'back_to_goals': flow.reset(); return onBack();
       default:
         flow.reset();

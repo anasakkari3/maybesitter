@@ -1,4 +1,5 @@
 import { apiRequest } from '../client';
+import { ContractError } from '../errors';
 import {
   goalPlanApproveResponseSchema,
   goalPlanConfirmResponseSchema,
@@ -94,6 +95,15 @@ export async function laterWeekTimes(goalId: string, planId: string, weekIndex: 
     body: { idempotencyKey },
     schema: laterWeekTimesResponseSchema,
   });
+  // The fixtures prove the shape; this proves the two halves belong together
+  // (inspection A2-008): one plan, every step in it, every slot a real span.
+  const known = new Map(response.plan.steps.map(step => [step.stepId, step.kind]));
+  const issues = [
+    ...(response.plan.planId !== response.times.planId ? ['planId'] : []),
+    ...response.times.steps.flatMap(step => (known.get(step.stepId) === step.kind ? [] : [`step:${step.stepId}`])),
+    ...response.times.steps.flatMap(step => ('slot' in step && step.slot && Date.parse(step.slot.endsAt) <= Date.parse(step.slot.startsAt) ? [`slot:${step.stepId}`] : [])),
+  ];
+  if (issues.length > 0) throw new ContractError('goalPlan.laterTimes', issues);
   return { plan: response.plan, times: response.times };
 }
 

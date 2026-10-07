@@ -55,6 +55,8 @@ export interface PlanFlowState {
   readonly busy: boolean;
   /** The statement this flow began from, for «جرّب تحكيه بطريقة تانية». */
   readonly statement: string | null;
+  /** Once «هيك صح» was sent the summary's words are fixed (A2-001). */
+  readonly summaryLocked?: boolean;
 }
 
 /** A refusal that carries the recomputed times (`schedule_changed`, `slot_in_past`) is redrawn from them. */
@@ -102,7 +104,7 @@ export function useGoalPlanFlow(): PlanFlow {
   // retried confirm of the same times is the same confirm.
   const confirmKeys = React.useRef(new Map<string, string>());
   const generateKey = React.useRef<string | null>(null);
-  const acceptKey = React.useRef<string | null>(null);
+  const acceptKey = React.useRef<{ fingerprint: string; key: string } | null>(null);
 
   // A layout effect, not a passive one: it runs before anything else can
   // settle against the new account, so an old answer never lands in the gap
@@ -162,12 +164,15 @@ export function useGoalPlanFlow(): PlanFlow {
   }, [run]);
 
   const openGoal = React.useCallback((goalId: string, draft: GoalPlan | null) => {
+    if (inFlight.current) return;
     setState({ ...IDLE, goalId, stage: draft ? { kind: 'plan', plan: draft } : { kind: 'idle' } });
     stateRef.current = { ...IDLE, goalId };
     if (!draft) generate();
   }, [generate]);
 
   const fromStatement = React.useCallback((statement: string, locale: string) => {
+    // Never replace the screen under a request still running (inspection A2-004).
+    if (inFlight.current) return;
     setState({ ...IDLE, statement });
     acceptKey.current = null;
     run('summary', () => previewStatementGoal(statement, locale), preview => ({
@@ -181,16 +186,23 @@ export function useGoalPlanFlow(): PlanFlow {
   const acceptSummary = React.useCallback(() => {
     const stage = stateRef.current.stage;
     if (stage.kind !== 'summary' || !stage.text.trim()) return;
-    acceptKey.current = acceptKey.current ?? Crypto.randomUUID();
-    const key = acceptKey.current;
+    // One key per exact payload (inspection A2-001): a retry of the same
+    // summary is the same accept; the summary is locked once it was sent, so
+    // a lost answer can never be followed by a different payload under it.
     const understood = { ...stage.preview.understood, goalText: stage.text.trim() };
+    const fingerprint = JSON.stringify([stage.preview.summaryId, stage.preview.revision, understood.goalText]);
+    if (acceptKey.current?.fingerprint !== fingerprint) acceptKey.current = { fingerprint, key: Crypto.randomUUID() };
+    const key = acceptKey.current.key;
+    setState(current => ({ ...current, summaryLocked: true }));
     run('plan', () => acceptStatementGoal(stage.preview, understood, key), goalId => {
-      // The goal now exists; the plan is generated for it as on the goal screen.
+      // The goal now exists: the goals list learns it, and the plan is
+      // generated for it as on the goal screen.
+      invalidate();
       queueMicrotask(() => generate());
       stateRef.current = { ...stateRef.current, goalId };
       return { goalId };
     });
-  }, [generate, run]);
+  }, [generate, invalidate, run]);
 
   const regenerate = React.useCallback(() => {
     const { goalId, stage } = stateRef.current;
@@ -239,6 +251,7 @@ export function useGoalPlanFlow(): PlanFlow {
   }, [invalidate, run]);
 
   const laterWeek = React.useCallback((goalId: string, planId: string, weekIndex: number) => {
+    if (inFlight.current) return;
     setState({ ...IDLE, goalId });
     stateRef.current = { ...IDLE, goalId };
     const key = Crypto.randomUUID();

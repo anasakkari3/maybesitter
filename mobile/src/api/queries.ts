@@ -264,6 +264,7 @@ export function useIntelligenceDecided(): () => void {
     invalidateCommitments(client, uid);
     void client.invalidateQueries({ queryKey: queryKeys.memory(uid) });
     void client.invalidateQueries({ queryKey: ['user', uid, 'goalExecution'] });
+    void client.invalidateQueries({ queryKey: queryKeys.memory(uid) });
   }, [client, uid]);
 }
 
@@ -419,7 +420,11 @@ export function useUpcomingPlans() {
   });
 }
 
-/** After a plan confirm: what it saved is on Today, the Plan, the habits and the goal. */
+/**
+ * After the plan path wrote something: a confirm puts work on Today, the Plan,
+ * the habits and the goal; a statement accepted as a goal puts it in the goals
+ * list, which reads memory (inspection A2-002).
+ */
 export function useInvalidateAfterPlanConfirm(): () => void {
   const client = useQueryClient();
   const uid = useUid();
@@ -428,6 +433,7 @@ export function useInvalidateAfterPlanConfirm(): () => void {
     void client.invalidateQueries({ queryKey: queryKeys.habits(uid) });
     void client.invalidateQueries({ queryKey: ['user', uid, 'goalPlan'] });
     void client.invalidateQueries({ queryKey: ['user', uid, 'goalExecution'] });
+    void client.invalidateQueries({ queryKey: queryKeys.memory(uid) });
   }, [client, uid]);
 }
 

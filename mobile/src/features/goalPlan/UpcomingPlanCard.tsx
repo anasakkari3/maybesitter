@@ -10,8 +10,8 @@ import { PlanFlowView } from './PlanFlow';
 import type { PlanRecovery } from './planFailures';
 import { useGoalPlanFlow } from './useGoalPlanFlow';
 
-/** What Today's card can do for a plan failure: show the goal (what was saved, or the new goal). */
-const CARD_RECOVERIES: readonly PlanRecovery[] = ['see_saved', 'open_new_goal'];
+/** What Today's card can do for a plan failure: show the goal (what was saved, or the new goal), or the goals list. */
+const CARD_RECOVERIES: readonly PlanRecovery[] = ['see_saved', 'open_new_goal', 'back_to_goals'];
 
 /**
  * «أسبوع 3 قرّب: حطّلها وقت» on Today (M3A-012, -033).
@@ -32,6 +32,7 @@ export function UpcomingPlanCard() {
   const onRecover = (recovery: PlanRecovery | 'open_today', detail: { currentGoalId?: string | undefined }) => {
     if (recovery === 'open_new_goal' && detail.currentGoalId) return actions.openGoal(detail.currentGoalId);
     if (recovery === 'see_saved' && flow.state.goalId) return actions.openGoal(flow.state.goalId);
+    if (recovery === 'back_to_goals') { flow.reset(); return actions.go('goalExecution'); }
     return flow.reset();
   };
   if (!first && !open) return null;

@@ -124,7 +124,7 @@ function SummaryStep({ flow }: { flow: Flow }) {
     /> : <Txt testID="plan-summary-text" role="body" weight={600}>{stage.text}</Txt>}
     <ProductActions>
       <Pill testID="plan-summary-confirm" label={t.xPlanSummaryConfirm} disabled={flow.state.busy || !stage.text.trim()} onPress={flow.acceptSummary} />
-      {!editing ? <Pill testID="plan-summary-edit" label={t.xPlanSummaryEdit} kind="outline" disabled={flow.state.busy} onPress={() => setEditing(true)} /> : null}
+      {!editing && !flow.state.summaryLocked ? <Pill testID="plan-summary-edit" label={t.xPlanSummaryEdit} kind="outline" disabled={flow.state.busy} onPress={() => setEditing(true)} /> : null}
     </ProductActions>
   </Card>;
 }
@@ -144,6 +144,7 @@ function PlanStep({ flow, plan, linkedWork }: { flow: Flow; plan: GoalPlan; link
   const { t, p } = useApp();
   const [editing, setEditing] = React.useState(false);
   const [adding, setAdding] = React.useState(false);
+  const addToggle = React.useRef<View>(null);
   const busy = flow.state.busy;
   const phases = React.useMemo(() => {
     const groups: { phase: GoalPlanPhase; steps: GoalPlanStep[] }[] = [];
@@ -181,6 +182,7 @@ function PlanStep({ flow, plan, linkedWork }: { flow: Flow; plan: GoalPlan; link
       </View>)}
     </View> : null}
     {editing && adding ? <StepEditor
+      returnFocusTo={addToggle}
       idPrefix="plan-add"
       plan={plan}
       initial={{ title: '', kind: 'commitment', durationMinutes: 30, phase: plan.steps[0]?.phase ?? { unit: plan.horizon === 'days' ? 'day' : 'week', index: 1 } }}
@@ -199,7 +201,9 @@ function PlanStep({ flow, plan, linkedWork }: { flow: Flow; plan: GoalPlan; link
     /> : null}
     <ProductActions>
       {editing ? <>
-        {!adding ? <Pill testID="plan-add-step" label={t.xPlanAddStep} kind="outline" disabled={busy || count >= 12} onPress={() => setAdding(true)} /> : null}
+        <View ref={addToggle} collapsable={false}>
+          {!adding ? <Pill testID="plan-add-step" label={t.xPlanAddStep} kind="outline" disabled={busy || count >= 12} onPress={() => setAdding(true)} /> : null}
+        </View>
         <Pill testID="plan-edit-done" label={t.xPlanEditDone} disabled={busy} onPress={() => { setEditing(false); setAdding(false); }} />
       </> : <>
         <Pill testID="plan-approve" label={t.xPlanApprove} disabled={busy || count === 0} onPress={flow.approve} />
@@ -618,8 +622,11 @@ function FailureCard({ flow, onRecover, hostRecoveries }: {
   // Answering or rephrasing goes back through the statement's summary, so it
   // is offered only before a goal exists; after that the simple plan is.
   const canRestate = statement !== null && flow.state.goalId === null;
-  const offered = failure.recoveries.filter(recovery => FLOW_RECOVERIES.has(recovery)
-    || ((recovery === 'answer' || recovery === 'rephrase') ? canRestate : hostRecoveries.includes(recovery)));
+  // The simple plan is made for a goal; before the statement became one it has
+  // nothing to be made for (inspection A2-005).
+  const offered = failure.recoveries.filter(recovery => recovery === 'template' ? flow.state.goalId !== null
+    : FLOW_RECOVERIES.has(recovery)
+      || ((recovery === 'answer' || recovery === 'rephrase') ? canRestate : hostRecoveries.includes(recovery)));
   const [first, second] = offered;
   return <Card testID="plan-failure" style={{ gap: 10, borderColor: p.wm }}>
     <Txt role="supporting" color={p.wm}>{failure.message}</Txt>
