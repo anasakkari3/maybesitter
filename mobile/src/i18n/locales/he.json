@@ -1886,5 +1886,6 @@
   "xPlanBuildModelUnavailable": "לא הצלחתי לבנות את התוכנית עכשיו. נסה שוב.",
   "xPlanBuildDailyCap": "נגמרו התוכניות של היום. נמשיך מחר.",
   "xPlanBuildOffline": "אין אינטרנט, אז התוכנית של היום לא הגיעה.",
-  "xPlanBuildUnavailable": "לא הצלחתי לסדר את היום שלך עכשיו. נסה שוב עוד מעט."
+  "xPlanBuildUnavailable": "לא הצלחתי לסדר את היום שלך עכשיו. נסה שוב עוד מעט.",
+  "xPlanFailProjectionPending": "נשמר. היום שלך עדיין מתעדכן."
 }

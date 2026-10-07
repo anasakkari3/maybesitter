@@ -1883,5 +1883,6 @@
   "xPlanBuildModelUnavailable": "ما قدرت اعمل الخطة هلّق. جرّب كمان مرّة.",
   "xPlanBuildDailyCap": "خلصت خطط اليوم. بكرا منكمّل.",
   "xPlanBuildOffline": "ما في إنترنت، فخطة اليوم ما وصلت.",
-  "xPlanBuildUnavailable": "ما قدرت رتّب يومك هلّق. جرّب كمان شوي."
+  "xPlanBuildUnavailable": "ما قدرت رتّب يومك هلّق. جرّب كمان شوي.",
+  "xPlanFailProjectionPending": "انحفظت. يومك لسّا عم يتحدّث."
 }

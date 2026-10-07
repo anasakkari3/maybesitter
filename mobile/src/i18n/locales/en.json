@@ -1883,5 +1883,6 @@
   "xPlanBuildModelUnavailable": "I couldn't make the plan right now. Try again.",
   "xPlanBuildDailyCap": "That's today's plans used up. We'll continue tomorrow.",
   "xPlanBuildOffline": "No internet, so today's plan didn't arrive.",
-  "xPlanBuildUnavailable": "I couldn't arrange your day right now. Try again in a bit."
+  "xPlanBuildUnavailable": "I couldn't arrange your day right now. Try again in a bit.",
+  "xPlanFailProjectionPending": "Saved. Your day is still updating."
 }

@@ -89,6 +89,9 @@ function refusal(error: GoalPlanRefusedError, t: Strings): PlanFailure {
     case 'gone': return { reason, message: t.xPlanFailGone, recoveries: ['back_to_goals'] };
     case 'plan_confirmed': return { reason, message: t.xPlanFailPlanConfirmed, recoveries: ['see_saved'] };
     case 'goal_superseded': return { reason, message: t.xPlanFailGoalSuperseded, recoveries: ['open_new_goal'] };
+    // Saved; Today and the Plan are still being updated. The same confirm (same
+    // key) finishes it, so «جرّب كمان مرّة» resends exactly that.
+    case 'projection_pending': return { reason, message: t.xPlanFailProjectionPending, recoveries: ['retry'] };
   }
 }
 
