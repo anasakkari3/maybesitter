@@ -191,6 +191,9 @@ function linePath(uid: string, goalId: string): string {
 
 function planPath(uid: string, planId: string): string { return path(uid, GOAL_PLANS, planId); }
 function timesPath(uid: string, timesId: string): string { return path(uid, GOAL_PLAN_TIMES, timesId); }
+function optionalTimesPath(uid: string, timesId: string): string | null {
+  try { return timesPath(uid, timesId); } catch { return null; }
+}
 function outcomePath(uid: string, key: string): string { return path(uid, GOAL_PLAN_OUTCOMES, docIdForKey(`goal-plan-outcome:${key}`)); }
 function claimPath(uid: string, lineageId: string): string { return path(uid, GOAL_PLAN_CLAIMS, docIdForKey(`goal-plan-claim:${lineageId}`)); }
 
@@ -695,6 +698,21 @@ function publicTimes(times: StoredTimes): GoalPlanTimes {
   return wire;
 }
 
+function newestTimesForPlan(times: StoredTimes[], planId: string, weekIndex?: number): StoredTimes | undefined {
+  return times
+    .filter((candidate) => candidate.planId === planId && !candidate.invalidated
+      && (weekIndex === undefined || candidate.weekIndex === weekIndex))
+    .sort((left, right) => right.createdAt.localeCompare(left.createdAt) || right.timesId.localeCompare(left.timesId))[0];
+}
+
+function newestTimesForRequest(times: StoredTimes[], planId: string, requested: StoredTimes | null): StoredTimes | undefined {
+  return newestTimesForPlan(times, planId, requested?.planId === planId ? requested.weekIndex : undefined);
+}
+
+function staleTimes(current: StoredTimes | undefined): never {
+  apiError(409, 'stale', current ? { times: publicTimes(current) } : {});
+}
+
 function chosenIntervalsFor(
   entries: readonly GoalPlanTimesStep[],
   plan: StoredGoalPlan,
@@ -763,15 +781,21 @@ function minuteOfDay(value: string): number | null {
   return hour >= 0 && hour < 24 && minute >= 0 && minute < 60 ? hour * 60 + minute : null;
 }
 
-export async function chooseGoalPlanTime(uid: string, goalId: string, planId: string, stepId: string, timesRevision: number, choice: Record<string, unknown>, storage = getStorage()): Promise<GoalPlanTimes> {
-  const [plan, current] = await Promise.all([
+export async function chooseGoalPlanTime(uid: string, goalId: string, planId: string, stepId: string, timesId: string, timesRevision: number, choice: Record<string, unknown>, storage = getStorage()): Promise<GoalPlanTimes> {
+  const requestedPath = optionalTimesPath(uid, timesId);
+  const [plan, times, current] = await Promise.all([
     storage.get<StoredGoalPlan>(planPath(uid, planId)),
+    requestedPath ? storage.get<StoredTimes>(requestedPath) : Promise.resolve(null),
     storage.list<StoredTimes>(userCol(uid, GOAL_PLAN_TIMES)),
   ]);
-  const times = current.map((row) => row.data).filter((row) => row.planId === planId && !row.invalidated).sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
-  if (!plan || !times) apiError(404, 'goal_not_found');
+  if (!plan) apiError(404, 'goal_not_found');
   await requireCurrentGoal(storage, uid, goalId);
-  if (times.timesRevision !== timesRevision) apiError(409, 'stale', { times: publicTimes(times) });
+  const proposals = current.map((row) => row.data);
+  const newest = newestTimesForRequest(proposals, planId, times);
+  if (!times || times.timesId !== timesId || times.planId !== planId || times.invalidated
+    || newest?.timesId !== timesId || times.timesRevision !== timesRevision) {
+    staleTimes(newest);
+  }
   const index = times.steps.findIndex((entry) => entry.stepId === stepId); const step = plan.steps.find((entry) => entry.stepId === stepId);
   if (index < 0 || !step) apiError(422, 'not_free', { times: publicTimes(times) });
   const now = new Date().toISOString();
@@ -821,8 +845,13 @@ export async function chooseGoalPlanTime(uid: string, goalId: string, planId: st
   );
   return storage.runTransaction(async (tx) => {
     await currentPlanForMutation(tx, uid, goalId, planId, true);
-    const latest = await tx.get<StoredTimes>(timesPath(uid, times.timesId));
-    if (!latest || latest.timesRevision !== timesRevision) apiError(409, 'stale', { times: publicTimes(latest ?? times) });
+    const latest = await tx.get<StoredTimes>(timesPath(uid, timesId));
+    const latestProposals = (await tx.list<StoredTimes>(userCol(uid, GOAL_PLAN_TIMES))).map((row) => row.data);
+    const latestNewest = newestTimesForRequest(latestProposals, planId, latest);
+    if (!latest || latest.timesId !== timesId || latest.planId !== planId || latest.invalidated || latestNewest?.timesId !== timesId
+      || latest.timesRevision !== timesRevision) {
+      staleTimes(latestNewest);
+    }
     const next: StoredTimes = { ...latest, timesRevision: latest.timesRevision + 1, steps: nextSteps, updatedAt: now };
     tx.set(timesPath(uid, next.timesId), next); return publicTimes(next);
   });
@@ -986,8 +1015,20 @@ export async function confirmGoalPlan(uid: string, goalId: string, planId: strin
     return { kind: 'outcome' as const, outcome, replayed: false };
   });
   if (result.kind === 'changed') {
-    const fresh = await buildTimes(storage, uid, result.plan, result.times.anchor, result.plan.steps, new Date().toISOString(), result.times.weekIndex);
-    await storage.set(timesPath(uid, fresh.timesId), fresh);
+    const reviewedStepIds = new Set(result.times.steps.map((step) => step.stepId));
+    const selected = result.times.weekIndex === undefined
+      ? result.plan.steps
+      : result.plan.steps.filter((step) => reviewedStepIds.has(step.stepId));
+    const fresh = await buildTimes(storage, uid, result.plan, result.times.anchor, selected, new Date().toISOString(), result.times.weekIndex);
+    await storage.runTransaction(async (tx) => {
+      const proposals = await tx.list<StoredTimes>(userCol(uid, GOAL_PLAN_TIMES));
+      for (const row of proposals) {
+        if (row.data.planId === result.plan.planId && row.data.weekIndex === result.times.weekIndex && !row.data.invalidated) {
+          tx.set(timesPath(uid, row.id), { ...row.data, invalidated: true, updatedAt: fresh.createdAt });
+        }
+      }
+      tx.set(timesPath(uid, fresh.timesId), fresh);
+    });
     apiError(409, 'schedule_changed', { times: publicTimes(fresh) });
   }
   if (result.kind === 'past') apiError(422, 'slot_in_past', { times: publicTimes(result.times) });
@@ -1072,8 +1113,26 @@ export async function createLaterWeekTimes(uid: string, goalId: string, planId: 
   if (!pending || !plan.anchor) apiError(409, 'stale');
   const selected = plan.steps.filter((step) => pending.stepIds.includes(step.stepId));
   const times = await buildTimes(storage, uid, plan, plan.anchor, selected, new Date().toISOString(), weekIndex);
-  await storage.set(timesPath(uid, times.timesId), times);
-  return { plan: publicPlan(plan), times: publicTimes(times) };
+  return storage.runTransaction(async (tx) => {
+    const [currentPlan, currentLineage, proposals] = await Promise.all([
+      tx.get<StoredGoalPlan>(planPath(uid, planId)),
+      requireCurrentGoal(tx, uid, goalId),
+      tx.list<StoredTimes>(userCol(uid, GOAL_PLAN_TIMES)),
+    ]);
+    const currentPending = currentPlan?.pendingLaterSteps.find((entry) => entry.weekIndex === weekIndex);
+    if (!currentPlan || currentPlan.status !== 'confirmed' || currentLineage.latestConfirmedPlanId !== planId
+      || currentPlan.goalId !== goalId || currentPlan.revision !== plan.revision || !currentPending || !currentPlan.anchor) {
+      apiError(409, 'stale');
+    }
+    const now = new Date().toISOString();
+    for (const row of proposals) {
+      if (row.data.planId === planId && row.data.weekIndex === weekIndex && !row.data.invalidated) {
+        tx.set(timesPath(uid, row.id), { ...row.data, invalidated: true, updatedAt: now });
+      }
+    }
+    tx.set(timesPath(uid, times.timesId), times);
+    return { plan: publicPlan(currentPlan), times: publicTimes(times) };
+  });
 }
 
 export async function listUpcomingGoalPlans(uid: string, storage = getStorage()) {
