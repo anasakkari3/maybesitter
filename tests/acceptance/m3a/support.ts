@@ -262,7 +262,7 @@ export async function approve(goalId: string, plan: Plan): Promise<{ plan: Plan;
 }
 
 export async function choose(goalId: string, times: Times, stepId: string, choice: Record<string, unknown>): Promise<Answer> {
-  return call('goals/[goalId]/plans/[planId]/times/[stepId]', 'PATCH', { goalId, planId: times.planId, stepId }, { timesRevision: times.timesRevision, choice });
+  return call('goals/[goalId]/plans/[planId]/times/[stepId]', 'PATCH', { goalId, planId: times.planId, stepId }, { timesId: times.timesId, timesRevision: times.timesRevision, choice });
 }
 
 export async function confirm(goalId: string, times: Times, idempotencyKey: string = key('confirm')): Promise<Answer> {

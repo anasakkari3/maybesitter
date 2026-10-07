@@ -11,7 +11,7 @@ import assert from 'node:assert/strict';
 import { COMMITMENTS, EVENTS, MEMORY, PLANS, GOAL_GRAPH_LINKS, HABITS, HABIT_OCCURRENCES, USER_SCOPED_COLLECTIONS, userCol } from '../../../lib/storage/paths.ts';
 import { getStorage } from '../../../lib/storage/index.ts';
 import {
-  OTHER, TODAY, USER, addDays, approved, at, call, commitments, confirm, draftOf, generate, key, rows, setup,
+  OTHER, TODAY, USER, addBusy, addDays, approved, at, call, choose, commitments, confirm, draftOf, generate, key, overlaps, rows, setup,
   stepByTitle, stepTimes, type Plan, type Times,
 } from './support.ts';
 
@@ -234,6 +234,63 @@ test('M3A-012 M3A-041 a later week is placed and confirmed on its own, and the f
     assert.equal(replay.status, 200);
     assert.deepEqual(replay.body.saved, firstAnswer.saved);
     assert.deepEqual(replay.body.stayed, firstAnswer.stayed, 'the first outcome was rewritten by the later batch');
+  }, h);
+});
+
+test('M3A-004 R5-004 a later week whose calendar changed before its confirm comes back with that week only', async () => {
+  const h = await setup();
+  await within(async () => {
+    const { plan } = await confirmed(h.goalId);
+    const weighId = stepByTitle(plan, WEIGH).stepId;
+    h.setTime(at(addDays(TODAY, 14), '10:00'));
+    const later = await call('goals/[goalId]/plans/[planId]/later/[weekIndex]/times', 'POST',
+      { goalId: h.goalId, planId: plan.planId, weekIndex: '3' }, { idempotencyKey: key('later') });
+    assert.equal(later.status, 200, JSON.stringify(later.body));
+    const times = later.body.times as Times;
+    const slot = stepTimes(times, weighId).slot!;
+    await addBusy(slot);
+    const before = (await commitments()).length;
+
+    const answer = await confirm(h.goalId, times);
+    assert.equal(answer.status, 409, JSON.stringify(answer.body));
+    assert.equal(answer.body.reason, 'schedule_changed');
+    const fresh = answer.body.times as Times;
+    assert.deepEqual(fresh.steps.map((s) => s.stepId), [weighId], 'the recomputed later-week proposal is not that week only');
+    const moved = stepTimes(fresh, weighId).slot;
+    assert.ok(!moved || !overlaps(moved, slot), 'the recomputed slot still clashes');
+    assert.equal((await commitments()).length, before, 'a refused confirm wrote');
+  }, h);
+});
+
+test('M3A-006 R5-005 a time change lands on the proposal that was reviewed, never on a newer one', async () => {
+  const h = await setup();
+  await within(async () => {
+    const { plan } = await confirmed(h.goalId);
+    const weighId = stepByTitle(plan, WEIGH).stepId;
+    h.setTime(at(addDays(TODAY, 14), '10:00'));
+    const place = async () => {
+      const answer = await call('goals/[goalId]/plans/[planId]/later/[weekIndex]/times', 'POST',
+        { goalId: h.goalId, planId: plan.planId, weekIndex: '3' }, { idempotencyKey: key('later') });
+      assert.equal(answer.status, 200, JSON.stringify(answer.body));
+      return answer.body.times as Times;
+    };
+    // Two devices place the same week; the first keeps reviewing its own proposal.
+    const older = await place();
+    // A minute later, so the second proposal is really the newer one.
+    h.setTime(at(addDays(TODAY, 14), '10:01'));
+    const newer = await place();
+    assert.notEqual(older.timesId, newer.timesId);
+
+    // The older proposal is no longer the one to act on (WIRE r5): stale, with the current one.
+    const answer = await choose(h.goalId, older, weighId, { none: true });
+    assert.equal(answer.status, 409, `a choice on a superseded proposal answered ${answer.status} ${JSON.stringify(answer.body)}`);
+    assert.equal(answer.body.reason, 'stale');
+    assert.equal((answer.body.times as Times).timesId, newer.timesId, 'the stale answer does not carry the current proposal');
+    // The newer proposal is as it was placed: confirming it saves its own slot.
+    const confirmedNewer = await confirm(h.goalId, newer);
+    assert.equal(confirmedNewer.status, 200, JSON.stringify(confirmedNewer.body));
+    const saved = (confirmedNewer.body.saved as Array<{ stepId: string; when: Record<string, unknown> }>).find((s) => s.stepId === weighId);
+    assert.deepEqual(saved?.when, { kind: 'slot', ...stepTimes(newer, weighId).slot! }, 'the newer proposal was changed by a choice made on the older one');
   }, h);
 });
 

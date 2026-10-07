@@ -860,7 +860,7 @@ test('exports a fixture for every /api/mobile call the React Native client makes
     const firstTimed = planTimes.steps.find((step) => !step.later)!;
     const changedTimes = await record('goalPlan.timeRemoved', 200, await goalPlanTimePatch(
       request(`/api/mobile/goals/${plannedGoal.id}/plans/${editedPlan.planId}/times/${firstTimed.stepId}`, {
-        method: 'PATCH', body: { timesRevision: planTimes.timesRevision, choice: { none: true } }, uid: GOAL_USER,
+        method: 'PATCH', body: { timesId: planTimes.timesId, timesRevision: planTimes.timesRevision, choice: { none: true } }, uid: GOAL_USER,
       }),
       { params: Promise.resolve({ goalId: plannedGoal.id, planId: editedPlan.planId, stepId: firstTimed.stepId }) },
     ));

@@ -1,5 +1,5 @@
 import { mobileAuthErrorResponse, requireMobileUser } from '../../../../../../../../../../lib/auth/mobileAuth';
-import { chooseGoalPlanTime } from '../../../../../../../../../../lib/services/mobile/goalPlanService';
+import { chooseGoalPlanTime, GoalPlanApiError } from '../../../../../../../../../../lib/services/mobile/goalPlanService';
 import { goalPlanRouteError, readGoalPlanBody } from '../../../../../../../../../../lib/services/mobile/goalPlanRoute';
 import { moduleDisabledResponse } from '../../../../../../../../../../lib/services/mobile/moduleGate';
 
@@ -13,7 +13,8 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ go
   try {
     const body = await readGoalPlanBody(request);
     const { goalId, planId, stepId } = await params;
-    const times = await chooseGoalPlanTime(user.uid, goalId, planId, stepId, Number(body.timesRevision), body.choice as Record<string, unknown>);
+    if (typeof body.timesId !== 'string' || !body.timesId) throw new GoalPlanApiError(400, 'invalid_body');
+    const times = await chooseGoalPlanTime(user.uid, goalId, planId, stepId, body.timesId, Number(body.timesRevision), body.choice as Record<string, unknown>);
     return Response.json({ success: true, times });
   } catch (error) { return goalPlanRouteError(error); }
 }
