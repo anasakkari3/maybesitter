@@ -74,11 +74,36 @@ export async function editGoalPlan(goalId: string, planId: string, revision: num
  * about the same plan: the plan asked for, its revision, every step in it once
  * with its own kind, and every span forward in time.
  */
+const forward = (start: string, end: string) => Date.parse(end) > Date.parse(start);
+const clockForward = (start: string, end: string) => end > start;
+
+/**
+ * Every span in a proposal moves forward: the chosen slot or weekly time and
+ * every offered alternative, which is sent back as it is (A4-003, R5-002).
+ */
+function intervalProblems(times: GoalPlanTimes): string[] {
+  return times.steps.flatMap(step => {
+    const problems: string[] = [];
+    if ('slot' in step && step.slot && !forward(step.slot.startsAt, step.slot.endsAt)) problems.push(`slot:${step.stepId}`);
+    if ('weekly' in step && step.weekly && !clockForward(step.weekly.start, step.weekly.end)) problems.push(`weekly:${step.stepId}`);
+    for (const alternative of 'alternatives' in step ? step.alternatives : []) {
+      if ('startsAt' in alternative ? !forward(alternative.startsAt, alternative.endsAt) : !clockForward(alternative.start, alternative.end)) {
+        problems.push(`alternative:${step.stepId}`);
+      }
+    }
+    return problems;
+  });
+}
+
+/**
+ * A plan and its times belong together (inspections A2-008, A3-002, A3-003).
+ * The fixtures prove the shapes; this proves the two halves of one answer are
+ * about the same plan: the plan asked for, its revision, every step in it once
+ * with its own kind, and every span forward in time.
+ */
 function checkTimesAgainstPlan(where: string, planIn: GoalPlan, times: GoalPlanTimes, expected: { planId: string; revision?: number; status?: GoalPlan['status']; stepIds?: readonly string[]; noLater?: boolean }): void {
   const kinds = new Map(planIn.steps.map(step => [step.stepId, step.kind]));
   const seen = new Set<string>();
-  const forward = (start: string, end: string) => Date.parse(end) > Date.parse(start);
-  const clockForward = (start: string, end: string) => end > start;
   const issues = [
     ...(planIn.planId !== expected.planId || times.planId !== expected.planId ? ['planId'] : []),
     // An approve may move the plan's revision on; it may never move it back.
@@ -92,16 +117,9 @@ function checkTimesAgainstPlan(where: string, planIn: GoalPlan, times: GoalPlanT
       seen.add(step.stepId);
       if (kinds.get(step.stepId) !== step.kind) problems.push(`step:${step.stepId}`);
       if (expected.noLater && 'later' in step) problems.push(`later:${step.stepId}`);
-      if ('slot' in step && step.slot && !forward(step.slot.startsAt, step.slot.endsAt)) problems.push(`slot:${step.stepId}`);
-      if ('weekly' in step && step.weekly && !clockForward(step.weekly.start, step.weekly.end)) problems.push(`weekly:${step.stepId}`);
-      // Offered alternatives are sent back as they are, so they are held to the same rule (A4-003).
-      for (const alternative of 'alternatives' in step ? step.alternatives : []) {
-        if ('startsAt' in alternative ? !forward(alternative.startsAt, alternative.endsAt) : !clockForward(alternative.start, alternative.end)) {
-          problems.push(`alternative:${step.stepId}`);
-        }
-      }
       return problems;
     }),
+    ...intervalProblems(times),
     ...(expected.stepIds && (expected.stepIds.length !== seen.size || expected.stepIds.some(id => !seen.has(id))) ? ['steps'] : []),
   ];
   if (issues.length > 0) throw new ContractError(where, issues);
@@ -128,42 +146,95 @@ export function checkReplacementTimes(where: string, current: GoalPlanTimes, nex
     ...(next.planId !== current.planId || next.planRevision !== current.planRevision ? ['plan'] : []),
     ...(sameTimes && (next.timesId !== current.timesId || next.timesRevision <= current.timesRevision) ? ['timesRevision'] : []),
     ...(after.size !== next.steps.length || after.size !== before.size || Array.from(before).some(([id, kind]) => after.get(id) !== kind) ? ['steps'] : []),
+    ...intervalProblems(next),
   ];
   if (issues.length > 0) throw new ContractError(where, issues);
 }
 
+/** The step after a time change carries the choice that was sent (R5-001). */
+function reflectsChoice(step: GoalPlanTimes['steps'][number] | undefined, choice: GoalPlanTimesChoice): boolean {
+  if (!step || 'later' in step) return false;
+  if ('none' in choice) return step.choice === 'none' && ('slot' in step ? step.slot === null : step.weekly === null);
+  if ('slot' in choice) return 'slot' in step && step.choice === 'proposed' && step.slot?.startsAt === choice.slot.startsAt && step.slot.endsAt === choice.slot.endsAt;
+  return 'weekly' in step && step.choice === 'proposed' && step.weekly !== null && step.weekly.start === choice.weekly.start && step.weekly.end === choice.weekly.end
+    && step.weekly.weekdays.length === choice.weekly.weekdays.length && choice.weekly.weekdays.every(day => step.weekly!.weekdays.includes(day));
+}
+
 export async function chooseGoalPlanTime(goalId: string, current: GoalPlanTimes, stepId: string, choice: GoalPlanTimesChoice): Promise<GoalPlanTimes> {
   const response = await apiRequest('PATCH', `${plan(goalId, current.planId)}/times/${encodeURIComponent(stepId)}`, {
-    body: { timesRevision: current.timesRevision, choice },
+    // The proposal on screen, by id: a choice never lands on another device's newer one (R5-005).
+    body: { timesId: current.timesId, timesRevision: current.timesRevision, choice },
     schema: goalPlanTimesResponseSchema,
   });
   checkReplacementTimes('goalPlan.timeChanged', current, response.times, true);
+  if (!reflectsChoice(response.times.steps.find(step => step.stepId === stepId), choice)) throw new ContractError('goalPlan.timeChanged', [`choice:${stepId}`]);
   return response.times;
 }
 
+type ConfirmRow =
+  | { saved: GoalPlanConfirmResult['saved'][number] }
+  | { stayed: GoalPlanConfirmResult['stayed'][number] };
+
+/**
+ * What the confirm must say of one reviewed step, read from the times the
+ * person saw — the server's own rule (R5-003): a later week stays with its
+ * week; no room stays with its reason; anything else is saved, at its slot
+ * or weekly time, or with no time.
+ */
+function expectedRow(step: GoalPlanTimes['steps'][number], title: string | undefined): ConfirmRow {
+  const named = title ?? '';
+  if ('later' in step) return { stayed: { stepId: step.stepId, title: named, why: { kind: 'later_week', weekIndex: step.later.weekIndex } } };
+  const timing = 'slot' in step ? step.slot : step.weekly;
+  if (timing === null && step.choice !== 'none' && step.reason) return { stayed: { stepId: step.stepId, title: named, why: { kind: 'no_room', reason: step.reason } } };
+  const when = 'slot' in step
+    ? (step.slot ? { kind: 'slot' as const, ...step.slot } : { kind: 'none' as const })
+    : (step.weekly ? { kind: 'weekly' as const, ...step.weekly } : { kind: 'none' as const });
+  return { saved: { stepId: step.stepId, entity: step.kind, id: '', title: named, when } };
+}
+
+/** Same value, whatever the key order. */
+const canonical = (value: unknown): unknown => (Array.isArray(value) ? value.map(canonical)
+  : value && typeof value === 'object' ? Object.fromEntries(Object.entries(value).sort(([a], [b]) => a.localeCompare(b)).map(([k, v]) => [k, canonical(v)])) : value);
+const sameJson = (a: unknown, b: unknown) => JSON.stringify(canonical(a)) === JSON.stringify(canonical(b));
+
 /**
  * The reviewed proposal, exactly: the client never authors a times array.
- * The answer is held to it too (A4-004): every reviewed step, and every step
- * removed from the plan, is saved or stays, once, and nothing else is named.
- * `removedStepIds` is null only when the plan is not on screen; then an extra
- * entry may only be a removed step staying.
+ * The answer is held to it too (A4-004, R5-003): every reviewed step, and
+ * every step removed from the plan, is named once, with the disposition,
+ * kind, timing and title the reviewed times and plan give it; nothing else
+ * is named. `plan` is null only when it is not on screen: titles are then
+ * not compared, and an extra entry may only be a removed step staying.
  */
-export async function confirmGoalPlan(goalId: string, times: GoalPlanTimes, idempotencyKey: string, removedStepIds: readonly string[] | null): Promise<GoalPlanConfirmResult> {
+export async function confirmGoalPlan(goalId: string, times: GoalPlanTimes, idempotencyKey: string, planOnScreen: GoalPlan | null): Promise<GoalPlanConfirmResult> {
   const result = await apiRequest('POST', `${plan(goalId, times.planId)}/confirm`, {
     body: { planRevision: times.planRevision, timesId: times.timesId, timesRevision: times.timesRevision, idempotencyKey },
     schema: goalPlanConfirmResponseSchema,
   });
-  const reviewed = new Set(times.steps.map(step => step.stepId));
-  const removed = new Set(removedStepIds ?? []);
+  const titles = new Map(planOnScreen?.steps.map(step => [step.stepId, step.title]) ?? []);
+  const removed = new Map(planOnScreen?.removedSteps.map(step => [step.stepId, step.title]) ?? []);
+  const reviewed = new Map(times.steps.map(step => [step.stepId, step]));
   const named = [...result.saved.map(item => item.stepId), ...result.stayed.map(item => item.stepId)];
-  const isRemoved = (item: GoalPlanConfirmResult['stayed'][number]) => (removedStepIds === null ? !reviewed.has(item.stepId) : removed.has(item.stepId));
+  const titleOk = (expected: string | undefined, actual: string) => planOnScreen === null || expected === actual;
   const issues = [
     ...(new Set(named).size !== named.length ? ['duplicate'] : []),
-    ...Array.from(reviewed).flatMap(id => (named.includes(id) ? [] : [`missing:${id}`])),
-    ...(removedStepIds ?? []).flatMap(id => (result.stayed.some(item => item.stepId === id) ? [] : [`missing:${id}`])),
-    ...result.saved.flatMap(item => (reviewed.has(item.stepId) ? [] : [`saved-unreviewed:${item.stepId}`])),
-    ...result.stayed.flatMap(item => (reviewed.has(item.stepId) || isRemoved(item) ? [] : [`unknown:${item.stepId}`])),
-    ...result.stayed.flatMap(item => (isRemoved(item) !== (item.why.kind === 'removed') ? [`why:${item.stepId}`] : [])),
+    ...Array.from(reviewed.keys()).flatMap(id => (named.includes(id) ? [] : [`missing:${id}`])),
+    ...Array.from(removed.keys()).flatMap(id => (result.stayed.some(item => item.stepId === id) ? [] : [`missing:${id}`])),
+    ...result.saved.flatMap(item => {
+      const step = reviewed.get(item.stepId);
+      if (!step) return [`saved-unreviewed:${item.stepId}`];
+      const want = expectedRow(step, titles.get(item.stepId));
+      return 'saved' in want && want.saved.entity === item.entity && sameJson(want.saved.when, item.when) && titleOk(want.saved.title, item.title)
+        ? [] : [`saved:${item.stepId}`];
+    }),
+    ...result.stayed.flatMap(item => {
+      const step = reviewed.get(item.stepId);
+      if (!step) {
+        const isRemoved = planOnScreen === null || removed.has(item.stepId);
+        return isRemoved && item.why.kind === 'removed' && titleOk(removed.get(item.stepId), item.title) ? [] : [`stayed-unknown:${item.stepId}`];
+      }
+      const want = expectedRow(step, titles.get(item.stepId));
+      return 'stayed' in want && sameJson(want.stayed.why, item.why) && titleOk(want.stayed.title, item.title) ? [] : [`stayed:${item.stepId}`];
+    }),
   ];
   if (issues.length > 0) throw new ContractError('goalPlan.confirmed', issues);
   return result;

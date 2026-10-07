@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals
 import { z } from 'zod';
 import { apiRequest } from '../client';
 import { approveGoalPlan, checkReplacementTimes, chooseGoalPlanTime, confirmGoalPlan, laterWeekTimes } from '../endpoints/goalPlan';
-import { goalPlanConfirmResponseSchema, goalPlanStepSchema, goalPlanTimesSchema, type GoalPlanTimes } from '../schemas/goalPlan';
+import { goalPlanConfirmResponseSchema, goalPlanStepSchema, goalPlanTimesSchema, type GoalPlan, type GoalPlanTimes } from '../schemas/goalPlan';
 import { resetAuthForTests, setAuthRepository } from '../auth';
 import {
   ConflictError,
@@ -178,7 +178,8 @@ describe('a plan and its times belong together (inspections A2-008, A3-002, A3-0
 
 describe('a times answer replaces the times on screen only if it is the same proposal (A4-002)', () => {
   const current = TIMES as GoalPlanTimes;
-  const moved = { ...TIMES, timesRevision: 3 };
+  // «بلا وقت» on s1, carried: the same proposal, moved on.
+  const moved = { ...TIMES, timesRevision: 3, steps: [{ ...TIMES.steps[0], slot: null, alternatives: [], choice: 'none' }] };
   it('the same proposal, moved on, is taken', async () => {
     respond(200, { success: true, times: moved });
     expect((await chooseGoalPlanTime('g1', current, 's1', { none: true })).timesRevision).toBe(3);
@@ -186,7 +187,7 @@ describe('a times answer replaces the times on screen only if it is the same pro
 
   it.each([
     ['another proposal', { ...moved, timesId: 't9' }],
-    ['a revision that did not move', TIMES],
+    ['a revision that did not move', { ...moved, timesRevision: 2 }],
     ['another plan revision', { ...moved, planRevision: 5 }],
     ['another step', { ...moved, steps: [{ ...TIMES.steps[0], stepId: 's9' }] }],
     ['a step that changed kind', { ...moved, steps: [{ stepId: 's1', kind: 'habit', weekly: null, alternatives: [], choice: 'none' }] }],
@@ -216,17 +217,23 @@ describe('the schemas hold the contract, not just the shape (A4-003)', () => {
   });
 });
 
-describe('a confirm answers for exactly what was reviewed (A4-004)', () => {
+describe('a confirm answers for exactly what was reviewed (A4-004, R5-003)', () => {
   const receipt = { outcomeId: 'o1', replayed: false };
+  const reviewedPlan = { ...PLAN, removedSteps: [{ stepId: 'r1', title: 'Run' }] } as unknown as GoalPlan;
   const saved = { stepId: 's1', entity: 'commitment', id: 'c1', title: 'Walk', when: { kind: 'slot', startsAt: '2030-01-08T09:00:00.000Z', endsAt: '2030-01-08T09:30:00.000Z' } };
   const removedStays = { stepId: 'r1', title: 'Run', why: { kind: 'removed' } };
-  const confirm = (body: unknown, removed: readonly string[] | null = ['r1']) => {
+  const confirm = (body: unknown, onScreen: GoalPlan | null = reviewedPlan, times: unknown = TIMES) => {
     respond(200, { success: true, ...(body as object), receipt });
-    return confirmGoalPlan('g1', TIMES as GoalPlanTimes, 'k', removed);
+    return confirmGoalPlan('g1', times as GoalPlanTimes, 'k', onScreen);
   };
 
-  it('every reviewed step and every removed step, once', async () => {
+  it('every reviewed step and every removed step, once, as reviewed', async () => {
     expect((await confirm({ saved: [saved], stayed: [removedStays] })).saved).toHaveLength(1);
+  });
+
+  it('the same timing in another key order is the same timing', async () => {
+    const reordered = { ...saved, when: { endsAt: saved.when.endsAt, kind: 'slot', startsAt: saved.when.startsAt } };
+    expect((await confirm({ saved: [reordered], stayed: [removedStays] })).saved).toHaveLength(1);
   });
 
   it.each([
@@ -237,13 +244,58 @@ describe('a confirm answers for exactly what was reviewed (A4-004)', () => {
     ['a removed step saved', { saved: [saved, { ...saved, stepId: 'r1' }], stayed: [] }],
     ['a removed step staying for another reason', { saved: [saved], stayed: [{ ...removedStays, why: { kind: 'no_room', reason: 'no_free_time_in_phase' } }] }],
     ['a reviewed step staying as removed', { saved: [], stayed: [removedStays, { stepId: 's1', title: 'Walk', why: { kind: 'removed' } }] }],
+    ['a commitment saved as a habit', { saved: [{ ...saved, entity: 'habit' }], stayed: [removedStays] }],
+    ['a slot saved at another time', { saved: [{ ...saved, when: { ...saved.when, startsAt: '2030-01-08T08:00:00.000Z' } }], stayed: [removedStays] }],
+    ['a slot saved with no time', { saved: [{ ...saved, when: { kind: 'none' } }], stayed: [removedStays] }],
+    ['a step saved under another title', { saved: [{ ...saved, title: 'Swim' }], stayed: [removedStays] }],
+    ['a removed step under another title', { saved: [saved], stayed: [{ ...removedStays, title: 'Jog' }] }],
   ])('refuses %s', async (_name, body) => {
     await expect(confirm(body)).rejects.toBeInstanceOf(ContractError);
   });
 
+  it('a later week stays with its week, and no room stays with its reason', async () => {
+    const twoSteps = { ...reviewedPlan, steps: [...PLAN.steps, { ...PLAN.steps[0], stepId: 's2', title: 'Plan' }] } as unknown as GoalPlan;
+    const times = { ...TIMES, steps: [{ stepId: 's1', kind: 'commitment', later: { weekIndex: 3 } }, { stepId: 's2', kind: 'commitment', slot: null, alternatives: [], reason: 'no_free_time_in_phase', choice: 'proposed' }] };
+    const stayed = [removedStays, { stepId: 's1', title: 'Walk', why: { kind: 'later_week', weekIndex: 3 } }, { stepId: 's2', title: 'Plan', why: { kind: 'no_room', reason: 'no_free_time_in_phase' } }];
+    expect((await confirm({ saved: [], stayed }, twoSteps, times)).stayed).toHaveLength(3);
+    await expect(confirm({ saved: [], stayed: [stayed[0], { ...stayed[1], why: { kind: 'later_week', weekIndex: 4 } }, stayed[2]] }, twoSteps, times)).rejects.toBeInstanceOf(ContractError);
+    await expect(confirm({ saved: [{ ...saved, when: { kind: 'none' } }], stayed: [stayed[0], stayed[2]] }, twoSteps, times)).rejects.toBeInstanceOf(ContractError);
+  });
+
+  it('a step with no time chosen is saved with no time', async () => {
+    const times = { ...TIMES, steps: [{ stepId: 's1', kind: 'commitment', slot: null, alternatives: [], choice: 'none' }] };
+    expect((await confirm({ saved: [{ ...saved, when: { kind: 'none' } }], stayed: [removedStays] }, reviewedPlan, times)).saved).toHaveLength(1);
+  });
+
   it('with no plan on screen, an extra entry may only be a removed step', async () => {
     expect((await confirm({ saved: [saved], stayed: [removedStays] }, null)).stayed).toHaveLength(1);
-    await expect(confirm({ saved: [saved], stayed: [{ ...removedStays, why: { kind: 'no_room', reason: 'no_free_time_in_phase' } }] }, null)).rejects.toBeInstanceOf(ContractError);
+    await expect(confirm({ saved: [saved], stayed: [{ ...removedStays, why: { kind: 'no_room', reason: 'x' } }] }, null)).rejects.toBeInstanceOf(ContractError);
   });
 });
 
+describe('a time change carries the choice that was sent (R5-001, R5-002)', () => {
+  const current = TIMES as GoalPlanTimes;
+  const slot = { startsAt: '2030-01-08T13:00:00.000Z', endsAt: '2030-01-08T13:30:00.000Z' };
+  const after = (step: object) => ({ success: true, times: { ...TIMES, timesRevision: 3, steps: [{ ...TIMES.steps[0], ...step }] } });
+
+  it('«بلا وقت» comes back with no time; a slot comes back at that slot', async () => {
+    respond(200, after({ slot: null, alternatives: [], choice: 'none' }));
+    expect((await chooseGoalPlanTime('g1', current, 's1', { none: true })).steps[0]).toMatchObject({ choice: 'none' });
+    respond(200, after({ slot, alternatives: [] }));
+    expect((await chooseGoalPlanTime('g1', current, 's1', { slot })).timesRevision).toBe(3);
+  });
+
+  it.each([
+    ['«بلا وقت» that kept its slot', { none: true }, {}],
+    ['a slot that came back at another time', { slot }, {}],
+    ['a slot that came back as no time', { slot }, { slot: null, choice: 'none' }],
+  ])('refuses %s', async (_name, choice, step) => {
+    respond(200, after(step));
+    await expect(chooseGoalPlanTime('g1', current, 's1', choice as never)).rejects.toBeInstanceOf(ContractError);
+  });
+
+  it('refuses a replacement whose alternative runs backward', async () => {
+    respond(200, after({ slot, alternatives: [{ startsAt: slot.endsAt, endsAt: slot.startsAt }] }));
+    await expect(chooseGoalPlanTime('g1', current, 's1', { slot })).rejects.toBeInstanceOf(ContractError);
+  });
+});

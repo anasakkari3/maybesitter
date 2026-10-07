@@ -67,7 +67,15 @@ export interface PlanFlowState {
  */
 export const adoptTimes = (plan: GoalPlan | null, current: GoalPlanTimes) => (refused: GoalPlanRefusedError): Partial<PlanFlowState> => {
   if (!refused.detail.times) return {};
-  try { checkReplacementTimes('goalPlan.refusedTimes', current, refused.detail.times, false); } catch { return {}; }
+  try {
+    checkReplacementTimes('goalPlan.refusedTimes', current, refused.detail.times, false);
+  } catch {
+    // Not drawn, and not claimed: the refusal goes on without them, so its
+    // «new times» reads the plan again instead of pointing at times that are
+    // not on screen (R5-004).
+    const { times: _dropped, ...detail } = refused.detail;
+    return { error: new GoalPlanRefusedError(refused.reason, refused.status, detail) };
+  }
   return { stage: { kind: 'times', plan, times: refused.detail.times } };
 };
 
@@ -153,7 +161,8 @@ export function useGoalPlanFlow(): PlanFlow {
         activeRequest.current = null;
         inFlight.current = false;
         const adopted = error instanceof GoalPlanRefusedError && onRefused ? onRefused(error) : {};
-        setState(current => ({ ...current, ...adopted, busy: false, error, live: { phase: 'failed' } }));
+        // `adopted.error` is the same refusal less what could not be drawn.
+        setState(current => ({ ...current, error, ...adopted, busy: false, live: { phase: 'failed' } }));
       });
     };
     lastAction.current = attempt;
@@ -254,7 +263,7 @@ export function useGoalPlanFlow(): PlanFlow {
     const reviewed = `${stage.times.timesId}:${stage.times.timesRevision}`;
     const key = confirmKeys.current.get(reviewed) ?? Crypto.randomUUID();
     confirmKeys.current.set(reviewed, key);
-    run('saving', () => confirmGoalPlan(goalId, stage.times, key, stage.plan ? stage.plan.removedSteps.map(step => step.stepId) : null), result => {
+    run('saving', () => confirmGoalPlan(goalId, stage.times, key, stage.plan), result => {
       invalidate();
       return { stage: { kind: 'result', result } };
     }, adoptTimes(stage.plan, stage.times));

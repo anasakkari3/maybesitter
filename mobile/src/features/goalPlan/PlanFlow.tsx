@@ -430,10 +430,10 @@ const alternativesOf = (step: GoalPlanTimesStep): (GoalPlanSlot | GoalPlanWeekly
 export function stepOutcome(step: GoalPlanTimesStep): 'save' | 'later' | 'no_room' {
   if (laterOf(step)) return 'later';
   if (slotOf(step) || weeklyOf(step)) return 'save';
-  // A reason means there was no room for it, and it stays a suggestion. No
-  // time and no reason means the person chose «بلا وقت», which saves it
-  // without one (M3A-024); choosing that clears the reason on the server.
-  return reasonOf(step) ? 'no_room' : 'save';
+  // A reason the person did not answer with «بلا وقت» means there was no
+  // room, and it stays a suggestion. «بلا وقت» saves it without a time
+  // (M3A-024). The server's confirm reads the same rule (R5-003).
+  return reasonOf(step) && !('later' in step) && step.choice !== 'none' ? 'no_room' : 'save';
 }
 
 function noRoomLine(reason: string, t: { xPlanNoRoomInPhase: string; xPlanNoRoomOutsideHours: string; xPlanNoRoom: string }): string {
@@ -602,7 +602,10 @@ function FailureCard({ flow, onRecover, hostRecoveries }: {
       // The current plan or times already came back with the refusal and are
       // on screen; without them, read the plan again.
       case 'show_latest': return detail.plan || detail.times ? flow.dismissError() : flow.showLatest();
-      case 'new_times': case 'pick_another': return flow.dismissError();
+      // The new times came with the refusal and are on screen; if they could
+      // not be drawn, read the plan again (R5-004).
+      case 'new_times': return detail.times ? flow.dismissError() : flow.showLatest();
+      case 'pick_another': return flow.dismissError();
       // A statement entry is answered here, in the same words: the question
       // stays on screen and the answer goes back with what was said.
       case 'answer': return statement !== null ? setAnswering('') : onRecover(recovery, {});

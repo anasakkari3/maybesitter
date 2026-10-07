@@ -77,7 +77,9 @@ describe('what the confirm will do with each step', () => {
     expect(stepOutcome({ ...commitment, slot: { startsAt: '2030-01-08T09:00:00.000Z', endsAt: '2030-01-08T09:30:00.000Z' } })).toBe('save');
     expect(stepOutcome({ stepId: 's', kind: 'habit', weekly: { weekdays: [1], start: '09:00', end: '09:30' }, alternatives: [], choice: 'proposed' })).toBe('save');
     expect(stepOutcome({ stepId: 's', kind: 'commitment', later: { weekIndex: 3 } })).toBe('later');
-    expect(stepOutcome({ ...commitment, slot: null, reason: 'no_free_time_in_phase', choice: 'none' })).toBe('no_room');
+    expect(stepOutcome({ ...commitment, slot: null, reason: 'no_free_time_in_phase' })).toBe('no_room');
+    // «بلا وقت» on a step with no room saves it without a time, as the server's confirm does.
+    expect(stepOutcome({ ...commitment, slot: null, reason: 'no_free_time_in_phase', choice: 'none' })).toBe('save');
     expect(stepOutcome({ ...commitment, slot: null, choice: 'none' })).toBe('save');
   });
 });
@@ -94,7 +96,12 @@ describe('times carried on a refusal (A4-002)', () => {
   });
 
   it('are not drawn when they are another plan or other steps; the refusal stands alone', () => {
-    expect(adoptTimes(null, current)(refused({ ...current, planId: 'p9' }))).toEqual({});
-    expect(adoptTimes(null, current)(refused({ ...current, steps: [{ ...current.steps[0]!, stepId: 's9' }] }))).toEqual({});
+    for (const other of [{ ...current, planId: 'p9' }, { ...current, steps: [{ ...current.steps[0]!, stepId: 's9' }] }, { ...current, steps: [{ ...current.steps[0]!, alternatives: [{ startsAt: '2030-01-08T10:00:00.000Z', endsAt: '2030-01-08T09:00:00.000Z' }] }] }] as GoalPlanTimes[]) {
+      const adopted = adoptTimes(null, current)(refused(other));
+      expect(adopted.stage).toBeUndefined();
+      // The refusal no longer claims times it could not draw (R5-004).
+      expect((adopted.error as GoalPlanRefusedError).reason).toBe('schedule_changed');
+      expect((adopted.error as GoalPlanRefusedError).detail.times).toBeUndefined();
+    }
   });
 });
