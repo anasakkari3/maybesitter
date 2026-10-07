@@ -76,7 +76,8 @@ function LiveStatus({ flow }: { flow: Flow }) {
   // carries what went wrong, which the short visible «ما زبط» alone does not.
   return <LiveRegion testID="plan-live-status">
     {line ? <View accessible accessibilityLabel={failure ? `${line}. ${failure.message}` : line}>
-      <Txt role="metadata" color={live.phase === 'failed' ? p.wm : p.mu}>{line}</Txt>
+      {/* Quiet: on a failure the card below says what happened, in its own colour. */}
+      <Txt role="metadata" color={p.mu}>{line}</Txt>
     </View> : null}
   </LiveRegion>;
 }
@@ -160,7 +161,7 @@ function PlanStep({ flow, plan, linkedWork }: { flow: Flow; plan: GoalPlan; link
     {linkedWork}
     <Txt role="supporting" color={p.wm}>{t.suggestionNote}</Txt>
     {phases.map(group => <View key={`${group.phase.unit}-${group.phase.index}`} style={{ gap: 10 }} accessibilityRole="list">
-      <Txt role="label" testID={`plan-phase-${group.phase.unit}-${group.phase.index}`}>{phaseLabel(group.phase, t)}</Txt>
+      <Txt role="label" weight={700} testID={`plan-phase-${group.phase.unit}-${group.phase.index}`}>{phaseLabel(group.phase, t)}</Txt>
       {group.steps.map(step => <StepCard
         key={step.stepId}
         step={step}
