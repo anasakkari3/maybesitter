@@ -23,7 +23,13 @@ const suggestionScheduleSchema = z.object({
   suggestionId: z.string(), slot: z.object({ startsAt: isoDateTime, endsAt: isoDateTime }).nullable(), reason: z.string().nullable(),
 });
 export const intelligenceInboxSchema = z.object({ success: z.literal(true), observations: z.array(observationSchema), suggestions: z.array(suggestionSchema), schedule: z.array(suggestionScheduleSchema) });
-export const intelligenceAnalyzeSchema = z.object({ success: z.literal(true), observations: z.array(observationSchema) });
+// `route: 'plan_flow'`: the statement asked for a plan («ابنيلي خطة», M3A-032), so
+// the app opens the plan path with it instead of showing observations.
+export const intelligenceAnalyzeSchema = z.object({
+  success: z.literal(true),
+  observations: z.array(observationSchema).default([]),
+  route: z.literal('plan_flow').optional(),
+});
 // `nextVisitAt`: when a screen visit may next ask (servers from 2026-10-03, on a visit only).
 export const intelligenceGenerateSchema = z.object({
   success: z.literal(true), suggestions: z.array(suggestionSchema), schedule: z.array(suggestionScheduleSchema),

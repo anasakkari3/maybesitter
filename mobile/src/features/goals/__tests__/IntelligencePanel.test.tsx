@@ -26,8 +26,18 @@ const onChanged = jest.fn();
 let currentInbox: any;
 let mockRecommendationState: 'granted' | 'declined' = 'granted';
 
+let mockPlanPath: { isPending: boolean; error: unknown; data: unknown[] | undefined } = { isPending: false, error: null, data: [] };
 jest.mock('../../../api/queries', () => ({
   useConsents: () => ({ data: { recommendations: { state: mockRecommendationState } } }),
+  // The plan path (M3a) learns whether it is on from Today's later-week read.
+  useUpcomingPlans: () => mockPlanPath,
+  useUid: () => 'panel-user',
+  useInvalidateAfterPlanConfirm: () => () => undefined,
+}));
+
+const mockPreview = jest.fn<any>();
+jest.mock('../../../api/endpoints/goalPlan', () => ({
+  previewStatementGoal: (...args: unknown[]) => mockPreview(...args),
 }));
 
 jest.mock('../../../api/endpoints/intelligence', () => ({
@@ -99,25 +109,57 @@ it('keeps requesting Gmail pages until the whole week is complete', async () => 
   await waitFor(() => expect(screen.getByTestId('intelligence-status-text')).toHaveTextContent('Done — checked 7 emails from the past week'));
 });
 
-it('takes a wish through analysis, multi-step review surface, and explicit confirmation', async () => {
+it('takes a wish through analysis and an explicit confirmation of what came back', async () => {
   await render(wrap());
   await waitFor(() => expect(screen.queryByTestId('intelligence-statement')).not.toBeNull());
   await fireEvent.changeText(screen.getByTestId('intelligence-statement'), 'I want more Pilates time');
   await waitFor(() => expect(screen.getByTestId('intelligence-statement').props.value).toBe('I want more Pilates time'));
-  currentInbox = { success: true, observations: [evidence], suggestions: [], schedule: [] };
+  currentInbox = { success: true, observations: [evidence], suggestions: [suggestion], schedule: [] };
   await act(async () => { await fireEvent.press(screen.getByTestId('intelligence-analyze')); });
   await act(async () => { await fireEvent.press(screen.getByTestId('intelligence-analyze-confirm')); });
   await waitFor(() => expect(mockAnalyze).toHaveBeenCalledWith('I want more Pilates time'));
   await waitFor(() => expect(mockInbox).toHaveBeenCalledTimes(2));
-  await waitFor(() => expect(screen.queryByText(/I want more Pilates time/)).not.toBeNull());
-  currentInbox = { success: true, observations: [evidence], suggestions: [suggestion], schedule: [] };
-  await act(async () => { await fireEvent.press(screen.getByTestId('intelligence-generate')); });
-  await act(async () => { await fireEvent.press(screen.getByTestId('intelligence-generate-confirm')); });
-  await waitFor(() => expect(mockGenerate).toHaveBeenCalled());
   await waitFor(() => expect(screen.queryByText(/Find a Pilates class/)).not.toBeNull());
   expect(mockDecide).not.toHaveBeenCalled();
   await act(async () => { await fireEvent.press(screen.getByText('Add to my plan')); });
   await waitFor(() => expect(mockDecide).toHaveBeenCalledWith('proposal-1', 'accept', undefined, undefined));
+});
+
+it('«Suggest a plan» needs a statement, and opens the plan path at its summary (M3a)', async () => {
+  mockPreview.mockResolvedValue({ success: true, summaryId: 's1', revision: 1, understood: { goalText: 'Run a 5k' }, expiresAt: '2026-09-30T10:30:00.000Z' });
+  await render(wrap());
+  await waitFor(() => expect(screen.queryByTestId('intelligence-plan-flow')).not.toBeNull());
+  // The old card-by-card «Suggest steps» is gone: the plan path replaced it.
+  expect(screen.queryByTestId('intelligence-generate')).toBeNull();
+  expect(screen.getByTestId('intelligence-plan-flow').props.accessibilityState).toMatchObject({ disabled: true });
+  await fireEvent.changeText(screen.getByTestId('intelligence-statement'), 'I want to run a 5k');
+  await act(async () => { await fireEvent.press(screen.getByTestId('intelligence-plan-flow')); });
+  await waitFor(() => expect(screen.queryByTestId('plan-summary')).not.toBeNull());
+  expect(mockPreview).toHaveBeenCalledWith('I want to run a 5k', 'en');
+  expect(mockGenerate).not.toHaveBeenCalled();
+});
+
+it('«افهم» on a plan request opens the plan path instead of listing observations (M3A-032)', async () => {
+  mockAnalyze.mockResolvedValueOnce({ success: true, observations: [], route: 'plan_flow' });
+  mockPreview.mockResolvedValue({ success: true, summaryId: 's1', revision: 1, understood: { goalText: 'Lose weight' }, expiresAt: '2026-09-30T10:30:00.000Z' });
+  await render(wrap());
+  await waitFor(() => expect(screen.queryByTestId('intelligence-statement')).not.toBeNull());
+  await fireEvent.changeText(screen.getByTestId('intelligence-statement'), 'build me a plan to lose weight');
+  await act(async () => { await fireEvent.press(screen.getByTestId('intelligence-analyze')); });
+  await act(async () => { await fireEvent.press(screen.getByTestId('intelligence-analyze-confirm')); });
+  await waitFor(() => expect(screen.queryByTestId('plan-summary')).not.toBeNull());
+  expect(mockPreview).toHaveBeenCalledWith('build me a plan to lose weight', 'en');
+});
+
+it('hides «Suggest a plan» when the plan path is off on the server', async () => {
+  mockPlanPath = { isPending: false, error: new FeatureUnavailableError('off'), data: undefined };
+  try {
+    await render(wrap());
+    await waitFor(() => expect(screen.queryByTestId('intelligence-statement')).not.toBeNull());
+    expect(screen.queryByTestId('intelligence-plan-flow')).toBeNull();
+  } finally {
+    mockPlanPath = { isPending: false, error: null, data: [] };
+  }
 });
 
 it('lets the person correct a suggestion before accepting it', async () => {
@@ -345,33 +387,6 @@ it('does not call a saved analysis a failure when only the refresh failed, and r
   expect(mockAnalyze).toHaveBeenCalledTimes(1);
 });
 
-it('counts only suggestions this request returned that were not already on screen', async () => {
-  const other = { ...suggestion, id: 'proposal-2', title: 'From the visit' };
-  currentInbox = { success: true, observations: [evidence], suggestions: [suggestion], schedule: [] };
-  // The request returns the one already shown plus a new one; meanwhile a
-  // third (from the Watching visit or another device) also lands.
-  const fresh = { ...suggestion, id: 'proposal-3', title: 'Fresh' };
-  mockGenerate.mockImplementation(async () => {
-    currentInbox = { success: true, observations: [evidence], suggestions: [suggestion, fresh, other], schedule: [] };
-    return { success: true, suggestions: [suggestion, fresh], schedule: [] };
-  });
-  await render(wrap());
-  await waitFor(() => expect(screen.queryByTestId('intelligence-suggestion-proposal-1')).not.toBeNull());
-  await act(async () => { await fireEvent.press(screen.getByTestId('intelligence-generate')); });
-  await act(async () => { await fireEvent.press(screen.getByTestId('intelligence-generate-confirm')); });
-  await waitFor(() => expect(screen.getByTestId('intelligence-status-text')).toHaveTextContent('1 new suggestion below'));
-});
-
-it('says there is nothing new when the request only returns what is already shown', async () => {
-  currentInbox = { success: true, observations: [evidence], suggestions: [suggestion], schedule: [] };
-  mockGenerate.mockResolvedValue({ success: true, suggestions: [suggestion], schedule: [] });
-  await render(wrap());
-  await waitFor(() => expect(screen.queryByTestId('intelligence-suggestion-proposal-1')).not.toBeNull());
-  await act(async () => { await fireEvent.press(screen.getByTestId('intelligence-generate')); });
-  await act(async () => { await fireEvent.press(screen.getByTestId('intelligence-generate-confirm')); });
-  await waitFor(() => expect(screen.getByTestId('intelligence-status-text')).toHaveTextContent('No new suggestions'));
-});
-
 it('announces a multi-page email scan twice — when it starts and when it is done — never per page', async () => {
   const announce = jest.spyOn(AccessibilityInfo, 'announceForAccessibility').mockImplementation(() => {});
   mockScan
@@ -403,26 +418,6 @@ it('keeps the explanations behind their arrows until asked for', async () => {
   expect(screen.queryByText(en.xIntelligenceGmailMonitorInfo)).toBeNull();
   await act(async () => { await fireEvent.press(screen.getByTestId('intelligence-panel-why')); });
   expect(screen.getByText(en.xIntelligenceBody)).toBeTruthy();
-});
-
-it('claims no count of new suggestions when the refresh after generating failed', async () => {
-  currentInbox = { success: true, observations: [evidence], suggestions: [], schedule: [] };
-  mockGenerate.mockResolvedValue({ success: true, suggestions: [suggestion], schedule: [] });
-  await render(wrap());
-  await waitFor(() => expect(screen.queryByTestId('intelligence-generate')).not.toBeNull());
-  mockInbox.mockImplementationOnce(() => Promise.reject(new NetworkError('offline')));
-  await act(async () => { await fireEvent.press(screen.getByTestId('intelligence-generate')); });
-  await act(async () => { await fireEvent.press(screen.getByTestId('intelligence-generate-confirm')); });
-  await waitFor(() => expect(screen.queryByTestId('intelligence-refresh-failed')).not.toBeNull());
-  // Said once — the failure line — and no count while nothing new is visible.
-  expect(screen.getAllByText(en.xIntelligenceRefreshFailed)).toHaveLength(1);
-  expect(screen.queryByText('1 new suggestion below')).toBeNull();
-  // A retry that reads the list says the true result, and the failure is gone.
-  currentInbox = { success: true, observations: [evidence], suggestions: [suggestion], schedule: [] };
-  await act(async () => { await fireEvent.press(screen.getByTestId('intelligence-refresh-retry')); });
-  await waitFor(() => expect(screen.getByTestId('intelligence-status-text')).toHaveTextContent('1 new suggestion below'));
-  expect(screen.queryByText(en.xIntelligenceRefreshFailed)).toBeNull();
-  expect(mockGenerate).toHaveBeenCalledTimes(1);
 });
 
 it('says an action is expanded and moves a screen reader to its explanation', async () => {

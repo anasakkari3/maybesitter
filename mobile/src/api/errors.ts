@@ -3,6 +3,7 @@ import type { CaptureChatAnswer, CaptureProposal } from './schemas/capture';
 import type { PlanEditRejected, PlanProposalRejected, Week } from './schemas/plan';
 import type { IcsFeedReason } from './schemas/icsFeeds';
 import type { GoogleRefusalReason } from './schemas/google';
+import type { GoalPlan, GoalPlanTimes } from './schemas/goalPlan';
 
 /**
  * Every way a call to `/api/mobile/**` can fail, as types the UI can switch on.
@@ -432,5 +433,47 @@ export class GoogleRefusedError extends ApiError {
 export class WeeklyBlockRefusedError extends ApiError {
   constructor(readonly code: string) {
     super(`the weekly block request was refused: ${code}`);
+  }
+}
+
+/** Every reason the plan path (M3a) refuses with; each has its own words and way forward. */
+export const GOAL_PLAN_REASONS = [
+  'model_unavailable', 'daily_cap_reached', 'no_steps', 'stale', 'schedule_changed', 'offline',
+  'goal_too_vague', 'not_a_goal', 'too_many_edits', 'invalid_edit', 'slot_in_past', 'not_free',
+  'key_reused', 'gone', 'plan_confirmed', 'goal_superseded',
+] as const;
+export type GoalPlanReason = typeof GOAL_PLAN_REASONS[number];
+
+/**
+ * A plan route refused, with its own reason (M3a, M3A-009/-031).
+ *
+ * One class for every status those routes answer with (409, 410, 422, 429,
+ * 503), because what the person is told depends on the reason, and two of
+ * them carry what to redraw from: a `stale` edit comes back with the current
+ * plan, a `schedule_changed` or `slot_in_past` with the recomputed times. The
+ * payloads are parsed by the client, never trusted; one that does not parse
+ * is dropped and the screen recovers by reading again.
+ */
+export class GoalPlanRefusedError extends ApiError {
+  constructor(
+    readonly reason: GoalPlanReason,
+    readonly status: number,
+    readonly detail: {
+      readonly plan?: GoalPlan;
+      readonly times?: GoalPlanTimes;
+      readonly question?: string;
+      readonly classification?: 'event' | 'task' | 'thought';
+      readonly recovery?: string;
+      readonly currentGoalId?: string;
+    } = {},
+  ) {
+    super(`the plan request was refused: ${reason}`);
+  }
+}
+
+/** Why «اعمل خطة اليوم» could not finish (image 2): a closed reason, never the generic server line. */
+export class PlanBuildRefusedError extends ApiError {
+  constructor(readonly reason: string, readonly retryable: boolean) {
+    super(`the day plan could not be built: ${reason}`);
   }
 }

@@ -26,16 +26,25 @@ import { useOptionalAuth } from '../../auth/AuthProvider';
 import type { Strings } from '../../i18n/strings';
 import { claimVisit, recordVisitAnswer, recordVisitFailure } from '../../lib/deviceSettings/visitThrottle';
 import { useConsents } from '../../api/queries';
+import { PlanFlowView } from '../goalPlan/PlanFlow';
+import { usePlanPathAvailable } from '../goalPlan/planAvailability';
+import type { PlanRecovery } from '../goalPlan/planFailures';
+import { useGoalPlanFlow } from '../goalPlan/useGoalPlanFlow';
 
 /** The person's own records are facts already; only what was read from their words is asked about. */
 const SELF_CONFIRMED_SOURCES: ReadonlySet<string> = new Set(['memory', 'commitment', 'behavior']);
 /** At most this many "is this right?" cards at once, below the suggestions. */
 export const MAX_CONFIRM_CARDS = 4;
 
-/** The three actions the person confirms before they run (owner audit 2026-10-06, image 8). */
-type PanelAction = 'analyze' | 'generate' | 'scan';
+/**
+ * The actions the person confirms before they run (owner audit 2026-10-06,
+ * image 8). «اقترح خطوات» is gone from this row: «اقترحلي خطة» opens the one
+ * plan path instead (M3a, council condition 2), and needs no explanation step
+ * of its own — its first screen, «هيك فهمت», is the check before anything runs.
+ */
+type PanelAction = 'analyze' | 'scan';
 const ACTION_TEST_ID: Record<PanelAction, string> = {
-  analyze: 'intelligence-analyze', generate: 'intelligence-generate', scan: 'intelligence-gmail-scan',
+  analyze: 'intelligence-analyze', scan: 'intelligence-gmail-scan',
 };
 
 const UNDERSTOOD_KEY = {
@@ -99,7 +108,7 @@ export function IntelligencePanel(props: IntelligencePanelProps) {
 }
 
 function IntelligencePanelForAccount({ onChanged, autoGenerate = false, whenOff }: IntelligencePanelProps) {
-  const { t, tr, p, rtl, lang } = useApp();
+  const { t, tr, p, rtl, lang, actions } = useApp();
   // One row of three equal buttons at the ordinary sizes; at the larger text
   // sizes they wrap at their natural widths instead of squeezing the words.
   const actionStyle = useLayoutMode() === 'normal'
@@ -109,6 +118,15 @@ function IntelligencePanelForAccount({ onChanged, autoGenerate = false, whenOff 
   const consents = useConsents();
   const recommendationsEnabled = consents.data?.recommendations.state === 'granted';
   const zone = useTimeZone();
+  const planPathOn = usePlanPathAvailable();
+  const plan = useGoalPlanFlow();
+  const onPlanRecover = (recovery: PlanRecovery | 'open_today', detail: { currentGoalId?: string | undefined }) => {
+    if (recovery === 'capture') return actions.go('capture');
+    if (recovery === 'thoughts') return actions.go('seeds');
+    if (recovery === 'open_today') return actions.go('today');
+    if (recovery === 'open_new_goal' && detail.currentGoalId) return actions.openGoal(detail.currentGoalId);
+    return plan.reset();
+  };
   const [phase, setPhase] = React.useState<'loading' | 'ready' | 'off' | 'failed'>('loading');
   const [loadError, setLoadError] = React.useState<unknown>(null);
   const [inbox, setInbox] = React.useState<IntelligenceInbox | null>(null);
@@ -265,7 +283,7 @@ function IntelligencePanelForAccount({ onChanged, autoGenerate = false, whenOff 
     setError(null);
     setRefreshFailed(false);
     pendingResult.current = null;
-    say(action === 'analyze' ? t.xIntelligenceAnalyzing : action === 'generate' ? t.xIntelligenceGenerating : t.xIntelligenceGmailScanStarted);
+    say(action === 'analyze' ? t.xIntelligenceAnalyzing : t.xIntelligenceGmailScanStarted);
     try {
       // Null when the result cannot be said truthfully: the refresh failed, so
       // nothing new is visible to point at.
@@ -276,19 +294,14 @@ function IntelligencePanelForAccount({ onChanged, autoGenerate = false, whenOff 
           const answer = await analyzeIntelligenceStatement(sent);
           // Cleared only if the field still holds what was sent.
           setDraft(current => (current.trim() === sent ? '' : current));
+          if (answer.route === 'plan_flow') {
+            // «ابنيلي خطة …» (M3A-032): the statement asked for a plan, so the
+            // plan path opens on it, at its summary, without another tap.
+            say(null);
+            plan.fromStatement(sent, lang);
+            return;
+          }
           result = () => tr('xIntelligenceUnderstoodN', { n: answer.observations.length });
-        } else if (action === 'generate') {
-          const before = new Set((shown.current?.suggestions ?? []).filter(item => item.status === 'pending').map(item => item.id));
-          const answer = await generateIntelligenceSuggestions();
-          // Only what this request returned and was not on screen before counts:
-          // a reused run, or the Watching visit landing meanwhile, adds nothing.
-          // (A run another device completed between the last read and this
-          // request is not told apart yet: that needs run provenance from the
-          // route — deferred to M3.)
-          const returned = new Set(answer.suggestions.filter(item => item.status === 'pending' && !before.has(item.id)).map(item => item.id));
-          result = next => next ? tr('xIntelligenceNewSuggestionsN', {
-            n: next.suggestions.filter(item => item.status === 'pending' && returned.has(item.id)).length,
-          }) : null;
         } else {
           let status: 'running' | 'complete' | 'busy' = 'running';
           let visited = 0;
@@ -424,13 +437,17 @@ function IntelligencePanelForAccount({ onChanged, autoGenerate = false, whenOff 
     <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
       <Pill style={actionStyle} testID={ACTION_TEST_ID.analyze} label={t.xIntelligenceAnalyze} size={13} pad={10} kind={confirming === 'analyze' ? 'accent' : 'outline'} expanded={confirming === 'analyze'}
         disabled={busy || !draft.trim()} onPress={() => openConfirm('analyze')} />
-      {recommendationsEnabled ? <Pill style={actionStyle} testID={ACTION_TEST_ID.generate} label={t.xIntelligenceGenerate} size={13} pad={10} kind={confirming === 'generate' ? 'accent' : 'outline'} expanded={confirming === 'generate'}
-        disabled={busy || inbox.observations.length === 0} onPress={() => openConfirm('generate')} /> : null}
+      {planPathOn ? <Pill style={actionStyle} testID="intelligence-plan-flow" label={t.xPlanFromStatement} size={13} pad={10} kind="outline"
+        disabled={busy || plan.state.busy || !draft.trim()} onPress={() => {
+          Keyboard.dismiss();
+          setConfirming(null);
+          plan.fromStatement(draft.trim(), lang);
+        }} /> : null}
       <Pill style={actionStyle} testID={ACTION_TEST_ID.scan} label={t.xIntelligenceGmailScan} size={13} pad={10} kind={confirming === 'scan' ? 'accent' : 'outline'} expanded={confirming === 'scan'}
         disabled={busy} onPress={() => openConfirm('scan')} />
     </View>
     {confirming ? <View testID="intelligence-confirm" style={{ gap: 10, backgroundColor: p.sf2, borderRadius: 14, padding: 12 }}>
-      <View ref={explainRef} accessible testID="intelligence-confirm-explain"><Txt role="supporting">{confirming === 'analyze' ? t.xIntelligenceAnalyzeExplain : confirming === 'generate' ? t.xIntelligenceGenerateExplain : t.xIntelligenceGmailScanExplain}</Txt></View>
+      <View ref={explainRef} accessible testID="intelligence-confirm-explain"><Txt role="supporting">{confirming === 'analyze' ? t.xIntelligenceAnalyzeExplain : t.xIntelligenceGmailScanExplain}</Txt></View>
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
         <Pill testID={`${ACTION_TEST_ID[confirming]}-confirm`} label={t.xIntelligenceRun} size={14} pad={12} disabled={busy}
           onPress={() => void runConfirmed(confirming)} />
@@ -449,6 +466,7 @@ function IntelligencePanelForAccount({ onChanged, autoGenerate = false, whenOff 
       </View> : null}
       </View> : null}
     </LiveRegion>
+    {plan.state.stage.kind !== 'idle' || plan.state.busy || plan.state.error ? <PlanFlowView flow={plan} onRecover={onPlanRecover} /> : null}
     {gmailScanProgress !== null && gmailScanProgress > 0
       ? <Txt role="supporting" color={p.mu} testID="intelligence-gmail-progress">{tr('xIntelligenceGmailScanProgress', { count: gmailScanProgress })}</Txt> : null}
     <Disclosure id="intelligence-gmail-monitor-info" body={t.xIntelligenceGmailMonitorInfo} label={gmailMonitor?.enabled ? t.xIntelligenceGmailMonitorOff : t.xIntelligenceGmailMonitorOn}>

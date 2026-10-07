@@ -643,8 +643,9 @@ describe('when there is no plan for the day', () => {
     jest.spyOn(planEndpoints, 'buildPlan').mockRejectedValueOnce(new NetworkError('no signal') as never);
     await empty();
     await fireEvent.press(screen.getByTestId('plan-build'));
-    await waitFor(() => expect(screen.queryByTestId('plan-build-error')).not.toBeNull());
-    expect(screen.queryByText(en.errorsNetwork)).not.toBeNull();
+    await waitFor(() => expect(screen.queryByTestId('plan-build-failure')).not.toBeNull());
+    // The build's own words for no signal (M3a, image 2), not the generic network line.
+    expect(screen.queryByText(en.xPlanBuildOffline)).not.toBeNull();
     await fireEvent.press(screen.getByTestId('plan-build'));
     await waitFor(() => expect(planEndpoints.buildPlan).toHaveBeenCalledTimes(2));
     await waitFor(() => expect(screen.queryByTestId('plan-why')).not.toBeNull());
@@ -657,7 +658,7 @@ describe('when there is no plan for the day', () => {
       .mockRejectedValue(new ValidationError('a plan can only be built for today or tomorrow', 'date_out_of_range') as never);
     await empty();
     await fireEvent.press(screen.getByTestId('plan-build'));
-    await waitFor(() => expect(screen.queryByTestId('plan-build-error')).not.toBeNull());
+    await waitFor(() => expect(screen.queryByTestId('plan-build-failure')).not.toBeNull());
     expect(screen.queryByText(en.errorsValidation)).not.toBeNull();
     expect(screen.queryByText(/date_out_of_range|today or tomorrow/)).toBeNull();
   });

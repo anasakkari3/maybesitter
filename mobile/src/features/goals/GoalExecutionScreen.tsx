@@ -1,20 +1,17 @@
-import { useClarityStage, useReplayEvent } from '../../clarity/ClarityProvider';
-import { DEFAULT_CADENCE_DRAFT, HabitCadencePicker, cadenceOf, perWeekOf, type CadenceDraft } from '../product/HabitCadencePicker';
+import { useClarityStage } from '../../clarity/ClarityProvider';
 import React from 'react';
 import { TextInput, View } from 'react-native';
 import {
   useCommitment,
-  useConfirmGoalSelections,
   useCreateMemory,
-  useGenerateGoalExecution,
   useGoalExecution,
+  useGoalPlan,
   useHabits,
   useIntelligenceDecided,
   useMemory,
-  useRegenerateGoalExecution,
   useUnlinkGoalNode,
 } from '../../api/queries';
-import type { GoalConfirmationSelection } from '../../api/endpoints/goals';
+import { FeatureUnavailableError } from '../../api/errors';
 import type { GoalGraph } from '../../api/schemas/goals';
 import { QueryBoundary } from '../../api/ui/QueryBoundary';
 import { forbiddenReason, userFacingMessage } from '../../api/ui/userFacingMessage';
@@ -24,29 +21,15 @@ import { fill } from '../../i18n/strings';
 import { useTimeZone } from '../../i18n/timezone';
 import { useApp } from '../../state/AppContext';
 import { Card, Pill, Txt } from '../../ui/primitives';
-import { LiveRegion } from '../../ui/liveRegion';
 import { ProductActions, ProductPage, ProductRow, ProductSection } from '../../ui/product';
+import { PlanFlowView } from '../goalPlan/PlanFlow';
+import { usePlanPathAvailable } from '../goalPlan/planAvailability';
+import type { PlanRecovery } from '../goalPlan/planFailures';
+import { useGoalPlanFlow } from '../goalPlan/useGoalPlanFlow';
 import { currentGoalProgressPeriod } from './progressPeriod';
 import { IntelligencePanel } from './IntelligencePanel';
 
-type ProposalNode = Extract<GoalGraph['nodes'][number], { kind: 'milestone_proposal' | 'decomposition_step_proposal' }>;
 type LinkedNode = Extract<GoalGraph['nodes'][number], { kind: 'linked_commitment' | 'linked_habit' }>;
-type DraftSelection = { as: 'commitment' } | { as: 'habit'; cadence: CadenceDraft; durationMinutes: number };
-
-/**
- * Whether a step may become a habit (audit 2026-10-03, #12, screen 26).
- *
- * The goal planner marks each step it proposes `commitment` or `habit`, and
- * its prompt keeps `habit` for "something repeated every week". A step it
- * marked `commitment` — «Install Node.js and npm» — is a one-off, and offering
- * to repeat it weekly is offering nonsense. A step with no mark (split out of
- * the goal's own sentence, where the engine has no opinion) and a milestone
- * keep the choice: the person knows whether it repeats.
- */
-export function canBecomeHabit(node: ProposalNode): boolean {
-  return !(node.kind === 'decomposition_step_proposal' && node.suggestedAs === 'commitment');
-}
-type Notice = 'saved' | 'partial' | 'stale' | 'refused' | 'unlinked' | null;
 
 export function GoalExecutionScreen() {
   const { t, p, rtl, lang, actions, s } = useApp();
@@ -106,73 +89,44 @@ export function GoalExecutionScreen() {
 }
 
 function GoalDetail({ goalId, title, onBack }: { goalId: string; title: string; onBack: () => void }) {
-  const { t, p, lang } = useApp();
+  const { t, p, lang, actions } = useApp();
   const zone = useTimeZone();
-  const replayEvent = useReplayEvent();
   const period = React.useMemo(() => currentGoalProgressPeriod(new Date(), zone, lang), [lang, zone]);
-  const [generation, setGeneration] = React.useState(1);
-  const [proposalGraph, setProposalGraph] = React.useState<GoalGraph | null>(null);
-  const [selections, setSelections] = React.useState<Record<string, DraftSelection>>({});
-  const [notice, setNotice] = React.useState<Notice>(null);
+  const [notice, setNotice] = React.useState<'unlinked' | null>(null);
   const [unlinking, setUnlinking] = React.useState<string | null>(null);
-  const query = useGoalExecution(goalId, generation, period);
-  const generate = useGenerateGoalExecution(goalId);
-  const regenerate = useRegenerateGoalExecution(goalId);
-  const confirm = useConfirmGoalSelections(goalId);
+  const query = useGoalExecution(goalId, 1, period);
   const unlink = useUnlinkGoalNode(goalId);
-  useClarityStage(confirm.isPending ? 'goal_confirming'
-    : notice === 'saved' ? 'goal_saved'
-      : generate.isPending || regenerate.isPending ? 'goal_generating'
-        : proposalGraph ? 'goal_review' : 'goal_detail');
+  const planView = useGoalPlan(goalId);
+  const pathOn = usePlanPathAvailable();
+  const flow = useGoalPlanFlow();
+  useClarityStage(flow.state.stage.kind === 'result' ? 'goal_saved'
+    : flow.state.busy ? 'goal_generating'
+      : flow.state.goalId ? 'goal_review' : 'goal_detail');
   const canonicalGraph = query.data?.graph;
   const linked = canonicalGraph?.nodes.filter((node): node is LinkedNode => node.kind === 'linked_commitment' || node.kind === 'linked_habit') ?? [];
   const habits = useHabits(linked.some(node => node.kind === 'linked_habit'));
   const progress = query.data?.progress;
-  const reviewGraph = proposalGraph;
-  const proposals = reviewGraph?.nodes.filter((node): node is ProposalNode => node.kind === 'milestone_proposal' || node.kind === 'decomposition_step_proposal') ?? [];
-  const checkpoints = reviewGraph?.nodes.filter(node => node.kind === 'checkpoint') ?? [];
+  // The plan path (M3a) replaced the card-by-card review: one entry, which
+  // opens the whole plan. A confirmed plan is not regenerated (S1): its work is
+  // ordinary commitments and habits now, and the goal shows its progress.
+  const planOff = planView.error instanceof FeatureUnavailableError;
+  const draft = planView.data?.draft ?? null;
+  const confirmedPlan = planView.data?.confirmed ?? null;
+  const showEntry = !planOff && (pathOn || planView.isSuccess) && !confirmedPlan && !flow.state.goalId;
 
-  const beginReview = (graph: GoalGraph) => {
-    setGeneration(graph.generation);
-    setProposalGraph(graph);
-    setSelections({});
-    setNotice(null);
-  };
-  // A step the planner suggested as a habit starts as one; the cadence is
-  // still the person's to pick before anything is saved.
-  const toggle = (node: ProposalNode) => setSelections(current => {
-    if (current[node.nodeId]) {
-      const next = { ...current };
-      delete next[node.nodeId];
-      return next;
+  const onRecover = (recovery: PlanRecovery | 'open_today', detail: { currentGoalId?: string | undefined }) => {
+    switch (recovery) {
+      case 'capture': return actions.go('capture');
+      case 'thoughts': return actions.go('seeds');
+      case 'open_today': return actions.go('today');
+      case 'open_new_goal': return detail.currentGoalId ? actions.openGoal(detail.currentGoalId) : onBack();
+      case 'back_to_goals': flow.reset(); return onBack();
+      default:
+        flow.reset();
+        void planView.refetch();
+        return undefined;
     }
-    const suggestedHabit = node.kind === 'decomposition_step_proposal' && node.suggestedAs === 'habit';
-    return { ...current, [node.nodeId]: suggestedHabit ? { as: 'habit', cadence: DEFAULT_CADENCE_DRAFT, durationMinutes: 30 } : { as: 'commitment' } };
-  });
-  const chooseKind = (nodeId: string, as: 'commitment' | 'habit') => setSelections(current => ({
-    ...current,
-    [nodeId]: as === 'commitment' ? { as } : { as, cadence: DEFAULT_CADENCE_DRAFT, durationMinutes: 30 },
-  }));
-  const updateHabit = (nodeId: string, update: Partial<Extract<DraftSelection, { as: 'habit' }>>) => setSelections(current => {
-    const value = current[nodeId];
-    if (!value || value.as !== 'habit') return current;
-    return { ...current, [nodeId]: { ...value, ...update } };
-  });
-  const confirmationSelections: GoalConfirmationSelection[] = Object.entries(selections).map(([nodeId, value]) => value.as === 'commitment'
-    ? { nodeId, as: 'commitment' }
-    : {
-      nodeId,
-      as: 'habit',
-      habit: {
-        cadence: cadenceOf(value.cadence),
-        durationMinutes: value.durationMinutes,
-        preferredWindows: [],
-        minimumOccurrences: perWeekOf(value.cadence),
-        maximumOccurrences: perWeekOf(value.cadence),
-        flexibility: 'flexible',
-        recoveryPolicy: 'skip',
-      },
-    });
+  };
 
   return <View style={{ gap: 16 }}>
     <Pill testID="goal-back-list" label={t.xGoalBackToGoals} kind="ghost" onPress={onBack} />
@@ -190,6 +144,10 @@ function GoalDetail({ goalId, title, onBack }: { goalId: string; title: string; 
             <Pill testID="goal-refresh" label={query.isFetching ? t.xGoalRefreshing : t.xGoalRefresh} kind="outline" disabled={query.isFetching} onPress={() => void query.refetch()} />
           </ProductActions>
         </ProductSection>
+
+        {confirmedPlan ? <View testID="goal-plan-progress">
+          <ProductSection title={t.xPlanProgressTitle} body={t.xPlanProgressBody} icon="spark" />
+        </View> : null}
 
         {linked.length > 0 ? <ProductSection title={t.xGoalCanonicalWork} body={t.xGoalCanonicalWorkBody} icon="link">
           {linked.map(node => <LinkedWorkRow
@@ -210,139 +168,41 @@ function GoalDetail({ goalId, title, onBack }: { goalId: string; title: string; 
           />)}
         </ProductSection> : null}
 
-        {!reviewGraph ? <ProductSection title={linked.length === 0 ? t.xGoalPlanEmpty : t.xGoalRegenerate} body={linked.length === 0 ? t.xGoalPlanEmptyBody : t.xGoalRegenerateBody} icon="spark">
-          <Pill
-            testID={linked.length === 0 ? 'goal-generate' : 'goal-regenerate'}
-            label={linked.length === 0 ? t.xGoalGenerate : t.xGoalRegenerate}
-            disabled={generate.isPending || regenerate.isPending}
-            onPress={() => linked.length === 0
-              ? generate.mutate(undefined, { onSuccess: beginReview })
-              : regenerate.mutate(canonicalGraph?.generation ?? generation, { onSuccess: beginReview })}
-          />
-          <LiveRegion alert testID="goal-generate-live">
-            {generate.error || regenerate.error ? <View testID="goal-generate-failed" style={{ gap: 4 }}>
-              <Txt role="supporting" color={p.wm}>{t.xGoalGenerateFailed}</Txt>
-              <Txt role="metadata" color={p.mu}>{userFacingMessage(generate.error ?? regenerate.error, t)}</Txt>
-            </View> : null}
-          </LiveRegion>
-        </ProductSection> : <ProposalReview
-          graph={reviewGraph}
-          proposals={proposals}
-          checkpoints={checkpoints}
-          selections={selections}
-          busy={confirm.isPending || regenerate.isPending}
-          error={confirm.error}
-          regenerateError={regenerate.error}
-          onRegenerate={() => regenerate.mutate(reviewGraph.generation, { onSuccess: beginReview })}
-          onToggle={toggle}
-          onChooseKind={chooseKind}
-          onUpdateHabit={updateHabit}
-          onCancel={() => { setProposalGraph(null); setSelections({}); setNotice(null); }}
-          onConfirm={() => confirm.mutate({ generation: reviewGraph.generation, selections: confirmationSelections }, { onSuccess: result => {
-            const stale = result.refused.some(item => item.code === 'unknown_node');
-            setSelections({});
-            setGeneration(result.graph.generation);
-            void query.refetch();
-            if (stale) {
-              setProposalGraph(result.graph);
-              setNotice('stale');
-            } else if (result.refused.length > 0 && result.created.length + result.replayed.length > 0) {
-              setProposalGraph(result.graph);
-              setNotice('partial');
-            } else if (result.refused.length > 0) {
-              setProposalGraph(result.graph);
-              setNotice('refused');
-            } else {
-              setProposalGraph(null);
-              setNotice('saved');
-              replayEvent('goal_confirmed');
-            }
-          } })}
-        />}
+        {showEntry ? <ProductSection title={draft ? t.xPlanOpenDraft : t.xPlanOpen} why={{ id: 'goal-plan', body: t.xPlanEntryWhy }} icon="spark">
+          <Pill testID="goal-plan-open" label={draft ? t.xPlanOpenDraft : t.xPlanOpen} onPress={() => flow.openGoal(goalId, draft)} />
+        </ProductSection> : null}
+        {flow.state.goalId ? <PlanFlowView
+          flow={flow}
+          onRecover={onRecover}
+          linkedWork={linked.length > 0 ? <LinkedWorkNote nodes={linked} /> : null}
+        /> : null}
         {unlink.error ? <Txt role="supporting" color={p.wm}>{userFacingMessage(unlink.error, t)}</Txt> : null}
       </> : null}
     </QueryBoundary>
   </View>;
 }
 
-function NoticeCard({ notice }: { notice: Exclude<Notice, null> }) {
+/** «محفوظ من قبل»: what this goal already has, above a new plan, so a repeat can be removed before approving (S1). */
+function LinkedWorkNote({ nodes }: { nodes: readonly LinkedNode[] }) {
+  const { t } = useApp();
+  return <View testID="plan-linked-work">
+    <ProductSection title={t.xPlanLinkedWork} why={{ id: 'plan-linked-work', body: t.xPlanLinkedWorkWhy }} icon="link">
+      {nodes.map(node => <LinkedTitle key={node.nodeId} node={node} />)}
+    </ProductSection>
+  </View>;
+}
+
+function LinkedTitle({ node }: { node: LinkedNode }) {
+  const { p } = useApp();
+  const commitment = useCommitment(node.kind === 'linked_commitment' ? node.commitmentId : null);
+  const habits = useHabits(node.kind === 'linked_habit');
+  const title = node.kind === 'linked_commitment' ? commitment.data?.title : habits.data?.find(item => item.habitId === node.habitId)?.title;
+  return title ? <Txt role="supporting" color={p.mu}>{isolateAuto(title)}</Txt> : null;
+}
+
+function NoticeCard({ notice }: { notice: 'unlinked' }) {
   const { t, p } = useApp();
-  const copy = notice === 'saved' ? t.xGoalConfirmSuccess
-    : notice === 'partial' ? t.xGoalConfirmPartial
-      : notice === 'stale' ? t.xGoalStale
-        : notice === 'unlinked' ? t.xGoalUnlinkDone
-          : t.xGoalConfirmRefused;
-  return <Card testID={`goal-notice-${notice}`} style={{ gap: 6 }}><Txt role="supporting" color={notice === 'saved' || notice === 'unlinked' ? p.success : p.wm}>{copy}</Txt></Card>;
-}
-
-function suggestedWhenLabel(node: ProposalNode, t: { xGoalWhenToday: string; xGoalWhenThisWeek: string; xGoalWhenThisMonth: string }): string | null {
-  if (node.kind !== 'decomposition_step_proposal') return null;
-  return node.suggestedWhen === 'today' ? t.xGoalWhenToday
-    : node.suggestedWhen === 'this_week' ? t.xGoalWhenThisWeek
-      : node.suggestedWhen === 'this_month' ? t.xGoalWhenThisMonth
-        : null;
-}
-
-function ProposalReview({ graph, proposals, checkpoints, selections, busy, error, regenerateError, onRegenerate, onToggle, onChooseKind, onUpdateHabit, onCancel, onConfirm }: {
-  graph: GoalGraph;
-  proposals: readonly ProposalNode[];
-  checkpoints: readonly Extract<GoalGraph['nodes'][number], { kind: 'checkpoint' }>[];
-  selections: Record<string, DraftSelection>;
-  busy: boolean;
-  error: unknown;
-  regenerateError: unknown;
-  onRegenerate: () => void;
-  onToggle: (node: ProposalNode) => void;
-  onChooseKind: (nodeId: string, as: 'commitment' | 'habit') => void;
-  onUpdateHabit: (nodeId: string, update: Partial<Extract<DraftSelection, { as: 'habit' }>>) => void;
-  onCancel: () => void;
-  onConfirm: () => void;
-}) {
-  const { t, tr, p, lang } = useApp();
-  return <ProductSection title={t.xGoalProposalTitle} body={t.xGoalProposalNotSaved} icon="spark">
-    {proposals.length === 0 ? <Txt testID="goal-proposal-empty" role="supporting" color={p.mu}>{t.xGoalProposalEmpty}</Txt> : proposals.map(node => {
-      const selected = selections[node.nodeId];
-      return <Card key={node.nodeId} style={{ gap: 10 }}>
-        <ProductRow
-          id={`goal-proposal-${node.nodeId}`}
-          title={isolateAuto(node.title)}
-          body={[
-            selected ? t.xGoalSelected : t.xGoalSelectStep,
-            suggestedWhenLabel(node, t),
-            !selected && node.kind === 'decomposition_step_proposal' && node.suggestedAs === 'habit' ? t.xGoalSuggestedHabit : null,
-            node.statedTiming ? `${t.xGoalStatedTiming}: ${isolateAuto(node.statedTiming)}` : null,
-          ].filter(Boolean).join(' · ')}
-          icon={node.kind === 'milestone_proposal' ? 'goal' : 'check'}
-          onPress={() => onToggle(node)}
-        />
-        {selected ? <>
-          {canBecomeHabit(node) ? <ProductActions>
-            <Pill testID={`goal-kind-commitment-${node.nodeId}`} label={t.xGoalAsCommitment} kind={selected.as === 'commitment' ? 'accent' : 'outline'} onPress={() => onChooseKind(node.nodeId, 'commitment')} />
-            <Pill testID={`goal-kind-habit-${node.nodeId}`} label={t.xGoalAsHabit} kind={selected.as === 'habit' ? 'accent' : 'outline'} onPress={() => onChooseKind(node.nodeId, 'habit')} />
-          </ProductActions> : null}
-          {selected.as === 'habit' ? <>
-            <Txt role="supporting" color={p.mu}>{t.xHabitConfirmationBody}</Txt>
-            <HabitCadencePicker value={selected.cadence} onChange={cadence => onUpdateHabit(node.nodeId, { cadence })} testIDPrefix={`goal-${node.nodeId}`} />
-            <ProductActions>{[15, 30, 45, 60].map(value => <Pill key={value} label={tr('xMinutes', { count: value })} kind={selected.durationMinutes === value ? 'accent' : 'outline'} onPress={() => onUpdateHabit(node.nodeId, { durationMinutes: value })} />)}</ProductActions>
-          </> : null}
-        </> : null}
-      </Card>;
-    })}
-    {checkpoints.length > 0 ? <Card style={{ gap: 8 }}><Txt role="label">{t.xCheckpoints}</Txt>{checkpoints.map(node => <ProductRow key={node.nodeId} title={isolateAuto(node.title)} icon="goal" />)}</Card> : null}
-    {error ? <Txt role="supporting" color={p.wm}>{userFacingMessage(error, t)}</Txt> : null}
-    <LiveRegion alert testID="goal-generate-live">
-      {regenerateError ? <View testID="goal-generate-failed" style={{ gap: 4 }}>
-        <Txt role="supporting" color={p.wm}>{t.xGoalGenerateFailed}</Txt>
-        <Txt role="metadata" color={p.mu}>{userFacingMessage(regenerateError, t)}</Txt>
-      </View> : null}
-    </LiveRegion>
-    <ProductActions>
-      <Pill testID="goal-confirm-selected" label={t.xGoalConfirmSelected} disabled={busy || Object.keys(selections).length === 0} onPress={onConfirm} />
-      <Pill testID="goal-review-regenerate" label={t.xGoalSuggestOthers} kind="outline" disabled={busy} onPress={onRegenerate} />
-      <Pill label={t.cancel} kind="outline" disabled={busy} onPress={onCancel} />
-    </ProductActions>
-    <Txt role="metadata" color={p.mu}>{fill(t.xGoalGeneration, { count: formatNumber(graph.generation, { locale: lang }) })}</Txt>
-  </ProductSection>;
+  return <Card testID={`goal-notice-${notice}`} style={{ gap: 6 }}><Txt role="supporting" color={p.success}>{t.xGoalUnlinkDone}</Txt></Card>;
 }
 
 function LinkedWorkRow({ node, progress, habit, habitPending, unlinking, busy, onAskUnlink, onCancelUnlink, onUnlink }: {

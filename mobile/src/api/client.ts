@@ -6,6 +6,10 @@ import {
   IcsFeedRefusedError,
   GoogleRefusedError,
   WeeklyBlockRefusedError,
+  GoalPlanRefusedError,
+  GOAL_PLAN_REASONS,
+  type GoalPlanReason,
+  PlanBuildRefusedError,
   ConfirmationRequiredError,
   ConflictError,
   ProposalChangedError,
@@ -45,6 +49,7 @@ import { proposalChangedChatSchema, proposalChangedProposalSchema } from './sche
 import { planEditRejectedSchema, planProposalRejectedSchema, weekConflictSchema, weekEmptyDaySchema } from './schemas/plan';
 import { icsFeedRefusalSchema } from './schemas/icsFeeds';
 import { googleRefusalSchema } from './schemas/google';
+import { goalPlanSchema, goalPlanTimesSchema } from './schemas/goalPlan';
 
 /**
  * One function every screen's data goes through.
@@ -291,8 +296,57 @@ const GOOGLE_ROUTES = '/api/mobile/integrations/google';
 /** The weekly fixed-block routes («ثابت أسبوعي»), which refuse with a `code`. */
 const WEEKLY_BLOCK_ROUTES = '/api/mobile/weekly-blocks';
 
+/**
+ * The plan path's routes (M3a): `/goals/:id/plan…`, `/goals/:id/plans/…`,
+ * `/goals/plans/upcoming` and `/goals/from-statement/…`. Only these answer
+ * with a `GoalPlanRefusedError`; the goal execution routes beside them keep
+ * the generic classes they always had.
+ */
+function isGoalPlanPath(path: string): boolean {
+  return /^\/api\/mobile\/goals\/(?:[^/]+\/plans?(?:\/|$)|plans\/|from-statement\/)/.test(path);
+}
+
+function goalPlanRefusal(status: number, body: unknown): GoalPlanRefusedError | null {
+  if (!body || typeof body !== 'object') return null;
+  const record = body as Record<string, unknown>;
+  const reason = GOAL_PLAN_REASONS.find(candidate => candidate === record.reason) as GoalPlanReason | undefined;
+  if (!reason) return null;
+  // The payloads are what the screen redraws from, so they are parsed; one
+  // that does not parse is dropped, and the screen reads the plan again.
+  const plan = goalPlanSchema.safeParse(record.plan);
+  const times = goalPlanTimesSchema.safeParse(record.times);
+  const classification = record.classification === 'event' || record.classification === 'task' || record.classification === 'thought'
+    ? record.classification : undefined;
+  return new GoalPlanRefusedError(reason, status, {
+    ...(plan.success ? { plan: plan.data } : {}),
+    ...(times.success ? { times: times.data } : {}),
+    ...(typeof record.question === 'string' ? { question: record.question } : {}),
+    ...(classification ? { classification } : {}),
+    ...(typeof record.recovery === 'string' ? { recovery: record.recovery } : {}),
+    ...(typeof record.currentGoalId === 'string' ? { currentGoalId: record.currentGoalId } : {}),
+  });
+}
+
+/** «اعمل خطة اليوم» (image 2): the build route answers a closed reason when it cannot finish. */
+function planBuildRefusal(status: number, body: unknown): PlanBuildRefusedError | null {
+  if (status < 400 || !body || typeof body !== 'object') return null;
+  const record = body as { reason?: unknown; retryable?: unknown };
+  if (typeof record.reason !== 'string' || !/^[a-z_]{1,64}$/.test(record.reason)) return null;
+  return new PlanBuildRefusedError(record.reason, record.retryable === true);
+}
+
 function errorForStatus(status: number, body: unknown, path?: string): Error {
   const { message, reason } = refusal(body);
+  // A switched-off module stays a FeatureUnavailableError on every path, so
+  // the plan entries hide the way every other gated feature does.
+  if (path !== undefined && isGoalPlanPath(path) && reason !== 'feature_unavailable') {
+    const planRefusal = goalPlanRefusal(status, body);
+    if (planRefusal) return planRefusal;
+  }
+  if (path !== undefined && /^\/api\/mobile\/plans\/[^/]+\/build$/.test(path) && reason !== 'feature_unavailable') {
+    const buildRefusal = planBuildRefusal(status, body);
+    if (buildRefusal) return buildRefusal;
+  }
   // The calendar feed routes (UC-3.4, #188) answer with their own reason at
   // several statuses; the reason is what the screen needs, so it is kept. The
   // body is parsed rather than trusted, like every other refusal here.
