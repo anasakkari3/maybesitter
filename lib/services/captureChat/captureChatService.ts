@@ -47,7 +47,8 @@ import type { CaptureProposalContract } from '../../../src/contracts/v1/captureC
 import { resolveModuleRuntime, type RuntimeControlSnapshot } from '../../../src/contracts/v1/runtimeControls';
 import { screenForInjection } from '../../../src/extraction/injectionBoundary';
 import { CAPTURE_MIN_CALL_TIMEOUT_MS, LLMUnavailableError, type LLMProviderFunction } from '../../../src/extraction/llm/llmProvider';
-import { bareHalfOfDayAnswer, dayPartHour, instantFromLocal, localTimeSpecFor, namesAnyNumber, nonNegatedHalfOfDay, withoutNegatedDayPart } from '../../../src/extraction/timeLexicon';
+import { clockTimesIn } from '../../../src/extraction/ruleBasedExtractor';
+import { bareHalfOfDayAnswer, dayPartHour, instantFromLocal, localTimeSpecFor, withoutNegatedDayPart } from '../../../src/extraction/timeLexicon';
 import { geminiChatSchemaFor } from '../../../src/extraction/ollamaExtractionSchema';
 import { getAiConsent } from '../../consents/aiConsentService';
 import { CHAT_TIMEOUT_MS, captureLlmProvider } from '../../llm/captureProvider';
@@ -57,7 +58,7 @@ import { chatEvidenceFrom, chatTimeAllowance, chatUserTurnsWithAcceptedOffers, i
 import { isTimeOnlyText } from '../../../src/extraction/clauseSplitter';
 import { clarifyMobileCapture, proposalCollisionCandidates, proposeMobileChatTurn, readMobileChatProposal } from '../mobile/mobileCaptureService';
 import { dateFromOptionalIso, normalizeTimezone } from '../mobile/time';
-import { buildChatPrompt, parseChatModelAnswer, validateChatCitations, type ChatModelAnswer, type ChatPromptItem } from './chatPrompt';
+import { buildChatPrompt, oneUnambiguousClockIn, parseChatModelAnswer, validateChatCitations, type ChatModelAnswer, type ChatPromptItem } from './chatPrompt';
 import { conflictForPrompt, readPersonSchedule, scheduleForPrompt, withItemConflicts, withProposalClashes, type PersonSchedule } from './chatConflicts';
 import { clashKey, withConflictsNamed } from './chatWhy';
 import { detectChatLanguage, safeChatReply, templateReply, withShapeNoted, withWeeklyOffer, type ChatLanguage } from './chatReply';
@@ -105,6 +106,19 @@ function modelClockFrom(fields: Record<string, unknown>, timezone: string): { da
     date: typeof spec?.date === 'string' ? spec.date : derived?.date ?? null,
     time: typeof spec?.time === 'string' ? spec.time : derived?.time ?? null,
   };
+}
+
+/** The two complete forms that may answer an AM/PM card without guessing. */
+function agreedAmPmAnswerClock(source: string, modelTime: string | null, askedTime: string | null): string | null {
+  const half = bareHalfOfDayAnswer(source);
+  if (half && askedTime) {
+    const statedHour = Number(askedTime.slice(0, 2)) % 12;
+    const hour = half === 'am' ? statedHour : statedHour + 12;
+    return `${String(hour).padStart(2, '0')}:${askedTime.slice(3, 5)}`;
+  }
+  if (/ish\b/i.test(source)) return null;
+  const stated = oneUnambiguousClockIn(source);
+  return stated && modelTime === stated ? stated : null;
 }
 
 function visibleProposalState(proposal: CaptureChatProposal | null): unknown {
@@ -571,17 +585,41 @@ export async function chatMobileCapture(
         && sameStoredField('recurrenceHint')
         && sameStoredField('allDay');
     };
-    const noOpRefs = new Set(answer.open.filter((operation) => samePoint(operation)).map((operation) => operation.ref));
-    const open = answer.open.map((operation) => noOpRefs.has(operation.ref)
-      ? { ref: operation.ref, op: 'keep' as const }
-      : operation);
     const amPmAskedRefs = new Set(listed.filter((item) => {
       const entityId = read ? Object.entries(read.refs).find(([, ref]) => ref === item.ref)?.[0] : undefined;
       return entityId && current?.items.find((entry) => entry.itemId === entityId)?.clarification?.questionKey === 'ask_am_pm';
     }).map((item) => item.ref));
+    const noOpRefs = new Set(answer.open.filter((operation) => !amPmAskedRefs.has(operation.ref) && samePoint(operation)).map((operation) => operation.ref));
+    const open = answer.open.map((operation) => noOpRefs.has(operation.ref)
+      ? { ref: operation.ref, op: 'keep' as const }
+      : operation);
     const cited = current ? validateChatCitations({ ...answer, open }, message, { now, timezone, amPmAskedRefs }) : null;
     if (current && !cited) {
       return finish(templateReply({ language, proposal: current, editFailed: true }), 'model', current, turns, { conflictsKnown: true });
+    }
+    if (current && cited?.timeDisagrees) {
+      return finish(templateReply({ language, proposal: current, timeUnclear: true }), 'model', current, turns, { conflictsKnown: true });
+    }
+    const trustedClockByRef = new Map<string, string>();
+    let citedUpdateIndex = 0;
+    for (const operation of open) {
+      if (operation.op !== 'update') continue;
+      const source = cited?.deltaSources[citedUpdateIndex++] ?? message;
+      if (!operation.fields || typeof operation.fields !== 'object' || Array.isArray(operation.fields)) continue;
+      const modelTime = modelClockFrom(operation.fields as Record<string, unknown>, timezone).time;
+      if (!amPmAskedRefs.has(operation.ref)) {
+        if (modelTime && clockTimesIn(source).length === 0 && dayPartHour(source, { answer: true }) !== null) {
+          trustedClockByRef.set(operation.ref, modelTime);
+        }
+        continue;
+      }
+      const entityId = read ? Object.entries(read.refs).find(([, ref]) => ref === operation.ref)?.[0] : undefined;
+      const stored = entityId ? read?.resultsByItemId.get(entityId) : undefined;
+      const answered = agreedAmPmAnswerClock(source, modelTime, stored?.localTimeSpec?.time ?? null);
+      if (!answered) {
+        return finish(templateReply({ language, proposal: current, timeUnclear: true }), 'model', current, turns, { conflictsKnown: true });
+      }
+      trustedClockByRef.set(operation.ref, answered);
     }
     let updateSourceIndex = 0;
     const resolvedOpen = open.map((operation) => {
@@ -594,13 +632,10 @@ export async function chatMobileCapture(
       const askedTime = stored?.localTimeSpec?.time;
       if (!half || !askedTime) return operation;
       const fields = operation.fields as Record<string, unknown>;
-      const date = modelClockFrom(fields, timezone).date ?? stored?.localTimeSpec?.date;
+      const date = stored?.localTimeSpec?.date;
       if (!date) return operation;
-      const statedHour = Number(askedTime.slice(0, 2)) % 12;
-      // This is an answer to the card's binary AM/PM question: every evening
-      // or night form selects that card's PM option, preserving the minute.
-      const hour = half === 'am' ? statedHour : statedHour + 12;
-      const time = `${String(hour).padStart(2, '0')}:${askedTime.slice(3, 5)}`;
+      const time = trustedClockByRef.get(operation.ref);
+      if (!time) return operation;
       const instant = instantFromLocal(date, time, timezone)?.toISOString();
       if (!instant) return operation;
       return {
@@ -616,26 +651,7 @@ export async function chatMobileCapture(
       };
     });
     const modelUpdates = resolvedOpen.filter((operation) => operation.op === 'update');
-    const answeredAmPmClocks = modelUpdates.map((operation, index) => {
-      const entityId = read ? Object.entries(read.refs).find(([, ref]) => ref === operation.ref)?.[0] : undefined;
-      const card = entityId ? current?.items.find((item) => item.itemId === entityId) : undefined;
-      const stored = entityId ? read?.resultsByItemId.get(entityId) : undefined;
-      const source = cited?.deltaSources[index] ?? message;
-      const half = card?.clarification?.questionKey === 'ask_am_pm' ? nonNegatedHalfOfDay(source) : null;
-      if (!half) return null;
-      const spec = operation.fields && typeof operation.fields === 'object' && !Array.isArray(operation.fields)
-        ? (operation.fields as Record<string, unknown>).localTimeSpec
-        : null;
-      const modelTime = spec && typeof spec === 'object' && !Array.isArray(spec)
-        && typeof (spec as Record<string, unknown>).time === 'string'
-        ? (spec as Record<string, string>).time
-        : null;
-      if (namesAnyNumber(source) || !stored?.localTimeSpec?.time) return modelTime;
-      const askedTime = stored.localTimeSpec.time;
-      const statedHour = Number(askedTime.slice(0, 2)) % 12;
-      const hour = half === 'am' ? statedHour : statedHour + 12;
-      return `${String(hour).padStart(2, '0')}:${askedTime.slice(3, 5)}`;
-    });
+    const answeredAmPmClocks = modelUpdates.map((operation) => trustedClockByRef.get(operation.ref) ?? null);
     const addedItems = cited?.added ?? answer.added.map((entry) => {
       if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return entry;
       const { source: _source, ...fields } = entry as Record<string, unknown>;

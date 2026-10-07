@@ -288,11 +288,7 @@ test('«خلّيها الساعة 6 المسا» moves the time, and the reply s
 
 /* ── 3. an hour or a day nobody said ────────────────────────────── */
 
-test('with one changing operation, the cited hour wins when the model hour disagrees', async () => {
-  // The person said 5pm and then 6pm for the dentist; the model put it at
-  // 7pm. The conversation states times, so the validator's "no time at all"
-  // rule does not fire. There is no sibling operation whose fact could have
-  // been swapped in, so the boundary applies the one hour the citation says.
+test('with one changing operation, a cited hour that disagrees with the model rolls back and asks', async () => {
   const model = scripted(
     answer('Dentist tomorrow at 5pm. Confirm if right.', 'propose', [item('Call the dentist', TOMORROW, '17:00')]),
     answer('Dentist at 7pm then. Confirm if right.', 'update', [item('Call the dentist', TOMORROW, '19:00')], ['hmm, or maybe 6pm']),
@@ -303,10 +299,12 @@ test('with one changing operation, the cited hour wins when the model hour disag
     const first = await chat(uid, 'Remind me to call the dentist tomorrow at 5pm');
     const body = await chat(uid, 'hmm, or maybe 6pm', first.conversationId);
     const [dentist] = body.proposal!.items;
-    assert.equal(dentist!.resolvedTime, instant(TOMORROW, '18:00'), 'the cited hour did not replace the model hour');
+    assert.equal(dentist!.resolvedTime, instant(TOMORROW, '17:00'), 'a disagreeing hour changed the point');
     assert.equal(dentist!.needsClarification, false);
     assert.equal(dentist!.resolvedDate, TOMORROW, 'the day the person did say was lost with the hour');
-    assert.doesNotMatch(body.reply, /couldn't apply/i);
+    assert.match(body.reply, /time wasn't clear/i);
+    assert.match(body.reply, /what time/i);
+    assert.doesNotMatch(body.reply, /changed/i);
   } finally {
     end();
   }
@@ -338,33 +336,54 @@ test('beside another item, a model hour for one item is replaced by the hour the
   }
 });
 
-test('an AM/PM card forces its old hour only for a bare, positive half-day answer', async () => {
+test('an AM/PM card accepts only a bare half or one stated clock that agrees with the model', async () => {
   const friday = weekday('Friday');
   const cases = [
-    ['ar-night-not-morning', 'بالليل مش الصبح', '19:00'],
-    ['ar-not-morning-evening', 'مش الصبح، المسا', '19:00'],
-    ['ar-only-negated-morning', 'لا مش الصبح', null],
-    ['en-evening-not-morning', 'evening, not morning', '19:00'],
-    ['he-evening-not-morning', 'בערב, לא בבוקר', '19:00'],
-    ['ar-bare-no-evening', 'لا المسا', '19:00'],
-    ['ar-bare-wish', 'المسا يا ريت', '19:00'],
-    ['ar-bare-please', 'لا، المسا لو سمحت', '19:00'],
-    ['en-bare-please', 'evening please', '19:00'],
-    ['en-bare-choice', 'the evening one', '19:00'],
-    ['he-bare-please', 'בערב בבקשה', '19:00'],
-    ['ar-half-hour', '8 ونص المسا', '20:30'],
-    ['ar-quarter-hour', '8 وربع المسا', '20:15'],
-    ['he-half-hour', '8 וחצי בערב', '20:30'],
-    ['ar-spoken-hour', 'لا، تمنة بالليل', '20:00'],
-    ['he-spoken-hour', 'שמונה בערב', '20:00'],
-    ['en-spoken-evening', 'eight in the evening', '20:00'],
-    ['en-spoken-morning', 'nine in the morning', '09:00'],
+    ['ar-night-not-morning', 'بالليل مش الصبح', null, '19:00'],
+    ['ar-not-morning-evening', 'مش الصبح، المسا', null, '19:00'],
+    ['ar-not-the-morning', 'مش وقت الصبح', null, '19:00'],
+    ['ar-only-negated-morning', 'لا مش الصبح', null, '19:00'],
+    ['en-evening-not-morning', 'evening, not the morning', null, '19:00'],
+    ['en-only-negated-morning', 'not the morning', null, '19:00'],
+    ['he-evening-not-morning', 'בערב, לא בבוקר', null, '19:00'],
+    ['ar-echo', 'الصبح ولا المسا؟', null, '19:00'],
+    ['en-echo', 'morning or evening?', null, '19:00'],
+    ['he-echo', 'בבוקר או בערב?', null, '19:00'],
+    ['ar-neither', 'مش الصبح ولا المسا', null, '19:00'],
+    ['he-neither', 'לא בבוקר ולא בערב', null, '19:00'],
+    ['ar-unknown-nine', 'تسعه المسا', null, '21:00'],
+    ['ar-unknown-nine-night', 'لا، تسعه بالليل', null, '21:00'],
+    ['ar-unknown-seven-half', 'سبعه ونص المسا', null, '19:30'],
+    ['ar-unknown-eight', 'تمانيه المسا', null, '20:00'],
+    ['ar-unknown-eleven', 'حداشر بالليل', null, '23:00'],
+    ['en-unknown-half-past', 'in the evening, half past', null, '19:30'],
+    ['en-unknown-eightish', 'eightish in the evening', null, '20:00'],
+    ['en-tonight-is-not-a-bare-half', 'tonight', null, '20:00'],
+    ['ar-bare-no-evening', 'لا المسا', '19:00', '18:00'],
+    ['ar-bare-wish', 'المسا يا ريت', '19:00', '18:00'],
+    ['ar-bare-please', 'لا، المسا لو سمحت', '19:00', '18:00'],
+    ['ar-bare-tanwin', 'مساءً', '19:00', '19:00'],
+    ['ar-bare-near', 'يعني المسا اكيد', '19:00', '18:00'],
+    ['en-bare-please', 'evening please', '19:00', '18:00'],
+    ['en-bare-choice', 'the evening one', '19:00', '18:00'],
+    ['en-bare-near', 'in the evening I guess', '19:00', '18:00'],
+    ['he-bare-please', 'בערב בבקשה', '19:00', '18:00'],
+    ['he-bare-thanks', 'בערב תודה', '19:00', '18:00'],
+    ['ar-half-hour', '8 ونص المسا', '20:30', '20:30'],
+    ['ar-quarter-hour', '8 وربع المسا', '20:15', '20:15'],
+    ['he-half-hour', '8 וחצי בערב', '20:30', '20:30'],
+    ['ar-spoken-hour', 'لا، تمنة بالليل', null, '20:00'],
+    ['he-spoken-hour', 'שמונה בערב', null, '20:00'],
+    ['en-spoken-evening', 'eight in the evening', null, '20:00'],
+    ['en-spoken-morning', 'nine in the morning', null, '09:00'],
+    ['en-digit-evening', '8 in the evening', '20:00', '20:00'],
+    ['he-digit-evening', 'ב-8 בערב', '20:00', '20:00'],
   ] as const;
-  for (const [label, message, expected] of cases) {
+  for (const [label, message, expected, modelTime] of cases) {
     const model = scripted(
       answer('Call mom tomorrow at 5 PM.', 'propose', [item('Call mom', TOMORROW, '17:00')]),
       answer('Morning or evening?', 'update', [item('Call mom', friday, '19:00')], ['move it to Friday at 7']),
-      answer('Done.', 'update', [item('Call mom', friday, expected ?? '19:00')], [message]),
+      answer('Done.', 'update', [item('Call mom', friday, modelTime)], [message]),
     );
     begin({ llmProviderFor: () => model.provider });
     try {
@@ -374,14 +393,19 @@ test('an AM/PM card forces its old hour only for a bare, positive half-day answe
       assert.equal(asking.proposal!.items[0]!.resolvedTime, null, `${label}: the card did not ask AM/PM`);
       const answered = await chat(uid, message, first.conversationId);
       assert.equal(localClock(answered.proposal!.items[0]!.resolvedTime), expected, label);
-      if (expected === null) assert.equal(answered.proposal!.items[0]!.needsClarification, true, label);
+      if (expected === null) {
+        assert.equal(answered.proposal!.proposalId, asking.proposal!.proposalId, `${label}: the card changed`);
+        assert.equal(answered.proposal!.items[0]!.needsClarification, true, label);
+        assert.match(answered.reply, /[?؟]/, `${label}: ${answered.reply}`);
+        assert.doesNotMatch(answered.reply, /changed|غيّرتها|שיניתי/i, label);
+      }
     } finally {
       end();
     }
   }
 });
 
-test('a negated half-day answer applies to every AM/PM card without treating the negated half as positive', async () => {
+test('a negated half-day answer leaves every AM/PM card asking', async () => {
   const firstItems = [item('أتصل بأمي', TOMORROW, '17:00'), item('ادفع الفاتورة', TOMORROW, '18:00')];
   const askingItems = [item('أتصل بأمي', TOMORROW, '19:00'), item('ادفع الفاتورة', TOMORROW, '20:00')];
   const model = scripted(
@@ -396,9 +420,41 @@ test('a negated half-day answer applies to every AM/PM card without treating the
     const asking = await chat(uid, 'خلي الاتصال الساعة 7 والفاتورة الساعة 8', first.conversationId);
     assert.deepEqual(asking.proposal!.items.map((entry) => entry.resolvedTime), [null, null]);
     const answered = await chat(uid, 'التنين المسا مش الصبح', first.conversationId);
-    assert.deepEqual(answered.proposal!.items.map((entry) => localClock(entry.resolvedTime)), ['19:00', '20:00']);
+    assert.deepEqual(answered.proposal!.items.map((entry) => localClock(entry.resolvedTime)), [null, null]);
+    assert.equal(answered.proposal!.proposalId, asking.proposal!.proposalId);
+    assert.doesNotMatch(answered.reply, /changed|غيّرتها|שיניתי/i);
   } finally {
     end();
+  }
+});
+
+test('an AM/PM card accepts a stated clock only when the model agrees, and rejects several clocks', async () => {
+  const friday = weekday('Friday');
+  for (const [label, message, modelTime, expected] of [
+    ['agrees', 'لا، 8 المسا', '20:00', '20:00'],
+    ['disagrees', 'لا، 8 المسا', '19:00', null],
+    ['several', '8 المسا أو 9 المسا', '20:00', null],
+  ] as const) {
+    const model = scripted(
+      answer('First.', 'propose', [item('أتصل بأمي', TOMORROW, '17:00')]),
+      answer('الصبح ولا المسا؟', 'update', [item('أتصل بأمي', friday, '19:00')], ['خليها يوم الجمعة الساعة 7']),
+      answer('تمام، غيّرتها.', 'update', [item('أتصل بأمي', friday, modelTime)], [message]),
+    );
+    begin({ llmProviderFor: () => model.provider });
+    try {
+      const uid = uidFor(`AmPmAgreement-${label}`);
+      const first = await chat(uid, 'لازم اتصل بأمي بكرا الساعة 5 المسا');
+      const asking = await chat(uid, 'خليها يوم الجمعة الساعة 7', first.conversationId);
+      const answered = await chat(uid, message, first.conversationId);
+      assert.equal(localClock(answered.proposal!.items[0]!.resolvedTime), expected, label);
+      if (expected === null) {
+        assert.equal(answered.proposal!.proposalId, asking.proposal!.proposalId);
+        assert.match(answered.reply, /أي ساعة|الصبح ولا المسا/);
+        assert.doesNotMatch(answered.reply, /غيّرتها/);
+      }
+    } finally {
+      end();
+    }
   }
 });
 
@@ -416,6 +472,96 @@ test('the AM/PM rewrite is not run for a settled card', async () => {
     assert.equal(changed.reply, 'Done.');
   } finally {
     end();
+  }
+});
+
+test('a settled card applies a half-day change with no clock instead of silently keeping the old time', async () => {
+  const cases = [
+    ['en', 'Call mom', 'make it in the evening, not the morning', 'Done.'],
+    ['ar', 'أتصل بأمي', 'خليها بالليل مش الصبح', 'تمام، غيّرتها.'],
+    ['he', 'להתקשר לאמא', 'תעביר את זה לערב, לא בבוקר', 'בסדר, שיניתי.'],
+  ] as const;
+  for (const [label, title, message, reply] of cases) {
+    const model = scripted(
+      answer('First.', 'propose', [item(title, TOMORROW, '09:00')]),
+      answer(reply, 'update', [item(title, TOMORROW, '21:00')], [message]),
+    );
+    begin({ llmProviderFor: () => model.provider });
+    try {
+      const uid = uidFor(`SettledHalf-${label}`);
+      const first = await chat(uid, `${title} tomorrow at 9 AM`);
+      const changed = await chat(uid, message, first.conversationId);
+      assert.equal(localClock(changed.proposal!.items[0]!.resolvedTime), '21:00', label);
+      assert.notEqual(changed.proposal!.proposalId, first.proposal!.proposalId, label);
+    } finally {
+      end();
+    }
+  }
+});
+
+test('"tonight" keeps the model\'s today instead of carrying the stored day', async () => {
+  const today = localDate(0);
+  const model = scripted(
+    answer('First.', 'propose', [item('Call mom', TOMORROW, '17:00')]),
+    answer('Done.', 'update', [item('Call mom', today, '20:00')], ['make it tonight']),
+  );
+  begin({ llmProviderFor: () => model.provider });
+  try {
+    const uid = uidFor('TonightUsesToday');
+    const first = await chat(uid, 'Call mom tomorrow at 5 PM');
+    const changed = await chat(uid, 'make it tonight', first.conversationId);
+    assert.equal(changed.proposal!.items[0]!.resolvedDate, today);
+    assert.equal(localClock(changed.proposal!.items[0]!.resolvedTime), '20:00');
+  } finally {
+    end();
+  }
+});
+
+test('a contextual clock that differs from the model rolls back in English, Arabic and Hebrew', async () => {
+  const friday = weekday('Friday');
+  const cases = [
+    ['en', 'Call mom', 'move it to Friday, I\'m busy until 7 PM', '17:00', /time wasn't clear/i],
+    ['ar', 'أتصل بأمي', 'خليها يوم الجمعة، بخلص شغل الساعة 7 المسا', '17:00', /الساعة مش واضحة/],
+    ['he', 'להתקשר לאמא', 'תעביר את זה ליום שישי, אני עובד עד 7 בערב', '17:00', /השעה לא הייתה ברורה/],
+  ] as const;
+  for (const [label, title, message, modelTime, expectedReply] of cases) {
+    const model = scripted(
+      answer('First.', 'propose', [item(title, TOMORROW, '17:00')]),
+      answer('Done.', 'update', [item(title, friday, modelTime)], [message]),
+    );
+    begin({ llmProviderFor: () => model.provider });
+    try {
+      const uid = uidFor(`ContextClock-${label}`);
+      const first = await chat(uid, `${title} tomorrow at 5 PM`);
+      const changed = await chat(uid, message, first.conversationId);
+      assert.equal(changed.proposal!.proposalId, first.proposal!.proposalId, label);
+      assert.equal(changed.proposal!.items[0]!.resolvedDate, TOMORROW, label);
+      assert.equal(localClock(changed.proposal!.items[0]!.resolvedTime), '17:00', label);
+      assert.match(changed.reply, expectedReply, `${label}: ${changed.reply}`);
+      assert.match(changed.reply, /[?؟]/, `${label}: ${changed.reply}`);
+      assert.doesNotMatch(changed.reply, /changed|غيّرتها|שיניתי/i, label);
+    } finally {
+      end();
+    }
+  }
+});
+
+test('"make it 7 PM" applies only when the model also says 19:00', async () => {
+  for (const [modelTime, applies] of [['19:00', true], ['07:00', false]] as const) {
+    const model = scripted(
+      answer('First.', 'propose', [item('Call mom', TOMORROW, '17:00')]),
+      answer('Done.', 'update', [item('Call mom', TOMORROW, modelTime)], ['make it 7 PM']),
+    );
+    begin({ llmProviderFor: () => model.provider });
+    try {
+      const uid = uidFor(`ExactClock-${modelTime}`);
+      const first = await chat(uid, 'Call mom tomorrow at 5 PM');
+      const changed = await chat(uid, 'make it 7 PM', first.conversationId);
+      assert.equal(localClock(changed.proposal!.items[0]!.resolvedTime), applies ? '19:00' : '17:00');
+      if (!applies) assert.match(changed.reply, /what time/i);
+    } finally {
+      end();
+    }
   }
 });
 
@@ -498,7 +644,7 @@ test('a stated range end is checked against model endAt when several operations 
     const changed = await chat(uid, message, first.conversationId);
     assert.equal(changed.proposal!.items.length, 1);
     assert.equal(localClock(changed.proposal!.items[0]!.resolvedTime), '17:00');
-    assert.match(changed.reply, /couldn't apply/i);
+    assert.match(changed.reply, /time wasn't clear/i);
   } finally {
     end();
   }
@@ -599,7 +745,10 @@ test('the mixed recurrence owner is identified in the Arabic whole-message form'
   const friday = weekday('Friday');
   const model = scripted(
     answer('تمام.', 'propose', [item('أتصل بأمي', TOMORROW, '17:00'), item('ادفع الفاتورة', TOMORROW, '18:00')]),
-    answer('تمام.', 'update', [item('أتصل بأمي', weekday('Tuesday'), '17:00'), item('ادفع الفاتورة', friday, '18:00')], [message, message]),
+    answer('تمام.', 'update', [
+      item('أتصل بأمي', weekday('Tuesday'), '17:00', { recurrenceHint: { weekdays: [2, 4], start: '17:00' } }),
+      item('ادفع الفاتورة', friday, '18:00'),
+    ], [message, message]),
   );
   begin({ llmProviderFor: () => model.provider });
   try {
@@ -611,6 +760,76 @@ test('the mixed recurrence owner is identified in the Arabic whole-message form'
     assert.doesNotMatch(changed.reply, /ما قدرت|ما زبطت/);
   } finally {
     end();
+  }
+});
+
+test('recurrence ownership comes from the recurrence clause and matching multi-day fields, never order or a hint alone', async () => {
+  const friday = weekday('Friday');
+  const saturday = weekday('Saturday');
+  const tuesday = weekday('Tuesday');
+  const cases = [
+    {
+      label: 'reverse-en',
+      message: 'Move the bill to Friday and make the call every Tuesday and Thursday',
+      titles: ['Call mom', 'Pay the bill'],
+      fields: [
+        item('Call mom', tuesday, '17:00', { recurrenceHint: { weekdays: [2, 4], start: '17:00' } }),
+        item('Pay the bill', tuesday, '18:00'),
+      ],
+    },
+    {
+      label: 'reverse-ar',
+      message: 'خلي الفاتورة يوم الجمعة والاتصال كل تلاتا وخميس',
+      titles: ['أتصل بأمي', 'ادفع الفاتورة'],
+      fields: [
+        item('أتصل بأمي', tuesday, '17:00', { recurrenceHint: { weekdays: [2, 4], start: '17:00' } }),
+        item('ادفع الفاتورة', tuesday, '18:00'),
+      ],
+    },
+    {
+      label: 'forward-bill-multiday-hint',
+      message: 'Make the call every Tuesday and Thursday, and move the bill to Friday',
+      titles: ['Call mom', 'Pay the bill'],
+      fields: [
+        item('Call mom', tuesday, '17:00', { recurrenceHint: { weekdays: [2, 4], start: '17:00' } }),
+        item('Pay the bill', tuesday, '18:00', { recurrenceHint: { weekdays: [2, 4], start: '18:00' } }),
+      ],
+    },
+    {
+      label: 'k20-bill-one-weekday-hint',
+      message: 'Make the call every Tuesday and Thursday, and move the bill to Friday',
+      titles: ['Call mom', 'Pay the bill'],
+      fields: [
+        item('Call mom', tuesday, '17:00', { recurrenceHint: { weekdays: [2, 4], start: '17:00' } }),
+        item('Pay the bill', tuesday, '18:00', { recurrenceHint: { weekdays: [2], start: '18:00' } }),
+      ],
+    },
+    {
+      label: 'k25-two-oneoff-days',
+      message: 'Make the call every Tuesday and Thursday, move the bill to Friday and the gym to Saturday',
+      titles: ['Call mom', 'Pay the bill'],
+      fields: [
+        item('Call mom', tuesday, '17:00', { recurrenceHint: { weekdays: [2, 4], start: '17:00' } }),
+        item('Pay the bill', saturday, '18:00'),
+      ],
+    },
+  ] as const;
+  for (const { label, message, titles, fields } of cases) {
+    const model = scripted(
+      answer('Two items.', 'propose', [item(titles[0], TOMORROW, '17:00'), item(titles[1], TOMORROW, '18:00')]),
+      answer('Done.', 'update', [...fields], [message, message]),
+    );
+    begin({ llmProviderFor: () => model.provider });
+    try {
+      const uid = uidFor(`RecurrenceOwnership-${label}`);
+      const first = await chat(uid, `${titles[0]} tomorrow at 5 PM and ${titles[1]} tomorrow at 6 PM`);
+      const changed = await chat(uid, message, first.conversationId);
+      assert.deepEqual(changed.proposal!.items.map((entry) => entry.resolvedDate), [TOMORROW, TOMORROW], label);
+      assert.match(changed.reply, /couldn't apply|ما قدرت/i, `${label}: ${changed.reply}`);
+      assert.notEqual(friday, tuesday, 'weekday fixture collapsed the mutation');
+    } finally {
+      end();
+    }
   }
 });
 
@@ -646,7 +865,7 @@ test('a mixed recurring span with two clock mentions rolls back instead of leavi
     const changed = await chat(uid, message, first.conversationId);
     assert.deepEqual(changed.proposal!.items.map((entry) => localClock(entry.resolvedTime)), ['17:00', '18:00']);
     assert.ok(changed.proposal!.items.every((entry) => entry.resolvedTime !== null || entry.needsClarification));
-    assert.match(changed.reply, /couldn't apply/i);
+    assert.match(changed.reply, /time wasn't clear/i);
   } finally {
     end();
   }
@@ -669,7 +888,7 @@ test('several changing operations roll back when their cited and model hours dis
     const changed = await chat(uid, message, first.conversationId);
     assert.equal(changed.proposal!.items.length, 1);
     assert.equal(localClock(changed.proposal!.items[0]!.resolvedTime), '17:00');
-    assert.match(changed.reply, /couldn't apply/i);
+    assert.match(changed.reply, /time wasn't clear/i);
   } finally {
     end();
   }
@@ -713,7 +932,7 @@ test('a remindAt-only wrong update clock beside an add rolls the answer back', a
     const changed = await chat(uid, 'Move the call to 8 PM. Also buy bread tomorrow at 7 PM.', first.conversationId);
     assert.equal(changed.proposal!.items.length, 1);
     assert.equal(localClock(changed.proposal!.items[0]!.resolvedTime), '17:00');
-    assert.match(changed.reply, /couldn't apply/i);
+    assert.match(changed.reply, /time wasn't clear/i);
   } finally {
     end();
   }

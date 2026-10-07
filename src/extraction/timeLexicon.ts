@@ -795,7 +795,7 @@ export function typedHalfOfDay(rawText: string): 'am' | 'pm' | 'night' | null {
  * reading instead of forcing the card's old hour into a half it inferred.
  */
 const BARE_AM_PART = String.raw`(?:am|a\.m\.?|(?:in\s+the\s+)?morning|(?:بال|عال|ال)?(?:صبح|صباح)(?:\s+(?:بكير|بدري))?|صباح(?:ا|اً|ًا)?|ص|בבוקר|בוקר|לפנה["״]צ)`;
-const BARE_PM_PART = String.raw`(?:pm|p\.m\.?|(?:بال|عال|ال)?(?:مسا|مساء|عصر|ضهر|ظهر)|بعد\s+(?:الضهر|الظهر)|مساء(?:ا|اً|ًا)?|م|(?:بال|عال|ال)?ليل(?:ة|ه)?|(?:in\s+the\s+)?(?:afternoon|evening)|(?:at\s+)?night|tonight|noon|בערב|ערב|בלילה|לילה|בצהריים|בצהרים|צהריים|צהרים|אחרי\s+הצהריים|אחר\s+הצהריים|אחה["״]צ)`;
+const BARE_PM_PART = String.raw`(?:pm|p\.m\.?|(?:بال|عال|ال)?(?:مسا|مساء|عصر|ضهر|ظهر)|بعد\s+(?:الضهر|الظهر)|مساء(?:ً|ا|اً|ًا)?|م|(?:بال|عال|ال)?ليل(?:ة|ه)?|(?:in\s+the\s+)?(?:afternoon|evening)|(?:at\s+)?night|tonight|noon|בערב|ערב|בלילה|לילה|בצהריים|בצהרים|צהריים|צהרים|אחרי\s+הצהריים|אחר\s+הצהריים|אחה["״]צ)`;
 const BARE_DAY_PART = `(?:${BARE_AM_PART}|${BARE_PM_PART})`;
 const BARE_NEGATED_PART = new RegExp(
   String.raw`(?<![\p{L}\p{M}])(?:مش|مو|not(?:\s+in\s+the)?|לא)\s+${BARE_DAY_PART}(?![\p{L}\p{M}])`,
@@ -808,7 +808,19 @@ const BARE_NIGHT_PART_PATTERN = new RegExp(
   'giu',
 );
 const BARE_HALF_FILLER = new RegExp(
-  String.raw`(?<![\p{L}\p{M}])(?:لا|no|לא|يا\s+ريت|لو\s+سمحت|بليز|please|the|one|both|التنين|الاتنين|בבקשה|כן|שניהם|שתיהן)(?![\p{L}\p{M}])`,
+  String.raw`(?<![\p{L}\p{M}])(?:لا|لأ|no|לא|يا\s+ريت|لو\s+سمحت|بليز|please|يعني|اكيد|أكيد|ايوا|أيوة|ايوه|yes|in|at|the|one|both|i\s+guess|التنين|الاتنين|בבקשה|תודה|כן|שניהם|שתיהן)(?![\p{L}\p{M}])`,
+  'giu',
+);
+const CARD_BARE_AM_PART = new RegExp(
+  String.raw`(?<![\p{L}\p{M}])(?:am|a\.m\.?|(?:ال)?(?:صبح|صباح)|صباح(?:ا|اً|ًا)|morning|בבוקר)(?![\p{L}\p{M}])`,
+  'giu',
+);
+const CARD_BARE_PM_PART = new RegExp(
+  String.raw`(?<![\p{L}\p{M}])(?:pm|p\.m\.?|(?:بال|ال)?(?:مسا|مساء)|مساء(?:ً|ا|اً|ًا)|(?:ال)?عصر|evening|בערב)(?![\p{L}\p{M}])`,
+  'giu',
+);
+const CARD_BARE_NIGHT_PART = new RegExp(
+  String.raw`(?<![\p{L}\p{M}])(?:بالليل|night|בלילה)(?![\p{L}\p{M}])`,
   'giu',
 );
 
@@ -835,10 +847,13 @@ export function withoutNegatedDayPart(rawText: string): string {
 
 export function bareHalfOfDayAnswer(rawText: string): 'am' | 'pm' | 'night' | null {
   if (typeof rawText !== 'string' || !rawText.trim()) return null;
-  const parts = positiveHalfAnswerParts(rawText);
-  let { text } = parts;
-  text = text.replace(BARE_HALF_FILLER, ' ').replace(/[\s,،.;:!?؟'"«»()\[\]{}\-–—]+/g, '');
-  return text.length === 0 && parts.halves.size === 1 ? Array.from(parts.halves)[0]! : null;
+  const halves = new Set<'am' | 'pm' | 'night'>();
+  let text = rawText.normalize('NFKC').toLowerCase();
+  text = text.replace(CARD_BARE_NIGHT_PART, () => { halves.add('night'); return ' '; });
+  text = text.replace(CARD_BARE_AM_PART, () => { halves.add('am'); return ' '; });
+  text = text.replace(CARD_BARE_PM_PART, () => { halves.add('pm'); return ' '; });
+  text = text.replace(BARE_HALF_FILLER, ' ').replace(/[\s,،.;:!?؟'"«»()\[\]{}\-–—…🙏👍]+/g, '');
+  return text.length === 0 && halves.size === 1 ? Array.from(halves)[0]! : null;
 }
 
 /*

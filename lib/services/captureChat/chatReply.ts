@@ -173,6 +173,12 @@ const QUESTIONS: Readonly<Record<ChatLanguage, Readonly<Record<Exclude<MissingKi
   },
 };
 
+const TIME_UNCLEAR: Readonly<Record<ChatLanguage, { lead: string; question: string }>> = {
+  ar: { lead: 'الساعة مش واضحة عندي.', question: 'أي ساعة بدك؟' },
+  en: { lead: "The time wasn't clear.", question: 'What time should it be?' },
+  he: { lead: 'השעה לא הייתה ברורה.', question: 'באיזו שעה זה צריך להיות?' },
+};
+
 type ProposalItemLike = Pick<CaptureProposalContract['items'][number], 'title'> & Partial<Pick<CaptureProposalContract['items'][number], 'needsClarification' | 'resolvedDate' | 'clarification' | 'resolvedTime' | 'timeEstimated'>>;
 type ProposalLike = { items: readonly ProposalItemLike[]; seeds?: readonly unknown[]; noCommitmentReason?: CaptureProposalContract['noCommitmentReason'] };
 
@@ -220,6 +226,8 @@ export interface TemplateContext {
   timezone?: string;
   /** An edit of the list the rules could not apply: the list is unchanged. */
   editFailed?: boolean;
+  /** The words did not state one complete clock that agreed with the model. */
+  timeUnclear?: boolean;
   /** A transport retry arrived after the proposal in its receipt was confirmed. */
   alreadySaved?: boolean;
   /**
@@ -235,6 +243,11 @@ export function templateReply(context: TemplateContext): string {
   const table = TEMPLATES[context.language];
   if (context.alreadySaved) return table.already_saved;
   if (context.refused) return table.refused;
+  if (context.timeUnclear) {
+    const copy = TIME_UNCLEAR[context.language];
+    const asking = itemAskingForTime(context.proposal);
+    return `${copy.lead} ${asking ? missingQuestion(context.language, asking) : copy.question}`;
+  }
   if (context.editFailed) return table.edit_failed;
   const asking = itemAskingForTime(context.proposal);
   if (asking) {

@@ -224,6 +224,8 @@ export interface ValidatedChatCitations {
   added: unknown[];
   /** One source for each update, followed by one for each added operation. */
   deltaSources: string[];
+  /** A stated clock was repeated or did not match the model. */
+  timeDisagrees?: true;
 }
 
 interface CitationOperation {
@@ -334,6 +336,20 @@ function modelEndClock(fields: unknown, timezone: string): string | null {
     : null;
 }
 
+/** One complete clock the server can read without choosing a half of the day. */
+export function oneUnambiguousClockIn(source: string): string | null {
+  const clocks = clockTimesIn(source);
+  const paired = hourWithDayPart(source);
+  if (paired && paired !== 'ambiguous' && clocks.length <= 1) return paired;
+  if (clocks.length !== 1) return null;
+  const [{ hour, minute }] = clocks;
+  if (hour > 12 && hour < 24) return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
+  const part = dayPartHour(source, { answer: true });
+  if (part === null || hour < 1 || hour > 12 || hour === 12) return null;
+  const resolved = part < 12 ? hour : hour + 12;
+  return `${String(resolved).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
+}
+
 /** A strict two-way name swap; shared whole-message citations name both and do not match. */
 function operationsSwapNamedPoints(operations: readonly CitationOperation[]): boolean {
   const factual = operations.filter((operation) => operation.required && operation.fields !== undefined);
@@ -358,18 +374,19 @@ function operationFactsAgree(operations: readonly CitationOperation[], timezone:
   for (const operation of factual) {
     const source = String(operation.source);
     const range = readClockRange(source);
-    const statedClock = range ? rangeStartTime(range) : hourWithDayPart(source);
+    const clocks = clockTimesIn(source);
+    const statedClock = range ? rangeStartTime(range) : oneUnambiguousClockIn(source);
     const sentClock = modelClock(operation.fields, timezone).time;
     const statedEnd = range?.end.statedHour === null || range?.end.statedHour === undefined
       ? null
       : `${String(range.end.statedHour).padStart(2, '0')}:${String(range.end.minute).padStart(2, '0')}`;
     const sentEnd = modelEndClock(operation.fields, timezone);
-    const disagrees = Boolean(statedClock && statedClock !== 'ambiguous' && sentClock !== null && statedClock !== sentClock)
-      || Boolean(statedEnd && sentEnd && statedEnd !== sentEnd);
-    // With one changing operation there is no sibling fact to swap in: the
-    // boundary applies the cited clock. With several, disagreement is the
-    // swapped-citation signature and the answer rolls back atomically.
-    if (disagrees && factual.length > 1) return false;
+    const startDisagrees = range
+      ? Boolean(statedClock && sentClock !== null && statedClock !== sentClock)
+      : clocks.length > 1
+        || Boolean(statedClock && (sentClock === null || statedClock !== sentClock));
+    const disagrees = startDisagrees || Boolean(statedEnd && sentEnd && statedEnd !== sentEnd);
+    if (disagrees) return false;
   }
   return true;
 }
@@ -377,7 +394,9 @@ function operationFactsAgree(operations: readonly CitationOperation[], timezone:
 function declaresMultiDayRecurrence(operation: CitationOperation): boolean {
   if (!operation.fields || typeof operation.fields !== 'object' || Array.isArray(operation.fields)) return false;
   const hint = (operation.fields as Record<string, unknown>).recurrenceHint;
-  return Boolean(hint && typeof hint === 'object' && !Array.isArray(hint)
+  const sourceRecurrence = typeof operation.source === 'string' ? readRecurrence(operation.source) : null;
+  return Boolean(sourceRecurrence && sourceRecurrence.weekdays.length > 1
+    && hint && typeof hint === 'object' && !Array.isArray(hint)
     && Array.isArray((hint as Record<string, unknown>).weekdays)
     && ((hint as Record<string, unknown>).weekdays as unknown[]).length > 1);
 }
@@ -398,26 +417,33 @@ function sameRecurrenceOwnerWord(left: string, right: string): boolean {
   return a.length >= 3 && b.length >= 3 && a === b;
 }
 
-/** The person's words that attach the recurrence to its point, not the later one-off clause. */
+/** The clause that contains the recurrence phrase, excluding clauses on either side. */
 function recurrenceOwnerWords(source: string, phrases: readonly string[]): string[] {
   const first = phrases.map((phrase) => ({ phrase, at: source.indexOf(phrase) }))
     .filter(({ at }) => at >= 0)
     .sort((left, right) => left.at - right.at)[0];
   if (!first) return [];
+  const separatorPattern = ',\\s*(?:and\\b|ו|و)|\\s+(?:and\\b|ו(?=\\p{L})|و(?=\\p{L}))';
+  const before = source.slice(0, first.at);
+  const preceding = Array.from(before.matchAll(new RegExp(separatorPattern, 'giu'))).at(-1);
+  const start = preceding ? preceding.index + preceding[0].length : 0;
   const after = source.slice(first.at + first.phrase.length);
-  const separator = new RegExp(',\\s*(?:and\\b|ו|و)|\\s+(?:and\\b|ו(?=\\p{L})|و(?=\\p{L}))', 'iu').exec(after);
+  const separator = new RegExp(separatorPattern, 'iu').exec(after);
   const end = separator ? first.at + first.phrase.length + separator.index : source.length;
-  return contentWords(source.slice(0, end));
+  return contentWords(source.slice(start, end));
 }
 
 function recurrenceNamedOperations(
   operations: readonly CitationOperation[],
-  source: string,
-  phrases: readonly string[],
 ): Set<string> {
-  const ownerWords = recurrenceOwnerWords(source, phrases);
-  return new Set(operations.flatMap((operation) => itemWords(operation.fields)
-    .some((word) => ownerWords.some((candidate) => sameRecurrenceOwnerWord(word, candidate))) ? [operation.key] : []));
+  return new Set(operations.flatMap((operation) => {
+    if (!declaresMultiDayRecurrence(operation) || typeof operation.source !== 'string') return [];
+    const recurrence = readRecurrence(operation.source);
+    if (!recurrence || recurrence.weekdays.length < 2) return [];
+    const ownerWords = recurrenceOwnerWords(operation.source, recurrence.phrases);
+    return itemWords(operation.fields)
+      .some((word) => ownerWords.some((candidate) => sameRecurrenceOwnerWord(word, candidate))) ? [operation.key] : [];
+  }));
 }
 
 function withoutRecurrencePhrases(source: string, phrases: readonly string[]): string {
@@ -468,16 +494,12 @@ function sharedUpdateFactsAreUniform(
       }
 
       const factual = operations.filter((operation) => operation.required && operation.fields !== undefined);
-      const pureRecurrence = nonRecurringDates.size === 0;
-      const explicitRecurring = new Set(factual.filter(declaresMultiDayRecurrence).map((operation) => operation.key));
-      const namedRecurring = recurrenceNamedOperations(factual, source, statedRecurrence!.phrases);
       // A mixed whole-message citation exempts only the point positively
-      // attached to the recurrence in the person's words (or carrying the
-      // explicit recurrence hint). If neither identifies an owner, refusing
-      // is safer than assigning the recurrence by model/list position.
-      const recurringKeys = pureRecurrence
-        ? new Set(factual.map((operation) => operation.key))
-        : new Set([...Array.from(explicitRecurring), ...Array.from(namedRecurring)]);
+      // attached to the recurrence inside its own citation and carrying the
+      // same multi-day recurrence in its fields. A hint or message position
+      // alone never assigns recurrence ownership.
+      const namedRecurring = recurrenceNamedOperations(factual);
+      const recurringKeys = namedRecurring;
       const mixed = recurringKeys.has(a.key) !== recurringKeys.has(b.key);
       if (mixed && countTimeExpressions(source) > 1) return false;
       if (nonRecurringDates.size > 1) return false;
@@ -533,13 +555,15 @@ export function validateChatCitations(
   }
   if (!citationsCanCoexist(operations, candidates)) return null;
   if (operationsSwapNamedPoints(operations)) return null;
-  if (!operationFactsAgree(operations, context.timezone)) return null;
-  if (!sharedUpdateFactsAreUniform(operations, candidates, context.now, context.timezone, context.amPmAskedRefs ?? new Set())) return null;
+  const timeDisagrees = !operationFactsAgree(operations, context.timezone);
+  if (!timeDisagrees
+    && !sharedUpdateFactsAreUniform(operations, candidates, context.now, context.timezone, context.amPmAskedRefs ?? new Set())) return null;
   return {
     added: added.map((entry) => entry.fields),
     deltaSources: [
       ...updates.map((operation) => sources.get(operation.ref) ?? newestMessage),
       ...added.map((_, index) => sources.get(`added:${index}`) ?? newestMessage),
     ],
+    ...(timeDisagrees ? { timeDisagrees: true as const } : {}),
   };
 }

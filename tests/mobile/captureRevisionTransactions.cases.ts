@@ -2402,7 +2402,7 @@ test('V1 shared or overlapping citations with point-specific day/time facts roll
       const first = await gateChat(uid, 'Call mom tomorrow at 5 PM and pay the bill tomorrow at 6 PM', { locale: 'en' });
       const next = await gateChat(uid, message, { conversationId: first.conversationId, locale: 'en' });
       assert.deepEqual(next.proposal!.items.map((item) => [item.itemId, item.resolvedTime]), first.proposal!.items.map((item) => [item.itemId, item.resolvedTime]), message);
-      assert.match(next.reply, /couldn.t apply|could not apply/i);
+      assert.match(next.reply, /time wasn't clear/i);
     } finally {
       endGate();
     }
@@ -2481,7 +2481,14 @@ test('V1 normalises dueAt/remindAt clocks and still rejects B1-B6, H7 and H8 sha
         first.proposal!.items.map((item) => [item.itemId, item.title, item.resolvedTime]),
         scenario.label,
       );
-      assert.match(next.reply, scenario.locale === 'ar' ? /ما قدرت أطبّق/ : /couldn.t apply|could not apply/i, scenario.label);
+      const timeMismatch = scenario.label !== 'H7 two days, uniform model';
+      assert.match(
+        next.reply,
+        timeMismatch
+          ? scenario.locale === 'ar' ? /الساعة مش واضحة/ : /time wasn't clear/i
+          : /couldn.t apply|could not apply/i,
+        scenario.label,
+      );
     } finally {
       endGate();
     }
@@ -2521,7 +2528,7 @@ test('V2 chat answers to ask_am_pm preserve the asked hour and minute in ar, en 
   }
 });
 
-test('W1 an AM/PM answer keeps a stated hour or day, and only a bare day part selects the card half', async () => {
+test('W1 an AM/PM answer accepts a matching stated clock or an exactly bare day part', async () => {
   const friday = '2026-10-09';
   const saturday = '2026-10-10';
   const cases = [
@@ -2529,17 +2536,17 @@ test('W1 an AM/PM answer keeps a stated hour or day, and only a bare day part se
     ['ar', 'لا، 8 المسا', TOMORROW, '20:00', TOMORROW, '20:00'],
     ['ar', 'الساعة 8 بالليل', TOMORROW, '20:00', TOMORROW, '20:00'],
     ['ar', 'المسا الساعة 8', TOMORROW, '20:00', TOMORROW, '20:00'],
-    ['ar', 'بعد بكرا المسا', friday, '18:00', friday, '19:30'],
+    ['ar', 'بعد بكرا المسا', friday, '18:00', TOMORROW, null],
     ['en', 'no, in the evening', TOMORROW, '18:00', TOMORROW, '19:30'],
     ['en', '8 in the evening', TOMORROW, '20:00', TOMORROW, '20:00'],
     ['en', 'evening at 8', TOMORROW, '20:00', TOMORROW, '20:00'],
     ['en', 'no, 9 in the morning', TOMORROW, '09:00', TOMORROW, '09:00'],
-    ['en', 'Saturday evening', saturday, '18:00', saturday, '19:30'],
+    ['en', 'Saturday evening', saturday, '18:00', TOMORROW, null],
     ['he', 'לא, בערב', TOMORROW, '18:00', TOMORROW, '19:30'],
     ['he', 'לא, 8 בערב', TOMORROW, '20:00', TOMORROW, '20:00'],
     ['he', 'בשעה 8 בלילה', TOMORROW, '20:00', TOMORROW, '20:00'],
     ['he', 'בערב בשעה 8', TOMORROW, '20:00', TOMORROW, '20:00'],
-    ['he', 'מחרתיים בערב', friday, '18:00', friday, '19:30'],
+    ['he', 'מחרתיים בערב', friday, '18:00', TOMORROW, null],
   ] as const;
   const titles = { ar: 'اتصل بأمي', en: 'Call mom', he: 'להתקשר לאמא' } as const;
   const firstMessages = {
@@ -2565,8 +2572,13 @@ test('W1 an AM/PM answer keeps a stated hour or day, and only a bare day part se
       const asking = await gateChat(uid, ask, { conversationId: first.conversationId, locale });
       assert.equal(asking.proposal!.items[0]!.clarification?.questionKey, 'ask_am_pm', `${locale}: ${answerText}`);
       const answered = await gateChat(uid, answerText, { conversationId: first.conversationId, locale });
-      assert.equal(answered.proposal!.items[0]!.resolvedTime, at(expectedDate, expectedTime), `${locale}: ${answerText}`);
-      assert.equal(answered.proposal!.items[0]!.needsClarification, false, `${locale}: ${answerText}`);
+      assert.equal(
+        answered.proposal!.items[0]!.resolvedTime,
+        expectedTime === null ? null : at(expectedDate, expectedTime),
+        `${locale}: ${answerText}`,
+      );
+      assert.equal(answered.proposal!.items[0]!.needsClarification, expectedTime === null, `${locale}: ${answerText}`);
+      if (expectedTime === null) assert.equal(answered.proposal!.proposalId, asking.proposal!.proposalId, `${locale}: ${answerText}`);
     } finally {
       endGate();
     }
@@ -2653,7 +2665,13 @@ test('W3 swapped point citations never save the other point’s hour', async () 
         first.proposal!.items.map((item) => [item.itemId, item.title, item.resolvedTime]),
         scenario.label,
       );
-      assert.match(next.reply, /couldn.t apply|could not apply/i, scenario.label);
+      assert.match(
+        next.reply,
+        scenario.label === 'X1c update cites only the other clock'
+          ? /time wasn't clear/i
+          : /couldn.t apply|could not apply/i,
+        scenario.label,
+      );
     } finally {
       endGate();
     }
