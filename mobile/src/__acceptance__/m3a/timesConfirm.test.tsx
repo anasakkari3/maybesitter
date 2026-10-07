@@ -54,13 +54,14 @@ describe('M3a A3 real times', () => {
     expect(screen.getByTestId('plan-times-weekly-step-2')).toBeTruthy();
   });
 
-  it('A3 alternatives: change time sends a CAS PATCH with only timesRevision and the selected slot', async () => {
+  it('A3 alternatives: change time sends a CAS PATCH with timesId, timesRevision and the selected slot', async () => {
     await openTimes();
     await press('plan-times-change-step-1');
     await press('plan-times-alt-step-1-1');
 
     await waitFor(() => expect(harness.server.matching('PATCH', /\/times\/step-1$/)).toHaveLength(1));
     expect(lastRequest(harness.server, 'PATCH', /\/times\/step-1$/).body).toEqual({
+      timesId: TIMES_ID,
       timesRevision: TIMES.timesRevision,
       choice: { slot: TIMES.steps[0].alternatives[0] },
     });
@@ -72,6 +73,7 @@ describe('M3a A3 real times', () => {
 
     await waitFor(() => expect(harness.server.matching('PATCH', /\/times\/step-1$/)).toHaveLength(1));
     expect(lastRequest(harness.server, 'PATCH', /\/times\/step-1$/).body).toEqual({
+      timesId: TIMES_ID,
       timesRevision: TIMES.timesRevision,
       choice: { none: true },
     });

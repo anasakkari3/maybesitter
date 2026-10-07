@@ -153,7 +153,7 @@ export const TIMES = {
       slot: null,
       reason: 'no_free_time_in_phase',
       alternatives: [],
-      choice: 'none',
+      choice: 'proposed',
     },
   ],
 } as const;
@@ -178,7 +178,7 @@ export const RESULT = {
       stepId: 'step-none',
       entity: 'commitment',
       id: 'commitment-2',
-      title: 'Untimed step',
+      title: 'Prepare walking shoes',
       when: { kind: 'none' },
     },
   ],
@@ -275,28 +275,46 @@ export function defaultReply(request: RecordedRequest): RouteReply {
     };
   }
   if (/\/times\/[^/]+$/.test(request.path)) {
-    const noneChosen =
+    const choice =
       typeof request.body === 'object' &&
       request.body !== null &&
       'choice' in request.body &&
       typeof request.body.choice === 'object' &&
-      request.body.choice !== null &&
-      'none' in request.body.choice &&
-      request.body.choice.none === true;
+      request.body.choice !== null
+        ? request.body.choice
+        : null;
     const stepId = request.path.split('/').at(-1);
-    const steps = noneChosen
-      ? TIMES.steps.map((step) =>
-          step.stepId === stepId
-            ? {
-                stepId: step.stepId,
-                kind: step.kind,
-                slot: null,
-                ...('alternatives' in step ? { alternatives: step.alternatives } : {}),
-                choice: 'none',
-              }
-            : step,
-        )
-      : TIMES.steps;
+    const steps = TIMES.steps.map((step) => {
+      if (step.stepId !== stepId || choice === null) return step;
+      if ('none' in choice && choice.none === true) {
+        return {
+          stepId: step.stepId,
+          kind: step.kind,
+          slot: null,
+          ...('alternatives' in step ? { alternatives: step.alternatives } : {}),
+          choice: 'none',
+        };
+      }
+      if (step.kind === 'commitment' && 'slot' in choice) {
+        return {
+          stepId: step.stepId,
+          kind: step.kind,
+          slot: choice.slot,
+          alternatives: [],
+          choice: 'proposed',
+        };
+      }
+      if (step.kind === 'habit' && 'weekly' in choice) {
+        return {
+          stepId: step.stepId,
+          kind: step.kind,
+          weekly: choice.weekly,
+          alternatives: [],
+          choice: 'proposed',
+        };
+      }
+      return step;
+    });
     return {
       status: 200,
       body: envelope({ ...TIMES, timesRevision: TIMES.timesRevision + 1, steps }, 'times'),
