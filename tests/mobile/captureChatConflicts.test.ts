@@ -34,7 +34,7 @@ import { POST as confirmPost } from '../../src/app/api/mobile/capture/confirm/ro
 import { setCaptureChatDependenciesForTests } from '../../lib/services/captureChat/captureChatService.ts';
 import { safeChatReply } from '../../lib/services/captureChat/chatReply.ts';
 import { groundedReply, withConflictsNamed } from '../../lib/services/captureChat/chatWhy.ts';
-import { EMPTY_SCHEDULE, withItemConflicts } from '../../lib/services/captureChat/chatConflicts.ts';
+import { EMPTY_SCHEDULE, conflictsFor, withinLimit, withItemConflicts } from '../../lib/services/captureChat/chatConflicts.ts';
 import { chatUserTurnsWithAcceptedOffers, isPlainYes, offerSentences } from '../../lib/services/captureBoundary/chatEvidence.ts';
 import { splitPrompt } from '../../lib/llm/captureProvider.ts';
 import { createWeeklyBlock } from '../../lib/weeklyBlocks/weeklyBlockService.ts';
@@ -464,6 +464,22 @@ test('F4 (load pass): the reply names the clash that starts with the item, not j
   // A clash already on the list the person saw is not said again.
   const shown = new Set([`اجتماع مع المدير|موعد مع المحامي|${lawyer.startsAt}`]);
   assert.equal(withConflictsNamed('تمام.', [meeting], { ...context, alreadyShown: shown }), 'تمام.');
+});
+
+test('F4-001: a clash that starts with the item survives the three-clash limit, in time order', () => {
+  // Three long blocks that began earlier, and one that starts exactly at 10:00.
+  const weekly = ['07:00', '08:00', '09:00'].map((start, n) => ({
+    title: `block ${n + 1}`, startAt: at(FRIDAY, start), endAt: at(FRIDAY, '17:00'),
+  }));
+  const lawyer = { title: 'موعد مع المحامي', startAt: at(FRIDAY, '10:00'), endAt: at(FRIDAY, '10:30') };
+  const schedule = { ...EMPTY_SCHEDULE, weekly: [...weekly, lawyer] } as never;
+  const found = conflictsFor({ dueAt: at(FRIDAY, '10:00'), endAt: at(FRIDAY, '11:00') }, schedule);
+  assert.equal(found.length, 3);
+  assert.ok(found.some((conflict) => conflict.title === 'موعد مع المحامي'), `the same-hour clash was cut: ${JSON.stringify(found.map((c) => c.title))}`);
+  assert.deepEqual(found.map((conflict) => conflict.startsAt), [...found.map((conflict) => conflict.startsAt)].sort());
+  // Fewer than the limit: untouched.
+  const two = [{ startsAt: at(FRIDAY, '09:00') }, { startsAt: at(FRIDAY, '10:00') }];
+  assert.deepEqual(withinLimit(two, at(FRIDAY, '10:00'), 3), two);
 });
 
 /* ── 6. another time: offered as a question, applied only on a yes ── */
