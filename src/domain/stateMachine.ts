@@ -85,6 +85,8 @@ export interface TimeSpec {
   /** The commitment names a day. `dueAt` is that day's local midnight, and nobody chose the hour. */
   allDay: boolean;
   timezone: string;
+  /** Plan-step windows keep their duration when their start moves. Legacy windows keep their deadline. */
+  windowRule?: 'shift';
 }
 
 /**
@@ -138,10 +140,14 @@ export function deadlineOfTimeSpec(timeSpec: Pick<TimeSpec, 'kind' | 'dueAt' | '
  * chosen — never a range that ends before it starts.
  */
 export function windowEndAfterMove(
-  current: Pick<TimeSpec, 'kind' | 'dueAt' | 'endAt' | 'allDay'>,
+  current: Pick<TimeSpec, 'kind' | 'dueAt' | 'endAt' | 'allDay' | 'windowRule'>,
   dueAt: string | null,
 ): string | null {
   if (!isTimedWindow(current) || !dueAt) return null;
+  if (current.windowRule === 'shift') {
+    const duration = Date.parse(current.endAt as string) - Date.parse(current.dueAt as string);
+    return new Date(Date.parse(dueAt) + duration).toISOString();
+  }
   return Date.parse(dueAt) < Date.parse(current.endAt as string) ? current.endAt : null;
 }
 
@@ -480,6 +486,7 @@ export function normalizeStoredTimeSpec(timeSpec?: Partial<TimeSpec>): TimeSpec 
     // said", never as an all-day entry written across somebody's calendar.
     allDay: timeSpec?.allDay === true,
     timezone: timeSpec?.timezone || 'UTC',
+    ...(timeSpec?.windowRule === 'shift' ? { windowRule: 'shift' as const } : {}),
   };
 }
 

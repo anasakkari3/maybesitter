@@ -1,0 +1,7 @@
+{
+  "success": false,
+  "error": "not_a_goal",
+  "reason": "not_a_goal",
+  "classification": "event",
+  "recovery": "capture"
+}

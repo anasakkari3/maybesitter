@@ -40,9 +40,12 @@ export async function POST(request: Request, { params }: { params: Promise<{ dat
     ({ stored, inputsChanged } = await buildDailyPlanOnDemand(user.uid, date));
   } catch (error) {
     if (error instanceof PlanDateOutOfRangeError) {
-      return Response.json({ success: false, error: error.message, reason: error.reason }, { status: 400 });
+      return Response.json({ success: false, error: error.message, reason: error.reason, retryable: false }, { status: 400 });
     }
-    throw error;
+    return Response.json(
+      { success: false, error: 'could not build plan', reason: 'build_unavailable', retryable: true },
+      { status: 503 },
+    );
   }
   const state = await loadDomainState(getStorage(), user.uid);
   const commitments = Object.values(state.commitments);

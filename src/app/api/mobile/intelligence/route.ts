@@ -9,6 +9,8 @@ import { learnOutcomesWithin } from '../../../../../lib/intelligence/outcomeLear
 import { hideSavedGoalProposals, listSuggestions } from '../../../../../lib/intelligence/proposalEngine';
 import { previewSuggestionSchedule } from '../../../../../lib/intelligence/schedulePreview';
 import { RequestBodyTooLargeError, readJsonBody, requestBodyTooLargeResponse } from '../../../../../lib/net/requestBody';
+import { isPlanImperative } from '../../../../../lib/services/mobile/goalPlanService';
+import { resolveModuleRuntime } from '../../../../../src/contracts/v1/runtimeControls';
 
 export const dynamic = 'force-dynamic';
 
@@ -55,6 +57,9 @@ export async function POST(request: Request) {
   const text = (body as { text?: unknown } | null)?.text;
   if (typeof text !== 'string' || !text.trim() || text.length > 2_000) {
     return Response.json({ success: false, reason: 'invalid_text' }, { status: 400 });
+  }
+  if (resolveModuleRuntime('goalPlan').mode === 'enabled' && isPlanImperative(text)) {
+    return Response.json({ success: true, route: 'plan_flow' });
   }
   try {
     const observations = await analyzeSource(user.uid, 'manual', randomUUID(), text, new Date().toISOString());
