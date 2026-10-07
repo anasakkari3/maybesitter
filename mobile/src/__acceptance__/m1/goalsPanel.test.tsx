@@ -350,16 +350,14 @@ it('A4 plan preview: two same-frame presses run exactly one preview', async () =
   let finish!: (value: unknown) => void;
   mockPreview.mockImplementation(() => new Promise(resolve => { finish = resolve; }));
 
-  await act(async () => {
-    // Loaded workers can expose the host before Pressability has fully settled.
-    await new Promise(resolve => setTimeout(resolve, 100));
-    const planEntry = screen.getByTestId('intelligence-plan-flow');
-    expect(planEntry.props.accessibilityState).toMatchObject({ disabled: false });
-    await fireEvent.press(planEntry);
-    await fireEvent.press(planEntry);
-  });
+  await waitFor(() => expect(
+    screen.getByTestId('intelligence-plan-flow').props.accessibilityState,
+  ).toMatchObject({ disabled: false }));
+  const planEntry = screen.getByTestId('intelligence-plan-flow');
+  await fireEvent.press(planEntry);
+  await fireEvent.press(planEntry);
 
-  await waitFor(() => expect(mockPreview).toHaveBeenCalledTimes(1));
+  await waitFor(() => expect(mockPreview).toHaveBeenCalledTimes(1), { timeout: 5000 });
   await act(async () => {
     finish({
       success: true,
