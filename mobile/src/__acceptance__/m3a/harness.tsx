@@ -308,7 +308,22 @@ export function defaultReply(request: RecordedRequest): RouteReply {
       body: {
         success: true,
         plan: { ...PLAN, status: 'confirmed' },
-        times: { ...TIMES, steps: TIMES.steps.filter((step) => 'later' in step) },
+        times: {
+          ...TIMES,
+          planRevision: PLAN.revision,
+          steps: [
+            {
+              stepId: 'step-3',
+              kind: 'commitment',
+              slot: {
+                startsAt: '2030-01-22T09:00:00.000Z',
+                endsAt: '2030-01-22T09:15:00.000Z',
+              },
+              alternatives: [],
+              choice: 'proposed',
+            },
+          ],
+        },
       },
     };
   }
