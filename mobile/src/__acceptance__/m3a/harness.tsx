@@ -53,7 +53,7 @@ export const PLAN = {
   goalId: GOAL_ID,
   revision: 7,
   language: 'en',
-  summary: { goalText: 'Lose weight', understood: 'Lose weight gradually' },
+  summary: { goalText: 'Lose weight' },
   horizon: 'weeks',
   status: 'draft',
   source: 'model',
@@ -68,8 +68,6 @@ export const PLAN = {
       durationMinutes: 30,
       buildsOn: null,
       expectedOutcome: 'A short lunch list',
-      sourceSpans: [],
-      inferred: true,
       origin: 'model',
     },
     {
@@ -82,8 +80,6 @@ export const PLAN = {
       rhythm: { timesPerWeek: 3, timeOfDay: 'afternoon' },
       buildsOn: 'Uses the lunch cue',
       expectedOutcome: 'Three walks completed',
-      sourceSpans: [],
-      inferred: true,
       origin: 'model',
     },
     {
@@ -95,8 +91,6 @@ export const PLAN = {
       durationMinutes: 10,
       buildsOn: null,
       expectedOutcome: null,
-      sourceSpans: [],
-      inferred: false,
       origin: 'person',
     },
     {
@@ -108,8 +102,6 @@ export const PLAN = {
       durationMinutes: 30,
       buildsOn: null,
       expectedOutcome: null,
-      sourceSpans: [],
-      inferred: true,
       origin: 'model',
     },
     {
@@ -121,8 +113,6 @@ export const PLAN = {
       durationMinutes: 15,
       buildsOn: null,
       expectedOutcome: null,
-      sourceSpans: [],
-      inferred: true,
       origin: 'model',
     },
   ],
@@ -133,7 +123,6 @@ export const TIMES = {
   planRevision: 8,
   timesId: TIMES_ID,
   timesRevision: 4,
-  inputsDigest: 'digest-1',
   anchor: { localDate: '2030-01-07', timezone: 'UTC' },
   steps: [
     {
@@ -141,21 +130,31 @@ export const TIMES = {
       kind: 'commitment',
       slot: { startsAt: '2030-01-08T09:00:00.000Z', endsAt: '2030-01-08T09:30:00.000Z' },
       alternatives: [{ startsAt: '2030-01-08T11:00:00.000Z', endsAt: '2030-01-08T11:30:00.000Z' }],
+      choice: 'proposed',
     },
     {
       stepId: 'step-2',
       kind: 'habit',
       weekly: { weekdays: [1, 3, 5], start: '14:00', end: '14:20' },
       alternatives: [{ weekdays: [2, 4, 6], start: '15:00', end: '15:20' }],
+      choice: 'proposed',
     },
-    { stepId: 'step-3', kind: 'commitment', slot: null, later: { weekIndex: 3 }, alternatives: [] },
+    { stepId: 'step-3', kind: 'commitment', later: { weekIndex: 3 } },
     {
       stepId: 'step-none',
       kind: 'commitment',
       slot: null,
       alternatives: [{ startsAt: '2030-01-09T09:00:00.000Z', endsAt: '2030-01-09T09:10:00.000Z' }],
+      choice: 'none',
     },
-    { stepId: 'step-4', kind: 'commitment', slot: null, reason: 'no_free_time_in_phase', alternatives: [] },
+    {
+      stepId: 'step-4',
+      kind: 'commitment',
+      slot: null,
+      reason: 'no_free_time_in_phase',
+      alternatives: [],
+      choice: 'none',
+    },
   ],
 } as const;
 
@@ -188,7 +187,7 @@ export const RESULT = {
     { stepId: 'removed-1', title: 'Buy a scale', why: { kind: 'removed' } },
     { stepId: 'step-4', title: 'Find a class', why: { kind: 'no_room', reason: 'no_free_time_in_phase' } },
   ],
-  receipt: 'receipt-1',
+  receipt: { outcomeId: 'outcome-1', replayed: false },
 } as const;
 
 export type RecordedRequest = { method: string; path: string; body: unknown };
@@ -222,8 +221,8 @@ export class M3aServer {
   }
 }
 
-function envelope<T extends object>(value: T, key: string): T & Record<string, unknown> {
-  return { success: true, [key]: value, ...value };
+function envelope<T extends object>(value: T, key: string): Record<string, unknown> {
+  return { success: true, [key]: value };
 }
 
 export function defaultReply(request: RecordedRequest): RouteReply {
@@ -234,7 +233,7 @@ export function defaultReply(request: RecordedRequest): RouteReply {
         success: true,
         summaryId: SUMMARY_ID,
         revision: 2,
-        understood: 'Lose weight gradually',
+        understood: { goalText: 'Lose weight gradually' },
         expiresAt: '2030-01-07T10:30:00.000Z',
       },
     };
@@ -252,24 +251,58 @@ export function defaultReply(request: RecordedRequest): RouteReply {
             planId: PLAN_ID,
             goalTitle: 'Lose weight',
             weekIndex: 3,
-            weekStartsOn: '2030-01-21',
+            weekStartsAt: '2030-01-21T00:00:00.000Z',
             stepCount: 1,
           },
         ],
       },
     };
   }
-  if (request.path.endsWith('/approve')) return { status: 200, body: envelope(TIMES, 'times') };
+  if (request.path.endsWith('/approve')) {
+    return {
+      status: 200,
+      body: {
+        success: true,
+        plan: { ...PLAN, revision: TIMES.planRevision, status: 'approved' },
+        times: TIMES,
+      },
+    };
+  }
   if (/\/times\/[^/]+$/.test(request.path))
     return { status: 200, body: envelope({ ...TIMES, timesRevision: TIMES.timesRevision + 1 }, 'times') };
+  if (/\/later\/\d+\/times$/.test(request.path)) {
+    return {
+      status: 200,
+      body: {
+        success: true,
+        times: { ...TIMES, steps: TIMES.steps.filter((step) => 'later' in step) },
+      },
+    };
+  }
   if (request.path.endsWith('/confirm')) return { status: 200, body: { success: true, ...RESULT } };
   if (/\/plans\/[^/]+$/.test(request.path) && request.method === 'PATCH') {
     return { status: 200, body: envelope({ ...PLAN, revision: PLAN.revision + 1 }, 'plan') };
   }
-  if (request.path.includes(`/goals/${GOAL_ID}/plan`)) {
-    return { status: 200, body: { success: true, draft: PLAN, confirmed: null, plan: PLAN, ...PLAN } };
+  if (request.method === 'GET' && request.path.endsWith(`/goals/${GOAL_ID}/plan`)) {
+    return {
+      status: 200,
+      body: {
+        success: true,
+        draft: PLAN,
+        confirmed: null,
+        linkedWork: mockLinked
+          ? [{ entity: 'commitment', id: 'commitment-1', title: 'Plan three lunches' }]
+          : [],
+      },
+    };
   }
-  return { status: 404, body: { reason: 'feature_unavailable' } };
+  if (request.path.includes(`/goals/${GOAL_ID}/plan`)) {
+    return { status: 200, body: { success: true, plan: PLAN } };
+  }
+  return {
+    status: 404,
+    body: { success: false, error: 'feature_unavailable', reason: 'feature_unavailable' },
+  };
 }
 
 let mockLinked = false;

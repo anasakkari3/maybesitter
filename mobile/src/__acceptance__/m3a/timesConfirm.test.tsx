@@ -61,18 +61,18 @@ describe('M3a A3 real times', () => {
     await waitFor(() => expect(harness.server.matching('PATCH', /\/times\/step-1$/)).toHaveLength(1));
     expect(lastRequest(harness.server, 'PATCH', /\/times\/step-1$/).body).toEqual({
       timesRevision: TIMES.timesRevision,
-      slot: TIMES.steps[0].alternatives[0],
+      choice: { slot: TIMES.steps[0].alternatives[0] },
     });
   });
 
-  it('A3 no time: the control sends a CAS PATCH with null', async () => {
+  it('A3 no time: the control sends a CAS PATCH with an explicit none choice', async () => {
     await openTimes();
     await press('plan-times-none-step-1');
 
     await waitFor(() => expect(harness.server.matching('PATCH', /\/times\/step-1$/)).toHaveLength(1));
     expect(lastRequest(harness.server, 'PATCH', /\/times\/step-1$/).body).toEqual({
       timesRevision: TIMES.timesRevision,
-      slot: null,
+      choice: { none: true },
     });
   });
 
@@ -111,7 +111,7 @@ describe('M3a A3 real times', () => {
     };
     harness.server.handler = (request) =>
       /\/times\/step-1$/.test(request.path)
-        ? { status, body: { reason, times: current } }
+        ? { status, body: { success: false, error: reason, reason, times: current } }
         : defaultReply(request);
     await openTimes();
     await press('plan-times-none-step-1');
@@ -171,7 +171,15 @@ describe('M3a A4 one confirm', () => {
       if (request.path.endsWith('/confirm')) {
         confirms += 1;
         return confirms === 1
-          ? { status: 503, body: { reason: 'model_unavailable', recovery: 'retry' } }
+          ? {
+              status: 503,
+              body: {
+                success: false,
+                error: 'model_unavailable',
+                reason: 'model_unavailable',
+                recovery: 'retry',
+              },
+            }
           : { status: 200, body: { success: true, ...RESULT } };
       }
       return defaultReply(request);
@@ -191,7 +199,10 @@ describe('M3a A4 one confirm', () => {
   it('A4 key_reused: 409 shows its own failure and action', async () => {
     harness.server.handler = (request) =>
       request.path.endsWith('/confirm')
-        ? { status: 409, body: { reason: 'key_reused' } }
+        ? {
+            status: 409,
+            body: { success: false, error: 'key_reused', reason: 'key_reused' },
+          }
         : defaultReply(request);
     await openConfirm();
     await press('plan-confirm');

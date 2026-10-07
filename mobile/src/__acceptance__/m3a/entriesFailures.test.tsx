@@ -5,6 +5,7 @@ import {
   GOAL_ID,
   PLAN,
   SUMMARY_ID,
+  TIMES,
   defaultReply,
   openGoal,
   prepare,
@@ -58,7 +59,7 @@ describe('M3a A5 entries use one flow', () => {
     expect(harness.server.matching('POST', /\/from-statement\/accept$/)[0]?.body).toEqual({
       summaryId: SUMMARY_ID,
       revision: 2,
-      understood: 'Lose weight gradually',
+      understood: { goalText: 'Lose weight gradually' },
       idempotencyKey: expect.any(String),
     });
     await waitFor(() => expect(screen.queryByTestId('plan-step-step-1')).not.toBeNull());
@@ -87,7 +88,16 @@ describe('M3a A5 entries use one flow', () => {
   ])('A5 not_a_goal.%s: offers only its %s recovery', async (classification, recovery) => {
     harness.server.handler = (request) =>
       request.path.endsWith('/from-statement/preview')
-        ? { status: 422, body: { reason: 'not_a_goal', classification, recovery } }
+        ? {
+            status: 422,
+            body: {
+              success: false,
+              error: 'not_a_goal',
+              reason: 'not_a_goal',
+              classification,
+              recovery,
+            },
+          }
         : defaultReply(request);
     await renderGoals(harness);
     await press('intelligence-plan-flow');
@@ -100,7 +110,15 @@ describe('M3a A5 entries use one flow', () => {
   it('A5 goal_too_vague: shows the server question with an answer action', async () => {
     harness.server.handler = (request) =>
       request.path.endsWith('/from-statement/preview')
-        ? { status: 422, body: { reason: 'goal_too_vague', question: 'What would be different?' } }
+        ? {
+            status: 422,
+            body: {
+              success: false,
+              error: 'goal_too_vague',
+              reason: 'goal_too_vague',
+              question: 'What would be different?',
+            },
+          }
         : defaultReply(request);
     await renderGoals(harness);
     await press('intelligence-plan-flow');
@@ -152,7 +170,10 @@ describe('M3a A6 typed failures and live state', () => {
     async (reason, status) => {
       const noPlan = (request: { method: string; path: string }): RouteReply | null => {
         if (request.method === 'GET' && request.path.endsWith(`/goals/${GOAL_ID}/plan`)) {
-          return { status: 200, body: { success: true, draft: null, confirmed: null } };
+          return {
+            status: 200,
+            body: { success: true, draft: null, confirmed: null, linkedWork: [] },
+          };
         }
         if (request.method !== 'GET' && request.path.includes(`/goals/${GOAL_ID}/plan`)) {
           const extras =
@@ -162,12 +183,14 @@ describe('M3a A6 typed failures and live state', () => {
                 ? { classification: 'event', recovery: 'capture' }
                 : reason === 'goal_superseded'
                   ? { currentGoalId: 'goal-2' }
-                  : reason === 'stale'
+                  : reason === 'stale' || reason === 'too_many_edits'
                     ? { plan: PLAN }
                     : reason === 'schedule_changed' || reason === 'slot_in_past'
-                      ? { times: null }
-                      : {};
-          return { status, body: { reason, ...extras } };
+                      ? { times: TIMES }
+                      : reason === 'model_unavailable'
+                        ? { recovery: 'retry' }
+                        : {};
+          return { status, body: { success: false, error: reason, reason, ...extras } };
         }
         return null;
       };
@@ -188,7 +211,10 @@ describe('M3a A6 typed failures and live state', () => {
     });
     harness.server.handler = (request) => {
       if (request.method === 'GET' && request.path.endsWith(`/goals/${GOAL_ID}/plan`))
-        return { status: 200, body: { success: true, draft: null, confirmed: null } };
+        return {
+          status: 200,
+          body: { success: true, draft: null, confirmed: null, linkedWork: [] },
+        };
       if (request.method === 'POST' && request.path.includes(`/goals/${GOAL_ID}/plan`)) return pending;
       return defaultReply(request);
     };
@@ -197,16 +223,27 @@ describe('M3a A6 typed failures and live state', () => {
     expect(screen.getByTestId('plan-live-status')).toBeTruthy();
     expect(screen.getByTestId('plan-live-status').props.accessibilityLiveRegion).toBe('polite');
     expect(screen.getByTestId('plan-live-status')).toHaveTextContent(/Started|Working/);
-    release({ status: 200, body: { success: true, plan: PLAN, ...PLAN } });
+    release({ status: 200, body: { success: true, plan: PLAN } });
     await waitFor(() => expect(screen.getByTestId('plan-live-status')).toHaveTextContent('Done'));
   });
 
   it('A6 live status: a failed action announces could not', async () => {
     harness.server.handler = (request) =>
       request.method === 'POST' && request.path.includes(`/goals/${GOAL_ID}/plan`)
-        ? { status: 503, body: { reason: 'model_unavailable', recovery: 'retry' } }
+        ? {
+            status: 503,
+            body: {
+              success: false,
+              error: 'model_unavailable',
+              reason: 'model_unavailable',
+              recovery: 'retry',
+            },
+          }
         : request.method === 'GET' && request.path.endsWith(`/goals/${GOAL_ID}/plan`)
-          ? { status: 200, body: { success: true, draft: null, confirmed: null } }
+          ? {
+              status: 200,
+              body: { success: true, draft: null, confirmed: null, linkedWork: [] },
+            }
           : defaultReply(request);
     await openGoal(harness);
     await press('goal-plan-open');
@@ -229,7 +266,14 @@ describe('M3a A6 typed failures and live state', () => {
   it('A6 feature_unavailable: both plan entries are hidden and the old panel generate path is gone', async () => {
     harness.server.handler = (request) =>
       request.path.includes('/goals/') || request.path.endsWith('/goals/plans/upcoming')
-        ? { status: 404, body: { reason: 'feature_unavailable' } }
+        ? {
+            status: 404,
+            body: {
+              success: false,
+              error: 'feature_unavailable',
+              reason: 'feature_unavailable',
+            },
+          }
         : defaultReply(request);
     await renderGoals(harness);
     await waitFor(() => expect(screen.queryByTestId('intelligence-plan-flow')).toBeNull());
@@ -258,7 +302,7 @@ describe('M3a account and confirmed-plan boundaries', () => {
         success: true,
         summaryId: SUMMARY_ID,
         revision: 2,
-        understood: 'Account A private goal',
+        understood: { goalText: 'Account A private goal' },
         expiresAt: '2030-01-07T10:30:00.000Z',
       },
     });
@@ -271,7 +315,21 @@ describe('M3a account and confirmed-plan boundaries', () => {
     setLinkedWork(true);
     harness.server.handler = (request) =>
       request.path.endsWith(`/goals/${GOAL_ID}/plan`)
-        ? { status: 200, body: { success: true, draft: null, confirmed: { ...PLAN, status: 'confirmed' } } }
+        ? {
+            status: 200,
+            body: {
+              success: true,
+              draft: null,
+              confirmed: {
+                planId: PLAN.planId,
+                saved: [],
+                pendingLater: [{ weekIndex: 3, stepIds: ['step-3'] }],
+              },
+              linkedWork: [
+                { entity: 'commitment', id: 'commitment-1', title: 'Plan three lunches' },
+              ],
+            },
+          }
         : defaultReply(request);
     await openGoal(harness);
     await waitFor(() => expect(screen.queryByTestId('goal-plan-progress')).not.toBeNull());

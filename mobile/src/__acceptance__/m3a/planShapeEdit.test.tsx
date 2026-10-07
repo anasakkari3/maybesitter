@@ -73,7 +73,7 @@ describe('M3a A2 whole-plan editing', () => {
     expect(request.body).toEqual(
       expect.objectContaining({
         revision: PLAN.revision,
-        op: expect.objectContaining({ kind: 'reorder', stepId: 'step-2', toOrder: 1 }),
+        op: expect.objectContaining({ op: 'reorder', stepId: 'step-2', toOrder: 1 }),
       }),
     );
   });
@@ -88,7 +88,7 @@ describe('M3a A2 whole-plan editing', () => {
     expect(lastRequest(harness.server, 'PATCH', new RegExp(`/plans/${PLAN_ID}$`)).body).toEqual(
       expect.objectContaining({
         revision: PLAN.revision,
-        op: expect.objectContaining({ kind: 'remove', stepId: 'step-2' }),
+        op: expect.objectContaining({ op: 'remove', stepId: 'step-2' }),
       }),
     );
 
@@ -99,7 +99,7 @@ describe('M3a A2 whole-plan editing', () => {
     expect(lastRequest(harness.server, 'PATCH', new RegExp(`/plans/${PLAN_ID}$`)).body).toEqual(
       expect.objectContaining({
         revision: PLAN.revision + 1,
-        op: expect.objectContaining({ stepId: 'step-2' }),
+        op: expect.objectContaining({ op: 'restore', stepId: 'step-2' }),
       }),
     );
   });
@@ -121,10 +121,14 @@ describe('M3a A2 whole-plan editing', () => {
       expect.objectContaining({
         revision: PLAN.revision,
         op: expect.objectContaining({
-          kind: 'add',
-          title: 'Pack lunch',
-          durationMinutes: 20,
-          phase: { unit: 'week', index: 2 },
+          op: 'add',
+          afterStepId: null,
+          step: {
+            title: 'Pack lunch',
+            kind: 'commitment',
+            durationMinutes: 20,
+            phase: { unit: 'week', index: 2 },
+          },
         }),
       }),
     );
@@ -147,7 +151,7 @@ describe('M3a A2 whole-plan editing', () => {
       expect.objectContaining({
         revision: PLAN.revision,
         op: {
-          kind: 'update',
+          op: 'update',
           stepId: 'step-1',
           fields: {
             title: 'Prepare lunches',
@@ -171,7 +175,10 @@ describe('M3a A2 whole-plan editing', () => {
     };
     harness.server.handler = (request) =>
       request.method === 'PATCH'
-        ? { status: 409, body: { reason: 'stale', plan: current } }
+        ? {
+            status: 409,
+            body: { success: false, error: 'stale', reason: 'stale', plan: current },
+          }
         : defaultReply(request);
     await openDraft();
     await press('plan-edit');
@@ -184,7 +191,15 @@ describe('M3a A2 whole-plan editing', () => {
   it('A2 too_many_edits: 422 shows its own failure and recovery action', async () => {
     harness.server.handler = (request) =>
       request.method === 'PATCH'
-        ? { status: 422, body: { reason: 'too_many_edits', plan: PLAN } }
+        ? {
+            status: 422,
+            body: {
+              success: false,
+              error: 'too_many_edits',
+              reason: 'too_many_edits',
+              plan: PLAN,
+            },
+          }
         : defaultReply(request);
     await openDraft();
     await press('plan-edit');

@@ -39,7 +39,7 @@ describe('M3A-012/-033/-048 later weeks', () => {
                   planId: PLAN_ID,
                   goalTitle: 'First upcoming goal',
                   weekIndex: 3,
-                  weekStartsOn: '2030-01-21',
+                  weekStartsAt: '2030-01-21T00:00:00.000Z',
                   stepCount: 1,
                 },
                 {
@@ -47,7 +47,7 @@ describe('M3A-012/-033/-048 later weeks', () => {
                   planId: 'plan-2',
                   goalTitle: 'Second upcoming goal',
                   weekIndex: 4,
-                  weekStartsOn: '2030-01-28',
+                  weekStartsAt: '2030-01-28T00:00:00.000Z',
                   stepCount: 2,
                 },
               ],
@@ -74,7 +74,14 @@ describe('M3A-012/-033/-048 later weeks', () => {
   it('M3A-048 upcoming feature unavailable: hides the Today card', async () => {
     harness.server.handler = (request) =>
       request.path.endsWith('/goals/plans/upcoming')
-        ? { status: 404, body: { reason: 'feature_unavailable' } }
+        ? {
+            status: 404,
+            body: {
+              success: false,
+              error: 'feature_unavailable',
+              reason: 'feature_unavailable',
+            },
+          }
         : defaultReply(request);
     await renderRoot(harness);
 
