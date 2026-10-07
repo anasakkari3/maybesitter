@@ -13,7 +13,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ goa
   try {
     await readGoalPlanBody(request);
     const { goalId, planId, weekIndex } = await params;
-    const times = await createLaterWeekTimes(user.uid, goalId, planId, Number(weekIndex));
-    return Response.json({ success: true, times });
+    const { plan, times } = await createLaterWeekTimes(user.uid, goalId, planId, Number(weekIndex));
+    return Response.json({ success: true, plan, times });
   } catch (error) { return goalPlanRouteError(error); }
 }

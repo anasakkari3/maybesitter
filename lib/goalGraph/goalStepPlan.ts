@@ -65,6 +65,8 @@ export interface GoalStepDraft {
   readonly title: string;
   readonly suggestedAs: GoalStepSuggestedKind;
   readonly suggestedWhen: GoalStepSuggestedWhen | null;
+  /** Present only when the deterministic wording promises a concrete duration. */
+  readonly durationMinutes?: number;
 }
 
 export interface GoalStepValidation {
@@ -402,6 +404,7 @@ interface TemplateStep {
   readonly title: string;
   readonly suggestedAs: GoalStepSuggestedKind;
   readonly suggestedWhen: GoalStepSuggestedWhen | null;
+  readonly durationMinutes?: number;
 }
 
 const TEMPLATES: Readonly<Record<GoalStepLanguage, Readonly<Record<GoalShape, readonly TemplateStep[]>>>> = {
@@ -418,7 +421,7 @@ const TEMPLATES: Readonly<Record<GoalStepLanguage, Readonly<Record<GoalShape, re
     ],
     open: [
       { title: 'اكتب شو يعني إنك خلّصت «{goal}»', suggestedAs: 'commitment', suggestedWhen: 'this_week' },
-      { title: 'اختار أول خطوة صغيرة لـ«{goal}» واشتغل عليها ربع ساعة', suggestedAs: 'commitment', suggestedWhen: 'today' },
+      { title: 'اختار أول خطوة صغيرة لـ«{goal}» واشتغل عليها ربع ساعة', suggestedAs: 'commitment', suggestedWhen: 'today', durationMinutes: 15 },
       { title: 'اشتغل على «{goal}» شوي كم مرة بالأسبوع', suggestedAs: 'habit', suggestedWhen: null },
     ],
   },
@@ -435,7 +438,7 @@ const TEMPLATES: Readonly<Record<GoalStepLanguage, Readonly<Record<GoalShape, re
     ],
     open: [
       { title: 'לכתוב מה זה אומר לסיים את "{goal}"', suggestedAs: 'commitment', suggestedWhen: 'this_week' },
-      { title: 'לבחור צעד ראשון קטן ל"{goal}" ולעבוד עליו רבע שעה', suggestedAs: 'commitment', suggestedWhen: 'today' },
+      { title: 'לבחור צעד ראשון קטן ל"{goal}" ולעבוד עליו רבע שעה', suggestedAs: 'commitment', suggestedWhen: 'today', durationMinutes: 15 },
       { title: 'להקדיש קצת זמן ל"{goal}" כמה פעמים בשבוע', suggestedAs: 'habit', suggestedWhen: null },
     ],
   },
@@ -452,7 +455,7 @@ const TEMPLATES: Readonly<Record<GoalStepLanguage, Readonly<Record<GoalShape, re
     ],
     open: [
       { title: 'Write down what done looks like for “{goal}”', suggestedAs: 'commitment', suggestedWhen: 'this_week' },
-      { title: 'Pick one small first step for “{goal}” and give it 15 minutes', suggestedAs: 'commitment', suggestedWhen: 'today' },
+      { title: 'Pick one small first step for “{goal}” and give it 15 minutes', suggestedAs: 'commitment', suggestedWhen: 'today', durationMinutes: 15 },
       { title: 'Give “{goal}” a little time a few times a week', suggestedAs: 'habit', suggestedWhen: null },
     ],
   },
@@ -512,6 +515,7 @@ export function templateGoalSteps(goalText: string, language: GoalStepLanguage):
       title,
       suggestedAs: template.suggestedAs,
       suggestedWhen: template.suggestedWhen,
+      ...(template.durationMinutes === undefined ? {} : { durationMinutes: template.durationMinutes }),
     });
   }));
 }
