@@ -1377,6 +1377,14 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
   const goalItems = chat ? items.filter((item) => isGoalTitle(item.title, sourceTitleOf.get(item.itemId))) : [];
   const sessions = items.filter((item) => !goalItems.includes(item));
   const instantOf = (item: CaptureProposalContract['items'][number]) => (item.resolvedTime ? Date.parse(item.resolvedTime) : null);
+  // A recurring list can move today's session earlier than the model's bare-
+  // weekday reading. Keep that pre-fan-out instant eligible for matching the
+  // goal, so the goal does not survive as a timed commitment on its own.
+  const modelInstantOf = (item: CaptureProposalContract['items'][number]) => {
+    const beforeSpread = unspread.get(item.itemId);
+    const instant = beforeSpread?.remindAt ?? beforeSpread?.dueAt;
+    return instant ? Date.parse(instant) : null;
+  };
   const goalSeedKeys = new Set(seeds.map((seed) => titleKey(seed.summary)));
   const titlesOf = (item: CaptureProposalContract['items'][number]) => [item.title, sourceTitleOf.get(item.itemId) ?? ''].filter(Boolean);
   // The goal each session serves, when its goal item was taken off the list
@@ -1389,7 +1397,7 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
     // leaves the goal where it is: a thing with its own time, kept.
     const at = instantOf(goalItem);
     const ofThisGoal = sessions.filter((session) => isSessionOf(titlesOf(goalItem), titlesOf(session), itemClause.get(session.itemId) ?? ''));
-    if (!ofThisGoal.some((session) => at === null || instantOf(session) === at)) continue;
+    if (!ofThisGoal.some((session) => at === null || instantOf(session) === at || modelInstantOf(session) === at)) continue;
     // Every session of it on the list counts toward it, not only the one at its hour.
     const served = ofThisGoal;
     dropItem(goalItem.itemId);

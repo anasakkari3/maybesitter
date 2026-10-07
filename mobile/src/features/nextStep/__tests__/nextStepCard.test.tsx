@@ -105,20 +105,25 @@ function mockDecision() {
   } as never);
 }
 
+// Since 2026-10-06 the proposal state is the badge («خطوة مقترحة»), not a
+// footer: the owner struck the footer «هذا اقتراح. لم يتغيّر أي شيء بعد.» from
+// the card as noise (audit 2026-10-06, image 1; mobile/AGENTS.md records it).
 describe('it never implies it has acted', () => {
-  it('says so, every time, unconditionally', async () => {
+  it('says so, every time, in its badge — and the struck footer is gone', async () => {
     await show();
-    expect(screen.getByTestId('next-step-note').props.children).toBe(en.suggestionNote);
+    expect(screen.getByTestId('next-step-badge')).toHaveTextContent(en.nextStepSuggestedLabel);
+    expect(screen.queryByTestId('next-step-note')).toBeNull();
+    expect(screen.queryByText(en.suggestionNote)).toBeNull();
   });
 
   // UAT 2026-09-27 (#17, shot 38): the tag «اقتراح · ما تغيّر شي بعد» sat
-  // above the note «هذا اقتراح. لم يتغيّر أي شيء بعد.» — the same fact twice on
-  // one card. The note is the rule (mobile/AGENTS.md). The tag is only for the
-  // state the note does not name: started.
-  it('says so once: no proposal tag beside the note, in any language', async () => {
+  // above the note — the same fact twice on one card. The badge is now the
+  // one place that says it; the tag is only for the state it does not name:
+  // started.
+  it('says so once: no proposal tag beside the badge, in any language', async () => {
     await show();
     expect(screen.queryByTestId('next-step-tag')).toBeNull();
-    expect(screen.getAllByText(en.suggestionNote)).toHaveLength(1);
+    expect(screen.getAllByText(en.nextStepSuggestedLabel)).toHaveLength(1);
     for (const bundle of [en, ar] as unknown as Record<string, unknown>[]) {
       expect(Object.keys(bundle)).not.toContain('nextStepTagProposal');
     }
@@ -139,7 +144,7 @@ describe('it never implies it has acted', () => {
     await show();
     await fireEvent.press(screen.getByTestId('next-step-why-toggle'));
     await waitFor(() => expect(screen.queryByTestId('next-step-why')).not.toBeNull());
-    expect(screen.queryByTestId('next-step-note')).not.toBeNull();
+    expect(screen.getByTestId('next-step-badge')).toHaveTextContent(en.nextStepSuggestedLabel);
   });
 });
 
@@ -205,13 +210,18 @@ describe('«the time has passed» on an all-day item (N18)', () => {
   it('is not said on the item\'s own day', async () => {
     await show(response(), new Map([['c-1', allDay(false)]]));
     expect(screen.queryByText(en.evidenceOverdue)).toBeNull();
-    // The other reason still stands.
-    expect(screen.getByTestId('next-step-evidence')).toBeTruthy();
+    // The other reason still stands — in «ليش هاي بالذات», where reasons live
+    // since the card face lost its reasoning chips (2026-10-06).
+    await fireEvent.press(screen.getByTestId('next-step-why-toggle'));
+    await waitFor(() => expect(screen.queryByTestId('next-step-why')).not.toBeNull());
+    expect(screen.queryByText(en.evidenceOverdue)).toBeNull();
   });
 
-  it('is said once the day is over', async () => {
+  it('is said once the day is over — in «why», since the card face has no reason chips (2026-10-06)', async () => {
     await show(response(), new Map([['c-1', allDay(true)]]));
-    expect(screen.getByText(en.evidenceOverdue)).toBeTruthy();
+    expect(screen.queryByText(en.evidenceOverdue)).toBeNull();
+    await fireEvent.press(screen.getByTestId('next-step-why-toggle'));
+    await waitFor(() => expect(within(screen.getByTestId('next-step-why')).getByText(new RegExp(en.evidenceOverdue))).toBeTruthy());
   });
 });
 
@@ -469,7 +479,8 @@ describe('the three answers up front (Stitch)', () => {
     await waitFor(() => expect(screen.queryByTestId('next-step-defer-sheet')).not.toBeNull());
     expect(screen.getByText(en.nextStepDeferTitle)).toBeTruthy();
     // The card's note and the sheet's own.
-    expect(screen.getAllByText(en.suggestionNote).length).toBeGreaterThanOrEqual(2);
+    // The sheet keeps its own footnote; the card's footer was struck (2026-10-06).
+    expect(screen.getAllByText(en.suggestionNote).length).toBeGreaterThanOrEqual(1);
     await fireEvent.press(screen.getByTestId('next-step-defer-close'));
     await waitFor(() => expect(screen.queryByTestId('next-step-defer-sheet')).toBeNull());
   });
@@ -523,9 +534,10 @@ describe('a preparation step for an event', () => {
     expect(screen.getAllByText(/Night out with friends/)).toHaveLength(1);
   });
 
-  it('says when the exam is, since tomorrow’s exam is not among today’s items', async () => {
+  it('says when the exam is, since tomorrow’s exam is not among today’s items — in «why» (2026-10-06)', async () => {
     await show(prepResponse());
-    expect(screen.getByText(/^it’s Tomorrow · /)).toBeTruthy();
+    await fireEvent.press(screen.getByTestId('next-step-why-toggle'));
+    await waitFor(() => expect(within(screen.getByTestId('next-step-why')).getByText(/it’s Tomorrow · /)).toBeTruthy());
   });
 
   it('after «start», is no dead end: done, later and not-this stay, and «حضّرني» is there to plan it', async () => {

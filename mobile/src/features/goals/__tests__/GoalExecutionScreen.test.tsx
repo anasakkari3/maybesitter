@@ -271,3 +271,14 @@ describe.each([
     ]));
   });
 });
+
+it('has no page subtitle and keeps the add-goal explanation behind its arrow (owner audit 2026-10-06)', async () => {
+  await AsyncStorage.setItem(LANGUAGE_STORAGE_KEY, 'ar');
+  await render(wrap(<GoalExecutionScreen />));
+  await waitFor(() => expect(screen.queryByText(strings.ar.xGoals)).not.toBeNull());
+  // The struck subtitle «أهدافك، من الاقتراح لخطوات بتأكدها بنفسك.» is gone.
+  expect(screen.queryByText('أهدافك، من الاقتراح لخطوات بتأكدها بنفسك.')).toBeNull();
+  expect(screen.queryByText(strings.ar.xAddGoalBody)).toBeNull();
+  await fireEvent.press(screen.getByTestId('goal-add-why'));
+  expect(screen.getByTestId('goal-add-why-body')).toHaveTextContent(strings.ar.xAddGoalBody);
+});

@@ -48,6 +48,16 @@ import { withProposalClashes } from '../../lib/services/captureChat/chatConflict
 const BASE = 'http://localhost:3000';
 const TZ = 'Asia/Jerusalem';
 const weekday = (name: string): string => resolveWeekdayDate(name, new Date(), TZ)!.date;
+const recurringWeekday = (name: string, time: string): string => {
+  const now = new Date();
+  const localNow = localTimeSpecFor(now, TZ)!;
+  const next = resolveWeekdayDate(name, now, TZ)!.date;
+  const todayWeekday = new Date(`${localNow.date}T12:00:00Z`).getUTCDay();
+  const namedWeekday = new Date(`${next}T12:00:00Z`).getUTCDay();
+  // Match occurrenceDatesFor: a recurring weekday includes today only while
+  // that occurrence is still ahead on the person's clock.
+  return namedWeekday === todayWeekday && time > localNow.time ? localNow.date : next;
+};
 const TUESDAY = weekday('Tuesday');
 const THURSDAY = weekday('Thursday');
 const FRIDAY = weekday('Friday');
@@ -140,10 +150,10 @@ const FIRST_ANSWERS = {
 } as const;
 
 /** Two sessions, the coming Tuesday and the coming Thursday at 19:00, nothing asked, and no goal among the timed items. */
-function twoSessions(body: Body, label: string): Item[] {
+function twoSessions(body: Body, label: string, dates: readonly string[] = [TUESDAY, THURSDAY]): Item[] {
   const items = body.proposal!.items;
   assert.equal(items.length, 2, `${label}: ${JSON.stringify(items.map((entry) => [entry.title, entry.resolvedTime]))}`);
-  assert.deepEqual(items.map((entry) => entry.resolvedTime).sort(), [at(TUESDAY, '19:00'), at(THURSDAY, '19:00')].sort(), label);
+  assert.deepEqual(items.map((entry) => entry.resolvedTime).sort(), dates.map((date) => at(date, '19:00')).sort(), label);
   for (const entry of items) {
     assert.equal(entry.needsClarification, false, `${label}: asked again: ${JSON.stringify(entry)}`);
     assert.doesNotMatch(entry.title, /React|تعلم/, `${label}: the goal is a timed item: ${entry.title}`);
@@ -162,7 +172,7 @@ for (const [label, firstAnswer] of Object.entries(FIRST_ANSWERS)) {
       // The first message said the days and the hour: nothing is asked.
       assert.doesNotMatch(first!.reply, /[?؟]/, `the bot asked again: ${first!.reply}`);
       twoSessions(first!, 'first message');
-      twoSessions(second!, 'second message');
+      twoSessions(second!, 'second message', [recurringWeekday('Tuesday', '19:00'), recurringWeekday('Thursday', '19:00')]);
       // The goal is offered on its own, as «يمكن هدف», and the reply says so.
       assert.deepEqual(second!.proposal!.seeds.map((seed) => [seed.kind, seed.summary]), [['possible_goal', 'تتعلم React']]);
       assert.match(first!.reply, /«تتعلم React»/);
@@ -181,13 +191,14 @@ test('audit #1: the two sessions confirm as two commitments on two days, with no
   try {
     const uid = uidFor('AuditReactConfirm');
     const [, second] = await conversation(uid, [FIRST, SECOND]);
-    const items = twoSessions(second!, 'before confirm');
+    const recurringDates = [recurringWeekday('Tuesday', '19:00'), recurringWeekday('Thursday', '19:00')];
+    const items = twoSessions(second!, 'before confirm', recurringDates);
     const response = await confirmPost(post('/api/mobile/capture/confirm', uid, {
       proposalId: second!.proposal!.proposalId, itemIds: items.map((entry) => entry.itemId),
     }));
     assert.equal(response.status, 200);
     const result = await response.json() as { persisted: Array<{ resolvedTime: string | null }>; collisions: unknown[]; goalLinks: unknown[] };
-    assert.deepEqual(result.persisted.map((entry) => entry.resolvedTime).sort(), [at(TUESDAY, '19:00'), at(THURSDAY, '19:00')].sort());
+    assert.deepEqual(result.persisted.map((entry) => entry.resolvedTime).sort(), recurringDates.map((date) => at(date, '19:00')).sort());
     assert.deepEqual(result.collisions, []);
     assert.deepEqual(result.goalLinks, []);
   } finally {
@@ -290,7 +301,7 @@ test('audit #6: with the goal "Learn React" active, the sessions offer to count 
     const uid = uidFor('AuditGoalLink');
     const goal = await createManualMemory(uid, { kind: 'goal', content: 'Learn React', language: 'en' }, new Date().toISOString());
     const [first, second] = await conversation(uid, [FIRST, SECOND]);
-    const items = twoSessions(second!, 'with the goal');
+    const items = twoSessions(second!, 'with the goal', [recurringWeekday('Tuesday', '19:00'), recurringWeekday('Thursday', '19:00')]);
     for (const entry of items) assert.deepEqual(entry.goalLink, { goalId: goal.id, title: 'Learn React' }, JSON.stringify(entry));
     // The goal exists: it is not offered again as a possible goal.
     assert.deepEqual(second!.proposal!.seeds, []);
@@ -649,7 +660,12 @@ test('round 4 A: a later clause keeps the day said earlier; an Arabic card title
   // «…وأدرس الثلاثاء والخميس…»: the model's "Study" is named by its card title only; it is spread, not asked.
   const audit = await chatOnce('Round4AAudit', 'بدي أتعلم React وأدرس الثلاثاء والخميس الساعة 7 المسا',
     [item('Learn React', 'أتعلم React', TUESDAY, '19:00'), item('Study', 'أدرس', TUESDAY, '19:00'), item('Study', 'أدرس', TUESDAY, '19:00')], { locale: 'ar' });
-  assert.deepEqual(audit.body.proposal!.items.map((entry) => [entry.title, entry.resolvedTime]), [['أدرس', at(TUESDAY, '19:00')], ['أدرس', at(THURSDAY, '19:00')]]);
+  assert.deepEqual(
+    audit.body.proposal!.items.map((entry) => [entry.title, entry.resolvedTime])
+      .sort((left, right) => String(left[1]).localeCompare(String(right[1]))),
+    [['أدرس', at(TUESDAY, '19:00')], ['أدرس', at(THURSDAY, '19:00')]]
+      .sort((left, right) => left[1].localeCompare(right[1])),
+  );
 });
 
 test('round 4 D: a lost time sends a spread back to its one reading; an old list hints no other day', async () => {

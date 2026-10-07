@@ -154,6 +154,7 @@ import {
   INTELLIGENCE_PROPOSALS,
   INTELLIGENCE_RUNS,
   INTELLIGENCE_MONITORS,
+  INTELLIGENCE_GMAIL_SCANS,
   INTELLIGENCE_SOURCE_MARKERS,
   MEMORY_DISMISSALS,
   PROFILE_PROPOSALS,
@@ -249,6 +250,9 @@ export async function deletePersonalizationScope(
   await clearUserCollection(storage, input.scopeId, INTELLIGENCE_PROPOSALS);
   await clearUserCollection(storage, input.scopeId, INTELLIGENCE_RUNS);
   await clearUserCollection(storage, input.scopeId, INTELLIGENCE_MONITORS);
+  // The week-scan cursor (2026-10-06): content-free, but it says when this
+  // person's mail was read, so it goes with everything else read from it.
+  await clearUserCollection(storage, input.scopeId, INTELLIGENCE_GMAIL_SCANS);
   await clearUserCollection(storage, input.scopeId, INTELLIGENCE_SOURCE_MARKERS);
   // With the follows gone, the matches they projected stop holding time: an
   // unfollow drop, never a dismissal, so following again brings them back.

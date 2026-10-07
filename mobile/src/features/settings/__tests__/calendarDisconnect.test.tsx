@@ -112,6 +112,7 @@ afterEach(async () => {
   client.clear();
   resetAuthForTests();
   jest.restoreAllMocks();
+  delete process.env.EXPO_PUBLIC_FEATURE_CALENDAR_READ;
 });
 
 async function show() {
@@ -205,13 +206,42 @@ describe('pressing disconnect', () => {
 });
 
 describe('what the screen says without being asked', () => {
-  it('names the Android caveat on Android', async () => {
+  it('shows the reading-on benefit but no zero-count line when a current read finds nothing', async () => {
+    await AsyncStorage.multiRemove([BUSY_BLOCKS_KEY, BUSY_SYNCED_AT_KEY]);
+    jest.mocked(deviceCalendar.fetchBusyBlocks).mockResolvedValue([]);
+
+    await show();
+
+    await waitFor(() => expect(screen.getByTestId('calendar-reading-benefit').props.children)
+      .toBe(en.calendarReadBenefitOn));
+    // ICU's Arabic zero form has no digit, so absence of a numeral is not
+    // enough to prove that the zero-count node itself stayed off the screen.
+    expect(screen.queryByTestId('calendar-busy-count')).toBeNull();
+  });
+
+  it.each<[string, () => void]>([
+    ['permission denied', () => { jest.mocked(deviceCalendar.getAccess).mockResolvedValue('denied'); }],
+    ['consent off', () => { jest.mocked(trustEndpoints.getTrust).mockResolvedValue(trustBody(false) as never); }],
+    ['feature disabled', () => { process.env.EXPO_PUBLIC_FEATURE_CALENDAR_READ = 'false'; }],
+  ])('shows the reading-off benefit when %s', async (_state, arrange) => {
+    arrange();
+
+    await show();
+
+    await waitFor(() => expect(screen.getByTestId('calendar-reading-benefit').props.children)
+      .toBe(en.calendarReadBenefitOff));
+    expect(screen.queryByTestId('calendar-busy-count')).toBeNull();
+  });
+
+  it('keeps the Android caveat behind the disconnect disclosure on Android', async () => {
     const original = Platform.OS;
     Object.defineProperty(Platform, 'OS', { value: 'android', configurable: true });
     try {
       await show();
-      expect(String(screen.getByTestId('calendar-declined-note').props.children))
-        .toBe(en.calendarDeclinedNote);
+      expect(screen.queryByText(en.calendarDeclinedNote)).toBeNull();
+      await fireEvent.press(screen.getByTestId('calendar-disconnect-details-why'));
+      expect(String(screen.getByTestId('calendar-disconnect-details-why-body').props.children))
+        .toContain(en.calendarDeclinedNote);
     } finally {
       Object.defineProperty(Platform, 'OS', { value: original, configurable: true });
     }
@@ -224,7 +254,9 @@ describe('what the screen says without being asked', () => {
     try {
       await show();
       expect(screen.queryByTestId('calendar-busy-count')).not.toBeNull();
-      expect(screen.queryByTestId('calendar-declined-note')).toBeNull();
+      await fireEvent.press(screen.getByTestId('calendar-disconnect-details-why'));
+      expect(String(screen.getByTestId('calendar-disconnect-details-why-body').props.children))
+        .not.toContain(en.calendarDeclinedNote);
     } finally {
       Object.defineProperty(Platform, 'OS', { value: original, configurable: true });
     }

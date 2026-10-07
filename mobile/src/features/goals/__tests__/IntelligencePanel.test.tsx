@@ -8,7 +8,7 @@ import { LANGUAGE_STORAGE_KEY } from '../../../i18n/language';
 import { IntelligencePanel } from '../IntelligencePanel';
 import { FeatureUnavailableError, ForbiddenError, NetworkError } from '../../../api/errors';
 import en from '../../../i18n/locales/en.json';
-import { Text } from 'react-native';
+import { AccessibilityInfo, Keyboard, Text } from 'react-native';
 import { AuthProvider } from '../../../auth/AuthProvider';
 import { createFakeAuthRepository } from '../../../auth/fakeAuthRepository';
 import { resetAuthForTests, setAuthRepository } from '../../../api/auth';
@@ -91,8 +91,12 @@ it('keeps requesting Gmail pages until the whole week is complete', async () => 
   await render(wrap());
   await waitFor(() => expect(screen.queryByTestId('intelligence-gmail-scan')).not.toBeNull());
   await act(async () => { await fireEvent.press(screen.getByTestId('intelligence-gmail-scan')); });
+  // A press only explains; «Continue» runs it (owner audit 2026-10-06).
+  expect(mockScan).not.toHaveBeenCalled();
+  await act(async () => { await fireEvent.press(screen.getByTestId('intelligence-gmail-scan-confirm')); });
   await waitFor(() => expect(mockScan).toHaveBeenCalledTimes(3));
-  expect(onChanged).toHaveBeenCalledTimes(1);
+  await waitFor(() => expect(onChanged).toHaveBeenCalledTimes(1));
+  await waitFor(() => expect(screen.getByTestId('intelligence-status-text')).toHaveTextContent('Done — checked 7 emails from the past week'));
 });
 
 it('takes a wish through analysis, multi-step review surface, and explicit confirmation', async () => {
@@ -102,11 +106,13 @@ it('takes a wish through analysis, multi-step review surface, and explicit confi
   await waitFor(() => expect(screen.getByTestId('intelligence-statement').props.value).toBe('I want more Pilates time'));
   currentInbox = { success: true, observations: [evidence], suggestions: [], schedule: [] };
   await act(async () => { await fireEvent.press(screen.getByTestId('intelligence-analyze')); });
+  await act(async () => { await fireEvent.press(screen.getByTestId('intelligence-analyze-confirm')); });
   await waitFor(() => expect(mockAnalyze).toHaveBeenCalledWith('I want more Pilates time'));
   await waitFor(() => expect(mockInbox).toHaveBeenCalledTimes(2));
   await waitFor(() => expect(screen.queryByText(/I want more Pilates time/)).not.toBeNull());
   currentInbox = { success: true, observations: [evidence], suggestions: [suggestion], schedule: [] };
   await act(async () => { await fireEvent.press(screen.getByTestId('intelligence-generate')); });
+  await act(async () => { await fireEvent.press(screen.getByTestId('intelligence-generate-confirm')); });
   await waitFor(() => expect(mockGenerate).toHaveBeenCalled());
   await waitFor(() => expect(screen.queryByText(/Find a Pilates class/)).not.toBeNull());
   expect(mockDecide).not.toHaveBeenCalled();
@@ -276,4 +282,208 @@ it('on «يتابع لك» a failed read offers Retry, and Retry reads again', a
   expect(screen.queryByTestId('off')).toBeNull();
   await act(async () => { await fireEvent.press(screen.getByText(en.errorsRetry)); });
   await waitFor(() => expect(screen.queryByTestId('intelligence-suggestion-proposal-1')).not.toBeNull());
+});
+
+/*
+ * The three actions since the owner's audit of 2026-10-06 (image 8): a press
+ * explains, «Continue» runs it once, and the panel says what came of it.
+ */
+async function typeStatement(text: string) {
+  await waitFor(() => expect(screen.queryByTestId('intelligence-statement')).not.toBeNull());
+  await fireEvent.changeText(screen.getByTestId('intelligence-statement'), text);
+  await waitFor(() => expect(screen.getByTestId('intelligence-statement').props.value).toBe(text));
+}
+
+it('explains an action before running it, and cancel sends nothing', async () => {
+  await render(wrap());
+  await typeStatement('I want more Pilates time');
+  await act(async () => { await fireEvent.press(screen.getByTestId('intelligence-analyze')); });
+  expect(screen.getByText(en.xIntelligenceAnalyzeExplain)).toBeTruthy();
+  expect(screen.getByTestId('intelligence-statement').props.editable).toBe(false);
+  await act(async () => { await fireEvent.press(screen.getByTestId('intelligence-analyze-cancel')); });
+  expect(screen.queryByText(en.xIntelligenceAnalyzeExplain)).toBeNull();
+  expect(mockAnalyze).not.toHaveBeenCalled();
+});
+
+it('runs a confirmed action once even when «Continue» is pressed twice in one frame', async () => {
+  let release: (value: unknown) => void = () => {};
+  mockAnalyze.mockImplementation(() => new Promise(resolve => { release = resolve; }));
+  await render(wrap());
+  await typeStatement('Book the dentist');
+  await act(async () => { await fireEvent.press(screen.getByTestId('intelligence-analyze')); });
+  await act(async () => {
+    const confirm = screen.getByTestId('intelligence-analyze-confirm');
+    void fireEvent.press(confirm);
+    void fireEvent.press(confirm);
+  });
+  await act(async () => { release({ success: true, observations: [evidence] }); });
+  await waitFor(() => expect(screen.getByTestId('intelligence-status-text')).toHaveTextContent('I understood 1 thing — review it below'));
+  expect(mockAnalyze).toHaveBeenCalledTimes(1);
+  expect(mockAnalyze).toHaveBeenCalledWith('Book the dentist');
+});
+
+it('says plainly when nothing clear came out of the words', async () => {
+  mockAnalyze.mockResolvedValue({ success: true, observations: [] });
+  await render(wrap());
+  await typeStatement('hmm');
+  await act(async () => { await fireEvent.press(screen.getByTestId('intelligence-analyze')); });
+  await act(async () => { await fireEvent.press(screen.getByTestId('intelligence-analyze-confirm')); });
+  await waitFor(() => expect(screen.getByTestId('intelligence-status-text')).toHaveTextContent('Nothing clear came out of that. Tell me a bit more'));
+});
+
+it('does not call a saved analysis a failure when only the refresh failed, and retries by reading only', async () => {
+  await render(wrap());
+  await typeStatement('Book the dentist');
+  mockInbox.mockImplementationOnce(() => Promise.reject(new NetworkError('offline')));
+  await act(async () => { await fireEvent.press(screen.getByTestId('intelligence-analyze')); });
+  await act(async () => { await fireEvent.press(screen.getByTestId('intelligence-analyze-confirm')); });
+  await waitFor(() => expect(screen.queryByTestId('intelligence-refresh-failed')).not.toBeNull());
+  expect(screen.getByTestId('intelligence-status-text')).toHaveTextContent('I understood 1 thing — review it below');
+  expect(onChanged).toHaveBeenCalledTimes(1);
+  await act(async () => { await fireEvent.press(screen.getByTestId('intelligence-refresh-retry')); });
+  await waitFor(() => expect(screen.queryByTestId('intelligence-refresh-failed')).toBeNull());
+  expect(mockAnalyze).toHaveBeenCalledTimes(1);
+});
+
+it('counts only suggestions this request returned that were not already on screen', async () => {
+  const other = { ...suggestion, id: 'proposal-2', title: 'From the visit' };
+  currentInbox = { success: true, observations: [evidence], suggestions: [suggestion], schedule: [] };
+  // The request returns the one already shown plus a new one; meanwhile a
+  // third (from the Watching visit or another device) also lands.
+  const fresh = { ...suggestion, id: 'proposal-3', title: 'Fresh' };
+  mockGenerate.mockImplementation(async () => {
+    currentInbox = { success: true, observations: [evidence], suggestions: [suggestion, fresh, other], schedule: [] };
+    return { success: true, suggestions: [suggestion, fresh], schedule: [] };
+  });
+  await render(wrap());
+  await waitFor(() => expect(screen.queryByTestId('intelligence-suggestion-proposal-1')).not.toBeNull());
+  await act(async () => { await fireEvent.press(screen.getByTestId('intelligence-generate')); });
+  await act(async () => { await fireEvent.press(screen.getByTestId('intelligence-generate-confirm')); });
+  await waitFor(() => expect(screen.getByTestId('intelligence-status-text')).toHaveTextContent('1 new suggestion below'));
+});
+
+it('says there is nothing new when the request only returns what is already shown', async () => {
+  currentInbox = { success: true, observations: [evidence], suggestions: [suggestion], schedule: [] };
+  mockGenerate.mockResolvedValue({ success: true, suggestions: [suggestion], schedule: [] });
+  await render(wrap());
+  await waitFor(() => expect(screen.queryByTestId('intelligence-suggestion-proposal-1')).not.toBeNull());
+  await act(async () => { await fireEvent.press(screen.getByTestId('intelligence-generate')); });
+  await act(async () => { await fireEvent.press(screen.getByTestId('intelligence-generate-confirm')); });
+  await waitFor(() => expect(screen.getByTestId('intelligence-status-text')).toHaveTextContent('No new suggestions'));
+});
+
+it('announces a multi-page email scan twice — when it starts and when it is done — never per page', async () => {
+  const announce = jest.spyOn(AccessibilityInfo, 'announceForAccessibility').mockImplementation(() => {});
+  mockScan
+    .mockResolvedValueOnce({ success: true, messagesRead: 3, observations: [], scan: { status: 'running', messagesVisited: 3 } })
+    .mockResolvedValueOnce({ success: true, messagesRead: 3, observations: [], scan: { status: 'running', messagesVisited: 6 } })
+    .mockResolvedValueOnce({ success: true, messagesRead: 2, observations: [], scan: { status: 'complete', messagesVisited: 8 } });
+  await render(wrap());
+  await waitFor(() => expect(screen.queryByTestId('intelligence-gmail-scan')).not.toBeNull());
+  await act(async () => { await fireEvent.press(screen.getByTestId('intelligence-gmail-scan')); });
+  await act(async () => { await fireEvent.press(screen.getByTestId('intelligence-gmail-scan-confirm')); });
+  await waitFor(() => expect(screen.getByTestId('intelligence-status-text')).toHaveTextContent('Done — checked 8 emails from the past week'));
+  expect(announce.mock.calls.map(call => call[0])).toEqual([en.xIntelligenceGmailScanStarted, 'Done — checked 8 emails from the past week']);
+});
+
+it('says a failed email scan in the status line', async () => {
+  mockScan.mockRejectedValue(new NetworkError('offline'));
+  await render(wrap());
+  await waitFor(() => expect(screen.queryByTestId('intelligence-gmail-scan')).not.toBeNull());
+  await act(async () => { await fireEvent.press(screen.getByTestId('intelligence-gmail-scan')); });
+  await act(async () => { await fireEvent.press(screen.getByTestId('intelligence-gmail-scan-confirm')); });
+  await waitFor(() => expect(screen.getByTestId('intelligence-status-text').props.children).not.toBe(en.xIntelligenceGmailScanStarted));
+  expect(onChanged).not.toHaveBeenCalled();
+});
+
+it('keeps the explanations behind their arrows until asked for', async () => {
+  await render(wrap());
+  await waitFor(() => expect(screen.queryByTestId('intelligence-panel-why')).not.toBeNull());
+  expect(screen.queryByText(en.xIntelligenceBody)).toBeNull();
+  expect(screen.queryByText(en.xIntelligenceGmailMonitorInfo)).toBeNull();
+  await act(async () => { await fireEvent.press(screen.getByTestId('intelligence-panel-why')); });
+  expect(screen.getByText(en.xIntelligenceBody)).toBeTruthy();
+});
+
+it('claims no count of new suggestions when the refresh after generating failed', async () => {
+  currentInbox = { success: true, observations: [evidence], suggestions: [], schedule: [] };
+  mockGenerate.mockResolvedValue({ success: true, suggestions: [suggestion], schedule: [] });
+  await render(wrap());
+  await waitFor(() => expect(screen.queryByTestId('intelligence-generate')).not.toBeNull());
+  mockInbox.mockImplementationOnce(() => Promise.reject(new NetworkError('offline')));
+  await act(async () => { await fireEvent.press(screen.getByTestId('intelligence-generate')); });
+  await act(async () => { await fireEvent.press(screen.getByTestId('intelligence-generate-confirm')); });
+  await waitFor(() => expect(screen.queryByTestId('intelligence-refresh-failed')).not.toBeNull());
+  // Said once — the failure line — and no count while nothing new is visible.
+  expect(screen.getAllByText(en.xIntelligenceRefreshFailed)).toHaveLength(1);
+  expect(screen.queryByText('1 new suggestion below')).toBeNull();
+  // A retry that reads the list says the true result, and the failure is gone.
+  currentInbox = { success: true, observations: [evidence], suggestions: [suggestion], schedule: [] };
+  await act(async () => { await fireEvent.press(screen.getByTestId('intelligence-refresh-retry')); });
+  await waitFor(() => expect(screen.getByTestId('intelligence-status-text')).toHaveTextContent('1 new suggestion below'));
+  expect(screen.queryByText(en.xIntelligenceRefreshFailed)).toBeNull();
+  expect(mockGenerate).toHaveBeenCalledTimes(1);
+});
+
+it('says an action is expanded and moves a screen reader to its explanation', async () => {
+  const focus = jest.spyOn(AccessibilityInfo, 'sendAccessibilityEvent').mockImplementation(() => {});
+  await render(wrap());
+  await waitFor(() => expect(screen.queryByTestId('intelligence-gmail-scan')).not.toBeNull());
+  expect(screen.getByTestId('intelligence-gmail-scan').props.accessibilityState).toMatchObject({ expanded: false });
+  await act(async () => { await fireEvent.press(screen.getByTestId('intelligence-gmail-scan')); });
+  expect(screen.getByTestId('intelligence-gmail-scan').props.accessibilityState).toMatchObject({ expanded: true });
+  await waitFor(() => expect(focus).toHaveBeenCalledWith(expect.anything(), 'focus'));
+  await act(async () => { await fireEvent.press(screen.getByTestId('intelligence-gmail-scan-cancel')); });
+  expect(screen.getByTestId('intelligence-gmail-scan').props.accessibilityState).toMatchObject({ expanded: false });
+});
+
+it('says nothing — and never «done» — when the panel leaves the screen mid-scan', async () => {
+  const announce = jest.spyOn(AccessibilityInfo, 'announceForAccessibility').mockImplementation(() => {});
+  let releasePage: (value: unknown) => void = () => {};
+  mockScan.mockImplementation(() => new Promise(resolve => { releasePage = resolve; }));
+  const view = await render(wrap());
+  await waitFor(() => expect(screen.queryByTestId('intelligence-gmail-scan')).not.toBeNull());
+  await act(async () => { await fireEvent.press(screen.getByTestId('intelligence-gmail-scan')); });
+  await act(async () => { await fireEvent.press(screen.getByTestId('intelligence-gmail-scan-confirm')); });
+  await view.unmount();
+  await act(async () => { releasePage({ success: true, messagesRead: 3, observations: [], scan: { status: 'running', messagesVisited: 3 } }); });
+  await settle();
+  expect(announce.mock.calls.map(call => call[0])).toEqual([en.xIntelligenceGmailScanStarted]);
+  expect(mockScan).toHaveBeenCalledTimes(1);
+});
+
+it('draws nothing of one account for the next after a direct switch', async () => {
+  const repository = createFakeAuthRepository({ initialUser: USER });
+  setAuthRepository(repository);
+  currentInbox = { success: true, observations: [evidence], suggestions: [], schedule: [] };
+  await render(<SafeAreaProvider initialMetrics={metrics}><AppProvider><AuthProvider repository={repository} isDevBundle={false}>
+    <IntelligencePanel onChanged={onChanged} />
+  </AuthProvider></AppProvider></SafeAreaProvider>);
+  await waitFor(() => expect(screen.queryByTestId('intelligence-observation-obs-1')).not.toBeNull());
+  await fireEvent.changeText(screen.getByTestId('intelligence-statement'), 'Alice private words');
+  // Blake's first read never answers: whatever is on screen now is the first frame.
+  mockInbox.mockImplementation(() => new Promise(() => {}));
+  await act(async () => { repository.emit({ ...USER, uid: 'blake' }); });
+  expect(screen.queryByText('Alice private words')).toBeNull();
+  expect(screen.queryByTestId('intelligence-observation-obs-1')).toBeNull();
+});
+
+it('tells VoiceOver both the result and that the list could not refresh', async () => {
+  const announce = jest.spyOn(AccessibilityInfo, 'announceForAccessibility').mockImplementation(() => {});
+  await render(wrap());
+  await typeStatement('Book the dentist');
+  mockInbox.mockImplementationOnce(() => Promise.reject(new NetworkError('offline')));
+  await act(async () => { await fireEvent.press(screen.getByTestId('intelligence-analyze')); });
+  await act(async () => { await fireEvent.press(screen.getByTestId('intelligence-analyze-confirm')); });
+  await waitFor(() => expect(screen.queryByTestId('intelligence-refresh-failed')).not.toBeNull());
+  expect(announce.mock.calls.map(call => call[0])).toEqual([en.xIntelligenceAnalyzing, `I understood 1 thing — review it below ${en.xIntelligenceRefreshFailed}`]);
+});
+
+it('puts the keyboard away when an explanation opens, so «Continue» is not covered', async () => {
+  const dismiss = jest.spyOn(Keyboard, 'dismiss').mockImplementation(() => {});
+  await render(wrap());
+  await typeStatement('Book the dentist');
+  await act(async () => { await fireEvent.press(screen.getByTestId('intelligence-analyze')); });
+  expect(dismiss).toHaveBeenCalled();
+  expect(screen.getByTestId('intelligence-analyze-confirm')).toBeTruthy();
 });

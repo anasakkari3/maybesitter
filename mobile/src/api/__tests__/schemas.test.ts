@@ -21,6 +21,10 @@ import {
   captureProposalSchema,
 } from '../schemas/capture';
 import { shareProposalSchema } from '../schemas/share';
+import {
+  intelligenceAnalyzeSchema, intelligenceGenerateSchema, intelligenceGmailMonitorSchema,
+  intelligenceGmailScanSchema, intelligenceInboxSchema, intelligenceObservationReviewSchema,
+} from '../schemas/intelligence';
 import { meetingPrepResponseSchema } from '../schemas/meetings';
 import { nextStepDecisionResponseSchema, nextStepResponseSchema } from '../schemas/nextStep';
 import { pilotIncidentResponseSchema, trustResponseSchema } from '../schemas/trust';
@@ -373,6 +377,13 @@ const CASES: Array<[string, z.ZodType]> = [
   ['google.drivePicker', googlePickerTicketSchema],
   ['google.gmailScan', shareProposalSchema],
   ['google.gmailScanNotRead', shareProposalSchema],
+  ['intelligence.analyzed', intelligenceAnalyzeSchema],
+  ['intelligence.generated', intelligenceGenerateSchema],
+  ['intelligence.gmailMonitor', intelligenceGmailMonitorSchema],
+  ['intelligence.gmailMonitorSet', intelligenceGmailMonitorSchema],
+  ['intelligence.gmailScanComplete', intelligenceGmailScanSchema],
+  ['intelligence.inbox', intelligenceInboxSchema],
+  ['intelligence.observationReviewed', intelligenceObservationReviewSchema],
   ['google.gmailScanPartial', shareProposalSchema],
   ['google.gmailScanPartialEmpty', shareProposalSchema],
   ['google.gmailScanBudget', shareProposalSchema],

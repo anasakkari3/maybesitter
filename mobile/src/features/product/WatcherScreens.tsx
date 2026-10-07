@@ -28,7 +28,7 @@ export function monitorTitleFor(t: { xReadiness: string; xFootball: string }, la
 }
 
 export function BackgroundActivityScreen() {
-  const { t, p, lang, actions } = useApp();
+  const { t, tr, p, lang, actions } = useApp();
   const zone = useTimeZone();
   const query = useBackgroundActivity();
   const attribution = useBackgroundAttribution();
@@ -52,6 +52,11 @@ export function BackgroundActivityScreen() {
       onCancel={() => setDeleting(null)} onConfirm={() => { action.mutate({ id: deleting.id, action: 'delete' }); setDeleting(null); }} /> : null}>
     <ProductSection title={t.xBackground} icon="shield">
       <QueryBoundary isPending={query.isPending} error={query.error} onRetry={() => void query.refetch()}>
+        {query.data && !query.error ? (
+          <Txt role="supporting" color={p.mu} testID="background-watch-state">
+            {tr(query.data.paused ? 'xBackgroundWatchCountPaused' : 'xBackgroundWatchCount', { n: items.length })}
+          </Txt>
+        ) : null}
         <ServerToggle title={t.xPause} body={t.xWatchLimits} testID="monitoring-pause" value={query.data?.paused ?? false} disabled={query.data === undefined} onChange={async paused => {
           await setMonitoring.mutateAsync(paused);
           return true;
@@ -60,7 +65,11 @@ export function BackgroundActivityScreen() {
     </ProductSection>
     {action.error ? <Txt color={p.wm}>{userFacingMessage(action.error, t)}</Txt> : null}
     <QueryBoundary isPending={query.isPending} error={query.error} onRetry={() => void query.refetch()}>
-      {items.length === 0 ? <ProductSection title={t.xNoWatches} icon="watch" /> : null}
+      {query.data && items.length === 0 ? (
+        <ProductSection title={t.xBackgroundEmptyTitle} body={t.xBackgroundEmptyBody} icon="watch">
+          <Pill testID="background-create" label={t.xWatch} onPress={() => actions.go('watchBuilder')} />
+        </ProductSection>
+      ) : null}
       {items.map(monitor => <ProductSection key={monitor.monitorId} title={monitorTitle(monitor.label, monitor.title)} icon="watch">
         {monitor.status === 'retrying'
           // Never silence: a provider that is down or out of quota is said in
@@ -79,20 +88,21 @@ export function BackgroundActivityScreen() {
         {monitor.status === 'needs_reauth' || monitor.status === 'blocked_permission' ? <Pill label={t.xIntegrations} kind="soft" onPress={() => actions.go('integrations')} /> : null}
       </ProductSection>)}
     </QueryBoundary>
-    <ProductSection title={t.xRecentBackgroundActions} icon="watch">
-      <QueryBoundary isPending={attribution.isPending} error={attribution.error} onRetry={() => void attribution.refetch()}>
-        {attribution.data?.actions.length === 0 ? <Txt role="supporting" color={p.mu}>{t.xNoBackgroundActions}</Txt> : null}
+    <QueryBoundary isPending={attribution.isPending} error={attribution.error} onRetry={() => void attribution.refetch()}>
+      {attribution.data && (attribution.data.actions.length > 0 || attribution.data.orphanCount > 0) ? (
+        <ProductSection title={t.xRecentBackgroundActions} icon="watch">
         {attribution.data?.actions.map(event => <Card key={event.actionId} style={{ gap: 6 }}>
           <Txt role="card">{monitorTitle(event.label)}</Txt>
           <Txt role="supporting" color={p.mu}>{instant(event.occurredAt)}</Txt>
           <Txt role="supporting">{`${isolateAuto(event.condition)} → ${isolateAuto(event.policyDecision)} → ${t[effectKeys[event.effect as keyof typeof effectKeys]] ?? isolateAuto(event.effect)}`}</Txt>
         </Card>)}
-        {attribution.data ? <Txt role="supporting" color={attribution.data.orphanCount === 0 ? p.success : p.wm} testID="background-integrity">
-          {attribution.data.orphanCount === 0 ? t.xBackgroundIntegrityOk : t.xBackgroundIntegrityWarning.replace('{count}', String(attribution.data.orphanCount))}
+        {attribution.data.orphanCount > 0 ? <Txt role="supporting" color={p.wm} testID="background-integrity">
+          {tr('xBackgroundIntegrityWarning', { count: attribution.data.orphanCount })}
         </Txt> : null}
-      </QueryBoundary>
-    </ProductSection>
-    <Pill testID="background-create" label={t.xWatch} onPress={() => actions.go('watchBuilder')} />
+        </ProductSection>
+      ) : null}
+    </QueryBoundary>
+    {query.data && items.length > 0 && !query.error ? <Pill testID="background-create" label={t.xWatch} onPress={() => actions.go('watchBuilder')} /> : null}
     {/* Flights, parcels, WHOOP and Notion are not offered anywhere until the
         owner approves a provider (council ruling, closure CL7): absent, not
         "coming soon". Location is lane CL4's row, LIVE. */}

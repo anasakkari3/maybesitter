@@ -43,6 +43,7 @@ import { toggleFailureKey, type UserFacingKey } from '../../api/ui/userFacingMes
  */
 export function ServerToggle({
   title,
+  titleAccessory,
   body,
   value,
   disabled = false,
@@ -52,6 +53,8 @@ export function ServerToggle({
   accessibilityLabel,
 }: {
   title: string;
+  /** Composes an accessory with the title without wrapping the bordered row. */
+  titleAccessory?: ((title: React.ReactNode) => React.ReactNode) | undefined;
   body?: string | undefined;
   value: boolean;
   disabled?: boolean;
@@ -74,7 +77,11 @@ export function ServerToggle({
   return (
     <View style={{ paddingVertical: 18, paddingHorizontal: 18, gap: 8, borderBottomWidth: 1, borderBottomColor: p.ln }}>
       <View style={{ flexDirection: stacked ? 'column' : 'row', alignItems: stacked ? 'flex-start' : 'center', gap: 12 }}>
-        <Txt role="action" style={stacked ? undefined : { flex: 1 }}>{title}</Txt>
+        <View style={stacked ? { width: '100%' } : { flex: 1, minWidth: 0 }}>
+          {titleAccessory
+            ? titleAccessory(<Txt role="action">{title}</Txt>)
+            : <Txt role="action">{title}</Txt>}
+        </View>
         {busy ? <ActivityIndicator testID={`${testID ?? 'toggle'}-busy`} color={p.ac} /> : null}
         <Switch
           testID={testID}

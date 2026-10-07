@@ -30,6 +30,7 @@ import { canScheduleExactAlarms, openExactAlarmSettings } from '../../notificati
 import { toEngineSettings } from '../reminders/reminderInputs';
 import type { EscalationCeiling } from '../reminders/policy';
 import { SettingsHeader, SettingsRow } from './SettingsChrome';
+import { Disclosure } from '../../ui/Disclosure';
 
 /**
  * Everything this app may put on somebody's lock screen, in one place:
@@ -103,6 +104,13 @@ import { SettingsHeader, SettingsRow } from './SettingsChrome';
 const LEAD_MINUTES = [60, 30, 15] as const;
 const CEILINGS: readonly EscalationCeiling[] = ['soft', 'followUp', 'hard'];
 const QUIET_CHOICES: readonly QuietChoice[] = ['none', 'early', 'standard', 'late'];
+
+function disclosureTitle(id: string, body: string, label: string): (title: React.ReactNode) => React.ReactNode {
+  function SettingTitle(title: React.ReactNode) {
+    return <Disclosure id={id} body={body} label={label}>{title}</Disclosure>;
+  }
+  return SettingTitle;
+}
 
 export function NotificationsSettingsScreen({ onBack }: { onBack: () => void }) {
   const { t, p, lang, actions } = useApp();
@@ -322,18 +330,17 @@ export function NotificationsSettingsScreen({ onBack }: { onBack: () => void }) 
     );
   };
 
+  const notificationStatus = permissionDenied || needsAsking || osPermission === null || osPermission === 'undetermined';
   return (
     <Screen pinned={<SettingsHeader title={t.notifTitle} onBack={onBack} />}>
       <ScreenScroll>
         {/* What the phone allows, first (CL2b #18). */}
-        <Card pad={18} style={{ gap: 12 }} testID="notifications-status">
-          {/* Mounted whatever the permission, so a refusal that lands after
-              «اسمح» is heard by TalkBack (review I1). */}
-          <LiveRegion>
-            {permissionDenied ? <Txt size={15} color={p.wm} weight={600} lh={1.5} testID="notifications-denied">{t.notifDenied}</Txt> : null}
-          </LiveRegion>
+        {/* Mounted whatever the permission, so a refusal that lands after
+            «اسمح» is heard by TalkBack (review I1). */}
+        <LiveRegion testID="notifications-status-live">
           {permissionDenied ? (
-            <>
+            <Card pad={18} style={{ gap: 12 }} testID="notifications-status">
+              <Txt size={15} color={p.wm} weight={600} lh={1.5} testID="notifications-denied">{t.notifDenied}</Txt>
               {/* The one place a no can be undone. */}
               <Btn
                 label={t.notifOpenSettings}
@@ -343,8 +350,11 @@ export function NotificationsSettingsScreen({ onBack }: { onBack: () => void }) 
               >
                 <Txt size={15} color={p.ac}>{t.notifOpenSettings}</Txt>
               </Btn>
-            </>
-          ) : needsAsking ? (
+            </Card>
+          ) : null}
+        </LiveRegion>
+        {!permissionDenied && notificationStatus ? <Card pad={18} style={{ gap: 12 }} testID="notifications-status">
+          {needsAsking ? (
             <View style={{ gap: 12 }} testID="notifications-not-asked">
               <Txt size={15} color={p.mu} lh={1.5}>{t.notifAllowBody}</Txt>
               <Btn
@@ -360,10 +370,10 @@ export function NotificationsSettingsScreen({ onBack }: { onBack: () => void }) 
             // Before the first read lands nothing is known, so nothing is
             // claimed — not even for a frame (CL2b round 2).
             <Txt size={15} color={p.mu} lh={1.5}>
-              {osPermission === null ? t.notifIntroChecking : osPermission === 'undetermined' ? t.notifIntroAsk : t.notifIntroOn}
+              {osPermission === null ? t.notifIntroChecking : t.notifIntroAsk}
             </Txt>
           )}
-        </Card>
+        </Card> : null}
 
         {/* The kill switch is a fact about this build, not a control: when it
             is thrown the section is not there to be argued with, and the
@@ -374,7 +384,7 @@ export function NotificationsSettingsScreen({ onBack }: { onBack: () => void }) 
           <Card pad={0} testID="gentle-reminders">
             <ServerToggle
               title={t.notifGentleOn}
-              body={t.notifGentleBody}
+              titleAccessory={disclosureTitle('notif-gentle', t.notifGentleBody, t.notifGentleOn)}
               value={current?.softEnabled ?? false}
               disabled={current === undefined}
               onChange={setEnabled}
@@ -403,7 +413,6 @@ export function NotificationsSettingsScreen({ onBack }: { onBack: () => void }) 
             </View>
 
             <Txt size={13} color={p.mu}>{t.notifQuietTitle}</Txt>
-            <Txt size={13} color={p.mu} lh={1.5}>{t.notifQuietBody}</Txt>
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
               {QUIET_CHOICES.map(choice => (
                 <Pill
@@ -499,7 +508,7 @@ export function NotificationsSettingsScreen({ onBack }: { onBack: () => void }) 
             {ringing ? (
               <ServerToggle
                 title={t.notifMustQuiet}
-                body={t.notifMustQuietBody}
+                titleAccessory={disclosureTitle('notif-must-quiet', t.notifMustQuietBody, t.notifMustQuiet)}
                 value={engine?.mustThroughQuietHours === true}
                 onChange={async next_ => {
                   // A throw is left to `ServerToggle`, which says which failure it was.
@@ -539,7 +548,7 @@ export function NotificationsSettingsScreen({ onBack }: { onBack: () => void }) 
           <ServerToggle
             testID="plan-morning-toggle"
             title={t.planMorningTitle}
-            body={t.planMorningBody}
+            titleAccessory={disclosureTitle('plan-morning', t.planMorningBody, t.planMorningTitle)}
             value={plan?.enabled === true}
             // The plan is still built; only its note cannot arrive.
             blockedNote={blockedNote}
@@ -584,7 +593,7 @@ export function NotificationsSettingsScreen({ onBack }: { onBack: () => void }) 
           <ServerToggle
             testID="plan-replan-toggle"
             title={t.planReplanTitle}
-            body={t.planReplanBody}
+            titleAccessory={disclosureTitle('plan-replan', `${t.planReplanBody}\n${t.planReplanNoBackfill}`, t.planReplanTitle)}
             value={plan?.continuousReplanEnabled === true}
             disabled={plan === null}
             onChange={async next_ => {
@@ -592,12 +601,6 @@ export function NotificationsSettingsScreen({ onBack }: { onBack: () => void }) 
               return saved.continuousReplanEnabled === next_;
             }}
           />
-          <View style={{ paddingHorizontal: 18, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: p.ln }}>
-            {/* Said whichever way the switch sits: the moment it matters is
-                before somebody turns it off, not after. Disabling drains the
-                pending changes, so re-enabling cannot replay them. */}
-            <Txt size={13} color={p.mu} lh={1.5} testID="plan-replan-no-backfill">{t.planReplanNoBackfill}</Txt>
-          </View>
           <SettingsRow
             label={t.planOpen}
             testID="plan-open"

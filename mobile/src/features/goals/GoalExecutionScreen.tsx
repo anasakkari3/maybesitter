@@ -60,7 +60,9 @@ export function GoalExecutionScreen() {
   const openGoal = s.goalId ? { id: s.goalId, title: goals.find(goal => goal.id === s.goalId)?.content ?? '' } : null;
   useClarityStage(openGoal ? null : 'goal_list');
 
-  return <ProductPage id="goals" title={t.xGoals} {...(openGoal ? {} : { subtitle: t.xGoalBody })}>
+  // No subtitle: the owner struck «أهدافك، من الاقتراح لخطوات بتأكدها بنفسك.»
+  // (audit 2026-10-06, image 8); each card explains itself behind its arrow.
+  return <ProductPage id="goals" title={t.xGoals}>
     {openGoal ? <GoalDetail goalId={openGoal.id} title={openGoal.title} onBack={actions.back} /> : forbiddenReason(memory.error) === 'feature_disabled' ? (
       // Goals are kept in memory. With memory switched off on the server there
       // is nowhere to save one, so the screen says so once instead of offering
@@ -68,7 +70,7 @@ export function GoalExecutionScreen() {
       <ProductSection title={t.xAddGoal} body={t.errorsFeatureDisabled} icon="goal" />
     ) : <>
       <IntelligencePanel onChanged={decided} />
-      <ProductSection title={t.xAddGoal} body={t.xAddGoalBody} icon="goal">
+      <ProductSection title={t.xAddGoal} why={{ id: 'goal-add', body: t.xAddGoalBody }} icon="goal">
         <TextInput
           testID="goal-add-input"
           accessibilityLabel={t.xAddGoal}
