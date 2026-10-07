@@ -20,6 +20,8 @@
  *   - AI is always on, for capture and chat alike;
  *   - the message is bounded exactly like a capture.
  */
+// First: these cases name days relative to today (see the module).
+import '../support/pinnedClock.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createMemoryStorage } from '../../lib/storage/memoryAdapter.ts';
