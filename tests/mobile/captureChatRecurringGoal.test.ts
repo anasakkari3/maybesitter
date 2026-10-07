@@ -206,6 +206,24 @@ test('audit #1: the two sessions confirm as two commitments on two days, with no
   }
 });
 
+test('a model-only idea kind becomes a seed without an item or a time question', async () => {
+  const message = 'سفرة لتركيا مع الشباب';
+  begin([{ reply: 'فهمت الفكرة.', action: 'propose', items: [
+    { ...item(message, message, null, null), kind: 'idea' },
+  ] }]);
+  try {
+    const [body] = await conversation(uidFor('ModelOnlyIdeaKind'), [message]);
+    assert.deepEqual(body!.proposal!.items, []);
+    assert.deepEqual(
+      body!.proposal!.seeds.map((seed) => [seed.kind, seed.summary]),
+      [['idea', message]],
+    );
+    assert.doesNotMatch(body!.reply, /إيمتى|ايمتى/);
+  } finally {
+    end();
+  }
+});
+
 /* ── 2. the rules under it ─────────────────────────────────────────── */
 
 test('a list of days is every day in it: "every Tuesday and Thursday", «كل ثلاثاء وخميس», «כל יום שלישי וחמישי»', () => {

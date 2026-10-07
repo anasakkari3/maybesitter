@@ -34,6 +34,15 @@ export interface CaptureProposalItemContract {
   resolvedTime: string | null;
   needsClarification: boolean;
   /**
+   * When the item ends, as an ISO instant (M2a, audit 2026-10-06: «من ٤ لـ٨»
+   * kept only the 4). Present only when the person said an end and a
+   * deterministic range parse of this item's own words found it — never a
+   * model's guess. It is the local end clock resolved on the item's local
+   * date and timezone (next-day ranges allowed), and the same instant the
+   * confirmed command stores as `timeSpec.endAt`.
+   */
+  endTime?: string;
+  /**
    * What the extractor read the importance as (UC-2.4, #164).
    *
    * Shown as Must / Should / Nice. Sent so the review screen can render it
@@ -392,6 +401,14 @@ export interface CaptureProposalContract {
    * sent back.
    */
   seeds: CaptureSeedProposalContract[];
+  /**
+   * What the assistant understood, one line per thing, in the order the
+   * person said them (M2a). Shown before any card. Every item and every seed
+   * appears exactly once; a seed's point carries that seed's kind. Plain
+   * text, at most 160 characters, grounded in its own item or seed, never
+   * claiming anything was saved. Absent from older servers.
+   */
+  understood?: CaptureUnderstoodPoint[];
   provenance: {
     requestedEngine: 'model' | 'rules';
     executedEngine: 'gemini' | 'ollama' | 'rule-based';
@@ -470,3 +487,10 @@ export const CAPTURE_PERSISTENCE_POLICY = Object.freeze({
   rawInputInAudit: false,
 });
 
+/** One line of `CaptureProposalContract.understood` (M2a). `habit` is M3. */
+export type CaptureUnderstoodPoint =
+  | { kind: 'commitment'; itemId: string; text: string }
+  | { kind: 'possible_goal' | 'consideration' | 'idea' | 'waiting_for'; seedItemId: string; text: string };
+
+/** The longest `understood` line the server sends. */
+export const UNDERSTOOD_TEXT_MAX = 160;

@@ -1,6 +1,45 @@
 import { z } from 'zod';
 import { weeklyBlockOfferSchema, weeklyBlockSchema } from './weeklyBlocks';
 import { isoDateTime } from './common';
+import { claimsSaved, hasLink } from './understoodText';
+
+/** A full ISO instant: date, time and an offset or Z — never a bare date. */
+const ISO_INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:\d{2})$/;
+
+/**
+ * An item's `endTime` survives only as a real end of a timed item: a full
+ * instant, later than `resolvedTime`, not on an all-day item. Anything else is
+ * removed — only the end, never the item (M2a).
+ */
+function withUsableEnd(raw: unknown): unknown {
+  if (!raw || typeof raw !== 'object' || !('endTime' in raw)) return raw;
+  const item = raw as Record<string, unknown>;
+  const end = item.endTime;
+  const start = item.resolvedTime;
+  const usable = typeof end === 'string' && ISO_INSTANT.test(end)
+    && typeof start === 'string' && item.allDayEvent !== true
+    && Date.parse(end) > Date.parse(start);
+  if (usable) return raw;
+  const { endTime: _dropped, ...rest } = item;
+  return rest;
+}
+
+const SEED_KINDS = ['consideration', 'waiting_for', 'idea', 'possible_goal'] as const;
+const CONTROL_CHARACTER = /[\u0000-\u001F\u007F-\u009F]/;
+/** A summary line is plain words: not blank, no control characters, no link, no "saved". */
+const understoodText = z.string().min(1).max(160).refine((text) => text.trim().length > 0
+  && !CONTROL_CHARACTER.test(text) && !hasLink(text) && !claimsSaved(text));
+const understoodPointSchema = z.union([
+  z.object({ kind: z.literal('commitment'), itemId: z.string().min(1), text: understoodText }).strict(),
+  z.object({ kind: z.enum(SEED_KINDS), seedItemId: z.string().min(1), text: understoodText }).strict(),
+]);
+export type UnderstoodPoint = z.infer<typeof understoodPointSchema>;
+
+function parseUnderstoodShape(value: unknown): UnderstoodPoint[] | undefined {
+  if (value === undefined) return undefined;
+  const parsed = z.array(understoodPointSchema).min(1).safeParse(value);
+  return parsed.success ? parsed.data : undefined;
+}
 
 /** Mirrors `capture.proposal.json`. A proposal never implies persistence. */
 export const captureProposalSchema = z.object({
@@ -31,11 +70,17 @@ export const captureProposalSchema = z.object({
     .enum(['informational', 'greeting_or_chat', 'question', 'past_event', 'negated_request', 'low_confidence'])
     .optional(),
   items: z.array(
-    z.object({
+    z.preprocess(withUsableEnd, z.object({
       itemId: z.string(),
       title: z.string(),
       resolvedTime: isoDateTime.nullable(),
       needsClarification: z.boolean(),
+      /**
+       * When the item ends (M2a). Tolerant: anything that is not an ISO
+       * instant reads as absent, so a bad end never costs the whole answer —
+       * the card just shows the start.
+       */
+      endTime: z.string().optional(),
       /** What the extractor read the importance as: Must / Should / Nice (#164). */
       priority: z.enum(['low', 'normal', 'high']).optional(),
       /**
@@ -149,7 +194,7 @@ export const captureProposalSchema = z.object({
         })
         .nullable()
         .optional(),
-    }),
+    })),
   ),
   /**
    * What the capture may have named as unresolved intent (#519).
@@ -168,6 +213,13 @@ export const captureProposalSchema = z.object({
       summary: z.string(),
     }))
     .default([]),
+  /**
+   * What the assistant understood, line by line (M2a). Tolerant: a value of
+   * the wrong shape reads as absent instead of failing the answer. Whether the
+   * lines match this proposal's items and seeds is checked by
+   * `usableUnderstood()` before anything is shown.
+   */
+  understood: z.preprocess(parseUnderstoodShape, z.array(understoodPointSchema).optional()),
   provenance: z
     .object({
       requestedEngine: z.enum(['model', 'rules']),
@@ -184,6 +236,45 @@ export const captureProposalSchema = z.object({
 export type CaptureProposal = z.infer<typeof captureProposalSchema>;
 export type CaptureProposalItem = CaptureProposal['items'][number];
 export type CaptureSeedProposal = CaptureProposal['seeds'][number];
+
+/**
+ * The understood lines, only when they describe exactly this proposal: every
+ * item and every seed once, no unknown reference, and each seed line carrying
+ * its seed's kind. Anything else — an older or inconsistent server — reads as
+ * no list, and the review shows the cards as before (M2a).
+ */
+export function usableUnderstood(proposal: Pick<CaptureProposal, 'items' | 'seeds' | 'understood'>): UnderstoodPoint[] | undefined {
+  const points = proposal.understood;
+  if (!points) return undefined;
+  const items = new Set(proposal.items.map((item) => item.itemId));
+  const seeds = new Map(proposal.seeds.map((seed) => [seed.seedItemId, seed.kind] as const));
+  const seen = new Set<string>();
+  for (const point of points) {
+    const key = 'itemId' in point ? `i:${point.itemId}` : `s:${point.seedItemId}`;
+    if (seen.has(key)) return undefined;
+    seen.add(key);
+    if ('itemId' in point) {
+      if (!items.has(point.itemId)) return undefined;
+    } else if (seeds.get(point.seedItemId) !== point.kind) {
+      return undefined;
+    }
+  }
+  return seen.size === items.size + seeds.size ? points : undefined;
+}
+
+/**
+ * A proposal as a response carries it: `understood` survives only when it
+ * describes exactly this proposal (`usableUnderstood`). Lines that name an
+ * unknown item, skip one, or file a seed under another kind read as absent —
+ * the answer itself still parses (M2a, contract v3). The base object stays a
+ * plain object so other schemas can `extend` it.
+ */
+export const captureProposalResponseSchema = captureProposalSchema.transform((proposal): CaptureProposal => {
+  if (proposal.understood === undefined || usableUnderstood(proposal)) return proposal;
+  const kept = { ...proposal };
+  delete kept.understood;
+  return kept;
+});
 
 /**
  * What a newly-persisted commitment landed on top of (#football-fixtures
@@ -283,7 +374,7 @@ export const captureChatSchema = z.object({
   conversationId: z.string(),
   reply: z.string(),
   engine: z.enum(['model', 'rules']),
-  proposal: captureProposalSchema.nullable(),
+  proposal: captureProposalResponseSchema.nullable(),
   turns: z.array(captureChatTurnSchema),
 });
 

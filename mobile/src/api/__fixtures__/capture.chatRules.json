@@ -24,7 +24,14 @@
       "requestedEngine": "rules",
       "executedEngine": "rule-based",
       "fallbackUsed": true
-    }
+    },
+    "understood": [
+      {
+        "kind": "commitment",
+        "itemId": "00000000-0000-4000-8000-000000000003",
+        "text": "أحكي مع الدكتور"
+      }
+    ]
   },
   "turns": [
     {

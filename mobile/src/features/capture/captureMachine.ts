@@ -25,6 +25,7 @@
  * pulls in no storage.
  */
 import type { CaptureChatAnswer, CaptureChatTurn, CaptureProposal, CaptureConfirmation } from '../../api/schemas/capture';
+import { usableUnderstood } from '../../api/schemas/capture';
 import type { UserFacingKey } from '../../api/ui/userFacingMessage';
 import type { LocationTrigger } from '../../api/schemas/common';
 
@@ -268,6 +269,15 @@ export interface CaptureState {
    * message starts a new one.
    */
   earlier: ChatEarlierEntry[];
+  /**
+   * The proposal whose cards the person opened from «هيك فهمت» (audit
+   * 2026-10-06 #5/#6), by id. A chat answer that carries `understood` shows
+   * that summary first; «هيك صح» or a tap on one of its lines opens the cards,
+   * and Back from them returns to the summary. Keyed to the proposal, so a new
+   * answer — a new id — starts at its own summary, and a clarification of the
+   * same proposal keeps the cards open.
+   */
+  reviewOf: string | null;
 }
 
 export type CaptureEvent =
@@ -304,6 +314,10 @@ export type CaptureEvent =
   /** What Undo could not take back, recorded on the chat's last saved line. */
   | { type: 'undoRecorded'; stillSaved: string[] }
   | { type: 'backToComposer' }
+  /** «هيك صح», or a line of the summary: the cards of the proposal on screen. */
+  | { type: 'understoodAccepted' }
+  /** Back from those cards to the summary of the same proposal. */
+  | { type: 'understoodReopened' }
   | { type: 'reset' };
 
 /** The longest capture the backend will read. Its trace truncates at 2000. */
@@ -351,6 +365,7 @@ export function initialCaptureState(
     conversationId: null,
     turns: [],
     earlier: [],
+    reviewOf: null,
   };
 }
 
@@ -603,6 +618,19 @@ export function chatProposalShown(proposal: CaptureProposal | null): CaptureProp
   return proposal.items.length > 0 || (proposal.seeds?.length ?? 0) > 0 ? proposal : null;
 }
 
+/**
+ * Whether the chat shows «هيك فهمت» — the numbered summary of the answer —
+ * instead of its cards: a proposal under review whose `understood` lines
+ * describe exactly it (`usableUnderstood`), and whose cards were not opened.
+ * Without `understood` (an older server, a legacy proposal) it is false and the
+ * cards show as they always did.
+ */
+export function showsUnderstood(state: CaptureState): boolean {
+  const proposal = state.proposal;
+  if (!proposal || !REVIEWING.has(state.status) || state.conversationId === null) return false;
+  return state.reviewOf !== proposal.proposalId && usableUnderstood(proposal) !== undefined;
+}
+
 /** The facts of an item the server decides; a talk edit changes one of these. */
 function sameServerFacts(a: CaptureProposal['items'][number], b: CaptureProposal['items'][number]): boolean {
   return a.title === b.title && a.resolvedTime === b.resolvedTime && (a.resolvedDate ?? null) === (b.resolvedDate ?? null)
@@ -695,10 +723,12 @@ export function captureReducer(state: CaptureState, event: CaptureEvent): Captur
         messageKey: null,
       };
       if (!proposal) {
-        return { ...conversation, status: 'idle', proposal: null, original: null, selected: [], edits: {}, onceOnly: [], goalUnlinked: [] };
+        return { ...conversation, status: 'idle', proposal: null, original: null, selected: [], edits: {}, onceOnly: [], goalUnlinked: [], reviewOf: null };
       }
       const carried = carriedInto(state, proposal);
-      return { ...conversation, ...carried, status: reviewStatus(proposal, carried.edits), proposal, original: proposal };
+      // A new proposal starts at its own summary; the same one keeps its cards.
+      const reviewOf = state.reviewOf === proposal.proposalId ? state.reviewOf : null;
+      return { ...conversation, ...carried, status: reviewStatus(proposal, carried.edits), proposal, original: proposal, reviewOf };
     }
 
     case 'dismissFailure':
@@ -872,6 +902,7 @@ export function captureReducer(state: CaptureState, event: CaptureEvent): Captur
         turns: [],
         conversationId: null,
         proposal: null, original: null, selected: [], edits: {}, onceOnly: [], goalUnlinked: [], errorReason: null, messageKey: null,
+        reviewOf: null,
       };
     }
 
@@ -907,8 +938,16 @@ export function captureReducer(state: CaptureState, event: CaptureEvent): Captur
         proposal: null, original: null, selected: [], edits: {}, onceOnly: [], goalUnlinked: [], errorReason: null, messageKey: null,
         conversationId: null,
         turns: [],
+        reviewOf: null,
       };
     }
+
+    case 'understoodAccepted':
+      return showsUnderstood(state) ? { ...state, reviewOf: state.proposal!.proposalId } : state;
+
+    case 'understoodReopened':
+      if (!state.proposal || state.reviewOf !== state.proposal.proposalId || state.status === 'confirming') return state;
+      return { ...state, reviewOf: null };
 
     case 'reset':
       return initialCaptureState(state.source, state.inputMode);

@@ -46,6 +46,7 @@ export const ALLOWED_ITEM_FIELDS: readonly string[] = [
   'itemId',
   'title',
   'resolvedTime',
+  'endTime',
   'needsClarification',
   'priority',
   'priorityEstimated',
@@ -72,6 +73,7 @@ export const ALLOWED_PROPOSAL_FIELDS: readonly string[] = [
   'items',
   'seeds',
   'provenance',
+  'understood',
 ];
 
 /** The three next actions that exist. Nothing here can send, delete or confirm. */
@@ -336,6 +338,58 @@ function rebuildSeeds(raw: unknown, drops: ShareAllowlistDrop[]): unknown[] {
   return seeds;
 }
 
+/**
+ * `understood` is rendered before the share's cards, so it receives the same
+ * treatment as every other attacker-adjacent string in this boundary. It is
+ * kept only when it names every surviving item and seed exactly once; a point
+ * that names something the allowlist removed cannot truthfully be shown.
+ */
+function rebuildUnderstood(
+  raw: unknown,
+  items: readonly Record<string, unknown>[],
+  seeds: readonly unknown[],
+  drops: ShareAllowlistDrop[],
+): unknown[] | undefined {
+  if (raw === undefined) return undefined;
+  if (!Array.isArray(raw)) {
+    drops.push({ index: null, reason: 'unusable_value', field: 'understood' });
+    return undefined;
+  }
+  const itemIds = new Set(items.map((item) => item.itemId).filter(isSafeId));
+  const seedKinds = new Map(
+    seeds.filter(isObject).filter((seed) => isSafeId(seed.seedItemId) && typeof seed.kind === 'string')
+      .map((seed) => [seed.seedItemId as string, seed.kind as string]),
+  );
+  const seenItems = new Set<string>();
+  const seenSeeds = new Set<string>();
+  const points: unknown[] = [];
+  for (const point of raw) {
+    if (!isObject(point) || typeof point.text !== 'string' || Array.from(point.text).length > 160
+      || freeTextDropReason(point.text) !== null) {
+      drops.push({ index: null, reason: 'unusable_value', field: 'understood' });
+      return undefined;
+    }
+    if (point.kind === 'commitment' && isSafeId(point.itemId) && itemIds.has(point.itemId) && !seenItems.has(point.itemId)) {
+      seenItems.add(point.itemId);
+      points.push({ kind: 'commitment', itemId: point.itemId, text: point.text });
+      continue;
+    }
+    if (typeof point.kind === 'string' && SEED_KINDS.includes(point.kind)
+      && isSafeId(point.seedItemId) && seedKinds.get(point.seedItemId) === point.kind && !seenSeeds.has(point.seedItemId)) {
+      seenSeeds.add(point.seedItemId);
+      points.push({ kind: point.kind, seedItemId: point.seedItemId, text: point.text });
+      continue;
+    }
+    drops.push({ index: null, reason: 'unusable_value', field: 'understood' });
+    return undefined;
+  }
+  if (seenItems.size !== itemIds.size || seenSeeds.size !== seedKinds.size) {
+    drops.push({ index: null, reason: 'unusable_value', field: 'understood' });
+    return undefined;
+  }
+  return points;
+}
+
 /** `{ requestedEngine, executedEngine, fallbackUsed }`, or nothing. */
 function rebuildProvenance(raw: unknown): unknown {
   if (!isObject(raw)) return undefined;
@@ -432,6 +486,14 @@ export function applyShareActionAllowlist<T>(raw: unknown): ShareAllowlistResult
       report('resolvedTime');
       item.resolvedTime = null;
     }
+    if (owns(candidate, 'endTime')) {
+      if (isIsoLike(candidate.endTime) && typeof item.resolvedTime === 'string'
+        && Date.parse(candidate.endTime) > Date.parse(item.resolvedTime)) {
+        item.endTime = candidate.endTime;
+      } else {
+        report('endTime');
+      }
+    }
     item.needsClarification = candidate.needsClarification === true;
     // True only beside the time it is about: a guess flag with no hour marks nothing.
     if (owns(candidate, 'timeEstimated')) item.timeEstimated = item.resolvedTime !== null && candidate.timeEstimated === true;
@@ -465,9 +527,12 @@ export function applyShareActionAllowlist<T>(raw: unknown): ShareAllowlistResult
     items.push(item);
   });
   kept.items = items;
-  kept.seeds = rebuildSeeds(raw.seeds, drops);
+  const seeds = rebuildSeeds(raw.seeds, drops);
+  kept.seeds = seeds;
   const provenance = rebuildProvenance(raw.provenance);
   if (provenance !== undefined) kept.provenance = provenance;
+  const understood = rebuildUnderstood(raw.understood, items, seeds, drops);
+  if (understood !== undefined) kept.understood = understood;
 
   // A status that claimed commitments when none survived would send the review
   // screen a headline its own list contradicts.

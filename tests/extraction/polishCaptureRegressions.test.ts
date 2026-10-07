@@ -41,8 +41,11 @@ import { getParticipantStateSnapshot } from '../../lib/services/mobile/participa
 import { createMemoryStorage } from '../../lib/storage/memoryAdapter.ts';
 import { resetStorageForTests, setStorageForTests } from '../../lib/storage/index.ts';
 import { createEmptyDomainState } from '../../src/domain/stateMachine.ts';
-import { localTimeSpecFor } from '../../src/extraction/timeLexicon.ts';
+import { localTimeSpecFor, rangeEndInstant } from '../../src/extraction/timeLexicon.ts';
 import { validateExtractionResult } from '../../src/extraction/schemaValidator.ts';
+import { finalizeUnderstood, type CaptureSourceOrdinals } from '../../lib/services/captureBoundary/understood.ts';
+import { claimsSaved, templateReply } from '../../lib/services/captureChat/chatReply.ts';
+import type { CaptureProposalContract, CaptureUnderstoodPoint } from '../../src/contracts/v1/captureContracts.ts';
 
 const TZ = 'Asia/Hebron';
 /** Monday 28 Sep 2026, 06:58 on the phone — when N15 was typed. */
@@ -99,7 +102,14 @@ async function proposeRules(text: string, now: Date) {
   return withMemoryStorage(() => proposeMobileCapture({ text, timezone: TZ, referenceTime: now.toISOString() }));
 }
 
-type Item = { title: string; resolvedDate?: string; resolvedTime: string | null; needsClarification: boolean; clarification?: { questionKey?: string } | null };
+type Item = {
+  title: string;
+  resolvedDate?: string;
+  resolvedTime: string | null;
+  endTime?: string;
+  needsClarification: boolean;
+  clarification?: { field?: string; questionKey?: string } | null;
+};
 const line = (item: Item) => {
   const time = item.resolvedTime ? localTimeSpecFor(new Date(item.resolvedTime), TZ)?.time : null;
   return `${item.title} | ${item.resolvedDate ?? '-'} ${time ?? '-'} | ${item.needsClarification ? item.clarification?.questionKey ?? 'edit' : 'settled'}`;
@@ -216,6 +226,7 @@ test('N16: on the model path the literal capture keeps «مع العيلة» in 
 
 test('N16: the rules path keeps the company too, and «غدا» said with someone is lunch, not tomorrow', async () => {
   assert.deepEqual((await proposeRules(N16, N16_NOW)).items.map((item) => item.title), ['أروح عالسوق', 'عندي عشا مع العيلة']);
+  assert.equal((await proposeRules('اجتماع بكرا الساعة 4', N16_NOW)).items[0]?.title, 'اجتماع', 'the clock marker consumed the final ع of اجتماع');
   const rows: Array<[string, string]> = [
     ['عندي غدا مع أمي بكرا', 'عندي غدا مع أمي | 2026-09-29 - | ask_time'],
     ['عندي غدا مع أمي يوم الخميس', 'عندي غدا مع أمي | 2026-10-01 - | ask_time'],
@@ -677,4 +688,295 @@ test('round 4 addendum: "busy", «مشغول», «עסוק», "nope", "nah", «�
   }
   // In shape (b): «مش بكرا» is ruled out and the day after taken — unchanged.
   assert.equal((await answerDoctor('مش بكرا، الخميس المسا')).line, 'موعد دكتور | 2026-10-01 19:00 | settled');
+});
+
+// ── M2a understanding finalizer ────────────────────────────────────────
+
+function understandingProposal(
+  itemTitles: readonly string[],
+  seeds: ReadonlyArray<{ id: string; kind: 'possible_goal' | 'consideration' | 'idea' | 'waiting_for'; summary: string }> = [],
+  understood?: readonly CaptureUnderstoodPoint[],
+): CaptureProposalContract {
+  return {
+    version: 'v1',
+    proposalId: 'proposal-understanding',
+    status: 'proposed',
+    items: itemTitles.map((title, index) => ({
+      itemId: `item-${index + 1}`,
+      title,
+      resolvedTime: null,
+      needsClarification: false,
+    })),
+    seeds: seeds.map((seed) => ({ seedItemId: seed.id, kind: seed.kind, summary: seed.summary })),
+    provenance: { requestedEngine: 'rules', executedEngine: 'rule-based', fallbackUsed: false },
+    ...(understood ? { understood: [...understood] } : {}),
+  } as CaptureProposalContract;
+}
+
+function understandingOrdinals(
+  items: Record<string, number>,
+  seeds: Record<string, number> = {},
+): CaptureSourceOrdinals {
+  return { items, seeds };
+}
+
+test('understood lines are the point itself: no repeated prefix, and mixed or other-language words stay intact', () => {
+  const contract = understandingProposal(
+    ['Zoom with دانا'],
+    [{ id: 'seed-1', kind: 'consideration', summary: 'Thinking about السفر بالصيف' }],
+  );
+  const final = finalizeUnderstood(contract, 'ar', understandingOrdinals({ 'item-1': 0 }, { 'seed-1': 1 }));
+  assert.deepEqual(final.understood?.map((point) => point.text), [
+    'Zoom with دانا',
+    'Thinking about السفر بالصيف',
+  ]);
+  for (const point of final.understood ?? []) {
+    assert.ok(!/^(?:فهمت:|I understood:|הבנתי:)/.test(point.text), point.text);
+  }
+});
+
+test('understood lines remove a URL run but keep the words around it, falling back only when nothing remains', () => {
+  const contract = understandingProposal([
+    'Call Dana at https://example.com/private tomorrow',
+    'www.example.com/private',
+  ]);
+  const final = finalizeUnderstood(contract, 'en', understandingOrdinals({ 'item-1': 0, 'item-2': 1 }));
+  assert.deepEqual(final.understood?.map((point) => point.text), [
+    'Call Dana at tomorrow',
+    'A point to review',
+  ]);
+
+  const bareDomain = finalizeUnderstood(
+    understandingProposal(['Review notes.example.dev/private then call Dana']),
+    'en',
+    understandingOrdinals({ 'item-1': 0 }),
+  );
+  assert.equal(bareDomain.understood?.[0]?.text, 'Review then call Dana');
+});
+
+test('understood lines replace saved claims with a kind-neutral fallback in the proposal locale', () => {
+  const english = finalizeUnderstood(
+    understandingProposal(['I saved the dentist appointment']),
+    'en',
+    understandingOrdinals({ 'item-1': 0 }),
+  );
+  const arabic = finalizeUnderstood(
+    understandingProposal(['حفظتلك موعد الدكتور']),
+    'ar',
+    understandingOrdinals({ 'item-1': 0 }),
+  );
+  assert.equal(english.understood?.[0]?.text, 'A point to review');
+  assert.equal(arabic.understood?.[0]?.text, 'نقطة بدها مراجعة');
+});
+
+test('understood lines match the client plain-text rule for links, saved claims, and kept words', () => {
+  const cases = [
+    { source: 'Meeting details at example.dev', expected: 'Meeting details at' },
+    { source: 'Join on zoom.us/j/1 tomorrow', expected: 'Join on tomorrow' },
+    { source: 'Join on zoom\u200B.us tomorrow', expected: 'Join on tomorrow' },
+    { source: 'Join on zoom\u202E.us tomorrow', expected: 'Join on tomorrow' },
+    { source: 'Join on zoـom.us tomorrow', expected: 'Join on tomorrow' },
+    { source: 'Join on zoَom.us tomorrow', expected: 'Join on tomorrow' },
+    { source: 'Open ftp://files.example.dev/private later', expected: 'Open later' },
+    { source: 'Subscribe at webcal:team-calendar', expected: 'Subscribe at' },
+    { source: 'Open ftp:// later', expected: 'Open later' },
+    { source: 'Visit www. tomorrow', expected: 'Visit tomorrow' },
+    { source: 'Subscribe at webcal: later', expected: 'Subscribe at later' },
+    { source: "It's saved to your calendar", expected: 'A point to review' },
+    { source: 'Dentist added to your list', expected: 'A point to review' },
+    { source: 'حَفَظْتُ الموعد', expected: 'A point to review' },
+    { source: 'حـفـظت الموعد', expected: 'A point to review' },
+    { source: 'Xحفظت الموعد', expected: 'A point to review' },
+    { source: 'تم الحفظ', expected: 'A point to review' },
+    { source: 'رح ذكرك بكرا', expected: 'A point to review' },
+    { source: 'ונשמר ביומן', expected: 'A point to review' },
+    { source: 'Xנשמר ביומן', expected: 'A point to review' },
+    { source: 'Pay 2.5 dinars for the bus', expected: 'Pay 2.5 dinars for the bus' },
+    { source: 'Bring the forms, e.g. the passport', expected: 'Bring the forms, e.g. the passport' },
+    { source: 'محفظة جديدة', expected: 'محفظة جديدة' },
+    { source: 'Save money for the trip', expected: 'Save money for the trip' },
+  ] as const;
+  const contract = understandingProposal(cases.map(({ source }) => source));
+  const ordinals = understandingOrdinals(Object.fromEntries(
+    cases.map((_entry, index) => [`item-${index + 1}`, index]),
+  ));
+  const final = finalizeUnderstood(contract, 'en', ordinals);
+  const lines = final.understood?.map((point) => point.text) ?? [];
+  assert.deepEqual(lines, cases.map(({ expected }) => expected));
+
+  // Fixed copies of the client's folding and link regexes. Root tests cannot
+  // import mobile code; keep these aligned with mobile/src/api/schemas/understoodText.ts.
+  const appFoldedAway = /[ً-ٰٟۖ-ۭ֑-ׇـ​-‏‪-‮⁠-⁩﻿]/g;
+  const appLink = /(?<![a-z0-9-])(?:[a-z0-9.!#$%&'*+/=?^_{|}~-]+@[a-z0-9-]+(?:\.[a-z0-9-]+)*\.[a-z]{2,}|[a-z][a-z0-9+.-]*:\/\/[^\s]*|www\.[^\s]*|webcal:[^\s]*|[a-z0-9-]+(?:\.[a-z0-9-]+)*\.[a-z]{2,}(?![a-z0-9-])(?:[/?#][^\s]*)?)/gi;
+  const appFileExtension = /\.(?:pdf|doc|docx|xls|xlsx|ppt|pptx|txt|jpg|jpeg|png|heic|mp3|mp4|zip)$/i;
+  const appHonorific = /^(?:Mr|Dr|Mrs|Ms)\.[A-Z][A-Za-z0-9-]*$/;
+  const appFold = (text: string) => text
+    .replace(appFoldedAway, '')
+    .replace(/[آأإٱ]/g, 'ا')
+    .replace(/\s+/g, ' ');
+  const appHasLink = (text: string) => Array.from(appFold(text).matchAll(appLink)).some((match) => {
+    const run = match[0];
+    const lower = run.toLowerCase();
+    if (run.includes('://') || lower.startsWith('www.') || lower.startsWith('webcal:')) return true;
+    if (run.includes('@') || /[/?#]/.test(run)) return true;
+    return !appFileExtension.test(run) && !appHonorific.test(match[0]);
+  });
+
+  for (const line of lines) {
+    assert.equal(appHasLink(line), false, `client rejects link in: ${line}`);
+    assert.equal(claimsSaved(line), false, `client rejects saved claim in: ${line}`);
+  }
+});
+
+test('understood link stripping keeps file names and honorifics, but removes hosts and whole email addresses', () => {
+  const fileExtensions = ['pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'txt', 'jpg', 'jpeg', 'png', 'heic', 'mp3', 'mp4', 'zip'];
+  const cases = [
+    ...fileExtensions.map((extension) => ({ source: `check report.${extension}`, expected: `check report.${extension}` })),
+    { source: 'Read Mr.Smith notes', expected: 'Read Mr.Smith notes' },
+    { source: 'Read Dr.Smith notes', expected: 'Read Dr.Smith notes' },
+    { source: 'Read Mrs.Smith notes', expected: 'Read Mrs.Smith notes' },
+    { source: 'Read Ms.Smith notes', expected: 'Read Ms.Smith notes' },
+    { source: 'meet at cafe.de', expected: 'meet at' },
+    { source: 'send it to bob@mail.co', expected: 'send it to' },
+    { source: 'open report.pdf/private later', expected: 'open later' },
+    { source: 'open https://files.example.pdf/private later', expected: 'open later' },
+    { source: 'visit Dr.Smith.com tomorrow', expected: 'visit tomorrow' },
+  ];
+  const final = finalizeUnderstood(
+    understandingProposal(cases.map(({ source }) => source)),
+    'en',
+    understandingOrdinals(Object.fromEntries(cases.map((_entry, index) => [`item-${index + 1}`, index]))),
+  );
+  assert.deepEqual(final.understood?.map((point) => point.text), cases.map(({ expected }) => expected));
+  assert.ok(final.understood?.every((point) => !point.text.endsWith('@')));
+});
+
+test('understood lines remove controls and clip overlong text to 160 characters with an ellipsis', () => {
+  const contract = understandingProposal(['Call\u0000Dana\nnow', 'x'.repeat(220)]);
+  const final = finalizeUnderstood(contract, 'en', understandingOrdinals({ 'item-1': 0, 'item-2': 1 }));
+  assert.equal(final.understood?.[0]?.text, 'Call Dana now');
+  assert.equal(final.understood?.[1]?.text.length, 160);
+  assert.ok(final.understood?.[1]?.text.endsWith('…'));
+});
+
+test('understood lines drop a split joining conjunction in Arabic, English, and Hebrew without changing seed summaries', () => {
+  const seeds = [
+    { id: 'seed-ar', kind: 'consideration' as const, summary: 'وعم بفكر أسافر الصيف الجاي' },
+    { id: 'seed-en', kind: 'consideration' as const, summary: "and I'm thinking about travelling" },
+    { id: 'seed-he', kind: 'consideration' as const, summary: 'ואני חושב על נסיעה' },
+  ];
+  const contract = understandingProposal(['Call Dana tomorrow'], seeds);
+  const final = finalizeUnderstood(
+    contract,
+    'ar',
+    understandingOrdinals({ 'item-1': 0 }, { 'seed-ar': 1, 'seed-en': 2, 'seed-he': 3 }),
+  );
+
+  assert.deepEqual(final.understood?.map((point) => point.text), [
+    'Call Dana tomorrow',
+    'عم بفكر أسافر الصيف الجاي',
+    "I'm thinking about travelling",
+    'אני חושב על נסיעה',
+  ]);
+  assert.deepEqual(final.seeds.map((seed) => seed.summary), seeds.map((seed) => seed.summary));
+});
+
+test('understood lines keep a leading conjunction when it was first or the remainder is not a recognised clause', () => {
+  const seeds = [
+    { id: 'seed-first', kind: 'consideration' as const, summary: 'وعم بفكر أسافر' },
+    { id: 'seed-ar-word', kind: 'idea' as const, summary: 'وظيفة جديدة' },
+    { id: 'seed-en-fragment', kind: 'idea' as const, summary: 'and Dana' },
+    { id: 'seed-he-word', kind: 'idea' as const, summary: 'ויזה חדשה' },
+  ];
+  const final = finalizeUnderstood(
+    understandingProposal([], seeds),
+    'ar',
+    understandingOrdinals({}, { 'seed-first': 0, 'seed-ar-word': 1, 'seed-en-fragment': 2, 'seed-he-word': 3 }),
+  );
+
+  assert.deepEqual(final.understood?.map((point) => point.text), seeds.map((seed) => seed.summary));
+});
+
+test('understood order follows interleaved source ordinals, then its stored order stays authoritative', () => {
+  const contract = understandingProposal(
+    ['First item', 'Second item'],
+    [{ id: 'seed-1', kind: 'idea', summary: 'Middle idea' }],
+  );
+  const initial = finalizeUnderstood(
+    contract,
+    'en',
+    understandingOrdinals({ 'item-1': 2, 'item-2': 0 }, { 'seed-1': 1 }),
+  );
+  assert.deepEqual(initial.understood?.map((point) => (
+    point.kind === 'commitment' ? point.itemId : point.seedItemId
+  )), ['item-2', 'seed-1', 'item-1']);
+
+  const afterClarification = finalizeUnderstood(
+    { ...initial, items: initial.items.map((item) => ({ ...item, title: `${item.title} updated` })) },
+    'en',
+    understandingOrdinals({ 'item-1': 0, 'item-2': 2 }, { 'seed-1': 1 }),
+  );
+  assert.deepEqual(afterClarification.understood?.map((point) => (
+    point.kind === 'commitment' ? point.itemId : point.seedItemId
+  )), ['item-2', 'seed-1', 'item-1']);
+  assert.deepEqual(afterClarification.understood?.map((point) => point.text), [
+    'Second item updated', 'Middle idea', 'First item updated',
+  ]);
+});
+
+test('a legacy proposal without source ordinals gets no understood ordering', () => {
+  const legacy = understandingProposal(
+    ['First item'],
+    [{ id: 'seed-1', kind: 'consideration', summary: 'A thought between old items' }],
+  );
+  assert.equal(finalizeUnderstood(legacy, 'en').understood, undefined);
+});
+
+// ── M2a round 4 mutation closures ───────────────────────────────────────
+
+test('spelled Arabic count ranges never ask morning/evening or acquire an end', async () => {
+  for (const unit of ['أشخاص', 'مرات', 'أيام', 'ساعات', 'دقايق']) {
+    const text = `اجتماع من أربعة لثمانية ${unit}`;
+    const proposal = await proposeRules(text, MON_10);
+    const item = proposal.items[0];
+    assert.ok(item, `${text}: no item`);
+    assert.notEqual(item.clarification?.field, 'time_period', `${text}: count became an am/pm question`);
+    assert.equal(item.endTime, undefined, `${text}: count acquired an end`);
+    const reply = templateReply({ language: 'ar', proposal });
+    assert.doesNotMatch(reply, /الصبح ولا المسا/, `${text}: ${reply}`);
+  }
+});
+
+test('a repeated DST end clock chooses the earlier offset directly and through a captured range', async () => {
+  assert.equal(
+    rangeEndInstant('2026-10-25', '00:30', 'Asia/Jerusalem', 60)?.toISOString(),
+    '2026-10-24T22:30:00.000Z',
+  );
+
+  const proposal = await withMemoryStorage(() => proposeMobileCapture({
+    text: 'Meeting tomorrow from 12:30am to 1:30am',
+    timezone: 'Asia/Jerusalem',
+    referenceTime: '2026-10-24T07:00:00.000Z',
+  }, { participantId: 'm2a-dst-range' }));
+  assert.equal(proposal.items.length, 1, JSON.stringify(proposal.items));
+  assert.equal(proposal.items[0]!.resolvedTime, '2026-10-24T21:30:00.000Z');
+  assert.equal(proposal.items[0]!.endTime, '2026-10-24T22:30:00.000Z');
+});
+
+test('the words override a mismatched model start and invented ten-hour end', async () => {
+  const text = 'اجتماع اليوم من 4 لـ 8 المسا';
+  const modelResult = {
+    ...reportAnswer('2026-09-28', 'اجتماع', '17:00'),
+    timeAnchor: 'event',
+    rangeMinutes: 600,
+  };
+  const { contract } = await proposeModel(
+    text,
+    N15_NOW,
+    recordedModel({ [text]: modelResult }).provider,
+  );
+
+  assert.equal(contract.items.length, 1, JSON.stringify(contract.items));
+  assert.equal(contract.items[0]!.resolvedTime, '2026-09-28T13:00:00.000Z');
+  assert.equal(contract.items[0]!.endTime, '2026-09-28T17:00:00.000Z');
 });

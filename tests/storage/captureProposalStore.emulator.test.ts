@@ -22,6 +22,8 @@ const CONTRACT = {
   proposalId: '',
   status: 'proposed',
   items: [{ itemId: 'item-1', title: 'Call the doctor', resolvedTime: null, needsClarification: false }],
+  seeds: [],
+  understood: [{ kind: 'commitment', itemId: 'item-1', text: 'I understood: Call the doctor' }],
   provenance: { requestedEngine: 'model', executedEngine: 'rule-based', fallbackUsed: false },
 } as const;
 
@@ -38,6 +40,8 @@ test('firestore: a proposal round-trips with its commands intact', async () => {
       contract: { ...CONTRACT, proposalId } as never,
       scopeId: uid,
       commandsByItemId: new Map([['item-1', commands]]),
+      responseLocale: 'en',
+      sourceOrdinals: { items: { 'item-1': 0 }, seeds: {} },
     });
 
     const readBack = await new StorageCaptureProposalStore(storage).get(proposalId);
@@ -45,6 +49,9 @@ test('firestore: a proposal round-trips with its commands intact', async () => {
     const back = readBack.commandsByItemId.get('item-1');
     assert.ok(back && back.length === 1, 'the commands did not survive Firestore');
     assert.equal((back[0] as { type: string }).type, 'CreateDraft');
+    assert.deepEqual(readBack.contract.understood, CONTRACT.understood);
+    assert.equal(readBack.responseLocale, 'en');
+    assert.deepEqual(readBack.sourceOrdinals, { items: { 'item-1': 0 }, seeds: {} });
   } finally {
     await storage.deleteTree(userDoc(uid));
   }

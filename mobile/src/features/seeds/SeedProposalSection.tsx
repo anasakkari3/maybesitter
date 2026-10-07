@@ -33,10 +33,15 @@ import { seedKindLabel } from './seedDisplay';
  * the one thing a proposal is not allowed to do: persist.
  */
 export function SeedProposalSection({
-  proposalId, seeds,
+  proposalId, seeds, onAnchor,
 }: {
   proposalId: string;
   seeds: readonly CaptureSeedProposal[];
+  /**
+   * Each seed's card and its words, for a host that brings one seed into view
+   * and to the screen reader — a line of the chat's «هيك فهمت» (M2a).
+   */
+  onAnchor?: (seedItemId: string, part: 'card' | 'focus', node: View | null) => void;
 }) {
   const { t, p } = useApp();
   const keep = useKeepSeed();
@@ -57,12 +62,19 @@ export function SeedProposalSection({
         <View
           key={seed.seedItemId}
           testID={`review-seed-${seed.seedItemId}`}
+          ref={onAnchor ? (node) => onAnchor(seed.seedItemId, 'card', node) : undefined}
           style={{ backgroundColor: p.sf, borderRadius: 18, padding: 14, gap: 8 }}
         >
-          <Txt size={12} color={p.mu}>{seedKindLabel(seed.kind, strings)}</Txt>
-          {/* Verbatim: the segment the person wrote, which is the only thing
-              this card may show. */}
-          <Txt size={15} lh={1.45} testID={`review-seed-summary-${seed.seedItemId}`}>{seed.summary}</Txt>
+          {/* The kind and the words read as one ("Considering: …"), and are
+              where a screen reader lands when the chat brings this seed up. */}
+          <View accessible accessibilityLabel={`${seedKindLabel(seed.kind, strings)}: ${seed.summary}`}
+            ref={onAnchor ? (node) => onAnchor(seed.seedItemId, 'focus', node) : undefined}
+            style={{ gap: 8, alignItems: 'flex-start' }}>
+            <Txt size={12} color={p.mu}>{seedKindLabel(seed.kind, strings)}</Txt>
+            {/* Verbatim: the segment the person wrote, which is the only thing
+                this card may show. */}
+            <Txt size={15} lh={1.45} testID={`review-seed-summary-${seed.seedItemId}`}>{seed.summary}</Txt>
+          </View>
           {failed.includes(seed.seedItemId) ? (
             <Txt size={12} color={p.wm} testID={`review-seed-failed-${seed.seedItemId}`}>{t.errorsGeneric}</Txt>
           ) : null}

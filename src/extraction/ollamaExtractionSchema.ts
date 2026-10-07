@@ -9,6 +9,11 @@ export const OLLAMA_EXTRACTION_SCHEMA = {
   type: 'object',
   additionalProperties: false,
   properties: {
+    kind: {
+      type: 'string',
+      enum: ['commitment', 'possible_goal', 'consideration', 'idea', 'waiting_for'],
+      description: 'What the person expressed. Only commitment is a proposed commitment item.',
+    },
     type: {
       type: 'string',
       enum: ['task', 'follow_up', 'informational_context', 'unknown'],
@@ -104,6 +109,7 @@ export const OLLAMA_EXTRACTION_SCHEMA = {
     explicitPressureRequest: { type: 'boolean' },
   },
   required: [
+    'kind',
     'type',
     'action',
     'title',

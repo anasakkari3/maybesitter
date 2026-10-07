@@ -3,7 +3,9 @@ import { BackHandler, Keyboard, Platform, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useApp } from '../state/AppContext';
 import { useCaptureFlow } from '../features/capture/CaptureProvider';
-import { MAX_CAPTURE_LENGTH, chatSaves, confirmableItems, goalLinkKept, wantsDiscardConfirmation, weeklyChoice, weeklyLockedByEdit, type CaptureItemEdit, type ChatSavedNote } from '../features/capture/captureMachine';
+import { MAX_CAPTURE_LENGTH, chatSaves, confirmableItems, goalLinkKept, showsUnderstood, wantsDiscardConfirmation, weeklyChoice, weeklyLockedByEdit, type CaptureItemEdit, type ChatSavedNote } from '../features/capture/captureMachine';
+import { UnderstoodMessage, type UnderstoodTarget } from '../features/capture/UnderstoodMessage';
+import { usableUnderstood } from '../api/schemas/capture';
 import { noCommitmentLine } from '../features/capture/noCommitment';
 import { COMPOSER_EXAMPLE_KEYS, exampleText } from '../features/capture/examples';
 import { ClipboardImportSheet } from '../features/capture/ClipboardImportSheet';
@@ -36,7 +38,7 @@ import { SeedProposalSection } from '../features/seeds/SeedProposalSection';
 import { BusyConflictChip } from '../features/calendar/BusyConflictChip';
 import { useBusyBlocks } from '../features/calendar/useBusyCalendar';
 import { useConflictBusyBlocks } from '../features/google/useGoogle';
-import { busyAt, chipBlock } from '../features/calendar/conflicts';
+import { busyDuring, chipBlock } from '../features/calendar/conflicts';
 import { Btn, Pill, Txt } from '../ui/primitives';
 import { Tag } from '../ui/chrome';
 import { ProcessingDots, useReducedMotion } from '../ui/motion';
@@ -108,6 +110,29 @@ export function CaptureScreen() {
   const keyboardShown = useKeyboardShown();
   const reducedMotion = useReducedMotion();
   const reviewing = REVIEW_STATUSES.includes(state.status);
+  // «هيك فهمت» first (audit 2026-10-06 #5, #6): an answer that says what it
+  // understood shows that summary, and its cards only once the person opens
+  // them (`showsUnderstood`, keyed to the proposal in the reducer).
+  const understood = showsUnderstood(state) && state.proposal ? usableUnderstood(state.proposal) ?? null : null;
+  const cardsOpen = reviewing && understood === null;
+  /** The cards came from the summary: Back returns to it, not to the composer. */
+  const fromSummary = cardsOpen && state.proposal !== null && state.reviewOf === state.proposal.proposalId
+    && usableUnderstood(state.proposal) !== undefined;
+  // The card a tapped line asked for, for that proposal only: a later answer
+  // never inherits it (M2A-REV-004).
+  const [revealRequest, setRevealRequest] = useState<{ key: number; id: string; proposalId: string } | null>(null);
+  const revealRow = revealRequest && revealRequest.proposalId === state.proposal?.proposalId ? revealRequest : null;
+  const seedAnchors = useRef(new Map<string, { target: View | null; focus: View | null }>());
+  const anchorSeed = (seedItemId: string, part: 'card' | 'focus', node: View | null) => {
+    const current = seedAnchors.current.get(seedItemId) ?? { target: null, focus: null };
+    seedAnchors.current.set(seedItemId, part === 'card' ? { ...current, target: node } : { ...current, focus: node });
+  };
+  const openFromSummary = (target: UnderstoodTarget | null) => {
+    flow.acceptUnderstood();
+    const proposalId = state.proposal?.proposalId;
+    setRevealRequest(target === null || !proposalId ? null
+      : { key: Date.now(), id: 'itemId' in target ? target.itemId : target.seedItemId, proposalId });
+  };
   const busy = state.status === 'confirming' || state.status === 'analyzing';
   // Something «ابدأ من جديد» would clear: a conversation, a proposal, a draft.
   const hasConversation = state.turns.length > 0 || state.earlier.length > 0 || state.proposal !== null || state.text.trim().length > 0;
@@ -146,9 +171,13 @@ export function CaptureScreen() {
   /** «إلغاء» while listening: the dictation ends and the field holds what it held before it. */
   const cancelDictation = () => { const before = dictationBase.current; stopDictation(); changeText(before); };
   const strings = t as unknown as Record<string, string>;
-  const items = reviewing ? state.proposal?.items ?? [] : [];
+  const items = cardsOpen ? state.proposal?.items ?? [] : [];
   const confirmable = confirmableItems(state.proposal, state.edits);
-  const unclarified = items.filter(item => item.needsClarification && !confirmable.includes(item.itemId));
+  // The one question is answerable under the summary too: the reply asks it
+  // («الصبح ولا المسا؟»), so its quick replies sit right under that reply,
+  // not behind «هيك صح» (M2a combined review F1).
+  const questioned = reviewing ? state.proposal?.items ?? [] : [];
+  const unclarified = questioned.filter(item => item.needsClarification && !confirmable.includes(item.itemId));
   const waiting = unclarified.filter(item => item.clarification && !skipped.includes(item.itemId)
     && questionText(item.clarification.questionKey, item.clarification.params, strings) !== null);
   const asking = waiting[0];
@@ -216,6 +245,7 @@ export function CaptureScreen() {
     setSkipped([]);
     setClarifyError(null);
     setEditingId(null);
+    setRevealRequest(null);
     void flow.analyze();
   };
   const editItem = (itemId: string, edit: CaptureItemEdit) => {
@@ -250,7 +280,7 @@ export function CaptureScreen() {
     const groupKey = weekly === 'weekly' ? 'weekly' : shown.date ?? 'undated';
     // What the item's time lands on (owner request 2026-09-30): the server's
     // clashes, named; the device chip below keeps the phone's own calendar.
-    const busyHere = shown.instant && weekly !== 'weekly' ? busyAt(shown.instant.toISOString(), conflictBlocks) : [];
+    const busyHere = shown.instant && weekly !== 'weekly' ? busyDuring(shown.instant, shown.end, conflictBlocks) : [];
     const clashLines = weekly === 'weekly' ? [] : chatConflictLines(item, state.edits[item.itemId], { lang, timezone, t, busyChipShown: chipBlock(busyHere) !== null });
     if (!groups.has(groupKey)) groups.set(groupKey, { id: groupKey,
       title: weekly === 'weekly' ? t.wbReviewWeekly : shown.date ? formatDayKey(shown.date, { locale: lang, timeZone: timezone }) : t.chatUnscheduled, rows: [] });
@@ -318,7 +348,7 @@ export function CaptureScreen() {
     onChange={next => editItem(editingId, next)} onClose={() => setEditingId(null)} />;
   else if (menuOpen) bodyOverride = <View style={{ gap: 14 }} testID="chat-menu">
     <Pill testID="chat-menu-paste" label={t.capturePaste} onPress={() => { setMenuOpen(false); void readClipboardText().then(setClipboard); }} />
-    {reviewing ? <Pill testID="chat-menu-review-tools" label={t.chatReviewTools} kind="soft"
+    {cardsOpen ? <Pill testID="chat-menu-review-tools" label={t.chatReviewTools} kind="soft"
       onPress={() => { setMenuOpen(false); setToolsOpen(true); }} /> : null}
     {/* A new conversation, on purpose: the assistant forgets this one. */}
     {hasConversation ? <Pill testID="chat-menu-start-over" label={t.chatStartOver} kind="soft"
@@ -338,14 +368,14 @@ export function CaptureScreen() {
       if (noTime) void answer(asking.itemId, { optionId: noTime.optionId });
       else setSkipped(current => [...current, asking.itemId]);
     }} /> : null;
-  const reviewExtras = reviewing ? <View style={{ gap: 10 }}>
+  const reviewExtras = cardsOpen ? <View style={{ gap: 10 }}>
     {state.status === 'confirmFailed' ? <Txt testID="review-confirm-failed" color={p.wm}>{t[state.messageKey ?? 'errorsGeneric']}</Txt> : null}
     {state.selected.length === 0 && items.length ? <Txt size={13} testID="review-none-selected" color={p.mu}>{t.reviewNothingSelected}</Txt> : null}
-    {state.proposal?.seeds?.length ? <SeedProposalSection proposalId={state.proposal.proposalId} seeds={state.proposal.seeds} /> : null}
+    {state.proposal?.seeds?.length ? <SeedProposalSection proposalId={state.proposal.proposalId} seeds={state.proposal.seeds} onAnchor={anchorSeed} /> : null}
   </View> : null;
   // Under the save (Stitch 03): every review option, the propose-only note,
   // and the explicit exit.
-  const reviewFooter = reviewing ? <>
+  const reviewFooter = cardsOpen ? <>
     <Pill testID="review-tools" label={t.chatReviewTools} onPress={() => setToolsOpen(true)} disabled={state.status === 'confirming'} kind="ghost" size={13} weight={500} pad={10} />
     <Txt size={13} color={p.mu} align="center" testID="review-note">{t.suggestionNote}</Txt>
     <Pill testID="review-cancel" label={t.cancelAll} onPress={requestClose} disabled={state.status === 'confirming'} kind="ghost" size={13} pad={10} />
@@ -363,7 +393,7 @@ export function CaptureScreen() {
     const last = earlier[earlier.length - 1]!;
     earlier[earlier.length - 1] = { ...last, actions: <View testID="chat-saved-actions" style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>{savedActions}</View> };
   }
-  const afterChat = reviewing ? reviewExtras : savedActions && !savedIsNewest
+  const afterChat = cardsOpen ? reviewExtras : reviewing ? null : savedActions && !savedIsNewest
     ? <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }} testID="chat-saved-actions">{savedActions}</View> : null;
   const counter = inputLength > MAX_CAPTURE_LENGTH - 200
     ? <Txt size={12} latin color={inputLength > MAX_CAPTURE_LENGTH ? p.wm : p.mu} testID="capture-counter">{fill(t.captureCounter, { n: inputLength })}</Txt> : null;
@@ -377,6 +407,13 @@ export function CaptureScreen() {
   const history: ChatHistoryEntry[] = [...earlier, ...state.turns.map((turn, index): ChatHistoryEntry => turn.role === 'user'
     ? { role: 'user', text: turn.text, delivered: true, ...(index === lastMine && sentTime && state.status !== 'analyzing' ? { time: sentTime } : {}) }
     : { role: 'assistant', text: turn.text })];
+  // The summary is the newest reply's: its words, then the numbered lines, then «هيك صح».
+  if (understood && state.proposal && state.status !== 'analyzing' && history.length > 0 && history[history.length - 1]!.role === 'assistant') {
+    const last = history[history.length - 1]!;
+    history[history.length - 1] = { ...last,
+      body: <UnderstoodMessage proposal={state.proposal} points={understood} edits={state.edits} onOpen={openFromSummary} />,
+      actions: <Pill testID="understood-confirm" label={t.understoodConfirm} onPress={() => openFromSummary(null)} size={15} pad={12} style={{ minWidth: 120 }} /> };
+  }
   // The message on its way: in the conversation already, not yet delivered.
   if (state.status === 'analyzing' && state.text.trim()) {
     history.push({ role: 'user', text: state.text, ...(sentTime ? { time: sentTime } : {}) });
@@ -394,6 +431,7 @@ export function CaptureScreen() {
     else if (clipboard) setClipboard(null);
     else if (menuOpen) setMenuOpen(false);
     else if (discarding) setDiscarding(null);
+    else if (fromSummary) { setRevealRequest(null); setToolsOpen(false); flow.reopenUnderstood(); }
     else if (reviewing) requestBack();
     else requestClose();
   };
@@ -406,13 +444,13 @@ export function CaptureScreen() {
    * goes through `headerBack`.
    */
   const hardwareBack = useRef(headerBack);
-  useEffect(() => { hardwareBack.current = toolsOpen && reviewing ? () => setToolsOpen(false) : headerBack; });
+  useEffect(() => { hardwareBack.current = toolsOpen && cardsOpen ? () => setToolsOpen(false) : headerBack; });
   useEffect(() => {
     const sub = BackHandler.addEventListener('hardwareBackPress', () => { hardwareBack.current(); return true; });
     return () => sub.remove();
   }, []);
 
-  if (toolsOpen && reviewing) return <ReviewScreen onBackToChat={() => setToolsOpen(false)} />;
+  if (toolsOpen && cardsOpen) return <ReviewScreen onBackToChat={() => setToolsOpen(false)} />;
   // The shell owns the safe-area top (screenShellCensus); the chat header sits
   // below it on the chat palette's background.
   return <Screen style={{ backgroundColor: p.bg }}><SpeechEventBridge />
@@ -466,7 +504,8 @@ export function CaptureScreen() {
         // keyboard it raised hid the line saying what was saved. The person
         // taps the field when they have the next thing to say.
         // A new proposal scrolls its confirm into view above the composer.
-        revealConfirmKey={reviewing ? state.proposal?.proposalId ?? null : null}
+        revealConfirmKey={cardsOpen && !revealRow ? state.proposal?.proposalId ?? null : null}
+        reviewing={cardsOpen} revealRow={cardsOpen ? revealRow : null} revealAnchor={(id) => seedAnchors.current.get(id) ?? null}
         reduceMotion={reducedMotion}
         // While listening the panel above the field says so; the note line
         // keeps the other states (failed, no speech, denied → Settings).

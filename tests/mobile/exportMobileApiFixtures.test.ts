@@ -244,6 +244,36 @@ function pinStartsOn(value: unknown): unknown {
   return value;
 }
 const pinWeekly = (body: Record<string, unknown>) => pinStartsOn(body) as Record<string, unknown>;
+
+/** Keep `understood` references pointing at the ids stabilise assigned to their item/seed. */
+function pinCaptureUnderstanding(live: Record<string, unknown>, stable: Record<string, unknown>): Record<string, unknown> {
+  type Proposal = { items?: Array<{ itemId: string }>; seeds?: Array<{ seedItemId: string }>; understood?: Array<Record<string, unknown>> };
+  const pin = (liveProposal: Proposal | null | undefined, stableProposal: Proposal | null | undefined): Proposal | null | undefined => {
+    if (!liveProposal || !stableProposal || !liveProposal.understood) return stableProposal;
+    const itemIds = new Map((liveProposal.items ?? []).map((item, index) => [item.itemId, stableProposal.items?.[index]?.itemId]));
+    const seedIds = new Map((liveProposal.seeds ?? []).map((seed, index) => [seed.seedItemId, stableProposal.seeds?.[index]?.seedItemId]));
+    return {
+      ...stableProposal,
+      understood: liveProposal.understood.map((livePoint) => {
+        const point = { ...livePoint };
+        if (typeof livePoint?.itemId === 'string') return { ...point, itemId: itemIds.get(livePoint.itemId) };
+        if (typeof livePoint?.seedItemId === 'string') return { ...point, seedItemId: seedIds.get(livePoint.seedItemId) };
+        return point;
+      }),
+    };
+  };
+  const topLevel = pin(live as Proposal, stable as Proposal) as Record<string, unknown>;
+  if (!live.proposal || !stable.proposal) return topLevel;
+  return { ...topLevel, proposal: pin(live.proposal as Proposal, stable.proposal as Proposal) };
+}
+
+/** Stabilise ids without counting their repeated references in `understood` as new ids. */
+function withoutCaptureUnderstanding(body: Record<string, unknown>): Record<string, unknown> {
+  const { understood: _topLevel, ...topLevel } = body;
+  if (!body.proposal || typeof body.proposal !== 'object' || Array.isArray(body.proposal)) return topLevel;
+  const { understood: _nested, ...proposal } = body.proposal as Record<string, unknown>;
+  return { ...topLevel, proposal };
+}
 const APPOINTMENT_DAY_USER = uidFor('AppointmentDayFixtureUser');
 /** A block three hours from the real clock: the route refuses one that has started. */
 function meetingBlock(): { startAt: string; endAt: string } {
@@ -561,7 +591,9 @@ async function record(
     expectedStatus,
     `${name}: expected ${expectedStatus}, got ${response.status} — ${JSON.stringify(body)}`,
   );
-  const stable = after(body, stabilise(pin(body), new Map()) as Record<string, unknown>);
+  const pinned = pin(body);
+  const normalised = stabilise(withoutCaptureUnderstanding(pinned), new Map()) as Record<string, unknown>;
+  const stable = after(body, pinCaptureUnderstanding(pinned, normalised));
   writeFileSync(join(FIXTURES, `${name}.json`), `${JSON.stringify(stable, null, 2)}\n`, 'utf8');
   // The live body is returned, not the normalised one: the rest of this test
   // chains real ids into the next call.
@@ -901,7 +933,26 @@ test('exports a fixture for every /api/mobile call the React Native client makes
     const weekly = await record('capture.weeklyRange', 200, await capturePost(request('/api/mobile/capture', {
       uid: WEEKLY_USER,
       body: { text: 'عندي تدريب كل سبت من الساعة 10 لـ 4', referenceTime: REFERENCE_TIME, timezone: 'Asia/Jerusalem' },
-    })));
+    })), (body) => body, (live, stable) => {
+      const liveItems = live.items as Array<{ resolvedTime: string | null; endTime?: string }>;
+      const liveRange = liveItems.find((item) => item.endTime);
+      assert.ok(liveRange?.resolvedTime && liveRange.endTime, 'capture.weeklyRange has no live start/end pair');
+      const duration = Date.parse(liveRange.endTime) - Date.parse(liveRange.resolvedTime);
+      assert.equal(duration, 6 * 3_600_000, 'capture.weeklyRange live duration drifted before fixture pinning');
+      const stableItems = stable.items as Array<Record<string, unknown>>;
+      return {
+        ...stable,
+        items: stableItems.map((item, index) => {
+          const liveItem = liveItems[index];
+          if (!liveItem?.endTime) return item;
+          assert.equal(typeof item.resolvedTime, 'string', 'capture.weeklyRange stable start is missing');
+          return {
+            ...item,
+            endTime: new Date(Date.parse(item.resolvedTime as string) + duration).toISOString(),
+          };
+        }),
+      };
+    });
     const weeklyItems = weekly.items as Array<{ itemId: string; title: string; resolvedDate?: string; dateEstimated?: boolean; recurrenceHint?: unknown }>;
     assert.deepEqual(weeklyItems.map((item) => [item.title, item.resolvedDate, item.dateEstimated, item.recurrenceHint]), [
       ['عندي تدريب كل سبت', '2026-08-15', false, { weekdays: [6], start: '10:00', end: '16:00' }],
@@ -1023,6 +1074,47 @@ test('exports a fixture for every /api/mobile call the React Native client makes
     })));
     assert.equal(chatRules.engine, 'rules');
     assert.equal((chatRules.proposal as { items: unknown[] }).items.length, 1);
+    const understoodMany = await record('capture.chatUnderstoodMany', 200, await chatPost(request('/api/mobile/capture/chat', {
+      body: {
+        message: 'لازم اتصل بأمي بكرا الساعة 5 المسا، وعم بفكر أسافر الصيف الجاي، وبدي أدفع فاتورة الكهربا يوم الخميس الساعة 10 الصبح، وحابب أنزل بالوزن، ومستني رد من المدير على الإجازة',
+        timezone: 'Asia/Jerusalem', referenceTime: REFERENCE_TIME, locale: 'ar',
+      },
+      uid: CHAT_USER,
+    })), (body) => body, pinCaptureUnderstanding);
+    assert.equal((understoodMany.proposal as { understood: unknown[] }).understood.length, 5);
+    const consideration = await record('capture.chatConsideration', 200, await chatPost(request('/api/mobile/capture/chat', {
+      body: { message: 'عم بفكر أسافر الصيف الجاي', timezone: 'Asia/Jerusalem', referenceTime: REFERENCE_TIME, locale: 'ar' },
+      uid: CHAT_USER,
+    })), (body) => body, pinCaptureUnderstanding);
+    assert.equal((consideration.proposal as { items: unknown[] }).items.length, 0);
+    const goalStatement = await record('capture.chatGoalStatement', 200, await chatPost(request('/api/mobile/capture/chat', {
+      body: { message: 'حابب أنزل بالوزن', timezone: 'Asia/Jerusalem', referenceTime: REFERENCE_TIME, locale: 'ar' },
+      uid: CHAT_USER,
+    })), (body) => body, pinCaptureUnderstanding);
+    assert.equal((goalStatement.proposal as { items: unknown[] }).items.length, 0);
+    const range = await record('capture.chatRange', 200, await chatPost(request('/api/mobile/capture/chat', {
+      body: { message: 'Meeting tomorrow from 4 to 8pm', timezone: 'Asia/Jerusalem', referenceTime: REFERENCE_TIME, locale: 'en' },
+      uid: CHAT_USER,
+    })), (body) => body, (live, stable) => {
+      const liveItems = (live.proposal as { items: Array<{ resolvedTime: string | null; endTime?: string }> }).items;
+      const liveRange = liveItems.find((item) => item.endTime);
+      assert.ok(liveRange?.resolvedTime && liveRange.endTime, 'capture.chatRange has no live start/end pair');
+      assert.equal(
+        Date.parse(liveRange.endTime) - Date.parse(liveRange.resolvedTime),
+        4 * 3_600_000,
+        'capture.chatRange live duration drifted before fixture pinning',
+      );
+      const pinned = pinCaptureUnderstanding(live, stable);
+      const proposal = pinned.proposal as { items: Array<Record<string, unknown>> };
+      return {
+        ...pinned,
+        proposal: {
+          ...(pinned.proposal as Record<string, unknown>),
+          items: proposal.items.map((item) => item.endTime ? { ...item, endTime: '2026-08-09T13:00:00.000Z' } : item),
+        },
+      };
+    });
+    assert.ok((range.proposal as { items: Array<{ endTime?: string }> }).items.some((item) => item.endTime));
     // Another account's id, an expired one and one that never existed are one answer.
     await record('capture.chatNotFound', 404, await chatPost(request('/api/mobile/capture/chat', {
       body: { conversationId: '00000000-0000-4000-8000-000000000999', message: 'make it 6', timezone: 'Asia/Jerusalem' },

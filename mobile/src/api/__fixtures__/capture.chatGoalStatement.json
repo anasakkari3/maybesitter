@@ -1,0 +1,40 @@
+{
+  "conversationId": "00000000-0000-4000-8000-000000000001",
+  "reply": "فهمت عليك. إذا بدك، منقدر نحولها لخطوة واضحة بعدين.",
+  "engine": "rules",
+  "proposal": {
+    "version": "v1",
+    "proposalId": "00000000-0000-4000-8000-000000000002",
+    "status": "unresolved_intent",
+    "items": [],
+    "seeds": [
+      {
+        "seedItemId": "00000000-0000-4000-8000-000000000003",
+        "kind": "possible_goal",
+        "summary": "حابب أنزل بالوزن"
+      }
+    ],
+    "provenance": {
+      "requestedEngine": "rules",
+      "executedEngine": "rule-based",
+      "fallbackUsed": true
+    },
+    "understood": [
+      {
+        "kind": "possible_goal",
+        "seedItemId": "00000000-0000-4000-8000-000000000003",
+        "text": "حابب أنزل بالوزن"
+      }
+    ]
+  },
+  "turns": [
+    {
+      "role": "user",
+      "text": "حابب أنزل بالوزن"
+    },
+    {
+      "role": "assistant",
+      "text": "فهمت عليك. إذا بدك، منقدر نحولها لخطوة واضحة بعدين."
+    }
+  ]
+}

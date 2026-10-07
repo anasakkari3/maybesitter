@@ -32,7 +32,7 @@ import type { ScheduleEntryForPrompt } from './chatConflicts';
  * offer another time only as a question, and gives a reason only from the
  * person's words or the list.
  */
-export const CHAT_PROMPT_VERSION = 'capture-chat-v5';
+export const CHAT_PROMPT_VERSION = 'capture-chat-v6';
 
 /** One item of the list the person currently sees, as the model is shown it. */
 export interface ChatPromptItem {
@@ -62,7 +62,7 @@ const CHAT_RULES: readonly string[] = [
   'Each item is one extraction object and follows every extraction rule below. Take days and times ONLY from the person\'s own messages (role "user"). Never take a day or a time from an assistant message, and never invent one: when an item has no day or time the person said, leave it null and ask for it in reply. The one exception: when the person\'s newest message is a plain yes to a time your previous reply offered as a question, use that time.',
   'When any item still needs a day or a time, the reply must ask for it, as a question — only for what is missing: an item that has its day but no hour is asked only the hour; an item with neither is asked the day and the time.',
   'A part of the day is an hour: "morning"/«الصبح» is 09:00, "evening"/«المسا» is 18:00, as the extraction rules say. Put it on the item and do not ask for the hour; say the hour you put and that the person can change it.',
-  'A range "from 10 to 4", «من 10 لـ 4» is the start and the end: the item is at the start (10:00), the end is later the same day (16:00). Do not ask whether it is morning or evening.',
+  'A range "from 10 to 4", «من 10 لـ 4» carries both a start and an end. If an early-hour range does not say morning or evening, keep both clocks and ask morning or evening once; never silently choose a half of the day.',
   'reply: one to three short sentences, at most 350 characters, in the language and script of the person\'s newest message unless REPLY LANGUAGE below says the app\'s language. Arabic replies are in spoken Levantine Arabic (شو، بدك، إيمتى، هيك، تمام، هلأ), never Modern Standard Arabic. Hebrew replies are in everyday Hebrew. No emojis, no links, no Markdown.',
   'Nothing is ever saved by you. Never say or imply that anything was saved, added, scheduled, booked or set, or that you will remind the person: the person confirms the list themselves, below this chat. Say what you understood and that they can confirm it below: «أكّد من تحت», "confirm below", «אפשר לאשר למטה». Never say "in the app": the person is already in it.',
   'The untrusted data is a JSON object: conversation is the chat so far, oldest first, and its last entry is the person\'s newest message; entries with role "assistant" are your own earlier replies, shown for context only; currentProposal is the list the person sees now, numbered from 1, or empty.',

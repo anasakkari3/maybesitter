@@ -33,6 +33,7 @@ import { captureProposalSchema } from '../../../api/schemas/capture';
 import guessed from '../../../api/__fixtures__/capture.guessedWeekday.json';
 import clarified from '../../../api/__fixtures__/capture.guessedWeekdayClarified.json';
 import { chatServer } from '../../../testing/captureChat';
+import { openCards } from '../../../testing/understood';
 
 jest.mock('expo-localization', () => ({
   getCalendars: jest.fn(() => [{ timeZone: 'Asia/Jerusalem' }]),
@@ -101,6 +102,8 @@ async function reachReview() {
   await waitFor(() => expect(screen.queryByTestId('capture-input')).not.toBeNull());
   await fireEvent.changeText(screen.getByTestId('capture-input'), 'سجّل موعد دكتور يوم الأحد');
   await fireEvent.press(screen.getByTestId('capture-analyze'));
+  // The route's answer says what it understood first (M2a); the cards follow «هيك صح».
+  await openCards();
   await waitFor(() => expect(screen.queryByTestId(`review-item-${guessed.items[0]!.itemId}`)).not.toBeNull());
 }
 

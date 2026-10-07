@@ -1,7 +1,7 @@
 import { randomUUID } from 'crypto';
 import { dayPartHour, forbidsResolvedTime, hourWithDayPart, instantFromLocal, isBareEarlyHourAnswer, localTimeSpecFor, namesDay, namesTwelveInTheEvening, nightClockHour, relativeDayOffset, relativeDaySource, statesClock, timeAnchorOf, typedHalfOfDay, withoutTimeOfDay } from '../../../src/extraction/timeLexicon';
 import { PastCommitmentTimeError } from '../mobile/safety';
-import { mapExtractionToCommand } from '../../../src/extraction/mapExtractionToCommand';
+import { endOfRange, mapExtractionToCommand } from '../../../src/extraction/mapExtractionToCommand';
 import { recurrenceHintOf } from '../../../src/extraction/extractionService';
 import { withWeeklyBlockOffers } from '../../weeklyBlocks/offer';
 import { extractWithFallback, type ExtractAndMapOptions } from '../../../src/extraction/extractionService';
@@ -20,6 +20,7 @@ import { dateIsGuess, hourIsPartOfDayGuess } from './timeGuess';
 import { namesCalendarDate, namesExplicitDate, readWeekdayReference, resolveWeekdayDate, WEEKDAY_MENTION_SOURCES } from '../../../src/extraction/weekdayLexicon';
 import { isEventOnDay } from '../../../src/extraction/priorityLexicon';
 import type { CaptureProposalStore, StoredCaptureProposal } from './proposalStore';
+import { finalizeUnderstood } from './understood';
 
 /**
  * Answering the one question (UC-2.5, #165).
@@ -688,6 +689,12 @@ export async function answerClarification(
 
   const result = stored.resultsByItemId?.get(input.itemId);
   if (!result) throw new ClarifyError('item_not_found');
+  // The item's stored clock is authoritative. The request zone is only a
+  // fallback for proposals created before localTimeSpec carried one.
+  const resolutionOptions: ClarifyOptions = {
+    ...options,
+    timezone: result.localTimeSpec?.timezone || options.timezone,
+  };
 
   const freeText = typeof input.freeText === 'string' ? input.freeText.trim() : '';
   if (!input.optionId && !freeText) throw new ClarifyError('answer_required');
@@ -714,16 +721,16 @@ export async function answerClarification(
     // An appointment with a day becomes an all-day event on it (FY1 N4);
     // anything else answered "no hour" keeps a named day as an all-day
     // deadline, or is undated without one (FY2 N3, `noHourAnswer`).
-    appointmentDay = noTime ? allDayAppointment(result, options.timezone) : null;
+    appointmentDay = noTime ? allDayAppointment(result, resolutionOptions.timezone) : null;
     answered = appointmentDay
       ?? (noTime
-        ? noHourAnswer(result, options.timezone)
-        : withResolvedTime(result, appliedLocal(result, option.value), options.timezone));
+        ? noHourAnswer(result, resolutionOptions.timezone)
+        : withResolvedTime(result, appliedLocal(result, option.value), resolutionOptions.timezone));
     // A button whose hour went by while it was on the screen — «المسا»
     // offered at 18:59 and tapped at 19:01 (UAT round 6, batch 3) — is held to
     // the typed answer's rule (FY1 I3): refused, the round kept, never saved
     // in the past and never moved to another day.
-    if (!noTime) notPast(answered, options.now);
+    if (!noTime) notPast(answered, resolutionOptions.now);
     answerKind = 'option';
   } else {
     /*
@@ -737,11 +744,11 @@ export async function answerClarification(
      */
     const waitingHour = question.field === 'which_day' ? undatedBareEarlyHour(result) : null;
     if (waitingHour && !statesClock(freeText) && typedHalfOfDay(freeText) === null) {
-      const day = dayTypedIn(freeText, options);
+      const day = dayTypedIn(freeText, resolutionOptions);
       if (typeof day !== 'string') throw new ClarifyError('answer_not_understood');
-      return askHalfAfterDay({ stored, index, item, result, day, hour: waitingHour, input, question, options, dependencies });
+      return askHalfAfterDay({ stored, index, item, result, day, hour: waitingHour, input, question, options: resolutionOptions, dependencies });
     }
-    answered = await readFreeTextAnswer(result, question, freeText, options, dependencies);
+    answered = await readFreeTextAnswer(result, question, freeText, resolutionOptions, dependencies);
     answerKind = 'free_text';
   }
 
@@ -791,6 +798,7 @@ export async function answerClarification(
     ...item,
     title: (answered.title || answered.action || item.title).trim(),
     resolvedTime,
+    ...(resolvedTime && endOfRange(answered) ? { endTime: endOfRange(answered)! } : { endTime: undefined }),
     // Whether the hour is still our guess (UAT round 6, D2). An answer about
     // the hour — the صبح/مسا or part-of-day buttons, or anything typed to a
     // time question — is the person's choice, so the mark goes. An answer
@@ -808,12 +816,12 @@ export async function answerClarification(
   items[index] = withDateGuess(items[index]!, answered, result);
   // A weekly hint's hour is settled now (FIX-R8-CAPTURE).
   if (answered.recurrenceHint) {
-    items[index] = { ...items[index]!, recurrenceHint: recurrenceHintOf(answered, options.timezone, resolvedTime !== null) };
+    items[index] = { ...items[index]!, recurrenceHint: recurrenceHintOf(answered, resolutionOptions.timezone, resolvedTime !== null) };
   }
   // With the hour settled, a complete weekly range is offered as a weekly block.
-  items[index] = withWeeklyBlockOffers([items[index]!], options.timezone)[0]!;
+  items[index] = withWeeklyBlockOffers([items[index]!], resolutionOptions.timezone)[0]!;
 
-  const contract: CaptureProposalContract = {
+  const mutated: CaptureProposalContract = {
     ...stored.contract,
     items,
     // Answering the last open question makes the proposal confirmable.
@@ -821,6 +829,7 @@ export async function answerClarification(
       ? 'needs_clarification'
       : 'proposed',
   };
+  const contract = finalizeUnderstood(mutated, stored.responseLocale ?? 'ar', stored.sourceOrdinals);
 
   const commands = new Map(stored.commandsByItemId);
   commands.set(input.itemId, answeredCommands);
@@ -929,11 +938,12 @@ async function askHalfAfterDay(args: {
   };
   // Still asking صبح/مسا: whatever was offered before is not offered now.
   items[index] = withWeeklyBlockOffers([items[index]!], options.timezone)[0]!;
-  const contract: CaptureProposalContract = {
+  const mutated: CaptureProposalContract = {
     ...stored.contract,
     items,
     status: items.every((candidate) => candidate.needsClarification) ? 'needs_clarification' : 'proposed',
   };
+  const contract = finalizeUnderstood(mutated, stored.responseLocale ?? 'ar', stored.sourceOrdinals);
   const commands = new Map(stored.commandsByItemId);
   commands.set(input.itemId, []);
   const results = new Map(stored.resultsByItemId);

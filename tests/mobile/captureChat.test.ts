@@ -633,15 +633,15 @@ test('the missing question names what is missing: the day, the hour, the half of
   for (const [extra, en, ar] of cases) {
     const proposal = { items: [{ ...base, ...extra }] } as never;
     assert.equal(safeChatReply('Noted.', { language: 'en', proposal }).reply, `Noted. ${en}`);
-    assert.equal(templateReply({ language: 'en', proposal }), en);
-    assert.equal(templateReply({ language: 'ar', proposal }), ar);
+    assert.equal(templateReply({ language: 'en', proposal }), `Here's what I understood so far. ${en}`);
+    assert.equal(templateReply({ language: 'ar', proposal }), `هيك فهمت لحد هلّق. ${ar}`);
   }
-  // A reply that already asks is shown as it is.
+  // A reply that already asks still opens with an acknowledgement.
   const asking = { items: [{ ...base, clarification: { questionKey: 'ask_day', params: {} } }] } as never;
-  assert.equal(safeChatReply('Which day works for Sara?', { language: 'en', proposal: asking }).reply, 'Which day works for Sara?');
+  assert.equal(safeChatReply('Which day works for Sara?', { language: 'en', proposal: asking }).reply, `Here's what I understood so far. Which day works for Sara?`);
   // An unusable reply is still replaced whole, never appended to.
-  assert.equal(safeChatReply('I added it to your calendar.', { language: 'en', proposal: asking }).reply, 'Which day is "Call Sara"?');
-  assert.equal(safeChatReply('See https://example.com', { language: 'en', proposal: asking }).reply, 'Which day is "Call Sara"?');
+  assert.equal(safeChatReply('I added it to your calendar.', { language: 'en', proposal: asking }).reply, `Here's what I understood so far. Which day is "Call Sara"?`);
+  assert.equal(safeChatReply('See https://example.com', { language: 'en', proposal: asking }).reply, `Here's what I understood so far. Which day is "Call Sara"?`);
 });
 
 /* ── 5. off-topic ───────────────────────────────────────────────── */
@@ -951,7 +951,7 @@ test('the rules fallback asks in the person’s language when a time is missing'
     assert.equal(body.engine, 'rules');
     const asking = body.proposal?.items.find((entry) => entry.needsClarification);
     assert.ok(asking, JSON.stringify(body.proposal));
-    assert.match(body.reply, /^מתי לעשות את /);
+    assert.match(body.reply, /^זה מה שהבנתי עד עכשיו\. מתי לעשות את /);
   } finally {
     end();
   }
