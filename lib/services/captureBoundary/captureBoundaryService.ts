@@ -1091,9 +1091,10 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
     if (intent || outcome.kind === 'seed') {
       if (intent) {
         const seedItemId = randomUUID();
-        // A clause said after another loses the «و» that joined them, once,
-        // here (load pass F3): the summary shows the stored words as they are.
-        seeds.push({ seedItemId, kind: intent.kind, summary: followsAnother(index) ? withoutClauseJoiner(segment) : segment });
+        // The person's segment verbatim: a seed's summary is its capture
+        // evidence (intentContracts.ts, seedService), so even a joining «و»
+        // stays (Codex inspection F3-007). The summary line shows it as stored.
+        seeds.push({ seedItemId, kind: intent.kind, summary: segment });
         sourceOrdinals.seeds[seedItemId] = sourceOrdinal(raw, segment, chatItems[index], index);
         const operationIndex = chatOperationIndex(chatItems[index]);
         if (operationIndex !== null) chatOperationIndices.seeds[seedItemId] = operationIndex;

@@ -42,13 +42,14 @@ test('F3: the literal load-pass capture stores the titles «هيك فهمت» sh
   }
 });
 
-test('F3: a seed said after a commitment is stored and shown without its «و»', async () => {
+test('F3-007: a seed said after a commitment keeps the person\'s segment verbatim, and its line says the same', async () => {
   const uid = beginRules();
   try {
     const body = await chat(uid, 'لازم اتصل بأمي بكرا الساعة 5 المسا، ويمكن أقدّم عالماجستير السنة الجاية', { locale: 'ar' });
     const proposal = body.proposal as Proposal;
     assert.ok(proposal.seeds.length > 0, `no seed: ${JSON.stringify(proposal)}`);
-    for (const seed of proposal.seeds) assert.ok(!seed.summary.startsWith('و'), `the seed keeps its joiner: ${seed.summary}`);
+    // A seed's summary is its capture evidence, verbatim (intentContracts.ts).
+    assert.ok(proposal.seeds.some((seed) => seed.summary.startsWith('ويمكن')), `the seed was rewritten: ${JSON.stringify(proposal.seeds)}`);
     assertSummaryMatchesStored(proposal, 'seed');
   } finally {
     end();
@@ -80,7 +81,10 @@ test('F3: the joiner goes only when the very next word opens a point (F3-001)', 
   assert.equal(withoutClauseJoiner('ولازم أشتري هدية'), 'لازم أشتري هدية');
   assert.equal(withoutClauseJoiner('وعم بفكر أتعلم عود'), 'عم بفكر أتعلم عود');
   assert.equal(withoutClauseJoiner('and buy bread'), 'buy bread');
-  assert.equal(withoutClauseJoiner('ותקנה לחם'), 'תקנה לחם');
+  // An attached Hebrew «ו» goes only before a request or an intent (F3-008).
+  assert.equal(withoutClauseJoiner('ותקנה לחם'), 'ותקנה לחם');
+  assert.equal(withoutClauseJoiner('וטרינר לחתול'), 'וטרינר לחתול');
+  assert.equal(withoutClauseJoiner('וצריך לקנות לחם'), 'צריך לקנות לחם');
   // «وصّل» is the verb; «ووصّل» loses only the joining one.
   assert.equal(withoutClauseJoiner('وصّل أمي عالدكتور'), 'وصّل أمي عالدكتور');
   assert.equal(withoutClauseJoiner('ووصّل أمي عالدكتور'), 'وصّل أمي عالدكتور');
@@ -104,7 +108,7 @@ test('F3: the joiner goes only when the very next word opens a point (F3-001)', 
   assert.equal(withoutClauseJoiner('وزارة بستنى ردها'), 'وزارة بستنى ردها');
   // The conjunction's own vowel mark goes with it (F3-006).
   assert.equal(withoutClauseJoiner('وَاتصل بالبنك'), 'اتصل بالبنك');
-  assert.equal(withoutClauseJoiner('וְתקנה לחם'), 'תקנה לחם');
+  assert.equal(withoutClauseJoiner('וְצריך לקנות לחם'), 'צריך לקנות לחם');
   assert.equal(withoutClauseJoiner('وظيفة جديدة'), 'وظيفة جديدة');
 });
 
@@ -139,7 +143,7 @@ test('F3-003: on the model path a new follower point is stored and shown without
     assert.ok(proposal, 'no proposal');
     const titles = proposal.items.map((item) => item.title);
     assert.ok(!titles.some((title) => title.startsWith('و')), `a model item keeps its joiner: ${JSON.stringify(titles)}`);
-    for (const seed of proposal.seeds) assert.ok(!seed.summary.startsWith('و'), `a model seed keeps its joiner: ${seed.summary}`);
+    for (const seed of proposal.seeds) assert.ok(seed.summary.startsWith('و'), `a model seed was rewritten: ${seed.summary}`);
     assertSummaryMatchesStored(proposal, 'model first turn');
   } finally {
     end();
@@ -164,13 +168,13 @@ test('F3-003: a later model update that writes «و» into an existing point kee
   }
 });
 
-test('F3-005: a follower wait is stored and shown without its «و»', async () => {
+test('F3-005/F3-007: a follower wait keeps its words verbatim and its line says the same', async () => {
   const uid = beginRules();
   try {
     const body = await chat(uid, 'لازم اتصل بأمي بكرا الساعة 5 المسا، وبستنى رد الدكتور', { locale: 'ar' });
     const proposal = body.proposal as Proposal;
     assert.ok(proposal.seeds.length > 0, `no seed: ${JSON.stringify(proposal)}`);
-    for (const seed of proposal.seeds) assert.ok(!seed.summary.startsWith('و'), `the wait keeps its joiner: ${seed.summary}`);
+    assert.ok(proposal.seeds.some((seed) => seed.summary === 'وبستنى رد الدكتور'), `the wait was rewritten: ${JSON.stringify(proposal.seeds)}`);
     assertSummaryMatchesStored(proposal, 'wait');
   } finally {
     end();
@@ -186,6 +190,9 @@ test('F3-004: the splitter keeps a Hebrew word\'s own «ו»; a joining one goes
     assert.ok(splitCaptureClauseDetails('להתקשר לאמא מחר ב-5, ויזה חדשה צריך לחדש מחר').every((clause) => !clause.text.startsWith('יזה')));
     assert.ok(splitCaptureClauseDetails('להתקשר לאמא מחר ב-5, ותקנה לחם מחר').some((clause) => clause.text.startsWith('ותקנה')),
       'the splitter cut a Hebrew «ו» itself');
+    const vet = await chat(uid, 'להתקשר לאמא מחר בשעה 5 אחר הצהריים, וטרינר לחתול מחר בשעה 9 בבוקר', { locale: 'he' });
+    const vetTitles = (vet.proposal?.items ?? []).map((item) => item.title);
+    assert.ok(!vetTitles.some((title) => title.startsWith('טרינר')), `a follower Hebrew word lost its letter: ${JSON.stringify(vetTitles)}`);
   } finally {
     end();
   }

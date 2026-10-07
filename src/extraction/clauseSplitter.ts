@@ -600,7 +600,11 @@ export function withoutClauseJoiner(clause: string): string {
   // "and" is a word of its own: dropping it can never take a letter with it.
   if (/^and\s/i.test(joined[0])) return remainder;
   const request = LEADING_REQUEST.exec(remainder);
-  const opensPoint = opensWithAction(first)
+  // An attached Hebrew «ו» goes only before a request or an intent: the
+  // generic Hebrew verb test reads any «ל…»/«ת…» word as a verb, and
+  // «וטרינר» would lose its own letter (Codex inspection F3-008).
+  const hebrew = joined[0].startsWith('ו');
+  const opensPoint = (!hebrew && opensWithAction(first))
     || (request !== null && request.index === 0)
     || opensWithUnresolvedIntent(remainder);
   return opensPoint ? remainder : clause;
