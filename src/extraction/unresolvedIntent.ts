@@ -174,6 +174,21 @@ export interface UnresolvedIntentReading {
  * specific first. «يمكن أستنى الدكتور» is a wait, not a maybe. An explicit
  * scheduling verb anywhere in the segment beats all four.
  */
+/**
+ * The text opens with a thought, a wish, a "maybe" or a wait — one of the
+ * phrases `detectUnresolvedIntent` reads — at its very start (load pass F3,
+ * Codex inspection F3-005). The joiner rule asks this of the words after a
+ * «و»/«ו», so a marker later in a word's own clause never counts.
+ */
+export function opensWithUnresolvedIntent(text: unknown): boolean {
+  const clause = typeof text === 'string' ? text.trimStart() : '';
+  if (!clause) return false;
+  return [WAITING_FOR, POSSIBLE_GOAL, CONSIDERATION, IDEA].some((pattern) => {
+    const match = new RegExp(pattern.source, pattern.flags.replace('g', '')).exec(clause);
+    return match !== null && match.index === 0;
+  });
+}
+
 export function detectUnresolvedIntent(rawSegment: unknown): UnresolvedIntentReading | null {
   const segment = typeof rawSegment === 'string' ? rawSegment.trim() : '';
   if (!segment) return null;

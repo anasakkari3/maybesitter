@@ -94,6 +94,17 @@ test('F3: the joiner goes only when the very next word opens a point (F3-001)', 
   assert.equal(withoutClauseJoiner("and I'm thinking about travelling"), "I'm thinking about travelling");
   assert.equal(withoutClauseJoiner('ואני חושב על נסיעה'), 'אני חושב על נסיעה');
   assert.equal(withoutClauseJoiner('ויזה חדשה'), 'ויזה חדשה');
+  // Every opener the intent reader knows, at the very start (F3-005)…
+  assert.equal(withoutClauseJoiner('وبستنى رد الدكتور'), 'بستنى رد الدكتور');
+  assert.equal(withoutClauseJoiner('وربما أغيّر شغلي'), 'ربما أغيّر شغلي');
+  assert.equal(withoutClauseJoiner('وناوي أتعلم عزف'), 'ناوي أتعلم عزف');
+  assert.equal(withoutClauseJoiner('ويوم من الأيام بدي أسافر'), 'يوم من الأيام بدي أسافر');
+  assert.equal(withoutClauseJoiner('ואנחנו מחכים לתשובה'), 'אנחנו מחכים לתשובה');
+  // …but not one later in a word's own clause.
+  assert.equal(withoutClauseJoiner('وزارة بستنى ردها'), 'وزارة بستنى ردها');
+  // The conjunction's own vowel mark goes with it (F3-006).
+  assert.equal(withoutClauseJoiner('وَاتصل بالبنك'), 'اتصل بالبنك');
+  assert.equal(withoutClauseJoiner('וְתקנה לחם'), 'תקנה לחם');
   assert.equal(withoutClauseJoiner('وظيفة جديدة'), 'وظيفة جديدة');
 });
 
@@ -148,6 +159,19 @@ test('F3-003: a later model update that writes «و» into an existing point kee
     const titles = (later.proposal as Proposal).items.map((item) => item.title);
     assert.ok(titles.includes('ودفع فاتورة الكهربا'), `the update did not apply as written: ${JSON.stringify(titles)}`);
     assertSummaryMatchesStored(later.proposal as Proposal, 'model update');
+  } finally {
+    end();
+  }
+});
+
+test('F3-005: a follower wait is stored and shown without its «و»', async () => {
+  const uid = beginRules();
+  try {
+    const body = await chat(uid, 'لازم اتصل بأمي بكرا الساعة 5 المسا، وبستنى رد الدكتور', { locale: 'ar' });
+    const proposal = body.proposal as Proposal;
+    assert.ok(proposal.seeds.length > 0, `no seed: ${JSON.stringify(proposal)}`);
+    for (const seed of proposal.seeds) assert.ok(!seed.summary.startsWith('و'), `the wait keeps its joiner: ${seed.summary}`);
+    assertSummaryMatchesStored(proposal, 'wait');
   } finally {
     end();
   }

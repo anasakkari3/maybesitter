@@ -62,6 +62,7 @@
 import { stripTimeExpressions } from './ruleBasedExtractor';
 import { namesDay, RELATIVE_DAY_MENTION_SOURCES, statesClock, timeOfDayEvidence } from './timeLexicon';
 import { LEADING_CONNECTOR, NOT_LETTERS, REQUEST_MARKER, opensWithAction } from './requestEvidence';
+import { opensWithUnresolvedIntent } from './unresolvedIntent';
 
 const B = '(?<![\\p{L}\\p{M}])';
 const A = '(?![\\p{L}\\p{M}])';
@@ -575,8 +576,6 @@ export function splitCaptureClauseDetails(raw: string): CaptureClause[] {
     .map((clause, index) => index > 0 ? { ...clause, follows: true as const } : clause);
 }
 
-/** Words that open a thought or a wait, as the first word of a clause. */
-const INTENT_OPENER = new RegExp('^(?:عم|بفكر|بفكّر|يمكن|ممكن|حابب|حابة|حاببة|نفسي|ودي|ودّي|مستني|مستنية|ناطر|ناطرة|maybe|thinking|waiting|אולי|חושב|חושבת|מחכה|אני)$', 'iu');
 const LEADING_REQUEST = new RegExp(REQUEST_MARKER.source, REQUEST_MARKER.flags.replace('g', ''));
 
 /**
@@ -584,13 +583,16 @@ const LEADING_REQUEST = new RegExp(REQUEST_MARKER.source, REQUEST_MARKER.flags.r
  * joined them (load pass F3, 2026-10-07): «…، واتصل بالبنك بكرا» is the
  * point «اتصل بالبنك». Only for a clause that did follow another
  * (`CaptureClause.follows`), and only when the very next word opens a point —
- * an errand verb, a request («لازم», "need to") or a thought («عم بفكر») —
+ * an errand verb, a request («لازم», "need to") or a thought or a wait
+ * («عم بفكر», «بستنى» — `opensWithUnresolvedIntent`) —
  * never because a marker appears somewhere later: «وزارة الداخلية لازم
  * أراجعها» keeps its «و» (Codex inspection F3-001). Applied once, where the
  * item or seed is made; the summary shows the stored words as they are.
  */
 export function withoutClauseJoiner(clause: string): string {
-  const joined = /^(?:and\s+|و|ו)/i.exec(clause);
+  // The conjunction with any vowel marks on it («وَ», «וְ»), so none is left
+  // standing alone at the start (Codex inspection F3-006).
+  const joined = new RegExp('^(?:and\\s+|و[\\u064B-\\u065F\\u0670]*|ו[\\u0591-\\u05C7]*)', 'iu').exec(clause);
   if (!joined) return clause;
   const remainder = clause.slice(joined[0].length).trimStart();
   const first = (remainder.split(/\s+/)[0] ?? '').replace(NOT_LETTERS, '');
@@ -600,7 +602,7 @@ export function withoutClauseJoiner(clause: string): string {
   const request = LEADING_REQUEST.exec(remainder);
   const opensPoint = opensWithAction(first)
     || (request !== null && request.index === 0)
-    || INTENT_OPENER.test(first);
+    || opensWithUnresolvedIntent(remainder);
   return opensPoint ? remainder : clause;
 }
 
