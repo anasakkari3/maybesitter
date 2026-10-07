@@ -69,6 +69,18 @@ const MAX_STEPS = 12;
 const INITIAL_MODEL_MAX_STEPS = 10;
 const SLOT_MINUTES = 15;
 
+type StoredInstant = string | Date | { toDate(): Date };
+
+/** Firestore returns a Timestamp for Date fields; memory storage keeps a Date/string. */
+function storedInstantMs(value: unknown): number {
+  if (value instanceof Date) return value.getTime();
+  if (typeof value === 'string') return Date.parse(value);
+  if (value && typeof (value as { toDate?: unknown }).toDate === 'function') {
+    try { return (value as { toDate(): Date }).toDate().getTime(); } catch { return Number.NaN; }
+  }
+  return Number.NaN;
+}
+
 export class GoalPlanApiError extends Error {
   constructor(readonly status: number, readonly reason: string, readonly extra: Record<string, unknown> = {}) {
     super(reason);
@@ -123,7 +135,7 @@ interface GenerationClaim {
   idempotencyKey: string;
   replacesPlanId?: string;
   state: 'claimed' | 'done' | 'lost';
-  reservedUntil: string;
+  reservedUntil: StoredInstant;
   planId?: string;
   reason?: string;
 }
@@ -154,7 +166,7 @@ interface StatementPreview {
   revision: number;
   understood: { goalText: string };
   locale: string;
-  expiresAt: string | Date;
+  expiresAt: StoredInstant;
 }
 
 interface StatementAcceptReceipt {
@@ -318,7 +330,7 @@ async function modelPlan(uid: string, goalText: string): Promise<{ horizon: 'day
 function templatePlan(goalText: string, language: string): { horizon: 'weeks'; steps: InternalStep[] } {
   const steps = templateGoalSteps(goalText, goalStepLanguageOf(goalText, language)).slice(0, 3).map((step, index): InternalStep => ({
     stepId: randomUUID(), order: index + 1, phase: { unit: 'week', index: index + 1 }, title: step.title,
-    kind: step.suggestedAs, durationMinutes: step.suggestedAs === 'habit' ? 30 : 20,
+    kind: step.suggestedAs, durationMinutes: step.durationMinutes ?? (step.suggestedAs === 'habit' ? 30 : 20),
     ...(step.suggestedAs === 'habit' ? { rhythm: { timesPerWeek: 3 } } : {}),
     buildsOn: null, expectedOutcome: null, origin: 'template', sourceSpans: [], inferred: true,
   }));
@@ -372,7 +384,7 @@ export async function generateGoalPlan(uid: string, goalId: string, input: { ide
       const current = await tx.get<StoredGoalPlan>(planPath(uid, existing.planId));
       if (current) return { kind: 'existing' as const, plan: current };
     }
-    if (existing?.state === 'claimed' && Date.parse(existing.reservedUntil) > now.getTime()) {
+    if (existing?.state === 'claimed' && storedInstantMs(existing.reservedUntil) > now.getTime()) {
       return { kind: 'waiting' as const, claimId: existing.claimId, lineageId: lineage.lineageId };
     }
     const claimId = randomUUID();
@@ -638,7 +650,7 @@ async function buildTimes(reader: StorageReader, uid: string, plan: StoredGoalPl
       const candidates = commitmentCandidates(step, own, anchor, now, occupied);
       const slot = candidates[0] ?? null;
       if (slot) occupied.push(slot);
-      entries.push({ stepId: step.stepId, kind: 'commitment', slot, alternatives: candidates.slice(1, 4), ...(slot ? {} : { reason: 'no_free_time_in_phase' }), choice: 'proposed' });
+      entries.push({ stepId: step.stepId, kind: 'commitment', slot, alternatives: [], ...(slot ? {} : { reason: 'no_free_time_in_phase' }), choice: 'proposed' });
     } else {
       const candidates = weeklyCandidates(step, own, anchor, now, occupied);
       const weekly = candidates[0] ?? null;
@@ -648,12 +660,13 @@ async function buildTimes(reader: StorageReader, uid: string, plan: StoredGoalPl
           occupied.push({ startsAt, endsAt: new Date(Date.parse(startsAt) + step.durationMinutes * 60_000).toISOString() });
         }
       }
-      entries.push({ stepId: step.stepId, kind: 'habit', weekly, alternatives: candidates.slice(1, 4), ...(weekly ? {} : { reason: 'no_free_time_in_phase' }), choice: 'proposed' });
+      entries.push({ stepId: step.stepId, kind: 'habit', weekly, alternatives: [], ...(weekly ? {} : { reason: 'no_free_time_in_phase' }), choice: 'proposed' });
     }
   }
+  const withAlternatives = await recomputeAlternatives(reader, uid, plan, anchor, entries, now);
   const relevantDates = allDates.filter((date) => Date.parse(atLocal(date, '00:00', anchor.timezone)!) < Date.parse(atLocal(addCivilDays(anchor.localDate, 14), '00:00', anchor.timezone)!) || weekIndex !== undefined);
   const nowIso = new Date().toISOString();
-  return { timesId: randomUUID(), timesRevision: 1, planId: plan.planId, planRevision: plan.revision, anchor, steps: entries,
+  return { timesId: randomUUID(), timesRevision: 1, planId: plan.planId, planRevision: plan.revision, anchor, steps: withAlternatives,
     lineageId: plan.lineageId, goalId: plan.goalId, inputsDigest: await inputsDigest(reader, uid, anchor, relevantDates, now),
     invalidated: false, ...(weekIndex ? { weekIndex } : {}), createdAt: nowIso, updatedAt: nowIso };
 }
@@ -682,22 +695,65 @@ function publicTimes(times: StoredTimes): GoalPlanTimes {
   return wire;
 }
 
-function chosenIntervals(times: StoredTimes, plan: StoredGoalPlan, excludedStepId?: string): TimeInterval[] {
+function chosenIntervalsFor(
+  entries: readonly GoalPlanTimesStep[],
+  plan: StoredGoalPlan,
+  anchor: { localDate: string; timezone: string },
+  excludedStepId?: string,
+): TimeInterval[] {
   const byId = new Map(plan.steps.map((step) => [step.stepId, step]));
   const intervals: TimeInterval[] = [];
-  for (const entry of times.steps) {
+  for (const entry of entries) {
     if (entry.stepId === excludedStepId) continue;
     if ('slot' in entry && entry.slot) intervals.push(entry.slot);
     if ('weekly' in entry && entry.weekly) {
       const step = byId.get(entry.stepId); if (!step) continue;
-      for (const date of datesFor(step, times.anchor.localDate)) {
+      for (const date of datesFor(step, anchor.localDate)) {
         if (!entry.weekly.weekdays.includes(new Date(`${date}T12:00:00Z`).getUTCDay())) continue;
-        const startsAt = atLocal(date, entry.weekly.start, times.anchor.timezone); if (!startsAt) continue;
+        const startsAt = atLocal(date, entry.weekly.start, anchor.timezone); if (!startsAt) continue;
         intervals.push({ startsAt, endsAt: new Date(Date.parse(startsAt) + step.durationMinutes * 60_000).toISOString() });
       }
     }
   }
   return intervals;
+}
+
+function chosenIntervals(times: StoredTimes, plan: StoredGoalPlan, excludedStepId?: string): TimeInterval[] {
+  return chosenIntervalsFor(times.steps, plan, times.anchor, excludedStepId);
+}
+
+async function recomputeAlternatives(
+  reader: StorageReader,
+  uid: string,
+  plan: StoredGoalPlan,
+  anchor: { localDate: string; timezone: string },
+  entries: readonly GoalPlanTimesStep[],
+  now: string,
+): Promise<GoalPlanTimesStep[]> {
+  const byId = new Map(plan.steps.map((step) => [step.stepId, step]));
+  const selected = entries.flatMap((entry) => {
+    const step = byId.get(entry.stepId);
+    return step && !('later' in entry) ? [step] : [];
+  });
+  const allDates = selected.flatMap((step) => datesFor(step, anchor.localDate));
+  const contexts = await dayContexts(reader, uid, anchor, allDates, now);
+  return entries.map((entry): GoalPlanTimesStep => {
+    if ('later' in entry || entry.choice === 'none') return entry;
+    const step = byId.get(entry.stepId);
+    if (!step) return entry;
+    const own = contexts.filter((context) => datesFor(step, anchor.localDate).includes(context.date));
+    const occupied = chosenIntervalsFor(entries, plan, anchor, step.stepId);
+    if (entry.kind === 'commitment') {
+      const alternatives = commitmentCandidates(step, own, anchor, now, occupied)
+        .filter((candidate) => !entry.slot || !isDeepStrictEqual(candidate, entry.slot))
+        .slice(0, 3);
+      return { ...entry, alternatives };
+    }
+    const alternatives = weeklyCandidates(step, own, anchor, now, occupied)
+      .filter((candidate) => !entry.weekly || !isDeepStrictEqual(candidate, entry.weekly))
+      .slice(0, 3);
+    return { ...entry, alternatives };
+  });
 }
 
 function minuteOfDay(value: string): number | null {
@@ -755,11 +811,19 @@ export async function chooseGoalPlanTime(uid: string, goalId: string, planId: st
     if (!ok) apiError(422, 'not_free', { times: publicTimes(times) });
     replacement = { stepId, kind: 'habit', weekly, alternatives: [], choice: 'proposed' };
   } else apiError(422, 'not_free', { times: publicTimes(times) });
+  const nextSteps = await recomputeAlternatives(
+    storage,
+    uid,
+    plan,
+    times.anchor,
+    times.steps.map((entry) => entry.stepId === stepId ? replacement : entry),
+    now,
+  );
   return storage.runTransaction(async (tx) => {
     await currentPlanForMutation(tx, uid, goalId, planId, true);
     const latest = await tx.get<StoredTimes>(timesPath(uid, times.timesId));
     if (!latest || latest.timesRevision !== timesRevision) apiError(409, 'stale', { times: publicTimes(latest ?? times) });
-    const next: StoredTimes = { ...latest, timesRevision: latest.timesRevision + 1, steps: latest.steps.map((entry) => entry.stepId === stepId ? replacement : entry), updatedAt: now };
+    const next: StoredTimes = { ...latest, timesRevision: latest.timesRevision + 1, steps: nextSteps, updatedAt: now };
     tx.set(timesPath(uid, next.timesId), next); return publicTimes(next);
   });
 }
@@ -943,7 +1007,7 @@ export async function regenerateGoalPlan(uid: string, goalId: string, input: { c
       const replacement = await tx.get<StoredGoalPlan>(planPath(uid, existingClaim.planId));
       if (replacement) return { kind: 'existing' as const, plan: replacement };
     }
-    if (existingClaim?.state === 'claimed' && Date.parse(existingClaim.reservedUntil) > now.getTime()) {
+    if (existingClaim?.state === 'claimed' && storedInstantMs(existingClaim.reservedUntil) > now.getTime()) {
       return { kind: 'waiting' as const, claimId: existingClaim.claimId, lineageId: lineage.lineageId };
     }
     const plan = await tx.get<StoredGoalPlan>(planPath(uid, input.currentPlanId));
@@ -1000,7 +1064,7 @@ export async function regenerateGoalPlan(uid: string, goalId: string, input: { c
   return publicPlan(result);
 }
 
-export async function createLaterWeekTimes(uid: string, goalId: string, planId: string, weekIndex: number, storage = getStorage()): Promise<GoalPlanTimes> {
+export async function createLaterWeekTimes(uid: string, goalId: string, planId: string, weekIndex: number, storage = getStorage()): Promise<{ plan: GoalPlan; times: GoalPlanTimes }> {
   const plan = await storage.get<StoredGoalPlan>(planPath(uid, planId));
   const lineage = await requireCurrentGoal(storage, uid, goalId);
   if (!plan || plan.status !== 'confirmed' || lineage.latestConfirmedPlanId !== planId || plan.goalId !== goalId) apiError(409, 'stale');
@@ -1009,7 +1073,7 @@ export async function createLaterWeekTimes(uid: string, goalId: string, planId: 
   const selected = plan.steps.filter((step) => pending.stepIds.includes(step.stepId));
   const times = await buildTimes(storage, uid, plan, plan.anchor, selected, new Date().toISOString(), weekIndex);
   await storage.set(timesPath(uid, times.timesId), times);
-  return publicTimes(times);
+  return { plan: publicPlan(plan), times: publicTimes(times) };
 }
 
 export async function listUpcomingGoalPlans(uid: string, storage = getStorage()) {
@@ -1059,7 +1123,7 @@ export async function acceptGoalStatement(uid: string, input: { summaryId: strin
   const receipt = await storage.get<StatementAcceptReceipt>(path(uid, GOAL_STATEMENT_ACCEPTS, receiptId));
   if (receipt) { if (receipt.fingerprint !== fingerprint) apiError(409, 'key_reused'); return { goalId: receipt.goalId }; }
   const preview = await storage.get<StatementPreview>(path(uid, GOAL_STATEMENT_PREVIEWS, input.summaryId));
-  const expiresAt = preview?.expiresAt instanceof Date ? preview.expiresAt.getTime() : Date.parse(preview?.expiresAt ?? '');
+  const expiresAt = storedInstantMs(preview?.expiresAt);
   if (!preview || !Number.isFinite(expiresAt) || expiresAt <= Date.now()) apiError(410, 'gone');
   if (preview.revision !== input.revision || !input.understood || typeof input.understood.goalText !== 'string') apiError(409, 'stale');
   const created = await createManualMemoryIdempotent(

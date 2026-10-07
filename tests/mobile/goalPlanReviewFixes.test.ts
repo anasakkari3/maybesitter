@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   GOAL_PLAN_CLAIMS,
   GOAL_PLAN_OUTCOMES,
+  GOAL_STATEMENT_PREVIEWS,
   HABITS,
   MEMORY,
   docIdForKey,
@@ -11,7 +12,7 @@ import {
   type StorageAdapter,
 } from '../../lib/storage/index.ts';
 import { getStorage } from '../../lib/storage/index.ts';
-import { isPlanImperative, readGoalPlan } from '../../lib/services/mobile/goalPlanService.ts';
+import { acceptGoalStatement, isPlanImperative, readGoalPlan } from '../../lib/services/mobile/goalPlanService.ts';
 import {
   REFERENCE,
   USER,
@@ -23,6 +24,7 @@ import {
   draftOf,
   edit,
   key,
+  overlaps,
   rows,
   setup,
   stepByTitle,
@@ -110,6 +112,33 @@ test('B-4 concurrent statement accepts with one key create and return one goal',
     const goals = (await getStorage().list<Record<string, unknown>>(userCol(USER, MEMORY)))
       .filter((row) => row.data.kind === 'goal');
     assert.equal(goals.length, 2, 'the seeded goal plus exactly one accepted goal');
+  }, h);
+});
+
+test('S-1 statement acceptance reads a Firestore Timestamp-shaped expiry', async () => {
+  const h = await setup({ model: false });
+  await within(async () => {
+    const preview = await call('goals/from-statement/preview', 'POST', {}, { statement: 'بدي أرجع أركض', locale: 'ar' });
+    const previewPath = userSubDoc(USER, GOAL_STATEMENT_PREVIEWS, preview.body.summaryId);
+    const timestampStorage = new Proxy(h.storage, {
+      get(target, property, receiver) {
+        if (property === 'get') return async <T>(documentPath: string): Promise<T | null> => {
+          const stored = await target.get<Record<string, unknown>>(documentPath);
+          if (!stored || documentPath !== previewPath) return stored as T | null;
+          const expiresAt = new Date(String(stored.expiresAt));
+          return { ...stored, expiresAt: { toDate: () => expiresAt } } as T;
+        };
+        const value = Reflect.get(target, property, receiver) as unknown;
+        return typeof value === 'function' ? value.bind(target) : value;
+      },
+    }) as StorageAdapter;
+    const accepted = await acceptGoalStatement(USER, {
+      summaryId: preview.body.summaryId,
+      revision: preview.body.revision,
+      understood: preview.body.understood,
+      idempotencyKey: key('timestamp-accept'),
+    }, timestampStorage);
+    assert.equal(typeof accepted.goalId, 'string');
   }, h);
 });
 
@@ -241,5 +270,98 @@ test('B-9 retaking an expired generation lease mints a new fencing token', async
     const finished = await h.storage.get<{ claimId: string; state: string }>(claimDocument);
     assert.equal(finished?.state, 'done');
     assert.notEqual(finished?.claimId, claimId);
+  }, h);
+});
+
+function overlappingCommitmentsPlan() {
+  const answer = weeksPlan();
+  answer.steps[1] = {
+    ...answer.steps[1]!,
+    kind: 'commitment',
+    phase: { unit: 'week', index: 1 },
+    durationMinutes: 20,
+    rhythm: undefined,
+  };
+  return answer;
+}
+
+async function proposedOverlappingCommitments() {
+  const h = await setup();
+  h.answer(overlappingCommitmentsPlan());
+  const plan = await draftOf(h.goalId);
+  const approvedResult = await approve(h.goalId, plan);
+  const first = stepTimes(approvedResult.times, approvedResult.plan.steps[0]!.stepId);
+  return { h, ...approvedResult, first };
+}
+
+test('S-2 every offered commitment alternative is accepted and PATCH recomputes the other alternatives', async () => {
+  const initial = await proposedOverlappingCommitments();
+  const count = initial.first.alternatives!.length;
+  initial.h.restore();
+  assert.ok(count > 0, 'the scenario offered no alternatives');
+
+  for (let alternativeIndex = 0; alternativeIndex < count; alternativeIndex += 1) {
+    const scenario = await proposedOverlappingCommitments();
+    await within(async () => {
+      const alternative = scenario.first.alternatives![alternativeIndex];
+      assert.ok(alternative && 'startsAt' in alternative, `alternative ${alternativeIndex} disappeared`);
+      const chosen = await choose(scenario.h.goalId, scenario.times, scenario.first.stepId, { slot: alternative });
+      assert.equal(chosen.status, 200, JSON.stringify(chosen.body));
+
+      const next = chosen.body.times as Times;
+      const selected = next.steps.flatMap((entry) => entry.slot ? [entry.slot] : []);
+      for (const entry of next.steps) {
+        for (const offered of entry.alternatives ?? []) {
+          if (!('startsAt' in offered)) continue;
+          const otherSelected = selected.filter((slot) => entry.slot !== slot);
+          assert.equal(otherSelected.some((slot) => overlaps(offered, slot)), false,
+            `${entry.stepId} still offered ${JSON.stringify(offered)} over another chosen slot`);
+        }
+      }
+    }, scenario.h);
+  }
+});
+
+test('S-3 the fifteen-minute open-goal template carries 15 minutes in Arabic, Hebrew, and English', async () => {
+  const cases = [
+    { goalText: 'بدي أرتّب البيت', words: /ربع ساعة/ },
+    { goalText: 'לסדר את הבית', words: /רבע שעה/ },
+    { goalText: 'A tidy flat', words: /15 minutes/ },
+  ];
+  for (const item of cases) {
+    const h = await setup({ model: false, goalText: item.goalText });
+    await within(async () => {
+      const generated = await call('goals/[goalId]/plan/generate', 'POST', { goalId: h.goalId }, {
+        idempotencyKey: key('template-duration'), source: 'template',
+      });
+      assert.equal(generated.status, 200, JSON.stringify(generated.body));
+      const step = (generated.body.plan as Plan).steps.find((candidate) => item.words.test(candidate.title));
+      assert.ok(step, `no fifteen-minute step for ${item.goalText}`);
+      assert.equal(step.durationMinutes, 15);
+    }, h);
+  }
+});
+
+test('later-week times return the confirmed public plan that names their steps', async () => {
+  const h = await setup();
+  await within(async () => {
+    const { plan, times } = await approved(h.goalId);
+    const later = times.steps.find((entry) => entry.later);
+    assert.ok(later?.later, 'the plan has no later week');
+    const saved = await confirm(h.goalId, times);
+    assert.equal(saved.status, 200, JSON.stringify(saved.body));
+
+    const answer = await call(
+      'goals/[goalId]/plans/[planId]/later/[weekIndex]/times',
+      'POST',
+      { goalId: h.goalId, planId: plan.planId, weekIndex: String(later.later.weekIndex) },
+      { idempotencyKey: key('later-times') },
+    );
+    assert.equal(answer.status, 200, JSON.stringify(answer.body));
+    assert.equal(answer.body.plan.planId, plan.planId);
+    assert.equal(answer.body.plan.status, 'confirmed');
+    assert.deepEqual(answer.body.plan.steps, plan.steps);
+    assert.equal(answer.body.plan.lineageId, undefined);
+    assert.equal(answer.body.times.steps[0].stepId, later.stepId);
   }, h);
 });
