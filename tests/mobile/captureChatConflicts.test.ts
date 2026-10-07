@@ -451,6 +451,21 @@ test('a clash sentence is added before the reply’s closing question, and not w
   assert.match(withConflictsNamed('Okay.', items, { ...context, language: 'en' }), /^Okay\. "عشا مع أهلي" clashes with "عرس ابن عمي" .+ at 18:00\.$/);
 });
 
+test('F4 (load pass): the reply names the clash that starts with the item, not just the first one found', () => {
+  const offsite = { title: 'team offsite', startsAt: at(FRIDAY, '09:00'), endsAt: at(FRIDAY, '17:00'), kind: 'commitment' as const };
+  const lawyer = { title: 'موعد مع المحامي', startsAt: at(FRIDAY, '10:00'), endsAt: at(FRIDAY, '10:30'), kind: 'commitment' as const };
+  const context = { language: 'ar' as const, now: new Date(), timezone: TZ };
+  const meeting = { title: 'اجتماع مع المدير', resolvedTime: at(FRIDAY, '10:00'), conflicts: [offsite, lawyer] };
+  const named = withConflictsNamed('تمام.', [meeting], context);
+  assert.match(named, /بيتعارض مع «\u2068موعد مع المحامي\u2069»/, `the same-hour clash was not the one named: ${named}`);
+  // With no time of its own to compare, the first clash is named, as before.
+  const untimed = withConflictsNamed('تمام.', [{ title: 'اجتماع مع المدير', conflicts: [offsite, lawyer] }], context);
+  assert.match(untimed, /بيتعارض مع «\u2068team offsite\u2069»/);
+  // A clash already on the list the person saw is not said again.
+  const shown = new Set([`اجتماع مع المدير|موعد مع المحامي|${lawyer.startsAt}`]);
+  assert.equal(withConflictsNamed('تمام.', [meeting], { ...context, alreadyShown: shown }), 'تمام.');
+});
+
 /* ── 6. another time: offered as a question, applied only on a yes ── */
 
 const OFFER = 'هاد بيتعارض مع «عرس ابن عمي» الجمعة الساعة 6. بدك نخليها الساعة 7 المسا؟';

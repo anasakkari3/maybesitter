@@ -50,7 +50,22 @@ type ConflictLike = Pick<CaptureItemConflictContract, 'title' | 'startsAt' | 'en
 export interface GroundsItem {
   title: string;
   resolvedDate?: string;
+  /** When the item starts, if it has a time: which clash to name first. */
+  resolvedTime?: string | null;
   conflicts?: readonly ConflictLike[];
+}
+
+/**
+ * The clash a reply names for an item: one that starts when the item does,
+ * if any, else the first. A meeting at 10:00 beside a 09:00–17:00 offsite and
+ * a lawyer at 10:00 names the lawyer (load pass F4, 2026-10-07): the same
+ * hour is the clash the person most needs to hear; the review lists them all.
+ */
+export function namedClash(item: GroundsItem): ConflictLike | undefined {
+  const conflicts = item.conflicts ?? [];
+  const start = item.resolvedTime ? Date.parse(item.resolvedTime) : Number.NaN;
+  if (!Number.isFinite(start)) return conflicts[0];
+  return conflicts.find((conflict) => Date.parse(conflict.startsAt) === start) ?? conflicts[0];
 }
 
 /** What a reply may be grounded in: the person's words, and the list. */
@@ -358,7 +373,7 @@ export function withConflictsNamed(
   // Two cards that land on each other are one clash, said once.
   const pairs = new Set<string>();
   for (const item of items) {
-    const conflict = item.conflicts?.[0];
+    const conflict = namedClash(item);
     // Another card of the same list is named by any reply that describes the
     // list (audit 2026-10-03 #1): for it, only a reply that says it clashes
     // has named the clash.
