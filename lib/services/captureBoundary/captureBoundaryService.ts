@@ -6,7 +6,7 @@ import { decideExtractionDisposition } from '../../../src/extraction/extractionP
 import { endOfRange, mapExtractionToCommand } from '../../../src/extraction/mapExtractionToCommand';
 import { countTimeExpressions } from '../../../src/extraction/ruleBasedExtractor';
 import { classifyMessageKind } from '../../../src/extraction/messageKind';
-import { hasActionEvidence, hasRequestEvidence, splitCaptureClauseDetails, type CaptureClause } from '../../../src/extraction/clauseSplitter';
+import { hasActionEvidence, hasRequestEvidence, splitCaptureClauseDetails, withoutClauseJoiner, type CaptureClause } from '../../../src/extraction/clauseSplitter';
 import { CLOCK_PATTERN_SOURCES, instantFromLocal, isBareEarlyHourAnswer, localTimeSpecFor, namesDay, normalizeClockText, readClockRange, statedClockHours, statesClock, timeOfDayEvidence } from '../../../src/extraction/timeLexicon';
 import { namesExplicitDate, readRecurrence, readWeekdayReference } from '../../../src/extraction/weekdayLexicon';
 import type { ExtractionContext, ExtractionResult } from '../../../src/extraction/extractionTypes';
@@ -1076,7 +1076,9 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
     if (intent || outcome.kind === 'seed') {
       if (intent) {
         const seedItemId = randomUUID();
-        seeds.push({ seedItemId, kind: intent.kind, summary: segment });
+        // A clause said after another loses the «و» that joined them, once,
+        // here (load pass F3): the summary shows the stored words as they are.
+        seeds.push({ seedItemId, kind: intent.kind, summary: !chat && clauses[index]?.follows ? withoutClauseJoiner(segment) : segment });
         sourceOrdinals.seeds[seedItemId] = sourceOrdinal(raw, segment, chatItems[index], index);
         const operationIndex = chatOperationIndex(chatItems[index]);
         if (operationIndex !== null) chatOperationIndices.seeds[seedItemId] = operationIndex;
@@ -1450,7 +1452,9 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
       // The title without the connectors and list days a rules reading leaves
       // at its edges («and gym», «חדר כושר וחמישי»), on the card and the saved
       // commitment alike.
-      const tidied = extracted.result.title ? tidyTitle(extracted.result.title) : extracted.result.title;
+      const tidied = extracted.result.title
+        ? tidyTitle(!chat && clauses[index]?.follows ? withoutClauseJoiner(extracted.result.title) : extracted.result.title)
+        : extracted.result.title;
       const tidyResult = tidied === extracted.result.title ? extracted.result
         : { ...extracted.result, title: tidied, ...(extracted.result.action === extracted.result.title ? { action: tidied } : {}) };
       // Each per-day item a list made is the thing itself — «gym», not «gym

@@ -62,7 +62,6 @@
 import { stripTimeExpressions } from './ruleBasedExtractor';
 import { namesDay, RELATIVE_DAY_MENTION_SOURCES, statesClock, timeOfDayEvidence } from './timeLexicon';
 import { LEADING_CONNECTOR, NOT_LETTERS, REQUEST_MARKER, opensWithAction } from './requestEvidence';
-import { detectUnresolvedIntent } from './unresolvedIntent';
 
 const B = '(?<![\\p{L}\\p{M}])';
 const A = '(?![\\p{L}\\p{M}])';
@@ -489,6 +488,8 @@ export interface CaptureClause {
   elliptical?: true;
   /** The one word standing where the first conjunct had its day, read as no day. */
   unreadDayWord?: string;
+  /** Said after another clause of the same message («…، واتصل بالبنك»). */
+  follows?: true;
 }
 
 function ellipticalConjuncts(segment: string): CaptureClause[] {
@@ -569,23 +570,38 @@ function splitTimedConjuncts(segment: string): string[] {
 
 /** The clauses of one capture, with how each was cut (`CaptureClause`). */
 export function splitCaptureClauseDetails(raw: string): CaptureClause[] {
-  return segmentsOf(raw).flatMap((segment) => ellipticalConjuncts(segment));
+  return segmentsOf(raw)
+    .flatMap((segment) => ellipticalConjuncts(segment))
+    .map((clause, index) => index > 0 ? { ...clause, follows: true as const } : clause);
 }
+
+/** Words that open a thought or a wait, as the first word of a clause. */
+const INTENT_OPENER = new RegExp('^(?:عم|بفكر|بفكّر|يمكن|ممكن|حابب|حابة|حاببة|نفسي|ودي|ودّي|مستني|مستنية|ناطر|ناطرة|maybe|thinking|waiting|אולי|חושב|חושבת|מחכה|אני)$', 'iu');
+const LEADING_REQUEST = new RegExp(REQUEST_MARKER.source, REQUEST_MARKER.flags.replace('g', ''));
 
 /**
  * A clause that followed another one, without the «و» / "and" / «ו» that
  * joined them (load pass F3, 2026-10-07): «…، واتصل بالبنك بكرا» is the
- * point «اتصل بالبنك». Only when what is left still reads as a point — a verb,
- * a request, or a thought — so «وصّل أمي» and «وقت الغدا» keep their «و».
- * One rule for the saved title and the «هيك فهمت» line, so the summary never
- * shows words that are not the ones saved.
+ * point «اتصل بالبنك». Only for a clause that did follow another
+ * (`CaptureClause.follows`), and only when the very next word opens a point —
+ * an errand verb, a request («لازم», "need to") or a thought («عم بفكر») —
+ * never because a marker appears somewhere later: «وزارة الداخلية لازم
+ * أراجعها» keeps its «و» (Codex inspection F3-001). Applied once, where the
+ * item or seed is made; the summary shows the stored words as they are.
  */
 export function withoutClauseJoiner(clause: string): string {
   const joined = /^(?:and\s+|و|ו)/i.exec(clause);
   if (!joined) return clause;
   const remainder = clause.slice(joined[0].length).trimStart();
-  if (!remainder || (!hasActionEvidence(remainder) && !detectUnresolvedIntent(remainder))) return clause;
-  return remainder;
+  const first = (remainder.split(/\s+/)[0] ?? '').replace(NOT_LETTERS, '');
+  if (!remainder || !first) return clause;
+  // "and" is a word of its own: dropping it can never take a letter with it.
+  if (/^and\s/i.test(joined[0])) return remainder;
+  const request = LEADING_REQUEST.exec(remainder);
+  const opensPoint = opensWithAction(first)
+    || (request !== null && request.index === 0)
+    || INTENT_OPENER.test(first);
+  return opensPoint ? remainder : clause;
 }
 
 export function splitCaptureClauses(raw: string): string[] {
