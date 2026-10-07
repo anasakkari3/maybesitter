@@ -61,7 +61,7 @@ import { dateFromOptionalIso, normalizeTimezone } from '../mobile/time';
 import { buildChatPrompt, oneUnambiguousClockIn, parseChatModelAnswer, validateChatCitations, type ChatModelAnswer, type ChatPromptItem } from './chatPrompt';
 import { conflictForPrompt, readPersonSchedule, scheduleForPrompt, withItemConflicts, withProposalClashes, type PersonSchedule } from './chatConflicts';
 import { clashKey, withConflictsNamed } from './chatWhy';
-import { candidateIntervalOf } from '../timeCollision';
+import { candidateIntervalOf, type CollisionCandidate } from '../timeCollision';
 import { detectChatLanguage, safeChatReply, templateReply, withShapeNoted, withWeeklyOffer, type ChatLanguage } from './chatReply';
 import {
   CaptureConversationStore,
@@ -295,10 +295,24 @@ function promptItems(
  * The proposal with each timed item's clashes (`chatConflicts`), against the
  * person's schedule as read for this message. Owner request 2026-09-30.
  */
+/**
+ * Where each item's clashes were measured from, kept with the proposal object
+ * `withConflicts` returned: one read of the drafts serves both the clashes and
+ * the clash the reply names (Codex inspection F4C-001).
+ */
+const collisionStartsByProposal = new WeakMap<CaptureChatProposal, ReadonlyMap<string, string>>();
+
+/** Each item's collision start: the candidate's own start (`candidateIntervalOf`), never the card's reminder. */
+export function collisionStartsFrom(candidates: ReadonlyMap<string, CollisionCandidate>): Map<string, string> {
+  return new Map(Array.from(candidates, ([itemId, candidate]) => [itemId, candidateIntervalOf(candidate).startsAt] as const));
+}
+
 async function withConflicts(proposal: CaptureChatProposal | null, schedule: PersonSchedule): Promise<CaptureChatProposal | null> {
   if (!proposal) return null;
   const candidates = await proposalCollisionCandidates(proposal);
-  return withProposalClashes(withItemConflicts(proposal, candidates, schedule), candidates);
+  const conflicted = withProposalClashes(withItemConflicts(proposal, candidates, schedule), candidates);
+  collisionStartsByProposal.set(conflicted, collisionStartsFrom(candidates));
+  return conflicted;
 }
 
 /**
@@ -307,12 +321,11 @@ async function withConflicts(proposal: CaptureChatProposal | null, schedule: Per
  * start `withItemConflicts` used, so the reply names the clash that begins
  * with the item even when a reminder comes before it.
  */
-async function withCollisionStarts(proposal: CaptureChatProposal): Promise<Array<CaptureChatProposal['items'][number] & { collisionStart: string | null }>> {
-  const candidates = await proposalCollisionCandidates(proposal);
-  return proposal.items.map((item) => {
-    const candidate = candidates.get(item.itemId);
-    return { ...item, collisionStart: candidate ? candidateIntervalOf(candidate).startsAt : null };
-  });
+function withCollisionStarts(proposal: CaptureChatProposal): Array<CaptureChatProposal['items'][number] & { collisionStart: string | null }> {
+  // No second read: a proposal that did not come through `withConflicts` has
+  // no starts, and the reply then names the first clash, as before F4.
+  const starts = collisionStartsByProposal.get(proposal);
+  return proposal.items.map((item) => ({ ...item, collisionStart: starts?.get(item.itemId) ?? null }));
 }
 
 /**
@@ -488,7 +501,7 @@ export async function chatMobileCapture(
     const reply = options.refused || !proposal
       ? replyText
       : withWeeklyOffer(
-        withConflictsNamed(replyText, await withCollisionStarts(proposal), { language, now, timezone, alreadyShown }),
+        withConflictsNamed(replyText, withCollisionStarts(proposal), { language, now, timezone, alreadyShown }),
         language,
         proposal,
         current,

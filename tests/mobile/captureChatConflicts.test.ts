@@ -31,7 +31,7 @@ import { resetStorageForTests, setStorageForTests } from '../../lib/storage/inde
 import { installFakeAuth, tokenFor, uidFor, type FakeAuthControls } from '../support/fakeAuth.ts';
 import { POST as chatPost } from '../../src/app/api/mobile/capture/chat/route.ts';
 import { POST as confirmPost } from '../../src/app/api/mobile/capture/confirm/route.ts';
-import { setCaptureChatDependenciesForTests } from '../../lib/services/captureChat/captureChatService.ts';
+import { collisionStartsFrom, setCaptureChatDependenciesForTests } from '../../lib/services/captureChat/captureChatService.ts';
 import { safeChatReply } from '../../lib/services/captureChat/chatReply.ts';
 import { groundedReply, withConflictsNamed } from '../../lib/services/captureChat/chatWhy.ts';
 import { EMPTY_SCHEDULE, conflictsFor, withinLimit, withItemConflicts } from '../../lib/services/captureChat/chatConflicts.ts';
@@ -485,6 +485,13 @@ test('F4-001: a clash that starts with the item survives the three-clash limit, 
   // Appended out of order (a proposal's own clashes after the schedule's), more than the limit (F4-002).
   const mixed = ['11:00', '07:00', '10:00', '08:00', '09:00'].map((time) => ({ startsAt: at(FRIDAY, time) }));
   assert.deepEqual(withinLimit(mixed, at(FRIDAY, '10:00'), 3).map((c) => c.startsAt), [at(FRIDAY, '07:00'), at(FRIDAY, '08:00'), at(FRIDAY, '10:00')]);
+});
+
+test('F4C-002: the collision start is the draft\'s due time, not the card\'s reminder', () => {
+  // The card would show the 09:30 reminder; the draft is due at 10:00.
+  const starts = collisionStartsFrom(new Map([['meeting', { dueAt: at(FRIDAY, '10:00'), endAt: null, kind: 'scheduled_event' as const }]]));
+  assert.equal(starts.get('meeting'), at(FRIDAY, '10:00'));
+  assert.equal(starts.get('nothing'), undefined);
 });
 
 test('F4-003 (end to end): the reply names the clash measured from the item\'s own start', async () => {
