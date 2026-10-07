@@ -362,6 +362,7 @@ test('an AM/PM card accepts only a bare half or one stated clock that agrees wit
     ['ar-bare-no-evening', 'لا المسا', '19:00', '18:00'],
     ['ar-bare-wish', 'المسا يا ريت', '19:00', '18:00'],
     ['ar-bare-please', 'لا، المسا لو سمحت', '19:00', '18:00'],
+    ['ar-bare-semicolon', 'المسا؛', '19:00', '18:00'],
     ['ar-bare-tanwin', 'مساءً', '19:00', '19:00'],
     ['ar-bare-near', 'يعني المسا اكيد', '19:00', '18:00'],
     ['en-bare-please', 'evening please', '19:00', '18:00'],
@@ -458,6 +459,75 @@ test('an AM/PM card accepts a stated clock only when the model agrees, and rejec
   }
 });
 
+test('an AM/PM card accepts a stated day only when the model puts the clock on that day', async () => {
+  const friday = weekday('Friday');
+  const saturday = weekday('Saturday');
+  const cases = [
+    ['ar-wrong', 'الجمعة 8 المسا', TOMORROW, null],
+    ['ar-right', 'الجمعة 8 المسا', friday, friday],
+    ['en-wrong', '8 PM on Saturday', TOMORROW, null],
+    ['he-wrong', '8 בערב בשבת', TOMORROW, null],
+    ['he-right', '8 בערב בשבת', saturday, saturday],
+  ] as const;
+  for (const [label, message, modelDate, expectedDate] of cases) {
+    const model = scripted(
+      answer('First.', 'propose', [item('Call mom', TOMORROW, '17:00')]),
+      answer('Morning or evening?', 'update', [item('Call mom', friday, '19:00')], ['move it to Friday at 7']),
+      answer('Done.', 'update', [item('Call mom', modelDate, '20:00')], [message]),
+    );
+    begin({ llmProviderFor: () => model.provider });
+    try {
+      const uid = uidFor(`AmPmDay-${label}`);
+      const first = await chat(uid, 'Call mom tomorrow at 5 PM');
+      const asking = await chat(uid, 'move it to Friday at 7', first.conversationId);
+      assert.equal(asking.proposal!.items[0]!.resolvedTime, null, `${label}: the card did not ask AM/PM`);
+      const answered = await chat(uid, message, first.conversationId);
+      assert.equal(answered.proposal!.items[0]!.resolvedDate, expectedDate ?? friday, label);
+      assert.equal(localClock(answered.proposal!.items[0]!.resolvedTime), expectedDate ? '20:00' : null, label);
+      if (!expectedDate) {
+        assert.equal(answered.proposal!.proposalId, asking.proposal!.proposalId, label);
+        assert.match(answered.reply, /[?؟]/, `${label}: ${answered.reply}`);
+        assert.doesNotMatch(answered.reply, /changed|غيّرتها|שיניתי/i, label);
+      }
+    } finally {
+      end();
+    }
+  }
+});
+
+test('an AM/PM card uses its asked hour when a bare half answer has no model time', async () => {
+  const explicitHighPriority = {
+    priority: { level: 'high', source: 'user_explicit', pressureAllowed: false, pressureImplied: false },
+  };
+  const model = scripted(
+    answer('تمام.', 'propose', [item('اتصل بأمي', TOMORROW, '17:00', explicitHighPriority)]),
+    answer('الصبح ولا المسا؟', 'update', [item('اتصل بأمي', TOMORROW, '19:00', explicitHighPriority)], ['خليها الساعة 7']),
+    {
+      reply: 'تمام.',
+      action: 'update',
+      locked: [],
+      open: [{
+        ref: 'i1',
+        op: 'update',
+        fields: item('اتصل بأمي', TOMORROW, null, explicitHighPriority),
+        source: 'المسا',
+      }],
+      added: [],
+    },
+  );
+  begin({ llmProviderFor: () => model.provider });
+  try {
+    const uid = uidFor('AmPmBareHalfNullModelTime');
+    const first = await chat(uid, 'لازم اتصل بأمي بكرا الساعة 5 المسا');
+    const asking = await chat(uid, 'خليها الساعة 7', first.conversationId);
+    assert.equal(asking.proposal!.items[0]!.resolvedTime, null);
+    const answered = await chat(uid, 'المسا', first.conversationId);
+    assert.equal(localClock(answered.proposal!.items[0]!.resolvedTime), '19:00');
+  } finally {
+    end();
+  }
+});
+
 test('the AM/PM rewrite is not run for a settled card', async () => {
   const model = scripted(
     answer('Call mom tomorrow at 5 PM.', 'propose', [item('Call mom', TOMORROW, '17:00')]),
@@ -493,6 +563,40 @@ test('a settled card applies a half-day change with no clock instead of silently
       const changed = await chat(uid, message, first.conversationId);
       assert.equal(localClock(changed.proposal!.items[0]!.resolvedTime), '21:00', label);
       assert.notEqual(changed.proposal!.proposalId, first.proposal!.proposalId, label);
+    } finally {
+      end();
+    }
+  }
+});
+
+test('a settled card accepts a model clock only inside the stated half of the day', async () => {
+  const cases = [
+    ['ar-night-wrong', 'أتصل بأمي', 'خليها بالليل', '07:00', null],
+    ['ar-night-right', 'أتصل بأمي', 'خليها بالليل', '21:00', '21:00'],
+    ['en-evening-wrong', 'Call mom', 'make it in the evening', '07:00', null],
+    ['ar-morning-wrong', 'أتصل بأمي', 'خليها الصبح بدري', '20:00', null],
+    ['en-afternoon-wrong', 'Call mom', 'move it to the afternoon', '08:00', null],
+    ['en-afternoon-right', 'Call mom', 'move it to the afternoon', '14:00', '14:00'],
+    ['he-evening-wrong', 'להתקשר לאמא', 'תעביר את זה לערב', '07:00', null],
+  ] as const;
+  for (const [label, title, message, modelTime, expected] of cases) {
+    const model = scripted(
+      answer('First.', 'propose', [item(title, TOMORROW, '09:00')]),
+      answer('Done.', 'update', [item(title, TOMORROW, modelTime)], [message]),
+    );
+    begin({ llmProviderFor: () => model.provider });
+    try {
+      const uid = uidFor(`SettledHalfAgreement-${label}`);
+      const first = await chat(uid, `${title} tomorrow at 9 AM`);
+      const changed = await chat(uid, message, first.conversationId);
+      assert.equal(localClock(changed.proposal!.items[0]!.resolvedTime), expected ?? '09:00', label);
+      if (expected) {
+        assert.notEqual(changed.proposal!.proposalId, first.proposal!.proposalId, label);
+      } else {
+        assert.equal(changed.proposal!.proposalId, first.proposal!.proposalId, label);
+        assert.match(changed.reply, /[?؟]/, `${label}: ${changed.reply}`);
+        assert.doesNotMatch(changed.reply, /changed|غيّرتها|שיניתי/i, label);
+      }
     } finally {
       end();
     }

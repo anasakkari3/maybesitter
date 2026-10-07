@@ -48,7 +48,7 @@ import { resolveModuleRuntime, type RuntimeControlSnapshot } from '../../../src/
 import { screenForInjection } from '../../../src/extraction/injectionBoundary';
 import { CAPTURE_MIN_CALL_TIMEOUT_MS, LLMUnavailableError, type LLMProviderFunction } from '../../../src/extraction/llm/llmProvider';
 import { clockTimesIn } from '../../../src/extraction/ruleBasedExtractor';
-import { bareHalfOfDayAnswer, dayPartHour, instantFromLocal, localTimeSpecFor, withoutNegatedDayPart } from '../../../src/extraction/timeLexicon';
+import { bareHalfOfDayAnswer, dayPartHour, instantFromLocal, localTimeSpecFor, namesDay, nonNegatedHalfOfDay, withoutNegatedDayPart } from '../../../src/extraction/timeLexicon';
 import { geminiChatSchemaFor } from '../../../src/extraction/ollamaExtractionSchema';
 import { getAiConsent } from '../../consents/aiConsentService';
 import { CHAT_TIMEOUT_MS, captureLlmProvider } from '../../llm/captureProvider';
@@ -108,8 +108,24 @@ function modelClockFrom(fields: Record<string, unknown>, timezone: string): { da
   };
 }
 
+function clockFallsInHalf(time: string, half: 'am' | 'pm' | 'night'): boolean {
+  const match = /^(\d{2}):([0-5]\d)$/.exec(time);
+  if (!match) return false;
+  const hour = Number(match[1]);
+  if (hour > 23) return false;
+  if (half === 'am') return hour < 12;
+  if (half === 'pm') return hour >= 12;
+  return hour < 6 || hour >= 18;
+}
+
 /** The two complete forms that may answer an AM/PM card without guessing. */
-function agreedAmPmAnswerClock(source: string, modelTime: string | null, askedTime: string | null): string | null {
+function agreedAmPmAnswerClock(
+  source: string,
+  modelClock: { date: string | null; time: string | null },
+  askedTime: string | null,
+  now: Date,
+  timezone: string,
+): string | null {
   const half = bareHalfOfDayAnswer(source);
   if (half && askedTime) {
     const statedHour = Number(askedTime.slice(0, 2)) % 12;
@@ -117,8 +133,12 @@ function agreedAmPmAnswerClock(source: string, modelTime: string | null, askedTi
     return `${String(hour).padStart(2, '0')}:${askedTime.slice(3, 5)}`;
   }
   if (/ish\b/i.test(source)) return null;
+  if (namesDay(source)) {
+    const namedDates = chatTimeAllowance([source], now, timezone).namedDates;
+    if (namedDates.size !== 1 || !modelClock.date || !namedDates.has(modelClock.date)) return null;
+  }
   const stated = oneUnambiguousClockIn(source);
-  return stated && modelTime === stated ? stated : null;
+  return stated && modelClock.time === stated ? stated : null;
 }
 
 function visibleProposalState(proposal: CaptureChatProposal | null): unknown {
@@ -606,16 +626,21 @@ export async function chatMobileCapture(
       if (operation.op !== 'update') continue;
       const source = cited?.deltaSources[citedUpdateIndex++] ?? message;
       if (!operation.fields || typeof operation.fields !== 'object' || Array.isArray(operation.fields)) continue;
-      const modelTime = modelClockFrom(operation.fields as Record<string, unknown>, timezone).time;
+      const modelClock = modelClockFrom(operation.fields as Record<string, unknown>, timezone);
+      const modelTime = modelClock.time;
       if (!amPmAskedRefs.has(operation.ref)) {
         if (modelTime && clockTimesIn(source).length === 0 && dayPartHour(source, { answer: true }) !== null) {
+          const half = nonNegatedHalfOfDay(source);
+          if (!half || !clockFallsInHalf(modelTime, half)) {
+            return finish(templateReply({ language, proposal: current, timeUnclear: true }), 'model', current, turns, { conflictsKnown: true });
+          }
           trustedClockByRef.set(operation.ref, modelTime);
         }
         continue;
       }
       const entityId = read ? Object.entries(read.refs).find(([, ref]) => ref === operation.ref)?.[0] : undefined;
       const stored = entityId ? read?.resultsByItemId.get(entityId) : undefined;
-      const answered = agreedAmPmAnswerClock(source, modelTime, stored?.localTimeSpec?.time ?? null);
+      const answered = agreedAmPmAnswerClock(source, modelClock, stored?.localTimeSpec?.time ?? null, now, timezone);
       if (!answered) {
         return finish(templateReply({ language, proposal: current, timeUnclear: true }), 'model', current, turns, { conflictsKnown: true });
       }

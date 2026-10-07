@@ -794,17 +794,17 @@ export function typedHalfOfDay(rawText: string): 'am' | 'pm' | 'night' | null {
  * and makes the answer non-bare, so the chat keeps the model's validated
  * reading instead of forcing the card's old hour into a half it inferred.
  */
-const BARE_AM_PART = String.raw`(?:am|a\.m\.?|(?:in\s+the\s+)?morning|(?:بال|عال|ال)?(?:صبح|صباح)(?:\s+(?:بكير|بدري))?|صباح(?:ا|اً|ًا)?|ص|בבוקר|בוקר|לפנה["״]צ)`;
-const BARE_PM_PART = String.raw`(?:pm|p\.m\.?|(?:بال|عال|ال)?(?:مسا|مساء|عصر|ضهر|ظهر)|بعد\s+(?:الضهر|الظهر)|مساء(?:ً|ا|اً|ًا)?|م|(?:بال|عال|ال)?ليل(?:ة|ه)?|(?:in\s+the\s+)?(?:afternoon|evening)|(?:at\s+)?night|tonight|noon|בערב|ערב|בלילה|לילה|בצהריים|בצהרים|צהריים|צהרים|אחרי\s+הצהריים|אחר\s+הצהריים|אחה["״]צ)`;
+const BARE_AM_PART = String.raw`(?:am|a\.m\.?|(?:in\s+the\s+)?morning|(?:بال|عال|ال)?(?:صبح|صباح)(?:\s+(?:بكير|بدري))?|صباح(?:ا|اً|ًا)?|ص|[וש]?(?:ב|ל|כ|מה|ה)?בוקר|לפנה["״]צ)`;
+const BARE_PM_PART = String.raw`(?:pm|p\.m\.?|(?:بال|عال|ال)?(?:مسا|مساء|عصر|ضهر|ظهر)|بعد\s+(?:الضهر|الظهر)|مساء(?:ً|ا|اً|ًا)?|م|(?:بال|عال|ال)?ليل(?:ة|ه)?|(?:in\s+the\s+)?(?:afternoon|evening)|(?:at\s+)?night|tonight|noon|[וש]?(?:ב|ל|כ|מה|ה)?ערב|[וש]?(?:ב|ל|כ|מה|ה)?לילה|[וש]?(?:ב|ל|כ|מה|ה)?צהריים|[וש]?(?:ב|ל|כ|מה|ה)?צהרים|אחרי\s+הצהריים|אחר\s+הצהריים|אחה["״]צ)`;
 const BARE_DAY_PART = `(?:${BARE_AM_PART}|${BARE_PM_PART})`;
 const BARE_NEGATED_PART = new RegExp(
-  String.raw`(?<![\p{L}\p{M}])(?:مش|مو|not(?:\s+in\s+the)?|לא)\s+${BARE_DAY_PART}(?![\p{L}\p{M}])`,
+  String.raw`(?<![\p{L}\p{M}])(?:مش|مو|not(?:\s+(?:in\s+)?the)?|לא)\s+${BARE_DAY_PART}(?![\p{L}\p{M}])`,
   'giu',
 );
 const BARE_AM_PART_PATTERN = new RegExp(String.raw`(?<![\p{L}\p{M}])${BARE_AM_PART}(?![\p{L}\p{M}])`, 'giu');
 const BARE_PM_PART_PATTERN = new RegExp(String.raw`(?<![\p{L}\p{M}])${BARE_PM_PART}(?![\p{L}\p{M}])`, 'giu');
 const BARE_NIGHT_PART_PATTERN = new RegExp(
-  String.raw`(?<![\p{L}\p{M}])(?:(?:بال|عال|ال)?ليل(?:ة|ه)?|(?:at\s+)?night|tonight|בלילה|לילה)(?![\p{L}\p{M}])`,
+  String.raw`(?<![\p{L}\p{M}])(?:(?:بال|عال|ال)?ليل(?:ة|ه)?|(?:at\s+)?night|tonight|[וש]?(?:ב|ל|כ|מה|ה)?לילה)(?![\p{L}\p{M}])`,
   'giu',
 );
 const BARE_HALF_FILLER = new RegExp(
@@ -852,7 +852,7 @@ export function bareHalfOfDayAnswer(rawText: string): 'am' | 'pm' | 'night' | nu
   text = text.replace(CARD_BARE_NIGHT_PART, () => { halves.add('night'); return ' '; });
   text = text.replace(CARD_BARE_AM_PART, () => { halves.add('am'); return ' '; });
   text = text.replace(CARD_BARE_PM_PART, () => { halves.add('pm'); return ' '; });
-  text = text.replace(BARE_HALF_FILLER, ' ').replace(/[\s,،.;:!?؟'"«»()\[\]{}\-–—…🙏👍]+/g, '');
+  text = text.replace(BARE_HALF_FILLER, ' ').replace(/[\s,،؛.;:!?؟'"«»׳״()\[\]{}\-–—…🙏👍]+/g, '');
   return text.length === 0 && halves.size === 1 ? Array.from(halves)[0]! : null;
 }
 
