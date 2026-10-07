@@ -524,6 +524,14 @@ export const HABITS = 'habits';
  */
 export const HABIT_OCCURRENCES = 'habitOccurrences';
 
+export const GOAL_PLANS = 'goalPlans';
+export const GOAL_PLAN_TIMES = 'goalPlanTimes';
+export const GOAL_PLAN_OUTCOMES = 'goalPlanOutcomes';
+export const GOAL_PLAN_CLAIMS = 'goalPlanClaims';
+export const GOAL_LINEAGES = 'goalLineages';
+export const GOAL_STATEMENT_PREVIEWS = 'goalStatementPreviews';
+export const GOAL_STATEMENT_ACCEPTS = 'goalStatementAccepts';
+
 /**
  * Weekly fixed blocks — «ثابت أسبوعي» (owner request, 2026-09-29).
  *
@@ -547,6 +555,13 @@ export const USER_SCOPED_COLLECTIONS = [
   GOAL_GRAPH_PROPOSALS,
   HABITS,
   HABIT_OCCURRENCES,
+  GOAL_PLANS,
+  GOAL_PLAN_TIMES,
+  GOAL_PLAN_OUTCOMES,
+  GOAL_PLAN_CLAIMS,
+  GOAL_LINEAGES,
+  GOAL_STATEMENT_PREVIEWS,
+  GOAL_STATEMENT_ACCEPTS,
   WEEKLY_BLOCKS,
   REMINDERS,
   ESCALATION_STATES,

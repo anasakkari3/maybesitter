@@ -150,6 +150,13 @@ import {
   BEHAVIOR_FEEDBACK,
   FOOTBALL_FOLLOWS,
   GOAL_GRAPH_PROPOSALS,
+  GOAL_LINEAGES,
+  GOAL_PLAN_CLAIMS,
+  GOAL_PLAN_OUTCOMES,
+  GOAL_PLAN_TIMES,
+  GOAL_PLANS,
+  GOAL_STATEMENT_ACCEPTS,
+  GOAL_STATEMENT_PREVIEWS,
   INTELLIGENCE_OBSERVATIONS,
   INTELLIGENCE_PROPOSALS,
   INTELLIGENCE_RUNS,
@@ -246,6 +253,17 @@ export async function deletePersonalizationScope(
   // Commitments and Habits the user already confirmed out of them, and the
   // `goalGraphLinks` naming those, are the user's own work and stay.
   await clearUserCollection(storage, input.scopeId, GOAL_GRAPH_PROPOSALS);
+  // M3a's plan drafts and their coordination/history rows are all rooted in a
+  // goal memory. A delete-all-memory request removes that root, so retaining
+  // any of these would leave generated plan text or a replayable acceptance
+  // behind after the memory store itself is empty.
+  await clearUserCollection(storage, input.scopeId, GOAL_PLANS);
+  await clearUserCollection(storage, input.scopeId, GOAL_PLAN_TIMES);
+  await clearUserCollection(storage, input.scopeId, GOAL_PLAN_OUTCOMES);
+  await clearUserCollection(storage, input.scopeId, GOAL_PLAN_CLAIMS);
+  await clearUserCollection(storage, input.scopeId, GOAL_LINEAGES);
+  await clearUserCollection(storage, input.scopeId, GOAL_STATEMENT_PREVIEWS);
+  await clearUserCollection(storage, input.scopeId, GOAL_STATEMENT_ACCEPTS);
   await clearUserCollection(storage, input.scopeId, INTELLIGENCE_OBSERVATIONS);
   await clearUserCollection(storage, input.scopeId, INTELLIGENCE_PROPOSALS);
   await clearUserCollection(storage, input.scopeId, INTELLIGENCE_RUNS);

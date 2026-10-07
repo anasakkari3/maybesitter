@@ -25,6 +25,8 @@
 #   googlePickerTickets
 #                      2 min   - a one-time ticket for the Google Picker page,
 #                                stored as a digest (CL6a)
+#   goalStatementPreviews
+#                     30 min   - an owned goal summary awaiting acceptance
 #
 # Retention is enforced by Firestore rather than by a cron job we have to keep
 # alive: each document is written with an `expiresAt` timestamp and the TTL
@@ -84,6 +86,8 @@ COLLECTION_GROUPS=(
   # CL6a: the one-time ticket that opens the Google Picker page. Spent on the
   # first page load; this removes the ones that were never opened.
   "googlePickerTickets"
+  # M3a: a statement summary awaiting explicit acceptance as a goal.
+  "goalStatementPreviews"
 )
 
 usage() {

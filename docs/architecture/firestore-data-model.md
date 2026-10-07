@@ -19,6 +19,8 @@ operator-only.
 | `users/{uid}/recommendationActions/{sha256(idempotencyKey)}` | `{ idempotencyKey, fingerprint, response, createdAt }` | `participantState.ts` |
 | `users/{uid}/commitmentActionReceipts/{clientActionId}` | `{ clientActionId, commitmentId, fingerprint, result, createdAt, expiresAt }` — one per notification tap applied, so an outbox replay is applied once (#200); TTL 30 days | `participantState.ts` |
 | `users/{uid}/captureConversations/{conversationId}` | `{ conversationId, turns: [{ role: 'user'\|'assistant', text }], proposalId, createdAt, updatedAt, expiresAt }` — one capture-chat conversation (2026-09-30); at most 12 turns, the person's words together within the capture cap; over for the API when idle past the proposal TTL (30 min), TTL 24 hours after the last turn | `lib/services/captureChat/conversationStore.ts` |
+| `users/{uid}/goalPlans/{planId}` and related `goalPlanTimes`, `goalPlanOutcomes`, `goalPlanClaims`, `goalLineages` | editable goal-plan drafts, accepted timing, idempotent outcomes, generation leases and lifecycle pointers; all account-scoped | `lib/services/mobile/goalPlanService.ts` |
+| `users/{uid}/goalStatementPreviews/{summaryId}` | an owned statement summary awaiting explicit acceptance; `expiresAt` TTL 30 minutes | `lib/services/mobile/goalPlanService.ts` |
 | `users/{uid}/auditEvents/{sortableId}` | `PilotAuditEvent` | `pilotTrustStore.ts` |
 | `users/{uid}/actionGatewayAuditEvents/{id}` | content-free action-gateway phase event or current idempotency pointer | `storedActionGatewayAuditStore.ts` |
 | `incidents/{incidentId}` | `PilotTrustIncident` — operator-only, outside every user tree | `pilotTrustStore.ts` |

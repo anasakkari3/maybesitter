@@ -124,6 +124,17 @@ import { POST as goalGeneratePost } from '../../src/app/api/mobile/goals/[goalId
 import { POST as goalConfirmPost } from '../../src/app/api/mobile/goals/[goalId]/execution/confirm/route.ts';
 import { POST as goalRegeneratePost } from '../../src/app/api/mobile/goals/[goalId]/execution/regenerate/route.ts';
 import { PATCH as goalNodePatch } from '../../src/app/api/mobile/goals/[goalId]/execution/nodes/[nodeId]/route.ts';
+import { POST as goalPlanGeneratePost } from '../../src/app/api/mobile/goals/[goalId]/plan/generate/route.ts';
+import { POST as goalPlanRegeneratePost } from '../../src/app/api/mobile/goals/[goalId]/plan/regenerate/route.ts';
+import { GET as goalPlanGet } from '../../src/app/api/mobile/goals/[goalId]/plan/route.ts';
+import { PATCH as goalPlanEditPatch } from '../../src/app/api/mobile/goals/[goalId]/plans/[planId]/route.ts';
+import { POST as goalPlanApprovePost } from '../../src/app/api/mobile/goals/[goalId]/plans/[planId]/approve/route.ts';
+import { PATCH as goalPlanTimePatch } from '../../src/app/api/mobile/goals/[goalId]/plans/[planId]/times/[stepId]/route.ts';
+import { POST as goalPlanConfirmPost } from '../../src/app/api/mobile/goals/[goalId]/plans/[planId]/confirm/route.ts';
+import { POST as goalPlanLaterPost } from '../../src/app/api/mobile/goals/[goalId]/plans/[planId]/later/[weekIndex]/times/route.ts';
+import { GET as goalPlansUpcomingGet } from '../../src/app/api/mobile/goals/plans/upcoming/route.ts';
+import { POST as goalStatementPreviewPost } from '../../src/app/api/mobile/goals/from-statement/preview/route.ts';
+import { POST as goalStatementAcceptPost } from '../../src/app/api/mobile/goals/from-statement/accept/route.ts';
 import { RECORDED_GOAL_STEPS_V2, seedGoal, SPLITTABLE_GOAL, UAT_GOAL } from '../goalGraph/goalGraphSupport.ts';
 import { GET as planSettingsGet, PUT as planSettingsPut } from '../../src/app/api/mobile/settings/plan/route.ts';
 import { GET as calendarSettingsGet, PUT as calendarSettingsPut } from '../../src/app/api/mobile/settings/calendar/route.ts';
@@ -249,7 +260,7 @@ const pinWeekly = (body: Record<string, unknown>) => pinStartsOn(body) as Record
 function pinCaptureUnderstanding(live: Record<string, unknown>, stable: Record<string, unknown>): Record<string, unknown> {
   type Proposal = { items?: Array<{ itemId: string }>; seeds?: Array<{ seedItemId: string }>; understood?: Array<Record<string, unknown>> };
   const pin = (liveProposal: Proposal | null | undefined, stableProposal: Proposal | null | undefined): Proposal | null | undefined => {
-    if (!liveProposal || !stableProposal || !liveProposal.understood) return stableProposal;
+    if (!liveProposal || !stableProposal || !Array.isArray(liveProposal.understood)) return stableProposal;
     const itemIds = new Map((liveProposal.items ?? []).map((item, index) => [item.itemId, stableProposal.items?.[index]?.itemId]));
     const seedIds = new Map((liveProposal.seeds ?? []).map((seed, index) => [seed.seedItemId, stableProposal.seeds?.[index]?.seedItemId]));
     return {
@@ -269,9 +280,14 @@ function pinCaptureUnderstanding(live: Record<string, unknown>, stable: Record<s
 
 /** Stabilise ids without counting their repeated references in `understood` as new ids. */
 function withoutCaptureUnderstanding(body: Record<string, unknown>): Record<string, unknown> {
-  const { understood: _topLevel, ...topLevel } = body;
+  const topLevel = Array.isArray(body.understood)
+    ? Object.fromEntries(Object.entries(body).filter(([key]) => key !== 'understood'))
+    : body;
   if (!body.proposal || typeof body.proposal !== 'object' || Array.isArray(body.proposal)) return topLevel;
-  const { understood: _nested, ...proposal } = body.proposal as Record<string, unknown>;
+  const nested = body.proposal as Record<string, unknown>;
+  const proposal = Array.isArray(nested.understood)
+    ? Object.fromEntries(Object.entries(nested).filter(([key]) => key !== 'understood'))
+    : nested;
   return { ...topLevel, proposal };
 }
 const APPOINTMENT_DAY_USER = uidFor('AppointmentDayFixtureUser');
@@ -612,6 +628,9 @@ function setup(): () => void {
     MAYBESITTER_FEATURE_PRIORITY: process.env.MAYBESITTER_FEATURE_PRIORITY,
     MAYBESITTER_KILL_SWITCH_MEMORY: process.env.MAYBESITTER_KILL_SWITCH_MEMORY,
     SHARE_INTAKE_ENABLED: process.env.SHARE_INTAKE_ENABLED,
+    MAYBESITTER_ENV: process.env.MAYBESITTER_ENV,
+    MAYBESITTER_FEATURE_GOAL_PLAN: process.env.MAYBESITTER_FEATURE_GOAL_PLAN,
+    MAYBESITTER_KILL_SWITCH_GOAL_PLAN: process.env.MAYBESITTER_KILL_SWITCH_GOAL_PLAN,
   };
   process.env.MAYBESITTER_DATA_DIR = directory;
   process.env.MAYBESITTER_FEATURE_RECOMMENDATION = 'true';
@@ -627,6 +646,9 @@ function setup(): () => void {
   // available. Its 404 shape is `errors.unauthorized`-style and needs no fixture
   // of its own: the client treats a 404 as "this build has no share route".
   process.env.SHARE_INTAKE_ENABLED = 'true';
+  process.env.MAYBESITTER_ENV = 'staging';
+  process.env.MAYBESITTER_FEATURE_GOAL_PLAN = 'true';
+  process.env.MAYBESITTER_KILL_SWITCH_GOAL_PLAN = 'false';
   configureCommandService({ initialState: createEmptyDomainState(), schedulerStore: null });
   setStorageForTests(createMemoryStorage());
   mkdirSync(FIXTURES, { recursive: true });
@@ -797,6 +819,99 @@ test('exports a fixture for every /api/mobile call the React Native client makes
     await record('goal.unlinked', 200, await goalNodePatch(
       request(`/api/mobile/goals/${goal.id}/execution/nodes/${linkedNodeId}`, { method: 'PATCH', body: { action: 'unlink' }, uid: GOAL_USER }),
       { params: Promise.resolve({ goalId: goal.id, nodeId: linkedNodeId }) },
+    ));
+
+    // ── editable Goal plan → proposed times → canonical work (M3a) ──
+    const { goal: plannedGoal } = await seedGoal('I want to run a 5k', { scopeId: GOAL_USER, language: 'en', storage: getStorage() });
+    const planContext = { params: Promise.resolve({ goalId: plannedGoal.id }) };
+    const drafted = await record('goalPlan.generatedTemplate', 200, await goalPlanGeneratePost(
+      request(`/api/mobile/goals/${plannedGoal.id}/plan/generate`, {
+        body: { idempotencyKey: 'fixture-plan-generate', source: 'template' }, uid: GOAL_USER,
+      }),
+      planContext,
+    ));
+    const draft = drafted.plan as { planId: string; revision: number; steps: Array<{ stepId: string }> };
+    await record('goalPlan.refusedExistingDraft', 409, await goalPlanGeneratePost(
+      request(`/api/mobile/goals/${plannedGoal.id}/plan/generate`, {
+        body: { idempotencyKey: 'fixture-plan-generate-again', source: 'template' }, uid: GOAL_USER,
+      }),
+      planContext,
+    ));
+    await record('goalPlan.refusedInvalidEdit', 422, await goalPlanEditPatch(
+      request(`/api/mobile/goals/${plannedGoal.id}/plans/${draft.planId}`, {
+        method: 'PATCH', body: { revision: draft.revision, op: { op: 'update', stepId: draft.steps[0]!.stepId, fields: { durationMinutes: 1 } } }, uid: GOAL_USER,
+      }),
+      { params: Promise.resolve({ goalId: plannedGoal.id, planId: draft.planId }) },
+    ));
+    const edited = await record('goalPlan.edited', 200, await goalPlanEditPatch(
+      request(`/api/mobile/goals/${plannedGoal.id}/plans/${draft.planId}`, {
+        method: 'PATCH', body: { revision: draft.revision, op: { op: 'update', stepId: draft.steps[0]!.stepId, fields: { durationMinutes: 25 } } }, uid: GOAL_USER,
+      }),
+      { params: Promise.resolve({ goalId: plannedGoal.id, planId: draft.planId }) },
+    ));
+    const editedPlan = edited.plan as { planId: string; revision: number; steps: Array<{ stepId: string }> };
+    const approvedPlan = await record('goalPlan.approved', 200, await goalPlanApprovePost(
+      request(`/api/mobile/goals/${plannedGoal.id}/plans/${editedPlan.planId}/approve`, {
+        body: { revision: editedPlan.revision }, uid: GOAL_USER,
+      }),
+      { params: Promise.resolve({ goalId: plannedGoal.id, planId: editedPlan.planId }) },
+    ));
+    const planTimes = approvedPlan.times as { timesId: string; timesRevision: number; planRevision: number; steps: Array<{ stepId: string; later?: { weekIndex: number } }> };
+    const firstTimed = planTimes.steps.find((step) => !step.later)!;
+    const changedTimes = await record('goalPlan.timeRemoved', 200, await goalPlanTimePatch(
+      request(`/api/mobile/goals/${plannedGoal.id}/plans/${editedPlan.planId}/times/${firstTimed.stepId}`, {
+        method: 'PATCH', body: { timesRevision: planTimes.timesRevision, choice: { none: true } }, uid: GOAL_USER,
+      }),
+      { params: Promise.resolve({ goalId: plannedGoal.id, planId: editedPlan.planId, stepId: firstTimed.stepId }) },
+    ));
+    const acceptedTimes = changedTimes.times as typeof planTimes;
+    await record('goalPlan.confirmed', 200, await goalPlanConfirmPost(
+      request(`/api/mobile/goals/${plannedGoal.id}/plans/${editedPlan.planId}/confirm`, {
+        body: { planRevision: acceptedTimes.planRevision, timesId: acceptedTimes.timesId, timesRevision: acceptedTimes.timesRevision, idempotencyKey: 'fixture-plan-confirm' }, uid: GOAL_USER,
+      }),
+      { params: Promise.resolve({ goalId: plannedGoal.id, planId: editedPlan.planId }) },
+    ));
+    await record('goalPlan.read', 200, await goalPlanGet(
+      request(`/api/mobile/goals/${plannedGoal.id}/plan`, { uid: GOAL_USER }),
+      planContext,
+    ));
+    const later = acceptedTimes.steps.find((step) => step.later);
+    assert.ok(later, 'the template plan must retain a later week for its route fixture');
+    await record('goalPlan.laterTimes', 200, await goalPlanLaterPost(
+      request(`/api/mobile/goals/${plannedGoal.id}/plans/${editedPlan.planId}/later/${later.later!.weekIndex}/times`, {
+        body: { idempotencyKey: 'fixture-plan-later' }, uid: GOAL_USER,
+      }),
+      { params: Promise.resolve({ goalId: plannedGoal.id, planId: editedPlan.planId, weekIndex: String(later.later!.weekIndex) }) },
+    ));
+    await record('goalPlan.upcoming', 200, await goalPlansUpcomingGet(
+      request('/api/mobile/goals/plans/upcoming', { uid: GOAL_USER }),
+    ));
+
+    const statement = await record('goalPlan.statementPreview', 200, await goalStatementPreviewPost(
+      request('/api/mobile/goals/from-statement/preview', { body: { statement: 'I want to learn Spanish', locale: 'en' }, uid: GOAL_USER }),
+    ));
+    await record('goalPlan.refusedStatementEvent', 422, await goalStatementPreviewPost(
+      request('/api/mobile/goals/from-statement/preview', { body: { statement: 'doctor appointment tomorrow at 4', locale: 'en' }, uid: GOAL_USER }),
+    ));
+    await record('goalPlan.statementAccepted', 200, await goalStatementAcceptPost(
+      request('/api/mobile/goals/from-statement/accept', {
+        body: { summaryId: statement.summaryId, revision: statement.revision, understood: statement.understood, idempotencyKey: 'fixture-statement-accept' }, uid: GOAL_USER,
+      }),
+    ));
+
+    const { goal: regenerateGoal } = await seedGoal('I want a stronger routine', { scopeId: GOAL_USER, language: 'en', storage: getStorage() });
+    const regenerateDraft = await goalPlanGeneratePost(
+      request(`/api/mobile/goals/${regenerateGoal.id}/plan/generate`, {
+        body: { idempotencyKey: 'fixture-regenerate-draft', source: 'template' }, uid: GOAL_USER,
+      }),
+      { params: Promise.resolve({ goalId: regenerateGoal.id }) },
+    );
+    const regenerateBody = await regenerateDraft.json() as { plan: { planId: string; revision: number } };
+    await record('goalPlan.regenerateModelUnavailable', 503, await goalPlanRegeneratePost(
+      request(`/api/mobile/goals/${regenerateGoal.id}/plan/regenerate`, {
+        body: { currentPlanId: regenerateBody.plan.planId, revision: regenerateBody.plan.revision, idempotencyKey: 'fixture-regenerate' }, uid: GOAL_USER,
+      }),
+      { params: Promise.resolve({ goalId: regenerateGoal.id }) },
     ));
 
     // ── the one clarification (#165) ───────────────────────────────
@@ -2905,6 +3020,9 @@ test('exports the proactive-loop (intelligence) fixtures the Goals and Watching 
         body: { text: 'I want to learn React' },
       })));
       assert.ok((analyzed.observations as unknown[]).length >= 1, 'the analyze fixture must carry an observation');
+      await record('goalPlan.intelligenceRoute', 200, await intelligenceStatementPost(request('/api/mobile/intelligence', {
+        body: { text: 'make me a plan to learn React' },
+      })));
       await record('intelligence.generated', 200, await intelligenceGeneratePost(request('/api/mobile/intelligence/generate', { body: {} })));
       await record('intelligence.inbox', 200, await intelligenceInboxGet(request('/api/mobile/intelligence')));
       await record('intelligence.gmailMonitor', 200, await intelligenceMonitorGet(request('/api/mobile/intelligence/sources/gmail/monitor')));
