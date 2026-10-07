@@ -57,7 +57,7 @@ jest.mock('../../api/queries', () => ({
 
 jest.mock('../../api/endpoints/goalPlan', () => ({
   previewStatementGoal: (...args: unknown[]) => mockPreview(...args),
-}), { virtual: true });
+}));
 
 jest.mock('../../api/endpoints/intelligence', () => ({
   analyzeIntelligenceStatement: (...args: unknown[]) => mockAnalyze(...args),
