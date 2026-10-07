@@ -183,7 +183,14 @@ jobs:
       - name: Lint
         run: npm run lint
 
+      # In one process, on purpose: in-band timing caught a double-press race
+      # that parallel workers hid (#195, `features/plan/oneAtATime.ts`). The
+      # heap grows suite by suite there, to ~4 GB on PR #744, where V8's
+      # default limit aborted the run (exit 134); 6 GB leaves room on the
+      # 16 GB runner. The second-zone job below runs the parallel profile.
       - name: Test
+        env:
+          NODE_OPTIONS: --max-old-space-size=6144
         run: npm test -- --runInBand
 
       # A staging or production configuration without a real https backend URL
@@ -253,5 +260,7 @@ jobs:
 
       # `src/__tests__/jestZone.test.ts` fails this run if the zone never
       # reaches the runtime, so it cannot quietly run in UTC a second time.
+      # Two workers, each recycled past 1 GB (peak ~1.1 GB), so this job never
+      # nears the heap limit, and the suite also runs in parallel timing.
       - name: Test
-        run: npm test -- --runInBand
+        run: npm test -- --maxWorkers=2 --workerIdleMemoryLimit=1GB

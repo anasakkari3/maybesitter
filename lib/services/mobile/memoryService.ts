@@ -477,14 +477,8 @@ export interface CreateManualMemoryInput {
   language: unknown;
 }
 
-export async function createManualMemory(
-  uid: string,
-  input: CreateManualMemoryInput,
-  at: string,
-  options: MemoryServiceOptions = {},
-): Promise<MemoryDto> {
-  requireUserId(uid);
-  const create: CreateMemoryInput = {
+function manualMemoryInput(uid: string, input: CreateManualMemoryInput, at: string): CreateMemoryInput {
+  return {
     scopeId: uid,
     kind: requireManualKind(input.kind),
     content: requireContent(input.content),
@@ -495,7 +489,29 @@ export async function createManualMemory(
     ttlMs: USER_STATED_MEMORY_TTL_MS,
     provenance: { origin: 'manual' },
   };
-  return memoryToDto(await storeOf(options).put(create, at));
+}
+
+export async function createManualMemory(
+  uid: string,
+  input: CreateManualMemoryInput,
+  at: string,
+  options: MemoryServiceOptions = {},
+): Promise<MemoryDto> {
+  requireUserId(uid);
+  return memoryToDto(await storeOf(options).put(manualMemoryInput(uid, input, at), at));
+}
+
+/** A manual record with a stable id for a caller-owned idempotency key. */
+export async function createManualMemoryIdempotent(
+  uid: string,
+  input: CreateManualMemoryInput,
+  at: string,
+  idempotencyKey: string,
+  options: Pick<MemoryServiceOptions, 'storage'> = {},
+): Promise<MemoryDto> {
+  requireUserId(uid);
+  const memory = createStorageRuntimeMemoryStore(undefined, options.storage);
+  return memoryToDto(await memory.putIdempotent(manualMemoryInput(uid, input, at), at, idempotencyKey));
 }
 
 /**
@@ -565,6 +581,10 @@ export async function patchMemory(
   // the old wording could never be read again, and must not linger in the
   // export as a paraphrase of words the user took back (CL3).
   await createStorageGoalStepProposalStore(options.storage).deleteForGoals(uid, [prior.id]);
+  if (prior.kind === 'goal') {
+    const { supersedeGoalPlanLineage } = await import('./goalPlanService');
+    await supersedeGoalPlanLineage(uid, prior.id, replaced.id, options.storage ?? getStorage());
+  }
   return memoryToDto(replaced);
 }
 
@@ -578,10 +598,18 @@ export async function deleteMemory(
   requireUserId(uid);
   const store = storeOf(options);
   const record = await requireOwnedRecord(store, uid, id, { allowSuperseded: true });
+  if (record.kind === 'goal') {
+    const { markGoalLineageDeleting } = await import('./goalPlanService');
+    await markGoalLineageDeleting(uid, record.id, options.storage ?? getStorage());
+  }
   const { removed, ruleFingerprints, ids } = await deleteChain(store, uid, record);
   // Steps proposed for this goal go with it, at every id its chain ever had
   // (CL3). They are a model's paraphrase of the sentence being deleted.
   await createStorageGoalStepProposalStore(options.storage).deleteForGoals(uid, ids);
+  if (record.kind === 'goal') {
+    const { deleteGoalPlanLineage } = await import('./goalPlanService');
+    await deleteGoalPlanLineage(uid, ids, options.storage ?? getStorage());
+  }
   // A pattern the user deleted is a pattern they turned down. Without this, the
   // next read would offer the same sentence straight back as a suggestion —
   // answering "forget that" with "did you mean to keep it?" (UC-3.16, #202).

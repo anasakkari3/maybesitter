@@ -89,7 +89,7 @@ const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
  */
 export function Btn({
   onPress, onPressIn, onPressOut, style, children, disabled, label, hint, scaleTo = 0.95, hitSlop, testID,
-  accessibilityRole = 'button', accessibilityState, accessibilityActions, onAccessibilityAction,
+  accessibilityRole = 'button', accessibilityState, accessibilityActions, onAccessibilityAction, nativeRef,
 }: {
   // `| undefined` is explicit because the app compiles with
   // exactOptionalPressableTypes: callers pass `onPress={disabled ? undefined : fn}`.
@@ -127,6 +127,8 @@ export function Btn({
    */
   accessibilityActions?: readonly { name: string; label: string }[];
   onAccessibilityAction?: (event: { nativeEvent: { actionName: string } }) => void;
+  /** The pressable itself, for a screen reader's focus to return to (the plan editor). */
+  nativeRef?: React.Ref<View> | undefined;
 }) {
   const v = useRef(new Animated.Value(1)).current;
   const reduced = useReducedMotion();
@@ -136,6 +138,7 @@ export function Btn({
   };
   return (
     <AnimatedPressable
+      {...(nativeRef ? { ref: nativeRef as never } : {})}
       accessibilityRole={accessibilityRole}
       accessibilityLabel={label}
       accessibilityHint={hint}
@@ -158,7 +161,7 @@ export function Btn({
 type PillKind = 'accent' | 'soft' | 'outline' | 'warm' | 'warmSolid' | 'ink' | 'ghost';
 
 export function Pill({
-  label, onPress, kind = 'accent', style, size = 16, weight = 600, disabled, pad = 16, radius = 999, testID, accessibilityLabel, expanded,
+  label, onPress, kind = 'accent', style, size = 16, weight = 600, disabled, pad = 16, radius = 999, testID, accessibilityLabel, expanded, nativeRef,
 }: {
   label: string;
   /** For a pill that opens something below it: said as expanded / collapsed. */
@@ -178,6 +181,8 @@ export function Pill({
   radius?: number | undefined;
   /** See `Btn`. Two pills legitimately read the same on the details screen. */
   testID?: string | undefined;
+  /** See `Btn`. */
+  nativeRef?: React.Ref<View> | undefined;
 }) {
   const { p } = useApp();
   const look: Record<PillKind, { bg: string; fg: string; border?: string }> = {
@@ -200,6 +205,7 @@ export function Pill({
       label={accessibilityLabel ?? label}
       disabled={disabled}
       testID={testID}
+      nativeRef={nativeRef}
       {...(expanded !== undefined ? { accessibilityState: { expanded } } : {})}
       style={[
         {

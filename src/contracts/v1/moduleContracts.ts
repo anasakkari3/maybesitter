@@ -15,6 +15,7 @@ export const INTELLIGENCE_MODULES = [
   'feedback',
   'safety',
   'evaluation',
+  'goalPlan',
 ] as const;
 
 export type IntelligenceModuleName = (typeof INTELLIGENCE_MODULES)[number];
@@ -321,6 +322,21 @@ export const INTELLIGENCE_MODULE_CONTRACTS: Record<IntelligenceModuleName, Intel
     inputDescription: 'Offline evaluation requests and gate evidence assembly.',
     outputDescription: 'Non-operative placeholder until sprint-specific gates execute.',
     execute: async (invocation: ModuleInvocation<unknown>) => placeholderExecutor(invocation.provenance, { status: 'not_implemented_in_sprint_00' } satisfies GenericModuleOutput),
+  },
+  goalPlan: {
+    version: MODULE_CONTRACT_VERSION,
+    module: 'goalPlan',
+    owner: 'backend',
+    allowsDirectStateWrites: false,
+    allowedDependencyLayers: ['contracts', 'deterministic-services', 'adapters'],
+    inputDescription: 'A confirmed goal and an explicit user confirmation of one reviewed plan.',
+    outputDescription: 'A versioned phased plan, time proposal, or immutable confirmation outcome.',
+    execute: async (invocation: ModuleInvocation<unknown>) => placeholderExecutor(invocation.provenance, {
+      status: 'implemented',
+      module: 'goalPlan',
+      schemaVersion: 'goal-plan-v1',
+      entryPoint: 'lib/services/mobile/goalPlanService#generateGoalPlan',
+    } satisfies ImplementedModuleOutput),
   },
 };
 

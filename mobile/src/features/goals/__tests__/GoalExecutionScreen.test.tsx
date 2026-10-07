@@ -1,6 +1,6 @@
 import React from 'react';
 import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react-native';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { AppProvider } from '../../../state/AppContext';
@@ -15,6 +15,7 @@ const mockUnlink = jest.fn<any>();
 const mockRefetch = jest.fn<any>();
 const mockUseGoalExecution = jest.fn<any>();
 let mockGenerateError: unknown = null;
+let mockPlanView: any;
 
 const graph = (generation = 1, nodes: any[] = []) => ({
   version: 'v1', schema: 'goal-graph-v1', graphId: `graph-${generation}`, goalMemoryId: 'goal-1', scopeId: 'user-1',
@@ -49,6 +50,15 @@ jest.mock('../../../api/queries', () => ({
   useUnlinkGoalNode: () => ({ mutate: mockUnlink, isPending: false, error: null }),
   useHabits: () => ({ data: mockHabits, isPending: false, error: null, refetch: jest.fn() }),
   useCommitment: (id: string | null) => ({ data: id ? mockCommitment : undefined, isPending: false, error: null, refetch: jest.fn() }),
+  useGoalPlan: () => mockPlanView,
+  useUpcomingPlans: () => ({ isPending: false, error: null, data: [] }),
+  useUid: () => 'user-1',
+  useInvalidateAfterPlanConfirm: () => () => undefined,
+}));
+
+const mockGeneratePlan = jest.fn<any>();
+jest.mock('../../../api/endpoints/goalPlan', () => ({
+  generateGoalPlan: (...args: unknown[]) => mockGeneratePlan(...args),
 }));
 
 const metrics = { frame: { x: 0, y: 0, width: 390, height: 844 }, insets: { top: 47, left: 0, right: 0, bottom: 34 } };
@@ -67,6 +77,7 @@ beforeEach(async () => {
   jest.clearAllMocks();
   await AsyncStorage.clear();
   mockGenerateError = null;
+  mockPlanView = { data: { success: true, draft: null, confirmed: null, linkedWork: [] }, isSuccess: true, error: null, refetch: jest.fn() };
   mockHabits = [];
   mockCommitment = undefined;
   execution = { data: { success: true, graph: graph(1, [proposal('g1.step.s1', 'Draft invitation')]), progress: baseProgress }, isPending: false, isFetching: false, error: null, refetch: mockRefetch };
@@ -76,46 +87,6 @@ beforeEach(async () => {
   mockUnlink.mockImplementation((_input: unknown, options: any) => options.onSuccess({ success: true }));
 });
 afterEach(cleanup);
-
-it('keeps generated work visibly provisional and confirms only selected nodes with explicit types', async () => {
-  await openGoal();
-  expect(screen.queryByText('Draft invitation')).toBeNull();
-
-  await fireEvent.press(screen.getByTestId('goal-generate'));
-  expect(screen.getByText(strings.en.xGoalProposalNotSaved)).toBeTruthy();
-  await fireEvent.press(screen.getByTestId('goal-proposal-g1.step.s1'));
-  await fireEvent.press(screen.getByTestId('goal-proposal-g1.step.s2'));
-  await fireEvent.press(screen.getByTestId('goal-kind-habit-g1.step.s2'));
-  await fireEvent.press(screen.getByTestId('goal-confirm-selected'));
-
-  expect(mockConfirm).toHaveBeenCalledWith({
-    generation: 1,
-    selections: [
-      { nodeId: 'g1.step.s1', as: 'commitment' },
-      { nodeId: 'g1.step.s2', as: 'habit', habit: expect.objectContaining({ cadence: { kind: 'weekly_count', count: 3 }, durationMinutes: 30 }) },
-    ],
-  }, expect.any(Object));
-  const period = mockUseGoalExecution.mock.calls.at(-1)?.[2];
-  expect(period).toEqual(expect.objectContaining({ fromLocalDate: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/), toLocalDate: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/) }));
-});
-
-it('refreshes a stale unknown node and never reports it as saved', async () => {
-  mockConfirm.mockImplementation((_input: unknown, options: any) => options.onSuccess({
-    success: true,
-    graph: graph(1, [proposal('g1.step.current', 'Current step')]),
-    created: [], replayed: [],
-    refused: [{ nodeId: 'g1.step.s1', nodeKey: 'step.s1', code: 'unknown_node', detail: 'stale' }],
-  }));
-  await openGoal();
-  await fireEvent.press(screen.getByTestId('goal-generate'));
-  await fireEvent.press(screen.getByTestId('goal-proposal-g1.step.s1'));
-  await fireEvent.press(screen.getByTestId('goal-confirm-selected'));
-
-  expect(screen.getByTestId('goal-notice-stale')).toBeTruthy();
-  expect(screen.queryByTestId('goal-notice-saved')).toBeNull();
-  expect(screen.getByTestId('goal-proposal-g1.step.current')).toBeTruthy();
-  expect(mockRefetch).toHaveBeenCalled();
-});
 
 it('renders canonical linked titles and never invents habit counts when the period is null', async () => {
   mockCommitment = { title: 'Call the venue', status: 'active' };
@@ -141,7 +112,7 @@ it('renders canonical linked titles and never invents habit counts when the peri
   expect(JSON.stringify(screen.toJSON())).not.toContain('habit-1');
 });
 
-it('keeps linked work through regeneration, refreshes progress, and unlinks without deletion copy', async () => {
+it('refreshes progress and unlinks without deletion copy', async () => {
   mockCommitment = { title: 'Call the venue', status: 'active' };
   execution = {
     data: {
@@ -151,17 +122,10 @@ it('keeps linked work through regeneration, refreshes progress, and unlinks with
     },
     isPending: false, isFetching: false, error: null, refetch: mockRefetch,
   };
-  mockRegenerate.mockImplementation((_input: unknown, options: any) => options.onSuccess(graph(2, [
-    { nodeId: 'g2.step.s1', kind: 'linked_commitment', status: 'confirmed', commitmentId: 'commitment-1' },
-    proposal('g2.step.s2', 'Book the room'),
-  ])));
   await openGoal();
   await fireEvent.press(screen.getByTestId('goal-refresh'));
   expect(mockRefetch).toHaveBeenCalled();
-
-  await fireEvent.press(screen.getByTestId('goal-regenerate'));
-  expect(screen.getByText(/Call the venue/)).toBeTruthy();
-  expect(screen.getByTestId('goal-proposal-g2.step.s2')).toBeTruthy();
+  expect(screen.getAllByText(/Call the venue/).length).toBeGreaterThan(0);
 
   await fireEvent.press(screen.getByText(strings.en.xGoalUnlink));
   expect(screen.getByText(strings.en.xGoalUnlinkKeep)).toBeTruthy();
@@ -170,15 +134,26 @@ it('keeps linked work through regeneration, refreshes progress, and unlinks with
   expect(screen.getByTestId('goal-notice-unlinked')).toBeTruthy();
 });
 
-it('drops an unconfirmed proposal on reload and restores server truth', async () => {
-  const first = await openGoal();
-  await fireEvent.press(screen.getByTestId('goal-generate'));
-  expect(screen.getByTestId('goal-proposal-g1.step.s1')).toBeTruthy();
-  await first.unmount();
-
+it('opens the one plan path instead of the old card-by-card review (M3a)', async () => {
+  mockGeneratePlan.mockResolvedValue({
+    planId: 'plan-1', goalId: 'goal-1', revision: 1, status: 'draft', horizon: 'days', removedSteps: [],
+    steps: [{ stepId: 's1', order: 1, phase: { unit: 'day', index: 1 }, title: 'List the venues', kind: 'commitment', durationMinutes: 30, buildsOn: null, expectedOutcome: null }],
+  });
   await openGoal();
-  expect(screen.queryByTestId('goal-proposal-g1.step.s1')).toBeNull();
-  expect(screen.getByText(strings.en.xGoalPlanEmpty)).toBeTruthy();
+  expect(screen.queryByTestId('goal-generate')).toBeNull();
+  // Inside act, as the gate's `press` does: the generate answer lands in a
+  // promise chain, and under a loaded suite an update outside act is late.
+  await act(async () => { await fireEvent.press(screen.getByTestId('goal-plan-open')); });
+  await waitFor(() => expect(screen.queryByTestId('plan-step-s1')).not.toBeNull(), { timeout: 5_000 });
+  expect(mockGeneratePlan).toHaveBeenCalledWith('goal-1', expect.any(String), undefined);
+  expect(mockGenerate).not.toHaveBeenCalled();
+});
+
+it('a confirmed plan shows its progress and offers no regeneration (S1)', async () => {
+  mockPlanView = { data: { success: true, draft: null, confirmed: { planId: 'plan-1', saved: [], pendingLater: [] }, linkedWork: [] }, isSuccess: true, error: null, refetch: jest.fn() };
+  await openGoal();
+  expect(screen.getByTestId('goal-plan-progress')).toBeTruthy();
+  expect(screen.queryByTestId('goal-plan-open')).toBeNull();
 });
 
 it('renders the loading state while server truth is pending', async () => {
@@ -194,69 +169,6 @@ it('renders a retryable error from the shared query boundary', async () => {
   expect(mockRefetch).toHaveBeenCalled();
 });
 
-it('says when generation returns no actionable proposal', async () => {
-  execution = { data: { success: true, graph: graph(), progress: baseProgress }, isPending: false, isFetching: false, error: null, refetch: mockRefetch };
-  mockGenerate.mockImplementation((_input: unknown, options: any) => options.onSuccess(graph(1, [])));
-  await openGoal();
-  await fireEvent.press(screen.getByTestId('goal-generate'));
-  expect(screen.getByText(strings.en.xGoalProposalEmpty)).toBeTruthy();
-  expect(screen.queryByTestId('goal-generate-failed')).toBeNull();
-});
-
-/** A planner step as the server sends it (CL3): inferred, with its hints. */
-const planned = (id: string, title: string, suggestedAs: 'commitment' | 'habit', suggestedWhen?: string) => ({
-  ...proposal(id, title), inferred: true, suggestedAs, ...(suggestedWhen ? { suggestedWhen } : {}),
-});
-
-it('shows the planner’s timing hint and starts a suggested habit as a habit', async () => {
-  mockGenerate.mockImplementation((_input: unknown, options: any) => options.onSuccess(graph(1, [
-    planned('g1.step.ma', 'Register a developer account', 'commitment', 'today'),
-    planned('g1.step.mb', 'Test the build with two friends', 'habit'),
-  ])));
-  await openGoal();
-  await fireEvent.press(screen.getByTestId('goal-generate'));
-
-  expect(screen.getByText(new RegExp(strings.en.xGoalWhenToday))).toBeTruthy();
-  expect(screen.getByText(new RegExp(strings.en.xGoalSuggestedHabit))).toBeTruthy();
-  await fireEvent.press(screen.getByTestId('goal-proposal-g1.step.ma'));
-  await fireEvent.press(screen.getByTestId('goal-proposal-g1.step.mb'));
-  // The habit's cadence is shown for the person to pick before anything saves.
-  expect(screen.getByText(strings.en.xHabitConfirmationBody)).toBeTruthy();
-  await fireEvent.press(screen.getByTestId('goal-confirm-selected'));
-
-  expect(mockConfirm).toHaveBeenCalledWith({
-    generation: 1,
-    selections: [
-      { nodeId: 'g1.step.ma', as: 'commitment' },
-      { nodeId: 'g1.step.mb', as: 'habit', habit: expect.objectContaining({ cadence: { kind: 'weekly_count', count: 3 } }) },
-    ],
-  }, expect.any(Object));
-});
-
-it('asks for other suggestions from the review, from the reading on screen', async () => {
-  await openGoal();
-  await fireEvent.press(screen.getByTestId('goal-generate'));
-  await fireEvent.press(screen.getByTestId('goal-review-regenerate'));
-
-  expect(mockRegenerate).toHaveBeenCalledWith(1, expect.any(Object));
-  expect(screen.getByTestId('goal-proposal-g2.step.s2')).toBeTruthy();
-  expect(screen.queryByTestId('goal-proposal-g1.step.s1')).toBeNull();
-});
-
-it('keeps a failed generation apart from an empty one', async () => {
-  mockGenerateError = new Error('offline');
-  await openGoal();
-  expect(screen.getByTestId('goal-generate-failed')).toBeTruthy();
-  // Announced, not only shown: a screen-reader user pressed a button and waits.
-  // The region around the line carries it, mounted before the failure (I1).
-  const live = screen.getAllByTestId('goal-generate-live').find(view => within(view).queryByTestId('goal-generate-failed'))!;
-  expect(live.props.accessibilityRole).toBe('alert');
-  expect(live.props.accessibilityLiveRegion).toBe('polite');
-  expect(screen.getByText(strings.en.xGoalGenerateFailed)).toBeTruthy();
-  expect(screen.queryByTestId('goal-proposal-empty')).toBeNull();
-  expect(screen.queryByText(strings.en.xGoalProposalEmpty)).toBeNull();
-});
-
 describe.each([
   { lang: 'ar' as const, rtl: true },
   { lang: 'he' as const, rtl: true },
@@ -264,7 +176,7 @@ describe.each([
 ])('$lang localization', ({ lang, rtl }) => {
   it('renders the goal flow in the selected language and direction', async () => {
     await openGoal(lang);
-    const heading = screen.getByText(strings[lang].xGoalPlanEmpty);
+    const heading = screen.getAllByText(strings[lang].xPlanOpen)[0]!;
     expect(heading).toBeTruthy();
     expect([heading.props.style].flat(4)).toEqual(expect.arrayContaining([
       expect.objectContaining({ writingDirection: rtl ? 'rtl' : 'ltr' }),

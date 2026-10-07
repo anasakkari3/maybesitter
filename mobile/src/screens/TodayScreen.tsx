@@ -20,6 +20,7 @@ import { postponeTo } from '../features/commitments/postpone';
 import { whyFirstLine } from '../features/commitments/whyFirst';
 import { NextStepCard } from '../features/nextStep/NextStepCard';
 import { ProactiveInboxBanner } from '../features/goals/ProactiveInboxBanner';
+import { UpcomingPlanCard } from '../features/goalPlan/UpcomingPlanCard';
 import { BusyConflictChip } from '../features/calendar/BusyConflictChip';
 import { useBusyBlocks } from '../features/calendar/useBusyCalendar';
 import { useConflictBusyBlocks } from '../features/google/useGoogle';
@@ -270,6 +271,8 @@ export function TodayScreen({ tabClearance = TAB_CLEARANCE }: { tabClearance?: n
               {/* A day with only a fixed block still has the block on it. */}
               <WeeklyToday items={weeklyToday} />
               <EmptyDay />
+              {/* A plan's later week, when it is near (M3a): on an empty day too. */}
+              <UpcomingPlanCard />
             </>
           ) : (
             <>
@@ -299,6 +302,9 @@ export function TodayScreen({ tabClearance = TAB_CLEARANCE }: { tabClearance?: n
               {restGroups.finished.length > 0 ? <FinishedGroup items={restGroups.finished} /> : null}
 
               <ProactiveInboxBanner />
+
+              {/* A plan's later week, when it is near (M3a). */}
+              <UpcomingPlanCard />
 
               {/* TERTIARY · later */}
               {later.length > 0 ? (

@@ -46,6 +46,11 @@ jest.mock('../../../api/queries', () => ({
   useDeleteHabit: () => ({ mutate: jest.fn(), isPending: false, error: null }),
   usePlan: () => ({ data: null, isPending: false, error: null, refetch: jest.fn() }),
   usePlanAction: () => ({ mutate: jest.fn(), isPending: false, error: null }),
+  // The plan path (M3a): off in these renders unless a test says otherwise.
+  useUpcomingPlans: () => ({ isPending: false, error: null, data: [] }),
+  useGoalPlan: () => ({ data: { success: true, draft: null, confirmed: null, linkedWork: [] }, isSuccess: true, error: null, refetch: jest.fn() }),
+  useInvalidateAfterPlanConfirm: () => () => undefined,
+  useUid: () => 'u',
 }));
 
 const metrics = { frame: { x: 0, y: 0, width: 390, height: 844 }, insets: { top: 47, left: 0, right: 0, bottom: 34 } };
@@ -65,34 +70,6 @@ beforeEach(() => {
   }));
 });
 afterEach(cleanup);
-
-it('shows checkpoints and requires an explicit target before goal work is created', async () => {
-  await render(wrap(<GoalExecutionScreen />));
-  await fireEvent.press(screen.getByTestId('goal-open-goal-1'));
-  await fireEvent.press(screen.getByTestId('goal-generate'));
-  expect(JSON.stringify(screen.toJSON())).toContain('Review participant feedback');
-  await fireEvent.press(screen.getByLabelText(/Recruit five participants/));
-  const t = Object.values(strings).find(value => screen.queryAllByText(value.xGoalAsHabit).length > 0)!;
-  await fireEvent.press(screen.getByText(t.xGoalAsHabit));
-  await fireEvent.press(screen.getByTestId('goal-confirm-selected'));
-
-  expect(mockConfirmGoal).toHaveBeenCalledWith({
-    generation: 1,
-    selections: [{
-      nodeId: 'proposal-1',
-      as: 'habit',
-      habit: {
-        cadence: { kind: 'weekly_count', count: 3 },
-        durationMinutes: 30,
-        preferredWindows: [],
-        minimumOccurrences: 3,
-        maximumOccurrences: 3,
-        flexibility: 'flexible',
-        recoveryPolicy: 'skip',
-      },
-    }],
-  }, expect.any(Object));
-});
 
 it('saves a user-stated goal only after the user enters and confirms it', async () => {
   await render(wrap(<GoalExecutionScreen />));
@@ -186,48 +163,6 @@ it('falls back to the count when the last picked day is taken off', async () => 
  * Only a step that repeats can become a habit (audit 2026-10-03, #12, screen
  * 26): «Install Node.js and npm» — a one-off the goal planner marked
  * `suggestedAs: 'commitment'` — was offered as a recurring habit.
- */
-it('offers the habit choice only for steps that are not one-offs', async () => {
-  mockGenerate.mockImplementation((_input, options: any) => options.onSuccess({
-    generation: 2,
-    nodes: [
-      { nodeId: 'g1.step.node', kind: 'decomposition_step_proposal', status: 'proposed', stepId: 'node', title: 'Install Node.js and npm', sourceSpans: [], inferred: true, statedTiming: null, statedOwner: null, suggestedAs: 'commitment', suggestedWhen: 'today' },
-      { nodeId: 'g1.step.practice', kind: 'decomposition_step_proposal', status: 'proposed', stepId: 'practice', title: 'Practise React components', sourceSpans: [], inferred: true, statedTiming: null, statedOwner: null, suggestedAs: 'habit' },
-      { nodeId: 'g1.step.split', kind: 'decomposition_step_proposal', status: 'proposed', stepId: 'split', title: 'Read the React docs', sourceSpans: [], inferred: false, statedTiming: null, statedOwner: null },
-    ],
-  }));
-  await render(wrap(<GoalExecutionScreen />));
-  await fireEvent.press(screen.getByTestId('goal-open-goal-1'));
-  await fireEvent.press(screen.getByTestId('goal-generate'));
-  for (const title of ['Install Node.js and npm', 'Practise React components', 'Read the React docs']) {
-    await fireEvent.press(screen.getByLabelText(new RegExp(title)));
-  }
-  expect(screen.queryByTestId('goal-kind-habit-g1.step.node')).toBeNull();
-  expect(screen.queryByTestId('goal-kind-commitment-g1.step.node')).toBeNull();
-  expect(screen.queryByTestId('goal-kind-habit-g1.step.practice')).not.toBeNull();
-  expect(screen.queryByTestId('goal-kind-habit-g1.step.split')).not.toBeNull();
-
-  // The habit step takes the same cadence picker, days included.
-  await fireEvent.press(screen.getByTestId('goal-g1.step.practice-day-2'));
-  await fireEvent.press(screen.getByTestId('goal-g1.step.practice-day-4'));
-  await fireEvent.press(screen.getByTestId('goal-confirm-selected'));
-  expect(mockConfirmGoal).toHaveBeenCalledWith({
-    generation: 2,
-    selections: expect.arrayContaining([
-      { nodeId: 'g1.step.node', as: 'commitment' },
-      expect.objectContaining({
-        nodeId: 'g1.step.practice',
-        as: 'habit',
-        habit: expect.objectContaining({ cadence: { kind: 'weekdays', weekdays: [2, 4] }, minimumOccurrences: 2, maximumOccurrences: 2 }),
-      }),
-    ]),
-  }, expect.any(Object));
-});
-
-/**
- * A saved habit's rows read in the person's words (audit 2026-10-03 device
- * pass): the detail showed the raw `30 min`, `flexible` and `skip` values in
- * the Arabic app.
  */
 it('names a saved habit\'s duration, flexibility and recovery in words, not raw values', async () => {
   mockHabits = [{

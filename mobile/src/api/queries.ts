@@ -35,6 +35,7 @@ import {
   type WeekDecisions,
 } from './endpoints/plans';
 import { getNextStep, recordNextStepDecision } from './endpoints/nextStep';
+import { getGoalPlan, listUpcomingPlans } from './endpoints/goalPlan';
 import { getTrust, reportPilotIncident, updateTrust } from './endpoints/trust';
 import { flagAlphaFeedback, getFeedbackHistory, revokeFeedback } from './endpoints/feedback';
 import { recordAnalyticsEvent } from './endpoints/analytics';
@@ -187,6 +188,10 @@ export const queryKeys = {
     'user', uid, 'goalExecution', goalId, generation, period?.fromLocalDate ?? null, period?.toLocalDate ?? null,
   ] as const,
   habits: (uid: string) => ['user', uid, 'habits'] as const,
+  /** The goal's plan (M3a): its draft, its confirmed progress and the work already linked to it. */
+  goalPlan: (uid: string, goalId: string) => ['user', uid, 'goalPlan', goalId] as const,
+  /** Later weeks whose time has come, across every goal (M3A-033). Under `goalPlan`, so one invalidation covers both. */
+  upcomingPlans: (uid: string) => ['user', uid, 'goalPlan', 'upcoming'] as const,
   /** Weekly fixed blocks («ثابت أسبوعي»), paused ones included. */
   weeklyBlocks: (uid: string) => ['user', uid, 'weeklyBlocks'] as const,
   /** Their occurrences in `[from, to)`. Under `weeklyBlocks`, so one invalidation covers both. */
@@ -259,6 +264,7 @@ export function useIntelligenceDecided(): () => void {
     invalidateCommitments(client, uid);
     void client.invalidateQueries({ queryKey: queryKeys.memory(uid) });
     void client.invalidateQueries({ queryKey: ['user', uid, 'goalExecution'] });
+    void client.invalidateQueries({ queryKey: queryKeys.memory(uid) });
   }, [client, uid]);
 }
 
@@ -386,6 +392,49 @@ export function useGoalExecution(goalId: string, generation = 1, period?: GoalPr
     queryFn: () => getGoalExecution(goalId, generation, period),
     enabled: uid !== 'signed-out' && goalId !== '',
   });
+}
+
+/** The goal's plan (M3a). Off when the module is: the read answers `FeatureUnavailableError`. */
+export function useGoalPlan(goalId: string) {
+  const uid = useUid();
+  return useQuery({
+    queryKey: queryKeys.goalPlan(uid, goalId),
+    queryFn: () => getGoalPlan(goalId),
+    enabled: uid !== 'signed-out' && goalId !== '',
+    retry: false,
+  });
+}
+
+/**
+ * Later weeks to place now, across every goal (M3A-033), and whether the plan
+ * path is on at all: the app has no other way to ask, and the entries hide on
+ * the same `FeatureUnavailableError` every gated feature uses.
+ */
+export function useUpcomingPlans() {
+  const uid = useUid();
+  return useQuery({
+    queryKey: queryKeys.upcomingPlans(uid),
+    queryFn: listUpcomingPlans,
+    enabled: uid !== 'signed-out',
+    retry: false,
+  });
+}
+
+/**
+ * After the plan path wrote something: a confirm puts work on Today, the Plan,
+ * the habits and the goal; a statement accepted as a goal puts it in the goals
+ * list, which reads memory (inspection A2-002).
+ */
+export function useInvalidateAfterPlanConfirm(): () => void {
+  const client = useQueryClient();
+  const uid = useUid();
+  return useCallback(() => {
+    invalidateCommitments(client, uid);
+    void client.invalidateQueries({ queryKey: queryKeys.habits(uid) });
+    void client.invalidateQueries({ queryKey: ['user', uid, 'goalPlan'] });
+    void client.invalidateQueries({ queryKey: ['user', uid, 'goalExecution'] });
+    void client.invalidateQueries({ queryKey: queryKeys.memory(uid) });
+  }, [client, uid]);
 }
 
 function useGoalMutation<TInput, TData>(goalId: string, mutationFn: (input: TInput) => Promise<TData>) {

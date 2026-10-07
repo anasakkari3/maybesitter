@@ -1,0 +1,63 @@
+{
+  "success": true,
+  "plan": {
+    "planId": "00000000-0000-4000-8000-000000000001",
+    "goalId": "mem_00000000-0000-4000-8000-000000000002",
+    "revision": 2,
+    "status": "draft",
+    "source": "template",
+    "horizon": "weeks",
+    "language": "en",
+    "summary": {
+      "goalText": "I want to run a 5k"
+    },
+    "steps": [
+      {
+        "stepId": "00000000-0000-4000-8000-000000000003",
+        "order": 1,
+        "phase": {
+          "unit": "week",
+          "index": 1
+        },
+        "title": "Get what you need for “I want to run a 5k” ready",
+        "kind": "commitment",
+        "durationMinutes": 25,
+        "buildsOn": null,
+        "expectedOutcome": null,
+        "origin": "template"
+      },
+      {
+        "stepId": "00000000-0000-4000-8000-000000000004",
+        "order": 2,
+        "phase": {
+          "unit": "week",
+          "index": 2
+        },
+        "title": "Make time for “I want to run a 5k” a few times a week",
+        "kind": "habit",
+        "durationMinutes": 30,
+        "rhythm": {
+          "timesPerWeek": 3
+        },
+        "buildsOn": null,
+        "expectedOutcome": null,
+        "origin": "template"
+      },
+      {
+        "stepId": "00000000-0000-4000-8000-000000000005",
+        "order": 3,
+        "phase": {
+          "unit": "week",
+          "index": 3
+        },
+        "title": "Decide what a month of progress on “I want to run a 5k” looks like",
+        "kind": "commitment",
+        "durationMinutes": 20,
+        "buildsOn": null,
+        "expectedOutcome": null,
+        "origin": "template"
+      }
+    ],
+    "removedSteps": []
+  }
+}

@@ -8,6 +8,7 @@ import {
 import { moduleDisabledResponse } from '../../../../../../lib/services/mobile/moduleGate';
 import { mobileError } from '../../../../../../lib/services/mobile/response';
 import { RequestBodyTooLargeError, readJsonBody, requestBodyTooLargeResponse } from '../../../../../../lib/net/requestBody';
+import { resolveModuleRuntime } from '../../../../../../src/contracts/v1/runtimeControls';
 
 export const dynamic = 'force-dynamic';
 
@@ -33,7 +34,7 @@ export async function PATCH(request: Request, context: RouteContext) {
   }
 
   const disabled = moduleDisabledResponse('memory');
-  if (disabled) return disabled;
+  if (disabled && resolveModuleRuntime('goalPlan').mode !== 'enabled') return disabled;
 
   let body: { content?: unknown };
   try {
@@ -66,7 +67,7 @@ export async function DELETE(request: Request, context: RouteContext) {
   }
 
   const disabled = moduleDisabledResponse('memory');
-  if (disabled) return disabled;
+  if (disabled && resolveModuleRuntime('goalPlan').mode !== 'enabled') return disabled;
 
   const { id } = await context.params;
   try {

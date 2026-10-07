@@ -1,0 +1,54 @@
+{
+  "success": true,
+  "draft": null,
+  "confirmed": {
+    "planId": "00000000-0000-4000-8000-000000000001",
+    "saved": [
+      {
+        "stepId": "00000000-0000-4000-8000-000000000002",
+        "entity": "commitment",
+        "id": "00000000-0000-4000-8000-000000000003",
+        "title": "Get what you need for “I want to run a 5k” ready",
+        "when": {
+          "kind": "none"
+        }
+      },
+      {
+        "stepId": "00000000-0000-4000-8000-000000000004",
+        "entity": "habit",
+        "id": "00000000-0000-4000-8000-000000000005",
+        "title": "Make time for “I want to run a 5k” a few times a week",
+        "when": {
+          "kind": "weekly",
+          "weekdays": [
+            3,
+            4,
+            5
+          ],
+          "start": "08:00",
+          "end": "08:30"
+        }
+      }
+    ],
+    "pendingLater": [
+      {
+        "weekIndex": 3,
+        "stepIds": [
+          "00000000-0000-4000-8000-000000000006"
+        ]
+      }
+    ]
+  },
+  "linkedWork": [
+    {
+      "entity": "commitment",
+      "id": "00000000-0000-4000-8000-000000000007",
+      "title": "Get what you need for “I want to run a 5k” ready"
+    },
+    {
+      "entity": "habit",
+      "id": "00000000-0000-4000-8000-000000000008",
+      "title": "Make time for “I want to run a 5k” a few times a week"
+    }
+  ]
+}

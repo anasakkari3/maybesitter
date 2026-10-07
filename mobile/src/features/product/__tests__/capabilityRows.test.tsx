@@ -73,6 +73,10 @@ jest.mock('../../../api/queries', () => ({
     data: { ...require('../../../api/__fixtures__/football.settings.json'), providerConfigured: mockFootballConfigured },
     isPending: false, isFetching: false, error: null, refetch: jest.fn(),
   }),
+  // The plan path (M3a): off in these renders unless a test says otherwise.
+  useUpcomingPlans: () => ({ isPending: false, error: null, data: [] }),
+  useGoalPlan: () => ({ data: { success: true, draft: null, confirmed: null, linkedWork: [] }, isSuccess: true, error: null, refetch: jest.fn() }),
+  useInvalidateAfterPlanConfirm: () => () => undefined,
 }));
 let mockFootballConfigured = false;
 jest.mock('../../google/useGoogle', () => ({

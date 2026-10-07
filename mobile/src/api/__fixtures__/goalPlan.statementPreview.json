@@ -1,0 +1,10 @@
+{
+  "success": true,
+  "summaryId": "00000000-0000-4000-8000-000000000001",
+  "revision": 1,
+  "understood": {
+    "goalText": "I want to learn Spanish"
+  },
+  "locale": "en",
+  "expiresAt": "2026-08-09T09:00:00.000Z"
+}

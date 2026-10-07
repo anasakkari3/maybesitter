@@ -1,0 +1,72 @@
+{
+  "success": true,
+  "times": {
+    "timesId": "00000000-0000-4000-8000-000000000001",
+    "timesRevision": 2,
+    "planId": "00000000-0000-4000-8000-000000000002",
+    "planRevision": 2,
+    "anchor": {
+      "localDate": "2026-10-07",
+      "timezone": "Asia/Jerusalem"
+    },
+    "steps": [
+      {
+        "stepId": "00000000-0000-4000-8000-000000000003",
+        "kind": "commitment",
+        "slot": null,
+        "alternatives": [],
+        "choice": "none"
+      },
+      {
+        "stepId": "00000000-0000-4000-8000-000000000004",
+        "kind": "habit",
+        "weekly": {
+          "weekdays": [
+            3,
+            4,
+            5
+          ],
+          "start": "08:00",
+          "end": "08:30"
+        },
+        "alternatives": [
+          {
+            "weekdays": [
+              3,
+              4,
+              5
+            ],
+            "start": "08:15",
+            "end": "08:45"
+          },
+          {
+            "weekdays": [
+              3,
+              4,
+              5
+            ],
+            "start": "08:30",
+            "end": "09:00"
+          },
+          {
+            "weekdays": [
+              3,
+              4,
+              5
+            ],
+            "start": "08:45",
+            "end": "09:15"
+          }
+        ],
+        "choice": "proposed"
+      },
+      {
+        "stepId": "00000000-0000-4000-8000-000000000005",
+        "kind": "commitment",
+        "later": {
+          "weekIndex": 3
+        }
+      }
+    ]
+  }
+}

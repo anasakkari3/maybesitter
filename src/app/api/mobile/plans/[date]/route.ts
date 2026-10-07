@@ -2,6 +2,7 @@ import { mobileAuthErrorResponse, requireMobileUser } from '../../../../../../li
 import { mobileError } from '../../../../../../lib/services/mobile/response';
 import { isPlanDate } from '../../../../../../lib/services/dailyPlan/planSettings';
 import { readCurrentPlan } from '../../../../../../lib/services/dailyPlan/planRefresh';
+import { reconcilePendingGoalPlanProjections } from '../../../../../../lib/services/mobile/goalPlanService';
 import { pendingProposalToDto, planToDto } from '../../../../../../lib/services/dailyPlan/planDto';
 import { fixedTimeForOffer } from '../../../../../../lib/services/dailyPlan/planActions';
 import { titlesOf } from '../../../../../../lib/services/dailyPlan/dailyPlanService';
@@ -43,6 +44,12 @@ export async function GET(request: Request, { params }: { params: Promise<{ date
 
   const { date } = await params;
   if (!isPlanDate(date)) return mobileError('date must be YYYY-MM-DD');
+  if (!await reconcilePendingGoalPlanProjections(user.uid, date, getStorage())) {
+    return Response.json(
+      { success: false, reason: 'projection_pending', retryable: true },
+      { status: 503 },
+    );
+  }
 
   const state = await loadDomainState(getStorage(), user.uid);
   const commitments = Object.values(state.commitments);

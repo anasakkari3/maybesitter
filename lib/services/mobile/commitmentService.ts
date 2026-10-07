@@ -511,6 +511,7 @@ function patchTimeSpec(current: TimeSpec, input: PatchCommitmentInput, now: Date
     remindAt,
     allDay,
     timezone: current.timezone,
+    ...(current.windowRule === 'shift' ? { windowRule: 'shift' as const } : {}),
   } as Partial<TimeSpec>;
 }
 

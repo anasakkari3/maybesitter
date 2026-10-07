@@ -5,7 +5,7 @@ import {
 import { describe, expect, it } from '@jest/globals';
 import { readdirSync, readFileSync } from 'fs';
 import { join } from 'path';
-import type { z } from 'zod';
+import { z } from 'zod';
 import type { CalendarBusyUpload } from '../endpoints/calendar';
 import { commitmentListSchema, commitmentSchema, errorBodySchema, importanceOf } from '../schemas/common';
 import {
@@ -97,6 +97,18 @@ import {
 import { deviceForgottenSchema, deviceRegisteredSchema } from '../schemas/devices';
 import { accountExportSchema } from '../schemas/accountExport';
 import {
+  goalPlanApproveResponseSchema,
+  goalPlanConfirmResponseSchema,
+  goalPlanResponseSchema,
+  goalPlanTimesResponseSchema,
+  goalPlanViewSchema,
+  laterWeekTimesResponseSchema,
+  statementAcceptResponseSchema,
+  statementPreviewResponseSchema,
+  upcomingPlansResponseSchema,
+} from '../schemas/goalPlan';
+import { GOAL_PLAN_REASONS } from '../errors';
+import {
   icsDeadlineDecidedSchema,
   icsFeedCreatedSchema,
   icsFeedDeletedSchema,
@@ -130,11 +142,33 @@ import {
 
 const FIXTURES = join(__dirname, '..', '__fixtures__');
 
+/** A plan route's refusal (M3a): one of the reasons the client keeps (`GoalPlanRefusedError`). */
+const goalPlanRefusalSchema = z.object({
+  success: z.literal(false),
+  reason: z.enum(GOAL_PLAN_REASONS),
+}).passthrough();
+
 function fixture(name: string): unknown {
   return JSON.parse(readFileSync(join(FIXTURES, `${name}.json`), 'utf8'));
 }
 
 const CASES: Array<[string, z.ZodType]> = [
+  // The one plan path (M3a), generated from the real handlers by Task B.
+  ['goalPlan.generatedTemplate', goalPlanResponseSchema],
+  ['goalPlan.edited', goalPlanResponseSchema],
+  ['goalPlan.approved', goalPlanApproveResponseSchema],
+  ['goalPlan.timeRemoved', goalPlanTimesResponseSchema],
+  ['goalPlan.laterTimes', laterWeekTimesResponseSchema],
+  ['goalPlan.confirmed', goalPlanConfirmResponseSchema],
+  ['goalPlan.read', goalPlanViewSchema],
+  ['goalPlan.upcoming', upcomingPlansResponseSchema],
+  ['goalPlan.statementPreview', statementPreviewResponseSchema],
+  ['goalPlan.statementAccepted', statementAcceptResponseSchema],
+  ['goalPlan.intelligenceRoute', intelligenceAnalyzeSchema],
+  ['goalPlan.refusedExistingDraft', goalPlanRefusalSchema],
+  ['goalPlan.refusedInvalidEdit', goalPlanRefusalSchema],
+  ['goalPlan.refusedStatementEvent', goalPlanRefusalSchema],
+  ['goalPlan.regenerateModelUnavailable', goalPlanRefusalSchema],
   ['capture.proposal', captureProposalSchema],
   // Both are the same shape: the clarify endpoint answers with the whole
   // updated proposal, not an acknowledgement (#165).

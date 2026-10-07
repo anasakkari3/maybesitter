@@ -20,6 +20,8 @@
  *   - AI is always on, for capture and chat alike;
  *   - the message is bounded exactly like a capture.
  */
+// First: these cases name days relative to today (see the module).
+import '../support/pinnedWednesday.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createMemoryStorage } from '../../lib/storage/memoryAdapter.ts';
@@ -174,12 +176,12 @@ type ChatBody = {
   turns: Array<{ role: string; text: string }>;
 };
 
-async function chat(uid: string, message: string, conversationId?: string): Promise<ChatBody> {
+async function chat(uid: string, message: string, conversationId?: string, referenceTime = new Date().toISOString()): Promise<ChatBody> {
   const response = await chatPost(post('/api/mobile/capture/chat', uid, {
     ...(conversationId ? { conversationId } : {}),
     message,
     timezone: TZ,
-    referenceTime: new Date().toISOString(),
+    referenceTime,
   }));
   const body = await response.json();
   assert.equal(response.status, 200, `chat answered ${response.status}: ${JSON.stringify(body)}`);
@@ -605,6 +607,10 @@ test('a settled card accepts a model clock only inside the stated half of the da
 
 test('"tonight" keeps the model\'s today instead of carrying the stored day', async () => {
   const today = localDate(0);
+  // Keep 20:00 ahead of the request clock. With the real clock this case
+  // flips after 20:00 Jerusalem time and tests past-time rejection instead of
+  // the day-carrying behavior named above.
+  const referenceTime = instant(today, '12:00');
   const model = scripted(
     answer('First.', 'propose', [item('Call mom', TOMORROW, '17:00')]),
     answer('Done.', 'update', [item('Call mom', today, '20:00')], ['make it tonight']),
@@ -612,8 +618,8 @@ test('"tonight" keeps the model\'s today instead of carrying the stored day', as
   begin({ llmProviderFor: () => model.provider });
   try {
     const uid = uidFor('TonightUsesToday');
-    const first = await chat(uid, 'Call mom tomorrow at 5 PM');
-    const changed = await chat(uid, 'make it tonight', first.conversationId);
+    const first = await chat(uid, 'Call mom tomorrow at 5 PM', undefined, referenceTime);
+    const changed = await chat(uid, 'make it tonight', first.conversationId, referenceTime);
     assert.equal(changed.proposal!.items[0]!.resolvedDate, today);
     assert.equal(localClock(changed.proposal!.items[0]!.resolvedTime), '20:00');
   } finally {

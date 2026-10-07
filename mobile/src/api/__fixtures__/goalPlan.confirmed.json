@@ -1,0 +1,44 @@
+{
+  "success": true,
+  "saved": [
+    {
+      "stepId": "00000000-0000-4000-8000-000000000001",
+      "entity": "commitment",
+      "id": "00000000-0000-4000-8000-000000000002",
+      "title": "Get what you need for “I want to run a 5k” ready",
+      "when": {
+        "kind": "none"
+      }
+    },
+    {
+      "stepId": "00000000-0000-4000-8000-000000000003",
+      "entity": "habit",
+      "id": "00000000-0000-4000-8000-000000000004",
+      "title": "Make time for “I want to run a 5k” a few times a week",
+      "when": {
+        "kind": "weekly",
+        "weekdays": [
+          3,
+          4,
+          5
+        ],
+        "start": "08:00",
+        "end": "08:30"
+      }
+    }
+  ],
+  "stayed": [
+    {
+      "stepId": "00000000-0000-4000-8000-000000000005",
+      "title": "Decide what a month of progress on “I want to run a 5k” looks like",
+      "why": {
+        "kind": "later_week",
+        "weekIndex": 3
+      }
+    }
+  ],
+  "receipt": {
+    "outcomeId": "fixture-plan-confirm",
+    "replayed": false
+  }
+}

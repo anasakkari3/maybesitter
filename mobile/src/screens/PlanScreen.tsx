@@ -37,6 +37,7 @@ import { canRegenerate, rebuildsLeft } from '../features/plan/regenerateCap';
 import { moveKeepingLength } from '../features/plan/optimisticEdit';
 import { useOneAtATime } from '../features/plan/oneAtATime';
 import { dayAfter, planRows, workingHoursOver } from '../features/plan/lateDay';
+import { planBuildFailureOf } from '../features/goalPlan/planFailures';
 import {
   reportPlanDecision,
   reportPlanEdited,
@@ -163,7 +164,7 @@ function EmptyPlan({ date, online, deliveryOn }: { date: string; online: boolean
             }}
           />
           {build.error ? (
-            <Txt size={13} color={p.wm} testID="plan-build-error">{userFacingMessage(build.error, t)}</Txt>
+            <Txt size={13} color={p.wm} testID="plan-build-failure">{planBuildFailureOf(build.error, t)}</Txt>
           ) : null}
           {/* Only when the server says delivery is off. Offering "turn it on"
               to somebody who already has it on would be telling them the
@@ -616,7 +617,7 @@ function DayOver({ date, readOnly }: { date: string; readOnly: boolean }) {
           />
         )}
         {build.error ? (
-          <Txt size={13} color={p.wm} testID="plan-build-tomorrow-error">{userFacingMessage(build.error, t)}</Txt>
+          <Txt size={13} color={p.wm} testID="plan-build-tomorrow-error">{planBuildFailureOf(build.error, t)}</Txt>
         ) : null}
       </View>
     </Card>

@@ -23,6 +23,8 @@
  *   - the reply never claims a change and asks for it at once, and never asks
  *     for an hour the card already shows.
  */
+// First: these replays name days relative to today (see the module).
+import '../support/pinnedTuesday.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';

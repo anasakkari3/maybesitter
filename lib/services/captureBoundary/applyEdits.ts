@@ -267,12 +267,13 @@ function endAfterMove(timeSpec: Partial<TimeSpec>, dueAt: string | null): string
   return windowEndAfterMove(windowOf(timeSpec), dueAt);
 }
 
-function windowOf(timeSpec: Partial<TimeSpec>): Pick<TimeSpec, 'kind' | 'dueAt' | 'endAt' | 'allDay'> {
+function windowOf(timeSpec: Partial<TimeSpec>): Pick<TimeSpec, 'kind' | 'dueAt' | 'endAt' | 'allDay' | 'windowRule'> {
   return {
     kind: timeSpec.kind ?? 'unscheduled',
     dueAt: timeSpec.dueAt ?? null,
     endAt: timeSpec.endAt ?? null,
     allDay: timeSpec.allDay === true,
+    ...(timeSpec.windowRule === 'shift' ? { windowRule: 'shift' as const } : {}),
   };
 }
 

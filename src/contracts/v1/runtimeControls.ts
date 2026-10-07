@@ -19,6 +19,7 @@ export const MODULE_FEATURE_FLAG_DEFAULTS: ModuleFeatureFlags = Object.freeze({
   feedback: false,
   safety: false,
   evaluation: false,
+  goalPlan: false,
 });
 
 export const MODULE_KILL_SWITCH_DEFAULTS: ModuleKillSwitches = Object.freeze({
@@ -33,6 +34,7 @@ export const MODULE_KILL_SWITCH_DEFAULTS: ModuleKillSwitches = Object.freeze({
   feedback: false,
   safety: false,
   evaluation: false,
+  goalPlan: false,
 });
 
 export type RulesOnlyFallbackReason =
@@ -63,6 +65,7 @@ export interface RuntimeControlSnapshot {
   version: typeof MODULE_CONTRACT_VERSION;
   featureFlags: ModuleFeatureFlags;
   killSwitches: ModuleKillSwitches;
+  environment?: string;
 }
 
 export type RuntimeControlEnv = Record<string, string | undefined>;
@@ -99,6 +102,7 @@ export function readRuntimeControls(
     version: MODULE_CONTRACT_VERSION,
     featureFlags: Object.freeze(featureFlags),
     killSwitches: Object.freeze(killSwitches),
+    environment: (env.MAYBESITTER_ENV ?? 'local').trim().toLowerCase() || 'local',
   };
 }
 
@@ -106,6 +110,19 @@ export function resolveModuleRuntime(
   module: IntelligenceModuleName,
   controls: RuntimeControlSnapshot = readRuntimeControls(),
 ): ModuleRuntimeDecision {
+  const environment = controls.environment
+    ?? ((process.env.MAYBESITTER_ENV ?? 'local').trim().toLowerCase() || 'local');
+  if (module === 'goalPlan' && !['local', 'test', 'staging'].includes(environment)) {
+    return {
+      version: MODULE_CONTRACT_VERSION,
+      module,
+      mode: 'rules_only',
+      reason: 'feature_disabled',
+      allowsModelExecution: false,
+      allowsDirectStateWrites: false,
+      captureRemainsAvailable: true,
+    };
+  }
   if (controls.killSwitches[module]) {
     return {
       version: MODULE_CONTRACT_VERSION,
@@ -198,4 +215,3 @@ export function createAuditEvent(input: CreateAuditEventInput): AuditEventEnvelo
     fields,
   };
 }
-
