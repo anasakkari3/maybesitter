@@ -9,7 +9,7 @@
     "items": [
       {
         "itemId": "00000000-0000-4000-8000-000000000003",
-        "title": "وعم بفكر أسافر الصيف الجاي",
+        "title": "عم بفكر أسافر الصيف الجاي",
         "resolvedTime": null,
         "needsClarification": true,
         "clarification": {
@@ -17,7 +17,7 @@
           "field": "time",
           "questionKey": "ask_time",
           "params": {
-            "title": "وعم بفكر أسافر الصيف الجاي"
+            "title": "عم بفكر أسافر الصيف الجاي"
           },
           "options": [
             {
@@ -98,7 +98,7 @@
     },
     {
       "role": "user",
-      "text": "غيّر نوع «وعم بفكر أسافر الصيف الجاي».",
+      "text": "غيّر نوع «عم بفكر أسافر الصيف الجاي».",
       "evidence": false
     },
     {

@@ -621,7 +621,10 @@ function segmentsOf(raw: string): string[] {
     .replace(/،+/g, '|')
     .split('|')
     .map((part) => part.trim())
-    .map((part) => part.replace(/^[\s,;،]+|[\s,;،]+$/g, '').replace(/^(?:and\b|ثم(?![؀-ۿ])|ו)\s*/i, '').trim())
+    .map((part) => part.replace(/^[\s,;،]+|[\s,;،]+$/g, '').replace(/^(?:and\b|ثم(?![؀-ۿ]))\s*/i, '').trim())
+    // A Hebrew «ו» is attached, like an Arabic «و»: it is not cut here, where
+    // «ויזה» would lose its own letter (Codex inspection F3-004); a joining one
+    // goes where the follower's item or seed is made (`withoutClauseJoiner`).
     .filter(Boolean)
     .flatMap(splitTimedConjuncts);
   return segments.length > 0 ? withTimeOnlyClausesMerged(segments) : [raw];

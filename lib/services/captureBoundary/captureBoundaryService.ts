@@ -951,6 +951,21 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
   });
   const several = segments.length > 1;
   /*
+   * Whether a point was said after another one in the same message, so the
+   * «و» / "and" / «ו» that joined them is dropped where its item or seed is
+   * made (load pass F3). A capture knows it from the split
+   * (`CaptureClause.follows`). A chat turn — the model's path, the first
+   * message included — knows it from where the point's words stand in the
+   * newest message; and only for a new point, never an existing one, whose
+   * words are the person's own edit (Codex inspection F3-003).
+   */
+  const followsAnother = (index: number): boolean => {
+    if (!chat) return clauses[index]?.follows === true;
+    if (chatAligned[index] !== null) return false;
+    const words = clauses[index]?.text.trim() ?? '';
+    return words.length > 0 && raw.indexOf(words) > 0;
+  };
+  /*
    * Unresolved intent is read before the extractor, not after it (#519).
    *
    * After would be the tidier place — "whatever produced no commitment, look
@@ -1078,7 +1093,7 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
         const seedItemId = randomUUID();
         // A clause said after another loses the «و» that joined them, once,
         // here (load pass F3): the summary shows the stored words as they are.
-        seeds.push({ seedItemId, kind: intent.kind, summary: !chat && clauses[index]?.follows ? withoutClauseJoiner(segment) : segment });
+        seeds.push({ seedItemId, kind: intent.kind, summary: followsAnother(index) ? withoutClauseJoiner(segment) : segment });
         sourceOrdinals.seeds[seedItemId] = sourceOrdinal(raw, segment, chatItems[index], index);
         const operationIndex = chatOperationIndex(chatItems[index]);
         if (operationIndex !== null) chatOperationIndices.seeds[seedItemId] = operationIndex;
@@ -1453,7 +1468,7 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
       // at its edges («and gym», «חדר כושר וחמישי»), on the card and the saved
       // commitment alike.
       const tidied = extracted.result.title
-        ? tidyTitle(!chat && clauses[index]?.follows ? withoutClauseJoiner(extracted.result.title) : extracted.result.title)
+        ? tidyTitle(followsAnother(index) ? withoutClauseJoiner(extracted.result.title) : extracted.result.title)
         : extracted.result.title;
       const tidyResult = tidied === extracted.result.title ? extracted.result
         : { ...extracted.result, title: tidied, ...(extracted.result.action === extracted.result.title ? { action: tidied } : {}) };
