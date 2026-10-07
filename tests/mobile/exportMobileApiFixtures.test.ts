@@ -874,7 +874,13 @@ test('exports a fixture for every /api/mobile call the React Native client makes
     await record('goalPlan.read', 200, await goalPlanGet(
       request(`/api/mobile/goals/${plannedGoal.id}/plan`, { uid: GOAL_USER }),
       planContext,
-    ));
+    ), (body) => ({
+      ...body,
+      // Link document ids contain generated step ids, so storage order is not
+      // a wire guarantee. Pin only that order; the fixture still records every shape.
+      linkedWork: [...(body.linkedWork as Array<Record<string, unknown>>)].sort((left, right) =>
+        compareByCodePoint(String(left.entity), String(right.entity)) || compareByCodePoint(String(left.title), String(right.title))),
+    }));
     const later = acceptedTimes.steps.find((step) => step.later);
     assert.ok(later, 'the template plan must retain a later week for its route fixture');
     await record('goalPlan.laterTimes', 200, await goalPlanLaterPost(

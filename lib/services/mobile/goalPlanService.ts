@@ -34,7 +34,7 @@ import { composeDailyPlanRequest, addCivilDays } from '../dailyPlan/dailyPlanSer
 import { localDateOf } from '../dailyPlan/planSettings';
 import { readCurrentPlan } from '../dailyPlan/planRefresh';
 import { DEFAULT_MOBILE_TIMEZONE } from './time';
-import { readOwnedMemory, createManualMemory, MemoryNotFoundError } from './memoryService';
+import { readOwnedMemory, createManualMemoryIdempotent, MemoryNotFoundError } from './memoryService';
 import { loadDomainState, writeDomainDiff } from './participantState';
 import {
   COMMITMENTS,
@@ -121,6 +121,7 @@ interface GenerationClaim {
   lineageId: string;
   goalId: string;
   idempotencyKey: string;
+  replacesPlanId?: string;
   state: 'claimed' | 'done' | 'lost';
   reservedUntil: string;
   planId?: string;
@@ -374,7 +375,7 @@ export async function generateGoalPlan(uid: string, goalId: string, input: { ide
     if (existing?.state === 'claimed' && Date.parse(existing.reservedUntil) > now.getTime()) {
       return { kind: 'waiting' as const, claimId: existing.claimId, lineageId: lineage.lineageId };
     }
-    const claimId = existing?.claimId ?? randomUUID();
+    const claimId = randomUUID();
     tx.set<GenerationClaim>(claimPath(uid, lineage.lineageId), {
       claimId, lineageId: lineage.lineageId, goalId, idempotencyKey: input.idempotencyKey,
       state: 'claimed', reservedUntil: new Date(now.getTime() + CLAIM_LEASE_MS).toISOString(),
@@ -437,7 +438,7 @@ async function currentPlanForMutation(tx: StorageTransaction, uid: string, goalI
 
 export async function readGoalPlan(uid: string, goalId: string, storage = getStorage()) {
   await ownedGoal(uid, goalId, storage);
-  if (!await reconcilePendingGoalPlanProjections(uid, undefined, storage)) {
+  if (!await reconcilePendingGoalPlanProjections(uid, undefined, storage, goalId)) {
     apiError(503, 'projection_pending', { retryable: true });
   }
   const lineage = await requireCurrentGoal(storage, uid, goalId);
@@ -497,9 +498,20 @@ export async function editGoalPlan(uid: string, goalId: string, planId: string, 
       const added: InternalStep = { stepId: randomUUID(), order: 1, phase, title: op.step.title.trim(), kind: op.step.kind,
         durationMinutes: op.step.durationMinutes, ...(rhythm ? { rhythm } : {}), buildsOn: null, expectedOutcome: null,
         origin: 'person', sourceSpans: [], inferred: false };
-      const after = op.afterStepId === null ? -1 : steps.findIndex((step) => step.stepId === op.afterStepId);
-      if (op.afterStepId !== null && after < 0) apiError(422, 'invalid_edit', { plan: publicPlan(plan) });
-      steps.splice(after + 1, 0, added);
+      let insertion: number;
+      if (op.afterStepId === null) {
+        const phaseIndexes = steps.flatMap((step, stepIndex) => isDeepStrictEqual(step.phase, phase) ? [stepIndex] : []);
+        insertion = phaseIndexes.length > 0
+          ? phaseIndexes[phaseIndexes.length - 1]! + 1
+          : steps.findIndex((step) => phaseRank(step.phase) > phaseRank(phase));
+        if (insertion < 0) insertion = steps.length;
+      } else {
+        const after = steps.findIndex((step) => step.stepId === op.afterStepId);
+        if (after < 0 || !isDeepStrictEqual(steps[after]!.phase, phase)) apiError(422, 'invalid_edit', { plan: publicPlan(plan) });
+        insertion = after + 1;
+      }
+      steps.splice(insertion, 0, added);
+      steps = steps.map((step, stepIndex) => ({ ...step, order: stepIndex + 1 }));
     } else if (op.op === 'update') {
       if (index < 0) apiError(422, 'invalid_edit', { plan: publicPlan(plan) });
       const current = steps[index]!;
@@ -670,10 +682,11 @@ function publicTimes(times: StoredTimes): GoalPlanTimes {
   return wire;
 }
 
-function chosenIntervals(times: StoredTimes, plan: StoredGoalPlan): TimeInterval[] {
+function chosenIntervals(times: StoredTimes, plan: StoredGoalPlan, excludedStepId?: string): TimeInterval[] {
   const byId = new Map(plan.steps.map((step) => [step.stepId, step]));
   const intervals: TimeInterval[] = [];
   for (const entry of times.steps) {
+    if (entry.stepId === excludedStepId) continue;
     if ('slot' in entry && entry.slot) intervals.push(entry.slot);
     if ('weekly' in entry && entry.weekly) {
       const step = byId.get(entry.stepId); if (!step) continue;
@@ -685,6 +698,13 @@ function chosenIntervals(times: StoredTimes, plan: StoredGoalPlan): TimeInterval
     }
   }
   return intervals;
+}
+
+function minuteOfDay(value: string): number | null {
+  const match = /^(\d{2}):(\d{2})$/.exec(value);
+  if (!match) return null;
+  const hour = Number(match[1]); const minute = Number(match[2]);
+  return hour >= 0 && hour < 24 && minute >= 0 && minute < 60 ? hour * 60 + minute : null;
 }
 
 export async function chooseGoalPlanTime(uid: string, goalId: string, planId: string, stepId: string, timesRevision: number, choice: Record<string, unknown>, storage = getStorage()): Promise<GoalPlanTimes> {
@@ -708,16 +728,30 @@ export async function chooseGoalPlanTime(uid: string, goalId: string, planId: st
     if (Date.parse(slot.startsAt) <= Date.parse(now)) apiError(422, 'slot_in_past', { times: publicTimes(times) });
     const date = localDateOf(slot.startsAt, times.anchor.timezone);
     const contexts = await dayContexts(storage, uid, times.anchor, [date], now);
-    const other = chosenIntervals(times, plan).filter((interval) => !('slot' in times.steps[index]! && isDeepStrictEqual(interval, (times.steps[index] as { slot?: GoalPlanSlot }).slot)));
+    const other = chosenIntervals(times, plan, stepId);
     const exact = contexts[0] && exactSlot(contexts[0], step, `${new Date(slot.startsAt).toLocaleTimeString('en-GB', { timeZone: times.anchor.timezone, hour: '2-digit', minute: '2-digit', hour12: false })}`, times.anchor.timezone, other);
     if (!exact || !isDeepStrictEqual(exact, slot)) apiError(422, 'not_free', { times: publicTimes(times) });
     replacement = { stepId, kind: 'commitment', slot, alternatives: [], choice: 'proposed' };
   } else if (step.kind === 'habit' && choice.weekly && typeof choice.weekly === 'object') {
     const weekly = choice.weekly as GoalPlanWeeklyTiming;
-    if (!Array.isArray(weekly.weekdays) || !weekly.weekdays.length) apiError(422, 'not_free', { times: publicTimes(times) });
+    const needed = step.rhythm?.timesPerWeek ?? 1;
+    const uniqueWeekdays = Array.isArray(weekly.weekdays) ? new Set(weekly.weekdays) : new Set<number>();
+    const startMinute = typeof weekly.start === 'string' ? minuteOfDay(weekly.start) : null;
+    const endMinute = typeof weekly.end === 'string' ? minuteOfDay(weekly.end) : null;
+    if (!Array.isArray(weekly.weekdays) || weekly.weekdays.length !== needed || uniqueWeekdays.size !== needed
+      || !weekly.weekdays.every((weekday) => Number.isInteger(weekday) && weekday >= 0 && weekday <= 6)
+      || startMinute === null || endMinute === null || endMinute !== startMinute + step.durationMinutes) {
+      apiError(422, 'not_free', { times: publicTimes(times) });
+    }
     const contexts = await dayContexts(storage, uid, times.anchor, datesFor(step, times.anchor.localDate), now);
-    const ok = contexts.filter((context) => weekly.weekdays.includes(new Date(`${context.date}T12:00:00Z`).getUTCDay()))
-      .every((context) => exactSlot(context, step, weekly.start, times.anchor.timezone, []) !== null);
+    const selectedContexts = contexts.filter((context) => weekly.weekdays.includes(new Date(`${context.date}T12:00:00Z`).getUTCDay()));
+    if (new Set(selectedContexts.map((context) => new Date(`${context.date}T12:00:00Z`).getUTCDay())).size !== needed) {
+      apiError(422, 'not_free', { times: publicTimes(times) });
+    }
+    const firstStartsAt = selectedContexts[0] ? atLocal(selectedContexts[0].date, weekly.start, times.anchor.timezone) : null;
+    if (firstStartsAt && Date.parse(firstStartsAt) <= Date.parse(now)) apiError(422, 'slot_in_past', { times: publicTimes(times) });
+    const other = chosenIntervals(times, plan, stepId);
+    const ok = selectedContexts.every((context) => exactSlot(context, step, weekly.start, times.anchor.timezone, other) !== null);
     if (!ok) apiError(422, 'not_free', { times: publicTimes(times) });
     replacement = { stepId, kind: 'habit', weekly, alternatives: [], choice: 'proposed' };
   } else apiError(422, 'not_free', { times: publicTimes(times) });
@@ -746,9 +780,9 @@ function commitmentCommands(step: InternalStep, entry: GoalPlanTimesStep, id: st
 
 function habitFor(uid: string, goalId: string, step: InternalStep, entry: GoalPlanTimesStep, id: string, now: string): HabitDefinition {
   const weekly = 'weekly' in entry ? entry.weekly : null;
-  const fallbackDays = Array.from({ length: step.rhythm?.timesPerWeek ?? 1 }, (_, index) => index);
   return buildHabitDefinition(id, parseHabitDefinitionInput({ scopeId: uid, title: step.title,
-    cadence: { kind: 'weekdays', weekdays: weekly?.weekdays ?? fallbackDays }, durationMinutes: step.durationMinutes,
+    cadence: weekly ? { kind: 'weekdays', weekdays: weekly.weekdays }
+      : { kind: 'weekly_count', count: step.rhythm?.timesPerWeek ?? 1 }, durationMinutes: step.durationMinutes,
     preferredWindows: weekly ? [{ start: weekly.start, end: weekly.end }] : [], flexibility: weekly ? 'protected_flexible' : 'flexible',
     recoveryPolicy: 'recover_within_period', source: 'goal_confirmed',
     confirmation: { confirmedByUserAt: now, sourceRef: goalId, acceptedSuggestedValues: true } }), now);
@@ -798,9 +832,12 @@ export async function reconcilePendingGoalPlanProjections(
   uid: string,
   date: string | undefined,
   storage = getStorage(),
+  goalId?: string,
 ): Promise<boolean> {
   const pending = (await storage.list<StoredOutcome>(userCol(uid, GOAL_PLAN_OUTCOMES))).map((row) => row.data)
-    .filter((outcome) => outcome.projection === 'pending' && (!date || outcome.affectedDates.includes(date)));
+    .filter((outcome) => outcome.projection === 'pending'
+      && (!date || outcome.affectedDates.includes(date))
+      && (!goalId || outcome.goalId === goalId));
   for (const outcome of pending) if (!await completeProjection(uid, outcome, storage)) return false;
   return true;
 }
@@ -897,23 +934,70 @@ export async function confirmGoalPlan(uid: string, goalId: string, planId: strin
 }
 
 export async function regenerateGoalPlan(uid: string, goalId: string, input: { currentPlanId: string; revision: number; idempotencyKey: string }, storage = getStorage()): Promise<GoalPlan> {
-  const existing = await storage.get<StoredGoalPlan>(planPath(uid, input.currentPlanId));
-  if (!existing) apiError(409, 'stale');
-  if (existing.status === 'confirmed') apiError(409, 'plan_confirmed');
-  const generated = await modelPlan(uid, existing.summary.goalText);
-  const now = new Date().toISOString(); const newId = randomUUID();
-  return storage.runTransaction(async (tx) => {
-    const { lineage, plan } = await currentPlanForMutation(tx, uid, goalId, input.currentPlanId);
-    if (plan.revision !== input.revision || plan.status === 'confirmed') apiError(plan.status === 'confirmed' ? 409 : 409, plan.status === 'confirmed' ? 'plan_confirmed' : 'stale', { plan: publicPlan(plan) });
-    const times = await tx.list<StoredTimes>(userCol(uid, GOAL_PLAN_TIMES));
-    const replacement: StoredGoalPlan = { ...plan, planId: newId, revision: 1, status: 'draft', source: 'model', steps: generated.steps,
-      horizon: generated.horizon, removed: [], editCount: 0, pendingLaterSteps: [], anchor: undefined, pendingWeekStartsAt: undefined, createdAt: now, updatedAt: now };
-    tx.set(planPath(uid, plan.planId), { ...plan, status: 'superseded', updatedAt: now });
-    tx.set(planPath(uid, newId), replacement);
-    for (const row of times.filter((row) => row.data.planId === plan.planId)) tx.set(timesPath(uid, row.id), { ...row.data, invalidated: true, updatedAt: now });
-    tx.set<GoalLineage>(linePath(uid, goalId), { ...lineage, activeDraftPlanId: newId, updatedAt: now });
-    return publicPlan(replacement);
+  const now = new Date(); const nowIso = now.toISOString();
+  const claim = await storage.runTransaction(async (tx) => {
+    const lineage = await requireCurrentGoal(tx, uid, goalId);
+    const existingClaim = await tx.get<GenerationClaim>(claimPath(uid, lineage.lineageId));
+    if (existingClaim?.state === 'done' && existingClaim.idempotencyKey === input.idempotencyKey
+      && existingClaim.replacesPlanId === input.currentPlanId && existingClaim.planId) {
+      const replacement = await tx.get<StoredGoalPlan>(planPath(uid, existingClaim.planId));
+      if (replacement) return { kind: 'existing' as const, plan: replacement };
+    }
+    if (existingClaim?.state === 'claimed' && Date.parse(existingClaim.reservedUntil) > now.getTime()) {
+      return { kind: 'waiting' as const, claimId: existingClaim.claimId, lineageId: lineage.lineageId };
+    }
+    const plan = await tx.get<StoredGoalPlan>(planPath(uid, input.currentPlanId));
+    if (!plan) apiError(409, 'stale');
+    if (plan.goalId !== lineage.currentGoalId) apiError(409, 'goal_superseded', { currentGoalId: lineage.currentGoalId });
+    if (plan.status === 'confirmed') apiError(409, 'plan_confirmed');
+    if (lineage.activeDraftPlanId !== input.currentPlanId || plan.status === 'superseded' || plan.revision !== input.revision) {
+      apiError(409, 'stale', { plan: publicPlan(plan) });
+    }
+    const claimId = randomUUID();
+    tx.set<GenerationClaim>(claimPath(uid, lineage.lineageId), {
+      claimId, lineageId: lineage.lineageId, goalId, idempotencyKey: input.idempotencyKey,
+      replacesPlanId: input.currentPlanId, state: 'claimed', reservedUntil: new Date(now.getTime() + CLAIM_LEASE_MS).toISOString(),
+    });
+    return { kind: 'claimed' as const, claimId, lineage, plan };
   });
+  if (claim.kind === 'existing') return publicPlan(claim.plan);
+  if (claim.kind === 'waiting') {
+    const settled = await waitForClaim(uid, claim.lineageId, claim.claimId, storage);
+    if (settled) return publicPlan(settled);
+    apiError(409, 'stale');
+  }
+  let generated: { horizon: 'days' | 'weeks'; steps: InternalStep[] };
+  try {
+    generated = await modelPlan(uid, claim.plan.summary.goalText);
+  } catch (error) {
+    await storage.runTransaction(async (tx) => {
+      const active = await tx.get<GenerationClaim>(claimPath(uid, claim.lineage.lineageId));
+      if (active?.claimId === claim.claimId && active.state === 'claimed') {
+        tx.set<GenerationClaim>(claimPath(uid, claim.lineage.lineageId), { ...active, state: 'lost', reservedUntil: nowIso });
+      }
+    });
+    throw error;
+  }
+  const newId = randomUUID();
+  const result = await storage.runTransaction(async (tx) => {
+    const currentClaim = await tx.get<GenerationClaim>(claimPath(uid, claim.lineage.lineageId));
+    const lineage = await requireCurrentGoal(tx, uid, goalId);
+    const plan = await tx.get<StoredGoalPlan>(planPath(uid, input.currentPlanId));
+    const times = await tx.list<StoredTimes>(userCol(uid, GOAL_PLAN_TIMES));
+    if (!currentClaim || currentClaim.claimId !== claim.claimId || currentClaim.state !== 'claimed') return null;
+    if (!plan || lineage.activeDraftPlanId !== input.currentPlanId || plan.status === 'superseded'
+      || plan.status === 'confirmed' || plan.revision !== input.revision) return null;
+    const replacement: StoredGoalPlan = { ...plan, planId: newId, revision: 1, status: 'draft', source: 'model', steps: generated.steps,
+      horizon: generated.horizon, removed: [], editCount: 0, pendingLaterSteps: [], anchor: undefined, pendingWeekStartsAt: undefined, createdAt: nowIso, updatedAt: nowIso };
+    tx.set(planPath(uid, plan.planId), { ...plan, status: 'superseded', updatedAt: nowIso });
+    tx.set(planPath(uid, newId), replacement);
+    for (const row of times.filter((row) => row.data.planId === plan.planId)) tx.set(timesPath(uid, row.id), { ...row.data, invalidated: true, updatedAt: nowIso });
+    tx.set<GoalLineage>(linePath(uid, goalId), { ...lineage, activeDraftPlanId: newId, updatedAt: nowIso });
+    tx.set<GenerationClaim>(claimPath(uid, lineage.lineageId), { ...currentClaim, state: 'done', planId: newId });
+    return replacement;
+  });
+  if (!result) apiError(409, 'stale');
+  return publicPlan(result);
 }
 
 export async function createLaterWeekTimes(uid: string, goalId: string, planId: string, weekIndex: number, storage = getStorage()): Promise<GoalPlanTimes> {
@@ -940,13 +1024,30 @@ export async function listUpcomingGoalPlans(uid: string, storage = getStorage())
     .sort((a, b) => a.weekStartsAt.localeCompare(b.weekStartsAt) || a.goalTitle.localeCompare(b.goalTitle)).slice(0, 5);
 }
 
+function vagueGoalQuestion(locale: unknown): string {
+  const language = typeof locale === 'string' ? locale.toLowerCase().split(/[-_]/, 1)[0] : 'ar';
+  if (language === 'en') return 'What do you want to change?';
+  if (language === 'he') return 'מה היית רוצה לשנות?';
+  return 'شو بدك يتغيّر؟';
+}
+
+function looksLikeScheduledEvent(text: string): boolean {
+  const hasEventCue = /(?:موعد|دكتور|طبيب|appointment|meeting|פגישה)/i.test(text);
+  if (!hasEventCue) return false;
+  const hasClock = /(?:الساعة|\bat\b|בשעה)\s*\d{1,2}(?::\d{2})?|(?:^|\s)\d{1,2}:\d{2}(?=\s|$)/i.test(text);
+  const hasDayWord = /(?:بكرا|غدا|غداً|اليوم|\btomorrow\b|\btoday\b|מחר|היום)/i.test(text);
+  const hasWeekday = /(?:الأحد|الاحد|الإثنين|الاثنين|الثلاثاء|الأربعاء|الاربعاء|الخميس|الجمعة|السبت|\bsunday\b|\bmonday\b|\btuesday\b|\bwednesday\b|\bthursday\b|\bfriday\b|\bsaturday\b|יום\s+(?:ראשון|שני|שלישי|רביעי|חמישי|שישי|שבת))/i.test(text);
+  return hasClock || hasDayWord || hasWeekday;
+}
+
 export async function previewGoalStatement(uid: string, statement: unknown, locale: unknown, storage = getStorage()) {
-  if (typeof statement !== 'string' || !statement.trim()) apiError(422, 'goal_too_vague', { question: 'شو بدك يتغيّر؟' });
+  const question = vagueGoalQuestion(locale);
+  if (typeof statement !== 'string' || !statement.trim()) apiError(422, 'goal_too_vague', { question });
   const text = statement.trim();
-  if (/(?:موعد|دكتور|طبيب|appointment|meeting|פגישה).*(?:بكرا|غدا|tomorrow|מחר|الساعة|\d)/i.test(text)) {
+  if (looksLikeScheduledEvent(text)) {
     apiError(422, 'not_a_goal', { classification: 'event', recovery: 'capture' });
   }
-  if (Array.from(text).length < 5) apiError(422, 'goal_too_vague', { question: 'شو بدك يتغيّر؟' });
+  if (Array.from(text).length < 5) apiError(422, 'goal_too_vague', { question });
   const now = new Date(); const summaryId = randomUUID(); const expiresAt = new Date(now.getTime() + PREVIEW_TTL_MS).toISOString();
   const preview = { summaryId, revision: 1, understood: { goalText: text }, locale: typeof locale === 'string' ? locale : 'ar', expiresAt };
   await storage.set<StatementPreview>(path(uid, GOAL_STATEMENT_PREVIEWS, summaryId), { ...preview, expiresAt: new Date(expiresAt) });
@@ -961,7 +1062,13 @@ export async function acceptGoalStatement(uid: string, input: { summaryId: strin
   const expiresAt = preview?.expiresAt instanceof Date ? preview.expiresAt.getTime() : Date.parse(preview?.expiresAt ?? '');
   if (!preview || !Number.isFinite(expiresAt) || expiresAt <= Date.now()) apiError(410, 'gone');
   if (preview.revision !== input.revision || !input.understood || typeof input.understood.goalText !== 'string') apiError(409, 'stale');
-  const created = await createManualMemory(uid, { kind: 'goal', content: input.understood.goalText, language: preview.locale }, new Date().toISOString(), { storage });
+  const created = await createManualMemoryIdempotent(
+    uid,
+    { kind: 'goal', content: input.understood.goalText, language: preview.locale },
+    new Date().toISOString(),
+    `goal-statement:${input.idempotencyKey}`,
+    { storage },
+  );
   await storage.runTransaction(async (tx) => {
     const existing = await tx.get<StatementAcceptReceipt>(path(uid, GOAL_STATEMENT_ACCEPTS, receiptId));
     if (existing && existing.fingerprint !== fingerprint) apiError(409, 'key_reused');
@@ -1033,7 +1140,7 @@ export async function deleteGoalPlanLineage(uid: string, goalIds: readonly strin
 
 export function isPlanImperative(text: string): boolean {
   const folded = text.normalize('NFKD').replace(/[\u064B-\u065F\u0591-\u05C7]/g, '').trim().toLowerCase();
-  return /^(?:ابنيلي|اعمللي|اقترحلي|بدي\s+خطة)(?:\s|$)/.test(folded)
+  return /^(?:ابني|اعمل|اقترح|بدي)(?:(?:لي)|(?:\s+(?:لي|الي)))?\s+خطة(?:\s|$)/.test(folded)
     || /^(?:make|build|give me)\s+(?:me\s+)?a?\s*plan\b/.test(folded)
     || /^(?:תבנה(?:\s+לי)?|תכין\s+לי)\s+תוכנית(?:\s|$)/.test(folded);
 }

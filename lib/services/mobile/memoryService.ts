@@ -477,14 +477,8 @@ export interface CreateManualMemoryInput {
   language: unknown;
 }
 
-export async function createManualMemory(
-  uid: string,
-  input: CreateManualMemoryInput,
-  at: string,
-  options: MemoryServiceOptions = {},
-): Promise<MemoryDto> {
-  requireUserId(uid);
-  const create: CreateMemoryInput = {
+function manualMemoryInput(uid: string, input: CreateManualMemoryInput, at: string): CreateMemoryInput {
+  return {
     scopeId: uid,
     kind: requireManualKind(input.kind),
     content: requireContent(input.content),
@@ -495,7 +489,29 @@ export async function createManualMemory(
     ttlMs: USER_STATED_MEMORY_TTL_MS,
     provenance: { origin: 'manual' },
   };
-  return memoryToDto(await storeOf(options).put(create, at));
+}
+
+export async function createManualMemory(
+  uid: string,
+  input: CreateManualMemoryInput,
+  at: string,
+  options: MemoryServiceOptions = {},
+): Promise<MemoryDto> {
+  requireUserId(uid);
+  return memoryToDto(await storeOf(options).put(manualMemoryInput(uid, input, at), at));
+}
+
+/** A manual record with a stable id for a caller-owned idempotency key. */
+export async function createManualMemoryIdempotent(
+  uid: string,
+  input: CreateManualMemoryInput,
+  at: string,
+  idempotencyKey: string,
+  options: Pick<MemoryServiceOptions, 'storage'> = {},
+): Promise<MemoryDto> {
+  requireUserId(uid);
+  const memory = createStorageRuntimeMemoryStore(undefined, options.storage);
+  return memoryToDto(await memory.putIdempotent(manualMemoryInput(uid, input, at), at, idempotencyKey));
 }
 
 /**
