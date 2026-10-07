@@ -340,22 +340,22 @@ it.each(DOUBLE_RUN_CASES)('A4 no double run: two same-frame presses send %s exac
   await settle();
 });
 
-it('A4 plan preview: two same-frame presses run one preview per press', async () => {
+it('A4 plan preview: two same-frame presses run exactly one preview', async () => {
   await showPanel();
   expect(screen.getByTestId('intelligence-plan-flow').props.accessibilityState).toMatchObject({ disabled: true });
   await fireEvent.changeText(screen.getByTestId('intelligence-statement'), 'one request');
-  const planEntry = screen.getByTestId('intelligence-plan-flow');
-  expect(planEntry.props.accessibilityState).toMatchObject({ disabled: false });
+  await waitFor(() => expect(screen.getByTestId('intelligence-plan-flow').props.accessibilityState).toMatchObject({ disabled: false }));
   mockPreview.mockClear();
 
   await act(async () => {
-    await fireEvent.press(planEntry);
-    await fireEvent.press(planEntry);
+    const planEntry = screen.getByTestId('intelligence-plan-flow');
+    const firstPress = fireEvent.press(planEntry);
+    const secondPress = fireEvent.press(planEntry);
+    await Promise.all([firstPress, secondPress]);
   });
 
-  expect(mockPreview).toHaveBeenCalledTimes(2);
-  expect(mockPreview).toHaveBeenNthCalledWith(1, 'one request', 'en');
-  expect(mockPreview).toHaveBeenNthCalledWith(2, 'one request', 'en');
+  expect(mockPreview).toHaveBeenCalledTimes(1);
+  expect(mockPreview).toHaveBeenCalledWith('one request', 'en');
 });
 
 it('A4 mutation versus refresh: analyze success survives a failed inbox refresh and Retry reads without resending', async () => {
