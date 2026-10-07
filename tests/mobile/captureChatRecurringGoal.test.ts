@@ -24,7 +24,7 @@
  *     each names the other on its card when they are not.
  */
 // First: these cases name days relative to today (see the module).
-import '../support/pinnedClock.ts';
+import '../support/pinnedWednesday.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createMemoryStorage } from '../../lib/storage/memoryAdapter.ts';

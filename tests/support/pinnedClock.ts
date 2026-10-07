@@ -1,13 +1,17 @@
 /**
  * Runs a test file on a fixed calendar day: `Date.now()` and `new Date()`
- * start at `startIso` and move forward with real time. Import it first, before
- * anything that reads the clock at load.
+ * start at `startIso` and move forward with real time. Imported first, through
+ * a day module, before anything that reads the clock at load.
  *
  * The capture chat tests name days relative to today ("tomorrow", "Friday",
  * "Tuesday and Thursday"). On some real days two of those are the same day
  * (on a Thursday, tomorrow is Friday), and cases written to tell them apart
  * stop meaning anything. They first failed on Thursday 2026-10-08 at 00:13
  * Jerusalem time. Pinning the day keeps every case about what it says.
+ *
+ * Each file pins the day its cases were written for, through a one-line
+ * module (`pinnedWednesday.ts`, `pinnedTuesday.ts`), so the pin runs before
+ * anything else the file imports.
  */
 const RealDate = Date;
 
@@ -25,6 +29,3 @@ export function pinClock(startIso: string): void {
   globalThis.Date = PinnedDate as DateConstructor;
 }
 
-// A Wednesday, mid-morning in Jerusalem: tomorrow, Friday, Saturday, Tuesday
-// and Thursday are all different days, and nothing is near midnight.
-pinClock('2026-10-07T07:00:00.000Z');
