@@ -129,24 +129,42 @@ function UnderstoodLines({ proposal, points, edits, onOpen, editable = false, on
   </View>;
 
   /**
+   * A line's number. With `spacerID` it is the unseen copy that indents a
+   * stacked «عدّل» — the same box, so the same width at every text size.
+   */
+  const badge = (n: number, spacerID?: string) => <View testID={spacerID}
+    {...(spacerID ? { accessibilityElementsHidden: true, importantForAccessibility: 'no-hide-descendants' as const } : {})}
+    style={[{ minWidth: 26, minHeight: 26, paddingHorizontal: 6, borderRadius: 13, backgroundColor: p.sf2, alignItems: 'center', justifyContent: 'center', marginTop: 2 },
+      spacerID ? { opacity: 0 } : null]}>
+    <Txt size={13} weight={600} latin>{String(n)}</Txt>
+  </View>;
+
+  /**
    * The line's own controls, beside it and never inside it: a line is one
    * button to a screen reader, and a control inside an accessible button is
    * unreachable on iOS (M2a REV-002). «عدّل» names the line it edits; a
    * correction line says what was heard and offers «مش هيك».
    */
-  const controls = (line: Line, n: number, lineElement: React.ReactNode) => <View key={line.key} style={{ alignSelf: 'stretch', gap: 2 }}>
-    <View style={stacked ? { alignItems: 'flex-start', gap: 2 } : { flexDirection: 'row', alignItems: 'flex-start', gap: 4 }}>
-      <View style={stacked ? { alignSelf: 'stretch' } : { flex: 1 }}>{lineElement}</View>
-      {editable && onEdit ? <Pressable testID={`understood-edit-${n}`} ref={(node) => editRef?.(n, node)}
-        accessibilityRole="button" accessibilityLabel={stripIsolates(fill(t.understoodEditLabel, { text: line.text }))}
-        accessibilityState={{ disabled: busy }} disabled={busy} onPress={() => onEdit(n)}
-        style={({ pressed }) => [{ minHeight: 44, minWidth: 44, paddingHorizontal: 10, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
-          // Under a numbered line, its word starts where the line's words do.
-          stacked && lines.length > 1 && { marginStart: 26 },
-          pressed && { backgroundColor: p.sf2 }]}>
-        <Txt size={13} weight={600} color={busy ? p.mu : p.ac}>{t.understoodEdit}</Txt>
-      </Pressable> : null}
-    </View>
+  const controls = (line: Line, n: number, lineElement: React.ReactNode) => {
+    const edit = editable && onEdit ? <Pressable testID={`understood-edit-${n}`} ref={(node) => editRef?.(n, node)}
+      accessibilityRole="button" accessibilityLabel={stripIsolates(fill(t.understoodEditLabel, { text: line.text }))}
+      accessibilityState={{ disabled: busy }} disabled={busy} onPress={() => onEdit(n)}
+      style={({ pressed }) => [{ minHeight: 44, minWidth: 44, paddingHorizontal: 10, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
+        pressed && { backgroundColor: p.sf2 }]}>
+      <Txt size={13} weight={600} color={busy ? p.mu : p.ac}>{t.understoodEdit}</Txt>
+    </Pressable> : null;
+    return <View key={line.key} style={{ alignSelf: 'stretch', gap: 2 }}>
+      <View style={stacked ? { alignItems: 'flex-start', gap: 2 } : { flexDirection: 'row', alignItems: 'flex-start', gap: 4 }}>
+        <View style={stacked ? { alignSelf: 'stretch' } : { flex: 1 }}>{lineElement}</View>
+        {/* Under a numbered line, «عدّل» starts where the line's words do: after
+            an unseen copy of the line's own number badge, which grows with the
+            text exactly as the badge does (a fixed indent fell short at AX5).
+            The button's own padding stands in for the line's gap. */}
+        {edit && stacked && lines.length > 1 ? <View style={{ flexDirection: 'row', alignItems: 'flex-start' }}>
+          {badge(n, `understood-edit-indent-${n}`)}
+          {edit}
+        </View> : edit}
+      </View>
     {editable && 'itemId' in line.target ? line.corrections.map((correction) => {
       const itemId = (line.target as { itemId: string }).itemId;
       return <View key={correction.id} testID={`understood-correction-${correction.id}`}
@@ -160,7 +178,8 @@ function UnderstoodLines({ proposal, points, edits, onOpen, editable = false, on
         </Btn> : null}
       </View>;
     }) : null}
-  </View>;
+    </View>;
+  };
 
   if (lines.length === 1) {
     const line = lines[0]!;
@@ -179,9 +198,7 @@ function UnderstoodLines({ proposal, points, edits, onOpen, editable = false, on
         minHeight: 44, flexDirection: 'row', alignItems: 'flex-start', gap: 10,
         paddingVertical: 8, paddingHorizontal: 8, marginHorizontal: -8, borderRadius: 12,
       }, pressed && { backgroundColor: p.sf2 }]}>
-      <View style={{ minWidth: 26, minHeight: 26, paddingHorizontal: 6, borderRadius: 13, backgroundColor: p.sf2, alignItems: 'center', justifyContent: 'center', marginTop: 2 }}>
-        <Txt size={13} weight={600} latin>{String(index + 1)}</Txt>
-      </View>
+      {badge(index + 1)}
       {words(line)}
     </Pressable>))}
   </View>;
