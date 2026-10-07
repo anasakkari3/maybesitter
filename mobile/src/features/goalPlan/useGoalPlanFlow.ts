@@ -94,6 +94,7 @@ export function useGoalPlanFlow(): PlanFlow {
   React.useLayoutEffect(() => { stateRef.current = state; }, [state]);
   const uidRef = React.useRef(uid);
   const lastAction = React.useRef<(() => void) | null>(null);
+  const inFlight = React.useRef(false);
   // One key per reviewed proposal, kept until that proposal is confirmed: a
   // retried confirm of the same times is the same confirm.
   const confirmKeys = React.useRef(new Map<string, string>());
@@ -103,6 +104,7 @@ export function useGoalPlanFlow(): PlanFlow {
   React.useEffect(() => {
     if (uidRef.current === uid) return;
     uidRef.current = uid;
+    inFlight.current = false;
     confirmKeys.current.clear();
     generateKey.current = null;
     acceptKey.current = null;
@@ -116,13 +118,19 @@ export function useGoalPlanFlow(): PlanFlow {
   const run = React.useCallback(<T,>(step: LiveStep, request: () => Promise<T>, onDone: (value: T) => Partial<PlanFlowState>, onRefused?: (error: GoalPlanRefusedError) => Partial<PlanFlowState>) => {
     const owner = uidRef.current;
     const attempt = () => {
+      // Two presses in one frame both see `busy === false`; this ref is set
+      // before either returns, so the second does nothing (the M1 rule).
+      if (inFlight.current) return;
+      inFlight.current = true;
       setState(current => ({ ...current, busy: true, error: null, live: { phase: 'started', step } }));
       // The line moves from «بلّشت» to the step it is on once the request is out.
       queueMicrotask(() => setState(current => current.busy ? { ...current, live: { phase: 'thinking', step } } : current));
       request().then(value => {
+        inFlight.current = false;
         if (uidRef.current !== owner) return;
         setState(current => ({ ...current, ...onDone(value), busy: false, error: null, live: { phase: 'done' } }));
       }, (error: unknown) => {
+        inFlight.current = false;
         if (uidRef.current !== owner) return;
         const adopted = error instanceof GoalPlanRefusedError && onRefused ? onRefused(error) : {};
         setState(current => ({ ...current, ...adopted, busy: false, error, live: { phase: 'failed' } }));

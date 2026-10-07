@@ -1,6 +1,6 @@
 import React from 'react';
 import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { AppProvider } from '../../../state/AppContext';
@@ -141,8 +141,10 @@ it('opens the one plan path instead of the old card-by-card review (M3a)', async
   });
   await openGoal();
   expect(screen.queryByTestId('goal-generate')).toBeNull();
-  await fireEvent.press(screen.getByTestId('goal-plan-open'));
-  await waitFor(() => expect(screen.queryByTestId('plan-step-s1')).not.toBeNull());
+  // Inside act, as the gate's `press` does: the generate answer lands in a
+  // promise chain, and under a loaded suite an update outside act is late.
+  await act(async () => { await fireEvent.press(screen.getByTestId('goal-plan-open')); });
+  await waitFor(() => expect(screen.queryByTestId('plan-step-s1')).not.toBeNull(), { timeout: 5_000 });
   expect(mockGeneratePlan).toHaveBeenCalledWith('goal-1', expect.any(String), undefined);
   expect(mockGenerate).not.toHaveBeenCalled();
 });
