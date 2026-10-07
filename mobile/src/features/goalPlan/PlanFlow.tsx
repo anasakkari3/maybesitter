@@ -1,5 +1,5 @@
 import React from 'react';
-import { TextInput, View } from 'react-native';
+import { AccessibilityInfo, TextInput, View } from 'react-native';
 import type { GoalPlan, GoalPlanStep, GoalPlanTimes, GoalPlanTimesStep, GoalPlanSlot, GoalPlanWeekly, GoalPlanPhase, GoalPlanRhythm } from '../../api/schemas/goalPlan';
 import type { GoalPlanEditOp } from '../../api/endpoints/goalPlan';
 import { GoalPlanRefusedError } from '../../api/errors';
@@ -10,6 +10,7 @@ import { useTimeZone } from '../../i18n/timezone';
 import { useApp } from '../../state/AppContext';
 import { useLayoutMode } from '../../theme/textScale';
 import { LiveRegion } from '../../ui/liveRegion';
+import { useAnnounceOnIos } from '../../ui/announce';
 import { Btn, Card, Pill, Txt } from '../../ui/primitives';
 import { ProductActions } from '../../ui/product';
 import { ReferenceIcon } from '../../ui/referenceIcons';
@@ -61,9 +62,27 @@ function LiveStatus({ flow }: { flow: Flow }) {
       : live.phase === 'done' ? t.xPlanStateDone
         : live.phase === 'failed' ? t.xPlanStateFailed : null;
   const { p } = useApp();
+  // iOS has no live regions (ui/liveRegion.tsx): VoiceOver is told the line,
+  // and on a failure what went wrong, which the line alone does not say.
+  const failure = live.phase === 'failed' ? planFailureOf(flow.state.error, t) : null;
+  useAnnounceOnIos(failure ? `${line} ${failure.message}` : line);
   return <LiveRegion testID="plan-live-status">
     {line ? <Txt role="metadata" color={live.phase === 'failed' ? p.wm : p.mu}>{line}</Txt> : null}
   </LiveRegion>;
+}
+
+
+/**
+ * A step's heading takes a screen reader's focus when the step appears, so
+ * moving from the plan to the times (or to the result) is heard, not only seen.
+ */
+function StepHeading({ children, testID, color }: { children: string; testID?: string; color?: string }) {
+  const ref = React.useRef<View>(null);
+  React.useEffect(() => {
+    const timer = setTimeout(() => { if (ref.current) AccessibilityInfo.sendAccessibilityEvent(ref.current, 'focus'); }, 50);
+    return () => clearTimeout(timer);
+  }, []);
+  return <View ref={ref} accessible accessibilityRole="header" {...(testID ? { testID } : {})}><Txt role="section" color={color}>{children}</Txt></View>;
 }
 
 /* ── summary ───────────────────────────────────────────────────────── */
@@ -74,7 +93,7 @@ function SummaryStep({ flow }: { flow: Flow }) {
   const [editing, setEditing] = React.useState(false);
   if (stage.kind !== 'summary') return null;
   return <Card testID="plan-summary" style={{ gap: 12 }}>
-    <Txt role="section">{t.xPlanSummaryTitle}</Txt>
+    <StepHeading>{t.xPlanSummaryTitle}</StepHeading>
     {editing ? <TextInput
       testID="plan-summary-input"
       accessibilityLabel={t.xPlanSummaryInput}
@@ -393,7 +412,7 @@ function TimesStep({ flow, times, plan }: { flow: Flow; times: GoalPlanTimes; pl
   };
 
   return <View style={{ gap: 12 }}>
-    <Txt role="section">{t.xPlanTimesTitle}</Txt>
+    <StepHeading>{t.xPlanTimesTitle}</StepHeading>
     {times.steps.map(step => {
       const name = title(step.stepId);
       return <Card key={step.stepId} testID={`plan-times-step-${step.stepId}`} style={{ gap: 8 }}>
@@ -437,7 +456,7 @@ function ConfirmStep({ flow, times, plan }: { flow: Flow; times: GoalPlanTimes; 
   const busy = flow.state.busy;
   return <View style={{ gap: 12 }}>
     <Card testID="plan-will-save" style={{ gap: 8 }}>
-      <Txt role="section">{t.xPlanWillSave}</Txt>
+      <StepHeading>{t.xPlanWillSave}</StepHeading>
       {saved.map(step => <View key={step.stepId} testID={`plan-will-save-${step.stepId}`} style={{ gap: 2 }}>
         <Txt role="body">{title(step.stepId)}</Txt>
         <Txt role="metadata" color={p.mu}>{step.slot ? slotLine(step.slot) : step.weekly ? weeklyLine(step.weekly) : t.xPlanTimesNone}</Txt>
@@ -466,7 +485,7 @@ function ResultStep({ result, onOpenToday }: { result: import('../../api/schemas
   const slotLine = useSlotLine();
   const weeklyLine = useWeeklyLine();
   return <Card testID="plan-result" style={{ gap: 10 }}>
-    <Txt role="section" color={p.success}>{t.xPlanSavedTitle}</Txt>
+    <StepHeading color={p.success}>{t.xPlanSavedTitle}</StepHeading>
     <Txt role="supporting">{tr('xPlanSavedBodyN', { n: result.saved.length })}</Txt>
     {result.saved.map(item => <View key={item.stepId} testID={`plan-result-saved-${item.stepId}`} style={{ gap: 2 }}>
       <Txt role="body">{item.title}</Txt>
