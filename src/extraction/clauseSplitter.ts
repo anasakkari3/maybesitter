@@ -62,6 +62,7 @@
 import { stripTimeExpressions } from './ruleBasedExtractor';
 import { namesDay, RELATIVE_DAY_MENTION_SOURCES, statesClock, timeOfDayEvidence } from './timeLexicon';
 import { LEADING_CONNECTOR, NOT_LETTERS, REQUEST_MARKER, opensWithAction } from './requestEvidence';
+import { detectUnresolvedIntent } from './unresolvedIntent';
 
 const B = '(?<![\\p{L}\\p{M}])';
 const A = '(?![\\p{L}\\p{M}])';
@@ -569,6 +570,22 @@ function splitTimedConjuncts(segment: string): string[] {
 /** The clauses of one capture, with how each was cut (`CaptureClause`). */
 export function splitCaptureClauseDetails(raw: string): CaptureClause[] {
   return segmentsOf(raw).flatMap((segment) => ellipticalConjuncts(segment));
+}
+
+/**
+ * A clause that followed another one, without the «و» / "and" / «ו» that
+ * joined them (load pass F3, 2026-10-07): «…، واتصل بالبنك بكرا» is the
+ * point «اتصل بالبنك». Only when what is left still reads as a point — a verb,
+ * a request, or a thought — so «وصّل أمي» and «وقت الغدا» keep their «و».
+ * One rule for the saved title and the «هيك فهمت» line, so the summary never
+ * shows words that are not the ones saved.
+ */
+export function withoutClauseJoiner(clause: string): string {
+  const joined = /^(?:and\s+|و|ו)/i.exec(clause);
+  if (!joined) return clause;
+  const remainder = clause.slice(joined[0].length).trimStart();
+  if (!remainder || (!hasActionEvidence(remainder) && !detectUnresolvedIntent(remainder))) return clause;
+  return remainder;
 }
 
 export function splitCaptureClauses(raw: string): string[] {

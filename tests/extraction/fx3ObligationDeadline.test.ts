@@ -331,7 +331,7 @@ test('FX3 #7: the deadline stays with its own clause in the six-item capture; th
     'أسلّم التقرير للمدير | 2026-09-27 | - | said | ask',
     // The rules' own title and reading, as before this lane — and the Sunday
     // it names is theirs, not a guess (runtime UAT 2026-09-30).
-    'وسجّل موعد دكتور | 2026-09-27 | - | said | ask',
+    'سجّل موعد دكتور | 2026-09-27 | - | said | ask',
     'أتصل بأمي | 2026-09-26 | - | said | ask',
     'أحضّر الغداء | 2026-09-26 | 2026-09-26T11:00:00.000Z | said | settled',
     'أدفع فاتورة الكهربا | 2026-09-30 | - | said | settled',

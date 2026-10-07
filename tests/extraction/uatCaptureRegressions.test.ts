@@ -2183,7 +2183,7 @@ test('R7 I-3: a bare early hour today whose morning has passed reaches the am/pm
   // (The bread keeps its «و»: a bare «و» fused to a verb is never stripped from a title — «وصّل» is a verb of its own. Pre-existing, cosmetic.)
   assert.deepEqual(contract.items.map((item) => [item.title, item.clarification?.questionKey ?? null, item.resolvedDate ?? null]), [
     ['أتصل بأمي', 'ask_am_pm', '2026-09-26'],
-    ['وأشتري خبز', 'ask_time', '2026-09-27'],
+    ['أشتري خبز', 'ask_time', '2026-09-27'],
   ]);
   // A passed hour that is not a bare early one is asked for a new time, alone
   // (FY1 N1; it was refused alone until then) as beside others (rounds 1 and 3).

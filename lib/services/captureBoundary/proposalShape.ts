@@ -25,6 +25,7 @@
  */
 import { CAPTURE_INPUT_MAX_CHARACTERS, type CaptureGoalLinkSuggestionContract, type CaptureProposalItemContract } from '../../../src/contracts/v1/captureContracts';
 import type { ExtractionResult } from '../../../src/extraction/extractionTypes';
+import { withoutClauseJoiner } from '../../../src/extraction/clauseSplitter';
 import { instantFromLocal, localTimeSpecFor, statedClockHours } from '../../../src/extraction/timeLexicon';
 import { readRecurrence, readWeekdayLists, type WeekdayList } from '../../../src/extraction/weekdayLexicon';
 import { contentWords, sameWord } from './chatEvidence';
@@ -517,6 +518,9 @@ const BARE_DAY = new RegExp(`^${DAY_NAMES}$`, 'iu');
  * The title without the connectors and list days a rules reading leaves at
  * its edges: «and gym» → «gym», «gym and» → «gym», «חדר כושר וחמישי» →
  * «חדר כושר». A title that would be left with nothing stays as it was.
+ * A «و» joined to its first word goes too when the rest still reads as a
+ * point («واتصل بالبنك» → «اتصل بالبنك», load pass F3): the rule
+ * «هيك فهمت» already showed, so the summary and the saved title agree.
  */
 export function tidyTitle(title: string): string {
   const words = title.trim().split(/\s+/).filter(Boolean);
@@ -531,7 +535,7 @@ export function tidyTitle(title: string): string {
     break;
   }
   const tidy = words.slice(start, end).join(' ');
-  return tidy || title.trim();
+  return withoutClauseJoiner(tidy || title.trim());
 }
 
 /**

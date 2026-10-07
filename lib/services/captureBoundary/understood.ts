@@ -4,8 +4,7 @@ import {
   type CaptureProposalContract,
   type CaptureUnderstoodPoint,
 } from '../../../src/contracts/v1/captureContracts';
-import { hasActionEvidence } from '../../../src/extraction/clauseSplitter';
-import { detectUnresolvedIntent } from '../../../src/extraction/unresolvedIntent';
+import { withoutClauseJoiner } from '../../../src/extraction/clauseSplitter';
 import { claimsSaved } from '../captureChat/chatReply';
 
 export interface CaptureSourceOrdinals {
@@ -69,12 +68,7 @@ function claimsSavedAsClient(source: string): boolean {
 }
 
 function withoutSplitJoiner(source: string, followsAnotherPoint: boolean): string {
-  if (!followsAnotherPoint) return source;
-  const joined = /^(?:and\s+|و|ו)/i.exec(source);
-  if (!joined) return source;
-  const remainder = source.slice(joined[0].length).trimStart();
-  if (!remainder || (!hasActionEvidence(remainder) && !detectUnresolvedIntent(remainder))) return source;
-  return remainder;
+  return followsAnotherPoint ? withoutClauseJoiner(source) : source;
 }
 
 function lineFor(source: string, locale: CaptureAppLocale, followsAnotherPoint: boolean): string {
