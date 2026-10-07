@@ -30,6 +30,7 @@ afterEach(async () => {
 
 async function openTimes(): Promise<void> {
   await openGoal(harness);
+  await screen.findByTestId('goal-plan-open');
   await press('goal-plan-open');
   await waitFor(() => expect(screen.queryByTestId('plan-approve')).not.toBeNull());
   await press('plan-approve');

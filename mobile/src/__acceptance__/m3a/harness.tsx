@@ -196,6 +196,7 @@ export type RouteHandler = (request: RecordedRequest) => RouteReply | Promise<Ro
 
 export class M3aServer {
   readonly requests: RecordedRequest[] = [];
+  readonly answeredRequests: RecordedRequest[] = [];
   handler: RouteHandler;
 
   constructor(handler: RouteHandler = defaultReply) {
@@ -211,6 +212,7 @@ export class M3aServer {
         const request = { method, path: new URL(rawUrl, 'http://localhost').pathname, body };
         this.requests.push(request);
         const reply = await this.handler(request);
+        this.answeredRequests.push(request);
         return { status: reply.status, text: async () => JSON.stringify(reply.body) };
       },
     ) as never;
@@ -218,6 +220,10 @@ export class M3aServer {
 
   matching(method: string, pattern: RegExp): RecordedRequest[] {
     return this.requests.filter((request) => request.method === method && pattern.test(request.path));
+  }
+
+  answeredMatching(method: string, pattern: RegExp): RecordedRequest[] {
+    return this.answeredRequests.filter((request) => request.method === method && pattern.test(request.path));
   }
 }
 

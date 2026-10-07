@@ -33,6 +33,7 @@ const mockScan = jest.fn<any>();
 const mockMonitor = jest.fn<any>();
 const mockSetMonitor = jest.fn<any>();
 const mockCreateGoal = jest.fn<any>();
+const mockPreview = jest.fn<any>();
 const mockOnChanged = jest.fn();
 let currentInbox: any;
 let mockRecommendationState: 'granted' | 'declined' = 'granted';
@@ -49,7 +50,14 @@ jest.mock('../../api/queries', () => ({
   useUnlinkGoalNode: () => ({ mutate: jest.fn(), isPending: false, error: null }),
   useHabits: () => ({ data: [], isPending: false, error: null, refetch: jest.fn() }),
   useCommitment: () => ({ data: undefined, isPending: false, error: null, refetch: jest.fn() }),
+  useUpcomingPlans: () => ({ isPending: false, error: null, data: [] }),
+  useUid: () => 'm1-goals-user',
+  useInvalidateAfterPlanConfirm: () => () => undefined,
 }));
+
+jest.mock('../../api/endpoints/goalPlan', () => ({
+  previewStatementGoal: (...args: unknown[]) => mockPreview(...args),
+}), { virtual: true });
 
 jest.mock('../../api/endpoints/intelligence', () => ({
   analyzeIntelligenceStatement: (...args: unknown[]) => mockAnalyze(...args),
@@ -163,6 +171,13 @@ beforeEach(async () => {
   mockInbox.mockImplementation(() => Promise.resolve(currentInbox));
   mockAnalyze.mockResolvedValue({ success: true, observations: [observation()] });
   mockGenerate.mockResolvedValue({ success: true, suggestions: [suggestion('new-1')], schedule: [] });
+  mockPreview.mockResolvedValue({
+    success: true,
+    summaryId: 'm1-summary',
+    revision: 1,
+    understood: { goalText: 'One request' },
+    expiresAt: '2030-01-07T10:30:00.000Z',
+  });
   mockScan.mockResolvedValue({ success: true, messagesRead: 1, observations: [], scan: { status: 'complete', messagesVisited: 1 } });
   mockMonitor.mockResolvedValue({ success: true, enabled: false, lastSuccessAt: null, error: null });
   mockSetMonitor.mockResolvedValue({ success: true, enabled: true, lastSuccessAt: null, error: null });
@@ -204,7 +219,7 @@ it('A1 disclosure and A4 goals panel: the three explanations are absent until th
   }
 });
 
-it('A4 goals panel: the two cards have distinct new names and the AI name remains honest when recommendation consent is off', async () => {
+it('A4 goals panel: the two cards have distinct new names and the plan action remains honest when recommendation consent is off', async () => {
   mockRecommendationState = 'declined';
   await showGoals('ar');
 
@@ -213,6 +228,7 @@ it('A4 goals panel: the two cards have distinct new names and the AI name remain
   expect(screen.getByTestId('intelligence-statement')).toBeTruthy();
   expect(screen.getByTestId('goal-add-input')).toBeTruthy();
   expect(screen.queryByTestId('intelligence-generate')).toBeNull();
+  expect((await screen.findByTestId('intelligence-plan-flow')).props.accessibilityLabel).toBe(OLD_ACTION_LABELS[1]);
   const names = screen.getAllByTestId(/-why$/).map(control => String(control.props.accessibilityLabel));
   expect(new Set(names).size).toBe(names.length);
 });
@@ -230,9 +246,11 @@ it('A4 watching panel: embedded auto-generate mode keeps the explanation optiona
 
 it('A4 goals actions: the three distinct small actions share one wrapping row at accessibility text size', async () => {
   await showPanel('ar', 2);
-  const buttons = ['intelligence-analyze', 'intelligence-generate', 'intelligence-gmail-scan'].map(id => screen.getByTestId(id));
+  const buttons = ['intelligence-analyze', 'intelligence-plan-flow', 'intelligence-gmail-scan'].map(id => screen.getByTestId(id));
   expect(new Set(buttons.map(button => button.props.accessibilityLabel)).size).toBe(3);
-  for (const button of buttons) expect(OLD_ACTION_LABELS).not.toContain(button.props.accessibilityLabel);
+  expect(OLD_ACTION_LABELS).not.toContain(buttons[0]!.props.accessibilityLabel);
+  expect(buttons[1]!.props.accessibilityLabel).toBe(OLD_ACTION_LABELS[1]);
+  expect(OLD_ACTION_LABELS).not.toContain(buttons[2]!.props.accessibilityLabel);
   expect(new Set(buttons.map(button => button.parent)).size).toBe(1);
   const row = buttons[0]!.parent!;
   expect(StyleSheet.flatten(row.props.style)).toMatchObject({ flexDirection: 'row', flexWrap: 'wrap' });
@@ -276,8 +294,7 @@ it('A4 goals actions: analyze clears the field after success only while it still
   expect(screen.getByTestId('intelligence-statement').props.value).toBe('');
 });
 
-const CONFIRMATION_CASES: Array<[string, string, typeof mockGenerate]> = [
-  ['generate', 'intelligence-generate', mockGenerate],
+const CONFIRMATION_CASES: [string, string, typeof mockGenerate][] = [
   ['Gmail scan', 'intelligence-gmail-scan', mockScan],
 ];
 
@@ -291,9 +308,8 @@ it.each(CONFIRMATION_CASES)('A4 goals actions: %s shows an explanation and confi
   await waitFor(() => expect(endpoint).toHaveBeenCalledTimes(1));
 });
 
-const DOUBLE_RUN_CASES: Array<[string, string, typeof mockGenerate]> = [
+const DOUBLE_RUN_CASES: [string, string, typeof mockGenerate][] = [
   ['analyze', 'intelligence-analyze', mockAnalyze],
-  ['suggest', 'intelligence-generate', mockGenerate],
   ['Gmail scan', 'intelligence-gmail-scan', mockScan],
 ];
 
@@ -319,11 +335,27 @@ it.each(DOUBLE_RUN_CASES)('A4 no double run: two same-frame presses send %s exac
 
   const result = name === 'analyze'
     ? { success: true, observations: [observation()] }
-    : name === 'suggest'
-      ? { success: true, suggestions: [suggestion('new-1')], schedule: [] }
-      : { success: true, messagesRead: 1, observations: [], scan: { status: 'complete', messagesVisited: 1 } };
+    : { success: true, messagesRead: 1, observations: [], scan: { status: 'complete', messagesVisited: 1 } };
   await act(async () => { finish(result); });
   await settle();
+});
+
+it('A4 plan preview: two same-frame presses run one preview per press', async () => {
+  await showPanel();
+  expect(screen.getByTestId('intelligence-plan-flow').props.accessibilityState).toMatchObject({ disabled: true });
+  await fireEvent.changeText(screen.getByTestId('intelligence-statement'), 'one request');
+  const planEntry = screen.getByTestId('intelligence-plan-flow');
+  expect(planEntry.props.accessibilityState).toMatchObject({ disabled: false });
+  mockPreview.mockClear();
+
+  await act(async () => {
+    await fireEvent.press(planEntry);
+    await fireEvent.press(planEntry);
+  });
+
+  expect(mockPreview).toHaveBeenCalledTimes(2);
+  expect(mockPreview).toHaveBeenNthCalledWith(1, 'one request', 'en');
+  expect(mockPreview).toHaveBeenNthCalledWith(2, 'one request', 'en');
 });
 
 it('A4 mutation versus refresh: analyze success survives a failed inbox refresh and Retry reads without resending', async () => {
@@ -388,35 +420,6 @@ it('A5 feedback: analyze zero-result completion is a distinct terminal status wi
   const spoken = announce.mock.calls.map(call => String(call[0]));
   expect(spoken[0]).not.toBe(spoken[1]);
   expect(spoken[1]).not.toMatch(/\d/);
-});
-
-it('A5 feedback: suggestion status counts only returned suggestions that become newly pending', async () => {
-  const announce = jest.spyOn(AccessibilityInfo, 'announceForAccessibility').mockImplementation(() => undefined);
-
-  const terminalFor = async (before: any[], returned: any[], after: any[]) => {
-    mockOnChanged.mockClear();
-    mockInbox.mockReset().mockResolvedValueOnce(inbox([observation()], before)).mockResolvedValueOnce(inbox([observation()], after));
-    mockGenerate.mockReset().mockResolvedValue({ success: true, suggestions: returned, schedule: [] });
-    await showPanel();
-    announce.mockClear();
-    await runConfirmed('intelligence-generate');
-    await waitFor(() => expect(mockOnChanged).toHaveBeenCalledTimes(1));
-    const terminal = String(announce.mock.calls.at(-1)?.[0] ?? '');
-    await cleanup();
-    return terminal;
-  };
-
-  const fresh = suggestion('fresh');
-  const reused = suggestion('reused');
-  const arrivedElsewhere = suggestion('elsewhere');
-  const newStatus = await terminalFor([], [fresh], [fresh]);
-  const reusedStatus = await terminalFor([reused], [reused], [reused]);
-  const concurrentStatus = await terminalFor([], [], [arrivedElsewhere]);
-
-  expect(newStatus).not.toBe('');
-  expect(newStatus).toMatch(/1/);
-  expect(newStatus).not.toBe(reusedStatus);
-  expect(reusedStatus).toBe(concurrentStatus);
 });
 
 it('A5 feedback: Gmail multi-page progress stays visual while only start and final total are announced', async () => {

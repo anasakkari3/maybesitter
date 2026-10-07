@@ -40,6 +40,7 @@ describe('M3a A5 entries use one flow', () => {
   it('A5 goal entry: the goal action opens the plan flow and the old per-card review never renders', async () => {
     await openGoal(harness);
     expect(screen.queryByTestId('goal-generate')).toBeNull();
+    await screen.findByTestId('goal-plan-open');
     await press('goal-plan-open');
     await waitFor(() => expect(screen.queryByTestId('plan-step-step-1')).not.toBeNull());
     expect(screen.queryAllByTestId(/^goal-proposal-/)).toHaveLength(0);
@@ -203,6 +204,7 @@ describe('M3a A6 typed failures and live state', () => {
       };
       harness.server.handler = (request) => noPlan(request) ?? defaultReply(request);
       await openGoal(harness);
+      await screen.findByTestId('goal-plan-open');
       await press('goal-plan-open');
 
       await waitFor(() => expect(screen.queryByTestId('plan-failure')).not.toBeNull());
@@ -226,6 +228,7 @@ describe('M3a A6 typed failures and live state', () => {
       return defaultReply(request);
     };
     await openGoal(harness);
+    await screen.findByTestId('goal-plan-open');
     await press('goal-plan-open');
     expect(screen.getByTestId('plan-live-status')).toBeTruthy();
     expect(screen.getByTestId('plan-live-status').props.accessibilityLiveRegion).toBe('polite');
@@ -253,6 +256,7 @@ describe('M3a A6 typed failures and live state', () => {
             }
           : defaultReply(request);
     await openGoal(harness);
+    await screen.findByTestId('goal-plan-open');
     await press('goal-plan-open');
     await waitFor(() =>
       expect(screen.getByTestId('plan-live-status')).toHaveTextContent(/didn't work|Could not/),
@@ -283,10 +287,16 @@ describe('M3a A6 typed failures and live state', () => {
           }
         : defaultReply(request);
     await renderGoals(harness);
+    await waitFor(() =>
+      expect(harness.server.answeredMatching('GET', /\/goals\/plans\/upcoming$/)).toHaveLength(1),
+    );
     await waitFor(() => expect(screen.queryByTestId('intelligence-plan-flow')).toBeNull());
     expect(screen.queryByTestId('intelligence-generate')).toBeNull();
     await press(`goal-open-${GOAL_ID}`);
     await waitFor(() => expect(screen.queryByTestId('goal-back-list')).not.toBeNull());
+    await waitFor(() =>
+      expect(harness.server.answeredMatching('GET', /\/goals\/goal-1\/plan$/)).toHaveLength(1),
+    );
     expect(screen.queryByTestId('goal-plan-open')).toBeNull();
     expect(screen.queryByTestId('goal-generate')).toBeNull();
   });
@@ -347,6 +357,7 @@ describe('M3a account and confirmed-plan boundaries', () => {
   it('M3A-044 / S1: linked work is listed above a new draft plan without deduplication', async () => {
     setLinkedWork(true);
     await openGoal(harness);
+    await screen.findByTestId('goal-plan-open');
     await press('goal-plan-open');
     await waitFor(() => expect(screen.queryByTestId('plan-linked-work')).not.toBeNull());
     const linkedIndex = screen
