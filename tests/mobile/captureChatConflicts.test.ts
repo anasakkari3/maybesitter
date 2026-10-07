@@ -455,7 +455,9 @@ test('F4 (load pass): the reply names the clash that starts with the item, not j
   const offsite = { title: 'team offsite', startsAt: at(FRIDAY, '09:00'), endsAt: at(FRIDAY, '17:00'), kind: 'commitment' as const };
   const lawyer = { title: 'موعد مع المحامي', startsAt: at(FRIDAY, '10:00'), endsAt: at(FRIDAY, '10:30'), kind: 'commitment' as const };
   const context = { language: 'ar' as const, now: new Date(), timezone: TZ };
-  const meeting = { title: 'اجتماع مع المدير', resolvedTime: at(FRIDAY, '10:00'), conflicts: [offsite, lawyer] };
+  // `collisionStart` is the due time the clashes were measured from; a reminder
+  // before it (`resolvedTime` 09:30) must not change which clash is named (F4-003).
+  const meeting = { title: 'اجتماع مع المدير', resolvedTime: at(FRIDAY, '09:30'), collisionStart: at(FRIDAY, '10:00'), conflicts: [offsite, lawyer] };
   const named = withConflictsNamed('تمام.', [meeting], context);
   assert.match(named, /بيتعارض مع «\u2068موعد مع المحامي\u2069»/, `the same-hour clash was not the one named: ${named}`);
   // With no time of its own to compare, the first clash is named, as before.
@@ -483,6 +485,32 @@ test('F4-001: a clash that starts with the item survives the three-clash limit, 
   // Appended out of order (a proposal's own clashes after the schedule's), more than the limit (F4-002).
   const mixed = ['11:00', '07:00', '10:00', '08:00', '09:00'].map((time) => ({ startsAt: at(FRIDAY, time) }));
   assert.deepEqual(withinLimit(mixed, at(FRIDAY, '10:00'), 3).map((c) => c.startsAt), [at(FRIDAY, '07:00'), at(FRIDAY, '08:00'), at(FRIDAY, '10:00')]);
+});
+
+test('F4-003 (end to end): the reply names the clash measured from the item\'s own start', async () => {
+  const lawyerSeed = answer('تمام.', 'propose', [item('موعد مع المحامي', FRIDAY, '10:00')]);
+  // Due at 10:00 with a 09:30 reminder: the card shows 09:30 (`resolvedTime`),
+  // the clashes are measured from 10:00.
+  const meeting = { ...item('اجتماع مع المدير', FRIDAY, '10:00'), remindAt: at(FRIDAY, '09:30') };
+  const model = scripted(lawyerSeed, answer('تمام.', 'propose', [meeting]));
+  begin(model.provider);
+  try {
+    const uid = uidFor('F4ReminderBefore');
+    await createWeeklyBlock(uid, { title: 'team offsite', weekdays: [5], start: '09:00', end: '17:00', timezone: TZ, confirmedAt: new Date().toISOString() });
+    const seeded = await chat(uid, 'عندي موعد مع المحامي الجمعة الساعة 10 الصبح', { locale: 'ar' });
+    assert.equal((await confirmAll(uid, seeded)).success, true);
+    const body = await chat(uid, 'اجتماع مع المدير الجمعة الساعة 10 الصبح، وذكّرني قبلها بنص ساعة', { locale: 'ar' });
+    const [card] = body.proposal!.items;
+    // The chat keeps no reminder the person did not state, so today the card's
+    // time is the due time; the unit test above covers a reminder before it.
+    // This one runs the whole path: a long weekly block that began earlier and
+    // a commitment at the same hour, both found, and the reply names the latter
+    // only because the collision start reaches it (`withCollisionStarts`).
+    assert.ok((card!.conflicts ?? []).some((conflict) => conflict.title === 'موعد مع المحامي'), `no lawyer clash: ${JSON.stringify(card!.conflicts)}`);
+    assert.match(body.reply, /«\u2068اجتماع مع المدير\u2069» بيتعارض مع «\u2068موعد مع المحامي\u2069»/, body.reply);
+  } finally {
+    end();
+  }
 });
 
 /* ── 6. another time: offered as a question, applied only on a yes ── */

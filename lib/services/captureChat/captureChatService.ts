@@ -61,6 +61,7 @@ import { dateFromOptionalIso, normalizeTimezone } from '../mobile/time';
 import { buildChatPrompt, oneUnambiguousClockIn, parseChatModelAnswer, validateChatCitations, type ChatModelAnswer, type ChatPromptItem } from './chatPrompt';
 import { conflictForPrompt, readPersonSchedule, scheduleForPrompt, withItemConflicts, withProposalClashes, type PersonSchedule } from './chatConflicts';
 import { clashKey, withConflictsNamed } from './chatWhy';
+import { candidateIntervalOf } from '../timeCollision';
 import { detectChatLanguage, safeChatReply, templateReply, withShapeNoted, withWeeklyOffer, type ChatLanguage } from './chatReply';
 import {
   CaptureConversationStore,
@@ -301,6 +302,20 @@ async function withConflicts(proposal: CaptureChatProposal | null, schedule: Per
 }
 
 /**
+ * The proposal's items with where each one's clashes were measured from
+ * (load pass F4, Codex inspection F4-003): the draft's due time, the same
+ * start `withItemConflicts` used, so the reply names the clash that begins
+ * with the item even when a reminder comes before it.
+ */
+async function withCollisionStarts(proposal: CaptureChatProposal): Promise<Array<CaptureChatProposal['items'][number] & { collisionStart: string | null }>> {
+  const candidates = await proposalCollisionCandidates(proposal);
+  return proposal.items.map((item) => {
+    const candidate = candidates.get(item.itemId);
+    return { ...item, collisionStart: candidate ? candidateIntervalOf(candidate).startsAt : null };
+  });
+}
+
+/**
  * A proposal worth showing as cards: one with items or «maybe» seeds (#519),
  * that is not a refusal. A seed-only capture is `unresolved_intent`, not
  * nothing: only the person can say whether it is worth keeping.
@@ -473,7 +488,7 @@ export async function chatMobileCapture(
     const reply = options.refused || !proposal
       ? replyText
       : withWeeklyOffer(
-        withConflictsNamed(replyText, proposal.items, { language, now, timezone, alreadyShown }),
+        withConflictsNamed(replyText, await withCollisionStarts(proposal), { language, now, timezone, alreadyShown }),
         language,
         proposal,
         current,

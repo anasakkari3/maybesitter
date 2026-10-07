@@ -50,8 +50,11 @@ type ConflictLike = Pick<CaptureItemConflictContract, 'title' | 'startsAt' | 'en
 export interface GroundsItem {
   title: string;
   resolvedDate?: string;
-  /** When the item starts, if it has a time: which clash to name first. */
-  resolvedTime?: string | null;
+  /**
+   * Where the item's clashes were measured from (`candidateIntervalOf`: its
+   * due time, not a reminder before it): which clash to name first.
+   */
+  collisionStart?: string | null;
   conflicts?: readonly ConflictLike[];
 }
 
@@ -63,7 +66,10 @@ export interface GroundsItem {
  */
 export function namedClash(item: GroundsItem): ConflictLike | undefined {
   const conflicts = item.conflicts ?? [];
-  const start = item.resolvedTime ? Date.parse(item.resolvedTime) : Number.NaN;
+  // The collision start, never `resolvedTime`: that is the reminder when one
+  // is set, and a 09:30 reminder for a 10:00 meeting named the offsite again
+  // (Codex inspection F4-003).
+  const start = item.collisionStart ? Date.parse(item.collisionStart) : Number.NaN;
   if (!Number.isFinite(start)) return conflicts[0];
   return conflicts.find((conflict) => Date.parse(conflict.startsAt) === start) ?? conflicts[0];
 }
