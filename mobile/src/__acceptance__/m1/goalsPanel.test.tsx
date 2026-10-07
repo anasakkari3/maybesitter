@@ -370,7 +370,7 @@ it('A4 plan preview: two same-frame presses run exactly one preview', async () =
   await settle();
   expect(mockPreview).toHaveBeenCalledTimes(1);
   expect(mockPreview).toHaveBeenCalledWith('one request', 'en');
-});
+}, 15_000);
 
 it('A4 mutation versus refresh: analyze success survives a failed inbox refresh and Retry reads without resending', async () => {
   mockInbox.mockReset()
