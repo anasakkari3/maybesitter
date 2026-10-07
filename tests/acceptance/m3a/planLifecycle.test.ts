@@ -281,13 +281,11 @@ test('M3A-006 R5-005 a time change lands on the proposal that was reviewed, neve
     const newer = await place();
     assert.notEqual(older.timesId, newer.timesId);
 
+    // The older proposal is no longer the one to act on (WIRE r5): stale, with the current one.
     const answer = await choose(h.goalId, older, weighId, { none: true });
-    if (answer.status === 200) {
-      assert.equal((answer.body.times as Times).timesId, older.timesId, 'the choice landed on another proposal than the one reviewed');
-    } else {
-      assert.equal(answer.status, 409, JSON.stringify(answer.body));
-      assert.equal(answer.body.reason, 'stale');
-    }
+    assert.equal(answer.status, 409, `a choice on a superseded proposal answered ${answer.status} ${JSON.stringify(answer.body)}`);
+    assert.equal(answer.body.reason, 'stale');
+    assert.equal((answer.body.times as Times).timesId, newer.timesId, 'the stale answer does not carry the current proposal');
     // The newer proposal is as it was placed: confirming it saves its own slot.
     const confirmedNewer = await confirm(h.goalId, newer);
     assert.equal(confirmedNewer.status, 200, JSON.stringify(confirmedNewer.body));
