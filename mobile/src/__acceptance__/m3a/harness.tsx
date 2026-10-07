@@ -307,6 +307,7 @@ export function defaultReply(request: RecordedRequest): RouteReply {
       status: 200,
       body: {
         success: true,
+        plan: { ...PLAN, status: 'confirmed' },
         times: { ...TIMES, steps: TIMES.steps.filter((step) => 'later' in step) },
       },
     };
