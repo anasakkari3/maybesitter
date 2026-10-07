@@ -1,9 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
 import { z } from 'zod';
 import { apiRequest } from '../client';
+import { approveGoalPlan, laterWeekTimes } from '../endpoints/goalPlan';
+import { goalPlanConfirmResponseSchema } from '../schemas/goalPlan';
 import { resetAuthForTests, setAuthRepository } from '../auth';
 import {
   ConflictError,
+  ContractError,
   FeatureUnavailableError,
   GOAL_PLAN_REASONS,
   GoalPlanRefusedError,
@@ -116,5 +119,47 @@ describe('«اعمل خطة اليوم» (image 2)', () => {
   it('a build answer with no reason is still the generic server error', async () => {
     respond(500, { success: false, error: 'x' });
     expect(await refusalOf('/api/mobile/plans/2030-01-07/build')).toBeInstanceOf(ServerError);
+  });
+});
+
+describe('a plan and its times belong together (inspections A2-008, A3-002, A3-003)', () => {
+  const approved = { success: true, plan: PLAN, times: TIMES };
+  it('approve returns the plan and times it was asked for', async () => {
+    respond(200, approved);
+    const answer = await approveGoalPlan('g1', 'p1', 4);
+    expect(answer.plan.planId).toBe('p1');
+    expect(answer.times.planRevision).toBe(4);
+  });
+
+  it.each([
+    ['another plan', { ...approved, times: { ...TIMES, planId: 'p9' } }],
+    ['times for another revision', { ...approved, times: { ...TIMES, planRevision: 3 } }],
+    ['an older plan than asked for', { ...approved, plan: { ...PLAN, revision: 2 }, times: { ...TIMES, planRevision: 2 } }],
+    ['a step not in the plan', { ...approved, times: { ...TIMES, steps: [{ ...TIMES.steps[0], stepId: 'x' }] } }],
+    ['a slot that ends before it starts', { ...approved, times: { ...TIMES, steps: [{ ...TIMES.steps[0], slot: { startsAt: '2030-01-08T09:00:00.000Z', endsAt: '2030-01-08T09:00:00.000Z' } }] } }],
+  ])('approve refuses %s as a contract failure', async (_name, body) => {
+    respond(200, body);
+    await expect(approveGoalPlan('g1', 'p1', 4)).rejects.toBeInstanceOf(ContractError);
+  });
+
+  const confirmedPlan = { ...PLAN, status: 'confirmed', steps: [...PLAN.steps, { stepId: 's3', order: 2, phase: { unit: 'week', index: 3 }, title: 'Weigh in', kind: 'commitment', durationMinutes: 20, buildsOn: null, expectedOutcome: null }] };
+  const week3 = { ...TIMES, steps: [{ stepId: 's3', kind: 'commitment', slot: { startsAt: '2030-01-22T09:00:00.000Z', endsAt: '2030-01-22T09:20:00.000Z' }, alternatives: [], choice: 'proposed' }] };
+  it('a later week answers with exactly that week of the confirmed plan', async () => {
+    respond(200, { success: true, plan: confirmedPlan, times: week3 });
+    expect((await laterWeekTimes('g1', 'p1', 3, 'k')).times.steps.map(step => step.stepId)).toEqual(['s3']);
+  });
+
+  it.each([
+    ['a week-1 step for week 3', { success: true, plan: confirmedPlan, times: { ...week3, steps: [{ ...week3.steps[0], stepId: 's1' }] } }],
+    ['a plan that is not confirmed', { success: true, plan: { ...confirmedPlan, status: 'draft' }, times: week3 }],
+    ['a step still marked later', { success: true, plan: confirmedPlan, times: { ...week3, steps: [{ stepId: 's3', kind: 'commitment', later: { weekIndex: 3 } }] } }],
+  ])('a later week refuses %s', async (_name, body) => {
+    respond(200, body);
+    await expect(laterWeekTimes('g1', 'p1', 3, 'k')).rejects.toBeInstanceOf(ContractError);
+  });
+
+  it('a confirm without its receipt is not a success (A3-005)', () => {
+    expect(goalPlanConfirmResponseSchema.safeParse({ success: true, saved: [], stayed: [] }).success).toBe(false);
+    expect(goalPlanConfirmResponseSchema.safeParse({ success: true, saved: [], stayed: [], receipt: { outcomeId: 'o', replayed: false } }).success).toBe(true);
   });
 });

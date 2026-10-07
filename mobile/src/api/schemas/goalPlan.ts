@@ -101,7 +101,8 @@ export const goalPlanConfirmResponseSchema = z.object({
   success: z.literal(true),
   saved: z.array(z.object({ stepId: z.string(), entity: z.enum(['commitment', 'habit']), id: z.string(), title: z.string(), when: whenSchema })),
   stayed: z.array(z.object({ stepId: z.string(), title: z.string(), why: whySchema })),
-  receipt: z.object({ outcomeId: z.string(), replayed: z.boolean() }).passthrough().optional(),
+  // Every confirm names its outcome, so a replay can be told from a first save (WIRE).
+  receipt: z.object({ outcomeId: z.string(), replayed: z.boolean() }).passthrough(),
 }).passthrough();
 
 const linkedWorkSchema = z.object({ entity: z.enum(['commitment', 'habit']), id: z.string(), title: z.string() }).passthrough();
@@ -118,7 +119,7 @@ export const goalPlanViewSchema = z.object({
 }).passthrough();
 
 export const goalPlanResponseSchema = z.object({ success: z.literal(true), plan: goalPlanSchema }).passthrough();
-export const goalPlanApproveResponseSchema = z.object({ success: z.literal(true), times: goalPlanTimesSchema }).passthrough();
+export const goalPlanApproveResponseSchema = z.object({ success: z.literal(true), plan: goalPlanSchema, times: goalPlanTimesSchema }).passthrough();
 export const goalPlanTimesResponseSchema = z.object({ success: z.literal(true), times: goalPlanTimesSchema }).passthrough();
 /** A later week's times come with the confirmed plan, so each step can be named. */
 export const laterWeekTimesResponseSchema = z.object({ success: z.literal(true), plan: goalPlanSchema, times: goalPlanTimesSchema }).passthrough();

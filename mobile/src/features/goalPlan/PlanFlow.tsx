@@ -112,7 +112,7 @@ function SummaryStep({ flow }: { flow: Flow }) {
   if (stage.kind !== 'summary') return null;
   return <Card testID="plan-summary" style={{ gap: 12 }}>
     <StepHeading>{t.xPlanSummaryTitle}</StepHeading>
-    {editing ? <TextInput
+    {editing && !flow.state.summaryLocked ? <TextInput
       testID="plan-summary-input"
       accessibilityLabel={t.xPlanSummaryInput}
       value={stage.text}
@@ -201,9 +201,7 @@ function PlanStep({ flow, plan, linkedWork }: { flow: Flow; plan: GoalPlan; link
     /> : null}
     <ProductActions>
       {editing ? <>
-        <View ref={addToggle} collapsable={false}>
-          {!adding ? <Pill testID="plan-add-step" label={t.xPlanAddStep} kind="outline" disabled={busy || count >= 12} onPress={() => setAdding(true)} /> : null}
-        </View>
+        {!adding ? <Pill nativeRef={addToggle} testID="plan-add-step" label={t.xPlanAddStep} kind="outline" disabled={busy || count >= 12} onPress={() => setAdding(true)} /> : null}
         <Pill testID="plan-edit-done" label={t.xPlanEditDone} disabled={busy} onPress={() => { setEditing(false); setAdding(false); }} />
       </> : <>
         <Pill testID="plan-approve" label={t.xPlanApprove} disabled={busy || count === 0} onPress={flow.approve} />
@@ -241,9 +239,7 @@ function StepCard({ step, plan, editing, busy, first, last, onEdit }: {
           onPress={() => onEdit({ op: 'reorder', stepId: step.stepId, toOrder: step.order - 1 })} />
         <Pill testID={`plan-move-down-${step.stepId}`} label={t.xPlanMoveDown} accessibilityLabel={fill(t.xPlanMoveDownLabel, { step: title })} kind="outline" disabled={busy || last}
           onPress={() => onEdit({ op: 'reorder', stepId: step.stepId, toOrder: step.order + 1 })} />
-        <View ref={editToggle} collapsable={false}>
-          <Pill testID={`plan-edit-step-${step.stepId}`} label={t.xPlanEditStep} kind="outline" disabled={busy} expanded={open} onPress={() => setOpen(v => !v)} />
-        </View>
+        <Pill nativeRef={editToggle} testID={`plan-edit-step-${step.stepId}`} label={t.xPlanEditStep} kind="outline" disabled={busy} expanded={open} onPress={() => setOpen(v => !v)} />
         <Pill testID={`plan-remove-${step.stepId}`} label={t.xPlanRemove} kind="warm" disabled={busy || plan.steps.length <= 1}
           onPress={() => onEdit({ op: 'remove', stepId: step.stepId })} />
       </ProductActions>

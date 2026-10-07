@@ -180,7 +180,9 @@ export function useGoalPlanFlow(): PlanFlow {
     }));
   }, [run]);
 
-  const setSummaryText = React.useCallback((text: string) => setState(current => current.stage.kind === 'summary'
+  // The words are fixed once «هيك صح» was sent, so what is shown is what was
+  // sent and a retry sends exactly that (inspection A3-001).
+  const setSummaryText = React.useCallback((text: string) => setState(current => current.stage.kind === 'summary' && !current.summaryLocked && !current.busy
     ? { ...current, stage: { ...current.stage, text } } : current), []);
 
   const acceptSummary = React.useCallback(() => {
@@ -222,7 +224,7 @@ export function useGoalPlanFlow(): PlanFlow {
   const approve = React.useCallback(() => {
     const { goalId, stage } = stateRef.current;
     if (!goalId || stage.kind !== 'plan') return;
-    run('times', () => approveGoalPlan(goalId, stage.plan.planId, stage.plan.revision), times => ({ stage: { kind: 'times', plan: stage.plan, times } }),
+    run('times', () => approveGoalPlan(goalId, stage.plan.planId, stage.plan.revision), ({ plan, times }) => ({ stage: { kind: 'times', plan, times } }),
       refused => refused.detail.plan ? { stage: { kind: 'plan', plan: refused.detail.plan } } : {});
   }, [run]);
 

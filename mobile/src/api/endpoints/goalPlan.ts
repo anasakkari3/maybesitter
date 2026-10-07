@@ -68,9 +68,43 @@ export async function editGoalPlan(goalId: string, planId: string, revision: num
   return response.plan;
 }
 
-export async function approveGoalPlan(goalId: string, planId: string, revision: number): Promise<GoalPlanTimes> {
+/**
+ * A plan and its times belong together (inspections A2-008, A3-002, A3-003).
+ * The fixtures prove the shapes; this proves the two halves of one answer are
+ * about the same plan: the plan asked for, its revision, every step in it once
+ * with its own kind, and every span forward in time.
+ */
+function checkTimesAgainstPlan(where: string, planIn: GoalPlan, times: GoalPlanTimes, expected: { planId: string; revision?: number; status?: GoalPlan['status']; stepIds?: readonly string[]; noLater?: boolean }): void {
+  const kinds = new Map(planIn.steps.map(step => [step.stepId, step.kind]));
+  const seen = new Set<string>();
+  const forward = (start: string, end: string) => Date.parse(end) > Date.parse(start);
+  const clockForward = (start: string, end: string) => end > start;
+  const issues = [
+    ...(planIn.planId !== expected.planId || times.planId !== expected.planId ? ['planId'] : []),
+    // An approve may move the plan's revision on; it may never move it back.
+    ...(expected.revision !== undefined && planIn.revision < expected.revision ? ['revision'] : []),
+    ...(times.planRevision !== planIn.revision ? ['planRevision'] : []),
+    ...(expected.status !== undefined && planIn.status !== expected.status ? ['status'] : []),
+    ...(times.steps.length === 0 ? ['empty'] : []),
+    ...times.steps.flatMap(step => {
+      const problems: string[] = [];
+      if (seen.has(step.stepId)) problems.push(`duplicate:${step.stepId}`);
+      seen.add(step.stepId);
+      if (kinds.get(step.stepId) !== step.kind) problems.push(`step:${step.stepId}`);
+      if (expected.noLater && 'later' in step) problems.push(`later:${step.stepId}`);
+      if ('slot' in step && step.slot && !forward(step.slot.startsAt, step.slot.endsAt)) problems.push(`slot:${step.stepId}`);
+      if ('weekly' in step && step.weekly && !clockForward(step.weekly.start, step.weekly.end)) problems.push(`weekly:${step.stepId}`);
+      return problems;
+    }),
+    ...(expected.stepIds && (expected.stepIds.length !== seen.size || expected.stepIds.some(id => !seen.has(id))) ? ['steps'] : []),
+  ];
+  if (issues.length > 0) throw new ContractError(where, issues);
+}
+
+export async function approveGoalPlan(goalId: string, planId: string, revision: number): Promise<{ plan: GoalPlan; times: GoalPlanTimes }> {
   const response = await apiRequest('POST', `${plan(goalId, planId)}/approve`, { body: { revision }, schema: goalPlanApproveResponseSchema });
-  return response.times;
+  checkTimesAgainstPlan('goalPlan.approved', response.plan, response.times, { planId, revision });
+  return { plan: response.plan, times: response.times };
 }
 
 export async function chooseGoalPlanTime(goalId: string, planId: string, stepId: string, timesRevision: number, choice: GoalPlanTimesChoice): Promise<GoalPlanTimes> {
@@ -78,7 +112,12 @@ export async function chooseGoalPlanTime(goalId: string, planId: string, stepId:
     body: { timesRevision, choice },
     schema: goalPlanTimesResponseSchema,
   });
-  return response.times;
+  // The same proposal, moved on: this plan, a newer revision, the step still in it.
+  const times = response.times;
+  if (times.planId !== planId || times.timesRevision <= timesRevision || !times.steps.some(step => step.stepId === stepId)) {
+    throw new ContractError('goalPlan.timeChanged', ['times']);
+  }
+  return times;
 }
 
 /** The reviewed proposal, exactly: the client never authors a times array. */
@@ -95,15 +134,9 @@ export async function laterWeekTimes(goalId: string, planId: string, weekIndex: 
     body: { idempotencyKey },
     schema: laterWeekTimesResponseSchema,
   });
-  // The fixtures prove the shape; this proves the two halves belong together
-  // (inspection A2-008): one plan, every step in it, every slot a real span.
-  const known = new Map(response.plan.steps.map(step => [step.stepId, step.kind]));
-  const issues = [
-    ...(response.plan.planId !== response.times.planId ? ['planId'] : []),
-    ...response.times.steps.flatMap(step => (known.get(step.stepId) === step.kind ? [] : [`step:${step.stepId}`])),
-    ...response.times.steps.flatMap(step => ('slot' in step && step.slot && Date.parse(step.slot.endsAt) <= Date.parse(step.slot.startsAt) ? [`slot:${step.stepId}`] : [])),
-  ];
-  if (issues.length > 0) throw new ContractError('goalPlan.laterTimes', issues);
+  // A later week answers with exactly that week's steps of the confirmed plan.
+  const weekSteps = response.plan.steps.filter(step => step.phase.unit === 'week' && step.phase.index === weekIndex).map(step => step.stepId);
+  checkTimesAgainstPlan('goalPlan.laterTimes', response.plan, response.times, { planId, status: 'confirmed', stepIds: weekSteps, noLater: true });
   return { plan: response.plan, times: response.times };
 }
 
