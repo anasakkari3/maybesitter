@@ -787,6 +787,61 @@ export function typedHalfOfDay(rawText: string): 'am' | 'pm' | 'night' | null {
 }
 
 /*
+ * A positive, complete answer to an AM/PM card. Unlike `typedHalfOfDay`, this
+ * is deliberately a whitelist: it accepts only day-part words, a negated
+ * day-part, "no", and the short courtesies people put around an answer. A
+ * digit, number word, fraction, day, title, or any other word leaves residue
+ * and makes the answer non-bare, so the chat keeps the model's validated
+ * reading instead of forcing the card's old hour into a half it inferred.
+ */
+const BARE_AM_PART = String.raw`(?:am|a\.m\.?|(?:in\s+the\s+)?morning|(?:بال|عال|ال)?(?:صبح|صباح)(?:\s+(?:بكير|بدري))?|صباح(?:ا|اً|ًا)?|ص|בבוקר|בוקר|לפנה["״]צ)`;
+const BARE_PM_PART = String.raw`(?:pm|p\.m\.?|(?:بال|عال|ال)?(?:مسا|مساء|عصر|ضهر|ظهر)|بعد\s+(?:الضهر|الظهر)|مساء(?:ا|اً|ًا)?|م|(?:بال|عال|ال)?ليل(?:ة|ه)?|(?:in\s+the\s+)?(?:afternoon|evening)|(?:at\s+)?night|tonight|noon|בערב|ערב|בלילה|לילה|בצהריים|בצהרים|צהריים|צהרים|אחרי\s+הצהריים|אחר\s+הצהריים|אחה["״]צ)`;
+const BARE_DAY_PART = `(?:${BARE_AM_PART}|${BARE_PM_PART})`;
+const BARE_NEGATED_PART = new RegExp(
+  String.raw`(?<![\p{L}\p{M}])(?:مش|مو|not(?:\s+in\s+the)?|לא)\s+${BARE_DAY_PART}(?![\p{L}\p{M}])`,
+  'giu',
+);
+const BARE_AM_PART_PATTERN = new RegExp(String.raw`(?<![\p{L}\p{M}])${BARE_AM_PART}(?![\p{L}\p{M}])`, 'giu');
+const BARE_PM_PART_PATTERN = new RegExp(String.raw`(?<![\p{L}\p{M}])${BARE_PM_PART}(?![\p{L}\p{M}])`, 'giu');
+const BARE_NIGHT_PART_PATTERN = new RegExp(
+  String.raw`(?<![\p{L}\p{M}])(?:(?:بال|عال|ال)?ليل(?:ة|ه)?|(?:at\s+)?night|tonight|בלילה|לילה)(?![\p{L}\p{M}])`,
+  'giu',
+);
+const BARE_HALF_FILLER = new RegExp(
+  String.raw`(?<![\p{L}\p{M}])(?:لا|no|לא|يا\s+ريت|لو\s+سمحت|بليز|please|the|one|both|التنين|الاتنين|בבקשה|כן|שניהם|שתיהן)(?![\p{L}\p{M}])`,
+  'giu',
+);
+
+function positiveHalfAnswerParts(rawText: string): { text: string; halves: Set<'am' | 'pm' | 'night'> } {
+  let text = rawText.normalize('NFKC').toLowerCase().replace(BARE_NEGATED_PART, ' ');
+  const halves = new Set<'am' | 'pm' | 'night'>();
+  text = text.replace(BARE_NIGHT_PART_PATTERN, () => { halves.add('night'); return ' '; });
+  text = text.replace(BARE_AM_PART_PATTERN, () => { halves.add('am'); return ' '; });
+  text = text.replace(BARE_PM_PART_PATTERN, () => { halves.add('pm'); return ' '; });
+  return { text, halves };
+}
+
+/** The one non-negated half a span names, even when the span is not bare. */
+export function nonNegatedHalfOfDay(rawText: string): 'am' | 'pm' | 'night' | null {
+  if (typeof rawText !== 'string' || !rawText.trim()) return null;
+  const { halves } = positiveHalfAnswerParts(rawText);
+  return halves.size === 1 ? Array.from(halves)[0]! : null;
+}
+
+/** Removes only negated day-parts before the span is used as time evidence. */
+export function withoutNegatedDayPart(rawText: string): string {
+  return typeof rawText === 'string' ? rawText.replace(BARE_NEGATED_PART, ' ') : rawText;
+}
+
+export function bareHalfOfDayAnswer(rawText: string): 'am' | 'pm' | 'night' | null {
+  if (typeof rawText !== 'string' || !rawText.trim()) return null;
+  const parts = positiveHalfAnswerParts(rawText);
+  let { text } = parts;
+  text = text.replace(BARE_HALF_FILLER, ' ').replace(/[\s,،.;:!?؟'"«»()\[\]{}\-–—]+/g, '');
+  return text.length === 0 && parts.halves.size === 1 ? Array.from(parts.halves)[0]! : null;
+}
+
+/*
  * A clock hour said with its part of the day (closure UAT round 6; the rule
  * the typed answers follow since FZ1 M5a): «5 المسا», «5 العصر», «خمسة
  * المسا», «5 بعد الضهر», "5 in the evening", «5 אחר הצהריים», «ב-8 בבוקר».
@@ -1790,6 +1845,7 @@ const ANY_NUMBER = new RegExp(
   [
     '[0-9\u0660-\u0669\u06F0-\u06F9]',
     `${NOT_LETTER_BEFORE}${AR_PROCLITIC}(?:ال)?(?:${ARABIC_CARDINAL_HOURS.map(([words]) => words).join('|')})${NOT_LETTER_AFTER}`,
+    `${NOT_LETTER_BEFORE}تمنة${NOT_LETTER_AFTER}`,
     `${NOT_LETTER_BEFORE}${HE_PREFIX}-?(?:אחת|אחד|שתיים|שתים|שניים|שנים|שלוש|שלושה|שלש|ארבע|ארבעה|חמש|חמישה|שש|שישה|שבע|שבעה|שמונה|תשע|תשעה|עשר|עשרה)${NOT_LETTER_AFTER}`,
     '\\b(?:one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\\b',
   ].join('|'),

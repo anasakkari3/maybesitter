@@ -47,8 +47,7 @@ import type { CaptureProposalContract } from '../../../src/contracts/v1/captureC
 import { resolveModuleRuntime, type RuntimeControlSnapshot } from '../../../src/contracts/v1/runtimeControls';
 import { screenForInjection } from '../../../src/extraction/injectionBoundary';
 import { CAPTURE_MIN_CALL_TIMEOUT_MS, LLMUnavailableError, type LLMProviderFunction } from '../../../src/extraction/llm/llmProvider';
-import { dayPartHour, instantFromLocal, localTimeSpecFor, typedHalfOfDay } from '../../../src/extraction/timeLexicon';
-import { clockTimesIn } from '../../../src/extraction/ruleBasedExtractor';
+import { bareHalfOfDayAnswer, dayPartHour, instantFromLocal, localTimeSpecFor, namesAnyNumber, nonNegatedHalfOfDay, withoutNegatedDayPart } from '../../../src/extraction/timeLexicon';
 import { geminiChatSchemaFor } from '../../../src/extraction/ollamaExtractionSchema';
 import { getAiConsent } from '../../consents/aiConsentService';
 import { CHAT_TIMEOUT_MS, captureLlmProvider } from '../../llm/captureProvider';
@@ -591,9 +590,9 @@ export async function chatMobileCapture(
       const entityId = read ? Object.entries(read.refs).find(([, ref]) => ref === operation.ref)?.[0] : undefined;
       const card = entityId ? current?.items.find((item) => item.itemId === entityId) : undefined;
       const stored = entityId ? read?.resultsByItemId.get(entityId) : undefined;
-      const half = card?.clarification?.questionKey === 'ask_am_pm' ? typedHalfOfDay(source) : null;
+      const half = card?.clarification?.questionKey === 'ask_am_pm' ? bareHalfOfDayAnswer(source) : null;
       const askedTime = stored?.localTimeSpec?.time;
-      if (!half || !askedTime || clockTimesIn(source).length > 0) return operation;
+      if (!half || !askedTime) return operation;
       const fields = operation.fields as Record<string, unknown>;
       const date = modelClockFrom(fields, timezone).date ?? stored?.localTimeSpec?.date;
       if (!date) return operation;
@@ -620,15 +619,22 @@ export async function chatMobileCapture(
     const answeredAmPmClocks = modelUpdates.map((operation, index) => {
       const entityId = read ? Object.entries(read.refs).find(([, ref]) => ref === operation.ref)?.[0] : undefined;
       const card = entityId ? current?.items.find((item) => item.itemId === entityId) : undefined;
+      const stored = entityId ? read?.resultsByItemId.get(entityId) : undefined;
       const source = cited?.deltaSources[index] ?? message;
-      if (card?.clarification?.questionKey !== 'ask_am_pm' || !typedHalfOfDay(source) || clockTimesIn(source).length > 0) return null;
+      const half = card?.clarification?.questionKey === 'ask_am_pm' ? nonNegatedHalfOfDay(source) : null;
+      if (!half) return null;
       const spec = operation.fields && typeof operation.fields === 'object' && !Array.isArray(operation.fields)
         ? (operation.fields as Record<string, unknown>).localTimeSpec
         : null;
-      return spec && typeof spec === 'object' && !Array.isArray(spec)
+      const modelTime = spec && typeof spec === 'object' && !Array.isArray(spec)
         && typeof (spec as Record<string, unknown>).time === 'string'
         ? (spec as Record<string, string>).time
         : null;
+      if (namesAnyNumber(source) || !stored?.localTimeSpec?.time) return modelTime;
+      const askedTime = stored.localTimeSpec.time;
+      const statedHour = Number(askedTime.slice(0, 2)) % 12;
+      const hour = half === 'am' ? statedHour : statedHour + 12;
+      return `${String(hour).padStart(2, '0')}:${askedTime.slice(3, 5)}`;
     });
     const addedItems = cited?.added ?? answer.added.map((entry) => {
       if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return entry;
@@ -660,7 +666,8 @@ export async function chatMobileCapture(
           ...(cited ? {
             operationSources: isPlainYes(message) && evidenceTurns.at(-1)?.startsWith(`${message}\n`)
               ? cited.deltaSources.map(() => evidenceTurns.at(-1)!)
-              : cited.deltaSources,
+              : cited.deltaSources.map((source, index) => index < modelUpdates.length
+                && amPmAskedRefs.has(modelUpdates[index]!.ref) ? withoutNegatedDayPart(source) : source),
             ...(answeredAmPmClocks.some(Boolean) ? { answeredAmPmClocks } : {}),
           } : {}),
           items: evidence ? deltaItems : [],
