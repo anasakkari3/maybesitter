@@ -25,9 +25,10 @@ export function listSeeds(): Promise<{ items: Seed[] }> {
  * proposal it wrote, so what is stored is the sentence they typed rather than
  * one this client rebuilt — see `createSeed` in `lib/services/mobile/seedService.ts`.
  */
-export function keepProposedSeed(input: { proposalId: string; seedItemId: string }) {
+export function keepProposedSeed(input: { proposalId: string; seedItemId: string; revision?: number }) {
   return apiRequest('POST', '/api/mobile/seeds', {
-    body: { proposalId: input.proposalId, seedItemId: input.seedItemId },
+    // The proposal revision on screen (M2b): the seed kept is the one shown.
+    body: { proposalId: input.proposalId, seedItemId: input.seedItemId, ...(input.revision !== undefined ? { revision: input.revision } : {}) },
     schema: seedSavedSchema,
   });
 }

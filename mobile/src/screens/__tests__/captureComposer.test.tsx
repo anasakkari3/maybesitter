@@ -222,7 +222,9 @@ describe('the chat composer remains above the keyboard', () => {
   it('the discard question removes the field and footer while retaining the conversation region', async () => {
     await showComposer();
     await fireEvent.changeText(screen.getByTestId('capture-input'), 'call Dana');
-    await fireEvent.press(screen.getByLabelText('Cancel'));
+    // The discard question comes from «ابدأ من جديد» (M2b): Back keeps the draft.
+    await fireEvent.press(screen.getByTestId('chat-more'));
+    await fireEvent.press(screen.getByTestId('chat-menu-start-over'));
     await waitFor(() => expect(screen.getByTestId('capture-discard')).toBeTruthy());
     expect(screen.queryByTestId('capture-input')).toBeNull();
     expect(screen.queryByTestId('chat-composer')).toBeNull();
@@ -251,7 +253,7 @@ describe('accessible text sizes in the chat layout', () => {
     await fireEvent.changeText(screen.getByTestId('capture-input'), 'call Dana');
     const conversation = within(screen.getByTestId('capture-scroll'));
     expect(conversation.getByTestId('chat-header')).toBeTruthy();
-    expect(conversation.getByLabelText('Cancel')).toBeTruthy();
+    expect(conversation.getByLabelText('Back')).toBeTruthy();
     expect(screen.getAllByTestId('chat-header')).toHaveLength(1);
     expect(conversation.getByTestId('voice-language')).toBeTruthy();
     const footer = within(screen.getByTestId('chat-composer'));
@@ -272,15 +274,17 @@ describe('accessible text sizes in the chat layout', () => {
     await waitFor(() => expect(screen.getByTestId('voice-language').props.accessibilityLabel).not.toBe(before));
   });
 
-  it('the discard question keeps the header and Cancel in the conversation at XL size', async () => {
+  it('the discard question keeps the header and Back in the conversation at XL size', async () => {
     atScale(2.35);
     await showComposer();
     await fireEvent.changeText(screen.getByTestId('capture-input'), 'call Dana');
-    await fireEvent.press(screen.getByLabelText('Cancel'));
+    // The discard question comes from «ابدأ من جديد» (M2b): Back keeps the draft.
+    await fireEvent.press(screen.getByTestId('chat-more'));
+    await fireEvent.press(screen.getByTestId('chat-menu-start-over'));
     await waitFor(() => expect(screen.getByTestId('capture-discard')).toBeTruthy());
     const conversation = within(screen.getByTestId('capture-scroll'));
     expect(conversation.getByTestId('chat-header')).toBeTruthy();
-    expect(conversation.getByLabelText('Cancel')).toBeTruthy();
+    expect(conversation.getByLabelText('Back')).toBeTruthy();
   });
 });
 

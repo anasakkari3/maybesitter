@@ -21,7 +21,7 @@ import {
   beginRules,
   chat,
   end,
-  modelAnswer,
+  modelFirstAnswer,
   modelItem,
   sentences,
   type ChatBody,
@@ -51,7 +51,7 @@ function assertAcknowledgedThenAsked(body: ChatBody): void {
 
 test('B3 acknowledge (model path): «فهمت الاجتماع. تمام؟» — an unrelated question — is replaced by acknowledgement + the missing hour', async () => {
   const stub = 'فهمت الاجتماع. تمام؟';
-  const uid = beginModel(modelAnswer(stub, 'ask', [
+  const uid = beginModel(modelFirstAnswer(stub, 'ask', [
     modelItem('اجتماع مع سامي', TOMORROW, null, { kind: 'commitment' }),
   ]));
   try {
@@ -101,7 +101,7 @@ test('B3 acknowledge (rules): a consideration alone gets an acknowledgement, not
 });
 
 test('B3 acknowledge (model path): a goal statement gets no time question even when the model asks one', async () => {
-  const uid = beginModel(modelAnswer('حلو! إيمتى بدك تبلّش تنزل بالوزن؟', 'ask', [
+  const uid = beginModel(modelFirstAnswer('حلو! إيمتى بدك تبلّش تنزل بالوزن؟', 'ask', [
     modelItem('أنزل بالوزن', null, null, { kind: 'possible_goal' }),
   ]));
   try {
@@ -115,7 +115,7 @@ test('B3 acknowledge (model path): a goal statement gets no time question even w
 });
 
 test('B3 acknowledge (model path): a consideration alone gets no time question even when the model asks one', async () => {
-  const uid = beginModel(modelAnswer('إيمتى بدك تسافر؟ احكيلي اليوم والساعة.', 'ask', [
+  const uid = beginModel(modelFirstAnswer('إيمتى بدك تسافر؟ احكيلي اليوم والساعة.', 'ask', [
     modelItem('أسافر الصيف الجاي', null, null, { kind: 'consideration' }),
   ]));
   try {

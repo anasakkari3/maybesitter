@@ -28,7 +28,7 @@ import {
   clarify,
   confirmAndReadTimeSpecs,
   end,
-  modelAnswer,
+  modelFirstAnswer,
   modelItem,
   type Item,
 } from './support.ts';
@@ -53,7 +53,7 @@ for (const message of ['اجتماع من 4 لـ 8 المسا', 'Meeting from 4 
 }
 
 test('B4 end time (model path): the end is read from the person\'s own words — the said range gets 20:00, the item with no range gets none', async () => {
-  const uid = beginModel(modelAnswer(
+  const uid = beginModel(modelFirstAnswer(
     'فهمت: اجتماع اليوم من 4 لـ 8 المسا، وتتصل بأمك الساعة 9 المسا. أكّد من تحت.',
     'propose',
     [

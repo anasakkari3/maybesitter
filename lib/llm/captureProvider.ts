@@ -242,7 +242,7 @@ export function captureLlmProvider(uid: string, options: CaptureProviderOptions 
         ? await provider.generateStructured({
           system,
           parts: [{ kind: 'text', text: user }],
-          responseSchema: GEMINI_CHAT_SCHEMA,
+          responseSchema: callOptions.responseSchema ?? GEMINI_CHAT_SCHEMA,
           purpose,
           uid,
           maxOutputTokens: CHAT_MAX_OUTPUT_TOKENS,

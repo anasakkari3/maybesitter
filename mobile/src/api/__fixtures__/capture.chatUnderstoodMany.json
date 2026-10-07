@@ -47,6 +47,7 @@
         "summary": "ومستني رد من المدير على الإجازة"
       }
     ],
+    "revision": 0,
     "provenance": {
       "requestedEngine": "rules",
       "executedEngine": "rule-based",
@@ -61,7 +62,7 @@
       {
         "kind": "consideration",
         "seedItemId": "00000000-0000-4000-8000-000000000005",
-        "text": "عم بفكر أسافر الصيف الجاي"
+        "text": "وعم بفكر أسافر الصيف الجاي"
       },
       {
         "kind": "commitment",
@@ -71,12 +72,12 @@
       {
         "kind": "possible_goal",
         "seedItemId": "00000000-0000-4000-8000-000000000006",
-        "text": "حابب أنزل بالوزن"
+        "text": "وحابب أنزل بالوزن"
       },
       {
         "kind": "waiting_for",
         "seedItemId": "00000000-0000-4000-8000-000000000007",
-        "text": "مستني رد من المدير على الإجازة"
+        "text": "ومستني رد من المدير على الإجازة"
       }
     ]
   },

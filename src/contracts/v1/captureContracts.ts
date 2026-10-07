@@ -162,6 +162,21 @@ export interface CaptureProposalItemContract {
    * an older app ignores it and links nothing.
    */
   goalLink?: CaptureGoalLinkSuggestionContract;
+  /**
+   * Words the server corrected in a dictated message (M2b, condition 1): «فهمت
+   * "الطلع" إنها "اطلع"». Only when the request said `spoken: true`, only
+   * corrections actually applied to this item's title, at most three, with
+   * server-minted unique ids. The person can undo one with
+   * `rejectCorrectionIds` on a proposal edit. Absent otherwise.
+   */
+  corrections?: CaptureCorrectionContract[];
+}
+
+/** One applied dictation correction (M2b). `from`/`to` are single words. */
+export interface CaptureCorrectionContract {
+  id: string;
+  from: string;
+  to: string;
 }
 
 /** See `CaptureProposalItemContract.goalLink`. `title` is the goal in the person's own words. */
@@ -402,6 +417,11 @@ export interface CaptureProposalContract {
    */
   seeds: CaptureSeedProposalContract[];
   /**
+   * Locked points a later chat turn explicitly removed (M2b contract v5).
+   * They remain visible so the person can restore them. Absent when none.
+   */
+  removedItems?: CaptureRemovedItemContract[];
+  /**
    * What the assistant understood, one line per thing, in the order the
    * person said them (M2a). Shown before any card. Every item and every seed
    * appears exactly once; a seed's point carries that seed's kind. Plain
@@ -409,6 +429,13 @@ export interface CaptureProposalContract {
    * claiming anything was saved. Absent from older servers.
    */
   understood?: CaptureUnderstoodPoint[];
+  /**
+   * Which version of this proposal this is (M2b). Every write to it — a
+   * structured edit, a clarification answer, the confirm — checks the
+   * revision the person was looking at and writes the next one, so what was
+   * seen is what is saved. Absent from older servers (read as 0).
+   */
+  revision?: number;
   provenance: {
     requestedEngine: 'model' | 'rules';
     executedEngine: 'gemini' | 'ollama' | 'rule-based';
@@ -445,6 +472,13 @@ export interface CaptureConfirmationRequestContract {
    * unlinked. An id without a stored suggestion is ignored, never an error.
    */
   goalLinkItemIds?: string[];
+  /**
+   * The proposal revision the person confirmed (M2b). Compared inside the
+   * confirm's transaction after the idempotent replay check; a mismatch saves
+   * nothing and answers 409 `proposal_changed`. May be absent only while the
+   * stored proposal is still at revision 0 (an older app).
+   */
+  revision?: number;
 }
 
 export interface CaptureConfirmationResultContract {
@@ -494,3 +528,60 @@ export type CaptureUnderstoodPoint =
 
 /** The longest `understood` line the server sends. */
 export const UNDERSTOOD_TEXT_MAX = 160;
+
+/* ── M2b: structured proposal edits (CONTRACT v5) ───────────────────── */
+
+/** The longest title or seed summary a structured edit may set. */
+export const CAPTURE_EDIT_TEXT_MAX = 120;
+
+/** A locked point removed by a later chat turn, retained for exact restore. */
+export type CaptureRemovedItemContract =
+  | { itemId: string; seedItemId?: never; kind: 'commitment'; text: string }
+  | { seedItemId: string; itemId?: never; kind: 'possible_goal' | 'consideration' | 'idea' | 'waiting_for'; text: string };
+
+export type CaptureProposalEditChangeContract =
+  | {
+      kind?: 'commitment' | 'possible_goal' | 'consideration' | 'idea' | 'waiting_for';
+      text?: string;
+      time?: { at: string | null; timeZone: string };
+      rejectCorrectionIds?: string[];
+      restore?: never;
+    }
+  | {
+      restore: true;
+      kind?: never;
+      text?: never;
+      time?: never;
+      rejectCorrectionIds?: never;
+    };
+
+/**
+ * One atomic change to one point of the conversation's current proposal,
+ * sent as `edit` on `POST /api/mobile/capture/chat` (M2b, condition 7).
+ * Proposal-only and deterministic on both engines; nothing is persisted
+ * beyond the proposal until the ordinary confirm.
+ */
+export interface CaptureProposalEditContract {
+  proposalId: string;
+  /** The revision the person was looking at. */
+  revision: number;
+  target: { itemId: string } | { seedItemId: string };
+  /** At least one field; all applied together or none. `text` and `rejectCorrectionIds` never together. */
+  change: CaptureProposalEditChangeContract;
+}
+
+/** The chat route's request: a new message, or an edit — never both (M2b). */
+export type CaptureChatRequestContract =
+  | { conversationId?: string | null; message: string; spoken?: boolean; timezone: string; referenceTime?: string; locale?: CaptureAppLocale }
+  | { conversationId: string; edit: CaptureProposalEditContract; timezone: string; referenceTime?: string; locale?: CaptureAppLocale };
+
+/**
+ * 409 `proposal_changed` (M2b): the write was against a revision that is no
+ * longer current, or the proposal was already confirmed by another intent.
+ * Nothing was saved. The chat edit carries the current chat answer; confirm,
+ * clarify and seed keep carry the current proposal (they also serve proposals
+ * with no conversation: shares, meeting prep, Google imports).
+ */
+export type CaptureProposalChangedContract =
+  | { reason: 'proposal_changed'; answer: unknown /* the CaptureChatAnswer the chat route returns */; state?: 'open' | 'confirmed' }
+  | { reason: 'proposal_changed'; proposal: CaptureProposalContract; state: 'open' | 'confirmed'; confirmation?: CaptureConfirmationResultContract };

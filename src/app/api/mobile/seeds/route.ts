@@ -5,6 +5,7 @@ import {
   createSeed,
   listSeeds,
 } from '../../../../../lib/services/mobile/seedService';
+import { ProposalChangedError } from '../../../../../lib/services/captureBoundary';
 import { moduleDisabledResponse } from '../../../../../lib/services/mobile/moduleGate';
 import { mobileError } from '../../../../../lib/services/mobile/response';
 import { RequestBodyTooLargeError, readJsonBody, requestBodyTooLargeResponse } from '../../../../../lib/net/requestBody';
@@ -70,6 +71,10 @@ export async function POST(request: Request) {
     const { seed, replayed } = await createSeed(user.uid, body, new Date().toISOString());
     return Response.json({ success: true, replayed, seed }, { status: replayed ? 200 : 201 });
   } catch (error) {
+    if (error instanceof ProposalChangedError || (error instanceof Error && error.name === 'ProposalChangedError')) {
+      const changed = error as ProposalChangedError;
+      return Response.json({ reason: 'proposal_changed', proposal: changed.proposal, state: changed.state, ...(changed.confirmation ? { confirmation: changed.confirmation } : {}) }, { status: 409 });
+    }
     if (error instanceof SeedValidationError) {
       return Response.json({ success: false, error: error.message, reason: 'invalid_seed' }, { status: 400 });
     }

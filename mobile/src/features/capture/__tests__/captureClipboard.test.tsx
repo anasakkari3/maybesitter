@@ -299,17 +299,20 @@ describe('the pasted draft is not written down', () => {
     expect(written).not.toContain('Sami');
   });
 
-  it('is gone when the flow is left', async () => {
+  it('is gone once the conversation is started over', async () => {
     clipboard.mockResolvedValue(COPIED);
     await openComposer();
     await pressPaste();
     await fireEvent.press(screen.getByTestId('capture-clipboard-use'));
     await waitFor(() => expect(screen.queryByTestId('capture-input')).not.toBeNull());
 
-    // Closing with text asks first, and throwing it away forgets it.
-    await fireEvent.press(screen.getByRole('button', { name: en.cancel }));
+    // Starting over asks first, and throwing it away forgets it (M2b: Back keeps it).
+    await fireEvent.press(screen.getByTestId('chat-more'));
+    await fireEvent.press(screen.getByTestId('chat-menu-start-over'));
     await waitFor(() => expect(screen.queryByTestId('capture-discard')).not.toBeNull());
     await fireEvent.press(screen.getByTestId('capture-discard-confirm'));
+    await waitFor(() => expect(fieldText()).toBe(''));
+    await fireEvent.press(screen.getByRole('button', { name: en.back }));
     await waitFor(() => expect(screen.queryByTestId('capture-input')).toBeNull());
 
     await fireEvent.press(screen.getByTestId('tab-capture'));

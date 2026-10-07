@@ -39,10 +39,11 @@ export interface JsonSchemaNode {
   readonly minimum?: number;
   readonly maximum?: number;
   readonly additionalProperties?: boolean;
+  readonly anyOf?: readonly JsonSchemaNode[];
 }
 
 /** Keys that carry meaning for Vertex. Anything else has to be handled above. */
-const CARRIED = new Set(['type', 'enum', 'description', 'properties', 'required', 'items', 'minimum', 'maximum']);
+const CARRIED = new Set(['type', 'enum', 'description', 'properties', 'required', 'items', 'minimum', 'maximum', 'anyOf']);
 /** Dropped deliberately: Vertex rejects it, and the validator enforces it. */
 const DROPPED = new Set(['additionalProperties']);
 
@@ -57,6 +58,13 @@ export function toVertexSchema(node: JsonSchemaNode, path = '$'): Record<string,
   if (node.const !== undefined) {
     if (typeof node.const !== 'boolean') throw new Error(`${path}: only a boolean const can be translated`);
     return { type: 'boolean' };
+  }
+
+  if (node.anyOf) {
+    if (node.type !== undefined || node.properties || node.items) {
+      throw new Error(`${path}: anyOf may not be combined with type, properties or items`);
+    }
+    return { anyOf: node.anyOf.map((entry, index) => toVertexSchema(entry, `${path}.anyOf[${index}]`)) };
   }
 
   const types = Array.isArray(node.type) ? node.type : node.type === undefined ? [] : [node.type];

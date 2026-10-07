@@ -53,6 +53,7 @@
  */
 import { createHash } from 'crypto';
 import {
+  INTENT_SEED_SCHEMA_VERSION,
   SEED_KINDS,
   SEED_SUMMARY_MAX_CHARACTERS,
   SEED_USER_STATUSES,
@@ -75,7 +76,26 @@ import {
 } from '../../analytics/analyticsContext';
 import { appendAnalyticsEvent } from '../../analytics/eventStore';
 import { createStorageIntentSeedStore } from '../../intentSeeds/intentSeedStore';
-import { createStorageCaptureProposalStore, type CaptureProposalStore } from '../captureBoundary';
+import {
+  ProposalChangedError,
+  captureProposalFromDocument,
+  captureProposalPath,
+  captureProposalToDocument,
+  createStorageCaptureProposalStore,
+  proposalRevision,
+  revisionMatches,
+  type CaptureProposalStore,
+  type StoredProposalDocument,
+} from '../captureBoundary';
+import { referenceStateFor } from '../captureChat/chatReferences';
+import {
+  INTENT_SEEDS,
+  docIdForKey,
+  getStorage,
+  requireUserId,
+  userSubDoc,
+  type StorageAdapter,
+} from '../../storage';
 import { createManualMemory } from './memoryService';
 import { applyParticipantCommand, applyParticipantCommands } from './participantState';
 
@@ -104,6 +124,7 @@ export class SeedAlreadyResolvedError extends Error {
 export interface SeedServiceOptions {
   store?: IntentSeedStore;
   proposals?: CaptureProposalStore;
+  storage?: StorageAdapter;
 }
 
 function storeOf(options: SeedServiceOptions): IntentSeedStore {
@@ -199,6 +220,7 @@ export interface CreateSeedRequest {
   kind?: unknown;
   summary?: unknown;
   idempotencyKey?: unknown;
+  revision?: unknown;
 }
 
 /**
@@ -229,41 +251,111 @@ export async function createSeed(
     ? request.seedItemId.trim()
     : null;
 
-  let input: Omit<CreateSeedInput, 'idempotencyKey'>;
   if (proposalId) {
     if (!seedItemId) throw new SeedValidationError('seedItemId is required with proposalId');
-    const stored = await proposalsOf(options).get(proposalId);
-    // A proposal belonging to somebody else reads as one that does not exist,
-    // the same answer `memoryService` gives for a foreign id: anything else
-    // confirms the proposal is real and is somebody's.
-    if (!stored || stored.scopeId !== uid) throw new SeedNotFoundError();
-    const offered = stored.contract.seeds?.find((candidate) => candidate.seedItemId === seedItemId);
-    if (!offered) throw new SeedNotFoundError();
-    input = {
-      scopeId: uid,
-      kind: offered.kind,
-      summary: offered.summary,
-      source: 'capture',
-      sourceRef: proposalId,
-      provenance: {
-        proposalId,
-        extractor: stored.contract.provenance.executedEngine,
-        confirmedByUserAt: at,
-      },
-    };
-  } else {
-    input = {
-      scopeId: uid,
-      kind: requireKind(request.kind),
-      summary: requireSummary(request.summary),
-      source: 'manual',
-      sourceRef: null,
-      // A manual seed is confirmed by the act of typing and saving it, so the
-      // confirmation stamp is this call. There is nothing to attribute to an
-      // extractor, and the field says so rather than naming one.
-      provenance: { proposalId: null, extractor: null, confirmedByUserAt: at },
-    };
+    const storage = options.storage ?? getStorage();
+    const proposalPath = captureProposalPath(uid, proposalId);
+    const created = await storage.runTransaction(async (tx) => {
+      const proposalDocument = await tx.get<StoredProposalDocument>(proposalPath);
+      if (!proposalDocument) throw new SeedNotFoundError();
+      const stored = captureProposalFromDocument(proposalDocument);
+      // A proposal in another account is deliberately indistinguishable from
+      // one that does not exist. The path above is already user-scoped, and
+      // this check also protects malformed legacy rows.
+      if (stored.scopeId !== uid) throw new SeedNotFoundError();
+
+      // Replay is checked before current-state conflicts (CONTRACT v4). The
+      // receipt and seed were committed together, so this never resurrects an
+      // orphan created by a stale keep.
+      const currentRevision = proposalRevision(stored.contract);
+      const legacyKeep = request.revision === undefined && stored.legacyConfirmRevision === currentRevision;
+      const requestedBaseRevision = typeof request.revision === 'number' ? request.revision : legacyKeep ? currentRevision : 0;
+      const receipt = stored.seedKeepReceipt;
+      if (receipt && receipt.seedItemId === seedItemId && receipt.baseRevision === requestedBaseRevision) {
+        return { seed: receipt.seed as IntentSeed, replayed: true };
+      }
+      if (stored.confirmedResult !== undefined) {
+        throw new ProposalChangedError(stored.contract, 'confirmed', stored.confirmedResult as never);
+      }
+      if (!legacyKeep && !revisionMatches(currentRevision, request.revision)) {
+        throw new ProposalChangedError(stored.contract, 'open');
+      }
+      const offered = stored.contract.seeds?.find((candidate) => candidate.seedItemId === seedItemId);
+      if (!offered) throw new SeedNotFoundError();
+
+      const idempotencyKey = typeof request.idempotencyKey === 'string' && request.idempotencyKey.trim()
+        ? request.idempotencyKey.trim()
+        : createHash('sha256')
+          .update(JSON.stringify({ uid, proposalId, seedItemId, summary: offered.summary, kind: offered.kind }))
+          .digest('hex');
+      const seedId = docIdForKey(idempotencyKey);
+      const seedPath = userSubDoc(requireUserId(uid), INTENT_SEEDS, seedId);
+      const existing = await tx.get<IntentSeed>(seedPath);
+      const seed: IntentSeed = existing ?? {
+        version: INTENT_SEED_SCHEMA_VERSION,
+        seedId,
+        scopeId: uid,
+        kind: offered.kind,
+        summary: offered.summary,
+        status: 'open',
+        revisitAt: null,
+        source: 'capture',
+        sourceRef: proposalId,
+        provenance: {
+          proposalId,
+          extractor: stored.contract.provenance.executedEngine,
+          confirmedByUserAt: at,
+        },
+        promotedTo: null,
+        createdAt: at,
+        updatedAt: at,
+      };
+      if (!existing) tx.create(seedPath, seed);
+      const refState = referenceStateFor(stored);
+      const seedRef = refState.refs[seedItemId];
+      tx.set(proposalPath, captureProposalToDocument({
+        ...stored,
+        // Keeping a seed does not change the proposal the person is
+        // reviewing.  The receipt is the keep's CAS/idempotency evidence, so
+        // moving the proposal revision here would make the unchanged cards
+        // stale on the very device that kept one of them.
+        contract: stored.contract,
+        seedKeepReceipt: { seedItemId, baseRevision: currentRevision, seed },
+        keptSeedItemIds: Array.from(new Set([...(stored.keptSeedItemIds ?? []), seedItemId])),
+        chatRefs: refState.refs,
+        nextChatItemRef: refState.nextItem,
+        nextChatSeedRef: refState.nextSeed,
+        ...(seedRef ? { lockedChatRefs: Array.from(new Set([...(stored.lockedChatRefs ?? []), seedRef])) } : {}),
+        // Receipts are independent and bounded to one operation of each
+        // kind.  Preserving the edit receipt also keeps replay-before-conflict
+        // semantics when a keep followed an edit.
+        editReceipt: stored.editReceipt,
+        // A revision-bearing writer ends the rolling legacy chain. A legacy
+        // keep is revision-neutral and therefore leaves that chain intact.
+        legacyConfirmRevision: request.revision === undefined ? stored.legacyConfirmRevision : undefined,
+      }, new Date()));
+      return { seed, replayed: existing !== null };
+    });
+
+    if (!created.replayed) {
+      await recordSeedEvent(uid, (analytics) =>
+        emitAnalyticsEvent(analytics, 'seed_confirmed', { seedKind: created.seed.kind }));
+    }
+    return created;
   }
+
+  let input: Omit<CreateSeedInput, 'idempotencyKey'>;
+  input = {
+    scopeId: uid,
+    kind: requireKind(request.kind),
+    summary: requireSummary(request.summary),
+    source: 'manual',
+    sourceRef: null,
+    // A manual seed is confirmed by the act of typing and saving it, so the
+    // confirmation stamp is this call. There is nothing to attribute to an
+    // extractor, and the field says so rather than naming one.
+    provenance: { proposalId: null, extractor: null, confirmedByUserAt: at },
+  };
 
   const idempotencyKey = typeof request.idempotencyKey === 'string' && request.idempotencyKey.trim()
     ? request.idempotencyKey.trim()

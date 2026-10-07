@@ -5,6 +5,7 @@ import { resetStorageForTests, setStorageForTests } from '../../lib/storage/inde
 import { proposeMobileCapture, clarifyMobileCapture } from '../../lib/services/mobile/mobileCaptureService.ts';
 import { createStorageCaptureProposalStore } from '../../lib/services/captureBoundary/proposalStore.ts';
 import { ClarifyError } from '../../lib/services/captureBoundary/clarifyService.ts';
+import './captureRevisionTransactions.cases.ts';
 
 /**
  * Answering the one question (UC-2.5, #165).
@@ -107,10 +108,10 @@ test('the same item cannot be asked twice', async () => {
       questionId: question.questionId, optionId: question.options[0]!.optionId,
       timezone: ZONE, referenceTime: NOW,
     };
-    await clarifyMobileCapture(body, { participantId: UID });
+    const answered = await clarifyMobileCapture(body, { participantId: UID });
     // A product that asks twice has stopped being a capture box.
     await assert.rejects(
-      () => clarifyMobileCapture(body, { participantId: UID }),
+      () => clarifyMobileCapture({ ...body, revision: answered.revision }, { participantId: UID }),
       (error: unknown) => error instanceof ClarifyError && error.failure === 'already_clarified',
     );
   } finally {

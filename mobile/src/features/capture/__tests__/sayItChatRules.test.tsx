@@ -127,43 +127,42 @@ describe('review offers only what the product does', () => {
   });
 });
 
-describe('the header Back in review returns to the composer with the sentence', () => {
-  it('an untouched proposal goes straight back, and the draft is exactly what was typed', async () => {
+/*
+ * M2b (audit condition 9, review M2B-A-005): in the chat, Back from the cards
+ * closes capture and keeps the conversation and the person's choices for when
+ * «احكيها» opens again, even with no summary (an older server). «إلغاء الكل»
+ * is the way to throw it away, and it asks first.
+ */
+describe('the header Back in a chat review closes capture and keeps it', () => {
+  it('an untouched proposal: Back closes without asking, and the cards are there again on reopening', async () => {
     await openCapture();
     await analyze();
     expect(screen.getByTestId('review-back').props.accessibilityLabel).toBe(en.back);
     await fireEvent.press(screen.getByTestId('review-back'));
     await waitFor(() => expect(screen.queryByTestId('review-item-i-1')).toBeNull());
     expect(screen.queryByTestId('capture-discard')).toBeNull();
-    expect(field()).toBe(SENTENCE);
-    // Still in capture: the composer, not the tab the flow was opened from.
-    expect(screen.getByTestId('capture-cancel')).toBeTruthy();
+    await fireEvent.press(screen.getByTestId('tab-capture'));
+    await waitFor(() => expect(screen.queryByTestId('review-item-i-1')).not.toBeNull());
   });
 
-  it('a touched proposal asks first; agreeing keeps the sentence, and "Keep" keeps the edits', async () => {
+  it('a touched proposal: Back keeps the change too', async () => {
     await openCapture();
     await analyze();
     await fireEvent.press(screen.getByTestId('review-item-i-2'));
     await fireEvent.press(screen.getByTestId('review-back'));
-    await waitFor(() => expect(screen.queryByTestId('capture-discard')).not.toBeNull());
-    expect(screen.getByText(en.chatBackDiscardBody)).toBeTruthy();
-
-    await fireEvent.press(screen.getByTestId('capture-discard-keep'));
-    await waitFor(() => expect(screen.queryByTestId('review-item-i-2')).not.toBeNull());
+    await waitFor(() => expect(screen.queryByTestId('review-item-i-1')).toBeNull());
+    expect(screen.queryByTestId('capture-discard')).toBeNull();
+    await fireEvent.press(screen.getByTestId('tab-capture'));
+    await waitFor(() => expect(screen.queryByTestId('review-item-i-1')).not.toBeNull());
     expect(screen.getByTestId('review-item-i-2').props.accessibilityState.checked).toBe(false);
-
-    await fireEvent.press(screen.getByTestId('review-back'));
-    await waitFor(() => expect(screen.queryByTestId('capture-discard')).not.toBeNull());
-    await fireEvent.press(screen.getByTestId('capture-discard-confirm'));
-    await waitFor(() => expect(screen.queryByTestId('capture-input')).not.toBeNull());
-    expect(screen.queryByTestId('review-item-i-1')).toBeNull();
-    expect(field()).toBe(SENTENCE);
   });
 
-  it('"Cancel all" is still the explicit exit, and it does leave capture', async () => {
+  it('"Cancel all" is the explicit exit: it asks first, and then it does leave capture', async () => {
     await openCapture();
     await analyze();
     await fireEvent.press(screen.getByTestId('review-cancel'));
+    await waitFor(() => expect(screen.queryByTestId('capture-discard')).not.toBeNull());
+    await fireEvent.press(screen.getByTestId('capture-discard-confirm'));
     await waitFor(() => expect(screen.queryByTestId('capture-input')).toBeNull());
     expect(screen.queryByTestId('review-item-i-1')).toBeNull();
   });

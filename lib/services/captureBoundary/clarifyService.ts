@@ -94,6 +94,10 @@ export interface ClarifyOptions {
 
 export interface ClarifyDependencies {
   store: CaptureProposalStore;
+  /** Mobile revision protocol: written with the clarification's proposal update. */
+  resultingRevision?: number;
+  /** One-hop compatibility marker for a revisionless legacy clarification. */
+  legacyConfirmRevision?: number;
   extractor?: typeof extractWithFallback;
   /**
    * The model, when this account's AI consent allows one — the same provider
@@ -823,6 +827,7 @@ export async function answerClarification(
 
   const mutated: CaptureProposalContract = {
     ...stored.contract,
+    ...(dependencies.resultingRevision === undefined ? {} : { revision: dependencies.resultingRevision }),
     items,
     // Answering the last open question makes the proposal confirmable.
     status: items.length > 0 && items.every((candidate) => candidate.needsClarification)
@@ -842,6 +847,9 @@ export async function answerClarification(
     commandsByItemId: commands,
     resultsByItemId: results,
     clarifiedItemIds: [...(stored.clarifiedItemIds ?? []), input.itemId],
+    editReceipt: undefined,
+    seedKeepReceipt: stored.seedKeepReceipt,
+    legacyConfirmRevision: dependencies.legacyConfirmRevision,
   };
   await dependencies.store.put(next);
 
@@ -940,6 +948,7 @@ async function askHalfAfterDay(args: {
   items[index] = withWeeklyBlockOffers([items[index]!], options.timezone)[0]!;
   const mutated: CaptureProposalContract = {
     ...stored.contract,
+    ...(dependencies.resultingRevision === undefined ? {} : { revision: dependencies.resultingRevision }),
     items,
     status: items.every((candidate) => candidate.needsClarification) ? 'needs_clarification' : 'proposed',
   };
@@ -949,7 +958,15 @@ async function askHalfAfterDay(args: {
   const results = new Map(stored.resultsByItemId);
   results.set(input.itemId, placed);
   // Not added to `clarifiedItemIds`: the صبح/مسا question is still to answer.
-  await dependencies.store.put({ ...stored, contract, commandsByItemId: commands, resultsByItemId: results });
+  await dependencies.store.put({
+    ...stored,
+    contract,
+    commandsByItemId: commands,
+    resultsByItemId: results,
+    editReceipt: undefined,
+    seedKeepReceipt: stored.seedKeepReceipt,
+    legacyConfirmRevision: dependencies.legacyConfirmRevision,
+  });
   await dependencies.recordEvent({
     type: 'clarification_answered',
     proposalId: input.proposalId,

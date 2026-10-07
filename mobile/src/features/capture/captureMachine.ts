@@ -25,8 +25,9 @@
  * pulls in no storage.
  */
 import type { CaptureChatAnswer, CaptureChatTurn, CaptureProposal, CaptureConfirmation } from '../../api/schemas/capture';
-import { usableUnderstood } from '../../api/schemas/capture';
+import { usableUnderstood, type UnderstoodPoint } from '../../api/schemas/capture';
 import type { UserFacingKey } from '../../api/ui/userFacingMessage';
+import type { CaptureProposalEdit } from '../../api/endpoints/capture';
 import type { LocationTrigger } from '../../api/schemas/common';
 
 /**
@@ -92,6 +93,17 @@ export type CaptureStatus =
  * `tab` and `notification` come from inside the app.
  */
 /** `meeting`: a proposal «حضّرني» made (CL5a), handed to review like a share's. */
+/** Which staged card fields went into a structured edit, so only those are cleared (M2b). */
+export interface FoldedEdit { itemId: string; title: boolean; time: boolean }
+
+/**
+ * A change from the «عدّل» sheet refused because the proposal moved on (M2b):
+ * the person's own values, kept on the point's id — never its line, which
+ * the current version may have moved — until they reopen it, the point is
+ * gone, or the conversation is (M2B-A-R2-REVIEW-003).
+ */
+export interface RefusedEdit { target: CaptureProposalEdit['target']; change: CaptureProposalEdit['change'] }
+
 export type CaptureSource = 'tab' | 'widget' | 'share' | 'notification' | 'meeting';
 
 /** How an analyze failed, before it becomes a status. */
@@ -278,11 +290,61 @@ export interface CaptureState {
    * same proposal keeps the cards open.
    */
   reviewOf: string | null;
+  /**
+   * The draft came from dictation (M2b): the next message says `spoken: true`,
+   * edited by hand or not. Forgotten when the draft is sent or emptied.
+   */
+  spoken: boolean;
+  /**
+   * Other whole-draft readings the recognizer offered for an untouched
+   * dictation, shown as «أو قصدك: …» chips, at most three (M2b). Never sent:
+   * only the words in the field leave the phone. Cleared by any typing, a
+   * chosen chip, a send and a new dictation.
+   */
+  alternatives: string[];
+  /**
+   * Why the proposal on screen is to be looked at again (M2b): a 409 brought
+   * the current version back. Shown in review; cleared by the next write.
+   */
+  reviewNotice: 'proposalChanged' | null;
+  /** Another device or intent already confirmed this conversation's proposal (M2b). */
+  confirmedElsewhere: boolean;
+  /** The person's refused summary change, to open again over the current version (M2b). */
+  refusedEdit: RefusedEdit | null;
 }
 
 export type CaptureEvent =
   | { type: 'open'; source?: CaptureSource; inputMode?: CaptureInputMode; meeting?: MeetingReviewContext }
   | { type: 'textChanged'; text: string }
+  /**
+   * A dictation is starting: the chips of the previous one go at once, and a
+   * voice launch's auto-start is spent — reopening capture later never starts
+   * the microphone again by itself (M2b).
+   */
+  | { type: 'dictationStarted' }
+  /** Dictation in progress: the draft so far. It is the person's words, still spoken. */
+  | { type: 'dictationChanged'; text: string }
+  /** Dictation finished, with the whole-draft alternatives the recognizer offered. */
+  | { type: 'dictationFinished'; text: string; alternatives: readonly string[] }
+  /** A «أو قصدك» chip: that reading replaces the draft; nothing is sent. */
+  | { type: 'alternativeChosen'; text: string }
+  /**
+   * The answer to a structured edit of the summary (M2b), or the current answer
+   * a 409 brought back. Unlike `chatAnswered` it never touches the draft: no
+   * message was sent. `folded` is the item whose staged card title/time went
+   * into the edit, so they are cleared here.
+   */
+  | { type: 'editAnswered'; answer: CaptureChatAnswer; folded?: FoldedEdit; refused?: RefusedEdit; applied?: CaptureProposalEdit['target'] }
+  /** The refused change was opened again in the sheet: it is the sheet's now. */
+  | { type: 'refusedEditTaken' }
+  /** The current proposal a 409 `proposal_changed` carried (confirm, clarify, seed keep). */
+  | { type: 'proposalReplaced'; proposal: CaptureProposal }
+  /**
+   * A 409 said the proposal was already confirmed elsewhere: nothing more to
+   * write here. With the id it is about, so a late answer for a former
+   * proposal leaves the one on screen alone (M2B-A-R3-REVIEW-004).
+   */
+  | { type: 'proposalConfirmedElsewhere'; proposalId?: string }
   | { type: 'analyzeStarted' }
   | { type: 'analyzeSucceeded'; proposal: CaptureProposal }
   /**
@@ -366,6 +428,11 @@ export function initialCaptureState(
     turns: [],
     earlier: [],
     reviewOf: null,
+    spoken: false,
+    alternatives: [],
+    reviewNotice: null,
+    confirmedElsewhere: false,
+    refusedEdit: null,
   };
 }
 
@@ -520,6 +587,8 @@ export function confirmPayload(state: CaptureState): {
   weeklyBlockItemIds: string[];
   /** The selected items whose goal link is kept; absent when none is. */
   goalLinkItemIds?: string[];
+  /** The proposal revision on screen, when the server sent one (M2b). */
+  revision?: number;
 } {
   const itemIds = state.selected.filter((id) => confirmableItems(state.proposal, state.edits).includes(id));
   // Edits for items that are not being confirmed are dropped rather than sent.
@@ -533,7 +602,13 @@ export function confirmPayload(state: CaptureState): {
   // Only the chat's cards show «مرتبط بهدف …»: a review that never drew the
   // chip (a share, a meeting prep) links nothing — no link the person did not see.
   const goalLinkItemIds = state.conversationId === null ? [] : itemIds.filter((id) => goalLinkKept(state, id));
-  return { proposalId: state.proposal?.proposalId ?? '', itemIds, edits, weeklyBlockItemIds, ...(goalLinkItemIds.length > 0 ? { goalLinkItemIds } : {}) };
+  const revision = state.proposal?.revision;
+  return {
+    proposalId: state.proposal?.proposalId ?? '', itemIds, edits, weeklyBlockItemIds,
+    ...(goalLinkItemIds.length > 0 ? { goalLinkItemIds } : {}),
+    // What was seen is what is saved (M2b).
+    ...(revision !== undefined ? { revision } : {}),
+  };
 }
 
 function sameIds(a: readonly string[], b: readonly string[]): boolean {
@@ -573,6 +648,8 @@ export function wantsDiscardConfirmation(state: CaptureState): boolean {
 
 
 function statusForProposal(proposal: CaptureProposal): CaptureStatus {
+  // Only removed points left: the summary shows them to bring back (contract v5).
+  if (onlyRemoved(proposal)) return 'unresolvedIntent';
   switch (proposal.status) {
     case 'proposed':
       // Every item needing a question is the clarification flow, even though
@@ -615,7 +692,22 @@ const REVIEWING: ReadonlySet<CaptureStatus> = new Set([
  */
 export function chatProposalShown(proposal: CaptureProposal | null): CaptureProposal | null {
   if (!proposal || proposal.status === 'rejected') return null;
-  return proposal.items.length > 0 || (proposal.seeds?.length ?? 0) > 0 ? proposal : null;
+  return proposal.items.length > 0 || (proposal.seeds?.length ?? 0) > 0 || onlyRemoved(proposal) ? proposal : null;
+}
+
+/**
+ * A versioned proposal whose every point a later message took off the list
+ * (contract v5): still a proposal — its removed points are shown with
+ * «رجّعها», never dropped as "nothing found" (M2B-A-R7-001).
+ */
+export function onlyRemoved(proposal: CaptureProposal): boolean {
+  return proposal.revision !== undefined && proposal.items.length === 0 && (proposal.seeds?.length ?? 0) === 0
+    && (proposal.removedItems?.length ?? 0) > 0;
+}
+
+/** The summary's lines: `understood` when it describes the proposal, none when only removed points are left. */
+export function summaryPoints(proposal: CaptureProposal): readonly UnderstoodPoint[] | undefined {
+  return usableUnderstood(proposal) ?? (onlyRemoved(proposal) ? [] : undefined);
 }
 
 /**
@@ -628,7 +720,7 @@ export function chatProposalShown(proposal: CaptureProposal | null): CaptureProp
 export function showsUnderstood(state: CaptureState): boolean {
   const proposal = state.proposal;
   if (!proposal || !REVIEWING.has(state.status) || state.conversationId === null) return false;
-  return state.reviewOf !== proposal.proposalId && usableUnderstood(proposal) !== undefined;
+  return state.reviewOf !== proposal.proposalId && summaryPoints(proposal) !== undefined;
 }
 
 /** The facts of an item the server decides; a talk edit changes one of these. */
@@ -666,6 +758,49 @@ function carriedInto(state: CaptureState, next: CaptureProposal): Pick<CaptureSt
   return { selected, edits, onceOnly, goalUnlinked };
 }
 
+/**
+ * Choices carried across a structured edit or a 409's current proposal (M2b).
+ * Ids are kept by the server, so a choice follows its id: the selection as
+ * `carriedInto` keeps it, a hand edit while the server's facts for that item
+ * did not change — except the `folded` item, whose staged title and time just
+ * went into the edit and are now the server's (its priority and place stay).
+ * An item that became a seed takes its choices with it.
+ */
+/** The id a structured-edit target names; a point keeps it when its kind changes. */
+function targetId(target: CaptureProposalEdit['target']): string {
+  return 'itemId' in target ? target.itemId : target.seedItemId;
+}
+
+/**
+ * A refused change outlives an answer only while its point is still there and
+ * no newer change to that point was applied since (M2B-A-R3-REVIEW-003).
+ */
+function stillRefused(refused: RefusedEdit | null, proposal: CaptureProposal, applied?: CaptureProposalEdit['target']): RefusedEdit | null {
+  if (!refused) return null;
+  const id = targetId(refused.target);
+  if (applied && targetId(applied) === id) return null;
+  const present = proposal.items.some((item) => item.itemId === id) || proposal.seeds.some((seed) => seed.seedItemId === id);
+  return present ? refused : null;
+}
+
+function carriedAcrossEdit(state: CaptureState, next: CaptureProposal, folded?: FoldedEdit): Pick<CaptureState, 'selected' | 'edits' | 'onceOnly' | 'goalUnlinked'> {
+  const carried = carriedInto(state, next);
+  // Choices on an item the edit did not touch follow their id even if the
+  // answer's facts differ from the last answer's; only what went into the
+  // patch becomes the server's.
+  const edits: Record<string, CaptureItemEdit> = {};
+  for (const item of next.items) {
+    const staged = state.edits[item.itemId];
+    if (!staged) continue;
+    if (folded?.itemId !== item.itemId) { edits[item.itemId] = staged; continue; }
+    const rest: CaptureItemEdit = { ...staged };
+    if (folded.title) delete rest.title;
+    if (folded.time) delete rest.localDateTime;
+    if (Object.keys(rest).length > 0) edits[item.itemId] = rest;
+  }
+  return { ...carried, edits };
+}
+
 export function captureReducer(state: CaptureState, event: CaptureEvent): CaptureState {
   switch (event.type) {
     case 'open': {
@@ -679,10 +814,30 @@ export function captureReducer(state: CaptureState, event: CaptureEvent): Captur
       // Truncated here rather than refused, so a long paste keeps its beginning
       // instead of silently doing nothing.
       const text = event.text.slice(0, MAX_CAPTURE_LENGTH);
+      // Typing over a dictation keeps it spoken but drops the alternatives:
+      // they were readings of words that are no longer there (M2b).
+      const voice = { spoken: state.spoken && text.trim().length > 0, alternatives: [] as string[] };
       // Under a proposal the composer is the next message of the conversation:
       // typing it changes nothing about the proposal on screen (#chat).
-      if (REVIEWING.has(state.status)) return { ...state, text };
-      return { ...state, text, status: text.trim() ? 'editing' : 'idle', errorReason: null, messageKey: null };
+      if (REVIEWING.has(state.status)) return { ...state, ...voice, text };
+      return { ...state, ...voice, text, status: text.trim() ? 'editing' : 'idle', errorReason: null, messageKey: null };
+    }
+
+    case 'dictationStarted':
+      return { ...state, alternatives: [], inputMode: 'text' };
+
+    case 'dictationChanged':
+    case 'dictationFinished':
+    case 'alternativeChosen': {
+      if (state.status === 'analyzing' || state.status === 'confirming') return state;
+      const text = event.text.slice(0, MAX_CAPTURE_LENGTH);
+      const alternatives = event.type === 'dictationFinished'
+        ? Array.from(new Set(event.alternatives.map((value) => value.slice(0, MAX_CAPTURE_LENGTH))))
+          .filter((value) => value.trim() && value !== text).slice(0, 3)
+        : [];
+      const voice = { spoken: text.trim().length > 0, alternatives };
+      if (REVIEWING.has(state.status)) return { ...state, ...voice, text };
+      return { ...state, ...voice, text, status: text.trim() ? 'editing' : 'idle', errorReason: null, messageKey: null };
     }
 
     case 'analyzeStarted':
@@ -708,7 +863,8 @@ export function captureReducer(state: CaptureState, event: CaptureEvent): Captur
       if (!state.text.trim() || state.status === 'confirming' || state.status === 'analyzing') return state;
       // The proposal and the conversation stay: a failed send goes back to
       // them, and the answer's own proposal replaces this one when it lands.
-      return { ...state, status: 'analyzing', errorReason: null, messageKey: null };
+      // The chips go with the send: they were readings of this draft (M2b).
+      return { ...state, status: 'analyzing', errorReason: null, messageKey: null, alternatives: [], reviewNotice: null, confirmedElsewhere: false };
 
     case 'chatAnswered': {
       const { answer } = event;
@@ -717,19 +873,66 @@ export function captureReducer(state: CaptureState, event: CaptureEvent): Captur
         ...state,
         // The message is in `turns` now; the field is for the next one.
         text: '',
+        spoken: false,
+        alternatives: [],
         conversationId: answer.conversationId,
         turns: answer.turns,
         errorReason: null,
         messageKey: null,
       };
       if (!proposal) {
-        return { ...conversation, status: 'idle', proposal: null, original: null, selected: [], edits: {}, onceOnly: [], goalUnlinked: [], reviewOf: null };
+        return { ...conversation, status: 'idle', proposal: null, original: null, selected: [], edits: {}, onceOnly: [], goalUnlinked: [], reviewOf: null, refusedEdit: null };
       }
       const carried = carriedInto(state, proposal);
       // A new proposal starts at its own summary; the same one keeps its cards.
       const reviewOf = state.reviewOf === proposal.proposalId ? state.reviewOf : null;
-      return { ...conversation, ...carried, status: reviewStatus(proposal, carried.edits), proposal, original: proposal, reviewOf };
+      const refusedEdit = state.proposal?.proposalId === proposal.proposalId ? stillRefused(state.refusedEdit, proposal) : null;
+      return { ...conversation, ...carried, status: reviewStatus(proposal, carried.edits), proposal, original: proposal, reviewOf, refusedEdit };
     }
+
+    case 'editAnswered': {
+      // A structured edit sent no message: the draft, its spoken state and its
+      // chips stay exactly as they were (M2b).
+      const { answer } = event;
+      const proposal = chatProposalShown(answer.proposal);
+      const conversation = { ...state, conversationId: answer.conversationId, turns: answer.turns, errorReason: null, messageKey: null };
+      if (!proposal) {
+        return { ...conversation, status: state.text.trim() ? 'editing' : 'idle', proposal: null, original: null, selected: [], edits: {}, onceOnly: [], goalUnlinked: [], reviewOf: null, refusedEdit: null };
+      }
+      const carried = carriedAcrossEdit(state, proposal, event.folded);
+      const reviewOf = state.reviewOf === proposal.proposalId ? state.reviewOf : null;
+      // A refusal keeps the person's change; an applied change to the same
+      // point spends an older refused one.
+      const refusedEdit = event.refused ?? stillRefused(state.refusedEdit, proposal, event.applied);
+      return { ...conversation, ...carried, status: reviewStatus(proposal, carried.edits), proposal, original: proposal, reviewOf, reviewNotice: null, refusedEdit };
+    }
+
+    case 'proposalReplaced': {
+      // A 409 brought the proposal as it is now (M2b). Nothing was saved; the
+      // person reviews this version. Their choices carry where it did not move.
+      if (!state.proposal || event.proposal.proposalId !== state.proposal.proposalId) return state;
+      // The person's staged choices are theirs and unsent: they stay on their
+      // ids even where the server's facts moved, to be reviewed again (M2b).
+      const carried = carriedAcrossEdit(state, event.proposal);
+      const edits: Record<string, CaptureItemEdit> = {};
+      for (const item of event.proposal.items) {
+        const staged = state.edits[item.itemId];
+        if (staged) edits[item.itemId] = staged;
+      }
+      return {
+        ...state, ...carried, edits, status: reviewStatus(event.proposal, edits), proposal: event.proposal, original: event.proposal,
+        errorReason: null, messageKey: null, reviewNotice: 'proposalChanged', refusedEdit: stillRefused(state.refusedEdit, event.proposal),
+      };
+    }
+
+    case 'proposalConfirmedElsewhere':
+      // Nothing to confirm, clarify or keep any more: say so instead of
+      // offering writes that can only be refused again.
+      if (!state.proposal || (event.proposalId !== undefined && event.proposalId !== state.proposal.proposalId)) return state;
+      return {
+        ...state, proposal: null, original: null, selected: [], edits: {}, onceOnly: [], goalUnlinked: [], reviewOf: null,
+        status: state.text.trim() ? 'editing' : 'idle', errorReason: null, messageKey: null, reviewNotice: null, confirmedElsewhere: true, refusedEdit: null,
+      };
 
     case 'dismissFailure':
       // Back from "that didn't go" to where the person was: the conversation,
@@ -948,6 +1151,9 @@ export function captureReducer(state: CaptureState, event: CaptureEvent): Captur
     case 'understoodReopened':
       if (!state.proposal || state.reviewOf !== state.proposal.proposalId || state.status === 'confirming') return state;
       return { ...state, reviewOf: null };
+
+    case 'refusedEditTaken':
+      return state.refusedEdit ? { ...state, refusedEdit: null } : state;
 
     case 'reset':
       return initialCaptureState(state.source, state.inputMode);

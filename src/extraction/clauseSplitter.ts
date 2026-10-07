@@ -62,6 +62,7 @@
 import { stripTimeExpressions } from './ruleBasedExtractor';
 import { namesDay, RELATIVE_DAY_MENTION_SOURCES, statesClock, timeOfDayEvidence } from './timeLexicon';
 import { LEADING_CONNECTOR, NOT_LETTERS, REQUEST_MARKER, opensWithAction } from './requestEvidence';
+import { opensWithUnresolvedIntent } from './unresolvedIntent';
 
 const B = '(?<![\\p{L}\\p{M}])';
 const A = '(?![\\p{L}\\p{M}])';
@@ -488,6 +489,8 @@ export interface CaptureClause {
   elliptical?: true;
   /** The one word standing where the first conjunct had its day, read as no day. */
   unreadDayWord?: string;
+  /** Said after another clause of the same message («…، واتصل بالبنك»). */
+  follows?: true;
 }
 
 function ellipticalConjuncts(segment: string): CaptureClause[] {
@@ -568,7 +571,41 @@ function splitTimedConjuncts(segment: string): string[] {
 
 /** The clauses of one capture, with how each was cut (`CaptureClause`). */
 export function splitCaptureClauseDetails(raw: string): CaptureClause[] {
-  return segmentsOf(raw).flatMap((segment) => ellipticalConjuncts(segment));
+  return segmentsOf(raw)
+    .flatMap((segment) => ellipticalConjuncts(segment))
+    .map((clause, index) => index > 0 ? { ...clause, follows: true as const } : clause);
+}
+
+const LEADING_REQUEST = new RegExp(REQUEST_MARKER.source, REQUEST_MARKER.flags.replace('g', ''));
+/** Arabic harakat and Hebrew niqqud: folded away before a word is read. */
+const MARKS = new RegExp('[\\u064B-\\u065F\\u0670\\u0591-\\u05C7]', 'gu');
+
+/**
+ * A clause that followed another one, without the «و» / "and" / «ו» that
+ * joined them (load pass F3, 2026-10-07): «…، واتصل بالبنك بكرا» is the
+ * point. Only for a clause that did follow another (`CaptureClause.follows`),
+ * and only when the joiner is certain (below). Applied once, where an item
+ * is made; the summary shows the stored words as they are.
+ */
+export function withoutClauseJoiner(clause: string): string {
+  // The conjunction with any vowel marks on it («وَ», «וְ»), so none is left
+  // standing alone at the start (Codex inspection F3-006).
+  const joined = new RegExp('^(?:and\\s+|و[\\u064B-\\u065F\\u0670]*|ו[\\u0591-\\u05C7]*)', 'iu').exec(clause);
+  if (!joined) return clause;
+  const remainder = clause.slice(joined[0].length).trimStart();
+  if (!remainder) return clause;
+  // A joiner goes only before a word no word of the language starts with:
+  // a request («ولازم», «وبدي», "and I need to") or an intent («وعم بفكر»,
+  // «وبستنى»). Not even "and" otherwise: "And Then There Were None" is a
+  // name (Codex inspection F3-011). Never before a verb: the verb lexicon cannot tell «واتصل»
+  // (and call) from «ورد» (roses → «رد», reply), «وطرينر», «وزارة»
+  // (Codex inspections F3-001, F3-008, F3-009). A «و» kept there is
+  // kept on the card and in the summary alike. Read with vowel marks folded
+  // away (F3-010); the words returned keep theirs.
+  const folded = remainder.replace(MARKS, '');
+  const request = LEADING_REQUEST.exec(folded);
+  const opensPoint = (request !== null && request.index === 0) || opensWithUnresolvedIntent(folded);
+  return opensPoint ? remainder : clause;
 }
 
 export function splitCaptureClauses(raw: string): string[] {
@@ -588,7 +625,10 @@ function segmentsOf(raw: string): string[] {
     .replace(/،+/g, '|')
     .split('|')
     .map((part) => part.trim())
-    .map((part) => part.replace(/^[\s,;،]+|[\s,;،]+$/g, '').replace(/^(?:and\b|ثم(?![؀-ۿ])|ו)\s*/i, '').trim())
+    .map((part) => part.replace(/^[\s,;،]+|[\s,;،]+$/g, '').replace(/^(?:and\b|ثم(?![؀-ۿ]))\s*/i, '').trim())
+    // A Hebrew «ו» is attached, like an Arabic «و»: it is not cut here, where
+    // «ויזה» would lose its own letter (Codex inspection F3-004); a joining one
+    // goes where the follower's item or seed is made (`withoutClauseJoiner`).
     .filter(Boolean)
     .flatMap(splitTimedConjuncts);
   return segments.length > 0 ? withTimeOnlyClausesMerged(segments) : [raw];

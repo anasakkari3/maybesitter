@@ -1,0 +1,60 @@
+{
+  "reason": "proposal_changed",
+  "answer": {
+    "conversationId": "00000000-0000-4000-8000-000000000001",
+    "reply": "تمام، عدّلتها. راجع القائمة وأكّد من تحت.",
+    "engine": "rules",
+    "proposal": {
+      "version": "v1",
+      "proposalId": "00000000-0000-4000-8000-000000000002",
+      "status": "proposed",
+      "items": [
+        {
+          "itemId": "00000000-0000-4000-8000-000000000003",
+          "title": "احكي مع طبيب الأسنان",
+          "resolvedTime": "2026-08-09T09:00:00.000Z",
+          "needsClarification": false,
+          "timeEstimated": false,
+          "priority": "normal",
+          "priorityEstimated": true,
+          "resolvedDate": "2026-08-10",
+          "dateEstimated": false
+        }
+      ],
+      "seeds": [],
+      "revision": 1,
+      "provenance": {
+        "requestedEngine": "rules",
+        "executedEngine": "rule-based",
+        "fallbackUsed": true
+      },
+      "understood": [
+        {
+          "kind": "commitment",
+          "itemId": "00000000-0000-4000-8000-000000000003",
+          "text": "احكي مع طبيب الأسنان"
+        }
+      ]
+    },
+    "turns": [
+      {
+        "role": "user",
+        "text": "ذكرني بكرا الساعة 5 المسا أحكي مع الدكتور"
+      },
+      {
+        "role": "assistant",
+        "text": "هيك فهمت. شوف القائمة وإذا كلها تمام أكّدها."
+      },
+      {
+        "role": "user",
+        "text": "غيّر «أحكي مع الدكتور» لـ «احكي مع طبيب الأسنان».",
+        "evidence": false
+      },
+      {
+        "role": "assistant",
+        "text": "تمام، عدّلتها. راجع القائمة وأكّد من تحت."
+      }
+    ]
+  },
+  "state": "open"
+}

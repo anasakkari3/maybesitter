@@ -26,6 +26,7 @@
  * developer comes to trust a fake — and #148 forbids that pattern here.
  */
 import { apiMode } from '../config/env';
+import { localDateTimeFor } from '../features/capture/localInstant';
 
 import activityList from './__fixtures__/activity.list.json';
 import activitySummary from './__fixtures__/activity.summary.json';
@@ -34,6 +35,7 @@ import analyticsAck from './__fixtures__/analytics.ack.json';
 import backgroundActivityFootballRetrying from './__fixtures__/backgroundActivity.footballRetrying.json';
 import backgroundActivityHistory from './__fixtures__/backgroundActivity.history.json';
 import captureChatProposal from './__fixtures__/capture.chatProposal.json';
+import captureChatCorrection from './__fixtures__/capture.chatCorrection.json';
 import captureConfirmation from './__fixtures__/capture.confirmation.json';
 import captureProposal from './__fixtures__/capture.proposal.json';
 import captureShareProposal from './__fixtures__/capture.shareProposal.json';
@@ -215,8 +217,15 @@ export function mockModeActive(): boolean {
  * deletion would hand back a receipt for an account that still exists, which
  * is the one lie in this product with no recoverable version.
  */
-export function mockResponseFor(method: string, path: string): MockResponse | null {
+/**
+ * The fixture for a request. `body` is the parsed request body, for routes
+ * whose answer depends on what was asked (the capture chat's structured
+ * edits, M2b); every other route ignores it. Nothing is remembered between
+ * calls: mock mode never pretends to persist.
+ */
+export function mockResponseFor(method: string, path: string, body?: unknown): MockResponse | null {
   if (!mockModeActive()) return null;
+  if (method === 'POST' && path === '/api/mobile/capture/chat') return mockChat(body);
   for (const [routeMethod, pattern, response] of ROUTES) {
     if (routeMethod === method && pattern.test(path)) return response;
   }
@@ -224,4 +233,152 @@ export function mockResponseFor(method: string, path: string): MockResponse | nu
   // network the developer has told us not to use. A screen hitting something
   // unmapped should say so loudly while it is cheap to fix.
   return { status: 501, body: { success: false, error: `no fixture for ${method} ${path}`, reason: 'not_mocked' } };
+}
+
+/* ── The capture chat, request-aware (M2b) ─────────────────────────── */
+
+/** Mock mode's proposals start at revision 1; an edit naming an older one is stale. */
+const MOCK_BASE_REVISION = 1;
+const SEED_KINDS = new Set(['possible_goal', 'consideration', 'idea', 'waiting_for']);
+
+type MockProposal = {
+  revision?: number;
+  items: Record<string, unknown>[];
+  seeds: Record<string, unknown>[];
+  understood?: Record<string, unknown>[];
+} & Record<string, unknown>;
+type MockAnswer = { proposal: MockProposal | null; turns: unknown[] } & Record<string, unknown>;
+type MockEdit = {
+  revision?: number;
+  target?: { itemId?: string; seedItemId?: string };
+  change?: { kind?: string; text?: string; time?: { at: string | null; timeZone?: string }; rejectCorrectionIds?: string[] };
+};
+
+function baseAnswer(source: unknown = captureChatProposal): MockAnswer {
+  const answer = JSON.parse(JSON.stringify(source)) as MockAnswer;
+  if (answer.proposal) answer.proposal.revision = Math.max(answer.proposal.revision ?? 0, MOCK_BASE_REVISION);
+  return answer;
+}
+
+/**
+ * A message gets the chat fixture at the base revision. A structured edit gets
+ * that same fixture with the requested change applied — deterministically, from
+ * the request alone, at the next revision — so every edit path can be driven on
+ * a phone with no backend. Nothing is remembered between calls.
+ */
+function mockChat(body: unknown): MockResponse {
+  const request = body as { edit?: MockEdit; spoken?: boolean; locale?: string } | undefined;
+  const edit = request?.edit;
+  // A dictated message gets the route's own answer to one: «فهمت "الطلع" إنها "اطلع"».
+  if (!edit) return { status: 200, body: baseAnswer(request?.spoken ? captureChatCorrection : captureChatProposal) };
+  const current = baseAnswer();
+  // The route's exact check: any revision but the current one is a conflict.
+  if (edit.revision !== MOCK_BASE_REVISION) {
+    return { status: 409, body: { reason: 'proposal_changed', answer: current, state: 'open' } };
+  }
+  // Undoing a correction edits the corrected answer, the only one that has one.
+  const answer = baseAnswer(edit.change?.rejectCorrectionIds ? captureChatCorrection : captureChatProposal);
+  const proposal = answer.proposal!;
+  proposal.revision = (edit.revision ?? MOCK_BASE_REVISION) + 1;
+  const change = edit.change ?? {};
+  const itemId = edit.target?.itemId;
+  const seedId = edit.target?.seedItemId;
+  const item = proposal.items.find((candidate) => candidate.itemId === itemId);
+  const seed = proposal.seeds.find((candidate) => candidate.seedItemId === seedId);
+  // What the server refuses, refused here too: an unknown point, a time on a
+  // seed that stays a seed, words with a correction undo in one patch.
+  // Nothing is ever taken off the list in mock mode, so a restore names
+  // nothing that was removed — the route's 400 for that (contract v5).
+  if ((change as { restore?: unknown }).restore !== undefined) return { status: 400, body: { reason: 'edit_invalid' } };
+  // An empty patch, and a correction id the point does not carry, too.
+  const corrections = (item && Array.isArray(item.corrections) ? item.corrections : []) as { id: string }[];
+  const invalid = (!item && !seed)
+    || Object.keys(change).length === 0
+    || (seed && change.time && change.kind !== 'commitment')
+    || (change.text !== undefined && change.rejectCorrectionIds !== undefined)
+    || (change.rejectCorrectionIds !== undefined && (change.rejectCorrectionIds.length === 0
+      || change.rejectCorrectionIds.some((id) => !corrections.some((correction) => correction.id === id))));
+  if (invalid) return { status: 400, body: { reason: 'edit_invalid' } };
+  // A patch that changes nothing is refused as the route refuses it.
+  const currentKind = item ? 'commitment' : seed?.kind;
+  const unchanged = (change.kind === undefined || change.kind === currentKind)
+    && (change.text === undefined || change.text === (item ? item.title : seed?.summary))
+    && (change.time === undefined || (item !== undefined && change.time.at === item.resolvedTime && !item.needsClarification))
+    && change.rejectCorrectionIds === undefined;
+  if (unchanged) return { status: 400, body: { reason: 'edit_invalid' } };
+  const point = (proposal.understood ?? []).find((candidate) =>
+    (item && candidate.itemId === item.itemId) || (seed && candidate.seedItemId === seed.seedItemId));
+  const before = String(point?.text ?? item?.title ?? seed?.summary ?? '');
+  if (change.text !== undefined) {
+    if (item) item.title = change.text;
+    if (seed) seed.summary = change.text;
+    if (point) point.text = change.text;
+  }
+  if (change.time && item) {
+    // A range moves whole: the end keeps the length it had (the route's rule).
+    const length = typeof item.resolvedTime === 'string' && typeof item.endTime === 'string'
+      ? Date.parse(item.endTime) - Date.parse(item.resolvedTime) : 0;
+    item.resolvedTime = change.time.at;
+    // What described the old time goes with it, as the route drops it
+    // (`structuredEdit.ts`): its day, its guesses, its weekly offer, its question.
+    for (const stale of ['endTime', 'resolvedDate', 'dateEstimated', 'weeklyBlock'] as const) delete item[stale];
+    item.timeEstimated = false;
+    if (change.time.at) {
+      item.resolvedDate = localDateTimeFor(new Date(change.time.at), change.time.timeZone ?? 'UTC').slice(0, 10);
+      item.dateEstimated = false;
+    }
+    if (change.time.at && length > 0) item.endTime = new Date(Date.parse(change.time.at) + length).toISOString();
+    item.needsClarification = false;
+    item.clarification = null;
+  }
+  if (change.rejectCorrectionIds) {
+    const all = (item && Array.isArray(item.corrections) ? item.corrections : []) as { id: string; from: string; to: string }[];
+    const rejected = all.filter((correction) => change.rejectCorrectionIds!.includes(correction.id));
+    // The heard word goes back where the correction put the other one.
+    for (const correction of rejected) {
+      item!.title = String(item!.title).replace(correction.to, correction.from);
+      if (point) point.text = String(point.text).replace(correction.to, correction.from);
+    }
+    if (item) {
+      item.corrections = all.filter((correction) => !rejected.includes(correction));
+      if ((item.corrections as unknown[]).length === 0) delete item.corrections;
+    }
+  }
+  if (change.kind && SEED_KINDS.has(change.kind) && item) {
+    // The item becomes a seed of that kind, keeping its id and its place.
+    proposal.items = proposal.items.filter((candidate) => candidate !== item);
+    proposal.seeds = [...proposal.seeds, { seedItemId: item.itemId, kind: change.kind, summary: String(item.title) }];
+    if (point) Object.assign(point, { kind: change.kind, seedItemId: item.itemId, itemId: undefined });
+    if (point) delete point.itemId;
+  }
+  if (change.kind === 'commitment' && seed) {
+    proposal.seeds = proposal.seeds.filter((candidate) => candidate !== seed);
+    proposal.items = [...proposal.items, {
+      itemId: seed.seedItemId, title: seed.summary, resolvedTime: change.time?.at ?? null, needsClarification: !change.time?.at,
+    }];
+    if (point) { Object.assign(point, { kind: 'commitment', itemId: seed.seedItemId }); delete point.seedItemId; }
+  }
+  // The status follows what is left, as the route's `statusOf` decides it.
+  proposal.status = proposal.items.length === 0
+    ? (proposal.seeds.length > 0 ? 'unresolved_intent' : 'no_commitment')
+    : proposal.items.every((candidate) => candidate.needsClarification) ? 'needs_clarification' : 'proposed';
+  // The route records the edit as two turns (`structuredEdit.ts`, `editTurns`).
+  const turns = editTurns(change, before, request?.locale);
+  answer.reply = turns.reply;
+  answer.turns = [...(answer.turns ?? []), { role: 'user', text: turns.user, evidence: false }, { role: 'assistant', text: turns.reply }];
+  return { status: 200, body: answer };
+}
+
+/** The route's own words for an edit, in the request's language. */
+function editTurns(change: NonNullable<MockEdit['change']>, before: string, locale: string | undefined): { user: string; reply: string } {
+  const after = change.text ?? '';
+  const user = change.text !== undefined
+    ? (locale === 'en' ? `Change \u201C${before}\u201D to \u201C${after}\u201D.` : locale === 'he' ? `\u05DC\u05E9\u05E0\u05D5\u05EA \u05D0\u05EA \u201E${before}\u201D \u05DC\u201E${after}\u201D.` : `\u063A\u064A\u0651\u0631 \u00AB${before}\u00BB \u0644\u0640 \u00AB${after}\u00BB.`)
+    : change.kind !== undefined
+      ? (locale === 'en' ? `Change \u201C${before}\u201D to ${change.kind}.` : locale === 'he' ? `\u05DC\u05E9\u05E0\u05D5\u05EA \u05D0\u05EA \u05D4\u05E1\u05D5\u05D2 \u05E9\u05DC \u201E${before}\u201D.` : `\u063A\u064A\u0651\u0631 \u0646\u0648\u0639 \u00AB${before}\u00BB.`)
+      : (locale === 'en' ? `Update \u201C${before}\u201D.` : locale === 'he' ? `\u05DC\u05E2\u05D3\u05DB\u05DF \u05D0\u05EA \u201E${before}\u201D.` : `\u0639\u062F\u0651\u0644 \u00AB${before}\u00BB.`);
+  const reply = locale === 'en' ? 'Updated. Review the list and confirm below.'
+    : locale === 'he' ? '\u05E2\u05D5\u05D3\u05DB\u05DF. \u05D0\u05E4\u05E9\u05E8 \u05DC\u05D1\u05D3\u05D5\u05E7 \u05D0\u05EA \u05D4\u05E8\u05E9\u05D9\u05DE\u05D4 \u05D5\u05DC\u05D0\u05E9\u05E8 \u05DC\u05DE\u05D8\u05D4.'
+      : '\u062A\u0645\u0627\u0645\u060C \u0639\u062F\u0651\u0644\u062A\u0647\u0627. \u0631\u0627\u062C\u0639 \u0627\u0644\u0642\u0627\u0626\u0645\u0629 \u0648\u0623\u0643\u0651\u062F \u0645\u0646 \u062A\u062D\u062A.';
+  return { user, reply };
 }

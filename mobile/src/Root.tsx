@@ -62,7 +62,7 @@ import { BackgroundActivityScreen, WatchBuilderScreen } from './features/product
 
 export function Root() {
   const { s, p, rtl, scheme, actions } = useApp();
-  const { takePendingLink } = useAuth();
+  const { takePendingLink, user } = useAuth();
   const [toastClearance, setToastClearance] = useState(TAB_CLEARANCE);
   const latest = useRef(actions);
   latest.current = actions;
@@ -269,7 +269,9 @@ export function Root() {
               (UC-2.R2 #172). `review` and `saved` are no longer app screens: a
               second place to record which one is showing is a second place for it
               to be wrong. */}
-          {s.screen === 'capture' && <CaptureFlow key="capture" />}
+          {/* Keyed by the account (M2b): another account's capture screen —
+              its dictation, its paste, its open sheets — is a new one. */}
+          {s.screen === 'capture' && <CaptureFlow key={`capture-${user?.uid ?? ''}`} />}
           {s.screen === 'share' && <ShareScreen key="share" />}
           {/* Two independent gates: the flag, and the release guard that refuses
               to configure a staging or production build which sets it (#152). */}

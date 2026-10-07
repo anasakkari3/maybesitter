@@ -64,6 +64,11 @@ export function CaptureFlow() {
     // again, not a new one: `open` would wipe the draft — and the
     // conversation — the person left for a moment.
     if (s.taskResumed) return;
+    // Back closed capture and kept the conversation (M2b, condition 9): a
+    // chat, its saves or an unsent draft are still here when it opens again.
+    // Only «ابدأ من جديد» / «إلغاء الكل» or a different account start fresh.
+    const { conversationId, turns, earlier, text } = flow.state;
+    if (conversationId !== null || turns.length > 0 || earlier.length > 0 || text.trim()) return;
     flow.open(s.captureSource, s.captureInput);
   }, [flow, s.captureSource, s.captureInput, s.taskResumed]);
 

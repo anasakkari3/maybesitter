@@ -115,15 +115,16 @@ async function pressHardwareBack(): Promise<boolean> {
 }
 
 describe('hardware back on the capture page', () => {
-  it('with a typed draft, asks the discard question instead of closing', async () => {
+  // M2b (audit condition 9): Back closes capture and keeps the draft for when
+  // «احكيها» opens again — no question, because nothing is thrown away.
+  it('with a typed draft, closes capture and keeps the draft for later', async () => {
     await openCapture();
     await fireEvent.changeText(screen.getByTestId('capture-input'), SENTENCE);
     expect(await pressHardwareBack()).toBe(true);
-    await waitFor(() => expect(screen.queryByTestId('capture-discard')).not.toBeNull());
-    expect(screen.queryByTestId('tab-capture')).toBeNull();
-    // Back again is the header's "keep writing": the question goes, the draft stays.
-    expect(await pressHardwareBack()).toBe(true);
-    await waitFor(() => expect(screen.queryByTestId('capture-discard')).toBeNull());
+    await waitFor(() => expect(screen.queryByTestId('capture-input')).toBeNull());
+    expect(screen.queryByTestId('capture-discard')).toBeNull();
+    await fireEvent.press(screen.getByTestId('tab-capture'));
+    await waitFor(() => expect(screen.queryByTestId('capture-input')).not.toBeNull());
     expect(field()).toBe(SENTENCE);
   });
 
@@ -134,13 +135,14 @@ describe('hardware back on the capture page', () => {
     expect(screen.queryByTestId('capture-discard')).toBeNull();
   });
 
-  it('in review, goes back to the composer with the sentence, like the header Back', async () => {
+  it('in a chat review, closes capture and keeps the cards, like the header Back (M2b)', async () => {
     await openCapture();
     await analyze();
     expect(await pressHardwareBack()).toBe(true);
     await waitFor(() => expect(screen.queryByTestId('review-item-i-1')).toBeNull());
-    expect(field()).toBe(SENTENCE);
-    expect(screen.getByTestId('capture-cancel')).toBeTruthy();
+    expect(screen.queryByTestId('capture-discard')).toBeNull();
+    await fireEvent.press(screen.getByTestId('tab-capture'));
+    await waitFor(() => expect(screen.queryByTestId('review-item-i-1')).not.toBeNull());
   });
 
   it('after a save in the chat, closes capture: nothing is left unsaved to ask about (owner request 2026-09-30)', async () => {

@@ -859,7 +859,13 @@ test('understood lines remove controls and clip overlong text to 160 characters 
   assert.ok(final.understood?.[1]?.text.endsWith('…'));
 });
 
-test('understood lines drop a split joining conjunction in Arabic, English, and Hebrew without changing seed summaries', () => {
+// Load pass F3 (2026-10-07) and Codex inspection F3-002: a joining «و» /
+// "and" / «ו» is dropped once, where a follower clause's item or seed is
+// made (`withoutClauseJoiner`, tests/mobile/captureJoinerTitle.test.ts). The
+// summary shows the stored words as they are, so the line and the card can
+// never say different words. These two tests said the opposite before: the
+// line dropped the joiner while the seed kept it.
+test('understood lines show a seed summary exactly as stored, joiner or not', () => {
   const seeds = [
     { id: 'seed-ar', kind: 'consideration' as const, summary: 'وعم بفكر أسافر الصيف الجاي' },
     { id: 'seed-en', kind: 'consideration' as const, summary: "and I'm thinking about travelling" },
@@ -872,12 +878,7 @@ test('understood lines drop a split joining conjunction in Arabic, English, and 
     understandingOrdinals({ 'item-1': 0 }, { 'seed-ar': 1, 'seed-en': 2, 'seed-he': 3 }),
   );
 
-  assert.deepEqual(final.understood?.map((point) => point.text), [
-    'Call Dana tomorrow',
-    'عم بفكر أسافر الصيف الجاي',
-    "I'm thinking about travelling",
-    'אני חושב על נסיעה',
-  ]);
+  assert.deepEqual(final.understood?.map((point) => point.text), ['Call Dana tomorrow', ...seeds.map((seed) => seed.summary)]);
   assert.deepEqual(final.seeds.map((seed) => seed.summary), seeds.map((seed) => seed.summary));
 });
 

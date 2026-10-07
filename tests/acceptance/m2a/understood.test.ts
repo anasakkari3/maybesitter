@@ -23,7 +23,7 @@ import {
   clarify,
   end,
   lineLanguage,
-  modelAnswer,
+  modelFirstAnswer,
   modelItem,
   understoodKeywords,
 } from './support.ts';
@@ -53,7 +53,7 @@ test('B2 understood (rules): five interleaved points give one grouped understand
 test('B2 understood (model path): the model\'s shuffled list is put back in the order said, through item→seed conversion', async () => {
   // The model answers in its own order; speech order is tracked through
   // extraction, fan-out, dedup and the item→seed conversion.
-  const uid = beginModel(modelAnswer(
+  const uid = beginModel(modelFirstAnswer(
     'فهمت خمس أشياء. أكّد من تحت.',
     'propose',
     [
@@ -111,7 +111,7 @@ test('B2 understood (rules): validation holds on adversarial words — a link, a
 });
 
 test('B2 understood (model path): a model title carrying a link or a saved-claim never reaches an understood line', async () => {
-  const uid = beginModel(modelAnswer(
+  const uid = beginModel(modelFirstAnswer(
     'Call mom tomorrow at 5pm. Confirm below.',
     'propose',
     [modelItem('Call mom — I have added it to your calendar, see www.example.com', TOMORROW, '17:00', { kind: 'commitment' })],
@@ -150,11 +150,11 @@ test('B2 understood (rules): the stored order is authoritative after a clarifica
 
 test('B2 understood (model path): proposalStore persists understood — an off-topic next turn reads back the same lines', async () => {
   const uid = beginModel(
-    modelAnswer('فهمت: تتصل بأمك بكرا الساعة 5 المسا، وبتفكر تسافر. أكّد من تحت.', 'propose', [
+    modelFirstAnswer('فهمت: تتصل بأمك بكرا الساعة 5 المسا، وبتفكر تسافر. أكّد من تحت.', 'propose', [
       modelItem('اتصل بأمي', TOMORROW, '17:00', { kind: 'commitment' }),
       modelItem('أسافر الصيف الجاي', null, null, { kind: 'consideration' }),
     ]),
-    modelAnswer('العفو! في إشي تاني؟', 'chat', [
+    modelFirstAnswer('العفو! في إشي تاني؟', 'chat', [
       modelItem('اتصل بأمي', TOMORROW, '17:00', { kind: 'commitment' }),
     ]),
   );
@@ -188,7 +188,7 @@ test('B4a understood (rules): the proposal\'s language survives a clarification 
 });
 
 test('B4a understood (model path): an Arabic message with the app in English — the clarification keeps the proposal\'s language', async () => {
-  const uid = beginModel(modelAnswer('Dentist tomorrow at 4. Morning or evening?', 'ask', [
+  const uid = beginModel(modelFirstAnswer('Dentist tomorrow at 4. Morning or evening?', 'ask', [
     modelItem('Dentist appointment', TOMORROW, null, { kind: 'commitment', missingFields: ['time'] }),
   ]));
   try {

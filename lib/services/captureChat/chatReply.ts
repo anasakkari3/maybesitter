@@ -97,7 +97,7 @@ export function claimsSaved(reply: string): boolean {
   return SAVED_CLAIMS.some((pattern) => pattern.test(folded));
 }
 
-type TemplateKind = 'proposed' | 'updated' | 'understood' | 'unresolved' | 'ask' | 'nothing' | 'off_topic' | 'cleared' | 'refused' | 'acknowledged' | 'edit_failed';
+type TemplateKind = 'proposed' | 'updated' | 'understood' | 'unresolved' | 'ask' | 'nothing' | 'off_topic' | 'cleared' | 'refused' | 'acknowledged' | 'edit_failed' | 'already_saved';
 
 const TEMPLATES: Readonly<Record<ChatLanguage, Readonly<Record<TemplateKind, string>>>> = {
   // Spoken Levantine, not MSA: the product's own voice.
@@ -108,6 +108,7 @@ const TEMPLATES: Readonly<Record<ChatLanguage, Readonly<Record<TemplateKind, str
     unresolved: 'فهمت عليك. إذا بدك، منقدر نحولها لخطوة واضحة بعدين.',
     acknowledged: 'تمام، غيّرتها.',
     edit_failed: 'ما قدرت أطبّق التعديل هلّق — عدّله من الكرت تحت.',
+    already_saved: 'القائمة انحفظت من قبل.',
     ask: 'إيمتى بدك «{title}»؟ احكيلي اليوم والساعة.',
     nothing: 'شو بدك تعمل وإيمتى؟ احكيلي وأنا بجهزلك ياها لتأكدها.',
     off_topic: 'أنا هون لأساعدك بالمهام والمواعيد تبعك. شو في عندك تعمله؟',
@@ -121,6 +122,7 @@ const TEMPLATES: Readonly<Record<ChatLanguage, Readonly<Record<TemplateKind, str
     unresolved: 'I understand. If you want, we can turn that into a clear next step later.',
     acknowledged: 'Okay, I changed that.',
     edit_failed: "I couldn't apply that change right now — edit it on the card below.",
+    already_saved: 'That list was already saved.',
     ask: 'When do you want to do "{title}"? Tell me the day and the time.',
     nothing: "What do you need to do, and when? Tell me and I'll set it up for you to confirm.",
     off_topic: "I'm here to help with your commitments and plans. What do you need to get done?",
@@ -134,6 +136,7 @@ const TEMPLATES: Readonly<Record<ChatLanguage, Readonly<Record<TemplateKind, str
     unresolved: 'הבנתי. אם תרצה, נוכל להפוך את זה אחר כך לצעד ברור.',
     acknowledged: 'בסדר, שיניתי.',
     edit_failed: 'לא הצלחתי להחיל את השינוי כרגע — אפשר לערוך אותו בכרטיס למטה.',
+    already_saved: 'הרשימה הזאת כבר נשמרה.',
     ask: 'מתי לעשות את "{title}"? מה היום ומה השעה?',
     nothing: 'מה צריך לעשות, ומתי? אכין את זה בשבילך לאישור.',
     off_topic: 'אני כאן כדי לעזור עם המשימות והפגישות שלך. מה צריך לעשות?',
@@ -168,6 +171,12 @@ const QUESTIONS: Readonly<Record<ChatLanguage, Readonly<Record<Exclude<MissingKi
     am_pm: '"{title}" בבוקר או בערב?',
     action: 'מה בדיוק צריך לעשות ב"{title}"?',
   },
+};
+
+const TIME_UNCLEAR: Readonly<Record<ChatLanguage, { lead: string; question: string }>> = {
+  ar: { lead: 'الساعة مش واضحة عندي.', question: 'أي ساعة بدك؟' },
+  en: { lead: "The time wasn't clear.", question: 'What time should it be?' },
+  he: { lead: 'השעה לא הייתה ברורה.', question: 'באיזו שעה זה צריך להיות?' },
 };
 
 type ProposalItemLike = Pick<CaptureProposalContract['items'][number], 'title'> & Partial<Pick<CaptureProposalContract['items'][number], 'needsClarification' | 'resolvedDate' | 'clarification' | 'resolvedTime' | 'timeEstimated'>>;
@@ -217,6 +226,10 @@ export interface TemplateContext {
   timezone?: string;
   /** An edit of the list the rules could not apply: the list is unchanged. */
   editFailed?: boolean;
+  /** The words did not state one complete clock that agreed with the model. */
+  timeUnclear?: boolean;
+  /** A transport retry arrived after the proposal in its receipt was confirmed. */
+  alreadySaved?: boolean;
   /**
    * What the model's reply may be grounded in (owner request 2026-09-30):
    * with it, a sentence giving a reason the person never gave, or claiming
@@ -228,7 +241,13 @@ export interface TemplateContext {
 /** One safe reply, built from the proposal and nothing the model wrote. */
 export function templateReply(context: TemplateContext): string {
   const table = TEMPLATES[context.language];
+  if (context.alreadySaved) return table.already_saved;
   if (context.refused) return table.refused;
+  if (context.timeUnclear) {
+    const copy = TIME_UNCLEAR[context.language];
+    const asking = itemAskingForTime(context.proposal);
+    return `${copy.lead} ${asking ? missingQuestion(context.language, asking) : copy.question}`;
+  }
   if (context.editFailed) return table.edit_failed;
   const asking = itemAskingForTime(context.proposal);
   if (asking) {
@@ -417,8 +436,15 @@ export function withShapeNoted(reply: string, context: ShapeContext): string {
     return words.length > 0 && offTheList.some((title) => words.some((word) => title.some((candidate) => sameWord(word, candidate))))
       && !cards.some((card) => words.some((word) => card.some((candidate) => sameWord(word, candidate))));
   });
+  const seedTitles = (context.proposal?.seeds ?? []).map((seed) => contentWords(seed.summary));
+  const namesSeedAsTimed = (sentence: string) => statesClock(sentence)
+    && Array.from(sentence.slice(0, CHAT_REPLY_SCAN_LIMIT).matchAll(QUOTED_TITLE)).some((match) => {
+      const words = contentWords(match[1] ?? match[2] ?? match[3] ?? '');
+      return words.length > 0 && seedTitles.some((title) => words.some((word) => title.some((candidate) => sameWord(word, candidate))));
+    });
   const sentences = sentencesOf(reply);
-  const remaining = offTheList.length > 0 ? sentences.filter((sentence) => !namesOffTheList(sentence)) : sentences;
+  const remaining = sentences.filter((sentence) => !namesSeedAsTimed(sentence)
+    && (offTheList.length === 0 || !namesOffTheList(sentence)));
   // What is left after a sentence went names no card («أكّد من تحت.» alone):
   // the template says the list instead.
   const kept = remaining.length === sentences.length || new RegExp(QUOTED_TITLE.source).test(remaining.join(' '))
@@ -487,8 +513,15 @@ const SAYS_WEEKLY = new RegExp([
  * not while anything on the list is still asked about, and said again only
  * when the list it applied to is gone.
  */
-export function withWeeklyOffer(reply: string, language: ChatLanguage, proposal: WeeklyLike | null, previous: WeeklyLike | null): string {
-  if (!multiDayWithoutEnd(proposal) || multiDayWithoutEnd(previous) || SAYS_WEEKLY.test(reply.slice(0, CHAT_REPLY_SCAN_LIMIT))) return reply;
+export function withWeeklyOffer(
+  reply: string,
+  language: ChatLanguage,
+  proposal: WeeklyLike | null,
+  previous: WeeklyLike | null,
+  alreadySaid = '',
+): string {
+  if (!multiDayWithoutEnd(proposal) || multiDayWithoutEnd(previous)
+    || SAYS_WEEKLY.test(`${reply}\n${alreadySaid}`.slice(0, CHAT_REPLY_SCAN_LIMIT))) return reply;
   const offer = WEEKLY_OFFER[language];
   const text = reply.trim();
   if (!text) return offer;

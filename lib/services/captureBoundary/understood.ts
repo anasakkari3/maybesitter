@@ -4,8 +4,6 @@ import {
   type CaptureProposalContract,
   type CaptureUnderstoodPoint,
 } from '../../../src/contracts/v1/captureContracts';
-import { hasActionEvidence } from '../../../src/extraction/clauseSplitter';
-import { detectUnresolvedIntent } from '../../../src/extraction/unresolvedIntent';
 import { claimsSaved } from '../captureChat/chatReply';
 
 export interface CaptureSourceOrdinals {
@@ -68,18 +66,11 @@ function claimsSavedAsClient(source: string): boolean {
   return claimsSaved(withLatinScriptEdges);
 }
 
-function withoutSplitJoiner(source: string, followsAnotherPoint: boolean): string {
-  if (!followsAnotherPoint) return source;
-  const joined = /^(?:and\s+|و|ו)/i.exec(source);
-  if (!joined) return source;
-  const remainder = source.slice(joined[0].length).trimStart();
-  if (!remainder || (!hasActionEvidence(remainder) && !detectUnresolvedIntent(remainder))) return source;
-  return remainder;
-}
-
-function lineFor(source: string, locale: CaptureAppLocale, followsAnotherPoint: boolean): string {
+function lineFor(source: string, locale: CaptureAppLocale): string {
   const visible = source.replace(INVISIBLE_BIDI, '').replace(HOST_OBFUSCATING_MARKS, '');
-  const plain = withoutSplitJoiner(visible, followsAnotherPoint)
+  // The stored words as they are: a joining «و» was dropped once, where the
+  // item or seed was made (`withoutClauseJoiner`), so the line and the card agree.
+  const plain = visible
     .replace(CONTROL, ' ')
     .replace(URL_RUN, (run) => keptAsPlainWords(run) ? run : ' ')
     .replace(/\s+/g, ' ')
@@ -140,11 +131,11 @@ export function finalizeUnderstood(
     const ref = refs[index]!;
     const item = itemByRef.get(ref);
     if (item) {
-      understood.push({ kind: 'commitment', itemId: item.itemId, text: lineFor(item.title, locale, index > 0) });
+      understood.push({ kind: 'commitment', itemId: item.itemId, text: lineFor(item.title, locale) });
       continue;
     }
     const seed = seedByRef.get(ref);
-    if (seed) understood.push({ kind: seed.kind, seedItemId: seed.seedItemId, text: lineFor(seed.summary, locale, index > 0) });
+    if (seed) understood.push({ kind: seed.kind, seedItemId: seed.seedItemId, text: lineFor(seed.summary, locale) });
   }
   return { ...contract, understood };
 }

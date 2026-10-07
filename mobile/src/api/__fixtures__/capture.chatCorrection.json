@@ -1,0 +1,54 @@
+{
+  "conversationId": "00000000-0000-4000-8000-000000000001",
+  "reply": "فهمت: اطلع عالسوق بكرا الساعة 5 المسا. أكّد من تحت.",
+  "engine": "model",
+  "proposal": {
+    "version": "v1",
+    "proposalId": "00000000-0000-4000-8000-000000000002",
+    "status": "proposed",
+    "items": [
+      {
+        "itemId": "00000000-0000-4000-8000-000000000003",
+        "title": "اطلع عالسوق",
+        "resolvedTime": "2026-08-09T09:00:00.000Z",
+        "needsClarification": false,
+        "timeEstimated": false,
+        "priority": "high",
+        "priorityEstimated": false,
+        "resolvedDate": "2026-08-10",
+        "dateEstimated": false,
+        "corrections": [
+          {
+            "id": "00000000-0000-4000-8000-000000000004",
+            "from": "الطلع",
+            "to": "اطلع"
+          }
+        ]
+      }
+    ],
+    "seeds": [],
+    "revision": 0,
+    "provenance": {
+      "requestedEngine": "model",
+      "executedEngine": "gemini",
+      "fallbackUsed": false
+    },
+    "understood": [
+      {
+        "kind": "commitment",
+        "itemId": "00000000-0000-4000-8000-000000000003",
+        "text": "اطلع عالسوق"
+      }
+    ]
+  },
+  "turns": [
+    {
+      "role": "user",
+      "text": "لازم الطلع عالسوق بكرا الساعة 5 المسا"
+    },
+    {
+      "role": "assistant",
+      "text": "فهمت: اطلع عالسوق بكرا الساعة 5 المسا. أكّد من تحت."
+    }
+  ]
+}

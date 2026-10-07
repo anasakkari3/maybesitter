@@ -19,6 +19,7 @@ import {
   captureChatSchema,
   captureConfirmationSchema,
   captureProposalSchema,
+  proposalChangedChatSchema,
 } from '../schemas/capture';
 import { shareProposalSchema } from '../schemas/share';
 import {
@@ -193,6 +194,15 @@ const CASES: Array<[string, z.ZodType]> = [
   ['capture.chatConsideration', captureChatSchema],
   ['capture.chatGoalStatement', captureChatSchema],
   ['capture.chatRange', captureChatSchema],
+  // M2b: structured edits, a dictation correction, and the 409 an edit gets.
+  ['capture.chatEditKind', captureChatSchema],
+  ['capture.chatEditTime', captureChatSchema],
+  ['capture.chatEditWords', captureChatSchema],
+  ['capture.chatCorrection', captureChatSchema],
+  ['capture.chatEditStale', proposalChangedChatSchema],
+  // Contract v5: a protected point a later message removed, and bringing it back.
+  ['capture.chatRemovedLocked', captureChatSchema],
+  ['capture.chatEditRestore', captureChatSchema],
   ['capture.chatNotFound', captureChatRefusalSchema],
   ['capture.chatTooLong', captureChatRefusalSchema],
   ['commitments.today', commitmentListSchema],

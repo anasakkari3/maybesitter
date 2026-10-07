@@ -4,8 +4,9 @@ import {
   type CaptureAppLocale,
   type CaptureConfirmationResultContract,
   type CaptureItemEditContract,
+  type CaptureProposalContract,
 } from '../../../src/contracts/v1/captureContracts';
-import { createHash } from 'crypto';
+import { createHash, randomUUID } from 'crypto';
 import { compareByCodePoint } from '../../planning/shared/compare';
 import {
   analyticsContextFrom,
@@ -23,19 +24,28 @@ import { applyTrustAction } from '../../pilot/pilotTrustStore';
 import { captureLlmProvider } from '../../llm/captureProvider';
 import { getAiConsent } from '../../consents/aiConsentService';
 import { configuredProviderName } from '../../../src/extraction/llm';
-import { eventDayOf } from '../captureBoundary/applyEdits';
+import type { ExtractionResult } from '../../../src/extraction/extractionTypes';
+import { applyEditToCommands, eventDayOf } from '../captureBoundary/applyEdits';
 import {
   appendClarificationEvent,
+  captureProposalFromDocument,
   captureProposalPath,
+  captureProposalToDocument,
   answerClarification,
+  ClarifyError,
   confirmCapture,
   createStorageCaptureProposalStore,
   type CaptureConfirmationCommitter,
   proposeCapture,
   type CaptureProposalStore,
+  type StoredProposalDocument,
   type StoredCaptureProposal,
   type CapturePersistenceAdapter,
+  ProposalChangedError,
+  proposalRevision,
+  revisionMatches,
 } from '../captureBoundary';
+import { getStorage } from '../../storage';
 import { createEmptyDomainState, type Command, type Commitment } from '../../../src/domain/stateMachine';
 import { applyCommand, configureCommandService, getCommandServiceState } from '../commandService';
 import { collisionIntervalOf, collisionsForCommitment, type CollisionCandidate, type CollisionWarning } from '../timeCollision';
@@ -62,6 +72,8 @@ import { createStorageGoalNodeLinkStore } from '../../goalGraph/linkStore';
 import { GOAL_GRAPH_FIRST_GENERATION } from '../../../src/contracts/v1/goalGraphContracts';
 import type { ActiveGoal } from '../captureBoundary/proposalShape';
 import { readOwnedMemory } from './memoryService';
+import { referenceStateFor, withPublicRemovedItems } from '../captureChat/chatReferences';
+import { mergeChatProposalByRef, type ChatRefMergePlan } from '../captureChat/refMerge';
 
 export interface MobileCaptureInput {
   text?: unknown;
@@ -87,6 +99,7 @@ export interface MobileConfirmInput {
   weeklyBlockItemIds?: unknown;
   /** Selected items whose suggested goal link the person kept (audit 2026-10-03 #6). */
   goalLinkItemIds?: unknown;
+  revision?: unknown;
 }
 
 /** A confirmed item linked to one of the person's goals, so the goal's progress counts it. */
@@ -355,7 +368,7 @@ function engineLabel(): { llmEngine?: 'gemini' | 'ollama' } {
 function committerFor(context: MobileBackendContext = {}): CaptureConfirmationCommitter | undefined {
   const participantId = context.participantId;
   if (!participantId) return undefined;
-  return async ({ scopeId, proposalId, idempotencyKey, commands, commandsByItemId, result, weeklyBlocks }) => {
+  return async ({ scopeId, proposalId, idempotencyKey, expectedRevision, commands, commandsByItemId, result, weeklyBlocks }) => {
     // The confirm is the person's "yes": that instant is the block's
     // `confirmedAt`, and the id is derived from the proposal and the item so a
     // retried confirm addresses the same document.
@@ -372,6 +385,7 @@ function committerFor(context: MobileBackendContext = {}): CaptureConfirmationCo
       captureProposalPath(scopeId, proposalId),
       commands,
       idempotencyKey,
+      expectedRevision,
       result,
       commandsByItemId,
       blocks,
@@ -502,6 +516,7 @@ export interface MobileClarifyInput {
   timezone?: unknown;
   referenceTime?: unknown;
   scopeId?: unknown;
+  revision?: unknown;
 }
 
 /**
@@ -589,6 +604,89 @@ export async function proposeMobileCapture(input: MobileCaptureInput, context: M
   return withEventsOnTheirDay(proposal);
 }
 
+type WordToken = { text: string; index: number; length: number };
+
+function correctionWordTokens(text: string): WordToken[] {
+  return Array.from(text.matchAll(new RegExp('[\\p{L}\\p{M}\\p{N}]+', 'gu')), (match) => ({
+    text: match[0], index: match.index ?? 0, length: match[0].length,
+  }));
+}
+
+function singleCorrectionWord(value: unknown): string | null {
+  if (typeof value !== 'string' || !value) return null;
+  const tokens = correctionWordTokens(value);
+  return tokens.length === 1 && tokens[0]!.text === value ? value : null;
+}
+
+/** Choose the corrected title token by the words around the uniquely heard token. */
+function correctedToken(message: string, title: string, from: string, to: string): WordToken | null {
+  const messageTokens = correctionWordTokens(message);
+  const fromAt = messageTokens.flatMap((token, index) => token.text === from ? [index] : []);
+  if (fromAt.length !== 1) return null;
+  const titleTokens = correctionWordTokens(title);
+  const candidates = titleTokens.flatMap((token, index) => token.text === to ? [{ token, index }] : []);
+  if (candidates.length === 0) return null;
+  const source = fromAt[0]!;
+  let best: { token: WordToken; score: number } | null = null;
+  for (const candidate of candidates) {
+    let score = 0;
+    for (let distance = 1; distance <= 3; distance += 1) {
+      if (messageTokens[source - distance]?.text === titleTokens[candidate.index - distance]?.text) score += 4 - distance;
+      if (messageTokens[source + distance]?.text === titleTokens[candidate.index + distance]?.text) score += 4 - distance;
+    }
+    if (!best || score > best.score) best = { token: candidate.token, score };
+  }
+  return best?.token ?? null;
+}
+
+// eslint-disable-next-line no-control-regex
+const CONTROL_CORRECTION = /[\u0000-\u001F\u007F-\u009F]/;
+const URL_CORRECTION = /https?:\/\/|www\.|\.[a-z]{2,}/i;
+
+/** Validate model correction reports, mint ids, and persist their title positions. */
+async function attachSpokenCorrections(
+  proposal: CaptureProposalContract,
+  modelItems: readonly unknown[],
+  message: string,
+): Promise<CaptureProposalContract> {
+  const stored = await store.get(proposal.proposalId);
+  if (!stored) return proposal;
+  const spans: NonNullable<StoredCaptureProposal['correctionSpans']> = { ...(stored.correctionSpans ?? {}) };
+  const items = proposal.items.map((item) => {
+    const operationIndex = stored.chatOperationIndices?.items[item.itemId];
+    const raw = Number.isFinite(operationIndex) ? modelItems[Math.floor(operationIndex!)] : undefined;
+    if (!raw || typeof raw !== 'object') return item;
+    const reports = (raw as Record<string, unknown>).corrections;
+    if (!Array.isArray(reports)) return item;
+    const corrections: NonNullable<typeof item.corrections> = [];
+    const seen = new Set<string>();
+    for (const report of reports) {
+      if (corrections.length >= 3 || !report || typeof report !== 'object') continue;
+      const from = singleCorrectionWord((report as Record<string, unknown>).from);
+      const to = singleCorrectionWord((report as Record<string, unknown>).to);
+      if (!from || !to || CONTROL_CORRECTION.test(from) || CONTROL_CORRECTION.test(to) || URL_CORRECTION.test(from) || URL_CORRECTION.test(to)) continue;
+      const key = `${from}\u0000${to}`;
+      if (seen.has(key)) continue;
+      const token = correctedToken(message, item.title, from, to);
+      if (!token) continue;
+      seen.add(key);
+      const id = randomUUID();
+      corrections.push({ id, from, to });
+      spans[id] = { itemId: item.itemId, index: token.index, length: token.length };
+    }
+    return corrections.length > 0 ? { ...item, corrections } : item;
+  });
+  if (Object.keys(spans).length === Object.keys(stored.correctionSpans ?? {}).length) return proposal;
+  const contract = { ...proposal, items };
+  await store.put({ ...stored, contract, correctionSpans: spans });
+  return contract;
+}
+
+function proposalStatus(contract: CaptureProposalContract): CaptureProposalContract['status'] {
+  if (contract.items.length === 0) return contract.seeds.length > 0 ? 'unresolved_intent' : 'no_commitment';
+  return contract.items.every((item) => item.needsClarification) ? 'needs_clarification' : 'proposed';
+}
+
 /**
  * One capture-chat turn's proposal (owner decision 2026-09-30).
  *
@@ -606,26 +704,58 @@ export async function proposeMobileChatTurn(
   input: {
     text: string;
     userTurns: readonly string[];
+    /** First user-turn index each model delta item may use as evidence. */
+    evidenceStartIndices?: readonly number[];
+    /** First user-turn index usable to justify changed fields on existing items. */
+    changedFieldEvidenceStartIndices?: readonly number[];
     items: readonly unknown[] | null;
     now: Date;
     timezone: string;
     /** The list the person saw before this message (chat UAT round 2), each title in the person's own words. */
-    previous?: readonly { title: string; appTitle?: string; date: string | null; time: string | null; needsDayOrTime?: boolean }[];
+    previous?: readonly { title: string; appTitle?: string; date: string | null; time: string | null; needsDayOrTime?: boolean; kind?: 'possible_goal' | 'consideration' | 'idea' | 'waiting_for'; result?: ExtractionResult }[];
+    /** Ref-derived previous entry for each model delta item; null for an add. */
+    previousMatchIndices?: readonly (number | null)[];
+    /** Validated citation span for each model delta item, in the same order. */
+    operationSources?: readonly string[];
+    /** Exact clocks selected by chat answers to a pending AM/PM question. */
+    answeredAmPmClocks?: readonly (string | null)[];
+    /** Current proposal whose server refs form this new proposal's base. */
+    baseProposalId?: string;
+    /** Parsed model operations. Absent on the append-only rules path. */
+    refPlan?: ChatRefMergePlan;
     /** The phone's UI language: the items' titles are shown in it (owner request 2026-09-30). */
     locale?: CaptureAppLocale;
     /** Language already resolved by the chat service, including its fallback. */
     responseLocale?: CaptureAppLocale;
+    /** True only for the newest dictated turn; enables server-validated model corrections. */
+    spoken?: boolean;
   },
   context: MobileBackendContext & { participantId: string },
 ) {
   const configured = configuredProviderName();
-  const proposal = await proposeCapture(input.text, {
+  const boundaryItems = input.items?.map((entry, index) => (
+    entry && typeof entry === 'object' && !Array.isArray(entry)
+      ? { ...(entry as Record<string, unknown>), __chatOpIndex: index }
+      : entry
+  )) ?? null;
+  let proposal = await proposeCapture(input.text, {
     now: input.now,
     timezone: input.timezone,
     scopeId: context.participantId,
     requestedEngine: input.items ? 'model' : 'rules',
     ...(context.requestStartedAt === undefined ? {} : { requestStartedAt: context.requestStartedAt }),
-    ...(input.items ? { chat: { userTurns: input.userTurns, items: input.items, previous: input.previous ?? [] } } : {}),
+    ...(boundaryItems ? { chat: {
+      userTurns: input.userTurns,
+      items: boundaryItems,
+      previous: input.previous ?? [],
+      ...(input.previousMatchIndices ? { previousMatchIndices: input.previousMatchIndices } : {}),
+      ...(input.evidenceStartIndices ? { evidenceStartIndices: input.evidenceStartIndices } : {}),
+      ...(input.changedFieldEvidenceStartIndices
+        ? { changedFieldEvidenceStartIndices: input.changedFieldEvidenceStartIndices }
+        : {}),
+      ...(input.operationSources ? { operationSources: input.operationSources } : {}),
+      ...(input.answeredAmPmClocks ? { answeredAmPmClocks: input.answeredAmPmClocks } : {}),
+    } } : {}),
     titleWithoutLeadIn: true,
     guardUnresolvedIntentWithSchedule: true,
     ...(input.locale ? { locale: input.locale } : {}),
@@ -637,8 +767,10 @@ export async function proposeMobileChatTurn(
     commitConfirmation: committerFor(context),
     extractor: guardedMobileExtract,
     // The chat's items came from the configured hosted model; name it.
-    ...(input.items ? { llmEngine: configured === 'ollama' ? 'ollama' as const : 'gemini' as const } : {}),
+    ...(boundaryItems ? { llmEngine: configured === 'ollama' ? 'ollama' as const : 'gemini' as const } : {}),
   });
+  if (input.spoken && input.items) proposal = await attachSpokenCorrections(proposal, input.items, input.text);
+  proposal = await mergeChatProposalByRef(store, input.baseProposalId, proposal, input.refPlan);
   // A proposal the chat produced is a capture submitted, counted as the
   // capture route counts one: its length, never its words.
   if (proposal.items.length > 0) {
@@ -658,14 +790,14 @@ export async function proposeMobileChatTurn(
  * message to an item by those words (`chatEvidence`), and they are kept only
  * on the stored proposal, never in the answer.
  */
-export async function readMobileChatProposal(proposalId: string, participantId: string) {
+export async function readMobileChatProposal(proposalId: string, participantId: string, options: { includeConfirmed?: boolean } = {}) {
   let stored: StoredCaptureProposal | undefined;
   try {
     stored = await store.get(proposalId);
   } catch {
     return null;
   }
-  if (!stored || stored.scopeId !== participantId || stored.confirmedResult) return null;
+  if (!stored || stored.scopeId !== participantId || (stored.confirmedResult && !options.includeConfirmed)) return null;
   const age = stored.proposedAt ? Date.now() - Date.parse(stored.proposedAt) : 0;
   if (!Number.isFinite(age) || age > CAPTURE_PROPOSAL_TTL_MS) return null;
   const sourceTitles = new Map<string, string>();
@@ -673,7 +805,16 @@ export async function readMobileChatProposal(proposalId: string, participantId: 
     const source = stored.resultsByItemId?.get(item.itemId)?.sourceTitle;
     if (typeof source === 'string' && source.trim()) sourceTitles.set(item.itemId, source);
   }
-  return { proposal: await withEventsOnTheirDay(stored.contract), sourceTitles };
+  const refs = referenceStateFor(stored);
+  const proposal = withPublicRemovedItems(stored.contract, stored);
+  return {
+    proposal: await withEventsOnTheirDay(proposal),
+    confirmed: stored.confirmedResult !== undefined,
+    sourceTitles,
+    refs: refs.refs,
+    lockedRefs: new Set(stored.lockedChatRefs ?? []),
+    resultsByItemId: new Map(stored.resultsByItemId ?? []),
+  };
 }
 
 /**
@@ -728,12 +869,69 @@ export async function clarifyMobileCapture(input: MobileClarifyInput, context: M
   }
 
   const scopeId = scopeIdFrom(input.scopeId, context);
+  const before = await store.get(proposalId);
+  if (!before || before.scopeId !== scopeId) throw new ClarifyError('proposal_not_found');
+  const currentRevision = proposalRevision(before.contract);
+  if (before.confirmedResult !== undefined) {
+    throw new ProposalChangedError(before.contract, 'confirmed', before.confirmedResult as CaptureConfirmationResultContract);
+  }
+  const legacyClarify = input.revision === undefined && before.legacyConfirmRevision === currentRevision;
+  if (!legacyClarify && !revisionMatches(currentRevision, input.revision)) throw new ProposalChangedError(before.contract, 'open');
   // The typed answer is read by the engine the capture itself may use (#161):
   // the metered model only when this account's AI consent is granted, the
   // rules otherwise. Decided here from the stored consent, never the request.
   const consent = context.participantId ? await getAiConsent(context.participantId) : 'declined';
 
-  return withEventsOnTheirDay(await answerClarification(
+  const storage = getStorage();
+  const proposalPath = captureProposalPath(scopeId, proposalId);
+  const compareAndSwapStore: CaptureProposalStore = {
+    // `answerClarification` must transform exactly the version checked above.
+    // Its final put re-reads inside the transaction below, so a slow free-text
+    // extraction cannot overwrite an edit or reopen a proposal confirmed while
+    // the extraction was in flight.
+    get: async (requestedProposalId) => requestedProposalId === proposalId ? before : undefined,
+    put: async (next) => {
+      await storage.runTransaction(async (tx) => {
+        const document = await tx.get<StoredProposalDocument>(proposalPath);
+        if (!document) throw new ClarifyError('proposal_not_found');
+        const current = captureProposalFromDocument(document);
+        if (current.scopeId !== scopeId) throw new ClarifyError('proposal_not_found');
+        if (current.confirmedResult !== undefined) {
+          throw new ProposalChangedError(
+            current.contract,
+            'confirmed',
+            current.confirmedResult as CaptureConfirmationResultContract,
+          );
+        }
+        if (proposalRevision(current.contract) !== currentRevision) {
+          throw new ProposalChangedError(current.contract, 'open');
+        }
+        if (legacyClarify && current.legacyConfirmRevision !== currentRevision) {
+          throw new ProposalChangedError(current.contract, 'open');
+        }
+        // A seed keep is revision-neutral and can commit after the clarify's
+        // initial read. Merge its markers from the transaction's current
+        // document so this clarification cannot erase the keep while still
+        // legitimately advancing the proposal revision.
+        const refState = referenceStateFor(current);
+        const answeredRef = refState.refs[itemId];
+        tx.set(proposalPath, captureProposalToDocument({
+          ...next,
+          keptSeedItemIds: current.keptSeedItemIds,
+          seedKeepReceipt: current.seedKeepReceipt,
+          chatRefs: refState.refs,
+          nextChatItemRef: refState.nextItem,
+          nextChatSeedRef: refState.nextSeed,
+          lockedChatRefs: Array.from(new Set([
+            ...(current.lockedChatRefs ?? []),
+            ...(answeredRef ? [answeredRef] : []),
+          ])),
+        }, new Date()));
+      });
+    },
+  };
+
+  const answered = await answerClarification(
     {
       proposalId,
       itemId,
@@ -747,14 +945,19 @@ export async function clarifyMobileCapture(input: MobileClarifyInput, context: M
       scopeId,
     },
     {
-      store,
+      store: compareAndSwapStore,
+      resultingRevision: currentRevision + 1,
+      // Every revisionless hop re-arms the compatibility marker. A request
+      // carrying a revision deliberately ends the legacy chain.
+      legacyConfirmRevision: input.revision === undefined ? currentRevision + 1 : undefined,
       extractor: guardedMobileExtract,
       ...(context.participantId && consent === 'granted'
         ? { llmProvider: captureLlmProvider(context.participantId), ...engineLabel() }
         : {}),
       recordEvent: (event) => appendClarificationEvent(scopeId, event),
     },
-  ));
+  );
+  return withEventsOnTheirDay(answered);
 }
 
 export async function confirmMobileCapture(input: MobileConfirmInput, context: MobileBackendContext = {}): Promise<{
@@ -813,6 +1016,7 @@ export async function confirmMobileCapture(input: MobileConfirmInput, context: M
     edits,
     ...(weeklyBlockItemIds.length > 0 ? { weeklyBlockItemIds } : {}),
     idempotencyKey: idempotencyKeyFor(proposalId, scopeId, selectedItemIds, input.idempotencyKey, edits, weeklyBlockItemIds),
+    ...(input.revision === undefined ? {} : { revision: input.revision as number }),
   }, {
     store,
     persistence: persistenceFor(context),

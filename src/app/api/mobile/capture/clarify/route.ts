@@ -1,5 +1,5 @@
 import { mobileAuthErrorResponse, requireMobileUser } from '../../../../../../lib/auth/mobileAuth';
-import { ClarifyError } from '../../../../../../lib/services/captureBoundary';
+import { ClarifyError, ProposalChangedError } from '../../../../../../lib/services/captureBoundary';
 import { clarifyMobileCapture } from '../../../../../../lib/services/mobile/mobileCaptureService';
 import { mobileError } from '../../../../../../lib/services/mobile/response';
 import { RequestBodyTooLargeError, readJsonBody, requestBodyTooLargeResponse } from '../../../../../../lib/net/requestBody';
@@ -38,6 +38,10 @@ export async function POST(request: Request) {
     const proposal = await clarifyMobileCapture(body, { participantId: user.uid });
     return Response.json(proposal);
   } catch (error) {
+    if (error instanceof ProposalChangedError || (error instanceof Error && error.name === 'ProposalChangedError')) {
+      const changed = error as ProposalChangedError;
+      return Response.json({ reason: 'proposal_changed', proposal: changed.proposal, state: changed.state, ...(changed.confirmation ? { confirmation: changed.confirmation } : {}) }, { status: 409 });
+    }
     if (error instanceof ClarifyError) {
       // A missing proposal is 404; everything else is the request being wrong
       // about a proposal that exists. `reason` names which, so the app can tell

@@ -31,10 +31,10 @@ import { resetStorageForTests, setStorageForTests } from '../../lib/storage/inde
 import { installFakeAuth, tokenFor, uidFor, type FakeAuthControls } from '../support/fakeAuth.ts';
 import { POST as chatPost } from '../../src/app/api/mobile/capture/chat/route.ts';
 import { POST as confirmPost } from '../../src/app/api/mobile/capture/confirm/route.ts';
-import { setCaptureChatDependenciesForTests } from '../../lib/services/captureChat/captureChatService.ts';
+import { collisionStartsFrom, setCaptureChatDependenciesForTests } from '../../lib/services/captureChat/captureChatService.ts';
 import { safeChatReply } from '../../lib/services/captureChat/chatReply.ts';
 import { groundedReply, withConflictsNamed } from '../../lib/services/captureChat/chatWhy.ts';
-import { EMPTY_SCHEDULE, withItemConflicts } from '../../lib/services/captureChat/chatConflicts.ts';
+import { EMPTY_SCHEDULE, conflictsFor, withinLimit, withItemConflicts } from '../../lib/services/captureChat/chatConflicts.ts';
 import { chatUserTurnsWithAcceptedOffers, isPlainYes, offerSentences } from '../../lib/services/captureBoundary/chatEvidence.ts';
 import { splitPrompt } from '../../lib/llm/captureProvider.ts';
 import { createWeeklyBlock } from '../../lib/weeklyBlocks/weeklyBlockService.ts';
@@ -52,6 +52,7 @@ import {
   type FixtureCore,
 } from '../../src/contracts/v1/fixtureContracts.ts';
 import type { LLMProviderFunction } from '../../src/extraction/llm/index.ts';
+import { recordedFullListAnswer, renderRefModelAnswer, type RecordedFullListAnswer } from './captureChatModelFixtures.ts';
 
 const BASE = 'http://localhost:3000';
 const TZ = 'Asia/Jerusalem';
@@ -94,16 +95,16 @@ function item(title: string, date: string | null, time: string | null): Record<s
   };
 }
 
-function answer(reply: string, action: 'propose' | 'update' | 'ask' | 'chat', items: unknown[]): string {
-  return JSON.stringify({ reply, action, items });
+function answer(reply: string, action: 'propose' | 'update' | 'ask' | 'chat', items: unknown[], sources?: Array<string | null>): RecordedFullListAnswer {
+  return recordedFullListAnswer(reply, action, items, sources);
 }
 
 /** A scripted model: answers in order, and keeps every prompt it was sent. */
-function scripted(...answers: string[]): { provider: LLMProviderFunction; prompts: string[] } {
+function scripted(...answers: unknown[]): { provider: LLMProviderFunction; prompts: string[] } {
   const prompts: string[] = [];
   const provider: LLMProviderFunction = async (prompt) => {
     prompts.push(prompt);
-    return answers[Math.min(prompts.length - 1, answers.length - 1)]!;
+    return renderRefModelAnswer(answers[Math.min(prompts.length - 1, answers.length - 1)], prompt);
   };
   return { provider, prompts };
 }
@@ -139,9 +140,28 @@ type ChatBody = {
   conversationId: string;
   reply: string;
   engine: 'model' | 'rules';
-  proposal: { proposalId: string; items: Item[] } | null;
+  proposal: { proposalId: string; revision?: number; items: Item[] } | null;
   turns: Array<{ role: string; text: string }>;
 };
+
+async function edit(uid: string, body: ChatBody, text: string): Promise<ChatBody> {
+  const target = body.proposal!.items[0]!;
+  const response = await chatPost(post('/api/mobile/capture/chat', uid, {
+    conversationId: body.conversationId,
+    edit: {
+      proposalId: body.proposal!.proposalId,
+      revision: body.proposal!.revision ?? 0,
+      target: { itemId: target.itemId },
+      change: { text },
+    },
+    timezone: TZ,
+    referenceTime: new Date().toISOString(),
+    locale: 'ar',
+  }));
+  const answer = await response.json() as ChatBody;
+  assert.equal(response.status, 200, JSON.stringify(answer));
+  return answer;
+}
 
 async function chat(uid: string, message: string, options: { conversationId?: string; locale?: 'ar' | 'en' | 'he' } = {}): Promise<ChatBody> {
   const response = await chatPost(post('/api/mobile/capture/chat', uid, {
@@ -174,6 +194,25 @@ async function saveWedding(uid: string): Promise<void> {
   assert.equal((await confirmAll(uid, seeded)).success, true);
 }
 
+test('an identical structured-edit replay recomputes the same conflicts as the applied answer', async () => {
+  const provider = scripted(
+    SEED_WEDDING,
+    answer('العشا الجمعة الساعة 6 المسا. أكّد من تحت.', 'propose', [item(DINNER, FRIDAY, '18:00')]),
+  );
+  begin(provider.provider);
+  try {
+    const uid = uidFor('ChatConflictEditReplay');
+    await saveWedding(uid);
+    const proposed = await chat(uid, DINNER_MESSAGE, { locale: 'ar' });
+    const applied = await edit(uid, proposed, 'عشا الجمعة مع أهلي');
+    assert.ok((applied.proposal!.items[0]!.conflicts?.length ?? 0) > 0, JSON.stringify(applied.proposal));
+    const replayed = await edit(uid, proposed, 'عشا الجمعة مع أهلي');
+    assert.deepEqual(replayed.proposal!.items[0]!.conflicts, applied.proposal!.items[0]!.conflicts);
+  } finally {
+    end();
+  }
+});
+
 const DINNER = 'عشا مع أهلي';
 const DINNER_MESSAGE = 'عندي عشا مع أهلي الجمعة الساعة 6 المسا';
 
@@ -197,7 +236,7 @@ test('a proposal on top of a saved commitment carries it, the reply names it, an
     const { system, user } = splitPrompt(model.prompts[1]!);
     assert.ok(user.includes(`"savedSchedule":[{"title":"${WEDDING}","kind":"commitment","date":"${FRIDAY}","start":"18:00","end":"18:30"}]`), 'the saved wedding was not shown');
     assert.ok(!system.includes(WEDDING), 'a saved title leaked into the instructions');
-    assert.match(system, /PROMPT VERSION: capture-chat-v6/);
+    assert.match(system, /PROMPT VERSION: capture-chat-v9/);
 
     // The confirm path is unchanged: it returns its own collisions.
     const confirmed = await confirmAll(uid, body);
@@ -412,6 +451,75 @@ test('a clash sentence is added before the reply’s closing question, and not w
   assert.match(withConflictsNamed('Okay.', items, { ...context, language: 'en' }), /^Okay\. "عشا مع أهلي" clashes with "عرس ابن عمي" .+ at 18:00\.$/);
 });
 
+test('F4 (load pass): the reply names the clash that starts with the item, not just the first one found', () => {
+  const offsite = { title: 'team offsite', startsAt: at(FRIDAY, '09:00'), endsAt: at(FRIDAY, '17:00'), kind: 'commitment' as const };
+  const lawyer = { title: 'موعد مع المحامي', startsAt: at(FRIDAY, '10:00'), endsAt: at(FRIDAY, '10:30'), kind: 'commitment' as const };
+  const context = { language: 'ar' as const, now: new Date(), timezone: TZ };
+  // `collisionStart` is the due time the clashes were measured from; a reminder
+  // before it (`resolvedTime` 09:30) must not change which clash is named (F4-003).
+  const meeting = { title: 'اجتماع مع المدير', resolvedTime: at(FRIDAY, '09:30'), collisionStart: at(FRIDAY, '10:00'), conflicts: [offsite, lawyer] };
+  const named = withConflictsNamed('تمام.', [meeting], context);
+  assert.match(named, /بيتعارض مع «\u2068موعد مع المحامي\u2069»/, `the same-hour clash was not the one named: ${named}`);
+  // With no time of its own to compare, the first clash is named, as before.
+  const untimed = withConflictsNamed('تمام.', [{ title: 'اجتماع مع المدير', conflicts: [offsite, lawyer] }], context);
+  assert.match(untimed, /بيتعارض مع «\u2068team offsite\u2069»/);
+  // A clash already on the list the person saw is not said again.
+  const shown = new Set([`اجتماع مع المدير|موعد مع المحامي|${lawyer.startsAt}`]);
+  assert.equal(withConflictsNamed('تمام.', [meeting], { ...context, alreadyShown: shown }), 'تمام.');
+});
+
+test('F4-001: a clash that starts with the item survives the three-clash limit, in time order', () => {
+  // Three long blocks that began earlier, and one that starts exactly at 10:00.
+  const weekly = ['07:00', '08:00', '09:00'].map((start, n) => ({
+    title: `block ${n + 1}`, startAt: at(FRIDAY, start), endAt: at(FRIDAY, '17:00'),
+  }));
+  const lawyer = { title: 'موعد مع المحامي', startAt: at(FRIDAY, '10:00'), endAt: at(FRIDAY, '10:30') };
+  const schedule = { ...EMPTY_SCHEDULE, weekly: [...weekly, lawyer] } as never;
+  const found = conflictsFor({ dueAt: at(FRIDAY, '10:00'), endAt: at(FRIDAY, '11:00') }, schedule);
+  assert.equal(found.length, 3);
+  assert.ok(found.some((conflict) => conflict.title === 'موعد مع المحامي'), `the same-hour clash was cut: ${JSON.stringify(found.map((c) => c.title))}`);
+  assert.deepEqual(found.map((conflict) => conflict.startsAt), [...found.map((conflict) => conflict.startsAt)].sort());
+  // Fewer than the limit: only put in time order.
+  const two = [{ startsAt: at(FRIDAY, '10:00') }, { startsAt: at(FRIDAY, '09:00') }];
+  assert.deepEqual(withinLimit(two, at(FRIDAY, '10:00'), 3), [two[1], two[0]]);
+  // Appended out of order (a proposal's own clashes after the schedule's), more than the limit (F4-002).
+  const mixed = ['11:00', '07:00', '10:00', '08:00', '09:00'].map((time) => ({ startsAt: at(FRIDAY, time) }));
+  assert.deepEqual(withinLimit(mixed, at(FRIDAY, '10:00'), 3).map((c) => c.startsAt), [at(FRIDAY, '07:00'), at(FRIDAY, '08:00'), at(FRIDAY, '10:00')]);
+});
+
+test('F4C-002: the collision start is the draft\'s due time, not the card\'s reminder', () => {
+  // The card would show the 09:30 reminder; the draft is due at 10:00.
+  const starts = collisionStartsFrom(new Map([['meeting', { dueAt: at(FRIDAY, '10:00'), endAt: null, kind: 'scheduled_event' as const }]]));
+  assert.equal(starts.get('meeting'), at(FRIDAY, '10:00'));
+  assert.equal(starts.get('nothing'), undefined);
+});
+
+test('F4-003 (end to end): the reply names the clash measured from the item\'s own start', async () => {
+  const lawyerSeed = answer('تمام.', 'propose', [item('موعد مع المحامي', FRIDAY, '10:00')]);
+  // Due at 10:00 with a 09:30 reminder: the card shows 09:30 (`resolvedTime`),
+  // the clashes are measured from 10:00.
+  const meeting = { ...item('اجتماع مع المدير', FRIDAY, '10:00'), remindAt: at(FRIDAY, '09:30') };
+  const model = scripted(lawyerSeed, answer('تمام.', 'propose', [meeting]));
+  begin(model.provider);
+  try {
+    const uid = uidFor('F4ReminderBefore');
+    await createWeeklyBlock(uid, { title: 'team offsite', weekdays: [5], start: '09:00', end: '17:00', timezone: TZ, confirmedAt: new Date().toISOString() });
+    const seeded = await chat(uid, 'عندي موعد مع المحامي الجمعة الساعة 10 الصبح', { locale: 'ar' });
+    assert.equal((await confirmAll(uid, seeded)).success, true);
+    const body = await chat(uid, 'اجتماع مع المدير الجمعة الساعة 10 الصبح، وذكّرني قبلها بنص ساعة', { locale: 'ar' });
+    const [card] = body.proposal!.items;
+    // The chat keeps no reminder the person did not state, so today the card's
+    // time is the due time; the unit test above covers a reminder before it.
+    // This one runs the whole path: a long weekly block that began earlier and
+    // a commitment at the same hour, both found, and the reply names the latter
+    // only because the collision start reaches it (`withCollisionStarts`).
+    assert.ok((card!.conflicts ?? []).some((conflict) => conflict.title === 'موعد مع المحامي'), `no lawyer clash: ${JSON.stringify(card!.conflicts)}`);
+    assert.match(body.reply, /«\u2068اجتماع مع المدير\u2069» بيتعارض مع «\u2068موعد مع المحامي\u2069»/, body.reply);
+  } finally {
+    end();
+  }
+});
+
 /* ── 6. another time: offered as a question, applied only on a yes ── */
 
 const OFFER = 'هاد بيتعارض مع «عرس ابن عمي» الجمعة الساعة 6. بدك نخليها الساعة 7 المسا؟';
@@ -420,7 +528,7 @@ test('offer, then "yes": the item moves to the offered hour', async () => {
   const model = scripted(
     SEED_WEDDING,
     answer(OFFER, 'propose', [item(DINNER, FRIDAY, '18:00')]),
-    answer('تمام، الجمعة الساعة 7 المسا لأنك وافقت. أكّد من تحت.', 'update', [item(DINNER, FRIDAY, '19:00')]),
+    answer('تمام، الجمعة الساعة 7 المسا لأنك وافقت. أكّد من تحت.', 'update', [item(DINNER, FRIDAY, '19:00')], ['اه']),
   );
   begin(model.provider);
   try {
@@ -466,8 +574,8 @@ test('the model moving the item on its own, with no yes, is dropped by the inven
   const model = scripted(
     SEED_WEDDING,
     answer(OFFER, 'propose', [item(DINNER, FRIDAY, '18:00')]),
-    answer('تمام، الساعة 7 المسا. أكّد من تحت.', 'update', [item(DINNER, FRIDAY, '19:00')]),
-    answer('تمام، السبت الساعة 6 المسا. أكّد من تحت.', 'update', [item(DINNER, SATURDAY, '18:00')]),
+    answer('تمام، الساعة 7 المسا. أكّد من تحت.', 'update', [item(DINNER, FRIDAY, '19:00')], ['مش متأكد']),
+    answer('تمام، السبت الساعة 6 المسا. أكّد من تحت.', 'update', [item(DINNER, SATURDAY, '18:00')], ['مش متأكد']),
   );
   begin(model.provider);
   try {

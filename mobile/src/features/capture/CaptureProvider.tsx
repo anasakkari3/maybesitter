@@ -17,7 +17,7 @@
  * away cannot leave it armed, and so the "5 seconds" in the acceptance criteria
  * is one number in one place.
  */
-import React, { createContext, useCallback, useContext, useEffect, useMemo, useReducer, useRef } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useLayoutEffect, useReducer, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import {
   useAnalyticsConsent,
@@ -27,8 +27,11 @@ import {
   useRecordAnalytics,
 } from '../../api/queries';
 import { useTimeZone } from '../../i18n/timezone';
+import { useOptionalAuth } from '../../auth/AuthProvider';
 import { deleteCommitment } from '../../api/endpoints/commitments';
-import { InputTooLargeError, isRetryable, QuotaExceededError, ValidationError } from '../../api/errors';
+import { ConversationNotFoundError, InputTooLargeError, isRetryable, ProposalChangedError, QuotaExceededError, ValidationError } from '../../api/errors';
+import type { CaptureProposalEdit } from '../../api/endpoints/capture';
+import { instantForLocalDateTime } from './localInstant';
 import { userFacingMessageKey, type UserFacingKey } from '../../api/ui/userFacingMessage';
 import type { CaptureProposal } from '../../api/schemas/capture';
 import {
@@ -109,7 +112,31 @@ interface CaptureContextValue {
   /** Back from those cards to the summary. */
   reopenUnderstood(): void;
   close(): void;
+  /** Dictation in progress (`final` false) or finished, with its whole-draft alternatives (M2b). */
+  dictate(text: string, final: boolean, alternatives?: readonly string[]): void;
+  /** A «أو قصدك» chip: that reading replaces the draft; nothing is sent. */
+  chooseAlternative(text: string): void;
+  /**
+   * One structured change to one point of the summary (M2b): an atomic patch
+   * through the chat, proposal-only. A staged card title/time of that item is
+   * folded into the same patch (its time only when the result is a
+   * commitment). Never retried; a 409 adopts the current answer.
+   */
+  editPoint(target: CaptureProposalEdit['target'], change: CaptureProposalEdit['change']): Promise<EditOutcome>;
+  /** The current proposal a 409 brought back from somewhere else (seed keep); `confirmed` when it is already saved. */
+  adoptCurrent(proposal: CaptureProposal, confirmed?: boolean): void;
+  /** A dictation is starting: the previous chips go, and a voice launch's auto-start is spent. */
+  dictationStarted(): void;
+  /** The refused change (`state.refusedEdit`) is opened again in the sheet. */
+  takeRefusedEdit(): void;
+  /** A proposal write (message, edit, clarification, confirm, seed keep) is on its way: the others wait. */
+  writing: boolean;
+  /** Runs a seed keep as the one proposal write; `undefined` when another write holds it. */
+  guardWrite<T>(run: () => Promise<T>): Promise<T | undefined>;
 }
+
+/** How a structured edit went: applied, or why not — the summary shows a note. */
+export type EditOutcome = { ok: true } | { ok: false; reason: 'changed' | 'confirmed' | 'ended' | 'failed' | 'unavailable' };
 
 /**
  * How an answer went. A failure carries the line to show under the question,
@@ -179,11 +206,62 @@ export function CaptureProvider({ children }: { children: React.ReactNode }) {
   const undoTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const analysisGeneration = useRef(0);
   const analysisPending = useRef(false);
+  /**
+   * One proposal writer at a time (M2B-A-R3-REVIEW-002): a message, a
+   * structured edit, a clarification, a confirm and a seed keep all write the
+   * same revisioned proposal, so while one is on its way the others are
+   * refused here and their controls are disabled (`writing`).
+   */
+  const writeLock = useRef<symbol | null>(null);
+  const [writing, setWriting] = useState(false);
+  const acquireWrite = useCallback((): symbol | null => {
+    if (writeLock.current) return null;
+    const token = Symbol('write');
+    writeLock.current = token;
+    setWriting(true);
+    return token;
+  }, []);
+  const releaseWrite = useCallback((token: symbol) => {
+    if (writeLock.current !== token) return;
+    writeLock.current = null;
+    setWriting(false);
+  }, []);
 
   const abandonAnalysis = useCallback(() => {
     analysisGeneration.current += 1;
     analysisPending.current = false;
+    // A write that belongs to the abandoned capture no longer holds this one up.
+    writeLock.current = null;
+    setWriting(false);
   }, []);
+
+  // Another account (M2b, account isolation): this capture is forgotten, and
+  // anything still on its way for the previous account — a reply, an edit, a
+  // clarification, a confirm — lands nowhere (each checks the generation).
+  const uid = useOptionalAuth()?.user?.uid ?? null;
+  // The state is forgotten while rendering, before anything below draws it:
+  // a reset in an effect would commit one frame of A's capture under B
+  // (M2B-A-R2-REVIEW-001). The account first becoming known is not a change
+  // of account: nothing of another person's can be here yet (and an adopted
+  // share must stay).
+  const [owner, setOwner] = useState(uid);
+  if (owner !== uid) {
+    setOwner(uid);
+    if (owner !== null) dispatch({ type: 'reset' });
+  }
+  // What a render may not do — timers, the requests still on their way — is
+  // cancelled right after.
+  // A layout effect, so no answer of A's can land between B's first render and
+  // the invalidation (M2B-A-R3-REVIEW-001).
+  const previousUid = useRef(uid);
+  useLayoutEffect(() => {
+    if (previousUid.current === uid) return;
+    const before = previousUid.current;
+    previousUid.current = uid;
+    if (before === null) return;
+    if (undoTimer.current) clearTimeout(undoTimer.current);
+    abandonAnalysis();
+  }, [uid, abandonAnalysis]);
 
   // The timer is cleared on unmount, so leaving the flow cannot leave Undo
   // armed against a screen that is gone.
@@ -205,6 +283,8 @@ export function CaptureProvider({ children }: { children: React.ReactNode }) {
     // In particular, never show the reducer's truncated text while sending a
     // longer string. The caller disables Send at this same boundary.
     if (!text.trim() || text.length > MAX_CAPTURE_LENGTH || analysisPending.current || state.status === 'confirming') return;
+    const token = acquireWrite();
+    if (!token) return;
     analysisPending.current = true;
     const generation = ++analysisGeneration.current;
     // The exact approved draft goes to both state and the request. Calling
@@ -217,6 +297,8 @@ export function CaptureProvider({ children }: { children: React.ReactNode }) {
         state.conversationId,
         text,
         classifyFailure,
+        // The field's own words came from dictation (M2b); a replacement text does not.
+        textOverride === undefined && state.spoken,
       );
       if (generation !== analysisGeneration.current) return;
       dispatch(outcome.ok
@@ -224,8 +306,9 @@ export function CaptureProvider({ children }: { children: React.ReactNode }) {
         : { type: 'analyzeFailed', kind: outcome.kind, messageKey: outcome.messageKey });
     } finally {
       if (generation === analysisGeneration.current) analysisPending.current = false;
+      releaseWrite(token);
     }
-  }, [chat, state.text, state.status, state.conversationId]);
+  }, [chat, state.text, state.status, state.conversationId, state.spoken, acquireWrite, releaseWrite]);
 
   const dismissFailure = useCallback(() => dispatch({ type: 'dismissFailure' }), []);
   const startOver = useCallback(() => {
@@ -249,6 +332,8 @@ export function CaptureProvider({ children }: { children: React.ReactNode }) {
     const proposal = state.proposal;
     const question = proposal?.items.find((item) => item.itemId === itemId)?.clarification;
     if (!proposal || !question) return { ok: false, messageKey: 'errorsGeneric' } as const;
+    const token = acquireWrite();
+    if (!token) return { ok: false, messageKey: 'errorsGeneric' } as const;
     const generation = analysisGeneration.current;
     const proposalId = proposal.proposalId;
     try {
@@ -256,6 +341,7 @@ export function CaptureProvider({ children }: { children: React.ReactNode }) {
         proposalId,
         itemId,
         questionId: question.questionId,
+        ...(proposal.revision !== undefined ? { revision: proposal.revision } : {}),
         ...(answer.optionId ? { optionId: answer.optionId } : {}),
         ...(answer.freeText ? { freeText: answer.freeText } : {}),
       });
@@ -271,41 +357,70 @@ export function CaptureProvider({ children }: { children: React.ReactNode }) {
       dispatch({ type: 'clarified', proposal: updated });
       return { ok: true } as const;
     } catch (error) {
+      // It moved on elsewhere (M2b): show it as it is now, and say so.
+      if (error instanceof ProposalChangedError && error.current.kind === 'proposal' && generation === analysisGeneration.current) {
+        dispatch(error.current.state === 'confirmed'
+          ? { type: 'proposalConfirmedElsewhere', proposalId }
+          : { type: 'proposalReplaced', proposal: error.current.proposal });
+        return { ok: false, messageKey: 'captureProposalChanged' } as const;
+      }
       // The proposal is untouched. The screen keeps the question rather than
       // clearing it, because an unanswered question is the honest state — and
       // says why, because a question that silently comes back looks broken.
       return { ok: false, messageKey: userFacingMessageKey(error) } as const;
+    } finally {
+      releaseWrite(token);
     }
-  }, [clarifyCapture, state.proposal]);
+  }, [clarifyCapture, state.proposal, acquireWrite, releaseWrite]);
   const editItem = useCallback((itemId: string, edit: CaptureItemEdit) => dispatch({ type: 'editItem', itemId, edit }), []);
   const setWeekly = useCallback((itemId: string, weekly: boolean) => dispatch({ type: 'setWeekly', itemId, weekly }), []);
   const setGoalLink = useCallback((itemId: string, linked: boolean) => dispatch({ type: 'setGoalLink', itemId, linked }), []);
 
   const confirm = useCallback(async () => {
     if (confirmPayload(state).itemIds.length === 0) return;
+    const token = acquireWrite();
+    if (!token) return;
     const generation = analysisGeneration.current;
+    const proposalId = state.proposal?.proposalId;
     dispatch({ type: 'confirmStarted' });
+    let changed: ProposalChangedError | null = null;
     const outcome = await runConfirm(
       // The edits travel with the confirm (UC-2.4, #164), never as a PATCH
       // afterwards: what the user saw when they pressed confirm is what gets
       // written, or nothing is.
       {
-        confirm: ({ proposalId, itemIds, edits, weeklyBlockItemIds, goalLinkItemIds }) => confirmCapture.mutateAsync({
+        confirm: ({ proposalId, itemIds, edits, weeklyBlockItemIds, goalLinkItemIds, revision }) => confirmCapture.mutateAsync({
           proposalId,
           itemIds,
-          edits: toServerEdits(edits, timezone),
+          // Only when there are any: an edit-free confirm is the request it always was.
+          ...(Object.keys(edits).length > 0 ? { edits: toServerEdits(edits, timezone) } : {}),
           // «كل أسبوع» — only these become a block; the rest confirm once.
           weeklyBlockItemIds,
           // «مرتبط بهدف …» — only the links left on the cards are made.
           ...(goalLinkItemIds?.length ? { goalLinkItemIds } : {}),
+          // What was seen is what is saved (M2b).
+          ...(revision !== undefined ? { revision } : {}),
+        }).catch((error: unknown) => {
+          if (error instanceof ProposalChangedError) changed = error;
+          throw error;
         }),
       },
       state,
-    );
+    ).finally(() => releaseWrite(token));
     if (!outcome) return;
     if (!outcome.ok) {
       if (generation === analysisGeneration.current) {
-        dispatch({ type: 'confirmFailed', reason: outcome.reason, messageKey: outcome.messageKey });
+        const current = (changed as ProposalChangedError | null)?.current;
+        if (current?.kind === 'proposal' && current.state === 'confirmed') {
+          // Already confirmed elsewhere: nothing to save twice.
+          dispatch({ type: 'proposalConfirmedElsewhere', ...(proposalId ? { proposalId } : {}) });
+        } else if (current?.kind === 'proposal') {
+          // Nothing was saved: the version that is current now goes up for review.
+          dispatch({ type: 'proposalReplaced', proposal: current.proposal });
+          dispatch({ type: 'confirmFailed', reason: 'proposal_changed', messageKey: 'captureProposalChanged' });
+        } else {
+          dispatch({ type: 'confirmFailed', reason: outcome.reason, messageKey: outcome.messageKey });
+        }
       }
       return;
     }
@@ -318,7 +433,7 @@ export function CaptureProvider({ children }: { children: React.ReactNode }) {
     if (generation !== analysisGeneration.current) return;
     if (undoTimer.current) clearTimeout(undoTimer.current);
     undoTimer.current = setTimeout(() => dispatch({ type: 'undoWindowClosed' }), UNDO_WINDOW_MS);
-  }, [client, confirmCapture, state, timezone]);
+  }, [client, confirmCapture, state, timezone, acquireWrite, releaseWrite]);
 
   /**
    * Soft-deletes what was saved, one at a time, and reports honestly.
@@ -357,11 +472,95 @@ export function CaptureProvider({ children }: { children: React.ReactNode }) {
     dispatch({ type: 'reset' });
   }, [abandonAnalysis]);
 
+  const dictate = useCallback((text: string, final: boolean, alternatives: readonly string[] = []) => {
+    dispatch(final ? { type: 'dictationFinished', text, alternatives } : { type: 'dictationChanged', text });
+  }, []);
+  const chooseAlternative = useCallback((text: string) => dispatch({ type: 'alternativeChosen', text }), []);
+  // A late answer about another proposal changes nothing (M2B-A-R3-REVIEW-004):
+  // both events check the id against the one on screen.
+  const adoptCurrent = useCallback((proposal: CaptureProposal, confirmed = false) => {
+    dispatch(confirmed ? { type: 'proposalConfirmedElsewhere', proposalId: proposal.proposalId } : { type: 'proposalReplaced', proposal });
+  }, []);
+  /** A seed keep is a proposal write too: it waits for, and holds up, the others. */
+  const guardWrite = useCallback(async <T,>(run: () => Promise<T>): Promise<T | undefined> => {
+    const token = acquireWrite();
+    if (!token) return undefined;
+    try { return await run(); } finally { releaseWrite(token); }
+  }, [acquireWrite, releaseWrite]);
+  const dictationStarted = useCallback(() => dispatch({ type: 'dictationStarted' }), []);
+
+  const editPoint = useCallback(async (target: CaptureProposalEdit['target'], change: CaptureProposalEdit['change']): Promise<EditOutcome> => {
+    const proposal = state.proposal;
+    const conversationId = state.conversationId;
+    if (!proposal || proposal.revision === undefined || !conversationId) return { ok: false, reason: 'unavailable' };
+    // Fold this item's staged card title and time into the same patch, so
+    // nothing the person did on the card is lost behind the summary edit.
+    const itemId = 'itemId' in target ? target.itemId : undefined;
+    const staged = itemId ? state.edits[itemId] : undefined;
+    const finalKind = change.kind ?? ('itemId' in target ? 'commitment' : undefined);
+    const patch: CaptureProposalEdit['change'] = { ...change };
+    // Only what actually goes into this patch is cleared from the card after
+    // the answer; a «مش هيك» carries no staged words and folds nothing.
+    // A staged field is spent whenever the patch carries that field — folded
+    // in here, or replaced by what the person typed in the sheet — so the
+    // older card value can never come back over the newer one at confirm
+    // (M2B-A-R2-REVIEW-002).
+    const folded = { title: false, time: false };
+    // A one-tap change — «مش هيك», «رجّعها» — carries itself and nothing staged.
+    const oneTap = patch.rejectCorrectionIds !== undefined || patch.restore !== undefined;
+    if (staged?.title !== undefined && !oneTap) {
+      if (patch.text === undefined) patch.text = staged.title;
+      folded.title = true;
+    }
+    if (staged?.localDateTime !== undefined && finalKind === 'commitment' && !oneTap) {
+      if (patch.time === undefined) {
+        const at = staged.localDateTime ? instantForLocalDateTime(staged.localDateTime, timezone) : null;
+        patch.time = { at: at ? at.toISOString() : null, timeZone: timezone };
+      }
+      folded.time = true;
+    }
+    const token = acquireWrite();
+    if (!token) return { ok: false, reason: 'unavailable' };
+    const generation = analysisGeneration.current;
+    try {
+      const answer = await chat.mutateAsync({
+        conversationId,
+        edit: { proposalId: proposal.proposalId, revision: proposal.revision, target, change: patch },
+      });
+      if (generation !== analysisGeneration.current) return { ok: false, reason: 'failed' };
+      dispatch({ type: 'editAnswered', answer, applied: target, ...(itemId && (folded.title || folded.time) ? { folded: { itemId, ...folded } } : {}) });
+      return { ok: true };
+    } catch (error) {
+      if (generation !== analysisGeneration.current) return { ok: false, reason: 'failed' };
+      // Already confirmed (another device, or a confirm that landed first):
+      // nothing to edit any more — say so instead of opening it as a review (F7c).
+      if (error instanceof ProposalChangedError && error.current.kind === 'chat' && error.current.state === 'confirmed') {
+        dispatch({ type: 'proposalConfirmedElsewhere', proposalId: proposal.proposalId });
+        return { ok: false, reason: 'confirmed' };
+      }
+      if (error instanceof ProposalChangedError && error.current.kind === 'chat') {
+        // The person's own change is kept, on its point, to reopen over this
+        // version; a «مش هيك» is one tap and is not (M2B-A-R2-REVIEW-003).
+        const refused = change.rejectCorrectionIds === undefined && change.restore === undefined ? { refused: { target, change } } : {};
+        dispatch({ type: 'editAnswered', answer: error.current.answer, ...refused });
+        return { ok: false, reason: 'changed' };
+      }
+      // The conversation is gone: an edit is never sent again into a new one.
+      if (error instanceof ConversationNotFoundError) return { ok: false, reason: 'ended' };
+      return { ok: false, reason: 'failed' };
+    } finally {
+      releaseWrite(token);
+    }
+  }, [chat, state.proposal, state.conversationId, state.edits, timezone, acquireWrite, releaseWrite]);
+
+  const takeRefusedEdit = useCallback(() => dispatch({ type: 'refusedEditTaken' }), []);
   const acceptUnderstood = useCallback(() => dispatch({ type: 'understoodAccepted' }), []);
   const reopenUnderstood = useCallback(() => dispatch({ type: 'understoodReopened' }), []);
   const value = useMemo<CaptureContextValue>(() => ({
     state, open, setText, analyze, dismissFailure, startOver, adoptProposal, toggleItem, selectAll, deselectAll, editItem, setWeekly, setGoalLink, clarify, confirm, undo, backToComposer, acceptUnderstood, reopenUnderstood, close,
-  }), [state, open, setText, analyze, dismissFailure, startOver, adoptProposal, toggleItem, selectAll, deselectAll, editItem, setWeekly, setGoalLink, clarify, confirm, undo, backToComposer, acceptUnderstood, reopenUnderstood, close]);
+    dictate, chooseAlternative, editPoint, adoptCurrent, dictationStarted, takeRefusedEdit, writing, guardWrite,
+  }), [state, open, setText, analyze, dismissFailure, startOver, adoptProposal, toggleItem, selectAll, deselectAll, editItem, setWeekly, setGoalLink, clarify, confirm, undo, backToComposer, acceptUnderstood, reopenUnderstood, close,
+    dictate, chooseAlternative, editPoint, adoptCurrent, dictationStarted, takeRefusedEdit, writing, guardWrite]);
 
   return <CaptureContext.Provider value={value}>{children}</CaptureContext.Provider>;
 }

@@ -25,6 +25,8 @@ import { CAPTURE_CONVERSATIONS, getStorage, userSubDoc, type StorageAdapter } fr
 export interface CaptureChatTurn {
   role: 'user' | 'assistant';
   text: string;
+  /** False only for a server-synthesised display turn; never user evidence. */
+  evidence?: false;
 }
 
 export interface StoredCaptureConversation {
@@ -34,6 +36,16 @@ export interface StoredCaptureConversation {
   proposalId: string | null;
   createdAt: string;
   updatedAt: string;
+  /** Exact last message response, so a transport retry within two minutes cannot apply its delta twice. */
+  messageReceipt?: {
+    fingerprint: string;
+    receivedAt: number;
+    answer: unknown;
+    /** Proposal state the answer describes; a later card mutation makes the receipt stale. */
+    proposalId: string | null;
+    proposalRevision: number | null;
+    lockedRefs: string[];
+  };
 }
 
 interface ConversationDocument extends StoredCaptureConversation {
@@ -76,20 +88,49 @@ export class CaptureConversationStore {
     if (!document || document.conversationId !== conversationId) return null;
     return {
       conversationId: document.conversationId,
-      turns: Array.isArray(document.turns) ? document.turns.filter(isTurn).map((turn) => ({ role: turn.role, text: turn.text })) : [],
+      turns: Array.isArray(document.turns) ? document.turns.filter(isTurn).map((turn) => ({
+        role: turn.role,
+        text: turn.text,
+        ...(turn.evidence === false ? { evidence: false as const } : {}),
+      })) : [],
       proposalId: typeof document.proposalId === 'string' ? document.proposalId : null,
       createdAt: String(document.createdAt ?? ''),
       updatedAt: String(document.updatedAt ?? ''),
+      ...(document.messageReceipt
+        && typeof document.messageReceipt.fingerprint === 'string'
+        && typeof document.messageReceipt.receivedAt === 'number'
+        && Number.isFinite(document.messageReceipt.receivedAt)
+        && document.messageReceipt.answer
+        && typeof document.messageReceipt.answer === 'object'
+        && (document.messageReceipt.proposalId === null || typeof document.messageReceipt.proposalId === 'string')
+        && (document.messageReceipt.proposalRevision === null
+          || (typeof document.messageReceipt.proposalRevision === 'number' && Number.isInteger(document.messageReceipt.proposalRevision)))
+        && Array.isArray(document.messageReceipt.lockedRefs)
+        && document.messageReceipt.lockedRefs.every((ref) => typeof ref === 'string')
+        ? { messageReceipt: {
+          fingerprint: document.messageReceipt.fingerprint,
+          receivedAt: document.messageReceipt.receivedAt,
+          answer: document.messageReceipt.answer,
+          proposalId: document.messageReceipt.proposalId,
+          proposalRevision: document.messageReceipt.proposalRevision,
+          lockedRefs: [...document.messageReceipt.lockedRefs].sort(),
+        } }
+        : {}),
     };
   }
 
   async put(uid: string, conversation: StoredCaptureConversation, now: Date = new Date()): Promise<void> {
     await this.storage.set<ConversationDocument>(captureConversationPath(uid, conversation.conversationId), {
       conversationId: conversation.conversationId,
-      turns: conversation.turns.map((turn) => ({ role: turn.role, text: turn.text })),
+      turns: conversation.turns.map((turn) => ({
+        role: turn.role,
+        text: turn.text,
+        ...(turn.evidence === false ? { evidence: false as const } : {}),
+      })),
       proposalId: conversation.proposalId,
       createdAt: conversation.createdAt,
       updatedAt: conversation.updatedAt,
+      ...(conversation.messageReceipt === undefined ? {} : { messageReceipt: conversation.messageReceipt }),
       expiresAt: new Date(now.getTime() + CAPTURE_PROPOSAL_RETENTION_MS),
     });
   }

@@ -8,6 +8,7 @@ import {
   WeeklyBlockRefusedError,
   ConfirmationRequiredError,
   ConflictError,
+  ProposalChangedError,
   CurrencyRequiredError,
   DeviceCalendarLinkConflictError,
   WeekConflictError,
@@ -40,6 +41,7 @@ import {
 } from './errors';
 import { mockResponseFor } from './mockAdapter';
 import { commitmentSchema } from './schemas/common';
+import { proposalChangedChatSchema, proposalChangedProposalSchema } from './schemas/capture';
 import { planEditRejectedSchema, planProposalRejectedSchema, weekConflictSchema, weekEmptyDaySchema } from './schemas/plan';
 import { icsFeedRefusalSchema } from './schemas/icsFeeds';
 import { googleRefusalSchema } from './schemas/google';
@@ -220,6 +222,16 @@ function conflictFor(body: unknown): Error {
         return new ContractError('stale_commitment.current', current.error.issues.map(issue => issue.code));
       }
       return new StaleCommitmentError(current.data);
+    }
+    // A capture proposal moved on (M2b). Parsed, not trusted: a payload that
+    // does not match is a contract failure, not a conflict — the screen cannot
+    // show a current version it cannot read.
+    if (record.reason === 'proposal_changed') {
+      const chat = proposalChangedChatSchema.safeParse(body);
+      if (chat.success) return new ProposalChangedError({ kind: 'chat', answer: chat.data.answer, ...(chat.data.state ? { state: chat.data.state } : {}) });
+      const proposal = proposalChangedProposalSchema.safeParse(body);
+      if (proposal.success) return new ProposalChangedError({ kind: 'proposal', proposal: proposal.data.proposal, state: proposal.data.state });
+      return new ContractError('proposal_changed', [...(chat.error?.issues ?? []), ...(proposal.error?.issues ?? [])].map(issue => issue.code));
     }
     if (record.reason === 'invalid_transition') return new InvalidTransitionError();
     if (record.reason === 'suggestion_schedule_changed') return new SuggestionScheduleChangedError();
@@ -559,7 +571,7 @@ export async function apiRequestTagged<T>(
   // Development only, and impossible in a release build three times over
   // (see ./mockAdapter.ts). Placed here so every endpoint, error type and
   // schema check below is exercised exactly as it is against a real server.
-  const mocked = mockResponseFor(method, path);
+  const mocked = mockResponseFor(method, path, options.body);
   let response: RawResponse = mocked
     ? { status: mocked.status, body: mocked.body, etag: null }
     : await send(method, target, options.body, await getIdToken(), options.signal, options.ifMatch, options.timeoutMs);

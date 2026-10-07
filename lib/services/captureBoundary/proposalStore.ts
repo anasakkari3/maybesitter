@@ -42,7 +42,12 @@
  */
 import type { Command } from '../../../src/domain/stateMachine';
 import type { ExtractionResult } from '../../../src/extraction/extractionTypes';
-import type { CaptureAppLocale, CaptureProposalContract } from '../../../src/contracts/v1/captureContracts';
+import type {
+  CaptureAppLocale,
+  CaptureProposalContract,
+  CaptureProposalItemContract,
+} from '../../../src/contracts/v1/captureContracts';
+import type { CaptureSeedProposalContract } from '../../../src/contracts/v1/intentContracts';
 import type { CaptureSourceOrdinals } from './understood';
 import {
   CAPTURE_PROPOSALS,
@@ -87,6 +92,62 @@ export interface StoredCaptureProposal {
   responseLocale?: CaptureAppLocale;
   /** Speech order used to rebuild `understood`; absent on legacy proposals. */
   sourceOrdinals?: CaptureSourceOrdinals;
+  /** Server-only operation positions used to correlate a chat delta with newly built entities. */
+  chatOperationIndices?: CaptureSourceOrdinals;
+  /** The clock the proposal was created on; structured edits never trust a later envelope clock. */
+  timezone?: string;
+  /** Internal token positions for dictation corrections, keyed by the server-minted correction id. */
+  correctionSpans?: Record<string, { itemId: string; index: number; length: number }>;
+  /** Only the edit that produced the current revision is retained (M2b v4 bounded receipt). */
+  editReceipt?: { fingerprint: string; resultingRevision: number; answer: unknown };
+  /** Stable evidence and the exact edited fields carried into later chat proposals. */
+  structuredEditSources?: Readonly<Record<string, StructuredEditSource>>;
+  /** Entities whose evidence includes the newest model-chat message. */
+  latestChatTouchedIds?: readonly string[];
+  /** A kept capture seed's idempotent claim, bounded to this proposal. */
+  seedKeepReceipt?: { seedItemId: string; baseRevision: number; seed: unknown };
+  /** Every seed already kept from this proposal; later edits may not promote one twice. */
+  keptSeedItemIds?: readonly string[];
+  /** Opaque, per-conversation model references keyed by server entity id. */
+  chatRefs?: Readonly<Record<string, string>>;
+  /** Next opaque reference suffixes; kept separate so item/seed refs stay short. */
+  nextChatItemRef?: number;
+  nextChatSeedRef?: number;
+  /** References protected by a server-side edit, keep, or confirmation path. */
+  lockedChatRefs?: readonly string[];
+  /** Full server-only snapshots backing public `removedItems` and exact restore. */
+  removedChatEntities?: Readonly<Record<string, RemovedChatEntity>>;
+  /**
+   * Rolling-deploy compatibility: a revisionless legacy clarification may
+   * confirm its own result exactly once. Any later proposal writer clears it.
+   */
+  legacyConfirmRevision?: number;
+}
+
+export interface RemovedChatEntity {
+  ref: string;
+  entityId: string;
+  position: number;
+  item?: CaptureProposalItemContract;
+  seed?: CaptureSeedProposalContract;
+  commands: readonly Command[];
+  result?: ExtractionResult;
+  ordinal?: number;
+  correctionSpans?: Record<string, { itemId: string; index: number; length: number }>;
+  structuredEditSource?: StructuredEditSource;
+  keptSeed?: true;
+}
+
+export interface StructuredEditSource {
+  ordinal?: number;
+  originalText: string;
+  rawText?: string;
+  fields: {
+    text?: true;
+    kind?: true;
+    time?: true;
+    corrections?: true;
+  };
 }
 
 /**
@@ -103,7 +164,7 @@ export interface CaptureProposalStore {
 export const CAPTURE_PROPOSAL_RETENTION_MS = 24 * 60 * 60 * 1000;
 
 /** The document as it is stored: the Map flattened, plus the TTL stamp. */
-interface StoredProposalDocument {
+export interface StoredProposalDocument {
   contract: CaptureProposalContract;
   scopeId: string;
   /**
@@ -123,6 +184,7 @@ interface StoredProposalDocument {
   clarifiedItemIds?: string[];
   responseLocale?: CaptureAppLocale;
   sourceOrdinals?: CaptureSourceOrdinals;
+  chatOperationIndices?: CaptureSourceOrdinals;
   /**
    * When the proposal was made (UC-2.4, #164).
    *
@@ -136,10 +198,23 @@ interface StoredProposalDocument {
   proposedAt?: string;
   confirmedResult?: unknown;
   idempotencyKey?: string;
+  timezone?: string;
+  correctionSpans?: Record<string, { itemId: string; index: number; length: number }>;
+  editReceipt?: { fingerprint: string; resultingRevision: number; answer: unknown };
+  structuredEditSources?: Record<string, StructuredEditSource>;
+  latestChatTouchedIds?: string[];
+  seedKeepReceipt?: { seedItemId: string; baseRevision: number; seed: unknown };
+  keptSeedItemIds?: string[];
+  chatRefs?: Record<string, string>;
+  nextChatItemRef?: number;
+  nextChatSeedRef?: number;
+  lockedChatRefs?: string[];
+  removedChatEntities?: Record<string, RemovedChatEntity>;
+  legacyConfirmRevision?: number;
   expiresAt: Date;
 }
 
-function toDocument(proposal: StoredCaptureProposal, now: Date): StoredProposalDocument {
+export function captureProposalToDocument(proposal: StoredCaptureProposal, now: Date): StoredProposalDocument {
   return {
     contract: proposal.contract,
     scopeId: proposal.scopeId,
@@ -154,14 +229,28 @@ function toDocument(proposal: StoredCaptureProposal, now: Date): StoredProposalD
     ...(proposal.clarifiedItemIds?.length ? { clarifiedItemIds: [...proposal.clarifiedItemIds] } : {}),
     ...(proposal.responseLocale ? { responseLocale: proposal.responseLocale } : {}),
     ...(proposal.sourceOrdinals ? { sourceOrdinals: proposal.sourceOrdinals } : {}),
+    ...(proposal.chatOperationIndices ? { chatOperationIndices: proposal.chatOperationIndices } : {}),
     ...(proposal.proposedAt === undefined ? {} : { proposedAt: proposal.proposedAt }),
     ...(proposal.confirmedResult === undefined ? {} : { confirmedResult: proposal.confirmedResult }),
     ...(proposal.idempotencyKey === undefined ? {} : { idempotencyKey: proposal.idempotencyKey }),
+    ...(proposal.timezone === undefined ? {} : { timezone: proposal.timezone }),
+    ...(proposal.correctionSpans === undefined ? {} : { correctionSpans: proposal.correctionSpans }),
+    ...(proposal.editReceipt === undefined ? {} : { editReceipt: proposal.editReceipt }),
+    ...(proposal.structuredEditSources === undefined ? {} : { structuredEditSources: proposal.structuredEditSources }),
+    ...(proposal.latestChatTouchedIds === undefined ? {} : { latestChatTouchedIds: [...proposal.latestChatTouchedIds] }),
+    ...(proposal.seedKeepReceipt === undefined ? {} : { seedKeepReceipt: proposal.seedKeepReceipt }),
+    ...(proposal.keptSeedItemIds === undefined ? {} : { keptSeedItemIds: [...proposal.keptSeedItemIds] }),
+    ...(proposal.chatRefs === undefined ? {} : { chatRefs: { ...proposal.chatRefs } }),
+    ...(proposal.nextChatItemRef === undefined ? {} : { nextChatItemRef: proposal.nextChatItemRef }),
+    ...(proposal.nextChatSeedRef === undefined ? {} : { nextChatSeedRef: proposal.nextChatSeedRef }),
+    ...(proposal.lockedChatRefs === undefined ? {} : { lockedChatRefs: [...proposal.lockedChatRefs] }),
+    ...(proposal.removedChatEntities === undefined ? {} : { removedChatEntities: proposal.removedChatEntities }),
+    ...(proposal.legacyConfirmRevision === undefined ? {} : { legacyConfirmRevision: proposal.legacyConfirmRevision }),
     expiresAt: new Date(now.getTime() + CAPTURE_PROPOSAL_RETENTION_MS),
   };
 }
 
-function fromDocument(document: StoredProposalDocument): StoredCaptureProposal {
+export function captureProposalFromDocument(document: StoredProposalDocument): StoredCaptureProposal {
   return {
     contract: document.contract,
     scopeId: document.scopeId,
@@ -170,9 +259,23 @@ function fromDocument(document: StoredProposalDocument): StoredCaptureProposal {
     ...(document.clarifiedItemIds ? { clarifiedItemIds: [...document.clarifiedItemIds] } : {}),
     ...(document.responseLocale ? { responseLocale: document.responseLocale } : {}),
     ...(document.sourceOrdinals ? { sourceOrdinals: document.sourceOrdinals } : {}),
+    ...(document.chatOperationIndices ? { chatOperationIndices: document.chatOperationIndices } : {}),
     ...(document.proposedAt === undefined ? {} : { proposedAt: document.proposedAt }),
     ...(document.confirmedResult === undefined ? {} : { confirmedResult: document.confirmedResult }),
     ...(document.idempotencyKey === undefined ? {} : { idempotencyKey: document.idempotencyKey }),
+    ...(document.timezone === undefined ? {} : { timezone: document.timezone }),
+    ...(document.correctionSpans === undefined ? {} : { correctionSpans: document.correctionSpans }),
+    ...(document.editReceipt === undefined ? {} : { editReceipt: document.editReceipt }),
+    ...(document.structuredEditSources === undefined ? {} : { structuredEditSources: { ...document.structuredEditSources } }),
+    ...(document.latestChatTouchedIds === undefined ? {} : { latestChatTouchedIds: [...document.latestChatTouchedIds] }),
+    ...(document.seedKeepReceipt === undefined ? {} : { seedKeepReceipt: document.seedKeepReceipt }),
+    ...(document.keptSeedItemIds === undefined ? {} : { keptSeedItemIds: [...document.keptSeedItemIds] }),
+    ...(document.chatRefs === undefined ? {} : { chatRefs: { ...document.chatRefs } }),
+    ...(document.nextChatItemRef === undefined ? {} : { nextChatItemRef: document.nextChatItemRef }),
+    ...(document.nextChatSeedRef === undefined ? {} : { nextChatSeedRef: document.nextChatSeedRef }),
+    ...(document.lockedChatRefs === undefined ? {} : { lockedChatRefs: [...document.lockedChatRefs] }),
+    ...(document.removedChatEntities === undefined ? {} : { removedChatEntities: { ...document.removedChatEntities } }),
+    ...(document.legacyConfirmRevision === undefined ? {} : { legacyConfirmRevision: document.legacyConfirmRevision }),
   };
 }
 
@@ -206,7 +309,7 @@ export class StorageCaptureProposalStore implements CaptureProposalStore {
   async put(proposal: StoredCaptureProposal): Promise<void> {
     await this.storage.set<StoredProposalDocument>(
       this.path(proposal.scopeId, proposal.contract.proposalId),
-      toDocument(proposal, new Date()),
+      captureProposalToDocument(proposal, new Date()),
     );
   }
 
@@ -223,7 +326,7 @@ export class StorageCaptureProposalStore implements CaptureProposalStore {
       limit: 1,
     });
     const document = rows[0]?.data;
-    return document ? fromDocument(document) : undefined;
+    return document ? captureProposalFromDocument(document) : undefined;
   }
 }
 

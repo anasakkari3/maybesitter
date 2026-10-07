@@ -284,7 +284,8 @@ describe('chat UAT details (2026-09-30)', () => {
     await say('Dentist at 5 and bread at 6');
     await waitFor(() => expect(screen.queryByTestId('review-item-i-1')).not.toBeNull());
     await fireEvent.press(screen.getByTestId('review-item-i-2'));
-    await fireEvent.press(screen.getByTestId('review-back'));
+    // The question now comes from «إلغاء الكل» (M2b): Back keeps the proposal.
+    await fireEvent.press(screen.getByTestId('review-cancel'));
     await waitFor(() => expect(screen.queryByTestId('capture-discard')).not.toBeNull());
     expect(screen.queryByText(en.chatBackToProposal)).not.toBeNull();
     expect(screen.queryByText(en.captureKeepEditing)).toBeNull();
@@ -388,6 +389,9 @@ describe('starting over, and failures', () => {
     await fireEvent.press(screen.getByTestId('chat-more'));
     await waitFor(() => expect(screen.queryByTestId('chat-menu-start-over')).not.toBeNull());
     await fireEvent.press(screen.getByTestId('chat-menu-start-over'));
+    // It asks first: the whole conversation goes (M2b).
+    await waitFor(() => expect(screen.queryByTestId('capture-discard')).not.toBeNull());
+    await fireEvent.press(screen.getByTestId('capture-discard-confirm'));
     await waitFor(() => expect(screen.queryByTestId('chat-turn-text-0')).toBeNull());
     expect(screen.queryByTestId('review-item-i-0')).toBeNull();
     expect(field()).toBe('');

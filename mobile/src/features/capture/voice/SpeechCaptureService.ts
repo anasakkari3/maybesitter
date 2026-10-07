@@ -64,7 +64,7 @@ export interface SpeechCaptureCallbacks {
    * commitment nobody said, which is the same failure #162 spent its length
    * removing from the extractor.
    */
-  onFinal?(transcript: string): void;
+  onFinal?(transcript: string, alternatives?: readonly string[]): void;
   onStatus?(status: SpeechStatus): void;
 }
 

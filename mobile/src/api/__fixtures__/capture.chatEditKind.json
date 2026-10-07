@@ -1,0 +1,118 @@
+{
+  "conversationId": "00000000-0000-4000-8000-000000000001",
+  "reply": "تمام، عدّلتها. راجع القائمة وأكّد من تحت.",
+  "engine": "rules",
+  "proposal": {
+    "version": "v1",
+    "proposalId": "00000000-0000-4000-8000-000000000002",
+    "status": "needs_clarification",
+    "items": [
+      {
+        "itemId": "00000000-0000-4000-8000-000000000003",
+        "title": "وعم بفكر أسافر الصيف الجاي",
+        "resolvedTime": null,
+        "needsClarification": true,
+        "clarification": {
+          "questionId": "00000000-0000-4000-8000-000000000004",
+          "field": "time",
+          "questionKey": "ask_time",
+          "params": {
+            "title": "وعم بفكر أسافر الصيف الجاي"
+          },
+          "options": [
+            {
+              "optionId": "morning",
+              "labelKey": "morning",
+              "labelParams": {},
+              "value": {
+                "localTime": "09:00",
+                "localDate": "2026-08-10"
+              }
+            },
+            {
+              "optionId": "afternoon",
+              "labelKey": "afternoon",
+              "labelParams": {},
+              "value": {
+                "localTime": "14:00",
+                "localDate": "2026-08-09"
+              }
+            },
+            {
+              "optionId": "evening",
+              "labelKey": "evening",
+              "labelParams": {},
+              "value": {
+                "localTime": "19:00",
+                "localDate": "2026-08-09"
+              }
+            },
+            {
+              "optionId": "none",
+              "labelKey": "noTime",
+              "labelParams": {},
+              "value": {}
+            }
+          ],
+          "allowFreeText": true
+        },
+        "timeEstimated": false,
+        "priority": "normal",
+        "priorityEstimated": false
+      }
+    ],
+    "seeds": [
+      {
+        "seedItemId": "00000000-0000-4000-8000-000000000005",
+        "kind": "idea",
+        "summary": "اتصل بأمي"
+      }
+    ],
+    "revision": 2,
+    "provenance": {
+      "requestedEngine": "rules",
+      "executedEngine": "rule-based",
+      "fallbackUsed": true
+    },
+    "understood": [
+      {
+        "kind": "idea",
+        "seedItemId": "00000000-0000-4000-8000-000000000005",
+        "text": "اتصل بأمي"
+      },
+      {
+        "kind": "commitment",
+        "itemId": "00000000-0000-4000-8000-000000000003",
+        "text": "وعم بفكر أسافر الصيف الجاي"
+      }
+    ]
+  },
+  "turns": [
+    {
+      "role": "user",
+      "text": "لازم اتصل بأمي بكرا الساعة 5 المسا، وعم بفكر أسافر الصيف الجاي"
+    },
+    {
+      "role": "assistant",
+      "text": "هيك فهمت. شوف القائمة وإذا كلها تمام أكّدها."
+    },
+    {
+      "role": "user",
+      "text": "غيّر نوع «وعم بفكر أسافر الصيف الجاي».",
+      "evidence": false
+    },
+    {
+      "role": "assistant",
+      "text": "تمام، عدّلتها. راجع القائمة وأكّد من تحت."
+    },
+    {
+      "role": "user",
+      "text": "غيّر نوع «اتصل بأمي».",
+      "evidence": false
+    },
+    {
+      "role": "assistant",
+      "text": "تمام، عدّلتها. راجع القائمة وأكّد من تحت."
+    }
+  ]
+}

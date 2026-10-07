@@ -6,8 +6,8 @@ import { decideExtractionDisposition } from '../../../src/extraction/extractionP
 import { endOfRange, mapExtractionToCommand } from '../../../src/extraction/mapExtractionToCommand';
 import { countTimeExpressions } from '../../../src/extraction/ruleBasedExtractor';
 import { classifyMessageKind } from '../../../src/extraction/messageKind';
-import { hasActionEvidence, hasRequestEvidence, splitCaptureClauseDetails, type CaptureClause } from '../../../src/extraction/clauseSplitter';
-import { CLOCK_PATTERN_SOURCES, instantFromLocal, isBareEarlyHourAnswer, localTimeSpecFor, namesDay, normalizeClockText, readClockRange, statedClockHours, statesClock } from '../../../src/extraction/timeLexicon';
+import { hasActionEvidence, hasRequestEvidence, splitCaptureClauseDetails, withoutClauseJoiner, type CaptureClause } from '../../../src/extraction/clauseSplitter';
+import { CLOCK_PATTERN_SOURCES, instantFromLocal, isBareEarlyHourAnswer, localTimeSpecFor, namesDay, normalizeClockText, readClockRange, statedClockHours, statesClock, timeOfDayEvidence } from '../../../src/extraction/timeLexicon';
 import { namesExplicitDate, readRecurrence, readWeekdayReference } from '../../../src/extraction/weekdayLexicon';
 import type { ExtractionContext, ExtractionResult } from '../../../src/extraction/extractionTypes';
 import { resolveModuleRuntime, type AuditEventEnvelope, createAuditEvent, type RuntimeControlSnapshot } from '../../../src/contracts/v1/runtimeControls';
@@ -21,6 +21,7 @@ import {
   type NoCommitmentReason,
 } from '../../../src/contracts/v1/captureContracts';
 import { detectUnresolvedIntent } from '../../../src/extraction/unresolvedIntent';
+import { statedObligation } from '../../../src/extraction/priorityLexicon';
 import type { CaptureSeedProposalContract } from '../../../src/contracts/v1/intentContracts';
 import { applyEditToCommands, InvalidEditError, keepEventOnItsDay, validateEdit } from './applyEdits';
 import { buildClarification } from './clarificationBuilder';
@@ -38,15 +39,18 @@ import {
   alignToPrevious,
   chatEvidenceFrom,
   chatItemEvidence,
+  chatTimeAllowance,
+  isPlainYes,
   withInstantFromWallClock,
   withoutUnsaidTime,
-  withPreviousTitles,
   type ChatPreviousItem,
 } from './chatEvidence';
 import { WEEKLY_BLOCK_TITLE_MAX, type WeeklyBlockOfferContract } from '../../../src/contracts/v1/weeklyBlockContracts';
 import type { CaptureAppLocale } from '../../../src/contracts/v1/captureContracts';
 import { titleDropReason } from '../share/shareAllowlist';
 import { finalizeUnderstood, type CaptureSourceOrdinals } from './understood';
+import { ProposalChangedError, proposalRevision, revisionMatches } from './proposalProtocol';
+import { referenceStateFor } from '../captureChat/chatReferences';
 
 /**
  * Persists a confirmation's commands and records its result on the proposal in
@@ -64,6 +68,7 @@ export type CaptureConfirmationCommitter = (input: {
   scopeId: string;
   proposalId: string;
   idempotencyKey: string;
+  expectedRevision: number;
   commands: readonly Command[];
   /**
    * The commands this confirm committed, per item — what the proposal must
@@ -122,8 +127,18 @@ export interface ProposeCaptureOptions {
   chat?: {
     userTurns: readonly string[];
     items: readonly unknown[];
+    /** First user-turn index each delta item may use as evidence. */
+    evidenceStartIndices?: readonly number[];
+    /** First user-turn index usable to justify fields changed on an existing item. */
+    changedFieldEvidenceStartIndices?: readonly number[];
     /** The list the person saw before this message, on their clock, in order (chat UAT round 2). */
     previous?: readonly ChatPreviousItem[];
+    /** Ref-derived previous entry for each delta item; null for an add. */
+    previousMatchIndices?: readonly (number | null)[];
+    /** Validated citation span for each delta item, in the same order. */
+    operationSources?: readonly string[];
+    /** Exact clocks selected by chat answers to a pending AM/PM question. */
+    answeredAmPmClocks?: readonly (string | null)[];
   };
   /**
    * Titles without the possession lead-in ("I have a", «عندي»), as a weekly
@@ -203,6 +218,74 @@ function sourceOrdinal(raw: string, segment: string, item: unknown, fallback: nu
   }
   const found = candidates.filter((at) => at >= 0);
   return (found.length > 0 ? Math.min(...found) : raw.length + fallback) + fallback / 10_000;
+}
+
+/** Server-only capture-chat delta position; never part of the model schema. */
+function chatOperationIndex(item: unknown): number | null {
+  if (!item || typeof item !== 'object') return null;
+  const value = (item as Record<string, unknown>).__chatOpIndex;
+  return Number.isInteger(value) && Number(value) >= 0 ? Number(value) : null;
+}
+
+const EXPLICIT_PRIORITY = /\b(?:urgent|important|critical|must|have to|top priority|high priority|low priority)\b|(?:^|\s)(?:ضروري|مهم|عاجل|لازم)(?=\s|$)|(?:^|\s)(?:דחוף|חשוב|חייב|חייבת)(?=\s|$)/i;
+
+/**
+ * An update begins with the stored point. Only fields supported by this
+ * operation's validated citation may replace its stored facts.
+ */
+function withCarriedCitationFacts(
+  result: ExtractionResult,
+  before: ChatPreviousItem | undefined,
+  source: string | undefined,
+  now: Date,
+  timezone: string,
+): ExtractionResult {
+  if (!before?.result || source === undefined) return result;
+  const stored = before.result;
+  const allowance = chatTimeAllowance([source], now, timezone);
+  const supportsDate = allowance.anyDate || allowance.namedDates.size > 0;
+  const supportsTime = allowance.hours.size > 0 || readClockRange(source) !== null;
+  const modelInstant = result.remindAt ?? result.dueAt;
+  const modelWallClock = result.localTimeSpec
+    ?? (modelInstant && Number.isFinite(Date.parse(modelInstant)) ? localTimeSpecFor(new Date(modelInstant), timezone) : null);
+  const currentDate = modelWallClock?.date ?? null;
+  const currentTime = modelWallClock?.time ?? null;
+  const date = supportsDate ? currentDate : before.date;
+  const time = supportsTime ? currentTime : before.time;
+  const instant = date && time ? instantFromLocal(date, time, timezone)?.toISOString() ?? null : null;
+  const oldHadDue = Boolean(stored.dueAt);
+  const oldHadReminder = Boolean(stored.remindAt);
+  const missingFields = time
+    ? result.missingFields.filter((field) => field !== 'time')
+    : result.missingFields.includes('time') ? result.missingFields : [...result.missingFields, 'time' as const];
+  const ambiguityFlags = time
+    ? result.ambiguityFlags.filter((flag) => flag !== 'vague_time')
+    : result.ambiguityFlags.includes('vague_time') ? result.ambiguityFlags : [...result.ambiguityFlags, 'vague_time' as const];
+  const prioritySupported = statedObligation(source) !== null
+    || EXPLICIT_PRIORITY.test(source)
+    || detectUnresolvedIntent(source) !== null;
+  return {
+    ...result,
+    dueAt: instant && (result.dueAt || (!result.remindAt && oldHadDue)) ? instant : null,
+    remindAt: instant && (result.remindAt || oldHadReminder) ? instant : null,
+    localTimeSpec: date ? { date, time, timezone } : null,
+    timeEvidence: supportsTime ? result.timeEvidence : stored.timeEvidence,
+    ...(supportsDate ? {} : { dateInferred: stored.dateInferred }),
+    ...(supportsTime ? {} : {
+      timeAnchor: stored.timeAnchor,
+      allDay: stored.allDay,
+      ...(stored.undatedTime ? { undatedTime: stored.undatedTime } : {}),
+    }),
+    ...(readClockRange(source) !== null
+      ? { rangeMinutes: result.rangeMinutes }
+      : stored.rangeMinutes === undefined ? {} : { rangeMinutes: stored.rangeMinutes }),
+    ...(readRecurrence(source) !== null
+      ? { recurrenceHint: result.recurrenceHint }
+      : stored.recurrenceHint === undefined ? {} : { recurrenceHint: stored.recurrenceHint }),
+    priority: prioritySupported ? result.priority : stored.priority,
+    missingFields,
+    ambiguityFlags,
+  };
 }
 
 /** Why one chat item carries nothing: the model's object failed validation. */
@@ -635,7 +718,7 @@ function isBareEarlyHour(result: ExtractionResult): boolean {
 
 /**
  * The one bare early clock the clause states — «الساعة 5» is `05:00`, "at
- * 4:30" is `04:30`, «ב-5» is `05:00` — or null (UAT round 6, D1). One to six,
+ * 4:30" is `04:30`, «ב-5» is `05:00` — or null (UAT round 6, D1). One to eleven,
  * no part of the day, no meridiem, and a single hour: the words the rules
  * read as the morning and ask صبح or مسا about.
  */
@@ -658,6 +741,26 @@ function statedBareEarlyClock(text: string): string | null {
 }
 
 /**
+ * A citation operation is narrower than a free-form capture: when its own
+ * literal source states one bare clock from 1 through 11, the model may not
+ * choose AM or PM for the person. Ranges retain their established semantics.
+ */
+function statedBareOperationClock(text: string): string | null {
+  if (readClockRange(text) || timeOfDayEvidence(text) !== 'clock_marker') return null;
+  const normalized = normalizeClockText(text);
+  const clocks = new Set<string>();
+  for (const source of CLOCK_PATTERN_SOURCES) {
+    for (const match of Array.from(normalized.matchAll(new RegExp(source, 'gi')))) {
+      const digits = /(\d{1,2})(?::(\d{2}))?/.exec(match[0]);
+      if (!digits) continue;
+      const hour = Number(digits[1]);
+      if (hour >= 1 && hour <= 11) clocks.add(`${digits[1]!.padStart(2, '0')}:${digits[2] ?? '00'}`);
+    }
+  }
+  return clocks.size === 1 ? Array.from(clocks)[0]! : null;
+}
+
+/**
  * A model reading of a bare early hour, put on the number the person said
  * (UAT round 6, D1). «بكرا الساعة 5 لازم أروح عالبنك» came back from Gemini
  * as 17:00 — or 05:00, or no hour — and one run in four was proposed,
@@ -676,6 +779,7 @@ function withStatedBareEarlyClock(result: ExtractionResult, clock: string, timez
     dueAt: result.dueAt || !result.remindAt ? stated : null,
     remindAt: result.remindAt ? stated : null,
     localTimeSpec: { date, time: clock, timezone },
+    timeEvidence: 'clock_marker',
     missingFields: result.missingFields.filter((field) => field !== 'time'),
   };
 }
@@ -750,6 +854,8 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
    */
   const seeds: CaptureSeedProposalContract[] = [];
   const sourceOrdinals: CaptureSourceOrdinals = { items: {}, seeds: {} };
+  const chatOperationIndices: CaptureSourceOrdinals = { items: {}, seeds: {} };
+  const latestChatTouchedIds = new Set<string>();
   let executedEngine: CaptureProposalContract['provenance']['executedEngine'] = 'rule-based';
   let fallbackUsed = forceRules;
   let rejected = !raw;
@@ -780,18 +886,26 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
    * refuses anything longer, so no parser here reads more than a capture's.
    */
   const chat = options.chat;
-  const chatEvidence = chat ? chatEvidenceFrom(chat.userTurns) : '';
+  const chatEvidence = chat
+    ? chat.operationSources?.join('\n') ?? chatEvidenceFrom(chat.userTurns)
+    : '';
   if (chat && chatEvidence.length > CAPTURE_INPUT_MAX_CHARACTERS) throw new CaptureInputTooLargeError();
   const chatPrevious = chat?.previous ?? [];
-  // A title that is only the words of the edit keeps the one the item had; a
-  // wall clock with no instant gets its instant (`chatEvidence`).
+  // Ref operations already identify the item. The extraction boundary checks
+  // the supplied fields, but never rewrites an item's identity from title or
+  // cancellation words. A wall clock with no instant still gets its instant.
   const chatItems = chat && chatEvidence
-    ? withPreviousTitles(chat.items.slice(0, MAX_CHAT_ITEMS), chatPrevious, raw).map((item) => withInstantFromWallClock(item, options.timezone))
+    ? chat.items.slice(0, MAX_CHAT_ITEMS).map((item) => withInstantFromWallClock(item, options.timezone))
     : [];
   // Each item against its own clauses and those naming no item
   // (`chatItemEvidence`): another item's day or hour is never its evidence.
-  const chatItemEvidences = chat ? chatItemEvidence(chat.userTurns, chatItems, chatPrevious, options.timezone) : [];
-  const chatAligned = alignToPrevious(chatItems, chatPrevious);
+  const chatItemEvidences = chat
+    ? chatItemEvidence(chat.userTurns, chatItems, chatPrevious, options.timezone, chat.evidenceStartIndices, chat.previousMatchIndices, chat.operationSources)
+    : [];
+  const chatChangedFieldEvidences = chat
+    ? chatItemEvidence(chat.userTurns, chatItems, chatPrevious, options.timezone, chat.changedFieldEvidenceStartIndices, chat.previousMatchIndices, chat.operationSources)
+    : [];
+  const chatAligned = alignToPrevious(chatItems, chatPrevious, chat?.previousMatchIndices);
   // The days and hours each other model item holds, and the goal-like items'
   // titles (`occurrenceDatesFor`).
   const modelSlots = chatItems.map((item) => {
@@ -822,8 +936,35 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
   const clauses: CaptureClause[] = chat
     ? chatItemEvidences.map((evidence) => evidence.clause)
     : raw ? splitInput(raw) : [];
-  const segments = clauses.map((clause) => clause.text);
+  const segments = clauses.map((clause, index) => {
+    const before = chat && chatAligned[index] !== null ? chatPrevious[chatAligned[index]!] : undefined;
+    const newest = chatChangedFieldEvidences[index]?.clause.text.trim() ?? '';
+    if (!before?.kind) {
+      // A commitment demoted by a span such as «لسا بفكر فيها» keeps what the
+      // point was about. The pronoun is evidence for its kind, not a new name.
+      return before && detectUnresolvedIntent(newest)
+        ? [before.title, newest].filter(Boolean).join('\n')
+        : clause.text;
+    }
+    if (before.kind === 'possible_goal' && readRecurrence(newest)) return before.title;
+    return [before.title, newest].filter(Boolean).join('\n');
+  });
   const several = segments.length > 1;
+  /*
+   * Whether a point was said after another one in the same message, so the
+   * «و» / "and" / «ו» that joined them is dropped where its item or seed is
+   * made (load pass F3). A capture knows it from the split
+   * (`CaptureClause.follows`). A chat turn — the model's path, the first
+   * message included — knows it from where the point's words stand in the
+   * newest message; and only for a new point, never an existing one, whose
+   * words are the person's own edit (Codex inspection F3-003).
+   */
+  const followsAnother = (index: number): boolean => {
+    if (!chat) return clauses[index]?.follows === true;
+    if (chatAligned[index] !== null) return false;
+    const words = clauses[index]?.text.trim() ?? '';
+    return words.length > 0 && raw.indexOf(words) > 0;
+  };
   /*
    * Unresolved intent is read before the extractor, not after it (#519).
    *
@@ -845,6 +986,21 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
   // clause: what the person may merely be considering is the capture's
   // question, asked of what they typed there.
   const intents = segments.map((segment, index) => {
+    const before = chat && chatAligned[index] !== null ? chatPrevious[chatAligned[index]!] : undefined;
+    const newestEvidence = chat ? chatChangedFieldEvidences[index]?.clause.text ?? '' : segment;
+    const newestMakesCommitment = hasRequestEvidence(newestEvidence)
+      || hasActionEvidence(newestEvidence);
+    if (before?.kind && !newestMakesCommitment) {
+      const newestIntent = detectUnresolvedIntent(newestEvidence);
+      return newestIntent ?? { kind: before.kind };
+    }
+    // An existing commitment becomes a thought only when this operation's
+    // own newest-message span says so. A model kind on "move it to 8" is not
+    // evidence for demoting the stored point.
+    if (before && !before.kind) {
+      const acceptedOffer = newestEvidence.split('\n', 1)[0]?.trim() ?? '';
+      return isPlainYes(acceptedOffer) ? null : detectUnresolvedIntent(newestEvidence);
+    }
     // M2a's schedule override belongs to the chat guard. The ordinary capture
     // path already has established unresolved-intent semantics (including its
     // frozen FX3 corpus), and did not previously consult the model's `kind`.
@@ -935,8 +1091,14 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
     if (intent || outcome.kind === 'seed') {
       if (intent) {
         const seedItemId = randomUUID();
+        // The person's segment verbatim: a seed's summary is its capture
+        // evidence (intentContracts.ts, seedService), so even a joining «و»
+        // stays (Codex inspection F3-007). The summary line shows it as stored.
         seeds.push({ seedItemId, kind: intent.kind, summary: segment });
         sourceOrdinals.seeds[seedItemId] = sourceOrdinal(raw, segment, chatItems[index], index);
+        const operationIndex = chatOperationIndex(chatItems[index]);
+        if (operationIndex !== null) chatOperationIndices.seeds[seedItemId] = operationIndex;
+        if (chatItemEvidences[index]?.touchedNow) latestChatTouchedIds.add(seedItemId);
       }
       continue;
     }
@@ -973,7 +1135,11 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
       // In the chat, asked of the whole conversation, as it always was: one
       // bare early hour said anywhere is asked صبح or مسا; «الاول … عال ٤
       // والثاني … عال٦» — two hours, one per item — is not one to ask about.
-      const statedEarlyClock = extracted.engine !== 'rule-based' ? statedBareEarlyClock(chat ? chatEvidence : segment) : null;
+      const statedEarlyClock = extracted.engine !== 'rule-based'
+        ? chat?.operationSources
+          ? statedBareOperationClock(segment)
+          : statedBareEarlyClock(chat ? chatEvidence : segment)
+        : null;
       if (statedEarlyClock) {
         extracted = { ...extracted, result: withStatedBareEarlyClock(extracted.result, statedEarlyClock, options.timezone) };
       }
@@ -988,6 +1154,7 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
       let unsaid = false;
       // A chat item whose question the person has not answered yet (below).
       let stillAsked = false;
+      let before: ChatPreviousItem | undefined;
       if (chat) {
         if (extracted.engine === 'rule-based' && !/^(?:prompt_injection|semantic_safety)/.test(extracted.fallbackReason ?? '')) continue;
         const evidence = chatItemEvidences[index]!;
@@ -998,7 +1165,17 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
          * took off and asked about). Only a settled one, and only when the
          * model moved it: nothing the person said this turn is overridden.
          */
-        const before = chatAligned[index] === null ? undefined : chatPrevious[chatAligned[index]!];
+        before = chatAligned[index] === null ? undefined : chatPrevious[chatAligned[index]!];
+        extracted = {
+          ...extracted,
+          result: withCarriedCitationFacts(
+            extracted.result,
+            before,
+            chat.operationSources?.[index],
+            options.now,
+            options.timezone,
+          ),
+        };
         if (!evidence.touchedNow && before?.date && before.time && !extracted.result.allDay) {
           const kept = instantFromLocal(before.date, before.time, options.timezone)?.toISOString();
           const spec = extracted.result.localTimeSpec;
@@ -1078,7 +1255,22 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
             } };
           }
         }
-        const guarded = withoutUnsaidTime(extracted.result, evidence.turns, options.now, options.timezone);
+        const answeredAmPmClock = chat.answeredAmPmClocks?.[index];
+        if (answeredAmPmClock) {
+          extracted = {
+            ...extracted,
+            result: withStatedBareEarlyClock(extracted.result, answeredAmPmClock, options.timezone),
+          };
+          stillAsked = false;
+        }
+        const changedFieldEvidence = before && evidence.touchedNow ? chatChangedFieldEvidences[index]! : evidence;
+        const guarded = withoutUnsaidTime(
+          extracted.result,
+          changedFieldEvidence.turns,
+          options.now,
+          options.timezone,
+          answeredAmPmClock && before ? { ...before, time: answeredAmPmClock } : before,
+        );
         extracted = { ...extracted, result: guarded.result };
         unsaid = guarded.fired;
       }
@@ -1176,7 +1368,8 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
       let clearedPastTime = false;
       // The rules' morning reading of a bare early hour (round 7, I-3): asked
       // as صبح or مسا, whether or not that morning has already gone.
-      const bareEarlyHour = (extracted.engine === 'rule-based' || statedEarlyClock !== null) && isBareEarlyHour(extracted.result);
+      const bareEarlyHour = statedEarlyClock !== null
+        || (extracted.engine === 'rule-based' && isBareEarlyHour(extracted.result));
       if (failure === 'past_time' || passedHour) {
         extracted = { ...extracted, result: withoutPastTime(extracted.result, options.now, options.timezone) };
         failure = semanticFailure(extracted.result, options.now);
@@ -1222,7 +1415,7 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
        * A bare early hour is asked about, not guessed (CL1 round 6, D2
        * family). The rules read «الساعة 5» as 05:00 — a number the user said
        * and a half of the day they did not — and proposed it as a time to be
-       * at. For one to six with no period word the morning reading is the
+       * at. For one to eleven with no period word the morning reading is the
        * unlikely one, so the clarification asks صبح or مسا (`ask_am_pm`,
        * the question the review screen already renders); «الساعة 5 المسا»
        * and «الساعة 10» resolve as before.
@@ -1238,9 +1431,15 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
       const occurrenceWords = chat
         ? chatItemEvidences[index]!.turns.filter((line) => raw.includes(line.trim())).join('\n')
         : segment;
+      // A ref-targeted update already identifies which stored point owns a
+      // nameless recurring answer such as "Every Tuesday and Thursday at
+      // 7 PM". Treat that one citation as the point's list evidence, so the
+      // one operation can fan the stored point out without borrowing a title
+      // or a time from any other operation.
+      const citedRecurringUpdate = Boolean(chat?.operationSources?.[index] && before && readRecurrence(segment));
       const occurrenceContext = {
         modelPlacedDay: chat ? modelItemDay(chatItems[index], options.timezone) !== null : extracted.engine !== 'rule-based',
-        stacked: chat ? stackedModelItems.has(index) : false,
+        stacked: chat ? stackedModelItems.has(index) || citedRecurringUpdate : false,
         ...(chat ? { occupied: occupiedBesides(index), goalTitles: modelGoalTitles } : {}),
       };
       // A recurrence hint over several days, read from a list that is not
@@ -1250,18 +1449,28 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
         const { recurrenceHint: _notItsOwn, ...rest } = extracted.result;
         extracted = { ...extracted, result: rest };
       }
-      const occurrences = needsClarification || (chat && !chatItemEvidences[index]!.touchedNow)
+      let occurrences = needsClarification || (chat && !chatItemEvidences[index]!.touchedNow)
         ? null
         : occurrenceDatesFor(extracted.result, occurrenceWords, options.now, options.timezone, {
           // A day the model chose itself, or (outside the chat) a model reading at all.
           modelPlacedDay: chat ? modelItemDay(chatItems[index], options.timezone) !== null : extracted.engine !== 'rule-based',
-          stacked: chat ? stackedModelItems.has(index) : false,
+          stacked: chat ? stackedModelItems.has(index) || citedRecurringUpdate : false,
           ...(chat ? { occupied: occupiedBesides(index), goalTitles: modelGoalTitles } : {}),
         });
+      if (chat && before?.date && occurrences?.includes(before.date)) {
+        const represented = new Set(chatAligned.flatMap((at) => {
+          if (at === null) return [];
+          const date = chatPrevious[at]?.date;
+          return date && occurrences!.includes(date) ? [date] : [];
+        }));
+        if (represented.size > 1) occurrences = [before.date];
+      }
       // The title without the connectors and list days a rules reading leaves
       // at its edges («and gym», «חדר כושר וחמישי»), on the card and the saved
       // commitment alike.
-      const tidied = extracted.result.title ? tidyTitle(extracted.result.title) : extracted.result.title;
+      const tidied = extracted.result.title
+        ? tidyTitle(followsAnother(index) ? withoutClauseJoiner(extracted.result.title) : extracted.result.title)
+        : extracted.result.title;
       const tidyResult = tidied === extracted.result.title ? extracted.result
         : { ...extracted.result, title: tidied, ...(extracted.result.action === extracted.result.title ? { action: tidied } : {}) };
       // Each per-day item a list made is the thing itself — «gym», not «gym
@@ -1328,6 +1537,11 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
         commandsByItemId.set(itemId, needsClarification ? [] : mapExtractionToCommand(reading, options.now.toISOString(), categoryPreferences));
         resultsByItemId.set(itemId, reading);
         sourceOrdinals.items[itemId] = sourceOrdinal(raw, segment, chatItems[index], index) + readings.indexOf(reading) / 100_000;
+        const operationIndex = chatOperationIndex(chatItems[index]);
+        if (operationIndex !== null) {
+          chatOperationIndices.items[itemId] = operationIndex + readings.indexOf(reading) / 100_000;
+        }
+        if (chatItemEvidences[index]?.touchedNow) latestChatTouchedIds.add(itemId);
       }
     } catch (error) {
       // Gap B: a negated request is understood, not malformed. It produces no
@@ -1351,43 +1565,59 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
   // and input naming no clock time cannot trigger it. A time said in a clause
   // that was read as no commitment is not one an item lost (FY1 N1): the past
   // meeting's «الساعة 3» used to send the bank's 17:00 back to be asked.
-  const timesInInput = Math.max(0, countTimeExpressions(raw) - timesReadAsNothing);
-  if (timesInInput > 0 && items.length > 0) {
-    // One per reading: the days a list spread a reading over are one time the
-    // words said, not several (audit 2026-10-03 review, round 2: "Tuesday and
-    // Thursday at 7 and Friday at 9" hid the lost Friday behind Thursday).
+  // In chat, each validated citation is its point's evidence boundary. A bare
+  // hour cleared on one point must never make the valve clear a different
+  // point whose own citation states a complete time.
+  const clearMissingTimes = (targetIds: ReadonlySet<string>, timesInInput: number) => {
+    if (timesInInput <= 0 || targetIds.size === 0) return;
     const timesAccountedFor = new Set(
-      items.filter((item) => !spreadCopies.has(item.itemId)).map((item) => item.resolvedTime).filter(Boolean),
+      items.filter((item) => targetIds.has(item.itemId) && !spreadCopies.has(item.itemId))
+        .map((item) => item.resolvedTime).filter(Boolean),
     ).size;
-    if (timesAccountedFor < timesInInput) {
-      // A time was lost, so everything is asked about: a list's per-day
-      // copies go back to the one reading they came from, as base had it.
-      for (const itemId of Array.from(spreadCopies)) {
-        const at = items.findIndex((item) => item.itemId === itemId);
-        if (at !== -1) items.splice(at, 1);
-        commandsByItemId.delete(itemId);
-        resultsByItemId.delete(itemId);
-        delete sourceOrdinals.items[itemId];
-      }
-      for (let i = 0; i < items.length; i++) {
-        const before = unspread.get(items[i].itemId);
-        if (!before) continue;
-        const date = before.localTimeSpec?.date;
-        items[i] = {
-          ...items[i],
-          title: (before.title || before.action || '').trim(),
-          ...(date && /^\d{4}-\d{2}-\d{2}$/.test(date) ? { resolvedDate: date } : {}),
-          ...(before.recurrenceHint ? { recurrenceHint: recurrenceHintOf(before, options.timezone, false) } : {}),
-        };
-        resultsByItemId.set(items[i].itemId, before);
-      }
-      for (let i = 0; i < items.length; i++) {
-        if (items[i].needsClarification) continue;
-        const { endTime: _endTime, ...item } = items[i]!;
-        items[i] = { ...item, resolvedTime: null, needsClarification: true, timeEstimated: false };
-        commandsByItemId.set(items[i].itemId, []);
-      }
+    if (timesAccountedFor >= timesInInput) return;
+    // A time was lost, so this reading alone is asked about: a per-day list
+    // goes back to the one reading it came from, as base had it.
+    for (const itemId of Array.from(spreadCopies)) {
+      if (!targetIds.has(itemId)) continue;
+      const at = items.findIndex((item) => item.itemId === itemId);
+      if (at !== -1) items.splice(at, 1);
+      commandsByItemId.delete(itemId);
+      resultsByItemId.delete(itemId);
+      delete sourceOrdinals.items[itemId];
+      delete chatOperationIndices.items[itemId];
     }
+    for (let i = 0; i < items.length; i++) {
+      if (!targetIds.has(items[i]!.itemId)) continue;
+      const before = unspread.get(items[i]!.itemId);
+      if (!before) continue;
+      const date = before.localTimeSpec?.date;
+      items[i] = {
+        ...items[i],
+        title: (before.title || before.action || '').trim(),
+        ...(date && /^\d{4}-\d{2}-\d{2}$/.test(date) ? { resolvedDate: date } : {}),
+        ...(before.recurrenceHint ? { recurrenceHint: recurrenceHintOf(before, options.timezone, false) } : {}),
+      };
+      resultsByItemId.set(items[i]!.itemId, before);
+    }
+    for (let i = 0; i < items.length; i++) {
+      if (!targetIds.has(items[i]!.itemId) || items[i]!.needsClarification) continue;
+      const { endTime: _endTime, ...item } = items[i]!;
+      items[i] = { ...item, resolvedTime: null, needsClarification: true, timeEstimated: false };
+      commandsByItemId.set(items[i]!.itemId, []);
+    }
+  };
+
+  if (chat?.operationSources) {
+    chat.operationSources.forEach((source, operationIndex) => {
+      const targetIds = new Set(items.flatMap((item) =>
+        Math.floor(chatOperationIndices.items[item.itemId] ?? -1) === operationIndex ? [item.itemId] : []));
+      clearMissingTimes(targetIds, countTimeExpressions(source));
+    });
+  } else {
+    clearMissingTimes(
+      new Set(items.map((item) => item.itemId)),
+      Math.max(0, countTimeExpressions(raw) - timesReadAsNothing),
+    );
   }
 
   /*
@@ -1414,6 +1644,7 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
     commandsByItemId.delete(itemId);
     resultsByItemId.delete(itemId);
     delete sourceOrdinals.items[itemId];
+    delete chatOperationIndices.items[itemId];
   };
   // The chat's list only: one model answer for the whole conversation is
   // where a repeat or a goal-at-the-session's-hour comes from. A share's
@@ -1423,7 +1654,43 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
   // them drops nothing. A stacked copy a list of the person's could have
   // placed on another day but did not is kept, never merged away (round 4 B).
   if (chat) {
-    for (const itemId of Array.from(duplicateItemIds(items.filter((item) => !listCouldPlace.has(item.itemId)), sourceTitleOf))) dropItem(itemId);
+    const duplicateIds = duplicateItemIds(items.filter((item) => !listCouldPlace.has(item.itemId)), sourceTitleOf);
+    const duplicateOrigins = new Map<string, number[]>();
+    for (const itemId of Array.from(duplicateIds)) {
+      const duplicate = items.find((item) => item.itemId === itemId);
+      const operationIndex = chatOperationIndices.items[itemId];
+      if (!duplicate || !Number.isFinite(operationIndex)) continue;
+      const survivor = items.find((candidate) => !duplicateIds.has(candidate.itemId)
+        && duplicateItemIds([candidate, duplicate], sourceTitleOf).has(itemId));
+      if (!survivor) continue;
+      const origins = duplicateOrigins.get(survivor.itemId) ?? [];
+      origins.push(Math.floor(operationIndex!));
+      duplicateOrigins.set(survivor.itemId, origins);
+    }
+    for (const itemId of Array.from(duplicateIds)) dropItem(itemId);
+
+    // Exact-copy cleanup can leave two fan-out survivors carrying operation 1
+    // while operation 2's identical copies were removed. Reassign one such
+    // survivor to each missing originating operation. This preserves the
+    // operation mapping itself; it never guesses from title position.
+    const operationCounts = new Map<number, number>();
+    for (const value of [...Object.values(chatOperationIndices.items), ...Object.values(chatOperationIndices.seeds)]) {
+      const operation = Math.floor(value);
+      operationCounts.set(operation, (operationCounts.get(operation) ?? 0) + 1);
+    }
+    for (const missing of Array.from(new Set(Array.from(duplicateOrigins.values()).flat())).sort((a, b) => a - b)) {
+      if ((operationCounts.get(missing) ?? 0) > 0) continue;
+      const survivorId = Array.from(duplicateOrigins.entries()).find(([id, origins]) => {
+        const current = chatOperationIndices.items[id];
+        return origins.includes(missing) && Number.isFinite(current)
+          && (operationCounts.get(Math.floor(current!)) ?? 0) > 1;
+      })?.[0];
+      if (!survivorId) continue;
+      const previousOperation = Math.floor(chatOperationIndices.items[survivorId]!);
+      chatOperationIndices.items[survivorId] = missing;
+      operationCounts.set(previousOperation, operationCounts.get(previousOperation)! - 1);
+      operationCounts.set(missing, 1);
+    }
   }
   const activeGoals = options.activeGoals ?? [];
   const goalItems = chat ? items.filter((item) => isGoalTitle(item.title, sourceTitleOf.get(item.itemId))) : [];
@@ -1453,6 +1720,7 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
     // Every session of it on the list counts toward it, not only the one at its hour.
     const served = ofThisGoal;
     const goalOrdinal = sourceOrdinals.items[goalItem.itemId];
+    const goalOperationIndex = chatOperationIndices.items[goalItem.itemId];
     dropItem(goalItem.itemId);
     const existing = matchingGoal(titlesOf(goalItem).join('\n'), activeGoals);
     if (existing) {
@@ -1467,6 +1735,7 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
     const seedItemId = randomUUID();
     seeds.push({ seedItemId, kind: 'possible_goal', summary });
     if (Number.isFinite(goalOrdinal)) sourceOrdinals.seeds[seedItemId] = goalOrdinal!;
+    if (Number.isFinite(goalOperationIndex)) chatOperationIndices.seeds[seedItemId] = goalOperationIndex!;
   }
   if (activeGoals.length > 0) {
     for (let at = 0; at < items.length; at += 1) {
@@ -1494,7 +1763,8 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
       && new Date(`${other.resolvedDate}T12:00:00Z`).getUTCDay() !== own);
     // Nor does a list said in an earlier message hint several days for an
     // item this message did not spread ("actually only Tuesdays").
-    const listNow = spreadFamily.has(item.itemId) || (readRecurrence(raw)?.weekdays.length ?? 0) > 1;
+    const listNow = spreadFamily.has(item.itemId)
+      || (readRecurrence(chat ? itemClause.get(item.itemId) ?? '' : raw)?.weekdays.length ?? 0) > 1;
     if ((siblings.length > 0 || !listNow) && hint.weekdays.includes(own)) items[at] = { ...item, recurrenceHint: { ...hint, weekdays: [own] } };
   }
 
@@ -1523,6 +1793,7 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
     ...(status === 'no_commitment' ? { noCommitmentReason: noCommitmentReason ?? 'low_confidence' } : {}),
     items,
     seeds,
+    revision: 0,
     provenance: { requestedEngine, executedEngine, fallbackUsed },
   };
   const responseLocale = options.responseLocale ?? options.locale ?? 'ar';
@@ -1534,6 +1805,11 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
     resultsByItemId,
     responseLocale,
     sourceOrdinals,
+    ...(Object.keys(chatOperationIndices.items).length > 0 || Object.keys(chatOperationIndices.seeds).length > 0
+      ? { chatOperationIndices }
+      : {}),
+    ...(chat ? { latestChatTouchedIds: Array.from(latestChatTouchedIds) } : {}),
+    timezone: options.timezone,
     /*
      * When it was made, by the server's clock — not `options.now`.
      *
@@ -1602,6 +1878,7 @@ export async function confirmCapture(
     scopeId: string;
     selectedItemIds: string[];
     idempotencyKey: string;
+    revision?: number;
     /** Applied atomically with the confirm, never afterwards (#164). */
     edits?: CaptureItemEditContract[];
     /** Selected items the person confirmed as weekly blocks, not one-offs. */
@@ -1625,9 +1902,17 @@ export async function confirmCapture(
   });
   if (!stored || stored.scopeId !== input.scopeId) return failure('proposal_not_found');
   if (stored.confirmedResult) {
-    if (stored.idempotencyKey !== input.idempotencyKey) return failure('invalid_selection');
+    if (stored.idempotencyKey !== input.idempotencyKey) {
+      throw new ProposalChangedError(stored.contract, 'confirmed', stored.confirmedResult as CaptureConfirmationResultContract);
+    }
     return { ...(stored.confirmedResult as CaptureConfirmationResultContract), replayed: true };
   }
+  const currentRevision = proposalRevision(stored.contract);
+  // The frozen M2a client predates revision-bearing clarification and confirm
+  // requests. Preserve only its immediate legacy clarify → confirm hop; every
+  // other writer clears this marker, so it cannot authorize a stale revision.
+  const legacyClarifyConfirm = input.revision === undefined && stored.legacyConfirmRevision === currentRevision;
+  if (!legacyClarifyConfirm && !revisionMatches(currentRevision, input.revision)) throw new ProposalChangedError(stored.contract, 'open');
   // `needs_clarification` is confirmable, `rejected` and `no_commitment` are not
   // (UC-2.4, #164 step 3).
   //
@@ -1764,6 +2049,7 @@ export async function confirmCapture(
         scopeId: input.scopeId,
         proposalId: input.proposalId,
         idempotencyKey: input.idempotencyKey,
+        expectedRevision: currentRevision,
         commands,
         commandsByItemId: committedByItemId,
         result,
@@ -1771,6 +2057,7 @@ export async function confirmCapture(
       });
       return committed.replayed ? { ...committed.result, replayed: true } : committed.result;
     } catch (error) {
+      if (error instanceof ProposalChangedError || (error instanceof Error && error.name === 'ProposalChangedError')) throw error;
       // The message goes to the operator log, where paths and uids are already
       // permitted; only the cause's name travels on the contract (#419).
       console.error('[capture/confirm] the confirmation transaction failed', error);
@@ -1790,11 +2077,19 @@ export async function confirmCapture(
   // The Map-backed store persisted this by mutation. A durable store does
   // not, and without the write-back a replayed confirm would find no recorded
   // result and persist the commitments a second time.
+  const refState = referenceStateFor(stored);
   await dependencies.store.put({
     ...stored,
     commandsByItemId: committedByItemId,
     confirmedResult: result,
     idempotencyKey: input.idempotencyKey,
+    lockedChatRefs: Array.from(new Set([
+      ...(stored.lockedChatRefs ?? []),
+      ...result.persistedItemIds.flatMap((id) => refState.refs[id] ? [refState.refs[id]!] : []),
+    ])),
+    chatRefs: refState.refs,
+    nextChatItemRef: refState.nextItem,
+    nextChatSeedRef: refState.nextSeed,
   });
   return result;
 }

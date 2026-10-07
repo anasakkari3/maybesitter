@@ -241,7 +241,7 @@ export function ReviewScreen({ onBackToChat }: { onBackToChat?: () => void } = {
             testID="review-confirm"
             label={tr('confirmN', { n: selectedCount })}
             onPress={() => void flow.confirm()}
-            disabled={selectedCount === 0 || busy}
+            disabled={selectedCount === 0 || busy || flow.writing}
             size={17}
             pad={14}
           />
@@ -344,7 +344,7 @@ export function ReviewScreen({ onBackToChat }: { onBackToChat?: () => void } = {
               item={asking}
               position={unclarified.length - waiting.length + 1}
               total={unclarified.length}
-              busy={answering}
+              busy={answering || flow.writing}
               error={clarifyError?.itemId === asking.itemId ? t[clarifyError.key] : null}
               onAnswer={(value) => answer(asking.itemId, value)}
               onSkip={() => {
@@ -367,6 +367,8 @@ export function ReviewScreen({ onBackToChat }: { onBackToChat?: () => void } = {
             />
           </View>
         ) : null}
+
+        {state.reviewNotice ? <Txt testID="review-conflict-note" color={p.wm}>{t.captureProposalChanged}</Txt> : null}
 
         {state.status === 'confirmFailed' ? (
           <View style={{ backgroundColor: p.wms, borderRadius: 20, padding: 14 }} testID="review-confirm-failed">
@@ -506,7 +508,12 @@ export function ReviewScreen({ onBackToChat }: { onBackToChat?: () => void } = {
         )}
 
         {state.proposal && seeds.length > 0 ? (
-          <SeedProposalSection proposalId={state.proposal.proposalId} seeds={seeds} />
+          // The revision on screen, and the current version back on a 409, as in
+          // the chat's review (M2B-A-R2-REVIEW-004): a share's or a meeting's
+          // proposal is clarified on the same protocol.
+          <SeedProposalSection proposalId={state.proposal.proposalId} seeds={seeds}
+            {...(state.proposal.revision !== undefined ? { revision: state.proposal.revision } : {})} onProposalChanged={flow.adoptCurrent}
+            writing={flow.writing} guardWrite={flow.guardWrite} />
         ) : null}
 
         </>}

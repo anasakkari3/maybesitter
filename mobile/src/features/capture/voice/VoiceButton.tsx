@@ -75,7 +75,7 @@ export function VoiceButton({
   onStart?(): void;
   onStatusChange?(status: SpeechStatus): void;
   onPartial(transcript: string): void;
-  onFinal(transcript: string): void;
+  onFinal(transcript: string, alternatives?: readonly string[]): void;
   /** New capture presentation; recognition and cleanup remain in this controller. */
   renderControl?(control: { onPress(): void; listening: boolean; busy: boolean }): React.ReactNode;
 }) {
@@ -115,7 +115,7 @@ export function VoiceButton({
     void service
       .start({
         onPartial: (text) => latest.current.onPartial(text),
-        onFinal: (text) => latest.current.onFinal(text),
+        onFinal: (text, alternatives) => (alternatives ? latest.current.onFinal(text, alternatives) : latest.current.onFinal(text)),
         onStatus: (next) => setReported({ from: service, status: next }),
       })
       .finally(() => { starting.current = false; });

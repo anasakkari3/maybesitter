@@ -49,6 +49,7 @@ export interface SpeechRecognitionModuleLike {
   start(options: {
     lang: string;
     interimResults?: boolean;
+    maxAlternatives?: number;
     continuous?: boolean;
     addsPunctuation?: boolean;
     requiresOnDeviceRecognition?: boolean;
@@ -82,6 +83,8 @@ export interface SpeechRecognitionEventLike {
  * in the field.
  */
 export const MAX_DICTATION_MS = 120_000;
+/** How many readings to ask the recogniser for: the heard words plus up to three others (M2b). */
+const MAX_ALTERNATIVES = 4;
 
 /**
  * Which of our statuses an error code means.
@@ -127,6 +130,12 @@ export class ExpoSpeechCaptureService implements SpeechCaptureService {
   private done = '';
   private pending = '';
   private lastSegment = '';
+  /**
+   * Each finished segment with the other readings the recogniser gave for it
+   * (M2b): the whole dictation's alternatives are built from these, so a chip
+   * is always a reading of everything that was said, not of its last pause.
+   */
+  private segments: { text: string; alternatives: string[] }[] = [];
   private heardNothing = false;
 
   constructor(
@@ -199,12 +208,16 @@ export class ExpoSpeechCaptureService implements SpeechCaptureService {
     this.done = '';
     this.pending = '';
     this.lastSegment = '';
+    this.segments = [];
     this.heardNothing = false;
     this.attach(callbacks);
     try {
       this.module.start({
         lang: resolution.localeId,
         interimResults: true,
+        // Other readings of what was said (M2b), offered as «أو قصدك» chips
+        // before anything is sent. Only the words the person can see are sent.
+        maxAlternatives: MAX_ALTERNATIVES,
         // Continuous: a pause to think is not the end. Non-continuous arms a
         // 3 s no-result timer on iOS 17 and finalises at the first pause on
         // iOS 18. The user stops it (Stop), or the safety cap does.
@@ -246,12 +259,27 @@ export class ExpoSpeechCaptureService implements SpeechCaptureService {
     return joinSegments(this.done, this.pending);
   }
 
+  /**
+   * Whole-dictation alternatives: the k-th reading of every segment (or its
+   * own words where it has none), then anything still being spoken.
+   */
+  private alternatives(text: string): string[] {
+    const found: string[] = [];
+    for (let k = 0; k < MAX_ALTERNATIVES; k += 1) {
+      if (!this.segments.some((segment) => segment.alternatives[k])) continue;
+      const whole = joinSegments(this.segments.map((segment) => segment.alternatives[k] ?? segment.text).reduce(joinSegments, ''), this.pending);
+      if (whole && whole !== text && !found.includes(whole)) found.push(whole);
+    }
+    return found;
+  }
+
   /** The dictation is over: hand over what was heard, once, then let go. */
   private finish(callbacks: SpeechCaptureCallbacks, status: SpeechStatus | null): void {
     const text = this.heard();
+    const alternatives = text ? this.alternatives(text) : [];
     this.detach();
     if (text) {
-      callbacks.onFinal?.(text);
+      callbacks.onFinal?.(text, alternatives);
       // Silence after words is just the end of the dictation.
       this.set(status === null || status === 'noSpeech' ? 'reviewingTranscript' : status, callbacks);
       return;
@@ -274,6 +302,10 @@ export class ExpoSpeechCaptureService implements SpeechCaptureService {
         if (!(this.pending === '' && segment === this.lastSegment)) {
           this.done = joinSegments(this.done, segment);
           this.lastSegment = segment;
+          this.segments.push({
+            text: segment,
+            alternatives: (event.results ?? []).slice(1).map((result) => result.transcript.trim()).filter(Boolean),
+          });
         }
         this.pending = '';
       } else {

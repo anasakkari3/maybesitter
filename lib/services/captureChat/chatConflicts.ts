@@ -132,15 +132,31 @@ export function conflictsFor(
       .map((block): CaptureItemConflictContract => ({ title: null, startsAt: block.startAt, endsAt: block.endAt, kind: 'calendar_busy' })),
   ];
   const seen = new Set<string>();
-  return found
+  return withinLimit(found
     .sort((a, b) => Date.parse(a.startsAt) - Date.parse(b.startsAt))
     .filter((conflict) => {
       const key = `${conflict.title ?? ''}|${conflict.startsAt}|${conflict.endsAt}`;
       if (seen.has(key)) return false;
       seen.add(key);
       return true;
-    })
-    .slice(0, limit);
+    }), interval.startsAt, limit);
+}
+
+/**
+ * At most `limit` clashes, in time order — and a clash that starts when the
+ * item does is never the one cut (load pass F4, Codex inspection F4-001):
+ * it is the one the chat names (`namedClash`), and three long blocks that
+ * began earlier must not push it out of the list.
+ */
+export function withinLimit<T extends { startsAt: string }>(conflicts: readonly T[], itemStart: string, limit: number): T[] {
+  // Time order first, whatever order the writers appended in (F4-002).
+  const ordered = [...conflicts].sort((a, b) => Date.parse(a.startsAt) - Date.parse(b.startsAt));
+  if (ordered.length <= limit) return ordered;
+  const start = Date.parse(itemStart);
+  const same = ordered.filter((conflict) => Date.parse(conflict.startsAt) === start);
+  const rest = ordered.filter((conflict) => Date.parse(conflict.startsAt) !== start);
+  const kept = new Set([...same, ...rest].slice(0, limit));
+  return ordered.filter((conflict) => kept.has(conflict));
 }
 
 /**
@@ -196,7 +212,7 @@ export function withProposalClashes<T extends { items: ReadonlyArray<{ itemId: s
     });
     if (clashes.length === 0) return item;
     changed = true;
-    return { ...item, conflicts: [...(item.conflicts ?? []), ...clashes].slice(0, MAX_ITEM_CONFLICTS) };
+    return { ...item, conflicts: withinLimit([...(item.conflicts ?? []), ...clashes], candidateIntervalOf(mine).startsAt, MAX_ITEM_CONFLICTS) };
   });
   return changed ? { ...proposal, items } : proposal;
 }

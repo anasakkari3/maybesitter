@@ -470,9 +470,15 @@ const CLOCK_PATTERNS_ANY_CASE = CLOCK_PATTERN_SOURCES.map((source) => new RegExp
  */
 const AR_RANGE_TO = '(?:إلى|الى|حتى|لحد|لحدّ|لغاية|لغايه|للغاية|ل)ـ*';
 const EN_RANGE_END_CONTEXT = '(?=\\s*(?:$|[,.;!?،]|(?:on|every|each|at|in|this|next|today|tomorrow|tonight|weekly|daily|sunday|monday|tuesday|wednesday|thursday|friday|saturday|sundays|mondays|tuesdays|wednesdays|thursdays|fridays|saturdays)\\b))';
+const RANGE_HALF_OF_DAY_WORD = `(?:${AR_DAY_PART_AFTER_HOUR}|am|pm|a\\.m\\.?|p\\.m\\.?|(?:in\\s+the\\s+)?(?:morning|afternoon|evening)|at\\s+night|tonight)`;
 export const RANGE_PATTERN_SOURCES: readonly string[] = [
-  /\bfrom\s+\d{1,2}(?::\d{2})?\s*(?:am|pm)?\s+(?:to|until|till|-)\s+\d{1,2}(?::\d{2})?\s*(?:am|pm)?\b/.source,
-  `(?<![؀-ۿ])من\\s*(?:(?:ال|ل)?(?:ساعة|ساعه)\\s*)?[0-9٠-٩۰-۹]{1,2}(?::[0-9٠-٩۰-۹]{2})?\\s*(?:${AR_RANGE_TO}|-)\\s*(?:(?:ال|ل)ـ*)?(?:ساعة|ساعه)?\\s*[0-9٠-٩۰-۹]{1,2}(?::[0-9٠-٩۰-۹]{2})?`,
+  /\bfrom\s+\d{1,2}(?::\d{2})?\s*(?:am|pm)?\s*(?:(?:to|until|till)\s+|[-–—]\s*)\d{1,2}(?::\d{2})?\s*(?:am|pm)?\b/.source,
+  /\bbetween\s+\d{1,2}(?::\d{2})?\s*(?:am|pm)?\s+(?:and|to)\s+\d{1,2}(?::\d{2})?\s*(?:am|pm)\b/.source,
+  /(?<![\d:])(?:[01]?\d|2[0-3]):[0-5]\d\s*[-–—]\s*(?:[01]?\d|2[0-3]):[0-5]\d(?![\d:])/.source,
+  /(?<![\d:])\d{1,2}(?::\d{2})?\s*(?:am|pm)\s*[-–—]\s*\d{1,2}(?::\d{2})?\s*(?:am|pm)\b/.source,
+  `(?<![\\d:/.\\-])[0-9٠-٩۰-۹]{1,2}(?::[0-9٠-٩۰-۹]{2})?\\s*[-–—]\\s*[0-9٠-٩۰-۹]{1,2}(?::[0-9٠-٩۰-۹]{2})?\\s*${RANGE_HALF_OF_DAY_WORD}(?![\\p{L}\\p{M}])`,
+  `(?<![؀-ۿ])من\\s*(?:(?:ال|ل)?(?:ساعة|ساعه)\\s*)?[0-9٠-٩۰-۹]{1,2}(?::[0-9٠-٩۰-۹]{2})?\\s*(?:${RANGE_HALF_OF_DAY_WORD})?\\s*(?:${AR_RANGE_TO}|-)\\s*(?:(?:ال|ل)ـ*)?(?:ساعة|ساعه)?\\s*[0-9٠-٩۰-۹]{1,2}(?::[0-9٠-٩۰-۹]{2})?\\s*(?:${RANGE_HALF_OF_DAY_WORD})?`,
+  `(?<![؀-ۿ])بين\\s*[0-9٠-٩۰-۹]{1,2}(?::[0-9٠-٩۰-۹]{2})?\\s*(?:و|إلى|الى|حتى)\\s*[0-9٠-٩۰-۹]{1,2}(?::[0-9٠-٩۰-۹]{2})?\\s*${RANGE_HALF_OF_DAY_WORD}(?![\\p{L}\\p{M}])`,
   /(?:מ[-־]?|משעה|מהשעה|בין)\s*[0-9]{1,2}(?::[0-9]{2})?\s*(?:עד\s+ל[-־]?|עד|ל[-־]?|ו[-־]?)\s*(?:ה?שעה\s*)?[0-9]{1,2}(?::[0-9]{2})?/.source,
   `(?<![\\d:/.\\-])\\b\\d{1,2}(?::\\d{2})?\\s*(?:am|pm)?\\s+(?:to|until|till)\\s+\\d{1,2}(?::\\d{2})?\\s*(?:am|pm)?\\b(?![:/.\\-]\\d)${EN_RANGE_END_CONTEXT}`,
 ];
@@ -527,8 +533,19 @@ export function readClockRange(rawText: string): ClockRange | null {
   const clocks = Array.from(best[0].matchAll(RANGE_CLOCK));
   if (clocks.length < 2) return null;
   const at = (clock: RegExpMatchArray): RegExpExecArray => Object.assign(clock, { index: best!.index + clock.index! }) as unknown as RegExpExecArray;
-  const start = rangeEndAt(text, at(clocks[0]!));
-  const end = rangeEndAt(text, at(clocks[clocks.length - 1]!));
+  let start = rangeEndAt(text, at(clocks[0]!));
+  const endClock = at(clocks[clocks.length - 1]!);
+  const end = rangeEndAt(text, endClock);
+  // English dash shorthand shares its trailing am/pm with the start when the
+  // written endpoints are equal: "4-4pm" starts at 16:00 but still names no
+  // duration. Arabic day-part shorthand keeps the established 08:00–20:00
+  // reading of «8-8 المسا».
+  if (start.statedHour === null && end.statedHour !== null
+    && start.hour === end.hour && start.minute === end.minute
+    && /[-–—]/.test(best[0])
+    && /^\s*(?:am|pm)\b/i.test(text.slice(endClock.index + endClock[0].length))) {
+    start = { ...start, statedHour: end.statedHour };
+  }
   if (start.hour > 23 || end.hour > 23 || start.minute > 59 || end.minute > 59) return null;
   return { start, end };
 }
@@ -576,15 +593,24 @@ export function rangeMinutesFrom(rawText: string, startTime: string | null | und
   if (!startTime || !/^\d{2}:\d{2}$/.test(startTime)) return null;
   const range = readClockRange(rawText);
   if (!range) return null;
+  // Equal endpoints name no duration only when both are absolute-equal or both
+  // are unstated-equal. A mixed Arabic «8-8 المسا» is 08:00–20:00; English
+  // "4-4pm" was normalised to two stated 16:00 endpoints above.
+  if (range.start.minute === range.end.minute && (
+    (range.start.statedHour !== null && range.end.statedHour !== null && range.start.statedHour === range.end.statedHour)
+    || (range.start.statedHour === null && range.end.statedHour === null && range.start.hour === range.end.hour)
+  )) return null;
   const startHour = Number(startTime.slice(0, 2));
   const start = startHour * 60 + Number(startTime.slice(3, 5));
   if (startHour % 12 !== range.start.hour % 12 || Number(startTime.slice(3, 5)) !== range.start.minute) return null;
   let minutes: number;
   if (range.end.statedHour !== null) {
     minutes = range.end.statedHour * 60 + range.end.minute - start;
+    if (minutes === 0) return null;
     if (minutes <= 0) minutes += 24 * 60;
   } else {
     minutes = range.end.hour * 60 + range.end.minute - start;
+    if (minutes === 0) return null;
     while (minutes <= 0) minutes += 12 * 60;
   }
   return minutes > 0 && minutes <= LONGEST_RANGE_MINUTES ? minutes : null;
@@ -595,10 +621,10 @@ const HHMM = /\b\d{1,2}:\d{2}(?=$|[\s,.،])/;
 
 /**
  * Minutes on a bare early hour (CL1 round 7, I-3): `4:30`, `5:00` — one digit,
- * one to six, no leading zero. The colon does not say which half of the day;
+ * one to eleven, no leading zero. The colon does not say which half of the day;
  * "at 4:30" is as ambiguous as "at 4". `04:30` and `16:30` are not.
  */
-const BARE_EARLY_HHMM = /(?<![\d:])[1-6]:\d{2}(?=$|[\s,.،])/;
+const BARE_EARLY_HHMM = /(?<![\d:])(?:[1-9]|1[01]):\d{2}(?=$|[\s,.،])/;
 
 /** An explicit meridiem, in any of the three languages. */
 const AMPM = /\b\d{1,2}(?::\d{2})?\s*(?:am|pm)\b|[0-9]{1,2}(?::[0-9]{2})?\s*(?:صباحا|صباحاً|ص|مساءً|مساء|م)(?=$|[\s,.،])/i;
@@ -758,6 +784,76 @@ export function typedHalfOfDay(rawText: string): 'am' | 'pm' | 'night' | null {
   if (hour === null || hour === 0) return null;
   if (hour === NIGHT_HOUR) return 'night';
   return hour < 12 ? 'am' : 'pm';
+}
+
+/*
+ * A positive, complete answer to an AM/PM card. Unlike `typedHalfOfDay`, this
+ * is deliberately a whitelist: it accepts only day-part words, a negated
+ * day-part, "no", and the short courtesies people put around an answer. A
+ * digit, number word, fraction, day, title, or any other word leaves residue
+ * and makes the answer non-bare, so the chat keeps the model's validated
+ * reading instead of forcing the card's old hour into a half it inferred.
+ */
+const BARE_AM_PART = String.raw`(?:am|a\.m\.?|(?:in\s+the\s+)?morning|(?:بال|عال|ال)?(?:صبح|صباح)(?:\s+(?:بكير|بدري))?|صباح(?:ا|اً|ًا)?|ص|[וש]?(?:ב|ל|כ|מה|ה)?בוקר|לפנה["״]צ)`;
+const BARE_PM_PART = String.raw`(?:pm|p\.m\.?|(?:بال|عال|ال)?(?:مسا|مساء|عصر|ضهر|ظهر)|بعد\s+(?:الضهر|الظهر)|مساء(?:ً|ا|اً|ًا)?|م|(?:بال|عال|ال)?ليل(?:ة|ه)?|(?:in\s+the\s+)?(?:afternoon|evening)|(?:at\s+)?night|tonight|noon|[וש]?(?:ב|ל|כ|מה|ה)?ערב|[וש]?(?:ב|ל|כ|מה|ה)?לילה|[וש]?(?:ב|ל|כ|מה|ה)?צהריים|[וש]?(?:ב|ל|כ|מה|ה)?צהרים|אחרי\s+הצהריים|אחר\s+הצהריים|אחה["״]צ)`;
+const BARE_DAY_PART = `(?:${BARE_AM_PART}|${BARE_PM_PART})`;
+const BARE_NEGATED_PART = new RegExp(
+  String.raw`(?<![\p{L}\p{M}])(?:مش|مو|not(?:\s+(?:in\s+)?the)?|לא)\s+${BARE_DAY_PART}(?![\p{L}\p{M}])`,
+  'giu',
+);
+const BARE_AM_PART_PATTERN = new RegExp(String.raw`(?<![\p{L}\p{M}])${BARE_AM_PART}(?![\p{L}\p{M}])`, 'giu');
+const BARE_PM_PART_PATTERN = new RegExp(String.raw`(?<![\p{L}\p{M}])${BARE_PM_PART}(?![\p{L}\p{M}])`, 'giu');
+const BARE_NIGHT_PART_PATTERN = new RegExp(
+  String.raw`(?<![\p{L}\p{M}])(?:(?:بال|عال|ال)?ليل(?:ة|ه)?|(?:at\s+)?night|tonight|[וש]?(?:ב|ל|כ|מה|ה)?לילה)(?![\p{L}\p{M}])`,
+  'giu',
+);
+const BARE_HALF_FILLER = new RegExp(
+  String.raw`(?<![\p{L}\p{M}])(?:لا|لأ|no|לא|يا\s+ريت|لو\s+سمحت|بليز|please|يعني|اكيد|أكيد|ايوا|أيوة|ايوه|yes|in|at|the|one|both|i\s+guess|التنين|الاتنين|בבקשה|תודה|כן|שניהם|שתיהן)(?![\p{L}\p{M}])`,
+  'giu',
+);
+const CARD_BARE_AM_PART = new RegExp(
+  String.raw`(?<![\p{L}\p{M}])(?:am|a\.m\.?|(?:ال)?(?:صبح|صباح)|صباح(?:ا|اً|ًا)|morning|בבוקר)(?![\p{L}\p{M}])`,
+  'giu',
+);
+const CARD_BARE_PM_PART = new RegExp(
+  String.raw`(?<![\p{L}\p{M}])(?:pm|p\.m\.?|(?:بال|ال)?(?:مسا|مساء)|مساء(?:ً|ا|اً|ًا)|(?:ال)?عصر|evening|בערב)(?![\p{L}\p{M}])`,
+  'giu',
+);
+const CARD_BARE_NIGHT_PART = new RegExp(
+  String.raw`(?<![\p{L}\p{M}])(?:بالليل|night|בלילה)(?![\p{L}\p{M}])`,
+  'giu',
+);
+
+function positiveHalfAnswerParts(rawText: string): { text: string; halves: Set<'am' | 'pm' | 'night'> } {
+  let text = rawText.normalize('NFKC').toLowerCase().replace(BARE_NEGATED_PART, ' ');
+  const halves = new Set<'am' | 'pm' | 'night'>();
+  text = text.replace(BARE_NIGHT_PART_PATTERN, () => { halves.add('night'); return ' '; });
+  text = text.replace(BARE_AM_PART_PATTERN, () => { halves.add('am'); return ' '; });
+  text = text.replace(BARE_PM_PART_PATTERN, () => { halves.add('pm'); return ' '; });
+  return { text, halves };
+}
+
+/** The one non-negated half a span names, even when the span is not bare. */
+export function nonNegatedHalfOfDay(rawText: string): 'am' | 'pm' | 'night' | null {
+  if (typeof rawText !== 'string' || !rawText.trim()) return null;
+  const { halves } = positiveHalfAnswerParts(rawText);
+  return halves.size === 1 ? Array.from(halves)[0]! : null;
+}
+
+/** Removes only negated day-parts before the span is used as time evidence. */
+export function withoutNegatedDayPart(rawText: string): string {
+  return typeof rawText === 'string' ? rawText.replace(BARE_NEGATED_PART, ' ') : rawText;
+}
+
+export function bareHalfOfDayAnswer(rawText: string): 'am' | 'pm' | 'night' | null {
+  if (typeof rawText !== 'string' || !rawText.trim()) return null;
+  const halves = new Set<'am' | 'pm' | 'night'>();
+  let text = rawText.normalize('NFKC').toLowerCase();
+  text = text.replace(CARD_BARE_NIGHT_PART, () => { halves.add('night'); return ' '; });
+  text = text.replace(CARD_BARE_AM_PART, () => { halves.add('am'); return ' '; });
+  text = text.replace(CARD_BARE_PM_PART, () => { halves.add('pm'); return ' '; });
+  text = text.replace(BARE_HALF_FILLER, ' ').replace(/[\s,،؛.;:!?؟'"«»׳״()\[\]{}\-–—…🙏👍]+/g, '');
+  return text.length === 0 && halves.size === 1 ? Array.from(halves)[0]! : null;
 }
 
 /*
@@ -1764,6 +1860,7 @@ const ANY_NUMBER = new RegExp(
   [
     '[0-9\u0660-\u0669\u06F0-\u06F9]',
     `${NOT_LETTER_BEFORE}${AR_PROCLITIC}(?:ال)?(?:${ARABIC_CARDINAL_HOURS.map(([words]) => words).join('|')})${NOT_LETTER_AFTER}`,
+    `${NOT_LETTER_BEFORE}تمنة${NOT_LETTER_AFTER}`,
     `${NOT_LETTER_BEFORE}${HE_PREFIX}-?(?:אחת|אחד|שתיים|שתים|שניים|שנים|שלוש|שלושה|שלש|ארבע|ארבעה|חמש|חמישה|שש|שישה|שבע|שבעה|שמונה|תשע|תשעה|עשר|עשרה)${NOT_LETTER_AFTER}`,
     '\\b(?:one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\\b',
   ].join('|'),

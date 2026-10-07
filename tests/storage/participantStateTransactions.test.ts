@@ -13,12 +13,15 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   applyParticipantCommand,
+  commitCaptureConfirmation,
   getParticipantStateSnapshot,
   replayOrRecordParticipantDecision,
 } from '../../lib/services/mobile/participantState.ts';
 import { createMemoryStorage, type MemoryStorageAdapter } from '../../lib/storage/memoryAdapter.ts';
 import { resetStorageForTests, setStorageForTests } from '../../lib/storage/index.ts';
-import { COMMITMENTS, EVENTS, RECOMMENDATION_ACTIONS, userCol, userDoc } from '../../lib/storage/paths.ts';
+import { CAPTURE_PROPOSALS, COMMITMENTS, EVENTS, RECOMMENDATION_ACTIONS, userCol, userDoc } from '../../lib/storage/paths.ts';
+import { CAPTURE_CONTRACT_VERSION, type CaptureProposalContract } from '../../src/contracts/v1/captureContracts.ts';
+import { ProposalChangedError } from '../../lib/services/captureBoundary/proposalProtocol.ts';
 import type { UserDocument } from '../../lib/storage/userDocument.ts';
 import type { Command } from '../../src/domain/stateMachine.ts';
 
@@ -157,6 +160,53 @@ test('a command that changes nothing writes nothing and does not move the versio
     });
     assert.equal(missing.result, 'rejected');
     assert.equal((await storage.get<UserDocument>(userDoc(UID)))?.domainVersion, before);
+  } finally {
+    cleanup();
+  }
+});
+
+function proposal(revision: number): CaptureProposalContract {
+  return {
+    version: CAPTURE_CONTRACT_VERSION,
+    proposalId: 'participant-state-cas',
+    status: 'proposed',
+    items: [],
+    seeds: [],
+    revision,
+    provenance: { requestedEngine: 'rules', executedEngine: 'rule-based', fallbackUsed: true },
+  };
+}
+
+test('capture confirmation compares the proposal revision in the memory transaction', async () => {
+  const { storage, cleanup } = setup();
+  try {
+    const path = `${userCol(UID, CAPTURE_PROPOSALS)}/participant-state-cas`;
+    await storage.set(path, { contract: proposal(1) });
+    await assert.rejects(
+      () => commitCaptureConfirmation(UID, path, [], 'revision-zero', 0, { winner: 'none' }),
+      (error: unknown) => error instanceof ProposalChangedError && error.state === 'open',
+    );
+    assert.equal((await storage.get<{ confirmedResult?: unknown }>(path))?.confirmedResult, undefined);
+  } finally {
+    cleanup();
+  }
+});
+
+test('a different confirmation receipt is a confirmed conflict, never a replay of another winner', async () => {
+  const { storage, cleanup } = setup();
+  try {
+    const path = `${userCol(UID, CAPTURE_PROPOSALS)}/participant-state-confirmed`;
+    await storage.set(path, {
+      contract: { ...proposal(1), proposalId: 'participant-state-confirmed' },
+      confirmedResult: { winner: 'B' },
+      idempotencyKey: 'winner-b',
+    });
+    await assert.rejects(
+      () => commitCaptureConfirmation(UID, path, [], 'winner-a', 0, { winner: 'A' }),
+      (error: unknown) => error instanceof ProposalChangedError
+        && error.state === 'confirmed'
+        && (error.confirmation as { winner?: string } | undefined)?.winner === 'B',
+    );
   } finally {
     cleanup();
   }

@@ -239,6 +239,10 @@ export interface ChatPreviousItem {
   time: string | null;
   /** It was still asking its question (a day, an hour, «الصبح ولا المسا؟»). */
   needsDayOrTime?: boolean;
+  /** Present when the previous point was a seed rather than a commitment. */
+  kind?: 'possible_goal' | 'consideration' | 'idea' | 'waiting_for';
+  /** Stored server reading, never shown to the model; used to carry uncited fields. */
+  result?: ExtractionResult;
 }
 
 interface AttributedClause {
@@ -292,7 +296,15 @@ function modelWhen(item: unknown, timezone: string): string {
  * the list kept its length (the model is told to keep the order), otherwise
  * the one whose title shares the most words, when only one does.
  */
-export function alignToPrevious(items: readonly unknown[], previous: readonly ChatPreviousItem[]): Array<number | null> {
+export function alignToPrevious(
+  items: readonly unknown[],
+  previous: readonly ChatPreviousItem[],
+  explicit?: readonly (number | null)[],
+): Array<number | null> {
+  if (explicit) return items.map((_, index) => {
+    const at = explicit[index];
+    return typeof at === 'number' && Number.isInteger(at) && at >= 0 && at < previous.length ? at : null;
+  });
   if (previous.length === 0) return items.map(() => null);
   if (previous.length === items.length) return items.map((_, index) => index);
   const taken = new Set<number>();
@@ -304,39 +316,6 @@ export function alignToPrevious(items: readonly unknown[], previous: readonly Ch
     if (best === 0 || scores.lastIndexOf(best) !== at || taken.has(at)) return null;
     taken.add(at);
     return at;
-  });
-}
-
-/** A request to rename, in which a new title is the person's own words. */
-const RENAME = /\b(?:rename|call\s+it|name\s+it|title)\b|(?:سمّي|سمي|اسمها|اسمه|عنوان|תקרא|שם\s+ל|תשנה\s+את\s+השם)/i;
-
-/**
- * The model's items, each keeping the title it had when the model's new one
- * is only the words of the edit (chat UAT round 2: the second engagement came
- * back titled «خلّي التانية»). A rename the person asked for stands.
- *
- * The app-language title goes with it (owner request 2026-09-30): an item
- * whose own-words title is the one it had keeps the card title it had, so the
- * card does not change its words because the model translated them again.
- */
-export function withPreviousTitles(
-  items: readonly unknown[],
-  previous: readonly ChatPreviousItem[],
-  newestMessage: string,
-): unknown[] {
-  if (previous.length === 0 || RENAME.test(newestMessage)) return [...items];
-  const aligned = alignToPrevious(items, previous);
-  const said = contentWords(newestMessage);
-  return items.map((item, index) => {
-    const before = aligned[index] === null ? null : previous[aligned[index]!]!;
-    const title = itemTitle(item);
-    if (!before || !title || !item || typeof item !== 'object') return item;
-    const keptAppTitle = { appTitle: before.appTitle ?? null };
-    if (title.trim() === before.title.trim()) return before.appTitle ? { ...(item as Record<string, unknown>), ...keptAppTitle } : item;
-    const words = contentWords(title);
-    const onlyTheEdit = words.every((word) => said.some((candidate) => sameWord(word, candidate)))
-      && titleScore(contentWords(before.title), words) < contentWords(before.title).length;
-    return onlyTheEdit ? { ...(item as Record<string, unknown>), title: before.title, action: before.title, ...keptAppTitle } : item;
   });
 }
 
@@ -357,15 +336,35 @@ export function chatItemEvidence(
   items: readonly unknown[],
   previous: readonly ChatPreviousItem[] = [],
   timezone = 'UTC',
+  evidenceStartIndices: readonly number[] = [],
+  previousMatchIndices?: readonly (number | null)[],
+  operationSources?: readonly string[],
 ): ChatItemEvidence[] {
+  if (operationSources) {
+    const aligned = alignToPrevious(items, previous, previousMatchIndices);
+    return items.map((item, index) => {
+      const previousIndex = aligned[index];
+      const ownPrevious = previousIndex === null || previousIndex === undefined ? [] : [previous[previousIndex]!];
+      return chatItemEvidence(
+        [operationSources[index] ?? ''],
+        [item],
+        ownPrevious,
+        timezone,
+        [0],
+        [ownPrevious.length > 0 ? 0 : null],
+      )[0]!;
+    });
+  }
   const perTurn = userTurns.map((turn) => chatEvidenceTurns([turn]));
   const newest = perTurn.length - 1;
   const turns = perTurn.flat();
-  const whole = turns.join('\n');
-  const aligned = alignToPrevious(items, previous);
+  const aligned = alignToPrevious(items, previous, previousMatchIndices);
   const titles = items.map((item, index) => {
     const before = aligned[index] === null ? '' : previous[aligned[index]!]!.title;
-    return contentWords(`${itemTitle(item)} ${before}`);
+    const record = item && typeof item === 'object' ? item as Record<string, unknown> : null;
+    const appTitle = previousMatchIndices !== undefined && previous.length > 0 && aligned[index] === null
+      && typeof record?.appTitle === 'string' ? record.appTitle : '';
+    return contentWords(`${itemTitle(item)} ${appTitle} ${before}`);
   });
   const changed = items.flatMap((item, index) => {
     const at = aligned[index];
@@ -402,20 +401,27 @@ export function chatItemEvidence(
           let owners = best > 0
             ? scores.flatMap((score, index) => (score === best || (score > 0 && score === new Set(titles[index]).size) ? [index] : []))
             : null;
-          if (!owners && turnIndex === newest && turnIndex > 0 && changed.length === 1) owners = [changed[0]!];
+          if (!owners && turnIndex === newest && turnIndex > 0 && changed.length === 1 && !isPlainYes(clause.text)) owners = [changed[0]!];
           return { text: clause.text.trim(), detail: clause, owners };
         }));
     }
   });
 
   return items.map((_, index) => {
+    const evidenceStartsAt = Math.max(0, Math.min(newest, evidenceStartIndices[index] ?? 0));
+    const eligible = byTurn.map((clauses, at) => turnOf[at]! >= evidenceStartsAt ? clauses : []);
+    const eligibleWhole = turns.filter((_, at) => turnOf[at]! >= evidenceStartsAt).join('\n');
+    // A shared/no-owner acknowledgement ("ok", «تمام») does not retire
+    // fields carried for every existing card. Other shared clauses still
+    // touch the list: ordinal and recurring-list edits rely on that signal.
     const touchedNow = byTurn.some((clauses, at) => turnOf[at] === newest
-      && clauses.some((clause) => clause.owners === null || clause.owners.includes(index)));
-    const named = byTurn.some((clauses) => clauses.some((clause) => clause.owners?.includes(index)));
+      && clauses.some((clause) => clause.owners?.includes(index)
+        || (clause.owners === null && !isPlainYes(clause.text))));
+    const named = eligible.some((clauses) => clauses.some((clause) => clause.owners?.includes(index)));
     if (!named) {
       // Read as before; but a day or an hour only from words naming no other item.
-      const shared = byTurn.flatMap((clauses) => clauses.filter((clause) => clause.owners === null).map((clause) => clause.text));
-      if (shared.length > 0) return { clause: { text: whole }, turns: shared, touchedNow };
+      const shared = eligible.flatMap((clauses) => clauses.filter((clause) => clause.owners === null).map((clause) => clause.text));
+      if (shared.length > 0) return { clause: { text: eligibleWhole }, turns: shared, touchedNow };
       // Only when nothing else speaks for it (round 4): the clauses that say
       // the card's title whole, in the app's language — «…وأدرس الثلاثاء
       // والخميس…» for «أدرس» beside the model's "Study". Never in place of
@@ -423,14 +429,15 @@ export function chatItemEvidence(
       const record = items[index] && typeof items[index] === 'object' ? items[index] as Record<string, unknown> : null;
       const card = typeof record?.appTitle === 'string' ? Array.from(new Set(contentWords(record.appTitle))) : [];
       const saysCard = (clause: AttributedClause) => card.length > 0 && titleScore(card, contentWords(clause.text)) === card.length;
-      const byCard = byTurn.flatMap((clauses) => clauses.filter(saysCard).map((clause) => clause.text));
-      const cardNow = byTurn.some((clauses, at) => turnOf[at] === newest && clauses.some(saysCard));
-      return { clause: { text: whole }, turns: byCard, touchedNow: touchedNow || cardNow };
+      const byCard = eligible.flatMap((clauses) => clauses.filter(saysCard).map((clause) => clause.text));
+      const cardNow = eligible.some((clauses, at) => turnOf[at] === newest && clauses.some(saysCard));
+      return { clause: { text: eligibleWhole }, turns: byCard, touchedNow: touchedNow || cardNow };
     }
     const kept: string[] = [];
     const own: AttributedClause[] = [];
     turns.forEach((turn, turnIndex) => {
-      const clauses = byTurn[turnIndex]!;
+      const clauses = eligible[turnIndex]!;
+      if (clauses.length === 0) return;
       const mine = clauses.filter((clause) => clause.owners === null || clause.owners.includes(index));
       own.push(...mine.filter((clause) => clause.owners !== null));
       // A turn all of whose clauses are this item's stays whole, as it was read.
@@ -567,6 +574,7 @@ export function withoutUnsaidTime(
   turns: readonly string[],
   now: Date,
   timezone: string,
+  carried?: Pick<ChatPreviousItem, 'date' | 'time'>,
 ): UnsaidTimeOutcome {
   const time = localTimeOf(result, timezone);
   const date = localDateOf(result, timezone);
@@ -577,9 +585,9 @@ export function withoutUnsaidTime(
   if (time) {
     const hour = Number(time.slice(0, 2));
     const minute = Number(time.slice(3, 5));
-    keepTime = allowance.hours.has(hour % 12) && allowance.minutes.has(minute);
+    keepTime = carried?.time === time || (allowance.hours.has(hour % 12) && allowance.minutes.has(minute));
   }
-  const keepDate = !date || allowance.anyDate || allowance.dates.has(date);
+  const keepDate = !date || carried?.date === date || allowance.anyDate || allowance.dates.has(date);
   if (keepTime && keepDate) return { result, fired: false };
 
   // A day nobody said for this item, when its own words name exactly one day

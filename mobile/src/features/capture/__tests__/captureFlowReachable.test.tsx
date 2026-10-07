@@ -492,20 +492,30 @@ describe('a spent AI quota says so', () => {
   });
 });
 
-describe('closing forgets the draft', () => {
-  it('asks before throwing away text', async () => {
+/*
+ * M2b (audit condition 9): Back closes capture and KEEPS the draft and the
+ * conversation for when «احكيها» opens again; only «ابدأ من جديد» (and «إلغاء
+ * الكل» in review) throw it away, and they always ask first. The draft still
+ * lives only in memory: an account change or a closed app forgets it.
+ */
+describe('leaving keeps the draft; starting over forgets it', () => {
+  it('Back closes without asking, and the draft is there when capture opens again', async () => {
     await openApp();
     await enterCapture();
     await fireEvent.changeText(screen.getByTestId('capture-input'), 'a half-written thought');
-    await fireEvent.press(screen.getByLabelText(en.cancel));
-    await waitFor(() => expect(screen.queryByTestId('capture-discard')).not.toBeNull());
+    await fireEvent.press(screen.getByLabelText(en.back));
+    await waitFor(() => expect(screen.queryByTestId('capture-input')).toBeNull());
+    expect(screen.queryByTestId('capture-discard')).toBeNull();
+    await enterCapture();
+    expect(screen.getByTestId('capture-input').props.value).toBe('a half-written thought');
   });
 
-  it('keeps the text when the discard is declined', async () => {
+  it('«ابدأ من جديد» asks first, and keeps the text when the discard is declined', async () => {
     await openApp();
     await enterCapture();
     await fireEvent.changeText(screen.getByTestId('capture-input'), 'a half-written thought');
-    await fireEvent.press(screen.getByLabelText(en.cancel));
+    await fireEvent.press(screen.getByTestId('chat-more'));
+    await fireEvent.press(screen.getByTestId('chat-menu-start-over'));
     await waitFor(() => expect(screen.queryByTestId('capture-discard')).not.toBeNull());
     await fireEvent.press(screen.getByTestId('capture-discard-keep'));
     await waitFor(() => expect(screen.queryByTestId('capture-input')).not.toBeNull());
@@ -515,17 +525,20 @@ describe('closing forgets the draft', () => {
   it('leaves immediately when there is nothing to lose', async () => {
     await openApp();
     await enterCapture();
-    await fireEvent.press(screen.getByLabelText(en.cancel));
+    await fireEvent.press(screen.getByLabelText(en.back));
     await waitFor(() => expect(screen.queryByTestId('capture-input')).toBeNull());
   });
 
-  it('re-entering after a discard starts empty', async () => {
+  it('re-entering after starting over is empty', async () => {
     await openApp();
     await enterCapture();
     await fireEvent.changeText(screen.getByTestId('capture-input'), 'forget me');
-    await fireEvent.press(screen.getByLabelText(en.cancel));
+    await fireEvent.press(screen.getByTestId('chat-more'));
+    await fireEvent.press(screen.getByTestId('chat-menu-start-over'));
     await waitFor(() => expect(screen.queryByTestId('capture-discard')).not.toBeNull());
     await fireEvent.press(screen.getByTestId('capture-discard-confirm'));
+    await waitFor(() => expect(screen.getByTestId('capture-input').props.value).toBe(''));
+    await fireEvent.press(screen.getByLabelText(en.back));
     await waitFor(() => expect(screen.queryByTestId('capture-input')).toBeNull());
 
     await enterCapture();
@@ -999,15 +1012,18 @@ describe('a saved item that lands on something already there (football fixtures,
 });
 
 describe('review discard confirmation (#504)', () => {
-  it('Cancel all closes immediately without confirmation when proposal is untouched', async () => {
+  // M2b (M2B-A-006): «إلغاء الكل» throws away the whole conversation, so it
+  // asks first even over an untouched proposal; Back is the way out that keeps it.
+  it('Cancel all asks first even when the proposal is untouched, and confirming closes', async () => {
     jest.spyOn(captureEndpoints, 'chatCapture').mockImplementation(chatServer(() => (proposal())) as never);
     await openApp();
     await enterCapture();
     await typeAndAnalyze();
 
     await fireEvent.press(screen.getByTestId('review-cancel'));
+    await waitFor(() => expect(screen.queryByTestId('capture-discard')).not.toBeNull());
+    await fireEvent.press(screen.getByTestId('capture-discard-confirm'));
     await waitFor(() => expect(screen.queryByTestId('review-cancel')).toBeNull());
-    expect(screen.queryByTestId('capture-discard')).toBeNull();
   });
 
   it('Cancel all asks for confirmation when an item is deselected', async () => {

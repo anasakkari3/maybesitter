@@ -74,6 +74,9 @@ export const ALLOWED_PROPOSAL_FIELDS: readonly string[] = [
   'seeds',
   'provenance',
   'understood',
+  // Capture proposal revisions are opaque concurrency metadata. Preserve a
+  // valid value so a shared proposal can continue through the same protocol.
+  'revision',
 ];
 
 /** The three next actions that exist. Nothing here can send, delete or confirm. */
@@ -423,6 +426,7 @@ export function applyShareActionAllowlist<T>(raw: unknown): ShareAllowlistResult
   const kept: Record<string, unknown> = {};
   kept.version = typeof raw.version === 'string' && raw.version.length <= 16 ? raw.version : 'v1';
   kept.proposalId = isSafeId(raw.proposalId) ? raw.proposalId : '';
+  if (Number.isInteger(raw.revision) && (raw.revision as number) >= 0) kept.revision = raw.revision;
   if (typeof raw.status === 'string' && ALLOWED_STATUSES.includes(raw.status)) {
     kept.status = raw.status;
   } else {
