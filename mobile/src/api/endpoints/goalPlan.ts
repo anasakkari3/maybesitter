@@ -94,6 +94,12 @@ function checkTimesAgainstPlan(where: string, planIn: GoalPlan, times: GoalPlanT
       if (expected.noLater && 'later' in step) problems.push(`later:${step.stepId}`);
       if ('slot' in step && step.slot && !forward(step.slot.startsAt, step.slot.endsAt)) problems.push(`slot:${step.stepId}`);
       if ('weekly' in step && step.weekly && !clockForward(step.weekly.start, step.weekly.end)) problems.push(`weekly:${step.stepId}`);
+      // Offered alternatives are sent back as they are, so they are held to the same rule (A4-003).
+      for (const alternative of 'alternatives' in step ? step.alternatives : []) {
+        if ('startsAt' in alternative ? !forward(alternative.startsAt, alternative.endsAt) : !clockForward(alternative.start, alternative.end)) {
+          problems.push(`alternative:${step.stepId}`);
+        }
+      }
       return problems;
     }),
     ...(expected.stepIds && (expected.stepIds.length !== seen.size || expected.stepIds.some(id => !seen.has(id))) ? ['steps'] : []),
@@ -103,29 +109,64 @@ function checkTimesAgainstPlan(where: string, planIn: GoalPlan, times: GoalPlanT
 
 export async function approveGoalPlan(goalId: string, planId: string, revision: number): Promise<{ plan: GoalPlan; times: GoalPlanTimes }> {
   const response = await apiRequest('POST', `${plan(goalId, planId)}/approve`, { body: { revision }, schema: goalPlanApproveResponseSchema });
-  checkTimesAgainstPlan('goalPlan.approved', response.plan, response.times, { planId, revision });
+  // Every step of the approved plan is in its times exactly once, later weeks included (A4-001).
+  checkTimesAgainstPlan('goalPlan.approved', response.plan, response.times, { planId, revision, stepIds: response.plan.steps.map(step => step.stepId) });
   return { plan: response.plan, times: response.times };
 }
 
-export async function chooseGoalPlanTime(goalId: string, planId: string, stepId: string, timesRevision: number, choice: GoalPlanTimesChoice): Promise<GoalPlanTimes> {
-  const response = await apiRequest('PATCH', `${plan(goalId, planId)}/times/${encodeURIComponent(stepId)}`, {
-    body: { timesRevision, choice },
-    schema: goalPlanTimesResponseSchema,
-  });
-  // The same proposal, moved on: this plan, a newer revision, the step still in it.
-  const times = response.times;
-  if (times.planId !== planId || times.timesRevision <= timesRevision || !times.steps.some(step => step.stepId === stepId)) {
-    throw new ContractError('goalPlan.timeChanged', ['times']);
-  }
-  return times;
+/**
+ * A proposal that comes back in place of the one on screen (A4-002): the same
+ * plan and plan revision, the same steps with the same kinds. `sameTimes` also
+ * holds it to the same proposal moved on (a time change); a recomputed
+ * proposal (a changed schedule) carries a new id.
+ */
+export function checkReplacementTimes(where: string, current: GoalPlanTimes, next: GoalPlanTimes, sameTimes: boolean): void {
+  const kinds = (times: GoalPlanTimes) => new Map(times.steps.map(step => [step.stepId, step.kind]));
+  const before = kinds(current);
+  const after = kinds(next);
+  const issues = [
+    ...(next.planId !== current.planId || next.planRevision !== current.planRevision ? ['plan'] : []),
+    ...(sameTimes && (next.timesId !== current.timesId || next.timesRevision <= current.timesRevision) ? ['timesRevision'] : []),
+    ...(after.size !== next.steps.length || after.size !== before.size || Array.from(before).some(([id, kind]) => after.get(id) !== kind) ? ['steps'] : []),
+  ];
+  if (issues.length > 0) throw new ContractError(where, issues);
 }
 
-/** The reviewed proposal, exactly: the client never authors a times array. */
-export function confirmGoalPlan(goalId: string, times: GoalPlanTimes, idempotencyKey: string): Promise<GoalPlanConfirmResult> {
-  return apiRequest('POST', `${plan(goalId, times.planId)}/confirm`, {
+export async function chooseGoalPlanTime(goalId: string, current: GoalPlanTimes, stepId: string, choice: GoalPlanTimesChoice): Promise<GoalPlanTimes> {
+  const response = await apiRequest('PATCH', `${plan(goalId, current.planId)}/times/${encodeURIComponent(stepId)}`, {
+    body: { timesRevision: current.timesRevision, choice },
+    schema: goalPlanTimesResponseSchema,
+  });
+  checkReplacementTimes('goalPlan.timeChanged', current, response.times, true);
+  return response.times;
+}
+
+/**
+ * The reviewed proposal, exactly: the client never authors a times array.
+ * The answer is held to it too (A4-004): every reviewed step, and every step
+ * removed from the plan, is saved or stays, once, and nothing else is named.
+ * `removedStepIds` is null only when the plan is not on screen; then an extra
+ * entry may only be a removed step staying.
+ */
+export async function confirmGoalPlan(goalId: string, times: GoalPlanTimes, idempotencyKey: string, removedStepIds: readonly string[] | null): Promise<GoalPlanConfirmResult> {
+  const result = await apiRequest('POST', `${plan(goalId, times.planId)}/confirm`, {
     body: { planRevision: times.planRevision, timesId: times.timesId, timesRevision: times.timesRevision, idempotencyKey },
     schema: goalPlanConfirmResponseSchema,
   });
+  const reviewed = new Set(times.steps.map(step => step.stepId));
+  const removed = new Set(removedStepIds ?? []);
+  const named = [...result.saved.map(item => item.stepId), ...result.stayed.map(item => item.stepId)];
+  const isRemoved = (item: GoalPlanConfirmResult['stayed'][number]) => (removedStepIds === null ? !reviewed.has(item.stepId) : removed.has(item.stepId));
+  const issues = [
+    ...(new Set(named).size !== named.length ? ['duplicate'] : []),
+    ...Array.from(reviewed).flatMap(id => (named.includes(id) ? [] : [`missing:${id}`])),
+    ...(removedStepIds ?? []).flatMap(id => (result.stayed.some(item => item.stepId === id) ? [] : [`missing:${id}`])),
+    ...result.saved.flatMap(item => (reviewed.has(item.stepId) ? [] : [`saved-unreviewed:${item.stepId}`])),
+    ...result.stayed.flatMap(item => (reviewed.has(item.stepId) || isRemoved(item) ? [] : [`unknown:${item.stepId}`])),
+    ...result.stayed.flatMap(item => (isRemoved(item) !== (item.why.kind === 'removed') ? [`why:${item.stepId}`] : [])),
+  ];
+  if (issues.length > 0) throw new ContractError('goalPlan.confirmed', issues);
+  return result;
 }
 
 /** A later week's steps, placed when that week is near (M3A-012), against the then-current calendar. */

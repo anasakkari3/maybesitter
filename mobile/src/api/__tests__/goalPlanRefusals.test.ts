@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
 import { z } from 'zod';
 import { apiRequest } from '../client';
-import { approveGoalPlan, laterWeekTimes } from '../endpoints/goalPlan';
-import { goalPlanConfirmResponseSchema } from '../schemas/goalPlan';
+import { approveGoalPlan, checkReplacementTimes, chooseGoalPlanTime, confirmGoalPlan, laterWeekTimes } from '../endpoints/goalPlan';
+import { goalPlanConfirmResponseSchema, goalPlanStepSchema, goalPlanTimesSchema, type GoalPlanTimes } from '../schemas/goalPlan';
 import { resetAuthForTests, setAuthRepository } from '../auth';
 import {
   ConflictError,
@@ -162,4 +162,88 @@ describe('a plan and its times belong together (inspections A2-008, A3-002, A3-0
     expect(goalPlanConfirmResponseSchema.safeParse({ success: true, saved: [], stayed: [] }).success).toBe(false);
     expect(goalPlanConfirmResponseSchema.safeParse({ success: true, saved: [], stayed: [], receipt: { outcomeId: 'o', replayed: false } }).success).toBe(true);
   });
+
+  it('approve times that leave out a plan step are refused (A4-001)', async () => {
+    const twoSteps = { ...PLAN, steps: [...PLAN.steps, { ...PLAN.steps[0], stepId: 's2', order: 2 }] };
+    respond(200, { ...approved, plan: twoSteps });
+    await expect(approveGoalPlan('g1', 'p1', 4)).rejects.toBeInstanceOf(ContractError);
+  });
+
+  it('an alternative that ends before it starts is refused like a slot (A4-003)', async () => {
+    const back = { startsAt: '2030-01-08T10:00:00.000Z', endsAt: '2030-01-08T09:30:00.000Z' };
+    respond(200, { ...approved, times: { ...TIMES, steps: [{ ...TIMES.steps[0], alternatives: [back] }] } });
+    await expect(approveGoalPlan('g1', 'p1', 4)).rejects.toBeInstanceOf(ContractError);
+  });
 });
+
+describe('a times answer replaces the times on screen only if it is the same proposal (A4-002)', () => {
+  const current = TIMES as GoalPlanTimes;
+  const moved = { ...TIMES, timesRevision: 3 };
+  it('the same proposal, moved on, is taken', async () => {
+    respond(200, { success: true, times: moved });
+    expect((await chooseGoalPlanTime('g1', current, 's1', { none: true })).timesRevision).toBe(3);
+  });
+
+  it.each([
+    ['another proposal', { ...moved, timesId: 't9' }],
+    ['a revision that did not move', TIMES],
+    ['another plan revision', { ...moved, planRevision: 5 }],
+    ['another step', { ...moved, steps: [{ ...TIMES.steps[0], stepId: 's9' }] }],
+    ['a step that changed kind', { ...moved, steps: [{ stepId: 's1', kind: 'habit', weekly: null, alternatives: [], choice: 'none' }] }],
+  ])('a time change answering with %s is refused', async (_name, times) => {
+    respond(200, { success: true, times });
+    await expect(chooseGoalPlanTime('g1', current, 's1', { none: true })).rejects.toBeInstanceOf(ContractError);
+  });
+
+  it('recomputed times (a changed schedule) may carry a new id, but not other steps', () => {
+    expect(() => checkReplacementTimes('x', current, { ...current, timesId: 't2', timesRevision: 1 }, false)).not.toThrow();
+    expect(() => checkReplacementTimes('x', current, { ...current, timesId: 't2', steps: [] }, false)).toThrow(ContractError);
+  });
+});
+
+describe('the schemas hold the contract, not just the shape (A4-003)', () => {
+  it('a clock is a real time of day', () => {
+    const habit = (start: string) => ({ ...TIMES, steps: [{ stepId: 's1', kind: 'habit', weekly: { weekdays: [1], start, end: '23:59' }, alternatives: [], choice: 'proposed' }] });
+    expect(goalPlanTimesSchema.safeParse(habit('07:30')).success).toBe(true);
+    expect(goalPlanTimesSchema.safeParse(habit('24:00')).success).toBe(false);
+    expect(goalPlanTimesSchema.safeParse(habit('09:75')).success).toBe(false);
+  });
+
+  it('a habit step carries its rhythm', () => {
+    const habit = { ...PLAN.steps[0], kind: 'habit' };
+    expect(goalPlanStepSchema.safeParse(habit).success).toBe(false);
+    expect(goalPlanStepSchema.safeParse({ ...habit, rhythm: { timesPerWeek: 3 } }).success).toBe(true);
+  });
+});
+
+describe('a confirm answers for exactly what was reviewed (A4-004)', () => {
+  const receipt = { outcomeId: 'o1', replayed: false };
+  const saved = { stepId: 's1', entity: 'commitment', id: 'c1', title: 'Walk', when: { kind: 'slot', startsAt: '2030-01-08T09:00:00.000Z', endsAt: '2030-01-08T09:30:00.000Z' } };
+  const removedStays = { stepId: 'r1', title: 'Run', why: { kind: 'removed' } };
+  const confirm = (body: unknown, removed: readonly string[] | null = ['r1']) => {
+    respond(200, { success: true, ...(body as object), receipt });
+    return confirmGoalPlan('g1', TIMES as GoalPlanTimes, 'k', removed);
+  };
+
+  it('every reviewed step and every removed step, once', async () => {
+    expect((await confirm({ saved: [saved], stayed: [removedStays] })).saved).toHaveLength(1);
+  });
+
+  it.each([
+    ['a reviewed step missing', { saved: [], stayed: [removedStays] }],
+    ['a removed step missing', { saved: [saved], stayed: [] }],
+    ['a step named twice', { saved: [saved], stayed: [removedStays, { stepId: 's1', title: 'Walk', why: { kind: 'no_room', reason: 'no_free_time_in_phase' } }] }],
+    ['a step nobody reviewed', { saved: [saved, { ...saved, stepId: 'zz' }], stayed: [removedStays] }],
+    ['a removed step saved', { saved: [saved, { ...saved, stepId: 'r1' }], stayed: [] }],
+    ['a removed step staying for another reason', { saved: [saved], stayed: [{ ...removedStays, why: { kind: 'no_room', reason: 'no_free_time_in_phase' } }] }],
+    ['a reviewed step staying as removed', { saved: [], stayed: [removedStays, { stepId: 's1', title: 'Walk', why: { kind: 'removed' } }] }],
+  ])('refuses %s', async (_name, body) => {
+    await expect(confirm(body)).rejects.toBeInstanceOf(ContractError);
+  });
+
+  it('with no plan on screen, an extra entry may only be a removed step', async () => {
+    expect((await confirm({ saved: [saved], stayed: [removedStays] }, null)).stayed).toHaveLength(1);
+    await expect(confirm({ saved: [saved], stayed: [{ ...removedStays, why: { kind: 'no_room', reason: 'no_free_time_in_phase' } }] }, null)).rejects.toBeInstanceOf(ContractError);
+  });
+});
+

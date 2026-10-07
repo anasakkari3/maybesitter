@@ -125,31 +125,34 @@ it('takes a wish through analysis and an explicit confirmation of what came back
   await waitFor(() => expect(mockDecide).toHaveBeenCalledWith('proposal-1', 'accept', undefined, undefined));
 });
 
+// The plan path mounts a second flow under the panel; under a loaded machine its first frames take longer than waitFor's default second.
+const LOADED = { timeout: 5_000 };
+
 it('«Suggest a plan» needs a statement, and opens the plan path at its summary (M3a)', async () => {
   mockPreview.mockResolvedValue({ success: true, summaryId: 's1', revision: 1, understood: { goalText: 'Run a 5k' }, expiresAt: '2026-09-30T10:30:00.000Z' });
   await render(wrap());
-  await waitFor(() => expect(screen.queryByTestId('intelligence-plan-flow')).not.toBeNull());
+  await waitFor(() => expect(screen.queryByTestId('intelligence-plan-flow')).not.toBeNull(), LOADED);
   // The old card-by-card «Suggest steps» is gone: the plan path replaced it.
   expect(screen.queryByTestId('intelligence-generate')).toBeNull();
   expect(screen.getByTestId('intelligence-plan-flow').props.accessibilityState).toMatchObject({ disabled: true });
   await fireEvent.changeText(screen.getByTestId('intelligence-statement'), 'I want to run a 5k');
   await act(async () => { await fireEvent.press(screen.getByTestId('intelligence-plan-flow')); });
-  await waitFor(() => expect(screen.queryByTestId('plan-summary')).not.toBeNull());
+  await waitFor(() => expect(screen.queryByTestId('plan-summary')).not.toBeNull(), LOADED);
   expect(mockPreview).toHaveBeenCalledWith('I want to run a 5k', 'en');
   expect(mockGenerate).not.toHaveBeenCalled();
-});
+}, 15_000);
 
 it('«افهم» on a plan request opens the plan path instead of listing observations (M3A-032)', async () => {
   mockAnalyze.mockResolvedValueOnce({ success: true, observations: [], route: 'plan_flow' });
   mockPreview.mockResolvedValue({ success: true, summaryId: 's1', revision: 1, understood: { goalText: 'Lose weight' }, expiresAt: '2026-09-30T10:30:00.000Z' });
   await render(wrap());
-  await waitFor(() => expect(screen.queryByTestId('intelligence-statement')).not.toBeNull());
+  await waitFor(() => expect(screen.queryByTestId('intelligence-statement')).not.toBeNull(), LOADED);
   await fireEvent.changeText(screen.getByTestId('intelligence-statement'), 'build me a plan to lose weight');
   await act(async () => { await fireEvent.press(screen.getByTestId('intelligence-analyze')); });
   await act(async () => { await fireEvent.press(screen.getByTestId('intelligence-analyze-confirm')); });
-  await waitFor(() => expect(screen.queryByTestId('plan-summary')).not.toBeNull());
+  await waitFor(() => expect(screen.queryByTestId('plan-summary')).not.toBeNull(), LOADED);
   expect(mockPreview).toHaveBeenCalledWith('build me a plan to lose weight', 'en');
-});
+}, 15_000);
 
 it('hides «Suggest a plan» when the plan path is off on the server', async () => {
   mockPlanPath = { isPending: false, error: new FeatureUnavailableError('off'), data: undefined };

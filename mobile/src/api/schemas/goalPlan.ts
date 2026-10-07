@@ -30,7 +30,7 @@ export const goalPlanStepSchema = z.object({
   buildsOn: z.string().nullable(),
   expectedOutcome: z.string().nullable(),
   origin: z.enum(['model', 'template', 'person']).optional(),
-}).passthrough();
+}).passthrough().refine(step => step.kind !== 'habit' || step.rhythm !== undefined, { message: 'a habit step carries its rhythm', path: ['rhythm'] });
 
 export const goalPlanSchema = z.object({
   planId: z.string(),
@@ -44,7 +44,8 @@ export const goalPlanSchema = z.object({
 }).passthrough();
 
 const slotSchema = z.object({ startsAt: isoDateTime, endsAt: isoDateTime });
-const clock = z.string().regex(/^\d{2}:\d{2}$/);
+// A real wall-clock time: 00:00–23:59 (A4-003).
+const clock = z.string().regex(/^(?:[01]\d|2[0-3]):[0-5]\d$/);
 const weeklySchema = z.object({ weekdays: z.array(z.number().int().min(0).max(6)), start: clock, end: clock });
 
 /**

@@ -3,6 +3,7 @@ import * as Crypto from 'expo-crypto';
 import {
   acceptStatementGoal,
   approveGoalPlan,
+  checkReplacementTimes,
   chooseGoalPlanTime,
   confirmGoalPlan,
   editGoalPlan,
@@ -59,9 +60,16 @@ export interface PlanFlowState {
   readonly summaryLocked?: boolean;
 }
 
-/** A refusal that carries the recomputed times (`schedule_changed`, `slot_in_past`) is redrawn from them. */
-const adoptTimes = (plan: GoalPlan | null) => (refused: GoalPlanRefusedError): Partial<PlanFlowState> =>
-  refused.detail.times ? { stage: { kind: 'times', plan, times: refused.detail.times } } : {};
+/**
+ * A refusal that carries recomputed times (`schedule_changed`, `slot_in_past`)
+ * is redrawn from them, if they are the same plan and steps as the times on
+ * screen (A4-002); otherwise the refusal stands alone and the person reads again.
+ */
+export const adoptTimes = (plan: GoalPlan | null, current: GoalPlanTimes) => (refused: GoalPlanRefusedError): Partial<PlanFlowState> => {
+  if (!refused.detail.times) return {};
+  try { checkReplacementTimes('goalPlan.refusedTimes', current, refused.detail.times, false); } catch { return {}; }
+  return { stage: { kind: 'times', plan, times: refused.detail.times } };
+};
 
 const IDLE: PlanFlowState = { goalId: null, stage: { kind: 'idle' }, live: { phase: 'idle' }, error: null, busy: false, statement: null };
 
@@ -231,8 +239,8 @@ export function useGoalPlanFlow(): PlanFlow {
   const choose = React.useCallback((stepId: string, choice: GoalPlanTimesChoice) => {
     const { goalId, stage } = stateRef.current;
     if (!goalId || stage.kind !== 'times') return;
-    run('times', () => chooseGoalPlanTime(goalId, stage.times.planId, stepId, stage.times.timesRevision, choice),
-      times => ({ stage: { kind: 'times', plan: stage.plan, times } }), adoptTimes(stage.plan));
+    run('times', () => chooseGoalPlanTime(goalId, stage.times, stepId, choice),
+      times => ({ stage: { kind: 'times', plan: stage.plan, times } }), adoptTimes(stage.plan, stage.times));
   }, [run]);
 
   const toConfirm = React.useCallback(() => setState(current => current.stage.kind === 'times'
@@ -246,10 +254,10 @@ export function useGoalPlanFlow(): PlanFlow {
     const reviewed = `${stage.times.timesId}:${stage.times.timesRevision}`;
     const key = confirmKeys.current.get(reviewed) ?? Crypto.randomUUID();
     confirmKeys.current.set(reviewed, key);
-    run('saving', () => confirmGoalPlan(goalId, stage.times, key), result => {
+    run('saving', () => confirmGoalPlan(goalId, stage.times, key, stage.plan ? stage.plan.removedSteps.map(step => step.stepId) : null), result => {
       invalidate();
       return { stage: { kind: 'result', result } };
-    }, adoptTimes(stage.plan));
+    }, adoptTimes(stage.plan, stage.times));
   }, [invalidate, run]);
 
   const laterWeek = React.useCallback((goalId: string, planId: string, weekIndex: number) => {

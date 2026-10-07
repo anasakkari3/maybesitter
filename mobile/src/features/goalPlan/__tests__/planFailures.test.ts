@@ -10,6 +10,8 @@ import {
 import { strings, type Lang } from '../../../i18n/strings';
 import { planBuildFailureOf, planFailureOf, recoveryLabel } from '../planFailures';
 import { stepOutcome } from '../PlanFlow';
+import { adoptTimes } from '../useGoalPlanFlow';
+import type { GoalPlanTimes } from '../../../api/schemas/goalPlan';
 
 /**
  * Every way the plan path can stop has its own words and a way on (M3a
@@ -77,5 +79,22 @@ describe('what the confirm will do with each step', () => {
     expect(stepOutcome({ stepId: 's', kind: 'commitment', later: { weekIndex: 3 } })).toBe('later');
     expect(stepOutcome({ ...commitment, slot: null, reason: 'no_free_time_in_phase', choice: 'none' })).toBe('no_room');
     expect(stepOutcome({ ...commitment, slot: null, choice: 'none' })).toBe('save');
+  });
+});
+
+describe('times carried on a refusal (A4-002)', () => {
+  const current: GoalPlanTimes = {
+    timesId: 't1', timesRevision: 2, planId: 'p1', planRevision: 4, anchor: { localDate: '2030-01-07', timezone: 'UTC' },
+    steps: [{ stepId: 's1', kind: 'commitment', slot: { startsAt: '2030-01-08T09:00:00.000Z', endsAt: '2030-01-08T09:30:00.000Z' }, alternatives: [], choice: 'proposed' }],
+  } as GoalPlanTimes;
+  const refused = (times: GoalPlanTimes) => new GoalPlanRefusedError('schedule_changed', 409, { times });
+
+  it('are drawn when they are the same plan and steps, recomputed', () => {
+    expect(adoptTimes(null, current)(refused({ ...current, timesId: 't2', timesRevision: 1 }))).toEqual({ stage: { kind: 'times', plan: null, times: { ...current, timesId: 't2', timesRevision: 1 } } });
+  });
+
+  it('are not drawn when they are another plan or other steps; the refusal stands alone', () => {
+    expect(adoptTimes(null, current)(refused({ ...current, planId: 'p9' }))).toEqual({});
+    expect(adoptTimes(null, current)(refused({ ...current, steps: [{ ...current.steps[0]!, stepId: 's9' }] }))).toEqual({});
   });
 });
