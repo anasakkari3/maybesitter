@@ -344,16 +344,32 @@ it('A4 plan preview: two same-frame presses run exactly one preview', async () =
   await showPanel();
   expect(screen.getByTestId('intelligence-plan-flow').props.accessibilityState).toMatchObject({ disabled: true });
   await fireEvent.changeText(screen.getByTestId('intelligence-statement'), 'one request');
-  await waitFor(() => expect(screen.getByTestId('intelligence-plan-flow').props.accessibilityState).toMatchObject({ disabled: false }));
   mockPreview.mockClear();
+  // RNTL 14 wraps each fireEvent in async act. Keep the preview pending so
+  // both presses share one in-flight window without overlapping act scopes.
+  let finish!: (value: unknown) => void;
+  mockPreview.mockImplementation(() => new Promise(resolve => { finish = resolve; }));
 
   await act(async () => {
+    // Loaded workers can expose the host before Pressability has fully settled.
+    await new Promise(resolve => setTimeout(resolve, 100));
     const planEntry = screen.getByTestId('intelligence-plan-flow');
-    const firstPress = fireEvent.press(planEntry);
-    const secondPress = fireEvent.press(planEntry);
-    await Promise.all([firstPress, secondPress]);
+    expect(planEntry.props.accessibilityState).toMatchObject({ disabled: false });
+    await fireEvent.press(planEntry);
+    await fireEvent.press(planEntry);
   });
 
+  await waitFor(() => expect(mockPreview).toHaveBeenCalledTimes(1));
+  await act(async () => {
+    finish({
+      success: true,
+      summaryId: 'm1-summary',
+      revision: 1,
+      understood: { goalText: 'One request' },
+      expiresAt: '2030-01-07T10:30:00.000Z',
+    });
+  });
+  await settle();
   expect(mockPreview).toHaveBeenCalledTimes(1);
   expect(mockPreview).toHaveBeenCalledWith('one request', 'en');
 });
