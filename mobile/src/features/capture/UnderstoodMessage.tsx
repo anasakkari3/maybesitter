@@ -8,6 +8,7 @@ import { useTimeZone } from '../../i18n/timezone';
 import { fill, type Strings } from '../../i18n/strings';
 import { isolateAuto, stripIsolates } from '../../i18n/bidi';
 import { Btn, Txt } from '../../ui/primitives';
+import { useLayoutMode } from '../../theme/textScale';
 
 /** What a line of the summary opens: an item's card, or a seed's row. */
 export type UnderstoodTarget = { itemId: string } | { seedItemId: string };
@@ -54,6 +55,8 @@ export function UnderstoodMessage(props: Parameters<typeof UnderstoodLines>[0] &
   onRestore?(target: UnderstoodTarget): void;
 }) {
   const { t, p } = useApp();
+  // From the large layout on, «رجّعها» goes under its line, as «عدّل» does.
+  const stacked = useLayoutMode() !== 'normal';
   const { onRestore, ...rest } = props;
   const removed = props.editable ? props.proposal.removedItems ?? [] : [];
   const lines = <UnderstoodLines {...rest} />;
@@ -63,8 +66,8 @@ export function UnderstoodMessage(props: Parameters<typeof UnderstoodLines>[0] &
     {removed.map((entry) => {
       const id = entry.itemId ?? entry.seedItemId!;
       const target: UnderstoodTarget = entry.itemId ? { itemId: entry.itemId } : { seedItemId: entry.seedItemId! };
-      return <View key={`removed-${id}`} testID={`understood-removed-${id}`} style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-        <Txt size={13} color={p.mu} style={{ flex: 1 }}>{fill(t.understoodRemoved, { text: isolateAuto(entry.text) })}</Txt>
+      return <View key={`removed-${id}`} testID={`understood-removed-${id}`} style={stacked ? { alignItems: 'flex-start', gap: 2 } : { flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+        <Txt size={13} color={p.mu} style={stacked ? undefined : { flex: 1 }}>{fill(t.understoodRemoved, { text: isolateAuto(entry.text) })}</Txt>
         {onRestore ? <Btn testID={`understood-restore-${id}`} label={stripIsolates(fill(t.understoodRestoreLabel, { text: entry.text }))}
           onPress={() => onRestore(target)} disabled={props.busy} scaleTo={0.97}
           style={{ minHeight: 44, minWidth: 44, paddingHorizontal: 10, borderRadius: 12, alignItems: 'center', justifyContent: 'center' }}>
@@ -96,6 +99,10 @@ function UnderstoodLines({ proposal, points, edits, onOpen, editable = false, on
 }) {
   const { t, p, lang } = useApp();
   const timezone = useTimeZone();
+  // Beside a line, «عدّل» leaves the words a column one or two words wide at
+  // large text, and an Arabic word broke inside itself («المدي/ر», simulator
+  // AX5 under load); from the large layout on it sits under the line instead.
+  const stacked = useLayoutMode() !== 'normal';
   const lines: Line[] = points.map((point, index) => {
     const kind = kindLabel(point, t);
     const item = point.kind === 'commitment' ? proposal.items.find((candidate) => candidate.itemId === point.itemId) : undefined;
@@ -128,12 +135,14 @@ function UnderstoodLines({ proposal, points, edits, onOpen, editable = false, on
    * correction line says what was heard and offers «مش هيك».
    */
   const controls = (line: Line, n: number, lineElement: React.ReactNode) => <View key={line.key} style={{ alignSelf: 'stretch', gap: 2 }}>
-    <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 4 }}>
-      <View style={{ flex: 1 }}>{lineElement}</View>
+    <View style={stacked ? { alignItems: 'flex-start', gap: 2 } : { flexDirection: 'row', alignItems: 'flex-start', gap: 4 }}>
+      <View style={stacked ? { alignSelf: 'stretch' } : { flex: 1 }}>{lineElement}</View>
       {editable && onEdit ? <Pressable testID={`understood-edit-${n}`} ref={(node) => editRef?.(n, node)}
         accessibilityRole="button" accessibilityLabel={stripIsolates(fill(t.understoodEditLabel, { text: line.text }))}
         accessibilityState={{ disabled: busy }} disabled={busy} onPress={() => onEdit(n)}
         style={({ pressed }) => [{ minHeight: 44, minWidth: 44, paddingHorizontal: 10, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
+          // Under a numbered line, its word starts where the line's words do.
+          stacked && lines.length > 1 && { marginStart: 26 },
           pressed && { backgroundColor: p.sf2 }]}>
         <Txt size={13} weight={600} color={busy ? p.mu : p.ac}>{t.understoodEdit}</Txt>
       </Pressable> : null}
