@@ -373,3 +373,67 @@ test('RB-9 a structured edit cannot give a goal a title over 120 code points', a
     }
   } finally { end(); }
 });
+
+// RB-11 (inspection M3B-A-R2-002): a point keeps its pointId through every
+// conversion, the legacy structured-edit writer's included, or a point the
+// person took out can come back into the save under a new identity.
+test('RB-11 a goal turned possible goal, then commitment, keeps its pointId', async () => {
+  const uid = beginRules();
+  try {
+    const first = await say(uid, 'بدي أنزل بالوزن', { entry: 'goal', locale: 'ar' });
+    const goal = goalsOf(first)[0];
+    assert.ok(goal, show(first.proposal));
+    const asSeed = await editPoint(uid, first, { goalItemId: goal!.goalItemId }, { kind: 'possible_goal' });
+    assert.equal(asSeed.status, 200, show(asSeed.body));
+    const seedAnswer = asSeed.body as Answer;
+    const seed = seedAnswer.proposal!.seeds.find((candidate) => candidate.pointId === goal!.pointId);
+    assert.ok(seed, `the possible goal lost its pointId: ${show(seedAnswer.proposal)}`);
+    const asItem = await editPoint(uid, seedAnswer, { seedItemId: seed!.seedItemId }, { kind: 'commitment' });
+    assert.equal(asItem.status, 200, show(asItem.body));
+    const itemAnswer = asItem.body as Answer;
+    assert.ok(itemAnswer.proposal!.items.some((item) => item.pointId === goal!.pointId), `the commitment lost its pointId: ${show(itemAnswer.proposal)}`);
+    const line = (itemAnswer.proposal as any).understood?.find((point: any) => point.kind === 'commitment');
+    assert.equal(line?.pointId, goal!.pointId, `the understood line lost its pointId: ${show(itemAnswer.proposal)}`);
+  } finally { end(); }
+});
+
+test('RB-11 a commitment turned thought keeps its pointId', async () => {
+  const uid = beginRules();
+  try {
+    const first = await say(uid, 'موعد الدكتور بكرا الساعة 4 المسا', { locale: 'ar' });
+    const item = first.proposal!.items[0]!;
+    const pointId = item.pointId ?? item.itemId;
+    const asSeed = await editPoint(uid, first, { itemId: item.itemId }, { kind: 'idea' });
+    assert.equal(asSeed.status, 200, show(asSeed.body));
+    const next = asSeed.body as Answer;
+    assert.ok(next.proposal!.seeds.some((seed) => seed.pointId === pointId), `the thought lost its pointId: ${show(next.proposal)}`);
+  } finally { end(); }
+});
+
+// RB-12 (inspection M3B-A-R2-003): «عدّل» sends a new kind and new words in one
+// patch; a conversion must take the words, not drop them.
+test('RB-12 a conversion sent with new words uses those words', async () => {
+  const uid = beginRules();
+  try {
+    const habitAnswer = await say(uid, 'بدي أمشي نص ساعة كل يوم الصبح', { entry: 'habit', locale: 'ar' });
+    const habit = habitsOf(habitAnswer)[0]!;
+    const toItem = await editPoint(uid, habitAnswer, { habitItemId: habit.habitItemId }, { kind: 'commitment', text: 'مشوار الصبح' });
+    assert.equal(toItem.status, 200, show(toItem.body));
+    assert.ok((toItem.body as Answer).proposal!.items.some((item) => item.title === 'مشوار الصبح'), `habit → commitment dropped the words: ${show((toItem.body as Answer).proposal)}`);
+
+    const itemAnswer = await say(uid, 'موعد الدكتور بكرا الساعة 4 المسا', { locale: 'ar' });
+    const item = itemAnswer.proposal!.items[0]!;
+    const toHabit = await editPoint(uid, itemAnswer, { itemId: item.itemId }, { kind: 'habit', text: 'رياضة الصبح' });
+    assert.equal(toHabit.status, 200, show(toHabit.body));
+    assert.ok(habitsOf(toHabit.body as Answer).some((candidate) => candidate.title === 'رياضة الصبح'), `commitment → habit dropped the words: ${show((toHabit.body as Answer).proposal)}`);
+
+    const goalAnswer = await say(uid, 'بدي أنزل بالوزن', { entry: 'goal', locale: 'ar' });
+    const goal = goalsOf(goalAnswer)[0]!;
+    const back = await editPoint(uid, goalAnswer, { goalItemId: goal.goalItemId }, { kind: 'possible_goal' });
+    const seedAnswer = back.body as Answer;
+    const seed = seedAnswer.proposal!.seeds[0]!;
+    const toGoal = await editPoint(uid, seedAnswer, { seedItemId: seed.seedItemId }, { kind: 'goal', text: 'أوصل لـ70 كيلو' });
+    assert.equal(toGoal.status, 200, show(toGoal.body));
+    assert.ok(goalsOf(toGoal.body as Answer).some((candidate) => candidate.title === 'أوصل لـ70 كيلو'), `possible goal → goal dropped the words: ${show((toGoal.body as Answer).proposal)}`);
+  } finally { end(); }
+});
