@@ -88,13 +88,16 @@ describe('M3b A1 entries and capability', () => {
     harness.server.handler = kindsUnavailable(chatReply);
     await openProduct(harness, row);
 
-    await waitForRequest(harness, 'GET', /\/capture\/kinds$/);
+    // 80eea528 already renders this legacy path. Its deliberate first failure
+    // is the missing capability request, not an assertion about old UI.
     await screen.findByTestId(legacyControl);
+    await waitForRequest(harness, 'GET', /\/capture\/kinds$/);
   });
 
   it('A1 probe 404: the legacy thought CTA opens plain chat with no entry', async () => {
     harness.server.handler = kindsUnavailable(chatReply);
     await openProduct(harness, 'things-ideas');
+    await screen.findByTestId('seeds-empty-capture');
     await waitForRequest(harness, 'GET', /\/capture\/kinds$/);
     await press('seeds-empty-capture');
     await say();
@@ -120,10 +123,10 @@ describe('M3b A1 entries and capability', () => {
   it('A1 probe without goal: goals keeps today\'s behavior', async () => {
     harness.server.handler = withKinds(['habit', 'thought']);
     await openProduct(harness, 'things-goals');
-    await waitForRequest(harness, 'GET', /\/capture\/kinds$/);
 
-    expect(screen.queryByTestId('goals-add')).toBeNull();
     await screen.findByTestId('goal-add-input');
+    await waitForRequest(harness, 'GET', /\/capture\/kinds$/);
+    expect(screen.queryByTestId('goals-add')).toBeNull();
   });
 
   it('A1 account switch: clears the capability cache and the open entry hint', async () => {

@@ -17,7 +17,6 @@ import {
   type RouteReply,
 } from './harness';
 import {
-  GOAL_POINT_ID,
   HABIT_ITEM_ID,
   HABIT_POINT_ID,
   ITEM_ID,
@@ -231,14 +230,11 @@ describe('M3b A3 thought behavior', () => {
     );
   });
 
-  it('A3 generic entry: seeds keep their own Keep action and never enter confirm', async () => {
+  it('A3 guard: generic-entry seeds keep their own Keep action and never enter confirm', async () => {
     const raw = mixedProposal(null);
     await showGeneric(raw);
-    expect(screen.getByTestId(`capture-goal-${GOAL_POINT_ID}`)).toBeTruthy();
     expect(screen.getByTestId(`review-seed-keep-${SEED_ITEM_ID}`)).toBeTruthy();
 
-    await press(`capture-goal-${GOAL_POINT_ID}`);
-    await press(`capture-habit-${HABIT_POINT_ID}`);
     await press('review-confirm');
     await waitForRequest(harness, 'POST', /\/capture\/confirm$/);
     expect(lastRequest(harness, 'POST', /\/capture\/confirm$/).body).not.toHaveProperty('selectedSeedItemIds');

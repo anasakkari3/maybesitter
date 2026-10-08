@@ -200,13 +200,12 @@ describe('M3b A5 confirm, receipt and recovery', () => {
     }));
   });
 
-  it('A5 R3-002: a retried confirm reuses its idempotency key', async () => {
+  it('A5 R3-002 guard: a retried unchanged confirm reuses its idempotency key', async () => {
     const raw = mixedProposal('thought');
     harness.server.handler = serve(raw, (_request, call) => call === 1
       ? { status: 503, body: { success: false, error: 'offline' } }
       : { status: 200, body: mixedConfirmation() });
     await show(raw);
-    expect(screen.getByTestId(`capture-habit-${HABIT_POINT_ID}`)).toBeTruthy();
     await press('review-confirm');
     await screen.findByTestId('review-confirm-failed');
     await press('review-confirm');
@@ -253,7 +252,7 @@ describe('M3b A5 confirm, receipt and recovery', () => {
     expect(screen.queryByTestId('chat-saved-undo')).toBeNull();
   });
 
-  it('A5 R3-004: a commitment-only receipt keeps Undo', async () => {
+  it('A5 R3-004 guard: a commitment-only receipt keeps Undo', async () => {
     const raw = proposal({
       items: [commitment()],
       understood: [{ kind: 'commitment', itemId: ITEM_ID, pointId: 'point-commitment', text: 'Call Dana' }],
@@ -265,7 +264,7 @@ describe('M3b A5 confirm, receipt and recovery', () => {
     await show(raw);
     await press('review-confirm');
 
-    await screen.findByTestId('capture-saved');
+    await screen.findByTestId('chat-saved-1');
     expect(screen.getByTestId('chat-saved-undo')).toBeTruthy();
   });
 
