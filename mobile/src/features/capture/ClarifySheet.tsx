@@ -4,9 +4,12 @@ import { useApp } from '../../state/AppContext';
 import { family } from '../../theme/fonts';
 import { Btn, Pill, Txt } from '../../ui/primitives';
 import { LiveRegion } from '../../ui/liveRegion';
-import { CLARIFICATION_FREE_TEXT_MAX, optionLabel, questionText } from './clarificationCopy';
-import { CIVIL_ZONE, civilDate, formatDate } from '../../i18n/format';
+import { CLARIFICATION_FREE_TEXT_MAX, freeSlotWords, optionLabel, questionText } from './clarificationCopy';
+import { CIVIL_ZONE, civilDate, formatDate, formatRelativeDay } from '../../i18n/format';
+import { useTimeZone } from '../../i18n/timezone';
+import { fill } from '../../i18n/strings';
 import type { CaptureProposalItem } from '../../api/schemas/capture';
+import { instantForLocalDateTime } from './localInstant';
 
 /**
  * The one question, rendered from keys (UC-2.5, #165).
@@ -45,12 +48,23 @@ export function ClarifySheet({
   onSkip(): void;
 }) {
   const { t, tr, p, rtl, script, lang } = useApp();
+  const timeZone = useTimeZone();
   const [freeText, setFreeText] = useState('');
   const strings = t as unknown as Record<string, string>;
   const question = item.clarification;
   if (!question) return null;
 
-  const heading = questionText(question.questionKey, question.params, strings, (key) => formatDate(civilDate(key), 'weekday', { locale: lang, timeZone: CIVIL_ZONE }));
+  // A day as the rows say it: «اليوم», «بكرا», a weekday, or a date past a week.
+  const relativeDay = (localDate: string) => {
+    const instant = instantForLocalDateTime(`${localDate}T12:00`, timeZone);
+    return instant ? formatRelativeDay(instant, { locale: lang, timeZone }) : null;
+  };
+  // Free times (M4a R002): the question says these are times the person is
+  // free, and each chip names its day and its hour.
+  const offersFreeSlots = question.options.some((option) => option.labelKey === 'freeSlot');
+  const heading = offersFreeSlots
+    ? fill(t.yFreeSlotsAsk, { title: question.params.title ?? item.title })
+    : questionText(question.questionKey, question.params, strings, (key) => formatDate(civilDate(key), 'weekday', { locale: lang, timeZone: CIVIL_ZONE }));
   // A key this build has no words for. Rendering the key, or the raw params,
   // would put an internal token in front of somebody.
   if (!heading) return null;
@@ -76,13 +90,19 @@ export function ClarifySheet({
 
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
         {question.options.map((option) => {
-          const label = optionLabel(option.labelKey, option.labelParams, strings);
+          const slot = option.labelKey === 'freeSlot' ? freeSlotWords(option.value, relativeDay, strings) : null;
+          const label = option.labelKey === 'freeSlot' ? slot?.label ?? null : optionLabel(option.labelKey, option.labelParams, strings);
+          // A chip with a date or a time this build cannot read is left out:
+          // a time nobody can name is not one to offer.
           if (!label) return null;
+          // A day-part chip applies a time on a day; its label says which day,
+          // so «الصبح» is not heard as tomorrow's when it is today's (M4A-R9-003).
+          const day = !slot && option.value.localDate ? relativeDay(option.value.localDate) : null;
           return (
             <Btn
               key={option.optionId}
               testID={`clarify-option-${option.optionId}`}
-              label={label}
+              label={slot ? slot.a11y : day ? `${label}, ${day}` : label}
               disabled={busy}
               accessibilityRole="radio"
               onPress={() => onAnswer({ optionId: option.optionId })}

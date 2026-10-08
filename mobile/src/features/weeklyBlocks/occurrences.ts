@@ -53,9 +53,21 @@ export function occurrencesAsBusy(items: readonly WeeklyBlockOccurrence[]): Devi
 
 /** The occurrences for these day keys. Empty while loading or when the read fails: a fixed block is context, not a gate. */
 export function useWeeklyOccurrences(keys: readonly string[], timeZone: string): WeeklyBlockOccurrence[] {
+  return useWeeklyOccurrencesState(keys, timeZone).items;
+}
+
+const NO_OCCURRENCES: WeeklyBlockOccurrence[] = [];
+
+/**
+ * The same read with its state (M4a). Free time *is* gated on it: a weekly
+ * block that has not loaded is not free time (M4A-R7-002).
+ */
+export function useWeeklyOccurrencesState(keys: readonly string[], timeZone: string): {
+  items: WeeklyBlockOccurrence[]; isPending: boolean; isError: boolean;
+} {
   const first = keys[0] ?? '';
   const last = keys[keys.length - 1] ?? '';
   const window = useMemo(() => dayWindow([first, last], timeZone), [first, last, timeZone]);
   const query = useWeeklyBlockOccurrences(window.from, window.to);
-  return query.data ?? [];
+  return { items: query.data ?? NO_OCCURRENCES, isPending: query.isPending, isError: query.isError };
 }

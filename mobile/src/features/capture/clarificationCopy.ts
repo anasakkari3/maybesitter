@@ -10,6 +10,8 @@
  * UC-2.4 (#164)'s edit sheet, which can express anything a fixed question
  * cannot — and never renders the key itself, which is an internal token.
  */
+import { ltr } from '../../i18n/strings';
+
 
 /** The longest free-text answer the endpoint reads. Mirrors the contract. */
 export const CLARIFICATION_FREE_TEXT_MAX = 200;
@@ -103,4 +105,38 @@ export function optionLabel(
     return render(key, rest, strings);
   }
   return render(OPTION_KEY[labelKey], labelParams, strings);
+}
+
+const LOCAL_DATE = /^(\d{4})-(\d{2})-(\d{2})$/;
+const LOCAL_TIME = /^([01]\d|2[0-3]):([0-5]\d)$/;
+
+/** A real calendar date (`2030-02-30` is not one), as `YYYY-MM-DD`. */
+function isRealDate(value: string): boolean {
+  const match = LOCAL_DATE.exec(value);
+  if (!match) return false;
+  const [year, month, day] = [Number(match[1]), Number(match[2]), Number(match[3])];
+  const date = new Date(Date.UTC(year, month - 1, day));
+  return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day;
+}
+
+/**
+ * A free time's words (M4a, WIRE-M4a): «بكرا 12:00» on the chip and «وقت
+ * فاضي: بكرا الساعة 12:00» for a screen reader, the hour as one left-to-right
+ * unit. `freeSlot`'s `labelParams` are values, not words, so the generic
+ * substitution — which would print a raw date — is never used for it. A date
+ * or an hour that does not parse returns null and the chip is left out.
+ */
+export function freeSlotWords(
+  value: { localDate?: string | undefined; localTime?: string | undefined },
+  relativeDay: (localDate: string) => string | null,
+  strings: Record<string, string>,
+): { label: string; a11y: string } | null {
+  const { localDate, localTime } = value;
+  if (!localDate || !localTime || !isRealDate(localDate) || !LOCAL_TIME.test(localTime)) return null;
+  const day = relativeDay(localDate);
+  if (!day) return null;
+  const time = ltr(localTime);
+  const label = render('clarifyFreeSlot', { day, time }, strings);
+  const a11y = render('yFreeSlotA11y', { day, time }, strings);
+  return label && a11y ? { label, a11y } : null;
 }

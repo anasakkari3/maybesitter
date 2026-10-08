@@ -19,6 +19,8 @@ import { WeeklyOccurrenceRow } from '../weeklyBlocks/WeeklyOccurrenceRow';
 import { dayAndTime } from '../plan/savedPlacement';
 import type { DeviceBusyBlock } from './busyBlocks';
 import { HOUR_HEIGHT, hourWindow, minuteOfDay, placeSpans, yOf, type TimelineSpan } from './dayTimeline';
+import { GapRow } from './FreeTimeRows';
+import type { Gap } from './freeTime';
 
 /**
  * The selected day on the Plan tab (Stitch `02-plan`): the proportional
@@ -42,7 +44,9 @@ export type PlanRow =
     conflict: DeviceBusyBlock | null;
   }
   | { kind: 'busy'; key: string; at: number; block: DeviceBusyBlock; prep: MeetingPrepTarget | null }
-  | { kind: 'weekly'; key: string; at: number; occurrence: WeeklyBlockOccurrence };
+  | { kind: 'weekly'; key: string; at: number; occurrence: WeeklyBlockOccurrence }
+  /** A free stretch of an hour or more, drawn quietly between the rows in «الكل» (M4a R003). */
+  | { kind: 'gap'; key: string; at: number; gap: Gap };
 
 /** The gutter the hour labels sit in, at the start edge. */
 const GUTTER = 52;
@@ -198,10 +202,19 @@ function WeeklyCard({ occurrence, height }: { occurrence: WeeklyBlockOccurrence;
  * commitments are markers at their time. `nowIso` draws the now-line when the
  * day is today.
  */
-export function DayTimeline({ rows, day, nowIso }: { rows: readonly PlanRow[]; day: string; nowIso: string | null }) {
+export function DayTimeline({ rows: allRows, day, nowIso }: { rows: readonly PlanRow[]; day: string; nowIso: string | null }) {
   const { p } = useApp();
   const timeZone = useTimeZone();
   const scale = useTextScale();
+  // Free stretches sit behind the lanes: they are the space between things,
+  // so they take no lane of their own and never narrow a commitment.
+  const gaps = allRows.filter((row): row is Extract<PlanRow, { kind: 'gap' }> => row.kind === 'gap');
+  const rows = allRows.filter((row): row is Exclude<PlanRow, { kind: 'gap' }> => row.kind !== 'gap');
+  const gapSpans = gaps.map((row) => ({
+    row,
+    start: minuteOfDay(new Date(row.gap.start).toISOString(), day, timeZone),
+    end: minuteOfDay(new Date(row.gap.end).toISOString(), day, timeZone),
+  }));
   const spans: TimelineSpan[] = rows.map(row => {
     if (row.kind === 'commitment') {
       return {
@@ -217,7 +230,7 @@ export function DayTimeline({ rows, day, nowIso }: { rows: readonly PlanRow[]; d
     const endAt = row.kind === 'busy' ? row.block.endAt : row.occurrence.endAt;
     return { key: row.key, start: minuteOfDay(startAt, day, timeZone), end: minuteOfDay(endAt, day, timeZone), minVisual: 58 * scale };
   });
-  const { from, to } = hourWindow(spans);
+  const { from, to } = hourWindow([...spans, ...gapSpans.map(({ row, start, end }) => ({ key: row.key, start, end, minVisual: 0 }))]);
   const placed = placeSpans(spans, from);
   const byKey = new Map(rows.map(row => [row.key, row]));
   const gridHeight = (to - from) * HOUR_HEIGHT;
@@ -243,6 +256,11 @@ export function DayTimeline({ rows, day, nowIso }: { rows: readonly PlanRow[]; d
           </View>
         ) : null}
         <View style={{ position: 'absolute', top: 0, bottom: 0, start: GUTTER, end: 0 }}>
+          {gapSpans.map(({ row, start, end }) => (
+            <View key={row.key} style={{ position: 'absolute', top: yOf(start, from), start: 0, end: 4, zIndex: 0 }}>
+              <GapRow gap={row.gap} day={day} quiet height={Math.max(44, yOf(end, from) - yOf(start, from))} />
+            </View>
+          ))}
           {placed.map(entry => {
             const row = byKey.get(entry.key)!;
             const frame = {
@@ -277,14 +295,16 @@ export function DayTimeline({ rows, day, nowIso }: { rows: readonly PlanRow[]; d
 }
 
 /** The same rows as a list in time order, for the large text sizes. */
-export function DayAgenda({ rows }: { rows: readonly PlanRow[] }) {
+export function DayAgenda({ rows, day }: { rows: readonly PlanRow[]; day: string }) {
   return (
     <View testID="calendar-agenda-list" style={{ gap: 10 }}>
       {rows.map(row => row.kind === 'commitment'
         ? <CommitmentCard key={row.key} row={row} agenda />
         : row.kind === 'busy'
           ? <BusyCard key={row.key} row={row} />
-          : <WeeklyOccurrenceRow key={row.key} occurrence={row.occurrence} testID={`calendar-weekly-${row.occurrence.weeklyBlockId}`} />)}
+          : row.kind === 'gap'
+            ? <GapRow key={row.key} gap={row.gap} day={day} quiet />
+            : <WeeklyOccurrenceRow key={row.key} occurrence={row.occurrence} testID={`calendar-weekly-${row.occurrence.weeklyBlockId}`} />)}
     </View>
   );
 }

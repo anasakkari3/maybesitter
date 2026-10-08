@@ -41,6 +41,17 @@ export interface CommitmentView {
    * differ (post-UAT FX1). Absent for anything no saved day holds.
    */
   plannedAt?: string | null;
+  /** The saved slot's end, beside `plannedAt` (M4a: what the slot occupies). */
+  plannedEnd?: string | null;
+  /**
+   * The fields the server's occupancy rule reads (M4a, `features/calendar/
+   * freeTime.ts`): its kind, its own `dueAt` / `remindAt` and `endAt`.
+   * Optional so a view built by hand occupies nothing.
+   */
+  timeKind?: string;
+  dueAt?: string | null;
+  remindAt?: string | null;
+  endAt?: string | null;
   /**
    * The commitment names a day and no hour (`TimeSpec.allDay`): `shownAt` is
    * that day's local midnight, which nobody chose. Show its day, never «00:00»
@@ -113,6 +124,10 @@ export function toViewModel(commitment: Commitment, now: string): CommitmentView
     importance: IMPORTANCE[commitment.priority.level],
     status,
     shownAt,
+    timeKind: commitment.timeSpec.kind,
+    dueAt: commitment.timeSpec.dueAt,
+    remindAt: commitment.timeSpec.remindAt,
+    endAt: commitment.timeSpec.endAt,
     allDay,
     allDayEvent: allDay && commitment.timeSpec.kind === 'scheduled_event',
     // The server's own test (`eventTitles.ts`): an event noun heads the title.
