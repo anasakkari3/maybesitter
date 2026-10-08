@@ -293,6 +293,82 @@ describe('a sync running when disconnect is pressed', () => {
     expect(deviceCalendar.fetchBusyBlocks).toHaveBeenCalledTimes(1);
     expect(calendarEndpoints.postCalendarBusy).toHaveBeenCalledTimes(1);
   });
+
+  function captureForeground(): () => void {
+    const listeners: ((state: AppStateStatus) => void)[] = [];
+    jest.spyOn(AppState, 'addEventListener').mockImplementation(((type: string, listener: (state: AppStateStatus) => void) => {
+      if (type === 'change') listeners.push(listener);
+      return { remove: () => {} };
+    }) as never);
+    return () => { for (const listener of listeners) listener('active'); };
+  }
+
+  // M4A-R5-REV-001: the switch only invalidates the trust query, so for a
+  // moment after a disconnect every hook still holds the consent as on.
+  it('starts no pass after the disconnect while the trust answer has not caught up', async () => {
+    const foreground = captureForeground();
+    const refetch = deferred<ReturnType<typeof trustBody>>();
+    jest.mocked(trustEndpoints.getTrust)
+      .mockResolvedValueOnce(trustBody(true) as never)
+      .mockReturnValue(refetch.promise as never);
+
+    await show();
+    await waitFor(() => expect(calendarEndpoints.postCalendarBusy).toHaveBeenCalledTimes(1));
+    await disconnectAndConfirm();
+    await waitFor(() => expect(screen.queryByTestId('calendar-disconnect-result')).not.toBeNull());
+    expect(jest.mocked(trustEndpoints.getTrust).mock.calls.length).toBeGreaterThan(1);
+
+    foreground();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(deviceCalendar.fetchBusyBlocks).toHaveBeenCalledTimes(1);
+    expect(calendarEndpoints.postCalendarBusy).toHaveBeenCalledTimes(1);
+    expect(await AsyncStorage.getItem(BUSY_BLOCKS_KEY)).toBeNull();
+    refetch.resolve(trustBody(false));
+  });
+
+  it('syncs again when the calendar is turned back on after a disconnect', async () => {
+    await show();
+    await waitFor(() => expect(calendarEndpoints.postCalendarBusy).toHaveBeenCalledTimes(1));
+    jest.mocked(trustEndpoints.getTrust).mockResolvedValue(trustBody(false) as never);
+    await disconnectAndConfirm();
+    await waitFor(() => expect(screen.getByTestId('calendar-reading-benefit').props.children)
+      .toBe(en.calendarReadBenefitOff));
+
+    jest.mocked(trustEndpoints.getTrust).mockResolvedValue(trustBody(true) as never);
+    await client.invalidateQueries();
+    await waitFor(() => expect(calendarEndpoints.postCalendarBusy).toHaveBeenCalledTimes(2));
+  });
+
+  it('syncs again after a disconnect that could not reach the account, whose switch is still on', async () => {
+    const foreground = captureForeground();
+    jest.mocked(calendarEndpoints.deleteCalendarBusy).mockRejectedValue(new Error('offline') as never);
+    await show();
+    await waitFor(() => expect(calendarEndpoints.postCalendarBusy).toHaveBeenCalledTimes(1));
+    await disconnectAndConfirm();
+    await waitFor(() => expect(screen.queryByTestId('calendar-disconnect-result')).not.toBeNull());
+
+    foreground();
+    await waitFor(() => expect(calendarEndpoints.postCalendarBusy).toHaveBeenCalledTimes(2));
+  });
+
+  it('keeps nothing from a read that was running when the consent went off', async () => {
+    const read = deferred<typeof BLOCK[]>();
+    jest.mocked(deviceCalendar.fetchBusyBlocks).mockReturnValue(read.promise);
+    const before = await AsyncStorage.getItem(BUSY_BLOCKS_KEY);
+
+    await show();
+    await waitFor(() => expect(deviceCalendar.fetchBusyBlocks).toHaveBeenCalled());
+    // Switched off elsewhere (the Trust Center), not by this screen.
+    jest.mocked(trustEndpoints.getTrust).mockResolvedValue(trustBody(false) as never);
+    await client.invalidateQueries();
+    await waitFor(() => expect(screen.getByTestId('calendar-reading-benefit').props.children)
+      .toBe(en.calendarReadBenefitOff));
+    read.resolve([BLOCK]);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(calendarEndpoints.postCalendarBusy).not.toHaveBeenCalled();
+    expect(await AsyncStorage.getItem(BUSY_BLOCKS_KEY)).toBe(before);
+  });
 });
 
 describe('what the screen says without being asked', () => {

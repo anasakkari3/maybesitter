@@ -84,11 +84,20 @@ let activePass: Promise<unknown> | null = null;
 let passGeneration = 0;
 /** Disconnects running: no pass starts while one is. */
 let disconnecting = 0;
+/**
+ * The account whose calendar was disconnected, until a trust answer saying
+ * its consent is off reaches the hooks (M4A-R5-REV-001). The consent switch
+ * only invalidates the trust query, so for a moment after a disconnect every
+ * hook still holds `consented: true`; a foreground pass in that moment would
+ * put the deleted busy times back on the phone.
+ */
+let withdrawnFor: string | null = null;
 
 export function resetBusySyncForTests(): void {
   passInFlight = false;
   activePass = null;
   disconnecting = 0;
+  withdrawnFor = null;
 }
 
 /**
@@ -169,22 +178,30 @@ export function useBusyCalendar(): BusyCalendarState {
   const trustAction = useTrustAction();
 
   const consented = trust.data?.trust?.calendarConsent === true;
+  const answeredOff = trust.data?.trust?.calendarConsent === false;
   // A ref so the `AppState` listener below is registered once rather than
   // re-registered every time the trust query answers, and written in an effect
   // rather than during render so a discarded render cannot leave the sync
   // holding a consent value the user never saw.
   const latest = useRef({ uid, consented });
-  useEffect(() => { latest.current = { uid, consented }; });
+  useEffect(() => {
+    latest.current = { uid, consented };
+    // The server's answer has caught up with the disconnect: from here on the
+    // consent itself keeps passes from starting, and turning it back on syncs.
+    if (answeredOff && withdrawnFor === uid) withdrawnFor = null;
+  });
 
   const syncNow = useCallback(async (trigger: BusySyncTrigger): Promise<BusySyncOutcome | null> => {
-    if (passInFlight || disconnecting > 0) return null;
     const current = latest.current;
+    if (passInFlight || disconnecting > 0 || withdrawnFor === current.uid) return null;
     const generation = passGeneration;
     // The signed-in account, from the repository (it changes before React's
     // state does), and the hook's own view of it; both must still be the
     // account this pass began for (M4A-REV-001, R2-REV-001).
-    // And no disconnect since it began (M4A-R4-REV-001).
+    // And no disconnect since it began, and the consent still on
+    // (M4A-R4-REV-001, R5-REV-001).
     const stillCurrent = () => passGeneration === generation
+      && latest.current.consented
       && latest.current.uid === current.uid
       && (current.uid === 'signed-out' || getAuthRepository()?.currentUser()?.uid === current.uid);
     passInFlight = true;
@@ -228,6 +245,7 @@ export function useBusyCalendar(): BusyCalendarState {
     // this is done (M4A-R4-REV-001).
     passGeneration += 1;
     disconnecting += 1;
+    withdrawnFor = current.uid;
     try {
       // The phone first, and unconditionally. Whatever the network does, the
       // person who pressed this sees their busy times gone from the screen.
@@ -244,6 +262,9 @@ export function useBusyCalendar(): BusyCalendarState {
         await trustAction.mutateAsync({ type: 'set_calendar_consent', granted: false });
         return { local: true, server: true };
       } catch {
+        // The switch is still on: syncing resumes, as it always has when the
+        // account could not be reached.
+        withdrawnFor = null;
         return { local: true, server: false };
       }
     } finally {
