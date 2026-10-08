@@ -1,5 +1,5 @@
 import React from 'react';
-import { View } from 'react-native';
+import { AccessibilityInfo, View } from 'react-native';
 import type { CaptureGoalProposal, CaptureHabitProposal, CaptureSeedProposal, HabitCadence } from '../../api/schemas/capture';
 import { fill } from '../../i18n/strings';
 import { isolateAuto, ltr } from '../../i18n/bidi';
@@ -83,6 +83,19 @@ export function HabitProposalCard({ habit, selected, onToggle, onAnswer, busy, r
   };
   const questionText = question?.field === 'frequency' ? t.xHabitAskFrequency
     : question?.field === 'duration' ? t.xHabitAskDuration : t.xHabitAskKind;
+  // After an answer redraws the card, the screen reader goes to what is there
+  // now — the next question, or the finished rhythm — not back to the top
+  // (DESIGN-M3b a11y 5). Not on first draw: the card is read in its place.
+  const shown = question ? question.field : habit.explanation ? 'explanation' : 'none';
+  const questionRef = React.useRef<View>(null);
+  const explanationRef = React.useRef<View>(null);
+  const lastShown = React.useRef(shown);
+  React.useEffect(() => {
+    if (lastShown.current === shown) return;
+    lastShown.current = shown;
+    const target = shown === 'explanation' ? explanationRef.current : shown === 'none' ? null : questionRef.current;
+    if (target) AccessibilityInfo.sendAccessibilityEvent(target, 'focus');
+  }, [shown]);
   const answer = (value: number | string) => {
     if (question?.field === 'frequency') onAnswer({ cadence: { kind: 'weekly_count', count: value as number } });
     else if (question?.field === 'duration') onAnswer({ durationMinutes: value as number });
@@ -92,11 +105,15 @@ export function HabitProposalCard({ habit, selected, onToggle, onAnswer, busy, r
     <PointCard testID={`capture-habit-${habit.pointId}`} kind={t.xKindHabit} title={habit.title}
       selected={selected} disabled={incomplete} disabledNote={incomplete ? t.xHabitIncompleteNote : undefined} onToggle={onToggle}>
       {habit.explanation && !question ? (
-        <Txt size={13} color={p.tx} testID={`capture-habit-explanation-${habit.pointId}`} style={{ alignSelf: 'flex-start' }}>{habit.explanation}</Txt>
+        <View ref={explanationRef} accessible style={{ alignSelf: 'flex-start' }}>
+          <Txt size={13} color={p.tx} testID={`capture-habit-explanation-${habit.pointId}`}>{habit.explanation}</Txt>
+        </View>
       ) : null}
       {question ? (
         <View testID={`capture-habit-question-${habit.pointId}`} style={{ gap: 8, alignItems: 'flex-start' }}>
-          <Txt size={13} weight={600}>{questionText}</Txt>
+          <View ref={questionRef} accessible>
+            <Txt size={13} weight={600}>{questionText}</Txt>
+          </View>
           <View accessibilityRole="radiogroup" accessibilityLabel={questionText} style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
             {question.options.map((value) => (
               <Pill

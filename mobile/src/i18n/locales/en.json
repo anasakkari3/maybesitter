@@ -1930,6 +1930,9 @@
   "xRefusedHabit": "Something in the habit isn't complete.",
   "xRefusedHabitAction": "Finish it",
   "xRefusedKeyReused": "What you chose changed since the last try. Check it and save.",
+  "xRefusedGoalInvalid": "I couldn't find the goal you picked, so nothing was saved.",
+  "xRefusedSeedInvalid": "I couldn't find the thought you picked, so nothing was saved.",
+  "xRefusedSeedAction": "Drop the thought, save the rest",
   "xHabitsEmptyTitle": "No habits yet",
   "xHabitsEmptyBody": "Tell me what you want to do regularly, and I'll suggest a rhythm you review before it's saved."
 }

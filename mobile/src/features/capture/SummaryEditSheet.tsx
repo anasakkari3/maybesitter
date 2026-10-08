@@ -13,7 +13,20 @@ import { MAX_TITLE_LENGTH } from './captureMachine';
 import { instantForLocalDateTime, localDateTimeFor } from './localInstant';
 
 export type PointKind = NonNullable<CaptureProposalEdit['change']['kind']>;
-const KINDS: readonly PointKind[] = ['commitment', 'possible_goal', 'consideration', 'idea', 'waiting_for'];
+const SEED_KINDS: readonly PointKind[] = ['possible_goal', 'consideration', 'idea', 'waiting_for'];
+
+/**
+ * The kinds a line can be, from what it is now (R006): its own kind, checked,
+ * and only the moves the server makes. A habit goes back to a commitment; a
+ * goal back to a «possible goal»; a commitment becomes a habit, and a possible
+ * goal a goal, only where those kinds are offered. A goal is never a dated act.
+ */
+export function kindOptions(current: PointKind, offered: { habit: boolean; goal: boolean }): PointKind[] {
+  if (current === 'habit') return ['habit', 'commitment'];
+  if (current === 'goal') return ['goal', 'possible_goal'];
+  if (current === 'commitment') return ['commitment', ...(offered.habit ? ['habit' as const] : []), ...SEED_KINDS];
+  return ['commitment', ...SEED_KINDS, ...(current === 'possible_goal' && offered.goal ? ['goal' as const] : [])];
+}
 
 function kindName(kind: PointKind, t: Strings): string {
   switch (kind) {
@@ -32,8 +45,10 @@ function kindName(kind: PointKind, t: Strings): string {
  * — for a commitment — its time, changed together and sent as one patch.
  * Nothing changed is nothing sent. Proposal-only: the confirm still decides.
  */
-export function SummaryEditSheet({ kind: startKind, text: startText, at: startAt, draft, busy = false, onSave, onCancel }: {
+export function SummaryEditSheet({ kind: startKind, offered = { habit: false, goal: false }, text: startText, at: startAt, draft, busy = false, onSave, onCancel }: {
   kind: PointKind;
+  /** Whether habits and goals are offered for this proposal (M3b). */
+  offered?: { habit: boolean; goal: boolean };
   text: string;
   /** The time the line shows now; null for none. */
   at: string | null;
@@ -56,12 +71,14 @@ export function SummaryEditSheet({ kind: startKind, text: startText, at: startAt
     if (heading.current) AccessibilityInfo.sendAccessibilityEvent(heading.current, 'focus');
   }, []);
 
+  // A habit turned commitment asks its day and time afterwards (R006), so it takes none here.
+  const timed = kind === 'commitment' && startKind !== 'habit';
   const save = () => {
     const change: CaptureProposalEdit['change'] = {};
     if (kind !== startKind) change.kind = kind;
     if (text.trim() && text.trim() !== startText.trim()) change.text = text.trim();
     // A time belongs to a commitment only; a seed carries none.
-    if (at !== undefined && kind === 'commitment' && at !== startAt) change.time = { at, timeZone: timezone };
+    if (at !== undefined && timed && at !== startAt) change.time = { at, timeZone: timezone };
     if (Object.keys(change).length === 0) { onCancel(); return; }
     onSave(change);
   };
@@ -74,7 +91,7 @@ export function SummaryEditSheet({ kind: startKind, text: startText, at: startAt
 
       <Txt size={13} color={p.mu}>{t.understoodEditKind}</Txt>
       <View accessibilityRole="radiogroup" style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-        {KINDS.map((option) => (
+        {kindOptions(startKind, offered).map((option) => (
           <Btn key={option} testID={`understood-edit-kind-${option}`} label={kindName(option, t)}
             accessibilityRole="radio" accessibilityState={{ checked: option === kind, disabled: busy }} disabled={busy} onPress={() => setKind(option)} scaleTo={0.97}
             style={{ backgroundColor: option === kind ? p.acs : p.sf2, borderRadius: 999, paddingVertical: 10, paddingHorizontal: 14, minHeight: 44, justifyContent: 'center' }}>
@@ -90,7 +107,7 @@ export function SummaryEditSheet({ kind: startKind, text: startText, at: startAt
         editable={!busy} maxLength={MAX_TITLE_LENGTH} multiline
         style={{ backgroundColor: p.sf2, borderRadius: 18, paddingVertical: 12, paddingHorizontal: 16, fontSize: 16, minHeight: 56, color: p.tx, fontFamily: family(400, script), textAlign: rtl ? 'right' : 'left' }} />
 
-      {kind === 'commitment' ? <>
+      {timed ? <>
         <Txt size={13} color={p.mu}>{t.understoodEditTime}</Txt>
         <SummaryTimeField testID="understood-edit-time" value={at === undefined ? startAt : at} timeZone={timezone} onValueChange={setAt} disabled={busy} />
         <Pill testID="understood-edit-time-clear" label={t.understoodEditNoTime} onPress={() => setAt(null)} disabled={busy} kind="soft" size={14} pad={12} />

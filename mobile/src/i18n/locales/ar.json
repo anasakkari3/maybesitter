@@ -1930,6 +1930,9 @@
   "xRefusedHabit": "في إشي بالعادة مش مكتمل.",
   "xRefusedHabitAction": "كمّلها",
   "xRefusedKeyReused": "تغيّر اللي اخترته من آخر مرّة. راجعه واحفظ.",
+  "xRefusedGoalInvalid": "ما لقيت الهدف اللي اخترته، فما حفظت إشي.",
+  "xRefusedSeedInvalid": "ما لقيت الفكرة اللي اخترتها، فما حفظت إشي.",
+  "xRefusedSeedAction": "شيل الفكرة واحفظ الباقي",
   "xHabitsEmptyTitle": "لسّا ما في عادات",
   "xHabitsEmptyBody": "احكيلي شو بدك تعمل بانتظام، وأنا بحطّلك إيقاع تراجعه قبل ما ينحفظ."
 }

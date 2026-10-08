@@ -908,6 +908,30 @@ describe('M3b: habits, goals and thoughts in the save', () => {
     expect(state.selected).toEqual([]);
   });
 
+  it('R2-011: a deselected habit converted to a commitment that still needs a time stays out once the time is given', () => {
+    let state = captureReducer(chatState(withHabit), { type: 'togglePoint', pointId: 'P' });
+    const pending = proposal({
+      items: [{ itemId: 'i-new', pointId: 'P', title: 'Walk', resolvedTime: null, needsClarification: true }],
+      habits: [], goals: [], revision: 2,
+    });
+    state = captureReducer(state, { type: 'editAnswered', answer: chat(pending) });
+    expect(state.deselectedPoints).toEqual(['P']);
+    // Completed by hand: confirmable now, and still the person's «out».
+    const byHand = captureReducer(state, { type: 'editItem', itemId: 'i-new', edit: { title: 'Walk', localDateTime: '2030-01-08T09:00' } });
+    expect(confirmableItems(byHand.proposal, byHand.edits)).toEqual(['i-new']);
+    expect(byHand.selected).toEqual([]);
+    expect(confirmPayload(byHand).itemIds).toEqual([]);
+    // The choice now lives on the commitment card, which the person can tick again.
+    expect(byHand.deselectedPoints).toEqual([]);
+    expect(captureReducer(byHand, { type: 'toggleItem', itemId: 'i-new' }).selected).toEqual(['i-new']);
+    // Completed by the server's next answer instead: the same.
+    const timed = proposal({
+      items: [{ itemId: 'i-new', pointId: 'P', title: 'Walk', resolvedTime: '2030-01-08T07:00:00.000Z', needsClarification: false }],
+      habits: [], goals: [], revision: 3,
+    });
+    expect(captureReducer(state, { type: 'editAnswered', answer: chat(timed) }).selected).toEqual([]);
+  });
+
   it('a point the person never touched is selected by default after a conversion', () => {
     const converted = proposal({
       items: [{ itemId: 'i-new', pointId: 'P', title: 'Walk', resolvedTime: '2030-01-08T07:00:00.000Z', needsClarification: false }],

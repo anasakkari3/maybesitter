@@ -846,6 +846,33 @@ function sameServerFacts(a: CaptureProposal['items'][number], b: CaptureProposal
  * (today's server mints fresh ids every turn) — starts as a new proposal does:
  * every confirmable item selected, no edits, weekly by default.
  */
+/**
+ * The points still taken out after a change (R2-011). A confirmable
+ * commitment keeps its choice in `selected`; every other point the person took
+ * out — a habit, a goal, a thought, or a commitment that cannot be saved yet —
+ * is held here by its logical id, so it does not rejoin the save when it is
+ * converted or completed later.
+ */
+function heldOut(out: Iterable<string>, proposal: CaptureProposal, confirmable: string[]): string[] {
+  const present = new Set(pointsOf(proposal).map((point) => point.pointId));
+  const inSelected = new Set(confirmable.map((id) => pointIdFor(proposal, id)));
+  return Array.from(new Set(out)).filter((pointId) => present.has(pointId) && !inSelected.has(pointId));
+}
+
+/**
+ * The selection after an item became confirmable in place (a hand edit, an
+ * answered question): it joins the save as every confirmable item starts
+ * selected (#503) — unless the person took that point out before (R2-011).
+ */
+function joinedSelection(state: CaptureState, proposal: CaptureProposal, before: string[], after: string[]): Pick<CaptureState, 'selected' | 'deselectedPoints'> {
+  const held = new Set(state.deselectedPoints);
+  const selected = [
+    ...state.selected.filter((id) => after.includes(id)),
+    ...after.filter((id) => !before.includes(id) && !state.selected.includes(id) && !held.has(pointIdFor(proposal, id))),
+  ];
+  return { selected, deselectedPoints: heldOut(held, proposal, after) };
+}
+
 function carriedInto(state: CaptureState, next: CaptureProposal): Pick<CaptureState, 'selected' | 'edits' | 'onceOnly' | 'goalUnlinked' | 'deselectedPoints'> {
   const before = new Map((state.proposal?.items ?? []).map((item) => [item.itemId, item]));
   const wasConfirmable = confirmableItems(state.proposal, state.edits);
@@ -861,19 +888,19 @@ function carriedInto(state: CaptureState, next: CaptureProposal): Pick<CaptureSt
     if (old && edit && sameServerFacts(old, item)) edits[item.itemId] = edit;
   }
   const defaults = defaultSelectedItems(next, edits);
-  const selected = confirmableItems(next, edits).filter((id) => {
+  const confirmableNext = confirmableItems(next, edits);
+  const selected = confirmableNext.filter((id) => {
     if (wasConfirmable.includes(id)) return state.selected.includes(id);
-    // A new family id for a point the person already knew: their choice follows the point.
     const pointId = pointIdFor(next, id);
-    if (pointId !== id && knownPoints.has(pointId)) return !out.has(pointId);
+    // A point the person took out stays out, whichever family it is in now (R2-011).
+    if (knownPoints.has(pointId) && out.has(pointId)) return false;
+    // A new family id for a point the person already knew: their choice follows the point.
+    if (pointId !== id && knownPoints.has(pointId)) return true;
     return defaults.includes(id);
   });
   const onceOnly = state.onceOnly.filter((id) => next.items.some((item) => item.itemId === id && item.weeklyBlock));
   const goalUnlinked = state.goalUnlinked.filter((id) => next.items.some((item) => item.itemId === id && item.goalLink));
-  const nonCommitment = new Set([...habitsOf(next).map((habit) => habit.pointId), ...goalsOf(next).map((goal) => goal.pointId),
-    ...(next.seeds ?? []).map((seed) => seed.pointId ?? seed.seedItemId)]);
-  const deselectedPoints = Array.from(out).filter((pointId) => nonCommitment.has(pointId));
-  return { selected, edits, onceOnly, goalUnlinked, deselectedPoints };
+  return { selected, edits, onceOnly, goalUnlinked, deselectedPoints: heldOut(out, next, confirmableNext) };
 }
 
 /**
@@ -1090,11 +1117,7 @@ export function captureReducer(state: CaptureState, event: CaptureEvent): Captur
       if (!state.proposal || event.proposal.proposalId !== state.proposal.proposalId) return state;
       const before = confirmableItems(state.proposal, state.edits);
       const after = confirmableItems(event.proposal, state.edits);
-      const selected = [
-        ...state.selected.filter((id) => after.includes(id)),
-        ...after.filter((id) => !before.includes(id) && !state.selected.includes(id)),
-      ];
-      return { ...state, status: statusForProposal(event.proposal), proposal: event.proposal, selected };
+      return { ...state, status: statusForProposal(event.proposal), proposal: event.proposal, ...joinedSelection(state, event.proposal, before, after) };
     }
 
     case 'analyzeFailed':
@@ -1146,12 +1169,8 @@ export function captureReducer(state: CaptureState, event: CaptureEvent): Captur
       const before = confirmableItems(state.proposal, state.edits);
       const after = confirmableItems(state.proposal, edits);
       // An item completed by hand joins the selection as soon as it is
-      // confirmable (#503), the same way every confirmable item starts
-      // selected and the way `clarified` behaves.
-      const selected = [
-        ...state.selected.filter((id) => after.includes(id)),
-        ...after.filter((id) => !before.includes(id) && !state.selected.includes(id)),
-      ];
+      // confirmable (#503), the same way `clarified` behaves.
+      const joined = joinedSelection(state, state.proposal, before, after);
       const status =
         state.status === 'needsClarification' && after.length > 0
           ? 'needsConfirmation'
@@ -1160,7 +1179,7 @@ export function captureReducer(state: CaptureState, event: CaptureEvent): Captur
         ...state,
         status,
         edits,
-        selected,
+        ...joined,
       };
     }
 

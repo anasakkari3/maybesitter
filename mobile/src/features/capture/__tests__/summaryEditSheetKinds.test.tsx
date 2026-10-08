@@ -1,0 +1,86 @@
+/**
+ * The «عدّل» sheet's kinds (M3b, R006): a line offers its own kind, checked,
+ * and only the moves the server makes. Inspection M3B-A-002: the habit and
+ * goal kinds were missing, so neither conversion was reachable and a habit or
+ * a goal line had no checked radio.
+ */
+import React from 'react';
+import { afterEach, describe, expect, it, jest } from '@jest/globals';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react-native';
+import { SafeAreaProvider, type Metrics } from 'react-native-safe-area-context';
+import { AppProvider } from '../../../state/AppContext';
+import { kindOptions, SummaryEditSheet, type PointKind } from '../SummaryEditSheet';
+
+jest.mock('expo-localization', () => ({
+  getCalendars: jest.fn(() => [{ timeZone: 'UTC' }]),
+  getLocales: jest.fn(() => [{ languageCode: 'ar', languageTag: 'ar', textDirection: 'rtl' }]),
+}));
+
+const METRICS: Metrics = { frame: { x: 0, y: 0, width: 390, height: 844 }, insets: { top: 47, left: 0, right: 0, bottom: 34 } };
+afterEach(async () => { await cleanup(); });
+
+const ON = { habit: true, goal: true };
+const OFF = { habit: false, goal: false };
+
+describe('kindOptions', () => {
+  it('a commitment can become a habit only where habits are offered', () => {
+    expect(kindOptions('commitment', ON)).toEqual(['commitment', 'habit', 'possible_goal', 'consideration', 'idea', 'waiting_for']);
+    expect(kindOptions('commitment', OFF)).toEqual(['commitment', 'possible_goal', 'consideration', 'idea', 'waiting_for']);
+  });
+
+  it('a habit goes back to a commitment, and nowhere else', () => {
+    expect(kindOptions('habit', ON)).toEqual(['habit', 'commitment']);
+  });
+
+  it('a goal goes back to a possible goal, never to a commitment', () => {
+    expect(kindOptions('goal', ON)).toEqual(['goal', 'possible_goal']);
+  });
+
+  it('a possible goal can become a goal only where goals are offered; other thoughts never', () => {
+    expect(kindOptions('possible_goal', ON)).toContain('goal');
+    expect(kindOptions('possible_goal', OFF)).not.toContain('goal');
+    expect(kindOptions('idea', ON)).not.toContain('goal');
+    expect(kindOptions('idea', ON)).not.toContain('habit');
+  });
+
+  it.each<PointKind>(['commitment', 'possible_goal', 'consideration', 'idea', 'waiting_for', 'habit', 'goal'])('%s offers itself', (kind) => {
+    expect(kindOptions(kind, ON)).toContain(kind);
+  });
+});
+
+async function sheet(kind: PointKind, onSave = jest.fn()) {
+  await render(
+    <SafeAreaProvider initialMetrics={METRICS}>
+      <AppProvider>
+        <SummaryEditSheet kind={kind} offered={ON} text="امشي" at={null} onSave={onSave} onCancel={jest.fn()} />
+      </AppProvider>
+    </SafeAreaProvider>,
+  );
+  return onSave;
+}
+
+describe('SummaryEditSheet', () => {
+  it('a habit line shows its own kind checked, and turning it into a commitment sends the kind and no time', async () => {
+    const onSave = await sheet('habit');
+    expect(screen.getByTestId('understood-edit-kind-habit').props.accessibilityState).toEqual(expect.objectContaining({ checked: true }));
+    expect(screen.queryByTestId('understood-edit-kind-goal')).toBeNull();
+    await fireEvent.press(screen.getByTestId('understood-edit-kind-commitment'));
+    // The commitment asks its day and time afterwards (R006), so the sheet offers none.
+    expect(screen.queryByTestId('understood-edit-time')).toBeNull();
+    await fireEvent.press(screen.getByTestId('understood-edit-save'));
+    expect(onSave).toHaveBeenCalledWith({ kind: 'commitment' });
+  });
+
+  it('a commitment line can be turned into a habit', async () => {
+    const onSave = await sheet('commitment');
+    await fireEvent.press(screen.getByTestId('understood-edit-kind-habit'));
+    await fireEvent.press(screen.getByTestId('understood-edit-save'));
+    expect(onSave).toHaveBeenCalledWith({ kind: 'habit' });
+  });
+
+  it('a goal line shows its own kind checked and offers no commitment', async () => {
+    await sheet('goal');
+    expect(screen.getByTestId('understood-edit-kind-goal').props.accessibilityState).toEqual(expect.objectContaining({ checked: true }));
+    expect(screen.queryByTestId('understood-edit-kind-commitment')).toBeNull();
+  });
+});

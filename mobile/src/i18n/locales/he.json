@@ -1933,6 +1933,9 @@
   "xRefusedHabit": "משהו בהרגל לא שלם.",
   "xRefusedHabitAction": "השלם",
   "xRefusedKeyReused": "הבחירה השתנתה מאז הניסיון הקודם. בדוק ושמור.",
+  "xRefusedGoalInvalid": "לא מצאתי את המטרה שבחרת, אז שום דבר לא נשמר.",
+  "xRefusedSeedInvalid": "לא מצאתי את המחשבה שבחרת, אז שום דבר לא נשמר.",
+  "xRefusedSeedAction": "הסר את המחשבה ושמור את השאר",
   "xHabitsEmptyTitle": "אין עדיין הרגלים",
   "xHabitsEmptyBody": "ספר לי מה תרצה לעשות באופן קבוע, ואציע קצב שתבדוק לפני השמירה."
 }

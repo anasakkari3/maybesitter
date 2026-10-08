@@ -11,6 +11,7 @@ import { useGoalPlan } from '../api/queries';
 import { understoodKeyOf, UnderstoodMessage, type UnderstoodTarget } from '../features/capture/UnderstoodMessage';
 import { familyIdOf, familyIdOfLine, type PointTarget } from '../features/capture/pointIdentity';
 import { SummaryEditSheet } from '../features/capture/SummaryEditSheet';
+import { useCaptureKinds } from '../features/capture/useCaptureKinds';
 import { instantForLocalDateTime } from '../features/capture/localInstant';
 import { usableUnderstood } from '../api/schemas/capture';
 import { noCommitmentLine } from '../features/capture/noCommitment';
@@ -90,8 +91,8 @@ function SavedGoalActions({ goalId, title }: { goalId: string; title: string }) 
  * What each M3b confirm refusal says and lets the person do (R2-010, R3-007):
  * the save wrote nothing, and the action takes out what could not be saved.
  */
-const M3B_REFUSALS: Record<string, { message: 'xRefusedGoals' | 'xRefusedKinds' | 'xRefusedTooMany' | 'xRefusedHabit' | 'xRefusedKeyReused';
-  action?: { label: 'xRefusedGoalsAction' | 'xRefusedKindsAction' | 'xRefusedTooManyAction' | 'xRefusedHabitAction'; drop?: readonly ('habit' | 'goal' | 'seed')[] } }> = {
+const M3B_REFUSALS: Record<string, { message: 'xRefusedGoals' | 'xRefusedKinds' | 'xRefusedTooMany' | 'xRefusedHabit' | 'xRefusedKeyReused' | 'xRefusedGoalInvalid' | 'xRefusedSeedInvalid';
+  action?: { label: 'xRefusedGoalsAction' | 'xRefusedKindsAction' | 'xRefusedSeedAction'; drop?: readonly ('habit' | 'goal' | 'seed')[] } }> = {
   goals_unavailable: { message: 'xRefusedGoals', action: { label: 'xRefusedGoalsAction', drop: ['goal'] } },
   kinds_unavailable: { message: 'xRefusedKinds', action: { label: 'xRefusedKindsAction', drop: ['habit', 'goal', 'seed'] } },
   // The person lowers a habit's rhythm on its card; no button pretends to do it for them.
@@ -99,6 +100,9 @@ const M3B_REFUSALS: Record<string, { message: 'xRefusedGoals' | 'xRefusedKinds' 
   // The habit's card asks its rhythm again, right above (`reask`).
   habit_invalid: { message: 'xRefusedHabit' },
   key_reused: { message: 'xRefusedKeyReused' },
+  // The server no longer has the goal or thought that was picked: take it out, save the rest.
+  goal_invalid: { message: 'xRefusedGoalInvalid', action: { label: 'xRefusedGoalsAction', drop: ['goal'] } },
+  seed_invalid: { message: 'xRefusedSeedInvalid', action: { label: 'xRefusedSeedAction', drop: ['seed'] } },
 };
 
 function savedNoteText(note: ChatSavedNote, t: Strings, lang: Lang, timeZone: string): string {
@@ -202,6 +206,8 @@ export function CaptureScreen() {
   const [editingId, setEditingId] = useState<string | null>(null);
   /** «عدّل» on line n of the summary (M2b), and what the last edit came to. */
   const [summaryEditing, setSummaryEditing] = useState<number | null>(null);
+  // Whether a «possible goal» can become a goal here: goals are offered only where memory is writable.
+  const captureKinds = useCaptureKinds();
   const [editNote, setEditNote] = useState<'changed' | 'ended' | 'failed' | null>(null);
   const [editBusy, setEditBusy] = useState(false);
   /** The refused change opened again in the sheet (it lives in `state.refusedEdit` until then). */
@@ -475,7 +481,8 @@ export function CaptureScreen() {
     const stagedAt = staged?.localDateTime !== undefined
       ? (staged.localDateTime ? instantForLocalDateTime(staged.localDateTime, timezone)?.toISOString() ?? null : null)
       : item?.resolvedTime ?? null;
-    bodyOverride = <SummaryEditSheet key={summaryEditing} kind={point.kind} busy={editBusy || flow.writing}
+    const offered = { habit: state.proposal.habits !== undefined, goal: state.proposal.goals !== undefined && captureKinds.entries.includes('goal') };
+    bodyOverride = <SummaryEditSheet key={summaryEditing} kind={point.kind} offered={offered} busy={editBusy || flow.writing}
       text={staged?.title ?? item?.title ?? seed?.summary ?? habit?.title ?? goal?.title ?? point.text} at={stagedAt}
       {...(draftToReopen ? { draft: draftToReopen } : {})}
       onCancel={closeSummaryEdit}
@@ -506,6 +513,8 @@ export function CaptureScreen() {
   // M3b: a refusal the person can act on — «الأهداف مش مفعّلة هلّق» with
   // «شيل الهدف واحفظ الباقي», and so on (R2-010, R3-007) — never the generic line.
   const refusal = state.status === 'confirmFailed' ? M3B_REFUSALS[state.errorReason ?? ''] : undefined;
+  // VoiceOver has no live regions: the refusal is said when it appears (DESIGN-M3b a11y 4).
+  useAnnounceOnIos(refusal ? t[refusal.message] : null);
   const thoughtEntry = state.proposal?.entry === 'thought';
   const reviewExtras = cardsOpen ? <View style={{ gap: 10 }}>
     {state.reviewNotice ? <Txt testID="review-conflict-note" color={p.wm}>{t.captureProposalChanged}</Txt> : null}
@@ -672,7 +681,9 @@ export function CaptureScreen() {
         toolsDisabled={flow.writing}
         onClose={headerBack} onMore={() => { if (!busy && !answering && !flow.writing) setMenuOpen(true); }}
         onPaste={() => { if (!busy && !answering && !flow.writing) void readClipboardText().then(setClipboard); }}
-        assistant={{ text: t.chatWelcome }}
+        // The entry the chat was opened from sets its first line (M3b, COPY-M3b 2).
+        assistant={{ text: state.entry === 'goal' ? t.xChatOpenGoal : state.entry === 'habit' ? t.xChatOpenHabit
+          : state.entry === 'thought' ? t.xChatOpenThought : t.chatWelcome }}
         // The disclosure that replaced the AI consent (owner decision
         // 2026-09-30): on the page, before the first message is sent.
         // Its heading as on Trust («مين بيفهم كلامك»), so it reads as what it
