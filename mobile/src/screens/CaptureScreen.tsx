@@ -4,7 +4,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useApp } from '../state/AppContext';
 import { useCaptureFlow } from '../features/capture/CaptureProvider';
 import { MAX_CAPTURE_LENGTH, chatSaves, confirmableItems, goalLinkKept, showsUnderstood, summaryPoints, wantsDiscardConfirmation, weeklyChoice, weeklyLockedByEdit, type CaptureItemEdit, type ChatSavedNote } from '../features/capture/captureMachine';
-import { UnderstoodMessage, type UnderstoodTarget } from '../features/capture/UnderstoodMessage';
+import { understoodKeyOf, UnderstoodMessage, type UnderstoodTarget } from '../features/capture/UnderstoodMessage';
+import { familyIdOf, familyIdOfLine, type PointTarget } from '../features/capture/pointIdentity';
 import { SummaryEditSheet } from '../features/capture/SummaryEditSheet';
 import { instantForLocalDateTime } from '../features/capture/localInstant';
 import { usableUnderstood } from '../api/schemas/capture';
@@ -120,9 +121,9 @@ export function CaptureScreen() {
   // current version may have moved it, or dropped it (then nothing reopens).
   // A point keeps its id when its kind changes, so the id alone finds it.
   const refused = state.refusedEdit?.target;
-  const refusedId = refused ? ('itemId' in refused ? refused.itemId : refused.seedItemId) : null;
+  const refusedId = refused ? familyIdOf(refused) : null;
   const refusedLine = refusedId && understood
-    ? understood.findIndex((point) => (point.kind === 'commitment' ? point.itemId : point.seedItemId) === refusedId) + 1
+    ? understood.findIndex((point) => familyIdOfLine(point) === refusedId) + 1
     : 0;
   const cardsOpen = reviewing && understood === null;
   /** The cards came from the summary: Back returns to it, not to the composer. */
@@ -141,7 +142,7 @@ export function CaptureScreen() {
     flow.acceptUnderstood();
     const proposalId = state.proposal?.proposalId;
     setRevealRequest(target === null || !proposalId ? null
-      : { key: Date.now(), id: 'itemId' in target ? target.itemId : target.seedItemId, proposalId });
+      : { key: Date.now(), id: familyIdOf(target), proposalId });
   };
   const busy = state.status === 'confirming' || state.status === 'analyzing';
   // Something «ابدأ من جديد» would clear: a conversation, a proposal, a draft.
@@ -163,7 +164,7 @@ export function CaptureScreen() {
   const editRefs = useRef(new Map<number, View>());
   const returnFocusTo = useRef<number | null>(null);
   /** One structured change to the summary, through the chat (M2b). */
-  const sendEdit = async (target: { itemId: string } | { seedItemId: string }, change: Parameters<typeof flow.editPoint>[1]) => {
+  const sendEdit = async (target: PointTarget, change: Parameters<typeof flow.editPoint>[1]) => {
     if (editBusy) return;
     setEditBusy(true);
     setEditNote(null);
@@ -421,16 +422,18 @@ export function CaptureScreen() {
   else if (summaryEditing !== null && understood && state.proposal && understood[summaryEditing - 1]) {
     const point = understood[summaryEditing - 1]!;
     const item = point.kind === 'commitment' ? state.proposal.items.find((candidate) => candidate.itemId === point.itemId) : undefined;
-    const seed = point.kind !== 'commitment' ? state.proposal.seeds.find((candidate) => candidate.seedItemId === point.seedItemId) : undefined;
+    const seed = 'seedItemId' in point ? state.proposal.seeds.find((candidate) => candidate.seedItemId === point.seedItemId) : undefined;
+    const habit = 'habitItemId' in point ? (state.proposal.habits ?? []).find((candidate) => candidate.habitItemId === point.habitItemId) : undefined;
+    const goal = 'goalItemId' in point ? (state.proposal.goals ?? []).find((candidate) => candidate.goalItemId === point.goalItemId) : undefined;
     const staged = item ? state.edits[item.itemId] : undefined;
     const stagedAt = staged?.localDateTime !== undefined
       ? (staged.localDateTime ? instantForLocalDateTime(staged.localDateTime, timezone)?.toISOString() ?? null : null)
       : item?.resolvedTime ?? null;
     bodyOverride = <SummaryEditSheet key={summaryEditing} kind={point.kind} busy={editBusy || flow.writing}
-      text={staged?.title ?? item?.title ?? seed?.summary ?? point.text} at={stagedAt}
+      text={staged?.title ?? item?.title ?? seed?.summary ?? habit?.title ?? goal?.title ?? point.text} at={stagedAt}
       {...(draftToReopen ? { draft: draftToReopen } : {})}
       onCancel={closeSummaryEdit}
-      onSave={(change) => { void sendEdit(point.kind === 'commitment' ? { itemId: point.itemId } : { seedItemId: point.seedItemId }, change); }} />;
+      onSave={(change) => { void sendEdit(understoodKeyOf(point).target, change); }} />;
   }
   else if (menuOpen) bodyOverride = <View style={{ gap: 14 }} testID="chat-menu">
     <Pill testID="chat-menu-paste" label={t.capturePaste} onPress={() => { setMenuOpen(false); void readClipboardText().then(setClipboard); }} />

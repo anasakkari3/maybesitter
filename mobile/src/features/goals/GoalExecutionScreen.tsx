@@ -10,6 +10,7 @@ import {
   useIntelligenceDecided,
   useMemory,
   useUnlinkGoalNode,
+  useCaptureKinds,
 } from '../../api/queries';
 import { FeatureUnavailableError } from '../../api/errors';
 import type { GoalGraph } from '../../api/schemas/goals';
@@ -28,6 +29,7 @@ import type { PlanRecovery } from '../goalPlan/planFailures';
 import { useGoalPlanFlow } from '../goalPlan/useGoalPlanFlow';
 import { currentGoalProgressPeriod } from './progressPeriod';
 import { IntelligencePanel } from './IntelligencePanel';
+import { ChatEntryButton, ChatEntryPlaceholder } from '../capture/ChatEntryButton';
 
 type LinkedNode = Extract<GoalGraph['nodes'][number], { kind: 'linked_commitment' | 'linked_habit' }>;
 
@@ -39,6 +41,7 @@ export function GoalExecutionScreen() {
   const memory = useMemory();
   const decided = useIntelligenceDecided();
   const create = useCreateMemory();
+  const kinds = useCaptureKinds();
   const [draft, setDraft] = React.useState('');
   const goals = memory.data?.items.filter(item => item.kind === 'goal') ?? [];
   // The open goal is a step in the navigation history, not local state, so the
@@ -55,6 +58,12 @@ export function GoalExecutionScreen() {
       // an input whose save can only fail.
       <ProductSection title={t.xAddGoal} body={t.errorsFeatureDisabled} icon="goal" />
     ) : <>
+      {/* M3b (D4, R004): with the chat offering goals, this page has one entry,
+          «ضيف هدف», and the panel lives on «يتابع لك» only. While the probe is
+          out, neither path is drawn; any other answer keeps today's page. */}
+      {kinds.pending ? <ChatEntryPlaceholder testID="goals-add-pending" /> : kinds.entries.includes('goal') ? (
+        <View style={{ paddingHorizontal: 4 }}><ChatEntryButton entry="goal" testID="goals-add" /></View>
+      ) : <>
       <IntelligencePanel onChanged={decided} />
       <ProductSection title={t.xAddGoal} why={{ id: 'goal-add', body: t.xAddGoalBody }} icon="goal">
         <TextInput
@@ -73,6 +82,7 @@ export function GoalExecutionScreen() {
           create.mutate({ kind: 'goal', content: draft.trim(), language: lang }, { onSuccess: () => setDraft('') });
         }} />
       </ProductSection>
+      </>}
       <QueryBoundary isPending={memory.isPending} error={memory.error} onRetry={() => void memory.refetch()}>
         <ProductSection title={t.xGoalSaved} body={goals.length === 0 ? t.xNoGoals : undefined} icon="goal">
           {goals.map(goal => <ProductRow
@@ -92,7 +102,7 @@ export function GoalExecutionScreen() {
 }
 
 function GoalDetail({ goalId, title, onBack }: { goalId: string; title: string; onBack: () => void }) {
-  const { t, p, lang, actions } = useApp();
+  const { t, p, lang, actions, s } = useApp();
   const zone = useTimeZone();
   const period = React.useMemo(() => currentGoalProgressPeriod(new Date(), zone, lang), [lang, zone]);
   const [notice, setNotice] = React.useState<'unlinked' | null>(null);
@@ -116,6 +126,22 @@ function GoalDetail({ goalId, title, onBack }: { goalId: string; title: string; 
   const draft = planView.data?.draft ?? null;
   const confirmedPlan = planView.data?.confirmed ?? null;
   const showEntry = !planOff && (pathOn || planView.isSuccess) && !confirmedPlan && !flow.state.goalId;
+
+  // «اعمللي خطة» from a capture's saved line (M3b, R3-006, R4-003): taken once.
+  // The flag leaves the navigation entry before anything starts, so a remount
+  // or a back navigation cannot start it again; then, once the goal's plan is
+  // known — a draft opens, nothing at all generates, a confirmed plan only
+  // shows its progress, and with the plan path off nothing starts.
+  const [pendingStart, setPendingStart] = React.useState(s.startPlan);
+  React.useEffect(() => {
+    if (s.startPlan) actions.clearStartPlan();
+  }, [s.startPlan, actions]);
+  React.useEffect(() => {
+    if (!pendingStart || planView.isPending || flow.state.goalId) return;
+    setPendingStart(false);
+    if (planOff || !planView.isSuccess || confirmedPlan) return;
+    flow.openGoal(goalId, draft);
+  }, [pendingStart, planView.isPending, planView.isSuccess, planOff, confirmedPlan, draft, goalId, flow]);
 
   const onRecover = (recovery: PlanRecovery | 'open_today', detail: { currentGoalId?: string | undefined }) => {
     switch (recovery) {

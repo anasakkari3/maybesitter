@@ -120,6 +120,13 @@ const CAPTURE_CONFIRM_KEYS: Record<CaptureConfirmRefusedError['failureCode'], Us
   invalid_selection: 'captureConfirmNothingReady',
   invalid_edit: 'captureConfirmBadEdit',
   persistence_failed: 'errorsServer',
+  too_many_writes: 'xRefusedTooMany',
+  habit_invalid: 'xRefusedHabit',
+  goal_invalid: 'captureConfirmBadEdit',
+  seed_invalid: 'captureConfirmBadEdit',
+  kinds_unavailable: 'xRefusedKinds',
+  goals_unavailable: 'xRefusedGoals',
+  key_reused: 'xRefusedKeyReused',
 };
 
 /**

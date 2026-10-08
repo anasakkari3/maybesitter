@@ -162,6 +162,7 @@ type PillKind = 'accent' | 'soft' | 'outline' | 'warm' | 'warmSolid' | 'ink' | '
 
 export function Pill({
   label, onPress, kind = 'accent', style, size = 16, weight = 600, disabled, pad = 16, radius = 999, testID, accessibilityLabel, expanded, nativeRef,
+  radio,
 }: {
   label: string;
   /** For a pill that opens something below it: said as expanded / collapsed. */
@@ -183,6 +184,11 @@ export function Pill({
   testID?: string | undefined;
   /** See `Btn`. */
   nativeRef?: React.Ref<View> | undefined;
+  /**
+   * One choice of a radiogroup (M3b's habit questions): said as a radio with
+   * its checked state, instead of a plain button.
+   */
+  radio?: { checked: boolean } | undefined;
 }) {
   const { p } = useApp();
   const look: Record<PillKind, { bg: string; fg: string; border?: string }> = {
@@ -207,6 +213,7 @@ export function Pill({
       testID={testID}
       nativeRef={nativeRef}
       {...(expanded !== undefined ? { accessibilityState: { expanded } } : {})}
+      {...(radio ? { accessibilityRole: 'radio' as const, accessibilityState: { checked: radio.checked, disabled: !!disabled } } : {})}
       style={[
         {
           backgroundColor: l.bg, borderRadius: radius, paddingVertical: pad, paddingHorizontal: 18,

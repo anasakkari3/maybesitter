@@ -1,5 +1,5 @@
 import type { Commitment } from './schemas/common';
-import type { CaptureChatAnswer, CaptureProposal } from './schemas/capture';
+import type { CaptureChatAnswer, CaptureProposal, CaptureConfirmation } from './schemas/capture';
 import type { PlanEditRejected, PlanProposalRejected, Week } from './schemas/plan';
 import type { IcsFeedReason } from './schemas/icsFeeds';
 import type { GoogleRefusalReason } from './schemas/google';
@@ -119,7 +119,16 @@ export type CaptureConfirmFailureCode =
   | 'proposal_rejected'
   | 'invalid_selection'
   | 'persistence_failed'
-  | 'invalid_edit';
+  | 'invalid_edit'
+  // M3b: the one confirm refused before writing anything (400) …
+  | 'too_many_writes'
+  | 'habit_invalid'
+  | 'goal_invalid'
+  | 'seed_invalid'
+  // … or because a switch moved, or the key was reused for another choice (409).
+  | 'kinds_unavailable'
+  | 'goals_unavailable'
+  | 'key_reused';
 
 export const CAPTURE_CONFIRM_FAILURE_CODES: readonly CaptureConfirmFailureCode[] = [
   'proposal_not_found',
@@ -127,7 +136,14 @@ export const CAPTURE_CONFIRM_FAILURE_CODES: readonly CaptureConfirmFailureCode[]
   'invalid_selection',
   'persistence_failed',
   'invalid_edit',
+  'too_many_writes',
+  'habit_invalid',
+  'goal_invalid',
+  'seed_invalid',
 ];
+
+/** The confirm route's 409 reasons that are refusals with their own recovery (M3b, R2-010), not conflicts. */
+export const CAPTURE_CONFIRM_CONFLICT_REASONS: readonly CaptureConfirmFailureCode[] = ['kinds_unavailable', 'goals_unavailable', 'key_reused'];
 
 export class CaptureConfirmRefusedError extends ApiError {
   constructor(readonly failureCode: CaptureConfirmFailureCode) {
@@ -180,7 +196,15 @@ export class StaleCommitmentError extends ConflictError {
 export class ProposalChangedError extends ConflictError {
   constructor(readonly current:
     | { kind: 'chat'; answer: CaptureChatAnswer; state?: 'open' | 'confirmed' }
-    | { kind: 'proposal'; proposal: CaptureProposal; state: 'open' | 'confirmed' }) {
+    | {
+      kind: 'proposal'; proposal: CaptureProposal; state: 'open' | 'confirmed';
+      /**
+       * The original, finalized confirmation, when the proposal was already
+       * confirmed under another key (M3b, R4-001): the save the person thinks
+       * failed did happen, and this is what it saved.
+       */
+      confirmation?: CaptureConfirmation;
+    }) {
     super('the proposal changed');
   }
 }

@@ -10,8 +10,16 @@ import { isolateAuto, stripIsolates } from '../../i18n/bidi';
 import { Btn, Txt } from '../../ui/primitives';
 import { useLayoutMode } from '../../theme/textScale';
 
-/** What a line of the summary opens: an item's card, or a seed's row. */
-export type UnderstoodTarget = { itemId: string } | { seedItemId: string };
+/** What a line of the summary opens: an item's card, a seed's row, or a habit's or goal's card (M3b). */
+export type UnderstoodTarget = { itemId: string } | { seedItemId: string } | { habitItemId: string } | { goalItemId: string };
+
+/** The summary key and the card a point opens, for every family. */
+export function understoodKeyOf(point: UnderstoodPoint): { key: string; target: UnderstoodTarget } {
+  if ('itemId' in point) return { key: `i:${point.itemId}`, target: { itemId: point.itemId } };
+  if ('seedItemId' in point) return { key: `s:${point.seedItemId}`, target: { seedItemId: point.seedItemId } };
+  if ('habitItemId' in point) return { key: `h:${point.habitItemId}`, target: { habitItemId: point.habitItemId } };
+  return { key: `g:${point.goalItemId}`, target: { goalItemId: point.goalItemId } };
+}
 
 interface Line {
   key: string; target: UnderstoodTarget; kind: string; text: string; when?: string; label: string;
@@ -26,6 +34,8 @@ function kindLabel(point: UnderstoodPoint, t: Strings): string {
     case 'consideration': return t.seedKindConsideration;
     case 'idea': return t.seedKindIdea;
     case 'waiting_for': return t.understoodKindWaitingFor;
+    case 'habit': return t.xKindHabit;
+    case 'goal': return t.xKindGoal;
   }
 }
 
@@ -114,8 +124,7 @@ function UnderstoodLines({ proposal, points, edits, onOpen, editable = false, on
     const spoken = points.length === 1 ? `${kind}: ${text}`
       : fill(t.understoodLineLabel, { n: index + 1, total: points.length, kind, text });
     return {
-      key: point.kind === 'commitment' ? `i:${point.itemId}` : `s:${point.seedItemId}`,
-      target: point.kind === 'commitment' ? { itemId: point.itemId } : { seedItemId: point.seedItemId },
+      ...understoodKeyOf(point),
       kind, text, ...(when ? { when } : {}),
       label: stripIsolates(when ? `${spoken}, ${when}` : spoken),
       corrections: item?.corrections ?? [],

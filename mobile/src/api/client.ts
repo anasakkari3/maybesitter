@@ -25,6 +25,7 @@ import {
   ConversationNotFoundError,
   FeatureUnavailableError,
   CaptureConfirmRefusedError,
+  CAPTURE_CONFIRM_CONFLICT_REASONS,
   CAPTURE_CONFIRM_FAILURE_CODES,
   PlanEditRefusedError,
   PlanProposalRefusedError,
@@ -45,7 +46,7 @@ import {
 } from './errors';
 import { mockResponseFor } from './mockAdapter';
 import { commitmentSchema } from './schemas/common';
-import { proposalChangedChatSchema, proposalChangedProposalSchema } from './schemas/capture';
+import { captureConfirmationSchema, proposalChangedChatSchema, proposalChangedProposalSchema } from './schemas/capture';
 import { planEditRejectedSchema, planProposalRejectedSchema, weekConflictSchema, weekEmptyDaySchema } from './schemas/plan';
 import { icsFeedRefusalSchema } from './schemas/icsFeeds';
 import { googleRefusalSchema } from './schemas/google';
@@ -235,7 +236,16 @@ function conflictFor(body: unknown): Error {
       const chat = proposalChangedChatSchema.safeParse(body);
       if (chat.success) return new ProposalChangedError({ kind: 'chat', answer: chat.data.answer, ...(chat.data.state ? { state: chat.data.state } : {}) });
       const proposal = proposalChangedProposalSchema.safeParse(body);
-      if (proposal.success) return new ProposalChangedError({ kind: 'proposal', proposal: proposal.data.proposal, state: proposal.data.state });
+      if (proposal.success) {
+        // The original receipt rides along when the proposal was already
+        // confirmed (R4-001). Parsed; a receipt that does not parse is left out
+        // rather than trusted, and the screen falls back to "confirmed elsewhere".
+        const receipt = captureConfirmationSchema.safeParse(proposal.data.confirmation);
+        return new ProposalChangedError({
+          kind: 'proposal', proposal: proposal.data.proposal, state: proposal.data.state,
+          ...(receipt.success && receipt.data.success ? { confirmation: receipt.data } : {}),
+        });
+      }
       return new ContractError('proposal_changed', [...(chat.error?.issues ?? []), ...(proposal.error?.issues ?? [])].map(issue => issue.code));
     }
     if (record.reason === 'invalid_transition') return new InvalidTransitionError();
@@ -281,7 +291,15 @@ function planEditRefusal(body: unknown, message: string): Error {
 }
 
 /** The confirm route's refusal body — `success: false` and a known code — or null. */
-function captureConfirmRefusal(status: number, body: unknown): CaptureConfirmRefusedError | null {
+function captureConfirmRefusal(status: number, body: unknown, path?: string): CaptureConfirmRefusedError | null {
+  // The confirm route's own 409s (M3b): a switch moved before the save, or the
+  // key came back with another choice. Scoped by path — every other 409 keeps
+  // its class — and by a closed list of reasons.
+  if (status === 409 && path === '/api/mobile/capture/confirm' && body && typeof body === 'object') {
+    const reason = (body as { reason?: unknown }).reason;
+    const code = CAPTURE_CONFIRM_CONFLICT_REASONS.find(candidate => candidate === reason);
+    if (code) return new CaptureConfirmRefusedError(code);
+  }
   if (status !== 400 && status !== 404) return null;
   if (!body || typeof body !== 'object') return null;
   const record = body as { success?: unknown; failureCode?: unknown };
@@ -374,7 +392,7 @@ function errorForStatus(status: number, body: unknown, path?: string): Error {
   }
   // A refused capture confirm keeps its `failureCode` (#252): the reason is
   // the sentence the person needs, and the 404/400 classes below drop it.
-  const confirmRefusal = captureConfirmRefusal(status, body);
+  const confirmRefusal = captureConfirmRefusal(status, body, path);
   if (confirmRefusal) return confirmRefusal;
   switch (status) {
     case 400:

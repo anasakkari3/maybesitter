@@ -1,10 +1,11 @@
 import { useCallback, useRef } from 'react';
 import { keepPreviousData, useInfiniteQuery, useMutation, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
+import type { CaptureConfirmation, CaptureEntry } from './schemas/capture';
 import * as Crypto from 'expo-crypto';
 import { useTimeZone } from '../i18n/timezone';
 import { apiLocale } from '../i18n/locale';
 import { useAuth } from '../auth/AuthProvider';
-import { chatCapture, clarifyCapture, confirmCapture, proposeCapture, type CaptureChatInput } from './endpoints/capture';
+import { chatCapture, clarifyCapture, confirmCapture, getCaptureKinds, proposeCapture, type CaptureChatInput } from './endpoints/capture';
 import { proposeFromShare } from './endpoints/share';
 import { prepareMeeting } from './endpoints/meetings';
 import type { UploadFile } from './client';
@@ -472,6 +473,26 @@ export function useUnlinkGoalNode(goalId: string) {
   return useGoalMutation(goalId, (nodeId: string) => unlinkGoalNode(goalId, nodeId));
 }
 
+/**
+ * Which chat entries the server offers (M3b, R004): the goals, habits and
+ * thoughts pages read this one hook before they draw a create path. Pending
+ * means "draw neither"; a switched-off feature (404), a network failure or any
+ * other error means "keep today's paths" — the safe side. Keyed by account and
+ * cleared with it (#148), never retried on its own.
+ */
+export function useCaptureKinds(): { pending: boolean; entries: readonly CaptureEntry[] } {
+  const uid = useUid();
+  const query = useQuery({
+    queryKey: ['user', uid, 'captureKinds'],
+    queryFn: getCaptureKinds,
+    enabled: uid !== 'signed-out',
+    retry: false,
+    staleTime: 5 * 60_000,
+  });
+  if (query.isPending && uid !== 'signed-out') return { pending: true, entries: [] };
+  return { pending: false, entries: query.data ?? [] };
+}
+
 export function useHabits(enabled = true) {
   const uid = useUid();
   return useQuery({ queryKey: queryKeys.habits(uid), queryFn: listHabits, enabled: uid !== 'signed-out' && enabled });
@@ -662,13 +683,18 @@ type ConfirmInput = {
   /** The items kept as a weekly block («كل أسبوع»); see `confirmCapture`. */
   weeklyBlockItemIds?: string[];
   /**
-   * The items whose goal link the person kept; see `confirmCapture`. Not part
-   * of the intent: the server links on a replay too, so a retried press with
-   * the same key still links what was kept.
+   * The items whose goal link the person kept; see `confirmCapture`. Part of
+   * the intent since M3b (R6-001): the server stores the kept links with the
+   * key and refuses the same key with another choice (`key_reused`), so a
+   * changed link choice after a timed-out press needs its own key.
    */
   goalLinkItemIds?: string[];
   /** The proposal revision confirmed (M2b). Part of the intent: another revision is another request. */
   revision?: number;
+  /** The other families saved by the same confirm (M3b), each part of the intent (R3-002). */
+  selectedHabitItemIds?: string[];
+  selectedGoalItemIds?: string[];
+  selectedSeedItemIds?: string[];
 };
 
 /**
@@ -688,7 +714,40 @@ export function confirmIntent(input: ConfirmInput): string {
     ? [input.proposalId, [...input.itemIds].sort(), edits, weekly]
     : [input.proposalId, [...input.itemIds].sort(), edits];
   // The revision too (M2b), appended only when present so an older intent keeps its key.
-  return JSON.stringify(input.revision !== undefined ? [...base, { revision: input.revision }] : base);
+  const withRevision = input.revision !== undefined ? [...base, { revision: input.revision }] : base;
+  // M3b: the other families and the kept goal links, appended only when one is
+  // present — a commitment-only confirm with no link keeps the key it always had.
+  const sorted = (ids?: string[]) => [...(ids ?? [])].sort();
+  const more = {
+    habits: sorted(input.selectedHabitItemIds), goals: sorted(input.selectedGoalItemIds),
+    seeds: sorted(input.selectedSeedItemIds), goalLinks: sorted(input.goalLinkItemIds),
+  };
+  const anyMore = more.habits.length + more.goals.length + more.seeds.length + more.goalLinks.length > 0;
+  return JSON.stringify(anyMore ? [...withRevision, more] : withRevision);
+}
+
+/**
+ * What a capture confirm changed, invalidated by family (M3b, R3-005): back on
+ * the page the chat was opened from, the new habit, goal or thought is there.
+ * Shared by a confirm's success and by a recovered confirm (R4-001).
+ */
+export function invalidateAfterCapture(client: QueryClient, uid: string, confirmation: CaptureConfirmation): void {
+  invalidateCommitments(client, uid);
+  // A confirm that kept a weekly block changed the blocks and their busy time.
+  if ((confirmation.weeklyBlocks?.length ?? 0) > 0) invalidateWeeklyBlocks(client, uid);
+  // A kept goal link changed that goal's progress (audit 2026-10-03 #6).
+  if ((confirmation.goalLinks?.length ?? 0) > 0) void client.invalidateQueries({ queryKey: ['user', uid, 'goalExecution'] });
+  if ((confirmation.habitsPersisted?.length ?? 0) > 0) {
+    void client.invalidateQueries({ queryKey: queryKeys.habits(uid) });
+    void client.invalidateQueries({ queryKey: ['user', uid, 'plan'] });
+    void client.invalidateQueries({ queryKey: ['user', uid, 'goalExecution'] });
+  }
+  if ((confirmation.goalsPersisted?.length ?? 0) > 0) {
+    void client.invalidateQueries({ queryKey: queryKeys.memory(uid) });
+    void client.invalidateQueries({ queryKey: ['user', uid, 'goalExecution'] });
+    void client.invalidateQueries({ queryKey: ['user', uid, 'goalPlan'] });
+  }
+  if ((confirmation.seedsPersisted?.length ?? 0) > 0) void client.invalidateQueries({ queryKey: queryKeys.seeds(uid) });
 }
 
 /**
@@ -719,13 +778,7 @@ export function useConfirmCapture() {
       }
       return confirmCapture({ ...input, idempotencyKey });
     },
-    onSuccess: (confirmation) => {
-      invalidateCommitments(client, uid);
-      // A confirm that kept a weekly block changed the blocks and their busy time.
-      if ((confirmation.weeklyBlocks?.length ?? 0) > 0) invalidateWeeklyBlocks(client, uid);
-      // A kept goal link changed that goal's progress (audit 2026-10-03 #6).
-      if ((confirmation.goalLinks?.length ?? 0) > 0) void client.invalidateQueries({ queryKey: ['user', uid, 'goalExecution'] });
-    },
+    onSuccess: (confirmation) => invalidateAfterCapture(client, uid, confirmation),
   });
 }
 

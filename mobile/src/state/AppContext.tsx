@@ -1,3 +1,4 @@
+import type { CaptureEntry } from '../api/schemas/capture';
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { Appearance, useColorScheme } from 'react-native';
 import { strings, type Lang, type Strings } from '../i18n/strings';
@@ -38,6 +39,8 @@ export type AppState = {
   /** How capture was entered, for the flow to pick up on mount (#172). */
   captureSource: CaptureSource;
   captureInput: CaptureInputMode;
+  /** The page the chat was opened from (M3b): «ضيف هدف», «ضيف عادة», «احكي فكرة»; null otherwise. */
+  captureEntry: CaptureEntry | null;
   sheet: Sheet;
   /** The meeting the «حضّرني» sheet is open for (CL5a). Set with the sheet, and only read by it. */
   meetingPrep: MeetingPrepTarget | null;
@@ -56,6 +59,8 @@ export type AppState = {
   planDate: string | null;
   /** Derived from `nav`: the goal the Goals screen has open, or null on its list. */
   goalId: string | null;
+  /** The goal page's one-shot «اعمللي خطة» (M3b); derived, like `goalId`. */
+  startPlan: boolean;
   /**
    * Derived from `nav`: the open task is showing again after back from a
    * screen opened over it (capture → Trust → back). Capture keeps its draft
@@ -72,14 +77,14 @@ function onToday(screen: Screen): Partial<AppState> | undefined {
 /** Recompute the derived fields from the history. Every nav change goes through here. */
 function withNav(st: AppState, next: nav.Nav): AppState {
   const d = nav.derive(next);
-  return { ...st, nav: next, screen: d.screen, detailId: d.detailId, planDate: d.planDate, goalId: d.goalId, taskResumed: d.taskResumed, showTabs: d.showTabs };
+  return { ...st, nav: next, screen: d.screen, detailId: d.detailId, planDate: d.planDate, goalId: d.goalId, startPlan: d.startPlan, taskResumed: d.taskResumed, showTabs: d.showTabs };
 }
 
 const initial: AppState = {
   nav: nav.initialNav, screen: 'today', showTabs: true,
-  captureSource: 'tab', captureInput: 'text',
+  captureSource: 'tab', captureInput: 'text', captureEntry: null,
   sheet: null, meetingPrep: null, toast: null,
-  selDay: 0, detailId: null, planDate: null, goalId: null, taskResumed: false,
+  selDay: 0, detailId: null, planDate: null, goalId: null, startPlan: false, taskResumed: false,
 };
 
 function useAppModel() {
@@ -181,7 +186,10 @@ function useAppModel() {
     /** Hand the screen on top over to another (a finished flow to its result); back skips the flow. */
     replace: (screen: Screen) => move(n => nav.replace(n, { name: screen })),
     /** One goal on the Goals screen, as its own step: every back closes it before leaving Goals. */
-    openGoal: (id: string) => move(n => nav.push(n, { name: 'goalExecution', goalId: id })),
+    openGoal: (id: string, options?: { startPlan?: boolean }) =>
+      move(n => nav.push(n, { name: 'goalExecution', goalId: id, ...(options?.startPlan ? { startPlan: true as const } : {}) })),
+    /** The goal's page took its one-shot «اعمللي خطة» (M3b, R4-003). */
+    clearStartPlan: () => move(nav.clearStartPlan),
     /** One step back through the history. At a tab root this is a no-op; `canGoBack` says so. */
     back: () => move(nav.back),
     canGoBack: () => nav.canGoBack(s.nav),
@@ -213,8 +221,8 @@ function useAppModel() {
      * own reducer picks both up on mount; nothing about the draft is stored
      * here.
      */
-    goCapture: (source: CaptureSource = 'tab', inputMode: CaptureInputMode = 'text') =>
-      move(n => nav.openTask(n, { name: 'capture' }), { captureSource: source, captureInput: inputMode }),
+    goCapture: (source: CaptureSource = 'tab', inputMode: CaptureInputMode = 'text', entry: CaptureEntry | null = null) =>
+      move(n => nav.openTask(n, { name: 'capture' }), { captureSource: source, captureInput: inputMode, captureEntry: entry }),
     /** Leave the flow. The tab underneath is exactly as it was. */
     closeCapture: () => move(nav.closeTask),
 
@@ -262,7 +270,7 @@ function useAppModel() {
         // `processing`, `nothing`, `review`, `clarify`, `readings` and `saved`
         // jumps each forced a mock sub-state directly; those states are the
         // reducer's and are reached by using the flow (UC-2.R2, #172).
-        case 'capture': move(n => nav.arrive(n, { name: 'capture' }), { captureSource: 'tab', captureInput: 'text' }); return;
+        case 'capture': move(n => nav.arrive(n, { name: 'capture' }), { captureSource: 'tab', captureInput: 'text', captureEntry: null }); return;
         case 'aiImport': move(n => nav.arrive(n, { name: 'aiImport' })); return;
         case 'details': move(n => nav.arrive(n, { name: 'details', detailId: 'c3' })); return;
         case 'postpone': move(n => nav.arrive(n, { name: 'details', detailId: 'c3' }), { sheet: 'postpone' }); return;

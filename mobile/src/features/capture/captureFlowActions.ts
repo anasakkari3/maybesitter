@@ -1,3 +1,4 @@
+import type { CaptureEntry } from '../../api/schemas/capture';
 /**
  * What the capture flow *does*, separated from the React that hosts it
  * (UC-2.R2, #172).
@@ -37,6 +38,10 @@ export interface CaptureGateway {
     goalLinkItemIds?: string[];
     /** The proposal revision confirmed (`confirmPayload`, M2b). */
     revision?: number;
+    /** The other families by family id (`confirmPayload`, M3b); optional for older gateways. */
+    selectedHabitItemIds?: string[];
+    selectedGoalItemIds?: string[];
+    selectedSeedItemIds?: string[];
   }): Promise<CaptureConfirmation>;
   /** Soft delete. Used only by undo, only for ids the server said it saved. */
   remove(commitmentId: string): Promise<unknown>;
@@ -112,15 +117,19 @@ export async function chatTurn(
   message: string,
   classify: (error: unknown) => AnalyzeFailure,
   spoken = false,
+  entry: CaptureEntry | null = null,
 ): Promise<ChatOutcome> {
   // `spoken` only when true, so a typed message is the request it always was.
   const voice = spoken ? { spoken: true } : {};
+  // The entry starts a conversation (M3b): a first message carries it, and so
+  // does the first message of a conversation started again after it expired.
+  const opened = entry ? { entry } : {};
   try {
-    return { ok: true, answer: await gateway.chat({ conversationId, message, ...voice }), restarted: false };
+    return { ok: true, answer: await gateway.chat({ conversationId, message, ...voice, ...(conversationId === null ? opened : {}) }), restarted: false };
   } catch (error) {
     if (conversationId === null || !(error instanceof ConversationNotFoundError)) return { ok: false, ...classify(error) };
     try {
-      return { ok: true, answer: await gateway.chat({ conversationId: null, message, ...voice }), restarted: true };
+      return { ok: true, answer: await gateway.chat({ conversationId: null, message, ...voice, ...opened }), restarted: true };
     } catch (retryError) {
       return { ok: false, ...classify(retryError) };
     }
@@ -140,7 +149,9 @@ export async function confirmCapture(
   state: CaptureState,
 ): Promise<ConfirmOutcome | null> {
   const payload = confirmPayload(state);
-  if (payload.itemIds.length === 0) return null;
+  // Nothing selected in any family: nothing to send (M3b counts habits, goals and thoughts too).
+  if (payload.itemIds.length === 0 && !payload.selectedHabitItemIds?.length && !payload.selectedGoalItemIds?.length
+    && !payload.selectedSeedItemIds?.length) return null;
 
   try {
     const confirmation = await gateway.confirm(payload);

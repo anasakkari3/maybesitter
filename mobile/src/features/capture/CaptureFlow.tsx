@@ -69,8 +69,8 @@ export function CaptureFlow() {
     // Only «ابدأ من جديد» / «إلغاء الكل» or a different account start fresh.
     const { conversationId, turns, earlier, text } = flow.state;
     if (conversationId !== null || turns.length > 0 || earlier.length > 0 || text.trim()) return;
-    flow.open(s.captureSource, s.captureInput);
-  }, [flow, s.captureSource, s.captureInput, s.taskResumed]);
+    flow.open(s.captureSource, s.captureInput, s.captureEntry);
+  }, [flow, s.captureSource, s.captureInput, s.captureEntry, s.taskResumed]);
 
   switch (state.status) {
     case 'needsConfirmation':

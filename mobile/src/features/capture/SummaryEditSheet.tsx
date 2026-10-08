@@ -22,6 +22,8 @@ function kindName(kind: PointKind, t: Strings): string {
     case 'consideration': return t.seedKindConsideration;
     case 'idea': return t.seedKindIdea;
     case 'waiting_for': return t.understoodKindWaitingFor;
+    case 'habit': return t.xKindHabit;
+    case 'goal': return t.xKindGoal;
   }
 }
 
