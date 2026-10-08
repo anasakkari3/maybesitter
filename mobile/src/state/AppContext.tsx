@@ -188,6 +188,8 @@ function useAppModel() {
     /** One goal on the Goals screen, as its own step: every back closes it before leaving Goals. */
     openGoal: (id: string, options?: { startPlan?: boolean }) =>
       move(n => nav.push(n, { name: 'goalExecution', goalId: id, ...(options?.startPlan ? { startPlan: true as const } : {}) })),
+    /** «ارجع للأهداف»: the goals list, wherever the goal was opened from (M3b). */
+    backToGoals: () => move(nav.backToGoals),
     /** The goal's page took its one-shot «اعمللي خطة» (M3b, R4-003). */
     clearStartPlan: () => move(nav.clearStartPlan),
     /** One step back through the history. At a tab root this is a no-op; `canGoBack` says so. */

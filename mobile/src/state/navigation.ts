@@ -194,6 +194,18 @@ export function push(nav: Nav, entry: Entry): Nav {
 }
 
 /**
+ * «ارجع للأهداف» from one goal: back to the goals list under it, or — when the
+ * goal was opened from elsewhere, such as the chat's saved line (M3b) — the
+ * list in the goal's place, so the words say where it goes.
+ */
+export function backToGoals(nav: Nav): Nav {
+  const stack = nav.task ? nav.over : nav.stacks[nav.tab];
+  const under = stack[stack.length - 2];
+  if (under?.name === 'goalExecution' && !under.goalId) return back(nav);
+  return replace(nav, { name: 'goalExecution' });
+}
+
+/**
  * Leave the screen on top for another, in its place: a finished flow (the
  * watch builder after Create) hands over to its result, and back from the
  * result skips the flow. Same no-duplicate rule as `push`.

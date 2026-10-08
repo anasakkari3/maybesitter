@@ -52,7 +52,7 @@ export function GoalExecutionScreen() {
   // No subtitle: the owner struck «أهدافك، من الاقتراح لخطوات بتأكدها بنفسك.»
   // (audit 2026-10-06, image 8); each card explains itself behind its arrow.
   return <ProductPage id="goals" title={t.xGoals}>
-    {openGoal ? <GoalDetail key={openGoal.id} goalId={openGoal.id} title={openGoal.title} onBack={actions.back} /> : forbiddenReason(memory.error) === 'feature_disabled' ? (
+    {openGoal ? <GoalDetail key={openGoal.id} goalId={openGoal.id} title={openGoal.title} onBack={actions.backToGoals} /> : forbiddenReason(memory.error) === 'feature_disabled' ? (
       // Goals are kept in memory. With memory switched off on the server there
       // is nowhere to save one, so the screen says so once instead of offering
       // an input whose save can only fail.

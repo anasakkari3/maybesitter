@@ -66,6 +66,8 @@ interface CaptureContextValue {
   state: CaptureState;
   /** Opens the flow; `entry` is the page it was opened from (M3b), null for the plain chat. */
   open(source?: CaptureSource, inputMode?: CaptureInputMode, entry?: CaptureEntry | null): void;
+  /** The plain chat carries no page's hint: an ended conversation's entry is dropped (M3b). */
+  forgetEntry(): void;
   setText(text: string): void;
   /**
    * Sends the draft (or `textOverride`) to the capture chat «احكيها», in the
@@ -284,6 +286,8 @@ export function CaptureProvider({ children }: { children: React.ReactNode }) {
     abandonAnalysis();
     dispatch({ type: 'open', ...(source ? { source } : {}), ...(inputMode ? { inputMode } : {}), entry: entry ?? null });
   }, [abandonAnalysis]);
+
+  const forgetEntry = useCallback(() => dispatch({ type: 'entryForgotten' }), []);
 
   const setText = useCallback((text: string) => dispatch({ type: 'textChanged', text }), []);
 
@@ -582,9 +586,9 @@ export function CaptureProvider({ children }: { children: React.ReactNode }) {
   const acceptUnderstood = useCallback(() => dispatch({ type: 'understoodAccepted' }), []);
   const reopenUnderstood = useCallback(() => dispatch({ type: 'understoodReopened' }), []);
   const value = useMemo<CaptureContextValue>(() => ({
-    state, open, setText, analyze, dismissFailure, startOver, adoptProposal, toggleItem, togglePoint, dropFamilies, selectAll, deselectAll, editItem, setWeekly, setGoalLink, clarify, confirm, undo, backToComposer, acceptUnderstood, reopenUnderstood, close,
+    state, open, forgetEntry, setText, analyze, dismissFailure, startOver, adoptProposal, toggleItem, togglePoint, dropFamilies, selectAll, deselectAll, editItem, setWeekly, setGoalLink, clarify, confirm, undo, backToComposer, acceptUnderstood, reopenUnderstood, close,
     dictate, chooseAlternative, editPoint, adoptCurrent, dictationStarted, takeRefusedEdit, writing, guardWrite,
-  }), [state, open, setText, analyze, dismissFailure, startOver, adoptProposal, toggleItem, togglePoint, dropFamilies, selectAll, deselectAll, editItem, setWeekly, setGoalLink, clarify, confirm, undo, backToComposer, acceptUnderstood, reopenUnderstood, close,
+  }), [state, open, forgetEntry, setText, analyze, dismissFailure, startOver, adoptProposal, toggleItem, togglePoint, dropFamilies, selectAll, deselectAll, editItem, setWeekly, setGoalLink, clarify, confirm, undo, backToComposer, acceptUnderstood, reopenUnderstood, close,
     dictate, chooseAlternative, editPoint, adoptCurrent, dictationStarted, takeRefusedEdit, writing, guardWrite]);
 
   return <CaptureContext.Provider value={value}>{children}</CaptureContext.Provider>;

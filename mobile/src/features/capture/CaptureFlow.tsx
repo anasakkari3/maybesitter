@@ -68,7 +68,16 @@ export function CaptureFlow() {
     // chat, its saves or an unsent draft are still here when it opens again.
     // Only «ابدأ من جديد» / «إلغاء الكل» or a different account start fresh.
     const { conversationId, turns, earlier, text } = flow.state;
-    if (conversationId !== null || turns.length > 0 || earlier.length > 0 || text.trim()) return;
+    if (conversationId !== null || turns.length > 0 || text.trim()) return;
+    if (earlier.length > 0) {
+      // An ended conversation (its saves above) is kept, but a page opens the
+      // chat for its own kind (M3b, D1): from another entry page it starts
+      // fresh with that entry, and the plain chat drops the last page's hint.
+      // Nothing in progress is ever discarded for this.
+      if (s.captureEntry !== null && s.captureEntry !== flow.state.entry) flow.open(s.captureSource, s.captureInput, s.captureEntry);
+      else if (s.captureEntry === null && flow.state.entry !== null) flow.forgetEntry();
+      return;
+    }
     flow.open(s.captureSource, s.captureInput, s.captureEntry);
   }, [flow, s.captureSource, s.captureInput, s.captureEntry, s.taskResumed]);
 
