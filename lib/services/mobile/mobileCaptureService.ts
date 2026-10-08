@@ -51,6 +51,7 @@ import {
   ProposalChangedError,
   proposalRevision,
   revisionMatches,
+  buildStructuredCommitmentArtifacts,
 } from '../captureBoundary';
 import { getStorage } from '../../storage';
 import { createEmptyDomainState, type Command, type Commitment } from '../../../src/domain/stateMachine';
@@ -592,6 +593,7 @@ export async function editCaptureKindsProposal(
     habits: (stored.contract.habits ?? []).map((habit) => ({ ...habit })), goals: (stored.contract.goals ?? []).map((goal) => ({ ...goal })),
   };
   const commands = new Map(stored.commandsByItemId);
+  const results = new Map(stored.resultsByItemId ?? []);
   const editedHabitPointIds = new Set(stored.captureKindsEditedHabitPointIds ?? []);
   if ('goalItemId' in target) {
     const index = contract.goals!.findIndex((candidate) => candidate.goalItemId === target.goalItemId);
@@ -612,7 +614,11 @@ export async function editCaptureKindsProposal(
     const before = contract.habits![index]!;
     if (change.kind === 'commitment') {
       contract.habits!.splice(index, 1);
-      contract.items.push({ itemId: randomUUID(), pointId: before.pointId, title: before.title, resolvedTime: null, needsClarification: true, timeEstimated: false, priority: 'normal', priorityEstimated: false, clarification: null });
+      const itemId = randomUUID();
+      const artifacts = buildStructuredCommitmentArtifacts(stored, itemId, before.title);
+      contract.items.push({ itemId, pointId: before.pointId, title: before.title, resolvedTime: null, needsClarification: true, timeEstimated: false, priority: 'normal', priorityEstimated: false, clarification: null });
+      results.set(itemId, artifacts.result);
+      commands.set(itemId, artifacts.commands);
     } else {
       const cadence = change.cadence === undefined ? before.cadence : parseHabitCadence(change.cadence);
       const durationMinutes = change.durationMinutes === undefined ? before.durationMinutes : Number(change.durationMinutes);
@@ -643,13 +649,21 @@ export async function editCaptureKindsProposal(
     if (index < 0) throw new CaptureKindsInvalidEditError();
     const seed = contract.seeds[index]!;
     contract.seeds.splice(index, 1);
-    contract.items.push({ itemId: randomUUID(), pointId: capturePointId(seed), title: seed.summary, resolvedTime: seed.suggestedTime?.at ?? null, needsClarification: !seed.suggestedTime?.at, timeEstimated: false, priority: 'normal', priorityEstimated: false, clarification: null });
+    const itemId = randomUUID();
+    const suggestedTime = seed.suggestedTime?.at
+      ? { at: seed.suggestedTime.at, zone: seed.suggestedTime.timeZone }
+      : undefined;
+    const artifacts = buildStructuredCommitmentArtifacts(stored, itemId, seed.summary, suggestedTime);
+    contract.items.push({ itemId, pointId: capturePointId(seed), title: seed.summary, resolvedTime: suggestedTime?.at ?? null, needsClarification: !suggestedTime, timeEstimated: false, priority: 'normal', priorityEstimated: false, clarification: null });
+    results.set(itemId, artifacts.result);
+    commands.set(itemId, artifacts.commands);
   } else throw new CaptureKindsInvalidEditError();
   contract = withV8Understood({ ...contract, revision: (contract.revision ?? 0) + 1 });
   const mutated: StoredCaptureProposal = {
     ...stored,
     contract,
     commandsByItemId: commands,
+    resultsByItemId: results,
     ...(editedHabitPointIds.size ? { captureKindsEditedHabitPointIds: Array.from(editedHabitPointIds).sort(compareByCodePoint) } : {}),
     editReceipt: { fingerprint: editFingerprint, resultingRevision: contract.revision ?? 0, answer: { proposal: contract } },
   };

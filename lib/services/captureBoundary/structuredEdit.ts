@@ -161,6 +161,30 @@ function itemCommands(stored: StoredCaptureProposal, itemId: string, result: Ext
   return pending(commands);
 }
 
+/** The result and pending commands created when a structured edit promotes a point to a commitment. */
+export function buildStructuredCommitmentArtifacts(
+  stored: StoredCaptureProposal,
+  itemId: string,
+  title: string,
+  time?: { at: string; zone: string; local?: ReturnType<typeof localTimeSpecFor> },
+): { result: ExtractionResult; commands: Command[] } {
+  let result = seedResult(title);
+  if (time) {
+    result = {
+      ...result,
+      dueAt: time.at,
+      remindAt: time.at,
+      localTimeSpec: time.local ?? localTimeSpecFor(new Date(time.at), time.zone),
+      timeEvidence: 'hhmm',
+      missingFields: [],
+    };
+  }
+  return {
+    result,
+    commands: time ? itemCommands(stored, itemId, result, title, time.at, time.zone) : [],
+  };
+}
+
 function applyEdit(stored: StoredCaptureProposal, edit: CaptureProposalEditContract, now: Date): StoredCaptureProposal {
   const change = edit.change as CaptureProposalEditContract['change'];
   if (!change || typeof change !== 'object' || Array.isArray(change)) throw new StructuredEditError();
@@ -335,8 +359,13 @@ function applyEdit(stored: StoredCaptureProposal, edit: CaptureProposalEditContr
         point.kind !== 'commitment' && point.seedItemId === before.seedItemId
           ? { kind: 'commitment' as const, itemId: before.seedItemId, text: summary }
           : point);
-      let result = seedResult(summary);
-      if (parsedTime?.at) result = { ...result, dueAt: parsedTime.at, remindAt: parsedTime.at, localTimeSpec: parsedTime.local, timeEvidence: 'hhmm', missingFields: [] };
+      const artifacts = buildStructuredCommitmentArtifacts(
+        stored,
+        before.seedItemId,
+        summary,
+        parsedTime?.at ? { at: parsedTime.at, zone: parsedTime.zone, local: parsedTime.local } : undefined,
+      );
+      const { result } = artifacts;
       const clarification = parsedTime?.at ? null : buildClarification(result, { now, timezone: stored.timezone ?? parsedTime?.zone ?? 'UTC' });
       contract.items.push({
         itemId: before.seedItemId, title: summary, resolvedTime: parsedTime?.at ?? null,
@@ -345,7 +374,7 @@ function applyEdit(stored: StoredCaptureProposal, edit: CaptureProposalEditContr
         ...(parsedTime?.local ? { resolvedDate: parsedTime.local.date, dateEstimated: false } : {}),
       });
       results.set(before.seedItemId, result);
-      commands.set(before.seedItemId, parsedTime?.at ? itemCommands(stored, before.seedItemId, result, summary, parsedTime.at, parsedTime.zone) : []);
+      commands.set(before.seedItemId, artifacts.commands);
     } else {
       const kind = change.kind ?? before.kind;
       if (kind !== before.kind) changed = true;
