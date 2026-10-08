@@ -382,3 +382,24 @@ test('RB-10 a habit turned into a commitment, then given a time, is saved', asyn
     assert.equal(result.body.persisted?.length, 1, show(result.body));
   } finally { end(); }
 });
+
+// RB-13 (inspection M3B-A-R6-001): «عدّل» on a timed thought sends a new kind
+// and new words together; made a commitment, it must take the words (RB-12's
+// rule), in the item and in what the confirm saves.
+test('RB-13 a timed thought made a commitment with new words is saved with those words', async () => {
+  const uid = beginRules();
+  try {
+    const answer = await say(uid, 'عم بفكر روح عالجيم بكرا الساعة 6 المسا', { entry: 'thought', locale: 'ar' });
+    const seed = answer.proposal!.seeds.find((candidate) => candidate.suggestedTime);
+    assert.ok(seed, show(answer.proposal));
+    const edited = await editPoint(uid, answer, { seedItemId: seed!.seedItemId }, { kind: 'commitment', text: 'جيم بكرا' });
+    assert.equal(edited.status, 200, show(edited.body));
+    const next = edited.body as Answer;
+    const item = next.proposal!.items.find((candidate) => candidate.pointId === seed!.pointId);
+    assert.equal(item?.title, 'جيم بكرا', `the words were dropped: ${show(next.proposal)}`);
+    const result = await confirm(uid, next.proposal!, { items: [item!.itemId], seeds: [] });
+    assert.equal(result.status, 200, show(result.body));
+    const saved = await savedCommitments(uid);
+    assert.equal(saved[0]?.title, 'جيم بكرا', show(saved));
+  } finally { end(); }
+});

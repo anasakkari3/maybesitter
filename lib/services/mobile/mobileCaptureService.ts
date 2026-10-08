@@ -656,8 +656,9 @@ export async function editCaptureKindsProposal(
     const suggestedTime = seed.suggestedTime?.at
       ? { at: seed.suggestedTime.at, zone: seed.suggestedTime.timeZone }
       : undefined;
-    const artifacts = buildStructuredCommitmentArtifacts(stored, itemId, seed.summary, suggestedTime);
-    contract.items.push({ itemId, pointId: capturePointId(seed), title: seed.summary, resolvedTime: suggestedTime?.at ?? null, needsClarification: !suggestedTime, timeEstimated: false, priority: 'normal', priorityEstimated: false, clarification: null });
+    const title = changedTitle || seed.summary;
+    const artifacts = buildStructuredCommitmentArtifacts(stored, itemId, title, suggestedTime);
+    contract.items.push({ itemId, pointId: capturePointId(seed), title, resolvedTime: suggestedTime?.at ?? null, needsClarification: !suggestedTime, timeEstimated: false, priority: 'normal', priorityEstimated: false, clarification: null });
     results.set(itemId, artifacts.result);
     commands.set(itemId, artifacts.commands);
   } else throw new CaptureKindsInvalidEditError();
