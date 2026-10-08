@@ -75,9 +75,20 @@ export const busyQueryKeys = {
  * other.
  */
 let passInFlight = false;
+/** The pass running now, so a disconnect can wait for an upload already sent. */
+let activePass: Promise<unknown> | null = null;
+/**
+ * Moved on by every disconnect. A pass begun before it caches, uploads and
+ * records nothing more, even for the same account (M4a, M4A-R4-REV-001).
+ */
+let passGeneration = 0;
+/** Disconnects running: no pass starts while one is. */
+let disconnecting = 0;
 
 export function resetBusySyncForTests(): void {
   passInFlight = false;
+  activePass = null;
+  disconnecting = 0;
 }
 
 /**
@@ -166,15 +177,18 @@ export function useBusyCalendar(): BusyCalendarState {
   useEffect(() => { latest.current = { uid, consented }; });
 
   const syncNow = useCallback(async (trigger: BusySyncTrigger): Promise<BusySyncOutcome | null> => {
-    if (passInFlight) return null;
+    if (passInFlight || disconnecting > 0) return null;
     const current = latest.current;
+    const generation = passGeneration;
     // The signed-in account, from the repository (it changes before React's
     // state does), and the hook's own view of it; both must still be the
     // account this pass began for (M4A-REV-001, R2-REV-001).
-    const stillCurrent = () => latest.current.uid === current.uid
+    // And no disconnect since it began (M4A-R4-REV-001).
+    const stillCurrent = () => passGeneration === generation
+      && latest.current.uid === current.uid
       && (current.uid === 'signed-out' || getAuthRepository()?.currentUser()?.uid === current.uid);
     passInFlight = true;
-    try {
+    const pass = (async (): Promise<BusySyncOutcome | null> => {
       const now = new Date();
       const lastSyncedAt = await loadBusySyncedAt(current.uid);
       const writerId = await resolveWriterId();
@@ -197,26 +211,43 @@ export function useBusyCalendar(): BusyCalendarState {
         void client.invalidateQueries({ queryKey: busyQueryKeys.blocks(current.uid) });
       }
       return result;
+    })();
+    activePass = pass;
+    try {
+      return await pass;
     } finally {
       passInFlight = false;
+      activePass = null;
     }
   }, [client]);
 
   const disconnect = useCallback(async (): Promise<{ local: true; server: boolean }> => {
     const current = latest.current;
-    // The phone first, and unconditionally. Whatever the network does, the
-    // person who pressed this sees their busy times gone from the screen.
-    await clearCachedBusyBlocks();
-    void client.invalidateQueries({ queryKey: busyQueryKeys.blocks(current.uid) });
+    // A pass already running read the calendar being disconnected: from here
+    // on it keeps, sends and records nothing, and no new pass starts until
+    // this is done (M4A-R4-REV-001).
+    passGeneration += 1;
+    disconnecting += 1;
     try {
-      await deleteCalendarBusy(deviceSourceId(await resolveWriterId()));
-      // And the switch, so nothing syncs it back. See the header: clearing the
-      // cache also cleared the throttle, so leaving this on would mean the next
-      // trip to the home screen re-uploaded the window that was just deleted.
-      await trustAction.mutateAsync({ type: 'set_calendar_consent', granted: false });
-      return { local: true, server: true };
-    } catch {
-      return { local: true, server: false };
+      // The phone first, and unconditionally. Whatever the network does, the
+      // person who pressed this sees their busy times gone from the screen.
+      await clearCachedBusyBlocks();
+      void client.invalidateQueries({ queryKey: busyQueryKeys.blocks(current.uid) });
+      try {
+        // An upload already on its way lands first, so the delete is the last
+        // word on the server rather than something the upload undoes.
+        await activePass?.catch(() => undefined);
+        await deleteCalendarBusy(deviceSourceId(await resolveWriterId()));
+        // And the switch, so nothing syncs it back. See the header: clearing the
+        // cache also cleared the throttle, so leaving this on would mean the next
+        // trip to the home screen re-uploaded the window that was just deleted.
+        await trustAction.mutateAsync({ type: 'set_calendar_consent', granted: false });
+        return { local: true, server: true };
+      } catch {
+        return { local: true, server: false };
+      }
+    } finally {
+      disconnecting -= 1;
     }
   }, [client, trustAction]);
 

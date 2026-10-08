@@ -26,7 +26,7 @@
 import React from 'react';
 import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
-import { Platform } from 'react-native';
+import { AppState, Platform, type AppStateStatus } from 'react-native';
 import { SafeAreaProvider, type Metrics } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { QueryClient, QueryClientProvider, onlineManager } from '@tanstack/react-query';
@@ -202,6 +202,96 @@ describe('pressing disconnect', () => {
     expect(String(screen.getByTestId('calendar-disconnect-result').props.children))
       .toBe(en.calendarDisconnectFailed);
     expect(await AsyncStorage.getItem(BUSY_BLOCKS_KEY)).toBeNull();
+  });
+});
+
+/**
+ * A sync already running when disconnect is pressed (M4a, M4A-R4-REV-001).
+ *
+ * The pass belongs to the same account, so the account checks alone let it
+ * carry on: it wrote the cache back after the clear, and its upload could
+ * land after the server's delete and put the busy times back on the account.
+ */
+describe('a sync running when disconnect is pressed', () => {
+  function deferred<T>() {
+    let resolve!: (value: T) => void;
+    const promise = new Promise<T>((r) => { resolve = r; });
+    return { promise, resolve };
+  }
+  const BLOCK = { nativeId: 'evt-1', startAt: FROM.toISOString(), endAt: new Date(FROM.getTime() + HOUR).toISOString(), allDay: false };
+  const STORED = {
+    success: true,
+    blocks: 1,
+    source: {
+      sourceId: 'device:x', lastSyncedAt: new Date().toISOString(),
+      windowStart: new Date().toISOString(), windowEnd: new Date().toISOString(),
+    },
+  };
+
+  it('keeps and sends nothing it read before the disconnect', async () => {
+    const read = deferred<typeof BLOCK[]>();
+    jest.mocked(deviceCalendar.fetchBusyBlocks).mockReturnValue(read.promise);
+
+    await show();
+    await waitFor(() => expect(deviceCalendar.fetchBusyBlocks).toHaveBeenCalled());
+    await disconnectAndConfirm();
+    read.resolve([BLOCK]);
+
+    await waitFor(() => expect(calendarEndpoints.deleteCalendarBusy).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(trustEndpoints.updateTrust).toHaveBeenCalled());
+    expect(calendarEndpoints.postCalendarBusy).not.toHaveBeenCalled();
+    expect(await AsyncStorage.getItem(BUSY_BLOCKS_KEY)).toBeNull();
+  });
+
+  it('lets an upload already sent land before the delete, and records nothing after it', async () => {
+    const upload = deferred<typeof STORED>();
+    const order: string[] = [];
+    jest.mocked(calendarEndpoints.postCalendarBusy).mockImplementation(async () => {
+      order.push('upload sent');
+      const stored = await upload.promise;
+      order.push('upload landed');
+      return stored as never;
+    });
+    jest.mocked(calendarEndpoints.deleteCalendarBusy).mockImplementation(async () => {
+      order.push('delete');
+      return { success: true, deleted: 1 } as never;
+    });
+
+    await show();
+    await waitFor(() => expect(order).toEqual(['upload sent']));
+    await disconnectAndConfirm();
+    // Nothing is deleted while the upload is still on its way.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(order).toEqual(['upload sent']);
+    upload.resolve(STORED);
+
+    await waitFor(() => expect(order).toEqual(['upload sent', 'upload landed', 'delete']));
+    await waitFor(() => expect(trustEndpoints.updateTrust).toHaveBeenCalled());
+    expect(await AsyncStorage.getItem(BUSY_BLOCKS_KEY)).toBeNull();
+  });
+
+  it('starts no new pass while the disconnect is still running', async () => {
+    const listeners: ((state: AppStateStatus) => void)[] = [];
+    jest.spyOn(AppState, 'addEventListener').mockImplementation(((type: string, listener: (state: AppStateStatus) => void) => {
+      if (type === 'change') listeners.push(listener);
+      return { remove: () => {} };
+    }) as never);
+    const deletion = deferred<{ success: true; deleted: number }>();
+    jest.mocked(calendarEndpoints.deleteCalendarBusy).mockReturnValue(deletion.promise as never);
+
+    await show();
+    await waitFor(() => expect(calendarEndpoints.postCalendarBusy).toHaveBeenCalledTimes(1));
+    await disconnectAndConfirm();
+    await waitFor(() => expect(calendarEndpoints.deleteCalendarBusy).toHaveBeenCalledTimes(1));
+    // Back to the front while the delete is on its way: the cache was just
+    // cleared, so the throttle would let a pass through.
+    for (const listener of listeners) listener('active');
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    deletion.resolve({ success: true, deleted: 1 });
+
+    await waitFor(() => expect(trustEndpoints.updateTrust).toHaveBeenCalled());
+    expect(deviceCalendar.fetchBusyBlocks).toHaveBeenCalledTimes(1);
+    expect(calendarEndpoints.postCalendarBusy).toHaveBeenCalledTimes(1);
   });
 });
 
