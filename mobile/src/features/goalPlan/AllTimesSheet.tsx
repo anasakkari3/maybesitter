@@ -62,8 +62,10 @@ export function AllTimesSheet({ busy, onApply }: { busy: boolean; onApply: (pref
 
   return (
     <Card testID="plan-times-all-sheet" style={{ gap: 12 }}>
-      <Txt role="section" size={16} weight={700}>{t.yAllTimesTitle}</Txt>
-      <Disclosure id="plan-times-all" body={t.yAllTimesWhy} label={t.yAllTimesTitle} />
+      {/* The title and its «ليش؟» on one line, as the product sections draw it. */}
+      <Disclosure id="plan-times-all" body={t.yAllTimesWhy} label={t.yAllTimesTitle}>
+        <Txt role="section" size={16} weight={700}>{t.yAllTimesTitle}</Txt>
+      </Disclosure>
       <View accessibilityRole="radiogroup" style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
         {PARTS.map((value) => (
           <Choice key={value} testID={`plan-times-all-part-${value}`} label={partLabel(value)} selected={!noTime && part === value} disabled={busy}

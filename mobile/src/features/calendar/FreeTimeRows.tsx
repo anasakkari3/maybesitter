@@ -50,7 +50,7 @@ export function GapRow({ gap, day, quiet = false, height }: { gap: Gap; day: str
       accessibilityLabel={fill(t.yGapA11y, { from: ltr(formatTime(start, options)), to: ltr(formatTime(end, options)) })}
       style={{
         ...(height !== undefined ? { height } : { minHeight: 44 }),
-        justifyContent: 'center', borderRadius: 14, paddingVertical: 6, paddingHorizontal: 12,
+        borderRadius: 14, paddingVertical: 6, paddingHorizontal: 12,
         borderWidth: 1, borderStyle: quiet ? 'dashed' : 'solid', borderColor: p.ln,
         backgroundColor: quiet ? 'transparent' : p.sf,
         flexDirection: 'row', alignItems: 'center', gap: 8,

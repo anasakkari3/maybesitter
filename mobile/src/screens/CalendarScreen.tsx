@@ -454,7 +454,7 @@ export function CalendarScreen({ tabClearance = TAB_CLEARANCE }: { tabClearance?
             <View style={{ paddingVertical: 5, paddingHorizontal: 12, borderWidth: 1, borderColor: p.ln, backgroundColor: p.sf, borderRadius: 999 }}>
               <Txt size={13} color={p.mu} testID="calendar-selected-load">
                 {selectedFree?.state === 'full' && shownFilter === 'free' && selectedFree.totalMinutes !== null
-                  ? fill(t.yGapRow, { range: '', length: gapLength(selectedFree.totalMinutes, t, tr) }).trim()
+                  ? `${t.yFilterFree} ${gapLength(selectedFree.totalMinutes, t, tr)}`
                   : loadWord(loadOf(selectedKey))}
               </Txt>
             </View>
