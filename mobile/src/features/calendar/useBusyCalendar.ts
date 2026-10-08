@@ -37,7 +37,7 @@
  */
 import { useCallback, useEffect, useRef } from 'react';
 import { AppState, Platform } from 'react-native';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { queryKeys, useTrust, useTrustAction, useUid } from '../../api/queries';
 import { getAuthRepository } from '../../api/auth';
 import type { TrustResponse } from '../../api/schemas/trust';
@@ -95,11 +95,21 @@ let passGeneration = 0;
  * the consent itself keeps passes from starting; on (the request never applied,
  * or it was turned back on elsewhere), and syncing resumes. Its answer may
  * have been lost even though it applied, so an error proves nothing either.
- * `answersAtSettle` is the trust query's count of answers when the request
- * settled, null while it is still out. Fetches begun before then are
- * cancelled at that moment, so only a later answer moves the count.
+ * `settled` is the trust query as it stood when the request settled, null
+ * while the request is still out: the query itself and its count of answers.
+ * Fetches begun before then are cancelled at that moment, so only a later
+ * answer moves the count. Every account change clears the query cache
+ * (`ApiProvider`), and a query made after that holds only later answers,
+ * whatever its count (M4A-R7-REV-001).
  */
-let withdrawn: { uid: string; answersAtSettle: number | null } | null = null;
+let withdrawn: { uid: string; settled: { query: unknown; answers: number } | null } | null = null;
+
+/** Whether the trust query holds an answer given after `settled`. */
+function answeredSince(client: QueryClient, uid: string, settled: { query: unknown; answers: number }): boolean {
+  const query = client.getQueryCache().find({ queryKey: queryKeys.trust(uid), exact: true });
+  if (!query) return false;
+  return query === settled.query ? query.state.dataUpdateCount > settled.answers : query.state.dataUpdateCount > 0;
+}
 
 export function resetBusySyncForTests(): void {
   passInFlight = false;
@@ -257,7 +267,7 @@ export function useBusyCalendar(): BusyCalendarState {
     // on it keeps, sends and records nothing (M4A-R4-REV-001), and no new pass
     // starts until the server has said what the switch is (`withdrawn`).
     passGeneration += 1;
-    const mark = { uid: current.uid, answersAtSettle: null as number | null };
+    const mark: NonNullable<typeof withdrawn> = { uid: current.uid, settled: null };
     withdrawn = mark;
     // The phone first, and unconditionally. Whatever the network does, the
     // person who pressed this sees their busy times gone from the screen.
@@ -285,7 +295,8 @@ export function useBusyCalendar(): BusyCalendarState {
     } finally {
       // Settled, whichever way: the next answer the server gives says what the
       // switch is. Anything fetched before now is dropped unread.
-      mark.answersAtSettle = client.getQueryState(queryKeys.trust(current.uid))?.dataUpdateCount ?? 0;
+      const query = client.getQueryCache().find({ queryKey: queryKeys.trust(current.uid), exact: true });
+      mark.settled = { query, answers: query?.state.dataUpdateCount ?? 0 };
       void client.refetchQueries({ queryKey: queryKeys.trust(current.uid) }, { cancelRefetch: true });
     }
   }, [client, trustAction]);
@@ -294,8 +305,8 @@ export function useBusyCalendar(): BusyCalendarState {
   // consent itself decides. On means the switch never went off, or was turned
   // back on elsewhere, so the sync the mark held back runs now.
   useEffect(() => {
-    if (withdrawn?.uid !== uid || withdrawn.answersAtSettle === null) return;
-    if ((client.getQueryState(queryKeys.trust(uid))?.dataUpdateCount ?? 0) <= withdrawn.answersAtSettle) return;
+    if (withdrawn?.uid !== uid || withdrawn.settled === null) return;
+    if (!answeredSince(client, uid, withdrawn.settled)) return;
     withdrawn = null;
     if (consentNow(uid)) void syncNow('connect');
   }, [uid, trustAnsweredAt, client, consentNow, syncNow]);

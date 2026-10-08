@@ -434,6 +434,27 @@ describe('a sync running when disconnect is pressed', () => {
     await waitFor(() => expect(calendarEndpoints.postCalendarBusy).toHaveBeenCalledTimes(2));
   });
 
+  // M4A-R7-REV-001: `ApiProvider` clears the query cache on every account
+  // change, which starts the trust query's count of answers again from zero.
+  it('syncs again after signing out and back in when the account change clears the query cache, as ApiProvider does', async () => {
+    const server = serverTrust(true);
+
+    await show();
+    await waitFor(() => expect(calendarEndpoints.postCalendarBusy).toHaveBeenCalledTimes(1));
+    server.held = deferred();
+    const held = server.held;
+    await disconnectAndConfirm();
+    await waitFor(() => expect(screen.queryByTestId('calendar-disconnect-result')).not.toBeNull());
+
+    await act(async () => { repository.emit(null); client.clear(); });
+    server.consent = true;
+    server.held = null;
+    await act(async () => { repository.emit(USER); });
+
+    await waitFor(() => expect(calendarEndpoints.postCalendarBusy).toHaveBeenCalledTimes(2));
+    held.resolve(trustBody(true));
+  });
+
   it('takes no answer fetched before the switch went off for the server\'s word, across signing out and in', async () => {
     const server = serverTrust(true);
 
