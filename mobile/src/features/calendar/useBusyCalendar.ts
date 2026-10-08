@@ -39,6 +39,7 @@ import { useCallback, useEffect, useRef } from 'react';
 import { AppState, Platform } from 'react-native';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTrust, useTrustAction, useUid } from '../../api/queries';
+import { getAuthRepository } from '../../api/auth';
 import { deleteCalendarBusy, postCalendarBusy } from '../../api/endpoints/calendar';
 import { calendarReadEnabled } from '../../config/env';
 import {
@@ -122,7 +123,7 @@ function apiBusyPorts(owner: string): BusySyncPorts {
     ownEventIds: loadWrittenEventIds,
     cache: (blocks, coverage) => saveCachedBusyBlocks(owner, blocks, coverage),
     uncover: () => uncoverCachedBusyBlocks(owner),
-    upload: async (body) => { await postCalendarBusy(body); },
+    upload: async (body) => { await postCalendarBusy(body, { asUid: owner }); },
     recordSync: (at) => saveBusySyncedAt(owner, at),
   };
 }
@@ -162,21 +163,29 @@ export function useBusyCalendar(): BusyCalendarState {
   const syncNow = useCallback(async (trigger: BusySyncTrigger): Promise<BusySyncOutcome | null> => {
     if (passInFlight) return null;
     const current = latest.current;
+    // The signed-in account, from the repository (it changes before React's
+    // state does), and the hook's own view of it; both must still be the
+    // account this pass began for (M4A-REV-001, R2-REV-001).
+    const stillCurrent = () => latest.current.uid === current.uid
+      && (current.uid === 'signed-out' || getAuthRepository()?.currentUser()?.uid === current.uid);
     passInFlight = true;
     try {
       const now = new Date();
+      const lastSyncedAt = await loadBusySyncedAt(current.uid);
+      const writerId = await resolveWriterId();
+      if (!stillCurrent()) return null;
       const result = await runBusySync(apiBusyPorts(current.uid), {
         trigger,
         featureEnabled: calendarReadEnabled(),
         signedIn: current.uid !== 'signed-out',
         consented: current.consented,
-        lastSyncedAt: await loadBusySyncedAt(current.uid),
+        lastSyncedAt,
         now,
-        sourceId: deviceSourceId(await resolveWriterId()),
+        sourceId: deviceSourceId(writerId),
         platform: Platform.OS === 'android' ? 'android' : 'ios',
         window: windowFrom(now),
         // The pass belongs to the account it began for (M4A-REV-001).
-        stillCurrent: () => latest.current.uid === current.uid,
+        stillCurrent,
       });
       // Only a pass that actually read the calendar changed the cache.
       if (result.kind === 'synced' || result.kind === 'failed' || result.kind === 'denied') {

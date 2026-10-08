@@ -70,6 +70,14 @@ describe('dayBounds and dayWindow', () => {
     expect((before.end - before.start) / 3_600_000).toBe(24);
   });
 
+  it('M4A-R2-REV-003 a three-hour fold at midnight starts at the first 00:00', () => {
+    // Antarctica/Casey fell back from 02:59 to 00:00 on 2019-03-17.
+    const fold = dayBounds('2019-03-17', 'Antarctica/Casey');
+    expect(localDateTimeFor(new Date(fold.start), 'Antarctica/Casey')).toBe('2019-03-17T00:00');
+    expect(localDateTimeFor(new Date(fold.start - 60_000), 'Antarctica/Casey').slice(0, 10)).toBe('2019-03-16');
+    expect((fold.end - fold.start) / 3_600_000).toBe(27);
+  });
+
   it('no sleep window is 08:00–22:00', () => {
     expect(dayWindow(DAY, ZONE, null)).toEqual([span(DAY, '08:00', '22:00')]);
   });

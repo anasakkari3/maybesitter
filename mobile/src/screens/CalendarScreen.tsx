@@ -17,7 +17,6 @@ import { useApp } from '../state/AppContext';
 import { useTimeZone } from '../i18n/timezone';
 import { CIVIL_ZONE, civilDate, dayKey, formatDate, formatDayRange, formatRelativeDay, formatTimeRange } from '../i18n/format';
 import { isolateAuto } from '../i18n/bidi';
-import { fill } from '../i18n/strings';
 import { dueAsideText, placeView, savedPlacements } from '../features/plan/savedPlacement';
 import { usePlan, useProfile, useSavedWeek, useToday, useTrust, useUid, useUpcoming } from '../api/queries';
 import type { PendingPlanProposal } from '../api/schemas/plan';

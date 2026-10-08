@@ -100,14 +100,18 @@ export function occupancyOf(input: OccupancyInput): Interval | null {
  * M4A-REV-002) there is no 00:00, and resolving it lands an hour early, on the
  * previous day; where they fall back at midnight it can land on the second of
  * two 00:00s. So the guess is checked against what it formats back to and
- * moved, a minute at a time across at most two hours, to the first instant
- * whose local date is `key`.
+ * moved to the first instant whose local date is `key`.
  */
 function startOfLocalDay(key: string, timeZone: string): number {
   const dateOf = (ms: number) => localDateTimeFor(new Date(ms), timeZone).slice(0, 10);
+  const COARSE = 15 * MINUTE;
+  // Real discontinuities reach three hours (Antarctica/Casey fell back from
+  // 02:59 to 00:00 on 2019-03-17, M4A-R2-REV-003), so the search covers a
+  // whole day each way, coarsely, then the last quarter hour minute by minute.
   let ms = instantForLocalDateTime(`${key}T00:00`, timeZone)!.getTime();
-  for (let step = 0; step < 120 && dateOf(ms) < key; step += 1) ms += MINUTE;
-  for (let step = 0; step < 120 && dateOf(ms - MINUTE) === key; step += 1) ms -= MINUTE;
+  for (let step = 0; step < 96 && dateOf(ms) < key; step += 1) ms += COARSE;
+  for (let step = 0; step < 96 && dateOf(ms - COARSE) === key; step += 1) ms -= COARSE;
+  for (let step = 0; step < 15 && dateOf(ms - MINUTE) === key; step += 1) ms -= MINUTE;
   return ms;
 }
 

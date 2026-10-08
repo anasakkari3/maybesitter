@@ -329,6 +329,20 @@ describe('a pass', () => {
     expect(recorded).toEqual([]);
   });
 
+  it('M4A-R2-REV-001 never reads the calendar when the account changed while its own event ids were read', async () => {
+    let signedIn = true;
+    const base = ports();
+    const switching: BusySyncPorts = { ...base, ownEventIds: async () => { signedIn = false; return ['ours']; } };
+    expect(await runBusySync(switching, { ...input(), stillCurrent: () => signedIn })).toEqual({ kind: 'skipped', because: 'signed_out' });
+    expect(read).not.toHaveBeenCalled();
+    expect(cached).toEqual([]);
+  });
+
+  it('M4A-R2-REV-001 never starts for an account that is already gone', async () => {
+    expect(await runBusySync(ports(), { ...input(), stillCurrent: () => false })).toEqual({ kind: 'skipped', because: 'signed_out' });
+    expect(read).not.toHaveBeenCalled();
+  });
+
   it('M4A-REV-001 drops a pass whose account changed after the cache write, before the upload', async () => {
     let signedIn = true;
     const base = ports();

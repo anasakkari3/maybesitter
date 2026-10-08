@@ -1,8 +1,9 @@
 import type { z } from 'zod';
 import { Platform } from 'react-native';
 import { apiBaseUrl } from '../config/env';
-import { getIdToken, refreshIdToken, signOutExpired, signOutForbidden } from './auth';
+import { getAuthRepository, getIdToken, refreshIdToken, signOutExpired, signOutForbidden } from './auth';
 import {
+  AccountChangedError,
   IcsFeedRefusedError,
   GoogleRefusedError,
   WeeklyBlockRefusedError,
@@ -103,6 +104,14 @@ export interface RequestOptions<T> {
    * Its shape is the server's to change, so the client only ever repeats it.
    */
   ifMatch?: string;
+  /**
+   * Send only as this account (M4a, M4A-R2-REV-002). The bearer is fetched
+   * asynchronously, so a request that started for account A could otherwise
+   * go out with B's token after a switch. The signed-in uid is checked before
+   * the token, after it, and after a 401 refresh; any other account and the
+   * request is never sent (`AccountChangedError`).
+   */
+  asUid?: string;
   /**
    * How long to wait, when fifteen seconds is the wrong answer.
    *
@@ -647,9 +656,20 @@ export async function apiRequestTagged<T>(
   // (see ./mockAdapter.ts). Placed here so every endpoint, error type and
   // schema check below is exercised exactly as it is against a real server.
   const mocked = mockResponseFor(method, path, options.body);
-  let response: RawResponse = mocked
-    ? { status: mocked.status, body: mocked.body, etag: null }
-    : await send(method, target, options.body, await getIdToken(), options.signal, options.ifMatch, options.timeoutMs);
+  const stillTheAccount = () => {
+    if (options.asUid !== undefined && getAuthRepository()?.currentUser()?.uid !== options.asUid) {
+      throw new AccountChangedError(`the request was for another account: ${path}`);
+    }
+  };
+  stillTheAccount();
+  let response: RawResponse;
+  if (mocked) {
+    response = { status: mocked.status, body: mocked.body, etag: null };
+  } else {
+    const token = await getIdToken();
+    stillTheAccount();
+    response = await send(method, target, options.body, token, options.signal, options.ifMatch, options.timeoutMs);
+  }
 
   if (response.status === 401 && refusal(response.body).reason === 'recent_login_required') {
     // Before the refresh, and before any sign-out (#149).
@@ -668,6 +688,7 @@ export async function apiRequestTagged<T>(
     // Exactly one forced refresh and one retry. Concurrent 401s share the
     // refresh (see ./auth.ts), so three parallel calls cause one round trip.
     const fresh = await refreshIdToken();
+    stillTheAccount();
     if (fresh) {
       response = await send(method, target, options.body, fresh, options.signal, options.ifMatch, options.timeoutMs);
     }

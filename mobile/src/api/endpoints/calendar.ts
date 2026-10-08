@@ -73,10 +73,12 @@ export interface CalendarBusyUpload {
   blocks: { blockId: string; startAt: string; endAt: string; allDay: boolean }[];
 }
 
-export function postCalendarBusy(upload: CalendarBusyUpload) {
+/** `asUid`: the account whose calendar this is; never sent under another (M4A-R2-REV-002). */
+export function postCalendarBusy(upload: CalendarBusyUpload, options: { asUid?: string } = {}) {
   return apiRequest('POST', '/api/mobile/calendar/busy', {
     body: upload,
     schema: calendarBusyStoredSchema,
+    ...(options.asUid !== undefined ? { asUid: options.asUid } : {}),
   });
 }
 

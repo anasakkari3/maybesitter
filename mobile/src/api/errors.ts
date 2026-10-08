@@ -28,6 +28,12 @@ export class NetworkError extends ApiError {}
 /** The request reached a server and 15 s passed without an answer. */
 export class TimeoutError extends ApiError {}
 
+/**
+ * A request bound to one account (`asUid`) was not sent because another
+ * account is signed in now (M4a, M4A-R2-REV-002). Nothing reached the server.
+ */
+export class AccountChangedError extends ApiError {}
+
 /** 400 — the server refused what was sent. */
 export class ValidationError extends ApiError {
   constructor(message: string, readonly reason?: string) {

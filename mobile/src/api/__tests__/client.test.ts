@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { apiRequest } from '../client';
 import { resetAuthForTests, setAuthRepository } from '../auth';
 import {
+  AccountChangedError,
   ConflictError,
   ContractError,
   ForbiddenError,
@@ -93,6 +94,37 @@ describe('sending a request', () => {
     respondWith({ status: 200, body: { ok: true } });
     await apiRequest('GET', '/api/mobile/x', { schema: okSchema });
     expect(authHeaderOf(calls[0]!)).toBeUndefined();
+  });
+});
+
+describe('a request bound to one account (M4a, M4A-R2-REV-002)', () => {
+  const OTHER: AuthUser = { ...USER, uid: 'u2', email: 'other@example.com' };
+
+  it('is sent while that account is signed in', async () => {
+    respondWith({ status: 200, body: { ok: true } });
+    await apiRequest('POST', '/api/mobile/x', { schema: okSchema, body: {}, asUid: USER.uid });
+    expect(calls).toHaveLength(1);
+  });
+
+  it('is never sent when another account signs in while its token is fetched', async () => {
+    respondWith({ status: 200, body: { ok: true } });
+    const original = repository.getIdToken.bind(repository);
+    jest.spyOn(repository, 'getIdToken').mockImplementation(async (force?: boolean) => {
+      const token = await original(force);
+      repository.emit(OTHER);
+      return token;
+    });
+    await expect(apiRequest('POST', '/api/mobile/x', { schema: okSchema, body: {}, asUid: USER.uid }))
+      .rejects.toBeInstanceOf(AccountChangedError);
+    expect(calls).toHaveLength(0);
+  });
+
+  it('is never sent when another account is already signed in', async () => {
+    repository.emit(OTHER);
+    respondWith({ status: 200, body: { ok: true } });
+    await expect(apiRequest('POST', '/api/mobile/x', { schema: okSchema, body: {}, asUid: USER.uid }))
+      .rejects.toBeInstanceOf(AccountChangedError);
+    expect(calls).toHaveLength(0);
   });
 });
 

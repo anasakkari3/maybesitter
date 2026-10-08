@@ -225,9 +225,14 @@ export async function runBusySync(
 
   const current = input.stillCurrent ?? (() => true);
   const gone: BusySyncOutcome = { kind: 'skipped', because: 'signed_out' };
+  // Nothing of the calendar is read for an account that is no longer signed
+  // in: checked before each step that waits, and before the native read.
+  if (!current()) return gone;
   let blocks: DeviceBusyBlock[];
   try {
-    blocks = await ports.readBusy(new Set(await ports.ownEventIds()), input.now);
+    const own = new Set(await ports.ownEventIds());
+    if (!current()) return gone;
+    blocks = await ports.readBusy(own, input.now);
   } catch {
     if (!current()) return gone;
     // The calendar could not be read: no permission, or the module is not
