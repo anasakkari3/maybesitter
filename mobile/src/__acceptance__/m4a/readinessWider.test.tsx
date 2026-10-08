@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
 import { act, screen, waitFor } from '@testing-library/react-native';
+import en from '../../i18n/locales/en.json';
 import {
   NOW,
   TODAY,
@@ -11,6 +12,7 @@ import {
   press,
   renderCalendar,
   teardown,
+  trust,
   type M4aHarness,
 } from './harness';
 
@@ -36,6 +38,22 @@ function expectNoFreeClaims(): void {
   expect(screen.queryAllByTestId(/^calendar-gap-/)).toHaveLength(0);
   expect(screen.queryAllByTestId(/^calendar-free-total-/)).toHaveLength(0);
   expect(screen.queryAllByTestId(/^calendar-wider-free-bar-/)).toHaveLength(0);
+}
+
+function copy(key: string): string {
+  const value = (en as unknown as Record<string, unknown>)[key];
+  return typeof value === 'string' ? value : `__missing_${key}__`;
+}
+
+function expectGapEnding(day: string, start: string, end: string): void {
+  const gap = screen.getByTestId(`calendar-gap-${day}-${start.replace(':', '')}`);
+  expect(String(gap.props.accessibilityLabel ?? '')).toContain(end);
+}
+
+function unknownGoogleLabelText(): string {
+  return copy('yWiderCellUnknownA11y')
+    .replace('{date}, ', '')
+    .replace('{count}, ', '');
 }
 
 describe('M4a readiness fails closed', () => {
@@ -87,7 +105,7 @@ describe('M4a readiness fails closed', () => {
   });
 
   it('M4A-R9-004 denied or absent device coverage is unknown, never an empty calendar', async () => {
-    harness = await prepareCalendar();
+    harness = await prepareCalendar((scenario) => { scenario.trust = trust(true); });
     await renderCalendar(harness);
 
     expect(screen.queryByTestId('calendar-free-unknown')).not.toBeNull();
@@ -125,10 +143,20 @@ describe('M4a readiness fails closed', () => {
       };
     });
     await renderCalendar(harness);
+    await press('calendar-day-2030-03-30');
     await press('calendar-filter-free');
 
-    expect(screen.queryByTestId(`calendar-gap-${TODAY}-1000`)).not.toBeNull();
-    expect(screen.queryByTestId(`calendar-gap-${TODAY}-0800`)).toBeNull();
+    expect(screen.queryByTestId('calendar-gap-2030-03-30-1000')).not.toBeNull();
+    expect(screen.queryByTestId('calendar-gap-2030-03-30-0800')).toBeNull();
+  });
+
+  it('M4A-R9-004 a successful null routine uses the 08:00 fallback window', async () => {
+    harness = await prepareCalendar();
+    await renderCalendar(harness);
+    await press('calendar-day-2030-03-30');
+    await press('calendar-filter-free');
+
+    expect(screen.queryByTestId('calendar-gap-2030-03-30-0800')).not.toBeNull();
   });
 
   it.each([
@@ -146,6 +174,74 @@ describe('M4a readiness fails closed', () => {
     await press('calendar-wider-open');
 
     expect(screen.queryByTestId('calendar-wider-google-note')).toBeNull();
+    expect(screen.queryByTestId(`calendar-wider-free-bar-${TODAY}`)).not.toBeNull();
+  });
+
+  it.each(['paused', 'error', 'stale'] as const)(
+    'M4A-R10-002 an ICS source with %s readiness makes its covered days unknown',
+    async (status) => {
+      harness = await prepareCalendar((scenario) => {
+        scenario.busy = {
+          status: 200,
+          body: {
+            ...completeBusy,
+            sources: [{
+              sourceId: 'ics-feed',
+              kind: 'ics',
+              windowStart: instant(TODAY, '00:00'),
+              windowEnd: instant('2030-04-05', '00:00'),
+              lastRefreshedAt: instant(TODAY, '08:00'),
+              status,
+            }],
+          },
+        };
+      });
+      await renderCalendar(harness);
+      await press('calendar-day-2030-03-30');
+
+      expect(screen.queryByTestId('calendar-free-unknown')).not.toBeNull();
+      expectNoFreeClaims();
+    },
+  );
+
+  it('M4A-R10-002 a manual block outside the selected day does not make that day incomplete', async () => {
+    harness = await prepareCalendar((scenario) => {
+      scenario.busy = {
+        status: 200,
+        body: {
+          ...completeBusy,
+          blocks: [{
+            blockId: 'manual-later', sourceId: 'manual', sourceKind: 'manual',
+            startAt: instant('2030-04-02', '10:00'), endAt: instant('2030-04-02', '11:00'), allDay: false,
+          }],
+        },
+      };
+    });
+    await renderCalendar(harness);
+    await press('calendar-day-2030-03-30');
+    await press('calendar-filter-free');
+
+    expectGapEnding('2030-03-30', '08:00', '22:00');
+  });
+
+  it('M4A-R10-003 complete false exposes free time only before its cutoff', async () => {
+    harness = await prepareCalendar((scenario) => {
+      scenario.busy = {
+        status: 200,
+        body: {
+          ...completeBusy,
+          complete: false,
+          cutoff: instant('2030-03-30', '15:00'),
+        },
+      };
+    });
+    await renderCalendar(harness);
+    await press('calendar-day-2030-03-30');
+    await press('calendar-filter-free');
+
+    expectGapEnding('2030-03-30', '08:00', '15:00');
+    expect(screen.queryByTestId('calendar-gap-2030-03-30-1500')).toBeNull();
+    expect(screen.queryByTestId('calendar-free-unknown')).not.toBeNull();
   });
 });
 
@@ -193,12 +289,16 @@ describe('M4a wider calendar', () => {
     await renderCalendar(harness);
     await press('calendar-wider-open');
 
-    expect(screen.getAllByTestId('calendar-wider-google-note')).toHaveLength(1);
-    expect(screen.queryByTestId('calendar-wider-free-bar-2030-04-13')).toBeNull();
-    expect(screen.getByTestId('calendar-wider-day-2030-04-13').props.accessibilityLabel).toBeTruthy();
+    const note = screen.getAllByTestId('calendar-wider-google-note');
+    expect(note).toHaveLength(1);
+    expect(note[0]).toHaveTextContent(copy('yWiderGoogleNote'));
+    expect(screen.queryByTestId('calendar-wider-free-bar-2030-04-11')).not.toBeNull();
+    expect(screen.queryByTestId('calendar-wider-free-bar-2030-04-12')).toBeNull();
+    expect(screen.getByTestId('calendar-wider-day-2030-04-12').props.accessibilityLabel)
+      .toContain(unknownGoogleLabelText());
   });
 
-  it('M4A-R4-003 an early or missing Google window uses the from-here note and never draws an uncovered bar', async () => {
+  it('M4A-R4-003 a missing Google window uses the from-here note and never draws an uncovered bar', async () => {
     harness = await prepareCalendar((scenario) => {
       scenario.googleStatus = googleConnected;
       scenario.googleBusy = { success: true, blocks: [], windowStart: null, windowEnd: null };
@@ -207,9 +307,31 @@ describe('M4a wider calendar', () => {
     await press('calendar-wider-open');
 
     const note = screen.getByTestId('calendar-wider-google-note');
-    expect(note.props.accessibilityHint ?? note.props.children).toBeTruthy();
+    expect(note).toHaveTextContent(copy('yWiderGoogleNoteFromHere'));
     expect(screen.queryAllByTestId(/^calendar-wider-free-bar-/)).toHaveLength(0);
-    expect(screen.getByTestId(`calendar-wider-day-${TODAY}`).props.accessibilityLabel).toBeTruthy();
+    expect(screen.getByTestId(`calendar-wider-day-${TODAY}`).props.accessibilityLabel)
+      .toContain(unknownGoogleLabelText());
+  });
+
+  it('M4A-R4-003 an early truncated Google window starts the from-here note at the first uncovered cell', async () => {
+    harness = await prepareCalendar((scenario) => {
+      scenario.googleStatus = googleConnected;
+      scenario.googleBusy = {
+        success: true,
+        blocks: [],
+        windowStart: instant(TODAY, '00:00'),
+        windowEnd: instant('2030-04-02', '19:20'),
+      };
+    });
+    await renderCalendar(harness);
+    await press('calendar-wider-open');
+
+    expect(screen.getByTestId('calendar-wider-google-note'))
+      .toHaveTextContent(copy('yWiderGoogleNoteFromHere'));
+    expect(screen.queryByTestId('calendar-wider-free-bar-2030-04-01')).not.toBeNull();
+    expect(screen.queryByTestId('calendar-wider-free-bar-2030-04-02')).toBeNull();
+    expect(screen.getByTestId('calendar-wider-day-2030-04-02').props.accessibilityLabel)
+      .toContain(unknownGoogleLabelText());
   });
 });
 

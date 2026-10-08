@@ -12,8 +12,12 @@ import { CaptureProvider, useCaptureFlow } from '../../features/capture/CaptureP
 import { ReviewScreen } from '../../screens/ReviewScreen';
 import type { CaptureProposal } from '../../api/schemas/capture';
 import { LANGUAGE_STORAGE_KEY } from '../../i18n/language';
+import { formatRelativeDay } from '../../i18n/format';
+import { fill, ltr } from '../../i18n/strings';
+import ar from '../../i18n/locales/ar.json';
 import en from '../../i18n/locales/en.json';
-import { M4aServer, METRICS, NOW, TODAY, calendarScenario, press, teardown } from './harness';
+import he from '../../i18n/locales/he.json';
+import { M4aServer, METRICS, NOW, TODAY, calendarScenario, instant, press, teardown } from './harness';
 
 jest.mock('expo-localization', () => ({
   getCalendars: jest.fn(() => [{ timeZone: 'Asia/Jerusalem' }]),
@@ -21,7 +25,7 @@ jest.mock('expo-localization', () => ({
 }));
 
 function freeSlotProposal(slots = [
-  { id: 'slot-1', date: TODAY, time: '10:00' },
+  { id: 'slot-1', date: TODAY, time: '14:00' },
   { id: 'slot-2', date: '2030-03-30', time: '12:00' },
   { id: 'slot-3', date: '2030-04-08', time: '16:30' },
 ]): CaptureProposal {
@@ -100,6 +104,11 @@ function Mount({ proposal }: { proposal: CaptureProposal }) {
   return <ReviewScreen />;
 }
 
+function copy(bundle: unknown, key: string): string {
+  const value = (bundle as Record<string, unknown>)[key];
+  return typeof value === 'string' ? value : `__missing_${key}__`;
+}
+
 let client: QueryClient | undefined;
 let server: M4aServer | undefined;
 
@@ -147,13 +156,45 @@ describe('M4a capture free slots', () => {
   it.each(['ar', 'en', 'he'] as const)('M4A-R9-003 %s renders every slot with its own day/time presentation and free-slot accessibility', async (language) => {
     await show(freeSlotProposal(), language);
 
-    for (const id of ['slot-1', 'slot-2', 'slot-3']) {
-      const option = screen.getByTestId(`clarify-option-${id}`);
-      expect(option.props.accessibilityLabel).toBeTruthy();
-      expect(String(option.props.accessibilityLabel)).not.toContain('freeSlot');
+    const bundles = { ar, en, he } as const;
+    const bundle = bundles[language];
+    const slots = [
+      { id: 'slot-1', date: TODAY, time: '14:00' },
+      { id: 'slot-2', date: '2030-03-30', time: '12:00' },
+      { id: 'slot-3', date: '2030-04-08', time: '16:30' },
+    ];
+
+    expect(screen.getByTestId('clarify-question')).toHaveTextContent(fill(
+      copy(bundle, 'yFreeSlotsAsk'),
+      { title: 'Visit the bank' },
+    ));
+    for (const slot of slots) {
+      const option = screen.getByTestId(`clarify-option-${slot.id}`);
+      const day = formatRelativeDay(new Date(instant(slot.date, '12:00')), {
+        locale: language,
+        timeZone: 'Asia/Jerusalem',
+        now: NOW,
+      });
+      expect(option).toHaveTextContent(day);
+      expect(option).toHaveTextContent(slot.time);
+      expect(option.props.accessibilityLabel).toBe(fill(
+        copy(bundle, 'yFreeSlotA11y'),
+        { day, time: ltr(slot.time) },
+      ));
     }
-    expect(screen.getByTestId('clarify-question')).toBeTruthy();
     expect(screen.queryByTestId('clarify-option-none')).not.toBeNull();
+  });
+
+  it('M4A-R9-003 invalid free-slot dates or times are not rendered as buttons', async () => {
+    await show(freeSlotProposal([
+      { id: 'bad-date', date: '2030-02-30', time: '14:00' },
+      { id: 'bad-time', date: '2030-03-30', time: '25:00' },
+      { id: 'slot-1', date: '2030-03-30', time: '12:00' },
+    ]));
+
+    expect(screen.queryByTestId('clarify-option-bad-date')).toBeNull();
+    expect(screen.queryByTestId('clarify-option-bad-time')).toBeNull();
+    expect(screen.queryByTestId('clarify-option-slot-1')).not.toBeNull();
   });
 
   it('M4A-R9-003 choosing a slot sends the unchanged clarify route with that exact option', async () => {
@@ -162,6 +203,7 @@ describe('M4a capture free slots', () => {
       ? { status: 200, body: settledProposal() }
       : undefined;
 
+    expect(screen.queryByTestId('clarify-option-slot-2')).not.toBeNull();
     await press('clarify-option-slot-2');
     await waitFor(() => expect(server!.matching('POST', /\/capture\/clarify$/)).toHaveLength(1));
     expect(server!.matching('POST', /\/capture\/clarify$/)[0]!.body).toEqual({
@@ -187,6 +229,7 @@ describe('M4a capture free slots', () => {
       ? { status: 200, body: fresh }
       : undefined;
 
+    expect(screen.queryByTestId('clarify-option-slot-1')).not.toBeNull();
     await press('clarify-option-slot-1');
     await waitFor(() => expect(screen.getByTestId('clarify-option-slot-1')).toHaveTextContent(/14:00/));
     expect(screen.getByTestId('clarify-option-slot-2')).toHaveTextContent(/16:00/);

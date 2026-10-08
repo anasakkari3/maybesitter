@@ -143,7 +143,10 @@ export function calendarScenario(): CalendarScenario {
       windowEnd: instant('2030-04-12', '12:00'),
     },
     busy: { status: 200, body: completeBusy },
-    trust: trust(true),
+    // Phone-calendar consent is off unless a case is explicitly about the
+    // device source. With consent on and no cache envelope, readiness must
+    // fail closed rather than treating the phone as an empty calendar.
+    trust: trust(false),
     fail: new Set(),
     pending: new Set(),
   };
