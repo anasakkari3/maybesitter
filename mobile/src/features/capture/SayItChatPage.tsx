@@ -205,6 +205,9 @@ export function SayItChatPage({
   const [viewport, setViewport] = React.useState(0);
   const [block, setBlock] = React.useState<Measured<number>>(null);
   const [question, setQuestion] = React.useState<Measured<number>>(null);
+  // Where the cards of a proposal with no schedule end (M3b): a habit's
+  // question can start on screen and still sit under the composer.
+  const [looseEnd, setLooseEnd] = React.useState<Measured<number>>(null);
   const measured = <T,>(setter: React.Dispatch<React.SetStateAction<Measured<T>>>, value: T) =>
     setter({ key: keyRef.current, value });
   const revealed = React.useRef<string | null>(null);
@@ -212,9 +215,14 @@ export function SayItChatPage({
     if (!revealConfirmKey || revealed.current === revealConfirmKey || viewport <= 0) return;
     const first = clarification ? question : block;
     if (first?.key !== revealConfirmKey) return;
+    const end = !clarification && looseEnd?.key === revealConfirmKey ? looseEnd.value : null;
     revealed.current = revealConfirmKey;
     if (first.value > viewport - 80) scroller.current?.scrollTo({ y: Math.max(0, first.value - 16), animated: !reduceMotion });
-  }, [revealConfirmKey, viewport, block, question, clarification, reduceMotion]);
+    // Starts on screen but runs under the composer: up just enough to show it, never past its top.
+    else if (end !== null && end > viewport - 80) {
+      scroller.current?.scrollTo({ y: Math.max(0, Math.min(first.value - 16, end - viewport + 80)), animated: !reduceMotion });
+    }
+  }, [revealConfirmKey, viewport, block, question, looseEnd, clarification, reduceMotion]);
   // A tapped line's card, scrolled to once it is laid out, then focused.
   const rowRefs = React.useRef(new Map<string, View>());
   const checkRefs = React.useRef(new Map<string, View>());
@@ -463,7 +471,10 @@ export function SayItChatPage({
           </View> : reviewExtras || reviewFooter ? <View testID="chat-review-loose" style={[styles.reviewExtras, styles.looseExtras]}
             // With no schedule (a habit, a goal or a thought alone, M3b), these
             // cards are the proposal's first decision, so the reveal starts here.
-            onLayout={(event) => { setLaidOut((count) => count + 1); measured(setBlock, event.nativeEvent.layout.y); }}>{reviewExtras}{onConfirm && confirmWithoutRows ? confirmButton : null}{reviewFooter}</View> : null}
+            onLayout={(event) => {
+              const { y, height } = event.nativeEvent.layout;
+              setLaidOut((count) => count + 1); measured(setBlock, y); measured(setLooseEnd, y + height);
+            }}>{reviewExtras}{onConfirm && confirmWithoutRows ? confirmButton : null}{reviewFooter}</View> : null}
           {followup && message(followup, 'chat-followup')}
           {accessibilitySize && languageControl ? <View style={[styles.languageRow, styles.scrollLanguage]}>{languageControl}</View> : null}
         </> : bodyOverride}

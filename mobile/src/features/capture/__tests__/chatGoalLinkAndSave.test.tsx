@@ -298,6 +298,22 @@ describe('audit #8: a new proposal brings its confirm into view', () => {
     expect(scrollTo).toHaveBeenLastCalledWith({ y: 624, animated: true });
   });
 
+  it('cards with no schedule that start on screen but run under the composer move up just enough, never past their top', async () => {
+    const scrollTo = jest.spyOn(ScrollView.prototype as unknown as { scrollTo: (...args: unknown[]) => void }, 'scrollTo').mockImplementation(() => {});
+    scrollTo.mockClear();
+    await render(<SayItChatPage {...baseProps} scheduleGroups={[]} reviewing confirmWithoutRows reviewExtras={<View testID="habit-card" />} revealConfirmKey="p-q" />);
+    await fireEvent(screen.getByTestId('review-scroll'), 'layout', layout(0, 700));
+    // Starts at 400 (on screen), ends at 760 (under the composer): up by 140.
+    await fireEvent(screen.getByTestId('chat-review-loose'), 'layout', layout(400, 360));
+    expect(scrollTo).toHaveBeenLastCalledWith({ y: 140, animated: true });
+    scrollTo.mockClear();
+    // A taller block stops at its own top.
+    await render(<SayItChatPage {...baseProps} scheduleGroups={[]} reviewing confirmWithoutRows reviewExtras={<View testID="habit-card" />} revealConfirmKey="p-r" />);
+    await fireEvent(screen.getAllByTestId('review-scroll').at(-1)!, 'layout', layout(0, 700));
+    await fireEvent(screen.getAllByTestId('chat-review-loose').at(-1)!, 'layout', layout(400, 1200));
+    expect(scrollTo).toHaveBeenLastCalledWith({ y: 384, animated: true });
+  });
+
   it('a new proposal waits for its own layout and shows the first card even when the list grew', async () => {
     const scrollTo = jest.spyOn(ScrollView.prototype as unknown as { scrollTo: (...args: unknown[]) => void }, 'scrollTo').mockImplementation(() => {});
     scrollTo.mockClear();
