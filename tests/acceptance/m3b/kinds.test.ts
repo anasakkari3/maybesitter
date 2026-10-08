@@ -325,3 +325,12 @@ test('RB-4 the goal entry is a hint: a clear thought («عم بفكر أسافر
     assert.deepEqual(answer.proposal!.seeds.map((seed) => seed.kind), ['consideration']);
   } finally { end(); }
 });
+
+test('RB-7 the habit entry is a hint: a dated appointment from it («موعد الدكتور بكرا الساعة 4 المسا») stays a commitment', async () => {
+  const uid = beginRules();
+  try {
+    const answer = await say(uid, 'موعد الدكتور بكرا الساعة 4 المسا', { entry: 'habit', locale: 'ar' });
+    assert.equal(answer.proposal!.items.length, 1, `a dated appointment became a habit: ${show(answer.proposal)}`);
+    assert.deepEqual(habitsOf(answer), []);
+  } finally { end(); }
+});
