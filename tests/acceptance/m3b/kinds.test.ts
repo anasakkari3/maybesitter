@@ -334,3 +334,42 @@ test('RB-7 the habit entry is a hint: a dated appointment from it («موعد ا
     assert.deepEqual(habitsOf(answer), []);
   } finally { end(); }
 });
+
+// RB-9 (inspection M3B-A-004): WIRE-M3b bounds habit and goal titles at 120
+// code points, and the app's schema holds the server to it. A long statement
+// promoted verbatim answered 200 and then failed in the app as a contract error.
+const LONG_GOAL = `بدي أنزل بالوزن ${'وأرجع ألبس أواعيي القديمة وأحس حالي أخف لما أطلع الدرج كل يوم '.repeat(3)}`.trim();
+const LONG_HABIT = `بدي أتعوّد أقرا ${'كتاب قبل النوم بدل ما ضل ماسك التلفون وأقلّب لحد ما يغفى عقلي '.repeat(3)}`.trim();
+const codePoints = (text: string) => Array.from(text).length;
+
+test('RB-9 a long statement from the goal or habit entry never yields a habit or goal title over 120 code points', async () => {
+  assert.ok(codePoints(LONG_GOAL) > 120 && codePoints(LONG_HABIT) > 120);
+  for (const [entry, message] of [['goal', LONG_GOAL], ['habit', LONG_HABIT]] as const) {
+    const uid = beginRules();
+    try {
+      const answer = await say(uid, message, { entry, locale: 'ar' });
+      for (const point of [...habitsOf(answer), ...goalsOf(answer)]) {
+        assert.ok(codePoints(point.title) <= 120, `${entry}: a ${codePoints(point.title)}-code-point title: ${show(answer.proposal)}`);
+      }
+      // The person's words are not lost: the statement is still a point of the proposal.
+      const points = answer.proposal!.items.length + answer.proposal!.seeds.length + habitsOf(answer).length + goalsOf(answer).length;
+      assert.ok(points >= 1, `${entry}: the statement vanished: ${show(answer.proposal)}`);
+    } finally { end(); }
+  }
+});
+
+test('RB-9 a structured edit cannot give a goal a title over 120 code points', async () => {
+  const uid = beginRules();
+  try {
+    const answer = await say(uid, 'بدي أنزل بالوزن', { entry: 'goal', locale: 'ar' });
+    const goal = goalsOf(answer)[0];
+    assert.ok(goal, `no goal to edit: ${show(answer.proposal)}`);
+    const edited = await editPoint(uid, answer, { goalItemId: goal!.goalItemId }, { text: LONG_GOAL });
+    if (edited.status === 200) {
+      const next = edited.body as Answer;
+      for (const point of goalsOf(next)) assert.ok(codePoints(point.title) <= 120, `a ${codePoints(point.title)}-code-point goal title: ${show(next.proposal)}`);
+    } else {
+      assert.equal(edited.status, 422, `refused with ${edited.status}: ${show(edited.body)}`);
+    }
+  } finally { end(); }
+});
