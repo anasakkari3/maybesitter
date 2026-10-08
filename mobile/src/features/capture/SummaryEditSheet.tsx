@@ -92,9 +92,15 @@ export function SummaryEditSheet({ kind: startKind, offered = { habit: false, go
   const bounded = boundedFor(kind);
   // A new kind may count more strictly: typed words are cut on screen at once,
   // so what the field shows is what is sent (M3B-A-R4-002).
+  // An untouched title is left alone where the server keeps it as it is (the
+  // legacy path); a path that checks the title itself (M3b: habit, goal, timed
+  // thought) gets it shortened on screen, and the shortened words are what the
+  // save sends (M3B-A-R5-001).
   const chooseKind = (next: PointKind) => {
     setKind(next);
-    if (edited) setText(boundedFor(next)(text));
+    const cut = boundedFor(next)(text);
+    if (edited) setText(cut);
+    else if (byCodePoints(next) && cut !== text) { setText(cut); setEdited(true); }
   };
   const save = () => {
     const change: CaptureProposalEdit['change'] = {};

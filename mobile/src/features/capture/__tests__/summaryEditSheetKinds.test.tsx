@@ -122,4 +122,15 @@ describe('SummaryEditSheet', () => {
     await fireEvent.press(screen.getByTestId('understood-edit-save'));
     expect(onSave).toHaveBeenCalledWith({ kind: 'idea' });
   });
+
+  it.each<[PointKind, PointKind]>([['commitment', 'habit'], ['possible_goal', 'goal']])(
+    'an untouched title too long for the %s → %s path is shortened on screen and sent as shown (R5-001)', async (from, to) => {
+      const long = 'م'.repeat(130);
+      const onSave = await sheet(from, jest.fn(), { text: long });
+      await fireEvent.press(screen.getByTestId(`understood-edit-kind-${to}`));
+      expect(screen.getByTestId('understood-edit-text').props.value).toBe('م'.repeat(120));
+      await fireEvent.press(screen.getByTestId('understood-edit-save'));
+      expect(onSave).toHaveBeenCalledWith({ kind: to, text: 'م'.repeat(120) });
+    },
+  );
 });
