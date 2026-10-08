@@ -15,6 +15,7 @@ import { Btn, Card, Pill, Txt } from '../../ui/primitives';
 import { ProductActions, useRevealInPage } from '../../ui/product';
 import { ReferenceIcon } from '../../ui/referenceIcons';
 import { planFailureOf, recoveryLabel, type PlanRecovery } from './planFailures';
+import { AllTimesSheet } from './AllTimesSheet';
 import type { LiveStep, PlanFlow as Flow } from './useGoalPlanFlow';
 
 /**
@@ -447,10 +448,15 @@ function titleIn(plan: GoalPlan | null, stepId: string): string | null {
 }
 
 function TimesStep({ flow, times, plan }: { flow: Flow; times: GoalPlanTimes; plan: GoalPlan | null }) {
-  const { t, p } = useApp();
+  const { t, p, lang } = useApp();
   const slotLine = useSlotLine();
   const weeklyLine = useWeeklyLine();
   const [toggled, setChanging] = React.useState<string | null>(null);
+  // «غيّر كل الأوقات» (M4a R005): open while the person picks; «طبّق» closes it.
+  const [allOpen, setAllOpen] = React.useState(false);
+  const placeable = times.steps.some(step => !laterOf(step));
+  // The steps the last batch found no room for, by name: «ما لقيت وقت لـ…، صارت بلا وقت».
+  const unplacedTitles = (flow.state.unplaced ?? []).map(stepId => titleIn(plan, stepId)).filter((title): title is string => title !== null);
   const [lastChosen, setLastChosen] = React.useState<string | null>(null);
   const busy = flow.state.busy;
   // A refusal that came back with new times opens the new choices for the
@@ -466,6 +472,16 @@ function TimesStep({ flow, times, plan }: { flow: Flow; times: GoalPlanTimes; pl
 
   return <View style={{ gap: 12 }}>
     <StepHeading>{t.xPlanTimesTitle}</StepHeading>
+    {placeable ? <ProductActions>
+      <Pill testID="plan-times-all" label={t.yAllTimesOpen} kind="outline" expanded={allOpen} disabled={busy}
+        onPress={() => setAllOpen(open => !open)} />
+    </ProductActions> : null}
+    {allOpen ? <AllTimesSheet busy={busy} onApply={(preference) => { setAllOpen(false); setChanging(null); flow.batch(preference); }} /> : null}
+    <LiveRegion>
+      {unplacedTitles.length > 0 ? <Txt role="supporting" color={p.wm} testID="plan-times-unplaced">
+        {fill(t.yUnplaced, { titles: unplacedTitles.map(isolateAuto).join(lang === 'en' ? ', ' : '، ') })}
+      </Txt> : null}
+    </LiveRegion>
     {times.steps.map(step => {
       const name = titleIn(plan, step.stepId);
       const later = laterOf(step);

@@ -35,12 +35,13 @@ const ALLOWED: readonly RegExp[] = [
   /^new Date\([^)]*\)\.toISOString\(\)/, // an ISO date or timestamp
   /^String\(conflict\.(providerValue|manualValue)\)$/, // a number from the ledger
   /^`\$\{length\} \/ \$\{cap\}`$/, // SetupChatStep's answer counter: two numbers, "50 / 150"
+  /^localTime$/, // freeSlotWords (M4a): an `HH:MM` checked against /^([01]\d|2[0-3]):[0-5]\d$/ first
 ];
 
 function sourceFiles(dir: string): string[] {
   return readdirSync(dir).flatMap((entry) => {
     const path = join(dir, entry);
-    if (statSync(path).isDirectory()) return entry === '__tests__' ? [] : sourceFiles(path);
+    if (statSync(path).isDirectory()) return entry === '__tests__' || entry === '__acceptance__' ? [] : sourceFiles(path);
     return /\.(ts|tsx)$/.test(entry) && !path.endsWith(join('i18n', 'bidi.ts')) ? [path] : [];
   });
 }

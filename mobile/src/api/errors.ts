@@ -465,6 +465,9 @@ export const GOAL_PLAN_REASONS = [
   'model_unavailable', 'daily_cap_reached', 'no_steps', 'stale', 'schedule_changed', 'offline',
   'goal_too_vague', 'not_a_goal', 'too_many_edits', 'invalid_edit', 'slot_in_past', 'not_free',
   'key_reused', 'gone', 'plan_confirmed', 'goal_superseded', 'projection_pending',
+  // M4a «غيّر كل الأوقات»: newer times exist (they come with the refusal); the
+  // times were already confirmed; a day outside today … today + 14.
+  'times_changed', 'times_consumed', 'invalid_preference',
 ] as const;
 export type GoalPlanReason = typeof GOAL_PLAN_REASONS[number];
 

@@ -92,6 +92,13 @@ function refusal(error: GoalPlanRefusedError, t: Strings): PlanFailure {
     // Saved; Today and the Plan are still being updated. The same confirm (same
     // key) finishes it, so «جرّب كمان مرّة» resends exactly that.
     case 'projection_pending': return { reason, message: t.xPlanFailProjectionPending, recoveries: ['retry'] };
+    // M4a: the newer times came with the refusal and are already on screen.
+    case 'times_changed': return { reason, message: t.xPlanFailStale, recoveries: ['new_times'] };
+    // Saved meanwhile (another device, or an earlier confirm): the flow has
+    // already read the plan again, which shows it as saved.
+    case 'times_consumed': return { reason, message: t.xPlanFailPlanConfirmed, recoveries: ['see_saved'] };
+    // A day the server would not take. Nothing changed; pick again.
+    case 'invalid_preference': return { reason, message: t.errorsGeneric, recoveries: ['pick_another'] };
   }
 }
 

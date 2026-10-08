@@ -74,7 +74,6 @@ export function FreeStateLine({ state }: { state: FreeState }) {
       testID={loading ? 'calendar-free-loading' : 'calendar-free-unknown'}
       accessible
       accessibilityRole="text"
-      accessibilityLiveRegion="polite"
       style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 6, paddingHorizontal: 12, borderRadius: 999, borderWidth: 1, borderColor: p.ln, backgroundColor: p.sf, alignSelf: 'flex-start' }}
     >
       <View accessible={false} style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: p.mu }} />

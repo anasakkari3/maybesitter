@@ -3,7 +3,7 @@ import { DeadlineContext } from '../features/today/DeadlineContext';
 import React, { useMemo, useState } from 'react';
 import { RefreshControl, View } from 'react-native';
 import { calendarReadEnabled } from '../config/env';
-import { useDeviceBusy } from '../features/calendar/useBusyCalendar';
+import { useBusyBlocks, useDeviceBusy } from '../features/calendar/useBusyCalendar';
 import { useGoogleBusyRead } from '../features/google/useGoogle';
 import { dayBounds, dayWindow, freeMinutes, occupancyOf, type Interval } from '../features/calendar/freeTime';
 import { dayFree, googleCovers, googleWindowIsNormal, knownTime, type DayFree, type FreeSources } from '../features/calendar/freeReadiness';
@@ -141,10 +141,12 @@ export function CalendarScreen({ tabClearance = TAB_CLEARANCE }: { tabClearance?
   const weeklyState = useWeeklyOccurrencesState(free ? widerKeys : keys, timezone);
   const weekly = weeklyState.items;
   const weeklyEventIds = useWeeklyEventIds();
-  const deviceBlocks = deviceBusy.data?.blocks;
+  // The blocks through `useBusyBlocks` (the one seam every screen reads them
+  // by); the envelope's coverage and state through `useDeviceBusy`.
+  const deviceBlocks = useBusyBlocks();
   const googleBlocks = google.on ? google.query.data?.blocks : undefined;
   // Google Calendar's busy time (CL6a) beside the phone's.
-  const readBusy = useMemo(() => [...(deviceBlocks ?? []), ...(googleBlocks ?? [])], [deviceBlocks, googleBlocks]);
+  const readBusy = useMemo(() => [...deviceBlocks, ...(googleBlocks ?? [])], [deviceBlocks, googleBlocks]);
   const busy = useMemo(() => hideWeeklyDuplicates(readBusy, weeklyEventIds, weekly), [readBusy, weeklyEventIds, weekly]);
   const weeklyByDay = useMemo(() => occurrencesByDay(weekly, timezone), [weekly, timezone]);
 
@@ -224,7 +226,7 @@ export function CalendarScreen({ tabClearance = TAB_CLEARANCE }: { tabClearance?
       const interval = intervalOf(block.startAt, block.endAt);
       if (interval && !block.allDay) list.push(interval);
     };
-    if (deviceApplicable) (deviceBlocks ?? []).forEach(timed);
+    if (deviceApplicable) deviceBlocks.forEach(timed);
     (googleBlocks ?? []).forEach(timed);
     (serverBusy?.blocks ?? []).forEach(timed);
     for (const occurrence of weekly) timed({ startAt: occurrence.startAt, endAt: occurrence.endAt, allDay: false });

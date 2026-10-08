@@ -28,6 +28,9 @@ import { instantForLocalDateTime } from './localInstant';
  * The caller keys it by item id, so what was typed for one question never
  * carries into the next one's box.
  */
+/** The day-part chips, whose time lands on a day the chip itself does not show. */
+const DAY_PARTS: ReadonlySet<string> = new Set(['morning', 'afternoon', 'evening']);
+
 export function ClarifySheet({
   item,
   position,
@@ -97,7 +100,7 @@ export function ClarifySheet({
           if (!label) return null;
           // A day-part chip applies a time on a day; its label says which day,
           // so «الصبح» is not heard as tomorrow's when it is today's (M4A-R9-003).
-          const day = !slot && option.value.localDate ? relativeDay(option.value.localDate) : null;
+          const day = DAY_PARTS.has(option.labelKey) && option.value.localDate ? relativeDay(option.value.localDate) : null;
           return (
             <Btn
               key={option.optionId}

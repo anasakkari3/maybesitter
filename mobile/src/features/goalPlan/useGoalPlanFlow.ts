@@ -3,6 +3,7 @@ import * as Crypto from 'expo-crypto';
 import {
   acceptStatementGoal,
   approveGoalPlan,
+  batchGoalPlanTimes,
   checkReplacementTimes,
   chooseGoalPlanTime,
   confirmGoalPlan,
@@ -12,6 +13,7 @@ import {
   laterWeekTimes,
   previewStatementGoal,
   regenerateGoalPlan,
+  type GoalPlanBatchPreference,
   type GoalPlanEditOp,
   type GoalPlanTimesChoice,
 } from '../../api/endpoints/goalPlan';
@@ -56,6 +58,8 @@ export interface PlanFlowState {
   readonly busy: boolean;
   /** The statement this flow began from, for «جرّب تحكيه بطريقة تانية». */
   readonly statement: string | null;
+  /** The steps the last «غيّر كل الأوقات» found no room for (M4a R005); cleared by any other step. */
+  readonly unplaced?: readonly string[] | undefined;
   /** Once «هيك صح» was sent the summary's words are fixed (A2-001). */
   readonly summaryLocked?: boolean;
 }
@@ -92,6 +96,8 @@ export interface PlanFlow {
   edit(op: GoalPlanEditOp): void;
   approve(): void;
   choose(stepId: string, choice: GoalPlanTimesChoice): void;
+  /** «غيّر كل الأوقات» (M4a R005): every placeable time, in one request. */
+  batch(preference: GoalPlanBatchPreference): void;
   toConfirm(): void;
   backToTimes(): void;
   confirm(): void;
@@ -245,12 +251,31 @@ export function useGoalPlanFlow(): PlanFlow {
       refused => refused.detail.plan ? { stage: { kind: 'plan', plan: refused.detail.plan } } : {});
   }, [run]);
 
+  const showLatestRef = React.useRef<() => void>(() => undefined);
+  // The times were confirmed meanwhile (M4A-R5-003): nothing on screen can be
+  // changed any more, so the flow leaves them and reads the plan again, which
+  // shows it as saved. Anything else that carries newer times adopts them.
+  const onTimesRefused = React.useCallback((plan: GoalPlan | null, current: GoalPlanTimes) => (refused: GoalPlanRefusedError): Partial<PlanFlowState> => {
+    if (refused.reason === 'times_consumed') {
+      queueMicrotask(() => showLatestRef.current());
+      return { unplaced: undefined };
+    }
+    return { unplaced: undefined, ...adoptTimes(plan, current)(refused) };
+  }, []);
+
   const choose = React.useCallback((stepId: string, choice: GoalPlanTimesChoice) => {
     const { goalId, stage } = stateRef.current;
     if (!goalId || stage.kind !== 'times') return;
     run('times', () => chooseGoalPlanTime(goalId, stage.times, stepId, choice),
-      times => ({ stage: { kind: 'times', plan: stage.plan, times } }), adoptTimes(stage.plan, stage.times));
-  }, [run]);
+      times => ({ stage: { kind: 'times', plan: stage.plan, times }, unplaced: undefined }), onTimesRefused(stage.plan, stage.times));
+  }, [onTimesRefused, run]);
+
+  const batch = React.useCallback((preference: GoalPlanBatchPreference) => {
+    const { goalId, stage } = stateRef.current;
+    if (!goalId || stage.kind !== 'times') return;
+    run('times', () => batchGoalPlanTimes(goalId, stage.times, preference),
+      ({ times, unplaced }) => ({ stage: { kind: 'times', plan: stage.plan, times }, unplaced }), onTimesRefused(stage.plan, stage.times));
+  }, [onTimesRefused, run]);
 
   const toConfirm = React.useCallback(() => setState(current => current.stage.kind === 'times'
     ? { ...current, error: null, stage: { kind: 'confirm', plan: current.stage.plan, times: current.stage.times } } : current), []);
@@ -289,6 +314,8 @@ export function useGoalPlanFlow(): PlanFlow {
     });
   }, [invalidate, run]);
 
+  React.useLayoutEffect(() => { showLatestRef.current = showLatest; }, [showLatest]);
+
   const retry = React.useCallback(() => lastAction.current?.(), []);
   const dismissError = React.useCallback(() => update({ error: null }), [update]);
   const reset = React.useCallback(() => {
@@ -300,7 +327,7 @@ export function useGoalPlanFlow(): PlanFlow {
   }, []);
 
   return {
-    state, openGoal, fromStatement, setSummaryText, acceptSummary, generate, regenerate, edit, approve, choose,
+    state, openGoal, fromStatement, setSummaryText, acceptSummary, generate, regenerate, edit, approve, choose, batch,
     toConfirm, backToTimes, confirm, laterWeek, showLatest, retry, dismissError, reset,
   };
 }

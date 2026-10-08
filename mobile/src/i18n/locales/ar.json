@@ -1936,7 +1936,7 @@
   "xHabitsEmptyTitle": "لسّا ما في عادات",
   "xHabitsEmptyBody": "احكيلي شو بدك تعمل بانتظام، وأنا بحطّلك إيقاع تراجعه قبل ما ينحفظ.",
   "clarifyFreeSlot": "{day} {time}",
-  "yFreeSlotsAsk": "إيمتى بدك «{title}»؟ هاي أوقات فاضية عندك",
+  "yFreeSlotsAsk": "إمتى بدك «{title}»؟ هاي أوقات فاضية عندك",
   "yFreeSlotA11y": "وقت فاضي: {day} الساعة {time}",
   "yFilterFree": "فاضي",
   "yGapRow": "فاضي {range} · {length}",
