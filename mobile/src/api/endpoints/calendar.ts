@@ -7,6 +7,7 @@ import {
   deviceCalendarLinkResponseSchema,
   manualCalendarDeletedSchema,
   manualCalendarStoredSchema,
+  serverBusyResponseSchema,
   type CalendarWriteTarget,
 } from '../schemas/calendar';
 import type { DeviceCalendarLink } from '../schemas/common';
@@ -76,6 +77,17 @@ export function postCalendarBusy(upload: CalendarBusyUpload) {
   return apiRequest('POST', '/api/mobile/calendar/busy', {
     body: upload,
     schema: calendarBusyStoredSchema,
+  });
+}
+
+/**
+ * The account's ICS and manual busy time between two instants (M4a). A 404
+ * (`feature_unavailable`) is the capability being off, not a failure.
+ */
+export function getServerBusy(from: string, to: string) {
+  return apiRequest('GET', '/api/mobile/calendar/busy', {
+    query: { from, to },
+    schema: serverBusyResponseSchema,
   });
 }
 

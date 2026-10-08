@@ -95,3 +95,40 @@ export const manualCalendarDeletedSchema = z.object({
   deleted: z.number().int().nonnegative(),
 });
 
+
+/**
+ * The account's server-side busy time (M4a, WIRE-M4a "Server busy read"):
+ * ICS and manual blocks in the six-field shape, nothing that names them.
+ *
+ * It is also the probe for the free-time surfaces: a 404 means the capability
+ * is off, and the Plan tab stays exactly as it was. `.strict()` on a block for
+ * the same reason the Google rows are strict.
+ */
+export const serverBusyBlockSchema = z.object({
+  blockId: z.string(),
+  sourceId: z.string(),
+  sourceKind: z.enum(['ics', 'manual']),
+  startAt: z.string(),
+  endAt: z.string(),
+  allDay: z.boolean(),
+}).strict();
+
+export const serverBusySourceSchema = z.object({
+  sourceId: z.string(),
+  kind: z.literal('ics'),
+  windowStart: z.string().nullable(),
+  windowEnd: z.string().nullable(),
+  lastRefreshedAt: z.string().nullable(),
+  status: z.enum(['ok', 'paused', 'error', 'stale', 'uninitialized']),
+});
+
+export const serverBusyResponseSchema = z.object({
+  success: z.literal(true),
+  blocks: z.array(serverBusyBlockSchema),
+  complete: z.boolean(),
+  cutoff: z.string().nullable(),
+  unknownRanges: z.array(z.object({ from: z.string(), to: z.string() })),
+  sources: z.array(serverBusySourceSchema),
+});
+
+export type ServerBusy = z.infer<typeof serverBusyResponseSchema>;

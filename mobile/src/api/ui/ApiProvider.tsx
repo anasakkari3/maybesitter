@@ -6,6 +6,7 @@ import { setAuthRepository } from '../auth';
 import { forgetValidators } from '../queries';
 import { createAppQueryClient, installDeviceManagers } from '../queryClient';
 import { clearRoutineCache } from '../../lib/deviceSettings/routineCache';
+import { clearCachedBusyBlocks } from '../../lib/deviceSettings/calendarBusy';
 
 /**
  * Everything the API layer needs from React, in one place.
@@ -21,7 +22,7 @@ import { clearRoutineCache } from '../../lib/deviceSettings/routineCache';
  *
  * It runs on every uid change, sign-out included, so a signed-out device holds
  * nothing in memory either — and, since the 2026-09-14 audit, nothing of the
- * routine survey on disk either.
+ * routine survey on disk either, nor (M4a) the phone calendar's busy times.
  */
 export function ApiProvider({
   children,
@@ -65,6 +66,10 @@ export function ApiProvider({
       // nothing": sleep and focus hours outlived the sign-out and greeted the
       // next account with them (#148, audit 2026-09-14 F-01).
       if (previousUid.current) void clearRoutineCache(previousUid.current);
+      // And the phone calendar's busy times, which were the previous
+      // account's (M4a, M4A-R8-001). A read under another owner is already
+      // empty; this takes them off the disk as well.
+      void clearCachedBusyBlocks();
     }
     previousUid.current = uid;
   }, [status, uid, queryClient, resetForNewUser]);

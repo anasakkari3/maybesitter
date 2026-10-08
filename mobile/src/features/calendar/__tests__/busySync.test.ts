@@ -214,6 +214,7 @@ describe('a calendar with more blocks than one upload carries', () => {
       readBusy: async () => many(BUSY_SYNC_UPLOAD_LIMIT + 50),
       ownEventIds: async () => [],
       cache: async () => {},
+      uncover: async () => {},
       upload: async () => {},
       recordSync: async () => {},
     }, {
@@ -233,6 +234,8 @@ describe('a calendar with more blocks than one upload carries', () => {
 describe('a pass', () => {
   let read: jest.Mock<(ids: ReadonlySet<string>, now: Date) => Promise<DeviceBusyBlock[]>>;
   let cached: DeviceBusyBlock[][];
+  let coverages: ({ startAt: string; endAt: string } | null)[];
+  let uncovered: number;
   let uploaded: CalendarBusyUpload[];
   let recorded: Date[];
   let uploadFails: boolean;
@@ -241,7 +244,8 @@ describe('a pass', () => {
     return {
       readBusy: (ids, now) => read(ids, now),
       ownEventIds: async () => ['ours'],
-      cache: async (blocks) => { cached.push([...blocks]); },
+      cache: async (blocks, coverage) => { cached.push([...blocks]); coverages.push(coverage); },
+      uncover: async () => { uncovered += 1; },
       upload: async (body) => {
         if (uploadFails) throw new Error('offline');
         uploaded.push(body);
@@ -269,6 +273,8 @@ describe('a pass', () => {
     read = jest.fn<(ids: ReadonlySet<string>, now: Date) => Promise<DeviceBusyBlock[]>>()
       .mockResolvedValue([block('a', 60, 120)]);
     cached = [];
+    coverages = [];
+    uncovered = 0;
     uploaded = [];
     recorded = [];
     uploadFails = false;
@@ -277,8 +283,19 @@ describe('a pass', () => {
   it('reads, caches, uploads and records', async () => {
     expect(await runBusySync(ports(), input())).toEqual({ kind: 'synced', blocks: 1, windowEnd: input().window.endAt });
     expect(cached).toHaveLength(1);
+    expect(coverages).toEqual([input().window]);
     expect(uploaded).toHaveLength(1);
     expect(recorded).toEqual([NOW]);
+  });
+
+  it('M4A-R7-002 caches what the upload sends, and covers only up to the honest cut', async () => {
+    const blocks = Array.from({ length: BUSY_SYNC_UPLOAD_LIMIT + 5 }, (_, index) => block(`b${index}`, 60 + index * 10, 65 + index * 10));
+    read.mockResolvedValue(blocks);
+    await runBusySync(ports(), input());
+    const cut = blocks[BUSY_SYNC_UPLOAD_LIMIT]!.startAt;
+    expect(coverages).toEqual([{ startAt: input().window.startAt, endAt: cut }]);
+    expect(cached[0]).toHaveLength(BUSY_SYNC_UPLOAD_LIMIT);
+    for (const kept of cached[0]!) expect(Date.parse(kept.startAt)).toBeLessThan(Date.parse(cut));
   });
 
   it('hands the read this installation\'s own event ids', async () => {
@@ -294,10 +311,11 @@ describe('a pass', () => {
     expect(uploaded).toEqual([]);
   });
 
-  it('leaves the cache alone when the calendar cannot be read', async () => {
+  it('keeps the cached blocks when the calendar cannot be read, but they cover nothing any more', async () => {
     read.mockRejectedValue(new Error('permission denied'));
     expect(await runBusySync(ports(), input())).toEqual({ kind: 'denied' });
     expect(cached).toEqual([]);
+    expect(uncovered).toBe(1);
     expect(recorded).toEqual([]);
   });
 

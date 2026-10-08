@@ -173,8 +173,10 @@ export interface BusySyncPorts {
   readBusy(ownEventIds: ReadonlySet<string>, now: Date): Promise<DeviceBusyBlock[]>;
   /** `loadWrittenEventIds`, so this app's own entries are not busy. */
   ownEventIds(): Promise<string[]>;
-  /** `saveCachedBusyBlocks`. */
-  cache(blocks: readonly DeviceBusyBlock[]): Promise<void>;
+  /** `saveCachedBusyBlocks`: the blocks kept, and the window they honestly cover. */
+  cache(blocks: readonly DeviceBusyBlock[], coverage: BusyUploadWindow | null): Promise<void>;
+  /** `uncoverCachedBusyBlocks`: a refused read keeps the chips and covers nothing. */
+  uncover(): Promise<void>;
   /** `postCalendarBusy`. */
   upload(body: CalendarBusyUpload): Promise<void>;
   /** `saveBusySyncedAt`. */
@@ -221,11 +223,23 @@ export async function runBusySync(
     // The calendar could not be read: no permission, or the module is not
     // there. The cache is deliberately left alone — the last answer is still
     // the best one we have, and replacing it with nothing would make the chips
-    // disappear the moment somebody opened Settings and came back.
+    // disappear the moment somebody opened Settings and came back. But it no
+    // longer *covers* anything: busy time the phone may not show any more is
+    // not a reason to call the rest of the day free (M4a, M4A-R7-002).
+    await ports.uncover();
     return { kind: 'denied' };
   }
 
-  await ports.cache(blocks);
+  // What is kept is cut where the upload is cut, so the device's own copy
+  // never claims the omitted tail as free either (M4A-R7-002).
+  let fitted: { capped: readonly DeviceBusyBlock[]; windowEnd: string } | null;
+  try {
+    fitted = fitToLimit(input.window, blocks);
+  } catch {
+    fitted = null;
+  }
+  await ports.cache(fitted ? fitted.capped : blocks.slice(0, BUSY_SYNC_UPLOAD_LIMIT),
+    fitted ? { startAt: input.window.startAt, endAt: fitted.windowEnd } : null);
 
   let body: CalendarBusyUpload;
   try {

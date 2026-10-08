@@ -7,7 +7,7 @@
  * Center's calendar switch goes off.
  *
  * The third is not decoration. Clearing the cache clears
- * `calendar.busySyncedAt.v1` with it, so the fifteen-minute throttle no longer
+ * the last sync time with it, so the fifteen-minute throttle no longer
  * holds anything back — leave the switch on and the very next time the app came
  * to the front it would read the calendar again and upload the window that had
  * just been deleted. A disconnect that reconnects itself inside a minute is
@@ -37,7 +37,8 @@ import { resetAuthForTests, setAuthRepository } from '../../../api/auth';
 import type { AuthUser } from '../../../auth/types';
 import en from '../../../i18n/locales/en.json';
 import { CalendarSettingsScreen } from '../CalendarSettingsScreen';
-import { BUSY_BLOCKS_KEY, BUSY_SYNCED_AT_KEY } from '../../../lib/deviceSettings/calendarBusy';
+import { BUSY_BLOCKS_KEY, LEGACY_BUSY_KEYS } from '../../../lib/deviceSettings/calendarBusy';
+import { seedDeviceBusyCache } from '../../../testing/deviceBusyCache';
 import { resetWriterIdCache } from '../../../lib/deviceSettings/calendarDevice';
 import { resetCalendarSyncForTests } from '../../calendar/useDeviceCalendarSync';
 import { resetBusySyncForTests } from '../../calendar/useBusyCalendar';
@@ -73,11 +74,10 @@ beforeEach(async () => {
   client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
   repository = createFakeAuthRepository({ initialUser: USER });
   setAuthRepository(repository);
-  await AsyncStorage.multiRemove([BUSY_BLOCKS_KEY, BUSY_SYNCED_AT_KEY]);
-  await AsyncStorage.setItem(BUSY_BLOCKS_KEY, JSON.stringify([
+  await AsyncStorage.multiRemove([BUSY_BLOCKS_KEY, ...LEGACY_BUSY_KEYS]);
+  await seedDeviceBusyCache(USER.uid, [
     { nativeId: 'evt-1', startAt: FROM.toISOString(), endAt: new Date(FROM.getTime() + HOUR).toISOString(), allDay: false },
-  ]));
-  await AsyncStorage.setItem(BUSY_SYNCED_AT_KEY, String(Date.now()));
+  ], { syncedAt: Date.now() });
 
   jest.spyOn(commitmentEndpoints, 'listToday').mockResolvedValue({ items: [] } as never);
   jest.spyOn(commitmentEndpoints, 'listUpcoming').mockResolvedValue({ items: [] } as never);
@@ -207,7 +207,7 @@ describe('pressing disconnect', () => {
 
 describe('what the screen says without being asked', () => {
   it('shows the reading-on benefit but no zero-count line when a current read finds nothing', async () => {
-    await AsyncStorage.multiRemove([BUSY_BLOCKS_KEY, BUSY_SYNCED_AT_KEY]);
+    await AsyncStorage.multiRemove([BUSY_BLOCKS_KEY, ...LEGACY_BUSY_KEYS]);
     jest.mocked(deviceCalendar.fetchBusyBlocks).mockResolvedValue([]);
 
     await show();

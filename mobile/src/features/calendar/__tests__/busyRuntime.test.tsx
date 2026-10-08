@@ -36,6 +36,7 @@ import { LANGUAGE_STORAGE_KEY } from '../../../i18n/language';
 import { resetWriterIdCache, saveExcludedCalendarIds } from '../../../lib/deviceSettings/calendarDevice';
 import { deviceCalendar } from '../deviceCalendar';
 import { resetBusySyncForTests } from '../useBusyCalendar';
+import { BUSY_BLOCKS_KEY, saveBusySyncedAt } from '../../../lib/deviceSettings/calendarBusy';
 
 import * as calendarEndpoints from '../../../api/endpoints/calendar';
 import * as commitmentEndpoints from '../../../api/endpoints/commitments';
@@ -73,7 +74,7 @@ beforeEach(async () => {
   client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
   repository = createFakeAuthRepository({ initialUser: USER });
   setAuthRepository(repository);
-  await AsyncStorage.multiRemove(['calendar.busy.v1', 'calendar.busySyncedAt.v1', 'calendar.excludedCalendarIds.v1']);
+  await AsyncStorage.multiRemove([BUSY_BLOCKS_KEY, 'calendar.busy.v1', 'calendar.busySyncedAt.v1', 'calendar.excludedCalendarIds.v1']);
   await AsyncStorage.setItem(LANGUAGE_STORAGE_KEY, 'en');
   jest.spyOn(commitmentEndpoints, 'listToday').mockResolvedValue({ items: [], calendarOrphans: [] } as never);
   jest.spyOn(commitmentEndpoints, 'listUpcoming').mockResolvedValue({ items: [] } as never);
@@ -143,7 +144,7 @@ describe('with the calendar switch on', () => {
     await openApp();
 
     await waitFor(async () => {
-      expect(await AsyncStorage.getItem('calendar.busy.v1')).toContain(FROM.toISOString());
+      expect(await AsyncStorage.getItem(BUSY_BLOCKS_KEY)).toContain(FROM.toISOString());
     });
   });
 });
@@ -193,7 +194,7 @@ describe('coming back to the front', () => {
     await openApp();
     await waitFor(() => expect(upload).toHaveBeenCalledTimes(1));
     // Pretend the connect sync was long ago, so only the trigger decides.
-    await AsyncStorage.setItem('calendar.busySyncedAt.v1', String(Date.now() - 60 * 60_000));
+    await saveBusySyncedAt(USER.uid, new Date(Date.now() - 60 * 60_000));
     return { fire, upload };
   }
 
@@ -233,6 +234,6 @@ describe('with the calendar switch off', () => {
 
     expect(deviceCalendar.fetchBusyBlocks).not.toHaveBeenCalled();
     expect(upload).not.toHaveBeenCalled();
-    expect(await AsyncStorage.getItem('calendar.busy.v1')).toBeNull();
+    expect(await AsyncStorage.getItem(BUSY_BLOCKS_KEY)).toBeNull();
   });
 });

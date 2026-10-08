@@ -29,7 +29,7 @@
  *
  * It also turns the Trust Center's calendar consent off, and that part is here
  * rather than on the settings screen because forgetting it would undo the whole
- * button. Clearing the cache clears `calendar.busySyncedAt.v1` with it, so the
+ * button. Clearing the cache clears the last sync time with it, so the
  * throttle no longer holds anything back — the very next time the app came to
  * the front it would read the calendar again and upload everything that had
  * just been deleted. A disconnect that reconnects itself within the minute is
@@ -44,9 +44,11 @@ import { calendarReadEnabled } from '../../config/env';
 import {
   clearCachedBusyBlocks,
   loadBusySyncedAt,
-  loadCachedBusyBlocks,
+  loadDeviceBusy,
   saveBusySyncedAt,
   saveCachedBusyBlocks,
+  uncoverCachedBusyBlocks,
+  type DeviceBusyCache,
 } from '../../lib/deviceSettings/calendarBusy';
 import { loadExcludedCalendarIds, loadWrittenEventIds, resolveWriterId } from '../../lib/deviceSettings/calendarDevice';
 import { deviceCalendar, BUSY_LOOK_AHEAD_DAYS } from './deviceCalendar';
@@ -77,20 +79,30 @@ export function resetBusySyncForTests(): void {
   passInFlight = false;
 }
 
-/** The last busy blocks this device read. Empty until the first sync. */
-export function useBusyBlocks(): DeviceBusyBlock[] {
+/**
+ * This account's device cache: the last busy blocks it read, and the window
+ * they honestly cover (M4a). Never another account's (M4A-R8-001).
+ */
+export function useDeviceBusy(): { data: DeviceBusyCache | undefined; isPending: boolean; isError: boolean } {
   const uid = useUid();
   const query = useQuery({
     queryKey: busyQueryKeys.blocks(uid),
-    queryFn: loadCachedBusyBlocks,
+    queryFn: () => loadDeviceBusy(uid),
     enabled: uid !== 'signed-out',
     // Read once and then only when a sync says so. The value changes on a
     // fifteen-minute cadence at most, and re-reading a file on every screen
     // focus would buy nothing.
     staleTime: Infinity,
   });
-  return query.data ?? [];
+  return { data: query.data, isPending: query.isPending, isError: query.isError };
 }
+
+/** The last busy blocks this device read for this account. Empty until the first sync. */
+export function useBusyBlocks(): DeviceBusyBlock[] {
+  return useDeviceBusy().data?.blocks ?? EMPTY_BLOCKS;
+}
+
+const EMPTY_BLOCKS: DeviceBusyBlock[] = [];
 
 /** The window one sync covers, as the device reads it. */
 function windowFrom(now: Date): { startAt: string; endAt: string } {
@@ -101,16 +113,17 @@ function windowFrom(now: Date): { startAt: string; endAt: string } {
   return { startAt: start.toISOString(), endAt: end.toISOString() };
 }
 
-function apiBusyPorts(): BusySyncPorts {
+function apiBusyPorts(owner: string): BusySyncPorts {
   return {
     // Calendars switched off in Calendar settings are never read (L7).
     readBusy: async (ownEventIds, now) => deviceCalendar.fetchBusyBlocks({
       ownEventIds, now, excludedCalendarIds: new Set(await loadExcludedCalendarIds()),
     }),
     ownEventIds: loadWrittenEventIds,
-    cache: saveCachedBusyBlocks,
+    cache: (blocks, coverage) => saveCachedBusyBlocks(owner, blocks, coverage),
+    uncover: () => uncoverCachedBusyBlocks(owner),
     upload: async (body) => { await postCalendarBusy(body); },
-    recordSync: saveBusySyncedAt,
+    recordSync: (at) => saveBusySyncedAt(owner, at),
   };
 }
 
@@ -152,19 +165,19 @@ export function useBusyCalendar(): BusyCalendarState {
     passInFlight = true;
     try {
       const now = new Date();
-      const result = await runBusySync(apiBusyPorts(), {
+      const result = await runBusySync(apiBusyPorts(current.uid), {
         trigger,
         featureEnabled: calendarReadEnabled(),
         signedIn: current.uid !== 'signed-out',
         consented: current.consented,
-        lastSyncedAt: await loadBusySyncedAt(),
+        lastSyncedAt: await loadBusySyncedAt(current.uid),
         now,
         sourceId: deviceSourceId(await resolveWriterId()),
         platform: Platform.OS === 'android' ? 'android' : 'ios',
         window: windowFrom(now),
       });
       // Only a pass that actually read the calendar changed the cache.
-      if (result.kind === 'synced' || result.kind === 'failed') {
+      if (result.kind === 'synced' || result.kind === 'failed' || result.kind === 'denied') {
         void client.invalidateQueries({ queryKey: busyQueryKeys.blocks(current.uid) });
       }
       return result;
