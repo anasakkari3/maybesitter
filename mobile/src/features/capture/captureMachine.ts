@@ -341,6 +341,8 @@ export type CaptureEvent =
   | { type: 'familiesDropped'; families: readonly ('habit' | 'goal' | 'seed')[] }
   /** The account changed under an open chat: its entry belonged to the last one (M3b). */
   | { type: 'entryForgotten' }
+  /** The page the next conversation is opened from, kept history and all (M3b, M2b condition 9). */
+  | { type: 'entryChanged'; entry: CaptureEntry | null }
   /** Take a habit, goal or thought-entry thought out of the save, or put it back (M3b). */
   | { type: 'togglePoint'; pointId: string }
   | { type: 'textChanged'; text: string }
@@ -962,6 +964,10 @@ export function captureReducer(state: CaptureState, event: CaptureEvent): Captur
 
     case 'entryForgotten':
       return state.entry === null ? state : { ...state, entry: null };
+
+    case 'entryChanged':
+      // Only between conversations: one in progress keeps the hint it started with.
+      return state.entry === event.entry || state.conversationId !== null ? state : { ...state, entry: event.entry };
 
     case 'togglePoint': {
       const confirmable = [...confirmableHabits(state.proposal), ...confirmableGoals(state.proposal), ...confirmableThoughts(state.proposal)];

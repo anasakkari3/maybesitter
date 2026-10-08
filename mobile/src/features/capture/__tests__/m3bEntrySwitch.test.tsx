@@ -63,6 +63,8 @@ describe('a page opens the chat for its own kind', () => {
     await screen.findByTestId('capture-input');
     expect(screen.getByText(en.xChatOpenHabit)).toBeTruthy();
     expect(screen.queryByText(en.xChatOpenGoal)).toBeNull();
+    // The goal's save is still there (M2b condition 9, inspection M3B-A-R2-001).
+    expect(screen.getByTestId('capture-saved')).toBeTruthy();
     await say('Walk every day');
     await waitForRequest(harness, 'POST', /\/capture\/chat$/, 2);
     expect(lastRequest(harness, 'POST', /\/capture\/chat$/).body).toEqual(expect.objectContaining({ entry: 'habit' }));

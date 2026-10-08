@@ -194,6 +194,18 @@ export function CaptureScreen() {
     setRevealRequest(target === null || !proposalId ? null
       : { key: Date.now(), id: familyIdOf(target), proposalId });
   };
+  // A habit answered «موعد ثابت» comes back as a commitment card: once it is
+  // there, the screen reader is taken to it, since the habit card it was on
+  // is gone (M3B-A-R2-005). Found by its point id, which the conversion keeps.
+  const becameCommitment = useRef<string | null>(null);
+  useEffect(() => {
+    const pointId = becameCommitment.current;
+    if (!pointId || !state.proposal) return;
+    const item = state.proposal.items.find((candidate) => candidate.pointId === pointId);
+    if (!item) return;
+    becameCommitment.current = null;
+    setRevealRequest({ key: Date.now(), id: item.itemId, proposalId: state.proposal.proposalId });
+  }, [state.proposal]);
   const busy = state.status === 'confirming' || state.status === 'analyzing';
   // Something «ابدأ من جديد» would clear: a conversation, a proposal, a draft.
   const hasConversation = state.turns.length > 0 || state.earlier.length > 0 || state.proposal !== null || state.text.trim().length > 0;
@@ -529,7 +541,10 @@ export function CaptureScreen() {
     {(state.proposal?.habits ?? []).map((habit) => <HabitProposalCard key={habit.pointId} habit={habit}
       selected={pointSelected(state, habit.pointId)} onToggle={() => flow.togglePoint(habit.pointId)}
       busy={editBusy || flow.writing} reask={state.status === 'confirmFailed' && state.errorReason === 'habit_invalid'}
-      onAnswer={(change) => { void sendEdit({ habitItemId: habit.habitItemId }, change); }} />)}
+      onAnswer={(change) => {
+        becameCommitment.current = change.kind === 'commitment' ? habit.pointId : null;
+        void sendEdit({ habitItemId: habit.habitItemId }, change);
+      }} />)}
     {(state.proposal?.goals ?? []).map((goal) => <GoalProposalCard key={goal.pointId} goal={goal}
       selected={pointSelected(state, goal.pointId)} onToggle={() => flow.togglePoint(goal.pointId)} />)}
     {thoughtEntry ? state.proposal!.seeds.map((seed) => <ThoughtProposalCard key={seed.seedItemId} seed={seed}

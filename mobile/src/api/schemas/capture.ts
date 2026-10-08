@@ -102,6 +102,12 @@ const preferredWindowSchema = z.union([
 export type HabitPreferredWindow = z.infer<typeof preferredWindowSchema>;
 
 /**
+ * A habit or goal title: at most 120 code points, the way the server counts it
+ * (`Array.from`), not 120 UTF-16 units — an emoji is one (M3B-A-R2-004).
+ */
+const kindTitleSchema = z.string().min(1).refine((value) => Array.from(value).length <= 120, { message: 'at most 120 characters' });
+
+/**
  * A habit the chat understood (M3b, contract v8). Nothing about it is saved
  * until the review's «احفظ»; it can be selected only when `confirmable`, which
  * the server sets once the rhythm and the length are known and no question is
@@ -110,7 +116,7 @@ export type HabitPreferredWindow = z.infer<typeof preferredWindowSchema>;
 export const captureHabitProposalSchema = z.object({
   habitItemId: z.string().min(1),
   pointId: z.string().min(1),
-  title: z.string().min(1).max(120),
+  title: kindTitleSchema,
   cadence: habitCadenceSchema.nullable(),
   durationMinutes: z.number().int().min(5).max(240).nullable(),
   preferredWindow: preferredWindowSchema.nullable(),
@@ -128,7 +134,7 @@ export type CaptureHabitProposal = z.infer<typeof captureHabitProposalSchema>;
 export const captureGoalProposalSchema = z.object({
   goalItemId: z.string().min(1),
   pointId: z.string().min(1),
-  title: z.string().min(1).max(120),
+  title: kindTitleSchema,
 });
 export type CaptureGoalProposal = z.infer<typeof captureGoalProposalSchema>;
 
