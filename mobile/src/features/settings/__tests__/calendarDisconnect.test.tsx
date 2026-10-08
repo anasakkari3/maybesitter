@@ -25,7 +25,7 @@
  */
 import React from 'react';
 import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import { AppState, Platform, type AppStateStatus } from 'react-native';
 import { SafeAreaProvider, type Metrics } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -91,8 +91,14 @@ beforeEach(async () => {
   jest.spyOn(deviceCalendar, 'fetchBusyBlocks').mockResolvedValue([
     { nativeId: 'evt-1', startAt: FROM.toISOString(), endAt: new Date(FROM.getTime() + HOUR).toISOString(), allDay: false },
   ]);
-  jest.spyOn(trustEndpoints, 'getTrust').mockResolvedValue(trustBody(true) as never);
-  jest.spyOn(trustEndpoints, 'updateTrust').mockResolvedValue(trustBody(false) as never);
+  // One consent, as the server keeps it: a read after the switch went off
+  // says off (a fake that kept answering on would be a server that refused it).
+  let serverConsent = true;
+  jest.spyOn(trustEndpoints, 'getTrust').mockImplementation(async () => trustBody(serverConsent) as never);
+  jest.spyOn(trustEndpoints, 'updateTrust').mockImplementation(async (action) => {
+    if (action.type === 'set_calendar_consent') serverConsent = action.granted;
+    return trustBody(serverConsent) as never;
+  });
   jest.spyOn(calendarEndpoints, 'deleteCalendarBusy').mockResolvedValue({ success: true, deleted: 2 } as never);
   jest.spyOn(calendarEndpoints, 'postCalendarBusy').mockResolvedValue({
     success: true,
@@ -349,6 +355,134 @@ describe('a sync running when disconnect is pressed', () => {
 
     foreground();
     await waitFor(() => expect(calendarEndpoints.postCalendarBusy).toHaveBeenCalledTimes(2));
+  });
+
+  /** The server's consent, and reads of it that can be held back. */
+  function serverTrust(initial: boolean) {
+    const state = { consent: initial, held: null as ReturnType<typeof deferred<ReturnType<typeof trustBody>>> | null };
+    jest.mocked(trustEndpoints.getTrust).mockImplementation(async () => (
+      state.held ? state.held.promise : trustBody(state.consent)) as never);
+    jest.mocked(trustEndpoints.updateTrust).mockImplementation(async (action) => {
+      if (action.type === 'set_calendar_consent') state.consent = action.granted;
+      return trustBody(state.consent) as never;
+    });
+    return state;
+  }
+
+  // M4A-R6-REV-002: the switch went off on the server, but its answer was lost.
+  it('starts no pass after a switch request whose answer was lost, until the server says what the switch is', async () => {
+    const foreground = captureForeground();
+    const server = serverTrust(true);
+    jest.mocked(trustEndpoints.updateTrust).mockImplementation(async () => {
+      server.consent = false;
+      throw new Error('the answer never came back');
+    });
+
+    await show();
+    await waitFor(() => expect(calendarEndpoints.postCalendarBusy).toHaveBeenCalledTimes(1));
+    server.held = deferred();
+    const held = server.held;
+    await disconnectAndConfirm();
+    await waitFor(() => expect(screen.queryByTestId('calendar-disconnect-result')).not.toBeNull());
+
+    foreground();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(deviceCalendar.fetchBusyBlocks).toHaveBeenCalledTimes(1);
+    expect(await AsyncStorage.getItem(BUSY_BLOCKS_KEY)).toBeNull();
+
+    server.held = null;
+    held.resolve(trustBody(false));
+    await waitFor(() => expect(screen.getByTestId('calendar-reading-benefit').props.children)
+      .toBe(en.calendarReadBenefitOff));
+    foreground();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(deviceCalendar.fetchBusyBlocks).toHaveBeenCalledTimes(1);
+    expect(calendarEndpoints.postCalendarBusy).toHaveBeenCalledTimes(1);
+    expect(await AsyncStorage.getItem(BUSY_BLOCKS_KEY)).toBeNull();
+  });
+
+  it('syncs again when the server says a switch request that failed never applied', async () => {
+    serverTrust(true);
+    jest.mocked(trustEndpoints.updateTrust).mockRejectedValue(new Error('refused') as never);
+
+    await show();
+    await waitFor(() => expect(calendarEndpoints.postCalendarBusy).toHaveBeenCalledTimes(1));
+    await disconnectAndConfirm();
+
+    await waitFor(() => expect(calendarEndpoints.postCalendarBusy).toHaveBeenCalledTimes(2));
+  });
+
+  // M4A-R6-REV-003: the mark must not outlive the answer it waits for.
+  it('syncs again after signing out and back in, once the server says the calendar was turned back on', async () => {
+    const server = serverTrust(true);
+
+    await show();
+    await waitFor(() => expect(calendarEndpoints.postCalendarBusy).toHaveBeenCalledTimes(1));
+    server.held = deferred();
+    const held = server.held;
+    await disconnectAndConfirm();
+    await waitFor(() => expect(screen.queryByTestId('calendar-disconnect-result')).not.toBeNull());
+
+    repository.emit(null);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    // Turned back on from another phone, then signed in here again.
+    server.consent = true;
+    server.held = null;
+    repository.emit(USER);
+    held.resolve(trustBody(true));
+
+    await waitFor(() => expect(calendarEndpoints.postCalendarBusy).toHaveBeenCalledTimes(2));
+  });
+
+  it('takes no answer fetched before the switch went off for the server\'s word, across signing out and in', async () => {
+    const server = serverTrust(true);
+
+    await show();
+    await waitFor(() => expect(calendarEndpoints.postCalendarBusy).toHaveBeenCalledTimes(1));
+    server.held = deferred();
+    const held = server.held;
+    await disconnectAndConfirm();
+    await waitFor(() => expect(screen.queryByTestId('calendar-disconnect-result')).not.toBeNull());
+
+    // Back in while the server's answer is still on its way: the only answer
+    // in hand is the one from before the disconnect, which says on. `act`, so
+    // every effect of the sign-in has run before that answer arrives.
+    await act(async () => { repository.emit(null); });
+    await act(async () => { repository.emit(USER); });
+    expect(deviceCalendar.fetchBusyBlocks).toHaveBeenCalledTimes(1);
+    expect(calendarEndpoints.postCalendarBusy).toHaveBeenCalledTimes(1);
+
+    server.held = null;
+    held.resolve(trustBody(false));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(calendarEndpoints.postCalendarBusy).toHaveBeenCalledTimes(1);
+    expect(await AsyncStorage.getItem(BUSY_BLOCKS_KEY)).toBeNull();
+  });
+
+  it('acts on the server\'s answer, not a render\'s, when the sign-in\'s effects run after it arrives', async () => {
+    const server = serverTrust(true);
+
+    await show();
+    await waitFor(() => expect(calendarEndpoints.postCalendarBusy).toHaveBeenCalledTimes(1));
+    server.held = deferred();
+    const held = server.held;
+    await disconnectAndConfirm();
+    await waitFor(() => expect(screen.queryByTestId('calendar-disconnect-result')).not.toBeNull());
+
+    // Back in, but the sign-in's effects run only after the server's answer
+    // has landed: the render they belong to still holds the old «on».
+    repository.emit(null);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    repository.emit(USER);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(deviceCalendar.fetchBusyBlocks).toHaveBeenCalledTimes(1);
+    expect(calendarEndpoints.postCalendarBusy).toHaveBeenCalledTimes(1);
+
+    server.held = null;
+    held.resolve(trustBody(false));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(calendarEndpoints.postCalendarBusy).toHaveBeenCalledTimes(1);
+    expect(await AsyncStorage.getItem(BUSY_BLOCKS_KEY)).toBeNull();
   });
 
   it('keeps nothing from a read that was running when the consent went off', async () => {

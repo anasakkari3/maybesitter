@@ -38,8 +38,9 @@
 import { useCallback, useEffect, useRef } from 'react';
 import { AppState, Platform } from 'react-native';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useTrust, useTrustAction, useUid } from '../../api/queries';
+import { queryKeys, useTrust, useTrustAction, useUid } from '../../api/queries';
 import { getAuthRepository } from '../../api/auth';
+import type { TrustResponse } from '../../api/schemas/trust';
 import { deleteCalendarBusy, postCalendarBusy } from '../../api/endpoints/calendar';
 import { calendarReadEnabled } from '../../config/env';
 import {
@@ -82,22 +83,28 @@ let activePass: Promise<unknown> | null = null;
  * records nothing more, even for the same account (M4a, M4A-R4-REV-001).
  */
 let passGeneration = 0;
-/** Disconnects running: no pass starts while one is. */
-let disconnecting = 0;
 /**
- * The account whose calendar was disconnected, until a trust answer saying
- * its consent is off reaches the hooks (M4A-R5-REV-001). The consent switch
- * only invalidates the trust query, so for a moment after a disconnect every
- * hook still holds `consented: true`; a foreground pass in that moment would
- * put the deleted busy times back on the phone.
+ * The account whose calendar was disconnected, until the hooks hold a trust
+ * answer fetched after the consent request settled (M4A-R5-REV-001,
+ * R6-REV-002/003).
+ *
+ * The consent switch only invalidates the trust query, so for a moment after
+ * a disconnect every hook still holds `consented: true`, and a foreground pass
+ * then would put the deleted busy times back on the phone. Only an answer the
+ * server gave after the request settled says what the consent is now: off, and
+ * the consent itself keeps passes from starting; on (the request never applied,
+ * or it was turned back on elsewhere), and syncing resumes. Its answer may
+ * have been lost even though it applied, so an error proves nothing either.
+ * `answersAtSettle` is the trust query's count of answers when the request
+ * settled, null while it is still out. Fetches begun before then are
+ * cancelled at that moment, so only a later answer moves the count.
  */
-let withdrawnFor: string | null = null;
+let withdrawn: { uid: string; answersAtSettle: number | null } | null = null;
 
 export function resetBusySyncForTests(): void {
   passInFlight = false;
   activePass = null;
-  disconnecting = 0;
-  withdrawnFor = null;
+  withdrawn = null;
 }
 
 /**
@@ -178,22 +185,28 @@ export function useBusyCalendar(): BusyCalendarState {
   const trustAction = useTrustAction();
 
   const consented = trust.data?.trust?.calendarConsent === true;
-  const answeredOff = trust.data?.trust?.calendarConsent === false;
+  // Read here so an answer identical to the last one still renders this hook,
+  // which is what lets a disconnect's mark see the server's answer arrive.
+  const trustAnsweredAt = trust.dataUpdatedAt;
   // A ref so the `AppState` listener below is registered once rather than
   // re-registered every time the trust query answers, and written in an effect
   // rather than during render so a discarded render cannot leave the sync
   // holding a consent value the user never saw.
   const latest = useRef({ uid, consented });
-  useEffect(() => {
-    latest.current = { uid, consented };
-    // The server's answer has caught up with the disconnect: from here on the
-    // consent itself keeps passes from starting, and turning it back on syncs.
-    if (answeredOff && withdrawnFor === uid) withdrawnFor = null;
-  });
+  useEffect(() => { latest.current = { uid, consented }; });
+
+  /**
+   * The consent as the trust query holds it now, read straight from the cache
+   * rather than from a render: an effect of an earlier render can run after a
+   * newer answer has landed, and the two must not disagree (M4A-R6-REV-003).
+   */
+  const consentNow = useCallback((forUid: string) => (
+    client.getQueryData<TrustResponse>(queryKeys.trust(forUid))?.trust?.calendarConsent === true
+  ), [client]);
 
   const syncNow = useCallback(async (trigger: BusySyncTrigger): Promise<BusySyncOutcome | null> => {
     const current = latest.current;
-    if (passInFlight || disconnecting > 0 || withdrawnFor === current.uid) return null;
+    if (passInFlight || withdrawn?.uid === current.uid) return null;
     const generation = passGeneration;
     // The signed-in account, from the repository (it changes before React's
     // state does), and the hook's own view of it; both must still be the
@@ -201,7 +214,7 @@ export function useBusyCalendar(): BusyCalendarState {
     // And no disconnect since it began, and the consent still on
     // (M4A-R4-REV-001, R5-REV-001).
     const stillCurrent = () => passGeneration === generation
-      && latest.current.consented
+      && consentNow(current.uid)
       && latest.current.uid === current.uid
       && (current.uid === 'signed-out' || getAuthRepository()?.currentUser()?.uid === current.uid);
     passInFlight = true;
@@ -214,7 +227,7 @@ export function useBusyCalendar(): BusyCalendarState {
         trigger,
         featureEnabled: calendarReadEnabled(),
         signedIn: current.uid !== 'signed-out',
-        consented: current.consented,
+        consented: consentNow(current.uid),
         lastSyncedAt,
         now,
         sourceId: deviceSourceId(writerId),
@@ -236,41 +249,56 @@ export function useBusyCalendar(): BusyCalendarState {
       passInFlight = false;
       activePass = null;
     }
-  }, [client]);
+  }, [client, consentNow]);
 
   const disconnect = useCallback(async (): Promise<{ local: true; server: boolean }> => {
     const current = latest.current;
     // A pass already running read the calendar being disconnected: from here
-    // on it keeps, sends and records nothing, and no new pass starts until
-    // this is done (M4A-R4-REV-001).
+    // on it keeps, sends and records nothing (M4A-R4-REV-001), and no new pass
+    // starts until the server has said what the switch is (`withdrawn`).
     passGeneration += 1;
-    disconnecting += 1;
-    withdrawnFor = current.uid;
+    const mark = { uid: current.uid, answersAtSettle: null as number | null };
+    withdrawn = mark;
+    // The phone first, and unconditionally. Whatever the network does, the
+    // person who pressed this sees their busy times gone from the screen.
+    await clearCachedBusyBlocks();
+    void client.invalidateQueries({ queryKey: busyQueryKeys.blocks(current.uid) });
     try {
-      // The phone first, and unconditionally. Whatever the network does, the
-      // person who pressed this sees their busy times gone from the screen.
-      await clearCachedBusyBlocks();
-      void client.invalidateQueries({ queryKey: busyQueryKeys.blocks(current.uid) });
-      try {
-        // An upload already on its way lands first, so the delete is the last
-        // word on the server rather than something the upload undoes.
-        await activePass?.catch(() => undefined);
-        await deleteCalendarBusy(deviceSourceId(await resolveWriterId()));
-        // And the switch, so nothing syncs it back. See the header: clearing the
-        // cache also cleared the throttle, so leaving this on would mean the next
-        // trip to the home screen re-uploaded the window that was just deleted.
-        await trustAction.mutateAsync({ type: 'set_calendar_consent', granted: false });
-        return { local: true, server: true };
-      } catch {
-        // The switch is still on: syncing resumes, as it always has when the
-        // account could not be reached.
-        withdrawnFor = null;
-        return { local: true, server: false };
-      }
+      // An upload already on its way lands first, so the delete is the last
+      // word on the server rather than something the upload undoes.
+      await activePass?.catch(() => undefined);
+      await deleteCalendarBusy(deviceSourceId(await resolveWriterId()));
+    } catch {
+      // Nothing reached the switch, so it is still on: syncing resumes, as it
+      // always has when the account could not be reached.
+      if (withdrawn === mark) withdrawn = null;
+      return { local: true, server: false };
+    }
+    try {
+      // And the switch, so nothing syncs it back. See the header: clearing the
+      // cache also cleared the throttle, so leaving this on would mean the next
+      // trip to the home screen re-uploaded the window that was just deleted.
+      await trustAction.mutateAsync({ type: 'set_calendar_consent', granted: false });
+      return { local: true, server: true };
+    } catch {
+      return { local: true, server: false };
     } finally {
-      disconnecting -= 1;
+      // Settled, whichever way: the next answer the server gives says what the
+      // switch is. Anything fetched before now is dropped unread.
+      mark.answersAtSettle = client.getQueryState(queryKeys.trust(current.uid))?.dataUpdateCount ?? 0;
+      void client.refetchQueries({ queryKey: queryKeys.trust(current.uid) }, { cancelRefetch: true });
     }
   }, [client, trustAction]);
+
+  // The server's answer has caught up with a disconnect: from here on the
+  // consent itself decides. On means the switch never went off, or was turned
+  // back on elsewhere, so the sync the mark held back runs now.
+  useEffect(() => {
+    if (withdrawn?.uid !== uid || withdrawn.answersAtSettle === null) return;
+    if ((client.getQueryState(queryKeys.trust(uid))?.dataUpdateCount ?? 0) <= withdrawn.answersAtSettle) return;
+    withdrawn = null;
+    if (consentNow(uid)) void syncNow('connect');
+  }, [uid, trustAnsweredAt, client, consentNow, syncNow]);
 
   // Somebody turned the switch on, or it was already on when the app started.
   useEffect(() => {
