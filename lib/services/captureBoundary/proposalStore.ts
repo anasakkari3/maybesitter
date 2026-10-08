@@ -64,6 +64,11 @@ export interface StoredCaptureProposal {
   commandsByItemId: ReadonlyMap<string, readonly Command[]>;
   confirmedResult?: unknown;
   idempotencyKey?: string;
+  /** Contract-v8 key-reuse guard and recovery input. */
+  confirmationFingerprint?: string;
+  confirmationIntent?: Record<string, unknown>;
+  /** Habit points whose suggested cadence or duration the user edited. */
+  captureKindsEditedHabitPointIds?: readonly string[];
   /**
    * When the proposal was made (UC-2.4, #164).
    *
@@ -198,6 +203,9 @@ export interface StoredProposalDocument {
   proposedAt?: string;
   confirmedResult?: unknown;
   idempotencyKey?: string;
+  confirmationFingerprint?: string;
+  confirmationIntent?: Record<string, unknown>;
+  captureKindsEditedHabitPointIds?: string[];
   timezone?: string;
   correctionSpans?: Record<string, { itemId: string; index: number; length: number }>;
   editReceipt?: { fingerprint: string; resultingRevision: number; answer: unknown };
@@ -233,6 +241,9 @@ export function captureProposalToDocument(proposal: StoredCaptureProposal, now: 
     ...(proposal.proposedAt === undefined ? {} : { proposedAt: proposal.proposedAt }),
     ...(proposal.confirmedResult === undefined ? {} : { confirmedResult: proposal.confirmedResult }),
     ...(proposal.idempotencyKey === undefined ? {} : { idempotencyKey: proposal.idempotencyKey }),
+    ...(proposal.confirmationFingerprint === undefined ? {} : { confirmationFingerprint: proposal.confirmationFingerprint }),
+    ...(proposal.confirmationIntent === undefined ? {} : { confirmationIntent: proposal.confirmationIntent }),
+    ...(proposal.captureKindsEditedHabitPointIds === undefined ? {} : { captureKindsEditedHabitPointIds: [...proposal.captureKindsEditedHabitPointIds] }),
     ...(proposal.timezone === undefined ? {} : { timezone: proposal.timezone }),
     ...(proposal.correctionSpans === undefined ? {} : { correctionSpans: proposal.correctionSpans }),
     ...(proposal.editReceipt === undefined ? {} : { editReceipt: proposal.editReceipt }),
@@ -263,6 +274,9 @@ export function captureProposalFromDocument(document: StoredProposalDocument): S
     ...(document.proposedAt === undefined ? {} : { proposedAt: document.proposedAt }),
     ...(document.confirmedResult === undefined ? {} : { confirmedResult: document.confirmedResult }),
     ...(document.idempotencyKey === undefined ? {} : { idempotencyKey: document.idempotencyKey }),
+    ...(document.confirmationFingerprint === undefined ? {} : { confirmationFingerprint: document.confirmationFingerprint }),
+    ...(document.confirmationIntent === undefined ? {} : { confirmationIntent: { ...document.confirmationIntent } }),
+    ...(document.captureKindsEditedHabitPointIds === undefined ? {} : { captureKindsEditedHabitPointIds: [...document.captureKindsEditedHabitPointIds] }),
     ...(document.timezone === undefined ? {} : { timezone: document.timezone }),
     ...(document.correctionSpans === undefined ? {} : { correctionSpans: document.correctionSpans }),
     ...(document.editReceipt === undefined ? {} : { editReceipt: document.editReceipt }),

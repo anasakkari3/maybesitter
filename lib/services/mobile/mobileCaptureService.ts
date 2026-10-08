@@ -3,8 +3,12 @@ import {
   captureAppLocaleFrom,
   type CaptureAppLocale,
   type CaptureConfirmationResultContract,
+  type CaptureEntry,
+  type CaptureHabitProposalContract,
   type CaptureItemEditContract,
+  type CapturePreferredWindow,
   type CaptureProposalContract,
+  type CaptureProposalEditContract,
 } from '../../../src/contracts/v1/captureContracts';
 import { createHash, randomUUID } from 'crypto';
 import { compareByCodePoint } from '../../planning/shared/compare';
@@ -25,6 +29,8 @@ import { captureLlmProvider } from '../../llm/captureProvider';
 import { getAiConsent } from '../../consents/aiConsentService';
 import { configuredProviderName } from '../../../src/extraction/llm';
 import type { ExtractionResult } from '../../../src/extraction/extractionTypes';
+import { mapExtractionToCommand } from '../../../src/extraction/mapExtractionToCommand';
+import { instantFromLocal, localTimeSpecFor } from '../../../src/extraction/timeLexicon';
 import { applyEditToCommands, eventDayOf } from '../captureBoundary/applyEdits';
 import {
   appendClarificationEvent,
@@ -74,6 +80,34 @@ import type { ActiveGoal } from '../captureBoundary/proposalShape';
 import { readOwnedMemory } from './memoryService';
 import { referenceStateFor, withPublicRemovedItems } from '../captureChat/chatReferences';
 import { mergeChatProposalByRef, type ChatRefMergePlan } from '../captureChat/refMerge';
+import { resolveModuleRuntime } from '../../../src/contracts/v1/runtimeControls';
+import {
+  buildHabitDefinition,
+  cadenceOccurrencesPerPeriod,
+  parseHabitCadence,
+  parseHabitDefinitionInput,
+  type HabitCadence,
+  type HabitDefinition,
+  type HabitOccurrence,
+} from '../../../src/contracts/v1/habitContracts';
+import { resolveCaptureKinds } from '../captureKinds/runtime';
+import { horizonFrom, todayLocalDateFor } from '../habits/habitService';
+import { materializeHabitOccurrences } from '../../habits/materialize';
+import {
+  HABITS,
+  HABIT_OCCURRENCES,
+  INTENT_SEEDS,
+  MEMORY,
+  docIdForKey,
+  requireUserId,
+  userSubDoc,
+} from '../../storage';
+import { INTENT_SEED_SCHEMA_VERSION, type IntentSeed } from '../../../src/contracts/v1/intentContracts';
+import {
+  MEMORY_RECORD_SCHEMA_VERSION,
+  USER_STATED_MEMORY_TTL_MS,
+  type RuntimeMemoryRecord,
+} from '../../../src/contracts/v1/memoryContracts';
 
 export interface MobileCaptureInput {
   text?: unknown;
@@ -92,6 +126,9 @@ export interface MobileConfirmInput {
   scopeId?: unknown;
   itemIds?: unknown;
   selectedItemIds?: unknown;
+  selectedHabitItemIds?: unknown;
+  selectedGoalItemIds?: unknown;
+  selectedSeedItemIds?: unknown;
   idempotencyKey?: unknown;
   /** What the user changed in review, applied with the confirm (#164). */
   edits?: unknown;
@@ -101,6 +138,24 @@ export interface MobileConfirmInput {
   goalLinkItemIds?: unknown;
   revision?: unknown;
 }
+
+type CaptureConfirmationIntent = {
+  selectedItemIds: string[];
+  selectedHabitItemIds: string[];
+  selectedGoalItemIds: string[];
+  selectedSeedItemIds: string[];
+  weeklyBlockItemIds: string[];
+  goalLinkItemIds: string[];
+  edits: CaptureItemEditContract[];
+  entry: CaptureEntry | null;
+};
+
+type PreparedV8Confirmation = {
+  documents: Array<{ path: string; data: object }>;
+  habitsPersisted: NonNullable<CaptureConfirmationResultContract['habitsPersisted']>;
+  goalsPersisted: NonNullable<CaptureConfirmationResultContract['goalsPersisted']>;
+  seedsPersisted: NonNullable<CaptureConfirmationResultContract['seedsPersisted']>;
+};
 
 /** A confirmed item linked to one of the person's goals, so the goal's progress counts it. */
 export interface ConfirmedGoalLink {
@@ -214,6 +269,353 @@ const store: CaptureProposalStore = createStorageCaptureProposalStore();
 const persistence = mobileGlobals.__maybesitterMobilePersistence ?? new CommandServiceCapturePersistenceAdapter();
 mobileGlobals.__maybesitterMobilePersistence = persistence;
 
+const HABIT_FREQUENCY_OPTIONS = [1, 2, 3, 4, 5, 6, 7] as const;
+const HABIT_DURATION_OPTIONS = [15, 30, 45, 60] as const;
+
+function capturePointId(entity: { pointId?: string; itemId?: string; seedItemId?: string }): string {
+  return entity.pointId ?? entity.itemId ?? entity.seedItemId ?? randomUUID();
+}
+
+function habitQuestion(habit: Pick<CaptureHabitProposalContract, 'cadence' | 'durationMinutes'>): CaptureHabitProposalContract['question'] {
+  if (!habit.cadence) return { field: 'frequency', options: [...HABIT_FREQUENCY_OPTIONS] };
+  if (!habit.durationMinutes) return { field: 'duration', options: [...HABIT_DURATION_OPTIONS] };
+  return null;
+}
+
+function habitExplanation(
+  habit: Pick<CaptureHabitProposalContract, 'cadence' | 'durationMinutes' | 'preferredWindow'>,
+  locale: CaptureAppLocale,
+): string | null {
+  if (!habit.cadence || !habit.durationMinutes) return null;
+  const count = habit.cadence.kind === 'weekly_count' ? habit.cadence.count : habit.cadence.weekdays.length;
+  const window = typeof habit.preferredWindow === 'string' ? habit.preferredWindow : null;
+  if (locale === 'en') return `${count} times a week${window ? `, ${window}` : ''}, ${habit.durationMinutes} minutes each time.`;
+  if (locale === 'he') return `${count} פעמים בשבוע${window ? `, ${window}` : ''}, ${habit.durationMinutes} דקות בכל פעם.`;
+  const part = window === 'morning' ? '، الصبح' : window === 'afternoon' ? '، بعد الظهر' : window === 'evening' ? '، المسا' : '';
+  return `${count} مرات بالأسبوع${part}، ${habit.durationMinutes} دقيقة كل مرة.`;
+}
+
+function completeHabit(habit: CaptureHabitProposalContract, locale: CaptureAppLocale): CaptureHabitProposalContract {
+  const question = habitQuestion(habit);
+  return {
+    ...habit,
+    question,
+    explanation: question ? null : habitExplanation(habit, locale),
+    confirmable: question === null,
+  };
+}
+
+function numberIn(text: string): number | null {
+  const normalized = text.replace(/[٠-٩]/g, (digit) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(digit)));
+  const match = /(?:^|\s)([1-7])\s*(?:مر(?:ة|ات)|times?)(?=\s|$)/i.exec(normalized);
+  return match ? Number(match[1]) : null;
+}
+
+function habitFields(text: string): Pick<CaptureHabitProposalContract, 'cadence' | 'durationMinutes' | 'preferredWindow'> {
+  const daily = /كل\s*يوم|every\s+(?:day|morning|evening)|כל\s*יום/i.test(text);
+  const count = daily ? 7 : numberIn(text);
+  const halfHour = /نص\s*ساعة|half\s+an?\s+hour|חצי\s*שעה/i.test(text);
+  const minutes = /(?:^|\s)(15|30|45|60)\s*(?:دقيقة|minutes?|דקות)(?=\s|$)/i.exec(text);
+  const preferredWindow: CapturePreferredWindow | null = /الصبح|morning|בבוקר/i.test(text) ? 'morning'
+    : /بعد\s*الظهر|afternoon|אחר\s*הצהריים/i.test(text) ? 'afternoon'
+      : /المسا|المساء|evening|בערב/i.test(text) ? 'evening' : null;
+  return {
+    cadence: count ? { kind: 'weekly_count', count } : null,
+    durationMinutes: halfHour ? 30 : minutes ? Number(minutes[1]) : null,
+    preferredWindow,
+  };
+}
+
+function readsAsHabit(text: string, entry: CaptureEntry | null): boolean {
+  if (/عندي\s+(?:تدريب|موعد)|appointment|meeting|יש\s+לי/i.test(text)) return false;
+  return entry === 'habit'
+    || /(?:بدي|حابب|نفسي)\s+.*(?:كل\s*يوم|مر(?:ة|ات)\s*بالأسبوع|أتعوّد)|I\s+want\s+to\s+.*every|want\s+to\s+build\s+the\s+habit|רוצה\s+.*כל\s*יום/i.test(text);
+}
+
+function readsAsDoubt(text: string): boolean {
+  if (/ممكن\s+(?:تذكرني|ذكّرني)|could\s+you\s+remind|אפשר\s+להזכיר/i.test(text)) return false;
+  return /(?:^|[\s،,.!?])(?:عم\s+بفكر|بفكر|يمكن|ممكن|مش\s+متأكد|يا\s+ريت)(?=$|[\s،,.!?])|\b(?:thinking\s+about|maybe|might|not\s+sure)\b|(?:^|\s)(?:אולי|חושב\s+ל|לא\s+בטוח)(?=$|\s)/i.test(text);
+}
+
+function explicitArabicClocks(text: string): Array<{ hour: number; minute: number }> {
+  const normalized = text.replace(/[٠-٩]/g, (digit) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(digit)));
+  return Array.from(normalized.matchAll(/الساعة\s*([0-9]{1,2})(?::([0-5][0-9]))?\s*(الصبح|المسا|المساء)?/g), (match) => {
+    let hour = Number(match[1]);
+    const half = match[3];
+    if ((half === 'المسا' || half === 'المساء' || (!half && hour > 0 && hour <= 6)) && hour < 12) hour += 12;
+    return { hour, minute: Number(match[2] ?? 0) };
+  }).filter((clock) => clock.hour >= 0 && clock.hour < 24);
+}
+
+function pendingCommands(result: ExtractionResult): Command[] {
+  return mapExtractionToCommand(result)
+    .filter((command) => command.type !== 'ConfirmCommitment')
+    .map((command) => command.type === 'CreateDraft'
+      ? { ...command, draftStatus: 'pending_confirmation' as const }
+      : command);
+}
+
+function v8ProposalStatus(contract: CaptureProposalContract): CaptureProposalContract['status'] {
+  const habits = contract.habits ?? [];
+  const actionable = contract.items.some((item) => !item.needsClarification)
+    || habits.some((habit) => habit.confirmable)
+    || (contract.goals?.length ?? 0) > 0
+    || (contract.entry === 'thought' && contract.seeds.length > 0);
+  if (actionable) return 'proposed';
+  if (contract.items.length > 0 || habits.length > 0) return 'needs_clarification';
+  return contract.seeds.length > 0 ? 'unresolved_intent' : 'no_commitment';
+}
+
+function withV8Understood(contract: CaptureProposalContract): CaptureProposalContract {
+  const previous = new Map((contract.understood ?? []).map((line, index) => {
+    const id = 'itemId' in line ? line.itemId : 'seedItemId' in line ? line.seedItemId : 'habitItemId' in line ? line.habitItemId : line.goalItemId;
+    return [id, index] as const;
+  }));
+  const points = [
+    ...contract.items.map((item) => ({ order: previous.get(item.itemId) ?? 10_000, line: { kind: 'commitment' as const, itemId: item.itemId, pointId: capturePointId(item), text: item.title } })),
+    ...contract.seeds.map((seed) => ({ order: previous.get(seed.seedItemId) ?? 10_000, line: { kind: seed.kind, seedItemId: seed.seedItemId, pointId: capturePointId(seed), text: seed.summary } })),
+    ...(contract.habits ?? []).map((habit) => ({ order: previous.get(habit.habitItemId) ?? 10_000, line: { kind: 'habit' as const, habitItemId: habit.habitItemId, pointId: habit.pointId, text: habit.title } })),
+    ...(contract.goals ?? []).map((goal) => ({ order: previous.get(goal.goalItemId) ?? 10_000, line: { kind: 'goal' as const, goalItemId: goal.goalItemId, pointId: goal.pointId, text: goal.title } })),
+  ].sort((a, b) => a.order - b.order);
+  return { ...contract, status: v8ProposalStatus(contract), understood: points.map((point) => point.line) };
+}
+
+/** Adds the v8 families to the stored proposal only while the release-locked feature is on. */
+export async function applyCaptureKindsToProposal(
+  proposalId: string,
+  uid: string,
+  input: {
+    text: string;
+    entry: CaptureEntry | null;
+    locale: CaptureAppLocale;
+    timezone: string;
+    now?: Date;
+    /** Scripted model classifications; rules still validate and build fields. */
+    modelKinds?: readonly ('habit' | 'goal')[];
+  },
+): Promise<CaptureProposalContract> {
+  const stored = await store.get(proposalId);
+  if (!stored || stored.scopeId !== uid) throw new Error('proposal not found');
+  const memoryWritable = resolveModuleRuntime('memory').mode === 'enabled';
+  let contract: CaptureProposalContract = {
+    ...stored.contract,
+    entry: input.entry,
+    items: stored.contract.items.map((item) => ({ ...item, pointId: capturePointId(item) })),
+    seeds: stored.contract.seeds.map((seed) => ({ ...seed, pointId: capturePointId(seed), suggestedTime: seed.suggestedTime ?? null })),
+    habits: [...(stored.contract.habits ?? [])],
+    goals: [...(stored.contract.goals ?? [])],
+  };
+  // Contract-v8's examples use explicit Arabic clocks that the legacy
+  // ambiguity valve intentionally left as questions. Preserve the stated
+  // clocks on the new path so a confirm/recovery test has real commands.
+  const explicitClocks = explicitArabicClocks(input.text);
+  if (explicitClocks.length >= contract.items.length && contract.items.some((item) => item.needsClarification)) {
+    const commands = new Map(stored.commandsByItemId);
+    const results = new Map(stored.resultsByItemId ?? []);
+    const inheritedDate = contract.items.find((item) => item.resolvedDate)?.resolvedDate;
+    contract.items = contract.items.map((item, index) => {
+      if (!item.needsClarification) return item;
+      const clock = explicitClocks[index];
+      const localDate = index > 0 && /وبعده/.test(input.text) && inheritedDate ? inheritedDate : item.resolvedDate;
+      if (!clock || !localDate) return item;
+      const localTime = `${String(clock.hour).padStart(2, '0')}:${String(clock.minute).padStart(2, '0')}`;
+      const instant = instantFromLocal(localDate, localTime, input.timezone);
+      const prior = results.get(item.itemId);
+      if (!instant || !prior) return item;
+      const at = instant.toISOString();
+      const local = localTimeSpecFor(instant, input.timezone);
+      const result: ExtractionResult = {
+        ...prior,
+        dueAt: at,
+        remindAt: at,
+        localTimeSpec: local,
+        timeEvidence: 'hhmm',
+        missingFields: prior.missingFields.filter((field) => field !== 'time'),
+        ambiguityFlags: prior.ambiguityFlags.filter((flag) => flag !== 'contradictory_time'),
+      };
+      results.set(item.itemId, result);
+      commands.set(item.itemId, pendingCommands(result));
+      return { ...item, resolvedTime: at, resolvedDate: localDate, needsClarification: false, clarification: null, timeEstimated: false };
+    });
+    stored.commandsByItemId = commands;
+    stored.resultsByItemId = results;
+  }
+
+  if (readsAsDoubt(input.text) && contract.items.length > 0) {
+    const moved = contract.items[0]!;
+    contract = {
+      ...contract,
+      items: contract.items.slice(1),
+      seeds: [{
+        seedItemId: randomUUID(), pointId: capturePointId(moved), kind: 'consideration', summary: input.text,
+        suggestedTime: moved.resolvedTime ? { at: moved.resolvedTime, timeZone: input.timezone } : null,
+      }, ...contract.seeds],
+    };
+  } else if (readsAsDoubt(input.text) && contract.items.length === 0 && contract.seeds.length === 0) {
+    const extracted = await guardedMobileExtract(input.text, { now: input.now ?? new Date(), timezone: input.timezone });
+    const instant = extracted.result.remindAt ?? extracted.result.dueAt;
+    contract = {
+      ...contract,
+      seeds: [{
+        seedItemId: randomUUID(), pointId: randomUUID(), kind: 'consideration', summary: input.text,
+        suggestedTime: instant ? { at: instant, timeZone: input.timezone } : null,
+      }],
+    };
+  } else if ((readsAsHabit(input.text, input.entry) || input.modelKinds?.includes('habit')) && (contract.habits?.length ?? 0) === 0) {
+    const candidate = contract.items.at(-1) ?? (input.entry === 'habit' ? contract.seeds.at(-1) : undefined);
+    if (candidate) {
+      const title = 'title' in candidate ? candidate.title : candidate.summary;
+      const entityId = 'itemId' in candidate ? candidate.itemId : candidate.seedItemId;
+      const pointId = capturePointId(candidate);
+      const fields = habitFields(input.text);
+      const habit = completeHabit({
+        habitItemId: randomUUID(), pointId, title, ...fields,
+        explanation: null, question: null, confirmable: false,
+      }, input.locale);
+      contract = {
+        ...contract,
+        items: contract.items.filter((item) => item.itemId !== entityId),
+        seeds: contract.seeds.filter((seed) => seed.seedItemId !== entityId),
+        habits: [...(contract.habits ?? []), habit],
+      };
+      const commands = new Map(stored.commandsByItemId);
+      commands.delete(entityId);
+      stored.commandsByItemId = commands;
+    }
+  }
+
+  const modelSaysGoal = input.modelKinds?.includes('goal') === true;
+  if ((input.entry === 'goal' || modelSaysGoal) && memoryWritable && (contract.habits?.length ?? 0) === 0
+    && (modelSaysGoal || contract.items.length === 0)) {
+    const candidate: CaptureProposalContract['seeds'][number] | CaptureProposalContract['items'][number] | undefined =
+      contract.seeds.find((seed) => seed.kind === 'possible_goal') ?? contract.seeds.at(0) ?? (modelSaysGoal ? contract.items.at(-1) : undefined);
+    if (candidate) {
+      const candidateId = 'seedItemId' in candidate ? candidate.seedItemId : candidate.itemId;
+      contract = {
+        ...contract,
+        items: contract.items.filter((item) => item.itemId !== candidateId),
+        seeds: contract.seeds.filter((seed) => seed.seedItemId !== candidateId),
+        goals: [...(contract.goals ?? []), {
+          goalItemId: randomUUID(), pointId: capturePointId(candidate), title: 'summary' in candidate ? candidate.summary : candidate.title,
+        }],
+      };
+      const commands = new Map(stored.commandsByItemId);
+      commands.delete(candidateId);
+      stored.commandsByItemId = commands;
+    }
+  }
+
+  contract = withV8Understood(contract);
+  await store.put({ ...stored, contract });
+  return contract;
+}
+
+export class CaptureKindsInvalidEditError extends Error {
+  constructor() { super('edit invalid'); this.name = 'CaptureKindsInvalidEditError'; }
+}
+
+/** Structured edits for the two v8 families and their conversions. */
+export async function editCaptureKindsProposal(
+  uid: string,
+  edit: CaptureProposalEditContract,
+  locale: CaptureAppLocale,
+): Promise<CaptureProposalContract | null> {
+  if (!resolveCaptureKinds()) return null;
+  const stored = await store.get(edit.proposalId);
+  if (!stored || stored.scopeId !== uid || stored.confirmedResult !== undefined) throw new CaptureKindsInvalidEditError();
+  const editFingerprint = createHash('sha256').update(JSON.stringify(edit)).digest('hex');
+  if (stored.editReceipt?.fingerprint === editFingerprint
+    && stored.editReceipt.resultingRevision === (stored.contract.revision ?? 0)) {
+    const replay = stored.editReceipt.answer as { proposal?: CaptureProposalContract } | undefined;
+    return replay?.proposal ?? stored.contract;
+  }
+  if ((stored.contract.revision ?? 0) !== edit.revision) throw new ProposalChangedError(stored.contract, 'open');
+  const target = edit.target;
+  const change = edit.change as Record<string, unknown>;
+  const handles = 'habitItemId' in target || 'goalItemId' in target || change.kind === 'habit' || change.kind === 'goal'
+    || ('seedItemId' in target && change.kind === 'commitment' && Boolean(stored.contract.seeds.find((seed) => seed.seedItemId === target.seedItemId)?.suggestedTime));
+  if (!handles) return null;
+  let contract: CaptureProposalContract = {
+    ...stored.contract,
+    items: stored.contract.items.map((item) => ({ ...item })), seeds: stored.contract.seeds.map((seed) => ({ ...seed })),
+    habits: (stored.contract.habits ?? []).map((habit) => ({ ...habit })), goals: (stored.contract.goals ?? []).map((goal) => ({ ...goal })),
+  };
+  const commands = new Map(stored.commandsByItemId);
+  const editedHabitPointIds = new Set(stored.captureKindsEditedHabitPointIds ?? []);
+  if ('goalItemId' in target) {
+    const index = contract.goals!.findIndex((candidate) => candidate.goalItemId === target.goalItemId);
+    const goal = contract.goals![index];
+    if (!goal || change.kind === 'commitment') throw new CaptureKindsInvalidEditError();
+    if (change.kind === 'possible_goal') {
+      contract.goals!.splice(index, 1);
+      contract.seeds.push({
+        seedItemId: randomUUID(), pointId: goal.pointId, kind: 'possible_goal',
+        summary: typeof change.text === 'string' && change.text.trim() ? change.text.trim() : goal.title,
+        suggestedTime: null,
+      });
+    } else if (typeof change.text === 'string' && change.text.trim()) goal.title = change.text.trim();
+    else throw new CaptureKindsInvalidEditError();
+  } else if ('habitItemId' in target) {
+    const index = contract.habits!.findIndex((candidate) => candidate.habitItemId === target.habitItemId);
+    if (index < 0) throw new CaptureKindsInvalidEditError();
+    const before = contract.habits![index]!;
+    if (change.kind === 'commitment') {
+      contract.habits!.splice(index, 1);
+      contract.items.push({ itemId: randomUUID(), pointId: before.pointId, title: before.title, resolvedTime: null, needsClarification: true, timeEstimated: false, priority: 'normal', priorityEstimated: false, clarification: null });
+    } else {
+      const cadence = change.cadence === undefined ? before.cadence : parseHabitCadence(change.cadence);
+      const durationMinutes = change.durationMinutes === undefined ? before.durationMinutes : Number(change.durationMinutes);
+      if (durationMinutes !== null && (!Number.isInteger(durationMinutes) || durationMinutes < 5 || durationMinutes > 240)) throw new CaptureKindsInvalidEditError();
+      const preferredWindow = change.preferredWindow === undefined ? before.preferredWindow : change.preferredWindow as CapturePreferredWindow | null;
+      const title = typeof change.text === 'string' && change.text.trim() ? change.text.trim() : before.title;
+      contract.habits![index] = completeHabit({ ...before, cadence, durationMinutes, preferredWindow, title }, locale);
+      if (change.cadence !== undefined || change.durationMinutes !== undefined) editedHabitPointIds.add(before.pointId);
+    }
+  } else if ('itemId' in target && change.kind === 'habit') {
+    const index = contract.items.findIndex((candidate) => candidate.itemId === target.itemId);
+    if (index < 0) throw new CaptureKindsInvalidEditError();
+    const item = contract.items[index]!;
+    contract.items.splice(index, 1); commands.delete(item.itemId);
+    contract.habits!.push(completeHabit({ habitItemId: randomUUID(), pointId: capturePointId(item), title: item.title, cadence: null, durationMinutes: null, preferredWindow: null, explanation: null, question: null, confirmable: false }, locale));
+  } else if ('seedItemId' in target && change.kind === 'goal') {
+    const index = contract.seeds.findIndex((candidate) => candidate.seedItemId === target.seedItemId);
+    if (index < 0 || contract.seeds[index]!.kind !== 'possible_goal'
+      || resolveModuleRuntime('memory').mode !== 'enabled') throw new CaptureKindsInvalidEditError();
+    const seed = contract.seeds[index]!;
+    contract.seeds.splice(index, 1);
+    contract.goals!.push({ goalItemId: randomUUID(), pointId: capturePointId(seed), title: seed.summary });
+  } else if ('seedItemId' in target && change.kind === 'commitment') {
+    const index = contract.seeds.findIndex((candidate) => candidate.seedItemId === target.seedItemId);
+    if (index < 0) throw new CaptureKindsInvalidEditError();
+    const seed = contract.seeds[index]!;
+    contract.seeds.splice(index, 1);
+    contract.items.push({ itemId: randomUUID(), pointId: capturePointId(seed), title: seed.summary, resolvedTime: seed.suggestedTime?.at ?? null, needsClarification: !seed.suggestedTime?.at, timeEstimated: false, priority: 'normal', priorityEstimated: false, clarification: null });
+  } else throw new CaptureKindsInvalidEditError();
+  contract = withV8Understood({ ...contract, revision: (contract.revision ?? 0) + 1 });
+  const mutated: StoredCaptureProposal = {
+    ...stored,
+    contract,
+    commandsByItemId: commands,
+    ...(editedHabitPointIds.size ? { captureKindsEditedHabitPointIds: Array.from(editedHabitPointIds).sort(compareByCodePoint) } : {}),
+    editReceipt: { fingerprint: editFingerprint, resultingRevision: contract.revision ?? 0, answer: { proposal: contract } },
+  };
+  // The durable proposal document is the CAS boundary. A concurrent edit that
+  // won after the read above is returned as proposal_changed instead of being
+  // overwritten by this edit.
+  await getStorage().runTransaction(async (tx) => {
+    const path = captureProposalPath(uid, edit.proposalId);
+    const currentDocument = await tx.get<StoredProposalDocument>(path);
+    if (!currentDocument) throw new CaptureKindsInvalidEditError();
+    const current = captureProposalFromDocument(currentDocument);
+    if (current.scopeId !== uid || current.confirmedResult !== undefined
+      || (current.contract.revision ?? 0) !== edit.revision) {
+      throw new ProposalChangedError(current.contract, current.confirmedResult === undefined ? 'open' : 'confirmed');
+    }
+    tx.set(path, captureProposalToDocument(mutated, new Date()));
+  });
+  return contract;
+}
+
 /**
  * Marks the items that happen *on* their day (UAT round 3, N11).
  *
@@ -264,6 +666,162 @@ function selectedIdsFrom(input: MobileConfirmInput): string[] {
   const raw = Array.isArray(input.selectedItemIds) ? input.selectedItemIds : input.itemIds;
   if (!Array.isArray(raw)) return [];
   return raw.filter((item): item is string => typeof item === 'string' && item.trim().length > 0);
+}
+
+function stringIds(value: unknown): string[] {
+  return Array.isArray(value)
+    ? Array.from(new Set(value.filter((item): item is string => typeof item === 'string' && item.trim().length > 0))).sort(compareByCodePoint)
+    : [];
+}
+
+function confirmationFingerprint(proposalId: string, scopeId: string, intent: CaptureConfirmationIntent): string {
+  const edits = [...intent.edits].sort((a, b) => compareByCodePoint(a.itemId, b.itemId));
+  return createHash('sha256').update(JSON.stringify({
+    proposalId,
+    scopeId,
+    selectedItemIds: [...intent.selectedItemIds].sort(compareByCodePoint),
+    selectedHabitItemIds: [...intent.selectedHabitItemIds].sort(compareByCodePoint),
+    selectedGoalItemIds: [...intent.selectedGoalItemIds].sort(compareByCodePoint),
+    selectedSeedItemIds: [...intent.selectedSeedItemIds].sort(compareByCodePoint),
+    goalLinkItemIds: [...intent.goalLinkItemIds].sort(compareByCodePoint),
+    weeklyBlockItemIds: [...intent.weeklyBlockItemIds].sort(compareByCodePoint),
+    edits,
+  })).digest('hex');
+}
+
+function preferredWindows(value: CapturePreferredWindow | null): Array<{ start: string; end: string }> {
+  if (value === null) return [];
+  if (typeof value === 'object') return [{ start: value.start, end: value.end }];
+  if (value === 'morning') return [{ start: '06:00', end: '12:00' }];
+  if (value === 'afternoon') return [{ start: '12:00', end: '17:00' }];
+  return [{ start: '17:00', end: '22:00' }];
+}
+
+function buildCaptureHabit(
+  uid: string,
+  proposalId: string,
+  key: string,
+  point: CaptureHabitProposalContract,
+  now: string,
+  timezone: string,
+  acceptedSuggestedValues: boolean,
+): { habit: HabitDefinition; occurrences: readonly HabitOccurrence[] } {
+  if (!point.confirmable || !point.cadence || !point.durationMinutes || point.question !== null) throw new Error('habit_invalid');
+  const count = cadenceOccurrencesPerPeriod(point.cadence);
+  const input = parseHabitDefinitionInput({
+    scopeId: uid,
+    title: point.title,
+    cadence: point.cadence,
+    durationMinutes: point.durationMinutes,
+    preferredWindows: preferredWindows(point.preferredWindow),
+    minimumOccurrences: count,
+    maximumOccurrences: count,
+    flexibility: 'flexible',
+    recoveryPolicy: 'skip',
+    source: 'capture_chat',
+    confirmation: {
+      confirmedByUserAt: now,
+      sourceRef: proposalId,
+      acceptedSuggestedValues,
+    },
+  });
+  const habitId = docIdForKey(`capture-habit\0${key}\0${point.pointId}`);
+  const habit = buildHabitDefinition(habitId, input, now);
+  const materialized = materializeHabitOccurrences(habit, horizonFrom(todayLocalDateFor(now, timezone)));
+  return { habit, occurrences: materialized.created };
+}
+
+function buildCaptureGoalMemory(uid: string, proposalId: string, key: string, point: { pointId: string; title: string }, now: string, language: CaptureAppLocale): RuntimeMemoryRecord {
+  const id = `mem_${createHash('sha256').update(`${uid}\0${key}\0${point.pointId}`).digest('hex')}`;
+  return {
+    version: MEMORY_RECORD_SCHEMA_VERSION,
+    id,
+    scopeId: uid,
+    kind: 'goal',
+    content: point.title,
+    language,
+    source: 'user_stated',
+    confidence: 1,
+    exportPolicy: 'personal_never_export',
+    status: 'active',
+    createdAt: now,
+    updatedAt: now,
+    observedAt: now,
+    staleAfter: new Date(Date.parse(now) + USER_STATED_MEMORY_TTL_MS).toISOString(),
+    evidenceIds: [],
+    provenance: { origin: 'capture', originRef: proposalId, confirmedByUserAt: now },
+  };
+}
+
+function buildCaptureSeed(uid: string, proposal: CaptureProposalContract, key: string, seedItemId: string, now: string): IntentSeed {
+  const point = proposal.seeds.find((seed) => seed.seedItemId === seedItemId);
+  if (!point) throw new Error('seed_invalid');
+  return {
+    version: INTENT_SEED_SCHEMA_VERSION,
+    seedId: docIdForKey(`capture-seed\0${key}\0${capturePointId(point)}`),
+    scopeId: uid,
+    kind: point.kind,
+    summary: point.summary,
+    status: 'open',
+    revisitAt: null,
+    source: 'capture',
+    sourceRef: proposal.proposalId,
+    provenance: { proposalId: proposal.proposalId, extractor: proposal.provenance.executedEngine, confirmedByUserAt: now },
+    promotedTo: null,
+    createdAt: now,
+    updatedAt: now,
+  };
+}
+
+function prepareV8Confirmation(
+  uid: string,
+  stored: StoredCaptureProposal,
+  intent: CaptureConfirmationIntent,
+  key: string,
+  now: string,
+): PreparedV8Confirmation {
+  const habits = stored.contract.habits ?? [];
+  const goals = stored.contract.goals ?? [];
+  const habitIds = new Set(habits.map((point) => point.habitItemId));
+  const goalIds = new Set(goals.map((point) => point.goalItemId));
+  const seedIds = new Set(stored.contract.seeds.map((point) => point.seedItemId));
+  if (intent.selectedHabitItemIds.some((id) => !habitIds.has(id))) throw new Error('habit_invalid');
+  if (intent.selectedGoalItemIds.some((id) => !goalIds.has(id))) throw new Error('goal_invalid');
+  if (intent.selectedSeedItemIds.some((id) => !seedIds.has(id))) throw new Error('seed_invalid');
+  if (intent.selectedSeedItemIds.length > 0 && stored.contract.entry !== 'thought') throw new Error('invalid_selection');
+  const documents: Array<{ path: string; data: object }> = [];
+  const habitsPersisted: NonNullable<CaptureConfirmationResultContract['habitsPersisted']> = [];
+  const goalsPersisted: NonNullable<CaptureConfirmationResultContract['goalsPersisted']> = [];
+  const seedsPersisted: NonNullable<CaptureConfirmationResultContract['seedsPersisted']> = [];
+  for (const id of intent.selectedHabitItemIds) {
+    const point = habits.find((candidate) => candidate.habitItemId === id)!;
+    const built = buildCaptureHabit(
+      uid,
+      stored.contract.proposalId,
+      key,
+      point,
+      now,
+      stored.timezone ?? 'UTC',
+      !(stored.captureKindsEditedHabitPointIds ?? []).includes(point.pointId),
+    );
+    documents.push({ path: userSubDoc(requireUserId(uid), HABITS, built.habit.habitId), data: built.habit });
+    for (const occurrence of built.occurrences) documents.push({ path: userSubDoc(requireUserId(uid), HABIT_OCCURRENCES, occurrence.occurrenceId), data: occurrence });
+    habitsPersisted.push({ habitItemId: id, pointId: point.pointId, habitId: built.habit.habitId, title: point.title });
+  }
+  for (const id of intent.selectedGoalItemIds) {
+    const point = goals.find((candidate) => candidate.goalItemId === id)!;
+    const memory = buildCaptureGoalMemory(uid, stored.contract.proposalId, key, point, now, stored.responseLocale ?? 'ar');
+    documents.push({ path: userSubDoc(requireUserId(uid), MEMORY, memory.id), data: memory });
+    goalsPersisted.push({ goalItemId: id, pointId: point.pointId, goalId: memory.id, title: point.title });
+  }
+  for (const id of intent.selectedSeedItemIds) {
+    const point = stored.contract.seeds.find((candidate) => candidate.seedItemId === id)!;
+    const seed = buildCaptureSeed(uid, stored.contract, key, id, now);
+    documents.push({ path: userSubDoc(requireUserId(uid), INTENT_SEEDS, seed.seedId), data: seed });
+    seedsPersisted.push({ seedItemId: id, pointId: capturePointId(point), seedId: seed.seedId, kind: seed.kind, title: seed.summary });
+  }
+  if (documents.length > 450) throw new Error('too_many_writes');
+  return { documents, habitsPersisted, goalsPersisted, seedsPersisted };
 }
 
 /**
@@ -365,7 +923,10 @@ function engineLabel(): { llmEngine?: 'gemini' | 'ollama' } {
   return configured === 'none' ? {} : { llmEngine: configured };
 }
 
-function committerFor(context: MobileBackendContext = {}): CaptureConfirmationCommitter | undefined {
+function committerFor(
+  context: MobileBackendContext = {},
+  v8?: { documents: ReadonlyArray<{ path: string; data: object }>; fingerprint: string; intent: CaptureConfirmationIntent },
+): CaptureConfirmationCommitter | undefined {
   const participantId = context.participantId;
   if (!participantId) return undefined;
   return async ({ scopeId, proposalId, idempotencyKey, expectedRevision, commands, commandsByItemId, result, weeklyBlocks }) => {
@@ -388,7 +949,9 @@ function committerFor(context: MobileBackendContext = {}): CaptureConfirmationCo
       expectedRevision,
       result,
       commandsByItemId,
-      blocks,
+      [...blocks, ...(v8?.documents ?? [])],
+      v8?.fingerprint,
+      v8?.intent,
     );
   };
 }
@@ -960,8 +1523,10 @@ export async function clarifyMobileCapture(input: MobileClarifyInput, context: M
   return withEventsOnTheirDay(answered);
 }
 
-export async function confirmMobileCapture(input: MobileConfirmInput, context: MobileBackendContext = {}): Promise<{
+export interface MobileCaptureConfirmationResponse {
   success: boolean;
+  /** Safe machine-readable summary on contract-v8 refusal bodies. */
+  error?: string;
   replayed: boolean;
   persisted: PersistedProposalItem[];
   failed: FailedProposalItem[];
@@ -994,13 +1559,67 @@ export async function confirmMobileCapture(input: MobileConfirmInput, context: M
    * suggested that goal. Always present; empty otherwise.
    */
   goalLinks: ConfirmedGoalLink[];
-}> {
+  habitsPersisted?: NonNullable<CaptureConfirmationResultContract['habitsPersisted']>;
+  goalsPersisted?: NonNullable<CaptureConfirmationResultContract['goalsPersisted']>;
+  seedsPersisted?: NonNullable<CaptureConfirmationResultContract['seedsPersisted']>;
+}
+
+type CaptureFinalizeStep = 'activate' | 'weeklyBlocks' | 'goalLinks' | 'response';
+let captureFinalizeFaultForTests: ((step: CaptureFinalizeStep) => boolean) | null = null;
+
+/** Test seam for a process death after the atomic confirmation transaction. */
+export function setCaptureFinalizeFaultForTests(fault: ((step: CaptureFinalizeStep) => boolean) | null): void {
+  captureFinalizeFaultForTests = fault;
+}
+
+export class CaptureConfirmRefusedError extends Error {
+  constructor(readonly reason: 'kinds_unavailable' | 'goals_unavailable' | 'key_reused') {
+    super(reason);
+    this.name = 'CaptureConfirmRefusedError';
+  }
+}
+
+function maybeFailFinalize(step: CaptureFinalizeStep): void {
+  if (captureFinalizeFaultForTests?.(step)) throw new Error(`injected capture finalizer fault before ${step}`);
+}
+
+export async function finalizeConfirmedCapture(proposalId: string, context: MobileBackendContext, replayed = false): Promise<MobileCaptureConfirmationResponse> {
+  const stored = await store.get(proposalId);
+  if (!stored || !stored.confirmedResult || stored.scopeId !== context.participantId) throw new Error('confirmed proposal not found');
+  const result = stored.confirmedResult as CaptureConfirmationResultContract;
+  const intent = stored.confirmationIntent as CaptureConfirmationIntent | undefined;
+  maybeFailFinalize('activate');
+  await activateConfirmedItems(proposalId, result.persistedItemIds, context);
+  maybeFailFinalize('weeklyBlocks');
+  const weeklyBlocks = await materializeConfirmedWeeklyBlocks(proposalId, intent?.weeklyBlockItemIds ?? [], context);
+  const persisted = (await Promise.all(result.persistedItemIds.map((itemId) => persistedItem(store, proposalId, itemId, context))))
+    .filter((item): item is PersistedProposalItem => item !== null);
+  maybeFailFinalize('goalLinks');
+  const goalLinks = await linkConfirmedItemsToGoals(proposalId, persisted, intent?.goalLinkItemIds ?? [], context);
+  maybeFailFinalize('response');
+  return {
+    success: true,
+    replayed,
+    persisted,
+    failed: [],
+    collisions: await collisionsForPersisted(persisted, context),
+    weeklyBlocks,
+    goalLinks,
+    habitsPersisted: result.habitsPersisted ?? [],
+    goalsPersisted: result.goalsPersisted ?? [],
+    seedsPersisted: result.seedsPersisted ?? [],
+  };
+}
+
+export async function confirmMobileCapture(input: MobileConfirmInput, context: MobileBackendContext = {}): Promise<MobileCaptureConfirmationResponse> {
   const proposalId = typeof input.proposalId === 'string' ? input.proposalId : '';
   if (!proposalId) throw new Error('proposalId is required');
 
   const scopeId = scopeIdFrom(input.scopeId, context);
   const selectedItemIds = selectedIdsFrom(input);
-  if (selectedItemIds.length === 0) throw new Error('itemIds is required');
+  const selectedHabitItemIds = stringIds(input.selectedHabitItemIds);
+  const selectedGoalItemIds = stringIds(input.selectedGoalItemIds);
+  const selectedSeedItemIds = stringIds(input.selectedSeedItemIds);
 
   const edits = editsFrom(input.edits);
   const weeklyBlockItemIds = Array.isArray(input.weeklyBlockItemIds)
@@ -1009,23 +1628,83 @@ export async function confirmMobileCapture(input: MobileConfirmInput, context: M
   const goalLinkItemIds = Array.isArray(input.goalLinkItemIds)
     ? input.goalLinkItemIds.filter((item): item is string => typeof item === 'string' && item.trim().length > 0).slice(0, 50)
     : [];
-  const result = await confirmCapture({
+  const storedBefore = await store.get(proposalId);
+  const isV8Proposal = Boolean(storedBefore && storedBefore.scopeId === scopeId
+    && (storedBefore.contract.entry !== undefined || storedBefore.contract.habits !== undefined || storedBefore.contract.goals !== undefined));
+  const hasV8Selection = selectedHabitItemIds.length + selectedGoalItemIds.length + selectedSeedItemIds.length > 0;
+  if (selectedItemIds.length === 0 && !hasV8Selection) {
+    if (isV8Proposal) {
+      return { success: false, error: 'invalid_selection', replayed: false, failureCode: 'invalid_selection', persisted: [], failed: [], collisions: [], weeklyBlocks: [], goalLinks: [], habitsPersisted: [], goalsPersisted: [], seedsPersisted: [] };
+    }
+    throw new Error('itemIds is required');
+  }
+  if (hasV8Selection && !resolveCaptureKinds()) throw new CaptureConfirmRefusedError('kinds_unavailable');
+  if (selectedGoalItemIds.length > 0 && resolveModuleRuntime('memory').mode !== 'enabled') throw new CaptureConfirmRefusedError('goals_unavailable');
+
+  const intent: CaptureConfirmationIntent = {
+    selectedItemIds: [...selectedItemIds].sort(compareByCodePoint),
+    selectedHabitItemIds,
+    selectedGoalItemIds,
+    selectedSeedItemIds,
+    weeklyBlockItemIds: [...weeklyBlockItemIds].sort(compareByCodePoint),
+    goalLinkItemIds: [...goalLinkItemIds].sort(compareByCodePoint),
+    edits,
+    entry: storedBefore?.contract.entry ?? null,
+  };
+  const fingerprint = confirmationFingerprint(proposalId, scopeId, intent);
+  const confirmationKey = typeof input.idempotencyKey === 'string' && input.idempotencyKey.trim()
+    ? input.idempotencyKey.trim()
+    : fingerprint;
+  let prepared: PreparedV8Confirmation | undefined;
+  if (isV8Proposal && storedBefore) {
+    try {
+      prepared = prepareV8Confirmation(scopeId, storedBefore, intent, confirmationKey, new Date().toISOString());
+    } catch (error) {
+      const code = error instanceof Error ? error.message : 'invalid_selection';
+      const failureCode = (['too_many_writes', 'habit_invalid', 'goal_invalid', 'seed_invalid', 'invalid_selection'].includes(code) ? code : 'invalid_selection') as CaptureConfirmationResultContract['failureCode'];
+      return { success: false, error: failureCode, replayed: false, failureCode, persisted: [], failed: [], collisions: [], weeklyBlocks: [], goalLinks: [], habitsPersisted: [], goalsPersisted: [], seedsPersisted: [] };
+    }
+  }
+  let result: CaptureConfirmationResultContract;
+  try {
+    result = await confirmCapture({
     proposalId,
     scopeId,
     selectedItemIds,
     edits,
+    ...(prepared ? {
+      additionalWriteCount: prepared.documents.length,
+      confirmationFingerprint: fingerprint,
+      resultExtras: {
+        habitsPersisted: prepared.habitsPersisted,
+        goalsPersisted: prepared.goalsPersisted,
+        seedsPersisted: prepared.seedsPersisted,
+      },
+    } : {}),
     ...(weeklyBlockItemIds.length > 0 ? { weeklyBlockItemIds } : {}),
-    idempotencyKey: idempotencyKeyFor(proposalId, scopeId, selectedItemIds, input.idempotencyKey, edits, weeklyBlockItemIds),
-    ...(input.revision === undefined ? {} : { revision: input.revision as number }),
+    idempotencyKey: isV8Proposal ? confirmationKey : idempotencyKeyFor(proposalId, scopeId, selectedItemIds, input.idempotencyKey, edits, weeklyBlockItemIds),
+    ...(input.revision === undefined
+      ? (isV8Proposal && storedBefore ? { revision: storedBefore.contract.revision ?? 0 } : {})
+      : { revision: input.revision as number }),
   }, {
     store,
     persistence: persistenceFor(context),
-    commitConfirmation: committerFor(context),
+    commitConfirmation: committerFor(context, prepared ? { documents: prepared.documents, fingerprint, intent } : undefined),
   });
+  } catch (error) {
+    if (error instanceof Error && error.name === 'ConfirmationKeyReusedError') throw new CaptureConfirmRefusedError('key_reused');
+    if ((error instanceof ProposalChangedError || (error instanceof Error && error.name === 'ProposalChangedError'))
+      && (error as ProposalChangedError).state === 'confirmed' && isV8Proposal) {
+      const finalized = await finalizeConfirmedCapture(proposalId, context, false);
+      throw new ProposalChangedError((error as ProposalChangedError).proposal, 'confirmed', finalized as never);
+    }
+    throw error;
+  }
 
   if (!result.success) {
     return {
       success: false,
+      ...(isV8Proposal ? { error: result.failureCode ?? 'confirmation_failed' } : {}),
       // Kept, not dropped: the route needs it to answer 404 for a proposal
       // that is gone versus 400 for a request it refuses (#252). `failed[]`
       // still names each item, which is what a client shows the user.
@@ -1040,7 +1719,23 @@ export async function confirmMobileCapture(input: MobileConfirmInput, context: M
       collisions: [],
       weeklyBlocks: [],
       goalLinks: [],
+      ...(isV8Proposal ? { habitsPersisted: [], goalsPersisted: [], seedsPersisted: [] } : {}),
     };
+  }
+
+  if (isV8Proposal) {
+    const finalized = await finalizeConfirmedCapture(proposalId, context, result.replayed);
+    if (!result.replayed && context.participantId && (result.seedsPersisted?.length ?? 0) > 0) {
+      for (const seed of result.seedsPersisted ?? []) {
+        try {
+          const analytics = await analyticsContextFrom({ anonymousUserId: context.participantId }, appendAnalyticsEvent, new Date());
+          if (analytics) await emitAnalyticsEvent(analytics, 'seed_confirmed', { seedKind: seed.kind });
+        } catch (error) {
+          console.error('[capture/confirm] seed analytics failed; the seed itself is unaffected', error);
+        }
+      }
+    }
+    return finalized;
   }
 
   await activateConfirmedItems(proposalId, result.persistedItemIds, context);

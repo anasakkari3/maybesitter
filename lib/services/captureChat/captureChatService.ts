@@ -42,7 +42,7 @@
  * here logs a message, a reply or the model's output.
  */
 import { createHash, randomUUID } from 'crypto';
-import { CAPTURE_INPUT_MAX_CHARACTERS, captureAppLocaleFrom, type CaptureProposalEditContract } from '../../../src/contracts/v1/captureContracts';
+import { CAPTURE_ENTRIES, CAPTURE_INPUT_MAX_CHARACTERS, captureAppLocaleFrom, type CaptureEntry, type CaptureProposalEditContract } from '../../../src/contracts/v1/captureContracts';
 import type { CaptureProposalContract } from '../../../src/contracts/v1/captureContracts';
 import { resolveModuleRuntime, type RuntimeControlSnapshot } from '../../../src/contracts/v1/runtimeControls';
 import { screenForInjection } from '../../../src/extraction/injectionBoundary';
@@ -56,7 +56,8 @@ import { CAPTURE_SERVER_BUDGET_MS, CaptureInputTooLargeError } from '../captureB
 import { applyStructuredEdit, StructuredEditConversationNotFoundError, StructuredEditError } from '../captureBoundary/structuredEdit';
 import { chatEvidenceFrom, chatTimeAllowance, chatUserTurnsWithAcceptedOffers, isPlainYes, looksLikeListEdit } from '../captureBoundary/chatEvidence';
 import { isTimeOnlyText } from '../../../src/extraction/clauseSplitter';
-import { clarifyMobileCapture, proposalCollisionCandidates, proposeMobileChatTurn, readMobileChatProposal } from '../mobile/mobileCaptureService';
+import { applyCaptureKindsToProposal, CaptureKindsInvalidEditError, clarifyMobileCapture, editCaptureKindsProposal, proposalCollisionCandidates, proposeMobileChatTurn, readMobileChatProposal } from '../mobile/mobileCaptureService';
+import { resolveCaptureKinds } from '../captureKinds/runtime';
 import { dateFromOptionalIso, normalizeTimezone } from '../mobile/time';
 import { buildChatPrompt, oneUnambiguousClockIn, parseChatModelAnswer, validateChatCitations, type ChatModelAnswer, type ChatPromptItem } from './chatPrompt';
 import { conflictForPrompt, readPersonSchedule, scheduleForPrompt, withItemConflicts, withProposalClashes, type PersonSchedule } from './chatConflicts';
@@ -153,11 +154,11 @@ function visibleProposalState(proposal: CaptureChatProposal | null): unknown {
   };
 }
 
-export type CaptureChatErrorReason = 'message_required' | 'invalid_conversation_id' | 'conversation_not_found' | 'edit_invalid';
+export type CaptureChatErrorReason = 'message_required' | 'invalid_conversation_id' | 'conversation_not_found' | 'edit_invalid' | 'invalid_body';
 
 /** A request the chat refuses; the route answers with `status` and `reason`. */
 export class CaptureChatError extends Error {
-  constructor(readonly reason: CaptureChatErrorReason, readonly status: 400 | 404) {
+  constructor(readonly reason: CaptureChatErrorReason, readonly status: 400 | 404 | 422) {
     super(reason === 'conversation_not_found'
       ? 'conversation not found'
       : reason === 'invalid_conversation_id' ? 'conversationId is not a conversation id'
@@ -179,6 +180,7 @@ export interface CaptureChatInput {
    * writes in. Anything else is ignored, and the reply follows their message.
    */
   locale?: unknown;
+  entry?: unknown;
 }
 
 export type CaptureChatProposal = Awaited<ReturnType<typeof proposeMobileChatTurn>>;
@@ -283,7 +285,9 @@ function promptItems(
     ...seeds.map((entry, index) => [proposal.seeds[index]!.seedItemId, entry] as const),
   ]);
   const ordered = proposal.understood?.flatMap((point) => {
-    const id = point.kind === 'commitment' ? point.itemId : point.seedItemId;
+    const id = point.kind === 'commitment' ? point.itemId
+      : point.kind === 'habit' ? point.habitItemId
+        : point.kind === 'goal' ? point.goalItemId : point.seedItemId;
     const entry = byId.get(id);
     return entry ? [entry] : [];
   });
@@ -335,7 +339,8 @@ function withCollisionStarts(proposal: CaptureChatProposal): Array<CaptureChatPr
  */
 function shown(proposal: CaptureChatProposal): CaptureChatProposal | null {
   return proposal.status !== 'rejected'
-    && (proposal.items.length > 0 || proposal.seeds.length > 0 || (proposal.removedItems?.length ?? 0) > 0)
+    && (proposal.items.length > 0 || proposal.seeds.length > 0 || (proposal.habits?.length ?? 0) > 0
+      || (proposal.goals?.length ?? 0) > 0 || (proposal.removedItems?.length ?? 0) > 0)
     ? proposal
     : null;
 }
@@ -356,6 +361,7 @@ export async function chatMobileCapture(
   if (!hasMessage && !hasEdit) throw new CaptureChatError('message_required', 400);
 
   const conversations = dependencies.conversations ?? defaultConversations;
+  const kindsOn = resolveCaptureKinds();
 
   if (hasEdit) {
     if (!isConversationId(input.conversationId)) {
@@ -370,6 +376,14 @@ export async function chatMobileCapture(
     const current = conversation.proposalId ? await readMobileChatProposal(conversation.proposalId, uid, { includeConfirmed: true }) : null;
     if (!current) throw new CaptureChatError('conversation_not_found', 404);
     try {
+      const kindsEdited = await editCaptureKindsProposal(uid, input.edit as CaptureProposalEditContract, locale);
+      if (kindsEdited) {
+        const reply = locale === 'en' ? 'Updated. Review the list and confirm below.'
+          : locale === 'he' ? 'עודכן. אפשר לבדוק את הרשימה ולאשר למטה.' : 'تمام، عدّلتها. راجع القائمة وأكّد من تحت.';
+        const kept = boundedTurns([...conversation.turns, { role: 'assistant' as const, text: reply }]);
+        await conversations.put(uid, { ...conversation, turns: kept, proposalId: kindsEdited.proposalId, updatedAt: new Date(clock()).toISOString() });
+        return { conversationId: conversation.conversationId, reply, engine: current.proposal.provenance.requestedEngine === 'model' ? 'model' : 'rules', proposal: kindsEdited, turns: kept };
+      }
       const outcome = await applyStructuredEdit({
         uid,
         conversation,
@@ -397,6 +411,7 @@ export async function chatMobileCapture(
       return answer;
     } catch (error) {
       if (error instanceof StructuredEditConversationNotFoundError) throw new CaptureChatError('conversation_not_found', 404);
+      if (error instanceof CaptureKindsInvalidEditError) throw new CaptureChatError('edit_invalid', 422);
       if (error instanceof StructuredEditError) throw new CaptureChatError('edit_invalid', 400);
       throw error;
     }
@@ -407,6 +422,9 @@ export async function chatMobileCapture(
   if (typeof input.message !== 'string' || !input.message.trim()) throw new CaptureChatError('message_required', 400);
   if (input.message.length > CAPTURE_INPUT_MAX_CHARACTERS) throw new CaptureInputTooLargeError();
   const message = input.message.trim();
+  if (kindsOn && input.entry !== undefined && !(CAPTURE_ENTRIES as readonly unknown[]).includes(input.entry)) {
+    throw new CaptureChatError('invalid_body', 400);
+  }
   const timezone = normalizeTimezone(input.timezone);
   const now = dateFromOptionalIso(input.referenceTime, new Date(clock()), 'referenceTime');
   const messageFingerprint = createHash('sha256').update(JSON.stringify({
@@ -418,7 +436,10 @@ export async function chatMobileCapture(
   let conversation: StoredCaptureConversation;
   if (input.conversationId === undefined || input.conversationId === null) {
     const createdAt = new Date(clock()).toISOString();
-    conversation = { conversationId: randomUUID(), turns: [], proposalId: null, createdAt, updatedAt: createdAt };
+    conversation = {
+      conversationId: randomUUID(), turns: [], proposalId: null, createdAt, updatedAt: createdAt,
+      ...(kindsOn ? { entry: (input.entry as CaptureEntry | undefined) ?? null } : {}),
+    };
   } else {
     if (!isConversationId(input.conversationId)) throw new CaptureChatError('invalid_conversation_id', 400);
     const found = await conversations.get(uid, input.conversationId);
@@ -484,6 +505,7 @@ export async function chatMobileCapture(
   const editsCurrentList = Boolean(current) && looksLikeListEdit(message, listTitles);
   // The clashes the person was already shown, named by the reply that showed them.
   const alreadyShown = new Set((current?.items ?? []).flatMap((item) => (item.conflicts ?? []).map((conflict) => clashKey(item.title, conflict))));
+  let modelKindHints: Array<'habit' | 'goal'> = [];
 
   /**
    * The answer: the proposal with its clashes on each item, and the reply
@@ -497,7 +519,17 @@ export async function chatMobileCapture(
     turns: CaptureChatTurn[],
     options: { refused?: boolean; conflictsKnown?: boolean; weeklyEvidence?: string } = {},
   ) => {
-    const proposal = answered === current || options.conflictsKnown ? answered : await withConflicts(answered, schedule);
+    let proposal = answered === current || options.conflictsKnown ? answered : await withConflicts(answered, schedule);
+    if (kindsOn && proposal) {
+      proposal = await applyCaptureKindsToProposal(proposal.proposalId, uid, {
+        text: message,
+        entry: conversation.entry ?? null,
+        locale: appLanguage ?? language,
+        timezone,
+        now,
+        ...(modelKindHints.length ? { modelKinds: modelKindHints } : {}),
+      }) as CaptureChatProposal;
+    }
     const reply = options.refused || !proposal
       ? replyText
       : withWeeklyOffer(
@@ -571,11 +603,11 @@ export async function chatMobileCapture(
       evidenceOnlyTurns,
       listed,
       { now, timezone, ...(appLanguage ? { titleLanguage: appLanguage } : {}) },
-      { replyLanguage: language, ...(appLanguage ? { appLanguage } : {}), savedSchedule: scheduleForPrompt(schedule, days, timezone) },
+      { replyLanguage: language, ...(appLanguage ? { appLanguage } : {}), savedSchedule: scheduleForPrompt(schedule, days, timezone), captureKinds: kindsOn },
     );
     const lockedRefs = new Set(listed.filter((item) => item.locked).map((item) => item.ref));
     const openRefs = new Set(listed.filter((item) => !item.locked).map((item) => item.ref));
-    const responseSchema = geminiChatSchemaFor(Array.from(lockedRefs), Array.from(openRefs));
+    const responseSchema = geminiChatSchemaFor(Array.from(lockedRefs), Array.from(openRefs), { captureKinds: kindsOn });
     for (let attempt = 0; attempt < 2; attempt += 1) {
       const timeoutMs = callBudget();
       if (timeoutMs < CAPTURE_MIN_CALL_TIMEOUT_MS) break;
@@ -604,6 +636,14 @@ export async function chatMobileCapture(
   }
 
   if (answer) {
+    modelKindHints = [
+      ...answer.added,
+      ...answer.open.flatMap((operation) => operation.op === 'update' ? [operation.fields] : []),
+    ].flatMap((fields) => {
+      if (!fields || typeof fields !== 'object' || Array.isArray(fields)) return [];
+      const kind = (fields as Record<string, unknown>).kind;
+      return kind === 'habit' || kind === 'goal' ? [kind] : [];
+    });
     if ((answer.ignoredRefOperations ?? 0) > 0) {
       console.info('[capture/chat] ignored ref operations', { count: answer.ignoredRefOperations });
     }
@@ -934,7 +974,7 @@ export async function chatMobileCapture(
       return finish(templateReply({ language, proposal: current, editFailed: true }), 'rules', current, turns);
     }
   }
-  const built = await proposeMobileChatTurn(
+  let built = await proposeMobileChatTurn(
     {
       text: message,
       userTurns: [message],
@@ -948,6 +988,11 @@ export async function chatMobileCapture(
     },
     { participantId: uid, requestStartedAt },
   );
+  if (kindsOn) {
+    built = await applyCaptureKindsToProposal(built.proposalId, uid, {
+      text: message, entry: conversation.entry ?? null, locale: appLanguage ?? language, timezone, now,
+    });
+  }
   const proposal = shown(built);
   // Nobody asked for anything to be removed here: an empty reading is
   // "what do you need?", or the off-topic redirect for a question.

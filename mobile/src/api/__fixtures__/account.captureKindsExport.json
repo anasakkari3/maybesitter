@@ -1,0 +1,1537 @@
+{
+  "exportedAt": "2026-08-09T08:00:00.000Z",
+  "schemaVersion": "account-export-v1",
+  "account": {
+    "uid": "CaptureKindsFixtureUserxxxxx",
+    "profile": {
+      "schemaVersion": 1,
+      "createdAt": "2026-08-09T09:00:00.000Z",
+      "updatedAt": "2026-08-09T08:00:00.000Z",
+      "locale": null,
+      "timezone": null,
+      "trust": {
+        "version": "v1",
+        "participantId": "CaptureKindsFixtureUserxxxxx",
+        "recommendationConsent": false,
+        "analyticsConsent": false,
+        "calendarConsent": false,
+        "firstValueAt": null,
+        "quietMode": false,
+        "revokedAt": null,
+        "deletedAt": null,
+        "updatedAt": "2026-08-09T09:00:00.000Z"
+      },
+      "domainVersion": 1
+    }
+  },
+  "collections": {
+    "providerConnections": [],
+    "commitments": [],
+    "intentSeeds": [
+      {
+        "id": "0000000000000000000000000000000000000000000000000000000000000000",
+        "data": {
+          "version": "intent-seed-v1",
+          "seedId": "0000000000000000000000000000000000000000000000000000000000000000",
+          "scopeId": "CaptureKindsFixtureUserxxxxx",
+          "kind": "consideration",
+          "summary": "عم بفكر أزور الطبيب بكرا الساعة 4 المسا",
+          "status": "open",
+          "revisitAt": null,
+          "source": "capture",
+          "sourceRef": "00000000-0000-4000-8000-000000000001",
+          "provenance": {
+            "proposalId": "00000000-0000-4000-8000-000000000002",
+            "extractor": "rule-based",
+            "confirmedByUserAt": "2026-08-09T08:00:00.000Z"
+          },
+          "promotedTo": null,
+          "createdAt": "2026-08-09T08:00:00.000Z",
+          "updatedAt": "2026-08-09T08:00:00.000Z"
+        }
+      }
+    ],
+    "goalGraphLinks": [],
+    "goalGraphProposals": [],
+    "habits": [
+      {
+        "id": "0000000000000000000000000000000000000000000000000000000000000000",
+        "data": {
+          "schemaVersion": 1,
+          "habitId": "0000000000000000000000000000000000000000000000000000000000000000",
+          "scopeId": "CaptureKindsFixtureUserxxxxx",
+          "title": "أمشي نص ساعة كل يوم",
+          "cadence": {
+            "kind": "weekly_count",
+            "count": 7
+          },
+          "durationMinutes": 30,
+          "preferredWindows": [
+            {
+              "start": "06:00",
+              "end": "12:00"
+            }
+          ],
+          "minimumOccurrences": 7,
+          "maximumOccurrences": 7,
+          "flexibility": "flexible",
+          "recoveryPolicy": "skip",
+          "status": "active",
+          "source": "capture_chat",
+          "confirmation": {
+            "confirmedByUserAt": "2026-08-09T08:00:00.000Z",
+            "sourceRef": "00000000-0000-4000-8000-000000000003",
+            "acceptedSuggestedValues": true
+          },
+          "createdAt": "2026-08-09T08:00:00.000Z",
+          "updatedAt": "2026-08-09T08:00:00.000Z"
+        }
+      }
+    ],
+    "habitOccurrences": [
+      {
+        "id": "ba5c3f25be421adba35090987705f735c184572df6399c1cbffb8bbeaf388147.2026-08-09.0",
+        "data": {
+          "occurrenceId": "ba5c3f25be421adba35090987705f735c184572df6399c1cbffb8bbeaf388147.2026-08-09.0",
+          "habitId": "0000000000000000000000000000000000000000000000000000000000000000",
+          "localDate": "2026-08-09",
+          "ordinal": 0,
+          "state": "pending",
+          "durationMinutes": 30,
+          "recoveredFromOccurrenceId": null
+        }
+      },
+      {
+        "id": "ba5c3f25be421adba35090987705f735c184572df6399c1cbffb8bbeaf388147.2026-08-10.0",
+        "data": {
+          "occurrenceId": "ba5c3f25be421adba35090987705f735c184572df6399c1cbffb8bbeaf388147.2026-08-10.0",
+          "habitId": "0000000000000000000000000000000000000000000000000000000000000000",
+          "localDate": "2026-08-10",
+          "ordinal": 0,
+          "state": "pending",
+          "durationMinutes": 30,
+          "recoveredFromOccurrenceId": null
+        }
+      },
+      {
+        "id": "ba5c3f25be421adba35090987705f735c184572df6399c1cbffb8bbeaf388147.2026-08-11.0",
+        "data": {
+          "occurrenceId": "ba5c3f25be421adba35090987705f735c184572df6399c1cbffb8bbeaf388147.2026-08-11.0",
+          "habitId": "0000000000000000000000000000000000000000000000000000000000000000",
+          "localDate": "2026-08-11",
+          "ordinal": 0,
+          "state": "pending",
+          "durationMinutes": 30,
+          "recoveredFromOccurrenceId": null
+        }
+      },
+      {
+        "id": "ba5c3f25be421adba35090987705f735c184572df6399c1cbffb8bbeaf388147.2026-08-12.0",
+        "data": {
+          "occurrenceId": "ba5c3f25be421adba35090987705f735c184572df6399c1cbffb8bbeaf388147.2026-08-12.0",
+          "habitId": "0000000000000000000000000000000000000000000000000000000000000000",
+          "localDate": "2026-08-12",
+          "ordinal": 0,
+          "state": "pending",
+          "durationMinutes": 30,
+          "recoveredFromOccurrenceId": null
+        }
+      },
+      {
+        "id": "ba5c3f25be421adba35090987705f735c184572df6399c1cbffb8bbeaf388147.2026-08-13.0",
+        "data": {
+          "occurrenceId": "ba5c3f25be421adba35090987705f735c184572df6399c1cbffb8bbeaf388147.2026-08-13.0",
+          "habitId": "0000000000000000000000000000000000000000000000000000000000000000",
+          "localDate": "2026-08-13",
+          "ordinal": 0,
+          "state": "pending",
+          "durationMinutes": 30,
+          "recoveredFromOccurrenceId": null
+        }
+      },
+      {
+        "id": "ba5c3f25be421adba35090987705f735c184572df6399c1cbffb8bbeaf388147.2026-08-14.0",
+        "data": {
+          "occurrenceId": "ba5c3f25be421adba35090987705f735c184572df6399c1cbffb8bbeaf388147.2026-08-14.0",
+          "habitId": "0000000000000000000000000000000000000000000000000000000000000000",
+          "localDate": "2026-08-14",
+          "ordinal": 0,
+          "state": "pending",
+          "durationMinutes": 30,
+          "recoveredFromOccurrenceId": null
+        }
+      },
+      {
+        "id": "ba5c3f25be421adba35090987705f735c184572df6399c1cbffb8bbeaf388147.2026-08-15.0",
+        "data": {
+          "occurrenceId": "ba5c3f25be421adba35090987705f735c184572df6399c1cbffb8bbeaf388147.2026-08-15.0",
+          "habitId": "0000000000000000000000000000000000000000000000000000000000000000",
+          "localDate": "2026-08-15",
+          "ordinal": 0,
+          "state": "pending",
+          "durationMinutes": 30,
+          "recoveredFromOccurrenceId": null
+        }
+      },
+      {
+        "id": "ba5c3f25be421adba35090987705f735c184572df6399c1cbffb8bbeaf388147.2026-08-16.0",
+        "data": {
+          "occurrenceId": "ba5c3f25be421adba35090987705f735c184572df6399c1cbffb8bbeaf388147.2026-08-16.0",
+          "habitId": "0000000000000000000000000000000000000000000000000000000000000000",
+          "localDate": "2026-08-16",
+          "ordinal": 0,
+          "state": "pending",
+          "durationMinutes": 30,
+          "recoveredFromOccurrenceId": null
+        }
+      },
+      {
+        "id": "ba5c3f25be421adba35090987705f735c184572df6399c1cbffb8bbeaf388147.2026-08-17.0",
+        "data": {
+          "occurrenceId": "ba5c3f25be421adba35090987705f735c184572df6399c1cbffb8bbeaf388147.2026-08-17.0",
+          "habitId": "0000000000000000000000000000000000000000000000000000000000000000",
+          "localDate": "2026-08-17",
+          "ordinal": 0,
+          "state": "pending",
+          "durationMinutes": 30,
+          "recoveredFromOccurrenceId": null
+        }
+      },
+      {
+        "id": "ba5c3f25be421adba35090987705f735c184572df6399c1cbffb8bbeaf388147.2026-08-18.0",
+        "data": {
+          "occurrenceId": "ba5c3f25be421adba35090987705f735c184572df6399c1cbffb8bbeaf388147.2026-08-18.0",
+          "habitId": "0000000000000000000000000000000000000000000000000000000000000000",
+          "localDate": "2026-08-18",
+          "ordinal": 0,
+          "state": "pending",
+          "durationMinutes": 30,
+          "recoveredFromOccurrenceId": null
+        }
+      },
+      {
+        "id": "ba5c3f25be421adba35090987705f735c184572df6399c1cbffb8bbeaf388147.2026-08-19.0",
+        "data": {
+          "occurrenceId": "ba5c3f25be421adba35090987705f735c184572df6399c1cbffb8bbeaf388147.2026-08-19.0",
+          "habitId": "0000000000000000000000000000000000000000000000000000000000000000",
+          "localDate": "2026-08-19",
+          "ordinal": 0,
+          "state": "pending",
+          "durationMinutes": 30,
+          "recoveredFromOccurrenceId": null
+        }
+      },
+      {
+        "id": "ba5c3f25be421adba35090987705f735c184572df6399c1cbffb8bbeaf388147.2026-08-20.0",
+        "data": {
+          "occurrenceId": "ba5c3f25be421adba35090987705f735c184572df6399c1cbffb8bbeaf388147.2026-08-20.0",
+          "habitId": "0000000000000000000000000000000000000000000000000000000000000000",
+          "localDate": "2026-08-20",
+          "ordinal": 0,
+          "state": "pending",
+          "durationMinutes": 30,
+          "recoveredFromOccurrenceId": null
+        }
+      },
+      {
+        "id": "ba5c3f25be421adba35090987705f735c184572df6399c1cbffb8bbeaf388147.2026-08-21.0",
+        "data": {
+          "occurrenceId": "ba5c3f25be421adba35090987705f735c184572df6399c1cbffb8bbeaf388147.2026-08-21.0",
+          "habitId": "0000000000000000000000000000000000000000000000000000000000000000",
+          "localDate": "2026-08-21",
+          "ordinal": 0,
+          "state": "pending",
+          "durationMinutes": 30,
+          "recoveredFromOccurrenceId": null
+        }
+      },
+      {
+        "id": "ba5c3f25be421adba35090987705f735c184572df6399c1cbffb8bbeaf388147.2026-08-22.0",
+        "data": {
+          "occurrenceId": "ba5c3f25be421adba35090987705f735c184572df6399c1cbffb8bbeaf388147.2026-08-22.0",
+          "habitId": "0000000000000000000000000000000000000000000000000000000000000000",
+          "localDate": "2026-08-22",
+          "ordinal": 0,
+          "state": "pending",
+          "durationMinutes": 30,
+          "recoveredFromOccurrenceId": null
+        }
+      },
+      {
+        "id": "ba5c3f25be421adba35090987705f735c184572df6399c1cbffb8bbeaf388147.2026-08-23.0",
+        "data": {
+          "occurrenceId": "ba5c3f25be421adba35090987705f735c184572df6399c1cbffb8bbeaf388147.2026-08-23.0",
+          "habitId": "0000000000000000000000000000000000000000000000000000000000000000",
+          "localDate": "2026-08-23",
+          "ordinal": 0,
+          "state": "pending",
+          "durationMinutes": 30,
+          "recoveredFromOccurrenceId": null
+        }
+      },
+      {
+        "id": "ba5c3f25be421adba35090987705f735c184572df6399c1cbffb8bbeaf388147.2026-08-24.0",
+        "data": {
+          "occurrenceId": "ba5c3f25be421adba35090987705f735c184572df6399c1cbffb8bbeaf388147.2026-08-24.0",
+          "habitId": "0000000000000000000000000000000000000000000000000000000000000000",
+          "localDate": "2026-08-24",
+          "ordinal": 0,
+          "state": "pending",
+          "durationMinutes": 30,
+          "recoveredFromOccurrenceId": null
+        }
+      },
+      {
+        "id": "ba5c3f25be421adba35090987705f735c184572df6399c1cbffb8bbeaf388147.2026-08-25.0",
+        "data": {
+          "occurrenceId": "ba5c3f25be421adba35090987705f735c184572df6399c1cbffb8bbeaf388147.2026-08-25.0",
+          "habitId": "0000000000000000000000000000000000000000000000000000000000000000",
+          "localDate": "2026-08-25",
+          "ordinal": 0,
+          "state": "pending",
+          "durationMinutes": 30,
+          "recoveredFromOccurrenceId": null
+        }
+      },
+      {
+        "id": "ba5c3f25be421adba35090987705f735c184572df6399c1cbffb8bbeaf388147.2026-08-26.0",
+        "data": {
+          "occurrenceId": "ba5c3f25be421adba35090987705f735c184572df6399c1cbffb8bbeaf388147.2026-08-26.0",
+          "habitId": "0000000000000000000000000000000000000000000000000000000000000000",
+          "localDate": "2026-08-26",
+          "ordinal": 0,
+          "state": "pending",
+          "durationMinutes": 30,
+          "recoveredFromOccurrenceId": null
+        }
+      },
+      {
+        "id": "ba5c3f25be421adba35090987705f735c184572df6399c1cbffb8bbeaf388147.2026-08-27.0",
+        "data": {
+          "occurrenceId": "ba5c3f25be421adba35090987705f735c184572df6399c1cbffb8bbeaf388147.2026-08-27.0",
+          "habitId": "0000000000000000000000000000000000000000000000000000000000000000",
+          "localDate": "2026-08-27",
+          "ordinal": 0,
+          "state": "pending",
+          "durationMinutes": 30,
+          "recoveredFromOccurrenceId": null
+        }
+      },
+      {
+        "id": "ba5c3f25be421adba35090987705f735c184572df6399c1cbffb8bbeaf388147.2026-08-28.0",
+        "data": {
+          "occurrenceId": "ba5c3f25be421adba35090987705f735c184572df6399c1cbffb8bbeaf388147.2026-08-28.0",
+          "habitId": "0000000000000000000000000000000000000000000000000000000000000000",
+          "localDate": "2026-08-28",
+          "ordinal": 0,
+          "state": "pending",
+          "durationMinutes": 30,
+          "recoveredFromOccurrenceId": null
+        }
+      },
+      {
+        "id": "ba5c3f25be421adba35090987705f735c184572df6399c1cbffb8bbeaf388147.2026-08-29.0",
+        "data": {
+          "occurrenceId": "ba5c3f25be421adba35090987705f735c184572df6399c1cbffb8bbeaf388147.2026-08-29.0",
+          "habitId": "0000000000000000000000000000000000000000000000000000000000000000",
+          "localDate": "2026-08-29",
+          "ordinal": 0,
+          "state": "pending",
+          "durationMinutes": 30,
+          "recoveredFromOccurrenceId": null
+        }
+      },
+      {
+        "id": "ba5c3f25be421adba35090987705f735c184572df6399c1cbffb8bbeaf388147.2026-08-30.0",
+        "data": {
+          "occurrenceId": "ba5c3f25be421adba35090987705f735c184572df6399c1cbffb8bbeaf388147.2026-08-30.0",
+          "habitId": "0000000000000000000000000000000000000000000000000000000000000000",
+          "localDate": "2026-08-30",
+          "ordinal": 0,
+          "state": "pending",
+          "durationMinutes": 30,
+          "recoveredFromOccurrenceId": null
+        }
+      },
+      {
+        "id": "ba5c3f25be421adba35090987705f735c184572df6399c1cbffb8bbeaf388147.2026-08-31.0",
+        "data": {
+          "occurrenceId": "ba5c3f25be421adba35090987705f735c184572df6399c1cbffb8bbeaf388147.2026-08-31.0",
+          "habitId": "0000000000000000000000000000000000000000000000000000000000000000",
+          "localDate": "2026-08-31",
+          "ordinal": 0,
+          "state": "pending",
+          "durationMinutes": 30,
+          "recoveredFromOccurrenceId": null
+        }
+      },
+      {
+        "id": "ba5c3f25be421adba35090987705f735c184572df6399c1cbffb8bbeaf388147.2026-09-01.0",
+        "data": {
+          "occurrenceId": "ba5c3f25be421adba35090987705f735c184572df6399c1cbffb8bbeaf388147.2026-09-01.0",
+          "habitId": "0000000000000000000000000000000000000000000000000000000000000000",
+          "localDate": "2026-09-01",
+          "ordinal": 0,
+          "state": "pending",
+          "durationMinutes": 30,
+          "recoveredFromOccurrenceId": null
+        }
+      },
+      {
+        "id": "ba5c3f25be421adba35090987705f735c184572df6399c1cbffb8bbeaf388147.2026-09-02.0",
+        "data": {
+          "occurrenceId": "ba5c3f25be421adba35090987705f735c184572df6399c1cbffb8bbeaf388147.2026-09-02.0",
+          "habitId": "0000000000000000000000000000000000000000000000000000000000000000",
+          "localDate": "2026-09-02",
+          "ordinal": 0,
+          "state": "pending",
+          "durationMinutes": 30,
+          "recoveredFromOccurrenceId": null
+        }
+      },
+      {
+        "id": "ba5c3f25be421adba35090987705f735c184572df6399c1cbffb8bbeaf388147.2026-09-03.0",
+        "data": {
+          "occurrenceId": "ba5c3f25be421adba35090987705f735c184572df6399c1cbffb8bbeaf388147.2026-09-03.0",
+          "habitId": "0000000000000000000000000000000000000000000000000000000000000000",
+          "localDate": "2026-09-03",
+          "ordinal": 0,
+          "state": "pending",
+          "durationMinutes": 30,
+          "recoveredFromOccurrenceId": null
+        }
+      },
+      {
+        "id": "ba5c3f25be421adba35090987705f735c184572df6399c1cbffb8bbeaf388147.2026-09-04.0",
+        "data": {
+          "occurrenceId": "ba5c3f25be421adba35090987705f735c184572df6399c1cbffb8bbeaf388147.2026-09-04.0",
+          "habitId": "0000000000000000000000000000000000000000000000000000000000000000",
+          "localDate": "2026-09-04",
+          "ordinal": 0,
+          "state": "pending",
+          "durationMinutes": 30,
+          "recoveredFromOccurrenceId": null
+        }
+      },
+      {
+        "id": "ba5c3f25be421adba35090987705f735c184572df6399c1cbffb8bbeaf388147.2026-09-05.0",
+        "data": {
+          "occurrenceId": "ba5c3f25be421adba35090987705f735c184572df6399c1cbffb8bbeaf388147.2026-09-05.0",
+          "habitId": "0000000000000000000000000000000000000000000000000000000000000000",
+          "localDate": "2026-09-05",
+          "ordinal": 0,
+          "state": "pending",
+          "durationMinutes": 30,
+          "recoveredFromOccurrenceId": null
+        }
+      }
+    ],
+    "goalPlans": [],
+    "goalPlanTimes": [],
+    "goalPlanOutcomes": [],
+    "goalPlanClaims": [],
+    "goalLineages": [],
+    "goalStatementPreviews": [],
+    "goalStatementAccepts": [],
+    "weeklyBlocks": [],
+    "reminders": [],
+    "escalationStates": [],
+    "events": [],
+    "recommendationActions": [],
+    "commitmentActionReceipts": [],
+    "nextStepDecisions": [],
+    "auditEvents": [],
+    "actionGatewayAuditEvents": [],
+    "memory": [
+      {
+        "id": "mem_5f9a7a76117ec19ee232cc1eeac85303f8a99be04a26836563eb4adaaaa80df4",
+        "data": {
+          "version": "runtime-memory-v1",
+          "id": "mem_5f9a7a76117ec19ee232cc1eeac85303f8a99be04a26836563eb4adaaaa80df4",
+          "scopeId": "CaptureKindsFixtureUserxxxxx",
+          "kind": "goal",
+          "content": "وحابب أنزل بالوزن",
+          "language": "ar",
+          "source": "user_stated",
+          "confidence": 1,
+          "exportPolicy": "personal_never_export",
+          "status": "active",
+          "createdAt": "2026-08-09T08:00:00.000Z",
+          "updatedAt": "2026-08-09T08:00:00.000Z",
+          "observedAt": "2026-08-09T08:00:00.000Z",
+          "staleAfter": "2026-08-09T09:00:00.000Z",
+          "evidenceIds": [],
+          "provenance": {
+            "origin": "capture",
+            "originRef": "00000000-0000-4000-8000-000000000004",
+            "confirmedByUserAt": "2026-08-09T08:00:00.000Z"
+          }
+        }
+      }
+    ],
+    "intelligenceObservations": [],
+    "intelligenceProposals": [],
+    "intelligenceRuns": [],
+    "intelligenceMonitors": [],
+    "intelligenceGmailScans": [],
+    "intelligenceSourceMarkers": [],
+    "feedbackEvents": [],
+    "feedbackBaselines": [],
+    "consents": [],
+    "studyResponses": [],
+    "alphaTraces": [],
+    "alphaFeedback": [],
+    "behaviorFeedback": [],
+    "pressureDelivery": [],
+    "clarifications": [],
+    "clarificationEvents": [],
+    "analyticsEvents": [],
+    "captureProposals": [
+      {
+        "id": "00000000-0000-4000-8000-000000000005",
+        "data": {
+          "contract": {
+            "version": "v1",
+            "proposalId": "00000000-0000-4000-8000-000000000006",
+            "status": "needs_clarification",
+            "items": [],
+            "seeds": [],
+            "revision": 0,
+            "provenance": {
+              "requestedEngine": "rules",
+              "executedEngine": "rule-based",
+              "fallbackUsed": true
+            },
+            "understood": [
+              {
+                "kind": "habit",
+                "habitItemId": "00000000-0000-4000-8000-000000000007",
+                "pointId": "00000000-0000-4000-8000-000000000008",
+                "text": "أبلّش عادة المشي"
+              }
+            ],
+            "entry": "habit",
+            "habits": [
+              {
+                "habitItemId": "00000000-0000-4000-8000-000000000009",
+                "pointId": "00000000-0000-4000-8000-000000000010",
+                "title": "أبلّش عادة المشي",
+                "cadence": null,
+                "durationMinutes": null,
+                "preferredWindow": null,
+                "explanation": null,
+                "question": {
+                  "field": "frequency",
+                  "options": [
+                    1,
+                    2,
+                    3,
+                    4,
+                    5,
+                    6,
+                    7
+                  ]
+                },
+                "confirmable": false
+              }
+            ],
+            "goals": []
+          },
+          "scopeId": "CaptureKindsFixtureUserxxxxx",
+          "proposalId": "00000000-0000-4000-8000-000000000011",
+          "commands": {},
+          "results": {
+            "748f5874-2eb8-4c39-a3e4-15cfc7715927": {
+              "type": "task",
+              "action": "أبلّش عادة المشي",
+              "title": "أبلّش عادة المشي",
+              "person": null,
+              "dueAt": null,
+              "remindAt": null,
+              "localTimeSpec": null,
+              "timeEvidence": "none",
+              "dateInferred": false,
+              "priority": {
+                "level": "normal",
+                "source": "default",
+                "pressureAllowed": false,
+                "pressureImplied": false
+              },
+              "flexibility": "movable",
+              "category": null,
+              "categoryConfidence": 0,
+              "confidence": {
+                "overall": 0.62,
+                "type": 0.62,
+                "action": 0.82,
+                "time": 0.1,
+                "priority": 0.8
+              },
+              "missingFields": [
+                "time"
+              ],
+              "ambiguityFlags": [
+                "vague_time"
+              ],
+              "explicitReminderRequest": false,
+              "explicitPressureRequest": false,
+              "rawText": "بدي أبلّش عادة المشي",
+              "timeAnchor": null,
+              "parserVersion": "rule-v1-core"
+            }
+          },
+          "responseLocale": "ar",
+          "sourceOrdinals": {
+            "items": {
+              "748f5874-2eb8-4c39-a3e4-15cfc7715927": 0
+            },
+            "seeds": {}
+          },
+          "proposedAt": "2026-08-09T08:00:00.000Z",
+          "timezone": "Asia/Jerusalem",
+          "chatRefs": {
+            "748f5874-2eb8-4c39-a3e4-15cfc7715927": "i1"
+          },
+          "nextChatItemRef": 2,
+          "nextChatSeedRef": 1,
+          "expiresAt": "2026-08-09T09:00:00.000Z"
+        }
+      },
+      {
+        "id": "00000000-0000-4000-8000-000000000012",
+        "data": {
+          "contract": {
+            "version": "v1",
+            "proposalId": "00000000-0000-4000-8000-000000000013",
+            "status": "proposed",
+            "items": [],
+            "seeds": [
+              {
+                "seedItemId": "00000000-0000-4000-8000-000000000014",
+                "pointId": "00000000-0000-4000-8000-000000000015",
+                "kind": "consideration",
+                "summary": "عم بفكر أزور الطبيب بكرا الساعة 4 المسا",
+                "suggestedTime": {
+                  "at": "2026-08-09T09:00:00.000Z",
+                  "timeZone": "Asia/Jerusalem"
+                }
+              }
+            ],
+            "revision": 2,
+            "provenance": {
+              "requestedEngine": "rules",
+              "executedEngine": "rule-based",
+              "fallbackUsed": true
+            },
+            "entry": "thought",
+            "habits": [
+              {
+                "habitItemId": "00000000-0000-4000-8000-000000000016",
+                "pointId": "00000000-0000-4000-8000-000000000017",
+                "title": "أمشي نص ساعة كل يوم",
+                "cadence": {
+                  "kind": "weekly_count",
+                  "count": 7
+                },
+                "durationMinutes": 30,
+                "preferredWindow": "morning",
+                "explanation": "7 مرات بالأسبوع، الصبح، 30 دقيقة كل مرة.",
+                "question": null,
+                "confirmable": true
+              }
+            ],
+            "goals": [
+              {
+                "goalItemId": "00000000-0000-4000-8000-000000000018",
+                "pointId": "00000000-0000-4000-8000-000000000019",
+                "title": "وحابب أنزل بالوزن"
+              }
+            ],
+            "understood": [
+              {
+                "kind": "consideration",
+                "seedItemId": "00000000-0000-4000-8000-000000000020",
+                "pointId": "00000000-0000-4000-8000-000000000021",
+                "text": "عم بفكر أزور الطبيب بكرا الساعة 4 المسا"
+              },
+              {
+                "kind": "habit",
+                "habitItemId": "00000000-0000-4000-8000-000000000022",
+                "pointId": "00000000-0000-4000-8000-000000000023",
+                "text": "أمشي نص ساعة كل يوم"
+              },
+              {
+                "kind": "goal",
+                "goalItemId": "00000000-0000-4000-8000-000000000024",
+                "pointId": "00000000-0000-4000-8000-000000000025",
+                "text": "وحابب أنزل بالوزن"
+              }
+            ]
+          },
+          "scopeId": "CaptureKindsFixtureUserxxxxx",
+          "proposalId": "00000000-0000-4000-8000-000000000026",
+          "commands": {
+            "efc5bb9d-cefd-4d47-887e-bc1f78f7fe24": [
+              {
+                "type": "CreateDraft",
+                "now": "2026-08-09T08:00:00.000Z",
+                "commitment": {
+                  "id": "00000000-0000-4000-8000-000000000027",
+                  "kind": "task",
+                  "title": "عم بفكر أزور الطبيب",
+                  "description": null,
+                  "person": null,
+                  "priority": {
+                    "level": "normal",
+                    "source": "default",
+                    "pressureAllowed": false,
+                    "pressureLevel": "none"
+                  },
+                  "category": null,
+                  "timeSpec": {
+                    "kind": "scheduled_event",
+                    "dueAt": "2026-08-09T09:00:00.000Z",
+                    "remindAt": "2026-08-09T09:00:00.000Z",
+                    "timezone": "Asia/Jerusalem"
+                  }
+                },
+                "draftStatus": "pending_confirmation"
+              }
+            ]
+          },
+          "results": {
+            "efc5bb9d-cefd-4d47-887e-bc1f78f7fe24": {
+              "type": "task",
+              "action": "عم بفكر أزور الطبيب",
+              "title": "عم بفكر أزور الطبيب",
+              "person": null,
+              "dueAt": "2026-08-09T09:00:00.000Z",
+              "remindAt": "2026-08-09T09:00:00.000Z",
+              "localTimeSpec": {
+                "date": "2026-08-10",
+                "time": "16:00",
+                "timezone": "Asia/Jerusalem"
+              },
+              "timeEvidence": "daypart",
+              "dateInferred": false,
+              "priority": {
+                "level": "normal",
+                "source": "default",
+                "pressureAllowed": false,
+                "pressureImplied": false
+              },
+              "flexibility": "movable",
+              "category": null,
+              "categoryConfidence": 0,
+              "confidence": {
+                "overall": 0.72,
+                "type": 0.72,
+                "action": 0.82,
+                "time": 0.95,
+                "priority": 0.8
+              },
+              "missingFields": [],
+              "ambiguityFlags": [],
+              "explicitReminderRequest": false,
+              "explicitPressureRequest": false,
+              "rawText": "عم بفكر أزور الطبيب بكرا الساعة 4 المسا",
+              "timeAnchor": "event",
+              "parserVersion": "rule-v1-core"
+            },
+            "6acc097a-f711-40ed-acf3-1c3853b46bd1": {
+              "type": "task",
+              "action": "أمشي نص ساعة كل يوم",
+              "title": "أمشي نص ساعة كل يوم",
+              "person": null,
+              "dueAt": null,
+              "remindAt": null,
+              "localTimeSpec": null,
+              "timeEvidence": "daypart",
+              "dateInferred": false,
+              "priority": {
+                "level": "normal",
+                "source": "default",
+                "pressureAllowed": false,
+                "pressureImplied": false
+              },
+              "flexibility": "movable",
+              "category": null,
+              "categoryConfidence": 0,
+              "confidence": {
+                "overall": 0.62,
+                "type": 0.62,
+                "action": 0.82,
+                "time": 0.1,
+                "priority": 0.8
+              },
+              "missingFields": [
+                "time"
+              ],
+              "ambiguityFlags": [
+                "vague_time"
+              ],
+              "explicitReminderRequest": false,
+              "explicitPressureRequest": false,
+              "rawText": "بدي أمشي نص ساعة كل يوم الصبح",
+              "timeAnchor": null,
+              "parserVersion": "rule-v1-core"
+            }
+          },
+          "responseLocale": "ar",
+          "sourceOrdinals": {
+            "items": {
+              "efc5bb9d-cefd-4d47-887e-bc1f78f7fe24": 0,
+              "6acc097a-f711-40ed-acf3-1c3853b46bd1": 1
+            },
+            "seeds": {
+              "b548049b-4fa1-47a0-a667-42816f892fd1": 2
+            }
+          },
+          "proposedAt": "2026-08-09T08:00:00.000Z",
+          "timezone": "Asia/Jerusalem",
+          "correctionSpans": {},
+          "editReceipt": {
+            "fingerprint": "0000000000000000000000000000000000000000000000000000000000000000",
+            "resultingRevision": 1,
+            "answer": {
+              "proposal": {
+                "version": "v1",
+                "proposalId": "00000000-0000-4000-8000-000000000028",
+                "status": "proposed",
+                "items": [],
+                "seeds": [
+                  {
+                    "seedItemId": "00000000-0000-4000-8000-000000000029",
+                    "pointId": "00000000-0000-4000-8000-000000000030",
+                    "kind": "consideration",
+                    "summary": "عم بفكر أزور الطبيب بكرا الساعة 4 المسا",
+                    "suggestedTime": {
+                      "at": "2026-08-09T09:00:00.000Z",
+                      "timeZone": "Asia/Jerusalem"
+                    }
+                  }
+                ],
+                "revision": 1,
+                "provenance": {
+                  "requestedEngine": "rules",
+                  "executedEngine": "rule-based",
+                  "fallbackUsed": true
+                },
+                "entry": "thought",
+                "habits": [
+                  {
+                    "habitItemId": "00000000-0000-4000-8000-000000000031",
+                    "pointId": "00000000-0000-4000-8000-000000000032",
+                    "title": "أمشي نص ساعة كل يوم",
+                    "cadence": {
+                      "kind": "weekly_count",
+                      "count": 7
+                    },
+                    "durationMinutes": 30,
+                    "preferredWindow": "morning",
+                    "explanation": "7 مرات بالأسبوع، الصبح، 30 دقيقة كل مرة.",
+                    "question": null,
+                    "confirmable": true
+                  }
+                ],
+                "goals": [
+                  {
+                    "goalItemId": "00000000-0000-4000-8000-000000000033",
+                    "pointId": "00000000-0000-4000-8000-000000000034",
+                    "title": "وحابب أنزل بالوزن"
+                  }
+                ],
+                "understood": [
+                  {
+                    "kind": "consideration",
+                    "seedItemId": "00000000-0000-4000-8000-000000000035",
+                    "pointId": "00000000-0000-4000-8000-000000000036",
+                    "text": "عم بفكر أزور الطبيب بكرا الساعة 4 المسا"
+                  },
+                  {
+                    "kind": "habit",
+                    "habitItemId": "00000000-0000-4000-8000-000000000037",
+                    "pointId": "00000000-0000-4000-8000-000000000038",
+                    "text": "أمشي نص ساعة كل يوم"
+                  },
+                  {
+                    "kind": "goal",
+                    "goalItemId": "00000000-0000-4000-8000-000000000039",
+                    "pointId": "00000000-0000-4000-8000-000000000040",
+                    "text": "وحابب أنزل بالوزن"
+                  }
+                ]
+              }
+            }
+          },
+          "structuredEditSources": {},
+          "latestChatTouchedIds": [
+            "00000000-0000-4000-8000-000000000041"
+          ],
+          "chatRefs": {
+            "efc5bb9d-cefd-4d47-887e-bc1f78f7fe24": "i1",
+            "663104df-671b-4d84-b7cf-f535e3e44783": "s1",
+            "6acc097a-f711-40ed-acf3-1c3853b46bd1": "i2",
+            "b548049b-4fa1-47a0-a667-42816f892fd1": "s2"
+          },
+          "nextChatItemRef": 3,
+          "nextChatSeedRef": 3,
+          "lockedChatRefs": [],
+          "removedChatEntities": {},
+          "expiresAt": "2026-08-09T09:00:00.000Z",
+          "confirmedResult": {
+            "version": "v1",
+            "success": true,
+            "replayed": false,
+            "persistedItemIds": [],
+            "habitsPersisted": [
+              {
+                "habitItemId": "00000000-0000-4000-8000-000000000042",
+                "pointId": "00000000-0000-4000-8000-000000000043",
+                "habitId": "0000000000000000000000000000000000000000000000000000000000000000",
+                "title": "أمشي نص ساعة كل يوم"
+              }
+            ],
+            "goalsPersisted": [
+              {
+                "goalItemId": "00000000-0000-4000-8000-000000000044",
+                "pointId": "00000000-0000-4000-8000-000000000045",
+                "goalId": "mem_5f9a7a76117ec19ee232cc1eeac85303f8a99be04a26836563eb4adaaaa80df4",
+                "title": "وحابب أنزل بالوزن"
+              }
+            ],
+            "seedsPersisted": [
+              {
+                "seedItemId": "00000000-0000-4000-8000-000000000046",
+                "pointId": "00000000-0000-4000-8000-000000000047",
+                "seedId": "0000000000000000000000000000000000000000000000000000000000000000",
+                "kind": "consideration",
+                "title": "عم بفكر أزور الطبيب بكرا الساعة 4 المسا"
+              }
+            ]
+          },
+          "idempotencyKey": "fixture-capture-kinds-confirm",
+          "confirmationFingerprint": "0000000000000000000000000000000000000000000000000000000000000000",
+          "confirmationIntent": {
+            "selectedItemIds": [],
+            "selectedHabitItemIds": [
+              "00000000-0000-4000-8000-000000000048"
+            ],
+            "selectedGoalItemIds": [
+              "00000000-0000-4000-8000-000000000049"
+            ],
+            "selectedSeedItemIds": [
+              "00000000-0000-4000-8000-000000000050"
+            ],
+            "weeklyBlockItemIds": [],
+            "goalLinkItemIds": [],
+            "edits": [],
+            "entry": "thought"
+          }
+        }
+      },
+      {
+        "id": "00000000-0000-4000-8000-000000000051",
+        "data": {
+          "contract": {
+            "version": "v1",
+            "proposalId": "00000000-0000-4000-8000-000000000052",
+            "status": "proposed",
+            "items": [],
+            "seeds": [
+              {
+                "seedItemId": "00000000-0000-4000-8000-000000000053",
+                "pointId": "00000000-0000-4000-8000-000000000054",
+                "kind": "consideration",
+                "summary": "عم بفكر أزور الطبيب بكرا الساعة 4 المسا",
+                "suggestedTime": {
+                  "at": "2026-08-09T09:00:00.000Z",
+                  "timeZone": "Asia/Jerusalem"
+                }
+              }
+            ],
+            "revision": 0,
+            "provenance": {
+              "requestedEngine": "rules",
+              "executedEngine": "rule-based",
+              "fallbackUsed": true
+            },
+            "entry": "thought",
+            "habits": [
+              {
+                "habitItemId": "00000000-0000-4000-8000-000000000055",
+                "pointId": "00000000-0000-4000-8000-000000000056",
+                "title": "أمشي نص ساعة كل يوم",
+                "cadence": {
+                  "kind": "weekly_count",
+                  "count": 7
+                },
+                "durationMinutes": 30,
+                "preferredWindow": "morning",
+                "explanation": "7 مرات بالأسبوع، الصبح، 30 دقيقة كل مرة.",
+                "question": null,
+                "confirmable": true
+              }
+            ],
+            "goals": [],
+            "understood": [
+              {
+                "kind": "consideration",
+                "seedItemId": "00000000-0000-4000-8000-000000000057",
+                "pointId": "00000000-0000-4000-8000-000000000058",
+                "text": "عم بفكر أزور الطبيب بكرا الساعة 4 المسا"
+              },
+              {
+                "kind": "habit",
+                "habitItemId": "00000000-0000-4000-8000-000000000059",
+                "pointId": "00000000-0000-4000-8000-000000000060",
+                "text": "أمشي نص ساعة كل يوم"
+              }
+            ]
+          },
+          "scopeId": "CaptureKindsFixtureUserxxxxx",
+          "proposalId": "00000000-0000-4000-8000-000000000061",
+          "commands": {
+            "efc5bb9d-cefd-4d47-887e-bc1f78f7fe24": [
+              {
+                "type": "CreateDraft",
+                "now": "2026-08-09T08:00:00.000Z",
+                "commitment": {
+                  "id": "00000000-0000-4000-8000-000000000062",
+                  "kind": "task",
+                  "title": "عم بفكر أزور الطبيب",
+                  "description": null,
+                  "person": null,
+                  "priority": {
+                    "level": "normal",
+                    "source": "default",
+                    "pressureAllowed": false,
+                    "pressureLevel": "none"
+                  },
+                  "category": null,
+                  "timeSpec": {
+                    "kind": "scheduled_event",
+                    "dueAt": "2026-08-09T09:00:00.000Z",
+                    "remindAt": "2026-08-09T09:00:00.000Z",
+                    "timezone": "Asia/Jerusalem"
+                  }
+                },
+                "draftStatus": "pending_confirmation"
+              }
+            ]
+          },
+          "results": {
+            "efc5bb9d-cefd-4d47-887e-bc1f78f7fe24": {
+              "type": "task",
+              "action": "عم بفكر أزور الطبيب",
+              "title": "عم بفكر أزور الطبيب",
+              "person": null,
+              "dueAt": "2026-08-09T09:00:00.000Z",
+              "remindAt": "2026-08-09T09:00:00.000Z",
+              "localTimeSpec": {
+                "date": "2026-08-10",
+                "time": "16:00",
+                "timezone": "Asia/Jerusalem"
+              },
+              "timeEvidence": "daypart",
+              "dateInferred": false,
+              "priority": {
+                "level": "normal",
+                "source": "default",
+                "pressureAllowed": false,
+                "pressureImplied": false
+              },
+              "flexibility": "movable",
+              "category": null,
+              "categoryConfidence": 0,
+              "confidence": {
+                "overall": 0.72,
+                "type": 0.72,
+                "action": 0.82,
+                "time": 0.95,
+                "priority": 0.8
+              },
+              "missingFields": [],
+              "ambiguityFlags": [],
+              "explicitReminderRequest": false,
+              "explicitPressureRequest": false,
+              "rawText": "عم بفكر أزور الطبيب بكرا الساعة 4 المسا",
+              "timeAnchor": "event",
+              "parserVersion": "rule-v1-core"
+            },
+            "6acc097a-f711-40ed-acf3-1c3853b46bd1": {
+              "type": "task",
+              "action": "أمشي نص ساعة كل يوم",
+              "title": "أمشي نص ساعة كل يوم",
+              "person": null,
+              "dueAt": null,
+              "remindAt": null,
+              "localTimeSpec": null,
+              "timeEvidence": "daypart",
+              "dateInferred": false,
+              "priority": {
+                "level": "normal",
+                "source": "default",
+                "pressureAllowed": false,
+                "pressureImplied": false
+              },
+              "flexibility": "movable",
+              "category": null,
+              "categoryConfidence": 0,
+              "confidence": {
+                "overall": 0.62,
+                "type": 0.62,
+                "action": 0.82,
+                "time": 0.1,
+                "priority": 0.8
+              },
+              "missingFields": [
+                "time"
+              ],
+              "ambiguityFlags": [
+                "vague_time"
+              ],
+              "explicitReminderRequest": false,
+              "explicitPressureRequest": false,
+              "rawText": "بدي أمشي نص ساعة كل يوم الصبح",
+              "timeAnchor": null,
+              "parserVersion": "rule-v1-core"
+            }
+          },
+          "responseLocale": "ar",
+          "sourceOrdinals": {
+            "items": {
+              "efc5bb9d-cefd-4d47-887e-bc1f78f7fe24": 0,
+              "6acc097a-f711-40ed-acf3-1c3853b46bd1": 1
+            },
+            "seeds": {}
+          },
+          "proposedAt": "2026-08-09T08:00:00.000Z",
+          "timezone": "Asia/Jerusalem",
+          "correctionSpans": {},
+          "structuredEditSources": {},
+          "latestChatTouchedIds": [
+            "00000000-0000-4000-8000-000000000063"
+          ],
+          "chatRefs": {
+            "efc5bb9d-cefd-4d47-887e-bc1f78f7fe24": "i1",
+            "663104df-671b-4d84-b7cf-f535e3e44783": "s1",
+            "6acc097a-f711-40ed-acf3-1c3853b46bd1": "i2"
+          },
+          "nextChatItemRef": 3,
+          "nextChatSeedRef": 2,
+          "lockedChatRefs": [],
+          "removedChatEntities": {},
+          "expiresAt": "2026-08-09T09:00:00.000Z"
+        }
+      },
+      {
+        "id": "00000000-0000-4000-8000-000000000064",
+        "data": {
+          "contract": {
+            "version": "v1",
+            "proposalId": "00000000-0000-4000-8000-000000000065",
+            "status": "proposed",
+            "items": [],
+            "seeds": [
+              {
+                "seedItemId": "00000000-0000-4000-8000-000000000066",
+                "pointId": "00000000-0000-4000-8000-000000000067",
+                "kind": "consideration",
+                "summary": "عم بفكر أزور الطبيب بكرا الساعة 4 المسا",
+                "suggestedTime": {
+                  "at": "2026-08-09T09:00:00.000Z",
+                  "timeZone": "Asia/Jerusalem"
+                }
+              }
+            ],
+            "revision": 0,
+            "provenance": {
+              "requestedEngine": "rules",
+              "executedEngine": "rule-based",
+              "fallbackUsed": true
+            },
+            "understood": [
+              {
+                "kind": "consideration",
+                "seedItemId": "00000000-0000-4000-8000-000000000068",
+                "pointId": "00000000-0000-4000-8000-000000000069",
+                "text": "عم بفكر أزور الطبيب بكرا الساعة 4 المسا"
+              }
+            ],
+            "entry": "thought",
+            "habits": [],
+            "goals": []
+          },
+          "scopeId": "CaptureKindsFixtureUserxxxxx",
+          "proposalId": "00000000-0000-4000-8000-000000000070",
+          "commands": {
+            "efc5bb9d-cefd-4d47-887e-bc1f78f7fe24": [
+              {
+                "type": "CreateDraft",
+                "now": "2026-08-09T08:00:00.000Z",
+                "commitment": {
+                  "id": "00000000-0000-4000-8000-000000000071",
+                  "kind": "task",
+                  "title": "عم بفكر أزور الطبيب",
+                  "description": null,
+                  "person": null,
+                  "priority": {
+                    "level": "normal",
+                    "source": "default",
+                    "pressureAllowed": false,
+                    "pressureLevel": "none"
+                  },
+                  "category": null,
+                  "timeSpec": {
+                    "kind": "scheduled_event",
+                    "dueAt": "2026-08-09T09:00:00.000Z",
+                    "remindAt": "2026-08-09T09:00:00.000Z",
+                    "timezone": "Asia/Jerusalem"
+                  }
+                },
+                "draftStatus": "pending_confirmation"
+              }
+            ]
+          },
+          "results": {
+            "efc5bb9d-cefd-4d47-887e-bc1f78f7fe24": {
+              "type": "task",
+              "action": "عم بفكر أزور الطبيب",
+              "title": "عم بفكر أزور الطبيب",
+              "person": null,
+              "dueAt": "2026-08-09T09:00:00.000Z",
+              "remindAt": "2026-08-09T09:00:00.000Z",
+              "localTimeSpec": {
+                "date": "2026-08-10",
+                "time": "16:00",
+                "timezone": "Asia/Jerusalem"
+              },
+              "timeEvidence": "daypart",
+              "dateInferred": false,
+              "priority": {
+                "level": "normal",
+                "source": "default",
+                "pressureAllowed": false,
+                "pressureImplied": false
+              },
+              "flexibility": "movable",
+              "category": null,
+              "categoryConfidence": 0,
+              "confidence": {
+                "overall": 0.72,
+                "type": 0.72,
+                "action": 0.82,
+                "time": 0.95,
+                "priority": 0.8
+              },
+              "missingFields": [],
+              "ambiguityFlags": [],
+              "explicitReminderRequest": false,
+              "explicitPressureRequest": false,
+              "rawText": "عم بفكر أزور الطبيب بكرا الساعة 4 المسا",
+              "timeAnchor": "event",
+              "parserVersion": "rule-v1-core"
+            }
+          },
+          "responseLocale": "ar",
+          "sourceOrdinals": {
+            "items": {
+              "efc5bb9d-cefd-4d47-887e-bc1f78f7fe24": 0
+            },
+            "seeds": {}
+          },
+          "proposedAt": "2026-08-09T08:00:00.000Z",
+          "timezone": "Asia/Jerusalem",
+          "chatRefs": {
+            "efc5bb9d-cefd-4d47-887e-bc1f78f7fe24": "i1"
+          },
+          "nextChatItemRef": 2,
+          "nextChatSeedRef": 1,
+          "expiresAt": "2026-08-09T09:00:00.000Z"
+        }
+      }
+    ],
+    "captureConversations": [
+      {
+        "id": "00000000-0000-4000-8000-000000000072",
+        "data": {
+          "conversationId": "00000000-0000-4000-8000-000000000073",
+          "turns": [
+            {
+              "role": "user",
+              "text": "عم بفكر أزور الطبيب بكرا الساعة 4 المسا"
+            },
+            {
+              "role": "assistant",
+              "text": "فهمت عليك. إذا بدك، منقدر نحولها لخطوة واضحة بعدين."
+            },
+            {
+              "role": "user",
+              "text": "وبدي أمشي نص ساعة كل يوم الصبح"
+            },
+            {
+              "role": "assistant",
+              "text": "فهمت عليك. إذا بدك، منقدر نحولها لخطوة واضحة بعدين."
+            },
+            {
+              "role": "user",
+              "text": "وحابب أنزل بالوزن"
+            },
+            {
+              "role": "assistant",
+              "text": "فهمت عليك. إذا بدك، منقدر نحولها لخطوة واضحة بعدين."
+            },
+            {
+              "role": "assistant",
+              "text": "تمام، عدّلتها. راجع القائمة وأكّد من تحت."
+            }
+          ],
+          "proposalId": "00000000-0000-4000-8000-000000000074",
+          "entry": "thought",
+          "createdAt": "2026-08-09T08:00:00.000Z",
+          "updatedAt": "2026-08-09T08:00:00.000Z",
+          "messageReceipt": {
+            "fingerprint": "0000000000000000000000000000000000000000000000000000000000000000",
+            "receivedAt": 1786262400000,
+            "answer": {
+              "conversationId": "00000000-0000-4000-8000-000000000075",
+              "reply": "فهمت عليك. إذا بدك، منقدر نحولها لخطوة واضحة بعدين.",
+              "engine": "rules",
+              "proposal": {
+                "version": "v1",
+                "proposalId": "00000000-0000-4000-8000-000000000076",
+                "status": "proposed",
+                "items": [],
+                "seeds": [
+                  {
+                    "seedItemId": "00000000-0000-4000-8000-000000000077",
+                    "kind": "possible_goal",
+                    "summary": "وحابب أنزل بالوزن",
+                    "pointId": "00000000-0000-4000-8000-000000000078",
+                    "suggestedTime": null
+                  },
+                  {
+                    "seedItemId": "00000000-0000-4000-8000-000000000079",
+                    "pointId": "00000000-0000-4000-8000-000000000080",
+                    "kind": "consideration",
+                    "summary": "عم بفكر أزور الطبيب بكرا الساعة 4 المسا",
+                    "suggestedTime": {
+                      "at": "2026-08-09T09:00:00.000Z",
+                      "timeZone": "Asia/Jerusalem"
+                    }
+                  }
+                ],
+                "revision": 0,
+                "provenance": {
+                  "requestedEngine": "rules",
+                  "executedEngine": "rule-based",
+                  "fallbackUsed": true
+                },
+                "entry": "thought",
+                "habits": [
+                  {
+                    "habitItemId": "00000000-0000-4000-8000-000000000081",
+                    "pointId": "00000000-0000-4000-8000-000000000082",
+                    "title": "أمشي نص ساعة كل يوم",
+                    "cadence": {
+                      "kind": "weekly_count",
+                      "count": 7
+                    },
+                    "durationMinutes": 30,
+                    "preferredWindow": "morning",
+                    "explanation": "7 مرات بالأسبوع، الصبح، 30 دقيقة كل مرة.",
+                    "question": null,
+                    "confirmable": true
+                  }
+                ],
+                "goals": [],
+                "understood": [
+                  {
+                    "kind": "possible_goal",
+                    "seedItemId": "00000000-0000-4000-8000-000000000083",
+                    "pointId": "00000000-0000-4000-8000-000000000084",
+                    "text": "وحابب أنزل بالوزن"
+                  },
+                  {
+                    "kind": "consideration",
+                    "seedItemId": "00000000-0000-4000-8000-000000000085",
+                    "pointId": "00000000-0000-4000-8000-000000000086",
+                    "text": "عم بفكر أزور الطبيب بكرا الساعة 4 المسا"
+                  },
+                  {
+                    "kind": "habit",
+                    "habitItemId": "00000000-0000-4000-8000-000000000087",
+                    "pointId": "00000000-0000-4000-8000-000000000088",
+                    "text": "أمشي نص ساعة كل يوم"
+                  }
+                ]
+              },
+              "turns": [
+                {
+                  "role": "user",
+                  "text": "عم بفكر أزور الطبيب بكرا الساعة 4 المسا"
+                },
+                {
+                  "role": "assistant",
+                  "text": "فهمت عليك. إذا بدك، منقدر نحولها لخطوة واضحة بعدين."
+                },
+                {
+                  "role": "user",
+                  "text": "وبدي أمشي نص ساعة كل يوم الصبح"
+                },
+                {
+                  "role": "assistant",
+                  "text": "فهمت عليك. إذا بدك، منقدر نحولها لخطوة واضحة بعدين."
+                },
+                {
+                  "role": "user",
+                  "text": "وحابب أنزل بالوزن"
+                },
+                {
+                  "role": "assistant",
+                  "text": "فهمت عليك. إذا بدك، منقدر نحولها لخطوة واضحة بعدين."
+                }
+              ]
+            },
+            "proposalId": "00000000-0000-4000-8000-000000000089",
+            "proposalRevision": 0,
+            "lockedRefs": []
+          },
+          "expiresAt": "2026-08-09T09:00:00.000Z"
+        }
+      },
+      {
+        "id": "00000000-0000-4000-8000-000000000090",
+        "data": {
+          "conversationId": "00000000-0000-4000-8000-000000000091",
+          "turns": [
+            {
+              "role": "user",
+              "text": "بدي أبلّش عادة المشي"
+            },
+            {
+              "role": "assistant",
+              "text": "شو بدك تعمل وإيمتى؟ احكيلي وأنا بجهزلك ياها لتأكدها."
+            }
+          ],
+          "proposalId": "00000000-0000-4000-8000-000000000092",
+          "entry": "habit",
+          "createdAt": "2026-08-09T08:00:00.000Z",
+          "updatedAt": "2026-08-09T08:00:00.000Z",
+          "messageReceipt": {
+            "fingerprint": "0000000000000000000000000000000000000000000000000000000000000000",
+            "receivedAt": 1786262400000,
+            "answer": {
+              "conversationId": "00000000-0000-4000-8000-000000000093",
+              "reply": "شو بدك تعمل وإيمتى؟ احكيلي وأنا بجهزلك ياها لتأكدها.",
+              "engine": "rules",
+              "proposal": {
+                "version": "v1",
+                "proposalId": "00000000-0000-4000-8000-000000000094",
+                "status": "needs_clarification",
+                "items": [],
+                "seeds": [],
+                "revision": 0,
+                "provenance": {
+                  "requestedEngine": "rules",
+                  "executedEngine": "rule-based",
+                  "fallbackUsed": true
+                },
+                "understood": [
+                  {
+                    "kind": "habit",
+                    "habitItemId": "00000000-0000-4000-8000-000000000095",
+                    "pointId": "00000000-0000-4000-8000-000000000096",
+                    "text": "أبلّش عادة المشي"
+                  }
+                ],
+                "entry": "habit",
+                "habits": [
+                  {
+                    "habitItemId": "00000000-0000-4000-8000-000000000097",
+                    "pointId": "00000000-0000-4000-8000-000000000098",
+                    "title": "أبلّش عادة المشي",
+                    "cadence": null,
+                    "durationMinutes": null,
+                    "preferredWindow": null,
+                    "explanation": null,
+                    "question": {
+                      "field": "frequency",
+                      "options": [
+                        1,
+                        2,
+                        3,
+                        4,
+                        5,
+                        6,
+                        7
+                      ]
+                    },
+                    "confirmable": false
+                  }
+                ],
+                "goals": []
+              },
+              "turns": [
+                {
+                  "role": "user",
+                  "text": "بدي أبلّش عادة المشي"
+                },
+                {
+                  "role": "assistant",
+                  "text": "شو بدك تعمل وإيمتى؟ احكيلي وأنا بجهزلك ياها لتأكدها."
+                }
+              ]
+            },
+            "proposalId": "00000000-0000-4000-8000-000000000099",
+            "proposalRevision": 0,
+            "lockedRefs": []
+          },
+          "expiresAt": "2026-08-09T09:00:00.000Z"
+        }
+      }
+    ],
+    "profileProposals": [],
+    "aiContextImports": [],
+    "memoryDismissals": [],
+    "usage": [
+      {
+        "id": "account_export-2026-08-09",
+        "data": {
+          "calls": 1,
+          "date": "2026-08-09",
+          "updatedAt": "2026-08-09T08:00:00.000Z",
+          "expireAt": "2026-08-09T09:00:00.000Z"
+        }
+      }
+    ],
+    "plans": [],
+    "planEvents": [],
+    "stats": [],
+    "deviceCalendarLinks": [],
+    "footballFollows": [],
+    "externalTaskRefs": [],
+    "financialInputs": [],
+    "calendarSources": [],
+    "busyBlocks": [],
+    "icsFeeds": [],
+    "icsFeedItems": [],
+    "devices": [],
+    "pushLog": [],
+    "hardReminders": [],
+    "watchers": [],
+    "watcherEvents": [],
+    "watcherProposals": [],
+    "watcherNotifications": [],
+    "planningStateChanges": [],
+    "packInstallations": [],
+    "jobs": [],
+    "incidents": []
+  },
+  "excluded": {
+    "providerCredentials": "encrypted OAuth access and refresh tokens: a secret held on the person's behalf, not a record of them",
+    "providerOAuthStates": "an in-flight OAuth authorization holding a PKCE verifier: a secret with a lifetime of minutes",
+    "googlePickerTickets": "a one-time, two-minute ticket that opens the Google Picker page: an access credential in waiting, not a record of the person"
+  }
+}

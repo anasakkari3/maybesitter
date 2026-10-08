@@ -154,8 +154,12 @@ export interface IntentSeed {
  */
 export interface CaptureSeedProposalContract {
   readonly seedItemId: string;
+  /** Stable logical identity across capture-family conversions (contract v8). */
+  readonly pointId?: string;
   readonly kind: SeedKind;
   readonly summary: string;
+  /** A time mentioned on an undecided thought; it is not a commitment yet. */
+  readonly suggestedTime?: { readonly at: string; readonly timeZone: string } | null;
 }
 
 /**

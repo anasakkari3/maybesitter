@@ -283,7 +283,8 @@ function applyEdit(stored: StoredCaptureProposal, edit: CaptureProposalEditContr
     if (change.kind !== undefined && change.kind !== 'commitment') {
       changed = true;
       contract.items.splice(itemIndex, 1);
-      contract.seeds.push({ seedItemId: before.itemId, kind: change.kind, summary: title });
+      if (!SEED_KINDS.has(change.kind)) throw new StructuredEditError();
+      contract.seeds.push({ seedItemId: before.itemId, kind: change.kind as CaptureSeedProposalContract['kind'], summary: title });
       contract.understood = contract.understood?.map((point) =>
         point.kind === 'commitment' && point.itemId === before.itemId
           ? { kind: change.kind as CaptureSeedProposalContract['kind'], seedItemId: before.itemId, text: title }
@@ -398,7 +399,9 @@ export async function applyStructuredEdit(input: {
       return { kind: 'changed' as const, proposal: stored.contract, confirmed: stored.confirmedResult !== undefined };
     }
     const target = input.edit.target;
-    const targetId = 'itemId' in target ? target.itemId : target.seedItemId;
+    const targetId = 'itemId' in target ? target.itemId
+      : 'seedItemId' in target ? target.seedItemId
+        : 'habitItemId' in target ? target.habitItemId : target.goalItemId;
     const targetsItem = 'itemId' in target;
     const sourceOrdinal = targetsItem
       ? stored.sourceOrdinals?.items[targetId]

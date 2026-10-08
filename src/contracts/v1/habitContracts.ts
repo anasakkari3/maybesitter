@@ -151,7 +151,7 @@ export type HabitStatus = 'active' | 'paused' | 'archived';
  * required the person to accept a cadence and a duration, and neither can be
  * reached without a `HabitConfirmation`.
  */
-export type HabitSource = 'user_created' | 'goal_confirmed' | 'onboarding_confirmed';
+export type HabitSource = 'user_created' | 'goal_confirmed' | 'onboarding_confirmed' | 'capture_chat';
 
 /**
  * The receipt for the act that created this habit.
@@ -345,6 +345,7 @@ export const HABIT_SOURCES: readonly HabitSource[] = Object.freeze([
   'user_created',
   'goal_confirmed',
   'onboarding_confirmed',
+  'capture_chat',
 ]);
 
 /** `YYYY-MM-DD`. Shape only; `toCivilDays` is what rejects 2026-02-30. */

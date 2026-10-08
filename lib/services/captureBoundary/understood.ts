@@ -82,7 +82,10 @@ function lineFor(source: string, locale: CaptureAppLocale): string {
 }
 
 function refOf(point: CaptureUnderstoodPoint): string {
-  return point.kind === 'commitment' ? `i:${point.itemId}` : `s:${point.seedItemId}`;
+  if (point.kind === 'commitment') return `i:${point.itemId}`;
+  if (point.kind === 'habit') return `h:${point.habitItemId}`;
+  if (point.kind === 'goal') return `g:${point.goalItemId}`;
+  return `s:${point.seedItemId}`;
 }
 
 function existingOrder(contract: CaptureProposalContract): string[] | null {

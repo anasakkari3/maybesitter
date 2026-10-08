@@ -1,0 +1,8 @@
+{
+  "success": false,
+  "error": "habit_invalid",
+  "failureCode": "habit_invalid",
+  "replayed": false,
+  "persisted": [],
+  "failed": []
+}

@@ -62,10 +62,12 @@ import { applyCommand as applyDomainCommand, createEmptyDomainState } from '../.
 import { persistParticipantState, readParticipantState } from '../../lib/services/mobile/participantState.ts';
 import { POST as capturePost } from '../../src/app/api/mobile/capture/route.ts';
 import { POST as confirmPost } from '../../src/app/api/mobile/capture/confirm/route.ts';
+import { GET as captureKindsGet } from '../../src/app/api/mobile/capture/kinds/route.ts';
 import { createManualMemory } from '../../lib/services/mobile/memoryService.ts';
 import { POST as clarifyPost } from '../../src/app/api/mobile/capture/clarify/route.ts';
 import { POST as sharePost } from '../../src/app/api/mobile/capture/share/route.ts';
 import { POST as chatPost } from '../../src/app/api/mobile/capture/chat/route.ts';
+import { createStorageCaptureProposalStore } from '../../lib/services/captureBoundary/proposalStore.ts';
 import { createWeeklyBlock } from '../../lib/weeklyBlocks/weeklyBlockService.ts';
 import { GET as todayGet } from '../../src/app/api/mobile/commitments/today/route.ts';
 import { GET as upcomingGet } from '../../src/app/api/mobile/commitments/upcoming/route.ts';
@@ -236,6 +238,8 @@ const WEEKLY_USER = uidFor('WeeklyFixtureUser');
 const WEEKLY_BLOCK_USER = uidFor('WeeklyBlockFixtureUser');
 /** The capture chat «احكيها» (2026-09-30) records under its own account, so no list, count or export fixture moves. */
 const CHAT_USER = uidFor('ChatFixtureUser');
+/** Contract-v8 records use their own account so their new canonical rows do not move legacy fixtures. */
+const CAPTURE_KINDS_USER = uidFor('CaptureKindsFixtureUser');
 /** A chat proposal that lands on a weekly block (owner request 2026-09-30), under its own account for the same reason. */
 const CHAT_CONFLICT_USER = uidFor('ChatConflictFixtureUser');
 
@@ -258,17 +262,36 @@ const pinWeekly = (body: Record<string, unknown>) => pinStartsOn(body) as Record
 
 /** Keep `understood` references pointing at the ids stabilise assigned to their item/seed. */
 function pinCaptureUnderstanding(live: Record<string, unknown>, stable: Record<string, unknown>): Record<string, unknown> {
-  type Proposal = { items?: Array<{ itemId: string }>; seeds?: Array<{ seedItemId: string }>; understood?: Array<Record<string, unknown>> };
+  type Entity = { pointId?: string };
+  type Proposal = {
+    items?: Array<Entity & { itemId: string }>;
+    seeds?: Array<Entity & { seedItemId: string }>;
+    habits?: Array<Entity & { habitItemId: string }>;
+    goals?: Array<Entity & { goalItemId: string }>;
+    understood?: Array<Record<string, unknown>>;
+  };
   const pin = (liveProposal: Proposal | null | undefined, stableProposal: Proposal | null | undefined): Proposal | null | undefined => {
     if (!liveProposal || !stableProposal || !Array.isArray(liveProposal.understood)) return stableProposal;
     const itemIds = new Map((liveProposal.items ?? []).map((item, index) => [item.itemId, stableProposal.items?.[index]?.itemId]));
     const seedIds = new Map((liveProposal.seeds ?? []).map((seed, index) => [seed.seedItemId, stableProposal.seeds?.[index]?.seedItemId]));
+    const habitIds = new Map((liveProposal.habits ?? []).map((habit, index) => [habit.habitItemId, stableProposal.habits?.[index]?.habitItemId]));
+    const goalIds = new Map((liveProposal.goals ?? []).map((goal, index) => [goal.goalItemId, stableProposal.goals?.[index]?.goalItemId]));
+    const pointIds = new Map([
+      ...(liveProposal.items ?? []).map((item, index) => [item.pointId, stableProposal.items?.[index]?.pointId] as const),
+      ...(liveProposal.seeds ?? []).map((seed, index) => [seed.pointId, stableProposal.seeds?.[index]?.pointId] as const),
+      ...(liveProposal.habits ?? []).map((habit, index) => [habit.pointId, stableProposal.habits?.[index]?.pointId] as const),
+      ...(liveProposal.goals ?? []).map((goal, index) => [goal.pointId, stableProposal.goals?.[index]?.pointId] as const),
+    ].filter((entry): entry is [string, string] => typeof entry[0] === 'string' && typeof entry[1] === 'string'));
     return {
       ...stableProposal,
       understood: liveProposal.understood.map((livePoint) => {
-        const point = { ...livePoint };
+        const point = typeof livePoint.pointId === 'string'
+          ? { ...livePoint, pointId: pointIds.get(livePoint.pointId) }
+          : { ...livePoint };
         if (typeof livePoint?.itemId === 'string') return { ...point, itemId: itemIds.get(livePoint.itemId) };
         if (typeof livePoint?.seedItemId === 'string') return { ...point, seedItemId: seedIds.get(livePoint.seedItemId) };
+        if (typeof livePoint?.habitItemId === 'string') return { ...point, habitItemId: habitIds.get(livePoint.habitItemId) };
+        if (typeof livePoint?.goalItemId === 'string') return { ...point, goalItemId: goalIds.get(livePoint.goalItemId) };
         return point;
       }),
     };
@@ -631,6 +654,8 @@ function setup(): () => void {
     MAYBESITTER_ENV: process.env.MAYBESITTER_ENV,
     MAYBESITTER_FEATURE_GOAL_PLAN: process.env.MAYBESITTER_FEATURE_GOAL_PLAN,
     MAYBESITTER_KILL_SWITCH_GOAL_PLAN: process.env.MAYBESITTER_KILL_SWITCH_GOAL_PLAN,
+    MAYBESITTER_FEATURE_CAPTURE_KINDS: process.env.MAYBESITTER_FEATURE_CAPTURE_KINDS,
+    MAYBESITTER_KILL_SWITCH_CAPTURE_KINDS: process.env.MAYBESITTER_KILL_SWITCH_CAPTURE_KINDS,
   };
   process.env.MAYBESITTER_DATA_DIR = directory;
   process.env.MAYBESITTER_FEATURE_RECOMMENDATION = 'true';
@@ -649,6 +674,10 @@ function setup(): () => void {
   process.env.MAYBESITTER_ENV = 'staging';
   process.env.MAYBESITTER_FEATURE_GOAL_PLAN = 'true';
   process.env.MAYBESITTER_KILL_SWITCH_GOAL_PLAN = 'false';
+  // Legacy fixtures exercise the off-wire contract. M3b's dedicated block
+  // turns this on only around the new fixtures.
+  process.env.MAYBESITTER_FEATURE_CAPTURE_KINDS = 'false';
+  process.env.MAYBESITTER_KILL_SWITCH_CAPTURE_KINDS = 'false';
   configureCommandService({ initialState: createEmptyDomainState(), schedulerStore: null });
   setStorageForTests(createMemoryStorage());
   mkdirSync(FIXTURES, { recursive: true });
@@ -775,6 +804,10 @@ function geminiExtraction(): string {
 test('exports a fixture for every /api/mobile call the React Native client makes', async () => {
   const teardown = setup();
   try {
+    process.env.MAYBESITTER_FEATURE_CAPTURE_KINDS = 'true';
+    await record('capture.kinds', 200, await captureKindsGet(request('/api/mobile/capture/kinds', { uid: CAPTURE_KINDS_USER })));
+    process.env.MAYBESITTER_FEATURE_CAPTURE_KINDS = 'false';
+
     // ── capture → confirm ──────────────────────────────────────────
     const proposal = await record('capture.proposal', 200, await capturePost(request('/api/mobile/capture', {
       body: { text: 'Call the dentist tomorrow at 3pm', referenceTime: REFERENCE_TIME, timezone: 'Asia/Jerusalem' },
@@ -1078,6 +1111,7 @@ test('exports a fixture for every /api/mobile call the React Native client makes
     assert.deepEqual(weeklyItems.map((item) => [item.title, item.resolvedDate, item.dateEstimated, item.recurrenceHint]), [
       ['عندي تدريب كل سبت', '2026-08-15', false, { weekdays: [6], start: '10:00', end: '16:00' }],
     ]);
+    assert.ok(weeklyItems[0], `the weekly-range fixture has no item: ${JSON.stringify(weekly)}`);
     const weeklyConfirmed = await record('capture.weeklyRangeConfirmation', 200, await confirmPost(request('/api/mobile/capture/confirm', {
       uid: WEEKLY_USER,
       body: { proposalId: weekly.proposalId, itemIds: [weeklyItems[0]!.itemId] },
@@ -1098,6 +1132,7 @@ test('exports a fixture for every /api/mobile call the React Native client makes
       uid: WEEKLY_BLOCK_USER,
       body: { text: 'عندي تدريب كل سبت من الساعة 10 لـ 4', referenceTime: REFERENCE_TIME, timezone: 'Asia/Jerusalem' },
     })).then((response) => response.json()) as { proposalId: string; items: Array<{ itemId: string }> };
+    assert.ok(weeklyOffer.items[0], `the weekly-block fixture has no offer: ${JSON.stringify(weeklyOffer)}`);
     const weeklyItemId = weeklyOffer.items[0]!.itemId;
     const weeklyBlockConfirmed = await record('capture.weeklyBlockConfirmation', 200, await confirmPost(request('/api/mobile/capture/confirm', {
       uid: WEEKLY_BLOCK_USER,
@@ -1309,6 +1344,152 @@ test('exports a fixture for every /api/mobile call the React Native client makes
       body: { message: 'x'.repeat(2_001), timezone: 'Asia/Jerusalem' },
       uid: CHAT_USER,
     })));
+
+    // ── contract-v8 capture kinds (M3b) ───────────────────────────
+    // Build one thought-entry conversation with all three new persisted
+    // families. Earlier turns are intentionally not fixtures: the final answer
+    // is the client contract, while the live ids are chained into its edit and
+    // confirm requests.
+    process.env.MAYBESITTER_FEATURE_CAPTURE_KINDS = 'true';
+    mock.timers.enable({ apis: ['Date'], now: Date.parse(REFERENCE_TIME) });
+    try {
+    const kindsTurn = async (body: Record<string, unknown>): Promise<Record<string, unknown>> => {
+      const response = await chatPost(request('/api/mobile/capture/chat', { body, uid: CAPTURE_KINDS_USER }));
+      const answer = await response.json() as Record<string, unknown>;
+      assert.equal(response.status, 200, JSON.stringify(answer));
+      return answer;
+    };
+    let kindsAnswer = await kindsTurn({
+      message: 'عم بفكر أزور الطبيب بكرا الساعة 4 المسا', entry: 'thought', locale: 'ar',
+      timezone: 'Asia/Jerusalem', referenceTime: REFERENCE_TIME,
+    });
+    kindsAnswer = await kindsTurn({
+      conversationId: kindsAnswer.conversationId, message: 'وبدي أمشي نص ساعة كل يوم الصبح', locale: 'ar',
+      timezone: 'Asia/Jerusalem', referenceTime: REFERENCE_TIME,
+    });
+    kindsAnswer = await kindsTurn({
+      conversationId: kindsAnswer.conversationId, message: 'وحابب أنزل بالوزن', locale: 'ar',
+      timezone: 'Asia/Jerusalem', referenceTime: REFERENCE_TIME,
+    });
+    const beforeGoal = kindsAnswer.proposal as {
+      proposalId: string; revision: number;
+      seeds: Array<{ seedItemId: string; kind: string; suggestedTime?: unknown }>;
+    };
+    const goalSeed = beforeGoal.seeds.find((seed) => seed.kind === 'possible_goal');
+    assert.ok(goalSeed, 'the mixed capture has no goal seed to promote');
+    const kindsEditedResponse = await chatPost(request('/api/mobile/capture/chat', {
+      body: {
+        conversationId: kindsAnswer.conversationId,
+        edit: {
+          proposalId: beforeGoal.proposalId, revision: beforeGoal.revision,
+          target: { seedItemId: goalSeed.seedItemId }, change: { kind: 'goal' },
+        },
+        timezone: 'Asia/Jerusalem', referenceTime: REFERENCE_TIME, locale: 'ar',
+      },
+      uid: CAPTURE_KINDS_USER,
+    }));
+    kindsAnswer = await record('capture.chatKinds', 200, kindsEditedResponse, (body) => body, pinCaptureUnderstanding);
+    const kindsProposal = kindsAnswer.proposal as {
+      proposalId: string;
+      habits: Array<{ habitItemId: string }>;
+      goals: Array<{ goalItemId: string }>;
+      seeds: Array<{ seedItemId: string; suggestedTime?: unknown }>;
+    };
+    assert.equal(kindsProposal.habits.length, 1);
+    assert.equal(kindsProposal.goals.length, 1);
+    assert.equal(kindsProposal.seeds.length, 1);
+    assert.ok(kindsProposal.seeds[0]!.suggestedTime, 'the thought seed lost its suggested time');
+
+    const mixedSelection = {
+      proposalId: kindsProposal.proposalId,
+      selectedItemIds: [],
+      selectedHabitItemIds: kindsProposal.habits.map((habit) => habit.habitItemId),
+      selectedGoalItemIds: kindsProposal.goals.map((goal) => goal.goalItemId),
+      selectedSeedItemIds: kindsProposal.seeds.map((seed) => seed.seedItemId),
+      idempotencyKey: 'fixture-capture-kinds-confirm',
+    };
+    await record('capture.confirmGoalInvalid', 400, await confirmPost(request('/api/mobile/capture/confirm', {
+      body: { ...mixedSelection, selectedHabitItemIds: [], selectedGoalItemIds: ['goal-not-in-proposal'], selectedSeedItemIds: [], idempotencyKey: 'fixture-goal-invalid' },
+      uid: CAPTURE_KINDS_USER,
+    })));
+    await record('capture.confirmSeedInvalid', 400, await confirmPost(request('/api/mobile/capture/confirm', {
+      body: { ...mixedSelection, selectedHabitItemIds: [], selectedGoalItemIds: [], selectedSeedItemIds: ['seed-not-in-proposal'], idempotencyKey: 'fixture-seed-invalid' },
+      uid: CAPTURE_KINDS_USER,
+    })));
+
+    const incompleteHabitAnswer = await kindsTurn({
+      message: 'بدي أبلّش عادة المشي', entry: 'habit', locale: 'ar',
+      timezone: 'Asia/Jerusalem', referenceTime: REFERENCE_TIME,
+    });
+    const incompleteHabit = (incompleteHabitAnswer.proposal as {
+      proposalId: string; habits: Array<{ habitItemId: string }>;
+    });
+    await record('capture.confirmHabitInvalid', 400, await confirmPost(request('/api/mobile/capture/confirm', {
+      body: {
+        proposalId: incompleteHabit.proposalId, selectedItemIds: [],
+        selectedHabitItemIds: incompleteHabit.habits.map((habit) => habit.habitItemId),
+        selectedGoalItemIds: [], selectedSeedItemIds: [], idempotencyKey: 'fixture-habit-invalid',
+      },
+      uid: CAPTURE_KINDS_USER,
+    })));
+    // The public chat normally stays far below Firestore's atomic-write cap.
+    // Inflate a throwaway, valid daily-habit proposal at the durable seam so
+    // the client's typed refusal fixture still comes from the real route.
+    const proposalStore = createStorageCaptureProposalStore();
+    const oversized = await proposalStore.get(kindsProposal.proposalId);
+    assert.ok(oversized, 'the mixed capture proposal was not stored');
+    const originalHabit = oversized.contract.habits![0]!;
+    const oversizedHabits = Array.from({ length: 16 }, (_, index) => ({
+      ...originalHabit,
+      habitItemId: `${originalHabit.habitItemId}-${index + 1}`,
+      pointId: `${originalHabit.pointId}-${index + 1}`,
+    }));
+    oversized.contract = { ...oversized.contract, habits: oversizedHabits };
+    await proposalStore.put(oversized);
+    await record('capture.confirmTooManyWrites', 400, await confirmPost(request('/api/mobile/capture/confirm', {
+      body: {
+        proposalId: oversized.contract.proposalId,
+        selectedItemIds: [],
+        selectedHabitItemIds: oversizedHabits.map((habit) => habit.habitItemId),
+        selectedGoalItemIds: [], selectedSeedItemIds: [], idempotencyKey: 'fixture-too-many-writes',
+      },
+      uid: CAPTURE_KINDS_USER,
+    })));
+    // Restore the mixed proposal used by the remaining gate/refusal fixtures.
+    oversized.contract = { ...oversized.contract, habits: [originalHabit] };
+    await proposalStore.put(oversized);
+    process.env.MAYBESITTER_FEATURE_CAPTURE_KINDS = 'false';
+    await record('capture.confirmKindsUnavailable', 409, await confirmPost(request('/api/mobile/capture/confirm', {
+      body: mixedSelection, uid: CAPTURE_KINDS_USER,
+    })));
+    process.env.MAYBESITTER_FEATURE_CAPTURE_KINDS = 'true';
+    process.env.MAYBESITTER_FEATURE_MEMORY = 'false';
+    await record('capture.confirmGoalsUnavailable', 409, await confirmPost(request('/api/mobile/capture/confirm', {
+      body: mixedSelection, uid: CAPTURE_KINDS_USER,
+    })));
+    process.env.MAYBESITTER_FEATURE_MEMORY = 'true';
+    const kindsConfirmation = await record('capture.kindsConfirmation', 200, await confirmPost(request('/api/mobile/capture/confirm', {
+      body: mixedSelection, uid: CAPTURE_KINDS_USER,
+    })));
+    assert.equal((kindsConfirmation.habitsPersisted as unknown[]).length, 1);
+    assert.equal((kindsConfirmation.goalsPersisted as unknown[]).length, 1);
+    assert.equal((kindsConfirmation.seedsPersisted as unknown[]).length, 1);
+    const kindsExport = await record('account.captureKindsExport', 200, await accountExportGet(
+      request('/api/mobile/account/export', { uid: CAPTURE_KINDS_USER }),
+    ), stabiliseDailyCounters);
+    const kindsCollections = kindsExport.collections as Record<string, unknown[]>;
+    assert.equal(kindsCollections.habits.length, 1, 'the capture-created habit is absent from export');
+    assert.ok(kindsCollections.habitOccurrences.length > 0, 'the capture-created habit occurrences are absent from export');
+    assert.equal(kindsCollections.memory.length, 1, 'the capture-created goal is absent from export');
+    assert.equal(kindsCollections.intentSeeds.length, 1, 'the capture-created seed is absent from export');
+    await record('capture.confirmKeyReused', 409, await confirmPost(request('/api/mobile/capture/confirm', {
+      body: { ...mixedSelection, selectedSeedItemIds: [] }, uid: CAPTURE_KINDS_USER,
+    })));
+    } finally {
+      mock.timers.reset();
+      process.env.MAYBESITTER_FEATURE_MEMORY = 'true';
+      process.env.MAYBESITTER_FEATURE_CAPTURE_KINDS = 'false';
+    }
 
     // ── commitments ────────────────────────────────────────────────
     const today = await record('commitments.today', 200, await todayGet(

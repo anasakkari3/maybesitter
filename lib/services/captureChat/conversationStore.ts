@@ -19,6 +19,7 @@
  * tests, Firestore on staging and production.
  */
 import { CAPTURE_PROPOSAL_TTL_MS } from '../../../src/contracts/v1/captureContracts';
+import type { CaptureEntry } from '../../../src/contracts/v1/captureContracts';
 import { CAPTURE_PROPOSAL_RETENTION_MS } from '../captureBoundary/proposalStore';
 import { CAPTURE_CONVERSATIONS, getStorage, userSubDoc, type StorageAdapter } from '../../storage';
 
@@ -34,6 +35,8 @@ export interface StoredCaptureConversation {
   turns: CaptureChatTurn[];
   /** The conversation's current proposal, or null when it has none. */
   proposalId: string | null;
+  /** First-turn capture entry; later turns cannot replace it. */
+  entry?: CaptureEntry | null;
   createdAt: string;
   updatedAt: string;
   /** Exact last message response, so a transport retry within two minutes cannot apply its delta twice. */
@@ -94,6 +97,9 @@ export class CaptureConversationStore {
         ...(turn.evidence === false ? { evidence: false as const } : {}),
       })) : [],
       proposalId: typeof document.proposalId === 'string' ? document.proposalId : null,
+      ...(document.entry === 'goal' || document.entry === 'habit' || document.entry === 'thought' || document.entry === null
+        ? { entry: document.entry }
+        : {}),
       createdAt: String(document.createdAt ?? ''),
       updatedAt: String(document.updatedAt ?? ''),
       ...(document.messageReceipt
@@ -128,6 +134,7 @@ export class CaptureConversationStore {
         ...(turn.evidence === false ? { evidence: false as const } : {}),
       })),
       proposalId: conversation.proposalId,
+      ...(conversation.entry === undefined ? {} : { entry: conversation.entry }),
       createdAt: conversation.createdAt,
       updatedAt: conversation.updatedAt,
       ...(conversation.messageReceipt === undefined ? {} : { messageReceipt: conversation.messageReceipt }),
