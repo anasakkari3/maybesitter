@@ -583,8 +583,8 @@ export async function editCaptureKindsProposal(
   const handles = 'habitItemId' in target || 'goalItemId' in target || change.kind === 'habit' || change.kind === 'goal'
     || ('seedItemId' in target && change.kind === 'commitment' && Boolean(stored.contract.seeds.find((seed) => seed.seedItemId === target.seedItemId)?.suggestedTime));
   if (!handles) return null;
-  if (('habitItemId' in target || 'goalItemId' in target)
-    && typeof change.text === 'string' && !captureKindTitleFits(change.text)) {
+  const changedTitle = typeof change.text === 'string' ? change.text.trim() : undefined;
+  if (changedTitle !== undefined && !captureKindTitleFits(changedTitle)) {
     throw new CaptureKindsInvalidEditError();
   }
   let contract: CaptureProposalContract = {
@@ -603,10 +603,10 @@ export async function editCaptureKindsProposal(
       contract.goals!.splice(index, 1);
       contract.seeds.push({
         seedItemId: randomUUID(), pointId: goal.pointId, kind: 'possible_goal',
-        summary: typeof change.text === 'string' && change.text.trim() ? change.text.trim() : goal.title,
+        summary: changedTitle || goal.title,
         suggestedTime: null,
       });
-    } else if (typeof change.text === 'string' && change.text.trim()) goal.title = change.text.trim();
+    } else if (changedTitle) goal.title = changedTitle;
     else throw new CaptureKindsInvalidEditError();
   } else if ('habitItemId' in target) {
     const index = contract.habits!.findIndex((candidate) => candidate.habitItemId === target.habitItemId);
@@ -615,8 +615,9 @@ export async function editCaptureKindsProposal(
     if (change.kind === 'commitment') {
       contract.habits!.splice(index, 1);
       const itemId = randomUUID();
-      const artifacts = buildStructuredCommitmentArtifacts(stored, itemId, before.title);
-      contract.items.push({ itemId, pointId: before.pointId, title: before.title, resolvedTime: null, needsClarification: true, timeEstimated: false, priority: 'normal', priorityEstimated: false, clarification: null });
+      const title = changedTitle || before.title;
+      const artifacts = buildStructuredCommitmentArtifacts(stored, itemId, title);
+      contract.items.push({ itemId, pointId: before.pointId, title, resolvedTime: null, needsClarification: true, timeEstimated: false, priority: 'normal', priorityEstimated: false, clarification: null });
       results.set(itemId, artifacts.result);
       commands.set(itemId, artifacts.commands);
     } else {
@@ -624,7 +625,7 @@ export async function editCaptureKindsProposal(
       const durationMinutes = change.durationMinutes === undefined ? before.durationMinutes : Number(change.durationMinutes);
       if (durationMinutes !== null && (!Number.isInteger(durationMinutes) || durationMinutes < 5 || durationMinutes > 240)) throw new CaptureKindsInvalidEditError();
       const preferredWindow = change.preferredWindow === undefined ? before.preferredWindow : change.preferredWindow as CapturePreferredWindow | null;
-      const title = typeof change.text === 'string' && change.text.trim() ? change.text.trim() : before.title;
+      const title = changedTitle || before.title;
       if (!captureKindTitleFits(title)) throw new CaptureKindsInvalidEditError();
       contract.habits![index] = completeHabit({ ...before, cadence, durationMinutes, preferredWindow, title }, locale);
       if (change.cadence !== undefined || change.durationMinutes !== undefined) editedHabitPointIds.add(before.pointId);
@@ -633,17 +634,19 @@ export async function editCaptureKindsProposal(
     const index = contract.items.findIndex((candidate) => candidate.itemId === target.itemId);
     if (index < 0) throw new CaptureKindsInvalidEditError();
     const item = contract.items[index]!;
-    if (!captureKindTitleFits(item.title)) throw new CaptureKindsInvalidEditError();
+    const title = changedTitle || item.title;
+    if (!captureKindTitleFits(title)) throw new CaptureKindsInvalidEditError();
     contract.items.splice(index, 1); commands.delete(item.itemId);
-    contract.habits!.push(completeHabit({ habitItemId: randomUUID(), pointId: capturePointId(item), title: item.title, cadence: null, durationMinutes: null, preferredWindow: null, explanation: null, question: null, confirmable: false }, locale));
+    contract.habits!.push(completeHabit({ habitItemId: randomUUID(), pointId: capturePointId(item), title, cadence: null, durationMinutes: null, preferredWindow: null, explanation: null, question: null, confirmable: false }, locale));
   } else if ('seedItemId' in target && change.kind === 'goal') {
     const index = contract.seeds.findIndex((candidate) => candidate.seedItemId === target.seedItemId);
     if (index < 0 || contract.seeds[index]!.kind !== 'possible_goal'
       || resolveModuleRuntime('memory').mode !== 'enabled') throw new CaptureKindsInvalidEditError();
     const seed = contract.seeds[index]!;
-    if (!captureKindTitleFits(seed.summary)) throw new CaptureKindsInvalidEditError();
+    const title = changedTitle || seed.summary;
+    if (!captureKindTitleFits(title)) throw new CaptureKindsInvalidEditError();
     contract.seeds.splice(index, 1);
-    contract.goals!.push({ goalItemId: randomUUID(), pointId: capturePointId(seed), title: seed.summary });
+    contract.goals!.push({ goalItemId: randomUUID(), pointId: capturePointId(seed), title });
   } else if ('seedItemId' in target && change.kind === 'commitment') {
     const index = contract.seeds.findIndex((candidate) => candidate.seedItemId === target.seedItemId);
     if (index < 0) throw new CaptureKindsInvalidEditError();
