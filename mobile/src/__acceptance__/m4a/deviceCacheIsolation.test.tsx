@@ -128,7 +128,7 @@ it('M4A-R8-001 account A device blocks never appear for B and sign-out clears th
   resetBusySyncForTests();
   await act(async () => { repository.emit(ACCOUNT_B); });
   await act(async () => {
-    view.rerender(
+    await view.rerender(
       <SafeAreaProvider initialMetrics={METRICS}>
         <AppProvider>
           <AuthProvider repository={repository} isDevBundle={false}>

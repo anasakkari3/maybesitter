@@ -61,7 +61,6 @@ describe('M4a readiness fails closed', () => {
     ['weekly occurrences', '/api/mobile/weekly-blocks/occurrences'],
     ['saved week', '/api/mobile/plans/week'],
     ['routine profile', '/api/mobile/profile'],
-    ['server busy', '/api/mobile/calendar/busy'],
   ])('M4A-R7-002 failed %s shows unknown and no free rows, totals or bars', async (_source, path) => {
     harness = await prepareCalendar((scenario) => { scenario.fail.add(path); });
     await renderCalendar(harness);
@@ -74,7 +73,6 @@ describe('M4a readiness fails closed', () => {
     ['weekly occurrences', '/api/mobile/weekly-blocks/occurrences'],
     ['saved week', '/api/mobile/plans/week'],
     ['routine profile', '/api/mobile/profile'],
-    ['server busy', '/api/mobile/calendar/busy'],
   ])('M4A-R7-002 pending %s shows loading and no free rows, totals or bars', async (_source, path) => {
     harness = await prepareCalendar((scenario) => { scenario.pending.add(path); });
     await renderCalendar(harness);

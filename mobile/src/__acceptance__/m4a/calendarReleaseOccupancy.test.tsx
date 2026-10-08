@@ -11,6 +11,7 @@ import {
   press,
   renderCalendar,
   teardown,
+  trust,
   type M4aHarness,
 } from './harness';
 
@@ -37,12 +38,17 @@ describe('M4a calendar release gate', () => {
     ['404', { status: 404, body: { success: false, error: 'feature_unavailable', reason: 'feature_unavailable' } }],
     ['error', { status: 503, body: { success: false, error: 'unavailable', reason: 'unavailable' } }],
   ])('M4A-R10-001 %s probe keeps the mounted Plan tab on its old surface and starts no free-time reads', async (_case, busy) => {
-    harness = await prepareCalendar((scenario) => { scenario.busy = busy; });
+    harness = await prepareCalendar((scenario) => {
+      scenario.busy = busy;
+      scenario.trust = trust(true);
+    });
     await renderCalendar(harness);
 
     expect(screen.getByTestId(`calendar-day-${TODAY}`).props.accessibilityState.selected).toBe(true);
     expect(screen.queryByTestId('calendar-filter-busy')).not.toBeNull();
     expect(screen.queryByTestId('calendar-filter-free')).toBeNull();
+    expect(screen.queryByTestId('calendar-free-unknown')).toBeNull();
+    expect(screen.queryByTestId('calendar-free-loading')).toBeNull();
     expect(screen.queryAllByTestId(/^calendar-gap-/)).toHaveLength(0);
     expect(screen.queryByTestId('calendar-wider-open')).toBeNull();
     await waitFor(() => expect(harness!.server.matching('GET', /\/calendar\/busy$/)).toHaveLength(1));
@@ -55,11 +61,14 @@ describe('M4a calendar release gate', () => {
   it('M4A-R10-001 pending probe keeps the old surface while the request is unresolved', async () => {
     harness = await prepareCalendar((scenario) => {
       scenario.pending.add('/api/mobile/calendar/busy');
+      scenario.trust = trust(true);
     });
     await renderCalendar(harness);
 
     expect(screen.queryByTestId('calendar-filter-busy')).not.toBeNull();
     expect(screen.queryByTestId('calendar-filter-free')).toBeNull();
+    expect(screen.queryByTestId('calendar-free-unknown')).toBeNull();
+    expect(screen.queryByTestId('calendar-free-loading')).toBeNull();
     expect(screen.queryAllByTestId(/^calendar-gap-/)).toHaveLength(0);
     expect(screen.queryByTestId('calendar-wider-open')).toBeNull();
     expect(harness.server.matching('GET', /\/calendar\/busy$/)).toHaveLength(1);
@@ -67,7 +76,7 @@ describe('M4a calendar release gate', () => {
   });
 
   it('M4A-R11-003 a later 404 removes free-time surfaces without remounting', async () => {
-    harness = await prepareCalendar();
+    harness = await prepareCalendar((scenario) => { scenario.trust = trust(true); });
     let probes = 0;
     harness.server.extra = (request) => {
       if (request.path !== '/api/mobile/calendar/busy') return undefined;
