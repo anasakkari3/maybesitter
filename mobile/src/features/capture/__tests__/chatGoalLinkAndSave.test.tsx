@@ -13,7 +13,7 @@
  */
 import React from 'react';
 import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
-import { ScrollView, Text } from 'react-native';
+import { ScrollView, Text, View } from 'react-native';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import { SafeAreaProvider, type Metrics } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -287,6 +287,15 @@ describe('audit #8: a new proposal brings its confirm into view', () => {
     // The same proposal laid out again does not pull the person back down.
     await fireEvent(screen.getByTestId('review-scroll'), 'layout', layout(0, 480));
     expect(scrollTo.mock.calls.length).toBe(calls);
+  });
+
+  it('a proposal with no schedule (a habit, a goal or a thought alone, M3b) scrolls to its cards', async () => {
+    const scrollTo = jest.spyOn(ScrollView.prototype as unknown as { scrollTo: (...args: unknown[]) => void }, 'scrollTo').mockImplementation(() => {});
+    scrollTo.mockClear();
+    await render(<SayItChatPage {...baseProps} scheduleGroups={[]} reviewing confirmWithoutRows reviewExtras={<View testID="habit-card" />} revealConfirmKey="p-h" />);
+    await fireEvent(screen.getByTestId('review-scroll'), 'layout', layout(0, 500));
+    await fireEvent(screen.getByTestId('chat-review-loose'), 'layout', layout(640, 300));
+    expect(scrollTo).toHaveBeenLastCalledWith({ y: 624, animated: true });
   });
 
   it('a new proposal waits for its own layout and shows the first card even when the list grew', async () => {

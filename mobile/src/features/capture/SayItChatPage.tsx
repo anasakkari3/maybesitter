@@ -460,8 +460,10 @@ export function SayItChatPage({
               {reviewFooter ? <View testID="chat-review-footer" style={styles.reviewFooter}>{reviewFooter}</View> : null}
             </View>
             {scheduleTime ? <Text style={[timestampStyle, styles.scheduleTime]}>{scheduleTime}</Text> : null}
-          </View> : reviewExtras || reviewFooter ? <View style={[styles.reviewExtras, styles.looseExtras]}
-            onLayout={() => setLaidOut((count) => count + 1)}>{reviewExtras}{onConfirm && confirmWithoutRows ? confirmButton : null}{reviewFooter}</View> : null}
+          </View> : reviewExtras || reviewFooter ? <View testID="chat-review-loose" style={[styles.reviewExtras, styles.looseExtras]}
+            // With no schedule (a habit, a goal or a thought alone, M3b), these
+            // cards are the proposal's first decision, so the reveal starts here.
+            onLayout={(event) => { setLaidOut((count) => count + 1); measured(setBlock, event.nativeEvent.layout.y); }}>{reviewExtras}{onConfirm && confirmWithoutRows ? confirmButton : null}{reviewFooter}</View> : null}
           {followup && message(followup, 'chat-followup')}
           {accessibilitySize && languageControl ? <View style={[styles.languageRow, styles.scrollLanguage]}>{languageControl}</View> : null}
         </> : bodyOverride}
