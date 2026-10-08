@@ -10,7 +10,6 @@ import {
   usePlan,
   usePlanAction,
   useSetHabitStatus,
-  useCaptureKinds,
 } from '../../api/queries';
 import { PlanProposalRefusedError } from '../../api/errors';
 import { QueryBoundary } from '../../api/ui/QueryBoundary';
@@ -27,6 +26,7 @@ import { Dialog } from '../../ui/dialog';
 import { ProductActions, ProductPage, ProductSection, ProductRow } from '../../ui/product';
 import { capabilities as cap, shareCapability } from './capabilities';
 import { ChatEntryButton, ChatEntryPlaceholder } from '../capture/ChatEntryButton';
+import { useCaptureKinds } from '../capture/useCaptureKinds';
 import { ShareGuideSheet, type ShareGuideKind } from './ShareGuideSheet';
 import { useGoogleStatus } from '../google/useGoogle';
 

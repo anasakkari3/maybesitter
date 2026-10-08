@@ -6,6 +6,7 @@ import { useCaptureFlow } from '../features/capture/CaptureProvider';
 import { MAX_CAPTURE_LENGTH, chatSaves, confirmableGoals, confirmableHabits, confirmableItems, confirmableThoughts, goalLinkKept, pointSelected, selectedCount, showsUnderstood, summaryPoints, wantsDiscardConfirmation, weeklyChoice, weeklyLockedByEdit, type CaptureItemEdit, type ChatSavedNote } from '../features/capture/captureMachine';
 import { GoalProposalCard, HabitProposalCard, SeedCommitAction, ThoughtProposalCard } from '../features/capture/ProposalPointCards';
 import { tFor } from '../i18n';
+import { LiveRegion } from '../ui/liveRegion';
 import { useGoalPlan } from '../api/queries';
 import { understoodKeyOf, UnderstoodMessage, type UnderstoodTarget } from '../features/capture/UnderstoodMessage';
 import { familyIdOf, familyIdOfLine, type PointTarget } from '../features/capture/pointIdentity';
@@ -508,11 +509,13 @@ export function CaptureScreen() {
   const thoughtEntry = state.proposal?.entry === 'thought';
   const reviewExtras = cardsOpen ? <View style={{ gap: 10 }}>
     {state.reviewNotice ? <Txt testID="review-conflict-note" color={p.wm}>{t.captureProposalChanged}</Txt> : null}
-    {refusal ? <View testID="capture-confirm-refused" accessibilityLiveRegion="polite" style={{ gap: 8, alignItems: 'flex-start' }}>
+    {/* Always mounted, so a screen reader hears the refusal arrive (live-region census). */}
+    <LiveRegion alert>{refusal ? <View testID="capture-confirm-refused" style={{ gap: 8, alignItems: 'flex-start' }}>
       <Txt color={p.wm}>{t[refusal.message]}</Txt>
       {refusal.action ? <Pill testID="capture-confirm-refused-action" label={t[refusal.action.label]} kind="outline" size={14} pad={10}
         onPress={() => { if (refusal.action?.drop) flow.dropFamilies(refusal.action.drop); }} /> : null}
-    </View> : state.status === 'confirmFailed' ? <Txt testID="review-confirm-failed" color={p.wm}>{t[state.messageKey ?? 'errorsGeneric']}</Txt> : null}
+    </View> : null}</LiveRegion>
+    {!refusal && state.status === 'confirmFailed' ? <Txt testID="review-confirm-failed" color={p.wm}>{t[state.messageKey ?? 'errorsGeneric']}</Txt> : null}
     {selectedCount(state) === 0 && items.length ? <Txt size={13} testID="review-none-selected" color={p.mu}>{t.reviewNothingSelected}</Txt> : null}
     {(state.proposal?.habits ?? []).map((habit) => <HabitProposalCard key={habit.pointId} habit={habit}
       selected={pointSelected(state, habit.pointId)} onToggle={() => flow.togglePoint(habit.pointId)}

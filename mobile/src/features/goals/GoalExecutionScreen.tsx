@@ -10,7 +10,6 @@ import {
   useIntelligenceDecided,
   useMemory,
   useUnlinkGoalNode,
-  useCaptureKinds,
 } from '../../api/queries';
 import { FeatureUnavailableError } from '../../api/errors';
 import type { GoalGraph } from '../../api/schemas/goals';
@@ -30,6 +29,7 @@ import { useGoalPlanFlow } from '../goalPlan/useGoalPlanFlow';
 import { currentGoalProgressPeriod } from './progressPeriod';
 import { IntelligencePanel } from './IntelligencePanel';
 import { ChatEntryButton, ChatEntryPlaceholder } from '../capture/ChatEntryButton';
+import { useCaptureKinds } from '../capture/useCaptureKinds';
 
 type LinkedNode = Extract<GoalGraph['nodes'][number], { kind: 'linked_commitment' | 'linked_habit' }>;
 
@@ -132,16 +132,18 @@ function GoalDetail({ goalId, title, onBack }: { goalId: string; title: string; 
   // or a back navigation cannot start it again; then, once the goal's plan is
   // known — a draft opens, nothing at all generates, a confirmed plan only
   // shows its progress, and with the plan path off nothing starts.
-  const [pendingStart, setPendingStart] = React.useState(s.startPlan);
+  // A ref, not state: nothing is drawn from it; it only remembers, across the
+  // flag's removal, that this page still owes one start.
+  const pendingStart = React.useRef(s.startPlan);
   React.useEffect(() => {
     if (s.startPlan) actions.clearStartPlan();
   }, [s.startPlan, actions]);
   React.useEffect(() => {
-    if (!pendingStart || planView.isPending || flow.state.goalId) return;
-    setPendingStart(false);
+    if (!pendingStart.current || planView.isPending || flow.state.goalId) return;
+    pendingStart.current = false;
     if (planOff || !planView.isSuccess || confirmedPlan) return;
     flow.openGoal(goalId, draft);
-  }, [pendingStart, planView.isPending, planView.isSuccess, planOff, confirmedPlan, draft, goalId, flow]);
+  }, [planView.isPending, planView.isSuccess, planOff, confirmedPlan, draft, goalId, flow]);
 
   const onRecover = (recovery: PlanRecovery | 'open_today', detail: { currentGoalId?: string | undefined }) => {
     switch (recovery) {

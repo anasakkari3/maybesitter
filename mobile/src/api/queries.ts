@@ -1,11 +1,11 @@
 import { useCallback, useRef } from 'react';
 import { keepPreviousData, useInfiniteQuery, useMutation, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
-import type { CaptureConfirmation, CaptureEntry } from './schemas/capture';
+import type { CaptureConfirmation } from './schemas/capture';
 import * as Crypto from 'expo-crypto';
 import { useTimeZone } from '../i18n/timezone';
 import { apiLocale } from '../i18n/locale';
 import { useAuth } from '../auth/AuthProvider';
-import { chatCapture, clarifyCapture, confirmCapture, getCaptureKinds, proposeCapture, type CaptureChatInput } from './endpoints/capture';
+import { chatCapture, clarifyCapture, confirmCapture, proposeCapture, type CaptureChatInput } from './endpoints/capture';
 import { proposeFromShare } from './endpoints/share';
 import { prepareMeeting } from './endpoints/meetings';
 import type { UploadFile } from './client';
@@ -471,26 +471,6 @@ export function useConfirmGoalSelections(goalId: string) {
 
 export function useUnlinkGoalNode(goalId: string) {
   return useGoalMutation(goalId, (nodeId: string) => unlinkGoalNode(goalId, nodeId));
-}
-
-/**
- * Which chat entries the server offers (M3b, R004): the goals, habits and
- * thoughts pages read this one hook before they draw a create path. Pending
- * means "draw neither"; a switched-off feature (404), a network failure or any
- * other error means "keep today's paths" — the safe side. Keyed by account and
- * cleared with it (#148), never retried on its own.
- */
-export function useCaptureKinds(): { pending: boolean; entries: readonly CaptureEntry[] } {
-  const uid = useUid();
-  const query = useQuery({
-    queryKey: ['user', uid, 'captureKinds'],
-    queryFn: getCaptureKinds,
-    enabled: uid !== 'signed-out',
-    retry: false,
-    staleTime: 5 * 60_000,
-  });
-  if (query.isPending && uid !== 'signed-out') return { pending: true, entries: [] };
-  return { pending: false, entries: query.data ?? [] };
 }
 
 export function useHabits(enabled = true) {
