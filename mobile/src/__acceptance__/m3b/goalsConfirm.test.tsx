@@ -176,7 +176,7 @@ describe('M3b A4 goals and plan handoff', () => {
     await screen.findByTestId(`capture-saved-start-plan-${GOAL_ID}`);
     await press(`capture-saved-start-plan-${GOAL_ID}`);
     await waitForRequest(harness, 'POST', new RegExp(`/goals/${GOAL_ID}/plan/generate$`));
-    await press('goal-back-list');
+    await press('header-back');
     await screen.findByTestId('capture-input');
     await press('capture-cancel');
     await screen.findByTestId('tab-things');
