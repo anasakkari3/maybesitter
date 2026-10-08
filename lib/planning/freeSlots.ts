@@ -15,13 +15,15 @@ import { GOOGLE_BUSY_SOURCE_ID } from '../integrations/google/googleConfig';
 import { connectionIdFor } from '../integrations/providers/production/storedConnectionStore';
 import type { IntegrationConnectionRecord } from '../../src/contracts/v1/integrationConnectionContracts';
 import type { IcsFeedDocument } from '../calendar/icsFeeds';
+import { icsFeedReadStatus, type IcsFeedReadStatus } from '../calendar/icsFeedStatus';
 import {
   listBusyBlocks,
-  listCalendarSources,
+  readCalendarSource,
   type BusyBlock,
   type CalendarSource,
 } from '../calendar/busyBlocks';
 import {
+  CALENDAR_SOURCES,
   ICS_FEEDS,
   PROVIDER_CONNECTIONS,
   getStorage,
@@ -62,6 +64,7 @@ export interface FreeSlotCoverage {
   kind: 'device' | 'google' | 'ics';
   windowStart: string | null;
   windowEnd: string | null;
+  status?: IcsFeedReadStatus;
 }
 
 export interface FreeSlotSchedule {
@@ -196,7 +199,7 @@ export function commitmentCandidates(
 }
 
 let sourceFailure: FreeSlotSource | null = null;
-type ScheduleReader = (uid: string, window: TimeInterval, storage?: StorageAdapter) => Promise<FreeSlotSchedule>;
+type ScheduleReader = (uid: string, window: TimeInterval, storage?: StorageAdapter, now?: string) => Promise<FreeSlotSchedule>;
 let scheduleReader: ScheduleReader = defaultScheduleReader;
 
 export function setFreeSlotScheduleReaderForTests(
@@ -227,29 +230,39 @@ async function defaultScheduleReader(
   uid: string,
   window: TimeInterval,
   storage: StorageAdapter = getStorage(),
+  now: string = new Date().toISOString(),
 ): Promise<FreeSlotSchedule> {
   try {
-    const [commitments, busyBlocks, weeklyBlocks, routineProfile, sources, feeds, google] = await Promise.all([
+    const [commitments, busyBlocks, weeklyBlocks, routineProfile, deviceSourceRows, feeds, google] = await Promise.all([
       sourceRead('commitments', async () => Object.values((await loadDomainState(storage, uid)).commitments)),
       sourceRead('busyBlocks', () => listBusyBlocks(uid, window, { storage })),
       sourceRead('weeklyBlocks', () => listWeeklyBlockOccurrences(uid, window, { storage })),
       sourceRead('routineProfile', () => readRoutineProfile(uid, { storage })),
-      listCalendarSources(uid, { storage }),
+      storage.list<CalendarSource>(userCol(uid, CALENDAR_SOURCES), { where: [['kind', '==', 'device']] }),
       storage.list<IcsFeedDocument>(userCol(uid, ICS_FEEDS), { limit: 5 }),
       storage.get<IntegrationConnectionRecord>(userSubDoc(uid, PROVIDER_CONNECTIONS, connectionIdFor('google'))),
     ]);
-    const sourceById = new Map(sources.map((source) => [source.sourceId, source] as const));
-    const coverage: FreeSlotCoverage[] = sources
-      .filter((source) => source.kind === 'device')
+    const deviceSources = deviceSourceRows.map(({ data }) => data);
+    const [googleSource, ...icsSources] = await Promise.all([
+      liveGoogle(google) ? readCalendarSource(uid, GOOGLE_BUSY_SOURCE_ID, { storage }) : Promise.resolve(null),
+      ...feeds.map(({ data: feed }) => readCalendarSource(uid, `ics:${feed.feedId}`, { storage })),
+    ]);
+    const coverage: FreeSlotCoverage[] = deviceSources
       .map((source) => ({ sourceId: source.sourceId, kind: 'device', windowStart: source.windowStart, windowEnd: source.windowEnd }));
     if (liveGoogle(google)) {
-      const source = sourceById.get(GOOGLE_BUSY_SOURCE_ID);
-      coverage.push({ sourceId: GOOGLE_BUSY_SOURCE_ID, kind: 'google', windowStart: source?.windowStart ?? null, windowEnd: source?.windowEnd ?? null });
+      coverage.push({ sourceId: GOOGLE_BUSY_SOURCE_ID, kind: 'google', windowStart: googleSource?.windowStart ?? null, windowEnd: googleSource?.windowEnd ?? null });
     }
-    for (const { data: feed } of feeds) {
+    for (let index = 0; index < feeds.length; index += 1) {
+      const feed = feeds[index]!.data;
       const sourceId = `ics:${feed.feedId}`;
-      const source = sourceById.get(sourceId);
-      coverage.push({ sourceId, kind: 'ics', windowStart: source?.windowStart ?? null, windowEnd: source?.windowEnd ?? null });
+      const source = icsSources[index] ?? null;
+      coverage.push({
+        sourceId,
+        kind: 'ics',
+        windowStart: source?.windowStart ?? null,
+        windowEnd: source?.windowEnd ?? null,
+        status: icsFeedReadStatus(feed, source, Date.parse(now)),
+      });
     }
     const connectedIcs = new Set(feeds.map(({ data }) => `ics:${data.feedId}`));
     return {
@@ -270,8 +283,9 @@ export async function readFreeSlotSchedule(
   uid: string,
   window: TimeInterval,
   storage: StorageAdapter = getStorage(),
+  now?: string,
 ): Promise<FreeSlotSchedule> {
-  return scheduleReader(uid, window, storage);
+  return scheduleReader(uid, window, storage, now);
 }
 
 function overlaps(left: TimeInterval, right: TimeInterval): boolean {
@@ -279,7 +293,8 @@ function overlaps(left: TimeInterval, right: TimeInterval): boolean {
 }
 
 function covered(interval: TimeInterval, sources: readonly FreeSlotCoverage[]): boolean {
-  return sources.every((source) => source.windowStart !== null && source.windowEnd !== null
+  return sources.every((source) => (source.kind !== 'ics' || source.status === 'ok')
+    && source.windowStart !== null && source.windowEnd !== null
     && Date.parse(source.windowStart) <= Date.parse(interval.startsAt)
     && Date.parse(source.windowEnd) >= Date.parse(interval.endsAt));
 }
@@ -309,6 +324,18 @@ function occupiedIntervals(schedule: FreeSlotSchedule): TimeInterval[] {
   ];
 }
 
+/** Timed items in the proposal are held while its untimed siblings are checked. */
+export function captureTimedIntervals(contract: CaptureProposalContract): TimeInterval[] {
+  return contract.items.flatMap((item) => item.resolvedTime
+    ? [{
+      startsAt: item.resolvedTime,
+      endsAt: item.endTime && Date.parse(item.endTime) > Date.parse(item.resolvedTime)
+        ? item.endTime
+        : new Date(Date.parse(item.resolvedTime) + CAPTURE_DURATION_MINUTES * 60_000).toISOString(),
+    }]
+    : []);
+}
+
 export interface FindFreeSlotsInput {
   policy: FreeSlotWindowPolicy;
   uid: string;
@@ -335,7 +362,7 @@ export async function findFreeSlots(input: FindFreeSlotsInput): Promise<GoalPlan
   const first = atLocal(input.dates[0]!, '00:00', input.timezone);
   const last = atLocal(addCivilDays(input.dates[input.dates.length - 1]!, 1), '00:00', input.timezone);
   if (!first || !last) return [];
-  const schedule = input.schedule ?? await readFreeSlotSchedule(input.uid, { startsAt: first, endsAt: last }, input.storage);
+  const schedule = input.schedule ?? await readFreeSlotSchedule(input.uid, { startsAt: first, endsAt: last }, input.storage, input.now);
   if (!schedule.complete) return [];
   const occupied = [...occupiedIntervals(schedule), ...(input.held ?? [])];
   const found: GoalPlanSlot[] = [];
@@ -398,16 +425,16 @@ export async function withFreeSlotClarifications(
   const windowStart = atLocal(allDates[0]!, '00:00', options.timezone);
   const windowEnd = atLocal(addCivilDays(allDates[allDates.length - 1]!, 1), '00:00', options.timezone);
   if (!windowStart || !windowEnd) return contract;
-  const schedule = await readFreeSlotSchedule(uid, { startsAt: windowStart, endsAt: windowEnd }, options.storage);
-  const held: TimeInterval[] = contract.items.flatMap((item) => item.resolvedTime
-    ? [{ startsAt: item.resolvedTime, endsAt: item.endTime && Date.parse(item.endTime) > Date.parse(item.resolvedTime)
-      ? item.endTime : new Date(Date.parse(item.resolvedTime) + CAPTURE_DURATION_MINUTES * 60_000).toISOString() }]
-    : []);
+  const schedule = await readFreeSlotSchedule(uid, { startsAt: windowStart, endsAt: windowEnd }, options.storage, options.now);
+  const held = captureTimedIntervals(contract);
   const items = [] as CaptureProposalContract['items'];
   for (let index = 0; index < contract.items.length; index += 1) {
     const item = contract.items[index]!;
     if (!isEligible(item)) { items.push(item); continue; }
-    const base = item.clarification ?? baseDayPartClarification(item, options.now, options.timezone);
+    const dayParts = baseDayPartClarification(item, options.now, options.timezone);
+    const base = item.clarification?.questionId
+      ? { ...dayParts, questionId: item.clarification.questionId }
+      : dayParts;
     if (!schedule.complete) { items.push({ ...item, clarification: base }); continue; }
     const slots = await findFreeSlots({
       policy: 'capture', uid, timezone: options.timezone, now: options.now,
@@ -446,12 +473,12 @@ export async function freeSlotStillAvailable(
   uid: string,
   date: string,
   time: string,
-  options: { timezone: string; now: string; storage?: StorageAdapter },
+  options: { timezone: string; now: string; held?: readonly TimeInterval[]; storage?: StorageAdapter },
 ): Promise<boolean> {
   const slots = await findFreeSlots({
     policy: 'capture', uid, timezone: options.timezone, now: options.now,
     dates: [date], durationMinutes: CAPTURE_DURATION_MINUTES,
-    limit: 96, minimumSeparationMinutes: 0, storage: options.storage,
+    held: options.held, limit: 96, minimumSeparationMinutes: 0, storage: options.storage,
   });
   return slots.some((slot) => {
     const local = localTimeSpecFor(new Date(slot.startsAt), options.timezone);

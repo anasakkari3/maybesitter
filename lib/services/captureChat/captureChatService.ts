@@ -377,7 +377,7 @@ export async function chatMobileCapture(
     const current = conversation.proposalId ? await readMobileChatProposal(conversation.proposalId, uid, { includeConfirmed: true }) : null;
     if (!current) throw new CaptureChatError('conversation_not_found', 404);
     try {
-      const kindsEdited = await editCaptureKindsProposal(uid, input.edit as CaptureProposalEditContract, locale);
+      const kindsEdited = await editCaptureKindsProposal(uid, input.edit as CaptureProposalEditContract, locale, now);
       if (kindsEdited) {
         const reply = locale === 'en' ? 'Updated. Review the list and confirm below.'
           : locale === 'he' ? 'עודכן. אפשר לבדוק את הרשימה ולאשר למטה.' : 'تمام، عدّلتها. راجع القائمة وأكّد من تحت.';
@@ -394,7 +394,7 @@ export async function chatMobileCapture(
         engine: current.proposal.provenance.requestedEngine === 'model' ? 'model' : 'rules',
         beforeWrite: (proposal, stored) => withFreeSlotClarifications(proposal, uid, {
           timezone: stored.timezone ?? normalizeTimezone(input.timezone),
-          now: stored.proposedAt ?? now.toISOString(),
+          now: now.toISOString(),
         }),
       });
       if (outcome.kind === 'changed') {

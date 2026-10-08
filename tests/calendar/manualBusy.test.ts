@@ -110,6 +110,27 @@ test('acceptLectureSessionsAsBusyBlocks stores busy blocks and never commitments
   assert.equal(commitments.length, 0, 'lecture sessions must become busy blocks, NEVER commitments');
 });
 
+test('the manual writer rejects malformed clocks before persistence', async () => {
+  for (const session of [
+    { weekday: 2, start: '9:00', end: '10:00', label: 'invalid' },
+    { weekday: 2, start: '09:00:00', end: '10:00', label: 'invalid' },
+    { weekday: 2, start: '24:00', end: '25:00', label: 'invalid' },
+    { weekday: 2, start: '10:00', end: '10:00', label: 'invalid' },
+    { weekday: 2, start: '11:00', end: '10:00', label: 'invalid' },
+  ]) {
+    const storage = createMemoryStorage();
+    await assert.rejects(
+      acceptLectureSessionsAsBusyBlocks(UID, PROPOSAL_ID, [session], {
+        timezone: TIMEZONE,
+        referenceTime: REFERENCE_TIME,
+        storage,
+      }),
+      BusyUploadError,
+    );
+    assert.deepEqual(await storage.list(userCol(UID, 'calendarSources')), []);
+  }
+});
+
 test('accepting updated lecture sessions replaces prior blocks cleanly', async () => {
   const storage = createMemoryStorage();
 

@@ -1,8 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createMemoryStorage } from '../../lib/storage/memoryAdapter.ts';
-import { userDoc } from '../../lib/storage/paths.ts';
-import { findFreeSlots, type FreeSlotSchedule } from '../../lib/planning/freeSlots.ts';
+import type { ListOptions, StorageAdapter } from '../../lib/storage/storageAdapter.ts';
+import { CALENDAR_SOURCES, userCol, userDoc } from '../../lib/storage/paths.ts';
+import { replaceBusyBlocks } from '../../lib/calendar/busyBlocks.ts';
+import { findFreeSlots, readFreeSlotSchedule, type FreeSlotSchedule } from '../../lib/planning/freeSlots.ts';
 import { buildRoutineProfile } from '../../src/contracts/v1/routineContracts.ts';
 import { localTimeSpecFor } from '../../src/extraction/timeLexicon.ts';
 
@@ -55,4 +57,37 @@ test('Asia/Jerusalem fall-back week keeps local dates ordered and 30-minute real
     assert.ok(dates.includes(localTimeSpecFor(new Date(slot.startsAt), TZ)!.date));
   }
   assert.deepEqual([...slots].sort((a, b) => Date.parse(a.startsAt) - Date.parse(b.startsAt)), slots);
+});
+
+test('the capture finder reads calendar sources by relevant kind or id, not every manual source', async () => {
+  const storage = createMemoryStorage();
+  await storage.set(userDoc(UID), { timezone: TZ });
+  const window = { startsAt: '2026-10-25T00:00:00.000Z', endsAt: '2026-10-26T00:00:00.000Z' };
+  for (let index = 0; index < 60; index += 1) {
+    await replaceBusyBlocks(UID, `manual:empty-${index}`, window, [], { storage, platform: null });
+  }
+
+  let sourceLists = 0;
+  let sourceDocumentsRead = 0;
+  const counted: StorageAdapter = {
+    get: storage.get.bind(storage),
+    list: async <T>(path: string, options?: ListOptions) => {
+      const rows = await storage.list<T>(path, options);
+      if (path === userCol(UID, CALENDAR_SOURCES)) {
+        sourceLists += 1;
+        sourceDocumentsRead += rows.length;
+        assert.deepEqual(options?.where, [['kind', '==', 'device']]);
+      }
+      return rows;
+    },
+    listGroup: storage.listGroup.bind(storage),
+    set: storage.set.bind(storage),
+    delete: storage.delete.bind(storage),
+    runTransaction: storage.runTransaction.bind(storage),
+    deleteTree: storage.deleteTree.bind(storage),
+  };
+
+  await readFreeSlotSchedule(UID, window, counted);
+  assert.equal(sourceLists, 1);
+  assert.equal(sourceDocumentsRead, 0, '60 irrelevant manual source documents were read');
 });

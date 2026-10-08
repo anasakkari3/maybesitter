@@ -5,14 +5,15 @@ import {
   BusyUploadError,
   deleteBusySource,
   parseBusyUpload,
+  readCalendarSource,
   replaceBusyBlocks,
   type BusyBlock,
 } from '../../../../../../lib/calendar/busyBlocks';
 import { RequestBodyTooLargeError, readJsonBody, requestBodyTooLargeResponse } from '../../../../../../lib/net/requestBody';
 import { resolveFreeSlots } from '../../../../../../lib/planning/freeSlots';
+import { icsFeedReadStatus } from '../../../../../../lib/calendar/icsFeedStatus';
 import { getStorage, type StoredDoc } from '../../../../../../lib/storage';
-import { BUSY_BLOCKS, CALENDAR_SOURCES, ICS_FEEDS, userCol } from '../../../../../../lib/storage/paths';
-import type { CalendarSource } from '../../../../../../lib/calendar/busyBlocks';
+import { BUSY_BLOCKS, ICS_FEEDS, userCol } from '../../../../../../lib/storage/paths';
 import type { IcsFeedDocument } from '../../../../../../lib/calendar/icsFeeds';
 
 export const dynamic = 'force-dynamic';
@@ -21,7 +22,6 @@ const DAY_MS = 86_400_000;
 const HOUR_MS = 3_600_000;
 const MAX_READ_BLOCKS = 2000;
 const STORAGE_LIMIT = MAX_READ_BLOCKS + 1;
-const STALE_MS = 26 * HOUR_MS;
 
 type StoredBusy = BusyBlock & { __docId?: string };
 
@@ -73,9 +73,8 @@ export async function GET(request: Request) {
   }
 
   const storage = getStorage();
-  const [feeds, calendarSources, manualWindow, manualCarry] = await Promise.all([
+  const [feeds, manualWindow, manualCarry] = await Promise.all([
     storage.list<IcsFeedDocument>(userCol(user.uid, ICS_FEEDS), { limit: 5 }),
-    storage.list<CalendarSource>(userCol(user.uid, CALENDAR_SOURCES)),
     storage.list<BusyBlock>(userCol(user.uid, BUSY_BLOCKS), {
       where: [['sourceKind', '==', 'manual'], ['startAt', '>=', new Date(fromMs - 14 * HOUR_MS).toISOString()], ['startAt', '<', new Date(toMs).toISOString()]],
       orderBy: { field: 'startAt', direction: 'asc' }, limit: STORAGE_LIMIT,
@@ -85,7 +84,9 @@ export async function GET(request: Request) {
       orderBy: { field: 'endAt', direction: 'asc' }, limit: STORAGE_LIMIT,
     }),
   ]);
-  const sourceById = new Map(calendarSources.map(({ data }) => [data.sourceId, data] as const));
+  const calendarSources = await Promise.all(feeds.map(({ data: feed }) => (
+    readCalendarSource(user.uid, `ics:${feed.feedId}`, { storage })
+  )));
   const icsRows = await Promise.all(feeds.map(({ data: feed }) => {
     const sourceId = `ics:${feed.feedId}`;
     return storage.list<BusyBlock>(userCol(user.uid, BUSY_BLOCKS), {
@@ -95,30 +96,32 @@ export async function GET(request: Request) {
   }));
 
   const now = Date.now();
-  const sources = feeds.map(({ data: feed }) => {
+  const sources = feeds.map(({ data: feed }, index) => {
     const sourceId = `ics:${feed.feedId}`;
-    const source = sourceById.get(sourceId);
+    const source = calendarSources[index] ?? null;
     const last = feed.lastFetchedAt;
-    const status = !source ? 'uninitialized'
-      : feed.status === 'paused' ? 'paused'
-        : feed.status === 'error' ? 'error'
-          : !last || !Number.isFinite(Date.parse(last)) ? 'uninitialized'
-            : now - Date.parse(last) > STALE_MS ? 'stale' : 'ok';
     return {
       sourceId,
       kind: 'ics' as const,
       windowStart: source?.windowStart ?? null,
       windowEnd: source?.windowEnd ?? null,
       lastRefreshedAt: last ?? null,
-      status,
+      status: icsFeedReadStatus(feed, source, now),
     };
   });
 
-  let complete = sources.every((source) => source.status === 'ok'
-    && source.windowStart !== null && source.windowEnd !== null
-    && Date.parse(source.windowStart) <= fromMs && Date.parse(source.windowEnd) >= toMs);
+  let complete = true;
   let cutoff: string | null = null;
-  if (manualCarry.length >= STORAGE_LIMIT) { complete = false; cutoff = new Date(fromMs).toISOString(); }
+  const omitFrom = (candidateMs: number) => {
+    complete = false;
+    const candidate = new Date(Math.max(fromMs, Number.isFinite(candidateMs) ? candidateMs : fromMs)).toISOString();
+    if (cutoff === null || Date.parse(candidate) < Date.parse(cutoff)) cutoff = candidate;
+  };
+  if (manualCarry.length >= STORAGE_LIMIT) omitFrom(fromMs);
+  if (manualWindow.length >= STORAGE_LIMIT) omitFrom(Date.parse(manualWindow[MAX_READ_BLOCKS]!.data.startAt));
+  for (const rows of icsRows) {
+    if (rows.length >= STORAGE_LIMIT) omitFrom(Date.parse(rows[MAX_READ_BLOCKS]!.data.startAt));
+  }
 
   const rows = new Map<string, StoredBusy>();
   const add = (row: StoredDoc<BusyBlock>) => {
@@ -141,9 +144,8 @@ export async function GET(request: Request) {
     || String(left.__docId).localeCompare(String(right.__docId)));
 
   if (valid.length > MAX_READ_BLOCKS) {
-    complete = false;
     const omitted = valid[MAX_READ_BLOCKS]!;
-    cutoff = cutoff === null || Date.parse(omitted.startAt) < Date.parse(cutoff) ? omitted.startAt : cutoff;
+    omitFrom(Date.parse(omitted.startAt));
   }
   const blocks = valid.slice(0, MAX_READ_BLOCKS).map(({ __docId: _id, blockId, sourceId, sourceKind, startAt, endAt, allDay }) => (
     { blockId, sourceId, sourceKind, startAt, endAt, allDay }
