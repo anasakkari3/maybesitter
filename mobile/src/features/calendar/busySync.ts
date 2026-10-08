@@ -269,6 +269,10 @@ export async function runBusySync(
     if (!current()) return gone;
     await ports.upload(body);
   } catch {
+    // The account changed while the upload was being sent: the request was
+    // refused before it left (`asUid`), and it is the previous account's pass,
+    // not a failed sync of this one (M4A-R3-REV-003).
+    if (!current()) return gone;
     // Not recorded as a sync, so the next trigger tries again rather than
     // waiting out the throttle on a window the server never received.
     return { kind: 'failed' };

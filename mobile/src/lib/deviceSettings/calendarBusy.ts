@@ -33,6 +33,15 @@
  * change clears it (`ApiProvider`), and the old unowned keys are deleted the
  * first time they are seen.
  *
+ * ── A clear always wins (M4a, M4A-R3-REV-001) ───────────────────
+ *
+ * Every write reads the envelope before it writes it. A clear landing between
+ * the two would be undone, and a signed-out or deleted account's busy times
+ * would be back on the disk. So writes and clears run one at a time, in the
+ * order they were asked for, and a write made for one account's sync pass
+ * asks, right before it writes, whether that account is still the one signed
+ * in. A clear asked for during a write runs after it.
+ *
  * ── Coverage, not only blocks ────────────────────────────────────
  *
  * "No busy block on Thursday" means Thursday is free only if Thursday was
@@ -66,6 +75,19 @@ export interface DeviceBusyCache {
 }
 
 const EMPTY: DeviceBusyCache = { blocks: [], coverage: null, syncedAt: null };
+
+/** Whether the account a write is for is still the one signed in. */
+export type StillOwner = () => boolean;
+const ALWAYS: StillOwner = () => true;
+
+let queue: Promise<unknown> = Promise.resolve();
+
+/** Runs `task` after every write and clear asked for before it. */
+function serialized(task: () => Promise<void>): Promise<void> {
+  const run = queue.then(task, task);
+  queue = run.catch(() => undefined);
+  return run;
+}
 
 function blockFrom(raw: unknown): DeviceBusyBlock | null {
   if (typeof raw !== 'object' || raw === null) return null;
@@ -154,36 +176,45 @@ export async function loadCachedBusyBlocks(owner: string): Promise<DeviceBusyBlo
  * A fresh read: the blocks and what they cover. `coverage` null keeps the old
  * blocks' place for the chips but claims nothing about free time.
  */
-export async function saveCachedBusyBlocks(
+export function saveCachedBusyBlocks(
   owner: string,
   blocks: readonly DeviceBusyBlock[],
   coverage: BusyCoverage | null,
+  stillOwner: StillOwner = ALWAYS,
 ): Promise<void> {
-  try {
-    const previous = await loadDeviceBusy(owner);
-    await writeEnvelope(owner, { blocks: [...blocks], coverage, syncedAt: previous.syncedAt });
-  } catch {
-    // The chips still work for this session from the value in memory.
-  }
+  return serialized(async () => {
+    try {
+      const previous = await loadDeviceBusy(owner);
+      if (!stillOwner()) return;
+      await writeEnvelope(owner, { blocks: [...blocks], coverage, syncedAt: previous.syncedAt });
+    } catch {
+      // The chips still work for this session from the value in memory.
+    }
+  });
 }
 
 /** A refused read: the blocks stay for the chips, and cover nothing any more. */
-export async function uncoverCachedBusyBlocks(owner: string): Promise<void> {
-  try {
-    const previous = await loadDeviceBusy(owner);
-    await writeEnvelope(owner, { ...previous, coverage: null });
-  } catch {
-    // The next read writes the envelope again.
-  }
+export function uncoverCachedBusyBlocks(owner: string, stillOwner: StillOwner = ALWAYS): Promise<void> {
+  return serialized(async () => {
+    try {
+      const previous = await loadDeviceBusy(owner);
+      if (!stillOwner()) return;
+      await writeEnvelope(owner, { ...previous, coverage: null });
+    } catch {
+      // The next read writes the envelope again.
+    }
+  });
 }
 
 /** Disconnect, sign-out and every account change. The blocks go before the server is even asked. */
-export async function clearCachedBusyBlocks(): Promise<void> {
-  try {
-    await AsyncStorage.multiRemove([BUSY_BLOCKS_KEY, ...LEGACY_BUSY_KEYS]);
-  } catch {
-    // Nothing useful to do. The next read under another owner is empty anyway.
-  }
+export function clearCachedBusyBlocks(): Promise<void> {
+  return serialized(async () => {
+    try {
+      await AsyncStorage.multiRemove([BUSY_BLOCKS_KEY, ...LEGACY_BUSY_KEYS]);
+    } catch {
+      // Nothing useful to do. The next read under another owner is empty anyway.
+    }
+  });
 }
 
 /** When this device last uploaded `owner`'s window, or null. */
@@ -191,11 +222,14 @@ export async function loadBusySyncedAt(owner: string): Promise<number | null> {
   return (await loadDeviceBusy(owner)).syncedAt;
 }
 
-export async function saveBusySyncedAt(owner: string, at: Date): Promise<void> {
-  try {
-    const previous = await loadDeviceBusy(owner);
-    await writeEnvelope(owner, { ...previous, syncedAt: at.getTime() });
-  } catch {
-    // The cost is an extra sync, not a wrong one.
-  }
+export function saveBusySyncedAt(owner: string, at: Date, stillOwner: StillOwner = ALWAYS): Promise<void> {
+  return serialized(async () => {
+    try {
+      const previous = await loadDeviceBusy(owner);
+      if (!stillOwner()) return;
+      await writeEnvelope(owner, { ...previous, syncedAt: at.getTime() });
+    } catch {
+      // The cost is an extra sync, not a wrong one.
+    }
+  });
 }

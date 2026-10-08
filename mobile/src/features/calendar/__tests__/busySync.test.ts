@@ -33,6 +33,7 @@ import {
 } from '../busySync';
 import type { DeviceBusyBlock } from '../busyBlocks';
 import type { CalendarBusyUpload } from '../../../api/endpoints/calendar';
+import { AccountChangedError } from '../../../api/errors';
 
 const NOW = new Date();
 const MINUTE = 60_000;
@@ -347,6 +348,18 @@ describe('a pass', () => {
     let signedIn = true;
     const base = ports();
     const switching: BusySyncPorts = { ...base, cache: async (blocks, coverage) => { await base.cache(blocks, coverage); signedIn = false; } };
+    expect(await runBusySync(switching, { ...input(), stillCurrent: () => signedIn })).toEqual({ kind: 'skipped', because: 'signed_out' });
+    expect(uploaded).toEqual([]);
+    expect(recorded).toEqual([]);
+  });
+
+  it('M4A-R3-REV-003 an upload refused because the account changed is the previous account\'s pass, not a failed sync', async () => {
+    let signedIn = true;
+    const base = ports();
+    const switching: BusySyncPorts = {
+      ...base,
+      upload: async () => { signedIn = false; throw new AccountChangedError('the request was for another account'); },
+    };
     expect(await runBusySync(switching, { ...input(), stillCurrent: () => signedIn })).toEqual({ kind: 'skipped', because: 'signed_out' });
     expect(uploaded).toEqual([]);
     expect(recorded).toEqual([]);

@@ -114,17 +114,22 @@ function windowFrom(now: Date): { startAt: string; endAt: string } {
   return { startAt: start.toISOString(), endAt: end.toISOString() };
 }
 
-function apiBusyPorts(owner: string): BusySyncPorts {
+/**
+ * `stillCurrent`: whether the pass's account is still signed in. The cache
+ * writes ask it again right before they write, after their own read
+ * (M4A-R3-REV-001).
+ */
+function apiBusyPorts(owner: string, stillCurrent: () => boolean): BusySyncPorts {
   return {
     // Calendars switched off in Calendar settings are never read (L7).
     readBusy: async (ownEventIds, now) => deviceCalendar.fetchBusyBlocks({
       ownEventIds, now, excludedCalendarIds: new Set(await loadExcludedCalendarIds()),
     }),
     ownEventIds: loadWrittenEventIds,
-    cache: (blocks, coverage) => saveCachedBusyBlocks(owner, blocks, coverage),
-    uncover: () => uncoverCachedBusyBlocks(owner),
+    cache: (blocks, coverage) => saveCachedBusyBlocks(owner, blocks, coverage, stillCurrent),
+    uncover: () => uncoverCachedBusyBlocks(owner, stillCurrent),
     upload: async (body) => { await postCalendarBusy(body, { asUid: owner }); },
-    recordSync: (at) => saveBusySyncedAt(owner, at),
+    recordSync: (at) => saveBusySyncedAt(owner, at, stillCurrent),
   };
 }
 
@@ -174,7 +179,7 @@ export function useBusyCalendar(): BusyCalendarState {
       const lastSyncedAt = await loadBusySyncedAt(current.uid);
       const writerId = await resolveWriterId();
       if (!stillCurrent()) return null;
-      const result = await runBusySync(apiBusyPorts(current.uid), {
+      const result = await runBusySync(apiBusyPorts(current.uid, stillCurrent), {
         trigger,
         featureEnabled: calendarReadEnabled(),
         signedIn: current.uid !== 'signed-out',

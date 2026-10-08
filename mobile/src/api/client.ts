@@ -669,6 +669,9 @@ export async function apiRequestTagged<T>(
     const token = await getIdToken();
     stillTheAccount();
     response = await send(method, target, options.body, token, options.signal, options.ifMatch, options.timeoutMs);
+    // A's answer, arriving after B signed in, is not read at all: a 401 or a
+    // 403 for A must never sign B out (M4A-R3-REV-002).
+    stillTheAccount();
   }
 
   if (response.status === 401 && refusal(response.body).reason === 'recent_login_required') {
@@ -691,12 +694,13 @@ export async function apiRequestTagged<T>(
     stillTheAccount();
     if (fresh) {
       response = await send(method, target, options.body, fresh, options.signal, options.ifMatch, options.timeoutMs);
+      stillTheAccount();
     }
     if (response.status === 401) {
       // The session is genuinely over. Signing out here rather than letting
       // each screen decide is what makes "Please sign in again" appear once,
       // on the sign-in screen, instead of an error toast on every tab.
-      await signOutExpired();
+      await signOutExpired(options.asUid);
       throw errorForStatus(401, response.body);
     }
   }
@@ -705,7 +709,7 @@ export async function apiRequestTagged<T>(
     const { reason } = refusal(response.body);
     // A revoked or deleted account cannot be recovered by retrying; the app
     // has to return to sign-in with the reason the user will be shown.
-    if (reason === 'revoked' || reason === 'deleted') await signOutForbidden(reason);
+    if (reason === 'revoked' || reason === 'deleted') await signOutForbidden(reason, options.asUid);
     throw errorForStatus(403, response.body, path);
   }
 

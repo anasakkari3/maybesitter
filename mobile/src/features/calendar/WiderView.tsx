@@ -68,7 +68,7 @@ export function WiderView({ cells, todayKey, selectedKey, googleNote, onPick, on
       {/* Each column is one weekday (rows start from today), so its name sits
           above it once; a cell then needs only its date. */}
       {!stacked && cells.length > 0 ? (
-        <View accessible={false} importantForAccessibility="no-hide-descendants" style={{ flexDirection: 'row', gap: 6 }}>
+        <View testID="calendar-wider-weekdays" accessible={false} accessibilityElementsHidden importantForAccessibility="no-hide-descendants" style={{ flexDirection: 'row', gap: 6 }}>
           {cells.slice(0, columns).map((cell) => (
             <Txt key={cell.key} size={12} color={p.mu} align="center" lines={1} style={{ flex: 1 }}>
               {formatDate(civilDate(cell.key), 'weekdayShort', { locale: lang, timeZone: CIVIL_ZONE })}

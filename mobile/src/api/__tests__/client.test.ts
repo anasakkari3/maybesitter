@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
 import { z } from 'zod';
 import { apiRequest } from '../client';
-import { resetAuthForTests, setAuthRepository } from '../auth';
+import { resetAuthForTests, setAuthRepository, signOutExpired, signOutForbidden } from '../auth';
 import {
   AccountChangedError,
   ConflictError,
@@ -117,6 +117,58 @@ describe('a request bound to one account (M4a, M4A-R2-REV-002)', () => {
     await expect(apiRequest('POST', '/api/mobile/x', { schema: okSchema, body: {}, asUid: USER.uid }))
       .rejects.toBeInstanceOf(AccountChangedError);
     expect(calls).toHaveLength(0);
+  });
+
+  /** `fetch` answers `responses` in order; another account signs in while call `switchOn` is pending. */
+  function respondSwitchingDuring(switchOn: number, ...responses: { status: number; body?: unknown }[]): void {
+    let index = 0;
+    (globalThis as { fetch: unknown }).fetch = jest.fn(async (url: string, init: RequestInit) => {
+      calls.push({ url, init });
+      const response = responses[Math.min(index, responses.length - 1)];
+      if (index === switchOn) repository.emit(OTHER);
+      index += 1;
+      return {
+        status: response!.status,
+        text: async () => (response!.body === undefined ? '' : JSON.stringify(response!.body)),
+      };
+    }) as never;
+  }
+
+  it.each(['revoked', 'deleted'] as const)(
+    "never signs the next account out over the first account's late 403 %s (M4A-R3-REV-002)",
+    async (reason) => {
+      respondSwitchingDuring(0, { status: 403, body: { success: false, error: 'forbidden', reason } });
+      await expect(apiRequest('POST', '/api/mobile/x', { schema: okSchema, body: {}, asUid: USER.uid }))
+        .rejects.toBeInstanceOf(AccountChangedError);
+      expect(calls).toHaveLength(1);
+      expect(repository.signOutReasons).toEqual([]);
+      expect(repository.currentUser()?.uid).toBe(OTHER.uid);
+    },
+  );
+
+  it("never signs the next account out over the first account's late 401 on the retry (M4A-R3-REV-002)", async () => {
+    respondSwitchingDuring(1, { status: 401, body: { success: false, error: 'expired' } }, { status: 401, body: { success: false, error: 'expired' } });
+    await expect(apiRequest('POST', '/api/mobile/x', { schema: okSchema, body: {}, asUid: USER.uid }))
+      .rejects.toBeInstanceOf(AccountChangedError);
+    expect(calls).toHaveLength(2);
+    expect(repository.signOutReasons).toEqual([]);
+    expect(repository.currentUser()?.uid).toBe(OTHER.uid);
+  });
+
+  it('a bound sign-out ends only its own account, an unbound one is unchanged (M4A-R3-REV-002)', async () => {
+    repository.emit(OTHER);
+    await signOutForbidden('revoked', USER.uid);
+    await signOutExpired(USER.uid);
+    expect(repository.signOutReasons).toEqual([]);
+    await signOutExpired();
+    expect(repository.signOutReasons).toEqual(['session_expired']);
+  });
+
+  it('a bound request whose account is still signed in still signs out on its 403 revoked', async () => {
+    respondWith({ status: 403, body: { success: false, error: 'forbidden', reason: 'revoked' } });
+    await expect(apiRequest('POST', '/api/mobile/x', { schema: okSchema, body: {}, asUid: USER.uid }))
+      .rejects.toBeInstanceOf(ForbiddenError);
+    expect(repository.signOutReasons).toEqual(['revoked']);
   });
 
   it('is never sent when another account is already signed in', async () => {

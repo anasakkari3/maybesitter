@@ -70,15 +70,28 @@ export async function refreshIdToken(): Promise<string | null> {
  * here can leave somebody signed in to a session the server has stopped
  * accepting.
  */
-export async function signOutExpired(): Promise<void> {
+export async function signOutExpired(asUid?: string): Promise<void> {
+  if (!stillSignedInAs(asUid)) return;
   await runBeforeSignOut('session_expired');
+  if (!stillSignedInAs(asUid)) return;
   await repository?.signOut({ reason: 'session_expired' });
 }
 
 /** Ends the session because the account itself was revoked or deleted. */
-export async function signOutForbidden(reason: 'revoked' | 'deleted'): Promise<void> {
+export async function signOutForbidden(reason: 'revoked' | 'deleted', asUid?: string): Promise<void> {
+  if (!stillSignedInAs(asUid)) return;
   await runBeforeSignOut(reason);
+  if (!stillSignedInAs(asUid)) return;
   await repository?.signOut({ reason });
+}
+
+/**
+ * A sign-out on behalf of one account's request ends only that account's
+ * session: when another account is signed in by now, it is not this
+ * request's to end (M4a, M4A-R3-REV-002). Unbound sign-outs are unchanged.
+ */
+function stillSignedInAs(asUid: string | undefined): boolean {
+  return asUid === undefined || repository?.currentUser()?.uid === asUid;
 }
 
 /** Tests only: forget any refresh still in flight between cases. */

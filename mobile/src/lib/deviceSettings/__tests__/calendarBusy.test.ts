@@ -161,3 +161,41 @@ describe('when the last sync was', () => {
     expect(await loadBusySyncedAt(A)).toBeNull();
   });
 });
+
+describe('a clear always wins (M4a, M4A-R3-REV-001)', () => {
+  const blocks = [{ nativeId: 'a', startAt: at(60), endAt: at(120), allDay: false }];
+
+  // Each write reads the envelope before it writes it. A clear asked for while
+  // the write is suspended in that read must not be undone by the write.
+  it.each([
+    ['the blocks', () => saveCachedBusyBlocks(A, blocks, COVERAGE)],
+    ['the uncover', () => uncoverCachedBusyBlocks(A)],
+    ['the synced time', () => saveBusySyncedAt(A, NOW)],
+  ] as [string, () => Promise<void>][])('a clear asked for while %s are written leaves nothing on disk', async (_name, write) => {
+    await seedDeviceBusyCache(A, blocks, { coverage: COVERAGE });
+    const writing = write();
+    const clearing = clearCachedBusyBlocks();
+    await Promise.all([writing, clearing]);
+    expect(await AsyncStorage.getItem(BUSY_BLOCKS_KEY)).toBeNull();
+  });
+
+  // A sync pass that resumes after the account changed, and so after the
+  // clear, writes nothing for the account that has gone.
+  it.each([
+    ['the blocks', (still: () => boolean) => saveCachedBusyBlocks(A, blocks, COVERAGE, still)],
+    ['the uncover', (still: () => boolean) => uncoverCachedBusyBlocks(A, still)],
+    ['the synced time', (still: () => boolean) => saveBusySyncedAt(A, NOW, still)],
+  ] as [string, (still: () => boolean) => Promise<void>][])('%s written after the account changed are never written', async (_name, write) => {
+    let signedIn = A;
+    await seedDeviceBusyCache(A, blocks, { coverage: COVERAGE });
+    signedIn = B;
+    await clearCachedBusyBlocks();
+    await write(() => signedIn === A);
+    expect(await AsyncStorage.getItem(BUSY_BLOCKS_KEY)).toBeNull();
+  });
+
+  it('a write for the account still signed in is written', async () => {
+    await saveCachedBusyBlocks(A, blocks, COVERAGE, () => true);
+    expect(await loadCachedBusyBlocks(A)).toEqual(blocks);
+  });
+});
