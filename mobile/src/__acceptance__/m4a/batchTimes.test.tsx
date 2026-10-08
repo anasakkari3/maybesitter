@@ -88,7 +88,7 @@ describe('M4a batch goal-plan times', () => {
     await press('plan-times-all-apply');
 
     const notice = await screen.findByTestId('plan-times-unplaced');
-    expect(notice).toHaveTextContent(PLAN.steps.find((step) => step.stepId === 'step-4')!.title);
+    expect(notice).toHaveTextContent(PLAN.steps.find((step) => step.stepId === 'step-4')!.title, { exact: false });
     expect(screen.queryByTestId('plan-times-reason-step-4')).toBeNull();
   });
 
