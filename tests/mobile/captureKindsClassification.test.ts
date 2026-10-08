@@ -48,3 +48,38 @@ test('habit classification and fields come from the habit item source segment', 
     end();
   }
 });
+
+test('habit entry keeps a dated appointment as a commitment', async () => {
+  const uid = beginRules();
+  try {
+    const answer = await say(uid, 'موعد الدكتور بكرا الساعة 4 المسا', { entry: 'habit', locale: 'ar' });
+    assert.equal(answer.proposal?.items.length, 1);
+    assert.deepEqual(habitsOf(answer), []);
+  } finally {
+    end();
+  }
+});
+
+test('habit entry tilts an undecided item into a habit that asks frequency', async () => {
+  const uid = beginRules();
+  try {
+    const answer = await say(uid, 'بدي أقرا', { entry: 'habit', locale: 'ar' });
+    const [habit] = habitsOf(answer);
+    assert.ok(habit, 'the undecided item did not become a habit');
+    assert.equal(answer.proposal?.items.length, 0);
+    assert.equal(habit.question?.field, 'frequency');
+  } finally {
+    end();
+  }
+});
+
+test('habit entry keeps recurring training as a commitment', async () => {
+  const uid = beginRules();
+  try {
+    const answer = await say(uid, 'كل ثلاثاء الساعة 6 المسا عندي تدريب', { entry: 'habit', locale: 'ar' });
+    assert.equal(answer.proposal?.items.length, 1);
+    assert.deepEqual(habitsOf(answer), []);
+  } finally {
+    end();
+  }
+});

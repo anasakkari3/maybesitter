@@ -31,6 +31,7 @@ import { configuredProviderName } from '../../../src/extraction/llm';
 import type { ExtractionResult } from '../../../src/extraction/extractionTypes';
 import { mapExtractionToCommand } from '../../../src/extraction/mapExtractionToCommand';
 import { hasRequestEvidence, splitCaptureClauseDetails } from '../../../src/extraction/clauseSplitter';
+import { isEventOnDay } from '../../../src/extraction/priorityLexicon';
 import { applyEditToCommands, eventDayOf } from '../captureBoundary/applyEdits';
 import {
   appendClarificationEvent,
@@ -361,6 +362,23 @@ function readsAsUndecidedItem(
     && !readsAsHabit(segment, null);
 }
 
+function readsAsUndecidedHabitItem(
+  item: CaptureProposalContract['items'][number],
+  segment: string,
+): boolean {
+  // In the habit entry, a leading first-person desire (for example «بدي أقرا»)
+  // is the undecided reading the entry may tilt. Other request evidence remains
+  // decisive, as do any concrete date/time and appointment evidence.
+  const withoutDesire = segment.replace(/^\s*(?:بدي|بدّي|بدنا|بدّنا)(?=$|\s)/, '').trim();
+  return item.resolvedTime === null
+    && !item.resolvedDate
+    && item.needsClarification
+    && !hasRequestEvidence(withoutDesire)
+    && !isEventOnDay(segment)
+    && !readsAsDoubt(segment)
+    && !readsAsHabit(segment, null);
+}
+
 function v8ProposalStatus(contract: CaptureProposalContract): CaptureProposalContract['status'] {
   const habits = contract.habits ?? [];
   const actionable = contract.items.some((item) => !item.needsClarification)
@@ -463,7 +481,8 @@ export async function applyCaptureKindsToProposal(
       candidate: item,
       segment: sourceSegmentFor(stored, item.itemId, item.title),
     }));
-    const explicit = itemCandidates.find(({ segment }) => readsAsHabit(segment, input.entry));
+    const explicit = itemCandidates.find(({ candidate, segment }) => readsAsHabit(segment, null)
+      || (input.entry === 'habit' && readsAsUndecidedHabitItem(candidate, segment)));
     // A message-level model hint is unambiguous only when there is one item.
     const modelOnly = input.modelKinds?.includes('habit') && itemCandidates.length === 1 ? itemCandidates[0] : undefined;
     const seedCandidate = input.entry === 'habit' && contract.seeds.length === 1
