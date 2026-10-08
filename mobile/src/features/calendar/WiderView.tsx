@@ -42,7 +42,7 @@ export function WiderView({ cells, todayKey, selectedKey, googleNote, onPick, on
   onPick: (key: string) => void;
   onClose: () => void;
 }) {
-  const { t } = useApp();
+  const { t, lang } = useApp();
   const p = useReferencePalette();
   const stacked = useLayoutMode() !== 'normal';
   const columns = stacked ? 4 : 7;
@@ -55,11 +55,27 @@ export function WiderView({ cells, todayKey, selectedKey, googleNote, onPick, on
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
         <ReferenceIcon name="calendar" size={18} color={p.acd} />
         <Txt role="section" size={16} weight={700} color={p.tx} style={{ flex: 1 }}>{t.yWiderTitle}</Txt>
+        {/* The bar's key, as the strip keys its dots: green is free time. */}
+        <View accessible={false} style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+          <View style={{ width: 14, height: 4, borderRadius: 2, backgroundColor: p.success }} />
+          <Txt size={13} color={p.mu}>{t.yFilterFree}</Txt>
+        </View>
         <Btn testID="calendar-wider-close" label={t.close} onPress={onClose} hitSlop={8} scaleTo={0.94}
           style={{ width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: p.ln, backgroundColor: p.sf2 }}>
           <ReferenceIcon name="close" size={18} color={p.tx} />
         </Btn>
       </View>
+      {/* Each column is one weekday (rows start from today), so its name sits
+          above it once; a cell then needs only its date. */}
+      {!stacked && cells.length > 0 ? (
+        <View accessible={false} importantForAccessibility="no-hide-descendants" style={{ flexDirection: 'row', gap: 6 }}>
+          {cells.slice(0, columns).map((cell) => (
+            <Txt key={cell.key} size={12} color={p.mu} align="center" lines={1} style={{ flex: 1 }}>
+              {formatDate(civilDate(cell.key), 'weekdayShort', { locale: lang, timeZone: CIVIL_ZONE })}
+            </Txt>
+          ))}
+        </View>
+      ) : null}
       {rows.map((row, rowIndex) => (
         <View key={row[0]!.key} style={{ gap: 8 }}>
           {rowIndex === noteRow ? (
