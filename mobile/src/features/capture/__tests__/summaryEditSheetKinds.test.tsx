@@ -48,11 +48,11 @@ describe('kindOptions', () => {
   });
 });
 
-async function sheet(kind: PointKind, onSave = jest.fn()) {
+async function sheet(kind: PointKind, onSave = jest.fn(), extra: { text?: string; timedSeed?: boolean } = {}) {
   await render(
     <SafeAreaProvider initialMetrics={METRICS}>
       <AppProvider>
-        <SummaryEditSheet kind={kind} offered={ON} text="امشي" at={null} onSave={onSave} onCancel={jest.fn()} />
+        <SummaryEditSheet kind={kind} offered={ON} text={extra.text ?? 'امشي'} timedSeed={extra.timedSeed ?? false} at={null} onSave={onSave} onCancel={jest.fn()} />
       </AppProvider>
     </SafeAreaProvider>,
   );
@@ -94,5 +94,32 @@ describe('SummaryEditSheet', () => {
     await sheet('commitment');
     await fireEvent.changeText(screen.getByTestId('understood-edit-text'), '🏃'.repeat(70));
     expect(screen.getByTestId('understood-edit-text').props.value).toBe('🏃'.repeat(60));
+  });
+
+  it('a timed thought made a commitment counts code points, as the server path it takes does (R4-001)', async () => {
+    const onSave = await sheet('consideration', jest.fn(), { timedSeed: true });
+    await fireEvent.press(screen.getByTestId('understood-edit-kind-commitment'));
+    await fireEvent.changeText(screen.getByTestId('understood-edit-text'), '🏃'.repeat(120));
+    await fireEvent.press(screen.getByTestId('understood-edit-save'));
+    expect(onSave).toHaveBeenCalledWith({ kind: 'commitment', text: '🏃'.repeat(120) });
+  });
+
+  it('switching to a stricter kind cuts the typed words on screen, so what shows is what is sent (R4-002)', async () => {
+    const onSave = await sheet('commitment');
+    await fireEvent.press(screen.getByTestId('understood-edit-kind-habit'));
+    await fireEvent.changeText(screen.getByTestId('understood-edit-text'), '🏃'.repeat(120));
+    await fireEvent.press(screen.getByTestId('understood-edit-kind-commitment'));
+    expect(screen.getByTestId('understood-edit-text').props.value).toBe('🏃'.repeat(60));
+    await fireEvent.press(screen.getByTestId('understood-edit-save'));
+    expect(onSave).toHaveBeenCalledWith({ text: '🏃'.repeat(60) });
+  });
+
+  it('an untouched long title is never cut and sent as an edit (R4-003)', async () => {
+    const long = 'م'.repeat(150);
+    const onSave = await sheet('commitment', jest.fn(), { text: long });
+    await fireEvent.press(screen.getByTestId('understood-edit-kind-idea'));
+    expect(screen.getByTestId('understood-edit-text').props.value).toBe(long);
+    await fireEvent.press(screen.getByTestId('understood-edit-save'));
+    expect(onSave).toHaveBeenCalledWith({ kind: 'idea' });
   });
 });

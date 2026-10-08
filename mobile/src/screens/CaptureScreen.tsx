@@ -494,7 +494,7 @@ export function CaptureScreen() {
       ? (staged.localDateTime ? instantForLocalDateTime(staged.localDateTime, timezone)?.toISOString() ?? null : null)
       : item?.resolvedTime ?? null;
     const offered = { habit: state.proposal.habits !== undefined, goal: state.proposal.goals !== undefined && captureKinds.entries.includes('goal') };
-    bodyOverride = <SummaryEditSheet key={summaryEditing} kind={point.kind} offered={offered} busy={editBusy || flow.writing}
+    bodyOverride = <SummaryEditSheet key={summaryEditing} kind={point.kind} offered={offered} timedSeed={Boolean(seed?.suggestedTime)} busy={editBusy || flow.writing}
       text={staged?.title ?? item?.title ?? seed?.summary ?? habit?.title ?? goal?.title ?? point.text} at={stagedAt}
       {...(draftToReopen ? { draft: draftToReopen } : {})}
       onCancel={closeSummaryEdit}
