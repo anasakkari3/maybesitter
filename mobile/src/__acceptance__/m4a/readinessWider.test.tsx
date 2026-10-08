@@ -65,7 +65,7 @@ describe('M4a readiness fails closed', () => {
     harness = await prepareCalendar((scenario) => { scenario.fail.add(path); });
     await renderCalendar(harness);
 
-    expect(screen.queryByTestId('calendar-free-unknown')).not.toBeNull();
+    await waitFor(() => expect(screen.queryByTestId('calendar-free-unknown')).not.toBeNull());
     expectNoFreeClaims();
   });
 
