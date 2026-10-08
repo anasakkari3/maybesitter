@@ -276,6 +276,9 @@ function applyEdit(stored: StoredCaptureProposal, edit: CaptureProposalEditContr
   const commands = new Map(stored.commandsByItemId);
   const results = new Map(stored.resultsByItemId ?? []);
   const spans = { ...(stored.correctionSpans ?? {}) };
+  const carriesPointIds = stored.contract.entry !== undefined
+    || stored.contract.habits !== undefined
+    || stored.contract.goals !== undefined;
   let changed = false;
 
   if (itemIndex >= 0) {
@@ -308,10 +311,21 @@ function applyEdit(stored: StoredCaptureProposal, edit: CaptureProposalEditContr
       changed = true;
       contract.items.splice(itemIndex, 1);
       if (!SEED_KINDS.has(change.kind)) throw new StructuredEditError();
-      contract.seeds.push({ seedItemId: before.itemId, kind: change.kind as CaptureSeedProposalContract['kind'], summary: title });
+      const pointId = before.pointId ?? (carriesPointIds ? before.itemId : undefined);
+      contract.seeds.push({
+        seedItemId: before.itemId,
+        ...(pointId ? { pointId } : {}),
+        kind: change.kind as CaptureSeedProposalContract['kind'],
+        summary: title,
+      });
       contract.understood = contract.understood?.map((point) =>
         point.kind === 'commitment' && point.itemId === before.itemId
-          ? { kind: change.kind as CaptureSeedProposalContract['kind'], seedItemId: before.itemId, text: title }
+          ? {
+            kind: change.kind as CaptureSeedProposalContract['kind'],
+            seedItemId: before.itemId,
+            ...(pointId ? { pointId } : {}),
+            text: title,
+          }
           : point);
       commands.delete(before.itemId); results.delete(before.itemId);
       for (const correction of corrections ?? []) delete spans[correction.id];
@@ -355,9 +369,10 @@ function applyEdit(stored: StoredCaptureProposal, edit: CaptureProposalEditContr
     if (change.kind === 'commitment') {
       changed = true;
       contract.seeds.splice(seedIndex, 1);
+      const pointId = before.pointId ?? (carriesPointIds ? before.seedItemId : undefined);
       contract.understood = contract.understood?.map((point) =>
         point.kind !== 'commitment' && point.seedItemId === before.seedItemId
-          ? { kind: 'commitment' as const, itemId: before.seedItemId, text: summary }
+          ? { kind: 'commitment' as const, itemId: before.seedItemId, ...(pointId ? { pointId } : {}), text: summary }
           : point);
       const artifacts = buildStructuredCommitmentArtifacts(
         stored,
@@ -368,7 +383,7 @@ function applyEdit(stored: StoredCaptureProposal, edit: CaptureProposalEditContr
       const { result } = artifacts;
       const clarification = parsedTime?.at ? null : buildClarification(result, { now, timezone: stored.timezone ?? parsedTime?.zone ?? 'UTC' });
       contract.items.push({
-        itemId: before.seedItemId, title: summary, resolvedTime: parsedTime?.at ?? null,
+        itemId: before.seedItemId, ...(pointId ? { pointId } : {}), title: summary, resolvedTime: parsedTime?.at ?? null,
         needsClarification: !parsedTime?.at, clarification,
         timeEstimated: false, priority: 'normal', priorityEstimated: false,
         ...(parsedTime?.local ? { resolvedDate: parsedTime.local.date, dateEstimated: false } : {}),
