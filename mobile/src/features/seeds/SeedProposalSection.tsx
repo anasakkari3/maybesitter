@@ -34,7 +34,7 @@ import { seedKindLabel } from './seedDisplay';
  * the one thing a proposal is not allowed to do: persist.
  */
 export function SeedProposalSection({
-  proposalId, seeds, onAnchor, revision, onProposalChanged, writing = false, guardWrite,
+  proposalId, seeds, onAnchor, revision, onProposalChanged, writing = false, guardWrite, renderAction,
 }: {
   proposalId: string;
   seeds: readonly CaptureSeedProposal[];
@@ -54,6 +54,8 @@ export function SeedProposalSection({
    * and to the screen reader — a line of the chat's «هيك فهمت» (M2a).
    */
   onAnchor?: (seedItemId: string, part: 'card' | 'focus', node: View | null) => void;
+  /** One more action under a seed's words — «حطّها التزام» on a timed thought (M3b, D3). */
+  renderAction?: ((seed: CaptureSeedProposal) => React.ReactNode) | undefined;
 }) {
   const { t, p } = useApp();
   const keep = useKeepSeed();
@@ -87,6 +89,7 @@ export function SeedProposalSection({
                 this card may show. */}
             <Txt size={15} lh={1.45} testID={`review-seed-summary-${seed.seedItemId}`}>{seed.summary}</Txt>
           </View>
+          {renderAction ? renderAction(seed) : null}
           {failed.includes(seed.seedItemId) ? (
             <Txt size={12} color={p.wm} testID={`review-seed-failed-${seed.seedItemId}`}>{t.errorsGeneric}</Txt>
           ) : null}

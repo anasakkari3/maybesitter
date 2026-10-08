@@ -115,6 +115,12 @@ export interface SayItChatPageProps {
   /** What the typing bubble says to a screen reader. */
   typingLabel?: string;
   scheduleGroups?: readonly ChatScheduleGroup[];
+  /**
+   * A proposal with no commitment rows that still has something to save — a
+   * habit, a goal, a thought from the thought entry (M3b, R001): the save
+   * sits under the cards instead of inside the schedule block.
+   */
+  confirmWithoutRows?: boolean;
   scheduleTime?: string;
   onConfirm?(): void;
   canConfirm?: boolean;
@@ -178,7 +184,7 @@ const AVATAR_COLUMN = 42;
 
 export function SayItChatPage({
   colors: p, fonts, copy, text, onChangeText, onSend, canSend, inputDisabled = false, composerDisabled = false, toolsDisabled = false, onClose, onMore, onPaste,
-  outgoing, assistant, notice, history = [], typing, typingLabel, scheduleGroups = [], scheduleTime, onConfirm, canConfirm = false,
+  outgoing, assistant, notice, history = [], typing, typingLabel, scheduleGroups = [], confirmWithoutRows = false, scheduleTime, onConfirm, canConfirm = false,
   confirming = false, onRowPress, onRowToggle, followup, quickActions = [], onQuickAction,
   microphone, listening = false, onCancelListening, languageControl, voiceNotice, headerAccessory, bodyOverride, bodyKey = null, clarification, reviewExtras, reviewFooter,
   rtl = false, safeTop = 0, safeBottom = 0, keyboardShown = false, mode = 'normal', composerFocusKey = 0,
@@ -341,6 +347,18 @@ export function SayItChatPage({
     </View>
   );
 
+  // One save control, in the schedule block or — with no commitment rows —
+  // under the cards (M3b).
+  const confirmButton = <View testID="chat-add-schedule"><Pressable testID="review-confirm" accessibilityRole="button" accessibilityLabel={copy.confirmLabel}
+    accessibilityState={{ disabled: !canConfirm || confirming, busy: confirming }}
+    disabled={!canConfirm || confirming} onPress={onConfirm}
+    style={({ pressed }) => [styles.confirm, {
+      backgroundColor: !canConfirm || confirming ? p.dis : pressed ? p.acd : p.ac,
+    }]}>
+    {confirming ? <ActivityIndicator color={p.disTx} /> : <ChatIcon name="checkCircle" size={20} color={canConfirm ? p.onAccent : p.disTx} />}
+    <Text style={[textStyle(16, 'semibold'), styles.flexShrink, styles.center,
+      { color: !canConfirm || confirming ? p.disTx : p.onAccent }]}>{copy.confirmLabel}</Text>
+  </Pressable></View>;
   return (
     <View testID="say-it-chat-page" style={[styles.page, { backgroundColor: p.bg }]}>
       {!accessibilitySize && header}
@@ -438,21 +456,12 @@ export function SayItChatPage({
               </View>)}
               {reviewExtras ? <View testID="chat-review-extras" style={styles.reviewExtras}
                 onLayout={() => setLaidOut((count) => count + 1)}>{reviewExtras}</View> : null}
-              {onConfirm ? <View testID="chat-add-schedule"><Pressable testID="review-confirm" accessibilityRole="button" accessibilityLabel={copy.confirmLabel}
-                accessibilityState={{ disabled: !canConfirm || confirming, busy: confirming }}
-                disabled={!canConfirm || confirming} onPress={onConfirm}
-                style={({ pressed }) => [styles.confirm, {
-                  backgroundColor: !canConfirm || confirming ? p.dis : pressed ? p.acd : p.ac,
-                }]}>
-                {confirming ? <ActivityIndicator color={p.disTx} /> : <ChatIcon name="checkCircle" size={20} color={canConfirm ? p.onAccent : p.disTx} />}
-                <Text style={[textStyle(16, 'semibold'), styles.flexShrink, styles.center,
-                  { color: !canConfirm || confirming ? p.disTx : p.onAccent }]}>{copy.confirmLabel}</Text>
-              </Pressable></View> : null}
+              {onConfirm ? confirmButton : null}
               {reviewFooter ? <View testID="chat-review-footer" style={styles.reviewFooter}>{reviewFooter}</View> : null}
             </View>
             {scheduleTime ? <Text style={[timestampStyle, styles.scheduleTime]}>{scheduleTime}</Text> : null}
           </View> : reviewExtras || reviewFooter ? <View style={[styles.reviewExtras, styles.looseExtras]}
-            onLayout={() => setLaidOut((count) => count + 1)}>{reviewExtras}{reviewFooter}</View> : null}
+            onLayout={() => setLaidOut((count) => count + 1)}>{reviewExtras}{onConfirm && confirmWithoutRows ? confirmButton : null}{reviewFooter}</View> : null}
           {followup && message(followup, 'chat-followup')}
           {accessibilitySize && languageControl ? <View style={[styles.languageRow, styles.scrollLanguage]}>{languageControl}</View> : null}
         </> : bodyOverride}

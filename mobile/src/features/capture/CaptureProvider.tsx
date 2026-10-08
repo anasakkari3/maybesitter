@@ -92,6 +92,10 @@ interface CaptureContextValue {
    */
   adoptProposal(proposal: CaptureProposal, source?: CaptureSource, meeting?: MeetingReviewContext): void;
   toggleItem(itemId: string): void;
+  /** Take a habit, goal or thought-entry thought out of the save, or put it back (M3b). */
+  togglePoint(pointId: string): void;
+  /** A refusal's recovery (M3b, R2-010): take whole families out of the save. */
+  dropFamilies(families: readonly ('habit' | 'goal' | 'seed')[]): void;
   selectAll(): void;
   deselectAll(): void;
   editItem(itemId: string, edit: CaptureItemEdit): void;
@@ -332,6 +336,8 @@ export function CaptureProvider({ children }: { children: React.ReactNode }) {
   }, [abandonAnalysis]);
 
   const toggleItem = useCallback((itemId: string) => dispatch({ type: 'toggleItem', itemId }), []);
+  const togglePoint = useCallback((pointId: string) => dispatch({ type: 'togglePoint', pointId }), []);
+  const dropFamilies = useCallback((families: readonly ('habit' | 'goal' | 'seed')[]) => dispatch({ type: 'familiesDropped', families }), []);
   const selectAll = useCallback(() => dispatch({ type: 'selectAll' }), []);
   const deselectAll = useCallback(() => dispatch({ type: 'deselectAll' }), []);
 
@@ -408,9 +414,9 @@ export function CaptureProvider({ children }: { children: React.ReactNode }) {
           // What was seen is what is saved (M2b).
           ...(revision !== undefined ? { revision } : {}),
           // The other families (M3b), each only when something of it is chosen.
-          ...(selectedHabitItemIds?.length ? { selectedHabitItemIds } : {}),
-          ...(selectedGoalItemIds?.length ? { selectedGoalItemIds } : {}),
-          ...(selectedSeedItemIds?.length ? { selectedSeedItemIds } : {}),
+          ...(selectedHabitItemIds ? { selectedHabitItemIds } : {}),
+          ...(selectedGoalItemIds ? { selectedGoalItemIds } : {}),
+          ...(selectedSeedItemIds ? { selectedSeedItemIds } : {}),
         }).catch((error: unknown) => {
           if (error instanceof ProposalChangedError) changed = error;
           throw error;
@@ -576,9 +582,9 @@ export function CaptureProvider({ children }: { children: React.ReactNode }) {
   const acceptUnderstood = useCallback(() => dispatch({ type: 'understoodAccepted' }), []);
   const reopenUnderstood = useCallback(() => dispatch({ type: 'understoodReopened' }), []);
   const value = useMemo<CaptureContextValue>(() => ({
-    state, open, setText, analyze, dismissFailure, startOver, adoptProposal, toggleItem, selectAll, deselectAll, editItem, setWeekly, setGoalLink, clarify, confirm, undo, backToComposer, acceptUnderstood, reopenUnderstood, close,
+    state, open, setText, analyze, dismissFailure, startOver, adoptProposal, toggleItem, togglePoint, dropFamilies, selectAll, deselectAll, editItem, setWeekly, setGoalLink, clarify, confirm, undo, backToComposer, acceptUnderstood, reopenUnderstood, close,
     dictate, chooseAlternative, editPoint, adoptCurrent, dictationStarted, takeRefusedEdit, writing, guardWrite,
-  }), [state, open, setText, analyze, dismissFailure, startOver, adoptProposal, toggleItem, selectAll, deselectAll, editItem, setWeekly, setGoalLink, clarify, confirm, undo, backToComposer, acceptUnderstood, reopenUnderstood, close,
+  }), [state, open, setText, analyze, dismissFailure, startOver, adoptProposal, toggleItem, togglePoint, dropFamilies, selectAll, deselectAll, editItem, setWeekly, setGoalLink, clarify, confirm, undo, backToComposer, acceptUnderstood, reopenUnderstood, close,
     dictate, chooseAlternative, editPoint, adoptCurrent, dictationStarted, takeRefusedEdit, writing, guardWrite]);
 
   return <CaptureContext.Provider value={value}>{children}</CaptureContext.Provider>;

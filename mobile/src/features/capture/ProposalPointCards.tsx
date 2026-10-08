@@ -1,6 +1,6 @@
 import React from 'react';
 import { View } from 'react-native';
-import type { CaptureGoalProposal, CaptureHabitProposal, CaptureSeedProposal } from '../../api/schemas/capture';
+import type { CaptureGoalProposal, CaptureHabitProposal, CaptureSeedProposal, HabitCadence } from '../../api/schemas/capture';
 import { fill } from '../../i18n/strings';
 import { isolateAuto, ltr } from '../../i18n/bidi';
 import { formatRelativeDay, formatTime } from '../../i18n/format';
@@ -68,7 +68,7 @@ export function HabitProposalCard({ habit, selected, onToggle, onAnswer, busy, r
   selected: boolean;
   onToggle(): void;
   /** One structured change to this habit (M2b protocol). */
-  onAnswer(change: { cadence?: CaptureHabitProposal['cadence']; durationMinutes?: number; kind?: 'habit' | 'commitment' }): void;
+  onAnswer(change: { cadence?: HabitCadence; durationMinutes?: number; kind?: 'habit' | 'commitment' }): void;
   busy: boolean;
   /** The server refused the save as incomplete: ask the rhythm again (R3-007). */
   reask: boolean;

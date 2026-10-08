@@ -194,8 +194,9 @@ export async function confirmCapture(input: {
   revision?: number;
   /**
    * The other families saved by the same confirm (M3b): habits, goals, and —
-   * only from the thought entry — thoughts, each by its family id. Sent only
-   * when non-empty, so a commitment-only confirm is the one an older app sends.
+   * only from the thought entry — thoughts, each by its family id. Sent when
+   * given (`confirmPayload` gives them only for a v8 proposal), so a confirm
+   * of an older proposal is the one an older app sends.
    */
   selectedHabitItemIds?: string[];
   selectedGoalItemIds?: string[];
@@ -210,9 +211,9 @@ export async function confirmCapture(input: {
       ...(input.goalLinkItemIds?.length ? { goalLinkItemIds: input.goalLinkItemIds } : {}),
       ...(input.idempotencyKey ? { idempotencyKey: input.idempotencyKey } : {}),
       ...(input.revision !== undefined ? { revision: input.revision } : {}),
-      ...(input.selectedHabitItemIds?.length ? { selectedHabitItemIds: input.selectedHabitItemIds } : {}),
-      ...(input.selectedGoalItemIds?.length ? { selectedGoalItemIds: input.selectedGoalItemIds } : {}),
-      ...(input.selectedSeedItemIds?.length ? { selectedSeedItemIds: input.selectedSeedItemIds } : {}),
+      ...(input.selectedHabitItemIds ? { selectedHabitItemIds: input.selectedHabitItemIds } : {}),
+      ...(input.selectedGoalItemIds ? { selectedGoalItemIds: input.selectedGoalItemIds } : {}),
+      ...(input.selectedSeedItemIds ? { selectedSeedItemIds: input.selectedSeedItemIds } : {}),
     },
     schema: captureConfirmationSchema,
   });

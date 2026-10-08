@@ -337,6 +337,8 @@ export interface CaptureState {
 
 export type CaptureEvent =
   | { type: 'open'; source?: CaptureSource; inputMode?: CaptureInputMode; meeting?: MeetingReviewContext; entry?: CaptureEntry | null }
+  /** A refusal's recovery: these families leave the save (M3b, R2-010). */
+  | { type: 'familiesDropped'; families: readonly ('habit' | 'goal' | 'seed')[] }
   /** The account changed under an open chat: its entry belonged to the last one (M3b). */
   | { type: 'entryForgotten' }
   /** Take a habit, goal or thought-entry thought out of the save, or put it back (M3b). */
@@ -664,8 +666,11 @@ export function confirmPayload(state: CaptureState): {
   revision?: number;
   /**
    * The other families, by their family ids, translated from the logical
-   * points (M3b, R3-002). Each only when non-empty, so a commitment-only
-   * confirm is exactly the one an older app sent (R3-003).
+   * points (M3b, R3-002). Habits and goals go whenever the server sent those
+   * families (even empty: the selection is part of what is confirmed);
+   * thoughts only from the thought entry, the one place the confirm saves
+   * them (R002). An older server, or the feature off, sends none of these
+   * families, and the confirm is exactly the one an older app sent (R3-003).
    */
   selectedHabitItemIds?: string[];
   selectedGoalItemIds?: string[];
@@ -698,9 +703,9 @@ export function confirmPayload(state: CaptureState): {
     ...(goalLinkItemIds.length > 0 ? { goalLinkItemIds } : {}),
     // What was seen is what is saved (M2b).
     ...(revision !== undefined ? { revision } : {}),
-    ...(selectedHabitItemIds.length > 0 ? { selectedHabitItemIds } : {}),
-    ...(selectedGoalItemIds.length > 0 ? { selectedGoalItemIds } : {}),
-    ...(selectedSeedItemIds.length > 0 ? { selectedSeedItemIds } : {}),
+    ...(state.proposal?.habits !== undefined ? { selectedHabitItemIds } : {}),
+    ...(state.proposal?.goals !== undefined ? { selectedGoalItemIds } : {}),
+    ...(state.proposal?.entry === 'thought' ? { selectedSeedItemIds } : {}),
   };
 }
 
@@ -918,6 +923,14 @@ export function captureReducer(state: CaptureState, event: CaptureEvent): Captur
     case 'open': {
       const opened = { ...initialCaptureState(event.source ?? state.source, event.inputMode ?? state.inputMode), entry: event.entry ?? null };
       return event.meeting ? { ...opened, meeting: event.meeting } : opened;
+    }
+
+    case 'familiesDropped': {
+      const out = new Set(state.deselectedPoints);
+      if (event.families.includes('habit')) confirmableHabits(state.proposal).forEach((pointId) => out.add(pointId));
+      if (event.families.includes('goal')) confirmableGoals(state.proposal).forEach((pointId) => out.add(pointId));
+      if (event.families.includes('seed')) confirmableThoughts(state.proposal).forEach((pointId) => out.add(pointId));
+      return { ...state, deselectedPoints: Array.from(out) };
     }
 
     case 'entryForgotten':

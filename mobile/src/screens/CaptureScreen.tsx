@@ -3,7 +3,10 @@ import { AccessibilityInfo, BackHandler, Keyboard, Platform, View } from 'react-
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useApp } from '../state/AppContext';
 import { useCaptureFlow } from '../features/capture/CaptureProvider';
-import { MAX_CAPTURE_LENGTH, chatSaves, confirmableItems, goalLinkKept, showsUnderstood, summaryPoints, wantsDiscardConfirmation, weeklyChoice, weeklyLockedByEdit, type CaptureItemEdit, type ChatSavedNote } from '../features/capture/captureMachine';
+import { MAX_CAPTURE_LENGTH, chatSaves, confirmableGoals, confirmableHabits, confirmableItems, confirmableThoughts, goalLinkKept, pointSelected, selectedCount, showsUnderstood, summaryPoints, wantsDiscardConfirmation, weeklyChoice, weeklyLockedByEdit, type CaptureItemEdit, type ChatSavedNote } from '../features/capture/captureMachine';
+import { GoalProposalCard, HabitProposalCard, SeedCommitAction, ThoughtProposalCard } from '../features/capture/ProposalPointCards';
+import { tFor } from '../i18n';
+import { useGoalPlan } from '../api/queries';
 import { understoodKeyOf, UnderstoodMessage, type UnderstoodTarget } from '../features/capture/UnderstoodMessage';
 import { familyIdOf, familyIdOfLine, type PointTarget } from '../features/capture/pointIdentity';
 import { SummaryEditSheet } from '../features/capture/SummaryEditSheet';
@@ -62,6 +65,41 @@ const REVIEW_STATUSES = ['needsConfirmation', 'needsClarification', 'unresolvedI
  * own answer — the server never wrote it, and it claims nothing the server
  * did not report saved.
  */
+/**
+ * A saved goal's two ways on (M3b): «اعمللي خطة» while that goal's plan path
+ * answers — asked of the goal itself, so a switched-off plan module (404)
+ * hides it (R2-013) — and «افتح الهدف», the memory list where it can be
+ * changed or removed (R4-004).
+ */
+function SavedGoalActions({ goalId, title }: { goalId: string; title: string }) {
+  const { t, actions } = useApp();
+  const plan = useGoalPlan(goalId);
+  const planOn = plan.isSuccess;
+  return <>
+    {planOn ? <Pill testID={`capture-saved-start-plan-${goalId}`} label={t.xStartPlan}
+      accessibilityLabel={fill(t.xOpenSubjectLabel, { action: t.xStartPlan, title })}
+      onPress={() => actions.openGoal(goalId, { startPlan: true })} kind="soft" size={13} pad={10} radius={12} /> : null}
+    <Pill testID={`capture-saved-open-goal-${goalId}`} label={t.xOpenGoal}
+      accessibilityLabel={fill(t.xOpenSubjectLabel, { action: t.xOpenGoal, title })}
+      onPress={() => actions.go('memory')} kind="soft" size={13} pad={10} radius={12} />
+  </>;
+}
+
+/**
+ * What each M3b confirm refusal says and lets the person do (R2-010, R3-007):
+ * the save wrote nothing, and the action takes out what could not be saved.
+ */
+const M3B_REFUSALS: Record<string, { message: 'xRefusedGoals' | 'xRefusedKinds' | 'xRefusedTooMany' | 'xRefusedHabit' | 'xRefusedKeyReused';
+  action?: { label: 'xRefusedGoalsAction' | 'xRefusedKindsAction' | 'xRefusedTooManyAction' | 'xRefusedHabitAction'; drop?: readonly ('habit' | 'goal' | 'seed')[] } }> = {
+  goals_unavailable: { message: 'xRefusedGoals', action: { label: 'xRefusedGoalsAction', drop: ['goal'] } },
+  kinds_unavailable: { message: 'xRefusedKinds', action: { label: 'xRefusedKindsAction', drop: ['habit', 'goal', 'seed'] } },
+  // The person lowers a habit's rhythm on its card; no button pretends to do it for them.
+  too_many_writes: { message: 'xRefusedTooMany' },
+  // The habit's card asks its rhythm again, right above (`reask`).
+  habit_invalid: { message: 'xRefusedHabit' },
+  key_reused: { message: 'xRefusedKeyReused' },
+};
+
 function savedNoteText(note: ChatSavedNote, t: Strings, lang: Lang, timeZone: string): string {
   const list = (titles: string[]) => titles.map((title) => (lang === 'ar' ? `«${isolateAuto(title)}»` : `"${isolateAuto(title)}"`))
     .join(lang === 'ar' ? '، ' : ', ');
@@ -70,6 +108,13 @@ function savedNoteText(note: ChatSavedNote, t: Strings, lang: Lang, timeZone: st
     : t.noTimeYet);
   const paragraphs: string[] = [];
   if (note.persisted.length > 0) paragraphs.push(fill(t.chatSaved, { titles: list(note.persisted.map((item) => item.title)) }));
+  // The other families the same confirm saved (M3b, R3-004), counted by kind.
+  const families = [
+    note.habitsSaved?.length ? tFor(lang)('xSavedHabitsN', { n: note.habitsSaved.length }) : null,
+    note.goalsSaved?.length ? tFor(lang)('xSavedGoalsN', { n: note.goalsSaved.length }) : null,
+    note.seedsSaved?.length ? tFor(lang)('xSavedThoughtsN', { n: note.seedsSaved.length }) : null,
+  ].filter((part): part is string => part !== null);
+  if (families.length > 0) paragraphs.push(fill(t.xSavedFamilies, { list: families.join(lang === 'en' ? ', ' : '، ') }));
   if (note.weeklySaved.length > 0) {
     paragraphs.push([...note.weeklySaved.map(({ block }) => weeklyLine(block, lang)), t.wbSavedNote].join('\n'));
   }
@@ -457,13 +502,32 @@ export function CaptureScreen() {
       if (noTime) void answer(asking.itemId, { optionId: noTime.optionId });
       else setSkipped(current => [...current, asking.itemId]);
     }} /> : null;
+  // M3b: a refusal the person can act on — «الأهداف مش مفعّلة هلّق» with
+  // «شيل الهدف واحفظ الباقي», and so on (R2-010, R3-007) — never the generic line.
+  const refusal = state.status === 'confirmFailed' ? M3B_REFUSALS[state.errorReason ?? ''] : undefined;
+  const thoughtEntry = state.proposal?.entry === 'thought';
   const reviewExtras = cardsOpen ? <View style={{ gap: 10 }}>
     {state.reviewNotice ? <Txt testID="review-conflict-note" color={p.wm}>{t.captureProposalChanged}</Txt> : null}
-    {state.status === 'confirmFailed' ? <Txt testID="review-confirm-failed" color={p.wm}>{t[state.messageKey ?? 'errorsGeneric']}</Txt> : null}
-    {state.selected.length === 0 && items.length ? <Txt size={13} testID="review-none-selected" color={p.mu}>{t.reviewNothingSelected}</Txt> : null}
-    {state.proposal?.seeds?.length ? <SeedProposalSection proposalId={state.proposal.proposalId} seeds={state.proposal.seeds} onAnchor={anchorSeed}
+    {refusal ? <View testID="capture-confirm-refused" accessibilityLiveRegion="polite" style={{ gap: 8, alignItems: 'flex-start' }}>
+      <Txt color={p.wm}>{t[refusal.message]}</Txt>
+      {refusal.action ? <Pill testID="capture-confirm-refused-action" label={t[refusal.action.label]} kind="outline" size={14} pad={10}
+        onPress={() => { if (refusal.action?.drop) flow.dropFamilies(refusal.action.drop); }} /> : null}
+    </View> : state.status === 'confirmFailed' ? <Txt testID="review-confirm-failed" color={p.wm}>{t[state.messageKey ?? 'errorsGeneric']}</Txt> : null}
+    {selectedCount(state) === 0 && items.length ? <Txt size={13} testID="review-none-selected" color={p.mu}>{t.reviewNothingSelected}</Txt> : null}
+    {(state.proposal?.habits ?? []).map((habit) => <HabitProposalCard key={habit.pointId} habit={habit}
+      selected={pointSelected(state, habit.pointId)} onToggle={() => flow.togglePoint(habit.pointId)}
+      busy={editBusy || flow.writing} reask={state.status === 'confirmFailed' && state.errorReason === 'habit_invalid'}
+      onAnswer={(change) => { void sendEdit({ habitItemId: habit.habitItemId }, change); }} />)}
+    {(state.proposal?.goals ?? []).map((goal) => <GoalProposalCard key={goal.pointId} goal={goal}
+      selected={pointSelected(state, goal.pointId)} onToggle={() => flow.togglePoint(goal.pointId)} />)}
+    {thoughtEntry ? state.proposal!.seeds.map((seed) => <ThoughtProposalCard key={seed.seedItemId} seed={seed}
+      selected={pointSelected(state, seed.pointId ?? seed.seedItemId)} onToggle={() => flow.togglePoint(seed.pointId ?? seed.seedItemId)}
+      busy={editBusy || flow.writing} onMakeCommitment={() => { void sendEdit({ seedItemId: seed.seedItemId }, { kind: 'commitment' }); }} />)
+      : state.proposal?.seeds?.length ? <SeedProposalSection proposalId={state.proposal.proposalId} seeds={state.proposal.seeds} onAnchor={anchorSeed}
       {...(state.proposal.revision !== undefined ? { revision: state.proposal.revision } : {})} onProposalChanged={flow.adoptCurrent}
-      writing={flow.writing} guardWrite={flow.guardWrite} /> : null}
+      writing={flow.writing} guardWrite={flow.guardWrite}
+      renderAction={(seed) => <SeedCommitAction seed={seed} busy={editBusy || flow.writing}
+        onPress={() => { void sendEdit({ seedItemId: seed.seedItemId }, { kind: 'commitment' }); }} />} /> : null}
   </View> : null;
   // Under the save (Stitch 03): every review option, the propose-only note,
   // and the explicit exit.
@@ -475,7 +539,21 @@ export function CaptureScreen() {
   // After a save the person stays in the chat: Undo for the last save while
   // its window is open — what the saved screen offered — and «خلصت», inside
   // the saved line when it is the newest thing said, under the chat otherwise.
+  // What the last save wrote of the other families (M3b, R3-004): each opens
+  // its own page, where it can be changed or removed — Undo takes back
+  // commitments only, so it is not offered when one of these was saved.
+  const lastSaved = [...state.earlier].reverse().find((entry): entry is ChatSavedNote => entry.kind === 'saved');
+  const savedFamilies = lastSaved && (lastSaved.habitsSaved?.length || lastSaved.goalsSaved?.length || lastSaved.seedsSaved?.length)
+    ? <View testID="capture-saved" style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
+      {(lastSaved.habitsSaved ?? []).map((habit) => <Pill key={habit.habitId} testID={`capture-saved-open-habit-${habit.habitId}`}
+        label={t.xOpenHabit} accessibilityLabel={fill(t.xOpenSubjectLabel, { action: t.xOpenHabit, title: habit.title })}
+        onPress={() => actions.go('habitDetail')} kind="soft" size={13} pad={10} radius={12} />)}
+      {(lastSaved.goalsSaved ?? []).map((goal) => <SavedGoalActions key={goal.goalId} goalId={goal.goalId} title={goal.title} />)}
+      {(lastSaved.seedsSaved?.length ?? 0) > 0 ? <Pill testID="capture-saved-open-thoughts" label={t.xOpenThoughts}
+        onPress={() => actions.go('seeds')} kind="soft" size={13} pad={10} radius={12} /> : null}
+    </View> : null;
   const savedActions = !reviewing && saves > 0 && state.status !== 'analyzing' ? <>
+    {savedFamilies}
     {state.undoable && state.persisted.length > 0 ? <Pill testID="chat-saved-undo" label={t.undo} onPress={undoLast} disabled={undoing} kind="soft" size={13} pad={10} radius={12} style={{ minWidth: 88 }} /> : null}
     <Pill testID="chat-done" label={t.chatDone} onPress={done} kind="soft" size={13} pad={10} radius={12} style={{ minWidth: 88 }} />
   </> : null;
@@ -580,7 +658,7 @@ export function CaptureScreen() {
           closeLabel: t.back, moreLabel: t.chatOptions, pasteLabel: t.capturePaste, sendLabel: t.chatSend,
           // The save says what it saves, by count and plural-safe (ICU, as
           // confirmN): «احفظ الاتنين», «احفظ وحدة», nothing when none is ticked.
-          confirmLabel: tr('chatSaveN', { n: state.selected.length }), editLabel: t.reviewEdit, includeLabel: t.chatWillSave,
+          confirmLabel: tr('chatSaveN', { n: selectedCount(state) }), editLabel: t.reviewEdit, includeLabel: t.chatWillSave,
           proposalsTitle: fill(t.chatProposedN, { n: items.length }),
           listeningTitle: t.chatListening, listeningNote: t.voiceListening, cancelListeningLabel: t.cancel }}
         text={composerText} onChangeText={changeText} onSend={send}
@@ -615,7 +693,9 @@ export function CaptureScreen() {
         history={history}
         {...(state.status === 'analyzing' ? { typing: <ProcessingDots color={p.ac} />, typingLabel: t.understanding } : {})}
         scheduleGroups={[...groups.values()]} onRowPress={setEditingId} onRowToggle={flow.toggleItem}
-        onConfirm={() => { stopDictation(); Keyboard.dismiss(); void flow.confirm(); }} canConfirm={state.selected.length > 0 && !busy && !answering && !flow.writing} confirming={state.status === 'confirming'}
+        onConfirm={() => { stopDictation(); Keyboard.dismiss(); void flow.confirm(); }} canConfirm={selectedCount(state) > 0 && !busy && !answering && !flow.writing} confirming={state.status === 'confirming'}
+        confirmWithoutRows={cardsOpen && items.length === 0
+          && confirmableHabits(state.proposal).length + confirmableGoals(state.proposal).length + confirmableThoughts(state.proposal).length > 0}
         quickActions={reviewing || state.text.trim() || state.turns.length > 0 || state.earlier.length > 0 || state.status === 'analyzing' ? []
           : COMPOSER_EXAMPLE_KEYS.map(key => ({ id: `example-${key}`, label: exampleText(key, t) }))}
         onQuickAction={quickAction} rtl={rtl} safeBottom={insets.bottom} keyboardShown={keyboardShown} mode={mode} listening={voiceStatus === 'listening'}
