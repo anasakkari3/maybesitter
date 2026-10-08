@@ -10,7 +10,7 @@
  * UC-2.4 (#164)'s edit sheet, which can express anything a fixed question
  * cannot — and never renders the key itself, which is an internal token.
  */
-import { ltr } from '../../i18n/strings';
+import { ltr } from '../../i18n/bidi';
 
 
 /** The longest free-text answer the endpoint reads. Mirrors the contract. */
