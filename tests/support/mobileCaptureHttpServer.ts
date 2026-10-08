@@ -12,6 +12,7 @@ import { getParticipantStateSnapshot } from '../../lib/services/mobile/participa
 import { POST as propose } from '../../src/app/api/mobile/capture/route.ts';
 import { POST as clarify } from '../../src/app/api/mobile/capture/clarify/route.ts';
 import { POST as confirm } from '../../src/app/api/mobile/capture/confirm/route.ts';
+import { GET as kinds } from '../../src/app/api/mobile/capture/kinds/route.ts';
 import { GET as today } from '../../src/app/api/mobile/commitments/today/route.ts';
 import { GET as upcoming } from '../../src/app/api/mobile/commitments/upcoming/route.ts';
 import { GET as consents } from '../../src/app/api/mobile/consents/route.ts';
@@ -28,6 +29,7 @@ const routes = new Map<string, (request: Request) => Promise<Response>>([
   ['POST /api/mobile/capture', propose],
   ['POST /api/mobile/capture/clarify', clarify],
   ['POST /api/mobile/capture/confirm', confirm],
+  ['GET /api/mobile/capture/kinds', kinds],
   ['GET /api/mobile/commitments/today', today],
   ['GET /api/mobile/commitments/upcoming', upcoming],
   ['GET /api/mobile/consents', consents],

@@ -221,7 +221,10 @@ test('every mobile route file exists and is enumerated', () => {
   // revise private plan drafts, bind selected times, confirm canonical work,
   // and turn a statement into a goal, so every one must derive its uid from
   // the verified mobile token rather than any goal or plan id in the request.
-  assert.equal(files.length, 113, `found:\n${files.join('\n')}`);
+  // One hundred fourteen with M3b's capture-kind capability probe. Even a
+  // feature probe is account-scoped here: it must authenticate before it
+  // reports which capture families this deployment offers.
+  assert.equal(files.length, 114, `found:\n${files.join('\n')}`);
 });
 
 test('every mobile route handler runs an authentication guard before anything else', () => {

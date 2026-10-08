@@ -552,6 +552,8 @@ export async function commitCaptureConfirmation<T>(
    * A replay writes none of them, exactly as it writes no commitment.
    */
   createdDocuments: ReadonlyArray<{ path: string; data: object }> = [],
+  confirmationFingerprint?: string,
+  confirmationIntent?: object,
 ): Promise<{ replayed: boolean; result: T }> {
   requireUserId(participantId);
   const at = nowIso();
@@ -561,6 +563,8 @@ export async function commitCaptureConfirmation<T>(
         contract?: import('../../../src/contracts/v1/captureContracts').CaptureProposalContract;
         confirmedResult?: T;
         idempotencyKey?: string;
+        confirmationFingerprint?: string;
+        confirmationIntent?: object;
         chatRefs?: Record<string, string>;
         nextChatItemRef?: number;
         nextChatSeedRef?: number;
@@ -575,7 +579,15 @@ export async function commitCaptureConfirmation<T>(
     // this transaction was reading. Either way the commitments exist and this
     // must not create a second set.
     if (proposal?.confirmedResult !== undefined) {
-      if (proposal.idempotencyKey === idempotencyKey) return { replayed: true, result: proposal.confirmedResult };
+      if (proposal.idempotencyKey === idempotencyKey) {
+        if (confirmationFingerprint !== undefined && proposal.confirmationFingerprint !== undefined
+          && proposal.confirmationFingerprint !== confirmationFingerprint) {
+          const error = new Error('confirmation key reused for a different intent');
+          error.name = 'ConfirmationKeyReusedError';
+          throw error;
+        }
+        return { replayed: true, result: proposal.confirmedResult };
+      }
       const { ProposalChangedError } = await import('../captureBoundary/proposalProtocol');
       throw new ProposalChangedError(proposal.contract!, 'confirmed', proposal.confirmedResult as never);
     }
@@ -609,6 +621,8 @@ export async function commitCaptureConfirmation<T>(
       contract: import('../../../src/contracts/v1/captureContracts').CaptureProposalContract;
       confirmedResult: T;
       idempotencyKey: string;
+      confirmationFingerprint?: string;
+      confirmationIntent?: object;
       commands?: Record<string, Command[]>;
       lockedChatRefs?: string[];
       chatRefs: Record<string, string>;
@@ -618,6 +632,8 @@ export async function commitCaptureConfirmation<T>(
       contract: { ...proposal!.contract!, revision: currentRevision + 1 },
       confirmedResult: result,
       idempotencyKey,
+      ...(confirmationFingerprint === undefined ? {} : { confirmationFingerprint }),
+      ...(confirmationIntent === undefined ? {} : { confirmationIntent }),
       ...(confirmedRefs.length > 0
         ? { lockedChatRefs: Array.from(new Set([...(proposal?.lockedChatRefs ?? []), ...confirmedRefs])) }
         : {}),

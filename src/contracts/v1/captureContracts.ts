@@ -1,5 +1,6 @@
 import { MODULE_CONTRACT_VERSION } from './moduleContracts';
 import type { CaptureSeedProposalContract } from './intentContracts';
+import type { HabitCadence } from './habitContracts';
 import type { WeeklyBlockOfferContract } from './weeklyBlockContracts';
 
 export const CAPTURE_CONTRACT_VERSION = MODULE_CONTRACT_VERSION;
@@ -30,6 +31,8 @@ export type CaptureProposalStatus =
 
 export interface CaptureProposalItemContract {
   itemId: string;
+  /** Stable logical identity across capture-family conversions (contract v8). */
+  pointId?: string;
   title: string;
   resolvedTime: string | null;
   needsClarification: boolean;
@@ -416,6 +419,10 @@ export interface CaptureProposalContract {
    * sent back.
    */
   seeds: CaptureSeedProposalContract[];
+  /** Contract-v8 fields are absent while captureKinds is disabled. */
+  entry?: CaptureEntry | null;
+  habits?: CaptureHabitProposalContract[];
+  goals?: CaptureGoalProposalContract[];
   /**
    * Locked points a later chat turn explicitly removed (M2b contract v5).
    * They remain visible so the person can restore them. Absent when none.
@@ -447,6 +454,9 @@ export interface CaptureConfirmationRequestContract {
   proposalId: string;
   scopeId: string;
   selectedItemIds: string[];
+  selectedHabitItemIds?: string[];
+  selectedGoalItemIds?: string[];
+  selectedSeedItemIds?: string[];
   idempotencyKey: string;
   /**
    * Edits applied atomically with the confirm (UC-2.4, #164).
@@ -493,7 +503,11 @@ export interface CaptureConfirmationResultContract {
    * applying a set of edits would leave some commitments as the user wanted
    * them and others as the extractor guessed, with no way to tell which.
    */
-  failureCode?: 'proposal_not_found' | 'proposal_rejected' | 'invalid_selection' | 'persistence_failed' | 'invalid_edit';
+  failureCode?: 'proposal_not_found' | 'proposal_rejected' | 'invalid_selection' | 'persistence_failed' | 'invalid_edit'
+    | 'too_many_writes' | 'habit_invalid' | 'goal_invalid' | 'seed_invalid';
+  habitsPersisted?: CaptureHabitPersistedContract[];
+  goalsPersisted?: CaptureGoalPersistedContract[];
+  seedsPersisted?: CaptureSeedPersistedContract[];
   /**
    * Why the write failed, when `failureCode` is `persistence_failed` (#419).
    *
@@ -523,8 +537,10 @@ export const CAPTURE_PERSISTENCE_POLICY = Object.freeze({
 
 /** One line of `CaptureProposalContract.understood` (M2a). `habit` is M3. */
 export type CaptureUnderstoodPoint =
-  | { kind: 'commitment'; itemId: string; text: string }
-  | { kind: 'possible_goal' | 'consideration' | 'idea' | 'waiting_for'; seedItemId: string; text: string };
+  | { kind: 'commitment'; itemId: string; pointId?: string; text: string }
+  | { kind: 'possible_goal' | 'consideration' | 'idea' | 'waiting_for'; seedItemId: string; pointId?: string; text: string }
+  | { kind: 'habit'; habitItemId: string; itemId?: never; seedItemId?: never; pointId: string; text: string }
+  | { kind: 'goal'; goalItemId: string; itemId?: never; seedItemId?: never; pointId: string; text: string };
 
 /** The longest `understood` line the server sends. */
 export const UNDERSTOOD_TEXT_MAX = 160;
@@ -541,9 +557,12 @@ export type CaptureRemovedItemContract =
 
 export type CaptureProposalEditChangeContract =
   | {
-      kind?: 'commitment' | 'possible_goal' | 'consideration' | 'idea' | 'waiting_for';
+      kind?: 'commitment' | 'possible_goal' | 'consideration' | 'idea' | 'waiting_for' | 'habit' | 'goal';
       text?: string;
       time?: { at: string | null; timeZone: string };
+      cadence?: HabitCadence;
+      durationMinutes?: number;
+      preferredWindow?: CapturePreferredWindow | null;
       rejectCorrectionIds?: string[];
       restore?: never;
     }
@@ -565,14 +584,14 @@ export interface CaptureProposalEditContract {
   proposalId: string;
   /** The revision the person was looking at. */
   revision: number;
-  target: { itemId: string } | { seedItemId: string };
+  target: { itemId: string } | { seedItemId: string } | { habitItemId: string } | { goalItemId: string };
   /** At least one field; all applied together or none. `text` and `rejectCorrectionIds` never together. */
   change: CaptureProposalEditChangeContract;
 }
 
 /** The chat route's request: a new message, or an edit — never both (M2b). */
 export type CaptureChatRequestContract =
-  | { conversationId?: string | null; message: string; spoken?: boolean; timezone: string; referenceTime?: string; locale?: CaptureAppLocale }
+  | { conversationId?: string | null; message: string; spoken?: boolean; timezone: string; referenceTime?: string; locale?: CaptureAppLocale; entry?: CaptureEntry }
   | { conversationId: string; edit: CaptureProposalEditContract; timezone: string; referenceTime?: string; locale?: CaptureAppLocale };
 
 /**
@@ -585,3 +604,53 @@ export type CaptureChatRequestContract =
 export type CaptureProposalChangedContract =
   | { reason: 'proposal_changed'; answer: unknown /* the CaptureChatAnswer the chat route returns */; state?: 'open' | 'confirmed' }
   | { reason: 'proposal_changed'; proposal: CaptureProposalContract; state: 'open' | 'confirmed'; confirmation?: CaptureConfirmationResultContract };
+
+export const CAPTURE_ENTRIES = ['goal', 'habit', 'thought'] as const;
+export type CaptureEntry = (typeof CAPTURE_ENTRIES)[number];
+
+export type CapturePreferredWindow = 'morning' | 'afternoon' | 'evening'
+  | { start: string; end: string };
+
+export interface CaptureHabitProposalContract {
+  habitItemId: string;
+  pointId: string;
+  title: string;
+  cadence: HabitCadence | null;
+  durationMinutes: number | null;
+  preferredWindow: CapturePreferredWindow | null;
+  explanation: string | null;
+  question:
+    | { field: 'frequency'; options: [1, 2, 3, 4, 5, 6, 7] }
+    | { field: 'duration'; options: [15, 30, 45, 60] }
+    | { field: 'kind'; options: ['habit', 'commitment'] }
+    | null;
+  confirmable: boolean;
+}
+
+export interface CaptureGoalProposalContract {
+  goalItemId: string;
+  pointId: string;
+  title: string;
+}
+
+export interface CaptureHabitPersistedContract {
+  habitItemId: string;
+  pointId: string;
+  habitId: string;
+  title: string;
+}
+
+export interface CaptureGoalPersistedContract {
+  goalItemId: string;
+  pointId: string;
+  goalId: string;
+  title: string;
+}
+
+export interface CaptureSeedPersistedContract {
+  seedItemId: string;
+  pointId: string;
+  seedId: string;
+  kind: 'possible_goal' | 'consideration' | 'idea' | 'waiting_for';
+  title: string;
+}

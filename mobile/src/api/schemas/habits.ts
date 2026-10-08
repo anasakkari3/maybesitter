@@ -24,7 +24,7 @@ export const habitSchema = z.object({
   flexibility: z.enum(['flexible', 'protected_flexible']),
   recoveryPolicy: z.enum(['skip', 'retry_same_day', 'recover_within_period']),
   status: z.enum(['active', 'paused', 'archived']),
-  source: z.enum(['user_created', 'goal_confirmed', 'onboarding_confirmed']),
+  source: z.enum(['user_created', 'goal_confirmed', 'onboarding_confirmed', 'capture_chat']),
   confirmation: confirmationSchema,
   createdAt: isoDateTime,
   updatedAt: isoDateTime,

@@ -35,6 +35,22 @@ cannot reach the adapter.
 - Existing web Capture behavior is unchanged. This boundary is additive and is
   not enabled as a production route in Sprint 01.
 
+## Capture kinds subfeature
+
+`MAYBESITTER_FEATURE_CAPTURE_KINDS` extends the mobile proposal boundary with
+habit, goal, and thought-entry points. It defaults off, its kill switch wins,
+and production is hard-denied in code regardless of the flag. While it is off,
+the legacy capture wire omits all v8 fields.
+
+Confirmation remains proposal-only until one atomic transaction writes every
+selected family. Chat-created habits use `source: 'capture_chat'`, retain the
+proposal id in their confirmation, and materialize their occurrences through
+the habit-domain builders. Goals are user-stated memory records with
+`provenance.origin: 'capture'` and `originRef` set to the proposal id. Thought
+seeds use `source: 'capture'` and the same proposal id as `sourceRef`. These
+records therefore remain attributable in account export and are covered by the
+same per-account deletion path as their collections.
+
 ## Migration
 
 No stored-state migration is required. Consumers may adopt the v1 proposal and
@@ -50,4 +66,3 @@ focused #6 commit. No canonical-state rollback is required because proposal
 creation never writes state and confirmation writes use existing domain
 commands. Verify rollback with the contract test suite and a clean state
 snapshot before and after an unconfirmed proposal.
-
