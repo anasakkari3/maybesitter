@@ -271,6 +271,8 @@ export function HabitDetailScreen() {
     onCancel={() => setDeleting(null)}
     onConfirm={() => { remove.mutate(deleting); setDeleting(null); }}
   /> : null}>
+    {/* Above the list, as on the goals and thoughts pages: below a few habits it left the screen (M3b design review). */}
+    {!kinds.pending && chatHabits ? <ChatEntryButton entry="habit" testID="habits-add" /> : null}
     <QueryBoundary isPending={query.isPending} error={query.error} onRetry={() => void query.refetch()}>
       {items.length === 0 ? (chatHabits
         ? <ProductSection title={t.xHabitsEmptyTitle} body={t.xHabitsEmptyBody} icon="habit" />
@@ -303,7 +305,7 @@ export function HabitDetailScreen() {
       {create.error ? <Txt role="supporting" color={p.wm}>{userFacingMessage(create.error, t)}</Txt> : null}
       <ProductActions><Pill testID="habit-create-confirm" label={t.xCreateHabit} disabled={!title.trim() || create.isPending} onPress={save} /><Pill label={t.cancel} kind="outline" disabled={create.isPending} onPress={() => setAdding(false)} /></ProductActions>
     </ProductSection> : kinds.pending ? <ChatEntryPlaceholder testID="habits-add-pending" />
-      : chatHabits ? <ChatEntryButton entry="habit" testID="habits-add" />
+      : chatHabits ? null
       : <Pill testID="habit-create" label={t.xCreateHabit} onPress={() => setAdding(true)} />}
     <Pill label={t.settingsRoutine} kind="outline" onPress={() => actions.go('routineSettings')} />
   </ProductPage>;
