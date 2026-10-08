@@ -124,8 +124,10 @@ test('firestore M4a: query shapes and calendar-source reads stay source-bounded'
 test('firestore M4a: more than 2000 matching rows reports the first omitted start', { skip: emulatorSkip }, async () => {
   await withFirestoreCase('BusyReadDense', async ({ uid, storage, counts, get }) => {
     const sourceId = 'manual:dense';
+    // After `from + 40h`, so the carry-in query (which saturates to
+    // `cutoff = from`, WIRE) does not see them and the in-window limit decides.
     const rows = Array.from({ length: 2001 }, (_, index) => {
-      const start = Date.parse('2026-10-08T00:00:00.000Z') + index * 10_000;
+      const start = Date.parse('2026-10-09T12:00:00.000Z') + index * 10_000;
       return block(sourceId, `dense-${index}`, new Date(start).toISOString(), new Date(start + 5_000).toISOString(), 'manual');
     });
     await replaceBusyBlocks(uid, sourceId, { startsAt: FROM, endsAt: TO }, rows, { storage, platform: null });
