@@ -39,7 +39,8 @@ import {
 
 const WALK = 'بدي أمشي نص ساعة كل يوم الصبح';
 const GOAL = 'بدي أنزل بالوزن';
-const DOCTOR = 'موعد الدكتور بكرا الساعة 4';
+// A clock with its half of the day: an ambiguous «الساعة 4» rightly asks AM/PM (M2) and is not confirmable.
+const DOCTOR = 'موعد الدكتور بكرا الساعة 4 المسا';
 
 async function finalizeSeam(): Promise<(fault: ((step: string) => boolean) | null) => void> {
   const module = await import('../../../lib/services/mobile/mobileCaptureService.ts') as Record<string, unknown>;
@@ -254,7 +255,7 @@ test('R6-001 a crash before goal links: recovery creates exactly the kept link a
     const goalAnswer = await say(uid, GOAL, { entry: 'goal', locale: 'ar' });
     const saveGoal = await confirm(uid, goalAnswer.proposal!, { goals: [goalsOf(goalAnswer)[0]!.goalItemId] });
     assert.equal(saveGoal.status, 200, show(saveGoal.body));
-    const answer = await say(uid, 'بكرا الساعة 7 الصبح بمشي ساعة لأنزل بالوزن، وبعده الساعة 9 بتمرن لأنزل بالوزن', { locale: 'ar' });
+    const answer = await say(uid, 'بكرا الساعة 7 الصبح بمشي ساعة لأنزل بالوزن، وبكرا الساعة 9 الصبح بتمرن لأنزل بالوزن', { locale: 'ar' });
     const linkable = answer.proposal!.items.filter((item: any) => item.goalLink);
     assert.equal(linkable.length, 2, `the two steps were not offered a goal link: ${show(answer.proposal)}`);
     const key = confirmKey('links');
@@ -302,11 +303,19 @@ test('R008 account deletion removes the habit, goal and seed a capture confirm w
     const thought = await say(uid, 'عم بفكر أسافر الصيف الجاي', { entry: 'thought', locale: 'ar' });
     assert.equal((await confirm(uid, thought.proposal!, { seeds: [thought.proposal!.seeds[0]!.seedItemId] })).status, 200);
 
-    await deleteAccount(uid, {
-      initiatedBy: 'user',
-      storage: currentStorage(),
-      auth: { async revokeRefreshTokens() {}, async deleteUser() {} } as never,
-    });
+    // The deletion receipt is peppered (as tests/account/accountDeletion.test.ts sets it).
+    const previousPepper = process.env.MAYBESITTER_DELETION_RECEIPT_PEPPER;
+    process.env.MAYBESITTER_DELETION_RECEIPT_PEPPER = 'm3b-gate-test-pepper';
+    try {
+      await deleteAccount(uid, {
+        initiatedBy: 'user',
+        storage: currentStorage(),
+        auth: { async revokeRefreshTokens() {}, async deleteUser() {} } as never,
+      });
+    } finally {
+      if (previousPepper === undefined) delete process.env.MAYBESITTER_DELETION_RECEIPT_PEPPER;
+      else process.env.MAYBESITTER_DELETION_RECEIPT_PEPPER = previousPepper;
+    }
     const left = currentStorage().pathsForTests().filter((path) => path.includes(uid));
     assert.deepEqual(left, [], `documents left after deletion: ${show(left)}`);
   } finally { end(); }

@@ -72,7 +72,7 @@ test('R3-003 off: a chat answer carries none of the v8 fields, and an entry hint
 test('R3-003 on: the proposal carries habits[], goals[], entry and a pointId on every point', async () => {
   const uid = beginRules();
   try {
-    const answer = await say(uid, 'موعد الدكتور بكرا الساعة 4، وعم بفكر أسافر الصيف الجاي', { locale: 'ar' });
+    const answer = await say(uid, 'موعد الدكتور بكرا الساعة 4 المسا، وعم بفكر أسافر الصيف الجاي', { locale: 'ar' });
     const proposal = answer.proposal!;
     assert.ok(Array.isArray(proposal.habits) && Array.isArray(proposal.goals), `no v8 lists: ${show(proposal)}`);
     assert.equal(proposal.entry ?? null, null, 'a generic chat must say entry: null');
@@ -202,7 +202,7 @@ test('A4 goal: from the goal entry «بدي أنزل بالوزن» is a goal po
 
 test('D1 entry is a hint: an appointment from the goal entry, and «لازم…» from the thought entry, are commitments', async () => {
   for (const [entry, message] of [
-    ['goal', 'عندي موعد طبيب بكرا الساعة 4'],
+    ['goal', 'عندي موعد طبيب بكرا الساعة 4 المسا'],
     ['thought', 'لازم أدفع الفاتورة بكرا الساعة 5 المسا'],
   ] as const) {
     const uid = beginRules();
@@ -271,7 +271,7 @@ test('R006 goal → commitment is refused 422 invalid_edit', async () => {
 test('R006 commitment → habit asks frequency and duration (nothing guessed)', async () => {
   const uid = beginRules();
   try {
-    const answer = await say(uid, 'موعد الدكتور بكرا الساعة 4', { locale: 'ar' });
+    const answer = await say(uid, 'موعد الدكتور بكرا الساعة 4 المسا', { locale: 'ar' });
     const item = answer.proposal!.items[0]!;
     const result = await editPoint(uid, answer, { itemId: item.itemId }, { kind: 'habit' });
     assert.equal(result.status, 200, show(result.body));
@@ -280,5 +280,48 @@ test('R006 commitment → habit asks frequency and duration (nothing guessed)', 
     assert.equal(habit.durationMinutes, null);
     assert.equal(habit.question?.field, 'frequency');
     assert.equal(habit.pointId, item.pointId);
+  } finally { end(); }
+});
+
+/* ── review r1 of Task B: guards the build must keep (added by the gate author) ── */
+
+test('RB-1 with kinds on, an ambiguous clock still asks AM/PM: «الساعة 4» is never guessed as 16:00 (M2 rule)', async () => {
+  const uid = beginRules();
+  try {
+    const answer = await say(uid, 'اتصل بأمي بكرا الساعة 4', { locale: 'ar' });
+    const item = answer.proposal!.items[0];
+    assert.ok(item, `no commitment: ${show(answer.proposal)}`);
+    assert.equal(item!.resolvedTime ?? null, null, `the half of the day was guessed: ${show(item)}`);
+  } finally { end(); }
+});
+
+test('RB-2 doubt is per clause: in «موعد … الساعة 4 المسا، وعم بفكر أسافر…» the appointment stays a commitment and only the travel is a thought', async () => {
+  const uid = beginRules();
+  try {
+    const answer = await say(uid, 'موعد الدكتور بكرا الساعة 4 المسا، وعم بفكر أسافر الصيف الجاي', { locale: 'ar' });
+    assert.equal(answer.proposal!.items.length, 1, `the appointment was lost: ${show(answer.proposal)}`);
+    assert.ok(answer.proposal!.items[0]!.title.includes('الدكتور'));
+    const considerations = answer.proposal!.seeds.filter((seed) => seed.kind === 'consideration');
+    assert.equal(considerations.length, 1, show(answer.proposal!.seeds));
+    assert.ok(considerations[0]!.summary.includes('أسافر'));
+    assert.ok(!considerations[0]!.summary.includes('الدكتور'), `the thought swallowed the appointment: ${considerations[0]!.summary}`);
+  } finally { end(); }
+});
+
+test('RB-5 a request with «ممكن» is not doubt: «إذا ممكن حطلي موعد الدكتور بكرا الساعة 4 المسا» is one commitment', async () => {
+  const uid = beginRules();
+  try {
+    const answer = await say(uid, 'إذا ممكن حطلي موعد الدكتور بكرا الساعة 4 المسا', { locale: 'ar' });
+    assert.equal(answer.proposal!.items.length, 1, `a request became a thought: ${show(answer.proposal)}`);
+    assert.equal(answer.proposal!.seeds.length, 0);
+  } finally { end(); }
+});
+
+test('RB-4 the goal entry is a hint: a clear thought («عم بفكر أسافر…») from it stays a consideration, not a goal', async () => {
+  const uid = beginRules();
+  try {
+    const answer = await say(uid, 'عم بفكر أسافر الصيف الجاي', { entry: 'goal', locale: 'ar' });
+    assert.deepEqual(goalsOf(answer), [], `a thought became a goal: ${show(answer.proposal)}`);
+    assert.deepEqual(answer.proposal!.seeds.map((seed) => seed.kind), ['consideration']);
   } finally { end(); }
 });
