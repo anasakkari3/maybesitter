@@ -420,6 +420,73 @@ function stabiliseDailyCounters(body: Record<string, unknown>): Record<string, u
   });
   return { ...body, collections: { ...collections, usage: pinned } };
 }
+
+/**
+ * M3b writes several proposals under random UUID paths before exporting them.
+ * Sort those collections by their stable meaning, and pin UUIDs used as map
+ * keys (which the value-only `stabilise` walk cannot see).
+ */
+function pinCaptureKindsExport(body: Record<string, unknown>): Record<string, unknown> {
+  type ExportDoc = { data?: Record<string, unknown> };
+  const pinned = stabiliseDailyCounters(body);
+  const collections = pinned.collections as Record<string, unknown> | undefined;
+  if (!collections) return pinned;
+  const proposalKey = (doc: ExportDoc): string => {
+    const contract = doc.data?.contract as Record<string, unknown> | undefined;
+    const titles = (name: string, field: string) => (
+      Array.isArray(contract?.[name])
+        ? (contract[name] as Array<Record<string, unknown>>).map((item) => item[field] ?? '')
+        : []
+    );
+    const order = contract?.entry === 'habit'
+      ? 0
+      : doc.data?.confirmedResult
+        ? 1
+        : titles('habits', 'title').length > 0
+          ? 2
+          : 3;
+    return JSON.stringify([
+      order, contract?.entry ?? '', contract?.status ?? '', contract?.revision ?? -1,
+      titles('items', 'title'), titles('seeds', 'summary'), titles('habits', 'title'), titles('goals', 'title'),
+      Boolean(doc.data?.confirmedResult), Boolean(doc.data?.editReceipt),
+    ]);
+  };
+  const conversationKey = (doc: ExportDoc): string => JSON.stringify([
+    doc.data?.entry === 'thought' ? 0 : 1, doc.data?.entry ?? '',
+    Array.isArray(doc.data?.turns)
+      ? (doc.data.turns as Array<Record<string, unknown>>).map((turn) => [turn.role ?? '', turn.text ?? ''])
+      : [],
+  ]);
+  const sortDocs = (value: unknown, key: (doc: ExportDoc) => string): unknown => (
+    Array.isArray(value)
+      ? [...value].sort((left, right) => compareByCodePoint(key(left as ExportDoc), key(right as ExportDoc)))
+      : value
+  );
+  const ordered = {
+    ...pinned,
+    collections: {
+      ...collections,
+      captureProposals: sortDocs(collections.captureProposals, proposalKey),
+      captureConversations: sortDocs(collections.captureConversations, conversationKey),
+    },
+  };
+  const keys = new Map<string, string>();
+  const counters = new Map<string, number>();
+  const pinKeys = (value: unknown): unknown => {
+    if (Array.isArray(value)) return value.map(pinKeys);
+    if (!value || typeof value !== 'object') return value;
+    return Object.fromEntries(Object.entries(value as Record<string, unknown>).map(([key, item]) => {
+      if (!UUID.test(key)) return [key, pinKeys(item)];
+      let stable = keys.get(key);
+      if (!stable) {
+        stable = stableId('10000000-0000-4000-8000-', 12, counters);
+        keys.set(key, stable);
+      }
+      return [stable, pinKeys(item)];
+    }));
+  };
+  return pinKeys(ordered) as Record<string, unknown>;
+}
 /**
  * A plan's `inputDigest` (#194): sha256 hex over the planning request, so it
  * moves with the capture's random commitment ids and would otherwise rewrite
@@ -427,6 +494,27 @@ function stabiliseDailyCounters(body: Record<string, unknown>): Record<string, u
  */
 const DIGEST = /^[0-9a-f]{64}$/;
 const STABLE_DIGEST = '0'.repeat(64);
+/** M3b goal ids wrap a sha256 digest, while habit occurrences suffix one. */
+const SHA_MEMORY_ID = /^mem_[0-9a-f]{64}$/i;
+const SHA_HABIT_OCCURRENCE_ID = /^[0-9a-f]{64}(\.\d{4}-\d{2}-\d{2}\.\d+)$/i;
+
+/** Stabilise the derived ids carried only by M3b's confirmation and export fixtures. */
+function pinCaptureKindsDerivedIds(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(pinCaptureKindsDerivedIds);
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>).map(([key, item]) => [key, pinCaptureKindsDerivedIds(item)]),
+    );
+  }
+  if (typeof value !== 'string') return value;
+  if (SHA_MEMORY_ID.test(value)) return `mem_${STABLE_DIGEST}`;
+  const habitOccurrence = SHA_HABIT_OCCURRENCE_ID.exec(value);
+  return habitOccurrence ? `${STABLE_DIGEST}${habitOccurrence[1]}` : value;
+}
+
+const pinCaptureKindsIds = (_live: Record<string, unknown>, stable: Record<string, unknown>): Record<string, unknown> => (
+  pinCaptureKindsDerivedIds(stable) as Record<string, unknown>
+);
 
 /**
  * Replaces the values that differ between two identical runs, and only those.
@@ -1470,13 +1558,13 @@ test('exports a fixture for every /api/mobile call the React Native client makes
     process.env.MAYBESITTER_FEATURE_MEMORY = 'true';
     const kindsConfirmation = await record('capture.kindsConfirmation', 200, await confirmPost(request('/api/mobile/capture/confirm', {
       body: mixedSelection, uid: CAPTURE_KINDS_USER,
-    })));
+    })), (body) => body, pinCaptureKindsIds);
     assert.equal((kindsConfirmation.habitsPersisted as unknown[]).length, 1);
     assert.equal((kindsConfirmation.goalsPersisted as unknown[]).length, 1);
     assert.equal((kindsConfirmation.seedsPersisted as unknown[]).length, 1);
     const kindsExport = await record('account.captureKindsExport', 200, await accountExportGet(
       request('/api/mobile/account/export', { uid: CAPTURE_KINDS_USER }),
-    ), stabiliseDailyCounters);
+    ), pinCaptureKindsExport, pinCaptureKindsIds);
     const kindsCollections = kindsExport.collections as Record<string, unknown[]>;
     assert.equal(kindsCollections.habits.length, 1, 'the capture-created habit is absent from export');
     assert.ok(kindsCollections.habitOccurrences.length > 0, 'the capture-created habit occurrences are absent from export');
