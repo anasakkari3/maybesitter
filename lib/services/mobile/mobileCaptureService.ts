@@ -272,6 +272,11 @@ mobileGlobals.__maybesitterMobilePersistence = persistence;
 
 const HABIT_FREQUENCY_OPTIONS = [1, 2, 3, 4, 5, 6, 7] as const;
 const HABIT_DURATION_OPTIONS = [15, 30, 45, 60] as const;
+const CAPTURE_KIND_TITLE_MAX_CODE_POINTS = 120;
+
+function captureKindTitleFits(title: string): boolean {
+  return Array.from(title).length <= CAPTURE_KIND_TITLE_MAX_CODE_POINTS;
+}
 
 function capturePointId(entity: { pointId?: string; itemId?: string; seedItemId?: string }): string {
   return entity.pointId ?? entity.itemId ?? entity.seedItemId ?? randomUUID();
@@ -492,25 +497,27 @@ export async function applyCaptureKindsToProposal(
     const candidate = selected?.candidate;
     if (candidate) {
       const title = 'title' in candidate ? candidate.title : candidate.summary;
-      const entityId = 'itemId' in candidate ? candidate.itemId : candidate.seedItemId;
-      const pointId = capturePointId(candidate);
-      const fields = habitFields(selected.segment);
-      const habit = completeHabit({
-        habitItemId: randomUUID(), pointId, title, ...fields,
-        explanation: null, question: null, confirmable: false,
-      }, input.locale);
-      contract = {
-        ...contract,
-        items: contract.items.filter((item) => item.itemId !== entityId),
-        seeds: contract.seeds.filter((seed) => seed.seedItemId !== entityId),
-        habits: [...(contract.habits ?? []), habit],
-      };
-      const commands = new Map(stored.commandsByItemId);
-      commands.delete(entityId);
-      stored.commandsByItemId = commands;
-      const results = new Map(stored.resultsByItemId ?? []);
-      results.delete(entityId);
-      stored.resultsByItemId = results;
+      if (captureKindTitleFits(title)) {
+        const entityId = 'itemId' in candidate ? candidate.itemId : candidate.seedItemId;
+        const pointId = capturePointId(candidate);
+        const fields = habitFields(selected.segment);
+        const habit = completeHabit({
+          habitItemId: randomUUID(), pointId, title, ...fields,
+          explanation: null, question: null, confirmable: false,
+        }, input.locale);
+        contract = {
+          ...contract,
+          items: contract.items.filter((item) => item.itemId !== entityId),
+          seeds: contract.seeds.filter((seed) => seed.seedItemId !== entityId),
+          habits: [...(contract.habits ?? []), habit],
+        };
+        const commands = new Map(stored.commandsByItemId);
+        commands.delete(entityId);
+        stored.commandsByItemId = commands;
+        const results = new Map(stored.resultsByItemId ?? []);
+        results.delete(entityId);
+        stored.resultsByItemId = results;
+      }
     }
   }
 
@@ -527,18 +534,21 @@ export async function applyCaptureKindsToProposal(
       ?? (input.entry === 'goal' ? undecidedItems[0] : undefined)
       ?? modelItem;
     if (candidate) {
-      const candidateId = 'seedItemId' in candidate ? candidate.seedItemId : candidate.itemId;
-      contract = {
-        ...contract,
-        items: contract.items.filter((item) => item.itemId !== candidateId),
-        seeds: contract.seeds.filter((seed) => seed.seedItemId !== candidateId),
-        goals: [...(contract.goals ?? []), {
-          goalItemId: randomUUID(), pointId: capturePointId(candidate), title: 'summary' in candidate ? candidate.summary : candidate.title,
-        }],
-      };
-      const commands = new Map(stored.commandsByItemId);
-      commands.delete(candidateId);
-      stored.commandsByItemId = commands;
+      const title = 'summary' in candidate ? candidate.summary : candidate.title;
+      if (captureKindTitleFits(title)) {
+        const candidateId = 'seedItemId' in candidate ? candidate.seedItemId : candidate.itemId;
+        contract = {
+          ...contract,
+          items: contract.items.filter((item) => item.itemId !== candidateId),
+          seeds: contract.seeds.filter((seed) => seed.seedItemId !== candidateId),
+          goals: [...(contract.goals ?? []), {
+            goalItemId: randomUUID(), pointId: capturePointId(candidate), title,
+          }],
+        };
+        const commands = new Map(stored.commandsByItemId);
+        commands.delete(candidateId);
+        stored.commandsByItemId = commands;
+      }
     }
   }
 
@@ -572,6 +582,10 @@ export async function editCaptureKindsProposal(
   const handles = 'habitItemId' in target || 'goalItemId' in target || change.kind === 'habit' || change.kind === 'goal'
     || ('seedItemId' in target && change.kind === 'commitment' && Boolean(stored.contract.seeds.find((seed) => seed.seedItemId === target.seedItemId)?.suggestedTime));
   if (!handles) return null;
+  if (('habitItemId' in target || 'goalItemId' in target)
+    && typeof change.text === 'string' && !captureKindTitleFits(change.text)) {
+    throw new CaptureKindsInvalidEditError();
+  }
   let contract: CaptureProposalContract = {
     ...stored.contract,
     items: stored.contract.items.map((item) => ({ ...item })), seeds: stored.contract.seeds.map((seed) => ({ ...seed })),
@@ -605,6 +619,7 @@ export async function editCaptureKindsProposal(
       if (durationMinutes !== null && (!Number.isInteger(durationMinutes) || durationMinutes < 5 || durationMinutes > 240)) throw new CaptureKindsInvalidEditError();
       const preferredWindow = change.preferredWindow === undefined ? before.preferredWindow : change.preferredWindow as CapturePreferredWindow | null;
       const title = typeof change.text === 'string' && change.text.trim() ? change.text.trim() : before.title;
+      if (!captureKindTitleFits(title)) throw new CaptureKindsInvalidEditError();
       contract.habits![index] = completeHabit({ ...before, cadence, durationMinutes, preferredWindow, title }, locale);
       if (change.cadence !== undefined || change.durationMinutes !== undefined) editedHabitPointIds.add(before.pointId);
     }
@@ -612,6 +627,7 @@ export async function editCaptureKindsProposal(
     const index = contract.items.findIndex((candidate) => candidate.itemId === target.itemId);
     if (index < 0) throw new CaptureKindsInvalidEditError();
     const item = contract.items[index]!;
+    if (!captureKindTitleFits(item.title)) throw new CaptureKindsInvalidEditError();
     contract.items.splice(index, 1); commands.delete(item.itemId);
     contract.habits!.push(completeHabit({ habitItemId: randomUUID(), pointId: capturePointId(item), title: item.title, cadence: null, durationMinutes: null, preferredWindow: null, explanation: null, question: null, confirmable: false }, locale));
   } else if ('seedItemId' in target && change.kind === 'goal') {
@@ -619,6 +635,7 @@ export async function editCaptureKindsProposal(
     if (index < 0 || contract.seeds[index]!.kind !== 'possible_goal'
       || resolveModuleRuntime('memory').mode !== 'enabled') throw new CaptureKindsInvalidEditError();
     const seed = contract.seeds[index]!;
+    if (!captureKindTitleFits(seed.summary)) throw new CaptureKindsInvalidEditError();
     contract.seeds.splice(index, 1);
     contract.goals!.push({ goalItemId: randomUUID(), pointId: capturePointId(seed), title: seed.summary });
   } else if ('seedItemId' in target && change.kind === 'commitment') {
@@ -743,7 +760,8 @@ function buildCaptureHabit(
   timezone: string,
   acceptedSuggestedValues: boolean,
 ): { habit: HabitDefinition; occurrences: readonly HabitOccurrence[] } {
-  if (!point.confirmable || !point.cadence || !point.durationMinutes || point.question !== null) throw new Error('habit_invalid');
+  if (!captureKindTitleFits(point.title)
+    || !point.confirmable || !point.cadence || !point.durationMinutes || point.question !== null) throw new Error('habit_invalid');
   const count = cadenceOccurrencesPerPeriod(point.cadence);
   const input = parseHabitDefinitionInput({
     scopeId: uid,
@@ -769,6 +787,7 @@ function buildCaptureHabit(
 }
 
 function buildCaptureGoalMemory(uid: string, proposalId: string, key: string, point: { pointId: string; title: string }, now: string, language: CaptureAppLocale): RuntimeMemoryRecord {
+  if (!captureKindTitleFits(point.title)) throw new Error('goal_invalid');
   const id = `mem_${createHash('sha256').update(`${uid}\0${key}\0${point.pointId}`).digest('hex')}`;
   return {
     version: MEMORY_RECORD_SCHEMA_VERSION,
