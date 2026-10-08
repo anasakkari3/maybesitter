@@ -41,7 +41,7 @@ import { BUSY_BLOCKS_KEY, LEGACY_BUSY_KEYS } from '../../../lib/deviceSettings/c
 import { seedDeviceBusyCache } from '../../../testing/deviceBusyCache';
 import { resetWriterIdCache } from '../../../lib/deviceSettings/calendarDevice';
 import { resetCalendarSyncForTests } from '../../calendar/useDeviceCalendarSync';
-import { resetBusySyncForTests } from '../../calendar/useBusyCalendar';
+import { busySyncMarkForTests, resetBusySyncForTests } from '../../calendar/useBusyCalendar';
 import { deviceCalendar } from '../../calendar/deviceCalendar';
 
 import * as calendarEndpoints from '../../../api/endpoints/calendar';
@@ -447,6 +447,11 @@ describe('a sync running when disconnect is pressed', () => {
     await waitFor(() => expect(screen.queryByTestId('calendar-disconnect-result')).not.toBeNull());
 
     await act(async () => { repository.emit(null); client.clear(); });
+    // Signed out: the mark keeps which query it waited on as a number, never
+    // the query, which holds the account's trust answer (M4A-R8-REV-001).
+    const mark = busySyncMarkForTests();
+    expect(mark).toEqual({ uid: USER.uid, settled: { queryId: expect.any(Number), answers: expect.any(Number) } });
+    expect(JSON.parse(JSON.stringify(mark))).toEqual(mark);
     server.consent = true;
     server.held = null;
     await act(async () => { repository.emit(USER); });

@@ -96,19 +96,49 @@ let passGeneration = 0;
  * or it was turned back on elsewhere), and syncing resumes. Its answer may
  * have been lost even though it applied, so an error proves nothing either.
  * `settled` is the trust query as it stood when the request settled, null
- * while the request is still out: the query itself and its count of answers.
- * Fetches begun before then are cancelled at that moment, so only a later
- * answer moves the count. Every account change clears the query cache
+ * while the request is still out: which query it was, and its count of
+ * answers. Fetches begun before then are cancelled at that moment, so only a
+ * later answer moves the count. Every account change clears the query cache
  * (`ApiProvider`), and a query made after that holds only later answers,
  * whatever its count (M4A-R7-REV-001).
+ *
+ * Numbers only: the query holds the account's trust answer, and a sign-out
+ * leaves none of an account's data in memory (M4A-R8-REV-001). Which query it
+ * was is a number from `queryIds`, whose keys the cache is free to drop.
  */
-let withdrawn: { uid: string; settled: { query: unknown; answers: number } | null } | null = null;
+let withdrawn: { uid: string; settled: { queryId: number; answers: number } | null } | null = null;
+
+const queryIds = new WeakMap<object, number>();
+let nextQueryId = 1;
+
+/** A number for this query object, the same one every time; 0 for none. */
+function queryIdOf(query: object | undefined): number {
+  if (!query) return 0;
+  let id = queryIds.get(query);
+  if (id === undefined) {
+    id = nextQueryId;
+    nextQueryId += 1;
+    queryIds.set(query, id);
+  }
+  return id;
+}
+
+function trustQuery(client: QueryClient, uid: string) {
+  return client.getQueryCache().find({ queryKey: queryKeys.trust(uid), exact: true });
+}
 
 /** Whether the trust query holds an answer given after `settled`. */
-function answeredSince(client: QueryClient, uid: string, settled: { query: unknown; answers: number }): boolean {
-  const query = client.getQueryCache().find({ queryKey: queryKeys.trust(uid), exact: true });
+function answeredSince(client: QueryClient, uid: string, settled: { queryId: number; answers: number }): boolean {
+  const query = trustQuery(client, uid);
   if (!query) return false;
-  return query === settled.query ? query.state.dataUpdateCount > settled.answers : query.state.dataUpdateCount > 0;
+  return queryIdOf(query) === settled.queryId
+    ? query.state.dataUpdateCount > settled.answers
+    : query.state.dataUpdateCount > 0;
+}
+
+/** Tests only: what the disconnect mark holds. */
+export function busySyncMarkForTests(): typeof withdrawn {
+  return withdrawn;
 }
 
 export function resetBusySyncForTests(): void {
@@ -295,8 +325,8 @@ export function useBusyCalendar(): BusyCalendarState {
     } finally {
       // Settled, whichever way: the next answer the server gives says what the
       // switch is. Anything fetched before now is dropped unread.
-      const query = client.getQueryCache().find({ queryKey: queryKeys.trust(current.uid), exact: true });
-      mark.settled = { query, answers: query?.state.dataUpdateCount ?? 0 };
+      const query = trustQuery(client, current.uid);
+      mark.settled = { queryId: queryIdOf(query), answers: query?.state.dataUpdateCount ?? 0 };
       void client.refetchQueries({ queryKey: queryKeys.trust(current.uid) }, { cancelRefetch: true });
     }
   }, [client, trustAction]);
