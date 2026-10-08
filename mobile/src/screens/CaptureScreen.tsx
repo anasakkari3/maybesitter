@@ -3,9 +3,15 @@ import { AccessibilityInfo, BackHandler, Keyboard, Platform, View } from 'react-
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useApp } from '../state/AppContext';
 import { useCaptureFlow } from '../features/capture/CaptureProvider';
-import { MAX_CAPTURE_LENGTH, chatSaves, confirmableItems, goalLinkKept, showsUnderstood, summaryPoints, wantsDiscardConfirmation, weeklyChoice, weeklyLockedByEdit, type CaptureItemEdit, type ChatSavedNote } from '../features/capture/captureMachine';
-import { UnderstoodMessage, type UnderstoodTarget } from '../features/capture/UnderstoodMessage';
+import { MAX_CAPTURE_LENGTH, chatSaves, confirmableGoals, confirmableHabits, confirmableItems, confirmableThoughts, goalLinkKept, pointSelected, selectedCount, showsUnderstood, summaryPoints, wantsDiscardConfirmation, weeklyChoice, weeklyLockedByEdit, type CaptureItemEdit, type ChatSavedNote } from '../features/capture/captureMachine';
+import { GoalProposalCard, HabitProposalCard, SeedCommitAction, ThoughtProposalCard } from '../features/capture/ProposalPointCards';
+import { tFor } from '../i18n';
+import { LiveRegion } from '../ui/liveRegion';
+import { useGoalPlan } from '../api/queries';
+import { understoodKeyOf, UnderstoodMessage, type UnderstoodTarget } from '../features/capture/UnderstoodMessage';
+import { familyIdOf, familyIdOfLine, type PointTarget } from '../features/capture/pointIdentity';
 import { SummaryEditSheet } from '../features/capture/SummaryEditSheet';
+import { useCaptureKinds } from '../features/capture/useCaptureKinds';
 import { instantForLocalDateTime } from '../features/capture/localInstant';
 import { usableUnderstood } from '../api/schemas/capture';
 import { noCommitmentLine } from '../features/capture/noCommitment';
@@ -61,6 +67,44 @@ const REVIEW_STATUSES = ['needsConfirmation', 'needsClarification', 'unresolvedI
  * own answer — the server never wrote it, and it claims nothing the server
  * did not report saved.
  */
+/**
+ * A saved goal's two ways on (M3b): «اعمللي خطة» while that goal's plan path
+ * answers — asked of the goal itself, so a switched-off plan module (404)
+ * hides it (R2-013) — and «افتح الهدف», the memory list where it can be
+ * changed or removed (R4-004).
+ */
+function SavedGoalActions({ goalId, title }: { goalId: string; title: string }) {
+  const { t, actions } = useApp();
+  const plan = useGoalPlan(goalId);
+  const planOn = plan.isSuccess;
+  return <>
+    {planOn ? <Pill testID={`capture-saved-start-plan-${goalId}`} label={t.xStartPlan}
+      accessibilityLabel={fill(t.xOpenSubjectLabel, { action: t.xStartPlan, title })}
+      onPress={() => actions.openGoal(goalId, { startPlan: true })} kind="soft" size={13} pad={10} radius={12} /> : null}
+    <Pill testID={`capture-saved-open-goal-${goalId}`} label={t.xOpenGoal}
+      accessibilityLabel={fill(t.xOpenSubjectLabel, { action: t.xOpenGoal, title })}
+      onPress={() => actions.go('memory')} kind="soft" size={13} pad={10} radius={12} />
+  </>;
+}
+
+/**
+ * What each M3b confirm refusal says and lets the person do (R2-010, R3-007):
+ * the save wrote nothing, and the action takes out what could not be saved.
+ */
+const M3B_REFUSALS: Record<string, { message: 'xRefusedGoals' | 'xRefusedKinds' | 'xRefusedTooMany' | 'xRefusedHabit' | 'xRefusedKeyReused' | 'xRefusedGoalInvalid' | 'xRefusedSeedInvalid';
+  action?: { label: 'xRefusedGoalsAction' | 'xRefusedKindsAction' | 'xRefusedSeedAction'; drop?: readonly ('habit' | 'goal' | 'seed')[] } }> = {
+  goals_unavailable: { message: 'xRefusedGoals', action: { label: 'xRefusedGoalsAction', drop: ['goal'] } },
+  kinds_unavailable: { message: 'xRefusedKinds', action: { label: 'xRefusedKindsAction', drop: ['habit', 'goal', 'seed'] } },
+  // The person lowers a habit's rhythm on its card; no button pretends to do it for them.
+  too_many_writes: { message: 'xRefusedTooMany' },
+  // The habit's card asks its rhythm again, right above (`reask`).
+  habit_invalid: { message: 'xRefusedHabit' },
+  key_reused: { message: 'xRefusedKeyReused' },
+  // The server no longer has the goal or thought that was picked: take it out, save the rest.
+  goal_invalid: { message: 'xRefusedGoalInvalid', action: { label: 'xRefusedGoalsAction', drop: ['goal'] } },
+  seed_invalid: { message: 'xRefusedSeedInvalid', action: { label: 'xRefusedSeedAction', drop: ['seed'] } },
+};
+
 function savedNoteText(note: ChatSavedNote, t: Strings, lang: Lang, timeZone: string): string {
   const list = (titles: string[]) => titles.map((title) => (lang === 'ar' ? `«${isolateAuto(title)}»` : `"${isolateAuto(title)}"`))
     .join(lang === 'ar' ? '، ' : ', ');
@@ -69,6 +113,13 @@ function savedNoteText(note: ChatSavedNote, t: Strings, lang: Lang, timeZone: st
     : t.noTimeYet);
   const paragraphs: string[] = [];
   if (note.persisted.length > 0) paragraphs.push(fill(t.chatSaved, { titles: list(note.persisted.map((item) => item.title)) }));
+  // The other families the same confirm saved (M3b, R3-004), counted by kind.
+  const families = [
+    note.habitsSaved?.length ? tFor(lang)('xSavedHabitsN', { n: note.habitsSaved.length }) : null,
+    note.goalsSaved?.length ? tFor(lang)('xSavedGoalsN', { n: note.goalsSaved.length }) : null,
+    note.seedsSaved?.length ? tFor(lang)('xSavedThoughtsN', { n: note.seedsSaved.length }) : null,
+  ].filter((part): part is string => part !== null);
+  if (families.length > 0) paragraphs.push(fill(t.xSavedFamilies, { list: families.join(lang === 'en' ? ', ' : '، ') }));
   if (note.weeklySaved.length > 0) {
     paragraphs.push([...note.weeklySaved.map(({ block }) => weeklyLine(block, lang)), t.wbSavedNote].join('\n'));
   }
@@ -120,9 +171,9 @@ export function CaptureScreen() {
   // current version may have moved it, or dropped it (then nothing reopens).
   // A point keeps its id when its kind changes, so the id alone finds it.
   const refused = state.refusedEdit?.target;
-  const refusedId = refused ? ('itemId' in refused ? refused.itemId : refused.seedItemId) : null;
+  const refusedId = refused ? familyIdOf(refused) : null;
   const refusedLine = refusedId && understood
-    ? understood.findIndex((point) => (point.kind === 'commitment' ? point.itemId : point.seedItemId) === refusedId) + 1
+    ? understood.findIndex((point) => familyIdOfLine(point) === refusedId) + 1
     : 0;
   const cardsOpen = reviewing && understood === null;
   /** The cards came from the summary: Back returns to it, not to the composer. */
@@ -141,8 +192,20 @@ export function CaptureScreen() {
     flow.acceptUnderstood();
     const proposalId = state.proposal?.proposalId;
     setRevealRequest(target === null || !proposalId ? null
-      : { key: Date.now(), id: 'itemId' in target ? target.itemId : target.seedItemId, proposalId });
+      : { key: Date.now(), id: familyIdOf(target), proposalId });
   };
+  // A habit answered «موعد ثابت» comes back as a commitment card: once it is
+  // there, the screen reader is taken to it, since the habit card it was on
+  // is gone (M3B-A-R2-005). Found by its point id, which the conversion keeps.
+  const becameCommitment = useRef<string | null>(null);
+  useEffect(() => {
+    const pointId = becameCommitment.current;
+    if (!pointId || !state.proposal) return;
+    const item = state.proposal.items.find((candidate) => candidate.pointId === pointId);
+    if (!item) return;
+    becameCommitment.current = null;
+    setRevealRequest({ key: Date.now(), id: item.itemId, proposalId: state.proposal.proposalId });
+  }, [state.proposal]);
   const busy = state.status === 'confirming' || state.status === 'analyzing';
   // Something «ابدأ من جديد» would clear: a conversation, a proposal, a draft.
   const hasConversation = state.turns.length > 0 || state.earlier.length > 0 || state.proposal !== null || state.text.trim().length > 0;
@@ -155,6 +218,8 @@ export function CaptureScreen() {
   const [editingId, setEditingId] = useState<string | null>(null);
   /** «عدّل» on line n of the summary (M2b), and what the last edit came to. */
   const [summaryEditing, setSummaryEditing] = useState<number | null>(null);
+  // Whether a «possible goal» can become a goal here: goals are offered only where memory is writable.
+  const captureKinds = useCaptureKinds();
   const [editNote, setEditNote] = useState<'changed' | 'ended' | 'failed' | null>(null);
   const [editBusy, setEditBusy] = useState(false);
   /** The refused change opened again in the sheet (it lives in `state.refusedEdit` until then). */
@@ -163,7 +228,7 @@ export function CaptureScreen() {
   const editRefs = useRef(new Map<number, View>());
   const returnFocusTo = useRef<number | null>(null);
   /** One structured change to the summary, through the chat (M2b). */
-  const sendEdit = async (target: { itemId: string } | { seedItemId: string }, change: Parameters<typeof flow.editPoint>[1]) => {
+  const sendEdit = async (target: PointTarget, change: Parameters<typeof flow.editPoint>[1]) => {
     if (editBusy) return;
     setEditBusy(true);
     setEditNote(null);
@@ -421,16 +486,19 @@ export function CaptureScreen() {
   else if (summaryEditing !== null && understood && state.proposal && understood[summaryEditing - 1]) {
     const point = understood[summaryEditing - 1]!;
     const item = point.kind === 'commitment' ? state.proposal.items.find((candidate) => candidate.itemId === point.itemId) : undefined;
-    const seed = point.kind !== 'commitment' ? state.proposal.seeds.find((candidate) => candidate.seedItemId === point.seedItemId) : undefined;
+    const seed = 'seedItemId' in point ? state.proposal.seeds.find((candidate) => candidate.seedItemId === point.seedItemId) : undefined;
+    const habit = 'habitItemId' in point ? (state.proposal.habits ?? []).find((candidate) => candidate.habitItemId === point.habitItemId) : undefined;
+    const goal = 'goalItemId' in point ? (state.proposal.goals ?? []).find((candidate) => candidate.goalItemId === point.goalItemId) : undefined;
     const staged = item ? state.edits[item.itemId] : undefined;
     const stagedAt = staged?.localDateTime !== undefined
       ? (staged.localDateTime ? instantForLocalDateTime(staged.localDateTime, timezone)?.toISOString() ?? null : null)
       : item?.resolvedTime ?? null;
-    bodyOverride = <SummaryEditSheet key={summaryEditing} kind={point.kind} busy={editBusy || flow.writing}
-      text={staged?.title ?? item?.title ?? seed?.summary ?? point.text} at={stagedAt}
+    const offered = { habit: state.proposal.habits !== undefined, goal: state.proposal.goals !== undefined && captureKinds.entries.includes('goal') };
+    bodyOverride = <SummaryEditSheet key={summaryEditing} kind={point.kind} offered={offered} timedSeed={Boolean(seed?.suggestedTime)} busy={editBusy || flow.writing}
+      text={staged?.title ?? item?.title ?? seed?.summary ?? habit?.title ?? goal?.title ?? point.text} at={stagedAt}
       {...(draftToReopen ? { draft: draftToReopen } : {})}
       onCancel={closeSummaryEdit}
-      onSave={(change) => { void sendEdit(point.kind === 'commitment' ? { itemId: point.itemId } : { seedItemId: point.seedItemId }, change); }} />;
+      onSave={(change) => { void sendEdit(understoodKeyOf(point).target, change); }} />;
   }
   else if (menuOpen) bodyOverride = <View style={{ gap: 14 }} testID="chat-menu">
     <Pill testID="chat-menu-paste" label={t.capturePaste} onPress={() => { setMenuOpen(false); void readClipboardText().then(setClipboard); }} />
@@ -454,13 +522,39 @@ export function CaptureScreen() {
       if (noTime) void answer(asking.itemId, { optionId: noTime.optionId });
       else setSkipped(current => [...current, asking.itemId]);
     }} /> : null;
+  // M3b: a refusal the person can act on — «الأهداف مش مفعّلة هلّق» with
+  // «شيل الهدف واحفظ الباقي», and so on (R2-010, R3-007) — never the generic line.
+  const refusal = state.status === 'confirmFailed' ? M3B_REFUSALS[state.errorReason ?? ''] : undefined;
+  // VoiceOver has no live regions: the refusal is said when it appears (DESIGN-M3b a11y 4).
+  useAnnounceOnIos(refusal ? t[refusal.message] : null);
+  const thoughtEntry = state.proposal?.entry === 'thought';
   const reviewExtras = cardsOpen ? <View style={{ gap: 10 }}>
     {state.reviewNotice ? <Txt testID="review-conflict-note" color={p.wm}>{t.captureProposalChanged}</Txt> : null}
-    {state.status === 'confirmFailed' ? <Txt testID="review-confirm-failed" color={p.wm}>{t[state.messageKey ?? 'errorsGeneric']}</Txt> : null}
-    {state.selected.length === 0 && items.length ? <Txt size={13} testID="review-none-selected" color={p.mu}>{t.reviewNothingSelected}</Txt> : null}
-    {state.proposal?.seeds?.length ? <SeedProposalSection proposalId={state.proposal.proposalId} seeds={state.proposal.seeds} onAnchor={anchorSeed}
+    {/* Always mounted, so a screen reader hears the refusal arrive (live-region census). */}
+    <LiveRegion alert>{refusal ? <View testID="capture-confirm-refused" style={{ gap: 8, alignItems: 'flex-start' }}>
+      <Txt color={p.wm}>{t[refusal.message]}</Txt>
+      {refusal.action ? <Pill testID="capture-confirm-refused-action" label={t[refusal.action.label]} kind="outline" size={14} pad={10}
+        onPress={() => { if (refusal.action?.drop) flow.dropFamilies(refusal.action.drop); }} /> : null}
+    </View> : null}</LiveRegion>
+    {!refusal && state.status === 'confirmFailed' ? <Txt testID="review-confirm-failed" color={p.wm}>{t[state.messageKey ?? 'errorsGeneric']}</Txt> : null}
+    {selectedCount(state) === 0 && items.length ? <Txt size={13} testID="review-none-selected" color={p.mu}>{t.reviewNothingSelected}</Txt> : null}
+    {(state.proposal?.habits ?? []).map((habit) => <HabitProposalCard key={habit.pointId} habit={habit}
+      selected={pointSelected(state, habit.pointId)} onToggle={() => flow.togglePoint(habit.pointId)}
+      busy={editBusy || flow.writing} reask={state.status === 'confirmFailed' && state.errorReason === 'habit_invalid'}
+      onAnswer={(change) => {
+        becameCommitment.current = change.kind === 'commitment' ? habit.pointId : null;
+        void sendEdit({ habitItemId: habit.habitItemId }, change);
+      }} />)}
+    {(state.proposal?.goals ?? []).map((goal) => <GoalProposalCard key={goal.pointId} goal={goal}
+      selected={pointSelected(state, goal.pointId)} onToggle={() => flow.togglePoint(goal.pointId)} />)}
+    {thoughtEntry ? state.proposal!.seeds.map((seed) => <ThoughtProposalCard key={seed.seedItemId} seed={seed}
+      selected={pointSelected(state, seed.pointId ?? seed.seedItemId)} onToggle={() => flow.togglePoint(seed.pointId ?? seed.seedItemId)}
+      busy={editBusy || flow.writing} onMakeCommitment={() => { void sendEdit({ seedItemId: seed.seedItemId }, { kind: 'commitment' }); }} />)
+      : state.proposal?.seeds?.length ? <SeedProposalSection proposalId={state.proposal.proposalId} seeds={state.proposal.seeds} onAnchor={anchorSeed}
       {...(state.proposal.revision !== undefined ? { revision: state.proposal.revision } : {})} onProposalChanged={flow.adoptCurrent}
-      writing={flow.writing} guardWrite={flow.guardWrite} /> : null}
+      writing={flow.writing} guardWrite={flow.guardWrite}
+      renderAction={(seed) => <SeedCommitAction seed={seed} busy={editBusy || flow.writing}
+        onPress={() => { void sendEdit({ seedItemId: seed.seedItemId }, { kind: 'commitment' }); }} />} /> : null}
   </View> : null;
   // Under the save (Stitch 03): every review option, the propose-only note,
   // and the explicit exit.
@@ -472,7 +566,21 @@ export function CaptureScreen() {
   // After a save the person stays in the chat: Undo for the last save while
   // its window is open — what the saved screen offered — and «خلصت», inside
   // the saved line when it is the newest thing said, under the chat otherwise.
+  // What the last save wrote of the other families (M3b, R3-004): each opens
+  // its own page, where it can be changed or removed — Undo takes back
+  // commitments only, so it is not offered when one of these was saved.
+  const lastSaved = [...state.earlier].reverse().find((entry): entry is ChatSavedNote => entry.kind === 'saved');
+  const savedFamilies = lastSaved && (lastSaved.habitsSaved?.length || lastSaved.goalsSaved?.length || lastSaved.seedsSaved?.length)
+    ? <View testID="capture-saved" style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
+      {(lastSaved.habitsSaved ?? []).map((habit) => <Pill key={habit.habitId} testID={`capture-saved-open-habit-${habit.habitId}`}
+        label={t.xOpenHabit} accessibilityLabel={fill(t.xOpenSubjectLabel, { action: t.xOpenHabit, title: habit.title })}
+        onPress={() => actions.go('habitDetail')} kind="soft" size={13} pad={10} radius={12} />)}
+      {(lastSaved.goalsSaved ?? []).map((goal) => <SavedGoalActions key={goal.goalId} goalId={goal.goalId} title={goal.title} />)}
+      {(lastSaved.seedsSaved?.length ?? 0) > 0 ? <Pill testID="capture-saved-open-thoughts" label={t.xOpenThoughts}
+        onPress={() => actions.go('seeds')} kind="soft" size={13} pad={10} radius={12} /> : null}
+    </View> : null;
   const savedActions = !reviewing && saves > 0 && state.status !== 'analyzing' ? <>
+    {savedFamilies}
     {state.undoable && state.persisted.length > 0 ? <Pill testID="chat-saved-undo" label={t.undo} onPress={undoLast} disabled={undoing} kind="soft" size={13} pad={10} radius={12} style={{ minWidth: 88 }} /> : null}
     <Pill testID="chat-done" label={t.chatDone} onPress={done} kind="soft" size={13} pad={10} radius={12} style={{ minWidth: 88 }} />
   </> : null;
@@ -577,7 +685,7 @@ export function CaptureScreen() {
           closeLabel: t.back, moreLabel: t.chatOptions, pasteLabel: t.capturePaste, sendLabel: t.chatSend,
           // The save says what it saves, by count and plural-safe (ICU, as
           // confirmN): «احفظ الاتنين», «احفظ وحدة», nothing when none is ticked.
-          confirmLabel: tr('chatSaveN', { n: state.selected.length }), editLabel: t.reviewEdit, includeLabel: t.chatWillSave,
+          confirmLabel: tr('chatSaveN', { n: selectedCount(state) }), editLabel: t.reviewEdit, includeLabel: t.chatWillSave,
           proposalsTitle: fill(t.chatProposedN, { n: items.length }),
           listeningTitle: t.chatListening, listeningNote: t.voiceListening, cancelListeningLabel: t.cancel }}
         text={composerText} onChangeText={changeText} onSend={send}
@@ -588,7 +696,9 @@ export function CaptureScreen() {
         toolsDisabled={flow.writing}
         onClose={headerBack} onMore={() => { if (!busy && !answering && !flow.writing) setMenuOpen(true); }}
         onPaste={() => { if (!busy && !answering && !flow.writing) void readClipboardText().then(setClipboard); }}
-        assistant={{ text: t.chatWelcome }}
+        // The entry the chat was opened from sets its first line (M3b, COPY-M3b 2).
+        assistant={{ text: state.entry === 'goal' ? t.xChatOpenGoal : state.entry === 'habit' ? t.xChatOpenHabit
+          : state.entry === 'thought' ? t.xChatOpenThought : t.chatWelcome }}
         // The disclosure that replaced the AI consent (owner decision
         // 2026-09-30): on the page, before the first message is sent.
         // Its heading as on Trust («مين بيفهم كلامك»), so it reads as what it
@@ -612,7 +722,9 @@ export function CaptureScreen() {
         history={history}
         {...(state.status === 'analyzing' ? { typing: <ProcessingDots color={p.ac} />, typingLabel: t.understanding } : {})}
         scheduleGroups={[...groups.values()]} onRowPress={setEditingId} onRowToggle={flow.toggleItem}
-        onConfirm={() => { stopDictation(); Keyboard.dismiss(); void flow.confirm(); }} canConfirm={state.selected.length > 0 && !busy && !answering && !flow.writing} confirming={state.status === 'confirming'}
+        onConfirm={() => { stopDictation(); Keyboard.dismiss(); void flow.confirm(); }} canConfirm={selectedCount(state) > 0 && !busy && !answering && !flow.writing} confirming={state.status === 'confirming'}
+        confirmWithoutRows={cardsOpen && items.length === 0
+          && confirmableHabits(state.proposal).length + confirmableGoals(state.proposal).length + confirmableThoughts(state.proposal).length > 0}
         quickActions={reviewing || state.text.trim() || state.turns.length > 0 || state.earlier.length > 0 || state.status === 'analyzing' ? []
           : COMPOSER_EXAMPLE_KEYS.map(key => ({ id: `example-${key}`, label: exampleText(key, t) }))}
         onQuickAction={quickAction} rtl={rtl} safeBottom={insets.bottom} keyboardShown={keyboardShown} mode={mode} listening={voiceStatus === 'listening'}

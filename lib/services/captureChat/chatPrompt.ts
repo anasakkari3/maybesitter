@@ -59,8 +59,11 @@ export interface ChatPromptItem {
   clashesWith?: ScheduleEntryForPrompt[];
 }
 
+const LEGACY_SYSTEM_ROLE = 'SYSTEM ROLE: You are the MaybeSitter commitment assistant, in a chat. You help the person capture what they have to do: you understand it, ask for what is missing, and keep a list of proposed items for them to confirm.';
+const CAPTURE_KINDS_SYSTEM_ROLE = 'SYSTEM ROLE: You are the MaybeSitter assistant for commitments, goals, habits and thoughts, in a chat. You understand what the person means, ask for what is missing, and keep a list of proposed points for them to confirm.';
+
 const CHAT_RULES: readonly string[] = [
-  'SYSTEM ROLE: You are the MaybeSitter commitment assistant, in a chat. You help the person capture what they have to do: you understand it, ask for what is missing, and keep a list of proposed items for them to confirm.',
+  LEGACY_SYSTEM_ROLE,
   `PROMPT VERSION: ${CHAT_PROMPT_VERSION}`,
   'Return exactly one JSON object and nothing else, with exactly these keys: reply, action, locked, open, added. No Markdown, code fences or prose around it.',
   `action is one of: ${CAPTURE_CHAT_ACTIONS.join(', ')}.`,
@@ -109,10 +112,12 @@ export function buildChatPrompt(
   turns: readonly CaptureChatTurn[],
   currentProposal: readonly ChatPromptItem[],
   context: ExtractionContext,
-  options: { replyLanguage?: ChatLanguage; appLanguage?: ChatLanguage; savedSchedule?: readonly ScheduleEntryForPrompt[] } = {},
+  options: { replyLanguage?: ChatLanguage; appLanguage?: ChatLanguage; savedSchedule?: readonly ScheduleEntryForPrompt[]; captureKinds?: boolean } = {},
 ): string {
   return [
-    ...CHAT_RULES,
+    ...(options.captureKinds
+      ? [CAPTURE_KINDS_SYSTEM_ROLE, ...CHAT_RULES.slice(1), 'Classify recurring actions the person wants to build as kind "habit", and goal statements as kind "goal". Doubt stays a thought even when it names a time.']
+      : CHAT_RULES),
     // A fixed name, never the person's words: it belongs with the rules. The
     // app's language when the phone named it (a closed enum), otherwise the
     // server's own reading of the newest message.

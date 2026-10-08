@@ -24,8 +24,9 @@
  * criteria require this, and `captureMachine.test.ts` asserts the module graph
  * pulls in no storage.
  */
-import type { CaptureChatAnswer, CaptureChatTurn, CaptureProposal, CaptureConfirmation } from '../../api/schemas/capture';
-import { usableUnderstood, type UnderstoodPoint } from '../../api/schemas/capture';
+import type { CaptureChatAnswer, CaptureChatTurn, CaptureProposal, CaptureConfirmation, CaptureEntry } from '../../api/schemas/capture';
+import { goalsOf, habitsOf, usableUnderstood, type UnderstoodPoint } from '../../api/schemas/capture';
+import { familyIdOf, hasPoint, pointIdFor, pointsOf } from './pointIdentity';
 import type { UserFacingKey } from '../../api/ui/userFacingMessage';
 import type { CaptureProposalEdit } from '../../api/endpoints/capture';
 import type { LocationTrigger } from '../../api/schemas/common';
@@ -155,6 +156,10 @@ export interface ChatSavedNote {
   failedTitles: string[];
   /** The goals what was saved now counts toward (`goalLinks`), by their titles. Absent from older lines. */
   goalTitles?: string[];
+  /** What the same confirm saved of the other families (M3b); absent from older lines. */
+  habitsSaved?: NonNullable<CaptureConfirmation['habitsPersisted']>;
+  goalsSaved?: NonNullable<CaptureConfirmation['goalsPersisted']>;
+  seedsSaved?: NonNullable<CaptureConfirmation['seedsPersisted']>;
   undone?: { stillSaved: string[] };
 }
 
@@ -311,10 +316,35 @@ export interface CaptureState {
   confirmedElsewhere: boolean;
   /** The person's refused summary change, to open again over the current version (M2b). */
   refusedEdit: RefusedEdit | null;
+  /**
+   * The page the chat was opened from (M3b): «ضيف هدف», «ضيف عادة», «احكي فكرة».
+   * Sent with the conversation's first message; null for the plain chat.
+   */
+  entry: CaptureEntry | null;
+  /**
+   * The habits, goals and thought-entry thoughts the person took out of the
+   * save, by their logical `pointId` (M3b, R2-011). Everything confirmable
+   * starts selected; a choice follows the point when it changes family.
+   */
+  deselectedPoints: string[];
+  /** What the last confirm saved of the other families (M3b), for the saved screen. */
+  otherSaved: {
+    habits: NonNullable<CaptureConfirmation['habitsPersisted']>;
+    goals: NonNullable<CaptureConfirmation['goalsPersisted']>;
+    seeds: NonNullable<CaptureConfirmation['seedsPersisted']>;
+  };
 }
 
 export type CaptureEvent =
-  | { type: 'open'; source?: CaptureSource; inputMode?: CaptureInputMode; meeting?: MeetingReviewContext }
+  | { type: 'open'; source?: CaptureSource; inputMode?: CaptureInputMode; meeting?: MeetingReviewContext; entry?: CaptureEntry | null }
+  /** A refusal's recovery: these families leave the save (M3b, R2-010). */
+  | { type: 'familiesDropped'; families: readonly ('habit' | 'goal' | 'seed')[] }
+  /** The account changed under an open chat: its entry belonged to the last one (M3b). */
+  | { type: 'entryForgotten' }
+  /** The page the next conversation is opened from, kept history and all (M3b, M2b condition 9). */
+  | { type: 'entryChanged'; entry: CaptureEntry | null }
+  /** Take a habit, goal or thought-entry thought out of the save, or put it back (M3b). */
+  | { type: 'togglePoint'; pointId: string }
   | { type: 'textChanged'; text: string }
   /**
    * A dictation is starting: the chips of the previous one go at once, and a
@@ -433,6 +463,9 @@ export function initialCaptureState(
     reviewNotice: null,
     confirmedElsewhere: false,
     refusedEdit: null,
+    entry: null,
+    deselectedPoints: [],
+    otherSaved: { habits: [], goals: [], seeds: [] },
   };
 }
 
@@ -500,6 +533,50 @@ export function confirmableItems(
   return proposal.items
     .filter((item) => !item.needsClarification || completedByHand(edits[item.itemId]))
     .map((item) => item.itemId);
+}
+
+/** The habits that can be saved: the server marks one confirmable once its rhythm and length are known (R4-002). */
+export function confirmableHabits(proposal: CaptureProposal | null): string[] {
+  if (!proposal || !ACTIONABLE_PROPOSAL_STATUSES.has(proposal.status)) return [];
+  return habitsOf(proposal).filter((habit) => habit.confirmable).map((habit) => habit.pointId);
+}
+
+/** The goals that can be saved: every goal point. */
+export function confirmableGoals(proposal: CaptureProposal | null): string[] {
+  if (!proposal || !ACTIONABLE_PROPOSAL_STATUSES.has(proposal.status)) return [];
+  return goalsOf(proposal).map((goal) => goal.pointId);
+}
+
+/**
+ * The thoughts saved by the confirm itself: only a proposal from the thought
+ * entry (R002). Elsewhere a thought keeps its own «خلّيه».
+ */
+export function confirmableThoughts(proposal: CaptureProposal | null): string[] {
+  if (!proposal || proposal.entry !== 'thought') return [];
+  if (!ACTIONABLE_PROPOSAL_STATUSES.has(proposal.status) && proposal.status !== 'unresolved_intent') return [];
+  return (proposal.seeds ?? []).map((seed) => seed.pointId ?? seed.seedItemId);
+}
+
+/** Whether a habit, goal or thought point is in the save (selected by default). */
+export function pointSelected(state: CaptureState, pointId: string): boolean {
+  const confirmable = [...confirmableHabits(state.proposal), ...confirmableGoals(state.proposal), ...confirmableThoughts(state.proposal)];
+  return confirmable.includes(pointId) && !state.deselectedPoints.includes(pointId);
+}
+
+/** Whether Undo can honestly take a receipt back: commitments only (R3-004). */
+export function undoableReceipt(confirmation: CaptureConfirmation): boolean {
+  return confirmation.persisted.length > 0
+    && (confirmation.habitsPersisted ?? []).length === 0
+    && (confirmation.goalsPersisted ?? []).length === 0
+    && (confirmation.seedsPersisted ?? []).length === 0;
+}
+
+/** How many points «احفظ N» saves: selected commitments plus the other families. */
+export function selectedCount(state: CaptureState): number {
+  const commitments = state.selected.filter((id) => confirmableItems(state.proposal, state.edits).includes(id)).length;
+  const others = [...confirmableHabits(state.proposal), ...confirmableGoals(state.proposal), ...confirmableThoughts(state.proposal)]
+    .filter((pointId) => !state.deselectedPoints.includes(pointId)).length;
+  return commitments + others;
 }
 
 /**
@@ -589,8 +666,28 @@ export function confirmPayload(state: CaptureState): {
   goalLinkItemIds?: string[];
   /** The proposal revision on screen, when the server sent one (M2b). */
   revision?: number;
+  /**
+   * The other families, by their family ids, translated from the logical
+   * points (M3b, R3-002). Habits and goals go whenever the server sent those
+   * families (even empty: the selection is part of what is confirmed);
+   * thoughts only from the thought entry, the one place the confirm saves
+   * them (R002). An older server, or the feature off, sends none of these
+   * families, and the confirm is exactly the one an older app sent (R3-003).
+   */
+  selectedHabitItemIds?: string[];
+  selectedGoalItemIds?: string[];
+  selectedSeedItemIds?: string[];
 } {
   const itemIds = state.selected.filter((id) => confirmableItems(state.proposal, state.edits).includes(id));
+  const chosen = (pointIds: string[]) => pointIds.filter((pointId) => !state.deselectedPoints.includes(pointId));
+  const habits = habitsOf(state.proposal ?? { habits: [] });
+  const goals = goalsOf(state.proposal ?? { goals: [] });
+  const selectedHabitItemIds = chosen(confirmableHabits(state.proposal))
+    .map((pointId) => habits.find((habit) => habit.pointId === pointId)!.habitItemId);
+  const selectedGoalItemIds = chosen(confirmableGoals(state.proposal))
+    .map((pointId) => goals.find((goal) => goal.pointId === pointId)!.goalItemId);
+  const selectedSeedItemIds = chosen(confirmableThoughts(state.proposal))
+    .map((pointId) => state.proposal!.seeds.find((seed) => (seed.pointId ?? seed.seedItemId) === pointId)!.seedItemId);
   // Edits for items that are not being confirmed are dropped rather than sent.
   // Sending them would ask the server to validate a change to something the
   // user chose not to save.
@@ -608,6 +705,9 @@ export function confirmPayload(state: CaptureState): {
     ...(goalLinkItemIds.length > 0 ? { goalLinkItemIds } : {}),
     // What was seen is what is saved (M2b).
     ...(revision !== undefined ? { revision } : {}),
+    ...(state.proposal?.habits !== undefined ? { selectedHabitItemIds } : {}),
+    ...(state.proposal?.goals !== undefined ? { selectedGoalItemIds } : {}),
+    ...(state.proposal?.entry === 'thought' ? { selectedSeedItemIds } : {}),
   };
 }
 
@@ -650,6 +750,12 @@ export function wantsDiscardConfirmation(state: CaptureState): boolean {
 function statusForProposal(proposal: CaptureProposal): CaptureStatus {
   // Only removed points left: the summary shows them to bring back (contract v5).
   if (onlyRemoved(proposal)) return 'unresolvedIntent';
+  // A habit, a goal, or a thought from the thought entry can be saved on its
+  // own (M3b, R001): the review offers «احفظ» even with no commitment.
+  if (proposal.status !== 'rejected' && proposal.status !== 'no_commitment'
+    && confirmableHabits(proposal).length + confirmableGoals(proposal).length + confirmableThoughts(proposal).length > 0) {
+    return 'needsConfirmation';
+  }
   switch (proposal.status) {
     case 'proposed':
       // Every item needing a question is the clarification flow, even though
@@ -692,7 +798,8 @@ const REVIEWING: ReadonlySet<CaptureStatus> = new Set([
  */
 export function chatProposalShown(proposal: CaptureProposal | null): CaptureProposal | null {
   if (!proposal || proposal.status === 'rejected') return null;
-  return proposal.items.length > 0 || (proposal.seeds?.length ?? 0) > 0 || onlyRemoved(proposal) ? proposal : null;
+  return proposal.items.length > 0 || (proposal.seeds?.length ?? 0) > 0 || habitsOf(proposal).length > 0
+    || goalsOf(proposal).length > 0 || onlyRemoved(proposal) ? proposal : null;
 }
 
 /**
@@ -702,7 +809,7 @@ export function chatProposalShown(proposal: CaptureProposal | null): CaptureProp
  */
 export function onlyRemoved(proposal: CaptureProposal): boolean {
   return proposal.revision !== undefined && proposal.items.length === 0 && (proposal.seeds?.length ?? 0) === 0
-    && (proposal.removedItems?.length ?? 0) > 0;
+    && habitsOf(proposal).length === 0 && goalsOf(proposal).length === 0 && (proposal.removedItems?.length ?? 0) > 0;
 }
 
 /** The summary's lines: `understood` when it describes the proposal, none when only removed points are left. */
@@ -741,9 +848,41 @@ function sameServerFacts(a: CaptureProposal['items'][number], b: CaptureProposal
  * (today's server mints fresh ids every turn) — starts as a new proposal does:
  * every confirmable item selected, no edits, weekly by default.
  */
-function carriedInto(state: CaptureState, next: CaptureProposal): Pick<CaptureState, 'selected' | 'edits' | 'onceOnly' | 'goalUnlinked'> {
+/**
+ * The points still taken out after a change (R2-011). A confirmable
+ * commitment keeps its choice in `selected`; every other point the person took
+ * out — a habit, a goal, a thought, or a commitment that cannot be saved yet —
+ * is held here by its logical id, so it does not rejoin the save when it is
+ * converted or completed later.
+ */
+function heldOut(out: Iterable<string>, proposal: CaptureProposal, confirmable: string[]): string[] {
+  const present = new Set(pointsOf(proposal).map((point) => point.pointId));
+  const inSelected = new Set(confirmable.map((id) => pointIdFor(proposal, id)));
+  return Array.from(new Set(out)).filter((pointId) => present.has(pointId) && !inSelected.has(pointId));
+}
+
+/**
+ * The selection after an item became confirmable in place (a hand edit, an
+ * answered question): it joins the save as every confirmable item starts
+ * selected (#503) — unless the person took that point out before (R2-011).
+ */
+function joinedSelection(state: CaptureState, proposal: CaptureProposal, before: string[], after: string[]): Pick<CaptureState, 'selected' | 'deselectedPoints'> {
+  const held = new Set(state.deselectedPoints);
+  const selected = [
+    ...state.selected.filter((id) => after.includes(id)),
+    ...after.filter((id) => !before.includes(id) && !state.selected.includes(id) && !held.has(pointIdFor(proposal, id))),
+  ];
+  return { selected, deselectedPoints: heldOut(held, proposal, after) };
+}
+
+function carriedInto(state: CaptureState, next: CaptureProposal): Pick<CaptureState, 'selected' | 'edits' | 'onceOnly' | 'goalUnlinked' | 'deselectedPoints'> {
   const before = new Map((state.proposal?.items ?? []).map((item) => [item.itemId, item]));
   const wasConfirmable = confirmableItems(state.proposal, state.edits);
+  // Every point the person took out, by its logical id, across families
+  // (R2-011): a deselected commitment, or a deselected habit/goal/thought.
+  const out = new Set(state.deselectedPoints);
+  for (const id of wasConfirmable) if (!state.selected.includes(id)) out.add(pointIdFor(state.proposal, id));
+  const knownPoints = new Set(state.proposal ? pointsOf(state.proposal).map((point) => point.pointId) : []);
   const edits: Record<string, CaptureItemEdit> = {};
   for (const item of next.items) {
     const old = before.get(item.itemId);
@@ -751,11 +890,19 @@ function carriedInto(state: CaptureState, next: CaptureProposal): Pick<CaptureSt
     if (old && edit && sameServerFacts(old, item)) edits[item.itemId] = edit;
   }
   const defaults = defaultSelectedItems(next, edits);
-  const selected = confirmableItems(next, edits).filter((id) =>
-    wasConfirmable.includes(id) ? state.selected.includes(id) : defaults.includes(id));
+  const confirmableNext = confirmableItems(next, edits);
+  const selected = confirmableNext.filter((id) => {
+    if (wasConfirmable.includes(id)) return state.selected.includes(id);
+    const pointId = pointIdFor(next, id);
+    // A point the person took out stays out, whichever family it is in now (R2-011).
+    if (knownPoints.has(pointId) && out.has(pointId)) return false;
+    // A new family id for a point the person already knew: their choice follows the point.
+    if (pointId !== id && knownPoints.has(pointId)) return true;
+    return defaults.includes(id);
+  });
   const onceOnly = state.onceOnly.filter((id) => next.items.some((item) => item.itemId === id && item.weeklyBlock));
   const goalUnlinked = state.goalUnlinked.filter((id) => next.items.some((item) => item.itemId === id && item.goalLink));
-  return { selected, edits, onceOnly, goalUnlinked };
+  return { selected, edits, onceOnly, goalUnlinked, deselectedPoints: heldOut(out, next, confirmableNext) };
 }
 
 /**
@@ -768,7 +915,7 @@ function carriedInto(state: CaptureState, next: CaptureProposal): Pick<CaptureSt
  */
 /** The id a structured-edit target names; a point keeps it when its kind changes. */
 function targetId(target: CaptureProposalEdit['target']): string {
-  return 'itemId' in target ? target.itemId : target.seedItemId;
+  return familyIdOf(target);
 }
 
 /**
@@ -779,11 +926,10 @@ function stillRefused(refused: RefusedEdit | null, proposal: CaptureProposal, ap
   if (!refused) return null;
   const id = targetId(refused.target);
   if (applied && targetId(applied) === id) return null;
-  const present = proposal.items.some((item) => item.itemId === id) || proposal.seeds.some((seed) => seed.seedItemId === id);
-  return present ? refused : null;
+  return hasPoint(proposal, id) ? refused : null;
 }
 
-function carriedAcrossEdit(state: CaptureState, next: CaptureProposal, folded?: FoldedEdit): Pick<CaptureState, 'selected' | 'edits' | 'onceOnly' | 'goalUnlinked'> {
+function carriedAcrossEdit(state: CaptureState, next: CaptureProposal, folded?: FoldedEdit): Pick<CaptureState, 'selected' | 'edits' | 'onceOnly' | 'goalUnlinked' | 'deselectedPoints'> {
   const carried = carriedInto(state, next);
   // Choices on an item the edit did not touch follow their id even if the
   // answer's facts differ from the last answer's; only what went into the
@@ -804,8 +950,32 @@ function carriedAcrossEdit(state: CaptureState, next: CaptureProposal, folded?: 
 export function captureReducer(state: CaptureState, event: CaptureEvent): CaptureState {
   switch (event.type) {
     case 'open': {
-      const opened = initialCaptureState(event.source ?? state.source, event.inputMode ?? state.inputMode);
+      const opened = { ...initialCaptureState(event.source ?? state.source, event.inputMode ?? state.inputMode), entry: event.entry ?? null };
       return event.meeting ? { ...opened, meeting: event.meeting } : opened;
+    }
+
+    case 'familiesDropped': {
+      const out = new Set(state.deselectedPoints);
+      if (event.families.includes('habit')) confirmableHabits(state.proposal).forEach((pointId) => out.add(pointId));
+      if (event.families.includes('goal')) confirmableGoals(state.proposal).forEach((pointId) => out.add(pointId));
+      if (event.families.includes('seed')) confirmableThoughts(state.proposal).forEach((pointId) => out.add(pointId));
+      return { ...state, deselectedPoints: Array.from(out) };
+    }
+
+    case 'entryForgotten':
+      return state.entry === null ? state : { ...state, entry: null };
+
+    case 'entryChanged':
+      // Only between conversations: one in progress keeps the hint it started with.
+      return state.entry === event.entry || state.conversationId !== null ? state : { ...state, entry: event.entry };
+
+    case 'togglePoint': {
+      const confirmable = [...confirmableHabits(state.proposal), ...confirmableGoals(state.proposal), ...confirmableThoughts(state.proposal)];
+      if (!confirmable.includes(event.pointId)) return state;
+      const deselectedPoints = state.deselectedPoints.includes(event.pointId)
+        ? state.deselectedPoints.filter((pointId) => pointId !== event.pointId)
+        : [...state.deselectedPoints, event.pointId];
+      return { ...state, deselectedPoints };
     }
 
     case 'textChanged': {
@@ -953,11 +1123,7 @@ export function captureReducer(state: CaptureState, event: CaptureEvent): Captur
       if (!state.proposal || event.proposal.proposalId !== state.proposal.proposalId) return state;
       const before = confirmableItems(state.proposal, state.edits);
       const after = confirmableItems(event.proposal, state.edits);
-      const selected = [
-        ...state.selected.filter((id) => after.includes(id)),
-        ...after.filter((id) => !before.includes(id) && !state.selected.includes(id)),
-      ];
-      return { ...state, status: statusForProposal(event.proposal), proposal: event.proposal, selected };
+      return { ...state, status: statusForProposal(event.proposal), proposal: event.proposal, ...joinedSelection(state, event.proposal, before, after) };
     }
 
     case 'analyzeFailed':
@@ -1009,12 +1175,8 @@ export function captureReducer(state: CaptureState, event: CaptureEvent): Captur
       const before = confirmableItems(state.proposal, state.edits);
       const after = confirmableItems(state.proposal, edits);
       // An item completed by hand joins the selection as soon as it is
-      // confirmable (#503), the same way every confirmable item starts
-      // selected and the way `clarified` behaves.
-      const selected = [
-        ...state.selected.filter((id) => after.includes(id)),
-        ...after.filter((id) => !before.includes(id) && !state.selected.includes(id)),
-      ];
+      // confirmable (#503), the same way `clarified` behaves.
+      const joined = joinedSelection(state, state.proposal, before, after);
       const status =
         state.status === 'needsClarification' && after.length > 0
           ? 'needsConfirmation'
@@ -1023,7 +1185,7 @@ export function captureReducer(state: CaptureState, event: CaptureEvent): Captur
         ...state,
         status,
         edits,
-        selected,
+        ...joined,
       };
     }
 
@@ -1079,7 +1241,15 @@ export function captureReducer(state: CaptureState, event: CaptureEvent): Captur
         collisions: event.confirmation.collisions ?? [],
         // Absent from an older server, and from a confirm that named none.
         weeklySaved: event.confirmation.weeklyBlocks ?? [],
-        undoable: event.confirmation.persisted.length > 0,
+        otherSaved: {
+          habits: event.confirmation.habitsPersisted ?? [],
+          goals: event.confirmation.goalsPersisted ?? [],
+          seeds: event.confirmation.seedsPersisted ?? [],
+        },
+        // Undo takes back commitments only; a save that also wrote a habit, a
+        // goal or a thought offers each one's own page instead (R3-004), so
+        // "nothing was kept" can never follow it.
+        undoable: undoableReceipt(event.confirmation),
       };
       // A review with no conversation — a share, a meeting prep, a Gmail
       // scan — ends on the saved screen, as it always did.
@@ -1100,12 +1270,15 @@ export function captureReducer(state: CaptureState, event: CaptureEvent): Captur
             failedTitles: saved.failed.map((item) => state.proposal?.items.find((candidate) => candidate.itemId === item.itemId)?.title ?? '')
               .filter((title) => title.trim().length > 0),
             ...goalTitlesOf(state, event.confirmation),
+            ...(saved.otherSaved.habits.length > 0 ? { habitsSaved: saved.otherSaved.habits } : {}),
+            ...(saved.otherSaved.goals.length > 0 ? { goalsSaved: saved.otherSaved.goals } : {}),
+            ...(saved.otherSaved.seeds.length > 0 ? { seedsSaved: saved.otherSaved.seeds } : {}),
           },
         ],
         turns: [],
         conversationId: null,
         proposal: null, original: null, selected: [], edits: {}, onceOnly: [], goalUnlinked: [], errorReason: null, messageKey: null,
-        reviewOf: null,
+        reviewOf: null, deselectedPoints: [],
       };
     }
 

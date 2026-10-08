@@ -82,7 +82,10 @@ function lineFor(source: string, locale: CaptureAppLocale): string {
 }
 
 function refOf(point: CaptureUnderstoodPoint): string {
-  return point.kind === 'commitment' ? `i:${point.itemId}` : `s:${point.seedItemId}`;
+  if (point.kind === 'commitment') return `i:${point.itemId}`;
+  if (point.kind === 'habit') return `h:${point.habitItemId}`;
+  if (point.kind === 'goal') return `g:${point.goalItemId}`;
+  return `s:${point.seedItemId}`;
 }
 
 function existingOrder(contract: CaptureProposalContract): string[] | null {
@@ -131,11 +134,19 @@ export function finalizeUnderstood(
     const ref = refs[index]!;
     const item = itemByRef.get(ref);
     if (item) {
-      understood.push({ kind: 'commitment', itemId: item.itemId, text: lineFor(item.title, locale) });
+      understood.push({
+        kind: 'commitment', itemId: item.itemId,
+        ...(item.pointId ? { pointId: item.pointId } : {}),
+        text: lineFor(item.title, locale),
+      });
       continue;
     }
     const seed = seedByRef.get(ref);
-    if (seed) understood.push({ kind: seed.kind, seedItemId: seed.seedItemId, text: lineFor(seed.summary, locale) });
+    if (seed) understood.push({
+      kind: seed.kind, seedItemId: seed.seedItemId,
+      ...(seed.pointId ? { pointId: seed.pointId } : {}),
+      text: lineFor(seed.summary, locale),
+    });
   }
   return { ...contract, understood };
 }

@@ -1885,6 +1885,10 @@ export async function confirmCapture(
     weeklyBlockItemIds?: string[];
     /** For the TTL check. Injected so the rule is testable without waiting. */
     now?: Date;
+    /** Contract-v8 document writes prepared by the mobile boundary. */
+    additionalWriteCount?: number;
+    resultExtras?: Partial<CaptureConfirmationResultContract>;
+    confirmationFingerprint?: string;
   },
   dependencies: CaptureBoundaryDependencies,
 ): Promise<CaptureConfirmationResultContract> {
@@ -1904,6 +1908,12 @@ export async function confirmCapture(
   if (stored.confirmedResult) {
     if (stored.idempotencyKey !== input.idempotencyKey) {
       throw new ProposalChangedError(stored.contract, 'confirmed', stored.confirmedResult as CaptureConfirmationResultContract);
+    }
+    if (input.confirmationFingerprint !== undefined && stored.confirmationFingerprint !== undefined
+      && input.confirmationFingerprint !== stored.confirmationFingerprint) {
+      const error = new Error('confirmation key reused for a different intent');
+      error.name = 'ConfirmationKeyReusedError';
+      throw error;
     }
     return { ...(stored.confirmedResult as CaptureConfirmationResultContract), replayed: true };
   }
@@ -1948,7 +1958,7 @@ export async function confirmCapture(
   }
 
   const selected = new Set(input.selectedItemIds);
-  if (selected.size === 0) return failure('invalid_selection');
+  if (selected.size === 0 && !(input.additionalWriteCount && input.additionalWriteCount > 0)) return failure('invalid_selection');
 
   // Every edit is validated before any of them is applied, and a single
   // violation fails the whole confirm. Applying the valid ones and dropping the
@@ -2032,12 +2042,13 @@ export async function confirmCapture(
   const commands = stored.contract.items
     .filter((item) => selected.has(item.itemId))
     .flatMap((item) => committedByItemId.get(item.itemId) ?? []);
-  if (commands.length === 0 && weeklyBlocks.length === 0) return failure('invalid_selection');
+  if (commands.length === 0 && weeklyBlocks.length === 0 && !(input.additionalWriteCount && input.additionalWriteCount > 0)) return failure('invalid_selection');
   const result: CaptureConfirmationResultContract = {
     version: CAPTURE_CONTRACT_VERSION,
     success: true,
     replayed: false,
     persistedItemIds: stored.contract.items.filter((item) => selected.has(item.itemId)).map((item) => item.itemId),
+    ...(input.resultExtras ?? {}),
   };
 
   if (dependencies.commitConfirmation) {

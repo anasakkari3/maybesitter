@@ -161,6 +161,30 @@ function itemCommands(stored: StoredCaptureProposal, itemId: string, result: Ext
   return pending(commands);
 }
 
+/** The result and pending commands created when a structured edit promotes a point to a commitment. */
+export function buildStructuredCommitmentArtifacts(
+  stored: StoredCaptureProposal,
+  itemId: string,
+  title: string,
+  time?: { at: string; zone: string; local?: ReturnType<typeof localTimeSpecFor> },
+): { result: ExtractionResult; commands: Command[] } {
+  let result = seedResult(title);
+  if (time) {
+    result = {
+      ...result,
+      dueAt: time.at,
+      remindAt: time.at,
+      localTimeSpec: time.local ?? localTimeSpecFor(new Date(time.at), time.zone),
+      timeEvidence: 'hhmm',
+      missingFields: [],
+    };
+  }
+  return {
+    result,
+    commands: time ? itemCommands(stored, itemId, result, title, time.at, time.zone) : [],
+  };
+}
+
 function applyEdit(stored: StoredCaptureProposal, edit: CaptureProposalEditContract, now: Date): StoredCaptureProposal {
   const change = edit.change as CaptureProposalEditContract['change'];
   if (!change || typeof change !== 'object' || Array.isArray(change)) throw new StructuredEditError();
@@ -252,6 +276,9 @@ function applyEdit(stored: StoredCaptureProposal, edit: CaptureProposalEditContr
   const commands = new Map(stored.commandsByItemId);
   const results = new Map(stored.resultsByItemId ?? []);
   const spans = { ...(stored.correctionSpans ?? {}) };
+  const carriesPointIds = stored.contract.entry !== undefined
+    || stored.contract.habits !== undefined
+    || stored.contract.goals !== undefined;
   let changed = false;
 
   if (itemIndex >= 0) {
@@ -283,10 +310,22 @@ function applyEdit(stored: StoredCaptureProposal, edit: CaptureProposalEditContr
     if (change.kind !== undefined && change.kind !== 'commitment') {
       changed = true;
       contract.items.splice(itemIndex, 1);
-      contract.seeds.push({ seedItemId: before.itemId, kind: change.kind, summary: title });
+      if (!SEED_KINDS.has(change.kind)) throw new StructuredEditError();
+      const pointId = before.pointId ?? (carriesPointIds ? before.itemId : undefined);
+      contract.seeds.push({
+        seedItemId: before.itemId,
+        ...(pointId ? { pointId } : {}),
+        kind: change.kind as CaptureSeedProposalContract['kind'],
+        summary: title,
+      });
       contract.understood = contract.understood?.map((point) =>
         point.kind === 'commitment' && point.itemId === before.itemId
-          ? { kind: change.kind as CaptureSeedProposalContract['kind'], seedItemId: before.itemId, text: title }
+          ? {
+            kind: change.kind as CaptureSeedProposalContract['kind'],
+            seedItemId: before.itemId,
+            ...(pointId ? { pointId } : {}),
+            text: title,
+          }
           : point);
       commands.delete(before.itemId); results.delete(before.itemId);
       for (const correction of corrections ?? []) delete spans[correction.id];
@@ -330,21 +369,27 @@ function applyEdit(stored: StoredCaptureProposal, edit: CaptureProposalEditContr
     if (change.kind === 'commitment') {
       changed = true;
       contract.seeds.splice(seedIndex, 1);
+      const pointId = before.pointId ?? (carriesPointIds ? before.seedItemId : undefined);
       contract.understood = contract.understood?.map((point) =>
         point.kind !== 'commitment' && point.seedItemId === before.seedItemId
-          ? { kind: 'commitment' as const, itemId: before.seedItemId, text: summary }
+          ? { kind: 'commitment' as const, itemId: before.seedItemId, ...(pointId ? { pointId } : {}), text: summary }
           : point);
-      let result = seedResult(summary);
-      if (parsedTime?.at) result = { ...result, dueAt: parsedTime.at, remindAt: parsedTime.at, localTimeSpec: parsedTime.local, timeEvidence: 'hhmm', missingFields: [] };
+      const artifacts = buildStructuredCommitmentArtifacts(
+        stored,
+        before.seedItemId,
+        summary,
+        parsedTime?.at ? { at: parsedTime.at, zone: parsedTime.zone, local: parsedTime.local } : undefined,
+      );
+      const { result } = artifacts;
       const clarification = parsedTime?.at ? null : buildClarification(result, { now, timezone: stored.timezone ?? parsedTime?.zone ?? 'UTC' });
       contract.items.push({
-        itemId: before.seedItemId, title: summary, resolvedTime: parsedTime?.at ?? null,
+        itemId: before.seedItemId, ...(pointId ? { pointId } : {}), title: summary, resolvedTime: parsedTime?.at ?? null,
         needsClarification: !parsedTime?.at, clarification,
         timeEstimated: false, priority: 'normal', priorityEstimated: false,
         ...(parsedTime?.local ? { resolvedDate: parsedTime.local.date, dateEstimated: false } : {}),
       });
       results.set(before.seedItemId, result);
-      commands.set(before.seedItemId, parsedTime?.at ? itemCommands(stored, before.seedItemId, result, summary, parsedTime.at, parsedTime.zone) : []);
+      commands.set(before.seedItemId, artifacts.commands);
     } else {
       const kind = change.kind ?? before.kind;
       if (kind !== before.kind) changed = true;
@@ -398,7 +443,9 @@ export async function applyStructuredEdit(input: {
       return { kind: 'changed' as const, proposal: stored.contract, confirmed: stored.confirmedResult !== undefined };
     }
     const target = input.edit.target;
-    const targetId = 'itemId' in target ? target.itemId : target.seedItemId;
+    const targetId = 'itemId' in target ? target.itemId
+      : 'seedItemId' in target ? target.seedItemId
+        : 'habitItemId' in target ? target.habitItemId : target.goalItemId;
     const targetsItem = 'itemId' in target;
     const sourceOrdinal = targetsItem
       ? stored.sourceOrdinals?.items[targetId]

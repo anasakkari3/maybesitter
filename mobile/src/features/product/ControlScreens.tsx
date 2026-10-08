@@ -25,6 +25,8 @@ import { Pill, Txt } from '../../ui/primitives';
 import { Dialog } from '../../ui/dialog';
 import { ProductActions, ProductPage, ProductSection, ProductRow } from '../../ui/product';
 import { capabilities as cap, shareCapability } from './capabilities';
+import { ChatEntryButton, ChatEntryPlaceholder } from '../capture/ChatEntryButton';
+import { useCaptureKinds } from '../capture/useCaptureKinds';
 import { ShareGuideSheet, type ShareGuideKind } from './ShareGuideSheet';
 import { useGoogleStatus } from '../google/useGoogle';
 
@@ -232,6 +234,12 @@ export function HabitDetailScreen() {
   const { t, tr, p, rtl, lang, actions } = useApp();
   const query = useHabits();
   const create = useCreateHabit();
+  const kinds = useCaptureKinds();
+  // M3b (D2): with the chat offering habits, a habit is added by talking —
+  // «ضيف عادة» opens it, and it explains the rhythm before anything is saved.
+  // The list and each habit's controls stay. While the probe is out, neither
+  // create path is drawn; any other answer keeps the form.
+  const chatHabits = !kinds.pending && kinds.entries.includes('habit');
   const status = useSetHabitStatus();
   const remove = useDeleteHabit();
   const [deleting, setDeleting] = React.useState<string | null>(null);
@@ -263,8 +271,12 @@ export function HabitDetailScreen() {
     onCancel={() => setDeleting(null)}
     onConfirm={() => { remove.mutate(deleting); setDeleting(null); }}
   /> : null}>
+    {/* Above the list, as on the goals and thoughts pages: below a few habits it left the screen (M3b design review). */}
+    {!kinds.pending && chatHabits ? <ChatEntryButton entry="habit" testID="habits-add" /> : null}
     <QueryBoundary isPending={query.isPending} error={query.error} onRetry={() => void query.refetch()}>
-      {items.length === 0 ? <ProductSection title={t.xHabits} body={t.xNoOccurrences} icon="habit" /> : null}
+      {items.length === 0 ? (chatHabits
+        ? <ProductSection title={t.xHabitsEmptyTitle} body={t.xHabitsEmptyBody} icon="habit" />
+        : <ProductSection title={t.xHabits} body={t.xNoOccurrences} icon="habit" />) : null}
       {items.map(habit => <ProductSection key={habit.habitId} title={isolateAuto(habit.title)} icon="habit" status={habit.status === 'active' ? 'LIVE' : 'BLOCKED'}>
         <ProductRow title={t.xCadence} body={describeCadence(habit.cadence, t, lang)} icon="calendar" />
         <ProductRow title={t.xDuration} body={tr('xMinutes', { count: habit.durationMinutes })} icon="watch" />
@@ -292,7 +304,9 @@ export function HabitDetailScreen() {
       <ProductActions><Pill label={t.xLetItGo} kind={recovery === 'skip' ? 'accent' : 'outline'} onPress={() => setRecovery('skip')} /><Pill label={t.xRetrySameDay} kind={recovery === 'retry_same_day' ? 'accent' : 'outline'} onPress={() => setRecovery('retry_same_day')} /><Pill label={t.xRecoverThisWeek} kind={recovery === 'recover_within_period' ? 'accent' : 'outline'} onPress={() => setRecovery('recover_within_period')} /></ProductActions>
       {create.error ? <Txt role="supporting" color={p.wm}>{userFacingMessage(create.error, t)}</Txt> : null}
       <ProductActions><Pill testID="habit-create-confirm" label={t.xCreateHabit} disabled={!title.trim() || create.isPending} onPress={save} /><Pill label={t.cancel} kind="outline" disabled={create.isPending} onPress={() => setAdding(false)} /></ProductActions>
-    </ProductSection> : <Pill testID="habit-create" label={t.xCreateHabit} onPress={() => setAdding(true)} />}
+    </ProductSection> : kinds.pending ? <ChatEntryPlaceholder testID="habits-add-pending" />
+      : chatHabits ? null
+      : <Pill testID="habit-create" label={t.xCreateHabit} onPress={() => setAdding(true)} />}
     <Pill label={t.settingsRoutine} kind="outline" onPress={() => actions.go('routineSettings')} />
   </ProductPage>;
 }

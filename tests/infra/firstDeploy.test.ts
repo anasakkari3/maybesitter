@@ -135,6 +135,16 @@ test('the memory module is on in both environments, with its kill switch present
   }
 });
 
+test('capture kinds are staging-only and keep an explicit kill switch', () => {
+  const staging = envVarsOf(flagsFor('staging'));
+  const production = envVarsOf(flagsFor('production'));
+
+  assert.equal(staging.get('MAYBESITTER_FEATURE_CAPTURE_KINDS'), 'true');
+  assert.equal(staging.get('MAYBESITTER_KILL_SWITCH_CAPTURE_KINDS'), 'false');
+  assert.equal(production.get('MAYBESITTER_FEATURE_CAPTURE_KINDS'), 'false');
+  assert.equal(production.get('MAYBESITTER_KILL_SWITCH_CAPTURE_KINDS'), 'false');
+});
+
 /** `--set-secrets` as KEY → secret:version; gcloud splits it on `,`. */
 function secretsOf(printed: string): Map<string, string> {
   const flag = printed.trim().split(/\s+/).filter((word) => word.startsWith('--set-secrets='));
@@ -299,8 +309,8 @@ test('switching the env list to a custom delimiter dropped none of the existing 
   assert.equal(staging.get('MAYBESITTER_LLM_GLOBAL_DAILY_CALL_CAP'), '3000');
   assert.equal(staging.get('MAYBESITTER_FEATURE_PROACTIVE_LOOP'), 'true');
   assert.equal(staging.get('MAYBESITTER_KILL_SWITCH_PROACTIVE_LOOP'), 'false');
-  assert.equal(production.size, 26);
-  assert.equal(staging.size, 25);
+  assert.equal(production.size, 28);
+  assert.equal(staging.size, 27);
 });
 
 // ── Same-digest production promotion ────────────────────────────────────

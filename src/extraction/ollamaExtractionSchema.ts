@@ -171,14 +171,28 @@ export type CaptureChatAction = (typeof CAPTURE_CHAT_ACTIONS)[number];
  * Empty ref sets use an impossible sentinel because Vertex does not accept an
  * empty enum; the parser still rejects the sentinel if a model invents it.
  */
-export function geminiChatSchemaFor(lockedRefs: readonly string[], openRefs: readonly string[]): Record<string, unknown> {
+export function geminiChatSchemaFor(
+  lockedRefs: readonly string[],
+  openRefs: readonly string[],
+  options: { captureKinds?: boolean } = {},
+): Record<string, unknown> {
   const refs = (values: readonly string[]) => values.length > 0 ? values : ['__no_ref__'];
   const laterTurn = lockedRefs.length > 0 || openRefs.length > 0;
+  const extractionProperties = options.captureKinds
+    ? {
+        ...OLLAMA_EXTRACTION_SCHEMA.properties,
+        kind: {
+          ...OLLAMA_EXTRACTION_SCHEMA.properties.kind,
+          enum: ['commitment', 'possible_goal', 'consideration', 'idea', 'waiting_for', 'habit', 'goal'],
+          description: 'What the person expressed. Habit and goal are available only in the capture-kinds chat.',
+        },
+      }
+    : OLLAMA_EXTRACTION_SCHEMA.properties;
   const citedExtraction = {
     type: 'object',
     additionalProperties: false,
     properties: {
-      ...OLLAMA_EXTRACTION_SCHEMA.properties,
+      ...extractionProperties,
       source: {
         type: 'string',
         description: 'Exact words from the newest user message that support this new point.',
@@ -211,7 +225,9 @@ export function geminiChatSchemaFor(lockedRefs: readonly string[], openRefs: rea
         properties: {
           ref: openRef,
           op: { type: 'string', enum: ['update'] },
-          fields: OLLAMA_EXTRACTION_SCHEMA,
+          fields: options.captureKinds
+            ? { ...OLLAMA_EXTRACTION_SCHEMA, properties: extractionProperties }
+            : OLLAMA_EXTRACTION_SCHEMA,
           source: { type: 'string', description: 'Exact words from the newest user message that support this update.' },
         },
         required: ['ref', 'op', 'fields', 'source'],

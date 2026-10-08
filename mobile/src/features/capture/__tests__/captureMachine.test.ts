@@ -879,3 +879,82 @@ describe('a save in the chat keeps the chat (owner request 2026-09-30)', () => {
     expect(captureReducer(saved, { type: 'open' }).earlier).toEqual([]);
   });
 });
+
+describe('M3b: habits, goals and thoughts in the save', () => {
+  const habit = {
+    habitItemId: 'h1', pointId: 'P', title: 'Walk', cadence: { kind: 'weekly_count' as const, count: 3 }, durationMinutes: 30,
+    preferredWindow: 'morning' as const, explanation: 'Three mornings a week.', question: null, confirmable: true,
+  };
+  const withHabit = proposal({ items: [], habits: [habit], goals: [], revision: 1 });
+  const chatState = (p: CaptureProposal) => captureReducer(run({ type: 'textChanged', text: 'walk' }, { type: 'chatStarted' }), { type: 'chatAnswered', answer: chat(p) });
+
+  it('a habit-only proposal is confirmable, and the payload names it by family id', () => {
+    const state = chatState(withHabit);
+    expect(state.status).toBe('needsConfirmation');
+    expect(confirmPayload(state)).toEqual(expect.objectContaining({ itemIds: [], selectedHabitItemIds: ['h1'], selectedGoalItemIds: [] }));
+    expect(confirmPayload(state)).not.toHaveProperty('selectedSeedItemIds');
+  });
+
+  it('R2-011: a deselected habit that comes back as a confirmable commitment with the same pointId stays out of the save', () => {
+    let state = captureReducer(chatState(withHabit), { type: 'togglePoint', pointId: 'P' });
+    expect(confirmPayload(state).selectedHabitItemIds).toEqual([]);
+    const converted = proposal({
+      items: [{ itemId: 'i-new', pointId: 'P', title: 'Walk', resolvedTime: '2030-01-08T07:00:00.000Z', needsClarification: false }],
+      habits: [], goals: [], revision: 2,
+    });
+    state = captureReducer(state, { type: 'editAnswered', answer: chat(converted) });
+    // Confirmable, yet not selected: the person's choice followed the point.
+    expect(confirmableItems(state.proposal, state.edits)).toEqual(['i-new']);
+    expect(state.selected).toEqual([]);
+  });
+
+  it('R2-011: a deselected habit converted to a commitment that still needs a time stays out once the time is given', () => {
+    let state = captureReducer(chatState(withHabit), { type: 'togglePoint', pointId: 'P' });
+    const pending = proposal({
+      items: [{ itemId: 'i-new', pointId: 'P', title: 'Walk', resolvedTime: null, needsClarification: true }],
+      habits: [], goals: [], revision: 2,
+    });
+    state = captureReducer(state, { type: 'editAnswered', answer: chat(pending) });
+    expect(state.deselectedPoints).toEqual(['P']);
+    // Completed by hand: confirmable now, and still the person's «out».
+    const byHand = captureReducer(state, { type: 'editItem', itemId: 'i-new', edit: { title: 'Walk', localDateTime: '2030-01-08T09:00' } });
+    expect(confirmableItems(byHand.proposal, byHand.edits)).toEqual(['i-new']);
+    expect(byHand.selected).toEqual([]);
+    expect(confirmPayload(byHand).itemIds).toEqual([]);
+    // The choice now lives on the commitment card, which the person can tick again.
+    expect(byHand.deselectedPoints).toEqual([]);
+    expect(captureReducer(byHand, { type: 'toggleItem', itemId: 'i-new' }).selected).toEqual(['i-new']);
+    // Completed by the server's next answer instead: the same.
+    const timed = proposal({
+      items: [{ itemId: 'i-new', pointId: 'P', title: 'Walk', resolvedTime: '2030-01-08T07:00:00.000Z', needsClarification: false }],
+      habits: [], goals: [], revision: 3,
+    });
+    expect(captureReducer(state, { type: 'editAnswered', answer: chat(timed) }).selected).toEqual([]);
+  });
+
+  it('a point the person never touched is selected by default after a conversion', () => {
+    const converted = proposal({
+      items: [{ itemId: 'i-new', pointId: 'P', title: 'Walk', resolvedTime: '2030-01-08T07:00:00.000Z', needsClarification: false }],
+      habits: [], goals: [], revision: 2,
+    });
+    const state = captureReducer(chatState(withHabit), { type: 'editAnswered', answer: chat(converted) });
+    expect(state.selected).toEqual(['i-new']);
+  });
+
+  it('an incomplete habit is never in the save, and a refusal can take whole families out', () => {
+    const incomplete = { ...habit, cadence: null, explanation: null, question: { field: 'frequency' as const, options: [1, 2, 3] }, confirmable: false };
+    const goal = { goalItemId: 'g1', pointId: 'G', title: 'Lose weight' };
+    let state = chatState(proposal({ items: [], habits: [incomplete], goals: [goal], revision: 1 }));
+    expect(confirmPayload(state)).toEqual(expect.objectContaining({ selectedHabitItemIds: [], selectedGoalItemIds: ['g1'] }));
+    state = captureReducer(state, { type: 'familiesDropped', families: ['goal'] });
+    expect(confirmPayload(state).selectedGoalItemIds).toEqual([]);
+  });
+
+  it('a receipt with a habit offers no Undo; a commitment-only receipt does', () => {
+    const state = chatState(withHabit);
+    const mixed = captureReducer({ ...state, status: 'confirming' }, { type: 'confirmSucceeded', confirmation: confirmation({ habitsPersisted: [{ habitItemId: 'h1', pointId: 'P', habitId: 'H', title: 'Walk' }] }) });
+    expect(mixed.undoable).toBe(false);
+    const plain = captureReducer({ ...analyzed(), status: 'confirming' }, { type: 'confirmSucceeded', confirmation: confirmation() });
+    expect(plain.undoable).toBe(true);
+  });
+});

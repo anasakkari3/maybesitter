@@ -8,6 +8,8 @@ import { Btn, Card, Pill, Txt } from '../../ui/primitives';
 import { Screen, ScreenScroll } from '../../ui/screen';
 import { QueryBoundary } from '../../api/ui/QueryBoundary';
 import { useDeleteSeed, usePatchSeed, usePromoteSeed, useSeeds } from '../../api/queries';
+import { ChatEntryButton, ChatEntryPlaceholder } from '../capture/ChatEntryButton';
+import { useCaptureKinds } from '../capture/useCaptureKinds';
 import type { Seed } from '../../api/schemas/seeds';
 import { SettingsHeader } from '../settings/SettingsChrome';
 import { hasRevisit, liveSeeds, seedKindLabel, seedStatusLabel } from './seedDisplay';
@@ -41,6 +43,11 @@ import { hasRevisit, liveSeeds, seedKindLabel, seedStatusLabel } from './seedDis
 export function SeedsScreen({ onBack }: { onBack: () => void }) {
   const { t, p, lang, actions } = useApp();
   const seeds = useSeeds();
+  const kinds = useCaptureKinds();
+  // M3b (D1): with the chat offering thoughts, «احكي فكرة» opens it from this
+  // page, and a thought said there stays a thought. While the probe is out,
+  // neither entry is drawn; any other answer keeps today's plain-chat door.
+  const chatThoughts = !kinds.pending && kinds.entries.includes('thought');
   const strings = t as unknown as Record<string, string>;
 
   const items = liveSeeds(seeds.data?.items ?? []);
@@ -51,6 +58,8 @@ export function SeedsScreen({ onBack }: { onBack: () => void }) {
         <Txt size={13} color={p.mu} testID="seeds-lede">{t.seedsLede}</Txt>
         {/* Unconditional, like Review's suggestion note. */}
         <Txt size={12} color={p.mu} testID="seeds-not-commitment">{t.seedsNotCommitment}</Txt>
+        {kinds.pending ? <ChatEntryPlaceholder testID="seeds-add-pending" />
+          : chatThoughts ? <ChatEntryButton entry="thought" testID="seeds-add" /> : null}
 
         <QueryBoundary
           isPending={seeds.isPending}
@@ -66,14 +75,14 @@ export function SeedsScreen({ onBack }: { onBack: () => void }) {
             <View style={{ padding: 22, backgroundColor: p.sf, borderRadius: 20, gap: 10, alignItems: 'center' }} testID="seeds-empty">
               <Txt size={14} color={p.mu} align="center">{t.seedsEmpty}</Txt>
               <Txt size={13} color={p.mu} align="center" lh={1.5} testID="seeds-empty-hint">{t.seedsEmptyHint}</Txt>
-              <Pill
+              {kinds.pending || chatThoughts ? null : <Pill
                 label={t.seedsEmptyCta}
                 size={15}
                 pad={12}
                 testID="seeds-empty-capture"
                 style={{ paddingHorizontal: 22, marginTop: 4 }}
                 onPress={() => actions.goCapture('tab', 'text')}
-              />
+              />}
             </View>
           ) : null}
           {items.map((seed) => (

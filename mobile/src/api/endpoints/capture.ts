@@ -6,7 +6,11 @@ import {
   captureProposalResponseSchema,
   type CaptureChatAnswer,
   type CaptureConfirmation,
+  type CaptureEntry,
   type CaptureProposal,
+  type HabitCadence,
+  type HabitPreferredWindow,
+  captureKindsSchema,
 } from '../schemas/capture';
 
 /**
@@ -91,10 +95,15 @@ export function proposeCapture(input: {
 export interface CaptureProposalEdit {
   proposalId: string;
   revision: number;
-  target: { itemId: string } | { seedItemId: string };
+  /** The point, by its family id (M3b: four families). */
+  target: { itemId: string } | { seedItemId: string } | { habitItemId: string } | { goalItemId: string };
   change: {
-    kind?: 'commitment' | 'possible_goal' | 'consideration' | 'idea' | 'waiting_for';
+    kind?: 'commitment' | 'possible_goal' | 'consideration' | 'idea' | 'waiting_for' | 'habit' | 'goal';
     text?: string;
+    /** A habit's rhythm, length and time of day (M3b); only on a habit. */
+    cadence?: HabitCadence;
+    durationMinutes?: number;
+    preferredWindow?: HabitPreferredWindow | null;
     time?: { at: string | null; timeZone: string };
     rejectCorrectionIds?: string[];
     /** Bring back a point a later message took off the list (contract v5); alone, never with another field. */
@@ -112,6 +121,12 @@ export type CaptureChatInput = {
   message?: string;
   spoken?: boolean;
   edit?: CaptureProposalEdit;
+  /**
+   * Where the chat was opened from (M3b): sent with a message, and only when
+   * the capability probe said the server takes it. The server keeps the first
+   * turn's entry for the whole conversation.
+   */
+  entry?: CaptureEntry;
 };
 
 export function chatCapture(input: CaptureChatInput & {
@@ -125,7 +140,9 @@ export function chatCapture(input: CaptureChatInput & {
       ...(input.conversationId ? { conversationId: input.conversationId } : {}),
       // Only the words the person could see go: never an alternative they did
       // not pick (M2b). `spoken` says they came from dictation.
-      ...(input.edit ? { edit: input.edit } : { message: input.message ?? '', ...(input.spoken ? { spoken: true } : {}) }),
+      ...(input.edit ? { edit: input.edit } : {
+        message: input.message ?? '', ...(input.spoken ? { spoken: true } : {}), ...(input.entry ? { entry: input.entry } : {}),
+      }),
       timezone: input.timezone,
       referenceTime: input.referenceTime ?? new Date().toISOString(),
       ...(input.locale ? { locale: input.locale } : {}),
@@ -175,6 +192,15 @@ export async function confirmCapture(input: {
   idempotencyKey?: string;
   /** The proposal revision the person confirmed (M2b): what was seen is what is saved. */
   revision?: number;
+  /**
+   * The other families saved by the same confirm (M3b): habits, goals, and —
+   * only from the thought entry — thoughts, each by its family id. Sent when
+   * given (`confirmPayload` gives them only for a v8 proposal), so a confirm
+   * of an older proposal is the one an older app sends.
+   */
+  selectedHabitItemIds?: string[];
+  selectedGoalItemIds?: string[];
+  selectedSeedItemIds?: string[];
 }): Promise<CaptureConfirmation> {
   const result = await apiRequest('POST', '/api/mobile/capture/confirm', {
     body: {
@@ -185,8 +211,22 @@ export async function confirmCapture(input: {
       ...(input.goalLinkItemIds?.length ? { goalLinkItemIds: input.goalLinkItemIds } : {}),
       ...(input.idempotencyKey ? { idempotencyKey: input.idempotencyKey } : {}),
       ...(input.revision !== undefined ? { revision: input.revision } : {}),
+      ...(input.selectedHabitItemIds ? { selectedHabitItemIds: input.selectedHabitItemIds } : {}),
+      ...(input.selectedGoalItemIds ? { selectedGoalItemIds: input.selectedGoalItemIds } : {}),
+      ...(input.selectedSeedItemIds ? { selectedSeedItemIds: input.selectedSeedItemIds } : {}),
     },
     schema: captureConfirmationSchema,
   });
   return result;
+}
+
+/**
+ * Which entries the server offers (M3b, R004): `GET /api/mobile/capture/kinds`.
+ * 200 lists them (goal only when goals can be written); a switched-off feature
+ * answers 404 `feature_unavailable`, which the client turns into a
+ * `FeatureUnavailableError`, and the pages keep their old paths.
+ */
+export async function getCaptureKinds(): Promise<CaptureEntry[]> {
+  const result = await apiRequest('GET', '/api/mobile/capture/kinds', { schema: captureKindsSchema });
+  return result.entries;
 }

@@ -18,6 +18,7 @@ import {
   captureChatRefusalSchema,
   captureChatSchema,
   captureConfirmationSchema,
+  captureKindsSchema,
   captureProposalSchema,
   proposalChangedChatSchema,
 } from '../schemas/capture';
@@ -107,7 +108,7 @@ import {
   statementPreviewResponseSchema,
   upcomingPlansResponseSchema,
 } from '../schemas/goalPlan';
-import { GOAL_PLAN_REASONS } from '../errors';
+import { CAPTURE_CONFIRM_CONFLICT_REASONS, GOAL_PLAN_REASONS } from '../errors';
 import {
   icsDeadlineDecidedSchema,
   icsFeedCreatedSchema,
@@ -148,6 +149,12 @@ const goalPlanRefusalSchema = z.object({
   reason: z.enum(GOAL_PLAN_REASONS),
 }).passthrough();
 
+/** The capture confirm's own 409 refusals (M3b, R2-010): the reasons `CaptureConfirmRefusedError` keeps. */
+const captureConfirmConflictSchema = z.object({
+  success: z.literal(false),
+  reason: z.enum(CAPTURE_CONFIRM_CONFLICT_REASONS as unknown as [string, ...string[]]),
+}).passthrough();
+
 function fixture(name: string): unknown {
   return JSON.parse(readFileSync(join(FIXTURES, `${name}.json`), 'utf8'));
 }
@@ -185,6 +192,19 @@ const CASES: Array<[string, z.ZodType]> = [
   // confirmation as an all-day deadline.
   ['capture.appointmentNoTimeClarified', captureProposalSchema],
   ['capture.appointmentNoTimeConfirmation', captureConfirmationSchema],
+  // M3b (contract v8): the probe, a chat answer with a habit, a goal and a timed
+  // thought, a confirm with the three persisted families, and every refusal.
+  ['capture.kinds', captureKindsSchema],
+  ['capture.chatKinds', captureChatSchema],
+  ['capture.kindsConfirmation', captureConfirmationSchema],
+  ['capture.confirmTooManyWrites', captureConfirmationSchema],
+  ['capture.confirmHabitInvalid', captureConfirmationSchema],
+  ['capture.confirmGoalInvalid', captureConfirmationSchema],
+  ['capture.confirmSeedInvalid', captureConfirmationSchema],
+  ['capture.confirmKindsUnavailable', captureConfirmConflictSchema],
+  ['capture.confirmGoalsUnavailable', captureConfirmConflictSchema],
+  ['capture.confirmKeyReused', captureConfirmConflictSchema],
+  ['account.captureKindsExport', accountExportSchema],
   ['capture.allDayDeadline', captureProposalSchema],
   ['capture.allDayDeadlineConfirmation', captureConfirmationSchema],
   // «كل سبت من 10 لـ 4» (FIX-R8-CAPTURE): the optional weekly hint.

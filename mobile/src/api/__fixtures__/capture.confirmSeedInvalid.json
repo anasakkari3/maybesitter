@@ -1,0 +1,8 @@
+{
+  "success": false,
+  "error": "seed_invalid",
+  "failureCode": "seed_invalid",
+  "replayed": false,
+  "persisted": [],
+  "failed": []
+}

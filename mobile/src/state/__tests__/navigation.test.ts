@@ -6,7 +6,7 @@
  * back has to arrive on Today, not on Details.
  */
 import { describe, expect, it } from '@jest/globals';
-import { arrive, back, canGoBack, closeTask, derive, go, initialNav, isTab, openTask, push, switchTab, TABS, type Nav } from '../navigation';
+import { arrive, back, backToGoals, canGoBack, closeTask, derive, go, initialNav, isTab, openTask, push, switchTab, TABS, type Nav } from '../navigation';
 
 const screenOf = (n: Nav) => derive(n).screen;
 const trail = (n: Nav, steps: ((n: Nav) => Nav)[]) => steps.reduce((acc, step) => step(acc), n);
@@ -202,5 +202,25 @@ describe('arriving from a notification or a link', () => {
       n = back(n);
       expect(derive(n)).toMatchObject({ screen: 'today', showTabs: true });
     }
+  });
+});
+
+describe('«ارجع للأهداف» says where it goes (M3b sim)', () => {
+  it('from the goals list, it is back to the list', () => {
+    let n = switchTab(initialNav, 'things');
+    n = push(n, { name: 'goalExecution' });
+    n = push(n, { name: 'goalExecution', goalId: 'g1' });
+    n = backToGoals(n);
+    expect(derive(n)).toMatchObject({ screen: 'goalExecution', goalId: null });
+    // The list's own back is still «أشيائي».
+    expect(screenOf(back(n))).toBe('things');
+  });
+
+  it('from a goal opened on the chat\'s saved line, it is the list in the goal\'s place, and the header back still reaches the chat', () => {
+    let n = openTask(initialNav, { name: 'capture' });
+    n = push(n, { name: 'goalExecution', goalId: 'g1', startPlan: true });
+    n = backToGoals(n);
+    expect(derive(n)).toMatchObject({ screen: 'goalExecution', goalId: null });
+    expect(screenOf(back(n))).toBe('capture');
   });
 });

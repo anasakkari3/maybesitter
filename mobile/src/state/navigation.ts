@@ -45,6 +45,12 @@ export const TABS: readonly Tab[] = ['today', 'calendar', 'things', 'watching'];
 export type Entry = {
   name: Screen; detailId?: string; planDate?: string; goalId?: string;
   /**
+   * «اعمللي خطة» from a capture's saved line (M3b, R3-006): the goal's page
+   * starts its plan once, then clears this before any side effect, so a
+   * remount or a back navigation never starts it again (R4-003).
+   */
+  startPlan?: true;
+  /**
    * Set on a task entry when back returns to it from a screen opened over it.
    * The flow is showing again, not starting: capture reads this and keeps the
    * draft instead of opening a fresh one. A fresh open never carries it.
@@ -101,6 +107,7 @@ export function isTask(name: Screen): boolean {
 /** What is on screen, and the parameters it was opened with. */
 export function derive(nav: Nav): {
   screen: Screen; detailId: string | null; planDate: string | null; goalId: string | null; taskResumed: boolean; showTabs: boolean;
+  startPlan: boolean;
 } {
   const top = nav.over[nav.over.length - 1] ?? nav.task ?? nav.stacks[nav.tab][nav.stacks[nav.tab].length - 1] ?? null;
   return {
@@ -108,6 +115,7 @@ export function derive(nav: Nav): {
     detailId: top?.detailId ?? null,
     planDate: top?.planDate ?? null,
     goalId: top?.goalId ?? null,
+    startPlan: top?.startPlan === true,
     taskResumed: top !== null && top === nav.task && nav.task.resumed === true,
     showTabs: nav.task === null && nav.stacks[nav.tab].length === 0,
   };
@@ -146,7 +154,21 @@ export function switchTab(nav: Nav, tab: Tab): Nav {
 
 /** Two entries are the same step when the screen and every parameter match. */
 function sameEntry(a: Entry, b: Entry): boolean {
-  return a.name === b.name && a.detailId === b.detailId && a.planDate === b.planDate && a.goalId === b.goalId;
+  return a.name === b.name && a.detailId === b.detailId && a.planDate === b.planDate && a.goalId === b.goalId
+    && a.startPlan === b.startPlan;
+}
+
+/** The screen on top, without its one-shot `startPlan` (R4-003). */
+export function clearStartPlan(nav: Nav): Nav {
+  const strip = (entries: Entry[]): Entry[] => {
+    const top = entries[entries.length - 1];
+    if (!top?.startPlan) return entries;
+    const { startPlan: _consumed, ...rest } = top;
+    return [...entries.slice(0, -1), rest];
+  };
+  if (nav.over.length > 0) return { ...nav, over: strip(nav.over) };
+  if (nav.task) return nav;
+  return { ...nav, stacks: { ...nav.stacks, [nav.tab]: strip(nav.stacks[nav.tab]) } };
 }
 
 /** Add `entry` on top of `stack`, or return to it if it is already there. */
@@ -169,6 +191,18 @@ function stackWith(stack: Entry[], entry: Entry): Entry[] {
 export function push(nav: Nav, entry: Entry): Nav {
   if (nav.task) return { ...nav, over: stackWith(nav.over, entry) };
   return { ...nav, stacks: { ...nav.stacks, [nav.tab]: stackWith(nav.stacks[nav.tab], entry) } };
+}
+
+/**
+ * «ارجع للأهداف» from one goal: back to the goals list under it, or — when the
+ * goal was opened from elsewhere, such as the chat's saved line (M3b) — the
+ * list in the goal's place, so the words say where it goes.
+ */
+export function backToGoals(nav: Nav): Nav {
+  const stack = nav.task ? nav.over : nav.stacks[nav.tab];
+  const under = stack[stack.length - 2];
+  if (under?.name === 'goalExecution' && !under.goalId) return back(nav);
+  return replace(nav, { name: 'goalExecution' });
 }
 
 /**

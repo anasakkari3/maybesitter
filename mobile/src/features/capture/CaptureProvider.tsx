@@ -23,6 +23,7 @@ import {
   useAnalyticsConsent,
   useCaptureChat,
   useClarifyCapture,
+  invalidateAfterCapture,
   useConfirmCapture,
   useRecordAnalytics,
 } from '../../api/queries';
@@ -33,11 +34,13 @@ import { ConversationNotFoundError, InputTooLargeError, isRetryable, ProposalCha
 import type { CaptureProposalEdit } from '../../api/endpoints/capture';
 import { instantForLocalDateTime } from './localInstant';
 import { userFacingMessageKey, type UserFacingKey } from '../../api/ui/userFacingMessage';
-import type { CaptureProposal } from '../../api/schemas/capture';
+import type { CaptureEntry, CaptureProposal } from '../../api/schemas/capture';
 import {
   captureReducer,
   confirmPayload,
   initialCaptureState,
+  selectedCount,
+  undoableReceipt,
   MAX_CAPTURE_LENGTH,
   UNDO_WINDOW_MS,
   type CaptureFailureKind,
@@ -61,7 +64,10 @@ export type { UndoOutcome };
 
 interface CaptureContextValue {
   state: CaptureState;
-  open(source?: CaptureSource, inputMode?: CaptureInputMode): void;
+  /** Opens the flow; `entry` is the page it was opened from (M3b), null for the plain chat. */
+  open(source?: CaptureSource, inputMode?: CaptureInputMode, entry?: CaptureEntry | null): void;
+  /** The page the next conversation starts from; an ended conversation and its saves stay (M3b). */
+  changeEntry(entry: CaptureEntry | null): void;
   setText(text: string): void;
   /**
    * Sends the draft (or `textOverride`) to the capture chat «احكيها», in the
@@ -88,6 +94,10 @@ interface CaptureContextValue {
    */
   adoptProposal(proposal: CaptureProposal, source?: CaptureSource, meeting?: MeetingReviewContext): void;
   toggleItem(itemId: string): void;
+  /** Take a habit, goal or thought-entry thought out of the save, or put it back (M3b). */
+  togglePoint(pointId: string): void;
+  /** A refusal's recovery (M3b, R2-010): take whole families out of the save. */
+  dropFamilies(families: readonly ('habit' | 'goal' | 'seed')[]): void;
   selectAll(): void;
   deselectAll(): void;
   editItem(itemId: string, edit: CaptureItemEdit): void;
@@ -261,6 +271,8 @@ export function CaptureProvider({ children }: { children: React.ReactNode }) {
     if (before === null) return;
     if (undoTimer.current) clearTimeout(undoTimer.current);
     abandonAnalysis();
+    // The entry was the last account's page; the next one starts without it (M3b).
+    dispatch({ type: 'entryForgotten' });
   }, [uid, abandonAnalysis]);
 
   // The timer is cleared on unmount, so leaving the flow cannot leave Undo
@@ -270,10 +282,12 @@ export function CaptureProvider({ children }: { children: React.ReactNode }) {
     abandonAnalysis();
   }, [abandonAnalysis]);
 
-  const open = useCallback((source?: CaptureSource, inputMode?: CaptureInputMode) => {
+  const open = useCallback((source?: CaptureSource, inputMode?: CaptureInputMode, entry?: CaptureEntry | null) => {
     abandonAnalysis();
-    dispatch({ type: 'open', ...(source ? { source } : {}), ...(inputMode ? { inputMode } : {}) });
+    dispatch({ type: 'open', ...(source ? { source } : {}), ...(inputMode ? { inputMode } : {}), entry: entry ?? null });
   }, [abandonAnalysis]);
+
+  const changeEntry = useCallback((entry: CaptureEntry | null) => dispatch({ type: 'entryChanged', entry }), []);
 
   const setText = useCallback((text: string) => dispatch({ type: 'textChanged', text }), []);
 
@@ -299,6 +313,7 @@ export function CaptureProvider({ children }: { children: React.ReactNode }) {
         classifyFailure,
         // The field's own words came from dictation (M2b); a replacement text does not.
         textOverride === undefined && state.spoken,
+        state.entry,
       );
       if (generation !== analysisGeneration.current) return;
       dispatch(outcome.ok
@@ -308,7 +323,7 @@ export function CaptureProvider({ children }: { children: React.ReactNode }) {
       if (generation === analysisGeneration.current) analysisPending.current = false;
       releaseWrite(token);
     }
-  }, [chat, state.text, state.status, state.conversationId, state.spoken, acquireWrite, releaseWrite]);
+  }, [chat, state.text, state.status, state.conversationId, state.spoken, state.entry, acquireWrite, releaseWrite]);
 
   const dismissFailure = useCallback(() => dispatch({ type: 'dismissFailure' }), []);
   const startOver = useCallback(() => {
@@ -325,6 +340,8 @@ export function CaptureProvider({ children }: { children: React.ReactNode }) {
   }, [abandonAnalysis]);
 
   const toggleItem = useCallback((itemId: string) => dispatch({ type: 'toggleItem', itemId }), []);
+  const togglePoint = useCallback((pointId: string) => dispatch({ type: 'togglePoint', pointId }), []);
+  const dropFamilies = useCallback((families: readonly ('habit' | 'goal' | 'seed')[]) => dispatch({ type: 'familiesDropped', families }), []);
   const selectAll = useCallback(() => dispatch({ type: 'selectAll' }), []);
   const deselectAll = useCallback(() => dispatch({ type: 'deselectAll' }), []);
 
@@ -377,7 +394,7 @@ export function CaptureProvider({ children }: { children: React.ReactNode }) {
   const setGoalLink = useCallback((itemId: string, linked: boolean) => dispatch({ type: 'setGoalLink', itemId, linked }), []);
 
   const confirm = useCallback(async () => {
-    if (confirmPayload(state).itemIds.length === 0) return;
+    if (selectedCount(state) === 0) return;
     const token = acquireWrite();
     if (!token) return;
     const generation = analysisGeneration.current;
@@ -389,7 +406,7 @@ export function CaptureProvider({ children }: { children: React.ReactNode }) {
       // afterwards: what the user saw when they pressed confirm is what gets
       // written, or nothing is.
       {
-        confirm: ({ proposalId, itemIds, edits, weeklyBlockItemIds, goalLinkItemIds, revision }) => confirmCapture.mutateAsync({
+        confirm: ({ proposalId, itemIds, edits, weeklyBlockItemIds, goalLinkItemIds, revision, selectedHabitItemIds, selectedGoalItemIds, selectedSeedItemIds }) => confirmCapture.mutateAsync({
           proposalId,
           itemIds,
           // Only when there are any: an edit-free confirm is the request it always was.
@@ -400,6 +417,10 @@ export function CaptureProvider({ children }: { children: React.ReactNode }) {
           ...(goalLinkItemIds?.length ? { goalLinkItemIds } : {}),
           // What was seen is what is saved (M2b).
           ...(revision !== undefined ? { revision } : {}),
+          // The other families (M3b), each only when something of it is chosen.
+          ...(selectedHabitItemIds ? { selectedHabitItemIds } : {}),
+          ...(selectedGoalItemIds ? { selectedGoalItemIds } : {}),
+          ...(selectedSeedItemIds ? { selectedSeedItemIds } : {}),
         }).catch((error: unknown) => {
           if (error instanceof ProposalChangedError) changed = error;
           throw error;
@@ -411,7 +432,13 @@ export function CaptureProvider({ children }: { children: React.ReactNode }) {
     if (!outcome.ok) {
       if (generation === analysisGeneration.current) {
         const current = (changed as ProposalChangedError | null)?.current;
-        if (current?.kind === 'proposal' && current.state === 'confirmed') {
+        if (current?.kind === 'proposal' && current.state === 'confirmed' && current.confirmation) {
+          // The save did happen — an earlier press whose answer was lost, or
+          // another device — and the server sent what it saved (R4-001): that
+          // receipt is the saved state, never a second write.
+          dispatch({ type: 'confirmSucceeded', confirmation: current.confirmation });
+          if (uid) invalidateAfterCapture(client, uid, current.confirmation);
+        } else if (current?.kind === 'proposal' && current.state === 'confirmed') {
           // Already confirmed elsewhere: nothing to save twice.
           dispatch({ type: 'proposalConfirmedElsewhere', ...(proposalId ? { proposalId } : {}) });
         } else if (current?.kind === 'proposal') {
@@ -431,6 +458,8 @@ export function CaptureProvider({ children }: { children: React.ReactNode }) {
     // Refresh the lists, but never replace a newer draft or arm its Undo timer.
     await invalidateCommitmentViews(client);
     if (generation !== analysisGeneration.current) return;
+    // A save that wrote a habit, a goal or a thought offers no Undo (R3-004).
+    if (!undoableReceipt(outcome.confirmation)) return;
     if (undoTimer.current) clearTimeout(undoTimer.current);
     undoTimer.current = setTimeout(() => dispatch({ type: 'undoWindowClosed' }), UNDO_WINDOW_MS);
   }, [client, confirmCapture, state, timezone, acquireWrite, releaseWrite]);
@@ -557,9 +586,9 @@ export function CaptureProvider({ children }: { children: React.ReactNode }) {
   const acceptUnderstood = useCallback(() => dispatch({ type: 'understoodAccepted' }), []);
   const reopenUnderstood = useCallback(() => dispatch({ type: 'understoodReopened' }), []);
   const value = useMemo<CaptureContextValue>(() => ({
-    state, open, setText, analyze, dismissFailure, startOver, adoptProposal, toggleItem, selectAll, deselectAll, editItem, setWeekly, setGoalLink, clarify, confirm, undo, backToComposer, acceptUnderstood, reopenUnderstood, close,
+    state, open, changeEntry, setText, analyze, dismissFailure, startOver, adoptProposal, toggleItem, togglePoint, dropFamilies, selectAll, deselectAll, editItem, setWeekly, setGoalLink, clarify, confirm, undo, backToComposer, acceptUnderstood, reopenUnderstood, close,
     dictate, chooseAlternative, editPoint, adoptCurrent, dictationStarted, takeRefusedEdit, writing, guardWrite,
-  }), [state, open, setText, analyze, dismissFailure, startOver, adoptProposal, toggleItem, selectAll, deselectAll, editItem, setWeekly, setGoalLink, clarify, confirm, undo, backToComposer, acceptUnderstood, reopenUnderstood, close,
+  }), [state, open, changeEntry, setText, analyze, dismissFailure, startOver, adoptProposal, toggleItem, togglePoint, dropFamilies, selectAll, deselectAll, editItem, setWeekly, setGoalLink, clarify, confirm, undo, backToComposer, acceptUnderstood, reopenUnderstood, close,
     dictate, chooseAlternative, editPoint, adoptCurrent, dictationStarted, takeRefusedEdit, writing, guardWrite]);
 
   return <CaptureContext.Provider value={value}>{children}</CaptureContext.Provider>;

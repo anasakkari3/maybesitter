@@ -29,9 +29,14 @@ const CONTROL_CHARACTER = /[\u0000-\u001F\u007F-\u009F]/;
 /** A summary line is plain words: not blank, no control characters, no link, no "saved". */
 const understoodText = z.string().min(1).max(160).refine((text) => text.trim().length > 0
   && !CONTROL_CHARACTER.test(text) && !hasLink(text) && !claimsSaved(text));
+// `pointId` (M3b, contract v8) is the point's stable identity across a change
+// of family; an older server sends none, and the family id stands in for it.
+const pointIdField = z.string().min(1).optional();
 const understoodPointSchema = z.union([
-  z.object({ kind: z.literal('commitment'), itemId: z.string().min(1), text: understoodText }).strict(),
-  z.object({ kind: z.enum(SEED_KINDS), seedItemId: z.string().min(1), text: understoodText }).strict(),
+  z.object({ kind: z.literal('commitment'), itemId: z.string().min(1), pointId: pointIdField, text: understoodText }).strict(),
+  z.object({ kind: z.enum(SEED_KINDS), seedItemId: z.string().min(1), pointId: pointIdField, text: understoodText }).strict(),
+  z.object({ kind: z.literal('habit'), habitItemId: z.string().min(1), pointId: pointIdField, text: understoodText }).strict(),
+  z.object({ kind: z.literal('goal'), goalItemId: z.string().min(1), pointId: pointIdField, text: understoodText }).strict(),
 ]);
 export type UnderstoodPoint = z.infer<typeof understoodPointSchema>;
 
@@ -83,6 +88,67 @@ function parseUnderstoodShape(value: unknown): UnderstoodPoint[] | undefined {
   return parsed.success ? parsed.data : undefined;
 }
 
+/** A habit's rhythm, in the habit store's own shapes (M3b). */
+export const habitCadenceSchema = z.union([
+  z.object({ kind: z.literal('weekly_count'), count: z.number().int().min(1).max(7) }).strict(),
+  z.object({ kind: z.literal('weekdays'), weekdays: z.array(z.number().int().min(0).max(6)).min(1).max(7) }).strict(),
+]);
+export type HabitCadence = z.infer<typeof habitCadenceSchema>;
+const clockHHMM = z.string().regex(/^(?:[01]\d|2[0-3]):[0-5]\d$/);
+const preferredWindowSchema = z.union([
+  z.enum(['morning', 'afternoon', 'evening']),
+  z.object({ start: clockHHMM, end: clockHHMM }).strict(),
+]);
+export type HabitPreferredWindow = z.infer<typeof preferredWindowSchema>;
+
+/**
+ * A habit or goal title: at most 120 code points, the way the server counts it
+ * (`Array.from`), not 120 UTF-16 units — an emoji is one (M3B-A-R2-004).
+ */
+const kindTitleSchema = z.string().min(1).refine((value) => Array.from(value).length <= 120, { message: 'at most 120 characters' });
+
+/**
+ * A habit the chat understood (M3b, contract v8). Nothing about it is saved
+ * until the review's «احفظ»; it can be selected only when `confirmable`, which
+ * the server sets once the rhythm and the length are known and no question is
+ * open. `explanation` is the server's own sentence built from those fields.
+ */
+export const captureHabitProposalSchema = z.object({
+  habitItemId: z.string().min(1),
+  pointId: z.string().min(1),
+  title: kindTitleSchema,
+  cadence: habitCadenceSchema.nullable(),
+  durationMinutes: z.number().int().min(5).max(240).nullable(),
+  preferredWindow: preferredWindowSchema.nullable(),
+  explanation: z.string().min(1).nullable(),
+  question: z.union([
+    z.object({ field: z.literal('frequency'), options: z.array(z.number().int().min(1).max(7)).min(1) }),
+    z.object({ field: z.literal('duration'), options: z.array(z.number().int().min(5).max(240)).min(1) }),
+    z.object({ field: z.literal('kind'), options: z.array(z.enum(['habit', 'commitment'])).min(1) }),
+  ]).nullable(),
+  confirmable: z.boolean(),
+});
+export type CaptureHabitProposal = z.infer<typeof captureHabitProposalSchema>;
+
+/** A goal the chat understood (M3b). Saved by the confirm, never before. */
+export const captureGoalProposalSchema = z.object({
+  goalItemId: z.string().min(1),
+  pointId: z.string().min(1),
+  title: kindTitleSchema,
+});
+export type CaptureGoalProposal = z.infer<typeof captureGoalProposalSchema>;
+
+/** Where the chat was opened from (M3b). A hint the server keeps for the conversation. */
+export const CAPTURE_ENTRIES = ['goal', 'habit', 'thought'] as const;
+export type CaptureEntry = typeof CAPTURE_ENTRIES[number];
+
+/** `GET /api/mobile/capture/kinds` (M3b, R004). Unknown entries are dropped, never trusted. */
+export const captureKindsSchema = z.object({
+  success: z.literal(true),
+  entries: z.array(z.string()).transform((entries) => entries.filter((entry): entry is CaptureEntry =>
+    (CAPTURE_ENTRIES as readonly string[]).includes(entry))),
+});
+
 /** Mirrors `capture.proposal.json`. A proposal never implies persistence. */
 export const captureProposalSchema = z.object({
   version: z.string(),
@@ -114,6 +180,7 @@ export const captureProposalSchema = z.object({
   items: z.array(
     z.preprocess(withUsableEnd, z.object({
       itemId: z.string(),
+      pointId: pointIdField,
       title: z.string(),
       resolvedTime: isoDateTime.nullable(),
       needsClarification: z.boolean(),
@@ -257,10 +324,22 @@ export const captureProposalSchema = z.object({
   seeds: z
     .array(z.object({
       seedItemId: z.string(),
+      pointId: pointIdField,
       kind: z.enum(['consideration', 'waiting_for', 'idea', 'possible_goal']),
       summary: z.string(),
+      /** A time the thought carried (M3b, D3): offered as «حطّها التزام», never applied on its own. */
+      suggestedTime: z.object({ at: isoDateTime, timeZone: z.string().min(1) }).nullable().optional(),
     }))
     .default([]),
+  /**
+   * Habits understood (M3b). Absent from an older server, or when the feature
+   * is off; read it through `habitsOf()`, which treats absence as none.
+   */
+  habits: z.array(captureHabitProposalSchema).optional(),
+  /** Goals understood (M3b); read through `goalsOf()`. */
+  goals: z.array(captureGoalProposalSchema).optional(),
+  /** The entry the conversation was opened from (M3b); null for the plain chat. */
+  entry: z.enum(CAPTURE_ENTRIES).nullable().optional(),
   /**
    * What the assistant understood, line by line (M2a). Tolerant: a value of
    * the wrong shape reads as absent instead of failing the answer. Whether the
@@ -290,6 +369,16 @@ export const captureProposalSchema = z.object({
 });
 
 export type CaptureProposal = z.infer<typeof captureProposalSchema>;
+
+/** A proposal's habits; none when the server sent none (M3b, R3-003). */
+export function habitsOf(proposal: Pick<CaptureProposal, 'habits'>): CaptureHabitProposal[] {
+  return proposal.habits ?? [];
+}
+
+/** A proposal's goals; none when the server sent none. */
+export function goalsOf(proposal: Pick<CaptureProposal, 'goals'>): CaptureGoalProposal[] {
+  return proposal.goals ?? [];
+}
 export type CaptureProposalItem = CaptureProposal['items'][number];
 export type CaptureSeedProposal = CaptureProposal['seeds'][number];
 
@@ -299,23 +388,31 @@ export type CaptureSeedProposal = CaptureProposal['seeds'][number];
  * its seed's kind. Anything else — an older or inconsistent server — reads as
  * no list, and the review shows the cards as before (M2a).
  */
-export function usableUnderstood(proposal: Pick<CaptureProposal, 'items' | 'seeds' | 'understood'>): UnderstoodPoint[] | undefined {
+export function usableUnderstood(proposal: Pick<CaptureProposal, 'items' | 'seeds' | 'understood'> & Partial<Pick<CaptureProposal, 'habits' | 'goals'>>): UnderstoodPoint[] | undefined {
   const points = proposal.understood;
   if (!points) return undefined;
   const items = new Set(proposal.items.map((item) => item.itemId));
   const seeds = new Map(proposal.seeds.map((seed) => [seed.seedItemId, seed.kind] as const));
+  const habits = new Set((proposal.habits ?? []).map((habit) => habit.habitItemId));
+  const goals = new Set((proposal.goals ?? []).map((goal) => goal.goalItemId));
   const seen = new Set<string>();
   for (const point of points) {
-    const key = 'itemId' in point ? `i:${point.itemId}` : `s:${point.seedItemId}`;
+    const key = 'itemId' in point ? `i:${point.itemId}`
+      : 'seedItemId' in point ? `s:${point.seedItemId}`
+        : 'habitItemId' in point ? `h:${point.habitItemId}` : `g:${point.goalItemId}`;
     if (seen.has(key)) return undefined;
     seen.add(key);
     if ('itemId' in point) {
       if (!items.has(point.itemId)) return undefined;
-    } else if (seeds.get(point.seedItemId) !== point.kind) {
+    } else if ('seedItemId' in point) {
+      if (seeds.get(point.seedItemId) !== point.kind) return undefined;
+    } else if ('habitItemId' in point) {
+      if (!habits.has(point.habitItemId)) return undefined;
+    } else if (!goals.has(point.goalItemId)) {
       return undefined;
     }
   }
-  return seen.size === items.size + seeds.size ? points : undefined;
+  return seen.size === items.size + seeds.size + habits.size + goals.size ? points : undefined;
 }
 
 /**
@@ -379,6 +476,11 @@ export const captureConfirmationSchema = z.object({
       // An edit the server refused. Separate from `invalid_selection` because
       // the selection was fine and a change to it was not (#164).
       'invalid_edit',
+      // M3b: what the one confirm refuses before writing anything.
+      'too_many_writes',
+      'habit_invalid',
+      'goal_invalid',
+      'seed_invalid',
     ])
     .optional(),
   // Optional, not required: it warns rather than refuses (a candidate that
@@ -397,6 +499,10 @@ export const captureConfirmationSchema = z.object({
    * Optional: an older server sends nothing, and links nothing.
    */
   goalLinks: z.array(z.object({ itemId: z.string(), goalId: z.string(), commitmentId: z.string() })).optional(),
+  /** What the same confirm saved of the other families (M3b). Absent from an older server, or when off. */
+  habitsPersisted: z.array(z.object({ habitItemId: z.string(), pointId: z.string(), habitId: z.string(), title: z.string() })).optional(),
+  goalsPersisted: z.array(z.object({ goalItemId: z.string(), pointId: z.string(), goalId: z.string(), title: z.string() })).optional(),
+  seedsPersisted: z.array(z.object({ seedItemId: z.string(), pointId: z.string(), seedId: z.string(), kind: z.string(), title: z.string() })).optional(),
 });
 
 export type CaptureConfirmation = z.infer<typeof captureConfirmationSchema>;

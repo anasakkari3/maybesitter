@@ -30,7 +30,9 @@ function orderedEntityIds(stored: StoredCaptureProposal): string[] {
     ...stored.contract.seeds.map((seed) => seed.seedItemId),
   ]);
   const ordered = stored.contract.understood?.flatMap((point) => {
-    const id = point.kind === 'commitment' ? point.itemId : point.seedItemId;
+    const id = point.kind === 'commitment' ? point.itemId
+      : point.kind === 'habit' ? point.habitItemId
+        : point.kind === 'goal' ? point.goalItemId : point.seedItemId;
     return all.delete(id) ? [id] : [];
   }) ?? [];
   return [...ordered, ...Array.from(all)];
