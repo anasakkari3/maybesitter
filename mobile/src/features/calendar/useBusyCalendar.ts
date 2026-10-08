@@ -175,6 +175,8 @@ export function useBusyCalendar(): BusyCalendarState {
         sourceId: deviceSourceId(await resolveWriterId()),
         platform: Platform.OS === 'android' ? 'android' : 'ios',
         window: windowFrom(now),
+        // The pass belongs to the account it began for (M4A-REV-001).
+        stillCurrent: () => latest.current.uid === current.uid,
       });
       // Only a pass that actually read the calendar changed the cache.
       if (result.kind === 'synced' || result.kind === 'failed' || result.kind === 'denied') {

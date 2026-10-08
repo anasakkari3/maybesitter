@@ -8,6 +8,7 @@ import { CLARIFICATION_FREE_TEXT_MAX, freeSlotWords, optionLabel, questionText }
 import { CIVIL_ZONE, civilDate, formatDate, formatRelativeDay } from '../../i18n/format';
 import { useTimeZone } from '../../i18n/timezone';
 import { fill } from '../../i18n/strings';
+import { isolateAuto } from '../../i18n/bidi';
 import type { CaptureProposalItem } from '../../api/schemas/capture';
 import { instantForLocalDateTime } from './localInstant';
 
@@ -66,7 +67,7 @@ export function ClarifySheet({
   // free, and each chip names its day and its hour.
   const offersFreeSlots = question.options.some((option) => option.labelKey === 'freeSlot');
   const heading = offersFreeSlots
-    ? fill(t.yFreeSlotsAsk, { title: question.params.title ?? item.title })
+    ? fill(t.yFreeSlotsAsk, { title: isolateAuto(question.params.title ?? item.title) })
     : questionText(question.questionKey, question.params, strings, (key) => formatDate(civilDate(key), 'weekday', { locale: lang, timeZone: CIVIL_ZONE }));
   // A key this build has no words for. Rendering the key, or the raw params,
   // would put an internal token in front of somebody.

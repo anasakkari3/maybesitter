@@ -10,6 +10,8 @@ import { dayFree, googleCovers, googleWindowIsNormal, knownTime, type DayFree, t
 import { WIDER_DAYS, probeRange, useDaysFrom, useLocalToday, usePlanSnapshot, useServerBusy } from '../features/calendar/usePlanFreeTime';
 import { FreeList, FreeStateLine, gapLength } from '../features/calendar/FreeTimeRows';
 import { WiderView, type WiderCell } from '../features/calendar/WiderView';
+import { LiveRegion } from '../ui/liveRegion';
+import { useAnnounceOnIos } from '../ui/announce';
 import { useLayoutMode } from '../theme/textScale';
 import { useApp } from '../state/AppContext';
 import { useTimeZone } from '../i18n/timezone';
@@ -235,6 +237,8 @@ export function CalendarScreen({ tabClearance = TAB_CLEARANCE }: { tabClearance?
   const sleep = profile.data?.routine?.sleepWindow ?? null;
   const freeOn = (key: string): DayFree => dayFree(sources, known, occupied, key, timezone, sleep, nowMs);
   const selectedFree = free ? freeOn(selectedKey) : null;
+  // VoiceOver has no live regions: the unknown line is said once when it comes.
+  useAnnounceOnIos(selectedFree && (selectedFree.state === 'unknown' || selectedFree.state === 'partial') ? t.yFreeUnknown : null);
 
   const selected = byDay.get(selectedKey) ?? [];
   const selectedBusy = calendarConnected ? (busyByDay.get(selectedKey) ?? []) : [];
@@ -462,7 +466,10 @@ export function CalendarScreen({ tabClearance = TAB_CLEARANCE }: { tabClearance?
             </Btn>
           ) : null}
 
-          {selectedFree && selectedFree.state !== 'full' ? <FreeStateLine state={selectedFree.state} /> : null}
+          {/* Mounted for the screen's life so the change is announced (M4A-REV-005). */}
+          <LiveRegion>
+            {selectedFree && selectedFree.state !== 'full' ? <FreeStateLine state={selectedFree.state} /> : null}
+          </LiveRegion>
           {selectedFree?.state === 'full' && selectedFree.totalMinutes !== null ? (
             <View testID={`calendar-free-total-${selectedKey}`} accessible={false} style={{ height: 0 }} />
           ) : null}

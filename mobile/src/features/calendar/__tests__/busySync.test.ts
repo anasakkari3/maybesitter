@@ -319,6 +319,25 @@ describe('a pass', () => {
     expect(recorded).toEqual([]);
   });
 
+  it('M4A-REV-001 drops a pass whose account changed during the native read: nothing cached, uploaded or recorded', async () => {
+    let signedIn = true;
+    read.mockImplementation(async () => { signedIn = false; return [block('a', 60, 120)]; });
+    expect(await runBusySync(ports(), { ...input(), stillCurrent: () => signedIn })).toEqual({ kind: 'skipped', because: 'signed_out' });
+    expect(cached).toEqual([]);
+    expect(uncovered).toBe(0);
+    expect(uploaded).toEqual([]);
+    expect(recorded).toEqual([]);
+  });
+
+  it('M4A-REV-001 drops a pass whose account changed after the cache write, before the upload', async () => {
+    let signedIn = true;
+    const base = ports();
+    const switching: BusySyncPorts = { ...base, cache: async (blocks, coverage) => { await base.cache(blocks, coverage); signedIn = false; } };
+    expect(await runBusySync(switching, { ...input(), stillCurrent: () => signedIn })).toEqual({ kind: 'skipped', because: 'signed_out' });
+    expect(uploaded).toEqual([]);
+    expect(recorded).toEqual([]);
+  });
+
   it('keeps the chips working when the upload fails, and does not record the sync', async () => {
     uploadFails = true;
     expect(await runBusySync(ports(), input())).toEqual({ kind: 'failed' });

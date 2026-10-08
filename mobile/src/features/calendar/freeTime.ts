@@ -24,7 +24,7 @@
  * 23 or 25 hours without anything here knowing, and a block that runs past
  * midnight is clipped to each day it touches rather than to the day it began.
  */
-import { instantForLocalDateTime } from '../capture/localInstant';
+import { instantForLocalDateTime, localDateTimeFor } from '../capture/localInstant';
 import { shiftDayKey } from '../../i18n/format';
 
 /** Occupied or free time, in epoch milliseconds, `[start, end)`. */
@@ -93,11 +93,27 @@ export function occupancyOf(input: OccupancyInput): Interval | null {
   return null;
 }
 
+/**
+ * The first instant of local day `key` in `timeZone`.
+ *
+ * Usually its 00:00. Where the clocks jump forward at midnight (Chile's spring,
+ * M4A-REV-002) there is no 00:00, and resolving it lands an hour early, on the
+ * previous day; where they fall back at midnight it can land on the second of
+ * two 00:00s. So the guess is checked against what it formats back to and
+ * moved, a minute at a time across at most two hours, to the first instant
+ * whose local date is `key`.
+ */
+function startOfLocalDay(key: string, timeZone: string): number {
+  const dateOf = (ms: number) => localDateTimeFor(new Date(ms), timeZone).slice(0, 10);
+  let ms = instantForLocalDateTime(`${key}T00:00`, timeZone)!.getTime();
+  for (let step = 0; step < 120 && dateOf(ms) < key; step += 1) ms += MINUTE;
+  for (let step = 0; step < 120 && dateOf(ms - MINUTE) === key; step += 1) ms -= MINUTE;
+  return ms;
+}
+
 /** The local day `key` (`YYYY-MM-DD`) in `timeZone`, as absolute instants. */
 export function dayBounds(key: string, timeZone: string): Interval {
-  const start = instantForLocalDateTime(`${key}T00:00`, timeZone)!.getTime();
-  const end = instantForLocalDateTime(`${shiftDayKey(key, 1)}T00:00`, timeZone)!.getTime();
-  return { start, end };
+  return { start: startOfLocalDay(key, timeZone), end: startOfLocalDay(shiftDayKey(key, 1), timeZone) };
 }
 
 function clockMinutes(value: string): number | null {

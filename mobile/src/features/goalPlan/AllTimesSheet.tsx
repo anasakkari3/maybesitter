@@ -14,7 +14,9 @@ import { instantForLocalDateTime } from '../capture/localInstant';
  * placeable step at once — to a part of the day, from a first day, or all
  * without a time — and «طبّق» sends one request.
  *
- * The first day is today, tomorrow, or a day picked up to today + 14: the
+ * A part of the day and a first day are each one choice among radios;
+ * «كلها بلا وقت» is a checkbox that clears both. The first day is today,
+ * tomorrow, or a day picked up to today + 14: the
  * server's own bound (M4A-R7-004), so a day the server would refuse is never
  * offered. Why the steps land where they land is behind the arrow. Nothing is
  * saved here: the per-step «غيّر الوقت» stays, and «احفظ» is still the only
@@ -39,7 +41,10 @@ export function AllTimesSheet({ busy, onApply }: { busy: boolean; onApply: (pref
   const days = Array.from({ length: START_FROM_MAX_DAYS + 1 }, (_, index) => shiftDayKey(today, index));
 
   const startFrom = start === 'today' ? today : start === 'tomorrow' ? shiftDayKey(today, 1) : start === 'pick' ? picked : null;
-  const ready = noTime || part !== null || startFrom !== null;
+  // «اختار يوم» with no day picked is not a choice yet: «طبّق» waits for the
+  // day rather than quietly applying the part of the day alone (M4A-REV-004).
+  const startComplete = start !== 'pick' || picked !== null;
+  const ready = noTime || ((part !== null || start !== null) && startComplete);
   const partLabel = (value: Part) => value === 'morning' ? t.yPartMorning : value === 'afternoon' ? t.yPartAfternoon : t.yPartEvening;
   const startLabel = (value: Start) => value === 'today' ? t.yStartToday : value === 'tomorrow' ? t.yStartTomorrow : t.yStartPick;
   const dayLabel = (key: string) => {
@@ -62,14 +67,14 @@ export function AllTimesSheet({ busy, onApply }: { busy: boolean; onApply: (pref
       <View accessibilityRole="radiogroup" style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
         {PARTS.map((value) => (
           <Choice key={value} testID={`plan-times-all-part-${value}`} label={partLabel(value)} selected={!noTime && part === value} disabled={busy}
-            onPress={() => { setNoTime(false); setPart(current => current === value ? null : value); }} />
+            onPress={() => { setNoTime(false); setPart(value); }} />
         ))}
       </View>
       <Txt role="supporting" color={p.mu}>{t.yStartFrom}</Txt>
       <View accessibilityRole="radiogroup" style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
         {(['today', 'tomorrow', 'pick'] as const).map((value) => (
           <Choice key={value} testID={`plan-times-all-start-${value}`} label={startLabel(value)} selected={!noTime && start === value} disabled={busy}
-            onPress={() => { setNoTime(false); setStart(current => current === value ? null : value); }} />
+            onPress={() => { setNoTime(false); setStart(value); }} />
         ))}
       </View>
       {start === 'pick' && !noTime ? (
@@ -80,7 +85,9 @@ export function AllTimesSheet({ busy, onApply }: { busy: boolean; onApply: (pref
           ))}
         </View>
       ) : null}
-      <Choice testID="plan-times-all-none" label={t.yAllNoTime} selected={noTime} disabled={busy}
+      {/* Not one of the radios above: it replaces them all, so it is its own
+          checkbox, and checking it clears them (M4A-REV-004). */}
+      <Choice testID="plan-times-all-none" label={t.yAllNoTime} selected={noTime} disabled={busy} role="checkbox"
         onPress={() => { setNoTime(current => !current); setPart(null); setStart(null); setPicked(null); }} />
       <ProductActions>
         <Pill testID="plan-times-all-apply" label={t.yApply} disabled={busy || !ready} onPress={apply} />
@@ -89,10 +96,14 @@ export function AllTimesSheet({ busy, onApply }: { busy: boolean; onApply: (pref
   );
 }
 
-function Choice({ testID, label, selected, disabled, onPress }: { testID: string; label: string; selected: boolean; disabled: boolean; onPress: () => void }) {
+function Choice({ testID, label, selected, disabled, onPress, role = 'radio' }: {
+  testID: string; label: string; selected: boolean; disabled: boolean; onPress: () => void; role?: 'radio' | 'checkbox';
+}) {
   const { p } = useApp();
   return (
-    <Btn testID={testID} label={label} accessibilityRole="radio" accessibilityState={{ selected, disabled }} disabled={disabled} onPress={onPress} scaleTo={0.97}
+    <Btn testID={testID} label={label} accessibilityRole={role}
+      accessibilityState={role === 'checkbox' ? { checked: selected, disabled } : { selected, disabled }}
+      disabled={disabled} onPress={onPress} scaleTo={0.97}
       style={{ minHeight: 44, justifyContent: 'center', borderRadius: 999, borderWidth: 1, borderColor: selected ? p.ac : p.lnStrong, backgroundColor: selected ? p.acs : p.sf2, paddingVertical: 9, paddingHorizontal: 16 }}>
       <Txt size={14} weight={selected ? 700 : 500} color={selected ? p.acd : p.tx}>{label}</Txt>
     </Btn>

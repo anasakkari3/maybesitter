@@ -1,5 +1,5 @@
 import { describe, expect, it } from '@jest/globals';
-import { instantForLocalDateTime } from '../../capture/localInstant';
+import { instantForLocalDateTime, localDateTimeFor } from '../../capture/localInstant';
 import {
   covers,
   dayBounds,
@@ -57,6 +57,17 @@ describe('dayBounds and dayWindow', () => {
     expect((spring.end - spring.start) / 3_600_000).toBe(23);
     const fall = dayBounds('2026-10-25', ZONE);
     expect((fall.end - fall.start) / 3_600_000).toBe(25);
+  });
+
+  it('M4A-REV-002 a day whose midnight does not exist starts at the first instant it has', () => {
+    // America/Santiago springs forward at 00:00 on 2026-09-06: the day starts at 01:00.
+    const spring = dayBounds('2026-09-06', 'America/Santiago');
+    expect(localDateTimeFor(new Date(spring.start), 'America/Santiago')).toBe('2026-09-06T01:00');
+    expect((spring.end - spring.start) / 3_600_000).toBe(23);
+    // The day before ends where that one starts, and is a whole 24 hours.
+    const before = dayBounds('2026-09-05', 'America/Santiago');
+    expect(before.end).toBe(spring.start);
+    expect((before.end - before.start) / 3_600_000).toBe(24);
   });
 
   it('no sleep window is 08:00–22:00', () => {
