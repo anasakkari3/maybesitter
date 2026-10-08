@@ -336,3 +336,49 @@ test('R5-002 a thought saved by the confirm records seed_confirmed once; a repla
     assert.ok(!JSON.stringify(confirmed).includes('أسافر'), 'the telemetry carries the sentence');
   } finally { end(); }
 });
+
+/* ── RB-10 (simulator 2026-10-08): a converted point can be saved ─────── */
+// The M3b conversion pushed the new commitment into the proposal with no
+// result and no commands, so the confirm refused it 400 invalid_selection:
+// «حطّها التزام» then «احفظ» could never save anything.
+
+test('RB-10 a timed thought turned into a commitment («حطّها التزام») is saved at its time', async () => {
+  const uid = beginRules();
+  try {
+    const answer = await say(uid, 'عم بفكر روح عالجيم بكرا الساعة 6 المسا', { entry: 'thought', locale: 'ar' });
+    const seed = answer.proposal!.seeds.find((candidate) => candidate.suggestedTime);
+    assert.ok(seed, `no timed thought: ${show(answer.proposal)}`);
+    const edited = await editPoint(uid, answer, { seedItemId: seed!.seedItemId }, { kind: 'commitment' });
+    assert.equal(edited.status, 200, show(edited.body));
+    const next = edited.body as Answer;
+    const item = next.proposal!.items.find((candidate) => candidate.pointId === seed!.pointId);
+    assert.ok(item, `the thought did not become a commitment: ${show(next.proposal)}`);
+    const result = await confirm(uid, next.proposal!, { items: [item!.itemId], seeds: [] });
+    assert.equal(result.status, 200, show(result.body));
+    assert.equal(result.body.persisted?.length, 1, show(result.body));
+    const saved = await savedCommitments(uid);
+    assert.equal(saved.length, 1, show(saved));
+    assert.equal(new Date(saved[0]!.timeSpec.dueAt!).toISOString(), seed!.suggestedTime!.at, show(saved[0]));
+  } finally { end(); }
+});
+
+test('RB-10 a habit turned into a commitment, then given a time, is saved', async () => {
+  const uid = beginRules();
+  try {
+    const answer = await say(uid, WALK, { entry: 'habit', locale: 'ar' });
+    const habit = habitsOf(answer)[0];
+    assert.ok(habit, `no habit: ${show(answer.proposal)}`);
+    const converted = await editPoint(uid, answer, { habitItemId: habit!.habitItemId }, { kind: 'commitment' });
+    assert.equal(converted.status, 200, show(converted.body));
+    const afterConvert = converted.body as Answer;
+    const item = afterConvert.proposal!.items.find((candidate) => candidate.pointId === habit!.pointId);
+    assert.ok(item, `the habit did not become a commitment: ${show(afterConvert.proposal)}`);
+    const at = '2030-01-08T07:00:00.000Z';
+    const timed = await editPoint(uid, afterConvert, { itemId: item!.itemId }, { time: { at, timeZone: 'Asia/Jerusalem' } });
+    assert.equal(timed.status, 200, show(timed.body));
+    const ready = timed.body as Answer;
+    const result = await confirm(uid, ready.proposal!, { items: [item!.itemId] });
+    assert.equal(result.status, 200, show(result.body));
+    assert.equal(result.body.persisted?.length, 1, show(result.body));
+  } finally { end(); }
+});
