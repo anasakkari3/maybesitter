@@ -126,6 +126,25 @@ export function toGoogleBusyBlocks(
   return blocks.slice(0, BUSY_BLOCK_UPLOAD_LIMIT);
 }
 
+function allGoogleBusyBlocks(
+  intervals: readonly Interval[],
+  deviceTimed: readonly Interval[],
+): BusyBlock[] {
+  const seen = new Set<string>();
+  const blocks: BusyBlock[] = [];
+  for (const interval of intervals) {
+    if (coveredBy(interval, deviceTimed)) continue;
+    const startAt = new Date(interval.startMs).toISOString();
+    const endAt = new Date(interval.endMs).toISOString();
+    const blockId = busyBlockId(GOOGLE_BUSY_SOURCE_ID, `freebusy:${endAt}`, startAt);
+    if (seen.has(blockId)) continue;
+    seen.add(blockId);
+    blocks.push({ blockId, sourceId: GOOGLE_BUSY_SOURCE_ID, sourceKind: 'google', startAt, endAt,
+      allDay: interval.endMs - interval.startMs >= DAY_MS });
+  }
+  return blocks;
+}
+
 export interface GoogleCalendarSyncResult {
   readonly blocks: number;
   readonly source: {
@@ -168,16 +187,21 @@ export async function syncGoogleCalendarBusy(uid: string, runtime: GoogleRuntime
   const device = (await listBusyBlocks(uid, window, { storage: runtime.storage }))
     .filter((block) => block.sourceKind === 'device' && !block.allDay)
     .map((block) => ({ startMs: Date.parse(block.startAt), endMs: Date.parse(block.endAt) }));
-  const blocks = toGoogleBusyBlocks(intervals, device);
+  const allBlocks = allGoogleBusyBlocks(intervals, device);
+  const firstOmitted = allBlocks[BUSY_BLOCK_UPLOAD_LIMIT];
+  const honestWindowEnd = firstOmitted?.startAt ?? windowEnd;
+  const blocks = allBlocks
+    .filter((block) => Date.parse(block.startAt) < Date.parse(honestWindowEnd))
+    .slice(0, BUSY_BLOCK_UPLOAD_LIMIT);
 
-  await replaceBusyBlocks(uid, GOOGLE_BUSY_SOURCE_ID, window, blocks, {
+  await replaceBusyBlocks(uid, GOOGLE_BUSY_SOURCE_ID, { ...window, endsAt: honestWindowEnd }, blocks, {
     storage: runtime.storage,
     platform: null,
     now,
   });
   return {
     blocks: blocks.length,
-    source: { sourceId: GOOGLE_BUSY_SOURCE_ID, lastSyncedAt: now.toISOString(), windowStart, windowEnd },
+    source: { sourceId: GOOGLE_BUSY_SOURCE_ID, lastSyncedAt: now.toISOString(), windowStart, windowEnd: honestWindowEnd },
   };
 }
 

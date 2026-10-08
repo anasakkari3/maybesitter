@@ -29,6 +29,7 @@
  * Nothing here changes backend behaviour. It only reads it.
  */
 import { MAX_IMPORT_LENGTH } from '../../src/profile/aiContextImportContracts.ts';
+import { instantFromLocal } from '../../src/extraction/timeLexicon.ts';
 import { compareByCodePoint } from '../../lib/planning/shared/compare.ts';
 import { saveReminderSettings } from '../../lib/services/mobile/reminderSettingsService.ts';
 import test, { mock } from 'node:test';
@@ -133,6 +134,7 @@ import { PATCH as goalPlanEditPatch } from '../../src/app/api/mobile/goals/[goal
 import { POST as goalPlanApprovePost } from '../../src/app/api/mobile/goals/[goalId]/plans/[planId]/approve/route.ts';
 import { PATCH as goalPlanTimePatch } from '../../src/app/api/mobile/goals/[goalId]/plans/[planId]/times/[stepId]/route.ts';
 import { POST as goalPlanConfirmPost } from '../../src/app/api/mobile/goals/[goalId]/plans/[planId]/confirm/route.ts';
+import { POST as goalPlanTimesBatchPost } from '../../src/app/api/mobile/goals/[goalId]/plans/[planId]/times/batch/route.ts';
 import { POST as goalPlanLaterPost } from '../../src/app/api/mobile/goals/[goalId]/plans/[planId]/later/[weekIndex]/times/route.ts';
 import { GET as goalPlansUpcomingGet } from '../../src/app/api/mobile/goals/plans/upcoming/route.ts';
 import { POST as goalStatementPreviewPost } from '../../src/app/api/mobile/goals/from-statement/preview/route.ts';
@@ -146,9 +148,10 @@ import {
 } from '../../src/app/api/mobile/commitments/[id]/device-calendar-link/route.ts';
 import {
   DELETE as calendarBusyDelete,
+  GET as calendarBusyGet,
   POST as calendarBusyPost,
 } from '../../src/app/api/mobile/calendar/busy/route.ts';
-import { busyBlockId } from '../../lib/calendar/busyBlocks.ts';
+import { busyBlockId, replaceBusyBlocks } from '../../lib/calendar/busyBlocks.ts';
 import {
   handleCreateFeed,
   handleDeadlineDecision,
@@ -242,6 +245,9 @@ const CHAT_USER = uidFor('ChatFixtureUser');
 const CAPTURE_KINDS_USER = uidFor('CaptureKindsFixtureUser');
 /** A chat proposal that lands on a weekly block (owner request 2026-09-30), under its own account for the same reason. */
 const CHAT_CONFLICT_USER = uidFor('ChatConflictFixtureUser');
+/** M4a fixtures stay isolated from the existing goal and capture histories. */
+const M4A_GOAL_USER = uidFor('M4aGoalFixtureUser');
+const M4A_CAPTURE_USER = uidFor('M4aCaptureFixtureUser');
 
 /**
  * A block's `startsOn` is a local date derived from the real clock (the first
@@ -744,6 +750,8 @@ function setup(): () => void {
     MAYBESITTER_KILL_SWITCH_GOAL_PLAN: process.env.MAYBESITTER_KILL_SWITCH_GOAL_PLAN,
     MAYBESITTER_FEATURE_CAPTURE_KINDS: process.env.MAYBESITTER_FEATURE_CAPTURE_KINDS,
     MAYBESITTER_KILL_SWITCH_CAPTURE_KINDS: process.env.MAYBESITTER_KILL_SWITCH_CAPTURE_KINDS,
+    MAYBESITTER_FEATURE_FREE_SLOTS: process.env.MAYBESITTER_FEATURE_FREE_SLOTS,
+    MAYBESITTER_KILL_SWITCH_FREE_SLOTS: process.env.MAYBESITTER_KILL_SWITCH_FREE_SLOTS,
   };
   process.env.MAYBESITTER_DATA_DIR = directory;
   process.env.MAYBESITTER_FEATURE_RECOMMENDATION = 'true';
@@ -766,6 +774,8 @@ function setup(): () => void {
   // turns this on only around the new fixtures.
   process.env.MAYBESITTER_FEATURE_CAPTURE_KINDS = 'false';
   process.env.MAYBESITTER_KILL_SWITCH_CAPTURE_KINDS = 'false';
+  process.env.MAYBESITTER_FEATURE_FREE_SLOTS = 'false';
+  process.env.MAYBESITTER_KILL_SWITCH_FREE_SLOTS = 'false';
   configureCommandService({ initialState: createEmptyDomainState(), schedulerStore: null });
   setStorageForTests(createMemoryStorage());
   mkdirSync(FIXTURES, { recursive: true });
@@ -943,6 +953,56 @@ test('exports a fixture for every /api/mobile call the React Native client makes
     ));
 
     // ── editable Goal plan → proposed times → canonical work (M3a) ──
+    // M4a's batch route has its own account so the established upcoming and
+    // account-export fixtures below remain byte-for-byte stable.
+    const { goal: batchGoal } = await seedGoal('I want to improve my mobility', {
+      scopeId: M4A_GOAL_USER, language: 'en', storage: getStorage(),
+    });
+    const batchDrafted = await goalPlanGeneratePost(
+      request(`/api/mobile/goals/${batchGoal.id}/plan/generate`, {
+        body: { idempotencyKey: 'fixture-m4a-batch-generate', source: 'template' }, uid: M4A_GOAL_USER,
+      }),
+      { params: Promise.resolve({ goalId: batchGoal.id }) },
+    );
+    const batchDraftBody = await batchDrafted.json() as { plan: { planId: string; revision: number } };
+    assert.equal(batchDrafted.status, 200, JSON.stringify(batchDraftBody));
+    const batchApprovedResponse = await goalPlanApprovePost(
+      request(`/api/mobile/goals/${batchGoal.id}/plans/${batchDraftBody.plan.planId}/approve`, {
+        body: { revision: batchDraftBody.plan.revision }, uid: M4A_GOAL_USER,
+      }),
+      { params: Promise.resolve({ goalId: batchGoal.id, planId: batchDraftBody.plan.planId }) },
+    );
+    const batchApproved = await batchApprovedResponse.json() as { times: { timesId: string; timesRevision: number } };
+    assert.equal(batchApprovedResponse.status, 200, JSON.stringify(batchApproved));
+    const batchPath = `/api/mobile/goals/${batchGoal.id}/plans/${batchDraftBody.plan.planId}/times/batch`;
+    const batchContext = { params: Promise.resolve({ goalId: batchGoal.id, planId: batchDraftBody.plan.planId }) };
+    await record('goalPlan.batchInvalidPreference', 400, await goalPlanTimesBatchPost(
+      request(batchPath, {
+        body: { timesId: batchApproved.times.timesId, timesRevision: batchApproved.times.timesRevision, preference: {} }, uid: M4A_GOAL_USER,
+      }), batchContext,
+    ));
+    const batchChanged = await record('goalPlan.batchTimes', 200, await goalPlanTimesBatchPost(
+      request(batchPath, {
+        body: { timesId: batchApproved.times.timesId, timesRevision: batchApproved.times.timesRevision, preference: { partOfDay: 'evening' } }, uid: M4A_GOAL_USER,
+      }), batchContext,
+    ));
+    await record('goalPlan.batchChanged', 409, await goalPlanTimesBatchPost(
+      request(batchPath, {
+        body: { timesId: batchApproved.times.timesId, timesRevision: batchApproved.times.timesRevision, preference: { noTime: true } }, uid: M4A_GOAL_USER,
+      }), batchContext,
+    ));
+    const currentBatchTimes = batchChanged.times as { timesId: string; timesRevision: number; planRevision: number };
+    await goalPlanConfirmPost(
+      request(`/api/mobile/goals/${batchGoal.id}/plans/${batchDraftBody.plan.planId}/confirm`, {
+        body: { ...currentBatchTimes, idempotencyKey: 'fixture-m4a-batch-confirm' }, uid: M4A_GOAL_USER,
+      }), batchContext,
+    );
+    await record('goalPlan.batchConsumed', 409, await goalPlanTimesBatchPost(
+      request(batchPath, {
+        body: { timesId: currentBatchTimes.timesId, timesRevision: currentBatchTimes.timesRevision, preference: { noTime: true } }, uid: M4A_GOAL_USER,
+      }), batchContext,
+    ));
+
     const { goal: plannedGoal } = await seedGoal('I want to run a 5k', { scopeId: GOAL_USER, language: 'en', storage: getStorage() });
     const planContext = { params: Promise.resolve({ goalId: plannedGoal.id }) };
     const drafted = await record('goalPlan.generatedTemplate', 200, await goalPlanGeneratePost(
@@ -1061,6 +1121,43 @@ test('exports a fixture for every /api/mobile call the React Native client makes
         timezone: 'Asia/Jerusalem',
       },
     })));
+
+    // M4a: a dated, untimed capture receives three concrete free choices.
+    // Occupying the selected choice before the answer records the dedicated
+    // `not_free` re-ask, including its top-level machine reason.
+    process.env.MAYBESITTER_FEATURE_FREE_SLOTS = 'true';
+    await getStorage().set(userDoc(M4A_CAPTURE_USER), { uid: M4A_CAPTURE_USER, timezone: 'Asia/Jerusalem' });
+    const m4aReference = '2030-01-09T08:00:00.000Z';
+    const freeSlotProposal = await record('capture.freeSlots', 200, await capturePost(request('/api/mobile/capture', {
+      body: { text: 'Call Dana tomorrow', referenceTime: m4aReference, timezone: 'Asia/Jerusalem' },
+      uid: M4A_CAPTURE_USER,
+    })));
+    const freeSlotItem = (freeSlotProposal.items as Array<{
+      itemId: string;
+      clarification: { questionId: string; options: Array<{ optionId: string; labelKey: string; value: { localDate?: string; localTime?: string } }> } | null;
+    }>).find((item) => item.clarification?.options.some((option) => option.labelKey === 'freeSlot'));
+    assert.ok(freeSlotItem?.clarification, 'the M4a capture fixture has no free-slot question');
+    const selectedFreeSlot = freeSlotItem.clarification.options.find((option) => option.labelKey === 'freeSlot')!;
+    assert.ok(selectedFreeSlot.value.localDate && selectedFreeSlot.value.localTime, 'the free-slot option has no local date/time');
+    const slotStart = instantFromLocal(selectedFreeSlot.value.localDate, selectedFreeSlot.value.localTime, 'Asia/Jerusalem')!.toISOString();
+    const slotEnd = new Date(Date.parse(slotStart) + 30 * 60_000).toISOString();
+    await replaceBusyBlocks(M4A_CAPTURE_USER, 'manual:m4a-fixture', { startsAt: slotStart, endsAt: slotEnd }, [{
+      blockId: 'm4a-fixture-busy', sourceId: 'manual:m4a-fixture', sourceKind: 'manual',
+      startAt: slotStart, endAt: slotEnd, allDay: false,
+    }], { platform: null, now: new Date(m4aReference) });
+    await record('capture.notFree', 200, await clarifyPost(request('/api/mobile/capture/clarify', {
+      body: {
+        proposalId: freeSlotProposal.proposalId,
+        itemId: freeSlotItem.itemId,
+        questionId: freeSlotItem.clarification.questionId,
+        optionId: selectedFreeSlot.optionId,
+        revision: freeSlotProposal.revision,
+        referenceTime: m4aReference,
+        timezone: 'Asia/Jerusalem',
+      },
+      uid: M4A_CAPTURE_USER,
+    })));
+    process.env.MAYBESITTER_FEATURE_FREE_SLOTS = 'false';
 
     // ── the owner's first-run sentence (L4) ────────────────────────
     // «سجّل موعد دكتور يوم الأحد», literally, through the real route. The
@@ -1720,6 +1817,13 @@ test('exports a fixture for every /api/mobile call the React Native client makes
         },
       }),
     ));
+
+    const busyReadPath = '/api/mobile/calendar/busy?from=2026-08-09T00%3A00%3A00.000Z&to=2026-09-06T00%3A00%3A00.000Z';
+    process.env.MAYBESITTER_FEATURE_FREE_SLOTS = 'false';
+    await record('calendar.busyUnavailable', 404, await calendarBusyGet(request(busyReadPath)));
+    process.env.MAYBESITTER_FEATURE_FREE_SLOTS = 'true';
+    await record('calendar.busyRead', 200, await calendarBusyGet(request(busyReadPath)));
+    process.env.MAYBESITTER_FEATURE_FREE_SLOTS = 'false';
 
     await record('calendar.busyDeleted', 200, await calendarBusyDelete(
       request(`/api/mobile/calendar/busy?sourceId=${encodeURIComponent(busySource)}`, { method: 'DELETE' }),

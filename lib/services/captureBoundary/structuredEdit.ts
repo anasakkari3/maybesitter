@@ -408,6 +408,8 @@ export async function applyStructuredEdit(input: {
   locale: CaptureAppLocale;
   now: Date;
   engine: 'model' | 'rules';
+  /** Recomputes derived proposal fields after the full edit, before the CAS write. */
+  beforeWrite?: (proposal: CaptureProposalContract, stored: StoredCaptureProposal) => Promise<CaptureProposalContract>;
 }): Promise<StructuredEditOutcome> {
   const storage = getStorage();
   const proposalId = input.conversation.proposalId;
@@ -481,8 +483,6 @@ export async function applyStructuredEdit(input: {
       { role: 'user' as const, text: words.user, evidence: false as const },
       { role: 'assistant' as const, text: words.reply },
     ]);
-    const answer = { conversationId: input.conversation.conversationId, reply: words.reply, engine: input.engine, proposal: mutated.contract, turns };
-    mutated.editReceipt = { fingerprint: fp, resultingRevision: currentRevision + 1, answer };
     const previousSource = stored.structuredEditSources?.[targetId];
     mutated.structuredEditSources = {
       ...(stored.structuredEditSources ?? {}),
@@ -504,6 +504,9 @@ export async function applyStructuredEdit(input: {
       },
     };
     mutated.contract = withPublicRemovedItems(mutated.contract, mutated);
+    if (input.beforeWrite) mutated.contract = await input.beforeWrite(mutated.contract, mutated);
+    const answer = { conversationId: input.conversation.conversationId, reply: words.reply, engine: input.engine, proposal: mutated.contract, turns };
+    mutated.editReceipt = { fingerprint: fp, resultingRevision: currentRevision + 1, answer };
     mutated.seedKeepReceipt = stored.seedKeepReceipt;
     mutated.legacyConfirmRevision = undefined;
     const updatedAt = new Date().toISOString();

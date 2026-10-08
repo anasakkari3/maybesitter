@@ -16,6 +16,7 @@
 
 import { type StorageAdapter } from '../storage';
 import {
+  BusyUploadError,
   busyBlockId,
   replaceBusyBlocks,
   type BusyBlock,
@@ -149,6 +150,16 @@ export interface AcceptLectureSessionsOptions extends ExpandLectureSessionsOptio
   readonly now?: Date;
 }
 
+function validSessionClock(value: string): boolean {
+  return /^(?:[01]\d|2[0-3]):[0-5]\d$/.test(value);
+}
+
+function validSessionRange(session: Pick<ShareRecurringSession, 'start' | 'end'>): boolean {
+  if (!validSessionClock(session.start) || !validSessionClock(session.end)) return false;
+  const minutes = (value: string) => Number(value.slice(0, 2)) * 60 + Number(value.slice(3, 5));
+  return minutes(session.end) > minutes(session.start);
+}
+
 /**
  * Persists accepted lecture sessions as busy blocks using replaceBusyBlocks.
  * Never creates commitments.
@@ -159,6 +170,9 @@ export async function acceptLectureSessionsAsBusyBlocks(
   sessions: readonly ShareRecurringSession[],
   options: AcceptLectureSessionsOptions,
 ): Promise<{ sourceId: string; written: number; removed: number; window: TimeInterval }> {
+  if (sessions.some((session) => !validSessionRange(session))) {
+    throw new BusyUploadError('session times must be exact HH:MM values with end after start');
+  }
   const { sourceId, window, blocks } = expandLectureSessionsToBusyBlocks(proposalId, sessions, options);
 
   const outcome = await replaceBusyBlocks(uid, sourceId, window, blocks, {
