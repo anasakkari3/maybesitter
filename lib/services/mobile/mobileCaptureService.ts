@@ -30,7 +30,7 @@ import { getAiConsent } from '../../consents/aiConsentService';
 import { configuredProviderName } from '../../../src/extraction/llm';
 import type { ExtractionResult } from '../../../src/extraction/extractionTypes';
 import { mapExtractionToCommand } from '../../../src/extraction/mapExtractionToCommand';
-import { instantFromLocal, localTimeSpecFor } from '../../../src/extraction/timeLexicon';
+import { hasRequestEvidence, splitCaptureClauseDetails } from '../../../src/extraction/clauseSplitter';
 import { applyEditToCommands, eventDayOf } from '../captureBoundary/applyEdits';
 import {
   appendClarificationEvent,
@@ -332,27 +332,33 @@ function readsAsHabit(text: string, entry: CaptureEntry | null): boolean {
     || /(?:بدي|حابب|نفسي)\s+.*(?:كل\s*يوم|مر(?:ة|ات)\s*بالأسبوع|أتعوّد)|I\s+want\s+to\s+.*every|want\s+to\s+build\s+the\s+habit|רוצה\s+.*כל\s*יום/i.test(text);
 }
 
-function readsAsDoubt(text: string): boolean {
-  if (/ممكن\s+(?:تذكرني|ذكّرني)|could\s+you\s+remind|אפשר\s+להזכיר/i.test(text)) return false;
-  return /(?:^|[\s،,.!?])(?:عم\s+بفكر|بفكر|يمكن|ممكن|مش\s+متأكد|يا\s+ريت)(?=$|[\s،,.!?])|\b(?:thinking\s+about|maybe|might|not\s+sure)\b|(?:^|\s)(?:אולי|חושב\s+ל|לא\s+בטוח)(?=$|\s)/i.test(text);
+/** Doubt about the speaker's own action, never a polite request to the app. */
+export function readsAsDoubt(text: string): boolean {
+  const source = text.trim();
+  if (!source) return false;
+  if (/^(?:إذا\s+)?ممكن\s+(?:تذكرني|ذكّرني|فكرني|حطلي|تحطلي|ضيف|تضيف|ساعدني|فيك|بتقدر)(?=$|[\s،,.!?؟])|^could\s+you\s+(?:remind|add|schedule|book)\b|^אפשר\s+(?:להזכיר|להוסיף|לקבוע|לתזמן)(?=$|[\s,.!?])/i.test(source)) return false;
+  if (/^و?\s*(?:عم\s+بفكر|بفكر|يمكن|مش\s+متأكد|يا\s+ريت)(?=$|[\s،,.!?؟])/i.test(source)) return true;
+  // Bare «ممكن» is doubt only before a first-person form, never merely because
+  // it appears somewhere in a request clause.
+  if (/^و?\s*ممكن\s+(?:(?:أنا|انا|إني|اني)\s+)?[أاإآ][؀-ۿ]*/.test(source)) return true;
+  if (/^(?:and\s+)?(?:maybe\s+i(?:['’]ll|\s+will|\s+might|\s+should|\s+can|\s+could)?\b|i(?:['’]m|\s+am)\s+(?:thinking|considering)\b|i\s+might\b|i(?:['’]m|\s+am)\s+not\s+sure\b)/i.test(source)) return true;
+  return /^ו?\s*(?:אולי(?=$|[\s,.!?])|(?:אני\s+)?חושב(?:ת)?\s+ל|לא\s+בטוח(?:ה)?(?=$|[\s,.!?]))/.test(source);
 }
 
-function explicitArabicClocks(text: string): Array<{ hour: number; minute: number }> {
-  const normalized = text.replace(/[٠-٩]/g, (digit) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(digit)));
-  return Array.from(normalized.matchAll(/الساعة\s*([0-9]{1,2})(?::([0-5][0-9]))?\s*(الصبح|المسا|المساء)?/g), (match) => {
-    let hour = Number(match[1]);
-    const half = match[3];
-    if ((half === 'المسا' || half === 'المساء' || (!half && hour > 0 && hour <= 6)) && hour < 12) hour += 12;
-    return { hour, minute: Number(match[2] ?? 0) };
-  }).filter((clock) => clock.hour >= 0 && clock.hour < 24);
+function sourceSegmentFor(stored: StoredCaptureProposal, itemId: string, fallback: string): string {
+  const source = stored.resultsByItemId?.get(itemId)?.rawText;
+  return typeof source === 'string' && source.trim() ? source.trim() : fallback;
 }
 
-function pendingCommands(result: ExtractionResult): Command[] {
-  return mapExtractionToCommand(result)
-    .filter((command) => command.type !== 'ConfirmCommitment')
-    .map((command) => command.type === 'CreateDraft'
-      ? { ...command, draftStatus: 'pending_confirmation' as const }
-      : command);
+function readsAsUndecidedItem(
+  item: CaptureProposalContract['items'][number],
+  segment: string,
+): boolean {
+  return item.resolvedTime === null
+    && item.needsClarification
+    && !hasRequestEvidence(segment)
+    && !readsAsDoubt(segment)
+    && !readsAsHabit(segment, null);
 }
 
 function v8ProposalStatus(contract: CaptureProposalContract): CaptureProposalContract['status'] {
@@ -405,69 +411,71 @@ export async function applyCaptureKindsToProposal(
     habits: [...(stored.contract.habits ?? [])],
     goals: [...(stored.contract.goals ?? [])],
   };
-  // Contract-v8's examples use explicit Arabic clocks that the legacy
-  // ambiguity valve intentionally left as questions. Preserve the stated
-  // clocks on the new path so a confirm/recovery test has real commands.
-  const explicitClocks = explicitArabicClocks(input.text);
-  if (explicitClocks.length >= contract.items.length && contract.items.some((item) => item.needsClarification)) {
+  const doubtfulItems = contract.items.flatMap((item) => {
+    const segment = sourceSegmentFor(stored, item.itemId, item.title);
+    return readsAsDoubt(segment) ? [{ item, segment }] : [];
+  });
+  if (doubtfulItems.length > 0) {
+    const movedIds = new Set(doubtfulItems.map(({ item }) => item.itemId));
     const commands = new Map(stored.commandsByItemId);
     const results = new Map(stored.resultsByItemId ?? []);
-    const inheritedDate = contract.items.find((item) => item.resolvedDate)?.resolvedDate;
-    contract.items = contract.items.map((item, index) => {
-      if (!item.needsClarification) return item;
-      const clock = explicitClocks[index];
-      const localDate = index > 0 && /وبعده/.test(input.text) && inheritedDate ? inheritedDate : item.resolvedDate;
-      if (!clock || !localDate) return item;
-      const localTime = `${String(clock.hour).padStart(2, '0')}:${String(clock.minute).padStart(2, '0')}`;
-      const instant = instantFromLocal(localDate, localTime, input.timezone);
-      const prior = results.get(item.itemId);
-      if (!instant || !prior) return item;
-      const at = instant.toISOString();
-      const local = localTimeSpecFor(instant, input.timezone);
-      const result: ExtractionResult = {
-        ...prior,
-        dueAt: at,
-        remindAt: at,
-        localTimeSpec: local,
-        timeEvidence: 'hhmm',
-        missingFields: prior.missingFields.filter((field) => field !== 'time'),
-        ambiguityFlags: prior.ambiguityFlags.filter((flag) => flag !== 'contradictory_time'),
-      };
-      results.set(item.itemId, result);
-      commands.set(item.itemId, pendingCommands(result));
-      return { ...item, resolvedTime: at, resolvedDate: localDate, needsClarification: false, clarification: null, timeEstimated: false };
-    });
+    for (const itemId of Array.from(movedIds)) {
+      commands.delete(itemId);
+      results.delete(itemId);
+    }
+    contract = {
+      ...contract,
+      items: contract.items.filter((item) => !movedIds.has(item.itemId)),
+      seeds: [
+        ...doubtfulItems.map(({ item, segment }) => ({
+          seedItemId: randomUUID(), pointId: capturePointId(item), kind: 'consideration' as const, summary: segment,
+          suggestedTime: item.resolvedTime ? { at: item.resolvedTime, timeZone: input.timezone } : null,
+        })),
+        ...contract.seeds,
+      ],
+    };
     stored.commandsByItemId = commands;
     stored.resultsByItemId = results;
   }
 
-  if (readsAsDoubt(input.text) && contract.items.length > 0) {
-    const moved = contract.items[0]!;
-    contract = {
-      ...contract,
-      items: contract.items.slice(1),
-      seeds: [{
-        seedItemId: randomUUID(), pointId: capturePointId(moved), kind: 'consideration', summary: input.text,
-        suggestedTime: moved.resolvedTime ? { at: moved.resolvedTime, timeZone: input.timezone } : null,
-      }, ...contract.seeds],
-    };
-  } else if (readsAsDoubt(input.text) && contract.items.length === 0 && contract.seeds.length === 0) {
-    const extracted = await guardedMobileExtract(input.text, { now: input.now ?? new Date(), timezone: input.timezone });
-    const instant = extracted.result.remindAt ?? extracted.result.dueAt;
-    contract = {
-      ...contract,
-      seeds: [{
-        seedItemId: randomUUID(), pointId: randomUUID(), kind: 'consideration', summary: input.text,
-        suggestedTime: instant ? { at: instant, timeZone: input.timezone } : null,
-      }],
-    };
-  } else if ((readsAsHabit(input.text, input.entry) || input.modelKinds?.includes('habit')) && (contract.habits?.length ?? 0) === 0) {
-    const candidate = contract.items.at(-1) ?? (input.entry === 'habit' ? contract.seeds.at(-1) : undefined);
+  // A rules extractor can return no entity for a timed doubt in one language.
+  // With no item to correlate, use the capture boundary's canonical segments;
+  // each seed and its suggested time still come from that segment alone.
+  if (contract.items.length === 0 && contract.seeds.length === 0) {
+    const doubtSegments = splitCaptureClauseDetails(input.text)
+      .map((clause) => clause.text)
+      .filter(readsAsDoubt);
+    if (doubtSegments.length > 0) {
+      const seeds = await Promise.all(doubtSegments.map(async (segment) => {
+        const extracted = await guardedMobileExtract(segment, { now: input.now ?? new Date(), timezone: input.timezone });
+        const instant = extracted.result.remindAt ?? extracted.result.dueAt;
+        return {
+          seedItemId: randomUUID(), pointId: randomUUID(), kind: 'consideration' as const, summary: segment,
+          suggestedTime: instant ? { at: instant, timeZone: input.timezone } : null,
+        };
+      }));
+      contract = { ...contract, seeds };
+    }
+  }
+
+  if ((contract.habits?.length ?? 0) === 0) {
+    const itemCandidates = contract.items.map((item) => ({
+      candidate: item,
+      segment: sourceSegmentFor(stored, item.itemId, item.title),
+    }));
+    const explicit = itemCandidates.find(({ segment }) => readsAsHabit(segment, input.entry));
+    // A message-level model hint is unambiguous only when there is one item.
+    const modelOnly = input.modelKinds?.includes('habit') && itemCandidates.length === 1 ? itemCandidates[0] : undefined;
+    const seedCandidate = input.entry === 'habit' && contract.seeds.length === 1
+      ? { candidate: contract.seeds[0]!, segment: contract.seeds[0]!.summary }
+      : undefined;
+    const selected = explicit ?? modelOnly ?? seedCandidate;
+    const candidate = selected?.candidate;
     if (candidate) {
       const title = 'title' in candidate ? candidate.title : candidate.summary;
       const entityId = 'itemId' in candidate ? candidate.itemId : candidate.seedItemId;
       const pointId = capturePointId(candidate);
-      const fields = habitFields(input.text);
+      const fields = habitFields(selected.segment);
       const habit = completeHabit({
         habitItemId: randomUUID(), pointId, title, ...fields,
         explanation: null, question: null, confirmable: false,
@@ -481,14 +489,24 @@ export async function applyCaptureKindsToProposal(
       const commands = new Map(stored.commandsByItemId);
       commands.delete(entityId);
       stored.commandsByItemId = commands;
+      const results = new Map(stored.resultsByItemId ?? []);
+      results.delete(entityId);
+      stored.resultsByItemId = results;
     }
   }
 
   const modelSaysGoal = input.modelKinds?.includes('goal') === true;
   if ((input.entry === 'goal' || modelSaysGoal) && memoryWritable && (contract.habits?.length ?? 0) === 0
-    && (modelSaysGoal || contract.items.length === 0)) {
+    && (contract.goals?.length ?? 0) === 0) {
+    const undecidedItems = contract.items.filter((item) => readsAsUndecidedItem(
+      item,
+      sourceSegmentFor(stored, item.itemId, item.title),
+    ));
+    const modelItem = modelSaysGoal && contract.items.length === 1 ? contract.items[0] : undefined;
     const candidate: CaptureProposalContract['seeds'][number] | CaptureProposalContract['items'][number] | undefined =
-      contract.seeds.find((seed) => seed.kind === 'possible_goal') ?? contract.seeds.at(0) ?? (modelSaysGoal ? contract.items.at(-1) : undefined);
+      contract.seeds.find((seed) => seed.kind === 'possible_goal')
+      ?? (input.entry === 'goal' ? undecidedItems[0] : undefined)
+      ?? modelItem;
     if (candidate) {
       const candidateId = 'seedItemId' in candidate ? candidate.seedItemId : candidate.itemId;
       contract = {

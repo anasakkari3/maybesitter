@@ -74,7 +74,8 @@ function envToken(module: IntelligenceModuleName): string {
   return module.replace(/([a-z])([A-Z])/g, '$1_$2').toUpperCase();
 }
 
-function readBoolean(value: string | undefined, fallback: boolean): boolean {
+/** One strict parser for every environment-backed runtime control. */
+export function readRuntimeBoolean(value: string | undefined, fallback: boolean): boolean {
   if (value === 'true') return true;
   if (value === 'false') return false;
   return fallback;
@@ -88,11 +89,11 @@ export function readRuntimeControls(
 
   for (const module of INTELLIGENCE_MODULES) {
     const token = envToken(module);
-    featureFlags[module] = readBoolean(
+    featureFlags[module] = readRuntimeBoolean(
       env[`MAYBESITTER_FEATURE_${token}`],
       MODULE_FEATURE_FLAG_DEFAULTS[module],
     );
-    killSwitches[module] = readBoolean(
+    killSwitches[module] = readRuntimeBoolean(
       env[`MAYBESITTER_KILL_SWITCH_${token}`],
       MODULE_KILL_SWITCH_DEFAULTS[module],
     );
