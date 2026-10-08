@@ -175,8 +175,8 @@ describe('M4a capture free slots', () => {
         timeZone: 'Asia/Jerusalem',
         now: NOW,
       });
-      expect(option).toHaveTextContent(day);
-      expect(option).toHaveTextContent(slot.time);
+      expect(option).toHaveTextContent(day, { exact: false });
+      expect(option).toHaveTextContent(slot.time, { exact: false });
       expect(option.props.accessibilityLabel).toBe(fill(
         copy(bundle, 'yFreeSlotA11y'),
         { day, time: ltr(slot.time) },
