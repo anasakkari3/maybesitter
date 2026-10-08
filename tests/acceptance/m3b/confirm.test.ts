@@ -1,0 +1,329 @@
+/**
+ * M3b Gate B: what the one confirm saves, and how it fails (PLAN-M3b R001,
+ * R002, R005, R007, R008, R2-009, R2-015, R3-002, R3-007, R4-001, R5-001,
+ * R5-002, R6-001; WIRE-M3b). Gate author: Claude. Every test must fail on
+ * 80eea528 for the reason it names.
+ *
+ * Test seam this gate requires of the builder (named here so it is contract,
+ * not a guess): `setCaptureFinalizeFaultForTests(fault)` exported from
+ * `lib/services/mobile/mobileCaptureService.ts`, where `fault(step)` returns
+ * true to make `finalizeConfirmedCapture` throw just before that step, with
+ * `step ∈ 'activate' | 'weeklyBlocks' | 'goalLinks' | 'response'`, and `null`
+ * clears it. It stands for "the process died after the transaction".
+ */
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { getAnalyticsEventsFor } from '../../../lib/analytics/eventStore.ts';
+import { applyTrustAction, getOrCreateTrust } from '../../../lib/pilot/pilotTrustStore.ts';
+import { deleteAccount } from '../../../lib/account/accountDeletion.ts';
+import { uidFor } from '../../support/fakeAuth.ts';
+import {
+  beginRules,
+  confirm,
+  confirmKey,
+  confirmRaw,
+  currentStorage,
+  editPoint,
+  end,
+  goalsOf,
+  habitsOf,
+  keptSeeds,
+  savedCommitments,
+  savedGoals,
+  savedHabits,
+  say,
+  setSwitches,
+  show,
+  type Answer,
+} from './support.ts';
+
+const WALK = 'بدي أمشي نص ساعة كل يوم الصبح';
+const GOAL = 'بدي أنزل بالوزن';
+const DOCTOR = 'موعد الدكتور بكرا الساعة 4';
+
+async function finalizeSeam(): Promise<(fault: ((step: string) => boolean) | null) => void> {
+  const module = await import('../../../lib/services/mobile/mobileCaptureService.ts') as Record<string, unknown>;
+  const seam = module.setCaptureFinalizeFaultForTests;
+  assert.equal(typeof seam, 'function', 'setCaptureFinalizeFaultForTests is not exported (the gate\'s named seam)');
+  return seam as (fault: ((step: string) => boolean) | null) => void;
+}
+
+/* ── what one confirm saves (R001, R005, R2-015, R002) ───────────────── */
+
+test('R001 R005 a habit-only proposal is confirmable and saves a capture_chat habit with the agreed defaults', async () => {
+  const uid = beginRules();
+  try {
+    const answer = await say(uid, WALK, { locale: 'ar' });
+    const habit = habitsOf(answer)[0]!;
+    const result = await confirm(uid, answer.proposal!, { habits: [habit.habitItemId] });
+    assert.equal(result.status, 200, show(result.body));
+    assert.equal(result.body.habitsPersisted?.length, 1, show(result.body));
+    const [saved] = await savedHabits(uid);
+    assert.ok(saved, 'no habit stored');
+    assert.equal(saved!.source, 'capture_chat');
+    assert.equal(saved!.durationMinutes, 30);
+    assert.equal(saved!.minimumOccurrences, 7);
+    assert.equal(saved!.maximumOccurrences, 7);
+    assert.equal(saved!.flexibility, 'flexible');
+    assert.equal(saved!.recoveryPolicy, 'skip');
+    assert.deepEqual(saved!.preferredWindows, [{ start: '06:00', end: '12:00' }]);
+    assert.equal(saved!.confirmation.sourceRef, answer.proposal!.proposalId);
+    assert.equal(saved!.confirmation.acceptedSuggestedValues, true);
+    assert.deepEqual(await savedCommitments(uid), [], 'a habit save wrote a commitment');
+  } finally { end(); }
+});
+
+test('R005 an edited cadence is saved with acceptedSuggestedValues false', async () => {
+  const uid = beginRules();
+  try {
+    const answer = await say(uid, WALK, { locale: 'ar' });
+    const habit = habitsOf(answer)[0]!;
+    const edited = await editPoint(uid, answer, { habitItemId: habit.habitItemId }, { cadence: { kind: 'weekly_count', count: 3 } });
+    assert.equal(edited.status, 200, show(edited.body));
+    const after = edited.body as Answer;
+    const result = await confirm(uid, after.proposal!, { habits: [habitsOf(after)[0]!.habitItemId] });
+    assert.equal(result.status, 200, show(result.body));
+    const [saved] = await savedHabits(uid);
+    assert.equal(saved!.confirmation.acceptedSuggestedValues, false);
+    assert.equal(saved!.minimumOccurrences, 3);
+  } finally { end(); }
+});
+
+test('R4-002 an incomplete habit cannot be confirmed: 400 habit_invalid, nothing written', async () => {
+  const uid = beginRules();
+  try {
+    const answer = await say(uid, 'بدي أتعوّد أقرا', { entry: 'habit', locale: 'ar' });
+    const habit = habitsOf(answer)[0]!;
+    const result = await confirm(uid, answer.proposal!, { habits: [habit.habitItemId] });
+    assert.equal(result.status, 400, show(result.body));
+    assert.equal(result.body.failureCode, 'habit_invalid');
+    assert.deepEqual(await savedHabits(uid), []);
+  } finally { end(); }
+});
+
+test('R2-015 a goal from the goal entry is saved with capture provenance pointing at the proposal', async () => {
+  const uid = beginRules();
+  try {
+    const answer = await say(uid, GOAL, { entry: 'goal', locale: 'ar' });
+    const goal = goalsOf(answer)[0]!;
+    const result = await confirm(uid, answer.proposal!, { goals: [goal.goalItemId] });
+    assert.equal(result.status, 200, show(result.body));
+    assert.equal(result.body.goalsPersisted?.length, 1, show(result.body));
+    const goals = await savedGoals(uid);
+    assert.equal(goals.length, 1, show(goals));
+    assert.ok(goals[0]!.content.includes('أنزل بالوزن'));
+    assert.equal(goals[0]!.provenance?.origin, 'capture', show(goals[0]!.provenance));
+    assert.equal(goals[0]!.provenance?.originRef, answer.proposal!.proposalId);
+    assert.equal(result.body.goalsPersisted[0].goalId, goals[0]!.id);
+  } finally { end(); }
+});
+
+test('R002 from the thought entry, seeds are saved by the confirm itself, with the proposal as their source', async () => {
+  const uid = beginRules();
+  try {
+    const answer = await say(uid, 'عم بفكر أسافر الصيف الجاي', { entry: 'thought', locale: 'ar' });
+    const seed = answer.proposal!.seeds[0]!;
+    const result = await confirm(uid, answer.proposal!, { seeds: [seed.seedItemId] });
+    assert.equal(result.status, 200, show(result.body));
+    assert.equal(result.body.seedsPersisted?.length, 1, show(result.body));
+    const kept = await keptSeeds(uid);
+    assert.equal(kept.length, 1);
+    assert.equal(kept[0]!.sourceRef, answer.proposal!.proposalId);
+  } finally { end(); }
+});
+
+test('R002 from the generic entry, a seed in the confirm is refused 400 invalid_selection («خلّيه» stays its path)', async () => {
+  const uid = beginRules();
+  try {
+    const answer = await say(uid, 'عم بفكر أسافر الصيف الجاي', { locale: 'ar' });
+    const result = await confirm(uid, answer.proposal!, { seeds: [answer.proposal!.seeds[0]!.seedItemId] });
+    assert.equal(result.status, 400, show(result.body));
+    assert.equal(result.body.failureCode, 'invalid_selection');
+    assert.deepEqual(await keptSeeds(uid), []);
+  } finally { end(); }
+});
+
+/* ── atomicity (R2-009, R007) ────────────────────────────────────────── */
+
+test('R2-009 a mixed commitment + habit confirm is all or nothing: a failing commit writes neither', async () => {
+  const uid = beginRules();
+  try {
+    const answer = await say(uid, `${DOCTOR}، و${WALK}`, { locale: 'ar' });
+    const habit = habitsOf(answer)[0];
+    const item = answer.proposal!.items[0];
+    assert.ok(habit && item, `the mixed message did not give a habit and a commitment: ${show(answer.proposal)}`);
+    currentStorage().setBeforeCommitHookForTests(() => { throw new Error('injected commit failure'); });
+    const result = await confirm(uid, answer.proposal!, { items: [item!.itemId], habits: [habit!.habitItemId] });
+    currentStorage().setBeforeCommitHookForTests(null);
+    assert.notEqual(result.status, 200, `a failed commit answered 200: ${show(result.body)}`);
+    assert.deepEqual(await savedHabits(uid), [], 'a habit survived a failed confirm');
+    assert.deepEqual(await savedCommitments(uid), [], 'a commitment survived a failed confirm');
+  } finally { end(); }
+});
+
+test('R007 kinds switched off between proposal and confirm: 409 kinds_unavailable, nothing written', async () => {
+  const uid = beginRules();
+  try {
+    const answer = await say(uid, WALK, { locale: 'ar' });
+    const habit = habitsOf(answer)[0]!;
+    setSwitches({ killed: true });
+    const result = await confirm(uid, answer.proposal!, { habits: [habit.habitItemId] });
+    assert.equal(result.status, 409, show(result.body));
+    assert.equal(result.body.reason, 'kinds_unavailable');
+    assert.deepEqual(await savedHabits(uid), []);
+  } finally { end(); }
+});
+
+test('R007 memory switched off before confirming a goal: 409 goals_unavailable, nothing written', async () => {
+  const uid = beginRules();
+  try {
+    const answer = await say(uid, GOAL, { entry: 'goal', locale: 'ar' });
+    const goal = goalsOf(answer)[0]!;
+    setSwitches({ memory: false });
+    const result = await confirm(uid, answer.proposal!, { goals: [goal.goalItemId] });
+    assert.equal(result.status, 409, show(result.body));
+    assert.equal(result.body.reason, 'goals_unavailable');
+    setSwitches({});
+    assert.deepEqual(await savedGoals(uid), []);
+  } finally { end(); }
+});
+
+/* ── keys, replay and recovery (R3-002, R4-001, R5-001, R6-001) ──────── */
+
+test('R3-002 the same key replays the same body; the same key with another selection is 409 key_reused', async () => {
+  const uid = beginRules();
+  try {
+    const answer = await say(uid, `${DOCTOR}، و${WALK}`, { locale: 'ar' });
+    const item = answer.proposal!.items[0]!;
+    const habit = habitsOf(answer)[0]!;
+    const key = confirmKey('replay');
+    const first = await confirm(uid, answer.proposal!, { items: [item.itemId], habits: [habit.habitItemId], key });
+    assert.equal(first.status, 200, show(first.body));
+    const again = await confirm(uid, answer.proposal!, { items: [item.itemId], habits: [habit.habitItemId], key });
+    assert.equal(again.status, 200, show(again.body));
+    assert.equal(again.body.replayed, true);
+    assert.deepEqual(again.body.habitsPersisted, first.body.habitsPersisted);
+    const reused = await confirm(uid, answer.proposal!, { items: [item.itemId], key });
+    assert.equal(reused.status, 409, show(reused.body));
+    assert.equal(reused.body.reason, 'key_reused');
+    assert.equal((await savedHabits(uid)).length, 1, 'a replay wrote a second habit');
+  } finally { end(); }
+});
+
+test('R4-001 another key on an already-confirmed proposal: 409 proposal_changed with the original, finalized receipt; nothing new written', async () => {
+  const uid = beginRules();
+  try {
+    const answer = await say(uid, WALK, { locale: 'ar' });
+    const habit = habitsOf(answer)[0]!;
+    const first = await confirm(uid, answer.proposal!, { habits: [habit.habitItemId] });
+    assert.equal(first.status, 200, show(first.body));
+    const second = await confirm(uid, answer.proposal!, { habits: [habit.habitItemId], key: confirmKey('other') });
+    assert.equal(second.status, 409, show(second.body));
+    assert.equal(second.body.reason, 'proposal_changed');
+    assert.equal(second.body.state, 'confirmed');
+    assert.deepEqual(second.body.confirmation?.habitsPersisted, first.body.habitsPersisted, 'the 409 does not carry the original receipt');
+    assert.equal((await savedHabits(uid)).length, 1);
+  } finally { end(); }
+});
+
+test('R5-001 a crash after the transaction, before activation: a recovery confirm returns the full receipt and the commitment is active', async () => {
+  const uid = beginRules();
+  const seam = await finalizeSeam();
+  try {
+    const answer = await say(uid, DOCTOR, { locale: 'ar' });
+    const item = answer.proposal!.items[0]!;
+    const key = confirmKey('crash');
+    seam((step) => step === 'activate');
+    const crashed = await confirm(uid, answer.proposal!, { items: [item.itemId], key });
+    seam(null);
+    assert.notEqual(crashed.status, 200, 'the injected finalizer fault did not fire');
+    const recovered = await confirm(uid, answer.proposal!, { items: [item.itemId], key });
+    assert.equal(recovered.status, 200, show(recovered.body));
+    assert.equal(recovered.body.persisted?.length, 1, show(recovered.body));
+    const saved = Object.values(await import('../../../lib/services/mobile/participantState.ts').then((m) => m.getParticipantStateSnapshot(uid)).then((s) => s.commitments)) as Array<{ status?: string }>;
+    assert.equal(saved.length, 1);
+    assert.notEqual(saved[0]!.status, 'pending_confirmation', 'the recovered commitment was never activated');
+  } finally { seam(null); end(); }
+});
+
+test('R6-001 a crash before goal links: recovery creates exactly the kept link and never a removed one', async () => {
+  const uid = beginRules();
+  const seam = await finalizeSeam();
+  try {
+    // Two commitments, each with a goal-link suggestion; the person keeps one link.
+    const goalAnswer = await say(uid, GOAL, { entry: 'goal', locale: 'ar' });
+    const saveGoal = await confirm(uid, goalAnswer.proposal!, { goals: [goalsOf(goalAnswer)[0]!.goalItemId] });
+    assert.equal(saveGoal.status, 200, show(saveGoal.body));
+    const answer = await say(uid, 'بكرا الساعة 7 الصبح بمشي ساعة لأنزل بالوزن، وبعده الساعة 9 بتمرن لأنزل بالوزن', { locale: 'ar' });
+    const linkable = answer.proposal!.items.filter((item: any) => item.goalLink);
+    assert.equal(linkable.length, 2, `the two steps were not offered a goal link: ${show(answer.proposal)}`);
+    const key = confirmKey('links');
+    const body = {
+      proposalId: answer.proposal!.proposalId,
+      selectedItemIds: linkable.map((item) => item.itemId),
+      selectedHabitItemIds: [], selectedGoalItemIds: [], selectedSeedItemIds: [],
+      goalLinkItemIds: [linkable[0]!.itemId],
+      idempotencyKey: key,
+    };
+    seam((step) => step === 'goalLinks');
+    await confirmRaw(uid, body);
+    seam(null);
+    const recovered = await confirmRaw(uid, body);
+    assert.equal(recovered.status, 200, show(recovered.body));
+    const links = recovered.body.goalLinks ?? [];
+    assert.deepEqual(links.map((link: any) => link.itemId), [linkable[0]!.itemId], `recovery linked ${show(links)}`);
+  } finally { seam(null); end(); }
+});
+
+/* ── Stage B coverage (R008, R5-002) ─────────────────────────────────── */
+
+test('R008 another account can neither edit nor confirm the proposal', async () => {
+  const uid = beginRules();
+  try {
+    const answer = await say(uid, WALK, { locale: 'ar' });
+    const habit = habitsOf(answer)[0]!;
+    const stranger = uidFor('AccM3bStranger');
+    const edit = await editPoint(stranger, answer, { habitItemId: habit.habitItemId }, { durationMinutes: 15 });
+    assert.notEqual(edit.status, 200, `a stranger edited the proposal: ${show(edit.body)}`);
+    const result = await confirm(stranger, answer.proposal!, { habits: [habit.habitItemId] });
+    assert.notEqual(result.status, 200, `a stranger confirmed the proposal: ${show(result.body)}`);
+    assert.deepEqual(await savedHabits(stranger), []);
+    assert.deepEqual(await savedHabits(uid), []);
+  } finally { end(); }
+});
+
+test('R008 account deletion removes the habit, goal and seed a capture confirm wrote', async () => {
+  const uid = beginRules();
+  try {
+    const habitAnswer = await say(uid, WALK, { locale: 'ar' });
+    assert.equal((await confirm(uid, habitAnswer.proposal!, { habits: [habitsOf(habitAnswer)[0]!.habitItemId] })).status, 200);
+    const goalAnswer = await say(uid, GOAL, { entry: 'goal', locale: 'ar' });
+    assert.equal((await confirm(uid, goalAnswer.proposal!, { goals: [goalsOf(goalAnswer)[0]!.goalItemId] })).status, 200);
+    const thought = await say(uid, 'عم بفكر أسافر الصيف الجاي', { entry: 'thought', locale: 'ar' });
+    assert.equal((await confirm(uid, thought.proposal!, { seeds: [thought.proposal!.seeds[0]!.seedItemId] })).status, 200);
+
+    await deleteAccount(uid, {
+      initiatedBy: 'user',
+      storage: currentStorage(),
+      auth: { async revokeRefreshTokens() {}, async deleteUser() {} } as never,
+    });
+    const left = currentStorage().pathsForTests().filter((path) => path.includes(uid));
+    assert.deepEqual(left, [], `documents left after deletion: ${show(left)}`);
+  } finally { end(); }
+});
+
+test('R5-002 a thought saved by the confirm records seed_confirmed once; a replay records nothing more', async () => {
+  const uid = beginRules();
+  try {
+    await getOrCreateTrust(uid, new Date().toISOString());
+    await applyTrustAction(uid, { type: 'set_analytics_consent', granted: true, at: new Date().toISOString() });
+    const answer = await say(uid, 'عم بفكر أسافر الصيف الجاي', { entry: 'thought', locale: 'ar' });
+    const key = confirmKey('seed-analytics');
+    const seedItemId = answer.proposal!.seeds[0]!.seedItemId;
+    assert.equal((await confirm(uid, answer.proposal!, { seeds: [seedItemId], key })).status, 200);
+    assert.equal((await confirm(uid, answer.proposal!, { seeds: [seedItemId], key })).status, 200);
+    const confirmed = (await getAnalyticsEventsFor(uid)).filter((event) => event.eventName === ('seed_confirmed' as never));
+    assert.equal(confirmed.length, 1, `seed_confirmed recorded ${confirmed.length} times`);
+    assert.ok(!JSON.stringify(confirmed).includes('أسافر'), 'the telemetry carries the sentence');
+  } finally { end(); }
+});
