@@ -133,4 +133,34 @@ describe('SummaryEditSheet', () => {
       expect(onSave).toHaveBeenCalledWith({ kind: to, text: 'م'.repeat(120) });
     },
   );
+
+  it.each<[string, PointKind[], Record<string, unknown> | null]>([
+    ['habit and back to commitment', ['habit', 'commitment'], null],
+    ['habit, then idea', ['habit', 'idea'], { kind: 'idea' }],
+  ])('visiting a stricter kind and leaving it puts an untouched title back (%s, R6-002)', async (_name, path, sent) => {
+    const long = 'م'.repeat(130);
+    const onSave = jest.fn();
+    const onCancel = jest.fn();
+    await render(
+      <SafeAreaProvider initialMetrics={METRICS}>
+        <AppProvider>
+          <SummaryEditSheet kind="commitment" offered={ON} text={long} at={null} onSave={onSave} onCancel={onCancel} />
+        </AppProvider>
+      </SafeAreaProvider>,
+    );
+    for (const kind of path) await fireEvent.press(screen.getByTestId(`understood-edit-kind-${kind}`));
+    expect(screen.getByTestId('understood-edit-text').props.value).toBe(long);
+    await fireEvent.press(screen.getByTestId('understood-edit-save'));
+    if (sent) expect(onSave).toHaveBeenCalledWith(sent);
+    else { expect(onSave).not.toHaveBeenCalled(); expect(onCancel).toHaveBeenCalled(); }
+  });
+
+  it('an untouched timed thought made a commitment keeps its words: that path does not check them (R6-001)', async () => {
+    const long = 'م'.repeat(130);
+    const onSave = await sheet('consideration', jest.fn(), { text: long, timedSeed: true });
+    await fireEvent.press(screen.getByTestId('understood-edit-kind-commitment'));
+    expect(screen.getByTestId('understood-edit-text').props.value).toBe(long);
+    await fireEvent.press(screen.getByTestId('understood-edit-save'));
+    expect(onSave).toHaveBeenCalledWith({ kind: 'commitment' });
+  });
 });

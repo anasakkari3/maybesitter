@@ -65,10 +65,9 @@ export function SummaryEditSheet({ kind: startKind, offered = { habit: false, go
   const stacked = useLayoutMode() !== 'normal';
   const timezone = useTimeZone();
   const [kind, setKind] = useState<PointKind>(draft?.kind ?? startKind);
-  const [text, setText] = useState(draft?.text ?? startText);
-  // Only words the person typed are sent: an untouched title, however long, is
-  // never cut and sent back as an edit (M3B-A-R4-003).
-  const [edited, setEdited] = useState(draft?.text !== undefined);
+  // The words the person typed (or a reopened draft's); null while untouched.
+  // Only typed words are sent as theirs (M3B-A-R4-003).
+  const [typed, setTyped] = useState<string | null>(draft?.text ?? null);
   // `undefined`: the time is not touched. A string or null: the person set it.
   const [at, setAt] = useState<string | null | undefined>(draft?.time ? draft.time.at : undefined);
   // A screen reader lands on the sheet's heading when it opens (criterion 6).
@@ -90,23 +89,24 @@ export function SummaryEditSheet({ kind: startKind, offered = { habit: false, go
   const boundedFor = (next: PointKind) => (value: string) =>
     (byCodePoints(next) ? clampCodePoints(value, MAX_TITLE_LENGTH) : clampUnits(value, MAX_TITLE_LENGTH));
   const bounded = boundedFor(kind);
-  // A new kind may count more strictly: typed words are cut on screen at once,
-  // so what the field shows is what is sent (M3B-A-R4-002).
-  // An untouched title is left alone where the server keeps it as it is (the
-  // legacy path); a path that checks the title itself (M3b: habit, goal, timed
-  // thought) gets it shortened on screen, and the shortened words are what the
-  // save sends (M3B-A-R5-001).
+  // The kinds whose server path checks the title it keeps (M3b habit and goal
+  // writers): there an untouched title over the bound is shown shortened, and
+  // those words are sent, for as long as that is the chosen kind. Leaving it
+  // for another kind puts the title back as it was (M3B-A-R5-001, R6-002). A
+  // timed thought made a commitment keeps its words unchecked, so it is left alone.
+  const checksTitle = kind === 'habit' || kind === 'goal';
+  const shown = typed ?? (checksTitle ? clampCodePoints(startText, MAX_TITLE_LENGTH) : startText);
+  // A new kind may count typed words more strictly: they are cut on screen at
+  // once, so what the field shows is what is sent (M3B-A-R4-002).
   const chooseKind = (next: PointKind) => {
     setKind(next);
-    const cut = boundedFor(next)(text);
-    if (edited) setText(cut);
-    else if (byCodePoints(next) && cut !== text) { setText(cut); setEdited(true); }
+    if (typed !== null) setTyped(boundedFor(next)(typed));
   };
   const save = () => {
     const change: CaptureProposalEdit['change'] = {};
     if (kind !== startKind) change.kind = kind;
-    const words = text.trim();
-    if (edited && words && words !== startText.trim()) change.text = words;
+    const words = shown.trim();
+    if (words && words !== startText.trim()) change.text = words;
     // A time belongs to a commitment only; a seed carries none.
     if (at !== undefined && timed && at !== startAt) change.time = { at, timeZone: timezone };
     if (Object.keys(change).length === 0) { onCancel(); return; }
@@ -133,7 +133,7 @@ export function SummaryEditSheet({ kind: startKind, offered = { habit: false, go
       <Txt size={13} color={p.mu}>{t.understoodEditWords}</Txt>
       {/* While the change is on its way nothing in the sheet moves: what was
           sent is what the answer (or a refusal's «رجعلي تعديلي») is about (M2B-A-R5-REVIEW-001). */}
-      <TextInput testID="understood-edit-text" accessibilityLabel={t.understoodEditWords} value={text} onChangeText={(value) => { setEdited(true); setText(bounded(value)); }}
+      <TextInput testID="understood-edit-text" accessibilityLabel={t.understoodEditWords} value={shown} onChangeText={(value) => setTyped(bounded(value))}
         editable={!busy} multiline
         style={{ backgroundColor: p.sf2, borderRadius: 18, paddingVertical: 12, paddingHorizontal: 16, fontSize: 16, minHeight: 56, color: p.tx, fontFamily: family(400, script), textAlign: rtl ? 'right' : 'left' }} />
 
