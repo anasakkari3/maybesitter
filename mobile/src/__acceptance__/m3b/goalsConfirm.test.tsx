@@ -122,6 +122,7 @@ describe('M3b A4 goals and plan handoff', () => {
     harness.server.handler = serve(goalProposal(), () => ({ status: 200, body: goalReceipt() }));
     await saveGoal();
 
+    await screen.findByTestId(`capture-saved-start-plan-${GOAL_ID}`);
     await press(`capture-saved-start-plan-${GOAL_ID}`);
     await screen.findByTestId('plan-step-step-1');
   });
@@ -135,10 +136,11 @@ describe('M3b A4 goals and plan handoff', () => {
         : null,
     );
     await saveGoal();
+    await screen.findByTestId(`capture-saved-start-plan-${GOAL_ID}`);
     await press(`capture-saved-start-plan-${GOAL_ID}`);
 
     await screen.findByTestId('goal-plan-progress');
-    expect(harness.server.matching('POST', new RegExp(`/goals/${GOAL_ID}/plan$`))).toHaveLength(0);
+    expect(harness.server.matching('POST', new RegExp(`/goals/${GOAL_ID}/plan/generate$`))).toHaveLength(0);
   });
 
   it('A4 R2-013: with goalPlan off the receipt opens the goal and has no start-plan action', async () => {
@@ -164,20 +166,28 @@ describe('M3b A4 goals and plan handoff', () => {
         if (request.method === 'GET' && request.path.endsWith(`/goals/${GOAL_ID}/plan`)) {
           return { status: 200, body: { success: true, draft: null, confirmed: null, linkedWork: [] } };
         }
-        if (request.method === 'POST' && request.path.endsWith(`/goals/${GOAL_ID}/plan`)) {
+        if (request.method === 'POST' && request.path.endsWith(`/goals/${GOAL_ID}/plan/generate`)) {
           return { status: 200, body: { success: true, plan: PLAN } };
         }
         return null;
       },
     );
     await saveGoal();
+    await screen.findByTestId(`capture-saved-start-plan-${GOAL_ID}`);
     await press(`capture-saved-start-plan-${GOAL_ID}`);
-    await waitForRequest(harness, 'POST', new RegExp(`/goals/${GOAL_ID}/plan$`));
+    await waitForRequest(harness, 'POST', new RegExp(`/goals/${GOAL_ID}/plan/generate$`));
     await press('goal-back-list');
+    await screen.findByTestId('capture-input');
+    await press('capture-cancel');
+    await screen.findByTestId('tab-things');
+    await press('tab-things');
+    await screen.findByTestId('things-root');
+    await press('things-goals');
+    await screen.findByTestId(`goal-open-${GOAL_ID}`);
     await press(`goal-open-${GOAL_ID}`);
     await screen.findByTestId('goal-back-list');
 
-    expect(harness.server.matching('POST', new RegExp(`/goals/${GOAL_ID}/plan$`))).toHaveLength(1);
+    expect(harness.server.matching('POST', new RegExp(`/goals/${GOAL_ID}/plan/generate$`))).toHaveLength(1);
   });
 });
 

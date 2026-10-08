@@ -157,7 +157,7 @@ describe('M3b R2-011 stable point ids', () => {
     await say();
     await openCards();
     await press(`capture-habit-${HABIT_POINT_ID}`);
-    await press('header-back');
+    await press('review-back');
     await press('understood-edit-1');
     await press('understood-edit-kind-commitment');
     await press('understood-edit-save');
@@ -170,6 +170,6 @@ describe('M3b R2-011 stable point ids', () => {
         change: expect.objectContaining({ kind: 'commitment' }),
       }),
     }));
-    expect(screen.queryByTestId('review-confirm')).toBeNull();
+    expect(screen.getByTestId('review-confirm').props.accessibilityState.disabled).toBe(true);
   });
 });

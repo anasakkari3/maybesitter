@@ -91,6 +91,6 @@ export async function waitForRequest(harness: M3bHarness, method: string, path: 
   await waitFor(() => expect(harness.server.matching(method, path)).toHaveLength(count));
 }
 
-export function emitAccount(harness: M3bHarness, user: AuthUser): void {
-  act(() => harness.repository.emit(user));
+export async function emitAccount(harness: M3bHarness, user: AuthUser): Promise<void> {
+  await act(async () => harness.repository.emit(user));
 }

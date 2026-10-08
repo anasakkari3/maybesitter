@@ -136,13 +136,17 @@ describe('M3b A1 entries and capability', () => {
     await press('goals-add');
     await screen.findByTestId('capture-input');
 
-    emitAccount(harness, ACCOUNT_B);
+    await emitAccount(harness, ACCOUNT_B);
+    await press('capture-cancel');
+    await waitFor(() => expect(screen.queryByTestId('capture-input')).toBeNull());
+    await press('header-back');
+    await screen.findByTestId('tab-capture');
+    await press('tab-capture');
+    await screen.findByTestId('capture-input');
     await say('Message after account switch');
     await waitForRequest(harness, 'POST', /\/capture\/chat$/);
     expect(lastRequest(harness, 'POST', /\/capture\/chat$/).body).not.toHaveProperty('entry');
 
-    await press('capture-cancel');
-    await waitFor(() => expect(screen.queryByTestId('capture-input')).toBeNull());
     await waitFor(() => expect(harness.server.matching('GET', /\/capture\/kinds$/).length).toBeGreaterThan(1));
   });
 
