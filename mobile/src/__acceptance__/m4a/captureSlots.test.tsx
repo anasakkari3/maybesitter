@@ -12,6 +12,7 @@ import { CaptureProvider, useCaptureFlow } from '../../features/capture/CaptureP
 import { ReviewScreen } from '../../screens/ReviewScreen';
 import type { CaptureProposal } from '../../api/schemas/capture';
 import { LANGUAGE_STORAGE_KEY } from '../../i18n/language';
+import { isolateAuto } from '../../i18n/bidi';
 import { formatRelativeDay } from '../../i18n/format';
 import { fill, ltr } from '../../i18n/strings';
 import ar from '../../i18n/locales/ar.json';
@@ -166,7 +167,7 @@ describe('M4a capture free slots', () => {
 
     expect(screen.getByTestId('clarify-question')).toHaveTextContent(fill(
       copy(bundle, 'yFreeSlotsAsk'),
-      { title: 'Visit the bank' },
+      { title: isolateAuto('Visit the bank') },
     ));
     for (const slot of slots) {
       const option = screen.getByTestId(`clarify-option-${slot.id}`);
