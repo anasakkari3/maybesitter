@@ -16,6 +16,6 @@ export async function POST(request: Request, { params }: { params: Promise<{ goa
     const result = await confirmGoalPlan(user.uid, goalId, planId, {
       planRevision: Number(body.planRevision), timesId: String(body.timesId ?? ''), timesRevision: Number(body.timesRevision), idempotencyKey: String(body.idempotencyKey ?? ''),
     });
-    return Response.json({ success: true, ...result });
+    return Response.json({ success: true, ...result, ...(result.receipt.replayed ? { replayed: true } : {}) });
   } catch (error) { return goalPlanRouteError(error); }
 }

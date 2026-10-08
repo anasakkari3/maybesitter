@@ -51,6 +51,7 @@ import { clockTimesIn } from '../../../src/extraction/ruleBasedExtractor';
 import { bareHalfOfDayAnswer, dayPartHour, instantFromLocal, localTimeSpecFor, namesDay, nonNegatedHalfOfDay, withoutNegatedDayPart } from '../../../src/extraction/timeLexicon';
 import { geminiChatSchemaFor } from '../../../src/extraction/ollamaExtractionSchema';
 import { getAiConsent } from '../../consents/aiConsentService';
+import { withFreeSlotClarifications } from '../../planning/freeSlots';
 import { CHAT_TIMEOUT_MS, captureLlmProvider } from '../../llm/captureProvider';
 import { CAPTURE_SERVER_BUDGET_MS, CaptureInputTooLargeError } from '../captureBoundary/captureBoundaryService';
 import { applyStructuredEdit, StructuredEditConversationNotFoundError, StructuredEditError } from '../captureBoundary/structuredEdit';
@@ -391,6 +392,10 @@ export async function chatMobileCapture(
         locale,
         now,
         engine: current.proposal.provenance.requestedEngine === 'model' ? 'model' : 'rules',
+        beforeWrite: (proposal, stored) => withFreeSlotClarifications(proposal, uid, {
+          timezone: stored.timezone ?? normalizeTimezone(input.timezone),
+          now: stored.proposedAt ?? now.toISOString(),
+        }),
       });
       if (outcome.kind === 'changed') {
         const currentTurns = outcome.turns ?? conversation.turns;

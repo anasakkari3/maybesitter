@@ -7,6 +7,14 @@ import { RequestBodyTooLargeError, readJsonBody, requestBodyTooLargeResponse } f
 
 export const dynamic = 'force-dynamic';
 
+const EXACT_TIME = /^([01]\d|2[0-3]):([0-5]\d)$/;
+
+function validSessionTime(start: string, end: string): boolean {
+  if (!EXACT_TIME.test(start) || !EXACT_TIME.test(end)) return false;
+  const minutes = (value: string) => Number(value.slice(0, 2)) * 60 + Number(value.slice(3, 5));
+  return minutes(end) > minutes(start);
+}
+
 /**
  * Accepts recurring lecture sessions as manual busy blocks (UC-3.7, #191 Step 7).
  *
@@ -59,6 +67,9 @@ export async function POST(request: Request) {
     }
     if (!start || !end) {
       return mobileError('start and end times are required');
+    }
+    if (!validSessionTime(start, end)) {
+      return Response.json({ success: false, reason: 'invalid_session' }, { status: 400 });
     }
     sessions.push({ weekday, start, end, label });
   }

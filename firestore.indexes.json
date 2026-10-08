@@ -1,6 +1,31 @@
 {
   "indexes": [
     {
+      "collectionGroup": "busyBlocks",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "sourceId", "order": "ASCENDING" },
+        { "fieldPath": "startAt", "order": "ASCENDING" },
+        { "fieldPath": "endAt", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "busyBlocks",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "sourceKind", "order": "ASCENDING" },
+        { "fieldPath": "startAt", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "busyBlocks",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "sourceKind", "order": "ASCENDING" },
+        { "fieldPath": "endAt", "order": "ASCENDING" }
+      ]
+    },
+    {
       "collectionGroup": "intelligenceMonitors",
       "queryScope": "COLLECTION_GROUP",
       "fields": [

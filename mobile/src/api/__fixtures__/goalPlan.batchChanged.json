@@ -1,0 +1,70 @@
+{
+  "success": false,
+  "error": "times_changed",
+  "reason": "times_changed",
+  "times": {
+    "timesId": "00000000-0000-4000-8000-000000000001",
+    "timesRevision": 2,
+    "planId": "00000000-0000-4000-8000-000000000002",
+    "planRevision": 1,
+    "anchor": {
+      "localDate": "2026-10-08",
+      "timezone": "Asia/Jerusalem"
+    },
+    "steps": [
+      {
+        "stepId": "00000000-0000-4000-8000-000000000003",
+        "kind": "commitment",
+        "slot": {
+          "startsAt": "2026-08-09T09:00:00.000Z",
+          "endsAt": "2026-08-09T09:00:00.000Z"
+        },
+        "alternatives": [
+          {
+            "startsAt": "2026-08-09T09:00:00.000Z",
+            "endsAt": "2026-08-09T09:00:00.000Z"
+          },
+          {
+            "startsAt": "2026-08-09T09:00:00.000Z",
+            "endsAt": "2026-08-09T09:00:00.000Z"
+          },
+          {
+            "startsAt": "2026-08-09T09:00:00.000Z",
+            "endsAt": "2026-08-09T09:00:00.000Z"
+          }
+        ],
+        "choice": "proposed"
+      },
+      {
+        "stepId": "00000000-0000-4000-8000-000000000004",
+        "kind": "commitment",
+        "slot": {
+          "startsAt": "2026-08-09T09:00:00.000Z",
+          "endsAt": "2026-08-09T09:00:00.000Z"
+        },
+        "alternatives": [
+          {
+            "startsAt": "2026-08-09T09:00:00.000Z",
+            "endsAt": "2026-08-09T09:00:00.000Z"
+          },
+          {
+            "startsAt": "2026-08-09T09:00:00.000Z",
+            "endsAt": "2026-08-09T09:00:00.000Z"
+          },
+          {
+            "startsAt": "2026-08-09T09:00:00.000Z",
+            "endsAt": "2026-08-09T09:00:00.000Z"
+          }
+        ],
+        "choice": "proposed"
+      },
+      {
+        "stepId": "00000000-0000-4000-8000-000000000005",
+        "kind": "habit",
+        "later": {
+          "weekIndex": 3
+        }
+      }
+    ]
+  }
+}

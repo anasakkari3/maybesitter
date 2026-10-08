@@ -224,7 +224,9 @@ test('every mobile route file exists and is enumerated', () => {
   // One hundred fourteen with M3b's capture-kind capability probe. Even a
   // feature probe is account-scoped here: it must authenticate before it
   // reports which capture families this deployment offers.
-  assert.equal(files.length, 114, `found:\n${files.join('\n')}`);
+  // One hundred fifteen with M4a's batch time-edit route. It mutates an
+  // account-scoped proposal and therefore shares the mobile auth boundary.
+  assert.equal(files.length, 115, `found:\n${files.join('\n')}`);
 });
 
 test('every mobile route handler runs an authentication guard before anything else', () => {

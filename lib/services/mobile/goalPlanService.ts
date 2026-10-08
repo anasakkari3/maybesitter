@@ -21,16 +21,16 @@ import { buildHabitDefinition, parseHabitDefinitionInput, type HabitDefinition, 
 import { GOAL_GRAPH_LINK_SCHEMA_VERSION, type GoalNodeLink } from '../../../src/contracts/v1/goalGraphContracts';
 import { applyCommand, createEmptyDomainState, type Command, type DomainEvent, type DomainState } from '../../../src/domain/stateMachine';
 import { toVertexSchema } from '../../../src/extraction/llm';
-import { instantFromLocal } from '../../../src/extraction/timeLexicon';
 import { mapExtractionToCommand } from '../../../src/extraction/mapExtractionToCommand';
 import type { ExtractionResult } from '../../../src/extraction/extractionTypes';
 import { namesADate, goalStepLanguageOf, templateGoalSteps } from '../../goalGraph/goalStepPlan';
 import { goalNodeLinkIdFor } from '../../goalGraph/linkStore';
 import { shareLlmProvider } from '../../llm/shareProvider';
 import { wrapUntrustedShared } from '../share/shareTypes';
-import { planningInputDigest, schedulePlan } from '../../planning/scheduler';
-import type { PlanningConfig, PlanningConstraints, PlanningItem, TimeInterval } from '../../../src/contracts/v1/planningContracts';
-import { composeDailyPlanRequest, addCivilDays } from '../dailyPlan/dailyPlanService';
+import { planningInputDigest } from '../../planning/scheduler';
+import type { TimeInterval } from '../../../src/contracts/v1/planningContracts';
+import { addCivilDays } from '../dailyPlan/dailyPlanService';
+import { atLocal, candidateMinutes, commitmentCandidates, dayContexts, exactSlot, type DayContext } from '../../planning/freeSlots';
 import { localDateOf } from '../dailyPlan/planSettings';
 import { readCurrentPlan } from '../dailyPlan/planRefresh';
 import { DEFAULT_MOBILE_TIMEZONE } from './time';
@@ -67,7 +67,6 @@ const MAX_EDITS = 60;
 const MAX_REMOVED = 20;
 const MAX_STEPS = 12;
 const INITIAL_MODEL_MAX_STEPS = 10;
-const SLOT_MINUTES = 15;
 
 type StoredInstant = string | Date | { toDate(): Date };
 
@@ -173,12 +172,6 @@ interface StatementAcceptReceipt {
   fingerprint: string;
   goalId: string;
   createdAt: string;
-}
-
-interface DayContext {
-  date: string;
-  constraints: PlanningConstraints;
-  config: PlanningConfig;
 }
 
 function path(uid: string, collection: string, id: string): string {
@@ -551,7 +544,13 @@ function timezoneOf(user: Record<string, unknown> | null): string {
 }
 
 function datesFor(step: InternalStep, anchor: string): string[] {
-  if (step.phase.unit === 'day') return [addCivilDays(anchor, step.phase.index - 1)];
+  if (step.phase.unit === 'day') {
+    if (step.kind === 'habit') {
+      const weekStart = Math.floor((step.phase.index - 1) / 7) * 7;
+      return Array.from({ length: 7 }, (_, index) => addCivilDays(anchor, weekStart + index));
+    }
+    return [addCivilDays(anchor, step.phase.index - 1)];
+  }
   return Array.from({ length: 7 }, (_, index) => addCivilDays(anchor, (step.phase.index - 1) * 7 + index));
 }
 
@@ -559,67 +558,12 @@ function isLater(step: InternalStep): boolean {
   return step.phase.unit === 'day' ? step.phase.index > 14 : step.phase.index > 2;
 }
 
-function readerAdapter(reader: StorageReader): StorageAdapter {
-  const unavailable = async (): Promise<never> => { throw new Error('transaction reader is read-only'); };
-  return {
-    get: reader.get.bind(reader), list: reader.list.bind(reader), listGroup: reader.listGroup.bind(reader),
-    set: unavailable, delete: unavailable, deleteTree: unavailable,
-    runTransaction: async (fn) => fn(reader as StorageTransaction),
-  };
-}
-
-async function dayContexts(reader: StorageReader, uid: string, anchor: { localDate: string; timezone: string }, dates: string[], now: string): Promise<DayContext[]> {
-  const storage = readerAdapter(reader);
-  const user = await reader.get<Record<string, unknown>>(userDoc(uid));
-  const unique = Array.from(new Set(dates)).sort();
-  const contexts: DayContext[] = [];
-  for (const date of unique) {
-    const request = await composeDailyPlanRequest({ uid, date, timezone: anchor.timezone, now, userDocument: user, previousBlocks: null }, { storage });
-    contexts.push({ date, constraints: request.constraints, config: request.config });
-  }
-  return contexts;
-}
-
-function atLocal(date: string, hhmm: string, timezone: string): string | null {
-  return instantFromLocal(date, hhmm, timezone)?.toISOString() ?? null;
+function laterWeekIndex(step: InternalStep): number {
+  return step.phase.unit === 'day' ? Math.floor((step.phase.index - 1) / 7) + 1 : step.phase.index;
 }
 
 function hhmm(minutes: number): string {
   return `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`;
-}
-
-function exactSlot(context: DayContext, step: InternalStep, start: string, timezone: string, occupied: TimeInterval[]): GoalPlanSlot | null {
-  const startsAt = atLocal(context.date, start, timezone);
-  if (!startsAt) return null;
-  const endsAt = new Date(Date.parse(startsAt) + step.durationMinutes * 60_000).toISOString();
-  const item: PlanningItem = { itemId: `goal-plan:${step.stepId}`, title: step.title, effort: { kind: 'known', minutes: step.durationMinutes },
-    earliestStartAt: startsAt, deadlineAt: endsAt, priority: 1_000_000, dependsOn: [], bufferBeforeMinutes: 0, bufferAfterMinutes: 0 };
-  const plan = schedulePlan({ ...context.constraints, fixedEvents: [...context.constraints.fixedEvents, ...occupied.map((interval, index) => ({ eventId: `goal-plan-held-${index}`, interval, sourceCommitmentId: null, blocking: true }))], items: [...context.constraints.items, item] }, context.config);
-  const placed = plan.scheduled.find((entry) => entry.itemId === item.itemId);
-  return placed && placed.interval.startsAt === startsAt && placed.interval.endsAt === endsAt ? { startsAt, endsAt } : null;
-}
-
-function candidateMinutes(step: InternalStep, now: string, date: string, timezone: string): number[] {
-  const range = step.rhythm?.timeOfDay === 'morning' ? [6 * 60, 12 * 60] : step.rhythm?.timeOfDay === 'afternoon' ? [12 * 60, 17 * 60]
-    : step.rhythm?.timeOfDay === 'evening' ? [17 * 60, 22 * 60] : [6 * 60, 22 * 60];
-  const result: number[] = [];
-  for (let minute = range[0]; minute + step.durationMinutes <= range[1]; minute += SLOT_MINUTES) {
-    const instant = atLocal(date, hhmm(minute), timezone);
-    if (instant && Date.parse(instant) > Date.parse(now) + 60 * 60_000) result.push(minute);
-  }
-  return result;
-}
-
-function commitmentCandidates(step: InternalStep, contexts: DayContext[], anchor: { timezone: string }, now: string, occupied: TimeInterval[]): GoalPlanSlot[] {
-  const found: GoalPlanSlot[] = [];
-  for (const context of contexts) {
-    for (const minute of candidateMinutes(step, now, context.date, anchor.timezone)) {
-      const slot = exactSlot(context, step, hhmm(minute), anchor.timezone, occupied);
-      if (slot) found.push(slot);
-      if (found.length === 4) return found;
-    }
-  }
-  return found;
 }
 
 function weeklyCandidates(step: InternalStep, contexts: DayContext[], anchor: { timezone: string }, now: string, occupied: TimeInterval[]): GoalPlanWeeklyTiming[] {
@@ -647,7 +591,7 @@ async function buildTimes(reader: StorageReader, uid: string, plan: StoredGoalPl
   const occupied: TimeInterval[] = [];
   const entries: GoalPlanTimesStep[] = [];
   for (const step of selected) {
-    if (!weekIndex && isLater(step)) { entries.push({ stepId: step.stepId, kind: step.kind, later: { weekIndex: step.phase.index } }); continue; }
+    if (!weekIndex && isLater(step)) { entries.push({ stepId: step.stepId, kind: step.kind, later: { weekIndex: laterWeekIndex(step) } }); continue; }
     const own = contexts.filter((context) => datesFor(step, anchor.localDate).includes(context.date));
     if (step.kind === 'commitment') {
       const candidates = commitmentCandidates(step, own, anchor, now, occupied);
@@ -701,7 +645,7 @@ function publicTimes(times: StoredTimes): GoalPlanTimes {
 function newestTimesForPlan(times: StoredTimes[], planId: string, weekIndex?: number): StoredTimes | undefined {
   return times
     .filter((candidate) => candidate.planId === planId && !candidate.invalidated
-      && (weekIndex === undefined || candidate.weekIndex === weekIndex))
+      && candidate.weekIndex === weekIndex)
     .sort((left, right) => right.createdAt.localeCompare(left.createdAt) || right.timesId.localeCompare(left.timesId))[0];
 }
 
@@ -711,6 +655,13 @@ function newestTimesForRequest(times: StoredTimes[], planId: string, requested: 
 
 function staleTimes(current: StoredTimes | undefined): never {
   apiError(409, 'stale', current ? { times: publicTimes(current) } : {});
+}
+
+function assertTimesActionable(plan: StoredGoalPlan, times: StoredTimes): void {
+  const actionable = times.weekIndex === undefined
+    ? plan.status === 'approved'
+    : plan.status === 'confirmed' && plan.pendingLaterSteps.some((pending) => pending.weekIndex === times.weekIndex);
+  if (!actionable) apiError(409, 'times_consumed');
 }
 
 function chosenIntervalsFor(
@@ -796,6 +747,7 @@ export async function chooseGoalPlanTime(uid: string, goalId: string, planId: st
     || newest?.timesId !== timesId || times.timesRevision !== timesRevision) {
     staleTimes(newest);
   }
+  assertTimesActionable(plan, times);
   const index = times.steps.findIndex((entry) => entry.stepId === stepId); const step = plan.steps.find((entry) => entry.stepId === stepId);
   if (index < 0 || !step) apiError(422, 'not_free', { times: publicTimes(times) });
   const now = new Date().toISOString();
@@ -844,7 +796,7 @@ export async function chooseGoalPlanTime(uid: string, goalId: string, planId: st
     now,
   );
   return storage.runTransaction(async (tx) => {
-    await currentPlanForMutation(tx, uid, goalId, planId, true);
+    const { plan: currentPlan } = await currentPlanForMutation(tx, uid, goalId, planId, true);
     const latest = await tx.get<StoredTimes>(timesPath(uid, timesId));
     const latestProposals = (await tx.list<StoredTimes>(userCol(uid, GOAL_PLAN_TIMES))).map((row) => row.data);
     const latestNewest = newestTimesForRequest(latestProposals, planId, latest);
@@ -852,8 +804,126 @@ export async function chooseGoalPlanTime(uid: string, goalId: string, planId: st
       || latest.timesRevision !== timesRevision) {
       staleTimes(latestNewest);
     }
+    assertTimesActionable(currentPlan, latest);
     const next: StoredTimes = { ...latest, timesRevision: latest.timesRevision + 1, steps: nextSteps, updatedAt: now };
     tx.set(timesPath(uid, next.timesId), next); return publicTimes(next);
+  });
+}
+
+export interface GoalPlanBatchPreference {
+  partOfDay?: 'morning' | 'afternoon' | 'evening';
+  startFrom?: string;
+  noTime?: true;
+}
+
+function civilDayDelta(from: string, to: string): number {
+  return Math.round((Date.parse(`${to}T12:00:00Z`) - Date.parse(`${from}T12:00:00Z`)) / 86_400_000);
+}
+
+function timesChanged(current: StoredTimes | undefined): never {
+  apiError(409, 'times_changed', current ? { times: publicTimes(current) } : {});
+}
+
+function normalizeBatchMiss(entry: GoalPlanTimesStep): { entry: GoalPlanTimesStep; unplaced: boolean } {
+  if ('slot' in entry && entry.slot === null) {
+    return { entry: { stepId: entry.stepId, kind: 'commitment', slot: null, alternatives: [], choice: 'none' }, unplaced: true };
+  }
+  if ('weekly' in entry && entry.weekly === null) {
+    return { entry: { stepId: entry.stepId, kind: 'habit', weekly: null, alternatives: [], choice: 'none' }, unplaced: true };
+  }
+  return { entry, unplaced: false };
+}
+
+/** Recomputes every currently placeable time in one CAS update. */
+export async function batchGoalPlanTimes(
+  uid: string,
+  goalId: string,
+  planId: string,
+  timesId: string,
+  timesRevision: number,
+  preference: GoalPlanBatchPreference,
+  storage = getStorage(),
+): Promise<{ times: GoalPlanTimes; unplaced: string[] }> {
+  const keys = Object.keys(preference);
+  const validPart = preference.partOfDay === undefined || ['morning', 'afternoon', 'evening'].includes(preference.partOfDay);
+  const validDate = preference.startFrom === undefined || /^\d{4}-\d{2}-\d{2}$/.test(preference.startFrom);
+  if (!validPart || !validDate || keys.some((key) => !['partOfDay', 'startFrom', 'noTime'].includes(key))
+    || preference.noTime === true && (preference.partOfDay !== undefined || preference.startFrom !== undefined)
+    || preference.noTime !== true && preference.partOfDay === undefined && preference.startFrom === undefined) {
+    apiError(400, 'invalid_preference');
+  }
+
+  const [plan, requested, rows] = await Promise.all([
+    storage.get<StoredGoalPlan>(planPath(uid, planId)),
+    optionalTimesPath(uid, timesId) ? storage.get<StoredTimes>(timesPath(uid, timesId)) : Promise.resolve(null),
+    storage.list<StoredTimes>(userCol(uid, GOAL_PLAN_TIMES)),
+  ]);
+  if (!plan) apiError(404, 'goal_not_found');
+  await requireCurrentGoal(storage, uid, goalId);
+  const newest = newestTimesForRequest(rows.map((row) => row.data), planId, requested);
+  if (!requested || requested.planId !== planId || requested.invalidated || newest?.timesId !== timesId
+    || requested.timesRevision !== timesRevision) timesChanged(newest);
+  assertTimesActionable(plan, requested);
+
+  const now = new Date().toISOString();
+  let anchor = requested.anchor;
+  const placeableIds = new Set(requested.steps.filter((entry) => !('later' in entry)).map((entry) => entry.stepId));
+  const selected = plan.steps.filter((step) => placeableIds.has(step.stepId));
+  if (preference.startFrom) {
+    const today = localDateOf(now, requested.anchor.timezone);
+    const ahead = civilDayDelta(today, preference.startFrom);
+    if (ahead < 0 || ahead > 14) apiError(400, 'invalid_preference');
+    const first = selected.flatMap((step) => datesFor(step, requested.anchor.localDate)).sort()[0];
+    if (!first) apiError(400, 'invalid_preference');
+    anchor = { ...requested.anchor, localDate: addCivilDays(requested.anchor.localDate, civilDayDelta(first, preference.startFrom)) };
+  }
+
+  let nextSteps: GoalPlanTimesStep[];
+  let inputs: string;
+  const unplaced: string[] = [];
+  if (preference.noTime) {
+    nextSteps = requested.steps.map((entry): GoalPlanTimesStep => {
+      if ('later' in entry) return entry;
+      return entry.kind === 'commitment'
+        ? { stepId: entry.stepId, kind: 'commitment', slot: null, alternatives: [], choice: 'none' }
+        : { stepId: entry.stepId, kind: 'habit', weekly: null, alternatives: [], choice: 'none' };
+    });
+    const dates = selected.flatMap((step) => datesFor(step, anchor.localDate));
+    inputs = await inputsDigest(storage, uid, anchor, dates, now);
+  } else {
+    const adjusted = selected.map((step): InternalStep => preference.partOfDay
+      ? { ...step, rhythm: { timesPerWeek: step.rhythm?.timesPerWeek ?? 1, timeOfDay: preference.partOfDay } }
+      : step);
+    const rebuilt = await buildTimes(storage, uid, plan, anchor, adjusted, now, requested.weekIndex);
+    const rebuiltById = new Map(rebuilt.steps.map((entry) => [entry.stepId, entry] as const));
+    nextSteps = requested.steps.map((original) => {
+      if ('later' in original) return original;
+      const replacement = rebuiltById.get(original.stepId) ?? original;
+      const normalized = normalizeBatchMiss(replacement);
+      if (normalized.unplaced) unplaced.push(original.stepId);
+      return normalized.entry;
+    });
+    inputs = rebuilt.inputsDigest;
+  }
+
+  return storage.runTransaction(async (tx) => {
+    const { plan: currentPlan } = await currentPlanForMutation(tx, uid, goalId, planId, true);
+    const latest = await tx.get<StoredTimes>(timesPath(uid, timesId));
+    const proposals = (await tx.list<StoredTimes>(userCol(uid, GOAL_PLAN_TIMES))).map((row) => row.data);
+    const currentNewest = newestTimesForRequest(proposals, planId, latest);
+    if (!latest || latest.invalidated || latest.timesId !== timesId || latest.timesRevision !== timesRevision
+      || currentNewest?.timesId !== timesId) timesChanged(currentNewest);
+    assertTimesActionable(currentPlan, latest);
+    const next: StoredTimes = {
+      ...latest,
+      timesRevision: latest.timesRevision + 1,
+      anchor,
+      steps: nextSteps,
+      inputsDigest: inputs,
+      updatedAt: now,
+    };
+    tx.set(timesPath(uid, timesId), next);
+    return { times: publicTimes(next), unplaced };
   });
 }
 
@@ -881,11 +951,13 @@ function habitFor(uid: string, goalId: string, step: InternalStep, entry: GoalPl
     confirmation: { confirmedByUserAt: now, sourceRef: goalId, acceptedSuggestedValues: true } }), now);
 }
 
-function habitOccurrences(habit: HabitDefinition, entry: GoalPlanTimesStep, anchor: { localDate: string; timezone: string }): Array<HabitOccurrence & { placement?: { startsAt: string; endsAt: string; origin: 'accepted' } }> {
+function habitOccurrences(habit: HabitDefinition, entry: GoalPlanTimesStep, anchor: { localDate: string; timezone: string }, weekIndex?: number): Array<HabitOccurrence & { placement?: { startsAt: string; endsAt: string; origin: 'accepted' } }> {
   const weekly = 'weekly' in entry ? entry.weekly : null;
   const rows: Array<HabitOccurrence & { placement?: { startsAt: string; endsAt: string; origin: 'accepted' } }> = [];
-  for (let index = 0; index < 14; index += 1) {
-    const localDate = addCivilDays(anchor.localDate, index);
+  const offset = weekIndex === undefined ? 0 : (weekIndex - 1) * 7;
+  const count = weekIndex === undefined ? 14 : 7;
+  for (let index = 0; index < count; index += 1) {
+    const localDate = addCivilDays(anchor.localDate, offset + index);
     const weekday = new Date(`${localDate}T12:00:00Z`).getUTCDay();
     if (habit.cadence.kind !== 'weekdays' || !habit.cadence.weekdays.includes(weekday)) continue;
     const occurrenceId = `${habit.habitId}.${localDate}.0`;
@@ -949,7 +1021,9 @@ export async function confirmGoalPlan(uid: string, goalId: string, planId: strin
     if (!times || times.invalidated || times.planId !== planId || times.planRevision !== input.planRevision || times.timesRevision !== input.timesRevision || plan.revision !== input.planRevision) {
       apiError(409, 'stale', { plan: publicPlan(plan) });
     }
-    const relevantSteps = times.weekIndex ? plan.steps.filter((step) => step.phase.unit === 'week' && step.phase.index === times.weekIndex) : plan.steps;
+    assertTimesActionable(plan, times);
+    const reviewedStepIds = new Set(times.steps.map((entry) => entry.stepId));
+    const relevantSteps = times.weekIndex ? plan.steps.filter((step) => reviewedStepIds.has(step.stepId)) : plan.steps;
     const dates = relevantSteps.filter((step) => !isLater(step) || times.weekIndex !== undefined).flatMap((step) => datesFor(step, times.anchor.localDate));
     const currentDigest = await inputsDigest(tx, uid, times.anchor, dates, new Date().toISOString());
     if (currentDigest !== times.inputsDigest) return { kind: 'changed' as const, plan, times };
@@ -982,7 +1056,7 @@ export async function confirmGoalPlan(uid: string, goalId: string, planId: strin
         plannedWrites += 1;
       } else {
         const habit = habitFor(uid, goalId, step, entry, entityId, new Date().toISOString());
-        const occurrences = habitOccurrences(habit, entry, times.anchor);
+        const occurrences = habitOccurrences(habit, entry, times.anchor, times.weekIndex);
         tx.set(path(uid, HABITS, habit.habitId), habit);
         for (const occurrence of occurrences) { tx.set(path(uid, HABIT_OCCURRENCES, occurrence.occurrenceId), occurrence); affectedDates.add(occurrence.localDate); }
         const weekly = 'weekly' in entry ? entry.weekly : null;

@@ -65,7 +65,7 @@ import {
   getParticipantStateSnapshot,
 } from './participantState';
 import { guardedMobileExtract } from './safety';
-import { dateFromOptionalIso, normalizeTimezone } from './time';
+import { DEFAULT_MOBILE_TIMEZONE, dateFromOptionalIso, normalizeTimezone } from './time';
 import type { WeeklyBlockContract } from '../../../src/contracts/v1/weeklyBlockContracts';
 import {
   captureWeeklyBlockId,
@@ -93,6 +93,10 @@ import {
   type HabitOccurrence,
 } from '../../../src/contracts/v1/habitContracts';
 import { resolveCaptureKinds } from '../captureKinds/runtime';
+import {
+  freeSlotStillAvailable,
+  withFreeSlotClarifications,
+} from '../../planning/freeSlots';
 import { horizonFrom, todayLocalDateFor } from '../habits/habitService';
 import { materializeHabitOccurrences } from '../../habits/materialize';
 import {
@@ -267,7 +271,26 @@ type MobileGlobals = typeof globalThis & {
 const mobileGlobals = globalThis as MobileGlobals;
 // Durable since #252: a proposal made on one instance must be confirmable on
 // another, and must survive a redeploy. Resolved per call by the adapter.
-const store: CaptureProposalStore = createStorageCaptureProposalStore();
+const baseStore: CaptureProposalStore = createStorageCaptureProposalStore();
+const store: CaptureProposalStore = {
+  get: (proposalId) => baseStore.get(proposalId),
+  put: async (proposal) => {
+    const contract = await withFreeSlotClarifications(proposal.contract, proposal.scopeId, {
+      timezone: proposal.timezone ?? DEFAULT_MOBILE_TIMEZONE,
+      now: proposal.proposedAt ?? new Date().toISOString(),
+    });
+    // The boundary returns the same contract object it hands to `put`. Keep
+    // that object in sync so callers receive the derived clarification without
+    // adding a second storage read (some callers deliberately tolerate a
+    // failed post-write decoration read).
+    if (contract !== proposal.contract) {
+      const target = proposal.contract as unknown as Record<string, unknown>;
+      for (const key of Object.keys(target)) delete target[key];
+      Object.assign(target, contract);
+    }
+    await baseStore.put({ ...proposal, contract });
+  },
+};
 const persistence = mobileGlobals.__maybesitterMobilePersistence ?? new CommandServiceCapturePersistenceAdapter();
 mobileGlobals.__maybesitterMobilePersistence = persistence;
 
@@ -663,6 +686,10 @@ export async function editCaptureKindsProposal(
     commands.set(itemId, artifacts.commands);
   } else throw new CaptureKindsInvalidEditError();
   contract = withV8Understood({ ...contract, revision: (contract.revision ?? 0) + 1 });
+  contract = await withFreeSlotClarifications(contract, uid, {
+    timezone: stored.timezone ?? DEFAULT_MOBILE_TIMEZONE,
+    now: stored.proposedAt ?? new Date().toISOString(),
+  });
   const mutated: StoredCaptureProposal = {
     ...stored,
     contract,
@@ -1506,6 +1533,7 @@ export async function clarifyMobileCapture(input: MobileClarifyInput, context: M
   }
 
   const scopeId = scopeIdFrom(input.scopeId, context);
+  const clarifyNow = dateFromOptionalIso(input.referenceTime, new Date(), 'referenceTime');
   const before = await store.get(proposalId);
   if (!before || before.scopeId !== scopeId) throw new ClarifyError('proposal_not_found');
   const currentRevision = proposalRevision(before.contract);
@@ -1527,7 +1555,13 @@ export async function clarifyMobileCapture(input: MobileClarifyInput, context: M
     // extraction cannot overwrite an edit or reopen a proposal confirmed while
     // the extraction was in flight.
     get: async (requestedProposalId) => requestedProposalId === proposalId ? before : undefined,
-    put: async (next) => {
+    put: async (candidate) => {
+      const enrichedContract = await withFreeSlotClarifications(candidate.contract, scopeId, {
+        timezone: before.timezone ?? normalizeTimezone(input.timezone),
+        now: before.proposedAt ?? clarifyNow.toISOString(),
+        storage,
+      });
+      const next = { ...candidate, contract: enrichedContract };
       await storage.runTransaction(async (tx) => {
         const document = await tx.get<StoredProposalDocument>(proposalPath);
         if (!document) throw new ClarifyError('proposal_not_found');
@@ -1568,6 +1602,30 @@ export async function clarifyMobileCapture(input: MobileClarifyInput, context: M
     },
   };
 
+  const selectedOption = typeof input.optionId === 'string'
+    ? before.contract.items.find((item) => item.itemId === itemId)?.clarification?.options
+      .find((option) => option.optionId === input.optionId)
+    : undefined;
+  if (selectedOption?.labelKey === 'freeSlot'
+    && selectedOption.value.localDate && selectedOption.value.localTime
+    && !await freeSlotStillAvailable(scopeId, selectedOption.value.localDate, selectedOption.value.localTime, {
+      timezone: before.timezone ?? normalizeTimezone(input.timezone),
+      now: clarifyNow.toISOString(),
+      storage,
+    })) {
+    const refreshed = await withFreeSlotClarifications(
+      { ...before.contract, revision: currentRevision + 1 },
+      scopeId,
+      {
+        timezone: before.timezone ?? normalizeTimezone(input.timezone),
+        now: clarifyNow.toISOString(),
+        storage,
+      },
+    );
+    await compareAndSwapStore.put({ ...before, contract: refreshed, legacyConfirmRevision: undefined });
+    return { ...(await withEventsOnTheirDay(refreshed)), reason: 'not_free' as const };
+  }
+
   const answered = await answerClarification(
     {
       proposalId,
@@ -1577,7 +1635,7 @@ export async function clarifyMobileCapture(input: MobileClarifyInput, context: M
       ...(typeof input.freeText === 'string' ? { freeText: input.freeText } : {}),
     },
     {
-      now: dateFromOptionalIso(input.referenceTime, new Date(), 'referenceTime'),
+      now: clarifyNow,
       timezone: normalizeTimezone(input.timezone),
       scopeId,
     },

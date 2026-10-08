@@ -6,6 +6,8 @@ import {
 } from '../../../../../../../lib/integrations/google/googleCalendarBusy';
 import { googleFailureResponse } from '../../../../../../../lib/integrations/google/googleRouteSupport';
 import { googleRuntime } from '../../../../../../../lib/integrations/google/googleRuntime';
+import { readCalendarSource } from '../../../../../../../lib/calendar/busyBlocks';
+import { GOOGLE_BUSY_SOURCE_ID } from '../../../../../../../lib/integrations/google/googleConfig';
 
 export const dynamic = 'force-dynamic';
 
@@ -30,7 +32,10 @@ export async function GET(request: Request) {
     const now = runtime.now();
     const start = new Date(now.getTime() - DAY_MS).toISOString();
     const end = new Date(now.getTime() + (GOOGLE_BUSY_LOOK_AHEAD_DAYS + 1) * DAY_MS).toISOString();
-    const blocks = await listGoogleBusyBlocks(user.uid, { startsAt: start, endsAt: end }, runtime);
+    const [blocks, source] = await Promise.all([
+      listGoogleBusyBlocks(user.uid, { startsAt: start, endsAt: end }, runtime),
+      readCalendarSource(user.uid, GOOGLE_BUSY_SOURCE_ID, { storage: runtime.storage }),
+    ]);
     return Response.json({
       success: true,
       blocks: blocks.map((block) => ({
@@ -41,6 +46,8 @@ export async function GET(request: Request) {
         endAt: block.endAt,
         allDay: block.allDay,
       })),
+      windowStart: source?.windowStart ?? null,
+      windowEnd: source?.windowEnd ?? null,
     });
   } catch (error) {
     return googleFailureResponse(error);
