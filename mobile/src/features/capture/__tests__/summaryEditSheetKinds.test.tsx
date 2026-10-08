@@ -83,4 +83,16 @@ describe('SummaryEditSheet', () => {
     expect(screen.getByTestId('understood-edit-kind-goal').props.accessibilityState).toEqual(expect.objectContaining({ checked: true }));
     expect(screen.queryByTestId('understood-edit-kind-commitment')).toBeNull();
   });
+
+  it('a habit line takes 120 emoji (the server counts code points); a commitment line stops at 120 units', async () => {
+    const onHabit = await sheet('habit');
+    await fireEvent.changeText(screen.getByTestId('understood-edit-text'), '🏃'.repeat(121));
+    expect(screen.getByTestId('understood-edit-text').props.value).toBe('🏃'.repeat(120));
+    await fireEvent.press(screen.getByTestId('understood-edit-save'));
+    expect(onHabit).toHaveBeenCalledWith({ text: '🏃'.repeat(120) });
+    await cleanup();
+    await sheet('commitment');
+    await fireEvent.changeText(screen.getByTestId('understood-edit-text'), '🏃'.repeat(70));
+    expect(screen.getByTestId('understood-edit-text').props.value).toBe('🏃'.repeat(60));
+  });
 });

@@ -10,6 +10,7 @@ import { Btn, Pill, Txt } from '../../ui/primitives';
 import type { CaptureProposalEdit } from '../../api/endpoints/capture';
 import { useLayoutMode } from '../../theme/textScale';
 import { MAX_TITLE_LENGTH } from './captureMachine';
+import { clampCodePoints, clampUnits } from './titleBounds';
 import { instantForLocalDateTime, localDateTimeFor } from './localInstant';
 
 export type PointKind = NonNullable<CaptureProposalEdit['change']['kind']>;
@@ -73,10 +74,17 @@ export function SummaryEditSheet({ kind: startKind, offered = { habit: false, go
 
   // A habit turned commitment asks its day and time afterwards (R006), so it takes none here.
   const timed = kind === 'commitment' && startKind !== 'habit';
+  // A habit or goal edit goes to the server's M3b path, which bounds the words at
+  // 120 code points; every other edit is bounded at 120 UTF-16 units, the
+  // confirm's own contract (captureTitleBounds). An emoji is one code point but
+  // two units, so the native maxLength fits only the second (M3B-A-R3-001).
+  const byCodePoints = [startKind, kind].some((value) => value === 'habit' || value === 'goal');
+  const bounded = (value: string) => (byCodePoints ? clampCodePoints(value, MAX_TITLE_LENGTH) : clampUnits(value, MAX_TITLE_LENGTH));
   const save = () => {
     const change: CaptureProposalEdit['change'] = {};
     if (kind !== startKind) change.kind = kind;
-    if (text.trim() && text.trim() !== startText.trim()) change.text = text.trim();
+    const words = bounded(text).trim();
+    if (words && words !== startText.trim()) change.text = words;
     // A time belongs to a commitment only; a seed carries none.
     if (at !== undefined && timed && at !== startAt) change.time = { at, timeZone: timezone };
     if (Object.keys(change).length === 0) { onCancel(); return; }
@@ -103,8 +111,8 @@ export function SummaryEditSheet({ kind: startKind, offered = { habit: false, go
       <Txt size={13} color={p.mu}>{t.understoodEditWords}</Txt>
       {/* While the change is on its way nothing in the sheet moves: what was
           sent is what the answer (or a refusal's «رجعلي تعديلي») is about (M2B-A-R5-REVIEW-001). */}
-      <TextInput testID="understood-edit-text" accessibilityLabel={t.understoodEditWords} value={text} onChangeText={setText}
-        editable={!busy} maxLength={MAX_TITLE_LENGTH} multiline
+      <TextInput testID="understood-edit-text" accessibilityLabel={t.understoodEditWords} value={text} onChangeText={(value) => setText(bounded(value))}
+        editable={!busy} multiline
         style={{ backgroundColor: p.sf2, borderRadius: 18, paddingVertical: 12, paddingHorizontal: 16, fontSize: 16, minHeight: 56, color: p.tx, fontFamily: family(400, script), textAlign: rtl ? 'right' : 'left' }} />
 
       {timed ? <>
