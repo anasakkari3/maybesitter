@@ -608,8 +608,15 @@ test('census: every production caller of a busy-block writer is listed, with the
 
 test('census: nothing outside busyBlocks.ts names the busy-blocks collection', () => {
   const offenders: string[] = [];
+  // M4a adds bounded, read-only consumers. They do not bypass the announcing
+  // writers this census protects; the acceptance and emulator gates pin their
+  // query shapes separately.
+  const readers = new Set([
+    join('lib', 'planning', 'freeSlots.ts'),
+    join('src', 'app', 'api', 'mobile', 'calendar', 'busy', 'route.ts'),
+  ]);
   for (const source of productionSources()) {
-    if (source.file === BUSY_MODULE || source.file === join('lib', 'storage', 'paths.ts')) continue;
+    if (source.file === BUSY_MODULE || source.file === join('lib', 'storage', 'paths.ts') || readers.has(source.file)) continue;
     visitNamed(source, (node) => {
       if (ts.isIdentifier(node) && node.text === 'BUSY_BLOCKS') offenders.push(`${source.file}: BUSY_BLOCKS`);
       if (!node.parent) return;

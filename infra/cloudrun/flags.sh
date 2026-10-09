@@ -24,6 +24,7 @@ case "${TARGET}" in
     database_id="staging"
     env_name="staging"
     capture_kinds="true"
+    free_slots="true"
     proactive_loop="true"
     # UC-2.0 (#160) / UC-2.1 (#161): the hosted model.
     llm_provider="gemini"
@@ -45,6 +46,7 @@ case "${TARGET}" in
     database_id="(default)"
     env_name="production"
     capture_kinds="false"
+    free_slots="false"
     # OWNER DECISION (2026-10-01): the proactive loop (MaybeSitter's "brain":
     # proactive suggestions, outcome learning, opt-in Gmail monitoring) is
     # released to production for everyone. MAYBESITTER_KILL_SWITCH_PROACTIVE_LOOP
@@ -224,6 +226,6 @@ printf '%s ' \
   "--min-instances=0" \
   "--max-instances=${max_instances}" \
   "--startup-probe=httpGet.path=/api/health/ready,periodSeconds=5,failureThreshold=6" \
-  "--update-env-vars=^;^MAYBESITTER_ENV=${env_name};MAYBESITTER_FEATURE_CAPTURE_KINDS=${capture_kinds};MAYBESITTER_KILL_SWITCH_CAPTURE_KINDS=false;MAYBESITTER_FEATURE_PROACTIVE_LOOP=${proactive_loop};MAYBESITTER_KILL_SWITCH_PROACTIVE_LOOP=false;MAYBESITTER_STORAGE_BACKEND=firestore;MAYBESITTER_FIRESTORE_DATABASE_ID=${database_id};GOOGLE_CLOUD_PROJECT=${PROJECT_ID};MAYBESITTER_LLM_PROVIDER=${llm_provider};MAYBESITTER_LLM_MODEL=gemini-2.5-flash;MAYBESITTER_VERTEX_LOCATION=${REGION};MAYBESITTER_GCP_PROJECT=${PROJECT_ID};MAYBESITTER_LLM_TIMEOUT_MS=8000;MAYBESITTER_LLM_MAX_RETRIES=1;MAYBESITTER_AI_DISABLED=${ai_disabled};MAYBESITTER_LLM_DAILY_CALL_CAP=60;MAYBESITTER_LLM_DAILY_TOKEN_CAP=150000;MAYBESITTER_LLM_MINUTE_CALL_CAP=8;MAYBESITTER_LLM_GLOBAL_DAILY_CALL_CAP=${global_daily_call_cap};MAYBESITTER_FEATURE_RECOMMENDATION=true;MAYBESITTER_KILL_SWITCH_RECOMMENDATION=false;MAYBESITTER_NEXT_STEP_ARM=personalized;MAYBESITTER_FEATURE_MEMORY=${memory_feature};MAYBESITTER_KILL_SWITCH_MEMORY=${memory_kill_switch};MAYBESITTER_KMS_KEY_NAME=${KMS_KEY_NAME};ICS_FEEDS_ENABLED=${ics_feeds};SHARE_INTAKE_ENABLED=true${site_origins}" \
+  "--update-env-vars=^;^MAYBESITTER_ENV=${env_name};MAYBESITTER_FEATURE_CAPTURE_KINDS=${capture_kinds};MAYBESITTER_KILL_SWITCH_CAPTURE_KINDS=false;MAYBESITTER_FEATURE_FREE_SLOTS=${free_slots};MAYBESITTER_KILL_SWITCH_FREE_SLOTS=false;MAYBESITTER_FEATURE_PROACTIVE_LOOP=${proactive_loop};MAYBESITTER_KILL_SWITCH_PROACTIVE_LOOP=false;MAYBESITTER_STORAGE_BACKEND=firestore;MAYBESITTER_FIRESTORE_DATABASE_ID=${database_id};GOOGLE_CLOUD_PROJECT=${PROJECT_ID};MAYBESITTER_LLM_PROVIDER=${llm_provider};MAYBESITTER_LLM_MODEL=gemini-2.5-flash;MAYBESITTER_VERTEX_LOCATION=${REGION};MAYBESITTER_GCP_PROJECT=${PROJECT_ID};MAYBESITTER_LLM_TIMEOUT_MS=8000;MAYBESITTER_LLM_MAX_RETRIES=1;MAYBESITTER_AI_DISABLED=${ai_disabled};MAYBESITTER_LLM_DAILY_CALL_CAP=60;MAYBESITTER_LLM_DAILY_TOKEN_CAP=150000;MAYBESITTER_LLM_MINUTE_CALL_CAP=8;MAYBESITTER_LLM_GLOBAL_DAILY_CALL_CAP=${global_daily_call_cap};MAYBESITTER_FEATURE_RECOMMENDATION=true;MAYBESITTER_KILL_SWITCH_RECOMMENDATION=false;MAYBESITTER_NEXT_STEP_ARM=personalized;MAYBESITTER_FEATURE_MEMORY=${memory_feature};MAYBESITTER_KILL_SWITCH_MEMORY=${memory_kill_switch};MAYBESITTER_KMS_KEY_NAME=${KMS_KEY_NAME};ICS_FEEDS_ENABLED=${ics_feeds};SHARE_INTAKE_ENABLED=true${site_origins}" \
   "--set-secrets=MAYBESITTER_DELETION_RECEIPT_PEPPER=maybesitter-deletion-receipt-pepper:latest,MAYBESITTER_LLM_UID_SALT=maybesitter-llm-uid-salt:latest,FOOTBALL_DATA_API_KEY=maybesitter-football-data-api-key:latest"
 printf '\n'

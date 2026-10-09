@@ -107,19 +107,19 @@ function TodayProbe() {
   // and the React Compiler rules refuse it outright.
   useEffect(() => {
     probe.mutate = () => {
-      // Per-user state a screen really holds: which day is open, as an offset
-      // from today since #173.
+      // Per-user state a screen really holds: which day is open, a date since
+      // M4a (an offset from today since #173).
       //
       // The half-typed capture used to be here too. Since #172 the draft lives
       // in `CaptureProvider`'s reducer inside `Root`, which unmounts when the
       // account goes — so its lifetime is structural rather than something
       // `resetForNewUser` has to remember to clear. `capture.noDisk.test.tsx`
       // asserts it never reaches storage in the first place.
-      actions.setSelDay(6);
+      actions.setSelDate('2026-12-31');
     };
   }, [actions]);
   return (
-    <Text testID="probe">{`rows:${data?.items.length ?? 0}|day:${s.selDay}`}</Text>
+    <Text testID="probe">{`rows:${data?.items.length ?? 0}|day:${s.selDate ?? 'today'}`}</Text>
   );
 }
 
@@ -299,7 +299,7 @@ describe('the privacy invariant', () => {
 
     // And per-user state inside AppContext, which the query cache does not own.
     await act(async () => probe.mutate?.());
-    expect(probeText()).toBe('rows:1|day:6');
+    expect(probeText()).toBe('rows:1|day:2026-12-31');
 
     await fireEvent.press(screen.getByLabelText(en.accountDeleteAction));
     await tapAlert(en.accountDeleteConfirmProceed);
@@ -316,9 +316,8 @@ describe('the privacy invariant', () => {
     // otherwise still show the deleted account's work.
     await fireEvent.press(screen.getByLabelText(en.accountDeletedContinue));
     await waitFor(() => expect(screen.getByText(en.authTitle)).toBeTruthy());
-    // day 0 is the default: today. Not 6, which is where the deleted account
-    // had the strip scrolled to.
-    expect(probeText()).toBe('rows:0|day:0');
+    // The default is today. Not the date the deleted account had open.
+    expect(probeText()).toBe('rows:0|day:today');
   });
 
   it('never shows account A data to account B', async () => {

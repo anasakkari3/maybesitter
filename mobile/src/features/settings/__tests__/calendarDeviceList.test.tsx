@@ -66,7 +66,7 @@ beforeEach(async () => {
   resetWriterIdCache();
   resetCalendarSyncForTests();
   resetBusySyncForTests();
-  await AsyncStorage.multiRemove(['calendar.excludedCalendarIds.v1', 'calendar.busy.v1', 'calendar.busySyncedAt.v1']);
+  await AsyncStorage.multiRemove(['calendar.excludedCalendarIds.v1', 'calendar.busy.v2', 'calendar.busy.v1', 'calendar.busySyncedAt.v1']);
   client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
   repository = createFakeAuthRepository({ initialUser: USER });
   setAuthRepository(repository);

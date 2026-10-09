@@ -173,8 +173,10 @@ export interface BusySyncPorts {
   readBusy(ownEventIds: ReadonlySet<string>, now: Date): Promise<DeviceBusyBlock[]>;
   /** `loadWrittenEventIds`, so this app's own entries are not busy. */
   ownEventIds(): Promise<string[]>;
-  /** `saveCachedBusyBlocks`. */
-  cache(blocks: readonly DeviceBusyBlock[]): Promise<void>;
+  /** `saveCachedBusyBlocks`: the blocks kept, and the window they honestly cover. */
+  cache(blocks: readonly DeviceBusyBlock[], coverage: BusyUploadWindow | null): Promise<void>;
+  /** `uncoverCachedBusyBlocks`: a refused read keeps the chips and covers nothing. */
+  uncover(): Promise<void>;
   /** `postCalendarBusy`. */
   upload(body: CalendarBusyUpload): Promise<void>;
   /** `saveBusySyncedAt`. */
@@ -192,6 +194,13 @@ export interface BusySyncInput extends BusySyncDecisionInput {
   readonly sourceId: string;
   readonly platform: 'ios' | 'android';
   readonly window: BusyUploadWindow;
+  /**
+   * Whether the account the pass began for is still the signed-in one (M4a,
+   * M4A-REV-001). Asked after every wait: a native read that returns after a
+   * switch must not be cached, uploaded under the next account's token, or
+   * recorded. Absent means always.
+   */
+  readonly stillCurrent?: () => boolean;
 }
 
 /**
@@ -214,29 +223,62 @@ export async function runBusySync(
   const decision = busySyncDecision(input);
   if (!decision.run) return { kind: 'skipped', because: decision.because };
 
+  const current = input.stillCurrent ?? (() => true);
+  const gone: BusySyncOutcome = { kind: 'skipped', because: 'signed_out' };
+  // Nothing of the calendar is read for an account that is no longer signed
+  // in: checked before each step that waits, and before the native read.
+  if (!current()) return gone;
   let blocks: DeviceBusyBlock[];
   try {
-    blocks = await ports.readBusy(new Set(await ports.ownEventIds()), input.now);
+    const own = new Set(await ports.ownEventIds());
+    if (!current()) return gone;
+    blocks = await ports.readBusy(own, input.now);
   } catch {
+    if (!current()) return gone;
     // The calendar could not be read: no permission, or the module is not
     // there. The cache is deliberately left alone — the last answer is still
     // the best one we have, and replacing it with nothing would make the chips
-    // disappear the moment somebody opened Settings and came back.
+    // disappear the moment somebody opened Settings and came back. But it no
+    // longer *covers* anything: busy time the phone may not show any more is
+    // not a reason to call the rest of the day free (M4a, M4A-R7-002).
+    await ports.uncover();
     return { kind: 'denied' };
   }
 
-  await ports.cache(blocks);
+  // The account changed while the calendar was read: this answer is the
+  // previous account's, and goes nowhere.
+  if (!current()) return gone;
+
+  // What is kept is cut where the upload is cut, so the device's own copy
+  // never claims the omitted tail as free either (M4A-R7-002).
+  let fitted: { capped: readonly DeviceBusyBlock[]; windowEnd: string } | null;
+  try {
+    fitted = fitToLimit(input.window, blocks);
+  } catch {
+    fitted = null;
+  }
+  await ports.cache(fitted ? fitted.capped : blocks.slice(0, BUSY_SYNC_UPLOAD_LIMIT),
+    fitted ? { startAt: input.window.startAt, endAt: fitted.windowEnd } : null);
 
   let body: CalendarBusyUpload;
   try {
     body = await busyUploadFor(input.sourceId, input.platform, input.window, blocks);
+    // Checked again right before the request: the upload is authenticated by
+    // whoever is signed in when it is sent, so a switch during the cache write
+    // or the hashing must not file these blocks under the next account.
+    if (!current()) return gone;
     await ports.upload(body);
   } catch {
+    // The account changed while the upload was being sent: the request was
+    // refused before it left (`asUid`), and it is the previous account's pass,
+    // not a failed sync of this one (M4A-R3-REV-003).
+    if (!current()) return gone;
     // Not recorded as a sync, so the next trigger tries again rather than
     // waiting out the throttle on a window the server never received.
     return { kind: 'failed' };
   }
 
+  if (!current()) return gone;
   await ports.recordSync(input.now);
   return { kind: 'synced', blocks: body.blocks.length, windowEnd: body.windowEnd };
 }

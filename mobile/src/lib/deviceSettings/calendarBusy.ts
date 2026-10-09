@@ -22,15 +22,72 @@
  * only way "a busy block has four keys" stays true for a value that has been
  * off the heap and back is to rebuild it from the keys we want rather than
  * trusting the keys we find.
+ *
+ * ── One account's, never the installation's (M4a, M4A-R8-001) ────
+ *
+ * The cache used to be one key for the whole installation, read under any uid:
+ * account B, signed in on A's phone, saw A's busy times until B's own first
+ * read — and, when that read was denied or offline, for good. It is now one
+ * envelope that names its owner: the blocks, the window they honestly cover,
+ * and when they were last sent. A read under any other uid is empty, every uid
+ * change clears it (`ApiProvider`), and the old unowned keys are deleted the
+ * first time they are seen.
+ *
+ * ── A clear always wins (M4a, M4A-R3-REV-001) ───────────────────
+ *
+ * Every write reads the envelope before it writes it. A clear landing between
+ * the two would be undone, and a signed-out or deleted account's busy times
+ * would be back on the disk. So writes and clears run one at a time, in the
+ * order they were asked for, and a write made for one account's sync pass
+ * asks, right before it writes, whether that account is still the one signed
+ * in. A clear asked for during a write runs after it.
+ *
+ * ── Coverage, not only blocks ────────────────────────────────────
+ *
+ * "No busy block on Thursday" means Thursday is free only if Thursday was
+ * read. So the envelope keeps the window the read covered, cut where the
+ * upload had to cut it (`fitToLimit`), and a read that was refused keeps the
+ * old blocks for the chips but covers nothing.
  */
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import type { DeviceBusyBlock } from '../../features/calendar/busyBlocks';
 
-export const BUSY_BLOCKS_KEY = 'calendar.busy.v1';
-export const BUSY_SYNCED_AT_KEY = 'calendar.busySyncedAt.v1';
+/** The owned envelope. */
+export const BUSY_BLOCKS_KEY = 'calendar.busy.v2';
+/** The unowned keys before M4a: deleted on sight. */
+export const LEGACY_BUSY_KEYS = ['calendar.busy.v1', 'calendar.busySyncedAt.v1'] as const;
 
 /** A hard stop on what one device will keep, matching the upload limit. */
 const MAX_CACHED_BLOCKS = 1000;
+
+/** What the device read honestly covers: busy as shown from `startAt` up to `endAt`. */
+export interface BusyCoverage {
+  readonly startAt: string;
+  readonly endAt: string;
+}
+
+export interface DeviceBusyCache {
+  readonly blocks: DeviceBusyBlock[];
+  /** Null when nothing was read, or the last read was refused. */
+  readonly coverage: BusyCoverage | null;
+  /** Epoch millis of the last successful upload, or null. */
+  readonly syncedAt: number | null;
+}
+
+const EMPTY: DeviceBusyCache = { blocks: [], coverage: null, syncedAt: null };
+
+/** Whether the account a write is for is still the one signed in. */
+export type StillOwner = () => boolean;
+const ALWAYS: StillOwner = () => true;
+
+let queue: Promise<unknown> = Promise.resolve();
+
+/** Runs `task` after every write and clear asked for before it. */
+function serialized(task: () => Promise<void>): Promise<void> {
+  const run = queue.then(task, task);
+  queue = run.catch(() => undefined);
+  return run;
+}
 
 function blockFrom(raw: unknown): DeviceBusyBlock | null {
   if (typeof raw !== 'object' || raw === null) return null;
@@ -46,63 +103,133 @@ function blockFrom(raw: unknown): DeviceBusyBlock | null {
   };
 }
 
-export async function loadCachedBusyBlocks(): Promise<DeviceBusyBlock[]> {
+function coverageFrom(raw: unknown): BusyCoverage | null {
+  if (typeof raw !== 'object' || raw === null) return null;
+  const row = raw as Record<string, unknown>;
+  if (typeof row.startAt !== 'string' || typeof row.endAt !== 'string') return null;
+  const start = Date.parse(row.startAt);
+  const end = Date.parse(row.endAt);
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return null;
+  return { startAt: row.startAt, endAt: row.endAt };
+}
+
+function project(blocks: readonly DeviceBusyBlock[]): DeviceBusyBlock[] {
+  return blocks.slice(0, MAX_CACHED_BLOCKS).map((block) => ({
+    nativeId: block.nativeId,
+    startAt: block.startAt,
+    endAt: block.endAt,
+    allDay: block.allDay,
+  }));
+}
+
+async function dropLegacy(): Promise<void> {
   try {
-    const raw = await AsyncStorage.getItem(BUSY_BLOCKS_KEY);
-    if (raw === null) return [];
-    const parsed: unknown = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return [];
-    return parsed
-      .map(blockFrom)
-      .filter((block): block is DeviceBusyBlock => block !== null)
-      .slice(0, MAX_CACHED_BLOCKS);
+    await AsyncStorage.multiRemove([...LEGACY_BUSY_KEYS]);
+  } catch {
+    // Tried again on the next read.
+  }
+}
+
+/** The envelope as stored, whoever owns it, or null. */
+async function readEnvelope(): Promise<{ owner: string; cache: DeviceBusyCache } | null> {
+  const raw = await AsyncStorage.getItem(BUSY_BLOCKS_KEY);
+  if (raw === null) return null;
+  const parsed: unknown = JSON.parse(raw);
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return null;
+  const row = parsed as Record<string, unknown>;
+  if (typeof row.owner !== 'string' || row.owner === '') return null;
+  const blocks = Array.isArray(row.blocks)
+    ? row.blocks.map(blockFrom).filter((block): block is DeviceBusyBlock => block !== null).slice(0, MAX_CACHED_BLOCKS)
+    : [];
+  const syncedAt = typeof row.syncedAt === 'number' && Number.isFinite(row.syncedAt) ? row.syncedAt : null;
+  return { owner: row.owner, cache: { blocks, coverage: coverageFrom(row.coverage), syncedAt } };
+}
+
+async function writeEnvelope(owner: string, cache: DeviceBusyCache): Promise<void> {
+  await AsyncStorage.setItem(BUSY_BLOCKS_KEY, JSON.stringify({
+    owner,
+    blocks: project(cache.blocks),
+    coverage: cache.coverage,
+    syncedAt: cache.syncedAt,
+  }));
+}
+
+/** `owner`'s cache: empty when another account wrote it, or it is unreadable. */
+export async function loadDeviceBusy(owner: string): Promise<DeviceBusyCache> {
+  await dropLegacy();
+  try {
+    const stored = await readEnvelope();
+    return stored && stored.owner === owner ? stored.cache : EMPTY;
   } catch {
     // An unreadable cache is no chips until the next sync, which is a screen
     // that says less rather than a screen that is wrong.
-    return [];
+    return EMPTY;
   }
 }
 
-export async function saveCachedBusyBlocks(blocks: readonly DeviceBusyBlock[]): Promise<void> {
-  try {
-    const rows = blocks.slice(0, MAX_CACHED_BLOCKS).map((block) => ({
-      nativeId: block.nativeId,
-      startAt: block.startAt,
-      endAt: block.endAt,
-      allDay: block.allDay,
-    }));
-    await AsyncStorage.setItem(BUSY_BLOCKS_KEY, JSON.stringify(rows));
-  } catch {
-    // The chips still work for this session from the value in memory.
-  }
+/** `owner`'s cached blocks. */
+export async function loadCachedBusyBlocks(owner: string): Promise<DeviceBusyBlock[]> {
+  return (await loadDeviceBusy(owner)).blocks;
 }
 
-/** Disconnect, and sign-out. The blocks go before the server is even asked. */
-export async function clearCachedBusyBlocks(): Promise<void> {
-  try {
-    await AsyncStorage.multiRemove([BUSY_BLOCKS_KEY, BUSY_SYNCED_AT_KEY]);
-  } catch {
-    // Nothing useful to do. The next successful disconnect clears it.
-  }
+/**
+ * A fresh read: the blocks and what they cover. `coverage` null keeps the old
+ * blocks' place for the chips but claims nothing about free time.
+ */
+export function saveCachedBusyBlocks(
+  owner: string,
+  blocks: readonly DeviceBusyBlock[],
+  coverage: BusyCoverage | null,
+  stillOwner: StillOwner = ALWAYS,
+): Promise<void> {
+  return serialized(async () => {
+    try {
+      const previous = await loadDeviceBusy(owner);
+      if (!stillOwner()) return;
+      await writeEnvelope(owner, { blocks: [...blocks], coverage, syncedAt: previous.syncedAt });
+    } catch {
+      // The chips still work for this session from the value in memory.
+    }
+  });
 }
 
-/** When this device last uploaded a window, or null. */
-export async function loadBusySyncedAt(): Promise<number | null> {
-  try {
-    const raw = await AsyncStorage.getItem(BUSY_SYNCED_AT_KEY);
-    if (raw === null) return null;
-    const ms = Number.parseInt(raw, 10);
-    return Number.isFinite(ms) ? ms : null;
-  } catch {
-    // Unknown reads as "never", which syncs once more than it had to.
-    return null;
-  }
+/** A refused read: the blocks stay for the chips, and cover nothing any more. */
+export function uncoverCachedBusyBlocks(owner: string, stillOwner: StillOwner = ALWAYS): Promise<void> {
+  return serialized(async () => {
+    try {
+      const previous = await loadDeviceBusy(owner);
+      if (!stillOwner()) return;
+      await writeEnvelope(owner, { ...previous, coverage: null });
+    } catch {
+      // The next read writes the envelope again.
+    }
+  });
 }
 
-export async function saveBusySyncedAt(at: Date): Promise<void> {
-  try {
-    await AsyncStorage.setItem(BUSY_SYNCED_AT_KEY, String(at.getTime()));
-  } catch {
-    // See above: the cost is an extra sync, not a wrong one.
-  }
+/** Disconnect, sign-out and every account change. The blocks go before the server is even asked. */
+export function clearCachedBusyBlocks(): Promise<void> {
+  return serialized(async () => {
+    try {
+      await AsyncStorage.multiRemove([BUSY_BLOCKS_KEY, ...LEGACY_BUSY_KEYS]);
+    } catch {
+      // Nothing useful to do. The next read under another owner is empty anyway.
+    }
+  });
+}
+
+/** When this device last uploaded `owner`'s window, or null. */
+export async function loadBusySyncedAt(owner: string): Promise<number | null> {
+  return (await loadDeviceBusy(owner)).syncedAt;
+}
+
+export function saveBusySyncedAt(owner: string, at: Date, stillOwner: StillOwner = ALWAYS): Promise<void> {
+  return serialized(async () => {
+    try {
+      const previous = await loadDeviceBusy(owner);
+      if (!stillOwner()) return;
+      await writeEnvelope(owner, { ...previous, syncedAt: at.getTime() });
+    } catch {
+      // The cost is an extra sync, not a wrong one.
+    }
+  });
 }

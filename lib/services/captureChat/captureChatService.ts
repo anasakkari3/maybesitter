@@ -51,6 +51,7 @@ import { clockTimesIn } from '../../../src/extraction/ruleBasedExtractor';
 import { bareHalfOfDayAnswer, dayPartHour, instantFromLocal, localTimeSpecFor, namesDay, nonNegatedHalfOfDay, withoutNegatedDayPart } from '../../../src/extraction/timeLexicon';
 import { geminiChatSchemaFor } from '../../../src/extraction/ollamaExtractionSchema';
 import { getAiConsent } from '../../consents/aiConsentService';
+import { withFreeSlotClarifications } from '../../planning/freeSlots';
 import { CHAT_TIMEOUT_MS, captureLlmProvider } from '../../llm/captureProvider';
 import { CAPTURE_SERVER_BUDGET_MS, CaptureInputTooLargeError } from '../captureBoundary/captureBoundaryService';
 import { applyStructuredEdit, StructuredEditConversationNotFoundError, StructuredEditError } from '../captureBoundary/structuredEdit';
@@ -376,7 +377,7 @@ export async function chatMobileCapture(
     const current = conversation.proposalId ? await readMobileChatProposal(conversation.proposalId, uid, { includeConfirmed: true }) : null;
     if (!current) throw new CaptureChatError('conversation_not_found', 404);
     try {
-      const kindsEdited = await editCaptureKindsProposal(uid, input.edit as CaptureProposalEditContract, locale);
+      const kindsEdited = await editCaptureKindsProposal(uid, input.edit as CaptureProposalEditContract, locale, now);
       if (kindsEdited) {
         const reply = locale === 'en' ? 'Updated. Review the list and confirm below.'
           : locale === 'he' ? 'עודכן. אפשר לבדוק את הרשימה ולאשר למטה.' : 'تمام، عدّلتها. راجع القائمة وأكّد من تحت.';
@@ -391,6 +392,10 @@ export async function chatMobileCapture(
         locale,
         now,
         engine: current.proposal.provenance.requestedEngine === 'model' ? 'model' : 'rules',
+        beforeWrite: (proposal, stored) => withFreeSlotClarifications(proposal, uid, {
+          timezone: stored.timezone ?? normalizeTimezone(input.timezone),
+          now: now.toISOString(),
+        }),
       });
       if (outcome.kind === 'changed') {
         const currentTurns = outcome.turns ?? conversation.turns;

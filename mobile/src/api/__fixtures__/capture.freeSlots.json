@@ -1,0 +1,86 @@
+{
+  "version": "v1",
+  "proposalId": "00000000-0000-4000-8000-000000000001",
+  "status": "needs_clarification",
+  "items": [
+    {
+      "itemId": "00000000-0000-4000-8000-000000000002",
+      "title": "Call Dana",
+      "resolvedTime": null,
+      "needsClarification": true,
+      "timeEstimated": false,
+      "priority": "normal",
+      "priorityEstimated": true,
+      "resolvedDate": "2030-01-10",
+      "dateEstimated": false,
+      "clarification": {
+        "questionId": "00000000-0000-4000-8000-000000000003",
+        "field": "time",
+        "questionKey": "ask_time",
+        "params": {
+          "title": "Call Dana",
+          "date": "2030-01-10"
+        },
+        "options": [
+          {
+            "optionId": "slot-1",
+            "labelKey": "freeSlot",
+            "labelParams": {
+              "localDate": "2030-01-10",
+              "localTime": "08:00"
+            },
+            "value": {
+              "localDate": "2030-01-10",
+              "localTime": "08:00"
+            }
+          },
+          {
+            "optionId": "slot-2",
+            "labelKey": "freeSlot",
+            "labelParams": {
+              "localDate": "2030-01-10",
+              "localTime": "09:30"
+            },
+            "value": {
+              "localDate": "2030-01-10",
+              "localTime": "09:30"
+            }
+          },
+          {
+            "optionId": "slot-3",
+            "labelKey": "freeSlot",
+            "labelParams": {
+              "localDate": "2030-01-10",
+              "localTime": "11:00"
+            },
+            "value": {
+              "localDate": "2030-01-10",
+              "localTime": "11:00"
+            }
+          },
+          {
+            "optionId": "none",
+            "labelKey": "noTime",
+            "labelParams": {},
+            "value": {}
+          }
+        ],
+        "allowFreeText": true
+      }
+    }
+  ],
+  "seeds": [],
+  "revision": 0,
+  "provenance": {
+    "requestedEngine": "model",
+    "executedEngine": "rule-based",
+    "fallbackUsed": true
+  },
+  "understood": [
+    {
+      "kind": "commitment",
+      "itemId": "00000000-0000-4000-8000-000000000002",
+      "text": "Call Dana"
+    }
+  ]
+}

@@ -85,6 +85,13 @@ export type GoogleBusyBlock = z.infer<typeof googleBusyBlockSchema>;
 export const googleCalendarBlocksSchema = z.object({
   success: z.literal(true),
   blocks: z.array(googleBusyBlockSchema),
+  /**
+   * The last sync's honest window (M4a, WIRE "Google busy window"): null when
+   * nothing was ever synced. Optional so an older server still parses; the app
+   * then treats Google as covering nothing.
+   */
+  windowStart: isoDateTime.nullable().optional(),
+  windowEnd: isoDateTime.nullable().optional(),
 });
 
 export const googlePickerTicketSchema = z.object({

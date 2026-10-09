@@ -174,8 +174,8 @@ describe('«شوف يومي»', () => {
     const { s, actions } = useApp();
     return (
       <>
-        <Text testID="probe">{`${s.screen}:${s.selDay}`}</Text>
-        <Text testID="probe-pick-later" onPress={() => actions.setSelDay(1)}>pick</Text>
+        <Text testID="probe">{`${s.screen}:${s.selDate ?? 'today'}`}</Text>
+        <Text testID="probe-pick-later" onPress={() => actions.setSelDate('2026-12-31')}>pick</Text>
       </>
     );
   }
@@ -183,8 +183,8 @@ describe('«شوف يومي»', () => {
   it('opens the Calendar on today, not on the day left open earlier', async () => {
     await render(<SafeAreaProvider initialMetrics={metrics}><AppProvider><ContextualAssistantScreen /><Probe /></AppProvider></SafeAreaProvider>);
     await fireEvent.press(screen.getByTestId('probe-pick-later'));
-    expect(screen.getByTestId('probe').props.children).toBe('today:1');
+    expect(screen.getByTestId('probe').props.children).toBe('today:2026-12-31');
     await fireEvent.press(screen.getByTestId('assistant-agenda'));
-    expect(screen.getByTestId('probe').props.children).toBe('calendar:0');
+    expect(screen.getByTestId('probe').props.children).toBe('calendar:today');
   });
 });

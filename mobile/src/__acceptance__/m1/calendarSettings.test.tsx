@@ -30,7 +30,8 @@ import * as commitmentEndpoints from '../../api/endpoints/commitments';
 import * as trustEndpoints from '../../api/endpoints/trust';
 import { deviceCalendar, type DeviceEventCalendar, type WritableCalendar } from '../../features/calendar/deviceCalendar';
 import { resetWriterIdCache } from '../../lib/deviceSettings/calendarDevice';
-import { BUSY_BLOCKS_KEY, BUSY_SYNCED_AT_KEY } from '../../lib/deviceSettings/calendarBusy';
+import { BUSY_BLOCKS_KEY, LEGACY_BUSY_KEYS } from '../../lib/deviceSettings/calendarBusy';
+import { seedDeviceBusyCache } from '../../testing/deviceBusyCache';
 import { resetCalendarSyncForTests } from '../../features/calendar/useDeviceCalendarSync';
 import { resetBusySyncForTests } from '../../features/calendar/useBusyCalendar';
 
@@ -79,8 +80,8 @@ function blocks(n: number) {
 
 /** A cached read from an earlier session: what must never be presented as current. */
 async function seedCache(n: number) {
-  await AsyncStorage.setItem(BUSY_BLOCKS_KEY, JSON.stringify(blocks(n)));
-  await AsyncStorage.setItem(BUSY_SYNCED_AT_KEY, String(Date.now()));
+  // The signed-in account's own cache (M4a, M4A-R8-001).
+  await seedDeviceBusyCache(USER.uid, blocks(n), { syncedAt: Date.now() });
 }
 
 beforeEach(async () => {
@@ -90,7 +91,7 @@ beforeEach(async () => {
   resetWriterIdCache();
   resetCalendarSyncForTests();
   resetBusySyncForTests();
-  await AsyncStorage.multiRemove(['calendar.excludedCalendarIds.v1', BUSY_BLOCKS_KEY, BUSY_SYNCED_AT_KEY]);
+  await AsyncStorage.multiRemove(['calendar.excludedCalendarIds.v1', BUSY_BLOCKS_KEY, ...LEGACY_BUSY_KEYS]);
   client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
   repository = createFakeAuthRepository({ initialUser: USER });
   setAuthRepository(repository);

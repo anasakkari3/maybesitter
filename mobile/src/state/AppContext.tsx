@@ -46,13 +46,15 @@ export type AppState = {
   meetingPrep: MeetingPrepTarget | null;
   toast: Toast | null;
   /**
-   * Which day of the week strip is open, as an offset from today (0 = today).
+   * Which day the Plan tab has open: a `YYYY-MM-DD` the person chose, or null
+   * for "the current local today" (M4a, M4A-R2-006).
    *
-   * Was a weekday index into the seed week (UC-2.R3, #173). The strip now runs
-   * forward from today, so a fixed index would mean a different day depending
-   * on what day it is.
+   * Was an offset into the 7-day strip (#173), clamped to it. A day chosen in
+   * the 4-week view («شوف أبعد») lies past the strip, so the selection is a
+   * date now. Null is not a date on purpose: it moves at midnight and with a
+   * timezone change, as offset 0 did, and only an explicit choice is stored.
    */
-  selDay: number;
+  selDate: string | null;
   /** Derived from `nav`: the commitment the top entry was opened for. */
   detailId: string | null;
   /** Derived from `nav`: the `YYYY-MM-DD` the plan screen is showing, or null when it is closed. */
@@ -69,9 +71,9 @@ export type AppState = {
   taskResumed: boolean;
 };
 
-/** Opening the Calendar by name opens it on today (offset 0); see `actions.go`. */
+/** Opening the Calendar by name opens it on today; see `actions.go`. */
 function onToday(screen: Screen): Partial<AppState> | undefined {
-  return screen === 'calendar' ? { selDay: 0 } : undefined;
+  return screen === 'calendar' ? { selDate: null } : undefined;
 }
 
 /** Recompute the derived fields from the history. Every nav change goes through here. */
@@ -84,7 +86,7 @@ const initial: AppState = {
   nav: nav.initialNav, screen: 'today', showTabs: true,
   captureSource: 'tab', captureInput: 'text', captureEntry: null,
   sheet: null, meetingPrep: null, toast: null,
-  selDay: 0, detailId: null, planDate: null, goalId: null, startPlan: false, taskResumed: false,
+  selDate: null, detailId: null, planDate: null, goalId: null, startPlan: false, taskResumed: false,
 };
 
 function useAppModel() {
@@ -213,7 +215,8 @@ function useAppModel() {
     arriveAtPlan: (date: string) => move(n => nav.arrive(n, { name: 'plan', planDate: date })),
     /** A tab or task named by a link. */
     arriveAt: (screen: Screen) => move(n => nav.arrive(n, { name: screen }), onToday(screen)),
-    setSelDay: (d: number) => set({ selDay: d }),
+    /** A date the person chose on the Plan tab, or null for today. */
+    setSelDate: (date: string | null) => set({ selDate: date }),
 
     /**
      * Enter the capture flow (UC-2.R2, #172).

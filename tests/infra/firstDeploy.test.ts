@@ -143,6 +143,10 @@ test('capture kinds are staging-only and keep an explicit kill switch', () => {
   assert.equal(staging.get('MAYBESITTER_KILL_SWITCH_CAPTURE_KINDS'), 'false');
   assert.equal(production.get('MAYBESITTER_FEATURE_CAPTURE_KINDS'), 'false');
   assert.equal(production.get('MAYBESITTER_KILL_SWITCH_CAPTURE_KINDS'), 'false');
+  assert.equal(staging.get('MAYBESITTER_FEATURE_FREE_SLOTS'), 'true');
+  assert.equal(staging.get('MAYBESITTER_KILL_SWITCH_FREE_SLOTS'), 'false');
+  assert.equal(production.get('MAYBESITTER_FEATURE_FREE_SLOTS'), 'false');
+  assert.equal(production.get('MAYBESITTER_KILL_SWITCH_FREE_SLOTS'), 'false');
 });
 
 /** `--set-secrets` as KEY → secret:version; gcloud splits it on `,`. */
@@ -309,8 +313,8 @@ test('switching the env list to a custom delimiter dropped none of the existing 
   assert.equal(staging.get('MAYBESITTER_LLM_GLOBAL_DAILY_CALL_CAP'), '3000');
   assert.equal(staging.get('MAYBESITTER_FEATURE_PROACTIVE_LOOP'), 'true');
   assert.equal(staging.get('MAYBESITTER_KILL_SWITCH_PROACTIVE_LOOP'), 'false');
-  assert.equal(production.size, 28);
-  assert.equal(staging.size, 27);
+  assert.equal(production.size, 30);
+  assert.equal(staging.size, 29);
 });
 
 // ── Same-digest production promotion ────────────────────────────────────

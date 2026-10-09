@@ -4,6 +4,7 @@ import {
   goalPlanApproveResponseSchema,
   goalPlanConfirmResponseSchema,
   goalPlanResponseSchema,
+  goalPlanBatchTimesResponseSchema,
   goalPlanTimesResponseSchema,
   goalPlanViewSchema,
   laterWeekTimesResponseSchema,
@@ -169,6 +170,28 @@ export async function chooseGoalPlanTime(goalId: string, current: GoalPlanTimes,
   checkReplacementTimes('goalPlan.timeChanged', current, response.times, true);
   if (!reflectsChoice(response.times.steps.find(step => step.stepId === stepId), choice)) throw new ContractError('goalPlan.timeChanged', [`choice:${stepId}`]);
   return response.times;
+}
+
+/** What «غيّر كل الأوقات» asks for (M4a R005): a part of the day and/or a first day, or no time for all. */
+export type GoalPlanBatchPreference =
+  | { partOfDay?: 'morning' | 'afternoon' | 'evening'; startFrom?: string; noTime?: undefined }
+  | { noTime: true; partOfDay?: undefined; startFrom?: undefined };
+
+/**
+ * Every placeable time of the reviewed proposal, recomputed in one request
+ * (M4a R005), against exactly the proposal on screen. The answer is the new
+ * times and the steps that found no room (now «بلا وقت»).
+ */
+export async function batchGoalPlanTimes(goalId: string, current: GoalPlanTimes, preference: GoalPlanBatchPreference): Promise<{ times: GoalPlanTimes; unplaced: string[] }> {
+  const body = preference.noTime
+    ? { noTime: true as const }
+    : { ...(preference.partOfDay ? { partOfDay: preference.partOfDay } : {}), ...(preference.startFrom ? { startFrom: preference.startFrom } : {}) };
+  const response = await apiRequest('POST', `${plan(goalId, current.planId)}/times/batch`, {
+    body: { timesId: current.timesId, timesRevision: current.timesRevision, preference: body },
+    schema: goalPlanBatchTimesResponseSchema,
+  });
+  checkReplacementTimes('goalPlan.timesBatch', current, response.times, true);
+  return { times: response.times, unplaced: response.unplaced };
 }
 
 type ConfirmRow =

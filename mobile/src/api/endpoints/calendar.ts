@@ -7,6 +7,7 @@ import {
   deviceCalendarLinkResponseSchema,
   manualCalendarDeletedSchema,
   manualCalendarStoredSchema,
+  serverBusyResponseSchema,
   type CalendarWriteTarget,
 } from '../schemas/calendar';
 import type { DeviceCalendarLink } from '../schemas/common';
@@ -72,10 +73,23 @@ export interface CalendarBusyUpload {
   blocks: { blockId: string; startAt: string; endAt: string; allDay: boolean }[];
 }
 
-export function postCalendarBusy(upload: CalendarBusyUpload) {
+/** `asUid`: the account whose calendar this is; never sent under another (M4A-R2-REV-002). */
+export function postCalendarBusy(upload: CalendarBusyUpload, options: { asUid?: string } = {}) {
   return apiRequest('POST', '/api/mobile/calendar/busy', {
     body: upload,
     schema: calendarBusyStoredSchema,
+    ...(options.asUid !== undefined ? { asUid: options.asUid } : {}),
+  });
+}
+
+/**
+ * The account's ICS and manual busy time between two instants (M4a). A 404
+ * (`feature_unavailable`) is the capability being off, not a failure.
+ */
+export function getServerBusy(from: string, to: string) {
+  return apiRequest('GET', '/api/mobile/calendar/busy', {
+    query: { from, to },
+    schema: serverBusyResponseSchema,
   });
 }
 

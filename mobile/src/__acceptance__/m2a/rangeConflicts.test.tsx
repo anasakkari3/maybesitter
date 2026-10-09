@@ -13,7 +13,7 @@ import type { CaptureProposal } from '../../api/schemas/capture';
 import type { CaptureItemEdit } from '../../features/capture/captureMachine';
 import * as captureEndpoints from '../../api/endpoints/capture';
 import { resetAuthForTests } from '../../api/auth';
-import { BUSY_BLOCKS_KEY } from '../../lib/deviceSettings/calendarBusy';
+import { seedDeviceBusyCache } from '../../testing/deviceBusyCache';
 import { resetBusySyncForTests } from '../../features/calendar/useBusyCalendar';
 import { chatServer } from '../../testing/captureChat';
 import { METRICS, openCapture, prepareRoot, say, type RootHarness } from './harness';
@@ -57,7 +57,8 @@ afterEach(async () => {
 });
 
 async function cacheBusy(block: Busy): Promise<void> {
-  await AsyncStorage.setItem(BUSY_BLOCKS_KEY, JSON.stringify([block]));
+  // The cache is the signed-in account's own (M4a, M4A-R8-001).
+  await seedDeviceBusyCache('m2a-acceptance-user', [block]);
 }
 
 async function showReview(start: CaptureProposal, block: Busy, edit?: CaptureItemEdit): Promise<boolean> {

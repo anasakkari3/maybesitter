@@ -122,6 +122,12 @@ export const goalPlanViewSchema = z.object({
 export const goalPlanResponseSchema = z.object({ success: z.literal(true), plan: goalPlanSchema }).passthrough();
 export const goalPlanApproveResponseSchema = z.object({ success: z.literal(true), plan: goalPlanSchema, times: goalPlanTimesSchema }).passthrough();
 export const goalPlanTimesResponseSchema = z.object({ success: z.literal(true), times: goalPlanTimesSchema }).passthrough();
+/** «غيّر كل الأوقات» (M4a R005): the new times, and the steps that found no room and now have no time. */
+export const goalPlanBatchTimesResponseSchema = z.object({
+  success: z.literal(true),
+  times: goalPlanTimesSchema,
+  unplaced: z.array(z.string()),
+}).passthrough();
 /** A later week's times come with the confirmed plan, so each step can be named. */
 export const laterWeekTimesResponseSchema = z.object({ success: z.literal(true), plan: goalPlanSchema, times: goalPlanTimesSchema }).passthrough();
 

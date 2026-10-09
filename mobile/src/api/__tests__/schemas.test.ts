@@ -81,6 +81,7 @@ import {
 import {
   calendarBusyDeletedSchema,
   calendarBusyStoredSchema,
+  serverBusyResponseSchema,
   calendarSettingsResponseSchema,
   deviceCalendarLinkConflictSchema,
   deviceCalendarLinkRemovedSchema,
@@ -99,9 +100,11 @@ import { deviceForgottenSchema, deviceRegisteredSchema } from '../schemas/device
 import { accountExportSchema } from '../schemas/accountExport';
 import {
   goalPlanApproveResponseSchema,
+  goalPlanBatchTimesResponseSchema,
   goalPlanConfirmResponseSchema,
   goalPlanResponseSchema,
   goalPlanTimesResponseSchema,
+  goalPlanTimesSchema,
   goalPlanViewSchema,
   laterWeekTimesResponseSchema,
   statementAcceptResponseSchema,
@@ -161,6 +164,9 @@ function fixture(name: string): unknown {
 
 const CASES: Array<[string, z.ZodType]> = [
   // The one plan path (M3a), generated from the real handlers by Task B.
+  // Free times on a capture (M4a R002), and the answer when one stopped being free.
+  ['capture.freeSlots', captureProposalSchema],
+  ['capture.notFree', captureProposalSchema],
   ['goalPlan.generatedTemplate', goalPlanResponseSchema],
   ['goalPlan.edited', goalPlanResponseSchema],
   ['goalPlan.approved', goalPlanApproveResponseSchema],
@@ -172,6 +178,12 @@ const CASES: Array<[string, z.ZodType]> = [
   ['goalPlan.statementPreview', statementPreviewResponseSchema],
   ['goalPlan.statementAccepted', statementAcceptResponseSchema],
   ['goalPlan.intelligenceRoute', intelligenceAnalyzeSchema],
+  // «غيّر كل الأوقات» (M4a R005): the new times with the steps that found no
+  // room, and the batch's three refusals; `times_changed` carries times.
+  ['goalPlan.batchTimes', goalPlanBatchTimesResponseSchema],
+  ['goalPlan.batchChanged', goalPlanRefusalSchema.extend({ times: goalPlanTimesSchema })],
+  ['goalPlan.batchConsumed', goalPlanRefusalSchema],
+  ['goalPlan.batchInvalidPreference', goalPlanRefusalSchema],
   ['goalPlan.refusedExistingDraft', goalPlanRefusalSchema],
   ['goalPlan.refusedInvalidEdit', goalPlanRefusalSchema],
   ['goalPlan.refusedStatementEvent', goalPlanRefusalSchema],
@@ -367,6 +379,10 @@ const CASES: Array<[string, z.ZodType]> = [
   // already knows what it sent, and an echo would be the only place in this
   // feature where busy times travelled back over the network.
   ['calendar.busyStored', calendarBusyStoredSchema],
+  // The server's busy read, which is also the free-time probe (M4a): its 200,
+  // and the 404 that keeps the Plan tab as it was.
+  ['calendar.busyRead', serverBusyResponseSchema],
+  ['calendar.busyUnavailable', z.object({ success: z.literal(false), reason: z.literal('feature_unavailable') })],
   ['calendar.busyDeleted', calendarBusyDeletedSchema],
   ['errors.unauthorized', errorBodySchema],
   ['activity.list', activityPageSchema],

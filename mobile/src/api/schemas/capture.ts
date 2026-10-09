@@ -177,6 +177,11 @@ export const captureProposalSchema = z.object({
   noCommitmentReason: z
     .enum(['informational', 'greeting_or_chat', 'question', 'past_event', 'negated_request', 'low_confidence'])
     .optional(),
+  /**
+   * On a clarify answer (M4a, WIRE-M4a): the chosen free time had stopped
+   * being free, nothing was saved, and the item asks again with fresh times.
+   */
+  reason: z.literal('not_free').optional(),
   items: z.array(
     z.preprocess(withUsableEnd, z.object({
       itemId: z.string(),

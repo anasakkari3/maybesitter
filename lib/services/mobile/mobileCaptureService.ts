@@ -65,7 +65,7 @@ import {
   getParticipantStateSnapshot,
 } from './participantState';
 import { guardedMobileExtract } from './safety';
-import { dateFromOptionalIso, normalizeTimezone } from './time';
+import { DEFAULT_MOBILE_TIMEZONE, dateFromOptionalIso, normalizeTimezone } from './time';
 import type { WeeklyBlockContract } from '../../../src/contracts/v1/weeklyBlockContracts';
 import {
   captureWeeklyBlockId,
@@ -93,6 +93,11 @@ import {
   type HabitOccurrence,
 } from '../../../src/contracts/v1/habitContracts';
 import { resolveCaptureKinds } from '../captureKinds/runtime';
+import {
+  captureTimedIntervals,
+  freeSlotStillAvailable,
+  withFreeSlotClarifications,
+} from '../../planning/freeSlots';
 import { horizonFrom, todayLocalDateFor } from '../habits/habitService';
 import { materializeHabitOccurrences } from '../../habits/materialize';
 import {
@@ -267,7 +272,29 @@ type MobileGlobals = typeof globalThis & {
 const mobileGlobals = globalThis as MobileGlobals;
 // Durable since #252: a proposal made on one instance must be confirmable on
 // another, and must survive a redeploy. Resolved per call by the adapter.
-const store: CaptureProposalStore = createStorageCaptureProposalStore();
+const baseStore: CaptureProposalStore = createStorageCaptureProposalStore();
+function storeWithFreeSlots(now: () => string): CaptureProposalStore {
+  return {
+    get: (proposalId) => baseStore.get(proposalId),
+    put: async (proposal) => {
+      const contract = await withFreeSlotClarifications(proposal.contract, proposal.scopeId, {
+        timezone: proposal.timezone ?? DEFAULT_MOBILE_TIMEZONE,
+        now: now(),
+      });
+      // The boundary returns the same contract object it hands to `put`. Keep
+      // that object in sync so callers receive the derived clarification without
+      // adding a second storage read (some callers deliberately tolerate a
+      // failed post-write decoration read).
+      if (contract !== proposal.contract) {
+        const target = proposal.contract as unknown as Record<string, unknown>;
+        for (const key of Object.keys(target)) delete target[key];
+        Object.assign(target, contract);
+      }
+      await baseStore.put({ ...proposal, contract });
+    },
+  };
+}
+const store = storeWithFreeSlots(() => new Date().toISOString());
 const persistence = mobileGlobals.__maybesitterMobilePersistence ?? new CommandServiceCapturePersistenceAdapter();
 mobileGlobals.__maybesitterMobilePersistence = persistence;
 
@@ -424,6 +451,7 @@ export async function applyCaptureKindsToProposal(
     modelKinds?: readonly ('habit' | 'goal')[];
   },
 ): Promise<CaptureProposalContract> {
+  const requestNow = input.now ?? new Date();
   const stored = await store.get(proposalId);
   if (!stored || stored.scopeId !== uid) throw new Error('proposal not found');
   const memoryWritable = resolveModuleRuntime('memory').mode === 'enabled';
@@ -471,7 +499,7 @@ export async function applyCaptureKindsToProposal(
       .filter(readsAsDoubt);
     if (doubtSegments.length > 0) {
       const seeds = await Promise.all(doubtSegments.map(async (segment) => {
-        const extracted = await guardedMobileExtract(segment, { now: input.now ?? new Date(), timezone: input.timezone });
+        const extracted = await guardedMobileExtract(segment, { now: requestNow, timezone: input.timezone });
         const instant = extracted.result.remindAt ?? extracted.result.dueAt;
         return {
           seedItemId: randomUUID(), pointId: randomUUID(), kind: 'consideration' as const, summary: segment,
@@ -554,7 +582,7 @@ export async function applyCaptureKindsToProposal(
   }
 
   contract = withV8Understood(contract);
-  await store.put({ ...stored, contract });
+  await storeWithFreeSlots(() => requestNow.toISOString()).put({ ...stored, contract });
   return contract;
 }
 
@@ -567,6 +595,7 @@ export async function editCaptureKindsProposal(
   uid: string,
   edit: CaptureProposalEditContract,
   locale: CaptureAppLocale,
+  now: Date = new Date(),
 ): Promise<CaptureProposalContract | null> {
   if (!resolveCaptureKinds()) return null;
   const stored = await store.get(edit.proposalId);
@@ -663,6 +692,10 @@ export async function editCaptureKindsProposal(
     commands.set(itemId, artifacts.commands);
   } else throw new CaptureKindsInvalidEditError();
   contract = withV8Understood({ ...contract, revision: (contract.revision ?? 0) + 1 });
+  contract = await withFreeSlotClarifications(contract, uid, {
+    timezone: stored.timezone ?? DEFAULT_MOBILE_TIMEZONE,
+    now: now.toISOString(),
+  });
   const mutated: StoredCaptureProposal = {
     ...stored,
     contract,
@@ -1196,8 +1229,9 @@ export async function proposeMobileCapture(input: MobileCaptureInput, context: M
   const consent = context.participantId ? await getAiConsent(context.participantId) : 'declined';
 
   const locale = captureAppLocaleFrom(input.locale);
+  const requestNow = dateFromOptionalIso(input.referenceTime, new Date(), 'referenceTime');
   const proposal = await proposeCapture(text, {
-    now: dateFromOptionalIso(input.referenceTime, new Date(), 'referenceTime'),
+    now: requestNow,
     timezone: normalizeTimezone(input.timezone),
     scopeId: scopeIdFrom(input.scopeId, context),
     requestedEngine: consent === 'granted' ? 'model' : 'rules',
@@ -1206,7 +1240,7 @@ export async function proposeMobileCapture(input: MobileCaptureInput, context: M
     ...(locale ? { responseLocale: locale } : {}),
     activeGoals: await activeGoalsFor(context.participantId),
   }, {
-    store,
+    store: storeWithFreeSlots(() => requestNow.toISOString()),
     persistence: persistenceFor(context),
     commitConfirmation: committerFor(context),
     extractor: guardedMobileExtract,
@@ -1285,8 +1319,9 @@ async function attachSpokenCorrections(
   proposal: CaptureProposalContract,
   modelItems: readonly unknown[],
   message: string,
+  proposalStore: CaptureProposalStore = store,
 ): Promise<CaptureProposalContract> {
-  const stored = await store.get(proposal.proposalId);
+  const stored = await proposalStore.get(proposal.proposalId);
   if (!stored) return proposal;
   const spans: NonNullable<StoredCaptureProposal['correctionSpans']> = { ...(stored.correctionSpans ?? {}) };
   const items = proposal.items.map((item) => {
@@ -1315,7 +1350,7 @@ async function attachSpokenCorrections(
   });
   if (Object.keys(spans).length === Object.keys(stored.correctionSpans ?? {}).length) return proposal;
   const contract = { ...proposal, items };
-  await store.put({ ...stored, contract, correctionSpans: spans });
+  await proposalStore.put({ ...stored, contract, correctionSpans: spans });
   return contract;
 }
 
@@ -1370,6 +1405,7 @@ export async function proposeMobileChatTurn(
   context: MobileBackendContext & { participantId: string },
 ) {
   const configured = configuredProviderName();
+  const requestStore = storeWithFreeSlots(() => input.now.toISOString());
   const boundaryItems = input.items?.map((entry, index) => (
     entry && typeof entry === 'object' && !Array.isArray(entry)
       ? { ...(entry as Record<string, unknown>), __chatOpIndex: index }
@@ -1399,15 +1435,15 @@ export async function proposeMobileChatTurn(
     ...(input.responseLocale ? { responseLocale: input.responseLocale } : {}),
     activeGoals: await activeGoalsFor(context.participantId),
   }, {
-    store,
+    store: requestStore,
     persistence: persistenceFor(context),
     commitConfirmation: committerFor(context),
     extractor: guardedMobileExtract,
     // The chat's items came from the configured hosted model; name it.
     ...(boundaryItems ? { llmEngine: configured === 'ollama' ? 'ollama' as const : 'gemini' as const } : {}),
   });
-  if (input.spoken && input.items) proposal = await attachSpokenCorrections(proposal, input.items, input.text);
-  proposal = await mergeChatProposalByRef(store, input.baseProposalId, proposal, input.refPlan);
+  if (input.spoken && input.items) proposal = await attachSpokenCorrections(proposal, input.items, input.text, requestStore);
+  proposal = await mergeChatProposalByRef(requestStore, input.baseProposalId, proposal, input.refPlan);
   // A proposal the chat produced is a capture submitted, counted as the
   // capture route counts one: its length, never its words.
   if (proposal.items.length > 0) {
@@ -1506,6 +1542,7 @@ export async function clarifyMobileCapture(input: MobileClarifyInput, context: M
   }
 
   const scopeId = scopeIdFrom(input.scopeId, context);
+  const clarifyNow = dateFromOptionalIso(input.referenceTime, new Date(), 'referenceTime');
   const before = await store.get(proposalId);
   if (!before || before.scopeId !== scopeId) throw new ClarifyError('proposal_not_found');
   const currentRevision = proposalRevision(before.contract);
@@ -1527,7 +1564,18 @@ export async function clarifyMobileCapture(input: MobileClarifyInput, context: M
     // extraction cannot overwrite an edit or reopen a proposal confirmed while
     // the extraction was in flight.
     get: async (requestedProposalId) => requestedProposalId === proposalId ? before : undefined,
-    put: async (next) => {
+    put: async (candidate) => {
+      const enrichedContract = await withFreeSlotClarifications(candidate.contract, scopeId, {
+        timezone: before.timezone ?? normalizeTimezone(input.timezone),
+        now: clarifyNow.toISOString(),
+        storage,
+      });
+      if (enrichedContract !== candidate.contract) {
+        const target = candidate.contract as unknown as Record<string, unknown>;
+        for (const key of Object.keys(target)) delete target[key];
+        Object.assign(target, enrichedContract);
+      }
+      const next = { ...candidate, contract: enrichedContract };
       await storage.runTransaction(async (tx) => {
         const document = await tx.get<StoredProposalDocument>(proposalPath);
         if (!document) throw new ClarifyError('proposal_not_found');
@@ -1568,6 +1616,31 @@ export async function clarifyMobileCapture(input: MobileClarifyInput, context: M
     },
   };
 
+  const selectedOption = typeof input.optionId === 'string'
+    ? before.contract.items.find((item) => item.itemId === itemId)?.clarification?.options
+      .find((option) => option.optionId === input.optionId)
+    : undefined;
+  if (selectedOption?.labelKey === 'freeSlot'
+    && selectedOption.value.localDate && selectedOption.value.localTime
+    && !await freeSlotStillAvailable(scopeId, selectedOption.value.localDate, selectedOption.value.localTime, {
+      timezone: before.timezone ?? normalizeTimezone(input.timezone),
+      now: clarifyNow.toISOString(),
+      held: captureTimedIntervals(before.contract),
+      storage,
+    })) {
+    const refreshed = await withFreeSlotClarifications(
+      { ...before.contract, revision: currentRevision + 1 },
+      scopeId,
+      {
+        timezone: before.timezone ?? normalizeTimezone(input.timezone),
+        now: clarifyNow.toISOString(),
+        storage,
+      },
+    );
+    await compareAndSwapStore.put({ ...before, contract: refreshed, legacyConfirmRevision: undefined });
+    return { ...(await withEventsOnTheirDay(refreshed)), reason: 'not_free' as const };
+  }
+
   const answered = await answerClarification(
     {
       proposalId,
@@ -1577,7 +1650,7 @@ export async function clarifyMobileCapture(input: MobileClarifyInput, context: M
       ...(typeof input.freeText === 'string' ? { freeText: input.freeText } : {}),
     },
     {
-      now: dateFromOptionalIso(input.referenceTime, new Date(), 'referenceTime'),
+      now: clarifyNow,
       timezone: normalizeTimezone(input.timezone),
       scopeId,
     },

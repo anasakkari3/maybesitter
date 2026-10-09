@@ -64,15 +64,43 @@ export function googleCalendarOn(status: GoogleStatus | undefined): boolean {
   return status?.status === 'connected' && status.features.calendar;
 }
 
-/** The stored Google blocks, in the shape the phone's own blocks have. */
-async function listGoogleBlocks(): Promise<DeviceBusyBlock[]> {
-  const { blocks } = await listGoogleBusy();
-  return blocks.map((block) => ({
-    nativeId: block.blockId,
-    startAt: block.startAt,
-    endAt: block.endAt,
-    allDay: block.allDay,
-  }));
+/**
+ * What the account holds from Google: the blocks, in the shape the phone's own
+ * blocks have, and the window the last sync honestly covered (M4a). A window
+ * the server does not send is no coverage, never "all clear".
+ */
+export interface GoogleBusyRead {
+  readonly blocks: DeviceBusyBlock[];
+  readonly windowStart: string | null;
+  readonly windowEnd: string | null;
+}
+
+async function listGoogleBlocks(): Promise<GoogleBusyRead> {
+  const read = await listGoogleBusy();
+  return {
+    blocks: read.blocks.map((block) => ({
+      nativeId: block.blockId,
+      startAt: block.startAt,
+      endAt: block.endAt,
+      allDay: block.allDay,
+    })),
+    windowStart: read.windowStart ?? null,
+    windowEnd: read.windowEnd ?? null,
+  };
+}
+
+/** The Google busy read with its state, for the free-time readiness (M4a). */
+export function useGoogleBusyRead() {
+  const uid = useUid();
+  const status = useGoogleStatus();
+  const on = googleCalendarOn(status.data);
+  const query = useQuery({
+    queryKey: googleQueryKeys.busy(uid),
+    queryFn: listGoogleBlocks,
+    enabled: uid !== 'signed-out' && on,
+    staleTime: 15 * 60_000,
+  });
+  return { status, on, query };
 }
 
 /**
@@ -85,15 +113,8 @@ async function listGoogleBlocks(): Promise<DeviceBusyBlock[]> {
  * only ever happened while the Calendar tab was open (CL6a review I1).
  */
 export function useGoogleBusyBlocks(): DeviceBusyBlock[] {
-  const uid = useUid();
-  const status = useGoogleStatus();
-  const query = useQuery({
-    queryKey: googleQueryKeys.busy(uid),
-    queryFn: listGoogleBlocks,
-    enabled: uid !== 'signed-out' && googleCalendarOn(status.data),
-    staleTime: 15 * 60_000,
-  });
-  return googleCalendarOn(status.data) ? query.data ?? NO_BLOCKS : NO_BLOCKS;
+  const { on, query } = useGoogleBusyRead();
+  return on ? query.data?.blocks ?? NO_BLOCKS : NO_BLOCKS;
 }
 
 /**

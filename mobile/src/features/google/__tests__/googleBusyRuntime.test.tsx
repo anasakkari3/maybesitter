@@ -137,7 +137,7 @@ describe('with Google Calendar connected and the calendar switch on', () => {
 
     await waitFor(() => expect(sync).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(list).toHaveBeenCalled());
-    await waitFor(() => expect(client.getQueryData(googleQueryKeys.busy(USER.uid))).toHaveLength(calendarBlocks.blocks.length));
+    await waitFor(() => expect((client.getQueryData(googleQueryKeys.busy(USER.uid)) as { blocks: unknown[] } | undefined)?.blocks).toHaveLength(calendarBlocks.blocks.length));
   });
 
   it('refreshes again when the app comes back to the front, at most every fifteen minutes', async () => {

@@ -37,7 +37,7 @@ import type { AuthUser } from '../../../auth/types';
 import { Root } from '../../../Root';
 import en from '../../../i18n/locales/en.json';
 import { LANGUAGE_STORAGE_KEY } from '../../../i18n/language';
-import { BUSY_BLOCKS_KEY } from '../../../lib/deviceSettings/calendarBusy';
+import { seedDeviceBusyCache } from '../../../testing/deviceBusyCache';
 import { resetBusySyncForTests } from '../useBusyCalendar';
 
 import * as captureEndpoints from '../../../api/endpoints/capture';
@@ -70,9 +70,9 @@ const ELSEWHERE_FROM = new Date(AT.getTime() + 72 * HOUR);
 const ELSEWHERE_TO = new Date(ELSEWHERE_FROM.getTime() + HOUR);
 
 function cached(from: Date, to: Date) {
-  return JSON.stringify([
+  return [
     { nativeId: 'evt-1', startAt: from.toISOString(), endAt: to.toISOString(), allDay: false },
-  ]);
+  ];
 }
 
 function proposal() {
@@ -163,7 +163,7 @@ async function reachReview() {
 
 describe('on the review card', () => {
   it('shows the note when the proposed time falls inside a calendar event', async () => {
-    await AsyncStorage.setItem(BUSY_BLOCKS_KEY, cached(MEETING_FROM, MEETING_TO));
+    await seedDeviceBusyCache(USER.uid, cached(MEETING_FROM, MEETING_TO));
     jest.spyOn(captureEndpoints, 'chatCapture').mockImplementation(chatServer(() => (proposal())) as never);
     await openApp();
     await reachReview();
@@ -173,7 +173,7 @@ describe('on the review card', () => {
   });
 
   it('shows nothing when the calendar has something on a different day', async () => {
-    await AsyncStorage.setItem(BUSY_BLOCKS_KEY, cached(ELSEWHERE_FROM, ELSEWHERE_TO));
+    await seedDeviceBusyCache(USER.uid, cached(ELSEWHERE_FROM, ELSEWHERE_TO));
     jest.spyOn(captureEndpoints, 'chatCapture').mockImplementation(chatServer(() => (proposal())) as never);
     await openApp();
     await reachReview();
@@ -188,7 +188,7 @@ describe('on the review card', () => {
   });
 
   it('still confirms, because the note is a note', async () => {
-    await AsyncStorage.setItem(BUSY_BLOCKS_KEY, cached(MEETING_FROM, MEETING_TO));
+    await seedDeviceBusyCache(USER.uid, cached(MEETING_FROM, MEETING_TO));
     jest.spyOn(captureEndpoints, 'chatCapture').mockImplementation(chatServer(() => (proposal())) as never);
     const confirm = jest.spyOn(captureEndpoints, 'confirmCapture').mockResolvedValue({
       success: true,
@@ -209,7 +209,7 @@ describe('on the review card', () => {
 
 describe('on Today', () => {
   it('shows the note beside a commitment that runs into a calendar event', async () => {
-    await AsyncStorage.setItem(BUSY_BLOCKS_KEY, cached(MEETING_FROM, MEETING_TO));
+    await seedDeviceBusyCache(USER.uid, cached(MEETING_FROM, MEETING_TO));
     jest.spyOn(commitmentEndpoints, 'listToday')
       .mockResolvedValue({ items: [todayItem()], calendarOrphans: [] } as never);
     await openApp();
@@ -218,7 +218,7 @@ describe('on Today', () => {
   });
 
   it('shows nothing beside a commitment the calendar is silent about', async () => {
-    await AsyncStorage.setItem(BUSY_BLOCKS_KEY, cached(ELSEWHERE_FROM, ELSEWHERE_TO));
+    await seedDeviceBusyCache(USER.uid, cached(ELSEWHERE_FROM, ELSEWHERE_TO));
     jest.spyOn(commitmentEndpoints, 'listToday')
       .mockResolvedValue({ items: [todayItem()], calendarOrphans: [] } as never);
     await openApp();

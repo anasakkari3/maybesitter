@@ -323,13 +323,22 @@ export function useDeleteWeeklyBlock() {
   return useWeeklyBlockMutation((id: string) => deleteWeeklyBlock(id));
 }
 
-export function useToday() {
+/**
+ * Today's commitments. `referenceTime` pins the read to one instant (M4a,
+ * M4A-R2-008): the Plan tab asks Today and Upcoming at the same instant, so a
+ * pair of requests either side of local midnight cannot drop or double a
+ * commitment. Its key carries the instant; every other screen's read is the
+ * same as before.
+ */
+export function useToday(options: { referenceTime?: string } = {}) {
   const uid = useUid();
   const timezone = useTimeZone();
+  const { referenceTime } = options;
   return useQuery({
-    queryKey: queryKeys.today(uid, timezone),
-    queryFn: () => listToday({ timezone }),
+    queryKey: referenceTime ? [...queryKeys.today(uid, timezone), referenceTime] : queryKeys.today(uid, timezone),
+    queryFn: () => listToday(referenceTime ? { timezone, referenceTime } : { timezone }),
     enabled: uid !== 'signed-out',
+    ...(referenceTime ? { placeholderData: keepPreviousData } : {}),
   });
 }
 
@@ -352,13 +361,16 @@ export function useCategoryPreferences() {
   });
 }
 
-export function useUpcoming() {
+/** The days ahead. `referenceTime` as for `useToday`. */
+export function useUpcoming(options: { referenceTime?: string } = {}) {
   const uid = useUid();
   const timezone = useTimeZone();
+  const { referenceTime } = options;
   return useQuery({
-    queryKey: queryKeys.upcoming(uid, timezone),
-    queryFn: () => listUpcoming({ timezone }),
+    queryKey: referenceTime ? [...queryKeys.upcoming(uid, timezone), referenceTime] : queryKeys.upcoming(uid, timezone),
+    queryFn: () => listUpcoming(referenceTime ? { timezone, referenceTime } : { timezone }),
     enabled: uid !== 'signed-out',
+    ...(referenceTime ? { placeholderData: keepPreviousData } : {}),
   });
 }
 
@@ -1486,11 +1498,13 @@ export function useSetCategoryPreferences() {
 }
 
 /** The account's routine profile. `routine: null` means never answered. */
-export function useProfile() {
+/** The routine profile. `enabled: false` reads nothing (M4a: not while free time is off). */
+export function useProfile(options: { enabled?: boolean } = {}) {
   const uid = useUid();
   return useQuery({
     queryKey: queryKeys.profile(uid),
     queryFn: getProfile,
+    enabled: options.enabled ?? true,
   });
 }
 

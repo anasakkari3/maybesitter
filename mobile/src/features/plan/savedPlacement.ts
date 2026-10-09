@@ -28,12 +28,14 @@ export interface SavedPlacement {
   readonly date: string;
   /** The planned start on that day. */
   readonly startsAt: string;
+  /** Its planned end (M4a: the slot occupies `startsAt`–`endsAt`). */
+  readonly endsAt: string | null;
 }
 
 export function savedPlacements(saved: SavedWeek | undefined): ReadonlyMap<string, SavedPlacement> {
   const map = new Map<string, SavedPlacement>();
   for (const day of saved?.saved ?? []) {
-    for (const step of day.items) map.set(step.itemId, { date: day.date, startsAt: step.startsAt });
+    for (const step of day.items) map.set(step.itemId, { date: day.date, startsAt: step.startsAt, endsAt: step.endsAt });
   }
   return map;
 }
@@ -41,7 +43,7 @@ export function savedPlacements(saved: SavedWeek | undefined): ReadonlyMap<strin
 /** The view with `plannedAt` set when a saved day holds it. */
 export function placeView(view: CommitmentView, placements: ReadonlyMap<string, SavedPlacement>): CommitmentView {
   const placement = placements.get(view.id);
-  return placement ? { ...view, plannedAt: placement.startsAt } : view;
+  return placement ? { ...view, plannedAt: placement.startsAt, plannedEnd: placement.endsAt } : view;
 }
 
 /** The instant a screen draws the item at: where a saved plan put it, or its own time. */

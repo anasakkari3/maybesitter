@@ -75,7 +75,11 @@ const mockBlocks = [
   { nativeId: 'evt-soon', startAt: START, endAt: END, allDay: false },
   { nativeId: 'evt-allday', startAt: new Date(mockStart.getTime() - 2 * HOUR).toISOString(), endAt: new Date(mockStart.getTime() + 20 * HOUR).toISOString(), allDay: true },
 ];
-jest.mock('../../calendar/useBusyCalendar', () => ({ useBusyBlocks: () => mockBlocks }));
+jest.mock('../../calendar/useBusyCalendar', () => ({
+  useBusyBlocks: () => mockBlocks,
+  // The Plan tab reads the cache's coverage too (M4a); none here.
+  useDeviceBusy: () => ({ data: { blocks: mockBlocks, coverage: null, syncedAt: null }, isPending: false, isError: false }),
+}));
 
 const METRICS: Metrics = { frame: { x: 0, y: 0, width: 390, height: 844 }, insets: { top: 47, left: 0, right: 0, bottom: 34 } };
 const USER: AuthUser = { uid: 'prep-user', email: 'a@b.c', emailVerified: true, displayName: null, providerIds: ['password'] };

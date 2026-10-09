@@ -1171,7 +1171,7 @@ test('D8 a revisioned keep between a legacy clarify read and write ends the lega
       questionId: firstQuestion.clarification!.questionId,
       optionId: firstQuestion.clarification!.options[0]!.optionId,
       timezone: ZONE,
-      referenceTime: new Date().toISOString(),
+      referenceTime: '2026-10-07T07:00:00.000Z',
     })));
     assert.equal(clarified.status, 200, JSON.stringify(clarified.body));
     const current = clarified.body as Proposal;
@@ -1191,7 +1191,7 @@ test('D8 a revisioned keep between a legacy clarify read and write ends the lega
       questionId: secondQuestion.clarification!.questionId,
       optionId: secondQuestion.clarification!.options[0]!.optionId,
       timezone: ZONE,
-      referenceTime: new Date().toISOString(),
+      referenceTime: '2026-10-07T07:00:00.000Z',
     })));
     assert.equal(raced.status, 409, JSON.stringify(raced.body));
     assert.equal(raced.body.state, 'open');
