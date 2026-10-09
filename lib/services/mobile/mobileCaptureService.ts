@@ -472,7 +472,8 @@ function mergeRestatedThoughtAdditions(
     seeds = seeds
       .filter((seed) => seed.seedItemId !== addition.seedItemId)
       .map((seed) => seed.seedItemId === match.seedItemId
-        ? { ...seed, summary: addition.summary, suggestedTime: addition.suggestedTime ?? null }
+        && addition.suggestedTime
+        ? { ...seed, summary: addition.summary, suggestedTime: addition.suggestedTime }
         : seed);
     const addedIdentity = capturePointId(addition);
     if (stored.sourceOrdinals) {

@@ -558,6 +558,21 @@ test('SIM-10 RB-5: an untimed restatement of a timed thought keeps the time and 
   } finally { end(); }
 });
 
+test('SIM-10 RB-5: a timed restatement with a different time takes the newer time and wording and keeps its ids', async () => {
+  const uid = beginRules();
+  try {
+    const first = await say(uid, 'عم بفكر روح عالجيم بكرا الساعة 6 المسا', { locale: 'ar' });
+    const before = onlyThought(first, 'first turn');
+    const restated = 'عم بفكر روح عالجيم بكرا الساعة 8 المسا';
+    const next = await say(uid, restated, { conversationId: first.conversationId, locale: 'ar' });
+    const after = onlyThought(next, 'restatement');
+    assert.equal(after.seedItemId, before.seedItemId);
+    assert.equal(after.pointId, before.pointId);
+    assert.equal(after.suggestedTime?.at, at(TOMORROW, '20:00'));
+    assert.equal(after.summary, restated);
+  } finally { end(); }
+});
+
 test('SIM-10: when more than one existing thought is equal, the first is updated and nothing is added', async () => {
   const uid = beginRules();
   try {
