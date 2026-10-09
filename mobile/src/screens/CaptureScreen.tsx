@@ -158,25 +158,24 @@ function savedNoteText(note: ChatSavedNote, t: Strings, lang: Lang, timeZone: st
  *
  * It takes the chat's place the moment capture opens, so a screen reader would
  * otherwise still be on the button that opened it, or land on the header, and
- * never hear that a question is waiting (inspection FU-003). Its title is a
- * heading and takes the accessibility focus, and the title and the question
- * are announced, on both platforms: a live region would not do on Android,
- * which speaks only what changes inside a region already on screen, and this
- * one arrives with its words (inspection A11Y-001).
+ * never hear that a question is waiting (inspection FU-003).
+ *
+ * One thing is spoken, once: the title and the question are a single heading,
+ * and the accessibility focus is moved to it. Nothing else is announced. A
+ * separate announcement beside the focus is two speech events, and on Android
+ * either can cut the other off, or the title is said twice (A11Y-001/002).
  */
 function EntryQuestion({ title, body, continueLabel, newLabel, onContinue, onNew }: {
   title: string; body: string; continueLabel: string; newLabel: string; onContinue: () => void; onNew: () => void;
 }) {
-  const heading = useRef<View>(null);
-  useEffect(() => {
-    focusForAccessibility(heading.current);
-    AccessibilityInfo.announceForAccessibility(`${title}. ${body}`);
-  }, [title, body]);
+  const question = useRef<View>(null);
+  useEffect(() => { focusForAccessibility(question.current); }, []);
   return <View style={{ gap: 16 }} testID="capture-entry-ask">
-    <View ref={heading} testID="capture-entry-ask-title" accessible accessibilityRole="header" accessibilityLabel={title}>
+    <View ref={question} testID="capture-entry-ask-title" accessible accessibilityRole="header"
+      accessibilityLabel={`${title}. ${body}`} style={{ gap: 16 }}>
       <Txt size={22} weight={600}>{title}</Txt>
+      <Txt size={15}>{body}</Txt>
     </View>
-    <Txt size={15}>{body}</Txt>
     <Pill testID="capture-entry-ask-continue" label={continueLabel} onPress={onContinue} />
     <Pill testID="capture-entry-ask-new" label={newLabel} onPress={onNew} kind="warm" />
   </View>;

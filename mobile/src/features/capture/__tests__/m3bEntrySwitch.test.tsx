@@ -104,10 +104,12 @@ describe('a page opens the chat for its own kind', () => {
     expect(harness.server.matching('POST', /\/capture\/chat$/)).toHaveLength(1);
   });
 
-  // Inspection FU-003 and A11Y-001: a screen reader hears that a question is
-  // waiting, and hears the question, on both platforms. Android speaks only
-  // what changes in a live region already on screen, so it is announced outright.
-  it.each(['ios', 'android'] as const)('on %s the question takes the accessibility focus on its heading and is announced, title and question', async (os) => {
+  // Inspection FU-003, A11Y-001 and A11Y-002: a screen reader is taken to the
+  // question and hears it, title and question, as one thing said once. What
+  // this can check is that exactly one speech-producing call is made (the
+  // focus) and that what it lands on is named in full; how a real TalkBack
+  // or VoiceOver says it needs a device.
+  it.each(['ios', 'android'] as const)('on %s the question is one heading, title and question, that takes the accessibility focus; nothing else is spoken', async (os) => {
     const original = Platform.OS;
     Object.defineProperty(Platform, 'OS', { value: os, configurable: true });
     try {
@@ -124,13 +126,13 @@ describe('a page opens the chat for its own kind', () => {
       await screen.findByTestId('capture-entry-ask');
       const heading = screen.getByTestId('capture-entry-ask-title');
       expect(heading.props.accessibilityRole).toBe('header');
-      expect(heading.props.accessibilityLabel).toBe(en.xEntryOpenChatTitle);
+      expect(heading.props.accessibilityLabel).toBe(`${en.xEntryOpenChatTitle}. ${en.xEntryOpenChatBody}`);
       // Once, and at a mounted view: the heading.
       expect(focus).toHaveBeenCalledTimes(1);
       expect(focus.mock.calls[0]![0]).not.toBeNull();
-      // The question, once, and nothing else spoken over it: not the open
-      // chat's last reply, which is not on screen.
-      expect(announce.mock.calls.map((call) => call[0])).toEqual([`${en.xEntryOpenChatTitle}. ${en.xEntryOpenChatBody}`]);
+      // No second speech event beside the focus: not an announcement of the
+      // question, and not the open chat's last reply, which is not on screen.
+      expect(announce.mock.calls.map((call) => call[0])).toEqual([]);
       // Both answers are buttons named by their words.
       expect(screen.getByRole('button', { name: en.xEntryOpenChatContinue })).toBeTruthy();
       expect(screen.getByRole('button', { name: en.xEntryOpenChatNew })).toBeTruthy();
