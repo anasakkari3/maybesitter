@@ -37,13 +37,14 @@ import type { AuthUser } from '../../../auth/types';
 import { Root } from '../../../Root';
 import en from '../../../i18n/locales/en.json';
 import { LANGUAGE_STORAGE_KEY } from '../../../i18n/language';
-import { seedDeviceBusyCache } from '../../../testing/deviceBusyCache';
+import { calendarOnButUnreadable, seedDeviceBusyCache } from '../../../testing/deviceBusyCache';
+import * as calendarBusyStore from '../../../lib/deviceSettings/calendarBusy';
+import * as trustEndpoints from '../../../api/endpoints/trust';
 import { resetBusySyncForTests } from '../useBusyCalendar';
 
 import * as captureEndpoints from '../../../api/endpoints/capture';
 import * as commitmentEndpoints from '../../../api/endpoints/commitments';
 import * as analyticsEndpoints from '../../../api/endpoints/analytics';
-import * as trustEndpoints from '../../../api/endpoints/trust';
 import { chatServer } from '../../../testing/captureChat';
 
 const METRICS: Metrics = {
@@ -126,10 +127,10 @@ beforeEach(async () => {
   await AsyncStorage.setItem(LANGUAGE_STORAGE_KEY, 'en');
   jest.spyOn(commitmentEndpoints, 'listToday').mockResolvedValue({ items: [], calendarOrphans: [] } as never);
   jest.spyOn(commitmentEndpoints, 'listUpcoming').mockResolvedValue({ items: [] } as never);
-  // The calendar switch is off, so nothing below reads a calendar or uploads
-  // anything. The chips come from the cache and from nowhere else.
-  jest.spyOn(trustEndpoints, 'getTrust')
-    .mockResolvedValue({ success: true, participantId: USER.uid, trust: { analyticsConsent: false, calendarConsent: false } } as never);
+  // The calendar switch is on and the phone refuses the read, so nothing
+  // below uploads anything. The chips come from the cache and from nowhere
+  // else. (Off would clear that cache: owner decision 2026-10-09.)
+  calendarOnButUnreadable(USER.uid);
   jest.spyOn(analyticsEndpoints, 'recordAnalyticsEvent')
     .mockResolvedValue({ success: true, participantId: USER.uid, recorded: true, eventId: 'e-1' } as never);
 });
@@ -224,5 +225,33 @@ describe('on Today', () => {
     await openApp();
     await waitFor(() => expect(screen.queryByTestId('today-item-c-1')).not.toBeNull());
     expect(screen.queryByTestId('today-busy-c-1')).toBeNull();
+  });
+  // Owner decision 2026-10-09, inspection FU-002: with the switch off the
+  // cache is not shown at all, from the first render that knows — not only
+  // once its removal from the disk has finished.
+  it('shows no note once the server says the calendar switch is off, even while the cache is still on disk', async () => {
+    await seedDeviceBusyCache(USER.uid, cached(MEETING_FROM, MEETING_TO));
+    // The removal never finishes: only not showing the cache can pass this.
+    jest.spyOn(calendarBusyStore, 'clearCachedBusyBlocks').mockReturnValue(new Promise(() => {}));
+    jest.spyOn(trustEndpoints, 'getTrust')
+      .mockResolvedValue({ success: true, participantId: USER.uid, trust: { analyticsConsent: false, calendarConsent: false } } as never);
+    jest.spyOn(commitmentEndpoints, 'listToday')
+      .mockResolvedValue({ items: [todayItem()], calendarOrphans: [] } as never);
+    await openApp();
+    await waitFor(() => expect(screen.queryByTestId('today-item-c-1')).not.toBeNull());
+    await waitFor(() => expect(calendarBusyStore.clearCachedBusyBlocks).toHaveBeenCalled());
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(screen.queryByTestId('today-busy-c-1')).toBeNull();
+    // The clashing block really is still there to be shown.
+    expect(await AsyncStorage.getItem(calendarBusyStore.BUSY_BLOCKS_KEY)).toContain(MEETING_FROM.toISOString());
+  });
+
+  it('keeps showing the note while the answer about the switch has not arrived', async () => {
+    await seedDeviceBusyCache(USER.uid, cached(MEETING_FROM, MEETING_TO));
+    jest.spyOn(trustEndpoints, 'getTrust').mockReturnValue(new Promise(() => {}) as never);
+    jest.spyOn(commitmentEndpoints, 'listToday')
+      .mockResolvedValue({ items: [todayItem()], calendarOrphans: [] } as never);
+    await openApp();
+    await waitFor(() => expect(screen.queryByTestId('today-busy-c-1')).not.toBeNull());
   });
 });

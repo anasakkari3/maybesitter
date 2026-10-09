@@ -149,9 +149,19 @@ test('D3 doubt: a timed thought stays a consideration with its time, in ar, en a
       assert.equal(answer.proposal!.items.length, 0, `${locale}: a thought became a commitment: ${show(answer.proposal!.items)}`);
       const [seed] = answer.proposal!.seeds;
       assert.equal(seed?.kind, 'consideration', `${locale}: ${show(answer.proposal!.seeds)}`);
+      assert.equal(seed?.summary, message, `${locale}: the thought's own words changed`);
       assert.equal(seed?.suggestedTime?.at, at(TOMORROW, time), `${locale}: the time was not kept on the thought`);
     } finally { end(); }
   }
+});
+
+test('SIM-10 guard: an ordinary commitment keeps «ممكن» in the middle of its title', async () => {
+  const uid = beginRules();
+  try {
+    const answer = await say(uid, 'لازم أكتب كلمة ممكن بالتقرير بكرا الساعة 5 المسا', { locale: 'ar' });
+    assert.equal(answer.proposal!.items.length, 1, show(answer.proposal));
+    assert.equal(answer.proposal!.items[0]!.title, 'أكتب كلمة ممكن بالتقرير');
+  } finally { end(); }
 });
 
 test('D3 doubt: «حطّها التزام» turns the timed thought into a commitment at that time, nothing saved yet', async () => {

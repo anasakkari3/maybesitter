@@ -50,6 +50,20 @@ function expectGapEnding(day: string, start: string, end: string): void {
   expect(String(gap.props.accessibilityLabel ?? '')).toContain(end);
 }
 
+/**
+ * Opens «شوف أبعد» and waits for its cells to be drawn. The four weeks of
+ * weekly blocks are read when the view opens (owner decision 2026-10-09,
+ * M4A-REV-003), so for a moment every cell says it is working its time out.
+ */
+async function openWider(): Promise<void> {
+  await press('calendar-wider-open');
+  await waitFor(() => {
+    for (const cell of screen.getAllByTestId(/^calendar-wider-day-/)) {
+      expect(cell.props.accessibilityLabel).not.toContain(copy('yFreeLoading'));
+    }
+  });
+}
+
 function unknownGoogleLabelText(): string {
   return copy('yWiderCellUnknownA11y')
     .replace('{date}, ', '')
@@ -169,7 +183,7 @@ describe('M4a readiness fails closed', () => {
   ])('M4A-R8-003 Google %s is not treated as connected coverage', async (_status, googleStatus) => {
     harness = await prepareCalendar((scenario) => { scenario.googleStatus = googleStatus; });
     await renderCalendar(harness);
-    await press('calendar-wider-open');
+    await openWider();
 
     expect(screen.queryByTestId('calendar-wider-google-note')).toBeNull();
     expect(screen.queryByTestId(`calendar-wider-free-bar-${TODAY}`)).not.toBeNull();
@@ -252,7 +266,7 @@ describe('M4a wider calendar', () => {
       }];
     });
     await renderCalendar(harness);
-    await press('calendar-wider-open');
+    await openWider();
 
     expect(screen.getAllByTestId(/^calendar-wider-day-/)).toHaveLength(28);
     expect(screen.queryByTestId('calendar-wider-free-bar-2030-04-23')).not.toBeNull();
@@ -264,7 +278,7 @@ describe('M4a wider calendar', () => {
   it('M4A-R2-006 day 20 selection closes wider view, keeps a seven-cell strip, and Back to today works', async () => {
     harness = await prepareCalendar();
     await renderCalendar(harness);
-    await press('calendar-wider-open');
+    await openWider();
     await press('calendar-wider-day-2030-04-18');
 
     expect(screen.queryByTestId('calendar-wider')).toBeNull();
@@ -285,7 +299,7 @@ describe('M4a wider calendar', () => {
       };
     });
     await renderCalendar(harness);
-    await press('calendar-wider-open');
+    await openWider();
 
     const note = screen.getAllByTestId('calendar-wider-google-note');
     expect(note).toHaveLength(1);
@@ -302,7 +316,7 @@ describe('M4a wider calendar', () => {
       scenario.googleBusy = { success: true, blocks: [], windowStart: null, windowEnd: null };
     });
     await renderCalendar(harness);
-    await press('calendar-wider-open');
+    await openWider();
 
     const note = screen.getByTestId('calendar-wider-google-note');
     expect(note).toHaveTextContent(copy('yWiderGoogleNoteFromHere'));
@@ -322,7 +336,7 @@ describe('M4a wider calendar', () => {
       };
     });
     await renderCalendar(harness);
-    await press('calendar-wider-open');
+    await openWider();
 
     expect(screen.getByTestId('calendar-wider-google-note'))
       .toHaveTextContent(copy('yWiderGoogleNoteFromHere'));
@@ -355,7 +369,7 @@ describe('M4a day identity', () => {
       scenario.upcoming = [commitment('future', instant('2030-04-18', '12:00'))];
     });
     await renderCalendar(harness);
-    await press('calendar-wider-open');
+    await openWider();
     await press('calendar-wider-day-2030-04-18');
 
     await act(async () => {

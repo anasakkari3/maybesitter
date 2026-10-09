@@ -16,6 +16,8 @@ import { ProductActions, useRevealInPage } from '../../ui/product';
 import { ReferenceIcon } from '../../ui/referenceIcons';
 import { planFailureOf, recoveryLabel, type PlanRecovery } from './planFailures';
 import { AllTimesSheet } from './AllTimesSheet';
+import { habitStart, type HabitStart } from './habitStart';
+import { useLocalToday } from '../calendar/usePlanFreeTime';
 import type { LiveStep, PlanFlow as Flow } from './useGoalPlanFlow';
 
 /**
@@ -412,10 +414,31 @@ function useSlotLine(): (slot: GoalPlanSlot) => string {
   }, [lang, timeZone]);
 }
 
-function useWeeklyLine(): (weekly: GoalPlanWeekly) => string {
-  const { lang } = useApp();
-  return React.useCallback((weekly: GoalPlanWeekly) =>
-    `${weekly.weekdays.map(day => weekdayName(day, lang)).join('، ')} · ${formatClockRange(weekly.start, weekly.end)}`, [lang]);
+/**
+ * A habit's line: its weekdays and its time, led by when its week begins if
+ * that is not this week (#751): «من الأسبوع الجاي · خميس، جمعة · 08:00».
+ */
+function useWeeklyLine(): (weekly: GoalPlanWeekly, start?: HabitStart) => string {
+  const { t, lang } = useApp();
+  return React.useCallback((weekly: GoalPlanWeekly, start?: HabitStart) => {
+    const line = `${weekly.weekdays.map(day => weekdayName(day, lang)).join('، ')} · ${formatClockRange(weekly.start, weekly.end)}`;
+    if (!start || start.kind === 'now') return line;
+    const from = start.kind === 'next_week' ? t.xPlanFromNextWeek
+      : fill(t.xPlanFromDate, { date: isolateAuto(formatDate(civilDate(start.key), 'short', { locale: lang, timeZone: 'UTC' })) });
+    return `${from} · ${line}`;
+  }, [t, lang]);
+}
+
+/** When each habit step's week begins, read from the plan the times belong to. */
+function useHabitStarts(times: GoalPlanTimes, plan: GoalPlan | null): (stepId: string) => HabitStart {
+  // Today as the plan counts it: in the zone its anchor and its occurrences
+  // are in, not the phone's, which can be a day apart around midnight or
+  // after a flight. It moves at that zone's midnight and when the app comes
+  // back to the front, so a line left open does not go stale (inspection FU-004).
+  const today = useLocalToday(times.anchor.timezone);
+  return React.useCallback((stepId: string) =>
+    habitStart(plan?.steps.find(step => step.stepId === stepId)?.phase, times.anchor.localDate, today),
+  [plan, times.anchor.localDate, today]);
 }
 
 const isSlot = (value: GoalPlanSlot | GoalPlanWeekly): value is GoalPlanSlot => 'startsAt' in value;
@@ -451,6 +474,7 @@ function TimesStep({ flow, times, plan }: { flow: Flow; times: GoalPlanTimes; pl
   const { t, p, lang } = useApp();
   const slotLine = useSlotLine();
   const weeklyLine = useWeeklyLine();
+  const startOf = useHabitStarts(times, plan);
   const [toggled, setChanging] = React.useState<string | null>(null);
   // «غيّر كل الأوقات» (M4a R005): open while the person picks; «طبّق» closes it.
   const [allOpen, setAllOpen] = React.useState(false);
@@ -493,7 +517,7 @@ function TimesStep({ flow, times, plan }: { flow: Flow; times: GoalPlanTimes; pl
         {name ? <Txt role="body" weight={700}>{name}</Txt> : null}
         {later ? <Txt role="supporting" color={p.mu} testID={`plan-times-later-${step.stepId}`}>{fill(t.xPlanTimesLater, { n: later.weekIndex })}</Txt> : <>
           {slot ? <Txt testID={`plan-times-slot-${step.stepId}`}>{slotLine(slot)}</Txt> : null}
-          {weekly ? <Txt testID={`plan-times-weekly-${step.stepId}`}>{weeklyLine(weekly)}</Txt> : null}
+          {weekly ? <Txt testID={`plan-times-weekly-${step.stepId}`}>{weeklyLine(weekly, startOf(step.stepId))}</Txt> : null}
           {!slot && !weekly && reason ? <Txt role="supporting" color={p.wm} testID={`plan-times-reason-${step.stepId}`}>{noRoomLine(reason, t)}</Txt> : null}
           {!slot && !weekly && !reason ? <Txt role="supporting" color={p.mu} testID={`plan-times-none-chosen-${step.stepId}`}>{t.xPlanTimesNone}</Txt> : null}
           <ProductActions>
@@ -505,7 +529,7 @@ function TimesStep({ flow, times, plan }: { flow: Flow; times: GoalPlanTimes; pl
           {changing === step.stepId ? <View style={{ gap: 8 }} accessibilityLabel={t.xPlanTimesAlternatives}>
             <Txt role="metadata" color={p.mu}>{t.xPlanTimesAlternatives}</Txt>
             {alternatives.map((alternative, index) => <Pill key={index} testID={`plan-times-alt-${step.stepId}-${index + 1}`}
-              label={isSlot(alternative) ? slotLine(alternative) : weeklyLine(alternative)} kind="outline" disabled={busy}
+              label={isSlot(alternative) ? slotLine(alternative) : weeklyLine(alternative, startOf(step.stepId))} kind="outline" disabled={busy}
               onPress={() => choose(step.stepId, isSlot(alternative) ? { slot: alternative } : { weekly: alternative })} />)}
           </View> : null}
         </>}
@@ -523,6 +547,7 @@ function ConfirmStep({ flow, times, plan }: { flow: Flow; times: GoalPlanTimes; 
   const { t, tr, p } = useApp();
   const slotLine = useSlotLine();
   const weeklyLine = useWeeklyLine();
+  const startOf = useHabitStarts(times, plan);
   const saved = times.steps.filter(step => stepOutcome(step) === 'save');
   const stayed = times.steps.filter(step => stepOutcome(step) !== 'save');
   const removed = plan?.removedSteps ?? [];
@@ -541,7 +566,7 @@ function ConfirmStep({ flow, times, plan }: { flow: Flow; times: GoalPlanTimes; 
         const weekly = weeklyOf(step);
         return <View key={step.stepId} testID={`plan-will-save-${step.stepId}`} style={{ gap: 2 }}>
           <Txt role="body">{titleIn(plan, step.stepId) ?? ''}</Txt>
-          <Txt role="metadata" color={p.mu}>{slot ? slotLine(slot) : weekly ? weeklyLine(weekly) : t.xPlanTimesNone}</Txt>
+          <Txt role="metadata" color={p.mu}>{slot ? slotLine(slot) : weekly ? weeklyLine(weekly, startOf(step.stepId)) : t.xPlanTimesNone}</Txt>
         </View>;
       })}
     </Card> : null}

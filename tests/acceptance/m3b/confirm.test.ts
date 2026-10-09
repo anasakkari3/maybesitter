@@ -342,24 +342,58 @@ test('R5-002 a thought saved by the confirm records seed_confirmed once; a repla
 // result and no commands, so the confirm refused it 400 invalid_selection:
 // «حطّها التزام» then «احفظ» could never save anything.
 
-test('RB-10 a timed thought turned into a commitment («حطّها التزام») is saved at its time', async () => {
-  const uid = beginRules();
-  try {
-    const answer = await say(uid, 'عم بفكر روح عالجيم بكرا الساعة 6 المسا', { entry: 'thought', locale: 'ar' });
-    const seed = answer.proposal!.seeds.find((candidate) => candidate.suggestedTime);
-    assert.ok(seed, `no timed thought: ${show(answer.proposal)}`);
-    const edited = await editPoint(uid, answer, { seedItemId: seed!.seedItemId }, { kind: 'commitment' });
-    assert.equal(edited.status, 200, show(edited.body));
-    const next = edited.body as Answer;
-    const item = next.proposal!.items.find((candidate) => candidate.pointId === seed!.pointId);
-    assert.ok(item, `the thought did not become a commitment: ${show(next.proposal)}`);
-    const result = await confirm(uid, next.proposal!, { items: [item!.itemId], seeds: [] });
-    assert.equal(result.status, 200, show(result.body));
-    assert.equal(result.body.persisted?.length, 1, show(result.body));
-    const saved = await savedCommitments(uid);
-    assert.equal(saved.length, 1, show(saved));
-    assert.equal(new Date(saved[0]!.timeSpec.dueAt!).toISOString(), seed!.suggestedTime!.at, show(saved[0]));
-  } finally { end(); }
+test('SIM-10 a timed thought turned into a commitment is saved without doubt or time words, in ar, en and he', async () => {
+  for (const [locale, message, expectedTitle] of [
+    ['ar', 'عم بفكر روح عالجيم بكرا الساعة 6 المسا', 'روح عالجيم'],
+    ['en', "I'm thinking about going to the gym tomorrow at 6pm", 'going to the gym'],
+    ['he', 'אולי אלך לחדר כושר מחר ב-18:00', 'אלך לחדר כושר'],
+  ] as const) {
+    const uid = beginRules();
+    try {
+      const answer = await say(uid, message, { entry: 'thought', locale });
+      const seed = answer.proposal!.seeds.find((candidate) => candidate.suggestedTime);
+      assert.ok(seed, `${locale}: no timed thought: ${show(answer.proposal)}`);
+      const edited = await editPoint(uid, answer, { seedItemId: seed!.seedItemId }, { kind: 'commitment' });
+      assert.equal(edited.status, 200, show(edited.body));
+      const next = edited.body as Answer;
+      const item = next.proposal!.items.find((candidate) => candidate.pointId === seed!.pointId);
+      assert.equal(item?.title, expectedTitle, `${locale}: ${show(next.proposal)}`);
+      const result = await confirm(uid, next.proposal!, { items: [item!.itemId], seeds: [] });
+      assert.equal(result.status, 200, show(result.body));
+      assert.equal(result.body.persisted?.length, 1, show(result.body));
+      const saved = await savedCommitments(uid);
+      assert.equal(saved.length, 1, show(saved));
+      assert.equal(saved[0]!.title, expectedTitle, `${locale}: ${show(saved[0])}`);
+      assert.equal(new Date(saved[0]!.timeSpec.dueAt!).toISOString(), seed!.suggestedTime!.at, show(saved[0]));
+    } finally { end(); }
+  }
+});
+
+test('SIM-10 a structured thought edit saves a clean title in ar, en and he, and never saves an empty title', async () => {
+  for (const [locale, message, expectedTitle] of [
+    ['ar', 'بفكّر أروح عالجيم', 'أروح عالجيم'],
+    ['en', "I'm thinking about calling mom", 'calling mom'],
+    ['he', 'אני חושבת על ללכת לחדר כושר', 'ללכת לחדר כושר'],
+    ['ar', 'يمكن', 'يمكن'],
+  ] as const) {
+    const uid = beginRules();
+    try {
+      const answer = await say(uid, message, { entry: 'thought', locale });
+      const seed = answer.proposal!.seeds[0];
+      assert.ok(seed, `${locale}: no thought: ${show(answer.proposal)}`);
+      const edited = await editPoint(uid, answer, { seedItemId: seed!.seedItemId }, {
+        kind: 'commitment',
+        time: { at: '2030-01-08T07:00:00.000Z', timeZone: 'Asia/Jerusalem' },
+      });
+      assert.equal(edited.status, 200, show(edited.body));
+      const next = edited.body as Answer;
+      const item = next.proposal!.items.find((candidate) => candidate.pointId === seed!.pointId);
+      assert.equal(item?.title, expectedTitle, `${locale}: ${show(next.proposal)}`);
+      const result = await confirm(uid, next.proposal!, { items: [item!.itemId] });
+      assert.equal(result.status, 200, show(result.body));
+      assert.equal((await savedCommitments(uid))[0]?.title, expectedTitle);
+    } finally { end(); }
+  }
 });
 
 test('RB-10 a habit turned into a commitment, then given a time, is saved', async () => {
@@ -386,20 +420,20 @@ test('RB-10 a habit turned into a commitment, then given a time, is saved', asyn
 // RB-13 (inspection M3B-A-R6-001): «عدّل» on a timed thought sends a new kind
 // and new words together; made a commitment, it must take the words (RB-12's
 // rule), in the item and in what the confirm saves.
-test('RB-13 a timed thought made a commitment with new words is saved with those words', async () => {
+test('SIM-10 a hand-typed title in the conversion edit is saved exactly, even when it begins with «يمكن»', async () => {
   const uid = beginRules();
   try {
     const answer = await say(uid, 'عم بفكر روح عالجيم بكرا الساعة 6 المسا', { entry: 'thought', locale: 'ar' });
     const seed = answer.proposal!.seeds.find((candidate) => candidate.suggestedTime);
     assert.ok(seed, show(answer.proposal));
-    const edited = await editPoint(uid, answer, { seedItemId: seed!.seedItemId }, { kind: 'commitment', text: 'جيم بكرا' });
+    const edited = await editPoint(uid, answer, { seedItemId: seed!.seedItemId }, { kind: 'commitment', text: 'يمكن جيم بكرا' });
     assert.equal(edited.status, 200, show(edited.body));
     const next = edited.body as Answer;
     const item = next.proposal!.items.find((candidate) => candidate.pointId === seed!.pointId);
-    assert.equal(item?.title, 'جيم بكرا', `the words were dropped: ${show(next.proposal)}`);
+    assert.equal(item?.title, 'يمكن جيم بكرا', `the words were changed: ${show(next.proposal)}`);
     const result = await confirm(uid, next.proposal!, { items: [item!.itemId], seeds: [] });
     assert.equal(result.status, 200, show(result.body));
     const saved = await savedCommitments(uid);
-    assert.equal(saved[0]?.title, 'جيم بكرا', show(saved));
+    assert.equal(saved[0]?.title, 'يمكن جيم بكرا', show(saved));
   } finally { end(); }
 });

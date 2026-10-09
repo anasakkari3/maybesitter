@@ -13,7 +13,7 @@ import { familyIdOf, familyIdOfLine, type PointTarget } from '../features/captur
 import { SummaryEditSheet } from '../features/capture/SummaryEditSheet';
 import { useCaptureKinds } from '../features/capture/useCaptureKinds';
 import { instantForLocalDateTime } from '../features/capture/localInstant';
-import { usableUnderstood } from '../api/schemas/capture';
+import { usableUnderstood, type CaptureEntry } from '../api/schemas/capture';
 import { noCommitmentLine } from '../features/capture/noCommitment';
 import { COMPOSER_EXAMPLE_KEYS, exampleText } from '../features/capture/examples';
 import { ClipboardImportSheet } from '../features/capture/ClipboardImportSheet';
@@ -53,6 +53,7 @@ import { ProcessingDots, useReducedMotion } from '../ui/motion';
 import { Screen } from '../ui/screen';
 import { AvoidKeyboard } from '../ui/keyboard';
 import { useAnnounceOnIos } from '../ui/announce';
+import { focusForAccessibility } from '../ui/accessibilityFocus';
 import type { UserFacingKey } from '../api/ui/userFacingMessage';
 import { ReviewScreen } from './ReviewScreen';
 
@@ -152,7 +153,40 @@ function savedNoteText(note: ChatSavedNote, t: Strings, lang: Lang, timeZone: st
  * words: whatever it says, nothing is saved and nothing reads "saved" until
  * the confirm succeeds.
  */
-export function CaptureScreen() {
+/**
+ * «في محادثة مفتوحة» (M3b SIM-5): which chat this is going to be.
+ *
+ * It takes the chat's place the moment capture opens, so a screen reader would
+ * otherwise still be on the button that opened it, or land on the header, and
+ * never hear that a question is waiting (inspection FU-003).
+ *
+ * One thing is spoken, once: the title and the question are a single heading,
+ * and the accessibility focus is moved to it. Nothing else is announced. A
+ * separate announcement beside the focus is two speech events, and on Android
+ * either can cut the other off, or the title is said twice (A11Y-001/002).
+ */
+function EntryQuestion({ title, body, continueLabel, newLabel, onContinue, onNew }: {
+  title: string; body: string; continueLabel: string; newLabel: string; onContinue: () => void; onNew: () => void;
+}) {
+  const question = useRef<View>(null);
+  useEffect(() => { focusForAccessibility(question.current); }, []);
+  return <View style={{ gap: 16 }} testID="capture-entry-ask">
+    <View ref={question} testID="capture-entry-ask-title" accessible accessibilityRole="header"
+      accessibilityLabel={`${title}. ${body}`} style={{ gap: 16 }}>
+      <Txt size={22} weight={600}>{title}</Txt>
+      <Txt size={15}>{body}</Txt>
+    </View>
+    <Pill testID="capture-entry-ask-continue" label={continueLabel} onPress={onContinue} />
+    <Pill testID="capture-entry-ask-new" label={newLabel} onPress={onNew} kind="warm" />
+  </View>;
+}
+
+/**
+ * `entryQuestion`: an entry page was opened while a chat of another kind is
+ * still in progress (M3b SIM-5). The chat is kept, and the person is asked
+ * whether to go on with it or start the one they came for.
+ */
+export function CaptureScreen({ entryQuestion }: { entryQuestion?: { entry: CaptureEntry; onAnswered: () => void } } = {}) {
   const { t, tr, p: appPalette, rtl, script, lang, scheme, actions } = useApp();
   const p = captureChatPalette(scheme, appPalette);
   const flow = useCaptureFlow();
@@ -318,7 +352,10 @@ export function CaptureScreen() {
     ? { role: entry.role, text: entry.text, ...(entry.role === 'user' ? { delivered: true } : {}) }
     : { role: 'assistant', id: `chat-saved-${++savedLines}`, tone: 'saved', text: savedNoteText(entry, t, lang, timezone), tail: t.chatSavedNext });
   const newest: { role: string; text: string; tail?: string } | undefined = state.turns.length > 0 ? state.turns[state.turns.length - 1] : earlier[earlier.length - 1];
-  useAnnounceOnIos(newest?.role === 'assistant' ? (newest.tail ? `${newest.text}\n\n${newest.tail}` : newest.text) : null);
+  // Not while the entry question has the page: the chat is not showing, and
+  // its last reply would be spoken over the question. It is said once the
+  // person goes on with that chat.
+  useAnnounceOnIos(!entryQuestion && newest?.role === 'assistant' ? (newest.tail ? `${newest.text}\n\n${newest.tail}` : newest.text) : null);
   const [disclosureOpen, setDisclosureOpen] = useState(true);
   const [undoing, setUndoing] = useState(false);
   const undoLast = () => {
@@ -338,6 +375,13 @@ export function CaptureScreen() {
   const done = () => { stopDictation(); flow.close(); actions.go('today'); };
   const back = () => { setDiscarding(null); setEditingId(null); setToolsOpen(false); flow.backToComposer(); };
   const restart = () => { setDiscarding(null); setEditingId(null); setToolsOpen(false); setMenuOpen(false); stopDictation(); flow.startOver(); };
+  /** «ابدأ جديدة» from an entry page: this chat goes, the new one starts on that page's line. */
+  const startEntryChat = () => {
+    if (!entryQuestion) return;
+    restart();
+    flow.changeEntry(entryQuestion.entry);
+    entryQuestion.onAnswered();
+  };
   const discardsSomething = () => wantsDiscardConfirmation(state);
   /**
    * The explicit exit, «إلغاء الكل»: it throws the conversation away, so it
@@ -468,7 +512,11 @@ export function CaptureScreen() {
 
   const failed = isFailedStatus(state.status) ? state.status : null;
   let bodyOverride: React.ReactNode = null;
-  if (discarding) bodyOverride = <View style={{ gap: 16 }} testID="capture-discard">
+  // Asked before anything else on the page: which chat this is going to be.
+  if (entryQuestion) bodyOverride = <EntryQuestion title={t.xEntryOpenChatTitle} body={t.xEntryOpenChatBody}
+    continueLabel={t.xEntryOpenChatContinue} newLabel={t.xEntryOpenChatNew}
+    onContinue={() => { setMenuOpen(false); entryQuestion.onAnswered(); }} onNew={startEntryChat} />;
+  else if (discarding) bodyOverride = <View style={{ gap: 16 }} testID="capture-discard">
     {/* Starting over is asked as what it is, not as «بدك تتجاهلها؟» (M2b design critique). */}
     <Txt size={22} weight={600}>{discarding === 'restart' ? t.chatStartOverTitle : t.captureDiscardTitle}</Txt>
     <Txt size={15}>{discarding === 'back' ? t.chatBackDiscardBody : discarding === 'restart' ? t.chatStartOverBody : t.captureDiscardBody}</Txt>
@@ -609,7 +657,7 @@ export function CaptureScreen() {
   // Which sheet is showing, in the order the chain above picks it: the page
   // starts each one at its top (M2B-A-R5-REVIEW-002).
   const overlayKey = bodyOverride == null ? null
-    : discarding ? `discard-${discarding}` : clipboard ? 'clipboard' : editingId ? `card-${editingId}`
+    : entryQuestion ? 'entry-ask' : discarding ? `discard-${discarding}` : clipboard ? 'clipboard' : editingId ? `card-${editingId}`
       : summaryEditing !== null ? `summary-${summaryEditing}` : menuOpen ? 'menu' : `status-${state.status}`;
   // The summary is the newest reply's: its words, then the numbered lines, then «هيك صح».
   if (understood && state.proposal && state.status !== 'analyzing' && history.length > 0 && history[history.length - 1]!.role === 'assistant') {
@@ -645,7 +693,9 @@ export function CaptureScreen() {
    */
   const headerBack = () => {
     if (state.status === 'confirming') return;
-    if (editingId) setEditingId(null);
+    // Back from the question is the safe answer: the open chat stays.
+    if (entryQuestion) entryQuestion.onAnswered();
+    else if (editingId) setEditingId(null);
     else if (clipboard) setClipboard(null);
     else if (menuOpen) setMenuOpen(false);
     else if (discarding) setDiscarding(null);
@@ -693,8 +743,9 @@ export function CaptureScreen() {
         canSend={Boolean(composerText.trim()) && inputLength <= MAX_CAPTURE_LENGTH && !busy && !answering && !flow.writing}
         inputDisabled={state.status === 'confirming' || answering}
         composerDisabled={state.status === 'analyzing'}
-        toolsDisabled={flow.writing}
-        onClose={headerBack} onMore={() => { if (!busy && !answering && !flow.writing) setMenuOpen(true); }}
+        // While the entry question is up, nothing else on the page opens under it (inspection FU-005).
+        toolsDisabled={flow.writing || entryQuestion !== undefined}
+        onClose={headerBack} onMore={() => { if (!busy && !answering && !flow.writing && !entryQuestion) setMenuOpen(true); }}
         onPaste={() => { if (!busy && !answering && !flow.writing) void readClipboardText().then(setClipboard); }}
         // The entry the chat was opened from sets its first line (M3b, COPY-M3b 2).
         assistant={{ text: state.entry === 'goal' ? t.xChatOpenGoal : state.entry === 'habit' ? t.xChatOpenHabit

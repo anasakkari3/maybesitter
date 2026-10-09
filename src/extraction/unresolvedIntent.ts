@@ -100,15 +100,55 @@ const POSSIBLE_GOAL = new RegExp([
  * narrowing that matters is upstream: this detector only ever sees a segment
  * the extractor already declined to read as a commitment.
  */
-const CONSIDERATION = new RegExp([
-  /\bmaybe i(?:'ll|'m| will| might| should| can| could)?\b/.source,
-  /\bi(?:'m| am) (?:thinking|considering)\b/.source,
-  /\bi might\b|\bi'?m tempted to\b/.source,
-  /\bi want to think about\b|\bi need to think about\b|\bthinking it over\b/.source,
-  /\bnot sure (?:yet )?(?:if|whether) i\b/.source,
-  /يمكن|ممكن|ربما|بفكر|بفكّر|عم أفكر|عم بفكر|مفكر|مفكّر|ناوي|ناوية|بدي أفكر/.source,
-  /אולי|אני חושב על|אני חושבת על|אני שוקל|אני שוקלת|צריך לחשוב על/.source,
-].join('|'), 'i');
+const CONSIDERATION_PHRASES: readonly { detect: string; leading: string }[] = [
+  {
+    detect: /\bmaybe i(?:'ll|'m| will| might| should| can| could)?\b/.source,
+    leading: /\bmaybe(?:\s+i(?:'ll|'m| will| might| should| can| could)?)?\b/.source,
+  },
+  {
+    detect: /\bi(?:'m| am) (?:thinking|considering)\b/.source,
+    leading: /(?:\bi(?:'m| am) )?(?:thinking(?:\s+(?:about|of))?|considering)\b/.source,
+  },
+  { detect: /\bi might\b|\bi'?m tempted to\b/.source, leading: /\bi might\b|\bi'?m tempted to\b/.source },
+  {
+    detect: /\bi want to think about\b|\bi need to think about\b|\bthinking it over\b/.source,
+    leading: /\bi want to think about\b|\bi need to think about\b|\bthinking it over\b/.source,
+  },
+  {
+    detect: /\bnot sure (?:yet )?(?:if|whether) i\b/.source,
+    leading: /\bi(?:'m| am) not sure(?: yet)?(?: if| whether)?\b|\bnot sure (?:yet )?(?:if|whether) i\b/.source,
+  },
+  {
+    detect: /يمكن|ممكن|ربما|بفكر|بفكّر|عم أفكر|عم بفكر|مفكر|مفكّر|ناوي|ناوية|بدي أفكر/.source,
+    leading: /يمكن|ممكن|ربما|بفكر|بفكّر|عم أفكر|عم بفكر|مفكر|مفكّر|مفكرة|مفكّرة|ناوي|ناوية|بدي أفكر|مش متأكد(?:ة)?(?: إذا)?|يا ريت/.source,
+  },
+  {
+    detect: /אולי|אני חושב על|אני חושבת על|אני שוקל|אני שוקלת|צריך לחשוב על/.source,
+    leading: /אולי|אני חושב על|אני חושבת על|(?:אני\s+)?חושב(?:ת)?(?=\s+ל)|אני שוקל|אני שוקלת|צריך לחשוב על|לא בטוח(?:ה)?(?:\s+אם)?/.source,
+  },
+];
+const CONSIDERATION = new RegExp(CONSIDERATION_PHRASES.map(({ detect }) => detect).join('|'), 'i');
+const LEADING_CONSIDERATION = new RegExp(
+  `^(?:${CONSIDERATION_PHRASES.map(({ leading }) => leading).join('|')})(?=$|[\\s\\p{P}])`,
+  'iu',
+);
+
+/**
+ * Removes only a consideration marker at the start of the person's sentence.
+ *
+ * This deliberately uses the same `CONSIDERATION_PHRASES` table as capture
+ * classification, with a leading form beside each detector form. Promotion
+ * therefore cannot grow a second multilingual phrase list. The caller owns
+ * the empty-result fallback because only it knows whether the text is being
+ * promoted or remains a seed.
+ */
+export function withoutLeadingConsideration(rawText: unknown): string {
+  const text = typeof rawText === 'string' ? rawText.trim() : '';
+  if (!text) return '';
+  const match = LEADING_CONSIDERATION.exec(text);
+  if (!match) return text;
+  return text.slice(match[0].length).replace(/^[\s,:;.!?؟،\-–—]+/, '').trim();
+}
 
 /**
  * A possibility noted down, not yet even considered. The narrowest of the

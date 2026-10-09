@@ -32,6 +32,7 @@ import type { ExtractionResult } from '../../../src/extraction/extractionTypes';
 import { mapExtractionToCommand } from '../../../src/extraction/mapExtractionToCommand';
 import { hasRequestEvidence, splitCaptureClauseDetails } from '../../../src/extraction/clauseSplitter';
 import { isEventOnDay } from '../../../src/extraction/priorityLexicon';
+import { thoughtCommitmentTitle } from '../../../src/extraction/thoughtCommitmentTitle';
 import { applyEditToCommands, eventDayOf } from '../captureBoundary/applyEdits';
 import {
   appendClarificationEvent,
@@ -685,7 +686,7 @@ export async function editCaptureKindsProposal(
     const suggestedTime = seed.suggestedTime?.at
       ? { at: seed.suggestedTime.at, zone: seed.suggestedTime.timeZone }
       : undefined;
-    const title = changedTitle || seed.summary;
+    const title = changedTitle ?? thoughtCommitmentTitle(seed.summary, { separatedTime: Boolean(suggestedTime) });
     const artifacts = buildStructuredCommitmentArtifacts(stored, itemId, title, suggestedTime);
     contract.items.push({ itemId, pointId: capturePointId(seed), title, resolvedTime: suggestedTime?.at ?? null, needsClarification: !suggestedTime, timeEstimated: false, priority: 'normal', priorityEstimated: false, clarification: null });
     results.set(itemId, artifacts.result);

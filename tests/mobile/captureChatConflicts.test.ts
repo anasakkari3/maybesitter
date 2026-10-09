@@ -24,6 +24,8 @@
  *     applies it, anything else leaves the time as it was, and the model
  *     moving the item on its own is dropped by the invented-time guard.
  */
+// First: these cases distinguish named weekdays from today and tomorrow.
+import '../support/pinnedWednesday.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createMemoryStorage } from '../../lib/storage/memoryAdapter.ts';
@@ -57,13 +59,13 @@ import { recordedFullListAnswer, renderRefModelAnswer, type RecordedFullListAnsw
 const BASE = 'http://localhost:3000';
 const TZ = 'Asia/Jerusalem';
 
-/* ── the clock, read from the real one so no day here ever goes stale ── */
+/* ── the clock, pinned to the Wednesday these cases were written for ── */
 
 const FRIDAY = resolveWeekdayDate('Friday', new Date(), TZ)!.date;
 const SATURDAY = resolveWeekdayDate('Saturday', new Date(), TZ)!.date;
 // The appended clash sentence says «اليوم/بكرا» / "today/tomorrow" when the
-// clash is that close (chatWhy dayLabel); Friday is "tomorrow" on a Thursday.
-// Computed, not pinned, so these tests read the same on every day of the week.
+// clash is that close (chatWhy dayLabel). Friday and Saturday are deliberately
+// neither under the pinned Wednesday clock.
 const TODAY_LOCAL = localTimeSpecFor(new Date(), TZ)!.date;
 const TOMORROW_LOCAL = (() => { const [y, m, d] = TODAY_LOCAL.split('-').map(Number) as [number, number, number]; return new Date(Date.UTC(y, m - 1, d + 1)).toISOString().slice(0, 10); })();
 const FRI_AR = FRIDAY === TODAY_LOCAL ? 'اليوم' : FRIDAY === TOMORROW_LOCAL ? 'بكرا' : 'الجمعة';

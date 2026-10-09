@@ -1,11 +1,12 @@
 import { useClarityStage, useReplayEvent } from '../../clarity/ClarityProvider';
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useApp } from '../../state/AppContext';
 import { CaptureScreen } from '../../screens/CaptureScreen';
 import { ReviewScreen } from '../../screens/ReviewScreen';
 import { SavedScreen } from '../../screens/SavedScreen';
 import { useCaptureFlow } from './CaptureProvider';
 import { chatSaves } from './captureMachine';
+import type { CaptureEntry } from '../../api/schemas/capture';
 
 /**
  * Which capture screen is showing (UC-2.R2, #172).
@@ -34,6 +35,21 @@ export function CaptureFlow() {
   const { state } = flow;
   const opened = useRef(false);
   const replayEvent = useReplayEvent();
+  // An entry page («ضيف هدف», «ضيف عادة», «احكي فكرة») opened while a chat of
+  // another kind is still in progress (M3b SIM-5, owner decision 2026-10-09):
+  // the chat is kept (M2b condition 9), so the person is asked whether to go
+  // on with it or start the one they came for. Decided once, as this mounts:
+  // the flow outlives every screen under it, so the question is not asked
+  // again after a save brings the chat back.
+  const [entryAsk, setEntryAsk] = useState<CaptureEntry | null>(() => {
+    const { conversationId, turns, text, entry } = flow.state;
+    const inProgress = conversationId !== null || turns.length > 0 || text.trim().length > 0;
+    // From the plain «احكيها» the entry is null, and so is the answer: nothing is asked.
+    // Nor back from a screen opened over the flow: that is the same capture
+    // showing again, already answered.
+    return s.captureEntry !== entry && inProgress && !s.taskResumed ? s.captureEntry : null;
+  });
+  const entryQuestion = entryAsk === null ? undefined : { entry: entryAsk, onAnswered: () => setEntryAsk(null) };
   useEffect(() => {
     if (state.status === 'saved') replayEvent('capture_saved');
   }, [state.status, replayEvent]);
@@ -90,13 +106,13 @@ export function CaptureFlow() {
     case 'confirming':
     case 'confirmFailed':
       return state.source === 'share' || state.source === 'meeting'
-        ? <ReviewScreen /> : <CaptureScreen />;
+        ? <ReviewScreen /> : <CaptureScreen {...(entryQuestion ? { entryQuestion } : {})} />;
     case 'saved':
       return <SavedScreen />;
     default:
       // idle, editing, analyzing, noCommitment, and the three failures. The
       // composer owns them because each one either takes the user back to the
       // text they wrote or is about that text.
-      return <CaptureScreen />;
+      return <CaptureScreen {...(entryQuestion ? { entryQuestion } : {})} />;
   }
 }
