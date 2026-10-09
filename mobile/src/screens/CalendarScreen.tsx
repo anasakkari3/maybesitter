@@ -134,12 +134,13 @@ export function CalendarScreen({ tabClearance = TAB_CLEARANCE }: { tabClearance?
   const beyondStrip = !keys.includes(selectedKey);
 
   // Weekly fixed blocks («ثابت أسبوعي») on the days drawn, with their titles:
-  // the strip's seven, or — with free time on — the four weeks the wider view
-  // and its days need (M4A-R4-002), read with the probe's span so opening the
-  // view waits for nothing. The device event this app wrote for one — and the
-  // same interval come back through another phone or Google — is the block
-  // drawn twice, so it leaves the busy rows (`hideWeeklyDuplicates`).
-  const weeklyState = useWeeklyOccurrencesState(free ? widerKeys : keys, timezone);
+  // the strip's seven. The four weeks (M4A-R4-002) are read only when they
+  // are drawn (owner decision 2026-10-09, M4A-REV-003): while «شوف أبعد» is
+  // open, and for a day chosen from it that lies past the strip, whose free
+  // time needs its own weekly blocks. The device event this app wrote for
+  // one — and the same interval come back through another phone or Google —
+  // is the block drawn twice, so it leaves the busy rows (`hideWeeklyDuplicates`).
+  const weeklyState = useWeeklyOccurrencesState(free && (widerOpen || beyondStrip) ? widerKeys : keys, timezone);
   const weekly = weeklyState.items;
   const weeklyEventIds = useWeeklyEventIds();
   // The blocks through `useBusyBlocks` (the one seam every screen reads them
