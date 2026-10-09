@@ -104,21 +104,40 @@ describe('a page opens the chat for its own kind', () => {
     expect(harness.server.matching('POST', /\/capture\/chat$/)).toHaveLength(1);
   });
 
-  // Inspection FU-003: a screen reader hears that a question is waiting.
-  it('the question takes the accessibility focus on its heading and is announced', async () => {
-    const focus = jest.spyOn(accessibilityFocus, 'focusForAccessibility').mockImplementation(() => {});
-    const announce = jest.spyOn(AccessibilityInfo, 'announceForAccessibility').mockImplementation(() => {});
-    await habitsPageOverGoalChat();
-    const heading = screen.getByTestId('capture-entry-ask-title');
-    expect(heading.props.accessibilityRole).toBe('header');
-    expect(heading.props.accessibilityLabel).toBe(en.xEntryOpenChatTitle);
-    // Once, and at a mounted view: the heading.
-    expect(focus).toHaveBeenCalledTimes(1);
-    expect(focus.mock.calls[0]![0]).not.toBeNull();
-    if (Platform.OS === 'ios') expect(announce).toHaveBeenCalledWith(`${en.xEntryOpenChatTitle}. ${en.xEntryOpenChatBody}`);
-    // Both answers are buttons named by their words.
-    expect(screen.getByRole('button', { name: en.xEntryOpenChatContinue })).toBeTruthy();
-    expect(screen.getByRole('button', { name: en.xEntryOpenChatNew })).toBeTruthy();
+  // Inspection FU-003 and A11Y-001: a screen reader hears that a question is
+  // waiting, and hears the question, on both platforms. Android speaks only
+  // what changes in a live region already on screen, so it is announced outright.
+  it.each(['ios', 'android'] as const)('on %s the question takes the accessibility focus on its heading and is announced, title and question', async (os) => {
+    const original = Platform.OS;
+    Object.defineProperty(Platform, 'OS', { value: os, configurable: true });
+    try {
+      serve();
+      await goalChat(false);
+      await press(await screen.findByTestId('header-back').then(() => 'header-back'));
+      await press(await screen.findByTestId('things-habits').then(() => 'things-habits'));
+      // Watched from here: only what opening the habits page's chat says.
+      const focus = jest.spyOn(accessibilityFocus, 'focusForAccessibility').mockImplementation(() => {});
+      const announce = jest.spyOn(AccessibilityInfo, 'announceForAccessibility').mockImplementation(() => {});
+      focus.mockClear();
+      announce.mockClear();
+      await press(await screen.findByTestId('habits-add').then(() => 'habits-add'));
+      await screen.findByTestId('capture-entry-ask');
+      const heading = screen.getByTestId('capture-entry-ask-title');
+      expect(heading.props.accessibilityRole).toBe('header');
+      expect(heading.props.accessibilityLabel).toBe(en.xEntryOpenChatTitle);
+      // Once, and at a mounted view: the heading.
+      expect(focus).toHaveBeenCalledTimes(1);
+      expect(focus.mock.calls[0]![0]).not.toBeNull();
+      // The question, once, and nothing else spoken over it: not the open
+      // chat's last reply, which is not on screen.
+      expect(announce.mock.calls.map((call) => call[0])).toEqual([`${en.xEntryOpenChatTitle}. ${en.xEntryOpenChatBody}`]);
+      // Both answers are buttons named by their words.
+      expect(screen.getByRole('button', { name: en.xEntryOpenChatContinue })).toBeTruthy();
+      expect(screen.getByRole('button', { name: en.xEntryOpenChatNew })).toBeTruthy();
+    } finally {
+      jest.restoreAllMocks();
+      Object.defineProperty(Platform, 'OS', { value: original, configurable: true });
+    }
   });
 
   // Inspection FU-005: nothing else on the page opens under the question.

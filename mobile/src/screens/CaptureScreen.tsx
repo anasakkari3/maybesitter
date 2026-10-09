@@ -159,22 +159,24 @@ function savedNoteText(note: ChatSavedNote, t: Strings, lang: Lang, timeZone: st
  * It takes the chat's place the moment capture opens, so a screen reader would
  * otherwise still be on the button that opened it, or land on the header, and
  * never hear that a question is waiting (inspection FU-003). Its title is a
- * heading and takes the accessibility focus; the title and the question are
- * announced on iOS, and are a live region on Android.
+ * heading and takes the accessibility focus, and the title and the question
+ * are announced, on both platforms: a live region would not do on Android,
+ * which speaks only what changes inside a region already on screen, and this
+ * one arrives with its words (inspection A11Y-001).
  */
 function EntryQuestion({ title, body, continueLabel, newLabel, onContinue, onNew }: {
   title: string; body: string; continueLabel: string; newLabel: string; onContinue: () => void; onNew: () => void;
 }) {
   const heading = useRef<View>(null);
-  useEffect(() => { focusForAccessibility(heading.current); }, []);
-  useAnnounceOnIos(`${title}. ${body}`);
+  useEffect(() => {
+    focusForAccessibility(heading.current);
+    AccessibilityInfo.announceForAccessibility(`${title}. ${body}`);
+  }, [title, body]);
   return <View style={{ gap: 16 }} testID="capture-entry-ask">
-    <LiveRegion style={{ gap: 16 }}>
-      <View ref={heading} testID="capture-entry-ask-title" accessible accessibilityRole="header" accessibilityLabel={title}>
-        <Txt size={22} weight={600}>{title}</Txt>
-      </View>
-      <Txt size={15}>{body}</Txt>
-    </LiveRegion>
+    <View ref={heading} testID="capture-entry-ask-title" accessible accessibilityRole="header" accessibilityLabel={title}>
+      <Txt size={22} weight={600}>{title}</Txt>
+    </View>
+    <Txt size={15}>{body}</Txt>
     <Pill testID="capture-entry-ask-continue" label={continueLabel} onPress={onContinue} />
     <Pill testID="capture-entry-ask-new" label={newLabel} onPress={onNew} kind="warm" />
   </View>;
@@ -351,7 +353,10 @@ export function CaptureScreen({ entryQuestion }: { entryQuestion?: { entry: Capt
     ? { role: entry.role, text: entry.text, ...(entry.role === 'user' ? { delivered: true } : {}) }
     : { role: 'assistant', id: `chat-saved-${++savedLines}`, tone: 'saved', text: savedNoteText(entry, t, lang, timezone), tail: t.chatSavedNext });
   const newest: { role: string; text: string; tail?: string } | undefined = state.turns.length > 0 ? state.turns[state.turns.length - 1] : earlier[earlier.length - 1];
-  useAnnounceOnIos(newest?.role === 'assistant' ? (newest.tail ? `${newest.text}\n\n${newest.tail}` : newest.text) : null);
+  // Not while the entry question has the page: the chat is not showing, and
+  // its last reply would be spoken over the question. It is said once the
+  // person goes on with that chat.
+  useAnnounceOnIos(!entryQuestion && newest?.role === 'assistant' ? (newest.tail ? `${newest.text}\n\n${newest.tail}` : newest.text) : null);
   const [disclosureOpen, setDisclosureOpen] = useState(true);
   const [undoing, setUndoing] = useState(false);
   const undoLast = () => {
