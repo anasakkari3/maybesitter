@@ -286,38 +286,44 @@ test('no patch can mark a seed promoted — a seed cannot promote itself', async
   }
 });
 
-test('promotion to a commitment goes through the ordinary confirmation path', async () => {
-  const teardown = await setup();
-  try {
-    const seed = await keepOneSeed();
-    const response = await promotePost(
-      req('POST', `/api/mobile/seeds/${seed.seedId}/promote`, { target: 'commitment' }),
-      params(seed.seedId as string),
-    );
-    const body = await json(response);
-    assert.equal(response.status, 200, JSON.stringify(body));
-    const promoted = (body.seed as { promotedTo: { kind: string; id: string }; status: string });
-    assert.equal(promoted.status, 'promoted');
-    assert.equal(promoted.promotedTo.kind, 'commitment');
+test('SIM-10 saved-seed promotion uses a clean commitment title in English, Arabic and Hebrew', async () => {
+  for (const [summary, expectedTitle] of [
+    [MAYBE, 'apply to NVIDIA this semester.'],
+    ['يمكن أقدّم على NVIDIA هالفصل', 'أقدّم على NVIDIA هالفصل'],
+    ['אולי אני אגיש מועמדות לאנבידיה', 'אני אגיש מועמדות לאנבידיה'],
+  ] as const) {
+    const teardown = await setup();
+    try {
+      const seed = await keepOneSeed(summary);
+      const response = await promotePost(
+        req('POST', `/api/mobile/seeds/${seed.seedId}/promote`, { target: 'commitment' }),
+        params(seed.seedId as string),
+      );
+      const body = await json(response);
+      assert.equal(response.status, 200, JSON.stringify(body));
+      const promoted = (body.seed as { promotedTo: { kind: string; id: string }; status: string });
+      assert.equal(promoted.status, 'promoted');
+      assert.equal(promoted.promotedTo.kind, 'commitment');
 
-    const state = await getParticipantStateSnapshot(USER);
-    const commitment = state.commitments[promoted.promotedTo.id];
-    assert.ok(commitment, 'the promotion named a commitment that does not exist');
-    // A real, confirmed commitment — the same state a captured one reaches,
-    // which is what "passes the existing confirmation validator" means here.
-    assert.equal(commitment.title, MAYBE);
-    // `active` is what `ConfirmCommitment` leaves behind, which is the state
-    // a captured, confirmed commitment reaches — the point being that this one
-    // got there by the same command, not by a write of its own.
-    assert.equal(commitment.status, 'active');
-    assert.ok(commitment.confirmedAt, 'the promoted commitment was never confirmed');
-    // And no invented time: the seed named none.
-    assert.equal(commitment.timeSpec.kind, 'unscheduled');
-    assert.equal(commitment.timeSpec.dueAt, null);
-    assert.equal(commitment.timeSpec.remindAt, null);
-    assert.deepEqual(Object.keys(state.reminders), [], 'promotion scheduled a reminder');
-  } finally {
-    await teardown();
+      const state = await getParticipantStateSnapshot(USER);
+      const commitment = state.commitments[promoted.promotedTo.id];
+      assert.ok(commitment, 'the promotion named a commitment that does not exist');
+      // A real, confirmed commitment — the same state a captured one reaches,
+      // which is what "passes the existing confirmation validator" means here.
+      assert.equal(commitment.title, expectedTitle);
+      // `active` is what `ConfirmCommitment` leaves behind, which is the state
+      // a captured, confirmed commitment reaches — the point being that this one
+      // got there by the same command, not by a write of its own.
+      assert.equal(commitment.status, 'active');
+      assert.ok(commitment.confirmedAt, 'the promoted commitment was never confirmed');
+      // And no invented time: the seed named none.
+      assert.equal(commitment.timeSpec.kind, 'unscheduled');
+      assert.equal(commitment.timeSpec.dueAt, null);
+      assert.equal(commitment.timeSpec.remindAt, null);
+      assert.deepEqual(Object.keys(state.reminders), [], 'promotion scheduled a reminder');
+    } finally {
+      await teardown();
+    }
   }
 });
 
