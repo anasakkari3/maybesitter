@@ -32,7 +32,8 @@ import type { ExtractionResult } from '../../../src/extraction/extractionTypes';
 import { mapExtractionToCommand } from '../../../src/extraction/mapExtractionToCommand';
 import { hasRequestEvidence, splitCaptureClauseDetails } from '../../../src/extraction/clauseSplitter';
 import { isEventOnDay } from '../../../src/extraction/priorityLexicon';
-import { thoughtCommitmentTitle } from '../../../src/extraction/thoughtCommitmentTitle';
+import { thoughtCommitmentTitle, withoutLeadingThoughtLeadIn } from '../../../src/extraction/thoughtCommitmentTitle';
+import { stripTimeExpressions } from '../../../src/extraction/ruleBasedExtractor';
 import { applyEditToCommands, eventDayOf } from '../captureBoundary/applyEdits';
 import {
   appendClarificationEvent,
@@ -78,6 +79,7 @@ import {
 } from '../../weeklyBlocks/weeklyBlockService';
 import { createStorageRuntimeMemoryStore } from '../../runtimeMemory/runtimeMemoryStore';
 import { createStorageGoalNodeLinkStore } from '../../goalGraph/linkStore';
+import { goalStepKeyOf } from '../../goalGraph/goalStepPlan';
 import { GOAL_GRAPH_FIRST_GENERATION } from '../../../src/contracts/v1/goalGraphContracts';
 import type { ActiveGoal } from '../captureBoundary/proposalShape';
 import { readOwnedMemory } from './memoryService';
@@ -438,6 +440,58 @@ function withV8Understood(contract: CaptureProposalContract): CaptureProposalCon
   return { ...contract, status: v8ProposalStatus(contract), understood: points.map((point) => point.line) };
 }
 
+function restatedThoughtKey(summary: string): string {
+  const withoutTime = stripTimeExpressions(withoutLeadingThoughtLeadIn(summary));
+  return goalStepKeyOf(withoutTime.replace(/\s+/g, ' ').trim());
+}
+
+/**
+ * Replaces a newly added thought with the first exact prior thought it
+ * restates. Added point ids come from the ref merge, so a model's explicit
+ * update is authoritative and never enters this rule.
+ */
+function mergeRestatedThoughtAdditions(
+  stored: StoredCaptureProposal,
+  contract: CaptureProposalContract,
+  addedPointIdsInput: readonly string[],
+): CaptureProposalContract {
+  const addedPointIds = new Set(addedPointIdsInput);
+  if (addedPointIds.size === 0) return contract;
+  const isAdded = (seed: CaptureProposalContract['seeds'][number]) =>
+    addedPointIds.has(seed.seedItemId) || addedPointIds.has(capturePointId(seed));
+  const existing = contract.seeds.filter((seed) => !isAdded(seed));
+  const additions = contract.seeds.filter(isAdded);
+  let seeds = contract.seeds;
+  let changed = false;
+
+  for (const addition of additions) {
+    const key = restatedThoughtKey(addition.summary);
+    if (!key) continue;
+    const match = existing.find((seed) => restatedThoughtKey(seed.summary) === key);
+    if (!match) continue;
+    seeds = seeds
+      .filter((seed) => seed.seedItemId !== addition.seedItemId)
+      .map((seed) => seed.seedItemId === match.seedItemId
+        && addition.suggestedTime
+        ? { ...seed, summary: addition.summary, suggestedTime: addition.suggestedTime }
+        : seed);
+    const addedIdentity = capturePointId(addition);
+    if (stored.sourceOrdinals) {
+      delete stored.sourceOrdinals.seeds[addition.seedItemId];
+      delete stored.sourceOrdinals.items[addedIdentity];
+    }
+    if (stored.chatRefs) {
+      const refs = { ...stored.chatRefs };
+      delete refs[addition.seedItemId];
+      delete refs[addedIdentity];
+      stored.chatRefs = refs;
+    }
+    changed = true;
+  }
+  if (!changed) return contract;
+  return withV8Understood({ ...contract, seeds });
+}
+
 /** Adds the v8 families to the stored proposal only while the release-locked feature is on. */
 export async function applyCaptureKindsToProposal(
   proposalId: string,
@@ -450,6 +504,8 @@ export async function applyCaptureKindsToProposal(
     now?: Date;
     /** Scripted model classifications; rules still validate and build fields. */
     modelKinds?: readonly ('habit' | 'goal')[];
+    /** New chat additions only; ref-targeted model updates are excluded. */
+    addedPointIds?: readonly string[];
   },
 ): Promise<CaptureProposalContract> {
   const requestNow = input.now ?? new Date();
@@ -582,6 +638,7 @@ export async function applyCaptureKindsToProposal(
     }
   }
 
+  contract = mergeRestatedThoughtAdditions(stored, contract, input.addedPointIds ?? []);
   contract = withV8Understood(contract);
   await storeWithFreeSlots(() => requestNow.toISOString()).put({ ...stored, contract });
   return contract;

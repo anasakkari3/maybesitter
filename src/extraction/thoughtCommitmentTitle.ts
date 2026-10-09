@@ -13,6 +13,15 @@ function withoutLeadingConnective(text: string): string {
   return stripped || text;
 }
 
+/** The thought's words after only its leading doubt phrase and connective. */
+export function withoutLeadingThoughtLeadIn(rawText: string): string {
+  const original = rawText.trim();
+  const withoutConsideration = withoutLeadingConsideration(original);
+  return (withoutConsideration === original
+    ? withoutConsideration
+    : withoutLeadingConnective(withoutConsideration)).trim();
+}
+
 /**
  * The title used only when a thought becomes a commitment without replacement
  * words from the person. Doubt comes from the unresolved-intent detector's
@@ -23,8 +32,7 @@ export function thoughtCommitmentTitle(
   options: { separatedTime?: boolean } = {},
 ): string {
   const original = rawText.trim();
-  let title = withoutLeadingConsideration(original);
-  if (title !== original) title = withoutLeadingConnective(title);
+  let title = withoutLeadingThoughtLeadIn(original);
   if (options.separatedTime) title = stripTimeExpressions(title);
   return title.trim() || original;
 }

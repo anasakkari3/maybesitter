@@ -7,8 +7,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { instantFromLocal } from '../../../src/extraction/timeLexicon.ts';
+import { advanceClock, modelFirstAnswer, modelItem, modelRefAnswer } from '../m2b/support.ts';
 import {
+  REFERENCE,
   TZ,
+  beginModel,
   beginRules,
   chatRaw,
   editPoint,
@@ -24,6 +27,13 @@ import {
 
 const TOMORROW = '2026-10-08';
 const at = (date: string, time: string) => instantFromLocal(date, time, TZ)!.toISOString();
+
+function onlyThought(answer: Answer, label: string) {
+  assert.ok(answer.proposal, `${label}: no proposal: ${show(answer)}`);
+  assert.equal(answer.proposal!.items.length, 0, `${label}: a thought became a commitment: ${show(answer.proposal)}`);
+  assert.equal(answer.proposal!.seeds.length, 1, `${label}: expected one thought: ${show(answer.proposal)}`);
+  return answer.proposal!.seeds[0]!;
+}
 
 /* ── the capability probe (R004, R2-012, R2-014, R3-001) ─────────────── */
 
@@ -445,5 +455,212 @@ test('RB-12 a conversion sent with new words uses those words', async () => {
     const toGoal = await editPoint(uid, seedAnswer, { seedItemId: seed.seedItemId }, { kind: 'goal', text: 'أوصل لـ70 كيلو' });
     assert.equal(toGoal.status, 200, show(toGoal.body));
     assert.ok(goalsOf(toGoal.body as Answer).some((candidate) => candidate.title === 'أوصل لـ70 كيلو'), `possible goal → goal dropped the words: ${show((toGoal.body as Answer).proposal)}`);
+  } finally { end(); }
+});
+
+/* ── SIM-10: exact thought restatements ───────────────────────────── */
+
+for (const scenario of [
+  {
+    label: 'Arabic', locale: 'ar' as const,
+    first: 'عم بفكر روح عالجيم',
+    restated: 'عم بفكر روح عالجيم بكرا الساعة 6 المسا',
+  },
+  {
+    label: 'English', locale: 'en' as const,
+    first: "I'm thinking about going to the gym",
+    restated: "I'm thinking about going to the gym tomorrow at 6 PM",
+  },
+  {
+    label: 'Hebrew', locale: 'he' as const,
+    first: 'אני חושב ללכת לחדר כושר',
+    restated: 'אני חושב ללכת לחדר כושר מחר בשעה 18:00',
+  },
+] as const) test(`SIM-10 ${scenario.label}: a timed exact restatement updates the first thought in place`, async () => {
+  const uid = beginRules();
+  try {
+    const first = await say(uid, scenario.first, { locale: scenario.locale });
+    const before = onlyThought(first, `${scenario.label} first turn`);
+    const next = await say(uid, scenario.restated, { conversationId: first.conversationId, locale: scenario.locale });
+    const after = onlyThought(next, `${scenario.label} restatement`);
+
+    assert.equal(after.seedItemId, before.seedItemId, `${scenario.label}: seedItemId changed`);
+    assert.equal(after.pointId, before.pointId, `${scenario.label}: pointId changed`);
+    assert.equal(after.summary, scenario.restated, `${scenario.label}: the newer wording was not kept`);
+    assert.equal(after.suggestedTime?.at, at(TOMORROW, '18:00'), `${scenario.label}: the newer time was not kept`);
+  } finally { end(); }
+});
+
+test('SIM-10 control: a restatement without a doubt phrase is a commitment and does not touch the thought', async () => {
+  const uid = beginRules();
+  try {
+    const first = await say(uid, 'عم بفكر روح عالجيم', { locale: 'ar' });
+    const thought = onlyThought(first, 'first turn');
+    const next = await say(uid, 'روح عالجيم بكرا الساعة 6 المسا', { conversationId: first.conversationId, locale: 'ar' });
+
+    assert.equal(next.proposal!.items.length, 1, `the rules extractor did not make a commitment: ${show(next.proposal)}`);
+    assert.equal(next.proposal!.items[0]!.resolvedTime, at(TOMORROW, '18:00'));
+    assert.equal(next.proposal!.seeds.length, 1, show(next.proposal));
+    assert.equal(next.proposal!.seeds[0]!.seedItemId, thought.seedItemId, 'the existing thought was touched');
+    assert.equal(next.proposal!.seeds[0]!.summary, thought.summary, 'the existing thought wording changed');
+  } finally { end(); }
+});
+
+test('SIM-10 control: a different thought is added', async () => {
+  const uid = beginRules();
+  try {
+    const first = await say(uid, 'عم بفكر روح عالجيم', { locale: 'ar' });
+    const next = await say(uid, 'عم بفكر أتعلم عود', { conversationId: first.conversationId, locale: 'ar' });
+    assert.deepEqual(next.proposal!.seeds.map((seed) => seed.summary), ['عم بفكر روح عالجيم', 'عم بفكر أتعلم عود']);
+  } finally { end(); }
+});
+
+test('SIM-10 control: a thought that only shares words is added', async () => {
+  const uid = beginRules();
+  try {
+    const first = await say(uid, 'عم بفكر روح عالجيم', { locale: 'ar' });
+    const next = await say(uid, 'عم بفكر روح عالجيم مع سامي', { conversationId: first.conversationId, locale: 'ar' });
+    assert.deepEqual(next.proposal!.seeds.map((seed) => seed.summary), ['عم بفكر روح عالجيم', 'عم بفكر روح عالجيم مع سامي']);
+  } finally { end(); }
+});
+
+test('SIM-10: an identical untimed restatement does not duplicate the thought', async () => {
+  const uid = beginRules();
+  try {
+    const first = await say(uid, 'عم بفكر روح عالجيم', { locale: 'ar' });
+    const before = onlyThought(first, 'first turn');
+    // Past the transport retry window: this is a later turn, not a replay.
+    advanceClock(120_001);
+    const next = await say(uid, 'عم بفكر روح عالجيم', { conversationId: first.conversationId, locale: 'ar' });
+    const after = onlyThought(next, 'restatement');
+    assert.equal(after.seedItemId, before.seedItemId);
+    assert.equal(after.pointId, before.pointId);
+    assert.equal(after.summary, before.summary);
+  } finally { end(); }
+});
+
+// RB-5 (Claude's review guard): a restatement that brings nothing new changes
+// nothing. The time the person gave earlier is theirs; saying the thought
+// again without it is not asking for it to be removed.
+test('SIM-10 RB-5: an untimed restatement of a timed thought keeps the time and the wording that carried it', async () => {
+  const uid = beginRules();
+  try {
+    const first = await say(uid, 'عم بفكر روح عالجيم بكرا الساعة 6 المسا', { locale: 'ar' });
+    const before = onlyThought(first, 'first turn');
+    assert.equal(before.suggestedTime?.at, at(TOMORROW, '18:00'), 'the seed case has no time to lose');
+    advanceClock(120_001);
+    const next = await say(uid, 'عم بفكر روح عالجيم', { conversationId: first.conversationId, locale: 'ar' });
+    const after = onlyThought(next, 'restatement');
+    assert.equal(after.seedItemId, before.seedItemId);
+    assert.equal(after.pointId, before.pointId);
+    assert.equal(after.suggestedTime?.at, at(TOMORROW, '18:00'), 'the earlier time was removed by an untimed restatement');
+    assert.equal(after.summary, before.summary, 'the wording that carried the time was replaced');
+  } finally { end(); }
+});
+
+test('SIM-10 RB-5: a timed restatement with a different time takes the newer time and wording and keeps its ids', async () => {
+  const uid = beginRules();
+  try {
+    const first = await say(uid, 'عم بفكر روح عالجيم بكرا الساعة 6 المسا', { locale: 'ar' });
+    const before = onlyThought(first, 'first turn');
+    const restated = 'عم بفكر روح عالجيم بكرا الساعة 8 المسا';
+    const next = await say(uid, restated, { conversationId: first.conversationId, locale: 'ar' });
+    const after = onlyThought(next, 'restatement');
+    assert.equal(after.seedItemId, before.seedItemId);
+    assert.equal(after.pointId, before.pointId);
+    assert.equal(after.suggestedTime?.at, at(TOMORROW, '20:00'));
+    assert.equal(after.summary, restated);
+  } finally { end(); }
+});
+
+test('SIM-10: when more than one existing thought is equal, the first is updated and nothing is added', async () => {
+  const uid = beginRules();
+  try {
+    const first = await say(uid, 'عم بفكر روح عالجيم، عم بفكر روح عالجيم', { locale: 'ar' });
+    assert.equal(first.proposal!.seeds.length, 2, show(first.proposal));
+    const [firstThought, secondThought] = first.proposal!.seeds;
+    const next = await say(uid, 'عم بفكر روح عالجيم بكرا الساعة 6 المسا', {
+      conversationId: first.conversationId,
+      locale: 'ar',
+    });
+
+    assert.equal(next.proposal!.seeds.length, 2, `a third thought was added: ${show(next.proposal)}`);
+    assert.equal(next.proposal!.seeds[0]!.seedItemId, firstThought!.seedItemId);
+    assert.equal(next.proposal!.seeds[0]!.pointId, firstThought!.pointId);
+    assert.equal(next.proposal!.seeds[0]!.suggestedTime?.at, at(TOMORROW, '18:00'));
+    assert.equal(next.proposal!.seeds[1]!.seedItemId, secondThought!.seedItemId);
+    assert.equal(next.proposal!.seeds[1]!.summary, secondThought!.summary);
+  } finally { end(); }
+});
+
+test('SIM-10 model addition: an exact restatement still updates the first thought in place', async () => {
+  const firstMessage = "I'm thinking about going to the gym";
+  const restated = "I'm thinking about going to the gym tomorrow at 6 PM";
+  const firstItem = { ...modelItem('Going to the gym', null, null, { kind: 'consideration' }), source: firstMessage };
+  const added = { ...modelItem('Going to the gym', TOMORROW, '18:00', { kind: 'consideration' }), source: restated };
+  const uid = beginModel(
+    {},
+    modelFirstAnswer('Review it.', 'propose', [firstItem]),
+    modelRefAnswer('Review it.', 'update', { open: [{ ref: 's1', op: 'keep' }], added: [added] }),
+  );
+  try {
+    const first = await say(uid, firstMessage, { locale: 'en' });
+    const before = onlyThought(first, 'model first turn');
+    const next = await say(uid, restated, { conversationId: first.conversationId, locale: 'en' });
+    const after = onlyThought(next, 'model restatement');
+    assert.equal(next.engine, 'model');
+    assert.equal(after.seedItemId, before.seedItemId);
+    assert.equal(after.pointId, before.pointId);
+    assert.equal(after.suggestedTime?.at, at(TOMORROW, '18:00'));
+  } finally { end(); }
+});
+
+test('SIM-10 control: after the first thought becomes a commitment, its restatement is added as a thought', async () => {
+  const uid = beginRules();
+  try {
+    const first = await say(uid, 'عم بفكر روح عالجيم', { locale: 'ar' });
+    const thought = onlyThought(first, 'first turn');
+    const convertedRaw = await editPoint(uid, first, { seedItemId: thought.seedItemId }, { kind: 'commitment' });
+    assert.equal(convertedRaw.status, 200, show(convertedRaw.body));
+    const converted = convertedRaw.body as Answer;
+    assert.equal(converted.proposal!.items.length, 1, show(converted.proposal));
+    const commitment = converted.proposal!.items[0]!;
+
+    const next = await say(uid, 'عم بفكر روح عالجيم بكرا الساعة 6 المسا', {
+      conversationId: first.conversationId,
+      locale: 'ar',
+    });
+    assert.equal(next.proposal!.items.length, 1, show(next.proposal));
+    assert.equal(next.proposal!.items[0]!.itemId, commitment.itemId, 'the commitment was replaced');
+    assert.equal(next.proposal!.items[0]!.pointId, commitment.pointId, 'the commitment point changed');
+    assert.equal(next.proposal!.seeds.length, 1, `the restatement was not added as a thought: ${show(next.proposal)}`);
+    assert.notEqual(next.proposal!.seeds[0]!.pointId, commitment.pointId, 'the new thought reused the commitment point');
+    assert.equal(next.proposal!.seeds[0]!.suggestedTime?.at, at(TOMORROW, '18:00'));
+  } finally { end(); }
+});
+
+test('SIM-10 control: a stale revision is still refused', async () => {
+  const uid = beginRules();
+  try {
+    const first = await say(uid, 'عم بفكر روح عالجيم', { locale: 'ar' });
+    const thought = onlyThought(first, 'first turn');
+    const editedRaw = await editPoint(uid, first, { seedItemId: thought.seedItemId }, { text: 'عم بفكر روح عالمسبح' });
+    assert.equal(editedRaw.status, 200, show(editedRaw.body));
+    const edited = editedRaw.body as Answer;
+    assert.equal(edited.proposal!.revision, 1, show(edited.proposal));
+
+    const stale = await chatRaw(uid, {
+      conversationId: first.conversationId,
+      edit: {
+        proposalId: first.proposal!.proposalId,
+        revision: first.proposal!.revision ?? 0,
+        target: { seedItemId: thought.seedItemId },
+        change: { text: 'عم بفكر روح عالحديقة' },
+      },
+      timezone: TZ,
+      referenceTime: REFERENCE,
+    });
+    assert.equal(stale.status, 400, `stale edit answered ${stale.status}: ${show(stale.body)}`);
+    assert.equal(stale.body.error, 'proposal changed', show(stale.body));
   } finally { end(); }
 });
