@@ -83,15 +83,79 @@ describe('a page opens the chat for its own kind', () => {
     expect(lastRequest(harness, 'POST', /\/capture\/chat$/).body).not.toHaveProperty('entry');
   });
 
-  it('a goal chat still in progress is kept as it is, even from another page', async () => {
+  // M3b SIM-5, owner decision 2026-10-09: an entry page over a chat of another
+  // kind that is still in progress asks which chat this is going to be.
+  async function habitsPageOverGoalChat(): Promise<void> {
     serve();
     await goalChat(false);
     await press(await screen.findByTestId('header-back').then(() => 'header-back'));
     await press(await screen.findByTestId('things-habits').then(() => 'things-habits'));
     await press(await screen.findByTestId('habits-add').then(() => 'habits-add'));
-    // The unsaved goal is still there: nothing in progress is discarded.
+    await screen.findByTestId('capture-entry-ask');
+  }
+
+  it('a goal chat still in progress is not discarded from another page: the person is asked', async () => {
+    await habitsPageOverGoalChat();
+    expect(screen.getByText(en.xEntryOpenChatTitle)).toBeTruthy();
+    expect(screen.getByText(en.xEntryOpenChatBody)).toBeTruthy();
+    // Nothing was sent or thrown away by asking.
+    expect(harness.server.matching('POST', /\/capture\/chat$/)).toHaveLength(1);
+  });
+
+  it('«كمّل المحادثة» shows the goal chat as it was', async () => {
+    await habitsPageOverGoalChat();
+    await press('capture-entry-ask-continue');
     await screen.findByTestId('capture-input');
+    expect(screen.queryByTestId('capture-entry-ask')).toBeNull();
     expect(screen.getByText(en.xChatOpenGoal)).toBeTruthy();
     expect(screen.queryByText(en.xChatOpenHabit)).toBeNull();
+    // Its next message still belongs to the goal chat.
+    await say('And walk more');
+    await waitForRequest(harness, 'POST', /\/capture\/chat$/, 2);
+    // The same conversation (which is what carries its entry), not a new habit one.
+    const sent = lastRequest(harness, 'POST', /\/capture\/chat$/).body as Record<string, unknown>;
+    expect(sent.conversationId).toBe('m3b-conversation');
+    expect(sent.entry).not.toBe('habit');
+  });
+
+  it('«ابدأ جديدة» starts the habit chat: the habit line, and its message carries the habit entry and no conversation', async () => {
+    await habitsPageOverGoalChat();
+    await press('capture-entry-ask-new');
+    await screen.findByTestId('capture-input');
+    expect(screen.queryByTestId('capture-entry-ask')).toBeNull();
+    expect(screen.getByText(en.xChatOpenHabit)).toBeTruthy();
+    expect(screen.queryByText(en.xChatOpenGoal)).toBeNull();
+    await say('Walk every day');
+    await waitForRequest(harness, 'POST', /\/capture\/chat$/, 2);
+    const sent = lastRequest(harness, 'POST', /\/capture\/chat$/).body as Record<string, unknown>;
+    expect(sent).toEqual(expect.objectContaining({ entry: 'habit' }));
+    expect(sent.conversationId ?? null).toBeNull();
+  });
+
+  it('back from the question keeps the open chat', async () => {
+    await habitsPageOverGoalChat();
+    // The chat's own back button, whichever name the page it is on gives it.
+    await press(screen.queryByTestId('capture-cancel') ? 'capture-cancel' : 'review-back');
+    await screen.findByTestId('capture-input');
+    expect(screen.queryByTestId('capture-entry-ask')).toBeNull();
+    expect(screen.getByText(en.xChatOpenGoal)).toBeTruthy();
+  });
+
+  it('the same page over its own chat in progress asks nothing', async () => {
+    serve();
+    await goalChat(false);
+    await press(await screen.findByTestId('goals-add').then(() => 'goals-add'));
+    await screen.findByTestId('capture-input');
+    expect(screen.queryByTestId('capture-entry-ask')).toBeNull();
+    expect(screen.getByText(en.xChatOpenGoal)).toBeTruthy();
+  });
+
+  it('the plain «احكيها» over a chat in progress asks nothing', async () => {
+    serve();
+    await goalChat(false);
+    await press(await screen.findByTestId('header-back').then(() => 'header-back'));
+    await press(await screen.findByTestId('tab-capture').then(() => 'tab-capture'));
+    await screen.findByTestId('capture-input');
+    expect(screen.queryByTestId('capture-entry-ask')).toBeNull();
   });
 });

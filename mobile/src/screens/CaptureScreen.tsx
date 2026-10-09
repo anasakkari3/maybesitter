@@ -13,7 +13,7 @@ import { familyIdOf, familyIdOfLine, type PointTarget } from '../features/captur
 import { SummaryEditSheet } from '../features/capture/SummaryEditSheet';
 import { useCaptureKinds } from '../features/capture/useCaptureKinds';
 import { instantForLocalDateTime } from '../features/capture/localInstant';
-import { usableUnderstood } from '../api/schemas/capture';
+import { usableUnderstood, type CaptureEntry } from '../api/schemas/capture';
 import { noCommitmentLine } from '../features/capture/noCommitment';
 import { COMPOSER_EXAMPLE_KEYS, exampleText } from '../features/capture/examples';
 import { ClipboardImportSheet } from '../features/capture/ClipboardImportSheet';
@@ -152,7 +152,12 @@ function savedNoteText(note: ChatSavedNote, t: Strings, lang: Lang, timeZone: st
  * words: whatever it says, nothing is saved and nothing reads "saved" until
  * the confirm succeeds.
  */
-export function CaptureScreen() {
+/**
+ * `entryQuestion`: an entry page was opened while a chat of another kind is
+ * still in progress (M3b SIM-5). The chat is kept, and the person is asked
+ * whether to go on with it or start the one they came for.
+ */
+export function CaptureScreen({ entryQuestion }: { entryQuestion?: { entry: CaptureEntry; onAnswered: () => void } } = {}) {
   const { t, tr, p: appPalette, rtl, script, lang, scheme, actions } = useApp();
   const p = captureChatPalette(scheme, appPalette);
   const flow = useCaptureFlow();
@@ -338,6 +343,13 @@ export function CaptureScreen() {
   const done = () => { stopDictation(); flow.close(); actions.go('today'); };
   const back = () => { setDiscarding(null); setEditingId(null); setToolsOpen(false); flow.backToComposer(); };
   const restart = () => { setDiscarding(null); setEditingId(null); setToolsOpen(false); setMenuOpen(false); stopDictation(); flow.startOver(); };
+  /** «ابدأ جديدة» from an entry page: this chat goes, the new one starts on that page's line. */
+  const startEntryChat = () => {
+    if (!entryQuestion) return;
+    restart();
+    flow.changeEntry(entryQuestion.entry);
+    entryQuestion.onAnswered();
+  };
   const discardsSomething = () => wantsDiscardConfirmation(state);
   /**
    * The explicit exit, «إلغاء الكل»: it throws the conversation away, so it
@@ -468,7 +480,14 @@ export function CaptureScreen() {
 
   const failed = isFailedStatus(state.status) ? state.status : null;
   let bodyOverride: React.ReactNode = null;
-  if (discarding) bodyOverride = <View style={{ gap: 16 }} testID="capture-discard">
+  // Asked before anything else on the page: which chat this is going to be.
+  if (entryQuestion) bodyOverride = <View style={{ gap: 16 }} testID="capture-entry-ask">
+    <Txt size={22} weight={600}>{t.xEntryOpenChatTitle}</Txt>
+    <Txt size={15}>{t.xEntryOpenChatBody}</Txt>
+    <Pill testID="capture-entry-ask-continue" label={t.xEntryOpenChatContinue} onPress={entryQuestion.onAnswered} />
+    <Pill testID="capture-entry-ask-new" label={t.xEntryOpenChatNew} onPress={startEntryChat} kind="warm" />
+  </View>;
+  else if (discarding) bodyOverride = <View style={{ gap: 16 }} testID="capture-discard">
     {/* Starting over is asked as what it is, not as «بدك تتجاهلها؟» (M2b design critique). */}
     <Txt size={22} weight={600}>{discarding === 'restart' ? t.chatStartOverTitle : t.captureDiscardTitle}</Txt>
     <Txt size={15}>{discarding === 'back' ? t.chatBackDiscardBody : discarding === 'restart' ? t.chatStartOverBody : t.captureDiscardBody}</Txt>
@@ -609,7 +628,7 @@ export function CaptureScreen() {
   // Which sheet is showing, in the order the chain above picks it: the page
   // starts each one at its top (M2B-A-R5-REVIEW-002).
   const overlayKey = bodyOverride == null ? null
-    : discarding ? `discard-${discarding}` : clipboard ? 'clipboard' : editingId ? `card-${editingId}`
+    : entryQuestion ? 'entry-ask' : discarding ? `discard-${discarding}` : clipboard ? 'clipboard' : editingId ? `card-${editingId}`
       : summaryEditing !== null ? `summary-${summaryEditing}` : menuOpen ? 'menu' : `status-${state.status}`;
   // The summary is the newest reply's: its words, then the numbered lines, then «هيك صح».
   if (understood && state.proposal && state.status !== 'analyzing' && history.length > 0 && history[history.length - 1]!.role === 'assistant') {
@@ -645,7 +664,9 @@ export function CaptureScreen() {
    */
   const headerBack = () => {
     if (state.status === 'confirming') return;
-    if (editingId) setEditingId(null);
+    // Back from the question is the safe answer: the open chat stays.
+    if (entryQuestion) entryQuestion.onAnswered();
+    else if (editingId) setEditingId(null);
     else if (clipboard) setClipboard(null);
     else if (menuOpen) setMenuOpen(false);
     else if (discarding) setDiscarding(null);
