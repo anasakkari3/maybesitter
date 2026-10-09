@@ -543,15 +543,20 @@ function timezoneOf(user: Record<string, unknown> | null): string {
   return typeof user?.timezone === 'string' && user.timezone ? user.timezone : DEFAULT_MOBILE_TIMEZONE;
 }
 
+function phaseWeekOffset(step: InternalStep): number {
+  return step.phase.unit === 'day'
+    ? Math.floor((step.phase.index - 1) / 7) * 7
+    : (step.phase.index - 1) * 7;
+}
+
 function datesFor(step: InternalStep, anchor: string): string[] {
   if (step.phase.unit === 'day') {
     if (step.kind === 'habit') {
-      const weekStart = Math.floor((step.phase.index - 1) / 7) * 7;
-      return Array.from({ length: 7 }, (_, index) => addCivilDays(anchor, weekStart + index));
+      return Array.from({ length: 7 }, (_, index) => addCivilDays(anchor, phaseWeekOffset(step) + index));
     }
     return [addCivilDays(anchor, step.phase.index - 1)];
   }
-  return Array.from({ length: 7 }, (_, index) => addCivilDays(anchor, (step.phase.index - 1) * 7 + index));
+  return Array.from({ length: 7 }, (_, index) => addCivilDays(anchor, phaseWeekOffset(step) + index));
 }
 
 function isLater(step: InternalStep): boolean {
@@ -559,7 +564,7 @@ function isLater(step: InternalStep): boolean {
 }
 
 function laterWeekIndex(step: InternalStep): number {
-  return step.phase.unit === 'day' ? Math.floor((step.phase.index - 1) / 7) + 1 : step.phase.index;
+  return phaseWeekOffset(step) / 7 + 1;
 }
 
 function hhmm(minutes: number): string {
@@ -951,11 +956,11 @@ function habitFor(uid: string, goalId: string, step: InternalStep, entry: GoalPl
     confirmation: { confirmedByUserAt: now, sourceRef: goalId, acceptedSuggestedValues: true } }), now);
 }
 
-function habitOccurrences(habit: HabitDefinition, entry: GoalPlanTimesStep, anchor: { localDate: string; timezone: string }, weekIndex?: number): Array<HabitOccurrence & { placement?: { startsAt: string; endsAt: string; origin: 'accepted' } }> {
+function habitOccurrences(habit: HabitDefinition, step: InternalStep, entry: GoalPlanTimesStep, anchor: { localDate: string; timezone: string }, weekIndex?: number): Array<HabitOccurrence & { placement?: { startsAt: string; endsAt: string; origin: 'accepted' } }> {
   const weekly = 'weekly' in entry ? entry.weekly : null;
   const rows: Array<HabitOccurrence & { placement?: { startsAt: string; endsAt: string; origin: 'accepted' } }> = [];
-  const offset = weekIndex === undefined ? 0 : (weekIndex - 1) * 7;
-  const count = weekIndex === undefined ? 14 : 7;
+  const offset = weekIndex === undefined ? phaseWeekOffset(step) : (weekIndex - 1) * 7;
+  const count = weekIndex === undefined ? Math.max(0, 14 - offset) : 7;
   for (let index = 0; index < count; index += 1) {
     const localDate = addCivilDays(anchor.localDate, offset + index);
     const weekday = new Date(`${localDate}T12:00:00Z`).getUTCDay();
@@ -1056,7 +1061,7 @@ export async function confirmGoalPlan(uid: string, goalId: string, planId: strin
         plannedWrites += 1;
       } else {
         const habit = habitFor(uid, goalId, step, entry, entityId, new Date().toISOString());
-        const occurrences = habitOccurrences(habit, entry, times.anchor, times.weekIndex);
+        const occurrences = habitOccurrences(habit, step, entry, times.anchor, times.weekIndex);
         tx.set(path(uid, HABITS, habit.habitId), habit);
         for (const occurrence of occurrences) { tx.set(path(uid, HABIT_OCCURRENCES, occurrence.occurrenceId), occurrence); affectedDates.add(occurrence.localDate); }
         const weekly = 'weekly' in entry ? entry.weekly : null;

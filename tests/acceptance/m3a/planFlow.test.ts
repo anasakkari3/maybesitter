@@ -8,7 +8,7 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { COMMITMENTS, GOAL_GRAPH_LINKS, HABITS, HABIT_OCCURRENCES } from '../../../lib/storage/paths.ts';
+import { COMMITMENTS, GOAL_GRAPH_LINKS, GOAL_PLAN_OUTCOMES, HABITS, HABIT_OCCURRENCES } from '../../../lib/storage/paths.ts';
 import {
   OTHER, TODAY, TZ, USER, addBusy, addDays, approve, approved, at, call, choose, commitments, confirm, draftOf,
   edit, generate, key, loadCalendar, overlaps, rows, setup, stepByTitle, stepTimes, weeksPlan,
@@ -310,6 +310,14 @@ function weeklyIntervals(weekly: Weekly, week: number): Slot[] {
     .map((date) => ({ startsAt: at(date, weekly.start), endsAt: at(date, weekly.end) }));
 }
 
+function weeklyDates(weekly: Weekly, week: number): string[] {
+  return weekDates(week).filter((date) => weekly.weekdays.includes(new Date(`${date}T12:00:00Z`).getUTCDay()));
+}
+
+function localDate(instant: string): string {
+  return new Date(Date.parse(instant) + 3 * 3_600_000).toISOString().slice(0, 10);
+}
+
 test('A3 on a loaded calendar the commitment slot is free, in its week, in the future, and as long as the step', async () => {
   const h = await setup();
   await within(async () => {
@@ -443,25 +451,98 @@ test('A4 M3A-025 confirm saves a commitment as a timed window at its slot and a 
   }, h);
 });
 
-test('A4 M3A-003 M3A-015 the habit’s week-2 occurrences are placed exactly where they were accepted', async () => {
+test('RB-4 a week-2 habit starts in its phase week and projects only those dates', async () => {
   const h = await setup();
   await within(async () => {
     await loadCalendar();
     const { plan, times } = await approved(h.goalId);
-    const weekly = stepTimes(times, stepByTitle(plan, SPORT).stepId).weekly!;
-    const answer = await confirm(h.goalId, times);
+    const sportId = stepByTitle(plan, SPORT).stepId;
+    const weekly = stepTimes(times, sportId).weekly!;
+    const idempotencyKey = key('week-2-habit');
+    const answer = await confirm(h.goalId, times, idempotencyKey);
     assert.equal(answer.status, 200, JSON.stringify(answer.body));
-    const habitId = (answer.body.saved as Array<Record<string, any>>).find((s) => s.entity === 'habit')!.id;
+    const habitId = (answer.body.saved as Array<Record<string, any>>).find((s) => s.stepId === sportId)!.id;
     const occurrences = (await rows(HABIT_OCCURRENCES)).filter((row) => row.habitId === habitId);
+    const expectedDates = weeklyDates(weekly, 2);
+    assert.deepEqual(occurrences.map((row) => row.localDate).sort(), expectedDates);
     const expected = weeklyIntervals(weekly, 2);
     for (const interval of expected) {
-      const date = new Date(Date.parse(interval.startsAt) + 3 * 3_600_000).toISOString().slice(0, 10);
+      const date = localDate(interval.startsAt);
       const occurrence = occurrences.find((row) => row.localDate === date);
       assert.ok(occurrence, `no occurrence on ${date}`);
       assert.equal(occurrence!.placement?.startsAt, interval.startsAt);
       assert.equal(occurrence!.placement?.endsAt, interval.endsAt);
       assert.equal(occurrence!.placement?.origin, 'accepted');
     }
+    const outcome = (await rows(GOAL_PLAN_OUTCOMES)).find((row) => row.outcomeId === idempotencyKey);
+    const walkSlot = stepTimes(times, stepByTitle(plan, WALK).stepId).slot!;
+    assert.deepEqual(outcome?.affectedDates, Array.from(new Set([localDate(walkSlot.startsAt), ...expectedDates])).sort());
+  }, h);
+});
+
+test('RB-4 a week-1 habit keeps occurrences across both initial weeks', async () => {
+  const h = await setup();
+  await within(async () => {
+    const answer = weeksPlan();
+    answer.steps[0] = { ...answer.steps[0]!, kind: 'habit', rhythm: { timesPerWeek: 3, timeOfDay: 'morning' } };
+    h.answer(answer);
+    const { plan, times } = await approved(h.goalId);
+    const habitStepId = stepByTitle(plan, WALK).stepId;
+    const weekly = stepTimes(times, habitStepId).weekly!;
+    const confirmed = await confirm(h.goalId, times);
+    assert.equal(confirmed.status, 200, JSON.stringify(confirmed.body));
+    const habitId = (confirmed.body.saved as Array<Record<string, any>>).find((saved) => saved.stepId === habitStepId)!.id;
+    const occurrenceDates = (await rows(HABIT_OCCURRENCES))
+      .filter((row) => row.habitId === habitId)
+      .map((row) => row.localDate)
+      .sort();
+    assert.deepEqual(occurrenceDates, [...weeklyDates(weekly, 1), ...weeklyDates(weekly, 2)].sort());
+  }, h);
+});
+
+test('RB-4 a day-phase habit in days 8–14 starts in week 2', async () => {
+  for (const phaseDay of [8, 14]) {
+    const h = await setup();
+    await within(async () => {
+      const answer = weeksPlan();
+      h.answer({ horizon: 'days', steps: [
+        { ...answer.steps[0]!, phase: { unit: 'day', index: 1 } },
+        { ...answer.steps[1]!, phase: { unit: 'day', index: phaseDay } },
+        { ...answer.steps[2]!, phase: { unit: 'day', index: 15 } },
+      ] });
+      const { plan, times } = await approved(h.goalId);
+      const habitStepId = stepByTitle(plan, SPORT).stepId;
+      const weekly = stepTimes(times, habitStepId).weekly!;
+      const confirmed = await confirm(h.goalId, times);
+      assert.equal(confirmed.status, 200, JSON.stringify(confirmed.body));
+      const habitId = (confirmed.body.saved as Array<Record<string, any>>).find((saved) => saved.stepId === habitStepId)!.id;
+      const occurrenceDates = (await rows(HABIT_OCCURRENCES))
+        .filter((row) => row.habitId === habitId)
+        .map((row) => row.localDate)
+        .sort();
+      assert.deepEqual(occurrenceDates, weeklyDates(weekly, 2), `day ${phaseDay}`);
+    }, h);
+  }
+});
+
+test('RB-4 a replay keeps the phase-scoped habit occurrence rows unchanged', async () => {
+  const h = await setup();
+  await within(async () => {
+    const { plan, times } = await approved(h.goalId);
+    const sportId = stepByTitle(plan, SPORT).stepId;
+    const weekly = stepTimes(times, sportId).weekly!;
+    const idempotencyKey = key('habit-replay');
+    const first = await confirm(h.goalId, times, idempotencyKey);
+    assert.equal(first.status, 200, JSON.stringify(first.body));
+    const habitId = (first.body.saved as Array<Record<string, any>>).find((saved) => saved.stepId === sportId)!.id;
+    const before = (await rows(HABIT_OCCURRENCES)).filter((row) => row.habitId === habitId);
+    assert.deepEqual(before.map((row) => row.localDate).sort(), weeklyDates(weekly, 2));
+
+    const replay = await confirm(h.goalId, times, idempotencyKey);
+    assert.equal(replay.status, 200, JSON.stringify(replay.body));
+    assert.equal(replay.body.receipt.replayed, true);
+    const after = (await rows(HABIT_OCCURRENCES)).filter((row) => row.habitId === habitId);
+    assert.deepEqual(after, before);
   }, h);
 });
 

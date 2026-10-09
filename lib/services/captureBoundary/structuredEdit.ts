@@ -10,6 +10,7 @@ import type { Command } from '../../../src/domain/stateMachine';
 import type { ExtractionResult } from '../../../src/extraction/extractionTypes';
 import { mapExtractionToCommand } from '../../../src/extraction/mapExtractionToCommand';
 import { localTimeSpecFor } from '../../../src/extraction/timeLexicon';
+import { thoughtCommitmentTitle } from '../../../src/extraction/thoughtCommitmentTitle';
 import { getStorage } from '../../storage';
 import { claimsSaved } from '../captureChat/chatReply';
 import { captureConversationPath, type CaptureChatTurn, type StoredCaptureConversation } from '../captureChat/conversationStore';
@@ -368,22 +369,25 @@ function applyEdit(stored: StoredCaptureProposal, edit: CaptureProposalEditContr
     if (summary !== before.summary) changed = true;
     if (change.kind === 'commitment') {
       changed = true;
+      const title = change.text === undefined
+        ? thoughtCommitmentTitle(summary, { separatedTime: Boolean(parsedTime?.at) })
+        : summary;
       contract.seeds.splice(seedIndex, 1);
       const pointId = before.pointId ?? (carriesPointIds ? before.seedItemId : undefined);
       contract.understood = contract.understood?.map((point) =>
         point.kind !== 'commitment' && point.seedItemId === before.seedItemId
-          ? { kind: 'commitment' as const, itemId: before.seedItemId, ...(pointId ? { pointId } : {}), text: summary }
+          ? { kind: 'commitment' as const, itemId: before.seedItemId, ...(pointId ? { pointId } : {}), text: title }
           : point);
       const artifacts = buildStructuredCommitmentArtifacts(
         stored,
         before.seedItemId,
-        summary,
+        title,
         parsedTime?.at ? { at: parsedTime.at, zone: parsedTime.zone, local: parsedTime.local } : undefined,
       );
       const { result } = artifacts;
       const clarification = parsedTime?.at ? null : buildClarification(result, { now, timezone: stored.timezone ?? parsedTime?.zone ?? 'UTC' });
       contract.items.push({
-        itemId: before.seedItemId, ...(pointId ? { pointId } : {}), title: summary, resolvedTime: parsedTime?.at ?? null,
+        itemId: before.seedItemId, ...(pointId ? { pointId } : {}), title, resolvedTime: parsedTime?.at ?? null,
         needsClarification: !parsedTime?.at, clarification,
         timeEstimated: false, priority: 'normal', priorityEstimated: false,
         ...(parsedTime?.local ? { resolvedDate: parsedTime.local.date, dateEstimated: false } : {}),

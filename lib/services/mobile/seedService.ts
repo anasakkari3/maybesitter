@@ -68,6 +68,7 @@ import {
 import type { MemoryLanguage } from '../../../src/contracts/v1/memoryContracts';
 import type { ExtractionResult } from '../../../src/extraction/extractionTypes';
 import { mapExtractionToCommand } from '../../../src/extraction/mapExtractionToCommand';
+import { thoughtCommitmentTitle } from '../../../src/extraction/thoughtCommitmentTitle';
 import type { Command } from '../../../src/domain/stateMachine';
 import {
   analyticsContextFrom,
@@ -462,10 +463,11 @@ export type SeedPromotionTarget = 'commitment' | 'goal';
  * the "no invented date" rule broken at the last possible moment.
  */
 function promotedCommitment(summary: string): ExtractionResult {
+  const title = thoughtCommitmentTitle(summary);
   return {
     type: 'task',
-    action: summary,
-    title: summary,
+    action: title,
+    title,
     person: null,
     dueAt: null,
     remindAt: null,

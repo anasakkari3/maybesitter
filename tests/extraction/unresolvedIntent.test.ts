@@ -11,6 +11,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { detectUnresolvedIntent } from '../../src/extraction/unresolvedIntent.ts';
+import { thoughtCommitmentTitle } from '../../src/extraction/thoughtCommitmentTitle.ts';
 import { SEED_SUMMARY_MAX_CHARACTERS } from '../../src/contracts/v1/intentContracts.ts';
 import { proposeCapture, MemoryCaptureProposalStore } from '../../lib/services/captureBoundary/index.ts';
 import { guardedMobileExtract } from '../../lib/services/mobile/safety.ts';
@@ -43,6 +44,53 @@ test('unresolvedIntent: the issue’s examples are read as seeds, in three langu
     assert.ok(reading, `${label} was not read as unresolved intent: ${text}`);
     assert.equal(reading.kind, kind, `${label} read as ${reading.kind}`);
   }
+});
+
+test('SIM-10: promotion titles reuse the multilingual consideration markers and ordinary time cleaner', () => {
+  for (const [source, expected] of [
+    ['عم بفكر روح عالجيم', 'روح عالجيم'],
+    ['بفكّر أروح عالجيم', 'أروح عالجيم'],
+    ['يمكن أروح عالجيم', 'أروح عالجيم'],
+    ['ممكن أروح عالجيم', 'أروح عالجيم'],
+    ['maybe go to the gym', 'go to the gym'],
+    ["I'm thinking about going to the gym", 'going to the gym'],
+    ['thinking of calling mom', 'calling mom'],
+    ['مش متأكد أروح عالجيم', 'أروح عالجيم'],
+    ['אולי אלך לחדר כושר', 'אלך לחדר כושר'],
+    ['אני חושבת על ללכת לחדר כושר', 'ללכת לחדר כושר'],
+    ['אני חושב ללכת לחדר כושר', 'ללכת לחדר כושר'],
+    ['לא בטוחה אם ללכת לחדר כושר', 'ללכת לחדר כושר'],
+  ] as const) {
+    assert.equal(thoughtCommitmentTitle(source), expected, source);
+  }
+  assert.equal(
+    thoughtCommitmentTitle('عم بفكر روح عالجيم بكرا الساعة 6 المسا', { separatedTime: true }),
+    'روح عالجيم',
+  );
+  assert.equal(thoughtCommitmentTitle('يمكن'), 'يمكن', 'a marker-only thought became an empty title');
+  assert.equal(thoughtCommitmentTitle('أكتب كلمة ممكن بالتقرير'), 'أكتب كلمة ممكن بالتقرير');
+});
+
+test('SIM-10 RB-1: promotion strips only whole leading consideration phrases', () => {
+  for (const [source, expected] of [
+    ['ناوية أروح عالجيم', 'أروح عالجيم'],
+    ['مفكرة أسجل بدورة', 'أسجل بدورة'],
+    ['مفكّرة أسجل بدورة', 'أسجل بدورة'],
+    ['אני שוקלת ללכת לחדר כושר', 'ללכת לחדר כושר'],
+    ['ناوي أروح عالجيم', 'أروح عالجيم'],
+    ['אני שוקל ללכת', 'ללכת'],
+    ['ممكنة الزيارة بكرا', 'ممكنة الزيارة بكرا'],
+    ['يمكنني أزور أمي', 'يمكنني أزور أمي'],
+    ['بفكرة حلوة: أرتب الخزانة', 'بفكرة حلوة: أرتب الخزانة'],
+  ] as const) {
+    assert.equal(thoughtCommitmentTitle(source), expected, source);
+  }
+});
+
+test('SIM-10 RB-2: promotion removes one connective only after a doubt phrase', () => {
+  assert.equal(thoughtCommitmentTitle('عم بفكر إني أروح عالجيم'), 'أروح عالجيم');
+  assert.equal(thoughtCommitmentTitle("I'm not sure whether to call mom"), 'call mom');
+  assert.equal(thoughtCommitmentTitle('إني تعبان اليوم'), 'إني تعبان اليوم');
 });
 
 /**
