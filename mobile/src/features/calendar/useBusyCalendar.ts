@@ -153,6 +153,11 @@ export function resetBusySyncForTests(): void {
  */
 export function useDeviceBusy(): { data: DeviceBusyCache | undefined; isPending: boolean; isError: boolean } {
   const uid = useUid();
+  // Consent off, said by the server: nothing of the cache is shown from this
+  // render on, while its removal from the disk is still on its way (owner
+  // decision 2026-10-09; inspection FU-002). A loading or failed answer says
+  // nothing about consent, so the cache stays visible then.
+  const consentOff = useTrust().data?.trust?.calendarConsent === false;
   const query = useQuery({
     queryKey: busyQueryKeys.blocks(uid),
     queryFn: () => loadDeviceBusy(uid),
@@ -162,8 +167,11 @@ export function useDeviceBusy(): { data: DeviceBusyCache | undefined; isPending:
     // focus would buy nothing.
     staleTime: Infinity,
   });
+  if (consentOff) return { data: NOTHING_READ, isPending: false, isError: false };
   return { data: query.data, isPending: query.isPending, isError: query.isError };
 }
+
+const NOTHING_READ: DeviceBusyCache = { blocks: [], coverage: null, syncedAt: null };
 
 /** The last busy blocks this device read for this account. Empty until the first sync. */
 export function useBusyBlocks(): DeviceBusyBlock[] {

@@ -17,6 +17,7 @@ import { ReferenceIcon } from '../../ui/referenceIcons';
 import { planFailureOf, recoveryLabel, type PlanRecovery } from './planFailures';
 import { AllTimesSheet } from './AllTimesSheet';
 import { habitStart, type HabitStart } from './habitStart';
+import { useLocalToday } from '../calendar/usePlanFreeTime';
 import type { LiveStep, PlanFlow as Flow } from './useGoalPlanFlow';
 
 /**
@@ -430,8 +431,11 @@ function useWeeklyLine(): (weekly: GoalPlanWeekly, start?: HabitStart) => string
 
 /** When each habit step's week begins, read from the plan the times belong to. */
 function useHabitStarts(times: GoalPlanTimes, plan: GoalPlan | null): (stepId: string) => HabitStart {
-  const timeZone = useTimeZone();
-  const today = dayKey(new Date(), timeZone);
+  // Today as the plan counts it: in the zone its anchor and its occurrences
+  // are in, not the phone's, which can be a day apart around midnight or
+  // after a flight. It moves at that zone's midnight and when the app comes
+  // back to the front, so a line left open does not go stale (inspection FU-004).
+  const today = useLocalToday(times.anchor.timezone);
   return React.useCallback((stepId: string) =>
     habitStart(plan?.steps.find(step => step.stepId === stepId)?.phase, times.anchor.localDate, today),
   [plan, times.anchor.localDate, today]);

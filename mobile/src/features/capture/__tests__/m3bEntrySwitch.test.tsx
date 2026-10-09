@@ -6,6 +6,8 @@
  */
 import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
 import { screen } from '@testing-library/react-native';
+import * as accessibilityFocus from '../../../ui/accessibilityFocus';
+import { AccessibilityInfo, Platform } from 'react-native';
 import en from '../../../i18n/locales/en.json';
 import {
   defaultReply, lastRequest, openCards, openProduct, prepareM3b, press, say, teardown, waitForRequest, withKinds, type M3bHarness,
@@ -100,6 +102,35 @@ describe('a page opens the chat for its own kind', () => {
     expect(screen.getByText(en.xEntryOpenChatBody)).toBeTruthy();
     // Nothing was sent or thrown away by asking.
     expect(harness.server.matching('POST', /\/capture\/chat$/)).toHaveLength(1);
+  });
+
+  // Inspection FU-003: a screen reader hears that a question is waiting.
+  it('the question takes the accessibility focus on its heading and is announced', async () => {
+    const focus = jest.spyOn(accessibilityFocus, 'focusForAccessibility').mockImplementation(() => {});
+    const announce = jest.spyOn(AccessibilityInfo, 'announceForAccessibility').mockImplementation(() => {});
+    await habitsPageOverGoalChat();
+    const heading = screen.getByTestId('capture-entry-ask-title');
+    expect(heading.props.accessibilityRole).toBe('header');
+    expect(heading.props.accessibilityLabel).toBe(en.xEntryOpenChatTitle);
+    // Once, and at a mounted view: the heading.
+    expect(focus).toHaveBeenCalledTimes(1);
+    expect(focus.mock.calls[0]![0]).not.toBeNull();
+    if (Platform.OS === 'ios') expect(announce).toHaveBeenCalledWith(`${en.xEntryOpenChatTitle}. ${en.xEntryOpenChatBody}`);
+    // Both answers are buttons named by their words.
+    expect(screen.getByRole('button', { name: en.xEntryOpenChatContinue })).toBeTruthy();
+    expect(screen.getByRole('button', { name: en.xEntryOpenChatNew })).toBeTruthy();
+  });
+
+  // Inspection FU-005: nothing else on the page opens under the question.
+  it('«المزيد» is off while the question is up, so «كمّل» opens the chat and not a menu', async () => {
+    await habitsPageOverGoalChat();
+    const more = screen.getByTestId('chat-more');
+    expect(more.props.accessibilityState?.disabled ?? more.props.disabled).toBe(true);
+    await press('capture-entry-ask-continue');
+    await screen.findByTestId('capture-input');
+    expect(screen.queryByTestId('chat-menu')).toBeNull();
+    const after = screen.getByTestId('chat-more');
+    expect(after.props.accessibilityState?.disabled ?? after.props.disabled ?? false).toBe(false);
   });
 
   it('«كمّل المحادثة» shows the goal chat as it was', async () => {

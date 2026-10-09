@@ -53,6 +53,7 @@ import { ProcessingDots, useReducedMotion } from '../ui/motion';
 import { Screen } from '../ui/screen';
 import { AvoidKeyboard } from '../ui/keyboard';
 import { useAnnounceOnIos } from '../ui/announce';
+import { focusForAccessibility } from '../ui/accessibilityFocus';
 import type { UserFacingKey } from '../api/ui/userFacingMessage';
 import { ReviewScreen } from './ReviewScreen';
 
@@ -152,6 +153,33 @@ function savedNoteText(note: ChatSavedNote, t: Strings, lang: Lang, timeZone: st
  * words: whatever it says, nothing is saved and nothing reads "saved" until
  * the confirm succeeds.
  */
+/**
+ * «في محادثة مفتوحة» (M3b SIM-5): which chat this is going to be.
+ *
+ * It takes the chat's place the moment capture opens, so a screen reader would
+ * otherwise still be on the button that opened it, or land on the header, and
+ * never hear that a question is waiting (inspection FU-003). Its title is a
+ * heading and takes the accessibility focus; the title and the question are
+ * announced on iOS, and are a live region on Android.
+ */
+function EntryQuestion({ title, body, continueLabel, newLabel, onContinue, onNew }: {
+  title: string; body: string; continueLabel: string; newLabel: string; onContinue: () => void; onNew: () => void;
+}) {
+  const heading = useRef<View>(null);
+  useEffect(() => { focusForAccessibility(heading.current); }, []);
+  useAnnounceOnIos(`${title}. ${body}`);
+  return <View style={{ gap: 16 }} testID="capture-entry-ask">
+    <LiveRegion style={{ gap: 16 }}>
+      <View ref={heading} testID="capture-entry-ask-title" accessible accessibilityRole="header" accessibilityLabel={title}>
+        <Txt size={22} weight={600}>{title}</Txt>
+      </View>
+      <Txt size={15}>{body}</Txt>
+    </LiveRegion>
+    <Pill testID="capture-entry-ask-continue" label={continueLabel} onPress={onContinue} />
+    <Pill testID="capture-entry-ask-new" label={newLabel} onPress={onNew} kind="warm" />
+  </View>;
+}
+
 /**
  * `entryQuestion`: an entry page was opened while a chat of another kind is
  * still in progress (M3b SIM-5). The chat is kept, and the person is asked
@@ -481,12 +509,9 @@ export function CaptureScreen({ entryQuestion }: { entryQuestion?: { entry: Capt
   const failed = isFailedStatus(state.status) ? state.status : null;
   let bodyOverride: React.ReactNode = null;
   // Asked before anything else on the page: which chat this is going to be.
-  if (entryQuestion) bodyOverride = <View style={{ gap: 16 }} testID="capture-entry-ask">
-    <Txt size={22} weight={600}>{t.xEntryOpenChatTitle}</Txt>
-    <Txt size={15}>{t.xEntryOpenChatBody}</Txt>
-    <Pill testID="capture-entry-ask-continue" label={t.xEntryOpenChatContinue} onPress={entryQuestion.onAnswered} />
-    <Pill testID="capture-entry-ask-new" label={t.xEntryOpenChatNew} onPress={startEntryChat} kind="warm" />
-  </View>;
+  if (entryQuestion) bodyOverride = <EntryQuestion title={t.xEntryOpenChatTitle} body={t.xEntryOpenChatBody}
+    continueLabel={t.xEntryOpenChatContinue} newLabel={t.xEntryOpenChatNew}
+    onContinue={() => { setMenuOpen(false); entryQuestion.onAnswered(); }} onNew={startEntryChat} />;
   else if (discarding) bodyOverride = <View style={{ gap: 16 }} testID="capture-discard">
     {/* Starting over is asked as what it is, not as «بدك تتجاهلها؟» (M2b design critique). */}
     <Txt size={22} weight={600}>{discarding === 'restart' ? t.chatStartOverTitle : t.captureDiscardTitle}</Txt>
@@ -714,8 +739,9 @@ export function CaptureScreen({ entryQuestion }: { entryQuestion?: { entry: Capt
         canSend={Boolean(composerText.trim()) && inputLength <= MAX_CAPTURE_LENGTH && !busy && !answering && !flow.writing}
         inputDisabled={state.status === 'confirming' || answering}
         composerDisabled={state.status === 'analyzing'}
-        toolsDisabled={flow.writing}
-        onClose={headerBack} onMore={() => { if (!busy && !answering && !flow.writing) setMenuOpen(true); }}
+        // While the entry question is up, nothing else on the page opens under it (inspection FU-005).
+        toolsDisabled={flow.writing || entryQuestion !== undefined}
+        onClose={headerBack} onMore={() => { if (!busy && !answering && !flow.writing && !entryQuestion) setMenuOpen(true); }}
         onPaste={() => { if (!busy && !answering && !flow.writing) void readClipboardText().then(setClipboard); }}
         // The entry the chat was opened from sets its first line (M3b, COPY-M3b 2).
         assistant={{ text: state.entry === 'goal' ? t.xChatOpenGoal : state.entry === 'habit' ? t.xChatOpenHabit
