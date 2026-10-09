@@ -527,7 +527,10 @@ describe('a sync running when disconnect is pressed', () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     expect(calendarEndpoints.postCalendarBusy).not.toHaveBeenCalled();
-    expect(await AsyncStorage.getItem(BUSY_BLOCKS_KEY)).toBe(before);
+    // Nothing of the read is kept, and consent off took the old copy too
+    // (owner decision 2026-10-09, M4A-R6-REV-001).
+    expect(before).not.toBeNull();
+    await waitFor(async () => expect(await AsyncStorage.getItem(BUSY_BLOCKS_KEY)).toBeNull());
   });
 });
 

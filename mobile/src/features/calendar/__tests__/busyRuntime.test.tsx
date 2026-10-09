@@ -214,6 +214,46 @@ describe('coming back to the front', () => {
   });
 });
 
+/**
+ * Consent withdrawn takes the phone's copy with it (owner decision
+ * 2026-10-09, M4A-R6-REV-001). It used to stay on disk, and the conflict
+ * notes went on reading it, until a disconnect or another account.
+ */
+describe('the phone\'s copy and the calendar switch', () => {
+  const BLOCK = { nativeId: 'kept', startAt: FROM.toISOString(), endAt: TO.toISOString(), allDay: false };
+  const seed = () => AsyncStorage.setItem(BUSY_BLOCKS_KEY, JSON.stringify({ owner: USER.uid, blocks: [BLOCK], coverage: null, syncedAt: null }));
+
+  it('is cleared once the server says the switch is off', async () => {
+    await seed();
+    jest.spyOn(trustEndpoints, 'getTrust').mockResolvedValue(trustWith(false) as never);
+
+    await openApp();
+
+    await waitFor(async () => expect(await AsyncStorage.getItem(BUSY_BLOCKS_KEY)).toBeNull());
+    expect(deviceCalendar.fetchBusyBlocks).not.toHaveBeenCalled();
+  });
+
+  it('is kept while the answer about the switch has not arrived', async () => {
+    await seed();
+    jest.spyOn(trustEndpoints, 'getTrust').mockReturnValue(new Promise(() => {}) as never);
+
+    await openApp();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    expect(await AsyncStorage.getItem(BUSY_BLOCKS_KEY)).toContain('kept');
+  });
+
+  it('is kept when the answer about the switch fails', async () => {
+    await seed();
+    jest.spyOn(trustEndpoints, 'getTrust').mockRejectedValue(new Error('offline') as never);
+
+    await openApp();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    expect(await AsyncStorage.getItem(BUSY_BLOCKS_KEY)).toContain('kept');
+  });
+});
+
 describe('with the calendar switch off', () => {
   /**
    * The promise that matters most, and the one only a test can keep.

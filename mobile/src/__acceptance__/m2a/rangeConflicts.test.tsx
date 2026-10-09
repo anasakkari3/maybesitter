@@ -13,7 +13,7 @@ import type { CaptureProposal } from '../../api/schemas/capture';
 import type { CaptureItemEdit } from '../../features/capture/captureMachine';
 import * as captureEndpoints from '../../api/endpoints/capture';
 import { resetAuthForTests } from '../../api/auth';
-import { seedDeviceBusyCache } from '../../testing/deviceBusyCache';
+import { calendarOnButUnreadable, seedDeviceBusyCache } from '../../testing/deviceBusyCache';
 import { resetBusySyncForTests } from '../../features/calendar/useBusyCalendar';
 import { chatServer } from '../../testing/captureChat';
 import { METRICS, openCapture, prepareRoot, say, type RootHarness } from './harness';
@@ -57,7 +57,9 @@ afterEach(async () => {
 });
 
 async function cacheBusy(block: Busy): Promise<void> {
-  // The cache is the signed-in account's own (M4a, M4A-R8-001).
+  // The cache is the signed-in account's own (M4a, M4A-R8-001), kept only
+  // while the calendar switch is on (owner decision 2026-10-09).
+  calendarOnButUnreadable('m2a-acceptance-user');
   await seedDeviceBusyCache('m2a-acceptance-user', [block]);
 }
 

@@ -341,6 +341,17 @@ export function useBusyCalendar(): BusyCalendarState {
     if (consentNow(uid)) void syncNow('connect');
   }, [uid, trustAnsweredAt, client, consentNow, syncNow]);
 
+  // Consent withdrawn, wherever it was withdrawn — here, the Trust Center,
+  // another phone — takes the phone's copy of the busy times with it (owner
+  // decision 2026-10-09, M4A-R6-REV-001). It used to stay on disk, unread,
+  // until a disconnect or another account. Only an answer that says off
+  // clears: while the answer is loading nothing is known, and nothing goes.
+  const consentOff = trust.data?.trust?.calendarConsent === false;
+  useEffect(() => {
+    if (!consentOff || uid === 'signed-out') return;
+    void clearCachedBusyBlocks().then(() => client.invalidateQueries({ queryKey: busyQueryKeys.blocks(uid) }));
+  }, [consentOff, uid, client]);
+
   // Somebody turned the switch on, or it was already on when the app started.
   useEffect(() => {
     if (!consented) return;

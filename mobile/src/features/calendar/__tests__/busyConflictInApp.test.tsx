@@ -37,13 +37,12 @@ import type { AuthUser } from '../../../auth/types';
 import { Root } from '../../../Root';
 import en from '../../../i18n/locales/en.json';
 import { LANGUAGE_STORAGE_KEY } from '../../../i18n/language';
-import { seedDeviceBusyCache } from '../../../testing/deviceBusyCache';
+import { calendarOnButUnreadable, seedDeviceBusyCache } from '../../../testing/deviceBusyCache';
 import { resetBusySyncForTests } from '../useBusyCalendar';
 
 import * as captureEndpoints from '../../../api/endpoints/capture';
 import * as commitmentEndpoints from '../../../api/endpoints/commitments';
 import * as analyticsEndpoints from '../../../api/endpoints/analytics';
-import * as trustEndpoints from '../../../api/endpoints/trust';
 import { chatServer } from '../../../testing/captureChat';
 
 const METRICS: Metrics = {
@@ -126,10 +125,10 @@ beforeEach(async () => {
   await AsyncStorage.setItem(LANGUAGE_STORAGE_KEY, 'en');
   jest.spyOn(commitmentEndpoints, 'listToday').mockResolvedValue({ items: [], calendarOrphans: [] } as never);
   jest.spyOn(commitmentEndpoints, 'listUpcoming').mockResolvedValue({ items: [] } as never);
-  // The calendar switch is off, so nothing below reads a calendar or uploads
-  // anything. The chips come from the cache and from nowhere else.
-  jest.spyOn(trustEndpoints, 'getTrust')
-    .mockResolvedValue({ success: true, participantId: USER.uid, trust: { analyticsConsent: false, calendarConsent: false } } as never);
+  // The calendar switch is on and the phone refuses the read, so nothing
+  // below uploads anything. The chips come from the cache and from nowhere
+  // else. (Off would clear that cache: owner decision 2026-10-09.)
+  calendarOnButUnreadable(USER.uid);
   jest.spyOn(analyticsEndpoints, 'recordAnalyticsEvent')
     .mockResolvedValue({ success: true, participantId: USER.uid, recorded: true, eventId: 'e-1' } as never);
 });
