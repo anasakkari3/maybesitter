@@ -1817,6 +1817,8 @@
   "xPlanTimesAlternatives": "أوقات فاضية تانية",
   "xPlanTimesNone": "بلا وقت",
   "xPlanTimesLater": "أسبوع {n}: بنحطّلها وقت لما يقرب",
+  "xPlanFromNextWeek": "من الأسبوع الجاي",
+  "xPlanFromDate": "من {date}",
   "xPlanNoRoomInPhase": "ما لقيت وقت فاضي بهالفترة",
   "xPlanNoRoomOutsideHours": "كل الفراغات برّا ساعاتك",
   "xPlanNoRoom": "ما في وقت فاضي إلها",

@@ -1817,6 +1817,8 @@
   "xPlanTimesAlternatives": "Other free times",
   "xPlanTimesNone": "No time",
   "xPlanTimesLater": "Week {n}: we'll find a time as it gets close",
+  "xPlanFromNextWeek": "From next week",
+  "xPlanFromDate": "From {date}",
   "xPlanNoRoomInPhase": "No free time in that stretch",
   "xPlanNoRoomOutsideHours": "Every free slot is outside your hours",
   "xPlanNoRoom": "No free time for it",

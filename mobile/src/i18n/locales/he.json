@@ -1820,6 +1820,8 @@
   "xPlanTimesAlternatives": "זמנים פנויים אחרים",
   "xPlanTimesNone": "בלי שעה",
   "xPlanTimesLater": "שבוע {n}: נמצא זמן כשיתקרב",
+  "xPlanFromNextWeek": "מהשבוע הבא",
+  "xPlanFromDate": "מ-{date}",
   "xPlanNoRoomInPhase": "אין זמן פנוי בתקופה הזו",
   "xPlanNoRoomOutsideHours": "כל החלונות מחוץ לשעות שלך",
   "xPlanNoRoom": "אין לה זמן פנוי",
