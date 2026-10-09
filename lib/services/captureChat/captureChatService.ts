@@ -155,6 +155,22 @@ function visibleProposalState(proposal: CaptureChatProposal | null): unknown {
   };
 }
 
+/** Point identities newly appended this turn; ref-targeted updates keep one of the prior identities. */
+function addedPointIds(
+  previous: CaptureChatProposal | null,
+  next: CaptureChatProposal | null,
+): string[] {
+  if (!previous || !next) return [];
+  const prior = new Set([
+    ...previous.items.flatMap((item) => [item.itemId, item.pointId].filter((id): id is string => typeof id === 'string')),
+    ...previous.seeds.flatMap((seed) => [seed.seedItemId, seed.pointId].filter((id): id is string => typeof id === 'string')),
+  ]);
+  return [
+    ...next.items.flatMap((item) => [item.pointId ?? item.itemId]),
+    ...next.seeds.flatMap((seed) => [seed.pointId ?? seed.seedItemId]),
+  ].filter((id) => !prior.has(id));
+}
+
 export type CaptureChatErrorReason = 'message_required' | 'invalid_conversation_id' | 'conversation_not_found' | 'edit_invalid' | 'invalid_body';
 
 /** A request the chat refuses; the route answers with `status` and `reason`. */
@@ -533,6 +549,7 @@ export async function chatMobileCapture(
         timezone,
         now,
         ...(modelKindHints.length ? { modelKinds: modelKindHints } : {}),
+        addedPointIds: addedPointIds(current, proposal),
       }) as CaptureChatProposal;
     }
     const reply = options.refused || !proposal
@@ -996,6 +1013,7 @@ export async function chatMobileCapture(
   if (kindsOn) {
     built = await applyCaptureKindsToProposal(built.proposalId, uid, {
       text: message, entry: conversation.entry ?? null, locale: appLanguage ?? language, timezone, now,
+      addedPointIds: addedPointIds(current, built),
     });
   }
   const proposal = shown(built);
