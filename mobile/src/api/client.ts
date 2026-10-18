@@ -44,13 +44,17 @@ import {
   UnsupportedShareError,
   UploadTooLargeError,
   ValidationError,
+  HeldChangedError,
+  IcsItemChangedError,
+  SlotRefusedError,
 } from './errors';
 import { mockResponseFor } from './mockAdapter';
 import { commitmentSchema } from './schemas/common';
-import { captureConfirmationSchema, proposalChangedChatSchema, proposalChangedProposalSchema } from './schemas/capture';
+import { captureConfirmationSchema, captureProposalSchema, proposalChangedChatSchema, proposalChangedProposalSchema } from './schemas/capture';
 import { planEditRejectedSchema, planProposalRejectedSchema, weekConflictSchema, weekEmptyDaySchema } from './schemas/plan';
 import { icsFeedRefusalSchema } from './schemas/icsFeeds';
 import { googleRefusalSchema } from './schemas/google';
+import { heldChangedSchema, slotRefusedSchema } from './schemas/m4b';
 import { goalPlanSchema, goalPlanTimesSchema } from './schemas/goalPlan';
 
 /**
@@ -299,6 +303,26 @@ function planEditRefusal(body: unknown, message: string): Error {
   return new PlanEditRefusedError(parsed.data.reason, parsed.data.itemId ?? null);
 }
 
+function m4bConflict(body: unknown, path?: string): Error | null {
+  if (!body || typeof body !== 'object') return null;
+  const code = (body as { error?: unknown }).error;
+  if (code === 'held_changed') {
+    const parsed = heldChangedSchema.safeParse(body);
+    return parsed.success ? new HeldChangedError(parsed.data.held) : null;
+  }
+  if (code === 'item_changed') return new IcsItemChangedError((body as { row?: unknown }).row ?? null);
+  if (code === 'slot_taken' || code === 'slot_unverified' || code === 'slot_stale') {
+    const parsed = slotRefusedSchema.safeParse(body);
+    return parsed.success ? new SlotRefusedError(parsed.data.error, parsed.data.slots, parsed.data.complete) : null;
+  }
+  // The readiness answer's refusal (R2.2): the proposal as it is now.
+  if (code === 'proposal_changed' && path === '/api/mobile/capture/impact') {
+    const proposal = captureProposalSchema.safeParse((body as { proposal?: unknown }).proposal);
+    if (proposal.success) return new ProposalChangedError({ kind: 'proposal', proposal: proposal.data, state: 'open' });
+  }
+  return null;
+}
+
 /** The confirm route's refusal body — `success: false` and a known code — or null. */
 function captureConfirmRefusal(status: number, body: unknown, path?: string): CaptureConfirmRefusedError | null {
   // The confirm route's own 409s (M3b): a switch moved before the save, or the
@@ -398,6 +422,13 @@ function errorForStatus(status: number, body: unknown, path?: string): Error {
   if (status === 400 && path !== undefined && (path === WEEKLY_BLOCK_ROUTES || path.startsWith(`${WEEKLY_BLOCK_ROUTES}/`))) {
     const code = (body as { code?: unknown } | null)?.code;
     if (typeof code === 'string' && /^[a-z_]{1,64}$/.test(code)) return new WeeklyBlockRefusedError(code);
+  }
+  // M4b's 409s carry their code in `error` (WIRE-M4b) and a body to redraw
+  // from. Parsed, not trusted: a body that does not match falls through to the
+  // generic conflict below.
+  if (status === 409) {
+    const m4b = m4bConflict(body, path);
+    if (m4b) return m4b;
   }
   // A refused capture confirm keeps its `failureCode` (#252): the reason is
   // the sentence the person needs, and the 404/400 classes below drop it.

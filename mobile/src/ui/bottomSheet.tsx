@@ -66,20 +66,22 @@ export function SheetHeader({ title, icon, tone = 'accent', onClose, closeTestID
  * A choice in a sheet's grid: a label, and under it the instant it means.
  * Two to a row at ordinary sizes, one per row when the text needs the room.
  */
-export function SheetChoice({ label, sub, onPress, disabled, testID, subTestID }: {
+export function SheetChoice({ label, sub, onPress, disabled, testID, subTestID, a11yLabel }: {
   label: string;
   sub?: string | undefined;
   onPress: () => void;
   disabled?: boolean | undefined;
   testID: string;
   subTestID?: string | undefined;
+  /** What a screen reader says instead of "label, sub", when that reads badly (a time and a reason). */
+  a11yLabel?: string | undefined;
 }) {
   const { p } = useApp();
   const stacked = useLayoutMode() !== 'normal';
   return (
     <Btn
       testID={testID}
-      label={sub ? `${label}, ${sub}` : label}
+      label={a11yLabel ?? (sub ? `${label}, ${sub}` : label)}
       disabled={disabled}
       onPress={onPress}
       scaleTo={0.97}

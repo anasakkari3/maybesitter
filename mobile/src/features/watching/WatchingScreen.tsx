@@ -15,6 +15,8 @@ import { useBackgroundActivity, useSetBackgroundActivityPaused } from '../produc
 import { IntelligencePanel } from '../goals/IntelligencePanel';
 import { useIntelligenceDecided } from '../../api/queries';
 import { AvoidKeyboard } from '../../ui/keyboard';
+import { useM4bCapabilities } from '../m4b/capabilities';
+import { useHeldItems } from '../m4b/heldFixtures';
 
 /**
  * «يتابع لك» (Stitch redesign, 2026-10-02): what the assistant noticed, what it
@@ -37,8 +39,14 @@ import { AvoidKeyboard } from '../../ui/keyboard';
  * list say so, without an error to retry.
  */
 export function WatchingScreen({ tabClearance = TAB_CLEARANCE }: { tabClearance?: number } = {}) {
-  const { t, p, lang, actions } = useApp();
+  const { t, tr, p, lang, actions } = useApp();
   const zone = useTimeZone();
+  // M4b R1.5: matches and feed rows held because they clash. Read only while
+  // the capability is on; independent of the proactive loop and its consent.
+  useM4bCapabilities();
+  const heldItems = useHeldItems();
+  const heldCount = heldItems.data?.count ?? 0;
+  const heldInFootball = heldItems.data?.items.some((item) => item.source === 'football') ?? false;
   const activity = useBackgroundActivity();
   const setPaused = useSetBackgroundActivityPaused();
   const decided = useIntelligenceDecided();
@@ -55,6 +63,19 @@ export function WatchingScreen({ tabClearance = TAB_CLEARANCE }: { tabClearance?
         <ScreenHeader brand={false} title={t.tabWatching} end={<AvatarButton />} />
         <Txt role="supporting" color={p.mu}>{t.watchingBody}</Txt>
         <HubRow testID="watching-knows" icon="person" title={t.knowsTitle} onPress={() => actions.go('knows')} />
+
+        {heldCount > 0 ? (
+          <View testID="watching-held-card">
+            <HubRow
+              testID="watching-held-open"
+              icon="calendar"
+              tone="attention"
+              title={tr('zHeldCard', { count: heldCount })}
+              sub={t.zHeldCardOpen}
+              onPress={() => actions.go(heldInFootball ? 'footballSettings' : 'calendarFeeds')}
+            />
+          </View>
+        ) : null}
 
         <IntelligencePanel
           autoGenerate

@@ -23,6 +23,8 @@ import { questionText } from '../features/capture/clarificationCopy';
 import { EditProposalItemSheet } from '../features/capture/EditProposalItemSheet';
 import { chatItemPresentation } from '../features/capture/chatPresentation';
 import { chatConflictA11y, chatConflictLines } from '../features/capture/chatConflicts';
+import { ImpactBlock, useAnnounceNewPrep } from '../features/m4b/ImpactBlock';
+import { useM4bCapability } from '../features/m4b/capabilities';
 import { collisionLines } from '../features/capture/savedCollisions';
 import { fill, ltr } from '../i18n/strings';
 import { isolateAuto, isolateLatinRuns, stripIsolates } from '../i18n/bidi';
@@ -191,6 +193,9 @@ export function CaptureScreen({ entryQuestion }: { entryQuestion?: { entry: Capt
   const p = captureChatPalette(scheme, appPalette);
   const flow = useCaptureFlow();
   const { state } = flow;
+  // M4b R2.3: the probe gates the impact line along with the server's field.
+  const impactOn = useM4bCapability('eveningImpact');
+  useAnnounceNewPrep(state.proposal?.items ?? []);
   const insets = useSafeAreaInsets();
   const mode = useLayoutMode();
   const timezone = useTimeZone();
@@ -452,6 +457,9 @@ export function CaptureScreen({ entryQuestion }: { entryQuestion?: { entry: Capt
 
   const groups = new Map<string, ChatScheduleGroup>();
   for (const item of items) {
+    // M4b R2.3: the server's evening-impact line, hidden once the person has
+    // moved this card's time (the server measured the old hour).
+    const impact = impactOn && state.edits[item.itemId]?.localDateTime === undefined ? item.impacts?.[0] : undefined;
     const shown = chatItemPresentation(item, state.edits[item.itemId], lang, timezone, t);
     const selected = state.selected.includes(item.itemId);
     const needsQuestion = !confirmable.includes(item.itemId);
@@ -483,6 +491,8 @@ export function CaptureScreen({ entryQuestion }: { entryQuestion?: { entry: Capt
         <ChatIcon name="warning" size={18} color={p.wm} />
         <Txt size={13} weight={500} color={p.wm} style={{ flex: 1 }} testID={`review-conflict-${item.itemId}-${index}-text`}>{line}</Txt>
       </View>)}
+      {impact ? <ImpactBlock itemId={item.itemId} impact={impact} itemTitle={shown.title} disabled={busy || answering}
+        onAnswer={(readiness) => { void flow.answerReadiness(item.itemId, readiness); }} /> : null}
       {shown.instant && weekly !== 'weekly' ? <BusyConflictChip testID={`review-busy-${item.itemId}`} blocks={busyHere} /> : null}
       {/* «مرتبط بهدف …» (audit 2026-10-03 #6): the goal this card would count
           toward, kept unless the person takes it off — one control, a

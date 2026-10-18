@@ -8,7 +8,7 @@ import { icsFeedsEnabled } from '../../config/env';
 import { isIcsFeedsSwitchedOff } from './availability';
 import { fill } from '../../i18n/strings';
 import { isolate, isolateAuto } from '../../i18n/bidi';
-import { formatDate, formatTime } from '../../i18n/format';
+import { dayKey, formatDate, formatTime } from '../../i18n/format';
 import { useTimeZone } from '../../i18n/timezone';
 import {
   useCreateIcsFeed,
@@ -21,6 +21,11 @@ import {
   useUpdateIcsFeed,
 } from '../../api/queries';
 import { userFacingMessage } from '../../api/ui/userFacingMessage';
+import { IcsItemChangedError } from '../../api/errors';
+import type { Clash } from '../../api/schemas/m4b';
+import { clashLine } from '../m4b/clashLine';
+import { LiveRegion } from '../../ui/liveRegion';
+import { useAnnounceOnIos } from '../../ui/announce';
 import type { IcsDeadline, IcsDeadlineAction, IcsFeed } from '../../api/schemas/icsFeeds';
 
 /**
@@ -340,8 +345,9 @@ function FeedRow({ feed, consented }: { feed: IcsFeed; consented: boolean }) {
  * person can always take back what the feed did.
  */
 function DeadlineRow({ deadline, consented }: { deadline: IcsDeadline; consented: boolean }) {
-  const { t, p } = useApp();
+  const { t, p, lang } = useApp();
   const when = useWhen();
+  const timezone = useTimeZone();
   const decide = useDecideIcsDeadline();
   // A ref as well as `isPending`: the mutation reports pending only after a
   // render, and two taps inside that frame would both be sent.
@@ -352,12 +358,30 @@ function DeadlineRow({ deadline, consented }: { deadline: IcsDeadline; consented
     inFlight.current = true;
     setSending(true);
     decide.mutate(
-      { feedId: deadline.feedId, itemKey: deadline.itemKey, action },
+      // M4b: the version of the row on screen, so an accept or a move can
+      // never apply a time or a clash the person did not see.
+      { feedId: deadline.feedId, itemKey: deadline.itemKey, action, ...(deadline.decisionVersion ? { decisionVersion: deadline.decisionVersion } : {}) },
       { onSettled: () => { inFlight.current = false; setSending(false); } },
     );
   };
   const id = deadline.itemKey;
   const busy = sending || decide.isPending;
+  const changed = decide.error instanceof IcsItemChangedError;
+  useAnnounceOnIos(changed ? t.zIcsChanged : null);
+  const clashLines = (clashes: readonly Clash[], at: string, prefix: string) => {
+    const subjectDay = dayKey(new Date(at), timezone);
+    return clashes.map((clash, index) => (
+      <Txt key={`${prefix}-${index}`} size={13} color={p.wm} testID={`${prefix}-${index}`}>
+        {clashLine(clash, { t, lang, timezone, subjectDay })}
+      </Txt>
+    ));
+  };
+  // M4b R1.4: why a pending row was not added by itself.
+  const held = deadline.state === 'pending' && deadline.held
+    ? deadline.held.reason === 'clash'
+      ? <View testID={`ics-held-${id}`} style={{ gap: 4 }}>{clashLines(deadline.held.clashes, deadline.dueAt, `ics-held-clash-${id}`)}</View>
+      : <Txt size={13} color={p.wm} testID={`ics-held-unknown-${id}`}>{t.zIcsHeldUnknown}</Txt>
+    : null;
 
   let status: React.ReactNode = null;
   let actions: React.ReactNode = null;
@@ -372,9 +396,12 @@ function DeadlineRow({ deadline, consented }: { deadline: IcsDeadline; consented
     );
   } else if (deadline.notice === 'moved' && deadline.proposedDueAt) {
     status = (
-      <Txt size={13} color={p.mu} lh={1.5} testID={`ics-moved-${id}`}>
-        {fill(t.icsFeedsMoved, { when: when(deadline.proposedDueAt, deadline.allDay) })}
-      </Txt>
+      <>
+        <Txt size={13} color={p.mu} lh={1.5} testID={`ics-moved-${id}`}>
+          {fill(t.icsFeedsMoved, { when: when(deadline.proposedDueAt, deadline.proposedAllDay ?? deadline.allDay) })}
+        </Txt>
+        {deadline.proposedClashes ? clashLines(deadline.proposedClashes, deadline.proposedDueAt, `ics-proposed-clash-${id}`) : null}
+      </>
     );
     actions = (
       <>
@@ -396,9 +423,11 @@ function DeadlineRow({ deadline, consented }: { deadline: IcsDeadline; consented
     <View testID={`ics-deadline-${id}`} style={{ paddingVertical: 14, paddingHorizontal: 18, gap: 8, borderTopWidth: 1, borderTopColor: p.ln }}>
       <Txt size={15}>{isolate(deadline.title, 'rtl')}</Txt>
       <Txt size={13} color={p.mu}>{fill(t.icsFeedsDue, { when: when(deadline.dueAt, deadline.allDay) })}</Txt>
+      {held}
       {status}
+      <LiveRegion>{changed ? <Txt size={13} color={p.wm} testID="ics-item-changed">{t.zIcsChanged}</Txt> : null}</LiveRegion>
       {actions ? <View style={{ flexDirection: 'row', gap: 10, flexWrap: 'wrap' }}>{actions}</View> : null}
-      {decide.isError ? (
+      {decide.isError && !changed ? (
         <Txt size={13} color={p.mu} lh={1.5} testID={`ics-deadline-failure-${id}`}>{userFacingMessage(decide.error, t)}</Txt>
       ) : null}
     </View>

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { eveningImpactSchema, generatedItemSchema } from './m4b';
 import { weeklyBlockOfferSchema, weeklyBlockSchema } from './weeklyBlocks';
 import { isoDateTime } from './common';
 import { claimsSaved, hasLink } from './understoodText';
@@ -279,6 +280,14 @@ export const captureProposalSchema = z.object({
        * `goalLinkItemIds`. Optional: an older server sends nothing.
        */
       goalLink: z.object({ goalId: z.string(), title: z.string() }).optional(),
+      /**
+       * An evening that can hurt the next morning (M4b R2): at most one, on
+       * the late evening card or on the important morning card. Absent when
+       * there is none, and from a server without the capability.
+       */
+      impacts: z.array(eveningImpactSchema).max(1).optional(),
+      /** A preparation item the server added from a readiness answer (M4b R2.2). */
+      generated: generatedItemSchema.optional(),
       /**
        * Words the server corrected in a dictated message (M2b): «فهمت "الطلع"
        * إنها "اطلع"». Tolerant: anything malformed — not a list, a blank or

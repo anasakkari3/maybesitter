@@ -1,7 +1,7 @@
 import { dayProgress, importantDeadline, planPreview } from '../features/today/dayContext';
 import { DeadlineContext } from '../features/today/DeadlineContext';
 import { weekStripKeys } from '../features/commitments/weekStrip';
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useContext, useEffect, useMemo, useState } from 'react';
 import { RefreshControl, View } from 'react-native';
 import { useApp } from '../state/AppContext';
 import { isValidTimeZone, useTimeZone } from '../i18n/timezone';
@@ -44,6 +44,7 @@ import { useLayoutMode } from '../theme/textScale';
 import { firstConflict } from '../features/today/todayConflict';
 import { ConflictLine, ConflictSheet, useFootballCommitmentIds } from '../features/today/ConflictLine';
 import { PostponeSheetFor } from './Sheets';
+import { useFreshM4bCapability, useM4bCapabilities } from '../features/m4b/capabilities';
 
 /**
  * Today (UC-2.R3 #173, ordering from UC-2.8 #169; Round 2, Phase C).
@@ -233,10 +234,13 @@ export function TodayScreen({ tabClearance = TAB_CLEARANCE }: { tabClearance?: n
   );
   const [conflictOpen, setConflictOpen] = useState(false);
   const [postponeId, setPostponeId] = useState<string | null>(null);
+  // M4b: the probe is read with the screen, so a row's postpone finds an answer.
+  useM4bCapabilities();
   const football = useFootballCommitmentIds();
   const stacked = useLayoutMode() !== 'normal';
 
   return (
+    <OpenPostponeSheet.Provider value={setPostponeId}>
     <Screen style={{ backgroundColor: p.bg }}>
       <ScreenScroll
         testID="today-scroll"
@@ -334,6 +338,7 @@ export function TodayScreen({ tabClearance = TAB_CLEARANCE }: { tabClearance?: n
       <ConflictSheet conflict={conflictOpen ? conflict : null} onClose={() => setConflictOpen(false)} />
       <PostponeSheetFor commitmentId={postponeId} onClose={() => setPostponeId(null)} />
     </Screen>
+    </OpenPostponeSheet.Provider>
   );
 }
 
@@ -583,6 +588,9 @@ function importanceInk(importance: CommitmentView['importance'], p: ReturnType<t
  * first screen. «مهم» and «حلو» fold to one line — their chip, the first
  * item and its time, and how many more — and open on a tap.
  */
+/** Opens Today's postpone sheet for a row (M4b R3.3). */
+const OpenPostponeSheet = React.createContext<(id: string) => void>(() => undefined);
+
 const DAY_GROUP_PREVIEW = 3;
 
 function Group({ kind, items, timezone, lang, busy, football }: {
@@ -663,9 +671,20 @@ function Row({ item, timezone, lang, busy, football }: {
    * transitions on the actions route: `complete` closes the commitment and
    * `postpone` moves it an hour, the same default the details sheet uses.
    */
+  const openPostponeSheet = useContext(OpenPostponeSheet);
+  const freshCapability = useFreshM4bCapability();
   const rowActions = useRowActions(item, {
     complete: () => act.mutate({ id: item.id, action: 'complete' }),
-    postpone: () => act.mutate({ id: item.id, action: 'postpone', postponedUntil: postponeTo('oneHour', new Date(), timezone) }),
+    // M4b R3.3: with smart postpone on (a fresh answer, never a cached one),
+    // the row opens the free-time sheet and nothing moves until a time is
+    // picked. Otherwise — off, killed, failed, or no answer in 1.5 s — it is
+    // today's one-hour postpone.
+    postpone: () => {
+      void freshCapability('smartPostpone').then((smart) => {
+        if (smart) openPostponeSheet(item.id);
+        else act.mutate({ id: item.id, action: 'postpone', postponedUntil: postponeTo('oneHour', new Date(), timezone) });
+      });
+    },
   });
   const drawn = drawnClockAt(item);
   const line = drawnWhenLine(item, lang, timezone);

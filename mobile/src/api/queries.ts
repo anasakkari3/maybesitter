@@ -112,6 +112,7 @@ import {
   PlanProposalRefusedError,
   StaleCommitmentError,
   WeekConflictError, WeekEmptyDayError,
+  IcsItemChangedError,
 } from './errors';
 import { icsFeedsEnabled, safeCommitmentPatchEnabled } from '../config/env';
 import {
@@ -122,7 +123,7 @@ import {
   refreshIcsFeed,
   updateIcsFeed,
 } from './endpoints/icsFeeds';
-import type { IcsDeadlineAction } from './schemas/icsFeeds';
+import { icsDeadlineSchema, type IcsDeadlineAction, type IcsFeedList } from './schemas/icsFeeds';
 import {
   confirmGoalCommitments,
   confirmGoalSelections,
@@ -836,9 +837,10 @@ export function useCommitmentAction() {
   const client = useQueryClient();
   const uid = useUid();
   return useMutation({
-    mutationFn: async (input: { id: string; action: CommitmentAction; postponedUntil?: string }) => {
+    mutationFn: async (input: { id: string; action: CommitmentAction; postponedUntil?: string; slotToken?: string }) => {
       const result = await actOnCommitment(input.id, input.action, {
         ...(input.postponedUntil ? { postponedUntil: input.postponedUntil } : {}),
+        ...(input.slotToken ? { slotToken: input.slotToken } : {}),
         ...(validatorFor(input.id) ? { ifMatch: validatorFor(input.id) as string } : {}),
       });
       rememberValidator(input.id, result.etag);
@@ -1764,8 +1766,20 @@ export function useDecideIcsDeadline() {
   const client = useQueryClient();
   const uid = useUid();
   return useMutation({
-    mutationFn: (input: { feedId: string; itemKey: string; action: IcsDeadlineAction }) =>
-      decideIcsDeadline(input.feedId, input.itemKey, input.action),
+    mutationFn: (input: { feedId: string; itemKey: string; action: IcsDeadlineAction; decisionVersion?: string }) =>
+      (input.decisionVersion !== undefined
+        ? decideIcsDeadline(input.feedId, input.itemKey, input.action, input.decisionVersion)
+        : decideIcsDeadline(input.feedId, input.itemKey, input.action)),
+    // M4b R1.4: a row that changed since it was shown comes back with the
+    // refusal; it replaces the row in place, and nothing is resubmitted.
+    onError: (error) => {
+      if (!(error instanceof IcsItemChangedError)) return;
+      const row = icsDeadlineSchema.safeParse(error.row);
+      if (!row.success) return;
+      client.setQueryData<IcsFeedList>(queryKeys.icsFeeds(uid), (current) => current
+        ? { ...current, deadlines: current.deadlines.map((entry) => (entry.itemKey === row.data.itemKey ? row.data : entry)) }
+        : current);
+    },
     onSettled: () => {
       void client.invalidateQueries({ queryKey: queryKeys.icsFeeds(uid) });
       // Accept, undo and apply-move change commitments.

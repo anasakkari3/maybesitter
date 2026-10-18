@@ -4,6 +4,7 @@ import type { PlanEditRejected, PlanProposalRejected, Week } from './schemas/pla
 import type { IcsFeedReason } from './schemas/icsFeeds';
 import type { GoogleRefusalReason } from './schemas/google';
 import type { GoalPlan, GoalPlanTimes } from './schemas/goalPlan';
+import type { HeldFixture, PostponeSlot } from './schemas/m4b';
 
 /**
  * Every way a call to `/api/mobile/**` can fail, as types the UI can switch on.
@@ -212,6 +213,42 @@ export class ProposalChangedError extends ConflictError {
       confirmation?: CaptureConfirmation;
     }) {
     super('the proposal changed');
+  }
+}
+
+/**
+ * 409 `held_changed` (M4b R1.3): the held match the person answered is not the
+ * one the server holds now — its time moved, its clashes changed, or it is no
+ * longer held. Nothing was saved; `held` is what to show instead (null: gone).
+ */
+export class HeldChangedError extends ConflictError {
+  constructor(readonly held: HeldFixture | null) {
+    super('the held match changed');
+  }
+}
+
+/**
+ * 409 `item_changed` (M4b R1.4): a calendar feed row moved, or its clashes
+ * changed, since it was shown. Nothing was accepted; `row` is the row now.
+ */
+export class IcsItemChangedError extends ConflictError {
+  constructor(readonly row: unknown) {
+    super('the feed row changed');
+  }
+}
+
+/**
+ * 409 from a postpone picked from the offered slots (M4b R3.2): the slot was
+ * taken, could not be verified, or the offer went stale. Nothing moved; the
+ * fresh slots (possibly none) come with it.
+ */
+export class SlotRefusedError extends ConflictError {
+  constructor(
+    readonly reason: 'slot_taken' | 'slot_unverified' | 'slot_stale',
+    readonly slots: PostponeSlot[],
+    readonly complete: boolean,
+  ) {
+    super(reason);
   }
 }
 

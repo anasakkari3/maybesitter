@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { clashSchema, icsHeldSchema } from './m4b';
 import { isoDateTime } from './common';
 
 /**
@@ -41,6 +42,14 @@ export const icsDeadlineSchema = z.object({
   proposedDueAt: isoDateTime.nullable(),
   commitmentId: z.string().nullable(),
   autoAccepted: z.boolean(),
+  /** M4b (R1.4): a pending row the auto-accept held, and why. */
+  held: icsHeldSchema.optional(),
+  /** M4b: the version of what the person sees; sent back with accept / apply_move. */
+  decisionVersion: z.string().optional(),
+  /** M4b: whether the proposed time of a moved row is all-day. */
+  proposedAllDay: z.boolean().optional(),
+  /** M4b: what the proposed time of a moved row would clash with. */
+  proposedClashes: z.array(clashSchema).optional(),
 }).strict();
 
 export type IcsFeed = z.infer<typeof icsFeedSchema>;
@@ -51,6 +60,8 @@ export const icsFeedListSchema = z.object({
   feeds: z.array(icsFeedSchema),
   deadlines: z.array(icsDeadlineSchema),
 }).strict();
+
+export type IcsFeedList = z.infer<typeof icsFeedListSchema>;
 
 export const icsFeedCreatedSchema = z.object({
   success: z.literal(true),

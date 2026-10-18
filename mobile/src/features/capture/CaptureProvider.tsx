@@ -30,6 +30,8 @@ import {
 import { useTimeZone } from '../../i18n/timezone';
 import { useOptionalAuth } from '../../auth/AuthProvider';
 import { deleteCommitment } from '../../api/endpoints/commitments';
+import { answerImpact } from '../../api/endpoints/m4b';
+import type { Readiness } from '../../api/schemas/m4b';
 import { ConversationNotFoundError, InputTooLargeError, isRetryable, ProposalChangedError, QuotaExceededError, ValidationError } from '../../api/errors';
 import type { CaptureProposalEdit } from '../../api/endpoints/capture';
 import { instantForLocalDateTime } from './localInstant';
@@ -114,6 +116,12 @@ interface CaptureContextValue {
    * question and pretending the answer landed.
    */
   clarify(itemId: string, answer: { optionId?: string; freeText?: string }): Promise<ClarifyOutcome>;
+  /**
+   * «حاضر؟» on an evening-impact line (M4b R2.2). The proposal comes back
+   * whole — with a preparation item for «لسا لا» / «مش متأكد» — and replaces
+   * the one on screen the way a clarification does (selection and edits kept).
+   */
+  answerReadiness(itemId: string, readiness: Readiness): Promise<ClarifyOutcome>;
   confirm(): Promise<void>;
   undo(): Promise<UndoOutcome>;
   backToComposer(): void;
@@ -389,6 +397,32 @@ export function CaptureProvider({ children }: { children: React.ReactNode }) {
       releaseWrite(token);
     }
   }, [clarifyCapture, state.proposal, acquireWrite, releaseWrite]);
+  const answerReadiness = useCallback(async (itemId: string, readiness: Readiness) => {
+    const proposal = state.proposal;
+    if (!proposal) return { ok: false, messageKey: 'errorsGeneric' } as const;
+    const token = acquireWrite();
+    if (!token) return { ok: false, messageKey: 'errorsGeneric' } as const;
+    const generation = analysisGeneration.current;
+    const proposalId = proposal.proposalId;
+    try {
+      const updated = await answerImpact({ proposalId, revision: proposal.revision ?? 0, itemId, readiness });
+      if (generation !== analysisGeneration.current || updated.proposalId !== proposalId) {
+        return { ok: false, messageKey: 'errorsGeneric' } as const;
+      }
+      dispatch({ type: 'clarified', proposal: updated });
+      return { ok: true } as const;
+    } catch (error) {
+      // The proposal, or the saved item the line was about, moved on: show it
+      // as it is now; the answer was not applied.
+      if (error instanceof ProposalChangedError && error.current.kind === 'proposal' && generation === analysisGeneration.current) {
+        dispatch({ type: 'proposalReplaced', proposal: error.current.proposal });
+        return { ok: false, messageKey: 'captureProposalChanged' } as const;
+      }
+      return { ok: false, messageKey: userFacingMessageKey(error) } as const;
+    } finally {
+      releaseWrite(token);
+    }
+  }, [state.proposal, acquireWrite, releaseWrite]);
   const editItem = useCallback((itemId: string, edit: CaptureItemEdit) => dispatch({ type: 'editItem', itemId, edit }), []);
   const setWeekly = useCallback((itemId: string, weekly: boolean) => dispatch({ type: 'setWeekly', itemId, weekly }), []);
   const setGoalLink = useCallback((itemId: string, linked: boolean) => dispatch({ type: 'setGoalLink', itemId, linked }), []);
@@ -586,9 +620,9 @@ export function CaptureProvider({ children }: { children: React.ReactNode }) {
   const acceptUnderstood = useCallback(() => dispatch({ type: 'understoodAccepted' }), []);
   const reopenUnderstood = useCallback(() => dispatch({ type: 'understoodReopened' }), []);
   const value = useMemo<CaptureContextValue>(() => ({
-    state, open, changeEntry, setText, analyze, dismissFailure, startOver, adoptProposal, toggleItem, togglePoint, dropFamilies, selectAll, deselectAll, editItem, setWeekly, setGoalLink, clarify, confirm, undo, backToComposer, acceptUnderstood, reopenUnderstood, close,
+    state, open, changeEntry, setText, analyze, dismissFailure, startOver, adoptProposal, toggleItem, togglePoint, dropFamilies, selectAll, deselectAll, editItem, setWeekly, setGoalLink, clarify, answerReadiness, confirm, undo, backToComposer, acceptUnderstood, reopenUnderstood, close,
     dictate, chooseAlternative, editPoint, adoptCurrent, dictationStarted, takeRefusedEdit, writing, guardWrite,
-  }), [state, open, changeEntry, setText, analyze, dismissFailure, startOver, adoptProposal, toggleItem, togglePoint, dropFamilies, selectAll, deselectAll, editItem, setWeekly, setGoalLink, clarify, confirm, undo, backToComposer, acceptUnderstood, reopenUnderstood, close,
+  }), [state, open, changeEntry, setText, analyze, dismissFailure, startOver, adoptProposal, toggleItem, togglePoint, dropFamilies, selectAll, deselectAll, editItem, setWeekly, setGoalLink, clarify, answerReadiness, confirm, undo, backToComposer, acceptUnderstood, reopenUnderstood, close,
     dictate, chooseAlternative, editPoint, adoptCurrent, dictationStarted, takeRefusedEdit, writing, guardWrite]);
 
   return <CaptureContext.Provider value={value}>{children}</CaptureContext.Provider>;

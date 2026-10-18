@@ -10,6 +10,14 @@ import { Screen, ScreenScroll } from '../../ui/screen';
 import { SettingsHeader } from './SettingsChrome';
 import { useDismissFixture, useFootballSettings, useSetFollowedClubs } from '../../api/queries';
 import type { FootballFixture } from '../../api/schemas/football';
+import type { Clash, HeldFixture } from '../../api/schemas/m4b';
+import { HeldChangedError } from '../../api/errors';
+import { dayKey } from '../../i18n/format';
+import { useM4bCapabilities } from '../m4b/capabilities';
+import { useDecideHeldFixture } from '../m4b/heldFixtures';
+import { clashLine } from '../m4b/clashLine';
+import { LiveRegion } from '../../ui/liveRegion';
+import { useAnnounceOnIos } from '../../ui/announce';
 
 /**
  * Settings → Football (football fixtures MVP, Task 11).
@@ -49,6 +57,14 @@ export function FootballSettingsScreen({ onBack }: { onBack: () => void }) {
   const settings = useFootballSettings();
   const setFollowed = useSetFollowedClubs();
   const dismiss = useDismissFixture();
+  const decideHeld = useDecideHeldFixture();
+  // M4b: the probe is read with the screen (fail closed). The held section
+  // itself shows only what the server sent: `held` is absent when it is off.
+  useM4bCapabilities();
+  const held = settings.data?.held ?? [];
+  const waitingForCoverage = settings.data?.waitingForCoverage ?? 0;
+  const heldChanged = decideHeld.error instanceof HeldChangedError;
+  useAnnounceOnIos(heldChanged ? t.zHeldChanged : null);
 
   const followedClubIds = settings.data?.followedClubIds ?? [];
   const followedSet = new Set(followedClubIds);
@@ -66,7 +82,16 @@ export function FootballSettingsScreen({ onBack }: { onBack: () => void }) {
     void dismiss.mutateAsync(commitmentId);
   }, [dismiss]);
 
-  const matchLine = useCallback((fixture: FootballFixture): string => {
+  const clashLines = useCallback((key: string, kickoffUtc: string, clashes: readonly Clash[]) => {
+    const subjectDay = dayKey(new Date(kickoffUtc), timezone);
+    return clashes.map((clash, index) => (
+      <Txt key={`${key}-${index}`} size={13} color={p.wm} testID={`football-fixture-clash-${key}-${index}`}>
+        {clashLine(clash, { t, lang, timezone, subjectDay })}
+      </Txt>
+    ));
+  }, [lang, p.wm, t, timezone]);
+
+  const matchLine = useCallback((fixture: Pick<FootballFixture, 'kickoffUtc'>): string => {
     const kickoff = new Date(fixture.kickoffUtc);
     const date = formatDate(kickoff, 'short', { locale: lang, timeZone: timezone });
     const time = formatTime(kickoff, { locale: lang, timeZone: timezone });
@@ -118,6 +143,54 @@ export function FootballSettingsScreen({ onBack }: { onBack: () => void }) {
           <Txt size={13} color={p.wm} testID="football-save-failed">{t.footballSaveFailed}</Txt>
         ) : null}
 
+        {held.length > 0 ? (
+          <Card pad={0} style={{ overflow: 'hidden' }} testID="football-held-section">
+            <View style={{ paddingTop: 16, paddingHorizontal: 18 }}>
+              <Txt size={15} weight={700} role="section">{t.zHeldSection}</Txt>
+            </View>
+            <LiveRegion>
+              {heldChanged ? <Txt size={13} color={p.wm} testID="football-held-changed" style={{ paddingHorizontal: 18, paddingTop: 6 }}>{t.zHeldChanged}</Txt> : null}
+            </LiveRegion>
+            {held.map((entry: HeldFixture) => {
+              const title = fixtureTitle(entry, clubs, lang);
+              const when = matchLine(entry);
+              const headline = (entry.moved ? fill(t.zHeldMoved, { title, when, clash: '' }) : fill(t.zHeldMatch, { title, when, clash: '' })).trim();
+              return (
+                <View key={entry.fixtureId} testID={`football-held-${entry.fixtureId}`} style={{ paddingVertical: 14, paddingHorizontal: 18, gap: 6, borderTopWidth: 1, borderTopColor: p.ln, marginTop: 10 }}>
+                  <Txt size={15}>{headline}</Txt>
+                  {clashLines(entry.fixtureId, entry.kickoffUtc, entry.clashes)}
+                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 4 }}>
+                    <Btn
+                      label={fill(t.zHeldAddA11y, { title })}
+                      testID={`football-held-add-${entry.fixtureId}`}
+                      disabled={decideHeld.isPending}
+                      onPress={() => decideHeld.mutate({ fixtureId: entry.fixtureId, action: 'add', heldVersion: entry.heldVersion })}
+                      scaleTo={0.97}
+                      style={{ minHeight: 44, paddingVertical: 10, paddingHorizontal: 16, borderRadius: 14, backgroundColor: p.ac, justifyContent: 'center' }}
+                    >
+                      <Txt size={14} weight={700} color={p.onAccent}>{t.zHeldAdd}</Txt>
+                    </Btn>
+                    <Btn
+                      label={fill(t.zHeldDismissA11y, { title })}
+                      testID={`football-held-dismiss-${entry.fixtureId}`}
+                      disabled={decideHeld.isPending}
+                      onPress={() => decideHeld.mutate({ fixtureId: entry.fixtureId, action: 'dismiss', heldVersion: entry.heldVersion })}
+                      scaleTo={0.97}
+                      style={{ minHeight: 44, paddingVertical: 10, paddingHorizontal: 16, borderRadius: 14, borderWidth: 1, borderColor: p.ln, justifyContent: 'center' }}
+                    >
+                      <Txt size={14} color={p.tx}>{t.zHeldDismiss}</Txt>
+                    </Btn>
+                  </View>
+                </View>
+              );
+            })}
+          </Card>
+        ) : null}
+
+        {waitingForCoverage > 0 ? (
+          <Txt size={13} color={p.mu} testID="football-coverage-note">{t.zHeldCoverageNote}</Txt>
+        ) : null}
+
         {fixtures.length > 0 ? (
           <Card pad={0} style={{ overflow: 'hidden' }} testID="football-fixture-list">
             {fixtures.map((fixture, index) => (
@@ -146,7 +219,7 @@ export function FootballSettingsScreen({ onBack }: { onBack: () => void }) {
                     <Txt size={13} color={p.mu}>{t.footballDismiss}</Txt>
                   </Btn>
                 </View>
-                {fixture.collisions && fixture.collisions.length > 0 ? (
+                {fixture.clashes !== undefined ? clashLines(fixture.commitmentId, fixture.kickoffUtc, fixture.clashes) : fixture.collisions && fixture.collisions.length > 0 ? (
                   <Txt size={13} color={p.wm} testID={`football-collision-${fixture.commitmentId}`}>
                     {fill(t.footballCollision, { titles: fixture.collisions.map((collision) => collision.title).join(lang === 'ar' ? '، ' : ', ') })}
                   </Txt>

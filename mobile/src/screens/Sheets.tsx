@@ -1,13 +1,19 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Animated, Platform, Pressable, ScrollView, Switch, TextInput, View } from 'react-native';
 import { AppDateTimePicker as DateTimePicker } from '../ui/AppDateTimePicker';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useApp } from '../state/AppContext';
-import { ltr } from '../i18n/strings';
+import { fill, ltr } from '../i18n/strings';
 import { useTimeZone } from '../i18n/timezone';
 import { formatDate, formatRelativeDay, formatTime } from '../i18n/format';
 import { useCommitment, useCommitmentAction, useDeleteCommitment, usePatchCommitment } from '../api/queries';
 import { userFacingMessage } from '../api/ui/userFacingMessage';
+import { SlotRefusedError } from '../api/errors';
+import { getPostponeSlots } from '../api/endpoints/m4b';
+import type { PostponeSlot } from '../api/schemas/m4b';
+import { useFreshM4bCapability, useM4bCapabilities } from '../features/m4b/capabilities';
+import { LiveRegion } from '../ui/liveRegion';
+import { useAnnounceOnIos } from '../ui/announce';
 import { POSTPONE_PRESETS, isPostponable, postponeTo, type PostponePreset } from '../features/commitments/postpone';
 import { buildTimePatch } from '../features/commitments/timePatch';
 import { instantForLocalDateTime, localDateTimeFor } from '../features/capture/localInstant';
@@ -123,6 +129,8 @@ function PostponeChoices({ commitmentId, onMoved }: {
   const timezone = useTimeZone();
   const act = useCommitmentAction();
   const now = new Date();
+  const smart = useSmartPostpone(commitmentId);
+  const title = useCommitment(commitmentId).data?.title ?? null;
 
   // `''` is "the custom picker is closed". The same representation the edit
   // sheet uses for "no time": a wall-clock `YYYY-MM-DDTHH:mm` in `timezone`.
@@ -153,6 +161,23 @@ function PostponeChoices({ commitmentId, onMoved }: {
     act.mutate({ id: commitmentId, action: 'postpone', postponedUntil: until }, { onSuccess: onMoved });
   };
 
+  // A picked free time (M4b R3.2): the only write, re-checked by the server.
+  // A refusal redraws the fresh times under the reason, or the presets when
+  // none came back; nothing moved.
+  const pickSlot = (slot: PostponeSlot) => {
+    if (!commitmentId) return;
+    smart.clearProblem();
+    act.mutate(
+      { id: commitmentId, action: 'postpone', postponedUntil: slot.startsAt, slotToken: slot.slotToken },
+      { onSuccess: onMoved, onError: (error) => { if (error instanceof SlotRefusedError) smart.refused(error); } },
+    );
+  };
+  const slotProblem = smart.problem === null ? null
+    : smart.problem === 'slot_taken' ? t.zPostponeTaken
+      : smart.problem === 'slot_unverified' ? t.zPostponeUnverified
+        : fill(t.zPostponeStale, { title: title ?? '' });
+  useAnnounceOnIos(slotProblem);
+
   const choose = (preset: PostponePreset) => {
     // No past-instant guard here, and none is needed: every preset is `now`
     // plus something, so none can resolve into the past.
@@ -173,7 +198,32 @@ function PostponeChoices({ commitmentId, onMoved }: {
 
   return (
     <View style={{ gap: 14 }}>
-      <Txt size={14} color={p.mu} lh={1.5}>{t.postponeBody}</Txt>
+      <Txt size={14} color={p.mu} lh={1.5}>{smart.phase === 'slots' && title ? fill(t.zPostponeAsk, { title }) : t.postponeBody}</Txt>
+      <LiveRegion>{slotProblem ? <Txt size={13} color={p.wm} testID="postpone-slot-problem">{slotProblem}</Txt> : null}</LiveRegion>
+      {smart.phase === 'loading' ? (
+        <Txt size={14} color={p.mu} testID="postpone-slots-loading">{t.zPostponeLoading}</Txt>
+      ) : smart.phase === 'slots' ? (
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
+          {smart.slots.map((slot, index) => {
+            const start = new Date(slot.startsAt);
+            const day = formatRelativeDay(start, { locale: lang, timeZone: timezone, now });
+            const time = formatTime(start, { locale: lang, timeZone: timezone });
+            const why = slot.why === 'soonest' ? t.zWhySoonest : slot.why === 'light_day' ? t.zWhyLightDay : t.zWhyUsual;
+            return (
+              <SheetChoice
+                key={slot.slotToken}
+                testID={`postpone-slot-${index}`}
+                subTestID={`postpone-slot-why-${index}`}
+                label={`${day} · ${ltr(time)}`}
+                sub={why}
+                a11yLabel={fill(t.zPostponeSlotA11y, { day, time, why })}
+                disabled={act.isPending}
+                onPress={() => pickSlot(slot)}
+              />
+            );
+          })}
+        </View>
+      ) : (
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
         {POSTPONE_PRESETS.map(preset => {
           const until = new Date(postponeTo(preset, now, timezone));
@@ -190,6 +240,7 @@ function PostponeChoices({ commitmentId, onMoved }: {
           );
         })}
       </View>
+      )}
 
       {custom ? (
         <View style={{ gap: 10 }}>
@@ -282,6 +333,78 @@ function PostponeChoices({ commitmentId, onMoved }: {
       )}
     </View>
   );
+}
+
+/**
+ * Where the postpone sheet's choices come from (M4b R3.3).
+ *
+ * Today's four presets unless smart postpone is on by the latest successful
+ * probe: then a loading line, a fresh probe (a cached `true` alone changes
+ * nothing), and the server's free times. Anything short of a complete answer
+ * with at least one time — off, an error, an incomplete schedule — is the
+ * presets, unchanged.
+ */
+type SmartPhase = 'presets' | 'loading' | 'slots';
+
+function useSmartPostpone(commitmentId: string | null) {
+  const capabilities = useM4bCapabilities();
+  const fresh = useFreshM4bCapability();
+  const cachedOn = capabilities?.smartPostpone === true;
+  const initial: SmartPhase = commitmentId !== null && cachedOn ? 'loading' : 'presets';
+  const [phase, setPhase] = useState<SmartPhase>(initial);
+  const [slots, setSlots] = useState<PostponeSlot[]>([]);
+  const [problem, setProblem] = useState<SlotRefusedError['reason'] | null>(null);
+  // A new opening starts over, decided during render rather than in an
+  // effect, so the first frame of the new sheet is already the right one.
+  const [openedFor, setOpenedFor] = useState(commitmentId);
+  if (openedFor !== commitmentId) {
+    setOpenedFor(commitmentId);
+    setSlots([]);
+    setProblem(null);
+    setPhase(initial);
+  }
+
+  useEffect(() => {
+    if (commitmentId === null || !cachedOn) return undefined;
+    let live = true;
+    void (async () => {
+      const on = await fresh('smartPostpone');
+      if (!live) return;
+      if (!on) { setPhase('presets'); return; }
+      try {
+        const answer = await getPostponeSlots(commitmentId);
+        if (!live) return;
+        if (answer.complete && answer.slots.length > 0) {
+          setSlots(answer.slots);
+          setPhase('slots');
+        } else {
+          setPhase('presets');
+        }
+      } catch {
+        if (live) setPhase('presets');
+      }
+    })();
+    return () => { live = false; };
+    // Once per opening: a later probe refetch must not reset a sheet in use.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [commitmentId]);
+
+  return {
+    phase,
+    slots,
+    problem,
+    clearProblem: () => setProblem(null),
+    refused: (error: SlotRefusedError) => {
+      setProblem(error.reason);
+      if (error.slots.length > 0) {
+        setSlots(error.slots);
+        setPhase('slots');
+      } else {
+        setSlots([]);
+        setPhase('presets');
+      }
+    },
+  };
 }
 
 const PRESET_LABEL = (t: Strings): Record<PostponePreset, string> => ({
