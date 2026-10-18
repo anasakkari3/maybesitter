@@ -79,14 +79,14 @@
   },
   "progress": {
     "scopeId": "GoalFixtureUserxxxxxxxxxxxxx",
-    "goalMemoryId": "mem_00000000-0000-4000-8000-000000000003",
+    "goalMemoryId": "mem_00000000-0000-4000-8000-000000000001",
     "confirmedCount": 1,
     "completedCount": 0,
     "nodes": [
       {
         "nodeKey": "step.s1",
         "entityKind": "commitment",
-        "entityId": "00000000-0000-4000-8000-000000000004",
+        "entityId": "00000000-0000-4000-8000-000000000002",
         "status": "active",
         "completed": false
       }

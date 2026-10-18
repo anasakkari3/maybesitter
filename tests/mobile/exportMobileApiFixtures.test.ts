@@ -545,25 +545,34 @@ const pinCaptureKindsIds = (_live: Record<string, unknown>, stable: Record<strin
  * An id keeps its shape — a uuid stays uuid-shaped — because the schemas and
  * the client both treat shape as part of the contract.
  */
-function stabilise(value: unknown, counters: Map<string, number>): unknown {
-  if (Array.isArray(value)) return value.map(item => stabilise(item, counters));
+function stabilise(value: unknown, counters: Map<string, number>, stableUuids = new Map<string, string>()): unknown {
+  if (Array.isArray(value)) return value.map(item => stabilise(item, counters, stableUuids));
   if (value && typeof value === 'object') {
     return Object.fromEntries(
-      Object.entries(value as Record<string, unknown>).map(([key, item]) => [key, stabilise(item, counters)]),
+      Object.entries(value as Record<string, unknown>).map(([key, item]) => [key, stabilise(item, counters, stableUuids)]),
     );
   }
   if (typeof value !== 'string') return value;
+  const stableUuid = (uuid: string): string => {
+    // Keep consuming the legacy sequence for every occurrence so fixing a
+    // repeated reference does not renumber unrelated ids later in the body.
+    const next = stableId('00000000-0000-4000-8000-', 12, counters);
+    const known = stableUuids.get(uuid);
+    if (known) return known;
+    stableUuids.set(uuid, next);
+    return next;
+  };
   if (INSTANT.test(value)) return value === REFERENCE_TIME ? value : STABLE_INSTANT;
   // An activity cursor names a record, `<instant>|<id>` (#201). Opaque to the
   // client, but it carries a real clock and a fresh id.
   const cursor = /^([^|]+)\|([^|]+)$/.exec(value);
   if (cursor && INSTANT.test(cursor[1]!) && UUID.test(cursor[2]!)) {
-    return `${STABLE_INSTANT}|${stableId('00000000-0000-4000-8000-', 12, counters)}`;
+    return `${STABLE_INSTANT}|${stableUuid(cursor[2]!)}`;
   }
   if (DIGEST.test(value)) return STABLE_DIGEST;
-  if (MEMORY_ID.test(value)) return `mem_${stableId('00000000-0000-4000-8000-', 12, counters)}`;
-  if (WATCHER_ID.test(value) && !STABLE_WATCHER_ID.test(value)) return `wtc_${stableId('00000000-0000-4000-8000-', 12, counters)}`;
-  if (UUID.test(value)) return stableId('00000000-0000-4000-8000-', 12, counters);
+  if (MEMORY_ID.test(value)) return `mem_${stableUuid(value.slice(4))}`;
+  if (WATCHER_ID.test(value) && !STABLE_WATCHER_ID.test(value)) return `wtc_${stableUuid(value.slice(4))}`;
+  if (UUID.test(value)) return stableUuid(value);
   const prefixed = PREFIXED_ID.exec(value);
   if (prefixed) return `${prefixed[1]}${value.includes('_') ? '_' : '-'}${'0'.repeat(16)}`;
   return value;
@@ -809,11 +818,28 @@ function setup(): () => void {
   };
 }
 
-async function recordM4b(name: string, expectedStatus: number, result: { status: number; body: Record<string, unknown> }): Promise<Record<string, unknown>> {
+async function recordM4b(
+  name: string,
+  expectedStatus: number,
+  result: { status: number; body: Record<string, unknown> },
+  assertStable: (body: Record<string, unknown>) => void = () => {},
+): Promise<Record<string, unknown>> {
   assert.equal(result.status, expectedStatus, `${name}: ${JSON.stringify(result.body)}`);
   const stable = stabilise(result.body, new Map()) as Record<string, unknown>;
+  assertStable(stable);
   writeFileSync(join(FIXTURES, `${name}.json`), `${JSON.stringify(stable, null, 2)}\n`, 'utf8');
   return result.body;
+}
+
+function assertImpactPrepReferences(body: Record<string, unknown>): void {
+  const items = body.items as Array<Record<string, unknown>>;
+  const source = items.find((item) => Array.isArray(item.impacts))!;
+  const impact = (source.impacts as Array<Record<string, unknown>>).find((item) => item.prep)!;
+  const prep = impact.prep as Record<string, unknown>;
+  const generated = items.find((item) => item.itemId === prep.itemId)!;
+  assert.ok(generated, 'prep.itemId does not name the generated prep item');
+  assert.equal((generated.generated as Record<string, unknown>).sourceItemId, source.itemId,
+    'generated.sourceItemId does not name the impacted source item');
 }
 
 /** M4b's dedicated responses, generated with only its three switches enabled for these cases. */
@@ -910,7 +936,7 @@ test('exports the M4b mobile fixtures from the real handlers', async () => {
       const evening = proposal.items.find((item: any) => item.title.includes('سهرة'))!;
       await recordM4b('capture.impact.prep', 200, await callM4b(uid, 'capture/impact', 'POST', { body: {
         proposalId: proposal.proposalId, revision: proposal.revision ?? 0, itemId: evening.itemId, readiness: 'not_ready',
-      } }));
+      } }), assertImpactPrepReferences);
     });
 
     await scenario(async (uid) => {

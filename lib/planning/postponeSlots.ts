@@ -2,6 +2,7 @@ import { createHmac, timingSafeEqual } from 'node:crypto';
 import { applyCommand as applyDomainCommand, type Commitment, type DomainState } from '../../src/domain/stateMachine';
 import { localTimeSpecFor } from '../../src/extraction/timeLexicon';
 import { addCivilDays } from '../services/dailyPlan/dailyPlanService';
+import { fixedStartOf } from '../services/dailyPlan/buildDailyPlan';
 import { clockLengthOf } from '../services/timeCollision';
 import {
   ClientActionIdReusedError,
@@ -137,10 +138,16 @@ export async function postponeSlots(uid: string, id: string, options: { storage?
   if (!schedule.complete) return { complete: false, slots: [] };
   const withoutOwn = { ...schedule, commitments: schedule.commitments.filter((candidate) => candidate.id !== id) };
   const durationMinutes = clockLengthOf(row);
+  const movable = row.timeSpec.allDay !== true && Boolean(row.timeSpec.dueAt)
+    && (row.timeSpec.kind === 'scheduled_event' || (row.timeSpec.kind === 'due_by' && Boolean(row.timeSpec.endAt)));
+  const currentStart = movable ? fixedStartOf(row) : null;
   const found: Array<{ startsAt: string; endsAt: string }> = [];
   for (const date of days) {
     const day = await findFreeSlots({ policy: 'capture', uid, timezone, now: now.toISOString(), dates: [date], durationMinutes, schedule: withoutOwn, limit: 100, minimumSeparationMinutes: 90, storage });
-    for (const slot of day) if (candidateClashes(withoutOwn, { dueAt: slot.startsAt, endAt: slot.endsAt, kind: 'scheduled_event' }, { excludeCommitmentIds: [id] }).state === 'free') found.push(slot);
+    for (const slot of day) {
+      if (currentStart && Date.parse(slot.startsAt) <= Date.parse(currentStart)) continue;
+      if (candidateClashes(withoutOwn, { dueAt: slot.startsAt, endAt: slot.endsAt, kind: 'scheduled_event' }, { excludeCommitmentIds: [id] }).state === 'free') found.push(slot);
+    }
   }
   let usual = consent ? usualHoursFor(state, timezone, row.category ?? row.kind, now) : null;
   if (consent && !usual) {
