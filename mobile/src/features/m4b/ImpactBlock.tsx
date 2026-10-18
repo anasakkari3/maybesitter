@@ -8,6 +8,8 @@ import { fill, ltr } from '../../i18n/strings';
 import type { CaptureProposalItem } from '../../api/schemas/capture';
 import type { EveningImpact, Readiness } from '../../api/schemas/m4b';
 import { Btn, Txt } from '../../ui/primitives';
+import { LiveRegion } from '../../ui/liveRegion';
+import { useAnnounceOnIos } from '../../ui/announce';
 
 const ANSWERS: readonly Readiness[] = ['ready', 'not_ready', 'unsure'];
 
@@ -36,6 +38,10 @@ export function ImpactBlock({ itemId, impact, itemTitle, disabled, onAnswer }: {
   const importantTitle = impact.role === 'evening' ? impact.otherTitle : itemTitle;
   const ask = fill(t.zReadyAsk, { title: isolateAuto(importantTitle) });
   const label: Record<Readiness, string> = { ready: t.zReadyYes, not_ready: t.zReadyNo, unsure: t.zReadyUnsure };
+  // The result of the person's answer, said where it lands (TalkBack via the
+  // live region, VoiceOver via the announcement).
+  const noSlot = impact.prep?.state === 'no_slot';
+  useAnnounceOnIos(noSlot ? t.zPrepNoSlot : null);
 
   return (
     <View style={{ alignSelf: 'stretch', gap: 8 }}>
@@ -68,9 +74,9 @@ export function ImpactBlock({ itemId, impact, itemTitle, disabled, onAnswer }: {
             );
           })}
         </View>
-        {impact.prep?.state === 'no_slot' ? (
-          <Txt size={13} color={p.mu} testID={`impact-prep-noslot-${itemId}`}>{t.zPrepNoSlot}</Txt>
-        ) : null}
+        <LiveRegion>
+          {noSlot ? <Txt size={13} color={p.mu} testID={`impact-prep-noslot-${itemId}`}>{t.zPrepNoSlot}</Txt> : null}
+        </LiveRegion>
       </View>
     </View>
   );
