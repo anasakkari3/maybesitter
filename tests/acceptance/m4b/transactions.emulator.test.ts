@@ -83,47 +83,71 @@ function plus(iso: string, minutes: number): string {
   return new Date(Date.parse(iso) + minutes * 60_000).toISOString();
 }
 
-async function raceProjection(uid: string, write: () => Promise<void>): Promise<void> {
+/**
+ * Starts `write` from inside the decision transaction (after its reads, before
+ * its commit) and waits for it at most 3 s, as a second process would. Firestore's
+ * server SDK locks what a transaction read, ranges included; a writer into a
+ * read range therefore waits until the decision commits (and then the match
+ * was decided before the clash existed — the person's later write, which the
+ * plan allows). A phantom would show as the writer finishing while the
+ * decision is still open and the match being saved anyway.
+ *
+ * (Gate fix by its author, Claude: the first version awaited the writer inside
+ * the hook, which deadlocks against Firestore's pessimistic locks — the
+ * writer timed out on the lock the decision held, which is itself the
+ * evidence that the range was locked.)
+ */
+async function raceProjection(uid: string, matchId: string, write: () => Promise<void>): Promise<void> {
   const install = await hook();
-  let done = false;
+  let fired = false;
+  let decisionOpen = true;
+  let writerFinishedDuringDecision = false;
+  let writer: Promise<void> = Promise.resolve();
   install(async (site) => {
-    if (site !== 'football' || done) return;
-    done = true;
-    await write();
+    if (site !== 'football' || fired) return;
+    fired = true;
+    writer = write().then(() => { if (decisionOpen) writerFinishedDuringDecision = true; });
+    // Give the writer a real chance to land inside the open decision: an
+    // unlocked range lets it finish well within this; a locked one holds it
+    // until the decision commits (waiting on it outright would deadlock).
+    await Promise.race([writer, new Promise((resolve) => setTimeout(resolve, 3_000))]);
   });
   try {
     await projectFixturesForUser(uid, new Date().toISOString());
   } finally {
+    decisionOpen = false;
     install(null);
   }
-  assert.equal(done, true, 'the decision hook never fired inside the projection transaction');
+  await writer;
+  assert.equal(fired, true, 'the decision hook never fired inside the projection transaction');
+  const saved = await matchSaved(uid, matchId);
+  assert.ok(!(saved && writerFinishedDuringDecision),
+    'phantom: a clashing row was committed while the decision transaction was open, and the match was saved over it');
 }
 
 test('M4B-R2-002 (emulator): a busy block inserted mid-transaction is seen — the match is held', async () => {
   await withEmulator(async (uid, kickoff) => {
     await replaceBusyBlocks(uid, 'device:m4b-tx', { startsAt: new Date().toISOString(), endsAt: plus(kickoff, 7 * 24 * 60) }, [], { platform: 'ios', now: new Date() } as any);
-    await raceProjection(uid, async () => {
+    await raceProjection(uid, `${uid}-1`, async () => {
       await replaceBusyBlocks(uid, 'device:m4b-tx', { startsAt: new Date().toISOString(), endsAt: plus(kickoff, 7 * 24 * 60) },
         [{ blockId: 'b1', sourceId: 'device:m4b-tx', sourceKind: 'device', startAt: plus(kickoff, 30), endAt: plus(kickoff, 90), allDay: false } as any],
         { platform: 'ios', now: new Date() } as any);
     });
-    assert.equal(await matchSaved(uid, `${uid}-1`), false, 'phantom: the match was saved over a busy block inserted during the decision');
   });
 });
 
 test('M4B-R2-002 (emulator): a weekly block created mid-transaction is seen — the match is held', async () => {
   await withEmulator(async (uid, kickoff) => {
     const weekday = new Date(kickoff).getUTCDay();
-    await raceProjection(uid, async () => {
+    await raceProjection(uid, `${uid}-1`, async () => {
       await createWeeklyBlock(uid, { title: 'block', weekdays: [weekday], start: '00:00', end: '23:59', timezone: 'UTC', confirmedAt: new Date().toISOString() });
     });
-    assert.equal(await matchSaved(uid, `${uid}-1`), false);
   });
 });
 
 test('M4B-R2-002 (emulator): a commitment written mid-transaction is seen — the match is held', async () => {
   await withEmulator(async (uid, kickoff) => {
-    await raceProjection(uid, async () => {
+    await raceProjection(uid, `${uid}-1`, async () => {
       const id = '0c0ffee7-0000-4000-8000-000000000001';
       const now = new Date().toISOString();
       await applyParticipantCommands(uid, [
@@ -131,7 +155,6 @@ test('M4B-R2-002 (emulator): a commitment written mid-transaction is seen — th
         { type: 'ConfirmCommitment', commitmentId: id, now } as any,
       ]);
     });
-    assert.equal(await matchSaved(uid, `${uid}-1`), false);
   });
 });
 
