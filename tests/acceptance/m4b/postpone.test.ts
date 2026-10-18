@@ -8,8 +8,11 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mock } from 'node:test';
 import { applyParticipantCommands } from '../../../lib/services/mobile/participantState.ts';
+import { userDoc } from '../../../lib/storage/paths.ts';
 import {
+  currentStorage,
   addAllDayEvent,
+  addCommitment,
   addDeviceBusy,
   addEvent,
   addTimedDeadline,
@@ -332,3 +335,21 @@ for (const [name, switches] of [['off', { postpone: false }], ['killed', { postp
     assert.equal(result.body.error, 'feature_unavailable');
   });
 }
+
+/* ── review findings (Claude's hand review of Task B) ───────────────── */
+
+test('REVIEW B-2: an item stored in UTC (a feed deadline) gets slots in the account\'s own day and clock', async () => {
+  const uid = begin();
+  // The account's own zone, as the app records it on the user document.
+  const storage = currentStorage() as any;
+  const user = await storage.get(userDoc(uid));
+  await storage.set(userDoc(uid), { ...(user ?? {}), timezone: TZ });
+  const id = await addCommitment(uid, 'Essay due', { kind: 'due_by', dueAt: at(dateAfter(3), '17:00'), allDay: false, timezone: 'UTC' });
+  const { slots } = await slotsFor(uid, id);
+  assert.ok(slots.length >= 1, show(slots));
+  for (const slot of slots) {
+    assert.equal(slot.localTime, localTimeOf(slot.startsAt), `localTime is not the account's clock: ${show(slot)}`);
+    assert.equal(slot.localDate, localDateOf(slot.startsAt), show(slot));
+    assert.ok(slot.localTime >= '08:00' && slot.localTime <= '21:30', `outside the account's awake window: ${show(slot)}`);
+  }
+});

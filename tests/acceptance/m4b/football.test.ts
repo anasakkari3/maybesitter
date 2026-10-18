@@ -493,3 +493,16 @@ test('R1.2 callers: the follow PUT holds a clashing match and says nothing was s
   assert.equal(await fixtureCommitment(uid, '1'), null);
   assert.equal(put.body.held?.length, 1, `the follow answer must carry the held match: ${show(put.body.held)}`);
 });
+
+/* ── review findings (Claude's hand review of Task B) ───────────────── */
+
+test('REVIEW B-1: a match past the weekly blocks\' materialised horizon is not saved over a weekly block', async () => {
+  const uid = begin();
+  const day58 = kickoff(58, '21:00'); // the projection window is 60 days; weekly occurrences are materialised 8 weeks
+  const weekday = new Date(Date.parse(day58) + 3 * 3_600_000).getUTCDay(); // its local weekday (Jerusalem is UTC+2/3)
+  await addWeekly(uid, 'تمرين', [weekday], '20:00', '23:00'); // training, every week on that day
+  await follow(uid);
+  await putFixtures(fixture('1', day58));
+  await project(uid);
+  assert.equal(await fixtureCommitment(uid, '1'), null, 'a match was saved over a weekly block beyond its materialised occurrences');
+});
