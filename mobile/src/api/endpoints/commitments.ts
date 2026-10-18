@@ -84,7 +84,7 @@ export type CommitmentAction = 'complete' | 'postpone' | 'cancel' | 'aware';
 export function actOnCommitment(
   id: string,
   action: CommitmentAction,
-  options: { postponedUntil?: string; ifMatch?: string; clientActionId?: string; slotToken?: string } = {},
+  options: { postponedUntil?: string; ifMatch?: string; clientActionId?: string; slotToken?: string; asUid?: string } = {},
 ): Promise<TaggedResult<{ success: boolean; id: string; commitment: Commitment; replayed?: true | undefined }>> {
   return apiRequestTagged('POST', `/api/mobile/commitments/${encodeURIComponent(id)}/actions`, {
     body: {
@@ -98,6 +98,7 @@ export function actOnCommitment(
     },
     schema: commitmentActionResultSchema,
     ...(options.ifMatch ? { ifMatch: options.ifMatch } : {}),
+    ...(options.asUid !== undefined ? { asUid: options.asUid } : {}),
   });
 }
 

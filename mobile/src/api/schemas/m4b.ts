@@ -132,6 +132,6 @@ export type PostponeSlots = z.infer<typeof postponeSlotsSchema>;
 export const slotRefusedSchema = z.object({
   success: z.literal(false),
   error: z.enum(['slot_taken', 'slot_unverified', 'slot_stale']),
-  slots: z.array(postponeSlotSchema),
+  slots: z.array(postponeSlotSchema).max(3),
   complete: z.boolean(),
 }).strict();

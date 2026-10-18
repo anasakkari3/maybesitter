@@ -37,6 +37,7 @@ export function useWatcherAction() {
       // Deleting a followed club's watcher stops following it and takes its
       // matches ahead off the calendar (closure CL7).
       void client.invalidateQueries({ queryKey: ['user', uid, 'football'] });
+      void client.invalidateQueries({ queryKey: ['user', uid, 'heldItems'] }); // M4b
       void client.invalidateQueries({ queryKey: ['user', uid, 'commitments'] });
     },
   });
@@ -66,6 +67,7 @@ export function useCreateFootballWatcher() {
       void client.invalidateQueries({ queryKey: watcherKey(uid) });
       void client.invalidateQueries({ queryKey: backgroundActivityKey(uid) });
       void client.invalidateQueries({ queryKey: ['user', uid, 'football'] });
+      void client.invalidateQueries({ queryKey: ['user', uid, 'heldItems'] }); // M4b
       void client.invalidateQueries({ queryKey: ['user', uid, 'commitments'] });
     },
   });

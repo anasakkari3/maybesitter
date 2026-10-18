@@ -21,7 +21,7 @@ export function useDecideHeldFixture() {
   const uid = useUid();
   return useMutation({
     mutationFn: (input: { fixtureId: string; action: 'add' | 'dismiss'; heldVersion: string }) =>
-      decideHeldFixture(input.fixtureId, input.action, input.heldVersion, Crypto.randomUUID()),
+      decideHeldFixture(input.fixtureId, input.action, input.heldVersion, Crypto.randomUUID(), { asUid: uid }),
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: queryKeys.football(uid) });
       void client.invalidateQueries({ queryKey: heldItemsKey(uid) });
@@ -29,6 +29,7 @@ export function useDecideHeldFixture() {
     },
     onError: (error, input) => {
       if (!(error instanceof HeldChangedError)) return;
+      void client.invalidateQueries({ queryKey: heldItemsKey(uid) });
       client.setQueryData<FootballSettingsResponse>(queryKeys.football(uid), (current) => {
         if (!current?.held) return current;
         const held = error.held === null
@@ -46,7 +47,7 @@ export function useHeldItems() {
   const on = useM4bCapability('externalClashHold');
   return useQuery({
     queryKey: heldItemsKey(uid),
-    queryFn: getHeldItems,
+    queryFn: () => getHeldItems({ asUid: uid }),
     enabled: uid !== 'signed-out' && on,
     retry: false,
   });

@@ -26,7 +26,7 @@ export function useM4bCapabilities(): M4bCapabilities | null {
   const uid = useUid();
   const query = useQuery({
     queryKey: m4bCapabilitiesKey(uid),
-    queryFn: getM4bCapabilities,
+    queryFn: () => getM4bCapabilities({ asUid: uid }),
     enabled: uid !== 'signed-out',
     staleTime: FIVE_MINUTES,
     refetchInterval: FIVE_MINUTES,
@@ -54,7 +54,7 @@ export function useFreshM4bCapability(): (name: M4bCapability) => Promise<boolea
     let timer: ReturnType<typeof setTimeout> | undefined;
     const timeout = new Promise<false>((resolve) => { timer = setTimeout(() => resolve(false), FRESH_PROBE_MS); });
     const fresh = client
-      .fetchQuery({ queryKey: m4bCapabilitiesKey(uid), queryFn: getM4bCapabilities, staleTime: 0, retry: false })
+      .fetchQuery({ queryKey: m4bCapabilitiesKey(uid), queryFn: () => getM4bCapabilities({ asUid: uid }), staleTime: 0, retry: false })
       .then((answer) => answer[name] === true)
       .catch(() => false);
     try {

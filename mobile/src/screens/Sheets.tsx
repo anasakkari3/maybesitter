@@ -7,7 +7,7 @@ import { fill, ltr } from '../i18n/strings';
 import { isolateAuto } from '../i18n/bidi';
 import { useTimeZone } from '../i18n/timezone';
 import { formatDate, formatRelativeDay, formatTime } from '../i18n/format';
-import { useCommitment, useCommitmentAction, useDeleteCommitment, usePatchCommitment } from '../api/queries';
+import { useCommitment, useCommitmentAction, useDeleteCommitment, usePatchCommitment, useUid } from '../api/queries';
 import { userFacingMessage } from '../api/ui/userFacingMessage';
 import { SlotRefusedError } from '../api/errors';
 import { getPostponeSlots } from '../api/endpoints/m4b';
@@ -177,7 +177,10 @@ function PostponeChoices({ commitmentId, onMoved }: {
     : smart.problem === 'slot_taken' ? t.zPostponeTaken
       : smart.problem === 'slot_unverified' ? t.zPostponeUnverified
         : fill(t.zPostponeStale, { title: isolateAuto(title ?? '') });
-  useAnnounceOnIos(slotProblem);
+  // Any other failure of a picked time (network, timeout, server) is said too
+  // (M4B-A-R2-016); a slot refusal's own line wins.
+  const pickFailure = !custom && slotProblem === null && act.error && !(act.error instanceof SlotRefusedError) ? userFacingMessage(act.error, t) : null;
+  useAnnounceOnIos(slotProblem ?? pickFailure);
 
   const choose = (preset: PostponePreset) => {
     // No past-instant guard here, and none is needed: every preset is `now`
@@ -200,7 +203,8 @@ function PostponeChoices({ commitmentId, onMoved }: {
   return (
     <View style={{ gap: 14 }}>
       <Txt size={14} color={p.mu} lh={1.5}>{smart.phase === 'slots' && title ? fill(t.zPostponeAsk, { title: isolateAuto(title) }) : t.postponeBody}</Txt>
-      <LiveRegion>{slotProblem ? <Txt size={13} color={p.wm} testID="postpone-slot-problem">{slotProblem}</Txt> : null}</LiveRegion>
+      <LiveRegion>{slotProblem ? <Txt size={13} color={p.wm} testID="postpone-slot-problem">{slotProblem}</Txt>
+        : pickFailure ? <Txt size={13} color={p.wm} testID="postpone-pick-failure">{pickFailure}</Txt> : null}</LiveRegion>
       {smart.phase === 'loading' ? (
         <Txt size={14} color={p.mu} testID="postpone-slots-loading">{t.zPostponeLoading}</Txt>
       ) : smart.phase === 'slots' ? (
@@ -348,9 +352,10 @@ function PostponeChoices({ commitmentId, onMoved }: {
 type SmartPhase = 'presets' | 'loading' | 'slots';
 
 function useSmartPostpone(commitmentId: string | null) {
-  const capabilities = useM4bCapabilities();
+  // Read with the sheet so the probe stays live; the decision is the fresh one.
+  useM4bCapabilities();
   const fresh = useFreshM4bCapability();
-  const cachedOn = capabilities?.smartPostpone === true;
+  const uid = useUid();
   // Today's presets until this opening's own fresh probe says yes (M4B-A-002):
   // a cached `true` alone never changes the sheet.
   const [phase, setPhase] = useState<SmartPhase>('presets');
@@ -366,15 +371,17 @@ function useSmartPostpone(commitmentId: string | null) {
     setPhase('presets');
   }
 
+  // Every opening asks afresh (M4B-A-R2-013), whatever the cache says: a sheet
+  // opened while the first probe was still out must not stay on presets for good.
   useEffect(() => {
-    if (commitmentId === null || !cachedOn) return undefined;
+    if (commitmentId === null) return undefined;
     let live = true;
     void (async () => {
       const on = await fresh('smartPostpone');
       if (!live || !on) return;
       setPhase('loading');
       try {
-        const answer = await getPostponeSlots(commitmentId);
+        const answer = await getPostponeSlots(commitmentId, { asUid: uid });
         if (!live) return;
         if (answer.complete && answer.slots.length > 0) {
           setSlots(answer.slots);
@@ -398,7 +405,9 @@ function useSmartPostpone(commitmentId: string | null) {
     clearProblem: () => setProblem(null),
     refused: (error: SlotRefusedError) => {
       setProblem(error.reason);
-      if (error.slots.length > 0) {
+      // Fresh times only from a complete answer (M4B-A-R2-015); otherwise the
+      // presets, under the reason.
+      if (error.complete && error.slots.length > 0) {
         setSlots(error.slots);
         setPhase('slots');
       } else {

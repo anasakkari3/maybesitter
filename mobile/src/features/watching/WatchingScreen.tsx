@@ -71,23 +71,17 @@ export function WatchingScreen({ tabClearance = TAB_CLEARANCE }: { tabClearance?
 
         {heldCount > 0 ? (
           <View testID="watching-held-card">
-            {mixed ? (
-              <View style={{ gap: 8 }}>
-                <HubRow testID="watching-held-open" icon="calendar" tone="attention" title={tr('zHeldCard', { count: footballHeld })}
-                  sub={t.footballTitle} onPress={() => actions.go('footballSettings')} />
-                <HubRow testID="watching-held-open-ics" icon="calendar" tone="attention" title={tr('zHeldCard', { count: icsHeld })}
-                  sub={t.icsFeedsTitle} onPress={() => actions.go('calendarFeeds')} />
-              </View>
-            ) : (
-              <HubRow
-                testID="watching-held-open"
-                icon="calendar"
-                tone="attention"
-                title={tr('zHeldCard', { count: heldCount })}
-                sub={t.zHeldCardOpen}
-                onPress={() => actions.go(footballHeld > 0 ? 'footballSettings' : 'calendarFeeds')}
-              />
-            )}
+            {/* One true total (M4B-A-R2-017); the bounded list only says which
+                screens have something waiting. */}
+            <HubRow
+              testID="watching-held-open"
+              icon="calendar"
+              tone="attention"
+              title={tr('zHeldCard', { count: heldCount })}
+              sub={mixed ? t.footballTitle : t.zHeldCardOpen}
+              onPress={() => actions.go(footballHeld > 0 ? 'footballSettings' : 'calendarFeeds')}
+            />
+            {mixed ? <TextLink label={t.icsFeedsTitle} testID="watching-held-open-ics" onPress={() => actions.go('calendarFeeds')} /> : null}
           </View>
         ) : null}
 

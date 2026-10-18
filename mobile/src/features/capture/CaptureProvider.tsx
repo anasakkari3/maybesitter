@@ -405,7 +405,7 @@ export function CaptureProvider({ children }: { children: React.ReactNode }) {
     const generation = analysisGeneration.current;
     const proposalId = proposal.proposalId;
     try {
-      const updated = await answerImpact({ proposalId, revision: proposal.revision ?? 0, itemId, readiness });
+      const updated = await answerImpact({ proposalId, revision: proposal.revision ?? 0, itemId, readiness }, uid !== null ? { asUid: uid } : {});
       if (generation !== analysisGeneration.current || updated.proposalId !== proposalId) {
         return { ok: false, messageKey: 'errorsGeneric' } as const;
       }
@@ -422,7 +422,7 @@ export function CaptureProvider({ children }: { children: React.ReactNode }) {
     } finally {
       releaseWrite(token);
     }
-  }, [state.proposal, acquireWrite, releaseWrite]);
+  }, [state.proposal, acquireWrite, releaseWrite, uid]);
   const editItem = useCallback((itemId: string, edit: CaptureItemEdit) => dispatch({ type: 'editItem', itemId, edit }), []);
   const setWeekly = useCallback((itemId: string, weekly: boolean) => dispatch({ type: 'setWeekly', itemId, weekly }), []);
   const setGoalLink = useCallback((itemId: string, linked: boolean) => dispatch({ type: 'setGoalLink', itemId, linked }), []);

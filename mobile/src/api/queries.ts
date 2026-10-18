@@ -840,7 +840,8 @@ export function useCommitmentAction() {
     mutationFn: async (input: { id: string; action: CommitmentAction; postponedUntil?: string; slotToken?: string }) => {
       const result = await actOnCommitment(input.id, input.action, {
         ...(input.postponedUntil ? { postponedUntil: input.postponedUntil } : {}),
-        ...(input.slotToken ? { slotToken: input.slotToken } : {}),
+        // A picked slot is sent only as the account that saw it (M4B-A-R2-012).
+        ...(input.slotToken ? { slotToken: input.slotToken, asUid: uid } : {}),
         ...(validatorFor(input.id) ? { ifMatch: validatorFor(input.id) as string } : {}),
       });
       rememberValidator(input.id, result.etag);
@@ -1455,6 +1456,7 @@ export function useSetFollowedClubs() {
     },
     onError: () => {
       void client.invalidateQueries({ queryKey: queryKeys.football(uid) });
+      void client.invalidateQueries({ queryKey: ['user', uid, 'heldItems'] }); // M4b: what «يتابع لك» counts
     },
     onSettled: () => {
       void client.invalidateQueries({ queryKey: ['user', uid, 'commitments'] });
@@ -1474,6 +1476,7 @@ export function useDismissFixture() {
     mutationFn: (commitmentId: string) => dismissFixture(commitmentId),
     onSettled: () => {
       void client.invalidateQueries({ queryKey: queryKeys.football(uid) });
+      void client.invalidateQueries({ queryKey: ['user', uid, 'heldItems'] }); // M4b: what «يتابع لك» counts
       void client.invalidateQueries({ queryKey: ['user', uid, 'commitments'] });
     },
   });
@@ -1719,6 +1722,7 @@ export function useCreateIcsFeed() {
     gcTime: 0,
     onSettled: () => {
       void client.invalidateQueries({ queryKey: queryKeys.icsFeeds(uid) });
+      void client.invalidateQueries({ queryKey: ['user', uid, 'heldItems'] }); // M4b: what «يتابع لك» counts
     },
   });
 }
@@ -1733,6 +1737,7 @@ export function useUpdateIcsFeed() {
     },
     onSettled: () => {
       void client.invalidateQueries({ queryKey: queryKeys.icsFeeds(uid) });
+      void client.invalidateQueries({ queryKey: ['user', uid, 'heldItems'] }); // M4b: what «يتابع لك» counts
     },
   });
 }
@@ -1744,6 +1749,7 @@ export function useRefreshIcsFeed() {
     mutationFn: (feedId: string) => refreshIcsFeed(feedId),
     onSettled: () => {
       void client.invalidateQueries({ queryKey: queryKeys.icsFeeds(uid) });
+      void client.invalidateQueries({ queryKey: ['user', uid, 'heldItems'] }); // M4b: what «يتابع لك» counts
       // Lectures are busy time, and busy time shapes the plan and the lists.
       void client.invalidateQueries({ queryKey: ['user', uid, 'commitments'] });
     },
@@ -1757,6 +1763,7 @@ export function useDeleteIcsFeed() {
     mutationFn: (feedId: string) => deleteIcsFeed(feedId),
     onSettled: () => {
       void client.invalidateQueries({ queryKey: queryKeys.icsFeeds(uid) });
+      void client.invalidateQueries({ queryKey: ['user', uid, 'heldItems'] }); // M4b: what «يتابع لك» counts
       void client.invalidateQueries({ queryKey: ['user', uid, 'commitments'] });
     },
   });
@@ -1782,6 +1789,7 @@ export function useDecideIcsDeadline() {
     },
     onSettled: () => {
       void client.invalidateQueries({ queryKey: queryKeys.icsFeeds(uid) });
+      void client.invalidateQueries({ queryKey: ['user', uid, 'heldItems'] }); // M4b: what «يتابع لك» counts
       // Accept, undo and apply-move change commitments.
       void client.invalidateQueries({ queryKey: ['user', uid, 'commitments'] });
       void client.invalidateQueries({ queryKey: queryKeys.activity(uid) });
