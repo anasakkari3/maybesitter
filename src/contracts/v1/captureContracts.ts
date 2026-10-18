@@ -155,6 +155,8 @@ export interface CaptureProposalItemContract {
    * nothing; optional on the phone, so an older app ignores it.
    */
   conflicts?: CaptureItemConflictContract[];
+  impacts?: EveningImpactContract[];
+  generated?: { kind: 'evening_impact_prep'; sourceItemId: string };
   /**
    * An active goal of the person's this item looks like a step of (audit
    * 2026-10-03 #6: React study sessions captured beside the goal "Learn
@@ -173,6 +175,17 @@ export interface CaptureProposalItemContract {
    * `rejectCorrectionIds` on a proposal edit. Absent otherwise.
    */
   corrections?: CaptureCorrectionContract[];
+}
+
+export interface EveningImpactContract {
+  kind: 'late_before_important';
+  role: 'evening' | 'important';
+  otherTitle: string;
+  otherStartsAt: string;
+  otherEndsAt: string | null;
+  otherInProposal?: true;
+  readiness: 'ready' | 'not_ready' | 'unsure' | null;
+  prep: null | { state: 'offered'; itemId: string } | { state: 'no_slot' };
 }
 
 /** One applied dictation correction (M2b). `from`/`to` are single words. */

@@ -7,7 +7,8 @@ import type { PlanningConfig, PlanningConstraints, PlanningItem, TimeInterval } 
 import { instantFromLocal, localTimeSpecFor } from '../../src/extraction/timeLexicon';
 import { addCivilDays, composeDailyPlanRequest } from '../services/dailyPlan/dailyPlanService';
 import { fixedStartOf, isPlannable } from '../services/dailyPlan/buildDailyPlan';
-import { fixedEndFor } from '../services/timeCollision';
+import { candidateIntervalOf, collisionIntervalOf, fixedEndFor, findCollisions, type CollisionCandidate } from '../services/timeCollision';
+import type { CaptureItemConflictContract } from '../../src/contracts/v1/captureContracts';
 import { readRoutineProfile } from '../services/mobile/routineProfileService';
 import { loadDomainState } from '../services/mobile/participantState';
 import { listWeeklyBlockOccurrences } from '../weeklyBlocks/weeklyBlockService';
@@ -36,6 +37,7 @@ import {
 } from '../storage';
 import { schedulePlan } from './scheduler';
 import { readRuntimeBoolean } from '../../src/contracts/v1/runtimeControls';
+import { runMemoryConcurrentTransactionWindow } from '../storage/memoryAdapter';
 
 const SLOT_MINUTES = 15;
 const CAPTURE_DURATION_MINUTES = 30;
@@ -202,6 +204,18 @@ let sourceFailure: FreeSlotSource | null = null;
 type ScheduleReader = (uid: string, window: TimeInterval, storage?: StorageAdapter, now?: string) => Promise<FreeSlotSchedule>;
 let scheduleReader: ScheduleReader = defaultScheduleReader;
 
+export type ScheduleDecisionSite = 'football' | 'ics' | 'heldAdd' | 'postpone' | 'impact';
+let scheduleDecisionHook: ((site: ScheduleDecisionSite) => Promise<void>) | null = null;
+
+/** Test-only race seam. It deliberately runs inside the caller's transaction. */
+export function setScheduleDecisionHookForTests(hook: ((site: ScheduleDecisionSite) => Promise<void>) | null): void {
+  scheduleDecisionHook = hook;
+}
+
+export async function runScheduleDecisionHook(site: ScheduleDecisionSite): Promise<void> {
+  if (scheduleDecisionHook) await runMemoryConcurrentTransactionWindow(() => scheduleDecisionHook!(site));
+}
+
 export function setFreeSlotScheduleReaderForTests(
   wrap: ((original: ScheduleReader) => ScheduleReader) | null,
 ): void {
@@ -292,11 +306,58 @@ function overlaps(left: TimeInterval, right: TimeInterval): boolean {
   return Date.parse(left.startsAt) < Date.parse(right.endsAt) && Date.parse(right.startsAt) < Date.parse(left.endsAt);
 }
 
-function covered(interval: TimeInterval, sources: readonly FreeSlotCoverage[]): boolean {
+export function intervalCovered(interval: TimeInterval, sources: readonly FreeSlotCoverage[]): boolean {
   return sources.every((source) => (source.kind !== 'ics' || source.status === 'ok')
     && source.windowStart !== null && source.windowEnd !== null
     && Date.parse(source.windowStart) <= Date.parse(interval.startsAt)
-    && Date.parse(source.windowEnd) >= Date.parse(interval.endsAt));
+    && Date.parse(source.windowEnd) > Date.parse(interval.endsAt));
+}
+
+export type Clash = Omit<CaptureItemConflictContract, 'inProposal'>;
+export type CandidateClashResult =
+  | { state: 'free' }
+  | { state: 'clash'; clashes: Clash[] }
+  | { state: 'unknown'; reason: 'incomplete' | 'uncovered' };
+
+export interface CandidateClashOptions {
+  excludeCommitmentIds?: readonly string[];
+  overlay?: readonly ({ startsAt: string; endsAt: string; title?: string | null; kind?: Clash['kind']; removeCommitmentId?: string })[];
+}
+
+function asCollisionCandidate(candidate: CollisionCandidate | { timeSpec: Commitment['timeSpec'] }): CollisionCandidate | null {
+  return 'timeSpec' in candidate ? collisionIntervalOf(candidate) : candidate;
+}
+
+/** One candidate-aware occupancy rule shared by external holds and postpone. */
+export function candidateClashes(
+  schedule: FreeSlotSchedule,
+  candidate: CollisionCandidate | { timeSpec: Commitment['timeSpec'] },
+  options: CandidateClashOptions = {},
+): CandidateClashResult {
+  const collisionCandidate = asCollisionCandidate(candidate);
+  if (!collisionCandidate) return { state: 'free' };
+  const interval = candidateIntervalOf(collisionCandidate);
+  if (!schedule.complete) return { state: 'unknown', reason: 'incomplete' };
+  if (!intervalCovered(interval, schedule.coverage)) return { state: 'unknown', reason: 'uncovered' };
+  const excluded = new Set(options.excludeCommitmentIds ?? []);
+  for (const row of options.overlay ?? []) if (row.removeCommitmentId) excluded.add(row.removeCommitmentId);
+  const clashes: Clash[] = findCollisions(collisionCandidate, schedule.commitments.filter((row) => !excluded.has(row.id)))
+    .map((row) => ({ title: row.title, startsAt: row.startsAt, endsAt: row.endsAt, kind: 'commitment' as const }));
+  for (const block of schedule.weeklyBlocks) {
+    if (overlaps(interval, block)) clashes.push({ title: 'ثابت أسبوعي', startsAt: block.startsAt, endsAt: block.endsAt, kind: 'weekly' });
+  }
+  for (const block of schedule.busyBlocks) {
+    if (!block.allDay && overlaps(interval, { startsAt: block.startAt, endsAt: block.endAt })) {
+      clashes.push({ title: null, startsAt: block.startAt, endsAt: block.endAt, kind: 'calendar_busy' });
+    }
+  }
+  for (const row of options.overlay ?? []) {
+    if (overlaps(interval, row)) clashes.push({ title: row.title ?? null, startsAt: row.startsAt, endsAt: row.endsAt, kind: row.kind ?? 'fixture' });
+  }
+  clashes.sort((a, b) => Date.parse(a.startsAt) - Date.parse(b.startsAt)
+    || a.kind.localeCompare(b.kind) || (a.title ?? '').localeCompare(b.title ?? ''));
+  const unique = clashes.filter((row, index) => index === clashes.findIndex((other) => JSON.stringify(other) === JSON.stringify(row))).slice(0, 3);
+  return unique.length ? { state: 'clash', clashes: unique } : { state: 'free' };
 }
 
 function minutesOf(value: string): number {
@@ -374,7 +435,7 @@ export async function findFreeSlots(input: FindFreeSlotsInput): Promise<GoalPlan
         const startsAt = atLocal(date, hhmm(minute), input.timezone);
         if (!startsAt || Date.parse(startsAt) < Date.parse(input.now) + MIN_LEAD_MINUTES * 60_000) continue;
         const interval = { startsAt, endsAt: new Date(Date.parse(startsAt) + input.durationMinutes * 60_000).toISOString() };
-        if (!covered(interval, schedule.coverage) || occupied.some((held) => overlaps(interval, held))) continue;
+        if (!intervalCovered(interval, schedule.coverage) || occupied.some((held) => overlaps(interval, held))) continue;
         if (found.some((slot) => Math.abs(Date.parse(slot.startsAt) - Date.parse(startsAt)) < separation)) continue;
         found.push(interval);
         if (found.length >= limit) return found;

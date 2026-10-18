@@ -439,6 +439,7 @@
     "events": [],
     "recommendationActions": [],
     "commitmentActionReceipts": [],
+    "externalTaskActionReceipts": [],
     "nextStepDecisions": [],
     "auditEvents": [],
     "actionGatewayAuditEvents": [],

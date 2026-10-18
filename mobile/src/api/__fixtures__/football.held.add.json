@@ -1,0 +1,30 @@
+{
+  "success": true,
+  "action": "add",
+  "replayed": false,
+  "fixture": {
+    "commitmentId": "00000000-0000-4000-8000-000000000001",
+    "homeTeamName": "FC Barcelona",
+    "awayTeamName": "Real Madrid CF",
+    "homeTeamId": "81",
+    "awayTeamId": "86",
+    "kickoffUtc": "2026-08-09T09:00:00.000Z",
+    "collisions": [
+      {
+        "commitmentId": "00000000-0000-4000-8000-000000000002",
+        "title": "عشا العيلة",
+        "startsAt": "2026-08-09T09:00:00.000Z",
+        "endsAt": "2026-08-09T09:00:00.000Z"
+      }
+    ],
+    "clashes": [
+      {
+        "title": "عشا العيلة",
+        "startsAt": "2026-08-09T09:00:00.000Z",
+        "endsAt": "2026-08-09T09:00:00.000Z",
+        "kind": "commitment"
+      }
+    ],
+    "clashState": "known"
+  }
+}

@@ -359,6 +359,12 @@ function applyEdit(stored: StoredCaptureProposal, edit: CaptureProposalEditContr
           allDay: false,
         };
       }
+      // Once the person edits a generated preparation item it becomes theirs;
+      // later impact cleanup must not silently remove their edited work.
+      if (changed && next.generated) {
+        const { generated: _generated, ...owned } = next;
+        next = owned;
+      }
       contract.items[itemIndex] = next;
       results.set(before.itemId, result);
       commands.set(before.itemId, itemCommands(stored, before.itemId, result, title, parsedTime?.at, parsedTime?.zone));

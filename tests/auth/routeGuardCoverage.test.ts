@@ -226,7 +226,9 @@ test('every mobile route file exists and is enumerated', () => {
   // reports which capture families this deployment offers.
   // One hundred fifteen with M4a's batch time-edit route. It mutates an
   // account-scoped proposal and therefore shares the mobile auth boundary.
-  assert.equal(files.length, 115, `found:\n${files.join('\n')}`);
+  // One hundred twenty with M4b: capabilities, held-items, the football-held
+  // decision, evening-impact decision, and commitment postpone-slot routes.
+  assert.equal(files.length, 120, `found:\n${files.join('\n')}`);
 });
 
 test('every mobile route handler runs an authentication guard before anything else', () => {

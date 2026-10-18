@@ -73,8 +73,8 @@ export async function POST(request: Request) {
     // answers 201 whether the follow is new or already existed, so a second
     // tap is the same follow rather than a second one.
     if (isFootballWatcherSource(input.source)) {
-      const { watcher } = await followClubWithWatcher(user.uid, input, now);
-      return Response.json({ success: true, watcher: presentWatcher(watcher) }, { status: 201 });
+      const { watcher, fixturesDeferred } = await followClubWithWatcher(user.uid, input, now);
+      return Response.json({ success: true, watcher: presentWatcher(watcher), ...(fixturesDeferred ? { fixturesDeferred: true } : {}) }, { status: 201 });
     }
     const created = await createWatcherStore(user.uid).create(input, now);
     return Response.json({ success: true, watcher: presentWatcher(created) }, { status: 201 });

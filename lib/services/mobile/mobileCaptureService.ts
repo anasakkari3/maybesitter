@@ -101,6 +101,7 @@ import {
   freeSlotStillAvailable,
   withFreeSlotClarifications,
 } from '../../planning/freeSlots';
+import { withEveningImpacts } from '../../planning/eveningImpact';
 import { horizonFrom, todayLocalDateFor } from '../habits/habitService';
 import { materializeHabitOccurrences } from '../../habits/materialize';
 import {
@@ -280,10 +281,11 @@ function storeWithFreeSlots(now: () => string): CaptureProposalStore {
   return {
     get: (proposalId) => baseStore.get(proposalId),
     put: async (proposal) => {
-      const contract = await withFreeSlotClarifications(proposal.contract, proposal.scopeId, {
+      let contract = await withFreeSlotClarifications(proposal.contract, proposal.scopeId, {
         timezone: proposal.timezone ?? DEFAULT_MOBILE_TIMEZONE,
         now: now(),
       });
+      contract = await withEveningImpacts(contract, proposal.scopeId, { timezone: proposal.timezone ?? DEFAULT_MOBILE_TIMEZONE, now: now() });
       // The boundary returns the same contract object it hands to `put`. Keep
       // that object in sync so callers receive the derived clarification without
       // adding a second storage read (some callers deliberately tolerate a
@@ -754,6 +756,7 @@ export async function editCaptureKindsProposal(
     timezone: stored.timezone ?? DEFAULT_MOBILE_TIMEZONE,
     now: now.toISOString(),
   });
+  contract = await withEveningImpacts(contract, uid, { timezone: stored.timezone ?? DEFAULT_MOBILE_TIMEZONE, now: now.toISOString() });
   const mutated: StoredCaptureProposal = {
     ...stored,
     contract,
@@ -1623,10 +1626,13 @@ export async function clarifyMobileCapture(input: MobileClarifyInput, context: M
     // the extraction was in flight.
     get: async (requestedProposalId) => requestedProposalId === proposalId ? before : undefined,
     put: async (candidate) => {
-      const enrichedContract = await withFreeSlotClarifications(candidate.contract, scopeId, {
+      let enrichedContract = await withFreeSlotClarifications(candidate.contract, scopeId, {
         timezone: before.timezone ?? normalizeTimezone(input.timezone),
         now: clarifyNow.toISOString(),
         storage,
+      });
+      enrichedContract = await withEveningImpacts(enrichedContract, scopeId, {
+        timezone: before.timezone ?? normalizeTimezone(input.timezone), now: clarifyNow.toISOString(), storage,
       });
       if (enrichedContract !== candidate.contract) {
         const target = candidate.contract as unknown as Record<string, unknown>;
@@ -1686,7 +1692,7 @@ export async function clarifyMobileCapture(input: MobileClarifyInput, context: M
       held: captureTimedIntervals(before.contract),
       storage,
     })) {
-    const refreshed = await withFreeSlotClarifications(
+    let refreshed = await withFreeSlotClarifications(
       { ...before.contract, revision: currentRevision + 1 },
       scopeId,
       {
@@ -1695,6 +1701,9 @@ export async function clarifyMobileCapture(input: MobileClarifyInput, context: M
         storage,
       },
     );
+    refreshed = await withEveningImpacts(refreshed, scopeId, {
+      timezone: before.timezone ?? normalizeTimezone(input.timezone), now: clarifyNow.toISOString(), storage,
+    });
     await compareAndSwapStore.put({ ...before, contract: refreshed, legacyConfirmRevision: undefined });
     return { ...(await withEventsOnTheirDay(refreshed)), reason: 'not_free' as const };
   }

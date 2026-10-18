@@ -52,6 +52,7 @@ import { bareHalfOfDayAnswer, dayPartHour, instantFromLocal, localTimeSpecFor, n
 import { geminiChatSchemaFor } from '../../../src/extraction/ollamaExtractionSchema';
 import { getAiConsent } from '../../consents/aiConsentService';
 import { withFreeSlotClarifications } from '../../planning/freeSlots';
+import { withEveningImpacts } from '../../planning/eveningImpact';
 import { CHAT_TIMEOUT_MS, captureLlmProvider } from '../../llm/captureProvider';
 import { CAPTURE_SERVER_BUDGET_MS, CaptureInputTooLargeError } from '../captureBoundary/captureBoundaryService';
 import { applyStructuredEdit, StructuredEditConversationNotFoundError, StructuredEditError } from '../captureBoundary/structuredEdit';
@@ -408,10 +409,11 @@ export async function chatMobileCapture(
         locale,
         now,
         engine: current.proposal.provenance.requestedEngine === 'model' ? 'model' : 'rules',
-        beforeWrite: (proposal, stored) => withFreeSlotClarifications(proposal, uid, {
-          timezone: stored.timezone ?? normalizeTimezone(input.timezone),
-          now: now.toISOString(),
-        }),
+        beforeWrite: async (proposal, stored) => {
+          const timezone = stored.timezone ?? normalizeTimezone(input.timezone);
+          const free = await withFreeSlotClarifications(proposal, uid, { timezone, now: now.toISOString() });
+          return withEveningImpacts(free, uid, { timezone, now: now.toISOString() });
+        },
       });
       if (outcome.kind === 'changed') {
         const currentTurns = outcome.turns ?? conversation.turns;

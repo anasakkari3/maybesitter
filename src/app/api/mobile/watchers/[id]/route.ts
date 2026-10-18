@@ -117,8 +117,8 @@ export async function DELETE(request: Request, context: { params: Promise<{ id: 
     await forgetPackWatcher(user.uid, watcherId, now);
     // "Stop following" a club takes its matches still ahead off the calendar
     // with it (closure CL7).
-    if (removed) await releaseClubAfterWatcherRemoved(user.uid, removed, now);
-    return Response.json({ success: true, watcherId, deleted: true });
+    const projection = removed ? await releaseClubAfterWatcherRemoved(user.uid, removed, now) : {};
+    return Response.json({ success: true, watcherId, deleted: true, ...projection });
   } catch (error) {
     if (error instanceof WatcherValidationError) return watcherValidationResponse(error);
     console.error('[watchers] deleting a watcher failed', error);

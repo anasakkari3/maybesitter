@@ -35,6 +35,8 @@ export const RECOMMENDATION_ACTIONS = 'recommendationActions';
  * field (30 days, `infra/firestore-ttl.sh`): an outbox gives up long before.
  */
 export const COMMITMENT_ACTION_RECEIPTS = 'commitmentActionReceipts';
+/** Idempotency receipts for decisions on held external items. */
+export const EXTERNAL_TASK_ACTION_RECEIPTS = 'externalTaskActionReceipts';
 /**
  * What the user answered to a next step (UC-2.9, #170).
  *
@@ -568,6 +570,7 @@ export const USER_SCOPED_COLLECTIONS = [
   EVENTS,
   RECOMMENDATION_ACTIONS,
   COMMITMENT_ACTION_RECEIPTS,
+  EXTERNAL_TASK_ACTION_RECEIPTS,
   NEXT_STEP_DECISIONS,
   AUDIT_EVENTS,
   ACTION_GATEWAY_AUDIT_EVENTS,

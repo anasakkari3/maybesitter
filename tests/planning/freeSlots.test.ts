@@ -7,6 +7,11 @@ import { replaceBusyBlocks } from '../../lib/calendar/busyBlocks.ts';
 import { findFreeSlots, readFreeSlotSchedule, type FreeSlotSchedule } from '../../lib/planning/freeSlots.ts';
 import { buildRoutineProfile } from '../../src/contracts/v1/routineContracts.ts';
 import { localTimeSpecFor } from '../../src/extraction/timeLexicon.ts';
+import type { Commitment, DomainState } from '../../src/domain/stateMachine.ts';
+import type { CaptureProposalItemContract } from '../../src/contracts/v1/captureContracts.ts';
+import { candidateClashes } from '../../lib/planning/freeSlots.ts';
+import { eveningImpacts } from '../../lib/planning/eveningImpact.ts';
+import { rankPostponeSlots, usualHoursFor } from '../../lib/planning/postponeSlots.ts';
 
 const UID = 'free-slots-unit-user';
 const TZ = 'Asia/Jerusalem';
@@ -16,6 +21,62 @@ const DATE = '2026-10-25';
 function schedule(overrides: Partial<FreeSlotSchedule> = {}): FreeSlotSchedule {
   return { commitments: [], busyBlocks: [], weeklyBlocks: [], routineProfile: null, coverage: [], complete: true, ...overrides };
 }
+
+function saved(id: string, title: string, start: string, end: string | null, overrides: Partial<Commitment> = {}): Commitment {
+  return {
+    id, kind: 'task', title, description: null, person: null, status: 'active',
+    priority: { level: 'normal', source: 'inferred', pressureAllowed: false, pressureLevel: 'none' }, category: null, categorySource: 'inferred',
+    timeSpec: { kind: 'scheduled_event', dueAt: start, endAt: end, remindAt: null, allDay: false, timezone: TZ },
+    currentAckState: 'not_seen', postponedUntil: null, createdAt: NOW, updatedAt: NOW,
+    confirmedAt: NOW, completedAt: null, droppedAt: null, ...overrides,
+  };
+}
+
+test('candidateClashes is candidate-aware, excludes the moved row, and fails closed on coverage', () => {
+  const existing = saved('saved', 'Saved meeting', '2026-10-25T07:00:00.000Z', '2026-10-25T08:00:00.000Z');
+  const known = schedule({ commitments: [existing] });
+  assert.deepEqual(candidateClashes(known, { dueAt: existing.timeSpec.dueAt!, endAt: existing.timeSpec.endAt!, kind: 'scheduled_event' }), {
+    state: 'clash', clashes: [{ title: 'Saved meeting', startsAt: existing.timeSpec.dueAt, endsAt: existing.timeSpec.endAt, kind: 'commitment' }],
+  });
+  assert.deepEqual(candidateClashes(known, { dueAt: existing.timeSpec.dueAt!, endAt: existing.timeSpec.endAt!, kind: 'scheduled_event' }, { excludeCommitmentIds: ['saved'] }), { state: 'free' });
+  assert.deepEqual(candidateClashes(schedule({ coverage: [{ sourceId: 'phone', kind: 'device', windowStart: '2026-10-25T00:00:00.000Z', windowEnd: '2026-10-25T07:30:00.000Z' }] }),
+    { dueAt: '2026-10-25T07:00:00.000Z', endAt: '2026-10-25T08:00:00.000Z', kind: 'scheduled_event' }), { state: 'unknown', reason: 'uncovered' });
+});
+
+test('eveningImpacts uses Jerusalem civil time across the 2026 fall-back night', () => {
+  const evening = { itemId: 'evening', title: 'Late dinner', resolvedTime: '2026-10-24T18:00:00.000Z', endTime: '2026-10-24T20:30:00.000Z', allDayEvent: false } as CaptureProposalItemContract;
+  const exam = saved('exam', 'Math exam', '2026-10-25T07:00:00.000Z', '2026-10-25T09:00:00.000Z');
+  assert.deepEqual(eveningImpacts([evening], schedule({ commitments: [exam] }), TZ), [{
+    itemId: 'evening', impact: { kind: 'late_before_important', role: 'evening', otherTitle: 'Math exam',
+      otherStartsAt: exam.timeSpec.dueAt, otherEndsAt: exam.timeSpec.endAt, readiness: null, prep: null },
+  }]);
+});
+
+test('usualHoursFor requires eight recent completions and a 60% three-hour cluster', () => {
+  const rows: Record<string, Commitment> = {};
+  for (let index = 0; index < 8; index += 1) {
+    const completedAt = new Date(Date.parse('2026-10-23T15:30:00.000Z') - index * 86_400_000).toISOString();
+    rows[String(index)] = saved(String(index), 'Run', completedAt, null, { category: 'health', completedAt, status: 'completed' });
+  }
+  const state = { commitments: rows, reminders: {}, escalations: {}, events: [], version: 0 } as unknown as DomainState;
+  assert.deepEqual(usualHoursFor(state, TZ, 'health', new Date(NOW)), { startHour: 18, endHour: 21 });
+  delete rows['7'];
+  assert.equal(usualHoursFor(state, TZ, 'health', new Date(NOW)), null);
+});
+
+test('rankPostponeSlots prefers a usual time and returns no more than two candidates per day', () => {
+  const row = saved('move', 'Run', '2026-10-24T12:00:00.000Z', '2026-10-24T12:30:00.000Z', { category: 'health' });
+  const candidates = [
+    { startsAt: '2026-10-25T05:00:00.000Z', endsAt: '2026-10-25T05:30:00.000Z' },
+    { startsAt: '2026-10-25T16:00:00.000Z', endsAt: '2026-10-25T16:30:00.000Z' },
+    { startsAt: '2026-10-25T17:30:00.000Z', endsAt: '2026-10-25T18:00:00.000Z' },
+    { startsAt: '2026-10-26T05:00:00.000Z', endsAt: '2026-10-26T05:30:00.000Z' },
+  ];
+  const ranked = rankPostponeSlots(candidates, { commitment: row, schedule: schedule(), timezone: TZ, now: NOW, usualHours: { startHour: 18, endHour: 21 } });
+  assert.equal(ranked[0]?.why, 'usual_time');
+  assert.ok(ranked.filter((slot) => slot.startsAt.startsWith('2026-10-25')).length <= 2);
+  assert.ok(ranked.length <= 3);
+});
 
 test('the explicit capture and goalPlan policies differ outside planner working windows', async () => {
   const storage = createMemoryStorage();
