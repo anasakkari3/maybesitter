@@ -123,3 +123,10 @@ export const icsFeedRefusalSchema = z.object({
 }).strict();
 
 export type IcsDeadlineAction = 'accept' | 'dismiss' | 'undo' | 'apply_move' | 'acknowledge';
+
+/** M4b R1.4: the 409 `item_changed` body — the row as it is now. */
+export const icsItemChangedSchema = z.object({
+  success: z.literal(false),
+  error: z.literal('item_changed'),
+  row: icsDeadlineSchema,
+}).strict();

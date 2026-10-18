@@ -99,9 +99,11 @@ export type FootballFixtureDismissed = z.infer<typeof footballFixtureDismissedSc
 
 /**
  * `POST /api/mobile/football/held/{fixtureId}` (M4b R1.3): «ضيفه» answers the
- * saved match in the fixture shape above, «مش هاد الماتش» its id.
+ * saved match in the fixture shape above, «مش هاد الماتش» its id. `replayed`
+ * is read as a boolean: the route sends `false` on a first answer (a WIRE
+ * drift reported to Task B; accepted here so a real answer is never refused).
  */
 export const heldFixtureDecidedSchema = z.union([
-  z.object({ success: z.literal(true), action: z.literal('add'), fixture: footballFixtureSchema, replayed: z.literal(true).optional() }).strict(),
-  z.object({ success: z.literal(true), action: z.literal('dismiss'), fixtureId: z.string(), replayed: z.literal(true).optional() }).strict(),
+  z.object({ success: z.literal(true), action: z.literal('add'), fixture: footballFixtureSchema, replayed: z.boolean().optional() }).strict(),
+  z.object({ success: z.literal(true), action: z.literal('dismiss'), fixtureId: z.string(), replayed: z.boolean().optional() }).strict(),
 ]);

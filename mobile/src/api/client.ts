@@ -52,7 +52,7 @@ import { mockResponseFor } from './mockAdapter';
 import { commitmentSchema } from './schemas/common';
 import { captureConfirmationSchema, captureProposalSchema, proposalChangedChatSchema, proposalChangedProposalSchema } from './schemas/capture';
 import { planEditRejectedSchema, planProposalRejectedSchema, weekConflictSchema, weekEmptyDaySchema } from './schemas/plan';
-import { icsDeadlineSchema, icsFeedRefusalSchema } from './schemas/icsFeeds';
+import { icsFeedRefusalSchema, icsItemChangedSchema } from './schemas/icsFeeds';
 import { googleRefusalSchema } from './schemas/google';
 import { heldChangedSchema, slotRefusedSchema } from './schemas/m4b';
 import { goalPlanSchema, goalPlanTimesSchema } from './schemas/goalPlan';
@@ -303,8 +303,7 @@ function planEditRefusal(body: unknown, message: string): Error {
   return new PlanEditRefusedError(parsed.data.reason, parsed.data.itemId ?? null);
 }
 
-/** WIRE-M4b's two redraw refusals, parsed strictly: the row or proposal must be readable. */
-const icsItemChangedSchema = z.object({ success: z.literal(false), error: z.literal('item_changed'), row: icsDeadlineSchema }).strict();
+/** WIRE-M4b's impact redraw refusal, parsed strictly: the proposal must be readable. */
 const impactProposalChangedSchema = z.object({ success: z.literal(false), error: z.literal('proposal_changed'), proposal: captureProposalSchema }).strict();
 
 function m4bConflict(body: unknown, path?: string): Error | null {
