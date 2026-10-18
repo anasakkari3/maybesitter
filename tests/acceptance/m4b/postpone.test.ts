@@ -353,3 +353,14 @@ test('REVIEW B-2: an item stored in UTC (a feed deadline) gets slots in the acco
     assert.ok(slot.localTime >= '08:00' && slot.localTime <= '21:30', `outside the account's awake window: ${show(slot)}`);
   }
 });
+
+test('REVIEW SIM-B1: a timed item is never offered its own current time or an earlier one', async () => {
+  const uid = begin();
+  const id = await addEvent(uid, 'ورشة تصميم', at(TODAY, '19:30'), at(TODAY, '20:00')); // a design workshop tonight
+  const { slots } = await slotsFor(uid, id);
+  assert.ok(slots.length >= 1, show(slots));
+  for (const slot of slots) {
+    assert.ok(Date.parse(slot.startsAt) > Date.parse(at(TODAY, '19:30')),
+      `a "postpone" to the item's own time or earlier: ${show(slot)}`);
+  }
+});
