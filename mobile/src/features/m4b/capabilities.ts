@@ -7,9 +7,11 @@ import { useUid } from '../../api/queries';
 /**
  * M4b's capability probe (PLAN R3.3, M4B-REV-007, M4B-R2-005).
  *
- * Fails closed: only the latest *successful* answer turns anything on. A
- * pending probe, an error, or a refetch that failed after an earlier success
- * all read as "off", so every M4b surface shows today's screen exactly.
+ * Fails closed: only the latest *successful* answer turns anything on. No
+ * answer yet, an error, or a refetch that failed after an earlier success all
+ * read as "off", so every M4b surface shows today's screen exactly. A
+ * background refetch in flight keeps the last successful answer (PLAN R3.3);
+ * a tap whose meaning changes asks afresh (`useFreshM4bCapability`).
  *
  * It is refetched on focus and every five minutes while a gated surface is
  * mounted, so a kill switch reaches an open screen within five minutes.

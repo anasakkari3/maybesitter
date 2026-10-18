@@ -154,7 +154,7 @@ interface CaptureContextValue {
 }
 
 /** How a structured edit went: applied, or why not — the summary shows a note. */
-export type EditOutcome = { ok: true } | { ok: false; reason: 'changed' | 'confirmed' | 'ended' | 'failed' | 'unavailable' };
+export type EditOutcome = { ok: true; revision?: number | undefined } | { ok: false; reason: 'changed' | 'confirmed' | 'ended' | 'failed' | 'unavailable' };
 
 /**
  * How an answer went. A failure carries the line to show under the question,
@@ -397,32 +397,6 @@ export function CaptureProvider({ children }: { children: React.ReactNode }) {
       releaseWrite(token);
     }
   }, [clarifyCapture, state.proposal, acquireWrite, releaseWrite]);
-  const answerReadiness = useCallback(async (itemId: string, readiness: Readiness) => {
-    const proposal = state.proposal;
-    if (!proposal) return { ok: false, messageKey: 'errorsGeneric' } as const;
-    const token = acquireWrite();
-    if (!token) return { ok: false, messageKey: 'errorsGeneric' } as const;
-    const generation = analysisGeneration.current;
-    const proposalId = proposal.proposalId;
-    try {
-      const updated = await answerImpact({ proposalId, revision: proposal.revision ?? 0, itemId, readiness }, uid !== null ? { asUid: uid } : {});
-      if (generation !== analysisGeneration.current || updated.proposalId !== proposalId) {
-        return { ok: false, messageKey: 'errorsGeneric' } as const;
-      }
-      dispatch({ type: 'clarified', proposal: updated });
-      return { ok: true } as const;
-    } catch (error) {
-      // The proposal, or the saved item the line was about, moved on: show it
-      // as it is now; the answer was not applied.
-      if (error instanceof ProposalChangedError && error.current.kind === 'proposal' && generation === analysisGeneration.current) {
-        dispatch({ type: 'proposalReplaced', proposal: error.current.proposal });
-        return { ok: false, messageKey: 'captureProposalChanged' } as const;
-      }
-      return { ok: false, messageKey: userFacingMessageKey(error) } as const;
-    } finally {
-      releaseWrite(token);
-    }
-  }, [state.proposal, acquireWrite, releaseWrite, uid]);
   const editItem = useCallback((itemId: string, edit: CaptureItemEdit) => dispatch({ type: 'editItem', itemId, edit }), []);
   const setWeekly = useCallback((itemId: string, weekly: boolean) => dispatch({ type: 'setWeekly', itemId, weekly }), []);
   const setGoalLink = useCallback((itemId: string, linked: boolean) => dispatch({ type: 'setGoalLink', itemId, linked }), []);
@@ -592,7 +566,7 @@ export function CaptureProvider({ children }: { children: React.ReactNode }) {
       });
       if (generation !== analysisGeneration.current) return { ok: false, reason: 'failed' };
       dispatch({ type: 'editAnswered', answer, applied: target, ...(itemId && (folded.title || folded.time) ? { folded: { itemId, ...folded } } : {}) });
-      return { ok: true };
+      return { ok: true, revision: answer.proposal?.revision };
     } catch (error) {
       if (generation !== analysisGeneration.current) return { ok: false, reason: 'failed' };
       // Already confirmed (another device, or a confirm that landed first):
@@ -615,6 +589,43 @@ export function CaptureProvider({ children }: { children: React.ReactNode }) {
       releaseWrite(token);
     }
   }, [chat, state.proposal, state.conversationId, state.edits, timezone, acquireWrite, releaseWrite]);
+  const answerReadiness = useCallback(async (itemId: string, readiness: Readiness) => {
+    const proposal = state.proposal;
+    if (!proposal) return { ok: false, messageKey: 'errorsGeneric' } as const;
+    // A preparation card the person changed on screen is theirs (M4B-A-R3-005):
+    // the change goes to the server first, through the structured edit, which
+    // takes the generated mark off it, so a new answer cannot remove it.
+    let revision = proposal.revision ?? 0;
+    const prep = proposal.items.find((item) => item.generated?.sourceItemId === itemId);
+    const staged = prep ? state.edits[prep.itemId] : undefined;
+    if (prep && staged && (staged.title !== undefined || staged.localDateTime !== undefined) && state.conversationId) {
+      const folded = await editPoint({ itemId: prep.itemId }, {});
+      if (!folded.ok) return { ok: false, messageKey: 'errorsGeneric' } as const;
+      if (folded.revision !== undefined) revision = folded.revision;
+    }
+    const token = acquireWrite();
+    if (!token) return { ok: false, messageKey: 'errorsGeneric' } as const;
+    const generation = analysisGeneration.current;
+    const proposalId = proposal.proposalId;
+    try {
+      const updated = await answerImpact({ proposalId, revision, itemId, readiness }, uid !== null ? { asUid: uid } : {});
+      if (generation !== analysisGeneration.current || updated.proposalId !== proposalId) {
+        return { ok: false, messageKey: 'errorsGeneric' } as const;
+      }
+      dispatch({ type: 'clarified', proposal: updated });
+      return { ok: true } as const;
+    } catch (error) {
+      // The proposal, or the saved item the line was about, moved on: show it
+      // as it is now; the answer was not applied.
+      if (error instanceof ProposalChangedError && error.current.kind === 'proposal' && generation === analysisGeneration.current) {
+        dispatch({ type: 'proposalReplaced', proposal: error.current.proposal });
+        return { ok: false, messageKey: 'captureProposalChanged' } as const;
+      }
+      return { ok: false, messageKey: userFacingMessageKey(error) } as const;
+    } finally {
+      releaseWrite(token);
+    }
+  }, [state.proposal, state.edits, state.conversationId, editPoint, acquireWrite, releaseWrite, uid]);
 
   const takeRefusedEdit = useCallback(() => dispatch({ type: 'refusedEditTaken' }), []);
   const acceptUnderstood = useCallback(() => dispatch({ type: 'understoodAccepted' }), []);

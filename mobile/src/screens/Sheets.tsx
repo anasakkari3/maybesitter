@@ -202,7 +202,7 @@ function PostponeChoices({ commitmentId, onMoved }: {
 
   return (
     <View style={{ gap: 14 }}>
-      <Txt size={14} color={p.mu} lh={1.5}>{smart.phase === 'slots' && title ? fill(t.zPostponeAsk, { title: isolateAuto(title) }) : t.postponeBody}</Txt>
+      <Txt size={14} color={p.mu} lh={1.5}>{smart.phase === 'slots' ? t.xPlanTimesTitle : t.postponeBody}</Txt>
       <LiveRegion>{slotProblem ? <Txt size={13} color={p.wm} testID="postpone-slot-problem">{slotProblem}</Txt>
         : pickFailure ? <Txt size={13} color={p.wm} testID="postpone-pick-failure">{pickFailure}</Txt> : null}</LiveRegion>
       {smart.phase === 'loading' ? (

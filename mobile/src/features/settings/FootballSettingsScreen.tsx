@@ -109,44 +109,9 @@ export function FootballSettingsScreen({ onBack }: { onBack: () => void }) {
           <Txt size={15} color={p.mu} lh={1.5}>{t.footballBody}</Txt>
         </Card>
 
-        <Card pad={0} style={{ overflow: 'hidden' }} testID="football-club-list">
-          {settings.isLoading ? (
-            <View style={{ padding: 18, alignItems: 'center' }}>
-              <ActivityIndicator color={p.ac} />
-            </View>
-          ) : (
-            clubs.map((club, index) => {
-              const following = followedSet.has(club.clubId);
-              return (
-                <Btn
-                  key={club.clubId}
-                  label={club.names[lang]}
-                  testID={`football-club-${club.clubId}`}
-                  onPress={() => toggle(club.clubId)}
-                  scaleTo={0.98}
-                  style={{
-                    flexDirection: 'row',
-                    justifyContent: 'space-between',
-                    alignItems: 'center',
-                    paddingVertical: 16,
-                    paddingHorizontal: 18,
-                    minHeight: 52,
-                    borderTopWidth: index === 0 ? 0 : 1,
-                    borderTopColor: p.ln,
-                  }}
-                >
-                  <Txt size={15}>{club.names[lang]}</Txt>
-                  {following ? <Txt size={13} color={p.ac}>{t.footballFollowing}</Txt> : null}
-                </Btn>
-              );
-            })
-          )}
-        </Card>
-
-        {setFollowed.isError ? (
-          <Txt size={13} color={p.wm} testID="football-save-failed">{t.footballSaveFailed}</Txt>
-        ) : null}
-
+        {/* First on the screen (simulator pass SIM-B2): the person arrives from
+            «في شغلة بتستنى قرارك», so the decision is what they see, not the
+            club list above it. */}
         {/* Mounted always (M4B-A-006): TalkBack hears a change inside a live
             region that is already there, even when the last held row goes. */}
         <LiveRegion>
@@ -195,6 +160,44 @@ export function FootballSettingsScreen({ onBack }: { onBack: () => void }) {
 
         {waitingForCoverage > 0 ? (
           <Txt size={13} color={p.mu} testID="football-coverage-note">{t.zHeldCoverageNote}</Txt>
+        ) : null}
+
+        <Card pad={0} style={{ overflow: 'hidden' }} testID="football-club-list">
+          {settings.isLoading ? (
+            <View style={{ padding: 18, alignItems: 'center' }}>
+              <ActivityIndicator color={p.ac} />
+            </View>
+          ) : (
+            clubs.map((club, index) => {
+              const following = followedSet.has(club.clubId);
+              return (
+                <Btn
+                  key={club.clubId}
+                  label={club.names[lang]}
+                  testID={`football-club-${club.clubId}`}
+                  onPress={() => toggle(club.clubId)}
+                  scaleTo={0.98}
+                  style={{
+                    flexDirection: 'row',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    paddingVertical: 16,
+                    paddingHorizontal: 18,
+                    minHeight: 52,
+                    borderTopWidth: index === 0 ? 0 : 1,
+                    borderTopColor: p.ln,
+                  }}
+                >
+                  <Txt size={15}>{club.names[lang]}</Txt>
+                  {following ? <Txt size={13} color={p.ac}>{t.footballFollowing}</Txt> : null}
+                </Btn>
+              );
+            })
+          )}
+        </Card>
+
+        {setFollowed.isError ? (
+          <Txt size={13} color={p.wm} testID="football-save-failed">{t.footballSaveFailed}</Txt>
         ) : null}
 
         {fixtures.length > 0 ? (

@@ -840,8 +840,10 @@ export function useCommitmentAction() {
     mutationFn: async (input: { id: string; action: CommitmentAction; postponedUntil?: string; slotToken?: string }) => {
       const result = await actOnCommitment(input.id, input.action, {
         ...(input.postponedUntil ? { postponedUntil: input.postponedUntil } : {}),
-        // A picked slot is sent only as the account that saw it (M4B-A-R2-012).
-        ...(input.slotToken ? { slotToken: input.slotToken, asUid: uid } : {}),
+        // Sent only as the account the tap began in (M4B-A-R2-012, R3-001):
+        // a postpone decided after a probe must not land on another account.
+        ...(input.slotToken ? { slotToken: input.slotToken } : {}),
+        ...(uid !== 'signed-out' ? { asUid: uid } : {}),
         ...(validatorFor(input.id) ? { ifMatch: validatorFor(input.id) as string } : {}),
       });
       rememberValidator(input.id, result.etag);
@@ -1456,10 +1458,11 @@ export function useSetFollowedClubs() {
     },
     onError: () => {
       void client.invalidateQueries({ queryKey: queryKeys.football(uid) });
-      void client.invalidateQueries({ queryKey: ['user', uid, 'heldItems'] }); // M4b: what «يتابع لك» counts
     },
     onSettled: () => {
       void client.invalidateQueries({ queryKey: ['user', uid, 'commitments'] });
+      // M4b (M4B-A-R3-003): a follow change can add or clear held matches either way.
+      void client.invalidateQueries({ queryKey: ['user', uid, 'heldItems'] });
     },
   });
 }
