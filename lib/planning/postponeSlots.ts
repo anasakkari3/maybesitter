@@ -125,7 +125,7 @@ export async function postponeSlots(uid: string, id: string, options: { storage?
   const row = state.commitments[id];
   if (!row) return null;
   if (!['active', 'deferred', 'missed'].includes(row.status)) throw new Error('not_postponable');
-  const timezone = row.timeSpec.timezone || user?.timezone || 'UTC';
+  const timezone = user?.timezone || row.timeSpec.timezone || 'UTC';
   const today = localTimeSpecFor(now, timezone)?.date;
   if (!today) return { complete: false, slots: [] };
   const important = row.priority.level === 'high' || Boolean(row.timeSpec.kind === 'due_by' && row.timeSpec.dueAt

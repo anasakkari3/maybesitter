@@ -4,13 +4,13 @@ import { createMemoryStorage } from '../../lib/storage/memoryAdapter.ts';
 import type { ListOptions, StorageAdapter } from '../../lib/storage/storageAdapter.ts';
 import { CALENDAR_SOURCES, userCol, userDoc } from '../../lib/storage/paths.ts';
 import { replaceBusyBlocks } from '../../lib/calendar/busyBlocks.ts';
-import { findFreeSlots, readFreeSlotSchedule, type FreeSlotSchedule } from '../../lib/planning/freeSlots.ts';
+import { findFreeSlots, readFreeSlotSchedule, setFreeSlotScheduleReaderForTests, type FreeSlotSchedule } from '../../lib/planning/freeSlots.ts';
 import { buildRoutineProfile } from '../../src/contracts/v1/routineContracts.ts';
 import { localTimeSpecFor } from '../../src/extraction/timeLexicon.ts';
 import type { Commitment, DomainState } from '../../src/domain/stateMachine.ts';
 import type { CaptureProposalItemContract } from '../../src/contracts/v1/captureContracts.ts';
 import { candidateClashes } from '../../lib/planning/freeSlots.ts';
-import { eveningImpacts } from '../../lib/planning/eveningImpact.ts';
+import { eveningImpacts, withEveningImpacts } from '../../lib/planning/eveningImpact.ts';
 import { rankPostponeSlots, usualHoursFor } from '../../lib/planning/postponeSlots.ts';
 
 const UID = 'free-slots-unit-user';
@@ -43,6 +43,18 @@ test('candidateClashes is candidate-aware, excludes the moved row, and fails clo
     { dueAt: '2026-10-25T07:00:00.000Z', endAt: '2026-10-25T08:00:00.000Z', kind: 'scheduled_event' }), { state: 'unknown', reason: 'uncovered' });
 });
 
+test('candidateClashes carries a weekly block\'s own title', () => {
+  const weekly = { startsAt: '2026-10-25T07:00:00.000Z', endsAt: '2026-10-25T08:00:00.000Z', title: 'English tutoring' };
+  assert.deepEqual(candidateClashes(schedule({ weeklyBlocks: [weekly] }), {
+    dueAt: weekly.startsAt,
+    endAt: weekly.endsAt,
+    kind: 'scheduled_event',
+  }), {
+    state: 'clash',
+    clashes: [{ title: weekly.title, startsAt: weekly.startsAt, endsAt: weekly.endsAt, kind: 'weekly' }],
+  });
+});
+
 test('eveningImpacts uses Jerusalem civil time across the 2026 fall-back night', () => {
   const evening = { itemId: 'evening', title: 'Late dinner', resolvedTime: '2026-10-24T18:00:00.000Z', endTime: '2026-10-24T20:30:00.000Z', allDayEvent: false } as CaptureProposalItemContract;
   const exam = saved('exam', 'Math exam', '2026-10-25T07:00:00.000Z', '2026-10-25T09:00:00.000Z');
@@ -50,6 +62,35 @@ test('eveningImpacts uses Jerusalem civil time across the 2026 fall-back night',
     itemId: 'evening', impact: { kind: 'late_before_important', role: 'evening', otherTitle: 'Math exam',
       otherStartsAt: exam.timeSpec.dueAt, otherEndsAt: exam.timeSpec.endAt, readiness: null, prep: null },
   }]);
+});
+
+test('withEveningImpacts removes stale impacts and generated prep when the schedule read is incomplete', async () => {
+  const previousEnvironment = process.env.MAYBESITTER_ENV;
+  const previousFeature = process.env.MAYBESITTER_FEATURE_EVENING_IMPACT;
+  process.env.MAYBESITTER_ENV = 'test';
+  process.env.MAYBESITTER_FEATURE_EVENING_IMPACT = 'true';
+  setFreeSlotScheduleReaderForTests(() => async () => schedule({ complete: false }));
+  const impact = { kind: 'late_before_important', role: 'evening', otherTitle: 'Math exam',
+    otherStartsAt: '2026-10-25T07:00:00.000Z', otherEndsAt: null, readiness: 'not_ready',
+    prep: { state: 'offered', itemId: 'prep' } } as const;
+  const contract = {
+    version: 'v8', proposalId: 'proposal', status: 'proposal', seeds: [],
+    items: [
+      { itemId: 'evening', title: 'Late dinner', resolvedTime: '2026-10-24T18:00:00.000Z', endTime: '2026-10-24T20:30:00.000Z', impacts: [impact] },
+      { itemId: 'prep', title: 'Prepare', resolvedTime: '2026-10-24T16:00:00.000Z', generated: { kind: 'evening_impact_prep', sourceItemId: 'evening' } },
+    ],
+  } as unknown as import('../../src/contracts/v1/captureContracts.ts').CaptureProposalContract;
+  try {
+    const refreshed = await withEveningImpacts(contract, UID, { timezone: TZ, now: NOW, storage: createMemoryStorage() });
+    assert.deepEqual(refreshed.items.map((item) => item.itemId), ['evening']);
+    assert.equal(refreshed.items[0]!.impacts, undefined);
+  } finally {
+    setFreeSlotScheduleReaderForTests(null);
+    if (previousEnvironment === undefined) delete process.env.MAYBESITTER_ENV;
+    else process.env.MAYBESITTER_ENV = previousEnvironment;
+    if (previousFeature === undefined) delete process.env.MAYBESITTER_FEATURE_EVENING_IMPACT;
+    else process.env.MAYBESITTER_FEATURE_EVENING_IMPACT = previousFeature;
+  }
 });
 
 test('usualHoursFor requires eight recent completions and a 60% three-hour cluster', () => {

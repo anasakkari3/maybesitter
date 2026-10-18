@@ -69,15 +69,24 @@ function samePair(a: EveningImpactContract | undefined, b: EveningImpactContract
     && a.otherStartsAt === b.otherStartsAt && a.otherEndsAt === b.otherEndsAt && a.otherInProposal === b.otherInProposal);
 }
 
+function withoutEveningImpacts(contract: CaptureProposalContract): CaptureProposalContract {
+  return {
+    ...contract,
+    items: contract.items
+      .filter((item) => !item.generated)
+      .map(({ impacts: _impacts, ...item }) => item),
+  };
+}
+
 export async function withEveningImpacts(contract: CaptureProposalContract, uid: string, options: { timezone: string; now: string; storage?: StorageAdapter }): Promise<CaptureProposalContract> {
   if (!resolveEveningImpact()) return contract;
   const timed = contract.items.filter((item) => item.resolvedTime && !item.generated);
-  if (!timed.length) return { ...contract, items: contract.items.map(({ impacts: _impacts, ...item }) => item) };
+  if (!timed.length) return withoutEveningImpacts(contract);
   const starts = timed.map((item) => item.resolvedTime!).sort();
   const from = new Date(Date.parse(starts[0]!) - 24 * 3_600_000).toISOString();
   const to = new Date(Date.parse(starts.at(-1)!) + 48 * 3_600_000).toISOString();
   const schedule = await readFreeSlotSchedule(uid, { startsAt: from, endsAt: to }, options.storage ?? getStorage(), options.now);
-  if (!schedule.complete) return contract;
+  if (!schedule.complete) return withoutEveningImpacts(contract);
   const found = new Map(eveningImpacts(contract.items, schedule, options.timezone).map((row) => [row.itemId, row.impact]));
   const liveSources = new Set(found.keys());
   const items = contract.items.filter((item) => !item.generated || liveSources.has(item.generated.sourceItemId)).map((item) => {
