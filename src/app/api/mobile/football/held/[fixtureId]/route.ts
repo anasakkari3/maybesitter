@@ -28,7 +28,8 @@ export async function POST(request: Request, { params }: { params: Promise<{ fix
   }
   try {
     const result = await decideHeldFixture(user.uid, (await params).fixtureId, value as unknown as { action: 'add' | 'dismiss'; expectedHeldVersion: string; clientActionId: string });
-    return Response.json({ success: true, ...result, ...(result.replayed ? { replayed: true } : {}) });
+    const { replayed, ...decision } = result;
+    return Response.json({ success: true, ...decision, ...(replayed ? { replayed: true } : {}) });
   } catch (error) {
     if (error instanceof HeldChangedError) return Response.json({ success: false, error: 'held_changed', held: error.held }, { status: 409 });
     if (error instanceof HeldActionKeyReusedError) return Response.json({ success: false, error: 'key_reused' }, { status: 409 });

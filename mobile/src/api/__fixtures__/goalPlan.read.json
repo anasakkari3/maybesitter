@@ -21,9 +21,9 @@
         "when": {
           "kind": "weekly",
           "weekdays": [
-            3,
-            4,
-            5
+            0,
+            1,
+            2
           ],
           "start": "08:00",
           "end": "08:30"
@@ -42,12 +42,12 @@
   "linkedWork": [
     {
       "entity": "commitment",
-      "id": "00000000-0000-4000-8000-000000000007",
+      "id": "00000000-0000-4000-8000-000000000003",
       "title": "Get what you need for “I want to run a 5k” ready"
     },
     {
       "entity": "habit",
-      "id": "00000000-0000-4000-8000-000000000008",
+      "id": "00000000-0000-4000-8000-000000000005",
       "title": "Make time for “I want to run a 5k” a few times a week"
     }
   ]
