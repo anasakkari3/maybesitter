@@ -137,9 +137,11 @@ export function FootballSettingsScreen({ onBack }: { onBack: () => void }) {
                       disabled={decideHeld.isPending}
                       onPress={() => decideHeld.mutate({ fixtureId: entry.fixtureId, action: 'add', heldVersion: entry.heldVersion })}
                       scaleTo={0.97}
-                      style={{ minHeight: 44, paddingVertical: 10, paddingHorizontal: 16, borderRadius: 14, backgroundColor: p.ac, justifyContent: 'center' }}
+                      // Equal weight with «مش هاد الماتش» (design critique): a clash is
+                      // the person's call, and the screen does not lean either way.
+                      style={{ minHeight: 44, paddingVertical: 10, paddingHorizontal: 16, borderRadius: 14, borderWidth: 1, borderColor: p.ln, justifyContent: 'center' }}
                     >
-                      <Txt size={14} weight={700} color={p.onAccent}>{t.zHeldAdd}</Txt>
+                      <Txt size={14} weight={600} color={p.ac}>{t.zHeldAdd}</Txt>
                     </Btn>
                     <Btn
                       label={stripIsolates(fill(t.zHeldDismissA11y, { title }))}
@@ -149,7 +151,7 @@ export function FootballSettingsScreen({ onBack }: { onBack: () => void }) {
                       scaleTo={0.97}
                       style={{ minHeight: 44, paddingVertical: 10, paddingHorizontal: 16, borderRadius: 14, borderWidth: 1, borderColor: p.ln, justifyContent: 'center' }}
                     >
-                      <Txt size={14} color={p.tx}>{t.zHeldDismiss}</Txt>
+                      <Txt size={14} weight={600} color={p.tx}>{t.zHeldDismiss}</Txt>
                     </Btn>
                   </View>
                 </View>
