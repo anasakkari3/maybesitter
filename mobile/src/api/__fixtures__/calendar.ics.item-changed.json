@@ -1,0 +1,21 @@
+{
+  "success": false,
+  "error": "item_changed",
+  "row": {
+    "itemKey": "0000000000000000000000000000000000000000000000000000000000000000",
+    "feedId": "00000000-0000-4000-8000-000000000001",
+    "title": "Essay due",
+    "dueAt": "2026-08-09T09:00:00.000Z",
+    "allDay": false,
+    "state": "pending",
+    "notice": null,
+    "proposedDueAt": null,
+    "commitmentId": null,
+    "autoAccepted": false,
+    "held": {
+      "reason": "clash",
+      "clashes": []
+    },
+    "decisionVersion": "DrSKC7fd0KPmsvuZZgAO3MbxEPrupmwrBWb1EI7sQ_Y"
+  }
+}

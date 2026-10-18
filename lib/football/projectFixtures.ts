@@ -174,7 +174,7 @@
  * rather than never. A closed (completed/archived) commitment is still never
  * touched -- see branch 5.
  */
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import type { Fixture, FixtureStatus, FixtureWindow } from '../../src/contracts/v1/fixtureContracts';
 import { FIXTURE_BLOCK_MINUTES } from '../../src/contracts/v1/fixtureContracts';
 import {
@@ -195,7 +195,9 @@ import {
 import { applyParticipantCommands, loadDomainState, readParticipantState, writeDomainDiff } from '../services/mobile/participantState';
 import { readActivityStats, recordActivityEvents, type ActivityStats } from '../services/activity/activityStats';
 import { findCollisions, type CollisionWarning } from '../services/timeCollision';
-import { getStorage, userDoc, type StorageAdapter, type StorageTransaction } from '../storage';
+import { candidateClashes, readFreeSlotSchedule, runScheduleDecisionHook, type Clash } from '../planning/freeSlots';
+import { resolveExternalClashHold } from '../release/m4bCapabilities';
+import { EXTERNAL_TASK_ACTION_RECEIPTS, getStorage, userDoc, userSubDoc, type StorageAdapter, type StorageTransaction } from '../storage';
 import type { UserDocument } from '../storage/userDocument';
 import { getFollowedClubs } from './followedClubs';
 import { clubById, fixtureTitle, type ClubLanguage } from './clubs';
@@ -316,6 +318,18 @@ export interface FixtureExternalTaskRef extends ExternalTaskReference {
    * user's decision and is left alone, exactly like a completed one.
    */
   readonly droppedByProjection?: ProjectionDrop | null;
+  readonly held?: FixtureHold | null;
+  readonly acceptedClashes?: readonly Clash[];
+}
+
+export interface FixtureHold {
+  readonly reason: 'clash' | 'unknown';
+  readonly clashes: readonly Clash[];
+  readonly kickoffUtc: string;
+  readonly endUtc: string;
+  readonly contentHash: string;
+  readonly moved: boolean;
+  readonly at: string;
 }
 
 /** Why the projection dropped a fixture's commitment -- see `droppedByProjection`. */
@@ -324,7 +338,7 @@ export interface ProjectionDrop {
    * `fixture_status`: cancelled or postponed. `unfollowed`: neither team is a
    * club the user follows any more (see `releaseUnfollowedFixtures`).
    */
-  readonly reason: 'fixture_status' | 'unfollowed';
+  readonly reason: 'fixture_status' | 'unfollowed' | 'moved_into_clash';
   readonly at: string;
 }
 
@@ -434,7 +448,25 @@ function buildRef(
     awayTeamId: fixture.awayTeamId,
     title,
     droppedByProjection: null,
+    held: null,
   };
+}
+
+function normalizedClashes(clashes: readonly Clash[]): Clash[] {
+  return [...clashes].sort((a, b) => a.startsAt.localeCompare(b.startsAt) || a.kind.localeCompare(b.kind) || (a.title ?? '').localeCompare(b.title ?? ''));
+}
+
+export function heldVersionOf(hold: FixtureHold): string {
+  return createHash('sha256').update(JSON.stringify({ kickoffUtc: hold.kickoffUtc, endUtc: hold.endUtc, contentHash: hold.contentHash, moved: hold.moved, clashes: normalizedClashes(hold.clashes) })).digest('base64url');
+}
+
+function holdFor(fixture: Fixture, decision: ReturnType<typeof candidateClashes>, moved: boolean, now: string): FixtureHold {
+  const endUtc = new Date(Date.parse(fixture.kickoffUtc) + FIXTURE_BLOCK_MINUTES * 60_000).toISOString();
+  return { reason: decision.state === 'clash' ? 'clash' : 'unknown', clashes: decision.state === 'clash' ? normalizedClashes(decision.clashes) : [], kickoffUtc: fixture.kickoffUtc, endUtc, contentHash: fixture.contentHash, moved, at: now };
+}
+
+function sameHold(left: FixtureHold | null | undefined, right: FixtureHold): boolean {
+  return Boolean(left && left.reason === right.reason && heldVersionOf(left) === heldVersionOf(right));
 }
 
 /**
@@ -560,11 +592,24 @@ async function createCommitmentForFixtureGuarded(
   timeSpec: TimeSpec,
   title: string,
   now: string,
-): Promise<'created' | 'raced'> {
+): Promise<'created' | 'held' | 'raced'> {
   const taskRefId = taskRefIdOf(fixture);
   try {
     await getStorage().runTransaction(async (tx) => {
-      const { user, before, stats } = await readGuardedInputs(tx, uid, taskRefId);
+      const { user, before, stats, freshRef } = await readGuardedInputs(tx, uid, taskRefId);
+      if (resolveExternalClashHold()) {
+        const schedule = await readFreeSlotSchedule(uid, { startsAt: timeSpec.dueAt!, endsAt: timeSpec.endAt! }, tx as unknown as StorageAdapter, now);
+        const decision = candidateClashes(schedule, { timeSpec });
+        await runScheduleDecisionHook('football');
+        if (decision.state !== 'free') {
+          const held = holdFor(fixture, decision, Boolean(freshRef?.linkedCommitmentId || freshRef?.held?.moved), now);
+          if (!sameHold(freshRef?.held, held)) {
+            const next = buildRef(uid, fixture, '', now, title);
+            tx.set<FixtureExternalTaskRef>(refDocPath(uid, taskRefId), { ...next, linkState: 'candidate', linkedCommitmentId: null, held });
+          }
+          return;
+        }
+      }
       const commitmentId = randomUUID();
       const { state: candidate, events } = applyCommands(before, createAndConfirmCommands(commitmentId, title, timeSpec, now));
       writeDomainDiff(tx, uid, before, candidate, events, user, now);
@@ -578,14 +623,15 @@ async function createCommitmentForFixtureGuarded(
       // transaction just verified.
       tx.set<FixtureExternalTaskRef>(refDocPath(uid, taskRefId), buildRef(uid, fixture, commitmentId, now, title));
     });
-    return 'created';
+    const current = await getRef<FixtureExternalTaskRef>(uid, taskRefId);
+    return current?.held ? 'held' : 'created';
   } catch (error) {
     if (error instanceof FixtureDetachedRaceError) return 'raced';
     throw error;
   }
 }
 
-type UpdateOutcome = 'updated' | 'recreated' | 'skipped-closed' | 'raced';
+type UpdateOutcome = 'updated' | 'recreated' | 'held' | 'skipped-closed' | 'raced';
 
 /**
  * Branch 5 of `projectOneFixture`, as one storage transaction: a fresh,
@@ -623,6 +669,34 @@ async function updateCommitmentForFixtureGuarded(
       let candidate = before;
       let events: DomainEvent[] = [];
       let writeRef: (t: StorageTransaction) => void = () => {};
+
+      const linkedBefore = before.commitments[linkedCommitmentId];
+      const timeMoved = Boolean(linkedBefore?.timeSpec.dueAt && linkedBefore.timeSpec.dueAt !== timeSpec.dueAt);
+      if (resolveExternalClashHold() && timeMoved && linkedBefore && LIVE_STATUSES.has(linkedBefore.status)) {
+        const schedule = await readFreeSlotSchedule(uid, { startsAt: timeSpec.dueAt!, endsAt: timeSpec.endAt! }, tx as unknown as StorageAdapter, now);
+        const decision = candidateClashes(schedule, { timeSpec }, { excludeCommitmentIds: [linkedCommitmentId] });
+        await runScheduleDecisionHook('football');
+        if (decision.state === 'unknown') {
+          outcome = 'held';
+          return;
+        }
+        if (decision.state === 'clash') {
+          const applied = applyCommands(before, [{ type: 'Drop', commitmentId: linkedCommitmentId, now }]);
+          candidate = applied.state;
+          events = applied.events;
+          const held = holdFor(fixture, decision, true, now);
+          writeDomainDiff(tx, uid, before, candidate, events, user, now);
+          recordActivityEvents(tx, uid, stats, events);
+          tx.merge<FixtureExternalTaskRef>(refDocPath(uid, taskRefId), {
+            fingerprint: fingerprintOf(fixture, now), title, homeTeamName: fixture.homeTeamName,
+            awayTeamName: fixture.awayTeamName, homeTeamId: fixture.homeTeamId, awayTeamId: fixture.awayTeamId,
+            linkedCommitmentId: null, linkState: 'candidate', held,
+            droppedByProjection: { reason: 'moved_into_clash', at: now }, lastSyncedAt: now, updatedAt: now,
+          });
+          outcome = 'held';
+          return;
+        }
+      }
 
       // `UpdateCommitment`'s allowed-status list (`stateMachine.ts`'s
       // `ensureCommitmentStatus`) excludes three statuses, not one:
@@ -919,6 +993,12 @@ async function projectOneFixture(
         { fingerprint: fingerprintOf(fixture, now), lastSyncedAt: now },
       );
       tally[dropped ? 'cancelled' : 'skipped'] += 1;
+    } else if (ref?.held) {
+      await getStorage().runTransaction(async (tx) => {
+        const fresh = await tx.get<FixtureExternalTaskRef>(refDocPath(uid, taskRefId));
+        if (fresh && !fresh.detachedAt) tx.merge<FixtureExternalTaskRef>(refDocPath(uid, taskRefId), { held: null, updatedAt: now });
+      });
+      tally.skipped += 1;
     } else {
       tally.skipped += 1;
     }
@@ -932,7 +1012,7 @@ async function projectOneFixture(
   // (rather than trusting "it was written") is what keeps a quiet night
   // quiet for the user too: no reminder gets rescheduled for a match that
   // didn't move.
-  if (ref && ref.fingerprint.contentHash === fixture.contentHash && ref.title === title && !ref.droppedByProjection) {
+  if (ref && ref.fingerprint.contentHash === fixture.contentHash && ref.title === title && !ref.droppedByProjection && !ref.held) {
     tally.skipped += 1;
     return;
   }
@@ -944,7 +1024,7 @@ async function projectOneFixture(
   // before deciding anything -- see the module header.
   if (!ref || !ref.linkedCommitmentId) {
     const outcome = await createCommitmentForFixtureGuarded(uid, fixture, timeSpec, title, now);
-    tally[outcome === 'raced' ? 'skipped' : 'created'] += 1;
+    tally[outcome === 'created' ? 'created' : 'skipped'] += 1;
     return;
   }
 
@@ -960,6 +1040,9 @@ async function projectOneFixture(
       return;
     case 'recreated':
       tally.created += 1;
+      return;
+    case 'held':
+      tally.skipped += 1;
       return;
     case 'skipped-closed':
     case 'raced':
@@ -1122,6 +1205,124 @@ export interface FixtureCommitmentSummary {
    * nothing on top of it is a fact, not a "did not check".
    */
   readonly collisions: readonly CollisionWarning[];
+  readonly clashes?: readonly Clash[];
+  readonly clashState?: 'known' | 'unknown';
+}
+
+export interface HeldFixture {
+  fixtureId: string;
+  heldVersion: string;
+  homeTeamName: string;
+  awayTeamName: string;
+  homeTeamId?: string;
+  awayTeamId?: string;
+  kickoffUtc: string;
+  endUtc: string;
+  moved: boolean;
+  clashes: readonly Clash[];
+}
+
+export async function listHeldFixtures(uid: string): Promise<{ held: HeldFixture[]; waitingForCoverage: number }> {
+  const refs = await listRefs<FixtureExternalTaskRef>(uid);
+  const waitingForCoverage = refs.filter((ref) => !ref.detachedAt && ref.held?.reason === 'unknown').length;
+  const held = refs.filter((ref) => !ref.detachedAt && ref.held?.reason === 'clash').map((ref) => ({
+    fixtureId: ref.taskRefId,
+    heldVersion: heldVersionOf(ref.held!),
+    homeTeamName: ref.homeTeamName,
+    awayTeamName: ref.awayTeamName,
+    ...(ref.homeTeamId ? { homeTeamId: ref.homeTeamId } : {}),
+    ...(ref.awayTeamId ? { awayTeamId: ref.awayTeamId } : {}),
+    kickoffUtc: ref.held!.kickoffUtc,
+    endUtc: ref.held!.endUtc,
+    moved: ref.held!.moved,
+    clashes: ref.held!.clashes,
+  })).sort((a, b) => a.kickoffUtc.localeCompare(b.kickoffUtc));
+  return { held, waitingForCoverage };
+}
+
+function heldFixtureOf(ref: FixtureExternalTaskRef | null): HeldFixture | null {
+  if (!ref || ref.detachedAt || ref.held?.reason !== 'clash') return null;
+  return {
+    fixtureId: ref.taskRefId, heldVersion: heldVersionOf(ref.held), homeTeamName: ref.homeTeamName,
+    awayTeamName: ref.awayTeamName, ...(ref.homeTeamId ? { homeTeamId: ref.homeTeamId } : {}),
+    ...(ref.awayTeamId ? { awayTeamId: ref.awayTeamId } : {}), kickoffUtc: ref.held.kickoffUtc,
+    endUtc: ref.held.endUtc, moved: ref.held.moved, clashes: ref.held.clashes,
+  };
+}
+
+interface HeldActionReceipt { fixtureId: string; fingerprint: string; action: 'add' | 'dismiss'; createdAt: string }
+export class HeldChangedError extends Error { constructor(readonly held: HeldFixture | null) { super('held_changed'); } }
+export class HeldActionKeyReusedError extends Error {}
+export class HeldFixtureNotFoundError extends Error {}
+
+export async function decideHeldFixture(
+  uid: string,
+  fixtureId: string,
+  input: { action: 'add' | 'dismiss'; expectedHeldVersion: string; clientActionId: string },
+  now = new Date().toISOString(),
+): Promise<{ action: 'add'; fixture: FixtureCommitmentSummary; replayed: boolean } | { action: 'dismiss'; fixtureId: string; replayed: boolean }> {
+  const storage = getStorage();
+  const fingerprint = `${input.action}|${input.expectedHeldVersion}`;
+  const receiptPath = userSubDoc(uid, EXTERNAL_TASK_ACTION_RECEIPTS, input.clientActionId);
+  let replayed = false;
+  let changed: HeldFixture | null | undefined;
+  await storage.runTransaction(async (tx) => {
+    changed = undefined;
+    const receipt = await tx.get<HeldActionReceipt>(receiptPath);
+    if (receipt) {
+      if (receipt.fixtureId !== fixtureId || receipt.fingerprint !== fingerprint) throw new HeldActionKeyReusedError();
+      replayed = true; return;
+    }
+    const path = refDocPath(uid, fixtureId);
+    const ref = await tx.get<FixtureExternalTaskRef>(path);
+    if (!ref) throw new HeldFixtureNotFoundError();
+    const current = heldFixtureOf(ref);
+    if (!current || current.heldVersion !== input.expectedHeldVersion) { changed = current; return; }
+    if (input.action === 'dismiss') {
+      tx.merge<FixtureExternalTaskRef>(path, { linkState: 'detached', detachedAt: now, held: null, updatedAt: now });
+      tx.create<HeldActionReceipt>(receiptPath, { fixtureId, fingerprint, action: input.action, createdAt: now });
+      return;
+    }
+    const [user, before, stats, schedule] = await Promise.all([
+      tx.get<UserDocument>(userDoc(uid)), loadDomainState(tx, uid), readActivityStats(tx, uid),
+      readFreeSlotSchedule(uid, { startsAt: current.kickoffUtc, endsAt: current.endUtc }, tx as unknown as StorageAdapter, now),
+    ]);
+    const timeSpec: TimeSpec = { kind: 'scheduled_event', dueAt: current.kickoffUtc, endAt: current.endUtc, remindAt: null, allDay: false, timezone: 'UTC' };
+    const decision = candidateClashes(schedule, { timeSpec });
+    await runScheduleDecisionHook('heldAdd');
+    if (decision.state !== 'free') {
+      const nextHold: FixtureHold = { ...ref.held!, reason: decision.state === 'clash' ? 'clash' : 'unknown', clashes: decision.state === 'clash' ? normalizedClashes(decision.clashes) : [], at: now };
+      if (decision.state === 'unknown' || heldVersionOf(nextHold) !== current.heldVersion) {
+        tx.merge<FixtureExternalTaskRef>(path, { held: nextHold, updatedAt: now });
+        changed = heldFixtureOf({ ...ref, held: nextHold });
+        return;
+      }
+    }
+    const commitmentId = randomUUID();
+    const title = ref.title ?? `${ref.homeTeamName} – ${ref.awayTeamName}`;
+    const applied = applyCommands(before, createAndConfirmCommands(commitmentId, title, timeSpec, now));
+    writeDomainDiff(tx, uid, before, applied.state, applied.events, user, now);
+    recordActivityEvents(tx, uid, stats, applied.events);
+    tx.merge<FixtureExternalTaskRef>(path, {
+      linkedCommitmentId: commitmentId, linkState: 'linked', held: null,
+      acceptedClashes: current.clashes, droppedByProjection: null, updatedAt: now,
+    });
+    tx.create<HeldActionReceipt>(receiptPath, { fixtureId, fingerprint, action: input.action, createdAt: now });
+  });
+  if (changed !== undefined) throw new HeldChangedError(changed);
+  if (input.action === 'dismiss') return { action: 'dismiss', fixtureId, replayed };
+  const refs = await listRefs<FixtureExternalTaskRef>(uid);
+  const ref = refs.find((row) => row.taskRefId === fixtureId);
+  if (!ref?.linkedCommitmentId) throw new HeldFixtureNotFoundError();
+  const state = await readParticipantState(uid);
+  const commitment = state.commitments[ref.linkedCommitmentId];
+  if (!commitment?.timeSpec.dueAt) throw new HeldFixtureNotFoundError();
+  const collisions = findCollisions({ dueAt: commitment.timeSpec.dueAt, endAt: commitment.timeSpec.endAt }, Object.values(state.commitments).filter((row) => row.id !== commitment.id));
+  return { action: 'add', replayed, fixture: {
+    commitmentId: commitment.id, homeTeamName: ref.homeTeamName, awayTeamName: ref.awayTeamName,
+    ...(ref.homeTeamId ? { homeTeamId: ref.homeTeamId } : {}), ...(ref.awayTeamId ? { awayTeamId: ref.awayTeamId } : {}),
+    kickoffUtc: commitment.timeSpec.dueAt, collisions, clashes: ref.acceptedClashes ?? [], clashState: 'known',
+  } };
 }
 
 /**
@@ -1165,6 +1366,14 @@ export async function listActiveFixtureCommitments(uid: string): Promise<readonl
 
   const state = await readParticipantState(uid);
   const allCommitments: Commitment[] = Object.values(state.commitments);
+  const enabled = resolveExternalClashHold();
+  let schedule = null as Awaited<ReturnType<typeof readFreeSlotSchedule>> | null;
+  if (enabled) {
+    const starts = candidates.map((ref) => ref.held?.kickoffUtc).filter((value): value is string => Boolean(value));
+    const activeStarts = candidates.map((ref) => ref.linkedCommitmentId ? state.commitments[ref.linkedCommitmentId]?.timeSpec.dueAt : null).filter((value): value is string => Boolean(value));
+    const allStarts = [...starts, ...activeStarts].sort();
+    if (allStarts.length) schedule = await readFreeSlotSchedule(uid, { startsAt: allStarts[0]!, endsAt: new Date(Date.parse(allStarts.at(-1)!) + FIXTURE_BLOCK_MINUTES * 60_000).toISOString() }, getStorage());
+  }
   const summaries: FixtureCommitmentSummary[] = [];
   for (const ref of candidates) {
     const commitment = state.commitments[ref.linkedCommitmentId!];
@@ -1179,6 +1388,13 @@ export async function listActiveFixtureCommitments(uid: string): Promise<readonl
     if (!dueAt) continue;
     const others = allCommitments.filter((candidate) => candidate.id !== commitment.id);
     const collisions = findCollisions({ dueAt, endAt: commitment.timeSpec.endAt }, others);
+    let m4b: Pick<FixtureCommitmentSummary, 'clashes' | 'clashState'> = {};
+    if (enabled && schedule) {
+      const decision = candidateClashes(schedule, { timeSpec: commitment.timeSpec }, { excludeCommitmentIds: [commitment.id] });
+      m4b = decision.state === 'unknown'
+        ? { clashes: ref.acceptedClashes ?? [], clashState: 'unknown' }
+        : { clashes: decision.state === 'clash' ? decision.clashes : [], clashState: 'known' };
+    }
     summaries.push({
       commitmentId: ref.linkedCommitmentId!,
       homeTeamName: ref.homeTeamName,
@@ -1187,6 +1403,7 @@ export async function listActiveFixtureCommitments(uid: string): Promise<readonl
       ...(ref.awayTeamId ? { awayTeamId: ref.awayTeamId } : {}),
       kickoffUtc: dueAt,
       collisions,
+      ...m4b,
     });
   }
 

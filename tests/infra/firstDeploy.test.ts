@@ -149,6 +149,17 @@ test('capture kinds are staging-only and keep an explicit kill switch', () => {
   assert.equal(production.get('MAYBESITTER_KILL_SWITCH_FREE_SLOTS'), 'false');
 });
 
+test('M4b capabilities are staging-only and keep explicit kill switches', () => {
+  const staging = envVarsOf(flagsFor('staging'));
+  const production = envVarsOf(flagsFor('production'));
+  for (const name of ['EXTERNAL_CLASH_HOLD', 'EVENING_IMPACT', 'SMART_POSTPONE']) {
+    assert.equal(staging.get(`MAYBESITTER_FEATURE_${name}`), 'true', `${name} is not enabled in staging`);
+    assert.equal(staging.get(`MAYBESITTER_KILL_SWITCH_${name}`), 'false', `${name} staging kill switch is not explicit`);
+    assert.equal(production.get(`MAYBESITTER_FEATURE_${name}`), 'false', `${name} escaped the production release lock`);
+    assert.equal(production.get(`MAYBESITTER_KILL_SWITCH_${name}`), 'false', `${name} production kill switch is not explicit`);
+  }
+});
+
 /** `--set-secrets` as KEY → secret:version; gcloud splits it on `,`. */
 function secretsOf(printed: string): Map<string, string> {
   const flag = printed.trim().split(/\s+/).filter((word) => word.startsWith('--set-secrets='));
@@ -164,7 +175,7 @@ function secretsOf(printed: string): Map<string, string> {
   return secrets;
 }
 
-test('both services mount the same secrets: deletion pepper, model-log uid salt and the football credential', () => {
+test('both services mount the same secrets, including the postpone-slot signing key', () => {
   // Owner decision 2026-09-29: production gets the same features as staging,
   // football fixtures included; and the uid salt the production model spend
   // decision required, so model log lines never carry an unsalted uid hash.
@@ -172,6 +183,7 @@ test('both services mount the same secrets: deletion pepper, model-log uid salt 
     ['MAYBESITTER_DELETION_RECEIPT_PEPPER', 'maybesitter-deletion-receipt-pepper:latest'],
     ['MAYBESITTER_LLM_UID_SALT', 'maybesitter-llm-uid-salt:latest'],
     ['FOOTBALL_DATA_API_KEY', 'maybesitter-football-data-api-key:latest'],
+    ['MAYBESITTER_POSTPONE_SLOT_HMAC_KEY', 'maybesitter-postpone-slot-hmac-key:latest'],
   ];
   const expected = new Map(mounts);
   for (const target of ['staging', 'production'] as const) {
@@ -313,8 +325,8 @@ test('switching the env list to a custom delimiter dropped none of the existing 
   assert.equal(staging.get('MAYBESITTER_LLM_GLOBAL_DAILY_CALL_CAP'), '3000');
   assert.equal(staging.get('MAYBESITTER_FEATURE_PROACTIVE_LOOP'), 'true');
   assert.equal(staging.get('MAYBESITTER_KILL_SWITCH_PROACTIVE_LOOP'), 'false');
-  assert.equal(production.size, 30);
-  assert.equal(staging.size, 29);
+  assert.equal(production.size, 36);
+  assert.equal(staging.size, 35);
 });
 
 // ── Same-digest production promotion ────────────────────────────────────

@@ -304,6 +304,8 @@ export type Postpone = {
   postponedUntil: string;
   now: string;
   reminderId?: string;
+  /** Present only for a verified smart-postpone offer. */
+  moveInterval?: { dueAt: string; endAt: string | null; remindAt: string | null };
 };
 
 export type Drop = {
@@ -834,6 +836,11 @@ export function applyCommand(state: DomainState, command: Command): StateTransit
       if (
         commitment.currentAckState === 'postponed' &&
         commitment.postponedUntil === command.postponedUntil &&
+        (!command.moveInterval || (
+          commitment.timeSpec.dueAt === command.moveInterval.dueAt &&
+          (commitment.timeSpec.endAt ?? null) === command.moveInterval.endAt &&
+          (commitment.timeSpec.remindAt ?? null) === command.moveInterval.remindAt
+        )) &&
         existingReminder?.commitmentId === commitment.id &&
         existingReminder.status === 'scheduled'
       ) {
@@ -841,6 +848,14 @@ export function applyCommand(state: DomainState, command: Command): StateTransit
       }
       commitment.currentAckState = 'postponed';
       commitment.postponedUntil = command.postponedUntil;
+      if (command.moveInterval) {
+        commitment.timeSpec = {
+          ...commitment.timeSpec,
+          dueAt: command.moveInterval.dueAt,
+          endAt: command.moveInterval.endAt,
+          remindAt: command.moveInterval.remindAt,
+        };
+      }
       commitment.updatedAt = command.now;
       cancelOpenReminders(newState, commitment.id, command.now);
 

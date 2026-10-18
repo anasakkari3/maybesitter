@@ -15,6 +15,8 @@ import { commitmentToMobileDto, mobileError } from '../../../../../../../lib/ser
 import { getDeviceCalendarLink } from '../../../../../../../lib/services/calendar/deviceCalendarLinks';
 import { RequestBodyTooLargeError, readJsonBody, requestBodyTooLargeResponse } from '../../../../../../../lib/net/requestBody';
 import { learnOutcomesWithin } from '../../../../../../../lib/intelligence/outcomeLearning';
+import { applyPostponeSlot, postponeSlots, SlotDecisionError } from '../../../../../../../lib/planning/postponeSlots';
+import { resolveSmartPostpone } from '../../../../../../../lib/release/m4bCapabilities';
 
 export const dynamic = 'force-dynamic';
 
@@ -33,7 +35,7 @@ export async function POST(
   }
 
   const { id } = await params;
-  let body: { action?: unknown; postponedUntil?: unknown; clientActionId?: unknown };
+  let body: { action?: unknown; postponedUntil?: unknown; clientActionId?: unknown; fromSlot?: unknown; slotToken?: unknown };
   try {
     body = await readJsonBody(request);
   } catch (error) {
@@ -52,17 +54,28 @@ export async function POST(
     && (typeof body.clientActionId !== 'string' || !CLIENT_ACTION_ID.test(body.clientActionId))) {
     return mobileError('clientActionId must be a lower-case UUID');
   }
+  if (body.fromSlot !== undefined || body.slotToken !== undefined) {
+    if (body.action !== 'postpone' || body.fromSlot !== true || typeof body.slotToken !== 'string' || !resolveSmartPostpone()) {
+      return mobileError('fromSlot and slotToken are only valid together for smart postpone');
+    }
+  }
 
   try {
     // The If-Match is carried into the same transaction that writes, so an
     // action from a device holding a stale copy is refused rather than
     // applied (#148).
-    const { commitment, replayed } = await applyCommitmentAction(id, body.action as CommitmentActionName, {
-      postponedUntil: body.postponedUntil,
-      participantId: user.uid,
-      expectedValidator: ifMatchFrom(request),
-      ...(typeof body.clientActionId === 'string' ? { clientActionId: body.clientActionId } : {}),
-    });
+    const { commitment, replayed } = body.fromSlot === true
+      ? await applyPostponeSlot(user.uid, id, {
+        postponedUntil: body.postponedUntil as string,
+        slotToken: body.slotToken as string,
+        ...(typeof body.clientActionId === 'string' ? { clientActionId: body.clientActionId } : {}),
+      })
+      : await applyCommitmentAction(id, body.action as CommitmentActionName, {
+        postponedUntil: body.postponedUntil,
+        participantId: user.uid,
+        expectedValidator: ifMatchFrom(request),
+        ...(typeof body.clientActionId === 'string' ? { clientActionId: body.clientActionId } : {}),
+      });
     // A postpone moves the event and a cancel removes it, so the link travels
     // with the answer rather than costing the client a second request (#185).
     const link = await getDeviceCalendarLink(user.uid, id);
@@ -78,6 +91,10 @@ export async function POST(
       ...(replayed ? { replayed: true } : {}),
     }, { headers: { ETag: etagFor(commitment) } });
   } catch (error) {
+    if (error instanceof SlotDecisionError) {
+      const fresh = await postponeSlots(user.uid, id);
+      return Response.json({ success: false, error: error.code, slots: fresh?.slots ?? [], complete: fresh?.complete ?? false }, { status: 409 });
+    }
     if (error instanceof StaleCommitmentError) return staleCommitmentResponse(error.current);
     if (error instanceof InvalidTransitionError) return invalidTransitionResponse();
     if (error instanceof ClientActionIdReusedError) {

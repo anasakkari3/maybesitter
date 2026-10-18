@@ -22,6 +22,7 @@ import {
   deleteIcsFeed,
   icsFeedsEnabled,
   IcsFeedError,
+  IcsItemChangedError,
   listIcsDeadlines,
   listIcsFeeds,
   refreshIcsFeed,
@@ -36,6 +37,9 @@ export interface IcsRouteDeps extends IcsFeedDeps {
 }
 
 function refusal(error: IcsFeedError): Response {
+  if (error instanceof IcsItemChangedError) {
+    return Response.json({ success: false, error: 'item_changed', row: error.row }, { status: 409 });
+  }
   return Response.json(
     { success: false, error: error.code, reason: error.code, ...(error.detail ? { detail: error.detail } : {}) },
     { status: error.status },

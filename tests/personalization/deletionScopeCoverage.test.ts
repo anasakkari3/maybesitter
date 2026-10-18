@@ -165,6 +165,9 @@ const KEPT_BECAUSE: Record<string, string> = {
   commitmentActionReceipts:
     'which notification taps were already applied (#200): ids and an action, kept so a replayed tap '
     + 'is not applied twice; not a claim about the person',
+  externalTaskActionReceipts:
+    'which add or dismiss decision was already applied to an external fixture: content-free '
+    + 'idempotency state kept so a replay cannot add the fixture twice or reverse the decision',
   nextStepDecisions: 'the user’s own answers to a question',
   auditEvents: 'the record that the deletion happened; erasing it erases the receipt',
   actionGatewayAuditEvents:
