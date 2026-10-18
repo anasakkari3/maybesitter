@@ -43,10 +43,15 @@ export function WatchingScreen({ tabClearance = TAB_CLEARANCE }: { tabClearance?
   const zone = useTimeZone();
   // M4b R1.5: matches and feed rows held because they clash. Read only while
   // the capability is on; independent of the proactive loop and its consent.
-  useM4bCapabilities();
+  const holdOn = useM4bCapabilities()?.externalClashHold === true;
   const heldItems = useHeldItems();
-  const heldCount = heldItems.data?.count ?? 0;
-  const heldInFootball = heldItems.data?.items.some((item) => item.source === 'football') ?? false;
+  const held = holdOn ? heldItems.data : undefined;
+  const heldCount = held?.count ?? 0;
+  // One destination per source (M4B-A-008): a card counting a feed row must
+  // not open only the football screen.
+  const footballHeld = held?.items.filter((item) => item.source === 'football').length ?? 0;
+  const icsHeld = held?.items.filter((item) => item.source === 'ics').length ?? 0;
+  const mixed = footballHeld > 0 && icsHeld > 0;
   const activity = useBackgroundActivity();
   const setPaused = useSetBackgroundActivityPaused();
   const decided = useIntelligenceDecided();
@@ -66,14 +71,23 @@ export function WatchingScreen({ tabClearance = TAB_CLEARANCE }: { tabClearance?
 
         {heldCount > 0 ? (
           <View testID="watching-held-card">
-            <HubRow
-              testID="watching-held-open"
-              icon="calendar"
-              tone="attention"
-              title={tr('zHeldCard', { count: heldCount })}
-              sub={t.zHeldCardOpen}
-              onPress={() => actions.go(heldInFootball ? 'footballSettings' : 'calendarFeeds')}
-            />
+            {mixed ? (
+              <View style={{ gap: 8 }}>
+                <HubRow testID="watching-held-open" icon="calendar" tone="attention" title={tr('zHeldCard', { count: footballHeld })}
+                  sub={t.footballTitle} onPress={() => actions.go('footballSettings')} />
+                <HubRow testID="watching-held-open-ics" icon="calendar" tone="attention" title={tr('zHeldCard', { count: icsHeld })}
+                  sub={t.icsFeedsTitle} onPress={() => actions.go('calendarFeeds')} />
+              </View>
+            ) : (
+              <HubRow
+                testID="watching-held-open"
+                icon="calendar"
+                tone="attention"
+                title={tr('zHeldCard', { count: heldCount })}
+                sub={t.zHeldCardOpen}
+                onPress={() => actions.go(footballHeld > 0 ? 'footballSettings' : 'calendarFeeds')}
+              />
+            )}
           </View>
         ) : null}
 

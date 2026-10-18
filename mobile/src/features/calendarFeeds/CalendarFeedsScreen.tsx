@@ -24,6 +24,7 @@ import { userFacingMessage } from '../../api/ui/userFacingMessage';
 import { IcsItemChangedError } from '../../api/errors';
 import type { Clash } from '../../api/schemas/m4b';
 import { clashLine } from '../m4b/clashLine';
+import { useM4bCapabilities } from '../m4b/capabilities';
 import { LiveRegion } from '../../ui/liveRegion';
 import { useAnnounceOnIos } from '../../ui/announce';
 import type { IcsDeadline, IcsDeadlineAction, IcsFeed } from '../../api/schemas/icsFeeds';
@@ -118,7 +119,7 @@ function FeedsBody({ rtl }: { rtl: boolean }) {
             <Txt size={13} color={p.mu} testID="ics-nothing-waiting">{t.icsFeedsNothingWaiting}</Txt>
           </View>
         ) : null}
-        {deadlines.map(deadline => <DeadlineRow key={deadline.itemKey} deadline={deadline} consented={consented} />)}
+        {deadlines.map(deadline => <DeadlineRow key={`${deadline.feedId}:${deadline.itemKey}`} deadline={deadline} consented={consented} />)}
       </Card>
     </>
   );
@@ -367,6 +368,8 @@ function DeadlineRow({ deadline, consented }: { deadline: IcsDeadline; consented
   const id = deadline.itemKey;
   const busy = sending || decide.isPending;
   const changed = decide.error instanceof IcsItemChangedError;
+  // M4b fields are drawn only while the capability is on (M4B-A-001).
+  const holdOn = useM4bCapabilities()?.externalClashHold === true;
   useAnnounceOnIos(changed ? t.zIcsChanged : null);
   const clashLines = (clashes: readonly Clash[], at: string, prefix: string) => {
     const subjectDay = dayKey(new Date(at), timezone);
@@ -377,7 +380,7 @@ function DeadlineRow({ deadline, consented }: { deadline: IcsDeadline; consented
     ));
   };
   // M4b R1.4: why a pending row was not added by itself.
-  const held = deadline.state === 'pending' && deadline.held
+  const held = holdOn && deadline.state === 'pending' && deadline.held
     ? deadline.held.reason === 'clash'
       ? <View testID={`ics-held-${id}`} style={{ gap: 4 }}>{clashLines(deadline.held.clashes, deadline.dueAt, `ics-held-clash-${id}`)}</View>
       : <Txt size={13} color={p.wm} testID={`ics-held-unknown-${id}`}>{t.zIcsHeldUnknown}</Txt>
@@ -398,9 +401,9 @@ function DeadlineRow({ deadline, consented }: { deadline: IcsDeadline; consented
     status = (
       <>
         <Txt size={13} color={p.mu} lh={1.5} testID={`ics-moved-${id}`}>
-          {fill(t.icsFeedsMoved, { when: when(deadline.proposedDueAt, deadline.proposedAllDay ?? deadline.allDay) })}
+          {fill(t.icsFeedsMoved, { when: when(deadline.proposedDueAt, holdOn ? deadline.proposedAllDay ?? deadline.allDay : deadline.allDay) })}
         </Txt>
-        {deadline.proposedClashes ? clashLines(deadline.proposedClashes, deadline.proposedDueAt, `ics-proposed-clash-${id}`) : null}
+        {holdOn && deadline.proposedClashes ? clashLines(deadline.proposedClashes, deadline.proposedDueAt, `ics-proposed-clash-${id}`) : null}
       </>
     );
     actions = (

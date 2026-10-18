@@ -1,7 +1,7 @@
 import { dayProgress, importantDeadline, planPreview } from '../features/today/dayContext';
 import { DeadlineContext } from '../features/today/DeadlineContext';
 import { weekStripKeys } from '../features/commitments/weekStrip';
-import React, { useContext, useEffect, useMemo, useState } from 'react';
+import React, { useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { RefreshControl, View } from 'react-native';
 import { useApp } from '../state/AppContext';
 import { isValidTimeZone, useTimeZone } from '../i18n/timezone';
@@ -672,6 +672,7 @@ function Row({ item, timezone, lang, busy, football }: {
    * `postpone` moves it an hour, the same default the details sheet uses.
    */
   const openPostponeSheet = useContext(OpenPostponeSheet);
+  const deciding = useRef(false);
   const freshCapability = useFreshM4bCapability();
   const rowActions = useRowActions(item, {
     complete: () => act.mutate({ id: item.id, action: 'complete' }),
@@ -680,10 +681,14 @@ function Row({ item, timezone, lang, busy, football }: {
     // picked. Otherwise — off, killed, failed, or no answer in 1.5 s — it is
     // today's one-hour postpone.
     postpone: () => {
+      // One decision per tap (M4B-A-007): further swipes while the probe is
+      // out are ignored, so a false answer cannot postpone twice.
+      if (deciding.current) return;
+      deciding.current = true;
       void freshCapability('smartPostpone').then((smart) => {
         if (smart) openPostponeSheet(item.id);
         else act.mutate({ id: item.id, action: 'postpone', postponedUntil: postponeTo('oneHour', new Date(), timezone) });
-      });
+      }).finally(() => { deciding.current = false; });
     },
   });
   const drawn = drawnClockAt(item);

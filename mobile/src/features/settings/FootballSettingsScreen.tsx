@@ -13,6 +13,7 @@ import type { FootballFixture } from '../../api/schemas/football';
 import type { Clash, HeldFixture } from '../../api/schemas/m4b';
 import { HeldChangedError } from '../../api/errors';
 import { dayKey } from '../../i18n/format';
+import { isolateAuto, stripIsolates } from '../../i18n/bidi';
 import { useM4bCapabilities } from '../m4b/capabilities';
 import { useDecideHeldFixture } from '../m4b/heldFixtures';
 import { clashLine } from '../m4b/clashLine';
@@ -60,9 +61,12 @@ export function FootballSettingsScreen({ onBack }: { onBack: () => void }) {
   const decideHeld = useDecideHeldFixture();
   // M4b: the probe is read with the screen (fail closed). The held section
   // itself shows only what the server sent: `held` is absent when it is off.
-  useM4bCapabilities();
-  const held = settings.data?.held ?? [];
-  const waitingForCoverage = settings.data?.waitingForCoverage ?? 0;
+  // Gated twice (M4B-A-001): the server sends these fields only when the
+  // capability is on, and a cached copy is drawn only while the latest
+  // successful probe still says it is on.
+  const holdOn = useM4bCapabilities()?.externalClashHold === true;
+  const held = holdOn ? settings.data?.held ?? [] : [];
+  const waitingForCoverage = holdOn ? settings.data?.waitingForCoverage ?? 0 : 0;
   const heldChanged = decideHeld.error instanceof HeldChangedError;
   useAnnounceOnIos(heldChanged ? t.zHeldChanged : null);
 
@@ -95,7 +99,7 @@ export function FootballSettingsScreen({ onBack }: { onBack: () => void }) {
     const kickoff = new Date(fixture.kickoffUtc);
     const date = formatDate(kickoff, 'short', { locale: lang, timeZone: timezone });
     const time = formatTime(kickoff, { locale: lang, timeZone: timezone });
-    return `${date} · ${ltr(time)}`;
+    return `${isolateAuto(date)} · ${ltr(time)}`;
   }, [lang, timezone]);
 
   return (
@@ -143,16 +147,18 @@ export function FootballSettingsScreen({ onBack }: { onBack: () => void }) {
           <Txt size={13} color={p.wm} testID="football-save-failed">{t.footballSaveFailed}</Txt>
         ) : null}
 
+        {/* Mounted always (M4B-A-006): TalkBack hears a change inside a live
+            region that is already there, even when the last held row goes. */}
+        <LiveRegion>
+          {heldChanged ? <Txt size={13} color={p.wm} testID="football-held-changed">{t.zHeldChanged}</Txt> : null}
+        </LiveRegion>
         {held.length > 0 ? (
           <Card pad={0} style={{ overflow: 'hidden' }} testID="football-held-section">
             <View style={{ paddingTop: 16, paddingHorizontal: 18 }}>
               <Txt size={15} weight={700} role="section">{t.zHeldSection}</Txt>
             </View>
-            <LiveRegion>
-              {heldChanged ? <Txt size={13} color={p.wm} testID="football-held-changed" style={{ paddingHorizontal: 18, paddingTop: 6 }}>{t.zHeldChanged}</Txt> : null}
-            </LiveRegion>
             {held.map((entry: HeldFixture) => {
-              const title = fixtureTitle(entry, clubs, lang);
+              const title = isolateAuto(fixtureTitle(entry, clubs, lang));
               const when = matchLine(entry);
               const headline = (entry.moved ? fill(t.zHeldMoved, { title, when, clash: '' }) : fill(t.zHeldMatch, { title, when, clash: '' })).trim();
               return (
@@ -161,7 +167,7 @@ export function FootballSettingsScreen({ onBack }: { onBack: () => void }) {
                   {clashLines(entry.fixtureId, entry.kickoffUtc, entry.clashes)}
                   <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 4 }}>
                     <Btn
-                      label={fill(t.zHeldAddA11y, { title })}
+                      label={stripIsolates(fill(t.zHeldAddA11y, { title }))}
                       testID={`football-held-add-${entry.fixtureId}`}
                       disabled={decideHeld.isPending}
                       onPress={() => decideHeld.mutate({ fixtureId: entry.fixtureId, action: 'add', heldVersion: entry.heldVersion })}
@@ -171,7 +177,7 @@ export function FootballSettingsScreen({ onBack }: { onBack: () => void }) {
                       <Txt size={14} weight={700} color={p.onAccent}>{t.zHeldAdd}</Txt>
                     </Btn>
                     <Btn
-                      label={fill(t.zHeldDismissA11y, { title })}
+                      label={stripIsolates(fill(t.zHeldDismissA11y, { title }))}
                       testID={`football-held-dismiss-${entry.fixtureId}`}
                       disabled={decideHeld.isPending}
                       onPress={() => decideHeld.mutate({ fixtureId: entry.fixtureId, action: 'dismiss', heldVersion: entry.heldVersion })}
@@ -219,7 +225,7 @@ export function FootballSettingsScreen({ onBack }: { onBack: () => void }) {
                     <Txt size={13} color={p.mu}>{t.footballDismiss}</Txt>
                   </Btn>
                 </View>
-                {fixture.clashes !== undefined ? clashLines(fixture.commitmentId, fixture.kickoffUtc, fixture.clashes) : fixture.collisions && fixture.collisions.length > 0 ? (
+                {holdOn && fixture.clashes !== undefined ? clashLines(fixture.commitmentId, fixture.kickoffUtc, fixture.clashes) : fixture.collisions && fixture.collisions.length > 0 ? (
                   <Txt size={13} color={p.wm} testID={`football-collision-${fixture.commitmentId}`}>
                     {fill(t.footballCollision, { titles: fixture.collisions.map((collision) => collision.title).join(lang === 'ar' ? '، ' : ', ') })}
                   </Txt>

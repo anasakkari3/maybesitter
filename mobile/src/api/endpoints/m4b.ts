@@ -1,7 +1,7 @@
 import { apiRequest } from '../client';
 import { captureProposalResponseSchema } from '../schemas/capture';
+import { heldFixtureDecidedSchema } from '../schemas/football';
 import {
-  heldFixtureDecidedSchema,
   heldItemsSchema,
   m4bCapabilitiesSchema,
   postponeSlotsSchema,

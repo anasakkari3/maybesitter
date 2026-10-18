@@ -4,6 +4,7 @@ import { AppDateTimePicker as DateTimePicker } from '../ui/AppDateTimePicker';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useApp } from '../state/AppContext';
 import { fill, ltr } from '../i18n/strings';
+import { isolateAuto } from '../i18n/bidi';
 import { useTimeZone } from '../i18n/timezone';
 import { formatDate, formatRelativeDay, formatTime } from '../i18n/format';
 import { useCommitment, useCommitmentAction, useDeleteCommitment, usePatchCommitment } from '../api/queries';
@@ -175,7 +176,7 @@ function PostponeChoices({ commitmentId, onMoved }: {
   const slotProblem = smart.problem === null ? null
     : smart.problem === 'slot_taken' ? t.zPostponeTaken
       : smart.problem === 'slot_unverified' ? t.zPostponeUnverified
-        : fill(t.zPostponeStale, { title: title ?? '' });
+        : fill(t.zPostponeStale, { title: isolateAuto(title ?? '') });
   useAnnounceOnIos(slotProblem);
 
   const choose = (preset: PostponePreset) => {
@@ -198,7 +199,7 @@ function PostponeChoices({ commitmentId, onMoved }: {
 
   return (
     <View style={{ gap: 14 }}>
-      <Txt size={14} color={p.mu} lh={1.5}>{smart.phase === 'slots' && title ? fill(t.zPostponeAsk, { title }) : t.postponeBody}</Txt>
+      <Txt size={14} color={p.mu} lh={1.5}>{smart.phase === 'slots' && title ? fill(t.zPostponeAsk, { title: isolateAuto(title) }) : t.postponeBody}</Txt>
       <LiveRegion>{slotProblem ? <Txt size={13} color={p.wm} testID="postpone-slot-problem">{slotProblem}</Txt> : null}</LiveRegion>
       {smart.phase === 'loading' ? (
         <Txt size={14} color={p.mu} testID="postpone-slots-loading">{t.zPostponeLoading}</Txt>
@@ -214,7 +215,7 @@ function PostponeChoices({ commitmentId, onMoved }: {
                 key={slot.slotToken}
                 testID={`postpone-slot-${index}`}
                 subTestID={`postpone-slot-why-${index}`}
-                label={`${day} · ${ltr(time)}`}
+                label={`${isolateAuto(day)} · ${ltr(time)}`}
                 sub={why}
                 a11yLabel={fill(t.zPostponeSlotA11y, { day, time, why })}
                 disabled={act.isPending}
@@ -338,9 +339,9 @@ function PostponeChoices({ commitmentId, onMoved }: {
 /**
  * Where the postpone sheet's choices come from (M4b R3.3).
  *
- * Today's four presets unless smart postpone is on by the latest successful
- * probe: then a loading line, a fresh probe (a cached `true` alone changes
- * nothing), and the server's free times. Anything short of a complete answer
+ * Today's four presets unless smart postpone is on: the latest successful
+ * probe says so, and this opening's own fresh probe (bounded 1.5 s) says so
+ * too — only then a loading line and the server's free times. Anything short of a complete answer
  * with at least one time — off, an error, an incomplete schedule — is the
  * presets, unchanged.
  */
@@ -350,8 +351,9 @@ function useSmartPostpone(commitmentId: string | null) {
   const capabilities = useM4bCapabilities();
   const fresh = useFreshM4bCapability();
   const cachedOn = capabilities?.smartPostpone === true;
-  const initial: SmartPhase = commitmentId !== null && cachedOn ? 'loading' : 'presets';
-  const [phase, setPhase] = useState<SmartPhase>(initial);
+  // Today's presets until this opening's own fresh probe says yes (M4B-A-002):
+  // a cached `true` alone never changes the sheet.
+  const [phase, setPhase] = useState<SmartPhase>('presets');
   const [slots, setSlots] = useState<PostponeSlot[]>([]);
   const [problem, setProblem] = useState<SlotRefusedError['reason'] | null>(null);
   // A new opening starts over, decided during render rather than in an
@@ -361,7 +363,7 @@ function useSmartPostpone(commitmentId: string | null) {
     setOpenedFor(commitmentId);
     setSlots([]);
     setProblem(null);
-    setPhase(initial);
+    setPhase('presets');
   }
 
   useEffect(() => {
@@ -369,8 +371,8 @@ function useSmartPostpone(commitmentId: string | null) {
     let live = true;
     void (async () => {
       const on = await fresh('smartPostpone');
-      if (!live) return;
-      if (!on) { setPhase('presets'); return; }
+      if (!live || !on) return;
+      setPhase('loading');
       try {
         const answer = await getPostponeSlots(commitmentId);
         if (!live) return;

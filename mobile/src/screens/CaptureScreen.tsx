@@ -25,6 +25,7 @@ import { chatItemPresentation } from '../features/capture/chatPresentation';
 import { chatConflictA11y, chatConflictLines } from '../features/capture/chatConflicts';
 import { ImpactBlock, useAnnounceNewPrep } from '../features/m4b/ImpactBlock';
 import { useM4bCapability } from '../features/m4b/capabilities';
+import type { Readiness } from '../api/schemas/m4b';
 import { collisionLines } from '../features/capture/savedCollisions';
 import { fill, ltr } from '../i18n/strings';
 import { isolateAuto, isolateLatinRuns, stripIsolates } from '../i18n/bidi';
@@ -408,6 +409,17 @@ export function CaptureScreen({ entryQuestion }: { entryQuestion?: { entry: Capt
     if (discardsSomething()) setDiscarding('back');
     else back();
   };
+  const [readinessError, setReadinessError] = useState<{ itemId: string; key: UserFacingKey } | null>(null);
+  // «حاضر؟» (M4b R2.3), the way a clarification is answered: one at a time,
+  // the group disabled while it is on its way, and a failure said on the card.
+  const answerReadiness = async (itemId: string, readiness: Readiness) => {
+    if (answering || flow.writing) return;
+    setAnswering(true);
+    setReadinessError(null);
+    const outcome = await flow.answerReadiness(itemId, readiness);
+    setAnswering(false);
+    if (!outcome.ok) setReadinessError({ itemId, key: outcome.messageKey });
+  };
   const answer = async (itemId: string, value: { optionId?: string; freeText?: string }) => {
     if (answering) return;
     setAnswering(true);
@@ -491,8 +503,9 @@ export function CaptureScreen({ entryQuestion }: { entryQuestion?: { entry: Capt
         <ChatIcon name="warning" size={18} color={p.wm} />
         <Txt size={13} weight={500} color={p.wm} style={{ flex: 1 }} testID={`review-conflict-${item.itemId}-${index}-text`}>{line}</Txt>
       </View>)}
-      {impact ? <ImpactBlock itemId={item.itemId} impact={impact} itemTitle={shown.title} disabled={busy || answering}
-        onAnswer={(readiness) => { void flow.answerReadiness(item.itemId, readiness); }} /> : null}
+      {impact ? <ImpactBlock itemId={item.itemId} impact={impact} itemTitle={shown.title} disabled={busy || answering || flow.writing}
+        error={readinessError?.itemId === item.itemId ? t[readinessError.key] : null}
+        onAnswer={(readiness) => { void answerReadiness(item.itemId, readiness); }} /> : null}
       {shown.instant && weekly !== 'weekly' ? <BusyConflictChip testID={`review-busy-${item.itemId}`} blocks={busyHere} /> : null}
       {/* «مرتبط بهدف …» (audit 2026-10-03 #6): the goal this card would count
           toward, kept unless the person takes it off — one control, a

@@ -1777,7 +1777,7 @@ export function useDecideIcsDeadline() {
       const row = icsDeadlineSchema.safeParse(error.row);
       if (!row.success) return;
       client.setQueryData<IcsFeedList>(queryKeys.icsFeeds(uid), (current) => current
-        ? { ...current, deadlines: current.deadlines.map((entry) => (entry.itemKey === row.data.itemKey ? row.data : entry)) }
+        ? { ...current, deadlines: current.deadlines.map((entry) => (entry.feedId === row.data.feedId && entry.itemKey === row.data.itemKey ? row.data : entry)) }
         : current);
     },
     onSettled: () => {

@@ -20,11 +20,13 @@ const ANSWERS: readonly Readiness[] = ['ready', 'not_ready', 'unsure'];
  * «مش متأكد» bring a preparation card into the list (nothing is saved before
  * «احفظ»); with no free time before the evening, one line says so.
  */
-export function ImpactBlock({ itemId, impact, itemTitle, disabled, onAnswer }: {
+export function ImpactBlock({ itemId, impact, itemTitle, disabled, error, onAnswer }: {
   itemId: string;
   impact: EveningImpact;
   itemTitle: string;
   disabled: boolean;
+  /** Why the last answer did not go through, already in the person's language. */
+  error: string | null;
   onAnswer: (readiness: Readiness) => void;
 }) {
   const { t, p, lang } = useApp();
@@ -41,7 +43,8 @@ export function ImpactBlock({ itemId, impact, itemTitle, disabled, onAnswer }: {
   // The result of the person's answer, said where it lands (TalkBack via the
   // live region, VoiceOver via the announcement).
   const noSlot = impact.prep?.state === 'no_slot';
-  useAnnounceOnIos(noSlot ? t.zPrepNoSlot : null);
+  const result = noSlot ? t.zPrepNoSlot : impact.readiness === 'ready' ? t.zReadyOk : null;
+  useAnnounceOnIos(error ?? result);
 
   return (
     <View style={{ alignSelf: 'stretch', gap: 8 }}>
@@ -75,7 +78,9 @@ export function ImpactBlock({ itemId, impact, itemTitle, disabled, onAnswer }: {
           })}
         </View>
         <LiveRegion>
-          {noSlot ? <Txt size={13} color={p.mu} testID={`impact-prep-noslot-${itemId}`}>{t.zPrepNoSlot}</Txt> : null}
+          {error ? <Txt size={13} color={p.wm} testID={`impact-ready-error-${itemId}`}>{error}</Txt>
+            : noSlot ? <Txt size={13} color={p.mu} testID={`impact-prep-noslot-${itemId}`}>{t.zPrepNoSlot}</Txt>
+              : impact.readiness === 'ready' ? <Txt size={13} color={p.mu} testID={`impact-ready-ok-${itemId}`}>{t.zReadyOk}</Txt> : null}
         </LiveRegion>
       </View>
     </View>

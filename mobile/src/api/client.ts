@@ -1,4 +1,4 @@
-import type { z } from 'zod';
+import { z } from 'zod';
 import { Platform } from 'react-native';
 import { apiBaseUrl } from '../config/env';
 import { getAuthRepository, getIdToken, refreshIdToken, signOutExpired, signOutForbidden } from './auth';
@@ -52,7 +52,7 @@ import { mockResponseFor } from './mockAdapter';
 import { commitmentSchema } from './schemas/common';
 import { captureConfirmationSchema, captureProposalSchema, proposalChangedChatSchema, proposalChangedProposalSchema } from './schemas/capture';
 import { planEditRejectedSchema, planProposalRejectedSchema, weekConflictSchema, weekEmptyDaySchema } from './schemas/plan';
-import { icsFeedRefusalSchema } from './schemas/icsFeeds';
+import { icsDeadlineSchema, icsFeedRefusalSchema } from './schemas/icsFeeds';
 import { googleRefusalSchema } from './schemas/google';
 import { heldChangedSchema, slotRefusedSchema } from './schemas/m4b';
 import { goalPlanSchema, goalPlanTimesSchema } from './schemas/goalPlan';
@@ -303,6 +303,10 @@ function planEditRefusal(body: unknown, message: string): Error {
   return new PlanEditRefusedError(parsed.data.reason, parsed.data.itemId ?? null);
 }
 
+/** WIRE-M4b's two redraw refusals, parsed strictly: the row or proposal must be readable. */
+const icsItemChangedSchema = z.object({ success: z.literal(false), error: z.literal('item_changed'), row: icsDeadlineSchema }).strict();
+const impactProposalChangedSchema = z.object({ success: z.literal(false), error: z.literal('proposal_changed'), proposal: captureProposalSchema }).strict();
+
 function m4bConflict(body: unknown, path?: string): Error | null {
   if (!body || typeof body !== 'object') return null;
   const code = (body as { error?: unknown }).error;
@@ -310,15 +314,18 @@ function m4bConflict(body: unknown, path?: string): Error | null {
     const parsed = heldChangedSchema.safeParse(body);
     return parsed.success ? new HeldChangedError(parsed.data.held) : null;
   }
-  if (code === 'item_changed') return new IcsItemChangedError((body as { row?: unknown }).row ?? null);
+  if (code === 'item_changed') {
+    const parsed = icsItemChangedSchema.safeParse(body);
+    return parsed.success ? new IcsItemChangedError(parsed.data.row) : null;
+  }
   if (code === 'slot_taken' || code === 'slot_unverified' || code === 'slot_stale') {
     const parsed = slotRefusedSchema.safeParse(body);
     return parsed.success ? new SlotRefusedError(parsed.data.error, parsed.data.slots, parsed.data.complete) : null;
   }
   // The readiness answer's refusal (R2.2): the proposal as it is now.
   if (code === 'proposal_changed' && path === '/api/mobile/capture/impact') {
-    const proposal = captureProposalSchema.safeParse((body as { proposal?: unknown }).proposal);
-    if (proposal.success) return new ProposalChangedError({ kind: 'proposal', proposal: proposal.data, state: 'open' });
+    const parsed = impactProposalChangedSchema.safeParse(body);
+    if (parsed.success) return new ProposalChangedError({ kind: 'proposal', proposal: parsed.data.proposal, state: 'open' });
   }
   return null;
 }

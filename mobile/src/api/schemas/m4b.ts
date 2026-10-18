@@ -54,17 +54,12 @@ export const heldFixtureSchema = z.object({
 
 export type HeldFixture = z.infer<typeof heldFixtureSchema>;
 
-export const heldFixtureDecidedSchema = z.union([
-  z.object({ success: z.literal(true), action: z.literal('add'), fixture: z.unknown(), replayed: z.literal(true).optional() }),
-  z.object({ success: z.literal(true), action: z.literal('dismiss'), fixtureId: z.string(), replayed: z.literal(true).optional() }),
-]);
-
 /** The 409 `held_changed` body: the hold as it is now, or null when it is gone. */
 export const heldChangedSchema = z.object({
   success: z.literal(false),
   error: z.literal('held_changed'),
   held: heldFixtureSchema.nullable(),
-});
+}).strict();
 
 /** `GET /api/mobile/held-items`: what «يتابع لك» counts. */
 export const heldItemsSchema = z.object({
@@ -139,4 +134,4 @@ export const slotRefusedSchema = z.object({
   error: z.enum(['slot_taken', 'slot_unverified', 'slot_stale']),
   slots: z.array(postponeSlotSchema),
   complete: z.boolean(),
-});
+}).strict();
