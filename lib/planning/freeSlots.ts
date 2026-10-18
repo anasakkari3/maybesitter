@@ -11,7 +11,7 @@ import { candidateIntervalOf, collisionIntervalOf, fixedEndFor, findCollisions, 
 import type { CaptureItemConflictContract } from '../../src/contracts/v1/captureContracts';
 import { readRoutineProfile } from '../services/mobile/routineProfileService';
 import { loadDomainState } from '../services/mobile/participantState';
-import { listWeeklyBlockOccurrences } from '../weeklyBlocks/weeklyBlockService';
+import { listWeeklyBlockScheduleOccurrences } from '../weeklyBlocks/weeklyBlockService';
 import { GOOGLE_BUSY_SOURCE_ID } from '../integrations/google/googleConfig';
 import { connectionIdFor } from '../integrations/providers/production/storedConnectionStore';
 import type { IntegrationConnectionRecord } from '../../src/contracts/v1/integrationConnectionContracts';
@@ -72,7 +72,7 @@ export interface FreeSlotCoverage {
 export interface FreeSlotSchedule {
   commitments: readonly Commitment[];
   busyBlocks: readonly BusyBlock[];
-  weeklyBlocks: readonly TimeInterval[];
+  weeklyBlocks: readonly (TimeInterval & { title: string })[];
   routineProfile: UserRoutineProfile | null;
   coverage: readonly FreeSlotCoverage[];
   complete: boolean;
@@ -250,7 +250,7 @@ async function defaultScheduleReader(
     const [commitments, busyBlocks, weeklyBlocks, routineProfile, deviceSourceRows, feeds, google] = await Promise.all([
       sourceRead('commitments', async () => Object.values((await loadDomainState(storage, uid)).commitments)),
       sourceRead('busyBlocks', () => listBusyBlocks(uid, window, { storage })),
-      sourceRead('weeklyBlocks', () => listWeeklyBlockOccurrences(uid, window, { storage })),
+      sourceRead('weeklyBlocks', () => listWeeklyBlockScheduleOccurrences(uid, window, { storage, now: new Date(now) })),
       sourceRead('routineProfile', () => readRoutineProfile(uid, { storage })),
       storage.list<CalendarSource>(userCol(uid, CALENDAR_SOURCES), { where: [['kind', '==', 'device']] }),
       storage.list<IcsFeedDocument>(userCol(uid, ICS_FEEDS), { limit: 5 }),
@@ -283,7 +283,7 @@ async function defaultScheduleReader(
       commitments,
       busyBlocks: busyBlocks.filter((block) => block.sourceKind !== 'weekly'
         && (block.sourceKind !== 'ics' || connectedIcs.has(block.sourceId))),
-      weeklyBlocks: weeklyBlocks.map((row) => ({ startsAt: row.startAt, endsAt: row.endAt })),
+      weeklyBlocks: weeklyBlocks.map((row) => ({ startsAt: row.startAt, endsAt: row.endAt, title: row.title })),
       routineProfile,
       coverage,
       complete: true,
@@ -344,7 +344,7 @@ export function candidateClashes(
   const clashes: Clash[] = findCollisions(collisionCandidate, schedule.commitments.filter((row) => !excluded.has(row.id)))
     .map((row) => ({ title: row.title, startsAt: row.startsAt, endsAt: row.endsAt, kind: 'commitment' as const }));
   for (const block of schedule.weeklyBlocks) {
-    if (overlaps(interval, block)) clashes.push({ title: 'ثابت أسبوعي', startsAt: block.startsAt, endsAt: block.endsAt, kind: 'weekly' });
+    if (overlaps(interval, block)) clashes.push({ title: block.title, startsAt: block.startsAt, endsAt: block.endsAt, kind: 'weekly' });
   }
   for (const block of schedule.busyBlocks) {
     if (!block.allDay && overlaps(interval, { startsAt: block.startAt, endsAt: block.endAt })) {
