@@ -199,8 +199,8 @@ describe('R1.5 held summary on Watching', () => {
   it.each([1, 2, 5])('R1.5 count %i shows one card independently of proactive-loop consent', async (count) => {
     const translate = jest.spyOn(i18next, 't');
     await showWatching(count);
-    expect(translate).toHaveBeenCalledWith('zHeldCard', expect.objectContaining({ count }));
     await waitFor(() => expect(screen.queryByTestId('watching-held-card')).not.toBeNull());
+    expect(translate).toHaveBeenCalledWith('zHeldCard', expect.objectContaining({ count }));
     expect(screen.queryAllByTestId('watching-held-card')).toHaveLength(1);
     expect(screen.getByTestId('watching-held-open').props.accessibilityRole).toBe('button');
   });

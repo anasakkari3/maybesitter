@@ -180,7 +180,37 @@ function defaultReply(request: RecordedRequest): RouteReply {
   if (request.path === '/api/mobile/football') return { status: 200, body: footballResponse() };
   if (request.path === '/api/mobile/calendar/ics') return { status: 200, body: { success: true, feeds: [feed()], deadlines: [] } };
   if (request.path === '/api/mobile/pilot/trust') {
-    return { status: 200, body: { success: true, participantId: ACCOUNT.uid, trust: { analyticsConsent: false, calendarConsent: true } } };
+    return {
+      status: 200,
+      body: {
+        success: true,
+        participantId: ACCOUNT.uid,
+        trust: {
+          version: 'v1',
+          participantId: ACCOUNT.uid,
+          recommendationConsent: false,
+          analyticsConsent: false,
+          calendarConsent: true,
+          firstValueAt: null,
+          quietMode: false,
+          revokedAt: null,
+          deletedAt: null,
+          updatedAt: '2030-03-29T08:00:00.000Z',
+        },
+        exposure: { allowed: false, reason: 'consent_required' },
+        whatKnows: {
+          version: 'v1',
+          participantId: ACCOUNT.uid,
+          confirmedCommitmentCount: 0,
+          recommendationConsent: false,
+          analyticsConsent: false,
+          calendarConnected: true,
+          privateMessageIngestion: false,
+          sensitiveInference: false,
+          medicalProfile: false,
+        },
+      },
+    };
   }
   if (request.path === '/api/mobile/intelligence') {
     return { status: 200, body: { success: true, observations: [], suggestions: [], schedule: [] } };
