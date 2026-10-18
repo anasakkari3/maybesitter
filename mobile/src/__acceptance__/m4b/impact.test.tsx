@@ -167,6 +167,7 @@ describe('R2.3 evening impact', () => {
         : undefined,
     );
     await waitFor(() => expect(screen.queryByTestId(`impact-ready-${EVENING_ID}-not_ready`)).not.toBeNull());
+    announce.mockClear();
     await press(`impact-ready-${EVENING_ID}-not_ready`);
 
     await waitFor(() => expect(screen.queryByTestId(`review-card-${PREP_ID}`)).not.toBeNull());
