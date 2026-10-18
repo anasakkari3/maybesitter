@@ -23,7 +23,7 @@ import { questionText } from '../features/capture/clarificationCopy';
 import { EditProposalItemSheet } from '../features/capture/EditProposalItemSheet';
 import { chatItemPresentation } from '../features/capture/chatPresentation';
 import { chatConflictA11y, chatConflictLines } from '../features/capture/chatConflicts';
-import { ImpactBlock, useAnnounceNewPrep } from '../features/m4b/ImpactBlock';
+import { ImpactBlock, readinessLocked, useAnnounceNewPrep } from '../features/m4b/ImpactBlock';
 import { useM4bCapability } from '../features/m4b/capabilities';
 import type { Readiness } from '../api/schemas/m4b';
 import { collisionLines } from '../features/capture/savedCollisions';
@@ -503,7 +503,7 @@ export function CaptureScreen({ entryQuestion }: { entryQuestion?: { entry: Capt
         <ChatIcon name="warning" size={18} color={p.wm} />
         <Txt size={13} weight={500} color={p.wm} style={{ flex: 1 }} testID={`review-conflict-${item.itemId}-${index}-text`}>{line}</Txt>
       </View>)}
-      {impact ? <ImpactBlock itemId={item.itemId} impact={impact} itemTitle={shown.title} disabled={busy || answering || flow.writing}
+      {impact ? <ImpactBlock itemId={item.itemId} impact={impact} itemTitle={shown.title} disabled={busy || answering || flow.writing || readinessLocked(items, state.edits as Record<string, Record<string, unknown> | undefined>, state.conversationId, item.itemId)}
         error={readinessError?.itemId === item.itemId ? t[readinessError.key] : null}
         onAnswer={(readiness) => { void answerReadiness(item.itemId, readiness); }} /> : null}
       {shown.instant && weekly !== 'weekly' ? <BusyConflictChip testID={`review-busy-${item.itemId}`} blocks={busyHere} /> : null}

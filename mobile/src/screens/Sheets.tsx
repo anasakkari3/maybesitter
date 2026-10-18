@@ -112,18 +112,20 @@ function PostponeSheet() {
  * Today rather than the open details screen. Nothing to pop afterwards: the
  * sheet closes and the line at the bottom says it moved.
  */
-export function PostponeSheetFor({ commitmentId, onClose }: { commitmentId: string | null; onClose: () => void }) {
+export function PostponeSheetFor({ commitmentId, title, onClose }: { commitmentId: string | null; title?: string | undefined; onClose: () => void }) {
   const { t, actions } = useApp();
   return (
     <BottomSheet visible={commitmentId !== null} onClose={onClose} testID="postpone-sheet">
       <SheetHeader title={t.postponeTitle} icon="clock" onClose={onClose} closeTestID="postpone-sheet-close" />
-      <PostponeChoices commitmentId={commitmentId} onMoved={() => { onClose(); actions.toast(t.toastPostponed); }} />
+      <PostponeChoices commitmentId={commitmentId} knownTitle={title} onMoved={() => { onClose(); actions.toast(t.toastPostponed); }} />
     </BottomSheet>
   );
 }
 
-function PostponeChoices({ commitmentId, onMoved }: {
+function PostponeChoices({ commitmentId, knownTitle, onMoved }: {
   commitmentId: string | null;
+  /** The title the opener already shows (Today), so a refusal can name it at once (M4B-R4-004). */
+  knownTitle?: string | undefined;
   onMoved: () => void;
 }) {
   const { t, p, lang, scheme } = useApp();
@@ -131,7 +133,8 @@ function PostponeChoices({ commitmentId, onMoved }: {
   const act = useCommitmentAction();
   const now = new Date();
   const smart = useSmartPostpone(commitmentId);
-  const title = useCommitment(commitmentId).data?.title ?? null;
+  const fetchedTitle = useCommitment(commitmentId).data?.title;
+  const title = knownTitle ?? fetchedTitle ?? null;
 
   // `''` is "the custom picker is closed". The same representation the edit
   // sheet uses for "no time": a wall-clock `YYYY-MM-DDTHH:mm` in `timezone`.
@@ -176,7 +179,7 @@ function PostponeChoices({ commitmentId, onMoved }: {
   const slotProblem = smart.problem === null ? null
     : smart.problem === 'slot_taken' ? t.zPostponeTaken
       : smart.problem === 'slot_unverified' ? t.zPostponeUnverified
-        : fill(t.zPostponeStale, { title: isolateAuto(title ?? '') });
+        : title ? fill(t.zPostponeStale, { title: isolateAuto(title) }) : t.zPostponeTaken;
   // Any other failure of a picked time (network, timeout, server) is said too
   // (M4B-A-R2-016); a slot refusal's own line wins.
   const pickFailure = !custom && slotProblem === null && act.error && !(act.error instanceof SlotRefusedError) ? userFacingMessage(act.error, t) : null;

@@ -12,6 +12,7 @@ import { useDismissFixture, useFootballSettings, useSetFollowedClubs } from '../
 import type { FootballFixture } from '../../api/schemas/football';
 import type { Clash, HeldFixture } from '../../api/schemas/m4b';
 import { HeldChangedError } from '../../api/errors';
+import { userFacingMessage } from '../../api/ui/userFacingMessage';
 import { dayKey } from '../../i18n/format';
 import { isolateAuto, stripIsolates } from '../../i18n/bidi';
 import { useM4bCapabilities } from '../m4b/capabilities';
@@ -68,7 +69,9 @@ export function FootballSettingsScreen({ onBack }: { onBack: () => void }) {
   const held = holdOn ? settings.data?.held ?? [] : [];
   const waitingForCoverage = holdOn ? settings.data?.waitingForCoverage ?? 0 : 0;
   const heldChanged = decideHeld.error instanceof HeldChangedError;
-  useAnnounceOnIos(heldChanged ? t.zHeldChanged : null);
+  // Any other failure of «ضيفه» / «مش هاد الماتش» is said too (M4B-R4-002).
+  const heldFailure = decideHeld.error && !heldChanged ? userFacingMessage(decideHeld.error, t) : null;
+  useAnnounceOnIos(heldChanged ? t.zHeldChanged : heldFailure);
 
   const followedClubIds = settings.data?.followedClubIds ?? [];
   const followedSet = new Set(followedClubIds);
@@ -115,7 +118,8 @@ export function FootballSettingsScreen({ onBack }: { onBack: () => void }) {
         {/* Mounted always (M4B-A-006): TalkBack hears a change inside a live
             region that is already there, even when the last held row goes. */}
         <LiveRegion>
-          {heldChanged ? <Txt size={13} color={p.wm} testID="football-held-changed">{t.zHeldChanged}</Txt> : null}
+          {heldChanged ? <Txt size={13} color={p.wm} testID="football-held-changed">{t.zHeldChanged}</Txt>
+            : heldFailure ? <Txt size={13} color={p.wm} testID="football-held-failure">{heldFailure}</Txt> : null}
         </LiveRegion>
         {held.length > 0 ? (
           <Card pad={0} style={{ overflow: 'hidden' }} testID="football-held-section">

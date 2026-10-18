@@ -28,7 +28,7 @@ import { BusyConflictChip } from '../features/calendar/BusyConflictChip';
 import { useBusyBlocks } from '../features/calendar/useBusyCalendar';
 import { useConflictBusyBlocks } from '../features/google/useGoogle';
 import { busyDuring } from '../features/calendar/conflicts';
-import { ImpactBlock, useAnnounceNewPrep } from '../features/m4b/ImpactBlock';
+import { ImpactBlock, readinessLocked, useAnnounceNewPrep } from '../features/m4b/ImpactBlock';
 import { useM4bCapability } from '../features/m4b/capabilities';
 import { captureClock, captureTimeOf } from '../features/capture/chatPresentation';
 import { confirmableItems, wantsDiscardConfirmation, weeklyChoice, weeklyLockedByEdit, type CaptureItemEdit, type MeetingReviewContext } from '../features/capture/captureMachine';
@@ -223,7 +223,7 @@ export function ReviewScreen({ onBackToChat }: { onBackToChat?: () => void } = {
     if (!impact) return null;
     return (
       <ImpactBlock itemId={item.itemId} impact={impact} itemTitle={state.edits[item.itemId]?.title ?? item.title}
-        disabled={answering || flow.writing}
+        disabled={answering || flow.writing || readinessLocked(items, state.edits as Record<string, Record<string, unknown> | undefined>, state.conversationId, item.itemId)}
         error={readinessError?.itemId === item.itemId ? t[readinessError.key] : null}
         onAnswer={(readiness) => {
           if (answering || flow.writing) return;

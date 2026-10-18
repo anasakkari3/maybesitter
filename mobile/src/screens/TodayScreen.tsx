@@ -336,7 +336,7 @@ export function TodayScreen({ tabClearance = TAB_CLEARANCE }: { tabClearance?: n
       </ScreenScroll>
 
       <ConflictSheet conflict={conflictOpen ? conflict : null} onClose={() => setConflictOpen(false)} />
-      <PostponeSheetFor commitmentId={postponeId} onClose={() => setPostponeId(null)} />
+      <PostponeSheetFor commitmentId={postponeId} title={postponeId ? byId.get(postponeId)?.title : undefined} onClose={() => setPostponeId(null)} />
     </Screen>
     </OpenPostponeSheet.Provider>
   );

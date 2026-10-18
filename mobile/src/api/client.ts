@@ -436,6 +436,9 @@ function errorForStatus(status: number, body: unknown, path?: string): Error {
     const m4b = m4bConflict(body, path);
     if (m4b) return m4b;
   }
+  // The readiness answer on an expired proposal (WIRE-M4b 410 `proposal_expired`):
+  // the confirm's own "expired, go back and send it again", not a server fault.
+  if (status === 410 && path === '/api/mobile/capture/impact') return new CaptureConfirmRefusedError('proposal_not_found');
   // A refused capture confirm keeps its `failureCode` (#252): the reason is
   // the sentence the person needs, and the 404/400 classes below drop it.
   const confirmRefusal = captureConfirmRefusal(status, body, path);

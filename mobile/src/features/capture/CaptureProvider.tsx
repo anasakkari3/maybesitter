@@ -31,6 +31,7 @@ import { useTimeZone } from '../../i18n/timezone';
 import { useOptionalAuth } from '../../auth/AuthProvider';
 import { deleteCommitment } from '../../api/endpoints/commitments';
 import { answerImpact } from '../../api/endpoints/m4b';
+import { readinessLocked } from '../m4b/ImpactBlock';
 import type { Readiness } from '../../api/schemas/m4b';
 import { ConversationNotFoundError, InputTooLargeError, isRetryable, ProposalChangedError, QuotaExceededError, ValidationError } from '../../api/errors';
 import type { CaptureProposalEdit } from '../../api/endpoints/capture';
@@ -596,6 +597,10 @@ export function CaptureProvider({ children }: { children: React.ReactNode }) {
     // the change goes to the server first, through the structured edit, which
     // takes the generated mark off it, so a new answer cannot remove it.
     let revision = proposal.revision ?? 0;
+    // A prep change the server cannot be told about first holds the answer (R4-001).
+    if (readinessLocked(proposal.items, state.edits as Record<string, Record<string, unknown> | undefined>, state.conversationId, itemId)) {
+      return { ok: false, messageKey: 'errorsGeneric' } as const;
+    }
     const prep = proposal.items.find((item) => item.generated?.sourceItemId === itemId);
     const staged = prep ? state.edits[prep.itemId] : undefined;
     if (prep && staged && (staged.title !== undefined || staged.localDateTime !== undefined) && state.conversationId) {

@@ -112,3 +112,25 @@ export function useAnnounceNewPrep(items: readonly CaptureProposalItem[]): void 
     }
   }, [items, lang, t, timezone]);
 }
+
+/**
+ * Whether «حاضر؟» must wait (M4B-R4-001): the person changed this source's
+ * preparation card on screen in a way the server cannot be told before a new
+ * answer (an importance or place edit, or a proposal with no conversation to
+ * carry a structured edit). A new answer would remove that card server-side,
+ * so the choice is held while the card is the person's. A title or time edit
+ * in a chat is carried first (`answerReadiness`) and does not lock.
+ */
+export function readinessLocked(
+  items: readonly CaptureProposalItem[],
+  edits: Readonly<Record<string, Record<string, unknown> | undefined>>,
+  conversationId: string | null,
+  sourceItemId: string,
+): boolean {
+  const prep = items.find((item) => item.generated?.sourceItemId === sourceItemId);
+  const staged = prep ? edits[prep.itemId] : undefined;
+  if (!staged || Object.keys(staged).length === 0) return false;
+  const carriable = conversationId !== null
+    && Object.keys(staged).every((key) => key === 'title' || key === 'localDateTime');
+  return !carriable;
+}
