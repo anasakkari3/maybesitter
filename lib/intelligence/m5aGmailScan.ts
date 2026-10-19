@@ -13,12 +13,24 @@ import { connectionIdFor } from '../integrations/providers/production/storedConn
 import { candidateClashes, runScheduleDecisionHook } from '../planning/freeSlots';
 import { cleanEmail } from '../services/share/emailCleaner';
 import { captureLlmProvider } from '../llm/captureProvider';
+import { shareLlmProvider, type ShareStructuredGenerator } from '../llm/shareProvider';
+import {
+  finalizeQuotaPermit,
+  quotaScopeFor,
+  reserveQuotaPermit,
+  retryAfterSecondsFor,
+  settleQuotaPermitSlot,
+  startQuotaPermitSlot,
+  type QuotaPermit,
+  type QuotaPermitOutcome,
+} from '../llm/usageGuard';
 import { writeDomainDiff } from '../services/mobile/participantState';
 import { readActivityStats, recordActivityEvents } from '../services/activity/activityStats';
 import {
   getStorage,
   INTELLIGENCE_AUTO_ADDS,
   INTELLIGENCE_GMAIL_SCANS,
+  INTELLIGENCE_MONITORS,
   INTELLIGENCE_OBSERVATIONS,
   INTELLIGENCE_SOURCE_MARKERS,
   PROVIDER_CONNECTIONS,
@@ -34,6 +46,8 @@ import { observationId, type StoredObservation } from './observationStore';
 import { ownTextOf } from './ownText';
 import type { SemanticObservation } from './semantic';
 import { loadAutoAddSnapshot } from './autoAddSnapshot';
+import { addLocalDays, localDayKey, localMidnightOf } from '../services/mobile/time';
+import { calendarCoverageForEmail, waitForCalendarAndFetch } from './gmailCalendarJit';
 
 const WEEK_MS = 7 * 24 * 60 * 60_000;
 const LEASE_MS = 120_000;
@@ -54,6 +68,17 @@ export interface M5aMarker {
   readonly observationIds?: readonly string[];
   readonly autoAddId?: string | null;
   readonly receipts?: Readonly<Record<string, Receipt>>;
+  readonly messageId?: string;
+  readonly emailEpoch?: number;
+  readonly origin?: {
+    readonly kind: 'scan';
+    readonly scanId: string;
+    readonly scanKind: 'manual' | 'daily';
+    readonly monitorGeneration?: string;
+    readonly pauseEpoch?: number;
+  };
+  readonly requestedAt?: string;
+  readonly nextEligibleAt?: string;
 }
 
 export interface ScanCounts {
@@ -96,6 +121,11 @@ export interface M5aScanDocument extends ScanCounts {
   leaseUntil: string | null;
   queued: QueuedScan | null;
   nextEligibleAt: string;
+  waiting?: { reason: 'daily_ai_limit' | 'rate_limit'; resumesAt: string } | null;
+  day?: string;
+  monitorGeneration?: string;
+  pauseEpoch?: number;
+  excluded?: Array<{ from: string; to: string }>;
 }
 
 export interface ReceiptTransition {
@@ -178,6 +208,10 @@ function dailyScanPath(uid: string): string {
   return `${userCol(uid, INTELLIGENCE_GMAIL_SCANS)}/dailyV2`;
 }
 
+function scanDocumentPath(uid: string, kind: 'manual' | 'daily'): string {
+  return kind === 'daily' ? dailyScanPath(uid) : scanPath(uid);
+}
+
 function markerPath(uid: string, markerId: string): string {
   return `${userCol(uid, INTELLIGENCE_SOURCE_MARKERS)}/${markerId}`;
 }
@@ -240,7 +274,7 @@ export function publicScanStatus(scan: M5aScanDocument | null): Record<string, u
   };
   if (scan.status === 'complete') return { ...common, finishedAt: scan.finishedAt };
   if (scan.status === 'failed') return { ...common, failedAt: scan.failedAt, failure: scan.failure };
-  return { ...common, waiting: null };
+  return { ...common, waiting: scan.waiting ?? null };
 }
 
 export function publicQueued(scan: M5aScanDocument | null): Record<string, unknown> | null {
@@ -290,6 +324,19 @@ function onlyGreetingRest(text: string): boolean {
   return !text.trim() || text.split(/(?<=[.!?؟])|\n+/).every(part => !part.trim() || GREETING_OR_CLOSER.test(part.trim()));
 }
 
+export function preModelCandidateSignals(
+  message: Pick<NonNullable<Awaited<ReturnType<GmailTransport['getMessageById']>>>, 'sentByAccount' | 'isReply' | 'bodyFormat' | 'text' | 'receivedAt'>,
+  timezone: string | null,
+): boolean {
+  if (!message.sentByAccount || !message.isReply || message.bodyFormat !== 'text/plain' || !timezone) return false;
+  const own = ownTextOf(message.text);
+  if (own.boundary !== 'quote_header') return false;
+  const cleaned = cleanEmail(own.own).body.trim();
+  if (!cleaned) return false;
+  const rules = ruleBasedExtract(cleaned, { now: new Date(message.receivedAt), timezone });
+  return Boolean(rules.dueAt);
+}
+
 /** Deterministic backstop: one action-bearing clause and one time anchor only. */
 export function singleAgreementSentence(sentence: string): boolean {
   const secondAction = /\b(?:and\s+(?:also\s+)?)(?:send|call|email|text|bring|come|meet|review|finish|submit)\b|(?:وكمان|وأيضاً|وايضا|\sو)\s*(?:ببعت|برسل|باجي|بجي|بتصل|بخلص)|(?:וגם|\sו)\s*(?:אשלח|אגיע|אתקשר|אסיים)/i;
@@ -334,6 +381,7 @@ async function autoAddCandidate(
   observations: readonly SemanticObservation[],
   timezone: AutoAddCandidate['timezone'] | null,
   runtime: GoogleRuntime,
+  permit?: QuotaPermit,
 ): Promise<AutoAddCandidate | null> {
   const agreement = qualifyingAgreement(message, observations);
   if (!agreement || !timezone) return null;
@@ -341,7 +389,15 @@ async function autoAddCandidate(
   const rules = ruleBasedExtract(agreement.sentence, context);
   if (!rules.dueAt || rules.missingFields.length > 0 || rules.ambiguityFlags.includes('multiple_commitments')) return null;
   let extracted = rules;
-  const provider = runtime.captureModel ?? captureLlmProvider(uid, { purpose: 'capture_extraction' });
+  const provider = runtime.captureModel
+    ? (permit ? async (prompt: string, options: Parameters<NonNullable<GoogleRuntime['captureModel']>>[1]) => {
+      if (!await startQuotaPermitSlot(permit, 1, { storage: runtime.storage, now: runtime.now() })) throw new LLMUnavailableError('usage_guard_unavailable');
+      const response = await runtime.captureModel!(prompt, options);
+      // Test providers return only text, so the permit conservatively settles at zero.
+      await settleQuotaPermitSlot(permit, 1, {}, { storage: runtime.storage, now: runtime.now() });
+      return response;
+    } : runtime.captureModel)
+    : captureLlmProvider(uid, { purpose: 'capture_extraction', ...(permit ? { quotaPermit: { permit, slot: 1, storage: runtime.storage } } : {}) });
   try {
     extracted = await extractWithOllama(agreement.sentence, context, {
       provider: (prompt) => provider(prompt, { timeoutMs: 8_000, retry: false }),
@@ -369,11 +425,12 @@ function classifyFailure(error: unknown): ScanFailure {
   return 'source_unavailable';
 }
 
-async function failScan(uid: string, scanId: string, owner: string, failure: ScanFailure, storage: StorageAdapter, now: string): Promise<void> {
+async function failScan(uid: string, kind: 'manual' | 'daily', scanId: string, owner: string, failure: ScanFailure, storage: StorageAdapter, now: string): Promise<void> {
   await storage.runTransaction(async tx => {
-    const scan = await tx.get<M5aScanDocument>(scanPath(uid));
+    const path = scanDocumentPath(uid, kind);
+    const scan = await tx.get<M5aScanDocument>(path);
     if (!scan || scan.scanId !== scanId || scan.leaseOwner !== owner) return;
-    tx.set(scanPath(uid), { ...scan, status: 'failed', failure, failedAt: now, leaseOwner: null, leaseUntil: null, nextEligibleAt: now });
+    tx.set(path, { ...scan, status: 'failed', failure, failedAt: now, leaseOwner: null, leaseUntil: null, nextEligibleAt: now });
   });
 }
 
@@ -390,6 +447,7 @@ async function releaseClaims(uid: string, owner: string, ids: readonly string[],
 
 async function releaseMessageForRetry(
   uid: string,
+  kind: 'manual' | 'daily',
   scanId: string,
   scanOwner: string,
   claimOwner: string,
@@ -398,7 +456,7 @@ async function releaseMessageForRetry(
 ): Promise<void> {
   await storage.runTransaction(async tx => {
     const [scan, ...markers] = await Promise.all([
-      tx.get<M5aScanDocument>(scanPath(uid)),
+      tx.get<M5aScanDocument>(scanDocumentPath(uid, kind)),
       ...markerIds.map(id => tx.get<M5aMarker>(markerPath(uid, id))),
     ]);
     markers.forEach((marker, index) => {
@@ -406,10 +464,46 @@ async function releaseMessageForRetry(
         ...marker, state: 'released', owner: undefined, leaseUntil: undefined,
       });
     });
-    if (scan?.scanId === scanId && scan.leaseOwner === scanOwner) tx.set(scanPath(uid), {
+    if (scan?.scanId === scanId && scan.leaseOwner === scanOwner) tx.set(scanDocumentPath(uid, kind), {
       ...scan, leaseOwner: null, leaseUntil: null, nextEligibleAt: new Date().toISOString(),
     });
   });
+}
+
+function quotaWait(outcome: QuotaPermitOutcome, now: Date): { reason: 'daily_ai_limit' | 'rate_limit'; resumesAt: string } | null {
+  if (outcome === 'minute_boundary') {
+    const resumes = new Date(now); resumes.setUTCSeconds(0, 0); resumes.setUTCMinutes(resumes.getUTCMinutes() + 1);
+    return { reason: 'rate_limit', resumesAt: resumes.toISOString() };
+  }
+  const scope = quotaScopeFor(outcome);
+  if (!scope) return null;
+  return {
+    reason: scope === 'user_minute' ? 'rate_limit' : 'daily_ai_limit',
+    resumesAt: new Date(now.getTime() + retryAfterSecondsFor(scope, now) * 1_000).toISOString(),
+  };
+}
+
+async function deferClaimForQuota(
+  uid: string, scan: M5aScanDocument, scanOwner: string, claimOwner: string,
+  markerIds: readonly string[], outcome: QuotaPermitOutcome, runtime: GoogleRuntime,
+): Promise<boolean> {
+  const wait = quotaWait(outcome, runtime.now());
+  if (!wait) return false;
+  await runtime.storage.runTransaction(async tx => {
+    const path = scanDocumentPath(uid, scan.kind);
+    const [current, ...markers] = await Promise.all([
+      tx.get<M5aScanDocument>(path), ...markerIds.map(id => tx.get<M5aMarker>(markerPath(uid, id))),
+    ]);
+    if (!current || current.scanId !== scan.scanId || current.leaseOwner !== scanOwner) return;
+    markers.forEach((marker, index) => {
+      if (marker?.state === 'claimed' && marker.owner === claimOwner) tx.set(markerPath(uid, markerIds[index]!), {
+        ...marker, state: 'released', owner: undefined, leaseUntil: undefined,
+      });
+    });
+    tx.set(path, { ...current, leaseOwner: null, leaseUntil: null, nextEligibleAt: wait.resumesAt,
+      waiting: outcome === 'minute_boundary' ? null : wait });
+  });
+  return true;
 }
 
 function deterministicCommitmentId(autoAddId: string, command: Extract<Command, { type: 'CreateDraft' }>): string {
@@ -429,14 +523,14 @@ async function countFinishedMarker(
 ): Promise<boolean> {
   return storage.runTransaction(async tx => {
     const [current, daily, marker] = await Promise.all([
-      tx.get<M5aScanDocument>(scanPath(uid)), tx.get<M5aScanDocument>(dailyScanPath(uid)),
+      tx.get<M5aScanDocument>(scanDocumentPath(uid, scan.kind)), tx.get<M5aScanDocument>(dailyScanPath(uid)),
       tx.get<M5aMarker>(markerPath(uid, markerId)),
     ]);
     if (!current || current.scanId !== scan.scanId || current.leaseOwner !== owner || marker?.state !== 'done') return false;
     const receipt = transitionReceipt(marker, scan.scanId, 'read', [current.scanId, daily?.scanId].filter(Boolean) as string[]);
     const done = Array.from(new Set([...(current.page?.done ?? []), messageId]));
     tx.set(markerPath(uid, markerId), receipt.marker);
-    tx.set(scanPath(uid), advancePage({
+    tx.set(scanDocumentPath(uid, scan.kind), advancePage({
       ...current,
       messagesRead: current.messagesRead + receipt.readDelta,
       messagesUnavailable: current.messagesUnavailable + receipt.unavailableDelta,
@@ -477,16 +571,24 @@ async function processMessage(
   const legacyMarkerId = legacyMarkerIdFor(messageId);
   const markerIds = [providerMarkerId, legacyMarkerId];
   const claimOwner = randomUUID();
+  const waitingMarker = await storage.get<M5aMarker>(markerPath(uid, providerMarkerId));
+  const waitingCoverage = waitingMarker?.state === 'waiting_for_calendar'
+    ? await calendarCoverageForEmail(uid, runtime) : null;
+  const waitingBelongsHere = waitingMarker?.origin?.kind === 'scan'
+    && waitingMarker.origin.scanId === claimedScan.scanId && waitingMarker.origin.scanKind === claimedScan.kind;
   const claimed = await storage.runTransaction(async tx => {
     const [scan, providerMarker, legacyMarker] = await Promise.all([
-      tx.get<M5aScanDocument>(scanPath(uid)),
+      tx.get<M5aScanDocument>(scanDocumentPath(uid, claimedScan.kind)),
       tx.get<M5aMarker | Record<string, unknown>>(markerPath(uid, providerMarkerId)),
       tx.get<M5aMarker | Record<string, unknown>>(markerPath(uid, legacyMarkerId)),
     ]);
     if (!scan || scan.scanId !== claimedScan.scanId || scan.leaseOwner !== owner) return { kind: 'lost' as const };
     const now = runtime.now().toISOString();
-    const providerDecision = markerDecision(providerMarker, 'm5a', now);
-    const legacyDecision = markerDecision(legacyMarker, 'm5a', now);
+    const resumableWait = waitingBelongsHere && (waitingCoverage === 'fresh' || waitingCoverage === 'force_off');
+    const providerDecision = (providerMarker as M5aMarker | null)?.state === 'waiting_for_calendar' && resumableWait
+      ? 'takeover' : markerDecision(providerMarker, 'm5a', now);
+    const legacyDecision = (legacyMarker as M5aMarker | null)?.state === 'waiting_for_calendar' && resumableWait
+      ? 'takeover' : markerDecision(legacyMarker, 'm5a', now);
     const done = providerDecision === 'count'
       ? providerMarker as M5aMarker
       : legacyDecision === 'count' ? legacyMarker as M5aMarker : null;
@@ -500,7 +602,7 @@ async function processMessage(
       providerAccountId: claimedScan.providerAccountId, providerMarkerId, preexisting };
     tx.set(markerPath(uid, providerMarkerId), providerClaim);
     tx.set(markerPath(uid, legacyMarkerId), legacyClaim);
-    return { kind: 'claimed' as const, preexisting };
+    return { kind: 'claimed' as const, preexisting, forceAutoAddOff: waitingCoverage === 'force_off' };
   });
   if (claimed.kind === 'lost' || claimed.kind === 'blocked') return;
   if (claimed.kind === 'done') {
@@ -508,12 +610,13 @@ async function processMessage(
     return;
   }
 
+  let permit: QuotaPermit | undefined;
   try {
     const message = await transport.getMessageById(messageId);
     if (!message) {
       await storage.runTransaction(async tx => {
         const [scan, daily, provider, legacy] = await Promise.all([
-          tx.get<M5aScanDocument>(scanPath(uid)), tx.get<M5aScanDocument>(dailyScanPath(uid)),
+          tx.get<M5aScanDocument>(scanDocumentPath(uid, claimedScan.kind)), tx.get<M5aScanDocument>(dailyScanPath(uid)),
           tx.get<M5aMarker>(markerPath(uid, providerMarkerId)), tx.get<M5aMarker>(markerPath(uid, legacyMarkerId)),
         ]);
         if (!scan || scan.scanId !== claimedScan.scanId || scan.leaseOwner !== owner
@@ -523,7 +626,7 @@ async function processMessage(
         const done = Array.from(new Set([...(scan.page?.done ?? []), messageId]));
         tx.set(markerPath(uid, providerMarkerId), receipt.marker);
         tx.set(markerPath(uid, legacyMarkerId), { ...legacy, state: 'released', owner: undefined, leaseUntil: undefined });
-        tx.set(scanPath(uid), advancePage({ ...scan,
+        tx.set(scanDocumentPath(uid, claimedScan.kind), advancePage({ ...scan,
           messagesRead: scan.messagesRead + receipt.readDelta,
           messagesUnavailable: scan.messagesUnavailable + receipt.unavailableDelta,
           page: scan.page ? { ...scan.page, done } : null,
@@ -531,20 +634,75 @@ async function processMessage(
       });
       return;
     }
+    const received = Date.parse(message.receivedAt);
+    const excluded = received < Date.parse(claimedScan.from) || received >= Date.parse(claimedScan.until)
+      || (claimedScan.excluded ?? []).some(interval => received >= Date.parse(interval.from) && received < Date.parse(interval.to));
+    if (excluded) {
+      await storage.runTransaction(async tx => {
+        const [scan, provider, legacy] = await Promise.all([
+          tx.get<M5aScanDocument>(scanDocumentPath(uid, claimedScan.kind)),
+          tx.get<M5aMarker>(markerPath(uid, providerMarkerId)), tx.get<M5aMarker>(markerPath(uid, legacyMarkerId)),
+        ]);
+        if (!scan || scan.scanId !== claimedScan.scanId || scan.leaseOwner !== owner
+          || provider?.owner !== claimOwner || legacy?.owner !== claimOwner) return;
+        const marker: M5aMarker = { ...provider, state: 'done', owner: undefined, leaseUntil: undefined,
+          processedAt: runtime.now().toISOString(), outcome: 'empty', observationIds: [], autoAddId: null };
+        const done = Array.from(new Set([...(scan.page?.done ?? []), messageId]));
+        tx.set(markerPath(uid, providerMarkerId), marker);
+        tx.set(markerPath(uid, legacyMarkerId), { ...marker, providerMarkerId });
+        tx.set(scanDocumentPath(uid, claimedScan.kind), advancePage({ ...scan, page: scan.page ? { ...scan.page, done } : null }));
+      });
+      return;
+    }
     const raw = [message.subject ?? '', message.text].filter(Boolean).join('\n');
     const prepared = trimForAnalysis(raw);
-    const observations = prepared.text ? await analyzeSourceStaged(uid, 'gmail', prepared.text,
-      runtime.shareModel ? { generate: runtime.shareModel } : {}) : [];
     const userAtExtraction = await storage.get<Record<string, unknown>>(userDoc(uid));
     const capturedTimezone = effectiveTimezone(userAtExtraction, claimedScan);
-    const candidate = await autoAddCandidate(uid, message, observations, capturedTimezone, runtime);
+    const candidateSignals = preModelCandidateSignals(message, capturedTimezone?.value ?? null);
+    let forceAutoAddOff = claimed.forceAutoAddOff;
+    if (candidateSignals) {
+      const coverage = await calendarCoverageForEmail(uid, runtime);
+      if (coverage === 'stale_google' || coverage === 'stale_device') {
+        await waitForCalendarAndFetch(uid, {
+          scan: claimedScan, scanOwner: owner, claimOwner, markerIds, messageId,
+          fetchGoogle: coverage === 'stale_google',
+        }, runtime);
+        return;
+      }
+      forceAutoAddOff = coverage === 'force_off';
+    }
+    // Runtime model overrides are in-process test doubles. Production model
+    // traffic always uses the provider adapters below, which require a permit.
+    if (prepared.text && !runtime.shareModel) {
+      const calls = candidateSignals && !forceAutoAddOff ? 2 : 1;
+      const reservation = await reserveQuotaPermit(uid, 'semantic_observation', {
+        owner: claimOwner, calls, tokenBudget: calls === 2 ? 7_000 : 4_500,
+      }, { storage, now: runtime.now() });
+      if (reservation.outcome !== 'ok' || !reservation.permit) {
+        if (await deferClaimForQuota(uid, claimedScan, owner, claimOwner, markerIds, reservation.outcome, runtime)) return;
+        throw new Error('analysis_unavailable');
+      }
+      permit = reservation.permit;
+    }
+    const generate: ShareStructuredGenerator | undefined = permit
+      ? runtime.shareModel
+        ? async request => {
+          if (!await startQuotaPermitSlot(permit!, 0, { storage, now: runtime.now() })) throw new LLMUnavailableError('usage_guard_unavailable');
+          const response = await runtime.shareModel!(request);
+          await settleQuotaPermitSlot(permit!, 0, response, { storage, now: runtime.now() });
+          return response;
+        }
+        : shareLlmProvider(uid, { purpose: 'semantic_observation', quotaPermit: { permit, slot: 0, storage }, now: runtime.now })
+      : runtime.shareModel;
+    const observations = prepared.text ? await analyzeSourceStaged(uid, 'gmail', prepared.text, generate ? { generate } : {}) : [];
+    const candidate = forceAutoAddOff ? null : await autoAddCandidate(uid, message, observations, capturedTimezone, runtime, permit);
     const ref = gmailRefFor(claimedScan.providerAccountId, messageId);
     const addId = autoAddIdFor(uid, claimedScan.providerAccountId, messageId);
     const at = runtime.now().toISOString();
 
     const committed = await storage.runTransaction(async tx => {
       const [scan, daily, provider, legacy, controls, user, existingObservations, existingAutoAdd] = await Promise.all([
-        tx.get<M5aScanDocument>(scanPath(uid)),
+        tx.get<M5aScanDocument>(scanDocumentPath(uid, claimedScan.kind)),
         tx.get<M5aScanDocument>(dailyScanPath(uid)),
         tx.get<M5aMarker>(markerPath(uid, providerMarkerId)),
         tx.get<M5aMarker>(markerPath(uid, legacyMarkerId)),
@@ -647,7 +805,7 @@ async function processMessage(
       const done = Array.from(new Set([...(scan.page?.done ?? []), messageId]));
       tx.set(markerPath(uid, providerMarkerId), receipt.marker);
       tx.set(markerPath(uid, legacyMarkerId), { ...receipt.marker, providerMarkerId, providerAccountId: scan.providerAccountId });
-      tx.set(scanPath(uid), advancePage({ ...scan,
+      tx.set(scanDocumentPath(uid, claimedScan.kind), advancePage({ ...scan,
         messagesRead: scan.messagesRead + receipt.readDelta,
         messagesUnavailable: scan.messagesUnavailable + receipt.unavailableDelta,
         messagesTrimmed: scan.messagesTrimmed + (receipt.readDelta && prepared.trimmed ? 1 : 0),
@@ -657,40 +815,50 @@ async function processMessage(
       }));
       return true;
     });
-    if (!committed) await releaseMessageForRetry(uid, claimedScan.scanId, owner, claimOwner, markerIds, storage);
+    if (!committed) await releaseMessageForRetry(uid, claimedScan.kind, claimedScan.scanId, owner, claimOwner, markerIds, storage);
+    if (permit) await finalizeQuotaPermit(permit, { storage, now: runtime.now() });
   } catch (error) {
+    if (permit) await finalizeQuotaPermit(permit, { storage, now: runtime.now() });
     await releaseClaims(uid, claimOwner, markerIds, storage);
     throw error;
   }
 }
 
-async function runStep(uid: string, runtime: GoogleRuntime, supplied?: GmailTransport): Promise<void> {
+export async function runM5aScanStep(uid: string, kind: 'manual' | 'daily', runtime: GoogleRuntime, supplied?: GmailTransport): Promise<void> {
   const storage = runtime.storage;
   const now = runtime.now();
   const owner = randomUUID();
   const claimed = await storage.runTransaction(async tx => {
-    const [scan, controls, user, connection] = await Promise.all([
-      tx.get<M5aScanDocument>(scanPath(uid)),
+    const [scan, controls, user, connection, monitor] = await Promise.all([
+      tx.get<M5aScanDocument>(scanDocumentPath(uid, kind)),
       tx.get<unknown>(M5A_CONTROLS_PATH),
       tx.get<Record<string, any>>(userDoc(uid)),
       tx.get<IntegrationConnectionRecord>(userSubDoc(uid, PROVIDER_CONNECTIONS, connectionIdFor('google'))),
+      tx.get<DailyMonitor>(`${userCol(uid, INTELLIGENCE_MONITORS)}/gmail`),
     ]);
     if (!scan || (scan.status !== 'running' && scan.status !== 'failed')) return null;
     if (scan.leaseUntil && scan.leaseUntil > now.toISOString()) return null;
     const parsed = parseM5aControls(controls);
     if (!parsed?.email.enabled || parsed.email.epoch !== scan.emailEpoch || user?.personalizationPurge?.state === 'purging') {
-      tx.set(scanPath(uid), { ...scan, status: 'failed', failure: 'monitoring_off', failedAt: now.toISOString(),
+      tx.set(scanDocumentPath(uid, kind), { ...scan, status: 'failed', failure: 'monitoring_off', failedAt: now.toISOString(),
         leaseOwner: null, leaseUntil: null, nextEligibleAt: now.toISOString() });
       return null;
     }
     if (!isLiveConnection(connection) || connection.identity.providerAccountId !== scan.providerAccountId) {
-      tx.set(scanPath(uid), { ...scan, status: 'failed', failure: 'reconnect_needed', failedAt: now.toISOString(),
+      tx.set(scanDocumentPath(uid, kind), { ...scan, status: 'failed', failure: 'reconnect_needed', failedAt: now.toISOString(),
+        leaseOwner: null, leaseUntil: null, nextEligibleAt: now.toISOString() });
+      return null;
+    }
+    if (kind === 'daily' && (!monitor?.enabled || !monitor.m5 || monitor.generation !== scan.monitorGeneration
+      || monitor.m5.providerAccountId !== scan.providerAccountId || monitor.m5.pauseEpoch !== scan.pauseEpoch
+      || monitor.m5.pausedSince)) {
+      tx.set(scanDocumentPath(uid, kind), { ...scan, status: 'failed', failure: 'monitoring_off', failedAt: now.toISOString(),
         leaseOwner: null, leaseUntil: null, nextEligibleAt: now.toISOString() });
       return null;
     }
     const next = { ...scan, status: 'running' as const, failure: null, failedAt: null,
-      leaseOwner: owner, leaseUntil: new Date(now.getTime() + LEASE_MS).toISOString() };
-    tx.set(scanPath(uid), next);
+      waiting: null, leaseOwner: owner, leaseUntil: new Date(now.getTime() + LEASE_MS).toISOString() };
+    tx.set(scanDocumentPath(uid, kind), next);
     return next;
   });
   if (!claimed) return;
@@ -704,8 +872,8 @@ async function runStep(uid: string, runtime: GoogleRuntime, supplied?: GmailTran
       } catch (error) {
         if (claimed.pageToken !== null && error instanceof GmailProviderError && error.status === 400) {
           await storage.runTransaction(async tx => {
-            const scan = await tx.get<M5aScanDocument>(scanPath(uid));
-            if (scan?.scanId === claimed.scanId && scan.leaseOwner === owner) tx.set(scanPath(uid), {
+            const scan = await tx.get<M5aScanDocument>(scanDocumentPath(uid, kind));
+            if (scan?.scanId === claimed.scanId && scan.leaseOwner === owner) tx.set(scanDocumentPath(uid, kind), {
               ...scan, pageToken: null, page: null, leaseOwner: null, leaseUntil: null,
             });
           });
@@ -714,25 +882,26 @@ async function runStep(uid: string, runtime: GoogleRuntime, supplied?: GmailTran
         throw error;
       }
       await storage.runTransaction(async tx => {
-        const scan = await tx.get<M5aScanDocument>(scanPath(uid));
+        const scan = await tx.get<M5aScanDocument>(scanDocumentPath(uid, kind));
         if (!scan || scan.scanId !== claimed.scanId || scan.leaseOwner !== owner) return;
         const withPage = { ...scan, page: { ids: [...listed.ids], nextPageToken: listed.nextPageToken, done: [] } };
-        tx.set(scanPath(uid), listed.ids.length === 0 ? advancePage(withPage) : { ...withPage, leaseOwner: null, leaseUntil: null });
+        tx.set(scanDocumentPath(uid, kind), listed.ids.length === 0 ? advancePage(withPage) : { ...withPage, leaseOwner: null, leaseUntil: null });
       });
       return;
     }
     const nextId = claimed.page.ids.find(id => !claimed.page!.done.includes(id));
     if (!nextId) {
       await storage.runTransaction(async tx => {
-        const scan = await tx.get<M5aScanDocument>(scanPath(uid));
-        if (scan?.scanId === claimed.scanId && scan.leaseOwner === owner) tx.set(scanPath(uid), advancePage(scan));
+        const scan = await tx.get<M5aScanDocument>(scanDocumentPath(uid, kind));
+        if (scan?.scanId === claimed.scanId && scan.leaseOwner === owner) tx.set(scanDocumentPath(uid, kind), advancePage(scan));
       });
       return;
     }
     await processMessage(uid, claimed, owner, nextId, transport, runtime);
   } catch (error) {
-    await failScan(uid, claimed.scanId, owner, classifyFailure(error), storage, runtime.now().toISOString());
+    await failScan(uid, kind, claimed.scanId, owner, classifyFailure(error), storage, runtime.now().toISOString());
   }
+  if (kind === 'daily') await advanceCompletedDaily(uid, runtime);
 }
 
 export async function readM5aScan(uid: string, storage: StorageAdapter = getStorage()): Promise<M5aScanDocument | null> {
@@ -743,7 +912,116 @@ export async function readM5aDailyScan(
   uid: string,
   storage: StorageAdapter = getStorage(),
 ): Promise<(M5aScanDocument & { day?: string; heldAt?: string; reason?: string }) | null> {
-  return storage.get<M5aScanDocument & { day?: string; heldAt?: string; reason?: string }>(dailyScanPath(uid));
+  const daily = await storage.get<M5aScanDocument & { day?: string; heldAt?: string; reason?: string }>(dailyScanPath(uid));
+  if (daily) return daily;
+  const [monitor, user] = await Promise.all([
+    storage.get<{ enabled?: boolean; m5?: { at?: string; timezone?: string | null } }>(`${userCol(uid, INTELLIGENCE_MONITORS)}/gmail`),
+    storage.get<Record<string, unknown>>(userDoc(uid)),
+  ]);
+  if (monitor?.enabled && monitor.m5 && !validTimezone(user?.timezone) && !validTimezone(monitor.m5.timezone)) {
+    return { status: 'held', reason: 'no_timezone', heldAt: monitor.m5.at ?? new Date().toISOString() } as never;
+  }
+  return null;
+}
+
+interface DailyMonitor {
+  enabled: boolean;
+  generation: string;
+  m5?: {
+    providerAccountId: string;
+    enabledAt: string;
+    timezone: string | null;
+    pauseEpoch: number;
+    pausedSince: string | null;
+    excluded: Array<{ from: string; to: string }>;
+    nextSweepAt?: string;
+    sweepTimezone?: string;
+    pendingSweepDay?: string;
+    pendingSweepFrom?: string;
+  };
+}
+
+function dailyWindow(enabledAt: string, timezone: string, day: string) {
+  const start = localMidnightOf(day, timezone);
+  const until = addLocalDays(start, 1, timezone);
+  return { from: new Date(Math.max(Date.parse(start), Date.parse(enabledAt))).toISOString(), until };
+}
+
+/** Atomically consumes a due monitor bootstrap into the one dailyV2 state machine. */
+export async function createDueDailyScan(uid: string, runtime: GoogleRuntime): Promise<boolean> {
+  const now = runtime.now().toISOString();
+  const monitorPath = `${userCol(uid, INTELLIGENCE_MONITORS)}/gmail`;
+  const created = await runtime.storage.runTransaction(async tx => {
+    const [monitor, daily, user, controls, connection] = await Promise.all([
+      tx.get<DailyMonitor>(monitorPath), tx.get<M5aScanDocument>(dailyScanPath(uid)),
+      tx.get<Record<string, any>>(userDoc(uid)), tx.get<unknown>(M5A_CONTROLS_PATH),
+      tx.get<IntegrationConnectionRecord>(userSubDoc(uid, PROVIDER_CONNECTIONS, connectionIdFor('google'))),
+    ]);
+    const parsed = parseM5aControls(controls);
+    if (!monitor?.enabled || !monitor.m5 || !monitor.m5.nextSweepAt || monitor.m5.nextSweepAt > now
+      || monitor.m5.pausedSince || !parsed?.email.enabled || !isLiveConnection(connection)
+      || connection.identity.providerAccountId !== monitor.m5.providerAccountId) return false;
+    if (daily && (daily.status === 'running' || daily.status === 'failed')) {
+      tx.set(monitorPath, { ...monitor, m5: { ...monitor.m5, nextSweepAt: new Date(Date.parse(now) + 6 * 60 * 60_000).toISOString() } });
+      return false;
+    }
+    const timezone = validTimezone(user?.timezone) ?? validTimezone(monitor.m5.timezone);
+    if (!timezone) {
+      const { nextSweepAt: _next, ...m5 } = monitor.m5;
+      tx.set(monitorPath, { ...monitor, m5 });
+      return false;
+    }
+    const day = monitor.m5.pendingSweepDay ?? localDayKey(monitor.m5.enabledAt, timezone);
+    if (monitor.m5.sweepTimezone && monitor.m5.sweepTimezone !== timezone) {
+      const window = dailyWindow(monitor.m5.enabledAt, timezone, day);
+      tx.set(monitorPath, { ...monitor, m5: { ...monitor.m5, sweepTimezone: timezone,
+        nextSweepAt: new Date(Date.parse(window.until) + 3 * 60 * 60_000).toISOString() } });
+      return false;
+    }
+    const rawWindow = dailyWindow(monitor.m5.enabledAt, timezone, day);
+    const window = { ...rawWindow, from: monitor.m5.pendingSweepFrom
+      ? new Date(Math.max(Date.parse(rawWindow.from), Date.parse(monitor.m5.pendingSweepFrom))).toISOString()
+      : rawWindow.from };
+    const scan: M5aScanDocument = {
+      ...emptyCounts(), scanId: randomUUID(), kind: 'daily', status: 'running', origin: 'manual',
+      providerAccountId: monitor.m5.providerAccountId, emailEpoch: parsed.email.epoch,
+      query: `after:${Math.floor(Date.parse(window.from) / 1000)} before:${Math.ceil(Date.parse(window.until) / 1000) + 1}`,
+      from: window.from, until: window.until, timezone, startedAt: now, finishedAt: null, failedAt: null,
+      failure: null, pageToken: null, page: null, leaseOwner: null, leaseUntil: null, queued: null,
+      nextEligibleAt: now, waiting: null, day, monitorGeneration: monitor.generation,
+      pauseEpoch: monitor.m5.pauseEpoch, excluded: [...monitor.m5.excluded],
+    };
+    tx.set(dailyScanPath(uid), scan);
+    tx.set(monitorPath, { ...monitor, m5: { ...monitor.m5, sweepTimezone: timezone, pendingSweepDay: day,
+      nextSweepAt: new Date(Date.parse(now) + 6 * 60 * 60_000).toISOString() } });
+    return true;
+  });
+  return created;
+}
+
+export async function advanceCompletedDaily(uid: string, runtime: GoogleRuntime): Promise<void> {
+  const monitorPath = `${userCol(uid, INTELLIGENCE_MONITORS)}/gmail`;
+  await runtime.storage.runTransaction(async tx => {
+    const [scan, monitor, user] = await Promise.all([
+      tx.get<M5aScanDocument>(dailyScanPath(uid)), tx.get<DailyMonitor>(monitorPath),
+      tx.get<Record<string, unknown>>(userDoc(uid)),
+    ]);
+    if (!scan || scan.kind !== 'daily' || scan.status !== 'complete' || !scan.day
+      || !monitor?.enabled || !monitor.m5 || monitor.generation !== scan.monitorGeneration
+      || monitor.m5.pendingSweepDay !== scan.day) return;
+    const timezone = validTimezone(user?.timezone) ?? validTimezone(monitor.m5.timezone);
+    if (!timezone) {
+      const { nextSweepAt: _next, ...m5 } = monitor.m5;
+      tx.set(monitorPath, { ...monitor, m5: { ...m5, pendingSweepFrom: scan.until } });
+      return;
+    }
+    const nextDay = localDayKey(scan.until, timezone);
+    const nextWindow = dailyWindow(scan.until, timezone, nextDay);
+    tx.set(monitorPath, { ...monitor, m5: {
+      ...monitor.m5, pendingSweepDay: nextDay, pendingSweepFrom: scan.until,
+      sweepTimezone: timezone, nextSweepAt: new Date(Date.parse(nextWindow.until) + 3 * 60 * 60_000).toISOString(),
+    } });
+  });
 }
 
 export async function startOrResumeM5aScan(
@@ -789,6 +1067,6 @@ export async function startOrResumeM5aScan(
   });
   if (admitted.refused) throw new Error('m5_unavailable');
   if (!admitted.scan) throw new Error('scan_missing');
-  if (admitted.run) await runStep(uid, runtime);
+  if (admitted.run) await runM5aScanStep(uid, 'manual', runtime);
   return (await readM5aScan(uid, storage)) ?? admitted.scan;
 }

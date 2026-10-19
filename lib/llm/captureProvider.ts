@@ -40,6 +40,9 @@ import {
   quotaScopeFor,
   reserveCall,
   retryAfterSecondsFor,
+  settleQuotaPermitSlot,
+  startQuotaPermitSlot,
+  type QuotaPermit,
   type ReserveOptions,
 } from './usageGuard';
 
@@ -111,6 +114,7 @@ export interface CaptureProviderOptions {
   log?: typeof logLlmCall;
   commit?: typeof commitUsage;
   now?: () => Date;
+  quotaPermit?: { permit: QuotaPermit; slot: number; storage?: ReserveOptions['storage'] };
 }
 
 /**
@@ -155,7 +159,11 @@ export function captureLlmProvider(uid: string, options: CaptureProviderOptions 
     const readConsent = options.consent ?? getAiConsent;
     if ((await readConsent(uid)) !== 'granted') throw new AiConsentRequiredError();
 
-    const reservation = await reserve(uid, purpose, options.reserveOptions ?? {});
+    const reservation = options.quotaPermit
+      ? await startQuotaPermitSlot(options.quotaPermit.permit, options.quotaPermit.slot, {
+        now: clock(), ...(options.quotaPermit.storage ? { storage: options.quotaPermit.storage } : {}),
+      }).then(started => started ? 'ok' as const : 'unavailable' as const)
+      : await reserve(uid, purpose, options.reserveOptions ?? {});
     if (reservation !== 'ok') {
       const scope = quotaScopeFor(reservation);
       const reason = scope
@@ -270,7 +278,13 @@ export function captureLlmProvider(uid: string, options: CaptureProviderOptions 
       // What it actually cost, recorded after the fact — the only point at which
       // the real number is known (#181). Awaited so a test can observe it, and
       // internally swallowing its own failures so it can never become the user's.
-      await commit(uid, { promptTokens: response.promptTokens, outputTokens: response.outputTokens });
+      if (options.quotaPermit) {
+        await settleQuotaPermitSlot(options.quotaPermit.permit, options.quotaPermit.slot, response, {
+          now: clock(), ...(options.quotaPermit.storage ? { storage: options.quotaPermit.storage } : {}),
+        });
+      } else {
+        await commit(uid, { promptTokens: response.promptTokens, outputTokens: response.outputTokens });
+      }
       log({
         event: 'llm_call',
         purpose,

@@ -162,6 +162,7 @@ export interface BusySourceReplacementFence {
   readonly operation?: 'upload' | 'clear' | 'retire';
   readonly selectionDigest?: string;
   readonly leaseUntil?: string;
+  readonly jitTarget?: import('../integrations/google/googleCalendarBusy').GoogleBusyTarget;
 }
 
 interface CalendarChoiceSnapshot {

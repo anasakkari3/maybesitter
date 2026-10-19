@@ -22,6 +22,7 @@
  * to belong to at all. UTC is arbitrary but it is one arbitrary thing rather
  * than one per person.
  */
+import { createHash, randomUUID } from 'node:crypto';
 import { getStorage, LLM_USAGE, requireDocId, USAGE, userCol, type StorageAdapter } from '../storage';
 import type { LlmPurpose } from '../../src/extraction/llm/llmProvider';
 
@@ -51,6 +52,10 @@ export const DEFAULT_USER_DAILY_TOKEN_CAP = 150_000;
  * loop, which can spend the whole day's budget in under a minute.
  */
 export const DEFAULT_USER_MINUTE_CAP = 8;
+/** M5a deliberately leaves capacity for capture, chat and the rest of the product. */
+export const M5A_USER_DAILY_CALL_CAP = 45;
+/** The corresponding global share of the existing 3,000-call brake. */
+export const M5A_GLOBAL_DAILY_CALL_CAP = 2_000;
 /**
  * The longest input a model call may carry, in characters (UC-4.5, #181).
  *
@@ -133,6 +138,9 @@ export interface UsageDay {
    */
   inputTokens?: number;
   outputTokens?: number;
+  /** Calls/tokens reserved by whole M5a work units, reconciled by their permits. */
+  m5aCalls?: number;
+  reservedTokens?: number;
   /**
    * The minute window the counter below belongs to, `YYYY-MM-DDTHH:MM`.
    *
@@ -148,6 +156,44 @@ export interface UsageDay {
   minuteCalls?: number;
   /** When Firestore's TTL policy may delete this document. */
   expireAt?: string;
+}
+
+export type QuotaPermitSlotState = 'reserved' | 'started' | 'settled';
+
+export interface QuotaPermitRecord {
+  readonly v: 1;
+  readonly permitId: string;
+  readonly uid: string;
+  readonly purpose: LlmPurpose;
+  readonly owner: string;
+  readonly day: string;
+  readonly minute: string;
+  readonly tokenBudget: number;
+  readonly tokenBudgetPerSlot: number;
+  readonly slots: ReadonlyArray<{
+    readonly state: QuotaPermitSlotState;
+    readonly promptTokens?: number;
+    readonly outputTokens?: number;
+  }>;
+  readonly finalizedAt: string | null;
+  readonly createdAt: string;
+  readonly expireAt: string;
+}
+
+export interface QuotaPermit {
+  readonly uid: string;
+  readonly permitId: string;
+  readonly owner: string;
+  readonly day: string;
+  readonly minute: string;
+  readonly slots: number;
+}
+
+export type QuotaPermitOutcome = ReservationOutcome | 'minute_boundary';
+
+export interface QuotaPermitReservation {
+  readonly outcome: QuotaPermitOutcome;
+  readonly permit?: QuotaPermit;
 }
 
 export interface ReserveOptions {
@@ -191,6 +237,166 @@ function userDayPath(uid: string, day: string): string {
  */
 function globalDayPath(day: string): string {
   return `${LLM_USAGE}/${requireDocId(day)}`;
+}
+
+function permitPath(uid: string, day: string, permitId: string): string {
+  const id = createHash('sha256').update(`m5a\0${day}\0${permitId}`).digest('hex');
+  return `${userCol(uid, USAGE)}/${requireDocId(`m5a-permit-${id}`)}`;
+}
+
+function nextUtcMinute(now: Date): Date {
+  const next = new Date(now);
+  next.setUTCSeconds(0, 0);
+  next.setUTCMinutes(next.getUTCMinutes() + 1);
+  return next;
+}
+
+/**
+ * Reserves a complete M5a unit before its first model call. The regular usage
+ * counters remain the source of truth, so other product calls consume the same
+ * 60/3,000 budgets while the M5a-specific fields enforce the smaller shares.
+ */
+export async function reserveQuotaPermit(
+  uid: string,
+  purpose: LlmPurpose,
+  input: { owner: string; calls: 1 | 2; tokenBudget: number; minimumRuntimeMs?: number },
+  options: ReserveOptions = {},
+): Promise<QuotaPermitReservation> {
+  const storage = options.storage ?? getStorage();
+  const now = options.now ?? new Date();
+  const minimumRuntimeMs = input.minimumRuntimeMs ?? (input.calls === 2 ? 18_000 : 9_000);
+  if (nextUtcMinute(now).getTime() - now.getTime() < minimumRuntimeMs) return { outcome: 'minute_boundary' };
+  const day = utcDay(now);
+  const minute = utcMinute(now);
+  const permitId = randomUUID();
+  const path = permitPath(uid, day, permitId);
+  const userPath = userDayPath(uid, day);
+  const globalPath = globalDayPath(day);
+  const at = now.toISOString();
+  const tokenBudget = Math.max(1, Math.trunc(input.tokenBudget));
+  const tokenBudgetPerSlot = Math.ceil(tokenBudget / input.calls);
+  const userCap = options.userCap ?? capFrom(process.env.MAYBESITTER_LLM_DAILY_CALL_CAP, DEFAULT_USER_DAILY_CAP);
+  const globalCap = options.globalCap ?? capFrom(process.env.MAYBESITTER_LLM_GLOBAL_DAILY_CALL_CAP, DEFAULT_GLOBAL_DAILY_CAP);
+  const tokenCap = options.tokenCap ?? capFrom(process.env.MAYBESITTER_LLM_DAILY_TOKEN_CAP, DEFAULT_USER_DAILY_TOKEN_CAP);
+  const minuteCap = options.minuteCap ?? capFrom(process.env.MAYBESITTER_LLM_MINUTE_CALL_CAP, DEFAULT_USER_MINUTE_CAP);
+  try {
+    const outcome = await storage.runTransaction(async tx => {
+      const [userDay, globalDay] = await Promise.all([
+        tx.get<UsageDay>(userPath), tx.get<UsageDay>(globalPath),
+      ]);
+      const minuteCalls = userDay?.minute === minute ? userDay.minuteCalls ?? 0 : 0;
+      const userCalls = userDay?.calls ?? 0;
+      const globalCalls = globalDay?.calls ?? 0;
+      const userM5a = userDay?.m5aCalls ?? 0;
+      const globalM5a = globalDay?.m5aCalls ?? 0;
+      const heldTokens = userDay?.reservedTokens ?? 0;
+      const spentTokens = (userDay?.inputTokens ?? 0) + (userDay?.outputTokens ?? 0);
+      if (minuteCalls + input.calls > minuteCap) return 'user_minute_cap' as const;
+      if (userCalls + input.calls > userCap || userM5a + input.calls > M5A_USER_DAILY_CALL_CAP) return 'user_cap' as const;
+      if (spentTokens + heldTokens + tokenBudget > tokenCap) return 'user_token_cap' as const;
+      if (globalCalls + input.calls > globalCap || globalM5a + input.calls > M5A_GLOBAL_DAILY_CALL_CAP) return 'global_cap' as const;
+      tx.set<UsageDay>(userPath, {
+        calls: userCalls + input.calls, date: day, updatedAt: at,
+        inputTokens: userDay?.inputTokens ?? 0, outputTokens: userDay?.outputTokens ?? 0,
+        m5aCalls: userM5a + input.calls, reservedTokens: heldTokens + tokenBudget,
+        minute, minuteCalls: minuteCalls + input.calls, expireAt: expireAtFor(now),
+      });
+      tx.set<UsageDay>(globalPath, {
+        calls: globalCalls + input.calls, date: day, updatedAt: at,
+        m5aCalls: globalM5a + input.calls, expireAt: expireAtFor(now),
+      });
+      tx.create<QuotaPermitRecord>(path, {
+        v: 1, permitId, uid, purpose, owner: input.owner, day, minute, tokenBudget, tokenBudgetPerSlot,
+        slots: Array.from({ length: input.calls }, () => ({ state: 'reserved' as const })),
+        finalizedAt: null, createdAt: at, expireAt: expireAtFor(now),
+      });
+      return 'ok' as const;
+    });
+    return outcome === 'ok'
+      ? { outcome, permit: { uid, permitId, owner: input.owner, day, minute, slots: input.calls } }
+      : { outcome };
+  } catch (error) {
+    console.error(`[llm/usage] permit reservation unavailable: ${(error as Error).name}`);
+    return { outcome: 'unavailable' };
+  }
+}
+
+/** Marks a permit slot immediately before provider dispatch. */
+export async function startQuotaPermitSlot(
+  permit: QuotaPermit,
+  slot: number,
+  options: { now?: Date; storage?: StorageAdapter } = {},
+): Promise<boolean> {
+  const storage = options.storage ?? getStorage();
+  const now = options.now ?? new Date();
+  if (utcDay(now) !== permit.day || utcMinute(now) !== permit.minute || slot < 0 || slot >= permit.slots) return false;
+  return storage.runTransaction(async tx => {
+    const path = permitPath(permit.uid, permit.day, permit.permitId);
+    const record = await tx.get<QuotaPermitRecord>(path);
+    if (!record || record.owner !== permit.owner || record.finalizedAt || record.slots[slot]?.state !== 'reserved') return false;
+    const slots = record.slots.map((entry, index) => index === slot ? { ...entry, state: 'started' as const } : entry);
+    tx.set(path, { ...record, slots });
+    return true;
+  });
+}
+
+/** Reconciles the conservative token hold after a provider response. */
+export async function settleQuotaPermitSlot(
+  permit: QuotaPermit,
+  slot: number,
+  tokens: { promptTokens?: number; outputTokens?: number },
+  options: { now?: Date; storage?: StorageAdapter } = {},
+): Promise<void> {
+  const storage = options.storage ?? getStorage();
+  const now = options.now ?? new Date();
+  await storage.runTransaction(async tx => {
+    const path = permitPath(permit.uid, permit.day, permit.permitId);
+    const record = await tx.get<QuotaPermitRecord>(path);
+    if (!record || record.owner !== permit.owner || record.slots[slot]?.state !== 'started') return;
+    const promptTokens = Math.max(0, Math.trunc(tokens.promptTokens ?? 0));
+    const outputTokens = Math.max(0, Math.trunc(tokens.outputTokens ?? 0));
+    const userPath = userDayPath(permit.uid, permit.day);
+    const usage = await tx.get<UsageDay>(userPath);
+    const slots = record.slots.map((entry, index) => index === slot
+      ? { state: 'settled' as const, promptTokens, outputTokens } : entry);
+    tx.set(path, { ...record, slots });
+    tx.set<UsageDay>(userPath, {
+      calls: usage?.calls ?? 0, date: permit.day, updatedAt: now.toISOString(),
+      inputTokens: (usage?.inputTokens ?? 0) + promptTokens,
+      outputTokens: (usage?.outputTokens ?? 0) + outputTokens,
+      m5aCalls: usage?.m5aCalls ?? 0,
+      reservedTokens: Math.max(0, (usage?.reservedTokens ?? 0) - record.tokenBudgetPerSlot),
+      ...(usage?.minute ? { minute: usage.minute, minuteCalls: usage.minuteCalls ?? 0 } : {}),
+      expireAt: expireAtFor(now),
+    });
+  });
+}
+
+/** Releases only never-started slots; started calls stay charged after crashes. */
+export async function finalizeQuotaPermit(
+  permit: QuotaPermit,
+  options: { now?: Date; storage?: StorageAdapter } = {},
+): Promise<void> {
+  const storage = options.storage ?? getStorage();
+  const now = options.now ?? new Date();
+  await storage.runTransaction(async tx => {
+    const path = permitPath(permit.uid, permit.day, permit.permitId);
+    const record = await tx.get<QuotaPermitRecord>(path);
+    if (!record || record.owner !== permit.owner || record.finalizedAt) return;
+    const unused = record.slots.filter(slot => slot.state === 'reserved').length;
+    const releasableTokens = record.slots.reduce((sum, slot) => sum + (slot.state === 'reserved' ? record.tokenBudgetPerSlot : 0), 0);
+    const [usage, global] = await Promise.all([
+      tx.get<UsageDay>(userDayPath(permit.uid, permit.day)), tx.get<UsageDay>(globalDayPath(permit.day)),
+    ]);
+    if (usage) tx.set<UsageDay>(userDayPath(permit.uid, permit.day), {
+      ...usage, calls: Math.max(0, usage.calls - unused), m5aCalls: Math.max(0, (usage.m5aCalls ?? 0) - unused),
+      reservedTokens: Math.max(0, (usage.reservedTokens ?? 0) - releasableTokens), updatedAt: now.toISOString(),
+    });
+    if (global) tx.set<UsageDay>(globalDayPath(permit.day), {
+      ...global, calls: Math.max(0, global.calls - unused), m5aCalls: Math.max(0, (global.m5aCalls ?? 0) - unused), updatedAt: now.toISOString(),
+    });
+    tx.set(path, { ...record, finalizedAt: now.toISOString() });
+  });
 }
 
 /**

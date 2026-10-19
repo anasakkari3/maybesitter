@@ -33,6 +33,7 @@
  * recorded as `allDay`, which the planner does not block on — #186's decision
  * for the phone's all-day entries, applied to the only signal Google gives.
  */
+import { createHash } from 'node:crypto';
 import { busyBlockId, listBusyBlocks, replaceBusyBlocks, BUSY_BLOCK_UPLOAD_LIMIT, type BusyBlock } from '../../calendar/busyBlocks';
 import { googleResourceFetch, refusalForResponse, GoogleConnectError } from './googleConnectService';
 import { featuresGranted, GOOGLE_BUSY_SOURCE_ID } from './googleConfig';
@@ -160,11 +161,26 @@ interface ChoiceGeneration {
   readonly state: 'purging' | 'active';
 }
 
-interface GoogleAuthority {
+export interface GoogleAuthority {
   readonly providerAccountId: string;
   readonly calendarEpoch: number;
   readonly choiceGeneration: number | null;
   readonly calendarControlEpoch: number | null;
+}
+
+export interface GoogleBusyTarget {
+  readonly v: 1;
+  readonly targetId: string;
+  readonly providerAccountId: string;
+  readonly calendarEpoch: number;
+  readonly choiceGeneration: number | null;
+  readonly calendarControlEpoch: number | null;
+  readonly windowStart: string;
+  readonly windowEnd: string;
+  readonly fetchedAt: string;
+  readonly intervals: readonly { readonly start: string; readonly end: string }[];
+  readonly digest: string;
+  readonly nextEligibleAt: string;
 }
 
 function liveCalendarConnection(record: IntegrationConnectionRecord | null): record is IntegrationConnectionRecord {
@@ -232,6 +248,54 @@ export interface GoogleCalendarSyncResult {
     readonly windowStart: string;
     readonly windowEnd: string;
   };
+}
+
+/** Fetches a complete immutable free/busy answer without mutating calendar state. */
+export async function fetchGoogleBusyTarget(uid: string, runtime: GoogleRuntime): Promise<GoogleBusyTarget> {
+  const authority = await googleAuthority(uid, runtime);
+  const now = runtime.now();
+  const windowStart = now.toISOString();
+  const windowEnd = new Date(now.getTime() + GOOGLE_BUSY_LOOK_AHEAD_DAYS * DAY_MS).toISOString();
+  const response = await googleResourceFetch(uid, 'calendar', runtime, GOOGLE_FREEBUSY_ENDPOINT, {
+    method: 'POST',
+    body: JSON.stringify({ timeMin: windowStart, timeMax: windowEnd, items: [{ id: 'primary' }] }),
+  });
+  if (!response.ok) throw refusalForResponse(response);
+  let body: unknown;
+  try { body = await response.json(); } catch { throw new GoogleConnectError('google_unavailable'); }
+  const parsed = parseFreeBusy(body).slice(0, BUSY_BLOCK_UPLOAD_LIMIT);
+  const intervals = parsed.map(interval => ({ start: new Date(interval.startMs).toISOString(), end: new Date(interval.endMs).toISOString() }));
+  const digest = createHash('sha256').update(JSON.stringify({ windowStart, windowEnd, fetchedAt: now.toISOString(), intervals })).digest('hex');
+  return {
+    v: 1, targetId: createHash('sha256').update(`${authority.providerAccountId}\0${digest}`).digest('hex'),
+    providerAccountId: authority.providerAccountId, calendarEpoch: authority.calendarEpoch,
+    choiceGeneration: authority.choiceGeneration, calendarControlEpoch: authority.calendarControlEpoch,
+    windowStart, windowEnd, fetchedAt: now.toISOString(), intervals, digest, nextEligibleAt: now.toISOString(),
+  };
+}
+
+/** Applies only the saved answer; no network request occurs in maintenance. */
+export async function applyGoogleBusyTarget(uid: string, target: GoogleBusyTarget, runtime: GoogleRuntime): Promise<GoogleCalendarSyncResult> {
+  const authority: GoogleAuthority = {
+    providerAccountId: target.providerAccountId, calendarEpoch: target.calendarEpoch,
+    choiceGeneration: target.choiceGeneration, calendarControlEpoch: target.calendarControlEpoch,
+  };
+  const intervals: Interval[] = target.intervals.map(row => ({ startMs: Date.parse(row.start), endMs: Date.parse(row.end) }));
+  const allBlocks = allGoogleBusyBlocks(intervals, null);
+  const firstOmitted = allBlocks[BUSY_BLOCK_UPLOAD_LIMIT];
+  const honestWindowEnd = firstOmitted?.startAt ?? target.windowEnd;
+  const blocks = allBlocks.filter(block => Date.parse(block.startAt) < Date.parse(honestWindowEnd)).slice(0, BUSY_BLOCK_UPLOAD_LIMIT);
+  const fetchedAt = new Date(target.fetchedAt);
+  await replaceBusyBlocks(uid, GOOGLE_BUSY_SOURCE_ID, { startsAt: target.windowStart, endsAt: honestWindowEnd }, blocks, {
+    storage: runtime.storage, platform: null, now: fetchedAt,
+    transactionGuard: async tx => { await guardGoogleAuthority(tx, uid, authority); },
+    sourceMetadata: fence => ({ coverageStatus: 'settled' as const, m5Certificate: {
+      v: 1 as const, choiceGeneration: authority.choiceGeneration, providerAccountId: authority.providerAccountId,
+      fenceGeneration: fence?.generation ?? 0, refreshedAt: target.fetchedAt,
+    } }),
+  });
+  return { blocks: blocks.length, source: { sourceId: GOOGLE_BUSY_SOURCE_ID, lastSyncedAt: target.fetchedAt,
+    windowStart: target.windowStart, windowEnd: honestWindowEnd } };
 }
 
 /**

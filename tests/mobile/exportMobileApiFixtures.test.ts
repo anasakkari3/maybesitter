@@ -3796,6 +3796,19 @@ test('exports the M5a fixtures from the real handlers', async () => {
     await recordM4b('intelligence.monitor.post', 200, await callM5a(uid, 'intelligence/sources/gmail/monitor', 'POST', {
       body: { enabled: true, enrollM5: true, timezone: 'Asia/Jerusalem' },
     }));
+    const monitor = await m5aStorage().get<any>(`users/${uid}/intelligenceMonitors/gmail`);
+    await m5aStorage().set(`users/${uid}/intelligenceMonitors/gmail`, {
+      ...monitor,
+      liveWaiting: { reason: 'daily_ai_limit', resumesAt: '2026-10-20T00:00:00.000Z',
+        generation: monitor.generation, providerAccountId: monitor.m5.providerAccountId },
+    });
+    await recordM4b('intelligence.monitor.wait.daily', 200, await callM5a(uid, 'intelligence/sources/gmail/monitor', 'GET'));
+    await m5aStorage().set(`users/${uid}/intelligenceMonitors/gmail`, {
+      ...monitor,
+      proposalWaiting: { reason: 'rate_limit', resumesAt: '2026-10-19T10:01:00.000Z',
+        generation: monitor.generation, providerAccountId: monitor.m5.providerAccountId },
+    });
+    await recordM4b('intelligence.monitor.wait.rate', 200, await callM5a(uid, 'intelligence/sources/gmail/monitor', 'GET'));
   });
 
   await scenario(async (uid) => {
