@@ -13,7 +13,7 @@ import { intelligenceGmailMonitorSchema } from '../../api/schemas/intelligence';
 import { forbiddenReason, userFacingMessage } from '../../api/ui/userFacingMessage';
 import { fill, ltr } from '../../i18n/strings';
 import { formatDate, formatTime } from '../../i18n/format';
-import { useTimeZone } from '../../i18n/timezone';
+import { deviceTimeZone, useTimeZone } from '../../i18n/timezone';
 import { useApp } from '../../state/AppContext';
 import { Pill, Txt } from '../../ui/primitives';
 import { Disclosure } from '../../ui/Disclosure';
@@ -33,7 +33,6 @@ import { useGoalPlanFlow } from '../goalPlan/useGoalPlanFlow';
 import { useM5aCapabilities } from '../m5a/capabilities';
 import { EmailScanEntry, EmailScanStatus, WaitLine, useEmailScanOverview } from '../m5a/emailScan';
 import { AddedCard } from '../m5a/AddedCard';
-import { deviceTimeZone } from '../../i18n/timezone';
 import { postEmailScan } from '../../api/endpoints/m5a';
 import { loadMonitorUpgradeDismissed, saveMonitorUpgradeDismissed } from '../../lib/deviceSettings/m5aNotices';
 
