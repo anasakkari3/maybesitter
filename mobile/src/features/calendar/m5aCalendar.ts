@@ -79,6 +79,7 @@ import {
 } from '../../lib/deviceSettings/sourceCredential';
 import {
   clearCachedBusyBlocksOf,
+  holdsCachedBusyBlocksOf,
   saveBusySyncedAt,
   saveCachedBusyBlocks,
   uncoverCachedBusyBlocks,
@@ -407,6 +408,9 @@ async function markPhoneRemoved(uid: string, options: { fromRegistration?: boole
     patch(uid, { removed: true });
     return;
   }
+  // The cache goes straight after the barrier (M5A-R5-001): nothing awaited in
+  // between can leave a removed phone's busy time matching.
+  await invalidateDeviceBusyCache(uid);
   // A registration already under way finishes against the barrier (it reads
   // it again) before the credential goes, so nothing mints after the delete.
   if (!options.fromRegistration) await registrations.get(uid)?.catch(() => undefined);
@@ -533,7 +537,12 @@ export async function runM5aPass(context: M5aPassContext): Promise<BusySyncOutco
     }
   }
   patch(uid, { removed });
-  if (removed) return SKIPPED;
+  if (removed) {
+    // A removal interrupted before its invalidation (the app was killed) is
+    // finished here, on the next pass after a restart (M5A-R5-001).
+    if (await holdsCachedBusyBlocksOf(uid)) await invalidateDeviceBusyCache(uid);
+    return SKIPPED;
+  }
 
   let pending: PendingSelection | null;
   try {
@@ -561,11 +570,11 @@ export async function runM5aPass(context: M5aPassContext): Promise<BusySyncOutco
   if (included.length > 0) {
     let present: Set<string> | null = null;
     try {
-      // Without access, or with nothing listed, the phone has not said which
-      // calendars exist: an empty answer prunes nothing.
+      // Only a granted, successful listing says which calendars exist; an
+      // empty one is an answer too — the last calendar was deleted
+      // (M5A-R5-002). Without access, or on a failed read, nothing is pruned.
       if ((await deviceCalendar.getAccess()) === 'granted') {
-        const listed = await deviceCalendar.listEventCalendars();
-        if (listed.length > 0) present = new Set(listed.map((calendar) => calendar.id));
+        present = new Set((await deviceCalendar.listEventCalendars()).map((calendar) => calendar.id));
       }
     } catch {
       present = null;

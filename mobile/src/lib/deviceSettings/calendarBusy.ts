@@ -269,6 +269,23 @@ export function clearCachedBusyBlocksOf(owner: string): Promise<void> {
   });
 }
 
+/**
+ * Whether the phone still holds a busy cache that could be `owner`'s: theirs,
+ * or present and unreadable. Absent, or another account's, is false.
+ */
+export async function holdsCachedBusyBlocksOf(owner: string): Promise<boolean> {
+  try {
+    const stored = await readEnvelope();
+    return stored !== null && stored.owner === owner;
+  } catch {
+    try {
+      return (await AsyncStorage.getItem(BUSY_BLOCKS_KEY)) !== null;
+    } catch {
+      return true;
+    }
+  }
+}
+
 /** When this device last uploaded `owner`'s window, or null. */
 export async function loadBusySyncedAt(owner: string): Promise<number | null> {
   return (await loadDeviceBusy(owner)).syncedAt;

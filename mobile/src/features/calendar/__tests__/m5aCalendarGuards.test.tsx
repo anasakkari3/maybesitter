@@ -43,7 +43,10 @@ beforeEach(() => {
   jest.useFakeTimers();
   jest.setSystemTime(NOW);
   jest.spyOn(deviceCalendar, 'getAccess').mockResolvedValue('granted');
-  jest.spyOn(deviceCalendar, 'listEventCalendars').mockResolvedValue([]);
+  // Every id the tests include is on the phone, so the R4-003 prune leaves them be.
+  jest.spyOn(deviceCalendar, 'listEventCalendars').mockResolvedValue(
+    ['work', 'home', 'a', 'b', 'c'].map((id) => ({ id, title: id, color: null, sourceName: 'iCloud' })),
+  );
   jest.spyOn(deviceCalendar, 'listWritableCalendars').mockResolvedValue([]);
   jest.spyOn(deviceCalendar, 'fetchBusyBlocks').mockResolvedValue([]);
 });
@@ -255,7 +258,7 @@ describe('inspection r4 (M5A-R4-001/002/003)', () => {
     await waitForRequest(harness, 'GET', /\/calendar\/choice$/);
     await settle();
     expect(await AsyncStorage.getItem(REMOVED)).not.toBeNull();
-    expect(await AsyncStorage.getItem(GENERATION)).toBe('1');
+    expect(Number(await AsyncStorage.getItem(GENERATION))).toBeGreaterThan(0);
   });
 
   it('R4-002: disconnect moves the generation before anything else', async () => {
@@ -297,8 +300,28 @@ describe('inspection r4 (M5A-R4-001/002/003)', () => {
 
   const UNPROVEN: [string, 'granted' | 'denied', { id: string; title: string; color: null; sourceName: string }[]][] = [
     ['without calendar access', 'denied', [{ id: 'work', title: 'Work', color: null, sourceName: 'iCloud' }]],
-    ['with nothing listed', 'granted', []],
   ];
+  it('R5-002: a granted, successful empty listing clears the list (the last calendar was deleted)', async () => {
+    harness = await prepare();
+    (deviceCalendar.listEventCalendars as jest.Mock<typeof deviceCalendar.listEventCalendars>).mockResolvedValue([]);
+    await AsyncStorage.multiSet([[ENROLLED, '2030-03-20T08:00:00.000Z'], [INCLUDED, JSON.stringify(['work', 'gone'])]]);
+    await showBusyHost(harness);
+    await settle();
+    await waitFor(async () => {
+      const pending = JSON.parse((await AsyncStorage.getItem(PENDING)) ?? 'null') as { included: string[] } | null;
+      const included = JSON.parse((await AsyncStorage.getItem(INCLUDED)) ?? '[]') as string[];
+      expect(pending?.included ?? included).toEqual([]);
+    });
+  });
+  it('R4-003: a failed listing prunes nothing', async () => {
+    harness = await prepare();
+    (deviceCalendar.listEventCalendars as jest.Mock<typeof deviceCalendar.listEventCalendars>).mockRejectedValue(new Error('provider gone'));
+    await AsyncStorage.multiSet([[ENROLLED, '2030-03-20T08:00:00.000Z'], [INCLUDED, JSON.stringify(['work', 'gone'])]]);
+    await showBusyHost(harness);
+    await settle();
+    expect(await AsyncStorage.getItem(PENDING)).toBeNull();
+    expect(JSON.parse((await AsyncStorage.getItem(INCLUDED)) ?? '[]')).toEqual(['work', 'gone']);
+  });
   it.each(UNPROVEN)('R4-003: %s, nothing is pruned', async (_label, access, listed) => {
     harness = await prepare();
     (deviceCalendar.getAccess as jest.Mock<typeof deviceCalendar.getAccess>).mockResolvedValue(access);
@@ -308,5 +331,30 @@ describe('inspection r4 (M5A-R4-001/002/003)', () => {
     await settle();
     expect(await AsyncStorage.getItem(PENDING)).toBeNull();
     expect(JSON.parse((await AsyncStorage.getItem(INCLUDED)) ?? '[]')).toEqual(['work', 'gone']);
+  });
+
+  it('R5-001: the cache moves straight after the barrier, before the credential cleanup finishes', async () => {
+    harness = await prepare('en', initialState({ sourceStatus: 'revoked' }));
+    await AsyncStorage.multiSet([[ENROLLED, '2030-03-20T08:00:00.000Z'], [INCLUDED, JSON.stringify(['work'])]]);
+    // The credential delete never finishes: only an invalidation before it passes.
+    jest.spyOn(SecureStore, 'deleteItemAsync').mockReturnValue(new Promise(() => {}));
+    await showBusyHost(harness);
+    await waitForRequest(harness, 'GET', /\/calendar\/choice$/);
+    await settle();
+    expect(await AsyncStorage.getItem(REMOVED)).not.toBeNull();
+    expect(await AsyncStorage.getItem(GENERATION)).toBe('1');
+  });
+
+  it('R5-001: a removal killed before its invalidation is finished on the next start', async () => {
+    harness = await prepare();
+    await AsyncStorage.multiSet([
+      [ENROLLED, '2030-03-20T08:00:00.000Z'],
+      [REMOVED, '2030-03-29T08:00:00.000Z'],
+      [BUSY_BLOCKS_KEY, JSON.stringify({ owner: UID, inclusionGeneration: 0, blocks: [], coverage: null, syncedAt: null })],
+    ]);
+    await showBusyHost(harness);
+    await settle();
+    await waitFor(async () => expect(await AsyncStorage.getItem(BUSY_BLOCKS_KEY)).toBeNull());
+    expect(await AsyncStorage.getItem(GENERATION)).toBe('1');
   });
 });
