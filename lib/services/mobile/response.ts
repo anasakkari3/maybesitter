@@ -24,6 +24,7 @@ export function commitmentToMobileDto(
   commitment: Commitment,
   ranked?: RankedItem,
   link?: DeviceCalendarLink | null,
+  addedFrom?: { kind: 'email_self_reply'; evidence: string },
 ) {
   return {
     id: commitment.id,
@@ -52,6 +53,7 @@ export function commitmentToMobileDto(
     droppedAt: commitment.droppedAt,
     ...(ranked ? { rank: ranked.rank, reasonCodes: ranked.reasonCodes } : {}),
     ...(link === undefined ? {} : { deviceCalendarLink: link }),
+    ...(addedFrom ? { addedFrom } : {}),
   };
 }
 
@@ -74,6 +76,7 @@ export function commitmentListResponse(
   ranking?: Map<string, RankedItem>,
   links?: Map<string, DeviceCalendarLink>,
   calendarOrphans?: { commitmentId: string; link: DeviceCalendarLink }[],
+  addedFrom?: ReadonlyMap<string, { kind: 'email_self_reply'; evidence: string }>,
 ) {
   return {
     items: commitments.map((commitment) => commitmentToMobileDto(
@@ -82,6 +85,7 @@ export function commitmentListResponse(
       // `?? null` rather than the lookup's own undefined: a list that was given
       // the link map answers for every row, including the rows with no link.
       links === undefined ? undefined : links.get(commitment.id) ?? null,
+      addedFrom?.get(commitment.id),
     )),
     ...(calendarOrphans === undefined ? {} : { calendarOrphans }),
   };

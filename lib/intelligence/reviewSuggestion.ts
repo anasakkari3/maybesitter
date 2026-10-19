@@ -4,6 +4,7 @@ import { createStorageRuntimeMemoryStore } from '../runtimeMemory/runtimeMemoryS
 import { commitCommandsWithClaim } from '../services/mobile/participantState';
 import { suggestionPath, type IntelligenceSuggestion } from './proposalEngine';
 import { slotStillFitsSchedule } from './schedulePreview';
+import { listObservations } from './observationStore';
 
 export type SuggestionDecision = 'accept' | 'dismiss';
 
@@ -17,6 +18,10 @@ export class InvalidSuggestionEditError extends Error {
 
 export class SuggestionScheduleChangedError extends Error {
   constructor() { super('suggestion_schedule_changed'); }
+}
+
+export class AutoAddedSuggestionError extends Error {
+  constructor() { super('suggestion_already_auto_added'); }
 }
 
 function languageOf(text: string): 'ar' | 'he' | 'en' {
@@ -50,6 +55,9 @@ export async function reviewSuggestion(
       return next;
     });
   }
+  const observations = await listObservations(uid, storage);
+  const autoAdded = new Set(observations.filter(item => item.autoAddId).map(item => item.id));
+  if (current.observationIds.some(id => autoAdded.has(id))) throw new AutoAddedSuggestionError();
   if (current.kind === 'question') throw new QuestionAnswerRequiredError();
 
   if (current.kind === 'action') {

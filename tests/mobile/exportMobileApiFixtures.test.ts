@@ -182,7 +182,9 @@ import { GET as intelligenceInboxGet, POST as intelligenceStatementPost } from '
 import { POST as intelligenceGeneratePost } from '../../src/app/api/mobile/intelligence/generate/route.ts';
 import { POST as intelligenceObservationPost } from '../../src/app/api/mobile/intelligence/observations/[id]/route.ts';
 import { GET as intelligenceMonitorGet, POST as intelligenceMonitorPost } from '../../src/app/api/mobile/intelligence/sources/gmail/monitor/route.ts';
-import { POST as intelligenceGmailScanPost } from '../../src/app/api/mobile/intelligence/sources/gmail/scan/route.ts';
+import { GET as intelligenceGmailScanGet, POST as intelligenceGmailScanPost } from '../../src/app/api/mobile/intelligence/sources/gmail/scan/route.ts';
+import { GET as intelligenceAddedGet } from '../../src/app/api/mobile/intelligence/added/route.ts';
+import { DELETE as intelligenceAddedDelete } from '../../src/app/api/mobile/intelligence/added/[autoAddId]/route.ts';
 import { semanticPrompt } from '../../lib/intelligence/semantic.ts';
 import { POST as googleDrivePickerPost } from '../../src/app/api/mobile/integrations/google/drive/picker/route.ts';
 import { POST as googleDriveImportPost } from '../../src/app/api/mobile/integrations/google/drive/import/route.ts';
@@ -3625,6 +3627,14 @@ test('exports the proactive-loop (intelligence) fixtures the Goals and Watching 
       await record('intelligence.generated', 200, await intelligenceGeneratePost(request('/api/mobile/intelligence/generate', { body: {} })));
       await record('intelligence.inbox', 200, await intelligenceInboxGet(request('/api/mobile/intelligence')));
       await record('intelligence.gmailMonitor', 200, await intelligenceMonitorGet(request('/api/mobile/intelligence/sources/gmail/monitor')));
+      await record('intelligence.added', 200, await intelligenceAddedGet(request('/api/mobile/intelligence/added?limit=20')));
+      await record('intelligence.addedMissing', 404, await intelligenceAddedDelete(
+        request(`/api/mobile/intelligence/added/${'0'.repeat(64)}`, { method: 'DELETE' }),
+        { params: Promise.resolve({ autoAddId: '0'.repeat(64) }) },
+      ));
+      await record('intelligence.gmailScanUnavailable', 404, await intelligenceGmailScanGet(
+        request('/api/mobile/intelligence/sources/gmail/scan'),
+      ));
       // «آه، هيك صح» on a card the panel shows.
       const observationId = (analyzed.observations as Array<{ id: string }>)[0]!.id;
       // The linked memory id is a content hash that differs run to run; pinned

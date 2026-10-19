@@ -1,7 +1,7 @@
 import { mobileAuthErrorResponse, requireMobileUser } from '../../../../../../../lib/auth/mobileAuth';
 import { intelligenceDisabledResponse } from '../../../../../../../lib/intelligence/gate';
 import { getRecommendationConsent } from '../../../../../../../lib/consents/recommendationConsentService';
-import { InvalidSuggestionEditError, QuestionAnswerRequiredError, SuggestionScheduleChangedError, reviewSuggestion } from '../../../../../../../lib/intelligence/reviewSuggestion';
+import { AutoAddedSuggestionError, InvalidSuggestionEditError, QuestionAnswerRequiredError, SuggestionScheduleChangedError, reviewSuggestion } from '../../../../../../../lib/intelligence/reviewSuggestion';
 import { RequestBodyTooLargeError, readJsonBody, requestBodyTooLargeResponse } from '../../../../../../../lib/net/requestBody';
 
 export const dynamic = 'force-dynamic';
@@ -49,6 +49,9 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     }
     if (error instanceof SuggestionScheduleChangedError) {
       return Response.json({ success: false, reason: 'suggestion_schedule_changed' }, { status: 409 });
+    }
+    if (error instanceof AutoAddedSuggestionError) {
+      return Response.json({ success: false, error: error.message }, { status: 409 });
     }
     return Response.json({ success: false, error: 'could not apply decision' }, { status: 500 });
   }

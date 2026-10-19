@@ -16,6 +16,8 @@ export interface StoredObservation extends SemanticObservation {
   reviewedAt: string | null;
   /** A confirmed goal is represented by the existing memory store. */
   linkedMemoryId: string | null;
+  /** Present only when the observation was confirmed by the self-reply write. */
+  autoAddId?: string;
 }
 
 /**

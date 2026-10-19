@@ -17,6 +17,7 @@ import { RequestBodyTooLargeError, readJsonBody, requestBodyTooLargeResponse } f
 import { learnOutcomesWithin } from '../../../../../../../lib/intelligence/outcomeLearning';
 import { applyPostponeSlot, postponeSlots, SlotDecisionError } from '../../../../../../../lib/planning/postponeSlots';
 import { resolveSmartPostpone } from '../../../../../../../lib/release/m4bCapabilities';
+import { addedFromByCommitment } from '../../../../../../../lib/intelligence/autoAdds';
 
 export const dynamic = 'force-dynamic';
 
@@ -84,10 +85,11 @@ export async function POST(
     // opens the loop's own screen (review of 2026-10-03). Idempotent per
     // event, gated and consent-checked inside, and never fails the action.
     if (body.action !== 'aware') await learnOutcomesWithin(user.uid);
+    const addedFrom = await addedFromByCommitment(user.uid, [commitment]);
     return Response.json({
       success: true,
       id,
-      commitment: commitmentToMobileDto(commitment, undefined, link),
+      commitment: commitmentToMobileDto(commitment, undefined, link, addedFrom.get(commitment.id)),
       ...(replayed ? { replayed: true } : {}),
     }, { headers: { ETag: etagFor(commitment) } });
   } catch (error) {

@@ -45,6 +45,7 @@
  * and a dead grant with 401, which would have signed people out of the app for
  * pressing Back in Google's consent screen.
  */
+import { randomUUID } from 'node:crypto';
 import {
   beginProviderOAuth,
   completeProviderOAuth,
@@ -86,7 +87,14 @@ import type {
   IntegrationCapability,
   IntegrationConnectionRecord,
 } from '../../../src/contracts/v1/integrationConnectionContracts';
-import { BUSY_SOURCE_FENCES, docIdForKey, userSubDoc } from '../../storage/paths';
+import {
+  BUSY_SOURCE_FENCES,
+  INTELLIGENCE_GMAIL_SCANS,
+  INTELLIGENCE_MONITORS,
+  docIdForKey,
+  userCol,
+  userSubDoc,
+} from '../../storage/paths';
 
 function googleBusyFencePath(uid: string): string {
   return userSubDoc(uid, BUSY_SOURCE_FENCES, docIdForKey(GOOGLE_BUSY_SOURCE_ID));
@@ -447,6 +455,31 @@ export async function disconnectGoogle(uid: string, runtime: GoogleRuntime): Pro
       scopeId: uid,
       connectionId: connectionIdFor(GOOGLE_PROVIDER),
       now: runtime.now().toISOString(),
+    });
+    // Identity-bound Gmail work cannot survive an account change. This runs
+    // after provider revocation landed and before any later connection can be
+    // admitted, preserving auto-add history while preventing reads of B under
+    // A's monitor/scan authority.
+    await runtime.storage.runTransaction(async tx => {
+      const manualPath = `${userCol(uid, INTELLIGENCE_GMAIL_SCANS)}/manualV2`;
+      const dailyPath = `${userCol(uid, INTELLIGENCE_GMAIL_SCANS)}/dailyV2`;
+      const monitorPath = `${userCol(uid, INTELLIGENCE_MONITORS)}/gmail`;
+      const [manual, daily, monitor] = await Promise.all([
+        tx.get<Record<string, unknown>>(manualPath),
+        tx.get<Record<string, unknown>>(dailyPath),
+        tx.get<Record<string, unknown>>(monitorPath),
+      ]);
+      const now = runtime.now().toISOString();
+      for (const [path, scan] of [[manualPath, manual], [dailyPath, daily]] as const) {
+        if (scan && (scan.status === 'running' || scan.status === 'failed')) tx.set(path, {
+          ...scan, status: 'failed', failure: 'reconnect_needed', failedAt: now,
+          leaseOwner: null, leaseUntil: null, nextEligibleAt: now,
+        });
+      }
+      if (monitor) tx.set(monitorPath, {
+        ...monitor, enabled: false, generation: randomUUID(), cursor: null, pageToken: null,
+        leaseUntil: null, nextPollAt: now, error: null,
+      });
     });
     // After the revocation landed, never before: a refused revoke keeps the
     // grant, and the busy time that grant produced stays true with it.

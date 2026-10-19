@@ -401,7 +401,9 @@ export async function proposeFromObservations(
   }
   await syncCanonicalObservations(uid, now, storage);
   const availableObservations = (await listObservations(uid, storage))
-    .filter(item => item.review !== 'dismissed');
+    // A self-reply auto-add is already canonical work. Feeding its supporting
+    // observation back into proposals would offer the same obligation twice.
+    .filter(item => item.review !== 'dismissed' && !item.autoAddId);
   const linkedGoalMemories = new Set(availableObservations
     .filter(item => item.kind === 'goal' && item.review === 'confirmed' && item.linkedMemoryId)
     .map(item => item.linkedMemoryId));

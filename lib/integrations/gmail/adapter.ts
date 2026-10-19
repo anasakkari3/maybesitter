@@ -33,6 +33,12 @@ export interface GmailMessagePayload {
   readonly from: string | null;
   readonly subject: string | null;
   readonly text: string;
+  /** Provider labels, interpreted by the transport rather than a From header. */
+  readonly sentByAccount?: boolean;
+  /** Reply-ness comes only from the message's own RFC reply headers. */
+  readonly isReply?: boolean;
+  /** The representation selected by the parser. HTML is never quote-certified. */
+  readonly bodyFormat?: 'text/plain' | 'text/html';
 }
 
 export interface GmailUntrustedContext {

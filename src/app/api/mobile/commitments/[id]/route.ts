@@ -17,6 +17,7 @@ import { commitmentToMobileDto, mobileError } from '../../../../../../lib/servic
 import { getDeviceCalendarLink } from '../../../../../../lib/services/calendar/deviceCalendarLinks';
 import { RequestBodyTooLargeError, readJsonBody, requestBodyTooLargeResponse } from '../../../../../../lib/net/requestBody';
 import { learnOutcomesWithin } from '../../../../../../lib/intelligence/outcomeLearning';
+import { addedFromByCommitment } from '../../../../../../lib/intelligence/autoAdds';
 
 export const dynamic = 'force-dynamic';
 
@@ -38,7 +39,8 @@ export async function GET(
   if (!commitment) return mobileError('Commitment not found', 404);
   // The validator the client sends back as `If-Match` when it edits (#148).
   const link = await getDeviceCalendarLink(user.uid, id);
-  return Response.json(commitmentToMobileDto(commitment, undefined, link), {
+  const addedFrom = await addedFromByCommitment(user.uid, [commitment]);
+  return Response.json(commitmentToMobileDto(commitment, undefined, link, addedFrom.get(commitment.id)), {
     headers: { ETag: etagFor(commitment) },
   });
 }
@@ -75,7 +77,8 @@ export async function PATCH(
     // Saturday's match is warned about the way a capture there is. Additive,
     // so a client that does not read it parses the same DTO as before.
     const collisions = await collisionsForExistingCommitment(id, { participantId: user.uid });
-    return Response.json({ ...commitmentToMobileDto(updated, undefined, link), collisions }, {
+    const addedFrom = await addedFromByCommitment(user.uid, [updated]);
+    return Response.json({ ...commitmentToMobileDto(updated, undefined, link, addedFrom.get(updated.id)), collisions }, {
       headers: { ETag: etagFor(updated) },
     });
   } catch (error) {
