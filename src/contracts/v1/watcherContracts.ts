@@ -226,6 +226,9 @@ export interface PlanningStateChange {
    * that is new, and read as "unknown", never as "outside".
    */
   readonly beforeInterval?: { readonly startsAt: string; readonly endsAt: string };
+  /** M5a first-upload activation: the source becomes planning-visible at once. */
+  readonly kind?: 'busy_source_activated';
+  readonly sourceId?: string;
 }
 
 /**

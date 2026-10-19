@@ -650,6 +650,10 @@ test('census: inside busyBlocks.ts, a block path is written only by the function
     }
   });
   assert.deepEqual(Array.from(pathUsers).sort(), ['commitTransitions'], 'a block document is reached only inside commitTransitions');
-  assert.deepEqual(Array.from(collectionUsers).sort(), ['allBlocks', 'blockPath'], 'the collection is otherwise only listed, never written');
+  assert.deepEqual(
+    Array.from(collectionUsers).sort(),
+    ['allBlocks', 'blockPath', 'firstDeviceBusySourceId'],
+    'the collection is otherwise only listed, never written',
+  );
   assert.deepEqual(Array.from(committers).sort(), ['deleteBusySource', 'replaceBusyBlocks']);
 });

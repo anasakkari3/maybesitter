@@ -19,7 +19,7 @@ import {
   CalendarChoiceError,
   SOURCE_SECRET_HEADER,
   finishDeviceClear,
-  finishDeviceUpload,
+  finishDeviceUploadInTransaction,
   readCalendarChoice,
   retireDeviceSource,
   validateSelectionContinuationInTransaction,
@@ -265,33 +265,36 @@ export async function POST(request: Request) {
   }
 
   const now = new Date();
-  await replaceBusyBlocks(user.uid, upload.sourceId, upload.window, blocks, {
-    platform: upload.platform,
-    now,
-    ...(choice ? {
-      transactionGuard: async (tx: import('../../../../../../lib/storage/storageAdapter').StorageTransaction) => {
-        await validateSelectionContinuationInTransaction(
-          tx, user.uid, upload.sourceId, sourceSecret, 'upload', m5.opId as string, m5.epoch as number,
-        );
-      },
-    } : {}),
-  });
-  if (choice) {
-    try {
-      await finishDeviceUpload(user.uid, upload.sourceId, sourceSecret, m5.opId as string, m5.epoch as number, {
-        sourceId: upload.sourceId,
-        kind: upload.sourceKind,
-        platform: upload.platform,
-        lastSyncedAt: now.toISOString(),
-        windowStart: upload.window.startsAt,
-        windowEnd: upload.window.endsAt,
-      });
-    } catch (error) {
-      if (error instanceof CalendarChoiceError) {
-        return Response.json({ success: false, error: error.code, ...(error.currentEpoch === undefined ? {} : { currentEpoch: error.currentEpoch }) }, { status: 409 });
-      }
-      throw error;
+  try {
+    await replaceBusyBlocks(user.uid, upload.sourceId, upload.window, blocks, {
+      platform: upload.platform,
+      now,
+      ...(choice ? {
+        transactionGuard: async (tx: import('../../../../../../lib/storage/storageAdapter').StorageTransaction) => {
+          await validateSelectionContinuationInTransaction(
+            tx, user.uid, upload.sourceId, sourceSecret, 'upload', m5.opId as string, m5.epoch as number,
+          );
+        },
+        finalizeSource: async (
+          tx: import('../../../../../../lib/storage/storageAdapter').StorageTransaction,
+          current: import('../../../../../../lib/calendar/busyBlocks').CalendarSource | null,
+          source: import('../../../../../../lib/calendar/busyBlocks').CalendarSource,
+        ) => finishDeviceUploadInTransaction(
+          tx, user.uid, upload.sourceId, sourceSecret, m5.opId as string, m5.epoch as number, source, current,
+        ),
+      } : {}),
+    });
+  } catch (error) {
+    if (error instanceof CalendarChoiceError) {
+      return Response.json({ success: false, error: error.code, ...(error.currentEpoch === undefined ? {} : { currentEpoch: error.currentEpoch }) }, { status: error.code === 'source_secret_invalid' ? 403 : 409 });
     }
+    if (error instanceof BusyUploadError) {
+      const code = error.message === 'calendar_choice_purging' ? 'calendar_choice_purging'
+        : error.message === 'calendar_choice_required' ? 'calendar_choice_required'
+          : 'selection_stale';
+      return Response.json({ success: false, error: code }, { status: 409 });
+    }
+    throw error;
   }
 
   // The window and the time, and no count of anything the user could recognise.

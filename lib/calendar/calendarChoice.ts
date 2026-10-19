@@ -5,19 +5,41 @@ import {
   BUSY_SOURCE_FENCES,
   CALENDAR_CHOICE,
   CALENDAR_SOURCES,
+  DEVICE_STALE_STATE,
+  PLANNING_STATE_CHANGES,
   REGISTERED_DEVICE_SOURCES,
   RETIRED_DEVICE_SOURCES,
   docIdForKey,
   userCol,
   userSubDoc,
 } from '../storage/paths';
-import { deleteBusySource, listBusyBlocksOfSource, listBusySourceIdsByKind, sourceKindOf, type CalendarSource } from './busyBlocks';
+import {
+  deleteBusySource,
+  firstDeviceBusySourceId,
+  listBusyBlocksOfSource,
+  sourceKindOf,
+  type BusySourceReplacementFence,
+  type CalendarSource,
+} from './busyBlocks';
 import { M5A_CONTROLS_PATH, parseM5aControls, resolveM5aCapabilities } from '../release/m5aControls';
+import { GOOGLE_BUSY_SOURCE_ID } from '../integrations/google/googleConfig';
+import { PLANNING_STATE_CHANGE_SCHEMA_VERSION, type PlanningStateChange } from '../../src/contracts/v1/watcherContracts';
 
 export const CALENDAR_CHOICE_VERSION = 1;
 export const SOURCE_SECRET_HEADER = 'x-maybesitter-source-secret';
 const PHONE_LIMIT = 20;
 const LEASE_MS = 120_000;
+
+type CalendarChoiceTestHook = (
+  point: 'purge_page_deleted' | 'retirement_claimed',
+  context: { readonly uid: string; readonly sourceId: string },
+) => Promise<void>;
+let calendarChoiceTestHook: CalendarChoiceTestHook | null = null;
+
+/** Test-only pause seam for lease takeover and stale-owner mutations. */
+export function setCalendarChoiceTestHookForTests(hook: CalendarChoiceTestHook | null): void {
+  calendarChoiceTestHook = hook;
+}
 
 export interface CalendarChoiceState {
   readonly v: 1;
@@ -36,7 +58,7 @@ export interface DeviceRegistration {
   readonly registeredAt: string;
 }
 
-interface SelectionFence {
+interface SelectionFence extends BusySourceReplacementFence {
   readonly generation: number;
   readonly currentEpoch: number;
   readonly intentId: string;
@@ -47,10 +69,16 @@ interface SelectionFence {
 }
 
 type SourceRow = CalendarSource & {
-  status?: 'uploading' | 'active' | 'clearing' | 'retiring';
-  choiceGeneration?: number;
-  lastUploadAt?: string | null;
+  readonly status?: 'uploading' | 'active' | 'clearing' | 'retiring';
 };
+
+interface DeviceStaleState {
+  readonly choiceGeneration: number;
+  readonly sourceId: string;
+  readonly fenceGeneration: number;
+  readonly failureStartedAt: string | null;
+  readonly version: number;
+}
 
 export class CalendarChoiceError extends Error {
   constructor(
@@ -68,11 +96,17 @@ function registrationPath(uid: string, sourceId: string): string {
 function retiredPath(uid: string, installationId: string): string {
   return userSubDoc(uid, RETIRED_DEVICE_SOURCES, docIdForKey(installationId));
 }
+function retiredSourcePath(uid: string, sourceId: string): string {
+  return userSubDoc(uid, RETIRED_DEVICE_SOURCES, `source_${docIdForKey(sourceId)}`);
+}
 function fencePath(uid: string, sourceId: string): string {
   return userSubDoc(uid, BUSY_SOURCE_FENCES, docIdForKey(sourceId));
 }
 function sourcePath(uid: string, sourceId: string): string {
   return userSubDoc(uid, CALENDAR_SOURCES, docIdForKey(sourceId));
+}
+function staleStatePath(uid: string, sourceId: string): string {
+  return userSubDoc(uid, DEVICE_STALE_STATE, docIdForKey(sourceId));
 }
 function sha(value: string): string { return createHash('sha256').update(value).digest('hex'); }
 
@@ -88,6 +122,71 @@ function nonEmpty(value: unknown, max = 512): value is string {
 
 function activeChoice(value: CalendarChoiceState | null): value is CalendarChoiceState & { state: 'active' } {
   return value?.v === 1 && value.state === 'active' && Number.isSafeInteger(value.generation) && value.generation >= 1;
+}
+
+async function markGoogleCoverageStale(tx: StorageTransaction, uid: string): Promise<void> {
+  const google = await tx.get<CalendarSource>(sourcePath(uid, GOOGLE_BUSY_SOURCE_ID));
+  if (!google) return;
+  const { m5Certificate: _certificate, ...withoutCertificate } = google;
+  tx.set<CalendarSource>(sourcePath(uid, GOOGLE_BUSY_SOURCE_ID), {
+    ...withoutCertificate,
+    coverageStatus: 'stale',
+  });
+}
+
+async function writeDeviceStaleState(
+  tx: StorageTransaction,
+  uid: string,
+  sourceId: string,
+  choiceGeneration: number,
+  failureStartedAt: string | null = null,
+): Promise<void> {
+  const [prior, fence] = await Promise.all([
+    tx.get<DeviceStaleState>(staleStatePath(uid, sourceId)),
+    tx.get<BusySourceReplacementFence>(fencePath(uid, sourceId)),
+  ]);
+  tx.set<DeviceStaleState>(staleStatePath(uid, sourceId), {
+    choiceGeneration,
+    sourceId,
+    fenceGeneration: fence?.generation ?? 0,
+    failureStartedAt,
+    version: (prior?.version ?? 0) + 1,
+  });
+}
+
+function activationChange(uid: string, sourceId: string, at: string): PlanningStateChange & {
+  readonly kind: 'busy_source_activated'; readonly sourceId: string;
+} {
+  const changeId = `calendar:${docIdForKey(JSON.stringify(['busy_source_activated', sourceId, randomUUID()]))}`;
+  return {
+    schemaVersion: PLANNING_STATE_CHANGE_SCHEMA_VERSION,
+    changeId,
+    scopeId: uid,
+    source: 'calendar',
+    entityId: sourceId,
+    occurredAt: at,
+    changedFields: ['busy_source_activated'],
+    beforeDigest: null,
+    afterDigest: sha(JSON.stringify(['busy_source_activated', sourceId, at])),
+    provenanceRef: `calendar-source-activation:${docIdForKey(sourceId)}`,
+    kind: 'busy_source_activated',
+    sourceId,
+  };
+}
+
+async function requirePurgeFence(
+  tx: StorageTransaction,
+  uid: string,
+  expected: CalendarChoiceState & { state: 'purging'; purge: NonNullable<CalendarChoiceState['purge']> },
+): Promise<CalendarChoiceState & { state: 'purging'; purge: NonNullable<CalendarChoiceState['purge']> }> {
+  const current = await tx.get<CalendarChoiceState>(choicePath(uid));
+  if (!current || current.state !== 'purging' || !current.purge
+    || current.generation !== expected.generation
+    || current.purge.owner !== expected.purge.owner
+    || current.purge.version !== expected.purge.version) {
+    throw new CalendarChoiceError('calendar_choice_purging');
+  }
+  return current as CalendarChoiceState & { state: 'purging'; purge: NonNullable<CalendarChoiceState['purge']> };
 }
 
 export async function readCalendarChoice(uid: string, storage: StorageAdapter = getStorage()): Promise<CalendarChoiceState | null> {
@@ -111,6 +210,7 @@ export async function enrollCalendarChoice(uid: string, storage: StorageAdapter 
     if (!controls?.calendar.enabled || controls.calendar.epoch !== calendarEpoch) throw new CalendarChoiceError('calendar_choice_unavailable');
     if (existing?.state === 'purging') {
       if (Date.parse(existing.purge?.leaseUntil ?? '') > now.getTime()) return existing;
+      await markGoogleCoverageStale(tx, uid);
       const taken: CalendarChoiceState = {
         ...existing,
         purge: { owner, leaseUntil: new Date(now.getTime() + LEASE_MS).toISOString(), cursor: existing.purge?.cursor ?? null, version: (existing.purge?.version ?? 0) + 1 },
@@ -118,6 +218,7 @@ export async function enrollCalendarChoice(uid: string, storage: StorageAdapter 
       tx.set(choicePath(uid), taken);
       return taken;
     }
+    await markGoogleCoverageStale(tx, uid);
     const created: CalendarChoiceState = {
       v: 1, generation: 1, state: 'purging', enrolledAt: now.toISOString(),
       purge: { owner, leaseUntil: new Date(now.getTime() + LEASE_MS).toISOString(), cursor: null, version: 1 },
@@ -129,26 +230,72 @@ export async function enrollCalendarChoice(uid: string, storage: StorageAdapter 
   // An unexpired owner may be another request. Its retry will finish; report the durable state.
   if (state.purge?.owner !== owner && Date.parse(state.purge?.leaseUntil ?? '') > now.getTime()) return state;
 
-  const sources = await storage.list<SourceRow>(userCol(uid, CALENDAR_SOURCES));
-  for (const row of sources) if (row.data.sourceId.startsWith('device:')) await deleteBusySource(uid, row.data.sourceId, { storage, now });
-  // A crashed pre-enrolment upload may have blocks but no source document.
-  const deviceSourceIds = await listBusySourceIdsByKind(uid, 'device', { storage });
-  for (const sourceId of deviceSourceIds) {
-    if (!sources.some((row) => row.data.sourceId === sourceId)) await deleteBusySource(uid, sourceId, { storage, now });
+  while (state.state === 'purging' && state.purge?.owner === owner) {
+    const expected = state as CalendarChoiceState & { state: 'purging'; purge: NonNullable<CalendarChoiceState['purge']> };
+    const [sourceRows, orphanSourceId] = await Promise.all([
+      storage.list<SourceRow>(userCol(uid, CALENDAR_SOURCES), { where: [['kind', '==', 'device']], limit: 1 }),
+      firstDeviceBusySourceId(uid, { storage }),
+    ]);
+    const registeredSourceId = sourceRows[0]?.data.sourceId ?? null;
+    const sourceId = registeredSourceId ?? orphanSourceId;
+    if (registeredSourceId !== null) {
+      await deleteBusySource(uid, registeredSourceId, {
+        storage,
+        now,
+        transactionGuard: async (tx) => { await requirePurgeFence(tx, uid, expected); },
+      });
+    } else if (orphanSourceId !== null) {
+      await deleteBusySource(uid, orphanSourceId, {
+        storage,
+        now,
+        transactionGuard: async (tx) => { await requirePurgeFence(tx, uid, expected); },
+      });
+    }
+    if (sourceId !== null) {
+      if (calendarChoiceTestHook) await calendarChoiceTestHook('purge_page_deleted', { uid, sourceId });
+      state = await storage.runTransaction(async (tx) => {
+        const [current, controls] = await Promise.all([
+          requirePurgeFence(tx, uid, expected),
+          tx.get(M5A_CONTROLS_PATH),
+        ]);
+        const parsed = parseM5aControls(controls);
+        if (!parsed?.calendar.enabled || parsed.calendar.epoch !== calendarEpoch) throw new CalendarChoiceError('calendar_choice_unavailable');
+        const advanced: CalendarChoiceState = {
+          ...current,
+          purge: {
+            ...current.purge,
+            cursor: sourceId,
+            version: current.purge.version + 1,
+            leaseUntil: new Date(Date.now() + LEASE_MS).toISOString(),
+          },
+        };
+        tx.set(choicePath(uid), advanced);
+        return advanced;
+      });
+      continue;
+    }
+
+    state = await storage.runTransaction(async (tx) => {
+      const [current, controls] = await Promise.all([
+        requirePurgeFence(tx, uid, expected),
+        tx.get(M5A_CONTROLS_PATH),
+      ]);
+      const parsed = parseM5aControls(controls);
+      if (!parsed?.calendar.enabled || parsed.calendar.epoch !== calendarEpoch) throw new CalendarChoiceError('calendar_choice_unavailable');
+      const active: CalendarChoiceState = { ...current, state: 'active', purge: null };
+      tx.set(choicePath(uid), active);
+      return active;
+    });
   }
 
-  state = await storage.runTransaction(async (tx) => {
-    const current = await tx.get<CalendarChoiceState>(choicePath(uid));
-    const controls = parseM5aControls(await tx.get(M5A_CONTROLS_PATH));
-    if (!controls?.calendar.enabled || controls.calendar.epoch !== calendarEpoch) throw new CalendarChoiceError('calendar_choice_unavailable');
-    if (!current || current.generation !== state.generation || current.state !== 'purging' || current.purge?.owner !== owner) {
-      if (activeChoice(current)) return current;
-      throw new CalendarChoiceError('calendar_choice_purging');
+  if (state.state === 'active') {
+    const registrations = await storage.list<DeviceRegistration>(userCol(uid, REGISTERED_DEVICE_SOURCES), { limit: PHONE_LIMIT + 1 });
+    for (const { data: registration } of registrations) {
+      await storage.runTransaction(async (tx) => {
+        await writeDeviceStaleState(tx, uid, registration.sourceId, state.generation);
+      });
     }
-    const active: CalendarChoiceState = { ...current, state: 'active', purge: null };
-    tx.set(choicePath(uid), active);
-    return active;
-  });
+  }
   return state;
 }
 
@@ -189,14 +336,14 @@ export async function registerDeviceSource(
       sourceId, sourceInstallationId, secretHash: sha(sourceSecret),
       secretVersion: 1, state: 'active', registeredAt: now,
     };
+    await writeDeviceStaleState(tx, uid, sourceId, choice.generation);
     tx.create(registrationPath(uid, sourceId), registration);
     return sourceId;
   });
 }
 
 async function retiredSource(tx: StorageTransaction, uid: string, sourceId: string): Promise<boolean> {
-  const rows = await tx.list<{ sourceId: string }>(userCol(uid, RETIRED_DEVICE_SOURCES), { limit: PHONE_LIMIT + 1 });
-  return rows.some((row) => row.data.sourceId === sourceId);
+  return Boolean(await tx.get<{ sourceId: string }>(retiredSourcePath(uid, sourceId)));
 }
 
 async function authorizeRegistration(tx: StorageTransaction, uid: string, sourceId: string, secret: string): Promise<DeviceRegistration> {
@@ -241,16 +388,26 @@ export async function startSelectionIntent(
       leaseUntil: new Date(now.getTime() + LEASE_MS).toISOString(),
     };
     const source = await tx.get<SourceRow>(sourcePath(uid, sourceId));
+    if (operation === 'clear') await markGoogleCoverageStale(tx, uid);
     if (operation === 'upload' && !source) {
       tx.set(sourcePath(uid, sourceId), {
         sourceId, kind: 'device', platform: null,
         lastSyncedAt: now.toISOString(), windowStart: now.toISOString(), windowEnd: now.toISOString(),
         status: 'uploading', choiceGeneration: choice.generation, lastUploadAt: null,
+        coverageStatus: 'refreshing',
+        upload: { owner: opId, leaseUntil: fence.leaseUntil, selectionEpoch: epoch },
       } satisfies SourceRow);
+    } else if (operation === 'upload' && source) {
+      tx.set(sourcePath(uid, sourceId), {
+        ...source,
+        status: source.status === 'uploading' ? 'uploading' : 'active',
+        coverageStatus: 'refreshing',
+        upload: { owner: opId, leaseUntil: fence.leaseUntil, selectionEpoch: epoch },
+      });
     } else if (operation === 'clear' && source) {
-      tx.set(sourcePath(uid, sourceId), { ...source, status: 'clearing' });
+      tx.set(sourcePath(uid, sourceId), { ...source, status: 'clearing', coverageStatus: 'clearing', upload: null });
     }
-    tx.set(fencePath(uid, sourceId), fence);
+    tx.set(fencePath(uid, sourceId), { ...(prior ?? {}), ...fence });
     return { opId, epoch, intentId };
   });
 }
@@ -284,9 +441,39 @@ export async function finishDeviceUpload(
   source: CalendarSource, storage: StorageAdapter = getStorage(),
 ): Promise<void> {
   await storage.runTransaction(async (tx) => {
-    const { choice } = await validateSelectionContinuationInTransaction(tx, uid, sourceId, secret, 'upload', opId, epoch);
-    tx.set(sourcePath(uid, sourceId), { ...source, status: 'active', choiceGeneration: choice.generation, lastUploadAt: source.lastSyncedAt } satisfies SourceRow);
+    const current = await tx.get<SourceRow>(sourcePath(uid, sourceId));
+    const finalized = await finishDeviceUploadInTransaction(tx, uid, sourceId, secret, opId, epoch, source, current);
+    tx.set(sourcePath(uid, sourceId), {
+      ...(current ?? {}),
+      ...source,
+      ...finalized,
+    } satisfies SourceRow);
   });
+}
+
+export async function finishDeviceUploadInTransaction(
+  tx: StorageTransaction,
+  uid: string,
+  sourceId: string,
+  secret: string,
+  opId: string,
+  epoch: number,
+  source: CalendarSource,
+  current: SourceRow | null,
+): Promise<Partial<CalendarSource>> {
+  const { choice } = await validateSelectionContinuationInTransaction(tx, uid, sourceId, secret, 'upload', opId, epoch);
+  await writeDeviceStaleState(tx, uid, sourceId, choice.generation);
+  if (current?.status === 'uploading') {
+    const change = activationChange(uid, sourceId, source.lastSyncedAt);
+    tx.set(userSubDoc(uid, PLANNING_STATE_CHANGES, docIdForKey(change.changeId)), change);
+  }
+  return {
+    status: 'active',
+    choiceGeneration: choice.generation,
+    lastUploadAt: source.lastSyncedAt,
+    coverageStatus: 'settled',
+    upload: null,
+  };
 }
 
 export async function validateSelectionContinuationInTransaction(
@@ -315,7 +502,10 @@ export async function finishDeviceClear(
     },
   });
   // Re-check after the multi-row delete so a newer intent cannot be settled by this runner.
-  await storage.runTransaction(async (tx) => { await validateSelectionContinuationInTransaction(tx, uid, sourceId, secret, 'clear', opId, epoch); });
+  await storage.runTransaction(async (tx) => {
+    const { choice } = await validateSelectionContinuationInTransaction(tx, uid, sourceId, secret, 'clear', opId, epoch);
+    await writeDeviceStaleState(tx, uid, sourceId, choice.generation);
+  });
 }
 
 export async function listRegisteredDeviceSources(uid: string, storage: StorageAdapter = getStorage()) {
@@ -337,8 +527,9 @@ export async function listRegisteredDeviceSources(uid: string, storage: StorageA
 
 export async function retireDeviceSource(uid: string, sourceId: string, storage: StorageAdapter = getStorage()): Promise<number> {
   if (sourceKindOf(sourceId) !== 'device') throw new CalendarChoiceError('source_forbidden');
-  const now = new Date().toISOString();
-  const registration = await storage.runTransaction(async (tx) => {
+  const nowDate = new Date();
+  const now = nowDate.toISOString();
+  const claim = await storage.runTransaction(async (tx) => {
     const choice = await tx.get<CalendarChoiceState>(choicePath(uid));
     if (!choice) throw new CalendarChoiceError('calendar_choice_required');
     const found = await tx.get<DeviceRegistration>(registrationPath(uid, sourceId));
@@ -348,21 +539,39 @@ export async function retireDeviceSource(uid: string, sourceId: string, storage:
     }
     const prior = await tx.get<SelectionFence>(fencePath(uid, sourceId));
     const source = await tx.get<SourceRow>(sourcePath(uid, sourceId));
+    await markGoogleCoverageStale(tx, uid);
+    if (found.state === 'retiring' && Date.parse(prior?.leaseUntil ?? '') > nowDate.getTime()) return null;
+    const currentEpoch = (prior?.currentEpoch ?? 0) + 1;
+    const opId = randomUUID();
     tx.set(registrationPath(uid, sourceId), { ...found, state: 'retiring' });
     tx.set(retiredPath(uid, found.sourceInstallationId), { sourceId, retiredAt: now });
+    tx.set(retiredSourcePath(uid, sourceId), { sourceId, retiredAt: now });
     tx.set(fencePath(uid, sourceId), {
+      ...(prior ?? {}),
       generation: choice.generation, currentEpoch: (prior?.currentEpoch ?? 0) + 1,
-      intentId: randomUUID(), opId: randomUUID(), operation: 'retire', selectionDigest: '',
-      leaseUntil: new Date(Date.now() + LEASE_MS).toISOString(),
+      intentId: randomUUID(), opId, operation: 'retire', selectionDigest: '',
+      leaseUntil: new Date(nowDate.getTime() + LEASE_MS).toISOString(),
     } satisfies SelectionFence);
-    if (source) tx.set(sourcePath(uid, sourceId), { ...source, status: 'retiring' });
-    return found;
+    if (source) tx.set(sourcePath(uid, sourceId), { ...source, status: 'retiring', coverageStatus: 'clearing', upload: null });
+    return { registration: found, currentEpoch, opId };
   });
-  if (!registration) return 0;
-  const result = await deleteBusySource(uid, sourceId, { storage });
+  if (!claim) return 0;
+  if (calendarChoiceTestHook) await calendarChoiceTestHook('retirement_claimed', { uid, sourceId });
+  const retirementGuard = async (tx: StorageTransaction): Promise<void> => {
+    const [registration, fence] = await Promise.all([
+      tx.get<DeviceRegistration>(registrationPath(uid, sourceId)),
+      tx.get<SelectionFence>(fencePath(uid, sourceId)),
+    ]);
+    if (registration?.state !== 'retiring' || fence?.operation !== 'retire'
+      || fence.opId !== claim.opId || fence.currentEpoch !== claim.currentEpoch) {
+      throw new CalendarChoiceError('selection_stale', fence?.currentEpoch ?? 0);
+    }
+  };
+  const result = await deleteBusySource(uid, sourceId, { storage, transactionGuard: retirementGuard });
   await storage.runTransaction(async (tx) => {
-    const current = await tx.get<DeviceRegistration>(registrationPath(uid, sourceId));
-    if (current?.state === 'retiring') tx.delete(registrationPath(uid, sourceId));
+    await retirementGuard(tx);
+    tx.delete(registrationPath(uid, sourceId));
+    tx.delete(staleStatePath(uid, sourceId));
   });
   return result.deleted;
 }
@@ -376,8 +585,8 @@ export async function calendarChoiceProbe(uid: string, sourceId: string | null, 
       const registration = await storage.get<DeviceRegistration>(registrationPath(uid, sourceId));
       sourceStatus = registration?.state === 'active' ? 'active' : null;
       if (!sourceStatus) {
-        const retired = await storage.list<{ sourceId: string }>(userCol(uid, RETIRED_DEVICE_SOURCES), { limit: PHONE_LIMIT + 1 });
-        if (retired.some((row) => row.data.sourceId === sourceId)) sourceStatus = 'revoked';
+        const retired = await storage.get<{ sourceId: string }>(retiredSourcePath(uid, sourceId));
+        if (retired?.sourceId === sourceId) sourceStatus = 'revoked';
       }
       const fence = await storage.get<SelectionFence>(fencePath(uid, sourceId));
       sourceEpoch = fence?.currentEpoch ?? null;

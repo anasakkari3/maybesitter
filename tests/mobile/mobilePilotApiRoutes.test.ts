@@ -591,6 +591,21 @@ test('the trust write route forces a fresh revocation read rather than trusting 
   }
 });
 
+test('the trust write route rejects a top-level action type instead of treating POST as GET', async () => {
+  const cleanup = setup();
+  try {
+    const response = await updateTrust(request('/api/mobile/pilot/trust', {
+      participantId: NEWCOMER,
+      body: { type: 'record_first_value' },
+    }));
+    assert.equal(response.status, 400);
+    const read = await json(await getTrust(request('/api/mobile/pilot/trust', { participantId: NEWCOMER })));
+    assert.equal((read.trust as Record<string, unknown>).firstValueAt, null);
+  } finally {
+    cleanup();
+  }
+});
+
 test('a brand-new account can turn calendar reading on from Settings before any commitment (UAT round 3, N9)', async () => {
   const cleanup = setup();
   try {

@@ -58,9 +58,7 @@ export async function POST(request: Request) {
   }
 
   try {
-    const response = body.action === undefined && body.type === 'record_first_value'
-      ? await getMobilePilotTrust(user.uid)
-      : await updateMobilePilotTrust(user.uid, body);
+    const response = await updateMobilePilotTrust(user.uid, body);
     return Response.json(await projectCalendarChoice(user.uid, request, response));
   } catch (error) {
     return mobilePilotErrorResponse(error);

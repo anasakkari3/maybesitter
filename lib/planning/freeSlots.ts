@@ -18,19 +18,20 @@ import type { IntegrationConnectionRecord } from '../../src/contracts/v1/integra
 import type { IcsFeedDocument } from '../calendar/icsFeeds';
 import { icsFeedReadStatus, type IcsFeedReadStatus } from '../calendar/icsFeedStatus';
 import {
-  listBusyBlocks,
   readCalendarSource,
+  readPlanningBusyState,
+  type BusySourceReplacementFence,
   type BusyBlock,
-  type CalendarSource,
 } from '../calendar/busyBlocks';
 import {
-  CALENDAR_SOURCES,
+  BUSY_SOURCE_FENCES,
   ICS_FEEDS,
   PROVIDER_CONNECTIONS,
   getStorage,
   userCol,
   userDoc,
   userSubDoc,
+  docIdForKey,
   type StorageAdapter,
   type StorageReader,
   type StorageTransaction,
@@ -67,6 +68,8 @@ export interface FreeSlotCoverage {
   windowStart: string | null;
   windowEnd: string | null;
   status?: IcsFeedReadStatus;
+  lifecycle?: 'uploading' | 'active' | 'clearing' | 'retiring';
+  coverageStatus?: 'settled' | 'refreshing' | 'clearing' | 'stale';
 }
 
 export interface FreeSlotSchedule {
@@ -231,7 +234,7 @@ async function sourceRead<T>(source: FreeSlotSource, read: () => Promise<T>): Pr
   return read();
 }
 
-function liveGoogle(record: IntegrationConnectionRecord | null): boolean {
+function liveGoogle(record: IntegrationConnectionRecord | null): record is IntegrationConnectionRecord {
   return Boolean(record
     && record.identity.provider === 'google'
     && record.state !== 'revoked'
@@ -247,24 +250,55 @@ async function defaultScheduleReader(
   now: string = new Date().toISOString(),
 ): Promise<FreeSlotSchedule> {
   try {
-    const [commitments, busyBlocks, weeklyBlocks, routineProfile, deviceSourceRows, feeds, google] = await Promise.all([
+    const [commitments, planningBusy, weeklyBlocks, routineProfile, feeds, google, googleFence] = await Promise.all([
       sourceRead('commitments', async () => Object.values((await loadDomainState(storage, uid)).commitments)),
-      sourceRead('busyBlocks', () => listBusyBlocks(uid, window, { storage })),
+      sourceRead('busyBlocks', () => readPlanningBusyState(uid, window, { storage })),
       sourceRead('weeklyBlocks', () => listWeeklyBlockScheduleOccurrences(uid, window, { storage, now: new Date(now) })),
       sourceRead('routineProfile', () => readRoutineProfile(uid, { storage })),
-      storage.list<CalendarSource>(userCol(uid, CALENDAR_SOURCES), { where: [['kind', '==', 'device']] }),
       storage.list<IcsFeedDocument>(userCol(uid, ICS_FEEDS), { limit: 5 }),
       storage.get<IntegrationConnectionRecord>(userSubDoc(uid, PROVIDER_CONNECTIONS, connectionIdFor('google'))),
+      storage.get<BusySourceReplacementFence>(userSubDoc(uid, BUSY_SOURCE_FENCES, docIdForKey(GOOGLE_BUSY_SOURCE_ID))),
     ]);
-    const deviceSources = deviceSourceRows.map(({ data }) => data);
     const [googleSource, ...icsSources] = await Promise.all([
       liveGoogle(google) ? readCalendarSource(uid, GOOGLE_BUSY_SOURCE_ID, { storage }) : Promise.resolve(null),
       ...feeds.map(({ data: feed }) => readCalendarSource(uid, `ics:${feed.feedId}`, { storage })),
     ]);
-    const coverage: FreeSlotCoverage[] = deviceSources
-      .map((source) => ({ sourceId: source.sourceId, kind: 'device', windowStart: source.windowStart, windowEnd: source.windowEnd }));
+    const registrations = new Map(planningBusy.registrations.map((row) => [row.sourceId, row] as const));
+    const deviceSources = planningBusy.sources.filter((source) => source.kind === 'device');
+    const coverage: FreeSlotCoverage[] = deviceSources.map((source) => {
+      const registration = registrations.get(source.sourceId);
+      const generationMatches = planningBusy.choice === null || source.choiceGeneration === planningBusy.choice.generation;
+      const lifecycle = planningBusy.choice === null
+        ? source.status
+        : registration?.state === 'retiring' ? 'retiring' as const
+          : !generationMatches || source.status === undefined ? 'uploading' as const
+            : source.status;
+      return {
+        sourceId: source.sourceId,
+        kind: 'device' as const,
+        windowStart: source.windowStart,
+        windowEnd: source.windowEnd,
+        lifecycle,
+        coverageStatus: source.coverageStatus,
+      };
+    });
+    if (planningBusy.choice?.state === 'purging') {
+      coverage.push({ sourceId: 'device:purging', kind: 'device', windowStart: null, windowEnd: null, lifecycle: 'uploading' });
+    }
     if (liveGoogle(google)) {
-      coverage.push({ sourceId: GOOGLE_BUSY_SOURCE_ID, kind: 'google', windowStart: googleSource?.windowStart ?? null, windowEnd: googleSource?.windowEnd ?? null });
+      const certificate = googleSource?.m5Certificate;
+      const certificateValid = planningBusy.choice === null || Boolean(certificate
+        && certificate.v === 1
+        && certificate.choiceGeneration === planningBusy.choice.generation
+        && certificate.providerAccountId === google.identity.providerAccountId
+        && certificate.fenceGeneration === (googleFence?.generation ?? 0));
+      coverage.push({
+        sourceId: GOOGLE_BUSY_SOURCE_ID,
+        kind: 'google',
+        windowStart: googleSource?.windowStart ?? null,
+        windowEnd: googleSource?.windowEnd ?? null,
+        coverageStatus: certificateValid ? googleSource?.coverageStatus : 'stale',
+      });
     }
     for (let index = 0; index < feeds.length; index += 1) {
       const feed = feeds[index]!.data;
@@ -276,12 +310,13 @@ async function defaultScheduleReader(
         windowStart: source?.windowStart ?? null,
         windowEnd: source?.windowEnd ?? null,
         status: icsFeedReadStatus(feed, source, Date.parse(now)),
+        coverageStatus: source?.coverageStatus,
       });
     }
     const connectedIcs = new Set(feeds.map(({ data }) => `ics:${data.feedId}`));
     return {
       commitments,
-      busyBlocks: busyBlocks.filter((block) => block.sourceKind !== 'weekly'
+      busyBlocks: planningBusy.blocks.filter((block) => block.sourceKind !== 'weekly'
         && (block.sourceKind !== 'ics' || connectedIcs.has(block.sourceId))),
       weeklyBlocks: weeklyBlocks.map((row) => ({ startsAt: row.startAt, endsAt: row.endAt, title: row.title })),
       routineProfile,
@@ -308,6 +343,8 @@ function overlaps(left: TimeInterval, right: TimeInterval): boolean {
 
 export function intervalCovered(interval: TimeInterval, sources: readonly FreeSlotCoverage[]): boolean {
   return sources.every((source) => (source.kind !== 'ics' || source.status === 'ok')
+    && source.lifecycle !== 'uploading' && source.lifecycle !== 'retiring'
+    && source.coverageStatus !== 'refreshing' && source.coverageStatus !== 'clearing' && source.coverageStatus !== 'stale'
     && source.windowStart !== null && source.windowEnd !== null
     && Date.parse(source.windowStart) <= Date.parse(interval.startsAt)
     && Date.parse(source.windowEnd) > Date.parse(interval.endsAt));

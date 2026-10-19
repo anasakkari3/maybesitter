@@ -90,13 +90,17 @@ import { getStorage, type StorageAdapter } from '../storage';
 import type { StorageTransaction } from '../storage/storageAdapter';
 import {
   BUSY_BLOCKS,
+  BUSY_SOURCE_FENCES,
+  CALENDAR_CHOICE,
   CALENDAR_SOURCES,
+  REGISTERED_DEVICE_SOURCES,
   PLANNING_STATE_CHANGES,
   docIdForKey,
   userCol,
   userDoc,
   userSubDoc,
 } from '../storage/paths';
+import { resolveM5aCapabilities } from '../release/m5aControls';
 
 export { BUSY_BLOCKS, CALENDAR_SOURCES };
 
@@ -133,6 +137,49 @@ export interface CalendarSource {
   readonly lastSyncedAt: string;
   readonly windowStart: Instant;
   readonly windowEnd: Instant;
+  /** M5a lifecycle fields are server-owned and deliberately absent on legacy rows. */
+  readonly status?: 'uploading' | 'active' | 'clearing' | 'retiring';
+  readonly choiceGeneration?: number;
+  readonly lastUploadAt?: string | null;
+  readonly coverageStatus?: 'settled' | 'refreshing' | 'clearing' | 'stale';
+  readonly upload?: { readonly owner: string; readonly leaseUntil: string; readonly selectionEpoch: number } | null;
+  readonly m5Certificate?: {
+    readonly v: 1;
+    readonly choiceGeneration: number | null;
+    readonly providerAccountId: string;
+    readonly fenceGeneration: number;
+    readonly refreshedAt: string;
+  };
+}
+
+export interface BusySourceReplacementFence {
+  readonly generation: number;
+  readonly replace?: { readonly owner: string; readonly version: number; readonly leaseUntil: string };
+  /** Device-selection fields share this durable document and survive source deletion. */
+  readonly currentEpoch?: number;
+  readonly intentId?: string;
+  readonly opId?: string;
+  readonly operation?: 'upload' | 'clear' | 'retire';
+  readonly selectionDigest?: string;
+  readonly leaseUntil?: string;
+}
+
+interface CalendarChoiceSnapshot {
+  readonly v: 1;
+  readonly generation: number;
+  readonly state: 'purging' | 'active';
+}
+
+interface DeviceRegistrationSnapshot {
+  readonly sourceId: string;
+  readonly state: 'active' | 'retiring';
+}
+
+export interface PlanningBusyState {
+  readonly blocks: readonly BusyBlock[];
+  readonly sources: readonly CalendarSource[];
+  readonly choice: CalendarChoiceSnapshot | null;
+  readonly registrations: readonly DeviceRegistrationSnapshot[];
 }
 
 export interface BusyBlockDeps {
@@ -360,6 +407,14 @@ function sourcePath(uid: string, sourceId: string): string {
   return userSubDoc(uid, CALENDAR_SOURCES, docIdForKey(sourceId));
 }
 
+function sourceFencePath(uid: string, sourceId: string): string {
+  return userSubDoc(uid, BUSY_SOURCE_FENCES, docIdForKey(sourceId));
+}
+
+function calendarChoicePath(uid: string): string {
+  return userSubDoc(uid, CALENDAR_CHOICE, 'state');
+}
+
 /**
  * The document one block lives at.
  *
@@ -402,6 +457,59 @@ async function allBlocks(uid: string, deps: BusyBlockDeps): Promise<BusyBlock[]>
   return rows.map((row) => row.data);
 }
 
+function validChoice(value: CalendarChoiceSnapshot | null): CalendarChoiceSnapshot | null {
+  return value?.v === 1
+    && Number.isSafeInteger(value.generation)
+    && value.generation >= 1
+    && (value.state === 'active' || value.state === 'purging')
+    ? value
+    : null;
+}
+
+function visibleDeviceSource(
+  source: CalendarSource | undefined,
+  choice: CalendarChoiceSnapshot | null,
+  registration: DeviceRegistrationSnapshot | undefined,
+): boolean {
+  if (!choice) return source?.status !== 'uploading' && source?.status !== 'retiring';
+  if (choice.state === 'purging' || !source || registration?.state !== 'active') return false;
+  if (source.status === 'uploading' || source.status === 'retiring') return false;
+  return source.choiceGeneration === choice.generation;
+}
+
+/**
+ * The canonical planning snapshot. Display readers intentionally keep using
+ * `listBusyBlocks`; this reader removes only device rows that M5a has not made
+ * visible yet (or has revoked), while preserving old rows during a settled
+ * source's conservative refresh/clear.
+ */
+export async function readPlanningBusyState(
+  uid: string,
+  window: TimeInterval | null,
+  deps: BusyBlockDeps = {},
+): Promise<PlanningBusyState> {
+  const storage = storageOf(deps);
+  const [blocks, sourceRows, rawChoice, registrationRows] = await Promise.all([
+    allBlocks(uid, deps),
+    storage.list<CalendarSource>(userCol(uid, CALENDAR_SOURCES), { where: [['kind', '==', 'device']] }),
+    storage.get<CalendarChoiceSnapshot>(calendarChoicePath(uid)),
+    storage.list<DeviceRegistrationSnapshot>(userCol(uid, REGISTERED_DEVICE_SOURCES), { limit: 21 }),
+  ]);
+  const choice = validChoice(rawChoice);
+  const sources = sourceRows.map((row) => row.data);
+  const sourceById = new Map(sources.map((source) => [source.sourceId, source] as const));
+  const registrations = registrationRows.map((row) => row.data);
+  const registrationBySource = new Map(registrations.map((row) => [row.sourceId, row] as const));
+  return {
+    blocks: blocks.filter((block) => (window === null || overlaps(block, window))
+      && (block.sourceKind !== 'device'
+        || visibleDeviceSource(sourceById.get(block.sourceId), choice, registrationBySource.get(block.sourceId)))),
+    sources,
+    choice,
+    registrations,
+  };
+}
+
 /**
  * The stored blocks carrying these ids, grouped by id (#605).
  *
@@ -423,7 +531,7 @@ export async function readBusyBlocksById(
   const wanted = new Set(blockIds);
   const found = new Map<string, BusyBlock[]>();
   if (wanted.size === 0) return found;
-  for (const block of await allBlocks(uid, deps)) {
+  for (const block of (await readPlanningBusyState(uid, null, deps)).blocks) {
     if (!wanted.has(block.blockId)) continue;
     const list = found.get(block.blockId);
     if (list) list.push(block);
@@ -448,6 +556,18 @@ export async function listBusyBlocksOfSource(
   deps: BusyBlockDeps = {},
 ): Promise<BusyBlock[]> {
   return (await allBlocks(uid, deps)).filter((block) => block.sourceId === sourceId).sort(byStart);
+}
+
+/** The next orphan device source for the enrollment purge, without leaking collection ownership. */
+export async function firstDeviceBusySourceId(
+  uid: string,
+  deps: BusyBlockDeps = {},
+): Promise<string | null> {
+  const rows = await storageOf(deps).list<BusyBlock>(userCol(uid, BUSY_BLOCKS), {
+    where: [['sourceKind', '==', 'device']],
+    limit: 1,
+  });
+  return rows[0]?.data.sourceId ?? null;
 }
 
 /** Distinct source ids represented by rows, including crash-orphaned sources. */
@@ -584,6 +704,91 @@ interface BlockTransition {
  * and its change row) and Firestore allows 500 per commit.
  */
 const TRANSITIONS_PER_COMMIT = 200;
+const REPLACEMENT_LEASE_MS = 120_000;
+let replacementTestHook: ((context: { readonly uid: string; readonly sourceId: string }) => Promise<void>) | null = null;
+
+/** Test-only pause after replacement-fence acquisition and before snapshot reads. */
+export function setBusyReplacementTestHookForTests(
+  hook: ((context: { readonly uid: string; readonly sourceId: string }) => Promise<void>) | null,
+): void {
+  replacementTestHook = hook;
+}
+
+async function replacementIsRequired(uid: string, storage: StorageAdapter): Promise<boolean> {
+  if (await storage.get<CalendarChoiceSnapshot>(calendarChoicePath(uid))) return true;
+  const resolved = await resolveM5aCapabilities({ storage });
+  return resolved.calendarChoice || resolved.emailSources;
+}
+
+async function acquireReplacementFence(
+  storage: StorageAdapter,
+  uid: string,
+  sourceId: string,
+  kind: BusySourceKind,
+  now: Date,
+  callerGuard: ((tx: StorageTransaction) => Promise<void>) | undefined,
+  initialDeviceChoice: CalendarChoiceSnapshot | null,
+): Promise<{ readonly owner: string; readonly version: number; readonly generation: number } | null> {
+  if (!(await replacementIsRequired(uid, storage))) return null;
+  const owner = randomUUID();
+  return storage.runTransaction(async (tx) => {
+    const [prior, source, currentChoice] = await Promise.all([
+      tx.get<BusySourceReplacementFence>(sourceFencePath(uid, sourceId)),
+      tx.get<CalendarSource>(sourcePath(uid, sourceId)),
+      kind === 'device' ? tx.get<CalendarChoiceSnapshot>(calendarChoicePath(uid)) : Promise.resolve(null),
+    ]);
+    if (callerGuard) await callerGuard(tx);
+    if (kind === 'device') {
+      const current = validChoice(currentChoice);
+      if ((initialDeviceChoice === null && current !== null)
+        || (initialDeviceChoice !== null
+          && (current?.state !== 'active' || current.generation !== initialDeviceChoice.generation))) {
+        throw new BusyUploadError(current?.state === 'purging' ? 'calendar_choice_purging' : 'calendar_choice_required');
+      }
+    }
+    const replacement = {
+      owner,
+      version: (prior?.replace?.version ?? 0) + 1,
+      leaseUntil: new Date(now.getTime() + REPLACEMENT_LEASE_MS).toISOString(),
+    };
+    tx.set<BusySourceReplacementFence>(sourceFencePath(uid, sourceId), {
+      ...(prior ?? { generation: 0 }),
+      generation: prior?.generation ?? 0,
+      replace: replacement,
+    });
+    if (source) tx.set<CalendarSource>(sourcePath(uid, sourceId), { ...source, coverageStatus: 'refreshing' });
+    return { owner, version: replacement.version, generation: prior?.generation ?? 0 };
+  });
+}
+
+async function guardReplacement(
+  tx: StorageTransaction,
+  uid: string,
+  sourceId: string,
+  kind: BusySourceKind,
+  replacement: { readonly owner: string; readonly version: number; readonly generation: number } | null,
+  callerGuard: ((tx: StorageTransaction) => Promise<void>) | undefined,
+  initialDeviceChoice: CalendarChoiceSnapshot | null,
+): Promise<void> {
+  const [fence, currentChoice] = await Promise.all([
+    replacement ? tx.get<BusySourceReplacementFence>(sourceFencePath(uid, sourceId)) : Promise.resolve(null),
+    kind === 'device' ? tx.get<CalendarChoiceSnapshot>(calendarChoicePath(uid)) : Promise.resolve(null),
+  ]);
+  if (replacement && (fence?.replace?.owner !== replacement.owner
+    || fence.replace.version !== replacement.version
+    || fence.generation !== replacement.generation)) {
+    throw new BusyUploadError('busy_source_replaced');
+  }
+  if (kind === 'device') {
+    const current = validChoice(currentChoice);
+    if ((initialDeviceChoice === null && current !== null)
+      || (initialDeviceChoice !== null
+        && (current?.state !== 'active' || current.generation !== initialDeviceChoice.generation))) {
+      throw new BusyUploadError(current?.state === 'purging' ? 'calendar_choice_purging' : 'calendar_choice_required');
+    }
+  }
+  if (callerGuard) await callerGuard(tx);
+}
 
 /**
  * The only place a busy block is written or deleted, and it writes the block's
@@ -661,6 +866,14 @@ export interface ReplaceBusyBlocksDeps extends BusyBlockDeps {
   /** `ios` or `android` for a phone; null for a source that is not one. */
   platform?: string | null;
   now?: Date;
+  /** Additional server-owned metadata written with the final source commit. */
+  sourceMetadata?: (fence: { readonly owner: string; readonly version: number; readonly generation: number } | null) => Partial<CalendarSource>;
+  /** Owner-checked lifecycle completion that shares the final metadata commit. */
+  finalizeSource?: (
+    tx: StorageTransaction,
+    current: CalendarSource | null,
+    next: CalendarSource,
+  ) => Promise<Partial<CalendarSource>>;
 }
 
 /**
@@ -712,6 +925,16 @@ export async function replaceBusyBlocks(
   const storage = storageOf(deps);
   const kind = sourceKindOf(sourceId);
   const now = deps.now ?? new Date();
+  const initialDeviceChoice = kind === 'device'
+    ? validChoice(await storage.get<CalendarChoiceSnapshot>(calendarChoicePath(uid)))
+    : null;
+  const replacement = await acquireReplacementFence(
+    storage, uid, sourceId, kind, now, deps.transactionGuard, initialDeviceChoice,
+  );
+  if (replacement && replacementTestHook) await replacementTestHook({ uid, sourceId });
+  const transactionGuard = async (tx: StorageTransaction): Promise<void> => {
+    await guardReplacement(tx, uid, sourceId, kind, replacement, deps.transactionGuard, initialDeviceChoice);
+  };
 
   // Rebuilt field by field rather than spread: this is the last place a key
   // the client smuggled past `parseBusyUpload` could reach durable storage,
@@ -738,7 +961,7 @@ export async function replaceBusyBlocks(
       .map((block) => ({ blockId: block.blockId, next: block })),
     ...stale.map((block) => ({ blockId: block.blockId, next: null })),
   ];
-  await commitTransitions(storage, uid, sourceId, transitions, newSyncStamp(now), deps.transactionGuard);
+  await commitTransitions(storage, uid, sourceId, transitions, newSyncStamp(now), transactionGuard);
 
   const source: CalendarSource = {
     sourceId,
@@ -748,14 +971,26 @@ export async function replaceBusyBlocks(
     windowStart: window.startsAt,
     windowEnd: window.endsAt,
   };
-  if (deps.transactionGuard) {
-    await storage.runTransaction(async (tx) => {
-      await deps.transactionGuard!(tx);
-      tx.set<CalendarSource>(sourcePath(uid, sourceId), source);
+  await storage.runTransaction(async (tx) => {
+    const current = await tx.get<CalendarSource>(sourcePath(uid, sourceId));
+    await transactionGuard(tx);
+    const finalized = deps.finalizeSource ? await deps.finalizeSource(tx, current, source) : {};
+    const lifecycleIsFinishedSeparately = current?.kind === 'device' && current.status !== undefined;
+    // A certificate belongs only to the exact full Google snapshot that wrote
+    // it. A legacy/partial writer must not carry it onto different metadata.
+    const currentMetadata = current && kind === 'google'
+      ? (({ m5Certificate: _certificate, ...rest }) => rest)(current)
+      : (current ?? {});
+    tx.set<CalendarSource>(sourcePath(uid, sourceId), {
+      ...currentMetadata,
+      ...source,
+      ...(lifecycleIsFinishedSeparately
+        ? (current?.coverageStatus ? { coverageStatus: current.coverageStatus } : {})
+        : (replacement || current?.coverageStatus ? { coverageStatus: 'settled' as const } : {})),
+      ...(deps.sourceMetadata?.(replacement) ?? {}),
+      ...finalized,
     });
-  } else {
-    await storage.set<CalendarSource>(sourcePath(uid, sourceId), source);
-  }
+  });
 
   return { written: blocks.length, removed: stale.length };
 }
@@ -842,7 +1077,7 @@ export async function readBusyBlocksForPlanning(
   window: { readonly startsAt: Instant; readonly endsAt: Instant },
   deps: BusyBlockDeps = {},
 ): Promise<readonly { readonly blockId: string; readonly startsAt: Instant; readonly endsAt: Instant }[]> {
-  const blocks = await listBusyBlocks(uid, window, deps);
+  const blocks = [...(await readPlanningBusyState(uid, window, deps)).blocks].sort(byStart);
   return toFixedEvents(blocks).map((event) => ({
     blockId: event.eventId,
     startsAt: event.interval.startsAt,
