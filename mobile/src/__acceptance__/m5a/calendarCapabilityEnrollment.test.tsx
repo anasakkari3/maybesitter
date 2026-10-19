@@ -17,6 +17,7 @@ import {
   showCalendar,
   teardown,
   waitForRequest,
+  waitForStored,
   type M5aHarness,
 } from './harness';
 
@@ -161,7 +162,7 @@ describe('M5a calendar capability and enrolment', () => {
     await AsyncStorage.setItem(PENDING_A, '2030-03-29T08:00:00.000Z');
     await showBusyHost(harness);
     await waitForRequest(harness, 'GET', /\/calendar\/choice$/);
-    await waitFor(() => expect(AsyncStorage.getItem(ENROLLED_A)).resolves.not.toBeNull());
+    expect(await waitForStored(ENROLLED_A, value => value !== null)).not.toBeNull();
 
     expect(harness.server.matching('POST', /\/calendar\/choice$/)).toHaveLength(0);
     expect(await AsyncStorage.getItem(PENDING_A)).toBeNull();

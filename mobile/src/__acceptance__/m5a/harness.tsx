@@ -520,6 +520,20 @@ export async function waitForRequest(harness: M5aHarness, method: string, path: 
   return harness.server.matching(method, path)[count - 1]!;
 }
 
+export async function waitForStored(
+  key: string,
+  predicate: (value: string | null) => boolean,
+  timeoutMs = 2000,
+): Promise<string | null> {
+  const intervalMs = 50;
+  let value = await AsyncStorage.getItem(key);
+  for (let elapsedMs = 0; elapsedMs < timeoutMs && !predicate(value); elapsedMs += intervalMs) {
+    await act(async () => { await jest.advanceTimersByTimeAsync(intervalMs); });
+    value = await AsyncStorage.getItem(key);
+  }
+  return value;
+}
+
 export async function teardown(harness?: M5aHarness): Promise<void> {
   await cleanup();
   harness?.client.clear();
@@ -533,5 +547,8 @@ export async function teardown(harness?: M5aHarness): Promise<void> {
   await AsyncStorage.clear();
   (SecureStore as unknown as { __reset(): void }).__reset();
   delete process.env.EXPO_PUBLIC_FEATURE_CALENDAR_READ;
+  expect((React as unknown as {
+    __CLIENT_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE: { actQueue: unknown[] | null };
+  }).__CLIENT_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE.actQueue).toBeNull();
 }
 

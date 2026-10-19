@@ -19,6 +19,7 @@ import {
   showCalendar,
   teardown,
   waitForRequest,
+  waitForStored,
   type M5aHarness,
 } from './harness';
 
@@ -168,7 +169,10 @@ describe('per-account local calendar state and cache', () => {
     await showCalendar(harness);
     await waitFor(() => expect(screen.queryByTestId('calendar-write-toggle')).not.toBeNull());
     await changeSwitch('calendar-write-toggle', true);
-    await waitFor(() => expect(AsyncStorage.getItem(`calendar.calendarId.v1:${ACCOUNT_A.uid}`)).resolves.toBe('write-a'));
+    expect(await waitForStored(
+      `calendar.calendarId.v1:${ACCOUNT_A.uid}`,
+      value => value === 'write-a',
+    )).toBe('write-a');
 
     expect(await AsyncStorage.getItem(`calendar.calendarId.v1:${ACCOUNT_B.uid}`)).toBeNull();
     expect(await AsyncStorage.getItem('calendar.calendarId.v1')).toBe('legacy-calendar');

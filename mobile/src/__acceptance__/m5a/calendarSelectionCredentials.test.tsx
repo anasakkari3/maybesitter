@@ -18,6 +18,7 @@ import {
   showCalendar,
   teardown,
   waitForRequest,
+  waitForStored,
   type M5aHarness,
 } from './harness';
 
@@ -184,7 +185,7 @@ describe('M5a two-phase calendar selection', () => {
     const newId = (requests[1]!.body as { intentId: string }).intentId;
     releases[1]!({ status: 200, body: { success: true, opId: 'new-op', epoch: 11, intentId: newId } });
     releases[0]!({ status: 200, body: { success: true, opId: 'old-op', epoch: 10, intentId: oldId } });
-    await waitFor(() => expect(AsyncStorage.getItem(INCLUDED)).resolves.toBe(JSON.stringify([])));
+    expect(await waitForStored(INCLUDED, value => value === JSON.stringify([]))).toBe(JSON.stringify([]));
 
     expect(harness.server.requests.some(request => JSON.stringify(request.body).includes('old-op'))).toBe(false);
   });
@@ -202,7 +203,7 @@ describe('M5a two-phase calendar selection', () => {
     await waitFor(() => expect(screen.queryByTestId('calendar-include-work')).not.toBeNull());
     await changeSwitch('calendar-include-work', true);
     await waitForRequest(harness, 'POST', /\/calendar\/busy$/);
-    await waitFor(() => expect(AsyncStorage.getItem(PENDING)).resolves.not.toBeNull());
+    expect(await waitForStored(PENDING, value => value !== null)).not.toBeNull();
     const pending = JSON.parse((await AsyncStorage.getItem(PENDING)) ?? '{}') as Record<string, unknown>;
     expect(pending).toMatchObject({ opId: 'op-1', epoch: 7, operation: 'upload' });
 
@@ -216,7 +217,7 @@ describe('M5a two-phase calendar selection', () => {
 
     expect(resumed.body).toMatchObject({ opId: 'op-1', epoch: 7 });
     expect(harness.server.matching('POST', /\/calendar\/busy\/intent$/)).toHaveLength(1);
-    await waitFor(() => expect(AsyncStorage.getItem(PENDING)).resolves.toBeNull());
+    expect(await waitForStored(PENDING, value => value === null)).toBeNull();
   });
 
   it('M5A-R53-002 pending selection state is uid-scoped and B never resumes A operation', async () => {
@@ -231,7 +232,7 @@ describe('M5a two-phase calendar selection', () => {
     await waitFor(() => expect(screen.queryByTestId('calendar-include-work')).not.toBeNull());
     await changeSwitch('calendar-include-work', true);
     await waitForRequest(harness, 'POST', /\/calendar\/busy\/intent$/);
-    await waitFor(() => expect(AsyncStorage.getItem(PENDING)).resolves.not.toBeNull());
+    expect(await waitForStored(PENDING, value => value !== null)).not.toBeNull();
     const intentCount = harness.server.matching('POST', /\/calendar\/busy\/intent$/).length;
 
     await cleanup();
@@ -365,7 +366,7 @@ describe('M5a source credentials and revocation', () => {
     await enrolledCalendar();
     await changeSwitch('calendar-include-work', true);
     await waitForRequest(harness!, 'POST', /\/calendar\/busy$/);
-    await waitFor(() => expect(AsyncStorage.getItem(PENDING)).resolves.toBeNull());
+    expect(await waitForStored(PENDING, value => value === null)).toBeNull();
     const registerCount = harness!.server.matching('POST', /\/calendar\/busy\/register$/).length;
     const probeCount = harness!.server.matching('GET', /\/calendar\/choice$/).length;
 
