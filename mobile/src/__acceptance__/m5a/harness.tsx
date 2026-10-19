@@ -426,6 +426,7 @@ export async function prepare(
   resetCalendarSyncForTests();
   await AsyncStorage.clear();
   (SecureStore as unknown as { __reset(): void }).__reset();
+  jest.spyOn(SecureStore, 'setItemAsync');
   await AsyncStorage.setItem(LANGUAGE_STORAGE_KEY, language);
   process.env.EXPO_PUBLIC_API_BASE_URL = 'http://localhost:3000';
   process.env.EXPO_PUBLIC_FEATURE_CALENDAR_READ = 'true';

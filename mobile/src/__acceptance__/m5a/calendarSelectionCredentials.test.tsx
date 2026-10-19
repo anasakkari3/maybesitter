@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
-import { act, cleanup, screen, waitFor } from '@testing-library/react-native';
+import { act, cleanup, fireEvent, screen, waitFor } from '@testing-library/react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as SecureStore from 'expo-secure-store';
 import { deviceCalendar } from '../../features/calendar/deviceCalendar';
@@ -285,10 +285,12 @@ describe('M5a source credentials and revocation', () => {
   it('M5A-R55-001 / M5A-R56-001 persists one secure tuple and single-flights registration', async () => {
     const secureWrites = jest.spyOn(SecureStore, 'setItemAsync');
     await enrolledCalendar();
-    await Promise.all([
-      changeSwitch('calendar-include-work', true),
-      changeSwitch('calendar-include-work', true),
-    ]);
+    await act(async () => {
+      await Promise.all([
+        fireEvent(screen.getByTestId('calendar-include-work'), 'valueChange', true),
+        fireEvent(screen.getByTestId('calendar-include-work'), 'valueChange', true),
+      ]);
+    });
     await waitForRequest(harness!, 'POST', /\/calendar\/busy\/register$/);
 
     const tuples = secureWrites.mock.calls.map(call => JSON.parse(String(call[1])) as Record<string, unknown>)
