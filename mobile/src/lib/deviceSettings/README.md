@@ -75,3 +75,24 @@ on the account instead.
   against a server that does not answer with its own limit; losing it costs
   one extra ask, so it is best effort and kept in memory first. The header
   makes the full argument.
+
+- **`calendarChoice.ts`** (M5a R1.1) — which of this phone's calendars an
+  account chose to read (ids only), the enrolment marker, the one pending
+  selection operation (ids, a digest, an `opId` and an epoch), the "this phone
+  was removed" barrier and the server-issued source id. Keyed by account. A
+  calendar id means nothing on another phone, so the phone is its only home;
+  an unreadable list blocks reading instead of reading everything. The header
+  makes the full argument.
+
+- **`sourceCredential.ts`** (M5a R1.1, M5A-R55-001) — this phone's calendar
+  source credential for one account: a random installation id, a secret and a
+  registration id, as one secure-store value, never in AsyncStorage. The
+  server keeps only the secret's hash; without the secret no upload or clear
+  from this phone is accepted. Keyed by account, minted once under a shared
+  in-flight promise, deleted when the phone is removed. The header makes the
+  full argument.
+
+- **`m5aNotices.ts`** (M5a R4.1) — that this account declined the one-time
+  monitoring upgrade notice on this phone: one instant per account. Losing it
+  asks the question once more; nothing changes without a tap. The header
+  makes the argument.

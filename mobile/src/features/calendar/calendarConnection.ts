@@ -27,6 +27,7 @@ import { calendarReadEnabled, calendarWriteEnabled } from '../../config/env';
 import { loadChosenCalendarId } from '../../lib/deviceSettings/calendarDevice';
 import { deviceCalendar, type CalendarAccess } from './deviceCalendar';
 import { useCalendarSettings } from './useDeviceCalendarSync';
+import { useUid } from '../../api/queries';
 
 export interface CalendarConnectionInput {
   readEnabled: boolean;
@@ -86,6 +87,7 @@ export function useCalendarConnection(readConsent: boolean): {
   setAccess: (access: CalendarAccess) => void;
 } {
   const settings = useCalendarSettings();
+  const uid = useUid();
   const [access, setAccessState] = useState<CalendarAccess | null>(null);
   const [chosen, setChosen] = useState<string | null>(null);
   const [writable, setWritable] = useState<string[] | null>(null);
@@ -104,7 +106,7 @@ export function useCalendarConnection(readConsent: boolean): {
   useEffect(() => {
     let cancelled = false;
     const refresh = async () => {
-      const [current, stored] = await Promise.all([deviceCalendar.getAccess(), loadChosenCalendarId()]);
+      const [current, stored] = await Promise.all([deviceCalendar.getAccess(), loadChosenCalendarId(uid)]);
       if (cancelled) return;
       setAccessState(current);
       setChosen(stored);
@@ -118,7 +120,7 @@ export function useCalendarConnection(readConsent: boolean): {
       cancelled = true;
       subscription.remove();
     };
-  }, [listWritable]);
+  }, [listWritable, uid]);
 
   const setAccess = useCallback((next: CalendarAccess) => {
     setAccessState(next);

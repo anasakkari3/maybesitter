@@ -12,10 +12,12 @@ export function getTrust(): Promise<TrustResponse> {
  * because `revoke` and `delete` arrive on it and "at most a minute stale" is
  * not good enough for a destructive path.
  */
-export function updateTrust(action: TrustAction): Promise<TrustResponse> {
+export function updateTrust(action: TrustAction, options: { asUid?: string } = {}): Promise<TrustResponse> {
   return apiRequest('POST', '/api/mobile/pilot/trust', {
     body: { action },
     schema: trustResponseSchema,
+    // M5a (M5A-R53-002): a consent change started for one account is never sent as another.
+    ...(options.asUid !== undefined ? { asUid: options.asUid } : {}),
   });
 }
 

@@ -46,9 +46,15 @@ export function scanGmailForIntelligence() {
 export function getGmailIntelligenceMonitor() {
   return apiRequest('GET', '/api/mobile/intelligence/sources/gmail/monitor', { schema: intelligenceGmailMonitorSchema });
 }
-export function setGmailIntelligenceMonitor(enabled: boolean) {
+/**
+ * `m5`: enrol the monitor in M5a's live reading, daily sweep and own-reply
+ * additions (R4.1), with the device time zone the daily sweep needs. Without
+ * it the request is exactly today's.
+ */
+export function setGmailIntelligenceMonitor(enabled: boolean, m5?: { timezone: string }) {
   return apiRequest('POST', '/api/mobile/intelligence/sources/gmail/monitor', {
-    body: { enabled }, schema: intelligenceGmailMonitorSchema,
+    body: m5 ? { enabled, enrollM5: true, timezone: m5.timezone } : { enabled },
+    schema: intelligenceGmailMonitorSchema,
   });
 }
 export function answerIntelligenceQuestion(id: string, answer: string) {

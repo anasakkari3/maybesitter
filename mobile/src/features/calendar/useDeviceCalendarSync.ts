@@ -44,7 +44,9 @@ import {
   resolveWriterId,
   saveChosenCalendarId,
 } from '../../lib/deviceSettings/calendarDevice';
-import { deviceCalendar } from './deviceCalendar';
+import { deviceCalendar, type DeviceCalendar } from './deviceCalendar';
+import { getAuthRepository } from '../../api/auth';
+import { AccountChangedError } from '../../api/errors';
 import {
   adoptSoleCalendar,
   needsCalendar,
@@ -96,18 +98,53 @@ export function useCalendarSettings() {
   });
 }
 
-/** The ports the sync runs through, so a test can hand it different ones. */
-export function apiSyncPorts(): SyncPorts {
+/**
+ * The ports the sync runs through, so a test can hand it different ones.
+ *
+ * Bound to the account the pass began for (M5A-R21-001): every native and API
+ * mutation asks `stillCurrent` first and stops the pass when the account has
+ * changed, and an event created just as it changed is taken back out, so
+ * nothing of A's lands in the calendar or on the account under B.
+ */
+export function apiSyncPorts(uid: string, stillCurrent: () => boolean = () => true): SyncPorts {
+  const check = () => {
+    if (!stillCurrent()) throw new AccountChangedError('the account changed during the calendar pass');
+  };
+  const calendar: DeviceCalendar = {
+    ...deviceCalendar,
+    createEvent: async (...args: Parameters<DeviceCalendar['createEvent']>) => {
+      check();
+      const eventId = await deviceCalendar.createEvent(...args);
+      if (!stillCurrent()) {
+        await deviceCalendar.deleteEvent(eventId).catch(() => undefined);
+        throw new AccountChangedError('the account changed during the calendar pass');
+      }
+      return eventId;
+    },
+    updateEvent: async (...args: Parameters<DeviceCalendar['updateEvent']>) => {
+      check();
+      return deviceCalendar.updateEvent(...args);
+    },
+    deleteEvent: async (...args: Parameters<DeviceCalendar['deleteEvent']>) => {
+      check();
+      return deviceCalendar.deleteEvent(...args);
+    },
+  };
   return {
-    calendar: deviceCalendar,
+    calendar,
     putLink: async (commitmentId, link) => {
-      await putDeviceCalendarLink(commitmentId, link);
+      check();
+      await putDeviceCalendarLink(commitmentId, link, { asUid: uid });
     },
     deleteLink: async (commitmentId, writerId) => {
-      await deleteDeviceCalendarLink(commitmentId, writerId);
+      check();
+      await deleteDeviceCalendarLink(commitmentId, writerId, { asUid: uid });
     },
-    rememberEvent: rememberWrittenEventId,
-    forgetEvent: forgetWrittenEventId,
+    rememberEvent: async (eventId) => {
+      check();
+      await rememberWrittenEventId(uid, eventId);
+    },
+    forgetEvent: (eventId) => forgetWrittenEventId(uid, eventId),
   };
 }
 
@@ -203,21 +240,33 @@ export function useDeviceCalendarSync(
     setIsRunning(true);
     try {
       const writerId = await resolveWriterId();
-      let calendarId = await loadChosenCalendarId();
+      // The pass belongs to the account it began for (M5A-R21-001).
+      const stillCurrent = () => latest.current.uid === current.uid
+        && getAuthRepository()?.currentUser()?.uid === current.uid;
+      // This account's own events are the ones its commitments link to from
+      // this phone (M5A-R20-004): re-recorded here, so a phone upgraded from
+      // the installation-wide set keeps skipping its own entries as busy.
+      for (const subject of current.subjects) {
+        if (subject.link && subject.link.writerId === writerId && stillCurrent()) {
+          await rememberWrittenEventId(current.uid, subject.link.eventId);
+        }
+      }
+      let calendarId = await loadChosenCalendarId(current.uid);
       // Nothing picked on this phone yet (a fresh install, or writing turned on
       // without a tap on the picker): with one calendar there is nothing to
       // pick, so it is taken rather than the confirm writing nothing (UAT
       // round 6, D-a). Asked only when something is actually waiting for it.
       if (calendarId === null && needsCalendar({ ...current, writerId })) {
-        calendarId = await adoptSoleCalendar(deviceCalendar, saveChosenCalendarId);
+        calendarId = await adoptSoleCalendar(deviceCalendar, (id) => saveChosenCalendarId(current.uid, id));
       }
+      if (!stillCurrent()) return null;
       const result = await reconcile({
         subjects: current.subjects,
         writeTarget: current.writeTarget,
         writerId,
         calendarId,
         deviceTimeZone: current.deviceTimeZone,
-        ports: apiSyncPorts(),
+        ports: apiSyncPorts(current.uid, stillCurrent),
       });
       setOutcome(result);
       // The links the pass wrote are now out of date in the cache the next pass
@@ -258,7 +307,7 @@ export function useDeviceCalendarSync(
     const result = await removeAllWrittenEvents({
       subjects: current.subjects,
       writerId: await resolveWriterId(),
-      ports: apiSyncPorts(),
+      ports: apiSyncPorts(current.uid),
     });
     void client.invalidateQueries({ queryKey: ['user', current.uid, 'commitments'] });
     return { removed: result.removed, permissionDenied: result.permissionDenied };

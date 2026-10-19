@@ -387,7 +387,7 @@ describe('the consent screen', () => {
     expect(putRecommendationConsent.mock.calls[0]![0]).toMatchObject({
       state: 'granted', version: 'rec-consent-v1',
     });
-    expect(updateTrust).toHaveBeenCalledWith({ type: 'set_analytics_consent', granted: false });
+    expect(updateTrust).toHaveBeenCalledWith({ type: 'set_analytics_consent', granted: false }, { asUid: expect.any(String) });
     // Settle on the next screen before the test ends: tearing the tree down
     // mid-advance leaves React work in flight and the following render empty.
     await waitFor(() => expect(screen.queryByText(en.obRoutineTitle)).not.toBeNull());

@@ -130,8 +130,29 @@ async function dropLegacy(): Promise<void> {
   }
 }
 
+/**
+ * The inclusion generation an account's cache must carry (M5A-R8-004): moved
+ * on by every confirmed calendar selection, so blocks read under an older
+ * selection are never shown. Absent is generation 0 (never enrolled, or no
+ * selection yet); unreadable answers null, and nothing is shown then.
+ */
+export function inclusionGenerationKey(owner: string): string {
+  return `calendar.inclusionGeneration.v1:${owner}`;
+}
+
+async function currentInclusionGeneration(owner: string): Promise<number | null> {
+  try {
+    const raw = await AsyncStorage.getItem(inclusionGenerationKey(owner));
+    if (raw === null) return 0;
+    const value = Number(raw);
+    return Number.isSafeInteger(value) && value >= 0 ? value : null;
+  } catch {
+    return null;
+  }
+}
+
 /** The envelope as stored, whoever owns it, or null. */
-async function readEnvelope(): Promise<{ owner: string; cache: DeviceBusyCache } | null> {
+async function readEnvelope(): Promise<{ owner: string; generation: number; cache: DeviceBusyCache } | null> {
   const raw = await AsyncStorage.getItem(BUSY_BLOCKS_KEY);
   if (raw === null) return null;
   const parsed: unknown = JSON.parse(raw);
@@ -142,12 +163,19 @@ async function readEnvelope(): Promise<{ owner: string; cache: DeviceBusyCache }
     ? row.blocks.map(blockFrom).filter((block): block is DeviceBusyBlock => block !== null).slice(0, MAX_CACHED_BLOCKS)
     : [];
   const syncedAt = typeof row.syncedAt === 'number' && Number.isFinite(row.syncedAt) ? row.syncedAt : null;
-  return { owner: row.owner, cache: { blocks, coverage: coverageFrom(row.coverage), syncedAt } };
+  const generation = row.inclusionGeneration === undefined ? 0
+    : typeof row.inclusionGeneration === 'number' && Number.isSafeInteger(row.inclusionGeneration) ? row.inclusionGeneration : -1;
+  return { owner: row.owner, generation, cache: { blocks, coverage: coverageFrom(row.coverage), syncedAt } };
 }
 
 async function writeEnvelope(owner: string, cache: DeviceBusyCache): Promise<void> {
+  const generation = await currentInclusionGeneration(owner);
+  // An unreadable generation writes nothing: the read could not say which
+  // selection these blocks belong to.
+  if (generation === null) return;
   await AsyncStorage.setItem(BUSY_BLOCKS_KEY, JSON.stringify({
     owner,
+    inclusionGeneration: generation,
     blocks: project(cache.blocks),
     coverage: cache.coverage,
     syncedAt: cache.syncedAt,
@@ -159,7 +187,9 @@ export async function loadDeviceBusy(owner: string): Promise<DeviceBusyCache> {
   await dropLegacy();
   try {
     const stored = await readEnvelope();
-    return stored && stored.owner === owner ? stored.cache : EMPTY;
+    if (!stored || stored.owner !== owner) return EMPTY;
+    // Blocks read under another calendar selection are never shown (M5A-R8-004).
+    return stored.generation === await currentInclusionGeneration(owner) ? stored.cache : EMPTY;
   } catch {
     // An unreadable cache is no chips until the next sync, which is a screen
     // that says less rather than a screen that is wrong.

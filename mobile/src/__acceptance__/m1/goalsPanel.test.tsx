@@ -38,6 +38,17 @@ const mockOnChanged = jest.fn();
 let currentInbox: any;
 let mockRecommendationState: 'granted' | 'declined' = 'granted';
 
+// M5a's panel parts read through TanStack Query; this suite renders the panel
+// without a client, on a server whose M5a capability is off (today's panel).
+jest.mock('../../features/m5a/capabilities', () => ({ useM5aCapabilities: () => null }));
+jest.mock('../../features/m5a/emailScan', () => ({
+  useEmailScanOverview: () => ({ data: undefined, refetch: async () => undefined }),
+  EmailScanEntry: () => null,
+  EmailScanStatus: () => null,
+  WaitLine: () => null,
+}));
+jest.mock('../../features/m5a/AddedCard', () => ({ AddedCard: () => null }));
+
 jest.mock('../../api/queries', () => ({
   useConsents: () => ({ data: { recommendations: { state: mockRecommendationState } } }),
   useIntelligenceDecided: () => mockOnChanged,

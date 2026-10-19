@@ -51,8 +51,8 @@ function portsFor(uid: string): WeeklySyncPorts {
     calendar: deviceCalendar,
     loadLinks: () => loadWeeklyEventLinks(uid),
     saveLinks: (links) => saveWeeklyEventLinks(uid, links),
-    rememberEvent: rememberWrittenEventId,
-    forgetEvent: forgetWrittenEventId,
+    rememberEvent: (eventId) => rememberWrittenEventId(uid, eventId),
+    forgetEvent: (eventId) => forgetWrittenEventId(uid, eventId),
   };
 }
 
@@ -90,11 +90,11 @@ export function useWeeklyBlockDeviceSync(): { runNow(): Promise<WeeklySyncOutcom
     try {
       const multiDayRule = weeklyRuleCarriesDays();
       const ports = portsFor(current.uid);
-      let calendarId = await loadChosenCalendarId();
+      let calendarId = await loadChosenCalendarId(current.uid);
       if (calendarId === null) {
         const links = await ports.loadLinks();
         if (links !== null && needsWeeklyCalendar({ blocks: current.list, links, writeTarget: current.writeTarget, multiDayRule })) {
-          calendarId = await adoptSoleCalendar(deviceCalendar, saveChosenCalendarId);
+          calendarId = await adoptSoleCalendar(deviceCalendar, (id) => saveChosenCalendarId(current.uid, id));
         }
       }
       const outcome = await reconcileWeeklyEvents({
@@ -141,7 +141,7 @@ export function useWeeklyBlockDeviceSync(): { runNow(): Promise<WeeklySyncOutcom
       try {
         for (const id of link.eventIds) {
           await deviceCalendar.deleteEvent(id);
-          await forgetWrittenEventId(id);
+          await forgetWrittenEventId(current.uid, id);
         }
         kept.delete(link.blockId);
         removed += 1;

@@ -26,6 +26,7 @@ import type { AuthUser } from '../../auth/types';
 import { LANGUAGE_STORAGE_KEY } from '../../i18n/language';
 import { CalendarSettingsScreen } from '../../features/settings/CalendarSettingsScreen';
 import * as calendarEndpoints from '../../api/endpoints/calendar';
+import * as m5aEndpoints from '../../api/endpoints/m5a';
 import * as commitmentEndpoints from '../../api/endpoints/commitments';
 import * as trustEndpoints from '../../api/endpoints/trust';
 import { deviceCalendar, type DeviceEventCalendar, type WritableCalendar } from '../../features/calendar/deviceCalendar';
@@ -95,6 +96,8 @@ beforeEach(async () => {
   client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
   repository = createFakeAuthRepository({ initialUser: USER });
   setAuthRepository(repository);
+  // A never-enrolled phone whose M5a capability is known off: today's calendar screen.
+  jest.spyOn(m5aEndpoints, 'getM5aCapabilities').mockResolvedValue({ success: true, calendarChoice: false, emailSources: false });
   jest.spyOn(commitmentEndpoints, 'listToday').mockResolvedValue({ items: [] } as never);
   jest.spyOn(commitmentEndpoints, 'listUpcoming').mockResolvedValue({ items: [] } as never);
   jest.spyOn(calendarEndpoints, 'getCalendarSettings')

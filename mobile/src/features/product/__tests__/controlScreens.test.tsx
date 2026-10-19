@@ -14,6 +14,17 @@ const mockRegenerate = jest.fn();
 const mockUnlink = jest.fn();
 let mockHabits: unknown[] = [];
 
+// M5a's email parts read through TanStack Query; these screens render here
+// without a client, on a server whose M5a capability is off (today's screens).
+jest.mock('../../m5a/capabilities', () => ({ useM5aCapabilities: () => null }));
+jest.mock('../../m5a/emailScan', () => ({
+  useEmailScanOverview: () => ({ data: undefined, refetch: async () => undefined }),
+  EmailScanEntry: () => null,
+  EmailScanStatus: () => null,
+  WaitLine: () => null,
+}));
+jest.mock('../../m5a/AddedCard', () => ({ AddedCard: () => null }));
+
 jest.mock('../../../api/queries', () => ({
   useConsents: () => ({ data: { recommendations: { state: 'granted' } } }),
   useIntelligenceDecided: () => () => undefined,

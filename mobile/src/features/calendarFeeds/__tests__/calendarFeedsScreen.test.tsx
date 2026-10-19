@@ -31,6 +31,7 @@ import ar from '../../../i18n/locales/ar.json';
 import he from '../../../i18n/locales/he.json';
 import { CalendarFeedsScreen } from '../CalendarFeedsScreen';
 import * as feedEndpoints from '../../../api/endpoints/icsFeeds';
+import * as m5aEndpoints from '../../../api/endpoints/m5a';
 import * as trustEndpoints from '../../../api/endpoints/trust';
 import listFixture from '../../../api/__fixtures__/icsFeeds.list.json';
 import createdFixture from '../../../api/__fixtures__/icsFeeds.created.json';
@@ -98,6 +99,8 @@ beforeEach(async () => {
   client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
   repository = createFakeAuthRepository({ initialUser: USER });
   setAuthRepository(repository);
+  // A never-enrolled phone whose M5a capability is known off: today's calendar behaviour.
+  jest.spyOn(m5aEndpoints, 'getM5aCapabilities').mockResolvedValue({ success: true, calendarChoice: false, emailSources: false });
   jest.spyOn(language, 'systemLanguageTag').mockReturnValue('en-US');
   await AsyncStorage.removeItem(LANGUAGE_STORAGE_KEY);
   jest.spyOn(trustEndpoints, 'getTrust').mockResolvedValue(trustBody(true) as never);
@@ -174,7 +177,7 @@ describe('consent', () => {
     expect(screen.queryByTestId('ics-url-input')).toBeNull();
     await fireEvent.press(screen.getByTestId('ics-consent-allow'));
     await waitFor(() => expect(trustEndpoints.updateTrust)
-      .toHaveBeenCalledWith({ type: 'set_calendar_consent', granted: true }));
+      .toHaveBeenCalledWith({ type: 'set_calendar_consent', granted: true }, { asUid: expect.any(String) }));
     expect(feedEndpoints.createIcsFeed).not.toHaveBeenCalled();
   });
 });

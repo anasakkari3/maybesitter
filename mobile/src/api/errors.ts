@@ -252,6 +252,24 @@ export class SlotRefusedError extends ConflictError {
   }
 }
 
+/** The closed 409 codes of M5a's calendar and «انضاف من إيميلك» routes (PLAN-M5a). */
+export const M5A_REFUSALS = [
+  'calendar_choice_required', 'calendar_choice_purging', 'source_revoked',
+  'selection_stale', 'too_many_phones', 'edited',
+] as const;
+export type M5aRefusal = typeof M5A_REFUSALS[number];
+
+/**
+ * 409 from an M5a route: the code is what the screen acts on, and
+ * `selection_stale` carries the server's epoch (M5A-R53-004), which the phone
+ * never computes itself.
+ */
+export class M5aRefusedError extends ConflictError {
+  constructor(readonly code: M5aRefusal, readonly currentEpoch: number | null) {
+    super(code);
+  }
+}
+
 /**
  * 409 from `POST /api/mobile/plans/week/accept` (CL5b): the day was not
  * saved, and the week as it is now came back with the refusal.

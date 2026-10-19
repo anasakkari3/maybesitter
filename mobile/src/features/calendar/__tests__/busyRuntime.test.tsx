@@ -39,6 +39,7 @@ import { resetBusySyncForTests } from '../useBusyCalendar';
 import { BUSY_BLOCKS_KEY, saveBusySyncedAt } from '../../../lib/deviceSettings/calendarBusy';
 
 import * as calendarEndpoints from '../../../api/endpoints/calendar';
+import * as m5aEndpoints from '../../../api/endpoints/m5a';
 import * as commitmentEndpoints from '../../../api/endpoints/commitments';
 import * as analyticsEndpoints from '../../../api/endpoints/analytics';
 import * as trustEndpoints from '../../../api/endpoints/trust';
@@ -76,6 +77,8 @@ beforeEach(async () => {
   setAuthRepository(repository);
   await AsyncStorage.multiRemove([BUSY_BLOCKS_KEY, 'calendar.busy.v1', 'calendar.busySyncedAt.v1', 'calendar.excludedCalendarIds.v1']);
   await AsyncStorage.setItem(LANGUAGE_STORAGE_KEY, 'en');
+  // A never-enrolled phone whose M5a capability is known off: today's calendar behaviour.
+  jest.spyOn(m5aEndpoints, 'getM5aCapabilities').mockResolvedValue({ success: true, calendarChoice: false, emailSources: false });
   jest.spyOn(commitmentEndpoints, 'listToday').mockResolvedValue({ items: [], calendarOrphans: [] } as never);
   jest.spyOn(commitmentEndpoints, 'listUpcoming').mockResolvedValue({ items: [] } as never);
   jest.spyOn(analyticsEndpoints, 'recordAnalyticsEvent')

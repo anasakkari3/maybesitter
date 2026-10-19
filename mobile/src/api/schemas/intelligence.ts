@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { isoDateTime } from './common';
+import { scanWaitSchema } from './m5a';
 
 export const observationSchema = z.object({
   id: z.string(), kind: z.enum(['goal', 'intention', 'request', 'event', 'commitment', 'preference', 'constraint', 'opportunity', 'outcome']),
@@ -7,6 +8,8 @@ export const observationSchema = z.object({
   source: z.enum(['manual', 'gmail', 'calendar', 'drive', 'share', 'behavior', 'memory', 'commitment']),
   sourceRef: z.string(), observedAt: isoDateTime, review: z.enum(['pending', 'confirmed', 'dismissed']),
   reviewedAt: isoDateTime.nullable(), linkedMemoryId: z.string().nullable(),
+  /** M5a: the email auto-add this observation became, when it did. */
+  autoAddId: z.string().optional(),
 });
 
 export const suggestionSchema = z.object({
@@ -41,9 +44,12 @@ export const intelligenceGmailScanSchema = z.object({
   success: z.literal(true), messagesRead: z.number().int().nonnegative(), observations: z.array(observationSchema),
   scan: z.object({ status: z.enum(['running', 'complete', 'busy']), messagesVisited: z.number().int().nonnegative() }),
 });
+// `m5Enrolled` / `waiting`: M5a servers (R4.1); absent from an older one.
 export const intelligenceGmailMonitorSchema = z.object({
   success: z.literal(true), enabled: z.boolean(), lastSuccessAt: isoDateTime.nullable(),
   error: z.enum(['source_unavailable', 'analysis_unavailable']).nullable(),
+  m5Enrolled: z.boolean().optional(),
+  waiting: scanWaitSchema.nullable().optional(),
 });
 
 export type IntelligenceInbox = z.infer<typeof intelligenceInboxSchema>;

@@ -35,6 +35,17 @@ import { capabilities, capabilityDependsOn, shareCapability, type CapabilityKey 
 const query = (data: unknown) => () => ({ data, isPending: false, isFetching: false, error: null, refetch: jest.fn() });
 const mutation = () => () => ({ mutate: jest.fn(), mutateAsync: jest.fn(), reset: jest.fn(), isPending: false, error: null });
 
+// M5a's email parts read through TanStack Query; these screens render here
+// without a client, on a server whose M5a capability is off (today's screens).
+jest.mock('../../m5a/capabilities', () => ({ useM5aCapabilities: () => null }));
+jest.mock('../../m5a/emailScan', () => ({
+  useEmailScanOverview: () => ({ data: undefined, refetch: async () => undefined }),
+  EmailScanEntry: () => null,
+  EmailScanStatus: () => null,
+  WaitLine: () => null,
+}));
+jest.mock('../../m5a/AddedCard', () => ({ AddedCard: () => null }));
+
 jest.mock('../../../auth/AuthProvider', () => ({
   useAuth: () => ({ user: { uid: 'u', email: 'a@b.c', displayName: 'Sami' } }),
   useOptionalAuth: () => ({ user: { uid: 'u', email: 'a@b.c', displayName: 'Sami' } }),
@@ -444,6 +455,9 @@ describe('no reachable screen says «قريبًا» (council: COMING_SOON = FAIL
     memoryWhyDeferNoPlanUse: "the user's plan does not use this memory",
     planOfflineCold: "today's plan has not arrived (no network)",
     planReasonNoLength: "the item's length is not known",
+    m5CalPermUnasked: "the phone's permission prompt, not yet shown to the user (M5a R1.2)",
+    m5CalNoneChosen: 'the user has not chosen a calendar yet (M5a D8)',
+    m5CalOtherPhoneNotFinished: "another of the user's phones has not finished its first upload",
     zReadyNo: "the user's own answer: not ready for the exam yet (M4b «حاضر؟»)",
     planRowProposalSub: 'the proposal is not saved until the user accepts',
   };

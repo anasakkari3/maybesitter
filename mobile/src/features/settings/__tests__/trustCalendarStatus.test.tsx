@@ -77,7 +77,7 @@ beforeEach(async () => {
   setAuthRepository(repository);
   jest.spyOn(consentEndpoints, 'getConsents').mockResolvedValue(answered as never);
   jest.spyOn(deviceCalendar, 'requestAccess').mockResolvedValue('granted');
-  await saveChosenCalendarId('work');
+  await saveChosenCalendarId(USER.uid, 'work');
 });
 
 afterEach(async () => {
@@ -86,7 +86,7 @@ afterEach(async () => {
   client.clear();
   resetAuthForTests();
   jest.restoreAllMocks();
-  await saveChosenCalendarId(null);
+  await saveChosenCalendarId(USER.uid, null);
   delete process.env.EXPO_PUBLIC_FEATURE_CALENDAR_WRITE;
 });
 
@@ -145,7 +145,7 @@ describe('the calendar line in the Trust Center', () => {
   });
 
   it('asks for a pick when writing is on and nothing is chosen from two calendars', async () => {
-    await saveChosenCalendarId(null);
+    await saveChosenCalendarId(USER.uid, null);
     given();
     await show();
     await lineIs(en.calendarPickNeeded);

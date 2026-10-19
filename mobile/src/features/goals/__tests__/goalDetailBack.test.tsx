@@ -25,6 +25,17 @@ const progress = {
   derivedAt: '2026-09-23T09:00:00.000Z', period: { fromLocalDate: '2026-09-21', toLocalDate: '2026-09-27' },
 };
 
+// M5a's panel parts read through TanStack Query; this suite renders the panel
+// without a client, on a server whose M5a capability is off (today's panel).
+jest.mock('../../m5a/capabilities', () => ({ useM5aCapabilities: () => null }));
+jest.mock('../../m5a/emailScan', () => ({
+  useEmailScanOverview: () => ({ data: undefined, refetch: async () => undefined }),
+  EmailScanEntry: () => null,
+  EmailScanStatus: () => null,
+  WaitLine: () => null,
+}));
+jest.mock('../../m5a/AddedCard', () => ({ AddedCard: () => null }));
+
 jest.mock('../../../api/queries', () => ({
   useConsents: () => ({ data: { recommendations: { state: 'granted' } } }),
   useIntelligenceDecided: () => () => undefined,

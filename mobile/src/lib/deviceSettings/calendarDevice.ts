@@ -93,30 +93,49 @@ export function resetWriterIdCache(): void {
   cachedWriterId = null;
 }
 
-/** The calendar the user picked on this device, or null if they have not. */
-export async function loadChosenCalendarId(): Promise<string | null> {
+/**
+ * ── Per account since M5a (M5A-R21-001, M5A-R20-004) ─────────────
+ *
+ * The calendar written into and the ids written are kept per account: on a
+ * shared phone, account B must neither write into A's chosen calendar nor
+ * skip A's events as its own. The installation-wide values are left where
+ * they are and never migrated: each account chooses again (or the
+ * sole-writable-calendar flow applies), and an id becomes this account's only
+ * when one of its own commitments carries the matching device-calendar link
+ * (`useDeviceCalendarSync` re-records those). Every other id reads as someone
+ * else's event, which is busy — a redundant hint, never a missed clash.
+ */
+export function chosenCalendarKey(uid: string): string {
+  return `${CALENDAR_ID_KEY}:${uid}`;
+}
+
+export function writtenEventIdsKey(uid: string): string {
+  return `${WRITTEN_EVENT_IDS_KEY}:${uid}`;
+}
+
+/** The calendar this account picked on this device, or null if it has not. */
+export async function loadChosenCalendarId(uid: string): Promise<string | null> {
   try {
-    const stored = await AsyncStorage.getItem(CALENDAR_ID_KEY);
+    const stored = await AsyncStorage.getItem(chosenCalendarKey(uid));
     return typeof stored === 'string' && stored.trim() !== '' ? stored : null;
   } catch {
     return null;
   }
 }
 
-export async function saveChosenCalendarId(calendarId: string | null): Promise<void> {
-  try {
-    if (calendarId === null) await AsyncStorage.removeItem(CALENDAR_ID_KEY);
-    else await AsyncStorage.setItem(CALENDAR_ID_KEY, calendarId);
-  } catch {
-    // The picker still shows the choice for this session. The next launch asks
-    // again, which is a worse experience and not a wrong one.
-  }
+/**
+ * Throws when it could not be saved: the picker reverts and nothing is written
+ * into a calendar the next launch would not remember (M5A-R21-001).
+ */
+export async function saveChosenCalendarId(uid: string, calendarId: string | null): Promise<void> {
+  if (calendarId === null) await AsyncStorage.removeItem(chosenCalendarKey(uid));
+  else await AsyncStorage.setItem(chosenCalendarKey(uid), calendarId);
 }
 
-/** The events this installation wrote, for UC-3.2 (#186) to skip. */
-export async function loadWrittenEventIds(): Promise<string[]> {
+/** The events this installation wrote for this account, for UC-3.2 (#186) to skip. */
+export async function loadWrittenEventIds(uid: string): Promise<string[]> {
   try {
-    const raw = await AsyncStorage.getItem(WRITTEN_EVENT_IDS_KEY);
+    const raw = await AsyncStorage.getItem(writtenEventIdsKey(uid));
     if (raw === null) return [];
     const parsed: unknown = JSON.parse(raw);
     return Array.isArray(parsed) ? parsed.filter((id): id is string => typeof id === 'string') : [];
@@ -127,23 +146,23 @@ export async function loadWrittenEventIds(): Promise<string[]> {
   }
 }
 
-export async function rememberWrittenEventId(eventId: string): Promise<void> {
-  const current = await loadWrittenEventIds();
+export async function rememberWrittenEventId(uid: string, eventId: string): Promise<void> {
+  const current = await loadWrittenEventIds(uid);
   if (current.includes(eventId)) return;
   const next = [...current, eventId].slice(-MAX_WRITTEN_EVENT_IDS);
   try {
-    await AsyncStorage.setItem(WRITTEN_EVENT_IDS_KEY, JSON.stringify(next));
+    await AsyncStorage.setItem(writtenEventIdsKey(uid), JSON.stringify(next));
   } catch {
     // See `loadWrittenEventIds`: the failure mode is a redundant warning.
   }
 }
 
-export async function forgetWrittenEventId(eventId: string): Promise<void> {
-  const current = await loadWrittenEventIds();
+export async function forgetWrittenEventId(uid: string, eventId: string): Promise<void> {
+  const current = await loadWrittenEventIds(uid);
   if (!current.includes(eventId)) return;
   try {
     await AsyncStorage.setItem(
-      WRITTEN_EVENT_IDS_KEY,
+      writtenEventIdsKey(uid),
       JSON.stringify(current.filter((id) => id !== eventId)),
     );
   } catch {

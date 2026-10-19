@@ -21,6 +21,7 @@ import { TrustScreen } from '../TrustScreen';
 import answered from '../../../api/__fixtures__/consents.answered.json';
 import trustState from '../../../api/__fixtures__/trust.state.json';
 import * as consentEndpoints from '../../../api/endpoints/consents';
+import * as m5aEndpoints from '../../../api/endpoints/m5a';
 import * as trustEndpoints from '../../../api/endpoints/trust';
 import { deviceCalendar } from '../../calendar/deviceCalendar';
 
@@ -43,6 +44,8 @@ beforeEach(() => {
   client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
   repository = createFakeAuthRepository({ initialUser: USER });
   setAuthRepository(repository);
+  // A never-enrolled phone whose M5a capability is known off: today's calendar behaviour.
+  jest.spyOn(m5aEndpoints, 'getM5aCapabilities').mockResolvedValue({ success: true, calendarChoice: false, emailSources: false });
   jest.spyOn(consentEndpoints, 'getConsents').mockResolvedValue(answered as never);
   // The real handler's answer: calendar consent off.
   jest.spyOn(trustEndpoints, 'getTrust').mockResolvedValue(trustState as never);
@@ -79,7 +82,7 @@ describe('turning the calendar on', () => {
     await show();
     expect(deviceCalendar.requestAccess).not.toHaveBeenCalled();
     await fireEvent(screen.getByTestId('trust-calendar'), 'valueChange', true);
-    await waitFor(() => expect(trustEndpoints.updateTrust).toHaveBeenCalledWith({ type: 'set_calendar_consent', granted: true }));
+    await waitFor(() => expect(trustEndpoints.updateTrust).toHaveBeenCalledWith({ type: 'set_calendar_consent', granted: true }, { asUid: expect.any(String) }));
     expect(deviceCalendar.requestAccess).toHaveBeenCalledTimes(1);
     expect(screen.queryByTestId('trust-calendar-denied')).toBeNull();
   });
@@ -88,7 +91,7 @@ describe('turning the calendar on', () => {
     jest.spyOn(trustEndpoints, 'getTrust').mockResolvedValue(granted as never);
     await show();
     await fireEvent(screen.getByTestId('trust-calendar'), 'valueChange', false);
-    await waitFor(() => expect(trustEndpoints.updateTrust).toHaveBeenCalledWith({ type: 'set_calendar_consent', granted: false }));
+    await waitFor(() => expect(trustEndpoints.updateTrust).toHaveBeenCalledWith({ type: 'set_calendar_consent', granted: false }, { asUid: expect.any(String) }));
     expect(deviceCalendar.requestAccess).not.toHaveBeenCalled();
   });
 

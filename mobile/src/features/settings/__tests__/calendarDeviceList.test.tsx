@@ -28,6 +28,7 @@ import type { AuthUser } from '../../../auth/types';
 import en from '../../../i18n/locales/en.json';
 import { CalendarSettingsScreen } from '../CalendarSettingsScreen';
 import * as calendarEndpoints from '../../../api/endpoints/calendar';
+import * as m5aEndpoints from '../../../api/endpoints/m5a';
 import * as commitmentEndpoints from '../../../api/endpoints/commitments';
 import * as trustEndpoints from '../../../api/endpoints/trust';
 import { deviceCalendar, type DeviceEventCalendar } from '../../calendar/deviceCalendar';
@@ -70,6 +71,8 @@ beforeEach(async () => {
   client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
   repository = createFakeAuthRepository({ initialUser: USER });
   setAuthRepository(repository);
+  // A never-enrolled phone whose M5a capability is known off: today's calendar behaviour.
+  jest.spyOn(m5aEndpoints, 'getM5aCapabilities').mockResolvedValue({ success: true, calendarChoice: false, emailSources: false });
   jest.spyOn(commitmentEndpoints, 'listToday').mockResolvedValue({ items: [] } as never);
   jest.spyOn(commitmentEndpoints, 'listUpcoming').mockResolvedValue({ items: [] } as never);
   jest.spyOn(calendarEndpoints, 'getCalendarSettings')
@@ -175,7 +178,7 @@ describe('turning reading on from here', () => {
     expect(screen.queryByTestId('calendar-device-g-work')).toBeNull();
 
     await fireEvent(screen.getByTestId('calendar-read-toggle'), 'valueChange', true);
-    await waitFor(() => expect(trustEndpoints.updateTrust).toHaveBeenCalledWith({ type: 'set_calendar_consent', granted: true }));
+    await waitFor(() => expect(trustEndpoints.updateTrust).toHaveBeenCalledWith({ type: 'set_calendar_consent', granted: true }, { asUid: expect.any(String) }));
     expect(deviceCalendar.requestAccess).toHaveBeenCalledTimes(1);
     await waitFor(() => expect(screen.queryByTestId('calendar-device-g-work')).not.toBeNull());
   });
@@ -191,7 +194,7 @@ describe('turning reading on from here', () => {
 
     await fireEvent.press(screen.getByTestId('calendar-read-allow'));
     // Allow is the whole of "turn reading on": the consent is recorded too.
-    await waitFor(() => expect(trustEndpoints.updateTrust).toHaveBeenCalledWith({ type: 'set_calendar_consent', granted: true }));
+    await waitFor(() => expect(trustEndpoints.updateTrust).toHaveBeenCalledWith({ type: 'set_calendar_consent', granted: true }, { asUid: expect.any(String) }));
     await waitFor(() => expect(screen.queryByTestId('calendar-device-g-work')).not.toBeNull());
     expect(screen.queryByTestId('calendar-read-allow')).toBeNull();
   });

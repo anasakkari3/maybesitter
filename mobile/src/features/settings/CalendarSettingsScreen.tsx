@@ -8,7 +8,10 @@ import { Screen, ScreenScroll } from '../../ui/screen';
 import { SettingsHeader, SettingsRow } from './SettingsChrome';
 import { ServerToggle } from './ServerToggle';
 import { toggleFailureKey, type UserFacingKey } from '../../api/ui/userFacingMessage';
-import { useSetCalendarWriteTarget, useToday, useTrust, useTrustAction, useUpcoming } from '../../api/queries';
+import { useSetCalendarWriteTarget, useToday, useTrust, useTrustAction, useUid, useUpcoming } from '../../api/queries';
+import { useM5aCapabilitiesOnOpen } from '../m5a/capabilities';
+import { refreshM5aView, useM5aCalendarView } from '../calendar/m5aCalendar';
+import { M5aCalendarSections } from './M5aCalendarSections';
 import {
   useCalendarSettings,
   useDeviceCalendarSync,
@@ -34,7 +37,7 @@ import { SectionLabel } from '../../ui/chrome';
 import { Disclosure } from '../../ui/Disclosure';
 
 /** The key a calendar with no account is grouped under. */
-const OTHER_SOURCE = 'other';
+export const OTHER_SOURCE = 'other';
 
 /** Calendars by account, in the order the phone lists them. */
 export function groupByAccount(calendars: readonly DeviceEventCalendar[]): { source: string; calendars: DeviceEventCalendar[] }[] {
@@ -127,6 +130,18 @@ export function CalendarSettingsScreen({ onBack, onFeeds }: { onBack: () => void
   const trust = useTrust();
   const trustAction = useTrustAction();
   const consented = trust.data?.trust?.calendarConsent === true;
+  const uid = useUid();
+  // M5a (R1.2, M5A-R2-003): an enrolled phone always shows the four
+  // sections, whatever the flag; the old screen is only for a phone that
+  // never enrolled and whose capability is known off. Unknown shows neither.
+  const m5aView = useM5aCalendarView(uid);
+  const capabilities = useM5aCapabilitiesOnOpen();
+  useEffect(() => {
+    if (uid !== 'signed-out') void refreshM5aView(uid);
+  }, [uid]);
+  const layout: 'm5a' | 'legacy' | 'unknown' = m5aView.enrolled || capabilities?.calendarChoice === true
+    ? 'm5a'
+    : m5aView.loaded && capabilities?.calendarChoice === false ? 'legacy' : 'unknown';
 
   const [access, setAccess] = useState<CalendarAccess | null>(null);
   const [calendars, setCalendars] = useState<WritableCalendar[]>([]);
@@ -175,7 +190,7 @@ export function CalendarSettingsScreen({ onBack, onFeeds }: { onBack: () => void
     let cancelled = false;
     void (async () => {
       const current = await deviceCalendar.getAccess();
-      const stored = await loadChosenCalendarId();
+      const stored = await loadChosenCalendarId(uid);
       const off = await loadExcludedCalendarIds();
       if (cancelled) return;
       setAccess(current);
@@ -184,7 +199,7 @@ export function CalendarSettingsScreen({ onBack, onFeeds }: { onBack: () => void
       if (current === 'granted') await Promise.all([loadCalendars(), loadPhoneCalendars()]);
     })();
     return () => { cancelled = true; };
-  }, [loadCalendars, loadPhoneCalendars]);
+  }, [loadCalendars, loadPhoneCalendars, uid]);
 
   // The phone's answer can only change in the phone's settings, so it is read
   // again whenever the app comes back from there. Without this, allowing
@@ -245,12 +260,23 @@ export function CalendarSettingsScreen({ onBack, onFeeds }: { onBack: () => void
     void busyCalendar.syncNow('refresh');
   }, [busyCalendar, excluded]);
 
-  const pick = useCallback(async (calendarId: string) => {
+  /**
+   * Kept per account (M5A-R21-001). A save that fails puts the picker back
+   * and writes nothing into a calendar the next launch would not remember.
+   */
+  const pick = useCallback(async (calendarId: string): Promise<boolean> => {
+    const previous = chosen;
     setChosen(calendarId);
-    await saveChosenCalendarId(calendarId);
+    try {
+      await saveChosenCalendarId(uid, calendarId);
+    } catch {
+      setChosen(previous);
+      return false;
+    }
     // The pass had nothing to write into until now.
     await sync.runNow();
-  }, [sync]);
+    return true;
+  }, [chosen, sync, uid]);
 
   /**
    * Turning it on: ask the OS first, and write the setting only if it said yes.
@@ -269,10 +295,12 @@ export function CalendarSettingsScreen({ onBack, onFeeds }: { onBack: () => void
     setAccess(granted);
     if (granted !== 'granted') return false;
     const writable = await loadCalendars();
-    await setTarget.mutateAsync('device');
     // A confirm used to reach the calendar only after somebody came back here
-    // and tapped the one row there was (UAT round 6, D-a, shot 793).
-    if (chosen === null && writable.length === 1) await pick(writable[0]!.id);
+    // and tapped the one row there was (UAT round 6, D-a, shot 793). Saved
+    // before writing is turned on: a calendar that could not be remembered is
+    // never written into (M5A-R21-001).
+    if (chosen === null && writable.length === 1 && !(await pick(writable[0]!.id))) return false;
+    await setTarget.mutateAsync('device');
     return true;
   }, [access, chosen, loadCalendars, pick, setTarget]);
 
@@ -358,90 +386,108 @@ export function CalendarSettingsScreen({ onBack, onFeeds }: { onBack: () => void
     >
       <ScreenScroll>
 
-        {/* Reading first: the calendars already on the phone (L7). */}
-        <Card pad={0} style={{ overflow: 'hidden' }}>
-          <ServerToggle
-            title={t.calendarReadTitle}
-            body={t.calendarReadBody}
-            // Off while the phone refuses: consent alone reads nothing, and a
-            // switch on over the "no access" card is a switch that lies (UAT
-            // round 6, D-c, shot 761). The consent itself is kept, so allowing
-            // it in phone settings brings the switch straight back.
-            value={consented && !denied}
-            disabled={!calendarReadEnabled() || trust.data === undefined || denied}
-            onChange={changeRead}
-            testID="calendar-read-toggle"
+        {layout === 'm5a' ? (
+          <M5aCalendarSections
+            uid={uid}
+            view={m5aView}
+            access={access}
+            phoneCalendars={phoneCalendars}
+            consented={consented}
+            trustLoaded={trust.data !== undefined}
+            onAskPhone={askPhone}
+            busyCalendar={busyCalendar}
           />
-          {calendarReadEnabled() ? null : (
-            <View style={{ paddingHorizontal: 18, paddingVertical: 12 }}>
-              <Txt size={13} color={p.mu} lh={1.5} testID="calendar-read-unavailable">
-                {t.calendarReadUnavailable}
-              </Txt>
+        ) : null}
+        {layout === 'unknown' ? <ActivityIndicator testID="calendar-loading" color={p.ac} /> : null}
+        {layout === 'legacy' ? (
+          <>
+          {/* Reading first: the calendars already on the phone (L7). */}
+          <Card pad={0} style={{ overflow: 'hidden' }}>
+            <ServerToggle
+              title={t.calendarReadTitle}
+              body={t.calendarReadBody}
+              // Off while the phone refuses: consent alone reads nothing, and a
+              // switch on over the "no access" card is a switch that lies (UAT
+              // round 6, D-c, shot 761). The consent itself is kept, so allowing
+              // it in phone settings brings the switch straight back.
+              value={consented && !denied}
+              disabled={!calendarReadEnabled() || trust.data === undefined || denied}
+              onChange={changeRead}
+              testID="calendar-read-toggle"
+            />
+            {calendarReadEnabled() ? null : (
+              <View style={{ paddingHorizontal: 18, paddingVertical: 12 }}>
+                <Txt size={13} color={p.mu} lh={1.5} testID="calendar-read-unavailable">
+                  {t.calendarReadUnavailable}
+                </Txt>
+              </View>
+            )}
+            <View style={{ paddingHorizontal: 18, paddingVertical: 14, gap: 4 }}>
+              <Txt role="action">{t.calendarDeviceTitle}</Txt>
+              <Txt role="supporting" color={p.mu}>{t.calendarDeviceHint}</Txt>
             </View>
-          )}
-          <View style={{ paddingHorizontal: 18, paddingVertical: 14, gap: 4 }}>
-            <Txt role="action">{t.calendarDeviceTitle}</Txt>
-            <Txt role="supporting" color={p.mu}>{t.calendarDeviceHint}</Txt>
-          </View>
-          {canAllow ? (
-            <View style={{ paddingHorizontal: 18, paddingBottom: 16 }}>
-              <Btn
-                label={t.calendarDeviceAllow}
-                testID="calendar-read-allow"
-                disabled={allowing}
-                onPress={() => void allow()}
-                style={{ borderRadius: 16, minHeight: 52, alignItems: 'center', justifyContent: 'center', backgroundColor: p.ac, paddingHorizontal: 16, paddingVertical: 12 }}
-              >
-                <Txt size={15} weight={600} color={p.onAccent} align="center">{t.calendarDeviceAllow}</Txt>
-              </Btn>
-              <LiveRegion style={{ paddingTop: 8 }}>
-                {allowFailed ? <Txt size={13} color={p.wm} testID="calendar-read-allow-failed">{t[allowFailed]}</Txt> : null}
-              </LiveRegion>
-            </View>
-          ) : null}
-          {reading && phoneCalendars !== null && phoneCalendars.length === 0 ? (
-            <View style={{ paddingHorizontal: 18, paddingBottom: 14 }}>
-              <Txt size={13} color={p.mu} testID="calendar-device-none">{t.calendarDeviceNone}</Txt>
-            </View>
-          ) : null}
-          {reading && phoneCalendars ? groupByAccount(phoneCalendars).map(({ source, calendars: list }) => (
-            <View key={source} testID={`calendar-account-${source}`} style={{ borderTopWidth: 1, borderTopColor: p.ln, paddingHorizontal: 18, paddingTop: 12 }}>
-              <SectionLabel>{source === OTHER_SOURCE ? t.calendarDeviceSourceOther : source}</SectionLabel>
-              {list.map((calendar) => {
-                const on = !excluded.includes(calendar.id);
-                return (
-                  <View key={calendar.id} style={{ flexDirection: 'row', alignItems: 'center', gap: 12, minHeight: 52 }}>
-                    <Txt role="body" style={{ flex: 1 }}>{calendar.title}</Txt>
-                    <Switch
-                      testID={`calendar-device-${calendar.id}`}
-                      accessibilityRole="switch"
-                      accessibilityLabel={`${calendar.title}, ${source === OTHER_SOURCE ? t.calendarDeviceSourceOther : source}`}
-                      accessibilityState={{ checked: on }}
-                      value={on}
-                      trackColor={{ false: p.ln, true: p.ac }}
-                      onValueChange={(next) => void toggleCalendar(calendar.id, next)}
-                    />
-                  </View>
-                );
-              })}
-            </View>
-          )) : null}
-        </Card>
-
-        {denied ? (
-          <Card pad={18} style={{ gap: 12 }}>
-            <Txt size={15} color={p.mu} lh={1.5} testID="calendar-permission-denied">
-              {t.calendarPermissionDenied}
-            </Txt>
-            <Btn
-              label={t.notifOpenSettings}
-              testID="calendar-open-settings"
-              onPress={() => void Linking.openSettings()}
-              style={{ borderRadius: 16, minHeight: 52, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: p.ln }}
-            >
-              <Txt size={15} color={p.ac}>{t.notifOpenSettings}</Txt>
-            </Btn>
+            {canAllow ? (
+              <View style={{ paddingHorizontal: 18, paddingBottom: 16 }}>
+                <Btn
+                  label={t.calendarDeviceAllow}
+                  testID="calendar-read-allow"
+                  disabled={allowing}
+                  onPress={() => void allow()}
+                  style={{ borderRadius: 16, minHeight: 52, alignItems: 'center', justifyContent: 'center', backgroundColor: p.ac, paddingHorizontal: 16, paddingVertical: 12 }}
+                >
+                  <Txt size={15} weight={600} color={p.onAccent} align="center">{t.calendarDeviceAllow}</Txt>
+                </Btn>
+                <LiveRegion style={{ paddingTop: 8 }}>
+                  {allowFailed ? <Txt size={13} color={p.wm} testID="calendar-read-allow-failed">{t[allowFailed]}</Txt> : null}
+                </LiveRegion>
+              </View>
+            ) : null}
+            {reading && phoneCalendars !== null && phoneCalendars.length === 0 ? (
+              <View style={{ paddingHorizontal: 18, paddingBottom: 14 }}>
+                <Txt size={13} color={p.mu} testID="calendar-device-none">{t.calendarDeviceNone}</Txt>
+              </View>
+            ) : null}
+            {reading && phoneCalendars ? groupByAccount(phoneCalendars).map(({ source, calendars: list }) => (
+              <View key={source} testID={`calendar-account-${source}`} style={{ borderTopWidth: 1, borderTopColor: p.ln, paddingHorizontal: 18, paddingTop: 12 }}>
+                <SectionLabel>{source === OTHER_SOURCE ? t.calendarDeviceSourceOther : source}</SectionLabel>
+                {list.map((calendar) => {
+                  const on = !excluded.includes(calendar.id);
+                  return (
+                    <View key={calendar.id} style={{ flexDirection: 'row', alignItems: 'center', gap: 12, minHeight: 52 }}>
+                      <Txt role="body" style={{ flex: 1 }}>{calendar.title}</Txt>
+                      <Switch
+                        testID={`calendar-device-${calendar.id}`}
+                        accessibilityRole="switch"
+                        accessibilityLabel={`${calendar.title}, ${source === OTHER_SOURCE ? t.calendarDeviceSourceOther : source}`}
+                        accessibilityState={{ checked: on }}
+                        value={on}
+                        trackColor={{ false: p.ln, true: p.ac }}
+                        onValueChange={(next) => void toggleCalendar(calendar.id, next)}
+                      />
+                    </View>
+                  );
+                })}
+              </View>
+            )) : null}
           </Card>
+
+          {denied ? (
+            <Card pad={18} style={{ gap: 12 }}>
+              <Txt size={15} color={p.mu} lh={1.5} testID="calendar-permission-denied">
+                {t.calendarPermissionDenied}
+              </Txt>
+              <Btn
+                label={t.notifOpenSettings}
+                testID="calendar-open-settings"
+                onPress={() => void Linking.openSettings()}
+                style={{ borderRadius: 16, minHeight: 52, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: p.ln }}
+              >
+                <Txt size={15} color={p.ac}>{t.notifOpenSettings}</Txt>
+              </Btn>
+            </Card>
+          ) : null}
+
+          </>
         ) : null}
 
         {/* What has been read, and the way to stop and delete it (UC-3.2, #186). */}

@@ -1283,7 +1283,8 @@ export function useTrustAction() {
   const client = useQueryClient();
   const uid = useUid();
   return useMutation({
-    mutationFn: (action: TrustAction) => updateTrust(action),
+    // Bound to the account it was started for (M5A-R53-002).
+    mutationFn: (action: TrustAction) => updateTrust(action, uid === 'signed-out' ? {} : { asUid: uid }),
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: queryKeys.trust(uid) });
       void client.invalidateQueries({ queryKey: ['user', uid, 'nextStep'] });
