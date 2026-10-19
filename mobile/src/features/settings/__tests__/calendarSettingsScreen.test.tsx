@@ -104,7 +104,7 @@ describe('turning it on', () => {
     await waitFor(() => expect(screen.queryByTestId('calendar-write-toggle')).not.toBeNull());
 
     await fireEvent(screen.getByTestId('calendar-write-toggle'), 'valueChange', true);
-    await waitFor(() => expect(calendarEndpoints.putCalendarWriteTarget).toHaveBeenCalledWith('device'));
+    await waitFor(() => expect(calendarEndpoints.putCalendarWriteTarget).toHaveBeenCalledWith('device', { asUid: expect.any(String) }));
     expect(request).toHaveBeenCalled();
     expect(request.mock.invocationCallOrder[0]!)
       .toBeLessThan((calendarEndpoints.putCalendarWriteTarget as jest.Mock).mock.invocationCallOrder[0]!);

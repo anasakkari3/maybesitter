@@ -125,8 +125,10 @@ export async function applyIncludedCalendarIds(uid: string, included: readonly s
   const raw = await AsyncStorage.getItem(calendarChoiceKeys.inclusionGeneration(uid));
   const current = raw === null ? 0 : Number(raw);
   const next = Number.isSafeInteger(current) && current >= 0 && current < Number.MAX_SAFE_INTEGER ? current + 1 : 1;
-  await AsyncStorage.setItem(calendarChoiceKeys.included(uid), JSON.stringify([...new Set(included)]));
+  // The generation first: if the list write then fails or the app dies, the
+  // old cache already mismatches and is never shown (R1.1c, M5A-R8-004).
   await AsyncStorage.setItem(calendarChoiceKeys.inclusionGeneration(uid), String(next));
+  await AsyncStorage.setItem(calendarChoiceKeys.included(uid), JSON.stringify([...new Set(included)]));
 }
 
 /** A new inclusion generation with no change to the list: enrolment (R1.1c). */

@@ -61,6 +61,9 @@ function portsFor(uid: string, stillCurrent: () => boolean): WeeklySyncPorts & {
     saveLinks: async (links) => {
       if (!stillCurrent()) return false;
       const saved = await saveWeeklyEventLinks(uid, links);
+      // A switch during the save: the events stay this pass's to take back,
+      // and the next pass of this account finds their links point at nothing.
+      if (!stillCurrent()) return false;
       if (saved) for (const link of links) for (const eventId of link.eventIds) bound.linked(eventId);
       return saved;
     },

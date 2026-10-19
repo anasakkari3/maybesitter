@@ -117,6 +117,8 @@ export function apiSyncPorts(uid: string, stillCurrent: () => boolean): SyncPort
     putLink: async (commitmentId, link) => {
       check();
       await putDeviceCalendarLink(commitmentId, link, { asUid: uid });
+      // Marked linked only while the account is still the pass's own.
+      check();
       bound.linked(link.eventId);
     },
     deleteLink: async (commitmentId, writerId) => {

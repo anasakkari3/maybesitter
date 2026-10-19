@@ -288,7 +288,7 @@ export function CalendarSettingsScreen({ onBack, onFeeds }: { onBack: () => void
    */
   const change = useCallback(async (next: boolean): Promise<boolean> => {
     if (!next) {
-      await setTarget.mutateAsync('off');
+      await setTarget.mutateAsync({ writeTarget: 'off', asUid: uid });
       return true;
     }
     const granted = access === 'granted' ? 'granted' : await deviceCalendar.requestAccess();
@@ -300,9 +300,9 @@ export function CalendarSettingsScreen({ onBack, onFeeds }: { onBack: () => void
     // before writing is turned on: a calendar that could not be remembered is
     // never written into (M5A-R21-001).
     if (chosen === null && writable.length === 1 && !(await pick(writable[0]!.id))) return false;
-    await setTarget.mutateAsync('device');
+    await setTarget.mutateAsync({ writeTarget: 'device', asUid: uid });
     return true;
-  }, [access, chosen, loadCalendars, pick, setTarget]);
+  }, [access, chosen, loadCalendars, pick, setTarget, uid]);
 
   // Nothing picked on this phone and exactly one calendar it can write to:
   // that is not a choice, so it shows as chosen — it is the one the sync pass

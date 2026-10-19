@@ -181,6 +181,7 @@ export function resetM5aCalendarForTests(): void {
   registrations.clear();
   rejoins.clear();
   pendingLocks.clear();
+  savedSequence.clear();
   selectionGeneration = 0;
 }
 
@@ -614,6 +615,11 @@ export class SelectionNotSavedError extends Error {
  * runs in the background; the switch shows the new state from here.
  */
 export async function startSelection(uid: string, included: readonly string[], context: Omit<M5aPassContext, 'justEnrolled' | 'lastSyncedAt' | 'due'>): Promise<void> {
+  // Numbered before the first await, in tap order: a later tap's record is
+  // never overwritten by an earlier one whose digest happened to finish last
+  // (M5A-R54-001).
+  selectionSequence += 1;
+  const sequence = selectionSequence;
   const next = [...new Set(included)];
   const record: PendingSelection = {
     intentId: randomId(),
@@ -624,16 +630,20 @@ export async function startSelection(uid: string, included: readonly string[], c
     opId: null,
   };
   const saved = await underPendingLock(uid, async () => {
+    if (sequence < (savedSequence.get(uid) ?? 0)) return 'superseded' as const;
     try {
       await savePendingSelection(uid, record);
     } catch {
-      return false;
+      return 'failed' as const;
     }
+    savedSequence.set(uid, sequence);
     // Any read or upload still running for an older selection writes nothing more.
     selectionGeneration += 1;
-    return true;
+    return 'saved' as const;
   });
-  if (!saved) {
+  // A newer tap already holds the record: this one has nothing left to do.
+  if (saved === 'superseded') return;
+  if (saved === 'failed') {
     patch(uid, { saveFailed: true });
     throw new SelectionNotSavedError();
   }
@@ -654,6 +664,10 @@ const continuations = new Map<string, Promise<void>>();
  * and an older operation can never apply its list after a newer one exists.
  */
 const pendingLocks = new Map<string, Promise<unknown>>();
+
+/** Taps in order, and the newest one whose record was saved, per account. */
+let selectionSequence = 0;
+const savedSequence = new Map<string, number>();
 
 function underPendingLock<T>(uid: string, task: () => Promise<T>): Promise<T> {
   const previous = pendingLocks.get(uid) ?? Promise.resolve();

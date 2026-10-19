@@ -9,7 +9,9 @@ import { act, waitFor } from '@testing-library/react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as SecureStore from 'expo-secure-store';
 import { deviceCalendar } from '../deviceCalendar';
-import { rejoinPhone } from '../m5aCalendar';
+import * as Crypto from 'expo-crypto';
+import { rejoinPhone, startSelection } from '../m5aCalendar';
+import { applyIncludedCalendarIds } from '../../../lib/deviceSettings/calendarChoice';
 import {
   ACCOUNT_A,
   NOW,
@@ -128,5 +130,43 @@ describe('rejoin', () => {
     expect(bodies).toHaveLength(2);
     expect(new Set(bodies).size).toBe(1);
     await waitFor(async () => expect(await AsyncStorage.getItem(REMOVED)).toBeNull());
+  });
+});
+
+describe('selection order', () => {
+  it('REV-002: the later tap wins even when the earlier digest finishes last', async () => {
+    harness = await prepare();
+    await AsyncStorage.setItem(ENROLLED, '2030-03-20T08:00:00.000Z');
+    await showBusyHost(harness);
+    await settle();
+    const real = Crypto.digestStringAsync;
+    let releaseFirst: (() => void) | undefined;
+    let calls = 0;
+    jest.spyOn(Crypto, 'digestStringAsync').mockImplementation(async (...args: Parameters<typeof real>) => {
+      calls += 1;
+      if (calls === 1) await new Promise<void>((resolve) => { releaseFirst = resolve; });
+      return real(...args);
+    });
+    const context = { uid: UID, accountCurrent: () => true, stillCurrent: () => true, consented: () => true };
+    const first = startSelection(UID, ['work'], context);
+    const second = startSelection(UID, ['home'], context);
+    await act(async () => { await second; });
+    releaseFirst?.();
+    await act(async () => { await first; });
+    const pending = JSON.parse((await AsyncStorage.getItem(PENDING)) ?? 'null') as { included: string[] } | null;
+    const included = JSON.parse((await AsyncStorage.getItem(INCLUDED)) ?? '[]') as string[];
+    // Whatever stage the newer selection reached, nothing of the older one stands.
+    expect(pending?.included ?? included).toEqual(['home']);
+  });
+
+  it('NEW-002: the generation is written before the list, so a failed list write still hides the old cache', async () => {
+    harness = await prepare();
+    const original = (AsyncStorage.setItem as jest.Mock).getMockImplementation() as (key: string, value: string) => Promise<void>;
+    jest.spyOn(AsyncStorage, 'setItem').mockImplementation((key, value) => {
+      if (key === INCLUDED) return Promise.reject(new Error('disk full'));
+      return original(key, value);
+    });
+    await expect(applyIncludedCalendarIds(UID, ['work'])).rejects.toThrow('disk full');
+    expect(await AsyncStorage.getItem(`calendar.inclusionGeneration.v1:${UID}`)).toBe('1');
   });
 });

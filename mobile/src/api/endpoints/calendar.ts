@@ -30,10 +30,13 @@ export function getCalendarSettings(): Promise<{ calendarSettings: { writeTarget
 
 export function putCalendarWriteTarget(
   writeTarget: CalendarWriteTarget,
+  options: { asUid?: string } = {},
 ): Promise<{ calendarSettings: { writeTarget: CalendarWriteTarget } }> {
   return apiRequest('PUT', '/api/mobile/settings/calendar', {
     body: { writeTarget },
     schema: calendarSettingsResponseSchema,
+    // M5a (M5A-R21-001): a write target chosen for one account is never set on another.
+    ...(options.asUid !== undefined ? { asUid: options.asUid } : {}),
   });
 }
 

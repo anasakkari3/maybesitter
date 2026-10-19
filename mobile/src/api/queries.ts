@@ -1403,7 +1403,11 @@ export function useSetCalendarWriteTarget() {
   const client = useQueryClient();
   const uid = useUid();
   return useMutation({
-    mutationFn: (writeTarget: CalendarWriteTarget) => putCalendarWriteTarget(writeTarget),
+    // Bound to an account (M5A-R21-001): the one the caller started for when it
+    // says so, else the one signed in when this hook last rendered.
+    mutationFn: (input: CalendarWriteTarget | { writeTarget: CalendarWriteTarget; asUid: string }) => (typeof input === 'string'
+      ? putCalendarWriteTarget(input, uid === 'signed-out' ? {} : { asUid: uid })
+      : putCalendarWriteTarget(input.writeTarget, { asUid: input.asUid })),
     onSettled: () => {
       void client.invalidateQueries({ queryKey: ['user', uid, 'calendarSettings'] });
       void client.invalidateQueries({ queryKey: ['user', uid, 'commitments'] });
