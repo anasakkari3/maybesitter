@@ -1,5 +1,5 @@
 import React from 'react';
-import { AppState, Text } from 'react-native';
+import { Text } from 'react-native';
 import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
 import { act, render, screen, waitFor, within } from '@testing-library/react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -11,6 +11,7 @@ import {
   ACCOUNT_B,
   NOW,
   Providers,
+  captureAppState,
   changeSwitch,
   initialState,
   prepare,
@@ -133,6 +134,7 @@ describe('R1.2 four distinct calendar sections', () => {
 
   it('M5A-R7-004 a failed clear stays pending, shows calendar-clear-failed, and retries next pass', async () => {
     let deletes = 0;
+    const fireAppState = captureAppState();
     harness = await prepare('en', initialState(), request => {
       if (request.path === '/api/mobile/calendar/busy' && request.method === 'DELETE') {
         deletes += 1;
@@ -149,7 +151,7 @@ describe('R1.2 four distinct calendar sections', () => {
     await changeSwitch('calendar-include-work', false);
     await waitFor(() => expect(screen.queryByTestId('calendar-clear-failed')).not.toBeNull());
 
-    (AppState as unknown as { emit(event: 'change', state: 'active'): void }).emit('change', 'active');
+    await act(async () => { fireAppState('active'); });
     await waitFor(() => expect(deletes).toBe(2));
     expect(screen.queryByTestId('calendar-clear-failed')).toBeNull();
   });

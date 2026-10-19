@@ -1,6 +1,7 @@
 import React from 'react';
 import { expect, jest } from '@jest/globals';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
+import { AppState, type AppStateStatus } from 'react-native';
 import { SafeAreaProvider, type Metrics } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as SecureStore from 'expo-secure-store';
@@ -19,6 +20,12 @@ import { IntelligencePanel } from '../../features/goals/IntelligencePanel';
 import { GoogleIntegrationScreen } from '../../features/google/GoogleIntegrationScreen';
 import { CaptureProvider } from '../../features/capture/CaptureProvider';
 import { DetailsScreen } from '../../screens/DetailsScreen';
+
+const ASYNC_STORAGE_IMPLEMENTATIONS = {
+  getItem: jest.mocked(AsyncStorage.getItem).getMockImplementation(),
+  setItem: jest.mocked(AsyncStorage.setItem).getMockImplementation(),
+  multiRemove: jest.mocked(AsyncStorage.multiRemove).getMockImplementation(),
+};
 
 export const ZONE = 'Asia/Jerusalem';
 export const NOW = new Date('2030-03-29T09:00:00.000Z');
@@ -498,6 +505,15 @@ export async function changeSwitch(testID: string, value: boolean): Promise<void
   await act(async () => { await fireEvent(screen.getByTestId(testID), 'valueChange', value); });
 }
 
+export function captureAppState() {
+  const listeners: ((state: AppStateStatus) => void)[] = [];
+  jest.spyOn(AppState, 'addEventListener').mockImplementation(((_type: string, listener: (state: AppStateStatus) => void) => {
+    listeners.push(listener);
+    return { remove: () => {} };
+  }) as never);
+  return (state: AppStateStatus) => { for (const listener of listeners) listener(state); };
+}
+
 export async function waitForRequest(harness: M5aHarness, method: string, path: RegExp, count = 1) {
   await waitFor(() => expect(harness.server.matching(method, path)).toHaveLength(count));
   return harness.server.matching(method, path)[count - 1]!;
@@ -510,6 +526,9 @@ export async function teardown(harness?: M5aHarness): Promise<void> {
   resetCalendarSyncForTests();
   resetAuthForTests();
   jest.restoreAllMocks();
+  jest.mocked(AsyncStorage.getItem).mockImplementation(ASYNC_STORAGE_IMPLEMENTATIONS.getItem!);
+  jest.mocked(AsyncStorage.setItem).mockImplementation(ASYNC_STORAGE_IMPLEMENTATIONS.setItem!);
+  jest.mocked(AsyncStorage.multiRemove).mockImplementation(ASYNC_STORAGE_IMPLEMENTATIONS.multiRemove!);
   await AsyncStorage.clear();
   (SecureStore as unknown as { __reset(): void }).__reset();
   delete process.env.EXPO_PUBLIC_FEATURE_CALENDAR_READ;

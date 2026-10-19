@@ -94,7 +94,7 @@ describe('R2.2 shared email status line', () => {
     await showIntelligence(harness);
     await waitFor(() => expect(screen.queryByTestId('email-scan-status')).not.toBeNull());
 
-    expect(screen.getByTestId('email-scan-status')).toHaveTextContent('4');
+    expect(screen.getByTestId('email-scan-status')).toHaveTextContent(/\b4\b/);
     expect(screen.getByTestId('email-scan-status').props.accessibilityLiveRegion).toBe('polite');
   });
 
@@ -104,7 +104,10 @@ describe('R2.2 shared email status line', () => {
     await waitFor(() => expect(screen.queryByTestId('email-scan-status')).not.toBeNull());
 
     const status = screen.getByTestId('email-scan-status');
-    for (const value of ['7', '1', '2', '3']) expect(status).toHaveTextContent(value);
+    expect(status).toHaveTextContent(/\b7\b/);
+    expect(status).toHaveTextContent(/\b1\b/);
+    expect(status).toHaveTextContent(/\b2\b/);
+    expect(status).toHaveTextContent(/\b3\b/);
   });
 
   it.each([
@@ -163,7 +166,7 @@ describe('R2.2 shared email status line', () => {
     await showIntelligence(harness);
     await waitFor(() => expect(screen.queryByTestId('email-scan-daily')).not.toBeNull());
 
-    expect(screen.getByTestId('email-scan-daily')).toHaveTextContent('6');
+    expect(screen.getByTestId('email-scan-daily')).toHaveTextContent(/\b6\b/);
   });
 
   it('M5A-R35-004 renders daily held without inventing a day', async () => {
@@ -209,7 +212,7 @@ describe('R3.5 added from email', () => {
     expect(secondPage.query.get('cursor')).toBe('next-1');
     expect(secondPage.query.get('limit')).toBe('20');
     expect(screen.queryByTestId('added-row-auto-1')).not.toBeNull();
-    expect(screen.queryByTestId('added-row-auto-2')).not.toBeNull();
+    await waitFor(() => expect(screen.queryByTestId('added-row-auto-2')).not.toBeNull());
   });
 
   it.each(['done', 'dropped', 'archived'] as const)('M5A-R6-005 %s rows show status and no remove action', async status => {

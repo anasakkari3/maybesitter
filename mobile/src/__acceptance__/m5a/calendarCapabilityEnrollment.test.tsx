@@ -1,5 +1,4 @@
 import React from 'react';
-import { AppState } from 'react-native';
 import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
 import { act, screen, waitFor } from '@testing-library/react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -10,6 +9,8 @@ import {
   ACCOUNT_A,
   ACCOUNT_B,
   NOW,
+  Providers,
+  captureAppState,
   initialState,
   prepare,
   showBusyHost,
@@ -134,6 +135,7 @@ describe('M5a calendar capability and enrolment', () => {
   });
 
   it('M5A-R9-004 purging keeps choicePending and retries on the next pass without reading', async () => {
+    const fireAppState = captureAppState();
     harness = await prepare('en', initialState({ calendarChoiceState: 'purging', calendarEnrolled: false }));
     await showBusyHost(harness);
     await waitForRequest(harness, 'POST', /\/calendar\/choice$/);
@@ -143,7 +145,7 @@ describe('M5a calendar capability and enrolment', () => {
     expect(deviceCalendar.fetchBusyBlocks).not.toHaveBeenCalled();
 
     await act(async () => {
-      (AppState as unknown as { emit(event: 'change', state: 'active'): void }).emit('change', 'active');
+      fireAppState('active');
     });
     await waitFor(() => expect(harness!.server.matching('POST', /\/calendar\/choice$/).length).toBeGreaterThanOrEqual(2));
     expect(deviceCalendar.fetchBusyBlocks).not.toHaveBeenCalled();
@@ -197,7 +199,9 @@ describe('M5a calendar capability and enrolment', () => {
     await act(async () => { harness!.repository.emit(ACCOUNT_B); });
     await act(async () => {
       await view.rerender(
-        <BusyCalendarHost key={ACCOUNT_B.uid} />,
+        <Providers harness={harness!}>
+          <BusyCalendarHost key={ACCOUNT_B.uid} />
+        </Providers>,
       );
     });
 
