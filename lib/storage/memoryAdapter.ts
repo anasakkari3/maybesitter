@@ -131,6 +131,7 @@ function matches(row: Row, where: NonNullable<ListOptions['where']>): boolean {
     // here and in no sweep in production. An explicit `null` is a value, is
     // indexed, and still compares.
     if (actual === undefined) return false;
+    if (op === 'in') return Array.isArray(value) && value.some((candidate) => compareValues(actual, candidate) === 0);
     const comparison = compareValues(actual, value);
     return applyOperator(op, comparison);
   });
@@ -143,6 +144,7 @@ function applyOperator(op: WhereOperator, comparison: number): boolean {
     case '<=': return comparison <= 0;
     case '>': return comparison > 0;
     case '>=': return comparison >= 0;
+    case 'in': throw new StorageUsageError('in is evaluated before scalar comparison');
     default: throw new StorageUsageError(`unsupported where operator: ${String(op)}`);
   }
 }
@@ -210,17 +212,32 @@ class MemoryStore {
 
 function selectRows(rows: Array<[string, Row]>, options: ListOptions | undefined): Array<[string, Row]> {
   let selected = options?.where ? rows.filter(([, row]) => matches(row, options.where!)) : rows;
-  const orderBy = options?.orderBy;
-  const direction = orderBy?.direction === 'desc' ? -1 : 1;
+  const orders = options?.orderBy
+    ? (Array.isArray(options.orderBy) ? options.orderBy : [options.orderBy])
+    : [];
   selected = [...selected].sort(([pathA, rowA], [pathB, rowB]) => {
-    if (orderBy) {
-      const byField = compareValues(fieldValue(rowA, orderBy.field), fieldValue(rowB, orderBy.field));
-      if (byField !== 0) return byField * direction;
+    for (const order of orders) {
+      const byField = compareValues(fieldValue(rowA, order.field), fieldValue(rowB, order.field));
+      if (byField !== 0) return byField * (order.direction === 'desc' ? -1 : 1);
     }
     // A stable, reproducible tiebreak: the document id, as Firestore uses.
     const byId = compareValues(documentIdOf(pathA), documentIdOf(pathB));
-    return orderBy ? byId * direction : byId;
+    const lastDirection = orders.at(-1)?.direction === 'desc' ? -1 : 1;
+    return orders.length ? byId * lastDirection : byId;
   });
+  if (options?.startAfter) {
+    const cursor = options.startAfter;
+    selected = selected.filter(([path, row]) => {
+      const values = [...orders.map((order) => fieldValue(row, order.field)), documentIdOf(path)];
+      for (let index = 0; index < cursor.length; index += 1) {
+        const comparison = compareValues(values[index], cursor[index]);
+        if (comparison === 0) continue;
+        const direction = index < orders.length && orders[index]?.direction === 'desc' ? -1 : 1;
+        return comparison * direction > 0;
+      }
+      return false;
+    });
+  }
   if (typeof options?.limit === 'number') {
     if (!Number.isInteger(options.limit) || options.limit < 0) throw new StorageUsageError('limit must be a non-negative integer');
     selected = selected.slice(0, options.limit);
@@ -256,6 +273,15 @@ class MemoryTransaction implements StorageTransaction {
     const documentPath = requireDocumentPath(path);
     this.docReads.set(documentPath, this.store.versionOf(documentPath));
     return this.store.read(documentPath) as T | null;
+  }
+
+  async getMany<T>(paths: readonly string[]): Promise<Array<T | null>> {
+    this.assertReadable('getMany');
+    return paths.map((path) => {
+      const documentPath = requireDocumentPath(path);
+      this.docReads.set(documentPath, this.store.versionOf(documentPath));
+      return this.store.read(documentPath) as T | null;
+    });
   }
 
   async list<T>(collectionPath: string, o?: ListOptions): Promise<StoredDoc<T>[]> {
@@ -342,6 +368,10 @@ export class MemoryStorageAdapter implements StorageAdapter {
 
   async get<T>(path: string): Promise<T | null> {
     return this.store.read(requireDocumentPath(path)) as T | null;
+  }
+
+  async getMany<T>(paths: readonly string[]): Promise<Array<T | null>> {
+    return paths.map((path) => this.store.read(requireDocumentPath(path)) as T | null);
   }
 
   async list<T>(collectionPath: string, o?: ListOptions): Promise<StoredDoc<T>[]> {

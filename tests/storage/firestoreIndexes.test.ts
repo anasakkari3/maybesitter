@@ -130,7 +130,7 @@ test('the event-log composite index matches what listEventsOfTypeInRange queries
 
 import ts from 'typescript';
 
-type Op = '==' | '<' | '<=' | '>' | '>=';
+type Op = '==' | '<' | '<=' | '>' | '>=' | 'in';
 interface QueryShape {
   readonly site: string;
   readonly method: 'list' | 'listGroup';
@@ -200,7 +200,7 @@ function whereEntries(source: ts.SourceFile, array: ts.ArrayLiteralExpression, s
     const tuple = unwrap(element);
     assert.ok(ts.isArrayLiteralExpression(tuple), `${site}: a \`where\` entry that is not a [field, op, value] tuple`);
     const op = stringOf(tuple.elements[1] as ts.Expression);
-    assert.ok(op && ['==', '<', '<=', '>', '>='].includes(op), `${site}: a \`where\` operator the census cannot read`);
+    assert.ok(op && ['==', '<', '<=', '>', '>=', 'in'].includes(op), `${site}: a \`where\` operator the census cannot read`);
     entries.push({ field: stringOf(tuple.elements[0] as ts.Expression) ?? DYNAMIC, op: op as Op });
   }
   return entries;
@@ -231,15 +231,18 @@ function readOptions(
       into.where.push(...whereEntries(source, value, site));
     }
     if (property.name.text === 'orderBy') {
-      assert.ok(ts.isObjectLiteralExpression(value), `${site}: \`orderBy\` is not an object literal`);
-      let field: string | null = null;
-      let direction: 'ASCENDING' | 'DESCENDING' = 'ASCENDING';
-      for (const part of value.properties) {
-        if (!ts.isPropertyAssignment(part) || !ts.isIdentifier(part.name)) continue;
-        if (part.name.text === 'field') field = stringOf(part.initializer);
-        if (part.name.text === 'direction' && stringOf(part.initializer) === 'desc') direction = 'DESCENDING';
+      const orders = ts.isArrayLiteralExpression(value) ? value.elements.map((entry) => unwrap(entry as ts.Expression)) : [value];
+      for (const order of orders) {
+        assert.ok(ts.isObjectLiteralExpression(order), `${site}: \`orderBy\` is not an object literal or array of literals`);
+        let field: string | null = null;
+        let direction: 'ASCENDING' | 'DESCENDING' = 'ASCENDING';
+        for (const part of order.properties) {
+          if (!ts.isPropertyAssignment(part) || !ts.isIdentifier(part.name)) continue;
+          if (part.name.text === 'field') field = stringOf(part.initializer);
+          if (part.name.text === 'direction' && stringOf(part.initializer) === 'desc') direction = 'DESCENDING';
+        }
+        into.orderBy.push({ field: field ?? DYNAMIC, direction });
       }
-      into.orderBy.push({ field: field ?? DYNAMIC, direction });
     }
   }
 }

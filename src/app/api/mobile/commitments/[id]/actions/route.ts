@@ -97,7 +97,10 @@ export async function POST(
       const fresh = await postponeSlots(user.uid, id);
       return Response.json({ success: false, error: error.code, slots: fresh?.slots ?? [], complete: fresh?.complete ?? false }, { status: 409 });
     }
-    if (error instanceof StaleCommitmentError) return staleCommitmentResponse(error.current);
+    if (error instanceof StaleCommitmentError) {
+      const addedFrom = await addedFromByCommitment(user.uid, [error.current]);
+      return staleCommitmentResponse(error.current, addedFrom.get(error.current.id));
+    }
     if (error instanceof InvalidTransitionError) return invalidTransitionResponse();
     if (error instanceof ClientActionIdReusedError) {
       return Response.json({ success: false, reason: 'client_action_id_reused' }, { status: 409 });

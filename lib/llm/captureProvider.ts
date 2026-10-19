@@ -258,6 +258,7 @@ export function captureLlmProvider(uid: string, options: CaptureProviderOptions 
           uid,
           maxOutputTokens: batch ? BATCH_MAX_OUTPUT_TOKENS : SINGLE_MAX_OUTPUT_TOKENS,
           timeoutMs: timeoutMs ?? BATCH_TIMEOUT_MS,
+          ...(callOptions.retry === false ? { retry: false } : {}),
         })
         : await provider.generateJson({
           system,

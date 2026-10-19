@@ -82,7 +82,10 @@ export async function PATCH(
       headers: { ETag: etagFor(updated) },
     });
   } catch (error) {
-    if (error instanceof StaleCommitmentError) return staleCommitmentResponse(error.current);
+    if (error instanceof StaleCommitmentError) {
+      const addedFrom = await addedFromByCommitment(user.uid, [error.current]);
+      return staleCommitmentResponse(error.current, addedFrom.get(error.current.id));
+    }
     if (error instanceof InvalidTransitionError) return invalidTransitionResponse();
     const message = error instanceof Error ? error.message : 'Patch failed';
     return mobileError(message, message === 'Commitment not found' ? 404 : 400);
@@ -117,7 +120,10 @@ export async function DELETE(
       status: commitment.status,
     }, { headers: { ETag: etagFor(commitment) } });
   } catch (error) {
-    if (error instanceof StaleCommitmentError) return staleCommitmentResponse(error.current);
+    if (error instanceof StaleCommitmentError) {
+      const addedFrom = await addedFromByCommitment(user.uid, [error.current]);
+      return staleCommitmentResponse(error.current, addedFrom.get(error.current.id));
+    }
     if (error instanceof InvalidTransitionError) return invalidTransitionResponse();
     const message = error instanceof Error ? error.message : 'Delete failed';
     return mobileError(message, message === 'Commitment not found' ? 404 : 400);

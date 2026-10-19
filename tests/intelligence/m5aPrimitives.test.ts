@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import type { Commitment } from '../../src/domain/stateMachine';
-import { commitmentBaselineFingerprint } from '../../lib/intelligence/autoAdds';
+import { COMMITMENT_BASELINE_FIELD_CLASSIFICATION, commitmentBaselineFingerprint } from '../../lib/intelligence/autoAdds';
 import {
   markerDecision,
   singleAgreementSentence,
@@ -9,6 +9,11 @@ import {
   type M5aMarker,
 } from '../../lib/intelligence/m5aGmailScan';
 import { ownTextOf } from '../../lib/intelligence/ownText';
+import { loadAutoAddSnapshot } from '../../lib/intelligence/autoAddSnapshot';
+import { analyzeArbitratedGmailMessage } from '../../lib/intelligence/gmailArbitration';
+import { listAutoAdds } from '../../lib/intelligence/autoAdds';
+import { createMemoryStorage, type ListOptions, type StorageAdapter, type StorageTransaction } from '../../lib/storage';
+import type { GoogleRuntime } from '../../lib/integrations/google/googleRuntime';
 
 const NOW = '2026-10-19T10:00:00.000Z';
 
@@ -82,4 +87,93 @@ test('baseline fingerprint includes person edits and normalizes system acknowled
     locationTrigger: { kind: 'arrive', placeId: 'home', label: 'Home' },
   })), fingerprint);
   assert.notEqual(commitmentBaselineFingerprint(commitment({ currentAckState: 'aware' })), fingerprint);
+});
+
+test('baseline classification exhaustively names the commitment contract fields', () => {
+  assert.deepEqual(Object.keys(COMMITMENT_BASELINE_FIELD_CLASSIFICATION).sort(), [
+    'addedFrom', 'category', 'categorySource', 'completedAt', 'confirmedAt', 'createdAt',
+    'currentAckState', 'description', 'droppedAt', 'id', 'kind', 'locationTrigger',
+    'person', 'postponedUntil', 'priority', 'status', 'timeSpec', 'title', 'updatedAt',
+  ]);
+});
+
+test('receipt transition prunes receipts that are not current manual or daily scans', () => {
+  const marker: M5aMarker = { v: 2, state: 'done', receipts: { old: 'read', manual: 'read', daily: 'unavailable' } };
+  const result = transitionReceipt(marker, 'manual', 'read', ['manual', 'daily']);
+  assert.deepEqual(result.marker.receipts, { manual: 'read', daily: 'unavailable' });
+});
+
+test('auto-add snapshot lists every bounded collection once at its N+1 refusal limit', async () => {
+  const calls = new Map<string, ListOptions[]>();
+  const tx = {
+    get: async () => null,
+    list: async (_path: string, options?: ListOptions) => {
+      const rows = calls.get(_path) ?? [];
+      rows.push(options ?? {});
+      calls.set(_path, rows);
+      if (_path.endsWith('/calendarSources')) {
+        return Array.from({ length: options?.limit ?? 0 }, (_, index) => ({
+          id: `source-${index}`,
+          data: { sourceId: `source-${index}`, kind: 'manual' },
+        }));
+      }
+      return [];
+    },
+  } as unknown as StorageTransaction;
+  const snapshot = await loadAutoAddSnapshot(tx, 'alice', {
+    startsAt: '2026-10-20T08:00:00.000Z', endsAt: '2026-10-20T09:00:00.000Z',
+  }, NOW);
+  assert.equal(snapshot.boundedAndSettled, false);
+  assert.equal(snapshot.schedule.complete, false);
+  const expected = new Map([
+    ['calendarSources', 61], ['busyBlocks', 1501], ['weeklyBlocks', 101],
+    ['commitments', 1001], ['reminders', 1001], ['escalationStates', 1001],
+  ]);
+  for (const [collection, limit] of Array.from(expected)) {
+    const match = Array.from(calls.entries()).find(([path]) => path.endsWith(`/${collection}`));
+    assert.ok(match, `${collection} was not read`);
+    assert.equal(match[1].length, 1, `${collection} was read more than once`);
+    assert.equal(match[1][0]?.limit, limit);
+  }
+});
+
+test('/added asks storage for the indexed page and batches the commitment join', async () => {
+  let options: ListOptions | undefined;
+  let getManyCalls = 0;
+  const storage = {
+    list: async (_path: string, supplied?: ListOptions) => {
+      options = supplied;
+      return [{ id: 'a'.repeat(64), data: {
+        autoAddId: 'a'.repeat(64), providerAccountId: 'acct', commitmentId: 'c1', observationIds: [],
+        evidence: 'I will send it tomorrow', baseline: 'different', at: NOW, removedAt: null,
+      } }];
+    },
+    getMany: async () => { getManyCalls++; return [commitment()]; },
+  } as unknown as StorageAdapter;
+  const page = await listAutoAdds('alice', { limit: 5 }, storage);
+  assert.equal(page.items.length, 1);
+  assert.deepEqual(options?.where, [['removedAt', '==', null]]);
+  assert.deepEqual(options?.orderBy, [{ field: 'at', direction: 'desc' }, { field: 'autoAddId', direction: 'desc' }]);
+  assert.equal(options?.limit, 6);
+  assert.equal(getManyCalls, 1);
+});
+
+test('legacy Gmail arbitration spends one semantic analysis and leaves one observation', async () => {
+  const storage = createMemoryStorage();
+  let calls = 0;
+  const runtime: GoogleRuntime = {
+    storage, env: { MAYBESITTER_ENV: 'staging' } as GoogleRuntime['env'], secrets: null, fetchImpl: fetch,
+    now: () => new Date(NOW),
+    shareModel: async () => {
+      calls++;
+      return { text: JSON.stringify({ observations: [{ kind: 'request', evidence: 'Please send the form', confidence: 0.9 }] }),
+        model: 'fake', latencyMs: 1, promptTokens: 1, outputTokens: 1 };
+    },
+  };
+  const message = { id: 'mail-1', threadId: null, historyId: '1', receivedAt: NOW, from: null,
+    subject: null, text: 'Please send the form' };
+  assert.equal((await analyzeArbitratedGmailMessage('alice', 'acct', message, runtime)).kind, 'processed');
+  assert.equal((await analyzeArbitratedGmailMessage('alice', 'acct', message, runtime)).kind, 'skipped');
+  assert.equal(calls, 1);
+  assert.equal((await storage.list('users/alice/intelligenceObservations')).length, 1);
 });

@@ -37,6 +37,7 @@
 import { getStorage } from '../storage';
 import {
   GOOGLE_PICKER_TICKETS,
+  COMMITMENTS,
   ICS_FEEDS,
   REGISTERED_DEVICE_SOURCES,
   INCIDENTS,
@@ -51,6 +52,8 @@ import {
 import type { StorageAdapter } from '../storage/storageAdapter';
 import { JOBS } from '../scheduler/storageSchedulerStore';
 import { TOP_LEVEL_USER_COLLECTIONS } from './topLevelUserData';
+import type { Commitment } from '../../src/domain/stateMachine';
+import { hydrateAddedFrom } from '../intelligence/autoAdds';
 
 export const ACCOUNT_EXPORT_SCHEMA_VERSION = 'account-export-v1';
 
@@ -262,7 +265,11 @@ export async function buildAccountExport(uid: string, options: BuildAccountExpor
   const collections: Record<string, AccountExportDocument[]> = {};
   for (const name of exportedUserCollections()) {
     const rows = await storage.list<unknown>(userCol(uid, name), { limit: remaining + 1 });
-    collections[name] = take(name, rows);
+    const exportRows = name === COMMITMENTS
+      ? (await hydrateAddedFrom(uid, rows.map(row => row.data as Commitment), storage))
+        .map((data, index) => ({ id: rows[index]!.id, data }))
+      : rows;
+    collections[name] = take(name, exportRows);
   }
   for (const { collection, field } of exportedTopLevelCollections()) {
     const rows = await storage.list<unknown>(collection, { where: [[field, '==', uid]], limit: remaining + 1 });

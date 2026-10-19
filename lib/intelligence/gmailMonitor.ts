@@ -3,11 +3,12 @@ import { createGmailTransport, type GmailTransport } from '../integrations/gmail
 import { googleAccessToken, requireReadableFeature } from '../integrations/google/googleConnectService';
 import { googleRuntime, type GoogleRuntime } from '../integrations/google/googleRuntime';
 import { getAiConsent } from '../consents/aiConsentService';
-import { getStorage, INTELLIGENCE_MONITORS, INTELLIGENCE_SOURCE_MARKERS, requireUserId, userCol, type StorageAdapter } from '../storage';
+import { getStorage, INTELLIGENCE_GMAIL_SCANS, INTELLIGENCE_MONITORS, INTELLIGENCE_SOURCE_MARKERS, requireUserId, userCol, type StorageAdapter } from '../storage';
 import { intelligenceEnabled } from './gate';
 import { analyzeSource } from './analyzeSource';
 import { proposeFromObservations } from './proposalEngine';
 import { isMonitoringPaused } from '../watchers/monitoringSettings';
+import { analyzeArbitratedGmailMessage, connectedGmailAccount, legacyGmailArbitrationEnabled } from './gmailArbitration';
 
 export interface GmailMonitor {
   enabled: boolean;
@@ -18,6 +19,15 @@ export interface GmailMonitor {
   leaseUntil: string | null;
   lastSuccessAt: string | null;
   error: 'source_unavailable' | 'analysis_unavailable' | null;
+  m5?: {
+    v: 1;
+    providerAccountId: string;
+    enabledAt: string;
+    timezone: string | null;
+    pauseEpoch: number;
+    pausedSince: string | null;
+    excluded: Array<{ from: string; to: string }>;
+  };
 }
 
 function monitorPath(uid: string): string {
@@ -44,23 +54,54 @@ export async function readGmailMonitor(uid: string, storage: StorageAdapter = ge
 }
 
 /** The person explicitly opts in. A new enablement starts at the current mailbox cursor. */
-export async function setGmailMonitor(uid: string, enabled: boolean, runtime: GoogleRuntime = googleRuntime()): Promise<GmailMonitor> {
+function monitorTimezone(value: unknown): string | null {
+  if (typeof value !== 'string' || !value.trim()) return null;
+  try { new Intl.DateTimeFormat('en-US', { timeZone: value }).format(new Date()); return value; }
+  catch { throw new Error('invalid_timezone'); }
+}
+
+export async function setGmailMonitor(
+  uid: string,
+  enabled: boolean,
+  runtime: GoogleRuntime = googleRuntime(),
+  options: { enrollM5?: boolean; timezone?: unknown } = {},
+): Promise<GmailMonitor> {
   if (enabled) {
     if (!intelligenceEnabled(runtime.env as Record<string, string | undefined>)) throw new Error('feature_unavailable');
     if (await getAiConsent(uid, { storage: runtime.storage }) !== 'granted') throw new Error('consent_required');
     await requireReadableFeature(uid, 'gmail', runtime);
   }
   const now = runtime.now().toISOString();
+  const timezone = options.timezone === undefined ? undefined : monitorTimezone(options.timezone);
+  const providerAccountId = enabled && options.enrollM5 ? await connectedGmailAccount(uid, runtime) : null;
+  if (enabled && options.enrollM5 && !providerAccountId) throw new Error('reconnect_needed');
   return runtime.storage.runTransaction(async tx => {
     const path = monitorPath(uid);
-    const current = await tx.get<GmailMonitor>(path);
-    if (current?.enabled === enabled) return current;
+    const dailyPath = `${userCol(uid, INTELLIGENCE_GMAIL_SCANS)}/dailyV2`;
+    const [current, daily] = await Promise.all([
+      tx.get<GmailMonitor>(path),
+      tx.get<{ status?: string }>(dailyPath),
+    ]);
+    if (current?.enabled === enabled && !options.enrollM5) return current;
+    const existingM5 = current?.m5;
+    const m5 = enabled && options.enrollM5 ? {
+      v: 1 as const,
+      providerAccountId: providerAccountId!,
+      enabledAt: existingM5?.enabledAt ?? now,
+      timezone: timezone === undefined ? existingM5?.timezone ?? null : timezone,
+      pauseEpoch: existingM5?.pauseEpoch ?? 0,
+      pausedSince: existingM5?.pausedSince ?? null,
+      excluded: existingM5?.excluded ?? [],
+    } : existingM5;
     const next: GmailMonitor = {
-      enabled, generation: randomUUID(), cursor: enabled ? null : current?.cursor ?? null,
+      enabled, generation: current?.enabled === enabled ? current.generation : randomUUID(), cursor: enabled ? current?.cursor ?? null : current?.cursor ?? null,
       pageToken: null, nextPollAt: now, leaseUntil: null,
       lastSuccessAt: current?.lastSuccessAt ?? null, error: null,
+      ...(m5 ? { m5 } : {}),
     };
     tx.set(path, next);
+    if (m5 && m5.timezone === null) tx.set(dailyPath, { status: 'held', reason: 'no_timezone', heldAt: now });
+    else if (daily?.status === 'held') tx.delete(dailyPath);
     return next;
   });
 }
@@ -118,13 +159,32 @@ export async function runGmailMonitorTick(
         connectionId: 'intelligence', startHistoryId: acquired.cursor,
         pageToken: acquired.pageToken, maxResults: 10,
       });
+      const arbitrate = await legacyGmailArbitrationEnabled(runtime);
+      let providerAccountId = arbitrate ? await connectedGmailAccount(uid, runtime) : null;
+      if (arbitrate && !providerAccountId) throw new Error('source_unavailable');
       // Baseline is deliberate: monitoring future mail never silently imports an old mailbox.
       let processed = 0;
       let newObservations = 0;
       let remaining = false;
       for (const message of page.messages) {
         if (processed >= 4) { remaining = true; break; }
-        if (await runtime.storage.get(markerPath(uid, message.id))) continue;
+        const existingMarker = await runtime.storage.get<Record<string, unknown>>(markerPath(uid, message.id));
+        const useArbitration = arbitrate || existingMarker?.v === 2;
+        if (useArbitration) {
+          providerAccountId ??= await connectedGmailAccount(uid, runtime);
+          if (!providerAccountId) throw new Error('source_unavailable');
+          const result = await analyzeArbitratedGmailMessage(uid, providerAccountId!, message, runtime, {
+            path: monitorPath(uid), generation: claim,
+          });
+          if (result.kind === 'blocked') { remaining = true; break; }
+          if (result.kind === 'processed') {
+            newObservations += result.observations.length;
+            analyzed++;
+          }
+          processed++;
+          continue;
+        }
+        if (existingMarker) continue;
         const current = await readGmailMonitor(uid, runtime.storage);
         if (!current?.enabled || current.generation !== claim) throw new Error('monitor_disabled');
         const content = [message.subject ?? '', message.text].filter(Boolean).join('\n');

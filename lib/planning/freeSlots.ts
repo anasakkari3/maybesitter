@@ -207,7 +207,7 @@ let sourceFailure: FreeSlotSource | null = null;
 type ScheduleReader = (uid: string, window: TimeInterval, storage?: StorageAdapter, now?: string) => Promise<FreeSlotSchedule>;
 let scheduleReader: ScheduleReader = defaultScheduleReader;
 
-export type ScheduleDecisionSite = 'football' | 'ics' | 'heldAdd' | 'postpone' | 'impact';
+export type ScheduleDecisionSite = 'football' | 'ics' | 'heldAdd' | 'postpone' | 'impact' | 'autoAdd';
 let scheduleDecisionHook: ((site: ScheduleDecisionSite) => Promise<void>) | null = null;
 
 /** Test-only race seam. It deliberately runs inside the caller's transaction. */

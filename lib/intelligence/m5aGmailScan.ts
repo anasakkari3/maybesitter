@@ -2,15 +2,19 @@ import { createHash, randomUUID } from 'node:crypto';
 import { applyCommand, type Command, type DomainEvent } from '../../src/domain/stateMachine';
 import { mapExtractionToCommand } from '../../src/extraction/mapExtractionToCommand';
 import { extract as ruleBasedExtract } from '../../src/extraction/ruleBasedExtractor';
+import { extractWithOllama } from '../../src/extraction/ollamaExtractor';
+import { LLMUnavailableError } from '../../src/extraction/llm';
 import type { IntegrationConnectionRecord } from '../../src/contracts/v1/integrationConnectionContracts';
 import { createGmailTransport, type GmailTransport } from '../integrations/gmail/production/gmailTransport';
 import { GmailProviderError } from '../integrations/gmail/adapter';
 import { googleAccessToken, requireReadableFeature } from '../integrations/google/googleConnectService';
 import type { GoogleRuntime } from '../integrations/google/googleRuntime';
 import { connectionIdFor } from '../integrations/providers/production/storedConnectionStore';
-import { candidateClashes, readFreeSlotSchedule } from '../planning/freeSlots';
+import { candidateClashes, runScheduleDecisionHook } from '../planning/freeSlots';
 import { cleanEmail } from '../services/share/emailCleaner';
-import { loadDomainState, writeDomainDiff } from '../services/mobile/participantState';
+import { captureLlmProvider } from '../llm/captureProvider';
+import { writeDomainDiff } from '../services/mobile/participantState';
+import { readActivityStats, recordActivityEvents } from '../services/activity/activityStats';
 import {
   getStorage,
   INTELLIGENCE_AUTO_ADDS,
@@ -29,6 +33,7 @@ import { autoAddPath, commitmentBaselineFingerprint, type AutoAddRecord } from '
 import { observationId, type StoredObservation } from './observationStore';
 import { ownTextOf } from './ownText';
 import type { SemanticObservation } from './semantic';
+import { loadAutoAddSnapshot } from './autoAddSnapshot';
 
 const WEEK_MS = 7 * 24 * 60 * 60_000;
 const LEASE_MS = 120_000;
@@ -131,10 +136,17 @@ export function markerDecision(
 }
 
 /** The sole receipt transition: a scan counts one terminal outcome, and read wins after restoration. */
-export function transitionReceipt(marker: M5aMarker, scanId: string, next: Receipt): ReceiptTransition {
+export function transitionReceipt(
+  marker: M5aMarker,
+  scanId: string,
+  next: Receipt,
+  activeScanIds?: readonly string[],
+): ReceiptTransition {
   const previous = marker.receipts?.[scanId];
-  if (previous === next || previous === 'read') return { marker, readDelta: 0, unavailableDelta: 0 };
-  const receipts = { ...(marker.receipts ?? {}), [scanId]: next };
+  const active = activeScanIds ? new Set([...activeScanIds, scanId]) : null;
+  const kept = Object.fromEntries(Object.entries(marker.receipts ?? {}).filter(([id]) => !active || active.has(id)));
+  const receipts = { ...kept, [scanId]: previous === 'read' ? 'read' : next };
+  if (previous === next || previous === 'read') return { marker: { ...marker, receipts }, readDelta: 0, unavailableDelta: 0 };
   return {
     marker: { ...marker, receipts },
     readDelta: next === 'read' ? 1 : 0,
@@ -291,14 +303,14 @@ interface AutoAddCandidate {
   evidence: string;
   sentence: string;
   command: Extract<Command, { type: 'CreateDraft' }>;
+  timezone: { value: string; source: 'account' | 'scan' };
 }
 
-function autoAddCandidate(
+function qualifyingAgreement(
   message: Awaited<ReturnType<GmailTransport['getMessageById']>>,
   observations: readonly SemanticObservation[],
-  timezone: string | null,
-): AutoAddCandidate | null {
-  if (!message || !message.sentByAccount || !message.isReply || message.bodyFormat !== 'text/plain' || !timezone) return null;
+): { evidence: string; sentence: string } | null {
+  if (!message || !message.sentByAccount || !message.isReply || message.bodyFormat !== 'text/plain') return null;
   const own = ownTextOf(message.text);
   if (own.boundary !== 'quote_header') return null;
   const cleaned = cleanEmail(own.own).body.trim();
@@ -307,11 +319,47 @@ function autoAddCandidate(
   if (unique.length !== 1) return null;
   const span = sentenceHolding(cleaned, unique[0]!.evidence);
   if (!span || !onlyGreetingRest(span.rest) || !singleAgreementSentence(span.sentence)) return null;
-  const extracted = ruleBasedExtract(span.sentence, { now: new Date(message.receivedAt), timezone });
+  return { evidence: unique[0]!.evidence, sentence: span.sentence };
+}
+
+function effectiveTimezone(user: Record<string, unknown> | null, scan: M5aScanDocument): AutoAddCandidate['timezone'] | null {
+  const account = validTimezone(user?.timezone);
+  if (account) return { value: account, source: 'account' };
+  return scan.timezone ? { value: scan.timezone, source: 'scan' } : null;
+}
+
+async function autoAddCandidate(
+  uid: string,
+  message: NonNullable<Awaited<ReturnType<GmailTransport['getMessageById']>>>,
+  observations: readonly SemanticObservation[],
+  timezone: AutoAddCandidate['timezone'] | null,
+  runtime: GoogleRuntime,
+): Promise<AutoAddCandidate | null> {
+  const agreement = qualifyingAgreement(message, observations);
+  if (!agreement || !timezone) return null;
+  const context = { now: new Date(message.receivedAt), timezone: timezone.value };
+  const rules = ruleBasedExtract(agreement.sentence, context);
+  if (!rules.dueAt || rules.missingFields.length > 0 || rules.ambiguityFlags.includes('multiple_commitments')) return null;
+  let extracted = rules;
+  const provider = runtime.captureModel ?? captureLlmProvider(uid, { purpose: 'capture_extraction' });
+  try {
+    extracted = await extractWithOllama(agreement.sentence, context, {
+      provider: (prompt) => provider(prompt, { timeoutMs: 8_000, retry: false }),
+      repairEnabled: false,
+    });
+  } catch (error) {
+    // The checked-in gate deliberately has no capture model. A configured
+    // model's timeout or malformed first answer still fails closed; only the
+    // explicit provider-none runtime uses the deterministic capture path.
+    if (!(error instanceof LLMUnavailableError && error.reason === 'provider_none')) return null;
+  }
   if (!extracted.dueAt || extracted.missingFields.length > 0 || extracted.ambiguityFlags.includes('multiple_commitments')) return null;
+  // Semantic/capture disagreement and model/rules date disagreement both keep
+  // the observation pending. The model never gets authority to move the item.
+  if (extracted.type !== rules.type || extracted.dueAt !== rules.dueAt || extracted.remindAt !== rules.remindAt) return null;
   const mapped = mapExtractionToCommand(extracted, message.receivedAt);
   const create = mapped.find((command): command is Extract<Command, { type: 'CreateDraft' }> => command.type === 'CreateDraft');
-  return create ? { evidence: unique[0]!.evidence, sentence: span.sentence, command: create } : null;
+  return create ? { evidence: agreement.evidence, sentence: agreement.sentence, command: create, timezone } : null;
 }
 
 function classifyFailure(error: unknown): ScanFailure {
@@ -340,16 +388,52 @@ async function releaseClaims(uid: string, owner: string, ids: readonly string[],
   });
 }
 
+async function releaseMessageForRetry(
+  uid: string,
+  scanId: string,
+  scanOwner: string,
+  claimOwner: string,
+  markerIds: readonly string[],
+  storage: StorageAdapter,
+): Promise<void> {
+  await storage.runTransaction(async tx => {
+    const [scan, ...markers] = await Promise.all([
+      tx.get<M5aScanDocument>(scanPath(uid)),
+      ...markerIds.map(id => tx.get<M5aMarker>(markerPath(uid, id))),
+    ]);
+    markers.forEach((marker, index) => {
+      if (marker?.state === 'claimed' && marker.owner === claimOwner) tx.set(markerPath(uid, markerIds[index]!), {
+        ...marker, state: 'released', owner: undefined, leaseUntil: undefined,
+      });
+    });
+    if (scan?.scanId === scanId && scan.leaseOwner === scanOwner) tx.set(scanPath(uid), {
+      ...scan, leaseOwner: null, leaseUntil: null, nextEligibleAt: new Date().toISOString(),
+    });
+  });
+}
+
+function deterministicCommitmentId(autoAddId: string, command: Extract<Command, { type: 'CreateDraft' }>): string {
+  const normalized = JSON.stringify({
+    title: command.commitment.title.trim(),
+    timeSpec: command.commitment.timeSpec ?? null,
+    description: command.commitment.description?.trim() || null,
+    person: command.commitment.person?.trim() || null,
+    locationTrigger: command.commitment.locationTrigger ?? null,
+  });
+  return `m5a_${createHash('sha256').update(`${autoAddId}\0${normalized}`).digest('hex').slice(0, 32)}`;
+}
+
 async function countFinishedMarker(
   uid: string, scan: M5aScanDocument, owner: string, messageId: string, markerId: string,
   storage: StorageAdapter,
 ): Promise<boolean> {
   return storage.runTransaction(async tx => {
-    const [current, marker] = await Promise.all([
-      tx.get<M5aScanDocument>(scanPath(uid)), tx.get<M5aMarker>(markerPath(uid, markerId)),
+    const [current, daily, marker] = await Promise.all([
+      tx.get<M5aScanDocument>(scanPath(uid)), tx.get<M5aScanDocument>(dailyScanPath(uid)),
+      tx.get<M5aMarker>(markerPath(uid, markerId)),
     ]);
     if (!current || current.scanId !== scan.scanId || current.leaseOwner !== owner || marker?.state !== 'done') return false;
-    const receipt = transitionReceipt(marker, scan.scanId, 'read');
+    const receipt = transitionReceipt(marker, scan.scanId, 'read', [current.scanId, daily?.scanId].filter(Boolean) as string[]);
     const done = Array.from(new Set([...(current.page?.done ?? []), messageId]));
     tx.set(markerPath(uid, markerId), receipt.marker);
     tx.set(scanPath(uid), advancePage({
@@ -428,12 +512,14 @@ async function processMessage(
     const message = await transport.getMessageById(messageId);
     if (!message) {
       await storage.runTransaction(async tx => {
-        const [scan, provider, legacy] = await Promise.all([
-          tx.get<M5aScanDocument>(scanPath(uid)), tx.get<M5aMarker>(markerPath(uid, providerMarkerId)), tx.get<M5aMarker>(markerPath(uid, legacyMarkerId)),
+        const [scan, daily, provider, legacy] = await Promise.all([
+          tx.get<M5aScanDocument>(scanPath(uid)), tx.get<M5aScanDocument>(dailyScanPath(uid)),
+          tx.get<M5aMarker>(markerPath(uid, providerMarkerId)), tx.get<M5aMarker>(markerPath(uid, legacyMarkerId)),
         ]);
         if (!scan || scan.scanId !== claimedScan.scanId || scan.leaseOwner !== owner
           || provider?.owner !== claimOwner || legacy?.owner !== claimOwner) return;
-        const receipt = transitionReceipt({ ...provider, state: 'unavailable' }, scan.scanId, 'unavailable');
+        const receipt = transitionReceipt({ ...provider, state: 'unavailable' }, scan.scanId, 'unavailable',
+          [scan.scanId, daily?.scanId].filter(Boolean) as string[]);
         const done = Array.from(new Set([...(scan.page?.done ?? []), messageId]));
         tx.set(markerPath(uid, providerMarkerId), receipt.marker);
         tx.set(markerPath(uid, legacyMarkerId), { ...legacy, state: 'released', owner: undefined, leaseUntil: undefined });
@@ -449,57 +535,74 @@ async function processMessage(
     const prepared = trimForAnalysis(raw);
     const observations = prepared.text ? await analyzeSourceStaged(uid, 'gmail', prepared.text,
       runtime.shareModel ? { generate: runtime.shareModel } : {}) : [];
-    const candidate = autoAddCandidate(message, observations, claimedScan.timezone);
+    const userAtExtraction = await storage.get<Record<string, unknown>>(userDoc(uid));
+    const capturedTimezone = effectiveTimezone(userAtExtraction, claimedScan);
+    const candidate = await autoAddCandidate(uid, message, observations, capturedTimezone, runtime);
     const ref = gmailRefFor(claimedScan.providerAccountId, messageId);
     const addId = autoAddIdFor(uid, claimedScan.providerAccountId, messageId);
     const at = runtime.now().toISOString();
 
-    await storage.runTransaction(async tx => {
-      const [scan, provider, legacy, controls, user, connection, existingObservations, state, existingAutoAdd] = await Promise.all([
+    const committed = await storage.runTransaction(async tx => {
+      const [scan, daily, provider, legacy, controls, user, existingObservations, existingAutoAdd] = await Promise.all([
         tx.get<M5aScanDocument>(scanPath(uid)),
+        tx.get<M5aScanDocument>(dailyScanPath(uid)),
         tx.get<M5aMarker>(markerPath(uid, providerMarkerId)),
         tx.get<M5aMarker>(markerPath(uid, legacyMarkerId)),
         tx.get<unknown>(M5A_CONTROLS_PATH),
         tx.get<Record<string, any>>(userDoc(uid)),
-        tx.get<IntegrationConnectionRecord>(userSubDoc(uid, PROVIDER_CONNECTIONS, connectionIdFor('google'))),
-        tx.list<StoredObservation>(userCol(uid, INTELLIGENCE_OBSERVATIONS)),
-        loadDomainState(tx, uid),
+        tx.list<StoredObservation>(userCol(uid, INTELLIGENCE_OBSERVATIONS), {
+          where: [['sourceRef', 'in', [messageId, ref]]], limit: 25,
+        }),
         tx.get<AutoAddRecord>(autoAddPath(uid, addId)),
       ]);
       const parsedControls = parseM5aControls(controls);
+      const currentTimezone = scan ? effectiveTimezone(user, scan) : null;
+      if (candidate && (currentTimezone?.value !== candidate.timezone.value || currentTimezone?.source !== candidate.timezone.source)) {
+        return false;
+      }
+      const dueAt = candidate?.command.commitment.timeSpec?.dueAt ?? null;
+      const window = dueAt ? {
+        startsAt: dueAt,
+        endsAt: candidate?.command.commitment.timeSpec?.endAt ?? new Date(Date.parse(dueAt) + 60 * 60_000).toISOString(),
+      } : null;
+      const snapshot = candidate && window ? await loadAutoAddSnapshot(tx, uid, window, at) : null;
+      const connection = snapshot?.connection ?? await tx.get<IntegrationConnectionRecord>(
+        userSubDoc(uid, PROVIDER_CONNECTIONS, connectionIdFor('google')),
+      );
+      const stats = snapshot ? await readActivityStats(tx, uid) : null;
       if (!scan || scan.scanId !== claimedScan.scanId || scan.leaseOwner !== owner
         || provider?.owner !== claimOwner || legacy?.owner !== claimOwner
         || !parsedControls?.email.enabled || parsedControls.email.epoch !== scan.emailEpoch
         || !isLiveConnection(connection) || connection.identity.providerAccountId !== scan.providerAccountId
         || user?.personalizationPurge?.state === 'purging') throw new Error('scan_fence_changed');
 
-      const priorTrace = claimed.preexisting || existingObservations.some(row => row.data.sourceRef === messageId || row.data.sourceRef === ref);
-      const spentCommitment = Object.values(state.commitments).some(commitment => commitment.addedFrom?.autoAddId === addId);
+      const priorTrace = claimed.preexisting || existingObservations.length >= 25
+        || existingObservations.some(row => row.data.sourceRef === messageId || row.data.sourceRef === ref);
+      const state = snapshot?.state ?? null;
+      const spentCommitment = state ? Object.values(state.commitments).some(commitment => commitment.addedFrom?.autoAddId === addId) : false;
       let autoAdd: AutoAddRecord | null = null;
       let finalState = state;
       let events: DomainEvent[] = [];
       let supporting = new Set<string>();
-      if (candidate && !priorTrace && !existingAutoAdd && !spentCommitment && user?.trust?.calendarConsent === true) {
+      if (candidate && snapshot && snapshot.boundedAndSettled && state && !priorTrace && !existingAutoAdd
+        && !spentCommitment && user?.trust?.calendarConsent === true) {
         const create: Extract<Command, { type: 'CreateDraft' }> = {
           ...candidate.command,
           now: at,
-          commitment: { ...candidate.command.commitment, id: `m5a_${addId.slice(0, 32)}` },
+          commitment: { ...candidate.command.commitment, id: deterministicCommitmentId(addId, candidate.command) },
           draftStatus: 'pending_confirmation',
         };
         if (create.commitment.timeSpec?.dueAt && Date.parse(create.commitment.timeSpec.dueAt) > runtime.now().getTime()) {
-          const schedule = await readFreeSlotSchedule(uid, {
-            startsAt: create.commitment.timeSpec.dueAt,
-            endsAt: create.commitment.timeSpec.endAt ?? new Date(Date.parse(create.commitment.timeSpec.dueAt) + 60 * 60_000).toISOString(),
-          }, tx as unknown as StorageAdapter, at);
-          if (candidateClashes(schedule, { timeSpec: {
+          await runScheduleDecisionHook('autoAdd');
+          if (candidateClashes(snapshot.schedule, { timeSpec: {
             kind: create.commitment.timeSpec.kind ?? 'scheduled_event',
             dueAt: create.commitment.timeSpec.dueAt,
             endAt: create.commitment.timeSpec.endAt ?? null,
             remindAt: create.commitment.timeSpec.remindAt ?? null,
             allDay: create.commitment.timeSpec.allDay ?? false,
-            timezone: create.commitment.timeSpec.timezone ?? scan.timezone ?? 'UTC',
+            timezone: create.commitment.timeSpec.timezone ?? candidate.timezone.value,
           } }).state === 'free') {
-            let transition = applyCommand(finalState, create);
+            let transition = applyCommand(finalState!, create);
             finalState = transition.newState; events.push(...transition.events);
             transition = applyCommand(finalState, { type: 'ConfirmCommitment', commitmentId: create.commitment.id, now: at });
             finalState = transition.newState; events.push(...transition.events);
@@ -530,7 +633,8 @@ async function processMessage(
         } satisfies StoredObservation);
       }
       if (autoAdd) {
-        writeDomainDiff(tx, uid, state, finalState, events, user as never, at);
+        writeDomainDiff(tx, uid, state!, finalState!, events, user as never, at);
+        recordActivityEvents(tx, uid, stats!, events);
         tx.create(autoAddPath(uid, addId), autoAdd);
       }
       const outcome = prepared.trimmed ? 'trimmed' : prepared.text ? 'analyzed' : 'empty';
@@ -538,7 +642,8 @@ async function processMessage(
         ...provider, v: 2, state: 'done', owner: undefined, leaseUntil: undefined, processedAt: at,
         outcome, observationIds, autoAddId: autoAdd?.autoAddId ?? null,
       };
-      const receipt = transitionReceipt(baseMarker, scan.scanId, 'read');
+      const receipt = transitionReceipt(baseMarker, scan.scanId, 'read',
+        [scan.scanId, daily?.scanId].filter(Boolean) as string[]);
       const done = Array.from(new Set([...(scan.page?.done ?? []), messageId]));
       tx.set(markerPath(uid, providerMarkerId), receipt.marker);
       tx.set(markerPath(uid, legacyMarkerId), { ...receipt.marker, providerMarkerId, providerAccountId: scan.providerAccountId });
@@ -550,7 +655,9 @@ async function processMessage(
         addedFromEmail: scan.addedFromEmail + (receipt.readDelta && autoAdd ? 1 : 0),
         page: scan.page ? { ...scan.page, done } : null,
       }));
+      return true;
     });
+    if (!committed) await releaseMessageForRetry(uid, claimedScan.scanId, owner, claimOwner, markerIds, storage);
   } catch (error) {
     await releaseClaims(uid, claimOwner, markerIds, storage);
     throw error;

@@ -5,6 +5,7 @@ import type { GoogleRuntime } from '../integrations/google/googleRuntime';
 import { INTELLIGENCE_GMAIL_SCANS, INTELLIGENCE_SOURCE_MARKERS, userCol } from '../storage';
 import { analyzeSource } from './analyzeSource';
 import type { StoredObservation } from './observationStore';
+import { analyzeArbitratedGmailMessage, connectedGmailAccount, legacyGmailArbitrationEnabled } from './gmailArbitration';
 
 // Bound each HTTP request, never the number of messages in the seven-day window.
 // Three model calls (at most eight seconds each) leave room for Gmail reads.
@@ -80,28 +81,45 @@ export async function scanGmailIntelligence(
       query: claimed.query, maxResults: PAGE_SIZE, pageToken: claimed.pageToken,
     });
     if (page.nextPageToken && page.nextPageToken === claimed.pageToken) throw new Error('gmail_page_token_repeated');
+    const arbitrate = await legacyGmailArbitrationEnabled(runtime);
+    let providerAccountId = arbitrate ? await connectedGmailAccount(uid, runtime) : null;
+    if (arbitrate && !providerAccountId) throw new Error('reconnect_needed');
     const observations: StoredObservation[] = [];
+    let processed = 0;
+    let blocked = false;
     for (const message of page.messages) {
       const received = Date.parse(message.receivedAt);
-      if (received < Date.parse(claimed.from) || received > Date.parse(claimed.until)) continue;
+      if (received < Date.parse(claimed.from) || received > Date.parse(claimed.until)) { processed++; continue; }
+      const existingMarker = await storage.get<Record<string, unknown>>(markerPath(uid, message.id));
+      const useArbitration = arbitrate || existingMarker?.v === 2;
+      if (useArbitration) {
+        providerAccountId ??= await connectedGmailAccount(uid, runtime);
+        if (!providerAccountId) throw new Error('reconnect_needed');
+        const result = await analyzeArbitratedGmailMessage(uid, providerAccountId!, message, runtime);
+        if (result.kind === 'blocked') { blocked = true; break; }
+        observations.push(...result.observations);
+        processed++;
+        continue;
+      }
       const marker = markerPath(uid, message.id);
-      if (await storage.get(marker)) continue;
+      if (existingMarker) { processed++; continue; }
       const text = [message.subject ?? '', message.text].filter(Boolean).join('\n');
       if (text.trim() && text.length <= 12_000) {
         observations.push(...await analyzeSource(uid, 'gmail', message.id, text, message.receivedAt,
           runtime.shareModel ? { generate: runtime.shareModel, storage } : { storage }));
       }
       await storage.set(marker, { processedAt: nowIso });
+      processed++;
     }
-    const completed = page.nextPageToken === null;
-    const visited = claimed.messagesVisited + page.messages.length;
+    const completed = !blocked && page.nextPageToken === null;
+    const visited = claimed.messagesVisited + processed;
     await storage.runTransaction(async tx => {
       const current = await tx.get<WeekScan>(path);
       if (current?.id !== claimed.id || current.leaseOwner !== owner) throw new Error('gmail_scan_lease_lost');
-      tx.set(path, { ...current, pageToken: page.nextPageToken, messagesVisited: visited,
+      tx.set(path, { ...current, pageToken: blocked ? claimed.pageToken : page.nextPageToken, messagesVisited: visited,
         status: completed ? 'complete' : 'running', leaseOwner: null, leaseUntil: null });
     });
-    return { messagesRead: page.messages.length, observations,
+    return { messagesRead: processed, observations,
       scan: { status: completed ? 'complete' : 'running', messagesVisited: visited } };
   } catch (error) {
     await storage.runTransaction(async tx => {

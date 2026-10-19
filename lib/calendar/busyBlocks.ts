@@ -86,7 +86,7 @@ import {
   PLANNING_STATE_CHANGE_SCHEMA_VERSION,
   type PlanningStateChange,
 } from '../../src/contracts/v1/watcherContracts';
-import { getStorage, type StorageAdapter } from '../storage';
+import { getStorage, type StorageAdapter, type StorageReader, type StoredDoc } from '../storage';
 import type { StorageTransaction } from '../storage/storageAdapter';
 import {
   BUSY_BLOCKS,
@@ -180,6 +180,15 @@ export interface PlanningBusyState {
   readonly sources: readonly CalendarSource[];
   readonly choice: CalendarChoiceSnapshot | null;
   readonly registrations: readonly DeviceRegistrationSnapshot[];
+}
+
+/** Bounded raw snapshot read for the M5a single-transaction clash loader. */
+export function listBusyBlocksBounded(
+  reader: StorageReader,
+  uid: string,
+  limit: number,
+): Promise<Array<StoredDoc<BusyBlock>>> {
+  return reader.list<BusyBlock>(userCol(uid, BUSY_BLOCKS), { limit });
 }
 
 export interface BusyBlockDeps {
