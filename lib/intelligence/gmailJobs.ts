@@ -90,8 +90,14 @@ function markerAuthorized(
   if (origin.kind === 'monitor') return Boolean(monitor?.enabled && monitor.m5
     && monitor.generation === origin.generation && monitor.m5.pauseEpoch === origin.pauseEpoch
     && !monitor.m5.pausedSince && monitor.m5.providerAccountId === marker.providerAccountId);
-  return Boolean(scan && (scan.status === 'running' || scan.status === 'failed')
+  const scanAuthorized = Boolean(scan && (scan.status === 'running' || scan.status === 'failed')
     && scan.scanId === origin.scanId && scan.kind === origin.scanKind);
+  if (!scanAuthorized || !origin.monitorGeneration) return scanAuthorized;
+  return Boolean(monitor?.enabled && monitor.m5
+    && monitor.generation === origin.monitorGeneration
+    && monitor.m5.pauseEpoch === origin.pauseEpoch
+    && !monitor.m5.pausedSince
+    && monitor.m5.providerAccountId === marker.providerAccountId);
 }
 
 export async function cleanupCalendarWaits(storage: StorageAdapter, now: Date, deadlineMs = Date.now() + GMAIL_JOB_LIMITS.cleanupMs): Promise<number> {
@@ -104,18 +110,20 @@ export async function cleanupCalendarWaits(storage: StorageAdapter, now: Date, d
     if (Date.now() >= deadlineMs) break;
     const uid = uidFrom(row.path, INTELLIGENCE_SOURCE_MARKERS, row.id);
     if (!uid) continue;
-    const origin = row.data.origin;
-    const scanPath = origin?.kind === 'scan'
-      ? `${userCol(uid, INTELLIGENCE_GMAIL_SCANS)}/${origin.scanKind === 'daily' ? 'dailyV2' : 'manualV2'}` : null;
-    const [scan, monitor, controls] = await Promise.all([
-      scanPath ? storage.get<M5aScanDocument>(scanPath) : Promise.resolve(null),
-      origin?.kind === 'monitor' ? storage.get<GmailMonitor>(`${userCol(uid, INTELLIGENCE_MONITORS)}/gmail`) : Promise.resolve(null),
-      storage.get(M5A_CONTROLS_PATH),
-    ]);
-    if (markerAuthorized(row.data, scan, monitor, controls)) continue;
     await storage.runTransaction(async tx => {
       const current = await tx.get<M5aMarker>(row.path);
       if (current?.state !== 'waiting_for_calendar' || current.requestedAt !== row.data.requestedAt) return;
+      const origin = current.origin;
+      const scanPath = origin?.kind === 'scan'
+        ? `${userCol(uid, INTELLIGENCE_GMAIL_SCANS)}/${origin.scanKind === 'daily' ? 'dailyV2'
+          : origin.scanKind === 'live' ? 'liveV2' : 'manualV2'}` : null;
+      const [scan, monitor, controls] = await Promise.all([
+        scanPath ? tx.get<M5aScanDocument>(scanPath) : Promise.resolve(null),
+        origin?.kind === 'monitor' || origin?.kind === 'scan' && Boolean(origin.monitorGeneration)
+          ? tx.get<GmailMonitor>(`${userCol(uid, INTELLIGENCE_MONITORS)}/gmail`) : Promise.resolve(null),
+        tx.get(M5A_CONTROLS_PATH),
+      ]);
+      if (markerAuthorized(current, scan, monitor, controls)) return;
       tx.set(row.path, { ...current, state: 'released', owner: undefined, leaseUntil: undefined,
         nextEligibleAt: undefined, requestedAt: undefined, origin: undefined });
       released++;
@@ -163,6 +171,18 @@ export function runReservedLanesForTests(
 ): Promise<number> {
   return runCandidateLanes(candidates.map(uid => ({ uid })), lanes, () => reserveMs, deadlineMs,
     candidate => run(candidate.uid));
+}
+
+export function runAccountLeasedLanesForTests(
+  candidates: readonly string[],
+  lanes: number,
+  route: JobRoute,
+  jobClass: 'live' | 'proposals' | 'continuation' | 'sweep',
+  runtime: GoogleRuntime,
+  run: (uid: string) => Promise<boolean>,
+): Promise<number> {
+  return runCandidateLanes(candidates.map(uid => ({ uid })), lanes, () => 0, Date.now() + 5_000,
+    candidate => withAccountLease(candidate.uid, route, jobClass, runtime, () => run(candidate.uid)));
 }
 
 async function proposalStep(uid: string, runtime: GoogleRuntime): Promise<boolean> {
@@ -239,7 +259,7 @@ async function proposalStep(uid: string, runtime: GoogleRuntime): Promise<boolea
     let completedAtomically = false;
     try {
       await proposeFromObservations(uid, runtime.now().toISOString(), {
-        storage: runtime.storage, generate,
+        storage: runtime.storage, generate, throwOnGenerateFailure: true,
         transactionGuard: async tx => { await assertAuthority(tx); },
         transactionComplete: async tx => {
           const current = await assertAuthority(tx);
@@ -267,12 +287,15 @@ async function runLive(runtime: GoogleRuntime, deadlineMs: number): Promise<numb
     where: [['enabled', '==', true], ['nextPollAt', '<=', runtime.now().toISOString()]],
     orderBy: { field: 'nextPollAt', direction: 'asc' }, limit: GMAIL_JOB_LIMITS.lanes.live * 3,
   });
-  const candidates = rows.flatMap(row => {
+  const candidates = (await Promise.all(rows.map(async row => {
     const uid = uidFrom(row.path, INTELLIGENCE_MONITORS, 'gmail');
-    return uid ? [{ uid, row }] : [];
-  });
+    if (!uid) return null;
+    const scan = await runtime.storage.get<M5aScanDocument>(`${userCol(uid, INTELLIGENCE_GMAIL_SCANS)}/liveV2`);
+    return { uid, row, scan };
+  }))).filter(candidate => candidate !== null);
   return runCandidateLanes(candidates, GMAIL_JOB_LIMITS.lanes.live,
-    () => GMAIL_JOB_LIMITS.reservesMs.qualifyingReply, deadlineMs,
+    candidate => candidate.scan?.page ? GMAIL_JOB_LIMITS.reservesMs.qualifyingReply : GMAIL_JOB_LIMITS.reservesMs.listing,
+    deadlineMs,
     candidate => withAccountLease(candidate.uid, 'live', 'live', runtime, async () =>
       (await runGmailMonitorTick(runtime, { uid: candidate.uid })).accountsChecked > 0));
 }
@@ -312,15 +335,19 @@ async function runScanClass(kind: 'manual' | 'daily', lanes: number, runtime: Go
     }));
 }
 
-async function bootstrapSweeps(runtime: GoogleRuntime): Promise<void> {
+async function bootstrapSweeps(runtime: GoogleRuntime, deadlineMs: number): Promise<number> {
   const rows = await runtime.storage.listGroup<GmailMonitor>(INTELLIGENCE_MONITORS, {
     where: [['enabled', '==', true], ['m5.v', '==', 1], ['m5.nextSweepAt', '<=', runtime.now().toISOString()]],
     orderBy: { field: 'm5.nextSweepAt', direction: 'asc' }, limit: GMAIL_JOB_LIMITS.lanes.sweep * 3,
   });
-  for (const row of rows) {
+  const candidates = rows.flatMap(row => {
     const uid = uidFrom(row.path, INTELLIGENCE_MONITORS, 'gmail');
-    if (uid) await createDueDailyScan(uid, runtime);
-  }
+    return uid ? [{ uid, row }] : [];
+  });
+  return runCandidateLanes(candidates, GMAIL_JOB_LIMITS.lanes.sweep,
+    () => GMAIL_JOB_LIMITS.reservesMs.calendarApply, deadlineMs,
+    candidate => withAccountLease(candidate.uid, 'sweep', 'sweep', runtime,
+      () => createDueDailyScan(candidate.uid, runtime)));
 }
 
 async function runCalendarMaintenance(runtime: GoogleRuntime, deadlineMs: number): Promise<number> {
@@ -352,7 +379,7 @@ export async function runGmailJobTickForTests(
     const results = await Promise.all([runLive(runtime, tickDeadline), runProposals(runtime, tickDeadline)]);
     processed += results[0] + results[1];
   } else {
-    await bootstrapSweeps(runtime);
+    processed += await bootstrapSweeps(runtime, tickDeadline);
     const results = await Promise.all([
       runScanClass('manual', GMAIL_JOB_LIMITS.lanes.continuation, runtime, tickDeadline),
       runScanClass('daily', GMAIL_JOB_LIMITS.lanes.sweep, runtime, tickDeadline),

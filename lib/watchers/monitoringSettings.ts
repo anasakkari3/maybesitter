@@ -7,10 +7,23 @@
  * effects fire. When unpaused, effects resume normally without replaying
  * state that changed while paused.
  */
+import { createHash } from 'node:crypto';
 import { getStorage, type StorageAdapter } from '../storage';
 import { INTELLIGENCE_MONITORS, INTELLIGENCE_SOURCE_MARKERS, userCol, userDoc } from '../storage/paths';
 import { INTELLIGENCE_GMAIL_SCANS } from '../storage/paths';
-import { legacyMarkerIdFor, providerMarkerIdFor, type M5aMarker } from '../intelligence/m5aGmailScan';
+
+interface CalendarWaitMarker {
+  readonly state?: string;
+  readonly [key: string]: unknown;
+}
+
+export function providerMarkerIdFor(uid: string, providerAccountId: string, messageId: string): string {
+  return createHash('sha256').update(`${uid}\0${providerAccountId}\0${messageId}`).digest('hex');
+}
+
+export function legacyMarkerIdFor(messageId: string): string {
+  return createHash('sha256').update(`gmail\0${messageId}`).digest('hex');
+}
 
 export interface MonitoringSettings {
   readonly paused: boolean;
@@ -99,7 +112,7 @@ export async function saveMonitoringSettings(
     if (monitor?.waitingMessageId && monitor.m5?.providerAccountId) {
       const ids = [providerMarkerIdFor(uid, monitor.m5.providerAccountId, monitor.waitingMessageId),
         legacyMarkerIdFor(monitor.waitingMessageId)];
-      const markers = await Promise.all(ids.map(id => tx.get<M5aMarker>(`${userCol(uid, INTELLIGENCE_SOURCE_MARKERS)}/${id}`)));
+      const markers = await Promise.all(ids.map(id => tx.get<CalendarWaitMarker>(`${userCol(uid, INTELLIGENCE_SOURCE_MARKERS)}/${id}`)));
       markers.forEach((marker, index) => {
         if (marker?.state === 'waiting_for_calendar') tx.set(`${userCol(uid, INTELLIGENCE_SOURCE_MARKERS)}/${ids[index]}`, {
           ...marker, state: 'released', origin: undefined, requestedAt: undefined, nextEligibleAt: undefined,

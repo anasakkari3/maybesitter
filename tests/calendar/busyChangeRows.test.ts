@@ -656,5 +656,5 @@ test('census: inside busyBlocks.ts, a block path is written only by the function
     ['allBlocks', 'blockPath', 'firstDeviceBusySourceId', 'listBusyBlocksBounded'],
     'the collection is otherwise only listed, never written',
   );
-  assert.deepEqual(Array.from(committers).sort(), ['deleteBusySource', 'replaceBusyBlocks']);
+  assert.deepEqual(Array.from(committers).sort(), ['applyResumableBusyReplacementChunk', 'deleteBusySource', 'replaceBusyBlocks']);
 });

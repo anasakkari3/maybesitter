@@ -396,6 +396,8 @@ export async function proposeFromObservations(
     storage?: StorageAdapter;
     generate?: ShareStructuredGenerator;
     visit?: boolean;
+    /** Scheduler turns must remain due when generation fails. */
+    throwOnGenerateFailure?: boolean;
     /** Re-read caller authority in the same transaction as every proposal. */
     transactionGuard?: (tx: StorageTransaction) => Promise<void>;
     /** Caller-owned completion fields written atomically with the proposal set. */
@@ -562,22 +564,25 @@ export async function proposeFromObservations(
       const question = goal ? goalClarification(goal, observations, now) : null;
       if (question) suggestions.push({ ...question, position: suggestions.length });
     }
-  } catch {
+  } catch (error) {
+    if (options.throwOnGenerateFailure) throw error;
     suggestions = [];
   }
-  await storage.runTransaction(async tx => {
+  const committed = await storage.runTransaction(async tx => {
     const [current, existing] = await Promise.all([
       tx.get<IntelligenceRun>(runPath),
       Promise.all(suggestions.map(suggestion => tx.get<IntelligenceSuggestion>(suggestionPath(uid, suggestion.id)))),
     ]);
-    if (current?.claimId !== claimId) return;
+    if (current?.claimId !== claimId) return false;
     if (options.transactionGuard) await options.transactionGuard(tx);
     suggestions.forEach((suggestion, index) => {
       if (!existing[index]) tx.create(suggestionPath(uid, suggestion.id), suggestion);
     });
     tx.set(runPath, { ...current, status: 'complete', suggestionIds: suggestions.map(item => item.id) });
     if (options.transactionComplete) await options.transactionComplete(tx);
+    return true;
   });
+  if (!committed && options.transactionComplete) throw new Error('proposal_claim_lost');
   return Promise.all(suggestions.map(async suggestion =>
     (await storage.get<IntelligenceSuggestion>(suggestionPath(uid, suggestion.id))) ?? suggestion));
 }

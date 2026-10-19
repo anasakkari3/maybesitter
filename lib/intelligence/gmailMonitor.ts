@@ -199,7 +199,8 @@ export async function setGmailMonitor(
       : undefined;
     const stateChanged = current?.enabled !== enabled;
     const next: GmailMonitor = {
-      enabled, generation: !stateChanged && current ? current.generation : randomUUID(), cursor: current?.cursor ?? null,
+      enabled, generation: !stateChanged && current ? current.generation : randomUUID(),
+      cursor: enrolling && !existingM5 ? null : current?.cursor ?? null,
       pageToken: null, nextPollAt: now, leaseUntil: null, lease: null,
       lastSuccessAt: current?.lastSuccessAt ?? null, error: null,
       proposalsVersion: current?.proposalsVersion ?? 0,
@@ -230,7 +231,12 @@ export interface GmailMonitorTick {
 /** One bounded staging account per cron call. A cursor advances only after all messages on a page were analyzed. */
 export async function runGmailMonitorTick(
   runtime: GoogleRuntime = googleRuntime(),
-  options: { uid?: string; transport?: (uid: string) => Pick<GmailTransport, 'listHistory'>; ensureReadable?: (uid: string) => Promise<void> } = {},
+  options: {
+    uid?: string;
+    transport?: (uid: string) => Pick<GmailTransport, 'listHistory'>
+      & Partial<Pick<GmailTransport, 'listHistoryIds' | 'getMessageById'>>;
+    ensureReadable?: (uid: string) => Promise<void>;
+  } = {},
 ): Promise<GmailMonitorTick> {
   if (!intelligenceEnabled(runtime.env as Record<string, string | undefined>)) {
     return { enabled: false, accountsChecked: 0, messagesAnalyzed: 0, failures: 0 };
@@ -280,39 +286,65 @@ export async function runGmailMonitorTick(
       await (options.ensureReadable?.(uid) ?? requireReadableFeature(uid, 'gmail', runtime));
       const transport = options.transport?.(uid) ?? transportFor(uid, runtime);
       if (acquired.m5) await assertEnrolledMonitorAuthority(uid, acquired, claim, runtime);
-      const page = await transport.listHistory({
-        connectionId: 'intelligence', startHistoryId: acquired.cursor,
-        pageToken: acquired.pageToken, maxResults: 10,
-      });
       if (acquired.m5) {
         const controls = parseM5aControls(await runtime.storage.get(M5A_CONTROLS_PATH));
         if (!controls?.email.enabled) throw new Error('monitor_disabled');
-        const ids = page.messages
-          .filter(message => !excludedFromMonitor(acquired, message.receivedAt))
-          .map(message => message.id);
         const existing = await runtime.storage.get<M5aScanDocument>(liveScanPath(uid));
-        if (!existing || existing.status === 'complete' || existing.monitorGeneration !== acquired.generation) {
+        const resumable = existing && (existing.status === 'running' || existing.status === 'failed')
+          && existing.monitorGeneration === acquired.generation
+          && existing.pauseEpoch === acquired.m5.pauseEpoch
+          && existing.page?.ids.some(id => !existing.page!.done.includes(id));
+        if (!resumable) {
+          const request = {
+            connectionId: 'intelligence', startHistoryId: acquired.cursor,
+            pageToken: acquired.pageToken, maxResults: 100,
+          };
+          const idOnly = transport.listHistoryIds
+            ? await transport.listHistoryIds(request)
+            : await transport.listHistory(request).then(page => ({
+              historyId: page.historyId,
+              ids: page.messages.filter(message => !excludedFromMonitor(acquired, message.receivedAt)).map(message => message.id),
+              nextPageToken: page.nextPageToken,
+            }));
+          await assertEnrolledMonitorAuthority(uid, acquired, claim, runtime);
           const at = runtime.now().toISOString();
-          await runtime.storage.set<M5aScanDocument>(liveScanPath(uid), {
-            scanId: randomUUID(), kind: 'live', status: 'running', origin: 'live',
-            providerAccountId: acquired.m5.providerAccountId, emailEpoch: controls.email.epoch,
-            query: '', from: acquired.m5.enabledAt, until: at, timezone: acquired.m5.timezone,
-            startedAt: at, finishedAt: null, failedAt: null, failure: null,
-            pageToken: null, page: { ids, nextPageToken: null, done: [] },
-            leaseOwner: null, leaseUntil: null, queued: null, nextEligibleAt: at,
-            messagesRead: 0, messagesUnavailable: 0, messagesTrimmed: 0,
-            observationsFound: 0, addedFromEmail: 0,
-            monitorGeneration: acquired.generation, pauseEpoch: acquired.m5.pauseEpoch,
-            excluded: [...acquired.m5.excluded], liveHistoryId: page.historyId,
-            liveNextPageToken: page.nextPageToken,
+          await runtime.storage.runTransaction(async tx => {
+            const current = await tx.get<GmailMonitor>(monitorPath(uid));
+            if (!current?.enabled || current.generation !== acquired.generation || current.lease?.owner !== claim
+              || current.m5?.pauseEpoch !== acquired.m5?.pauseEpoch || current.m5?.pausedSince) return;
+            if (idOnly.ids.length === 0) {
+              tx.set(monitorPath(uid), {
+                ...current,
+                cursor: idOnly.nextPageToken ? acquired.cursor : idOnly.historyId,
+                pageToken: idOnly.nextPageToken,
+                lease: null,
+                leaseUntil: null,
+                nextPollAt: new Date(runtime.now().getTime() + (idOnly.nextPageToken ? 60_000 : 15 * 60_000)).toISOString(),
+                lastSuccessAt: at,
+                error: null,
+              });
+              return;
+            }
+            tx.set<M5aScanDocument>(liveScanPath(uid), {
+              scanId: randomUUID(), kind: 'live', status: 'running', origin: 'live',
+              providerAccountId: acquired.m5!.providerAccountId, emailEpoch: controls.email.epoch,
+              query: '', from: acquired.m5!.enabledAt, until: at, timezone: acquired.m5!.timezone,
+              startedAt: at, finishedAt: null, failedAt: null, failure: null,
+              pageToken: null, page: { ids: [...idOnly.ids], nextPageToken: null, done: [] },
+              leaseOwner: null, leaseUntil: null, queued: null, nextEligibleAt: at,
+              messagesRead: 0, messagesUnavailable: 0, messagesTrimmed: 0,
+              observationsFound: 0, addedFromEmail: 0,
+              monitorGeneration: acquired.generation, pauseEpoch: acquired.m5!.pauseEpoch,
+              excluded: [...acquired.m5!.excluded], liveHistoryId: idOnly.historyId,
+              liveNextPageToken: idOnly.nextPageToken,
+            });
+            tx.set(monitorPath(uid), { ...current, lease: null, leaseUntil: null, nextPollAt: at });
           });
+          continue;
         }
-        const byId = new Map(page.messages.map(message => [message.id, message] as const));
-        const unitTransport = {
-          getMessageById: async (id: string) => byId.get(id) ?? null,
-        } as GmailTransport;
+        if (!transport.getMessageById) throw new Error('gmail_message_fetch_unavailable');
         const before = await runtime.storage.get<M5aScanDocument>(liveScanPath(uid));
-        await runM5aScanStep(uid, 'live', runtime, unitTransport, async () => undefined);
+        await runM5aScanStep(uid, 'live', runtime, transport as GmailTransport, async () => undefined);
         const live = await runtime.storage.get<M5aScanDocument>(liveScanPath(uid));
         analyzed += Math.max(0, (live?.messagesRead ?? 0) - (before?.messagesRead ?? 0));
         await runtime.storage.runTransaction(async tx => {
@@ -328,13 +360,18 @@ export async function runGmailMonitorTick(
             lease: null, leaseUntil: null,
             nextPollAt: current.waitingMessageId
               ? current.nextPollAt
-              : new Date(runtime.now().getTime() + (complete && ids.length === 0 ? 15 * 60_000 : complete ? 5 * 60_000 : 60_000)).toISOString(),
+              : new Date(runtime.now().getTime() + (complete && (live?.messagesRead ?? 0) === 0
+                ? 15 * 60_000 : complete ? 5 * 60_000 : 60_000)).toISOString(),
             lastSuccessAt: complete ? runtime.now().toISOString() : current.lastSuccessAt,
             error: latest?.status === 'failed' ? (latest.failure === 'analysis_unavailable' ? 'analysis_unavailable' : 'source_unavailable') : null,
           });
         });
         continue;
       }
+      const page = await transport.listHistory({
+        connectionId: 'intelligence', startHistoryId: acquired.cursor,
+        pageToken: acquired.pageToken, maxResults: 10,
+      });
       const arbitrate = await legacyGmailArbitrationEnabled(runtime);
       let providerAccountId = arbitrate ? await connectedGmailAccount(uid, runtime) : null;
       if (arbitrate && !providerAccountId) throw new Error('source_unavailable');

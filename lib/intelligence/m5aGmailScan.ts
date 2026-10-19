@@ -48,6 +48,9 @@ import type { SemanticObservation } from './semantic';
 import { loadAutoAddSnapshot } from './autoAddSnapshot';
 import { addLocalDays, localDayKey, localMidnightOf } from '../services/mobile/time';
 import { calendarCoverageForEmail, waitForCalendarAndFetch } from './gmailCalendarJit';
+import { legacyMarkerIdFor, providerMarkerIdFor } from '../watchers/monitoringSettings';
+
+export { legacyMarkerIdFor, providerMarkerIdFor } from '../watchers/monitoringSettings';
 
 const WEEK_MS = 7 * 24 * 60 * 60_000;
 const LEASE_MS = 120_000;
@@ -193,14 +196,6 @@ export function transitionReceipt(
 
 export function gmailRefFor(providerAccountId: string, messageId: string): string {
   return createHash('sha256').update(`${providerAccountId}\0${messageId}`).digest('hex');
-}
-
-export function providerMarkerIdFor(uid: string, providerAccountId: string, messageId: string): string {
-  return createHash('sha256').update(`${uid}\0${providerAccountId}\0${messageId}`).digest('hex');
-}
-
-export function legacyMarkerIdFor(messageId: string): string {
-  return createHash('sha256').update(`gmail\0${messageId}`).digest('hex');
 }
 
 export function autoAddIdFor(uid: string, providerAccountId: string, messageId: string): string {
@@ -414,6 +409,7 @@ async function autoAddCandidate(
   timezone: AutoAddCandidate['timezone'] | null,
   runtime: GoogleRuntime,
   permit?: QuotaPermit,
+  beforeModel?: () => Promise<void>,
 ): Promise<AutoAddCandidate | null> {
   const agreement = qualifyingAgreement(message, observations);
   if (!agreement || !timezone) return null;
@@ -431,12 +427,16 @@ async function autoAddCandidate(
     } : runtime.captureModel)
     : captureLlmProvider(uid, {
       purpose: 'capture_extraction',
+      now: runtime.now,
       ...(runtime.captureProvider ? { provider: runtime.captureProvider } : {}),
       ...(permit ? { quotaPermit: { permit, slot: 1, storage: runtime.storage } } : {}),
     });
   try {
     extracted = await extractWithOllama(agreement.sentence, context, {
-      provider: (prompt) => provider(prompt, { timeoutMs: 8_000, retry: false }),
+      provider: async (prompt) => {
+        if (beforeModel) await beforeModel();
+        return provider(prompt, { timeoutMs: 8_000, retry: false });
+      },
       repairEnabled: false,
     });
   } catch (error) {
@@ -601,12 +601,21 @@ async function assertScanAuthority(
   owner: string,
   runtime: GoogleRuntime,
 ): Promise<void> {
+  return assertScanAuthorityWithReader(uid, expected, owner, runtime.storage);
+}
+
+async function assertScanAuthorityWithReader(
+  uid: string,
+  expected: M5aScanDocument,
+  owner: string,
+  reader: { get<T>(path: string): Promise<T | null> },
+): Promise<void> {
   const [scan, controls, user, connection, monitor] = await Promise.all([
-    runtime.storage.get<M5aScanDocument>(scanDocumentPath(uid, expected.kind)),
-    runtime.storage.get<unknown>(M5A_CONTROLS_PATH),
-    runtime.storage.get<Record<string, any>>(userDoc(uid)),
-    runtime.storage.get<IntegrationConnectionRecord>(userSubDoc(uid, PROVIDER_CONNECTIONS, connectionIdFor('google'))),
-    runtime.storage.get<DailyMonitor>(`${userCol(uid, INTELLIGENCE_MONITORS)}/gmail`),
+    reader.get<M5aScanDocument>(scanDocumentPath(uid, expected.kind)),
+    reader.get<unknown>(M5A_CONTROLS_PATH),
+    reader.get<Record<string, any>>(userDoc(uid)),
+    reader.get<IntegrationConnectionRecord>(userSubDoc(uid, PROVIDER_CONNECTIONS, connectionIdFor('google'))),
+    reader.get<DailyMonitor>(`${userCol(uid, INTELLIGENCE_MONITORS)}/gmail`),
   ]);
   const parsed = parseM5aControls(controls);
   if (!scan || scan.scanId !== expected.scanId || scan.leaseOwner !== owner
@@ -634,8 +643,13 @@ async function processMessage(
   const waitingMarker = await storage.get<M5aMarker>(markerPath(uid, providerMarkerId));
   const waitingCoverage = waitingMarker?.state === 'waiting_for_calendar'
     ? await calendarCoverageForEmail(uid, runtime) : null;
-  const waitingBelongsHere = waitingMarker?.origin?.kind === 'scan'
-    && waitingMarker.origin.scanId === claimedScan.scanId && waitingMarker.origin.scanKind === claimedScan.kind;
+  const waitOriginMatches = (marker: M5aMarker | null | undefined): boolean => {
+    if (claimedScan.kind === 'live') return marker?.origin?.kind === 'monitor'
+      && marker.origin.generation === claimedScan.monitorGeneration
+      && marker.origin.pauseEpoch === claimedScan.pauseEpoch;
+    return marker?.origin?.kind === 'scan' && marker.origin.scanId === claimedScan.scanId
+      && marker.origin.scanKind === claimedScan.kind;
+  };
   const claimed = await storage.runTransaction(async tx => {
     const [scan, providerMarker, legacyMarker] = await Promise.all([
       tx.get<M5aScanDocument>(scanDocumentPath(uid, claimedScan.kind)),
@@ -644,10 +658,12 @@ async function processMessage(
     ]);
     if (!scan || scan.scanId !== claimedScan.scanId || scan.leaseOwner !== owner) return { kind: 'lost' as const };
     const now = runtime.now().toISOString();
-    const resumableWait = waitingBelongsHere && (waitingCoverage === 'fresh' || waitingCoverage === 'force_off');
-    const providerDecision = (providerMarker as M5aMarker | null)?.state === 'waiting_for_calendar' && resumableWait
+    const resumableCoverage = waitingCoverage === 'fresh' || waitingCoverage === 'force_off';
+    const providerDecision = (providerMarker as M5aMarker | null)?.state === 'waiting_for_calendar'
+      && resumableCoverage && waitOriginMatches(providerMarker as M5aMarker)
       ? 'takeover' : markerDecision(providerMarker, 'm5a', now);
-    const legacyDecision = (legacyMarker as M5aMarker | null)?.state === 'waiting_for_calendar' && resumableWait
+    const legacyDecision = (legacyMarker as M5aMarker | null)?.state === 'waiting_for_calendar'
+      && resumableCoverage && waitOriginMatches(legacyMarker as M5aMarker)
       ? 'takeover' : markerDecision(legacyMarker, 'm5a', now);
     const done = providerDecision === 'count'
       ? providerMarker as M5aMarker
@@ -676,6 +692,7 @@ async function processMessage(
     const message = await transport.getMessageById(messageId);
     if (!message) {
       await storage.runTransaction(async tx => {
+        await assertScanAuthorityWithReader(uid, claimedScan, owner, tx);
         const [scan, daily, provider, legacy] = await Promise.all([
           tx.get<M5aScanDocument>(scanDocumentPath(uid, claimedScan.kind)), tx.get<M5aScanDocument>(dailyScanPath(uid)),
           tx.get<M5aMarker>(markerPath(uid, providerMarkerId)), tx.get<M5aMarker>(markerPath(uid, legacyMarkerId)),
@@ -700,6 +717,7 @@ async function processMessage(
       || (claimedScan.excluded ?? []).some(interval => received >= Date.parse(interval.from) && received < Date.parse(interval.to));
     if (excluded) {
       await storage.runTransaction(async tx => {
+        await assertScanAuthorityWithReader(uid, claimedScan, owner, tx);
         const [scan, provider, legacy] = await Promise.all([
           tx.get<M5aScanDocument>(scanDocumentPath(uid, claimedScan.kind)),
           tx.get<M5aMarker>(markerPath(uid, providerMarkerId)), tx.get<M5aMarker>(markerPath(uid, legacyMarkerId)),
@@ -747,7 +765,7 @@ async function processMessage(
       }
       permit = reservation.permit;
     }
-    const generate: ShareStructuredGenerator | undefined = permit
+    const generateWithPermit: ShareStructuredGenerator | undefined = permit
       ? runtime.shareModel
         ? async request => {
           if (!await startQuotaPermitSlot(permit!, 0, { storage, now: runtime.now() })) throw new LLMUnavailableError('usage_guard_unavailable');
@@ -760,10 +778,17 @@ async function processMessage(
           ...(runtime.shareProvider ? { provider: runtime.shareProvider } : {}),
         })
       : runtime.shareModel;
-    if (prepared.text) await assertScanAuthority(uid, claimedScan, owner, runtime);
+    const generate: ShareStructuredGenerator | undefined = generateWithPermit
+      ? async request => {
+        await assertScanAuthority(uid, claimedScan, owner, runtime);
+        return generateWithPermit(request);
+      }
+      : undefined;
     const observations = prepared.text ? await analyzeSourceStaged(uid, 'gmail', prepared.text, generate ? { generate } : {}) : [];
-    if (!forceAutoAddOff && candidateSignals) await assertScanAuthority(uid, claimedScan, owner, runtime);
-    const candidate = forceAutoAddOff ? null : await autoAddCandidate(uid, message, observations, capturedTimezone, runtime, permit);
+    const candidate = forceAutoAddOff ? null : await autoAddCandidate(
+      uid, message, observations, capturedTimezone, runtime, permit,
+      () => assertScanAuthority(uid, claimedScan, owner, runtime),
+    );
     const ref = gmailRefFor(claimedScan.providerAccountId, messageId);
     const addId = autoAddIdFor(uid, claimedScan.providerAccountId, messageId);
     const at = runtime.now().toISOString();
@@ -959,6 +984,7 @@ export async function runM5aScanStep(
       } catch (error) {
         if (claimed.pageToken !== null && error instanceof GmailProviderError && error.status === 400) {
           await storage.runTransaction(async tx => {
+            await assertScanAuthorityWithReader(uid, claimed, owner, tx);
             const scan = await tx.get<M5aScanDocument>(scanDocumentPath(uid, kind));
             if (scan?.scanId === claimed.scanId && scan.leaseOwner === owner) tx.set(scanDocumentPath(uid, kind), {
               ...scan, pageToken: null, page: null, leaseOwner: null, leaseUntil: null,
@@ -969,6 +995,7 @@ export async function runM5aScanStep(
         throw error;
       }
       await storage.runTransaction(async tx => {
+        await assertScanAuthorityWithReader(uid, claimed, owner, tx);
         const scan = await tx.get<M5aScanDocument>(scanDocumentPath(uid, kind));
         if (!scan || scan.scanId !== claimed.scanId || scan.leaseOwner !== owner) return;
         const withPage = { ...scan, page: { ids: [...listed.ids], nextPageToken: listed.nextPageToken, done: [] } };
@@ -979,6 +1006,7 @@ export async function runM5aScanStep(
     const nextId = claimed.page.ids.find(id => !claimed.page!.done.includes(id));
     if (!nextId) {
       await storage.runTransaction(async tx => {
+        await assertScanAuthorityWithReader(uid, claimed, owner, tx);
         const scan = await tx.get<M5aScanDocument>(scanDocumentPath(uid, kind));
         if (scan?.scanId === claimed.scanId && scan.leaseOwner === owner) tx.set(scanDocumentPath(uid, kind), advancePage(scan));
       });

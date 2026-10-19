@@ -731,7 +731,7 @@ interface BlockTransition {
  * and its change row) and Firestore allows 500 per commit.
  */
 const TRANSITIONS_PER_COMMIT = 200;
-const REPLACEMENT_LEASE_MS = 120_000;
+export const REPLACEMENT_LEASE_MS = 120_000;
 let replacementTestHook: ((context: { readonly uid: string; readonly sourceId: string }) => Promise<void>) | null = null;
 
 /** Test-only pause after replacement-fence acquisition and before snapshot reads. */
