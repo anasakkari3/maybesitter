@@ -34,7 +34,8 @@
  * for the phone's all-day entries, applied to the only signal Google gives.
  */
 import { createHash } from 'node:crypto';
-import { busyBlockId, listBusyBlocks, replaceBusyBlocks, BUSY_BLOCK_UPLOAD_LIMIT, type BusyBlock } from '../../calendar/busyBlocks';
+import { busyBlockId, listBusyBlocks, replaceBusyBlocks, BUSY_BLOCK_UPLOAD_LIMIT,
+  type BusyBlock, type ResumableBusyReplacement } from '../../calendar/busyBlocks';
 import { googleResourceFetch, refusalForResponse, GoogleConnectError } from './googleConnectService';
 import { featuresGranted, GOOGLE_BUSY_SOURCE_ID } from './googleConfig';
 import type { GoogleRuntime } from './googleRuntime';
@@ -181,6 +182,7 @@ export interface GoogleBusyTarget {
   readonly intervals: readonly { readonly start: string; readonly end: string }[];
   readonly digest: string;
   readonly nextEligibleAt: string;
+  readonly apply?: ResumableBusyReplacement;
 }
 
 function liveCalendarConnection(record: IntegrationConnectionRecord | null): record is IntegrationConnectionRecord {
@@ -238,6 +240,26 @@ async function guardGoogleAuthority(
     || (parseM5aControls(controlsValue)?.calendar.epoch ?? null) !== authority.calendarControlEpoch) {
     throw new GoogleConnectError('google_not_connected');
   }
+}
+
+/** Transaction guard used by resumable JIT chunks. */
+export function guardGoogleBusyTargetAuthority(
+  tx: StorageTransaction,
+  uid: string,
+  target: GoogleBusyTarget,
+): Promise<void> {
+  return guardGoogleAuthority(tx, uid, {
+    providerAccountId: target.providerAccountId,
+    calendarEpoch: target.calendarEpoch,
+    choiceGeneration: target.choiceGeneration,
+    calendarControlEpoch: target.calendarControlEpoch,
+  });
+}
+
+/** The exact block snapshot a persisted JIT target denotes. */
+export function googleBusyTargetBlocks(target: GoogleBusyTarget): BusyBlock[] {
+  const intervals: Interval[] = target.intervals.map(row => ({ startMs: Date.parse(row.start), endMs: Date.parse(row.end) }));
+  return allGoogleBusyBlocks(intervals, null).slice(0, BUSY_BLOCK_UPLOAD_LIMIT);
 }
 
 export interface GoogleCalendarSyncResult {

@@ -10,6 +10,7 @@ import { listMemory } from '../services/mobile/memoryService';
 import { loadDomainState } from '../services/mobile/participantState';
 import { readPlanSettings } from '../services/dailyPlan/dailyPlanService';
 import { normalizeTimezone } from '../services/mobile/time';
+import type { StorageTransaction } from '../storage/storageAdapter';
 
 export type SuggestionKind = 'goal' | 'action' | 'question' | 'warning';
 export type SuggestionStatus = 'pending' | 'accepting' | 'accepted' | 'dismissed';
@@ -391,7 +392,15 @@ export function localWallClock(iso: string | null, timezone: string, dateOnly = 
 export async function proposeFromObservations(
   uid: string,
   now: string,
-  options: { storage?: StorageAdapter; generate?: ShareStructuredGenerator; visit?: boolean } = {},
+  options: {
+    storage?: StorageAdapter;
+    generate?: ShareStructuredGenerator;
+    visit?: boolean;
+    /** Re-read caller authority in the same transaction as every proposal. */
+    transactionGuard?: (tx: StorageTransaction) => Promise<void>;
+    /** Caller-owned completion fields written atomically with the proposal set. */
+    transactionComplete?: (tx: StorageTransaction) => Promise<void>;
+  } = {},
 ): Promise<IntelligenceSuggestion[]> {
   const storage = options.storage ?? getStorage();
   const runPath = intelligenceRunPath(uid);
@@ -556,20 +565,21 @@ export async function proposeFromObservations(
   } catch {
     suggestions = [];
   }
-  const persisted: IntelligenceSuggestion[] = [];
-  for (const suggestion of suggestions) {
-    await storage.runTransaction(async tx => {
-      if (!(await tx.get<IntelligenceSuggestion>(suggestionPath(uid, suggestion.id)))) tx.create(suggestionPath(uid, suggestion.id), suggestion);
-    });
-    const current = await storage.get<IntelligenceSuggestion>(suggestionPath(uid, suggestion.id));
-    if (current) persisted.push(current);
-  }
   await storage.runTransaction(async tx => {
-    const current = await tx.get<IntelligenceRun>(runPath);
+    const [current, existing] = await Promise.all([
+      tx.get<IntelligenceRun>(runPath),
+      Promise.all(suggestions.map(suggestion => tx.get<IntelligenceSuggestion>(suggestionPath(uid, suggestion.id)))),
+    ]);
     if (current?.claimId !== claimId) return;
-    tx.set(runPath, { ...current, status: 'complete', suggestionIds: persisted.map(item => item.id) });
+    if (options.transactionGuard) await options.transactionGuard(tx);
+    suggestions.forEach((suggestion, index) => {
+      if (!existing[index]) tx.create(suggestionPath(uid, suggestion.id), suggestion);
+    });
+    tx.set(runPath, { ...current, status: 'complete', suggestionIds: suggestions.map(item => item.id) });
+    if (options.transactionComplete) await options.transactionComplete(tx);
   });
-  return persisted;
+  return Promise.all(suggestions.map(async suggestion =>
+    (await storage.get<IntelligenceSuggestion>(suggestionPath(uid, suggestion.id))) ?? suggestion));
 }
 
 async function readRun(uid: string, run: IntelligenceRun, storage: StorageAdapter): Promise<IntelligenceSuggestion[]> {

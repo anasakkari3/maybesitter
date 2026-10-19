@@ -17,6 +17,7 @@ import type { StorageAdapter } from '../../storage/storageAdapter';
 import type { FieldEncryptionOptions } from '../../security/fieldEncryption';
 import type { ShareStructuredGenerator } from '../../llm/shareProvider';
 import type { LLMProviderFunction } from '../../../src/extraction/ollamaExtractor';
+import type { LlmProvider } from '../../../src/extraction/llm/llmProvider';
 import { secretManagerReader, type GoogleConfigEnv, type GoogleSecretReader } from './googleConfig';
 
 export interface GoogleRuntime {
@@ -36,6 +37,13 @@ export interface GoogleRuntime {
   readonly shareModel?: ShareStructuredGenerator;
   /** Test seam for the one capture extraction in a qualifying M5a reply. */
   readonly captureModel?: LLMProviderFunction;
+  /**
+   * Production-shaped test seams. Unlike `shareModel` / `captureModel`, these
+   * sit behind the real provider adapters, so quota permits, consent, logging
+   * and settlement are exercised exactly as they are in production.
+   */
+  readonly shareProvider?: LlmProvider;
+  readonly captureProvider?: LlmProvider;
 }
 
 let overrides: Partial<GoogleRuntime> | null = null;
@@ -54,6 +62,8 @@ export function googleRuntime(): GoogleRuntime {
     ...(overrides?.encryption ? { encryption: overrides.encryption } : {}),
     ...(overrides?.shareModel ? { shareModel: overrides.shareModel } : {}),
     ...(overrides?.captureModel ? { captureModel: overrides.captureModel } : {}),
+    ...(overrides?.shareProvider ? { shareProvider: overrides.shareProvider } : {}),
+    ...(overrides?.captureProvider ? { captureProvider: overrides.captureProvider } : {}),
   };
 }
 

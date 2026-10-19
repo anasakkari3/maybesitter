@@ -4,7 +4,7 @@ import { requireReadableFeature } from '../integrations/google/googleConnectServ
 import { googleRuntime, type GoogleRuntime } from '../integrations/google/googleRuntime';
 import {
   BUSY_SOURCE_FENCES, INTELLIGENCE_GMAIL_SCANS, INTELLIGENCE_MONITORS,
-  INTELLIGENCE_SOURCE_MARKERS, userCol, type StorageAdapter,
+  INTELLIGENCE_SOURCE_MARKERS, PROVIDER_CONNECTIONS, userCol, userSubDoc, type StorageAdapter,
 } from '../storage';
 import type { BusySourceReplacementFence } from '../calendar/busyBlocks';
 import { parseM5aControls, M5A_CONTROLS_PATH } from '../release/m5aControls';
@@ -22,6 +22,9 @@ import {
   type M5aMarker, type M5aScanDocument,
 } from './m5aGmailScan';
 import { proposeFromObservations } from './proposalEngine';
+import { connectionIdFor } from '../integrations/providers/production/storedConnectionStore';
+import type { IntegrationConnectionRecord } from '../../src/contracts/v1/integrationConnectionContracts';
+import type { StorageTransaction } from '../storage/storageAdapter';
 
 export const GMAIL_JOB_CLASSES = Object.freeze({
   live: Object.freeze(['live', 'proposals'] as const),
@@ -78,32 +81,38 @@ async function withAccountLease(
   }
 }
 
-function markerAuthorized(marker: M5aMarker, scan: M5aScanDocument | null, controls: unknown): boolean {
+function markerAuthorized(
+  marker: M5aMarker, scan: M5aScanDocument | null, monitor: GmailMonitor | null, controls: unknown,
+): boolean {
   const origin = marker.origin;
   const parsed = parseM5aControls(controls);
-  return Boolean(origin && parsed?.email.enabled && marker.emailEpoch === parsed.email.epoch
-    && scan && (scan.status === 'running' || scan.status === 'failed')
+  if (!origin || !parsed?.email.enabled || marker.emailEpoch !== parsed.email.epoch) return false;
+  if (origin.kind === 'monitor') return Boolean(monitor?.enabled && monitor.m5
+    && monitor.generation === origin.generation && monitor.m5.pauseEpoch === origin.pauseEpoch
+    && !monitor.m5.pausedSince && monitor.m5.providerAccountId === marker.providerAccountId);
+  return Boolean(scan && (scan.status === 'running' || scan.status === 'failed')
     && scan.scanId === origin.scanId && scan.kind === origin.scanKind);
 }
 
-export async function cleanupCalendarWaits(storage: StorageAdapter, now: Date): Promise<number> {
+export async function cleanupCalendarWaits(storage: StorageAdapter, now: Date, deadlineMs = Date.now() + GMAIL_JOB_LIMITS.cleanupMs): Promise<number> {
   const rows = await storage.listGroup<M5aMarker>(INTELLIGENCE_SOURCE_MARKERS, {
     where: [['state', '==', 'waiting_for_calendar'], ['nextEligibleAt', '<=', now.toISOString()]],
     orderBy: { field: 'nextEligibleAt', direction: 'asc' }, limit: GMAIL_JOB_LIMITS.cleanupMarkers,
   });
   let released = 0;
-  const started = Date.now();
   for (const row of rows) {
-    if (Date.now() - started >= GMAIL_JOB_LIMITS.cleanupMs) break;
+    if (Date.now() >= deadlineMs) break;
     const uid = uidFrom(row.path, INTELLIGENCE_SOURCE_MARKERS, row.id);
     if (!uid) continue;
     const origin = row.data.origin;
     const scanPath = origin?.kind === 'scan'
       ? `${userCol(uid, INTELLIGENCE_GMAIL_SCANS)}/${origin.scanKind === 'daily' ? 'dailyV2' : 'manualV2'}` : null;
-    const [scan, controls] = await Promise.all([
-      scanPath ? storage.get<M5aScanDocument>(scanPath) : Promise.resolve(null), storage.get(M5A_CONTROLS_PATH),
+    const [scan, monitor, controls] = await Promise.all([
+      scanPath ? storage.get<M5aScanDocument>(scanPath) : Promise.resolve(null),
+      origin?.kind === 'monitor' ? storage.get<GmailMonitor>(`${userCol(uid, INTELLIGENCE_MONITORS)}/gmail`) : Promise.resolve(null),
+      storage.get(M5A_CONTROLS_PATH),
     ]);
-    if (markerAuthorized(row.data, scan, controls)) continue;
+    if (markerAuthorized(row.data, scan, monitor, controls)) continue;
     await storage.runTransaction(async tx => {
       const current = await tx.get<M5aMarker>(row.path);
       if (current?.state !== 'waiting_for_calendar' || current.requestedAt !== row.data.requestedAt) return;
@@ -115,11 +124,70 @@ export async function cleanupCalendarWaits(storage: StorageAdapter, now: Date): 
   return released;
 }
 
+interface LaneCandidate { readonly uid: string }
+
+/**
+ * A fixed number of real concurrent lanes over one ordered candidate batch.
+ * Each lane runs one account step at a time and checks the step's conservative
+ * reserve against the deadline fixed at tick admission. A lost account lease
+ * consumes no lane: that worker immediately tries the next candidate.
+ */
+async function runCandidateLanes<T extends LaneCandidate>(
+  candidates: readonly T[],
+  lanes: number,
+  reserveMs: (candidate: T) => number,
+  deadlineMs: number,
+  run: (candidate: T) => Promise<boolean>,
+): Promise<number> {
+  const unique = candidates.filter((candidate, index) =>
+    candidates.findIndex(other => other.uid === candidate.uid) === index);
+  let cursor = 0;
+  let processed = 0;
+  const worker = async (): Promise<void> => {
+    while (cursor < unique.length) {
+      const candidate = unique[cursor++]!;
+      if (Date.now() + reserveMs(candidate) > deadlineMs) return;
+      if (await run(candidate)) processed++;
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(lanes, unique.length) }, worker));
+  return processed;
+}
+
+export function runReservedLanesForTests(
+  candidates: readonly string[],
+  lanes: number,
+  reserveMs: number,
+  deadlineMs: number,
+  run: (uid: string) => Promise<boolean>,
+): Promise<number> {
+  return runCandidateLanes(candidates.map(uid => ({ uid })), lanes, () => reserveMs, deadlineMs,
+    candidate => run(candidate.uid));
+}
+
 async function proposalStep(uid: string, runtime: GoogleRuntime): Promise<boolean> {
   const path = `${userCol(uid, INTELLIGENCE_MONITORS)}/gmail`;
   const monitor = await runtime.storage.get<GmailMonitor>(path);
   if (!monitor?.enabled || !monitor.m5 || !monitor.proposalsPending) return false;
   const claimedVersion = monitor.proposalsVersion ?? 0;
+  const controlsAtClaim = parseM5aControls(await runtime.storage.get(M5A_CONTROLS_PATH));
+  if (!controlsAtClaim?.email.enabled) return false;
+  const emailEpoch = controlsAtClaim.email.epoch;
+  const assertAuthority = async (tx?: StorageTransaction): Promise<GmailMonitor> => {
+    const reader = tx ?? runtime.storage;
+    const [current, controls, connection, paused] = await Promise.all([
+      reader.get<GmailMonitor>(path),
+      reader.get<unknown>(M5A_CONTROLS_PATH),
+      reader.get<IntegrationConnectionRecord>(userSubDoc(uid, PROVIDER_CONNECTIONS, connectionIdFor('google'))),
+      isMonitoringPaused(uid, runtime.storage, tx),
+    ]);
+    const parsed = parseM5aControls(controls);
+    if (!current?.enabled || !current.proposalsPending || current.generation !== monitor.generation
+      || current.m5?.providerAccountId !== monitor.m5!.providerAccountId || paused
+      || !parsed?.email.enabled || parsed.email.epoch !== emailEpoch
+      || connection?.identity.providerAccountId !== monitor.m5!.providerAccountId) throw new Error('proposal_guard_changed');
+    return current;
+  };
   const defer = async (ms: number) => runtime.storage.runTransaction(async tx => {
     const current = await tx.get<GmailMonitor>(path);
     if (current?.generation === monitor.generation) tx.set(path, {
@@ -149,7 +217,7 @@ async function proposalStep(uid: string, runtime: GoogleRuntime): Promise<boolea
     }
     const permit = reservation.permit;
     let slot = 0;
-    const generate: ShareStructuredGenerator = runtime.shareModel
+    const providerGenerate: ShareStructuredGenerator = runtime.shareModel
       ? async request => {
         const use = slot++;
         if (!await startQuotaPermitSlot(permit, use, { storage: runtime.storage, now: runtime.now() })) throw new LLMUnavailableError('usage_guard_unavailable');
@@ -159,13 +227,31 @@ async function proposalStep(uid: string, runtime: GoogleRuntime): Promise<boolea
       }
       : async request => {
         const use = slot++;
-        return shareLlmProvider(uid, { purpose: 'semantic_observation', quotaPermit: { permit, slot: use, storage: runtime.storage }, now: runtime.now })(request);
+        return shareLlmProvider(uid, {
+          purpose: 'semantic_observation', quotaPermit: { permit, slot: use, storage: runtime.storage }, now: runtime.now,
+          ...(runtime.shareProvider ? { provider: runtime.shareProvider } : {}),
+        })(request);
       };
+    const generate: ShareStructuredGenerator = async request => {
+      await assertAuthority();
+      return providerGenerate(request);
+    };
+    let completedAtomically = false;
     try {
-      await proposeFromObservations(uid, runtime.now().toISOString(), { storage: runtime.storage, generate });
-      await runtime.storage.runTransaction(async tx => {
-        const current = await tx.get<GmailMonitor>(path);
-        if (!current?.enabled || current.generation !== monitor.generation || current.m5?.providerAccountId !== monitor.m5!.providerAccountId) return;
+      await proposeFromObservations(uid, runtime.now().toISOString(), {
+        storage: runtime.storage, generate,
+        transactionGuard: async tx => { await assertAuthority(tx); },
+        transactionComplete: async tx => {
+          const current = await assertAuthority(tx);
+          const pending = (current.proposalsVersion ?? 0) > claimedVersion;
+          tx.set(path, { ...current, proposalsDoneVersion: claimedVersion, proposalsPending: pending,
+            proposalNextEligibleAt: pending ? runtime.now().toISOString() : new Date(runtime.now().getTime() + 5 * 60_000).toISOString(),
+            proposalWaiting: null });
+          completedAtomically = true;
+        },
+      });
+      if (!completedAtomically) await runtime.storage.runTransaction(async tx => {
+        const current = await assertAuthority(tx);
         const pending = (current.proposalsVersion ?? 0) > claimedVersion;
         tx.set(path, { ...current, proposalsDoneVersion: claimedVersion, proposalsPending: pending,
           proposalNextEligibleAt: pending ? runtime.now().toISOString() : new Date(runtime.now().getTime() + 5 * 60_000).toISOString(),
@@ -176,53 +262,54 @@ async function proposalStep(uid: string, runtime: GoogleRuntime): Promise<boolea
   } catch { await defer(5 * 60_000); return false; }
 }
 
-async function runLive(runtime: GoogleRuntime): Promise<number> {
+async function runLive(runtime: GoogleRuntime, deadlineMs: number): Promise<number> {
   const rows = await runtime.storage.listGroup<GmailMonitor>(INTELLIGENCE_MONITORS, {
     where: [['enabled', '==', true], ['nextPollAt', '<=', runtime.now().toISOString()]],
     orderBy: { field: 'nextPollAt', direction: 'asc' }, limit: GMAIL_JOB_LIMITS.lanes.live * 3,
   });
-  let processed = 0;
-  for (const row of rows) {
-    if (processed >= GMAIL_JOB_LIMITS.lanes.live) break;
+  const candidates = rows.flatMap(row => {
     const uid = uidFrom(row.path, INTELLIGENCE_MONITORS, 'gmail');
-    if (uid && await withAccountLease(uid, 'live', 'live', runtime, async () =>
-      (await runGmailMonitorTick(runtime, { uid })).accountsChecked > 0)) processed++;
-  }
-  return processed;
+    return uid ? [{ uid, row }] : [];
+  });
+  return runCandidateLanes(candidates, GMAIL_JOB_LIMITS.lanes.live,
+    () => GMAIL_JOB_LIMITS.reservesMs.qualifyingReply, deadlineMs,
+    candidate => withAccountLease(candidate.uid, 'live', 'live', runtime, async () =>
+      (await runGmailMonitorTick(runtime, { uid: candidate.uid })).accountsChecked > 0));
 }
 
-async function runProposals(runtime: GoogleRuntime): Promise<number> {
+async function runProposals(runtime: GoogleRuntime, deadlineMs: number): Promise<number> {
   const rows = await runtime.storage.listGroup<GmailMonitor>(INTELLIGENCE_MONITORS, {
     where: [['proposalsPending', '==', true], ['proposalNextEligibleAt', '<=', runtime.now().toISOString()]],
     orderBy: { field: 'proposalNextEligibleAt', direction: 'asc' }, limit: GMAIL_JOB_LIMITS.lanes.proposals * 5,
   });
-  let processed = 0;
-  for (const row of rows) {
-    if (processed >= GMAIL_JOB_LIMITS.lanes.proposals) break;
+  const candidates = rows.flatMap(row => {
     const uid = uidFrom(row.path, INTELLIGENCE_MONITORS, 'gmail');
-    if (uid && await withAccountLease(uid, 'live', 'proposals', runtime, () => proposalStep(uid, runtime))) processed++;
-  }
-  return processed;
+    return uid ? [{ uid, row }] : [];
+  });
+  return runCandidateLanes(candidates, GMAIL_JOB_LIMITS.lanes.proposals,
+    () => GMAIL_JOB_LIMITS.reservesMs.ordinary, deadlineMs,
+    candidate => withAccountLease(candidate.uid, 'live', 'proposals', runtime, () => proposalStep(candidate.uid, runtime)));
 }
 
-async function runScanClass(kind: 'manual' | 'daily', lanes: number, runtime: GoogleRuntime): Promise<number> {
+async function runScanClass(kind: 'manual' | 'daily', lanes: number, runtime: GoogleRuntime, deadlineMs: number): Promise<number> {
   const rows = await runtime.storage.listGroup<M5aScanDocument>(INTELLIGENCE_GMAIL_SCANS, {
     where: [['kind', '==', kind], ['status', 'in', ['running', 'failed']], ['nextEligibleAt', '<=', runtime.now().toISOString()]],
     orderBy: { field: 'nextEligibleAt', direction: 'asc' }, limit: lanes * 3,
   });
-  let processed = 0;
-  for (const row of rows) {
-    if (processed >= lanes) break;
+  const candidates = rows.flatMap(row => {
     const id = kind === 'daily' ? 'dailyV2' : 'manualV2';
     const uid = uidFrom(row.path, INTELLIGENCE_GMAIL_SCANS, id);
-    const jobClass: GmailClass = kind === 'daily' ? 'sweep' : 'continuation';
-    if (uid && await withAccountLease(uid, 'sweep', jobClass, runtime, async () => {
-      await runM5aScanStep(uid, kind, runtime);
-      if (kind === 'daily') await advanceCompletedDaily(uid, runtime);
+    return uid ? [{ uid, row }] : [];
+  });
+  const jobClass: GmailClass = kind === 'daily' ? 'sweep' : 'continuation';
+  return runCandidateLanes(candidates, lanes,
+    candidate => candidate.row.data.page ? GMAIL_JOB_LIMITS.reservesMs.qualifyingReply : GMAIL_JOB_LIMITS.reservesMs.listing,
+    deadlineMs,
+    candidate => withAccountLease(candidate.uid, 'sweep', jobClass, runtime, async () => {
+      await runM5aScanStep(candidate.uid, kind, runtime);
+      if (kind === 'daily') await advanceCompletedDaily(candidate.uid, runtime);
       return true;
-    })) processed++;
-  }
-  return processed;
+    }));
 }
 
 async function bootstrapSweeps(runtime: GoogleRuntime): Promise<void> {
@@ -236,34 +323,42 @@ async function bootstrapSweeps(runtime: GoogleRuntime): Promise<void> {
   }
 }
 
-async function runCalendarMaintenance(runtime: GoogleRuntime): Promise<number> {
+async function runCalendarMaintenance(runtime: GoogleRuntime, deadlineMs: number): Promise<number> {
   const rows = await runtime.storage.listGroup<BusySourceReplacementFence>(BUSY_SOURCE_FENCES, {
     where: [['jitTarget.nextEligibleAt', '<=', runtime.now().toISOString()]],
     orderBy: { field: 'jitTarget.nextEligibleAt', direction: 'asc' }, limit: 3,
   });
-  for (const row of rows) {
+  const candidates = rows.flatMap(row => {
     const uid = uidFrom(row.path, BUSY_SOURCE_FENCES, row.id);
-    if (uid && await runCalendarMaintenanceStep(uid, runtime)) return 1;
-  }
-  return 0;
+    return uid ? [{ uid, row }] : [];
+  });
+  return runCandidateLanes(candidates, GMAIL_JOB_LIMITS.lanes.calendar_maintenance,
+    () => GMAIL_JOB_LIMITS.reservesMs.calendarApply, deadlineMs,
+    candidate => runCalendarMaintenanceStep(candidate.uid, runtime));
 }
 
 export async function runGmailJobTickForTests(
   route: JobRoute,
-  options: { now?: Date } = {},
+  options: { now?: Date; runtime?: GoogleRuntime } = {},
 ): Promise<{ success: true; route: JobRoute; classes: readonly string[]; processed: number; cleaned: number }> {
-  const base = googleRuntime();
+  const tickStartedAt = Date.now();
+  const tickDeadline = tickStartedAt + GMAIL_JOB_LIMITS.tickMs;
+  const base = options.runtime ?? googleRuntime();
   const runtime = options.now ? { ...base, now: () => new Date(options.now!) } : base;
-  const cleaned = await cleanupCalendarWaits(runtime.storage, runtime.now());
+  const cleaned = await cleanupCalendarWaits(runtime.storage, runtime.now(),
+    Math.min(tickDeadline, tickStartedAt + GMAIL_JOB_LIMITS.cleanupMs));
   let processed = 0;
   if (route === 'live') {
-    processed += await runLive(runtime);
-    processed += await runProposals(runtime);
+    const results = await Promise.all([runLive(runtime, tickDeadline), runProposals(runtime, tickDeadline)]);
+    processed += results[0] + results[1];
   } else {
     await bootstrapSweeps(runtime);
-    processed += await runScanClass('manual', GMAIL_JOB_LIMITS.lanes.continuation, runtime);
-    processed += await runScanClass('daily', GMAIL_JOB_LIMITS.lanes.sweep, runtime);
-    processed += await runCalendarMaintenance(runtime);
+    const results = await Promise.all([
+      runScanClass('manual', GMAIL_JOB_LIMITS.lanes.continuation, runtime, tickDeadline),
+      runScanClass('daily', GMAIL_JOB_LIMITS.lanes.sweep, runtime, tickDeadline),
+      runCalendarMaintenance(runtime, tickDeadline),
+    ]);
+    processed += results[0] + results[1] + results[2];
   }
   return { success: true, route, classes: GMAIL_JOB_CLASSES[route], processed, cleaned };
 }

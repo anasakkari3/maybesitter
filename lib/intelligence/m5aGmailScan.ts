@@ -54,6 +54,7 @@ const LEASE_MS = 120_000;
 
 export type ScanFailure = 'reconnect_needed' | 'source_unavailable' | 'analysis_unavailable' | 'monitoring_off';
 export type Receipt = 'read' | 'unavailable';
+export type M5aUnitKind = 'manual' | 'daily' | 'live';
 
 export interface M5aMarker {
   readonly v: 2;
@@ -73,9 +74,13 @@ export interface M5aMarker {
   readonly origin?: {
     readonly kind: 'scan';
     readonly scanId: string;
-    readonly scanKind: 'manual' | 'daily';
+    readonly scanKind: M5aUnitKind;
     readonly monitorGeneration?: string;
     readonly pauseEpoch?: number;
+  } | {
+    readonly kind: 'monitor';
+    readonly generation: string;
+    readonly pauseEpoch: number;
   };
   readonly requestedAt?: string;
   readonly nextEligibleAt?: string;
@@ -102,9 +107,9 @@ interface QueuedScan {
 
 export interface M5aScanDocument extends ScanCounts {
   scanId: string;
-  kind: 'manual' | 'daily';
+  kind: M5aUnitKind;
   status: 'running' | 'complete' | 'failed';
-  origin: 'manual' | 'backfill';
+  origin: 'manual' | 'backfill' | 'live';
   providerAccountId: string;
   emailEpoch: number;
   query: string;
@@ -126,6 +131,8 @@ export interface M5aScanDocument extends ScanCounts {
   monitorGeneration?: string;
   pauseEpoch?: number;
   excluded?: Array<{ from: string; to: string }>;
+  liveHistoryId?: string;
+  liveNextPageToken?: string | null;
 }
 
 export interface ReceiptTransition {
@@ -208,8 +215,9 @@ function dailyScanPath(uid: string): string {
   return `${userCol(uid, INTELLIGENCE_GMAIL_SCANS)}/dailyV2`;
 }
 
-function scanDocumentPath(uid: string, kind: 'manual' | 'daily'): string {
-  return kind === 'daily' ? dailyScanPath(uid) : scanPath(uid);
+function scanDocumentPath(uid: string, kind: M5aUnitKind): string {
+  return kind === 'daily' ? dailyScanPath(uid)
+    : kind === 'live' ? `${userCol(uid, INTELLIGENCE_GMAIL_SCANS)}/liveV2` : scanPath(uid);
 }
 
 function markerPath(uid: string, markerId: string): string {
@@ -262,6 +270,30 @@ function documentFromQueued(queue: QueuedScan): M5aScanDocument {
     finishedAt: null, failedAt: null, failure: null, pageToken: null, page: null,
     leaseOwner: null, leaseUntil: null, queued: null, nextEligibleAt: queue.acceptedAt,
   };
+}
+
+/** Gmail search windows exclude paused intervals before any message body read. */
+export function gmailQueryOutsideIntervals(
+  from: string,
+  until: string,
+  excluded: readonly { from: string; to: string }[] = [],
+): string {
+  const start = Date.parse(from);
+  const end = Date.parse(until);
+  let cursor = start;
+  const windows: Array<{ from: number; until: number }> = [];
+  for (const interval of [...excluded].sort((a, b) => Date.parse(a.from) - Date.parse(b.from))) {
+    const blockedFrom = Math.max(start, Date.parse(interval.from));
+    const blockedUntil = Math.min(end, Date.parse(interval.to));
+    if (!Number.isFinite(blockedFrom) || !Number.isFinite(blockedUntil) || blockedUntil <= cursor) continue;
+    if (blockedFrom > cursor) windows.push({ from: cursor, until: blockedFrom });
+    cursor = Math.max(cursor, blockedUntil);
+  }
+  if (cursor < end) windows.push({ from: cursor, until: end });
+  if (windows.length === 0) return 'after:2147483647 before:2147483648';
+  const clauses = windows.map(window =>
+    `after:${Math.ceil(window.from / 1000)} before:${Math.floor(window.until / 1000)}`);
+  return clauses.length === 1 ? clauses[0]! : clauses.map(clause => `(${clause})`).join(' OR ');
 }
 
 export function publicScanStatus(scan: M5aScanDocument | null): Record<string, unknown> | null {
@@ -397,7 +429,11 @@ async function autoAddCandidate(
       await settleQuotaPermitSlot(permit, 1, {}, { storage: runtime.storage, now: runtime.now() });
       return response;
     } : runtime.captureModel)
-    : captureLlmProvider(uid, { purpose: 'capture_extraction', ...(permit ? { quotaPermit: { permit, slot: 1, storage: runtime.storage } } : {}) });
+    : captureLlmProvider(uid, {
+      purpose: 'capture_extraction',
+      ...(runtime.captureProvider ? { provider: runtime.captureProvider } : {}),
+      ...(permit ? { quotaPermit: { permit, slot: 1, storage: runtime.storage } } : {}),
+    });
   try {
     extracted = await extractWithOllama(agreement.sentence, context, {
       provider: (prompt) => provider(prompt, { timeoutMs: 8_000, retry: false }),
@@ -425,7 +461,7 @@ function classifyFailure(error: unknown): ScanFailure {
   return 'source_unavailable';
 }
 
-async function failScan(uid: string, kind: 'manual' | 'daily', scanId: string, owner: string, failure: ScanFailure, storage: StorageAdapter, now: string): Promise<void> {
+async function failScan(uid: string, kind: M5aUnitKind, scanId: string, owner: string, failure: ScanFailure, storage: StorageAdapter, now: string): Promise<void> {
   await storage.runTransaction(async tx => {
     const path = scanDocumentPath(uid, kind);
     const scan = await tx.get<M5aScanDocument>(path);
@@ -447,7 +483,7 @@ async function releaseClaims(uid: string, owner: string, ids: readonly string[],
 
 async function releaseMessageForRetry(
   uid: string,
-  kind: 'manual' | 'daily',
+  kind: M5aUnitKind,
   scanId: string,
   scanOwner: string,
   claimOwner: string,
@@ -558,6 +594,30 @@ function advancePage(scan: M5aScanDocument): M5aScanDocument {
   return scan.queued ? documentFromQueued(scan.queued) : completed;
 }
 
+/** Re-read every durable fence immediately before Gmail or model dispatch. */
+async function assertScanAuthority(
+  uid: string,
+  expected: M5aScanDocument,
+  owner: string,
+  runtime: GoogleRuntime,
+): Promise<void> {
+  const [scan, controls, user, connection, monitor] = await Promise.all([
+    runtime.storage.get<M5aScanDocument>(scanDocumentPath(uid, expected.kind)),
+    runtime.storage.get<unknown>(M5A_CONTROLS_PATH),
+    runtime.storage.get<Record<string, any>>(userDoc(uid)),
+    runtime.storage.get<IntegrationConnectionRecord>(userSubDoc(uid, PROVIDER_CONNECTIONS, connectionIdFor('google'))),
+    runtime.storage.get<DailyMonitor>(`${userCol(uid, INTELLIGENCE_MONITORS)}/gmail`),
+  ]);
+  const parsed = parseM5aControls(controls);
+  if (!scan || scan.scanId !== expected.scanId || scan.leaseOwner !== owner
+    || !parsed?.email.enabled || parsed.email.epoch !== scan.emailEpoch
+    || user?.personalizationPurge?.state === 'purging'
+    || !isLiveConnection(connection) || connection.identity.providerAccountId !== scan.providerAccountId
+    || (scan.kind !== 'manual' && (!monitor?.enabled || !monitor.m5
+      || monitor.generation !== scan.monitorGeneration || monitor.m5.pauseEpoch !== scan.pauseEpoch
+      || Boolean(monitor.m5.pausedSince)))) throw new Error('scan_fence_changed');
+}
+
 async function processMessage(
   uid: string,
   claimedScan: M5aScanDocument,
@@ -612,6 +672,7 @@ async function processMessage(
 
   let permit: QuotaPermit | undefined;
   try {
+    await assertScanAuthority(uid, claimedScan, owner, runtime);
     const message = await transport.getMessageById(messageId);
     if (!message) {
       await storage.runTransaction(async tx => {
@@ -671,8 +732,10 @@ async function processMessage(
       }
       forceAutoAddOff = coverage === 'force_off';
     }
-    // Runtime model overrides are in-process test doubles. Production model
-    // traffic always uses the provider adapters below, which require a permit.
+    // `shareModel` is the historical lightweight functional-test seam. The
+    // production-shaped `shareProvider` seam below deliberately does not take
+    // this branch, so end-to-end quota tests exercise the same adapter and
+    // whole-unit permit path as production without consuming real model calls.
     if (prepared.text && !runtime.shareModel) {
       const calls = candidateSignals && !forceAutoAddOff ? 2 : 1;
       const reservation = await reserveQuotaPermit(uid, 'semantic_observation', {
@@ -692,22 +755,28 @@ async function processMessage(
           await settleQuotaPermitSlot(permit!, 0, response, { storage, now: runtime.now() });
           return response;
         }
-        : shareLlmProvider(uid, { purpose: 'semantic_observation', quotaPermit: { permit, slot: 0, storage }, now: runtime.now })
+        : shareLlmProvider(uid, {
+          purpose: 'semantic_observation', quotaPermit: { permit, slot: 0, storage }, now: runtime.now,
+          ...(runtime.shareProvider ? { provider: runtime.shareProvider } : {}),
+        })
       : runtime.shareModel;
+    if (prepared.text) await assertScanAuthority(uid, claimedScan, owner, runtime);
     const observations = prepared.text ? await analyzeSourceStaged(uid, 'gmail', prepared.text, generate ? { generate } : {}) : [];
+    if (!forceAutoAddOff && candidateSignals) await assertScanAuthority(uid, claimedScan, owner, runtime);
     const candidate = forceAutoAddOff ? null : await autoAddCandidate(uid, message, observations, capturedTimezone, runtime, permit);
     const ref = gmailRefFor(claimedScan.providerAccountId, messageId);
     const addId = autoAddIdFor(uid, claimedScan.providerAccountId, messageId);
     const at = runtime.now().toISOString();
 
     const committed = await storage.runTransaction(async tx => {
-      const [scan, daily, provider, legacy, controls, user, existingObservations, existingAutoAdd] = await Promise.all([
+      const [scan, daily, provider, legacy, controls, user, monitor, existingObservations, existingAutoAdd] = await Promise.all([
         tx.get<M5aScanDocument>(scanDocumentPath(uid, claimedScan.kind)),
         tx.get<M5aScanDocument>(dailyScanPath(uid)),
         tx.get<M5aMarker>(markerPath(uid, providerMarkerId)),
         tx.get<M5aMarker>(markerPath(uid, legacyMarkerId)),
         tx.get<unknown>(M5A_CONTROLS_PATH),
         tx.get<Record<string, any>>(userDoc(uid)),
+        tx.get<DailyMonitor>(`${userCol(uid, INTELLIGENCE_MONITORS)}/gmail`),
         tx.list<StoredObservation>(userCol(uid, INTELLIGENCE_OBSERVATIONS), {
           where: [['sourceRef', 'in', [messageId, ref]]], limit: 25,
         }),
@@ -732,7 +801,9 @@ async function processMessage(
         || provider?.owner !== claimOwner || legacy?.owner !== claimOwner
         || !parsedControls?.email.enabled || parsedControls.email.epoch !== scan.emailEpoch
         || !isLiveConnection(connection) || connection.identity.providerAccountId !== scan.providerAccountId
-        || user?.personalizationPurge?.state === 'purging') throw new Error('scan_fence_changed');
+        || user?.personalizationPurge?.state === 'purging'
+        || (scan.kind !== 'manual' && (!monitor?.enabled || !monitor.m5 || monitor.generation !== scan.monitorGeneration
+          || monitor.m5.pauseEpoch !== scan.pauseEpoch || Boolean(monitor.m5.pausedSince)))) throw new Error('scan_fence_changed');
 
       const priorTrace = claimed.preexisting || existingObservations.length >= 25
         || existingObservations.some(row => row.data.sourceRef === messageId || row.data.sourceRef === ref);
@@ -813,6 +884,14 @@ async function processMessage(
         addedFromEmail: scan.addedFromEmail + (receipt.readDelta && autoAdd ? 1 : 0),
         page: scan.page ? { ...scan.page, done } : null,
       }));
+      if (scan.kind === 'live' && monitor && observationIds.length > 0) tx.set(
+        `${userCol(uid, INTELLIGENCE_MONITORS)}/gmail`, {
+          ...monitor,
+          proposalsVersion: (monitor.proposalsVersion ?? 0) + 1,
+          proposalsPending: true,
+          proposalNextEligibleAt: at,
+        },
+      );
       return true;
     });
     if (!committed) await releaseMessageForRetry(uid, claimedScan.kind, claimedScan.scanId, owner, claimOwner, markerIds, storage);
@@ -824,7 +903,13 @@ async function processMessage(
   }
 }
 
-export async function runM5aScanStep(uid: string, kind: 'manual' | 'daily', runtime: GoogleRuntime, supplied?: GmailTransport): Promise<void> {
+export async function runM5aScanStep(
+  uid: string,
+  kind: M5aUnitKind,
+  runtime: GoogleRuntime,
+  supplied?: GmailTransport,
+  ensureReadable: () => Promise<void> = () => requireReadableFeature(uid, 'gmail', runtime),
+): Promise<void> {
   const storage = runtime.storage;
   const now = runtime.now();
   const owner = randomUUID();
@@ -849,7 +934,7 @@ export async function runM5aScanStep(uid: string, kind: 'manual' | 'daily', runt
         leaseOwner: null, leaseUntil: null, nextEligibleAt: now.toISOString() });
       return null;
     }
-    if (kind === 'daily' && (!monitor?.enabled || !monitor.m5 || monitor.generation !== scan.monitorGeneration
+    if (kind !== 'manual' && (!monitor?.enabled || !monitor.m5 || monitor.generation !== scan.monitorGeneration
       || monitor.m5.providerAccountId !== scan.providerAccountId || monitor.m5.pauseEpoch !== scan.pauseEpoch
       || monitor.m5.pausedSince)) {
       tx.set(scanDocumentPath(uid, kind), { ...scan, status: 'failed', failure: 'monitoring_off', failedAt: now.toISOString(),
@@ -863,9 +948,11 @@ export async function runM5aScanStep(uid: string, kind: 'manual' | 'daily', runt
   });
   if (!claimed) return;
   try {
-    await requireReadableFeature(uid, 'gmail', runtime);
+    await assertScanAuthority(uid, claimed, owner, runtime);
+    await ensureReadable();
     const transport = supplied ?? transportFor(uid, runtime);
     if (!claimed.page) {
+      await assertScanAuthority(uid, claimed, owner, runtime);
       let listed: Awaited<ReturnType<GmailTransport['listRecentMessageIds']>>;
       try {
         listed = await transport.listRecentMessageIds({ query: claimed.query, maxResults: 100, pageToken: claimed.pageToken });
@@ -927,6 +1014,9 @@ export async function readM5aDailyScan(
 interface DailyMonitor {
   enabled: boolean;
   generation: string;
+  proposalsVersion?: number;
+  proposalsPending?: boolean;
+  proposalNextEligibleAt?: string;
   m5?: {
     providerAccountId: string;
     enabledAt: string;
@@ -985,7 +1075,7 @@ export async function createDueDailyScan(uid: string, runtime: GoogleRuntime): P
     const scan: M5aScanDocument = {
       ...emptyCounts(), scanId: randomUUID(), kind: 'daily', status: 'running', origin: 'manual',
       providerAccountId: monitor.m5.providerAccountId, emailEpoch: parsed.email.epoch,
-      query: `after:${Math.floor(Date.parse(window.from) / 1000)} before:${Math.ceil(Date.parse(window.until) / 1000) + 1}`,
+      query: gmailQueryOutsideIntervals(window.from, window.until, monitor.m5.excluded),
       from: window.from, until: window.until, timezone, startedAt: now, finishedAt: null, failedAt: null,
       failure: null, pageToken: null, page: null, leaseOwner: null, leaseUntil: null, queued: null,
       nextEligibleAt: now, waiting: null, day, monitorGeneration: monitor.generation,

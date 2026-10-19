@@ -1,13 +1,22 @@
 import { randomUUID } from 'node:crypto';
 import type { CalendarSource, BusySourceReplacementFence } from '../calendar/busyBlocks';
-import { applyGoogleBusyTarget, fetchGoogleBusyTarget, GOOGLE_BUSY_SOURCE_ID } from '../integrations/google/googleCalendarBusy';
+import {
+  applyResumableBusyReplacementChunk, finalizeResumableBusyReplacement,
+  startResumableBusyReplacement,
+} from '../calendar/busyBlocks';
+import {
+  fetchGoogleBusyTarget, GOOGLE_BUSY_SOURCE_ID, googleBusyTargetBlocks,
+  guardGoogleBusyTargetAuthority,
+} from '../integrations/google/googleCalendarBusy';
 import type { GoogleRuntime } from '../integrations/google/googleRuntime';
 import {
-  BUSY_SOURCE_FENCES, CALENDAR_CHOICE, CALENDAR_SOURCES, INTELLIGENCE_GMAIL_SCANS,
-  INTELLIGENCE_SOURCE_MARKERS, PROVIDER_CONNECTIONS, docIdForKey, userCol, userDoc, userSubDoc,
+  BUSY_SOURCE_FENCES, CALENDAR_CHOICE, CALENDAR_SOURCES, DEVICE_STALE_STATE, INTELLIGENCE_GMAIL_SCANS,
+  INTELLIGENCE_SOURCE_MARKERS, PROVIDER_CONNECTIONS, REGISTERED_DEVICE_SOURCES,
+  docIdForKey, userCol, userDoc, userSubDoc,
 } from '../storage';
 import { M5A_CONTROLS_PATH, parseM5aControls } from '../release/m5aControls';
 import type { M5aMarker, M5aScanDocument } from './m5aGmailScan';
+import type { GmailMonitor } from './gmailMonitor';
 import type { IntegrationConnectionRecord } from '../../src/contracts/v1/integrationConnectionContracts';
 import { connectionIdFor } from '../integrations/providers/production/storedConnectionStore';
 import { featuresGranted } from '../integrations/google/googleConfig';
@@ -25,12 +34,15 @@ function googleSourcePath(uid: string): string {
 }
 
 export async function calendarCoverageForEmail(uid: string, runtime: GoogleRuntime): Promise<CalendarCoverage> {
-  const [sources, choice, user, connection, controlsValue] = await Promise.all([
+  const [sources, choice, user, connection, controlsValue, registrations, staleRows, googleFence] = await Promise.all([
     runtime.storage.list<CalendarSource>(userCol(uid, CALENDAR_SOURCES), { limit: 61 }),
-    runtime.storage.get<{ v?: number; state?: string }>(userSubDoc(uid, CALENDAR_CHOICE, 'state')),
+    runtime.storage.get<{ v?: number; state?: string; generation?: number }>(userSubDoc(uid, CALENDAR_CHOICE, 'state')),
     runtime.storage.get<Record<string, any>>(userDoc(uid)),
     runtime.storage.get<IntegrationConnectionRecord>(userSubDoc(uid, PROVIDER_CONNECTIONS, connectionIdFor('google'))),
     runtime.storage.get(M5A_CONTROLS_PATH),
+    runtime.storage.list<{ sourceId: string; state: string }>(userCol(uid, REGISTERED_DEVICE_SOURCES), { limit: 21 }),
+    runtime.storage.list<{ sourceId: string; failureStartedAt: string }>(userCol(uid, DEVICE_STALE_STATE), { limit: 21 }),
+    runtime.storage.get<BusySourceReplacementFence>(googleFencePath(uid)),
   ]);
   const controls = parseM5aControls(controlsValue);
   if (user?.trust?.calendarConsent !== true || !controls?.calendar.enabled) return 'force_off';
@@ -38,13 +50,37 @@ export async function calendarCoverageForEmail(uid: string, runtime: GoogleRunti
   const googleApplicable = Boolean(connection && connection.state === 'connected'
     && connection.capabilities.includes('calendar_busy') && featuresGranted(connection.grantedScopes).calendar);
   if (googleApplicable) {
+    if (googleFence?.jitSuppression?.providerAccountId === connection!.identity.providerAccountId
+      && googleFence.jitSuppression.fenceGeneration === (googleFence.generation ?? 0)
+      && googleFence.jitSuppression.until && Date.parse(googleFence.jitSuppression.until) > now) return 'force_off';
     const google = sources.find(row => row.data.sourceId === GOOGLE_BUSY_SOURCE_ID)?.data;
     const certificate = google?.m5Certificate;
     if (!certificate || google?.coverageStatus !== 'settled' || now - Date.parse(certificate.refreshedAt) > FRESH_MS) return 'stale_google';
   }
   const devices = sources.map(row => row.data).filter(source => source.kind === 'device' && source.status === 'active');
   if (devices.length > 0 && (choice?.v !== 1 || choice.state !== 'active')) return 'force_off';
-  if (devices.some(source => now - Date.parse(source.lastSyncedAt) > FRESH_MS)) return 'stale_device';
+  const registered = new Set(registrations.filter(row => row.data.state === 'active').map(row => row.data.sourceId));
+  const staleDevices = devices.filter(source => registered.has(source.sourceId)
+    && now - Date.parse(source.lastSyncedAt) > FRESH_MS);
+  if (staleDevices.length > 0) {
+    const existing = new Map(staleRows.map(row => [row.data.sourceId, row.data] as const));
+    await runtime.storage.runTransaction(async tx => {
+      for (const source of staleDevices) {
+        const path = userSubDoc(uid, DEVICE_STALE_STATE, docIdForKey(source.sourceId));
+        const current = await tx.get<{ choiceGeneration: number; sourceId: string; fenceGeneration: number; failureStartedAt: string; version: number }>(path);
+        if (!current) tx.set(path, { choiceGeneration: choice!.generation ?? 0, sourceId: source.sourceId,
+          fenceGeneration: 0, failureStartedAt: runtime.now().toISOString(), version: 1 });
+      }
+    });
+    if (staleDevices.some(source => {
+      const started = existing.get(source.sourceId)?.failureStartedAt;
+      return started && now - Date.parse(started) >= 60 * 60_000;
+    })) return 'force_off';
+    return 'stale_device';
+  }
+  if (staleRows.length > 0) await runtime.storage.runTransaction(async tx => {
+    for (const row of staleRows) tx.delete(`${userCol(uid, DEVICE_STALE_STATE)}/${row.id}`);
+  });
   return 'fresh';
 }
 
@@ -61,22 +97,29 @@ export async function waitForCalendarAndFetch(
   runtime: GoogleRuntime,
 ): Promise<void> {
   const now = runtime.now().toISOString();
-  const scanPath = `${userCol(uid, INTELLIGENCE_GMAIL_SCANS)}/${input.scan.kind === 'daily' ? 'dailyV2' : 'manualV2'}`;
+  const scanPath = `${userCol(uid, INTELLIGENCE_GMAIL_SCANS)}/${input.scan.kind === 'daily' ? 'dailyV2'
+    : input.scan.kind === 'live' ? 'liveV2' : 'manualV2'}`;
+  const monitorPath = `${userCol(uid, 'intelligenceMonitors')}/gmail`;
   const waiting = await runtime.storage.runTransaction(async tx => {
-    const [scan, controls, ...markers] = await Promise.all([
+    const [scan, controls, monitor, ...markers] = await Promise.all([
       tx.get<M5aScanDocument>(scanPath), tx.get<unknown>(M5A_CONTROLS_PATH),
+      input.scan.kind === 'live' ? tx.get<GmailMonitor>(monitorPath) : Promise.resolve(null),
       ...input.markerIds.map(id => tx.get<M5aMarker>(`${userCol(uid, INTELLIGENCE_SOURCE_MARKERS)}/${id}`)),
     ]);
     const parsed = parseM5aControls(controls);
     if (!scan || scan.scanId !== input.scan.scanId || scan.leaseOwner !== input.scanOwner
       || !parsed?.email.enabled || parsed.email.epoch !== scan.emailEpoch
+      || (scan.kind === 'live' && (!monitor?.enabled || monitor.generation !== scan.monitorGeneration
+        || monitor.m5?.pauseEpoch !== scan.pauseEpoch || Boolean(monitor.m5?.pausedSince)))
       || markers.some(marker => marker?.state !== 'claimed' || marker.owner !== input.claimOwner)) return false;
     const marker: M5aMarker = {
       ...markers[0]!, state: 'waiting_for_calendar', owner: undefined, leaseUntil: undefined,
       messageId: input.messageId, providerAccountId: scan.providerAccountId, emailEpoch: scan.emailEpoch,
-      origin: { kind: 'scan', scanId: scan.scanId, scanKind: scan.kind,
-        ...(scan.monitorGeneration ? { monitorGeneration: scan.monitorGeneration } : {}),
-        ...(scan.pauseEpoch === undefined ? {} : { pauseEpoch: scan.pauseEpoch }) },
+      origin: scan.kind === 'live'
+        ? { kind: 'monitor', generation: scan.monitorGeneration!, pauseEpoch: scan.pauseEpoch! }
+        : { kind: 'scan', scanId: scan.scanId, scanKind: scan.kind,
+          ...(scan.monitorGeneration ? { monitorGeneration: scan.monitorGeneration } : {}),
+          ...(scan.pauseEpoch === undefined ? {} : { pauseEpoch: scan.pauseEpoch }) },
       requestedAt: now, nextEligibleAt: new Date(Date.parse(now) + 60_000).toISOString(),
     };
     input.markerIds.forEach((id, index) => tx.set(`${userCol(uid, INTELLIGENCE_SOURCE_MARKERS)}/${id}`, {
@@ -84,23 +127,51 @@ export async function waitForCalendarAndFetch(
     }));
     tx.set(scanPath, { ...scan, leaseOwner: null, leaseUntil: null, waitingMessageId: input.messageId,
       nextEligibleAt: marker.nextEligibleAt });
+    if (scan.kind === 'live' && monitor) tx.set(monitorPath, {
+      ...monitor, lease: null, leaseUntil: null, nextPollAt: marker.nextEligibleAt,
+      waitingMessageId: input.messageId,
+    });
     return true;
   });
   if (!waiting || !input.fetchGoogle) return;
 
-  const target = await fetchGoogleBusyTarget(uid, runtime);
+  let target: Awaited<ReturnType<typeof fetchGoogleBusyTarget>>;
+  try {
+    target = await fetchGoogleBusyTarget(uid, runtime);
+  } catch {
+    await runtime.storage.runTransaction(async tx => {
+      const current = await tx.get<BusySourceReplacementFence>(googleFencePath(uid));
+      const source = await tx.get<CalendarSource>(googleSourcePath(uid));
+      const providerAccountId = source?.m5Certificate?.providerAccountId ?? input.scan.providerAccountId;
+      const previous = current?.jitSuppression;
+      const failureStartedAt = previous?.providerAccountId === providerAccountId
+        && previous.fenceGeneration === (current?.generation ?? 0)
+        ? previous.failureStartedAt : now;
+      const elapsed = Date.parse(now) - Date.parse(failureStartedAt);
+      tx.set<BusySourceReplacementFence>(googleFencePath(uid), {
+        ...(current ?? { generation: 0 }),
+        jitSuppression: { providerAccountId, fenceGeneration: current?.generation ?? 0, failureStartedAt,
+          ...(elapsed >= 60 * 60_000 ? { until: new Date(Date.parse(now) + 6 * 60 * 60_000).toISOString() } : {}) },
+      });
+    });
+    return;
+  }
   await runtime.storage.runTransaction(async tx => {
-    const [scan, controls, fence, source] = await Promise.all([
+    const [scan, controls, fence, source, monitor] = await Promise.all([
       tx.get<M5aScanDocument & { waitingMessageId?: string }>(scanPath), tx.get<unknown>(M5A_CONTROLS_PATH),
       tx.get<BusySourceReplacementFence>(googleFencePath(uid)), tx.get<CalendarSource>(googleSourcePath(uid)),
+      input.scan.kind === 'live' ? tx.get<GmailMonitor>(monitorPath) : Promise.resolve(null),
     ]);
     const parsed = parseM5aControls(controls);
     if (!scan || scan.scanId !== input.scan.scanId || scan.waitingMessageId !== input.messageId
       || !parsed?.email.enabled || parsed.email.epoch !== scan.emailEpoch
+      || (scan.kind === 'live' && (!monitor?.enabled || monitor.generation !== scan.monitorGeneration
+        || monitor.m5?.pauseEpoch !== scan.pauseEpoch || Boolean(monitor.m5?.pausedSince)))
       || parsed.calendar.epoch !== target.calendarControlEpoch || !parsed.calendar.enabled
       || (fence?.generation ?? 0) !== (source?.m5Certificate?.fenceGeneration ?? fence?.generation ?? 0)) return;
+    const { jitSuppression: _suppression, ...withoutSuppression } = fence ?? { generation: 0 };
     tx.set<BusySourceReplacementFence>(googleFencePath(uid), {
-      ...(fence ?? { generation: 0 }), jitTarget: { ...target, targetId: target.targetId || randomUUID() },
+      ...withoutSuppression, jitTarget: { ...target, targetId: target.targetId || randomUUID() },
     });
     if (source) tx.set<CalendarSource>(googleSourcePath(uid), { ...source, coverageStatus: 'refreshing' });
   });
@@ -110,15 +181,65 @@ export async function waitForCalendarAndFetch(
 export async function runCalendarMaintenanceStep(uid: string, runtime: GoogleRuntime): Promise<boolean> {
   const fence = await runtime.storage.get<BusySourceReplacementFence>(googleFencePath(uid));
   if (!fence?.jitTarget || fence.jitTarget.nextEligibleAt > runtime.now().toISOString()) return false;
-  const target = fence.jitTarget;
+  let target = fence.jitTarget;
   try {
-    await applyGoogleBusyTarget(uid, target, runtime);
-    await runtime.storage.runTransaction(async tx => {
-      const current = await tx.get<BusySourceReplacementFence>(googleFencePath(uid));
-      if (current?.jitTarget?.targetId !== target.targetId) return;
-      const { jitTarget: _target, ...withoutTarget } = current;
-      tx.set(googleFencePath(uid), withoutTarget);
-    });
+    if (!target.apply) {
+      const apply = await startResumableBusyReplacement(uid, GOOGLE_BUSY_SOURCE_ID, {
+        storage: runtime.storage, now: runtime.now(),
+        transactionGuard: tx => guardGoogleBusyTargetAuthority(tx, uid, target),
+      });
+      const stored = await runtime.storage.runTransaction(async tx => {
+        const current = await tx.get<BusySourceReplacementFence>(googleFencePath(uid));
+        if (current?.jitTarget?.targetId !== target.targetId
+          || current.replace?.owner !== apply.owner || current.replace.version !== apply.version
+          || current.generation !== apply.generation) return false;
+        target = { ...current.jitTarget, apply };
+        tx.set(googleFencePath(uid), { ...current, jitTarget: target });
+        return true;
+      });
+      if (!stored) return false;
+    }
+    const result = await applyResumableBusyReplacementChunk(
+      uid, GOOGLE_BUSY_SOURCE_ID, googleBusyTargetBlocks(target), target.apply!, {
+        storage: runtime.storage,
+        transactionGuard: tx => guardGoogleBusyTargetAuthority(tx, uid, target),
+      },
+    );
+    if (!result.complete) {
+      await runtime.storage.runTransaction(async tx => {
+        const current = await tx.get<BusySourceReplacementFence>(googleFencePath(uid));
+        if (current?.jitTarget?.targetId !== target.targetId
+          || current.jitTarget.apply?.owner !== target.apply?.owner
+          || current.jitTarget.apply?.version !== target.apply?.version) return;
+        tx.set(googleFencePath(uid), { ...current, jitTarget: {
+          ...current.jitTarget, apply: result.state, nextEligibleAt: runtime.now().toISOString(),
+        } });
+      });
+      return true;
+    }
+    await finalizeResumableBusyReplacement(uid, GOOGLE_BUSY_SOURCE_ID, result.state,
+      async (tx, source, currentFence) => {
+        if (currentFence.jitTarget?.targetId !== target.targetId
+          || currentFence.jitTarget.apply?.owner !== result.state.owner
+          || currentFence.jitTarget.apply.version !== result.state.version) throw new Error('jit_target_replaced');
+        const certificateFresh = runtime.now().getTime() - Date.parse(target.fetchedAt) <= FRESH_MS;
+        const { m5Certificate: _oldCertificate, ...sourceWithoutCertificate } = source ?? {} as CalendarSource;
+        tx.set<CalendarSource>(googleSourcePath(uid), {
+          ...sourceWithoutCertificate,
+          sourceId: GOOGLE_BUSY_SOURCE_ID, kind: 'google', platform: null,
+          lastSyncedAt: target.fetchedAt, windowStart: target.windowStart, windowEnd: target.windowEnd,
+          coverageStatus: 'settled',
+          ...(certificateFresh ? { m5Certificate: {
+            v: 1, choiceGeneration: target.choiceGeneration, providerAccountId: target.providerAccountId,
+            fenceGeneration: result.state.generation, refreshedAt: target.fetchedAt,
+          } } : {}),
+        });
+        const { jitTarget: _finished, ...withoutTarget } = currentFence;
+        tx.set(googleFencePath(uid), withoutTarget);
+      }, {
+        storage: runtime.storage,
+        transactionGuard: tx => guardGoogleBusyTargetAuthority(tx, uid, target),
+      });
     return true;
   } catch {
     await runtime.storage.runTransaction(async tx => {

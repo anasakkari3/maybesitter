@@ -8,8 +8,9 @@
  * state that changed while paused.
  */
 import { getStorage, type StorageAdapter } from '../storage';
-import { INTELLIGENCE_MONITORS, userCol, userDoc } from '../storage/paths';
+import { INTELLIGENCE_MONITORS, INTELLIGENCE_SOURCE_MARKERS, userCol, userDoc } from '../storage/paths';
 import { INTELLIGENCE_GMAIL_SCANS } from '../storage/paths';
+import { legacyMarkerIdFor, providerMarkerIdFor, type M5aMarker } from '../intelligence/m5aGmailScan';
 
 export interface MonitoringSettings {
   readonly paused: boolean;
@@ -88,12 +89,23 @@ export async function saveMonitoringSettings(
     const [storedUser, monitor, daily] = await Promise.all([
       tx.get<Record<string, unknown>>(path),
       tx.get<{ enabled?: boolean; cursor?: string | null; pageToken?: string | null; m5?: {
+        providerAccountId?: string;
         pauseEpoch?: number; pausedSince?: string | null; excluded?: Array<{ from: string; to: string }>;
         nextSweepAt?: string; pendingSweepDay?: string; sweepTimezone?: string;
-      } }>(monitorPath),
+      }; waitingMessageId?: string | null }>(monitorPath),
       tx.get<Record<string, unknown>>(dailyPath),
     ]);
     const user = storedUser ?? { uid };
+    if (monitor?.waitingMessageId && monitor.m5?.providerAccountId) {
+      const ids = [providerMarkerIdFor(uid, monitor.m5.providerAccountId, monitor.waitingMessageId),
+        legacyMarkerIdFor(monitor.waitingMessageId)];
+      const markers = await Promise.all(ids.map(id => tx.get<M5aMarker>(`${userCol(uid, INTELLIGENCE_SOURCE_MARKERS)}/${id}`)));
+      markers.forEach((marker, index) => {
+        if (marker?.state === 'waiting_for_calendar') tx.set(`${userCol(uid, INTELLIGENCE_SOURCE_MARKERS)}/${ids[index]}`, {
+          ...marker, state: 'released', origin: undefined, requestedAt: undefined, nextEligibleAt: undefined,
+        });
+      });
+    }
     const nextSettings: MonitoringSettings = { paused, updatedAt: now };
     tx.set(path, {
       ...user,
@@ -106,6 +118,7 @@ export async function saveMonitoringSettings(
         const { nextSweepAt: _nextSweepAt, ...m5 } = monitor.m5;
         tx.set(monitorPath, {
           ...monitor,
+          waitingMessageId: null,
           m5: { ...m5, pausedSince: now, pauseEpoch: (monitor.m5.pauseEpoch ?? 0) + 1 },
         });
         if (daily && (daily.status === 'running' || daily.status === 'failed')) {
@@ -120,6 +133,7 @@ export async function saveMonitoringSettings(
         const nextSweepAt = monitor.m5.sweepTimezone && monitor.m5.pendingSweepDay ? now : undefined;
         tx.set(monitorPath, {
         ...monitor,
+        waitingMessageId: null,
         cursor: null,
         pageToken: null,
         m5: {
