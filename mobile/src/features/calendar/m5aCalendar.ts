@@ -53,6 +53,7 @@ import {
 } from '../../api/endpoints/m5a';
 import {
   applyIncludedCalendarIds,
+  invalidateDeviceBusyCache,
   bumpInclusionGeneration,
   clearPhoneRemoved,
   finishChoiceEnrolment,
@@ -411,7 +412,7 @@ async function markPhoneRemoved(uid: string, options: { fromRegistration?: boole
   if (!options.fromRegistration) await registrations.get(uid)?.catch(() => undefined);
   await deleteSourceCredential(uid);
   await removeSource(uid);
-  await clearCachedBusyBlocksOf(uid);
+  await invalidateDeviceBusyCache(uid);
   patch(uid, { removed: true, sourceId: null });
 }
 
@@ -554,6 +555,27 @@ export async function runM5aPass(context: M5aPassContext): Promise<BusySyncOutco
     return SKIPPED;
   }
   patch(uid, { included });
+  // A calendar gone from the phone leaves the list on the next successful
+  // read (R1.1, M5A-R4-003), as a selection change of its own; a list that
+  // could not be read changes nothing.
+  if (included.length > 0) {
+    let present: Set<string> | null = null;
+    try {
+      // Without access, or with nothing listed, the phone has not said which
+      // calendars exist: an empty answer prunes nothing.
+      if ((await deviceCalendar.getAccess()) === 'granted') {
+        const listed = await deviceCalendar.listEventCalendars();
+        if (listed.length > 0) present = new Set(listed.map((calendar) => calendar.id));
+      }
+    } catch {
+      present = null;
+    }
+    if (!stillCurrent()) return GONE;
+    if (present && included.some((id) => !present!.has(id))) {
+      await startSelection(uid, (current) => current.filter((id) => present!.has(id)), context).catch(() => undefined);
+      return null;
+    }
+  }
   if (included.length === 0 && !context.justEnrolled) return SKIPPED;
   if (!context.due && !context.justEnrolled) return { kind: 'skipped', because: 'too_soon' };
   const generation = selectionGeneration;
@@ -668,10 +690,11 @@ export async function startSelection(
     // The account this tap was made in, still (M5A-R53-002).
     if (!current()) return { kind: 'superseded' as const };
     try {
-      await savePendingSelection(uid, record);
-      // Durably a new generation before the new state is shown (R1.1c): the
-      // old cache never matches again, even if removing it fails.
+      // A new generation first (R1.1c, M5A-R4-001): if saving the record then
+      // fails, nothing durable claims a selection the person was told failed,
+      // and the old cache already never matches again.
       await bumpInclusionGeneration(uid);
+      await savePendingSelection(uid, record);
     } catch {
       return { kind: 'failed' as const };
     }

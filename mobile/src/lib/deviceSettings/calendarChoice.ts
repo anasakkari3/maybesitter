@@ -1,5 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { inclusionGenerationKey } from './calendarBusy';
+import { clearCachedBusyBlocksOf, inclusionGenerationKey } from './calendarBusy';
 
 /**
  * What this phone keeps about the person's calendar choice (M5a R1.1), per
@@ -137,6 +137,20 @@ export async function bumpInclusionGeneration(uid: string): Promise<void> {
   const current = raw === null ? 0 : Number(raw);
   const next = Number.isSafeInteger(current) && current >= 0 && current < Number.MAX_SAFE_INTEGER ? current + 1 : 1;
   await AsyncStorage.setItem(calendarChoiceKeys.inclusionGeneration(uid), String(next));
+}
+
+/**
+ * The account's busy cache must not be read again (a removal, a disconnect,
+ * consent withdrawn): a new generation first, so even a cache that fails to
+ * delete never matches again (M5A-R4-002), then the delete itself.
+ */
+export async function invalidateDeviceBusyCache(uid: string): Promise<void> {
+  try {
+    await bumpInclusionGeneration(uid);
+  } catch {
+    // The delete below still runs; a later read retries the bump.
+  }
+  await clearCachedBusyBlocksOf(uid);
 }
 
 /** Throws when unreadable: an unknown barrier is treated as set by callers. */

@@ -5,7 +5,7 @@
  */
 import { createHash } from 'node:crypto';
 import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
-import { act, waitFor } from '@testing-library/react-native';
+import { act, fireEvent, screen, waitFor } from '@testing-library/react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as SecureStore from 'expo-secure-store';
 import { deviceCalendar } from '../deviceCalendar';
@@ -20,6 +20,7 @@ import {
   initialState,
   prepare,
   showBusyHost,
+  showCalendar,
   teardown,
   waitForRequest,
   type M5aHarness,
@@ -224,5 +225,88 @@ describe('inspection r3 (M5A-R3-001/002/004)', () => {
     expect(await AsyncStorage.getItem(BUSY_BLOCKS_KEY)).not.toBeNull();
     await clearCachedBusyBlocksOf('someone-else');
     expect(await AsyncStorage.getItem(BUSY_BLOCKS_KEY)).toBeNull();
+  });
+});
+
+describe('inspection r4 (M5A-R4-001/002/003)', () => {
+  const GENERATION = `calendar.inclusionGeneration.v1:${UID}`;
+  const context = { uid: UID, accountCurrent: () => true, stillCurrent: () => true, consented: () => true };
+
+  it('R4-001: a pending record that fails to save still leaves the old cache unmatched', async () => {
+    harness = await prepare();
+    await AsyncStorage.multiSet([[ENROLLED, '2030-03-20T08:00:00.000Z'], [INCLUDED, JSON.stringify(['a'])]]);
+    await showBusyHost(harness);
+    await settle();
+    const before = await AsyncStorage.getItem(GENERATION);
+    const original = (AsyncStorage.setItem as jest.Mock).getMockImplementation() as (key: string, value: string) => Promise<void>;
+    jest.spyOn(AsyncStorage, 'setItem').mockImplementation((key, value) => {
+      if (key === PENDING) return Promise.reject(new Error('disk full'));
+      return original(key, value);
+    });
+    await act(async () => { await startSelection(UID, ['b'], context).catch(() => undefined); });
+    expect(await AsyncStorage.getItem(PENDING)).toBeNull();
+    expect(Number(await AsyncStorage.getItem(GENERATION))).toBe(Number(before ?? 0) + 1);
+  });
+
+  it('R4-002: a removal the server reports moves the generation, so the cache never matches again', async () => {
+    harness = await prepare('en', initialState({ sourceStatus: 'revoked' }));
+    await AsyncStorage.multiSet([[ENROLLED, '2030-03-20T08:00:00.000Z'], [INCLUDED, JSON.stringify(['work'])]]);
+    await showBusyHost(harness);
+    await waitForRequest(harness, 'GET', /\/calendar\/choice$/);
+    await settle();
+    expect(await AsyncStorage.getItem(REMOVED)).not.toBeNull();
+    expect(await AsyncStorage.getItem(GENERATION)).toBe('1');
+  });
+
+  it('R4-002: disconnect moves the generation before anything else', async () => {
+    harness = await prepare();
+    await AsyncStorage.multiSet([[ENROLLED, '2030-03-20T08:00:00.000Z'], [INCLUDED, JSON.stringify(['work'])]]);
+    await showCalendar(harness);
+    await settle();
+    await waitFor(() => expect(screen.queryByTestId('calendar-disconnect')).not.toBeNull());
+    const before = Number((await AsyncStorage.getItem(GENERATION)) ?? 0);
+    await fireEvent.press(screen.getByTestId('calendar-disconnect'));
+    await waitFor(() => expect(screen.queryByTestId('calendar-disconnect-dialog')).not.toBeNull());
+    await fireEvent.press(screen.getByTestId('calendar-disconnect-confirm'));
+    await settle();
+    expect(Number(await AsyncStorage.getItem(GENERATION))).toBeGreaterThan(before);
+  });
+
+  it('R4-002: consent withdrawn moves the generation as well as deleting the cache', async () => {
+    harness = await prepare('en', initialState({ trustConsent: false }));
+    await AsyncStorage.multiSet([[ENROLLED, '2030-03-20T08:00:00.000Z'], [INCLUDED, JSON.stringify(['work'])]]);
+    await showBusyHost(harness);
+    await settle();
+    await waitFor(async () => expect(await AsyncStorage.getItem(GENERATION)).toBe('1'));
+  });
+
+  it('R4-003: a calendar gone from the phone leaves the list on the next successful read', async () => {
+    harness = await prepare();
+    (deviceCalendar.listEventCalendars as jest.Mock<typeof deviceCalendar.listEventCalendars>).mockResolvedValue([
+      { id: 'work', title: 'Work', color: null, sourceName: 'iCloud' },
+    ]);
+    await AsyncStorage.multiSet([[ENROLLED, '2030-03-20T08:00:00.000Z'], [INCLUDED, JSON.stringify(['work', 'gone'])]]);
+    await showBusyHost(harness);
+    await settle();
+    await waitFor(async () => {
+      const pending = JSON.parse((await AsyncStorage.getItem(PENDING)) ?? 'null') as { included: string[] } | null;
+      const included = JSON.parse((await AsyncStorage.getItem(INCLUDED)) ?? '[]') as string[];
+      expect(pending?.included ?? included).toEqual(['work']);
+    });
+  });
+
+  const UNPROVEN: [string, 'granted' | 'denied', { id: string; title: string; color: null; sourceName: string }[]][] = [
+    ['without calendar access', 'denied', [{ id: 'work', title: 'Work', color: null, sourceName: 'iCloud' }]],
+    ['with nothing listed', 'granted', []],
+  ];
+  it.each(UNPROVEN)('R4-003: %s, nothing is pruned', async (_label, access, listed) => {
+    harness = await prepare();
+    (deviceCalendar.getAccess as jest.Mock<typeof deviceCalendar.getAccess>).mockResolvedValue(access);
+    (deviceCalendar.listEventCalendars as jest.Mock<typeof deviceCalendar.listEventCalendars>).mockResolvedValue(listed);
+    await AsyncStorage.multiSet([[ENROLLED, '2030-03-20T08:00:00.000Z'], [INCLUDED, JSON.stringify(['work', 'gone'])]]);
+    await showBusyHost(harness);
+    await settle();
+    expect(await AsyncStorage.getItem(PENDING)).toBeNull();
+    expect(JSON.parse((await AsyncStorage.getItem(INCLUDED)) ?? '[]')).toEqual(['work', 'gone']);
   });
 });

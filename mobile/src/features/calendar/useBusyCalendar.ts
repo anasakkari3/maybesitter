@@ -45,7 +45,6 @@ import type { TrustResponse } from '../../api/schemas/trust';
 import { deleteCalendarBusy, postCalendarBusy } from '../../api/endpoints/calendar';
 import { calendarReadEnabled } from '../../config/env';
 import {
-  clearCachedBusyBlocks,
   loadBusySyncedAt,
   loadDeviceBusy,
   saveBusySyncedAt,
@@ -54,7 +53,7 @@ import {
   type DeviceBusyCache,
 } from '../../lib/deviceSettings/calendarBusy';
 import { loadExcludedCalendarIds, loadWrittenEventIds, resolveWriterId } from '../../lib/deviceSettings/calendarDevice';
-import { loadChoiceEnrolledAt, loadSource } from '../../lib/deviceSettings/calendarChoice';
+import { invalidateDeviceBusyCache, loadChoiceEnrolledAt, loadSource } from '../../lib/deviceSettings/calendarChoice';
 import { readSourceCredential, resetSourceCredentialForTests } from '../../lib/deviceSettings/sourceCredential';
 import { clearCalendarBusyM5, postBusyIntent } from '../../api/endpoints/m5a';
 import { fetchM5aCapabilities } from '../m5a/capabilities';
@@ -403,7 +402,7 @@ export function useBusyCalendar(): BusyCalendarState {
     withdrawn = mark;
     // The phone first, and unconditionally. Whatever the network does, the
     // person who pressed this sees their busy times gone from the screen.
-    await clearCachedBusyBlocks();
+    await invalidateDeviceBusyCache(current.uid);
     void client.invalidateQueries({ queryKey: busyQueryKeys.blocks(current.uid) });
     try {
       // An upload already on its way lands first, so the delete is the last
@@ -452,7 +451,7 @@ export function useBusyCalendar(): BusyCalendarState {
   const consentOff = trust.data?.trust?.calendarConsent === false;
   useEffect(() => {
     if (!consentOff || uid === 'signed-out') return;
-    void clearCachedBusyBlocks().then(() => client.invalidateQueries({ queryKey: busyQueryKeys.blocks(uid) }));
+    void invalidateDeviceBusyCache(uid).then(() => client.invalidateQueries({ queryKey: busyQueryKeys.blocks(uid) }));
   }, [consentOff, uid, client]);
 
   // Somebody turned the switch on, or it was already on when the app started.
