@@ -31,6 +31,8 @@ import {
 } from '../../lib/deviceSettings/calendarDevice';
 import { deviceCalendar, DeviceCalendarError, weeklyRuleCarriesDays } from '../calendar/deviceCalendar';
 import { adoptSoleCalendar } from '../calendar/deviceCalendarSync';
+import { accountBoundCalendar } from '../calendar/accountBoundCalendar';
+import { getAuthRepository } from '../../api/auth';
 import { useCalendarSettings } from '../calendar/useDeviceCalendarSync';
 import { needsWeeklyCalendar } from './weeklyDeviceEvents';
 import { reconcileWeeklyEvents, type WeeklySyncOutcome, type WeeklySyncPorts } from './weeklyEventSync';
@@ -46,11 +48,23 @@ export function resetWeeklySyncForTests(): void {
   passInFlight = false;
 }
 
-function portsFor(uid: string): WeeklySyncPorts {
+/**
+ * Bound to the account the pass began for (M5A-R21-001): the calendar refuses
+ * to write once the account has changed, saving links stops, and an event the
+ * pass created but never saved a link for can be taken back out.
+ */
+function portsFor(uid: string, stillCurrent: () => boolean): WeeklySyncPorts & { rollbackUnlinked(): Promise<void> } {
+  const bound = accountBoundCalendar(stillCurrent);
   return {
-    calendar: deviceCalendar,
+    calendar: bound.calendar,
     loadLinks: () => loadWeeklyEventLinks(uid),
-    saveLinks: (links) => saveWeeklyEventLinks(uid, links),
+    saveLinks: async (links) => {
+      if (!stillCurrent()) return false;
+      const saved = await saveWeeklyEventLinks(uid, links);
+      if (saved) for (const link of links) for (const eventId of link.eventIds) bound.linked(eventId);
+      return saved;
+    },
+    rollbackUnlinked: bound.rollbackUnlinked,
     rememberEvent: (eventId) => rememberWrittenEventId(uid, eventId),
     forgetEvent: (eventId) => forgetWrittenEventId(uid, eventId),
   };
@@ -89,7 +103,9 @@ export function useWeeklyBlockDeviceSync(): { runNow(): Promise<WeeklySyncOutcom
     passInFlight = true;
     try {
       const multiDayRule = weeklyRuleCarriesDays();
-      const ports = portsFor(current.uid);
+      const stillCurrent = () => latest.current.uid === current.uid
+        && getAuthRepository()?.currentUser()?.uid === current.uid;
+      const ports = portsFor(current.uid, stillCurrent);
       let calendarId = await loadChosenCalendarId(current.uid);
       if (calendarId === null) {
         const links = await ports.loadLinks();
@@ -104,6 +120,10 @@ export function useWeeklyBlockDeviceSync(): { runNow(): Promise<WeeklySyncOutcom
         multiDayRule,
         ports,
       });
+      if (!stillCurrent()) {
+        await ports.rollbackUnlinked();
+        return null;
+      }
       if (outcome.created + outcome.updated + outcome.deleted + outcome.detached > 0) {
         void client.invalidateQueries({ queryKey: weeklyEventQueryKeys.eventIds(current.uid) });
       }
@@ -130,7 +150,9 @@ export function useWeeklyBlockDeviceSync(): { runNow(): Promise<WeeklySyncOutcom
   /** "Remove events MaybeSitter added", for the blocks' events: every one this phone wrote. */
   const removeAll = useCallback(async () => {
     const current = latest.current;
-    const ports = portsFor(current.uid);
+    const stillCurrent = () => latest.current.uid === current.uid
+      && getAuthRepository()?.currentUser()?.uid === current.uid;
+    const ports = portsFor(current.uid, stillCurrent);
     const links = await ports.loadLinks();
     const mine = (links ?? []).filter((link) => !link.detached);
     if (mine.length === 0) return { removed: 0, permissionDenied: false };
@@ -140,7 +162,7 @@ export function useWeeklyBlockDeviceSync(): { runNow(): Promise<WeeklySyncOutcom
     for (const link of mine) {
       try {
         for (const id of link.eventIds) {
-          await deviceCalendar.deleteEvent(id);
+          await ports.calendar.deleteEvent(id);
           await forgetWrittenEventId(current.uid, id);
         }
         kept.delete(link.blockId);

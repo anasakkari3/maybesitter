@@ -1,4 +1,17 @@
 import {
+  addedPageSchema,
+  addedRemovedSchema,
+  busyIntentSchema,
+  busyRefusalSchema,
+  calendarChoiceEnrolSchema,
+  calendarChoiceProbeSchema,
+  emailScanOverviewSchema,
+  emailScanPostSchema,
+  m5aCapabilitiesSchema,
+  phoneSourcesSchema,
+  sourceRegisteredSchema,
+} from '../schemas/m5a';
+import {
   aiContextImportConfirmedSchema,
   aiContextImportProposalSchema,
 } from '../schemas/aiContextImport';
@@ -147,6 +160,10 @@ import {
  */
 
 const FIXTURES = join(__dirname, '..', '__fixtures__');
+
+/** M5a's refusals the app reads by code: `edited` on a removal, a 404 where a route answers for nothing. */
+const m5aEditedSchema = z.object({ success: z.literal(false), error: z.literal('edited') }).strict();
+const m5aNotFoundSchema = z.object({ success: z.literal(false), error: z.literal('not_found') }).strict();
 
 /** A plan route's refusal (M3a): one of the reasons the client keeps (`GoalPlanRefusedError`). */
 const goalPlanRefusalSchema = z.object({
@@ -434,6 +451,49 @@ const CASES: Array<[string, z.ZodType]> = [
   ['football.settings.configured', footballSettingsResponseSchema],
   // M4b, generated from the real handlers by Task B (WIRE-M4b).
   ['capabilities.m4b', m4bCapabilitiesSchema],
+  // M5a, generated from the real handlers by Task B (PLAN-M5a §Wire).
+  ['capabilities.m5a.on', m5aCapabilitiesSchema],
+  ['capabilities.m5a.off', m5aCapabilitiesSchema],
+  ['calendar.choice.post.active', calendarChoiceEnrolSchema],
+  ['calendar.choice.post.purging', calendarChoiceEnrolSchema],
+  ['calendar.choice.enrolled', calendarChoiceProbeSchema],
+  ['calendar.choice.revoked', calendarChoiceProbeSchema],
+  ['calendar.choice.null', calendarChoiceProbeSchema],
+  ['calendar.register.ok', sourceRegisteredSchema],
+  ['calendar.register.too-many-phones', busyRefusalSchema],
+  ['calendar.register.source-revoked', busyRefusalSchema],
+  ['calendar.register.revoke', calendarBusyDeletedSchema],
+  ['calendar.intent.ok', busyIntentSchema],
+  ['calendar.intent.clear', busyIntentSchema],
+  ['calendar.intent.selection-stale', busyRefusalSchema],
+  ['calendar.upload.continuation', calendarBusyStoredSchema],
+  ['calendar.clear.continuation', calendarBusyDeletedSchema],
+  ['calendar.sources.registered', phoneSourcesSchema],
+  ['calendar.sources.uploading', phoneSourcesSchema],
+  ['calendar.sources.active', phoneSourcesSchema],
+  ['calendar.sources.clearing', phoneSourcesSchema],
+  ['calendar.sources.retiring', phoneSourcesSchema],
+  ['intelligence.scan.running', emailScanOverviewSchema],
+  ['intelligence.scan.complete', emailScanOverviewSchema],
+  ['intelligence.scan.queued', emailScanOverviewSchema],
+  ['intelligence.scan.daily-held', emailScanOverviewSchema],
+  ['intelligence.scan.failed.reconnect_needed', emailScanOverviewSchema],
+  ['intelligence.scan.failed.source_unavailable', emailScanOverviewSchema],
+  ['intelligence.scan.failed.analysis_unavailable', emailScanOverviewSchema],
+  ['intelligence.scan.failed.monitoring_off', emailScanOverviewSchema],
+  ['intelligence.scan.post.new', emailScanPostSchema],
+  ['intelligence.scan.post.resume', emailScanPostSchema],
+  ['intelligence.scan.post.stale-resume', emailScanPostSchema],
+  ['intelligence.gmailScanUnavailable', m5aNotFoundSchema],
+  ['intelligence.added', addedPageSchema],
+  ['intelligence.added.items-page-one', addedPageSchema],
+  ['intelligence.added.items-page-two', addedPageSchema],
+  ['intelligence.added.delete-ok', addedRemovedSchema],
+  ['intelligence.added.delete-edited', m5aEditedSchema],
+  ['intelligence.addedMissing', m5aNotFoundSchema],
+  ['intelligence.monitor.get', intelligenceGmailMonitorSchema],
+  ['intelligence.monitor.post', intelligenceGmailMonitorSchema],
+  ['commitment.added-from', commitmentSchema.extend({ addedFrom: commitmentSchema.shape.addedFrom.unwrap() })],
   ['football.held', footballSettingsResponseSchema],
   ['football.fixture.clash-unknown', footballSettingsResponseSchema],
   ['football.held.add', heldFixtureDecidedSchema],

@@ -5,7 +5,8 @@ import { useApp } from '../../state/AppContext';
 import { Btn, Card, Txt } from '../../ui/primitives';
 import { LiveRegion } from '../../ui/liveRegion';
 import { SectionLabel } from '../../ui/chrome';
-import { fill, ltr } from '../../i18n/strings';
+import { fill } from '../../i18n/strings';
+import { isolate, isolateAuto } from '../../i18n/bidi';
 import { formatRelativeDay } from '../../i18n/format';
 import { useTimeZone } from '../../i18n/timezone';
 import { getPhoneSources, revokePhoneSource } from '../../api/endpoints/m5a';
@@ -82,9 +83,9 @@ export function M5aCalendarSections({
   }, [busyCalendar, shown]);
 
   const googleStatus = google.data;
-  const googleLine = googleStatus?.status === 'connected' && googleStatus.features.calendar && googleStatus.accountEmail
-    ? fill(t.m5CalGooglePrimary, { email: ltr(googleStatus.accountEmail) })
-    : t.m5CalGoogleNone;
+  // The connected account's address: an LTR run inside the line.
+  const email = googleStatus?.status === 'connected' && googleStatus.features.calendar ? googleStatus.accountEmail : null;
+  const googleLine = email ? fill(t.m5CalGooglePrimary, { email: isolate(email) }) : t.m5CalGoogleNone;
 
   return (
     <>
@@ -150,7 +151,7 @@ export function M5aCalendarSections({
           const account = source === OTHER_SOURCE ? t.calendarDeviceSourceOther : source;
           return (
             <View key={source} testID={`calendar-account-${source}`} style={{ borderTopWidth: 1, borderTopColor: p.ln, paddingHorizontal: 18, paddingTop: 12 }}>
-              <SectionLabel>{fill(t.m5CalListGroup, { account: ltr(account) })}</SectionLabel>
+              <SectionLabel>{fill(t.m5CalListGroup, { account: isolateAuto(account) })}</SectionLabel>
               {calendars.map((calendar) => {
                 const on = shown.includes(calendar.id);
                 return (

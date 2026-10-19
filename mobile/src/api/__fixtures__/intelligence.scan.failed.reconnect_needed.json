@@ -1,0 +1,20 @@
+{
+  "success": true,
+  "manual": {
+    "scanId": "fixture-scan",
+    "status": "failed",
+    "origin": "manual",
+    "from": "2026-08-09T09:00:00.000Z",
+    "until": "2026-08-09T08:00:00.000Z",
+    "startedAt": "2026-08-09T08:00:00.000Z",
+    "messagesRead": 2,
+    "messagesUnavailable": 1,
+    "messagesTrimmed": 0,
+    "observationsFound": 1,
+    "addedFromEmail": 0,
+    "failedAt": "2026-08-09T08:00:00.000Z",
+    "failure": "reconnect_needed"
+  },
+  "queuedManual": null,
+  "daily": null
+}

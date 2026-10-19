@@ -10,8 +10,9 @@ import { formatDate, formatDayKey, formatRelativeDay, formatTime } from '../../i
 import { deviceTimeZone, useTimeZone } from '../../i18n/timezone';
 import { useUid } from '../../api/queries';
 import { getEmailScanOverview, postEmailScan } from '../../api/endpoints/m5a';
-import type { DailyStatus, EmailScanOverview, QueuedScan, ScanStatus, ScanWait } from '../../api/schemas/m5a';
+import type { DailyStatus, EmailScanOverview, QueuedScan, ScanFailure, ScanStatus, ScanWait } from '../../api/schemas/m5a';
 import { userFacingMessage } from '../../api/ui/userFacingMessage';
+import type { Strings } from '../../i18n/strings';
 
 /**
  * One email scan, said the same way wherever it is started (M5a R2.2/R2.3):
@@ -135,22 +136,34 @@ function useDates() {
     return `${formatRelativeDay(date, { locale: lang, timeZone: zone })} ${ltr(formatTime(date, { locale: lang, timeZone: zone }))}`;
   };
   const dayKey = (key: string) => isolateAuto(formatDayKey(key, { locale: lang, timeZone: zone }));
-  return { day, when, dayKey };
+  const at = (instant: string) => {
+    const date = new Date(instant);
+    return { date: formatRelativeDay(date, { locale: lang, timeZone: zone }), time: ltr(formatTime(date, { locale: lang, timeZone: zone })) };
+  };
+  return { day, when, dayKey, at };
+}
+
+function failureText(t: Strings, failure: ScanFailure): string {
+  if (failure === 'reconnect_needed') return t.m5ScanFailedReconnect;
+  if (failure === 'analysis_unavailable') return t.m5ScanFailedAnalysis;
+  if (failure === 'monitoring_off') return t.m5ScanFailedOff;
+  return t.m5ScanFailedSource;
 }
 
 /** One text, one line per fact, so the facts never run into each other. */
 function ScanText({ scan }: { scan: ScanStatus }) {
   const { t, tr, p } = useApp();
-  const { day } = useDates();
+  const { day, at } = useDates();
   const lines: string[] = [];
   if (scan.status === 'running') {
     lines.push(fill(t.m5ScanRunning, { n: scan.messagesRead }), t.m5ScanRunningAway);
   } else if (scan.status === 'complete') {
     lines.push(tr('m5ScanDone', { n: scan.messagesRead, from: day(scan.from), until: day(scan.until) }));
+    lines.push(fill(t.m5ScanStartedAt, at(scan.startedAt)));
     lines.push(tr('m5ScanFound', { n: scan.observationsFound }));
+    if (scan.addedFromEmail > 0) lines.push(tr('m5ScanAdded', { n: scan.addedFromEmail }));
   } else {
-    lines.push(scan.failure === 'reconnect_needed' ? t.m5ScanFailedReconnect
-      : scan.failure === 'analysis_unavailable' ? t.m5ScanFailedAnalysis : t.m5ScanFailedSource);
+    lines.push(failureText(t, scan.failure));
     lines.push(fill(t.m5ScanFailedCount, { n: scan.messagesRead }));
   }
   if (scan.messagesUnavailable > 0) lines.push(tr('m5ScanUnavailable', { n: scan.messagesUnavailable }));
@@ -213,11 +226,13 @@ function QueuedLine({ queued }: { queued: QueuedScan }) {
 function DailyLine({ daily }: { daily: DailyStatus }) {
   const { t, tr, p } = useApp();
   const { dayKey } = useDates();
+  // A failed sweep says what failed, never a summary that reads like success.
+  const text = daily.status === 'held' ? t.m5ScanDailyNoTimezone
+    : daily.status === 'failed' ? failureText(t, daily.failure)
+      : tr('m5ScanDaily', { n: daily.messagesRead, date: dayKey(daily.day) });
   return (
     <View testID="email-scan-daily" style={{ gap: 4 }}>
-      <Txt role="supporting" color={daily.status === 'held' ? p.wm : p.mu}>
-        {daily.status === 'held' ? t.m5ScanDailyNoTimezone : tr('m5ScanDaily', { n: daily.messagesRead, date: dayKey(daily.day) })}
-      </Txt>
+      <Txt role="supporting" color={daily.status === 'held' || daily.status === 'failed' ? p.wm : p.mu}>{text}</Txt>
       {daily.status === 'running' && daily.waiting ? <WaitLine wait={daily.waiting} /> : null}
     </View>
   );

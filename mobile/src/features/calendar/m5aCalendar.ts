@@ -53,6 +53,7 @@ import {
 } from '../../api/endpoints/m5a';
 import {
   applyIncludedCalendarIds,
+  bumpInclusionGeneration,
   clearPhoneRemoved,
   finishChoiceEnrolment,
   loadChoiceEnrolledAt,
@@ -178,6 +179,8 @@ export function resetM5aCalendarForTests(): void {
   views.clear();
   continuations.clear();
   registrations.clear();
+  rejoins.clear();
+  pendingLocks.clear();
   selectionGeneration = 0;
 }
 
@@ -285,6 +288,10 @@ export async function resolveCalendarMode(
 
 async function finishEnrolment(uid: string, enrolledAt: string): Promise<CalendarMode> {
   try {
+    // A new inclusion generation before the enrolled state exists (R1.1c): a
+    // cache read under the old opt-out rule can never match it again, even if
+    // removing that cache fails below.
+    await bumpInclusionGeneration(uid);
     await finishChoiceEnrolment(uid, enrolledAt);
   } catch {
     patch(uid, { saveFailed: true });
@@ -387,27 +394,51 @@ async function markPhoneRemoved(uid: string): Promise<void> {
 }
 
 /**
- * «رجّع هاد التلفون» (M5A-R60-001): an entirely new credential, persisted,
- * registered as a new source; only then does the barrier go. It stays when
- * any step fails. Answers true when the phone is back.
+ * «رجّع هاد التلفون» (M5A-R60-001): a new credential, persisted, registered
+ * as a new source; only then does the barrier go. It stays when any step
+ * fails. One rejoin at a time per account, and a retry after a lost response
+ * reuses the tuple it persisted instead of registering yet another source —
+ * the removed phone's own tuple was deleted when it was removed, and if that
+ * delete had failed, the server's `source_revoked` makes a fresh one here.
+ * Answers true when the phone is back.
  */
-export async function rejoinPhone(uid: string): Promise<boolean> {
-  const credential = await mintFreshSourceCredential(uid);
-  if (!credential) {
-    patch(uid, { saveFailed: true });
-    return false;
+const rejoins = new Map<string, Promise<boolean>>();
+
+export function rejoinPhone(uid: string): Promise<boolean> {
+  const running = rejoins.get(uid);
+  if (running) return running;
+  const task: Promise<boolean> = rejoinOnce(uid).finally(() => {
+    if (rejoins.get(uid) === task) rejoins.delete(uid);
+  });
+  rejoins.set(uid, task);
+  return task;
+}
+
+async function rejoinOnce(uid: string): Promise<boolean> {
+  let credential = await ensureSourceCredential(uid);
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    if (!credential) {
+      patch(uid, { saveFailed: true });
+      return false;
+    }
+    if (!signedInAs(uid)) return false;
+    try {
+      const answer = await registerBusySource(credential, { asUid: uid });
+      await saveSource(uid, { sourceId: answer.sourceId, sourceInstallationId: credential.sourceInstallationId });
+      await clearPhoneRemoved(uid);
+      patch(uid, { removed: false, tooManyPhones: false, sourceId: answer.sourceId });
+      return true;
+    } catch (error) {
+      if (error instanceof M5aRefusedError && error.code === 'source_revoked' && attempt === 0) {
+        // The tuple that was removed survived its delete: replace it once.
+        credential = await mintFreshSourceCredential(uid);
+        continue;
+      }
+      if (error instanceof M5aRefusedError && error.code === 'too_many_phones') patch(uid, { tooManyPhones: true });
+      return false;
+    }
   }
-  if (!signedInAs(uid)) return false;
-  try {
-    const answer = await registerBusySource(credential, { asUid: uid });
-    await saveSource(uid, { sourceId: answer.sourceId, sourceInstallationId: credential.sourceInstallationId });
-    await clearPhoneRemoved(uid);
-    patch(uid, { removed: false, tooManyPhones: false, sourceId: answer.sourceId });
-    return true;
-  } catch (error) {
-    if (error instanceof M5aRefusedError && error.code === 'too_many_phones') patch(uid, { tooManyPhones: true });
-    return false;
-  }
+  return false;
 }
 
 /* ── one pass ────────────────────────────────────────────────────── */
@@ -447,24 +478,29 @@ export async function runM5aPass(context: M5aPassContext): Promise<BusySyncOutco
     try {
       held = (await readSourceCredential(uid)) !== null;
     } catch {
-      held = false;
+      // An unreadable secure store is not "no credential": nothing is read
+      // until it answers again (R1.1, M5A-R55-001).
+      patch(uid, { saveFailed: true });
+      return SKIPPED;
     }
   }
   // Just enrolled: the purge took every phone source with it, so there is no
   // source of this phone's to ask about yet.
   if (!context.skipProbe && !context.justEnrolled) {
-    let probe: Awaited<ReturnType<typeof probeCalendarChoice>> | null = null;
+    let probe: Awaited<ReturnType<typeof probeCalendarChoice>>;
     try {
       probe = await probeCalendarChoice(source?.sourceId ?? null, { asUid: uid });
     } catch {
-      probe = null;
+      // No answer is not "not revoked": the pass stops before anything is
+      // read (M5A-R11-004), and the next one asks again.
+      return SKIPPED;
     }
     if (!stillCurrent()) return GONE;
-    if (!removed && probe?.sourceStatus === 'revoked') {
+    if (!removed && probe.sourceStatus === 'revoked') {
       await markPhoneRemoved(uid);
       return SKIPPED;
     }
-    if (!removed && probe && source && held && probe.sourceStatus === null) {
+    if (!removed && source && held && probe.sourceStatus === null) {
       // The server no longer knows this credential: fail closed. The next
       // selection registers a new source.
       await deleteSourceCredential(uid);
@@ -587,9 +623,17 @@ export async function startSelection(uid: string, included: readonly string[], c
     epoch: null,
     opId: null,
   };
-  try {
-    await savePendingSelection(uid, record);
-  } catch {
+  const saved = await underPendingLock(uid, async () => {
+    try {
+      await savePendingSelection(uid, record);
+    } catch {
+      return false;
+    }
+    // Any read or upload still running for an older selection writes nothing more.
+    selectionGeneration += 1;
+    return true;
+  });
+  if (!saved) {
     patch(uid, { saveFailed: true });
     throw new SelectionNotSavedError();
   }
@@ -602,6 +646,21 @@ export async function startSelection(uid: string, included: readonly string[], c
 }
 
 const continuations = new Map<string, Promise<void>>();
+
+/**
+ * Every read-check-write of the pending record, and applying a selection,
+ * happens under one lock per account (M5A-011, M5A-R54-001): a newer tap's
+ * record can never be overwritten by an older operation's acknowledgement,
+ * and an older operation can never apply its list after a newer one exists.
+ */
+const pendingLocks = new Map<string, Promise<unknown>>();
+
+function underPendingLock<T>(uid: string, task: () => Promise<T>): Promise<T> {
+  const previous = pendingLocks.get(uid) ?? Promise.resolve();
+  const run = previous.then(task, task);
+  pendingLocks.set(uid, run.catch(() => undefined));
+  return run;
+}
 
 /** One continuation per operation, whoever asks (the screen, a resumed pass). */
 function continueSelection(uid: string, record: PendingSelection, context: M5aPassContext): Promise<void> {
@@ -625,6 +684,12 @@ async function stillPending(uid: string, intentId: string): Promise<boolean> {
 
 async function runSelection(uid: string, first: PendingSelection, context: M5aPassContext): Promise<void> {
   const current = withinLifetime(() => signedInAs(uid) && context.accountCurrent());
+  // A record whose digest does not match its own list was not written by
+  // this app as it stands: unreadable, so nothing is sent or read (M5A-011).
+  if (first.selectionDigest !== await digestOf(first.included)) {
+    patch(uid, { saveFailed: true });
+    return;
+  }
   let record = first;
   for (let attempt = 0; attempt < 3; attempt += 1) {
     if (!current()) return;
@@ -648,25 +713,37 @@ async function runSelection(uid: string, first: PendingSelection, context: M5aPa
         if (error instanceof M5aRefusedError && error.code === 'source_revoked') await markPhoneRemoved(uid);
         return;
       }
-      if (!current() || intent.intentId !== record.intentId || !(await stillPending(uid, record.intentId))) return;
-      record = { ...record, opId: intent.opId, epoch: intent.epoch };
-      try {
-        await savePendingSelection(uid, record);
-      } catch {
-        patch(uid, { saveFailed: true });
-        return;
-      }
+      if (!current() || intent.intentId !== record.intentId) return;
+      const acknowledged: PendingSelection = { ...record, opId: intent.opId, epoch: intent.epoch };
+      const kept = await underPendingLock(uid, async () => {
+        if (!(await stillPending(uid, acknowledged.intentId))) return 'superseded' as const;
+        try {
+          await savePendingSelection(uid, acknowledged);
+          return 'saved' as const;
+        } catch {
+          return 'failed' as const;
+        }
+      });
+      if (kept === 'failed') patch(uid, { saveFailed: true });
+      if (kept !== 'saved') return;
+      record = acknowledged;
     }
 
     // (3) Applied, then read and sent as that operation.
-    if (!current() || !(await stillPending(uid, record.intentId))) return;
-    try {
-      await applyIncludedCalendarIds(uid, record.included);
-    } catch {
-      patch(uid, { saveFailed: true });
-      return;
-    }
-    selectionGeneration += 1;
+    if (!current()) return;
+    const toApply = record;
+    const applied = await underPendingLock(uid, async () => {
+      if (!(await stillPending(uid, toApply.intentId))) return null;
+      try {
+        await applyIncludedCalendarIds(uid, toApply.included);
+      } catch {
+        patch(uid, { saveFailed: true });
+        return null;
+      }
+      selectionGeneration += 1;
+      return selectionGeneration;
+    });
+    if (applied === null) return;
     await clearCachedBusyBlocks();
     patch(uid, { included: record.included });
     const op = { opId: record.opId!, epoch: record.epoch!, sourceId: source.sourceId, secret: source.secret };
@@ -676,8 +753,7 @@ async function runSelection(uid: string, first: PendingSelection, context: M5aPa
         patch(uid, { clearFailed: false });
       } else {
         if (!context.consented()) return;
-        const generation = selectionGeneration;
-        const outcome = await readAndUpload(uid, record.included, op, () => current() && selectionGeneration === generation);
+        const outcome = await readAndUpload(uid, record.included, op, () => current() && selectionGeneration === applied);
         if (outcome.kind !== 'synced') return;
       }
     } catch (error) {
@@ -692,28 +768,35 @@ async function runSelection(uid: string, first: PendingSelection, context: M5aPa
     }
 
     // (4) Done: the record goes only now, and only if it is still this one.
-    if (await stillPending(uid, record.intentId)) {
+    const finished = record;
+    const removedRecord = await underPendingLock(uid, async () => {
+      if (!(await stillPending(uid, finished.intentId))) return false;
       try {
         await removePendingSelection(uid);
+        return true;
       } catch {
-        return;
+        return false;
       }
-      patch(uid, { pending: null });
-    }
+    });
+    if (removedRecord) patch(uid, { pending: null });
     return;
   }
 }
 
 /** `selection_stale`: the old operation is discarded and a fresh `intentId` minted (M5A-R53-001). */
 async function renew(uid: string, record: PendingSelection): Promise<PendingSelection | null> {
-  if (!(await stillPending(uid, record.intentId))) return null;
   const renewed: PendingSelection = { ...record, intentId: randomId(), opId: null, epoch: null };
-  try {
-    await savePendingSelection(uid, renewed);
-  } catch {
-    patch(uid, { saveFailed: true });
-    return null;
-  }
+  const outcome = await underPendingLock(uid, async () => {
+    if (!(await stillPending(uid, record.intentId))) return 'superseded' as const;
+    try {
+      await savePendingSelection(uid, renewed);
+      return 'saved' as const;
+    } catch {
+      return 'failed' as const;
+    }
+  });
+  if (outcome === 'failed') patch(uid, { saveFailed: true });
+  if (outcome !== 'saved') return null;
   patch(uid, { pending: renewed });
   return renewed;
 }

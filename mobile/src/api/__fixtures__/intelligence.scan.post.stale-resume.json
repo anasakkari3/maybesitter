@@ -1,0 +1,37 @@
+{
+  "success": true,
+  "messagesRead": 0,
+  "observations": [],
+  "scan": {
+    "scanId": "00000000-0000-4000-8000-000000000001",
+    "status": "failed",
+    "origin": "manual",
+    "from": "2026-08-09T09:00:00.000Z",
+    "until": "2026-08-09T08:00:00.000Z",
+    "startedAt": "2026-08-09T08:00:00.000Z",
+    "messagesRead": 2,
+    "messagesUnavailable": 1,
+    "messagesTrimmed": 0,
+    "observationsFound": 1,
+    "addedFromEmail": 0,
+    "failedAt": "2026-08-09T08:00:00.000Z",
+    "failure": "source_unavailable"
+  },
+  "manual": {
+    "scanId": "00000000-0000-4000-8000-000000000001",
+    "status": "failed",
+    "origin": "manual",
+    "from": "2026-08-09T09:00:00.000Z",
+    "until": "2026-08-09T08:00:00.000Z",
+    "startedAt": "2026-08-09T08:00:00.000Z",
+    "messagesRead": 2,
+    "messagesUnavailable": 1,
+    "messagesTrimmed": 0,
+    "observationsFound": 1,
+    "addedFromEmail": 0,
+    "failedAt": "2026-08-09T08:00:00.000Z",
+    "failure": "source_unavailable"
+  },
+  "queuedManual": null,
+  "daily": null
+}

@@ -21,11 +21,18 @@ export const calendarChoiceKeys = {
   inclusionGeneration: inclusionGenerationKey,
 } as const;
 
+/** Every member a non-empty id, or the whole list is unreadable: a filtered list is not the one the person chose. */
 function ids(raw: string | null): string[] {
   if (raw === null) return [];
   const parsed: unknown = JSON.parse(raw);
-  if (!Array.isArray(parsed)) throw new Error('unreadable inclusion list');
-  return [...new Set(parsed.filter((id): id is string => typeof id === 'string' && id !== ''))];
+  if (!Array.isArray(parsed) || !parsed.every((id) => typeof id === 'string' && id !== '')) {
+    throw new Error('unreadable inclusion list');
+  }
+  return [...new Set(parsed as string[])];
+}
+
+function isInstant(value: string): boolean {
+  return /^\d{4}-\d{2}-\d{2}T/.test(value) && Number.isFinite(Date.parse(value));
 }
 
 /** The calendars this account reads on this phone. Throws when unreadable. */
@@ -35,7 +42,9 @@ export async function loadIncludedCalendarIds(uid: string): Promise<string[]> {
 
 /** Throws when unreadable: an unknown marker blocks reads like an unknown list. */
 export async function loadChoiceEnrolledAt(uid: string): Promise<string | null> {
-  return AsyncStorage.getItem(calendarChoiceKeys.enrolledAt(uid));
+  const value = await AsyncStorage.getItem(calendarChoiceKeys.enrolledAt(uid));
+  if (value !== null && !isInstant(value)) throw new Error('unreadable enrolment marker');
+  return value;
 }
 
 export async function loadChoicePending(uid: string): Promise<string | null> {
@@ -77,7 +86,12 @@ function pendingFrom(raw: string | null): PendingSelection | null {
     || typeof value.selectionDigest !== 'string'
     || (value.operation !== 'upload' && value.operation !== 'clear')
     || !(value.epoch === null || (typeof value.epoch === 'number' && Number.isSafeInteger(value.epoch)))
-    || !(value.opId === null || (typeof value.opId === 'string' && value.opId !== ''))) {
+    || !(value.opId === null || (typeof value.opId === 'string' && value.opId !== ''))
+    // An operation and its list agree (an empty list is a clear), and the
+    // server's acknowledgement is whole or absent.
+    || (value.operation === 'clear') !== ((value.included as unknown[]).length === 0)
+    || (value.epoch === null) !== (value.opId === null)
+    || !(value.included as unknown[]).every((id) => id !== '')) {
     throw new Error('unreadable pending selection');
   }
   return {
@@ -112,6 +126,14 @@ export async function applyIncludedCalendarIds(uid: string, included: readonly s
   const current = raw === null ? 0 : Number(raw);
   const next = Number.isSafeInteger(current) && current >= 0 && current < Number.MAX_SAFE_INTEGER ? current + 1 : 1;
   await AsyncStorage.setItem(calendarChoiceKeys.included(uid), JSON.stringify([...new Set(included)]));
+  await AsyncStorage.setItem(calendarChoiceKeys.inclusionGeneration(uid), String(next));
+}
+
+/** A new inclusion generation with no change to the list: enrolment (R1.1c). */
+export async function bumpInclusionGeneration(uid: string): Promise<void> {
+  const raw = await AsyncStorage.getItem(calendarChoiceKeys.inclusionGeneration(uid));
+  const current = raw === null ? 0 : Number(raw);
+  const next = Number.isSafeInteger(current) && current >= 0 && current < Number.MAX_SAFE_INTEGER ? current + 1 : 1;
   await AsyncStorage.setItem(calendarChoiceKeys.inclusionGeneration(uid), String(next));
 }
 

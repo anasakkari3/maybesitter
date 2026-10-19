@@ -10,8 +10,9 @@ import { useUid } from '../../api/queries';
  * M5a's capability probe, in three states (M5A-R2-002).
  *
  * `null` is **unknown**: no successful answer yet this session, or only
- * errors. A never-enrolled phone reads no calendar while it is unknown —
- * privacy on an unknown probe beats off-state timing parity. Known `false`
+ * errors; a refetch that fails keeps the last successful answer. A
+ * never-enrolled phone reads no calendar while it is unknown — privacy on an
+ * unknown probe beats off-state timing parity. Known `false`
  * is today's behaviour exactly; known `true` turns the M5a surfaces on.
  *
  * Refetched on focus and every five minutes, like M4b's, so a kill switch
@@ -49,7 +50,10 @@ export function useM5aCapabilities(): M5aCapabilities | null {
     refetchOnWindowFocus: true,
     retry: false,
   });
-  return query.status === 'success' && !query.isRefetchError ? query.data : null;
+  // The latest successful answer this session stands through a failed
+  // background refetch (M5A-R2-002); only an account with no successful answer
+  // yet is unknown.
+  return query.data ?? null;
 }
 
 /** For a headless pass: the cached answer if fresh, else one probe. Null when unknown. */

@@ -5,7 +5,9 @@ import { useApp } from '../../state/AppContext';
 import { Btn, Card, Pill, Txt } from '../../ui/primitives';
 import { Disclosure } from '../../ui/Disclosure';
 import { LiveRegion } from '../../ui/liveRegion';
-import { fill } from '../../i18n/strings';
+import { fill, ltr } from '../../i18n/strings';
+import { formatRelativeDay, formatTime } from '../../i18n/format';
+import { useTimeZone } from '../../i18n/timezone';
 import { isolateAuto } from '../../i18n/bidi';
 import { useUid } from '../../api/queries';
 import { getAddedPage, removeAdded } from '../../api/endpoints/m5a';
@@ -89,12 +91,18 @@ const STATUS_KEY = {
 function AddedRow({ item, edited, removing, disabled, onRemove }: {
   item: AddedItem; edited: boolean; removing: boolean; disabled: boolean; onRemove: () => void;
 }) {
-  const { t, p } = useApp();
+  const { t, p, lang } = useApp();
+  const zone = useTimeZone();
+  const when = (instant: string) => {
+    const date = new Date(instant);
+    return `${formatRelativeDay(date, { locale: lang, timeZone: zone })} · ${ltr(formatTime(date, { locale: lang, timeZone: zone }))}`;
+  };
   const open = item.status === 'open';
   const removable = open && item.removable && !edited;
   return (
     <View testID={`added-row-${item.autoAddId}`} style={{ gap: 6, borderTopWidth: 1, borderTopColor: p.ln, paddingTop: 12, alignItems: 'flex-start' }}>
       <Txt role="body">{isolateAuto(item.title)}</Txt>
+      {item.startsAt ? <Txt role="supporting" color={p.mu} testID={`added-when-${item.autoAddId}`}>{when(item.startsAt)}</Txt> : null}
       <Txt role="supporting" color={p.mu}>{fill(t.m5AddedEvidence, { evidence: isolateAuto(item.evidence) })}</Txt>
       {item.status !== 'open' ? (
         <Txt role="supporting" color={p.mu} testID={`added-status-${item.autoAddId}-${item.status}`}>{t[STATUS_KEY[item.status]]}</Txt>

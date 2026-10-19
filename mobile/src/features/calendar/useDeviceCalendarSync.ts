@@ -44,7 +44,8 @@ import {
   resolveWriterId,
   saveChosenCalendarId,
 } from '../../lib/deviceSettings/calendarDevice';
-import { deviceCalendar, type DeviceCalendar } from './deviceCalendar';
+import { deviceCalendar } from './deviceCalendar';
+import { accountBoundCalendar } from './accountBoundCalendar';
 import { getAuthRepository } from '../../api/auth';
 import { AccountChangedError } from '../../api/errors';
 import {
@@ -106,35 +107,17 @@ export function useCalendarSettings() {
  * changed, and an event created just as it changed is taken back out, so
  * nothing of A's lands in the calendar or on the account under B.
  */
-export function apiSyncPorts(uid: string, stillCurrent: () => boolean = () => true): SyncPorts {
+export function apiSyncPorts(uid: string, stillCurrent: () => boolean): SyncPorts & { rollbackUnlinked(): Promise<void> } {
+  const bound = accountBoundCalendar(stillCurrent);
   const check = () => {
     if (!stillCurrent()) throw new AccountChangedError('the account changed during the calendar pass');
   };
-  const calendar: DeviceCalendar = {
-    ...deviceCalendar,
-    createEvent: async (...args: Parameters<DeviceCalendar['createEvent']>) => {
-      check();
-      const eventId = await deviceCalendar.createEvent(...args);
-      if (!stillCurrent()) {
-        await deviceCalendar.deleteEvent(eventId).catch(() => undefined);
-        throw new AccountChangedError('the account changed during the calendar pass');
-      }
-      return eventId;
-    },
-    updateEvent: async (...args: Parameters<DeviceCalendar['updateEvent']>) => {
-      check();
-      return deviceCalendar.updateEvent(...args);
-    },
-    deleteEvent: async (...args: Parameters<DeviceCalendar['deleteEvent']>) => {
-      check();
-      return deviceCalendar.deleteEvent(...args);
-    },
-  };
   return {
-    calendar,
+    calendar: bound.calendar,
     putLink: async (commitmentId, link) => {
       check();
       await putDeviceCalendarLink(commitmentId, link, { asUid: uid });
+      bound.linked(link.eventId);
     },
     deleteLink: async (commitmentId, writerId) => {
       check();
@@ -145,6 +128,7 @@ export function apiSyncPorts(uid: string, stillCurrent: () => boolean = () => tr
       await rememberWrittenEventId(uid, eventId);
     },
     forgetEvent: (eventId) => forgetWrittenEventId(uid, eventId),
+    rollbackUnlinked: bound.rollbackUnlinked,
   };
 }
 
@@ -260,14 +244,21 @@ export function useDeviceCalendarSync(
         calendarId = await adoptSoleCalendar(deviceCalendar, (id) => saveChosenCalendarId(current.uid, id));
       }
       if (!stillCurrent()) return null;
+      const ports = apiSyncPorts(current.uid, stillCurrent);
       const result = await reconcile({
         subjects: current.subjects,
         writeTarget: current.writeTarget,
         writerId,
         calendarId,
         deviceTimeZone: current.deviceTimeZone,
-        ports: apiSyncPorts(current.uid, stillCurrent),
+        ports,
       });
+      // The account changed during the pass: an event it created and never
+      // linked is taken back out (M5A-R21-001).
+      if (!stillCurrent()) {
+        await ports.rollbackUnlinked();
+        return null;
+      }
       setOutcome(result);
       // The links the pass wrote are now out of date in the cache the next pass
       // will read. Invalidating rather than refetching: the lists are usually
@@ -307,7 +298,9 @@ export function useDeviceCalendarSync(
     const result = await removeAllWrittenEvents({
       subjects: current.subjects,
       writerId: await resolveWriterId(),
-      ports: apiSyncPorts(current.uid),
+      // Bound to the account it began for: a switch stops the removal (M5A-R21-001).
+      ports: apiSyncPorts(current.uid, () => latest.current.uid === current.uid
+        && getAuthRepository()?.currentUser()?.uid === current.uid),
     });
     void client.invalidateQueries({ queryKey: ['user', current.uid, 'commitments'] });
     return { removed: result.removed, permissionDenied: result.permissionDenied };

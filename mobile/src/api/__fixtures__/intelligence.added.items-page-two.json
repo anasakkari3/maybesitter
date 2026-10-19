@@ -1,0 +1,16 @@
+{
+  "success": true,
+  "items": [
+    {
+      "autoAddId": "0000000000000000000000000000000000000000000000000000000000000000",
+      "commitmentId": "fixture-commitment-5",
+      "title": "Fixture email item 5",
+      "startsAt": "2026-08-09T09:00:00.000Z",
+      "evidence": "I will do fixture 5",
+      "at": "2026-08-09T09:00:00.000Z",
+      "status": "open",
+      "removable": true
+    }
+  ],
+  "nextCursor": null
+}

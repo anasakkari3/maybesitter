@@ -51,10 +51,13 @@ export function getGmailIntelligenceMonitor() {
  * additions (R4.1), with the device time zone the daily sweep needs. Without
  * it the request is exactly today's.
  */
-export function setGmailIntelligenceMonitor(enabled: boolean, m5?: { timezone: string }) {
+export function setGmailIntelligenceMonitor(enabled: boolean, m5?: { timezone: string }, options: { asUid?: string } = {}) {
   return apiRequest('POST', '/api/mobile/intelligence/sources/gmail/monitor', {
     body: m5 ? { enabled, enrollM5: true, timezone: m5.timezone } : { enabled },
     schema: intelligenceGmailMonitorSchema,
+    // Bound to the account whose panel asked (M5A-R4-001): an enable started
+    // for one account is never sent as another.
+    ...(options.asUid !== undefined ? { asUid: options.asUid } : {}),
   });
 }
 export function answerIntelligenceQuestion(id: string, answer: string) {

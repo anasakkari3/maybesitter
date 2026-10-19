@@ -1,0 +1,12 @@
+{
+  "success": true,
+  "sources": [
+    {
+      "sourceId": "device:e5c569d0-7c05-48b7-af45-4f6cd2d7090a",
+      "status": "uploading",
+      "platform": null,
+      "lastUploadAt": null,
+      "blockCount": 0
+    }
+  ]
+}
