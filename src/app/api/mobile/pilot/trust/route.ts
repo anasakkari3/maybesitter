@@ -5,8 +5,18 @@ import {
 } from '../../../../../../lib/services/mobile/pilotService';
 import { mobileAuthErrorResponse, requireMobileUser } from '../../../../../../lib/auth/mobileAuth';
 import { RequestBodyTooLargeError, readJsonBody, requestBodyTooLargeResponse } from '../../../../../../lib/net/requestBody';
+import { readCalendarChoice } from '../../../../../../lib/calendar/calendarChoice';
 
 export const dynamic = 'force-dynamic';
+
+async function projectCalendarChoice(uid: string, request: Request, response: Awaited<ReturnType<typeof getMobilePilotTrust>>) {
+  if (request.headers.get('x-maybesitter-calendar-choice') === '1' || !(await readCalendarChoice(uid))) return response;
+  return {
+    ...response,
+    trust: { ...response.trust, calendarConsent: false },
+    whatKnows: { ...response.whatKnows, calendarConnected: false },
+  };
+}
 
 export async function GET(request: Request) {
   let user;
@@ -17,7 +27,7 @@ export async function GET(request: Request) {
   }
 
   try {
-    return Response.json(await getMobilePilotTrust(user.uid));
+    return Response.json(await projectCalendarChoice(user.uid, request, await getMobilePilotTrust(user.uid)));
   } catch (error) {
     return mobilePilotErrorResponse(error);
   }
@@ -48,7 +58,8 @@ export async function POST(request: Request) {
   }
 
   try {
-    return Response.json(await updateMobilePilotTrust(user.uid, body));
+    const response = await updateMobilePilotTrust(user.uid, body);
+    return Response.json(await projectCalendarChoice(user.uid, request, response));
   } catch (error) {
     return mobilePilotErrorResponse(error);
   }

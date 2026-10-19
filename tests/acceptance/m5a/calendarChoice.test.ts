@@ -136,7 +136,7 @@ test('M5A-R10-001 / M5A-R12-003: the Trust read reports calendar consent off to 
   const legacy = await call(uid, 'pilot/trust', 'GET');
   assert.equal(legacy.body.trust?.calendarConsent, false, 'an older build must see calendar consent off');
   assert.equal(legacy.body.whatKnows?.calendarConnected, false, 'whatKnows must agree with the projected consent');
-  const posted = await call(uid, 'pilot/trust', 'POST', { body: { type: 'record_first_value', at: new Date().toISOString() } });
+  const posted = await call(uid, 'pilot/trust', 'POST', { body: { action: { type: 'set_analytics_consent', granted: false } } });
   assert.ok(posted.status < 300, show(posted.body));
   assert.equal(posted.body.trust?.calendarConsent, false, 'the POST response projects the same way');
   const stored = await callWith(uid, 'pilot/trust', 'GET', { headers: CHOICE_HEADER });

@@ -160,6 +160,17 @@ test('M4b capabilities are staging-only and keep explicit kill switches', () => 
   }
 });
 
+test('M5a capabilities are staging-only and keep explicit kill switches', () => {
+  const staging = envVarsOf(flagsFor('staging'));
+  const production = envVarsOf(flagsFor('production'));
+  for (const name of ['CALENDAR_CHOICE', 'EMAIL_SOURCES']) {
+    assert.equal(staging.get(`MAYBESITTER_FEATURE_${name}`), 'true', `${name} is not enabled in staging`);
+    assert.equal(staging.get(`MAYBESITTER_KILL_SWITCH_${name}`), 'false', `${name} staging kill switch is not explicit`);
+    assert.equal(production.get(`MAYBESITTER_FEATURE_${name}`), 'false', `${name} escaped the production release lock`);
+    assert.equal(production.get(`MAYBESITTER_KILL_SWITCH_${name}`), 'false', `${name} production kill switch is not explicit`);
+  }
+});
+
 /** `--set-secrets` as KEY → secret:version; gcloud splits it on `,`. */
 function secretsOf(printed: string): Map<string, string> {
   const flag = printed.trim().split(/\s+/).filter((word) => word.startsWith('--set-secrets='));
@@ -325,8 +336,8 @@ test('switching the env list to a custom delimiter dropped none of the existing 
   assert.equal(staging.get('MAYBESITTER_LLM_GLOBAL_DAILY_CALL_CAP'), '3000');
   assert.equal(staging.get('MAYBESITTER_FEATURE_PROACTIVE_LOOP'), 'true');
   assert.equal(staging.get('MAYBESITTER_KILL_SWITCH_PROACTIVE_LOOP'), 'false');
-  assert.equal(production.size, 36);
-  assert.equal(staging.size, 35);
+  assert.equal(production.size, 40);
+  assert.equal(staging.size, 39);
 });
 
 // ── Same-digest production promotion ────────────────────────────────────

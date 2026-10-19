@@ -85,6 +85,27 @@ module stays `RELEASE_LOCKED` under the rules above, and the loop's release is
 not product evidence either. Record in
 `docs/architecture/adr-stage-b-engineering-unlock.md`.
 
+**Owner exception (2026-10-18): email self-reply commitments.** A commitment
+the person agreed to in their own sent Gmail reply may be created without an
+in-app confirmation only when every PLAN-M5a R3.1 bound holds: the message has
+the SENT label and reply headers (`In-Reply-To` / `References`); the person's
+own words are isolated by a recognised quote header or boundary (otherwise the
+operation fails closed); the message is fresh; exactly one agreement and one
+dated item are extracted from those words alone using the message's own time
+anchor; condition 24 finds no clash; and only one idempotency key is spent per
+message. Creation still uses the normal deterministic commands, is marked
+«انضاف من إيميلك» with the person's own words, and is removable in one tap
+while unedited. The person must be told before every scan or monitoring opt-in
+that this can happen. Every other model output remains proposal-only.
+
+**Owner approval (2026-10-18): daily Gmail sweep.** While Gmail monitoring is
+on and the person is enrolled, the previous day's mail may be swept once a day
+under PLAN-M5a R4.2. **Owner approval (2026-10-19): just-in-time Google busy refresh.**
+The server may refresh Google busy time solely for an email
+auto-add decision, under calendar consent, and never periodically. Both
+approvals remain behind default-off flags and kill switches, staging-only and
+pinned off in production; release still waits for Market Evidence Gate #61.
+
 The sprint dates on those milestones are historical planning assumptions, not
 approved execution commitments.
 

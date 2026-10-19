@@ -74,6 +74,8 @@ export const INTELLIGENCE_MONITORS = 'intelligenceMonitors';
 export const INTELLIGENCE_GMAIL_SCANS = 'intelligenceGmailScans';
 /** Content-free receipts so a retry does not re-analyze empty messages. */
 export const INTELLIGENCE_SOURCE_MARKERS = 'intelligenceSourceMarkers';
+/** Commitments created from a qualifying sent self-reply (M5a). */
+export const INTELLIGENCE_AUTO_ADDS = 'intelligenceAutoAdds';
 export const FEEDBACK_EVENTS = 'feedbackEvents';
 export const FEEDBACK_BASELINES = 'feedbackBaselines';
 export const CONSENTS = 'consents';
@@ -253,6 +255,16 @@ export const CALENDAR_SOURCES = 'calendarSources';
  * never had a column for one.
  */
 export const BUSY_BLOCKS = 'busyBlocks';
+/** Account calendar-choice state and per-source selection fences (M5a). */
+export const CALENDAR_CHOICE = 'calendarChoice';
+/** Replacement/operation fences which survive source deletion (M5a). */
+export const BUSY_SOURCE_FENCES = 'busySourceFences';
+/** Active per-phone source credentials; only hashes are stored. */
+export const REGISTERED_DEVICE_SOURCES = 'registeredDeviceSources';
+/** Permanent, content-free phone identity tombstones. */
+export const RETIRED_DEVICE_SOURCES = 'retiredDeviceSources';
+/** Bounded per-registered-source stale-calendar bookkeeping. */
+export const DEVICE_STALE_STATE = 'deviceStaleState';
 
 /**
  * The external calendar feeds this account subscribed to (UC-3.4, #188).
@@ -581,6 +593,7 @@ export const USER_SCOPED_COLLECTIONS = [
   INTELLIGENCE_MONITORS,
   INTELLIGENCE_GMAIL_SCANS,
   INTELLIGENCE_SOURCE_MARKERS,
+  INTELLIGENCE_AUTO_ADDS,
   FEEDBACK_EVENTS,
   FEEDBACK_BASELINES,
   CONSENTS,
@@ -607,6 +620,11 @@ export const USER_SCOPED_COLLECTIONS = [
   FINANCIAL_INPUTS,
   CALENDAR_SOURCES,
   BUSY_BLOCKS,
+  CALENDAR_CHOICE,
+  BUSY_SOURCE_FENCES,
+  REGISTERED_DEVICE_SOURCES,
+  RETIRED_DEVICE_SOURCES,
+  DEVICE_STALE_STATE,
   ICS_FEEDS,
   ICS_FEED_ITEMS,
   DEVICES,

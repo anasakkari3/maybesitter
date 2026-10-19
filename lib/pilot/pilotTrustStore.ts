@@ -98,8 +98,18 @@ export async function applyTrustAction(participantId: string, action: PilotTrust
       ? requirePilotTrustState(user.trust)
       : createPilotTrustState(participantId, action.at);
     const updated = applyPilotTrustAction(current, action);
-    if (user) tx.merge<TrustUser>(userDoc(participantId), { trust: updated, updatedAt: action.at });
-    else tx.set<TrustUser>(userDoc(participantId), { ...newUserDocument(action.at), trust: updated });
+    const calendarChanged = updated.calendarConsent !== current.calendarConsent;
+    const calendarEpoch = (user?.calendarEpoch ?? 0) + (calendarChanged ? 1 : 0);
+    if (user) tx.merge<TrustUser>(userDoc(participantId), {
+      trust: updated,
+      updatedAt: action.at,
+      ...(calendarChanged ? { calendarEpoch } : {}),
+    });
+    else tx.set<TrustUser>(userDoc(participantId), {
+      ...newUserDocument(action.at),
+      trust: updated,
+      ...(calendarChanged ? { calendarEpoch } : {}),
+    });
     return updated;
   });
 }

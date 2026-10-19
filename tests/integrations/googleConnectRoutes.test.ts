@@ -18,12 +18,17 @@ import { createMemoryStorage } from '../../lib/storage/memoryAdapter.ts';
 import { resetStorageForTests, setStorageForTests } from '../../lib/storage/index.ts';
 import {
   BUSY_BLOCKS,
+  BUSY_SOURCE_FENCES,
+  CALENDAR_CHOICE,
+  CALENDAR_SOURCES,
   GOOGLE_PICKER_TICKETS,
   PLANNING_STATE_CHANGES,
   PROVIDER_CONNECTIONS,
   PROVIDER_CREDENTIALS,
   PROVIDER_OAUTH_STATES,
+  docIdForKey,
   userCol,
+  userSubDoc,
 } from '../../lib/storage/paths.ts';
 import { applyTrustAction } from '../../lib/pilot/pilotTrustStore.ts';
 import { createInMemoryKms } from '../../lib/security/inMemoryKms.ts';
@@ -625,6 +630,50 @@ test('freebusy: Google intervals become google busy blocks the planner reads, de
     const read = await body(await calendarGet(request('/api/mobile/integrations/google/calendar')));
     assert.equal(read.blocks.length, 2);
     assert.ok(read.blocks.every((block: { sourceKind: string }) => block.sourceKind === 'google'));
+  } finally {
+    done();
+  }
+});
+
+test('M5a Google refresh stores a complete source, certifies its fence, and disconnect advances the generation', async () => {
+  const done = setup();
+  try {
+    await consentToCalendar();
+    await connect('calendar');
+    await storage.set(userSubDoc(USER, CALENDAR_CHOICE, 'state'), {
+      v: 1, generation: 4, state: 'active', enrolledAt: new Date().toISOString(), purge: null,
+    });
+    const hour = 3_600_000;
+    const base = Math.ceil(Date.now() / hour) * hour + 24 * hour;
+    const iso = (ms: number) => new Date(ms).toISOString();
+    await replaceBusyBlocks(USER, 'device:legacy-overlap', { startsAt: iso(Date.now()), endsAt: iso(Date.now() + 28 * 24 * hour) }, [{
+      blockId: busyBlockId('device:legacy-overlap', 'same', iso(base)),
+      sourceId: 'device:legacy-overlap', sourceKind: 'device', startAt: iso(base), endAt: iso(base + hour), allDay: false,
+    }], { platform: 'ios' });
+    google.busy = [
+      { start: iso(base), end: iso(base + hour) },
+      { start: iso(base + 2 * hour), end: iso(base + 3 * hour) },
+    ];
+    const response = await calendarPost(request('/api/mobile/integrations/google/calendar', { method: 'POST' }));
+    assert.equal(response.status, 200, JSON.stringify(await body(response)));
+    assert.equal((await listed(USER, BUSY_BLOCKS) as Array<any>).filter((row) => row.sourceKind === 'google').length, 2);
+    const source = await storage.get<any>(userSubDoc(USER, CALENDAR_SOURCES, docIdForKey(GOOGLE_BUSY_SOURCE_ID)));
+    const fencePath = userSubDoc(USER, BUSY_SOURCE_FENCES, docIdForKey(GOOGLE_BUSY_SOURCE_ID));
+    const beforeFence = await storage.get<any>(fencePath);
+    assert.deepEqual(source.m5Certificate, {
+      v: 1,
+      choiceGeneration: 4,
+      providerAccountId: google.account.sub,
+      fenceGeneration: beforeFence.generation,
+      refreshedAt: source.lastSyncedAt,
+    });
+    assert.equal(source.coverageStatus, 'settled');
+
+    const disconnected = await disconnectPost(request('/api/mobile/integrations/google/disconnect', { method: 'POST' }));
+    assert.equal(disconnected.status, 200, JSON.stringify(await body(disconnected)));
+    const afterFence = await storage.get<any>(fencePath);
+    assert.equal(afterFence.generation, beforeFence.generation + 1);
+    assert.equal(afterFence.replace, undefined);
   } finally {
     done();
   }

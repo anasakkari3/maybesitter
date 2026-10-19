@@ -38,6 +38,7 @@ import { getStorage } from '../storage';
 import {
   GOOGLE_PICKER_TICKETS,
   ICS_FEEDS,
+  REGISTERED_DEVICE_SOURCES,
   INCIDENTS,
   PROVIDER_CONNECTIONS,
   PROVIDER_CREDENTIALS,
@@ -119,6 +120,7 @@ export const EXPORT_INTERNAL_FIELDS: Readonly<Record<string, readonly string[]>>
   [INCIDENTS]: ['ownerId'],
   [ICS_FEEDS]: ['hostHash', 'etag', 'lastModified'],
   [PROVIDER_CONNECTIONS]: ['credentialRef'],
+  [REGISTERED_DEVICE_SOURCES]: ['secretHash'],
 });
 
 export interface AccountExportDocument {

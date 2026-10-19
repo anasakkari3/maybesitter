@@ -28,6 +28,8 @@ export interface UserDocument<TTrust = unknown> {
    * writes raced and four of them were lost".
    */
   domainVersion: number;
+  /** Monotonic fence for calendar authority; absent legacy rows read as zero. */
+  calendarEpoch?: number;
 }
 
 export function newUserDocument(at: string): UserDocument {

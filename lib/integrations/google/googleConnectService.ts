@@ -68,7 +68,7 @@ import {
   GoogleOAuthError,
   GOOGLE_AUTHORIZATION_ENDPOINT,
 } from './googleOAuthClient';
-import { deleteBusySource } from '../../calendar/busyBlocks';
+import { deleteBusySource, type BusySourceReplacementFence } from '../../calendar/busyBlocks';
 import { getAiConsent } from '../../consents/aiConsentService';
 import {
   featuresGranted,
@@ -86,6 +86,22 @@ import type {
   IntegrationCapability,
   IntegrationConnectionRecord,
 } from '../../../src/contracts/v1/integrationConnectionContracts';
+import { BUSY_SOURCE_FENCES, docIdForKey, userSubDoc } from '../../storage/paths';
+
+function googleBusyFencePath(uid: string): string {
+  return userSubDoc(uid, BUSY_SOURCE_FENCES, docIdForKey(GOOGLE_BUSY_SOURCE_ID));
+}
+
+async function advanceGoogleBusyFence(uid: string, runtime: GoogleRuntime): Promise<number> {
+  return runtime.storage.runTransaction(async (tx) => {
+    const prior = await tx.get<BusySourceReplacementFence>(googleBusyFencePath(uid));
+    const generation = (prior?.generation ?? 0) + 1;
+    if (!Number.isSafeInteger(generation)) throw new GoogleConnectError('google_unavailable');
+    const { replace: _replace, ...withoutReplace } = prior ?? { generation: 0 };
+    tx.set<BusySourceReplacementFence>(googleBusyFencePath(uid), { ...withoutReplace, generation });
+    return generation;
+  });
+}
 
 export const GOOGLE_PROVIDER = 'google' as const;
 
@@ -435,7 +451,15 @@ export async function disconnectGoogle(uid: string, runtime: GoogleRuntime): Pro
     // After the revocation landed, never before: a refused revoke keeps the
     // grant, and the busy time that grant produced stays true with it.
     // `deleteBusySource` announces every removed block to the replan tick.
-    await deleteBusySource(uid, GOOGLE_BUSY_SOURCE_ID, { storage: runtime.storage, now: runtime.now() });
+    const fenceGeneration = await advanceGoogleBusyFence(uid, runtime);
+    await deleteBusySource(uid, GOOGLE_BUSY_SOURCE_ID, {
+      storage: runtime.storage,
+      now: runtime.now(),
+      transactionGuard: async (tx) => {
+        const fence = await tx.get<BusySourceReplacementFence>(googleBusyFencePath(uid));
+        if (fence?.generation !== fenceGeneration) throw new GoogleConnectError('google_unavailable');
+      },
+    });
     return { disconnected: record !== null };
   } catch (error) {
     throw asConnectError(error);

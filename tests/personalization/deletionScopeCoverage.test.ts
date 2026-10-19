@@ -41,6 +41,7 @@ import {
   INTELLIGENCE_MONITORS,
   INTELLIGENCE_GMAIL_SCANS,
   INTELLIGENCE_SOURCE_MARKERS,
+  INTELLIGENCE_AUTO_ADDS,
   MEMORY,
   MEMORY_DISMISSALS,
   PROFILE_PROPOSALS,
@@ -84,6 +85,7 @@ const PURGED: ReadonlySet<string> = new Set([
   INTELLIGENCE_MONITORS,
   INTELLIGENCE_GMAIL_SCANS,
   INTELLIGENCE_SOURCE_MARKERS,
+  INTELLIGENCE_AUTO_ADDS,
 ]);
 
 /**
@@ -216,6 +218,16 @@ const KEPT_BECAUSE: Record<string, string> = {
     + 'is restated in full by the next sync, so purging it here would answer "forget what you '
     + 'worked out about me" by deleting something for fifteen minutes. Disconnect is the button '
     + 'that means this, and account deletion takes it with everything else.',
+  calendarChoice:
+    'content-free enrollment generations and purge fencing; keeping it prevents an older build from resuming unchosen calendar uploads after a personalization purge.',
+  busySourceFences:
+    'content-free operation generations and leases that prevent stale calendar writers from recreating removed busy time.',
+  registeredDeviceSources:
+    'content-free phone identities and secret hashes used to authorize selected-calendar uploads; removing them would reopen the account to unregistered sources.',
+  retiredDeviceSources:
+    'content-free permanent revocation tombstones; clearing them would let an explicitly removed phone identity return.',
+  deviceStaleState:
+    'bounded source identifiers, generations and timestamps used only to fail closed when a registered phone calendar is stale.',
   icsFeeds:
     'the calendar feeds the user subscribed to by pasting a link (UC-3.4, #188) — a label, a '
     + 'toggle, refresh bookkeeping and the feed URL encrypted. A subscription the user made, not a '

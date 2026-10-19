@@ -21,6 +21,7 @@ import {
   ICS_FEEDS,
   INCIDENTS,
   PROVIDER_CONNECTIONS,
+  REGISTERED_DEVICE_SOURCES,
   PROVIDER_CREDENTIALS,
   PROVIDER_OAUTH_STATES,
   GOOGLE_PICKER_TICKETS,
@@ -171,7 +172,10 @@ test('operator fields are dropped from the records that carry them, and nothing 
   assert.deepEqual(collections[INCIDENTS]![0]!.data, { incidentId: 'inc_1', participantId: OWNER, status: 'open' });
   assert.deepEqual(collections[ICS_FEEDS]![0]!.data, { label: 'Moodle', status: 'ok' });
   assert.deepEqual(collections[PROVIDER_CONNECTIONS]![0]!.data, { provider: 'google' });
-  assert.deepEqual(Object.keys(EXPORT_INTERNAL_FIELDS).sort(), [ICS_FEEDS, INCIDENTS, JOBS, PROVIDER_CONNECTIONS].sort());
+  assert.deepEqual(
+    Object.keys(EXPORT_INTERNAL_FIELDS).sort(),
+    [ICS_FEEDS, INCIDENTS, JOBS, PROVIDER_CONNECTIONS, REGISTERED_DEVICE_SOURCES].sort(),
+  );
 });
 
 test('a Firestore Timestamp becomes an instant rather than its internals', () => {

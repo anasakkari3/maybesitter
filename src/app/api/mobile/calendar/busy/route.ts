@@ -15,6 +15,16 @@ import { icsFeedReadStatus } from '../../../../../../lib/calendar/icsFeedStatus'
 import { getStorage, type StoredDoc } from '../../../../../../lib/storage';
 import { BUSY_BLOCKS, ICS_FEEDS, userCol } from '../../../../../../lib/storage/paths';
 import type { IcsFeedDocument } from '../../../../../../lib/calendar/icsFeeds';
+import {
+  CalendarChoiceError,
+  SOURCE_SECRET_HEADER,
+  finishDeviceClear,
+  finishDeviceUploadInTransaction,
+  readCalendarChoice,
+  retireDeviceSource,
+  validateSelectionContinuationInTransaction,
+  validateSelectionContinuation,
+} from '../../../../../../lib/calendar/calendarChoice';
 
 export const dynamic = 'force-dynamic';
 
@@ -209,9 +219,17 @@ export async function POST(request: Request) {
     return mobileError('Invalid JSON request body');
   }
 
+  const record = body && typeof body === 'object' && !Array.isArray(body) ? body as Record<string, unknown> : null;
+  const m5 = record ? {
+    choiceVersion: record.choiceVersion,
+    opId: record.opId,
+    epoch: record.epoch,
+  } : { choiceVersion: undefined, opId: undefined, epoch: undefined };
+  const legacyBody = record ? Object.fromEntries(Object.entries(record).filter(([key]) => !['choiceVersion', 'opId', 'epoch'].includes(key))) : body;
+
   let upload;
   try {
-    upload = parseBusyUpload(body);
+    upload = parseBusyUpload(legacyBody);
   } catch (error) {
     if (error instanceof BusyUploadError) return mobileError(error.message, 400);
     throw error;
@@ -226,11 +244,58 @@ export async function POST(request: Request) {
     allDay: block.allDay,
   }));
 
+  const choice = upload.sourceKind === 'device' ? await readCalendarChoice(user.uid) : null;
+  const sourceSecret = request.headers.get(SOURCE_SECRET_HEADER) ?? '';
+  if (choice) {
+    if (choice.state === 'purging') {
+      return Response.json({ success: false, error: 'calendar_choice_purging' }, { status: 409 });
+    }
+    if (m5.choiceVersion !== 1) {
+      return Response.json({ success: false, error: 'calendar_choice_required' }, { status: 409 });
+    }
+    try {
+      await validateSelectionContinuation(user.uid, upload.sourceId, sourceSecret, 'upload', m5.opId, m5.epoch);
+    } catch (error) {
+      if (error instanceof CalendarChoiceError) {
+        return Response.json({ success: false, error: error.code, ...(error.currentEpoch === undefined ? {} : { currentEpoch: error.currentEpoch }) }, { status: error.code === 'source_secret_invalid' ? 403 : 409 });
+      }
+      if (error instanceof BusyUploadError) return mobileError(error.message, 400);
+      throw error;
+    }
+  }
+
   const now = new Date();
-  await replaceBusyBlocks(user.uid, upload.sourceId, upload.window, blocks, {
-    platform: upload.platform,
-    now,
-  });
+  try {
+    await replaceBusyBlocks(user.uid, upload.sourceId, upload.window, blocks, {
+      platform: upload.platform,
+      now,
+      ...(choice ? {
+        transactionGuard: async (tx: import('../../../../../../lib/storage/storageAdapter').StorageTransaction) => {
+          await validateSelectionContinuationInTransaction(
+            tx, user.uid, upload.sourceId, sourceSecret, 'upload', m5.opId as string, m5.epoch as number,
+          );
+        },
+        finalizeSource: async (
+          tx: import('../../../../../../lib/storage/storageAdapter').StorageTransaction,
+          current: import('../../../../../../lib/calendar/busyBlocks').CalendarSource | null,
+          source: import('../../../../../../lib/calendar/busyBlocks').CalendarSource,
+        ) => finishDeviceUploadInTransaction(
+          tx, user.uid, upload.sourceId, sourceSecret, m5.opId as string, m5.epoch as number, source, current,
+        ),
+      } : {}),
+    });
+  } catch (error) {
+    if (error instanceof CalendarChoiceError) {
+      return Response.json({ success: false, error: error.code, ...(error.currentEpoch === undefined ? {} : { currentEpoch: error.currentEpoch }) }, { status: error.code === 'source_secret_invalid' ? 403 : 409 });
+    }
+    if (error instanceof BusyUploadError) {
+      const code = error.message === 'calendar_choice_purging' ? 'calendar_choice_purging'
+        : error.message === 'calendar_choice_required' ? 'calendar_choice_required'
+          : 'selection_stale';
+      return Response.json({ success: false, error: code }, { status: 409 });
+    }
+    throw error;
+  }
 
   // The window and the time, and no count of anything the user could recognise.
   return Response.json({
@@ -262,15 +327,30 @@ export async function DELETE(request: Request) {
     return mobileAuthErrorResponse(error);
   }
 
-  const sourceId = new URL(request.url).searchParams.get('sourceId');
+  const url = new URL(request.url);
+  const sourceId = url.searchParams.get('sourceId');
   if (sourceId === null || sourceId.trim() === '') {
     return mobileError('sourceId is required', 400);
   }
 
   try {
+    if (url.searchParams.get('revoke') === '1') {
+      const deleted = await retireDeviceSource(user.uid, sourceId);
+      return Response.json({ success: true, deleted });
+    }
+    const choice = await readCalendarChoice(user.uid);
+    if (choice && sourceId.startsWith('device:')) {
+      const epoch = Number(url.searchParams.get('epoch'));
+      const opId = url.searchParams.get('opId') ?? '';
+      await finishDeviceClear(user.uid, sourceId, request.headers.get(SOURCE_SECRET_HEADER) ?? '', opId, epoch);
+      return Response.json({ success: true, deleted: 0 });
+    }
     const result = await deleteBusySource(user.uid, sourceId);
     return Response.json({ success: true, deleted: result.deleted });
   } catch (error) {
+    if (error instanceof CalendarChoiceError) {
+      return Response.json({ success: false, error: error.code, ...(error.currentEpoch === undefined ? {} : { currentEpoch: error.currentEpoch }) }, { status: error.code === 'source_secret_invalid' ? 403 : 409 });
+    }
     if (error instanceof BusyUploadError) return mobileError(error.message, 400);
     throw error;
   }
