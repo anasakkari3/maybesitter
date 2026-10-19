@@ -228,7 +228,9 @@ test('every mobile route file exists and is enumerated', () => {
   // account-scoped proposal and therefore shares the mobile auth boundary.
   // One hundred twenty with M4b: capabilities, held-items, the football-held
   // decision, evening-impact decision, and commitment postpone-slot routes.
-  assert.equal(files.length, 125, `found:\n${files.join('\n')}`);
+  // M5a adds the collection route and the idempotent per-record removal route
+  // under `/api/mobile/intelligence/added`.
+  assert.equal(files.length, 127, `found:\n${files.join('\n')}`);
 });
 
 test('every mobile route handler runs an authentication guard before anything else', () => {

@@ -122,16 +122,25 @@ export interface StoredDoc<T> {
   data: T;
 }
 
-export type WhereOperator = '==' | '<' | '<=' | '>' | '>=';
+export type WhereOperator = '==' | '<' | '<=' | '>' | '>=' | 'in';
+
+export interface ListOrder {
+  field: string;
+  direction?: 'asc' | 'desc';
+}
 
 export interface ListOptions {
   limit?: number;
-  orderBy?: { field: string; direction?: 'asc' | 'desc' };
+  orderBy?: ListOrder | readonly ListOrder[];
   where?: Array<[field: string, op: WhereOperator, value: unknown]>;
+  /** Values for the ordered fields, followed by the document-id tiebreak. */
+  startAfter?: readonly unknown[];
 }
 
 export interface StorageReader {
   get<T>(path: string): Promise<T | null>;
+  /** One backend round trip, with results in the same order as `paths`. */
+  getMany?<T>(paths: readonly string[]): Promise<Array<T | null>>;
   list<T>(collectionPath: string, o?: ListOptions): Promise<StoredDoc<T>[]>;
   listGroup<T>(collectionId: string, o?: ListOptions): Promise<Array<StoredDoc<T> & { path: string }>>;
 }

@@ -52,7 +52,6 @@ type MobileTrustAction =
   | { type: 'set_analytics_consent'; granted?: unknown }
   | { type: 'set_calendar_consent'; granted?: unknown }
   | { type: 'set_quiet_mode'; enabled?: unknown }
-  | { type: 'record_first_value' }
   | { type: 'revoke' }
   | { type: 'delete' };
 
@@ -111,8 +110,6 @@ function trustAction(value: unknown, at: string): PilotTrustAction {
     case 'set_quiet_mode':
       if (typeof action.enabled !== 'boolean') throw new Error('enabled must be boolean');
       return { type: action.type, enabled: action.enabled, at };
-    case 'record_first_value':
-      return { type: action.type, at };
     case 'revoke':
       return { type: action.type, at };
     case 'delete':

@@ -120,6 +120,8 @@ export interface IcsFeedDocument {
   etag: string | null;
   lastModified: string | null;
   lastFetchedAt: string | null;
+  /** Last successful full or conditional verification; auto-add freshness uses this. */
+  lastVerifiedAt?: string | null;
   lastFullFetchAt: string | null;
   lastManualRefreshAt: string | null;
   nextFetchAt: string;
@@ -951,6 +953,7 @@ export async function createIcsFeed(uid: string, body: unknown, deps: IcsFeedDep
     etag: fetched.etag,
     lastModified: fetched.lastModified,
     lastFetchedAt: now.toISOString(),
+    lastVerifiedAt: now.toISOString(),
     lastFullFetchAt: now.toISOString(),
     lastManualRefreshAt: null,
     nextFetchAt: iso(now.getTime() + REFRESH_INTERVAL_MS),
@@ -1088,6 +1091,7 @@ export async function refreshIcsFeed(
       consecutiveFailures: 0,
       lastErrorCode: null,
       lastFetchedAt: now.toISOString(),
+      lastVerifiedAt: now.toISOString(),
       nextFetchAt: iso(nowMs + REFRESH_INTERVAL_MS),
     }), guard, deps);
     if ('refused' in committed) return gone(committed.refused);
@@ -1121,6 +1125,7 @@ export async function refreshIcsFeed(
     etag: fetched.etag,
     lastModified: fetched.lastModified,
     lastFetchedAt: now.toISOString(),
+    lastVerifiedAt: now.toISOString(),
     lastFullFetchAt: now.toISOString(),
     nextFetchAt: iso(nowMs + REFRESH_INTERVAL_MS),
   }, guard, now, deps);

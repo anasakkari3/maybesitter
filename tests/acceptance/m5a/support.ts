@@ -195,7 +195,8 @@ export class M5aGoogle {
       const maxResults = Number(url.searchParams.get('maxResults') ?? '100');
       const pageToken = url.searchParams.get('pageToken');
       this.listQueries.push({ q, maxResults, pageToken });
-      if (pageToken && this.rejectPageTokens.has(pageToken)) return json({ error: { code: 400, message: 'Invalid pageToken' } }, 400);
+      // An expired token is refused once; a restarted listing gets fresh tokens (as Gmail does).
+      if (pageToken && this.rejectPageTokens.delete(pageToken)) return json({ error: { code: 400, message: 'Invalid pageToken' } }, 400);
       const window = parseWindow(q);
       const matching = [...this.messages]
         .filter((message) => !window || (Date.parse(message.receivedAt) / 1000 >= window.after && Date.parse(message.receivedAt) / 1000 < window.before))

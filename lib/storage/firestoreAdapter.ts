@@ -164,7 +164,9 @@ function withOptions(query: Query, o: ListOptions | undefined): Query {
   for (const [field, op, value] of o?.where ?? []) {
     built = built.where(field, op, value);
   }
-  if (o?.orderBy) built = built.orderBy(o.orderBy.field, o.orderBy.direction ?? 'asc');
+  const orders = o?.orderBy ? (Array.isArray(o.orderBy) ? o.orderBy : [o.orderBy]) : [];
+  for (const order of orders) built = built.orderBy(order.field, order.direction ?? 'asc');
+  if (o?.startAfter) built = built.startAfter(...o.startAfter);
   if (typeof o?.limit === 'number') built = built.limit(o.limit);
   return built;
 }
@@ -190,6 +192,13 @@ class FirestoreTransaction implements StorageTransaction {
     this.assertReadable('get');
     const snapshot = await this.tx.get(this.db.doc(requireDocumentPath(path)));
     return snapshot.exists ? (snapshot.data() as T) : null;
+  }
+
+  async getMany<T>(paths: readonly string[]): Promise<Array<T | null>> {
+    this.assertReadable('getMany');
+    if (paths.length === 0) return [];
+    const snapshots = await this.tx.getAll(...paths.map((path) => this.db.doc(requireDocumentPath(path))));
+    return snapshots.map((snapshot) => snapshot.exists ? snapshot.data() as T : null);
   }
 
   async list<T>(collectionPath: string, o?: ListOptions): Promise<StoredDoc<T>[]> {
@@ -233,6 +242,12 @@ export class FirestoreStorageAdapter implements StorageAdapter {
   async get<T>(path: string): Promise<T | null> {
     const snapshot = await this.db.doc(requireDocumentPath(path)).get();
     return snapshot.exists ? (snapshot.data() as T) : null;
+  }
+
+  async getMany<T>(paths: readonly string[]): Promise<Array<T | null>> {
+    if (paths.length === 0) return [];
+    const snapshots = await this.db.getAll(...paths.map((path) => this.db.doc(requireDocumentPath(path))));
+    return snapshots.map((snapshot) => snapshot.exists ? snapshot.data() as T : null);
   }
 
   async list<T>(collectionPath: string, o?: ListOptions): Promise<StoredDoc<T>[]> {

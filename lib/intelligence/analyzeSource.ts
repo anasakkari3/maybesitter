@@ -60,3 +60,30 @@ export async function analyzeSource(
   return putObservations(uid, source, sourceRef, observedAt,
     observations.filter(item => detectPromptInjection(item.evidence) === null), options.storage, options.monitorGuard);
 }
+
+/** The M5a unit keeps validated observations in memory until its fenced commit. */
+export async function analyzeSourceStaged(
+  uid: string,
+  source: ObservationSource,
+  text: string,
+  options: { generate?: ShareStructuredGenerator } = {},
+): Promise<SemanticObservation[]> {
+  const content = text.trim();
+  if (!content || content.length > 12_000) throw new Error('source_text_invalid');
+  try {
+    const generate = options.generate ?? shareLlmProvider(uid, { purpose: 'semantic_observation' });
+    const response = await generate({
+      system: semanticPrompt(),
+      parts: [wrapUntrustedShared(content)],
+      responseSchema: toVertexSchema(SCHEMA),
+      maxOutputTokens: 1_024,
+      timeoutMs: 8_000,
+      retry: false,
+    });
+    return validateSemanticObservations(JSON.parse(response.text), content)
+      .filter(item => detectPromptInjection(item.evidence) === null);
+  } catch {
+    if (source !== 'manual') throw new Error('source_analysis_failed');
+    return [];
+  }
+}

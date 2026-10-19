@@ -44,7 +44,7 @@ import { setRecommendationConsent } from '../../lib/consents/recommendationConse
 import { createStorageFeedbackEventStore } from '../../lib/feedback/feedbackEventStore.ts';
 import { createMemoryStorage } from '../../lib/storage/memoryAdapter.ts';
 import { getStorage, resetStorageForTests, setStorageForTests } from '../../lib/storage/index.ts';
-import { COMMITMENTS, EVENTS, footballClubSyncStateDoc, userDoc, userSubDoc, WATCHER_EVENTS, WATCHERS, ICS_FEEDS, ICS_FEED_ITEMS } from '../../lib/storage/paths.ts';
+import { COMMITMENTS, EVENTS, docIdForKey, footballClubSyncStateDoc, userDoc, userSubDoc, WATCHER_EVENTS, WATCHERS, ICS_FEEDS, ICS_FEED_ITEMS } from '../../lib/storage/paths.ts';
 import { setPersonalizationConsent } from '../../lib/consents/personalizationConsentService.ts';
 import { POST as memorySuggestionPost } from '../../src/app/api/mobile/memory/suggestions/[ruleId]/route.ts';
 import { GET as financialContextGet } from '../../src/app/api/mobile/financial/context/route.ts';
@@ -182,7 +182,9 @@ import { GET as intelligenceInboxGet, POST as intelligenceStatementPost } from '
 import { POST as intelligenceGeneratePost } from '../../src/app/api/mobile/intelligence/generate/route.ts';
 import { POST as intelligenceObservationPost } from '../../src/app/api/mobile/intelligence/observations/[id]/route.ts';
 import { GET as intelligenceMonitorGet, POST as intelligenceMonitorPost } from '../../src/app/api/mobile/intelligence/sources/gmail/monitor/route.ts';
-import { POST as intelligenceGmailScanPost } from '../../src/app/api/mobile/intelligence/sources/gmail/scan/route.ts';
+import { GET as intelligenceGmailScanGet, POST as intelligenceGmailScanPost } from '../../src/app/api/mobile/intelligence/sources/gmail/scan/route.ts';
+import { GET as intelligenceAddedGet } from '../../src/app/api/mobile/intelligence/added/route.ts';
+import { DELETE as intelligenceAddedDelete } from '../../src/app/api/mobile/intelligence/added/[autoAddId]/route.ts';
 import { semanticPrompt } from '../../lib/intelligence/semantic.ts';
 import { POST as googleDrivePickerPost } from '../../src/app/api/mobile/integrations/google/drive/picker/route.ts';
 import { POST as googleDriveImportPost } from '../../src/app/api/mobile/integrations/google/drive/import/route.ts';
@@ -230,6 +232,21 @@ import {
   say as sayM4b,
   TODAY as M4B_TODAY,
 } from '../acceptance/m4b/support.ts';
+import {
+  CHOICE_HEADER as M5A_CHOICE_HEADER,
+  begin as beginM5a,
+  beginGoogle as beginM5aGoogle,
+  callWith as callM5a,
+  connectGoogle as connectM5aGoogle,
+  currentStorage as m5aStorage,
+  end as endM5a,
+  grantCalendarConsent as grantM5aCalendarConsent,
+  scanNew as scanM5aNew,
+  scanResume as scanM5aResume,
+  semanticModel as m5aSemanticModel,
+  setM5aSwitches,
+} from '../acceptance/m5a/support.ts';
+import { commitmentBaselineFingerprint } from '../../lib/intelligence/autoAdds.ts';
 
 const BASE = 'http://127.0.0.1:4321';
 const REFERENCE_TIME = '2026-08-09T08:00:00.000Z';
@@ -3625,6 +3642,14 @@ test('exports the proactive-loop (intelligence) fixtures the Goals and Watching 
       await record('intelligence.generated', 200, await intelligenceGeneratePost(request('/api/mobile/intelligence/generate', { body: {} })));
       await record('intelligence.inbox', 200, await intelligenceInboxGet(request('/api/mobile/intelligence')));
       await record('intelligence.gmailMonitor', 200, await intelligenceMonitorGet(request('/api/mobile/intelligence/sources/gmail/monitor')));
+      await record('intelligence.added', 200, await intelligenceAddedGet(request('/api/mobile/intelligence/added?limit=20')));
+      await record('intelligence.addedMissing', 404, await intelligenceAddedDelete(
+        request(`/api/mobile/intelligence/added/${'0'.repeat(64)}`, { method: 'DELETE' }),
+        { params: Promise.resolve({ autoAddId: '0'.repeat(64) }) },
+      ));
+      await record('intelligence.gmailScanUnavailable', 404, await intelligenceGmailScanGet(
+        request('/api/mobile/intelligence/sources/gmail/scan'),
+      ));
       // «آه، هيك صح» on a card the panel shows.
       const observationId = (analyzed.observations as Array<{ id: string }>)[0]!.id;
       // The linked memory id is a content hash that differs run to run; pinned
@@ -3640,6 +3665,174 @@ test('exports the proactive-loop (intelligence) fixtures the Goals and Watching 
     resetProviderForTests();
     teardown();
   }
+});
+
+test('exports the M5a fixtures from the real handlers', async () => {
+  const scenario = async (run: (uid: string) => Promise<void>) => {
+    const uid = await beginM5a();
+    try { await run(uid); } finally { endM5a(); }
+  };
+  const activeChoice = { v: 1, generation: 1, state: 'active', enrolledAt: REFERENCE_TIME, purge: null };
+  const secret = 'fixture-source-secret-fixture-source-secret';
+  const register = (uid: string, installation = 'fixture-phone') => callM5a(uid, 'calendar/busy/register', 'POST', {
+    body: { sourceInstallationId: installation, sourceSecret: secret, registrationId: `registration-${installation}` },
+    headers: M5A_CHOICE_HEADER,
+  });
+  const intent = (uid: string, sourceId: string, operation: 'upload' | 'clear', intentId: string) => callM5a(uid, 'calendar/busy/intent', 'POST', {
+    body: { sourceId, intentId, operation, selectionDigest: 'a'.repeat(64), choiceVersion: 1 },
+    headers: { ...M5A_CHOICE_HEADER, 'X-MaybeSitter-Source-Secret': secret },
+  });
+  const sourcePath = (uid: string, sourceId: string) => `users/${uid}/calendarSources/${docIdForKey(sourceId)}`;
+  const scanPath = (uid: string, kind: 'manualV2' | 'dailyV2' = 'manualV2') => `users/${uid}/intelligenceGmailScans/${kind}`;
+
+  await scenario(async (uid) => {
+    await recordM4b('capabilities.m5a.on', 200, await callM5a(uid, 'capabilities/m5a', 'GET'));
+    setM5aSwitches({ calendarChoiceKilled: true, emailSourcesKilled: true });
+    await recordM4b('capabilities.m5a.off', 200, await callM5a(uid, 'capabilities/m5a', 'GET'));
+  });
+
+  await scenario(async (uid) => {
+    await recordM4b('calendar.choice.null', 200, await callM5a(uid, 'calendar/choice', 'GET'));
+    await recordM4b('calendar.choice.post.active', 200, await callM5a(uid, 'calendar/choice', 'POST'));
+    await recordM4b('calendar.choice.enrolled', 200, await callM5a(uid, 'calendar/choice', 'GET'));
+  });
+
+  await scenario(async (uid) => {
+    await m5aStorage().set(`users/${uid}/calendarChoice/state`, {
+      v: 1, generation: 1, state: 'purging', enrolledAt: REFERENCE_TIME,
+      purge: { owner: 'other-fixture-runner', leaseUntil: '2099-01-01T00:00:00.000Z', cursor: null, version: 1 },
+    });
+    await recordM4b('calendar.choice.post.purging', 200, await callM5a(uid, 'calendar/choice', 'POST'));
+  });
+
+  await scenario(async (uid) => {
+    await m5aStorage().set(`users/${uid}/calendarChoice/state`, activeChoice);
+    await grantM5aCalendarConsent(uid);
+    const registered = await recordM4b('calendar.register.ok', 200, await register(uid));
+    const sourceId = registered.sourceId as string;
+    await recordM4b('calendar.sources.registered', 200, await callM5a(uid, 'calendar/busy/sources', 'GET'));
+    const uploadIntent = await recordM4b('calendar.intent.ok', 200, await intent(uid, sourceId, 'upload', 'intent-upload'));
+    await recordM4b('calendar.sources.uploading', 200, await callM5a(uid, 'calendar/busy/sources', 'GET'));
+    const uploadBody = { sourceId, platform: 'ios', windowStart: '2026-10-19T00:00:00.000Z', windowEnd: '2026-10-26T00:00:00.000Z',
+      blocks: [], choiceVersion: 1, opId: uploadIntent.opId, epoch: uploadIntent.epoch };
+    await recordM4b('calendar.upload.continuation', 200, await callM5a(uid, 'calendar/busy', 'POST', {
+      body: uploadBody, headers: { ...M5A_CHOICE_HEADER, 'X-MaybeSitter-Source-Secret': secret },
+    }));
+    await recordM4b('calendar.sources.active', 200, await callM5a(uid, 'calendar/busy/sources', 'GET'));
+    const registrationPath = `users/${uid}/registeredDeviceSources/${docIdForKey(sourceId)}`;
+    const registration = await m5aStorage().get<Record<string, unknown>>(registrationPath);
+    const source = await m5aStorage().get<Record<string, unknown>>(sourcePath(uid, sourceId));
+    await m5aStorage().set(registrationPath, { ...registration, state: 'retiring' });
+    await m5aStorage().set(sourcePath(uid, sourceId), { ...source, status: 'retiring' });
+    await recordM4b('calendar.sources.retiring', 200, await callM5a(uid, 'calendar/busy/sources', 'GET'));
+    await m5aStorage().set(registrationPath, { ...registration, state: 'active' });
+    await m5aStorage().set(sourcePath(uid, sourceId), { ...source, status: 'active' });
+    const staleIntent = await intent(uid, sourceId, 'upload', 'intent-stale');
+    await intent(uid, sourceId, 'upload', 'intent-newer');
+    await recordM4b('calendar.intent.selection-stale', 409, await callM5a(uid, 'calendar/busy', 'POST', {
+      body: { ...uploadBody, opId: staleIntent.body.opId, epoch: staleIntent.body.epoch },
+      headers: { ...M5A_CHOICE_HEADER, 'X-MaybeSitter-Source-Secret': secret },
+    }));
+    const clearIntent = await recordM4b('calendar.intent.clear', 200, await intent(uid, sourceId, 'clear', 'intent-clear'));
+    await recordM4b('calendar.sources.clearing', 200, await callM5a(uid, 'calendar/busy/sources', 'GET'));
+    await recordM4b('calendar.clear.continuation', 200, await callM5a(uid, 'calendar/busy', 'DELETE', {
+      query: { sourceId, opId: clearIntent.opId as string, epoch: String(clearIntent.epoch) },
+      headers: { ...M5A_CHOICE_HEADER, 'X-MaybeSitter-Source-Secret': secret },
+    }));
+    await recordM4b('calendar.register.revoke', 200, await callM5a(uid, 'calendar/busy', 'DELETE', {
+      query: { sourceId, revoke: '1' }, headers: M5A_CHOICE_HEADER,
+    }));
+    await recordM4b('calendar.choice.revoked', 200, await callM5a(uid, 'calendar/choice', 'GET', { query: { sourceId } }));
+    await recordM4b('calendar.register.source-revoked', 409, await register(uid));
+  });
+
+  await scenario(async (uid) => {
+    await m5aStorage().set(`users/${uid}/calendarChoice/state`, activeChoice);
+    for (let index = 0; index < 20; index += 1) await m5aStorage().set(
+      `users/${uid}/registeredDeviceSources/fixture-${index}`,
+      { sourceId: `device:fixture-${index}`, sourceInstallationId: `fixture-${index}`, secretHash: '0'.repeat(64),
+        secretVersion: 1, state: 'active', registeredAt: REFERENCE_TIME },
+    );
+    await recordM4b('calendar.register.too-many-phones', 409, await register(uid, 'phone-21'));
+  });
+
+  const baseScan = (status: 'running' | 'complete' | 'failed', patch: Record<string, unknown> = {}) => ({
+    scanId: 'fixture-scan', kind: 'manual', status, origin: 'manual', providerAccountId: 'fixture@example.com', emailEpoch: 0,
+    query: 'after:1 before:2', from: '2026-10-12T10:00:00.000Z', until: REFERENCE_TIME, timezone: 'Asia/Jerusalem',
+    startedAt: REFERENCE_TIME, finishedAt: status === 'complete' ? REFERENCE_TIME : null,
+    failedAt: status === 'failed' ? REFERENCE_TIME : null, failure: status === 'failed' ? 'source_unavailable' : null,
+    pageToken: null, page: null, leaseOwner: null, leaseUntil: null, queued: null, nextEligibleAt: REFERENCE_TIME,
+    messagesRead: 2, messagesUnavailable: 1, messagesTrimmed: 0, observationsFound: 1, addedFromEmail: 0,
+    ...patch,
+  });
+
+  await scenario(async (uid) => {
+    for (const status of ['running', 'complete'] as const) {
+      await m5aStorage().set(scanPath(uid), baseScan(status));
+      await recordM4b(`intelligence.scan.${status}`, 200, await callM5a(uid, 'intelligence/sources/gmail/scan', 'GET'));
+    }
+    for (const failure of ['reconnect_needed', 'source_unavailable', 'analysis_unavailable', 'monitoring_off']) {
+      await m5aStorage().set(scanPath(uid), baseScan('failed', { failure }));
+      await recordM4b(`intelligence.scan.failed.${failure}`, 200, await callM5a(uid, 'intelligence/sources/gmail/scan', 'GET'));
+    }
+    await m5aStorage().set(scanPath(uid), baseScan('running', { queued: {
+      scanId: 'queued-fixture', origin: 'backfill', from: '2026-10-12T10:00:00.000Z', until: REFERENCE_TIME,
+      acceptedAt: REFERENCE_TIME, timezone: 'Asia/Jerusalem', providerAccountId: 'fixture@example.com', emailEpoch: 0,
+    } }));
+    await recordM4b('intelligence.scan.queued', 200, await callM5a(uid, 'intelligence/sources/gmail/scan', 'GET'));
+    await m5aStorage().set(scanPath(uid, 'dailyV2'), { ...baseScan('running'), status: 'held', day: '2026-10-18', heldAt: REFERENCE_TIME, reason: 'no_timezone' });
+    await recordM4b('intelligence.scan.daily-held', 200, await callM5a(uid, 'intelligence/sources/gmail/scan', 'GET'));
+  });
+
+  await scenario(async (uid) => {
+    beginM5aGoogle(m5aSemanticModel(() => []));
+    await connectM5aGoogle(uid, 'gmail');
+    const created = await recordM4b('intelligence.scan.post.new', 200, await scanM5aNew(uid));
+    const scanId = (created.scan as { scanId: string }).scanId;
+    await m5aStorage().set(scanPath(uid), baseScan('failed', { scanId }));
+    await recordM4b('intelligence.scan.post.resume', 200, await scanM5aResume(uid, scanId));
+    await recordM4b('intelligence.scan.post.stale-resume', 200, await scanM5aResume(uid, 'stale-fixture-scan'));
+    await recordM4b('intelligence.monitor.get', 200, await callM5a(uid, 'intelligence/sources/gmail/monitor', 'GET'));
+    await recordM4b('intelligence.monitor.post', 200, await callM5a(uid, 'intelligence/sources/gmail/monitor', 'POST', {
+      body: { enabled: true, enrollM5: true, timezone: 'Asia/Jerusalem' },
+    }));
+  });
+
+  await scenario(async (uid) => {
+    const statuses = ['active', 'completed', 'dropped', 'archived', 'active', 'active'] as const;
+    for (let index = 0; index < statuses.length; index += 1) {
+      const id = `fixture-commitment-${index}`;
+      const autoAddId = String(index + 1).padStart(64, '0');
+      const row = {
+        id, kind: 'task', title: `Fixture email item ${index}`, description: null, person: null, status: statuses[index],
+        priority: { level: 'normal', source: 'inferred', pressureAllowed: false, pressureLevel: 'none' },
+        category: null, categorySource: 'inferred',
+        timeSpec: { kind: 'due_by', dueAt: `2026-10-${20 + index}T08:00:00.000Z`, endAt: null, remindAt: null, allDay: false, timezone: 'UTC' },
+        currentAckState: 'not_seen', postponedUntil: null, createdAt: REFERENCE_TIME, updatedAt: REFERENCE_TIME,
+        confirmedAt: REFERENCE_TIME, completedAt: statuses[index] === 'completed' ? REFERENCE_TIME : null,
+        droppedAt: statuses[index] === 'dropped' ? REFERENCE_TIME : null,
+        addedFrom: { kind: 'email_self_reply', autoAddId },
+      } as const;
+      await m5aStorage().set(`users/${uid}/commitments/${id}`, row);
+      await m5aStorage().set(`users/${uid}/intelligenceAutoAdds/${autoAddId}`, {
+        autoAddId, providerAccountId: 'fixture@example.com', commitmentId: id, observationIds: [], evidence: `I will do fixture ${index}`,
+        baseline: index === 4 ? 'edited-baseline' : commitmentBaselineFingerprint(row),
+        at: new Date(Date.parse(REFERENCE_TIME) - index * 60_000).toISOString(), removedAt: null,
+      });
+    }
+    const firstPage = await recordM4b('intelligence.added.items-page-one', 200,
+      await callM5a(uid, 'intelligence/added', 'GET', { query: { limit: '5' } }));
+    await recordM4b('intelligence.added.items-page-two', 200, await callM5a(uid, 'intelligence/added', 'GET', {
+      query: { limit: '5', cursor: firstPage.nextCursor as string },
+    }));
+    await recordM4b('commitment.added-from', 200, await callM5a(uid, 'commitments/[id]', 'GET', { params: { id: 'fixture-commitment-0' } }));
+    await recordM4b('intelligence.added.delete-ok', 200, await callM5a(uid, 'intelligence/added/[autoAddId]', 'DELETE', {
+      params: { autoAddId: '1'.padStart(64, '0') },
+    }));
+    await recordM4b('intelligence.added.delete-edited', 409, await callM5a(uid, 'intelligence/added/[autoAddId]', 'DELETE', {
+      params: { autoAddId: '5'.padStart(64, '0') },
+    }));
+  });
 });
 
 test('exports the Google connection fixtures', async () => {

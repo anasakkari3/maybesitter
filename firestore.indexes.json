@@ -1,6 +1,15 @@
 {
   "indexes": [
     {
+      "collectionGroup": "intelligenceAutoAdds",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "removedAt", "order": "ASCENDING" },
+        { "fieldPath": "at", "order": "DESCENDING" },
+        { "fieldPath": "autoAddId", "order": "DESCENDING" }
+      ]
+    },
+    {
       "collectionGroup": "busyBlocks",
       "queryScope": "COLLECTION",
       "fields": [

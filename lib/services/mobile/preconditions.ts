@@ -62,12 +62,15 @@ export function ifMatchFrom(request: { headers: Headers }): string | undefined {
  * state, which is the difference between "your edit was refused" and "somebody
  * else changed this, here it is".
  */
-export function staleCommitmentResponse(current: Commitment): Response {
+export function staleCommitmentResponse(
+  current: Commitment,
+  addedFrom?: { kind: 'email_self_reply'; evidence: string },
+): Response {
   return Response.json(
     {
       success: false,
       reason: 'stale_commitment',
-      current: commitmentToMobileDto(current),
+      current: commitmentToMobileDto(current, undefined, undefined, addedFrom),
     },
     { status: 409, headers: { ETag: etagFor(current) } },
   );

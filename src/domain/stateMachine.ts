@@ -192,6 +192,8 @@ export interface Commitment {
   confirmedAt: string | null;
   completedAt: string | null;
   droppedAt: string | null;
+  /** Internal provenance pointer; mobile DTOs hydrate evidence from its record. */
+  addedFrom?: { kind: 'email_self_reply'; autoAddId: string };
 }
 
 export interface Reminder {

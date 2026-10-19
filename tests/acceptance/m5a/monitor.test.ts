@@ -161,6 +161,17 @@ test('R4.2: the sweep job route exists and is scheduler-authenticated', async ()
     assert.fail(`the sweep job route is not built (${(error as Error).message.split('\n')[0]})`);
   }
   const post = module.POST as (request: Request) => Promise<Response>;
-  const refused = await post(new Request('http://localhost:3000/api/internal/jobs/intelligence-gmail-sweep', { method: 'POST' }));
-  assert.ok(refused.status === 401 || refused.status === 403, `an unauthenticated tick must be refused (${refused.status})`);
+  // Scheduler auth configured, as in every deployed environment, so the
+  // refusal under test is the missing credential (unconfigured is 503 by the
+  // shared scheduler contract).
+  const saved = { sa: process.env.MAYBESITTER_SCHEDULER_SA_EMAIL, aud: process.env.MAYBESITTER_INTERNAL_AUDIENCE };
+  process.env.MAYBESITTER_SCHEDULER_SA_EMAIL = 'scheduler@example.iam.gserviceaccount.com';
+  process.env.MAYBESITTER_INTERNAL_AUDIENCE = 'https://example.test';
+  try {
+    const refused = await post(new Request('http://localhost:3000/api/internal/jobs/intelligence-gmail-sweep', { method: 'POST' }));
+    assert.ok(refused.status === 401 || refused.status === 403, `an unauthenticated tick must be refused (${refused.status})`);
+  } finally {
+    if (saved.sa === undefined) delete process.env.MAYBESITTER_SCHEDULER_SA_EMAIL; else process.env.MAYBESITTER_SCHEDULER_SA_EMAIL = saved.sa;
+    if (saved.aud === undefined) delete process.env.MAYBESITTER_INTERNAL_AUDIENCE; else process.env.MAYBESITTER_INTERNAL_AUDIENCE = saved.aud;
+  }
 });
