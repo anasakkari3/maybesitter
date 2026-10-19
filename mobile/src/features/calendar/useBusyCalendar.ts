@@ -249,6 +249,8 @@ export interface BusyCalendarState {
    * sent then (M5A-R51-001).
    */
   chooseCalendars(included: readonly string[]): Promise<void>;
+  /** One calendar on or off, applied to the newest selection there is (M5A-R3-005). */
+  toggleCalendar(calendarId: string, on: boolean): Promise<void>;
   /** M5a «رجّع هاد التلفون»: true when this phone is a source again. */
   rejoin(): Promise<boolean>;
 }
@@ -364,7 +366,9 @@ export function useBusyCalendar(): BusyCalendarState {
     }
   }, [client, consentNow]);
 
-  const chooseCalendars = useCallback(async (included: readonly string[]): Promise<void> => {
+  const chooseCalendars = useCallback(async (
+    included: readonly string[] | ((current: readonly string[]) => readonly string[]),
+  ): Promise<void> => {
     const current = latest.current;
     const generation = passGeneration;
     const accountCurrent = () => passGeneration === generation
@@ -378,6 +382,10 @@ export function useBusyCalendar(): BusyCalendarState {
     });
     void client.invalidateQueries({ queryKey: busyQueryKeys.blocks(current.uid) });
   }, [client, consentNow]);
+
+  const toggleCalendar = useCallback((calendarId: string, on: boolean) => chooseCalendars((current) => (on
+    ? [...current.filter((id) => id !== calendarId), calendarId]
+    : current.filter((id) => id !== calendarId))), [chooseCalendars]);
 
   const rejoin = useCallback(async (): Promise<boolean> => {
     const back = await rejoinPhone(latest.current.uid);
@@ -460,7 +468,7 @@ export function useBusyCalendar(): BusyCalendarState {
     return () => subscription.remove();
   }, [syncNow]);
 
-  return { syncNow, disconnect, chooseCalendars, rejoin };
+  return { syncNow, disconnect, chooseCalendars, toggleCalendar, rejoin };
 }
 
 /**
@@ -470,11 +478,24 @@ export function useBusyCalendar(): BusyCalendarState {
  * phone can choose again (M5A-R11-002); a never-enrolled phone deletes its
  * legacy source as before.
  */
-async function deleteThisPhonesBusy(uid: string): Promise<void> {
+export async function deleteThisPhonesBusy(uid: string): Promise<void> {
   if (uid !== 'signed-out' && (await loadChoiceEnrolledAt(uid).catch(() => 'unknown')) !== null) {
     const source = await loadSource(uid);
-    const credential = await readSourceCredential(uid).catch(() => null);
-    if (!source || !credential || credential.sourceInstallationId !== source.sourceInstallationId) return;
+    let credential;
+    try {
+      credential = await readSourceCredential(uid);
+    } catch {
+      // The keychain did not answer: whether this phone has busy time on the
+      // account is unknown, so the delete is not reported as done (M5A-R3-002).
+      throw new Error('the source credential could not be read');
+    }
+    // Never registered: nothing of this phone's is on the account.
+    if (!source && !credential) return;
+    // Registered, but this phone can no longer prove it is that source: the
+    // server half did not happen. The other-phones list can still remove it.
+    if (!source || !credential || credential.sourceInstallationId !== source.sourceInstallationId) {
+      throw new Error('this phone cannot clear its source');
+    }
     const intent = await postBusyIntent({
       sourceId: source.sourceId, intentId: Crypto.randomUUID(), operation: 'clear', selectionDigest: 'disconnect',
     }, credential.sourceSecret, { asUid: uid });

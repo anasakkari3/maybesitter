@@ -247,6 +247,28 @@ export function clearCachedBusyBlocks(): Promise<void> {
   });
 }
 
+/**
+ * M5a: clears the cache unless another account owns it (M5A-R53-002). A late
+ * operation of account A never deletes the blocks account B just read; an
+ * unreadable envelope is removed, which is the safe direction.
+ */
+export function clearCachedBusyBlocksOf(owner: string): Promise<void> {
+  return serialized(async () => {
+    try {
+      let stored: { owner: string } | null = null;
+      try {
+        stored = await readEnvelope();
+      } catch {
+        stored = null;
+      }
+      if (stored && stored.owner !== owner) return;
+      await AsyncStorage.multiRemove([BUSY_BLOCKS_KEY, ...LEGACY_BUSY_KEYS]);
+    } catch {
+      // The generation bump already hides what removal could not.
+    }
+  });
+}
+
 /** When this device last uploaded `owner`'s window, or null. */
 export async function loadBusySyncedAt(owner: string): Promise<number | null> {
   return (await loadDeviceBusy(owner)).syncedAt;

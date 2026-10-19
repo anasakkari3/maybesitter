@@ -77,7 +77,7 @@ import {
   readSourceCredential,
 } from '../../lib/deviceSettings/sourceCredential';
 import {
-  clearCachedBusyBlocks,
+  clearCachedBusyBlocksOf,
   saveBusySyncedAt,
   saveCachedBusyBlocks,
   uncoverCachedBusyBlocks,
@@ -299,7 +299,7 @@ async function finishEnrolment(uid: string, enrolledAt: string): Promise<Calenda
     return 'blocked';
   }
   // Busy time read under the old opt-out rule never shows again.
-  await clearCachedBusyBlocks();
+  await clearCachedBusyBlocksOf(uid);
   patch(uid, { enrolled: true, loaded: true });
   return 'just_enrolled';
 }
@@ -341,13 +341,22 @@ async function registerOnce(uid: string): Promise<SourceOutcome> {
     patch(uid, { saveFailed: true });
     return { kind: 'no_store' };
   }
+  // The removal barrier is read again after every wait: a removal that lands
+  // while this resolver runs stops it before it registers or hands out a
+  // secret (M5A-R3-001).
+  if (await barrierSet(uid)) return { kind: 'removed' };
   const stored = await loadSource(uid);
   if (stored && stored.sourceInstallationId === credential.sourceInstallationId) {
+    if (await barrierSet(uid)) return { kind: 'removed' };
     return { kind: 'ready', sourceId: stored.sourceId, secret: credential.sourceSecret };
   }
   if (!signedInAs(uid)) return { kind: 'failed' };
   try {
     const answer = await registerBusySource(credential, { asUid: uid });
+    if (await barrierSet(uid)) {
+      await deleteSourceCredential(uid);
+      return { kind: 'removed' };
+    }
     await saveSource(uid, { sourceId: answer.sourceId, sourceInstallationId: credential.sourceInstallationId });
     patch(uid, { tooManyPhones: false, sourceId: answer.sourceId });
     return { kind: 'ready', sourceId: answer.sourceId, secret: credential.sourceSecret };
@@ -357,7 +366,7 @@ async function registerOnce(uid: string): Promise<SourceOutcome> {
       return { kind: 'too_many' };
     }
     if (error instanceof M5aRefusedError && error.code === 'source_revoked') {
-      await markPhoneRemoved(uid);
+      await markPhoneRemoved(uid, { fromRegistration: true });
       return { kind: 'revoked' };
     }
     return { kind: 'failed' };
@@ -378,8 +387,17 @@ async function registeredSource(uid: string): Promise<{ kind: 'ready'; sourceId:
   return { kind: 'ready', sourceId: stored.sourceId, secret: credential.sourceSecret };
 }
 
+/** The removal barrier, read now; unreadable counts as set. */
+async function barrierSet(uid: string): Promise<boolean> {
+  try {
+    return await loadPhoneRemoved(uid);
+  } catch {
+    return true;
+  }
+}
+
 /** The barrier first, then the credential (M5A-R59-001). */
-async function markPhoneRemoved(uid: string): Promise<void> {
+async function markPhoneRemoved(uid: string, options: { fromRegistration?: boolean } = {}): Promise<void> {
   try {
     await savePhoneRemoved(uid, new Date());
   } catch {
@@ -388,9 +406,12 @@ async function markPhoneRemoved(uid: string): Promise<void> {
     patch(uid, { removed: true });
     return;
   }
+  // A registration already under way finishes against the barrier (it reads
+  // it again) before the credential goes, so nothing mints after the delete.
+  if (!options.fromRegistration) await registrations.get(uid)?.catch(() => undefined);
   await deleteSourceCredential(uid);
   await removeSource(uid);
-  await clearCachedBusyBlocks();
+  await clearCachedBusyBlocksOf(uid);
   patch(uid, { removed: true, sourceId: null });
 }
 
@@ -555,7 +576,7 @@ async function readAndUpload(
   let blocks: DeviceBusyBlock[];
   try {
     const own = new Set(await loadWrittenEventIds(uid));
-    if (!stillCurrent()) return GONE;
+    if (!stillCurrent() || await barrierSet(uid)) return GONE;
     blocks = await deviceCalendar.fetchBusyBlocks({ ownEventIds: own, now, includedCalendarIds: new Set(included) });
   } catch {
     if (!stillCurrent()) return GONE;
@@ -614,45 +635,64 @@ export class SelectionNotSavedError extends Error {
  * first, and nothing is sent when that fails (M5A-R51-001, M5A-011). The rest
  * runs in the background; the switch shows the new state from here.
  */
-export async function startSelection(uid: string, included: readonly string[], context: Omit<M5aPassContext, 'justEnrolled' | 'lastSyncedAt' | 'due'>): Promise<void> {
+export async function startSelection(
+  uid: string,
+  change: readonly string[] | ((current: readonly string[]) => readonly string[]),
+  context: Omit<M5aPassContext, 'justEnrolled' | 'lastSyncedAt' | 'due'>,
+): Promise<void> {
   // Numbered before the first await, in tap order: a later tap's record is
-  // never overwritten by an earlier one whose digest happened to finish last
-  // (M5A-R54-001).
+  // never overwritten by an earlier one (M5A-R54-001).
   selectionSequence += 1;
   const sequence = selectionSequence;
-  const next = [...new Set(included)];
-  const record: PendingSelection = {
-    intentId: randomId(),
-    included: next,
-    selectionDigest: await digestOf(next),
-    operation: next.length === 0 ? 'clear' : 'upload',
-    epoch: null,
-    opId: null,
-  };
-  const saved = await underPendingLock(uid, async () => {
-    if (sequence < (savedSequence.get(uid) ?? 0)) return 'superseded' as const;
+  const current = () => signedInAs(uid) && context.accountCurrent();
+  const outcome = await underPendingLock(uid, async () => {
+    if (sequence < (savedSequence.get(uid) ?? 0)) return { kind: 'superseded' as const };
+    // A toggle is applied to the newest state there is — what is being
+    // applied, else what is applied — read here, under the lock, so two quick
+    // taps never both start from the same stale list (M5A-R3-005).
+    let next: string[];
+    try {
+      const base = (await loadPendingSelection(uid))?.included ?? await loadIncludedCalendarIds(uid);
+      next = [...new Set(typeof change === 'function' ? change(base) : change)];
+    } catch {
+      return { kind: 'failed' as const };
+    }
+    const record: PendingSelection = {
+      intentId: randomId(),
+      included: next,
+      selectionDigest: await digestOf(next),
+      operation: next.length === 0 ? 'clear' : 'upload',
+      epoch: null,
+      opId: null,
+    };
+    // The account this tap was made in, still (M5A-R53-002).
+    if (!current()) return { kind: 'superseded' as const };
     try {
       await savePendingSelection(uid, record);
+      // Durably a new generation before the new state is shown (R1.1c): the
+      // old cache never matches again, even if removing it fails.
+      await bumpInclusionGeneration(uid);
     } catch {
-      return 'failed' as const;
+      return { kind: 'failed' as const };
     }
     savedSequence.set(uid, sequence);
     // Any read or upload still running for an older selection writes nothing more.
     selectionGeneration += 1;
-    return 'saved' as const;
+    return { kind: 'saved' as const, record };
   });
-  // A newer tap already holds the record: this one has nothing left to do.
-  if (saved === 'superseded') return;
-  if (saved === 'failed') {
+  // A newer tap already holds the record, or the account changed: nothing left to do.
+  if (outcome.kind === 'superseded') return;
+  if (outcome.kind === 'failed') {
     patch(uid, { saveFailed: true });
     throw new SelectionNotSavedError();
   }
   // The old selection's busy time leaves the phone before the new state is
   // shown (R1.1c): a deselected calendar's blocks are gone at once, and
   // nothing is shown until the new selection's read lands.
-  await clearCachedBusyBlocks();
-  patch(uid, { pending: record, saveFailed: false });
-  void continueSelection(uid, record, { ...context, justEnrolled: false, lastSyncedAt: null, due: true });
+  await clearCachedBusyBlocksOf(uid);
+  if (!current()) return;
+  patch(uid, { pending: outcome.record, saveFailed: false });
+  void continueSelection(uid, outcome.record, { ...context, justEnrolled: false, lastSyncedAt: null, due: true });
 }
 
 const continuations = new Map<string, Promise<void>>();
@@ -757,8 +797,8 @@ async function runSelection(uid: string, first: PendingSelection, context: M5aPa
       selectionGeneration += 1;
       return selectionGeneration;
     });
-    if (applied === null) return;
-    await clearCachedBusyBlocks();
+    if (applied === null || !current()) return;
+    await clearCachedBusyBlocksOf(uid);
     patch(uid, { included: record.included });
     const op = { opId: record.opId!, epoch: record.epoch!, sourceId: source.sourceId, secret: source.secret };
     try {

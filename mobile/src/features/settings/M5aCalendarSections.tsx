@@ -73,14 +73,14 @@ export function M5aCalendarSections({
   }, [granted, trustAction]);
 
   const toggle = useCallback(async (calendarId: string, on: boolean) => {
-    const next = on ? [...shown.filter((id) => id !== calendarId), calendarId] : shown.filter((id) => id !== calendarId);
     try {
-      await busyCalendar.chooseCalendars(next);
+      // Applied to the newest selection at save time, not to this render's list (M5A-R3-005).
+      await busyCalendar.toggleCalendar(calendarId, on);
     } catch (error) {
       // The line under the list says it; the switch never moved.
       if (!(error instanceof SelectionNotSavedError)) throw error;
     }
-  }, [busyCalendar, shown]);
+  }, [busyCalendar]);
 
   const googleStatus = google.data;
   // The connected account's address: an LTR run inside the line.

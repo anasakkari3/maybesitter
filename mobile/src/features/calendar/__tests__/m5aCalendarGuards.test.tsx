@@ -10,7 +10,9 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as SecureStore from 'expo-secure-store';
 import { deviceCalendar } from '../deviceCalendar';
 import * as Crypto from 'expo-crypto';
-import { rejoinPhone, startSelection } from '../m5aCalendar';
+import { ensureRegisteredSource, rejoinPhone, startSelection } from '../m5aCalendar';
+import { deleteThisPhonesBusy } from '../useBusyCalendar';
+import { BUSY_BLOCKS_KEY, clearCachedBusyBlocksOf } from '../../../lib/deviceSettings/calendarBusy';
 import { applyIncludedCalendarIds } from '../../../lib/deviceSettings/calendarChoice';
 import {
   ACCOUNT_A,
@@ -134,7 +136,7 @@ describe('rejoin', () => {
 });
 
 describe('selection order', () => {
-  it('REV-002: the later tap wins even when the earlier digest finishes last', async () => {
+  it('REV-002: the later tap wins even when the earlier digest is slow', async () => {
     harness = await prepare();
     await AsyncStorage.setItem(ENROLLED, '2030-03-20T08:00:00.000Z');
     await showBusyHost(harness);
@@ -150,9 +152,12 @@ describe('selection order', () => {
     const context = { uid: UID, accountCurrent: () => true, stillCurrent: () => true, consented: () => true };
     const first = startSelection(UID, ['work'], context);
     const second = startSelection(UID, ['home'], context);
-    await act(async () => { await second; });
-    releaseFirst?.();
-    await act(async () => { await first; });
+    // The earlier tap's digest is slow; the later tap waits its turn and wins.
+    await act(async () => {
+      for (let i = 0; i < 200 && !releaseFirst; i += 1) await Promise.resolve();
+      releaseFirst?.();
+      await Promise.all([first, second]);
+    });
     const pending = JSON.parse((await AsyncStorage.getItem(PENDING)) ?? 'null') as { included: string[] } | null;
     const included = JSON.parse((await AsyncStorage.getItem(INCLUDED)) ?? '[]') as string[];
     // Whatever stage the newer selection reached, nothing of the older one stands.
@@ -168,5 +173,56 @@ describe('selection order', () => {
     });
     await expect(applyIncludedCalendarIds(UID, ['work'])).rejects.toThrow('disk full');
     expect(await AsyncStorage.getItem(`calendar.inclusionGeneration.v1:${UID}`)).toBe('1');
+  });
+});
+
+describe('toggles start from the newest state (M5A-R3-005)', () => {
+  it('two quick toggles keep both: B on, then C on, from a list of A', async () => {
+    harness = await prepare();
+    await AsyncStorage.multiSet([[ENROLLED, '2030-03-20T08:00:00.000Z'], [INCLUDED, JSON.stringify(['a'])]]);
+    await showBusyHost(harness);
+    await settle();
+    const context = { uid: UID, accountCurrent: () => true, stillCurrent: () => true, consented: () => true };
+    const on = (id: string) => (current: readonly string[]) => [...current.filter((x) => x !== id), id];
+    await act(async () => { await Promise.all([startSelection(UID, on('b'), context), startSelection(UID, on('c'), context)]); });
+    const pending = JSON.parse((await AsyncStorage.getItem(PENDING)) ?? 'null') as { included: string[] } | null;
+    const included = JSON.parse((await AsyncStorage.getItem(INCLUDED)) ?? '[]') as string[];
+    expect([...(pending?.included ?? included)].sort()).toEqual(['a', 'b', 'c']);
+  });
+});
+
+describe('inspection r3 (M5A-R3-001/002/004)', () => {
+  it('R3-001: a removal landing during registration stops it before it registers', async () => {
+    harness = await prepare();
+    await AsyncStorage.setItem(ENROLLED, '2030-03-20T08:00:00.000Z');
+    await showBusyHost(harness);
+    await settle();
+    const realGet = SecureStore.getItemAsync;
+    jest.spyOn(SecureStore, 'getItemAsync').mockImplementation(async (key, options) => {
+      // The removal lands while the credential is being resolved.
+      await AsyncStorage.setItem(REMOVED, '2030-03-29T09:00:00.000Z');
+      return realGet(key, options);
+    });
+    const outcome = await act(async () => ensureRegisteredSource(UID));
+    expect(outcome.kind).toBe('removed');
+    expect(harness.server.matching('POST', /\/calendar\/busy\/register$/)).toHaveLength(0);
+  });
+
+  it('R3-002: disconnect on a phone that cannot prove its source is not reported as deleted', async () => {
+    harness = await prepare();
+    await AsyncStorage.multiSet([
+      [ENROLLED, '2030-03-20T08:00:00.000Z'],
+      [`calendar.sourceId.v1:${UID}`, JSON.stringify({ sourceId: 'device:old', sourceInstallationId: 'lost' })],
+    ]);
+    await expect(deleteThisPhonesBusy(UID)).rejects.toThrow();
+  });
+
+  it('R3-004: a late operation of one account never deletes another account\'s busy cache', async () => {
+    harness = await prepare();
+    await AsyncStorage.setItem(BUSY_BLOCKS_KEY, JSON.stringify({ owner: 'someone-else', inclusionGeneration: 0, blocks: [], coverage: null, syncedAt: null }));
+    await clearCachedBusyBlocksOf(UID);
+    expect(await AsyncStorage.getItem(BUSY_BLOCKS_KEY)).not.toBeNull();
+    await clearCachedBusyBlocksOf('someone-else');
+    expect(await AsyncStorage.getItem(BUSY_BLOCKS_KEY)).toBeNull();
   });
 });
