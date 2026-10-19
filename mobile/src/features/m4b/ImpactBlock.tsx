@@ -129,8 +129,11 @@ export function readinessLocked(
 ): boolean {
   const prep = items.find((item) => item.generated?.sourceItemId === sourceItemId);
   const staged = prep ? edits[prep.itemId] : undefined;
-  if (!staged || Object.keys(staged).length === 0) return false;
+  // Only fields that would reach the server count: a removed place reminder
+  // (`locationTrigger: null`) sends nothing, so it locks nothing (M4B-R6-002).
+  const keys = staged ? Object.keys(staged).filter((key) => staged[key] !== undefined && staged[key] !== null) : [];
+  if (keys.length === 0) return false;
   const carriable = conversationId !== null
-    && Object.keys(staged).every((key) => key === 'title' || key === 'localDateTime');
+    && keys.every((key) => key === 'title' || key === 'localDateTime');
   return !carriable;
 }

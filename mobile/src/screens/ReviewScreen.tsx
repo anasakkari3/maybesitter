@@ -250,7 +250,10 @@ export function ReviewScreen({ onBackToChat }: { onBackToChat?: () => void } = {
       if (next.priority !== undefined && next.priority !== (item?.priority ?? 'normal')) {
         otherEdits.priority = next.priority;
       }
-      if (Object.keys(otherEdits).length > 0) flow.editItem(itemId, otherEdits);
+      if (next.locationTrigger !== undefined) otherEdits.locationTrigger = next.locationTrigger;
+      // The sheet's whole answer, less the time the no-time option settles:
+      // it replaces the earlier edit even when nothing else is left (M4B-R6-001).
+      flow.editItem(itemId, otherEdits, { replace: true });
       return;
     }
     flow.editItem(itemId, next, { replace: true });
