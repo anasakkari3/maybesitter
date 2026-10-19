@@ -253,7 +253,7 @@ export function ReviewScreen({ onBackToChat }: { onBackToChat?: () => void } = {
       if (Object.keys(otherEdits).length > 0) flow.editItem(itemId, otherEdits);
       return;
     }
-    flow.editItem(itemId, next);
+    flow.editItem(itemId, next, { replace: true });
   };
 
   const confirmationActions = (

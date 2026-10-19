@@ -958,3 +958,21 @@ describe('M3b: habits, goals and thoughts in the save', () => {
     expect(plain.undoable).toBe(true);
   });
 });
+
+describe('the edit sheet replaces the earlier edit (M4B-R5-001)', () => {
+  it('a field set back to the proposal value does not survive from an earlier save', () => {
+    const state = analyzed(proposal());
+    const raised = captureReducer(state, { type: 'editItem', itemId: 'a', edit: { priority: 'high' }, replace: true });
+    expect(raised.edits.a).toEqual({ priority: 'high' });
+    // Reopened, priority restored to normal: the sheet sends no field for it.
+    const restored = captureReducer(raised, { type: 'editItem', itemId: 'a', edit: {}, replace: true });
+    expect(restored.edits.a).toEqual({});
+  });
+
+  it('a partial edit without replace still merges (the no-time answer path)', () => {
+    const state = analyzed(proposal());
+    const titled = captureReducer(state, { type: 'editItem', itemId: 'a', edit: { title: 'Call the dentist' } });
+    const both = captureReducer(titled, { type: 'editItem', itemId: 'a', edit: { priority: 'high' } });
+    expect(both.edits.a).toEqual({ title: 'Call the dentist', priority: 'high' });
+  });
+});

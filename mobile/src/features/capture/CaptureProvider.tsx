@@ -103,7 +103,8 @@ interface CaptureContextValue {
   dropFamilies(families: readonly ('habit' | 'goal' | 'seed')[]): void;
   selectAll(): void;
   deselectAll(): void;
-  editItem(itemId: string, edit: CaptureItemEdit): void;
+  /** `replace`: the edit sheet's whole answer replaces the item's earlier edit (M4B-R5-001). */
+  editItem(itemId: string, edit: CaptureItemEdit, options?: { replace?: boolean }): void;
   /** «كل أسبوع» or «مرة وحدة بس» on an item the server offered a weekly block for. */
   setWeekly(itemId: string, weekly: boolean): void;
   /** Keep or remove an item's suggested goal link («مرتبط بهدف …»). */
@@ -398,7 +399,9 @@ export function CaptureProvider({ children }: { children: React.ReactNode }) {
       releaseWrite(token);
     }
   }, [clarifyCapture, state.proposal, acquireWrite, releaseWrite]);
-  const editItem = useCallback((itemId: string, edit: CaptureItemEdit) => dispatch({ type: 'editItem', itemId, edit }), []);
+  const editItem = useCallback((itemId: string, edit: CaptureItemEdit, options: { replace?: boolean } = {}) => dispatch({
+    type: 'editItem', itemId, edit, ...(options.replace ? { replace: true } : {}),
+  }), []);
   const setWeekly = useCallback((itemId: string, weekly: boolean) => dispatch({ type: 'setWeekly', itemId, weekly }), []);
   const setGoalLink = useCallback((itemId: string, linked: boolean) => dispatch({ type: 'setGoalLink', itemId, linked }), []);
 

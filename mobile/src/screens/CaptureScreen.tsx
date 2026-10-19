@@ -456,7 +456,7 @@ export function CaptureScreen({ entryQuestion }: { entryQuestion?: { entry: Capt
       if (edit.priority !== undefined && edit.priority !== (item?.priority ?? 'normal')) rest.priority = edit.priority;
       if (edit.locationTrigger !== undefined) rest.locationTrigger = edit.locationTrigger;
       if (Object.keys(rest).length) flow.editItem(itemId, rest);
-    } else flow.editItem(itemId, edit);
+    } else flow.editItem(itemId, edit, { replace: true });
   };
   const quickAction = (id: string) => {
     if (busy || answering) return;

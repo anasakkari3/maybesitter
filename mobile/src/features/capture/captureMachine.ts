@@ -393,7 +393,12 @@ export type CaptureEvent =
   | { type: 'toggleItem'; itemId: string }
   | { type: 'selectAll' }
   | { type: 'deselectAll' }
-  | { type: 'editItem'; itemId: string; edit: CaptureItemEdit }
+  /**
+   * `replace`: the edit sheet's answer, which is the whole of the person's
+   * edit against the proposal — a field set back to the proposal's own value
+   * is absent from it and must not survive from an earlier save (M4B-R5-001).
+   */
+  | { type: 'editItem'; itemId: string; edit: CaptureItemEdit; replace?: boolean }
   | { type: 'clearEdit'; itemId: string }
   /** «كل أسبوع» (`weekly: true`) or «مرة وحدة بس» on an item with a weekly offer. */
   | { type: 'setWeekly'; itemId: string; weekly: boolean }
@@ -1167,7 +1172,7 @@ export function captureReducer(state: CaptureState, event: CaptureEvent): Captur
       const edits = {
         ...state.edits,
         [event.itemId]: {
-          ...state.edits[event.itemId],
+          ...(event.replace ? {} : state.edits[event.itemId]),
           ...event.edit,
           ...(title !== undefined ? { title } : {}),
         },
