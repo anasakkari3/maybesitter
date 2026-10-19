@@ -124,6 +124,9 @@ test('R2.2: a Gmail failure records failed + failure, and resume continues the s
   assert.ok(status.failedAt);
   google.gmailStatus = null;
   const scanId = status.scanId;
+  // «كمّل من وين وقفت»: the person resumes the failed scan; then it runs to the end.
+  const resumed = await scanResume(uid, scanId);
+  assert.ok(resumed.status < 500, show(resumed.body));
   const done = await runScanToEnd(uid);
   assert.equal(done.manual.scanId, scanId, 'resume started a different scan');
   assert.equal(done.manual.status, 'complete');
