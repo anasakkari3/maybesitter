@@ -163,9 +163,11 @@ import {
   INTELLIGENCE_MONITORS,
   INTELLIGENCE_GMAIL_SCANS,
   INTELLIGENCE_SOURCE_MARKERS,
+  INTELLIGENCE_AUTO_ADDS,
   MEMORY_DISMISSALS,
   PROFILE_PROPOSALS,
   userCol,
+  userDoc,
 } from '../storage/paths';
 import type { StorageAdapter } from '../storage/storageAdapter';
 
@@ -239,6 +241,17 @@ export async function deletePersonalizationScope(
 ): Promise<PersonalizationDeletionReceipt> {
   const storage = input.storage ?? getStorage();
 
+  const purgeEpoch = await storage.runTransaction(async (tx) => {
+    const user = await tx.get<Record<string, unknown>>(userDoc(input.scopeId));
+    const prior = user?.personalizationPurge as { epoch?: unknown } | undefined;
+    const epoch = Number.isSafeInteger(prior?.epoch) && (prior!.epoch as number) >= 0
+      ? (prior!.epoch as number) + 1 : 1;
+    const personalizationPurge = { state: 'purging', epoch, startedAt: input.now };
+    if (user) tx.merge(userDoc(input.scopeId), { personalizationPurge });
+    else tx.set(userDoc(input.scopeId), { personalizationPurge });
+    return epoch;
+  });
+
   // Derived stores first, the user's memory rows last. If any step throws, the
   // user has had *more* erased than they asked for, never less, and the caller
   // still refuses to report success — see `deleteAllMemory`.
@@ -272,12 +285,20 @@ export async function deletePersonalizationScope(
   // person's mail was read, so it goes with everything else read from it.
   await clearUserCollection(storage, input.scopeId, INTELLIGENCE_GMAIL_SCANS);
   await clearUserCollection(storage, input.scopeId, INTELLIGENCE_SOURCE_MARKERS);
+  await clearUserCollection(storage, input.scopeId, INTELLIGENCE_AUTO_ADDS);
   // With the follows gone, the matches they projected stop holding time: an
   // unfollow drop, never a dismissal, so following again brings them back.
   // The commitments themselves are kept as dropped history, like any other
   // commitment this purge leaves alone (football fixtures, final review I1).
   await releaseUnfollowedFixtures(input.scopeId, input.now, { storage });
   await input.runtimeMemory.deleteScope(input.scopeId);
+
+  await storage.runTransaction(async (tx) => {
+    const user = await tx.get<Record<string, unknown>>(userDoc(input.scopeId));
+    const current = user?.personalizationPurge as { state?: unknown; epoch?: unknown } | undefined;
+    if (current?.state !== 'purging' || current.epoch !== purgeEpoch) throw new Error('personalization purge barrier changed');
+    tx.merge(userDoc(input.scopeId), { personalizationPurge: { state: 'active', epoch: purgeEpoch, completedAt: input.now } });
+  });
 
   return {
     version: PERSONALIZATION_CONTRACT_VERSION,

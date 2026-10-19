@@ -87,6 +87,7 @@ import {
   type PlanningStateChange,
 } from '../../src/contracts/v1/watcherContracts';
 import { getStorage, type StorageAdapter } from '../storage';
+import type { StorageTransaction } from '../storage/storageAdapter';
 import {
   BUSY_BLOCKS,
   CALENDAR_SOURCES,
@@ -136,6 +137,8 @@ export interface CalendarSource {
 
 export interface BusyBlockDeps {
   storage?: StorageAdapter;
+  /** Re-read inside every chunk and metadata transaction for fenced writers. */
+  transactionGuard?: (tx: StorageTransaction) => Promise<void>;
 }
 
 function storageOf(deps: BusyBlockDeps): StorageAdapter {
@@ -447,6 +450,17 @@ export async function listBusyBlocksOfSource(
   return (await allBlocks(uid, deps)).filter((block) => block.sourceId === sourceId).sort(byStart);
 }
 
+/** Distinct source ids represented by rows, including crash-orphaned sources. */
+export async function listBusySourceIdsByKind(
+  uid: string,
+  kind: BusySourceKind,
+  deps: BusyBlockDeps = {},
+): Promise<string[]> {
+  return Array.from(new Set((await allBlocks(uid, deps))
+    .filter((block) => block.sourceKind === kind)
+    .map((block) => block.sourceId))).sort();
+}
+
 export async function readCalendarSource(
   uid: string,
   sourceId: string,
@@ -610,6 +624,7 @@ async function commitTransitions(
   sourceId: string,
   transitions: readonly BlockTransition[],
   stamp: SyncStamp,
+  guard?: (tx: StorageTransaction) => Promise<void>,
 ): Promise<number> {
   let announced = 0;
   for (let start = 0; start < transitions.length; start += TRANSITIONS_PER_COMMIT) {
@@ -619,6 +634,7 @@ async function commitTransitions(
         tx.get<AccountLiveness>(userDoc(uid)),
         Promise.all(chunk.map((transition) => tx.get<BusyBlock>(blockPath(uid, sourceId, transition.blockId)))),
       ]);
+      if (guard) await guard(tx);
       const announces = accountIsLive(account);
       let rows = 0;
       chunk.forEach((transition, index) => {
@@ -722,7 +738,7 @@ export async function replaceBusyBlocks(
       .map((block) => ({ blockId: block.blockId, next: block })),
     ...stale.map((block) => ({ blockId: block.blockId, next: null })),
   ];
-  await commitTransitions(storage, uid, sourceId, transitions, newSyncStamp(now));
+  await commitTransitions(storage, uid, sourceId, transitions, newSyncStamp(now), deps.transactionGuard);
 
   const source: CalendarSource = {
     sourceId,
@@ -732,7 +748,14 @@ export async function replaceBusyBlocks(
     windowStart: window.startsAt,
     windowEnd: window.endsAt,
   };
-  await storage.set<CalendarSource>(sourcePath(uid, sourceId), source);
+  if (deps.transactionGuard) {
+    await storage.runTransaction(async (tx) => {
+      await deps.transactionGuard!(tx);
+      tx.set<CalendarSource>(sourcePath(uid, sourceId), source);
+    });
+  } else {
+    await storage.set<CalendarSource>(sourcePath(uid, sourceId), source);
+  }
 
   return { written: blocks.length, removed: stale.length };
 }
@@ -761,8 +784,16 @@ export async function deleteBusySource(
     sourceId,
     mine.map((block) => ({ blockId: block.blockId, next: null })),
     newSyncStamp(deps.now ?? new Date()),
+    deps.transactionGuard,
   );
-  await storage.delete(sourcePath(uid, sourceId));
+  if (deps.transactionGuard) {
+    await storage.runTransaction(async (tx) => {
+      await deps.transactionGuard!(tx);
+      tx.delete(sourcePath(uid, sourceId));
+    });
+  } else {
+    await storage.delete(sourcePath(uid, sourceId));
+  }
   return { deleted: mine.length };
 }
 

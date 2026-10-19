@@ -165,6 +165,11 @@ gcloud iam service-accounts add-iam-policy-binding "${RUN_SA}" \
   --project "${PROJECT_ID}" \
   --member="serviceAccount:${DEPLOYER_SA}" --role=roles/iam.serviceAccountUser >/dev/null
 
+# The deployer calls the authenticated M5a control endpoint; it never receives
+# datastore.user and therefore cannot edit system/m5aControls directly.
+# The per-service roles/run.invoker binding is applied after each Cloud Run
+# service exists by the deploy workflow/verification step.
+
 say "secret container ${SECRET_NAME} (no value)"
 if gcloud secrets describe "${SECRET_NAME}" --project "${PROJECT_ID}" >/dev/null 2>&1; then
   echo "already exists"

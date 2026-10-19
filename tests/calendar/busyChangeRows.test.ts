@@ -538,6 +538,10 @@ test('writer: the manual busy route announces what it stores and what its delete
  * is no plan left to replan.
  */
 const WRITERS: ReadonlyArray<readonly [file: string, inside: string, callee: string, provedBy: string]> = [
+  ['lib/calendar/calendarChoice.ts', 'enrollCalendarChoice', 'deleteBusySource', 'calendarChoiceService: enrollment purge'],
+  ['lib/calendar/calendarChoice.ts', 'enrollCalendarChoice', 'deleteBusySource', 'calendarChoiceService: orphan-row enrollment purge'],
+  ['lib/calendar/calendarChoice.ts', 'finishDeviceClear', 'deleteBusySource', 'M5a calendarChoice plain clear'],
+  ['lib/calendar/calendarChoice.ts', 'retireDeviceSource', 'deleteBusySource', 'M5a calendarChoice retirement'],
   ['lib/calendar/icsFeeds.ts', 'applyClassification', 'replaceBusyBlocks', 'icsFeedLifecycle: #611 subscribe/refresh rows'],
   ['lib/calendar/icsFeeds.ts', 'removeFeedData', 'deleteBusySource', 'icsFeedLifecycle: #611 unsubscribe rows'],
   ['lib/calendar/manualBusy.ts', 'acceptLectureSessionsAsBusyBlocks', 'replaceBusyBlocks', 'writer: accepted lecture sessions (#191)'],

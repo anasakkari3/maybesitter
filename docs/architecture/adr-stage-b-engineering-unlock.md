@@ -84,3 +84,19 @@ What still holds for the loop in production:
 This is an exception for this loop only. Every other Stage B module remains
 `ENGINEERING_ALLOWED / RELEASE_LOCKED`, and releasing the loop is not product
 evidence for #61.
+
+## Amendment 2026-10-18 — email self-reply commitments
+
+The owner approved a narrow exception to the proposal-only rule: a commitment
+agreed to in the person's own sent Gmail reply may be created without another
+in-app confirmation, subject to every PLAN-M5a R3.1 bound (SENT plus reply
+headers, recognised quote boundary, own-words-only single agreement and dated
+item, freshness, clash check, one key per message, deterministic command,
+visible provenance, one-tap removal while unedited, and disclosure before
+scan or monitoring opt-in). Every other model output remains proposal-only.
+
+The owner separately approved a daily Gmail sweep while an enrolled monitor
+is on (2026-10-18), and a non-periodic just-in-time Google busy refresh for an
+email auto-add decision under calendar consent (2026-10-19). These approvals
+do not release M5a: both capabilities remain default-off, kill-switchable,
+staging-only, production-pinned-off, and subject to Market Evidence Gate #61.
