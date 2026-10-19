@@ -225,7 +225,13 @@ export async function POST(request: Request) {
     opId: record.opId,
     epoch: record.epoch,
   } : { choiceVersion: undefined, opId: undefined, epoch: undefined };
-  const legacyBody = record ? Object.fromEntries(Object.entries(record).filter(([key]) => !['choiceVersion', 'opId', 'epoch'].includes(key))) : body;
+  // PLAN-M5a wire: enrolled uploads carry `selectionEpoch` (the epoch the phone
+  // was handed by the intent) next to `opId` / `epoch`. It is the same number,
+  // so a body whose two disagree is malformed rather than stale.
+  if (record && 'selectionEpoch' in record && record.selectionEpoch !== record.epoch) {
+    return mobileError('selectionEpoch must equal epoch', 400);
+  }
+  const legacyBody = record ? Object.fromEntries(Object.entries(record).filter(([key]) => !['choiceVersion', 'opId', 'epoch', 'selectionEpoch'].includes(key))) : body;
 
   let upload;
   try {

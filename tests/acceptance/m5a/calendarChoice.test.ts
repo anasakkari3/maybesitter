@@ -100,6 +100,25 @@ test('Wire: the choice POST is 404 when calendar choice is off; the choice GET i
 
 /* ── older builds ───────────────────────────────────────────────────── */
 
+test('Wire / SIM-M5A-01: the app\'s upload body (opId + epoch + selectionEpoch) is accepted; a disagreeing selectionEpoch is refused', async () => {
+  const uid = await begin();
+  await grantCalendarConsent(uid);
+  await enrol(uid);
+  const phone = await register(uid);
+  const op = await intent(uid, phone.sourceId, phone.sourceSecret, 'upload');
+  assert.equal(op.status, 200, show(op.body));
+  const send = (selectionEpoch: number) => callWith(uid, 'calendar/busy', 'POST', {
+    body: { sourceId: phone.sourceId, platform: 'ios', ...WINDOW, blocks: [block('b', at(TOMORROW, '12:00'), at(TOMORROW, '13:00'))],
+      choiceVersion: 1, opId: op.body.opId, epoch: op.body.epoch, selectionEpoch },
+    headers: { ...CHOICE_HEADER, 'X-MaybeSitter-Source-Secret': phone.sourceSecret },
+  });
+  const wrong = await send(op.body.epoch + 1);
+  assert.equal(wrong.status, 400, show(wrong.body));
+  const right = await send(op.body.epoch);
+  assert.equal(right.status, 200, show(right.body));
+  assert.ok(await deviceRows(uid) > 0);
+});
+
 test('R1.1b: an enrolled account refuses a device upload without choiceVersion (an older build) and stores nothing', async () => {
   const uid = await begin();
   await grantCalendarConsent(uid);
