@@ -109,7 +109,7 @@ describe('R4.1 monitoring enrolment and backfill', () => {
     }));
     await showIntelligence(harness);
     await waitFor(() => expect(screen.queryByTestId('email-scan-wait')).not.toBeNull());
-    expect(screen.getByTestId('email-scan-wait')).toHaveTextContent(/daily limit/i);
+    expect(screen.queryByTestId('email-scan-wait-daily_ai_limit')).not.toBeNull();
   });
 
   it('M5A-R35-004 held no_timezone causes the enabled monitor POST to resend the device timezone', async () => {

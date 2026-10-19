@@ -5,6 +5,7 @@ import { act, screen, waitFor } from '@testing-library/react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { BusyCalendarHost, resetBusySyncForTests } from '../../features/calendar/useBusyCalendar';
 import { deviceCalendar } from '../../features/calendar/deviceCalendar';
+import { BUSY_BLOCKS_KEY } from '../../lib/deviceSettings/calendarBusy';
 import {
   ACCOUNT_A,
   ACCOUNT_B,
@@ -16,7 +17,6 @@ import {
   teardown,
   waitForRequest,
   type M5aHarness,
-  type RecordedRequest,
 } from './harness';
 
 jest.mock('expo-localization', () => ({
@@ -94,11 +94,18 @@ describe('M5a calendar capability and enrolment', () => {
 
   it('R1.1 / M5A-R9-004 persists choicePending before enrolment and reads only after the server answers active', async () => {
     const order: string[] = [];
-    const originalSet = AsyncStorage.setItem.bind(AsyncStorage);
+    const originalSet = (AsyncStorage.setItem as jest.Mock).getMockImplementation() as
+      ((key: string, value: string) => Promise<void>);
     jest.spyOn(AsyncStorage, 'setItem').mockImplementation(async (key, value) => {
       if (key === PENDING_A) order.push('pending');
       if (key === ENROLLED_A) order.push('enrolled');
       return originalSet(key, value);
+    });
+    const originalMultiRemove = (AsyncStorage.multiRemove as jest.Mock).getMockImplementation() as
+      ((keys: readonly string[]) => Promise<void>);
+    jest.spyOn(AsyncStorage, 'multiRemove').mockImplementation(async keys => {
+      if (keys.includes(BUSY_BLOCKS_KEY)) order.push('cache-cleared');
+      await originalMultiRemove(keys);
     });
     (deviceCalendar.fetchBusyBlocks as jest.Mock).mockImplementation(async () => {
       order.push('read');
@@ -112,12 +119,15 @@ describe('M5a calendar capability and enrolment', () => {
       }
       return undefined;
     });
+    await AsyncStorage.setItem(BUSY_BLOCKS_KEY, JSON.stringify({ owner: ACCOUNT_A.uid, blocks: ['stale'] }));
     await showBusyHost(harness);
     await waitForRequest(harness, 'POST', /\/calendar\/choice$/);
     await waitFor(() => expect(deviceCalendar.fetchBusyBlocks).toHaveBeenCalledTimes(1));
 
     expect(order.indexOf('pending')).toBeLessThan(order.indexOf('post'));
     expect(order.indexOf('post')).toBeLessThan(order.indexOf('enrolled'));
+    expect(order.indexOf('cache-cleared')).toBeGreaterThanOrEqual(0);
+    expect(order.indexOf('cache-cleared')).toBeLessThan(order.indexOf('read'));
     expect(order.indexOf('enrolled')).toBeLessThan(order.indexOf('read'));
     expect(await AsyncStorage.getItem(PENDING_A)).toBeNull();
     expect(await AsyncStorage.getItem(ENROLLED_A)).not.toBeNull();
@@ -132,7 +142,9 @@ describe('M5a calendar capability and enrolment', () => {
     expect(await AsyncStorage.getItem(ENROLLED_A)).toBeNull();
     expect(deviceCalendar.fetchBusyBlocks).not.toHaveBeenCalled();
 
-    await act(async () => { AppState.emit('change', 'active'); });
+    await act(async () => {
+      (AppState as unknown as { emit(event: 'change', state: 'active'): void }).emit('change', 'active');
+    });
     await waitFor(() => expect(harness!.server.matching('POST', /\/calendar\/choice$/).length).toBeGreaterThanOrEqual(2));
     expect(deviceCalendar.fetchBusyBlocks).not.toHaveBeenCalled();
   });
@@ -202,14 +214,15 @@ describe('M5a calendar capability and enrolment', () => {
       [INCLUDED_A, JSON.stringify(['work'])],
     ]);
     await showBusyHost(harness);
+    await waitForRequest(harness, 'GET', /\/capabilities\/m5a$/);
     await waitFor(() => expect(deviceCalendar.fetchBusyBlocks).toHaveBeenCalledTimes(1));
     await act(async () => { harness!.repository.emit(ACCOUNT_B); });
     await act(async () => { releaseRead?.([]); });
     await act(async () => { await Promise.resolve(); await Promise.resolve(); });
 
-    const writes = harness.server.requests.filter((request: RecordedRequest) =>
+    const writes = harness.server.requests.filter(request =>
       request.method !== 'GET' && request.path.startsWith('/api/mobile/calendar/'));
-    expect(writes.every(request => request.headers['x-maybesitter-as-uid'] !== ACCOUNT_B.uid)).toBe(true);
+    expect(writes).toHaveLength(0);
   });
 });
 

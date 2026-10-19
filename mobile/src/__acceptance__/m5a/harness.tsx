@@ -59,7 +59,60 @@ export interface RouteReply {
 
 export type RouteHandler = (request: RecordedRequest) => RouteReply | Promise<RouteReply | undefined> | undefined;
 
-export type ScanStatus = Record<string, unknown> | null;
+interface ScanCounts {
+  messagesRead: number;
+  messagesUnavailable: number;
+  messagesTrimmed: number;
+  observationsFound: number;
+  addedFromEmail: number;
+}
+
+interface ScanWindow extends ScanCounts {
+  scanId: string;
+  from: string;
+  until: string;
+  startedAt: string;
+}
+
+interface RunningScan extends ScanWindow {
+  status: 'running';
+  origin: 'manual' | 'backfill';
+  waiting: { reason: 'daily_ai_limit' | 'rate_limit'; resumesAt: string } | null;
+}
+
+interface CompleteScan extends ScanWindow {
+  status: 'complete';
+  origin: 'manual' | 'backfill';
+  finishedAt: string;
+}
+
+interface FailedScan extends ScanWindow {
+  status: 'failed';
+  origin: 'manual' | 'backfill';
+  failedAt: string;
+  failure: 'reconnect_needed' | 'source_unavailable' | 'analysis_unavailable' | 'monitoring_off';
+}
+
+export type ScanStatus = RunningScan | CompleteScan | FailedScan | null;
+
+interface DailyWindow extends ScanWindow {
+  day: string;
+}
+
+export type DailyStatus =
+  | (Omit<RunningScan, 'origin'> & DailyWindow)
+  | (Omit<CompleteScan, 'origin'> & DailyWindow)
+  | (Omit<FailedScan, 'origin'> & DailyWindow)
+  | { status: 'held'; reason: 'no_timezone'; heldAt: string }
+  | null;
+
+export interface QueuedScan {
+  scanId: string;
+  origin: 'manual' | 'backfill';
+  from: string;
+  until: string;
+  acceptedAt: string;
+}
 
 export interface M5aState {
   calendarChoice: boolean;
@@ -69,8 +122,8 @@ export interface M5aState {
   sourceStatus: 'active' | 'revoked' | null;
   sources: Record<string, unknown>[];
   scanManual: ScanStatus;
-  scanQueued: Record<string, unknown> | null;
-  scanDaily: ScanStatus;
+  scanQueued: QueuedScan | null;
+  scanDaily: DailyStatus;
   added: Record<string, unknown>[];
   addedNextCursor: string | null;
   monitor: {
@@ -298,18 +351,18 @@ export function googleStatus() {
   };
 }
 
-export function runningScan(overrides: Record<string, unknown> = {}) {
+export function runningScan(overrides: Partial<RunningScan> = {}): RunningScan {
   return {
-    status: 'running', origin: 'manual', from: '2030-03-22T09:00:00.000Z', until: NOW.toISOString(),
+    scanId: 'scan-manual-1', status: 'running', origin: 'manual', from: '2030-03-22T09:00:00.000Z', until: NOW.toISOString(),
     startedAt: '2030-03-29T08:30:00.000Z', messagesRead: 3, messagesUnavailable: 0,
     messagesTrimmed: 0, observationsFound: 1, addedFromEmail: 0, waiting: null,
     ...overrides,
   };
 }
 
-export function completeScan(overrides: Record<string, unknown> = {}) {
+export function completeScan(overrides: Partial<CompleteScan> = {}): CompleteScan {
   return {
-    status: 'complete', origin: 'manual', from: '2030-03-22T09:00:00.000Z', until: NOW.toISOString(),
+    scanId: 'scan-manual-1', status: 'complete', origin: 'manual', from: '2030-03-22T09:00:00.000Z', until: NOW.toISOString(),
     startedAt: '2030-03-29T08:00:00.000Z', finishedAt: '2030-03-29T08:20:00.000Z',
     messagesRead: 7, messagesUnavailable: 1, messagesTrimmed: 2, observationsFound: 3,
     addedFromEmail: 1, ...overrides,
@@ -318,7 +371,11 @@ export function completeScan(overrides: Record<string, unknown> = {}) {
 
 export function failedScan(failure: 'reconnect_needed' | 'source_unavailable' | 'analysis_unavailable' | 'monitoring_off') {
   return {
-    ...runningScan(), status: 'failed', failedAt: '2030-03-29T08:10:00.000Z', failure,
+    scanId: 'scan-manual-1', status: 'failed' as const, origin: 'manual' as const,
+    from: '2030-03-22T09:00:00.000Z', until: NOW.toISOString(),
+    startedAt: '2030-03-29T08:00:00.000Z', failedAt: '2030-03-29T08:10:00.000Z', failure,
+    messagesRead: 3, messagesUnavailable: 0, messagesTrimmed: 0,
+    observationsFound: 1, addedFromEmail: 0,
   };
 }
 

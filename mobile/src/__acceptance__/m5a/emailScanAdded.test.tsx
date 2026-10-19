@@ -39,9 +39,9 @@ afterEach(async () => {
 
 describe('R2.3 one M5a email scan', () => {
   it.each([
-    ['intelligence panel', showIntelligence],
-    ['Google screen', showGoogle],
-  ] as const)('M5A-R5-003 %s opens email-scan-confirm before any request and confirm sends the versioned new intent', async (_name, show) => {
+    { name: 'intelligence panel', show: showIntelligence },
+    { name: 'Google screen', show: showGoogle },
+  ])('M5A-R5-003 $name opens email-scan-confirm before any request and confirm sends the versioned new intent', async ({ show }) => {
     harness = await prepare();
     await show(harness);
     await waitFor(() => expect(screen.queryByTestId('email-scan-button')).not.toBeNull());
@@ -65,7 +65,7 @@ describe('R2.3 one M5a email scan', () => {
     await press('email-scan-resume');
     const request = await waitForRequest(harness, 'POST', /\/intelligence\/sources\/gmail\/scan$/);
 
-    expect(request.body).toEqual({ m5: true, intent: 'resume', expectedScanId: expect.any(String) });
+    expect(request.body).toEqual({ m5: true, intent: 'resume', expectedScanId: 'scan-manual-1' });
   });
 
   it('M5A-R5-003 capability false keeps both legacy entry points and request shapes unchanged', async () => {
@@ -108,11 +108,11 @@ describe('R2.2 shared email status line', () => {
   });
 
   it.each([
-    ['reconnect_needed', 'email-scan-reconnect'],
-    ['source_unavailable', 'email-scan-resume'],
-    ['analysis_unavailable', 'email-scan-resume'],
-    ['monitoring_off', 'email-scan-resume'],
-  ] as const)('R2.3 failed %s renders the recovery control %s', async (failure, testID) => {
+    { failure: 'reconnect_needed' as const, testID: 'email-scan-reconnect' },
+    { failure: 'source_unavailable' as const, testID: 'email-scan-resume' },
+    { failure: 'analysis_unavailable' as const, testID: 'email-scan-resume' },
+    { failure: 'monitoring_off' as const, testID: 'email-scan-resume' },
+  ])('R2.3 failed $failure renders the recovery control $testID', async ({ failure, testID }) => {
     harness = await prepare('en', initialState({ scanManual: failedScan(failure) }));
     await showIntelligence(harness);
     await waitFor(() => expect(screen.queryByTestId('email-scan-status')).not.toBeNull());
@@ -120,21 +120,22 @@ describe('R2.2 shared email status line', () => {
   });
 
   it.each([
-    ['daily_ai_limit', '2030-03-30T00:00:00.000Z'],
-    ['rate_limit', '2030-03-29T09:01:00.000Z'],
-  ] as const)('M5A-R30-004 renders a %s wait distinctly', async (reason, resumesAt) => {
+    { reason: 'daily_ai_limit' as const, resumesAt: '2030-03-30T00:00:00.000Z' },
+    { reason: 'rate_limit' as const, resumesAt: '2030-03-29T09:01:00.000Z' },
+  ])('M5A-R30-004 renders a $reason wait distinctly', async ({ reason, resumesAt }) => {
     harness = await prepare('en', initialState({
       scanManual: runningScan({ waiting: { reason, resumesAt } }),
     }));
     await showIntelligence(harness);
     await waitFor(() => expect(screen.queryByTestId('email-scan-wait')).not.toBeNull());
-    expect(screen.getByTestId('email-scan-wait')).toHaveTextContent(reason === 'daily_ai_limit' ? /daily limit/i : /minute/i);
+    expect(screen.queryByTestId(`email-scan-wait-${reason}`)).not.toBeNull();
   });
 
   it('M5A-R39-004 renders the accepted queued window and keeps it after navigation', async () => {
     harness = await prepare('en', initialState({
       scanManual: runningScan(),
       scanQueued: {
+        scanId: 'scan-queued-1',
         origin: 'backfill', from: '2030-03-22T09:00:00.000Z', until: NOW.toISOString(),
         acceptedAt: '2030-03-29T08:45:00.000Z',
       },
@@ -149,7 +150,23 @@ describe('R2.2 shared email status line', () => {
     expect(harness.server.matching('GET', /\/intelligence\/sources\/gmail\/scan$/).length).toBeGreaterThanOrEqual(2);
   });
 
-  it('M5A-R30-004 renders daily complete and daily held without inventing a day', async () => {
+  it('R2.3 renders a completed daily scan with its day and count', async () => {
+    harness = await prepare('en', initialState({
+      scanDaily: {
+        scanId: 'scan-daily-1', status: 'complete', day: '2030-03-28',
+        from: '2030-03-27T22:00:00.000Z', until: '2030-03-28T22:00:00.000Z',
+        startedAt: '2030-03-29T03:00:00.000Z', finishedAt: '2030-03-29T03:05:00.000Z',
+        messagesRead: 6, messagesUnavailable: 0, messagesTrimmed: 0,
+        observationsFound: 2, addedFromEmail: 1,
+      },
+    }));
+    await showIntelligence(harness);
+    await waitFor(() => expect(screen.queryByTestId('email-scan-daily')).not.toBeNull());
+
+    expect(screen.getByTestId('email-scan-daily')).toHaveTextContent('6');
+  });
+
+  it('M5A-R35-004 renders daily held without inventing a day', async () => {
     harness = await prepare('en', initialState({
       scanDaily: {
         status: 'held', reason: 'no_timezone', heldAt: '2030-03-29T08:00:00.000Z',
@@ -201,7 +218,23 @@ describe('R3.5 added from email', () => {
     await waitFor(() => expect(screen.queryByTestId('added-row-auto-1')).not.toBeNull());
 
     expect(screen.queryByTestId('added-remove-auto-1')).toBeNull();
-    expect(screen.getByTestId('added-row-auto-1')).toHaveTextContent(new RegExp(status, 'i'));
+    expect(screen.queryByTestId(`added-status-auto-1-${status}`)).not.toBeNull();
+  });
+
+  it('M5A-R6-005 a 409 edited removal keeps the row and renders added-edited', async () => {
+    harness = await prepare('en', initialState({ added: [addedItem()] }), request => {
+      if (request.path === '/api/mobile/intelligence/added/auto-1' && request.method === 'DELETE') {
+        return { status: 409, body: { success: false, error: 'edited' } };
+      }
+      return undefined;
+    });
+    await showIntelligence(harness);
+    await waitFor(() => expect(screen.queryByTestId('added-remove-auto-1')).not.toBeNull());
+    await press('added-remove-auto-1');
+    await waitForRequest(harness, 'DELETE', /\/intelligence\/added\/auto-1$/);
+
+    expect(screen.queryByTestId('added-row-auto-1')).not.toBeNull();
+    expect(screen.queryByTestId('added-edited-auto-1')).not.toBeNull();
   });
 
   it('M5A-R54-004 removable false renders added-edited instead of a remove action', async () => {
@@ -239,6 +272,8 @@ describe('R3.5 added from email', () => {
     await showIntelligence(harness);
     await waitFor(() => expect(screen.queryByTestId('added-card')).not.toBeNull());
     expect(screen.queryByTestId('added-remove-auto-1')).not.toBeNull();
+    await press('added-remove-auto-1');
+    await waitForRequest(harness, 'DELETE', /\/intelligence\/added\/auto-1$/);
   });
 });
 
