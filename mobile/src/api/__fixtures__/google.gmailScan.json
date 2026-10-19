@@ -75,11 +75,11 @@
     "ignoredSegments": 0,
     "suggestedNextAction": {
       "kind": "plan_time",
-      "itemId": "00000000-0000-4000-8000-000000000004"
+      "itemId": "00000000-0000-4000-8000-000000000002"
     },
     "evidence": [
       {
-        "itemId": "00000000-0000-4000-8000-000000000005",
+        "itemId": "00000000-0000-4000-8000-000000000002",
         "sourceIndex": null,
         "excerpt": "Please return the signed trip form by Friday."
       }

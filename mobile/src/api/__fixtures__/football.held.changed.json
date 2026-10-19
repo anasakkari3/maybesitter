@@ -1,0 +1,29 @@
+{
+  "success": false,
+  "error": "held_changed",
+  "held": {
+    "fixtureId": "football-data:fixture-changed",
+    "heldVersion": "T7yepBlck22KBvsMa5JEYaFTyh3lri_sDA--OvGGi9Y",
+    "homeTeamName": "FC Barcelona",
+    "awayTeamName": "Real Madrid CF",
+    "homeTeamId": "81",
+    "awayTeamId": "86",
+    "kickoffUtc": "2026-08-09T09:00:00.000Z",
+    "endUtc": "2026-08-09T09:00:00.000Z",
+    "moved": false,
+    "clashes": [
+      {
+        "title": "عشا العيلة",
+        "startsAt": "2026-08-09T09:00:00.000Z",
+        "endsAt": "2026-08-09T09:00:00.000Z",
+        "kind": "commitment"
+      },
+      {
+        "title": "اجتماع",
+        "startsAt": "2026-08-09T09:00:00.000Z",
+        "endsAt": "2026-08-09T09:00:00.000Z",
+        "kind": "commitment"
+      }
+    ]
+  }
+}

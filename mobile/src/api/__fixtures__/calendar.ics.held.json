@@ -1,0 +1,43 @@
+{
+  "success": true,
+  "feeds": [
+    {
+      "feedId": "00000000-0000-4000-8000-000000000001",
+      "label": "Study calendar",
+      "autoAcceptDeadlines": true,
+      "status": "ok",
+      "consecutiveFailures": 0,
+      "lastErrorCode": null,
+      "lastFetchedAt": "2026-08-09T09:00:00.000Z",
+      "nextFetchAt": "2026-08-09T09:00:00.000Z",
+      "busyBlocks": 0,
+      "pendingDeadlines": 1
+    }
+  ],
+  "deadlines": [
+    {
+      "itemKey": "0000000000000000000000000000000000000000000000000000000000000000",
+      "feedId": "00000000-0000-4000-8000-000000000001",
+      "title": "Essay due",
+      "dueAt": "2026-08-09T09:00:00.000Z",
+      "allDay": false,
+      "state": "pending",
+      "notice": null,
+      "proposedDueAt": null,
+      "commitmentId": null,
+      "autoAccepted": false,
+      "held": {
+        "reason": "clash",
+        "clashes": [
+          {
+            "title": "محاضرة",
+            "startsAt": "2026-08-09T09:00:00.000Z",
+            "endsAt": "2026-08-09T09:00:00.000Z",
+            "kind": "commitment"
+          }
+        ]
+      },
+      "decisionVersion": "MHpRPyFm0QxQJiclY3oT9aNylKiWvLYF-mw-oZWwqhQ"
+    }
+  ]
+}

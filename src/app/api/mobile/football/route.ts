@@ -5,9 +5,10 @@ import { setUserLocale } from '../../../../../lib/storage/userLocale';
 
 const TITLE_LANGUAGES: readonly ClubLanguage[] = ['ar', 'he', 'en'];
 import { UnknownClubError, getFollowedClubs, setFollowedClubs } from '../../../../../lib/football/followedClubs';
-import { listActiveFixtureCommitments, projectFixturesForUser } from '../../../../../lib/football/projectFixtures';
+import { listActiveFixtureCommitments, listHeldFixtures, projectFixturesForUser } from '../../../../../lib/football/projectFixtures';
 import { RequestBodyTooLargeError, readJsonBody, requestBodyTooLargeResponse } from '../../../../../lib/net/requestBody';
 import { footballProviderConfigured, reconcileFootballWatchers } from '../../../../../lib/football/footballWatchers';
+import { resolveExternalClashHold } from '../../../../../lib/release/m4bCapabilities';
 
 export const dynamic = 'force-dynamic';
 
@@ -42,8 +43,10 @@ export async function GET(request: Request) {
   // `providerConfigured` (closure CL7): whether this server holds the match
   // data key. Without it nothing is ever fetched, so the app hides the
   // football source everywhere instead of offering a follow that never fills.
+  const held = resolveExternalClashHold() ? await listHeldFixtures(user.uid) : null;
   return Response.json({
     success: true, providerConfigured: footballProviderConfigured(), clubs: listClubs(), followedClubIds, fixtures,
+    ...(held ?? {}),
   });
 }
 
@@ -164,8 +167,10 @@ export async function PUT(request: Request) {
   await bestEffort('listing fixtures', async () => {
     fixtures = await listActiveFixtureCommitments(user.uid);
   });
+  const held = resolveExternalClashHold() ? await listHeldFixtures(user.uid) : null;
   return Response.json({
     success: true, providerConfigured: configured, clubs: listClubs(), followedClubIds, fixtures,
+    ...(held ?? {}),
     ...(fixturesDeferred ? { fixturesDeferred: true } : {}),
   });
 }

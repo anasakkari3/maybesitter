@@ -20,8 +20,8 @@ export const watcherSchema = z.object({
   lastObservedAt: isoDateTime.nullable(), lastFiredAt: isoDateTime.nullable(), fireCount: z.number().int().nonnegative(),
 });
 export const watcherListSchema = z.object({ success: z.literal(true), items: z.array(watcherSchema) });
-export const watcherChangedSchema = z.object({ success: z.literal(true), watcher: watcherSchema });
-export const watcherDeletedSchema = z.object({ success: z.literal(true), watcherId: z.string(), deleted: z.literal(true) });
+export const watcherChangedSchema = z.object({ success: z.literal(true), watcher: watcherSchema, fixturesDeferred: z.literal(true).optional() });
+export const watcherDeletedSchema = z.object({ success: z.literal(true), watcherId: z.string(), deleted: z.literal(true), fixturesDeferred: z.literal(true).optional() });
 export const monitoringSettingsSchema = z.object({ paused: z.boolean(), updatedAt: isoDateTime.nullable() });
 export const monitoringSettingsResponseSchema = z.object({
   success: z.literal(true),

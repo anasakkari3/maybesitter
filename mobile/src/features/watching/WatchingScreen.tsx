@@ -15,6 +15,8 @@ import { useBackgroundActivity, useSetBackgroundActivityPaused } from '../produc
 import { IntelligencePanel } from '../goals/IntelligencePanel';
 import { useIntelligenceDecided } from '../../api/queries';
 import { AvoidKeyboard } from '../../ui/keyboard';
+import { useM4bCapabilities } from '../m4b/capabilities';
+import { useHeldItems } from '../m4b/heldFixtures';
 
 /**
  * «يتابع لك» (Stitch redesign, 2026-10-02): what the assistant noticed, what it
@@ -37,8 +39,22 @@ import { AvoidKeyboard } from '../../ui/keyboard';
  * list say so, without an error to retry.
  */
 export function WatchingScreen({ tabClearance = TAB_CLEARANCE }: { tabClearance?: number } = {}) {
-  const { t, p, lang, actions } = useApp();
+  const { t, tr, p, lang, actions } = useApp();
   const zone = useTimeZone();
+  // M4b R1.5: matches and feed rows held because they clash. Read only while
+  // the capability is on; independent of the proactive loop and its consent.
+  const holdOn = useM4bCapabilities()?.externalClashHold === true;
+  const heldItems = useHeldItems();
+  const held = holdOn ? heldItems.data : undefined;
+  const heldCount = held?.count ?? 0;
+  // One destination per source (M4B-A-008): a card counting a feed row must
+  // not open only the football screen.
+  const footballHeld = held?.items.filter((item) => item.source === 'football').length ?? 0;
+  const icsHeld = held?.items.filter((item) => item.source === 'ics').length ?? 0;
+  // The list is bounded (20); when the total is larger, an unlisted source may
+  // be waiting too, so both destinations are offered (M4B-A-R3-004).
+  const partial = held !== undefined && held.count > held.items.length;
+  const mixed = (footballHeld > 0 && icsHeld > 0) || partial;
   const activity = useBackgroundActivity();
   const setPaused = useSetBackgroundActivityPaused();
   const decided = useIntelligenceDecided();
@@ -55,6 +71,22 @@ export function WatchingScreen({ tabClearance = TAB_CLEARANCE }: { tabClearance?
         <ScreenHeader brand={false} title={t.tabWatching} end={<AvatarButton />} />
         <Txt role="supporting" color={p.mu}>{t.watchingBody}</Txt>
         <HubRow testID="watching-knows" icon="person" title={t.knowsTitle} onPress={() => actions.go('knows')} />
+
+        {heldCount > 0 ? (
+          <View testID="watching-held-card">
+            {/* One true total (M4B-A-R2-017); the bounded list only says which
+                screens have something waiting. */}
+            <HubRow
+              testID="watching-held-open"
+              icon="calendar"
+              tone="attention"
+              title={tr('zHeldCard', { count: heldCount })}
+              sub={mixed ? t.footballTitle : t.zHeldCardOpen}
+              onPress={() => actions.go(footballHeld > 0 || partial ? 'footballSettings' : 'calendarFeeds')}
+            />
+            {mixed ? <TextLink label={t.icsFeedsTitle} testID="watching-held-open-ics" onPress={() => actions.go('calendarFeeds')} /> : null}
+          </View>
+        ) : null}
 
         <IntelligencePanel
           autoGenerate

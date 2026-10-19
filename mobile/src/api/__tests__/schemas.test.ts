@@ -4,6 +4,7 @@ import {
 } from '../schemas/aiContextImport';
 import { describe, expect, it } from '@jest/globals';
 import { readdirSync, readFileSync } from 'fs';
+import { heldChangedSchema, heldItemsSchema, m4bCapabilitiesSchema, postponeSlotsSchema, slotRefusedSchema } from '../schemas/m4b';
 import { join } from 'path';
 import { z } from 'zod';
 import type { CalendarBusyUpload } from '../endpoints/calendar';
@@ -64,7 +65,7 @@ import {
   routineSavedSchema,
 } from '../schemas/profile';
 import { backgroundActivityHistorySchema, backgroundActivitySchema } from '../schemas/backgroundActivity';
-import { footballSettingsResponseSchema } from '../schemas/football';
+import { footballSettingsResponseSchema, heldFixtureDecidedSchema } from '../schemas/football';
 import {
   planCauseResponseSchema,
   planEditRejectedSchema,
@@ -117,6 +118,7 @@ import {
   icsFeedCreatedSchema,
   icsFeedDeletedSchema,
   icsFeedListSchema,
+  icsItemChangedSchema,
   icsFeedRefreshedSchema,
   icsFeedRefusalSchema,
   icsFeedUpdatedSchema,
@@ -430,6 +432,26 @@ const CASES: Array<[string, z.ZodType]> = [
   ['watchers.football.created', watcherChangedSchema],
   ['football.settings', footballSettingsResponseSchema],
   ['football.settings.configured', footballSettingsResponseSchema],
+  // M4b, generated from the real handlers by Task B (WIRE-M4b).
+  ['capabilities.m4b', m4bCapabilitiesSchema],
+  ['football.held', footballSettingsResponseSchema],
+  ['football.fixture.clash-unknown', footballSettingsResponseSchema],
+  ['football.held.add', heldFixtureDecidedSchema],
+  ['football.held.dismiss', heldFixtureDecidedSchema],
+  ['football.held.changed', heldChangedSchema],
+  ['held-items', heldItemsSchema],
+  ['calendar.ics.held', icsFeedListSchema],
+  ['calendar.ics.item-changed', icsItemChangedSchema],
+  // A chat answer whose proposal carries the evening impact (the line before «حاضر؟»).
+  ['capture.impact.evening', captureChatSchema],
+  ['capture.impact.prep', captureProposalSchema],
+  ['capture.impact.noslot', captureProposalSchema],
+  ['postpone-slots', postponeSlotsSchema],
+  ['postpone-slots.incomplete', postponeSlotsSchema],
+  ['commitment.postpone.slot-taken', slotRefusedSchema],
+  ['commitment.postpone.slot-unverified', slotRefusedSchema],
+  ['commitment.postpone.slot-stale', slotRefusedSchema],
+  ['watchers.create.deferred', watcherChangedSchema],
   ['devices.registered', deviceRegisteredSchema],
   ['devices.forgotten', deviceForgottenSchema],
   // Subscribed calendar feeds (UC-3.4, #188). The schemas are strict: a

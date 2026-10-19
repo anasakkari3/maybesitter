@@ -28,6 +28,8 @@ import { BusyConflictChip } from '../features/calendar/BusyConflictChip';
 import { useBusyBlocks } from '../features/calendar/useBusyCalendar';
 import { useConflictBusyBlocks } from '../features/google/useGoogle';
 import { busyDuring } from '../features/calendar/conflicts';
+import { ImpactBlock, readinessLocked, useAnnounceNewPrep } from '../features/m4b/ImpactBlock';
+import { useM4bCapability } from '../features/m4b/capabilities';
 import { captureClock, captureTimeOf } from '../features/capture/chatPresentation';
 import { confirmableItems, wantsDiscardConfirmation, weeklyChoice, weeklyLockedByEdit, type CaptureItemEdit, type MeetingReviewContext } from '../features/capture/captureMachine';
 import { WeeklyChoice } from '../features/weeklyBlocks/WeeklyChoice';
@@ -211,6 +213,30 @@ export function ReviewScreen({ onBackToChat }: { onBackToChat?: () => void } = {
     });
   };
 
+  // M4b R2.3 (M4B-A-R2-011): the evening-impact line and «حاضر؟» here too —
+  // a shared or meeting proposal reaches this screen without the chat.
+  const impactOn = useM4bCapability('eveningImpact');
+  useAnnounceNewPrep(items);
+  const [readinessError, setReadinessError] = useState<{ itemId: string; key: UserFacingKey } | null>(null);
+  const impactFor = (item: CaptureProposalItem): React.ReactNode => {
+    const impact = impactOn && state.edits[item.itemId]?.localDateTime === undefined ? item.impacts?.[0] : undefined;
+    if (!impact) return null;
+    return (
+      <ImpactBlock itemId={item.itemId} impact={impact} itemTitle={state.edits[item.itemId]?.title ?? item.title}
+        disabled={answering || flow.writing || readinessLocked(items, state.edits as Record<string, Record<string, unknown> | undefined>, state.conversationId, item.itemId)}
+        error={readinessError?.itemId === item.itemId ? t[readinessError.key] : null}
+        onAnswer={(readiness) => {
+          if (answering || flow.writing) return;
+          setAnswering(true);
+          setReadinessError(null);
+          void flow.answerReadiness(item.itemId, readiness).then((outcome) => {
+            setAnswering(false);
+            if (!outcome.ok) setReadinessError({ itemId: item.itemId, key: outcome.messageKey });
+          });
+        }} />
+    );
+  };
+
   const handleEditChange = (itemId: string, next: CaptureItemEdit) => {
     const item = items.find((candidate) => candidate.itemId === itemId);
     const noTimeOption = item?.needsClarification
@@ -224,10 +250,13 @@ export function ReviewScreen({ onBackToChat }: { onBackToChat?: () => void } = {
       if (next.priority !== undefined && next.priority !== (item?.priority ?? 'normal')) {
         otherEdits.priority = next.priority;
       }
-      if (Object.keys(otherEdits).length > 0) flow.editItem(itemId, otherEdits);
+      if (next.locationTrigger !== undefined) otherEdits.locationTrigger = next.locationTrigger;
+      // The sheet's whole answer, less the time the no-time option settles:
+      // it replaces the earlier edit even when nothing else is left (M4B-R6-001).
+      flow.editItem(itemId, otherEdits, { replace: true });
       return;
     }
-    flow.editItem(itemId, next);
+    flow.editItem(itemId, next, { replace: true });
   };
 
   const confirmationActions = (
@@ -483,6 +512,7 @@ export function ReviewScreen({ onBackToChat }: { onBackToChat?: () => void } = {
                   lang={lang}
                   busy={busyBlocks}
                   docFacts={evidenceByItemId.get(item.itemId)}
+                  impact={impactFor(item)}
                 />
               ))}
             </View>
@@ -503,6 +533,7 @@ export function ReviewScreen({ onBackToChat }: { onBackToChat?: () => void } = {
               lang={lang}
               busy={busyBlocks}
               docFacts={evidenceByItemId.get(item.itemId)}
+              impact={impactFor(item)}
             />
           ))
         )}
@@ -530,7 +561,7 @@ export function ReviewScreen({ onBackToChat }: { onBackToChat?: () => void } = {
 const PRIORITY_IMP = { high: 'must', normal: 'should', low: 'nice' } as const;
 
 function ItemCard({
-  item, edit, selected, needsQuestion, onToggle, onEdit, weekly = null, weeklyLocked = false, onWeekly, lang, busy, docFacts,
+  item, edit, selected, needsQuestion, onToggle, onEdit, weekly = null, weeklyLocked = false, onWeekly, lang, busy, docFacts, impact,
 }: {
   item: CaptureProposalItem;
   edit: CaptureItemEdit | undefined;
@@ -545,6 +576,8 @@ function ItemCard({
   lang: Lang;
   busy: readonly DeviceBusyBlock[];
   docFacts?: ShareDocumentFacts | undefined;
+  /** M4b R2.3: the evening-impact block, outside the checkbox so its radios stay reachable. */
+  impact?: React.ReactNode;
 }) {
   const { t, p, tr } = useApp();
   const timezone = useTimeZone();
@@ -703,6 +736,7 @@ function ItemCard({
           <WeeklyChoice itemId={item.itemId} offer={offer} title={edit?.title ?? offer.title} choice={weekly} locked={weeklyLocked} onChoose={onWeekly} />
         </View>
       ) : null}
+      {impact ? <View style={{ paddingHorizontal: 18, paddingBottom: 16 }}>{impact}</View> : null}
     </View>
   );
 }

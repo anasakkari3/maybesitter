@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { isoDateTime } from './common';
 import { collisionWarningSchema } from './capture';
+import { clashSchema, heldFixtureSchema } from './m4b';
 
 /**
  * The two football calls (football fixtures MVP, Task 11).
@@ -54,6 +55,15 @@ export const footballFixtureSchema = z.object({
   awayTeamId: z.string().optional(),
   kickoffUtc: isoDateTime,
   collisions: collisionWarningSchema.array().optional(),
+  /**
+   * M4b (R1.3): what this match lands on among commitments, weekly blocks and
+   * calendar busy time — busy time with a null title. Preferred over
+   * `collisions` when present. `clashState: 'unknown'` means the schedule
+   * could not be fully read; `clashes` are then the ones the person consented
+   * to when they added a held match.
+   */
+  clashes: clashSchema.array().optional(),
+  clashState: z.enum(['known', 'unknown']).optional(),
 });
 
 export type FootballFixture = z.infer<typeof footballFixtureSchema>;
@@ -70,6 +80,10 @@ export const footballSettingsResponseSchema = z.object({
   clubs: z.array(footballClubSchema),
   followedClubIds: z.array(z.string()),
   fixtures: z.array(footballFixtureSchema),
+  /** M4b (R1.3): matches not saved because they clash, waiting for a decision. */
+  held: z.array(heldFixtureSchema).optional(),
+  /** M4b: matches waiting until the person's calendars cover their time. */
+  waitingForCoverage: z.number().int().nonnegative().optional(),
 });
 
 export type FootballSettingsResponse = z.infer<typeof footballSettingsResponseSchema>;
@@ -82,3 +96,14 @@ export const footballFixtureDismissedSchema = z.object({
 });
 
 export type FootballFixtureDismissed = z.infer<typeof footballFixtureDismissedSchema>;
+
+/**
+ * `POST /api/mobile/football/held/{fixtureId}` (M4b R1.3): «ضيفه» answers the
+ * saved match in the fixture shape above, «مش هاد الماتش» its id. `replayed`
+ * is read as a boolean: the route sends `false` on a first answer (a WIRE
+ * drift reported to Task B; accepted here so a real answer is never refused).
+ */
+export const heldFixtureDecidedSchema = z.union([
+  z.object({ success: z.literal(true), action: z.literal('add'), fixture: footballFixtureSchema, replayed: z.boolean().optional() }).strict(),
+  z.object({ success: z.literal(true), action: z.literal('dismiss'), fixtureId: z.string(), replayed: z.boolean().optional() }).strict(),
+]);

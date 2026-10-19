@@ -52,10 +52,17 @@ export function deleteIcsFeed(feedId: string) {
   });
 }
 
-export function decideIcsDeadline(feedId: string, itemKey: string, action: IcsDeadlineAction) {
+/**
+ * `expectedDecisionVersion` (M4b R1.4) is the row's `decisionVersion` as the
+ * person saw it; the server refuses an accept or a move whose row changed
+ * since (`IcsItemChangedError`). Sent only for those two actions, and only
+ * when the row carries one — a server without M4b never asked for it.
+ */
+export function decideIcsDeadline(feedId: string, itemKey: string, action: IcsDeadlineAction, expectedDecisionVersion?: string) {
+  const versioned = (action === 'accept' || action === 'apply_move') && expectedDecisionVersion !== undefined;
   return apiRequest(
     'POST',
     `/api/mobile/calendar/ics/${encodeURIComponent(feedId)}/deadlines/${encodeURIComponent(itemKey)}`,
-    { body: { action }, schema: icsDeadlineDecidedSchema },
+    { body: { action, ...(versioned ? { expectedDecisionVersion } : {}) }, schema: icsDeadlineDecidedSchema },
   );
 }

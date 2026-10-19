@@ -44,7 +44,7 @@ import { setRecommendationConsent } from '../../lib/consents/recommendationConse
 import { createStorageFeedbackEventStore } from '../../lib/feedback/feedbackEventStore.ts';
 import { createMemoryStorage } from '../../lib/storage/memoryAdapter.ts';
 import { getStorage, resetStorageForTests, setStorageForTests } from '../../lib/storage/index.ts';
-import { COMMITMENTS, EVENTS, footballClubSyncStateDoc, userDoc, userSubDoc, WATCHER_EVENTS, WATCHERS } from '../../lib/storage/paths.ts';
+import { COMMITMENTS, EVENTS, footballClubSyncStateDoc, userDoc, userSubDoc, WATCHER_EVENTS, WATCHERS, ICS_FEEDS, ICS_FEED_ITEMS } from '../../lib/storage/paths.ts';
 import { setPersonalizationConsent } from '../../lib/consents/personalizationConsentService.ts';
 import { POST as memorySuggestionPost } from '../../src/app/api/mobile/memory/suggestions/[ruleId]/route.ts';
 import { GET as financialContextGet } from '../../src/app/api/mobile/financial/context/route.ts';
@@ -212,6 +212,24 @@ import { POST as watcherPausePost } from '../../src/app/api/mobile/watchers/[id]
 import { GET as weeklyBlocksGet, POST as weeklyBlocksPost } from '../../src/app/api/mobile/weekly-blocks/route.ts';
 import { DELETE as weeklyBlockDelete, PATCH as weeklyBlockPatch } from '../../src/app/api/mobile/weekly-blocks/[id]/route.ts';
 import { GET as weeklyOccurrencesGet } from '../../src/app/api/mobile/weekly-blocks/occurrences/route.ts';
+import {
+  addDeviceBusy as addM4bDeviceBusy,
+  addEvent as addM4bEvent,
+  at as atM4b,
+  begin as beginM4b,
+  call as callM4b,
+  end as endM4b,
+  readerSeam as m4bReaderSeam,
+  fixture as m4bFixture,
+  follow as followM4b,
+  kickoff as m4bKickoff,
+  moveCommitment as moveM4bCommitment,
+  plusMinutes as plusM4bMinutes,
+  project as projectM4b,
+  putFixtures as putM4bFixtures,
+  say as sayM4b,
+  TODAY as M4B_TODAY,
+} from '../acceptance/m4b/support.ts';
 
 const BASE = 'http://127.0.0.1:4321';
 const REFERENCE_TIME = '2026-08-09T08:00:00.000Z';
@@ -527,25 +545,34 @@ const pinCaptureKindsIds = (_live: Record<string, unknown>, stable: Record<strin
  * An id keeps its shape — a uuid stays uuid-shaped — because the schemas and
  * the client both treat shape as part of the contract.
  */
-function stabilise(value: unknown, counters: Map<string, number>): unknown {
-  if (Array.isArray(value)) return value.map(item => stabilise(item, counters));
+function stabilise(value: unknown, counters: Map<string, number>, stableUuids = new Map<string, string>()): unknown {
+  if (Array.isArray(value)) return value.map(item => stabilise(item, counters, stableUuids));
   if (value && typeof value === 'object') {
     return Object.fromEntries(
-      Object.entries(value as Record<string, unknown>).map(([key, item]) => [key, stabilise(item, counters)]),
+      Object.entries(value as Record<string, unknown>).map(([key, item]) => [key, stabilise(item, counters, stableUuids)]),
     );
   }
   if (typeof value !== 'string') return value;
+  const stableUuid = (uuid: string): string => {
+    // Keep consuming the legacy sequence for every occurrence so fixing a
+    // repeated reference does not renumber unrelated ids later in the body.
+    const next = stableId('00000000-0000-4000-8000-', 12, counters);
+    const known = stableUuids.get(uuid);
+    if (known) return known;
+    stableUuids.set(uuid, next);
+    return next;
+  };
   if (INSTANT.test(value)) return value === REFERENCE_TIME ? value : STABLE_INSTANT;
   // An activity cursor names a record, `<instant>|<id>` (#201). Opaque to the
   // client, but it carries a real clock and a fresh id.
   const cursor = /^([^|]+)\|([^|]+)$/.exec(value);
   if (cursor && INSTANT.test(cursor[1]!) && UUID.test(cursor[2]!)) {
-    return `${STABLE_INSTANT}|${stableId('00000000-0000-4000-8000-', 12, counters)}`;
+    return `${STABLE_INSTANT}|${stableUuid(cursor[2]!)}`;
   }
   if (DIGEST.test(value)) return STABLE_DIGEST;
-  if (MEMORY_ID.test(value)) return `mem_${stableId('00000000-0000-4000-8000-', 12, counters)}`;
-  if (WATCHER_ID.test(value) && !STABLE_WATCHER_ID.test(value)) return `wtc_${stableId('00000000-0000-4000-8000-', 12, counters)}`;
-  if (UUID.test(value)) return stableId('00000000-0000-4000-8000-', 12, counters);
+  if (MEMORY_ID.test(value)) return `mem_${stableUuid(value.slice(4))}`;
+  if (WATCHER_ID.test(value) && !STABLE_WATCHER_ID.test(value)) return `wtc_${stableUuid(value.slice(4))}`;
+  if (UUID.test(value)) return stableUuid(value);
   const prefixed = PREFIXED_ID.exec(value);
   if (prefixed) return `${prefixed[1]}${value.includes('_') ? '_' : '-'}${'0'.repeat(16)}`;
   return value;
@@ -790,6 +817,199 @@ function setup(): () => void {
     rmSync(directory, { recursive: true, force: true });
   };
 }
+
+async function recordM4b(
+  name: string,
+  expectedStatus: number,
+  result: { status: number; body: Record<string, unknown> },
+  assertStable: (body: Record<string, unknown>) => void = () => {},
+): Promise<Record<string, unknown>> {
+  assert.equal(result.status, expectedStatus, `${name}: ${JSON.stringify(result.body)}`);
+  const stable = stabilise(result.body, new Map()) as Record<string, unknown>;
+  assertStable(stable);
+  writeFileSync(join(FIXTURES, `${name}.json`), `${JSON.stringify(stable, null, 2)}\n`, 'utf8');
+  return result.body;
+}
+
+function assertImpactPrepReferences(body: Record<string, unknown>): void {
+  const items = body.items as Array<Record<string, unknown>>;
+  const source = items.find((item) => Array.isArray(item.impacts))!;
+  const impact = (source.impacts as Array<Record<string, unknown>>).find((item) => item.prep)!;
+  const prep = impact.prep as Record<string, unknown>;
+  const generated = items.find((item) => item.itemId === prep.itemId)!;
+  assert.ok(generated, 'prep.itemId does not name the generated prep item');
+  assert.equal((generated.generated as Record<string, unknown>).sourceItemId, source.itemId,
+    'generated.sourceItemId does not name the impacted source item');
+}
+
+/** M4b's dedicated responses, generated with only its three switches enabled for these cases. */
+test('exports the M4b mobile fixtures from the real handlers', async () => {
+  const previousIcs = process.env.ICS_FEEDS_ENABLED;
+  const previousFootballKey = process.env.FOOTBALL_DATA_API_KEY;
+  process.env.ICS_FEEDS_ENABLED = 'true';
+  process.env.FOOTBALL_DATA_API_KEY = 'fixture-test-key';
+  const scenario = async (run: (uid: string) => Promise<void>) => {
+    const uid = beginM4b();
+    try { await run(uid); } finally { endM4b(); }
+  };
+  const postSlot = (uid: string, id: string, slot: any) => callM4b(uid, 'commitments/[id]/actions', 'POST', {
+    params: { id }, body: { action: 'postpone', postponedUntil: slot.startsAt, fromSlot: true, slotToken: slot.slotToken },
+  });
+  try {
+    await scenario(async (uid) => {
+      await recordM4b('capabilities.m4b', 200, await callM4b(uid, 'capabilities/m4b', 'GET'));
+    });
+
+    await scenario(async (uid) => {
+      const kickoff = m4bKickoff(3, '21:00');
+      await addM4bEvent(uid, 'عشا العيلة', plusM4bMinutes(kickoff, -30), plusM4bMinutes(kickoff, 60));
+      await followM4b(uid);
+      await putM4bFixtures(m4bFixture('fixture-held', kickoff));
+      await projectM4b(uid);
+      await recordM4b('football.held', 200, await callM4b(uid, 'football', 'GET'));
+
+      const feedId = '11111111-1111-4111-8111-111111111111';
+      const itemKey = 'a'.repeat(64);
+      const now = new Date().toISOString();
+      await getStorage().set(userSubDoc(uid, ICS_FEEDS, feedId), {
+        feedId, label: 'Study calendar', encryptedUrl: {}, hostHash: 'fixture', autoAcceptDeadlines: true,
+        status: 'ok', consecutiveFailures: 0, lastErrorCode: null, etag: null, lastModified: null,
+        lastFetchedAt: now, lastFullFetchAt: now, lastManualRefreshAt: null, nextFetchAt: plusM4bMinutes(now, 30),
+        createdAt: now, busyBlocks: 0,
+      });
+      await getStorage().set(userSubDoc(uid, ICS_FEED_ITEMS, itemKey), {
+        itemKey, feedId, recurrenceId: null, sequence: 0, dtstamp: null, title: 'Essay due', dueAt: m4bKickoff(2, '10:00'),
+        allDay: false, state: 'pending', notice: null, proposedDueAt: null,
+        held: { reason: 'clash', clashes: [{ title: 'محاضرة', startsAt: m4bKickoff(2, '09:45'), endsAt: m4bKickoff(2, '10:45'), kind: 'commitment' }] },
+        commitmentId: null, autoAccepted: false, reappeared: false, firstSeenAt: now, updatedAt: now,
+      });
+      await recordM4b('calendar.ics.held', 200, await callM4b(uid, 'calendar/ics', 'GET'));
+      await recordM4b('held-items', 200, await callM4b(uid, 'held-items', 'GET'));
+
+    });
+
+    await scenario(async (uid) => {
+      const kickoff = m4bKickoff(3, '21:00');
+      await addM4bEvent(uid, 'عشا العيلة', plusM4bMinutes(kickoff, -30), plusM4bMinutes(kickoff, 60));
+      await followM4b(uid); await putM4bFixtures(m4bFixture('1', kickoff)); await projectM4b(uid);
+      const held = ((await callM4b(uid, 'football', 'GET')).body.held as any[])[0]!;
+      await recordM4b('football.held.add', 200, await callM4b(uid, 'football/held/[fixtureId]', 'POST', {
+        params: { fixtureId: held.fixtureId }, body: { action: 'add', expectedHeldVersion: held.heldVersion, clientActionId: '70000000-0000-4000-8000-000000000001' },
+      }));
+    });
+
+    await scenario(async (uid) => {
+      const kickoff = m4bKickoff(3, '21:00');
+      await addM4bEvent(uid, 'عشا العيلة', plusM4bMinutes(kickoff, -30), plusM4bMinutes(kickoff, 60));
+      await followM4b(uid); await putM4bFixtures(m4bFixture('fixture-dismiss', kickoff)); await projectM4b(uid);
+      const held = ((await callM4b(uid, 'football', 'GET')).body.held as any[])[0]!;
+      await recordM4b('football.held.dismiss', 200, await callM4b(uid, 'football/held/[fixtureId]', 'POST', {
+        params: { fixtureId: held.fixtureId }, body: { action: 'dismiss', expectedHeldVersion: held.heldVersion, clientActionId: '70000000-0000-4000-8000-000000000002' },
+      }));
+    });
+
+    await scenario(async (uid) => {
+      const kickoff = m4bKickoff(3, '21:00');
+      await addM4bEvent(uid, 'عشا العيلة', plusM4bMinutes(kickoff, -30), plusM4bMinutes(kickoff, 60));
+      await followM4b(uid); await putM4bFixtures(m4bFixture('fixture-changed', kickoff)); await projectM4b(uid);
+      const held = ((await callM4b(uid, 'football', 'GET')).body.held as any[])[0]!;
+      await addM4bEvent(uid, 'اجتماع', plusM4bMinutes(kickoff, 65), plusM4bMinutes(kickoff, 100));
+      await recordM4b('football.held.changed', 409, await callM4b(uid, 'football/held/[fixtureId]', 'POST', {
+        params: { fixtureId: held.fixtureId }, body: { action: 'add', expectedHeldVersion: held.heldVersion, clientActionId: '70000000-0000-4000-8000-000000000003' },
+      }));
+    });
+
+    await scenario(async (uid) => {
+      const kickoff = m4bKickoff(3, '21:00');
+      await followM4b(uid); await putM4bFixtures(m4bFixture('fixture-unknown', kickoff)); await projectM4b(uid);
+      await addM4bDeviceBusy(uid, [], { startsAt: atM4b(M4B_TODAY, '00:00'), endsAt: atM4b(M4B_TODAY, '12:00') });
+      await putM4bFixtures(m4bFixture('fixture-unknown', plusM4bMinutes(kickoff, 60), { sequence: 1 } as any));
+      await projectM4b(uid);
+      await recordM4b('football.fixture.clash-unknown', 200, await callM4b(uid, 'football', 'GET'));
+    });
+
+    await scenario(async (uid) => {
+      await addM4bEvent(uid, 'امتحان رياضيات', atM4b('2026-10-09', '09:00'), atM4b('2026-10-09', '11:00'));
+      const answer = await sayM4b(uid, 'سهرة الخميس الساعة 9 بالليل');
+      await recordM4b('capture.impact.evening', 200, { status: 200, body: answer as unknown as Record<string, unknown> });
+      const proposal = answer.proposal!;
+      const evening = proposal.items.find((item: any) => item.title.includes('سهرة'))!;
+      await recordM4b('capture.impact.prep', 200, await callM4b(uid, 'capture/impact', 'POST', { body: {
+        proposalId: proposal.proposalId, revision: proposal.revision ?? 0, itemId: evening.itemId, readiness: 'not_ready',
+      } }), assertImpactPrepReferences);
+    });
+
+    await scenario(async (uid) => {
+      await addM4bEvent(uid, 'شغل', atM4b(M4B_TODAY, '10:30'), atM4b(M4B_TODAY, '22:00'));
+      await addM4bEvent(uid, 'شغل', atM4b('2026-10-08', '07:00'), atM4b('2026-10-08', '21:00'));
+      await addM4bEvent(uid, 'امتحان رياضيات', atM4b('2026-10-09', '09:00'), atM4b('2026-10-09', '11:00'));
+      const answer = await sayM4b(uid, 'سهرة الخميس الساعة 9 بالليل');
+      const proposal = answer.proposal!; const evening = proposal.items.find((item: any) => item.title.includes('سهرة'))!;
+      await recordM4b('capture.impact.noslot', 200, await callM4b(uid, 'capture/impact', 'POST', { body: {
+        proposalId: proposal.proposalId, revision: proposal.revision ?? 0, itemId: evening.itemId, readiness: 'not_ready',
+      } }));
+    });
+
+    await scenario(async (uid) => {
+      const id = await addM4bEvent(uid, 'ورشة', atM4b('2026-10-08', '10:00'), atM4b('2026-10-08', '11:00'));
+      await recordM4b('postpone-slots', 200, await callM4b(uid, 'commitments/[id]/postpone-slots', 'GET', { params: { id } }));
+    });
+    await scenario(async (uid) => {
+      await addM4bDeviceBusy(uid, [], { startsAt: atM4b(M4B_TODAY, '00:00'), endsAt: atM4b(M4B_TODAY, '12:00') });
+      const id = await addM4bEvent(uid, 'ورشة', atM4b('2026-10-08', '10:00'), atM4b('2026-10-08', '11:00'));
+      await recordM4b('postpone-slots.incomplete', 200, await callM4b(uid, 'commitments/[id]/postpone-slots', 'GET', { params: { id } }));
+    });
+    await scenario(async (uid) => {
+      const id = await addM4bEvent(uid, 'ورشة', atM4b('2026-10-08', '10:00'), atM4b('2026-10-08', '11:00'));
+      const offered = await callM4b(uid, 'commitments/[id]/postpone-slots', 'GET', { params: { id } }); const slot = (offered.body.slots as any[])[0]!;
+      await addM4bEvent(uid, 'اجتماع', slot.startsAt, slot.endsAt);
+      await recordM4b('commitment.postpone.slot-taken', 409, await postSlot(uid, id, slot));
+    });
+    await scenario(async (uid) => {
+      await addM4bDeviceBusy(uid, []);
+      const id = await addM4bEvent(uid, 'ورشة', atM4b('2026-10-08', '10:00'), atM4b('2026-10-08', '11:00'));
+      const offered = await callM4b(uid, 'commitments/[id]/postpone-slots', 'GET', { params: { id } }); const slot = (offered.body.slots as any[])[0]!;
+      await addM4bDeviceBusy(uid, [], { startsAt: atM4b(M4B_TODAY, '00:00'), endsAt: atM4b(M4B_TODAY, '12:00') });
+      await recordM4b('commitment.postpone.slot-unverified', 409, await postSlot(uid, id, slot));
+    });
+    await scenario(async (uid) => {
+      const id = await addM4bEvent(uid, 'ورشة', atM4b('2026-10-08', '10:00'), atM4b('2026-10-08', '10:30'));
+      const offered = await callM4b(uid, 'commitments/[id]/postpone-slots', 'GET', { params: { id } }); const slot = (offered.body.slots as any[])[0]!;
+      await moveM4bCommitment(uid, id, atM4b('2026-10-08', '10:00'), atM4b('2026-10-08', '12:00'));
+      await recordM4b('commitment.postpone.slot-stale', 409, await postSlot(uid, id, slot));
+    });
+
+    await scenario(async (uid) => {
+      const feedId = '22222222-2222-4222-8222-222222222222'; const itemKey = 'b'.repeat(64); const now = new Date().toISOString();
+      await getStorage().set(userSubDoc(uid, ICS_FEEDS, feedId), { feedId, label: null, encryptedUrl: {}, hostHash: 'fixture', autoAcceptDeadlines: true,
+        status: 'ok', consecutiveFailures: 0, lastErrorCode: null, etag: null, lastModified: null, lastFetchedAt: now, lastFullFetchAt: now,
+        lastManualRefreshAt: null, nextFetchAt: plusM4bMinutes(now, 30), createdAt: now, busyBlocks: 0 });
+      await getStorage().set(userSubDoc(uid, ICS_FEED_ITEMS, itemKey), { itemKey, feedId, recurrenceId: null, sequence: 1, dtstamp: null,
+        title: 'Essay due', dueAt: m4bKickoff(2, '10:00'), allDay: false, state: 'pending', notice: null, proposedDueAt: null,
+        held: { reason: 'clash', clashes: [] }, commitmentId: null, autoAccepted: false, reappeared: false, firstSeenAt: now, updatedAt: now });
+      await applyTrustAction(uid, { type: 'record_first_value', at: now });
+      await applyTrustAction(uid, { type: 'set_calendar_consent', granted: true, at: now });
+      await recordM4b('calendar.ics.item-changed', 409, await callM4b(uid, 'calendar/ics/[feedId]/deadlines/[itemKey]', 'POST', {
+        params: { feedId, itemKey }, body: { action: 'accept', expectedDecisionVersion: 'stale-version' },
+      }));
+    });
+
+    await scenario(async (uid) => {
+      const kickoff = m4bKickoff(3, '21:00');
+      await putM4bFixtures(m4bFixture('fixture-watcher', kickoff));
+      const failure = await m4bReaderSeam(); failure(() => async () => { throw new Error('fixture schedule read failed'); });
+      try {
+        await recordM4b('watchers.create.deferred', 201, await callM4b(uid, 'watchers', 'POST', { body: {
+          enabled: true, label: 'Barcelona', source: { provider: 'football_data', connectionId: null, signalKind: 'football_team', subjectRef: 'barcelona' },
+          condition: { kind: 'digest_changed' }, effect: 'replan_if_impacted', createdBy: 'user',
+        } }));
+      } finally { failure(null); }
+    });
+  } finally {
+    if (previousIcs === undefined) delete process.env.ICS_FEEDS_ENABLED; else process.env.ICS_FEEDS_ENABLED = previousIcs;
+    if (previousFootballKey === undefined) delete process.env.FOOTBALL_DATA_API_KEY; else process.env.FOOTBALL_DATA_API_KEY = previousFootballKey;
+  }
+});
 
 
 /**

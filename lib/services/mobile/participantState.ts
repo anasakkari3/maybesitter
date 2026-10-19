@@ -42,6 +42,7 @@ import {
 } from '../../../src/domain/stateMachine';
 import {
   COMMITMENT_ACTION_RECEIPTS,
+  EXTERNAL_TASK_ACTION_RECEIPTS,
   COMMITMENTS,
   docIdForKey,
   ESCALATION_STATES,
@@ -129,6 +130,7 @@ const PARTICIPANT_COLLECTIONS = [
   RECOMMENDATION_ACTIONS,
   // Which notification taps were already applied (#200). They name commitments.
   COMMITMENT_ACTION_RECEIPTS,
+  EXTERNAL_TASK_ACTION_RECEIPTS,
   // The activity counters go with a wipe (UC-3.15, #201). A Moment survives
   // deleting the *item* it came from, which is what #201 asks for; it does not
   // survive the person deleting their data, which is a different request and
@@ -326,7 +328,7 @@ export async function applyParticipantCommand(
   return getStorage().runTransaction((tx) => applyCommandInTransaction(tx, participantId, command, at, precondition));
 }
 
-async function applyCommandInTransaction(
+export async function applyCommandInTransaction(
   tx: StorageTransaction,
   participantId: string,
   command: Command,
@@ -672,8 +674,8 @@ export async function commitCommandsWithClaim<D extends object>(
   claimPath: string,
   decide: (
     claim: D | null,
-    context: { user: UserDocument | null; guards: readonly unknown[] },
-  ) => { commands: readonly Command[]; patch: Partial<D> } | null,
+    context: { user: UserDocument | null; guards: readonly unknown[]; tx: StorageTransaction },
+  ) => { commands: readonly Command[]; patch: Partial<D> } | null | Promise<{ commands: readonly Command[]; patch: Partial<D> } | null>,
   /**
    * Documents read in the same transaction and handed to `decide`, so it can
    * refuse when something the claim depends on is gone — a calendar feed that
@@ -691,7 +693,7 @@ export async function commitCommandsWithClaim<D extends object>(
       readActivityStats(tx, participantId),
       Promise.all(guardPaths.map((path) => tx.get<unknown>(path))),
     ]);
-    const decided = decide(claim, { user, guards });
+    const decided = await decide(claim, { user, guards, tx });
     if (decided === null) return { replayed: true };
 
     let candidate = before;

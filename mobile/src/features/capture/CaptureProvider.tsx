@@ -30,6 +30,9 @@ import {
 import { useTimeZone } from '../../i18n/timezone';
 import { useOptionalAuth } from '../../auth/AuthProvider';
 import { deleteCommitment } from '../../api/endpoints/commitments';
+import { answerImpact } from '../../api/endpoints/m4b';
+import { readinessLocked } from '../m4b/ImpactBlock';
+import type { Readiness } from '../../api/schemas/m4b';
 import { ConversationNotFoundError, InputTooLargeError, isRetryable, ProposalChangedError, QuotaExceededError, ValidationError } from '../../api/errors';
 import type { CaptureProposalEdit } from '../../api/endpoints/capture';
 import { instantForLocalDateTime } from './localInstant';
@@ -100,7 +103,8 @@ interface CaptureContextValue {
   dropFamilies(families: readonly ('habit' | 'goal' | 'seed')[]): void;
   selectAll(): void;
   deselectAll(): void;
-  editItem(itemId: string, edit: CaptureItemEdit): void;
+  /** `replace`: the edit sheet's whole answer replaces the item's earlier edit (M4B-R5-001). */
+  editItem(itemId: string, edit: CaptureItemEdit, options?: { replace?: boolean }): void;
   /** «كل أسبوع» or «مرة وحدة بس» on an item the server offered a weekly block for. */
   setWeekly(itemId: string, weekly: boolean): void;
   /** Keep or remove an item's suggested goal link («مرتبط بهدف …»). */
@@ -114,6 +118,12 @@ interface CaptureContextValue {
    * question and pretending the answer landed.
    */
   clarify(itemId: string, answer: { optionId?: string; freeText?: string }): Promise<ClarifyOutcome>;
+  /**
+   * «حاضر؟» on an evening-impact line (M4b R2.2). The proposal comes back
+   * whole — with a preparation item for «لسا لا» / «مش متأكد» — and replaces
+   * the one on screen the way a clarification does (selection and edits kept).
+   */
+  answerReadiness(itemId: string, readiness: Readiness): Promise<ClarifyOutcome>;
   confirm(): Promise<void>;
   undo(): Promise<UndoOutcome>;
   backToComposer(): void;
@@ -146,7 +156,7 @@ interface CaptureContextValue {
 }
 
 /** How a structured edit went: applied, or why not — the summary shows a note. */
-export type EditOutcome = { ok: true } | { ok: false; reason: 'changed' | 'confirmed' | 'ended' | 'failed' | 'unavailable' };
+export type EditOutcome = { ok: true; revision?: number | undefined } | { ok: false; reason: 'changed' | 'confirmed' | 'ended' | 'failed' | 'unavailable' };
 
 /**
  * How an answer went. A failure carries the line to show under the question,
@@ -389,7 +399,9 @@ export function CaptureProvider({ children }: { children: React.ReactNode }) {
       releaseWrite(token);
     }
   }, [clarifyCapture, state.proposal, acquireWrite, releaseWrite]);
-  const editItem = useCallback((itemId: string, edit: CaptureItemEdit) => dispatch({ type: 'editItem', itemId, edit }), []);
+  const editItem = useCallback((itemId: string, edit: CaptureItemEdit, options: { replace?: boolean } = {}) => dispatch({
+    type: 'editItem', itemId, edit, ...(options.replace ? { replace: true } : {}),
+  }), []);
   const setWeekly = useCallback((itemId: string, weekly: boolean) => dispatch({ type: 'setWeekly', itemId, weekly }), []);
   const setGoalLink = useCallback((itemId: string, linked: boolean) => dispatch({ type: 'setGoalLink', itemId, linked }), []);
 
@@ -558,7 +570,7 @@ export function CaptureProvider({ children }: { children: React.ReactNode }) {
       });
       if (generation !== analysisGeneration.current) return { ok: false, reason: 'failed' };
       dispatch({ type: 'editAnswered', answer, applied: target, ...(itemId && (folded.title || folded.time) ? { folded: { itemId, ...folded } } : {}) });
-      return { ok: true };
+      return { ok: true, revision: answer.proposal?.revision };
     } catch (error) {
       if (generation !== analysisGeneration.current) return { ok: false, reason: 'failed' };
       // Already confirmed (another device, or a confirm that landed first):
@@ -581,14 +593,55 @@ export function CaptureProvider({ children }: { children: React.ReactNode }) {
       releaseWrite(token);
     }
   }, [chat, state.proposal, state.conversationId, state.edits, timezone, acquireWrite, releaseWrite]);
+  const answerReadiness = useCallback(async (itemId: string, readiness: Readiness) => {
+    const proposal = state.proposal;
+    if (!proposal) return { ok: false, messageKey: 'errorsGeneric' } as const;
+    // A preparation card the person changed on screen is theirs (M4B-A-R3-005):
+    // the change goes to the server first, through the structured edit, which
+    // takes the generated mark off it, so a new answer cannot remove it.
+    let revision = proposal.revision ?? 0;
+    // A prep change the server cannot be told about first holds the answer (R4-001).
+    if (readinessLocked(proposal.items, state.edits as Record<string, Record<string, unknown> | undefined>, state.conversationId, itemId)) {
+      return { ok: false, messageKey: 'errorsGeneric' } as const;
+    }
+    const prep = proposal.items.find((item) => item.generated?.sourceItemId === itemId);
+    const staged = prep ? state.edits[prep.itemId] : undefined;
+    if (prep && staged && (staged.title !== undefined || staged.localDateTime !== undefined) && state.conversationId) {
+      const folded = await editPoint({ itemId: prep.itemId }, {});
+      if (!folded.ok) return { ok: false, messageKey: 'errorsGeneric' } as const;
+      if (folded.revision !== undefined) revision = folded.revision;
+    }
+    const token = acquireWrite();
+    if (!token) return { ok: false, messageKey: 'errorsGeneric' } as const;
+    const generation = analysisGeneration.current;
+    const proposalId = proposal.proposalId;
+    try {
+      const updated = await answerImpact({ proposalId, revision, itemId, readiness }, uid !== null ? { asUid: uid } : {});
+      if (generation !== analysisGeneration.current || updated.proposalId !== proposalId) {
+        return { ok: false, messageKey: 'errorsGeneric' } as const;
+      }
+      dispatch({ type: 'clarified', proposal: updated });
+      return { ok: true } as const;
+    } catch (error) {
+      // The proposal, or the saved item the line was about, moved on: show it
+      // as it is now; the answer was not applied.
+      if (error instanceof ProposalChangedError && error.current.kind === 'proposal' && generation === analysisGeneration.current) {
+        dispatch({ type: 'proposalReplaced', proposal: error.current.proposal });
+        return { ok: false, messageKey: 'captureProposalChanged' } as const;
+      }
+      return { ok: false, messageKey: userFacingMessageKey(error) } as const;
+    } finally {
+      releaseWrite(token);
+    }
+  }, [state.proposal, state.edits, state.conversationId, editPoint, acquireWrite, releaseWrite, uid]);
 
   const takeRefusedEdit = useCallback(() => dispatch({ type: 'refusedEditTaken' }), []);
   const acceptUnderstood = useCallback(() => dispatch({ type: 'understoodAccepted' }), []);
   const reopenUnderstood = useCallback(() => dispatch({ type: 'understoodReopened' }), []);
   const value = useMemo<CaptureContextValue>(() => ({
-    state, open, changeEntry, setText, analyze, dismissFailure, startOver, adoptProposal, toggleItem, togglePoint, dropFamilies, selectAll, deselectAll, editItem, setWeekly, setGoalLink, clarify, confirm, undo, backToComposer, acceptUnderstood, reopenUnderstood, close,
+    state, open, changeEntry, setText, analyze, dismissFailure, startOver, adoptProposal, toggleItem, togglePoint, dropFamilies, selectAll, deselectAll, editItem, setWeekly, setGoalLink, clarify, answerReadiness, confirm, undo, backToComposer, acceptUnderstood, reopenUnderstood, close,
     dictate, chooseAlternative, editPoint, adoptCurrent, dictationStarted, takeRefusedEdit, writing, guardWrite,
-  }), [state, open, changeEntry, setText, analyze, dismissFailure, startOver, adoptProposal, toggleItem, togglePoint, dropFamilies, selectAll, deselectAll, editItem, setWeekly, setGoalLink, clarify, confirm, undo, backToComposer, acceptUnderstood, reopenUnderstood, close,
+  }), [state, open, changeEntry, setText, analyze, dismissFailure, startOver, adoptProposal, toggleItem, togglePoint, dropFamilies, selectAll, deselectAll, editItem, setWeekly, setGoalLink, clarify, answerReadiness, confirm, undo, backToComposer, acceptUnderstood, reopenUnderstood, close,
     dictate, chooseAlternative, editPoint, adoptCurrent, dictationStarted, takeRefusedEdit, writing, guardWrite]);
 
   return <CaptureContext.Provider value={value}>{children}</CaptureContext.Provider>;

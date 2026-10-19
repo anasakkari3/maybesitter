@@ -63,11 +63,13 @@ import {
   type EncryptedField,
   type FieldEncryptionOptions,
 } from '../security/fieldEncryption';
-import { getStorage, type StorageAdapter } from '../storage';
+import { getStorage, type StorageAdapter, type StorageTransaction } from '../storage';
 import { ICS_FEED_ITEMS, ICS_FEEDS, USERS, requireUserId, userCol, userDoc, userSubDoc } from '../storage/paths';
 import { newUserDocument, type UserDocument } from '../storage/userDocument';
 import { hostHashOf, normalizeFeedUrl, safeFetch, SafeFetchError, type SafeFetchOptions, type SafeFetchResult } from '../net/safeFetch';
 import { busyBlockId, deleteBusySource, listBusyBlocks, replaceBusyBlocks, type BusyBlock } from './busyBlocks';
+import { candidateClashes, readFreeSlotSchedule, runScheduleDecisionHook, type Clash } from '../planning/freeSlots';
+import { resolveExternalClashHold } from '../release/m4bCapabilities';
 import { classifyIcsBounded, IcsTooComplexError } from './icsClassifyBounded';
 import {
   BUSY_WINDOW_DAYS,
@@ -141,6 +143,9 @@ export interface IcsFeedItemDocument {
   notice: ItemNotice;
   /** For a "moved" notice: the time the feed now says. */
   proposedDueAt: string | null;
+  proposedAllDay?: boolean;
+  proposedClashes?: readonly Clash[];
+  held?: { reason: 'clash' | 'unknown'; clashes: readonly Clash[] };
   commitmentId: string | null;
   autoAccepted: boolean;
   /** A dismissed item that changed comes back once; this records that it has. */
@@ -172,6 +177,10 @@ export interface IcsDeadlineView {
   state: ItemState;
   notice: ItemNotice;
   proposedDueAt: string | null;
+  proposedAllDay?: boolean;
+  proposedClashes?: readonly Clash[];
+  held?: { reason: 'clash' | 'unknown'; clashes: readonly Clash[] };
+  decisionVersion?: string;
   commitmentId: string | null;
   autoAccepted: boolean;
 }
@@ -196,7 +205,8 @@ export type IcsFeedErrorCode =
   | 'invalid_action'
   | 'past_due'
   | 'encryption_unavailable'
-  | 'consent_required';
+  | 'consent_required'
+  | 'item_changed';
 
 const STATUS: Record<IcsFeedErrorCode, number> = {
   feature_disabled: 404,
@@ -213,6 +223,7 @@ const STATUS: Record<IcsFeedErrorCode, number> = {
   past_due: 409,
   encryption_unavailable: 503,
   consent_required: 403,
+  item_changed: 409,
 };
 
 /** A refusal a route can answer as it stands: fixed message, a code, a status, and a detail code at most. */
@@ -228,6 +239,10 @@ export class IcsFeedError extends Error {
     this.status = STATUS[code];
     this.detail = detail;
   }
+}
+
+export class IcsItemChangedError extends IcsFeedError {
+  constructor(readonly row: IcsDeadlineView) { super('item_changed'); this.name = 'IcsItemChangedError'; }
 }
 
 /**
@@ -302,7 +317,19 @@ function feedView(feed: IcsFeedDocument, items: readonly IcsFeedItemDocument[]):
   };
 }
 
+export function icsDecisionVersion(item: IcsFeedItemDocument): string {
+  return createHash('sha256').update(JSON.stringify({ title: item.title, dueAt: item.dueAt, allDay: item.allDay,
+    proposedDueAt: item.proposedDueAt, proposedAllDay: item.proposedAllDay ?? null,
+    held: item.held ?? null, proposedClashes: item.proposedClashes ?? [] })).digest('base64url');
+}
+
 function deadlineView(item: IcsFeedItemDocument): IcsDeadlineView {
+  const m4b = resolveExternalClashHold() ? {
+    ...(item.held ? { held: item.held } : {}),
+    ...(item.proposedAllDay !== undefined ? { proposedAllDay: item.proposedAllDay } : {}),
+    ...(item.proposedClashes ? { proposedClashes: item.proposedClashes } : {}),
+    decisionVersion: icsDecisionVersion(item),
+  } : {};
   return {
     itemKey: item.itemKey,
     feedId: item.feedId,
@@ -314,6 +341,7 @@ function deadlineView(item: IcsFeedItemDocument): IcsDeadlineView {
     proposedDueAt: item.proposedDueAt,
     commitmentId: item.commitmentId,
     autoAccepted: item.autoAccepted,
+    ...m4b,
   };
 }
 
@@ -353,6 +381,13 @@ export async function listIcsDeadlines(uid: string, deps: IcsFeedDeps = {}): Pro
         || (item.autoAccepted && Date.parse(item.updatedAt) > now - 7 * DAY_MS))))
     .sort((a, b) => (a.dueAt < b.dueAt ? -1 : a.dueAt > b.dueAt ? 1 : a.itemKey < b.itemKey ? -1 : 1))
     .map(deadlineView);
+}
+
+export async function listHeldIcsItems(uid: string, deps: IcsFeedDeps = {}): Promise<Array<{ id: string; title: string; startsAt: string }>> {
+  requireUserId(uid);
+  return (await readItems(uid, deps)).filter((row) => row.state === 'pending' && row.held?.reason === 'clash')
+    .map((row) => ({ id: `${row.feedId}:${row.itemKey}`, title: row.title, startsAt: row.dueAt }))
+    .sort((a, b) => a.startsAt.localeCompare(b.startsAt));
 }
 
 /* ── Input ─────────────────────────────────────────────────────────── */
@@ -547,10 +582,12 @@ async function acceptItem(
   itemKey: string,
   now: Date,
   autoAccepted: boolean,
+  expectedDecisionVersion?: string,
 ): Promise<{ replayed: boolean }> {
   const path = itemPath(uid, itemKey);
   const ids = { commitmentId: randomUUID(), reminderId: randomUUID() };
-  return commitCommandsWithClaim<IcsFeedItemDocument>(uid, path, (claim, { user, guards }) => {
+  let changed: IcsFeedItemDocument | null = null;
+  const result = await commitCommandsWithClaim<IcsFeedItemDocument>(uid, path, async (claim, { user, guards, tx }) => {
     if (!claim) throw new IcsFeedError('item_not_found');
     // The feed and the account, read in this transaction: an auto-accept on
     // its way when the feed was unsubscribed, or the account deleted, must not
@@ -568,6 +605,32 @@ async function acceptItem(
     // Dismissed, withdrawn, or accepted-then-undone. The row has moved on since
     // the caller read it, and a feed item that is not pending is not an offer.
     if (claim.state !== 'pending') throw new IcsFeedError('invalid_action');
+    if (!autoAccepted && resolveExternalClashHold() && expectedDecisionVersion !== icsDecisionVersion(claim)) {
+      changed = claim;
+      return null;
+    }
+    if (resolveExternalClashHold() && !claim.allDay) {
+      const schedule = await readFreeSlotSchedule(uid, {
+        startsAt: claim.dueAt,
+        endsAt: new Date(Date.parse(claim.dueAt) + 30 * 60_000).toISOString(),
+      }, tx as unknown as StorageAdapter, now.toISOString());
+      const decision = candidateClashes(schedule, { dueAt: claim.dueAt, endAt: null, kind: 'due_by' });
+      await runScheduleDecisionHook(autoAccepted ? 'ics' : 'heldAdd');
+      const held = decision.state === 'free' ? undefined : {
+        reason: decision.state === 'clash' ? 'clash' as const : 'unknown' as const,
+        clashes: decision.state === 'clash' ? decision.clashes : [],
+      };
+      if (autoAccepted && held) return { commands: [], patch: { held, updatedAt: now.toISOString() } };
+      if (!autoAccepted) {
+        const shown = JSON.stringify(claim.held?.clashes ?? []);
+        const current = JSON.stringify(held?.clashes ?? []);
+        if (decision.state === 'unknown' || shown !== current) {
+          const next = { ...claim, ...(held ? { held } : {}), ...(!held ? { held: undefined } : {}), updatedAt: now.toISOString() };
+          changed = next;
+          return { commands: [], patch: { held: held as any, updatedAt: now.toISOString() } };
+        }
+      }
+    }
     // The title and the time come from the row *this transaction* read. A
     // refresh that moved the deadline between the caller's read and this write
     // would otherwise make a commitment for the time the feed no longer says.
@@ -580,10 +643,13 @@ async function acceptItem(
         autoAccepted,
         notice: null,
         proposedDueAt: null,
+        held: undefined,
         updatedAt: now.toISOString(),
       },
     };
   }, [feedPath(uid, feedIdOfKey)]);
+  if (changed) throw new IcsItemChangedError(deadlineView(changed));
+  return result;
 }
 
 interface ApplyOutcome {
@@ -652,7 +718,22 @@ async function reconcileDeadlines(
       if (feed.autoAcceptDeadlines) toAutoAccept.push(key);
     } else if (after) {
       outcome.updated += 1;
+      if (feed.autoAcceptDeadlines && after !== 'delete' && after.state === 'pending' && (after.held || before?.held)) toAutoAccept.push(key);
+      if (resolveExternalClashHold() && after !== 'delete' && after.state === 'accepted' && after.notice === 'moved' && after.proposedDueAt) {
+        const proposedEnd = new Date(Date.parse(after.proposedDueAt) + 30 * 60_000).toISOString();
+        const schedule = await readFreeSlotSchedule(uid, { startsAt: after.proposedDueAt, endsAt: proposedEnd }, storage, at);
+        const decision = after.proposedAllDay === true ? { state: 'free' as const }
+          : candidateClashes(schedule, { dueAt: after.proposedDueAt, endAt: null, kind: 'due_by' }, { excludeCommitmentIds: after.commitmentId ? [after.commitmentId] : [] });
+        await storage.runTransaction(async (tx) => {
+          const current = await tx.get<IcsFeedItemDocument>(itemPath(uid, key));
+          if (current?.notice === 'moved' && current.proposedDueAt === after.proposedDueAt) tx.set(itemPath(uid, key), {
+            ...current,
+            proposedClashes: decision.state === 'clash' ? decision.clashes : [],
+          });
+        });
+      }
     }
+    if (feed.autoAcceptDeadlines && before?.state === 'pending' && before.held && after === null) toAutoAccept.push(key);
   }
 
   // Gone from the feed. Only an item that would still be *inside* the window
@@ -704,7 +785,7 @@ export function reconcileRow(
 
   switch (row.state) {
     case 'pending':
-      return { ...row, ...bookkeeping, title: candidate.title, dueAt: candidate.dueAt, allDay: candidate.allDay };
+      return { ...row, ...bookkeeping, title: candidate.title, dueAt: candidate.dueAt, allDay: candidate.allDay, held: undefined };
     case 'withdrawn':
       return { ...row, ...bookkeeping, title: candidate.title, dueAt: candidate.dueAt, allDay: candidate.allDay, state: 'pending' };
     case 'rejected':
@@ -718,7 +799,7 @@ export function reconcileRow(
       // notice; a new time is, and it waits for them to apply it.
       if (!moved) return { ...row, ...bookkeeping };
       if (candidate.dueAt === row.dueAt) return { ...row, ...bookkeeping, notice: null, proposedDueAt: null };
-      return { ...row, ...bookkeeping, notice: 'moved', proposedDueAt: candidate.dueAt };
+      return { ...row, ...bookkeeping, notice: 'moved', proposedDueAt: candidate.dueAt, proposedAllDay: candidate.allDay, proposedClashes: undefined };
     default:
       return null;
   }
@@ -1010,6 +1091,10 @@ export async function refreshIcsFeed(
       nextFetchAt: iso(nowMs + REFRESH_INTERVAL_MS),
     }), guard, deps);
     if ('refused' in committed) return gone(committed.refused);
+    if (resolveExternalClashHold() && committed.feed.autoAcceptDeadlines) {
+      const held = (await readItems(uid, deps)).filter((row) => row.feedId === feedId && row.state === 'pending' && row.held);
+      for (const row of held) await acceptItem(uid, feedId, row.itemKey, now, true).catch(() => undefined);
+    }
     await syncDueIndex(uid, deps);
     log(`[ics] refresh not modified feed=${feedId} host=${feed.hostHash}`);
     return { outcome: 'not_modified', feed: await view(committed.feed) };
@@ -1101,9 +1186,12 @@ export async function decideIcsDeadline(
 ): Promise<{ deadline: IcsDeadlineView; replayed: boolean }> {
   requireUserId(uid);
   if (!isRecord(body)) throw new IcsFeedError('invalid_request');
-  refuseUnknownKeys(body, ['action']);
+  refuseUnknownKeys(body, resolveExternalClashHold() ? ['action', 'expectedDecisionVersion'] : ['action']);
   const action = body.action as DeadlineAction;
   if (!ACTIONS.includes(action)) throw new IcsFeedError('invalid_request');
+  if (resolveExternalClashHold() && (action === 'accept' || action === 'apply_move') && typeof body.expectedDecisionVersion !== 'string') {
+    throw new IcsFeedError('invalid_request');
+  }
 
   const storage = storageOf(deps);
   await readFeed(uid, feedId, deps);
@@ -1129,16 +1217,20 @@ export async function decideIcsDeadline(
 
   /** A domain command and the row change, in one transaction. */
   const commandTransition = async (
-    decide: (row: IcsFeedItemDocument) => { commands: Command[]; patch: Partial<IcsFeedItemDocument> } | null,
+    decide: (
+      row: IcsFeedItemDocument,
+      context: { tx: StorageTransaction },
+    ) => Promise<{ commands: Command[]; patch: Partial<IcsFeedItemDocument> } | null>
+      | { commands: Command[]; patch: Partial<IcsFeedItemDocument> } | null,
     options: { requireConsent: boolean },
   ): Promise<boolean> => {
     try {
-      const result = await commitCommandsWithClaim<IcsFeedItemDocument>(uid, path, (row, { user, guards }) => {
+      const result = await commitCommandsWithClaim<IcsFeedItemDocument>(uid, path, (row, { user, guards, tx }) => {
         if (!row || row.feedId !== feedId || !guards[0]) throw new IcsFeedError('item_not_found');
         if (options.requireConsent && accountRefusal(user, { requireConsent: true }) === 'consent') {
           throw new IcsFeedError('consent_required');
         }
-        return decide(row);
+        return decide(row, { tx });
       }, [feedPath(uid, feedId)]);
       return result.replayed;
     } catch (error) {
@@ -1155,7 +1247,7 @@ export async function decideIcsDeadline(
       if (item.state === 'pending' && Date.parse(item.dueAt) < now.getTime()) throw new IcsFeedError('past_due');
       // Whether this row may still be accepted is decided *inside* the
       // transaction, by `acceptItem`, and not here.
-      replayed = (await acceptItem(uid, feedId, itemKey, now, false)).replayed;
+      replayed = (await acceptItem(uid, feedId, itemKey, now, false, body.expectedDecisionVersion as string | undefined)).replayed;
       break;
     }
     case 'dismiss': {
@@ -1182,23 +1274,47 @@ export async function decideIcsDeadline(
       break;
     }
     case 'apply_move': {
-      replayed = await commandTransition((row) => {
+      let changed: IcsFeedItemDocument | null = null;
+      replayed = await commandTransition(async (row, { tx }) => {
         if (row.state !== 'accepted' || row.notice !== 'moved' || !row.proposedDueAt || !row.commitmentId) {
           throw new IcsFeedError('invalid_action');
         }
+        if (resolveExternalClashHold() && body.expectedDecisionVersion !== icsDecisionVersion(row)) {
+          changed = row;
+          return null;
+        }
         if (Date.parse(row.proposedDueAt) < now.getTime()) throw new IcsFeedError('past_due');
+        if (resolveExternalClashHold() && row.proposedAllDay !== true) {
+          const proposedEnd = new Date(Date.parse(row.proposedDueAt) + 30 * 60_000).toISOString();
+          const schedule = await readFreeSlotSchedule(uid, {
+            startsAt: row.proposedDueAt,
+            endsAt: proposedEnd,
+          }, tx as unknown as StorageAdapter, now.toISOString());
+          const decision = candidateClashes(
+            schedule,
+            { dueAt: row.proposedDueAt, endAt: null, kind: 'due_by' },
+            { excludeCommitmentIds: [row.commitmentId] },
+          );
+          await runScheduleDecisionHook('ics');
+          const currentClashes = decision.state === 'clash' ? decision.clashes : [];
+          if (decision.state === 'unknown' || JSON.stringify(currentClashes) !== JSON.stringify(row.proposedClashes ?? [])) {
+            changed = { ...row, proposedClashes: currentClashes, updatedAt: at };
+            return { commands: [], patch: { proposedClashes: currentClashes, updatedAt: at } };
+          }
+        }
         const remindAt = reminderFor(Date.parse(row.proposedDueAt), now.getTime());
         return {
           commands: [{
             type: 'UpdateCommitment',
             commitmentId: row.commitmentId,
             now: at,
-            updates: { timeSpec: { kind: 'due_by', dueAt: row.proposedDueAt, remindAt } },
+            updates: { timeSpec: { kind: 'due_by', dueAt: row.proposedDueAt, remindAt, allDay: row.proposedAllDay ?? false } },
           }],
-          patch: { dueAt: row.proposedDueAt, notice: null, proposedDueAt: null, updatedAt: at },
+          patch: { dueAt: row.proposedDueAt, allDay: row.proposedAllDay ?? false, notice: null, proposedDueAt: null, proposedAllDay: undefined, proposedClashes: undefined, updatedAt: at },
         };
         // Following the calendar's new time is acting on its data: consent first.
       }, { requireConsent: true });
+      if (changed) throw new IcsItemChangedError(deadlineView(changed));
       break;
     }
     case 'acknowledge': {

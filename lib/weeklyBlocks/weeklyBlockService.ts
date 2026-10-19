@@ -373,6 +373,54 @@ export async function listWeeklyBlockOccurrences(
   });
 }
 
+/**
+ * Occurrences used by schedule decisions. The stored busy rows are the source
+ * of truth for history, while active rules extend future occupancy through the
+ * whole requested window even when it reaches past the rolling materialized
+ * horizon.
+ */
+export async function listWeeklyBlockScheduleOccurrences(
+  uid: string,
+  window: TimeInterval,
+  deps: WeeklyBlockDeps = {},
+): Promise<WeeklyBlockOccurrenceContract[]> {
+  const storage = storageOf(deps);
+  const now = nowOf(deps);
+  const [materialized, blocks] = await Promise.all([
+    listWeeklyBlockOccurrences(uid, window, { storage }),
+    listWeeklyBlocks(uid, { storage }),
+  ]);
+  const byOccurrenceId = new Map(materialized.map((row) => [row.occurrenceId, row] as const));
+  const futureStart = Math.max(Date.parse(window.startsAt), now.getTime());
+  const windowEnd = Date.parse(window.endsAt);
+  if (Number.isFinite(futureStart) && Number.isFinite(windowEnd) && futureStart < windowEnd) {
+    const weeks = Math.ceil((windowEnd - futureStart) / (7 * DAY_MS)) + 1;
+    for (const block of blocks) {
+      if (block.status !== 'active') continue;
+      const expansion = expandWeeklySessionsToBusyBlocks(
+        weeklyBusySourceId(block.id),
+        'weekly',
+        block.weekdays.map((weekday) => ({ weekday, start: block.start, end: block.end })),
+        { timezone: block.timezone, referenceTime: new Date(futureStart).toISOString(), weeks },
+      );
+      for (const occurrence of expansion.blocks) {
+        if (Date.parse(occurrence.startAt) >= windowEnd || Date.parse(occurrence.endAt) <= futureStart) continue;
+        if (localDayKey(new Date(occurrence.startAt), block.timezone) < block.startsOn) continue;
+        if (byOccurrenceId.has(occurrence.blockId)) continue;
+        byOccurrenceId.set(occurrence.blockId, {
+          occurrenceId: occurrence.blockId,
+          weeklyBlockId: block.id,
+          title: block.title,
+          startAt: occurrence.startAt,
+          endAt: occurrence.endAt,
+        });
+      }
+    }
+  }
+  return Array.from(byOccurrenceId.values()).sort((a, b) => Date.parse(a.startAt) - Date.parse(b.startAt)
+    || a.occurrenceId.localeCompare(b.occurrenceId));
+}
+
 /** The active block whose occurrence is under way at `at`, if any. */
 export async function weeklyBlockCovering(
   uid: string,

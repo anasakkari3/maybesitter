@@ -39,6 +39,7 @@ import { createWatcherStore, type NewWatcherInput, type StoredWatcher } from '..
 import { clubById, type ClubLanguage } from './clubs';
 import { getFollowedClubs, setFollowedClubs } from './followedClubs';
 import { projectFixturesForUser, titleLanguageFor } from './projectFixtures';
+import { resolveExternalClashHold } from '../release/m4bCapabilities';
 
 /**
  * Whether this server can fetch match data at all. Read from the environment
@@ -130,7 +131,7 @@ export async function followClubWithWatcher(
   input: NewWatcherInput,
   now: string,
   options: FollowOptions = {},
-): Promise<{ watcher: StoredWatcher; created: boolean }> {
+): Promise<{ watcher: StoredWatcher; created: boolean; fixturesDeferred?: true }> {
   if (!footballProviderConfigured(options.env)) throw new FootballNotConfiguredError();
   assertFootballWatcherInput(input);
   const clubId = input.source.subjectRef;
@@ -141,8 +142,16 @@ export async function followClubWithWatcher(
   const followed = await getFollowedClubs(uid);
   if (!followed.includes(clubId)) await setFollowedClubs(uid, [...followed, clubId], now);
   const watcher = await createWatcherStore(uid).create(input, now);
-  await projectFixturesForUser(uid, now);
-  return { watcher, created: true };
+  if (!resolveExternalClashHold()) {
+    await projectFixturesForUser(uid, now);
+    return { watcher, created: true };
+  }
+  try {
+    await projectFixturesForUser(uid, now);
+    return { watcher, created: true };
+  } catch {
+    return { watcher, created: true, fixturesDeferred: true };
+  }
 }
 
 /**
@@ -151,15 +160,24 @@ export async function followClubWithWatcher(
  * matches still ahead (`releaseUnfollowedFixtures`) — "Stop following"
  * takes the matches it put on the calendar with it.
  */
-export async function releaseClubAfterWatcherRemoved(uid: string, removed: StoredWatcher, now: string): Promise<void> {
-  if (removed.definition.source.signalKind !== FOOTBALL_TEAM_SIGNAL_KIND) return;
+export async function releaseClubAfterWatcherRemoved(uid: string, removed: StoredWatcher, now: string): Promise<{ fixturesDeferred?: true }> {
+  if (removed.definition.source.signalKind !== FOOTBALL_TEAM_SIGNAL_KIND) return {};
   const clubId = removed.definition.source.subjectRef;
-  if ((await footballWatchers(uid)).some((stored) => isWatcherFor(stored, clubId))) return;
+  if ((await footballWatchers(uid)).some((stored) => isWatcherFor(stored, clubId))) return {};
   const followed = await getFollowedClubs(uid);
   if (followed.includes(clubId)) {
     await setFollowedClubs(uid, followed.filter((id) => id !== clubId), now);
   }
-  await projectFixturesForUser(uid, now);
+  if (!resolveExternalClashHold()) {
+    await projectFixturesForUser(uid, now);
+    return {};
+  }
+  try {
+    await projectFixturesForUser(uid, now);
+    return {};
+  } catch {
+    return { fixturesDeferred: true };
+  }
 }
 
 export interface ReconcileOptions {

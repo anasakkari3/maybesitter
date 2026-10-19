@@ -84,17 +84,21 @@ export type CommitmentAction = 'complete' | 'postpone' | 'cancel' | 'aware';
 export function actOnCommitment(
   id: string,
   action: CommitmentAction,
-  options: { postponedUntil?: string; ifMatch?: string; clientActionId?: string } = {},
+  options: { postponedUntil?: string; ifMatch?: string; clientActionId?: string; slotToken?: string; asUid?: string } = {},
 ): Promise<TaggedResult<{ success: boolean; id: string; commitment: Commitment; replayed?: true | undefined }>> {
   return apiRequestTagged('POST', `/api/mobile/commitments/${encodeURIComponent(id)}/actions`, {
     body: {
       action,
       ...(options.postponedUntil ? { postponedUntil: options.postponedUntil } : {}),
+      // A time picked from the offered free slots (M4b R3.2): the server
+      // re-checks it and keeps the item's length. Never sent by the outbox.
+      ...(options.slotToken ? { fromSlot: true, slotToken: options.slotToken } : {}),
       // The outbox's idempotency key (#200). The server applies a given id once.
       ...(options.clientActionId ? { clientActionId: options.clientActionId } : {}),
     },
     schema: commitmentActionResultSchema,
     ...(options.ifMatch ? { ifMatch: options.ifMatch } : {}),
+    ...(options.asUid !== undefined ? { asUid: options.asUid } : {}),
   });
 }
 

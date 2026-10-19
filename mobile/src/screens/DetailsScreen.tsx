@@ -26,6 +26,7 @@ import { ActionRow, BackButton, EmptyState, SectionLabel, Tag, priorityTagKind }
 import { Screen, ScreenScroll } from '../ui/screen';
 import { useReducedMotion } from '../ui/motion';
 import { ReferenceIcon } from '../ui/referenceIcons';
+import { useM4bCapabilities } from '../features/m4b/capabilities';
 
 /**
  * One commitment, from the account (UC-2.R3 #173; Round 2, Phase E).
@@ -73,6 +74,8 @@ export function DetailsScreen() {
   const timezone = useTimeZone();
   const query = useCommitment(s.detailId);
   const act = useCommitmentAction();
+  // M4b: read with the screen, so «مش هلّق» knows whether to offer free times.
+  useM4bCapabilities();
   // The phone's busy time and Google's (CL6a review I1).
   const busy = useConflictBusyBlocks(useBusyBlocks());
   const activity = useActivity();

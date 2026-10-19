@@ -23,6 +23,9 @@ import { questionText } from '../features/capture/clarificationCopy';
 import { EditProposalItemSheet } from '../features/capture/EditProposalItemSheet';
 import { chatItemPresentation } from '../features/capture/chatPresentation';
 import { chatConflictA11y, chatConflictLines } from '../features/capture/chatConflicts';
+import { ImpactBlock, readinessLocked, useAnnounceNewPrep } from '../features/m4b/ImpactBlock';
+import { useM4bCapability } from '../features/m4b/capabilities';
+import type { Readiness } from '../api/schemas/m4b';
 import { collisionLines } from '../features/capture/savedCollisions';
 import { fill, ltr } from '../i18n/strings';
 import { isolateAuto, isolateLatinRuns, stripIsolates } from '../i18n/bidi';
@@ -191,6 +194,9 @@ export function CaptureScreen({ entryQuestion }: { entryQuestion?: { entry: Capt
   const p = captureChatPalette(scheme, appPalette);
   const flow = useCaptureFlow();
   const { state } = flow;
+  // M4b R2.3: the probe gates the impact line along with the server's field.
+  const impactOn = useM4bCapability('eveningImpact');
+  useAnnounceNewPrep(state.proposal?.items ?? []);
   const insets = useSafeAreaInsets();
   const mode = useLayoutMode();
   const timezone = useTimeZone();
@@ -403,6 +409,17 @@ export function CaptureScreen({ entryQuestion }: { entryQuestion?: { entry: Capt
     if (discardsSomething()) setDiscarding('back');
     else back();
   };
+  const [readinessError, setReadinessError] = useState<{ itemId: string; key: UserFacingKey } | null>(null);
+  // «حاضر؟» (M4b R2.3), the way a clarification is answered: one at a time,
+  // the group disabled while it is on its way, and a failure said on the card.
+  const answerReadiness = async (itemId: string, readiness: Readiness) => {
+    if (answering || flow.writing) return;
+    setAnswering(true);
+    setReadinessError(null);
+    const outcome = await flow.answerReadiness(itemId, readiness);
+    setAnswering(false);
+    if (!outcome.ok) setReadinessError({ itemId, key: outcome.messageKey });
+  };
   const answer = async (itemId: string, value: { optionId?: string; freeText?: string }) => {
     if (answering) return;
     setAnswering(true);
@@ -438,8 +455,10 @@ export function CaptureScreen({ entryQuestion }: { entryQuestion?: { entry: Capt
       if (edit.title !== undefined && edit.title !== item?.title) rest.title = edit.title;
       if (edit.priority !== undefined && edit.priority !== (item?.priority ?? 'normal')) rest.priority = edit.priority;
       if (edit.locationTrigger !== undefined) rest.locationTrigger = edit.locationTrigger;
-      if (Object.keys(rest).length) flow.editItem(itemId, rest);
-    } else flow.editItem(itemId, edit);
+      // The sheet's whole answer, less the time the no-time option settles:
+      // it replaces the earlier edit even when nothing else is left (M4B-R6-001).
+      flow.editItem(itemId, rest, { replace: true });
+    } else flow.editItem(itemId, edit, { replace: true });
   };
   const quickAction = (id: string) => {
     if (busy || answering) return;
@@ -452,6 +471,9 @@ export function CaptureScreen({ entryQuestion }: { entryQuestion?: { entry: Capt
 
   const groups = new Map<string, ChatScheduleGroup>();
   for (const item of items) {
+    // M4b R2.3: the server's evening-impact line, hidden once the person has
+    // moved this card's time (the server measured the old hour).
+    const impact = impactOn && state.edits[item.itemId]?.localDateTime === undefined ? item.impacts?.[0] : undefined;
     const shown = chatItemPresentation(item, state.edits[item.itemId], lang, timezone, t);
     const selected = state.selected.includes(item.itemId);
     const needsQuestion = !confirmable.includes(item.itemId);
@@ -483,6 +505,9 @@ export function CaptureScreen({ entryQuestion }: { entryQuestion?: { entry: Capt
         <ChatIcon name="warning" size={18} color={p.wm} />
         <Txt size={13} weight={500} color={p.wm} style={{ flex: 1 }} testID={`review-conflict-${item.itemId}-${index}-text`}>{line}</Txt>
       </View>)}
+      {impact ? <ImpactBlock itemId={item.itemId} impact={impact} itemTitle={shown.title} disabled={busy || answering || flow.writing || readinessLocked(items, state.edits as Record<string, Record<string, unknown> | undefined>, state.conversationId, item.itemId)}
+        error={readinessError?.itemId === item.itemId ? t[readinessError.key] : null}
+        onAnswer={(readiness) => { void answerReadiness(item.itemId, readiness); }} /> : null}
       {shown.instant && weekly !== 'weekly' ? <BusyConflictChip testID={`review-busy-${item.itemId}`} blocks={busyHere} /> : null}
       {/* «مرتبط بهدف …» (audit 2026-10-03 #6): the goal this card would count
           toward, kept unless the person takes it off — one control, a

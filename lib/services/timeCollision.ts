@@ -102,6 +102,25 @@ export function fixedEndFor(commitment: Commitment, start: Instant): Instant {
   return intervalEndFor(start, commitment.timeSpec.endAt);
 }
 
+/** Original clock duration for a movable event/window; otherwise the shared fallback. */
+export function clockLengthOf(commitment: Pick<Commitment, 'timeSpec'>): number {
+  const spec = commitment.timeSpec;
+  const movable = spec.allDay !== true && Boolean(spec.dueAt)
+    && (spec.kind === 'scheduled_event' || (spec.kind === 'due_by' && Boolean(spec.endAt)));
+  if (!movable || !spec.dueAt) return DEFAULT_FIXED_EVENT_MINUTES;
+  if (spec.endAt && Date.parse(spec.endAt) > Date.parse(spec.dueAt)) {
+    return (Date.parse(spec.endAt) - Date.parse(spec.dueAt)) / MS_PER_MINUTE;
+  }
+  return DEFAULT_FIXED_EVENT_MINUTES;
+}
+
+export function effectiveIntervalOf(commitment: Commitment): TimeInterval | null {
+  const timed = collisionIntervalOf(commitment);
+  if (!timed) return null;
+  const startsAt = commitment.postponedUntil ?? timed.dueAt;
+  return { startsAt, endsAt: new Date(Date.parse(startsAt) + clockLengthOf(commitment) * MS_PER_MINUTE).toISOString() };
+}
+
 /**
  * Whether a commitment names a stretch of clock time a collision can be
  * measured against, and if so where it starts and what it says about its end.

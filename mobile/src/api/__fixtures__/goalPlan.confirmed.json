@@ -18,9 +18,9 @@
       "when": {
         "kind": "weekly",
         "weekdays": [
-          3,
-          4,
-          5
+          0,
+          1,
+          2
         ],
         "start": "08:00",
         "end": "08:30"

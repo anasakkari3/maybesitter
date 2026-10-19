@@ -444,6 +444,7 @@ describe('no reachable screen says «قريبًا» (council: COMING_SOON = FAIL
     memoryWhyDeferNoPlanUse: "the user's plan does not use this memory",
     planOfflineCold: "today's plan has not arrived (no network)",
     planReasonNoLength: "the item's length is not known",
+    zReadyNo: "the user's own answer: not ready for the exam yet (M4b «حاضر؟»)",
     planRowProposalSub: 'the proposal is not saved until the user accepts',
   };
 

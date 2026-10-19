@@ -112,6 +112,7 @@ import {
   PlanProposalRefusedError,
   StaleCommitmentError,
   WeekConflictError, WeekEmptyDayError,
+  IcsItemChangedError,
 } from './errors';
 import { icsFeedsEnabled, safeCommitmentPatchEnabled } from '../config/env';
 import {
@@ -122,7 +123,7 @@ import {
   refreshIcsFeed,
   updateIcsFeed,
 } from './endpoints/icsFeeds';
-import type { IcsDeadlineAction } from './schemas/icsFeeds';
+import { icsDeadlineSchema, type IcsDeadlineAction, type IcsFeedList } from './schemas/icsFeeds';
 import {
   confirmGoalCommitments,
   confirmGoalSelections,
@@ -836,9 +837,13 @@ export function useCommitmentAction() {
   const client = useQueryClient();
   const uid = useUid();
   return useMutation({
-    mutationFn: async (input: { id: string; action: CommitmentAction; postponedUntil?: string }) => {
+    mutationFn: async (input: { id: string; action: CommitmentAction; postponedUntil?: string; slotToken?: string }) => {
       const result = await actOnCommitment(input.id, input.action, {
         ...(input.postponedUntil ? { postponedUntil: input.postponedUntil } : {}),
+        // Sent only as the account the tap began in (M4B-A-R2-012, R3-001):
+        // a postpone decided after a probe must not land on another account.
+        ...(input.slotToken ? { slotToken: input.slotToken } : {}),
+        ...(uid !== 'signed-out' ? { asUid: uid } : {}),
         ...(validatorFor(input.id) ? { ifMatch: validatorFor(input.id) as string } : {}),
       });
       rememberValidator(input.id, result.etag);
@@ -1456,6 +1461,8 @@ export function useSetFollowedClubs() {
     },
     onSettled: () => {
       void client.invalidateQueries({ queryKey: ['user', uid, 'commitments'] });
+      // M4b (M4B-A-R3-003): a follow change can add or clear held matches either way.
+      void client.invalidateQueries({ queryKey: ['user', uid, 'heldItems'] });
     },
   });
 }
@@ -1472,6 +1479,7 @@ export function useDismissFixture() {
     mutationFn: (commitmentId: string) => dismissFixture(commitmentId),
     onSettled: () => {
       void client.invalidateQueries({ queryKey: queryKeys.football(uid) });
+      void client.invalidateQueries({ queryKey: ['user', uid, 'heldItems'] }); // M4b: what «يتابع لك» counts
       void client.invalidateQueries({ queryKey: ['user', uid, 'commitments'] });
     },
   });
@@ -1717,6 +1725,7 @@ export function useCreateIcsFeed() {
     gcTime: 0,
     onSettled: () => {
       void client.invalidateQueries({ queryKey: queryKeys.icsFeeds(uid) });
+      void client.invalidateQueries({ queryKey: ['user', uid, 'heldItems'] }); // M4b: what «يتابع لك» counts
     },
   });
 }
@@ -1731,6 +1740,7 @@ export function useUpdateIcsFeed() {
     },
     onSettled: () => {
       void client.invalidateQueries({ queryKey: queryKeys.icsFeeds(uid) });
+      void client.invalidateQueries({ queryKey: ['user', uid, 'heldItems'] }); // M4b: what «يتابع لك» counts
     },
   });
 }
@@ -1742,6 +1752,7 @@ export function useRefreshIcsFeed() {
     mutationFn: (feedId: string) => refreshIcsFeed(feedId),
     onSettled: () => {
       void client.invalidateQueries({ queryKey: queryKeys.icsFeeds(uid) });
+      void client.invalidateQueries({ queryKey: ['user', uid, 'heldItems'] }); // M4b: what «يتابع لك» counts
       // Lectures are busy time, and busy time shapes the plan and the lists.
       void client.invalidateQueries({ queryKey: ['user', uid, 'commitments'] });
     },
@@ -1755,6 +1766,7 @@ export function useDeleteIcsFeed() {
     mutationFn: (feedId: string) => deleteIcsFeed(feedId),
     onSettled: () => {
       void client.invalidateQueries({ queryKey: queryKeys.icsFeeds(uid) });
+      void client.invalidateQueries({ queryKey: ['user', uid, 'heldItems'] }); // M4b: what «يتابع لك» counts
       void client.invalidateQueries({ queryKey: ['user', uid, 'commitments'] });
     },
   });
@@ -1764,10 +1776,23 @@ export function useDecideIcsDeadline() {
   const client = useQueryClient();
   const uid = useUid();
   return useMutation({
-    mutationFn: (input: { feedId: string; itemKey: string; action: IcsDeadlineAction }) =>
-      decideIcsDeadline(input.feedId, input.itemKey, input.action),
+    mutationFn: (input: { feedId: string; itemKey: string; action: IcsDeadlineAction; decisionVersion?: string }) =>
+      (input.decisionVersion !== undefined
+        ? decideIcsDeadline(input.feedId, input.itemKey, input.action, input.decisionVersion)
+        : decideIcsDeadline(input.feedId, input.itemKey, input.action)),
+    // M4b R1.4: a row that changed since it was shown comes back with the
+    // refusal; it replaces the row in place, and nothing is resubmitted.
+    onError: (error) => {
+      if (!(error instanceof IcsItemChangedError)) return;
+      const row = icsDeadlineSchema.safeParse(error.row);
+      if (!row.success) return;
+      client.setQueryData<IcsFeedList>(queryKeys.icsFeeds(uid), (current) => current
+        ? { ...current, deadlines: current.deadlines.map((entry) => (entry.feedId === row.data.feedId && entry.itemKey === row.data.itemKey ? row.data : entry)) }
+        : current);
+    },
     onSettled: () => {
       void client.invalidateQueries({ queryKey: queryKeys.icsFeeds(uid) });
+      void client.invalidateQueries({ queryKey: ['user', uid, 'heldItems'] }); // M4b: what «يتابع لك» counts
       // Accept, undo and apply-move change commitments.
       void client.invalidateQueries({ queryKey: ['user', uid, 'commitments'] });
       void client.invalidateQueries({ queryKey: queryKeys.activity(uid) });

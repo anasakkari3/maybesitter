@@ -59,6 +59,14 @@ import {
 
 type Row = Record<string, unknown>;
 
+let concurrentTransactionWindow = 0;
+
+/** Allows the M4b decision-hook writer to model a second process mid-transaction. */
+export async function runMemoryConcurrentTransactionWindow<T>(fn: () => Promise<T>): Promise<T> {
+  concurrentTransactionWindow += 1;
+  try { return await fn(); } finally { concurrentTransactionWindow -= 1; }
+}
+
 /**
  * `data: null` is a tombstone, not an absence. Keeping the slot means a
  * delete still moves the version, so create → delete → create cannot look to a
@@ -378,7 +386,7 @@ export class MemoryStorageAdapter implements StorageAdapter {
     for (let attempt = 1; attempt <= MAX_TRANSACTION_ATTEMPTS; attempt += 1) {
       // Serialised like Firestore's server-side locks, then version-checked:
       // see the header on why the lock is taken on every attempt.
-      const release = await this.acquire();
+      const release = concurrentTransactionWindow > 0 ? null : await this.acquire();
       try {
         const tx = new MemoryTransaction(this.store);
         const result = await fn(tx);

@@ -1,4 +1,4 @@
-import type { z } from 'zod';
+import { z } from 'zod';
 import { Platform } from 'react-native';
 import { apiBaseUrl } from '../config/env';
 import { getAuthRepository, getIdToken, refreshIdToken, signOutExpired, signOutForbidden } from './auth';
@@ -44,13 +44,17 @@ import {
   UnsupportedShareError,
   UploadTooLargeError,
   ValidationError,
+  HeldChangedError,
+  IcsItemChangedError,
+  SlotRefusedError,
 } from './errors';
 import { mockResponseFor } from './mockAdapter';
 import { commitmentSchema } from './schemas/common';
-import { captureConfirmationSchema, proposalChangedChatSchema, proposalChangedProposalSchema } from './schemas/capture';
+import { captureConfirmationSchema, captureProposalSchema, proposalChangedChatSchema, proposalChangedProposalSchema } from './schemas/capture';
 import { planEditRejectedSchema, planProposalRejectedSchema, weekConflictSchema, weekEmptyDaySchema } from './schemas/plan';
-import { icsFeedRefusalSchema } from './schemas/icsFeeds';
+import { icsFeedRefusalSchema, icsItemChangedSchema } from './schemas/icsFeeds';
 import { googleRefusalSchema } from './schemas/google';
+import { heldChangedSchema, slotRefusedSchema } from './schemas/m4b';
 import { goalPlanSchema, goalPlanTimesSchema } from './schemas/goalPlan';
 
 /**
@@ -299,6 +303,32 @@ function planEditRefusal(body: unknown, message: string): Error {
   return new PlanEditRefusedError(parsed.data.reason, parsed.data.itemId ?? null);
 }
 
+/** WIRE-M4b's impact redraw refusal, parsed strictly: the proposal must be readable. */
+const impactProposalChangedSchema = z.object({ success: z.literal(false), error: z.literal('proposal_changed'), proposal: captureProposalSchema }).strict();
+
+function m4bConflict(body: unknown, path?: string): Error | null {
+  if (!body || typeof body !== 'object') return null;
+  const code = (body as { error?: unknown }).error;
+  if (code === 'held_changed') {
+    const parsed = heldChangedSchema.safeParse(body);
+    return parsed.success ? new HeldChangedError(parsed.data.held) : null;
+  }
+  if (code === 'item_changed') {
+    const parsed = icsItemChangedSchema.safeParse(body);
+    return parsed.success ? new IcsItemChangedError(parsed.data.row) : null;
+  }
+  if (code === 'slot_taken' || code === 'slot_unverified' || code === 'slot_stale') {
+    const parsed = slotRefusedSchema.safeParse(body);
+    return parsed.success ? new SlotRefusedError(parsed.data.error, parsed.data.slots, parsed.data.complete) : null;
+  }
+  // The readiness answer's refusal (R2.2): the proposal as it is now.
+  if (code === 'proposal_changed' && path === '/api/mobile/capture/impact') {
+    const parsed = impactProposalChangedSchema.safeParse(body);
+    if (parsed.success) return new ProposalChangedError({ kind: 'proposal', proposal: parsed.data.proposal, state: 'open' });
+  }
+  return null;
+}
+
 /** The confirm route's refusal body — `success: false` and a known code — or null. */
 function captureConfirmRefusal(status: number, body: unknown, path?: string): CaptureConfirmRefusedError | null {
   // The confirm route's own 409s (M3b): a switch moved before the save, or the
@@ -399,6 +429,16 @@ function errorForStatus(status: number, body: unknown, path?: string): Error {
     const code = (body as { code?: unknown } | null)?.code;
     if (typeof code === 'string' && /^[a-z_]{1,64}$/.test(code)) return new WeeklyBlockRefusedError(code);
   }
+  // M4b's 409s carry their code in `error` (WIRE-M4b) and a body to redraw
+  // from. Parsed, not trusted: a body that does not match falls through to the
+  // generic conflict below.
+  if (status === 409) {
+    const m4b = m4bConflict(body, path);
+    if (m4b) return m4b;
+  }
+  // The readiness answer on an expired proposal (WIRE-M4b 410 `proposal_expired`):
+  // the confirm's own "expired, go back and send it again", not a server fault.
+  if (status === 410 && path === '/api/mobile/capture/impact') return new CaptureConfirmRefusedError('proposal_not_found');
   // A refused capture confirm keeps its `failureCode` (#252): the reason is
   // the sentence the person needs, and the 404/400 classes below drop it.
   const confirmRefusal = captureConfirmRefusal(status, body, path);

@@ -1,0 +1,66 @@
+{
+  "version": "v1",
+  "proposalId": "00000000-0000-4000-8000-000000000001",
+  "status": "proposed",
+  "items": [
+    {
+      "itemId": "00000000-0000-4000-8000-000000000002",
+      "title": "سهرة",
+      "resolvedTime": "2026-08-09T09:00:00.000Z",
+      "needsClarification": false,
+      "timeEstimated": false,
+      "priority": "normal",
+      "priorityEstimated": true,
+      "resolvedDate": "2026-10-08",
+      "dateEstimated": false,
+      "impacts": [
+        {
+          "kind": "late_before_important",
+          "role": "evening",
+          "otherTitle": "امتحان رياضيات",
+          "otherStartsAt": "2026-08-09T09:00:00.000Z",
+          "otherEndsAt": "2026-08-09T09:00:00.000Z",
+          "readiness": "not_ready",
+          "prep": {
+            "state": "offered",
+            "itemId": "00000000-0000-4000-8000-000000000003"
+          }
+        }
+      ]
+    },
+    {
+      "itemId": "00000000-0000-4000-8000-000000000003",
+      "title": "تحضير لـامتحان رياضيات",
+      "resolvedTime": "2026-08-09T09:00:00.000Z",
+      "endTime": "2026-08-09T09:00:00.000Z",
+      "resolvedDate": "2026-10-07",
+      "needsClarification": false,
+      "priority": "normal",
+      "priorityEstimated": false,
+      "clarification": null,
+      "generated": {
+        "kind": "evening_impact_prep",
+        "sourceItemId": "00000000-0000-4000-8000-000000000002"
+      }
+    }
+  ],
+  "seeds": [],
+  "revision": 1,
+  "provenance": {
+    "requestedEngine": "rules",
+    "executedEngine": "rule-based",
+    "fallbackUsed": true
+  },
+  "understood": [
+    {
+      "kind": "commitment",
+      "itemId": "00000000-0000-4000-8000-000000000002",
+      "text": "سهرة"
+    },
+    {
+      "kind": "commitment",
+      "itemId": "00000000-0000-4000-8000-000000000003",
+      "text": "تحضير لـامتحان رياضيات"
+    }
+  ]
+}
