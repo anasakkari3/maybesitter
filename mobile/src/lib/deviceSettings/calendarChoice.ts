@@ -18,6 +18,7 @@ export const calendarChoiceKeys = {
   pendingSelection: (uid: string) => `calendar.pendingSelection.v1:${uid}`,
   phoneRemoved: (uid: string) => `calendar.phoneRemoved.v1:${uid}`,
   removedInstallation: (uid: string) => `calendar.removedInstallation.v1:${uid}`,
+  rejoinInstallation: (uid: string) => `calendar.rejoinInstallation.v1:${uid}`,
   sourceId: (uid: string) => `calendar.sourceId.v1:${uid}`,
   inclusionGeneration: inclusionGenerationKey,
 } as const;
@@ -187,6 +188,28 @@ export async function loadRemovedInstallation(uid: string): Promise<string | nul
 
 export async function clearRemovedInstallation(uid: string): Promise<void> {
   await AsyncStorage.removeItem(calendarChoiceKeys.removedInstallation(uid));
+}
+
+/**
+ * The installation id of the tuple minted for a rejoin (M5A-R7-002). While the
+ * removal barrier is set, only a credential carrying this id is reused; any
+ * other — the removed one, whose delete may have failed — is replaced first.
+ */
+export async function saveRejoinInstallation(uid: string, sourceInstallationId: string): Promise<void> {
+  await AsyncStorage.setItem(calendarChoiceKeys.rejoinInstallation(uid), sourceInstallationId);
+}
+
+/** Null when absent or unreadable (then a fresh tuple is minted). */
+export async function loadRejoinInstallation(uid: string): Promise<string | null> {
+  try {
+    return await AsyncStorage.getItem(calendarChoiceKeys.rejoinInstallation(uid));
+  } catch {
+    return null;
+  }
+}
+
+export async function clearRejoinInstallation(uid: string): Promise<void> {
+  await AsyncStorage.removeItem(calendarChoiceKeys.rejoinInstallation(uid));
 }
 
 /**

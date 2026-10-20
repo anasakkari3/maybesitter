@@ -400,10 +400,15 @@ function IntelligencePanelForAccount({ onChanged, autoGenerate = false, whenOff 
     setError(null);
     try {
       setGmailMonitor(await setGmailIntelligenceMonitor(true, { timezone: deviceTimeZone() }, asAccount));
-      // Not offered while a scan of the last day already exists (R4.1).
-      const manual = scanOverview.data?.manual ?? null;
-      const recentScan = manual !== null && Date.now() - Date.parse(manual.startedAt) < DAY_MS;
-      if (!recentScan) setBackfillOffer(true);
+      // Not offered while a scan of the last day exists or was accepted (R4.1),
+      // and only from a fresh, successful answer (M5A-R7-003): loading or
+      // failed is unknown, and unknown offers nothing.
+      const fresh = await scanOverview.refetch();
+      if (fresh.isSuccess && fresh.data) {
+        const within = (at: string | null | undefined) => typeof at === 'string' && Date.now() - Date.parse(at) < DAY_MS;
+        const recentScan = within(fresh.data.manual?.startedAt) || within(fresh.data.queuedManual?.acceptedAt);
+        if (!recentScan) setBackfillOffer(true);
+      }
     } catch (cause) {
       setError(cause);
     } finally {

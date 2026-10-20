@@ -15,6 +15,8 @@ import { ensureRegisteredSource, rejoinPhone, startSelection } from '../m5aCalen
 import { BusyCalendarHost, deleteThisPhonesBusy, useBusyBlocks } from '../useBusyCalendar';
 import { ensureSourceCredential } from '../../../lib/deviceSettings/sourceCredential';
 import { accountBoundCalendar } from '../accountBoundCalendar';
+import { apiSyncPorts } from '../useDeviceCalendarSync';
+import * as calendarEndpoints from '../../../api/endpoints/calendar';
 import { AccountChangedError } from '../../../api/errors';
 import { BUSY_BLOCKS_KEY, clearCachedBusyBlocksOf } from '../../../lib/deviceSettings/calendarBusy';
 import { applyIncludedCalendarIds } from '../../../lib/deviceSettings/calendarChoice';
@@ -441,4 +443,35 @@ describe('inspection r6 and the simulator pass (M5A-R6-001/002/003, SIM-M5A-02)'
     expect(screen.getByTestId('calendar-account-iCloud')).toHaveTextContent(/iCloud/);
     expect(screen.getByTestId('calendar-account-constructor')).toHaveTextContent(/constructor/);
   });
+
+  it('R7-001: a link the server stored is the commit point; a switch right after never rolls its event back', async () => {
+    let current = true;
+    jest.spyOn(deviceCalendar, 'createEvent').mockResolvedValue('e-new');
+    const deleted = jest.spyOn(deviceCalendar, 'deleteEvent').mockResolvedValue(undefined);
+    jest.spyOn(calendarEndpoints, 'putDeviceCalendarLink').mockImplementation(async () => {
+      current = false; // the account changes while the link is being stored
+      return undefined as never;
+    });
+    const ports = apiSyncPorts(UID, () => current);
+    const eventId = await ports.calendar.createEvent('cal', {} as never);
+    await expect(ports.putLink('c-1', { writerId: 'w', calendarId: 'cal', eventId, contentHash: 'h', state: 'linked' }))
+      .rejects.toBeInstanceOf(AccountChangedError);
+    await ports.rollbackUnlinked();
+    expect(deleted).not.toHaveBeenCalledWith('e-new');
+  });
+
+  it('R7-002: a removal interrupted before recording its tuple still never sends that tuple on rejoin', async () => {
+    harness = await prepare();
+    await AsyncStorage.multiSet([[ENROLLED, '2030-03-20T08:00:00.000Z'], [REMOVED, '2030-03-29T08:00:00.000Z']]);
+    await showBusyHost(harness);
+    await settle();
+    // The revoked tuple survived and nothing recorded which one it was.
+    const old = await act(async () => ensureSourceCredential(UID));
+    expect(await act(async () => rejoinPhone(UID))).toBe(true);
+    const sent = harness.server.matching('POST', /\/calendar\/busy\/register$/)
+      .map((request) => (request.body as { sourceInstallationId: string }).sourceInstallationId);
+    expect(sent.length).toBeGreaterThan(0);
+    expect(sent).not.toContain(old!.sourceInstallationId);
+  });
 });
+

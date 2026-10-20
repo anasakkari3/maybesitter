@@ -120,9 +120,10 @@ export function apiSyncPorts(uid: string, stillCurrent: () => boolean): SyncPort
     putLink: async (commitmentId, link) => {
       check();
       await putDeviceCalendarLink(commitmentId, link, { asUid: uid });
-      // Marked linked only while the account is still the pass's own.
-      check();
+      // A stored link is the commit point (M5A-R7-001): the event is the
+      // account's from here, whatever happens next, and is never rolled back.
       bound.linked(link.eventId);
+      check();
     },
     deleteLink: async (commitmentId, writerId) => {
       check();

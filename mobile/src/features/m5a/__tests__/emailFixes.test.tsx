@@ -110,3 +110,33 @@ describe('one press, one scan (M5A-R6-004)', () => {
   });
 });
 
+describe('the backfill offer reads a fresh answer (M5A-R7-003)', () => {
+  it('is not offered when the scan overview cannot be read', async () => {
+    harness = await prepare('en', initialState(), request => {
+      if (request.path === '/api/mobile/intelligence/sources/gmail/scan' && request.method === 'GET') {
+        return { status: 503, body: { success: false, error: 'unavailable', reason: 'unavailable' } };
+      }
+      return undefined;
+    });
+    await showIntelligence(harness);
+    await press('intelligence-gmail-monitor');
+    await press('monitor-info-confirm');
+    await waitForRequest(harness, 'POST', /\/gmail\/monitor$/);
+    await act(async () => { await jest.advanceTimersByTimeAsync(500); });
+    expect(screen.queryByTestId('backfill-offer')).toBeNull();
+  });
+
+  it('is not offered while a recently accepted scan is queued', async () => {
+    harness = await prepare('en', initialState({
+      scanManual: completeScan({ startedAt: '2030-03-25T08:00:00.000Z' }),
+      scanQueued: { scanId: 'q-1', origin: 'manual', from: '2030-03-22T08:00:00.000Z', until: '2030-03-29T08:00:00.000Z', acceptedAt: '2030-03-29T08:30:00.000Z' },
+    }));
+    await showIntelligence(harness);
+    await press('intelligence-gmail-monitor');
+    await press('monitor-info-confirm');
+    await waitForRequest(harness, 'POST', /\/gmail\/monitor$/);
+    await act(async () => { await jest.advanceTimersByTimeAsync(500); });
+    expect(screen.queryByTestId('backfill-offer')).toBeNull();
+  });
+});
+

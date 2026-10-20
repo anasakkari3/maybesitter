@@ -53,8 +53,10 @@ import {
 } from '../../api/endpoints/m5a';
 import {
   applyIncludedCalendarIds,
+  clearRejoinInstallation,
   clearRemovedInstallation,
-  loadRemovedInstallation,
+  loadRejoinInstallation,
+  saveRejoinInstallation,
   saveRemovedInstallation,
   invalidateDeviceBusyCache,
   bumpInclusionGeneration,
@@ -457,12 +459,16 @@ export function rejoinPhone(uid: string): Promise<boolean> {
 }
 
 async function rejoinOnce(uid: string): Promise<boolean> {
-  let credential = await ensureSourceCredential(uid);
-  // A rejoin starts from a tuple of its own (M5A-R6-003): the removed one, if
-  // it survived its delete, is replaced before any request. A retry after a
-  // lost response finds the fresh one and reuses it.
-  if (credential && credential.sourceInstallationId === await loadRemovedInstallation(uid)) {
+  // A rejoin starts from a tuple of its own (M5A-R6-003, M5A-R7-002): unless
+  // the stored credential is the one a previous rejoin minted (a retry after a
+  // lost response), a fresh one is minted and marked before any request — so
+  // the removed tuple is never sent, even when the removal was interrupted
+  // before it could record which tuple that was.
+  let credential = await readSourceCredential(uid).catch(() => null);
+  const prepared = await loadRejoinInstallation(uid);
+  if (!credential || prepared === null || credential.sourceInstallationId !== prepared) {
     credential = await mintFreshSourceCredential(uid);
+    if (credential) await saveRejoinInstallation(uid, credential.sourceInstallationId).catch(() => undefined);
   }
   for (let attempt = 0; attempt < 2; attempt += 1) {
     if (!credential) {
@@ -475,6 +481,7 @@ async function rejoinOnce(uid: string): Promise<boolean> {
       await saveSource(uid, { sourceId: answer.sourceId, sourceInstallationId: credential.sourceInstallationId });
       await clearPhoneRemoved(uid);
       await clearRemovedInstallation(uid).catch(() => undefined);
+      await clearRejoinInstallation(uid).catch(() => undefined);
       patch(uid, { removed: false, tooManyPhones: false, sourceId: answer.sourceId });
       return true;
     } catch (error) {
