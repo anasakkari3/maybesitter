@@ -1259,7 +1259,7 @@ export function useSaveSubjectiveEnergy() {
   const client = useQueryClient();
   const uid = useUid();
   return useMutation({
-    mutationFn: (input: { energy: 1 | 2 | 3 | 4 | 5; observedAt: string }) => putSubjectiveEnergy(input),
+    mutationFn: (input: { energy: 1 | 2 | 3 | 4 | 5; observedAt: string }) => putSubjectiveEnergy(input, { asUid: uid }),
     onSettled: () => {
       void client.invalidateQueries({ queryKey: queryKeys.readiness(uid) });
       void client.invalidateQueries({ queryKey: ['user', uid, 'plan'] });

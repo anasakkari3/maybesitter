@@ -67,17 +67,23 @@ export function MemorySection({ onOpen }: { onOpen?: (() => void) | undefined } 
   // (M5B1-011): the effect that flips this runs after the line has mounted.
   const [disclosed, setDisclosed] = useState(false);
   const hasItems = (memory.data?.items.length ?? 0) > 0;
-  const summaryOn = m5bOn === true && !memory.isError && hasItems;
+  // Rows already on screen may have been sent, so a later failed refetch of
+  // the list keeps the card and its disclosure (M5B-A-004).
+  const summaryOn = m5bOn === true && hasItems;
   const summary = useMemorySummary(summaryLanguage(lang), summaryOn && disclosed);
 
-  // 404: the feature is off for this build. Nothing to show, and nothing to
-  // apologise for.
-  if (memory.isError || memory.data === undefined) return null;
+  // 404 on the first read: the feature is off for this build. Nothing to show,
+  // and nothing to apologise for. A failed refetch keeps the rows it had.
+  if (memory.data === undefined) return null;
 
   const items = memory.data.items;
   const strings = t as unknown as Record<string, string>;
-  const ready = summaryOn && summary.data?.status === 'ready' ? summary.data : null;
-  const loading = summaryOn && (!disclosed || summary.isPending) && !summary.isError;
+  // Only a current answer is a paragraph (M5B-A-001): a refetch that failed,
+  // or one still running after a memory change, never shows the old one.
+  // A list that failed to refetch shows its rows.
+  const current = summary.status === 'success' && !summary.isFetching && !memory.isError;
+  const ready = summaryOn && current && summary.data.status === 'ready' ? summary.data : null;
+  const loading = summaryOn && !memory.isError && (!disclosed || summary.isFetching || summary.isPending) && summary.status !== 'error';
 
   return (
     <Card pad={0} style={{ overflow: 'hidden' }} testID="memory-section">
@@ -93,6 +99,7 @@ export function MemorySection({ onOpen }: { onOpen?: (() => void) | undefined } 
 
       {ready ? (
         <View style={{ paddingHorizontal: 18, paddingBottom: 14, gap: 8 }}>
+          <Txt role="section" size={13} weight={600} color={p.mu} testID="memory-summary-title">{t.m5bSummaryTitle}</Txt>
           <Txt size={15} lh={1.6} testID="memory-summary">
             {ready.sentences.map(sentence => isolateAuto(sentence.text)).join(' ')}
           </Txt>
@@ -128,7 +135,7 @@ export function MemorySection({ onOpen }: { onOpen?: (() => void) | undefined } 
         />
       ))}
 
-      {summaryOn ? <SummaryDisclosure onShown={() => setDisclosed(true)} /> : null}
+      {summaryOn ? <SummaryDisclosure onShown={setDisclosed} /> : null}
 
       {adding ? (
         <View style={{ paddingHorizontal: 18, paddingVertical: 12, gap: 10, borderTopWidth: 1, borderTopColor: p.ln }}>
@@ -304,9 +311,15 @@ const summaryLanguage = (lang: string): 'ar' | 'en' | 'he' => (lang === 'ar' || 
  * it loads, after it arrives and when it fails (M5B1-011). It mounts first;
  * its effect is what lets the request go.
  */
-function SummaryDisclosure({ onShown }: { onShown: () => void }) {
+function SummaryDisclosure({ onShown }: { onShown: (shown: boolean) => void }) {
   const { t, p } = useApp();
-  useEffect(() => { onShown(); }, [onShown]);
+  // Mounting lets the request go; unmounting (capability off, list emptied)
+  // takes that back, so a later remount asks only after it is drawn again
+  // (M5B-A-005).
+  useEffect(() => {
+    onShown(true);
+    return () => onShown(false);
+  }, [onShown]);
   return (
     <View style={{ paddingHorizontal: 18, paddingBottom: 12 }}>
       <Txt size={13} color={p.mu} testID="memory-summary-disclosure">{isolateLatinRuns(t.m5bSummaryDisclosure)}</Txt>

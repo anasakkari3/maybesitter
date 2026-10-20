@@ -6,8 +6,8 @@ import type { M5bCapabilities } from '../../api/schemas/m5b';
 import { useUid } from '../../api/queries';
 
 /**
- * M5b-1's capability probe, in three states, as M5a's: `null` is unknown (no
- * successful answer yet, or only errors); known `false` is today's behaviour
+ * M5b-1's capability probe, in three states: `null` is unknown (no
+ * successful answer yet, or the latest refetch failed); known `false` is today's behaviour
  * exactly; known `true` turns the M5b-1 surfaces on. A `404
  * feature_unavailable` is a known off. Refetched on focus and every five
  * minutes, so a kill switch reaches an open screen within five minutes.
@@ -38,7 +38,9 @@ export function useM5bOn(): boolean | null {
     refetchOnWindowFocus: true,
     retry: false,
   });
-  return query.data ? query.data.memoryLearning : null;
+  // Fail closed on a failed refetch (M5B-A-002, as M4b): an earlier `true`
+  // is not an answer about now, and unknown draws nothing new.
+  return query.status === 'success' && !query.isRefetchError ? query.data.memoryLearning : null;
 }
 
 /** How long a tap waits for a fresh answer before it refuses. */
