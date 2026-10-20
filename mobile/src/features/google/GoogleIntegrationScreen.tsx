@@ -45,7 +45,7 @@ import {
   useGoogleDisconnect,
   useGoogleStatus,
 } from './useGoogle';
-import { useM5aCapabilities } from '../m5a/capabilities';
+import { useFreshM5aCapability, useM5aCapabilities } from '../m5a/capabilities';
 import { EmailScanEntry, EmailScanStatus, useEmailScanOverview } from '../m5a/emailScan';
 
 /** What the page says under the rows after the last action. A key (and its numbers), never a sentence. */
@@ -65,6 +65,7 @@ export function GoogleIntegrationScreen() {
   const trust = useTrust();
   // M5a (R2.3): the same scan as the intelligence panel, said the same way.
   const emailM5 = useM5aCapabilities()?.emailSources === true;
+  const freshCapability = useFreshM5aCapability();
   const scanOverview = useEmailScanOverview(emailM5);
   const [notice, setNotice] = React.useState<Notice>(null);
   const [confirming, setConfirming] = React.useState(false);
@@ -94,8 +95,11 @@ export function GoogleIntegrationScreen() {
     setNotice(null);
     sync.mutate(undefined, { onSuccess: () => setNotice({ key: 'googleSynced', tone: 'info' }), onError: fail });
   };
-  const onScan = () => {
+  const onScan = async () => {
     setNotice(null);
+    // The legacy scan runs only on a fresh "M5a email is off" (M5A-R10-001):
+    // on, the screen redraws with the M5a entry; unknown does nothing.
+    if (await freshCapability('emailSources') !== false) return;
     scan.mutate(undefined, {
       onSuccess: (proposal) => {
         // Messages the server could not read are not "nothing to save": with
@@ -166,7 +170,7 @@ export function GoogleIntegrationScreen() {
             <EmailScanEntry />
             <EmailScanStatus overview={scanOverview.data} onReconnect={() => onConnect('gmail')} />
           </View>
-          : <Pill testID="google-gmail-scan" label={t.googleGmailScan} kind="accent" disabled={busy} onPress={onScan} />;
+          : <Pill testID="google-gmail-scan" label={t.googleGmailScan} kind="accent" disabled={busy} onPress={() => void onScan()} />;
       } else if (google!.pickerAvailable) {
         action = <Pill testID="google-drive-pick" label={t.googleDrivePick} kind="accent" disabled={busy} onPress={onPick} />;
       } else {

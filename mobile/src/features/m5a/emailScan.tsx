@@ -10,6 +10,7 @@ import { formatDate, formatDayKey, formatRelativeDay, formatTime } from '../../i
 import { deviceTimeZone, useTimeZone } from '../../i18n/timezone';
 import { useUid } from '../../api/queries';
 import { getEmailScanOverview, postEmailScan } from '../../api/endpoints/m5a';
+import { M5A_NOT_NOW, useFreshM5aCapability } from './capabilities';
 import type { DailyStatus, EmailScanOverview, QueuedScan, ScanFailure, ScanStatus, ScanWait } from '../../api/schemas/m5a';
 import { userFacingMessage } from '../../api/ui/userFacingMessage';
 import type { Strings } from '../../i18n/strings';
@@ -64,12 +65,18 @@ export function EmailScanEntry({ onStarted }: { onStarted?: () => void }) {
   // Set before the first await (M5A-R6-004): a second press in the same frame,
   // before `busy` renders, starts nothing.
   const starting = useRef(false);
+  const freshCapability = useFreshM5aCapability();
   const start = useCallback(async () => {
     if (starting.current) return;
     starting.current = true;
     setBusy(true);
     setError(null);
     try {
+      // Asked fresh right before the tap acts (M5A-R10-001).
+      if (await freshCapability('emailSources') !== true) {
+        setError(M5A_NOT_NOW());
+        return;
+      }
       const answer = await postEmailScan({ intent: 'new', timezone: deviceTimeZone() }, { asUid: uid });
       client.setQueryData<EmailScanOverview>(emailScanKey(uid), (previous) => ({
         success: true,
@@ -86,7 +93,7 @@ export function EmailScanEntry({ onStarted }: { onStarted?: () => void }) {
       setBusy(false);
       void client.invalidateQueries({ queryKey: emailScanKey(uid) });
     }
-  }, [client, onStarted, uid]);
+  }, [client, freshCapability, onStarted, uid]);
 
   return (
     <View style={{ gap: 10, alignItems: 'flex-start' }}>
@@ -188,9 +195,13 @@ function Recovery({ scan, onReconnect }: { scan: ScanStatus & { status: 'failed'
   const uid = useUid();
   const client = useQueryClient();
   const [busy, setBusy] = useState(false);
+  const freshCapability = useFreshM5aCapability();
   const resume = useCallback(async () => {
     setBusy(true);
     try {
+      // Asked fresh right before the tap acts (M5A-R10-001); not available now
+      // leaves the line as it is.
+      if (await freshCapability('emailSources') !== true) return;
       const answer = await postEmailScan({ intent: 'resume', expectedScanId: scan.scanId }, { asUid: uid });
       client.setQueryData<EmailScanOverview>(emailScanKey(uid), (previous) => ({
         success: true, manual: answer.scan, queuedManual: answer.queuedManual ?? previous?.queuedManual ?? null, daily: previous?.daily ?? null,
@@ -201,7 +212,7 @@ function Recovery({ scan, onReconnect }: { scan: ScanStatus & { status: 'failed'
       setBusy(false);
       void client.invalidateQueries({ queryKey: emailScanKey(uid) });
     }
-  }, [client, scan.scanId, uid]);
+  }, [client, freshCapability, scan.scanId, uid]);
   return scan.failure === 'reconnect_needed'
     ? <Pill testID="email-scan-reconnect" label={t.m5ScanReconnect} kind="accent" size={14} pad={12} onPress={onReconnect} />
     : <Pill testID="email-scan-resume" label={t.m5ScanResume} kind="accent" size={14} pad={12} disabled={busy} onPress={() => void resume()} />;

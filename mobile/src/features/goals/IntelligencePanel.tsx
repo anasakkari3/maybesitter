@@ -30,7 +30,7 @@ import { PlanFlowView } from '../goalPlan/PlanFlow';
 import { usePlanPathAvailable } from '../goalPlan/planAvailability';
 import type { PlanRecovery } from '../goalPlan/planFailures';
 import { useGoalPlanFlow } from '../goalPlan/useGoalPlanFlow';
-import { useM5aCapabilities } from '../m5a/capabilities';
+import { M5A_NOT_NOW, useFreshM5aCapability, useM5aCapabilities } from '../m5a/capabilities';
 import { EmailScanEntry, EmailScanStatus, WaitLine, useEmailScanOverview } from '../m5a/emailScan';
 import { AddedCard } from '../m5a/AddedCard';
 import { postEmailScan } from '../../api/endpoints/m5a';
@@ -200,6 +200,7 @@ function IntelligencePanelForAccount({ onChanged, autoGenerate = false, whenOff 
   // M5a (R2.3, R4.1): one email scan shared with the Google screen, and
   // monitoring that says what it reads. Unknown or off is today's panel.
   const emailM5 = useM5aCapabilities()?.emailSources === true;
+  const freshCapability = useFreshM5aCapability();
   const scanOverview = useEmailScanOverview(emailM5);
   const [monitorInfo, setMonitorInfo] = React.useState(false);
   const [backfillOffer, setBackfillOffer] = React.useState(false);
@@ -399,6 +400,11 @@ function IntelligencePanelForAccount({ onChanged, autoGenerate = false, whenOff 
     setBusy(true);
     setError(null);
     try {
+      // Asked fresh right before enrolling (M5A-R10-001).
+      if (await freshCapability('emailSources') !== true) {
+        setError(M5A_NOT_NOW());
+        return;
+      }
       setGmailMonitor(await setGmailIntelligenceMonitor(true, { timezone: deviceTimeZone() }, asAccount));
       // Not offered while a scan of the last day exists or was accepted (R4.1),
       // and only from a fresh, successful answer (M5A-R7-003): loading or
@@ -423,6 +429,10 @@ function IntelligencePanelForAccount({ onChanged, autoGenerate = false, whenOff 
     if (!yes) return;
     backfillAnswering.current = true;
     try {
+      if (await freshCapability('emailSources') !== true) {
+        setError(M5A_NOT_NOW());
+        return;
+      }
       await postEmailScan({ intent: 'new', origin: 'backfill', timezone: deviceTimeZone() }, { asUid: uid });
     } catch (cause) {
       setError(cause);
@@ -439,7 +449,26 @@ function IntelligencePanelForAccount({ onChanged, autoGenerate = false, whenOff 
       if (uid) await saveMonitorUpgradeDismissed(uid, new Date());
       return;
     }
-    await run(() => setGmailIntelligenceMonitor(true, { timezone: deviceTimeZone() }, asAccount));
+    await run(async () => {
+      if (await freshCapability('emailSources') !== true) throw M5A_NOT_NOW();
+      return setGmailIntelligenceMonitor(true, { timezone: deviceTimeZone() }, asAccount);
+    });
+  };
+  // The monitor switch chooses between the M5a enrolment (its information
+  // first) and the legacy toggle; the choice is made on a fresh answer
+  // (M5A-R10-001), and an unknown answer takes neither.
+  const pressMonitor = async () => {
+    if (gmailMonitor?.enabled) {
+      void run(() => setGmailIntelligenceMonitor(false, undefined, asAccount));
+      return;
+    }
+    const m5 = await freshCapability('emailSources');
+    if (m5 === null) {
+      setError(M5A_NOT_NOW());
+      return;
+    }
+    if (m5) setMonitorInfo(true);
+    else void run(() => setGmailIntelligenceMonitor(true, undefined, asAccount));
   };
   // A daily sweep held for want of a time zone: an enabled monitor sends the
   // phone's again, once per visit (M5A-R35-004).
@@ -569,7 +598,7 @@ function IntelligencePanelForAccount({ onChanged, autoGenerate = false, whenOff 
     <Disclosure id="intelligence-gmail-monitor-info" body={emailM5 ? t.m5MonitorInfo : t.xIntelligenceGmailMonitorInfo} label={gmailMonitor?.enabled ? t.xIntelligenceGmailMonitorOff : t.xIntelligenceGmailMonitorOn}>
       <Pill testID="intelligence-gmail-monitor" label={gmailMonitor?.enabled ? t.xIntelligenceGmailMonitorOff : t.xIntelligenceGmailMonitorOn}
         kind="outline" disabled={busy || gmailMonitor === null}
-        onPress={() => (emailM5 && !gmailMonitor?.enabled ? setMonitorInfo(true) : void run(() => setGmailIntelligenceMonitor(!gmailMonitor?.enabled, undefined, asAccount)))} />
+        onPress={() => void pressMonitor()} />
     </Disclosure>
     {monitorInfo ? <View testID="monitor-info" style={{ gap: 10, backgroundColor: p.sf2, borderRadius: 14, padding: 12 }}>
       <Txt role="supporting">{t.m5MonitorInfo}</Txt>

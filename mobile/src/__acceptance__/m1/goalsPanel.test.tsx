@@ -40,7 +40,7 @@ let mockRecommendationState: 'granted' | 'declined' = 'granted';
 
 // M5a's panel parts read through TanStack Query; this suite renders the panel
 // without a client, on a server whose M5a capability is off (today's panel).
-jest.mock('../../features/m5a/capabilities', () => ({ useM5aCapabilities: () => null }));
+jest.mock('../../features/m5a/capabilities', () => ({ useM5aCapabilities: () => null, useFreshM5aCapability: () => async () => false, M5A_NOT_NOW: () => new Error('not now') }));
 jest.mock('../../features/m5a/emailScan', () => ({
   useEmailScanOverview: () => ({ data: undefined, refetch: async () => undefined }),
   EmailScanEntry: () => null,

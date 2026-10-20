@@ -53,8 +53,13 @@ export function accountBoundCalendar(
         try {
           await noteUnlinkedCreated(journal.owner, journal.domain, eventId);
         } catch (error) {
-          // Unrecorded, it could not be retried later: taken back out now.
-          await deviceCalendar.deleteEvent(eventId).then(() => { created.delete(eventId); }, () => undefined);
+          // Unrecorded, it could not be retried later: taken back out now. If
+          // that fails too, recording is tried once more, and the event stays
+          // in this pass's set, which every pass takes back at its end
+          // (M5A-R10-002).
+          const removed = await deviceCalendar.deleteEvent(eventId).then(() => true, () => false);
+          if (removed) created.delete(eventId);
+          else await noteUnlinkedCreated(journal.owner, journal.domain, eventId).catch(() => undefined);
           throw error;
         }
       }

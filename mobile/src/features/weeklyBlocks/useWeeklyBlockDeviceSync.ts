@@ -125,17 +125,20 @@ export function useWeeklyBlockDeviceSync(): { runNow(): Promise<WeeklySyncOutcom
           calendarId = await adoptSoleCalendar(deviceCalendar, (id) => saveChosenCalendarId(current.uid, id));
         }
       }
-      const outcome = await reconcileWeeklyEvents({
-        blocks: current.list,
-        writeTarget: current.writeTarget,
-        calendarId,
-        multiDayRule,
-        ports,
-      });
-      if (!stillCurrent()) {
-        await ports.rollbackUnlinked();
-        return null;
+      let outcome: Awaited<ReturnType<typeof reconcileWeeklyEvents>>;
+      try {
+        outcome = await reconcileWeeklyEvents({
+          blocks: current.list,
+          writeTarget: current.writeTarget,
+          calendarId,
+          multiDayRule,
+          ports,
+        });
+      } finally {
+        // Every pass takes back what it created and never linked (M5A-R10-002).
+        await ports.rollbackUnlinked().catch(() => undefined);
       }
+      if (!stillCurrent()) return null;
       if (outcome.created + outcome.updated + outcome.deleted + outcome.detached > 0) {
         void client.invalidateQueries({ queryKey: weeklyEventQueryKeys.eventIds(current.uid) });
       }

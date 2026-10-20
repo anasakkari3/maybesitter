@@ -526,5 +526,21 @@ describe('inspection r6 and the simulator pass (M5A-R6-001/002/003, SIM-M5A-02)'
     await AsyncStorage.multiSet([[ENROLLED, '2030-03-20T08:00:00.000Z'], [`calendar.sourceId.v1:${UID}`, '{not json']]);
     await expect(deleteThisPhonesBusy(UID)).rejects.toThrow();
   });
+
+  it('R10-002: an event whose journal write and compensating delete both failed is still taken back by the pass', async () => {
+    jest.spyOn(deviceCalendar, 'createEvent').mockResolvedValue('e-orphan');
+    const remove = jest.spyOn(deviceCalendar, 'deleteEvent').mockRejectedValueOnce(new Error('busy')).mockResolvedValue(undefined);
+    const original = (AsyncStorage.setItem as jest.Mock).getMockImplementation() as (key: string, value: string) => Promise<void>;
+    jest.spyOn(AsyncStorage, 'setItem').mockImplementation((key, value) => {
+      if (key.startsWith('calendar.unlinkedCreated.v1:')) return Promise.reject(new Error('disk full'));
+      return original(key, value);
+    });
+    const bound = accountBoundCalendar(() => true, { owner: UID, domain: 'device' });
+    await expect(bound.calendar.createEvent('cal', {} as never)).rejects.toThrow('disk full');
+    // The pass ends: its finally takes back what it still holds.
+    await bound.rollbackUnlinked();
+    expect(remove).toHaveBeenCalledTimes(2);
+    expect(remove).toHaveBeenLastCalledWith('e-orphan');
+  });
 });
 

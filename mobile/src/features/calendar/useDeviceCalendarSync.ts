@@ -261,20 +261,23 @@ export function useDeviceCalendarSync(
       }
       if (!stillCurrent()) return null;
       const ports = apiSyncPorts(current.uid, stillCurrent);
-      const result = await reconcile({
-        subjects: current.subjects,
-        writeTarget: current.writeTarget,
-        writerId,
-        calendarId,
-        deviceTimeZone: current.deviceTimeZone,
-        ports,
-      });
-      // The account changed during the pass: an event it created and never
-      // linked is taken back out (M5A-R21-001).
-      if (!stillCurrent()) {
-        await ports.rollbackUnlinked();
-        return null;
+      let result: Awaited<ReturnType<typeof reconcile>>;
+      try {
+        result = await reconcile({
+          subjects: current.subjects,
+          writeTarget: current.writeTarget,
+          writerId,
+          calendarId,
+          deviceTimeZone: current.deviceTimeZone,
+          ports,
+        });
+      } finally {
+        // Whatever ended the pass, an event it created and never linked is
+        // taken back out (M5A-R21-001, M5A-R10-002); a failed delete stays
+        // journaled for the next pass.
+        await ports.rollbackUnlinked().catch(() => undefined);
       }
+      if (!stillCurrent()) return null;
       setOutcome(result);
       // The links the pass wrote are now out of date in the cache the next pass
       // will read. Invalidating rather than refetching: the lists are usually

@@ -70,6 +70,37 @@ export async function fetchM5aCapabilities(client: QueryClient, uid: string): Pr
   }
 }
 
+/** How long a tap waits for a fresh answer before it refuses (PLAN-M5a R1.1). */
+export const M5A_FRESH_PROBE_MS = 1_500;
+
+/**
+ * A fresh probe right before a tap that changes what M5a does (M5A-R10-001):
+ * no cache, no retry, 1.5 s. True or false is the server's answer now (and the
+ * cached answer is replaced, so the screen redraws for it); null is unknown,
+ * and an unknown answer takes no action of either kind.
+ */
+export function useFreshM5aCapability(): (name: keyof Omit<M5aCapabilities, 'success'>) => Promise<boolean | null> {
+  const client = useQueryClient();
+  const uid = useUid();
+  return useCallback(async (name) => {
+    if (uid === 'signed-out') return null;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timeout = new Promise<null>((resolve) => { timer = setTimeout(() => resolve(null), M5A_FRESH_PROBE_MS); });
+    const fresh = client
+      .fetchQuery({ queryKey: m5aCapabilitiesKey(uid), queryFn: () => probe(uid), staleTime: 0, retry: false })
+      .then((answer) => answer[name] === true)
+      .catch(() => null);
+    try {
+      return await Promise.race([fresh, timeout]);
+    } finally {
+      if (timer !== undefined) clearTimeout(timer);
+    }
+  }, [client, uid]);
+}
+
+/** The refusal a tap shows when the fresh answer says M5a email is not there now. */
+export const M5A_NOT_NOW = () => new FeatureUnavailableError('email sources are not available now');
+
 export function useFetchM5aCapabilities(): () => Promise<M5aCapabilities | null> {
   const client = useQueryClient();
   const uid = useUid();

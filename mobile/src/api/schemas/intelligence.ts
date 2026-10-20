@@ -50,7 +50,9 @@ export const intelligenceGmailMonitorSchema = z.object({
   error: z.enum(['source_unavailable', 'analysis_unavailable']).nullable(),
   m5Enrolled: z.boolean().optional(),
   waiting: scanWaitSchema.nullable().optional(),
-});
+  // The zone the daily sweep runs in (M5a, B3); null until the phone sent one.
+  timezone: z.string().min(1).nullable().optional(),
+}).strict(); // PLAN-M5a Wire: the extended monitor response is strict (M5A-R10-003).
 
 export type IntelligenceInbox = z.infer<typeof intelligenceInboxSchema>;
 export type IntelligenceSuggestion = z.infer<typeof suggestionSchema>;

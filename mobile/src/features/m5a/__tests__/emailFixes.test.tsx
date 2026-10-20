@@ -140,3 +140,17 @@ describe('the backfill offer reads a fresh answer (M5A-R7-003)', () => {
   });
 });
 
+describe('a fresh answer before the tap acts (M5A-R10-001)', () => {
+  it('a scan confirmed after the server switched email sources off sends nothing', async () => {
+    harness = await prepare('en', initialState());
+    await showIntelligence(harness);
+    await waitFor(() => expect(screen.queryByTestId('email-scan-button')).not.toBeNull());
+    await press('email-scan-button');
+    await waitFor(() => expect(screen.queryByTestId('email-scan-confirm-go')).not.toBeNull());
+    harness.server.state.emailSources = false; // the kill switch lands after the screen rendered
+    await press('email-scan-confirm-go');
+    await act(async () => { await jest.advanceTimersByTimeAsync(2_000); });
+    expect(harness.server.matching('POST', /\/gmail\/scan$/)).toHaveLength(0);
+  });
+});
+
