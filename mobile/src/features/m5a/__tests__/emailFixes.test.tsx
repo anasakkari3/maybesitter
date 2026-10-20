@@ -4,6 +4,7 @@
 import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
 import { act, fireEvent, screen, waitFor } from '@testing-library/react-native';
 import {
+  ACCOUNT_A,
   NOW,
   addedItem,
   completeScan,
@@ -152,5 +153,27 @@ describe('a fresh answer before the tap acts (M5A-R10-001)', () => {
     await act(async () => { await jest.advanceTimersByTimeAsync(2_000); });
     expect(harness.server.matching('POST', /\/gmail\/scan$/)).toHaveLength(0);
   });
-});
 
+  it('R11-001: a background refetch already in flight (from before the kill switch) never answers the tap', async () => {
+    let release: (() => void) | undefined;
+    let hold = false;
+    harness = await prepare('en', initialState(), request => {
+      if (hold && request.method === 'GET' && request.path === '/api/mobile/capabilities/m5a') {
+        hold = false;
+        // Started while email sources were on; answers "on" only after the tap.
+        return new Promise(resolve => { release = () => resolve({ status: 200, body: { success: true, calendarChoice: true, emailSources: true } }); });
+      }
+      return undefined;
+    });
+    await showIntelligence(harness);
+    await waitFor(() => expect(screen.queryByTestId('email-scan-button')).not.toBeNull());
+    await press('email-scan-button');
+    await waitFor(() => expect(screen.queryByTestId('email-scan-confirm-go')).not.toBeNull());
+    hold = true;
+    await act(async () => { void harness!.client.invalidateQueries({ queryKey: ['user', ACCOUNT_A.uid, 'm5aCapabilities'] }); });
+    harness.server.state.emailSources = false; // the kill switch lands while that refetch hangs
+    await press('email-scan-confirm-go');
+    await act(async () => { release?.(); await jest.advanceTimersByTimeAsync(2_000); });
+    expect(harness.server.matching('POST', /\/gmail\/scan$/)).toHaveLength(0);
+  });
+});

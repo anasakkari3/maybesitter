@@ -86,9 +86,14 @@ export function useFreshM5aCapability(): (name: keyof Omit<M5aCapabilities, 'suc
     if (uid === 'signed-out') return null;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const timeout = new Promise<null>((resolve) => { timer = setTimeout(() => resolve(null), M5A_FRESH_PROBE_MS); });
-    const fresh = client
-      .fetchQuery({ queryKey: m5aCapabilitiesKey(uid), queryFn: () => probe(uid), staleTime: 0, retry: false })
-      .then((answer) => answer[name] === true)
+    // A request of its own (M5A-R11-001): sharing the query's key would hand
+    // back a background refetch already in flight — an answer from before the
+    // tap. The fresh answer then replaces the cached one.
+    const fresh = probe(uid)
+      .then((answer) => {
+        client.setQueryData(m5aCapabilitiesKey(uid), answer);
+        return answer[name] === true;
+      })
       .catch(() => null);
     try {
       return await Promise.race([fresh, timeout]);
