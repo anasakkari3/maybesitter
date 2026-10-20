@@ -1,6 +1,6 @@
 import React from 'react';
 import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
-import { act, render, screen, waitFor } from '@testing-library/react-native';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import { Btn } from '../../ui/primitives';
 import { queryKeys, useIntelligenceDecided, usePutRoutine } from '../../api/queries';
 import { KnowsScreen } from '../../features/settings/KnowsScreen';
@@ -165,7 +165,8 @@ describe('M5b summary cache ownership', () => {
     harness.client.setQueryData(inactiveKey, readySummary('ar'));
     const before = harness.server.matching('GET', /^\/api\/mobile\/memory\/summary$/).length;
 
-    await act(async () => { await screen.getByTestId('m5b-writer-probe').props.onPress(); });
+    // GA-AMEND-1: a Btn's host view carries no onPress; press it as a user would.
+    await fireEvent.press(screen.getByTestId('m5b-writer-probe'));
     await waitFor(() => expect(harness!.server.matching('GET', /^\/api\/mobile\/memory\/summary$/).length).toBeGreaterThan(before));
     expect(harness.client.getQueryState(inactiveKey)?.isInvalidated).toBe(true);
   });
