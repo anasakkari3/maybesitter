@@ -64,6 +64,7 @@ const FEATURE_FOR_PURPOSE: Readonly<Record<LlmPurpose, CostFeatureKind>> = Objec
   meeting_prep: 'meeting_intelligence',
   // The capture chat is capture: the same items, reached by talking.
   capture_chat: 'capture',
+  memory_summary: 'other',
 });
 
 function statusFor(outcome: LlmOutcome): CostOperationStatus {

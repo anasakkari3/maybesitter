@@ -36,6 +36,7 @@ import type { ScheduleBlock } from '../../../src/contracts/v1/scheduleBlockContr
 import type { PlanningStateChange } from '../../../src/contracts/v1/watcherContracts';
 import type { ImpactClosure } from '../../planning/incremental/impactClosure';
 import type { UserLocale } from '../../storage/userDocument';
+import type { ReadinessApplied } from '../../integrations/readiness/freshReadiness';
 import type { PlanPushPending } from './planPushRetry';
 import { createHash, randomUUID } from 'node:crypto';
 import { dayHorizon } from './buildDailyPlan';
@@ -123,6 +124,8 @@ export interface StoredDailyPlan {
   readonly inputDigest: string;
   readonly acceptedAt: string | null;
   readonly updatedAt: string;
+  /** M5b: the exact fresh readiness identity used by this generation. */
+  readonly readinessApplied?: ReadinessApplied;
   /**
    * The state changes this generation was built from (#527, AC 2).
    *
@@ -324,6 +327,8 @@ export interface StoredPlanProposal {
     readonly config: PlanningConfig;
     readonly incrementalSolve?: IncrementalSolveSnapshot | null;
   };
+  /** M5b: the solve basis an accepted offer installs, not a later reading. */
+  readonly basisSnapshot?: { readonly readinessApplied: ReadinessApplied };
   /** The existing diff contract, not a second one (#523's `PlanDiff` step). */
   readonly diff: PlanDiff;
   readonly reason: ReplanPolicyReason;

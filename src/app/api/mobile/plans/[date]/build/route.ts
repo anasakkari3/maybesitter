@@ -36,8 +36,9 @@ export async function POST(request: Request, { params }: { params: Promise<{ dat
 
   let stored;
   let inputsChanged;
+  let basisChanged;
   try {
-    ({ stored, inputsChanged } = await buildDailyPlanOnDemand(user.uid, date));
+    ({ stored, inputsChanged, basisChanged } = await buildDailyPlanOnDemand(user.uid, date));
   } catch (error) {
     if (error instanceof PlanDateOutOfRangeError) {
       return Response.json({ success: false, error: error.message, reason: error.reason, retryable: false }, { status: 400 });
@@ -62,5 +63,5 @@ export async function POST(request: Request, { params }: { params: Promise<{ dat
    * two different shapes, or the second one grows a branch for a key the first
    * never sends.
    */
-  return Response.json({ success: true, plan: planToDto(stored, titles, { inputsChanged, commitments }), proposal: pendingProposalToDto(stored, titles, now, taken) });
+  return Response.json({ success: true, plan: planToDto(stored, titles, { inputsChanged, basisChanged, commitments }), proposal: pendingProposalToDto(stored, titles, now, taken) });
 }

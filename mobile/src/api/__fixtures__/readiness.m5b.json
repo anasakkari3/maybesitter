@@ -1,0 +1,48 @@
+{
+  "readiness": {
+    "version": "v1",
+    "schemaVersion": "readiness-v1",
+    "scopeId": "AccM2bRules0xxxxxxxxxxxxxxxx",
+    "computedAt": "2026-08-09T09:00:00.000Z",
+    "windowStart": "2026-08-09T09:00:00.000Z",
+    "windowEnd": "2026-08-09T09:00:00.000Z",
+    "band": "low",
+    "score": 0.25,
+    "normalizedSignals": {},
+    "subjective": {
+      "energy": 2,
+      "observedAt": "2026-08-09T09:00:00.000Z"
+    },
+    "derived": {
+      "readinessBand": "low",
+      "confidence": 1
+    },
+    "signals": [
+      {
+        "signalId": "subjective-energy-current",
+        "source": {
+          "kind": "subjective"
+        },
+        "metric": "subjective_energy",
+        "observedAt": "2026-08-09T09:00:00.000Z",
+        "normalizedScore": 0.25,
+        "nativeValue": 2,
+        "nativeUnit": "score_0_1",
+        "confidence": 1
+      }
+    ],
+    "sourceKinds": [
+      "subjective"
+    ],
+    "missingSourceKinds": []
+  },
+  "selectedSource": "current_subjective",
+  "freshness": "fresh",
+  "planEffect": {
+    "source": "check_in",
+    "energy": 2,
+    "band": "low",
+    "bufferMinutes": 15,
+    "staleReading": null
+  }
+}

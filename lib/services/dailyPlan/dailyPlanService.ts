@@ -85,6 +85,8 @@ import {
   schedulePlan,
 } from '../../planning/scheduler';
 import { projectReadinessIntoPlanningConstraints } from '../../planning/scheduler/readiness';
+import { resolveMemoryLearning } from '../../release/m5bCapabilities';
+import { NO_READINESS_APPLIED, resolvePlanReadiness, type ReadinessApplied } from '../../integrations/readiness/freshReadiness';
 import { toEpochMs } from '../../planning/shared/time';
 import type { PlanningConfig, PlanningConstraints } from '../../../src/contracts/v1/planningContracts';
 import type { ScheduleBlock } from '../../../src/contracts/v1/scheduleBlockContracts';
@@ -355,6 +357,8 @@ export interface PlanLayerProjectionInput {
   readonly constraints: PlanningConstraints;
   /** The blocks of the generation being replaced; null on a day's first build. */
   readonly previousBlocks: readonly ScheduleBlock[] | null;
+  /** Present on the M5b path, so build and staleness use one resolver. */
+  readonly readinessApplied?: ReadinessApplied;
 }
 
 /**
@@ -394,7 +398,7 @@ export async function projectPlanLayerIntoConstraints(
   input: PlanLayerProjectionInput,
   deps: { readonly storage: StorageAdapter; readonly userDocument: unknown },
 ): Promise<PlanningConstraints> {
-  const userState = await composeCurrentUserState({
+  const userState = input.readinessApplied === undefined ? await composeCurrentUserState({
     uid: input.uid,
     now: input.now,
     busy: input.busyBlocks.map((block) => ({
@@ -408,9 +412,20 @@ export async function projectPlanLayerIntoConstraints(
         ? [{ deadlineId: commitment.id, dueAt, kind: 'commitment' as const, sourceRef: null }]
         : [];
     }),
-  }, { storage: deps.storage, userDocument: deps.userDocument });
+  }, { storage: deps.storage, userDocument: deps.userDocument }) : null;
+  const readinessProjected = input.readinessApplied === undefined
+    ? projectReadinessIntoPlanningConstraints(input.constraints, userState!.projection.readiness)
+    : input.readinessApplied.bufferMinutesAdded === 0
+      ? input.constraints
+      : {
+          ...input.constraints,
+          items: input.constraints.items.map((item) => ({
+            ...item,
+            bufferAfterMinutes: item.bufferAfterMinutes + input.readinessApplied!.bufferMinutesAdded,
+          })),
+        };
   return projectBlockProtectionIntoPlanningConstraints(
-    projectReadinessIntoPlanningConstraints(input.constraints, userState.projection.readiness),
+    readinessProjected,
     input.previousBlocks,
   );
 }
@@ -428,6 +443,8 @@ export interface DailyPlanRequestInput {
   readonly previousBlocks: readonly ScheduleBlock[] | null;
   /** The week view's decision about this day (CL5b); absent for a day planned on its own. */
   readonly assignment?: DayAssignment | null;
+  /** M5b week composition disables readiness; ignored while the capability is off. */
+  readonly applyReadiness?: boolean;
 }
 
 /**
@@ -462,6 +479,7 @@ export interface DailyPlanRequest {
   /** What the solver is given: `buildDailyPlanInput`'s output, projected. */
   readonly constraints: PlanningConstraints;
   readonly config: PlanningConfig;
+  readonly basisSnapshot?: { readonly readinessApplied: ReadinessApplied };
 }
 
 /**
@@ -539,6 +557,12 @@ export async function composeDailyPlanRequest(
     builtAt: now,
     ...(input.assignment ? { assignment: input.assignment } : {}),
   });
+  const memoryLearning = resolveMemoryLearning();
+  const readinessApplied = memoryLearning
+    ? input.applyReadiness === false
+      ? NO_READINESS_APPLIED
+      : resolvePlanReadiness({ uid, now, userDocument: input.userDocument }).readinessApplied
+    : undefined;
   const constraints = await projectPlanLayerIntoConstraints({
     uid,
     now,
@@ -547,8 +571,9 @@ export async function composeDailyPlanRequest(
     busyBlocks,
     constraints: baseConstraints,
     previousBlocks: input.previousBlocks,
+    ...(readinessApplied ? { readinessApplied } : {}),
   }, { storage, userDocument: input.userDocument });
-  return { commitments, constraints, config };
+  return { commitments, constraints, config, ...(readinessApplied ? { basisSnapshot: { readinessApplied } } : {}) };
 }
 
 /**
@@ -566,6 +591,17 @@ export interface PlanGenerationAncestryInput {
   readonly previousBlocks: readonly ScheduleBlock[];
 }
 
+/** A week card's complete validated solve, handed to storage without re-reading it. */
+export interface SolvedDailyPlanSnapshot {
+  readonly constraints: PlanningConstraints;
+  readonly config: PlanningConfig;
+  readonly plan: ReturnType<typeof schedulePlan>;
+  readonly readinessApplied: ReadinessApplied;
+  readonly commitments: readonly Commitment[];
+  readonly timezone: string;
+  readonly locale: UserLocale;
+}
+
 /**
  * Builds the plan document for one account and one local date.
  *
@@ -581,13 +617,14 @@ export async function composeDailyPlan(
   ancestry?: PlanGenerationAncestryInput,
   /** The week view's decision about this day (CL5b); absent for a day planned on its own. */
   assignment?: DayAssignment | null,
+  solved?: SolvedDailyPlanSnapshot,
 ): Promise<StoredDailyPlan> {
   const storage = storageOf(deps);
   const now = (deps.now ?? (() => new Date()))();
-  const timezone = settings.timezone;
+  const timezone = solved?.timezone ?? settings.timezone;
 
-  const user = await storage.get<PlanSettingsBearingUser>(userDoc(uid));
-  const locale: UserLocale = user?.locale === 'ar' || user?.locale === 'he' ? user.locale : 'en';
+  const user = solved ? null : await storage.get<PlanSettingsBearingUser>(userDoc(uid));
+  const locale: UserLocale = solved?.locale ?? (user?.locale === 'ar' || user?.locale === 'he' ? user.locale : 'en');
 
   // A day built on its own leaves out what a saved week day of this week
   // holds, so no step lands on two days (CL5b, I3). A day the week itself is
@@ -595,7 +632,7 @@ export async function composeDailyPlan(
   const heldByWeek = assignment ? [] : await readWeekHolds(uid, localDateOf(now.toISOString(), timezone), date, storage);
   const effectiveAssignment = assignment ?? assignmentAroundHolds(heldByWeek);
 
-  const { commitments, constraints, config } = await composeDailyPlanRequest({
+  const request = solved ? null : await composeDailyPlanRequest({
     uid,
     date,
     timezone,
@@ -604,7 +641,11 @@ export async function composeDailyPlan(
     previousBlocks: ancestry?.previousBlocks ?? null,
     ...(effectiveAssignment ? { assignment: effectiveAssignment } : {}),
   }, { storage, ...(deps.busyBlocks ? { busyBlocks: deps.busyBlocks } : {}) });
-  const plan = schedulePlan(constraints, config);
+  const commitments = solved?.commitments ?? request!.commitments;
+  const constraints = solved?.constraints ?? request!.constraints;
+  const config = solved?.config ?? request!.config;
+  const basisSnapshot = solved ? { readinessApplied: solved.readinessApplied } : request!.basisSnapshot;
+  const plan = solved?.plan ?? schedulePlan(constraints, config);
   // One block per occurrence the planner was asked about, placements applied
   // back. Throws `ScheduleBlockIntegrityError` — and the build fails — if the
   // plan and the request ever disagree about what exists, which is a planner
@@ -643,6 +684,7 @@ export async function composeDailyPlan(
     inputDigest: plan.inputDigest,
     acceptedAt: null,
     updatedAt: now.toISOString(),
+    ...(basisSnapshot ? { readinessApplied: basisSnapshot.readinessApplied } : {}),
     ...(heldByWeek.length > 0 ? { heldByWeek } : {}),
   };
 }
@@ -680,14 +722,14 @@ async function storeFirstPlan(
      * which floating work is on it, and the record of that decision the
      * refresh and the morning read (`StoredDailyPlan.weekPlan`).
      */
-    readonly week?: { readonly assignment: DayAssignment; readonly origin: WeekPlanOrigin };
+    readonly week?: { readonly assignment: DayAssignment; readonly origin: WeekPlanOrigin; readonly solved?: SolvedDailyPlanSnapshot };
   } = {},
 ): Promise<{ created: boolean; stored: StoredDailyPlan }> {
   const storage = storageOf(deps);
   const existing = await readStoredPlan(uid, date, storage);
   if (existing) return { created: false, stored: existing };
 
-  const composed = await composeDailyPlan(uid, date, settings, 1, deps, undefined, options.week?.assignment ?? null);
+  const composed = await composeDailyPlan(uid, date, settings, 1, deps, undefined, options.week?.assignment ?? null, options.week?.solved);
   const withWeek: StoredDailyPlan = options.week ? { ...composed, weekPlan: options.week.origin } : composed;
   const document: StoredDailyPlan = options.pushPending ? { ...withWeek, pushPending: options.pushPending() } : withWeek;
   const { created, stored } = await createIfAbsent(uid, document, storage);
@@ -755,7 +797,7 @@ export async function buildDailyPlanOnDemand(
   uid: string,
   date: string,
   deps: DailyPlanDeps = {},
-): Promise<DailyPlanBuild & { readonly inputsChanged: boolean }> {
+): Promise<DailyPlanBuild & { readonly inputsChanged: boolean; readonly basisChanged: boolean }> {
   // A stored plan is returned whatever its date; `refreshStalePlan` decides
   // whether it is still the day's (and never rebuilds a past one).
   const existing = await readStoredPlan(uid, date, storageOf(deps));
@@ -765,7 +807,7 @@ export async function buildDailyPlanOnDemand(
       ...(deps.now ? { now: deps.now } : {}),
       ...(deps.busyBlocks ? { busyBlocks: deps.busyBlocks } : {}),
     });
-    return { uid, date, created: false, pushed: false, stored: current.stored, inputsChanged: current.inputsChanged };
+    return { uid, date, created: false, pushed: false, stored: current.stored, inputsChanged: current.inputsChanged, basisChanged: current.basisChanged };
   }
 
   // Creating one is refused outside the account's today and tomorrow, before
@@ -776,7 +818,7 @@ export async function buildDailyPlanOnDemand(
   assertPlanDateInRange(date, today, PLAN_BUILD_DAYS);
 
   const { created, stored } = await storeFirstPlan(uid, date, settings, deps);
-  return { uid, date, created, pushed: false, stored, inputsChanged: false };
+  return { uid, date, created, pushed: false, stored, inputsChanged: false, basisChanged: false };
 }
 
 /**
@@ -796,10 +838,10 @@ export async function buildDailyPlanOnDemand(
 export async function storeWeekDayPlan(
   uid: string,
   date: string,
-  week: { readonly assignment: DayAssignment; readonly origin: WeekPlanOrigin },
+  week: { readonly assignment: DayAssignment; readonly origin: WeekPlanOrigin; readonly solved?: SolvedDailyPlanSnapshot },
   deps: DailyPlanDeps = {},
 ): Promise<{ created: boolean; stored: StoredDailyPlan }> {
-  const settings = await readPlanSettings(uid, deps);
+  const settings = week.solved ? { timezone: week.solved.timezone } : await readPlanSettings(uid, deps);
   const today = localDateOf((deps.now ?? (() => new Date()))().toISOString(), settings.timezone);
   assertPlanDateInRange(date, today, PLAN_PROPOSAL_DAYS);
   return storeFirstPlan(uid, date, settings, deps, { week });
