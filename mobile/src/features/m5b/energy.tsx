@@ -1,12 +1,13 @@
 import React, { useEffect, useState } from 'react';
-import { View } from 'react-native';
+import { AppState, View, type ViewStyle } from 'react-native';
 import { useApp } from '../../state/AppContext';
-import { useSaveSubjectiveEnergy, useUid } from '../../api/queries';
+import { useReadiness, useSaveSubjectiveEnergy, useUid } from '../../api/queries';
 import type { DailyPlan } from '../../api/schemas/plan';
 import type { NextStepEnergy, PlanEffect, ReadinessApplied } from '../../api/schemas/m5b';
 import { Btn, Card, Txt } from '../../ui/primitives';
 import { LiveRegion } from '../../ui/liveRegion';
-import { loadEnergyAskHiddenToday, saveEnergyAskHiddenToday } from '../../lib/deviceSettings/m5bEnergyAsk';
+import { useAnnounceOnIos } from '../../ui/announce';
+import { loadEnergyAskHiddenDate, localDay, saveEnergyAskHiddenToday } from '../../lib/deviceSettings/m5bEnergyAsk';
 
 /**
  * Energy where it acts (PLAN-M5b-1 R4.2, R4.3): the 1–5 question on Plan and
@@ -123,6 +124,9 @@ export function PlanEnergyAsk() {
   const { t, p } = useApp();
   const checkIn = useCheckIn();
   const [picked, setPicked] = useState<Level | null>(null);
+  // A check-in already given (on Today, say) shows as chosen; on-mode the
+  // readiness route reports only a fresh one (R4.1), so a stale one selects none.
+  const current = (useReadiness().data?.readiness?.subjective?.energy ?? null) as Level | null;
   return (
     <View style={{ gap: 8, alignSelf: 'stretch' }}>
       <Txt size={15} weight={600}>{t.m5bEnergyAskTitle}</Txt>
@@ -130,7 +134,7 @@ export function PlanEnergyAsk() {
       <EnergyScale
         prefix="m5b-plan-energy"
         label={t.m5bEnergyAskTitle}
-        selected={picked}
+        selected={picked ?? current}
         busy={checkIn.busy}
         onPick={level => void checkIn.pick(level).then(ok => { if (ok) setPicked(level); })}
       />
@@ -209,17 +213,26 @@ export function TodayEnergy({ energy }: { energy: NextStepEnergy }) {
   const { t, tr, p } = useApp();
   const uid = useUid();
   const checkIn = useCheckIn();
+  const today = useLocalDay();
   const [open, setOpen] = useState(false);
+  // A transient confirmation (SIM-M5B-01, M5B-A2-002): said once, then
+  // cleared by the next answer from the server, which is what decides
+  // whether the question shows.
   const [saved, setSaved] = useState<Level | null>(null);
-  // Per account: another account on this phone has its own answer. Null
-  // until read; the question waits for it rather than flash and vanish.
-  const [hidden, setHidden] = useState<{ uid: string; value: boolean } | null>(null);
+  useEffect(() => { setSaved(null); }, [energy]);
+  // Per account, and compared with today's date every time (M5B-A2-001):
+  // a question put away last night comes back after midnight on a screen
+  // that never unmounted. Null until read; it waits rather than flash.
+  const [hidden, setHidden] = useState<{ uid: string; date: string | null } | null>(null);
   useEffect(() => {
     let alive = true;
-    void loadEnergyAskHiddenToday(uid).then(value => { if (alive) setHidden({ uid, value }); });
+    void loadEnergyAskHiddenDate(uid).then(date => { if (alive) setHidden({ uid, date }); });
     return () => { alive = false; };
   }, [uid]);
-  const hiddenToday = hidden?.uid === uid ? hidden.value : null;
+  const hiddenToday = hidden?.uid === uid ? hidden.date === today : null;
+
+  const savedLine = saved !== null ? tr('m5bEnergyToday', { energy: saved }) : null;
+  useAnnounceOnIos(savedLine);
 
   const pick = (level: Level) => void checkIn.pick(level).then(ok => {
     if (!ok) return;
@@ -227,8 +240,9 @@ export function TodayEnergy({ energy }: { energy: NextStepEnergy }) {
     setOpen(false);
   });
   const hide = () => {
-    setHidden({ uid, value: true });
-    void saveEnergyAskHiddenToday(uid).then(ok => { if (!ok) setHidden({ uid, value: false }); });
+    const date = localDay();
+    setHidden({ uid, date });
+    void saveEnergyAskHiddenToday(uid).then(ok => { if (!ok) setHidden({ uid, date: null }); });
   };
 
   const fresh = energy.source !== 'none';
@@ -270,9 +284,30 @@ export function TodayEnergy({ energy }: { energy: NextStepEnergy }) {
         </View>
       ) : null}
       {checkIn.failed ? <SaveFailed testID="m5b-today-energy-failed" /> : null}
-      <LiveRegion testID="m5b-today-energy-saved">
-        {saved !== null ? <Txt size={13} color={p.mu}>{tr('m5bEnergyToday', { energy: saved })}</Txt> : null}
+      {/* For screen readers only: the line itself is drawn above once the
+          server answers, so this is never a second visible copy. */}
+      <LiveRegion testID="m5b-today-energy-saved" style={SCREEN_READER_ONLY}>
+        {savedLine !== null ? <Txt size={13} color={p.mu}>{savedLine}</Txt> : null}
       </LiveRegion>
     </View>
   );
+}
+
+const SCREEN_READER_ONLY: ViewStyle = { position: 'absolute', width: 1, height: 1, overflow: 'hidden' };
+
+/**
+ * The device-local date, kept current: re-read at the next local midnight
+ * and whenever the app comes back to the front.
+ */
+function useLocalDay(): string {
+  const [day, setDay] = useState(() => localDay());
+  useEffect(() => {
+    const refresh = () => setDay(localDay());
+    const now = new Date();
+    const midnight = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 0, 0, 1);
+    const timer = setTimeout(refresh, midnight.getTime() - now.getTime());
+    const subscription = AppState.addEventListener('change', state => { if (state === 'active') refresh(); });
+    return () => { clearTimeout(timer); subscription.remove(); };
+  }, [day]);
+  return day;
 }

@@ -18,12 +18,17 @@ export function localDay(now: Date = new Date()): string {
   return `${y}-${m}-${d}`;
 }
 
-export async function loadEnergyAskHiddenToday(uid: string, now: Date = new Date()): Promise<boolean> {
+/** The local date the question was hidden on; null when never, or unreadable (fail-open). */
+export async function loadEnergyAskHiddenDate(uid: string): Promise<string | null> {
   try {
-    return (await AsyncStorage.getItem(hiddenKey(uid))) === localDay(now);
+    return await AsyncStorage.getItem(hiddenKey(uid));
   } catch {
-    return false;
+    return null;
   }
+}
+
+export async function loadEnergyAskHiddenToday(uid: string, now: Date = new Date()): Promise<boolean> {
+  return (await loadEnergyAskHiddenDate(uid)) === localDay(now);
 }
 
 /** False when the date could not be stored: the caller shows the row again (fail-open). */

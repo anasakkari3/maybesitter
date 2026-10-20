@@ -3,7 +3,8 @@ import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals
 import { act, screen, waitFor } from '@testing-library/react-native';
 import { queryKeys } from '../../../api/queries';
 import { m5bCapabilitiesKey } from '../capabilities';
-import { ACCOUNT_A, NOW, Providers, TODAY, initialState, prepare, readySummary, showKnows, teardown, type M5bHarness } from '../../../__acceptance__/m5b/harness';
+import { ACCOUNT_A, NOW, Providers, TODAY, initialState, prepare, readySummary, showKnows, showPlan, showToday, teardown, type M5bHarness } from '../../../__acceptance__/m5b/harness';
+import { fireEvent } from '@testing-library/react-native';
 import { render } from '@testing-library/react-native';
 import { KnowsScreen } from '../../settings/KnowsScreen';
 import { PlanScreen } from '../../../screens/PlanScreen';
@@ -89,5 +90,50 @@ describe('Task A inspection r1', () => {
 
     await waitFor(() => expect(screen.queryAllByTestId(/^m5b-/)).toHaveLength(0));
     expect(screen.queryByTestId('memory-summary-disclosure')).toBeNull();
+  });
+});
+
+describe('Task A inspection r2 and the simulator pass', () => {
+  it('M5B-A2-001 a question hidden last night comes back after midnight without a remount', async () => {
+    harness = await prepare('en', initialState({ energy: { source: 'none', level: null, band: null, changedPick: false } }));
+    await showToday(harness);
+    await waitFor(() => expect(screen.queryByTestId('m5b-today-energy-question')).not.toBeNull());
+    await fireEvent.press(screen.getByTestId('m5b-today-energy-hide'));
+    await waitFor(() => expect(screen.queryByTestId('m5b-today-energy-question')).toBeNull());
+
+    await act(async () => { await jest.advanceTimersByTimeAsync(24 * 60 * 60_000); });
+    await waitFor(() => expect(screen.queryByTestId('m5b-today-energy-question')).not.toBeNull());
+  });
+
+  it('M5B-A2-002 + SIM-M5B-01 the saved line is screen-reader only and does not suppress a later question', async () => {
+    harness = await prepare('en', initialState({ energy: { source: 'none', level: null, band: null, changedPick: false } }));
+    await showToday(harness);
+    await waitFor(() => expect(screen.queryByTestId('m5b-today-energy-question')).not.toBeNull());
+    harness.server.state.energy = { source: 'check_in', level: 2, band: 'low', changedPick: false };
+    await fireEvent.press(screen.getByTestId('m5b-today-energy-2'));
+    await waitFor(() => expect(screen.queryByTestId('m5b-today-energy')).not.toBeNull());
+    // One visible copy of the line: the confirmation was cleared by the server's answer.
+    expect(screen.getAllByText('Energy now: 2 of 5')).toHaveLength(1);
+
+    // The reading ages out; the next answer has none, and the question returns.
+    harness.server.state.energy = { source: 'none', level: null, band: null, changedPick: false };
+    await act(async () => { await harness!.client.invalidateQueries({ queryKey: ['user', ACCOUNT_A.uid, 'nextStep'] }); });
+    await waitFor(() => expect(screen.queryByTestId('m5b-today-energy-question')).not.toBeNull());
+  });
+
+  it('M5B-A2-003 row actions wrap with the capability off too', async () => {
+    harness = await prepare('ar', initialState({ memoryLearning: false }));
+    await showKnows(harness);
+    await waitFor(() => expect(screen.queryByTestId('memory-edit-memory-1')).not.toBeNull());
+    const row = screen.getByTestId('memory-edit-memory-1').parent;
+    expect(row?.props.style).toEqual(expect.objectContaining({ flexWrap: 'wrap' }));
+    expect(screen.queryAllByTestId(/^m5b-/)).toHaveLength(0);
+  });
+
+  it('SIM-M5B-02 the empty Plan shows the check-in already given as chosen', async () => {
+    harness = await prepare('en', initialState({ plan: null }));
+    await showPlan(harness);
+    await waitFor(() => expect(screen.queryByTestId('m5b-plan-energy-2')).not.toBeNull());
+    await waitFor(() => expect(screen.getByTestId('m5b-plan-energy-2').props.accessibilityState).toMatchObject({ selected: true }));
   });
 });
