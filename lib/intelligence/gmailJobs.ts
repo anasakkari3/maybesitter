@@ -25,6 +25,7 @@ import { proposeFromObservations } from './proposalEngine';
 import { connectionIdFor } from '../integrations/providers/production/storedConnectionStore';
 import type { IntegrationConnectionRecord } from '../../src/contracts/v1/integrationConnectionContracts';
 import type { StorageTransaction } from '../storage/storageAdapter';
+import type { GmailTransport } from '../integrations/gmail/production/gmailTransport';
 
 export const GMAIL_JOB_CLASSES = Object.freeze({
   live: Object.freeze(['live', 'proposals'] as const),
@@ -40,6 +41,10 @@ export const GMAIL_JOB_LIMITS = Object.freeze({
 type JobRoute = keyof typeof GMAIL_JOB_CLASSES;
 type GmailClass = 'live' | 'proposals' | 'continuation' | 'sweep';
 interface WorkLease { owner: string; job: JobRoute; class: GmailClass; leaseUntil: string }
+interface GmailJobOverrides {
+  readonly transport?: (uid: string) => GmailTransport;
+  readonly ensureReadable?: (uid: string) => Promise<void>;
+}
 
 function uidFrom(path: string, collection: string, id: string): string | null {
   const match = new RegExp(`^users/([A-Za-z0-9_-]{1,128})/${collection}/${id}$`).exec(path);
@@ -185,7 +190,7 @@ export function runAccountLeasedLanesForTests(
     candidate => withAccountLease(candidate.uid, route, jobClass, runtime, () => run(candidate.uid)));
 }
 
-async function proposalStep(uid: string, runtime: GoogleRuntime): Promise<boolean> {
+async function proposalStep(uid: string, runtime: GoogleRuntime, overrides: GmailJobOverrides = {}): Promise<boolean> {
   const path = `${userCol(uid, INTELLIGENCE_MONITORS)}/gmail`;
   const monitor = await runtime.storage.get<GmailMonitor>(path);
   if (!monitor?.enabled || !monitor.m5 || !monitor.proposalsPending) return false;
@@ -217,7 +222,7 @@ async function proposalStep(uid: string, runtime: GoogleRuntime): Promise<boolea
   try {
     if (await isMonitoringPaused(uid, runtime.storage)
       || await connectedGmailAccount(uid, runtime) !== monitor.m5.providerAccountId) { await defer(5 * 60_000); return false; }
-    await requireReadableFeature(uid, 'gmail', runtime);
+    await (overrides.ensureReadable?.(uid) ?? requireReadableFeature(uid, 'gmail', runtime));
     const reservation = await reserveQuotaPermit(uid, 'semantic_observation', {
       owner: `proposal:${monitor.generation}:${claimedVersion}`, calls: 2, tokenBudget: 10_000,
     }, { storage: runtime.storage, now: runtime.now() });
@@ -260,9 +265,8 @@ async function proposalStep(uid: string, runtime: GoogleRuntime): Promise<boolea
     try {
       await proposeFromObservations(uid, runtime.now().toISOString(), {
         storage: runtime.storage, generate, throwOnGenerateFailure: true,
-        transactionGuard: async tx => { await assertAuthority(tx); },
-        transactionComplete: async tx => {
-          const current = await assertAuthority(tx);
+        transactionGuard: tx => assertAuthority(tx),
+        transactionComplete: async (tx, current) => {
           const pending = (current.proposalsVersion ?? 0) > claimedVersion;
           tx.set(path, { ...current, proposalsDoneVersion: claimedVersion, proposalsPending: pending,
             proposalNextEligibleAt: pending ? runtime.now().toISOString() : new Date(runtime.now().getTime() + 5 * 60_000).toISOString(),
@@ -282,7 +286,7 @@ async function proposalStep(uid: string, runtime: GoogleRuntime): Promise<boolea
   } catch { await defer(5 * 60_000); return false; }
 }
 
-async function runLive(runtime: GoogleRuntime, deadlineMs: number): Promise<number> {
+async function runLive(runtime: GoogleRuntime, deadlineMs: number, overrides: GmailJobOverrides): Promise<number> {
   const rows = await runtime.storage.listGroup<GmailMonitor>(INTELLIGENCE_MONITORS, {
     where: [['enabled', '==', true], ['nextPollAt', '<=', runtime.now().toISOString()]],
     orderBy: { field: 'nextPollAt', direction: 'asc' }, limit: GMAIL_JOB_LIMITS.lanes.live * 3,
@@ -297,10 +301,14 @@ async function runLive(runtime: GoogleRuntime, deadlineMs: number): Promise<numb
     candidate => candidate.scan?.page ? GMAIL_JOB_LIMITS.reservesMs.qualifyingReply : GMAIL_JOB_LIMITS.reservesMs.listing,
     deadlineMs,
     candidate => withAccountLease(candidate.uid, 'live', 'live', runtime, async () =>
-      (await runGmailMonitorTick(runtime, { uid: candidate.uid })).accountsChecked > 0));
+      (await runGmailMonitorTick(runtime, {
+        uid: candidate.uid,
+        ...(overrides.transport ? { transport: overrides.transport } : {}),
+        ...(overrides.ensureReadable ? { ensureReadable: overrides.ensureReadable } : {}),
+      })).accountsChecked > 0));
 }
 
-async function runProposals(runtime: GoogleRuntime, deadlineMs: number): Promise<number> {
+async function runProposals(runtime: GoogleRuntime, deadlineMs: number, overrides: GmailJobOverrides): Promise<number> {
   const rows = await runtime.storage.listGroup<GmailMonitor>(INTELLIGENCE_MONITORS, {
     where: [['proposalsPending', '==', true], ['proposalNextEligibleAt', '<=', runtime.now().toISOString()]],
     orderBy: { field: 'proposalNextEligibleAt', direction: 'asc' }, limit: GMAIL_JOB_LIMITS.lanes.proposals * 5,
@@ -311,10 +319,17 @@ async function runProposals(runtime: GoogleRuntime, deadlineMs: number): Promise
   });
   return runCandidateLanes(candidates, GMAIL_JOB_LIMITS.lanes.proposals,
     () => GMAIL_JOB_LIMITS.reservesMs.ordinary, deadlineMs,
-    candidate => withAccountLease(candidate.uid, 'live', 'proposals', runtime, () => proposalStep(candidate.uid, runtime)));
+    candidate => withAccountLease(candidate.uid, 'live', 'proposals', runtime,
+      () => proposalStep(candidate.uid, runtime, overrides)));
 }
 
-async function runScanClass(kind: 'manual' | 'daily', lanes: number, runtime: GoogleRuntime, deadlineMs: number): Promise<number> {
+async function runScanClass(
+  kind: 'manual' | 'daily',
+  lanes: number,
+  runtime: GoogleRuntime,
+  deadlineMs: number,
+  overrides: GmailJobOverrides,
+): Promise<number> {
   const rows = await runtime.storage.listGroup<M5aScanDocument>(INTELLIGENCE_GMAIL_SCANS, {
     where: [['kind', '==', kind], ['status', 'in', ['running', 'failed']], ['nextEligibleAt', '<=', runtime.now().toISOString()]],
     orderBy: { field: 'nextEligibleAt', direction: 'asc' }, limit: lanes * 3,
@@ -329,7 +344,8 @@ async function runScanClass(kind: 'manual' | 'daily', lanes: number, runtime: Go
     candidate => candidate.row.data.page ? GMAIL_JOB_LIMITS.reservesMs.qualifyingReply : GMAIL_JOB_LIMITS.reservesMs.listing,
     deadlineMs,
     candidate => withAccountLease(candidate.uid, 'sweep', jobClass, runtime, async () => {
-      await runM5aScanStep(candidate.uid, kind, runtime);
+      await runM5aScanStep(candidate.uid, kind, runtime, overrides.transport?.(candidate.uid),
+        overrides.ensureReadable ? () => overrides.ensureReadable!(candidate.uid) : undefined);
       if (kind === 'daily') await advanceCompletedDaily(candidate.uid, runtime);
       return true;
     }));
@@ -366,7 +382,7 @@ async function runCalendarMaintenance(runtime: GoogleRuntime, deadlineMs: number
 
 export async function runGmailJobTickForTests(
   route: JobRoute,
-  options: { now?: Date; runtime?: GoogleRuntime } = {},
+  options: { now?: Date; runtime?: GoogleRuntime } & GmailJobOverrides = {},
 ): Promise<{ success: true; route: JobRoute; classes: readonly string[]; processed: number; cleaned: number }> {
   const tickStartedAt = Date.now();
   const tickDeadline = tickStartedAt + GMAIL_JOB_LIMITS.tickMs;
@@ -376,13 +392,13 @@ export async function runGmailJobTickForTests(
     Math.min(tickDeadline, tickStartedAt + GMAIL_JOB_LIMITS.cleanupMs));
   let processed = 0;
   if (route === 'live') {
-    const results = await Promise.all([runLive(runtime, tickDeadline), runProposals(runtime, tickDeadline)]);
+    const results = await Promise.all([runLive(runtime, tickDeadline, options), runProposals(runtime, tickDeadline, options)]);
     processed += results[0] + results[1];
   } else {
     processed += await bootstrapSweeps(runtime, tickDeadline);
     const results = await Promise.all([
-      runScanClass('manual', GMAIL_JOB_LIMITS.lanes.continuation, runtime, tickDeadline),
-      runScanClass('daily', GMAIL_JOB_LIMITS.lanes.sweep, runtime, tickDeadline),
+      runScanClass('manual', GMAIL_JOB_LIMITS.lanes.continuation, runtime, tickDeadline, options),
+      runScanClass('daily', GMAIL_JOB_LIMITS.lanes.sweep, runtime, tickDeadline, options),
       runCalendarMaintenance(runtime, tickDeadline),
     ]);
     processed += results[0] + results[1] + results[2];

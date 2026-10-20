@@ -11,7 +11,7 @@ import {
 import type { GoogleRuntime } from '../integrations/google/googleRuntime';
 import {
   BUSY_SOURCE_FENCES, CALENDAR_CHOICE, CALENDAR_SOURCES, DEVICE_STALE_STATE, INTELLIGENCE_GMAIL_SCANS,
-  INTELLIGENCE_SOURCE_MARKERS, PROVIDER_CONNECTIONS, REGISTERED_DEVICE_SOURCES,
+  ICS_FEEDS, INTELLIGENCE_SOURCE_MARKERS, PROVIDER_CONNECTIONS, REGISTERED_DEVICE_SOURCES,
   docIdForKey, userCol, userDoc, userSubDoc,
 } from '../storage';
 import type { StorageTransaction } from '../storage/storageAdapter';
@@ -21,10 +21,11 @@ import type { GmailMonitor } from './gmailMonitor';
 import type { IntegrationConnectionRecord } from '../../src/contracts/v1/integrationConnectionContracts';
 import { connectionIdFor } from '../integrations/providers/production/storedConnectionStore';
 import { featuresGranted } from '../integrations/google/googleConfig';
+import type { IcsFeedDocument } from '../calendar/icsFeeds';
 
 const FRESH_MS = 6 * 60 * 60_000;
 
-export type CalendarCoverage = 'fresh' | 'stale_google' | 'stale_device' | 'force_off';
+export type CalendarCoverage = 'fresh' | 'stale_google' | 'stale_device' | 'stale_ics' | 'force_off';
 
 function googleFencePath(uid: string): string {
   return userSubDoc(uid, BUSY_SOURCE_FENCES, docIdForKey(GOOGLE_BUSY_SOURCE_ID));
@@ -48,7 +49,7 @@ async function guardStoredTarget(
 }
 
 export async function calendarCoverageForEmail(uid: string, runtime: GoogleRuntime): Promise<CalendarCoverage> {
-  const [sources, choice, user, connection, controlsValue, registrations, staleRows, googleFence] = await Promise.all([
+  const [sources, choice, user, connection, controlsValue, registrations, staleRows, googleFence, icsFeeds] = await Promise.all([
     runtime.storage.list<CalendarSource>(userCol(uid, CALENDAR_SOURCES), { limit: 61 }),
     runtime.storage.get<{ v?: number; state?: string; generation?: number }>(userSubDoc(uid, CALENDAR_CHOICE, 'state')),
     runtime.storage.get<Record<string, any>>(userDoc(uid)),
@@ -58,6 +59,7 @@ export async function calendarCoverageForEmail(uid: string, runtime: GoogleRunti
     runtime.storage.list<{ sourceId: string; choiceGeneration: number; fenceGeneration: number;
       failureStartedAt: string | null; version: number }>(userCol(uid, DEVICE_STALE_STATE), { limit: 21 }),
     runtime.storage.get<BusySourceReplacementFence>(googleFencePath(uid)),
+    runtime.storage.list<IcsFeedDocument>(userCol(uid, ICS_FEEDS), { limit: 6 }),
   ]);
   const controls = parseM5aControls(controlsValue);
   if (user?.trust?.calendarConsent !== true || !controls?.calendar.enabled) return 'force_off';
@@ -78,20 +80,23 @@ export async function calendarCoverageForEmail(uid: string, runtime: GoogleRunti
   const staleDevices = devices.filter(source => registered.has(source.sourceId)
     && now - Date.parse(source.lastSyncedAt) > FRESH_MS);
   if (staleDevices.length > 0) {
-    const existing = new Map(staleRows.map(row => [row.data.sourceId, row.data] as const));
-    await runtime.storage.runTransaction(async tx => {
-      for (const source of staleDevices) {
-        const path = userSubDoc(uid, DEVICE_STALE_STATE, docIdForKey(source.sourceId));
-        const current = await tx.get<{ choiceGeneration: number; sourceId: string; fenceGeneration: number; failureStartedAt: string; version: number }>(path);
-        if (!current || current.choiceGeneration !== (choice!.generation ?? 0) || current.failureStartedAt === null) {
+    const currentStates = await runtime.storage.runTransaction(async tx => {
+      const paths = staleDevices.map(source => userSubDoc(uid, DEVICE_STALE_STATE, docIdForKey(source.sourceId)));
+      const current = await Promise.all(paths.map(path => tx.get<{ choiceGeneration: number; sourceId: string;
+        fenceGeneration: number; failureStartedAt: string | null; version: number }>(path)));
+      staleDevices.forEach((source, index) => {
+        const path = paths[index]!;
+        const state = current[index];
+        if (!state || state.choiceGeneration !== (choice!.generation ?? 0) || state.failureStartedAt === null) {
           tx.set(path, { choiceGeneration: choice!.generation ?? 0, sourceId: source.sourceId,
-            fenceGeneration: current?.fenceGeneration ?? 0, failureStartedAt: runtime.now().toISOString(),
-            version: (current?.version ?? 0) + 1 });
+            fenceGeneration: state?.fenceGeneration ?? 0, failureStartedAt: runtime.now().toISOString(),
+            version: (state?.version ?? 0) + 1 });
         }
-      }
+      });
+      return current;
     });
-    if (staleDevices.some(source => {
-      const started = existing.get(source.sourceId)?.failureStartedAt;
+    if (currentStates.some(state => {
+      const started = state?.choiceGeneration === (choice!.generation ?? 0) ? state.failureStartedAt : null;
       return Boolean(started && now - Date.parse(started) >= 60 * 60_000);
     })) return 'force_off';
     return 'stale_device';
@@ -99,6 +104,24 @@ export async function calendarCoverageForEmail(uid: string, runtime: GoogleRunti
   if (staleRows.length > 0) await runtime.storage.runTransaction(async tx => {
     for (const row of staleRows) tx.delete(`${userCol(uid, DEVICE_STALE_STATE)}/${row.id}`);
   });
+  const sourceById = new Map(sources.map(row => [row.data.sourceId, row.data] as const));
+  const staleIcsSince = icsFeeds.flatMap(({ data: feed }) => {
+    const source = sourceById.get(`ics:${feed.feedId}`);
+    const verifiedAt = Date.parse(feed.lastVerifiedAt ?? '');
+    const verifiedFresh = Number.isFinite(verifiedAt) && now - verifiedAt <= FRESH_MS;
+    const sourceSettled = Boolean(source && source.coverageStatus !== 'refreshing'
+      && source.coverageStatus !== 'clearing' && source.coverageStatus !== 'stale');
+    if (feed.status === 'ok' && verifiedFresh && sourceSettled) return [];
+    const staleSince = !verifiedFresh
+      ? (Number.isFinite(verifiedAt) ? verifiedAt + FRESH_MS : Date.parse(feed.createdAt))
+      : feed.status !== 'ok'
+        ? Date.parse(feed.lastFetchedAt ?? feed.createdAt)
+        : Date.parse(source?.lastSyncedAt ?? feed.lastFetchedAt ?? feed.createdAt);
+    return [Number.isFinite(staleSince) ? staleSince : now];
+  });
+  if (staleIcsSince.length > 0) {
+    return staleIcsSince.some(staleSince => now - staleSince >= 60 * 60_000) ? 'force_off' : 'stale_ics';
+  }
   return 'fresh';
 }
 

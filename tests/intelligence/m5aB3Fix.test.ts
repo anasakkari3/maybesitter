@@ -11,7 +11,9 @@ import { GOOGLE_BUSY_SOURCE_ID, type GoogleBusyTarget } from '../../lib/integrat
 import { GOOGLE_FEATURE_SCOPES } from '../../lib/integrations/google/googleConfig';
 import { connectionIdFor } from '../../lib/integrations/providers/production/storedConnectionStore';
 import { calendarCoverageForEmail, runCalendarMaintenanceStep } from '../../lib/intelligence/gmailCalendarJit';
-import { cleanupCalendarWaits, runAccountLeasedLanesForTests, runReservedLanesForTests } from '../../lib/intelligence/gmailJobs';
+import {
+  cleanupCalendarWaits, runAccountLeasedLanesForTests, runGmailJobTickForTests, runReservedLanesForTests,
+} from '../../lib/intelligence/gmailJobs';
 import {
   gmailQueryOutsideIntervals, legacyMarkerIdFor, providerMarkerIdFor, runM5aScanStep, type M5aMarker,
 } from '../../lib/intelligence/m5aGmailScan';
@@ -204,27 +206,31 @@ test('G3 a 450-add/450-remove JIT target resumes after lease takeover and certif
 });
 
 test('G4 registered stale devices wait for one hour account-wide, then force auto-add off until fresh', async () => {
-  const storage = createMemoryStorage();
+  const storage = createMemoryStorage({ enforceFirestoreReadOrder: true });
   const uid = 'stale_device';
   let now = new Date(NOW);
   const runtime: GoogleRuntime = { storage, env: {} as GoogleRuntime['env'], secrets: null, fetchImpl: fetch, now: () => new Date(now) };
-  const sourceId = 'device:phone';
+  const sourceIds = ['device:phone', 'device:tablet'];
   await storage.set(`users/${uid}`, { trust: { calendarConsent: true } });
   await storage.set('system/m5aControls', { email: { epoch: 1, enabled: true }, calendar: { epoch: 1, enabled: true } });
   await storage.set(userSubDoc(uid, CALENDAR_CHOICE, 'state'), { v: 1, generation: 3, state: 'active' });
-  await storage.set(userSubDoc(uid, REGISTERED_DEVICE_SOURCES, docIdForKey(sourceId)), { sourceId, state: 'active' });
-  await storage.set(userSubDoc(uid, DEVICE_STALE_STATE, docIdForKey(sourceId)), {
-    choiceGeneration: 3, sourceId, fenceGeneration: 0, failureStartedAt: null, version: 1,
-  });
-  await storage.set(userSubDoc(uid, CALENDAR_SOURCES, docIdForKey(sourceId)), { sourceId, kind: 'device', status: 'active',
-    platform: 'ios', choiceGeneration: 3, lastSyncedAt: new Date(now.getTime() - 7 * 60 * 60_000).toISOString(),
-    windowStart: NOW, windowEnd: NOW });
+  for (const sourceId of sourceIds) {
+    await storage.set(userSubDoc(uid, REGISTERED_DEVICE_SOURCES, docIdForKey(sourceId)), { sourceId, state: 'active' });
+    await storage.set(userSubDoc(uid, DEVICE_STALE_STATE, docIdForKey(sourceId)), {
+      choiceGeneration: 3, sourceId, fenceGeneration: 0, failureStartedAt: null, version: 1,
+    });
+    await storage.set(userSubDoc(uid, CALENDAR_SOURCES, docIdForKey(sourceId)), { sourceId, kind: 'device', status: 'active',
+      platform: 'ios', choiceGeneration: 3, lastSyncedAt: new Date(now.getTime() - 7 * 60 * 60_000).toISOString(),
+      windowStart: NOW, windowEnd: NOW });
+  }
   assert.equal(await calendarCoverageForEmail(uid, runtime), 'stale_device');
-  assert.equal((await storage.list(userCol(uid, DEVICE_STALE_STATE))).length, 1);
+  assert.equal((await storage.list(userCol(uid, DEVICE_STALE_STATE))).length, 2);
   now = new Date(now.getTime() + 61 * 60_000);
   assert.equal(await calendarCoverageForEmail(uid, runtime), 'force_off');
-  await storage.set(userSubDoc(uid, CALENDAR_SOURCES, docIdForKey(sourceId)), { sourceId, kind: 'device', status: 'active',
-    platform: 'ios', choiceGeneration: 3, lastSyncedAt: now.toISOString(), windowStart: NOW, windowEnd: NOW });
+  for (const sourceId of sourceIds) await storage.set(userSubDoc(uid, CALENDAR_SOURCES, docIdForKey(sourceId)), {
+    sourceId, kind: 'device', status: 'active', platform: 'ios', choiceGeneration: 3,
+    lastSyncedAt: now.toISOString(), windowStart: NOW, windowEnd: NOW,
+  });
   assert.equal(await calendarCoverageForEmail(uid, runtime), 'fresh');
   assert.equal((await storage.list(userCol(uid, DEVICE_STALE_STATE))).length, 0);
 });
@@ -233,20 +239,32 @@ test('G4 ICS freshness uses lastVerifiedAt, including the timestamp a conditiona
   const storage = createMemoryStorage();
   const uid = 'ics_freshness';
   const sourceId = 'ics:feed-1';
+  let now = new Date(NOW);
+  const runtime: GoogleRuntime = { storage, env: {} as GoogleRuntime['env'], secrets: null,
+    fetchImpl: fetch, now: () => new Date(now) };
+  await storage.set(`users/${uid}`, { trust: { calendarConsent: true } });
+  await storage.set('system/m5aControls', { email: { epoch: 1, enabled: true }, calendar: { epoch: 1, enabled: true } });
   await storage.set(userSubDoc(uid, CALENDAR_SOURCES, docIdForKey(sourceId)), {
     sourceId, kind: 'ics', platform: null, lastSyncedAt: NOW,
     windowStart: '2026-10-19T00:00:00.000Z', windowEnd: '2026-10-21T00:00:00.000Z', coverageStatus: 'settled',
   });
   await storage.set(userSubDoc(uid, ICS_FEEDS, 'feed-1'), {
     feedId: 'feed-1', status: 'ok', lastVerifiedAt: '2026-10-19T03:59:59.000Z',
+    lastFetchedAt: '2026-10-19T03:59:59.000Z', createdAt: '2026-10-19T03:00:00.000Z',
   });
   const read = () => storage.runTransaction(tx => loadAutoAddSnapshot(tx, uid, {
     startsAt: '2026-10-20T10:00:00.000Z', endsAt: '2026-10-20T11:00:00.000Z',
   }, NOW));
   assert.equal((await read()).boundedAndSettled, false);
+  assert.equal(await calendarCoverageForEmail(uid, runtime), 'stale_ics');
+  now = new Date(now.getTime() + 61 * 60_000);
+  assert.equal(await calendarCoverageForEmail(uid, runtime), 'force_off');
   const feed = await storage.get<any>(userSubDoc(uid, ICS_FEEDS, 'feed-1'));
-  await storage.set(userSubDoc(uid, ICS_FEEDS, 'feed-1'), { ...feed, lastVerifiedAt: NOW });
-  assert.equal((await read()).boundedAndSettled, true);
+  await storage.set(userSubDoc(uid, ICS_FEEDS, 'feed-1'), { ...feed, lastVerifiedAt: now.toISOString() });
+  assert.equal(await calendarCoverageForEmail(uid, runtime), 'fresh');
+  assert.equal((await storage.runTransaction(tx => loadAutoAddSnapshot(tx, uid, {
+    startsAt: '2026-10-20T10:00:00.000Z', endsAt: '2026-10-20T11:00:00.000Z',
+  }, now.toISOString()))).boundedAndSettled, true);
 });
 
 test('G5 cleanup preserves an authorised monitor wait and releases it after a pause-epoch takeover', async () => {
@@ -314,7 +332,7 @@ test('G6 paused intervals are removed from the Gmail listing query before messag
   const query = gmailQueryOutsideIntervals('2026-10-19T00:00:00.000Z', '2026-10-19T12:00:00.000Z', [
     { from: '2026-10-19T03:00:00.000Z', to: '2026-10-19T05:00:00.000Z' },
   ]);
-  assert.equal(query, '(after:1792368000 before:1792378800) OR (after:1792386000 before:1792411200)');
+  assert.equal(query, '(after:1792368000 before:1792378801) OR (after:1792386000 before:1792411201)');
 });
 
 test('G6 resume clears the live cursor, so paused mail is baselined without messages.get', async () => {
@@ -530,6 +548,99 @@ test('G6 a sweep paused during listing stores no message ids and performs no mes
   assert.equal((await storage.get<any>(scanPath))?.leaseOwner, null);
 });
 
+test('H2 a killed enrolled monitor uses guarded legacy analysis and a mid-model pause commits no result', async () => {
+  const run = async (pauseDuringModel: boolean) => {
+    const uid = pauseDuringModel ? 'rollback-pause' : 'rollback-legacy';
+    const storage = createMemoryStorage({ enforceFirestoreReadOrder: true });
+    await storage.set(`users/${uid}`, { monitoringSettings: { paused: false, updatedAt: NOW } });
+    await storage.set('system/m5aControls', { email: { epoch: 12, enabled: false }, calendar: { epoch: 1, enabled: true } });
+    await storage.set(userSubDoc(uid, PROVIDER_CONNECTIONS, connectionIdFor('google')), {
+      identity: { provider: 'google', providerAccountId: 'acct' }, state: 'connected', credentialRef: 'vault',
+      capabilities: ['mail_read'], grantedScopes: [GOOGLE_FEATURE_SCOPES.gmail],
+    });
+    await storage.set(`users/${uid}/intelligenceMonitors/gmail`, {
+      enabled: true, generation: 'g1', cursor: '100', pageToken: null, nextPollAt: NOW,
+      lease: null, leaseUntil: null, lastSuccessAt: null, error: null,
+      m5: { v: 1, providerAccountId: 'acct', enabledAt: '2026-10-19T09:00:00.000Z', timezone: 'UTC', at: NOW,
+        pauseEpoch: 0, pausedSince: null, excluded: [] },
+    });
+    const message = { id: 'legacy-mail', threadId: null, historyId: '101', receivedAt: '2026-10-19T09:30:00.000Z',
+      from: null, subject: null, text: 'Please send the form', sentByAccount: false,
+      isReply: false, bodyFormat: 'text/plain' as const };
+    let modelCalls = 0;
+    const runtime: GoogleRuntime = {
+      storage,
+      env: { MAYBESITTER_ENV: 'staging', MAYBESITTER_FEATURE_PROACTIVE_LOOP: 'true',
+        MAYBESITTER_FEATURE_EMAIL_SOURCES: 'true' } as GoogleRuntime['env'],
+      secrets: null, fetchImpl: fetch, now: () => new Date(NOW),
+      shareModel: async () => {
+        modelCalls++;
+        if (pauseDuringModel) await saveMonitoringSettings(uid, true, NOW, { storage });
+        return { text: JSON.stringify({ observations: [
+          { kind: 'request', evidence: message.text, confidence: 0.9 },
+        ] }), model: 'fake', latencyMs: 1, promptTokens: 1, outputTokens: 1 };
+      },
+    };
+    const result = await runGmailMonitorTick(runtime, { uid, ensureReadable: async () => undefined, transport: () => ({
+      listHistory: async () => ({ historyId: '101', nextPageToken: null, messages: [message] }),
+    }) });
+    return { uid, storage, result, modelCalls };
+  };
+
+  const legacy = await run(false);
+  assert.equal(legacy.result.failures, 0);
+  assert.equal(legacy.modelCalls, 1);
+  assert.equal((await legacy.storage.list(`users/${legacy.uid}/intelligenceObservations`)).length, 1);
+  assert.equal((await legacy.storage.get<M5aMarker>(`${userCol(legacy.uid, INTELLIGENCE_SOURCE_MARKERS)}/${legacyMarkerIdFor('legacy-mail')}`))?.state, 'done');
+
+  const paused = await run(true);
+  assert.equal(paused.result.failures, 1);
+  assert.equal(paused.modelCalls, 1);
+  assert.equal((await paused.storage.list(`users/${paused.uid}/intelligenceObservations`)).length, 0);
+  assert.equal((await paused.storage.get<any>(`users/${paused.uid}/intelligenceMonitors/gmail`))?.cursor, '100');
+  assert.notEqual((await paused.storage.get<M5aMarker>(`${userCol(paused.uid, INTELLIGENCE_SOURCE_MARKERS)}/${legacyMarkerIdFor('legacy-mail')}`))?.state, 'done');
+});
+
+test('L1 a live quota wait moves the monitor poll and is not reclaimed before nextEligibleAt', async () => {
+  const storage = createMemoryStorage();
+  const uid = 'live-next-eligible';
+  const resumesAt = '2026-10-20T00:00:00.000Z';
+  await storage.set(`users/${uid}`, { monitoringSettings: { paused: false, updatedAt: NOW } });
+  await storage.set('system/m5aControls', { email: { epoch: 4, enabled: true }, calendar: { epoch: 1, enabled: true } });
+  await storage.set(userSubDoc(uid, PROVIDER_CONNECTIONS, connectionIdFor('google')), {
+    identity: { provider: 'google', providerAccountId: 'acct' }, state: 'connected', credentialRef: 'vault',
+    capabilities: ['mail_read'], grantedScopes: [GOOGLE_FEATURE_SCOPES.gmail],
+  });
+  await storage.set(`users/${uid}/intelligenceMonitors/gmail`, {
+    enabled: true, generation: 'g1', cursor: '100', pageToken: null, nextPollAt: NOW,
+    lease: null, leaseUntil: null, lastSuccessAt: null, error: null,
+    liveWaiting: { reason: 'daily_ai_limit', resumesAt, generation: 'g1', providerAccountId: 'acct' },
+    m5: { v: 1, providerAccountId: 'acct', enabledAt: NOW, timezone: 'UTC', at: NOW,
+      pauseEpoch: 0, pausedSince: null, excluded: [] },
+  });
+  const scanPath = `users/${uid}/${INTELLIGENCE_GMAIL_SCANS}/liveV2`;
+  await storage.set(scanPath, {
+    scanId: 'live-scan', kind: 'live', status: 'running', origin: 'live', providerAccountId: 'acct', emailEpoch: 4,
+    query: '', from: NOW, until: resumesAt, timezone: 'UTC', startedAt: NOW, finishedAt: null, failedAt: null,
+    failure: null, pageToken: null, page: { ids: ['mail'], nextPageToken: null, done: [] },
+    leaseOwner: null, leaseUntil: null, queued: null, nextEligibleAt: resumesAt,
+    waiting: { reason: 'daily_ai_limit', resumesAt }, messagesRead: 0, messagesUnavailable: 0,
+    messagesTrimmed: 0, observationsFound: 0, addedFromEmail: 0,
+    monitorGeneration: 'g1', pauseEpoch: 0, excluded: [], liveHistoryId: '101', liveNextPageToken: null,
+  });
+  let gmailCalls = 0;
+  await runGmailMonitorTick({ storage,
+    env: { MAYBESITTER_ENV: 'staging', MAYBESITTER_FEATURE_PROACTIVE_LOOP: 'true' } as GoogleRuntime['env'],
+    secrets: null, fetchImpl: fetch, now: () => new Date(NOW),
+  }, { uid, ensureReadable: async () => undefined, transport: () => ({
+    listHistory: async () => { gmailCalls++; throw new Error('must not list'); },
+    getMessageById: async () => { gmailCalls++; throw new Error('must not fetch'); },
+  }) });
+  assert.equal(gmailCalls, 0);
+  assert.deepEqual((await storage.get<any>(scanPath))?.waiting, { reason: 'daily_ai_limit', resumesAt });
+  assert.equal((await storage.get<any>(`users/${uid}/intelligenceMonitors/gmail`))?.nextPollAt, resumesAt);
+});
+
 test('G7 proposal rows and caller completion are one guarded all-or-nothing transaction', async () => {
   const storage = createMemoryStorage();
   const [observation] = await putObservations('proposal-atomic', 'manual', 'note', NOW, [{
@@ -544,6 +655,44 @@ test('G7 proposal rows and caller completion are one guarded all-or-nothing tran
   }), /monitor fence changed/);
   assert.equal((await storage.list(userCol('proposal-atomic', 'intelligenceSuggestions'))).length, 0,
     'a failed caller fence must leave no partial suggestion rows');
+});
+
+test('H1 proposal scheduler reads every authority guard before writing proposal completion', async () => {
+  const storage = createMemoryStorage({ enforceFirestoreReadOrder: true });
+  const uid = 'proposal-read-order';
+  const [observation] = await putObservations(uid, 'manual', 'note', NOW, [{
+    kind: 'request', evidence: 'Please send the form', confidence: 0.9,
+  }], storage);
+  await storage.set(`users/${uid}`, { monitoringSettings: { paused: false, updatedAt: NOW } });
+  await storage.set('system/m5aControls', { email: { epoch: 7, enabled: true }, calendar: { epoch: 1, enabled: true } });
+  await storage.set(userSubDoc(uid, PROVIDER_CONNECTIONS, connectionIdFor('google')), {
+    identity: { provider: 'google', providerAccountId: 'acct' }, state: 'connected', credentialRef: 'vault',
+    capabilities: ['mail_read'], grantedScopes: [GOOGLE_FEATURE_SCOPES.gmail],
+  });
+  await storage.set(`users/${uid}/intelligenceMonitors/gmail`, {
+    enabled: true, generation: 'g1', cursor: '100', pageToken: null, nextPollAt: '2026-10-20T00:00:00.000Z',
+    lease: null, leaseUntil: null, lastSuccessAt: null, error: null,
+    proposalsVersion: 1, proposalsDoneVersion: 0, proposalsPending: true, proposalNextEligibleAt: NOW,
+    m5: { v: 1, providerAccountId: 'acct', enabledAt: NOW, timezone: 'UTC', at: NOW,
+      pauseEpoch: 0, pausedSince: null, excluded: [] },
+  });
+  const provider: LlmProvider = {
+    name: 'gemini',
+    generateJson: async () => { throw new Error('wrong provider verb'); },
+    generateStructured: async () => ({ text: JSON.stringify({ suggestions: [{
+      kind: 'action', title: 'Send the form', reason: 'The form was requested',
+      observationIds: [observation!.id], confidence: 0.9, durationMinutes: 10,
+    }] }), model: 'fake', latencyMs: 1, promptTokens: 1, outputTokens: 1 }),
+  };
+  const runtime: GoogleRuntime = { storage,
+    env: { MAYBESITTER_ENV: 'staging' } as GoogleRuntime['env'], secrets: null, fetchImpl: fetch,
+    now: () => new Date(NOW), shareProvider: provider,
+  };
+  await runGmailJobTickForTests('live', { runtime, ensureReadable: async () => undefined });
+  const monitor = await storage.get<any>(`users/${uid}/intelligenceMonitors/gmail`);
+  assert.equal(monitor.proposalsDoneVersion, 1);
+  assert.equal(monitor.proposalsPending, false);
+  assert.equal((await storage.get<any>(`users/${uid}/intelligenceRuns/latest`))?.status, 'complete');
 });
 
 test('G8 24-hour clock with the real 45/2000 guard drains daily waits after UTC reset without duplicates', async () => {
@@ -606,6 +755,115 @@ test('G8 24-hour clock with the real 45/2000 guard drains daily waits after UTC 
   assert.equal(completed.size, 2_500);
   assert.ok(Array.from(pending.values()).every(queues => Object.values(queues).every(queue => queue.length === 0)));
   assert.ok(proposalSteps > 0 && continuationSteps > 0, 'proposal and continuation lanes were not charged');
+});
+
+test('M2 production live lanes drain a per-user 45-call wait after reset without duplicate effects', async () => {
+  const storage = createMemoryStorage({ enforceFirestoreReadOrder: true });
+  const uid = 'production-capacity';
+  const ids = Array.from({ length: 47 }, (_, index) => `mail-${index}`);
+  let now = new Date('2026-10-19T00:00:00.000Z');
+  await storage.set(`users/${uid}`, { monitoringSettings: { paused: false, updatedAt: now.toISOString() } });
+  await storage.set('system/m5aControls', { email: { epoch: 5, enabled: true }, calendar: { epoch: 1, enabled: true } });
+  await storage.set(userSubDoc(uid, PROVIDER_CONNECTIONS, connectionIdFor('google')), {
+    identity: { provider: 'google', providerAccountId: 'acct' }, state: 'connected', credentialRef: 'vault',
+    capabilities: ['mail_read'], grantedScopes: [GOOGLE_FEATURE_SCOPES.gmail],
+  });
+  await storage.set(`users/${uid}/intelligenceMonitors/gmail`, {
+    enabled: true, generation: 'g1', cursor: '100', pageToken: null, nextPollAt: now.toISOString(),
+    lease: null, leaseUntil: null, lastSuccessAt: null, error: null,
+    proposalsVersion: 0, proposalsDoneVersion: 0, proposalsPending: false, proposalNextEligibleAt: now.toISOString(),
+    m5: { v: 1, providerAccountId: 'acct', enabledAt: '2026-10-18T23:00:00.000Z', timezone: 'UTC',
+      at: now.toISOString(), pauseEpoch: 0, pausedSince: null, excluded: [] },
+  });
+
+  const successful = new Map<string, number>();
+  const attempts = new Map<string, number>();
+  const failedOnce = new Set<string>();
+  let active = 0;
+  let peak = 0;
+  const shareProvider: LlmProvider = {
+    name: 'gemini',
+    generateJson: async () => { throw new Error('wrong provider verb'); },
+    generateStructured: async request => {
+      const text = JSON.stringify(request);
+      const id = /unit:(mail-\d+)/.exec(text)?.[1];
+      assert.ok(id, 'the fake provider must see the message id in its untrusted input');
+      active++;
+      peak = Math.max(peak, active);
+      attempts.set(id, (attempts.get(id) ?? 0) + 1);
+      try {
+        await new Promise<void>(resolve => setImmediate(resolve));
+        if (id === 'mail-7' && !failedOnce.has(id)) {
+          failedOnce.add(id);
+          throw new Error('injected_model_failure');
+        }
+        successful.set(id, (successful.get(id) ?? 0) + 1);
+        return { text: '{"observations":[]}', model: 'fake-share', latencyMs: 1, promptTokens: 1, outputTokens: 1 };
+      } finally { active--; }
+    },
+  };
+  let captureCalls = 0;
+  const captureProvider: LlmProvider = {
+    name: 'gemini',
+    generateJson: async () => { captureCalls++; throw new Error('ordinary mail must not extract a commitment'); },
+    generateStructured: async () => { captureCalls++; throw new Error('ordinary mail must not extract a commitment'); },
+  };
+  const runtime: GoogleRuntime = { storage,
+    env: { MAYBESITTER_ENV: 'staging', MAYBESITTER_FEATURE_PROACTIVE_LOOP: 'true',
+      MAYBESITTER_FEATURE_EMAIL_SOURCES: 'true' } as GoogleRuntime['env'],
+    secrets: null, fetchImpl: fetch, now: () => new Date(now), shareProvider, captureProvider,
+  };
+  let listed = false;
+  const transport = (): GmailTransport => ({
+    listHistory: async () => { throw new Error('the enrolled path must use id-only history'); },
+    listHistoryIds: async () => {
+      if (listed) return { historyId: '200', nextPageToken: null, ids: [] };
+      listed = true;
+      return { historyId: '200', nextPageToken: null, ids };
+    },
+    getMessageById: async (id: string) => ({
+      id, threadId: null, historyId: '200', receivedAt: '2026-10-18T23:59:00.000Z',
+      from: null, subject: null, text: `unit:${id}`, sentByAccount: false,
+      isReply: false, bodyFormat: 'text/plain' as const,
+    }),
+    listRecentMessageIds: async () => { throw new Error('live work must not use mailbox search'); },
+  } as unknown as GmailTransport);
+  const tick = () => runGmailJobTickForTests('live', {
+    runtime, transport: () => transport(), ensureReadable: async () => undefined,
+  });
+
+  let waiting: any = null;
+  for (let minute = 0; minute < 180 && !waiting; minute++) {
+    await Promise.all([tick(), tick()]);
+    waiting = (await storage.get<any>(`users/${uid}/${INTELLIGENCE_GMAIL_SCANS}/liveV2`))?.waiting;
+    now = new Date(now.getTime() + 60_000);
+  }
+  assert.deepEqual(waiting, { reason: 'daily_ai_limit', resumesAt: '2026-10-20T00:00:00.000Z' });
+  assert.equal((await storage.get<any>(`users/${uid}/intelligenceMonitors/gmail`))?.nextPollAt, waiting.resumesAt);
+  const attemptsAtWait = Array.from(attempts.values()).reduce((sum, count) => sum + count, 0);
+  now = new Date('2026-10-19T23:59:00.000Z');
+  await Promise.all([tick(), tick()]);
+  assert.equal(Array.from(attempts.values()).reduce((sum, count) => sum + count, 0), attemptsAtWait,
+    'a daily wait must not be retried before its reset');
+
+  now = new Date(waiting.resumesAt);
+  for (let minute = 0; minute < 20; minute++) {
+    await Promise.all([tick(), tick()]);
+    const scan = await storage.get<any>(`users/${uid}/${INTELLIGENCE_GMAIL_SCANS}/liveV2`);
+    if (scan?.status === 'complete') break;
+    now = new Date(now.getTime() + 60_000);
+  }
+  const scan = await storage.get<any>(`users/${uid}/${INTELLIGENCE_GMAIL_SCANS}/liveV2`);
+  assert.equal(scan.status, 'complete');
+  assert.equal(scan.messagesRead, ids.length);
+  assert.equal(scan.waiting, null);
+  assert.equal(successful.size, ids.length);
+  assert.ok(Array.from(successful.values()).every(count => count === 1), 'each message must commit one successful analysis');
+  assert.equal(attempts.get('mail-7'), 2, 'the injected failure must retry its durable unit once');
+  assert.equal(peak, 1, 'overlapping job instances must not run two model steps for one account');
+  assert.equal(captureCalls, 0);
+  const markers = await storage.list<M5aMarker>(userCol(uid, INTELLIGENCE_SOURCE_MARKERS));
+  assert.equal(markers.filter(row => row.data.state === 'done').length, ids.length * 2);
 });
 
 test('G9 fake providers behind both real adapters consume a whole permit and release an unused slot', async () => {

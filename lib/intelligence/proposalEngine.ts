@@ -389,7 +389,7 @@ export function localWallClock(iso: string | null, timezone: string, dateOnly = 
 }
 
 /** Generate only from this account's reviewed or pending evidence. No canonical writes. */
-export async function proposeFromObservations(
+export async function proposeFromObservations<TransactionGuardState = undefined>(
   uid: string,
   now: string,
   options: {
@@ -399,9 +399,9 @@ export async function proposeFromObservations(
     /** Scheduler turns must remain due when generation fails. */
     throwOnGenerateFailure?: boolean;
     /** Re-read caller authority in the same transaction as every proposal. */
-    transactionGuard?: (tx: StorageTransaction) => Promise<void>;
+    transactionGuard?: (tx: StorageTransaction) => Promise<TransactionGuardState>;
     /** Caller-owned completion fields written atomically with the proposal set. */
-    transactionComplete?: (tx: StorageTransaction) => Promise<void>;
+    transactionComplete?: (tx: StorageTransaction, guardState: TransactionGuardState) => Promise<void>;
   } = {},
 ): Promise<IntelligenceSuggestion[]> {
   const storage = options.storage ?? getStorage();
@@ -574,12 +574,14 @@ export async function proposeFromObservations(
       Promise.all(suggestions.map(suggestion => tx.get<IntelligenceSuggestion>(suggestionPath(uid, suggestion.id)))),
     ]);
     if (current?.claimId !== claimId) return false;
-    if (options.transactionGuard) await options.transactionGuard(tx);
+    const guardState = options.transactionGuard
+      ? await options.transactionGuard(tx)
+      : undefined as TransactionGuardState;
     suggestions.forEach((suggestion, index) => {
       if (!existing[index]) tx.create(suggestionPath(uid, suggestion.id), suggestion);
     });
     tx.set(runPath, { ...current, status: 'complete', suggestionIds: suggestions.map(item => item.id) });
-    if (options.transactionComplete) await options.transactionComplete(tx);
+    if (options.transactionComplete) await options.transactionComplete(tx, guardState);
     return true;
   });
   if (!committed && options.transactionComplete) throw new Error('proposal_claim_lost');

@@ -287,7 +287,7 @@ export function gmailQueryOutsideIntervals(
   if (cursor < end) windows.push({ from: cursor, until: end });
   if (windows.length === 0) return 'after:2147483647 before:2147483648';
   const clauses = windows.map(window =>
-    `after:${Math.ceil(window.from / 1000)} before:${Math.floor(window.until / 1000)}`);
+    `after:${Math.ceil(window.from / 1000)} before:${Math.ceil(window.until / 1000) + 1}`);
   return clauses.length === 1 ? clauses[0]! : clauses.map(clause => `(${clause})`).join(' OR ');
 }
 
@@ -741,7 +741,7 @@ async function processMessage(
     let forceAutoAddOff = claimed.forceAutoAddOff;
     if (candidateSignals) {
       const coverage = await calendarCoverageForEmail(uid, runtime);
-      if (coverage === 'stale_google' || coverage === 'stale_device') {
+      if (coverage === 'stale_google' || coverage === 'stale_device' || coverage === 'stale_ics') {
         await waitForCalendarAndFetch(uid, {
           scan: claimedScan, scanOwner: owner, claimOwner, markerIds, messageId,
           fetchGoogle: coverage === 'stale_google',

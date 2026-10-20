@@ -286,14 +286,25 @@ export async function runGmailMonitorTick(
       await (options.ensureReadable?.(uid) ?? requireReadableFeature(uid, 'gmail', runtime));
       const transport = options.transport?.(uid) ?? transportFor(uid, runtime);
       if (acquired.m5) await assertEnrolledMonitorAuthority(uid, acquired, claim, runtime);
-      if (acquired.m5) {
-        const controls = parseM5aControls(await runtime.storage.get(M5A_CONTROLS_PATH));
-        if (!controls?.email.enabled) throw new Error('monitor_disabled');
+      const controls = acquired.m5
+        ? parseM5aControls(await runtime.storage.get(M5A_CONTROLS_PATH))
+        : null;
+      if (acquired.m5 && controls?.email.enabled) {
         const existing = await runtime.storage.get<M5aScanDocument>(liveScanPath(uid));
         const resumable = existing && (existing.status === 'running' || existing.status === 'failed')
           && existing.monitorGeneration === acquired.generation
           && existing.pauseEpoch === acquired.m5.pauseEpoch
           && existing.page?.ids.some(id => !existing.page!.done.includes(id));
+        if (resumable && existing.nextEligibleAt > runtime.now().toISOString()) {
+          await runtime.storage.runTransaction(async tx => {
+            const current = await tx.get<GmailMonitor>(monitorPath(uid));
+            if (!current?.enabled || current.generation !== acquired.generation || current.lease?.owner !== claim
+              || current.m5?.pauseEpoch !== acquired.m5?.pauseEpoch || current.m5?.pausedSince) return;
+            tx.set(monitorPath(uid), { ...current, lease: null, leaseUntil: null,
+              nextPollAt: existing.nextEligibleAt });
+          });
+          continue;
+        }
         if (!resumable) {
           const request = {
             connectionId: 'intelligence', startHistoryId: acquired.cursor,
@@ -360,6 +371,9 @@ export async function runGmailMonitorTick(
             lease: null, leaseUntil: null,
             nextPollAt: current.waitingMessageId
               ? current.nextPollAt
+              : latest && latest.status !== 'complete'
+                && (latest.waiting || latest.nextEligibleAt > runtime.now().toISOString())
+                ? latest.nextEligibleAt
               : new Date(runtime.now().getTime() + (complete && (live?.messagesRead ?? 0) === 0
                 ? 15 * 60_000 : complete ? 5 * 60_000 : 60_000)).toISOString(),
             lastSuccessAt: complete ? runtime.now().toISOString() : current.lastSuccessAt,
@@ -372,8 +386,9 @@ export async function runGmailMonitorTick(
         connectionId: 'intelligence', startHistoryId: acquired.cursor,
         pageToken: acquired.pageToken, maxResults: 10,
       });
-      const arbitrate = await legacyGmailArbitrationEnabled(runtime);
-      let providerAccountId = arbitrate ? await connectedGmailAccount(uid, runtime) : null;
+      const arbitrate = Boolean(acquired.m5) || await legacyGmailArbitrationEnabled(runtime);
+      let providerAccountId = acquired.m5?.providerAccountId
+        ?? (arbitrate ? await connectedGmailAccount(uid, runtime) : null);
       if (arbitrate && !providerAccountId) throw new Error('source_unavailable');
       // Baseline is deliberate: monitoring future mail never silently imports an old mailbox.
       let processed = 0;
@@ -392,6 +407,11 @@ export async function runGmailMonitorTick(
           if (!providerAccountId) throw new Error('source_unavailable');
           const result = await analyzeArbitratedGmailMessage(uid, providerAccountId!, message, runtime, {
             path: monitorPath(uid), generation: acquired.generation,
+            ...(acquired.m5 ? {
+              leaseOwner: claim,
+              pauseEpoch: acquired.m5.pauseEpoch,
+              receivedAt: message.receivedAt,
+            } : {}),
           });
           if (result.kind === 'blocked') { remaining = true; break; }
           if (result.kind === 'processed') {
@@ -417,8 +437,13 @@ export async function runGmailMonitorTick(
         processed++;
       }
       await runtime.storage.runTransaction(async tx => {
-        const current = await tx.get<GmailMonitor>(monitorPath(uid));
-        if (!current?.enabled || current.generation !== acquired.generation) return;
+        const [current, paused] = await Promise.all([
+          tx.get<GmailMonitor>(monitorPath(uid)),
+          acquired.m5 ? isMonitoringPaused(uid, runtime.storage, tx) : Promise.resolve(false),
+        ]);
+        if (!current?.enabled || current.generation !== acquired.generation
+          || acquired.m5 && (paused || current.lease?.owner !== claim
+            || current.m5?.pauseEpoch !== acquired.m5.pauseEpoch || Boolean(current.m5?.pausedSince))) return;
         tx.set(monitorPath(uid), {
           ...current,
           cursor: remaining ? acquired.cursor : page.nextPageToken ? acquired.cursor : page.historyId,
@@ -436,8 +461,12 @@ export async function runGmailMonitorTick(
     } catch (error) {
       failures++;
       await runtime.storage.runTransaction(async tx => {
-        const current = await tx.get<GmailMonitor>(monitorPath(uid));
+        const [current, paused] = await Promise.all([
+          tx.get<GmailMonitor>(monitorPath(uid)),
+          acquired.m5 ? isMonitoringPaused(uid, runtime.storage, tx) : Promise.resolve(false),
+        ]);
         if (!current || (current.m5 ? current.generation !== acquired.generation || current.lease?.owner !== claim : current.generation !== claim)) return;
+        if (acquired.m5 && (paused || current.m5?.pauseEpoch !== acquired.m5.pauseEpoch || current.m5?.pausedSince)) return;
         tx.set(monitorPath(uid), { ...current, leaseUntil: null, lease: null,
           nextPollAt: new Date(Date.parse(now) + 5 * 60_000).toISOString(),
           error: error instanceof Error && error.message === 'source_analysis_failed' || error instanceof Error && error.message === 'analysis_unavailable'
