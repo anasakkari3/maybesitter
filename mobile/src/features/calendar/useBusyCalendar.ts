@@ -64,6 +64,7 @@ import {
   resolveCalendarMode,
   runM5aPass,
   startSelection,
+  useM5aCalendarView,
 } from './m5aCalendar';
 import { deviceCalendar, BUSY_LOOK_AHEAD_DAYS } from './deviceCalendar';
 import type { DeviceBusyBlock } from './busyBlocks';
@@ -449,6 +450,13 @@ export function useBusyCalendar(): BusyCalendarState {
   // until a disconnect or another account. Only an answer that says off
   // clears: while the answer is loading nothing is known, and nothing goes.
   const consentOff = trust.data?.trust?.calendarConsent === false;
+  // A selection's read writes the cache after the tap returned (SIM-M5A-02):
+  // every write is announced, and the screens reading the cache re-read it.
+  const cacheVersion = useM5aCalendarView(uid).cacheVersion;
+  useEffect(() => {
+    if (cacheVersion === 0 || uid === 'signed-out') return;
+    void client.invalidateQueries({ queryKey: busyQueryKeys.blocks(uid) });
+  }, [cacheVersion, uid, client]);
   useEffect(() => {
     if (!consentOff || uid === 'signed-out') return;
     void invalidateDeviceBusyCache(uid).then(() => client.invalidateQueries({ queryKey: busyQueryKeys.blocks(uid) }));

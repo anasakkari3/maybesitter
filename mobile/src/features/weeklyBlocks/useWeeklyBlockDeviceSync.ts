@@ -33,6 +33,7 @@ import { deviceCalendar, DeviceCalendarError, weeklyRuleCarriesDays } from '../c
 import { adoptSoleCalendar } from '../calendar/deviceCalendarSync';
 import { accountBoundCalendar } from '../calendar/accountBoundCalendar';
 import { getAuthRepository } from '../../api/auth';
+import { AccountChangedError } from '../../api/errors';
 import { useCalendarSettings } from '../calendar/useDeviceCalendarSync';
 import { needsWeeklyCalendar } from './weeklyDeviceEvents';
 import { reconcileWeeklyEvents, type WeeklySyncOutcome, type WeeklySyncPorts } from './weeklyEventSync';
@@ -68,8 +69,15 @@ function portsFor(uid: string, stillCurrent: () => boolean): WeeklySyncPorts & {
       return saved;
     },
     rollbackUnlinked: bound.rollbackUnlinked,
-    rememberEvent: (eventId) => rememberWrittenEventId(uid, eventId),
-    forgetEvent: (eventId) => forgetWrittenEventId(uid, eventId),
+    // Local writes of this account's ids, refused once the account changed (M5A-R6-002).
+    rememberEvent: async (eventId) => {
+      if (!stillCurrent()) throw new AccountChangedError('the account changed during the calendar pass');
+      await rememberWrittenEventId(uid, eventId);
+    },
+    forgetEvent: async (eventId) => {
+      if (!stillCurrent()) throw new AccountChangedError('the account changed during the calendar pass');
+      await forgetWrittenEventId(uid, eventId);
+    },
   };
 }
 

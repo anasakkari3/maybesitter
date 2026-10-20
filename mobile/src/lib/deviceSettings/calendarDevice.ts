@@ -171,6 +171,42 @@ export async function forgetWrittenEventId(uid: string, eventId: string): Promis
   }
 }
 
+const pendingUnlinksKey = (uid: string) => `calendar.pendingUnlinks.v1:${uid}`;
+
+export interface PendingUnlink { commitmentId: string; writerId: string }
+
+/**
+ * Server links whose phone event this account already removed (M5A-R6-002).
+ * Written before the native delete, cleared after the link is gone, so a
+ * switch of account in between leaves the account's own record to finish on
+ * its next pass instead of a link to an event that no longer exists.
+ * Throws when it cannot be read: the caller then deletes nothing.
+ */
+export async function loadPendingUnlinks(uid: string): Promise<PendingUnlink[]> {
+  const raw = await AsyncStorage.getItem(pendingUnlinksKey(uid));
+  if (raw === null) return [];
+  const parsed: unknown = JSON.parse(raw);
+  if (!Array.isArray(parsed)) throw new Error('pending unlinks unreadable');
+  return parsed.filter((row): row is PendingUnlink => typeof row === 'object' && row !== null
+    && typeof (row as PendingUnlink).commitmentId === 'string' && typeof (row as PendingUnlink).writerId === 'string');
+}
+
+/** Throws when it cannot be written: the native delete then does not happen. */
+export async function notePendingUnlink(uid: string, entry: PendingUnlink): Promise<void> {
+  const current = await loadPendingUnlinks(uid);
+  if (current.some((row) => row.commitmentId === entry.commitmentId && row.writerId === entry.writerId)) return;
+  await AsyncStorage.setItem(pendingUnlinksKey(uid), JSON.stringify([...current, entry]));
+}
+
+export async function settlePendingUnlink(uid: string, commitmentId: string): Promise<void> {
+  try {
+    const current = await loadPendingUnlinks(uid);
+    await AsyncStorage.setItem(pendingUnlinksKey(uid), JSON.stringify(current.filter((row) => row.commitmentId !== commitmentId)));
+  } catch {
+    // Left behind, the next pass deletes an already deleted link: idempotent.
+  }
+}
+
 /** The calendars on this phone the user switched off for busy time. */
 export async function loadExcludedCalendarIds(): Promise<string[]> {
   try {

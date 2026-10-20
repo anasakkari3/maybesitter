@@ -284,6 +284,26 @@ export interface SyncPorts {
   /** Records an event id so UC-3.2 (#186) can skip our own events. */
   rememberEvent(eventId: string): Promise<void>;
   forgetEvent(eventId: string): Promise<void>;
+  /**
+   * The account's own record of links whose event it removed (M5A-R6-002):
+   * noted before the native delete, settled after the link is gone, and
+   * finished first on the account's next pass. Optional for test ports.
+   */
+  pendingUnlinks?(): Promise<readonly { commitmentId: string; writerId: string }[]>;
+  noteUnlink?(commitmentId: string, writerId: string): Promise<void>;
+  settleUnlink?(commitmentId: string): Promise<void>;
+}
+
+/** A delete interrupted between the event and its link is finished here. */
+async function finishPendingUnlinks(ports: SyncPorts): Promise<ReadonlySet<string>> {
+  const finished = new Set<string>();
+  if (!ports.pendingUnlinks) return finished;
+  for (const row of await ports.pendingUnlinks()) {
+    await ports.deleteLink(row.commitmentId, row.writerId);
+    await ports.settleUnlink?.(row.commitmentId);
+    finished.add(row.commitmentId);
+  }
+  return finished;
 }
 
 export interface ReconcileInput {
@@ -319,11 +339,16 @@ export interface ReconcileInput {
 export async function reconcile(input: ReconcileInput): Promise<SyncOutcome> {
   const outcome: SyncOutcome = { ...EMPTY_OUTCOME };
   const { ports, writerId } = input;
+  // Their links are gone now: the subjects read before this pass still show
+  // them, and must not be planned again (a missing event would read as one
+  // the person deleted, and be detached — a link written back).
+  const unlinked = await finishPendingUnlinks(ports);
 
   // Decided first, with no I/O, so the common case — nothing to do — touches
   // neither the OS nor the network.
   const pending: { subject: SyncSubject; plan: SyncPlan }[] = [];
   for (const subject of input.subjects) {
+    if (unlinked.has(subject.commitmentId)) continue;
     const plan = decide({
       ...subject,
       writeTarget: input.writeTarget,
@@ -453,11 +478,13 @@ async function apply(
     }
 
     case 'delete': {
+      await ports.noteUnlink?.(commitmentId, writerId);
       await ports.calendar.deleteEvent(plan.eventId);
       await ports.forgetEvent(plan.eventId);
       // The row goes too, so a later re-confirm can link afresh rather than
       // being refused for ever by a tombstone that describes nothing.
       await ports.deleteLink(commitmentId, writerId);
+      await ports.settleUnlink?.(commitmentId);
       outcome.deleted += 1;
       return;
     }
@@ -510,9 +537,11 @@ export async function removeAllWrittenEvents(input: {
   for (const subject of mine) {
     const link = subject.link!;
     try {
+      await input.ports.noteUnlink?.(subject.commitmentId, input.writerId);
       await input.ports.calendar.deleteEvent(link.eventId);
       await input.ports.forgetEvent(link.eventId);
       await input.ports.deleteLink(subject.commitmentId, input.writerId);
+      await input.ports.settleUnlink?.(subject.commitmentId);
       removed += 1;
     } catch (error) {
       if (error instanceof DeviceCalendarError && error.reason === 'permission_denied') {

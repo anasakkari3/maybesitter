@@ -37,13 +37,17 @@ export function accountBoundCalendar(stillCurrent: () => boolean): AccountBoundC
       }
       return eventId;
     },
+    // Asked again after the native call (M5A-R6-002): nothing that follows it
+    // in the pass runs for an account that is no longer signed in.
     updateEvent: async (...args: Parameters<DeviceCalendar['updateEvent']>) => {
       check();
-      return deviceCalendar.updateEvent(...args);
+      await deviceCalendar.updateEvent(...args);
+      check();
     },
     deleteEvent: async (...args: Parameters<DeviceCalendar['deleteEvent']>) => {
       check();
-      return deviceCalendar.deleteEvent(...args);
+      await deviceCalendar.deleteEvent(...args);
+      check();
     },
   };
   return {

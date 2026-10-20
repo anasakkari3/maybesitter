@@ -140,6 +140,14 @@ export function inclusionGenerationKey(owner: string): string {
   return `calendar.inclusionGeneration.v1:${owner}`;
 }
 
+/**
+ * The selection generation a pass loads before it reads (M5A-R6-001): its cache
+ * write carries exactly this token, never whatever generation is current then.
+ */
+export function loadInclusionGeneration(owner: string): Promise<number | null> {
+  return currentInclusionGeneration(owner);
+}
+
 async function currentInclusionGeneration(owner: string): Promise<number | null> {
   try {
     const raw = await AsyncStorage.getItem(inclusionGenerationKey(owner));
@@ -168,11 +176,20 @@ async function readEnvelope(): Promise<{ owner: string; generation: number; cach
   return { owner: row.owner, generation, cache: { blocks, coverage: coverageFrom(row.coverage), syncedAt } };
 }
 
-async function writeEnvelope(owner: string, cache: DeviceBusyCache): Promise<void> {
+async function writeEnvelope(
+  owner: string,
+  cache: DeviceBusyCache,
+  expectedGeneration?: number,
+  stillOwner: StillOwner = ALWAYS,
+): Promise<void> {
   const generation = await currentInclusionGeneration(owner);
   // An unreadable generation writes nothing: the read could not say which
   // selection these blocks belong to.
   if (generation === null) return;
+  // A pass bound to a generation never adopts a newer one (M5A-R6-001): blocks
+  // read under the old selection are not written under the new selection's tag.
+  if (expectedGeneration !== undefined && generation !== expectedGeneration) return;
+  if (!stillOwner()) return;
   await AsyncStorage.setItem(BUSY_BLOCKS_KEY, JSON.stringify({
     owner,
     inclusionGeneration: generation,
@@ -211,12 +228,13 @@ export function saveCachedBusyBlocks(
   blocks: readonly DeviceBusyBlock[],
   coverage: BusyCoverage | null,
   stillOwner: StillOwner = ALWAYS,
+  expectedGeneration?: number,
 ): Promise<void> {
   return serialized(async () => {
     try {
       const previous = await loadDeviceBusy(owner);
       if (!stillOwner()) return;
-      await writeEnvelope(owner, { blocks: [...blocks], coverage, syncedAt: previous.syncedAt });
+      await writeEnvelope(owner, { blocks: [...blocks], coverage, syncedAt: previous.syncedAt }, expectedGeneration, stillOwner);
     } catch {
       // The chips still work for this session from the value in memory.
     }
@@ -224,12 +242,12 @@ export function saveCachedBusyBlocks(
 }
 
 /** A refused read: the blocks stay for the chips, and cover nothing any more. */
-export function uncoverCachedBusyBlocks(owner: string, stillOwner: StillOwner = ALWAYS): Promise<void> {
+export function uncoverCachedBusyBlocks(owner: string, stillOwner: StillOwner = ALWAYS, expectedGeneration?: number): Promise<void> {
   return serialized(async () => {
     try {
       const previous = await loadDeviceBusy(owner);
       if (!stillOwner()) return;
-      await writeEnvelope(owner, { ...previous, coverage: null });
+      await writeEnvelope(owner, { ...previous, coverage: null }, expectedGeneration, stillOwner);
     } catch {
       // The next read writes the envelope again.
     }

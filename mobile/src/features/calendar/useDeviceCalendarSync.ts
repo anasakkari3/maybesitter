@@ -43,6 +43,9 @@ import {
   rememberWrittenEventId,
   resolveWriterId,
   saveChosenCalendarId,
+  loadPendingUnlinks,
+  notePendingUnlink,
+  settlePendingUnlink,
 } from '../../lib/deviceSettings/calendarDevice';
 import { deviceCalendar } from './deviceCalendar';
 import { accountBoundCalendar } from './accountBoundCalendar';
@@ -129,7 +132,16 @@ export function apiSyncPorts(uid: string, stillCurrent: () => boolean): SyncPort
       check();
       await rememberWrittenEventId(uid, eventId);
     },
-    forgetEvent: (eventId) => forgetWrittenEventId(uid, eventId),
+    forgetEvent: async (eventId) => {
+      check();
+      await forgetWrittenEventId(uid, eventId);
+    },
+    pendingUnlinks: () => loadPendingUnlinks(uid),
+    noteUnlink: async (commitmentId, writerId) => {
+      check();
+      await notePendingUnlink(uid, { commitmentId, writerId });
+    },
+    settleUnlink: (commitmentId) => settlePendingUnlink(uid, commitmentId),
     rollbackUnlinked: bound.rollbackUnlinked,
   };
 }

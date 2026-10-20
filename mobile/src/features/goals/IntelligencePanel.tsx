@@ -194,6 +194,7 @@ function IntelligencePanelForAccount({ onChanged, autoGenerate = false, whenOff 
   // React state lands a render later; two presses in one frame both see
   // `busy === false`. This ref is the guard that is set before either returns.
   const inFlight = React.useRef(false);
+  const backfillAnswering = React.useRef(false);
   const [gmailMonitor, setGmailMonitor] = React.useState<z.infer<typeof intelligenceGmailMonitorSchema> | null>(null);
   const [error, setError] = React.useState<unknown>(null);
   // M5a (R2.3, R4.1): one email scan shared with the Google screen, and
@@ -411,13 +412,17 @@ function IntelligencePanelForAccount({ onChanged, autoGenerate = false, whenOff 
     }
   };
   const answerBackfill = async (yes: boolean) => {
+    // One answer per offer (M5A-R6-004): a double press asks for one scan.
+    if (backfillAnswering.current) return;
     setBackfillOffer(false);
     if (!yes) return;
+    backfillAnswering.current = true;
     try {
       await postEmailScan({ intent: 'new', origin: 'backfill', timezone: deviceTimeZone() }, { asUid: uid });
     } catch (cause) {
       setError(cause);
     } finally {
+      backfillAnswering.current = false;
       void scanOverview.refetch();
     }
   };

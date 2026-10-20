@@ -5,13 +5,17 @@
  */
 import { createHash } from 'node:crypto';
 import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
-import { act, fireEvent, screen, waitFor } from '@testing-library/react-native';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
+import { Text } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as SecureStore from 'expo-secure-store';
 import { deviceCalendar } from '../deviceCalendar';
 import * as Crypto from 'expo-crypto';
 import { ensureRegisteredSource, rejoinPhone, startSelection } from '../m5aCalendar';
-import { deleteThisPhonesBusy } from '../useBusyCalendar';
+import { BusyCalendarHost, deleteThisPhonesBusy, useBusyBlocks } from '../useBusyCalendar';
+import { ensureSourceCredential } from '../../../lib/deviceSettings/sourceCredential';
+import { accountBoundCalendar } from '../accountBoundCalendar';
+import { AccountChangedError } from '../../../api/errors';
 import { BUSY_BLOCKS_KEY, clearCachedBusyBlocksOf } from '../../../lib/deviceSettings/calendarBusy';
 import { applyIncludedCalendarIds } from '../../../lib/deviceSettings/calendarChoice';
 import {
@@ -21,6 +25,7 @@ import {
   prepare,
   showBusyHost,
   showCalendar,
+  Providers,
   teardown,
   waitForRequest,
   type M5aHarness,
@@ -358,3 +363,64 @@ describe('inspection r4 (M5A-R4-001/002/003)', () => {
     expect(await AsyncStorage.getItem(GENERATION)).toBe('1');
   });
 });
+
+describe('inspection r6 and the simulator pass (M5A-R6-001/002/003, SIM-M5A-02)', () => {
+  const GENERATION = `calendar.inclusionGeneration.v1:${UID}`;
+  const BLOCK = { nativeId: 'n-1', startAt: '2030-03-30T07:00:00.000Z', endAt: '2030-03-30T08:00:00.000Z', allDay: false };
+
+  it('R6-001: a pass whose selection changed during its read writes nothing under the new generation', async () => {
+    harness = await prepare();
+    await AsyncStorage.multiSet([[ENROLLED, '2030-03-20T08:00:00.000Z'], [INCLUDED, JSON.stringify(['work'])]]);
+    (deviceCalendar.fetchBusyBlocks as jest.Mock<typeof deviceCalendar.fetchBusyBlocks>).mockImplementation(async () => {
+      // A new selection lands while the native read runs.
+      const now = Number((await AsyncStorage.getItem(GENERATION)) ?? 0);
+      await AsyncStorage.setItem(GENERATION, String(now + 1));
+      return [BLOCK];
+    });
+    await showBusyHost(harness);
+    await settle();
+    expect(deviceCalendar.fetchBusyBlocks).toHaveBeenCalled();
+    expect(await AsyncStorage.getItem(BUSY_BLOCKS_KEY) ?? '').not.toContain('n-1');
+  });
+
+  it('R6-002: an update or delete that finishes after the account changed stops the pass', async () => {
+    let current = true;
+    jest.spyOn(deviceCalendar, 'deleteEvent').mockImplementation(async () => { current = false; });
+    jest.spyOn(deviceCalendar, 'updateEvent').mockImplementation(async () => { current = false; });
+    const bound = accountBoundCalendar(() => current);
+    await expect(bound.calendar.deleteEvent('e-1')).rejects.toBeInstanceOf(AccountChangedError);
+    current = true;
+    await expect(bound.calendar.updateEvent('e-1', {} as never)).rejects.toBeInstanceOf(AccountChangedError);
+  });
+
+  it('R6-003: a rejoin never sends the removed tuple, even when its delete failed and it survived', async () => {
+    harness = await prepare();
+    await AsyncStorage.multiSet([[ENROLLED, '2030-03-20T08:00:00.000Z'], [REMOVED, '2030-03-29T08:00:00.000Z']]);
+    await showBusyHost(harness);
+    await settle();
+    const removed = await act(async () => ensureSourceCredential(UID));
+    await AsyncStorage.setItem(`calendar.removedInstallation.v1:${UID}`, removed!.sourceInstallationId);
+    expect(await act(async () => rejoinPhone(UID))).toBe(true);
+    const sent = harness.server.matching('POST', /\/calendar\/busy\/register$/)
+      .map((request) => (request.body as { sourceInstallationId: string }).sourceInstallationId);
+    expect(sent.length).toBeGreaterThan(0);
+    expect(sent).not.toContain(removed!.sourceInstallationId);
+  });
+
+  it('SIM-M5A-02: the busy blocks a selection reads reach the screens without a restart', async () => {
+    harness = await prepare();
+    await AsyncStorage.multiSet([[ENROLLED, '2030-03-20T08:00:00.000Z'], [INCLUDED, JSON.stringify([])]]);
+    (deviceCalendar.fetchBusyBlocks as jest.Mock<typeof deviceCalendar.fetchBusyBlocks>).mockResolvedValue([BLOCK]);
+    function Probe() {
+      return <Text testID="busy-count">{String(useBusyBlocks().length)}</Text>;
+    }
+    await render(<Providers harness={harness!}><BusyCalendarHost /><Probe /></Providers>);
+    await settle();
+    expect(screen.getByTestId('busy-count')).toHaveTextContent('0');
+    const context = { uid: UID, accountCurrent: () => true, stillCurrent: () => true, consented: () => true };
+    await act(async () => { await startSelection(UID, ['work'], context); });
+    await settle();
+    await waitFor(() => expect(screen.getByTestId('busy-count')).toHaveTextContent('1'));
+  });
+});
+

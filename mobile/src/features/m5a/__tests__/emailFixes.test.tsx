@@ -2,7 +2,7 @@
  * The email-side findings of Codex's Task A inspection (M5A-A-REV-010/011/012).
  */
 import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
-import { screen, waitFor } from '@testing-library/react-native';
+import { act, fireEvent, screen, waitFor } from '@testing-library/react-native';
 import {
   NOW,
   addedItem,
@@ -77,3 +77,36 @@ describe('the backfill offer', () => {
     expect(screen.queryByTestId('backfill-offer')).toBeNull();
   });
 });
+
+describe('one press, one scan (M5A-R6-004)', () => {
+  it('two presses of the confirmed scan in the same frame send one request', async () => {
+    harness = await prepare('en', initialState());
+    await showIntelligence(harness);
+    await waitFor(() => expect(screen.queryByTestId('email-scan-button')).not.toBeNull());
+    await press('email-scan-button');
+    await waitFor(() => expect(screen.queryByTestId('email-scan-confirm-go')).not.toBeNull());
+    const go = screen.getByTestId('email-scan-confirm-go');
+    await act(async () => {
+      await Promise.all([fireEvent.press(go), fireEvent.press(go)]);
+    });
+    await waitForRequest(harness, 'POST', /\/gmail\/scan$/);
+    await act(async () => { await jest.advanceTimersByTimeAsync(200); });
+    expect(harness.server.matching('POST', /\/gmail\/scan$/)).toHaveLength(1);
+  });
+
+  it('two presses of the backfill offer in the same frame send one request', async () => {
+    harness = await prepare('en', initialState());
+    await showIntelligence(harness);
+    await press('intelligence-gmail-monitor');
+    await press('monitor-info-confirm');
+    await waitFor(() => expect(screen.queryByTestId('backfill-yes')).not.toBeNull());
+    const yes = screen.getByTestId('backfill-yes');
+    await act(async () => {
+      await Promise.all([fireEvent.press(yes), fireEvent.press(yes)]);
+    });
+    await waitForRequest(harness, 'POST', /\/gmail\/scan$/);
+    await act(async () => { await jest.advanceTimersByTimeAsync(200); });
+    expect(harness.server.matching('POST', /\/gmail\/scan$/)).toHaveLength(1);
+  });
+});
+

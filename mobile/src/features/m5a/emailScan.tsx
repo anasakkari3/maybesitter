@@ -61,7 +61,12 @@ export function EmailScanEntry({ onStarted }: { onStarted?: () => void }) {
     return () => clearTimeout(timer);
   }, [confirming]);
 
+  // Set before the first await (M5A-R6-004): a second press in the same frame,
+  // before `busy` renders, starts nothing.
+  const starting = useRef(false);
   const start = useCallback(async () => {
+    if (starting.current) return;
+    starting.current = true;
     setBusy(true);
     setError(null);
     try {
@@ -77,6 +82,7 @@ export function EmailScanEntry({ onStarted }: { onStarted?: () => void }) {
     } catch (cause) {
       setError(cause);
     } finally {
+      starting.current = false;
       setBusy(false);
       void client.invalidateQueries({ queryKey: emailScanKey(uid) });
     }

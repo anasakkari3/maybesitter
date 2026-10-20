@@ -17,6 +17,7 @@ export const calendarChoiceKeys = {
   choicePending: (uid: string) => `calendar.choicePending.v1:${uid}`,
   pendingSelection: (uid: string) => `calendar.pendingSelection.v1:${uid}`,
   phoneRemoved: (uid: string) => `calendar.phoneRemoved.v1:${uid}`,
+  removedInstallation: (uid: string) => `calendar.removedInstallation.v1:${uid}`,
   sourceId: (uid: string) => `calendar.sourceId.v1:${uid}`,
   inclusionGeneration: inclusionGenerationKey,
 } as const;
@@ -164,6 +165,28 @@ export async function savePhoneRemoved(uid: string, at: Date): Promise<void> {
 
 export async function clearPhoneRemoved(uid: string): Promise<void> {
   await AsyncStorage.removeItem(calendarChoiceKeys.phoneRemoved(uid));
+}
+
+/**
+ * The installation id of the credential this phone was removed under
+ * (M5A-R6-003), so a rejoin can tell that tuple — if its delete failed and it
+ * survived — from the fresh one it mints. Not a secret.
+ */
+export async function saveRemovedInstallation(uid: string, sourceInstallationId: string): Promise<void> {
+  await AsyncStorage.setItem(calendarChoiceKeys.removedInstallation(uid), sourceInstallationId);
+}
+
+/** Null when absent or unreadable. */
+export async function loadRemovedInstallation(uid: string): Promise<string | null> {
+  try {
+    return await AsyncStorage.getItem(calendarChoiceKeys.removedInstallation(uid));
+  } catch {
+    return null;
+  }
+}
+
+export async function clearRemovedInstallation(uid: string): Promise<void> {
+  await AsyncStorage.removeItem(calendarChoiceKeys.removedInstallation(uid));
 }
 
 /**

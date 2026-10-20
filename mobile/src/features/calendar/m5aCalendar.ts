@@ -53,6 +53,9 @@ import {
 } from '../../api/endpoints/m5a';
 import {
   applyIncludedCalendarIds,
+  clearRemovedInstallation,
+  loadRemovedInstallation,
+  saveRemovedInstallation,
   invalidateDeviceBusyCache,
   bumpInclusionGeneration,
   clearPhoneRemoved,
@@ -80,6 +83,7 @@ import {
 import {
   clearCachedBusyBlocksOf,
   holdsCachedBusyBlocksOf,
+  loadInclusionGeneration,
   saveBusySyncedAt,
   saveCachedBusyBlocks,
   uncoverCachedBusyBlocks,
@@ -106,11 +110,18 @@ export interface M5aCalendarView {
   removed: boolean;
   /** This phone's own source id, so the other-phones list leaves it out. */
   sourceId: string | null;
+  /**
+   * Bumped whenever this account's busy cache on disk changes, so the screens
+   * reading it re-read (SIM-M5A-02: a selection's read lands after the tap's
+   * own re-read, and nothing else asked again).
+   */
+  cacheVersion: number;
 }
 
 const INITIAL: M5aCalendarView = {
   loaded: false, enrolled: false, included: [], pending: null,
   saveFailed: false, clearFailed: false, tooManyPhones: false, removed: false, sourceId: null,
+  cacheVersion: 0,
 };
 
 const views = new Map<string, M5aCalendarView>();
@@ -414,6 +425,10 @@ async function markPhoneRemoved(uid: string, options: { fromRegistration?: boole
   // A registration already under way finishes against the barrier (it reads
   // it again) before the credential goes, so nothing mints after the delete.
   if (!options.fromRegistration) await registrations.get(uid)?.catch(() => undefined);
+  // Which tuple was removed, in case its delete below fails and it survives:
+  // a rejoin never sends it again (M5A-R6-003).
+  const removedTuple = await readSourceCredential(uid).catch(() => null);
+  if (removedTuple) await saveRemovedInstallation(uid, removedTuple.sourceInstallationId).catch(() => undefined);
   await deleteSourceCredential(uid);
   await removeSource(uid);
   await invalidateDeviceBusyCache(uid);
@@ -443,6 +458,12 @@ export function rejoinPhone(uid: string): Promise<boolean> {
 
 async function rejoinOnce(uid: string): Promise<boolean> {
   let credential = await ensureSourceCredential(uid);
+  // A rejoin starts from a tuple of its own (M5A-R6-003): the removed one, if
+  // it survived its delete, is replaced before any request. A retry after a
+  // lost response finds the fresh one and reuses it.
+  if (credential && credential.sourceInstallationId === await loadRemovedInstallation(uid)) {
+    credential = await mintFreshSourceCredential(uid);
+  }
   for (let attempt = 0; attempt < 2; attempt += 1) {
     if (!credential) {
       patch(uid, { saveFailed: true });
@@ -453,6 +474,7 @@ async function rejoinOnce(uid: string): Promise<boolean> {
       const answer = await registerBusySource(credential, { asUid: uid });
       await saveSource(uid, { sourceId: answer.sourceId, sourceInstallationId: credential.sourceInstallationId });
       await clearPhoneRemoved(uid);
+      await clearRemovedInstallation(uid).catch(() => undefined);
       patch(uid, { removed: false, tooManyPhones: false, sourceId: answer.sourceId });
       return true;
     } catch (error) {
@@ -604,6 +626,9 @@ async function readAndUpload(
   const now = new Date();
   const window = windowFrom(now);
   if (!stillCurrent()) return GONE;
+  // The selection this pass reads for, fixed before the read (M5A-R6-001).
+  const generation = await loadInclusionGeneration(uid);
+  if (generation === null || !stillCurrent()) return GONE;
   let blocks: DeviceBusyBlock[];
   try {
     const own = new Set(await loadWrittenEventIds(uid));
@@ -611,7 +636,7 @@ async function readAndUpload(
     blocks = await deviceCalendar.fetchBusyBlocks({ ownEventIds: own, now, includedCalendarIds: new Set(included) });
   } catch {
     if (!stillCurrent()) return GONE;
-    await uncoverCachedBusyBlocks(uid, stillCurrent);
+    await uncoverCachedBusyBlocks(uid, stillCurrent, generation);
     return { kind: 'denied' };
   }
   if (!stillCurrent()) return GONE;
@@ -622,7 +647,8 @@ async function readAndUpload(
     fitted = null;
   }
   await saveCachedBusyBlocks(uid, fitted ? fitted.capped : blocks.slice(0, BUSY_SYNC_UPLOAD_LIMIT),
-    fitted ? { startAt: window.startAt, endAt: fitted.windowEnd } : null, stillCurrent);
+    fitted ? { startAt: window.startAt, endAt: fitted.windowEnd } : null, stillCurrent, generation);
+  patch(uid, { cacheVersion: viewOf(uid).cacheVersion + 1 });
   // Nothing chosen: nothing is uploaded until something is (D8).
   if (included.length === 0) return { kind: 'synced', blocks: 0, windowEnd: window.endAt };
 
