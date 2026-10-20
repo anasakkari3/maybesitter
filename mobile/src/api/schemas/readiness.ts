@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { planEffectSchema } from './m5b';
 import { isoDateTime } from './common';
 
 const readinessBandSchema = z.enum(['unknown', 'low', 'steady', 'high']);
@@ -35,6 +36,8 @@ export const readinessResponseSchema = z.object({
   // `missing` is an account with no check-in and no readiness signal yet
   // (lib/integrations/readiness/subjectiveEnergy.ts). A state, not an error.
   freshness: z.enum(['fresh', 'stale', 'missing']),
+  /** M5b-1 (R4.1): what a plan built now would add, from fresh readings only. */
+  planEffect: planEffectSchema.optional(),
 });
 
 export const readinessSavedSchema = z.object({
