@@ -55,7 +55,7 @@ export function resetWeeklySyncForTests(): void {
  * pass created but never saved a link for can be taken back out.
  */
 function portsFor(uid: string, stillCurrent: () => boolean): WeeklySyncPorts & { rollbackUnlinked(): Promise<void> } {
-  const bound = accountBoundCalendar(stillCurrent);
+  const bound = accountBoundCalendar(stillCurrent, uid);
   return {
     calendar: bound.calendar,
     loadLinks: () => loadWeeklyEventLinks(uid),
@@ -69,6 +69,7 @@ function portsFor(uid: string, stillCurrent: () => boolean): WeeklySyncPorts & {
       return saved;
     },
     rollbackUnlinked: bound.rollbackUnlinked,
+    recoverUnlinked: bound.recoverUnlinked,
     // Local writes of this account's ids, refused once the account changed (M5A-R6-002).
     rememberEvent: async (eventId) => {
       if (!stillCurrent()) throw new AccountChangedError('the account changed during the calendar pass');

@@ -111,7 +111,7 @@ export function useCalendarSettings() {
  * nothing of A's lands in the calendar or on the account under B.
  */
 export function apiSyncPorts(uid: string, stillCurrent: () => boolean): SyncPorts & { rollbackUnlinked(): Promise<void> } {
-  const bound = accountBoundCalendar(stillCurrent);
+  const bound = accountBoundCalendar(stillCurrent, uid);
   const check = () => {
     if (!stillCurrent()) throw new AccountChangedError('the account changed during the calendar pass');
   };
@@ -144,6 +144,7 @@ export function apiSyncPorts(uid: string, stillCurrent: () => boolean): SyncPort
     },
     settleUnlink: (commitmentId) => settlePendingUnlink(uid, commitmentId),
     rollbackUnlinked: bound.rollbackUnlinked,
+    recoverUnlinked: bound.recoverUnlinked,
   };
 }
 

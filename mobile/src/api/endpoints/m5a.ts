@@ -116,7 +116,7 @@ export function postCalendarBusyM5(
 /** A clear that continues its intent's `clear` operation. Clearing is not removing: no `revoke`. */
 export function clearCalendarBusyM5(sourceId: string, continuation: BusyContinuation, secret: string, options: Bound = {}) {
   return apiRequest('DELETE', '/api/mobile/calendar/busy', {
-    query: { sourceId, opId: continuation.opId, epoch: continuation.epoch },
+    query: { sourceId, opId: continuation.opId, epoch: continuation.epoch, selectionEpoch: continuation.epoch },
     schema: calendarBusyDeletedSchema,
     ...secretHeader(secret),
     ...bound(options),

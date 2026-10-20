@@ -292,6 +292,8 @@ export interface SyncPorts {
   pendingUnlinks?(): Promise<readonly { commitmentId: string; writerId: string }[]>;
   noteUnlink?(commitmentId: string, writerId: string): Promise<void>;
   settleUnlink?(commitmentId: string): Promise<void>;
+  /** Retries leftovers an earlier pass created and could not take back (M5A-R8-002). */
+  recoverUnlinked?(linkedEventIds: ReadonlySet<string>): Promise<void>;
 }
 
 /** A delete interrupted between the event and its link is finished here. */
@@ -343,6 +345,7 @@ export async function reconcile(input: ReconcileInput): Promise<SyncOutcome> {
   // them, and must not be planned again (a missing event would read as one
   // the person deleted, and be detached — a link written back).
   const unlinked = await finishPendingUnlinks(ports);
+  await ports.recoverUnlinked?.(new Set(input.subjects.flatMap((subject) => subject.link ? [subject.link.eventId] : [])));
 
   // Decided first, with no I/O, so the common case — nothing to do — touches
   // neither the OS nor the network.

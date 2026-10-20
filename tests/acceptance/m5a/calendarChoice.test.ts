@@ -119,6 +119,23 @@ test('Wire / SIM-M5A-01: the app\'s upload body (opId + epoch + selectionEpoch) 
   assert.ok(await deviceRows(uid) > 0);
 });
 
+test('Wire / M5A-R8-004: a clear carrying selectionEpoch is accepted; a disagreeing one is refused', async () => {
+  const uid = await begin();
+  await grantCalendarConsent(uid);
+  await enrol(uid);
+  const phone = await register(uid);
+  const op = await intent(uid, phone.sourceId, phone.sourceSecret, 'clear');
+  assert.equal(op.status, 200, show(op.body));
+  const clear = (selectionEpoch: number) => callWith(uid, 'calendar/busy', 'DELETE', {
+    query: { sourceId: phone.sourceId, opId: op.body.opId, epoch: String(op.body.epoch), selectionEpoch: String(selectionEpoch) },
+    headers: { ...CHOICE_HEADER, 'X-MaybeSitter-Source-Secret': phone.sourceSecret },
+  });
+  const wrong = await clear(op.body.epoch + 1);
+  assert.equal(wrong.status, 400, show(wrong.body));
+  const right = await clear(op.body.epoch);
+  assert.equal(right.status, 200, show(right.body));
+});
+
 test('R1.1b: an enrolled account refuses a device upload without choiceVersion (an older build) and stores nothing', async () => {
   const uid = await begin();
   await grantCalendarConsent(uid);

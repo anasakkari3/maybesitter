@@ -348,6 +348,12 @@ export async function DELETE(request: Request) {
     if (choice && sourceId.startsWith('device:')) {
       const epoch = Number(url.searchParams.get('epoch'));
       const opId = url.searchParams.get('opId') ?? '';
+      // As on uploads (SIM-M5A-01, M5A-R8-004): a clear carries `selectionEpoch`,
+      // the same number as `epoch`; two that disagree are malformed.
+      const selectionEpoch = url.searchParams.get('selectionEpoch');
+      if (selectionEpoch !== null && Number(selectionEpoch) !== epoch) {
+        return mobileError('selectionEpoch must equal epoch', 400);
+      }
       await finishDeviceClear(user.uid, sourceId, request.headers.get(SOURCE_SECRET_HEADER) ?? '', opId, epoch);
       return Response.json({ success: true, deleted: 0 });
     }

@@ -171,6 +171,38 @@ export async function forgetWrittenEventId(uid: string, eventId: string): Promis
   }
 }
 
+const unlinkedCreatedKey = (uid: string) => `calendar.unlinkedCreated.v1:${uid}`;
+
+/**
+ * Events a pass of this account created and has not yet linked or removed
+ * (M5A-R8-002). Recorded before creation counts as done, removed only after a
+ * link is stored or a delete succeeded, so an event left behind by a failed
+ * rollback is retried on the account's next pass. Throws when unreadable.
+ */
+export async function loadUnlinkedCreated(uid: string): Promise<string[]> {
+  const raw = await AsyncStorage.getItem(unlinkedCreatedKey(uid));
+  if (raw === null) return [];
+  const parsed: unknown = JSON.parse(raw);
+  if (!Array.isArray(parsed)) throw new Error('unlinked events unreadable');
+  return parsed.filter((id): id is string => typeof id === 'string');
+}
+
+/** Throws when it cannot be written: the caller then takes the event back out. */
+export async function noteUnlinkedCreated(uid: string, eventId: string): Promise<void> {
+  const current = await loadUnlinkedCreated(uid);
+  if (current.includes(eventId)) return;
+  await AsyncStorage.setItem(unlinkedCreatedKey(uid), JSON.stringify([...current, eventId]));
+}
+
+export async function settleUnlinkedCreated(uid: string, eventId: string): Promise<void> {
+  try {
+    const current = await loadUnlinkedCreated(uid);
+    await AsyncStorage.setItem(unlinkedCreatedKey(uid), JSON.stringify(current.filter((id) => id !== eventId)));
+  } catch {
+    // Left behind: the next recovery skips it while its link exists.
+  }
+}
+
 const pendingUnlinksKey = (uid: string) => `calendar.pendingUnlinks.v1:${uid}`;
 
 export interface PendingUnlink { commitmentId: string; writerId: string }

@@ -29,6 +29,8 @@ export interface WeeklySyncPorts {
   /** `calendar.writtenEventIds.v1`, so the busy read skips this app's own events. */
   rememberEvent(eventId: string): Promise<void>;
   forgetEvent(eventId: string): Promise<void>;
+  /** Retries leftovers an earlier pass created and could not take back (M5A-R8-002). */
+  recoverUnlinked?(linkedEventIds: ReadonlySet<string>): Promise<void>;
 }
 
 export interface WeeklySyncOutcome {
@@ -61,6 +63,7 @@ export async function reconcileWeeklyEvents(input: ReconcileWeeklyInput): Promis
   const { ports } = input;
   const stored = await ports.loadLinks();
   if (stored === null) return { ...outcome, storageFailed: true };
+  await ports.recoverUnlinked?.(new Set(stored.flatMap((link) => link.eventIds)));
 
   const plans = planWeeklyEvents({ ...input, links: stored });
   if (plans.length === 0) return outcome;

@@ -473,5 +473,42 @@ describe('inspection r6 and the simulator pass (M5A-R6-001/002/003, SIM-M5A-02)'
     expect(sent.length).toBeGreaterThan(0);
     expect(sent).not.toContain(old!.sourceInstallationId);
   });
+
+  it('R8-002: an event whose rollback delete failed stays recorded and is removed on the account\'s next pass', async () => {
+    let current = true;
+    jest.spyOn(deviceCalendar, 'createEvent').mockResolvedValue('e-left');
+    const remove = jest.spyOn(deviceCalendar, 'deleteEvent').mockRejectedValueOnce(new Error('busy')).mockResolvedValue(undefined);
+    const first = accountBoundCalendar(() => current, UID);
+    await first.calendar.createEvent('cal', {} as never);
+    current = false;
+    await first.rollbackUnlinked();
+    expect(JSON.parse((await AsyncStorage.getItem(`calendar.unlinkedCreated.v1:${UID}`)) ?? '[]')).toEqual(['e-left']);
+    current = true;
+    const next = accountBoundCalendar(() => current, UID);
+    await next.recoverUnlinked(new Set());
+    expect(remove).toHaveBeenLastCalledWith('e-left');
+    expect(JSON.parse((await AsyncStorage.getItem(`calendar.unlinkedCreated.v1:${UID}`)) ?? '[]')).toEqual([]);
+  });
+
+  it('R8-002: recovery never deletes an event a stored link names', async () => {
+    await AsyncStorage.setItem(`calendar.unlinkedCreated.v1:${UID}`, JSON.stringify(['e-linked']));
+    const remove = jest.spyOn(deviceCalendar, 'deleteEvent').mockResolvedValue(undefined);
+    await accountBoundCalendar(() => true, UID).recoverUnlinked(new Set(['e-linked']));
+    expect(remove).not.toHaveBeenCalled();
+  });
+
+  it('R8-003: a rejoin whose marker cannot be stored sends nothing', async () => {
+    harness = await prepare();
+    await AsyncStorage.multiSet([[ENROLLED, '2030-03-20T08:00:00.000Z'], [REMOVED, '2030-03-29T08:00:00.000Z']]);
+    await showBusyHost(harness);
+    await settle();
+    const original = (AsyncStorage.setItem as jest.Mock).getMockImplementation() as (key: string, value: string) => Promise<void>;
+    jest.spyOn(AsyncStorage, 'setItem').mockImplementation((key, value) => {
+      if (key === `calendar.rejoinInstallation.v1:${UID}`) return Promise.reject(new Error('disk full'));
+      return original(key, value);
+    });
+    expect(await act(async () => rejoinPhone(UID))).toBe(false);
+    expect(harness.server.matching('POST', /\/calendar\/busy\/register$/)).toHaveLength(0);
+  });
 });
 

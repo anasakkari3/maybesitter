@@ -466,9 +466,23 @@ async function rejoinOnce(uid: string): Promise<boolean> {
   // before it could record which tuple that was.
   let credential = await readSourceCredential(uid).catch(() => null);
   const prepared = await loadRejoinInstallation(uid);
-  if (!credential || prepared === null || credential.sourceInstallationId !== prepared) {
+  // The marker must be stored before any request (M5A-R8-003): without it a
+  // lost response would leave a retry unable to recognise its own tuple.
+  const markFresh = async (): Promise<boolean> => {
     credential = await mintFreshSourceCredential(uid);
-    if (credential) await saveRejoinInstallation(uid, credential.sourceInstallationId).catch(() => undefined);
+    if (!credential) return false;
+    try {
+      await saveRejoinInstallation(uid, credential.sourceInstallationId);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+  if (!credential || prepared === null || credential.sourceInstallationId !== prepared) {
+    if (!await markFresh()) {
+      patch(uid, { saveFailed: true });
+      return false;
+    }
   }
   for (let attempt = 0; attempt < 2; attempt += 1) {
     if (!credential) {
@@ -486,8 +500,12 @@ async function rejoinOnce(uid: string): Promise<boolean> {
       return true;
     } catch (error) {
       if (error instanceof M5aRefusedError && error.code === 'source_revoked' && attempt === 0) {
-        // The tuple that was removed survived its delete: replace it once.
-        credential = await mintFreshSourceCredential(uid);
+        // The tuple that was removed survived its delete: replace it once,
+        // marked before the retry is sent (M5A-R8-003).
+        if (!await markFresh()) {
+          patch(uid, { saveFailed: true });
+          return false;
+        }
         continue;
       }
       if (error instanceof M5aRefusedError && error.code === 'too_many_phones') patch(uid, { tooManyPhones: true });

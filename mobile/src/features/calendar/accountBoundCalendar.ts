@@ -1,5 +1,6 @@
 import { AccountChangedError } from '../../api/errors';
 import { deviceCalendar, type DeviceCalendar } from './deviceCalendar';
+import { loadUnlinkedCreated, noteUnlinkedCreated, settleUnlinkedCreated } from '../../lib/deviceSettings/calendarDevice';
 
 /**
  * The phone's calendar, bound to the account a write pass began for
@@ -17,10 +18,25 @@ export interface AccountBoundCalendar {
   linked(eventId: string): void;
   /** Removes events this pass created and never linked. Called when the account changed. */
   rollbackUnlinked(): Promise<void>;
+  /**
+   * Retries the removal of events an earlier pass of this account created and
+   * could not take back (M5A-R8-002), except those a stored link names.
+   */
+  recoverUnlinked(linkedEventIds: ReadonlySet<string>): Promise<void>;
 }
 
-export function accountBoundCalendar(stillCurrent: () => boolean): AccountBoundCalendar {
+export function accountBoundCalendar(stillCurrent: () => boolean, owner?: string): AccountBoundCalendar {
   const created = new Set<string>();
+  // A failed delete keeps the event recorded and in the set (M5A-R8-002).
+  const takeBack = async (eventId: string): Promise<void> => {
+    try {
+      await deviceCalendar.deleteEvent(eventId);
+    } catch {
+      return;
+    }
+    created.delete(eventId);
+    if (owner) await settleUnlinkedCreated(owner, eventId);
+  };
   const check = () => {
     if (!stillCurrent()) throw new AccountChangedError('the account changed during the calendar pass');
   };
@@ -30,9 +46,17 @@ export function accountBoundCalendar(stillCurrent: () => boolean): AccountBoundC
       check();
       const eventId = await deviceCalendar.createEvent(...args);
       created.add(eventId);
+      if (owner) {
+        try {
+          await noteUnlinkedCreated(owner, eventId);
+        } catch (error) {
+          // Unrecorded, it could not be retried later: taken back out now.
+          await deviceCalendar.deleteEvent(eventId).then(() => { created.delete(eventId); }, () => undefined);
+          throw error;
+        }
+      }
       if (!stillCurrent()) {
-        await deviceCalendar.deleteEvent(eventId).catch(() => undefined);
-        created.delete(eventId);
+        await takeBack(eventId);
         throw new AccountChangedError('the account changed during the calendar pass');
       }
       return eventId;
@@ -52,11 +76,34 @@ export function accountBoundCalendar(stillCurrent: () => boolean): AccountBoundC
   };
   return {
     calendar,
-    linked: (eventId) => { created.delete(eventId); },
+    linked: (eventId) => {
+      created.delete(eventId);
+      if (owner) void settleUnlinkedCreated(owner, eventId);
+    },
     rollbackUnlinked: async () => {
-      for (const eventId of [...created]) {
-        await deviceCalendar.deleteEvent(eventId).catch(() => undefined);
-        created.delete(eventId);
+      for (const eventId of [...created]) await takeBack(eventId);
+    },
+    recoverUnlinked: async (linkedEventIds) => {
+      if (!owner || !stillCurrent()) return;
+      let recorded: string[];
+      try {
+        recorded = await loadUnlinkedCreated(owner);
+      } catch {
+        return;
+      }
+      for (const eventId of recorded) {
+        if (!stillCurrent()) return;
+        if (created.has(eventId)) continue;
+        if (linkedEventIds.has(eventId)) {
+          await settleUnlinkedCreated(owner, eventId);
+          continue;
+        }
+        try {
+          await deviceCalendar.deleteEvent(eventId);
+        } catch {
+          continue;
+        }
+        await settleUnlinkedCreated(owner, eventId);
       }
     },
   };
