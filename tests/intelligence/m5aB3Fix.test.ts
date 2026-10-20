@@ -328,11 +328,11 @@ test('G5 the matching live generation takes its wait straight back to a fenced c
   assert.equal((await storage.get<M5aMarker>(`${userCol(uid, INTELLIGENCE_SOURCE_MARKERS)}/${providerId}`))?.state, 'done');
 });
 
-test('G6 paused intervals are removed from the Gmail listing query before messages.get', () => {
+test('G6 paused intervals end exactly while the sweep end keeps its one-second Gmail overlap', () => {
   const query = gmailQueryOutsideIntervals('2026-10-19T00:00:00.000Z', '2026-10-19T12:00:00.000Z', [
     { from: '2026-10-19T03:00:00.000Z', to: '2026-10-19T05:00:00.000Z' },
   ]);
-  assert.equal(query, '(after:1792368000 before:1792378801) OR (after:1792386000 before:1792411201)');
+  assert.equal(query, '(after:1792368000 before:1792378800) OR (after:1792386000 before:1792411201)');
 });
 
 test('G6 resume clears the live cursor, so paused mail is baselined without messages.get', async () => {
@@ -599,6 +599,52 @@ test('H2 a killed enrolled monitor uses guarded legacy analysis and a mid-model 
   assert.equal((await paused.storage.list(`users/${paused.uid}/intelligenceObservations`)).length, 0);
   assert.equal((await paused.storage.get<any>(`users/${paused.uid}/intelligenceMonitors/gmail`))?.cursor, '100');
   assert.notEqual((await paused.storage.get<M5aMarker>(`${userCol(paused.uid, INTELLIGENCE_SOURCE_MARKERS)}/${legacyMarkerIdFor('legacy-mail')}`))?.state, 'done');
+});
+
+test('R3 a killed enrolled monitor skips excluded history without sticking its cursor', async () => {
+  const uid = 'rollback-excluded';
+  const storage = createMemoryStorage({ enforceFirestoreReadOrder: true });
+  await storage.set(`users/${uid}`, { monitoringSettings: { paused: false, updatedAt: NOW } });
+  await storage.set('system/m5aControls', { email: { epoch: 12, enabled: false }, calendar: { epoch: 1, enabled: true } });
+  await storage.set(userSubDoc(uid, PROVIDER_CONNECTIONS, connectionIdFor('google')), {
+    identity: { provider: 'google', providerAccountId: 'acct' }, state: 'connected', credentialRef: 'vault',
+    capabilities: ['mail_read'], grantedScopes: [GOOGLE_FEATURE_SCOPES.gmail],
+  });
+  await storage.set(`users/${uid}/intelligenceMonitors/gmail`, {
+    enabled: true, generation: 'g1', cursor: '100', pageToken: null, nextPollAt: NOW,
+    lease: null, leaseUntil: null, lastSuccessAt: null, error: null,
+    m5: { v: 1, providerAccountId: 'acct', enabledAt: '2026-10-19T09:00:00.000Z', timezone: 'UTC', at: NOW,
+      pauseEpoch: 0, pausedSince: null,
+      excluded: [{ from: '2026-10-19T09:10:00.000Z', to: '2026-10-19T09:30:00.000Z' }] },
+  });
+  const excluded = { id: 'excluded-mail', threadId: null, historyId: '101', receivedAt: '2026-10-19T09:15:00.000Z',
+    from: null, subject: null, text: 'Do not inspect this message', sentByAccount: false,
+    isReply: false, bodyFormat: 'text/plain' as const };
+  const eligible = { ...excluded, id: 'eligible-mail', historyId: '102', receivedAt: '2026-10-19T09:45:00.000Z',
+    text: 'Please send the form' };
+  let modelCalls = 0;
+  const runtime: GoogleRuntime = {
+    storage,
+    env: { MAYBESITTER_ENV: 'staging', MAYBESITTER_FEATURE_PROACTIVE_LOOP: 'true',
+      MAYBESITTER_FEATURE_EMAIL_SOURCES: 'true' } as GoogleRuntime['env'],
+    secrets: null, fetchImpl: fetch, now: () => new Date(NOW),
+    shareModel: async () => {
+      modelCalls++;
+      return { text: JSON.stringify({ observations: [
+        { kind: 'request', evidence: eligible.text, confidence: 0.9 },
+      ] }), model: 'fake', latencyMs: 1, promptTokens: 1, outputTokens: 1 };
+    },
+  };
+
+  const result = await runGmailMonitorTick(runtime, { uid, ensureReadable: async () => undefined, transport: () => ({
+    listHistory: async () => ({ historyId: '102', nextPageToken: null, messages: [excluded, eligible] }),
+  }) });
+
+  assert.deepEqual(result, { enabled: true, accountsChecked: 1, messagesAnalyzed: 1, failures: 0 });
+  assert.equal(modelCalls, 1);
+  assert.equal((await storage.get<any>(`users/${uid}/intelligenceMonitors/gmail`))?.cursor, '102');
+  assert.equal(await storage.get(`${userCol(uid, INTELLIGENCE_SOURCE_MARKERS)}/${legacyMarkerIdFor(excluded.id)}`), null);
+  assert.equal((await storage.get<M5aMarker>(`${userCol(uid, INTELLIGENCE_SOURCE_MARKERS)}/${legacyMarkerIdFor(eligible.id)}`))?.state, 'done');
 });
 
 test('L1 a live quota wait moves the monitor poll and is not reclaimed before nextEligibleAt', async () => {

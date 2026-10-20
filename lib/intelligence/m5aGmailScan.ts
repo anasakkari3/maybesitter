@@ -286,8 +286,12 @@ export function gmailQueryOutsideIntervals(
   }
   if (cursor < end) windows.push({ from: cursor, until: end });
   if (windows.length === 0) return 'after:2147483647 before:2147483648';
-  const clauses = windows.map(window =>
-    `after:${Math.ceil(window.from / 1000)} before:${Math.ceil(window.until / 1000) + 1}`);
+  const clauses = windows.map(window => {
+    const before = window.until === end
+      ? Math.ceil(window.until / 1000) + 1
+      : Math.floor(window.until / 1000);
+    return `after:${Math.ceil(window.from / 1000)} before:${before}`;
+  });
   return clauses.length === 1 ? clauses[0]! : clauses.map(clause => `(${clause})`).join(' OR ');
 }
 

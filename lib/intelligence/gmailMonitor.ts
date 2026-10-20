@@ -397,8 +397,7 @@ export async function runGmailMonitorTick(
       for (const message of page.messages) {
         if (processed >= 4) { remaining = true; break; }
         if (acquired.m5) {
-          const current = await assertEnrolledMonitorAuthority(uid, acquired, claim, runtime);
-          if (excludedFromMonitor(current, message.receivedAt)) { processed++; continue; }
+          await assertEnrolledMonitorAuthority(uid, acquired, claim, runtime);
         }
         const existingMarker = await runtime.storage.get<Record<string, unknown>>(markerPath(uid, message.id));
         const useArbitration = arbitrate || existingMarker?.v === 2;

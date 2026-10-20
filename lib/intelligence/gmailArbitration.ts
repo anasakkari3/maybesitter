@@ -74,21 +74,24 @@ async function assertMonitorGuard(
   guard: GmailArbitrationMonitorGuard,
   storage: StorageAdapter,
   tx?: StorageTransaction,
-): Promise<void> {
+  checkMessageWindow = false,
+): Promise<boolean> {
   const reader = tx ?? storage;
   const [monitor, paused] = await Promise.all([
     reader.get<GuardedMonitor>(guard.path),
     isMonitoringPaused(uid, storage, tx),
   ]);
   if (!monitor?.enabled || monitor.generation !== guard.generation || paused) throw new Error('monitor_disabled');
-  if (guard.pauseEpoch === undefined) return;
+  if (guard.pauseEpoch === undefined) return true;
   const received = Date.parse(guard.receivedAt ?? '');
   if (!monitor.m5 || monitor.m5.pauseEpoch !== guard.pauseEpoch || monitor.m5.pausedSince
-    || monitor.lease?.owner !== guard.leaseOwner
-    || !Number.isFinite(received) || received < Date.parse(monitor.m5.enabledAt)
-    || monitor.m5.excluded.some(interval => received >= Date.parse(interval.from) && received < Date.parse(interval.to))) {
+    || monitor.lease?.owner !== guard.leaseOwner) {
     throw new Error('monitor_disabled');
   }
+  if (!checkMessageWindow) return true;
+  if (!Number.isFinite(received)) throw new Error('monitor_disabled');
+  return received >= Date.parse(monitor.m5.enabledAt)
+    && !monitor.m5.excluded.some(interval => received >= Date.parse(interval.from) && received < Date.parse(interval.to));
 }
 
 /**
@@ -108,10 +111,11 @@ export async function analyzeArbitratedGmailMessage(
   const path = markerPath(uid, legacyId);
   const owner = randomUUID();
   const claimed = await storage.runTransaction(async tx => {
-    const [marker] = await Promise.all([
+    const [marker, messageAllowed] = await Promise.all([
       tx.get<M5aMarker | Record<string, unknown>>(path),
-      monitorGuard ? assertMonitorGuard(uid, monitorGuard, storage, tx) : Promise.resolve(),
+      monitorGuard ? assertMonitorGuard(uid, monitorGuard, storage, tx, true) : Promise.resolve(true),
     ]);
+    if (!messageAllowed) return { kind: 'skipped' as const };
     const decision = markerDecision(marker, 'base', runtime.now().toISOString(), providerAccountId);
     if (decision === 'skip') return { kind: 'skipped' as const };
     if (decision === 'block') return { kind: 'blocked' as const };
