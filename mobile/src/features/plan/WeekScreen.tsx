@@ -114,7 +114,7 @@ function WeekBody({ week, decisions, redrawing, onMove, onDrop, onUndrop }: {
   const saveDay = (day: WeekDay) => {
     if (save.isPending || redrawing) return;
     const shown = [...day.items.map(item => item.itemId), ...day.unplaced.map(item => item.itemId)];
-    save.mutate({ date: day.date, shown }, {
+    save.mutate({ date: day.date, shown, layoutDigest: day.layoutDigest }, {
       onSuccess: () => {
         setSavedDate(day.date);
         AccessibilityInfo.announceForAccessibility(t.weekSavedToast);

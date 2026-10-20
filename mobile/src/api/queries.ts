@@ -1086,6 +1086,8 @@ export function adoptWeekConflict(client: QueryClient, uid: string, decisions: W
 export interface WeekDaySave {
   date: string;
   shown: readonly string[];
+  /** The drawn card's digest when the server sent one (M5B1-014); echoed, never computed here. */
+  layoutDigest?: string | undefined;
 }
 
 /**
@@ -1101,7 +1103,7 @@ export function useAcceptWeekDay(decisions: WeekDecisions) {
   const client = useQueryClient();
   const uid = useUid();
   return useMutation({
-    mutationFn: ({ date, shown }: WeekDaySave) => acceptWeekDay(date, shown, decisions),
+    mutationFn: ({ date, shown, layoutDigest }: WeekDaySave) => acceptWeekDay(date, shown, decisions, layoutDigest),
     onSuccess: ({ plan, week }) => {
       adoptPlan(client, uid, plan.date, plan);
       client.setQueryData(queryKeys.week(uid, weekDecisionsKey(decisions)), week);

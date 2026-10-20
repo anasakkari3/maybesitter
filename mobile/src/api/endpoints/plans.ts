@@ -250,10 +250,13 @@ export async function acceptWeekDay(
   date: string,
   shown: readonly string[],
   decisions: WeekDecisions,
+  layoutDigest?: string,
 ): Promise<{ plan: DailyPlan; week: Week }> {
   if (!PLAN_DATE.test(date)) throw new ValidationError('a plan date must be YYYY-MM-DD');
   const response = await apiRequest('POST', '/api/mobile/plans/week/accept', {
-    body: { date, shown, moves: decisions.moves, drops: decisions.drops },
+    // The digest binds the accept to the exact card drawn (M5B1-014); a server
+    // without M5b sends none, and then none is sent back.
+    body: { date, shown, moves: decisions.moves, drops: decisions.drops, ...(layoutDigest ? { layoutDigest } : {}) },
     schema: weekAcceptResponseSchema,
   });
   return { plan: { ...response.plan, proposal: null }, week: response.week };
