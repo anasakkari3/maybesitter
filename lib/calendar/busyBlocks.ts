@@ -162,6 +162,24 @@ export interface BusySourceReplacementFence {
   readonly operation?: 'upload' | 'clear' | 'retire';
   readonly selectionDigest?: string;
   readonly leaseUntil?: string;
+  readonly jitTarget?: import('../integrations/google/googleCalendarBusy').GoogleBusyTarget;
+  /** Account-wide backoff after repeated JIT fetch failures. */
+  readonly jitSuppression?: {
+    readonly providerAccountId: string;
+    readonly fenceGeneration: number;
+    readonly failureStartedAt: string;
+    readonly until?: string;
+  };
+}
+
+/** Durable cursor for a replacement that is deliberately spread over ticks. */
+export interface ResumableBusyReplacement {
+  readonly owner: string;
+  readonly version: number;
+  readonly generation: number;
+  readonly phase: 'add' | 'remove';
+  readonly addCursor: number;
+  readonly syncId: string;
 }
 
 interface CalendarChoiceSnapshot {
@@ -713,7 +731,7 @@ interface BlockTransition {
  * and its change row) and Firestore allows 500 per commit.
  */
 const TRANSITIONS_PER_COMMIT = 200;
-const REPLACEMENT_LEASE_MS = 120_000;
+export const REPLACEMENT_LEASE_MS = 120_000;
 let replacementTestHook: ((context: { readonly uid: string; readonly sourceId: string }) => Promise<void>) | null = null;
 
 /** Test-only pause after replacement-fence acquisition and before snapshot reads. */
@@ -737,8 +755,9 @@ async function acquireReplacementFence(
   now: Date,
   callerGuard: ((tx: StorageTransaction) => Promise<void>) | undefined,
   initialDeviceChoice: CalendarChoiceSnapshot | null,
+  force = false,
 ): Promise<{ readonly owner: string; readonly version: number; readonly generation: number } | null> {
-  if (!(await replacementIsRequired(uid, storage))) return null;
+  if (!force && !(await replacementIsRequired(uid, storage))) return null;
   const owner = randomUUID();
   return storage.runTransaction(async (tx) => {
     const [prior, source, currentChoice] = await Promise.all([
@@ -867,6 +886,109 @@ async function commitTransitions(
     });
   }
   return announced;
+}
+
+/**
+ * Acquires the ordinary busy-source replacement lease for a saved target.
+ * The returned cursor is stored with that target by the caller; every later
+ * chunk is fenced by the same owner/version/generation tuple.
+ */
+export async function startResumableBusyReplacement(
+  uid: string,
+  sourceId: string,
+  deps: BusyBlockDeps & { now?: Date } = {},
+): Promise<ResumableBusyReplacement> {
+  const storage = storageOf(deps);
+  const now = deps.now ?? new Date();
+  const kind = sourceKindOf(sourceId);
+  const initialDeviceChoice = kind === 'device'
+    ? validChoice(await storage.get<CalendarChoiceSnapshot>(calendarChoicePath(uid))) : null;
+  const replacement = await acquireReplacementFence(
+    storage, uid, sourceId, kind, now, deps.transactionGuard, initialDeviceChoice, true,
+  );
+  if (!replacement) throw new BusyUploadError('busy_source_fence_required');
+  return { ...replacement, phase: 'add', addCursor: 0, syncId: randomUUID() };
+}
+
+export interface ResumableBusyReplacementResult {
+  readonly state: ResumableBusyReplacement;
+  readonly complete: boolean;
+  readonly transitions: number;
+}
+
+/**
+ * Applies at most one 200-transition chunk. Additions always finish before any
+ * removal, so an interrupted replacement remains conservatively over-busy.
+ */
+export async function applyResumableBusyReplacementChunk(
+  uid: string,
+  sourceId: string,
+  blocks: readonly BusyBlock[],
+  state: ResumableBusyReplacement,
+  deps: BusyBlockDeps = {},
+): Promise<ResumableBusyReplacementResult> {
+  const storage = storageOf(deps);
+  const kind = sourceKindOf(sourceId);
+  const initialDeviceChoice = kind === 'device'
+    ? validChoice(await storage.get<CalendarChoiceSnapshot>(calendarChoicePath(uid))) : null;
+  const replacement = { owner: state.owner, version: state.version, generation: state.generation };
+  const guard = (tx: StorageTransaction) =>
+    guardReplacement(tx, uid, sourceId, kind, replacement, deps.transactionGuard, initialDeviceChoice);
+  const normalized = blocks.map(block => ({
+    blockId: block.blockId, sourceId, sourceKind: kind,
+    startAt: block.startAt, endAt: block.endAt, allDay: block.allDay,
+  } satisfies BusyBlock));
+  let current = state;
+  if (current.phase === 'add' && current.addCursor < normalized.length) {
+    const chunk = normalized.slice(current.addCursor, current.addCursor + TRANSITIONS_PER_COMMIT)
+      .map(next => ({ blockId: next.blockId, next }));
+    await commitTransitions(storage, uid, sourceId, chunk,
+      { syncId: current.syncId, occurredAt: new Date().toISOString() }, guard);
+    const addCursor = current.addCursor + chunk.length;
+    current = { ...current, addCursor,
+      phase: addCursor >= normalized.length ? 'remove' : 'add' };
+    if (current.phase === 'remove') {
+      const wanted = new Set(normalized.map(block => block.blockId));
+      const hasStale = (await allBlocks(uid, deps)).some(block => block.sourceId === sourceId && !wanted.has(block.blockId));
+      if (!hasStale) return { state: current, complete: true, transitions: chunk.length };
+    }
+    return { state: current, complete: false, transitions: chunk.length };
+  }
+  if (current.phase === 'add') current = { ...current, phase: 'remove' };
+  const wanted = new Set(normalized.map(block => block.blockId));
+  const stale = (await allBlocks(uid, deps)).filter(block => block.sourceId === sourceId && !wanted.has(block.blockId));
+  const chunk = stale.slice(0, TRANSITIONS_PER_COMMIT).map(block => ({ blockId: block.blockId, next: null }));
+  if (chunk.length > 0) {
+    await commitTransitions(storage, uid, sourceId, chunk,
+      { syncId: current.syncId, occurredAt: new Date().toISOString() }, guard);
+  } else {
+    await storage.runTransaction(guard);
+  }
+  return { state: current, complete: stale.length <= TRANSITIONS_PER_COMMIT, transitions: chunk.length };
+}
+
+/** Runs a final metadata mutation under the exact resumable replacement lease. */
+export async function finalizeResumableBusyReplacement(
+  uid: string,
+  sourceId: string,
+  state: ResumableBusyReplacement,
+  mutate: (tx: StorageTransaction, source: CalendarSource | null, fence: BusySourceReplacementFence) => void | Promise<void>,
+  deps: BusyBlockDeps = {},
+): Promise<void> {
+  const storage = storageOf(deps);
+  const kind = sourceKindOf(sourceId);
+  const initialDeviceChoice = kind === 'device'
+    ? validChoice(await storage.get<CalendarChoiceSnapshot>(calendarChoicePath(uid))) : null;
+  const replacement = { owner: state.owner, version: state.version, generation: state.generation };
+  await storage.runTransaction(async tx => {
+    await guardReplacement(tx, uid, sourceId, kind, replacement, deps.transactionGuard, initialDeviceChoice);
+    const [source, fence] = await Promise.all([
+      tx.get<CalendarSource>(sourcePath(uid, sourceId)),
+      tx.get<BusySourceReplacementFence>(sourceFencePath(uid, sourceId)),
+    ]);
+    if (!fence) throw new BusyUploadError('busy_source_replaced');
+    await mutate(tx, source, fence);
+  });
 }
 
 /* ── Writing a source ────────────────────────────────────────────── */

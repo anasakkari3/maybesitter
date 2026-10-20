@@ -258,10 +258,13 @@ class MemoryTransaction implements StorageTransaction {
   private readonly ops: PendingOp[] = [];
   private wrote = false;
 
-  constructor(private readonly store: MemoryStore) {}
+  constructor(
+    private readonly store: MemoryStore,
+    private readonly enforceFirestoreReadOrder: boolean,
+  ) {}
 
   private assertReadable(operation: string): void {
-    if (this.wrote) {
+    if (this.enforceFirestoreReadOrder && this.wrote) {
       throw new StorageUsageError(
         `${operation} was called after a write in the same transaction; Firestore requires all reads before any write`,
       );
@@ -361,10 +364,17 @@ class MemoryTransaction implements StorageTransaction {
 
 export type BeforeCommitHook = (info: { attempt: number }) => void | Promise<void>;
 
+export interface MemoryStorageOptions {
+  /** Test seam for explicitly exercising Firestore's all-reads-before-writes rule. */
+  readonly enforceFirestoreReadOrder?: boolean;
+}
+
 export class MemoryStorageAdapter implements StorageAdapter {
   private readonly store = new MemoryStore();
   private beforeCommit: BeforeCommitHook | null = null;
   private queue: Promise<void> = Promise.resolve();
+
+  constructor(private readonly options: MemoryStorageOptions = {}) {}
 
   async get<T>(path: string): Promise<T | null> {
     return this.store.read(requireDocumentPath(path)) as T | null;
@@ -418,7 +428,7 @@ export class MemoryStorageAdapter implements StorageAdapter {
       // see the header on why the lock is taken on every attempt.
       const release = concurrentTransactionWindow > 0 ? null : await this.acquire();
       try {
-        const tx = new MemoryTransaction(this.store);
+        const tx = new MemoryTransaction(this.store, this.options.enforceFirestoreReadOrder ?? true);
         const result = await fn(tx);
         if (this.beforeCommit) await this.beforeCommit({ attempt });
         if (tx.readsStillValid()) {
@@ -462,8 +472,8 @@ export class MemoryStorageAdapter implements StorageAdapter {
   }
 }
 
-export function createMemoryStorage(): MemoryStorageAdapter {
-  return new MemoryStorageAdapter();
+export function createMemoryStorage(options: MemoryStorageOptions = {}): MemoryStorageAdapter {
+  return new MemoryStorageAdapter(options);
 }
 
 /** Re-exported so a test can assert a path is well formed without a second import. */

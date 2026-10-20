@@ -19,6 +19,8 @@ import {
   type M5aMarker,
 } from './m5aGmailScan';
 import { observationId, type StoredObservation } from './observationStore';
+import { isMonitoringPaused } from '../watchers/monitoringSettings';
+import type { StorageAdapter, StorageTransaction } from '../storage/storageAdapter';
 
 const CLAIM_MS = 120_000;
 
@@ -47,6 +49,51 @@ export interface ArbitratedMessageResult {
   readonly observations: readonly StoredObservation[];
 }
 
+export interface GmailArbitrationMonitorGuard {
+  readonly path: string;
+  readonly generation: string;
+  readonly leaseOwner?: string;
+  readonly pauseEpoch?: number;
+  readonly receivedAt?: string;
+}
+
+interface GuardedMonitor {
+  enabled: boolean;
+  generation: string;
+  lease?: { owner: string; leaseUntil: string } | null;
+  m5?: {
+    pauseEpoch: number;
+    pausedSince: string | null;
+    enabledAt: string;
+    excluded: Array<{ from: string; to: string }>;
+  };
+}
+
+async function assertMonitorGuard(
+  uid: string,
+  guard: GmailArbitrationMonitorGuard,
+  storage: StorageAdapter,
+  tx?: StorageTransaction,
+  checkMessageWindow = false,
+): Promise<boolean> {
+  const reader = tx ?? storage;
+  const [monitor, paused] = await Promise.all([
+    reader.get<GuardedMonitor>(guard.path),
+    isMonitoringPaused(uid, storage, tx),
+  ]);
+  if (!monitor?.enabled || monitor.generation !== guard.generation || paused) throw new Error('monitor_disabled');
+  if (guard.pauseEpoch === undefined) return true;
+  const received = Date.parse(guard.receivedAt ?? '');
+  if (!monitor.m5 || monitor.m5.pauseEpoch !== guard.pauseEpoch || monitor.m5.pausedSince
+    || monitor.lease?.owner !== guard.leaseOwner) {
+    throw new Error('monitor_disabled');
+  }
+  if (!checkMessageWindow) return true;
+  if (!Number.isFinite(received)) throw new Error('monitor_disabled');
+  return received >= Date.parse(monitor.m5.enabledAt)
+    && !monitor.m5.excluded.some(interval => received >= Date.parse(interval.from) && received < Date.parse(interval.to));
+}
+
 /**
  * The rollback/base readers claim the legacy key before analysis. This is the
  * only path they use while M5a email processing is live, so an M5a unit and a
@@ -57,14 +104,18 @@ export async function analyzeArbitratedGmailMessage(
   providerAccountId: string,
   message: GmailMessagePayload,
   runtime: GoogleRuntime,
-  monitorGuard?: { path: string; generation: string },
+  monitorGuard?: GmailArbitrationMonitorGuard,
 ): Promise<ArbitratedMessageResult> {
   const storage = runtime.storage;
   const legacyId = legacyMarkerIdFor(message.id);
   const path = markerPath(uid, legacyId);
   const owner = randomUUID();
   const claimed = await storage.runTransaction(async tx => {
-    const marker = await tx.get<M5aMarker | Record<string, unknown>>(path);
+    const [marker, messageAllowed] = await Promise.all([
+      tx.get<M5aMarker | Record<string, unknown>>(path),
+      monitorGuard ? assertMonitorGuard(uid, monitorGuard, storage, tx, true) : Promise.resolve(true),
+    ]);
+    if (!messageAllowed) return { kind: 'skipped' as const };
     const decision = markerDecision(marker, 'base', runtime.now().toISOString(), providerAccountId);
     if (decision === 'skip') return { kind: 'skipped' as const };
     if (decision === 'block') return { kind: 'blocked' as const };
@@ -86,17 +137,17 @@ export async function analyzeArbitratedGmailMessage(
 
   try {
     const content = [message.subject ?? '', message.text].filter(Boolean).join('\n');
+    if (monitorGuard) await assertMonitorGuard(uid, monitorGuard, storage);
     const semantic = content.trim() && content.length <= 12_000
       ? await analyzeSourceStaged(uid, 'gmail', content, runtime.shareModel ? { generate: runtime.shareModel } : {})
       : [];
     const committed = await storage.runTransaction(async tx => {
-      const [marker, monitor, ...existing] = await Promise.all([
+      const [marker, _guard, ...existing] = await Promise.all([
         tx.get<M5aMarker>(path),
-        monitorGuard ? tx.get<{ enabled: boolean; generation: string }>(monitorGuard.path) : Promise.resolve(null),
+        monitorGuard ? assertMonitorGuard(uid, monitorGuard, storage, tx) : Promise.resolve(),
         ...semantic.map(item => tx.get<StoredObservation>(observationPath(uid, observationId('gmail', message.id, item)))),
       ]);
       if (marker?.state !== 'claimed' || marker.owner !== owner) return null;
-      if (monitorGuard && (!monitor?.enabled || monitor.generation !== monitorGuard.generation)) throw new Error('monitor_disabled');
       const observations: StoredObservation[] = [];
       semantic.forEach((item, index) => {
         const id = observationId('gmail', message.id, item);

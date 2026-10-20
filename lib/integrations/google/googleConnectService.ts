@@ -476,10 +476,16 @@ export async function disconnectGoogle(uid: string, runtime: GoogleRuntime): Pro
           leaseOwner: null, leaseUntil: null, nextEligibleAt: now,
         });
       }
-      if (monitor) tx.set(monitorPath, {
-        ...monitor, enabled: false, generation: randomUUID(), cursor: null, pageToken: null,
-        leaseUntil: null, nextPollAt: now, error: null,
-      });
+      if (monitor) {
+        const m5 = typeof monitor.m5 === 'object' && monitor.m5 !== null
+          ? (({ nextSweepAt: _next, ...rest }) => rest)(monitor.m5 as Record<string, unknown>) : undefined;
+        tx.set(monitorPath, {
+          ...monitor, enabled: false, generation: randomUUID(), cursor: null, pageToken: null,
+          leaseUntil: null, lease: null, nextPollAt: now, error: null,
+          liveWaiting: null, proposalWaiting: null, proposalsPending: false,
+          ...(m5 ? { m5 } : {}),
+        });
+      }
     });
     // After the revocation landed, never before: a refused revoke keeps the
     // grant, and the busy time that grant produced stays true with it.

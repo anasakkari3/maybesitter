@@ -258,6 +258,9 @@ upsert_job "maintenance-daily-${SUFFIX}" "17 3 * * *" "/api/internal/jobs/mainte
 upsert_job "intelligence-gmail-${SUFFIX}" "* * * * *" "/api/internal/jobs/intelligence-gmail" "Etc/UTC" \
   "Poll explicitly enabled Gmail intelligence monitors (${TARGET})"
 
+upsert_job "intelligence-gmail-sweep-${SUFFIX}" "* * * * *" "/api/internal/jobs/intelligence-gmail-sweep" "Etc/UTC" \
+  "Continue Gmail scans, daily sweeps, and calendar maintenance (${TARGET})"
+
 if [ "${MODE}" = "check" ]; then
   if [ "${CHECK_FAILURES}" -eq 0 ]; then
     printf '\nscheduler check: all checks passed for %s\n' "${TARGET}"

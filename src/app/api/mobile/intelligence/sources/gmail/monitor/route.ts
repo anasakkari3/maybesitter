@@ -3,7 +3,7 @@ import { getAiConsent } from '../../../../../../../../lib/consents/aiConsentServ
 import { googleFailureResponse } from '../../../../../../../../lib/integrations/google/googleRouteSupport';
 import { googleRuntime } from '../../../../../../../../lib/integrations/google/googleRuntime';
 import { intelligenceDisabledResponse } from '../../../../../../../../lib/intelligence/gate';
-import { readGmailMonitor, setGmailMonitor } from '../../../../../../../../lib/intelligence/gmailMonitor';
+import { publicMonitorWaiting, readGmailMonitor, setGmailMonitor } from '../../../../../../../../lib/intelligence/gmailMonitor';
 import { RequestBodyTooLargeError, readJsonBody, requestBodyTooLargeResponse } from '../../../../../../../../lib/net/requestBody';
 
 export const runtime = 'nodejs';
@@ -17,7 +17,8 @@ export async function GET(request: Request) {
   const monitor = await readGmailMonitor(user.uid);
   return Response.json({ success: true, enabled: monitor?.enabled ?? false,
     lastSuccessAt: monitor?.lastSuccessAt ?? null, error: monitor?.error ?? null,
-    m5Enrolled: Boolean(monitor?.m5), waiting: null });
+    m5Enrolled: Boolean(monitor?.m5), timezone: monitor?.m5?.timezone ?? null,
+    waiting: publicMonitorWaiting(monitor) });
 }
 
 export async function POST(request: Request) {
@@ -42,6 +43,7 @@ export async function POST(request: Request) {
       ...(input.timezone === undefined ? {} : { timezone: input.timezone }),
     });
     return Response.json({ success: true, enabled: monitor.enabled, lastSuccessAt: monitor.lastSuccessAt, error: monitor.error,
-      m5Enrolled: Boolean(monitor.m5), waiting: null });
+      m5Enrolled: Boolean(monitor.m5), timezone: monitor.m5?.timezone ?? null,
+      waiting: publicMonitorWaiting(monitor) });
   } catch (error) { return googleFailureResponse(error); }
 }

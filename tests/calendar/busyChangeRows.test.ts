@@ -545,6 +545,7 @@ const WRITERS: ReadonlyArray<readonly [file: string, inside: string, callee: str
   ['lib/calendar/icsFeeds.ts', 'applyClassification', 'replaceBusyBlocks', 'icsFeedLifecycle: #611 subscribe/refresh rows'],
   ['lib/calendar/icsFeeds.ts', 'removeFeedData', 'deleteBusySource', 'icsFeedLifecycle: #611 unsubscribe rows'],
   ['lib/calendar/manualBusy.ts', 'acceptLectureSessionsAsBusyBlocks', 'replaceBusyBlocks', 'writer: accepted lecture sessions (#191)'],
+  ['lib/integrations/google/googleCalendarBusy.ts', 'applyGoogleBusyTarget', 'replaceBusyBlocks', 'B3 calendar maintenance keeps a fenced target on mismatch, then certifies and clears it'],
   ['lib/integrations/google/googleCalendarBusy.ts', 'syncGoogleCalendarBusy', 'replaceBusyBlocks', 'googleConnectRoutes: freebusy mapping (CL6a)'],
   ['lib/integrations/google/googleConnectService.ts', 'disconnectGoogle', 'deleteBusySource', 'googleConnectRoutes: disconnect (CL6a)'],
   ['src/app/api/mobile/calendar/busy/route.ts', 'DELETE', 'deleteBusySource', 'writer: the device disconnect route'],
@@ -655,5 +656,5 @@ test('census: inside busyBlocks.ts, a block path is written only by the function
     ['allBlocks', 'blockPath', 'firstDeviceBusySourceId', 'listBusyBlocksBounded'],
     'the collection is otherwise only listed, never written',
   );
-  assert.deepEqual(Array.from(committers).sort(), ['deleteBusySource', 'replaceBusyBlocks']);
+  assert.deepEqual(Array.from(committers).sort(), ['applyResumableBusyReplacementChunk', 'deleteBusySource', 'replaceBusyBlocks']);
 });
