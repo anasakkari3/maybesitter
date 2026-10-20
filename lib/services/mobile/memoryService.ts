@@ -346,8 +346,8 @@ export function memoryToDto(record: RuntimeMemoryRecord): MemoryDto {
  * and the sort of thing that becomes contract the moment it is sent. What the
  * user is owed about a model-proposed fact is that a model proposed it and
  * whether they agreed, which `sourceLabel` and `evidence.confirmedAt` already
- * say in words. Nothing writes a model-inferred record today; the wire is
- * narrowed before one exists rather than after.
+ * say in words. The optional memory summary reads these records without writing
+ * one, so model and prompt identifiers remain unnecessary on this record wire.
  */
 function wireProvenance(provenance: MemoryProvenance): MemoryProvenance {
   const { model: _model, promptVersion: _promptVersion, ...visible } = provenance;

@@ -7,6 +7,11 @@ import {
   saveSubjectiveEnergyCheckIn,
 } from '../../../../../lib/userState/userStateService';
 import type { ReadinessSnapshot } from '../../../../../src/contracts/v1/readinessContracts';
+import { resolveMemoryLearning } from '../../../../../lib/release/m5bCapabilities';
+import { resolveFreshReadiness } from '../../../../../lib/integrations/readiness/freshReadiness';
+import { storedReadinessContext } from '../../../../../lib/userState/userStateService';
+import { getStorage } from '../../../../../lib/storage';
+import { userDoc } from '../../../../../lib/storage/paths';
 
 export const dynamic = 'force-dynamic';
 
@@ -38,14 +43,29 @@ export async function GET(request: Request): Promise<Response> {
     return mobileAuthErrorResponse(error);
   }
   try {
+    const now = new Date().toISOString();
+    const storage = getStorage();
+    const userDocument = resolveMemoryLearning()
+      ? await storage.get<Record<string, unknown>>(userDoc(user.uid))
+      : undefined;
     const current = await composeCurrentUserState({
       uid: user.uid,
-      now: new Date().toISOString(),
-    });
+      now,
+    }, userDocument === undefined ? {} : { storage, userDocument, readiness: 'fresh' });
+    const fresh = userDocument === undefined
+      ? null
+      : resolveFreshReadiness(storedReadinessContext(userDocument?.readinessContext, user.uid), now);
     return Response.json({
       readiness: current.projection.readiness,
       selectedSource: current.readiness.selectedSource,
       freshness: current.readiness.freshness,
+      ...(fresh ? { planEffect: {
+        source: fresh.source,
+        energy: fresh.energy,
+        band: fresh.band,
+        bufferMinutes: fresh.bufferMinutes,
+        staleReading: fresh.staleReading,
+      } } : {}),
     });
   } catch (error) {
     return mobileError(error instanceof Error ? error.message : 'could not read readiness', 500);

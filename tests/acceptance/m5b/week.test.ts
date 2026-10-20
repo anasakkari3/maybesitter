@@ -293,7 +293,7 @@ test('M5B1-014 on: the digest binds times, not only ids — the same steps moved
   const deps = { storage: currentStorage(), now: () => new Date() };
   const first = (weekToDto((await weekDay(uid, deps)).layout as any) as any).days.find((candidate: any) => candidate.date === TOMORROW);
   // The appointment moves; the floating task's slot moves with it, its id does not.
-  await editCommitment(uid, EVENT, { dueAt: at(TOMORROW, '09:00'), endAt: at(TOMORROW, '17:00') });
+  await editCommitment(uid, EVENT, { timeSpec: { dueAt: at(TOMORROW, '09:00'), endAt: at(TOMORROW, '17:00') } });
   const second = (weekToDto((await weekDay(uid, deps)).layout as any) as any).days.find((candidate: any) => candidate.date === TOMORROW);
   assert.equal(typeof first?.layoutDigest, 'string');
   assert.notEqual(second?.layoutDigest, first?.layoutDigest, 'a moved slot kept the same digest');

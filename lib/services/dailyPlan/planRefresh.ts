@@ -95,6 +95,8 @@ import {
 import { localDateOf } from './planSettings';
 import { replanExplanation } from './replanMetadata';
 import { storedWeekAssignment } from './weekHolds';
+import { resolveMemoryLearning } from '../../release/m5bCapabilities';
+import { resolvePlanReadiness } from '../../integrations/readiness/freshReadiness';
 
 export interface PlanRefreshDeps {
   readonly storage?: StorageAdapter;
@@ -116,6 +118,7 @@ export interface CurrentPlan {
    * is current, including one this read just refreshed.
    */
   readonly inputsChanged: boolean;
+  readonly basisChanged: boolean;
 }
 
 /**
@@ -295,27 +298,40 @@ export async function refreshStalePlan(
 ): Promise<CurrentPlan> {
   const storage = deps.storage ?? getStorage();
   const now = (deps.now ?? (() => new Date()))();
-  if (!isRefreshableDate(stored, now)) return { stored, inputsChanged: false };
+  if (!isRefreshableDate(stored, now)) return { stored, inputsChanged: false, basisChanged: false };
 
   const commitments = deps.commitments ?? Object.values((await loadDomainState(storage, uid)).commitments);
   const today = localDateOf(now.toISOString(), stored.timezone);
-  if (!planInputsChanged(uid, stored, commitments, today)) return { stored, inputsChanged: false };
+  const memoryLearning = resolveMemoryLearning();
+  const user = memoryLearning ? await storage.get<Record<string, unknown>>(userDoc(uid)) : undefined;
+  const currentReadiness = memoryLearning
+    ? resolvePlanReadiness({ uid, now: now.toISOString(), userDocument: user }).readinessApplied
+    : null;
+  const readinessChanged = memoryLearning
+    ? stored.readinessApplied === undefined || !isDeepStrictEqual(stored.readinessApplied, currentReadiness)
+    : false;
+  const commitmentChanged = planInputsChanged(uid, stored, commitments, today);
+  if (!commitmentChanged && !readinessChanged) return { stored, inputsChanged: false, basisChanged: false };
   if (!planIsUntouched(stored, now)) {
-    return { stored, inputsChanged: dayGainedOrMoved(uid, stored, commitments, today) };
+    return {
+      stored,
+      inputsChanged: commitmentChanged && dayGainedOrMoved(uid, stored, commitments, today),
+      basisChanged: readinessChanged,
+    };
   }
 
   const nowIso = now.toISOString();
-  const user = await storage.get<Record<string, unknown>>(userDoc(uid));
+  const userDocument = user ?? await storage.get<Record<string, unknown>>(userDoc(uid));
   // Solved under the week's decisions the day was stored with (CL5b): a
   // saved week day left untouched keeps its own work, and a day built around
   // saved week days keeps leaving their work off.
   const assignment = storedWeekAssignment(stored, today);
-  const { constraints, config } = await composeDailyPlanRequest({
+  const { constraints, config, basisSnapshot } = await composeDailyPlanRequest({
     uid,
     date: stored.date,
     timezone: stored.timezone,
     now: nowIso,
-    userDocument: user,
+    userDocument,
     previousBlocks: stored.blocks ?? [],
     ...(assignment ? { assignment } : {}),
   }, { storage, ...(deps.busyBlocks ? { busyBlocks: deps.busyBlocks } : {}) });
@@ -348,6 +364,7 @@ export async function refreshStalePlan(
       inputDigest: plan.inputDigest,
       acceptedAt: null,
       updatedAt: nowIso,
+      ...(basisSnapshot ? { readinessApplied: basisSnapshot.readinessApplied } : {}),
       // Assigned, not inherited: a patch of the generation being replaced
       // describes a plan that no longer exists.
       proposal: null,
@@ -369,12 +386,12 @@ export async function refreshStalePlan(
     };
   }, storage);
 
-  if (written !== null) return { stored: written.stored, inputsChanged: false };
+  if (written !== null) return { stored: written.stored, inputsChanged: false, basisChanged: false };
   // The plan moved while this was solving: somebody touched it, or another
   // reader refreshed it first. Whatever is stored now is the answer, judged
   // again on the next read.
   const latest = await readStoredPlan(uid, stored.date, storage);
-  return { stored: latest ?? stored, inputsChanged: false };
+  return { stored: latest ?? stored, inputsChanged: false, basisChanged: false };
 }
 
 /** Reads a day's plan as `GET` answers it; null when there is none. */

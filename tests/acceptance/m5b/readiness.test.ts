@@ -58,7 +58,7 @@ test('R4.1 / Wire: a fresh check-in of 2 gives planEffect check_in / 2 / low / 1
   assert.equal((await checkIn(uid, 2, observedAt)).status, 200);
   const body = await readiness(uid);
   assert.deepEqual(body.planEffect, { source: 'check_in', energy: 2, band: 'low', bufferMinutes: 15, staleReading: null });
-  assert.deepEqual(Object.keys(body.planEffect).sort(), ['bufferMinutes', 'band', 'energy', 'source', 'staleReading']);
+  assert.deepEqual(Object.keys(body.planEffect).sort(), ['band', 'bufferMinutes', 'energy', 'source', 'staleReading']);
   assert.equal(body.selectedSource, 'current_subjective');
   assert.equal(body.freshness, 'fresh');
 });
