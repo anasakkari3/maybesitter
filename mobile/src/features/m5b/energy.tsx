@@ -215,11 +215,15 @@ export function TodayEnergy({ energy }: { energy: NextStepEnergy }) {
   const checkIn = useCheckIn();
   const today = useLocalDay();
   const [open, setOpen] = useState(false);
-  // A transient confirmation (SIM-M5B-01, M5B-A2-002): said once, then
-  // cleared by the next answer from the server, which is what decides
-  // whether the question shows.
+  // A transient confirmation for screen readers (SIM-M5B-01): said, then
+  // cleared on its own. It never decides whether the question shows — only
+  // the server's answer and the day's hide do (M5B-A2-002, M5B-A3-001).
   const [saved, setSaved] = useState<Level | null>(null);
-  useEffect(() => { setSaved(null); }, [energy]);
+  useEffect(() => {
+    if (saved === null) return undefined;
+    const timer = setTimeout(() => setSaved(null), SAVED_ANNOUNCE_MS);
+    return () => clearTimeout(timer);
+  }, [saved]);
   // Per account, and compared with today's date every time (M5B-A2-001):
   // a question put away last night comes back after midnight on a screen
   // that never unmounted. Null until read; it waits rather than flash.
@@ -265,7 +269,7 @@ export function TodayEnergy({ energy }: { energy: NextStepEnergy }) {
             <EnergyScale prefix="m5b-today-energy" label={t.m5bEnergyAskNow} selected={null} busy={checkIn.busy} onPick={pick} />
           ) : null}
         </View>
-      ) : hiddenToday === false && saved === null ? (
+      ) : hiddenToday === false ? (
         <View style={{ gap: 8 }}>
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', columnGap: 10 }}>
             <Txt size={14} weight={600}>{t.m5bEnergyAskNow}</Txt>
@@ -280,7 +284,7 @@ export function TodayEnergy({ energy }: { energy: NextStepEnergy }) {
               <Txt size={14} color={p.ac}>{t.m5bEnergyHideToday}</Txt>
             </Btn>
           </View>
-          <EnergyScale prefix="m5b-today-energy" label={t.m5bEnergyAskNow} selected={null} busy={checkIn.busy} onPick={pick} />
+          <EnergyScale prefix="m5b-today-energy" label={t.m5bEnergyAskNow} selected={saved} busy={checkIn.busy} onPick={pick} />
         </View>
       ) : null}
       {checkIn.failed ? <SaveFailed testID="m5b-today-energy-failed" /> : null}
@@ -293,6 +297,7 @@ export function TodayEnergy({ energy }: { energy: NextStepEnergy }) {
   );
 }
 
+const SAVED_ANNOUNCE_MS = 4_000;
 const SCREEN_READER_ONLY: ViewStyle = { position: 'absolute', width: 1, height: 1, overflow: 'hidden' };
 
 /**

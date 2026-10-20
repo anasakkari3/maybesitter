@@ -112,7 +112,10 @@ describe('Task A inspection r2 and the simulator pass', () => {
     harness.server.state.energy = { source: 'check_in', level: 2, band: 'low', changedPick: false };
     await fireEvent.press(screen.getByTestId('m5b-today-energy-2'));
     await waitFor(() => expect(screen.queryByTestId('m5b-today-energy')).not.toBeNull());
-    // One visible copy of the line: the confirmation was cleared by the server's answer.
+    // One visible copy of the line; the confirmation's copy sits in the
+    // screen-reader-only region (1×1, clipped), then clears itself.
+    expect(screen.getByTestId('m5b-today-energy-saved').props.style).toEqual(expect.objectContaining({ position: 'absolute', width: 1, height: 1, overflow: 'hidden' }));
+    await act(async () => { await jest.advanceTimersByTimeAsync(5_000); });
     expect(screen.getAllByText('Energy now: 2 of 5')).toHaveLength(1);
 
     // The reading ages out; the next answer has none, and the question returns.
@@ -135,5 +138,18 @@ describe('Task A inspection r2 and the simulator pass', () => {
     await showPlan(harness);
     await waitFor(() => expect(screen.queryByTestId('m5b-plan-energy-2')).not.toBeNull());
     await waitFor(() => expect(screen.getByTestId('m5b-plan-energy-2').props.accessibilityState).toMatchObject({ selected: true }));
+  });
+
+  it('M5B-A3-001 a save the server does not yet reflect never hides the question', async () => {
+    harness = await prepare('en', initialState({ energy: { source: 'none', level: null, band: null, changedPick: false } }));
+    await showToday(harness);
+    await waitFor(() => expect(screen.queryByTestId('m5b-today-energy-question')).not.toBeNull());
+    await fireEvent.press(screen.getByTestId('m5b-today-energy-2'));
+    await waitFor(() => expect(harness!.server.matching('PUT', /^\/api\/mobile\/readiness$/)).toHaveLength(1));
+    await act(async () => { await jest.advanceTimersByTimeAsync(1_000); });
+    // The next step still says no reading (expired, or not yet refetched): the question stays.
+    expect(screen.queryByTestId('m5b-today-energy-question')).not.toBeNull();
+    await act(async () => { await jest.advanceTimersByTimeAsync(10_000); });
+    expect(screen.queryByTestId('m5b-today-energy-question')).not.toBeNull();
   });
 });
