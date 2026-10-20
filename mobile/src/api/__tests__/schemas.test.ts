@@ -493,6 +493,8 @@ const CASES: Array<[string, z.ZodType]> = [
   ['intelligence.addedMissing', m5aNotFoundSchema],
   ['intelligence.monitor.get', intelligenceGmailMonitorSchema],
   ['intelligence.monitor.post', intelligenceGmailMonitorSchema],
+  ['intelligence.monitor.wait.daily', intelligenceGmailMonitorSchema],
+  ['intelligence.monitor.wait.rate', intelligenceGmailMonitorSchema],
   ['commitment.added-from', commitmentSchema.extend({ addedFrom: commitmentSchema.shape.addedFrom.unwrap() })],
   ['football.held', footballSettingsResponseSchema],
   ['football.fixture.clash-unknown', footballSettingsResponseSchema],
