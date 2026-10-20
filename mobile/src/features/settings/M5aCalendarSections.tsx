@@ -32,6 +32,14 @@ import { groupByAccount, OTHER_SOURCE } from './CalendarSettingsScreen';
  *
  * Plus the other phones that send busy time, each removable (M5A-R58-002).
  */
+
+/** iOS's own local calendar sources, which it names in English (SIM-M5A-03). */
+const LOCAL_SOURCE_KEYS: Readonly<Record<string, 'm5CalLocalDefault' | 'm5CalLocalOther' | 'm5CalLocalSubscribed'>> = {
+  Default: 'm5CalLocalDefault',
+  Other: 'm5CalLocalOther',
+  'Subscribed Calendars': 'm5CalLocalSubscribed',
+};
+
 export function M5aCalendarSections({
   uid, view, access, phoneCalendars, consented, trustLoaded, onAskPhone, busyCalendar,
 }: {
@@ -149,9 +157,12 @@ export function M5aCalendarSections({
         ) : null}
         {granted && phoneCalendars ? groupByAccount(phoneCalendars).map(({ source, calendars }) => {
           const account = source === OTHER_SOURCE ? t.calendarDeviceSourceOther : source;
+          // iOS names its own local sources in English whatever the language
+          // (SIM-M5A-03): those get our words; a real account keeps its name.
+          const local = Object.hasOwn(LOCAL_SOURCE_KEYS, source) ? LOCAL_SOURCE_KEYS[source] : undefined;
           return (
             <View key={source} testID={`calendar-account-${source}`} style={{ borderTopWidth: 1, borderTopColor: p.ln, paddingHorizontal: 18, paddingTop: 12 }}>
-              <SectionLabel>{fill(t.m5CalListGroup, { account: isolateAuto(account) })}</SectionLabel>
+              <SectionLabel>{local ? t[local] : fill(t.m5CalListGroup, { account: isolateAuto(account) })}</SectionLabel>
               {calendars.map((calendar) => {
                 const on = shown.includes(calendar.id);
                 return (

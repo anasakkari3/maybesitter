@@ -422,5 +422,23 @@ describe('inspection r6 and the simulator pass (M5A-R6-001/002/003, SIM-M5A-02)'
     await settle();
     await waitFor(() => expect(screen.getByTestId('busy-count')).toHaveTextContent('1'));
   });
-});
 
+  it('SIM-M5A-03: iOS local sources get our words, a real account keeps its name', async () => {
+    harness = await prepare('en');
+    await AsyncStorage.multiSet([[ENROLLED, '2030-03-20T08:00:00.000Z'], [INCLUDED, JSON.stringify([])]]);
+    (deviceCalendar.listEventCalendars as jest.Mock<typeof deviceCalendar.listEventCalendars>).mockResolvedValue([
+      { id: 'd', title: 'Calendar', color: null, sourceName: 'Default' },
+      { id: 's', title: 'Clinic', color: null, sourceName: 'Subscribed Calendars' },
+      { id: 'i', title: 'Home', color: null, sourceName: 'iCloud' },
+      { id: 'c', title: 'Odd', color: null, sourceName: 'constructor' },
+    ]);
+    await showCalendar(harness);
+    await settle();
+    await waitFor(() => expect(screen.queryByTestId('calendar-account-Default')).not.toBeNull());
+    expect(screen.getByTestId('calendar-account-Default')).toHaveTextContent(/On this phone/);
+    expect(screen.getByTestId('calendar-account-Default')).not.toHaveTextContent(/Default/);
+    expect(screen.getByTestId('calendar-account-Subscribed Calendars')).toHaveTextContent(/Subscribed calendars/);
+    expect(screen.getByTestId('calendar-account-iCloud')).toHaveTextContent(/iCloud/);
+    expect(screen.getByTestId('calendar-account-constructor')).toHaveTextContent(/constructor/);
+  });
+});
