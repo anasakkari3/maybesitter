@@ -103,6 +103,7 @@ import {
 } from '../schemas/calendar';
 import { reminderSettingsResponseSchema, hardReceiptsResponseSchema } from '../schemas/reminders';
 import { readinessResponseSchema, readinessSavedSchema } from '../schemas/readiness';
+import { m5bCapabilitiesSchema, memorySummaryResponseSchema } from '../schemas/m5b';
 import { watcherChangedSchema, watcherListSchema } from '../schemas/watchers';
 import {
   financialConnectionSchema,
@@ -437,6 +438,12 @@ const CASES: Array<[string, z.ZodType]> = [
   // account's `freshness: 'missing'` and the snapshot's string `version`
   // were what the old hand-written fixture got wrong.
   ['readiness.current', readinessResponseSchema],
+  // M5b-1: the probe, the paragraph, and the optional fields on plan / readiness / next step.
+  ['capabilities.m5b', m5bCapabilitiesSchema],
+  ['memory.summary', memorySummaryResponseSchema],
+  ['plan.m5b', planResponseSchema],
+  ['readiness.m5b', readinessResponseSchema],
+  ['next-step.m5b', nextStepResponseSchema],
   ['readiness.missing', readinessResponseSchema],
   ['readiness.saved', readinessSavedSchema],
   // "تابعلي" (#525). `label: null` is what the route sends for a watcher
