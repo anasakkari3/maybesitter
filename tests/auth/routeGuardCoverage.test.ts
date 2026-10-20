@@ -230,7 +230,10 @@ test('every mobile route file exists and is enumerated', () => {
   // decision, evening-impact decision, and commitment postpone-slot routes.
   // M5a adds the collection route and the idempotent per-record removal route
   // under `/api/mobile/intelligence/added`.
-  assert.equal(files.length, 127, `found:\n${files.join('\n')}`);
+  // M5b-1 adds `GET /api/mobile/capabilities/m5b` and
+  // `GET /api/mobile/memory/summary`; the summary sends the account's memory
+  // rows to the model, so it must never answer before the guard.
+  assert.equal(files.length, 129, `found:\n${files.join('\n')}`);
 });
 
 test('every mobile route handler runs an authentication guard before anything else', () => {

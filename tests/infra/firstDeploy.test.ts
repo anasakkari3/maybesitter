@@ -336,8 +336,11 @@ test('switching the env list to a custom delimiter dropped none of the existing 
   assert.equal(staging.get('MAYBESITTER_LLM_GLOBAL_DAILY_CALL_CAP'), '3000');
   assert.equal(staging.get('MAYBESITTER_FEATURE_PROACTIVE_LOOP'), 'true');
   assert.equal(staging.get('MAYBESITTER_KILL_SWITCH_PROACTIVE_LOOP'), 'false');
-  assert.equal(production.size, 40);
-  assert.equal(staging.size, 39);
+  // M5b-1: one flag and its kill switch, pinned off in production.
+  assert.equal(production.get('MAYBESITTER_FEATURE_MEMORY_LEARNING'), 'false');
+  assert.equal(staging.get('MAYBESITTER_FEATURE_MEMORY_LEARNING'), 'true');
+  assert.equal(production.size, 42);
+  assert.equal(staging.size, 41);
 });
 
 // ── Same-digest production promotion ────────────────────────────────────
