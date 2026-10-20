@@ -19,6 +19,7 @@ import { SwipeableRow, useRowActions } from '../features/commitments/RowActions'
 import { postponeTo } from '../features/commitments/postpone';
 import { whyFirstLine } from '../features/commitments/whyFirst';
 import { NextStepCard } from '../features/nextStep/NextStepCard';
+import { useM5bOn } from '../features/m5b/capabilities';
 import { ProactiveInboxBanner } from '../features/goals/ProactiveInboxBanner';
 import { UpcomingPlanCard } from '../features/goalPlan/UpcomingPlanCard';
 import { BusyConflictChip } from '../features/calendar/BusyConflictChip';
@@ -91,6 +92,8 @@ export function TodayScreen({ tabClearance = TAB_CLEARANCE }: { tabClearance?: n
   const timezone = useTimeZone();
   const today = useToday();
   const next = useNextStep();
+  // Asked alongside the next step, so its energy line arrives with the card (M5b-1).
+  useM5bOn();
   const consents = useConsents();
   // A revoked answer must win over a previously cached next-step exposure.
   // The route can return 403 after revocation while React Query still holds

@@ -60,7 +60,7 @@ export const readinessAppliedSchema = z.object({
   band: energyBandSchema.nullable(),
   bufferMinutesAdded: z.number().int().nonnegative(),
   observedAt: isoDateTime.nullable(),
-}).strict();
+}).strict().nullable();
 export type ReadinessApplied = z.infer<typeof readinessAppliedSchema>;
 
 /** On `GET /api/mobile/readiness`: what a plan built now would add. */

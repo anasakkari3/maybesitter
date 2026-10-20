@@ -26,10 +26,12 @@ export async function loadEnergyAskHiddenToday(uid: string, now: Date = new Date
   }
 }
 
-export async function saveEnergyAskHiddenToday(uid: string, now: Date = new Date()): Promise<void> {
+/** False when the date could not be stored: the caller shows the row again (fail-open). */
+export async function saveEnergyAskHiddenToday(uid: string, now: Date = new Date()): Promise<boolean> {
   try {
     await AsyncStorage.setItem(hiddenKey(uid), localDay(now));
+    return true;
   } catch {
-    // Shown again: fail-open.
+    return false;
   }
 }

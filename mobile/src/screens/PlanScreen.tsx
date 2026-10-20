@@ -38,6 +38,8 @@ import { moveKeepingLength } from '../features/plan/optimisticEdit';
 import { useOneAtATime } from '../features/plan/oneAtATime';
 import { dayAfter, planRows, workingHoursOver } from '../features/plan/lateDay';
 import { planBuildFailureOf } from '../features/goalPlan/planFailures';
+import { useM5bOn } from '../features/m5b/capabilities';
+import { PlanEnergy, PlanEnergyAsk } from '../features/m5b/energy';
 import {
   reportPlanDecision,
   reportPlanEdited,
@@ -87,6 +89,8 @@ export function PlanScreen({ date, onBack }: { date: string; onBack: () => void 
   const online = useIsOnline();
   const query = usePlan(date);
   const settings = usePlanSettings();
+  // Asked alongside the plan, so the energy line arrives with it (M5b-1).
+  useM5bOn();
 
   const plan = query.data ?? null;
   // `undefined` is "no answer yet"; `null` is "the server says there is none".
@@ -140,6 +144,7 @@ function EmptyPlan({ date, online, deliveryOn }: { date: string; online: boolean
   const build = useBuildPlan(date);
   const building = useOneAtATime();
   const deliveryOff = deliveryOn === false;
+  const m5bOn = useM5bOn();
 
   if (build.isPending) return <Generating />;
   return (
@@ -150,6 +155,7 @@ function EmptyPlan({ date, online, deliveryOn }: { date: string; online: boolean
       body={online ? (deliveryOff ? t.planEmptyBody : t.planEmptyBodyReady) : t.planOfflineCold}
       action={online ? (
         <View style={{ alignItems: 'center', gap: 6, marginTop: 6 }}>
+          {m5bOn === true ? <PlanEnergyAsk /> : null}
           <Pill
             label={t.planEmptyBuildCta}
             size={15}
@@ -291,6 +297,10 @@ function LoadedPlan({ plan, date, readOnly }: { plan: DailyPlan; date: string; r
     || rebuild.error instanceof QuotaExceededError;
   // The day in time order: placed work and what is pinned to a time (L5).
   const rows = useMemo(() => planRows(plan), [plan]);
+  const m5bOn = useM5bOn();
+  // At the cap, a plan whose reading changed says it stays as it is, and the
+  // rebuild it can no longer have is not drawn (M5B-010).
+  const rebuildHidden = m5bOn === true && plan.basisChanged === true && capReached;
   const hoursOver = workingHoursOver(plan, new Date());
 
   const heading = useMemo(
@@ -366,6 +376,8 @@ function LoadedPlan({ plan, date, readOnly }: { plan: DailyPlan; date: string; r
           </View>
         </Card>
       ) : null}
+
+      {m5bOn === true ? <PlanEnergy plan={plan} readOnly={readOnly} capReached={capReached} /> : null}
 
       <SectionLabel>{t.planOrderTitle}</SectionLabel>
       {/* Nothing placed after the day's hours is not an empty day: it is a
@@ -548,7 +560,7 @@ function LoadedPlan({ plan, date, readOnly }: { plan: DailyPlan; date: string; r
           <Txt size={13} color={p.wm} testID="plan-accept-refused">{t[acceptRefusal.key] as string}</Txt>
         ) : null}
         <ActionRow>
-          <Pill
+          {rebuildHidden ? null : <Pill
             label={t.planRegenerate}
             kind="outline"
             size={14}
@@ -561,7 +573,7 @@ function LoadedPlan({ plan, date, readOnly }: { plan: DailyPlan; date: string; r
                 onSettled: rebuilding.leave,
               });
             }}
-          />
+          />}
           <Pill
             label={t.planDismiss}
             kind="ghost"

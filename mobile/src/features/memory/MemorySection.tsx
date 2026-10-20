@@ -113,6 +113,7 @@ export function MemorySection({ onOpen }: { onOpen?: (() => void) | undefined } 
           key={item.id}
           item={item}
           strings={strings}
+          wrapActions={m5bOn === true}
           editing={editing === item.id}
           confirming={confirming === item.id}
           onEdit={() => { setEditing(item.id); setDraft(item.content); }}
@@ -214,11 +215,13 @@ export function MemorySection({ onOpen }: { onOpen?: (() => void) | undefined } 
 }
 
 function MemoryRow({
-  item, strings, editing, confirming,
+  item, strings, editing, confirming, wrapActions,
   onEdit, onCancelEdit, onSave, onAskDelete, onCancelDelete, onDelete,
 }: {
   item: MemoryItem;
   strings: Record<string, string>;
+  /** M5b-1 R1.2: at AX5 the actions wrap to a second line instead of clipping. */
+  wrapActions: boolean;
   editing: boolean;
   confirming: boolean;
   onEdit: () => void;
@@ -261,8 +264,10 @@ function MemoryRow({
             {isolateAuto(memorySentence({ content: item.content, strings }))}
           </Txt>
           <View
-            testID={`m5b-memory-row-actions-${item.id}`}
-            style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', columnGap: 10, rowGap: 4 }}
+            {...(wrapActions ? { testID: `m5b-memory-row-actions-${item.id}` } : {})}
+            style={wrapActions
+              ? { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', columnGap: 10, rowGap: 4 }
+              : { flexDirection: 'row', alignItems: 'center', gap: 10 }}
           >
             {chip ? (
               <View style={{ backgroundColor: p.sf2, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 4 }}>

@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
 import { act, fireEvent, screen, waitFor } from '@testing-library/react-native';
+import React from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { TodayScreen } from '../../screens/TodayScreen';
 import {
   ACCOUNT_A,
   ACCOUNT_B,
@@ -9,6 +11,7 @@ import {
   initialState,
   prepare,
   showToday,
+  Providers,
   teardown,
   type Energy,
   type M5bHarness,
@@ -143,11 +146,18 @@ describe('M5B-018 hide for the local day', () => {
       energy: { source: 'none', level: null, band: null, changedPick: false },
     }));
     await AsyncStorage.setItem(HIDDEN_A, TODAY);
-    await showToday(harness);
+    const view = await showToday(harness);
     await waitFor(() => expect(screen.queryByTestId('next-step-card')).not.toBeNull());
     expect(screen.queryByTestId('m5b-today-energy-question')).toBeNull();
 
     await act(async () => { harness!.repository.emit(ACCOUNT_B); });
+    // GA-AMEND-2: the app reaches B's Today through a remount (sign-out shows
+    // the gate first); a direct A→B emit under one mounted screen leaves its
+    // observers on the cache the provider has just cleared. Same pattern as
+    // m5a/calendarCapabilityEnrollment.
+    await act(async () => {
+      await view.rerender(<Providers harness={harness!}><TodayScreen key={ACCOUNT_B.uid} /></Providers>);
+    });
     await waitFor(() => expect(screen.queryByTestId('m5b-today-energy-question')).not.toBeNull());
     expect(await AsyncStorage.getItem(`m5b.todayEnergyAskHidden.v1:${ACCOUNT_B.uid}`)).toBeNull();
   });
