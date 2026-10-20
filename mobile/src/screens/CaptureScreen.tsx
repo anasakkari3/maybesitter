@@ -455,8 +455,10 @@ export function CaptureScreen({ entryQuestion }: { entryQuestion?: { entry: Capt
       if (edit.title !== undefined && edit.title !== item?.title) rest.title = edit.title;
       if (edit.priority !== undefined && edit.priority !== (item?.priority ?? 'normal')) rest.priority = edit.priority;
       if (edit.locationTrigger !== undefined) rest.locationTrigger = edit.locationTrigger;
-      if (Object.keys(rest).length) flow.editItem(itemId, rest);
-    } else flow.editItem(itemId, edit);
+      // The sheet's whole answer, less the time the no-time option settles:
+      // it replaces the earlier edit even when nothing else is left (M4B-R6-001).
+      flow.editItem(itemId, rest, { replace: true });
+    } else flow.editItem(itemId, edit, { replace: true });
   };
   const quickAction = (id: string) => {
     if (busy || answering) return;
