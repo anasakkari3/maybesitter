@@ -478,22 +478,22 @@ describe('inspection r6 and the simulator pass (M5A-R6-001/002/003, SIM-M5A-02)'
     let current = true;
     jest.spyOn(deviceCalendar, 'createEvent').mockResolvedValue('e-left');
     const remove = jest.spyOn(deviceCalendar, 'deleteEvent').mockRejectedValueOnce(new Error('busy')).mockResolvedValue(undefined);
-    const first = accountBoundCalendar(() => current, UID);
+    const first = accountBoundCalendar(() => current, { owner: UID, domain: 'device' });
     await first.calendar.createEvent('cal', {} as never);
     current = false;
     await first.rollbackUnlinked();
-    expect(JSON.parse((await AsyncStorage.getItem(`calendar.unlinkedCreated.v1:${UID}`)) ?? '[]')).toEqual(['e-left']);
+    expect(JSON.parse((await AsyncStorage.getItem(`calendar.unlinkedCreated.v1:${UID}:device`)) ?? '[]')).toEqual(['e-left']);
     current = true;
-    const next = accountBoundCalendar(() => current, UID);
+    const next = accountBoundCalendar(() => current, { owner: UID, domain: 'device' });
     await next.recoverUnlinked(new Set());
     expect(remove).toHaveBeenLastCalledWith('e-left');
-    expect(JSON.parse((await AsyncStorage.getItem(`calendar.unlinkedCreated.v1:${UID}`)) ?? '[]')).toEqual([]);
+    expect(JSON.parse((await AsyncStorage.getItem(`calendar.unlinkedCreated.v1:${UID}:device`)) ?? '[]')).toEqual([]);
   });
 
   it('R8-002: recovery never deletes an event a stored link names', async () => {
-    await AsyncStorage.setItem(`calendar.unlinkedCreated.v1:${UID}`, JSON.stringify(['e-linked']));
+    await AsyncStorage.setItem(`calendar.unlinkedCreated.v1:${UID}:device`, JSON.stringify(['e-linked']));
     const remove = jest.spyOn(deviceCalendar, 'deleteEvent').mockResolvedValue(undefined);
-    await accountBoundCalendar(() => true, UID).recoverUnlinked(new Set(['e-linked']));
+    await accountBoundCalendar(() => true, { owner: UID, domain: 'device' }).recoverUnlinked(new Set(['e-linked']));
     expect(remove).not.toHaveBeenCalled();
   });
 
@@ -509,6 +509,22 @@ describe('inspection r6 and the simulator pass (M5A-R6-001/002/003, SIM-M5A-02)'
     });
     expect(await act(async () => rejoinPhone(UID))).toBe(false);
     expect(harness.server.matching('POST', /\/calendar\/busy\/register$/)).toHaveLength(0);
+  });
+
+  it('R9-001: one writer\'s recovery never deletes the other writer\'s unlinked events', async () => {
+    await AsyncStorage.setItem(`calendar.unlinkedCreated.v1:${UID}:device`, JSON.stringify(['e-commitment']));
+    const remove = jest.spyOn(deviceCalendar, 'deleteEvent').mockResolvedValue(undefined);
+    await accountBoundCalendar(() => true, { owner: UID, domain: 'weekly' }).recoverUnlinked(new Set());
+    expect(remove).not.toHaveBeenCalled();
+    expect(JSON.parse((await AsyncStorage.getItem(`calendar.unlinkedCreated.v1:${UID}:device`)) ?? '[]')).toEqual(['e-commitment']);
+  });
+
+  it('R9-002: a disconnect that cannot read the enrolment marker or the source record is not reported as done', async () => {
+    harness = await prepare();
+    await AsyncStorage.setItem(ENROLLED, 'corrupt');
+    await expect(deleteThisPhonesBusy(UID)).rejects.toThrow();
+    await AsyncStorage.multiSet([[ENROLLED, '2030-03-20T08:00:00.000Z'], [`calendar.sourceId.v1:${UID}`, '{not json']]);
+    await expect(deleteThisPhonesBusy(UID)).rejects.toThrow();
   });
 });
 

@@ -237,6 +237,23 @@ export async function loadSource(uid: string): Promise<StoredSource | null> {
   }
 }
 
+/**
+ * Like `loadSource`, but an unreadable or malformed record throws instead of
+ * reading as "never registered" (M5A-R9-002): a disconnect must not report a
+ * delete it could not establish.
+ */
+export async function loadSourceStrict(uid: string): Promise<StoredSource | null> {
+  const raw = await AsyncStorage.getItem(calendarChoiceKeys.sourceId(uid));
+  if (raw === null) return null;
+  const value: unknown = JSON.parse(raw);
+  const row = value && typeof value === 'object' ? value as Record<string, unknown> : null;
+  if (!row || typeof row.sourceId !== 'string' || !row.sourceId.startsWith('device:')
+    || typeof row.sourceInstallationId !== 'string' || row.sourceInstallationId === '') {
+    throw new Error('unreadable source record');
+  }
+  return { sourceId: row.sourceId, sourceInstallationId: row.sourceInstallationId };
+}
+
 export async function saveSource(uid: string, source: StoredSource): Promise<void> {
   await AsyncStorage.setItem(calendarChoiceKeys.sourceId(uid), JSON.stringify(source));
 }

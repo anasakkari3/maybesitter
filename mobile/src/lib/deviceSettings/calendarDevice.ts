@@ -171,16 +171,28 @@ export async function forgetWrittenEventId(uid: string, eventId: string): Promis
   }
 }
 
-const unlinkedCreatedKey = (uid: string) => `calendar.unlinkedCreated.v1:${uid}`;
+/** Which writer created the events: each recovers only its own (M5A-R9-001). */
+export type UnlinkedDomain = 'device' | 'weekly';
+const unlinkedCreatedKey = (uid: string, domain: UnlinkedDomain) => `calendar.unlinkedCreated.v1:${uid}:${domain}`;
+
+// One chain per key: two writers' read-modify-writes never interleave.
+const journalChains = new Map<string, Promise<unknown>>();
+function serializedJournal<T>(key: string, run: () => Promise<T>): Promise<T> {
+  const previous = journalChains.get(key) ?? Promise.resolve();
+  const next = previous.then(run, run);
+  journalChains.set(key, next.then(() => undefined, () => undefined));
+  return next;
+}
 
 /**
- * Events a pass of this account created and has not yet linked or removed
- * (M5A-R8-002). Recorded before creation counts as done, removed only after a
- * link is stored or a delete succeeded, so an event left behind by a failed
- * rollback is retried on the account's next pass. Throws when unreadable.
+ * Events one writer of this account created and has not yet linked or removed
+ * (M5A-R8-002, M5A-R9-001). Recorded before creation counts as done, removed
+ * only after a link is stored or a delete succeeded, so an event left behind
+ * by a failed rollback is retried on that writer's next pass. Throws when
+ * unreadable.
  */
-export async function loadUnlinkedCreated(uid: string): Promise<string[]> {
-  const raw = await AsyncStorage.getItem(unlinkedCreatedKey(uid));
+export async function loadUnlinkedCreated(uid: string, domain: UnlinkedDomain): Promise<string[]> {
+  const raw = await AsyncStorage.getItem(unlinkedCreatedKey(uid, domain));
   if (raw === null) return [];
   const parsed: unknown = JSON.parse(raw);
   if (!Array.isArray(parsed)) throw new Error('unlinked events unreadable');
@@ -188,19 +200,26 @@ export async function loadUnlinkedCreated(uid: string): Promise<string[]> {
 }
 
 /** Throws when it cannot be written: the caller then takes the event back out. */
-export async function noteUnlinkedCreated(uid: string, eventId: string): Promise<void> {
-  const current = await loadUnlinkedCreated(uid);
-  if (current.includes(eventId)) return;
-  await AsyncStorage.setItem(unlinkedCreatedKey(uid), JSON.stringify([...current, eventId]));
+export function noteUnlinkedCreated(uid: string, domain: UnlinkedDomain, eventId: string): Promise<void> {
+  const key = unlinkedCreatedKey(uid, domain);
+  return serializedJournal(key, async () => {
+    const current = await loadUnlinkedCreated(uid, domain);
+    if (current.includes(eventId)) return;
+    await AsyncStorage.setItem(key, JSON.stringify([...current, eventId]));
+  });
 }
 
-export async function settleUnlinkedCreated(uid: string, eventId: string): Promise<void> {
-  try {
-    const current = await loadUnlinkedCreated(uid);
-    await AsyncStorage.setItem(unlinkedCreatedKey(uid), JSON.stringify(current.filter((id) => id !== eventId)));
-  } catch {
-    // Left behind: the next recovery skips it while its link exists.
-  }
+export function settleUnlinkedCreated(uid: string, domain: UnlinkedDomain, eventId: string): Promise<void> {
+  const key = unlinkedCreatedKey(uid, domain);
+  return serializedJournal(key, async () => {
+    try {
+      const current = await loadUnlinkedCreated(uid, domain);
+      if (!current.includes(eventId)) return;
+      await AsyncStorage.setItem(key, JSON.stringify(current.filter((id) => id !== eventId)));
+    } catch {
+      // Left behind: the next recovery skips it while its link exists.
+    }
+  });
 }
 
 const pendingUnlinksKey = (uid: string) => `calendar.pendingUnlinks.v1:${uid}`;

@@ -55,7 +55,7 @@ export function resetWeeklySyncForTests(): void {
  * pass created but never saved a link for can be taken back out.
  */
 function portsFor(uid: string, stillCurrent: () => boolean): WeeklySyncPorts & { rollbackUnlinked(): Promise<void> } {
-  const bound = accountBoundCalendar(stillCurrent, uid);
+  const bound = accountBoundCalendar(stillCurrent, { owner: uid, domain: 'weekly' });
   return {
     calendar: bound.calendar,
     loadLinks: () => loadWeeklyEventLinks(uid),
@@ -64,7 +64,7 @@ function portsFor(uid: string, stillCurrent: () => boolean): WeeklySyncPorts & {
       const saved = await saveWeeklyEventLinks(uid, links);
       // Saved links are the commit point (M5A-R7-001): those events are the
       // account's and are never rolled back, even if it changed during the save.
-      if (saved) for (const link of links) for (const eventId of link.eventIds) bound.linked(eventId);
+      if (saved) for (const link of links) for (const eventId of link.eventIds) await bound.linked(eventId);
       if (!stillCurrent()) return false;
       return saved;
     },

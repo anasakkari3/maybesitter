@@ -1,6 +1,6 @@
 import { AccountChangedError } from '../../api/errors';
 import { deviceCalendar, type DeviceCalendar } from './deviceCalendar';
-import { loadUnlinkedCreated, noteUnlinkedCreated, settleUnlinkedCreated } from '../../lib/deviceSettings/calendarDevice';
+import { loadUnlinkedCreated, noteUnlinkedCreated, settleUnlinkedCreated, type UnlinkedDomain } from '../../lib/deviceSettings/calendarDevice';
 
 /**
  * The phone's calendar, bound to the account a write pass began for
@@ -14,8 +14,8 @@ import { loadUnlinkedCreated, noteUnlinkedCreated, settleUnlinkedCreated } from 
  */
 export interface AccountBoundCalendar {
   calendar: DeviceCalendar;
-  /** The pass saved its link for this event: it is no longer this pass's to take back. */
-  linked(eventId: string): void;
+  /** The pass saved its link for this event: it is no longer this pass's to take back. Settles the journal. */
+  linked(eventId: string): Promise<void>;
   /** Removes events this pass created and never linked. Called when the account changed. */
   rollbackUnlinked(): Promise<void>;
   /**
@@ -25,7 +25,10 @@ export interface AccountBoundCalendar {
   recoverUnlinked(linkedEventIds: ReadonlySet<string>): Promise<void>;
 }
 
-export function accountBoundCalendar(stillCurrent: () => boolean, owner?: string): AccountBoundCalendar {
+export function accountBoundCalendar(
+  stillCurrent: () => boolean,
+  journal?: { owner: string; domain: UnlinkedDomain },
+): AccountBoundCalendar {
   const created = new Set<string>();
   // A failed delete keeps the event recorded and in the set (M5A-R8-002).
   const takeBack = async (eventId: string): Promise<void> => {
@@ -35,7 +38,7 @@ export function accountBoundCalendar(stillCurrent: () => boolean, owner?: string
       return;
     }
     created.delete(eventId);
-    if (owner) await settleUnlinkedCreated(owner, eventId);
+    if (journal) await settleUnlinkedCreated(journal.owner, journal.domain, eventId);
   };
   const check = () => {
     if (!stillCurrent()) throw new AccountChangedError('the account changed during the calendar pass');
@@ -46,9 +49,9 @@ export function accountBoundCalendar(stillCurrent: () => boolean, owner?: string
       check();
       const eventId = await deviceCalendar.createEvent(...args);
       created.add(eventId);
-      if (owner) {
+      if (journal) {
         try {
-          await noteUnlinkedCreated(owner, eventId);
+          await noteUnlinkedCreated(journal.owner, journal.domain, eventId);
         } catch (error) {
           // Unrecorded, it could not be retried later: taken back out now.
           await deviceCalendar.deleteEvent(eventId).then(() => { created.delete(eventId); }, () => undefined);
@@ -76,18 +79,18 @@ export function accountBoundCalendar(stillCurrent: () => boolean, owner?: string
   };
   return {
     calendar,
-    linked: (eventId) => {
+    linked: async (eventId) => {
       created.delete(eventId);
-      if (owner) void settleUnlinkedCreated(owner, eventId);
+      if (journal) await settleUnlinkedCreated(journal.owner, journal.domain, eventId);
     },
     rollbackUnlinked: async () => {
       for (const eventId of [...created]) await takeBack(eventId);
     },
     recoverUnlinked: async (linkedEventIds) => {
-      if (!owner || !stillCurrent()) return;
+      if (!journal || !stillCurrent()) return;
       let recorded: string[];
       try {
-        recorded = await loadUnlinkedCreated(owner);
+        recorded = await loadUnlinkedCreated(journal.owner, journal.domain);
       } catch {
         return;
       }
@@ -95,7 +98,7 @@ export function accountBoundCalendar(stillCurrent: () => boolean, owner?: string
         if (!stillCurrent()) return;
         if (created.has(eventId)) continue;
         if (linkedEventIds.has(eventId)) {
-          await settleUnlinkedCreated(owner, eventId);
+          await settleUnlinkedCreated(journal.owner, journal.domain, eventId);
           continue;
         }
         try {
@@ -103,7 +106,7 @@ export function accountBoundCalendar(stillCurrent: () => boolean, owner?: string
         } catch {
           continue;
         }
-        await settleUnlinkedCreated(owner, eventId);
+        await settleUnlinkedCreated(journal.owner, journal.domain, eventId);
       }
     },
   };

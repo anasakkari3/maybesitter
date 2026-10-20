@@ -111,7 +111,7 @@ export function useCalendarSettings() {
  * nothing of A's lands in the calendar or on the account under B.
  */
 export function apiSyncPorts(uid: string, stillCurrent: () => boolean): SyncPorts & { rollbackUnlinked(): Promise<void> } {
-  const bound = accountBoundCalendar(stillCurrent, uid);
+  const bound = accountBoundCalendar(stillCurrent, { owner: uid, domain: 'device' });
   const check = () => {
     if (!stillCurrent()) throw new AccountChangedError('the account changed during the calendar pass');
   };
@@ -122,7 +122,7 @@ export function apiSyncPorts(uid: string, stillCurrent: () => boolean): SyncPort
       await putDeviceCalendarLink(commitmentId, link, { asUid: uid });
       // A stored link is the commit point (M5A-R7-001): the event is the
       // account's from here, whatever happens next, and is never rolled back.
-      bound.linked(link.eventId);
+      await bound.linked(link.eventId);
       check();
     },
     deleteLink: async (commitmentId, writerId) => {

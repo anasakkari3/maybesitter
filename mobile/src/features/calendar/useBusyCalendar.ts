@@ -53,7 +53,7 @@ import {
   type DeviceBusyCache,
 } from '../../lib/deviceSettings/calendarBusy';
 import { loadExcludedCalendarIds, loadWrittenEventIds, resolveWriterId } from '../../lib/deviceSettings/calendarDevice';
-import { invalidateDeviceBusyCache, loadChoiceEnrolledAt, loadSource } from '../../lib/deviceSettings/calendarChoice';
+import { invalidateDeviceBusyCache, loadChoiceEnrolledAt, loadSourceStrict } from '../../lib/deviceSettings/calendarChoice';
 import { readSourceCredential, resetSourceCredentialForTests } from '../../lib/deviceSettings/sourceCredential';
 import { clearCalendarBusyM5, postBusyIntent } from '../../api/endpoints/m5a';
 import { fetchM5aCapabilities } from '../m5a/capabilities';
@@ -486,8 +486,22 @@ export function useBusyCalendar(): BusyCalendarState {
  * legacy source as before.
  */
 export async function deleteThisPhonesBusy(uid: string): Promise<void> {
-  if (uid !== 'signed-out' && (await loadChoiceEnrolledAt(uid).catch(() => 'unknown')) !== null) {
-    const source = await loadSource(uid);
+  // Every local read is strict (M5A-R9-002): an enrolment marker or source
+  // record that cannot be read fails the disconnect visibly; only a read that
+  // succeeded and found nothing takes the "never registered" path.
+  let enrolledAt: string | null;
+  try {
+    enrolledAt = uid === 'signed-out' ? null : await loadChoiceEnrolledAt(uid);
+  } catch {
+    throw new Error('the calendar choice could not be read');
+  }
+  if (enrolledAt !== null) {
+    let source;
+    try {
+      source = await loadSourceStrict(uid);
+    } catch {
+      throw new Error('the source record could not be read');
+    }
     let credential;
     try {
       credential = await readSourceCredential(uid);
