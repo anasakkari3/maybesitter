@@ -514,7 +514,7 @@ function TimesStep({ flow, times, plan }: { flow: Flow; times: GoalPlanTimes; pl
       const reason = reasonOf(step);
       const alternatives = alternativesOf(step);
       return <Card key={step.stepId} testID={`plan-times-step-${step.stepId}`} style={{ gap: 8 }}>
-        {name ? <Txt role="body" weight={700}>{name}</Txt> : null}
+        {name ? <Txt role="body" weight={700}>{isolateQuoted(name)}</Txt> : null}
         {later ? <Txt role="supporting" color={p.mu} testID={`plan-times-later-${step.stepId}`}>{fill(t.xPlanTimesLater, { n: later.weekIndex })}</Txt> : <>
           {slot ? <Txt testID={`plan-times-slot-${step.stepId}`}>{slotLine(slot)}</Txt> : null}
           {weekly ? <Txt testID={`plan-times-weekly-${step.stepId}`}>{weeklyLine(weekly, startOf(step.stepId))}</Txt> : null}

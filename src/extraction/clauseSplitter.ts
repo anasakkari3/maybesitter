@@ -290,24 +290,17 @@ const EXPLICIT_REMINDER_OPENER = new RegExp(
 );
 
 /**
- * A bare hedge — «يمكن / ممكن / ربما», «אולי» — is a point of its own only
- * before a verb in the first person: «يمكن أسافر», «ممكن بروح», «אולי אעבור».
- * Before anything else it is a remark on the point before it: «… الساعة 5.
- * ممكن يتأخر شوي», «… الأحد. يمكن يأجلوه», «… ב-5. אולי תתארך» (BB-04 review).
+ * A bare hedge — «يمكن / ممكن / ربما», «אולי» — never opens a point after a
+ * sentence end: what follows it is as often the hour of the point before
+ * («… . ممكن الساعة 5»), a remark on it («… . ممكن أحمد يتأخر», «… . אולי נועה
+ * תאחר») as a new plan, and no letter-level test tells them apart (Codex
+ * M6B-R2-001). It stays with the point before, as it did before BB-04. The
+ * explicit markers — «عم بفكر», «ناوي», «مستني», «حلمي», "I'm thinking of",
+ * "maybe I…" — still open one.
  */
-// Punctuation may stand between the hedge and its verb («ممكن، يتأخر», "אולי, תתארך")
-// without changing whose verb it is (Codex M6B-R01).
-const BARE_HEDGE = new RegExp('^(?:يمكن|ممكن|ربما|אולי)(?:[\\s,،.:;!?؟\\-–—]|$)[\\s,،.:;!?؟\\-–—]*([^\\s,،.:;!?؟]*)', 'u');
-function firstPersonVerb(word: string): boolean {
-  return /^[أاإن]/.test(word)
-    // Spoken Arabic b-imperfect: «بسافر», «بروح» are «I»; «بيسافر», «بتسافر» are not.
-    || (/^ب/.test(word) && !/^ب[يت]/.test(word))
-    || /^[אנ]/.test(word);
-}
+const BARE_HEDGE = new RegExp('^(?:يمكن|ممكن|ربما|אולי)(?=[\\s,،.:;!?؟\\-–—]|$)', 'u');
 function opensWithIntentOfMyOwn(text: string): boolean {
-  if (!opensWithUnresolvedIntent(text)) return false;
-  const hedge = BARE_HEDGE.exec(text);
-  return hedge === null || (hedge[1] !== '' && firstPersonVerb(hedge[1]!));
+  return opensWithUnresolvedIntent(text) && !BARE_HEDGE.test(text);
 }
 
 /** Whether a sentence opens a clause of its own, after `previous`. */

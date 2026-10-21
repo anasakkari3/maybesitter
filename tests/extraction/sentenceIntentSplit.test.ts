@@ -30,7 +30,7 @@ test('BB-04: each intent marker after a period opens its own clause (ar / en / h
     ['عندي موعد دكتور بكرا الساعة 5. ناوي أبلش رياضة', 2],
     ["Dentist on Sunday at 10. I'm thinking of moving to Haifa", 2],
     ['Dentist on Sunday at 10. Someday I want to learn piano', 2],
-    ['רופא שיניים ביום ראשון ב-10. אולי אעבור דירה', 2],
+    ['רופא שיניים ביום ראשון ב-10. אני חושב על לעבור דירה', 2],
   ] as const) {
     assert.equal(splitCaptureClauses(text).length, expected, `${text} → ${JSON.stringify(splitCaptureClauses(text))}`);
   }
@@ -46,24 +46,23 @@ test('BB-04 guards: a sentence that restates the hour or is only a time still be
   }
 });
 
-test('BB-04 review: a bare hedge before a third-person verb is a remark on the point before, not a point', () => {
+test('BB-04 review (Codex M6B-R2-001): a bare hedge after a period stays with the point before', () => {
   for (const text of [
     'اجتماع مع المدير الساعة 5. ممكن يتأخر شوي',
     'عندي امتحان الأحد. يمكن يأجلوه',
+    'عندي موعد. ممكن الساعة 5',
+    'عندي موعد الساعة 5. ممكن أحمد يتأخر',
     'פגישה ב-5. אולי תתארך',
-    'Meeting at 5. Maybe it runs late',
-    // Codex M6B-R01: punctuation after the hedge does not change whose verb it is.
-    // (The Arabic comma «،» is not used here: it is a hard separator by the
-    // splitter's older rule and splits wherever it stands.)
+    'פגישה ב-5. אולי נועה תאחר',
     'اجتماع الساعة 5. ممكن: يتأخر شوي',
-    'פגישה ב-5. אולי, תתארך',
+    'Meeting at 5. Maybe it runs late',
   ]) {
     assert.equal(splitCaptureClauses(text).length, 1, `${text} → ${JSON.stringify(splitCaptureClauses(text))}`);
   }
+  // The explicit markers still open a point.
   for (const text of [
-    'عندي امتحان الأحد. يمكن أسافر بعده',
-    'عندي امتحان الأحد. ممكن بروح على البحر بعده',
-    'רופא שיניים ביום ראשון ב-10. אולי אעבור דירה',
+    'عندي امتحان الأحد. عم بفكر أسافر بعده',
+    'عندي امتحان الأحد. ناوي أروح على البحر بعده',
     'Dentist Sunday at 10. Maybe I will skip it',
   ]) {
     assert.equal(splitCaptureClauses(text).length, 2, `${text} → ${JSON.stringify(splitCaptureClauses(text))}`);
