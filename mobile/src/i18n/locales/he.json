@@ -2111,5 +2111,7 @@
   "m5bEnergyLevelA11y": "אנרגיה {energy} מתוך 5",
   "m6SearchNoResults": "לא מצאנו כלום בשם הזה",
   "m6SearchMore": "יש עוד תוצאות. הוסיפו מילה כדי לצמצם.",
-  "m6PlanKeptGroup": "{count, plural, one{דבר אחד} two{שני דברים} other{# דברים}}"
+  "m6PlanKeptGroup": "{count, plural, one{דבר אחד} two{שני דברים} other{# דברים}}",
+  "m6SearchDone": "בוצע {date}",
+  "m6SearchDropped": "הופל במודע {date}"
 }

@@ -2108,5 +2108,7 @@
   "m5bEnergyLevelA11y": "طاقتك {energy} من 5",
   "m6SearchNoResults": "ما لقينا إشي بهالاسم",
   "m6SearchMore": "في نتايج أكتر. زيد كلمة لتلاقي اللي بدك ياه.",
-  "m6PlanKeptGroup": "{count, plural, zero{ما في إشي} one{إشي واحد} two{إشيين} few{# أشيا} many{# إشي} other{# إشي}}"
+  "m6PlanKeptGroup": "{count, plural, zero{ما في إشي} one{إشي واحد} two{إشيين} few{# أشيا} many{# إشي} other{# إشي}}",
+  "m6SearchDone": "تمّت {date}",
+  "m6SearchDropped": "أسقطته بوعي {date}"
 }

@@ -16,7 +16,8 @@ import { ReferenceIcon } from '../../ui/referenceIcons';
 import { ChevronIcon } from '../../ui/icons';
 import { Screen, ScreenScroll, TAB_CLEARANCE, FLOATING_GAP } from '../../ui/screen';
 import { AvoidKeyboard, useSoftKeyboardShown } from '../../ui/keyboard';
-import { rankByText } from './searchModel';
+import { rankByText, settledAt } from './searchModel';
+import type { Commitment } from '../../api/schemas/common';
 import { useCommitmentMatches } from './useSearch';
 
 /** Seeds that are still something the person is weighing up. */
@@ -33,7 +34,7 @@ const RECENT = 5;
  * titles, goals, habits and ideas — and opens the match where it lives.
  */
 export function ThingsScreen({ tabClearance = TAB_CLEARANCE }: { tabClearance?: number } = {}) {
-  const { t, p, rtl, lang, actions } = useApp();
+  const { t, tr, p, rtl, lang, actions } = useApp();
   const zone = useTimeZone();
   const today = useToday();
   const upcoming = useUpcoming();
@@ -57,22 +58,30 @@ export function ThingsScreen({ tabClearance = TAB_CLEARANCE }: { tabClearance?: 
 
   // Folded on both sides, word-start matches first, and — with the capability
   // on — the server's done, dropped and older items too (PLAN-M6a R54.2).
-  const search$ = useCommitmentMatches(search, records, record => toViewModel(record, now).shownAt);
+  const search$ = useCommitmentMatches(search, records);
   const needle = search$.needle;
   const titlesOf = (items: readonly string[]) => items.slice(0, 2).map(isolateAuto).join(' · ');
 
+  // A finished or dropped search result is dated by when that happened, not
+  // by the due date it once had (M6A-INSPECT-002).
+  const settledWhen = (record: Commitment) => {
+    const at = settledAt(record);
+    if (!at) return null;
+    const date = formatDate(new Date(at), 'short', { locale: lang, timeZone: zone });
+    return tr(record.status === 'dropped' ? 'm6SearchDropped' : 'm6SearchDone', { date });
+  };
   const whenOf = (view: CommitmentView) => view.shownAt
     ? `${formatDate(new Date(view.shownAt), 'short', { locale: lang, timeZone: zone })}${view.allDay ? '' : ` · ${formatTime(new Date(view.shownAt), { locale: lang, timeZone: zone })}`}`
     : t.xUntimed;
   const impLabel = (view: CommitmentView) => view.importance === 'must' ? t.todayGroupMust : view.importance === 'should' ? t.todayGroupShould : t.todayGroupNice;
   type Row =
     | { kind: 'header'; id: string; title: string; count: number }
-    | { kind: 'commitment'; id: string; view: CommitmentView }
+    | { kind: 'commitment'; id: string; view: CommitmentView; settled: string | null }
     | { kind: 'goal'; id: string; goal: (typeof goals)[number] }
     | { kind: 'habit'; id: string; habit: (typeof habitItems)[number] }
     | { kind: 'seed'; id: string; seed: (typeof seedItems)[number] };
   const sections: Row[][] = !needle.searchable ? [] : [
-    search$.commitments.map(record => ({ kind: 'commitment' as const, id: record.id, view: toViewModel(record, now) })),
+    search$.commitments.map(record => ({ kind: 'commitment' as const, id: record.id, view: toViewModel(record, now), settled: settledWhen(record) })),
     rankByText(goals, goal => goal.content, needle).map(goal => ({ kind: 'goal' as const, id: goal.id, goal })),
     rankByText(habitItems, habit => habit.title, needle).map(habit => ({ kind: 'habit' as const, id: habit.habitId, habit })),
     rankByText(seedItems, seed => seed.summary, needle).map(seed => ({ kind: 'seed' as const, id: seed.seedId, seed })),
@@ -118,7 +127,7 @@ export function ThingsScreen({ tabClearance = TAB_CLEARANCE }: { tabClearance?: 
                     <Txt size={13} color={p.mu} latin testID={`m6-search-count-${item.id}`}>{String(item.count)}</Txt>
                   </View>
                 : item.kind === 'commitment'
-                ? <SavedRow view={item.view} when={whenOf(item.view)} imp={impLabel(item.view)} onPress={() => actions.openDetail(item.id)} rowTestID={`m6-search-result-commitment-${item.id}`} />
+                ? <SavedRow view={item.view} when={item.settled ?? whenOf(item.view)} imp={impLabel(item.view)} onPress={() => actions.openDetail(item.id)} rowTestID={`m6-search-result-commitment-${item.id}`} />
                 : item.kind === 'goal'
                   ? <HubRow testID={`things-result-goal-${item.id}`} icon="flag" tone="attention" title={isolateAuto(item.goal.content)} sub={t.thingsGoals} onPress={() => actions.openGoal(item.id)} />
                   : item.kind === 'habit'

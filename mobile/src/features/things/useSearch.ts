@@ -28,7 +28,7 @@ export interface CommitmentMatches {
  * immediately, plus — with the capability on — the server's search over done,
  * dropped and older items, after the typing settles (D54-1).
  */
-export function useCommitmentMatches(raw: string, local: readonly Commitment[], shownAt: (item: Commitment) => string | null): CommitmentMatches {
+export function useCommitmentMatches(raw: string, local: readonly Commitment[]): CommitmentMatches {
   const needle = needleOf(raw);
   const settled = needleOf(useDebounced(raw, DEBOUNCE_MS));
   const on = useSearchHistoryOn() === true;
@@ -37,7 +37,7 @@ export function useCommitmentMatches(raw: string, local: readonly Commitment[], 
   const serverItems = ask && server.data ? server.data.items : [];
   return {
     needle,
-    commitments: needle.searchable ? rankCommitments(local, serverItems, needle, shownAt) : [],
+    commitments: needle.searchable ? rankCommitments(local, serverItems, needle, Date.now()) : [],
     truncated: ask && server.data?.truncated === true,
   };
 }

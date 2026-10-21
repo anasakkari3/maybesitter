@@ -88,7 +88,7 @@ export function denseCommitments(): ReturnType<typeof commitment>[] {
     const starts = `2030-03-${String(29 + (index % 3)).padStart(2, '0')}T${String(8 + (index % 10)).padStart(2, '0')}:00:00.000Z`;
     return commitment(id, {
       title,
-      status: done ? 'done' : dropped ? 'dropped' : 'active',
+      status: done ? 'completed' /* GA-M6-AMEND-2: the DTO's own vocabulary (density fixture) */ : dropped ? 'dropped' : 'active',
       priority: {
         level: index % 3 === 0 ? 'high' : index % 3 === 1 ? 'normal' : 'low',
         source: 'user_explicit', pressureAllowed: false, pressureLevel: 'none',

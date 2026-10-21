@@ -58,8 +58,9 @@ export function isolateLatinRuns(text: string): string {
   return text.replace(LATIN_RUN, (run) => isolateAuto(run));
 }
 
-/** The first strong (Arabic, Hebrew or Latin) letter of `text`, skipping isolates, digits and punctuation. */
-const STRONG = /[\u0590-\u05FF\uFB1D-\uFB4F]|[\u0600-\u06FF\u0750-\u077F\uFB50-\uFDFF\uFE70-\uFEFF]|[A-Za-z\u00C0-\u024F]/;
+/** A letter (never a digit, a mark or punctuation), and the scripts that decide a direction. */
+const LETTER = /\p{L}/u;
+const RTL_SCRIPT = /[\p{Script=Arabic}\p{Script=Hebrew}]/u;
 
 /**
  * The direction a piece of user text reads in by itself: its first strong
@@ -68,7 +69,11 @@ const STRONG = /[\u0590-\u05FF\uFB1D-\uFB4F]|[\u0600-\u06FF\u0750-\u077F\uFB50-\
  * language other than the app's on its own side (condition 53).
  */
 export function firstStrongDirection(text: string, fallback: 'ltr' | 'rtl'): 'ltr' | 'rtl' {
-  const match = stripIsolates(text).match(STRONG);
-  if (!match) return fallback;
-  return /[A-Za-z\u00C0-\u024F]/.test(match[0]) ? 'ltr' : 'rtl';
+  // Code point by code point, letters only: «٣ Dentist» and «، Dentist» start
+  // at the D (M6A-INSPECT-001).
+  for (const char of stripIsolates(text)) {
+    if (!LETTER.test(char)) continue;
+    return RTL_SCRIPT.test(char) ? 'rtl' : 'ltr';
+  }
+  return fallback;
 }

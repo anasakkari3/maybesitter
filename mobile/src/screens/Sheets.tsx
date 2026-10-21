@@ -794,7 +794,7 @@ function whyWord(why: string, t: ReturnType<typeof useApp>['t']): string {
   return why === 'soonest' ? t.zWhySoonest : why === 'light_day' ? t.zWhyLightDay : t.zWhyUsual;
 }
 
-/** More than one slot, all for the same reason. */
+/** Every slot for the same reason — one slot included (M6A-INSPECT-003). */
 function sameWhy(slots: readonly { why: string }[]): boolean {
-  return slots.length > 1 && slots.every(slot => slot.why === slots[0]!.why);
+  return slots.length > 0 && slots.every(slot => slot.why === slots[0]!.why);
 }

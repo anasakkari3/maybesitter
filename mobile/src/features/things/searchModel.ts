@@ -41,7 +41,7 @@ export function matchTier(text: string, needle: Needle): MatchTier | null {
   return isWordPrefixMatch(folded, needle.folded) ? 0 : 1;
 }
 
-function settledAt(item: Commitment): string | null {
+export function settledAt(item: Commitment): string | null {
   return item.status === 'completed' || item.status === 'done' ? item.completedAt : item.status === 'dropped' ? item.droppedAt : null;
 }
 
@@ -58,7 +58,7 @@ export function rankCommitments(
   local: readonly Commitment[],
   server: readonly Commitment[],
   needle: Needle,
-  shownAt: (item: Commitment) => string | null,
+  nowMs: number,
 ): Commitment[] {
   // The server's answer is already ranked, by each item's resolved time
   // (`postponedUntil` included, which this screen's view model does not
@@ -66,15 +66,22 @@ export function rankCommitments(
   // server did not send follows it, ranked here.
   if (server.length > 0) {
     const sent = new Set(server.map(item => item.id));
-    return [...server, ...rankLocal(local.filter(item => !sent.has(item.id)), needle, shownAt)];
+    return [...server, ...rankLocal(local.filter(item => !sent.has(item.id)), needle, nowMs)];
   }
-  return rankLocal(local, needle, shownAt);
+  return rankLocal(local, needle, nowMs);
 }
 
+/** The server's `resolvedCommitmentTime`, then `createdAt` — the same instant it ranks by (M6A-INSPECT-005). */
+function resolvedMs(item: Commitment): number {
+  const at = Date.parse(item.postponedUntil || item.timeSpec.remindAt || item.timeSpec.dueAt || item.createdAt);
+  return Number.isFinite(at) ? at : 0;
+}
+
+/** Ranked as the server ranks: word start first; then what is live, nearest to now; then what was settled, most recent first. */
 function rankLocal(
   local: readonly Commitment[],
   needle: Needle,
-  shownAt: (item: Commitment) => string | null,
+  nowMs: number,
 ): Commitment[] {
   const byId = new Map<string, Commitment>();
   for (const item of local) byId.set(item.id, item);
@@ -86,11 +93,7 @@ function rankLocal(
     const aSettled = isSettled(a.item);
     const bSettled = isSettled(b.item);
     if (aSettled !== bSettled) return aSettled ? 1 : -1;
-    if (!aSettled) {
-      const at = shownAt(a.item) ?? '9999';
-      const bt = shownAt(b.item) ?? '9999';
-      return at.localeCompare(bt);
-    }
+    if (!aSettled) return Math.abs(resolvedMs(a.item) - nowMs) - Math.abs(resolvedMs(b.item) - nowMs);
     return (settledAt(b.item) ?? '').localeCompare(settledAt(a.item) ?? '');
   }).map(entry => entry.item);
 }

@@ -1,4 +1,5 @@
 import { useCommitmentMatches } from '../things/useSearch';
+import { settledAt } from '../things/searchModel';
 import React, { useState } from 'react';
 import { FlatList, Platform, TextInput, View } from 'react-native';
 import { useApp } from '../../state/AppContext';
@@ -144,7 +145,7 @@ export function PersonalizationScreen() {
 }
 
 export function CommitmentsScreen() {
-  const { t, p, rtl, lang, actions } = useApp();
+  const { t, tr, p, rtl, lang, actions } = useApp();
   const zone = useTimeZone();
   const today = useToday();
   const upcoming = useUpcoming();
@@ -154,7 +155,7 @@ export function CommitmentsScreen() {
   const [reverse, setReverse] = useState(false);
   const items = uniqueCommitments([...(today.data?.items ?? []), ...(upcoming.data?.items ?? [])]);
   const now = new Date().toISOString();
-  const search$ = useCommitmentMatches(search, items, item => toViewModel(item, now).shownAt);
+  const search$ = useCommitmentMatches(search, items);
   const needle = search$.needle.raw;
   // Searching looks everywhere: the open/done filter and the hiding of
   // dropped items are for browsing, and would hide exactly what a search for
@@ -163,6 +164,13 @@ export function CommitmentsScreen() {
     ? search$.commitments.map(item => toViewModel(item, now))
     : items.map(item => toViewModel(item, now)).filter(item => item.status !== 'dropped' && (filter === 'all' || item.status === filter))
       .sort((a,b) => (a.shownAt ?? '9999').localeCompare(b.shownAt ?? '9999') * (reverse ? -1 : 1));
+  const settledLine = (id: string) => {
+    const record = search$.commitments.find(item => item.id === id);
+    const at = record ? settledAt(record) : null;
+    if (!record || !at) return null;
+    const date = formatDate(new Date(at), 'short', { locale: lang, timeZone: zone });
+    return tr(record.status === 'dropped' ? 'm6SearchDropped' : 'm6SearchDone', { date });
+  };
   const when = (item: CommitmentView) => item.shownAt
     ? `${formatDate(new Date(item.shownAt), 'short', { locale: lang, timeZone: zone })}${item.allDay ? '' : ` · ${formatTime(new Date(item.shownAt), { locale: lang, timeZone: zone })}`}`
     : t.xUntimed;
@@ -207,10 +215,10 @@ export function CommitmentsScreen() {
           </View>}
           ListEmptyComponent={<View style={{ paddingVertical: 28 }}><Txt role="supporting" color={p.mu} testID="commitments-no-results">{t.xNoResults}</Txt></View>}
           ListFooterComponent={search$.truncated ? <Txt role="supporting" color={p.mu} testID="commitments-search-more">{t.m6SearchMore}</Txt> : null}
-          renderItem={({ item }) => <Btn testID={`commitments-item-${item.id}`} label={`${item.title}. ${when(item)}`} onPress={() => actions.openDetail(item.id)}
+          renderItem={({ item }) => <Btn testID={`commitments-item-${item.id}`} label={`${item.title}. ${(needle ? settledLine(item.id) : null) ?? when(item)}`} onPress={() => actions.openDetail(item.id)}
             style={{ minHeight: 56, borderRadius: 14, borderWidth: 1, borderColor: p.ln, backgroundColor: p.sf, paddingHorizontal: 12, paddingVertical: 7, justifyContent: 'center', gap: 2 }}>
             <Txt size={15} weight={600} lines={2} testID={`m6-user-text-commitments-${item.id}`}>{isolateAuto(item.title)}</Txt>
-            <Txt size={13} color={p.mu} lines={1} testID={needle && item.status !== 'active' ? `m6-search-status-${item.id}` : `commitments-item-status-${item.id}`}>{`${item.status === 'done' ? t.xDone : item.status === 'dropped' ? t.activityKindDropped : t.xOpen} · ${when(item)}`}</Txt>
+            <Txt size={13} color={p.mu} lines={1} testID={needle && item.status !== 'active' ? `m6-search-status-${item.id}` : `commitments-item-status-${item.id}`}>{(needle ? settledLine(item.id) : null) ?? `${item.status === 'done' ? t.xDone : item.status === 'dropped' ? t.activityKindDropped : t.xOpen} · ${when(item)}`}</Txt>
           </Btn>}
         />
       </QueryBoundary>
