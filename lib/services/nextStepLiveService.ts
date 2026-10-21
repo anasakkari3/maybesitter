@@ -35,6 +35,13 @@ export interface LiveContext extends AnalyticsContext {
     quietHours?: { start: string; end: string } | null;
     focusWindows?: readonly { start: string; end: string }[];
   };
+  /** M5b fresh reading. Null means no fresh reading and preserves today's id/pick. */
+  energy?: {
+    readonly source: 'check_in' | 'health';
+    readonly level: 1 | 2 | 3 | 4 | 5 | null;
+    readonly band: 'low' | 'steady' | 'high' | null;
+    readonly observedAt: string;
+  } | null;
 }
 
 /**
@@ -59,6 +66,41 @@ function visibleState(state: DomainState, exclude?: ReadonlySet<string>): Domain
 function proposalId(state: DomainState, salt = ''): string {
   const fingerprint = JSON.stringify(Object.values(state.commitments).map((item) => [item.id, item.updatedAt]).sort()) + salt;
   return `next-step-${createHash('sha256').update(fingerprint).digest('hex').slice(0, 16)}`;
+}
+
+const LIGHTER_RULE_HORIZON_MS = 120 * 60 * 1000;
+
+function durationMinutes(commitment: DomainState['commitments'][string]): number | null {
+  if (commitment.timeSpec.allDay || !commitment.timeSpec.dueAt || !commitment.timeSpec.endAt) return null;
+  const duration = Date.parse(commitment.timeSpec.endAt) - Date.parse(commitment.timeSpec.dueAt);
+  return Number.isFinite(duration) && duration >= 0 ? duration / 60_000 : null;
+}
+
+function heavy(commitment: DomainState['commitments'][string] | undefined): boolean {
+  const minutes = commitment ? durationMinutes(commitment) : null;
+  return minutes !== null && minutes > 60;
+}
+
+function lighter(commitment: DomainState['commitments'][string]): boolean {
+  const minutes = durationMinutes(commitment);
+  return minutes !== null && minutes <= 60;
+}
+
+/** Whether a heavy ordinary pick may yield to a lighter candidate. */
+export function lighterRuleYields(commitment: DomainState['commitments'][string], now: Date): boolean {
+  if (!heavy(commitment)) return false;
+  if (commitment.timeSpec.kind === 'due_by') {
+    const anchor = Date.parse(latenessDeadline(commitment.timeSpec) ?? '');
+    const distance = anchor - now.getTime();
+    return !(Number.isFinite(anchor) && distance >= 0 && distance <= LIGHTER_RULE_HORIZON_MS);
+  }
+  if (commitment.timeSpec.kind === 'scheduled_event') {
+    const start = Date.parse(commitment.timeSpec.dueAt ?? '');
+    const end = Date.parse(commitment.timeSpec.endAt ?? '');
+    return !(Number.isFinite(start) && Number.isFinite(end)
+      && now.getTime() >= start - LIGHTER_RULE_HORIZON_MS && now.getTime() < end);
+  }
+  return false;
 }
 
 /**
@@ -132,14 +174,14 @@ function withStartsSoon(proposal: NextStepRecommendationContract, state: DomainS
 // Async since UC-1.0c (#142): the `recommendation_shown` event it emits is a
 // storage write. The proposal itself is still computed synchronously — only
 // the recording is awaited.
-export async function getLiveNextStep(state: DomainState, context: LiveContext): Promise<NextStepRecommendationContract> {
+export async function getLiveNextStepWithMetadata(state: DomainState, context: LiveContext): Promise<{ recommendation: NextStepRecommendationContract; changedPick: boolean }> {
   const runtime = resolveModuleRuntime('recommendation', context.controls || readRuntimeControls());
   if (runtime.mode !== 'enabled') {
-    return {
+    return { recommendation: {
       version: 'v1', proposalId: 'next-step-disabled', state: 'insufficient_evidence', locale: context.locale,
       primaryStep: null, explanation: null, availableActions: [],
       persistence: { occurred: false, confirmationRequired: true },
-    };
+    }, changedPick: false };
   }
   const assigned = withArmAssignment(context);
   const arm = resolveNextStepArm(context.anonymousUserId, context.env).arm;
@@ -151,13 +193,36 @@ export async function getLiveNextStep(state: DomainState, context: LiveContext):
   // id is genuinely stale.
   const visible = visibleState(state, context.excludeCommitmentIds);
   const candidates = startableNow(visible, context.now);
-  const selection = selectNextStepForArmFromState(arm, candidates, {
+  let selection = selectNextStepForArmFromState(arm, candidates, {
     now: context.now,
     locale: context.locale,
     proposalId: proposalId(candidates),
     timezone: context.timezone || 'UTC',
     ...(context.routine ? { routine: context.routine } : {}),
   });
+  let lighterOutcome: 'not_run' | 'kept' | 'yielded' = context.energy?.band === 'low' ? 'kept' : 'not_run';
+  if (context.energy?.band === 'low') {
+    const picked = selection.selectedCommitmentId ? candidates.commitments[selection.selectedCommitmentId] : undefined;
+    if (heavy(picked) && picked && lighterRuleYields(picked, context.now)) {
+      const lighterState: DomainState = {
+        ...candidates,
+        commitments: Object.fromEntries(Object.entries(candidates.commitments).filter(([, commitment]) => lighter(commitment))),
+      };
+      if (Object.keys(lighterState.commitments).length > 0) {
+        const alternative = selectNextStepForArmFromState(arm, lighterState, {
+          now: context.now,
+          locale: context.locale,
+          proposalId: proposalId(candidates),
+          timezone: context.timezone || 'UTC',
+          ...(context.routine ? { routine: context.routine } : {}),
+        });
+        if (alternative.recommendation.state === 'ready') {
+          selection = alternative;
+          lighterOutcome = 'yielded';
+        }
+      }
+    }
+  }
   // Preparation for an important event comes before the ordinary pick, unless
   // that pick is a task due first (`keepsPrecedence`). Its id is its own: a
   // card holding the ordinary proposal is stale once this replaces it.
@@ -165,9 +230,18 @@ export async function getLiveNextStep(state: DomainState, context: LiveContext):
   // the same exclusions; the event itself stays a candidate (review of #2).
   const prep = preparationStep(visible, context.now, context.timezone || 'UTC', context.locale,
     preparationsHidden(context.excludeCommitmentIds ?? new Set()));
-  const proposal = prep && !keepsPrecedence(candidates, selection.selectedCommitmentId, prep, context.now)
+  let proposal = prep && !keepsPrecedence(candidates, selection.selectedCommitmentId, prep, context.now)
     ? preparationProposal(prep, context.locale, proposalId(candidates, `|prepare:${prep.event.id}`))
     : withStartsSoon(selection.recommendation, candidates, context.now);
+  const changedPick = lighterOutcome === 'yielded' && proposal.primaryStep?.purpose !== 'prepare'
+    && proposal.primaryStep?.commitmentId === selection.selectedCommitmentId;
+  if (context.energy && proposal.state === 'ready' && proposal.primaryStep) {
+    const preparation = proposal.primaryStep.purpose === 'prepare';
+    const base = preparation ? `|prepare:${proposal.primaryStep.commitmentId}` : '';
+    const reading = `|energy:${context.energy.source}:${context.energy.level ?? '-'}:${context.energy.band ?? '-'}:${context.energy.observedAt}`;
+    const pick = `|pick:${proposal.primaryStep.commitmentId}:${preparation ? 'preparation' : 'ordinary'}:${lighterOutcome}`;
+    proposal = { ...proposal, proposalId: proposalId(candidates, `${base}${reading}${pick}`) };
+  }
   const latencyMs = Math.round(performance.now() - startedAt);
 
   if (proposal.state === 'ready' && context.emitShown !== false && proposal.primaryStep) {
@@ -180,7 +254,11 @@ export async function getLiveNextStep(state: DomainState, context: LiveContext):
       costMicros: 0,
     });
   }
-  return proposal;
+  return { recommendation: proposal, changedPick };
+}
+
+export async function getLiveNextStep(state: DomainState, context: LiveContext): Promise<NextStepRecommendationContract> {
+  return (await getLiveNextStepWithMetadata(state, context)).recommendation;
 }
 
 const DECISION_EVENTS: Record<NextStepDecision, PrivacySafeAnalyticsEvent['eventName']> = {

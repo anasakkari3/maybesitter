@@ -1,0 +1,17 @@
+{
+  "success": true,
+  "summary": {
+    "status": "ready",
+    "language": "en",
+    "sentences": [
+      {
+        "text": "Likes tea.",
+        "memoryIds": [
+          "mem_00000000-0000-4000-8000-000000000001"
+        ]
+      }
+    ],
+    "coveredCount": 1,
+    "totalCount": 1
+  }
+}

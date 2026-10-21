@@ -3,6 +3,8 @@ import { TextInput, View } from 'react-native';
 import { useLayoutMode } from '../../theme/textScale';
 import { useApp } from '../../state/AppContext';
 import { useNextStep, useNextStepDecision } from '../../api/queries';
+import { useM5bOn } from '../m5b/capabilities';
+import { TodayEnergy } from '../m5b/energy';
 import { QueryBoundary } from '../../api/ui/QueryBoundary';
 import { ConflictError } from '../../api/errors';
 import { family } from '../../theme/fonts';
@@ -78,6 +80,7 @@ export function NextStepCard({ lookup }: {
   const compact = useLayoutMode() !== 'normal';
   const query = useNextStep();
   const decide = useNextStepDecision();
+  const m5bOn = useM5bOn();
   const [showWhy, setShowWhy] = useState(false);
   const [editing, setEditing] = useState(false);
   const [deferring, setDeferring] = useState(false);
@@ -111,6 +114,7 @@ export function NextStepCard({ lookup }: {
   return (
     <QueryBoundary isPending={query.isPending} error={query.error} onRetry={() => void query.refetch()}>
       {recommendation && !silenced ? (
+        <>
         <View
           testID="next-step-card"
           style={{
@@ -154,6 +158,8 @@ export function NextStepCard({ lookup }: {
             </>
           )}
         </View>
+        {m5bOn === true && query.data?.energy ? <TodayEnergy energy={query.data.energy} /> : null}
+        </>
       ) : null}
     </QueryBoundary>
   );

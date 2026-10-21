@@ -1,15 +1,17 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { TextInput, View } from 'react-native';
 import { useApp } from '../../state/AppContext';
-import { isolateAuto } from '../../i18n/bidi';
+import { isolateAuto, isolateLatinRuns } from '../../i18n/bidi';
 import { Btn, Card, Txt } from '../../ui/primitives';
 import {
   useCreateMemory,
   useDeleteAllMemory,
   useDeleteMemory,
   useMemory,
+  useMemorySummary,
   usePatchMemory,
 } from '../../api/queries';
+import { useM5bOn } from '../m5b/capabilities';
 import type { MemoryItem } from '../../api/schemas/profile';
 import { CHIP_STRING, memorySentence, provenanceChip } from './memoryDisplay';
 
@@ -46,8 +48,11 @@ import { CHIP_STRING, memorySentence, provenanceChip } from './memoryDisplay';
  * nowhere to send the user simply gets no link rather than a dead one.
  */
 export function MemorySection({ onOpen }: { onOpen?: (() => void) | undefined } = {}) {
-  const { t, p, rtl } = useApp();
+  const { t, tr, p, rtl, lang } = useApp();
   const memory = useMemory();
+  // Asked even with nothing remembered, so the answer is ready when a first
+  // record arrives; off or unknown leaves this card exactly as it was.
+  const m5bOn = useM5bOn();
   const create = useCreateMemory();
   const patch = usePatchMemory();
   const remove = useDeleteMemory();
@@ -58,13 +63,27 @@ export function MemorySection({ onOpen }: { onOpen?: (() => void) | undefined } 
   const [editing, setEditing] = useState<string | null>(null);
   const [confirming, setConfirming] = useState<string | null>(null);
   const [confirmAll, setConfirmAll] = useState(false);
+  // The paragraph is asked for only after its disclosure is on screen
+  // (M5B1-011): the effect that flips this runs after the line has mounted.
+  const [disclosed, setDisclosed] = useState(false);
+  const hasItems = (memory.data?.items.length ?? 0) > 0;
+  // Rows already on screen may have been sent, so a later failed refetch of
+  // the list keeps the card and its disclosure (M5B-A-004).
+  const summaryOn = m5bOn === true && hasItems;
+  const summary = useMemorySummary(summaryLanguage(lang), summaryOn && disclosed);
 
-  // 404: the feature is off for this build. Nothing to show, and nothing to
-  // apologise for.
-  if (memory.isError || memory.data === undefined) return null;
+  // 404 on the first read: the feature is off for this build. Nothing to show,
+  // and nothing to apologise for. A failed refetch keeps the rows it had.
+  if (memory.data === undefined) return null;
 
   const items = memory.data.items;
   const strings = t as unknown as Record<string, string>;
+  // Only a current answer is a paragraph (M5B-A-001): a refetch that failed,
+  // or one still running after a memory change, never shows the old one.
+  // A list that failed to refetch shows its rows.
+  const current = summary.status === 'success' && !summary.isFetching && !memory.isError;
+  const ready = summaryOn && current && summary.data.status === 'ready' ? summary.data : null;
+  const loading = summaryOn && !memory.isError && (!disclosed || summary.isFetching || summary.isPending) && summary.status !== 'error';
 
   return (
     <Card pad={0} style={{ overflow: 'hidden' }} testID="memory-section">
@@ -78,11 +97,30 @@ export function MemorySection({ onOpen }: { onOpen?: (() => void) | undefined } 
         </View>
       ) : null}
 
-      {items.map(item => (
+      {ready ? (
+        <View style={{ paddingHorizontal: 18, paddingBottom: 14, gap: 8 }}>
+          <Txt role="section" size={13} weight={600} color={p.mu} testID="memory-summary-title">{t.m5bSummaryTitle}</Txt>
+          <Txt size={15} lh={1.6} testID="memory-summary">
+            {ready.sentences.map(sentence => isolateAuto(sentence.text)).join(' ')}
+          </Txt>
+          {ready.totalCount > ready.coveredCount ? (
+            <Txt size={13} color={p.mu} testID="memory-summary-more">
+              {tr('m5bSummaryMore', { count: ready.totalCount - ready.coveredCount })}
+            </Txt>
+          ) : null}
+        </View>
+      ) : loading ? (
+        <View style={{ paddingHorizontal: 18, paddingBottom: 14 }}>
+          <Txt size={14} color={p.mu} testID="memory-summary-loading">{t.m5bSummaryLoading}</Txt>
+        </View>
+      ) : null}
+
+      {ready || loading ? null : items.map(item => (
         <MemoryRow
           key={item.id}
           item={item}
           strings={strings}
+          m5bOn={m5bOn === true}
           editing={editing === item.id}
           confirming={confirming === item.id}
           onEdit={() => { setEditing(item.id); setDraft(item.content); }}
@@ -96,6 +134,8 @@ export function MemorySection({ onOpen }: { onOpen?: (() => void) | undefined } 
           onDelete={() => { setConfirming(null); remove.mutate(item.id); }}
         />
       ))}
+
+      {summaryOn ? <SummaryDisclosure onShown={setDisclosed} /> : null}
 
       {adding ? (
         <View style={{ paddingHorizontal: 18, paddingVertical: 12, gap: 10, borderTopWidth: 1, borderTopColor: p.ln }}>
@@ -182,11 +222,13 @@ export function MemorySection({ onOpen }: { onOpen?: (() => void) | undefined } 
 }
 
 function MemoryRow({
-  item, strings, editing, confirming,
+  item, strings, editing, confirming, m5bOn,
   onEdit, onCancelEdit, onSave, onAskDelete, onCancelDelete, onDelete,
 }: {
   item: MemoryItem;
   strings: Record<string, string>;
+  /** Only names the row for M5b's tests; the wrap itself applies always (PLAN-M5b-1 Release). */
+  m5bOn: boolean;
   editing: boolean;
   confirming: boolean;
   onEdit: () => void;
@@ -228,7 +270,12 @@ function MemoryRow({
           <Txt size={15} lh={1.5} testID={`memory-item-${item.id}`}>
             {isolateAuto(memorySentence({ content: item.content, strings }))}
           </Txt>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+          {/* At AX5 the actions wrap to a second line instead of clipping
+              «امسح» — on or off, because a clipped control is a defect. */}
+          <View
+            {...(m5bOn ? { testID: `m5b-memory-row-actions-${item.id}` } : {})}
+            style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', columnGap: 10, rowGap: 4 }}
+          >
             {chip ? (
               <View style={{ backgroundColor: p.sf2, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 4 }}>
                 <Txt size={12} color={p.mu} testID={`memory-chip-${item.id}`}>{strings[CHIP_STRING[chip]]}</Txt>
@@ -253,6 +300,29 @@ function MemoryRow({
           ) : null}
         </>
       )}
+    </View>
+  );
+}
+
+const summaryLanguage = (lang: string): 'ar' | 'en' | 'he' => (lang === 'ar' || lang === 'he' ? lang : 'en');
+
+/**
+ * Where the paragraph comes from, said before it is asked for and kept while
+ * it loads, after it arrives and when it fails (M5B1-011). It mounts first;
+ * its effect is what lets the request go.
+ */
+function SummaryDisclosure({ onShown }: { onShown: (shown: boolean) => void }) {
+  const { t, p } = useApp();
+  // Mounting lets the request go; unmounting (capability off, list emptied)
+  // takes that back, so a later remount asks only after it is drawn again
+  // (M5B-A-005).
+  useEffect(() => {
+    onShown(true);
+    return () => onShown(false);
+  }, [onShown]);
+  return (
+    <View style={{ paddingHorizontal: 18, paddingBottom: 12 }}>
+      <Txt size={13} color={p.mu} testID="memory-summary-disclosure">{isolateLatinRuns(t.m5bSummaryDisclosure)}</Txt>
     </View>
   );
 }

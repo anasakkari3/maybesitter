@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { readinessAppliedSchema } from './m5b';
 import { isoDateTime } from './common';
 
 /**
@@ -184,6 +185,10 @@ export const dailyPlanSchema = z.object({
    * no longer be derived from `generation` alone. Absent on an older server.
    */
   rebuildsLeft: z.number().int().nonnegative().optional(),
+  // M5b-1 (R4.1): what the energy reading did to this plan — null is an
+  // unknown snapshot (stored before M5b-1) — and whether it changed since.
+  readinessApplied: readinessAppliedSchema.nullable().optional(),
+  basisChanged: z.boolean().optional(),
   /**
    * When the day's last working window ends (an instant), or null when the
    * plan has none. After it, an empty plan means "today is over", not "nothing
@@ -386,6 +391,8 @@ export const weekDaySchema = z.object({
    */
   allDay: z.array(z.object({ itemId: z.string(), title: z.string().nullable() })).default([]),
   unplaced: z.array(z.object({ itemId: z.string(), title: z.string().nullable() })),
+  /** M5b-1 r5 (M5B1-014): the digest of this card's layout, sent back on accept. */
+  layoutDigest: z.string().min(1).optional(),
 });
 
 export const weekSchema = z.object({

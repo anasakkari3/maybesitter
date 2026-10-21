@@ -46,6 +46,7 @@ export async function POST(request: Request) {
   let date: string;
   let decisions;
   let shown: string[];
+  let layoutDigest: string | null;
   try {
     const body = await readJsonBody<unknown>(request, { limitBytes: WEEK_BODY_LIMIT_BYTES });
     const candidate = typeof body === 'object' && body !== null ? (body as { date?: unknown }).date : undefined;
@@ -53,6 +54,8 @@ export async function POST(request: Request) {
     date = candidate;
     decisions = parseWeekDecisions(body);
     shown = parseShown(body);
+    const digest = typeof body === 'object' && body !== null ? (body as { layoutDigest?: unknown }).layoutDigest : undefined;
+    layoutDigest = typeof digest === 'string' ? digest : null;
   } catch (error) {
     if (error instanceof RequestBodyTooLargeError) return requestBodyTooLargeResponse(error);
     if (error instanceof WeekDecisionsInvalid) return mobileError(error.message);
@@ -63,7 +66,7 @@ export async function POST(request: Request) {
 
   let result;
   try {
-    result = await acceptWeekDay(user.uid, date, decisions, shown);
+    result = await acceptWeekDay(user.uid, date, decisions, shown, {}, layoutDigest);
   } catch (error) {
     // Never a 500 for a day with nothing to accept (review of audit #4).
     if (error instanceof PlanEditRejected) {

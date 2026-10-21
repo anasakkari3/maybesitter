@@ -1,0 +1,42 @@
+{
+  "success": true,
+  "plan": {
+    "date": "2026-10-07",
+    "timezone": "Asia/Jerusalem",
+    "status": "proposed",
+    "generation": 1,
+    "inputDigest": "0000000000000000000000000000000000000000000000000000000000000000",
+    "generatedAt": "2026-08-09T09:00:00.000Z",
+    "acceptedAt": null,
+    "explanation": {
+      "text": "I placed 1 thing between 10:00 and 10:30.",
+      "locale": "en",
+      "source": "template"
+    },
+    "scheduled": [
+      {
+        "itemId": "00000000-0000-4000-8000-000000000001",
+        "title": "Write the report",
+        "startsAt": "2026-08-09T09:00:00.000Z",
+        "endsAt": "2026-08-09T09:00:00.000Z",
+        "blockId": "block:commitment:0c0ffee6-0000-4000-8000-000000000001"
+      }
+    ],
+    "unscheduled": [],
+    "edited": false,
+    "protections": [],
+    "fixed": [],
+    "inputsChanged": false,
+    "rebuildsLeft": 4,
+    "workingEndsAt": "2026-08-09T09:00:00.000Z",
+    "readinessApplied": {
+      "source": "check_in",
+      "energy": 2,
+      "band": "low",
+      "bufferMinutesAdded": 15,
+      "observedAt": "2026-08-09T09:00:00.000Z"
+    },
+    "basisChanged": false
+  },
+  "proposal": null
+}

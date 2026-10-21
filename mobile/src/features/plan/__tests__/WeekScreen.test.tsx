@@ -300,6 +300,21 @@ describe('saving a day', () => {
     expect(announce).toHaveBeenCalledWith(t.weekSavedToast);
   });
 
+  it('M5B1-014 sends back the digest of the card it drew, and none when the server sent none', async () => {
+    const digest = 'f'.repeat(64);
+    mockWeek = { ...RECORDED, days: RECORDED.days.map(day => (day.date === FIRST.date ? { ...day, layoutDigest: digest } : day)) };
+    await show();
+    await fireEvent.press(screen.getByTestId(`week-save-${FIRST.date}`));
+    expect(mockSave.mock.calls[0]![0]).toEqual({ date: FIRST.date, shown: shownOn(FIRST), layoutDigest: digest });
+
+    await cleanup();
+    mockSave.mockReset();
+    mockWeek = RECORDED;
+    await show();
+    await fireEvent.press(screen.getByTestId(`week-save-${FIRST.date}`));
+    expect((mockSave.mock.calls[0]![0] as { layoutDigest?: string }).layoutDigest).toBeUndefined();
+  });
+
   it('holds every save while one is in flight', async () => {
     mockSaving = true;
     mockSaveVariables = { date: FIRST.date, shown: shownOn(FIRST) };

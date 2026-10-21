@@ -1,0 +1,52 @@
+{
+  "success": true,
+  "participantId": "AccM2bRules0xxxxxxxxxxxxxxxx",
+  "recommendation": {
+    "version": "v1",
+    "proposalId": "next-step-0000000000000000",
+    "state": "ready",
+    "locale": "en",
+    "primaryStep": {
+      "commitmentId": "00000000-0000-4000-8000-000000000001",
+      "title": "Light work"
+    },
+    "explanation": {
+      "summary": "Based on due within 24 hours.",
+      "evidenceCodes": [
+        {
+          "code": "due_within_24h"
+        }
+      ],
+      "evidenceLabels": [
+        "due within 24 hours"
+      ],
+      "sensitiveInferenceUsed": false
+    },
+    "availableActions": [
+      "accept",
+      "edit",
+      "defer",
+      "dismiss",
+      "done"
+    ],
+    "persistence": {
+      "occurred": false,
+      "confirmationRequired": true
+    }
+  },
+  "assignment": {
+    "experimentId": "v03-next-step-proposal",
+    "arm": "generic",
+    "enabled": false
+  },
+  "exposure": {
+    "allowed": true,
+    "reason": "authorized"
+  },
+  "energy": {
+    "band": "low",
+    "source": "check_in",
+    "level": 2,
+    "changedPick": true
+  }
+}

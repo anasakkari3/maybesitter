@@ -903,7 +903,7 @@ export async function processStateChangesForUser(
   // off a step the person moved onto this day. Rebuilt from the document, as
   // of the account's local date now, so #383 still rolls in yesterday's work.
   const weekAssignment = storedWeekAssignment(storedPlan, localDateOf(nowIso, settings.timezone));
-  const { commitments, constraints, config } = await composeDailyPlanRequest({
+  const { commitments, constraints, config, basisSnapshot } = await composeDailyPlanRequest({
     uid,
     date,
     timezone: settings.timezone,
@@ -1152,9 +1152,10 @@ export async function processStateChangesForUser(
         edits,
         generation,
       );
+      const { readinessApplied: _oldReadiness, ...withoutOldReadiness } = current;
       return {
         next: {
-          ...current,
+          ...withoutOldReadiness,
           generation,
           replaces: { generation: current.generation, inputDigest: current.inputDigest },
           plan: newPlan,
@@ -1179,6 +1180,7 @@ export async function processStateChangesForUser(
            * exists.
            */
           proposal: null,
+          ...(basisSnapshot ? { readinessApplied: basisSnapshot.readinessApplied } : {}),
         },
         result: null,
       };
@@ -1215,6 +1217,7 @@ export async function processStateChangesForUser(
      * concurrent rebuild refused would be the same lie in the other direction.
      */
     const causes = pipelineResult.newPlan ? causesFor(pipelineResult.newPlan) : null;
+    const effectiveBasisSnapshot = reusedPendingSolveInputs ? pending?.basisSnapshot : basisSnapshot;
     const proposal: StoredPlanProposal | null = pipelineResult.newPlan && pipelineResult.policyDecision.diff && causes
       ? {
         proposalId: randomUUID(),
@@ -1223,6 +1226,7 @@ export async function processStateChangesForUser(
         baseInputDigest: storedPlan.inputDigest,
         plan: pipelineResult.newPlan,
         solveInputs: reusedPendingSolveInputs ?? { constraints, config, incrementalSolve },
+        ...(effectiveBasisSnapshot ? { basisSnapshot: effectiveBasisSnapshot } : {}),
         diff: pipelineResult.policyDecision.diff,
         reason: pipelineResult.policyDecision.reason,
         userControlMode: pipelineResult.policyDecision.userControlMode,
@@ -1277,10 +1281,12 @@ export async function processStateChangesForUser(
         // The guard above has required the document to carry `pending`'s id.
         if (pending !== null && proposalFingerprint(pending.plan) === proposalFingerprint(proposal.plan)) {
           sameOffer = true;
+          const { basisSnapshot: _oldBasisSnapshot, ...pendingWithoutBasisSnapshot } = pending;
           const refreshed = {
-            ...pending,
+            ...pendingWithoutBasisSnapshot,
             plan: proposal.plan,
             solveInputs: proposal.solveInputs,
+            ...(proposal.basisSnapshot ? { basisSnapshot: proposal.basisSnapshot } : {}),
             causeChangeIds: keptCauses!.changeIds,
             causeRefs: keptCauses!.refs,
           };
