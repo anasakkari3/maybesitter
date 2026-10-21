@@ -1,5 +1,5 @@
 import React from 'react';
-import { Pressable, Text } from 'react-native';
+import { Platform, Pressable, Text } from 'react-native';
 import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import { useDescribeProfile } from '../../api/queries';
@@ -9,6 +9,7 @@ import { KnowsScreen } from '../../features/settings/KnowsScreen';
 import { ConflictLine } from '../../features/today/ConflictLine';
 import { isolateAuto } from '../../i18n/bidi';
 import { TodayScreen } from '../../screens/TodayScreen';
+import { textAlignment } from '../../ui/primitives';
 import {
   NOW,
   Providers,
@@ -42,11 +43,24 @@ afterEach(async () => {
 
 const DIRECTION_CASES = [
   // Arabic: "meeting tomorrow".
-  ['ar', '\u0627\u062c\u062a\u0645\u0627\u0639 \u0628\u0643\u0631\u0629', 'rtl', 'right'],
-  ['en', 'Dentist tomorrow', 'ltr', 'left'],
+  ['ar', '\u0627\u062c\u062a\u0645\u0627\u0639 \u0628\u0643\u0631\u0629', 'rtl'],
+  ['en', 'Dentist tomorrow', 'ltr'],
   // Hebrew: "meeting tomorrow".
-  ['he', '\u05e4\u05d2\u05d9\u05e9\u05d4 \u05de\u05d7\u05e8', 'rtl', 'right'],
+  ['he', '\u05e4\u05d2\u05d9\u05e9\u05d4 \u05de\u05d7\u05e8', 'rtl'],
 ] as const;
+
+/**
+ * GA-M6-AMEND-1 (Claude): the native `textAlign` the app must send for a
+ * paragraph that starts at its own reading edge. Fabric swaps left/right with
+ * the layout direction on both platforms (`textAlignment` in ui/primitives),
+ * so a physical value would draw on the wrong side on a device: the expected
+ * value is the app's own mapping, logical start for text that reads with the
+ * layout and logical end for text that reads against it.
+ */
+function expectedAlign(contentDir: 'ltr' | 'rtl', language: 'ar' | 'en' | 'he'): string {
+  const uiRtl = language !== 'en';
+  return textAlignment((contentDir === 'rtl') === uiRtl ? 'start' : 'end', uiRtl, Platform.OS);
+}
 
 describe('M6 memory direction, provenance and actions', () => {
   it.each(['ar', 'en', 'he'] as const)(
@@ -62,9 +76,9 @@ describe('M6 memory direction, provenance and actions', () => {
       );
       await waitFor(() => expect(screen.queryByTestId('memory-screen-item-en')).not.toBeNull());
 
-      for (const [id, , writingDirection, textAlign] of DIRECTION_CASES) {
+      for (const [id, , writingDirection] of DIRECTION_CASES) {
         for (const testID of [`memory-item-${id}`, `memory-screen-item-${id}`]) {
-          expect(flatStyle(screen.getByTestId(testID))).toMatchObject({ writingDirection, textAlign });
+          expect(flatStyle(screen.getByTestId(testID))).toMatchObject({ writingDirection, textAlign: expectedAlign(writingDirection, language) });
         }
       }
       // The `en` fixture above is the explicit English-in-Arabic-UI regression.

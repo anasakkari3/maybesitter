@@ -60,8 +60,24 @@ export function rankCommitments(
   needle: Needle,
   shownAt: (item: Commitment) => string | null,
 ): Commitment[] {
+  // The server's answer is already ranked, by each item's resolved time
+  // (`postponedUntil` included, which this screen's view model does not
+  // know): it is kept in its order, and only what this screen loaded that the
+  // server did not send follows it, ranked here.
+  if (server.length > 0) {
+    const sent = new Set(server.map(item => item.id));
+    return [...server, ...rankLocal(local.filter(item => !sent.has(item.id)), needle, shownAt)];
+  }
+  return rankLocal(local, needle, shownAt);
+}
+
+function rankLocal(
+  local: readonly Commitment[],
+  needle: Needle,
+  shownAt: (item: Commitment) => string | null,
+): Commitment[] {
   const byId = new Map<string, Commitment>();
-  for (const item of [...server, ...local]) byId.set(item.id, item);
+  for (const item of local) byId.set(item.id, item);
   const matched = [...byId.values()]
     .map(item => ({ item, tier: matchTier(item.title, needle) }))
     .filter((entry): entry is { item: Commitment; tier: MatchTier } => entry.tier !== null);

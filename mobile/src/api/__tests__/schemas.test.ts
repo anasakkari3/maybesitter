@@ -104,6 +104,7 @@ import {
 import { reminderSettingsResponseSchema, hardReceiptsResponseSchema } from '../schemas/reminders';
 import { readinessResponseSchema, readinessSavedSchema } from '../schemas/readiness';
 import { m5bCapabilitiesSchema, memorySummaryResponseSchema } from '../schemas/m5b';
+import { commitmentSearchSchema, m6CapabilitiesSchema } from '../schemas/m6';
 import { watcherChangedSchema, watcherListSchema } from '../schemas/watchers';
 import {
   financialConnectionSchema,
@@ -444,6 +445,9 @@ const CASES: Array<[string, z.ZodType]> = [
   ['plan.m5b', planResponseSchema],
   ['readiness.m5b', readinessResponseSchema],
   ['next-step.m5b', nextStepResponseSchema],
+  // M6a-1: the probe and the commitment search.
+  ['capabilities.m6', m6CapabilitiesSchema],
+  ['commitments.search', commitmentSearchSchema],
   ['readiness.missing', readinessResponseSchema],
   ['readiness.saved', readinessSavedSchema],
   // "تابعلي" (#525). `label: null` is what the route sends for a watcher

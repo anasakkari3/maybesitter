@@ -70,7 +70,8 @@ function seed(id: string, summary: string) {
 
 describe('M6 mixed search', () => {
   it('R54.2 sections expose shown per-type counts and rank word prefixes before substrings', async () => {
-    const substring = commitment('substring', { title: 'Call alpha team' });
+    // GA-M6-AMEND-4: «alpha» inside a word, not at a word start («Call alpha team» is a word-start match by the plan and Gate B's fixtures).
+    const substring = commitment('substring', { title: 'Call metalpha team' });
     const prefix = commitment('prefix', { title: 'Alpha planning' });
     harness = await prepareM6('en', {
       commitments: [substring, prefix],
@@ -117,7 +118,7 @@ describe('M6 mixed search', () => {
 
   it('M6A-R5-001 sends POST q in JSON, keeps the URL empty, merges by id, and marks settled rows', async () => {
     const duplicate = commitment('duplicate', { title: 'Alpha duplicate' });
-    const done = commitment('done', { title: 'Alpha done', status: 'done', completedAt: '2030-03-20T10:00:00.000Z' });
+    const done = commitment('done', { title: 'Alpha done', status: 'completed' /* GA-M6-AMEND-2: the DTO's own vocabulary */, completedAt: '2030-03-20T10:00:00.000Z' });
     const dropped = commitment('dropped', { title: 'Alpha dropped', status: 'dropped', droppedAt: '2030-03-21T10:00:00.000Z' });
     harness = await prepareM6('en', {
       commitments: [duplicate], searchItems: [duplicate, done, dropped], searchHistory: true,
@@ -132,7 +133,9 @@ describe('M6 mixed search', () => {
     expect(request.query.toString()).toBe('');
     expect(request.body).toMatchObject({ q: 'Alpha' });
     expect(screen.getAllByTestId('m6-search-result-commitment-duplicate')).toHaveLength(1);
-    expect(screen.queryByTestId('m6-search-status-done')).not.toBeNull();
+
+    // GA-M6-AMEND-5: the answer renders after the request is recorded; wait for it.
+    await waitFor(() => expect(screen.queryByTestId('m6-search-status-done')).not.toBeNull());
     expect(screen.queryByTestId('m6-search-status-dropped')).not.toBeNull();
   });
 
@@ -153,7 +156,7 @@ describe('M6 mixed search', () => {
     });
     const settledAtEdge = [
       commitment('done-edge', {
-        title: 'Needle done edge', status: 'done', completedAt: '2029-12-30T09:00:00.000Z',
+        title: 'Needle done edge', status: 'completed' /* GA-M6-AMEND-2: the DTO's own vocabulary */, completedAt: '2029-12-30T09:00:00.000Z',
       }),
       commitment('dropped-edge', {
         title: 'Needle dropped edge', status: 'dropped', droppedAt: '2029-12-30T09:00:00.000Z',
@@ -164,6 +167,7 @@ describe('M6 mixed search', () => {
     await render(<Providers harness={harness}><ThingsScreen /></Providers>);
     await searchThings('Needle');
     await waitFor(() => expect(searchRequests(harness!)).toHaveLength(1));
+    await waitFor(() => expect(screen.queryByTestId('m6-search-status-dropped-edge')).not.toBeNull()); // GA-M6-AMEND-5
 
     expect(screen.getAllByTestId(/^m6-search-result-commitment-/).map(row => row.props.testID)).toEqual(
       emitted.map(item => `m6-search-result-commitment-${item.id}`),
@@ -214,10 +218,10 @@ describe('M6 mixed search', () => {
     };
     await refresh([commitment('changing', { title: 'Alpha edited' })]);
     expect(screen.queryByTestId('commitments-item-changing')).not.toBeNull();
-    await refresh([commitment('changing', { title: 'Alpha edited', status: 'done', completedAt: NOW.toISOString() })]);
-    expect(screen.queryByTestId('m6-search-status-changing')).not.toBeNull();
+    await refresh([commitment('changing', { title: 'Alpha edited', status: 'completed' /* GA-M6-AMEND-2: the DTO's own vocabulary */, completedAt: NOW.toISOString() })]);
+    await waitFor(() => expect(screen.queryByTestId('m6-search-status-changing')).not.toBeNull()); // GA-M6-AMEND-5
     await refresh([commitment('changing', { title: 'Alpha edited', status: 'dropped', droppedAt: NOW.toISOString() })]);
-    expect(screen.queryByTestId('m6-search-status-changing')).not.toBeNull();
+    await waitFor(() => expect(screen.queryByTestId('m6-search-status-changing')).not.toBeNull()); // GA-M6-AMEND-5
     await refresh([]);
     await waitFor(() => expect(screen.queryByTestId('commitments-item-changing')).toBeNull());
   });
@@ -245,14 +249,14 @@ describe('M6 mixed search', () => {
   });
 
   it('M6A-011 bypasses the active browser filter and dropped-row removal while a needle exists', async () => {
-    const done = commitment('done-only', { title: 'Needle done', status: 'done', completedAt: NOW.toISOString() });
+    const done = commitment('done-only', { title: 'Needle done', status: 'completed' /* GA-M6-AMEND-2: the DTO's own vocabulary */, completedAt: NOW.toISOString() });
     const dropped = commitment('dropped-only', { title: 'Needle dropped', status: 'dropped', droppedAt: NOW.toISOString() });
     harness = await prepareM6('en', { commitments: [], searchItems: [done, dropped] });
     await render(<Providers harness={harness}><CommitmentsScreen /></Providers>);
     await searchCommitments('Needle');
     await waitFor(() => expect(searchRequests(harness!)).toHaveLength(1));
 
-    expect(screen.queryByTestId('commitments-item-done-only')).not.toBeNull();
+    await waitFor(() => expect(screen.queryByTestId('commitments-item-done-only')).not.toBeNull()); // GA-M6-AMEND-5
     expect(screen.queryByTestId('commitments-item-dropped-only')).not.toBeNull();
     expect(screen.queryByTestId('m6-search-status-done-only')).not.toBeNull();
     expect(screen.queryByTestId('m6-search-status-dropped-only')).not.toBeNull();

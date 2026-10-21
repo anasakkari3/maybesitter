@@ -383,7 +383,7 @@ function MemoryGroupCard({
     <Card pad={0} style={{ overflow: 'hidden' }} testID={`memory-group-${group}`}>
       <View style={{ paddingHorizontal: 18, paddingTop: 16, paddingBottom: 4, flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', columnGap: 8, rowGap: 4 }}>
         <Txt size={13} weight={600} color={p.mu}>{strings[GROUP_STRING[group]]}</Txt>
-        {shared ? <Chip label={strings[SOURCE_LABEL_STRING[shared]] ?? ''} testID={`memory-group-source-${group}`} /> : null}
+        {shared ? <Chip label={strings[SOURCE_LABEL_STRING[shared]] ?? ''} testID={`m6-memory-group-source-${group}`} /> : null}
       </View>
       {rows.map(item => (
         <MemoryDetailRow

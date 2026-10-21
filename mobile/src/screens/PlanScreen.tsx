@@ -459,12 +459,12 @@ function LoadedPlan({ plan, date, readOnly }: { plan: DailyPlan; date: string; r
               is said once with how many it covers, not repeated per row. */}
           <Card pad={0} style={{ overflow: 'hidden' }} testID="plan-kept">
             {keptGroups(plan.unscheduled).map(({ key, items }, groupIndex) => (
-              <View key={key} testID={`plan-kept-group-${key}`} style={{ borderTopWidth: groupIndex === 0 ? 0 : 1, borderTopColor: p.ln, paddingVertical: 12, gap: 6 }}>
-                <Txt size={13} color={p.mu} lh={1.5} style={{ paddingHorizontal: 18 }} testID={`plan-kept-group-${key}-reason`}>
+              <View key={key} testID={`m6-plan-kept-group-${key}`} style={{ borderTopWidth: groupIndex === 0 ? 0 : 1, borderTopColor: p.ln, paddingVertical: 12, gap: 6 }}>
+                <Txt size={13} color={p.mu} lh={1.5} style={{ paddingHorizontal: 18 }} testID={`m6-plan-kept-reason-${key}`}>
                   {`${tr('m6PlanKeptGroup', { count: items.length })} · ${t[key] as string}`}
                 </Txt>
                 {items.map(item => (
-                  <View key={item.itemId} testID={`plan-kept-${item.itemId}`} style={{ paddingHorizontal: 18, paddingVertical: 4 }}>
+                  <View key={item.itemId} testID={`m6-plan-kept-row-${item.itemId}`} style={{ paddingHorizontal: 18, paddingVertical: 4 }}>
                     <Txt size={15} dir="auto">{item.title ? isolateAuto(item.title) : t.planRemovedItem}</Txt>
                   </View>
                 ))}

@@ -215,8 +215,8 @@ describe('what the screen shows', () => {
     await show(<MemoryScreen onBack={() => {}} />);
     // M6a-1 (condition 53): a group whose rows share one exact source says it
     // once, on its header; the label is still the server's own classification.
-    await waitFor(() => expect(screen.queryByTestId('memory-group-source-told')).not.toBeNull());
-    expect(screen.getByTestId('memory-group-source-told').props.children)
+    await waitFor(() => expect(screen.queryByTestId('m6-memory-group-source-told')).not.toBeNull());
+    expect(screen.getByTestId('m6-memory-group-source-told').props.children)
       .toBe(en.memorySourceOnboarding);
     expect(screen.queryByTestId('memory-screen-source-mem_told')).toBeNull();
   });

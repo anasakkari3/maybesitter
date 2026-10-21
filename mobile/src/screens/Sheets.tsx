@@ -215,7 +215,7 @@ function PostponeChoices({ commitmentId, knownTitle, onMoved }: {
         {/* A reason that every slot shares tells them apart from nothing: say
             it once above them, and on each chip only when they differ (SIM-B4). */}
         {sameWhy(smart.slots) ? (
-          <Txt size={13} color={p.mu} testID="postpone-slots-why-shared">{whyWord(smart.slots[0]!.why, t)}</Txt>
+          <Txt size={13} color={p.mu} testID="m6-postpone-shared-reason">{whyWord(smart.slots[0]!.why, t)}</Txt>
         ) : null}
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
           {smart.slots.map((slot, index) => {

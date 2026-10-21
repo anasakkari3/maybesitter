@@ -109,14 +109,14 @@ export function CommitmentCard({ row, marker = false, narrow = false, agenda = f
         {agenda ? (
           <View style={{ flex: 1, gap: due ? 2 : 0 }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-              <Txt size={15} weight={700} color={p.tx} lines={1} style={{ flex: 1 }}>{isolateAuto(item.title)}</Txt>
+              <Txt size={15} weight={700} color={p.tx} lines={2} style={{ flex: 1 }} testID={`m6-calendar-title-${item.id}`}>{isolateAuto(item.title)}</Txt>
               <Txt size={13} color={p.mu} latin={time !== null && !offDay} lines={1} testID={`calendar-time-${item.id}`}>{time ?? t.noTimeYet}</Txt>
             </View>
             {due ? <Txt size={13} color={p.mu} lines={1} testID={`calendar-due-${item.id}`}>{due}</Txt> : null}
           </View>
         ) : (
           <View style={{ flex: 1, gap: 2, alignItems: 'flex-start' }}>
-            <Txt size={15} weight={700} color={p.tx}>{isolateAuto(item.title)}</Txt>
+            <Txt size={15} weight={700} color={p.tx} testID={`m6-calendar-title-${item.id}`}>{isolateAuto(item.title)}</Txt>
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', columnGap: 8 }}>
               <Txt size={13} color={p.mu} latin={time !== null && !offDay} testID={`calendar-time-${item.id}`}>{time ?? t.noTimeYet}</Txt>
               {due ? <Txt size={13} color={p.mu} testID={`calendar-due-${item.id}`}>{due}</Txt> : null}
@@ -294,7 +294,7 @@ export function DayTimeline({ rows: allRows, day, nowIso }: { rows: readonly Pla
               );
             }
             return (
-              <View key={entry.key} style={frame}>
+              <View key={entry.key} style={{ ...frame, height: Math.max(entry.height, 1) }} testID={`m6-timeline-block-${entry.key}`}>
                 {row.kind === 'busy'
                   ? <BusyCard row={row} height={entry.height} />
                   : <WeeklyCard occurrence={row.occurrence} height={entry.height} />}

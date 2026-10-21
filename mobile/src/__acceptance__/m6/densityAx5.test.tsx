@@ -44,7 +44,7 @@ afterEach(async () => {
 });
 
 function expectUserTextUnclamped(): void {
-  const userText = screen.queryAllByTestId(/^m6-user-text-/);
+  const userText = screen.queryAllByTestId(/^m6-(user-text|calendar-title)-/) /* GA-M6-AMEND-3: the calendar's titles carry the gate's own m6-calendar-title id */;
   expect(userText.length).toBeGreaterThan(0);
   for (const node of userText) expect(node.props.numberOfLines).not.toBe(1);
 }

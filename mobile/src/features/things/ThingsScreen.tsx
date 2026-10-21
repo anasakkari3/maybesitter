@@ -110,12 +110,15 @@ export function ThingsScreen({ tabClearance = TAB_CLEARANCE }: { tabClearance?: 
               style={{ flex: 1, marginBottom: Math.max(0, tabClearance - FLOATING_GAP) }}
               contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 12, paddingBottom: FLOATING_GAP, gap: 10 }}
               keyboardShouldPersistTaps="handled" initialNumToRender={10} maxToRenderPerBatch={10} windowSize={7}
-              ListEmptyComponent={<Txt role="supporting" color={p.mu} testID="things-no-results">{t.m6SearchNoResults}</Txt>}
-              ListFooterComponent={search$.truncated ? <Txt role="supporting" color={p.mu} testID="things-search-more">{t.m6SearchMore}</Txt> : null}
+              ListEmptyComponent={<Txt role="supporting" color={p.mu} testID="m6-search-no-results">{t.m6SearchNoResults}</Txt>}
+              ListFooterComponent={search$.truncated ? <Txt role="supporting" color={p.mu} testID="m6-search-more">{t.m6SearchMore}</Txt> : null}
               renderItem={({ item }) => item.kind === 'header'
-                ? <HubHeading title={`${item.title} · ${isolateAuto(String(item.count))}`} testID={`things-results-${item.id}`} />
+                ? <View testID={`m6-search-section-${item.id}`} style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingTop: 4 }}>
+                    <HubHeading title={item.title} />
+                    <Txt size={13} color={p.mu} latin testID={`m6-search-count-${item.id}`}>{String(item.count)}</Txt>
+                  </View>
                 : item.kind === 'commitment'
-                ? <SavedRow view={item.view} when={whenOf(item.view)} imp={impLabel(item.view)} onPress={() => actions.openDetail(item.id)} />
+                ? <SavedRow view={item.view} when={whenOf(item.view)} imp={impLabel(item.view)} onPress={() => actions.openDetail(item.id)} rowTestID={`m6-search-result-commitment-${item.id}`} />
                 : item.kind === 'goal'
                   ? <HubRow testID={`things-result-goal-${item.id}`} icon="flag" tone="attention" title={isolateAuto(item.goal.content)} sub={t.thingsGoals} onPress={() => actions.openGoal(item.id)} />
                   : item.kind === 'habit'
@@ -162,24 +165,24 @@ export function ThingsScreen({ tabClearance = TAB_CLEARANCE }: { tabClearance?: 
 }
 
 /** One saved commitment: title, when, its importance chip. Opens Details. */
-function SavedRow({ view, when, imp, onPress }: { view: CommitmentView; when: string; imp: string; onPress: () => void }) {
+function SavedRow({ view, when, imp, onPress, rowTestID }: { view: CommitmentView; when: string; imp: string; onPress: () => void; rowTestID?: string }) {
   const { t, p, rtl } = useApp();
   const done = view.status === 'done';
   const dropped = view.status === 'dropped';
   return (
     <Btn
-      testID={`things-recent-${view.id}`}
+      testID={rowTestID ?? `things-recent-${view.id}`}
       label={[view.title, when, done ? t.xDone : dropped ? t.activityKindDropped : imp].join('. ')}
       onPress={onPress}
       scaleTo={0.985}
       style={{ minHeight: 56, borderRadius: 16, borderWidth: 1, borderColor: p.ln, backgroundColor: p.sf, paddingVertical: 8, paddingHorizontal: 12, gap: 10, flexDirection: 'row', alignItems: 'center' }}
     >
       <View style={{ flex: 1, gap: 4, alignItems: 'flex-start' }}>
-        <Txt size={15} weight={600} lines={2}>{isolateAuto(view.title)}</Txt>
+        <Txt size={15} weight={600} lines={2} testID={`m6-user-text-things-${view.id}`}>{isolateAuto(view.title)}</Txt>
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
           <Txt size={13} color={p.mu}>{when}</Txt>
-          {done ? <Tag kind="saved" label={t.xDone} />
-            : dropped ? <Tag kind="muted" label={t.activityKindDropped} testID={`things-dropped-${view.id}`} />
+          {done ? <Tag kind="saved" label={t.xDone} testID={rowTestID ? `m6-search-status-${view.id}` : undefined} />
+            : dropped ? <Tag kind="muted" label={t.activityKindDropped} testID={rowTestID ? `m6-search-status-${view.id}` : undefined} />
               : <Tag kind={priorityTagKind(view.importance)} label={imp} />}
         </View>
       </View>

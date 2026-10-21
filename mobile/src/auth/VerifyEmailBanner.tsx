@@ -98,6 +98,7 @@ export function VerifyEmailBanner({ children }: React.PropsWithChildren) {
         pad={8}
         disabled={cooldown > 0}
         onPress={() => void resend()}
+        testID="m6-verify-action"
         // Stitch `01c`: the action outlined in the banner's own amber.
         style={{ borderWidth: 1, borderColor: p.prop, minHeight: 44 }}
       />
@@ -119,7 +120,7 @@ export function VerifyEmailBanner({ children }: React.PropsWithChildren) {
             gap: 12,
           }}
         >
-          <Txt size={TEXT_SIZE} color={p.wm} style={{ flex: 1 }}>
+          <Txt size={TEXT_SIZE} color={p.wm} style={{ flex: 1 }} testID="m6-verify-sentence">
             {message}
           </Txt>
           {resendButton}
@@ -138,7 +139,9 @@ export function VerifyEmailBanner({ children }: React.PropsWithChildren) {
         onPress={() => setExpanded(open => !open)}
         style={{ flexShrink: 1, minWidth: 0 }}
       >
-        <Txt size={TEXT_SIZE} color={p.wm} lines={expanded ? undefined : lines} style={{ flexShrink: 1 }}>
+        {/* The short sentence whole, never cut to «..» (#739): at the large
+            sizes the banner is a column, so the words get the full width. */}
+        <Txt size={TEXT_SIZE} color={p.wm} style={{ flexShrink: 1 }} testID="m6-verify-sentence">
           {expanded ? message : visibleMessage}
         </Txt>
       </Btn>
@@ -153,9 +156,9 @@ export function VerifyEmailBanner({ children }: React.PropsWithChildren) {
           paddingTop: topInset + 6,
           paddingBottom: 6,
           paddingHorizontal: 16,
-          flexDirection: expanded ? 'column' : 'row',
-          alignItems: 'center',
-          gap: 8,
+          flexDirection: 'column',
+          alignItems: 'flex-start',
+          gap: 6,
         }}
       >
         {expanded

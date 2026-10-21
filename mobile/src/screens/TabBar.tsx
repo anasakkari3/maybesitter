@@ -31,7 +31,12 @@ export function TabBar({ onClearanceChange }: { onClearanceChange?: (height: num
   const insets = useSafeAreaInsets();
   const mode = useLayoutMode();
   const enlarged = mode !== 'normal';
-  const twoRows = mode === 'xl';
+  // One row at every size (#739): two rows left a quarter of an AX5 screen
+  // for content. At the xl sizes the five slots carry their icons, and each
+  // keeps its word as its accessibility label; the words return at sizes
+  // where they fit whole.
+  const twoRows = false;
+  const iconsOnly = mode === 'xl';
   // Every item the same width in both rows: a third of the bar, never grown,
   // with the second row's two centred (inspection M1A-R4-004).
   const slot = twoRows ? { width: '32%' as const, minWidth: 0 } : { flex: 1, minWidth: 0 };
@@ -73,7 +78,7 @@ export function TabBar({ onClearanceChange }: { onClearanceChange?: (height: num
             </View>
           </Btn>
           {tabs.map(tab => (
-            <TabItem key={tab.screen} {...tab} p={p} on={s.screen === tab.screen} enlarged={enlarged} slot={slot}
+            <TabItem key={tab.screen} {...tab} p={p} on={s.screen === tab.screen} enlarged={enlarged} iconsOnly={iconsOnly} slot={slot}
               onPress={() => actions.switchTab(tab.screen)} />
           ))}
         </View>
@@ -82,8 +87,10 @@ export function TabBar({ onClearanceChange }: { onClearanceChange?: (height: num
   );
 }
 
-function TabItem({ label, testID, icon, on, p, enlarged, slot, onPress }: {
+function TabItem({ label, testID, icon, on, p, enlarged, iconsOnly, slot, onPress }: {
   label: string; testID: string; icon: string; on: boolean; p: Palette; enlarged: boolean;
+  /** xl: the word stays the accessibility label, the slot shows the icon. */
+  iconsOnly: boolean;
   /** The slot's share of the bar: a fifth, or a third of a row at the xl sizes. */
   slot: ViewStyle;
   onPress: () => void;
@@ -102,7 +109,7 @@ function TabItem({ label, testID, icon, on, p, enlarged, slot, onPress }: {
     >
       <View style={{ flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 2, alignSelf: 'stretch', minHeight: 48, paddingVertical: 3, paddingHorizontal: 2, borderRadius: 14, overflow: 'hidden', backgroundColor: on ? p.acs : 'transparent' }}>
         <ReferenceIcon name={icon} size={enlarged ? 20 : 22} color={color} />
-        <Txt testID={`${testID}-label`} size={enlarged ? 12 : 13} weight={on ? 700 : 500} color={color} align="center" lh={1.2} lines={2} style={{ flexShrink: 1 }}>{label}</Txt>
+        {iconsOnly ? null : <Txt testID={`${testID}-label`} size={enlarged ? 12 : 13} weight={on ? 700 : 500} color={color} align="center" lh={1.2} lines={2} style={{ flexShrink: 1 }}>{label}</Txt>}
       </View>
     </Btn>
   );

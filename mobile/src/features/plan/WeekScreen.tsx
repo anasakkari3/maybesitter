@@ -90,7 +90,7 @@ export function WeekScreen() {
       {/* Seven days here (D54-2); further out is the calendar's wider view. */}
       {wider ? (
         <Btn testID="m6-plan-see-further" label={t.yWiderOpen} scaleTo={0.97}
-          onPress={() => { requestCalendarWider(); actions.switchTab('calendar'); }}
+          onPress={() => { requestCalendarWider(); actions.openCalendarWider(); }}
           style={{ minHeight: 44, justifyContent: 'center', alignItems: 'flex-start' }}>
           <Txt size={14} color={p.ac}>{t.yWiderOpen}</Txt>
         </Btn>

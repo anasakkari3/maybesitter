@@ -183,6 +183,11 @@ function useAppModel() {
      * is kept only by the tab bar (`switchTab`), like the rest of that tab.
      */
     go: (screen: Screen) => move(n => nav.go(n, screen), onToday(screen)),
+    /**
+     * The calendar pushed over where the person is (the Plan's week, D54-2):
+     * Back returns there, which a switch to the calendar tab would not.
+     */
+    openCalendarWider: () => move(n => nav.push(n, { name: 'calendar' })),
     /** The tab bar: switch tabs, keeping each tab's stack where it was left. */
     switchTab: (tab: nav.Tab) => move(n => nav.switchTab(n, tab)),
     /** Hand the screen on top over to another (a finished flow to its result); back skips the flow. */

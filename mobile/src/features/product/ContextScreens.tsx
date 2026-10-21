@@ -209,8 +209,8 @@ export function CommitmentsScreen() {
           ListFooterComponent={search$.truncated ? <Txt role="supporting" color={p.mu} testID="commitments-search-more">{t.m6SearchMore}</Txt> : null}
           renderItem={({ item }) => <Btn testID={`commitments-item-${item.id}`} label={`${item.title}. ${when(item)}`} onPress={() => actions.openDetail(item.id)}
             style={{ minHeight: 56, borderRadius: 14, borderWidth: 1, borderColor: p.ln, backgroundColor: p.sf, paddingHorizontal: 12, paddingVertical: 7, justifyContent: 'center', gap: 2 }}>
-            <Txt size={15} weight={600} lines={2}>{isolateAuto(item.title)}</Txt>
-            <Txt size={13} color={p.mu} lines={1} testID={`commitments-item-status-${item.id}`}>{`${item.status === 'done' ? t.xDone : item.status === 'dropped' ? t.activityKindDropped : t.xOpen} · ${when(item)}`}</Txt>
+            <Txt size={15} weight={600} lines={2} testID={`m6-user-text-commitments-${item.id}`}>{isolateAuto(item.title)}</Txt>
+            <Txt size={13} color={p.mu} lines={1} testID={needle && item.status !== 'active' ? `m6-search-status-${item.id}` : `commitments-item-status-${item.id}`}>{`${item.status === 'done' ? t.xDone : item.status === 'dropped' ? t.activityKindDropped : t.xOpen} · ${when(item)}`}</Txt>
           </Btn>}
         />
       </QueryBoundary>
