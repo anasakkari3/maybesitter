@@ -289,6 +289,25 @@ const EXPLICIT_REMINDER_OPENER = new RegExp(
   'iu',
 );
 
+/**
+ * A bare hedge — «يمكن / ممكن / ربما», «אולי» — is a point of its own only
+ * before a verb in the first person: «يمكن أسافر», «ممكن بروح», «אולי אעבור».
+ * Before anything else it is a remark on the point before it: «… الساعة 5.
+ * ممكن يتأخر شوي», «… الأحد. يمكن يأجلوه», «… ב-5. אולי תתארך» (BB-04 review).
+ */
+const BARE_HEDGE = new RegExp('^(?:يمكن|ممكن|ربما|אולי)\\s+(\\S+)', 'u');
+function firstPersonVerb(word: string): boolean {
+  return /^[أاإن]/.test(word)
+    // Spoken Arabic b-imperfect: «بسافر», «بروح» are «I»; «بيسافر», «بتسافر» are not.
+    || (/^ب/.test(word) && !/^ب[يت]/.test(word))
+    || /^[אנ]/.test(word);
+}
+function opensWithIntentOfMyOwn(text: string): boolean {
+  if (!opensWithUnresolvedIntent(text)) return false;
+  const hedge = BARE_HEDGE.exec(text);
+  return hedge === null || firstPersonVerb(hedge[1]!);
+}
+
 /** Whether a sentence opens a clause of its own, after `previous`. */
 function opensCommitment(sentence: string, previous: string): boolean {
   const text = sentence.replace(LEADING_CONNECTOR, '').trim();
@@ -299,7 +318,7 @@ function opensCommitment(sentence: string, previous: string): boolean {
   // «… بكرا من 4 لـ 8 المسا. عم بفكر أسافر الصيف الجاي» must not hand the
   // meeting a trip it was only thinking about. The same markers already let a
   // «و» open a point (`withoutClauseJoiner`).
-  if (opensWithUnresolvedIntent(text)) return true;
+  if (opensWithIntentOfMyOwn(text)) return true;
   const opener = SENTENCE_OPENER.exec(text) ?? SENTENCE_VERB_OPENER.exec(text);
   if (opener) return followedByObject(text.slice(opener[0].length));
   const possession = POSSESSION_OPENER.exec(text);

@@ -45,3 +45,22 @@ test('BB-04 guards: a sentence that restates the hour or is only a time still be
     assert.equal(splitCaptureClauses(text).length, 1, `${text} → ${JSON.stringify(splitCaptureClauses(text))}`);
   }
 });
+
+test('BB-04 review: a bare hedge before a third-person verb is a remark on the point before, not a point', () => {
+  for (const text of [
+    'اجتماع مع المدير الساعة 5. ممكن يتأخر شوي',
+    'عندي امتحان الأحد. يمكن يأجلوه',
+    'פגישה ב-5. אולי תתארך',
+    'Meeting at 5. Maybe it runs late',
+  ]) {
+    assert.equal(splitCaptureClauses(text).length, 1, `${text} → ${JSON.stringify(splitCaptureClauses(text))}`);
+  }
+  for (const text of [
+    'عندي امتحان الأحد. يمكن أسافر بعده',
+    'عندي امتحان الأحد. ممكن بروح على البحر بعده',
+    'רופא שיניים ביום ראשון ב-10. אולי אעבור דירה',
+    'Dentist Sunday at 10. Maybe I will skip it',
+  ]) {
+    assert.equal(splitCaptureClauses(text).length, 2, `${text} → ${JSON.stringify(splitCaptureClauses(text))}`);
+  }
+});
