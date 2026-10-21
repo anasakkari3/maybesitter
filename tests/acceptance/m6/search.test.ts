@@ -1,6 +1,7 @@
 /**
- * M6a-1 Gate B — R54.1 `GET /api/mobile/commitments/search` (D54-1) with the
- * binding dispositions M6A-010, R2-011, R2-012, R3-009, R4-005.
+ * M6a-1 Gate B — R54.1 `POST /api/mobile/commitments/search` (D54-1, R5-001)
+ * with the binding dispositions M6A-010, R2-011, R2-012, R3-009, R4-005,
+ * R5-001, R5-002.
  */
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -107,26 +108,38 @@ test('R54.1 ranking: word-prefix matches before substrings; inside each, live/fu
 
 /* ── bounds ─────────────────────────────────────────────────────────── */
 
-test('M6A-R3-009 limit: exactly one base-10 integer 1–50; anything else is 400 invalid_limit; absent means 30', async () => {
+test('M6A-R3-009 limit: an integer 1–50; anything else is 400 invalid_limit; absent means 30', async () => {
   const uid = await begin();
   for (let i = 0; i < 40; i += 1) await addCommitment(uid, `Errand ${i}`, { kind: 'due_by', dueAt: at('2026-10-12', '09:00') });
-  for (const bad of ['-1', '0', '1.5', '51', 'NaN', '', '10abc']) {
+  for (const bad of [-1, 0, 1.5, 51, 'NaN', '10', '', null, [5]]) {
     const result = await search(uid, { q: 'errand', limit: bad });
-    assert.equal(result.status, 400, `limit=${bad}: ${show(result.body)}`);
+    assert.equal(result.status, 400, `limit=${JSON.stringify(bad)}: ${show(result.body)}`);
     assert.equal(result.body.reason ?? result.body.error, 'invalid_limit');
   }
-  const repeated = await (await import('../m5b/support.ts')).route('commitments/search', 'GET');
-  const { tokenFor } = await import('../../support/fakeAuth.ts');
-  const response = await repeated(new Request('http://localhost:3000/api/mobile/commitments/search?q=errand&limit=5&limit=6', {
-    headers: { authorization: `Bearer ${tokenFor(uid)}` },
-  }), { params: Promise.resolve({}) });
-  assert.equal(response.status, 400, 'a repeated limit must be refused');
   const defaulted = await searchOk(uid, 'errand');
   assert.equal(defaulted.items.length, 30);
   assert.equal(defaulted.truncated, true);
-  const fifty = await searchOk(uid, 'errand', '50');
+  const fifty = await searchOk(uid, 'errand', 50);
   assert.equal(fifty.items.length, 40);
   assert.equal(fifty.truncated, false);
+});
+
+test('M6A-R5-001 search is POST only: there is no GET handler (nothing typed rides in a URL)', async () => {
+  const module = await loadModule('src/app/api/mobile/commitments/search/route.ts');
+  assert.equal(typeof module.POST, 'function');
+  assert.equal(module.GET, undefined);
+});
+
+test('M6A-R5-002 raw q is capped before folding: 5000 tatweel + a letter, 500 combining marks + a letter, and NFKC expansion over the cap are 400 invalid_query', async () => {
+  const uid = await begin();
+  await addCommitment(uid, 'ب', { kind: 'due_by', dueAt: at('2026-10-12', '09:00') });
+  for (const q of ['\u0640'.repeat(5000) + 'ب', '\u064B'.repeat(500) + 'ب', 'a'.repeat(201)]) {
+    const result = await search(uid, { q });
+    assert.equal(result.status, 400, `raw length ${q.length}`);
+    assert.equal(result.body.reason ?? result.body.error, 'invalid_query');
+  }
+  const expanded = await search(uid, { q: '\uFDFA'.repeat(10) });
+  assert.equal(expanded.status, 400, 'ten ligatures expand to 180 letters under NFKC: within the raw cap but over the folded 80');
 });
 
 test('M6A-R2-011 q is validated after folding: tatweel-only, niqqud-only and harakat-only queries are 400 invalid_query, never "match everything"', async () => {
@@ -137,9 +150,9 @@ test('M6A-R2-011 q is validated after folding: tatweel-only, niqqud-only and har
     assert.equal(result.status, 400, `q=${JSON.stringify(q)}: ${show(result.body)}`);
     assert.equal(result.body.reason ?? result.body.error, 'invalid_query');
   }
-  for (const q of ['', '   ', 'x'.repeat(81)]) {
+  for (const q of ['', '   ', 'x'.repeat(81), 42, null]) {
     const result = await search(uid, { q });
-    assert.equal(result.status, 400, `q length ${q.length}`);
+    assert.equal(result.status, 400, `q ${JSON.stringify(q)}`);
   }
 });
 

@@ -85,11 +85,12 @@ export async function postpone(uid: string, id: string, until: string): Promise<
   await applyParticipantCommands(uid, [{ type: 'Postpone', commitmentId: id, postponedUntil: until, now: NOW() } as any]);
 }
 
-export async function search(uid: string, query: Record<string, string>): Promise<Raw> {
-  return call(uid, 'commitments/search', 'GET', { query });
+/** R5-001: search is a POST with `{ q, limit? }` in the body; nothing typed goes in the URL. */
+export async function search(uid: string, body: Record<string, unknown>): Promise<Raw> {
+  return call(uid, 'commitments/search', 'POST', { body });
 }
 
-export async function searchOk(uid: string, q: string, limit?: string): Promise<any> {
+export async function searchOk(uid: string, q: string, limit?: number): Promise<any> {
   const result = await search(uid, limit === undefined ? { q } : { q, limit });
   assert.equal(result.status, 200, show(result.body));
   return result.body;
