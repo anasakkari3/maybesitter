@@ -48,8 +48,18 @@ const USER: AuthUser = {
 const ZONE = 'Asia/Jerusalem';
 const ID = 'c-42';
 
-/** An hour that is comfortably ahead of the clock this test runs on. */
-const SOON = new Date(Date.now() + 3 * 24 * 3600_000);
+/**
+ * An hour that is comfortably ahead of the clock this test runs on, held at
+ * 10:00 UTC (midday in Jerusalem). Left at "now + 3 days" it landed on the
+ * night Israel's clocks went back (25 Oct 2026, 02:00 → 01:00), where
+ * "+1 hour" is the same wall-clock time again, so the edit read as unchanged
+ * and nothing was sent — a CI failure on #774 that no code change caused.
+ */
+const SOON = (() => {
+  const at = new Date(Date.now() + 3 * 24 * 3600_000);
+  at.setUTCHours(10, 0, 0, 0);
+  return at;
+})();
 const LONG_PAST = '2020-01-02T09:00:00.000Z';
 
 jest.mock('../../i18n/timezone', () => ({
