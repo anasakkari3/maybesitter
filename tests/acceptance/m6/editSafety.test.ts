@@ -15,7 +15,7 @@ import { randomUUID } from 'node:crypto';
 import { afterEach, test } from 'node:test';
 import { createStorageRuntimeMemoryStore } from '../../../lib/runtimeMemory/runtimeMemoryStore.ts';
 import { deleteMemory, patchMemory } from '../../../lib/services/mobile/memoryService.ts';
-import { GOAL_GRAPH_PROPOSALS, userCol, userDoc } from '../../../lib/storage/paths.ts';
+import { GOAL_GRAPH_PROPOSALS, GOAL_LINEAGES, userCol, userDoc } from '../../../lib/storage/paths.ts';
 import type { StorageAdapter } from '../../../lib/storage/storageAdapter.ts';
 import { addRows, call, currentStorage, show } from '../m5b/support.ts';
 import { begin, end } from './support.ts';
@@ -147,6 +147,33 @@ test('R0.2 the account deletion mark landing inside a PATCH: refused, and no rep
   );
   const records = await store().listAll(uid);
   assert.deepEqual(records.map((r) => r.content), ['Prefers quiet mornings'], 'an edit was written after the account was marked deleted');
+});
+
+test('R0.2 a goal edit\'s lineage follow-up, after account deletion removed the tree mid-PATCH: no goal lineage is recreated (M6A2-R4-001)', async () => {
+  const uid = await begin();
+  const [row] = await addRows(uid, [{ content: 'Run a half marathon', language: 'en', kind: 'goal' }]);
+  const storage = currentStorage() as any;
+  let done = false;
+  // Fires at the first commit check after the memory supersession has landed —
+  // the goal-lineage transaction — and plays the account deletion: the mark,
+  // then the user tree.
+  storage.setBeforeCommitHookForTests(async () => {
+    if (done) return;
+    const priorPath = memoryPaths().find((candidate) => candidate.endsWith(`/memory/${row!.id}`));
+    const prior = priorPath ? await storage.get(priorPath) : null;
+    if (!prior || prior.status !== 'superseded') return;
+    done = true;
+    const user = (await storage.get(userDoc(uid))) ?? {};
+    await storage.set(userDoc(uid), { ...user, trust: { ...(user.trust ?? {}), deletedAt: at(), updatedAt: at() } });
+    for (const path of (storage.pathsForTests() as string[]).filter((candidate) => candidate.startsWith(`${userDoc(uid)}/`))) {
+      await storage.delete(path);
+    }
+  });
+  await patchMemory(uid, row!.id, 'Run a full marathon', at(), { storage }).catch(() => null);
+  assert.equal(done, true, 'the deletion never interleaved after the supersession');
+  const lineages = await storage.list(userCol(uid, GOAL_LINEAGES));
+  assert.deepEqual(lineages.map((l: any) => l.id), [], 'goal lineage rows were written under a deleted account');
+  assert.deepEqual(memoryPaths().filter((path) => path.startsWith(`${userDoc(uid)}/`)), []);
 });
 
 test('R0.3 an edit that commits between delete-all\'s list and its deletes is swept: nothing is left', async () => {

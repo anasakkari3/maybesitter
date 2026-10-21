@@ -479,12 +479,13 @@ test('R1 parity (M6A2-R3-001): /capabilities/m6 keeps exactly { success, searchH
   assert.deepEqual(Object.keys(probe.body).sort(), ['searchHistory', 'success']);
 });
 
-test('R1 the new /capabilities/m6b carries memoryTranslation: on in staging, false when off or in production; flags.sh pins it', async () => {
+test('R1 the new /capabilities/m6b carries memoryTranslation and the disclosure version: on in staging, false when off or in production; flags.sh pins it', async () => {
   for (const [options, expected] of [[{}, true], [{ on: false }, false], [{ killed: true }, false], [{ environment: 'production' }, false]] as const) {
     const uid = await start(options as any);
     const probe = await call(uid, 'capabilities/m6b', 'GET');
     assert.equal(probe.status, 200, `${JSON.stringify(options)}: ${show(probe.body)}`);
-    assert.deepEqual(probe.body, { success: true, memoryTranslation: expected }, JSON.stringify(options));
+    // M6A2-R4-002: the version the app must have copy for, so a later disclosure bump turns old apps off instead of failing them.
+    assert.deepEqual(probe.body, { success: true, memoryTranslation: expected, disclosureVersion: DISCLOSURE }, JSON.stringify(options));
     seam?.(null); seam = null;
     if (saved) { for (const key of ENV) { if (saved[key] === undefined) delete process.env[key]; else process.env[key] = saved[key]; } saved = null; }
     end();
