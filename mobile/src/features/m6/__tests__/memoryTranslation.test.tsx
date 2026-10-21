@@ -99,9 +99,12 @@ describe('«اكتبها بالعربي» on the memory screen', () => {
     await waitFor(() => expect(screen.queryByTestId('m6-translate-action-memory-1')).not.toBeNull());
     await press('m6-translate-action-memory-1');
     expect(screen.queryByTestId('m6-translate-disclosure-memory-1')).not.toBeNull();
+    // Opening the panel sends nothing (R2-003); the second tap does.
+    expect(harness.server.matching('POST', TRANSLATION)).toHaveLength(0);
+    await press('m6-translate-request-memory-1');
     const asked = await waitForRequest(harness, 'POST', TRANSLATION);
     expect(asked.path).toBe('/api/mobile/memory/memory-1/translation');
-    expect(asked.body).toEqual({ locale: 'ar' });
+    expect(asked.body).toEqual({ locale: 'ar', disclosureVersion: 'memory-translation-disclosure-v1' });
     await waitFor(() => expect(screen.queryByTestId('m6-translate-proposal-memory-1')).not.toBeNull());
     await press('m6-translate-save-memory-1');
     const saved = await waitForRequest(harness, 'PATCH', PATCH);
@@ -115,6 +118,7 @@ describe('«اكتبها بالعربي» on the memory screen', () => {
     await renderScreen(harness);
     await waitFor(() => expect(screen.queryByTestId('m6-translate-action-memory-1')).not.toBeNull());
     await press('m6-translate-action-memory-1');
+    await press('m6-translate-request-memory-1');
     await waitFor(() => expect(screen.queryByTestId('m6-translate-unavailable-memory-1')).not.toBeNull());
     expect(screen.queryByTestId('m6-translate-save-memory-1')).toBeNull();
     await press('m6-translate-keep-memory-1');
@@ -127,6 +131,7 @@ describe('«اكتبها بالعربي» on the memory screen', () => {
     await renderScreen(harness);
     await waitFor(() => expect(screen.queryByTestId('m6-translate-action-memory-1')).not.toBeNull());
     await press('m6-translate-action-memory-1');
+    await press('m6-translate-request-memory-1');
     await waitFor(() => expect(screen.queryByTestId('m6-translate-save-memory-1')).not.toBeNull());
     await press('m6-translate-save-memory-1');
     await waitFor(() => expect(screen.queryByTestId('m6-translate-changed-memory-1')).not.toBeNull());
@@ -140,6 +145,7 @@ describe('«اكتبها بالعربي» on the memory screen', () => {
     await renderScreen(harness);
     await waitFor(() => expect(screen.queryByTestId('m6-translate-action-memory-1')).not.toBeNull());
     await press('m6-translate-action-memory-1');
+    await press('m6-translate-request-memory-1');
     await waitFor(() => expect(screen.queryByTestId('m6-translate-unavailable-memory-1')).not.toBeNull());
     expect(screen.queryByTestId('m6-translate-save-memory-1')).toBeNull();
   });

@@ -20,10 +20,15 @@ import type { MemoryItem } from '../../api/schemas/profile';
  * person saves it, and saving is the ordinary edit against the same id — so a
  * record edited or deleted meanwhile answers 404/409 and nothing is written.
  *
- * The disclosure mounts first and its effect is what lets the request go (the
- * M5b-1 rule: nothing is sent before the person has seen where it goes). One
+ * Two taps (M6A2-R2-003): the action opens the panel with the disclosure, and
+ * only «اقترح ترجمة» sends — so the person has read where it goes before they
+ * ask, and the request names the disclosure version they were shown. The
+ * button is drawn only after the disclosure's mount effect has run. One
  * request per tap, never retried; closing the panel while it loads cancels it.
  */
+
+/** Must equal the server's `MEMORY_TRANSLATION_DISCLOSURE_VERSION`; the server refuses any other. */
+export const MEMORY_TRANSLATION_DISCLOSURE_VERSION = 'memory-translation-disclosure-v1';
 
 export type TranslationTarget = 'ar' | 'en' | 'he';
 
@@ -64,6 +69,7 @@ export function TranslateAction({ item, target, onPress, tone = 'ac' }: {
 }
 
 type Phase =
+  | { kind: 'asking' }
   | { kind: 'loading' }
   | { kind: 'ready'; text: string; memoryId: string; saving: boolean; failed: string | null }
   | { kind: 'unavailable' }
@@ -80,13 +86,14 @@ export function MemoryTranslationPanel({ item, target, onClose, tone = 'ac' }: {
   const client = useQueryClient();
   const patch = usePatchMemory();
   const [shown, setShown] = useState(false);
-  const [phase, setPhase] = useState<Phase>({ kind: 'loading' });
+  const [phase, setPhase] = useState<Phase>({ kind: 'asking' });
+  const sending = shown && phase.kind === 'loading';
 
   useEffect(() => {
-    if (!shown) return;
+    if (!sending) return;
     const controller = new AbortController();
     let live = true;
-    proposeMemoryTranslation(item.id, target, { asUid: uid, signal: controller.signal }).then(
+    proposeMemoryTranslation(item.id, target, MEMORY_TRANSLATION_DISCLOSURE_VERSION, { asUid: uid, signal: controller.signal }).then(
       (answer) => {
         if (!live) return;
         const proposal = answer.proposal;
@@ -109,7 +116,7 @@ export function MemoryTranslationPanel({ item, target, onClose, tone = 'ac' }: {
       live = false;
       controller.abort();
     };
-  }, [shown, item.id, target, uid, client]);
+  }, [sending, item.id, target, uid, client]);
 
   const save = () => {
     if (phase.kind !== 'ready' || phase.saving) return;
@@ -130,7 +137,7 @@ export function MemoryTranslationPanel({ item, target, onClose, tone = 'ac' }: {
     });
   };
 
-  const status = phase.kind === 'loading' && shown ? t.m6TranslateLoading
+  const status = phase.kind === 'loading' ? t.m6TranslateLoading
     : phase.kind === 'unavailable' ? t.m6TranslateUnavailable
       : phase.kind === 'changed' ? t.m6TranslateChanged
         : phase.kind === 'ready' ? phase.failed ?? phase.text
@@ -141,7 +148,7 @@ export function MemoryTranslationPanel({ item, target, onClose, tone = 'ac' }: {
     <View testID={`m6-translate-panel-${item.id}`} style={{ gap: 8, paddingTop: 4 }}>
       <TranslationDisclosure id={item.id} onShown={setShown} />
       <LiveRegion>
-        {phase.kind === 'loading' && shown ? (
+        {phase.kind === 'loading' ? (
           <Txt size={14} color={p.mu} testID={`m6-translate-loading-${item.id}`}>{t.m6TranslateLoading}</Txt>
         ) : phase.kind === 'unavailable' ? (
           <Txt size={14} color={p.mu} testID={`m6-translate-unavailable-${item.id}`}>{t.m6TranslateUnavailable}</Txt>
@@ -156,6 +163,14 @@ export function MemoryTranslationPanel({ item, target, onClose, tone = 'ac' }: {
         ) : null}
       </LiveRegion>
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', columnGap: 10, rowGap: 4 }}>
+        {phase.kind === 'asking' && shown ? (
+          <PanelAction
+            label={t.m6TranslateRequest}
+            testID={`m6-translate-request-${item.id}`}
+            onPress={() => setPhase({ kind: 'loading' })}
+            tone={tone}
+          />
+        ) : null}
         {phase.kind === 'ready' ? (
           <PanelAction
             label={t.m6TranslateSave}
@@ -171,7 +186,7 @@ export function MemoryTranslationPanel({ item, target, onClose, tone = 'ac' }: {
   );
 }
 
-/** Said before anything is sent; its mount effect lets the request go, its unmount takes that back. */
+/** Said before anything can be sent; the request button appears only after its mount effect ran. */
 function TranslationDisclosure({ id, onShown }: { id: string; onShown: (shown: boolean) => void }) {
   const { t, p } = useApp();
   useEffect(() => {

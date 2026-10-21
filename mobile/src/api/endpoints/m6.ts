@@ -31,9 +31,14 @@ export function searchCommitments(q: string, limit: number, options: Bound = {})
  * One proposed translation of one stored fact into `locale` (PLAN-M6a-2). It
  * saves nothing; never retried — one request per tap.
  */
-export function proposeMemoryTranslation(id: string, locale: 'ar' | 'en' | 'he', options: Bound = {}): Promise<MemoryTranslation> {
+export function proposeMemoryTranslation(
+  id: string,
+  locale: 'ar' | 'en' | 'he',
+  disclosureVersion: string,
+  options: Bound = {},
+): Promise<MemoryTranslation> {
   return apiRequest('POST', `/api/mobile/memory/${encodeURIComponent(id)}/translation`, {
-    body: { locale },
+    body: { locale, disclosureVersion },
     schema: memoryTranslationSchema,
     ...bound(options),
   });
