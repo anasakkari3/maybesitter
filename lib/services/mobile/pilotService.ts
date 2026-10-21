@@ -30,7 +30,7 @@ import {
 import { completeCommitment, patchCommitment } from './commitmentService';
 import { readRoutineProfile } from './routineProfileService';
 import { appendAudit, appendIncident, applyTrustAction } from '../../pilot/pilotTrustStore';
-import { getLiveNextStep, prepareLiveNextStepDecision } from '../nextStepLiveService';
+import { getLiveNextStep, getLiveNextStepWithMetadata, prepareLiveNextStepDecision, type LiveContext } from '../nextStepLiveService';
 import {
   findParticipantDecision,
   getParticipantStateSnapshot,
@@ -43,6 +43,11 @@ import {
   type NextStepLocale,
   type NextStepRecommendationContract,
 } from '../../../src/contracts/v1/nextStepContracts';
+import { resolveMemoryLearning } from '../../release/m5bCapabilities';
+import { resolveFreshReadiness } from '../../integrations/readiness/freshReadiness';
+import { storedReadinessContext } from '../../userState/userStateService';
+import { getStorage } from '../../storage';
+import { userDoc } from '../../storage/paths';
 
 type MobilePilotSource = Record<string, unknown>;
 
@@ -218,6 +223,47 @@ function recommendationContext(input: MobilePilotSource, participantId: string, 
   };
 }
 
+interface MobileNextStepContext {
+  readonly context: LiveContext;
+  readonly energy?: {
+    readonly band: 'low' | 'steady' | 'high' | null;
+    readonly source: 'check_in' | 'health' | 'none';
+    readonly level: 1 | 2 | 3 | 4 | 5 | null;
+  };
+}
+
+/** One context builder for both the card read and its staleness revalidation. */
+export async function nextStepContextFor(
+  participantId: string,
+  input: MobilePilotSource,
+  access: NextStepAccess,
+  now: Date,
+  options: { readonly emitShown: boolean },
+): Promise<MobileNextStepContext> {
+  const base: LiveContext = {
+    ...recommendationContext(input, participantId, access.trust.analyticsConsent, now),
+    emitShown: options.emitShown,
+    excludeCommitmentIds: await hiddenFor(participantId, now),
+    routine: await routineFor(participantId),
+  };
+  if (!resolveMemoryLearning()) return { context: base };
+  const user = await getStorage().get<Record<string, unknown>>(userDoc(participantId));
+  const fresh = resolveFreshReadiness(storedReadinessContext(user?.readinessContext, participantId), now);
+  const energy = { band: fresh.band, source: fresh.source, level: fresh.energy };
+  return {
+    context: {
+      ...base,
+      energy: fresh.source === 'none' ? null : {
+        source: fresh.source,
+        level: fresh.energy,
+        band: fresh.band,
+        observedAt: fresh.observedAt!,
+      },
+    },
+    energy,
+  };
+}
+
 export async function getMobileNextStep(participantId: string, input: MobilePilotSource) {
   const now = new Date();
   const at = now.toISOString();
@@ -264,15 +310,11 @@ export async function getMobileNextStep(participantId: string, input: MobilePilo
     };
   }
 
-  const context = {
-    ...recommendationContext(input, participantId, access.trust.analyticsConsent, now),
-    excludeCommitmentIds: await hiddenFor(participantId, now),
-    routine: await routineFor(participantId),
-  };
-  const recommendation = await getLiveNextStep(await readParticipantState(participantId), context);
+  const built = await nextStepContextFor(participantId, input, access, now, { emitShown: true });
+  const { recommendation, changedPick } = await getLiveNextStepWithMetadata(await readParticipantState(participantId), built.context);
   if (recommendation.state === 'ready' && !access.trust.firstValueAt) {
     await applyTrustAction(participantId, { type: 'record_first_value', at });
-    await recordFirstValueReached(context, { surface: 'recommendation', reason: 'next_step_ready' });
+    await recordFirstValueReached(built.context, { surface: 'recommendation', reason: 'next_step_ready' });
   }
   const assignment = resolveNextStepArm(participantId);
   return {
@@ -281,6 +323,7 @@ export async function getMobileNextStep(participantId: string, input: MobilePilo
     recommendation,
     assignment,
     exposure: { allowed: true, reason: access.reason },
+    ...(built.energy ? { energy: { ...built.energy, changedPick } } : {}),
   };
 }
 
@@ -442,14 +485,7 @@ export async function recordMobileNextStepDecision(participantId: string, input:
     if (replayed) return { ...replayed, replayed: true };
   }
 
-  const context = {
-    ...recommendationContext(input, participantId, access.trust.analyticsConsent, now),
-    emitShown: false,
-    // The same exclusions and the same routine the read applied, so the
-    // proposal this validates against is the one the user was actually shown.
-    excludeCommitmentIds: await hiddenFor(participantId, now),
-    routine: await routineFor(participantId),
-  };
+  const { context } = await nextStepContextFor(participantId, input, access, now, { emitShown: false });
 
   // A read, so it belongs outside the transaction that records the decision.
   const canonicalProposal = await getLiveNextStep(await getParticipantStateSnapshot(participantId), context);

@@ -55,7 +55,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ date
   const commitments = Object.values(state.commitments);
   const current = await readCurrentPlan(user.uid, date, { commitments });
   if (!current) return mobileError('no plan for that date', 404);
-  const { stored, inputsChanged } = current;
+  const { stored, inputsChanged, basisChanged } = current;
   const titles = titlesOf(commitments);
   // The time taken now, read only when there is a live offer to check against
   // it (#611 guards): an offer that would land on it is withheld.
@@ -63,7 +63,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ date
   const taken = await fixedTimeForOffer(user.uid, stored, now, { storage: getStorage(), commitments });
   return Response.json({
     success: true,
-    plan: planToDto(stored, titles, { inputsChanged, commitments }),
+    plan: planToDto(stored, titles, { inputsChanged, basisChanged, commitments }),
     proposal: pendingProposalToDto(stored, titles, now, taken),
   });
 }

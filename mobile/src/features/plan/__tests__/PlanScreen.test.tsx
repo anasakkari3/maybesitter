@@ -169,8 +169,8 @@ describe('what the plan says', () => {
       unscheduled: [{ itemId: 'u1', title: 'Book the train', reasonCode: 'FIXED_EVENT_CONFLICT', blockId: 'block:commitment:u1' }],
     }) as never);
     await loaded();
-    expect(screen.queryByTestId('plan-kept-u1')).not.toBeNull();
-    expect(screen.queryByText(en.planReasonCalendarBusy)).not.toBeNull();
+    expect(screen.queryByTestId('m6-plan-kept-row-u1') /* M6a-1: kept rows grouped by reason */).not.toBeNull();
+    expect(screen.getByTestId('m6-plan-kept-reason-planReasonCalendarBusy')).toHaveTextContent(en.planReasonCalendarBusy, { exact: false });
     expect(screen.queryByText('FIXED_EVENT_CONFLICT')).toBeNull();
   });
 

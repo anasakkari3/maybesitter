@@ -246,6 +246,24 @@ import {
   semanticModel as m5aSemanticModel,
   setM5aSwitches,
 } from '../acceptance/m5a/support.ts';
+import {
+  addCommitment as addM5bCommitment,
+  addRows as addM5bRows,
+  begin as beginM5b,
+  call as callM5b,
+  checkInOk as checkInM5b,
+  end as endM5b,
+  grantRecommendations as grantM5bRecommendations,
+  plusMinutes as plusM5bMinutes,
+  scriptedModel as m5bModel,
+  useSummaryModel as useM5bSummaryModel,
+} from '../acceptance/m5b/support.ts';
+import {
+  addCommitment as addM6Commitment,
+  begin as beginM6,
+  call as callM6,
+  end as endM6,
+} from '../acceptance/m6/support.ts';
 import { commitmentBaselineFingerprint } from '../../lib/intelligence/autoAdds.ts';
 
 const BASE = 'http://127.0.0.1:4321';
@@ -3664,6 +3682,48 @@ test('exports the proactive-loop (intelligence) fixtures the Goals and Watching 
     else process.env.MAYBESITTER_LLM_PROVIDER = previousProvider;
     resetProviderForTests();
     teardown();
+  }
+});
+
+test('exports the M5b fixtures from the real handlers', async () => {
+  const uid = await beginM5b();
+  try {
+    await recordM4b('capabilities.m5b', 200, await callM5b(uid, 'capabilities/m5b', 'GET'));
+
+    await addM5bRows(uid, [{ content: 'Likes tea' }]);
+    await useM5bSummaryModel(m5bModel(() => ({ sentences: [{ text: 'Likes tea.', refs: ['r1'] }] })));
+    await recordM4b('memory.summary', 200, await callM5b(uid, 'memory/summary', 'GET', { query: { language: 'en' } }));
+
+    await addM5bCommitment(uid, 'Write the report', { kind: 'due_by', dueAt: null, endAt: null, allDay: false });
+    await checkInM5b(uid, 2);
+    await recordM4b('readiness.m5b', 200, await callM5b(uid, 'readiness', 'GET'));
+    await recordM4b('plan.m5b', 200, await callM5b(uid, 'plans/[date]/build', 'POST', { params: { date: '2026-10-07' } }));
+
+    await grantM5bRecommendations(uid);
+    await addM5bCommitment(uid, 'Heavy work', {
+      kind: 'due_by', dueAt: plusM5bMinutes(new Date().toISOString(), 240), endAt: plusM5bMinutes(new Date().toISOString(), 360), allDay: false,
+    });
+    await addM5bCommitment(uid, 'Light work', {
+      kind: 'due_by', dueAt: plusM5bMinutes(new Date().toISOString(), 480), endAt: plusM5bMinutes(new Date().toISOString(), 510), allDay: false,
+    });
+    await recordM4b('next-step.m5b', 200, await callM5b(uid, 'recommendations/next-step', 'GET', { query: { locale: 'en', timezone: 'Asia/Jerusalem' } }));
+  } finally {
+    endM5b();
+  }
+});
+
+test('exports the M6a-1 fixtures from the real handlers', async () => {
+  const uid = await beginM6();
+  try {
+    await recordM4b('capabilities.m6', 200, await callM6(uid, 'capabilities/m6', 'GET'));
+    await addM6Commitment(uid, 'Dentist appointment', {
+      kind: 'due_by', dueAt: '2026-10-09T09:00:00.000Z', endAt: null, allDay: false,
+    });
+    await recordM4b('commitments.search', 200, await callM6(uid, 'commitments/search', 'POST', {
+      body: { q: 'dent' },
+    }));
+  } finally {
+    endM6();
   }
 });
 

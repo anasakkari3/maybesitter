@@ -32,12 +32,14 @@ import { fill, ltr } from '../i18n/strings';
 import { planItemPrepTarget } from '../features/meetings/prepTargets';
 import { instantForLocalDateTime, localDateTimeFor } from '../features/capture/localInstant';
 import { dateShowing, wallClockShown } from '../features/plan/pickerClock';
-import { editRefusalOf, unplacedReason } from '../features/plan/reasons';
+import { editRefusalOf, unplacedReasonKey } from '../features/plan/reasons';
 import { canRegenerate, rebuildsLeft } from '../features/plan/regenerateCap';
 import { moveKeepingLength } from '../features/plan/optimisticEdit';
 import { useOneAtATime } from '../features/plan/oneAtATime';
 import { dayAfter, planRows, workingHoursOver } from '../features/plan/lateDay';
 import { planBuildFailureOf } from '../features/goalPlan/planFailures';
+import { useM5bOn } from '../features/m5b/capabilities';
+import { PlanEnergy, PlanEnergyAsk } from '../features/m5b/energy';
 import {
   reportPlanDecision,
   reportPlanEdited,
@@ -87,6 +89,8 @@ export function PlanScreen({ date, onBack }: { date: string; onBack: () => void 
   const online = useIsOnline();
   const query = usePlan(date);
   const settings = usePlanSettings();
+  // Asked alongside the plan, so the energy line arrives with it (M5b-1).
+  useM5bOn();
 
   const plan = query.data ?? null;
   // `undefined` is "no answer yet"; `null` is "the server says there is none".
@@ -140,6 +144,7 @@ function EmptyPlan({ date, online, deliveryOn }: { date: string; online: boolean
   const build = useBuildPlan(date);
   const building = useOneAtATime();
   const deliveryOff = deliveryOn === false;
+  const m5bOn = useM5bOn();
 
   if (build.isPending) return <Generating />;
   return (
@@ -150,6 +155,7 @@ function EmptyPlan({ date, online, deliveryOn }: { date: string; online: boolean
       body={online ? (deliveryOff ? t.planEmptyBody : t.planEmptyBodyReady) : t.planOfflineCold}
       action={online ? (
         <View style={{ alignItems: 'center', gap: 6, marginTop: 6 }}>
+          {m5bOn === true ? <PlanEnergyAsk /> : null}
           <Pill
             label={t.planEmptyBuildCta}
             size={15}
@@ -291,6 +297,10 @@ function LoadedPlan({ plan, date, readOnly }: { plan: DailyPlan; date: string; r
     || rebuild.error instanceof QuotaExceededError;
   // The day in time order: placed work and what is pinned to a time (L5).
   const rows = useMemo(() => planRows(plan), [plan]);
+  const m5bOn = useM5bOn();
+  // At the cap, a plan whose reading changed says it stays as it is, and the
+  // rebuild it can no longer have is not drawn (M5B-010).
+  const rebuildHidden = m5bOn === true && plan.basisChanged === true && capReached;
   const hoursOver = workingHoursOver(plan, new Date());
 
   const heading = useMemo(
@@ -367,6 +377,8 @@ function LoadedPlan({ plan, date, readOnly }: { plan: DailyPlan; date: string; r
         </Card>
       ) : null}
 
+      {m5bOn === true ? <PlanEnergy plan={plan} readOnly={readOnly} capReached={capReached} /> : null}
+
       <SectionLabel>{t.planOrderTitle}</SectionLabel>
       {/* Nothing placed after the day's hours is not an empty day: it is a
           day that is over. It says so, and offers tomorrow (L5). */}
@@ -442,18 +454,20 @@ function LoadedPlan({ plan, date, readOnly }: { plan: DailyPlan; date: string; r
       {plan.unscheduled.length > 0 ? (
         <View style={{ gap: 8 }}>
           <Txt size={13} weight={600} color={p.mu} style={{ paddingHorizontal: 4 }}>{t.planKeptTitle}</Txt>
+          {/* Grouped by the reason as the person reads it (M6A-R4-007): two
+              codes that say the same sentence are one group, and the sentence
+              is said once with how many it covers, not repeated per row. */}
           <Card pad={0} style={{ overflow: 'hidden' }} testID="plan-kept">
-            {plan.unscheduled.map((item, index) => (
-              <View
-                key={item.itemId}
-                testID={`plan-kept-${item.itemId}`}
-                style={{
-                  paddingHorizontal: 18, paddingVertical: 14, gap: 4,
-                  borderTopWidth: index === 0 ? 0 : 1, borderTopColor: p.ln,
-                }}
-              >
-                <Txt size={15}>{item.title ? isolateAuto(item.title) : t.planRemovedItem}</Txt>
-                <Txt size={13} color={p.mu} lh={1.5}>{unplacedReason(item.reasonCode, t)}</Txt>
+            {keptGroups(plan.unscheduled).map(({ key, items }, groupIndex) => (
+              <View key={key} testID={`m6-plan-kept-group-${key}`} style={{ borderTopWidth: groupIndex === 0 ? 0 : 1, borderTopColor: p.ln, paddingVertical: 12, gap: 6 }}>
+                <Txt size={13} color={p.mu} lh={1.5} style={{ paddingHorizontal: 18 }} testID={`m6-plan-kept-reason-${key}`}>
+                  {`${tr('m6PlanKeptGroup', { count: items.length })} · ${t[key] as string}`}
+                </Txt>
+                {items.map(item => (
+                  <View key={item.itemId} testID={`m6-plan-kept-row-${item.itemId}`} style={{ paddingHorizontal: 18, paddingVertical: 4 }}>
+                    <Txt size={15} dir="auto">{item.title ? isolateAuto(item.title) : t.planRemovedItem}</Txt>
+                  </View>
+                ))}
               </View>
             ))}
           </Card>
@@ -548,7 +562,7 @@ function LoadedPlan({ plan, date, readOnly }: { plan: DailyPlan; date: string; r
           <Txt size={13} color={p.wm} testID="plan-accept-refused">{t[acceptRefusal.key] as string}</Txt>
         ) : null}
         <ActionRow>
-          <Pill
+          {rebuildHidden ? null : <Pill
             label={t.planRegenerate}
             kind="outline"
             size={14}
@@ -561,7 +575,7 @@ function LoadedPlan({ plan, date, readOnly }: { plan: DailyPlan; date: string; r
                 onSettled: rebuilding.leave,
               });
             }}
-          />
+          />}
           <Pill
             label={t.planDismiss}
             kind="ghost"
@@ -826,4 +840,14 @@ function PlannedRow({
       ) : null}
     </Card>
   );
+}
+
+/** The kept items, grouped by the sentence that explains them, in the order each sentence first appears. */
+function keptGroups(items: DailyPlan['unscheduled']): { key: ReturnType<typeof unplacedReasonKey>; items: DailyPlan['unscheduled'] }[] {
+  const groups = new Map<ReturnType<typeof unplacedReasonKey>, DailyPlan['unscheduled'][number][]>();
+  for (const item of items) {
+    const key = unplacedReasonKey(item.reasonCode);
+    groups.set(key, [...(groups.get(key) ?? []), item]);
+  }
+  return [...groups.entries()].map(([key, grouped]) => ({ key, items: grouped }));
 }

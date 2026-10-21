@@ -100,9 +100,10 @@ export function deleteAllMemory() {
  * which the screen renders as the manual-entry path rather than as an error —
  * declining is a normal choice, not a failure.
  */
-export function describeProfile(text: string) {
+/** `locale`: the app language, so the suggestions come back in it (M6A-008). */
+export function describeProfile(text: string, locale?: 'ar' | 'en' | 'he') {
   return apiRequest('POST', '/api/mobile/profile/describe', {
-    body: { text },
+    body: { text, ...(locale ? { locale } : {}) },
     schema: profileProposalSchema,
   });
 }

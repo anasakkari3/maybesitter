@@ -22,6 +22,7 @@ import {
   composeUserStateProjection,
   type UserStateCompositionInput,
 } from './composeUserStateProjection';
+import { resolveMemoryLearning } from '../release/m5bCapabilities';
 
 export const READINESS_CONTEXT_SCHEMA_VERSION = 'readiness-context-v1' as const;
 
@@ -36,6 +37,8 @@ export interface StoredReadinessContext {
 export interface UserStateServiceOptions {
   readonly storage?: StorageAdapter;
   readonly userDocument?: unknown;
+  /** M5b: discard stale, future and historical readings before composition. */
+  readonly readiness?: 'fresh';
 }
 
 export interface CurrentUserStateInput extends Omit<UserStateCompositionInput, 'scopeId' | 'readiness'> {
@@ -74,6 +77,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function isInstant(value: unknown): value is string {
   return typeof value === 'string' && value.length > 0 && Number.isFinite(Date.parse(value));
+}
+
+function readingIsTooFarInFuture(timestamp: string, now: string): boolean {
+  return Date.parse(timestamp) > Date.parse(now) + 5 * 60 * 1000;
 }
 
 function isUnitInterval(value: unknown): value is number {
@@ -167,7 +174,7 @@ function subjective(value: unknown): SubjectiveEnergyCheckIn | null {
   return { energy: energy as SubjectiveEnergyLevel, observedAt: value.observedAt };
 }
 
-function storedContext(value: unknown, scopeId: string): StoredReadinessContext | null {
+export function storedReadinessContext(value: unknown, scopeId: string): StoredReadinessContext | null {
   if (!isRecord(value) || value.schemaVersion !== READINESS_CONTEXT_SCHEMA_VERSION || !isInstant(value.updatedAt)) return null;
   const currentSubjective = value.currentSubjective === null ? null : subjective(value.currentSubjective);
   const recentReadiness = value.recentReadiness === null ? null : sanitizeReadinessSnapshot(value.recentReadiness, scopeId);
@@ -205,7 +212,7 @@ async function updateContext(
   return storage.runTransaction(async (tx) => {
     const user = await tx.get<Record<string, unknown>>(userDoc(uid));
     if (!user) throw new Error('readiness context requires an existing user');
-    const current = storedContext(user.readinessContext, uid) ?? emptyContext(at);
+    const current = storedReadinessContext(user.readinessContext, uid) ?? emptyContext(at);
     const outcome = update(current);
     if (outcome.result !== 'stored') return outcome.result;
     tx.merge<Record<string, unknown>>(userDoc(uid), {
@@ -225,8 +232,14 @@ export async function saveSubjectiveEnergyCheckIn(
   if (!clean) throw new TypeError('subjective energy must be an integer from 1 to 5 with an observedAt instant');
   const at = options.now ?? new Date().toISOString();
   if (!isInstant(at)) throw new TypeError('now must be an instant');
+  if (resolveMemoryLearning() && readingIsTooFarInFuture(clean.observedAt, at)) {
+    throw new TypeError('subjective energy observedAt is too far in the future');
+  }
   return updateContext(uid, at, options.storage ?? getStorage(), (current) => {
-    const prior = current.currentSubjective;
+    const prior = resolveMemoryLearning() && current.currentSubjective
+      && readingIsTooFarInFuture(current.currentSubjective.observedAt, at)
+      ? null
+      : current.currentSubjective;
     if (prior && Date.parse(clean.observedAt) < Date.parse(prior.observedAt)) {
       return { context: current, result: 'stale_ignored' };
     }
@@ -249,8 +262,14 @@ export async function saveNormalizedReadinessSnapshot(
   if (!clean) throw new TypeError('readiness snapshot is malformed or belongs to another account');
   const at = options.now ?? new Date().toISOString();
   if (!isInstant(at)) throw new TypeError('now must be an instant');
+  if (resolveMemoryLearning() && readingIsTooFarInFuture(clean.computedAt, at)) {
+    throw new TypeError('readiness snapshot computedAt is too far in the future');
+  }
   return updateContext(uid, at, options.storage ?? getStorage(), (current) => {
-    const prior = current.recentReadiness;
+    const prior = resolveMemoryLearning() && current.recentReadiness
+      && readingIsTooFarInFuture(current.recentReadiness.computedAt, at)
+      ? null
+      : current.recentReadiness;
     if (prior && Date.parse(clean.computedAt) < Date.parse(prior.computedAt)) {
       return { context: current, result: 'stale_ignored' };
     }
@@ -276,7 +295,12 @@ export async function composeCurrentUserState(
   const user = options.userDocument === undefined
     ? await (options.storage ?? getStorage()).get<Record<string, unknown>>(userDoc(input.uid))
     : options.userDocument;
-  const context = storedContext(isRecord(user) ? user.readinessContext : undefined, input.uid);
+  let context = storedReadinessContext(isRecord(user) ? user.readinessContext : undefined, input.uid);
+  if (options.readiness === 'fresh' || resolveMemoryLearning()) {
+    const { freshReadinessInputs } = await import('../integrations/readiness/freshReadiness');
+    const filtered = freshReadinessInputs(context, input.now);
+    context = context ? { ...context, ...filtered } : null;
+  }
   const readiness = resolveReadinessForUserState({
     scopeId: input.uid,
     now: input.now,

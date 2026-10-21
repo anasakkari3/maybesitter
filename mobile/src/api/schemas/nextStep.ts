@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { nextStepEnergySchema } from './m5b';
 import { isoDateTime } from './common';
 
 const assignmentSchema = z.object({
@@ -99,6 +100,8 @@ export const nextStepResponseSchema = z.object({
   recommendation: nextStepRecommendationSchema,
   assignment: assignmentSchema.optional(),
   exposure: exposureSchema.optional(),
+  /** M5b-1 (R4.3): the fresh reading, and whether it made the pick lighter. */
+  energy: nextStepEnergySchema.optional(),
 });
 
 export const nextStepDecisionResponseSchema = z.object({

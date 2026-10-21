@@ -36,7 +36,9 @@ export type LlmPurpose =
   /** Notes the person typed about one upcoming meeting, read once (CL5a). */
   | 'meeting_prep'
   /** One turn of the capture chat «احكيها»: a reply and the current items (2026-09-30). */
-  | 'capture_chat';
+  | 'capture_chat'
+  /** A transient, cited paragraph over the person's visible memory rows (M5b-1). */
+  | 'memory_summary';
 
 export type LlmProviderName = 'gemini' | 'ollama' | 'none';
 

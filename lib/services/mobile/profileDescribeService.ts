@@ -34,6 +34,7 @@ import {
   PROFILE_PROMPT_VERSION,
   PROFILE_PROPOSAL_TTL_MS,
   type ProfileProposal,
+  type ProfileLocale,
   type ProfileSuggestion,
 } from '../../../src/profile/profileContracts';
 import { buildProfilePrompt } from '../../../src/profile/profilePrompt';
@@ -50,6 +51,7 @@ import {
   requireDocId,
   requireUserId,
   userCol,
+  userDoc,
   type StorageAdapter,
 } from '../../storage';
 import {
@@ -78,6 +80,8 @@ export interface DescribeOptions {
   memory?: RuntimeMemoryStore;
   /** Injected so a test can drive the model without one. */
   complete?: (prompt: string) => Promise<string>;
+  /** App language requested by the route; older callers omit it. */
+  locale?: ProfileLocale;
 }
 
 interface StoredProposal {
@@ -94,6 +98,31 @@ function storageOf(options: DescribeOptions): StorageAdapter {
 
 function proposalPath(uid: string, proposalId: string): string {
   return `${userCol(uid, PROFILE_PROPOSALS)}/${requireDocId(proposalId)}`;
+}
+
+const PROFILE_LOCALES: readonly ProfileLocale[] = ['ar', 'en', 'he'];
+const LETTER = new RegExp('\\p{L}', 'u');
+const SCRIPT = {
+  ar: new RegExp('\\p{Script=Arabic}', 'u'),
+  en: new RegExp('\\p{Script=Latin}', 'u'),
+  he: new RegExp('\\p{Script=Hebrew}', 'u'),
+} as const;
+
+function firstStrongLocale(text: string): ProfileLocale | null {
+  for (const character of text) {
+    if (!LETTER.test(character)) continue;
+    for (const locale of PROFILE_LOCALES) {
+      if (SCRIPT[locale].test(character)) return locale;
+    }
+  }
+  return null;
+}
+
+async function targetLocale(uid: string, text: string, options: DescribeOptions): Promise<ProfileLocale> {
+  if (options.locale) return options.locale;
+  const account = await storageOf(options).get<{ locale?: unknown }>(userDoc(uid));
+  if (PROFILE_LOCALES.includes(account?.locale as ProfileLocale)) return account!.locale as ProfileLocale;
+  return firstStrongLocale(text) ?? 'ar';
 }
 
 /**
@@ -113,6 +142,7 @@ export async function describeProfile(
   if (typeof text !== 'string') throw new DescriptionTooLongError();
   const description = text.trim();
   if (Array.from(description).length > MAX_DESCRIPTION_LENGTH) throw new DescriptionTooLongError();
+  const locale = await targetLocale(uid, description, options);
 
   const proposal: StoredProposal = {
     proposalId: randomUUID(),
@@ -134,7 +164,7 @@ export async function describeProfile(
 
   let raw: unknown;
   try {
-    raw = JSON.parse(await complete(buildProfilePrompt(description)));
+    raw = JSON.parse(await complete(buildProfilePrompt(description, locale)));
   } catch {
     // No model, no consent, over the cap, or a malformed answer. All of them
     // mean the same thing to the user: nothing to suggest. The consent refusal
@@ -145,7 +175,7 @@ export async function describeProfile(
 
   const suggestions = validateProfileSuggestions(
     (raw as { suggestions?: unknown })?.suggestions,
-    { now: at },
+    { now: at, locale },
   ).suggestions;
 
   proposal.suggestions = [...suggestions];

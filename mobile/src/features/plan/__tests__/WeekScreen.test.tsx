@@ -41,7 +41,14 @@ let mockSaveVariables: { date: string; shown: string[] } | undefined;
 const mockDecisions: WeekDecisions[] = [];
 const mockSave = jest.fn();
 
+// M6a-1: the «شوف أبعد» link reads the free-time probe; off here (no QueryClient in these tests).
+jest.mock('../../calendar/usePlanFreeTime', () => ({
+  ...(jest.requireActual('../../calendar/usePlanFreeTime') as object),
+  useServerBusy: () => ({ available: false }),
+}));
+
 jest.mock('../../../api/queries', () => ({
+  useUid: () => 'u',
   useWeek: (decisions: WeekDecisions) => {
     mockDecisions.push(decisions);
     return {
@@ -298,6 +305,21 @@ describe('saving a day', () => {
     const options = mockSave.mock.calls[0]![1] as { onSuccess: () => void };
     options.onSuccess();
     expect(announce).toHaveBeenCalledWith(t.weekSavedToast);
+  });
+
+  it('M5B1-014 sends back the digest of the card it drew, and none when the server sent none', async () => {
+    const digest = 'f'.repeat(64);
+    mockWeek = { ...RECORDED, days: RECORDED.days.map(day => (day.date === FIRST.date ? { ...day, layoutDigest: digest } : day)) };
+    await show();
+    await fireEvent.press(screen.getByTestId(`week-save-${FIRST.date}`));
+    expect(mockSave.mock.calls[0]![0]).toEqual({ date: FIRST.date, shown: shownOn(FIRST), layoutDigest: digest });
+
+    await cleanup();
+    mockSave.mockReset();
+    mockWeek = RECORDED;
+    await show();
+    await fireEvent.press(screen.getByTestId(`week-save-${FIRST.date}`));
+    expect((mockSave.mock.calls[0]![0] as { layoutDigest?: string }).layoutDigest).toBeUndefined();
   });
 
   it('holds every save while one is in flight', async () => {

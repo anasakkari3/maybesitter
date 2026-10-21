@@ -79,6 +79,7 @@ import { buildDailyPlanInput, dayHorizon } from './buildDailyPlan';
 import { loadDomainState } from '../mobile/participantState';
 import type { Commitment } from '../../../src/domain/stateMachine';
 import { composeDailyPlan, type DailyPlanDeps } from './dailyPlanService';
+import { resolveMemoryLearning } from '../../release/m5bCapabilities';
 
 export type PlanEditReason =
   | 'unknown_item'
@@ -982,9 +983,10 @@ export async function acceptPlanProposal(
     const { edits, status } = editsSurvivingReschedule(current);
     const causeChangeIds = proposal.causeChangeIds;
     const causes = causeChangeIds.length > 0 ? { causeChangeIds: [...causeChangeIds] } : {};
+    const { readinessApplied: _oldReadiness, ...withoutOldReadiness } = current;
     return {
       next: {
-        ...current,
+        ...withoutOldReadiness,
         generation,
         replaces: { generation: current.generation, inputDigest: current.inputDigest },
         plan: proposal.plan,
@@ -1011,6 +1013,9 @@ export async function acceptPlanProposal(
         proposal: null,
         // The person accepted (#587): the plan is theirs from here on (L5).
         proposalAnswered: true,
+        ...(resolveMemoryLearning() && proposal.basisSnapshot
+          ? { readinessApplied: proposal.basisSnapshot.readinessApplied }
+          : {}),
       },
       result: null,
       // Both in this commit. See "What the ledger says" above.

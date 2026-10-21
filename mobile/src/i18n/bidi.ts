@@ -57,3 +57,35 @@ export function isolateLatinRuns(text: string): string {
   if (!RTL_LETTER.test(text)) return text;
   return text.replace(LATIN_RUN, (run) => isolateAuto(run));
 }
+
+/** A letter (never a digit, a mark or punctuation), and the scripts that decide a direction. */
+const LETTER = new RegExp('\\p{L}', 'u');
+const RTL_SCRIPT = new RegExp('[\\p{Script=Arabic}\\p{Script=Hebrew}]', 'u');
+// Constructors, not literals: the root typecheck reads this file under an older target.
+const ARABIC_SCRIPT = new RegExp('\\p{Script=Arabic}', 'u');
+const HEBREW_SCRIPT = new RegExp('\\p{Script=Hebrew}', 'u');
+
+/**
+ * The direction a piece of user text reads in by itself: its first strong
+ * letter decides (the Unicode "first strong" rule), and text with none —
+ * digits, punctuation — takes `fallback`. Used to lay out a fact written in a
+ * language other than the app's on its own side (condition 53).
+ */
+/** The script of the first letter: what face a paragraph of user text is set in (M6A-INSPECT-R2-002). */
+export function firstStrongScript(text: string): 'arabic' | 'hebrew' | 'latin' | null {
+  for (const char of stripIsolates(text)) {
+    if (!LETTER.test(char)) continue;
+    return ARABIC_SCRIPT.test(char) ? 'arabic' : HEBREW_SCRIPT.test(char) ? 'hebrew' : 'latin';
+  }
+  return null;
+}
+
+export function firstStrongDirection(text: string, fallback: 'ltr' | 'rtl'): 'ltr' | 'rtl' {
+  // Code point by code point, letters only: «٣ Dentist» and «، Dentist» start
+  // at the D (M6A-INSPECT-001).
+  for (const char of stripIsolates(text)) {
+    if (!LETTER.test(char)) continue;
+    return RTL_SCRIPT.test(char) ? 'rtl' : 'ltr';
+  }
+  return fallback;
+}

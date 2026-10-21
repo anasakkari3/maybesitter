@@ -26,6 +26,8 @@ import {
   type FixedTimeInForce,
 } from './planActions';
 import { pendingProposalOf, type StoredDailyPlan, type StoredPlanProposal } from './planStore';
+import { resolveMemoryLearning } from '../../release/m5bCapabilities';
+import type { ReadinessApplied } from '../../integrations/readiness/freshReadiness';
 
 export interface PlanItemDto {
   readonly itemId: string;
@@ -140,6 +142,8 @@ export interface DailyPlanDto {
    * so rather than showing an empty day.
    */
   readonly workingEndsAt: string | null;
+  readonly readinessApplied?: ReadinessApplied | null;
+  readonly basisChanged?: boolean;
 }
 
 /** The end of the day's last working window, as an instant; null when there is none. */
@@ -210,6 +214,7 @@ export interface PlanDtoOptions {
    * from them rather than from the stored request (`fixedRowsOf`).
    */
   readonly commitments?: readonly Commitment[];
+  readonly basisChanged?: boolean;
 }
 
 export function planToDto(
@@ -267,6 +272,10 @@ export function planToDto(
     inputsChanged: options.inputsChanged ?? false,
     rebuildsLeft: rebuildsLeftOf(stored),
     workingEndsAt: workingEndsAtOf(stored),
+    ...(resolveMemoryLearning() ? {
+      readinessApplied: stored.readinessApplied ?? null,
+      basisChanged: options.basisChanged ?? false,
+    } : {}),
   };
 }
 

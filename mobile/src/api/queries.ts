@@ -4,6 +4,7 @@ import type { CaptureConfirmation } from './schemas/capture';
 import * as Crypto from 'expo-crypto';
 import { useTimeZone } from '../i18n/timezone';
 import { apiLocale } from '../i18n/locale';
+import { searchCommitments } from './endpoints/m6';
 import { useAuth } from '../auth/AuthProvider';
 import { chatCapture, clarifyCapture, confirmCapture, proposeCapture, type CaptureChatInput } from './endpoints/capture';
 import { proposeFromShare } from './endpoints/share';
@@ -133,6 +134,7 @@ import {
   unlinkGoalNode,
 } from './endpoints/goals';
 import type { GoalConfirmationSelection } from './endpoints/goals';
+import { getMemorySummary } from './endpoints/m5b';
 import type { GoalProgressPeriod } from './schemas/goals';
 import { createHabit, deleteHabit, listHabits, setHabitStatus } from './endpoints/habits';
 import type { Habit, NewHabitInput } from './schemas/habits';
@@ -1085,6 +1087,8 @@ export function adoptWeekConflict(client: QueryClient, uid: string, decisions: W
 export interface WeekDaySave {
   date: string;
   shown: readonly string[];
+  /** The drawn card's digest when the server sent one (M5B1-014); echoed, never computed here. */
+  layoutDigest?: string | undefined;
 }
 
 /**
@@ -1100,7 +1104,7 @@ export function useAcceptWeekDay(decisions: WeekDecisions) {
   const client = useQueryClient();
   const uid = useUid();
   return useMutation({
-    mutationFn: ({ date, shown }: WeekDaySave) => acceptWeekDay(date, shown, decisions),
+    mutationFn: ({ date, shown, layoutDigest }: WeekDaySave) => acceptWeekDay(date, shown, decisions, layoutDigest),
     onSuccess: ({ plan, week }) => {
       adoptPlan(client, uid, plan.date, plan);
       client.setQueryData(queryKeys.week(uid, weekDecisionsKey(decisions)), week);
@@ -1256,7 +1260,7 @@ export function useSaveSubjectiveEnergy() {
   const client = useQueryClient();
   const uid = useUid();
   return useMutation({
-    mutationFn: (input: { energy: 1 | 2 | 3 | 4 | 5; observedAt: string }) => putSubjectiveEnergy(input),
+    mutationFn: (input: { energy: 1 | 2 | 3 | 4 | 5; observedAt: string }) => putSubjectiveEnergy(input, { asUid: uid }),
     onSettled: () => {
       void client.invalidateQueries({ queryKey: queryKeys.readiness(uid) });
       void client.invalidateQueries({ queryKey: ['user', uid, 'plan'] });
@@ -1543,6 +1547,28 @@ export function useMemory() {
   });
 }
 
+/**
+ * The memory paragraph in one language (PLAN-M5b-1 R1.2). Keyed under the
+ * memory prefix, so every memory write that invalidates the list invalidates
+ * every language of the summary too (M5B1-003). Asked once per real change:
+ * no retry, no refetch on mount, focus or reconnect (M5B1-013, M5B1-016) — a
+ * failed summary is the list, not a request repeated in the background.
+ * `enabled` waits for the disclosure to be on screen (M5B1-011).
+ */
+export function useMemorySummary(language: 'ar' | 'en' | 'he', enabled: boolean) {
+  const uid = useUid();
+  return useQuery({
+    queryKey: [...queryKeys.memory(uid), 'summary', language] as const,
+    queryFn: async () => (await getMemorySummary(language, { asUid: uid })).summary,
+    enabled: enabled && uid !== 'signed-out',
+    retry: false,
+    refetchOnMount: false,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+    staleTime: Infinity,
+  });
+}
+
 function useMemoryMutation<TInput>(mutationFn: (input: TInput) => Promise<unknown>) {
   const client = useQueryClient();
   const uid = useUid();
@@ -1604,9 +1630,29 @@ export function useMemorySuggestion() {
  * A mutation rather than a query: it costs a model call and must happen once,
  * when the user presses the button, never on a refetch or a remount.
  */
+/** Search page size: what the server returns by default (R3-009). */
+export const SEARCH_LIMIT = 30;
+
+/**
+ * The server's commitment search (D54-1), under the commitments prefix so every
+ * commitment write refreshes it (M6A-R4-004). `enabled` is the caller's: a
+ * debounced, folded, searchable needle with the capability on. TanStack hands
+ * the query its own `signal`, so a needle that moved on cancels the request.
+ */
+export function useCommitmentSearch(foldedQuery: string, rawQuery: string, enabled: boolean) {
+  const uid = useUid();
+  return useQuery({
+    queryKey: ['user', uid, 'commitments', 'search', foldedQuery, SEARCH_LIMIT] as const,
+    queryFn: ({ signal }) => searchCommitments(rawQuery, SEARCH_LIMIT, { asUid: uid, signal }),
+    enabled: enabled && uid !== 'signed-out',
+    retry: false,
+    staleTime: 30_000,
+  });
+}
+
 export function useDescribeProfile() {
   return useMutation({
-    mutationFn: (text: string) => describeProfile(text),
+    mutationFn: (text: string) => describeProfile(text, apiLocale()),
   });
 }
 

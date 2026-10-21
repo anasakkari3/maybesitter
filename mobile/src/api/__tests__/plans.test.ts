@@ -320,6 +320,15 @@ describe('weekly planning mode (CL5b)', () => {
     expect(week.days.find(day => day.date === '2026-08-11')!.state).toBe('accepted');
   });
 
+  it('M5B1-014 carries the drawn card\'s layoutDigest when given one, and no such key otherwise', async () => {
+    serve(fixture('plan.weekAccepted'));
+    await acceptWeekDay('2026-08-11', ['plan_fixture_week_open'], { moves: [], drops: [] }, 'a'.repeat(64));
+    expect((requests[0]!.body as Record<string, unknown>).layoutDigest).toBe('a'.repeat(64));
+    serve(fixture('plan.weekAccepted'));
+    await acceptWeekDay('2026-08-11', ['plan_fixture_week_open'], { moves: [], drops: [] });
+    expect(requests[1]!.body).not.toHaveProperty('layoutDigest');
+  });
+
   it('reads a day that already has a plan as a conflict that carries the week', async () => {
     serve(fixture('plan.weekAlreadyPlanned'), 409);
     const error = await acceptWeekDay('2026-08-11', [], { moves: [], drops: [] }).catch((caught: unknown) => caught);

@@ -220,17 +220,18 @@ describe('the banner takes a bounded share of the screen at every text size', ()
     expect(screen.queryByRole('button', { name: en.authVerifyBanner })).toBeNull();
   });
 
-  it.each(AX)('at %p× shows a short label beside resend and announces the whole sentence', async (fontScale) => {
+  it.each(AX)('at %p× shows the short sentence whole above resend and announces the whole sentence', async (fontScale) => {
     await renderBanner(createFakeAuthRepository({ initialUser: UNVERIFIED }), fontScale);
-    const lines = bannerTextLines({ windowHeight: 844, fontScale });
+    // #739 (M6a-1): never cut to «..» — the short sentence is drawn whole.
+    expect(bannerTextLines({ windowHeight: 844, fontScale })).toBe(1);
     const text = screen.getByText(en.authVerifyShort);
-    expect(text.props.numberOfLines).toBe(lines);
+    expect(text.props.numberOfLines).toBeUndefined();
     // A screen reader hears the full sentence, whatever is painted.
     expect(message().props.accessibilityState).toMatchObject({ expanded: false });
-    // «Resend» remains visible beside the shortened sentence.
+    // «Resend» remains visible, under the sentence: a column gives the words the full width (#739).
     expect(screen.getByLabelText(en.authVerifyResend)).toBeTruthy();
     expect(StyleSheet.flatten(screen.getByTestId('verify-email-banner').props.style)).toMatchObject({
-      flexDirection: 'row',
+      flexDirection: 'column',
       paddingTop: METRICS.insets.top + 6,
     });
   });
@@ -243,13 +244,13 @@ describe('the banner takes a bounded share of the screen at every text size', ()
     const region = screen.getByTestId('verify-email-banner-full');
     expect(StyleSheet.flatten(region.props.style).maxHeight).toBeLessThanOrEqual(Math.round(844 * EXPANDED_SHARE));
     await fireEvent.press(message());
-    expect(screen.getByText(en.authVerifyShort).props.numberOfLines).toBe(1);
+    expect(screen.getByText(en.authVerifyShort).props.numberOfLines).toBeUndefined();
   });
 
   it('caps the "sent" confirmation the same way', async () => {
     await renderBanner(createFakeAuthRepository({ initialUser: UNVERIFIED }), 3.12);
     await fireEvent.press(screen.getByLabelText(en.authVerifyResend));
-    expect(screen.getByText(en.authVerifySentShort).props.numberOfLines).toBe(1);
+    expect(screen.getByText(en.authVerifySentShort).props.numberOfLines).toBeUndefined(); // whole, short (#739)
     expect(screen.getByLabelText(en.authVerifyResent)).toBeTruthy();
     expect(screen.getByText('60s')).toBeTruthy();
   });

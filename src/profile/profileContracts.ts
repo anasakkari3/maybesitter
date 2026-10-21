@@ -29,6 +29,8 @@ export const MAX_DESCRIPTION_LENGTH = 1_000;
 
 export type SuggestionKind = 'fact' | 'preference' | 'goal';
 
+export type ProfileLocale = 'ar' | 'en' | 'he';
+
 export const SUGGESTION_KINDS: readonly SuggestionKind[] = ['fact', 'preference', 'goal'];
 
 /**
@@ -82,6 +84,7 @@ export type DropReason =
   | 'past_target_date'
   | 'bad_target_date'
   | 'sensitive'
+  | 'wrong_script'
   | 'over_limit';
 
 export interface ValidationOutcome {

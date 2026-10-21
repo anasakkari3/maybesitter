@@ -6,6 +6,8 @@ import { Btn, Card, Txt } from '../../ui/primitives';
 import { Screen, ScreenScroll } from '../../ui/screen';
 import { SettingsHeader } from './SettingsChrome';
 import { HealthDataCard } from '../readiness/HealthDataCard';
+import { useM5bOn } from '../m5b/capabilities';
+import { ReadinessEffect } from '../m5b/energy';
 
 const ENERGY = [1, 2, 3, 4, 5] as const;
 const BAND_COPY = {
@@ -30,6 +32,7 @@ export function ReadinessSettingsScreen({ onBack }: { onBack: () => void }) {
   const { t, p } = useApp();
   const readiness = useReadiness();
   const save = useSaveSubjectiveEnergy();
+  const m5bOn = useM5bOn();
   const [failed, setFailed] = useState(false);
 
   const snapshot = readiness.data?.readiness ?? null;
@@ -92,6 +95,9 @@ export function ReadinessSettingsScreen({ onBack }: { onBack: () => void }) {
             <Txt size={13} color={p.mu} testID="readiness-loading">{t.readinessLoading}</Txt>
           ) : readiness.isError ? (
             <Txt size={13} color={p.mu} testID="readiness-unavailable">{t.readinessUnavailable}</Txt>
+          ) : m5bOn === true && readiness.data?.planEffect ? (
+            // What a plan built now would add, in one sentence (R4.2).
+            <ReadinessEffect effect={readiness.data.planEffect} />
           ) : freshness === 'missing' ? (
             // Nobody has checked in yet. That is where every account starts,
             // not a failure, and the buttons above are how it ends.

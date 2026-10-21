@@ -10,10 +10,15 @@ export function getReadiness(): Promise<ReadinessResponse> {
   return apiRequest('GET', '/api/mobile/readiness', { schema: readinessResponseSchema });
 }
 
-export function putSubjectiveEnergy(input: { energy: 1 | 2 | 3 | 4 | 5; observedAt: string }): Promise<ReadinessSaved> {
+/** `asUid`: a check-in started for one account is never sent as another (M5B-A-003). */
+export function putSubjectiveEnergy(
+  input: { energy: 1 | 2 | 3 | 4 | 5; observedAt: string },
+  options: { asUid?: string } = {},
+): Promise<ReadinessSaved> {
   return apiRequest('PUT', '/api/mobile/readiness', {
     body: input,
     schema: readinessSavedSchema,
+    ...(options.asUid !== undefined ? { asUid: options.asUid } : {}),
   });
 }
 

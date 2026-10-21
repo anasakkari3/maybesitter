@@ -1,6 +1,6 @@
 import { importantDeadline } from '../features/today/dayContext';
 import { DeadlineContext } from '../features/today/DeadlineContext';
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { RefreshControl, View } from 'react-native';
 import { calendarReadEnabled } from '../config/env';
 import { useBusyBlocks, useDeviceBusy } from '../features/calendar/useBusyCalendar';
@@ -10,6 +10,7 @@ import { dayFree, googleCovers, googleWindowIsNormal, knownTime, type DayFree, t
 import { WIDER_DAYS, probeRange, useDaysFrom, useLocalToday, usePlanSnapshot, useServerBusy } from '../features/calendar/usePlanFreeTime';
 import { FreeList, FreeStateLine, gapLength } from '../features/calendar/FreeTimeRows';
 import { WiderView, type WiderCell } from '../features/calendar/WiderView';
+import { consumeCalendarWider, onCalendarWiderRequest } from '../features/calendar/widerIntent';
 import { LiveRegion } from '../ui/liveRegion';
 import { useAnnounceOnIos } from '../ui/announce';
 import { useLayoutMode } from '../theme/textScale';
@@ -24,7 +25,7 @@ import type { DeviceBusyBlock } from '../features/calendar/busyBlocks';
 import { busyAt, chipBlock } from '../features/calendar/conflicts';
 import { dayLoad, type DayLoad } from '../features/calendar/dayTimeline';
 import { DayAgenda, DayTimeline, UntimedSection, type PlanRow } from '../features/calendar/PlanDay';
-import { AvatarButton, Notice, ScreenHeader } from '../ui/chrome';
+import { AvatarButton, BackHeader, Notice, ScreenHeader } from '../ui/chrome';
 import { CountChip } from '../ui/hub';
 import { Screen, ScreenScroll, TAB_CLEARANCE } from '../ui/screen';
 import { SettingsIcon } from '../ui/icons';
@@ -108,6 +109,12 @@ export function CalendarScreen({ tabClearance = TAB_CLEARANCE }: { tabClearance?
   const [refreshing, setRefreshing] = useState(false);
   const [filter, setFilter] = useState<'all' | 'commitment' | 'busy' | 'free'>('all');
   const [widerOpen, setWiderOpen] = useState(false);
+  // «شوف أبعد» on the Plan's week asks for this view (M6A-R4-001).
+  useEffect(() => {
+    const open = () => { if (consumeCalendarWider()) setWiderOpen(true); };
+    open();
+    return onCalendarWiderRequest(open);
+  }, []);
   // «مش هلّق» on a proposal: out of the way for now, answered nowhere.
   const [laterProposal, setLaterProposal] = useState<string | null>(null);
   // Where the scrolling strip is: it opens at its end (today) until scrolled.
@@ -319,9 +326,13 @@ export function CalendarScreen({ tabClearance = TAB_CLEARANCE }: { tabClearance?
   };
 
   const range7 = formatDayRange(keys[0]!, keys[STRIP_DAYS - 1]!, { locale: lang });
+  const pushed = actions.canGoBack();
 
   return (
-    <Screen style={{ backgroundColor: p.bg }}>
+    // Opened over the week by «شوف أبعد» (D54-2): its way back is pinned
+    // outside the scroller, like every pushed screen's (screen.tsx F1), and is
+    // its only header — the tab root's header is the tab's (SIM-M6A-02/03, R3-001).
+    <Screen style={{ backgroundColor: p.bg }} {...(pushed ? { pinned: <BackHeader title={t.tabPlan} onBack={actions.back} /> } : {})}>
       <ScreenScroll
         testID="calendar-scroll"
         floating={tabClearance}
@@ -329,7 +340,7 @@ export function CalendarScreen({ tabClearance = TAB_CLEARANCE }: { tabClearance?
         gap={14}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={p.ac} />}
       >
-        <ScreenHeader
+        {pushed ? null : <ScreenHeader
           brand={false}
           eyebrow={stacked ? undefined : range7}
           eyebrowTestID={stacked ? undefined : 'calendar-range'}
@@ -343,7 +354,7 @@ export function CalendarScreen({ tabClearance = TAB_CLEARANCE }: { tabClearance?
               <AvatarButton />
             </View>
           )}
-        />
+        />}
         {/* The week planner and the calendar's settings: one row that wraps
             only when it must (UAT 2026-09-30, u52). */}
         <View testID="calendar-header-actions" style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
@@ -394,7 +405,7 @@ export function CalendarScreen({ tabClearance = TAB_CLEARANCE }: { tabClearance?
                   <DayCell key={key} dayKey={key} isToday={key === todayKey} selected={key === selectedKey}
                     items={byDay.get(key) ?? []}
                     busy={(calendarConnected ? (busyByDay.get(key)?.length ?? 0) : 0) + (weeklyByDay.get(key)?.length ?? 0)}
-                    load={load} loadLabel={calendarConnected ? loadWord(load) : t.loadUnknown} complete={calendarConnected}
+                    load={load} loadLabel={calendarConnected ? loadWord(load) : null} complete={calendarConnected}
                     onPress={() => pick(key)} />
                 );
               })}
@@ -451,6 +462,10 @@ export function CalendarScreen({ tabClearance = TAB_CLEARANCE }: { tabClearance?
               {!stacked && weekHasMust ? <CalendarLegend color={p.acd} label={t.todayGroupMust} testID="calendar-legend-must" /> : null}
               {!stacked && (calendarConnected || weekly.length > 0) ? <CalendarLegend color={p.mu} label={t.calendarBusyLegend} /> : null}
             </View>
+            {/* Without a calendar the day's load is not known: no «خفيف» or
+                «مليان» claim on the selected day either (#741, F6). Free time
+                from the server's own read still has its say. */}
+            {calendarConnected || (selectedFree?.state === 'full' && shownFilter === 'free' && selectedFree.totalMinutes !== null) ? (
             <View style={{ paddingVertical: 5, paddingHorizontal: 12, borderWidth: 1, borderColor: p.ln, backgroundColor: p.sf, borderRadius: 999 }}>
               <Txt size={13} color={p.mu} testID="calendar-selected-load">
                 {selectedFree?.state === 'full' && shownFilter === 'free' && selectedFree.totalMinutes !== null
@@ -458,6 +473,7 @@ export function CalendarScreen({ tabClearance = TAB_CLEARANCE }: { tabClearance?
                   : loadWord(loadOf(selectedKey))}
               </Txt>
             </View>
+            ) : null}
           </View>
           {beyondStrip ? (
             <Btn testID="calendar-back-today" label={t.yBackToToday} onPress={() => actions.setSelDate(null)} scaleTo={0.97}
@@ -607,7 +623,8 @@ function DayCell({
   /** How many busy blocks the phone's calendar has that day; one dot when any. */
   busy: number;
   load: DayLoad;
-  loadLabel: string;
+  /** Null without a calendar: the day's load is not known, so nothing is said under each day (#741). */
+  loadLabel: string | null;
   complete: boolean;
   onPress: () => void;
 }) {
@@ -622,7 +639,7 @@ function DayCell({
     <Btn
       testID={`calendar-day-${key}`}
       onPress={onPress}
-      label={`${formatDate(date, 'weekday', options)} ${formatDate(date, 'dayNumber', options)}, ${loadLabel}`}
+      label={`${formatDate(date, 'weekday', options)} ${formatDate(date, 'dayNumber', options)}${loadLabel ? `, ${loadLabel}` : ''}`}
       accessibilityState={{ selected }}
       scaleTo={0.94}
       style={{
@@ -636,7 +653,7 @@ function DayCell({
       <Txt size={16} weight={700} align="center" color={p.tx} lh={1.25} latin>
         {formatDate(date, 'dayNumber', options)}
       </Txt>
-      {!stacked ? <Txt size={12} weight={load === 'normal' ? 400 : 700} color={loadColor} align="center" lines={1} testID={`calendar-load-${key}`}>{loadLabel}</Txt> : null}
+      {!stacked && loadLabel ? <Txt size={12} weight={load === 'normal' ? 400 : 700} color={loadColor} align="center" lines={1} testID={`calendar-load-${key}`}>{loadLabel}</Txt> : null}
       <View accessible={false} style={{ flexDirection: 'row', gap: 3, minHeight: 5, marginTop: 3 }}>
         {/* Three dots at most: a fourth would make a busy day unreadable, and
             the count is not the point — the shape of the week is. */}

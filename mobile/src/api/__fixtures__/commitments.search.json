@@ -1,0 +1,37 @@
+{
+  "success": true,
+  "items": [
+    {
+      "id": "00000000-0000-4000-8000-000000000001",
+      "kind": "task",
+      "title": "Dentist appointment",
+      "description": null,
+      "person": null,
+      "status": "active",
+      "priority": {
+        "level": "normal",
+        "source": "default",
+        "pressureAllowed": false,
+        "pressureLevel": "none"
+      },
+      "category": null,
+      "categorySource": "inferred",
+      "timeSpec": {
+        "kind": "due_by",
+        "dueAt": "2026-08-09T09:00:00.000Z",
+        "endAt": null,
+        "remindAt": null,
+        "allDay": false,
+        "timezone": "Asia/Jerusalem"
+      },
+      "currentAckState": "not_seen",
+      "postponedUntil": null,
+      "createdAt": "2026-08-09T09:00:00.000Z",
+      "updatedAt": "2026-08-09T09:00:00.000Z",
+      "confirmedAt": "2026-08-09T09:00:00.000Z",
+      "completedAt": null,
+      "droppedAt": null
+    }
+  ],
+  "truncated": false
+}

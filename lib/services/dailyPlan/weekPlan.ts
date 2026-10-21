@@ -85,6 +85,10 @@ import { isPlanDate, localDateOf, planSettingsOf } from './planSettings';
 import { PLAN_PROPOSAL_DAYS, heldBySavedWeekDay, planDatesFrom } from './weekHolds';
 import { DEFAULT_MOBILE_TIMEZONE } from '../mobile/time';
 import { reserveDailyAction } from '../../llm/usageGuard';
+import { createHash } from 'node:crypto';
+import type { UserLocale } from '../../storage/userDocument';
+import type { ReadinessApplied } from '../../integrations/readiness/freshReadiness';
+import { resolveMemoryLearning } from '../../release/m5bCapabilities';
 
 /* ── What the client sends ─────────────────────────────────────────── */
 
@@ -203,6 +207,8 @@ interface ProposedDay {
   readonly rule: readonly string[];
   readonly constraints: PlanningConstraints;
   readonly plan: Plan;
+  readonly config: DailyPlanRequest['config'];
+  readonly readinessApplied?: ReadinessApplied;
   readonly assignment: DayAssignment;
   readonly reasons: ReadonlyMap<string, WeekStepReason | null>;
 }
@@ -219,6 +225,7 @@ export type WeekDay = ProposedDay | StoredDay;
 export interface WeekLayout {
   readonly today: string;
   readonly timezone: string;
+  readonly locale: UserLocale;
   readonly days: readonly WeekDay[];
   /** The decisions that applied, after the ones about nothing were ignored. */
   readonly decisions: WeekDecisions;
@@ -303,6 +310,7 @@ export async function composeWeek(
   const user = await storage.get<Record<string, unknown> & { timezone?: string | null }>(userDoc(uid));
   const settings = planSettingsOf(user as Parameters<typeof planSettingsOf>[0], user?.timezone ?? DEFAULT_MOBILE_TIMEZONE);
   const timezone = settings.timezone;
+  const locale: UserLocale = user?.locale === 'ar' || user?.locale === 'he' ? user.locale : 'en';
   const today = localDateOf(nowIso, timezone);
   const dates = planDatesFrom(today, PLAN_PROPOSAL_DAYS);
 
@@ -370,6 +378,7 @@ export async function composeWeek(
       now: nowIso,
       userDocument: user,
       previousBlocks: null,
+      applyReadiness: false,
       assignment: { include: Array.from(candidates), exclude: rule.filter((itemId) => !candidates.has(itemId)) },
     }, { storage, preloaded, ...(deps.busyBlocks ? { busyBlocks: deps.busyBlocks } : {}) }));
   }
@@ -467,6 +476,8 @@ export async function composeWeek(
       rule,
       constraints,
       plan,
+      config: request.config,
+      ...(request.basisSnapshot ? { readinessApplied: request.basisSnapshot.readinessApplied } : {}),
       assignment: { include: final, exclude: rule.filter((itemId) => !finalSet.has(itemId)) },
       reasons,
     });
@@ -476,6 +487,7 @@ export async function composeWeek(
   return {
     today,
     timezone,
+    locale,
     days,
     decisions: { moves: Array.from(movedTo).map(([itemId, date]) => ({ itemId, date })), drops },
     waiting,
@@ -524,6 +536,7 @@ export interface WeekDayDto {
   readonly allDay: readonly { readonly itemId: string; readonly title: string | null }[];
   /** Work the person moved here that does not fit the day. Proposed days only. */
   readonly unplaced: readonly { readonly itemId: string; readonly title: string | null }[];
+  readonly layoutDigest?: string;
 }
 
 export interface WeekDto {
@@ -534,6 +547,18 @@ export interface WeekDto {
   readonly drops: readonly { readonly itemId: string; readonly title: string | null }[];
   /** How much of the week's floating work no day holds: it waits for later. */
   readonly waiting: number;
+}
+
+export function weekDayLayoutDigest(date: string, plan: Plan, constraints?: PlanningConstraints): string {
+  const rows = [
+    ...plan.scheduled.map((item) => ({ itemId: item.itemId, startsAt: item.interval.startsAt, endsAt: item.interval.endsAt })),
+    ...(constraints ? pinnedEventsOnDay(constraints.fixedEvents, constraints.horizon).flatMap((event) => event.sourceCommitmentId ? [{
+      itemId: event.sourceCommitmentId, startsAt: event.interval.startsAt, endsAt: event.interval.endsAt,
+    }] : []) : []),
+  ]
+    .sort((left, right) => left.itemId < right.itemId ? -1 : left.itemId > right.itemId ? 1 : 0)
+    .map((item) => `${item.itemId}|${item.startsAt}|${item.endsAt}`);
+  return createHash('sha256').update([date, ...rows].join('\n')).digest('hex');
 }
 
 export function weekToDto(layout: WeekLayout): WeekDto {
@@ -582,6 +607,7 @@ export function weekToDto(layout: WeekLayout): WeekDto {
       return {
         date: day.date,
         state: 'proposed',
+        ...(resolveMemoryLearning() ? { layoutDigest: weekDayLayoutDigest(day.date, day.plan, day.constraints) } : {}),
         items: [...day.plan.scheduled]
           .sort((left, right) => toEpochMs(left.interval.startsAt) - toEpochMs(right.interval.startsAt))
           .map((item) => ({
@@ -642,6 +668,7 @@ export async function acceptWeekDay(
   decisions: WeekDecisions,
   shown: readonly string[],
   deps: DailyPlanDeps = {},
+  layoutDigest?: string | null,
 ): Promise<WeekAcceptOutcome> {
   const storage = deps.storage ?? getStorage();
   const layout = await composeWeek(uid, decisions, { ...deps, storage });
@@ -649,6 +676,9 @@ export async function acceptWeekDay(
   if (!day) throw new PlanDateOutOfRangeError(date, PLAN_PROPOSAL_DAYS);
   if (day.kind === 'stored') return { outcome: 'already_planned', stored: day.stored, layout };
   if (!sameSteps(day, shown)) return { outcome: 'week_changed', layout };
+  if (resolveMemoryLearning() && layoutDigest !== undefined && layoutDigest !== weekDayLayoutDigest(day.date, day.plan, day.constraints)) {
+    return { outcome: 'week_changed', layout };
+  }
   // A day the week places nothing on is not saved as a plan (audit
   // 2026-10-03 #4): no document, no acceptance, no planned day in «نشاطي».
   // The solve's placements, not the assignment: a step moved onto a day it no
@@ -666,7 +696,20 @@ export async function acceptWeekDay(
     announced: date === layout.today,
   };
 
-  const { created, stored } = await storeWeekDayPlan(uid, date, { assignment: day.assignment, origin }, { ...deps, storage });
+  const solved = resolveMemoryLearning() ? {
+    constraints: day.constraints,
+    config: day.config,
+    plan: day.plan,
+    readinessApplied: day.readinessApplied!,
+    commitments: layout.commitments,
+    timezone: layout.timezone,
+    locale: layout.locale,
+  } : undefined;
+  const { created, stored } = await storeWeekDayPlan(uid, date, {
+    assignment: day.assignment,
+    origin,
+    ...(solved ? { solved } : {}),
+  }, { ...deps, storage });
   if (!created) {
     return { outcome: 'already_planned', stored, layout: await composeWeek(uid, decisions, { ...deps, storage }) };
   }

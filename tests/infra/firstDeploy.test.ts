@@ -171,6 +171,15 @@ test('M5a capabilities are staging-only and keep explicit kill switches', () => 
   }
 });
 
+test('M6a search history is staging-only and keeps an explicit kill switch', () => {
+  const staging = envVarsOf(flagsFor('staging'));
+  const production = envVarsOf(flagsFor('production'));
+  assert.equal(staging.get('MAYBESITTER_FEATURE_SEARCH_HISTORY'), 'true');
+  assert.equal(staging.get('MAYBESITTER_KILL_SWITCH_SEARCH_HISTORY'), 'false');
+  assert.equal(production.get('MAYBESITTER_FEATURE_SEARCH_HISTORY'), 'false');
+  assert.equal(production.get('MAYBESITTER_KILL_SWITCH_SEARCH_HISTORY'), 'false');
+});
+
 /** `--set-secrets` as KEY → secret:version; gcloud splits it on `,`. */
 function secretsOf(printed: string): Map<string, string> {
   const flag = printed.trim().split(/\s+/).filter((word) => word.startsWith('--set-secrets='));
@@ -336,8 +345,11 @@ test('switching the env list to a custom delimiter dropped none of the existing 
   assert.equal(staging.get('MAYBESITTER_LLM_GLOBAL_DAILY_CALL_CAP'), '3000');
   assert.equal(staging.get('MAYBESITTER_FEATURE_PROACTIVE_LOOP'), 'true');
   assert.equal(staging.get('MAYBESITTER_KILL_SWITCH_PROACTIVE_LOOP'), 'false');
-  assert.equal(production.size, 40);
-  assert.equal(staging.size, 39);
+  // M5b-1: one flag and its kill switch, pinned off in production.
+  assert.equal(production.get('MAYBESITTER_FEATURE_MEMORY_LEARNING'), 'false');
+  assert.equal(staging.get('MAYBESITTER_FEATURE_MEMORY_LEARNING'), 'true');
+  assert.equal(production.size, 44);
+  assert.equal(staging.size, 43);
 });
 
 // ── Same-digest production promotion ────────────────────────────────────
