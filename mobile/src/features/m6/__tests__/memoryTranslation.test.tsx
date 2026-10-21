@@ -30,12 +30,12 @@ interface Setup {
   language?: Language;
   capability?: boolean | 'absent' | 'other-version';
   translation?: RouteReply;
-  patch?: RouteReply;
+  patch?: RouteReply | Promise<RouteReply>;
   m5b?: boolean;
 }
 
 async function setup(options: Setup = {}): Promise<M6Harness> {
-  const handler = (request: RecordedRequest): RouteReply | undefined => {
+  const handler = (request: RecordedRequest): RouteReply | Promise<RouteReply> | undefined => {
     if (request.path === '/api/mobile/capabilities/m6b') {
       // 'absent' is a server that predates the route.
       return options.capability === 'absent'
@@ -156,11 +156,31 @@ describe('«اكتبها بالعربي» on the memory screen', () => {
     await waitFor(() => expect(screen.queryByTestId('m6-translate-save-memory-1')).not.toBeNull());
     const save = screen.getByTestId('m6-translate-save-memory-1');
     await act(async () => {
-      fireEvent.press(save);
-      fireEvent.press(save);
+      void fireEvent.press(save);
+      void fireEvent.press(save);
     });
     await waitForRequest(harness, 'PATCH', PATCH);
     expect(harness.server.matching('PATCH', PATCH)).toHaveLength(1);
+  });
+
+  it('while the save is in flight nothing claims to keep the original (M6A2-APP-007)', async () => {
+    let finish: (reply: RouteReply) => void = () => {};
+    const pendingPatch = new Promise<RouteReply>((resolve) => { finish = resolve; });
+    harness = await setup({ patch: pendingPatch });
+    await renderScreen(harness);
+    await waitFor(() => expect(screen.queryByTestId('m6-translate-action-memory-1')).not.toBeNull());
+    await press('m6-translate-action-memory-1');
+    // The panel is open: the row's own edit and delete wait.
+    expect(screen.queryByTestId('memory-screen-edit-memory-1')).toBeNull();
+    expect(screen.queryByTestId('memory-screen-delete-memory-1')).toBeNull();
+    await press('m6-translate-request-memory-1');
+    await waitFor(() => expect(screen.queryByTestId('m6-translate-save-memory-1')).not.toBeNull());
+    await press('m6-translate-save-memory-1');
+    await waitForRequest(harness, 'PATCH', PATCH);
+    expect(screen.queryByTestId('m6-translate-keep-memory-1')).toBeNull();
+    await act(async () => { finish({ status: 409, body: { success: false, error: 'memory_changed', reason: 'memory_changed' } }); });
+    await waitFor(() => expect(screen.queryByTestId('m6-translate-changed-memory-1')).not.toBeNull());
+    expect(screen.queryByTestId('m6-translate-keep-memory-1')).not.toBeNull();
   });
 
   it('a proposal for another target language is not offered (M6A2-APP-004)', async () => {

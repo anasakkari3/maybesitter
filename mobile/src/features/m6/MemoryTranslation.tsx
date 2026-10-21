@@ -215,7 +215,11 @@ export function MemoryTranslationPanel({ item, target, onClose, tone = 'ac' }: {
             tone={tone}
           />
         ) : null}
-        <PanelAction label={t.m6TranslateKeep} testID={`m6-translate-keep-${item.id}`} onPress={onClose} muted={phase.kind === 'ready'} tone={tone} />
+        {/* While the edit is in flight it can no longer be taken back, so
+            nothing claims to keep the original (M6A2-APP-007). */}
+        {phase.kind === 'ready' && phase.saving ? null : (
+          <PanelAction label={t.m6TranslateKeep} testID={`m6-translate-keep-${item.id}`} onPress={onClose} muted={phase.kind === 'ready'} tone={tone} />
+        )}
       </View>
     </View>
   );

@@ -496,11 +496,17 @@ function MemoryDetailRow({
           onPress={onToggleWhy}
         />
         <View style={{ flex: 1 }} />
-        {translateTarget && !translating ? (
-          <TranslateAction item={item} target={translateTarget} onPress={onTranslate} tone="acd" />
-        ) : null}
-        <Action label={t.memoryEdit} testID={`memory-screen-edit-${item.id}`} onPress={onEdit} />
-        <Action label={t.memoryDelete} testID={`memory-screen-delete-${item.id}`} tone="warn" onPress={onDelete} />
+        {/* Edit and delete wait while a translation panel is open: its save
+            is an edit of this row (M6A2-APP-007). */}
+        {translating ? null : (
+          <>
+            {translateTarget ? (
+              <TranslateAction item={item} target={translateTarget} onPress={onTranslate} tone="acd" />
+            ) : null}
+            <Action label={t.memoryEdit} testID={`memory-screen-edit-${item.id}`} onPress={onEdit} />
+            <Action label={t.memoryDelete} testID={`memory-screen-delete-${item.id}`} tone="warn" onPress={onDelete} />
+          </>
+        )}
       </View>
 
       {translateTarget && translating ? (

@@ -296,9 +296,11 @@ function MemoryRow({
               </View>
             ) : null}
             <View style={{ flex: 1 }} />
-            {confirming ? null : (
+            {/* Edit and delete wait while a translation panel is open: its save
+                is an edit of this row (M6A2-APP-007). */}
+            {confirming || translating ? null : (
               <>
-                {translateTarget && !translating ? (
+                {translateTarget ? (
                   <TranslateAction item={item} target={translateTarget} onPress={onTranslate} />
                 ) : null}
                 <SmallAction label={t.memoryEdit} testID={`memory-edit-${item.id}`} onPress={onEdit} />

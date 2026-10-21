@@ -314,3 +314,35 @@ describe('what is worth retrying', () => {
     expect(isRetryable(new ContractError('/x', []))).toBe(false);
   });
 });
+
+describe('a caller that gives up before the request is sent (M6A2-APP-006)', () => {
+  it('sends nothing when the signal aborts while the token is still being fetched', async () => {
+    respondWith({ status: 200, body: { ok: true } });
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const original = repository.getIdToken.bind(repository);
+    repository.getIdToken = async (force?: boolean) => { await gate; return original(force); };
+    const controller = new AbortController();
+    const pending = apiRequest('POST', '/api/mobile/x', { schema: okSchema, body: { a: 1 }, signal: controller.signal });
+    controller.abort();
+    release();
+    await expect(pending).rejects.toBeInstanceOf(TimeoutError);
+    expect(calls).toHaveLength(0);
+  });
+
+  it('sends no retry when the signal aborts while a 401 refresh is pending', async () => {
+    respondWith({ status: 401, body: { error: 'expired' } }, { status: 200, body: { ok: true } });
+    const controller = new AbortController();
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const original = repository.getIdToken.bind(repository);
+    repository.getIdToken = async (force?: boolean) => {
+      if (force) { controller.abort(); await gate; }
+      return original(force);
+    };
+    const pending = apiRequest('POST', '/api/mobile/x', { schema: okSchema, body: { a: 1 }, signal: controller.signal });
+    release();
+    await expect(pending).rejects.toBeInstanceOf(TimeoutError);
+    expect(calls).toHaveLength(1);
+  });
+});
