@@ -69,7 +69,7 @@ function conflictText(block: DeviceBusyBlock, t: ReturnType<typeof useApp>['t'],
 }
 
 /** A commitment: its time (or «بدون وقت»), title, importance, and what it runs into. Opens Details. */
-export function CommitmentCard({ row, marker = false, narrow = false, agenda = false }: {
+export function CommitmentCard({ row, marker = false, narrow = false, agenda = false, minHeight = 44 }: {
   row: Extract<PlanRow, { kind: 'commitment' }>;
   /** On the timeline: a tighter card whose top edge is its time. */
   marker?: boolean;
@@ -77,6 +77,8 @@ export function CommitmentCard({ row, marker = false, narrow = false, agenda = f
   narrow?: boolean;
   /** Dense ordered-list treatment used when a timeline would be unreadable. */
   agenda?: boolean;
+  /** On the timeline, a ranged commitment's true height. */
+  minHeight?: number;
 }) {
   const { t, p, lang, actions } = useApp();
   const timeZone = useTimeZone();
@@ -92,7 +94,7 @@ export function CommitmentCard({ row, marker = false, narrow = false, agenda = f
       onPress={() => actions.openDetail(item.id)}
       scaleTo={0.98}
       style={{
-        minHeight: 44, borderRadius: agenda ? 14 : marker ? 16 : 20, borderWidth: 1,
+        minHeight: Math.max(44, minHeight), borderRadius: agenda ? 14 : marker ? 16 : 20, borderWidth: 1,
         borderColor: conflict ? p.prop : p.ln, backgroundColor: p.sf,
         paddingVertical: agenda ? 7 : marker ? 8 : 12, paddingHorizontal: agenda ? 10 : marker ? 10 : 14, gap: agenda ? 3 : 6,
         ...(agenda ? { borderStartWidth: 3, borderStartColor: look.fg } : {}),
@@ -121,8 +123,12 @@ export function CommitmentCard({ row, marker = false, narrow = false, agenda = f
             </View>
           </View>
         )}
-        {!agenda ? <Tag kind={priorityTagKind(item.importance)} label={importanceWord(item.importance, t)} /> : null}
+        {!agenda && !narrow ? <Tag kind={priorityTagKind(item.importance)} label={importanceWord(item.importance, t)} /> : null}
       </View>
+      {/* Sharing its hour, the card is a column: the title keeps the whole
+          width, so a word is never broken inside itself (#738), and the
+          importance chip moves under it. */}
+      {!agenda && narrow ? <Tag kind={priorityTagKind(item.importance)} label={importanceWord(item.importance, t)} /> : null}
       {overlap ? (
         <View testID={`calendar-conflict-${item.id}`} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'stretch', borderRadius: 10, backgroundColor: p.wms, paddingVertical: 4, paddingHorizontal: 8 }}>
           <View accessible={false} style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: p.wm }} />
@@ -217,10 +223,17 @@ export function DayTimeline({ rows: allRows, day, nowIso }: { rows: readonly Pla
   }));
   const spans: TimelineSpan[] = rows.map(row => {
     if (row.kind === 'commitment') {
+      const start = minuteOfDay(row.clock!, day, timeZone);
+      const until = rangeEndOf(row);
+      const end = until ? minuteOfDay(until, day, timeZone) : null;
       return {
         key: row.key,
-        start: minuteOfDay(row.clock!, day, timeZone),
-        end: null,
+        start,
+        // A commitment that names its end (a saved slot, or «من 9 لـ 5») is
+        // drawn as long as it lasts (#738): a 09:00–17:00 offsite as one hour
+        // made the 10:00 lawyer look free beside it. One with no end stays a
+        // marker — inventing a length would be worse.
+        end: end !== null && end > start ? end : null,
         // Padding, a title line and a time line in the Arabic face's line box;
         // a due aside and an overlap line each add one more.
         minVisual: (70 + (row.due ? 22 : 0) + (row.conflict ? 36 : 0)) * scale,
@@ -276,7 +289,7 @@ export function DayTimeline({ rows: allRows, day, nowIso }: { rows: readonly Pla
               return (
                 <View key={entry.key} style={frame}>
                   <View accessible={false} style={{ position: 'absolute', top: -4, start: -4, width: 8, height: 8, borderRadius: 4, backgroundColor: look.fg, zIndex: 3 }} />
-                  <CommitmentCard row={row} marker narrow={entry.lanes > 1} />
+                  <CommitmentCard row={row} marker={entry.height === 0} narrow={entry.lanes > 1} minHeight={entry.height} />
                 </View>
               );
             }
@@ -325,4 +338,13 @@ export function UntimedSection({ rows, title }: { rows: readonly Extract<PlanRow
       {rows.map(row => <CommitmentCard key={row.key} row={row} agenda />)}
     </View>
   );
+}
+
+/** Where a commitment on the timeline ends: its saved slot's end, or its own `endAt` when it is drawn at its own time. */
+function rangeEndOf(row: Extract<PlanRow, { kind: 'commitment' }>): string | null {
+  const { item, clock } = row;
+  if (!clock || row.offDay) return null;
+  if (item.plannedAt && item.plannedAt === clock) return item.plannedEnd ?? null;
+  if (item.dueAt && item.dueAt === clock && !item.allDay) return item.endAt ?? null;
+  return null;
 }

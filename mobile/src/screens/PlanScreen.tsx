@@ -32,7 +32,7 @@ import { fill, ltr } from '../i18n/strings';
 import { planItemPrepTarget } from '../features/meetings/prepTargets';
 import { instantForLocalDateTime, localDateTimeFor } from '../features/capture/localInstant';
 import { dateShowing, wallClockShown } from '../features/plan/pickerClock';
-import { editRefusalOf, unplacedReason } from '../features/plan/reasons';
+import { editRefusalOf, unplacedReasonKey } from '../features/plan/reasons';
 import { canRegenerate, rebuildsLeft } from '../features/plan/regenerateCap';
 import { moveKeepingLength } from '../features/plan/optimisticEdit';
 import { useOneAtATime } from '../features/plan/oneAtATime';
@@ -454,18 +454,20 @@ function LoadedPlan({ plan, date, readOnly }: { plan: DailyPlan; date: string; r
       {plan.unscheduled.length > 0 ? (
         <View style={{ gap: 8 }}>
           <Txt size={13} weight={600} color={p.mu} style={{ paddingHorizontal: 4 }}>{t.planKeptTitle}</Txt>
+          {/* Grouped by the reason as the person reads it (M6A-R4-007): two
+              codes that say the same sentence are one group, and the sentence
+              is said once with how many it covers, not repeated per row. */}
           <Card pad={0} style={{ overflow: 'hidden' }} testID="plan-kept">
-            {plan.unscheduled.map((item, index) => (
-              <View
-                key={item.itemId}
-                testID={`plan-kept-${item.itemId}`}
-                style={{
-                  paddingHorizontal: 18, paddingVertical: 14, gap: 4,
-                  borderTopWidth: index === 0 ? 0 : 1, borderTopColor: p.ln,
-                }}
-              >
-                <Txt size={15}>{item.title ? isolateAuto(item.title) : t.planRemovedItem}</Txt>
-                <Txt size={13} color={p.mu} lh={1.5}>{unplacedReason(item.reasonCode, t)}</Txt>
+            {keptGroups(plan.unscheduled).map(({ key, items }, groupIndex) => (
+              <View key={key} testID={`plan-kept-group-${key}`} style={{ borderTopWidth: groupIndex === 0 ? 0 : 1, borderTopColor: p.ln, paddingVertical: 12, gap: 6 }}>
+                <Txt size={13} color={p.mu} lh={1.5} style={{ paddingHorizontal: 18 }} testID={`plan-kept-group-${key}-reason`}>
+                  {`${tr('m6PlanKeptGroup', { count: items.length })} · ${t[key] as string}`}
+                </Txt>
+                {items.map(item => (
+                  <View key={item.itemId} testID={`plan-kept-${item.itemId}`} style={{ paddingHorizontal: 18, paddingVertical: 4 }}>
+                    <Txt size={15} dir="auto">{item.title ? isolateAuto(item.title) : t.planRemovedItem}</Txt>
+                  </View>
+                ))}
               </View>
             ))}
           </Card>
@@ -838,4 +840,14 @@ function PlannedRow({
       ) : null}
     </Card>
   );
+}
+
+/** The kept items, grouped by the sentence that explains them, in the order each sentence first appears. */
+function keptGroups(items: DailyPlan['unscheduled']): { key: ReturnType<typeof unplacedReasonKey>; items: DailyPlan['unscheduled'] }[] {
+  const groups = new Map<ReturnType<typeof unplacedReasonKey>, DailyPlan['unscheduled'][number][]>();
+  for (const item of items) {
+    const key = unplacedReasonKey(item.reasonCode);
+    groups.set(key, [...(groups.get(key) ?? []), item]);
+  }
+  return [...groups.entries()].map(([key, grouped]) => ({ key, items: grouped }));
 }

@@ -1,6 +1,6 @@
 import { importantDeadline } from '../features/today/dayContext';
 import { DeadlineContext } from '../features/today/DeadlineContext';
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { RefreshControl, View } from 'react-native';
 import { calendarReadEnabled } from '../config/env';
 import { useBusyBlocks, useDeviceBusy } from '../features/calendar/useBusyCalendar';
@@ -10,6 +10,7 @@ import { dayFree, googleCovers, googleWindowIsNormal, knownTime, type DayFree, t
 import { WIDER_DAYS, probeRange, useDaysFrom, useLocalToday, usePlanSnapshot, useServerBusy } from '../features/calendar/usePlanFreeTime';
 import { FreeList, FreeStateLine, gapLength } from '../features/calendar/FreeTimeRows';
 import { WiderView, type WiderCell } from '../features/calendar/WiderView';
+import { consumeCalendarWider, onCalendarWiderRequest } from '../features/calendar/widerIntent';
 import { LiveRegion } from '../ui/liveRegion';
 import { useAnnounceOnIos } from '../ui/announce';
 import { useLayoutMode } from '../theme/textScale';
@@ -108,6 +109,12 @@ export function CalendarScreen({ tabClearance = TAB_CLEARANCE }: { tabClearance?
   const [refreshing, setRefreshing] = useState(false);
   const [filter, setFilter] = useState<'all' | 'commitment' | 'busy' | 'free'>('all');
   const [widerOpen, setWiderOpen] = useState(false);
+  // «شوف أبعد» on the Plan's week asks for this view (M6A-R4-001).
+  useEffect(() => {
+    const open = () => { if (consumeCalendarWider()) setWiderOpen(true); };
+    open();
+    return onCalendarWiderRequest(open);
+  }, []);
   // «مش هلّق» on a proposal: out of the way for now, answered nowhere.
   const [laterProposal, setLaterProposal] = useState<string | null>(null);
   // Where the scrolling strip is: it opens at its end (today) until scrolled.
@@ -394,7 +401,7 @@ export function CalendarScreen({ tabClearance = TAB_CLEARANCE }: { tabClearance?
                   <DayCell key={key} dayKey={key} isToday={key === todayKey} selected={key === selectedKey}
                     items={byDay.get(key) ?? []}
                     busy={(calendarConnected ? (busyByDay.get(key)?.length ?? 0) : 0) + (weeklyByDay.get(key)?.length ?? 0)}
-                    load={load} loadLabel={calendarConnected ? loadWord(load) : t.loadUnknown} complete={calendarConnected}
+                    load={load} loadLabel={calendarConnected ? loadWord(load) : null} complete={calendarConnected}
                     onPress={() => pick(key)} />
                 );
               })}
@@ -607,7 +614,8 @@ function DayCell({
   /** How many busy blocks the phone's calendar has that day; one dot when any. */
   busy: number;
   load: DayLoad;
-  loadLabel: string;
+  /** Null without a calendar: the day's load is not known, so nothing is said under each day (#741). */
+  loadLabel: string | null;
   complete: boolean;
   onPress: () => void;
 }) {
@@ -622,7 +630,7 @@ function DayCell({
     <Btn
       testID={`calendar-day-${key}`}
       onPress={onPress}
-      label={`${formatDate(date, 'weekday', options)} ${formatDate(date, 'dayNumber', options)}, ${loadLabel}`}
+      label={`${formatDate(date, 'weekday', options)} ${formatDate(date, 'dayNumber', options)}${loadLabel ? `, ${loadLabel}` : ''}`}
       accessibilityState={{ selected }}
       scaleTo={0.94}
       style={{
@@ -636,7 +644,7 @@ function DayCell({
       <Txt size={16} weight={700} align="center" color={p.tx} lh={1.25} latin>
         {formatDate(date, 'dayNumber', options)}
       </Txt>
-      {!stacked ? <Txt size={12} weight={load === 'normal' ? 400 : 700} color={loadColor} align="center" lines={1} testID={`calendar-load-${key}`}>{loadLabel}</Txt> : null}
+      {!stacked && loadLabel ? <Txt size={12} weight={load === 'normal' ? 400 : 700} color={loadColor} align="center" lines={1} testID={`calendar-load-${key}`}>{loadLabel}</Txt> : null}
       <View accessible={false} style={{ flexDirection: 'row', gap: 3, minHeight: 5, marginTop: 3 }}>
         {/* Three dots at most: a fourth would make a busy day unreadable, and
             the count is not the point — the shape of the week is. */}
