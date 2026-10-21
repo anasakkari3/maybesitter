@@ -28,7 +28,7 @@ const ARABIC_FACT = 'بحب القهوة';
 
 interface Setup {
   language?: Language;
-  capability?: boolean | 'absent';
+  capability?: boolean | 'absent' | 'other-version';
   translation?: RouteReply;
   patch?: RouteReply;
   m5b?: boolean;
@@ -40,7 +40,9 @@ async function setup(options: Setup = {}): Promise<M6Harness> {
       // 'absent' is a server that predates the route.
       return options.capability === 'absent'
         ? { status: 404, body: { success: false, error: 'Not found' } }
-        : { status: 200, body: { success: true, memoryTranslation: options.capability ?? true } };
+        : options.capability === 'other-version'
+          ? { status: 200, body: { success: true, memoryTranslation: true, disclosureVersion: 'memory-translation-disclosure-v2' } }
+          : { status: 200, body: { success: true, memoryTranslation: options.capability ?? true, disclosureVersion: 'memory-translation-disclosure-v1' } };
     }
     if (request.path === '/api/mobile/capabilities/m5b' && options.m5b === false) {
       return { status: 200, body: { success: true, memoryLearning: false } };
@@ -87,7 +89,7 @@ describe('«اكتبها بالعربي» on the memory screen', () => {
     expect(screen.getByTestId('m6-translate-action-memory-1').props.accessibilityLabel).toContain('Goes to the gym twice a week');
   });
 
-  it.each([false, 'absent'] as const)('is not offered when the capability is %s', async (capability) => {
+  it.each([false, 'absent', 'other-version'] as const)('is not offered when the capability is %s', async (capability) => {
     harness = await setup({ capability });
     await renderScreen(harness);
     await waitForRequest(harness, 'GET', /^\/api\/mobile\/capabilities\/m6b$/);

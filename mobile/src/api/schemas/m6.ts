@@ -19,6 +19,8 @@ export type M6Capabilities = z.infer<typeof m6CapabilitiesSchema>;
 export const m6bCapabilitiesSchema = z.object({
   success: z.literal(true),
   memoryTranslation: z.boolean(),
+  /** The disclosure the server will accept; the app offers the action only for one it has copy for (M6A2-R4-002). */
+  disclosureVersion: z.string().min(1),
 }).strict();
 export type M6bCapabilities = z.infer<typeof m6bCapabilitiesSchema>;
 

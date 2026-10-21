@@ -11,6 +11,7 @@ import { ConflictError, FeatureUnavailableError, NotFoundError } from '../../api
 import { queryKeys, usePatchMemory, useUid } from '../../api/queries';
 import { userFacingMessage } from '../../api/ui/userFacingMessage';
 import type { MemoryItem } from '../../api/schemas/profile';
+import { MEMORY_TRANSLATION_DISCLOSURE_VERSION } from './disclosure';
 
 /**
  * «اكتبها بالعربي» (condition 53, D53-1 (b); PLAN-M6a-2 R2).
@@ -26,9 +27,6 @@ import type { MemoryItem } from '../../api/schemas/profile';
  * button is drawn only after the disclosure's mount effect has run. One
  * request per tap, never retried; closing the panel while it loads cancels it.
  */
-
-/** Must equal the server's `MEMORY_TRANSLATION_DISCLOSURE_VERSION`; the server refuses any other. */
-export const MEMORY_TRANSLATION_DISCLOSURE_VERSION = 'memory-translation-disclosure-v1';
 
 export type TranslationTarget = 'ar' | 'en' | 'he';
 

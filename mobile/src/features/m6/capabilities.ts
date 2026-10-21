@@ -3,6 +3,7 @@ import { getM6Capabilities, getM6bCapabilities } from '../../api/endpoints/m6';
 import { FeatureUnavailableError, NotFoundError } from '../../api/errors';
 import type { M6Capabilities, M6bCapabilities } from '../../api/schemas/m6';
 import { useUid } from '../../api/queries';
+import { MEMORY_TRANSLATION_DISCLOSURE_VERSION } from './disclosure';
 
 /**
  * M6a-1's probe: `null` is unknown (no answer yet, or the latest refetch
@@ -39,7 +40,7 @@ export function useSearchHistoryOn(): boolean | null {
 
 /* ── M6a-2: its own probe (M6A2-R3-001) ─────────────────────────────── */
 
-const OFF_M6B: M6bCapabilities = { success: true, memoryTranslation: false };
+const OFF_M6B: M6bCapabilities = { success: true, memoryTranslation: false, disclosureVersion: '' };
 
 async function probeM6b(uid: string): Promise<M6bCapabilities> {
   try {
@@ -53,7 +54,11 @@ async function probeM6b(uid: string): Promise<M6bCapabilities> {
 
 export const m6bCapabilitiesKey = (uid: string) => ['user', uid, 'm6bCapabilities'] as const;
 
-/** `null` is unknown, and unknown asks nothing (PLAN-M6a-2 R2). */
+/**
+ * `null` is unknown, and unknown asks nothing (PLAN-M6a-2 R2). On only when
+ * the server advertises the disclosure this build has copy for: a later
+ * disclosure turns this build off rather than failing every request.
+ */
 export function useMemoryTranslationOn(): boolean | null {
   const uid = useUid();
   const query = useQuery({
@@ -65,5 +70,6 @@ export function useMemoryTranslationOn(): boolean | null {
     refetchOnWindowFocus: true,
     retry: false,
   });
-  return query.status === 'success' && !query.isRefetchError ? query.data.memoryTranslation : null;
+  if (query.status !== 'success' || query.isRefetchError) return null;
+  return query.data.memoryTranslation && query.data.disclosureVersion === MEMORY_TRANSLATION_DISCLOSURE_VERSION;
 }
