@@ -15,8 +15,15 @@ const isSearchable = (folded: string) => LETTER_OR_NUMBER.test(folded);
  * most recent first.
  */
 
-/** The server is asked only for a needle this long after folding (R2-011). */
+/** The server is asked only for a needle with this many letters or digits after folding (R2-011). */
 export const MIN_SERVER_QUERY = 2;
+
+/** Letters and digits in a folded needle, counted by code point: «a-» and «😀a» have one (M6A-INSPECT-R2-001). */
+export function searchableCount(folded: string): number {
+  let count = 0;
+  for (const char of folded) if (LETTER_OR_NUMBER.test(char)) count += 1;
+  return count;
+}
 
 export interface Needle {
   raw: string;

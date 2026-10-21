@@ -68,6 +68,15 @@ const RTL_SCRIPT = /[\p{Script=Arabic}\p{Script=Hebrew}]/u;
  * digits, punctuation — takes `fallback`. Used to lay out a fact written in a
  * language other than the app's on its own side (condition 53).
  */
+/** The script of the first letter: what face a paragraph of user text is set in (M6A-INSPECT-R2-002). */
+export function firstStrongScript(text: string): 'arabic' | 'hebrew' | 'latin' | null {
+  for (const char of stripIsolates(text)) {
+    if (!LETTER.test(char)) continue;
+    return /\p{Script=Arabic}/u.test(char) ? 'arabic' : /\p{Script=Hebrew}/u.test(char) ? 'hebrew' : 'latin';
+  }
+  return null;
+}
+
 export function firstStrongDirection(text: string, fallback: 'ltr' | 'rtl'): 'ltr' | 'rtl' {
   // Code point by code point, letters only: «٣ Dentist» and «، Dentist» start
   // at the D (M6A-INSPECT-001).

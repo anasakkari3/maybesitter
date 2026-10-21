@@ -127,7 +127,7 @@ export function ThingsScreen({ tabClearance = TAB_CLEARANCE }: { tabClearance?: 
                     <Txt size={13} color={p.mu} latin testID={`m6-search-count-${item.id}`}>{String(item.count)}</Txt>
                   </View>
                 : item.kind === 'commitment'
-                ? <SavedRow view={item.view} when={item.settled ?? whenOf(item.view)} imp={impLabel(item.view)} onPress={() => actions.openDetail(item.id)} rowTestID={`m6-search-result-commitment-${item.id}`} />
+                ? <SavedRow view={item.view} when={item.settled ?? whenOf(item.view)} settledLine={item.settled !== null} imp={impLabel(item.view)} onPress={() => actions.openDetail(item.id)} rowTestID={`m6-search-result-commitment-${item.id}`} />
                 : item.kind === 'goal'
                   ? <HubRow testID={`things-result-goal-${item.id}`} icon="flag" tone="attention" title={isolateAuto(item.goal.content)} sub={t.thingsGoals} onPress={() => actions.openGoal(item.id)} />
                   : item.kind === 'habit'
@@ -174,14 +174,18 @@ export function ThingsScreen({ tabClearance = TAB_CLEARANCE }: { tabClearance?: 
 }
 
 /** One saved commitment: title, when, its importance chip. Opens Details. */
-function SavedRow({ view, when, imp, onPress, rowTestID }: { view: CommitmentView; when: string; imp: string; onPress: () => void; rowTestID?: string }) {
+function SavedRow({ view, when, imp, onPress, rowTestID, settledLine = false }: {
+  view: CommitmentView; when: string; imp: string; onPress: () => void; rowTestID?: string;
+  /** `when` already says «تمّت …» / «أسقطته بوعي …»: no second status chip (SIM-M6A-01). */
+  settledLine?: boolean;
+}) {
   const { t, p, rtl } = useApp();
   const done = view.status === 'done';
   const dropped = view.status === 'dropped';
   return (
     <Btn
       testID={rowTestID ?? `things-recent-${view.id}`}
-      label={[view.title, when, done ? t.xDone : dropped ? t.activityKindDropped : imp].join('. ')}
+      label={(settledLine ? [view.title, when] : [view.title, when, done ? t.xDone : dropped ? t.activityKindDropped : imp]).join('. ')}
       onPress={onPress}
       scaleTo={0.985}
       style={{ minHeight: 56, borderRadius: 16, borderWidth: 1, borderColor: p.ln, backgroundColor: p.sf, paddingVertical: 8, paddingHorizontal: 12, gap: 10, flexDirection: 'row', alignItems: 'center' }}
@@ -189,8 +193,9 @@ function SavedRow({ view, when, imp, onPress, rowTestID }: { view: CommitmentVie
       <View style={{ flex: 1, gap: 4, alignItems: 'flex-start' }}>
         <Txt size={15} weight={600} lines={2} testID={`m6-user-text-things-${view.id}`}>{isolateAuto(view.title)}</Txt>
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
-          <Txt size={13} color={p.mu}>{when}</Txt>
-          {done ? <Tag kind="saved" label={t.xDone} testID={rowTestID ? `m6-search-status-${view.id}` : undefined} />
+          <Txt size={13} color={p.mu} testID={settledLine && rowTestID ? `m6-search-status-${view.id}` : undefined}>{when}</Txt>
+          {settledLine ? null
+            : done ? <Tag kind="saved" label={t.xDone} testID={rowTestID ? `m6-search-status-${view.id}` : undefined} />
             : dropped ? <Tag kind="muted" label={t.activityKindDropped} testID={rowTestID ? `m6-search-status-${view.id}` : undefined} />
               : <Tag kind={priorityTagKind(view.importance)} label={imp} />}
         </View>

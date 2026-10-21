@@ -7,7 +7,7 @@ import { useApp } from '../state/AppContext';
 import { family, LINE_HEIGHT, type Weight } from '../theme/fonts';
 import { cardShadow, typography, type Palette, type TextRole } from '../theme/tokens';
 import { useReducedMotion } from './motion';
-import { firstStrongDirection } from '../i18n/bidi';
+import { firstStrongDirection, firstStrongScript } from '../i18n/bidi';
 
 type Align = 'start' | 'center' | 'end';
 
@@ -64,7 +64,11 @@ export function Txt({
   // tight box, set in the Latin face whatever the UI language is. Everything else is
   // set in the script of the language — which for Hebrew is a different face
   // from Arabic's, not a different direction.
-  const runScript = latin || (dir === 'auto' && !contentRtl) ? 'latin' : script;
+  // The face follows the words' own script, not only their direction: a
+  // Hebrew fact in the Arabic app is set in Noto Sans Hebrew (Noto Kufi has
+  // no Hebrew), an Arabic one in the Hebrew app in Noto Kufi.
+  const ownScript = dir === 'auto' && text !== null ? firstStrongScript(text) : null;
+  const runScript = latin ? 'latin' : ownScript ?? script;
   const textAlign = textAlignment(effectiveAlign, rtl, Platform.OS);
   // RN 0.86 scales BOTH fontSize and lineHeight natively (iOS:
   // RCTAttributedTextUtils; Android: TextAttributes.effectiveLineHeight).

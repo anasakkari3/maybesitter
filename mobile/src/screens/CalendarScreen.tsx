@@ -25,7 +25,7 @@ import type { DeviceBusyBlock } from '../features/calendar/busyBlocks';
 import { busyAt, chipBlock } from '../features/calendar/conflicts';
 import { dayLoad, type DayLoad } from '../features/calendar/dayTimeline';
 import { DayAgenda, DayTimeline, UntimedSection, type PlanRow } from '../features/calendar/PlanDay';
-import { AvatarButton, Notice, ScreenHeader } from '../ui/chrome';
+import { AvatarButton, BackHeader, Notice, ScreenHeader } from '../ui/chrome';
 import { CountChip } from '../ui/hub';
 import { Screen, ScreenScroll, TAB_CLEARANCE } from '../ui/screen';
 import { SettingsIcon } from '../ui/icons';
@@ -336,6 +336,9 @@ export function CalendarScreen({ tabClearance = TAB_CLEARANCE }: { tabClearance?
         gap={14}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={p.ac} />}
       >
+        {/* Opened over the week by «شوف أبعد» (D54-2): a way back to where the
+            person came from, on screen (SIM-M6A-02). At the tab root there is none. */}
+        {actions.canGoBack() ? <BackHeader title={t.tabPlan} onBack={actions.back} /> : null}
         <ScreenHeader
           brand={false}
           eyebrow={stacked ? undefined : range7}

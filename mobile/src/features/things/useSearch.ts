@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useCommitmentSearch } from '../../api/queries';
 import type { Commitment } from '../../api/schemas/common';
 import { useSearchHistoryOn } from '../m6/capabilities';
-import { MIN_SERVER_QUERY, needleOf, rankCommitments, type Needle } from './searchModel';
+import { MIN_SERVER_QUERY, needleOf, rankCommitments, searchableCount, type Needle } from './searchModel';
 
 const DEBOUNCE_MS = 300;
 
@@ -32,7 +32,7 @@ export function useCommitmentMatches(raw: string, local: readonly Commitment[]):
   const needle = needleOf(raw);
   const settled = needleOf(useDebounced(raw, DEBOUNCE_MS));
   const on = useSearchHistoryOn() === true;
-  const ask = on && settled.searchable && settled.folded.length >= MIN_SERVER_QUERY && settled.folded === needle.folded;
+  const ask = on && settled.searchable && searchableCount(settled.folded) >= MIN_SERVER_QUERY && settled.folded === needle.folded;
   const server = useCommitmentSearch(settled.folded, settled.raw, ask);
   const serverItems = ask && server.data ? server.data.items : [];
   return {
