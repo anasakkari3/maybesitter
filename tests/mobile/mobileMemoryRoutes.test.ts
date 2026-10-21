@@ -30,6 +30,12 @@ import {
 import { listAuditEvents } from '../../lib/pilot/pilotTrustStore.ts';
 import { getStorage } from '../../lib/storage/index.ts';
 import { MEMORY, USER_SCOPED_COLLECTIONS, userDoc } from '../../lib/storage/paths.ts';
+import { createManualMemory } from '../../lib/services/mobile/memoryService.ts';
+import {
+  proposeMemoryTranslation,
+  setMemoryTranslationDependenciesForTests,
+} from '../../lib/services/mobile/memoryTranslation.ts';
+import type { LlmProvider } from '../../src/extraction/llm/index.ts';
 
 const baseUrl = 'http://127.0.0.1:4321';
 const OWNER = uidFor('MemoryOwner');
@@ -469,6 +475,68 @@ test('the kill switch closes the routes even with the feature flag on', async ()
     else process.env.MAYBESITTER_KILL_SWITCH_MEMORY = previousKill;
     end();
   }
+});
+
+test('a validator-refused translation logs schema_invalid with its token counts and no text', async () => {
+  const uid = 'memory-translation-logging-user';
+  const now = '2026-10-21T09:00:00.000Z';
+  const previousAiDisabled = process.env.MAYBESITTER_AI_DISABLED;
+  delete process.env.MAYBESITTER_AI_DISABLED;
+  setStorageForTests(createMemoryStorage());
+  const memory = await createManualMemory(uid, {
+    kind: 'fact',
+    content: 'Sleeps at 11',
+    language: 'en',
+  }, now);
+  const provider: LlmProvider = {
+    name: 'gemini',
+    async generateJson() {
+      throw new Error('unexpected generateJson call');
+    },
+    async generateStructured() {
+      return {
+        text: JSON.stringify({ text: 'بينام الساعة 12' }),
+        model: 'translation-test-model',
+        latencyMs: 4,
+        promptTokens: 17,
+        outputTokens: 9,
+      };
+    },
+  };
+  setMemoryTranslationDependenciesForTests({ provider });
+
+  const lines: string[] = [];
+  const originalInfo = console.info;
+  console.info = (...args: unknown[]) => { lines.push(args.map(String).join(' ')); };
+  try {
+    const controller = new AbortController();
+    const proposal = await proposeMemoryTranslation({
+      uid,
+      memoryId: memory.id,
+      locale: 'ar',
+      now,
+      signal: controller.signal,
+      abort: () => controller.abort(),
+      startedAt: Date.now(),
+    });
+    assert.deepEqual(proposal, { status: 'unavailable' });
+  } finally {
+    console.info = originalInfo;
+    setMemoryTranslationDependenciesForTests(null);
+    resetStorageForTests();
+    if (previousAiDisabled === undefined) delete process.env.MAYBESITTER_AI_DISABLED;
+    else process.env.MAYBESITTER_AI_DISABLED = previousAiDisabled;
+  }
+
+  assert.equal(lines.length, 1);
+  const entry = JSON.parse(lines[0]!) as Record<string, unknown>;
+  assert.equal(entry.event, 'llm_call');
+  assert.equal(entry.purpose, 'memory_translate');
+  assert.equal(entry.outcome, 'schema_invalid');
+  assert.equal(entry.promptTokens, 17);
+  assert.equal(entry.outputTokens, 9);
+  assert.equal('text' in entry, false);
+  assert.doesNotMatch(lines[0]!, /Sleeps at 11|بينام الساعة 12/);
 });
 
 // ── Account deletion ─────────────────────────────────────────────

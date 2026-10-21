@@ -286,6 +286,8 @@ export async function proposeMemoryTranslation(input: {
       promptTokens: response.promptTokens,
       outputTokens: response.outputTokens,
     }, { storage: getStorage(), now: usageNow });
+    const text = strictText(parseJson(response.text));
+    const valid = text !== null && validMemoryTranslation(memory.content, text, input.locale);
     logLlmCall({
       event: 'llm_call',
       purpose: 'memory_translate',
@@ -296,10 +298,9 @@ export async function proposeMemoryTranslation(input: {
       latencyMs: response.latencyMs,
       promptTokens: response.promptTokens,
       outputTokens: response.outputTokens,
-      outcome: 'ok',
+      outcome: valid ? 'ok' : 'schema_invalid',
     });
-    const text = strictText(parseJson(response.text));
-    if (text === null || !validMemoryTranslation(memory.content, text, input.locale)) return { status: 'unavailable' };
+    if (!valid || text === null) return { status: 'unavailable' };
     return { status: 'ready', text, from, to: input.locale, memoryId: memory.id };
   } catch (error) {
     logLlmCall({
