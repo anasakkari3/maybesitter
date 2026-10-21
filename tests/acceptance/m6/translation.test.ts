@@ -392,12 +392,28 @@ test('R1 an aborted request (the panel closed) aborts the provider call and spen
   assert.equal(attempts, 1);
 });
 
-test('R1 a mixed record is judged by its first strong script: «Gym مرتين» asked for ar is eligible (Latin first)', async () => {
+test('A1 (SIM-M6A2-01) a mixed record is judged by the script with the most letters, not the first one', async () => {
   const uid = await start();
-  const [row] = await addRows(uid, [{ content: 'Gym مرتين', language: 'mixed' }]);
-  await useModel(answering('جيم مرتين'));
-  const result = await translate(uid, row!.id);
-  assert.equal(result.status, 200, show(result.body));
+  const rows = await addRows(uid, [
+    // Arabic: "M6D uses public transport to the university" — Arabic with a Latin marker first.
+    { content: 'M6D بستخدم المواصلات للجامعة', language: 'mixed' },
+    // Arabic: "gym twice" — 3 Latin letters, 5 Arabic.
+    { content: 'Gym مرتين', language: 'mixed' },
+    // English with one Arabic word: "for tasks".
+    { content: 'Uses Notion daily للمهام', language: 'mixed' },
+  ]);
+  const model = answering('بيستعمل Notion كل يوم للمهام');
+  await useModel(model);
+  const byContent = (text: string) => rows.find((r) => r.content === text)!.id;
+  for (const text of ['M6D بستخدم المواصلات للجامعة', 'Gym مرتين']) {
+    const result = await translate(uid, byContent(text));
+    assert.equal(result.status, 422, `${text}: ${show(result.body)}`);
+    assert.equal(result.body.reason ?? result.body.error, 'already_in_language');
+  }
+  assert.equal(model.calls.length, 0, 'an Arabic-majority fact reached the model');
+  const english = await translate(uid, byContent('Uses Notion daily للمهام'));
+  assert.equal(english.status, 200, show(english.body));
+  assert.equal(english.body.proposal.from, 'en');
 });
 
 /* ── budget ─────────────────────────────────────────────────────────── */
