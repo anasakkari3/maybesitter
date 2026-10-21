@@ -1591,7 +1591,9 @@ export function useCreateMemory() {
 }
 
 export function usePatchMemory() {
-  return useMemoryMutation((input: { id: string; content: string }) => patchMemory(input.id, input.content));
+  const uid = useUid();
+  return useMemoryMutation((input: { id: string; content: string }) =>
+    patchMemory(input.id, input.content, uid === 'signed-out' ? {} : { asUid: uid }));
 }
 
 export function useDeleteMemory() {

@@ -2110,5 +2110,13 @@
   "m6SearchMore": "في نتايج أكتر. زيد كلمة لتلاقي اللي بدك ياه.",
   "m6PlanKeptGroup": "{count, plural, zero{ما في إشي} one{إشي واحد} two{إشيين} few{# أشيا} many{# إشي} other{# إشي}}",
   "m6SearchDone": "تمّت {date}",
-  "m6SearchDropped": "أسقطته بوعي {date}"
+  "m6SearchDropped": "أسقطته بوعي {date}",
+  "m6TranslateAction": "{lang, select, ar{اكتبها بالعربي} en{اكتبها بالإنجليزي} he{اكتبها بالعبري} other{ترجمها}}",
+  "m6TranslateDisclosure": "بنبعت هالإشي بس لـGemini من Google (Vertex AI) بالاتحاد الأوروبي ليقترح ترجمة. ما منحفظ النص ولا الترجمة إلا إذا حفظتها.",
+  "m6TranslateRequest": "اقترح ترجمة",
+  "m6TranslateLoading": "عم نجهّز ترجمة…",
+  "m6TranslateSave": "احفظها",
+  "m6TranslateKeep": "خلّيها زي ما هي",
+  "m6TranslateUnavailable": "ما قدرنا نترجمها هلّق. الأصل زي ما هو.",
+  "m6TranslateChanged": "هالإشي تغيّر من شوي، فما حفظنا الترجمة."
 }

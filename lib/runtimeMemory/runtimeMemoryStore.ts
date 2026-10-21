@@ -69,6 +69,7 @@ import {
   getStorage,
   requireDocId,
   userCol,
+  userDoc,
   userIdForKey,
   type StorageAdapter,
 } from '../storage';
@@ -89,6 +90,22 @@ const MEMORY_SOURCES: readonly MemorySource[] = ['user_stated', 'deterministic_r
 const MEMORY_LANGUAGES: readonly MemoryLanguage[] = ['ar', 'he', 'en', 'mixed'];
 const MEMORY_STATUSES: readonly MemoryStatus[] = ['active', 'superseded', 'revoked', 'expired'];
 const EXPORT_POLICIES: readonly ExportPolicy[] = ['personal_never_export', 'shareable_aggregate'];
+
+/** A supersession target disappeared before the transaction could commit. */
+export class MemoryNotFoundError extends Error {
+  constructor(message = 'memory not found') {
+    super(message);
+    this.name = 'MemoryNotFoundError';
+  }
+}
+
+/** The target still exists, but another edit already changed the chain head. */
+export class MemorySupersedeConflictError extends Error {
+  constructor(message = 'memory changed') {
+    super(message);
+    this.name = 'MemorySupersedeConflictError';
+  }
+}
 
 function fail(message: string): never {
   throw new Error(`runtime memory: ${message}`);
@@ -404,30 +421,42 @@ export class StorageRuntimeMemoryStore implements RuntimeMemoryStore {
   async supersede(oldId: string, input: CreateMemoryInput, now: string): Promise<RuntimeMemoryRecord> {
     assertTimestamp(now, 'now');
     const held = await this.findById(oldId);
-    if (!held) fail(`supersede target ${String(oldId)} not found`);
-    const prior = held.record;
-    if (prior.supersededById) {
-      fail(`${prior.id} is already superseded by ${prior.supersededById}; supersede the head of the chain`);
-    }
-    if (prior.status === 'revoked') {
-      fail(`${prior.id} is revoked; superseding it would undo a deliberate revocation`);
-    }
+    if (!held) throw new MemoryNotFoundError(`supersede target ${String(oldId)} not found`);
     assertValidInput(input);
-    if (input.scopeId !== prior.scopeId) {
-      fail(`supersede must stay in one scope (${prior.scopeId} received ${input.scopeId})`);
-    }
+    return this.storage.runTransaction(async tx => {
+      // `findById` only resolves the path. The transaction re-reads the record
+      // so an edit or delete between resolution and commit invalidates this
+      // attempt instead of forking or recreating the chain.
+      const stored = await tx.get<RuntimeMemoryRecord>(held.path);
+      if (!stored || !isRuntimeMemoryRecord(stored)) {
+        throw new MemoryNotFoundError(`supersede target ${String(oldId)} not found`);
+      }
+      const prior = freezeRecord(stored);
+      if (input.scopeId !== prior.scopeId) {
+        fail(`supersede must stay in one scope (${prior.scopeId} received ${input.scopeId})`);
+      }
 
-    const replacement = buildRecord(input, now, this.defaultTtlMs, prior.id);
-    // Replacement first: a crash between the two writes leaves both records
-    // visible, which is recoverable. The reverse order could hide the prior
-    // record with no replacement written, losing the memory outright.
-    await this.storage.set<RuntimeMemoryRecord>(recordPath(replacement.scopeId, replacement.id), replacement);
-    await this.storage.set<RuntimeMemoryRecord>(held.path, withStatus(prior, {
-      status: 'superseded',
-      supersededById: replacement.id,
-      updatedAt: now,
-    }));
-    return replacement;
+      // Account deletion writes this fence before deleting the user tree. Its
+      // transaction and this one therefore serialize in either safe order.
+      const account = await tx.get<{ trust?: { deletedAt?: unknown } }>(userDoc(userIdForKey(prior.scopeId)));
+      if (account?.trust?.deletedAt) throw new MemoryNotFoundError();
+
+      if (prior.status !== 'active' || prior.supersededById) {
+        const detail = prior.supersededById
+          ? `${prior.id} is already superseded by ${prior.supersededById}; supersede the head of the chain`
+          : `${prior.id} is ${prior.status}; only an active head may be superseded`;
+        throw new MemorySupersedeConflictError(detail);
+      }
+
+      const replacement = buildRecord(input, now, this.defaultTtlMs, prior.id);
+      tx.create(recordPath(replacement.scopeId, replacement.id), replacement);
+      tx.set<RuntimeMemoryRecord>(held.path, withStatus(prior, {
+        status: 'superseded',
+        supersededById: replacement.id,
+        updatedAt: now,
+      }));
+      return replacement;
+    });
   }
 
   async revoke(id: string, at: string): Promise<boolean> {
@@ -453,12 +482,19 @@ export class StorageRuntimeMemoryStore implements RuntimeMemoryStore {
   async deleteScope(scopeId: string): Promise<number> {
     if (!isNonEmptyString(scopeId)) fail('scopeId must be a non-empty string');
     const collection = collectionFor(scopeId);
-    const rows = await this.storage.list<RuntimeMemoryRecord>(collection);
-    // Everything under the scope's collection goes, including a document too
-    // damaged to parse as a record: it still holds the user's content, and
-    // leaving it would make "delete my data" untrue.
-    for (const row of rows) await this.storage.delete(`${collection}/${row.id}`);
-    return rows.filter((row) => isRuntimeMemoryRecord(row.data)).length;
+    let removed = 0;
+    for (let pass = 0; pass < 5; pass += 1) {
+      const rows = await this.storage.list<RuntimeMemoryRecord>(collection);
+      if (rows.length === 0) return removed;
+      // Everything under the scope's collection goes, including a document too
+      // damaged to parse as a record: it still holds the user's content, and
+      // leaving it would make "delete my data" untrue.
+      for (const row of rows) await this.storage.delete(`${collection}/${row.id}`);
+      removed += rows.filter((row) => isRuntimeMemoryRecord(row.data)).length;
+    }
+    const remaining = await this.storage.list<RuntimeMemoryRecord>(collection);
+    if (remaining.length > 0) fail('deleteScope did not converge after 5 passes');
+    return removed;
   }
 
   async export(scopeId: string, now: string): Promise<MemoryExport> {

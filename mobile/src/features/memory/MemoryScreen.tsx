@@ -18,6 +18,8 @@ import {
 } from '../../api/queries';
 import type { MemoryAdaptive, MemoryItem, MemorySuggestion } from '../../api/schemas/profile';
 import { SettingsHeader } from '../settings/SettingsChrome';
+import { useMemoryTranslationOn } from '../m6/capabilities';
+import { MemoryTranslationPanel, TranslateAction, translationTargetOf, type TranslationTarget } from '../m6/MemoryTranslation';
 import { EmptyState, Notice } from '../../ui/chrome';
 import { memorySentence } from './memoryDisplay';
 import {
@@ -97,6 +99,9 @@ export function MemoryScreen({ onBack }: { onBack: () => void }) {
 
   const [editing, setEditing] = useState<string | null>(null);
   const [why, setWhy] = useState<string | null>(null);
+  // M6a-2: the row whose translation panel is open; unknown or off offers none.
+  const translationOn = useMemoryTranslationOn() === true;
+  const [translating, setTranslating] = useState<string | null>(null);
   const [undoable, setUndoable] = useState<string | null>(null);
   const [confirmAll, setConfirmAll] = useState(false);
 
@@ -200,11 +205,15 @@ export function MemoryScreen({ onBack }: { onBack: () => void }) {
             rtl={rtl}
             editing={editing}
             why={why}
+            translateTargetOf={item => (translationOn ? translationTargetOf(item.content, lang, item.kind) : null)}
+            translating={translating}
+            onTranslate={id => { setEditing(null); setTranslating(id); }}
+            onCloseTranslate={() => setTranslating(null)}
             onToggleWhy={id => setWhy(current => (current === id ? null : id))}
-            onEdit={id => setEditing(id)}
+            onEdit={id => { setTranslating(null); setEditing(id); }}
             onCancelEdit={() => setEditing(null)}
             onSave={(id, next) => { setEditing(null); patch.mutate({ id, content: next }); }}
-            onDelete={id => { setWhy(null); scheduleDelete(id); }}
+            onDelete={id => { setWhy(null); setTranslating(null); scheduleDelete(id); }}
           />
         ))}
 
@@ -357,8 +366,8 @@ function SuggestionsCard({
 }
 
 function MemoryGroupCard({
-  group, rows, strings, date, rtl, editing, why,
-  onToggleWhy, onEdit, onCancelEdit, onSave, onDelete,
+  group, rows, strings, date, rtl, editing, why, translateTargetOf, translating,
+  onTranslate, onCloseTranslate, onToggleWhy, onEdit, onCancelEdit, onSave, onDelete,
 }: {
   group: MemoryGroup;
   rows: readonly MemoryItem[];
@@ -367,6 +376,10 @@ function MemoryGroupCard({
   rtl: boolean;
   editing: string | null;
   why: string | null;
+  translateTargetOf: (item: MemoryItem) => TranslationTarget | null;
+  translating: string | null;
+  onTranslate: (id: string) => void;
+  onCloseTranslate: () => void;
   onToggleWhy: (id: string) => void;
   onEdit: (id: string) => void;
   onCancelEdit: () => void;
@@ -395,6 +408,10 @@ function MemoryGroupCard({
           sourceOnRow={shared === null}
           editing={editing === item.id}
           showWhy={why === item.id}
+          translateTarget={translateTargetOf(item)}
+          translating={translating === item.id}
+          onTranslate={() => onTranslate(item.id)}
+          onCloseTranslate={onCloseTranslate}
           onToggleWhy={() => onToggleWhy(item.id)}
           onEdit={() => onEdit(item.id)}
           onCancelEdit={onCancelEdit}
@@ -407,8 +424,8 @@ function MemoryGroupCard({
 }
 
 function MemoryDetailRow({
-  item, strings, date, rtl, sourceOnRow, editing, showWhy,
-  onToggleWhy, onEdit, onCancelEdit, onSave, onDelete,
+  item, strings, date, rtl, sourceOnRow, editing, showWhy, translateTarget, translating,
+  onTranslate, onCloseTranslate, onToggleWhy, onEdit, onCancelEdit, onSave, onDelete,
 }: {
   item: MemoryItem;
   strings: Record<string, string>;
@@ -418,6 +435,10 @@ function MemoryDetailRow({
   sourceOnRow: boolean;
   editing: boolean;
   showWhy: boolean;
+  translateTarget: TranslationTarget | null;
+  translating: boolean;
+  onTranslate: () => void;
+  onCloseTranslate: () => void;
   onToggleWhy: () => void;
   onEdit: () => void;
   onCancelEdit: () => void;
@@ -475,9 +496,23 @@ function MemoryDetailRow({
           onPress={onToggleWhy}
         />
         <View style={{ flex: 1 }} />
-        <Action label={t.memoryEdit} testID={`memory-screen-edit-${item.id}`} onPress={onEdit} />
-        <Action label={t.memoryDelete} testID={`memory-screen-delete-${item.id}`} tone="warn" onPress={onDelete} />
+        {/* Edit and delete wait while a translation panel is open: its save
+            is an edit of this row (M6A2-APP-007). */}
+        {translating ? null : (
+          <>
+            {translateTarget ? (
+              <TranslateAction item={item} target={translateTarget} onPress={onTranslate} tone="acd" />
+            ) : null}
+            <Action label={t.memoryEdit} testID={`memory-screen-edit-${item.id}`} onPress={onEdit} />
+            <Action label={t.memoryDelete} testID={`memory-screen-delete-${item.id}`} tone="warn" onPress={onDelete} />
+          </>
+        )}
       </View>
+
+      {translateTarget && translating ? (
+        // Keyed by the target: a language change mid-request aborts it and asks again (M6A2-APP-002).
+        <MemoryTranslationPanel key={translateTarget} item={item} target={translateTarget} onClose={onCloseTranslate} tone="acd" />
+      ) : null}
 
       {showWhy ? (
         <View style={{ gap: 6, paddingTop: 4 }} testID={`memory-evidence-${item.id}`}>

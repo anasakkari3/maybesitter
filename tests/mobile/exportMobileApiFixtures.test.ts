@@ -110,9 +110,11 @@ import {
 } from '../../src/app/api/mobile/memory/[id]/route.ts';
 import {
   AI_CONSENT_VERSION,
+  MEMORY_TRANSLATION_DISCLOSURE_VERSION,
   PERSONALIZATION_CONSENT_VERSION,
   RECOMMENDATION_CONSENT_VERSION,
 } from '../../src/contracts/v1/consentContracts.ts';
+import { setMemoryTranslationDependenciesForTests } from '../../lib/services/mobile/memoryTranslation.ts';
 import { GET as planGet } from '../../src/app/api/mobile/plans/[date]/route.ts';
 import { GET as planCauseGet } from '../../src/app/api/mobile/plans/[date]/cause/route.ts';
 import { POST as planActionPost } from '../../src/app/api/mobile/plans/[date]/actions/route.ts';
@@ -3714,15 +3716,37 @@ test('exports the M5b fixtures from the real handlers', async () => {
 
 test('exports the M6a-1 fixtures from the real handlers', async () => {
   const uid = await beginM6();
+  const previousFeature = process.env.MAYBESITTER_FEATURE_MEMORY_TRANSLATION;
+  const previousKill = process.env.MAYBESITTER_KILL_SWITCH_MEMORY_TRANSLATION;
   try {
+    process.env.MAYBESITTER_FEATURE_MEMORY_TRANSLATION = 'true';
+    process.env.MAYBESITTER_KILL_SWITCH_MEMORY_TRANSLATION = 'false';
     await recordM4b('capabilities.m6', 200, await callM6(uid, 'capabilities/m6', 'GET'));
+    await recordM4b('capabilities.m6b', 200, await callM6(uid, 'capabilities/m6b', 'GET'));
     await addM6Commitment(uid, 'Dentist appointment', {
       kind: 'due_by', dueAt: '2026-10-09T09:00:00.000Z', endAt: null, allDay: false,
     });
     await recordM4b('commitments.search', 200, await callM6(uid, 'commitments/search', 'POST', {
       body: { q: 'dent' },
     }));
+
+    const [memory] = await addM5bRows(uid, [{ content: 'Walks daily', language: 'en' }]);
+    setMemoryTranslationDependenciesForTests({ provider: m5bModel(() => ({ text: 'بيمشي كل يوم' })) });
+    await recordM4b('memory.translation.ready', 200, await callM6(uid, 'memory/[id]/translation', 'POST', {
+      params: { id: memory!.id },
+      body: { locale: 'ar', disclosureVersion: MEMORY_TRANSLATION_DISCLOSURE_VERSION },
+    }));
+    setMemoryTranslationDependenciesForTests(null);
+    await recordM4b('memory.translation.unavailable', 200, await callM6(uid, 'memory/[id]/translation', 'POST', {
+      params: { id: memory!.id },
+      body: { locale: 'ar', disclosureVersion: MEMORY_TRANSLATION_DISCLOSURE_VERSION },
+    }));
   } finally {
+    setMemoryTranslationDependenciesForTests(null);
+    if (previousFeature === undefined) delete process.env.MAYBESITTER_FEATURE_MEMORY_TRANSLATION;
+    else process.env.MAYBESITTER_FEATURE_MEMORY_TRANSLATION = previousFeature;
+    if (previousKill === undefined) delete process.env.MAYBESITTER_KILL_SWITCH_MEMORY_TRANSLATION;
+    else process.env.MAYBESITTER_KILL_SWITCH_MEMORY_TRANSLATION = previousKill;
     endM6();
   }
 });
