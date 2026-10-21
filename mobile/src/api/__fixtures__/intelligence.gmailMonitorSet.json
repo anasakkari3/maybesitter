@@ -2,5 +2,8 @@
   "success": true,
   "enabled": true,
   "lastSuccessAt": null,
-  "error": null
+  "error": null,
+  "m5Enrolled": false,
+  "timezone": null,
+  "waiting": null
 }

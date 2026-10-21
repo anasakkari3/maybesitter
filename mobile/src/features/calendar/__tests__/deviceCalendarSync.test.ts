@@ -17,6 +17,7 @@ import { describe, expect, it } from '@jest/globals';
 import type { Commitment, DeviceCalendarLink } from '../../../api/schemas/common';
 import type { CalendarAccess, CalendarEventDraft, DeviceCalendar } from '../deviceCalendar';
 import { DeviceCalendarError } from '../deviceCalendar';
+import { AccountChangedError } from '../../../api/errors';
 import {
   decide,
   reconcile,
@@ -559,5 +560,48 @@ describe('remove events MaybeSitter added', () => {
       ports: rec.ports,
     });
     expect(result).toEqual({ removed: 0, skipped: 1, permissionDenied: true });
+  });
+});
+
+describe('a delete interrupted by an account switch (M5A-R6-002)', () => {
+  it('notes the unlink before the native delete and finishes it on the account\'s next pass, never detaching', async () => {
+    const pending: { commitmentId: string; writerId: string }[] = [];
+    const links = new Map<string, Omit<DeviceCalendarLink, 'writtenAt'>>();
+    const withPending = (rec: Recorder, switched: boolean): Recorder => ({
+      ...rec,
+      ports: {
+        ...rec.ports,
+        deleteLink: async (commitmentId: string, writerId: string) => {
+          // The account changed while the native delete ran: the link call refuses.
+          if (switched) throw new AccountChangedError('account changed');
+          links.delete(commitmentId);
+          await rec.ports.deleteLink(commitmentId, writerId);
+        },
+        putLink: async (commitmentId, value) => {
+          links.set(commitmentId, value);
+          await rec.ports.putLink(commitmentId, value);
+        },
+        pendingUnlinks: async () => [...pending],
+        noteUnlink: async (commitmentId: string, writerId: string) => { pending.push({ commitmentId, writerId }); },
+        settleUnlink: async (commitmentId: string) => {
+          const index = pending.findIndex((row) => row.commitmentId === commitmentId);
+          if (index >= 0) pending.splice(index, 1);
+        },
+      },
+    });
+    const stale = orphan('c-gone', link({ eventId: 'evt-1' }));
+    links.set('c-gone', stale.link!);
+    const first = withPending(recorder(), true);
+    // The refused link is a skip for this pass (the caller rolls the pass back).
+    expect((await run([stale], first)).deleted).toBe(0);
+    expect(first.calls).toContain('deleteEvent:evt-1');
+    expect(pending).toEqual([{ commitmentId: 'c-gone', writerId: MINE }]);
+    // Back on the original account, with the subjects read before the pass;
+    // the event is gone from the phone now.
+    const second = withPending(recorder({ missing: ['evt-1'] }), false);
+    await run([stale], second);
+    expect(pending).toEqual([]);
+    expect(links.has('c-gone')).toBe(false);
+    expect(second.calls.filter((call) => call.startsWith('putLink:c-gone'))).toEqual([]);
   });
 });

@@ -17,6 +17,33 @@ Issue: UC-1.0d (#143). Bootstrap and identities come from UC-1.0a (#140).
 Both run in `europe-west1`. Firebase Auth is shared between them, so **staging
 is for test accounts only**.
 
+## M5a durable activation and kill procedure
+
+M5a is production-pinned-off. In local/test/staging, do not enable either
+durable control until the M5a revision has served **100 %** of traffic for at
+least **10 minutes**. This drains every pre-M5a writer before selection and
+Google certificates can be trusted.
+
+Set `MAYBESITTER_INTERNAL_AUDIENCE` to the service URL and authenticate as the
+`maybesitter-deployer` identity. On first deployment run
+`node --loader ./scripts/ts-resolver.mjs scripts/m5a-controls-init.ts`; this is
+create-only and provisions both controls disabled at epoch zero. After the
+traffic precondition, enable one capability with
+`scripts/m5a-enable.ts calendar <expectedEpoch>` or
+`scripts/m5a-enable.ts email <expectedEpoch>`.
+
+For an incident, first run `scripts/m5a-kill.ts <calendar|email>`. The internal
+endpoint atomically disables that control, advances its epoch, and appends the
+new epoch to `system/m5aControlsLog`; only then change the revision flag. This
+order fences work admitted before the flag revision.
+
+If `system/m5aControls` is missing or corrupt, stop both Gmail jobs, drain the
+M5a revision, and wait past every lease (at least 120 seconds). Read the highest
+epoch per capability from `system/m5aControlsLog`, recover a document whose
+epochs are strictly greater and whose two controls are disabled, then repeat
+the 10-minute activation precondition and explicit enable steps. Never reuse
+an epoch and never give the deployer direct Firestore access.
+
 ## How a deploy works
 
 1. GitHub Actions authenticates through Workload Identity Federation. There is

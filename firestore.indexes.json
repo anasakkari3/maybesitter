@@ -1,6 +1,49 @@
 {
   "indexes": [
     {
+      "collectionGroup": "intelligenceGmailScans",
+      "queryScope": "COLLECTION_GROUP",
+      "fields": [
+        { "fieldPath": "kind", "order": "ASCENDING" },
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "nextEligibleAt", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "intelligenceMonitors",
+      "queryScope": "COLLECTION_GROUP",
+      "fields": [
+        { "fieldPath": "proposalsPending", "order": "ASCENDING" },
+        { "fieldPath": "proposalNextEligibleAt", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "intelligenceMonitors",
+      "queryScope": "COLLECTION_GROUP",
+      "fields": [
+        { "fieldPath": "enabled", "order": "ASCENDING" },
+        { "fieldPath": "m5.v", "order": "ASCENDING" },
+        { "fieldPath": "m5.nextSweepAt", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "intelligenceSourceMarkers",
+      "queryScope": "COLLECTION_GROUP",
+      "fields": [
+        { "fieldPath": "state", "order": "ASCENDING" },
+        { "fieldPath": "nextEligibleAt", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "intelligenceAutoAdds",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "removedAt", "order": "ASCENDING" },
+        { "fieldPath": "at", "order": "DESCENDING" },
+        { "fieldPath": "autoAddId", "order": "DESCENDING" }
+      ]
+    },
+    {
       "collectionGroup": "busyBlocks",
       "queryScope": "COLLECTION",
       "fields": [
@@ -148,13 +191,63 @@
   ],
   "fieldOverrides": [
     {
+      "collectionGroup": "intelligenceGmailScans",
+      "fieldPath": "kind",
+      "indexes": [{ "order": "ASCENDING", "queryScope": "COLLECTION_GROUP" }]
+    },
+    {
+      "collectionGroup": "intelligenceGmailScans",
+      "fieldPath": "status",
+      "indexes": [{ "order": "ASCENDING", "queryScope": "COLLECTION_GROUP" }]
+    },
+    {
+      "collectionGroup": "intelligenceGmailScans",
+      "fieldPath": "nextEligibleAt",
+      "indexes": [{ "order": "ASCENDING", "queryScope": "COLLECTION_GROUP" }]
+    },
+    {
       "collectionGroup": "intelligenceMonitors",
       "fieldPath": "enabled",
       "indexes": [{ "order": "ASCENDING", "queryScope": "COLLECTION_GROUP" }]
     },
     {
       "collectionGroup": "intelligenceMonitors",
+      "fieldPath": "m5.v",
+      "indexes": [{ "order": "ASCENDING", "queryScope": "COLLECTION_GROUP" }]
+    },
+    {
+      "collectionGroup": "intelligenceMonitors",
+      "fieldPath": "m5.nextSweepAt",
+      "indexes": [{ "order": "ASCENDING", "queryScope": "COLLECTION_GROUP" }]
+    },
+    {
+      "collectionGroup": "intelligenceMonitors",
+      "fieldPath": "proposalsPending",
+      "indexes": [{ "order": "ASCENDING", "queryScope": "COLLECTION_GROUP" }]
+    },
+    {
+      "collectionGroup": "intelligenceMonitors",
+      "fieldPath": "proposalNextEligibleAt",
+      "indexes": [{ "order": "ASCENDING", "queryScope": "COLLECTION_GROUP" }]
+    },
+    {
+      "collectionGroup": "intelligenceMonitors",
       "fieldPath": "nextPollAt",
+      "indexes": [{ "order": "ASCENDING", "queryScope": "COLLECTION_GROUP" }]
+    },
+    {
+      "collectionGroup": "intelligenceSourceMarkers",
+      "fieldPath": "state",
+      "indexes": [{ "order": "ASCENDING", "queryScope": "COLLECTION_GROUP" }]
+    },
+    {
+      "collectionGroup": "intelligenceSourceMarkers",
+      "fieldPath": "nextEligibleAt",
+      "indexes": [{ "order": "ASCENDING", "queryScope": "COLLECTION_GROUP" }]
+    },
+    {
+      "collectionGroup": "busySourceFences",
+      "fieldPath": "jitTarget.nextEligibleAt",
       "indexes": [{ "order": "ASCENDING", "queryScope": "COLLECTION_GROUP" }]
     },
     {

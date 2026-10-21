@@ -27,6 +27,17 @@ let currentInbox: any;
 let mockRecommendationState: 'granted' | 'declined' = 'granted';
 
 let mockPlanPath: { isPending: boolean; error: unknown; data: unknown[] | undefined } = { isPending: false, error: null, data: [] };
+// M5a's panel parts read through TanStack Query; this suite renders the panel
+// without a client, on a server whose M5a capability is off (today's panel).
+jest.mock('../../m5a/capabilities', () => ({ useM5aCapabilities: () => null, useFreshM5aCapability: () => async () => false, M5A_NOT_NOW: () => new Error('not now') }));
+jest.mock('../../m5a/emailScan', () => ({
+  useEmailScanOverview: () => ({ data: undefined, refetch: async () => undefined }),
+  EmailScanEntry: () => null,
+  EmailScanStatus: () => null,
+  WaitLine: () => null,
+}));
+jest.mock('../../m5a/AddedCard', () => ({ AddedCard: () => null }));
+
 jest.mock('../../../api/queries', () => ({
   useConsents: () => ({ data: { recommendations: { state: mockRecommendationState } } }),
   // The plan path (M3a) learns whether it is on from Today's later-week read.

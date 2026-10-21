@@ -45,6 +45,7 @@ import { busySyncMarkForTests, resetBusySyncForTests } from '../../calendar/useB
 import { deviceCalendar } from '../../calendar/deviceCalendar';
 
 import * as calendarEndpoints from '../../../api/endpoints/calendar';
+import * as m5aEndpoints from '../../../api/endpoints/m5a';
 import * as commitmentEndpoints from '../../../api/endpoints/commitments';
 import * as trustEndpoints from '../../../api/endpoints/trust';
 
@@ -79,6 +80,8 @@ beforeEach(async () => {
     { nativeId: 'evt-1', startAt: FROM.toISOString(), endAt: new Date(FROM.getTime() + HOUR).toISOString(), allDay: false },
   ], { syncedAt: Date.now() });
 
+  // A never-enrolled phone whose M5a capability is known off: today's calendar behaviour.
+  jest.spyOn(m5aEndpoints, 'getM5aCapabilities').mockResolvedValue({ success: true, calendarChoice: false, emailSources: false });
   jest.spyOn(commitmentEndpoints, 'listToday').mockResolvedValue({ items: [] } as never);
   jest.spyOn(commitmentEndpoints, 'listUpcoming').mockResolvedValue({ items: [] } as never);
   jest.spyOn(calendarEndpoints, 'getCalendarSettings')
@@ -187,7 +190,7 @@ describe('pressing disconnect', () => {
     // screen re-uploads everything that was just deleted, because clearing the
     // cache also cleared the throttle.
     await waitFor(() => expect(trustEndpoints.updateTrust)
-      .toHaveBeenCalledWith({ type: 'set_calendar_consent', granted: false }));
+      .toHaveBeenCalledWith({ type: 'set_calendar_consent', granted: false }, { asUid: expect.any(String) }));
   });
 
   it('says so, and says how many busy times the sync found', async () => {

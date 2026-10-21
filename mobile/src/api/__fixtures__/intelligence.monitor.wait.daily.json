@@ -1,0 +1,12 @@
+{
+  "success": true,
+  "enabled": true,
+  "lastSuccessAt": null,
+  "error": null,
+  "m5Enrolled": true,
+  "timezone": "Asia/Jerusalem",
+  "waiting": {
+    "reason": "daily_ai_limit",
+    "resumesAt": "2026-08-09T09:00:00.000Z"
+  }
+}

@@ -206,6 +206,8 @@ export interface LLMCallOptions {
    * server's budget; absent, the provider's own default applies.
    */
   timeoutMs?: number;
+  /** `false` when the caller's unit budget permits exactly one transport attempt. */
+  retry?: boolean;
   /** Per-turn schema, used by capture chat to constrain opaque refs. */
   responseSchema?: object;
 }

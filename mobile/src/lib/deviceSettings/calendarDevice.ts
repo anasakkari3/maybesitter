@@ -93,30 +93,49 @@ export function resetWriterIdCache(): void {
   cachedWriterId = null;
 }
 
-/** The calendar the user picked on this device, or null if they have not. */
-export async function loadChosenCalendarId(): Promise<string | null> {
+/**
+ * ── Per account since M5a (M5A-R21-001, M5A-R20-004) ─────────────
+ *
+ * The calendar written into and the ids written are kept per account: on a
+ * shared phone, account B must neither write into A's chosen calendar nor
+ * skip A's events as its own. The installation-wide values are left where
+ * they are and never migrated: each account chooses again (or the
+ * sole-writable-calendar flow applies), and an id becomes this account's only
+ * when one of its own commitments carries the matching device-calendar link
+ * (`useDeviceCalendarSync` re-records those). Every other id reads as someone
+ * else's event, which is busy — a redundant hint, never a missed clash.
+ */
+export function chosenCalendarKey(uid: string): string {
+  return `${CALENDAR_ID_KEY}:${uid}`;
+}
+
+export function writtenEventIdsKey(uid: string): string {
+  return `${WRITTEN_EVENT_IDS_KEY}:${uid}`;
+}
+
+/** The calendar this account picked on this device, or null if it has not. */
+export async function loadChosenCalendarId(uid: string): Promise<string | null> {
   try {
-    const stored = await AsyncStorage.getItem(CALENDAR_ID_KEY);
+    const stored = await AsyncStorage.getItem(chosenCalendarKey(uid));
     return typeof stored === 'string' && stored.trim() !== '' ? stored : null;
   } catch {
     return null;
   }
 }
 
-export async function saveChosenCalendarId(calendarId: string | null): Promise<void> {
-  try {
-    if (calendarId === null) await AsyncStorage.removeItem(CALENDAR_ID_KEY);
-    else await AsyncStorage.setItem(CALENDAR_ID_KEY, calendarId);
-  } catch {
-    // The picker still shows the choice for this session. The next launch asks
-    // again, which is a worse experience and not a wrong one.
-  }
+/**
+ * Throws when it could not be saved: the picker reverts and nothing is written
+ * into a calendar the next launch would not remember (M5A-R21-001).
+ */
+export async function saveChosenCalendarId(uid: string, calendarId: string | null): Promise<void> {
+  if (calendarId === null) await AsyncStorage.removeItem(chosenCalendarKey(uid));
+  else await AsyncStorage.setItem(chosenCalendarKey(uid), calendarId);
 }
 
-/** The events this installation wrote, for UC-3.2 (#186) to skip. */
-export async function loadWrittenEventIds(): Promise<string[]> {
+/** The events this installation wrote for this account, for UC-3.2 (#186) to skip. */
+export async function loadWrittenEventIds(uid: string): Promise<string[]> {
   try {
-    const raw = await AsyncStorage.getItem(WRITTEN_EVENT_IDS_KEY);
+    const raw = await AsyncStorage.getItem(writtenEventIdsKey(uid));
     if (raw === null) return [];
     const parsed: unknown = JSON.parse(raw);
     return Array.isArray(parsed) ? parsed.filter((id): id is string => typeof id === 'string') : [];
@@ -127,28 +146,115 @@ export async function loadWrittenEventIds(): Promise<string[]> {
   }
 }
 
-export async function rememberWrittenEventId(eventId: string): Promise<void> {
-  const current = await loadWrittenEventIds();
+export async function rememberWrittenEventId(uid: string, eventId: string): Promise<void> {
+  const current = await loadWrittenEventIds(uid);
   if (current.includes(eventId)) return;
   const next = [...current, eventId].slice(-MAX_WRITTEN_EVENT_IDS);
   try {
-    await AsyncStorage.setItem(WRITTEN_EVENT_IDS_KEY, JSON.stringify(next));
+    await AsyncStorage.setItem(writtenEventIdsKey(uid), JSON.stringify(next));
   } catch {
     // See `loadWrittenEventIds`: the failure mode is a redundant warning.
   }
 }
 
-export async function forgetWrittenEventId(eventId: string): Promise<void> {
-  const current = await loadWrittenEventIds();
+export async function forgetWrittenEventId(uid: string, eventId: string): Promise<void> {
+  const current = await loadWrittenEventIds(uid);
   if (!current.includes(eventId)) return;
   try {
     await AsyncStorage.setItem(
-      WRITTEN_EVENT_IDS_KEY,
+      writtenEventIdsKey(uid),
       JSON.stringify(current.filter((id) => id !== eventId)),
     );
   } catch {
     // Leaving a stale id behind makes #186 skip an event that is no longer
     // ours. Harmless: it is not in the calendar any more either.
+  }
+}
+
+/** Which writer created the events: each recovers only its own (M5A-R9-001). */
+export type UnlinkedDomain = 'device' | 'weekly';
+const unlinkedCreatedKey = (uid: string, domain: UnlinkedDomain) => `calendar.unlinkedCreated.v1:${uid}:${domain}`;
+
+// One chain per key: two writers' read-modify-writes never interleave.
+const journalChains = new Map<string, Promise<unknown>>();
+function serializedJournal<T>(key: string, run: () => Promise<T>): Promise<T> {
+  const previous = journalChains.get(key) ?? Promise.resolve();
+  const next = previous.then(run, run);
+  journalChains.set(key, next.then(() => undefined, () => undefined));
+  return next;
+}
+
+/**
+ * Events one writer of this account created and has not yet linked or removed
+ * (M5A-R8-002, M5A-R9-001). Recorded before creation counts as done, removed
+ * only after a link is stored or a delete succeeded, so an event left behind
+ * by a failed rollback is retried on that writer's next pass. Throws when
+ * unreadable.
+ */
+export async function loadUnlinkedCreated(uid: string, domain: UnlinkedDomain): Promise<string[]> {
+  const raw = await AsyncStorage.getItem(unlinkedCreatedKey(uid, domain));
+  if (raw === null) return [];
+  const parsed: unknown = JSON.parse(raw);
+  if (!Array.isArray(parsed)) throw new Error('unlinked events unreadable');
+  return parsed.filter((id): id is string => typeof id === 'string');
+}
+
+/** Throws when it cannot be written: the caller then takes the event back out. */
+export function noteUnlinkedCreated(uid: string, domain: UnlinkedDomain, eventId: string): Promise<void> {
+  const key = unlinkedCreatedKey(uid, domain);
+  return serializedJournal(key, async () => {
+    const current = await loadUnlinkedCreated(uid, domain);
+    if (current.includes(eventId)) return;
+    await AsyncStorage.setItem(key, JSON.stringify([...current, eventId]));
+  });
+}
+
+export function settleUnlinkedCreated(uid: string, domain: UnlinkedDomain, eventId: string): Promise<void> {
+  const key = unlinkedCreatedKey(uid, domain);
+  return serializedJournal(key, async () => {
+    try {
+      const current = await loadUnlinkedCreated(uid, domain);
+      if (!current.includes(eventId)) return;
+      await AsyncStorage.setItem(key, JSON.stringify(current.filter((id) => id !== eventId)));
+    } catch {
+      // Left behind: the next recovery skips it while its link exists.
+    }
+  });
+}
+
+const pendingUnlinksKey = (uid: string) => `calendar.pendingUnlinks.v1:${uid}`;
+
+export interface PendingUnlink { commitmentId: string; writerId: string }
+
+/**
+ * Server links whose phone event this account already removed (M5A-R6-002).
+ * Written before the native delete, cleared after the link is gone, so a
+ * switch of account in between leaves the account's own record to finish on
+ * its next pass instead of a link to an event that no longer exists.
+ * Throws when it cannot be read: the caller then deletes nothing.
+ */
+export async function loadPendingUnlinks(uid: string): Promise<PendingUnlink[]> {
+  const raw = await AsyncStorage.getItem(pendingUnlinksKey(uid));
+  if (raw === null) return [];
+  const parsed: unknown = JSON.parse(raw);
+  if (!Array.isArray(parsed)) throw new Error('pending unlinks unreadable');
+  return parsed.filter((row): row is PendingUnlink => typeof row === 'object' && row !== null
+    && typeof (row as PendingUnlink).commitmentId === 'string' && typeof (row as PendingUnlink).writerId === 'string');
+}
+
+/** Throws when it cannot be written: the native delete then does not happen. */
+export async function notePendingUnlink(uid: string, entry: PendingUnlink): Promise<void> {
+  const current = await loadPendingUnlinks(uid);
+  if (current.some((row) => row.commitmentId === entry.commitmentId && row.writerId === entry.writerId)) return;
+  await AsyncStorage.setItem(pendingUnlinksKey(uid), JSON.stringify([...current, entry]));
+}
+
+export async function settlePendingUnlink(uid: string, commitmentId: string): Promise<void> {
+  try {
+    const current = await loadPendingUnlinks(uid);
+    await AsyncStorage.setItem(pendingUnlinksKey(uid), JSON.stringify(current.filter((row) => row.commitmentId !== commitmentId)));
+  } catch {
+    // Left behind, the next pass deletes an already deleted link: idempotent.
   }
 }
 

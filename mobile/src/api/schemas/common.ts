@@ -143,6 +143,8 @@ export const commitmentSchema = z.object({
   deviceCalendarLink: deviceCalendarLinkSchema.nullable().optional(),
   /** Absent when the commitment has no place reminder (closure CL4). */
   locationTrigger: locationTriggerSchema.optional(),
+  /** M5a R3.5: present only while this commitment's own email auto-add stands, unremoved. */
+  addedFrom: z.object({ kind: z.literal('email_self_reply'), evidence: z.string() }).strict().optional(),
 });
 
 export type Commitment = z.infer<typeof commitmentSchema>;

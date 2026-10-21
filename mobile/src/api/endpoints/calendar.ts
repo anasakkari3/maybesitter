@@ -30,30 +30,37 @@ export function getCalendarSettings(): Promise<{ calendarSettings: { writeTarget
 
 export function putCalendarWriteTarget(
   writeTarget: CalendarWriteTarget,
+  options: { asUid?: string } = {},
 ): Promise<{ calendarSettings: { writeTarget: CalendarWriteTarget } }> {
   return apiRequest('PUT', '/api/mobile/settings/calendar', {
     body: { writeTarget },
     schema: calendarSettingsResponseSchema,
+    // M5a (M5A-R21-001): a write target chosen for one account is never set on another.
+    ...(options.asUid !== undefined ? { asUid: options.asUid } : {}),
   });
 }
 
 export function putDeviceCalendarLink(
   commitmentId: string,
   link: Omit<DeviceCalendarLink, 'writtenAt'>,
+  options: { asUid?: string } = {},
 ): Promise<{ deviceCalendarLink: DeviceCalendarLink }> {
   return apiRequest('PUT', `/api/mobile/commitments/${encodeURIComponent(commitmentId)}/device-calendar-link`, {
     body: link,
     schema: deviceCalendarLinkResponseSchema,
+    ...(options.asUid !== undefined ? { asUid: options.asUid } : {}),
   });
 }
 
 export function deleteDeviceCalendarLink(
   commitmentId: string,
   writerId: string,
+  options: { asUid?: string } = {},
 ): Promise<{ deleted: boolean }> {
   return apiRequest('DELETE', `/api/mobile/commitments/${encodeURIComponent(commitmentId)}/device-calendar-link`, {
     query: { writerId },
     schema: deviceCalendarLinkRemovedSchema,
+    ...(options.asUid !== undefined ? { asUid: options.asUid } : {}),
   });
 }
 
@@ -94,10 +101,12 @@ export function getServerBusy(from: string, to: string) {
 }
 
 /** Disconnect: the source and every block under it, on the server. */
-export function deleteCalendarBusy(sourceId: string) {
+export function deleteCalendarBusy(sourceId: string, options: { asUid?: string } = {}) {
   return apiRequest('DELETE', '/api/mobile/calendar/busy', {
     query: { sourceId },
     schema: calendarBusyDeletedSchema,
+    // M5a (M5A-R53-002): a disconnect started for one account is never sent as another.
+    ...(options.asUid !== undefined ? { asUid: options.asUid } : {}),
   });
 }
 

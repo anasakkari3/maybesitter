@@ -37,6 +37,7 @@
  */
 import { useCallback, useEffect, useRef } from 'react';
 import { AppState, Platform } from 'react-native';
+import * as Crypto from 'expo-crypto';
 import { useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { queryKeys, useTrust, useTrustAction, useUid } from '../../api/queries';
 import { getAuthRepository } from '../../api/auth';
@@ -44,7 +45,6 @@ import type { TrustResponse } from '../../api/schemas/trust';
 import { deleteCalendarBusy, postCalendarBusy } from '../../api/endpoints/calendar';
 import { calendarReadEnabled } from '../../config/env';
 import {
-  clearCachedBusyBlocks,
   loadBusySyncedAt,
   loadDeviceBusy,
   saveBusySyncedAt,
@@ -53,9 +53,23 @@ import {
   type DeviceBusyCache,
 } from '../../lib/deviceSettings/calendarBusy';
 import { loadExcludedCalendarIds, loadWrittenEventIds, resolveWriterId } from '../../lib/deviceSettings/calendarDevice';
+import { invalidateDeviceBusyCache, loadChoiceEnrolledAt, loadSourceStrict } from '../../lib/deviceSettings/calendarChoice';
+import { readSourceCredential, resetSourceCredentialForTests } from '../../lib/deviceSettings/sourceCredential';
+import { clearCalendarBusyM5, postBusyIntent } from '../../api/endpoints/m5a';
+import { fetchM5aCapabilities } from '../m5a/capabilities';
+import {
+  refreshM5aView,
+  rejoinPhone,
+  resetM5aCalendarForTests,
+  resolveCalendarMode,
+  runM5aPass,
+  startSelection,
+  useM5aCalendarView,
+} from './m5aCalendar';
 import { deviceCalendar, BUSY_LOOK_AHEAD_DAYS } from './deviceCalendar';
 import type { DeviceBusyBlock } from './busyBlocks';
 import {
+  busySyncDecision,
   deviceSourceId,
   runBusySync,
   type BusySyncOutcome,
@@ -142,9 +156,13 @@ export function busySyncMarkForTests(): typeof withdrawn {
 }
 
 export function resetBusySyncForTests(): void {
+  // A pass still running from before stops at its next check.
+  passGeneration += 1;
   passInFlight = false;
   activePass = null;
   withdrawn = null;
+  resetM5aCalendarForTests();
+  resetSourceCredentialForTests();
 }
 
 /**
@@ -196,11 +214,12 @@ function windowFrom(now: Date): { startAt: string; endAt: string } {
  */
 function apiBusyPorts(owner: string, stillCurrent: () => boolean): BusySyncPorts {
   return {
-    // Calendars switched off in Calendar settings are never read (L7).
+    // Calendars switched off in Calendar settings are never read (L7). A
+    // never-enrolled phone only: an enrolled one reads what it chose (M5a).
     readBusy: async (ownEventIds, now) => deviceCalendar.fetchBusyBlocks({
       ownEventIds, now, excludedCalendarIds: new Set(await loadExcludedCalendarIds()),
     }),
-    ownEventIds: loadWrittenEventIds,
+    ownEventIds: () => loadWrittenEventIds(owner),
     cache: (blocks, coverage) => saveCachedBusyBlocks(owner, blocks, coverage, stillCurrent),
     uncover: () => uncoverCachedBusyBlocks(owner, stillCurrent),
     upload: async (body) => { await postCalendarBusy(body, { asUid: owner }); },
@@ -221,15 +240,32 @@ function apiBusyPorts(owner: string, stillCurrent: () => boolean): BusySyncPorts
  */
 export interface BusyCalendarState {
   /** Runs a pass. Returns null when one was already in flight. */
-  syncNow(trigger: BusySyncTrigger): Promise<BusySyncOutcome | null>;
+  syncNow(trigger: BusySyncTrigger, options?: { skipProbe?: boolean }): Promise<BusySyncOutcome | null>;
   /** Clears the phone, then the account, then the switch. */
   disconnect(): Promise<{ local: true; server: boolean }>;
+  /**
+   * M5a: the calendars this account reads on this phone. Rejects with
+   * `SelectionNotSavedError` when the choice could not be saved; nothing was
+   * sent then (M5A-R51-001).
+   */
+  chooseCalendars(included: readonly string[]): Promise<void>;
+  /** One calendar on or off, applied to the newest selection there is (M5A-R3-005). */
+  toggleCalendar(calendarId: string, on: boolean): Promise<void>;
+  /** M5a «رجّع هاد التلفون»: true when this phone is a source again. */
+  rejoin(): Promise<boolean>;
 }
 
 export function useBusyCalendar(): BusyCalendarState {
   const uid = useUid();
   const client = useQueryClient();
   const trust = useTrust();
+  // Asked as soon as the host mounts (M5A-R2-002): a never-enrolled phone
+  // reads nothing until it is answered, so it is not left waiting on trust.
+  // One fetch into the shared query, not a subscription: the host draws
+  // nothing, and a pass asks again (`resolveCalendarMode`) when it runs.
+  useEffect(() => {
+    if (uid !== 'signed-out') void fetchM5aCapabilities(client, uid);
+  }, [client, uid]);
   const trustAction = useTrustAction();
 
   const consented = trust.data?.trust?.calendarConsent === true;
@@ -252,23 +288,54 @@ export function useBusyCalendar(): BusyCalendarState {
     client.getQueryData<TrustResponse>(queryKeys.trust(forUid))?.trust?.calendarConsent === true
   ), [client]);
 
-  const syncNow = useCallback(async (trigger: BusySyncTrigger): Promise<BusySyncOutcome | null> => {
+  const syncNow = useCallback(async (
+    trigger: BusySyncTrigger,
+    options: { skipProbe?: boolean } = {},
+  ): Promise<BusySyncOutcome | null> => {
     const current = latest.current;
     if (passInFlight || withdrawn?.uid === current.uid) return null;
     const generation = passGeneration;
     // The signed-in account, from the repository (it changes before React's
     // state does), and the hook's own view of it; both must still be the
-    // account this pass began for (M4A-REV-001, R2-REV-001).
-    // And no disconnect since it began, and the consent still on
-    // (M4A-R4-REV-001, R5-REV-001).
-    const stillCurrent = () => passGeneration === generation
-      && consentNow(current.uid)
+    // account this pass began for (M4A-REV-001, R2-REV-001), and no
+    // disconnect since it began (M4A-R4-REV-001).
+    const accountCurrent = () => passGeneration === generation
       && latest.current.uid === current.uid
       && (current.uid === 'signed-out' || getAuthRepository()?.currentUser()?.uid === current.uid);
+    // And the consent still on (R5-REV-001).
+    const stillCurrent = () => accountCurrent() && consentNow(current.uid);
     passInFlight = true;
     const pass = (async (): Promise<BusySyncOutcome | null> => {
+      if (!calendarReadEnabled() || current.uid === 'signed-out') return null;
       const now = new Date();
+      // M5a (R1.1): an enrolled phone, or one enrolling now, reads only what
+      // the person chose; a phone whose capability is unknown reads nothing.
+      const mode = await resolveCalendarMode(current.uid, client, accountCurrent);
+      if (mode === 'blocked' || !accountCurrent()) return null;
       const lastSyncedAt = await loadBusySyncedAt(current.uid);
+      if (mode !== 'legacy') {
+        // Every host and screen mounts with a `connect`; on an enrolled phone
+        // only a pull-to-refresh or a phone that never synced skips the
+        // fifteen-minute throttle, so a just-finished selection upload is not
+        // followed by a second one.
+        const due = busySyncDecision({
+          trigger: trigger === 'connect' ? 'foreground' : trigger,
+          featureEnabled: true, signedIn: true, consented: true, lastSyncedAt, now,
+        }).run;
+        const result = await runM5aPass({
+          uid: current.uid,
+          stillCurrent,
+          accountCurrent,
+          consented: () => consentNow(current.uid),
+          justEnrolled: mode === 'just_enrolled',
+          lastSyncedAt,
+          due,
+          ...(options.skipProbe ? { skipProbe: true } : {}),
+        });
+        void refreshM5aView(current.uid);
+        void client.invalidateQueries({ queryKey: busyQueryKeys.blocks(current.uid) });
+        return result;
+      }
       const writerId = await resolveWriterId();
       if (!stillCurrent()) return null;
       const result = await runBusySync(apiBusyPorts(current.uid, stillCurrent), {
@@ -299,6 +366,33 @@ export function useBusyCalendar(): BusyCalendarState {
     }
   }, [client, consentNow]);
 
+  const chooseCalendars = useCallback(async (
+    included: readonly string[] | ((current: readonly string[]) => readonly string[]),
+  ): Promise<void> => {
+    const current = latest.current;
+    const generation = passGeneration;
+    const accountCurrent = () => passGeneration === generation
+      && latest.current.uid === current.uid
+      && getAuthRepository()?.currentUser()?.uid === current.uid;
+    await startSelection(current.uid, included, {
+      uid: current.uid,
+      accountCurrent,
+      stillCurrent: () => accountCurrent() && consentNow(current.uid),
+      consented: () => consentNow(current.uid),
+    });
+    void client.invalidateQueries({ queryKey: busyQueryKeys.blocks(current.uid) });
+  }, [client, consentNow]);
+
+  const toggleCalendar = useCallback((calendarId: string, on: boolean) => chooseCalendars((current) => (on
+    ? [...current.filter((id) => id !== calendarId), calendarId]
+    : current.filter((id) => id !== calendarId))), [chooseCalendars]);
+
+  const rejoin = useCallback(async (): Promise<boolean> => {
+    const back = await rejoinPhone(latest.current.uid);
+    if (back) void syncNow('connect', { skipProbe: true });
+    return back;
+  }, [syncNow]);
+
   const disconnect = useCallback(async (): Promise<{ local: true; server: boolean }> => {
     const current = latest.current;
     // A pass already running read the calendar being disconnected: from here
@@ -309,13 +403,13 @@ export function useBusyCalendar(): BusyCalendarState {
     withdrawn = mark;
     // The phone first, and unconditionally. Whatever the network does, the
     // person who pressed this sees their busy times gone from the screen.
-    await clearCachedBusyBlocks();
+    await invalidateDeviceBusyCache(current.uid);
     void client.invalidateQueries({ queryKey: busyQueryKeys.blocks(current.uid) });
     try {
       // An upload already on its way lands first, so the delete is the last
       // word on the server rather than something the upload undoes.
       await activePass?.catch(() => undefined);
-      await deleteCalendarBusy(deviceSourceId(await resolveWriterId()));
+      await deleteThisPhonesBusy(current.uid);
     } catch {
       // Nothing reached the switch, so it is still on: syncing resumes, as it
       // always has when the account could not be reached.
@@ -326,6 +420,7 @@ export function useBusyCalendar(): BusyCalendarState {
       // And the switch, so nothing syncs it back. See the header: clearing the
       // cache also cleared the throttle, so leaving this on would mean the next
       // trip to the home screen re-uploaded the window that was just deleted.
+      if (getAuthRepository()?.currentUser()?.uid !== current.uid) return { local: true, server: false };
       await trustAction.mutateAsync({ type: 'set_calendar_consent', granted: false });
       return { local: true, server: true };
     } catch {
@@ -355,9 +450,16 @@ export function useBusyCalendar(): BusyCalendarState {
   // until a disconnect or another account. Only an answer that says off
   // clears: while the answer is loading nothing is known, and nothing goes.
   const consentOff = trust.data?.trust?.calendarConsent === false;
+  // A selection's read writes the cache after the tap returned (SIM-M5A-02):
+  // every write is announced, and the screens reading the cache re-read it.
+  const cacheVersion = useM5aCalendarView(uid).cacheVersion;
+  useEffect(() => {
+    if (cacheVersion === 0 || uid === 'signed-out') return;
+    void client.invalidateQueries({ queryKey: busyQueryKeys.blocks(uid) });
+  }, [cacheVersion, uid, client]);
   useEffect(() => {
     if (!consentOff || uid === 'signed-out') return;
-    void clearCachedBusyBlocks().then(() => client.invalidateQueries({ queryKey: busyQueryKeys.blocks(uid) }));
+    void invalidateDeviceBusyCache(uid).then(() => client.invalidateQueries({ queryKey: busyQueryKeys.blocks(uid) }));
   }, [consentOff, uid, client]);
 
   // Somebody turned the switch on, or it was already on when the app started.
@@ -373,7 +475,55 @@ export function useBusyCalendar(): BusyCalendarState {
     return () => subscription.remove();
   }, [syncNow]);
 
-  return { syncNow, disconnect };
+  return { syncNow, disconnect, chooseCalendars, toggleCalendar, rejoin };
+}
+
+/**
+ * "Disconnect and delete" for this phone's own busy time, bound to its account
+ * (M5A-R53-002). An enrolled phone clears its registered source as a `clear`
+ * operation — clearing is not removing, so the registration stays and the
+ * phone can choose again (M5A-R11-002); a never-enrolled phone deletes its
+ * legacy source as before.
+ */
+export async function deleteThisPhonesBusy(uid: string): Promise<void> {
+  // Every local read is strict (M5A-R9-002): an enrolment marker or source
+  // record that cannot be read fails the disconnect visibly; only a read that
+  // succeeded and found nothing takes the "never registered" path.
+  let enrolledAt: string | null;
+  try {
+    enrolledAt = uid === 'signed-out' ? null : await loadChoiceEnrolledAt(uid);
+  } catch {
+    throw new Error('the calendar choice could not be read');
+  }
+  if (enrolledAt !== null) {
+    let source;
+    try {
+      source = await loadSourceStrict(uid);
+    } catch {
+      throw new Error('the source record could not be read');
+    }
+    let credential;
+    try {
+      credential = await readSourceCredential(uid);
+    } catch {
+      // The keychain did not answer: whether this phone has busy time on the
+      // account is unknown, so the delete is not reported as done (M5A-R3-002).
+      throw new Error('the source credential could not be read');
+    }
+    // Never registered: nothing of this phone's is on the account.
+    if (!source && !credential) return;
+    // Registered, but this phone can no longer prove it is that source: the
+    // server half did not happen. The other-phones list can still remove it.
+    if (!source || !credential || credential.sourceInstallationId !== source.sourceInstallationId) {
+      throw new Error('this phone cannot clear its source');
+    }
+    const intent = await postBusyIntent({
+      sourceId: source.sourceId, intentId: Crypto.randomUUID(), operation: 'clear', selectionDigest: 'disconnect',
+    }, credential.sourceSecret, { asUid: uid });
+    await clearCalendarBusyM5(source.sourceId, intent, credential.sourceSecret, { asUid: uid });
+    return;
+  }
+  await deleteCalendarBusy(deviceSourceId(await resolveWriterId()), uid === 'signed-out' ? {} : { asUid: uid });
 }
 
 /**

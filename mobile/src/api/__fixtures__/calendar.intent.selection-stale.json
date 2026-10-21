@@ -1,0 +1,5 @@
+{
+  "success": false,
+  "error": "selection_stale",
+  "currentEpoch": 3
+}

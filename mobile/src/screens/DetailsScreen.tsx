@@ -5,7 +5,8 @@ import { useLayoutMode } from '../theme/textScale';
 import { useApp } from '../state/AppContext';
 import { useTimeZone } from '../i18n/timezone';
 import { formatRelativeDay, formatTime } from '../i18n/format';
-import { ltr } from '../i18n/strings';
+import { fill, ltr } from '../i18n/strings';
+import { isolateAuto } from '../i18n/bidi';
 import { useActivity, useCategoryPreferences, useCommitment, useCommitmentAction, useNextStep, useNextStepDecision, usePatchCommitment, useSavedWeek } from '../api/queries';
 import { safeCommitmentPatchEnabled } from '../config/env';
 import { QueryBoundary } from '../api/ui/QueryBoundary';
@@ -63,9 +64,11 @@ import { useM4bCapabilities } from '../features/m4b/capabilities';
  * ── Round 2's "source" row is not drawn ──────────────────────────
  *
  * The export shows where a commitment came from (a capture, a share, the
- * routine). The commitment contract carries no provenance field — the only
- * `source` on it is the priority's — so the row would have to be invented.
- * It is left out and recorded in the matrix.
+ * routine). The commitment contract carries no general provenance field — the
+ * only `source` on it is the priority's — so the row would have to be
+ * invented. It is left out and recorded in the matrix. The one provenance the
+ * contract does carry is M5a's `addedFrom` (an email auto-add that still
+ * stands), and that is the one line drawn.
  */
 export function DetailsScreen() {
   const { s, t, p, lang, actions } = useApp();
@@ -195,6 +198,12 @@ export function DetailsScreen() {
                   <View style={{ alignItems: 'flex-start' }}><Txt role="page" size={24} weight={700} testID="details-title">{view.title}</Txt></View>
                   {query.data?.description ? (
                     <Txt size={15} color={p.mu} lh={1.5} testID="details-description">{query.data.description}</Txt>
+                  ) : null}
+                  {/* Where it came from, while its email auto-add stands (M5a R3.5). */}
+                  {query.data?.addedFrom ? (
+                    <Txt role="supporting" color={p.mu} testID="added-from-line">
+                      {fill(t.m5AddedFromLine, { evidence: isolateAuto(query.data.addedFrom.evidence) })}
+                    </Txt>
                   ) : null}
                   {open ? <StartIfProposed commitmentId={view.id} /> : null}
                 </View>

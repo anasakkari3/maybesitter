@@ -15,8 +15,11 @@
 import { afterEach, beforeEach, describe, expect, it } from '@jest/globals';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
+  CALENDAR_ID_KEY,
   WRITER_ID_KEY,
   WRITTEN_EVENT_IDS_KEY,
+  chosenCalendarKey,
+  writtenEventIdsKey,
   forgetWrittenEventId,
   loadChosenCalendarId,
   loadExcludedCalendarIds,
@@ -70,44 +73,61 @@ describe('who this installation says it is', () => {
   });
 });
 
+const UID = 'uid-a';
+
 describe('the calendar this device writes into', () => {
   it('is null until one is picked', async () => {
-    expect(await loadChosenCalendarId()).toBeNull();
+    expect(await loadChosenCalendarId(UID)).toBeNull();
   });
 
   it('survives being set and cleared', async () => {
-    await saveChosenCalendarId('cal-1');
-    expect(await loadChosenCalendarId()).toBe('cal-1');
-    await saveChosenCalendarId(null);
-    expect(await loadChosenCalendarId()).toBeNull();
+    await saveChosenCalendarId(UID, 'cal-1');
+    expect(await loadChosenCalendarId(UID)).toBe('cal-1');
+    await saveChosenCalendarId(UID, null);
+    expect(await loadChosenCalendarId(UID)).toBeNull();
+  });
+
+  it('is kept per account and never read from the installation-wide value (M5A-R21-001)', async () => {
+    await AsyncStorage.setItem(CALENDAR_ID_KEY, 'legacy');
+    await saveChosenCalendarId(UID, 'cal-a');
+    expect(await loadChosenCalendarId('uid-b')).toBeNull();
+    expect(await loadChosenCalendarId(UID)).toBe('cal-a');
+    expect(await AsyncStorage.getItem(chosenCalendarKey(UID))).toBe('cal-a');
   });
 });
 
 describe('the events this installation wrote', () => {
   it('starts empty, and records each id once', async () => {
-    expect(await loadWrittenEventIds()).toEqual([]);
-    await rememberWrittenEventId('evt-1');
-    await rememberWrittenEventId('evt-1');
-    expect(await loadWrittenEventIds()).toEqual(['evt-1']);
+    expect(await loadWrittenEventIds(UID)).toEqual([]);
+    await rememberWrittenEventId(UID, 'evt-1');
+    await rememberWrittenEventId(UID, 'evt-1');
+    expect(await loadWrittenEventIds(UID)).toEqual(['evt-1']);
   });
 
   it('forgets an id when its event is removed', async () => {
-    await rememberWrittenEventId('evt-1');
-    await rememberWrittenEventId('evt-2');
-    await forgetWrittenEventId('evt-1');
-    expect(await loadWrittenEventIds()).toEqual(['evt-2']);
+    await rememberWrittenEventId(UID, 'evt-1');
+    await rememberWrittenEventId(UID, 'evt-2');
+    await forgetWrittenEventId(UID, 'evt-1');
+    expect(await loadWrittenEventIds(UID)).toEqual(['evt-2']);
   });
 
   it('reads garbage as "none recorded" rather than throwing', async () => {
     // The consequence of an empty answer is that UC-3.2 (#186) counts our own
     // events as busy: a redundant warning, never a missed one.
-    await AsyncStorage.setItem(WRITTEN_EVENT_IDS_KEY, 'not json');
-    expect(await loadWrittenEventIds()).toEqual([]);
+    await AsyncStorage.setItem(writtenEventIdsKey(UID), 'not json');
+    expect(await loadWrittenEventIds(UID)).toEqual([]);
   });
 
   it('keeps only strings out of a list that has been tampered with', async () => {
-    await AsyncStorage.setItem(WRITTEN_EVENT_IDS_KEY, JSON.stringify(['evt-1', 7, null, 'evt-2']));
-    expect(await loadWrittenEventIds()).toEqual(['evt-1', 'evt-2']);
+    await AsyncStorage.setItem(writtenEventIdsKey(UID), JSON.stringify(['evt-1', 7, null, 'evt-2']));
+    expect(await loadWrittenEventIds(UID)).toEqual(['evt-1', 'evt-2']);
+  });
+
+  it('is kept per account: another account never skips these as its own (M5A-R20-004)', async () => {
+    await AsyncStorage.setItem(WRITTEN_EVENT_IDS_KEY, JSON.stringify(['legacy-evt']));
+    await rememberWrittenEventId(UID, 'evt-a');
+    expect(await loadWrittenEventIds('uid-b')).toEqual([]);
+    expect(await loadWrittenEventIds(UID)).toEqual(['evt-a']);
   });
 });
 

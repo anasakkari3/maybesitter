@@ -168,6 +168,7 @@ interface WireMessage {
   historyId?: unknown;
   internalDate?: unknown;
   payload?: WirePart;
+  labelIds?: unknown;
 }
 
 /* ── Dependencies ──────────────────────────────────────────────── */
@@ -232,6 +233,16 @@ export interface GmailRecentPage {
 }
 
 export interface GmailTransport extends GmailApiPort {
+  /** Id-only history checkpoint. It never calls messages.get. */
+  listHistoryIds(request: GmailHistoryRequest): Promise<{
+    historyId: string;
+    ids: readonly string[];
+    nextPageToken: string | null;
+  }>;
+  /** Id-only listing checkpoint used by the M5a resumable scanner. */
+  listRecentMessageIds(request: GmailRecentRequest): Promise<{ ids: readonly string[]; nextPageToken: string | null }>;
+  /** One message unit fetch. A vanished message is the ordinary `null` result. */
+  getMessageById(id: string): Promise<GmailMessagePayload | null>;
   /** One bounded page; callers may continue until nextPageToken is null. */
   listRecentMessagePage(request: GmailRecentRequest): Promise<GmailRecentPage>;
   /**
@@ -308,8 +319,8 @@ function headerValue(headers: unknown, name: string): string | null {
  * shape there is. An attachment part has no `data` and an `attachmentId`
  * instead — it is skipped, and its bytes are never fetched.
  */
-function selectText(payload: WirePart | undefined, endpoint: GmailEndpoint): string {
-  if (!payload) return '';
+function selectText(payload: WirePart | undefined, endpoint: GmailEndpoint): { text: string; bodyFormat: 'text/plain' | 'text/html' } {
+  if (!payload) return { text: '', bodyFormat: 'text/plain' };
   const plain: string[] = [];
   const html: string[] = [];
 
@@ -331,7 +342,9 @@ function selectText(payload: WirePart | undefined, endpoint: GmailEndpoint): str
   };
 
   walk(payload, 0);
-  return (plain.length > 0 ? plain : html).join('\n');
+  return plain.length > 0
+    ? { text: plain.join('\n'), bodyFormat: 'text/plain' }
+    : { text: html.join('\n'), bodyFormat: 'text/html' };
 }
 
 /** Truncates on a byte budget without splitting a UTF-8 sequence. */
@@ -526,6 +539,10 @@ export function createGmailTransport(deps: GmailTransportDeps): GmailTransport {
     if (!Number.isFinite(receivedAtMs)) throw new GmailWireError('messages.get', 'epoch-millisecond internalDate');
 
     const headers = message.payload?.headers;
+    const selected = selectText(message.payload, 'messages.get');
+    const labels = Array.isArray(message.labelIds)
+      ? message.labelIds.filter((label): label is string => typeof label === 'string')
+      : [];
     return Object.freeze({
       id: message.id,
       threadId: nonEmptyString(message.threadId) ? message.threadId : null,
@@ -533,8 +550,17 @@ export function createGmailTransport(deps: GmailTransportDeps): GmailTransport {
       receivedAt: new Date(receivedAtMs).toISOString(),
       from: headerValue(headers, 'From'),
       subject: headerValue(headers, 'Subject'),
-      text: clampBytes(selectText(message.payload, 'messages.get'), maxTextBytes),
+      text: clampBytes(selected.text, maxTextBytes),
+      sentByAccount: labels.includes('SENT'),
+      isReply: nonEmptyString(headerValue(headers, 'In-Reply-To')) || nonEmptyString(headerValue(headers, 'References')),
+      bodyFormat: selected.bodyFormat,
     });
+  }
+
+  async function getMessageById(id: string): Promise<GmailMessagePayload | null> {
+    const startedAt = monotonicMs();
+    try { return await getMessage(id, startedAt); }
+    catch (error) { throw toGmailProviderError(error); }
   }
 
   /** Bounded, concurrency-capped, quota-paced fan-out over message ids. */
@@ -570,10 +596,11 @@ export function createGmailTransport(deps: GmailTransportDeps): GmailTransport {
     return out.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
   }
 
-  /** The port's one verb. */
-  async function listHistory(request: GmailHistoryRequest): Promise<GmailHistoryPage> {
-    const startedAt = monotonicMs();
-    try {
+  async function readHistoryIds(request: GmailHistoryRequest, startedAt: number): Promise<{
+    historyId: string;
+    ids: readonly string[];
+    nextPageToken: string | null;
+  }> {
       // `startHistoryId` is a *required* parameter of `history.list`, so a
       // connection with no cursor cannot call it at all. The documented
       // baseline is `getProfile.historyId`, "the mailbox's current history
@@ -585,7 +612,7 @@ export function createGmailTransport(deps: GmailTransportDeps): GmailTransport {
       if (!nonEmptyString(request.startHistoryId)) {
         return Object.freeze({
           historyId: await getProfileHistoryId(startedAt),
-          messages: Object.freeze([]),
+          ids: Object.freeze([]),
           nextPageToken: null,
         });
       }
@@ -627,18 +654,42 @@ export function createGmailTransport(deps: GmailTransportDeps): GmailTransport {
           const id = entry.message.id;
           if (!nonEmptyString(id) || seen.has(id)) continue;
           seen.add(id);
-          // A history page can contain more message ids than the fetch cap.
-          // Never advance the caller's cursor after silently omitting one.
-          if (ids.length >= maxMessagesPerPage) {
-            if (deps.rejectHistoryTruncation) throw new GmailWireError('history.list', 'message cap exceeded');
-          } else ids.push(id);
+          ids.push(id);
         }
       }
 
       return Object.freeze({
         historyId: body.historyId,
-        messages: Object.freeze(await fetchMessages(ids, startedAt)),
+        ids: Object.freeze(ids),
         nextPageToken: nonEmptyString(body.nextPageToken) ? body.nextPageToken : null,
+      });
+  }
+
+  async function listHistoryIds(request: GmailHistoryRequest): Promise<{
+    historyId: string;
+    ids: readonly string[];
+    nextPageToken: string | null;
+  }> {
+    const startedAt = monotonicMs();
+    try {
+      return await readHistoryIds(request, startedAt);
+    } catch (error) {
+      throw toGmailProviderError(error);
+    }
+  }
+
+  /** The port's legacy verb. */
+  async function listHistory(request: GmailHistoryRequest): Promise<GmailHistoryPage> {
+    const startedAt = monotonicMs();
+    try {
+      const page = await readHistoryIds(request, startedAt);
+      if (deps.rejectHistoryTruncation && page.ids.length > maxMessagesPerPage) {
+        throw new GmailWireError('history.list', 'message cap exceeded');
+      }
+      return Object.freeze({
+        historyId: page.historyId,
+        messages: Object.freeze(await fetchMessages(page.ids.slice(0, maxMessagesPerPage), startedAt)),
+        nextPageToken: page.nextPageToken,
       });
     } catch (error) {
       throw toGmailProviderError(error);
@@ -716,12 +767,37 @@ export function createGmailTransport(deps: GmailTransportDeps): GmailTransport {
     }
   }
 
+  async function listRecentMessageIds(request: GmailRecentRequest): Promise<{ ids: readonly string[]; nextPageToken: string | null }> {
+    const startedAt = monotonicMs();
+    const limit = Math.min(clamp(request.maxResults, 1, GMAIL_MAX_PAGE_SIZE), maxMessagesPerPage);
+    try {
+      const body = await get(
+        'messages.list',
+        url('/users/me/messages', { q: request.query, maxResults: limit, pageToken: request.pageToken ?? undefined }),
+        startedAt,
+      );
+      if (!isRecord(body)) throw new GmailWireError('messages.list', 'object body');
+      const listed = body.messages;
+      if (listed !== undefined && !Array.isArray(listed)) throw new GmailWireError('messages.list', 'messages array');
+      const ids: string[] = [];
+      for (const entry of listed ?? []) {
+        if (isRecord(entry) && nonEmptyString(entry.id) && !ids.includes(entry.id) && ids.length < limit) ids.push(entry.id);
+      }
+      return Object.freeze({ ids: Object.freeze(ids), nextPageToken: nonEmptyString(body.nextPageToken) ? body.nextPageToken : null });
+    } catch (error) {
+      throw toGmailProviderError(error);
+    }
+  }
+
   async function listRecentMessages(request: GmailRecentRequest): Promise<readonly GmailMessagePayload[]> {
     return (await listRecentMessagePage(request)).messages;
   }
 
   return {
     listHistory,
+    listHistoryIds,
+    listRecentMessageIds,
+    getMessageById,
     listRecentMessagePage,
     listRecentMessages,
 

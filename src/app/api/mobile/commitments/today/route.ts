@@ -6,6 +6,7 @@ import {
   orphanedDeviceCalendarLinks,
 } from '../../../../../../lib/services/calendar/deviceCalendarLinks';
 import { dateFromOptionalIso } from '../../../../../../lib/services/mobile/time';
+import { addedFromByCommitment } from '../../../../../../lib/intelligence/autoAdds';
 
 export const dynamic = 'force-dynamic';
 
@@ -27,6 +28,7 @@ export async function GET(request: Request) {
   // against the same response the screens render, so the two can never
   // disagree about which commitment owns which event.
   const links = await listDeviceCalendarLinks(user.uid);
+  const addedFrom = await addedFromByCommitment(user.uid, ranked.items);
   // The orphans travel with Today and with Today only. Both lists carry the
   // links for their own rows, but "which events have no commitment left" is one
   // answer about the whole account: sending it on both would have two responses
@@ -37,5 +39,6 @@ export async function GET(request: Request) {
     ranked.ranking,
     links,
     orphanedDeviceCalendarLinks(links, ranked.calendarEligibleIds),
+    addedFrom,
   ));
 }

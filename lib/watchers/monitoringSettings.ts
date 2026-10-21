@@ -7,8 +7,23 @@
  * effects fire. When unpaused, effects resume normally without replaying
  * state that changed while paused.
  */
+import { createHash } from 'node:crypto';
 import { getStorage, type StorageAdapter } from '../storage';
-import { userDoc } from '../storage/paths';
+import { INTELLIGENCE_MONITORS, INTELLIGENCE_SOURCE_MARKERS, userCol, userDoc } from '../storage/paths';
+import { INTELLIGENCE_GMAIL_SCANS } from '../storage/paths';
+
+interface CalendarWaitMarker {
+  readonly state?: string;
+  readonly [key: string]: unknown;
+}
+
+export function providerMarkerIdFor(uid: string, providerAccountId: string, messageId: string): string {
+  return createHash('sha256').update(`${uid}\0${providerAccountId}\0${messageId}`).digest('hex');
+}
+
+export function legacyMarkerIdFor(messageId: string): string {
+  return createHash('sha256').update(`gmail\0${messageId}`).digest('hex');
+}
 
 export interface MonitoringSettings {
   readonly paused: boolean;
@@ -24,6 +39,33 @@ export const DEFAULT_MONITORING_SETTINGS: MonitoringSettings = Object.freeze({
   paused: false,
   updatedAt: null,
 });
+
+export interface PauseInterval { readonly from: string; readonly to: string }
+
+/** Coalesces overlaps, then merges the closest gaps in the privacy-safe direction. */
+export function coalescePauseIntervals(intervals: readonly PauseInterval[], cap = 32): PauseInterval[] {
+  const sorted = intervals
+    .filter(row => Number.isFinite(Date.parse(row.from)) && Number.isFinite(Date.parse(row.to)))
+    .map(row => ({ from: row.from, to: new Date(Math.max(Date.parse(row.from), Date.parse(row.to))).toISOString() }))
+    .sort((a, b) => Date.parse(a.from) - Date.parse(b.from));
+  const merged: PauseInterval[] = [];
+  for (const row of sorted) {
+    const previous = merged.at(-1);
+    if (previous && Date.parse(row.from) <= Date.parse(previous.to)) {
+      merged[merged.length - 1] = { from: previous.from, to: new Date(Math.max(Date.parse(previous.to), Date.parse(row.to))).toISOString() };
+    } else merged.push(row);
+  }
+  while (merged.length > cap) {
+    let closest = 0;
+    let gap = Number.POSITIVE_INFINITY;
+    for (let index = 0; index < merged.length - 1; index++) {
+      const candidate = Date.parse(merged[index + 1]!.from) - Date.parse(merged[index]!.to);
+      if (candidate < gap) { gap = candidate; closest = index; }
+    }
+    merged.splice(closest, 2, { from: merged[closest]!.from, to: merged[closest + 1]!.to });
+  }
+  return merged;
+}
 
 export class MonitoringSettingsValidationError extends Error {
   constructor(message: string, readonly reason: string = 'invalid_argument') {
@@ -55,13 +97,71 @@ export async function saveMonitoringSettings(
   const storage = deps.storage ?? getStorage();
   const path = userDoc(uid);
   return storage.runTransaction(async (tx) => {
-    const user = (await tx.get<Record<string, unknown>>(path)) ?? { uid };
+    const monitorPath = `${userCol(uid, INTELLIGENCE_MONITORS)}/gmail`;
+    const dailyPath = `${userCol(uid, INTELLIGENCE_GMAIL_SCANS)}/dailyV2`;
+    const [storedUser, monitor, daily] = await Promise.all([
+      tx.get<Record<string, unknown>>(path),
+      tx.get<{ enabled?: boolean; cursor?: string | null; pageToken?: string | null; m5?: {
+        providerAccountId?: string;
+        pauseEpoch?: number; pausedSince?: string | null; excluded?: Array<{ from: string; to: string }>;
+        nextSweepAt?: string; pendingSweepDay?: string; sweepTimezone?: string;
+      }; waitingMessageId?: string | null }>(monitorPath),
+      tx.get<Record<string, unknown>>(dailyPath),
+    ]);
+    const user = storedUser ?? { uid };
+    if (monitor?.waitingMessageId && monitor.m5?.providerAccountId) {
+      const ids = [providerMarkerIdFor(uid, monitor.m5.providerAccountId, monitor.waitingMessageId),
+        legacyMarkerIdFor(monitor.waitingMessageId)];
+      const markers = await Promise.all(ids.map(id => tx.get<CalendarWaitMarker>(`${userCol(uid, INTELLIGENCE_SOURCE_MARKERS)}/${id}`)));
+      markers.forEach((marker, index) => {
+        if (marker?.state === 'waiting_for_calendar') tx.set(`${userCol(uid, INTELLIGENCE_SOURCE_MARKERS)}/${ids[index]}`, {
+          ...marker, state: 'released', origin: undefined, requestedAt: undefined, nextEligibleAt: undefined,
+        });
+      });
+    }
     const nextSettings: MonitoringSettings = { paused, updatedAt: now };
     tx.set(path, {
       ...user,
       monitoringSettings: nextSettings,
       monitoringPaused: paused,
     });
+    if (monitor?.m5) {
+      const wasPaused = monitor.m5.pausedSince !== null && monitor.m5.pausedSince !== undefined;
+      if (paused && !wasPaused) {
+        const { nextSweepAt: _nextSweepAt, ...m5 } = monitor.m5;
+        tx.set(monitorPath, {
+          ...monitor,
+          waitingMessageId: null,
+          m5: { ...m5, pausedSince: now, pauseEpoch: (monitor.m5.pauseEpoch ?? 0) + 1 },
+        });
+        if (daily && (daily.status === 'running' || daily.status === 'failed')) {
+          const { nextEligibleAt: _nextEligibleAt, ...held } = daily;
+          tx.set(dailyPath, { ...held, leaseOwner: null, leaseUntil: null });
+        }
+      }
+      if (!paused && wasPaused) {
+        const end = new Date(Math.max(Date.parse(monitor.m5.pausedSince!), Date.parse(now))).toISOString();
+        // Re-arm immediately. The sweep recovery transaction re-reads the
+        // account timezone and computes the exact local-day boundary.
+        const nextSweepAt = monitor.m5.sweepTimezone && monitor.m5.pendingSweepDay ? now : undefined;
+        tx.set(monitorPath, {
+        ...monitor,
+        waitingMessageId: null,
+        cursor: null,
+        pageToken: null,
+        m5: {
+          ...monitor.m5,
+          pausedSince: null,
+          pauseEpoch: (monitor.m5.pauseEpoch ?? 0) + 1,
+          excluded: coalescePauseIntervals([...(monitor.m5.excluded ?? []), { from: monitor.m5.pausedSince!, to: end }]),
+          ...(nextSweepAt ? { nextSweepAt } : {}),
+        },
+      });
+        if (daily && (daily.status === 'running' || daily.status === 'failed')) tx.set(dailyPath, {
+          ...daily, nextEligibleAt: now, leaseOwner: null, leaseUntil: null,
+        });
+      }
+    }
     return nextSettings;
   });
 }

@@ -196,8 +196,14 @@ export interface BusyReadOptions {
   ownEventIds?: ReadonlySet<string>;
   /** Injected so a test is not at the mercy of the second it runs in. */
   now?: Date;
-  /** Calendars the user switched off in Calendar settings; never read. */
+  /** Calendars the user switched off in Calendar settings; never read. A never-enrolled phone only. */
   excludedCalendarIds?: ReadonlySet<string>;
+  /**
+   * M5a (M5A-001): when present, only these calendars are read — an enrolled
+   * phone reads what the person turned on and nothing else, and an empty set
+   * reads nothing. Wins over `excludedCalendarIds`.
+   */
+  includedCalendarIds?: ReadonlySet<string>;
 }
 
 /**
@@ -422,7 +428,9 @@ export const deviceCalendar: DeviceCalendar = {
       // Less the ones the user switched off in Calendar settings (L7): an
       // excluded calendar is not read at all, not read and then dropped.
       const excluded = options.excludedCalendarIds ?? new Set<string>();
-      const ids = calendars.map((calendar) => calendar.id).filter((id) => !excluded.has(id));
+      const included = options.includedCalendarIds;
+      const ids = calendars.map((calendar) => calendar.id)
+        .filter((id) => (included ? included.has(id) : !excluded.has(id)));
       if (ids.length === 0) return [];
 
       const start = new Date(now);

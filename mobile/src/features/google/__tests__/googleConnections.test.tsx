@@ -47,6 +47,7 @@ jest.mock('../../../api/endpoints/google', () => ({
   importDriveFile: jest.fn(),
 }));
 jest.mock('../../../auth/AuthProvider', () => ({ useAuth: () => ({ user: { uid: 'u1' } }) }));
+jest.mock('../../m5a/capabilities', () => ({ useM5aCapabilities: () => null, useFreshM5aCapability: () => async () => false, M5A_NOT_NOW: () => new Error('not now') }));
 const mockConsent = { calendar: true };
 jest.mock('../../../api/queries', () => ({
   ...(jest.requireActual('../../../api/queries') as object),

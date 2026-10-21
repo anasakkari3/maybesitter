@@ -70,6 +70,7 @@ if [ "$1 $2 $3" = "scheduler jobs describe" ]; then
     football-sync-daily-staging) schedule='0 1 * * *'; timezone=Asia/Jerusalem; path=/api/internal/jobs/football-sync; retry_count=3; retry_duration=900s; min_backoff=30s; max_backoff=300s ;;
     maintenance-daily-staging) schedule='17 3 * * *'; timezone=Asia/Jerusalem; path=/api/internal/jobs/maintenance; retry_count=3; retry_duration=900s; min_backoff=30s; max_backoff=300s ;;
     intelligence-gmail-staging) schedule='* * * * *'; timezone=Etc/UTC; path=/api/internal/jobs/intelligence-gmail ;;
+    intelligence-gmail-sweep-staging) schedule='* * * * *'; timezone=Etc/UTC; path=/api/internal/jobs/intelligence-gmail-sweep ;;
     *) exit 1 ;;
   esac
   cat <<JSON
@@ -125,6 +126,7 @@ test('Scheduler check proves OIDC, targets, schedules, retries and timeouts with
     assert.doesNotMatch(invoked, /scheduler jobs (create|update)/);
     for (const name of expectedJobs) assert.match(invoked, new RegExp(`scheduler jobs describe ${name}-staging`));
     assert.match(invoked, /scheduler jobs describe intelligence-gmail-staging/);
+    assert.match(invoked, /scheduler jobs describe intelligence-gmail-sweep-staging/);
   });
 });
 

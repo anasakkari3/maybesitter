@@ -28,6 +28,7 @@ import type { AuthUser } from '../../../auth/types';
 import en from '../../../i18n/locales/en.json';
 import { CalendarSettingsScreen } from '../CalendarSettingsScreen';
 import * as calendarEndpoints from '../../../api/endpoints/calendar';
+import * as m5aEndpoints from '../../../api/endpoints/m5a';
 import * as commitmentEndpoints from '../../../api/endpoints/commitments';
 import { deviceCalendar } from '../../calendar/deviceCalendar';
 import { loadChosenCalendarId, resetWriterIdCache, saveChosenCalendarId } from '../../../lib/deviceSettings/calendarDevice';
@@ -61,6 +62,8 @@ beforeEach(() => {
   client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
   repository = createFakeAuthRepository({ initialUser: USER });
   setAuthRepository(repository);
+  // A never-enrolled phone whose M5a capability is known off: today's calendar behaviour.
+  jest.spyOn(m5aEndpoints, 'getM5aCapabilities').mockResolvedValue({ success: true, calendarChoice: false, emailSources: false });
   jest.spyOn(commitmentEndpoints, 'listToday').mockResolvedValue({ items: [] });
   jest.spyOn(commitmentEndpoints, 'listUpcoming').mockResolvedValue({ items: [] });
   jest.spyOn(calendarEndpoints, 'getCalendarSettings').mockResolvedValue(settings('off'));
@@ -101,7 +104,7 @@ describe('turning it on', () => {
     await waitFor(() => expect(screen.queryByTestId('calendar-write-toggle')).not.toBeNull());
 
     await fireEvent(screen.getByTestId('calendar-write-toggle'), 'valueChange', true);
-    await waitFor(() => expect(calendarEndpoints.putCalendarWriteTarget).toHaveBeenCalledWith('device'));
+    await waitFor(() => expect(calendarEndpoints.putCalendarWriteTarget).toHaveBeenCalledWith('device', { asUid: expect.any(String) }));
     expect(request).toHaveBeenCalled();
     expect(request.mock.invocationCallOrder[0]!)
       .toBeLessThan((calendarEndpoints.putCalendarWriteTarget as jest.Mock).mock.invocationCallOrder[0]!);
@@ -199,11 +202,11 @@ describe('which calendar it writes into', () => {
   const work = { id: 'cal-work', title: 'Calendar', color: null, isPrimary: false, sourceName: 'Work' };
 
   beforeEach(async () => {
-    await saveChosenCalendarId(null);
+    await saveChosenCalendarId(USER.uid, null);
     jest.spyOn(deviceCalendar, 'getAccess').mockResolvedValue('granted');
   });
   afterEach(async () => {
-    await saveChosenCalendarId(null);
+    await saveChosenCalendarId(USER.uid, null);
   });
 
   it('takes the only calendar there is the moment writing is turned on, and shows it chosen', async () => {
@@ -218,7 +221,7 @@ describe('which calendar it writes into', () => {
     await waitFor(() => expect(screen.queryByTestId('calendar-option-cal-home')).not.toBeNull());
     await waitFor(() => expect(screen.getByTestId('calendar-option-cal-home').props.accessibilityState)
       .toEqual(expect.objectContaining({ checked: true })));
-    expect(await loadChosenCalendarId()).toBe('cal-home');
+    expect(await loadChosenCalendarId(USER.uid)).toBe('cal-home');
     expect(screen.queryByTestId('calendar-pick-needed')).toBeNull();
   });
 
@@ -234,7 +237,7 @@ describe('which calendar it writes into', () => {
       expect(row.props.accessibilityRole).toBe('radio');
       expect(row.props.accessibilityState).toEqual(expect.objectContaining({ checked: false }));
     }
-    expect(await loadChosenCalendarId()).toBeNull();
+    expect(await loadChosenCalendarId(USER.uid)).toBeNull();
 
     await fireEvent.press(screen.getByTestId('calendar-option-cal-work'));
     await waitFor(() => expect(screen.getByTestId('calendar-option-cal-work').props.accessibilityState)
@@ -242,7 +245,7 @@ describe('which calendar it writes into', () => {
     expect(screen.getByTestId('calendar-option-cal-home').props.accessibilityState)
       .toEqual(expect.objectContaining({ checked: false }));
     expect(screen.queryByTestId('calendar-pick-needed')).toBeNull();
-    expect(await loadChosenCalendarId()).toBe('cal-work');
+    expect(await loadChosenCalendarId(USER.uid)).toBe('cal-work');
   });
 
   it('names the account in what a screen reader hears, as the row shows it', async () => {

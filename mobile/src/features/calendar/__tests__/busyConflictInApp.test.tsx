@@ -232,14 +232,14 @@ describe('on Today', () => {
   it('shows no note once the server says the calendar switch is off, even while the cache is still on disk', async () => {
     await seedDeviceBusyCache(USER.uid, cached(MEETING_FROM, MEETING_TO));
     // The removal never finishes: only not showing the cache can pass this.
-    jest.spyOn(calendarBusyStore, 'clearCachedBusyBlocks').mockReturnValue(new Promise(() => {}));
+    jest.spyOn(calendarBusyStore, 'clearCachedBusyBlocksOf').mockReturnValue(new Promise(() => {}));
     jest.spyOn(trustEndpoints, 'getTrust')
       .mockResolvedValue({ success: true, participantId: USER.uid, trust: { analyticsConsent: false, calendarConsent: false } } as never);
     jest.spyOn(commitmentEndpoints, 'listToday')
       .mockResolvedValue({ items: [todayItem()], calendarOrphans: [] } as never);
     await openApp();
     await waitFor(() => expect(screen.queryByTestId('today-item-c-1')).not.toBeNull());
-    await waitFor(() => expect(calendarBusyStore.clearCachedBusyBlocks).toHaveBeenCalled());
+    await waitFor(() => expect(calendarBusyStore.clearCachedBusyBlocksOf).toHaveBeenCalled());
     await new Promise((resolve) => setTimeout(resolve, 50));
     expect(screen.queryByTestId('today-busy-c-1')).toBeNull();
     // The clashing block really is still there to be shown.

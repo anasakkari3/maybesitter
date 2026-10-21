@@ -43,8 +43,14 @@ import {
   rememberWrittenEventId,
   resolveWriterId,
   saveChosenCalendarId,
+  loadPendingUnlinks,
+  notePendingUnlink,
+  settlePendingUnlink,
 } from '../../lib/deviceSettings/calendarDevice';
 import { deviceCalendar } from './deviceCalendar';
+import { accountBoundCalendar } from './accountBoundCalendar';
+import { getAuthRepository } from '../../api/auth';
+import { AccountChangedError } from '../../api/errors';
 import {
   adoptSoleCalendar,
   needsCalendar,
@@ -96,18 +102,49 @@ export function useCalendarSettings() {
   });
 }
 
-/** The ports the sync runs through, so a test can hand it different ones. */
-export function apiSyncPorts(): SyncPorts {
+/**
+ * The ports the sync runs through, so a test can hand it different ones.
+ *
+ * Bound to the account the pass began for (M5A-R21-001): every native and API
+ * mutation asks `stillCurrent` first and stops the pass when the account has
+ * changed, and an event created just as it changed is taken back out, so
+ * nothing of A's lands in the calendar or on the account under B.
+ */
+export function apiSyncPorts(uid: string, stillCurrent: () => boolean): SyncPorts & { rollbackUnlinked(): Promise<void> } {
+  const bound = accountBoundCalendar(stillCurrent, { owner: uid, domain: 'device' });
+  const check = () => {
+    if (!stillCurrent()) throw new AccountChangedError('the account changed during the calendar pass');
+  };
   return {
-    calendar: deviceCalendar,
+    calendar: bound.calendar,
     putLink: async (commitmentId, link) => {
-      await putDeviceCalendarLink(commitmentId, link);
+      check();
+      await putDeviceCalendarLink(commitmentId, link, { asUid: uid });
+      // A stored link is the commit point (M5A-R7-001): the event is the
+      // account's from here, whatever happens next, and is never rolled back.
+      await bound.linked(link.eventId);
+      check();
     },
     deleteLink: async (commitmentId, writerId) => {
-      await deleteDeviceCalendarLink(commitmentId, writerId);
+      check();
+      await deleteDeviceCalendarLink(commitmentId, writerId, { asUid: uid });
     },
-    rememberEvent: rememberWrittenEventId,
-    forgetEvent: forgetWrittenEventId,
+    rememberEvent: async (eventId) => {
+      check();
+      await rememberWrittenEventId(uid, eventId);
+    },
+    forgetEvent: async (eventId) => {
+      check();
+      await forgetWrittenEventId(uid, eventId);
+    },
+    pendingUnlinks: () => loadPendingUnlinks(uid),
+    noteUnlink: async (commitmentId, writerId) => {
+      check();
+      await notePendingUnlink(uid, { commitmentId, writerId });
+    },
+    settleUnlink: (commitmentId) => settlePendingUnlink(uid, commitmentId),
+    rollbackUnlinked: bound.rollbackUnlinked,
+    recoverUnlinked: bound.recoverUnlinked,
   };
 }
 
@@ -203,22 +240,44 @@ export function useDeviceCalendarSync(
     setIsRunning(true);
     try {
       const writerId = await resolveWriterId();
-      let calendarId = await loadChosenCalendarId();
+      // The pass belongs to the account it began for (M5A-R21-001).
+      const stillCurrent = () => latest.current.uid === current.uid
+        && getAuthRepository()?.currentUser()?.uid === current.uid;
+      // This account's own events are the ones its commitments link to from
+      // this phone (M5A-R20-004): re-recorded here, so a phone upgraded from
+      // the installation-wide set keeps skipping its own entries as busy.
+      for (const subject of current.subjects) {
+        if (subject.link && subject.link.writerId === writerId && stillCurrent()) {
+          await rememberWrittenEventId(current.uid, subject.link.eventId);
+        }
+      }
+      let calendarId = await loadChosenCalendarId(current.uid);
       // Nothing picked on this phone yet (a fresh install, or writing turned on
       // without a tap on the picker): with one calendar there is nothing to
       // pick, so it is taken rather than the confirm writing nothing (UAT
       // round 6, D-a). Asked only when something is actually waiting for it.
       if (calendarId === null && needsCalendar({ ...current, writerId })) {
-        calendarId = await adoptSoleCalendar(deviceCalendar, saveChosenCalendarId);
+        calendarId = await adoptSoleCalendar(deviceCalendar, (id) => saveChosenCalendarId(current.uid, id));
       }
-      const result = await reconcile({
-        subjects: current.subjects,
-        writeTarget: current.writeTarget,
-        writerId,
-        calendarId,
-        deviceTimeZone: current.deviceTimeZone,
-        ports: apiSyncPorts(),
-      });
+      if (!stillCurrent()) return null;
+      const ports = apiSyncPorts(current.uid, stillCurrent);
+      let result: Awaited<ReturnType<typeof reconcile>>;
+      try {
+        result = await reconcile({
+          subjects: current.subjects,
+          writeTarget: current.writeTarget,
+          writerId,
+          calendarId,
+          deviceTimeZone: current.deviceTimeZone,
+          ports,
+        });
+      } finally {
+        // Whatever ended the pass, an event it created and never linked is
+        // taken back out (M5A-R21-001, M5A-R10-002); a failed delete stays
+        // journaled for the next pass.
+        await ports.rollbackUnlinked().catch(() => undefined);
+      }
+      if (!stillCurrent()) return null;
       setOutcome(result);
       // The links the pass wrote are now out of date in the cache the next pass
       // will read. Invalidating rather than refetching: the lists are usually
@@ -258,7 +317,9 @@ export function useDeviceCalendarSync(
     const result = await removeAllWrittenEvents({
       subjects: current.subjects,
       writerId: await resolveWriterId(),
-      ports: apiSyncPorts(),
+      // Bound to the account it began for: a switch stops the removal (M5A-R21-001).
+      ports: apiSyncPorts(current.uid, () => latest.current.uid === current.uid
+        && getAuthRepository()?.currentUser()?.uid === current.uid),
     });
     void client.invalidateQueries({ queryKey: ['user', current.uid, 'commitments'] });
     return { removed: result.removed, permissionDenied: result.permissionDenied };

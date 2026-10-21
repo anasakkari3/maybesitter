@@ -1283,7 +1283,8 @@ export function useTrustAction() {
   const client = useQueryClient();
   const uid = useUid();
   return useMutation({
-    mutationFn: (action: TrustAction) => updateTrust(action),
+    // Bound to the account it was started for (M5A-R53-002).
+    mutationFn: (action: TrustAction) => updateTrust(action, uid === 'signed-out' ? {} : { asUid: uid }),
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: queryKeys.trust(uid) });
       void client.invalidateQueries({ queryKey: ['user', uid, 'nextStep'] });
@@ -1402,7 +1403,11 @@ export function useSetCalendarWriteTarget() {
   const client = useQueryClient();
   const uid = useUid();
   return useMutation({
-    mutationFn: (writeTarget: CalendarWriteTarget) => putCalendarWriteTarget(writeTarget),
+    // Bound to an account (M5A-R21-001): the one the caller started for when it
+    // says so, else the one signed in when this hook last rendered.
+    mutationFn: (input: CalendarWriteTarget | { writeTarget: CalendarWriteTarget; asUid: string }) => (typeof input === 'string'
+      ? putCalendarWriteTarget(input, uid === 'signed-out' ? {} : { asUid: uid })
+      : putCalendarWriteTarget(input.writeTarget, { asUid: input.asUid })),
     onSettled: () => {
       void client.invalidateQueries({ queryKey: ['user', uid, 'calendarSettings'] });
       void client.invalidateQueries({ queryKey: ['user', uid, 'commitments'] });

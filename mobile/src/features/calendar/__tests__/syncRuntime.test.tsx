@@ -92,7 +92,7 @@ beforeEach(async () => {
   onlineManager.setOnline(true);
   resetWriterIdCache();
   resetCalendarSyncForTests();
-  await saveChosenCalendarId('cal-1');
+  await saveChosenCalendarId(USER.uid, 'cal-1');
   client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
   repository = createFakeAuthRepository({ initialUser: USER });
   setAuthRepository(repository);
@@ -108,7 +108,7 @@ afterEach(async () => {
   await cleanup();
   await new Promise(resolve => setTimeout(resolve, 0));
   client.clear();
-  await saveChosenCalendarId(null);
+  await saveChosenCalendarId(USER.uid, null);
   resetAuthForTests();
   resetCalendarSyncForTests();
   jest.restoreAllMocks();
@@ -169,17 +169,17 @@ describe('a phone where no calendar has been picked yet', () => {
   const only = { id: 'cal-only', title: 'Calendar', color: null, isPrimary: false, sourceName: 'Default' };
 
   it('writes into the one calendar there is, and keeps that choice', async () => {
-    await saveChosenCalendarId(null);
+    await saveChosenCalendarId(USER.uid, null);
     jest.spyOn(deviceCalendar, 'listWritableCalendars').mockResolvedValue([only]);
     const create = jest.spyOn(deviceCalendar, 'createEvent').mockResolvedValue('evt-1');
     await mount();
     await waitFor(() => expect(create).toHaveBeenCalledTimes(1));
     expect(create.mock.calls[0]![0]).toBe('cal-only');
-    expect(await loadChosenCalendarId()).toBe('cal-only');
+    expect(await loadChosenCalendarId(USER.uid)).toBe('cal-only');
   });
 
   it('writes nothing when there are two to choose between', async () => {
-    await saveChosenCalendarId(null);
+    await saveChosenCalendarId(USER.uid, null);
     const list = jest.spyOn(deviceCalendar, 'listWritableCalendars').mockResolvedValue([
       only, { ...only, id: 'cal-work', sourceName: 'Work' },
     ]);
@@ -188,11 +188,11 @@ describe('a phone where no calendar has been picked yet', () => {
     await waitFor(() => expect(list).toHaveBeenCalled());
     await new Promise(resolve => setTimeout(resolve, 0));
     expect(create).not.toHaveBeenCalled();
-    expect(await loadChosenCalendarId()).toBeNull();
+    expect(await loadChosenCalendarId(USER.uid)).toBeNull();
   });
 
   it('does not so much as list the calendars when the account is not writing', async () => {
-    await saveChosenCalendarId(null);
+    await saveChosenCalendarId(USER.uid, null);
     jest.spyOn(calendarEndpoints, 'getCalendarSettings')
       .mockResolvedValue({ calendarSettings: { writeTarget: 'off' } });
     const list = jest.spyOn(deviceCalendar, 'listWritableCalendars').mockResolvedValue([only]);
@@ -200,6 +200,6 @@ describe('a phone where no calendar has been picked yet', () => {
     await waitFor(() => expect(commitmentEndpoints.listToday).toHaveBeenCalled());
     await new Promise(resolve => setTimeout(resolve, 0));
     expect(list).not.toHaveBeenCalled();
-    expect(await loadChosenCalendarId()).toBeNull();
+    expect(await loadChosenCalendarId(USER.uid)).toBeNull();
   });
 });

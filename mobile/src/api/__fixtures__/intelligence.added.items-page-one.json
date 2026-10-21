@@ -1,0 +1,56 @@
+{
+  "success": true,
+  "items": [
+    {
+      "autoAddId": "0000000000000000000000000000000000000000000000000000000000000000",
+      "commitmentId": "fixture-commitment-0",
+      "title": "Fixture email item 0",
+      "startsAt": "2026-08-09T09:00:00.000Z",
+      "evidence": "I will do fixture 0",
+      "at": "2026-08-09T08:00:00.000Z",
+      "status": "open",
+      "removable": true
+    },
+    {
+      "autoAddId": "0000000000000000000000000000000000000000000000000000000000000000",
+      "commitmentId": "fixture-commitment-1",
+      "title": "Fixture email item 1",
+      "startsAt": "2026-08-09T09:00:00.000Z",
+      "evidence": "I will do fixture 1",
+      "at": "2026-08-09T09:00:00.000Z",
+      "status": "done",
+      "removable": false
+    },
+    {
+      "autoAddId": "0000000000000000000000000000000000000000000000000000000000000000",
+      "commitmentId": "fixture-commitment-2",
+      "title": "Fixture email item 2",
+      "startsAt": "2026-08-09T09:00:00.000Z",
+      "evidence": "I will do fixture 2",
+      "at": "2026-08-09T09:00:00.000Z",
+      "status": "dropped",
+      "removable": false
+    },
+    {
+      "autoAddId": "0000000000000000000000000000000000000000000000000000000000000000",
+      "commitmentId": "fixture-commitment-3",
+      "title": "Fixture email item 3",
+      "startsAt": "2026-08-09T09:00:00.000Z",
+      "evidence": "I will do fixture 3",
+      "at": "2026-08-09T09:00:00.000Z",
+      "status": "archived",
+      "removable": false
+    },
+    {
+      "autoAddId": "0000000000000000000000000000000000000000000000000000000000000000",
+      "commitmentId": "fixture-commitment-4",
+      "title": "Fixture email item 4",
+      "startsAt": "2026-08-09T09:00:00.000Z",
+      "evidence": "I will do fixture 4",
+      "at": "2026-08-09T09:00:00.000Z",
+      "status": "open",
+      "removable": false
+    }
+  ],
+  "nextCursor": "WyIyMDI2LTA4LTA5VDA3OjU2OjAwLjAwMFoiLCIwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDA1Il0"
+}

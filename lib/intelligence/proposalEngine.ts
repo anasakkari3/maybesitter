@@ -10,6 +10,7 @@ import { listMemory } from '../services/mobile/memoryService';
 import { loadDomainState } from '../services/mobile/participantState';
 import { readPlanSettings } from '../services/dailyPlan/dailyPlanService';
 import { normalizeTimezone } from '../services/mobile/time';
+import type { StorageTransaction } from '../storage/storageAdapter';
 
 export type SuggestionKind = 'goal' | 'action' | 'question' | 'warning';
 export type SuggestionStatus = 'pending' | 'accepting' | 'accepted' | 'dismissed';
@@ -388,10 +389,20 @@ export function localWallClock(iso: string | null, timezone: string, dateOnly = 
 }
 
 /** Generate only from this account's reviewed or pending evidence. No canonical writes. */
-export async function proposeFromObservations(
+export async function proposeFromObservations<TransactionGuardState = undefined>(
   uid: string,
   now: string,
-  options: { storage?: StorageAdapter; generate?: ShareStructuredGenerator; visit?: boolean } = {},
+  options: {
+    storage?: StorageAdapter;
+    generate?: ShareStructuredGenerator;
+    visit?: boolean;
+    /** Scheduler turns must remain due when generation fails. */
+    throwOnGenerateFailure?: boolean;
+    /** Re-read caller authority in the same transaction as every proposal. */
+    transactionGuard?: (tx: StorageTransaction) => Promise<TransactionGuardState>;
+    /** Caller-owned completion fields written atomically with the proposal set. */
+    transactionComplete?: (tx: StorageTransaction, guardState: TransactionGuardState) => Promise<void>;
+  } = {},
 ): Promise<IntelligenceSuggestion[]> {
   const storage = options.storage ?? getStorage();
   const runPath = intelligenceRunPath(uid);
@@ -401,7 +412,9 @@ export async function proposeFromObservations(
   }
   await syncCanonicalObservations(uid, now, storage);
   const availableObservations = (await listObservations(uid, storage))
-    .filter(item => item.review !== 'dismissed');
+    // A self-reply auto-add is already canonical work. Feeding its supporting
+    // observation back into proposals would offer the same obligation twice.
+    .filter(item => item.review !== 'dismissed' && !item.autoAddId);
   const linkedGoalMemories = new Set(availableObservations
     .filter(item => item.kind === 'goal' && item.review === 'confirmed' && item.linkedMemoryId)
     .map(item => item.linkedMemoryId));
@@ -551,23 +564,29 @@ export async function proposeFromObservations(
       const question = goal ? goalClarification(goal, observations, now) : null;
       if (question) suggestions.push({ ...question, position: suggestions.length });
     }
-  } catch {
+  } catch (error) {
+    if (options.throwOnGenerateFailure) throw error;
     suggestions = [];
   }
-  const persisted: IntelligenceSuggestion[] = [];
-  for (const suggestion of suggestions) {
-    await storage.runTransaction(async tx => {
-      if (!(await tx.get<IntelligenceSuggestion>(suggestionPath(uid, suggestion.id)))) tx.create(suggestionPath(uid, suggestion.id), suggestion);
+  const committed = await storage.runTransaction(async tx => {
+    const [current, existing] = await Promise.all([
+      tx.get<IntelligenceRun>(runPath),
+      Promise.all(suggestions.map(suggestion => tx.get<IntelligenceSuggestion>(suggestionPath(uid, suggestion.id)))),
+    ]);
+    if (current?.claimId !== claimId) return false;
+    const guardState = options.transactionGuard
+      ? await options.transactionGuard(tx)
+      : undefined as TransactionGuardState;
+    suggestions.forEach((suggestion, index) => {
+      if (!existing[index]) tx.create(suggestionPath(uid, suggestion.id), suggestion);
     });
-    const current = await storage.get<IntelligenceSuggestion>(suggestionPath(uid, suggestion.id));
-    if (current) persisted.push(current);
-  }
-  await storage.runTransaction(async tx => {
-    const current = await tx.get<IntelligenceRun>(runPath);
-    if (current?.claimId !== claimId) return;
-    tx.set(runPath, { ...current, status: 'complete', suggestionIds: persisted.map(item => item.id) });
+    tx.set(runPath, { ...current, status: 'complete', suggestionIds: suggestions.map(item => item.id) });
+    if (options.transactionComplete) await options.transactionComplete(tx, guardState);
+    return true;
   });
-  return persisted;
+  if (!committed && options.transactionComplete) throw new Error('proposal_claim_lost');
+  return Promise.all(suggestions.map(async suggestion =>
+    (await storage.get<IntelligenceSuggestion>(suggestionPath(uid, suggestion.id))) ?? suggestion));
 }
 
 async function readRun(uid: string, run: IntelligenceRun, storage: StorageAdapter): Promise<IntelligenceSuggestion[]> {

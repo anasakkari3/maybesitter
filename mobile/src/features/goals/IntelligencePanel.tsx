@@ -13,7 +13,7 @@ import { intelligenceGmailMonitorSchema } from '../../api/schemas/intelligence';
 import { forbiddenReason, userFacingMessage } from '../../api/ui/userFacingMessage';
 import { fill, ltr } from '../../i18n/strings';
 import { formatDate, formatTime } from '../../i18n/format';
-import { useTimeZone } from '../../i18n/timezone';
+import { deviceTimeZone, useTimeZone } from '../../i18n/timezone';
 import { useApp } from '../../state/AppContext';
 import { Pill, Txt } from '../../ui/primitives';
 import { Disclosure } from '../../ui/Disclosure';
@@ -30,8 +30,16 @@ import { PlanFlowView } from '../goalPlan/PlanFlow';
 import { usePlanPathAvailable } from '../goalPlan/planAvailability';
 import type { PlanRecovery } from '../goalPlan/planFailures';
 import { useGoalPlanFlow } from '../goalPlan/useGoalPlanFlow';
+import { M5A_NOT_NOW, useFreshM5aCapability, useM5aCapabilities } from '../m5a/capabilities';
+import { EmailScanEntry, EmailScanStatus, WaitLine, useEmailScanOverview } from '../m5a/emailScan';
+import { AddedCard } from '../m5a/AddedCard';
+import { postEmailScan } from '../../api/endpoints/m5a';
+import { loadMonitorUpgradeDismissed, saveMonitorUpgradeDismissed } from '../../lib/deviceSettings/m5aNotices';
 
 /** What the panel can do for a plan failure (inspection A-009); «ارجع للأهداف» closes the flow, because the goals are right here. */
+/** A day, for the backfill offer's «not while a scan of the last day exists». */
+const DAY_MS = 24 * 60 * 60_000;
+
 const PANEL_RECOVERIES: readonly PlanRecovery[] = ['capture', 'thoughts', 'see_saved', 'open_new_goal', 'back_to_goals'];
 
 /** The person's own records are facts already; only what was read from their words is asked about. */
@@ -186,8 +194,23 @@ function IntelligencePanelForAccount({ onChanged, autoGenerate = false, whenOff 
   // React state lands a render later; two presses in one frame both see
   // `busy === false`. This ref is the guard that is set before either returns.
   const inFlight = React.useRef(false);
+  const backfillAnswering = React.useRef(false);
   const [gmailMonitor, setGmailMonitor] = React.useState<z.infer<typeof intelligenceGmailMonitorSchema> | null>(null);
   const [error, setError] = React.useState<unknown>(null);
+  // M5a (R2.3, R4.1): one email scan shared with the Google screen, and
+  // monitoring that says what it reads. Unknown or off is today's panel.
+  const emailM5 = useM5aCapabilities()?.emailSources === true;
+  const freshCapability = useFreshM5aCapability();
+  const scanOverview = useEmailScanOverview(emailM5);
+  const [monitorInfo, setMonitorInfo] = React.useState(false);
+  const [backfillOffer, setBackfillOffer] = React.useState(false);
+  const [upgradeDismissed, setUpgradeDismissed] = React.useState<boolean | null>(null);
+  React.useEffect(() => {
+    if (!uid) return undefined;
+    let alive = true;
+    void loadMonitorUpgradeDismissed(uid).then((dismissed) => { if (alive) setUpgradeDismissed(dismissed); });
+    return () => { alive = false; };
+  }, [uid]);
   const read = React.useCallback(async () => {
     // The Gmail switch is one row of the panel; its failure must not take
     // the evidence and suggestions with it.
@@ -365,6 +388,100 @@ function IntelligencePanelForAccount({ onChanged, autoGenerate = false, whenOff 
     }
   };
 
+  // «شغّل المراقبة» on M5a: what it reads is said first, and only «كمّل»
+  // enrols it (M5A-R4-001); then the last seven days are offered, never
+  // assumed (condition 32).
+  const monitorWait = emailM5 ? gmailMonitor?.waiting ?? null : null;
+  const asAccount = React.useMemo(() => (uid ? { asUid: uid } : {}), [uid]);
+  const enableMonitorM5 = async () => {
+    setMonitorInfo(false);
+    if (inFlight.current) return;
+    inFlight.current = true;
+    setBusy(true);
+    setError(null);
+    try {
+      // Asked fresh right before enrolling (M5A-R10-001).
+      if (await freshCapability('emailSources') !== true) {
+        setError(M5A_NOT_NOW());
+        return;
+      }
+      setGmailMonitor(await setGmailIntelligenceMonitor(true, { timezone: deviceTimeZone() }, asAccount));
+      // Not offered while a scan of the last day exists or was accepted (R4.1),
+      // and only from a fresh, successful answer (M5A-R7-003): loading or
+      // failed is unknown, and unknown offers nothing.
+      const fresh = await scanOverview.refetch();
+      if (fresh.isSuccess && fresh.data) {
+        const within = (at: string | null | undefined) => typeof at === 'string' && Date.now() - Date.parse(at) < DAY_MS;
+        const recentScan = within(fresh.data.manual?.startedAt) || within(fresh.data.queuedManual?.acceptedAt);
+        if (!recentScan) setBackfillOffer(true);
+      }
+    } catch (cause) {
+      setError(cause);
+    } finally {
+      inFlight.current = false;
+      setBusy(false);
+    }
+  };
+  const answerBackfill = async (yes: boolean) => {
+    // One answer per offer (M5A-R6-004): a double press asks for one scan.
+    if (backfillAnswering.current) return;
+    setBackfillOffer(false);
+    if (!yes) return;
+    backfillAnswering.current = true;
+    try {
+      if (await freshCapability('emailSources') !== true) {
+        setError(M5A_NOT_NOW());
+        return;
+      }
+      await postEmailScan({ intent: 'new', origin: 'backfill', timezone: deviceTimeZone() }, { asUid: uid });
+    } catch (cause) {
+      setError(cause);
+    } finally {
+      backfillAnswering.current = false;
+      void scanOverview.refetch();
+    }
+  };
+  // The one-time upgrade for a monitor that was on before M5a (M5A-R35-004):
+  // yes enrols it as it is; no is remembered for this account on this phone.
+  const answerUpgrade = async (yes: boolean) => {
+    if (!yes) {
+      setUpgradeDismissed(true);
+      if (uid) await saveMonitorUpgradeDismissed(uid, new Date());
+      return;
+    }
+    await run(async () => {
+      if (await freshCapability('emailSources') !== true) throw M5A_NOT_NOW();
+      return setGmailIntelligenceMonitor(true, { timezone: deviceTimeZone() }, asAccount);
+    });
+  };
+  // The monitor switch chooses between the M5a enrolment (its information
+  // first) and the legacy toggle; the choice is made on a fresh answer
+  // (M5A-R10-001), and an unknown answer takes neither.
+  const pressMonitor = async () => {
+    if (gmailMonitor?.enabled) {
+      void run(() => setGmailIntelligenceMonitor(false, undefined, asAccount));
+      return;
+    }
+    const m5 = await freshCapability('emailSources');
+    if (m5 === null) {
+      setError(M5A_NOT_NOW());
+      return;
+    }
+    if (m5) setMonitorInfo(true);
+    else void run(() => setGmailIntelligenceMonitor(true, undefined, asAccount));
+  };
+  // A daily sweep held for want of a time zone: an enabled monitor sends the
+  // phone's again, once per visit (M5A-R35-004).
+  const timezoneResent = React.useRef(false);
+  const heldForZone = emailM5 && gmailMonitor?.enabled === true && scanOverview.data?.daily?.status === 'held';
+  React.useEffect(() => {
+    if (!heldForZone || timezoneResent.current) return;
+    timezoneResent.current = true;
+    void setGmailIntelligenceMonitor(true, { timezone: deviceTimeZone() }, asAccount)
+      .then((next) => { setGmailMonitor(next); void scanOverview.refetch(); })
+      .catch(() => undefined);
+  }, [heldForZone, scanOverview, asAccount]);
+
   if (phase === 'off') return whenOff === undefined ? null : <>{whenOff}</>;
   if (whenOff !== undefined && phase !== 'ready') {
     return <QueryBoundary isPending={phase === 'loading'} error={phase === 'failed' ? loadError : null} onRetry={() => { setPhase('loading'); load(() => true); }}>{null}</QueryBoundary>;
@@ -372,7 +489,7 @@ function IntelligencePanelForAccount({ onChanged, autoGenerate = false, whenOff 
   if (phase !== 'ready' || !inbox) return null;
   const evidence = new Map(inbox.observations.map(item => [item.id, item.evidence]));
   const schedule = new Map(inbox.schedule.map(item => [item.suggestionId, item]));
-  return <ProductSection title={t.xIntelligenceTitle} why={{ id: 'intelligence-panel', body: t.xIntelligenceBody }} icon="goal">
+  return <><ProductSection title={t.xIntelligenceTitle} why={{ id: 'intelligence-panel', body: t.xIntelligenceBody }} icon="goal">
     {error && announced === null ? <Txt role="supporting" color={p.wm}>{userFacingMessage(error, t)}</Txt> : null}
     {recommendationsEnabled && inbox.suggestions.filter(item => item.status === 'pending').length === 0
       ? <Txt role="supporting">{t.xIntelligenceNoIdeas}</Txt> : null}
@@ -448,9 +565,11 @@ function IntelligencePanelForAccount({ onChanged, autoGenerate = false, whenOff 
           setConfirming(null);
           plan.fromStatement(draft.trim(), lang);
         }} /> : null}
-      <Pill style={actionStyle} testID={ACTION_TEST_ID.scan} label={t.xIntelligenceGmailScan} size={13} pad={10} kind={confirming === 'scan' ? 'accent' : 'outline'} expanded={confirming === 'scan'}
-        disabled={busy} onPress={() => openConfirm('scan')} />
+      {emailM5 ? null : <Pill style={actionStyle} testID={ACTION_TEST_ID.scan} label={t.xIntelligenceGmailScan} size={13} pad={10} kind={confirming === 'scan' ? 'accent' : 'outline'} expanded={confirming === 'scan'}
+        disabled={busy} onPress={() => openConfirm('scan')} />}
     </View>
+    {emailM5 ? <EmailScanEntry /> : null}
+    {emailM5 ? <EmailScanStatus overview={scanOverview.data} onReconnect={() => actions.go('googleIntegration')} /> : null}
     {confirming ? <View testID="intelligence-confirm" style={{ gap: 10, backgroundColor: p.sf2, borderRadius: 14, padding: 12 }}>
       <View ref={explainRef} accessible testID="intelligence-confirm-explain"><Txt role="supporting">{confirming === 'analyze' ? t.xIntelligenceAnalyzeExplain : t.xIntelligenceGmailScanExplain}</Txt></View>
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
@@ -463,7 +582,9 @@ function IntelligencePanelForAccount({ onChanged, autoGenerate = false, whenOff 
     {/* One region for what the panel says: the status, and a failed refresh
         with its retry — said once, never repeated in a second line. */}
     <LiveRegion testID="intelligence-status">
-      {announced || refreshFailed ? <View style={{ gap: 8 }}>
+      {/* The monitor's quota wait is said here too, in the panel's one region (R4.1). */}
+      {announced || refreshFailed || monitorWait ? <View style={{ gap: 8 }}>
+      {monitorWait ? <WaitLine wait={monitorWait} /> : null}
       {announced ? <Txt role="supporting" testID="intelligence-status-text">{announced}</Txt> : null}
       {refreshFailed ? <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
         <Txt role="supporting" color={p.wm} testID="intelligence-refresh-failed">{t.xIntelligenceRefreshFailed}</Txt>
@@ -474,10 +595,36 @@ function IntelligencePanelForAccount({ onChanged, autoGenerate = false, whenOff 
     {plan.state.stage.kind !== 'idle' || plan.state.busy || plan.state.error ? <PlanFlowView flow={plan} onRecover={onPlanRecover} hostRecoveries={PANEL_RECOVERIES} /> : null}
     {gmailScanProgress !== null && gmailScanProgress > 0
       ? <Txt role="supporting" color={p.mu} testID="intelligence-gmail-progress">{tr('xIntelligenceGmailScanProgress', { count: gmailScanProgress })}</Txt> : null}
-    <Disclosure id="intelligence-gmail-monitor-info" body={t.xIntelligenceGmailMonitorInfo} label={gmailMonitor?.enabled ? t.xIntelligenceGmailMonitorOff : t.xIntelligenceGmailMonitorOn}>
+    <Disclosure id="intelligence-gmail-monitor-info" body={emailM5 ? t.m5MonitorInfo : t.xIntelligenceGmailMonitorInfo} label={gmailMonitor?.enabled ? t.xIntelligenceGmailMonitorOff : t.xIntelligenceGmailMonitorOn}>
       <Pill testID="intelligence-gmail-monitor" label={gmailMonitor?.enabled ? t.xIntelligenceGmailMonitorOff : t.xIntelligenceGmailMonitorOn}
-        kind="outline" disabled={busy || gmailMonitor === null} onPress={() => void run(() => setGmailIntelligenceMonitor(!gmailMonitor?.enabled))} />
+        kind="outline" disabled={busy || gmailMonitor === null}
+        onPress={() => void pressMonitor()} />
     </Disclosure>
+    {monitorInfo ? <View testID="monitor-info" style={{ gap: 10, backgroundColor: p.sf2, borderRadius: 14, padding: 12 }}>
+      <Txt role="supporting">{t.m5MonitorInfo}</Txt>
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+        <Pill testID="monitor-info-confirm" label={t.xIntelligenceRun} size={14} pad={12} disabled={busy} onPress={() => void enableMonitorM5()} />
+        <Pill testID="monitor-info-cancel" label={t.cancel} kind="outline" size={14} pad={12} onPress={() => setMonitorInfo(false)} />
+      </View>
+    </View> : null}
+    {backfillOffer ? <View testID="backfill-offer" style={{ gap: 10, backgroundColor: p.sf2, borderRadius: 14, padding: 12 }}>
+      <Txt role="supporting">{t.m5BackfillAsk}</Txt>
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+        <Pill testID="backfill-yes" label={t.m5BackfillYes} size={14} pad={12} onPress={() => void answerBackfill(true)} />
+        <Pill testID="backfill-no" label={t.m5BackfillNo} kind="outline" size={14} pad={12} onPress={() => void answerBackfill(false)} />
+      </View>
+    </View> : null}
+    {emailM5 && gmailMonitor?.enabled && gmailMonitor.m5Enrolled === false && upgradeDismissed === false
+      ? <View testID="monitor-upgrade-notice" style={{ gap: 10, backgroundColor: p.sf2, borderRadius: 14, padding: 12 }}>
+        <Txt role="supporting">{t.m5MonitorUpgrade}</Txt>
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+          <Pill testID="monitor-upgrade-yes" label={t.m5MonitorUpgradeYes} size={14} pad={12} disabled={busy} onPress={() => void answerUpgrade(true)} />
+          <Pill testID="monitor-upgrade-no" label={t.m5MonitorUpgradeNo} kind="outline" size={14} pad={12} onPress={() => void answerUpgrade(false)} />
+        </View>
+      </View> : null}
     {gmailMonitor?.error ? <Txt role="supporting" color={p.wm}>{t.xIntelligenceGmailMonitorError}</Txt> : null}
-  </ProductSection>;
+  </ProductSection>
+  {/* What was added from the person's own replies sits beside the panel, not inside it (R3.5). */}
+  <AddedCard />
+  </>;
 }

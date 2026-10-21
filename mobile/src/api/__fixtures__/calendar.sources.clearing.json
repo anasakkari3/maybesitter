@@ -1,0 +1,12 @@
+{
+  "success": true,
+  "sources": [
+    {
+      "sourceId": "device:e5c569d0-7c05-48b7-af45-4f6cd2d7090a",
+      "status": "clearing",
+      "platform": "ios",
+      "lastUploadAt": "2026-08-09T09:00:00.000Z",
+      "blockCount": 0
+    }
+  ]
+}

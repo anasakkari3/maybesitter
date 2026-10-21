@@ -45,6 +45,7 @@
  * and a dead grant with 401, which would have signed people out of the app for
  * pressing Back in Google's consent screen.
  */
+import { randomUUID } from 'node:crypto';
 import {
   beginProviderOAuth,
   completeProviderOAuth,
@@ -68,7 +69,7 @@ import {
   GoogleOAuthError,
   GOOGLE_AUTHORIZATION_ENDPOINT,
 } from './googleOAuthClient';
-import { deleteBusySource } from '../../calendar/busyBlocks';
+import { deleteBusySource, type BusySourceReplacementFence } from '../../calendar/busyBlocks';
 import { getAiConsent } from '../../consents/aiConsentService';
 import {
   featuresGranted,
@@ -86,6 +87,29 @@ import type {
   IntegrationCapability,
   IntegrationConnectionRecord,
 } from '../../../src/contracts/v1/integrationConnectionContracts';
+import {
+  BUSY_SOURCE_FENCES,
+  INTELLIGENCE_GMAIL_SCANS,
+  INTELLIGENCE_MONITORS,
+  docIdForKey,
+  userCol,
+  userSubDoc,
+} from '../../storage/paths';
+
+function googleBusyFencePath(uid: string): string {
+  return userSubDoc(uid, BUSY_SOURCE_FENCES, docIdForKey(GOOGLE_BUSY_SOURCE_ID));
+}
+
+async function advanceGoogleBusyFence(uid: string, runtime: GoogleRuntime): Promise<number> {
+  return runtime.storage.runTransaction(async (tx) => {
+    const prior = await tx.get<BusySourceReplacementFence>(googleBusyFencePath(uid));
+    const generation = (prior?.generation ?? 0) + 1;
+    if (!Number.isSafeInteger(generation)) throw new GoogleConnectError('google_unavailable');
+    const { replace: _replace, ...withoutReplace } = prior ?? { generation: 0 };
+    tx.set<BusySourceReplacementFence>(googleBusyFencePath(uid), { ...withoutReplace, generation });
+    return generation;
+  });
+}
 
 export const GOOGLE_PROVIDER = 'google' as const;
 
@@ -432,10 +456,49 @@ export async function disconnectGoogle(uid: string, runtime: GoogleRuntime): Pro
       connectionId: connectionIdFor(GOOGLE_PROVIDER),
       now: runtime.now().toISOString(),
     });
+    // Identity-bound Gmail work cannot survive an account change. This runs
+    // after provider revocation landed and before any later connection can be
+    // admitted, preserving auto-add history while preventing reads of B under
+    // A's monitor/scan authority.
+    await runtime.storage.runTransaction(async tx => {
+      const manualPath = `${userCol(uid, INTELLIGENCE_GMAIL_SCANS)}/manualV2`;
+      const dailyPath = `${userCol(uid, INTELLIGENCE_GMAIL_SCANS)}/dailyV2`;
+      const monitorPath = `${userCol(uid, INTELLIGENCE_MONITORS)}/gmail`;
+      const [manual, daily, monitor] = await Promise.all([
+        tx.get<Record<string, unknown>>(manualPath),
+        tx.get<Record<string, unknown>>(dailyPath),
+        tx.get<Record<string, unknown>>(monitorPath),
+      ]);
+      const now = runtime.now().toISOString();
+      for (const [path, scan] of [[manualPath, manual], [dailyPath, daily]] as const) {
+        if (scan && (scan.status === 'running' || scan.status === 'failed')) tx.set(path, {
+          ...scan, status: 'failed', failure: 'reconnect_needed', failedAt: now,
+          leaseOwner: null, leaseUntil: null, nextEligibleAt: now,
+        });
+      }
+      if (monitor) {
+        const m5 = typeof monitor.m5 === 'object' && monitor.m5 !== null
+          ? (({ nextSweepAt: _next, ...rest }) => rest)(monitor.m5 as Record<string, unknown>) : undefined;
+        tx.set(monitorPath, {
+          ...monitor, enabled: false, generation: randomUUID(), cursor: null, pageToken: null,
+          leaseUntil: null, lease: null, nextPollAt: now, error: null,
+          liveWaiting: null, proposalWaiting: null, proposalsPending: false,
+          ...(m5 ? { m5 } : {}),
+        });
+      }
+    });
     // After the revocation landed, never before: a refused revoke keeps the
     // grant, and the busy time that grant produced stays true with it.
     // `deleteBusySource` announces every removed block to the replan tick.
-    await deleteBusySource(uid, GOOGLE_BUSY_SOURCE_ID, { storage: runtime.storage, now: runtime.now() });
+    const fenceGeneration = await advanceGoogleBusyFence(uid, runtime);
+    await deleteBusySource(uid, GOOGLE_BUSY_SOURCE_ID, {
+      storage: runtime.storage,
+      now: runtime.now(),
+      transactionGuard: async (tx) => {
+        const fence = await tx.get<BusySourceReplacementFence>(googleBusyFencePath(uid));
+        if (fence?.generation !== fenceGeneration) throw new GoogleConnectError('google_unavailable');
+      },
+    });
     return { disconnected: record !== null };
   } catch (error) {
     throw asConnectError(error);

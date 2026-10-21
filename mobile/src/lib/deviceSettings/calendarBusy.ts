@@ -130,8 +130,37 @@ async function dropLegacy(): Promise<void> {
   }
 }
 
+/**
+ * The inclusion generation an account's cache must carry (M5A-R8-004): moved
+ * on by every confirmed calendar selection, so blocks read under an older
+ * selection are never shown. Absent is generation 0 (never enrolled, or no
+ * selection yet); unreadable answers null, and nothing is shown then.
+ */
+export function inclusionGenerationKey(owner: string): string {
+  return `calendar.inclusionGeneration.v1:${owner}`;
+}
+
+/**
+ * The selection generation a pass loads before it reads (M5A-R6-001): its cache
+ * write carries exactly this token, never whatever generation is current then.
+ */
+export function loadInclusionGeneration(owner: string): Promise<number | null> {
+  return currentInclusionGeneration(owner);
+}
+
+async function currentInclusionGeneration(owner: string): Promise<number | null> {
+  try {
+    const raw = await AsyncStorage.getItem(inclusionGenerationKey(owner));
+    if (raw === null) return 0;
+    const value = Number(raw);
+    return Number.isSafeInteger(value) && value >= 0 ? value : null;
+  } catch {
+    return null;
+  }
+}
+
 /** The envelope as stored, whoever owns it, or null. */
-async function readEnvelope(): Promise<{ owner: string; cache: DeviceBusyCache } | null> {
+async function readEnvelope(): Promise<{ owner: string; generation: number; cache: DeviceBusyCache } | null> {
   const raw = await AsyncStorage.getItem(BUSY_BLOCKS_KEY);
   if (raw === null) return null;
   const parsed: unknown = JSON.parse(raw);
@@ -142,12 +171,28 @@ async function readEnvelope(): Promise<{ owner: string; cache: DeviceBusyCache }
     ? row.blocks.map(blockFrom).filter((block): block is DeviceBusyBlock => block !== null).slice(0, MAX_CACHED_BLOCKS)
     : [];
   const syncedAt = typeof row.syncedAt === 'number' && Number.isFinite(row.syncedAt) ? row.syncedAt : null;
-  return { owner: row.owner, cache: { blocks, coverage: coverageFrom(row.coverage), syncedAt } };
+  const generation = row.inclusionGeneration === undefined ? 0
+    : typeof row.inclusionGeneration === 'number' && Number.isSafeInteger(row.inclusionGeneration) ? row.inclusionGeneration : -1;
+  return { owner: row.owner, generation, cache: { blocks, coverage: coverageFrom(row.coverage), syncedAt } };
 }
 
-async function writeEnvelope(owner: string, cache: DeviceBusyCache): Promise<void> {
+async function writeEnvelope(
+  owner: string,
+  cache: DeviceBusyCache,
+  expectedGeneration?: number,
+  stillOwner: StillOwner = ALWAYS,
+): Promise<void> {
+  const generation = await currentInclusionGeneration(owner);
+  // An unreadable generation writes nothing: the read could not say which
+  // selection these blocks belong to.
+  if (generation === null) return;
+  // A pass bound to a generation never adopts a newer one (M5A-R6-001): blocks
+  // read under the old selection are not written under the new selection's tag.
+  if (expectedGeneration !== undefined && generation !== expectedGeneration) return;
+  if (!stillOwner()) return;
   await AsyncStorage.setItem(BUSY_BLOCKS_KEY, JSON.stringify({
     owner,
+    inclusionGeneration: generation,
     blocks: project(cache.blocks),
     coverage: cache.coverage,
     syncedAt: cache.syncedAt,
@@ -159,7 +204,9 @@ export async function loadDeviceBusy(owner: string): Promise<DeviceBusyCache> {
   await dropLegacy();
   try {
     const stored = await readEnvelope();
-    return stored && stored.owner === owner ? stored.cache : EMPTY;
+    if (!stored || stored.owner !== owner) return EMPTY;
+    // Blocks read under another calendar selection are never shown (M5A-R8-004).
+    return stored.generation === await currentInclusionGeneration(owner) ? stored.cache : EMPTY;
   } catch {
     // An unreadable cache is no chips until the next sync, which is a screen
     // that says less rather than a screen that is wrong.
@@ -181,12 +228,13 @@ export function saveCachedBusyBlocks(
   blocks: readonly DeviceBusyBlock[],
   coverage: BusyCoverage | null,
   stillOwner: StillOwner = ALWAYS,
+  expectedGeneration?: number,
 ): Promise<void> {
   return serialized(async () => {
     try {
       const previous = await loadDeviceBusy(owner);
       if (!stillOwner()) return;
-      await writeEnvelope(owner, { blocks: [...blocks], coverage, syncedAt: previous.syncedAt });
+      await writeEnvelope(owner, { blocks: [...blocks], coverage, syncedAt: previous.syncedAt }, expectedGeneration, stillOwner);
     } catch {
       // The chips still work for this session from the value in memory.
     }
@@ -194,12 +242,12 @@ export function saveCachedBusyBlocks(
 }
 
 /** A refused read: the blocks stay for the chips, and cover nothing any more. */
-export function uncoverCachedBusyBlocks(owner: string, stillOwner: StillOwner = ALWAYS): Promise<void> {
+export function uncoverCachedBusyBlocks(owner: string, stillOwner: StillOwner = ALWAYS, expectedGeneration?: number): Promise<void> {
   return serialized(async () => {
     try {
       const previous = await loadDeviceBusy(owner);
       if (!stillOwner()) return;
-      await writeEnvelope(owner, { ...previous, coverage: null });
+      await writeEnvelope(owner, { ...previous, coverage: null }, expectedGeneration, stillOwner);
     } catch {
       // The next read writes the envelope again.
     }
@@ -215,6 +263,45 @@ export function clearCachedBusyBlocks(): Promise<void> {
       // Nothing useful to do. The next read under another owner is empty anyway.
     }
   });
+}
+
+/**
+ * M5a: clears the cache unless another account owns it (M5A-R53-002). A late
+ * operation of account A never deletes the blocks account B just read; an
+ * unreadable envelope is removed, which is the safe direction.
+ */
+export function clearCachedBusyBlocksOf(owner: string): Promise<void> {
+  return serialized(async () => {
+    try {
+      let stored: { owner: string } | null = null;
+      try {
+        stored = await readEnvelope();
+      } catch {
+        stored = null;
+      }
+      if (stored && stored.owner !== owner) return;
+      await AsyncStorage.multiRemove([BUSY_BLOCKS_KEY, ...LEGACY_BUSY_KEYS]);
+    } catch {
+      // The generation bump already hides what removal could not.
+    }
+  });
+}
+
+/**
+ * Whether the phone still holds a busy cache that could be `owner`'s: theirs,
+ * or present and unreadable. Absent, or another account's, is false.
+ */
+export async function holdsCachedBusyBlocksOf(owner: string): Promise<boolean> {
+  try {
+    const stored = await readEnvelope();
+    return stored !== null && stored.owner === owner;
+  } catch {
+    try {
+      return (await AsyncStorage.getItem(BUSY_BLOCKS_KEY)) !== null;
+    } catch {
+      return true;
+    }
+  }
 }
 
 /** When this device last uploaded `owner`'s window, or null. */

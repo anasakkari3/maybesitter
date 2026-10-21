@@ -1,0 +1,36 @@
+{
+  "id": "fixture-commitment-0",
+  "kind": "task",
+  "title": "Fixture email item 0",
+  "description": null,
+  "person": null,
+  "status": "active",
+  "priority": {
+    "level": "normal",
+    "source": "inferred",
+    "pressureAllowed": false,
+    "pressureLevel": "none"
+  },
+  "category": null,
+  "categorySource": "inferred",
+  "timeSpec": {
+    "kind": "due_by",
+    "dueAt": "2026-08-09T09:00:00.000Z",
+    "endAt": null,
+    "remindAt": null,
+    "allDay": false,
+    "timezone": "UTC"
+  },
+  "currentAckState": "not_seen",
+  "postponedUntil": null,
+  "createdAt": "2026-08-09T08:00:00.000Z",
+  "updatedAt": "2026-08-09T08:00:00.000Z",
+  "confirmedAt": "2026-08-09T08:00:00.000Z",
+  "completedAt": null,
+  "droppedAt": null,
+  "deviceCalendarLink": null,
+  "addedFrom": {
+    "kind": "email_self_reply",
+    "evidence": "I will do fixture 0"
+  }
+}

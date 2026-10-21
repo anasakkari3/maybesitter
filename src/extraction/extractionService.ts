@@ -73,6 +73,8 @@ export interface ExtractAndMapOptions {
   llmEngine?: ExtractionEngine;
   /** Absent means never escalate -- the local model's answer stands. */
   arbiter?: ArbiterFunction;
+  /** A specialized caller may fail closed on the first malformed answer. */
+  repairEnabled?: boolean;
 }
 
 export interface ExtractionEscalation {
@@ -239,7 +241,10 @@ export async function extractWithFallback(
   let fallbackReason: string | null = null;
 
   try {
-    result = await extractWithOllama(rawText, context, { provider: options.llmProvider });
+    result = await extractWithOllama(rawText, context, {
+      provider: options.llmProvider,
+      repairEnabled: options.repairEnabled,
+    });
   } catch (error) {
     fallbackReason = fallbackReasonFrom(error);
     result = ruleBasedExtract(rawText, context);
