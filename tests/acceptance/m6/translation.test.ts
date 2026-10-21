@@ -84,6 +84,7 @@ test('R1 an English fact gets one proposal in Arabic, and nothing is persisted',
   assert.deepEqual(diffSnapshots(before, after), [], 'a proposal persisted something outside the usage documents');
   const usageAfter = await callsToday(uid, { storage: currentStorage() as any });
   assert.equal(usageAfter.user - usageBefore.user, 1, 'not exactly one reservation');
+  assert.equal(usageAfter.tokens - usageBefore.tokens, 20, 'the answer\'s tokens were not committed (commitUsage)');
 });
 
 test('R1 confirming is the existing PATCH: one supersession, user-stated, origin kept', async () => {
@@ -292,6 +293,19 @@ const VALIDATION: Array<[string, string, string, 'ready' | 'unavailable']> = [
   ['a brand inside Arabic is fine', 'Uses Notion for tasks', 'بيستعمل Notion للمهام', 'ready'],
   ['three foreign tokens is too many', 'Uses Notion for tasks', 'بيستعمل Notion and Todoist للمهام', 'unavailable'],
   ['too long (> 2.5×)', 'Walks', 'بيمشي كتير كتير كتير كتير', 'unavailable'],
+  // M6A2-R3-005: each quantity class, both ways.
+  ['cardinal kept: three ↔ تلات', 'Reads three books a month', 'بيقرا تلات كتب بالشهر', 'ready'],
+  ['cardinal dropped', 'Reads three books a month', 'بيقرا كتب بالشهر', 'unavailable'],
+  ['ordinal kept: first ↔ أول', 'First coffee at 8', 'أول قهوة الساعة 8', 'ready'],
+  ['ordinal dropped', 'First coffee at 8', 'قهوة الساعة 8', 'unavailable'],
+  ['once kept: once ↔ مرة', 'Calls mom once a week', 'بيتصل بإمه مرة بالأسبوع', 'ready'],
+  ['once turned twice', 'Calls mom once a week', 'بيتصل بإمه مرتين بالأسبوع', 'unavailable'],
+  ['quarter kept: quarter ↔ ربع', 'A quarter hour walk', 'مشوار ربع ساعة', 'ready'],
+  ['quarter turned half', 'A quarter hour walk', 'مشوار نص ساعة', 'unavailable'],
+  ['counted duration kept: two hours ↔ ساعتين', 'Two hours of reading', 'ساعتين قراءة', 'ready'],
+  ['counted duration changed: two hours → ساعة', 'Two hours of reading', 'ساعة قراءة', 'unavailable'],
+  ['a clitic on a number word: و+تلات', 'Tea and three coffees', 'شاي وتلات قهوات', 'ready'],
+  ['a numeric-looking token it cannot classify refuses', 'Wakes at 7', 'بيصحى الساعة 7ish', 'unavailable'],
 ];
 
 for (const [name, source, proposal, expected] of VALIDATION) {
@@ -305,6 +319,78 @@ for (const [name, source, proposal, expected] of VALIDATION) {
     if (expected === 'unavailable') assert.equal(result.body.proposal.text, undefined);
   });
 }
+
+test('R1 Hebrew target: an English fact in a Hebrew account gets a Hebrew proposal; a dropped frequency is refused', async () => {
+  for (const [answer, expected] of [['חדר כושר פעמיים בשבוע', 'ready'], ['חדר כושר בשבוע', 'unavailable']] as const) {
+    const uid = await start({ locale: 'he' });
+    const [row] = await addRows(uid, [{ content: 'Gym twice a week', language: 'en' }]);
+    await useModel(answering(answer));
+    const result = await translate(uid, row!.id, 'he');
+    assert.equal(result.status, 200, show(result.body));
+    assert.equal(result.body.proposal.status, expected, show(result.body));
+    if (expected === 'ready') assert.deepEqual([result.body.proposal.from, result.body.proposal.to], ['en', 'he']);
+    seam?.(null); seam = null;
+    if (saved) { for (const key of ENV) { if (saved[key] === undefined) delete process.env[key]; else process.env[key] = saved[key]; } saved = null; }
+    end();
+  }
+});
+
+test('R1 Arabic → English: an Arabic fact in an English account gets an English proposal; a dropped frequency is refused', async () => {
+  for (const [answer, expected] of [['Goes to the gym twice a week', 'ready'], ['Goes to the gym weekly', 'unavailable']] as const) {
+    const uid = await start({ locale: 'en' });
+    const [row] = await addRows(uid, [{ content: 'بروح الجيم مرتين بالأسبوع', language: 'ar' }]);
+    await useModel(answering(answer));
+    const result = await translate(uid, row!.id, 'en');
+    assert.equal(result.status, 200, show(result.body));
+    assert.equal(result.body.proposal.status, expected, show(result.body));
+    if (expected === 'ready') assert.deepEqual([result.body.proposal.from, result.body.proposal.to], ['ar', 'en']);
+    seam?.(null); seam = null;
+    if (saved) { for (const key of ENV) { if (saved[key] === undefined) delete process.env[key]; else process.env[key] = saved[key]; } saved = null; }
+    end();
+  }
+});
+
+test('R1 other scripts and letterless text (M6A2-R3-002) are 422 not_translatable before any reservation', async () => {
+  const uid = await start();
+  const rows = await addRows(uid, [
+    { content: 'Любит чай', language: 'mixed' }, // Russian: "likes tea"
+    { content: '11:30', language: 'mixed' },
+  ]);
+  const model = answering('x');
+  await useModel(model);
+  const before = await callsToday(uid, { storage: currentStorage() as any });
+  for (const row of rows) {
+    const result = await translate(uid, row.id);
+    assert.equal(result.status, 422, `${row.content}: ${show(result.body)}`);
+    assert.equal(result.body.reason ?? result.body.error, 'not_translatable', show(result.body));
+  }
+  assert.equal(model.calls.length, 0);
+  assert.deepEqual(await callsToday(uid, { storage: currentStorage() as any }), before);
+});
+
+test('R1 an aborted request (the panel closed) aborts the provider call and spends nothing more', async () => {
+  const uid = await start();
+  const [row] = await addRows(uid, [{ content: 'Walks daily', language: 'en' }]);
+  let signal: AbortSignal | undefined;
+  let attempts = 0;
+  const hanging = {
+    name: 'gemini',
+    generateJson: async (request: any) => { attempts += 1; signal = request.signal; return new Promise<never>(() => {}); },
+    generateStructured: async (request: any) => { attempts += 1; signal = request.signal; return new Promise<never>(() => {}); },
+  } as unknown as LlmProvider;
+  await useModel(hanging);
+  const controller = new AbortController();
+  const pending = call(uid, 'memory/[id]/translation', 'POST', {
+    params: { id: row!.id }, body: { locale: 'ar', disclosureVersion: DISCLOSURE }, signal: controller.signal,
+  }).catch((error) => ({ status: 499, body: String(error) }));
+  for (let index = 0; index < 50 && signal === undefined; index += 1) await new Promise((resolve) => setImmediate(resolve));
+  assert.ok(signal, 'the provider was never called');
+  controller.abort();
+  const settled = await Promise.race([pending, new Promise((resolve) => setTimeout(() => resolve('hung'), 2_000))]);
+  assert.notEqual(settled, 'hung', 'the route kept waiting after the request was aborted');
+  assert.equal(signal!.aborted, true, 'the provider signal was not aborted with the request');
+  assert.equal(attempts, 1);
+});
 
 test('R1 a mixed record is judged by its first strong script: «Gym مرتين» asked for ar is eligible (Latin first)', async () => {
   const uid = await start();
@@ -386,12 +472,23 @@ test('R1 freshness: a record 1 ms past staleAfter is 404 with no call; 1 ms befo
 
 /* ── release and disclosure ─────────────────────────────────────────── */
 
-test('R1 the capability route carries memoryTranslation; flags.sh pins it off in production', async () => {
+test('R1 parity (M6A2-R3-001): /capabilities/m6 keeps exactly { success, searchHistory }, so installed apps keep search', async () => {
   const uid = await start();
   const probe = await call(uid, 'capabilities/m6', 'GET');
   assert.equal(probe.status, 200, show(probe.body));
-  assert.equal(probe.body.memoryTranslation, true);
-  assert.deepEqual(Object.keys(probe.body).sort(), ['memoryTranslation', 'searchHistory', 'success']);
+  assert.deepEqual(Object.keys(probe.body).sort(), ['searchHistory', 'success']);
+});
+
+test('R1 the new /capabilities/m6b carries memoryTranslation: on in staging, false when off or in production; flags.sh pins it', async () => {
+  for (const [options, expected] of [[{}, true], [{ on: false }, false], [{ killed: true }, false], [{ environment: 'production' }, false]] as const) {
+    const uid = await start(options as any);
+    const probe = await call(uid, 'capabilities/m6b', 'GET');
+    assert.equal(probe.status, 200, `${JSON.stringify(options)}: ${show(probe.body)}`);
+    assert.deepEqual(probe.body, { success: true, memoryTranslation: expected }, JSON.stringify(options));
+    seam?.(null); seam = null;
+    if (saved) { for (const key of ENV) { if (saved[key] === undefined) delete process.env[key]; else process.env[key] = saved[key]; } saved = null; }
+    end();
+  }
   const script = fileURLToPath(new URL('../../../infra/cloudrun/flags.sh', import.meta.url));
   const production = execFileSync('bash', [script, 'production'], { encoding: 'utf8' });
   assert.match(production, /MAYBESITTER_FEATURE_MEMORY_TRANSLATION=false/, 'not pinned off for production');
@@ -408,7 +505,7 @@ test('R1 the disclosure is a versioned claim set', async () => {
     'what_is_sent:one_stored_memory_fact_you_chose',
     'to_whom:google_cloud_vertex_ai_gemini,via_our_server,eu_region',
     'why:propose_a_translation',
-    'what_is_kept:nothing_until_you_save_it',
+    'what_is_kept:no_text_until_you_save_it,usage_counts_without_text',
   ]);
 });
 

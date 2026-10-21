@@ -15,7 +15,7 @@ import { randomUUID } from 'node:crypto';
 import { afterEach, test } from 'node:test';
 import { createStorageRuntimeMemoryStore } from '../../../lib/runtimeMemory/runtimeMemoryStore.ts';
 import { deleteMemory, patchMemory } from '../../../lib/services/mobile/memoryService.ts';
-import { userDoc } from '../../../lib/storage/paths.ts';
+import { GOAL_GRAPH_PROPOSALS, userCol, userDoc } from '../../../lib/storage/paths.ts';
 import type { StorageAdapter } from '../../../lib/storage/storageAdapter.ts';
 import { addRows, call, currentStorage, show } from '../m5b/support.ts';
 import { begin, end } from './support.ts';
@@ -107,13 +107,17 @@ test('R0.1 an edit that commits after delete-one discovered the chain, before it
   // committed at its first deleteById, after the discovery saw only the head.
   const target = currentStorage() as any;
   let armed = true;
+  let replacementId = '';
   const wrapper = new Proxy(target, {
     get(object, property) {
       if (property === 'delete') {
         return async (path: string) => {
           if (armed && path.endsWith(`/memory/${row!.id}`)) {
             armed = false;
-            await patchMemory(uid, row!.id, 'Edited mid-delete', at(), { storage: target });
+            const replacement = await patchMemory(uid, row!.id, 'Edited mid-delete', at(), { storage: target });
+            replacementId = replacement.id;
+            // A step proposal written for the replacement: downstream cleanup must see its id too (M6A2-R3-003).
+            await target.set(`${userCol(uid, GOAL_GRAPH_PROPOSALS)}/p-${replacement.id}`, { goalMemoryId: replacement.id, scopeId: uid });
           }
           return object.delete(path);
         };
@@ -122,9 +126,12 @@ test('R0.1 an edit that commits after delete-one discovered the chain, before it
       return typeof value === 'function' ? value.bind(object) : value;
     },
   }) as StorageAdapter;
-  await deleteMemory(uid, row!.id, at(), { storage: wrapper });
+  const removed = await deleteMemory(uid, row!.id, at(), { storage: wrapper });
   assert.equal(armed, false, 'the edit was never interleaved');
   assert.deepEqual((await store().listAll(uid)).map((r) => r.content), [], 'the replacement survived delete-one');
+  assert.equal(removed, 2, 'the swept replacement was not counted');
+  const proposals = await target.list(userCol(uid, GOAL_GRAPH_PROPOSALS));
+  assert.deepEqual(proposals.filter((p: any) => p.data.goalMemoryId === replacementId), [], 'cleanup keyed by ids never saw the swept replacement');
 });
 
 test('R0.2 the account deletion mark landing inside a PATCH: refused, and no replacement is written', async () => {
