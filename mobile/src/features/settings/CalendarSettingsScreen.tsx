@@ -1,4 +1,4 @@
-import { isolateAuto } from '../../i18n/bidi';
+import { isolateAuto, stripIsolates } from '../../i18n/bidi';
 import React, { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, AppState, Linking, Platform, Switch, View } from 'react-native';
 import { useApp } from '../../state/AppContext';
@@ -562,7 +562,7 @@ export function CalendarSettingsScreen({ onBack, onFeeds }: { onBack: () => void
             {calendars.map((calendar, index) => (
               <Btn
                 key={calendar.id}
-                label={calendarOptionLabel(calendar)}
+                label={stripIsolates(calendarOptionLabel(calendar))}
                 testID={`calendar-option-${calendar.id}`}
                 // One calendar is written into: a single choice, and the
                 // chosen one says so to a screen reader, not only in colour.

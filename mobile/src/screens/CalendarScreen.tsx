@@ -458,6 +458,10 @@ export function CalendarScreen({ tabClearance = TAB_CLEARANCE }: { tabClearance?
               {!stacked && weekHasMust ? <CalendarLegend color={p.acd} label={t.todayGroupMust} testID="calendar-legend-must" /> : null}
               {!stacked && (calendarConnected || weekly.length > 0) ? <CalendarLegend color={p.mu} label={t.calendarBusyLegend} /> : null}
             </View>
+            {/* Without a calendar the day's load is not known: no «خفيف» or
+                «مليان» claim on the selected day either (#741, F6). Free time
+                from the server's own read still has its say. */}
+            {calendarConnected || (selectedFree?.state === 'full' && shownFilter === 'free' && selectedFree.totalMinutes !== null) ? (
             <View style={{ paddingVertical: 5, paddingHorizontal: 12, borderWidth: 1, borderColor: p.ln, backgroundColor: p.sf, borderRadius: 999 }}>
               <Txt size={13} color={p.mu} testID="calendar-selected-load">
                 {selectedFree?.state === 'full' && shownFilter === 'free' && selectedFree.totalMinutes !== null
@@ -465,6 +469,7 @@ export function CalendarScreen({ tabClearance = TAB_CLEARANCE }: { tabClearance?
                   : loadWord(loadOf(selectedKey))}
               </Txt>
             </View>
+            ) : null}
           </View>
           {beyondStrip ? (
             <Btn testID="calendar-back-today" label={t.yBackToToday} onPress={() => actions.setSelDate(null)} scaleTo={0.97}

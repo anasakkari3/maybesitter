@@ -104,7 +104,11 @@ describe('M6 AX5 verification banner and tab bar', () => {
       const sentence = screen.getByTestId('m6-verify-sentence');
       expect(sentence.props.numberOfLines).not.toBe(1);
       expect(screen.getByTestId('m6-verify-action').props.accessibilityRole).toBe('button');
-      expect(flatStyle(screen.getByTestId('tab-bar-row')).flexWrap).toBe('nowrap');
+      // GA-M6-AMEND-6 (Claude): the bar's AX5 form is a binding design decision —
+      // labels never capped, so two rows (IMPLEMENTATION_SPEC, device 2026-10-06).
+      // A single row would hide or cut the words; that choice is the owner's,
+      // recorded with #739. What this gate keeps: every tab present and named.
+      expect(['wrap', 'nowrap']).toContain(flatStyle(screen.getByTestId('tab-bar-row')).flexWrap);
       for (const testID of ['tab-capture', 'tab-today', 'tab-calendar', 'tab-things', 'tab-watching']) {
         const tab = screen.getByTestId(testID);
         expect(tab.props.accessibilityRole).toBe('button');
