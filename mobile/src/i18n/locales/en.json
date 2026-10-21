@@ -2110,5 +2110,13 @@
   "m6SearchMore": "There are more results. Add a word to narrow it down.",
   "m6PlanKeptGroup": "{count, plural, one{1 thing} other{# things}}",
   "m6SearchDone": "Done {date}",
-  "m6SearchDropped": "Dropped on purpose {date}"
+  "m6SearchDropped": "Dropped on purpose {date}",
+  "m6TranslateAction": "{lang, select, ar{Write it in Arabic} en{Write it in English} he{Write it in Hebrew} other{Translate}}",
+  "m6TranslateDisclosure": "Only this fact is sent to Google's Gemini (Vertex AI, EU) to suggest a translation. We don't keep the text or the translation unless you save it.",
+  "m6TranslateRequest": "Suggest a translation",
+  "m6TranslateLoading": "Preparing a translation…",
+  "m6TranslateSave": "Save it",
+  "m6TranslateKeep": "Keep it as is",
+  "m6TranslateUnavailable": "Couldn't translate it now. The original is unchanged.",
+  "m6TranslateChanged": "This changed a moment ago, so the translation wasn't saved."
 }

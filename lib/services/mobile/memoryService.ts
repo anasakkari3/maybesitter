@@ -70,7 +70,11 @@ import { clearAiContextImportReceipt } from './aiContextImportService';
 import { deletePersonalizationScope } from '../../personalization/deletion';
 import { createPilotAuditEvent } from '../../pilot/closedPilotControls';
 import { appendAudit } from '../../pilot/pilotTrustStore';
-import { createStorageRuntimeMemoryStore } from '../../runtimeMemory/runtimeMemoryStore';
+import {
+  MemoryNotFoundError,
+  MemorySupersedeConflictError,
+  createStorageRuntimeMemoryStore,
+} from '../../runtimeMemory/runtimeMemoryStore';
 import {
   getAdaptiveBehavior,
   type AdaptivePressureLevel,
@@ -94,6 +98,7 @@ import {
   parsePlanTimeFingerprint,
   type LocalWindow,
 } from '../../memoryGrowth/rules';
+import { languageOf } from '../../../src/profile/memoryWriteHelpers';
 
 /** The kinds a person may file something under by hand. */
 export const MANUAL_MEMORY_KINDS: readonly RuntimeMemoryKind[] = ['fact', 'preference', 'goal'];
@@ -107,12 +112,7 @@ const MEMORY_LANGUAGES: readonly MemoryLanguage[] = ['ar', 'he', 'en', 'mixed'];
  */
 export const MAX_MEMORY_CONTENT_LENGTH = 200;
 
-export class MemoryNotFoundError extends Error {
-  constructor() {
-    super('memory not found');
-    this.name = 'MemoryNotFoundError';
-  }
-}
+export { MemoryNotFoundError, MemorySupersedeConflictError };
 
 export class MemoryValidationError extends Error {
   constructor(message: string) {
@@ -551,11 +551,12 @@ export async function patchMemory(
   requireUserId(uid);
   const store = storeOf(options);
   const prior = await requireOwnedRecord(store, uid, id);
+  const newContent = requireContent(content);
   const replacement: CreateMemoryInput = {
     scopeId: uid,
     kind: prior.kind,
-    content: requireContent(content),
-    language: prior.language,
+    content: newContent,
+    language: languageOf(newContent),
     source: 'user_stated',
     confidence: 1,
     observedAt: at,
@@ -739,12 +740,33 @@ async function deleteChain(
 
   let removed = 0;
   const ruleFingerprints: string[] = [];
+  const ids = chain.map((entry) => entry.id);
   for (const entry of chain) {
     if (await store.deleteById(entry.id)) removed += 1;
     const ref = entry.provenance?.origin === 'behaviour_rule' ? entry.provenance.originRef : undefined;
     if (ref && !ruleFingerprints.includes(ref)) ruleFingerprints.push(ref);
   }
-  return { removed, ruleFingerprints, ids: chain.map((entry) => entry.id) };
+
+  // An edit can commit after the chain discovery above but before its prior is
+  // deleted. Follow every new descendant whose parent is already gone, and do
+  // so repeatedly because another edit may land during a sweep.
+  const deletedIds = new Set(ids);
+  for (let pass = 0; pass < 5; pass += 1) {
+    const descendants = (await store.listAll(uid)).filter((entry) =>
+      Boolean(entry.supersedesId && deletedIds.has(entry.supersedesId)) && !deletedIds.has(entry.id));
+    if (descendants.length === 0) return { removed, ruleFingerprints, ids };
+    for (const entry of descendants) {
+      deletedIds.add(entry.id);
+      ids.push(entry.id);
+      if (await store.deleteById(entry.id)) removed += 1;
+      const ref = entry.provenance?.origin === 'behaviour_rule' ? entry.provenance.originRef : undefined;
+      if (ref && !ruleFingerprints.includes(ref)) ruleFingerprints.push(ref);
+    }
+  }
+  const survivors = (await store.listAll(uid)).filter((entry) =>
+    Boolean(entry.supersedesId && deletedIds.has(entry.supersedesId)) && !deletedIds.has(entry.id));
+  if (survivors.length > 0) throw new Error('memory chain deletion did not converge after 5 passes');
+  return { removed, ruleFingerprints, ids };
 }
 
 /**

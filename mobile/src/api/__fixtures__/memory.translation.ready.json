@@ -1,0 +1,10 @@
+{
+  "success": true,
+  "proposal": {
+    "status": "ready",
+    "text": "بيمشي كل يوم",
+    "from": "en",
+    "to": "ar",
+    "memoryId": "mem_00000000-0000-4000-8000-000000000001"
+  }
+}

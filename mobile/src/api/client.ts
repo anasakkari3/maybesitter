@@ -166,6 +166,10 @@ async function send(
   timeoutMs: number = REQUEST_TIMEOUT_MS,
   extraHeaders?: Record<string, string>,
 ): Promise<RawResponse> {
+  // A caller that gave up while the token was being fetched or refreshed
+  // aborted before the listener below existed; nothing may be sent for it
+  // (M6A2-APP-006). Same answer as a cancellation in flight.
+  if (signal?.aborted) throw new TimeoutError('the request was cancelled before it was sent');
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   // The caller's own cancellation (a screen unmounting) must also reach fetch.

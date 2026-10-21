@@ -1,5 +1,8 @@
 import { apiRequest } from '../client';
-import { commitmentSearchSchema, m6CapabilitiesSchema, type CommitmentSearch, type M6Capabilities } from '../schemas/m6';
+import {
+  commitmentSearchSchema, m6CapabilitiesSchema, m6bCapabilitiesSchema, memoryTranslationSchema,
+  type CommitmentSearch, type M6Capabilities, type M6bCapabilities, type MemoryTranslation,
+} from '../schemas/m6';
 
 type Bound = { asUid?: string; signal?: AbortSignal };
 const bound = (options: Bound) => ({
@@ -11,6 +14,10 @@ export function getM6Capabilities(options: Bound = {}): Promise<M6Capabilities> 
   return apiRequest('GET', '/api/mobile/capabilities/m6', { schema: m6CapabilitiesSchema, ...bound(options) });
 }
 
+export function getM6bCapabilities(options: Bound = {}): Promise<M6bCapabilities> {
+  return apiRequest('GET', '/api/mobile/capabilities/m6b', { schema: m6bCapabilitiesSchema, ...bound(options) });
+}
+
 /**
  * The account's commitments matching `q`, done and dropped ones of the last
  * 90 days included (D54-1). A POST so nothing the person typed rides in a URL
@@ -20,6 +27,23 @@ export function searchCommitments(q: string, limit: number, options: Bound = {})
   return apiRequest('POST', '/api/mobile/commitments/search', {
     body: { q, limit },
     schema: commitmentSearchSchema,
+    ...bound(options),
+  });
+}
+
+/**
+ * One proposed translation of one stored fact into `locale` (PLAN-M6a-2). It
+ * saves nothing; never retried — one request per tap.
+ */
+export function proposeMemoryTranslation(
+  id: string,
+  locale: 'ar' | 'en' | 'he',
+  disclosureVersion: string,
+  options: Bound = {},
+): Promise<MemoryTranslation> {
+  return apiRequest('POST', `/api/mobile/memory/${encodeURIComponent(id)}/translation`, {
+    body: { locale, disclosureVersion },
+    schema: memoryTranslationSchema,
     ...bound(options),
   });
 }

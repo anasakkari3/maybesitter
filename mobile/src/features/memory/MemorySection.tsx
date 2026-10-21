@@ -12,6 +12,8 @@ import {
   usePatchMemory,
 } from '../../api/queries';
 import { useM5bOn } from '../m5b/capabilities';
+import { useMemoryTranslationOn } from '../m6/capabilities';
+import { MemoryTranslationPanel, TranslateAction, translationTargetOf, type TranslationTarget } from '../m6/MemoryTranslation';
 import type { MemoryItem } from '../../api/schemas/profile';
 import { CHIP_STRING, memorySentence, provenanceChip } from './memoryDisplay';
 
@@ -63,6 +65,9 @@ export function MemorySection({ onOpen }: { onOpen?: (() => void) | undefined } 
   const [editing, setEditing] = useState<string | null>(null);
   const [confirming, setConfirming] = useState<string | null>(null);
   const [confirmAll, setConfirmAll] = useState(false);
+  // M6a-2: the row whose translation panel is open. Unknown or off offers none.
+  const translationOn = useMemoryTranslationOn() === true;
+  const [translating, setTranslating] = useState<string | null>(null);
   // The paragraph is asked for only after its disclosure is on screen
   // (M5B1-011): the effect that flips this runs after the line has mounted.
   const [disclosed, setDisclosed] = useState(false);
@@ -123,13 +128,17 @@ export function MemorySection({ onOpen }: { onOpen?: (() => void) | undefined } 
           m5bOn={m5bOn === true}
           editing={editing === item.id}
           confirming={confirming === item.id}
-          onEdit={() => { setEditing(item.id); setDraft(item.content); }}
+          translateTarget={translationOn ? translationTargetOf(item.content, lang, item.kind) : null}
+          translating={translating === item.id}
+          onTranslate={() => { setEditing(null); setConfirming(null); setTranslating(item.id); }}
+          onCloseTranslate={() => setTranslating(null)}
+          onEdit={() => { setTranslating(null); setEditing(item.id); setDraft(item.content); }}
           onCancelEdit={() => setEditing(null)}
           onSave={next => {
             setEditing(null);
             patch.mutate({ id: item.id, content: next });
           }}
-          onAskDelete={() => setConfirming(item.id)}
+          onAskDelete={() => { setTranslating(null); setConfirming(item.id); }}
           onCancelDelete={() => setConfirming(null)}
           onDelete={() => { setConfirming(null); remove.mutate(item.id); }}
         />
@@ -222,10 +231,15 @@ export function MemorySection({ onOpen }: { onOpen?: (() => void) | undefined } 
 }
 
 function MemoryRow({
-  item, strings, editing, confirming, m5bOn,
-  onEdit, onCancelEdit, onSave, onAskDelete, onCancelDelete, onDelete,
+  item, strings, editing, confirming, m5bOn, translateTarget, translating,
+  onTranslate, onCloseTranslate, onEdit, onCancelEdit, onSave, onAskDelete, onCancelDelete, onDelete,
 }: {
   item: MemoryItem;
+  /** M6a-2: the app's language when this fact reads in another one and translation is on. */
+  translateTarget: TranslationTarget | null;
+  translating: boolean;
+  onTranslate: () => void;
+  onCloseTranslate: () => void;
   strings: Record<string, string>;
   /** Only names the row for M5b's tests; the wrap itself applies always (PLAN-M5b-1 Release). */
   m5bOn: boolean;
@@ -282,13 +296,22 @@ function MemoryRow({
               </View>
             ) : null}
             <View style={{ flex: 1 }} />
-            {confirming ? null : (
+            {/* Edit and delete wait while a translation panel is open: its save
+                is an edit of this row (M6A2-APP-007). */}
+            {confirming || translating ? null : (
               <>
+                {translateTarget ? (
+                  <TranslateAction item={item} target={translateTarget} onPress={onTranslate} />
+                ) : null}
                 <SmallAction label={t.memoryEdit} testID={`memory-edit-${item.id}`} onPress={onEdit} />
                 <SmallAction label={t.memoryDelete} testID={`memory-delete-${item.id}`} tone="warn" onPress={onAskDelete} />
               </>
             )}
           </View>
+          {translateTarget && translating && !confirming ? (
+            // Keyed by the target: a language change mid-request aborts it and asks again (M6A2-APP-002).
+            <MemoryTranslationPanel key={translateTarget} item={item} target={translateTarget} onClose={onCloseTranslate} />
+          ) : null}
           {confirming ? (
             <>
               <Txt size={13} color={p.wm}>{t.memoryDeleteConfirm}</Txt>
