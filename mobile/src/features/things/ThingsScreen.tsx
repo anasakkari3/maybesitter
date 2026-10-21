@@ -16,6 +16,8 @@ import { ReferenceIcon } from '../../ui/referenceIcons';
 import { ChevronIcon } from '../../ui/icons';
 import { Screen, ScreenScroll, TAB_CLEARANCE, FLOATING_GAP } from '../../ui/screen';
 import { AvoidKeyboard, useSoftKeyboardShown } from '../../ui/keyboard';
+import { rankByText } from './searchModel';
+import { useCommitmentMatches } from './useSearch';
 
 /** Seeds that are still something the person is weighing up. */
 const LIVE_SEED = new Set(['open', 'snoozed', 'waiting']);
@@ -53,20 +55,36 @@ export function ThingsScreen({ tabClearance = TAB_CLEARANCE }: { tabClearance?: 
   const seedItems = (seeds.data?.items ?? []).filter(seed => LIVE_SEED.has(seed.status));
   const recent = [...views].sort((a, b) => b.record.createdAt.localeCompare(a.record.createdAt)).slice(0, RECENT);
 
-  const needle = search.trim().toLocaleLowerCase(lang);
-  const matches = (text: string) => text.toLocaleLowerCase(lang).includes(needle);
+  // Folded on both sides, word-start matches first, and — with the capability
+  // on — the server's done, dropped and older items too (PLAN-M6a R54.2).
+  const search$ = useCommitmentMatches(search, records, record => toViewModel(record, now).shownAt);
+  const needle = search$.needle;
   const titlesOf = (items: readonly string[]) => items.slice(0, 2).map(isolateAuto).join(' · ');
 
   const whenOf = (view: CommitmentView) => view.shownAt
     ? `${formatDate(new Date(view.shownAt), 'short', { locale: lang, timeZone: zone })}${view.allDay ? '' : ` · ${formatTime(new Date(view.shownAt), { locale: lang, timeZone: zone })}`}`
     : t.xUntimed;
   const impLabel = (view: CommitmentView) => view.importance === 'must' ? t.todayGroupMust : view.importance === 'should' ? t.todayGroupShould : t.todayGroupNice;
-  const results = needle.length === 0 ? [] : [
-    ...views.filter(({ view }) => matches(view.title)).map(({ view }) => ({ kind: 'commitment' as const, id: view.id, view })),
-    ...goals.filter(goal => matches(goal.content)).map(goal => ({ kind: 'goal' as const, id: goal.id, goal })),
-    ...habitItems.filter(habit => matches(habit.title)).map(habit => ({ kind: 'habit' as const, id: habit.habitId, habit })),
-    ...seedItems.filter(seed => matches(seed.summary)).map(seed => ({ kind: 'seed' as const, id: seed.seedId, seed })),
+  type Row =
+    | { kind: 'header'; id: string; title: string; count: number }
+    | { kind: 'commitment'; id: string; view: CommitmentView }
+    | { kind: 'goal'; id: string; goal: (typeof goals)[number] }
+    | { kind: 'habit'; id: string; habit: (typeof habitItems)[number] }
+    | { kind: 'seed'; id: string; seed: (typeof seedItems)[number] };
+  const sections: Row[][] = !needle.searchable ? [] : [
+    search$.commitments.map(record => ({ kind: 'commitment' as const, id: record.id, view: toViewModel(record, now) })),
+    rankByText(goals, goal => goal.content, needle).map(goal => ({ kind: 'goal' as const, id: goal.id, goal })),
+    rankByText(habitItems, habit => habit.title, needle).map(habit => ({ kind: 'habit' as const, id: habit.habitId, habit })),
+    rankByText(seedItems, seed => seed.summary, needle).map(seed => ({ kind: 'seed' as const, id: seed.seedId, seed })),
   ];
+  const sectionTitles = [t.xCommitments, t.thingsGoals, t.thingsHabits, t.thingsIdeas];
+  const sectionKeys = ['commitments', 'goals', 'habits', 'ideas'];
+  // Each type under its own heading with how many are shown — "shown",
+  // because a truncated server answer is not every match (R4-006).
+  const results: Row[] = sections.flatMap((rows, index) => rows.length === 0 ? [] : [
+    { kind: 'header' as const, id: sectionKeys[index]!, title: sectionTitles[index]!, count: rows.length },
+    ...rows,
+  ]);
 
   return (
     <Screen testID="things-root" pinned={<View style={{ gap: 10 }}>
@@ -85,15 +103,18 @@ export function ThingsScreen({ tabClearance = TAB_CLEARANCE }: { tabClearance?: 
           />
         </View>
     </View>}>
-      {needle.length > 0 ? (
+      {needle.raw.length > 0 ? (
         <AvoidKeyboard>
           <View testID="things-results" style={{ flex: 1 }}>
             <FlatList testID="things-results-list" data={results} keyExtractor={item => `${item.kind}-${item.id}`}
               style={{ flex: 1, marginBottom: Math.max(0, tabClearance - FLOATING_GAP) }}
               contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 12, paddingBottom: FLOATING_GAP, gap: 10 }}
               keyboardShouldPersistTaps="handled" initialNumToRender={10} maxToRenderPerBatch={10} windowSize={7}
-              ListEmptyComponent={<Txt role="supporting" color={p.mu} testID="things-no-results">{t.xNoResults}</Txt>}
-              renderItem={({ item }) => item.kind === 'commitment'
+              ListEmptyComponent={<Txt role="supporting" color={p.mu} testID="things-no-results">{t.m6SearchNoResults}</Txt>}
+              ListFooterComponent={search$.truncated ? <Txt role="supporting" color={p.mu} testID="things-search-more">{t.m6SearchMore}</Txt> : null}
+              renderItem={({ item }) => item.kind === 'header'
+                ? <HubHeading title={`${item.title} · ${isolateAuto(String(item.count))}`} testID={`things-results-${item.id}`} />
+                : item.kind === 'commitment'
                 ? <SavedRow view={item.view} when={whenOf(item.view)} imp={impLabel(item.view)} onPress={() => actions.openDetail(item.id)} />
                 : item.kind === 'goal'
                   ? <HubRow testID={`things-result-goal-${item.id}`} icon="flag" tone="attention" title={isolateAuto(item.goal.content)} sub={t.thingsGoals} onPress={() => actions.openGoal(item.id)} />
@@ -144,10 +165,11 @@ export function ThingsScreen({ tabClearance = TAB_CLEARANCE }: { tabClearance?: 
 function SavedRow({ view, when, imp, onPress }: { view: CommitmentView; when: string; imp: string; onPress: () => void }) {
   const { t, p, rtl } = useApp();
   const done = view.status === 'done';
+  const dropped = view.status === 'dropped';
   return (
     <Btn
       testID={`things-recent-${view.id}`}
-      label={[view.title, when, done ? t.xDone : imp].join('. ')}
+      label={[view.title, when, done ? t.xDone : dropped ? t.activityKindDropped : imp].join('. ')}
       onPress={onPress}
       scaleTo={0.985}
       style={{ minHeight: 56, borderRadius: 16, borderWidth: 1, borderColor: p.ln, backgroundColor: p.sf, paddingVertical: 8, paddingHorizontal: 12, gap: 10, flexDirection: 'row', alignItems: 'center' }}
@@ -156,7 +178,9 @@ function SavedRow({ view, when, imp, onPress }: { view: CommitmentView; when: st
         <Txt size={15} weight={600} lines={2}>{isolateAuto(view.title)}</Txt>
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
           <Txt size={13} color={p.mu}>{when}</Txt>
-          {done ? <Tag kind="saved" label={t.xDone} /> : <Tag kind={priorityTagKind(view.importance)} label={imp} />}
+          {done ? <Tag kind="saved" label={t.xDone} />
+            : dropped ? <Tag kind="muted" label={t.activityKindDropped} testID={`things-dropped-${view.id}`} />
+              : <Tag kind={priorityTagKind(view.importance)} label={imp} />}
         </View>
       </View>
       <ChevronIcon color={p.mu} rtl={rtl} />

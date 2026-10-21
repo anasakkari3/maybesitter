@@ -154,7 +154,8 @@ describe('«أشيائي»', () => {
     expect(screen.queryByTestId('things-result-seed-s1')).not.toBeNull();
     expect(screen.queryByTestId('things-recent-c-new')).toBeNull();
     await fireEvent.changeText(screen.getByTestId('things-search'), 'zzz');
-    expect(screen.getByTestId('things-no-results')).toHaveTextContent(en.xNoResults);
+    // M6a-1: the mixed search's own empty line — «ما في التزامات مطابقة» was wrong here, the search covers goals, habits and ideas too.
+    expect(screen.getByTestId('things-no-results')).toHaveTextContent(en.m6SearchNoResults);
   });
 
   it('finds a late commitment in a crowded account without mounting a long result column', async () => {

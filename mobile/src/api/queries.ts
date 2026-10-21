@@ -4,6 +4,7 @@ import type { CaptureConfirmation } from './schemas/capture';
 import * as Crypto from 'expo-crypto';
 import { useTimeZone } from '../i18n/timezone';
 import { apiLocale } from '../i18n/locale';
+import { searchCommitments } from './endpoints/m6';
 import { useAuth } from '../auth/AuthProvider';
 import { chatCapture, clarifyCapture, confirmCapture, proposeCapture, type CaptureChatInput } from './endpoints/capture';
 import { proposeFromShare } from './endpoints/share';
@@ -1629,9 +1630,29 @@ export function useMemorySuggestion() {
  * A mutation rather than a query: it costs a model call and must happen once,
  * when the user presses the button, never on a refetch or a remount.
  */
+/** Search page size: what the server returns by default (R3-009). */
+export const SEARCH_LIMIT = 30;
+
+/**
+ * The server's commitment search (D54-1), under the commitments prefix so every
+ * commitment write refreshes it (M6A-R4-004). `enabled` is the caller's: a
+ * debounced, folded, searchable needle with the capability on. TanStack hands
+ * the query its own `signal`, so a needle that moved on cancels the request.
+ */
+export function useCommitmentSearch(foldedQuery: string, rawQuery: string, enabled: boolean) {
+  const uid = useUid();
+  return useQuery({
+    queryKey: ['user', uid, 'commitments', 'search', foldedQuery, SEARCH_LIMIT] as const,
+    queryFn: ({ signal }) => searchCommitments(rawQuery, SEARCH_LIMIT, { asUid: uid, signal }),
+    enabled: enabled && uid !== 'signed-out',
+    retry: false,
+    staleTime: 30_000,
+  });
+}
+
 export function useDescribeProfile() {
   return useMutation({
-    mutationFn: (text: string) => describeProfile(text),
+    mutationFn: (text: string) => describeProfile(text, apiLocale()),
   });
 }
 

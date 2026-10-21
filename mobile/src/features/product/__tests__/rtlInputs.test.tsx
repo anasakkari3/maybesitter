@@ -22,7 +22,12 @@ import one from '../../../api/__fixtures__/commitments.one.json';
 
 let mockDenseItems: unknown[] = [];
 
+// M6a-1: the server search capability, off here (these screens render without a QueryClient).
+jest.mock('../../m6/capabilities', () => ({ useSearchHistoryOn: () => false }));
 jest.mock('../../../api/queries', () => ({
+  useUid: () => 'u',
+  // M6a-1: the server search; off in these tests (no capability answer).
+  useCommitmentSearch: () => ({ data: undefined, isPending: false, error: null }),
   useToday: () => ({ data: { items: mockDenseItems }, isPending: false, error: null, refetch: jest.fn() }),
   useUpcoming: () => ({ data: { items: [] }, isPending: false, error: null, refetch: jest.fn() }),
   useIntelligenceDecided: () => () => undefined,

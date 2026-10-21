@@ -2108,5 +2108,8 @@
   "m5bEnergyAskNow": "איך האנרגיה שלך עכשיו?",
   "m5bEnergyHideToday": "לא היום",
   "m5bEnergyHideTodayA11y": "להסתיר את שאלת האנרגיה לשאר היום",
-  "m5bEnergyLevelA11y": "אנרגיה {energy} מתוך 5"
+  "m5bEnergyLevelA11y": "אנרגיה {energy} מתוך 5",
+  "m6SearchNoResults": "לא מצאנו כלום בשם הזה",
+  "m6SearchMore": "יש עוד תוצאות. הוסיפו מילה כדי לצמצם.",
+  "m6PlanKeptGroup": "{count, plural, one{דבר אחד} two{שני דברים} other{# דברים}}"
 }
