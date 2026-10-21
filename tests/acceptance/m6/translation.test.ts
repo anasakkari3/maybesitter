@@ -539,3 +539,53 @@ test('R1 no content in logs: neither the stored fact nor the proposal reaches co
     assert.ok(!/secretly|بالسر/.test(line), `content in a log line: ${line.slice(0, 120)}`);
   }
 });
+
+/* ── review r5 advice (low): usage and the call log on refused answers ── */
+
+test('R1 a refused answer still commits its tokens (M6A2-R5-001): strict-schema refusal and a validator refusal', async () => {
+  for (const answer of [() => ({ text: 'بيمشي كل يوم', note: 'x' }), () => ({ text: 'بينام الساعة 12' })]) {
+    const uid = await start();
+    const [row] = await addRows(uid, [{ content: 'Sleeps at 11', language: 'en' }]);
+    await useModel(scriptedModel(answer));
+    const before = await callsToday(uid, { storage: currentStorage() as any });
+    const result = await translate(uid, row!.id);
+    assert.deepEqual(result.body.proposal, { status: 'unavailable' }, show(result.body));
+    const after = await callsToday(uid, { storage: currentStorage() as any });
+    assert.equal(after.tokens - before.tokens, 20, 'a refused answer\'s tokens were not committed');
+    seam?.(null); seam = null;
+    if (saved) { for (const key of ENV) { if (saved[key] === undefined) delete process.env[key]; else process.env[key] = saved[key]; } saved = null; }
+    end();
+  }
+});
+
+function findLlmCall(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== 'object') return null;
+  const record = value as Record<string, unknown>;
+  if (record.event === 'llm_call' && record.purpose === 'memory_translate') return record;
+  for (const child of Object.values(record)) {
+    const found = findLlmCall(child);
+    if (found) return found;
+  }
+  return null;
+}
+
+test('R1 one sanitized llm_call per answered translation (M6A2-R5-002): purpose, outcome and token counts, no text', async () => {
+  const uid = await start();
+  const [row] = await addRows(uid, [{ content: 'Walks daily secretly', language: 'en' }]);
+  await useModel(answering('بيمشي كل يوم بالسر'));
+  const lines: string[] = [];
+  const original = console.info;
+  console.info = (...args: unknown[]) => { lines.push(args.map((arg) => (typeof arg === 'string' ? arg : JSON.stringify(arg))).join(' ')); };
+  try {
+    const result = await translate(uid, row!.id);
+    assert.equal(result.body.proposal?.status, 'ready', show(result.body));
+  } finally {
+    console.info = original;
+  }
+  const calls = lines.map((line) => { try { return findLlmCall(JSON.parse(line)); } catch { return null; } }).filter(Boolean) as Array<Record<string, unknown>>;
+  assert.equal(calls.length, 1, `expected one memory_translate llm_call, got ${calls.length}`);
+  assert.equal(calls[0]!.outcome, 'ok');
+  assert.equal(calls[0]!.promptTokens, 10);
+  assert.equal(calls[0]!.outputTokens, 10);
+  for (const line of lines) assert.ok(!/secretly|بالسر/.test(line), 'content in a log line');
+});
