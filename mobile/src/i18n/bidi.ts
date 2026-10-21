@@ -59,8 +59,11 @@ export function isolateLatinRuns(text: string): string {
 }
 
 /** A letter (never a digit, a mark or punctuation), and the scripts that decide a direction. */
-const LETTER = /\p{L}/u;
-const RTL_SCRIPT = /[\p{Script=Arabic}\p{Script=Hebrew}]/u;
+const LETTER = new RegExp('\\p{L}', 'u');
+const RTL_SCRIPT = new RegExp('[\\p{Script=Arabic}\\p{Script=Hebrew}]', 'u');
+// Constructors, not literals: the root typecheck reads this file under an older target.
+const ARABIC_SCRIPT = new RegExp('\\p{Script=Arabic}', 'u');
+const HEBREW_SCRIPT = new RegExp('\\p{Script=Hebrew}', 'u');
 
 /**
  * The direction a piece of user text reads in by itself: its first strong
@@ -72,7 +75,7 @@ const RTL_SCRIPT = /[\p{Script=Arabic}\p{Script=Hebrew}]/u;
 export function firstStrongScript(text: string): 'arabic' | 'hebrew' | 'latin' | null {
   for (const char of stripIsolates(text)) {
     if (!LETTER.test(char)) continue;
-    return /\p{Script=Arabic}/u.test(char) ? 'arabic' : /\p{Script=Hebrew}/u.test(char) ? 'hebrew' : 'latin';
+    return ARABIC_SCRIPT.test(char) ? 'arabic' : HEBREW_SCRIPT.test(char) ? 'hebrew' : 'latin';
   }
   return null;
 }
