@@ -32,14 +32,25 @@ const ANY_NUMBER = new RegExp('\\p{N}', 'u');
 
 /** The content classifier shared by eligibility and the response's `from`. */
 export function memoryContentLanguage(text: string): DetectedMemoryLanguage {
+  const counts: Record<Exclude<DetectedMemoryLanguage, null>, number> = {
+    ar: 0,
+    he: 0,
+    en: 0,
+    other: 0,
+  };
+  let first: Exclude<DetectedMemoryLanguage, null> | null = null;
   for (const character of Array.from(text)) {
     if (!LETTER.test(character)) continue;
-    if (ARABIC.test(character)) return 'ar';
-    if (HEBREW.test(character)) return 'he';
-    if (LATIN.test(character)) return 'en';
-    return 'other';
+    const language = ARABIC.test(character) ? 'ar'
+      : HEBREW.test(character) ? 'he'
+        : LATIN.test(character) ? 'en'
+          : 'other';
+    first ??= language;
+    counts[language] += 1;
   }
-  return null;
+  if (first === null) return null;
+  return (Object.keys(counts) as Array<Exclude<DetectedMemoryLanguage, null>>)
+    .reduce((most, language) => counts[language] > counts[most] ? language : most, first);
 }
 
 function targetLetter(character: string, language: MemoryTranslationLanguage): boolean {
