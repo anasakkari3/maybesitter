@@ -591,3 +591,21 @@ test('R1 one sanitized llm_call per answered translation (M6A2-R5-002): purpose,
   assert.equal(calls[0]!.outputTokens, 10);
   for (const line of lines) assert.ok(!/secretly|بالسر/.test(line), 'content in a log line');
 });
+
+test('R1 routine machine records (M6A2-APP-001) are 422 not_translatable before any reservation', async () => {
+  const uid = await start();
+  const rows = await addRows(uid, [
+    { content: 'quiet_hours:22:30-07:30', language: 'en', kind: 'preference' },
+    { content: 'sleep_window:23:00-07:00', language: 'en', kind: 'preference' },
+  ]);
+  const model = answering('x');
+  await useModel(model);
+  const before = await callsToday(uid, { storage: currentStorage() as any });
+  for (const row of rows) {
+    const result = await translate(uid, row.id);
+    assert.equal(result.status, 422, `${row.content}: ${show(result.body)}`);
+    assert.equal(result.body.reason ?? result.body.error, 'not_translatable');
+  }
+  assert.equal(model.calls.length, 0);
+  assert.deepEqual(await callsToday(uid, { storage: currentStorage() as any }), before);
+});
