@@ -2,6 +2,7 @@ import { LANGUAGE_RULE } from '../../intelligence/proposalEngine';
 import { consentGatedProvider } from '../../llm/consentGatedProvider';
 import { logLlmCall, uidHash } from '../../llm/llmLog';
 import { aiDisabled, commitUsage, reserveCall } from '../../llm/usageGuard';
+import { routineFactKeyOf } from '../../memory/routineFacts';
 import { getStorage } from '../../storage';
 import { withSingleRetry, type LlmProvider } from '../../../src/extraction/llm';
 import { MemoryNotFoundError, readOwnedMemory } from './memoryService';
@@ -256,6 +257,9 @@ export async function proposeMemoryTranslation(input: {
     throw new MemoryNotFoundError();
   }
   if (!['fact', 'preference', 'hypothesis'].includes(memory.kind)) {
+    throw new MemoryTranslationEligibilityError('not_translatable');
+  }
+  if (routineFactKeyOf(memory.content) !== null) {
     throw new MemoryTranslationEligibilityError('not_translatable');
   }
   const from = memoryContentLanguage(memory.content);
