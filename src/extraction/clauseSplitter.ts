@@ -17,7 +17,9 @@
  *   a sentence end . ! ? ؟     only when the next sentence starts with an
  *                             explicit request marker (CL1 round 4, N1) or an
  *                             errand verb (round 5) that is followed by an
- *                             object (round 6), the one before it is not a
+ *                             object (round 6), or with an unresolved-intent
+ *                             marker — «عم بفكر», «مستني», «حلمي», "I'm thinking
+ *                             of" (M6b BB-04) — the one before it is not a
  *                             bare request, and the new sentence does not
  *                             restate the appointment's hour (round 6)
  *
@@ -138,7 +140,9 @@ function normalizeNoun(noun: string): string {
 const SENTENCE_OPENER = new RegExp(
   '^(?:' + [
     // Arabic: I want / I have to / remind me / note down / don't forget.
-    `(?:بدي|بدّي|بدنا|بدّنا|لازم|لازمني|ذكرني|ذكّرني|ذكريني|ذكّريني|سجل|سجّل|سجلي|سجّلي|لا\\s+تنسى|لا\\s+تنسي|ما\\s+تنسى|ما\\s+تنسي)${A}`,
+    // «حابب / ناوي» open a point too (M6b BB-04): «… يوم الأحد. حابب أنزل
+    // بالوزن» is a second point, not the bill's tail.
+    `(?:بدي|بدّي|بدنا|بدّنا|لازم|لازمني|حابب|حابّب|حابة|حابّة|حابين|ناوي|ناوية|ذكرني|ذكّرني|ذكريني|ذكّريني|سجل|سجّل|سجلي|سجّلي|لا\\s+تنسى|لا\\s+تنسي|ما\\s+تنسى|ما\\s+تنسي)${A}`,
     `(?:ممكن|بتقدر|بتقدري|هل\\s+بتقدر|هل\\s+بتقدري|لو\\s+سمحت|بليز)\\s+(?:تذكرني|تذكريني|ذكرني|ذكّرني|تسجل|تسجّل|تسجلي)${A}`,
     // English: I need / I have to / I must / remind me / I want to / I'll / don't forget.
     "(?:(?:please|can\\s+you|could\\s+you|would\\s+you)\\s+)?remind\\s+me\\b",
@@ -291,6 +295,11 @@ function opensCommitment(sentence: string, previous: string): boolean {
   if (!text) return false;
   if (EXPLICIT_REMINDER_OPENER.test(text)) return true;
   if (restatesTheHour(text, previous)) return false;
+  // A thought, a wait, a someday or an idea is a point of its own (M6b BB-04):
+  // «… بكرا من 4 لـ 8 المسا. عم بفكر أسافر الصيف الجاي» must not hand the
+  // meeting a trip it was only thinking about. The same markers already let a
+  // «و» open a point (`withoutClauseJoiner`).
+  if (opensWithUnresolvedIntent(text)) return true;
   const opener = SENTENCE_OPENER.exec(text) ?? SENTENCE_VERB_OPENER.exec(text);
   if (opener) return followedByObject(text.slice(opener[0].length));
   const possession = POSSESSION_OPENER.exec(text);
