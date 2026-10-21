@@ -235,7 +235,9 @@ test('every mobile route file exists and is enumerated', () => {
   // rows to the model, so it must never answer before the guard.
   // M6a-1 adds the authenticated search-history capability and commitment
   // search routes.
-  assert.equal(files.length, 131, `found:\n${files.join('\n')}`);
+  // M6a-2 adds the translation proposal and its separately versioned
+  // capability probe. Both are account-scoped before either reports state.
+  assert.equal(files.length, 133, `found:\n${files.join('\n')}`);
 });
 
 test('every mobile route handler runs an authentication guard before anything else', () => {

@@ -11,3 +11,10 @@ export function resolveSearchHistory(env: Record<string, string | undefined> = p
     && !readRuntimeBoolean(env.MAYBESITTER_KILL_SWITCH_SEARCH_HISTORY, false)
     && readRuntimeBoolean(env.MAYBESITTER_FEATURE_SEARCH_HISTORY, false);
 }
+
+/** Memory translation stays staging-only until Market Evidence Gate #61. */
+export function resolveMemoryTranslation(env: Record<string, string | undefined> = process.env): boolean {
+  return allowed(env)
+    && !readRuntimeBoolean(env.MAYBESITTER_KILL_SWITCH_MEMORY_TRANSLATION, false)
+    && readRuntimeBoolean(env.MAYBESITTER_FEATURE_MEMORY_TRANSLATION, false);
+}

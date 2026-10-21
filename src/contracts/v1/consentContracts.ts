@@ -93,6 +93,16 @@ export const AI_PROCESSING_DISCLOSURE_CLAIMS_V1 = [
   'optional:no,always_on',
 ] as const;
 
+/** The disclosure shown before one selected memory row is sent for translation. */
+export const MEMORY_TRANSLATION_DISCLOSURE_VERSION = 'memory-translation-disclosure-v1';
+
+export const MEMORY_TRANSLATION_DISCLOSURE_CLAIMS_V1 = [
+  'what_is_sent:one_stored_memory_fact_you_chose',
+  'to_whom:google_cloud_vertex_ai_gemini,via_our_server,eu_region',
+  'why:propose_a_translation',
+  'what_is_kept:no_text_until_you_save_it,usage_counts_without_text',
+] as const;
+
 /**
  * What `rec-consent-v1` tells the user, in the order the toggle's copy shows
  * them. Same rule as above: a translation may be reworded without a new

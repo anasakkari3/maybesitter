@@ -1283,6 +1283,14 @@ export async function acceptGoalStatement(uid: string, input: { summaryId: strin
 export async function supersedeGoalPlanLineage(uid: string, oldGoalId: string, newGoalId: string, storage = getStorage()): Promise<void> {
   const now = new Date().toISOString();
   await storage.runTransaction(async (tx) => {
+    const [replacement, account] = await Promise.all([
+      tx.get(path(uid, MEMORY, newGoalId)),
+      tx.get<UserDocument<{ deletedAt?: unknown }>>(userDoc(uid)),
+    ]);
+    // The memory supersession and this follow-up are separate transactions.
+    // Reading both fences here makes an account deletion or memory deletion
+    // invalidate this commit instead of recreating goal-plan rows below it.
+    if (!replacement || account?.trust?.deletedAt) return;
     const lineage = await lineageFor(tx, uid, oldGoalId) ?? { lineageId: oldGoalId, state: 'active' as const, currentGoalId: oldGoalId, activeDraftPlanId: null, latestConfirmedPlanId: null, updatedAt: now };
     const [plans, times, links, claims] = await Promise.all([
       tx.list<StoredGoalPlan>(userCol(uid, GOAL_PLANS)), tx.list<StoredTimes>(userCol(uid, GOAL_PLAN_TIMES)), tx.list<GoalNodeLink>(userCol(uid, GOAL_GRAPH_LINKS)),

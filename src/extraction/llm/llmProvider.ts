@@ -38,7 +38,9 @@ export type LlmPurpose =
   /** One turn of the capture chat «احكيها»: a reply and the current items (2026-09-30). */
   | 'capture_chat'
   /** A transient, cited paragraph over the person's visible memory rows (M5b-1). */
-  | 'memory_summary';
+  | 'memory_summary'
+  /** A transient proposal translating one selected memory row (M6a-2). */
+  | 'memory_translate';
 
 export type LlmProviderName = 'gemini' | 'ollama' | 'none';
 

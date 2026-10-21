@@ -34,6 +34,8 @@ import {
   AI_CONSENT_VERSION,
   AI_PROCESSING_DISCLOSURE_CLAIMS_V1,
   AI_PROCESSING_DISCLOSURE_VERSION,
+  MEMORY_TRANSLATION_DISCLOSURE_CLAIMS_V1,
+  MEMORY_TRANSLATION_DISCLOSURE_VERSION,
   aiConsentClaimsDigest,
 } from '../../src/contracts/v1/consentContracts.ts';
 import {
@@ -234,6 +236,11 @@ test('what the app discloses in place of the consent claims no choice, and is pi
   assert.ok(toWhom?.includes('google_cloud_vertex_ai_gemini') && toWhom.includes('eu_region'));
   // v1's own "optional" claim is exactly what is no longer true.
   assert.ok(AI_CONSENT_CLAIMS_V1.includes('optional:changeable_in_settings'));
+});
+
+test('the memory-translation disclosure claims are digest-pinned to their version', () => {
+  assert.equal(MEMORY_TRANSLATION_DISCLOSURE_VERSION, 'memory-translation-disclosure-v1');
+  assert.equal(aiConsentClaimsDigest(MEMORY_TRANSLATION_DISCLOSURE_CLAIMS_V1), '9c31ffde78040d2f');
 });
 
 /* ── The API ──────────────────────────────────────────────────────── */

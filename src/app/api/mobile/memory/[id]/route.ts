@@ -1,6 +1,7 @@
 import { mobileAuthErrorResponse, requireMobileUser } from '../../../../../../lib/auth/mobileAuth';
 import {
   MemoryNotFoundError,
+  MemorySupersedeConflictError,
   MemoryValidationError,
   deleteMemory,
   patchMemory,
@@ -50,6 +51,12 @@ export async function PATCH(request: Request, context: RouteContext) {
     return Response.json({ success: true, memory: updated });
   } catch (error) {
     if (error instanceof MemoryNotFoundError) return notFound();
+    if (error instanceof MemorySupersedeConflictError) {
+      return Response.json(
+        { success: false, error: 'memory_changed', reason: 'memory_changed' },
+        { status: 409 },
+      );
+    }
     if (error instanceof MemoryValidationError) {
       return Response.json({ success: false, error: error.message, reason: 'invalid_memory' }, { status: 400 });
     }
