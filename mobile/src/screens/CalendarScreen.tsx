@@ -326,9 +326,13 @@ export function CalendarScreen({ tabClearance = TAB_CLEARANCE }: { tabClearance?
   };
 
   const range7 = formatDayRange(keys[0]!, keys[STRIP_DAYS - 1]!, { locale: lang });
+  const pushed = actions.canGoBack();
 
   return (
-    <Screen style={{ backgroundColor: p.bg }}>
+    // Opened over the week by «شوف أبعد» (D54-2): its way back is pinned
+    // outside the scroller, like every pushed screen's (screen.tsx F1), and is
+    // its only header — the tab root's header is the tab's (SIM-M6A-02/03, R3-001).
+    <Screen style={{ backgroundColor: p.bg }} {...(pushed ? { pinned: <BackHeader title={t.tabPlan} onBack={actions.back} /> } : {})}>
       <ScreenScroll
         testID="calendar-scroll"
         floating={tabClearance}
@@ -336,10 +340,7 @@ export function CalendarScreen({ tabClearance = TAB_CLEARANCE }: { tabClearance?
         gap={14}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={p.ac} />}
       >
-        {/* Opened over the week by «شوف أبعد» (D54-2): a way back to where the
-            person came from, on screen (SIM-M6A-02). At the tab root there is none. */}
-        {actions.canGoBack() ? <BackHeader title={t.tabPlan} onBack={actions.back} /> : null}
-        <ScreenHeader
+        {pushed ? null : <ScreenHeader
           brand={false}
           eyebrow={stacked ? undefined : range7}
           eyebrowTestID={stacked ? undefined : 'calendar-range'}
@@ -353,7 +354,7 @@ export function CalendarScreen({ tabClearance = TAB_CLEARANCE }: { tabClearance?
               <AvatarButton />
             </View>
           )}
-        />
+        />}
         {/* The week planner and the calendar's settings: one row that wraps
             only when it must (UAT 2026-09-30, u52). */}
         <View testID="calendar-header-actions" style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
