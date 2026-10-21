@@ -37,16 +37,25 @@ const HEBREW = new RegExp('\\p{Script=Hebrew}', 'u');
 const LATIN = new RegExp('\\p{Script=Latin}', 'u');
 
 /**
- * The language of a fact's text, from its first letter — the server's own
- * classifier (M6A2-R3-002): another script is `other`, no letter is `null`,
- * and neither is translatable. A Latin-script fact counts as English.
+ * The language of a fact's text: the script with the most letters, the
+ * server's own classifier (plan amendment A1, SIM-M6A2-01). "M6D بستخدم
+ * المواصلات" is Arabic even though a Latin marker comes first. A tie falls back
+ * to the first letter; another script is `other`, no letter is `null`, and
+ * neither is translatable. A Latin-script fact counts as English.
  */
 export function textLanguageOf(content: string): 'ar' | 'he' | 'en' | 'other' | null {
+  const counts = { ar: 0, he: 0, en: 0, other: 0 };
+  let first: keyof typeof counts | null = null;
   for (const char of stripIsolates(content)) {
     if (!LETTER.test(char)) continue;
-    return ARABIC.test(char) ? 'ar' : HEBREW.test(char) ? 'he' : LATIN.test(char) ? 'en' : 'other';
+    const script = ARABIC.test(char) ? 'ar' : HEBREW.test(char) ? 'he' : LATIN.test(char) ? 'en' : 'other';
+    counts[script] += 1;
+    first ??= script;
   }
-  return null;
+  if (first === null) return null;
+  const most = Math.max(counts.ar, counts.he, counts.en, counts.other);
+  const leaders = (Object.keys(counts) as Array<keyof typeof counts>).filter((script) => counts[script] === most);
+  return leaders.length === 1 ? leaders[0]! : first;
 }
 
 /**

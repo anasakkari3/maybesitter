@@ -77,6 +77,13 @@ describe('translationTargetOf', () => {
     // Another script, or no letter at all, is not offered (M6A2-R3-002). Russian: "likes tea".
     expect(translationTargetOf('\u041b\u044e\u0431\u0438\u0442 \u0447\u0430\u0439', 'ar')).toBeNull();
     expect(translationTargetOf('11:30', 'en')).toBeNull();
+    // Amendment A1 (SIM-M6A2-01): the script with the most letters decides, not the first letter.
+    // Arabic: "M6D uses public transport to the university".
+    expect(translationTargetOf('M6D \u0628\u0633\u062a\u062e\u062f\u0645 \u0627\u0644\u0645\u0648\u0627\u0635\u0644\u0627\u062a \u0644\u0644\u062c\u0627\u0645\u0639\u0629', 'ar')).toBeNull();
+    // Arabic: "gym twice" — 3 Latin letters, 5 Arabic.
+    expect(translationTargetOf('Gym \u0645\u0631\u062a\u064a\u0646', 'ar')).toBeNull();
+    // English with one Arabic word ("for tasks").
+    expect(translationTargetOf('Uses Notion daily \u0644\u0644\u0645\u0647\u0627\u0645', 'ar')).toBe('ar');
     expect(translationTargetOf('Run a marathon', 'ar', 'goal')).toBeNull();
     // Routine facts are machine records the screen already localizes (M6A2-APP-001).
     for (const key of ['sleep_window', 'focus_window', 'fixed_commitments', 'reminder_intensity', 'quiet_hours']) {
