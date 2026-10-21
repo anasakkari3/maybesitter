@@ -60,10 +60,9 @@ export async function POST(request: Request): Promise<Response> {
   const shown = matches.slice(0, limit as number);
   return Response.json({
     success: true,
-    items: shown.map((commitment) => ({
-      ...commitmentToMobileDto(commitment),
-      status: commitment.status === 'completed' ? 'done' : commitment.status,
-    })),
+    // The commitment DTO as every list route sends it, its own `status`
+    // vocabulary included ('completed', 'dropped'): GB-M6-AMEND-1.
+    items: shown.map((commitment) => commitmentToMobileDto(commitment)),
     truncated: matches.length > shown.length,
   });
 }
