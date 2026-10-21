@@ -38,12 +38,19 @@ export async function POST(request: Request) {
   const disabled = moduleDisabledResponse('memory');
   if (disabled) return disabled;
 
-  let body: { text?: unknown };
+  let body: { text?: unknown; locale?: unknown };
   try {
     body = await readJsonBody(request) as typeof body;
   } catch (error) {
     if (error instanceof RequestBodyTooLargeError) return requestBodyTooLargeResponse(error);
     return mobileError('Invalid JSON request body');
+  }
+
+  if (body?.locale !== undefined && body.locale !== 'ar' && body.locale !== 'en' && body.locale !== 'he') {
+    return Response.json(
+      { success: false, error: 'locale must be ar, en, or he', reason: 'invalid_locale' },
+      { status: 400 },
+    );
   }
 
   if (await getAiConsent(user.uid) !== 'granted') {
@@ -54,7 +61,9 @@ export async function POST(request: Request) {
   }
 
   try {
-    const proposal = await describeProfile(user.uid, String(body?.text ?? ''), new Date());
+    const proposal = await describeProfile(user.uid, String(body?.text ?? ''), new Date(), {
+      ...(body.locale === undefined ? {} : { locale: body.locale }),
+    });
     return Response.json({ success: true, ...proposal });
   } catch (error) {
     if (error instanceof DescriptionTooLongError) {

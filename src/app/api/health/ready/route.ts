@@ -16,6 +16,12 @@ export const dynamic = 'force-dynamic';
  */
 const PROBE_TIMEOUT_MS = 2_000;
 
+function emulatorHeaders(): HeadersInit | undefined {
+  if (process.env.MAYBESITTER_ENV?.trim().toLowerCase() === 'production') return undefined;
+  if (!process.env.FIREBASE_AUTH_EMULATOR_HOST || !process.env.FIRESTORE_EMULATOR_HOST) return undefined;
+  return { 'X-MaybeSitter-Emulators': 'auth,firestore' };
+}
+
 async function withTimeout<T>(work: Promise<T>, ms: number): Promise<T> {
   let timer: NodeJS.Timeout | undefined;
   try {
@@ -33,9 +39,12 @@ async function withTimeout<T>(work: Promise<T>, ms: number): Promise<T> {
 export async function GET() {
   try {
     await withTimeout(getStorage().get('_health/probe'), PROBE_TIMEOUT_MS);
-    return Response.json({ ready: true });
+    return Response.json({ ready: true }, { headers: emulatorHeaders() });
   } catch (error) {
     console.error('[health/ready] storage probe failed', error);
-    return Response.json({ ready: false, reason: 'storage_unavailable' }, { status: 503 });
+    return Response.json(
+      { ready: false, reason: 'storage_unavailable' },
+      { status: 503, headers: emulatorHeaders() },
+    );
   }
 }
