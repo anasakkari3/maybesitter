@@ -374,10 +374,16 @@ function MemoryGroupCard({
   onDelete: (id: string) => void;
 }) {
   const { p } = useApp();
+  // One source for every row (the exact `sourceLabel`, not the broad group):
+  // say it once on the header instead of on each row (condition 53). A group
+  // that mixes, say, "AI suggested" and "AI suggested and you confirmed" keeps
+  // the label on each row, because that difference is the point (M6A-009).
+  const shared = rows.length > 0 && rows.every(row => row.sourceLabel === rows[0]!.sourceLabel) ? rows[0]!.sourceLabel : null;
   return (
     <Card pad={0} style={{ overflow: 'hidden' }} testID={`memory-group-${group}`}>
-      <View style={{ paddingHorizontal: 18, paddingTop: 16, paddingBottom: 4 }}>
+      <View style={{ paddingHorizontal: 18, paddingTop: 16, paddingBottom: 4, flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', columnGap: 8, rowGap: 4 }}>
         <Txt size={13} weight={600} color={p.mu}>{strings[GROUP_STRING[group]]}</Txt>
+        {shared ? <Chip label={strings[SOURCE_LABEL_STRING[shared]] ?? ''} testID={`memory-group-source-${group}`} /> : null}
       </View>
       {rows.map(item => (
         <MemoryDetailRow
@@ -386,6 +392,7 @@ function MemoryGroupCard({
           strings={strings}
           date={date}
           rtl={rtl}
+          sourceOnRow={shared === null}
           editing={editing === item.id}
           showWhy={why === item.id}
           onToggleWhy={() => onToggleWhy(item.id)}
@@ -400,13 +407,15 @@ function MemoryGroupCard({
 }
 
 function MemoryDetailRow({
-  item, strings, date, rtl, editing, showWhy,
+  item, strings, date, rtl, sourceOnRow, editing, showWhy,
   onToggleWhy, onEdit, onCancelEdit, onSave, onDelete,
 }: {
   item: MemoryItem;
   strings: Record<string, string>;
   date: (iso: string) => string;
   rtl: boolean;
+  /** False when the group header already says where every row came from. */
+  sourceOnRow: boolean;
   editing: boolean;
   showWhy: boolean;
   onToggleWhy: () => void;
@@ -445,12 +454,12 @@ function MemoryDetailRow({
 
   return (
     <View style={{ paddingHorizontal: 18, paddingVertical: 14, gap: 8, borderTopWidth: 1, borderTopColor: p.ln }}>
-      <Txt role="card" weight={500} testID={`memory-screen-item-${item.id}`}>
+      <Txt role="card" weight={500} dir="auto" testID={`memory-screen-item-${item.id}`}>
         {isolateAuto(memorySentence({ content: item.content, strings }))}
       </Txt>
 
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-        <Chip label={strings[SOURCE_LABEL_STRING[item.sourceLabel]] ?? ''} testID={`memory-screen-source-${item.id}`} />
+        {sourceOnRow ? <Chip label={strings[SOURCE_LABEL_STRING[item.sourceLabel]] ?? ''} testID={`memory-screen-source-${item.id}`} /> : null}
         {/* Words, never the number. A confidence printed as 0.62 invites the
             reader to treat a threshold as a measurement of themselves. */}
         <Chip

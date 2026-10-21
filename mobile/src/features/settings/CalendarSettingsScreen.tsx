@@ -1,3 +1,4 @@
+import { isolateAuto } from '../../i18n/bidi';
 import React, { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, AppState, Linking, Platform, Switch, View } from 'react-native';
 import { useApp } from '../../state/AppContext';
@@ -51,7 +52,7 @@ export function groupByAccount(calendars: readonly DeviceEventCalendar[]): { sou
 
 /** A writable calendar as the picker names it: the source tells two "Calendar"s apart. */
 function calendarOptionLabel(calendar: WritableCalendar): string {
-  return calendar.sourceName ? `${calendar.title} · ${calendar.sourceName}` : calendar.title;
+  return calendar.sourceName ? `${isolateAuto(calendar.title)} · ${isolateAuto(calendar.sourceName)}` : calendar.title;
 }
 
 /**

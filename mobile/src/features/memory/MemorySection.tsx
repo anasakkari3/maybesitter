@@ -267,7 +267,7 @@ function MemoryRow({
         </>
       ) : (
         <>
-          <Txt size={15} lh={1.5} testID={`memory-item-${item.id}`}>
+          <Txt size={15} lh={1.5} dir="auto" testID={`memory-item-${item.id}`}>
             {isolateAuto(memorySentence({ content: item.content, strings }))}
           </Txt>
           {/* At AX5 the actions wrap to a second line instead of clipping
@@ -339,7 +339,7 @@ function SmallAction({
       onPress={disabled ? undefined : onPress}
       scaleTo={0.97}
       hitSlop={8}
-      style={{ minHeight: 32, justifyContent: 'center' }}
+      style={{ minHeight: 44, justifyContent: 'center' }}
     >
       <Txt size={14} color={disabled ? p.mu : tone === 'warn' ? p.wm : p.ac}>{label}</Txt>
     </Btn>

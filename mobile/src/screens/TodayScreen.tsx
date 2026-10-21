@@ -367,7 +367,7 @@ function WeeklyToday({ items }: { items: readonly WeeklyBlockOccurrence[] }) {
   if (items.length === 0) return null;
   const sorted = [...items].sort((a, b) => Date.parse(a.startAt) - Date.parse(b.startAt));
   const summary = sorted
-    .map((o) => `${o.title} ${ltr(formatTime(new Date(o.startAt), { locale: lang, timeZone: timezone }))}`)
+    .map((o) => `${isolateAuto(o.title)} ${ltr(formatTime(new Date(o.startAt), { locale: lang, timeZone: timezone }))}`)
     .join(' · ');
   return (
     <View style={{ gap: 8, backgroundColor: p.sf, borderWidth: 1, borderColor: p.ln, borderRadius: 18, paddingHorizontal: 14, paddingVertical: 4 }} testID="today-weekly">
@@ -635,7 +635,7 @@ function Group({ kind, items, timezone, lang, busy, football }: {
 
   const first = items[0]!;
   const firstWhen = drawnWhenLine(first, lang, timezone)?.text;
-  const preview = `· ${first.title}${firstWhen ? ` ${firstWhen}` : ''}${items.length > 1 ? ` ${isolateAuto(`+${items.length - 1}`)}` : ''}`;
+  const preview = `· ${isolateAuto(first.title)}${firstWhen ? ` ${firstWhen}` : ''}${items.length > 1 ? ` ${isolateAuto(`+${items.length - 1}`)}` : ''}`;
   return (
     <View style={{ gap: 10 }} testID={`today-group-${kind}`}>
       <Btn

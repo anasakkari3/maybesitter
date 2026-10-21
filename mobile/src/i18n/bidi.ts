@@ -57,3 +57,18 @@ export function isolateLatinRuns(text: string): string {
   if (!RTL_LETTER.test(text)) return text;
   return text.replace(LATIN_RUN, (run) => isolateAuto(run));
 }
+
+/** The first strong (Arabic, Hebrew or Latin) letter of `text`, skipping isolates, digits and punctuation. */
+const STRONG = /[\u0590-\u05FF\uFB1D-\uFB4F]|[\u0600-\u06FF\u0750-\u077F\uFB50-\uFDFF\uFE70-\uFEFF]|[A-Za-z\u00C0-\u024F]/;
+
+/**
+ * The direction a piece of user text reads in by itself: its first strong
+ * letter decides (the Unicode "first strong" rule), and text with none —
+ * digits, punctuation — takes `fallback`. Used to lay out a fact written in a
+ * language other than the app's on its own side (condition 53).
+ */
+export function firstStrongDirection(text: string, fallback: 'ltr' | 'rtl'): 'ltr' | 'rtl' {
+  const match = stripIsolates(text).match(STRONG);
+  if (!match) return fallback;
+  return /[A-Za-z\u00C0-\u024F]/.test(match[0]) ? 'ltr' : 'rtl';
+}

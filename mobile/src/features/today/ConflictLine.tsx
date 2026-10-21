@@ -36,7 +36,7 @@ export function ConflictLine({ conflict, onOpen }: { conflict: TodayConflict; on
   return (
     <Btn
       testID="today-conflict"
-      label={`${conflict.item.title} ${time}. ${sentence}. ${t.todayConflictOpen}`}
+      label={`${isolateAuto(conflict.item.title)} ${time}. ${sentence}. ${t.todayConflictOpen}`}
       onPress={onOpen}
       scaleTo={0.99}
       style={{
@@ -47,7 +47,7 @@ export function ConflictLine({ conflict, onOpen }: { conflict: TodayConflict; on
     >
       <View accessible={false} style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: p.wm, alignSelf: 'flex-start', marginTop: 6 }} />
       <View style={{ flex: 1, gap: 2, alignItems: 'flex-start' }}>
-        <Txt size={13} weight={600} color={p.tx} testID="today-conflict-title">{`${conflict.item.title} ${time}`}</Txt>
+        <Txt size={13} weight={600} color={p.tx} testID="today-conflict-title">{`${isolateAuto(conflict.item.title)} ${time}`}</Txt>
         <Txt size={13} color={p.mu} testID="today-conflict-busy">{sentence}</Txt>
       </View>
       <View style={{ minHeight: 44, justifyContent: 'center' }}>
