@@ -230,3 +230,13 @@ describe('«اكتبها بالعربي» on the Settings card', () => {
     expect(screen.queryByTestId('m6-translate-action-memory-1')).toBeNull();
   });
 });
+
+describe('the disclosure version this build knows', () => {
+  it('is the one the real server advertises (the generated m6b fixture)', () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const fixture = require('../../../api/__fixtures__/capabilities.m6b.json') as { disclosureVersion: string };
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { MEMORY_TRANSLATION_DISCLOSURE_VERSION } = require('../disclosure') as { MEMORY_TRANSLATION_DISCLOSURE_VERSION: string };
+    expect(fixture.disclosureVersion).toBe(MEMORY_TRANSLATION_DISCLOSURE_VERSION);
+  });
+});
