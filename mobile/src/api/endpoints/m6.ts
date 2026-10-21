@@ -1,5 +1,8 @@
 import { apiRequest } from '../client';
-import { commitmentSearchSchema, m6CapabilitiesSchema, type CommitmentSearch, type M6Capabilities } from '../schemas/m6';
+import {
+  commitmentSearchSchema, m6CapabilitiesSchema, memoryTranslationSchema,
+  type CommitmentSearch, type M6Capabilities, type MemoryTranslation,
+} from '../schemas/m6';
 
 type Bound = { asUid?: string; signal?: AbortSignal };
 const bound = (options: Bound) => ({
@@ -20,6 +23,18 @@ export function searchCommitments(q: string, limit: number, options: Bound = {})
   return apiRequest('POST', '/api/mobile/commitments/search', {
     body: { q, limit },
     schema: commitmentSearchSchema,
+    ...bound(options),
+  });
+}
+
+/**
+ * One proposed translation of one stored fact into `locale` (PLAN-M6a-2). It
+ * saves nothing; never retried — one request per tap.
+ */
+export function proposeMemoryTranslation(id: string, locale: 'ar' | 'en' | 'he', options: Bound = {}): Promise<MemoryTranslation> {
+  return apiRequest('POST', `/api/mobile/memory/${encodeURIComponent(id)}/translation`, {
+    body: { locale },
+    schema: memoryTranslationSchema,
     ...bound(options),
   });
 }

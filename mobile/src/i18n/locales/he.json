@@ -2113,5 +2113,12 @@
   "m6SearchMore": "יש עוד תוצאות. הוסיפו מילה כדי לצמצם.",
   "m6PlanKeptGroup": "{count, plural, one{דבר אחד} two{שני דברים} other{# דברים}}",
   "m6SearchDone": "בוצע {date}",
-  "m6SearchDropped": "הופל במודע {date}"
+  "m6SearchDropped": "הופל במודע {date}",
+  "m6TranslateAction": "{lang, select, ar{לכתוב בערבית} en{לכתוב באנגלית} he{לכתוב בעברית} other{לתרגם}}",
+  "m6TranslateDisclosure": "רק הפרט הזה נשלח ל-Gemini של Google (Vertex AI, באיחוד האירופי) כדי להציע תרגום. שום דבר לא נשמר בלי ששומרים אותו.",
+  "m6TranslateLoading": "מכינים תרגום…",
+  "m6TranslateSave": "לשמור",
+  "m6TranslateKeep": "להשאיר כמו שזה",
+  "m6TranslateUnavailable": "לא הצלחנו לתרגם עכשיו. המקור לא השתנה.",
+  "m6TranslateChanged": "זה השתנה לפני רגע, אז התרגום לא נשמר."
 }

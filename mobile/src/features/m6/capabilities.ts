@@ -10,7 +10,7 @@ import { useUid } from '../../api/queries';
  * Fails closed on a failed refetch, as M4b and M5b do.
  */
 const FIVE_MINUTES = 5 * 60_000;
-const OFF: M6Capabilities = { success: true, searchHistory: false };
+const OFF: M6Capabilities = { success: true, searchHistory: false, memoryTranslation: false };
 
 async function probe(uid: string): Promise<M6Capabilities> {
   try {
@@ -23,7 +23,7 @@ async function probe(uid: string): Promise<M6Capabilities> {
 
 export const m6CapabilitiesKey = (uid: string) => ['user', uid, 'm6Capabilities'] as const;
 
-export function useSearchHistoryOn(): boolean | null {
+function useM6Capabilities(): M6Capabilities | null {
   const uid = useUid();
   const query = useQuery({
     queryKey: m6CapabilitiesKey(uid),
@@ -34,5 +34,16 @@ export function useSearchHistoryOn(): boolean | null {
     refetchOnWindowFocus: true,
     retry: false,
   });
-  return query.status === 'success' && !query.isRefetchError ? query.data.searchHistory : null;
+  return query.status === 'success' && !query.isRefetchError ? query.data : null;
+}
+
+export function useSearchHistoryOn(): boolean | null {
+  const capabilities = useM6Capabilities();
+  return capabilities === null ? null : capabilities.searchHistory;
+}
+
+/** M6a-2: `null` is unknown, and unknown asks nothing (PLAN-M6a-2 R2). */
+export function useMemoryTranslationOn(): boolean | null {
+  const capabilities = useM6Capabilities();
+  return capabilities === null ? null : capabilities.memoryTranslation === true;
 }
