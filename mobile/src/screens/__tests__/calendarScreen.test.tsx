@@ -467,7 +467,11 @@ describe('the day on equal hours (Stitch)', () => {
 
   it('does not claim a light day when the calendar is disconnected', async () => {
     await show([], []);
-    await waitFor(() => expect(screen.getByTestId(`calendar-load-${TODAY_KEY}`).props.children).toBe(en.loadUnknown));
+    // #741 (M6a-1): with no calendar the load is not known, so nothing is said
+    // under any day — not «غير معروف» seven times, and never «خفيف».
+    await waitFor(() => expect(screen.queryByTestId('calendar-week-strip')).not.toBeNull());
+    expect(screen.queryAllByTestId(/^calendar-load-/)).toHaveLength(0);
+    expect(screen.queryByText(en.loadLight)).toBeNull();
   });
 
   it('draws busy time exactly as tall as it lasts, as busy and nothing more', async () => {

@@ -7,6 +7,7 @@ import { useApp } from '../state/AppContext';
 import { family, LINE_HEIGHT, type Weight } from '../theme/fonts';
 import { cardShadow, typography, type Palette, type TextRole } from '../theme/tokens';
 import { useReducedMotion } from './motion';
+import { firstStrongDirection, firstStrongScript } from '../i18n/bidi';
 
 type Align = 'start' | 'center' | 'end';
 
@@ -26,7 +27,7 @@ export function textAlignment(align: Align, rtl: boolean, platform: string) {
 }
 
 export function Txt({
-  children, role = 'body', size = typography[role].size, weight = typography[role].weight, color, align = 'start', style, lines, lh, latin, selectable, testID, onTextLayout,
+  children, role = 'body', size = typography[role].size, weight = typography[role].weight, color, align = 'start', style, lines, lh, latin, selectable, testID, onTextLayout, dir,
 }: {
   children: React.ReactNode;
   role?: TextRole;
@@ -44,14 +45,31 @@ export function Txt({
   testID?: string | undefined;
   /** For chrome that has to know whether this label still fits its slot (TabBar). */
   onTextLayout?: ((e: NativeSyntheticEvent<TextLayoutEventData>) => void) | undefined;
+  /**
+   * `auto`: the paragraph reads in its own direction, decided by its first
+   * strong letter, not the app's — for text the person wrote, which can be in
+   * any of the three languages (condition 53). An English fact in the Arabic
+   * app is left-to-right and starts at the left, set in the Latin face.
+   */
+  dir?: 'auto' | undefined;
 }) {
-  const { rtl, script, p } = useApp();
+  const { rtl: uiRtl, script, p } = useApp();
+  const text = typeof children === 'string' ? children : Array.isArray(children) && children.every(c => typeof c === 'string') ? children.join('') : null;
+  const contentRtl = dir === 'auto' && text !== null ? firstStrongDirection(text, uiRtl ? 'rtl' : 'ltr') === 'rtl' : uiRtl;
+  // Alignment is logical to the layout (see `textAlignment`): a paragraph
+  // reading against the layout starts at the layout's end.
+  const effectiveAlign: Align = contentRtl === uiRtl || align === 'center' ? align : align === 'start' ? 'end' : 'start';
+  const rtl = uiRtl;
   // `latin` is the AGENTS.md escape hatch: a digit or a Latin-only label in a
   // tight box, set in the Latin face whatever the UI language is. Everything else is
   // set in the script of the language — which for Hebrew is a different face
   // from Arabic's, not a different direction.
-  const runScript = latin ? 'latin' : script;
-  const textAlign = textAlignment(align, rtl, Platform.OS);
+  // The face follows the words' own script, not only their direction: a
+  // Hebrew fact in the Arabic app is set in Noto Sans Hebrew (Noto Kufi has
+  // no Hebrew), an Arabic one in the Hebrew app in Noto Kufi.
+  const ownScript = dir === 'auto' && text !== null ? firstStrongScript(text) : null;
+  const runScript = latin ? 'latin' : ownScript ?? script;
+  const textAlign = textAlignment(effectiveAlign, rtl, Platform.OS);
   // RN 0.86 scales BOTH fontSize and lineHeight natively (iOS:
   // RCTAttributedTextUtils; Android: TextAttributes.effectiveLineHeight).
   // Supply the unscaled script ratio once. Multiplying by fontScale here
@@ -70,7 +88,7 @@ export function Txt({
           lineHeight: Math.round(size * (runScript === 'arabic' ? Math.max(lh ?? LINE_HEIGHT.arabic, LINE_HEIGHT.arabic) : (lh ?? LINE_HEIGHT[runScript]))),
           color: color ?? p.tx,
           textAlign,
-          writingDirection: rtl ? 'rtl' : 'ltr',
+          writingDirection: contentRtl ? 'rtl' : 'ltr',
         },
         style,
       ]}

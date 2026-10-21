@@ -1,4 +1,7 @@
-import React, { useState } from 'react';
+import { useTimeZone } from '../../i18n/timezone';
+import { probeRange, useLocalToday, useServerBusy } from '../calendar/usePlanFreeTime';
+import { requestCalendarWider } from '../calendar/widerIntent';
+import React, { useMemo, useState } from 'react';
 import { AccessibilityInfo, View } from 'react-native';
 import { useApp } from '../../state/AppContext';
 import { useAcceptWeekDay, useWeek } from '../../api/queries';
@@ -46,7 +49,13 @@ import { ProductPage } from '../../ui/product';
  * person is told in one short line.
  */
 export function WeekScreen() {
-  const { t, p } = useApp();
+  const { t, p, actions } = useApp();
+  const timezone = useTimeZone();
+  const todayKey = useLocalToday(timezone);
+  const freeRange = useMemo(() => probeRange(todayKey, timezone), [todayKey, timezone]);
+  // The wider view exists only where the free-time probe answers; without it
+  // there is nowhere to send the person, so no link (M6A-R4-001).
+  const wider = useServerBusy(freeRange).available;
   const [decisions, setDecisions] = useState<WeekDecisions>({ moves: [], drops: [] });
   const query = useWeek(decisions);
   const week = query.data;
@@ -78,6 +87,14 @@ export function WeekScreen() {
           {week ? <WeekBody week={week} decisions={decisions} redrawing={redrawing} onMove={move} onDrop={drop} onUndrop={undrop} /> : null}
         </QueryBoundary>
       )}
+      {/* Seven days here (D54-2); further out is the calendar's wider view. */}
+      {wider ? (
+        <Btn testID="m6-plan-see-further" label={t.yWiderOpen} scaleTo={0.97}
+          onPress={() => { requestCalendarWider(); actions.openCalendarWider(); }}
+          style={{ minHeight: 44, justifyContent: 'center', alignItems: 'flex-start' }}>
+          <Txt size={14} color={p.ac}>{t.yWiderOpen}</Txt>
+        </Btn>
+      ) : null}
     </ProductPage>
   );
 }

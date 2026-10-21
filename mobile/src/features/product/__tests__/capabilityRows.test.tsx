@@ -50,7 +50,11 @@ jest.mock('../../../auth/AuthProvider', () => ({
   useAuth: () => ({ user: { uid: 'u', email: 'a@b.c', displayName: 'Sami' } }),
   useOptionalAuth: () => ({ user: { uid: 'u', email: 'a@b.c', displayName: 'Sami' } }),
 }));
+// M6a-1: the server search capability, off here (these screens render without a QueryClient).
+jest.mock('../../m6/capabilities', () => ({ useSearchHistoryOn: () => false }));
 jest.mock('../../../api/queries', () => ({
+  // M6a-1: the server search; off in these tests (no capability answer).
+  useCommitmentSearch: () => ({ data: undefined, isPending: false, error: null }),
   useUid: () => 'u',
   useConsents: query({ currentVersions: { personalization: 'v1' }, personalization: null, recommendations: { state: 'granted' } }),
   useSetPersonalizationConsent: mutation(),

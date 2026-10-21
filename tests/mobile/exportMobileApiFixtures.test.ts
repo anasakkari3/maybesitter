@@ -258,6 +258,12 @@ import {
   scriptedModel as m5bModel,
   useSummaryModel as useM5bSummaryModel,
 } from '../acceptance/m5b/support.ts';
+import {
+  addCommitment as addM6Commitment,
+  begin as beginM6,
+  call as callM6,
+  end as endM6,
+} from '../acceptance/m6/support.ts';
 import { commitmentBaselineFingerprint } from '../../lib/intelligence/autoAdds.ts';
 
 const BASE = 'http://127.0.0.1:4321';
@@ -3703,6 +3709,21 @@ test('exports the M5b fixtures from the real handlers', async () => {
     await recordM4b('next-step.m5b', 200, await callM5b(uid, 'recommendations/next-step', 'GET', { query: { locale: 'en', timezone: 'Asia/Jerusalem' } }));
   } finally {
     endM5b();
+  }
+});
+
+test('exports the M6a-1 fixtures from the real handlers', async () => {
+  const uid = await beginM6();
+  try {
+    await recordM4b('capabilities.m6', 200, await callM6(uid, 'capabilities/m6', 'GET'));
+    await addM6Commitment(uid, 'Dentist appointment', {
+      kind: 'due_by', dueAt: '2026-10-09T09:00:00.000Z', endAt: null, allDay: false,
+    });
+    await recordM4b('commitments.search', 200, await callM6(uid, 'commitments/search', 'POST', {
+      body: { q: 'dent' },
+    }));
+  } finally {
+    endM6();
   }
 });
 

@@ -367,7 +367,7 @@ function WeeklyToday({ items }: { items: readonly WeeklyBlockOccurrence[] }) {
   if (items.length === 0) return null;
   const sorted = [...items].sort((a, b) => Date.parse(a.startAt) - Date.parse(b.startAt));
   const summary = sorted
-    .map((o) => `${o.title} ${ltr(formatTime(new Date(o.startAt), { locale: lang, timeZone: timezone }))}`)
+    .map((o) => `${isolateAuto(o.title)} ${ltr(formatTime(new Date(o.startAt), { locale: lang, timeZone: timezone }))}`)
     .join(' · ');
   return (
     <View style={{ gap: 8, backgroundColor: p.sf, borderWidth: 1, borderColor: p.ln, borderRadius: 18, paddingHorizontal: 14, paddingVertical: 4 }} testID="today-weekly">
@@ -554,7 +554,7 @@ function FallbackCard({ item, strings, timezone, lang, busy, onPostpone }: {
         scaleTo={0.99}
         style={{ alignItems: 'flex-start', gap: 4 }}
       >
-        <Txt role="section" size={stacked ? 17 : 20} weight={700} color={p.tx} lines={2}>{item.title}</Txt>
+        <Txt role="section" size={stacked ? 17 : 20} weight={700} color={p.tx} lines={2} testID={`m6-user-text-today-${item.id}`}>{item.title}</Txt>
         {!item.importanceIsStated && item.importance === 'must' ? (
           <Txt size={13} color={p.mu} testID={`today-estimated-${item.id}`}>{t.todayEstimatedMark}</Txt>
         ) : null}
@@ -635,7 +635,7 @@ function Group({ kind, items, timezone, lang, busy, football }: {
 
   const first = items[0]!;
   const firstWhen = drawnWhenLine(first, lang, timezone)?.text;
-  const preview = `· ${first.title}${firstWhen ? ` ${firstWhen}` : ''}${items.length > 1 ? ` ${isolateAuto(`+${items.length - 1}`)}` : ''}`;
+  const preview = `· ${isolateAuto(first.title)}${firstWhen ? ` ${firstWhen}` : ''}${items.length > 1 ? ` ${isolateAuto(`+${items.length - 1}`)}` : ''}`;
   return (
     <View style={{ gap: 10 }} testID={`today-group-${kind}`}>
       <Btn
@@ -733,7 +733,7 @@ function Row({ item, timezone, lang, busy, football }: {
           </Btn>
         )}
         <View style={{ flex: 1, gap: 4, alignItems: 'flex-start' }}>
-          <Txt size={15} weight={600} color={p.tx}>{item.title}</Txt>
+          <Txt size={15} weight={600} color={p.tx} testID={`m6-user-text-today-${item.id}`}>{item.title}</Txt>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
             {/* A deadline is a point in time, so it reads as one. There is no
                 "overdue": a time that has passed is drawn like any other. */}

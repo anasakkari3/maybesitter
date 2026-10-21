@@ -41,7 +41,14 @@ let mockSaveVariables: { date: string; shown: string[] } | undefined;
 const mockDecisions: WeekDecisions[] = [];
 const mockSave = jest.fn();
 
+// M6a-1: the «شوف أبعد» link reads the free-time probe; off here (no QueryClient in these tests).
+jest.mock('../../calendar/usePlanFreeTime', () => ({
+  ...(jest.requireActual('../../calendar/usePlanFreeTime') as object),
+  useServerBusy: () => ({ available: false }),
+}));
+
 jest.mock('../../../api/queries', () => ({
+  useUid: () => 'u',
   useWeek: (decisions: WeekDecisions) => {
     mockDecisions.push(decisions);
     return {

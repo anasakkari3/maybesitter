@@ -32,6 +32,7 @@ import {
   SUGGESTION_KINDS,
   type DropReason,
   type ProfileSuggestion,
+  type ProfileLocale,
   type SuggestionCategory,
   type SuggestionKind,
   type ValidationOutcome,
@@ -43,6 +44,30 @@ const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 export interface ValidateOptions {
   /** Today, in UTC. A target date before this is dropped. */
   readonly now: Date;
+  /** When present, model output must be predominantly in this script. */
+  readonly locale?: ProfileLocale;
+}
+
+const LETTER = new RegExp('\\p{L}', 'u');
+const SCRIPT = {
+  ar: new RegExp('\\p{Script=Arabic}', 'u'),
+  en: new RegExp('\\p{Script=Latin}', 'u'),
+  he: new RegExp('\\p{Script=Hebrew}', 'u'),
+} as const;
+
+function usesTargetScript(content: string, locale: ProfileLocale): boolean {
+  let targetLetters = 0;
+  let foreignTokens = 0;
+  for (const token of content.split(/\s+/).filter(Boolean)) {
+    let tokenHasForeignLetter = false;
+    for (const character of token) {
+      if (!LETTER.test(character)) continue;
+      if (SCRIPT[locale].test(character)) targetLetters += 1;
+      else tokenHasForeignLetter = true;
+    }
+    if (tokenHasForeignLetter) foreignTokens += 1;
+  }
+  return targetLetters > 0 && foreignTokens <= 2;
 }
 
 export function validateProfileSuggestions(raw: unknown, options: ValidateOptions): ValidationOutcome {
@@ -113,6 +138,11 @@ function validateOne(
   // a phrase that started out clean.
   if (isSensitive(content)) {
     drop('sensitive');
+    return null;
+  }
+
+  if (options.locale && !usesTargetScript(content, options.locale)) {
+    drop('wrong_script');
     return null;
   }
 

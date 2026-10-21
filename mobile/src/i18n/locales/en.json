@@ -2105,5 +2105,10 @@
   "m5bEnergyAskNow": "How's your energy right now?",
   "m5bEnergyHideToday": "Not today",
   "m5bEnergyHideTodayA11y": "Hide the energy question for the rest of today",
-  "m5bEnergyLevelA11y": "Energy {energy} of 5"
+  "m5bEnergyLevelA11y": "Energy {energy} of 5",
+  "m6SearchNoResults": "Nothing matches that",
+  "m6SearchMore": "There are more results. Add a word to narrow it down.",
+  "m6PlanKeptGroup": "{count, plural, one{1 thing} other{# things}}",
+  "m6SearchDone": "Done {date}",
+  "m6SearchDropped": "Dropped on purpose {date}"
 }
