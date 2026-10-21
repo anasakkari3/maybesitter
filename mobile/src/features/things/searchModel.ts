@@ -1,5 +1,9 @@
 import type { Commitment } from '../../api/schemas/common';
-import { foldForSearch, isSearchable, isWordPrefixMatch } from '../../text/foldForSearch';
+import { foldForSearch, isWordPrefixMatch } from '../../text/foldForSearch';
+
+const LETTER_OR_NUMBER = /[\p{L}\p{N}]/u;
+/** A folded needle has something to search for: at least one letter or digit (R2-011). */
+const isSearchable = (folded: string) => LETTER_OR_NUMBER.test(folded);
 
 /**
  * The search on «أشيائي» and the commitments page (PLAN-M6a R54.2, D54-1).

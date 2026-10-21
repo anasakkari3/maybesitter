@@ -211,25 +211,33 @@ function PostponeChoices({ commitmentId, knownTitle, onMoved }: {
       {smart.phase === 'loading' ? (
         <Txt size={14} color={p.mu} testID="postpone-slots-loading">{t.zPostponeLoading}</Txt>
       ) : smart.phase === 'slots' ? (
+        <View style={{ gap: 10 }}>
+        {/* A reason that every slot shares tells them apart from nothing: say
+            it once above them, and on each chip only when they differ (SIM-B4). */}
+        {sameWhy(smart.slots) ? (
+          <Txt size={13} color={p.mu} testID="postpone-slots-why-shared">{whyWord(smart.slots[0]!.why, t)}</Txt>
+        ) : null}
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
           {smart.slots.map((slot, index) => {
             const start = new Date(slot.startsAt);
             const day = formatRelativeDay(start, { locale: lang, timeZone: timezone, now });
             const time = formatTime(start, { locale: lang, timeZone: timezone });
-            const why = slot.why === 'soonest' ? t.zWhySoonest : slot.why === 'light_day' ? t.zWhyLightDay : t.zWhyUsual;
+            const why = whyWord(slot.why, t);
+            const shared = sameWhy(smart.slots);
             return (
               <SheetChoice
                 key={slot.slotToken}
                 testID={`postpone-slot-${index}`}
                 subTestID={`postpone-slot-why-${index}`}
                 label={`${isolateAuto(day)} · ${ltr(time)}`}
-                sub={why}
+                {...(shared ? {} : { sub: why })}
                 a11yLabel={fill(t.zPostponeSlotA11y, { day, time, why })}
                 disabled={act.isPending}
                 onPress={() => pickSlot(slot)}
               />
             );
           })}
+        </View>
         </View>
       ) : (
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
@@ -780,4 +788,13 @@ function SheetPanel({ sheet, panelMotion }: { sheet: Exclude<Sheet, null>; panel
       )}
     </Animated.View>
   );
+}
+
+function whyWord(why: string, t: ReturnType<typeof useApp>['t']): string {
+  return why === 'soonest' ? t.zWhySoonest : why === 'light_day' ? t.zWhyLightDay : t.zWhyUsual;
+}
+
+/** More than one slot, all for the same reason. */
+function sameWhy(slots: readonly { why: string }[]): boolean {
+  return slots.length > 1 && slots.every(slot => slot.why === slots[0]!.why);
 }
