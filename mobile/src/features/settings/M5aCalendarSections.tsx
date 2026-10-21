@@ -81,6 +81,9 @@ export function M5aCalendarSections({
   }, [granted, trustAction]);
 
   const toggle = useCallback(async (calendarId: string, on: boolean) => {
+    // No choice is recorded while the master switch is off (Codex M6B-R02): a
+    // pending selection could otherwise resume when it is turned back on.
+    if (!consented) return;
     try {
       // Applied to the newest selection at save time, not to this render's list (M5A-R3-005).
       await busyCalendar.toggleCalendar(calendarId, on);
@@ -88,7 +91,7 @@ export function M5aCalendarSections({
       // The line under the list says it; the switch never moved.
       if (!(error instanceof SelectionNotSavedError)) throw error;
     }
-  }, [busyCalendar]);
+  }, [busyCalendar, consented]);
 
   const googleStatus = google.data;
   // The connected account's address: an LTR run inside the line.
@@ -157,7 +160,7 @@ export function M5aCalendarSections({
         ) : null}
         {/* The switches below wait for «يستعمل» above; say so instead of
             letting a tap do nothing (M6b BB-08). */}
-        {granted && phoneCalendars && phoneCalendars.length > 0 && !view.removed && !view.enrolled ? (
+        {granted && phoneCalendars && phoneCalendars.length > 0 && !view.removed && !consented ? (
           <View style={{ paddingHorizontal: 18, paddingBottom: 12 }}>
             <Txt role="supporting" color={p.mu} testID="calendar-list-needs-use">{t.m5CalListNeedsUse}</Txt>
           </View>
@@ -179,9 +182,9 @@ export function M5aCalendarSections({
                       testID={`calendar-include-${calendar.id}`}
                       accessibilityRole="switch"
                       accessibilityLabel={fill(t.m5CalCalendarA11y, { title: calendar.title, account })}
-                      accessibilityState={{ checked: on, disabled: view.removed || !view.enrolled }}
+                      accessibilityState={{ checked: on, disabled: view.removed || !view.enrolled || !consented }}
                       value={on}
-                      disabled={view.removed || !view.enrolled}
+                      disabled={view.removed || !view.enrolled || !consented}
                       trackColor={{ false: p.ln, true: p.ac }}
                       onValueChange={(next) => void toggle(calendar.id, next)}
                     />

@@ -97,5 +97,25 @@ export function firstStrongDirection(text: string, fallback: 'ltr' | 'rtl'): 'lt
  * guillemet (M6b BB-07). Display only; the stored text is untouched.
  */
 export function isolateQuoted(text: string): string {
-  return text.replace(/«([^«»]+)»/g, (_whole, inside: string) => `«${isolateAuto(inside)}»`);
+  // Outermost balanced «…» spans only, nested quotes kept inside them (Codex
+  // M6B-R04). An unbalanced or empty pair is left exactly as written.
+  let out = '';
+  let depth = 0;
+  let start = -1;
+  let cursor = 0;
+  for (let index = 0; index < text.length; index += 1) {
+    const char = text[index];
+    if (char === '«') {
+      if (depth === 0) start = index;
+      depth += 1;
+    } else if (char === '»' && depth > 0) {
+      depth -= 1;
+      if (depth === 0) {
+        const inside = text.slice(start + 1, index);
+        out += text.slice(cursor, start) + (inside.length > 0 ? `«${isolateAuto(inside)}»` : '«»');
+        cursor = index + 1;
+      }
+    }
+  }
+  return out + text.slice(cursor);
 }

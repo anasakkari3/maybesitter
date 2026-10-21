@@ -565,7 +565,7 @@ function ConfirmStep({ flow, times, plan }: { flow: Flow; times: GoalPlanTimes; 
         const slot = slotOf(step);
         const weekly = weeklyOf(step);
         return <View key={step.stepId} testID={`plan-will-save-${step.stepId}`} style={{ gap: 2 }}>
-          <Txt role="body">{titleIn(plan, step.stepId) ?? ''}</Txt>
+          <Txt role="body">{isolateQuoted(titleIn(plan, step.stepId) ?? '')}</Txt>
           <Txt role="metadata" color={p.mu}>{slot ? slotLine(slot) : weekly ? weeklyLine(weekly, startOf(step.stepId)) : t.xPlanTimesNone}</Txt>
         </View>;
       })}
@@ -575,7 +575,7 @@ function ConfirmStep({ flow, times, plan }: { flow: Flow; times: GoalPlanTimes; 
       {stayed.map(step => {
         const later = laterOf(step);
         return <View key={step.stepId} testID={`plan-will-stay-${step.stepId}`} style={{ gap: 2 }}>
-          <Txt role="body">{titleIn(plan, step.stepId) ?? ''}</Txt>
+          <Txt role="body">{isolateQuoted(titleIn(plan, step.stepId) ?? '')}</Txt>
           <Txt role="metadata" color={p.mu}>{later ? fill(t.xPlanStayLaterWeek, { n: later.weekIndex }) : t.xPlanStayNoRoom}</Txt>
         </View>;
       })}

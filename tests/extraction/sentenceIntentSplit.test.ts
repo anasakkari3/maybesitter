@@ -52,6 +52,11 @@ test('BB-04 review: a bare hedge before a third-person verb is a remark on the p
     'عندي امتحان الأحد. يمكن يأجلوه',
     'פגישה ב-5. אולי תתארך',
     'Meeting at 5. Maybe it runs late',
+    // Codex M6B-R01: punctuation after the hedge does not change whose verb it is.
+    // (The Arabic comma «،» is not used here: it is a hard separator by the
+    // splitter's older rule and splits wherever it stands.)
+    'اجتماع الساعة 5. ممكن: يتأخر شوي',
+    'פגישה ב-5. אולי, תתארך',
   ]) {
     assert.equal(splitCaptureClauses(text).length, 1, `${text} → ${JSON.stringify(splitCaptureClauses(text))}`);
   }

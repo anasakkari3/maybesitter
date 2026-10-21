@@ -295,7 +295,9 @@ const EXPLICIT_REMINDER_OPENER = new RegExp(
  * Before anything else it is a remark on the point before it: «… الساعة 5.
  * ممكن يتأخر شوي», «… الأحد. يمكن يأجلوه», «… ב-5. אולי תתארך» (BB-04 review).
  */
-const BARE_HEDGE = new RegExp('^(?:يمكن|ممكن|ربما|אולי)\\s+(\\S+)', 'u');
+// Punctuation may stand between the hedge and its verb («ممكن، يتأخر», "אולי, תתארך")
+// without changing whose verb it is (Codex M6B-R01).
+const BARE_HEDGE = new RegExp('^(?:يمكن|ممكن|ربما|אולי)(?:[\\s,،.:;!?؟\\-–—]|$)[\\s,،.:;!?؟\\-–—]*([^\\s,،.:;!?؟]*)', 'u');
 function firstPersonVerb(word: string): boolean {
   return /^[أاإن]/.test(word)
     // Spoken Arabic b-imperfect: «بسافر», «بروح» are «I»; «بيسافر», «بتسافر» are not.
@@ -305,7 +307,7 @@ function firstPersonVerb(word: string): boolean {
 function opensWithIntentOfMyOwn(text: string): boolean {
   if (!opensWithUnresolvedIntent(text)) return false;
   const hedge = BARE_HEDGE.exec(text);
-  return hedge === null || firstPersonVerb(hedge[1]!);
+  return hedge === null || (hedge[1] !== '' && firstPersonVerb(hedge[1]!));
 }
 
 /** Whether a sentence opens a clause of its own, after `previous`. */
