@@ -89,3 +89,13 @@ export function firstStrongDirection(text: string, fallback: 'ltr' | 'rtl'): 'lt
   }
   return fallback;
 }
+
+/**
+ * Each «…» quote in a sentence, its inside isolated by its own first strong
+ * character. A step titled «اكتب شو يعني إنك خلّصت «إنهاء مشروع التخرج M6D»»
+ * otherwise reorders the Latin end of the quoted title next to its opening
+ * guillemet (M6b BB-07). Display only; the stored text is untouched.
+ */
+export function isolateQuoted(text: string): string {
+  return text.replace(/«([^«»]+)»/g, (_whole, inside: string) => `«${isolateAuto(inside)}»`);
+}

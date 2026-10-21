@@ -50,6 +50,9 @@ export function VerifyEmailBanner({ children }: React.PropsWithChildren) {
   const keyboardShown = useSoftKeyboardShown();
   const [cooldown, setCooldown] = useState(0);
   const [sent, setSent] = useState(false);
+  // A send that failed says so (owner report 2026-10-22: «no email arrives»,
+  // and the banner had swallowed every failure without a word).
+  const [failed, setFailed] = useState(false);
   const [expanded, setExpanded] = useState(false);
 
   const needsVerification = user !== null && user.email !== null && !user.emailVerified;
@@ -71,13 +74,17 @@ export function VerifyEmailBanner({ children }: React.PropsWithChildren) {
   const resend = useCallback(async () => {
     if (cooldown > 0) return;
     setCooldown(RESEND_COOLDOWN_SECONDS);
+    setFailed(false);
     try {
       await repository.sendVerificationEmail();
       setSent(true);
     } catch {
       // The cooldown still runs: a failure here is almost always the rate
       // limit itself, and inviting an immediate retry would only extend it.
+      // But the person is told it did not go, instead of being left to wait
+      // for an email that is not coming.
       setSent(false);
+      setFailed(true);
     }
   }, [cooldown, repository]);
 
@@ -87,7 +94,7 @@ export function VerifyEmailBanner({ children }: React.PropsWithChildren) {
     // (UAT round 6, batch 9). The cooldown survives it.
     if (!needsVerification || keyboardShown) return null;
 
-    const message = sent && cooldown > 0 ? t.authVerifyResent : t.authVerifyBanner;
+    const message = failed ? t.authVerifyFailed : sent && cooldown > 0 ? t.authVerifyResent : t.authVerifyBanner;
     const lines = bannerTextLines({ windowHeight, fontScale });
     const resendButton = (
       <Pill
@@ -130,7 +137,7 @@ export function VerifyEmailBanner({ children }: React.PropsWithChildren) {
 
     // Keep the folded strip short at enlarged sizes; the full sentence remains
     // available by touch and to screen readers.
-    const visibleMessage = sent && cooldown > 0 ? t.authVerifySentShort : t.authVerifyShort;
+    const visibleMessage = failed ? t.authVerifyFailedShort : sent && cooldown > 0 ? t.authVerifySentShort : t.authVerifyShort;
     const sentence = (
       <Btn
         label={message}

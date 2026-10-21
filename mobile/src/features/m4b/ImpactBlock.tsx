@@ -33,7 +33,9 @@ export function ImpactBlock({ itemId, impact, itemTitle, disabled, error, onAnsw
   const timezone = useTimeZone();
   const format = { locale: lang, timeZone: timezone };
   const start = new Date(impact.otherStartsAt);
-  const when = `${isolateAuto(formatRelativeDay(start, { ...format, now: new Date() }))} ${ltr(formatTime(start, format))}`;
+  // One first-strong unit for the day and the time together, so the comma
+  // the sentence puts after them sits after the time (M6b BB-06).
+  const when = isolateAuto(`${isolateAuto(formatRelativeDay(start, { ...format, now: new Date() }))} ${ltr(formatTime(start, format))}`);
   const line = fill(impact.role === 'evening' ? t.zImpactEvening : t.zImpactImportant, { title: isolateAuto(impact.otherTitle), when });
   // The question is about the important item: the other one on the evening
   // card, this one on the exam card.

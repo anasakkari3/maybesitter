@@ -155,6 +155,13 @@ export function M5aCalendarSections({
             <Txt role="supporting" color={p.wm} testID="calendar-none-chosen">{t.m5CalNoneChosen}</Txt>
           </View>
         ) : null}
+        {/* The switches below wait for «يستعمل» above; say so instead of
+            letting a tap do nothing (M6b BB-08). */}
+        {granted && phoneCalendars && phoneCalendars.length > 0 && !view.removed && !view.enrolled ? (
+          <View style={{ paddingHorizontal: 18, paddingBottom: 12 }}>
+            <Txt role="supporting" color={p.mu} testID="calendar-list-needs-use">{t.m5CalListNeedsUse}</Txt>
+          </View>
+        ) : null}
         {granted && phoneCalendars ? groupByAccount(phoneCalendars).map(({ source, calendars }) => {
           const account = source === OTHER_SOURCE ? t.calendarDeviceSourceOther : source;
           // iOS names its own local sources in English whatever the language

@@ -45,7 +45,7 @@ export function AvatarButton() {
       style={{ width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center', backgroundColor: p.acs, borderWidth: 1, borderColor: p.ac }}
     >
       {drawable
-        ? <Txt size={17} weight={700} color={p.acd} align="center" lh={1.2} latin={run === 'latin'} testID="open-settings-initial">{letter}</Txt>
+        ? <Txt size={17} weight={700} color={p.acd} align="center" lh={1.2} latin={run === 'latin'} maxScale={1.3} testID="open-settings-initial">{letter}</Txt>
         : <ReferenceIcon name="person" size={21} color={p.acd} />}
     </Btn>
   );
