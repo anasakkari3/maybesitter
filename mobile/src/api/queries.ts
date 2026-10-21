@@ -1289,9 +1289,17 @@ export function useTrustAction() {
   return useMutation({
     // Bound to the account it was started for (M5A-R53-002).
     mutationFn: (action: TrustAction) => updateTrust(action, uid === 'signed-out' ? {} : { asUid: uid }),
-    onSuccess: () => {
-      void client.invalidateQueries({ queryKey: queryKeys.trust(uid) });
-      void client.invalidateQueries({ queryKey: ['user', uid, 'nextStep'] });
+    // The account the change was sent for, held from the tap.
+    onMutate: () => ({ uid }),
+    onSuccess: (response, _action, context) => {
+      const forUid = context?.uid ?? uid;
+      // The server's answer is the consent now. Written at once, so a revoked
+      // calendar consent stops every reader even when the refetch below is
+      // slow or fails (Codex M6B-R4-001); the refetch still runs. Only while
+      // that account is still the signed-in one (`uid` is this render's).
+      if (forUid !== 'signed-out' && forUid === uid) client.setQueryData(queryKeys.trust(forUid), response);
+      void client.invalidateQueries({ queryKey: queryKeys.trust(forUid) });
+      void client.invalidateQueries({ queryKey: ['user', forUid, 'nextStep'] });
     },
   });
 }

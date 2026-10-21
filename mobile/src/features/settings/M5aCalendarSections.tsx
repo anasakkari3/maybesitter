@@ -63,6 +63,9 @@ export function M5aCalendarSections({
   const [turningOff, setTurningOff] = useState(false);
   if (turningOff && !consented) setTurningOff(false);
   const usable = consented && !turningOff;
+  // The master switch shows the off it was just given (Codex M6B-R4-004), and
+  // takes no second change until the server has answered the first.
+  const useLocked = !trustLoaded || trustAction.isPending;
   const shown = shownIncluded(view);
   const granted = access === 'granted';
 
@@ -133,9 +136,9 @@ export function M5aCalendarSections({
             testID="calendar-use-toggle"
             accessibilityRole="switch"
             accessibilityLabel={t.m5CalUseTitle}
-            accessibilityState={{ checked: consented, disabled: false }}
-            value={consented}
-            disabled={!trustLoaded}
+            accessibilityState={{ checked: usable, disabled: useLocked }}
+            value={usable}
+            disabled={useLocked}
             trackColor={{ false: p.ln, true: p.ac }}
             onValueChange={changeUse}
           />

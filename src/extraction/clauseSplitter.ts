@@ -64,7 +64,7 @@
 import { stripTimeExpressions } from './ruleBasedExtractor';
 import { namesDay, RELATIVE_DAY_MENTION_SOURCES, statesClock, timeOfDayEvidence } from './timeLexicon';
 import { LEADING_CONNECTOR, NOT_LETTERS, REQUEST_MARKER, opensWithAction } from './requestEvidence';
-import { opensWithUnresolvedIntent } from './unresolvedIntent';
+import { afterUnresolvedIntentMarker, opensWithUnresolvedIntent } from './unresolvedIntent';
 
 const B = '(?<![\\p{L}\\p{M}])';
 const A = '(?![\\p{L}\\p{M}])';
@@ -303,11 +303,24 @@ function opensWithIntentOfMyOwn(text: string): boolean {
   return opensWithUnresolvedIntent(text) && !BARE_HEDGE.test(text);
 }
 
+/** The words after the intent marker are something to do, not only an hour or a copula. */
+function intentNamesAnAction(text: string): boolean {
+  const rest = afterUnresolvedIntentMarker(text);
+  if (rest === null) return false;
+  return followedByObject(rest.replace(/^\s*(?:of|about)\s+/i, ''));
+}
+
 /** Whether a sentence opens a clause of its own, after `previous`. */
 function opensCommitment(sentence: string, previous: string): boolean {
   const text = sentence.replace(LEADING_CONNECTOR, '').trim();
   if (!text) return false;
   if (EXPLICIT_REMINDER_OPENER.test(text)) return true;
+  // A thought with something to do in it is its own point even when it names
+  // an hour after a day-only point (Codex M6B-R4-002): "Dentist on Sunday.
+  // I'm thinking of calling the airline at 5" must not give the dentist 17:00.
+  // An opener like «بدي» or "Call" still restates the hour, as CL1 round 6
+  // decided; only an unresolved-intent marker followed by an object goes first.
+  if (opensWithIntentOfMyOwn(text) && intentNamesAnAction(text)) return true;
   if (restatesTheHour(text, previous)) return false;
   // A thought, a wait, a someday or an idea is a point of its own (M6b BB-04):
   // «… بكرا من 4 لـ 8 المسا. عم بفكر أسافر الصيف الجاي» must not hand the

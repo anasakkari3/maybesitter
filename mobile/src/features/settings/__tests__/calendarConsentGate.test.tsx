@@ -3,7 +3,7 @@ import { act, screen, waitFor } from '@testing-library/react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { deviceCalendar } from '../../calendar/deviceCalendar';
 import {
-  ACCOUNT_A, NOW, changeSwitch, initialState, prepare, showCalendar, teardown, trustResponse,
+  ACCOUNT_A, NOW, captureAppState, changeSwitch, initialState, prepare, showCalendar, teardown, trustResponse,
   type M5aHarness, type RouteReply,
 } from '../../../__acceptance__/m5a/harness';
 
@@ -64,8 +64,11 @@ describe('the calendar switches follow «uses your calendar»', () => {
 
     await changeSwitch('calendar-use-toggle', false);
     await waitFor(() => expect(answer).toBeDefined());
-    // The trust query still says on: the list must not.
+    // The trust query still says on: the list must not, and the master switch
+    // shows the off it was given, locked until the answer (Codex M6B-R4-004).
     expect(screen.getByTestId('calendar-include-work').props.accessibilityState).toMatchObject({ disabled: true });
+    expect(screen.getByTestId('calendar-use-toggle').props.value).toBe(false);
+    expect(screen.getByTestId('calendar-use-toggle').props.accessibilityState).toMatchObject({ checked: false, disabled: true });
     expect(screen.queryByTestId('calendar-list-needs-use')).not.toBeNull();
     await changeSwitch('calendar-include-work', true);
     expect(await AsyncStorage.getItem(PENDING)).toBeNull();
@@ -85,5 +88,31 @@ describe('the calendar switches follow «uses your calendar»', () => {
     await changeSwitch('calendar-use-toggle', false);
     await waitFor(() => expect(screen.getByTestId('calendar-include-work').props.accessibilityState).toMatchObject({ disabled: false }));
     expect(screen.getByTestId('calendar-use-toggle').props.value).toBe(true);
+  });
+
+  it('a switch-off the server confirmed holds even when the refetch after it fails (Codex M6B-R4-001)', async () => {
+    const foreground = captureAppState();
+    let posted = false;
+    await calendarWith(true, (request) => {
+      if (request.path !== '/api/mobile/pilot/trust') return undefined;
+      if (request.method === 'POST') {
+        posted = true;
+        return { status: 200, body: trustResponse(false) };
+      }
+      return posted ? { status: 503, body: { success: false } } : undefined;
+    });
+    await waitFor(() => expect(screen.getByTestId('calendar-include-work').props.accessibilityState).toMatchObject({ disabled: false }));
+
+    await changeSwitch('calendar-use-toggle', false);
+    await waitFor(() => expect(screen.getByTestId('calendar-use-toggle').props.value).toBe(false));
+    await waitFor(() => expect(harness!.server.matching('GET', /\/api\/mobile\/pilot\/trust$/).length).toBeGreaterThan(1));
+    // The failed refetch did not bring the old «on» back.
+    expect(screen.getByTestId('calendar-use-toggle').props.value).toBe(false);
+    expect(screen.getByTestId('calendar-include-work').props.accessibilityState).toMatchObject({ disabled: true });
+
+    const reads = jest.mocked(deviceCalendar.fetchBusyBlocks);
+    reads.mockClear();
+    await act(async () => { foreground('active'); await jest.advanceTimersByTimeAsync(2_000); });
+    expect(reads).not.toHaveBeenCalled();
   });
 });

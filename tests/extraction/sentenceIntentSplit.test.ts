@@ -68,3 +68,26 @@ test('BB-04 review (Codex M6B-R2-001): a bare hedge after a period stays with th
     assert.equal(splitCaptureClauses(text).length, 2, `${text} → ${JSON.stringify(splitCaptureClauses(text))}`);
   }
 });
+
+test('BB-04 review (Codex M6B-R4-002): a timed thought after a day-only point is its own point (ar / en / he)', () => {
+  for (const text of [
+    "Dentist on Sunday. I'm thinking of calling the airline at 5",
+    'عندي طبيب أسنان يوم الأحد. عم بفكر أسافر الساعة 5',
+    'רופא שיניים ביום ראשון. אני חושב על לעבור דירה בשעה 5',
+  ]) {
+    const clauses = splitCaptureClauses(text);
+    assert.equal(clauses.length, 2, `${text} → ${JSON.stringify(clauses)}`);
+  }
+});
+
+test('BB-04 review (Codex M6B-R4-002): an hour that only restates the appointment still attaches', () => {
+  for (const text of [
+    'عندي موعد بكرا. حابب يكون الساعة 5',
+    'Interview on Tuesday. Zoom at 3pm',
+    'Dentist on Sunday. Call is at 10am',
+    'عندي موعد بكرا. بدي أكون هناك الساعة 5 المسا',
+  ]) {
+    const clauses = splitCaptureClauses(text);
+    assert.equal(clauses.length, 1, `${text} → ${JSON.stringify(clauses)}`);
+  }
+});

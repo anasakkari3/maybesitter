@@ -229,6 +229,22 @@ export function opensWithUnresolvedIntent(text: unknown): boolean {
   });
 }
 
+/**
+ * The words after the unresolved-intent marker a clause opens with, or null
+ * when it opens with none. «عم بفكر أسافر الساعة 5» gives «أسافر الساعة 5»:
+ * the splitter asks whether that is something to do or only an hour (Codex
+ * M6B-R4-002).
+ */
+export function afterUnresolvedIntentMarker(text: unknown): string | null {
+  const clause = typeof text === 'string' ? text.trimStart() : '';
+  if (!clause) return null;
+  for (const pattern of [WAITING_FOR, POSSIBLE_GOAL, CONSIDERATION, IDEA]) {
+    const match = new RegExp(pattern.source, pattern.flags.replace('g', '')).exec(clause);
+    if (match !== null && match.index === 0) return clause.slice(match[0].length);
+  }
+  return null;
+}
+
 export function detectUnresolvedIntent(rawSegment: unknown): UnresolvedIntentReading | null {
   const segment = typeof rawSegment === 'string' ? rawSegment.trim() : '';
   if (!segment) return null;
