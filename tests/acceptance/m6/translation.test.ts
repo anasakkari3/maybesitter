@@ -437,7 +437,9 @@ test('R1 one attempt of at most 8 s inside 10 s: a model that never answers give
   } finally {
     mock.timers.reset();
   }
-  const after = await callsToday(uid, { storage: currentStorage() as any });
+  // GB-M6A2-AMEND-1 (Claude, from Codex's build report): read the usage day the
+  // reservation was made on; after the reset the clock is no longer pinned.
+  const after = await callsToday(uid, { storage: currentStorage() as any, now: new Date(started) });
   assert.equal(after.user - before.user, 1, 'not exactly one reservation');
 });
 
