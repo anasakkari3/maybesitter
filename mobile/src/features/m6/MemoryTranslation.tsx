@@ -56,7 +56,7 @@ export function textLanguageOf(content: string): 'ar' | 'he' | 'en' | 'other' | 
   if (first === null) return null;
   // Exactly the server's rule: start from the first letter's script and move
   // only to one with strictly more letters, in the order ar, he, en, other.
-  return (Object.keys(counts) as Array<keyof typeof counts>)
+  return (Object.keys(counts) as (keyof typeof counts)[])
     .reduce((most, script) => (counts[script] > counts[most] ? script : most), first);
 }
 
