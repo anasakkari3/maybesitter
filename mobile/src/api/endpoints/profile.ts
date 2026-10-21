@@ -54,11 +54,17 @@ export function createMemory(input: { kind: 'fact' | 'preference' | 'goal'; cont
   return apiRequest('POST', '/api/mobile/memory', { body: input, schema: memoryCreatedSchema, expectStatus: 201 });
 }
 
-/** An edit supersedes: the reply carries a **new** id, and the old one is gone from the list. */
-export function patchMemory(id: string, content: string) {
+/**
+ * An edit supersedes: the reply carries a **new** id, and the old one is gone
+ * from the list. `asUid` binds it to the account that asked, through the
+ * token, the 401 refresh and the answer (M6A2-APP-008): one account's words
+ * are never sent under another's token.
+ */
+export function patchMemory(id: string, content: string, options: { asUid?: string } = {}) {
   return apiRequest('PATCH', `/api/mobile/memory/${encodeURIComponent(id)}`, {
     body: { content },
     schema: memoryCreatedSchema,
+    ...(options.asUid !== undefined ? { asUid: options.asUid } : {}),
   });
 }
 

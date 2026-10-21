@@ -308,7 +308,8 @@ describe('editing', () => {
     });
     await fireEvent.press(screen.getByTestId('memory-screen-save-mem_told'));
 
-    await waitFor(() => expect(profileEndpoints.patchMemory).toHaveBeenCalledWith('mem_told', 'I cook on Saturdays'));
+    // Bound to the account that asked (M6A2-APP-008).
+    await waitFor(() => expect(profileEndpoints.patchMemory).toHaveBeenCalledWith('mem_told', 'I cook on Saturdays', { asUid: 'memory-user' }));
   });
 });
 

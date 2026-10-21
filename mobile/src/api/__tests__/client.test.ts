@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
 import { z } from 'zod';
 import { apiRequest } from '../client';
+import { patchMemory } from '../endpoints/profile';
 import { resetAuthForTests, setAuthRepository, signOutExpired, signOutForbidden } from '../auth';
 import {
   AccountChangedError,
@@ -343,6 +344,30 @@ describe('a caller that gives up before the request is sent (M6A2-APP-006)', () 
     const pending = apiRequest('POST', '/api/mobile/x', { schema: okSchema, body: { a: 1 }, signal: controller.signal });
     release();
     await expect(pending).rejects.toBeInstanceOf(TimeoutError);
+    expect(calls).toHaveLength(1);
+  });
+});
+
+describe('a memory edit bound to the account that asked (M6A2-APP-008)', () => {
+  it('sends nothing when the account changes while the token is being fetched', async () => {
+    respondWith({ status: 200, body: { ok: true } });
+    const original = repository.getIdToken.bind(repository);
+    repository.getIdToken = async (force?: boolean) => {
+      repository.emit({ ...USER, uid: 'u2' });
+      return original(force);
+    };
+    await expect(patchMemory('mem_1', 'text of u1', { asUid: 'u1' })).rejects.toBeInstanceOf(AccountChangedError);
+    expect(calls).toHaveLength(0);
+  });
+
+  it('sends no retry under another account after a 401', async () => {
+    respondWith({ status: 401, body: { error: 'expired' } }, { status: 200, body: { ok: true } });
+    const original = repository.getIdToken.bind(repository);
+    repository.getIdToken = async (force?: boolean) => {
+      if (force) repository.emit({ ...USER, uid: 'u2' });
+      return original(force);
+    };
+    await expect(patchMemory('mem_1', 'text of u1', { asUid: 'u1' })).rejects.toBeInstanceOf(AccountChangedError);
     expect(calls).toHaveLength(1);
   });
 });
