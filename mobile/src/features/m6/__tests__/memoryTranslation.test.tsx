@@ -36,13 +36,11 @@ interface Setup {
 
 async function setup(options: Setup = {}): Promise<M6Harness> {
   const handler = (request: RecordedRequest): RouteReply | undefined => {
-    if (request.path === '/api/mobile/capabilities/m6') {
-      return {
-        status: 200,
-        body: options.capability === 'absent'
-          ? { success: true, searchHistory: true }
-          : { success: true, searchHistory: true, memoryTranslation: options.capability ?? true },
-      };
+    if (request.path === '/api/mobile/capabilities/m6b') {
+      // 'absent' is a server that predates the route.
+      return options.capability === 'absent'
+        ? { status: 404, body: { success: false, error: 'Not found' } }
+        : { status: 200, body: { success: true, memoryTranslation: options.capability ?? true } };
     }
     if (request.path === '/api/mobile/capabilities/m5b' && options.m5b === false) {
       return { status: 200, body: { success: true, memoryLearning: false } };
@@ -74,6 +72,9 @@ describe('translationTargetOf', () => {
     expect(translationTargetOf(ARABIC_FACT, 'en')).toBe('en');
     expect(translationTargetOf('12:00', 'ar')).toBeNull();
     expect(translationTargetOf('Gym', 'fr')).toBeNull();
+    // Another script, or no letter at all, is not offered (M6A2-R3-002). Russian: "likes tea".
+    expect(translationTargetOf('\u041b\u044e\u0431\u0438\u0442 \u0447\u0430\u0439', 'ar')).toBeNull();
+    expect(translationTargetOf('11:30', 'en')).toBeNull();
   });
 });
 
@@ -89,7 +90,7 @@ describe('«اكتبها بالعربي» on the memory screen', () => {
   it.each([false, 'absent'] as const)('is not offered when the capability is %s', async (capability) => {
     harness = await setup({ capability });
     await renderScreen(harness);
-    await waitForRequest(harness, 'GET', /^\/api\/mobile\/capabilities\/m6$/);
+    await waitForRequest(harness, 'GET', /^\/api\/mobile\/capabilities\/m6b$/);
     expect(screen.queryByTestId('m6-translate-action-memory-1')).toBeNull();
   });
 

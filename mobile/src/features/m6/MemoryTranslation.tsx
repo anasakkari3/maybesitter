@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { View } from 'react-native';
 import { useQueryClient } from '@tanstack/react-query';
 import { useApp } from '../../state/AppContext';
-import { firstStrongScript, isolateAuto, isolateLatinRuns } from '../../i18n/bidi';
+import { isolateAuto, isolateLatinRuns, stripIsolates } from '../../i18n/bidi';
 import { Btn, Txt } from '../../ui/primitives';
 import { LiveRegion } from '../../ui/liveRegion';
 import { useAnnounceOnIos } from '../../ui/announce';
@@ -32,14 +32,30 @@ export const MEMORY_TRANSLATION_DISCLOSURE_VERSION = 'memory-translation-disclos
 
 export type TranslationTarget = 'ar' | 'en' | 'he';
 
-const SCRIPT_LANGUAGE = { arabic: 'ar', hebrew: 'he', latin: 'en' } as const;
+const LETTER = new RegExp('\\p{L}', 'u');
+const ARABIC = new RegExp('\\p{Script=Arabic}', 'u');
+const HEBREW = new RegExp('\\p{Script=Hebrew}', 'u');
+const LATIN = new RegExp('\\p{Script=Latin}', 'u');
 
-/** The language a fact would be written in, or null when it already reads in the app's. */
+/**
+ * The language of a fact's text, from its first letter — the server's own
+ * classifier (M6A2-R3-002): another script is `other`, no letter is `null`,
+ * and neither is translatable. A Latin-script fact counts as English.
+ */
+export function textLanguageOf(content: string): 'ar' | 'he' | 'en' | 'other' | null {
+  for (const char of stripIsolates(content)) {
+    if (!LETTER.test(char)) continue;
+    return ARABIC.test(char) ? 'ar' : HEBREW.test(char) ? 'he' : LATIN.test(char) ? 'en' : 'other';
+  }
+  return null;
+}
+
+/** The language a fact would be written in, or null when it already reads in the app's or cannot be translated. */
 export function translationTargetOf(content: string, lang: string): TranslationTarget | null {
   if (lang !== 'ar' && lang !== 'en' && lang !== 'he') return null;
-  const script = firstStrongScript(content);
-  if (script === null) return null;
-  return SCRIPT_LANGUAGE[script] === lang ? null : lang;
+  const from = textLanguageOf(content);
+  if (from === null || from === 'other') return null;
+  return from === lang ? null : lang;
 }
 
 /** The row's action. Its accessibility label names the fact it would translate. */

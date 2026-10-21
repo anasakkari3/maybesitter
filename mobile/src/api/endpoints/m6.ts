@@ -1,7 +1,7 @@
 import { apiRequest } from '../client';
 import {
-  commitmentSearchSchema, m6CapabilitiesSchema, memoryTranslationSchema,
-  type CommitmentSearch, type M6Capabilities, type MemoryTranslation,
+  commitmentSearchSchema, m6CapabilitiesSchema, m6bCapabilitiesSchema, memoryTranslationSchema,
+  type CommitmentSearch, type M6Capabilities, type M6bCapabilities, type MemoryTranslation,
 } from '../schemas/m6';
 
 type Bound = { asUid?: string; signal?: AbortSignal };
@@ -12,6 +12,10 @@ const bound = (options: Bound) => ({
 
 export function getM6Capabilities(options: Bound = {}): Promise<M6Capabilities> {
   return apiRequest('GET', '/api/mobile/capabilities/m6', { schema: m6CapabilitiesSchema, ...bound(options) });
+}
+
+export function getM6bCapabilities(options: Bound = {}): Promise<M6bCapabilities> {
+  return apiRequest('GET', '/api/mobile/capabilities/m6b', { schema: m6bCapabilitiesSchema, ...bound(options) });
 }
 
 /**

@@ -2115,7 +2115,7 @@
   "m6SearchDone": "בוצע {date}",
   "m6SearchDropped": "הופל במודע {date}",
   "m6TranslateAction": "{lang, select, ar{לכתוב בערבית} en{לכתוב באנגלית} he{לכתוב בעברית} other{לתרגם}}",
-  "m6TranslateDisclosure": "רק הפרט הזה נשלח ל-Gemini של Google (Vertex AI, באיחוד האירופי) כדי להציע תרגום. שום דבר לא נשמר בלי ששומרים אותו.",
+  "m6TranslateDisclosure": "רק הפרט הזה נשלח ל-Gemini של Google (Vertex AI, באיחוד האירופי) כדי להציע תרגום. אנחנו לא שומרים את הטקסט או את התרגום אלא אם שומרים אותו.",
   "m6TranslateRequest": "להציע תרגום",
   "m6TranslateLoading": "מכינים תרגום…",
   "m6TranslateSave": "לשמור",
