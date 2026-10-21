@@ -128,7 +128,7 @@ export function MemorySection({ onOpen }: { onOpen?: (() => void) | undefined } 
           m5bOn={m5bOn === true}
           editing={editing === item.id}
           confirming={confirming === item.id}
-          translateTarget={translationOn ? translationTargetOf(item.content, lang) : null}
+          translateTarget={translationOn ? translationTargetOf(item.content, lang, item.kind) : null}
           translating={translating === item.id}
           onTranslate={() => { setEditing(null); setConfirming(null); setTranslating(item.id); }}
           onCloseTranslate={() => setTranslating(null)}

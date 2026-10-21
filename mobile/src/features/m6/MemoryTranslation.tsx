@@ -48,8 +48,13 @@ export function textLanguageOf(content: string): 'ar' | 'he' | 'en' | 'other' | 
   return null;
 }
 
-/** The language a fact would be written in, or null when it already reads in the app's or cannot be translated. */
-export function translationTargetOf(content: string, lang: string): TranslationTarget | null {
+/**
+ * The language a fact would be written in, or null when it already reads in
+ * the app's or cannot be translated. A goal never is: it carries plans, and
+ * rewording it is an edit the person makes themselves (the server answers 422).
+ */
+export function translationTargetOf(content: string, lang: string, kind?: string): TranslationTarget | null {
+  if (kind === 'goal') return null;
   if (lang !== 'ar' && lang !== 'en' && lang !== 'he') return null;
   const from = textLanguageOf(content);
   if (from === null || from === 'other') return null;

@@ -77,6 +77,8 @@ describe('translationTargetOf', () => {
     // Another script, or no letter at all, is not offered (M6A2-R3-002). Russian: "likes tea".
     expect(translationTargetOf('\u041b\u044e\u0431\u0438\u0442 \u0447\u0430\u0439', 'ar')).toBeNull();
     expect(translationTargetOf('11:30', 'en')).toBeNull();
+    expect(translationTargetOf('Run a marathon', 'ar', 'goal')).toBeNull();
+    expect(translationTargetOf('Likes tea', 'ar', 'preference')).toBe('ar');
   });
 });
 

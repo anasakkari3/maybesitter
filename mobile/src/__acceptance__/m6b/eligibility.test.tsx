@@ -53,8 +53,13 @@ describe('M6a-2 translation eligibility', () => {
         { ...fact('mem_en', 'Dentist tomorrow'), language: 'ar' as const },
         fact('mem_cyrillic', '\u0412\u0441\u0442\u0440\u0435\u0447\u0430 \u0437\u0430\u0432\u0442\u0440\u0430'),
         fact('mem_letterless', '11:30'),
-        // Arabic: "preference in Arabic"; the app action is fact-only.
+        // GA-M6A2-AMEND-1 (Claude): the plan's translatable kinds are fact,
+        // preference and hypothesis (R1 "The record"); only a goal is refused
+        // (422 not_translatable), so a preference gets the action and a goal does not.
+        // Arabic: "preference in Arabic".
         { ...fact('mem_preference', '\u062a\u0641\u0636\u064a\u0644 \u0628\u0627\u0644\u0639\u0631\u0628\u064a'), kind: 'preference' as const },
+        // Arabic: "a goal in Arabic".
+        { ...fact('mem_goal', '\u0647\u062f\u0641 \u0628\u0627\u0644\u0639\u0631\u0628\u064a'), kind: 'goal' as const },
       ],
     });
     await showMemory();
@@ -63,7 +68,8 @@ describe('M6a-2 translation eligibility', () => {
     expect(screen.queryByTestId('m6-translate-action-mem_en')).toBeNull();
     expect(screen.queryByTestId('m6-translate-action-mem_cyrillic')).toBeNull();
     expect(screen.queryByTestId('m6-translate-action-mem_letterless')).toBeNull();
-    expect(screen.queryByTestId('m6-translate-action-mem_preference')).toBeNull();
+    expect(screen.queryByTestId('m6-translate-action-mem_preference')).not.toBeNull();
+    expect(screen.queryByTestId('m6-translate-action-mem_goal')).toBeNull();
   });
 
   const LANGUAGE_CASES: ['ar' | 'en' | 'he', string, string][] = [
@@ -180,7 +186,8 @@ describe('M6a-2 translation eligibility', () => {
       await waitFor(() => expect(screen.queryByTestId('memory-screen-item-mem_summary')).not.toBeNull());
       await waitFor(() => expect(screen.queryAllByTestId('m6-translate-action-mem_summary')).toHaveLength(1));
       expect(screen.queryByTestId('memory-item-mem_summary')).toBeNull();
-      expect(screen.queryByTestId(summaryState === 'ready' ? 'memory-summary' : 'memory-summary-loading')).not.toBeNull();
+      // GA-M6A2-AMEND-2 (Claude): the paragraph arrives after its disclosure's effect and a fetch; wait for it.
+      await waitFor(() => expect(screen.queryByTestId(summaryState === 'ready' ? 'memory-summary' : 'memory-summary-loading')).not.toBeNull());
       if (summaryState === 'loading') {
         summary.resolve({ status: 200, body: { success: true, summary: { status: 'unavailable' } } });
       }

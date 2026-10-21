@@ -205,7 +205,7 @@ export function MemoryScreen({ onBack }: { onBack: () => void }) {
             rtl={rtl}
             editing={editing}
             why={why}
-            translateTargetOf={content => (translationOn ? translationTargetOf(content, lang) : null)}
+            translateTargetOf={item => (translationOn ? translationTargetOf(item.content, lang, item.kind) : null)}
             translating={translating}
             onTranslate={id => { setEditing(null); setTranslating(id); }}
             onCloseTranslate={() => setTranslating(null)}
@@ -376,7 +376,7 @@ function MemoryGroupCard({
   rtl: boolean;
   editing: string | null;
   why: string | null;
-  translateTargetOf: (content: string) => TranslationTarget | null;
+  translateTargetOf: (item: MemoryItem) => TranslationTarget | null;
   translating: string | null;
   onTranslate: (id: string) => void;
   onCloseTranslate: () => void;
@@ -408,7 +408,7 @@ function MemoryGroupCard({
           sourceOnRow={shared === null}
           editing={editing === item.id}
           showWhy={why === item.id}
-          translateTarget={translateTargetOf(item.content)}
+          translateTarget={translateTargetOf(item)}
           translating={translating === item.id}
           onTranslate={() => onTranslate(item.id)}
           onCloseTranslate={onCloseTranslate}
