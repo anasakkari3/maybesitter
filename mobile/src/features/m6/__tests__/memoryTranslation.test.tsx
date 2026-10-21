@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import { MemoryScreen } from '../../memory/MemoryScreen';
 import { MemorySection } from '../../memory/MemorySection';
-import { translationTargetOf } from '../MemoryTranslation';
+import { textLanguageOf, translationTargetOf } from '../MemoryTranslation';
 import {
   NOW, Providers, fact, prepareM6, press, teardown, waitForRequest,
   type Language, type M6Harness, type RecordedRequest, type RouteReply,
@@ -84,6 +84,10 @@ describe('translationTargetOf', () => {
     expect(translationTargetOf('Gym \u0645\u0631\u062a\u064a\u0646', 'ar')).toBeNull();
     // English with one Arabic word ("for tasks").
     expect(translationTargetOf('Uses Notion daily \u0644\u0644\u0645\u0647\u0627\u0645', 'ar')).toBe('ar');
+    // Ties: the first letter's script when it leads; "abc" vs Arabic "ابت" (3 each) starting Latin → en.
+    expect(textLanguageOf('abc \u0627\u0628\u062a')).toBe('en');
+    // A Hebrew first letter that does not lead: the server's order picks ar among the tied leaders.
+    expect(textLanguageOf('\u05e9 abc \u0627\u0628\u062a')).toBe('ar');
     expect(translationTargetOf('Run a marathon', 'ar', 'goal')).toBeNull();
     // Routine facts are machine records the screen already localizes (M6A2-APP-001).
     for (const key of ['sleep_window', 'focus_window', 'fixed_commitments', 'reminder_intensity', 'quiet_hours']) {

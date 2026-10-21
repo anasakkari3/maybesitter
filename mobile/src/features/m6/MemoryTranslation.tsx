@@ -40,7 +40,8 @@ const LATIN = new RegExp('\\p{Script=Latin}', 'u');
  * The language of a fact's text: the script with the most letters, the
  * server's own classifier (plan amendment A1, SIM-M6A2-01). "M6D بستخدم
  * المواصلات" is Arabic even though a Latin marker comes first. A tie falls back
- * to the first letter; another script is `other`, no letter is `null`, and
+ * to the first letter (or, when that script is not among the leaders, to the
+ * leader first in ar, he, en, other); another script is `other`, no letter is `null`, and
  * neither is translatable. A Latin-script fact counts as English.
  */
 export function textLanguageOf(content: string): 'ar' | 'he' | 'en' | 'other' | null {
@@ -53,9 +54,10 @@ export function textLanguageOf(content: string): 'ar' | 'he' | 'en' | 'other' | 
     first ??= script;
   }
   if (first === null) return null;
-  const most = Math.max(counts.ar, counts.he, counts.en, counts.other);
-  const leaders = (Object.keys(counts) as Array<keyof typeof counts>).filter((script) => counts[script] === most);
-  return leaders.length === 1 ? leaders[0]! : first;
+  // Exactly the server's rule: start from the first letter's script and move
+  // only to one with strictly more letters, in the order ar, he, en, other.
+  return (Object.keys(counts) as Array<keyof typeof counts>)
+    .reduce((most, script) => (counts[script] > counts[most] ? script : most), first);
 }
 
 /**
