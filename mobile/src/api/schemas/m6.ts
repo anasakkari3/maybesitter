@@ -43,7 +43,8 @@ export const memoryTranslationSchema = z.object({
     z.object({
       status: z.literal('ready'),
       text: z.string().min(1).max(200),
-      from: z.enum(['ar', 'en', 'he', 'mixed']),
+      // The detected language of the row's text; `other` and letterless rows are refused before this.
+      from: z.enum(['ar', 'en', 'he']),
       to: z.enum(['ar', 'en', 'he']),
       memoryId: z.string().min(1),
     }).strict(),

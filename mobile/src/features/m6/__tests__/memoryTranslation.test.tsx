@@ -1,6 +1,6 @@
 import React from 'react';
 import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
-import { render, screen, waitFor } from '@testing-library/react-native';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import { MemoryScreen } from '../../memory/MemoryScreen';
 import { MemorySection } from '../../memory/MemorySection';
 import { translationTargetOf } from '../MemoryTranslation';
@@ -78,6 +78,10 @@ describe('translationTargetOf', () => {
     expect(translationTargetOf('\u041b\u044e\u0431\u0438\u0442 \u0447\u0430\u0439', 'ar')).toBeNull();
     expect(translationTargetOf('11:30', 'en')).toBeNull();
     expect(translationTargetOf('Run a marathon', 'ar', 'goal')).toBeNull();
+    // Routine facts are machine records the screen already localizes (M6A2-APP-001).
+    for (const key of ['sleep_window', 'focus_window', 'fixed_commitments', 'reminder_intensity', 'quiet_hours']) {
+      for (const lang of ['ar', 'en', 'he']) expect(translationTargetOf(`${key}:22:30-07:30`, lang, 'preference')).toBeNull();
+    }
     expect(translationTargetOf('Likes tea', 'ar', 'preference')).toBe('ar');
   });
 });
@@ -141,6 +145,34 @@ describe('«اكتبها بالعربي» on the memory screen', () => {
     await press('m6-translate-save-memory-1');
     await waitFor(() => expect(screen.queryByTestId('m6-translate-changed-memory-1')).not.toBeNull());
     expect(harness.server.matching('PATCH', PATCH)).toHaveLength(1);
+  });
+
+  it('a rapid double press on Save sends one PATCH (M6A2-APP-003)', async () => {
+    harness = await setup();
+    await renderScreen(harness);
+    await waitFor(() => expect(screen.queryByTestId('m6-translate-action-memory-1')).not.toBeNull());
+    await press('m6-translate-action-memory-1');
+    await press('m6-translate-request-memory-1');
+    await waitFor(() => expect(screen.queryByTestId('m6-translate-save-memory-1')).not.toBeNull());
+    const save = screen.getByTestId('m6-translate-save-memory-1');
+    await act(async () => {
+      fireEvent.press(save);
+      fireEvent.press(save);
+    });
+    await waitForRequest(harness, 'PATCH', PATCH);
+    expect(harness.server.matching('PATCH', PATCH)).toHaveLength(1);
+  });
+
+  it('a proposal for another target language is not offered (M6A2-APP-004)', async () => {
+    harness = await setup({
+      translation: { status: 200, body: { success: true, proposal: { status: 'ready', text: 'Hebrew text', from: 'en', to: 'he', memoryId: 'memory-1' } } },
+    });
+    await renderScreen(harness);
+    await waitFor(() => expect(screen.queryByTestId('m6-translate-action-memory-1')).not.toBeNull());
+    await press('m6-translate-action-memory-1');
+    await press('m6-translate-request-memory-1');
+    await waitFor(() => expect(screen.queryByTestId('m6-translate-unavailable-memory-1')).not.toBeNull());
+    expect(screen.queryByTestId('m6-translate-save-memory-1')).toBeNull();
   });
 
   it('a proposal made for another id is not offered', async () => {

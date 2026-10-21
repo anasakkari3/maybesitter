@@ -504,7 +504,8 @@ function MemoryDetailRow({
       </View>
 
       {translateTarget && translating ? (
-        <MemoryTranslationPanel item={item} target={translateTarget} onClose={onCloseTranslate} tone="acd" />
+        // Keyed by the target: a language change mid-request aborts it and asks again (M6A2-APP-002).
+        <MemoryTranslationPanel key={translateTarget} item={item} target={translateTarget} onClose={onCloseTranslate} tone="acd" />
       ) : null}
 
       {showWhy ? (

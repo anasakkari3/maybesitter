@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { View } from 'react-native';
 import { useQueryClient } from '@tanstack/react-query';
 import { useApp } from '../../state/AppContext';
@@ -12,6 +12,7 @@ import { queryKeys, usePatchMemory, useUid } from '../../api/queries';
 import { userFacingMessage } from '../../api/ui/userFacingMessage';
 import type { MemoryItem } from '../../api/schemas/profile';
 import { MEMORY_TRANSLATION_DISCLOSURE_VERSION } from './disclosure';
+import { routineFactKeyOf } from '../memory/routineFactKeys';
 
 /**
  * «اكتبها بالعربي» (condition 53, D53-1 (b); PLAN-M6a-2 R2).
@@ -55,6 +56,10 @@ export function textLanguageOf(content: string): 'ar' | 'he' | 'en' | 'other' | 
  */
 export function translationTargetOf(content: string, lang: string, kind?: string): TranslationTarget | null {
   if (kind === 'goal') return null;
+  // A routine fact is a machine record (`quiet_hours:22:30-07:30`) the screen
+  // already renders in the app's language; translating it would replace the
+  // grammar other features read with prose (M6A2-APP-001).
+  if (routineFactKeyOf(content) !== null) return null;
   if (lang !== 'ar' && lang !== 'en' && lang !== 'he') return null;
   const from = textLanguageOf(content);
   if (from === null || from === 'other') return null;
@@ -106,6 +111,9 @@ export function MemoryTranslationPanel({ item, target, onClose, tone = 'ac' }: {
   const patch = usePatchMemory();
   const [shown, setShown] = useState(false);
   const [phase, setPhase] = useState<Phase>({ kind: 'asking' });
+  // Synchronous, unlike `phase.saving`: two presses before the disabled render
+  // commits would otherwise both send the edit (M6A2-APP-003, as useOneAtATime).
+  const savingRef = useRef(false);
   const sending = shown && phase.kind === 'loading';
 
   useEffect(() => {
@@ -116,8 +124,12 @@ export function MemoryTranslationPanel({ item, target, onClose, tone = 'ac' }: {
       (answer) => {
         if (!live) return;
         const proposal = answer.proposal;
-        // A proposal made for another record than this row's is not offered.
-        setPhase(proposal.status === 'ready' && proposal.memoryId === item.id
+        // A proposal made for another record, language or source than this
+        // row's is not offered (M6A2-APP-004).
+        setPhase(proposal.status === 'ready'
+          && proposal.memoryId === item.id
+          && proposal.to === target
+          && proposal.from === textLanguageOf(item.content)
           ? { kind: 'ready', text: proposal.text, memoryId: proposal.memoryId, saving: false, failed: null }
           : { kind: 'unavailable' });
       },
@@ -135,10 +147,11 @@ export function MemoryTranslationPanel({ item, target, onClose, tone = 'ac' }: {
       live = false;
       controller.abort();
     };
-  }, [sending, item.id, target, uid, client]);
+  }, [sending, item.id, item.content, target, uid, client]);
 
   const save = () => {
-    if (phase.kind !== 'ready' || phase.saving) return;
+    if (phase.kind !== 'ready' || phase.saving || savingRef.current) return;
+    savingRef.current = true;
     const { text, memoryId } = phase;
     setPhase({ ...phase, saving: true, failed: null });
     patch.mutate({ id: memoryId, content: text }, {
@@ -146,6 +159,8 @@ export function MemoryTranslationPanel({ item, target, onClose, tone = 'ac' }: {
       // prefix is invalidated by the mutation, and M5b's summary with it.
       onSuccess: onClose,
       onError: (error) => {
+        // Released only after a failure: a success closes the panel.
+        savingRef.current = false;
         if (error instanceof NotFoundError || error instanceof ConflictError) {
           setPhase({ kind: 'changed' });
           void client.invalidateQueries({ queryKey: queryKeys.memory(uid) });
@@ -159,7 +174,8 @@ export function MemoryTranslationPanel({ item, target, onClose, tone = 'ac' }: {
   const status = phase.kind === 'loading' ? t.m6TranslateLoading
     : phase.kind === 'unavailable' ? t.m6TranslateUnavailable
       : phase.kind === 'changed' ? t.m6TranslateChanged
-        : phase.kind === 'ready' ? phase.failed ?? phase.text
+        // VoiceOver hears that it is a suggestion too, as the screen says (M6A2-APP-005).
+        : phase.kind === 'ready' ? phase.failed ?? `${phase.text}. ${t.suggestionNote}`
           : null;
   useAnnounceOnIos(status);
 
