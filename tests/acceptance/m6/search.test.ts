@@ -61,7 +61,7 @@ test('D54-1 done and dropped items within 90 days are found, with their status',
   const byId = new Map((body.items as any[]).map((item) => [item.id, item]));
   assert.ok(byId.has(done), show(body));
   assert.ok(byId.has(dropped), show(body));
-  assert.equal(byId.get(done).status, 'done');
+  assert.equal(byId.get(done).status, 'completed'); // GB-M6-AMEND-1: the commitment DTO's own status vocabulary
   assert.equal(byId.get(dropped).status, 'dropped');
 });
 
