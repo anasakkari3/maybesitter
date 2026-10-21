@@ -370,6 +370,11 @@ export function useBusyCalendar(): BusyCalendarState {
     included: readonly string[] | ((current: readonly string[]) => readonly string[]),
   ): Promise<void> => {
     const current = latest.current;
+    // No calendar is chosen while the account's consent says off (Codex
+    // M6B-R02/R3-001): a pending selection would otherwise resume the moment
+    // it is turned back on. A pass's own pruning goes through startSelection
+    // directly and only runs with consent on.
+    if (!consentNow(current.uid)) return;
     const generation = passGeneration;
     const accountCurrent = () => passGeneration === generation
       && latest.current.uid === current.uid

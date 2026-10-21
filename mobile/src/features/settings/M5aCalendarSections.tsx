@@ -57,6 +57,12 @@ export function M5aCalendarSections({
   const google = useGoogleStatus();
   const [needsPermission, setNeedsPermission] = useState(false);
   const [asking, setAsking] = useState(false);
+  // «يستعمل» turned off here and the server not caught up yet: the trust query
+  // still says on until its refetch lands, and a calendar tapped in that gap
+  // would be recorded as a choice made with the switch off (Codex M6B-R3-001).
+  const [turningOff, setTurningOff] = useState(false);
+  if (turningOff && !consented) setTurningOff(false);
+  const usable = consented && !turningOff;
   const shown = shownIncluded(view);
   const granted = access === 'granted';
 
@@ -77,13 +83,15 @@ export function M5aCalendarSections({
       return;
     }
     setNeedsPermission(false);
-    trustAction.mutate({ type: 'set_calendar_consent', granted: next });
+    setTurningOff(!next);
+    // A refused or failed request leaves the switch on, and the list usable again.
+    trustAction.mutate({ type: 'set_calendar_consent', granted: next }, { onError: () => setTurningOff(false) });
   }, [granted, trustAction]);
 
   const toggle = useCallback(async (calendarId: string, on: boolean) => {
     // No choice is recorded while the master switch is off (Codex M6B-R02): a
     // pending selection could otherwise resume when it is turned back on.
-    if (!consented) return;
+    if (!usable) return;
     try {
       // Applied to the newest selection at save time, not to this render's list (M5A-R3-005).
       await busyCalendar.toggleCalendar(calendarId, on);
@@ -91,7 +99,7 @@ export function M5aCalendarSections({
       // The line under the list says it; the switch never moved.
       if (!(error instanceof SelectionNotSavedError)) throw error;
     }
-  }, [busyCalendar, consented]);
+  }, [busyCalendar, usable]);
 
   const googleStatus = google.data;
   // The connected account's address: an LTR run inside the line.
@@ -160,7 +168,7 @@ export function M5aCalendarSections({
         ) : null}
         {/* The switches below wait for «يستعمل» above; say so instead of
             letting a tap do nothing (M6b BB-08). */}
-        {granted && phoneCalendars && phoneCalendars.length > 0 && !view.removed && !consented ? (
+        {granted && phoneCalendars && phoneCalendars.length > 0 && !view.removed && !usable ? (
           <View style={{ paddingHorizontal: 18, paddingBottom: 12 }}>
             <Txt role="supporting" color={p.mu} testID="calendar-list-needs-use">{t.m5CalListNeedsUse}</Txt>
           </View>
@@ -182,9 +190,9 @@ export function M5aCalendarSections({
                       testID={`calendar-include-${calendar.id}`}
                       accessibilityRole="switch"
                       accessibilityLabel={fill(t.m5CalCalendarA11y, { title: calendar.title, account })}
-                      accessibilityState={{ checked: on, disabled: view.removed || !view.enrolled || !consented }}
+                      accessibilityState={{ checked: on, disabled: view.removed || !view.enrolled || !usable }}
                       value={on}
-                      disabled={view.removed || !view.enrolled || !consented}
+                      disabled={view.removed || !view.enrolled || !usable}
                       trackColor={{ false: p.ln, true: p.ac }}
                       onValueChange={(next) => void toggle(calendar.id, next)}
                     />

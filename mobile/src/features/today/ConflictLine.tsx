@@ -11,31 +11,10 @@ import { ActionRow } from '../../ui/chrome';
 import { BottomSheet, SheetHeader } from '../../ui/bottomSheet';
 import { useReferencePalette } from '../../ui/referenceDesign';
 import type { TodayConflict } from './todayConflict';
+import { busyConflictSentence, isWeeklyFixedBlock, unbreakableRange } from '../calendar/busyConflictText';
 
-/** The sentence under the title: the busy range, or the all-day wording when that is all there is. */
-/**
- * A weekly fixed block reaches the day's busy time with a `weekly:` id
- * (`occurrencesAsBusy`). It is the person's own fixed time, not an event in a
- * calendar, and is named so (M6b BB-01: «موعد بتقويمك» with no calendar
- * connected).
- */
-export function isFixedBlock(conflict: TodayConflict): boolean {
-  return conflict.block.nativeId?.startsWith('weekly:') === true;
-}
-
-/**
- * A range inside a sentence, its dash held to both times by word joiners: the
- * line may otherwise break after the en dash and leave «10:00–» on one line and
- * «12:00» on the next (M6b BB-02). The joiners are default-ignorable.
- */
-export function unbreakableRange(range: string): string {
-  return range.replace(/–/g, '\u2060–\u2060');
-}
-
-function busySentence(conflict: TodayConflict, t: ReturnType<typeof useApp>['t'], lang: ReturnType<typeof useApp>['lang'], timeZone: string): string {
-  if (conflict.block.allDay) return t.calendarBusyConflictAllDay;
-  const range = unbreakableRange(formatTimeRange(new Date(conflict.block.startAt), new Date(conflict.block.endAt), { locale: lang, timeZone }));
-  return fill(isFixedBlock(conflict) ? t.fixedBlockConflict : t.calendarBusyConflict, { range });
+function isFixedBlock(conflict: TodayConflict): boolean {
+  return isWeeklyFixedBlock(conflict.block);
 }
 
 /**
@@ -51,7 +30,7 @@ export function ConflictLine({ conflict, onOpen }: { conflict: TodayConflict; on
   const p = useReferencePalette();
   const timezone = useTimeZone();
   const time = ltr(formatTime(new Date(conflict.at), { locale: lang, timeZone: timezone }));
-  const sentence = busySentence(conflict, t, lang, timezone);
+  const sentence = busyConflictSentence(conflict.block, t, lang, timezone);
   return (
     <Btn
       testID="today-conflict"
@@ -95,7 +74,7 @@ export function ConflictSheet({ conflict, onClose }: { conflict: TodayConflict |
               {fill(conflict.block.allDay ? t.todayConflictBodyAllDay : isFixedBlock(conflict) ? t.fixedBlockConflictBody : t.todayConflictBody, {
                 title: isolateAuto(conflict.item.title),
                 time: ltr(formatTime(new Date(conflict.at), { locale: lang, timeZone: timezone })),
-                range: conflict.block.allDay ? '' : formatTimeRange(new Date(conflict.block.startAt), new Date(conflict.block.endAt), { locale: lang, timeZone: timezone }),
+                range: conflict.block.allDay ? '' : unbreakableRange(formatTimeRange(new Date(conflict.block.startAt), new Date(conflict.block.endAt), { locale: lang, timeZone: timezone })),
               })}
             </Txt>
             <Txt size={13} color={p.mu} lh={1.5}>{t.todayConflictHint}</Txt>

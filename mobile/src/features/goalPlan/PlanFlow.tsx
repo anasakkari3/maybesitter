@@ -179,7 +179,7 @@ function PlanStep({ flow, plan, linkedWork }: { flow: Flow; plan: GoalPlan; link
     </View>)}
     {plan.removedSteps.length > 0 ? <View style={{ gap: 8 }}>
       {plan.removedSteps.map(removed => <View key={removed.stepId} testID={`plan-removed-${removed.stepId}`} style={{ gap: 6 }}>
-        <Txt role="supporting" color={p.mu}>{fill(t.xPlanRemoved, { step: isolateAuto(removed.title) })}</Txt>
+        <Txt role="supporting" color={p.mu}>{fill(t.xPlanRemoved, { step: isolateAuto(isolateQuoted(removed.title)) })}</Txt>
         {editing ? <Pill testID={`plan-restore-${removed.stepId}`} label={t.xPlanRestore} kind="outline" disabled={busy}
           onPress={() => flow.edit({ op: 'restore', stepId: removed.stepId })} /> : null}
       </View>)}
@@ -226,7 +226,7 @@ function StepCard({ step, plan, editing, busy, first, last, onEdit }: {
   const { t, tr, p } = useApp();
   const [open, setOpen] = React.useState(false);
   const editToggle = React.useRef<View>(null);
-  const title = isolateAuto(step.title);
+  const title = isolateAuto(isolateQuoted(step.title));
   return <Card testID={`plan-step-${step.stepId}`} style={{ gap: 8 }}>
     <Txt role="body" weight={700}>{isolateQuoted(step.title)}</Txt>
     <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
@@ -503,7 +503,7 @@ function TimesStep({ flow, times, plan }: { flow: Flow; times: GoalPlanTimes; pl
     {allOpen ? <AllTimesSheet busy={busy} onApply={(preference) => { setAllOpen(false); setChanging(null); flow.batch(preference); }} /> : null}
     <LiveRegion>
       {unplacedTitles.length > 0 ? <Txt role="supporting" color={p.wm} testID="plan-times-unplaced">
-        {fill(t.yUnplaced, { titles: unplacedTitles.map(isolateAuto).join(lang === 'en' ? ', ' : '، ') })}
+        {fill(t.yUnplaced, { titles: unplacedTitles.map((title) => isolateAuto(isolateQuoted(title))).join(lang === 'en' ? ', ' : '، ') })}
       </Txt> : null}
     </LiveRegion>
     {times.steps.map(step => {

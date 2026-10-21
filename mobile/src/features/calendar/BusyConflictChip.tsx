@@ -2,10 +2,9 @@ import React from 'react';
 import { View } from 'react-native';
 import { useApp } from '../../state/AppContext';
 import { useTimeZone } from '../../i18n/timezone';
-import { formatTimeRange } from '../../i18n/format';
-import { fill } from '../../i18n/strings';
 import { Txt } from '../../ui/primitives';
 import { chipBlock } from './conflicts';
+import { busyConflictSentence } from './busyConflictText';
 import type { DeviceBusyBlock } from './busyBlocks';
 
 /**
@@ -44,14 +43,9 @@ export function BusyConflictChip({
   const block = chipBlock(blocks);
   if (block === null) return null;
 
-  const label = block.allDay
-    ? t.calendarBusyConflictAllDay
-    : fill(t.calendarBusyConflict, {
-      range: formatTimeRange(new Date(block.startAt), new Date(block.endAt), {
-        locale: lang,
-        timeZone: timezone,
-      }),
-    });
+  // The same words as Today's conflict line: a weekly fixed time is named as
+  // one, and the range never breaks at its dash (Codex M6B-R3-002).
+  const label = busyConflictSentence(block, t, lang, timezone);
 
   return (
     <View style={{ backgroundColor: p.sf2, borderRadius: 999, paddingVertical: 6, paddingHorizontal: 10 }}>

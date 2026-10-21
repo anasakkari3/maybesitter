@@ -90,31 +90,45 @@ export function firstStrongDirection(text: string, fallback: 'ltr' | 'rtl'): 'lt
   return fallback;
 }
 
+/** The quote pairs the plan templates use: Arabic «…», English “…”, Hebrew "…". */
+const QUOTE_CLOSE: Readonly<Record<string, string>> = { '«': '»', '“': '”', '"': '"' };
+
 /**
- * Each «…» quote in a sentence, its inside isolated by its own first strong
+ * Each quote in a sentence, its inside isolated by its own first strong
  * character. A step titled «اكتب شو يعني إنك خلّصت «إنهاء مشروع التخرج M6D»»
  * otherwise reorders the Latin end of the quoted title next to its opening
- * guillemet (M6b BB-07). Display only; the stored text is untouched.
+ * guillemet (M6b BB-07), and a Hebrew template's "…" does the same (Codex
+ * M6B-R3-003). Display only; the stored text is untouched.
  */
 export function isolateQuoted(text: string): string {
-  // Outermost balanced «…» spans only, nested quotes kept inside them (Codex
-  // M6B-R04). An unbalanced or empty pair is left exactly as written.
+  // Outermost balanced spans only, nested quotes of the same pair kept inside
+  // them (Codex M6B-R04); a straight " closes at the next one, since it cannot
+  // nest. An unbalanced or empty pair is left exactly as written.
   let out = '';
+  let open = '';
   let depth = 0;
   let start = -1;
   let cursor = 0;
   for (let index = 0; index < text.length; index += 1) {
-    const char = text[index];
-    if (char === '«') {
-      if (depth === 0) start = index;
-      depth += 1;
-    } else if (char === '»' && depth > 0) {
+    const char = text[index]!;
+    if (depth === 0) {
+      if (Object.hasOwn(QUOTE_CLOSE, char)) {
+        open = char;
+        start = index;
+        depth = 1;
+      }
+      continue;
+    }
+    const close = QUOTE_CLOSE[open]!;
+    if (char === close) {
       depth -= 1;
       if (depth === 0) {
         const inside = text.slice(start + 1, index);
-        out += text.slice(cursor, start) + (inside.length > 0 ? `«${isolateAuto(inside)}»` : '«»');
+        out += text.slice(cursor, start) + open + (inside.length > 0 ? isolateAuto(inside) : '') + close;
         cursor = index + 1;
       }
+    } else if (char === open) {
+      depth += 1;
     }
   }
   return out + text.slice(cursor);

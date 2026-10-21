@@ -20,6 +20,7 @@ import { isolateAuto } from '../../i18n/bidi';
 import { formatTime } from '../../i18n/format';
 import { Txt } from '../../ui/primitives';
 import quietHoursFixture from '../../api/__fixtures__/nextStep.quietHours.json';
+import commitmentFixture from '../../api/__fixtures__/commitments.one.json';
 import profileFixture from '../../api/__fixtures__/profile.one.json';
 import * as commitmentEndpoints from '../../api/endpoints/commitments';
 import * as nextStepEndpoints from '../../api/endpoints/nextStep';
@@ -139,5 +140,33 @@ describe('the day\'s blocks', () => {
     expect(screen.getByText(en.wbTodayTitle)).toBeTruthy();
     // No «done» on a fixed block.
     expect(within(screen.getByTestId('today-weekly')).queryByLabelText(en.doneS)).toBeNull();
+  });
+});
+
+describe('a commitment inside a weekly block (Codex M6B-R3-002)', () => {
+  it('every clash label on Today names the fixed time as one, and no range breaks at its dash', async () => {
+    const { startAt, endAt } = underWay();
+    const dueAt = new Date(Date.now() + 60_000).toISOString();
+    jest.spyOn(nextStepEndpoints, 'getNextStep').mockResolvedValue(weeklyExposure('23:59') as never);
+    jest.spyOn(weeklyEndpoints, 'listWeeklyBlockOccurrences').mockResolvedValue([
+      { occurrenceId: 'o1', weeklyBlockId: 'train', title: 'Training', startAt, endAt },
+    ]);
+    jest.spyOn(commitmentEndpoints, 'listToday').mockResolvedValue({
+      items: [{ ...commitmentFixture, timeSpec: { ...commitmentFixture.timeSpec, dueAt, remindAt: dueAt } }],
+    } as never);
+    await show();
+    const fixed = en.fixedBlockConflict.split('{range}')[0]!.trim();
+    const calendar = en.calendarBusyConflict.split('{range}')[0]!.trim();
+    const chip = `today-busy-${commitmentFixture.id}`;
+    await waitFor(() => expect(screen.queryByTestId('today-conflict')).not.toBeNull());
+    // The row sits in its folded group: open it to reach the row's own chip.
+    await fireEvent.press(screen.getByTestId('today-group-should-toggle'));
+    await waitFor(() => expect(screen.queryByTestId(chip)).not.toBeNull());
+    const labels = [String(screen.getByTestId(chip).props.children), String(screen.getByTestId('today-conflict').props.accessibilityLabel)];
+    for (const label of labels) {
+      expect(label).toContain(fixed);
+      expect(label).not.toContain(calendar);
+      expect(label).toContain('\u2060–\u2060');
+    }
   });
 });
