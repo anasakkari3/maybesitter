@@ -70,6 +70,9 @@ export async function fetchM5aCapabilities(client: QueryClient, uid: string): Pr
   }
 }
 
+/** The newest fresh probe per query client; only it may write the cache. */
+const freshProbeGeneration = new WeakMap<QueryClient, number>();
+
 /** How long a tap waits for a fresh answer before it refuses (PLAN-M5a R1.1). */
 export const M5A_FRESH_PROBE_MS = 1_500;
 
@@ -85,15 +88,26 @@ export function useFreshM5aCapability(): (name: keyof Omit<M5aCapabilities, 'suc
   return useCallback(async (name) => {
     if (uid === 'signed-out') return null;
     let timer: ReturnType<typeof setTimeout> | undefined;
-    const timeout = new Promise<null>((resolve) => { timer = setTimeout(() => resolve(null), M5A_FRESH_PROBE_MS); });
+    // A probe that lost to the timeout is aborted and may no longer write: a
+    // newer answer may be cached by then (FU-S-R1-001). Of overlapping fresh
+    // probes, only the latest writes.
+    const controller = new AbortController();
+    let expired = false;
+    const generation = (freshProbeGeneration.get(client) ?? 0) + 1;
+    freshProbeGeneration.set(client, generation);
+    const timeout = new Promise<null>((resolve) => {
+      timer = setTimeout(() => { expired = true; controller.abort(); resolve(null); }, M5A_FRESH_PROBE_MS);
+    });
     // A request of its own (M5A-R11-001): sharing the query's key would hand
     // back a background refetch already in flight — an answer from before the
     // tap. The fresh answer then replaces the cached one — after that older
     // refetch is cancelled, or it would land afterwards and put the
     // pre-tap answer back on screen (M5A-R12-F01).
-    const fresh = probe(uid)
+    const fresh = probe(uid, controller.signal)
       .then(async (answer) => {
+        if (expired || freshProbeGeneration.get(client) !== generation) return null;
         await client.cancelQueries({ queryKey: m5aCapabilitiesKey(uid), exact: true });
+        if (expired || freshProbeGeneration.get(client) !== generation) return null;
         client.setQueryData(m5aCapabilitiesKey(uid), answer);
         return answer[name] === true;
       })
