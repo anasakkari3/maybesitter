@@ -2138,6 +2138,11 @@
   "m5bPlanMemoryChanged": "משהו שנזכר והתוכנית התבססה עליו השתנה. כדי שזה ייכנס, בנה אותה מחדש.",
   "m5bPlanMemoryChangedNoRebuild": "משהו שנזכר והתוכנית התבססה עליו השתנה. ניצלת את הבניות מחדש של היום, אז התוכנית הנוכחית נשארת כמו שהיא.",
   "m5bLearnedWrongA11y": "לא נכון: {line}",
+  "m5bLearnedReaddedAfterDrop": "הוספת שוב את “{title}” אחרי שוויתרת עליו",
+  "m5bLearnedReaddedAfterDone": "הוספת שוב את “{title}” אחרי שסיימת אותו",
+  "m5bLearnedGuess": "ניחוש",
+  "m5bLearnedRightA11y": "כן, זה נכון: {line}",
+  "m5bLearnedRightDone": "הבנתי, אלמד מזה.",
   "m5bSuggestionBasis": "על סמך: “{memory}”",
   "m5bSuggestionBasisFixA11y": "תקן: “{memory}”"
 }
