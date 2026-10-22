@@ -6,6 +6,7 @@ import {
 import Svg, { Circle, Path, Rect } from 'react-native-svg';
 import { textAlignment } from '../../ui/primitives';
 import { Rings } from '../../ui/motion';
+import { focusForAccessibility } from '../../ui/accessibilityFocus';
 
 /** An independent native presentation. The host owns all messages, proposals,
  * permissions, keyboard avoidance, localization, and every state change.
@@ -142,6 +143,12 @@ export interface SayItChatPageProps {
   bodyKey?: string | null;
   /** The one question's quick replies, under the reply that asks it. */
   clarification?: React.ReactNode;
+  /**
+   * The node a screen reader lands on when a proposal opens on its question
+   * (the question's heading, which the host draws): after «هيك صح» the
+   * button that was focused is gone, and nothing else says a question waits (#752).
+   */
+  clarificationFocus?(): View | null;
   /** Real proposal disclosure, corrections, and clarification controls. */
   reviewExtras?: React.ReactNode;
   /** Under the save: the review tools, the suggestion note, cancel. */
@@ -186,7 +193,7 @@ export function SayItChatPage({
   colors: p, fonts, copy, text, onChangeText, onSend, canSend, inputDisabled = false, composerDisabled = false, toolsDisabled = false, onClose, onMore, onPaste,
   outgoing, assistant, notice, history = [], typing, typingLabel, scheduleGroups = [], confirmWithoutRows = false, scheduleTime, onConfirm, canConfirm = false,
   confirming = false, onRowPress, onRowToggle, followup, quickActions = [], onQuickAction,
-  microphone, listening = false, onCancelListening, languageControl, voiceNotice, headerAccessory, bodyOverride, bodyKey = null, clarification, reviewExtras, reviewFooter,
+  microphone, listening = false, onCancelListening, languageControl, voiceNotice, headerAccessory, bodyOverride, bodyKey = null, clarification, clarificationFocus, reviewExtras, reviewFooter,
   rtl = false, safeTop = 0, safeBottom = 0, keyboardShown = false, mode = 'normal', composerFocusKey = 0,
   revealConfirmKey = null, reduceMotion = false, reviewing = scheduleGroups.length > 0, revealRow = null, revealAnchor,
 }: SayItChatPageProps) {
@@ -205,6 +212,9 @@ export function SayItChatPage({
   const [viewport, setViewport] = React.useState(0);
   const [block, setBlock] = React.useState<Measured<number>>(null);
   const [question, setQuestion] = React.useState<Measured<number>>(null);
+  // Where the question's chips end: a question that starts on screen can
+  // still have its chips under the composer (#752, after «هيك صح»).
+  const [questionEnd, setQuestionEnd] = React.useState<Measured<number>>(null);
   // Where the cards of a proposal with no schedule end (M3b): a habit's
   // question can start on screen and still sit under the composer.
   const [looseEnd, setLooseEnd] = React.useState<Measured<number>>(null);
@@ -212,17 +222,23 @@ export function SayItChatPage({
     setter({ key: keyRef.current, value });
   const revealed = React.useRef<string | null>(null);
   React.useEffect(() => {
-    if (!revealConfirmKey || revealed.current === revealConfirmKey || viewport <= 0) return;
+    // Back to the summary and «هيك صح» again opens the same proposal: it is
+    // revealed, and its question focused, once per opening (Q-A1-001).
+    if (!revealConfirmKey) { revealed.current = null; return; }
+    if (revealed.current === revealConfirmKey || viewport <= 0) return;
     const first = clarification ? question : block;
     if (first?.key !== revealConfirmKey) return;
-    const end = !clarification && looseEnd?.key === revealConfirmKey ? looseEnd.value : null;
+    const last = clarification ? questionEnd : looseEnd;
+    const end = last?.key === revealConfirmKey ? last.value : null;
     revealed.current = revealConfirmKey;
     if (first.value > viewport - 80) scroller.current?.scrollTo({ y: Math.max(0, first.value - 16), animated: !reduceMotion });
     // Starts on screen but runs under the composer: up just enough to show it, never past its top.
     else if (end !== null && end > viewport - 80) {
       scroller.current?.scrollTo({ y: Math.max(0, Math.min(first.value - 16, end - viewport + 80)), animated: !reduceMotion });
     }
-  }, [revealConfirmKey, viewport, block, question, looseEnd, clarification, reduceMotion]);
+    // A screen reader is taken to the question, as a tapped line's card is (#752).
+    if (clarification) focusForAccessibility(clarificationFocus?.() ?? null);
+  }, [revealConfirmKey, viewport, block, question, questionEnd, looseEnd, clarification, clarificationFocus, reduceMotion]);
   // A tapped line's card, scrolled to once it is laid out, then focused.
   const rowRefs = React.useRef(new Map<string, View>());
   const checkRefs = React.useRef(new Map<string, View>());
@@ -398,7 +414,11 @@ export function SayItChatPage({
               ? <React.Fragment key={`reply-${newestReply}`}>{message(history[newestReply]!, history[newestReply]!.id ?? `chat-turn-assistant-${newestReply}`)}</React.Fragment>
               : null}
           </View>
-          {clarification ? <View testID="chat-clarification" onLayout={(event) => measured(setQuestion, event.nativeEvent.layout.y)} style={[styles.clarification, expanded && styles.expandedSchedule]}>{clarification}</View> : null}
+          {/* Remounted per question, so the next question is measured afresh (Q-A1-R4-002). */}
+          {clarification ? <View key={`clarification-${revealConfirmKey ?? 'none'}`} testID="chat-clarification" onLayout={(event) => {
+            const { y, height } = event.nativeEvent.layout;
+            measured(setQuestion, y); measured(setQuestionEnd, y + height);
+          }} style={[styles.clarification, expanded && styles.expandedSchedule]}>{clarification}</View> : null}
           {scheduleGroups.length > 0 ? <View testID="chat-schedule" style={[styles.scheduleBlock, expanded && styles.expandedSchedule]}
             onLayout={(event) => measured(setBlock, event.nativeEvent.layout.y)}>
             <View style={[styles.scheduleCard, { backgroundColor: p.sf, borderColor: p.ln }]}

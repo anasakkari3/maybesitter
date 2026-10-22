@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { TextInput, View } from 'react-native';
 import { useApp } from '../../state/AppContext';
 import { family } from '../../theme/fonts';
+import { typography } from '../../theme/tokens';
 import { Btn, Pill, Txt } from '../../ui/primitives';
 import { LiveRegion } from '../../ui/liveRegion';
 import { CLARIFICATION_FREE_TEXT_MAX, freeSlotWords, optionLabel, questionText } from './clarificationCopy';
@@ -40,6 +41,7 @@ export function ClarifySheet({
   error,
   onAnswer,
   onSkip,
+  questionRef,
 }: {
   item: CaptureProposalItem;
   /** "1 of 2" when several items are waiting. */
@@ -50,6 +52,8 @@ export function ClarifySheet({
   error?: string | null;
   onAnswer(answer: { optionId?: string; freeText?: string }): void;
   onSkip(): void;
+  /** The question's heading, for the page to move a screen reader to (#752). */
+  questionRef?: React.Ref<View>;
 }) {
   const { t, tr, p, rtl, script, lang } = useApp();
   const timeZone = useTimeZone();
@@ -90,7 +94,11 @@ export function ClarifySheet({
       <Txt role="supporting" color={p.mu} testID="clarify-position">
         {tr('clarifyRemaining', { n: Math.max(1, total - position + 1) })}
       </Txt>
-      <Txt role="section" size={17} testID="clarify-question">{heading}</Txt>
+      {/* One element, so a screen reader can be taken to the question itself (#752). */}
+      <View ref={questionRef} accessible accessibilityRole="header" accessibilityLabel={heading} testID="clarify-question-focus">
+        {/* Drawn as a section title, but not a second header: the wrapper is the one (Q-A1-002). */}
+        <Txt role="body" size={17} weight={typography.section.weight} testID="clarify-question">{heading}</Txt>
+      </View>
 
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
         {question.options.map((option) => {
