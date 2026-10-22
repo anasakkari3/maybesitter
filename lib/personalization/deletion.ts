@@ -185,6 +185,8 @@ export interface PersonalizationDeletionInput {
    * being edited.
    */
   readonly storage?: StorageAdapter;
+  /** Run once the purge holds the fence, before anything is erased; skipped when the purge is refused. */
+  readonly onFenced?: () => Promise<void>;
   /** How long the purge waits behind a live withdrawal (tests shorten it). */
   readonly withdrawalWait?: { readonly attempts: number; readonly delayMs: number };
   /**
@@ -284,6 +286,9 @@ export async function deletePersonalizationScope(
   }
   const purgeEpoch = taken.epoch;
   if (taken.abandonedWithdrawal) await completeAbandonedWithdrawal(input.scopeId, input.now, { storage });
+  // The caller's own erasures that must not happen on a refusal (R28-002): run
+  // only once the fence is held.
+  if (input.onFenced) await input.onFenced();
 
   // Derived stores first, the user's memory rows last. If any step throws, the
   // user has had *more* erased than they asked for, never less, and the caller

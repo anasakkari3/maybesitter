@@ -10,6 +10,7 @@ import {
   planEnvelope, planWithBasis, prepare, showPanel, teardown, type M5bHarness, type RouteHandler, type RouteReply,
 } from '../../../__acceptance__/m5b2a/harness';
 import { PlanScreen } from '../../../screens/PlanScreen';
+import { IntelligencePanel } from '../../goals/IntelligencePanel';
 import { Root } from '../../../Root';
 import { useApp } from '../../../state/AppContext';
 
@@ -199,6 +200,38 @@ describe('M5b-2a inspection fixes', () => {
     await fireEvent.press(within(card).getByText("Yes, that's right"));
     await act(async () => { await jest.advanceTimersByTimeAsync(100); });
     expect(screen.queryByTestId('m5b-learned-status')).toBeNull();
+  });
+
+  it('R28-004: the visit\'s older inbox read, answering after the dismissal\'s own read, never brings the dismissed outcome back', async () => {
+    let reads = 0;
+    const late = deferred<void>();
+    const fresh = {
+      id: 'proposal-new', kind: 'action', title: 'Find a Pilates class', reason: 'You want more Pilates time',
+      observationIds: ['o1'], confidence: 0.8, durationMinutes: 30,
+      status: 'pending', decidedAt: null, linkedEntityId: null, generatedAt: NOW.toISOString(),
+    };
+    const base = panelHandler({ observations: [outcome('o1')] });
+    harness = await prepare('en', initialState(), (request) => {
+      if (request.method === 'POST' && request.path === '/api/mobile/intelligence/generate') {
+        return { status: 200, body: { success: true, suggestions: [fresh], schedule: [] } };
+      }
+      if (request.method === 'GET' && request.path === '/api/mobile/intelligence') {
+        reads += 1;
+        // The visit's read is taken now, before «مش صحيح», and answers last.
+        if (reads === 2) { const stale = base(request); return late.promise.then(() => stale); }
+      }
+      return base(request);
+    });
+    await render(<Providers harness={harness}><IntelligencePanel onChanged={() => undefined} autoGenerate /></Providers>);
+    await act(async () => { await jest.advanceTimersByTimeAsync(500); });
+    await waitFor(() => expect(reads).toBe(2));
+    await fireEvent.press(screen.getByTestId('m5b-learned'));
+    await fireEvent.press(screen.getByTestId('m5b-learned-wrong-o1'));
+    await waitFor(() => expect(reads).toBeGreaterThan(2));
+    await act(async () => { await jest.advanceTimersByTimeAsync(100); });
+    expect(screen.queryByTestId('m5b-learned-wrong-o1')).toBeNull();
+    await act(async () => { late.resolve(); await jest.advanceTimersByTimeAsync(100); });
+    expect(screen.queryByTestId('m5b-learned-wrong-o1')).toBeNull();
   });
 
   it('R4-002: a dismissal takes the previous action\'s failed-refresh line out of the region', async () => {

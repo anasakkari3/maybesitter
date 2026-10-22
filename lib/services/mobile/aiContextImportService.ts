@@ -487,10 +487,15 @@ export async function clearAiContextImportReceipt(
 ): Promise<void> {
   requireUserId(uid);
   const storage = storageOf(options);
-  const user = await storage.get<ProfileBearingUser>(userDoc(uid));
-  if (!user?.profile?.aiContextImport) return;
-  const { aiContextImport: _gone, ...rest } = user.profile;
-  await storage.set(userDoc(uid), { ...user, profile: rest });
+  // Read and written in one transaction (M5B2A-R28-002): a whole-document set
+  // from an earlier read would put back an older consent or fence state that a
+  // withdrawal or grant wrote in between.
+  await storage.runTransaction(async (tx) => {
+    const user = await tx.get<ProfileBearingUser>(userDoc(uid));
+    if (!user?.profile?.aiContextImport) return;
+    const { aiContextImport: _gone, ...rest } = user.profile;
+    tx.set(userDoc(uid), { ...user, profile: rest });
+  });
 }
 
 /** The target, only if it is still this user's own active record. */

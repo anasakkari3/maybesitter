@@ -1232,6 +1232,42 @@ test("R27-003: the legacy store's enable goes through the fence: refused while a
   assert.equal((await base.read(uid)).state, 'enabled');
 });
 
+test('R28-003: the control-centre delete leaves the versioned answer declined, agreeing with the effective state', async () => {
+  const uid = await keptFocusPlan();
+  const storage = currentStorage() as any;
+  const post = (body: Record<string, unknown>) => personalizationControlsPost(new Request('http://localhost/api/personalization', {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
+  }));
+  const deleted = await post({ scopeId: uid, now: new Date().toISOString(), action: 'delete' });
+  assert.equal(deleted.status, 200, JSON.stringify(await deleted.clone().json()));
+  const { allConsentsView } = await import('../../lib/consents/consentService.ts');
+  const { personalizationGrowthAllowed } = await import('../../lib/consents/personalizationConsentService.ts');
+  assert.equal((await allConsentsView(uid, { storage })).personalization.state, 'declined', 'the toggle still reads granted');
+  assert.equal(await personalizationGrowthAllowed(uid, { storage }), false);
+  assert.equal(((await storage.get(userDoc(uid))) ?? {}).personalizationPurge?.state, 'active');
+});
+
+test('R28-002: a purge refused behind a live withdrawal runs none of its caller\'s erasures', async () => {
+  const uid = await keptFocusPlan();
+  const storage = currentStorage() as any;
+  await setFence(storage, uid, { state: 'withdrawing', epoch: 40, withdrawalOwner: 'live', withdrawalLeaseAt: new Date().toISOString() });
+  let erased = false;
+  const { deletePersonalizationScope } = await import('../../lib/personalization/deletion.ts');
+  const { createStorageFeedbackEventStore } = await import('../../lib/feedback/feedbackEventStore.ts');
+  await assert.rejects(deletePersonalizationScope({
+    scopeId: uid, now: new Date().toISOString(), storage,
+    feedbackEvents: createStorageFeedbackEventStore(storage),
+    runtimeMemory: createStorageRuntimeMemoryStore(undefined, storage),
+    withdrawalWait: { attempts: 2, delayMs: 1 },
+    onFenced: async () => { erased = true; },
+  } as any), PersonalizationWithdrawalBusyError);
+  assert.equal(erased, false, 'the caller erased before the purge held the fence');
+  const source = readFileSync(new URL('../../lib/services/mobile/memoryService.ts', import.meta.url), 'utf8');
+  const body = source.slice(source.indexOf('export async function deleteAllMemory'), source.indexOf('export async function deleteAllMemory') + 2500);
+  assert.match(body, /onFenced: \(\) => clearAiContextImportReceipt/, 'delete-all clears the import receipt outside the fence');
+  assert.equal(/\n  await clearAiContextImportReceipt\(/.test(body), false, 'delete-all clears the import receipt before the purge');
+});
+
 test('R20-004: a fresh run never answers a suggestion whose outcome was dismissed right after the commit', async () => {
   const uid = await begin();
   await grantRecommendations(uid);

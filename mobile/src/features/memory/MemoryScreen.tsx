@@ -289,7 +289,10 @@ export function MemoryScreen({ onBack, focusId = null }: {
                     label={t.memoryDeleteAll}
                     testID="memory-screen-delete-all-confirm"
                     tone="warn"
-                    onPress={() => { setConfirmAll(false); flush(); removeAll.mutate(); }}
+                    // The held row is cancelled, not sent (M5B2A-R28-001): deleting
+                    // everything already takes it, and a single delete sent beside
+                    // the purge could land its dismissal after the purge said done.
+                    onPress={() => { setConfirmAll(false); undo(); removeAll.mutate(); }}
                   />
                   <Action label={t.cancel} onPress={() => setConfirmAll(false)} />
                 </View>

@@ -437,7 +437,22 @@ export function fencedPersonalizationConsentStore(
     write: (scopeId, state, at) => (state === 'disabled'
       ? disablePersonalizationFenced(scopeId, at, { ...options, consent: base })
       : enablePersonalizationFenced(scopeId, at, { ...options, consent: base })),
-    deleteScope: (scopeId) => base.deleteScope(scopeId),
+    // The legacy delete action (M5B2A-R28-003): the versioned answer goes to
+    // declined and the raw record is removed while one withdrawal holds the
+    // fence, so the mobile toggle and the effective state cannot disagree.
+    deleteScope: async (scopeId) => {
+      let removed = 0;
+      await withdrawFenced(scopeId, new Date().toISOString(), { ...options, consent: base }, async (held) => {
+        const record = await setConsentWhile(
+          PERSONALIZATION_CONSENT, scopeId,
+          { state: 'declined', version: PERSONALIZATION_CONSENT_VERSION, at: new Date() },
+          (user) => ownsFence(user, held), { storage: options.storage ?? getStorage() },
+        );
+        if (record === null) throw new PersonalizationWithdrawalSupersededError();
+        removed = await base.deleteScope(scopeId);
+      });
+      return removed;
+    },
   };
 }
 

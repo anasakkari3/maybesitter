@@ -235,8 +235,14 @@ function IntelligencePanelForAccount({ onChanged, autoGenerate = false, whenOff 
     const [next, monitor] = await Promise.all([getIntelligenceInbox(asOf), getGmailIntelligenceMonitor(asOf).catch(() => null)]);
     return { next, monitor };
   }, []);
+  // Only the newest read is applied (M5B2A-R28-004): a background read that
+  // started before «مش صحيح» and answers after the dismissal's own read would
+  // otherwise put the dismissed outcome, and what cites it, back on screen.
+  const readSeq = React.useRef(0);
   const refresh = React.useCallback(async () => {
+    const seq = ++readSeq.current;
     const { next, monitor } = await read();
+    if (seq !== readSeq.current) return next;
     setInbox(next);
     setGmailMonitor(monitor);
     setPhase('ready');
@@ -244,9 +250,10 @@ function IntelligencePanelForAccount({ onChanged, autoGenerate = false, whenOff 
   }, [read]);
   const load = React.useCallback((alive: () => boolean) => {
     void (async () => {
+      const seq = ++readSeq.current;
       try {
         const { next, monitor } = await read();
-        if (!alive()) return;
+        if (!alive() || seq !== readSeq.current) return;
         setInbox(next); setGmailMonitor(monitor); setPhase('ready');
       } catch (cause) {
         if (!alive()) return;

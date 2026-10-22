@@ -379,6 +379,19 @@ describe('delete everything', () => {
     await fireEvent.press(screen.getByTestId('memory-screen-delete-all-confirm'));
     await waitFor(() => expect(profileEndpoints.deleteAllMemory).toHaveBeenCalled());
   });
+
+  it('cancels a row still in its undo window instead of sending it beside the purge (M5B2A-R28-001)', async () => {
+    jest.useFakeTimers();
+    listing([item(), item({ id: 'mem_other', content: 'I swim on Mondays' })]);
+    await show(<MemoryScreen onBack={() => {}} />);
+    await waitFor(() => expect(screen.queryByTestId('memory-screen-delete-mem_told')).not.toBeNull());
+    await fireEvent.press(screen.getByTestId('memory-screen-delete-mem_told'));
+    await fireEvent.press(screen.getByTestId('memory-screen-delete-all'));
+    await fireEvent.press(screen.getByTestId('memory-screen-delete-all-confirm'));
+    await waitFor(() => expect(profileEndpoints.deleteAllMemory).toHaveBeenCalled());
+    await act(async () => { await jest.advanceTimersByTimeAsync(30_000); });
+    expect(profileEndpoints.deleteMemory).not.toHaveBeenCalled();
+  });
 });
 
 describe('suggestions (#202)', () => {

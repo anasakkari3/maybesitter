@@ -648,17 +648,17 @@ export async function deleteAllMemory(
   // return value is the thing under suspicion here.
   const held = (await memory.listAll(uid)).length;
 
-  // Before the purge, and outside it: `deletePersonalizationScope` empties
-  // collections and cannot see the user document's profile map, so the "last
-  // brought over" date would survive a delete-everything and go on naming a
-  // day this account imported memories that no longer exist.
-  await clearAiContextImportReceipt(uid, { ...(options.storage ? { storage: options.storage } : {}) });
-
   const receipt = await deletePersonalizationScope({
     scopeId: uid,
     now: at,
     feedbackEvents,
     runtimeMemory: memory,
+    // `deletePersonalizationScope` empties collections and cannot see the user
+    // document's profile map, so the "last brought over" date would survive a
+    // delete-everything and go on naming a day this account imported memories
+    // that no longer exist. Cleared once the purge holds the fence, so a purge
+    // refused behind a withdrawal erases nothing (M5B2A-R28-002).
+    onFenced: () => clearAiContextImportReceipt(uid, { ...(options.storage ? { storage: options.storage } : {}) }),
     // The adapter this call was handed, not the process default: otherwise a
     // caller that injects storage has its derived collections purged from a
     // different store than the one its memory lives in.
