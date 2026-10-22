@@ -98,7 +98,8 @@ export function MemoryScreen({ onBack, focusId = null }: {
   const { t, tr, p, rtl, lang } = useApp();
   const timeZone = useTimeZone();
 
-  const memory = useMemory();
+  // Opened on a row: that row is checked against a list read since this mount.
+  const memory = useMemory({ fresh: focusId !== null });
   const patch = usePatchMemory();
   const remove = useDeleteMemory();
   const removeAll = useDeleteAllMemory();
@@ -199,10 +200,13 @@ export function MemoryScreen({ onBack, focusId = null }: {
   // Opened from the plan's memory line: that row, once, with its edit field
   // open. A row that is gone opens the screen as it always opens.
   const [focusApplied, setFocusApplied] = useState(false);
-  const focusPresent = focusId !== null && items.some(item => item.id === focusId);
+  // Only a list read since this mount decides (M5B2A-R6-003): a cached one may
+  // still hold a row another device deleted. A failed read opens unfocused.
+  const freshList = memory.isFetchedAfterMount && memory.isSuccess && !memory.isRefetchError;
+  const focusPresent = focusId !== null && freshList && items.some(item => item.id === focusId);
   // Applied while rendering, once the list is known — derived state, not an
   // effect that would draw the screen once unfocused first.
-  if (!focusApplied && focusId !== null && memory.data !== undefined) {
+  if (!focusApplied && focusId !== null && (freshList || (memory.isError && !memory.isFetching))) {
     setFocusApplied(true);
     if (focusPresent) setEditing(focusId);
   }

@@ -291,12 +291,21 @@ export async function assemblePlanResponse(
   options: PlanDtoOptions & { readonly storage?: StorageAdapter } = {},
 ): Promise<DailyPlanDto> {
   const dto = planToDto(stored, titles, options);
-  const projection = await readPlanMemoryProjection(
-    uid,
-    stored,
-    typeof now === 'string' ? now : now.toISOString(),
-    options.storage ?? getStorage(),
-  );
+  // The basis is an optional disclosure read after the plan was decided — on a
+  // mutation route, after it was written. A failed read omits it rather than
+  // failing a route whose outcome already happened (M5B2A-R6-002): the app
+  // shows no basis, and a retried rebuild is not spent twice.
+  let projection: Awaited<ReturnType<typeof readPlanMemoryProjection>>;
+  try {
+    projection = await readPlanMemoryProjection(
+      uid,
+      stored,
+      typeof now === 'string' ? now : now.toISOString(),
+      options.storage ?? getStorage(),
+    );
+  } catch {
+    return dto;
+  }
   if (projection.mode === 'off') return dto;
   if (projection.mode === 'on_nobasis') {
     return { ...dto, memoryBasisChanged: projection.memoryBasisChanged };

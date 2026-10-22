@@ -403,4 +403,129 @@ describe('M5b-2a inspection fixes', () => {
     await act(async () => { await jest.advanceTimersByTimeAsync(100); });
     expect(basisCorrectionCountForTests(harness.client, ACCOUNT_A.uid)).toBe(0);
   });
+
+  // A write that may have landed: committed then 500, and a lost answer.
+  const ambiguous: [string, () => RouteReply | Promise<RouteReply>][] = [
+    ['commit-then-500', () => ({ status: 500, body: { success: false, error: 'audit_failed' } })],
+    ['lost answer', () => Promise.reject(new TypeError('Network request failed'))],
+  ];
+
+  it.each(ambiguous.flatMap(([label, reply]) => (['patch', 'delete', 'delete-all'] as const).map((operation) => [operation, label, reply] as const)))(
+    'R6-001: a %s whose answer is %s keeps the basis hidden, even through a failing plan re-read',
+    async (operation, _label, reply) => {
+      let failedWrite = false;
+      harness = await prepare('en', initialState(), (request) => {
+        const method = operation === 'patch' ? 'PATCH' : 'DELETE';
+        const path = operation === 'delete-all' ? '/api/mobile/memory' : `/api/mobile/memory/${BASIS_ID}`;
+        if (request.method === method && request.path === path) { failedWrite = true; return reply(); }
+        if (request.method === 'GET' && request.path === `/api/mobile/plans/${TODAY}`) {
+          return failedWrite ? { status: 503, body: { success: false, error: 'unavailable' } } : { status: 200, body: planEnvelope(planWithBasis()) };
+        }
+        return undefined;
+      });
+      await render(<Providers harness={harness}><View>
+        <PlanScreen date={TODAY} onBack={() => undefined} />
+        <MemoryMutationDriver />
+      </View></Providers>);
+      await waitFor(() => expect(screen.queryByTestId('m5b-plan-memory-basis')).not.toBeNull());
+      await fireEvent.press(screen.getByTestId(operation === 'patch' ? 'gate-patch' : operation === 'delete' ? 'gate-delete' : 'gate-delete-all'));
+      await waitFor(() => expect(failedWrite).toBe(true));
+      await act(async () => { await jest.advanceTimersByTimeAsync(1000); });
+      expect(screen.queryByTestId('m5b-plan-memory-basis')).toBeNull();
+      expect(basisCorrectionCountForTests(harness.client, ACCOUNT_A.uid)).toBe(1);
+    },
+  );
+
+  it('R6-001: a withdrawal whose answer is a 500 keeps the basis hidden through a failing plan re-read', async () => {
+    let sent = false;
+    harness = await prepare('en', initialState(), (request) => {
+      if (request.method === 'PUT' && request.path === '/api/mobile/consents/personalization') {
+        sent = true;
+        return { status: 500, body: { success: false, error: 'audit_failed' } };
+      }
+      if (request.method === 'GET' && request.path === `/api/mobile/plans/${TODAY}`) {
+        return sent ? { status: 503, body: { success: false, error: 'unavailable' } } : { status: 200, body: planEnvelope(planWithBasis()) };
+      }
+      return undefined;
+    });
+    function Withdraw() {
+      const consent = useSetPersonalizationConsent();
+      return <Pressable testID="withdraw" onPress={() => { void consent.mutateAsync({ state: 'declined', version: 'v1' }).catch(() => undefined); }} />;
+    }
+    await render(<Providers harness={harness}><View>
+      <PlanScreen date={TODAY} onBack={() => undefined} />
+      <Withdraw />
+    </View></Providers>);
+    await waitFor(() => expect(screen.queryByTestId('m5b-plan-memory-basis')).not.toBeNull());
+    await fireEvent.press(screen.getByTestId('withdraw'));
+    await waitFor(() => expect(sent).toBe(true));
+    await act(async () => { await jest.advanceTimersByTimeAsync(1000); });
+    expect(screen.queryByTestId('m5b-plan-memory-basis')).toBeNull();
+  });
+
+  it('R6-001: a refused withdrawal (400) shows the basis again with no plan re-read', async () => {
+    let reads = 0;
+    harness = await prepare('en', initialState(), (request) => {
+      if (request.method === 'PUT' && request.path === '/api/mobile/consents/personalization') return { status: 400, body: { success: false, error: 'invalid' } };
+      if (request.method === 'GET' && request.path === `/api/mobile/plans/${TODAY}`) { reads += 1; return { status: 200, body: planEnvelope(planWithBasis()) }; }
+      return undefined;
+    });
+    function Withdraw() {
+      const consent = useSetPersonalizationConsent();
+      return <Pressable testID="withdraw" onPress={() => { void consent.mutateAsync({ state: 'declined', version: 'v1' }).catch(() => undefined); }} />;
+    }
+    await render(<Providers harness={harness}><View>
+      <PlanScreen date={TODAY} onBack={() => undefined} />
+      <Withdraw />
+    </View></Providers>);
+    await waitFor(() => expect(screen.queryByTestId('m5b-plan-memory-basis')).not.toBeNull());
+    const before = reads;
+    await fireEvent.press(screen.getByTestId('withdraw'));
+    await waitFor(() => expect(screen.queryByTestId('m5b-plan-memory-basis')).not.toBeNull());
+    await act(async () => { await jest.advanceTimersByTimeAsync(100); });
+    expect(reads).toBe(before);
+  });
+
+  const mountReads: [string, RouteReply][] = [
+    ['omits the row', { status: 200, body: { items: [memoryItem('some-other-memory')], suggestions: [], adaptive: null } }],
+    ['answers 404', { status: 404, body: { success: false, error: 'not found', reason: 'feature_unavailable' } }],
+  ];
+  it.each(mountReads)('R6-003: a cached list still holding the row opens Memory unfocused when the mount-time read %s', async (_label, reply) => {
+    function OpenMemoryFocused() {
+      const { actions } = useApp();
+      return <Pressable testID="open-memory-focused" onPress={() => actions.openMemoryFocused(BASIS_ID)} />;
+    }
+    const held = deferred<RouteReply>();
+    let reads = 0;
+    harness = await prepare('en', initialState(), (request) => {
+      if (request.method === 'GET' && request.path === '/api/mobile/memory') { reads += 1; return held.promise; }
+      return undefined;
+    });
+    await render(<Providers harness={harness}><Root /><OpenMemoryFocused /></Providers>);
+    await act(async () => { await jest.advanceTimersByTimeAsync(100); });
+    // Freshly cached a moment ago, before another device deleted the row.
+    harness.client.setQueryData(queryKeys.memory(ACCOUNT_A.uid), { items: [memoryItem(BASIS_ID)], suggestions: [], adaptive: null });
+    const before = reads;
+    await fireEvent.press(screen.getByTestId('open-memory-focused'));
+    await waitFor(() => expect(reads).toBeGreaterThan(before));
+    // While the mount-time read is on its way, the cached row is listed but not opened.
+    expect(screen.queryByTestId(`memory-screen-item-${BASIS_ID}`)).not.toBeNull();
+    expect(screen.queryByTestId(`memory-screen-focused-${BASIS_ID}`)).toBeNull();
+    expect(screen.queryByTestId(`memory-screen-edit-input-${BASIS_ID}`)).toBeNull();
+    await act(async () => { held.resolve(reply); await jest.advanceTimersByTimeAsync(5000); });
+    expect(screen.queryByTestId(`memory-screen-focused-${BASIS_ID}`)).toBeNull();
+    expect(screen.queryByTestId(`memory-screen-edit-input-${BASIS_ID}`)).toBeNull();
+  });
+
+  it('R6-003: the mount-time read still holding the row opens it focused', async () => {
+    function OpenMemoryFocused() {
+      const { actions } = useApp();
+      return <Pressable testID="open-memory-focused" onPress={() => actions.openMemoryFocused(BASIS_ID)} />;
+    }
+    harness = await prepare('en', initialState(), () => undefined);
+    await render(<Providers harness={harness}><Root /><OpenMemoryFocused /></Providers>);
+    await act(async () => { await jest.advanceTimersByTimeAsync(100); });
+    await fireEvent.press(screen.getByTestId('open-memory-focused'));
+    await waitFor(() => expect(screen.queryByTestId(`memory-screen-focused-${BASIS_ID}`)).not.toBeNull());
+  });
 });

@@ -107,8 +107,14 @@ import type { MemorySuggestion } from './schemas/profile';
 import type { AlphaFeedbackCategory } from './schemas/feedback';
 import type { AnalyticsProperties, ClientReportableEvent } from './schemas/analytics';
 import {
+  ApiError,
   ConflictError,
+  ContractError,
   ForbiddenError,
+  NetworkError,
+  ServerError,
+  ServiceUnavailableError,
+  TimeoutError,
   InvalidTransitionError,
   PlanProposalRefusedError,
   StaleCommitmentError,
@@ -1046,6 +1052,36 @@ function dropCorrection(client: QueryClient, uid: string, correction: BasisCorre
   basisChanged();
 }
 
+/**
+ * Whether a failed write certainly changed nothing (M5B2A-R6-001): the server
+ * answered, and refused it. A lost answer, a timeout, a 5xx or an unreadable
+ * 200 may have committed first, so those settle like a success.
+ */
+function writeRefused(error: unknown): boolean {
+  return error instanceof ApiError
+    && !(error instanceof NetworkError || error instanceof TimeoutError
+      || error instanceof ServiceUnavailableError || error instanceof ServerError
+      || error instanceof ContractError);
+}
+
+/**
+ * Settles a correction once its write has an answer. Refused: nothing changed,
+ * and the cached line is valid again with no refetch (M5B2A-021). Succeeded,
+ * or unknown: from here only a plan answer that began after this shows the
+ * basis, and every plan is read again; the correction is pruned once the
+ * refetches it started are counted as on their way (R4-004).
+ */
+function settleCorrection(client: QueryClient, uid: string, correction: BasisCorrection, error: unknown): void {
+  if (error !== null && writeRefused(error)) {
+    dropCorrection(client, uid, correction);
+    return;
+  }
+  correction.succeededAt = nextPlanSequence();
+  basisChanged();
+  void client.invalidateQueries({ queryKey: ['user', uid, 'plan'] });
+  setTimeout(() => pruneCorrections(client, uid), 0);
+}
+
 function basisChanged(): void {
   basisVersion += 1;
   for (const listener of basisListeners) listener();
@@ -1606,17 +1642,12 @@ export function useSetPersonalizationConsent() {
   const uid = useUid();
   const base = useMutation({
     mutationFn: (write: { answer: ConsentAnswer; correction: BasisCorrection | null }) => putPersonalizationConsent(write.answer),
-    onError: (_error, write) => {
-      if (write.correction) dropCorrection(client, uid, write.correction);
+    onError: (error, write) => {
+      if (write.correction) settleCorrection(client, uid, write.correction, error);
     },
     onSuccess: (_saved, write) => {
-      const correction = write.correction;
-      if (!correction) return;
       // Only a plan answer that began after the withdrawal names a basis again.
-      correction.succeededAt = nextPlanSequence();
-      basisChanged();
-      void client.invalidateQueries({ queryKey: ['user', uid, 'plan'] });
-      setTimeout(() => pruneCorrections(client, uid), 0);
+      if (write.correction) settleCorrection(client, uid, write.correction, null);
     },
     onSettled: () => {
       void client.invalidateQueries({ queryKey: queryKeys.consents(uid) });
@@ -1810,11 +1841,13 @@ export function usePutRoutine() {
   });
 }
 
-export function useMemory() {
+/** `fresh`: asked again whenever the screen mounts, even over a fresh cache (M5B2A-R6-003). */
+export function useMemory(options: { fresh?: boolean } = {}) {
   const uid = useUid();
   return useQuery({
     queryKey: queryKeys.memory(uid),
     queryFn: listMemory,
+    ...(options.fresh ? { refetchOnMount: 'always' as const } : {}),
   });
 }
 
@@ -1891,22 +1924,13 @@ function useMemoryMutation<TInput, TData = unknown>(
   const uid = useUid();
   const base = useMutation({
     mutationFn: (write: MemoryWrite<TInput>) => mutationFn(write.input),
-    onError: (_error, write) => {
-      // Nothing changed on the server: the line the cache still holds is
-      // valid again, with no refetch (M5B2A-021).
-      if (write.correction) dropCorrection(client, uid, write.correction);
+    onError: (error, write) => {
+      if (write.correction) settleCorrection(client, uid, write.correction, error);
+      // A write that may have landed leaves the list unknown too.
+      if (!writeRefused(error)) void client.invalidateQueries({ queryKey: queryKeys.memory(uid) });
     },
     onSuccess: (_data, write) => {
-      const correction = write.correction;
-      if (correction) {
-        // From here, only a plan answer that began after this shows the basis.
-        correction.succeededAt = nextPlanSequence();
-        basisChanged();
-        void client.invalidateQueries({ queryKey: ['user', uid, 'plan'] });
-        // Once the refetches it started are counted as on their way: with no
-        // plan cached or asked for, nothing else would ever prune it (R4-004).
-        setTimeout(() => pruneCorrections(client, uid), 0);
-      }
+      if (write.correction) settleCorrection(client, uid, write.correction, null);
       void client.invalidateQueries({ queryKey: queryKeys.memory(uid) });
       // A routine fact edited by hand changes the profile the screen shows.
       void client.invalidateQueries({ queryKey: queryKeys.profile(uid) });
@@ -1978,17 +2002,13 @@ export function useMemorySuggestion() {
       if (input.decision !== 'keep' || !input.suggestion.fingerprint.startsWith('R1_focus_window')) return { correction: null as BasisCorrection | null };
       return { correction: addCorrection(client, uid, 'all') };
     },
-    onError: (_error, _input, context) => {
+    onError: (error, _input, context) => {
       const correction = context?.correction;
-      if (correction) dropCorrection(client, uid, correction);
+      if (correction) settleCorrection(client, uid, correction, error);
     },
     onSuccess: (_data, _input, context) => {
       const correction = context?.correction;
-      if (!correction) return;
-      correction.succeededAt = nextPlanSequence();
-      basisChanged();
-      void client.invalidateQueries({ queryKey: ['user', uid, 'plan'] });
-      setTimeout(() => pruneCorrections(client, uid), 0);
+      if (correction) settleCorrection(client, uid, correction, null);
     },
     onSettled: () => {
       // Settled, not success: a 409 means the suggestion is gone on the

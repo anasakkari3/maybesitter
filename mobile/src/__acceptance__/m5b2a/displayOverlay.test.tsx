@@ -98,7 +98,10 @@ describe('M5b-2a R2 numbered-response display overlay', () => {
     const handler: RouteHandler = request => {
       if (request.path === `/api/mobile/plans/${TODAY}` && request.method === 'GET') { reads += 1; return planGet(request); }
       if (request.path === `/api/mobile/memory/${BASIS_ID}` && request.method === 'PATCH') {
-        return { status: 500, body: { success: false, error: 'write_failed' } };
+        // GA-M5B2A-AMEND-8 (Claude): a refusal is an answer that says nothing
+        // ran (400); a 500 may have committed first, and keeps the basis
+        // hidden until a plan begun after it says otherwise (M5B2A-R6-001).
+        return { status: 400, body: { success: false, error: 'invalid' } };
       }
       return undefined;
     };
@@ -305,7 +308,8 @@ describe('M5b-2a R2 numbered-response display overlay', () => {
       const expectedMethod = operation === 'patch' ? 'PATCH' : 'DELETE';
       const expectedPath = operation === 'delete-all' ? '/api/mobile/memory' : `/api/mobile/memory/${BASIS_ID}`;
       if (request.method === expectedMethod && request.path === expectedPath) {
-        return { status: 500, body: { success: false, error: 'write_failed' } };
+        // GA-M5B2A-AMEND-8 (Claude): refused, not a 500 that may have committed.
+        return { status: 400, body: { success: false, error: 'invalid' } };
       }
       return undefined;
     };

@@ -6,6 +6,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createStorageRuntimeMemoryStore } from '../../lib/runtimeMemory/runtimeMemoryStore.ts';
 import { readPlanMemoryProjection } from '../../lib/services/dailyPlan/planMemoryBasis.ts';
+import { assemblePlanResponse } from '../../lib/services/dailyPlan/planDto.ts';
 import { composeDailyPlan, memoryFocusForPlan, personalizationPurgeMatches } from '../../lib/services/dailyPlan/dailyPlanService.ts';
 import { createStoragePersonalizationConsentStore } from '../../lib/personalizationControls/consentStore.ts';
 import { setPersonalizationConsent, PERSONALIZATION_CONSENT_VERSION } from '../../lib/consents/personalizationConsentService.ts';
@@ -102,4 +103,24 @@ test('R4-001: a plan that resolves the window just as withdrawal begins is refus
   assert.equal(personalizationPurgeMatches(user, raced.purgeEpoch), false, 'a plan shaped by the withdrawn window would still be written');
   const later = await memoryFocusForPlan(uid, NOW(), { storage: currentStorage() as any });
   assert.equal(later, null, 'a plan begun after the withdrawal still reads the window');
+});
+
+test('R6-002: a memory projection that cannot be read omits the basis instead of failing the plan response', async () => {
+  const uid = await keptFocusPlan();
+  const stored = await storedPlan(uid);
+  const storage = currentStorage() as any;
+  const healthy = await assemblePlanResponse(uid, stored, NOW(), new Map(), { storage });
+  assert.ok((healthy as any).memoryBasis, 'fixture: no basis to omit');
+  const failing = new Proxy(storage, {
+    get(target, key) {
+      if (key === 'get') return async () => { throw new Error('projection read failed'); };
+      const value = Reflect.get(target, key);
+      return typeof value === 'function' ? value.bind(target) : value;
+    },
+  });
+  const dto = await assemblePlanResponse(uid, stored, NOW(), new Map(), { storage: failing });
+  assert.equal((dto as any).memoryBasis, undefined);
+  assert.equal((dto as any).memoryBasisChanged, undefined);
+  assert.equal(dto.date, (healthy as any).date);
+  assert.deepEqual(dto.scheduled, (healthy as any).scheduled);
 });
