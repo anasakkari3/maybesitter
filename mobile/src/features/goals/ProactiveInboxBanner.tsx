@@ -98,7 +98,9 @@ export function ProactiveInboxBanner() {
     held: heldBasis,
     ready: heldBasis !== null,
     holding: held.items.length > 0,
-    watchList: heldBasis?.mode === 'on_basis',
+    // Only while it holds a pending on_basis suggestion (APP-004): an empty
+    // banner polls nothing.
+    watchList: heldBasis?.mode === 'on_basis' && held.items.length > 0,
     lastReadStart: () => lastReadStart.current,
     reread,
   });

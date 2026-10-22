@@ -281,32 +281,44 @@ function IntelligencePanelForAccount({ onChanged, autoGenerate = false, whenOff 
     load(() => alive);
     return () => { alive = false; };
   }, [load]);
+  // What is held when a read that had to check it failed (M5b-2b-1): the
+  // suggestions and their schedule go, and so does the classification, so
+  // nothing — not even «no ideas» — is claimed until an inbox answers again
+  // (R9-001, APP-003). The failed-refresh line offers the retry.
+  const failClosed = React.useCallback(() => {
+    setInbox(current => (current ? { ...current, suggestions: [], schedule: [] } : current));
+    setBasis(null);
+    setRefreshFailed(true);
+  }, []);
   // A read asked for by a signal, not a tap (M5b-2b-1: a memory write, the
   // memory list settling, a capability transition). Only the newest read
   // lands; if it fails, the suggestions it would have checked are cleared
-  // rather than left standing unverified (R9-001).
+  // rather than left standing unverified.
   const signalReread = React.useCallback(() => {
     void (async () => {
       const seq = ++readSeq.current;
       try {
         const { next, monitor, cls } = await read();
         if (!scanMounted.current || seq !== readSeq.current) return;
-        setInbox(next); setBasis(cls); setGmailMonitor(monitor);
+        setInbox(next); setBasis(cls); setGmailMonitor(monitor); setRefreshFailed(false);
       } catch {
         if (!scanMounted.current || seq !== readSeq.current) return;
-        setInbox(current => (current ? { ...current, suggestions: [], schedule: [] } : current));
+        failClosed();
       }
     })();
-  }, [read]);
+  }, [read, failClosed]);
   const m5bReady = phase === 'ready' && inbox !== null;
+  const holding = inbox?.suggestions.some(item => item.status === 'pending') === true;
   const signals = useSuggestionBasisSignals({
     held: basis,
     ready: m5bReady,
-    holding: inbox?.suggestions.some(item => item.status === 'pending') === true,
-    // Watched while M5b is known on, from the first frame: the basis line
-    // quotes only a list fetched since mount, and a mode or fence change can
-    // change what may stand while the list stays the same (R10-002).
-    watchList: m5bOn === true && phase !== 'off',
+    holding,
+    // Watched only while pending suggestions filtered under on_basis are
+    // held (APP-004): the basis line quotes only a list fetched since mount,
+    // and a mode or fence change can change what may stand while the list
+    // stays the same (R10-002). An empty holder polls nothing; memory writes
+    // and capability transitions still reach it.
+    watchList: m5bOn === true && basis?.mode === 'on_basis' && holding,
     lastReadStart: () => lastReadStart.current,
     reread: signalReread,
   });
@@ -314,8 +326,8 @@ function IntelligencePanelForAccount({ onChanged, autoGenerate = false, whenOff 
   // The visit, once per mount, after the inbox is on screen and the account
   // is known; never on a loop that answered off.
   const visited = React.useRef(false);
-  const shown = React.useRef<IntelligenceInbox | null>(null);
-  React.useEffect(() => { shown.current = inbox; }, [inbox]);
+  const shown = React.useRef<{ inbox: IntelligenceInbox | null; basis: BasisClass | null }>({ inbox: null, basis: null });
+  React.useEffect(() => { shown.current = { inbox, basis }; }, [inbox, basis]);
   React.useEffect(() => {
     if (!autoGenerate || !uid || !recommendationsEnabled || phase !== 'ready' || visited.current) return undefined;
     visited.current = true;
@@ -325,8 +337,14 @@ function IntelligencePanelForAccount({ onChanged, autoGenerate = false, whenOff 
       try {
         const answer = await generateIntelligenceSuggestions({ visit: true, ...bound });
         recordVisitAnswer(uid, answer.nextVisitAt);
-        const known = new Set((shown.current?.suggestions ?? []).map(item => item.id));
-        if (alive && answer.suggestions.some(item => item.status === 'pending' && !known.has(item.id))) await refresh();
+        // Read again when the visit's answer differs from what is held in
+        // anything drawn (M5b-2b-1, APP-001): a suggestion keeps its id when
+        // its basis or mode changes, or when a row of another mode replaces
+        // it, so a new id is not the only sign that what is held went stale.
+        // A visit that changed nothing still costs no second read.
+        const held = shown.current;
+        if (alive && (!held.inbox || visitSignature(answer.suggestions, answer.schedule, answer.basisMode ?? null)
+          !== visitSignature(held.inbox.suggestions, held.inbox.schedule, held.basis?.mode ?? null))) await refresh();
       } catch (cause) {
         recordVisitFailure(uid, forbiddenReason(cause) !== null);
       }
@@ -336,7 +354,7 @@ function IntelligencePanelForAccount({ onChanged, autoGenerate = false, whenOff 
   // A decision on a card. The mutation decides success; a failed re-read of
   // the inbox afterwards is its own state, retried by re-reading only — never
   // by sending the decision again.
-  const run = async (action: () => Promise<unknown>) => {
+  const run = async (action: () => Promise<unknown>, suggestionId?: string) => {
     if (inFlight.current) return;
     inFlight.current = true;
     setBusy(true);
@@ -353,8 +371,18 @@ function IntelligencePanelForAccount({ onChanged, autoGenerate = false, whenOff 
         // M5b-2b-1 (R4-003): the suggestion can no longer be acted on (the
         // memory mode changed, or a memory that shaped it went). Not an error
         // to show or say: the inbox is read again and the card leaves.
+        // The card and its schedule leave at once (APP-002); the read after
+        // it can only replace them, and if it fails, nothing held is left
+        // standing unverified.
         if (cause instanceof SuggestionUnavailableError) {
-          try { await refresh(); } catch { setRefreshFailed(true); }
+          if (suggestionId !== undefined) {
+            setInbox(current => (current ? {
+              ...current,
+              suggestions: current.suggestions.filter(item => item.id !== suggestionId),
+              schedule: current.schedule.filter(item => item.suggestionId !== suggestionId),
+            } : current));
+          }
+          try { await refresh(); } catch { failClosed(); }
           return;
         }
         setError(cause);
@@ -665,8 +693,8 @@ function IntelligencePanelForAccount({ onChanged, autoGenerate = false, whenOff 
           onPress={() => void run(() => item.kind === 'question'
             ? answerIntelligenceQuestion(item.id, (answers[item.id] ?? '').trim(), bound)
             : decideIntelligenceSuggestion(item.id, 'accept', (editedTitles[item.id] ?? '').trim() || undefined,
-              item.kind === 'action' ? schedule.get(item.id)?.slot ?? undefined : undefined, bound))} />
-        <Pill label={t.xIntelligenceDismiss} kind="outline" disabled={busy} onPress={() => void run(() => decideIntelligenceSuggestion(item.id, 'dismiss', undefined, undefined, bound))} />
+              item.kind === 'action' ? schedule.get(item.id)?.slot ?? undefined : undefined, bound), item.id)} />
+        <Pill label={t.xIntelligenceDismiss} kind="outline" disabled={busy} onPress={() => void run(() => decideIntelligenceSuggestion(item.id, 'dismiss', undefined, undefined, bound), item.id)} />
       </View>
       {item.kind !== 'question' ? <Txt role="supporting" color={p.mu}>{t.suggestionNote}</Txt> : null}
       {/* M5b-2b-1 (R3): which remembered fact shaped it, and the way to
@@ -781,6 +809,24 @@ function IntelligencePanelForAccount({ onChanged, autoGenerate = false, whenOff 
   {/* What was added from the person's own replies sits beside the panel, not inside it (R3.5). */}
   <AddedCard />
   </>;
+}
+
+/**
+ * What a set of suggestions draws, for comparing a visit's answer with what
+ * is held (APP-001): the mode, and each pending suggestion's id, cited
+ * memories and schedule slot.
+ */
+function visitSignature(
+  suggestions: readonly IntelligenceSuggestion[],
+  schedule: IntelligenceInbox['schedule'],
+  mode: BasisClass['mode'],
+): string {
+  const slots = new Map(schedule.map(row => [row.suggestionId, row.slot ? [row.slot.startsAt, row.slot.endsAt] : 'none']));
+  const pending = suggestions
+    .filter(item => item.status === 'pending')
+    .map(item => [item.id, (item.memoryBasis ?? []).map(entry => entry.memoryId).sort(), slots.get(item.id) ?? null] as const)
+    .sort((a, b) => a[0].localeCompare(b[0]));
+  return JSON.stringify([mode, pending]);
 }
 
 /** At most this many basis lines on a card, as the wire allows. */
