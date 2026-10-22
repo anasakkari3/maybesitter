@@ -296,10 +296,12 @@ test('R2 on: an accepted plan with no marker, today or at today+6, shows no basi
   const read = (await getPlan(uid)).plan;
   assert.equal(read.memoryBasis, null);
   assert.equal(read.memoryBasisChanged, false);
+  // Today+6 can only be reached through the week (the build route takes today
+  // or tomorrow): seeded as a pre-slice accepted plan, the accepted today's
+  // document moved to that date with no marker (GB-M5B2A-AMEND-1).
   const SIXTH = new Date(Date.parse(`${TODAY}T12:00:00Z`) + 6 * 86_400_000).toISOString().slice(0, 10);
-  await buildPlan(uid, SIXTH);
-  await acceptPlanRoute(uid, SIXTH);
-  await stripMarker(uid, SIXTH);
+  const accepted = await storedPlan(uid, TODAY);
+  await currentStorage().set(planPath(uid, SIXTH), { ...accepted, date: SIXTH });
   const later = (await getPlan(uid, SIXTH)).plan;
   assert.equal(later.memoryBasis, null);
   assert.equal(later.memoryBasisChanged, false);

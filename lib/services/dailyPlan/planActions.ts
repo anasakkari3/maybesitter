@@ -51,6 +51,7 @@ import type {
 } from '../../../src/contracts/v1/planningContracts';
 import { ownershipOf, type ScheduleBlock } from '../../../src/contracts/v1/scheduleBlockContracts';
 import { getStorage, type StorageAdapter } from '../../storage';
+import { userDoc } from '../../storage/paths';
 import { readActivityStats, recordActivityEvents } from '../activity/activityStats';
 import { earliestLedgerAcceptance, planEventAsRecord } from '../activity/planActivity';
 import { applyEditsToBlocks, protectionAfterMove, protectionOf, schedulePlan } from '../../planning/scheduler';
@@ -58,6 +59,7 @@ import { planIncrementalPatch } from '../../planning/incremental/freezeResolve';
 import { randomUUID } from 'node:crypto';
 import {
   MAX_REJECTED_PROPOSALS,
+  PlanWriteGuardRejected,
   appendPlanEvent,
   mutateStoredPlan,
   pendingProposalOf,
@@ -78,7 +80,7 @@ import { readBusyBlocksForPlanning } from '../../calendar/busyBlocks';
 import { buildDailyPlanInput, dayHorizon } from './buildDailyPlan';
 import { loadDomainState } from '../mobile/participantState';
 import type { Commitment } from '../../../src/domain/stateMachine';
-import { composeDailyPlan, type DailyPlanDeps } from './dailyPlanService';
+import { composeDailyPlan, composedPlanPurgeEpoch, personalizationPurgeMatches, type DailyPlanDeps } from './dailyPlanService';
 import { resolveMemoryLearning } from '../../release/m5bCapabilities';
 
 export type PlanEditReason =
@@ -584,7 +586,7 @@ export async function setBlockProtection(
 export type PlanProposalReason = 'no_proposal' | 'stale_proposal';
 
 export class PlanProposalRejected extends Error {
-  constructor(readonly reason: PlanProposalReason, message: string) {
+  constructor(readonly reason: PlanProposalReason, message: string, readonly conflict = false) {
     super(message);
     this.name = 'PlanProposalRejected';
   }
@@ -930,7 +932,7 @@ export async function acceptPlanProposal(
   const checkedTimezone = offeredTimezone ?? before?.timezone;
   const taken = before ? await fixedTimeInForce(uid, { ...before, timezone: checkedTimezone! }, at, { storage: options.storage }) : [];
 
-  const outcome = await mutateStoredPlan<null>(uid, date, (current) => {
+  const outcome = await mutateStoredPlan<null>(uid, date, async (current, tx) => {
     // Re-read inside the transaction, and everything below is derived from
     // *this* `current`. See the header: a document assembled from an earlier
     // read clobbers whatever landed in between.
@@ -976,6 +978,17 @@ export async function acceptPlanProposal(
       rejection = new PlanProposalRejected('stale_proposal', 'the proposed change needs a new solve snapshot');
       return null;
     }
+    if (proposal.focusFromMemory === true && proposal.personalizationPurgeEpoch !== undefined) {
+      const user = await tx.get(userDoc(uid));
+      if (!personalizationPurgeMatches(user, proposal.personalizationPurgeEpoch)) {
+        rejection = new PlanProposalRejected(
+          'stale_proposal',
+          'the memory basis changed while this proposal was waiting',
+          true,
+        );
+        return null;
+      }
+    }
     rejection = null;
 
     const generation = current.generation + 1;
@@ -983,10 +996,10 @@ export async function acceptPlanProposal(
     const { edits, status } = editsSurvivingReschedule(current);
     const causeChangeIds = proposal.causeChangeIds;
     const causes = causeChangeIds.length > 0 ? { causeChangeIds: [...causeChangeIds] } : {};
-    const { readinessApplied: _oldReadiness, ...withoutOldReadiness } = current;
+    const { readinessApplied: _oldReadiness, focusFromMemory: _oldFocusFromMemory, ...withoutOldBasis } = current;
     return {
       next: {
-        ...withoutOldReadiness,
+        ...withoutOldBasis,
         generation,
         replaces: { generation: current.generation, inputDigest: current.inputDigest },
         plan: proposal.plan,
@@ -1016,6 +1029,7 @@ export async function acceptPlanProposal(
         ...(resolveMemoryLearning() && proposal.basisSnapshot
           ? { readinessApplied: proposal.basisSnapshot.readinessApplied }
           : {}),
+        ...(proposal.focusFromMemory === undefined ? {} : { focusFromMemory: proposal.focusFromMemory }),
       },
       result: null,
       // Both in this commit. See "What the ledger says" above.
@@ -1187,7 +1201,7 @@ export async function regeneratePlan(
   if (!current) return { ok: false, reason: 'not_found' };
   if (rebuildsLeftOf(current) === 0) return { ok: false, reason: 'limit_reached' };
 
-  const composed = await composeDailyPlan(uid, date, { timezone: current.timezone }, current.generation + 1, deps, {
+  let composed = await composeDailyPlan(uid, date, { timezone: current.timezone }, current.generation + 1, deps, {
     previousGeneration: current.generation,
     previousInputDigest: current.inputDigest,
     // `?? []` for documents written before blocks existed (#521): the new
@@ -1197,10 +1211,30 @@ export async function regeneratePlan(
   });
   // The refreshes already written today stay uncounted after a rebuild, or
   // the rebuild would charge the person for them retroactively.
-  const rebuilt: StoredDailyPlan = current.automaticGenerations
-    ? { ...composed, automaticGenerations: current.automaticGenerations }
-    : composed;
-  const stored = await replaceStoredPlan(uid, rebuilt, current.generation, deps.storage);
+  const rebuild = (candidate: StoredDailyPlan): StoredDailyPlan => current.automaticGenerations
+    ? { ...candidate, automaticGenerations: current.automaticGenerations }
+    : candidate;
+  let stored: StoredDailyPlan | null;
+  try {
+    const epoch = composedPlanPurgeEpoch(composed);
+    stored = await replaceStoredPlan(
+      uid,
+      rebuild(composed),
+      current.generation,
+      deps.storage,
+      composed.focusFromMemory === true && epoch !== undefined
+        ? { path: userDoc(uid), accepts: value => personalizationPurgeMatches(value, epoch) }
+        : undefined,
+    );
+  } catch (error) {
+    if (!(error instanceof PlanWriteGuardRejected)) throw error;
+    composed = await composeDailyPlan(uid, date, { timezone: current.timezone }, current.generation + 1, deps, {
+      previousGeneration: current.generation,
+      previousInputDigest: current.inputDigest,
+      previousBlocks: current.blocks ?? [],
+    }, undefined, undefined, true);
+    stored = await replaceStoredPlan(uid, rebuild(composed), current.generation, deps.storage);
+  }
   if (!stored) return { ok: false, reason: 'raced' };
 
   await appendPlanEvent(uid, {

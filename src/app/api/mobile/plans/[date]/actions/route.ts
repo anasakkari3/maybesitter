@@ -15,7 +15,7 @@ import {
   rejectPlanProposal,
   setBlockProtection,
 } from '../../../../../../../lib/services/dailyPlan/planActions';
-import { pendingProposalToDto, planToDto } from '../../../../../../../lib/services/dailyPlan/planDto';
+import { assemblePlanResponse, pendingProposalToDto } from '../../../../../../../lib/services/dailyPlan/planDto';
 import { titlesOf } from '../../../../../../../lib/services/dailyPlan/dailyPlanService';
 import { loadDomainState } from '../../../../../../../lib/services/mobile/participantState';
 import { getStorage } from '../../../../../../../lib/storage';
@@ -103,7 +103,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ dat
     if (error instanceof PlanProposalRejected) {
       return Response.json(
         { success: false, error: error.message, reason: error.reason },
-        { status: 422 },
+        { status: error.conflict ? 409 : 422 },
       );
     }
     if (error instanceof PlanProtectionRejected) {
@@ -125,7 +125,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ dat
   const taken = await fixedTimeForOffer(user.uid, stored, now, { storage: getStorage(), commitments });
   return Response.json({
     success: true,
-    plan: planToDto(stored, titles, { commitments }),
+    plan: await assemblePlanResponse(user.uid, stored, now, titles, { commitments }),
     // The same key GET answers with, on every action: a client that has just
     // accepted or rejected a patch learns from its own response that the offer
     // is gone, instead of re-fetching to find out.

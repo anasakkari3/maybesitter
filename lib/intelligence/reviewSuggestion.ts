@@ -2,9 +2,9 @@ import type { Command } from '../../src/domain/stateMachine';
 import { getStorage, type StorageAdapter } from '../storage';
 import { createStorageRuntimeMemoryStore } from '../runtimeMemory/runtimeMemoryStore';
 import { commitCommandsWithClaim } from '../services/mobile/participantState';
-import { suggestionPath, type IntelligenceSuggestion } from './proposalEngine';
+import { isDismissedBehaviourOutcome, suggestionPath, type IntelligenceSuggestion } from './proposalEngine';
 import { slotStillFitsSchedule } from './schedulePreview';
-import { listObservations } from './observationStore';
+import { listObservations, observationPath } from './observationStore';
 
 export type SuggestionDecision = 'accept' | 'dismiss';
 
@@ -76,8 +76,11 @@ export async function reviewSuggestion(
       acceptedSlot = slot;
     }
     const commitmentId = `int_${id}`;
-    await commitCommandsWithClaim<IntelligenceSuggestion>(uid, path, claim => {
+    await commitCommandsWithClaim<IntelligenceSuggestion>(uid, path, (claim, context) => {
       if (!claim || claim.status !== 'pending' || claim.kind !== 'action') return null;
+      if (context.guards.some(isDismissedBehaviourOutcome)) {
+        return { commands: [], patch: { status: 'dismissed', decidedAt: now } };
+      }
       const commands: Command[] = [
         { type: 'CreateDraft', now, commitment: {
           id: commitmentId, kind: 'task', title: editedTitle ?? claim.title,
@@ -88,7 +91,7 @@ export async function reviewSuggestion(
         { type: 'ConfirmCommitment', commitmentId, now },
       ];
       return { commands, patch: { status: 'accepted', title: editedTitle ?? claim.title, decidedAt: now, linkedEntityId: commitmentId } };
-    });
+    }, current.observationIds.map(observationId => observationPath(uid, observationId)));
     return storage.get<IntelligenceSuggestion>(path);
   }
 
@@ -96,6 +99,13 @@ export async function reviewSuggestion(
     const claimed = await storage.runTransaction(async tx => {
       const latest = await tx.get<IntelligenceSuggestion>(path);
       if (!latest || (latest.status !== 'pending' && latest.status !== 'accepting')) return null;
+      const cited = await Promise.all(latest.observationIds.map(observationId =>
+        tx.get(observationPath(uid, observationId))));
+      if (cited.some(isDismissedBehaviourOutcome)) {
+        const dismissed: IntelligenceSuggestion = { ...latest, status: 'dismissed', decidedAt: now };
+        tx.set(path, dismissed);
+        return null;
+      }
       const next = { ...latest, status: 'accepting' as const,
         title: latest.status === 'pending' ? editedTitle ?? latest.title : latest.title };
       if (latest.status === 'pending') tx.set(path, next);
@@ -122,6 +132,13 @@ export async function reviewSuggestion(
     const latest = await tx.get<IntelligenceSuggestion>(path);
     if (!latest) return null;
     if (latest.status !== 'pending') return latest;
+    const cited = await Promise.all(latest.observationIds.map(observationId =>
+      tx.get(observationPath(uid, observationId))));
+    if (cited.some(isDismissedBehaviourOutcome)) {
+      const dismissed: IntelligenceSuggestion = { ...latest, status: 'dismissed', decidedAt: now };
+      tx.set(path, dismissed);
+      return dismissed;
+    }
     const next: IntelligenceSuggestion = { ...latest, status: 'accepted', decidedAt: now };
     tx.set(path, next);
     return next;
