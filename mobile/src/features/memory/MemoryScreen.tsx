@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { ScrollView, TextInput, View } from 'react-native';
+import { BackHandler, ScrollView, TextInput, View } from 'react-native';
 import { useApp } from '../../state/AppContext';
 import { isolateAuto } from '../../i18n/bidi';
 import { formatDate } from '../../i18n/format';
@@ -138,6 +138,13 @@ export function MemoryScreen({ onBack, focusId = null }: {
     flush();
     onBack();
   }, [flush, onBack]);
+
+  // Android's hardware and gesture Back leave the same way (M5B2A-R5-001).
+  // Registered after Root's, so it is asked first.
+  useEffect(() => {
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => { leave(); return true; });
+    return () => sub.remove();
+  }, [leave]);
 
   const scheduleDelete = useCallback((id: string) => {
     // One at a time: a second delete commits the first rather than replacing

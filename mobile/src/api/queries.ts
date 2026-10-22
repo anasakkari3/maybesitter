@@ -1008,7 +1008,7 @@ function pruneOnPlanRemoval(client: QueryClient): void {
   prunedOnRemoval.add(client);
   client.getQueryCache().subscribe((event) => {
     const key = event.query.queryKey;
-    if (event.type === 'removed' && key[0] === 'user' && key[2] === 'plan' && typeof key[1] === 'string') {
+    if (event.type === 'removed' && key[0] === 'user' && key[2] === 'plan' && key.length === 4 && typeof key[1] === 'string') {
       pruneCorrections(client, key[1]);
     }
   });
@@ -1075,7 +1075,11 @@ function pruneCorrections(client: QueryClient, uid: string): void {
   const list = peekCorrections(client, uid);
   if (!list || list.length === 0) return;
   const starts: number[] = Array.from(plansInFlightByClient.get(client)?.get(uid) ?? []);
+  // Daily plan answers only: the week and saved-week answers are never
+  // stamped, and would hold every correction forever (M5B2A-R5-003).
   for (const query of client.getQueryCache().findAll({ queryKey: ['user', uid, 'plan'] })) {
+    const day = query.queryKey[3];
+    if (query.queryKey.length !== 4 || day === 'week' || day === 'savedWeek') continue;
     const data = query.state.data;
     if (data && typeof data === 'object') starts.push(planStarts.get(data as object) ?? 0);
   }
@@ -1600,13 +1604,38 @@ export function useAnalyticsConsent(): () => Promise<boolean> {
 export function useSetPersonalizationConsent() {
   const client = useQueryClient();
   const uid = useUid();
-  return useMutation({
-    mutationFn: (answer: ConsentAnswer) => putPersonalizationConsent(answer),
+  const base = useMutation({
+    mutationFn: (write: { answer: ConsentAnswer; correction: BasisCorrection | null }) => putPersonalizationConsent(write.answer),
+    onError: (_error, write) => {
+      if (write.correction) dropCorrection(client, uid, write.correction);
+    },
+    onSuccess: (_saved, write) => {
+      const correction = write.correction;
+      if (!correction) return;
+      // Only a plan answer that began after the withdrawal names a basis again.
+      correction.succeededAt = nextPlanSequence();
+      basisChanged();
+      void client.invalidateQueries({ queryKey: ['user', uid, 'plan'] });
+      setTimeout(() => pruneCorrections(client, uid), 0);
+    },
     onSettled: () => {
       void client.invalidateQueries({ queryKey: queryKeys.consents(uid) });
       void client.invalidateQueries({ queryKey: queryKeys.memory(uid) });
     },
   });
+  // A withdrawal hides every cached plan's memory basis from the tap
+  // (M5B2A-R5-002), as a memory write does: the server no longer stands
+  // behind it, and a plan left in the cache, or read offline, still names it.
+  const begin = (answer: ConsentAnswer) => ({
+    answer,
+    correction: answer.state === 'declined' ? addCorrection(client, uid, 'all') : null,
+  });
+  return {
+    ...base,
+    variables: base.variables?.answer,
+    mutateAsync: (answer: ConsentAnswer) => base.mutateAsync(begin(answer)),
+    mutate: (answer: ConsentAnswer) => base.mutate(begin(answer)),
+  };
 }
 
 export function useSetRecommendationConsent() {
