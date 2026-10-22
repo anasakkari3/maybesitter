@@ -13,7 +13,8 @@ import { processStateChangesForUser } from '../../lib/services/dailyPlan/continu
 import { PlanWriteGuardRejected, planPath } from '../../lib/services/dailyPlan/planStore.ts';
 import { acceptWeekDay, composeWeek } from '../../lib/services/dailyPlan/weekPlan.ts';
 import { createStoragePersonalizationConsentStore } from '../../lib/personalizationControls/consentStore.ts';
-import { setPersonalizationConsent, PersonalizationWithdrawalBusyError, PERSONALIZATION_CONSENT_VERSION } from '../../lib/consents/personalizationConsentService.ts';
+import { fencedPersonalizationConsentStore, setPersonalizationConsent, PersonalizationWithdrawalBusyError, PERSONALIZATION_CONSENT_VERSION } from '../../lib/consents/personalizationConsentService.ts';
+import { readFileSync } from 'node:fs';
 import { userDoc } from '../../lib/storage/paths.ts';
 import { setStorageForTests } from '../../lib/storage/index.ts';
 import {
@@ -538,4 +539,30 @@ test('R10-002: auto-apply writes the fresh suppressed solve, not the withdrawn p
   const after = await storedPlan(uid);
   assert.ok(after.generation > before.generation, 'the fresh auto-apply was not stored');
   assert.equal(after.memoryUse, undefined, 'the auto-applied generation kept stale memory provenance');
+});
+
+test('R11-001: the control-centre disable goes through the fence, so a plan that read the window before it is refused', async () => {
+  const uid = await keptFocusPlan();
+  const storage = currentStorage() as any;
+  const before = await memoryFocusForPlan(uid, NOW(), { storage });
+  assert.ok(before, 'fixture: no plan read the kept window');
+  await fencedPersonalizationConsentStore({ storage }).write(uid, 'disabled', new Date().toISOString());
+  const user = await storage.get(userDoc(uid));
+  assert.equal(personalizationPurgeMatches(user, before!.purgeEpoch), false, 'a plan that read the window before the disable could still be written');
+  assert.equal(await memoryFocusForPlan(uid, NOW(), { storage }), null);
+  // And the legacy route wires that store, not the raw one.
+  const route = readFileSync(new URL('../../src/app/api/personalization/route.ts', import.meta.url), 'utf8');
+  assert.match(route, /consent: fencedPersonalizationConsentStore\(\)/);
+  assert.doesNotMatch(route, /createStoragePersonalizationConsentStore/);
+});
+
+test('R11-002: an ordinary accept of a plan shaped by since-withdrawn memory answers 409 plan_changed and accepts nothing', async () => {
+  const uid = await keptFocusPlan();
+  const before = await storedPlan(uid);
+  assert.ok(before.memoryUse || before.focusFromMemory === true, 'fixture: the plan used no memory');
+  await setPersonalizationConsent(uid, { state: 'declined', version: PERSONALIZATION_CONSENT_VERSION, at: new Date() }, { storage: currentStorage() as any });
+  const accepted = await call(uid, 'plans/[date]/actions', 'POST', { params: { date: TODAY }, body: { action: 'accept' } });
+  assert.equal(accepted.status, 409, show(accepted.body));
+  assert.equal(accepted.body.reason, 'plan_changed');
+  assert.equal((await storedPlan(uid)).status, before.status, 'the withdrawn plan was accepted');
 });

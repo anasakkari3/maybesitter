@@ -19,7 +19,7 @@ import { assemblePlanResponse, pendingProposalToDto } from '../../../../../../..
 import { titlesOf } from '../../../../../../../lib/services/dailyPlan/dailyPlanService';
 import { loadDomainState } from '../../../../../../../lib/services/mobile/participantState';
 import { getStorage } from '../../../../../../../lib/storage';
-import type { StoredDailyPlan } from '../../../../../../../lib/services/dailyPlan/planStore';
+import { PlanWriteGuardRejected, type StoredDailyPlan } from '../../../../../../../lib/services/dailyPlan/planStore';
 import { RequestBodyTooLargeError, readJsonBody, requestBodyTooLargeResponse } from '../../../../../../../lib/net/requestBody';
 
 export const dynamic = 'force-dynamic';
@@ -104,6 +104,14 @@ export async function POST(request: Request, { params }: { params: Promise<{ dat
       return Response.json(
         { success: false, error: error.message, reason: error.reason },
         { status: 422 },
+      );
+    }
+    // The plan on screen was shaped by memory the person has since withdrawn
+    // (M5B2A-R11-002): nothing was accepted, and the app re-reads the plan.
+    if (error instanceof PlanWriteGuardRejected) {
+      return Response.json(
+        { success: false, error: 'the plan changed; read it again', reason: 'plan_changed' },
+        { status: 409 },
       );
     }
     if (error instanceof PlanProtectionRejected) {

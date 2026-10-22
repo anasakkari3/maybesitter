@@ -16,7 +16,7 @@
  */
 import { createStorageFeedbackEventStore } from '../../../../lib/feedback/feedbackEventStore';
 import { createStorageRuntimeMemoryStore } from '../../../../lib/runtimeMemory/runtimeMemoryStore';
-import { createStoragePersonalizationConsentStore } from '../../../../lib/personalizationControls/consentStore';
+import { fencedPersonalizationConsentStore } from '../../../../lib/consents/personalizationConsentService';
 import { handleControlsRequest } from '../../../../lib/personalizationControls/handler';
 import { derivePersonalizationProfile } from '../../../../lib/personalization/derive';
 import { deletePersonalizationScope } from '../../../../lib/personalization/deletion';
@@ -28,7 +28,8 @@ function port(): PersonalizationControlsPort {
   return {
     feedback: createStorageFeedbackEventStore(),
     memory: createStorageRuntimeMemoryStore(),
-    consent: createStoragePersonalizationConsentStore(),
+    // Disabling goes through the personalization fence, as the phone's does (M5B2A-R11-001).
+    consent: fencedPersonalizationConsentStore(),
     deriver: derivePersonalizationProfile,
     // No ambient state: the adaptive signals a real request should carry come
     // from the caller's session, and until the control centre has a session to

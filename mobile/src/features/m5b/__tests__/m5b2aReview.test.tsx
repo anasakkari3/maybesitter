@@ -612,4 +612,24 @@ describe('M5b-2a inspection fixes', () => {
     await act(async () => { for (const release of held) await release(); await jest.advanceTimersByTimeAsync(100); });
     expect(harness.server.matching('GET', /^\/api\/mobile\/memory$/)).toHaveLength(0);
   });
+
+  it('R11-002: an accept refused because the plan changed (409 plan_changed) reads the plan again', async () => {
+    let reads = 0;
+    harness = await prepare('en', initialState(), (request) => {
+      if (request.method === 'GET' && request.path === `/api/mobile/plans/${TODAY}`) { reads += 1; return { status: 200, body: planEnvelope(planWithBasis()) }; }
+      if (request.method === 'POST' && request.path === `/api/mobile/plans/${TODAY}/actions`) {
+        return { status: 409, body: { success: false, error: 'the plan changed; read it again', reason: 'plan_changed' } };
+      }
+      return undefined;
+    });
+    await render(<Providers harness={harness}><View>
+      <PlanScreen date={TODAY} onBack={() => undefined} />
+      <Writes />
+    </View></Providers>);
+    await waitFor(() => expect(screen.queryByTestId('plan-why')).not.toBeNull());
+    await act(async () => { await jest.advanceTimersByTimeAsync(100); });
+    const before = reads;
+    await fireEvent.press(screen.getByTestId('w-accept'));
+    await waitFor(() => expect(reads).toBeGreaterThan(before));
+  });
 });

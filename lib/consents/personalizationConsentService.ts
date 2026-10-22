@@ -34,6 +34,7 @@ import {
   createStoragePersonalizationConsentStore,
   type PersonalizationConsentStore,
 } from '../personalizationControls/consentStore';
+import type { PersonalizationConsent } from '../../src/contracts/v1/personalizationContracts';
 import { getStorage, type StorageAdapter } from '../storage';
 import { userDoc } from '../storage/paths';
 import { getConsent, setConsent, type SetConsentInput } from './consentService';
@@ -140,35 +141,68 @@ export async function setPersonalizationConsent(
     if (!PERSONALIZATION_CONSENT.isSupportedVersion(input.version)) {
       return setConsent(PERSONALIZATION_CONSENT, uid, { ...input, at }, { storage });
     }
-    // Withdrawal moves the personalization fence (M5B2A-R2-001), in two
-    // phases (M5B2A-R7-001): the epoch moves and the fence closes in one
-    // transaction, the store is disabled, then the fence reopens at that
-    // epoch. A plan that read the kept window before phase one is refused by
-    // its write guard; a basis read across it is not shown; and while the
-    // fence is closed no reader takes the window at all. Reopened only once
-    // the store is off, so any reader after it sees consent withdrawn. If the
-    // store write fails the fence still reopens — the epoch has already moved,
-    // so nothing read before is written — and the caller is told.
-    //
-    // Behind a running purge it waits (M5B2A-R8-003): every withdrawal takes
-    // its own epoch, so a plan that read the window under the purge's epoch
-    // after the purge reopened is refused too. A purge that outlasts the wait
-    // fails the withdrawal before anything changes.
-    const wait = options.purgeWait ?? PURGE_WAIT;
-    let epoch = await beginPersonalizationWithdrawal(storage, uid, at.toISOString());
-    for (let attempt = 1; epoch === null; attempt += 1) {
-      if (attempt >= wait.attempts) throw new PersonalizationWithdrawalBusyError();
-      await new Promise((resolve) => setTimeout(resolve, wait.delayMs));
-      epoch = await beginPersonalizationWithdrawal(storage, uid, at.toISOString());
-    }
-    try {
-      await store.write(uid, 'disabled', at.toISOString());
-    } finally {
-      await finishPersonalizationWithdrawal(storage, uid, epoch);
-    }
+    await disablePersonalizationFenced(uid, at.toISOString(), { ...options, storage, consent: store });
     return setConsent(PERSONALIZATION_CONSENT, uid, { ...input, at }, { storage });
   }
   return setConsent(PERSONALIZATION_CONSENT, uid, { ...input, at }, { storage });
+}
+
+/**
+ * Disables the personalization store behind the fence — the one way it is
+ * ever disabled (M5B2A-R11-001).
+ *
+ * Withdrawal moves the personalization fence (M5B2A-R2-001), in two phases
+ * (M5B2A-R7-001): the epoch moves and the fence closes in one transaction, the
+ * store is disabled, then the fence reopens at that epoch. A plan that read
+ * the kept window before phase one is refused by its write guard; a basis read
+ * across it is not shown; and while the fence is closed no reader takes the
+ * window at all. Reopened only once the store is off, so any reader after it
+ * sees consent withdrawn. If the store write fails the fence still reopens —
+ * the epoch has already moved, so nothing read before is written — and the
+ * caller is told.
+ *
+ * Behind a running purge it waits (M5B2A-R8-003): every withdrawal takes its
+ * own epoch, so a plan that read the window under the purge's epoch after the
+ * purge reopened is refused too. A purge that outlasts the wait fails the
+ * withdrawal before anything changes.
+ */
+export async function disablePersonalizationFenced(
+  uid: string,
+  at: string,
+  options: PersonalizationConsentOptions = {},
+): Promise<PersonalizationConsent> {
+  const storage = options.storage ?? getStorage();
+  const store = storeOf(options);
+  const wait = options.purgeWait ?? PURGE_WAIT;
+  let epoch = await beginPersonalizationWithdrawal(storage, uid, at);
+  for (let attempt = 1; epoch === null; attempt += 1) {
+    if (attempt >= wait.attempts) throw new PersonalizationWithdrawalBusyError();
+    await new Promise((resolve) => setTimeout(resolve, wait.delayMs));
+    epoch = await beginPersonalizationWithdrawal(storage, uid, at);
+  }
+  try {
+    return await store.write(uid, 'disabled', at);
+  } finally {
+    await finishPersonalizationWithdrawal(storage, uid, epoch);
+  }
+}
+
+/**
+ * A consent store whose `disabled` writes go through the fence. For every
+ * caller that holds a raw store — the legacy control centre route — so none
+ * can withdraw around it (M5B2A-R11-001).
+ */
+export function fencedPersonalizationConsentStore(
+  options: PersonalizationConsentOptions = {},
+): PersonalizationConsentStore {
+  const base = storeOf(options);
+  return {
+    ...base,
+    read: (scopeId) => base.read(scopeId),
+    write: (scopeId, state, at) => (state === 'disabled'
+      ? disablePersonalizationFenced(scopeId, at, { ...options, consent: base })
+      : base.write(scopeId, state, at)),
+  };
 }
 
 /**

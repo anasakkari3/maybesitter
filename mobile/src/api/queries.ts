@@ -1261,7 +1261,9 @@ export function usePlanAction(date: string) {
     // The refusal carries no plan, so the plan is re-read; left alone, the
     // screen would keep offering the same stale buttons.
     onError: error => {
-      if (error instanceof PlanProposalRefusedError) {
+      // …and so does a 409: the plan itself changed under the button — for
+      // one, it was shaped by memory since withdrawn (M5B2A-R11-002).
+      if (error instanceof PlanProposalRefusedError || error instanceof ConflictError) {
         void client.invalidateQueries({ queryKey: queryKeys.plan(uid, date) });
       }
     },
