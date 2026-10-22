@@ -226,7 +226,9 @@ describe('«يتابع لك»', () => {
     await waitFor(() => expect(decide).toHaveBeenCalledWith('a1', 'dismiss', undefined, undefined, { asUid: 'hub-user' }));
     await waitFor(() => expect(invalidate).toHaveBeenCalledWith({ queryKey: ['user', USER.uid, 'commitments'] }));
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ['user', USER.uid, 'plan'] });
-    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['user', USER.uid, 'memory'] });
+    // A dismissal writes no memory (M5b-2b-1, APP-READ-006): the memory
+    // list is not read again and no holder is told to reread for it.
+    expect(invalidate).not.toHaveBeenCalledWith({ queryKey: ['user', USER.uid, 'memory'] });
     expect(screen.queryByTestId('watching-nothing')).toBeNull();
     // The body lifts above the keyboard the app's own way, on Android too.
     expect(screen.queryByTestId('watching-kav')).not.toBeNull();

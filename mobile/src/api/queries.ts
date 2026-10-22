@@ -267,14 +267,22 @@ function invalidateCommitments(client: QueryClient, uid: string, id?: string): v
  * plan read those, so they are told — accepting on «يتابع لك» used to leave
  * them showing the day before the tap.
  */
-export function useIntelligenceDecided(): () => void {
+/**
+ * What a proactive action changed (M5b-2b-1, APP-READ-006): `memory: false`
+ * for one that writes no memory — a suggestion dismissed, a warning
+ * acknowledged — so the memory revision is not bumped and no holder reads
+ * its inbox again for it. Absent means it may have (the safe default).
+ */
+export type IntelligenceChange = { memory?: boolean };
+
+export function useIntelligenceDecided(): (change?: IntelligenceChange) => void {
   const client = useQueryClient();
   const uid = useUid();
-  return useCallback(() => {
+  return useCallback((change?: IntelligenceChange) => {
     invalidateCommitments(client, uid);
     void client.invalidateQueries({ queryKey: ['user', uid, 'goalExecution'] });
     // An accepted goal or an answer is memory now.
-    settleMemoryWrite(client, uid);
+    if (change?.memory !== false) settleMemoryWrite(client, uid);
   }, [client, uid]);
 }
 
