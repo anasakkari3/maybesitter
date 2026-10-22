@@ -30,6 +30,13 @@ export interface UserDocument<TTrust = unknown> {
   domainVersion: number;
   /** Monotonic fence for calendar authority; absent legacy rows read as zero. */
   calendarEpoch?: number;
+  /** Monotonic fence around deletion of personalization-derived data. */
+  personalizationPurge?: {
+    state?: 'active' | 'purging';
+    epoch?: number;
+    startedAt?: string;
+    completedAt?: string;
+  };
 }
 
 export function newUserDocument(at: string): UserDocument {

@@ -80,7 +80,7 @@ import {
 } from './dailyPlanService';
 import { PlanEditRejected, acceptPlan, effectiveSchedule } from './planActions';
 import { endIsEstimated, planToDto } from './planDto';
-import { planPath, readStoredPlan, type StoredDailyPlan, type WeekPlanOrigin } from './planStore';
+import { PlanWriteGuardRejected, planPath, readStoredPlan, type StoredDailyPlan, type WeekPlanOrigin } from './planStore';
 import { isPlanDate, localDateOf, planSettingsOf } from './planSettings';
 import { PLAN_PROPOSAL_DAYS, heldBySavedWeekDay, planDatesFrom } from './weekHolds';
 import { DEFAULT_MOBILE_TIMEZONE } from '../mobile/time';
@@ -209,6 +209,8 @@ interface ProposedDay {
   readonly plan: Plan;
   readonly config: DailyPlanRequest['config'];
   readonly readinessApplied?: ReadinessApplied;
+  readonly focusFromMemory?: boolean;
+  readonly personalizationPurgeEpoch?: number;
   readonly assignment: DayAssignment;
   readonly reasons: ReadonlyMap<string, WeekStepReason | null>;
 }
@@ -478,6 +480,8 @@ export async function composeWeek(
       plan,
       config: request.config,
       ...(request.basisSnapshot ? { readinessApplied: request.basisSnapshot.readinessApplied } : {}),
+      ...(request.focusFromMemory === undefined ? {} : { focusFromMemory: request.focusFromMemory }),
+      ...(request.personalizationPurgeEpoch === undefined ? {} : { personalizationPurgeEpoch: request.personalizationPurgeEpoch }),
       assignment: { include: final, exclude: rule.filter((itemId) => !finalSet.has(itemId)) },
       reasons,
     });
@@ -704,12 +708,21 @@ export async function acceptWeekDay(
     commitments: layout.commitments,
     timezone: layout.timezone,
     locale: layout.locale,
+    ...(day.focusFromMemory === undefined ? {} : { focusFromMemory: day.focusFromMemory }),
+    ...(day.personalizationPurgeEpoch === undefined ? {} : { personalizationPurgeEpoch: day.personalizationPurgeEpoch }),
   } : undefined;
-  const { created, stored } = await storeWeekDayPlan(uid, date, {
-    assignment: day.assignment,
-    origin,
-    ...(solved ? { solved } : {}),
-  }, { ...deps, storage });
+  let created: boolean;
+  let stored: StoredDailyPlan;
+  try {
+    ({ created, stored } = await storeWeekDayPlan(uid, date, {
+      assignment: day.assignment,
+      origin,
+      ...(solved ? { solved } : {}),
+    }, { ...deps, storage }));
+  } catch (error) {
+    if (!(error instanceof PlanWriteGuardRejected)) throw error;
+    return { outcome: 'week_changed', layout: await composeWeek(uid, decisions, { ...deps, storage }) };
+  }
   if (!created) {
     return { outcome: 'already_planned', stored, layout: await composeWeek(uid, decisions, { ...deps, storage }) };
   }

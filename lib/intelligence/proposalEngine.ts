@@ -4,7 +4,7 @@ import { detectPromptInjection } from '../../src/extraction/ollamaExtractor';
 import { getStorage, INTELLIGENCE_PROPOSALS, INTELLIGENCE_RUNS, requireUserId, userCol, type StorageAdapter } from '../storage';
 import { shareLlmProvider, type ShareStructuredGenerator } from '../llm/shareProvider';
 import { wrapUntrustedShared } from '../services/share/shareTypes';
-import { listObservations, type StoredObservation } from './observationStore';
+import { listObservations, observationPath, type StoredObservation } from './observationStore';
 import { syncCanonicalObservations } from './canonicalObservations';
 import { listMemory } from '../services/mobile/memoryService';
 import { loadDomainState } from '../services/mobile/participantState';
@@ -46,6 +46,22 @@ export interface IntelligenceRun {
   /** UTC day and count of runs a screen visit started that day. */
   visitDay?: string;
   visitRuns?: number;
+}
+
+export function isDismissedBehaviourOutcome(value: unknown): value is StoredObservation {
+  const observation = value as Partial<StoredObservation> | null;
+  return observation?.review === 'dismissed'
+    && observation.source === 'behavior'
+    && observation.kind === 'outcome';
+}
+
+export function hideDismissedOutcomeSuggestions(
+  suggestions: readonly IntelligenceSuggestion[],
+  observations: readonly StoredObservation[],
+): IntelligenceSuggestion[] {
+  const dismissed = new Set(observations.filter(isDismissedBehaviourOutcome).map(item => item.id));
+  return suggestions.filter(item => item.status !== 'pending'
+    || !item.observationIds.some(id => dismissed.has(id)));
 }
 
 const RUN_COOLDOWN_MS = 60 * 60 * 1000;
@@ -569,16 +585,23 @@ export async function proposeFromObservations<TransactionGuardState = undefined>
     suggestions = [];
   }
   const committed = await storage.runTransaction(async tx => {
-    const [current, existing] = await Promise.all([
+    const citedIds = Array.from(new Set(suggestions.flatMap(suggestion => suggestion.observationIds)));
+    const [current, existingById, cited] = await Promise.all([
       tx.get<IntelligenceRun>(runPath),
-      Promise.all(suggestions.map(suggestion => tx.get<IntelligenceSuggestion>(suggestionPath(uid, suggestion.id)))),
+      Promise.all(suggestions.map(async suggestion => [
+        suggestion.id,
+        await tx.get<IntelligenceSuggestion>(suggestionPath(uid, suggestion.id)),
+      ] as const)).then(entries => new Map(entries)),
+      Promise.all(citedIds.map(id => tx.get<StoredObservation>(observationPath(uid, id)))),
     ]);
     if (current?.claimId !== claimId) return false;
     const guardState = options.transactionGuard
       ? await options.transactionGuard(tx)
       : undefined as TransactionGuardState;
-    suggestions.forEach((suggestion, index) => {
-      if (!existing[index]) tx.create(suggestionPath(uid, suggestion.id), suggestion);
+    const dismissedIds = new Set(cited.filter(isDismissedBehaviourOutcome).map(item => item.id));
+    suggestions = suggestions.filter(suggestion => !suggestion.observationIds.some(id => dismissedIds.has(id)));
+    suggestions.forEach((suggestion) => {
+      if (!existingById.get(suggestion.id)) tx.create(suggestionPath(uid, suggestion.id), suggestion);
     });
     tx.set(runPath, { ...current, status: 'complete', suggestionIds: suggestions.map(item => item.id) });
     if (options.transactionComplete) await options.transactionComplete(tx, guardState);
@@ -590,6 +613,9 @@ export async function proposeFromObservations<TransactionGuardState = undefined>
 }
 
 async function readRun(uid: string, run: IntelligenceRun, storage: StorageAdapter): Promise<IntelligenceSuggestion[]> {
-  const found = await Promise.all(run.suggestionIds.map(id => storage.get<IntelligenceSuggestion>(suggestionPath(uid, id))));
-  return found.filter((item): item is IntelligenceSuggestion => item !== null);
+  const [found, observations] = await Promise.all([
+    Promise.all(run.suggestionIds.map(id => storage.get<IntelligenceSuggestion>(suggestionPath(uid, id)))),
+    listObservations(uid, storage),
+  ]);
+  return hideDismissedOutcomeSuggestions(found.filter((item): item is IntelligenceSuggestion => item !== null), observations);
 }

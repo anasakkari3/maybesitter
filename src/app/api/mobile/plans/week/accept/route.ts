@@ -1,7 +1,7 @@
 import { mobileAuthErrorResponse, requireMobileUser } from '../../../../../../../lib/auth/mobileAuth';
 import { mobileError } from '../../../../../../../lib/services/mobile/response';
 import { isPlanDate } from '../../../../../../../lib/services/dailyPlan/planSettings';
-import { planToDto } from '../../../../../../../lib/services/dailyPlan/planDto';
+import { assemblePlanResponse } from '../../../../../../../lib/services/dailyPlan/planDto';
 import { PlanEditRejected } from '../../../../../../../lib/services/dailyPlan/planActions';
 import { PlanDateOutOfRangeError, titlesOf } from '../../../../../../../lib/services/dailyPlan/dailyPlanService';
 import {
@@ -97,5 +97,5 @@ export async function POST(request: Request) {
     return Response.json({ success: false, error: 'the week changed since it was shown', reason: 'week_changed', week }, { status: 409 });
   }
   const commitments = result.layout.commitments;
-  return Response.json({ success: true, plan: planToDto(result.stored, titlesOf(commitments), { commitments }), week });
+  return Response.json({ success: true, plan: await assemblePlanResponse(user.uid, result.stored, new Date(), titlesOf(commitments), { commitments }), week });
 }

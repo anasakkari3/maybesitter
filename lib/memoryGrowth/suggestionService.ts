@@ -424,3 +424,19 @@ export async function keptFocusWindow(
   }
   return null;
 }
+
+/** The kept focus rule and its identity, for provenance-aware plan reads. */
+export async function keptFocusWindowRecord(
+  uid: string,
+  now: string,
+  options: MemoryGrowthOptions = {},
+): Promise<{ id: string; window: LocalWindow } | null> {
+  requireUserId(uid);
+  if (!(await consentGranted(uid, options))) return null;
+  const records = await activeRuleRecords(memoryOf(options), uid, now);
+  for (const record of records) {
+    const window = parseFocusWindowFingerprint(record.provenance?.originRef);
+    if (window) return { id: record.id, window };
+  }
+  return null;
+}

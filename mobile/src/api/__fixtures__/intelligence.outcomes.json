@@ -1,0 +1,55 @@
+{
+  "success": true,
+  "observations": [
+    {
+      "kind": "outcome",
+      "evidence": "Completed: Call the dentist",
+      "confidence": 1,
+      "id": "0000000000000000000000000000000000000000000000000000000000000000",
+      "source": "behavior",
+      "sourceRef": "fixture-outcome-completed",
+      "observedAt": "2026-08-09T09:00:00.000Z",
+      "review": "confirmed",
+      "reviewedAt": "2026-08-09T09:00:00.000Z",
+      "linkedMemoryId": null,
+      "outcome": {
+        "signal": "completed",
+        "title": "Call the dentist"
+      }
+    },
+    {
+      "kind": "outcome",
+      "evidence": "Postponed: Renew the passport",
+      "confidence": 1,
+      "id": "0000000000000000000000000000000000000000000000000000000000000000",
+      "source": "behavior",
+      "sourceRef": "fixture-outcome-postponed",
+      "observedAt": "2026-08-09T09:00:00.000Z",
+      "review": "confirmed",
+      "reviewedAt": "2026-08-09T09:00:00.000Z",
+      "linkedMemoryId": null,
+      "outcome": {
+        "signal": "postponed",
+        "title": "Renew the passport"
+      }
+    },
+    {
+      "kind": "outcome",
+      "evidence": "Dropped: Clean the garage",
+      "confidence": 1,
+      "id": "0000000000000000000000000000000000000000000000000000000000000000",
+      "source": "behavior",
+      "sourceRef": "fixture-outcome-dropped",
+      "observedAt": "2026-08-09T09:00:00.000Z",
+      "review": "confirmed",
+      "reviewedAt": "2026-08-09T09:00:00.000Z",
+      "linkedMemoryId": null,
+      "outcome": {
+        "signal": "dropped",
+        "title": "Clean the garage"
+      }
+    }
+  ],
+  "suggestions": [],
+  "schedule": []
+}

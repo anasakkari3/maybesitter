@@ -3,7 +3,7 @@ import { mobileError } from '../../../../../../lib/services/mobile/response';
 import { isPlanDate } from '../../../../../../lib/services/dailyPlan/planSettings';
 import { readCurrentPlan } from '../../../../../../lib/services/dailyPlan/planRefresh';
 import { reconcilePendingGoalPlanProjections } from '../../../../../../lib/services/mobile/goalPlanService';
-import { pendingProposalToDto, planToDto } from '../../../../../../lib/services/dailyPlan/planDto';
+import { assemblePlanResponse, pendingProposalToDto } from '../../../../../../lib/services/dailyPlan/planDto';
 import { fixedTimeForOffer } from '../../../../../../lib/services/dailyPlan/planActions';
 import { titlesOf } from '../../../../../../lib/services/dailyPlan/dailyPlanService';
 import { loadDomainState } from '../../../../../../lib/services/mobile/participantState';
@@ -63,7 +63,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ date
   const taken = await fixedTimeForOffer(user.uid, stored, now, { storage: getStorage(), commitments });
   return Response.json({
     success: true,
-    plan: planToDto(stored, titles, { inputsChanged, basisChanged, commitments }),
+    plan: await assemblePlanResponse(user.uid, stored, now, titles, { inputsChanged, basisChanged, commitments }),
     proposal: pendingProposalToDto(stored, titles, now, taken),
   });
 }

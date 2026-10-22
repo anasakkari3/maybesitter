@@ -1,7 +1,7 @@
 import { mobileAuthErrorResponse, requireMobileUser } from '../../../../../../../lib/auth/mobileAuth';
 import { mobileError } from '../../../../../../../lib/services/mobile/response';
 import { isPlanDate } from '../../../../../../../lib/services/dailyPlan/planSettings';
-import { pendingProposalToDto, planToDto } from '../../../../../../../lib/services/dailyPlan/planDto';
+import { assemblePlanResponse, pendingProposalToDto } from '../../../../../../../lib/services/dailyPlan/planDto';
 import { fixedTimeForOffer } from '../../../../../../../lib/services/dailyPlan/planActions';
 import {
   PlanDateOutOfRangeError,
@@ -63,5 +63,5 @@ export async function POST(request: Request, { params }: { params: Promise<{ dat
    * two different shapes, or the second one grows a branch for a key the first
    * never sends.
    */
-  return Response.json({ success: true, plan: planToDto(stored, titles, { inputsChanged, basisChanged, commitments }), proposal: pendingProposalToDto(stored, titles, now, taken) });
+  return Response.json({ success: true, plan: await assemblePlanResponse(user.uid, stored, now, titles, { inputsChanged, basisChanged, commitments }), proposal: pendingProposalToDto(stored, titles, now, taken) });
 }
