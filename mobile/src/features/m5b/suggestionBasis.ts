@@ -107,6 +107,13 @@ export function useSuggestionBasisSignals(options: {
   /** Whether the watched memory list has answered (or failed) since mount. */
   listSettled: boolean;
   basisHidden: (memoryId: string, readStartedAt: number) => boolean;
+  /**
+   * Marks the account's memory revision as seen, without a read: for the
+   * holder whose own action just bumped it and reads its inbox itself right
+   * after (APP-READ-006), so the action costs one read, not two. Every
+   * other holder still rereads on that bump.
+   */
+  absorbRevision: () => void;
 } {
   const { held, ready, holding, watchList } = options;
   const uid = useUid();
@@ -177,7 +184,11 @@ export function useSuggestionBasisSignals(options: {
   }, [ready, held, holding, cap.now]);
 
   const basisHidden = useSuggestionBasisHidden();
-  return { capNow: cap.now, freshItems: list.items, listSettled: list.settled, basisHidden };
+  const absorbRevision = useCallback(() => {
+    const current = uidRef.current;
+    seenRevision.current = { uid: current, revision: memoryRevisionOf(current) };
+  }, []);
+  return { capNow: cap.now, freshItems: list.items, listSettled: list.settled, basisHidden, absorbRevision };
 }
 
 /**
