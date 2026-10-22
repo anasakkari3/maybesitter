@@ -13,7 +13,7 @@ import { processStateChangesForUser } from '../../lib/services/dailyPlan/continu
 import { PlanWriteGuardRejected, planPath } from '../../lib/services/dailyPlan/planStore.ts';
 import { acceptWeekDay, composeWeek } from '../../lib/services/dailyPlan/weekPlan.ts';
 import { createStoragePersonalizationConsentStore } from '../../lib/personalizationControls/consentStore.ts';
-import { fencedPersonalizationConsentStore, setPersonalizationConsent, PersonalizationWithdrawalBusyError, PERSONALIZATION_CONSENT_VERSION } from '../../lib/consents/personalizationConsentService.ts';
+import { fencedPersonalizationConsentStore, setPersonalizationConsent, PersonalizationConsentNotRecordedError, PersonalizationWithdrawalBusyError, PERSONALIZATION_CONSENT_VERSION } from '../../lib/consents/personalizationConsentService.ts';
 import { readFileSync } from 'node:fs';
 import { POST as personalizationControlsPost } from '../../src/app/api/personalization/route.ts';
 import { userDoc } from '../../lib/storage/paths.ts';
@@ -829,6 +829,67 @@ test('R20-002: a withdrawal that outlives its lease cannot turn off a grant that
   assert.equal((await base.read(uid)).state, 'enabled', 'the stale withdrawal turned the newer grant off');
   assert.equal(((await storage.get(userDoc(uid))) ?? {}).personalizationPurge?.state, 'active');
   assert.ok(await memoryFocusForPlan(uid, NOW(), { storage }), 'memory is not back after the grant');
+});
+
+test('R21-001: a grant that resumes after a whole withdrawal ran cannot turn that withdrawal back on', async () => {
+  const uid = await keptFocusPlan();
+  const storage = currentStorage() as any;
+  const base = createStoragePersonalizationConsentStore(storage);
+  let releaseGrant!: () => void;
+  const grantPaused = new Promise<void>((resolve) => { releaseGrant = resolve; });
+  let grantEntered!: () => void;
+  const grantInStore = new Promise<void>((resolve) => { grantEntered = resolve; });
+  // The grant has passed its fence checks and recorded its answer; it pauses
+  // just before enabling the store.
+  const pausing = {
+    read: base.read.bind(base), write: base.write.bind(base), deleteScope: base.deleteScope.bind(base),
+    writeGuarded: async (...args: Parameters<NonNullable<typeof base.writeGuarded>>) => {
+      if (args[1] === 'enabled') { grantEntered(); await grantPaused; }
+      return base.writeGuarded!(...args);
+    },
+  };
+  const grant = setPersonalizationConsent(uid, { state: 'granted', version: PERSONALIZATION_CONSENT_VERSION, at: new Date() }, { storage, consent: pausing as any });
+  await grantInStore;
+  // Another device withdraws, start to finish.
+  await setPersonalizationConsent(uid, { state: 'declined', version: PERSONALIZATION_CONSENT_VERSION, at: new Date() }, { storage });
+  releaseGrant();
+  await assert.rejects(grant, PersonalizationConsentNotRecordedError);
+  assert.equal((await base.read(uid)).state, 'disabled', 'the resumed grant turned the withdrawal back on');
+  const { getConsent } = await import('../../lib/consents/consentService.ts');
+  const { PERSONALIZATION_CONSENT } = await import('../../src/contracts/v1/consentContracts.ts');
+  assert.equal(await getConsent(PERSONALIZATION_CONSENT, uid, { storage }), 'declined');
+  assert.equal(await memoryFocusForPlan(uid, NOW(), { storage }), null, 'memory is open after the withdrawal');
+});
+
+test('R21-001: a withdrawal records its answer while the fence is still closed', async () => {
+  const uid = await keptFocusPlan();
+  const real = currentStorage() as any;
+  const fenceAtAnswer: unknown[] = [];
+  const storage = new Proxy(real, {
+    get(target, key) {
+      if (key === 'runTransaction') {
+        return (fn: (tx: any) => Promise<unknown>) => target.runTransaction((tx: any) => fn(new Proxy(tx, {
+          get(t, k) {
+            const v = Reflect.get(t, k);
+            if (k === 'merge' && typeof v === 'function') {
+              return async (path: string, value: any, ...rest: unknown[]) => {
+                if (path === userDoc(uid) && value?.consents?.personalization) {
+                  fenceAtAnswer.push((await target.get(userDoc(uid)))?.personalizationPurge?.state);
+                }
+                return v.call(t, path, value, ...rest);
+              };
+            }
+            return typeof v === 'function' ? v.bind(t) : v;
+          },
+        })));
+      }
+      const value = Reflect.get(target, key);
+      return typeof value === 'function' ? value.bind(target) : value;
+    },
+  });
+  await setPersonalizationConsent(uid, { state: 'declined', version: PERSONALIZATION_CONSENT_VERSION, at: new Date() }, { storage });
+  assert.deepEqual(fenceAtAnswer, ['withdrawing'], 'the answer was recorded after the fence reopened');
+  assert.equal((await real.get(userDoc(uid)))?.personalizationPurge?.state, 'active');
 });
 
 test('R20-004: a fresh run never answers a suggestion whose outcome was dismissed right after the commit', async () => {

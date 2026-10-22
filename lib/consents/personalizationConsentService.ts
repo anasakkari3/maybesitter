@@ -168,6 +168,12 @@ async function finishPersonalizationWithdrawal(
   });
 }
 
+/** The fence epoch a user document carries; 0 before any withdrawal or purge. */
+function fenceEpoch(user: unknown): number {
+  const epoch = (user as { personalizationPurge?: FenceDocument } | null)?.personalizationPurge?.epoch;
+  return Number.isSafeInteger(epoch) && (epoch as number) >= 0 ? (epoch as number) : 0;
+}
+
 async function waitForNoLiveWithdrawal(storage: StorageAdapter, uid: string, wait: { readonly attempts: number; readonly delayMs: number }): Promise<void> {
   for (let attempt = 1; ; attempt += 1) {
     const user = await storage.get<Record<string, unknown>>(userDoc(uid));
@@ -209,9 +215,24 @@ export async function setPersonalizationConsent(
     // A withdrawal whose lease ran out is superseded *before* the grant is
     // written, so its delayed disable can no longer land after it (R20-002).
     await reopenAbandonedWithdrawal(storage, uid);
+    // The fence version this grant was decided under (M5B2A-R21-001). The
+    // store is enabled only if no withdrawal began since: one that ran — or is
+    // running — between here and the enable has moved or closed the fence, and
+    // a grant that resumed after it must not turn its withdrawal back on.
+    const version = fenceEpoch(await storage.get<Record<string, unknown>>(userDoc(uid)));
     const record = await setConsent(PERSONALIZATION_CONSENT, uid, { ...input, at }, { storage });
     try {
-      await store.write(uid, 'enabled', record.changedAt);
+      if (!store.writeGuarded) await store.write(uid, 'enabled', record.changedAt);
+      else {
+        const written = await store.writeGuarded(uid, 'enabled', record.changedAt, {
+          path: userDoc(uid),
+          accepts: (value) => {
+            const fence = (value as { personalizationPurge?: FenceDocument } | null)?.personalizationPurge;
+            return fence?.state !== 'withdrawing' && fenceEpoch(value) === version;
+          },
+        });
+        if (written === null) throw new Error('a withdrawal took the fence after this grant was decided');
+      }
     } catch (error) {
       // Rolled back to what is actually in force. If this also fails, growth
       // is still off — `personalizationGrowthAllowed` needs the store — and the
@@ -231,8 +252,14 @@ export async function setPersonalizationConsent(
     if (!PERSONALIZATION_CONSENT.isSupportedVersion(input.version)) {
       return setConsent(PERSONALIZATION_CONSENT, uid, { ...input, at }, { storage });
     }
-    await disablePersonalizationFenced(uid, at.toISOString(), { ...options, storage, consent: store });
-    return setConsent(PERSONALIZATION_CONSENT, uid, { ...input, at }, { storage });
+    // The answer is recorded while the fence is still closed (M5B2A-R21-001):
+    // a grant decided after this withdrawal reopens cannot be overtaken by
+    // this withdrawal's own answer landing late.
+    let record: ConsentRecord | undefined;
+    await withdrawFenced(uid, at.toISOString(), { ...options, storage, consent: store }, async () => {
+      record = await setConsent(PERSONALIZATION_CONSENT, uid, { ...input, at }, { storage });
+    });
+    return record!;
   }
   return setConsent(PERSONALIZATION_CONSENT, uid, { ...input, at }, { storage });
 }
@@ -261,6 +288,16 @@ export async function disablePersonalizationFenced(
   at: string,
   options: PersonalizationConsentOptions = {},
 ): Promise<PersonalizationConsent> {
+  return withdrawFenced(uid, at, options);
+}
+
+/** `disablePersonalizationFenced`, with a step run after the disable and before the fence reopens. */
+async function withdrawFenced(
+  uid: string,
+  at: string,
+  options: PersonalizationConsentOptions,
+  whileClosed?: () => Promise<void>,
+): Promise<PersonalizationConsent> {
   const storage = options.storage ?? getStorage();
   const store = storeOf(options);
   const wait = options.purgeWait ?? PURGE_WAIT;
@@ -275,8 +312,7 @@ export async function disablePersonalizationFenced(
     // Written only while this withdrawal still owns the fence (M5B2A-R20-002):
     // one that outlived its lease, superseded by a grant, must not turn the
     // newer grant off. A store that cannot guard writes as before.
-    if (!store.writeGuarded) return await store.write(uid, 'disabled', at);
-    const written = await store.writeGuarded(uid, 'disabled', at, {
+    const written = !store.writeGuarded ? await store.write(uid, 'disabled', at) : await store.writeGuarded(uid, 'disabled', at, {
       path: userDoc(uid),
       accepts: (value) => {
         const fence = (value as { personalizationPurge?: FenceDocument } | null)?.personalizationPurge;
@@ -284,6 +320,7 @@ export async function disablePersonalizationFenced(
       },
     });
     if (written === null) throw new PersonalizationWithdrawalSupersededError();
+    if (whileClosed) await whileClosed();
     return written;
   } finally {
     // Reopened once consent reads off. A withdrawal whose own write failed

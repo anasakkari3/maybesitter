@@ -224,3 +224,24 @@ describe('«ارجع للأهداف» says where it goes (M3b sim)', () => {
     expect(screenOf(back(n))).toBe('capture');
   });
 });
+
+describe('Memory opened on two different remembered facts (M5B2A-R21-002)', () => {
+  it('the second focus id reaches the screen instead of returning to the first', () => {
+    let n = initialNav;
+    n = push(n, { name: 'memory', memoryFocusId: 'mem-a' });
+    expect(derive(n).memoryFocusId).toBe('mem-a');
+    n = push(n, { name: 'plan', planDate: '2026-10-22' });
+    n = push(n, { name: 'memory', memoryFocusId: 'mem-b' });
+    expect(derive(n)).toMatchObject({ screen: 'memory', memoryFocusId: 'mem-b' });
+    n = back(n);
+    expect(screenOf(n)).toBe('plan');
+  });
+
+  it('the same focus pushed twice is still one step', () => {
+    let n = initialNav;
+    n = push(n, { name: 'memory', memoryFocusId: 'mem-a' });
+    n = push(n, { name: 'memory', memoryFocusId: 'mem-a' });
+    n = back(n);
+    expect(derive(n).screen).toBe('today');
+  });
+});

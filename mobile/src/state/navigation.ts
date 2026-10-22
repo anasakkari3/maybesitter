@@ -158,7 +158,7 @@ export function switchTab(nav: Nav, tab: Tab): Nav {
 /** Two entries are the same step when the screen and every parameter match. */
 function sameEntry(a: Entry, b: Entry): boolean {
   return a.name === b.name && a.detailId === b.detailId && a.planDate === b.planDate && a.goalId === b.goalId
-    && a.startPlan === b.startPlan;
+    && a.startPlan === b.startPlan && a.memoryFocusId === b.memoryFocusId;
 }
 
 /** The screen on top, without its one-shot `startPlan` (R4-003). */
