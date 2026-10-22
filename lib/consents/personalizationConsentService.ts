@@ -137,14 +137,33 @@ async function beginPersonalizationWithdrawal(storage: StorageAdapter, uid: stri
  * Only that exact epoch, still withdrawing: a purge that began in between owns
  * the fence, and a later withdrawal finishes its own.
  */
-async function finishPersonalizationWithdrawal(storage: StorageAdapter, uid: string, lease: WithdrawalLease): Promise<void> {
+async function finishPersonalizationWithdrawal(
+  storage: StorageAdapter,
+  uid: string,
+  lease: WithdrawalLease,
+  consentOff: boolean,
+): Promise<void> {
   await storage.runTransaction(async (tx) => {
     const user = await tx.get<Record<string, unknown>>(userDoc(uid));
     const current = user?.personalizationPurge as FenceDocument | undefined;
-    if (current?.state !== 'withdrawing' || current.epoch !== lease.epoch || current.withdrawalOwner !== lease.owner) return;
+    if (current?.state !== 'withdrawing') return;
+    // Consent verified off: whoever holds the fence now, reopening it lets no
+    // reader take memory, so a fence a takeover left behind is recovered too
+    // (M5B2A-R19-001). Otherwise only this withdrawal's own lease.
+    if (!consentOff && (current.epoch !== lease.epoch || current.withdrawalOwner !== lease.owner)) return;
     const { withdrawalOwner: _owner, withdrawalLeaseAt: _lease, ...rest } = current;
     tx.merge(userDoc(uid), { personalizationPurge: { ...rest, state: 'active', withdrawalOwner: null, withdrawalLeaseAt: null } });
   });
+}
+
+async function waitForNoLiveWithdrawal(storage: StorageAdapter, uid: string, wait: { readonly attempts: number; readonly delayMs: number }): Promise<void> {
+  for (let attempt = 1; ; attempt += 1) {
+    const user = await storage.get<Record<string, unknown>>(userDoc(uid));
+    const fence = user?.personalizationPurge as FenceDocument | undefined;
+    if (fence?.state !== 'withdrawing' || leaseExpired(fence)) return;
+    if (attempt >= wait.attempts) throw new PersonalizationWithdrawalBusyError();
+    await new Promise((resolve) => setTimeout(resolve, wait.delayMs));
+  }
 }
 
 /**
@@ -171,6 +190,10 @@ export async function setPersonalizationConsent(
   const store = storeOf(options);
   const at = input.at ?? new Date();
   if (input.state === 'granted') {
+    // Never while a live withdrawal owns the fence (M5B2A-R19-001): it could
+    // otherwise finish after this and leave memory closed under a grant that
+    // said it worked. Waited for, as a withdrawal waits; refused if it lasts.
+    await waitForNoLiveWithdrawal(storage, uid, options.purgeWait ?? PURGE_WAIT);
     const record = await setConsent(PERSONALIZATION_CONSENT, uid, { ...input, at }, { storage });
     try {
       await store.write(uid, 'enabled', record.changedAt);
@@ -241,7 +264,7 @@ export async function disablePersonalizationFenced(
     // took over from one that may still be running (M5B2A-R18-001): then the
     // fence stays closed until consent is off or the lease runs out.
     const off = await store.read(uid).then((consent) => consent.state === 'disabled', () => false);
-    if (off || !held.tookOver) await finishPersonalizationWithdrawal(storage, uid, held);
+    if (off || !held.tookOver) await finishPersonalizationWithdrawal(storage, uid, held, off);
   }
 }
 

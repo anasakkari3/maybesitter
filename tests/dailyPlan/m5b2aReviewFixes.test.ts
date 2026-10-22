@@ -742,6 +742,23 @@ test('R18-001: a takeover of a live-but-slow withdrawal whose own write fails le
   await w1;
   assert.equal((await base.read(uid)).state, 'disabled');
   assert.equal(await memoryFocusForPlan(uid, NOW(), { storage }), null);
+  // R19-001: consent is off now, so the fence W2 left behind is recovered, and
+  // an immediate grant brings memory back.
+  assert.equal(((await storage.get(userDoc(uid))) ?? {}).personalizationPurge?.state, 'active', 'the fence stayed stranded after consent was off');
+  await grantPersonalization(uid);
+  assert.ok(await memoryFocusForPlan(uid, NOW(), { storage }), 'an immediate grant did not bring memory back');
+});
+
+test('R19-001: a grant waits while a live withdrawal owns the fence, and is refused if it lasts', async () => {
+  const uid = await keptFocusPlan();
+  const storage = currentStorage() as any;
+  await setFence(storage, uid, { state: 'withdrawing', epoch: 9, withdrawalOwner: 'live', withdrawalLeaseAt: new Date().toISOString() });
+  await assert.rejects(
+    setPersonalizationConsent(uid, { state: 'granted', version: PERSONALIZATION_CONSENT_VERSION, at: new Date() }, { storage, purgeWait: { attempts: 2, delayMs: 1 } }),
+    PersonalizationWithdrawalBusyError,
+  );
+  const fence = ((await storage.get(userDoc(uid))) ?? {}).personalizationPurge;
+  assert.deepEqual([fence?.state, fence?.withdrawalOwner], ['withdrawing', 'live']);
 });
 
 test("R18-001: a caller's clock cannot make a live withdrawal look stale", async () => {
