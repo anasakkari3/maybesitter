@@ -302,7 +302,7 @@ function LoadedPlan({ plan, date, readOnly }: { plan: DailyPlan; date: string; r
   // rebuild it can no longer have is not drawn (M5B-010).
   const rebuildHidden = (m5bOn === true && plan.basisChanged === true && capReached)
     // …and so does one whose remembered basis changed (M5b-2a R2).
-    || (plan.memoryBasisChanged === true && capReached);
+    || (m5bOn === true && plan.memoryBasisChanged === true && capReached);
   const hoursOver = workingHoursOver(plan, new Date());
 
   const heading = useMemo(
@@ -365,8 +365,10 @@ function LoadedPlan({ plan, date, readOnly }: { plan: DailyPlan; date: string; r
 
       {/* M5b-2a (R2): the kept focus window this plan was arranged inside,
           and the way to correct it. The window is one LTR unit; nothing the
-          person wrote is shown here. */}
-      {plan.memoryBasis ? (
+          person wrote is shown here. Only while M5b is known to be on: a
+          cached on-mode plan says nothing once the switch is off or unknown
+          (M5B2A-REV-001). */}
+      {m5bOn === true && plan.memoryBasis ? (
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8, paddingHorizontal: 4 }}>
           <Txt size={14} color={p.mu} lh={1.5} style={{ flexShrink: 1 }} testID="m5b-plan-memory-basis">
             {fill(t.m5bPlanFocusBasis, { range: formatClockRange(plan.memoryBasis.window.start, plan.memoryBasis.window.end) })}
@@ -603,11 +605,11 @@ function LoadedPlan({ plan, date, readOnly }: { plan: DailyPlan; date: string; r
         {/* A remembered thing this plan used has changed (M5b-2a R2): said
             next to the rebuild that would apply it, or — at the cap — that the
             plan stays as it is. Never which memory, never its words. */}
-        {plan.memoryBasisChanged === true && capReached ? (
+        {m5bOn === true && plan.memoryBasisChanged === true && capReached ? (
           <Txt size={13} color={p.wm} lh={1.5} testID="m5b-plan-memory-changed-no-rebuild">{t.m5bPlanMemoryChangedNoRebuild}</Txt>
         ) : null}
         <ActionRow>
-          {rebuildHidden ? null : plan.memoryBasisChanged === true && !capReached ? (
+          {rebuildHidden ? null : m5bOn === true && plan.memoryBasisChanged === true && !capReached ? (
             // The notice sits with the rebuild it points at, as one cell.
             <View style={{ gap: 8 }}>
               <Txt size={13} color={p.wm} lh={1.5} testID="m5b-plan-memory-changed">{t.m5bPlanMemoryChanged}</Txt>

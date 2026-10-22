@@ -16,6 +16,11 @@ export interface PlanMemoryProjection {
   readonly markerUnknown: boolean;
 }
 
+function purgeEpochOf(user: unknown): number {
+  const epoch = (user as { personalizationPurge?: { epoch?: unknown } } | null)?.personalizationPurge?.epoch;
+  return typeof epoch === 'number' && Number.isFinite(epoch) ? epoch : 0;
+}
+
 function purgeRunning(user: unknown): boolean {
   return (user as { personalizationPurge?: { state?: unknown } } | null)?.personalizationPurge?.state === 'purging';
 }
@@ -50,11 +55,15 @@ export async function readPlanMemoryProjection(
   if (mode === 'on_nobasis') {
     return { mode, memoryBasis: null, memoryBasisChanged: true, markerUnknown: false };
   }
-  const [user, record] = await Promise.all([
-    storage.get(userDoc(uid)),
-    keptFocusWindowRecord(uid, now, { storage }),
-  ]);
-  if (!purgeRunning(user) && record && planUsedWindow(stored, record.window)) {
+  // Fenced (M5B2A-REV-004): the purge state is read before the record and
+  // again after it; a purge that began in between, or an epoch that moved,
+  // shows no basis.
+  const before = await storage.get(userDoc(uid));
+  if (purgeRunning(before)) return { mode, memoryBasis: null, memoryBasisChanged: true, markerUnknown: false };
+  const record = await keptFocusWindowRecord(uid, now, { storage });
+  const after = await storage.get(userDoc(uid));
+  const fenceHeld = !purgeRunning(after) && purgeEpochOf(after) === purgeEpochOf(before);
+  if (fenceHeld && record && planUsedWindow(stored, record.window)) {
     return {
       mode,
       memoryBasis: { memoryId: record.id, window: record.window },

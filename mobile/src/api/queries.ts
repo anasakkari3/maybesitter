@@ -948,6 +948,9 @@ function stampPlan<T>(plan: T, startedAt: number): T {
   return plan;
 }
 
+/** The request-start numbers of plan requests still on their way. */
+const plansInFlight = new Set<number>();
+
 /** One correction: the memory it touches (or every one), and when it succeeded. */
 interface BasisCorrection {
   readonly token: number;
@@ -975,6 +978,42 @@ function correctionsOf(client: QueryClient, uid: string): BasisCorrection[] {
 function basisChanged(): void {
   basisVersion += 1;
   for (const listener of basisListeners) listener();
+}
+
+/**
+ * Forgets every correction this client holds. Called with `queryClient.clear()`
+ * on an account change: the corrections are the previous account's memory ids,
+ * and a paused one that never settles would otherwise hide a basis for good
+ * (M5B2A-REV-002).
+ */
+export function resetBasisCorrections(client: QueryClient): void {
+  basisCorrections.delete(client);
+  basisChanged();
+}
+
+/**
+ * Drops each succeeded correction that no cached plan answer, and no plan
+ * request still on its way, began before: it can no longer hide anything
+ * (M5B2A-REV-006). Pending corrections always stay.
+ */
+function pruneCorrections(client: QueryClient, uid: string): void {
+  const list = correctionsOf(client, uid);
+  if (list.length === 0) return;
+  const starts: number[] = [...plansInFlight];
+  for (const query of client.getQueryCache().findAll({ queryKey: ['user', uid, 'plan'] })) {
+    const data = query.state.data;
+    if (data && typeof data === 'object') starts.push(planStarts.get(data as object) ?? 0);
+  }
+  const oldest = starts.length > 0 ? Math.min(...starts) : Number.POSITIVE_INFINITY;
+  const kept = list.filter((correction) => correction.succeededAt === null || oldest < correction.succeededAt);
+  if (kept.length === list.length) return;
+  list.splice(0, list.length, ...kept);
+  basisChanged();
+}
+
+/** For tests: how many corrections this client holds for `uid`. */
+export function basisCorrectionCountForTests(client: QueryClient, uid: string): number {
+  return correctionsOf(client, uid).length;
 }
 
 /** Whether `plan`'s memory basis may be shown now. */
@@ -1015,7 +1054,14 @@ export function usePlan(date: string) {
     queryKey: queryKeys.plan(uid, date),
     queryFn: async () => {
       const startedAt = nextPlanSequence();
-      return stampPlan(await getPlan(date), startedAt);
+      plansInFlight.add(startedAt);
+      try {
+        return stampPlan(await getPlan(date), startedAt);
+      } finally {
+        plansInFlight.delete(startedAt);
+        // After the cache holds this answer (cleanup only; never needed to hide).
+        setTimeout(() => pruneCorrections(client, uid), 0);
+      }
     },
     // A new answer is a new object, so its number is never lost to a kept,
     // structurally equal older one.
@@ -1028,7 +1074,12 @@ export function usePlan(date: string) {
 /** A plan request, numbered when it starts (M5b-2a). */
 async function numberedPlan<T extends { date: string }>(request: () => Promise<T>): Promise<T> {
   const startedAt = nextPlanSequence();
-  return stampPlan(await request(), startedAt);
+  plansInFlight.add(startedAt);
+  try {
+    return stampPlan(await request(), startedAt);
+  } finally {
+    plansInFlight.delete(startedAt);
+  }
 }
 
 /**
@@ -1041,6 +1092,7 @@ async function numberedPlan<T extends { date: string }>(request: () => Promise<T
  */
 function adoptPlan(client: QueryClient, uid: string, date: string, plan: DailyPlan): void {
   client.setQueryData(queryKeys.plan(uid, date), plan);
+  pruneCorrections(client, uid);
   void client.invalidateQueries({ queryKey: ['user', uid, 'commitments'] });
   // The next step is derived from the same commitments the plan just moved
   // (Round 2, Phase C): accepting or editing a plan could leave the card
@@ -1208,9 +1260,14 @@ export function useAcceptWeekDay(decisions: WeekDecisions) {
   return useMutation({
     mutationFn: async ({ date, shown, layoutDigest }: WeekDaySave) => {
       const startedAt = nextPlanSequence();
-      const answer = await acceptWeekDay(date, shown, decisions, layoutDigest);
-      stampPlan(answer.plan, startedAt);
-      return answer;
+      plansInFlight.add(startedAt);
+      try {
+        const answer = await acceptWeekDay(date, shown, decisions, layoutDigest);
+        stampPlan(answer.plan, startedAt);
+        return answer;
+      } finally {
+        plansInFlight.delete(startedAt);
+      }
     },
     onSuccess: ({ plan, week }) => {
       adoptPlan(client, uid, plan.date, plan);

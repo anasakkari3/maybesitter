@@ -3,7 +3,7 @@ import { QueryClientProvider, type QueryClient } from '@tanstack/react-query';
 import { useApp } from '../../state/AppContext';
 import { useAuth } from '../../auth/AuthProvider';
 import { setAuthRepository } from '../auth';
-import { forgetValidators } from '../queries';
+import { forgetValidators, resetBasisCorrections } from '../queries';
 import { createAppQueryClient, installDeviceManagers } from '../queryClient';
 import { clearRoutineCache } from '../../lib/deviceSettings/routineCache';
 import { clearCachedBusyBlocks } from '../../lib/deviceSettings/calendarBusy';
@@ -58,6 +58,8 @@ export function ApiProvider({
     if (status === 'loading') return;
     if (previousUid.current !== undefined && previousUid.current !== uid) {
       queryClient.clear();
+      // The plan-basis corrections live beside the cache, not in it (M5b-2a).
+      resetBasisCorrections(queryClient);
       resetForNewUser();
       // The ETags too: a validator is a fact about the previous account's
       // commitments, and sending one for a different user is meaningless.

@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { TextInput, View } from 'react-native';
+import { ScrollView, TextInput, View } from 'react-native';
 import { useApp } from '../../state/AppContext';
 import { isolateAuto } from '../../i18n/bidi';
 import { formatDate } from '../../i18n/format';
@@ -87,6 +87,9 @@ import {
 /** How long a deleted row can be brought back. */
 export const UNDO_WINDOW_MS = 5_000;
 
+/** The screen's own scroller, for scrolling the focused row into view. */
+type ScrollHandle = ScrollView;
+
 export function MemoryScreen({ onBack, focusId = null }: {
   onBack: () => void;
   /** M5b-2a: the row «صحّحها» opened this on, highlighted with its edit field open (R2). */
@@ -163,6 +166,21 @@ export function MemoryScreen({ onBack, focusId = null }: {
   const adaptive = memory.data?.adaptive ?? null;
   const suggestionLanguage: 'ar' | 'he' | 'en' = lang === 'ar' || lang === 'he' ? lang : 'en';
 
+  // The focused row is scrolled into view once it has laid out (M5B2A-REV-005):
+  // a long list must not leave the marked row below the screen.
+  const scrollRef = useRef<ScrollHandle>(null);
+  const scrolledTo = useRef(false);
+  const revealRow = useCallback((row: View | null) => {
+    const scroll = scrollRef.current;
+    if (!row || !scroll || scrolledTo.current) return;
+    const inner = (scroll as unknown as { getInnerViewRef?: () => View | null }).getInnerViewRef?.();
+    if (!inner) return;
+    row.measureLayout(inner as never, (_x, y) => {
+      scrolledTo.current = true;
+      scroll.scrollTo({ y: Math.max(0, y - 24), animated: false });
+    }, () => undefined);
+  }, []);
+
   // Opened from the plan's memory line: that row, once, with its edit field
   // open. A row that is gone opens the screen as it always opens.
   const [focusApplied, setFocusApplied] = useState(false);
@@ -182,7 +200,7 @@ export function MemoryScreen({ onBack, focusId = null }: {
 
   return (
     <Screen pinned={<SettingsHeader title={t.memoryScreenTitle} onBack={onBack} />}>
-      <ScreenScroll>
+      <ScreenScroll scrollRef={scrollRef}>
 
         {failure ? (
           <Txt size={14} color={p.wm} testID="memory-screen-error">{userFacingMessage(failure, t)}</Txt>
@@ -220,6 +238,7 @@ export function MemoryScreen({ onBack, focusId = null }: {
             rtl={rtl}
             editing={editing}
             focused={focusPresent ? focusId : null}
+            onFocusedLayout={revealRow}
             why={why}
             translateTargetOf={item => (translationOn ? translationTargetOf(item.content, lang, item.kind) : null)}
             translating={translating}
@@ -382,7 +401,7 @@ function SuggestionsCard({
 }
 
 function MemoryGroupCard({
-  group, rows, strings, date, rtl, editing, focused, why, translateTargetOf, translating,
+  group, rows, strings, date, rtl, editing, focused, onFocusedLayout, why, translateTargetOf, translating,
   onTranslate, onCloseTranslate, onToggleWhy, onEdit, onCancelEdit, onSave, onDelete,
 }: {
   group: MemoryGroup;
@@ -392,6 +411,7 @@ function MemoryGroupCard({
   rtl: boolean;
   editing: string | null;
   focused: string | null;
+  onFocusedLayout: (row: View | null) => void;
   why: string | null;
   translateTargetOf: (item: MemoryItem) => TranslationTarget | null;
   translating: string | null;
@@ -425,6 +445,7 @@ function MemoryGroupCard({
           sourceOnRow={shared === null}
           editing={editing === item.id}
           focused={focused === item.id}
+          onFocusedLayout={onFocusedLayout}
           showWhy={why === item.id}
           translateTarget={translateTargetOf(item)}
           translating={translating === item.id}
@@ -442,7 +463,7 @@ function MemoryGroupCard({
 }
 
 function MemoryDetailRow({
-  item, strings, date, rtl, sourceOnRow, editing, focused, showWhy, translateTarget, translating,
+  item, strings, date, rtl, sourceOnRow, editing, focused, onFocusedLayout, showWhy, translateTarget, translating,
   onTranslate, onCloseTranslate, onToggleWhy, onEdit, onCancelEdit, onSave, onDelete,
 }: {
   item: MemoryItem;
@@ -454,6 +475,7 @@ function MemoryDetailRow({
   editing: boolean;
   /** The row the plan's «صحّحها» named: marked, so the eye lands on it. */
   focused: boolean;
+  onFocusedLayout: (row: View | null) => void;
   showWhy: boolean;
   translateTarget: TranslationTarget | null;
   translating: boolean;
@@ -469,10 +491,14 @@ function MemoryDetailRow({
   const [draft, setDraft] = useState(item.content);
 
   const mark = focused ? { testID: `memory-screen-focused-${item.id}`, backgroundColor: p.wms, borderStartWidth: 3, borderStartColor: p.wm } : null;
+  const rowRef = useRef<View>(null);
+  const onRowLayout = focused ? () => onFocusedLayout(rowRef.current) : undefined;
 
   if (editing) {
     return (
       <View
+        ref={rowRef}
+        onLayout={onRowLayout}
         testID={mark?.testID}
         style={[{ paddingHorizontal: 18, paddingVertical: 14, gap: 10, borderTopWidth: 1, borderTopColor: p.ln },
           mark ? { backgroundColor: mark.backgroundColor, borderStartWidth: mark.borderStartWidth, borderStartColor: mark.borderStartColor } : null]}
@@ -502,6 +528,8 @@ function MemoryDetailRow({
 
   return (
     <View
+      ref={rowRef}
+      onLayout={onRowLayout}
       testID={mark?.testID}
       style={[{ paddingHorizontal: 18, paddingVertical: 14, gap: 8, borderTopWidth: 1, borderTopColor: p.ln },
         mark ? { backgroundColor: mark.backgroundColor, borderStartWidth: mark.borderStartWidth, borderStartColor: mark.borderStartColor } : null]}

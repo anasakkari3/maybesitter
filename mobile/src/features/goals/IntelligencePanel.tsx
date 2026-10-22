@@ -329,6 +329,12 @@ function IntelligencePanelForAccount({ onChanged, autoGenerate = false, whenOff 
       }
       // Nothing is said once the panel has left the screen (as `say`).
       if (!scanMounted.current) return;
+      // The server's answer is the outcome now: the row leaves at once, even
+      // if the re-read below fails (M5B2A-REV-003).
+      const dismissed = answer.observation;
+      setInbox(current => current
+        ? { ...current, observations: current.observations.map(item => (item.id === dismissed.id ? dismissed : item)) }
+        : current);
       setLearnedStatus(t.m5bLearnedWrongDone);
       if (Platform.OS === 'ios') AccessibilityInfo.announceForAccessibility(t.m5bLearnedWrongDone);
       onChanged();

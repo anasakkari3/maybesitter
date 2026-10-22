@@ -36,7 +36,8 @@ export async function GET(request: Request) {
     catch { /* A failed preview must not hide the evidence or suggestions. */ }
     const projectedObservations = resolveMemoryLearning() ? observations.map(observation => {
       if (observation.source !== 'behavior' || observation.kind !== 'outcome') return observation;
-      const match = /^(Completed|Postponed|Dropped): (.+)$/.exec(observation.evidence);
+      // A title may span lines (M5B2A-REV-007).
+      const match = /^(Completed|Postponed|Dropped): ([\s\S]+)$/.exec(observation.evidence);
       if (!match) return observation;
       const signal = match[1] === 'Completed' ? 'completed' : match[1] === 'Postponed' ? 'postponed' : 'dropped';
       return { ...observation, outcome: { signal, title: match[2] } };
