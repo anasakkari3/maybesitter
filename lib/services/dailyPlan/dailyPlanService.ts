@@ -85,20 +85,26 @@ import {
   reconcileScheduleBlocks,
   schedulePlan,
 } from '../../planning/scheduler';
+import type { ScheduleBlockSources } from '../../planning/scheduler/blocks';
 import { projectReadinessIntoPlanningConstraints } from '../../planning/scheduler/readiness';
 import { m5bBasisMode, resolveMemoryLearning } from '../../release/m5bCapabilities';
 import { NO_READINESS_APPLIED, resolvePlanReadiness, type ReadinessApplied } from '../../integrations/readiness/freshReadiness';
 import { toEpochMs } from '../../planning/shared/time';
-import type { PlanningConfig, PlanningConstraints } from '../../../src/contracts/v1/planningContracts';
+import type { PlanningConfig, PlanningConstraints, TimeInterval } from '../../../src/contracts/v1/planningContracts';
 import type { ScheduleBlock } from '../../../src/contracts/v1/scheduleBlockContracts';
 import type { Commitment } from '../../../src/domain/stateMachine';
 import {
   buildDailyPlanInput,
   dailyPlanScheduleSources,
   dayHorizon,
+  earliestPlaceableStart,
   type BusyBlockReader,
   type DayAssignment,
 } from './buildDailyPlan';
+import { materializeHabitOccurrences } from '../../habits/materialize';
+import type { HabitDefinition, HabitHorizon, HabitOccurrence } from '../../../src/contracts/v1/habitContracts';
+import { createHabitServices } from '../habits/habitService';
+import { buildHabitPlanningRequest } from '../habits/habitPlanningAdapter';
 import { readBusyBlocksForPlanning } from '../../calendar/busyBlocks';
 import { explanationFactsFrom } from './explanationValidator';
 import { explainPlan, type ExplanationDeps } from './explanationService';
@@ -343,9 +349,57 @@ export interface DailyPlanBuild {
   readonly stored: StoredDailyPlan;
 }
 
-/** Titles, keyed by commitment id, for the explanation and the API. */
+/** Current commitment titles, keyed by planner item id. */
 export function titlesOf(commitments: readonly Commitment[]): Map<string, string> {
   return new Map(commitments.map((commitment) => [commitment.id, commitment.title]));
+}
+
+/** The habit id prefix in `{habitId}.{localDate}.{ordinal}`. */
+function habitIdOfOccurrence(occurrenceId: string): string | null {
+  const separator = occurrenceId.indexOf('.');
+  return separator > 0 ? occurrenceId.slice(0, separator) : null;
+}
+
+/** Join already-loaded current definitions onto occurrence sources. */
+export function withCurrentHabitTitles(
+  titles: ReadonlyMap<string, string>,
+  definitions: readonly HabitDefinition[],
+  stored: Pick<StoredDailyPlan, 'blocks'>,
+): Map<string, string> {
+  const joined = new Map(titles);
+  const titleByHabitId = new Map(definitions.map((definition) => [definition.habitId, definition.title]));
+  for (const block of stored.blocks ?? []) {
+    if (block.source.kind !== 'habit_occurrence') continue;
+    const habitId = habitIdOfOccurrence(block.source.id);
+    const title = habitId === null ? undefined : titleByHabitId.get(habitId);
+    if (title !== undefined) joined.set(block.source.id, title);
+  }
+  return joined;
+}
+
+/**
+ * Current titles for a stored plan, never titles copied into its old request.
+ *
+ * The block source is the proof that an item is a habit occurrence. Plans with
+ * no such source return before constructing or reading the habit store, so the
+ * overwhelmingly common commitment-only read pays no extra collection read.
+ * A missing definition deliberately leaves the title absent: `planToDto` then
+ * emits null, exactly as it does for a deleted commitment.
+ */
+export async function currentPlanTitles(
+  uid: string,
+  commitments: readonly Commitment[],
+  stored: Pick<StoredDailyPlan, 'blocks'>,
+  storage: StorageAdapter = getStorage(),
+): Promise<Map<string, string>> {
+  const titles = titlesOf(commitments);
+  const occurrenceIds = (stored.blocks ?? [])
+    .filter((block) => block.source.kind === 'habit_occurrence')
+    .map((block) => block.source.id);
+  if (occurrenceIds.length === 0) return titles;
+
+  const definitions = await createHabitServices(storage).habits.list(uid);
+  return withCurrentHabitTitles(titles, definitions, stored);
 }
 
 export interface PlanLayerProjectionInput {
@@ -450,17 +504,20 @@ export interface DailyPlanRequestInput {
 }
 
 /**
- * The reads a request makes that do not depend on the date (CL5b, I5): the
- * account's commitments, its routine and its kept focus window. A caller that
- * composes several dates at one instant — the week — reads them once and
- * hands them in; every other caller leaves this out and the request reads
- * them itself. Busy time is the date's own and is always read.
+ * The reads a week can share across its dates (CL5b, I5): the account's
+ * commitments, routine, kept focus window, habit rules and occurrences over
+ * the explicit week horizon. A caller that composes several dates at one
+ * instant reads them once and hands them in; every other caller leaves this
+ * out and the request reads its own date. Busy time remains date-specific.
  */
 export interface DailyPlanRequestPreload {
   readonly commitments: readonly Commitment[];
   readonly profile: UserRoutineProfile | null;
   readonly focusHint: Awaited<ReturnType<typeof keptFocusWindow>>;
   readonly memoryFocus: PlanMemoryFocus | null;
+  /** Habit rules and stored outcomes for the dates this preload will compose. */
+  readonly habitDefinitions: readonly HabitDefinition[];
+  readonly habitOccurrences: readonly HabitOccurrence[];
 }
 
 export interface PlanMemoryFocus {
@@ -515,15 +572,29 @@ export async function preloadDailyPlanRequest(
   now: string,
   userDocument: unknown,
   storage: StorageAdapter,
+  habitHorizon: HabitHorizon,
 ): Promise<DailyPlanRequestPreload> {
-  const commitments = Object.values((await loadDomainState(storage, uid)).commitments);
+  const habitServices = createHabitServices(storage);
+  const [state, habitDefinitions, habitOccurrences] = await Promise.all([
+    loadDomainState(storage, uid),
+    habitServices.habits.list(uid),
+    habitServices.occurrences.listInRange(uid, habitHorizon.fromLocalDate, habitHorizon.toLocalDate),
+  ]);
+  const commitments = Object.values(state.commitments);
   const profile = routineProfileOf(userDocument);
   const memoryFocus = await memoryFocusForPlan(uid, now, {
     storage,
     routineHasFocus: (profile?.focusWindows ?? []).length > 0,
     purgeSnapshot: userDocument,
   });
-  return { commitments, profile, focusHint: memoryFocus?.window ?? null, memoryFocus };
+  return {
+    commitments,
+    profile,
+    focusHint: memoryFocus?.window ?? null,
+    memoryFocus,
+    habitDefinitions,
+    habitOccurrences,
+  };
 }
 
 export interface DailyPlanRequest {
@@ -532,6 +603,11 @@ export interface DailyPlanRequest {
   /** What the solver is given: `buildDailyPlanInput`'s output, projected. */
   readonly constraints: PlanningConstraints;
   readonly config: PlanningConfig;
+  /** Source identity and item preferences carried into block reconciliation. */
+  readonly scheduleSources: ScheduleBlockSources;
+  readonly preferredWindows: ReadonlyMap<string, readonly TimeInterval[]>;
+  /** Current titles for every item in this request, including habit occurrences. */
+  readonly titles: ReadonlyMap<string, string>;
   readonly basisSnapshot?: { readonly readinessApplied: ReadinessApplied };
   readonly focusFromMemory?: boolean;
   readonly personalizationPurgeEpoch?: number;
@@ -592,8 +668,10 @@ export async function composeDailyPlanRequest(
   let profile: UserRoutineProfile | null;
   let focusHint: DailyPlanRequestPreload['focusHint'];
   let memoryFocus: PlanMemoryFocus | null;
+  let habitDefinitions: readonly HabitDefinition[];
+  let habitOccurrences: readonly HabitOccurrence[];
   if (deps.preloaded) {
-    ({ commitments, profile, focusHint, memoryFocus } = deps.preloaded);
+    ({ commitments, profile, focusHint, memoryFocus, habitDefinitions, habitOccurrences } = deps.preloaded);
     if (deps.suppressMemory) {
       focusHint = null;
       memoryFocus = null;
@@ -608,10 +686,15 @@ export async function composeDailyPlanRequest(
       suppress: deps.suppressMemory,
     });
     focusHint = memoryFocus?.window ?? null;
+    const habitServices = createHabitServices(storage);
+    [habitDefinitions, habitOccurrences] = await Promise.all([
+      habitServices.habits.list(uid),
+      habitServices.occurrences.listInRange(uid, date, date),
+    ]);
   }
   const busyBlocks = await (deps.busyBlocks ?? storedBusyBlocks(storage))(uid, dayHorizon(date, timezone));
 
-  const { constraints: baseConstraints, config } = buildDailyPlanInput({
+  const { constraints: commitmentConstraints, config } = buildDailyPlanInput({
     uid,
     date,
     timezone,
@@ -625,6 +708,34 @@ export async function composeDailyPlanRequest(
     builtAt: now,
     ...(input.assignment ? { assignment: input.assignment } : {}),
   });
+  const storedOccurrencesByHabit = new Map<string, HabitOccurrence[]>();
+  for (const occurrence of habitOccurrences) {
+    const rows = storedOccurrencesByHabit.get(occurrence.habitId) ?? [];
+    rows.push(occurrence);
+    storedOccurrencesByHabit.set(occurrence.habitId, rows);
+  }
+  const materializedOccurrences = habitDefinitions.flatMap((definition) =>
+    materializeHabitOccurrences(
+      definition,
+      { fromLocalDate: date, toLocalDate: date },
+      storedOccurrencesByHabit.get(definition.habitId) ?? [],
+    ).occurrences,
+  );
+  const habitPlanning = buildHabitPlanningRequest({
+    definitions: habitDefinitions,
+    occurrences: materializedOccurrences,
+    localDate: date,
+    timezone,
+    earliestStartAt: earliestPlaceableStart(
+      now,
+      commitmentConstraints.horizon.startsAt,
+      commitmentConstraints.horizon.endsAt,
+    ),
+  });
+  const baseConstraints: PlanningConstraints = {
+    ...commitmentConstraints,
+    items: [...commitmentConstraints.items, ...habitPlanning.items],
+  };
   const memoryLearning = resolveMemoryLearning();
   const readinessApplied = memoryLearning
     ? input.applyReadiness === false
@@ -641,6 +752,9 @@ export async function composeDailyPlanRequest(
     previousBlocks: input.previousBlocks,
     ...(readinessApplied ? { readinessApplied } : {}),
   }, { storage, userDocument: input.userDocument });
+  const scheduleSources = dailyPlanScheduleSources(constraints, habitPlanning.sources);
+  const titles = new Map(commitments.map((commitment) => [commitment.id, commitment.title]));
+  for (const item of habitPlanning.items) titles.set(item.itemId, item.title);
   const mode = m5bBasisMode();
   if (!deps.suppressMemory && memoryFocus) {
     const currentUser = await storage.get(userDoc(uid));
@@ -652,6 +766,9 @@ export async function composeDailyPlanRequest(
     commitments,
     constraints,
     config,
+    scheduleSources,
+    preferredWindows: habitPlanning.preferredWindows,
+    titles,
     ...(readinessApplied ? { basisSnapshot: { readinessApplied } } : {}),
     ...(mode === 'off' ? {} : {
       focusFromMemory: Boolean(memoryFocus?.tracked),
@@ -682,6 +799,8 @@ export interface SolvedDailyPlanSnapshot {
   readonly constraints: PlanningConstraints;
   readonly config: PlanningConfig;
   readonly plan: ReturnType<typeof schedulePlan>;
+  readonly scheduleSources: ScheduleBlockSources;
+  readonly preferredWindows: ReadonlyMap<string, readonly TimeInterval[]>;
   readonly readinessApplied: ReadinessApplied;
   readonly commitments: readonly Commitment[];
   readonly timezone: string;
@@ -745,6 +864,8 @@ export async function composeDailyPlan(
   const commitments = solved?.commitments ?? request!.commitments;
   const constraints = solved?.constraints ?? request!.constraints;
   const config = solved?.config ?? request!.config;
+  const scheduleSources = solved?.scheduleSources ?? request!.scheduleSources;
+  const preferredWindows = solved?.preferredWindows ?? request!.preferredWindows;
   const basisSnapshot = solved ? { readinessApplied: solved.readinessApplied } : request!.basisSnapshot;
   const focusFromMemory = solved?.focusFromMemory ?? request?.focusFromMemory;
   const personalizationPurgeEpoch = solved?.personalizationPurgeEpoch ?? request?.personalizationPurgeEpoch;
@@ -758,11 +879,17 @@ export async function composeDailyPlan(
     constraints,
     plan,
     generation,
-    sources: dailyPlanScheduleSources(constraints),
+    sources: scheduleSources,
+    preferredWindows,
     previous: ancestry?.previousBlocks ?? null,
   });
 
-  const titles = titlesOf(commitments);
+  const titles = request?.titles ?? await currentPlanTitles(
+    uid,
+    commitments,
+    { blocks },
+    storage,
+  );
   const facts = explanationFactsFrom(plan, titles, timezone, locale);
   const { explanation } = await explainPlan(uid, plan, titles, facts, timezone, {
     storage,
