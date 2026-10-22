@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
 import React from 'react';
 import { act, cleanup, render, screen, waitFor } from '@testing-library/react-native';
-import { queryKeys, useCalendarConsentWritePending, useTrust, useTrustAction } from '../../../api/queries';
+import { beginCalendarConsentOperation, calendarConsentEffective, queryKeys, useCalendarConsentWritePending, useTrust, useTrustAction } from '../../../api/queries';
 import { Text } from 'react-native';
 import type { TrustAction } from '../../../api/schemas/trust';
 import { BusyCalendarHost, useBusyCalendar } from '../../calendar/useBusyCalendar';
@@ -381,5 +381,41 @@ describe('the calendar switches follow «uses your calendar»', () => {
     await act(async () => { answers[1]!({ status: 200, body: trustResponse(false) }); await jest.advanceTimersByTimeAsync(200); });
     // Every refetch failed; the revoke's answer holds.
     expect(harness.client.getQueryData<{ trust: { calendarConsent: boolean } }>(queryKeys.trust(ACCOUNT_A.uid))?.trust.calendarConsent).toBe(false);
+  });
+
+  it('a successful revoke writes its whole answer, so the revoked state shows even when the refetch fails (Codex M6B-R10-002)', async () => {
+    let posted = false;
+    const revoked = (() => {
+      const base = trustResponse(false);
+      return { ...base, trust: { ...base.trust, recommendationConsent: false, quietMode: true, revokedAt: '2030-03-29T09:00:00.000Z' } };
+    })();
+    harness = await prepare('en', { ...initialState(), trustConsent: true }, (request) => {
+      if (request.path !== '/api/mobile/pilot/trust') return undefined;
+      if (request.method === 'POST') { posted = true; return { status: 200, body: revoked }; }
+      return posted ? { status: 503, body: { success: false } } : undefined;
+    });
+    const { hooks, A, B } = twoHooks();
+    await render(<Providers harness={harness}><A /><B /></Providers>);
+    await waitFor(() => expect(hooks.a && hooks.b).toBeTruthy());
+    await waitFor(() => expect(harness!.client.getQueryData(queryKeys.trust(ACCOUNT_A.uid))).toBeDefined());
+    await act(async () => { hooks.a!({ type: 'revoke' }); await jest.advanceTimersByTimeAsync(300); });
+    const cached = harness.client.getQueryData<{ trust: Record<string, unknown> }>(queryKeys.trust(ACCOUNT_A.uid));
+    expect(cached?.trust).toMatchObject({ calendarConsent: false, recommendationConsent: false, quietMode: true, revokedAt: '2030-03-29T09:00:00.000Z' });
+  });
+
+  it('while a disconnect holds the calendar operation, no calendar can be chosen (Codex M6B-R10-001)', async () => {
+    // The disconnect holds `beginCalendarConsentOperation` from its first step
+    // to its last (R8-003's test); here, what holding it means for a choice.
+    await calendarWith(true);
+    await waitFor(() => expect(screen.getByTestId('calendar-include-work').props.accessibilityState).toMatchObject({ disabled: false }));
+    let release: (() => void) | undefined;
+    await act(async () => { release = beginCalendarConsentOperation(harness!.client, ACCOUNT_A.uid); });
+    expect(calendarConsentEffective(harness!.client, ACCOUNT_A.uid)).toBe(false);
+    await waitFor(() => expect(screen.getByTestId('calendar-include-work').props.accessibilityState).toMatchObject({ disabled: true }));
+    await changeSwitch('calendar-include-work', true);
+    expect(await AsyncStorage.getItem(PENDING)).toBeNull();
+    await act(async () => { release!(); });
+    expect(calendarConsentEffective(harness!.client, ACCOUNT_A.uid)).toBe(true);
+    await waitFor(() => expect(screen.getByTestId('calendar-include-work').props.accessibilityState).toMatchObject({ disabled: false }));
   });
 });

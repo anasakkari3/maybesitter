@@ -339,10 +339,20 @@ function contentWords(text: string): Set<string> {
     .filter((word) => word.length >= 3 && !SAME_APPOINTMENT_SUBJECT.has(word)));
 }
 
-/** An English progressive with an object, or one of the errand verbs, right after the copula. */
-function actionAfterCopula(after: readonly string[]): boolean {
+/** The speaker as a subject: "I will be running at 5" is the speaker doing something. */
+const SPEAKER_SUBJECT = new Set(['i', 'we', 'أنا', 'انا', 'إحنا', 'احنا', 'אני', 'אנחנו']);
+
+/**
+ * An English progressive right after the copula — with an object, or with the
+ * speaker as subject even without one ("I will be running at 5", Codex
+ * M6B-R10-004) — or one of the errand verbs.
+ */
+function actionAfterCopula(after: readonly string[], subject: readonly string[]): boolean {
   if (after.length === 0) return false;
-  if (/^[a-z]{3,}ing$/i.test(after[0]!) && followedByObject(after.slice(1).join(' '))) return true;
+  if (/^[a-z]{3,}ing$/i.test(after[0]!)) {
+    if (subject.length > 0 && subject.every((word) => SPEAKER_SUBJECT.has(word))) return true;
+    if (followedByObject(after.slice(1).join(' '))) return true;
+  }
   const text = after.join(' ');
   const verb = SENTENCE_VERB_OPENER.exec(text);
   return verb !== null && followedByObject(text.slice(verb[0].length));
@@ -356,8 +366,8 @@ function restatesInItsOwnWords(rest: string, previous: string): boolean {
   // action with an object, not a time. An adjective or a noun after it ("the
   // dentist should be available at 5", "the appointment is a video call")
   // still describes the appointment (Codex M6B-R8-004).
-  if (actionAfterCopula(words.slice(at + 1))) return false;
   const subject = words.slice(0, at).map((word) => word.toLowerCase()).filter((word) => !SUBJECT_AUXILIARY.has(word));
+  if (actionAfterCopula(words.slice(at + 1), subject)) return false;
   if (subject.every((word) => SAME_APPOINTMENT_SUBJECT.has(word))) return true;
   const before = contentWords(previous);
   return subject.some((word) => before.has(word));

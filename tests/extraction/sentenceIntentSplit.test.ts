@@ -29,6 +29,7 @@ test('BB-04: each intent marker after a period opens its own clause (ar / en / h
     ['عندي موعد دكتور بكرا الساعة 5. حلمي أتعلم بيانو', 2],
     ['عندي موعد دكتور بكرا الساعة 5. ناوي أبلش رياضة', 2],
     ["Dentist on Sunday at 10. I'm thinking of moving to Haifa", 2],
+    ['Dentist on Sunday at 10. I\u2019m thinking of moving to Haifa', 2],
     ['Dentist on Sunday at 10. Someday I want to learn piano', 2],
     ['רופא שיניים ביום ראשון ב-10. אני חושב על לעבור דירה', 2],
   ] as const) {
@@ -79,6 +80,9 @@ test('BB-04 review (Codex M6B-R4-002): a timed thought after a day-only point is
     // A copula about something else, or before an action (Codex M6B-R7-003).
     "Dentist on Sunday. I'm thinking my flight should be at 5",
     "Dentist on Sunday. I'm thinking I will be calling the airline at 5",
+    // The speaker doing something with no object, and a smart apostrophe (Codex M6B-R10-003/004).
+    "Dentist on Sunday. I'm thinking I will be running at 5",
+    "Dentist on Sunday. I\u2019m thinking of calling the airline at 5",
     'عندي طبيب أسنان يوم الأحد. عم بفكر أسافر الساعة 5',
     'רופא שיניים ביום ראשון. אני חושב על לעבור דירה בשעה 5',
   ]) {
@@ -108,6 +112,7 @@ test('BB-04 review (Codex M6B-R5-003): a thought about the appointment\'s own ho
     // An adjective or a noun after the copula still describes it (Codex M6B-R8-004).
     "Dentist on Sunday. I'm thinking the dentist should be available at 5",
     "Dentist on Sunday. I'm thinking the appointment is a video call at 5",
+    "Dentist on Sunday. I'm thinking the appointment should be starting at 5",
     'عندي طبيب أسنان يوم الأحد. عم بفكر الموعد يكون الساعة 5',
     'רופא שיניים ביום ראשון. אני חושב על התור שיהיה בשעה 5',
   ]) {

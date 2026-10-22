@@ -60,12 +60,14 @@ export function M5aCalendarSections({
   // A switch-off is in the trust cache the moment it is asked for, for this
   // account and outside this screen (`useTrustAction`, Codex M6B-R3-001,
   // R5-002), so `consented` already says off while the request is on its way.
-  const usable = consented;
+  // …and no calendar is chosen while any consent write or a disconnect is on
+  // its way (Codex M6B-R10-001).
+  const consentWritePending = useCalendarConsentWritePending();
+  const usable = consented && !consentWritePending;
   // The master switch shows the off it was just given (Codex M6B-R4-004), and
   // takes no second change until the server has answered the first — any
   // calendar-consent write for this account, from this screen before a
   // remount, a disconnect, or anywhere else (Codex M6B-R6-002).
-  const consentWritePending = useCalendarConsentWritePending();
   const useLocked = !trustLoaded || consentWritePending;
   const shown = shownIncluded(view);
   const granted = access === 'granted';

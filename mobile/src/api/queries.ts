@@ -580,7 +580,9 @@ function consentChanged(): void {
 
 /** The calendar consent as the app may act on it now: the cache, and no switch-off on its way. */
 export function calendarConsentEffective(client: QueryClient, uid: string): boolean {
-  if (consentStateOf(client, uid).revoking > 0) return false;
+  const state = consentStateOf(client, uid);
+  // A switch-off on its way, or a disconnect still clearing (Codex M6B-R10-001).
+  if (state.revoking > 0 || state.operations > 0) return false;
   return client.getQueryData<TrustResponse>(queryKeys.trust(uid))?.trust?.calendarConsent === true;
 }
 
@@ -1488,8 +1490,14 @@ export function useTrustAction() {
         // even when the refetch below fails (R6-003, R7-002).
         if (context.startedAt === state.latestWrite) {
           if (granted) state.confirmedOffAt = 0;
+          // A revoke or a delete changes the whole trust state (consents,
+          // quiet mode, revokedAt): its answer is written as it is, so the
+          // screen shows it even when the refetch fails (Codex M6B-R10-002).
+          // A consent switch touches only its own field.
           client.setQueryData<TrustResponse>(queryKeys.trust(forUid), (current) => (
-            current ? withCalendarConsent(current, granted) : current
+            action.type === 'revoke' || action.type === 'delete'
+              ? response
+              : current ? withCalendarConsent(current, granted) : current
           ));
         }
         consentChanged();
