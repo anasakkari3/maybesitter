@@ -228,4 +228,43 @@ describe('the calendar switches follow «uses your calendar»', () => {
     expect(screen.getByTestId('calendar-use-toggle').props.disabled).toBe(false);
     expect(screen.getByTestId('calendar-include-work').props.accessibilityState).toMatchObject({ disabled: false });
   });
+
+  it('calendar-consent writes from different places go one after another, and the newest answer decides (Codex M6B-R7-002)', async () => {
+    const answers: ((reply: RouteReply) => void)[] = [];
+    let posted = 0;
+    let mutate: ((action: TrustAction) => void) | undefined;
+    function OtherScreen() {
+      const action = useTrustAction();
+      mutate = action.mutate;
+      return null;
+    }
+    harness = await prepare('en', { ...initialState(), trustConsent: true }, (request) => {
+      if (request.path !== '/api/mobile/pilot/trust') return undefined;
+      if (request.method === 'POST') {
+        posted += 1;
+        return new Promise<RouteReply>((resolve) => { answers.push(resolve); });
+      }
+      return posted > 0 ? { status: 503, body: { success: false } } : undefined;
+    });
+    await AsyncStorage.setItem(ENROLLED, '2030-03-20T08:00:00.000Z');
+    await render(
+      <Providers harness={harness}>
+        <BusyCalendarHost />
+        <CalendarSettingsScreen onBack={() => {}} />
+        <OtherScreen />
+      </Providers>,
+    );
+    await waitFor(() => expect(screen.getByTestId('calendar-include-work').props.accessibilityState).toMatchObject({ disabled: false }));
+    await changeSwitch('calendar-use-toggle', false);
+    await waitFor(() => expect(answers).toHaveLength(1));
+    // Another screen asks for on while the off is still open: it waits its turn.
+    await act(async () => { mutate!({ type: 'set_calendar_consent', granted: true }); await jest.advanceTimersByTimeAsync(50); });
+    expect(answers).toHaveLength(1);
+    await act(async () => { answers[0]!({ status: 200, body: trustResponse(false) }); await jest.advanceTimersByTimeAsync(50); });
+    await waitFor(() => expect(answers).toHaveLength(2));
+    await act(async () => { answers[1]!({ status: 200, body: trustResponse(true) }); await jest.advanceTimersByTimeAsync(200); });
+    // The newest write was on, and its answer holds even though every refetch fails.
+    expect(harness.client.getQueryData<{ trust: { calendarConsent: boolean } }>(queryKeys.trust(ACCOUNT_A.uid))?.trust.calendarConsent).toBe(true);
+    await waitFor(() => expect(screen.getByTestId('calendar-use-toggle').props.value).toBe(true));
+  });
 });

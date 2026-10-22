@@ -843,8 +843,13 @@ async function runSelection(uid: string, first: PendingSelection, context: M5aPa
     return;
   }
   let record = first;
+  // An upload goes only while the consent says on, re-read after every wait
+  // (Codex M6B-R7-001): a switch-off counts from its tap
+  // (`calendarConsentEffective`), and the server refuses an upload only once
+  // that request has reached it. A clear runs whatever the consent.
+  const allowed = () => record.operation === 'clear' || context.consented();
   for (let attempt = 0; attempt < 3; attempt += 1) {
-    if (!current()) return;
+    if (!current() || !allowed()) return;
     const source = await ensureRegisteredSource(uid);
     if (source.kind !== 'ready' || !current()) return;
 
@@ -865,7 +870,7 @@ async function runSelection(uid: string, first: PendingSelection, context: M5aPa
         if (error instanceof M5aRefusedError && error.code === 'source_revoked') await markPhoneRemoved(uid);
         return;
       }
-      if (!current() || intent.intentId !== record.intentId) return;
+      if (!current() || !allowed() || intent.intentId !== record.intentId) return;
       const acknowledged: PendingSelection = { ...record, opId: intent.opId, epoch: intent.epoch };
       const kept = await underPendingLock(uid, async () => {
         if (!(await stillPending(uid, acknowledged.intentId))) return 'superseded' as const;
@@ -905,7 +910,7 @@ async function runSelection(uid: string, first: PendingSelection, context: M5aPa
         patch(uid, { clearFailed: false });
       } else {
         if (!context.consented()) return;
-        const outcome = await readAndUpload(uid, record.included, op, () => current() && selectionGeneration === applied);
+        const outcome = await readAndUpload(uid, record.included, op, () => current() && context.consented() && selectionGeneration === applied);
         if (outcome.kind !== 'synced') return;
       }
     } catch (error) {

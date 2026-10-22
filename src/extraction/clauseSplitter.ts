@@ -319,17 +319,45 @@ const RESTATEMENT_VERB = new RegExp(
   'iu',
 );
 
-function restatesInItsOwnWords(rest: string): boolean {
-  const words = rest.trim().split(/\s+/).map((word) => word.replace(EDGE_PUNCTUATION, '')).filter(Boolean).slice(0, 6);
-  return words.some((word) => RESTATEMENT_VERB.test(word));
+/**
+ * Words that name the appointment before rather than a new subject: "it",
+ * "the appointment", «الموعد», «התור», the speaker. A copula with one of these
+ * as its subject — or a word the sentence before also used ("the dentist
+ * should be at 5" after "Dentist on Sunday") — gives that appointment its
+ * time. Any other subject ("my flight should be at 5") is a thing of its own
+ * (Codex M6B-R7-003).
+ */
+const SAME_APPOINTMENT_SUBJECT = new Set([
+  'it', 'that', 'this', 'he', 'she', 'they', 'i', 'we', 'appointment', 'meeting', 'the', 'my', 'our',
+  'هو', 'هي', 'هاد', 'هاي', 'هذا', 'هذه', 'أنا', 'انا', 'الموعد', 'موعد', 'موعدي', 'الاجتماع', 'اللقاء',
+  'הוא', 'היא', 'זה', 'זאת', 'אני', 'התור', 'תור', 'הפגישה', 'פגישה',
+]);
+const SUBJECT_AUXILIARY = new Set(['should', 'would', 'could', 'will', 'might', 'must', 'can', 'رح', 'لازم', 'بدو', 'צריך', 'צריכה']);
+
+function contentWords(text: string): Set<string> {
+  return new Set(text.toLowerCase().split(/\s+/).map((word) => word.replace(EDGE_PUNCTUATION, ''))
+    .filter((word) => word.length >= 3 && !SAME_APPOINTMENT_SUBJECT.has(word)));
+}
+
+function restatesInItsOwnWords(rest: string, previous: string): boolean {
+  const words = rest.trim().split(/\s+/).map((word) => word.replace(EDGE_PUNCTUATION, '')).filter(Boolean);
+  const at = words.slice(0, 6).findIndex((word) => RESTATEMENT_VERB.test(word));
+  if (at < 0) return false;
+  // "I will be calling the airline at 5": what follows the copula is an
+  // action with an object, not a time.
+  if (followedByObject(words.slice(at + 1).join(' '))) return false;
+  const subject = words.slice(0, at).map((word) => word.toLowerCase()).filter((word) => !SUBJECT_AUXILIARY.has(word));
+  if (subject.every((word) => SAME_APPOINTMENT_SUBJECT.has(word))) return true;
+  const before = contentWords(previous);
+  return subject.some((word) => before.has(word));
 }
 
 /** The words after the intent marker are something to do, not only an hour or a copula. */
-function intentNamesAnAction(text: string): boolean {
+function intentNamesAnAction(text: string, previous: string): boolean {
   const rest = afterUnresolvedIntentMarker(text);
   if (rest === null) return false;
   const words = rest.replace(/^\s*(?:of|about)\s+/i, '');
-  return followedByObject(words) && !restatesInItsOwnWords(words);
+  return followedByObject(words) && !restatesInItsOwnWords(words, previous);
 }
 
 /** Whether a sentence opens a clause of its own, after `previous`. */
@@ -342,7 +370,7 @@ function opensCommitment(sentence: string, previous: string): boolean {
   // I'm thinking of calling the airline at 5" must not give the dentist 17:00.
   // An opener like «بدي» or "Call" still restates the hour, as CL1 round 6
   // decided; only an unresolved-intent marker followed by an object goes first.
-  if (opensWithIntentOfMyOwn(text) && intentNamesAnAction(text)) return true;
+  if (opensWithIntentOfMyOwn(text) && intentNamesAnAction(text, previous)) return true;
   if (restatesTheHour(text, previous)) return false;
   // A thought, a wait, a someday or an idea is a point of its own (M6b BB-04):
   // «… بكرا من 4 لـ 8 المسا. عم بفكر أسافر الصيف الجاي» must not hand the

@@ -76,6 +76,9 @@ test('BB-04 review (Codex M6B-R4-002): a timed thought after a day-only point is
     "Dentist on Sunday. I'm thinking I should call the airline at 5",
     "Dentist on Sunday. I'm thinking I can book the flight at 5",
     "Dentist on Sunday. I'm thinking I will pay the bill at 5",
+    // A copula about something else, or before an action (Codex M6B-R7-003).
+    "Dentist on Sunday. I'm thinking my flight should be at 5",
+    "Dentist on Sunday. I'm thinking I will be calling the airline at 5",
     'عندي طبيب أسنان يوم الأحد. عم بفكر أسافر الساعة 5',
     'רופא שיניים ביום ראשון. אני חושב על לעבור דירה בשעה 5',
   ]) {
@@ -100,6 +103,8 @@ test('BB-04 review (Codex M6B-R5-003): a thought about the appointment\'s own ho
   for (const text of [
     "Dentist on Sunday. I'm thinking the appointment should be at 5",
     "Dentist on Sunday. I'm thinking it's at 5",
+    "Dentist on Sunday. I'm thinking the dentist should be at 5",
+    "Dentist on Sunday. I'm thinking I should be there at 5",
     'عندي طبيب أسنان يوم الأحد. عم بفكر الموعد يكون الساعة 5',
     'רופא שיניים ביום ראשון. אני חושב על התור שיהיה בשעה 5',
   ]) {

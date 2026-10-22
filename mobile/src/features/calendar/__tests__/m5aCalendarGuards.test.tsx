@@ -586,4 +586,30 @@ describe('M6b inspection r5 (Codex M6B-R5-002)', () => {
       expect(await AsyncStorage.getItem(PENDING)).toBeNull();
     }
   });
+
+  it('a switch-off during the phone read of a selection uploads nothing and caches nothing (Codex M6B-R7-001)', async () => {
+    harness = await prepare();
+    await AsyncStorage.setItem(ENROLLED, '2030-03-20T08:00:00.000Z');
+    await showBusyHost(harness);
+    await settle();
+    let release: (() => void) | undefined;
+    let consent = true;
+    jest.mocked(deviceCalendar.fetchBusyBlocks).mockImplementation(() => new Promise((resolve) => {
+      release = () => resolve([{ nativeId: 'n1', startAt: '2030-03-29T10:00:00.000Z', endAt: '2030-03-29T11:00:00.000Z', allDay: false }] as never);
+    }));
+    await AsyncStorage.removeItem(BUSY_BLOCKS_KEY);
+    const uploads = () => harness!.server.matching('POST', /^\/api\/mobile\/calendar\/busy$/).length;
+    const before = uploads();
+    const context = { uid: UID, accountCurrent: () => true, stillCurrent: () => consent, consented: () => consent };
+    await act(async () => { await startSelection(UID, ['work'], context); });
+    for (let i = 0; i < 400 && !release; i += 1) await act(async () => { await jest.advanceTimersByTimeAsync(5); });
+    expect(release).toBeDefined();
+    // The switch-off is tapped while the phone is being read.
+    consent = false;
+    await act(async () => { release!(); await jest.advanceTimersByTimeAsync(200); });
+    await settle();
+    expect(uploads()).toBe(before);
+    const cached = JSON.parse((await AsyncStorage.getItem(BUSY_BLOCKS_KEY)) ?? 'null') as { blocks?: unknown[] } | null;
+    expect(cached?.blocks ?? []).toEqual([]);
+  });
 });
