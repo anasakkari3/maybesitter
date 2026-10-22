@@ -15,6 +15,7 @@ import {
   useMemory,
   useMemorySuggestion,
   usePatchMemory,
+  writeRefused,
 } from '../../api/queries';
 import type { MemoryAdaptive, MemoryItem, MemorySuggestion } from '../../api/schemas/profile';
 import { SettingsHeader } from '../settings/SettingsChrome';
@@ -181,10 +182,16 @@ export function MemoryScreen({ onBack, focusId = null }: {
   // (M5B2A-R29-003): the rows, their controls and delete-all itself go, and
   // come back only from a fresh list — at once on a definite refusal, after
   // the re-read when the outcome is unknown.
-  const purging = removeAll.isPending || (removeAll.isError && memory.isFetching);
+  // And after an outcome nobody can be sure of, until a list read after it has
+  // landed (R30-002); a definite refusal shows the list again at once. The
+  // suggestions and the adaptive card go too: Keep and Dismiss are writes the
+  // purge would race (R30-001).
+  const unknownOutcome = removeAll.isError && !writeRefused(removeAll.error)
+    && memory.dataUpdatedAt <= removeAll.submittedAt;
+  const purging = removeAll.isPending || unknownOutcome;
   const items = purging ? [] : (memory.data?.items ?? []).filter(item => item.id !== undoable);
-  const suggestions = memory.data?.suggestions ?? [];
-  const adaptive = memory.data?.adaptive ?? null;
+  const suggestions = purging ? [] : memory.data?.suggestions ?? [];
+  const adaptive = purging ? null : memory.data?.adaptive ?? null;
   const suggestionLanguage: 'ar' | 'he' | 'en' = lang === 'ar' || lang === 'he' ? lang : 'en';
 
   // The focused row is scrolled into view once it has laid out (M5B2A-REV-005):

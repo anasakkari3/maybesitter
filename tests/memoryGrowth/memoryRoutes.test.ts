@@ -300,6 +300,27 @@ test('one account’s completions never become another account’s suggestion', 
 
 // ── Keep ──────────────────────────────────────────────────────────
 
+test('M5B2A-R30-001: Keep and Dismiss write nothing while a personalization purge holds the fence', async () => {
+  begin();
+  try {
+    await seedMorningHabit(OWNER);
+    await enableConsent(OWNER);
+    const user = (await getStorage().get<Record<string, unknown>>(userDoc(OWNER))) ?? {};
+    await getStorage().set(userDoc(OWNER), {
+      ...user,
+      personalizationPurge: { state: 'purging', epoch: 7, startedAt: new Date().toISOString(), purgeOwner: 'p1', purgeLeaseAt: new Date().toISOString() },
+    });
+    const kept = await keep(OWNER, 'R1_focus_window:09:00-12:00');
+    assert.equal(kept.status, 409, 'a keep was accepted during the purge');
+    const dismissed = await dismiss(OWNER, 'R1_focus_window:09:00-12:00');
+    assert.equal(dismissed.status, 409, 'a dismissal was accepted during the purge');
+    assert.equal((await getStorage().list(userCol(OWNER, MEMORY))).length, 0, 'a memory record was written during the purge');
+    assert.equal((await getStorage().list(userCol(OWNER, MEMORY_DISMISSALS))).length, 0, 'a dismissal was written during the purge');
+  } finally {
+    end();
+  }
+});
+
 test('Keep stores a rule-derived preference, and it lists instead of being suggested', async () => {
   begin();
   try {

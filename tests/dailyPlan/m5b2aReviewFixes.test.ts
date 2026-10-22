@@ -1159,7 +1159,7 @@ test('R26-002: an account export carries no consent operation token or withdrawa
   const uid = await keptFocusPlan();
   const storage = currentStorage() as any;
   await setPersonalizationConsent(uid, { state: 'declined', version: PERSONALIZATION_CONSENT_VERSION, at: new Date() }, { storage });
-  await setFence(storage, uid, { ...(((await storage.get(userDoc(uid))) ?? {}).personalizationPurge), withdrawalOwner: 'someone', withdrawalLeaseAt: new Date().toISOString() });
+  await setFence(storage, uid, { ...(((await storage.get(userDoc(uid))) ?? {}).personalizationPurge), withdrawalOwner: 'someone', withdrawalLeaseAt: new Date().toISOString(), purgeOwner: 'p9', purgeLeaseAt: new Date().toISOString() });
   assert.ok(((await storage.get(userDoc(uid))) ?? {}).consentOps, 'fixture: no consent operation was stored');
   const { buildAccountExport } = await import('../../lib/account/accountExport.ts');
   const archive = await buildAccountExport(uid, { storage } as any);
@@ -1167,6 +1167,9 @@ test('R26-002: an account export carries no consent operation token or withdrawa
   assert.equal(profile.consentOps, undefined);
   assert.equal(profile.personalizationPurge?.withdrawalOwner, undefined);
   assert.equal(profile.personalizationPurge?.withdrawalLeaseAt, undefined);
+  // R30-003: a purge's ownership is internal too.
+  assert.equal(profile.personalizationPurge?.purgeOwner, undefined);
+  assert.equal(profile.personalizationPurge?.purgeLeaseAt, undefined);
   assert.ok(profile.consents?.personalization, 'the consent answer itself is still exported');
 });
 
@@ -1283,6 +1286,29 @@ test('R29-001: one purge at a time — a live purge keeps the fence, a dead one 
   await purgeFor(uid, storage, new Date().toISOString(), { attempts: 2, delayMs: 1 });
   const fence = ((await storage.get(userDoc(uid))) ?? {}).personalizationPurge;
   assert.deepEqual([fence?.state, fence?.epoch, fence?.purgeOwner ?? null], ['active', 51, null]);
+});
+
+test("R30-004: a purge renews its lease as it works, so a long one is never taken for dead", async () => {
+  const uid = await keptFocusPlan();
+  const storage = currentStorage() as any;
+  const { deletePersonalizationScope } = await import('../../lib/personalization/deletion.ts');
+  const { createStorageFeedbackEventStore } = await import('../../lib/feedback/feedbackEventStore.ts');
+  const memory = createStorageRuntimeMemoryStore(undefined, storage);
+  let leaseAtMemoryStep: string | undefined;
+  await deletePersonalizationScope({
+    scopeId: uid, now: new Date().toISOString(), storage,
+    feedbackEvents: createStorageFeedbackEventStore(storage),
+    runtimeMemory: { ...memory, listAll: memory.listAll.bind(memory), deleteScope: async (scopeId: string) => {
+      leaseAtMemoryStep = ((await storage.get(userDoc(uid))) ?? {}).personalizationPurge?.purgeLeaseAt;
+      return memory.deleteScope(scopeId);
+    } } as any,
+    // The purge has been running "for an hour" when its caller's hook runs.
+    onFenced: async () => {
+      const fence = ((await storage.get(userDoc(uid))) ?? {}).personalizationPurge;
+      await setFence(storage, uid, { ...fence, purgeLeaseAt: new Date(Date.now() - 3_600_000).toISOString() });
+    },
+  } as any);
+  assert.ok(leaseAtMemoryStep && Date.now() - Date.parse(leaseAtMemoryStep) < 60_000, `the lease was not renewed: ${leaseAtMemoryStep}`);
 });
 
 test('R20-004: a fresh run never answers a suggestion whose outcome was dismissed right after the commit', async () => {

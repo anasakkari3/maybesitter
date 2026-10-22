@@ -28,7 +28,7 @@ import en from '../../../i18n/locales/en.json';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { LANGUAGE_STORAGE_KEY } from '../../../i18n/language';
 
-import { NotFoundError, NetworkError } from '../../../api/errors';
+import { ForbiddenError, NotFoundError, NetworkError } from '../../../api/errors';
 
 import * as profileEndpoints from '../../../api/endpoints/profile';
 
@@ -396,6 +396,34 @@ describe('delete everything', () => {
     await act(async () => { finish({ success: true, deleted: 2 }); });
   });
 
+  it('hides the suggestions too while delete-all is on its way (M5B2A-R30-001)', async () => {
+    listing([item()], [SUGGESTION]);
+    let finish!: (value: unknown) => void;
+    jest.spyOn(profileEndpoints, 'deleteAllMemory').mockImplementation(() => new Promise(resolve => { finish = resolve; }) as never);
+    await show(<MemoryScreen onBack={() => {}} />);
+    await waitFor(() => expect(screen.queryByTestId('memory-suggestions')).not.toBeNull());
+    await fireEvent.press(screen.getByTestId('memory-screen-delete-all'));
+    await fireEvent.press(screen.getByTestId('memory-screen-delete-all-confirm'));
+    await waitFor(() => expect(profileEndpoints.deleteAllMemory).toHaveBeenCalled());
+    expect(screen.queryByTestId('memory-suggestions')).toBeNull();
+    expect(screen.queryByTestId('memory-suggestion-keep-R1_focus_window:14:00-17:00')).toBeNull();
+    await act(async () => { finish({ success: true, deleted: 1 }); });
+  });
+
+  it('after a successful delete-all the old rows never come back while the re-read is slow (M5B2A-R30-002)', async () => {
+    listing([item(), item({ id: 'mem_other', content: 'I swim on Mondays' })]);
+    await show(<MemoryScreen onBack={() => {}} />);
+    await waitFor(() => expect(screen.queryByTestId('memory-screen-delete-mem_other')).not.toBeNull());
+    // The re-read after the delete never answers.
+    jest.spyOn(profileEndpoints, 'listMemory').mockImplementation(() => new Promise(() => undefined) as never);
+    await fireEvent.press(screen.getByTestId('memory-screen-delete-all'));
+    await fireEvent.press(screen.getByTestId('memory-screen-delete-all-confirm'));
+    await waitFor(() => expect(profileEndpoints.deleteAllMemory).toHaveBeenCalled());
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)); });
+    expect(screen.queryByTestId('memory-screen-delete-mem_told')).toBeNull();
+    expect(screen.queryByTestId('memory-screen-delete-mem_other')).toBeNull();
+  });
+
   it('cancels a row still in its undo window instead of sending it beside the purge (M5B2A-R28-001)', async () => {
     jest.useFakeTimers();
     listing([item(), item({ id: 'mem_other', content: 'I swim on Mondays' })]);
@@ -441,6 +469,18 @@ describe('suggestions (#202)', () => {
     listing([], [SUGGESTION]);
     await show(<MemoryScreen onBack={() => {}} />);
     await waitFor(() => expect(screen.queryByTestId('memory-suggestions')).not.toBeNull());
+  });
+
+  it('a refused Keep (consent withdrawn elsewhere) re-reads the list so the stale suggestion goes (M5B2A-R30-005)', async () => {
+    listing([], [SUGGESTION]);
+    jest.spyOn(profileEndpoints, 'keepMemorySuggestion').mockRejectedValue(new ForbiddenError('consent', 'personalization_consent_required') as never);
+    await show(<MemoryScreen onBack={() => {}} />);
+    await waitFor(() => expect(screen.queryByTestId('memory-suggestion-keep-R1_focus_window:14:00-17:00')).not.toBeNull());
+    const reads = (profileEndpoints.listMemory as jest.Mock).mock.calls.length;
+    listing([], []);
+    await fireEvent.press(screen.getByTestId('memory-suggestion-keep-R1_focus_window:14:00-17:00'));
+    await waitFor(() => expect((profileEndpoints.listMemory as jest.Mock).mock.calls.length).toBeGreaterThan(reads));
+    await waitFor(() => expect(screen.queryByTestId('memory-suggestions')).toBeNull());
   });
 
   it('Keep sends the suggestion back with the language the sentence is stored in', async () => {

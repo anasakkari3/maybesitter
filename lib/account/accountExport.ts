@@ -129,13 +129,15 @@ export const EXPORT_INTERNAL_FIELDS: Readonly<Record<string, readonly string[]>>
 /**
  * Coordination data on the user document that is not the person's content
  * (M5B2A-R26-002): the token of the write that set each consent answer, and a
- * withdrawal's ownership of the personalization fence.
+ * withdrawal's or a purge's ownership of the personalization fence (R30-003).
  */
 function withoutInternalProfileFields(profile: Record<string, unknown>): Record<string, unknown> {
   const { consentOps: _ops, ...rest } = profile;
   const purge = rest.personalizationPurge;
   if (purge && typeof purge === 'object' && !Array.isArray(purge)) {
-    const { withdrawalOwner: _owner, withdrawalLeaseAt: _lease, ...fence } = purge as Record<string, unknown>;
+    const {
+      withdrawalOwner: _owner, withdrawalLeaseAt: _lease, purgeOwner: _purgeOwner, purgeLeaseAt: _purgeLease, ...fence
+    } = purge as Record<string, unknown>;
     rest.personalizationPurge = fence;
   }
   return rest;

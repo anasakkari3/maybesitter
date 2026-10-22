@@ -1212,7 +1212,7 @@ function dropCorrection(client: QueryClient, uid: string, correction: BasisCorre
  * a 404 or 409 says the record changed under the write (M5B2A-R7-002), so the
  * cached basis may name a memory that is gone.
  */
-function writeRefused(error: unknown): boolean {
+export function writeRefused(error: unknown): boolean {
   return error instanceof ValidationError
     || error instanceof UnauthorizedError
     || error instanceof RecentLoginRequiredError
@@ -2186,6 +2186,8 @@ function useMemoryMutation<TInput, TData = unknown>(
   mutationFn: (input: TInput) => Promise<TData>,
   /** The memory a plan's basis may name that this changes, or `all`; null for none (M5b-2a). */
   basisTarget: (input: TInput) => string | null = () => null,
+  /** Also on every outcome, refused or not (a memory suggestion: M5B2A-R30-005). */
+  onAnySettled?: () => void,
 ) {
   const client = useQueryClient();
   const uid = useUid();
@@ -2205,6 +2207,7 @@ function useMemoryMutation<TInput, TData = unknown>(
       // the same reason Keep/Dismiss invalidate it (UC-3.16, #202).
       void client.invalidateQueries({ queryKey: queryKeys.trust(uid) });
     },
+    onSettled: () => { onAnySettled?.(); },
   });
   // Hidden from the moment the correction is *called* (M5B2A-020), not from
   // `onMutate`, which runs a microtask later: a screen that navigates right
@@ -2249,8 +2252,26 @@ export function useDeleteMemory() {
 }
 
 export function useDeleteAllMemory() {
+  const client = useQueryClient();
   const uid = useUid();
-  return useMemoryMutation((_: void) => deleteAllMemory(asAccount(uid)), () => 'all');
+  const base = useMemoryMutation((_: void) => deleteAllMemory(asAccount(uid)), () => 'all');
+  // A delete-all that succeeded empties the list at once (M5B2A-R30-002): the
+  // re-read may be slow, paused or fail, and the erased rows must not come
+  // back from the old cache meanwhile.
+  const emptied = (options?: MemoryMutateOptions<unknown, void>): MemoryMutateOptions<unknown, void> => ({
+    ...options,
+    onSuccess: (data, input) => {
+      client.setQueryData(queryKeys.memory(uid), (old: unknown) => (old && typeof old === 'object'
+        ? { ...(old as Record<string, unknown>), items: [], suggestions: [], adaptive: null }
+        : old));
+      options?.onSuccess?.(data, input);
+    },
+  });
+  return {
+    ...base,
+    mutate: (input: void, options?: MemoryMutateOptions<unknown, void>) => base.mutate(input, emptied(options)),
+    mutateAsync: (input: void, options?: MemoryMutateOptions<unknown, void>) => base.mutateAsync(input, emptied(options)),
+  };
 }
 
 /**
@@ -2259,6 +2280,7 @@ export function useDeleteAllMemory() {
  * screen, whose "what it knows" counts include memory.
  */
 export function useMemorySuggestion() {
+  const client = useQueryClient();
   const uid = useUid();
   // Through `useMemoryMutation`, so keeping a focus window — which replaces the
   // one plans were arranged around (M5b-2a) — hides every basis line from the
@@ -2270,6 +2292,12 @@ export function useMemorySuggestion() {
         ? keepMemorySuggestion(input.suggestion, input.language, asAccount(uid))
         : dismissMemorySuggestion(input.suggestion, asAccount(uid))),
     (input) => (input.decision === 'keep' && input.suggestion.fingerprint.startsWith('R1_focus_window') ? 'all' : null),
+    // Refused or not: a 403 (consent withdrawn elsewhere) or a 409 (the
+    // suggestion is gone) means the list on screen is stale (R30-005).
+    () => {
+      void client.invalidateQueries({ queryKey: queryKeys.memory(uid) });
+      void client.invalidateQueries({ queryKey: queryKeys.trust(uid) });
+    },
   );
 }
 
