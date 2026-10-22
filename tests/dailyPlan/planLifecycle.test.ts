@@ -52,6 +52,9 @@ import { refreshStalePlan } from '../../lib/services/dailyPlan/planRefresh.ts';
 import { diffPlans } from '../../lib/planning/scheduler/index.ts';
 import { runContinuousReplanTick } from '../../lib/services/dailyPlan/continuousReplanService.ts';
 import { replaceBusyBlocksAsFixture } from '../support/busyFixtures.ts';
+import { setPersonalizationConsent, PERSONALIZATION_CONSENT_VERSION } from '../../lib/consents/personalizationConsentService.ts';
+import { createStorageRuntimeMemoryStore } from '../../lib/runtimeMemory/runtimeMemoryStore.ts';
+import { READINESS_CONTEXT_SCHEMA_VERSION } from '../../lib/userState/userStateService.ts';
 import type { PlanningStateChange } from '../../src/contracts/v1/watcherContracts.ts';
 import type { Plan, TimeInterval } from '../../src/contracts/v1/planningContracts.ts';
 
@@ -114,6 +117,7 @@ interface PlanBody {
     unscheduled: Array<{ itemId: string; reasonCode: string }>;
     fixed: PlanRow[];
     inputsChanged: boolean;
+    basisChanged?: boolean;
     rebuildsLeft: number;
     workingEndsAt: string | null;
   };
@@ -697,4 +701,91 @@ test('a plan built after the day\'s hours says when they ended, and tomorrow can
     assert.equal(tomorrow.status, 200, 'tomorrow\'s plan could not be built in the evening');
     assert.deepEqual(tomorrow.body.plan.scheduled.map((row) => row.itemId), ['cmt_report']);
   }, EVENING);
+});
+
+test('today+4 refresh ignores readiness for untouched and touched plans but still follows memory', async () => {
+  const keys = [
+    'MAYBESITTER_ENV',
+    'MAYBESITTER_FEATURE_MEMORY_LEARNING',
+    'MAYBESITTER_KILL_SWITCH_MEMORY_LEARNING',
+    'MAYBESITTER_FEATURE_MEMORY',
+    'MAYBESITTER_KILL_SWITCH_MEMORY',
+  ] as const;
+  const saved = Object.fromEntries(keys.map((key) => [key, process.env[key]]));
+  process.env.MAYBESITTER_ENV = 'staging';
+  process.env.MAYBESITTER_FEATURE_MEMORY_LEARNING = 'true';
+  process.env.MAYBESITTER_KILL_SWITCH_MEMORY_LEARNING = 'false';
+  process.env.MAYBESITTER_FEATURE_MEMORY = 'true';
+  process.env.MAYBESITTER_KILL_SWITCH_MEMORY = 'false';
+  try {
+    await withHarness(async ({ storage }) => {
+      await seedAccount(storage);
+      await setPersonalizationConsent(USER, {
+        state: 'granted', version: PERSONALIZATION_CONSENT_VERSION, at: MORNING,
+      }, { storage });
+      await captureAndConfirm(storage, 'cmt_focus', 'Focused work', { kind: 'due_by', dueAt: DUE_TODAY }, MORNING);
+      const memoryStore = createStorageRuntimeMemoryStore(undefined, storage);
+      const memory = await memoryStore.put({
+        scopeId: USER,
+        kind: 'preference',
+        content: 'You often finish things between 09:00 and 12:00.',
+        language: 'en',
+        source: 'deterministic_rule',
+        confidence: 0.7,
+        observedAt: MORNING.toISOString(),
+        evidenceIds: ['fix1-event-1', 'fix1-event-2'],
+        provenance: {
+          origin: 'behaviour_rule',
+          originRef: 'R1_focus_window:09:00-12:00',
+          confirmedByUserAt: MORNING.toISOString(),
+        },
+      }, MORNING.toISOString());
+      assert.equal((await build()).status, 200);
+
+      const future = '2026-09-19';
+      const original = { ...(await readStoredPlan(USER, DATE, storage))!, date: future };
+      assert.equal(original.focusFromMemory, true, 'fixture: the plan did not use memory');
+      await storage.set(planPath(USER, future), original);
+      const user = (await storage.get<Record<string, unknown>>(userDoc(USER)))!;
+      const observedAt = new Date(MORNING.getTime() - 60_000).toISOString();
+      await storage.set(userDoc(USER), {
+        ...user,
+        readinessContext: {
+          schemaVersion: READINESS_CONTEXT_SCHEMA_VERSION,
+          currentSubjective: { energy: 2, observedAt },
+          recentReadiness: null,
+          historicalInference: null,
+          updatedAt: MORNING.toISOString(),
+        },
+      });
+
+      const untouched = await readPlan(future);
+      assert.equal(untouched.body.plan.generation, original.generation, 'readiness rebuilt a future untouched plan');
+      assert.equal(untouched.body.plan.basisChanged, false);
+      assert.equal(untouched.body.plan.inputsChanged, false);
+
+      const removed = original.plan.scheduled.at(-1)?.itemId;
+      assert.ok(removed, 'fixture: the plan has no item to mark as removed');
+      await storage.set(planPath(USER, future), {
+        ...original,
+        edits: { moves: [], removals: [removed] },
+      });
+      const touched = await readPlan(future);
+      assert.equal(touched.body.plan.generation, original.generation, 'readiness rebuilt a future touched plan');
+      assert.equal(touched.body.plan.basisChanged, false);
+      assert.equal(touched.body.plan.inputsChanged, false);
+
+      await storage.set(planPath(USER, future), original);
+      assert.equal(await memoryStore.deleteById(memory.id), true);
+      const memoryChanged = await readPlan(future);
+      assert.equal(memoryChanged.body.plan.generation, original.generation + 1, 'memory did not refresh a future untouched plan');
+      assert.equal(memoryChanged.body.plan.basisChanged, false);
+      assert.equal(memoryChanged.body.plan.inputsChanged, false);
+    });
+  } finally {
+    for (const key of keys) {
+      if (saved[key] === undefined) delete process.env[key];
+      else process.env[key] = saved[key];
+    }
+  }
 });

@@ -99,12 +99,14 @@ export async function reviewSuggestion(
     const claimed = await storage.runTransaction(async tx => {
       const latest = await tx.get<IntelligenceSuggestion>(path);
       if (!latest || (latest.status !== 'pending' && latest.status !== 'accepting')) return null;
-      const cited = await Promise.all(latest.observationIds.map(observationId =>
-        tx.get(observationPath(uid, observationId))));
-      if (cited.some(isDismissedBehaviourOutcome)) {
-        const dismissed: IntelligenceSuggestion = { ...latest, status: 'dismissed', decidedAt: now };
-        tx.set(path, dismissed);
-        return null;
+      if (latest.status === 'pending') {
+        const cited = await Promise.all(latest.observationIds.map(observationId =>
+          tx.get(observationPath(uid, observationId))));
+        if (cited.some(isDismissedBehaviourOutcome)) {
+          const dismissed: IntelligenceSuggestion = { ...latest, status: 'dismissed', decidedAt: now };
+          tx.set(path, dismissed);
+          return null;
+        }
       }
       const next = { ...latest, status: 'accepting' as const,
         title: latest.status === 'pending' ? editedTitle ?? latest.title : latest.title };

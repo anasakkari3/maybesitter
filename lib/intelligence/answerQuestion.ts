@@ -21,11 +21,13 @@ export async function answerIntelligenceQuestion(
     const current = await tx.get<IntelligenceSuggestion>(path);
     if (!current || current.kind !== 'question' || current.status === 'dismissed') return null;
     if (current.status === 'accepting' && current.answerDigest !== digest) return null;
-    const cited = await Promise.all(current.observationIds.map(observationId =>
-      tx.get(observationPath(uid, observationId))));
-    if (cited.some(isDismissedBehaviourOutcome)) {
-      tx.set(path, { ...current, status: 'dismissed', decidedAt: now });
-      return null;
+    if (current.status === 'pending') {
+      const cited = await Promise.all(current.observationIds.map(observationId =>
+        tx.get(observationPath(uid, observationId))));
+      if (cited.some(isDismissedBehaviourOutcome)) {
+        tx.set(path, { ...current, status: 'dismissed', decidedAt: now });
+        return null;
+      }
     }
     if (current.status === 'pending') tx.set(path, { ...current, status: 'accepting', answerDigest: digest });
     return current;

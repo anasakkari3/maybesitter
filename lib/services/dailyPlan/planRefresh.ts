@@ -306,13 +306,19 @@ export async function refreshStalePlan(
   const memoryRefreshable = planDatesFrom(today, PLAN_PROPOSAL_DAYS).includes(stored.date);
   if (!normallyRefreshable && !memoryRefreshable) return { stored, inputsChanged: false, basisChanged: false };
 
-  const commitments = deps.commitments ?? Object.values((await loadDomainState(storage, uid)).commitments);
   const memoryLearning = resolveMemoryLearning();
-  const user = memoryLearning ? await storage.get<Record<string, unknown>>(userDoc(uid)) : undefined;
-  const currentReadiness = memoryLearning
+  if (!normallyRefreshable && !memoryLearning) return { stored, inputsChanged: false, basisChanged: false };
+
+  const commitments = normallyRefreshable
+    ? deps.commitments ?? Object.values((await loadDomainState(storage, uid)).commitments)
+    : [];
+  const user = normallyRefreshable && memoryLearning
+    ? await storage.get<Record<string, unknown>>(userDoc(uid))
+    : undefined;
+  const currentReadiness = normallyRefreshable && memoryLearning
     ? resolvePlanReadiness({ uid, now: now.toISOString(), userDocument: user }).readinessApplied
     : null;
-  const readinessChanged = memoryLearning
+  const readinessChanged = normallyRefreshable && memoryLearning
     ? stored.readinessApplied === undefined || !isDeepStrictEqual(stored.readinessApplied, currentReadiness)
     : false;
   const memoryProjection = await readPlanMemoryProjection(uid, stored, now.toISOString(), storage);
