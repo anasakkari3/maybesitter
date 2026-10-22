@@ -981,6 +981,103 @@ test("R23-001: a superseded withdrawal never reopens a live takeover's fence bet
   assert.equal((await base.read(uid)).state, 'enabled');
 });
 
+test("R24-001: a refused grant's rollback never overwrites a newer grant even when every public field is identical", async () => {
+  const uid = await keptFocusPlan();
+  const storage = currentStorage() as any;
+  const base = createStoragePersonalizationConsentStore(storage);
+  let releaseG1!: () => void;
+  const g1Paused = new Promise<void>((resolve) => { releaseG1 = resolve; });
+  let g1Entered!: () => void;
+  const g1InStore = new Promise<void>((resolve) => { g1Entered = resolve; });
+  const pausing = {
+    read: base.read.bind(base), write: base.write.bind(base), deleteScope: base.deleteScope.bind(base),
+    writeGuarded: async (...args: Parameters<NonNullable<typeof base.writeGuarded>>) => {
+      if (args[1] === 'enabled') { g1Entered(); await g1Paused; }
+      return base.writeGuarded!(...args);
+    },
+  };
+  const same = new Date(Date.now() + 5_000);
+  const g1 = setPersonalizationConsent(uid, { state: 'granted', version: PERSONALIZATION_CONSENT_VERSION, at: same }, { storage, consent: pausing as any });
+  await g1InStore;
+  await setPersonalizationConsent(uid, { state: 'declined', version: PERSONALIZATION_CONSENT_VERSION, at: new Date() }, { storage });
+  await setPersonalizationConsent(uid, { state: 'granted', version: PERSONALIZATION_CONSENT_VERSION, at: same }, { storage });
+  releaseG1();
+  await assert.rejects(g1, PersonalizationConsentNotRecordedError);
+  const { getConsent } = await import('../../lib/consents/consentService.ts');
+  const { PERSONALIZATION_CONSENT } = await import('../../src/contracts/v1/consentContracts.ts');
+  assert.equal(await getConsent(PERSONALIZATION_CONSENT, uid, { storage }), 'granted', "an identical-looking newer grant was rolled back");
+  assert.equal((await base.read(uid)).state, 'enabled');
+});
+
+test('R24-002: a moved-fence rebase is refused once the routine owns focus time, as a fresh solve would refuse the memory', async () => {
+  const uid = await offModeFocusAccount();
+  await buildPlan(uid);
+  await touchPlan(uid);
+  await setPersonalizationConsent(uid, { state: 'declined', version: PERSONALIZATION_CONSENT_VERSION, at: new Date() }, { storage: currentStorage() as any });
+  await grantPersonalization(uid);
+  const routine = {
+    schemaVersion: 1, updatedAt: NOW(), timezone: TZ, sleepWindow: { start: '23:00', end: '07:00' },
+    focusWindows: [{ start: '14:00', end: '17:00', label: 'work_study' }], fixedCommitmentWindows: [],
+    preferredReminderIntensity: 'followUp', quietHours: null, surveySkipped: false,
+  };
+  // Before the read: the rebase is never authorized.
+  await setAccount(uid, { profile: { routine } });
+  const early = await call(uid, 'plans/[date]/actions', 'POST', { params: { date: TODAY }, body: { action: 'accept' } });
+  assert.equal(early.status, 409, show(early.body));
+  await setAccount(uid, { profile: { routine: { ...routine, focusWindows: [] } } });
+  // Between the read and the transaction: the transaction refuses it.
+  const real = currentStorage() as any;
+  let routed = false;
+  const storage = new Proxy(real, {
+    get(target, key) {
+      if (key === 'runTransaction') {
+        return async (fn: (tx: any) => Promise<unknown>) => {
+          if (!routed) {
+            routed = true;
+            const user = (await target.get(userDoc(uid))) ?? {};
+            await target.set(userDoc(uid), { ...user, profile: { ...(user.profile ?? {}), routine } });
+          }
+          return target.runTransaction(fn);
+        };
+      }
+      const value = Reflect.get(target, key);
+      return typeof value === 'function' ? value.bind(target) : value;
+    },
+  });
+  await assert.rejects(acceptPlan(uid, TODAY, { storage } as any), PlanWriteGuardRejected);
+  assert.ok(routed, 'fixture: the acceptance never reached its transaction');
+  assert.notEqual((await storedPlan(uid)).status, 'accepted');
+});
+
+test('R24-003: a kept focus record deleted between the rebase read and the acceptance transaction refuses the acceptance', async () => {
+  const uid = await offModeFocusAccount();
+  await buildPlan(uid);
+  await touchPlan(uid);
+  await setPersonalizationConsent(uid, { state: 'declined', version: PERSONALIZATION_CONSENT_VERSION, at: new Date() }, { storage: currentStorage() as any });
+  await grantPersonalization(uid);
+  const real = currentStorage() as any;
+  const { runtimeMemoryRecordPath } = await import('../../lib/runtimeMemory/runtimeMemoryStore.ts');
+  const [kept] = await createStorageRuntimeMemoryStore(undefined, real).retrieve({ scopeId: uid, now: new Date().toISOString() });
+  assert.ok(kept, 'fixture: no kept focus record');
+  let deleted = false;
+  const storage = new Proxy(real, {
+    get(target, key) {
+      if (key === 'runTransaction') {
+        return async (fn: (tx: any) => Promise<unknown>) => {
+          // Another device deletes the record after the rebase read.
+          if (!deleted) { deleted = true; await target.delete(runtimeMemoryRecordPath(uid, kept!.id)); }
+          return target.runTransaction(fn);
+        };
+      }
+      const value = Reflect.get(target, key);
+      return typeof value === 'function' ? value.bind(target) : value;
+    },
+  });
+  await assert.rejects(acceptPlan(uid, TODAY, { storage } as any), PlanWriteGuardRejected);
+  assert.ok(deleted, 'fixture: the acceptance never reached its transaction');
+  assert.notEqual((await storedPlan(uid)).status, 'accepted');
+});
+
 test('R20-004: a fresh run never answers a suggestion whose outcome was dismissed right after the commit', async () => {
   const uid = await begin();
   await grantRecommendations(uid);

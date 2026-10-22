@@ -316,6 +316,16 @@ function recordPath(scopeId: string, id: string): string {
   return `${collectionFor(scopeId)}/${requireDocId(id)}`;
 }
 
+/** Where one record lives, for a caller that must re-read it inside its own transaction. */
+export function runtimeMemoryRecordPath(scopeId: string, id: string): string {
+  return recordPath(scopeId, id);
+}
+
+/** Whether a stored record would still reach a consumer at `now`: the shape, active, fresh. */
+export function runtimeMemoryRecordRetrievable(value: unknown, scopeId: string, now: string): value is RuntimeMemoryRecord {
+  return isRuntimeMemoryRecord(value) && value.status === 'active' && value.scopeId === scopeId && isFresh(value, now);
+}
+
 function resolveTtl(options?: RuntimeMemoryStoreOptions): number {
   const ttlMs = options?.defaultTtlMs ?? DEFAULT_MEMORY_TTL_MS;
   if (!Number.isFinite(ttlMs) || ttlMs <= 0) fail('defaultTtlMs must be a positive number of milliseconds');

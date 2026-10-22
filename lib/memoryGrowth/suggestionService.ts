@@ -42,13 +42,14 @@ import type {
 } from '../../src/contracts/v1/memoryContracts';
 import { personalizationGrowthAllowed } from '../consents/personalizationConsentService';
 import type { PersonalizationConsentStore } from '../personalizationControls/consentStore';
-import { createStorageRuntimeMemoryStore } from '../runtimeMemory/runtimeMemoryStore';
+import { createStorageRuntimeMemoryStore, runtimeMemoryRecordPath, runtimeMemoryRecordRetrievable } from '../runtimeMemory/runtimeMemoryStore';
 import { planSettingsOf, type PlanSettingsBearingUser } from '../services/dailyPlan/planSettings';
 import { listPlanEvents } from '../services/dailyPlan/planStore';
 import { listEventsOfTypeInRange } from '../services/mobile/eventLog';
 import { memoryToDto, type MemoryDto } from '../services/mobile/memoryService';
 import { normalizeTimezone } from '../services/mobile/time';
 import { getStorage, requireUserId, userDoc, type StorageAdapter } from '../storage';
+import type { StorageTransaction } from '../storage/storageAdapter';
 import { isMemoryGrowthRuleId, readDismissedFingerprint, recordDismissal } from './dismissals';
 import {
   R1_FOCUS_WINDOW,
@@ -423,6 +424,26 @@ export async function keptFocusWindow(
     if (window) return window;
   }
   return null;
+}
+
+/**
+ * Whether the kept focus rule `id` still stands, inside the caller's
+ * transaction, exactly as it was selected: active, fresh at `now`, still the
+ * unedited rule, and still naming `window` (M5B2A-R24-003). An edit, a delete
+ * or a replacement made after the selection makes this false.
+ */
+export async function keptFocusRecordStands(
+  tx: StorageTransaction,
+  uid: string,
+  id: string,
+  window: LocalWindow,
+  now: string,
+): Promise<boolean> {
+  const record = await tx.get<unknown>(runtimeMemoryRecordPath(uid, id));
+  if (!runtimeMemoryRecordRetrievable(record, uid, now)) return false;
+  if (record.source !== 'deterministic_rule' || record.provenance?.origin !== 'behaviour_rule') return false;
+  const named = parseFocusWindowFingerprint(record.provenance?.originRef);
+  return named !== null && JSON.stringify(named) === JSON.stringify(window);
 }
 
 /** The kept focus rule and its identity, for provenance-aware plan reads. */

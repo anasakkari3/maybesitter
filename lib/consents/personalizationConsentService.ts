@@ -38,7 +38,7 @@ import type { PersonalizationConsent } from '../../src/contracts/v1/personalizat
 import { getStorage, type StorageAdapter } from '../storage';
 import { userDoc } from '../storage/paths';
 import { randomUUID } from 'node:crypto';
-import { getConsent, setConsent, setConsentIf, type SetConsentInput } from './consentService';
+import { getConsent, setConsent, setConsentIf, setConsentWithToken, type SetConsentInput } from './consentService';
 
 /**
  * A yes that could not be made true. The versioned answer was recorded but the
@@ -240,7 +240,7 @@ export async function setPersonalizationConsent(
     // enabled only at this same epoch, still active: a withdrawal that began
     // after this point has moved the epoch, and refuses the grant.
     const version = await captureGrantVersion(storage, uid, options.purgeWait ?? PURGE_WAIT);
-    const record = await setConsent(PERSONALIZATION_CONSENT, uid, { ...input, at }, { storage });
+    const { record, token } = await setConsentWithToken(PERSONALIZATION_CONSENT, uid, { ...input, at }, { storage });
     try {
       if (!store.writeGuarded) await store.write(uid, 'enabled', record.changedAt);
       else {
@@ -259,7 +259,7 @@ export async function setPersonalizationConsent(
       // caller is told the answer was not recorded either way.
       // Only while the stored answer is still this grant's own (R22-002): a
       // newer grant that succeeded since keeps its answer.
-      await setConsentIf(PERSONALIZATION_CONSENT, uid, { ...input, state: 'declined', at }, record, { storage })
+      await setConsentIf(PERSONALIZATION_CONSENT, uid, { ...input, state: 'declined', at }, token, { storage })
         .catch(() => undefined);
       throw new PersonalizationConsentNotRecordedError(error);
     }

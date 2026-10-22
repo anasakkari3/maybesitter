@@ -74,11 +74,12 @@
  * than about a fake.
  */
 import { getStorage, type StorageAdapter } from '../../storage';
+import type { StorageTransaction } from '../../storage/storageAdapter';
 import { USERS, userDoc } from '../../storage/paths';
 import type { UserLocale } from '../../storage/userDocument';
 import { loadDomainState } from '../mobile/participantState';
 import { readRoutineProfile, routineProfileOf } from '../mobile/routineProfileService';
-import { keptFocusWindow, keptFocusWindowRecord } from '../../memoryGrowth/suggestionService';
+import { keptFocusRecordStands, keptFocusWindow, keptFocusWindowRecord } from '../../memoryGrowth/suggestionService';
 import type { LocalWindow } from '../../memoryGrowth/rules';
 import {
   projectBlockProtectionIntoPlanningConstraints,
@@ -489,7 +490,7 @@ export function personalizationPurgeMatches(user: unknown, epoch: number): boole
 export async function memoryFocusForPlan(
   uid: string,
   now: string,
-  options: { storage?: StorageAdapter; routineHasFocus?: boolean; suppress?: boolean; purgeSnapshot?: unknown } = {},
+  options: { storage?: StorageAdapter; routineHasFocus?: boolean; suppress?: boolean; purgeSnapshot?: unknown; withRecord?: boolean } = {},
 ): Promise<PlanMemoryFocus | null> {
   if (options.routineHasFocus || options.suppress) return null;
   const storage = options.storage ?? getStorage();
@@ -501,12 +502,33 @@ export async function memoryFocusForPlan(
     ? await storage.get(userDoc(uid))
     : options.purgeSnapshot);
   if (purge.state !== 'active') return null;
-  if (mode === 'off') {
+  if (mode === 'off' && !options.withRecord) {
     const window = await keptFocusWindow(uid, now, { storage });
     return window ? { window, memoryId: null, purgeEpoch: purge.epoch, tracked: false } : null;
   }
   const record = await keptFocusWindowRecord(uid, now, { storage });
-  return record ? { window: record.window, memoryId: record.id, purgeEpoch: purge.epoch, tracked: true } : null;
+  return record ? { window: record.window, memoryId: record.id, purgeEpoch: purge.epoch, tracked: mode !== 'off' } : null;
+}
+
+/**
+ * The memory an acceptance may rebase onto (M5B2A-R14-002), decided as a
+ * fresh solve would decide it: never while the routine owns focus time
+ * (R24-002), and with the selected record's identity, so the acceptance
+ * transaction can prove it still stands (R24-003).
+ */
+export async function memoryFocusForAccept(uid: string, now: string, storage: StorageAdapter): Promise<PlanMemoryFocus | null> {
+  const user = await storage.get(userDoc(uid));
+  return memoryFocusForPlan(uid, now, { storage, routineHasFocus: routineOwnsFocus(user), purgeSnapshot: user, withRecord: true });
+}
+
+/** Whether the routine names a focus window of its own, which outranks memory. */
+export function routineOwnsFocus(userDocument: unknown): boolean {
+  return (routineProfileOf(userDocument)?.focusWindows ?? []).length > 0;
+}
+
+/** Whether the selected kept focus record still stands, in the caller's transaction. */
+export async function memoryFocusStands(tx: StorageTransaction, uid: string, focus: PlanMemoryFocus, now: string): Promise<boolean> {
+  return focus.memoryId !== null && keptFocusRecordStands(tx, uid, focus.memoryId, focus.window, now);
 }
 
 /** Reads what `DailyPlanRequestPreload` holds, once, as `composeDailyPlanRequest` would. */
