@@ -15,7 +15,9 @@ import { fill, ltr } from '../../i18n/strings';
 import { formatDate, formatTime } from '../../i18n/format';
 import { deviceTimeZone, useTimeZone } from '../../i18n/timezone';
 import { useApp } from '../../state/AppContext';
-import { Pill, Txt } from '../../ui/primitives';
+import { Btn, Pill, Txt } from '../../ui/primitives';
+import { ReferenceIcon } from '../../ui/referenceIcons';
+import { useFreshM5bOn, useM5bOn } from '../m5b/capabilities';
 import { Disclosure } from '../../ui/Disclosure';
 import { useLayoutMode } from '../../theme/textScale';
 import { LiveRegion } from '../../ui/liveRegion';
@@ -186,6 +188,14 @@ function IntelligencePanelForAccount({ onChanged, autoGenerate = false, whenOff 
   }, []);
   // The action itself succeeded, but re-reading the inbox afterwards did not.
   const [refreshFailed, setRefreshFailed] = React.useState(false);
+  // M5b-2a (R1): «شو تعلّمت من اللي عملته» — the person's own tapped outcomes,
+  // each with «مش صحيح». Shown only when M5b is known to be on.
+  const m5bOn = useM5bOn();
+  const freshM5b = useFreshM5bOn();
+  const [learnedOpen, setLearnedOpen] = React.useState(false);
+  // What the panel-scope region says after a dismissal; the region itself is
+  // always mounted, so it outlives the card when its last row leaves (M5B2A-009).
+  const [learnedStatus, setLearnedStatus] = React.useState<string | null>(null);
   // What a successful action will say once the inbox can be read again: a
   // count of new suggestions is only true of a list that is on screen.
   const pendingResult = React.useRef<((next: IntelligenceInbox) => string | null) | null>(null);
@@ -284,6 +294,43 @@ function IntelligencePanelForAccount({ onChanged, autoGenerate = false, whenOff 
         try { await refresh(); } catch { /* Keep the original action error visible. */ }
         return;
       }
+      onChanged();
+      try { await refresh(); } catch { setRefreshFailed(true); }
+    } finally {
+      inFlight.current = false;
+      setBusy(false);
+    }
+  };
+
+  // «مش صحيح» on a tapped outcome (R1, M5B2A-008): asked fresh first, and
+  // counted only when the server answers that the outcome is dismissed.
+  const dismissOutcome = async (id: string) => {
+    if (inFlight.current) return;
+    inFlight.current = true;
+    setBusy(true);
+    setError(null);
+    setLearnedStatus(null);
+    try {
+      if (await freshM5b() !== true) return;
+      let answer;
+      try {
+        answer = await reviewIntelligenceObservation(id, 'dismissed');
+      } catch (cause) {
+        setError(cause);
+        try { await refresh(); } catch { /* Keep the original error visible. */ }
+        return;
+      }
+      if (answer.observation.review !== 'dismissed') {
+        // Turned off after this was drawn: nothing was learned away. The
+        // switch and the list are read again, and nothing is announced.
+        void freshM5b();
+        try { await refresh(); } catch { setRefreshFailed(true); }
+        return;
+      }
+      // Nothing is said once the panel has left the screen (as `say`).
+      if (!scanMounted.current) return;
+      setLearnedStatus(t.m5bLearnedWrongDone);
+      if (Platform.OS === 'ios') AccessibilityInfo.announceForAccessibility(t.m5bLearnedWrongDone);
       onChanged();
       try { await refresh(); } catch { setRefreshFailed(true); }
     } finally {
@@ -542,6 +589,16 @@ function IntelligencePanelForAccount({ onChanged, autoGenerate = false, whenOff 
         <Pill label={t.xIntelligenceDismiss} kind="outline" disabled={busy} onPress={() => void run(() => reviewIntelligenceObservation(item.id, 'dismissed'))} />
       </View>
     </View>)}
+    {m5bOn === true ? <LearnedOutcomes
+      observations={inbox.observations}
+      open={learnedOpen}
+      onToggle={() => setLearnedOpen(value => !value)}
+      busy={busy}
+      onWrong={(id) => void dismissOutcome(id)}
+    /> : null}
+    <LiveRegion testID="m5b-learned-status">
+      {learnedStatus ? <Txt role="supporting" testID="m5b-learned-status-text">{learnedStatus}</Txt> : null}
+    </LiveRegion>
     <TextInput
       testID="intelligence-statement"
       accessibilityLabel={t.xIntelligenceTitle}
@@ -628,3 +685,57 @@ function IntelligencePanelForAccount({ onChanged, autoGenerate = false, whenOff 
   <AddedCard />
   </>;
 }
+
+/** The newest tapped outcomes the person can still say «مش صحيح» to. */
+const LEARNED_LIMIT = 5;
+const LEARNED_KEY = { completed: 'm5bLearnedCompleted', postponed: 'm5bLearnedPostponed', dropped: 'm5bLearnedDropped' } as const;
+
+/**
+ * «شو تعلّمت من اللي عملته» (M5b-2a R1): collapsed by default — what was
+ * learned is one tap away, not a paragraph on the panel — and gone when
+ * there is nothing to show, including on a server that sends no outcome.
+ */
+function LearnedOutcomes({ observations, open, onToggle, busy, onWrong }: {
+  observations: readonly IntelligenceObservation[];
+  open: boolean;
+  onToggle: () => void;
+  busy: boolean;
+  onWrong: (id: string) => void;
+}) {
+  const { t, p } = useApp();
+  const learned = observations
+    .filter(item => item.source === 'behavior' && item.kind === 'outcome' && item.review === 'confirmed' && item.outcome)
+    .sort((a, b) => b.observedAt.localeCompare(a.observedAt) || a.id.localeCompare(b.id))
+    .slice(0, LEARNED_LIMIT);
+  if (learned.length === 0) return null;
+  return <View style={{ gap: 8, backgroundColor: p.sf2, borderRadius: 14, padding: 12 }}>
+    <Btn
+      testID="m5b-learned"
+      label={t.m5bLearnedTitle}
+      accessibilityState={{ expanded: open }}
+      onPress={onToggle}
+      scaleTo={0.99}
+      style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: 8, minHeight: 44 }}
+    >
+      <Txt role="action" style={{ flexShrink: 1 }}>{t.m5bLearnedTitle}</Txt>
+      <ReferenceIcon name={open ? 'chevron-up' : 'chevron-down'} size={18} color={p.mu} />
+    </Btn>
+    {open ? learned.map(item => {
+      const line = fill(t[LEARNED_KEY[item.outcome!.signal]], { title: isolateAuto(item.outcome!.title) });
+      return <View key={item.id} testID={`m5b-learned-row-${item.id}`} style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
+        <Txt role="supporting" style={{ flexShrink: 1 }}>{line}</Txt>
+        <Pill
+          testID={`m5b-learned-wrong-${item.id}`}
+          label={t.m5bLearnedWrong}
+          accessibilityLabel={fill(t.m5bLearnedWrongA11y, { line })}
+          kind="outline"
+          size={13}
+          pad={10}
+          disabled={busy}
+          onPress={() => onWrong(item.id)}
+        />
+      </View>;
+    }) : null}
+  </View>;
+}
+

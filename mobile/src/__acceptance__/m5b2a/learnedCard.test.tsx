@@ -119,11 +119,18 @@ describe('M5b-2a R1 learned outcomes', () => {
     await fireEvent.press(screen.getByTestId('m5b-learned-wrong-stopped'));
     await waitFor(() => expect(harness!.server.matching('GET', /^\/api\/mobile\/capabilities\/m5b$/).length).toBeGreaterThan(1));
     expect(harness!.server.matching('POST', /\/intelligence\/observations\/stopped$/)).toHaveLength(0);
-    expect(screen.queryByTestId('m5b-learned-row-stopped')).not.toBeNull();
+    // GA-M5B2A-AMEND-1 (Claude): the plan hides the card when the capability
+    // is off (R1 App "When it is hidden"); the fresh answer said off, so the
+    // card goes — and nothing was dismissed or announced.
+    expect(screen.queryByTestId('m5b-learned')).toBeNull();
+    expect(screen.getByTestId('m5b-learned-status').props.children).toBeNull();
   });
 
   it('R1 success removes the last row, refetches, and announces from the panel-scope live region', async () => {
     const announce = jest.spyOn(AccessibilityInfo, 'announceForAccessibility').mockImplementation(() => undefined);
+    // GA-M5B2A-AMEND-2 (Claude): the setup's mock keeps the calls of earlier
+    // tests, which announce too; count only this test's.
+    announce.mockClear();
     await loaded({ observations: [outcome('last')] });
     await fireEvent.press(screen.getByTestId('m5b-learned'));
     const readsBefore = harness!.server.matching('GET', /^\/api\/mobile\/intelligence$/).length;

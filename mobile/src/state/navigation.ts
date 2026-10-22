@@ -44,6 +44,8 @@ export const TABS: readonly Tab[] = ['today', 'calendar', 'things', 'watching'];
 
 export type Entry = {
   name: Screen; detailId?: string; planDate?: string; goalId?: string;
+  /** M5b-2a: the memory row «صحّحها» opened Memory on (R2). */
+  memoryFocusId?: string;
   /**
    * «اعمللي خطة» from a capture's saved line (M3b, R3-006): the goal's page
    * starts its plan once, then clears this before any side effect, so a
@@ -107,7 +109,7 @@ export function isTask(name: Screen): boolean {
 /** What is on screen, and the parameters it was opened with. */
 export function derive(nav: Nav): {
   screen: Screen; detailId: string | null; planDate: string | null; goalId: string | null; taskResumed: boolean; showTabs: boolean;
-  startPlan: boolean;
+  startPlan: boolean; memoryFocusId: string | null;
 } {
   const top = nav.over[nav.over.length - 1] ?? nav.task ?? nav.stacks[nav.tab][nav.stacks[nav.tab].length - 1] ?? null;
   return {
@@ -116,6 +118,7 @@ export function derive(nav: Nav): {
     planDate: top?.planDate ?? null,
     goalId: top?.goalId ?? null,
     startPlan: top?.startPlan === true,
+    memoryFocusId: top?.memoryFocusId ?? null,
     taskResumed: top !== null && top === nav.task && nav.task.resumed === true,
     showTabs: nav.task === null && nav.stacks[nav.tab].length === 0,
   };

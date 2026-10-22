@@ -229,7 +229,15 @@ describe('M5b-2a R2 numbered-response display overlay', () => {
   it('M5B2A-020 delete-all flushes a pending undo delete and the deleted basis never reappears', async () => {
     const one = deferred<RouteReply>();
     const all = deferred<RouteReply>();
+    // GA-M5B2A-AMEND-3 (Claude): once memory is deleted, the server's plan
+    // answer names no basis (the record is gone); answering the old basis
+    // after the deletion is a state the server cannot emit.
+    let deleted = false;
+    void all.promise.then(() => { deleted = true; });
     const handler: RouteHandler = request => {
+      if (deleted && /^\/api\/mobile\/plans\/\d{4}-\d{2}-\d{2}$/.test(request.path) && request.method === 'GET') {
+        return { status: 200, body: planEnvelope({ ...planWithBasis(TODAY), memoryBasis: null }) };
+      }
       if (planGet(request)) return planGet(request);
       if (request.path === `/api/mobile/memory/${BASIS_ID}` && request.method === 'DELETE') return one.promise;
       if (request.path === '/api/mobile/memory' && request.method === 'DELETE') return all.promise;
@@ -309,11 +317,25 @@ describe('M5b-2a R2 numbered-response display overlay', () => {
     expect(reads).toBe(before);
   });
 
-  it('M5B2A-023 successful correction stays hidden while offline', async () => {
-    const handler: RouteHandler = request => planGet(request) ?? mutationReply(request);
+  it('M5B2A-023 a correction made offline hides the basis while it waits, and after it lands', async () => {
+    // GA-M5B2A-AMEND-4 (Claude): offline, TanStack holds a mutation until the
+    // connection returns, so no PATCH is sent while offline; the line is hidden
+    // from the tap, through the wait, and after the PATCH lands with a plan
+    // refetch that fails.
+    let reads = 0;
+    const handler: RouteHandler = request => {
+      if (request.path === `/api/mobile/plans/${TODAY}` && request.method === 'GET') {
+        reads += 1;
+        return reads === 1 ? planGet(request) : { status: 500, body: { success: false, error: 'offline' } };
+      }
+      return mutationReply(request);
+    };
     await loaded(handler);
     onlineManager.setOnline(false);
     await fireEvent.press(screen.getByTestId('gate-patch'));
+    expect(harness!.server.matching('PATCH', /\/memory\/memory-focus$/)).toHaveLength(0);
+    expect(screen.queryByTestId('m5b-plan-memory-basis')).toBeNull();
+    await act(async () => { onlineManager.setOnline(true); });
     await waitFor(() => expect(harness!.server.matching('PATCH', /\/memory\/memory-focus$/)).toHaveLength(1));
     expect(screen.queryByTestId('m5b-plan-memory-basis')).toBeNull();
   });

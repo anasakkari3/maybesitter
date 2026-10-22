@@ -26,7 +26,7 @@ import { QuotaExceededError } from '../api/errors';
 import { markPlanOpened } from '../api/endpoints/plans';
 import { userFacingMessage } from '../api/ui/userFacingMessage';
 import type { DailyPlan, PlanItem } from '../api/schemas/plan';
-import { CIVIL_ZONE, civilDate, dayKey, formatRelativeDay, formatTime, formatTimeRange } from '../i18n/format';
+import { CIVIL_ZONE, civilDate, dayKey, formatClockRange, formatRelativeDay, formatTime, formatTimeRange } from '../i18n/format';
 import { isolateAuto } from '../i18n/bidi';
 import { fill, ltr } from '../i18n/strings';
 import { planItemPrepTarget } from '../features/meetings/prepTargets';
@@ -300,7 +300,9 @@ function LoadedPlan({ plan, date, readOnly }: { plan: DailyPlan; date: string; r
   const m5bOn = useM5bOn();
   // At the cap, a plan whose reading changed says it stays as it is, and the
   // rebuild it can no longer have is not drawn (M5B-010).
-  const rebuildHidden = m5bOn === true && plan.basisChanged === true && capReached;
+  const rebuildHidden = (m5bOn === true && plan.basisChanged === true && capReached)
+    // …and so does one whose remembered basis changed (M5b-2a R2).
+    || (plan.memoryBasisChanged === true && capReached);
   const hoursOver = workingHoursOver(plan, new Date());
 
   const heading = useMemo(
@@ -342,6 +344,25 @@ function LoadedPlan({ plan, date, readOnly }: { plan: DailyPlan; date: string; r
         {/* No «اقتراح — ما انحفظت بعد» tag: `plan-proposal-note` below
             already says it (#17, UAT 2026-09-27). */}
       </View>
+
+      {/* M5b-2a (R2): the kept focus window this plan was arranged inside,
+          and the way to correct it. The window is one LTR unit; nothing the
+          person wrote is shown here. */}
+      {plan.memoryBasis ? (
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8, paddingHorizontal: 4 }}>
+          <Txt size={14} color={p.mu} lh={1.5} style={{ flexShrink: 1 }} testID="m5b-plan-memory-basis">
+            {fill(t.m5bPlanFocusBasis, { range: formatClockRange(plan.memoryBasis.window.start, plan.memoryBasis.window.end) })}
+          </Txt>
+          <Pill
+            label={t.m5bBasisFix}
+            kind="outline"
+            size={13}
+            pad={10}
+            testID="m5b-plan-memory-basis-fix"
+            onPress={() => actions.openMemoryFocused(plan.memoryBasis!.memoryId)}
+          />
+        </View>
+      ) : null}
 
       {readOnly ? (
         <Card pad={16}>
@@ -561,21 +582,32 @@ function LoadedPlan({ plan, date, readOnly }: { plan: DailyPlan; date: string; r
         {acceptRefusal ? (
           <Txt size={13} color={p.wm} testID="plan-accept-refused">{t[acceptRefusal.key] as string}</Txt>
         ) : null}
+        {/* A remembered thing this plan used has changed (M5b-2a R2): said
+            next to the rebuild that would apply it, or — at the cap — that the
+            plan stays as it is. Never which memory, never its words. */}
+        {plan.memoryBasisChanged === true && capReached ? (
+          <Txt size={13} color={p.wm} lh={1.5} testID="m5b-plan-memory-changed-no-rebuild">{t.m5bPlanMemoryChangedNoRebuild}</Txt>
+        ) : null}
         <ActionRow>
-          {rebuildHidden ? null : <Pill
-            label={t.planRegenerate}
-            kind="outline"
-            size={14}
-            testID="plan-regenerate"
-            disabled={readOnly || rebuild.isPending || capReached}
-            onPress={() => {
-              if (!rebuilding.enter()) return;
-              rebuild.mutate(undefined, {
-                onSuccess: rebuilt => void reportPlanRegenerated(rebuilt, reporter),
-                onSettled: rebuilding.leave,
-              });
-            }}
-          />}
+          {rebuildHidden ? null : <View style={{ gap: 8 }}>
+            {plan.memoryBasisChanged === true && !capReached ? (
+              <Txt size={13} color={p.wm} lh={1.5} testID="m5b-plan-memory-changed">{t.m5bPlanMemoryChanged}</Txt>
+            ) : null}
+            <Pill
+              label={t.planRegenerate}
+              kind="outline"
+              size={14}
+              testID="plan-regenerate"
+              disabled={readOnly || rebuild.isPending || capReached}
+              onPress={() => {
+                if (!rebuilding.enter()) return;
+                rebuild.mutate(undefined, {
+                  onSuccess: rebuilt => void reportPlanRegenerated(rebuilt, reporter),
+                  onSettled: rebuilding.leave,
+                });
+              }}
+            />
+          </View>}
           <Pill
             label={t.planDismiss}
             kind="ghost"

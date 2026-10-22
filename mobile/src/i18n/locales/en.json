@@ -2118,5 +2118,16 @@
   "m6TranslateSave": "Save it",
   "m6TranslateKeep": "Keep it as is",
   "m6TranslateUnavailable": "Couldn't translate it now. The original is unchanged.",
-  "m6TranslateChanged": "This changed a moment ago, so the translation wasn't saved."
+  "m6TranslateChanged": "This changed a moment ago, so the translation wasn't saved.",
+  "m5bLearnedTitle": "What I learned from what you did",
+  "m5bLearnedCompleted": "You finished “{title}”",
+  "m5bLearnedPostponed": "You moved “{title}” to later",
+  "m5bLearnedDropped": "You let go of “{title}” on purpose",
+  "m5bLearnedWrong": "Not right",
+  "m5bLearnedWrongDone": "Got it, I won't learn from that.",
+  "m5bPlanFocusBasis": "Arranged inside your focus time {range}, from what MaybeSitter remembers.",
+  "m5bBasisFix": "Correct it",
+  "m5bPlanMemoryChanged": "Something remembered that the plan used has changed. Rebuild to apply it.",
+  "m5bPlanMemoryChangedNoRebuild": "Something remembered that the plan used has changed. You've used today's rebuilds, so the current plan stays as it is.",
+  "m5bLearnedWrongA11y": "Not right: {line}"
 }

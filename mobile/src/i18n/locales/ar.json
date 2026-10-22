@@ -2118,5 +2118,16 @@
   "m6TranslateSave": "احفظها",
   "m6TranslateKeep": "خلّيها زي ما هي",
   "m6TranslateUnavailable": "ما قدرنا نترجمها هلّق. الأصل زي ما هو.",
-  "m6TranslateChanged": "هالإشي تغيّر من شوي، فما حفظنا الترجمة."
+  "m6TranslateChanged": "هالإشي تغيّر من شوي، فما حفظنا الترجمة.",
+  "m5bLearnedTitle": "شو تعلّمت من اللي عملته",
+  "m5bLearnedCompleted": "خلّصت «{title}»",
+  "m5bLearnedPostponed": "أجّلت «{title}»",
+  "m5bLearnedDropped": "أسقطت «{title}» بوعي",
+  "m5bLearnedWrong": "مش صحيح",
+  "m5bLearnedWrongDone": "تمام، ما رح نتعلّم من هاي.",
+  "m5bPlanFocusBasis": "رتّبناها جوّا وقت تركيزك {range}، من اللي بيتذكّره عنك.",
+  "m5bBasisFix": "صحّحها",
+  "m5bPlanMemoryChanged": "تغيّر شي بيتذكّره عنك وانبنت عليه الخطة. لتنطبق، ابنيها من جديد.",
+  "m5bPlanMemoryChangedNoRebuild": "تغيّر شي بيتذكّره عنك وانبنت عليه الخطة. خلصت مرّات إعادة البنا لليوم، فالخطة الحالية بتضل متل ما هي.",
+  "m5bLearnedWrongA11y": "مش صحيح: {line}"
 }

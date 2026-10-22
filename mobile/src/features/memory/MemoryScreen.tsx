@@ -87,7 +87,11 @@ import {
 /** How long a deleted row can be brought back. */
 export const UNDO_WINDOW_MS = 5_000;
 
-export function MemoryScreen({ onBack }: { onBack: () => void }) {
+export function MemoryScreen({ onBack, focusId = null }: {
+  onBack: () => void;
+  /** M5b-2a: the row «صحّحها» opened this on, highlighted with its edit field open (R2). */
+  focusId?: string | null;
+}) {
   const { t, tr, p, rtl, lang } = useApp();
   const timeZone = useTimeZone();
 
@@ -159,6 +163,16 @@ export function MemoryScreen({ onBack }: { onBack: () => void }) {
   const adaptive = memory.data?.adaptive ?? null;
   const suggestionLanguage: 'ar' | 'he' | 'en' = lang === 'ar' || lang === 'he' ? lang : 'en';
 
+  // Opened from the plan's memory line: that row, once, with its edit field
+  // open. A row that is gone opens the screen as it always opens.
+  const [focusApplied, setFocusApplied] = useState(false);
+  const focusPresent = focusId !== null && items.some(item => item.id === focusId);
+  useEffect(() => {
+    if (focusApplied || focusId === null || memory.data === undefined) return;
+    setFocusApplied(true);
+    if (focusPresent) setEditing(focusId);
+  }, [focusApplied, focusId, focusPresent, memory.data]);
+
   const groups = MEMORY_GROUP_ORDER
     .map(group => [group, items.filter(item => groupOf(item) === group)] as const)
     .filter(([, rows]) => rows.length > 0);
@@ -204,6 +218,7 @@ export function MemoryScreen({ onBack }: { onBack: () => void }) {
             date={date}
             rtl={rtl}
             editing={editing}
+            focused={focusPresent ? focusId : null}
             why={why}
             translateTargetOf={item => (translationOn ? translationTargetOf(item.content, lang, item.kind) : null)}
             translating={translating}
@@ -366,7 +381,7 @@ function SuggestionsCard({
 }
 
 function MemoryGroupCard({
-  group, rows, strings, date, rtl, editing, why, translateTargetOf, translating,
+  group, rows, strings, date, rtl, editing, focused, why, translateTargetOf, translating,
   onTranslate, onCloseTranslate, onToggleWhy, onEdit, onCancelEdit, onSave, onDelete,
 }: {
   group: MemoryGroup;
@@ -375,6 +390,7 @@ function MemoryGroupCard({
   date: (iso: string) => string;
   rtl: boolean;
   editing: string | null;
+  focused: string | null;
   why: string | null;
   translateTargetOf: (item: MemoryItem) => TranslationTarget | null;
   translating: string | null;
@@ -407,6 +423,7 @@ function MemoryGroupCard({
           rtl={rtl}
           sourceOnRow={shared === null}
           editing={editing === item.id}
+          focused={focused === item.id}
           showWhy={why === item.id}
           translateTarget={translateTargetOf(item)}
           translating={translating === item.id}
@@ -424,7 +441,7 @@ function MemoryGroupCard({
 }
 
 function MemoryDetailRow({
-  item, strings, date, rtl, sourceOnRow, editing, showWhy, translateTarget, translating,
+  item, strings, date, rtl, sourceOnRow, editing, focused, showWhy, translateTarget, translating,
   onTranslate, onCloseTranslate, onToggleWhy, onEdit, onCancelEdit, onSave, onDelete,
 }: {
   item: MemoryItem;
@@ -434,6 +451,8 @@ function MemoryDetailRow({
   /** False when the group header already says where every row came from. */
   sourceOnRow: boolean;
   editing: boolean;
+  /** The row the plan's «صحّحها» named: marked, so the eye lands on it. */
+  focused: boolean;
   showWhy: boolean;
   translateTarget: TranslationTarget | null;
   translating: boolean;
@@ -448,10 +467,17 @@ function MemoryDetailRow({
   const { t, p } = useApp();
   const [draft, setDraft] = useState(item.content);
 
+  const mark = focused ? { testID: `memory-screen-focused-${item.id}`, backgroundColor: p.wms, borderStartWidth: 3, borderStartColor: p.wm } : null;
+
   if (editing) {
     return (
-      <View style={{ paddingHorizontal: 18, paddingVertical: 14, gap: 10, borderTopWidth: 1, borderTopColor: p.ln }}>
+      <View
+        testID={mark?.testID}
+        style={[{ paddingHorizontal: 18, paddingVertical: 14, gap: 10, borderTopWidth: 1, borderTopColor: p.ln },
+          mark ? { backgroundColor: mark.backgroundColor, borderStartWidth: mark.borderStartWidth, borderStartColor: mark.borderStartColor } : null]}
+      >
         <TextInput
+          autoFocus={focused}
           testID={`memory-screen-edit-input-${item.id}`}
           accessibilityLabel={t.memoryEdit}
           value={draft}
@@ -474,7 +500,11 @@ function MemoryDetailRow({
   }
 
   return (
-    <View style={{ paddingHorizontal: 18, paddingVertical: 14, gap: 8, borderTopWidth: 1, borderTopColor: p.ln }}>
+    <View
+      testID={mark?.testID}
+      style={[{ paddingHorizontal: 18, paddingVertical: 14, gap: 8, borderTopWidth: 1, borderTopColor: p.ln },
+        mark ? { backgroundColor: mark.backgroundColor, borderStartWidth: mark.borderStartWidth, borderStartColor: mark.borderStartColor } : null]}
+    >
       <Txt role="card" weight={500} dir="auto" testID={`memory-screen-item-${item.id}`}>
         {isolateAuto(memorySentence({ content: item.content, strings }))}
       </Txt>

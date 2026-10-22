@@ -189,6 +189,14 @@ export const dailyPlanSchema = z.object({
   // unknown snapshot (stored before M5b-1) — and whether it changed since.
   readinessApplied: readinessAppliedSchema.nullable().optional(),
   basisChanged: z.boolean().optional(),
+  // M5b-2a (R2): the kept focus window this plan was arranged inside, named by
+  // its record and window only — never its words — and whether a remembered
+  // thing the plan used has changed since. Both absent off and on an older server.
+  memoryBasis: z.object({
+    memoryId: z.string(),
+    window: z.object({ start: z.string(), end: z.string() }),
+  }).nullable().optional(),
+  memoryBasisChanged: z.boolean().optional(),
   /**
    * When the day's last working window ends (an instant), or null when the
    * plan has none. After it, an empty plan means "today is over", not "nothing
