@@ -1029,16 +1029,18 @@ const EN_NOT_POSSESSIVE = "(?!['’]s\\b)";
 /*
  * «غدا» is tomorrow in the standard language and lunch in the spoken one
  * (closure UAT round 4, N16 probes). «عندي غدا مع أمي بكرا» was titled «عندي
- * مع أمي»: the lunch taken out as a day word. It is the meal only when it is
- * had — right after «عندي/عندنا/عنا» — with someone («غدا مع …»), *and* the
- * sentence names its day some other way («بكرا», «اليوم», a weekday).
+ * مع أمي»: the lunch taken out as a day word. It is the meal when «غدا مع …»
+ * names company for the meal and the sentence names its day some other way
+ * («بكرا», «اليوم», a weekday). The same applies at the start of a clause,
+ * without an «عندي» lead-in: «غدا مع سارة اليوم» is lunch today (#742).
  * Otherwise it is tomorrow, as it always was: «اجتماع غدا مع العميل الساعة
  * 11» is a meeting tomorrow (POLISH-CAPTURE review, I1), and so is «اجتماع
  * غدا مع المدير بخصوص تقرير اليوم», whose «اليوم» is the report's (N-I1).
  */
 const AR_OTHER_DAY_WORD = `${NOT_LETTER_BEFORE}${AR_PROCLITIC}(?:بكرا|بكرة|بكره|باچر|باكر|اليوم|النهارده|النهاردة|الليلة|الليله|الأحد|الاحد|الاثنين|الإثنين|الأثنين|الثلاثاء|الثلثاء|الأربعاء|الاربعاء|الخميس|الجمعة|الجمعه|السبت)${NOT_LETTER_AFTER}`;
 const AR_HAD = `${NOT_LETTER_BEFORE}[وف]?(?:عندي|عندنا|عنا|عنّا)\\s+`;
-const AR_LUNCH_NOT_TOMORROW = `غد\\p{M}*ا(?!(?<=${AR_HAD}غد\\p{M}*ا)\\s+مع(?![\\p{L}\\p{M}])(?:(?=[\\s\\S]*${AR_OTHER_DAY_WORD})|(?<=${AR_OTHER_DAY_WORD}[\\s\\S]*)))`;
+const AR_MEAL_FRAME = `(?:(?<=${AR_HAD}غد\\p{M}*ا)|(?<=^غد\\p{M}*ا))`;
+const AR_LUNCH_NOT_TOMORROW = `غد\\p{M}*ا(?!${AR_MEAL_FRAME}\\s+مع(?![\\p{L}\\p{M}])(?:(?=[\\s\\S]*${AR_OTHER_DAY_WORD})|(?<=${AR_OTHER_DAY_WORD}[\\s\\S]*)))`;
 const RELATIVE_DAYS: ReadonlyArray<{ offset: number; en: string; ar: string; he: string }> = [
   { offset: 2, en: 'day\\s+after\\s+tomorrow|after\\s+tomorrow|after\\s+tmrw', ar: 'بعد\\s+(?:بكرا|بكرة|بكره|غد\\p{M}*ا?)', he: 'מחרתיים' },
   { offset: 1, en: 'tomorrow|tmrw|tmr|tomorow', ar: `بكرا|بكرة|بكره|باچر|باكر|${AR_LUNCH_NOT_TOMORROW}`, he: 'מחר' },
@@ -1169,6 +1171,79 @@ export function namesDayOfMonth(rawText: string): boolean {
   return typeof rawText === 'string' && DAY_OF_MONTH.test(rawText);
 }
 
+/* A Gregorian month name paired with its day (#735). The rules path accepts
+ * the forms people actually use in Arabic, English and Hebrew; resolving the
+ * year remains the caller's job because it depends on the person's timezone.
+ */
+const EN_NAMED_MONTHS: ReadonlyArray<readonly [number, string]> = [
+  [1, 'jan(?:uary)?\\.?'], [2, 'feb(?:ruary)?\\.?'], [3, 'mar(?:ch)?\\.?'],
+  [4, 'apr(?:il)?\\.?'], [5, 'may'], [6, 'jun(?:e)?\\.?'],
+  [7, 'jul(?:y)?\\.?'], [8, 'aug(?:ust)?\\.?'], [9, 'sep(?:t(?:ember)?)?\\.?'],
+  [10, 'oct(?:ober)?\\.?'], [11, 'nov(?:ember)?\\.?'], [12, 'dec(?:ember)?\\.?'],
+];
+const AR_NAMED_MONTHS: ReadonlyArray<readonly [number, string]> = [
+  [1, 'يناير|كانون\\s+الثاني'], [2, 'فبراير|شباط'], [3, 'مارس|آذار|اذار'],
+  [4, 'أبريل|ابريل|نيسان'], [5, 'مايو|أيار|ايار'], [6, 'يونيو|حزيران'],
+  [7, 'يوليو|تموز'], [8, 'أغسطس|اغسطس|آب|اب'], [9, 'سبتمبر|أيلول|ايلول'],
+  [10, 'أكتوبر|اكتوبر|تشرين\\s+الأول|تشرين\\s+الاول'],
+  [11, 'نوفمبر|تشرين\\s+الثاني'], [12, 'ديسمبر|كانون\\s+الأول|كانون\\s+الاول'],
+];
+const HE_NAMED_MONTHS: ReadonlyArray<readonly [number, string]> = [
+  [1, 'ינואר'], [2, 'פברואר'], [3, 'מרץ|מרס'], [4, 'אפריל'],
+  [5, 'מאי'], [6, 'יוני'], [7, 'יולי'], [8, 'אוגוסט'],
+  [9, 'ספטמבר'], [10, 'אוקטובר'], [11, 'נובמבר'], [12, 'דצמבר'],
+];
+const EN_NAMED_MONTH = `(?:${EN_NAMED_MONTHS.map(([, source]) => source).join('|')})`;
+const AR_NAMED_MONTH = `(?:${AR_NAMED_MONTHS.map(([, source]) => source).join('|')})`;
+const HE_NAMED_MONTH = `(?:${HE_NAMED_MONTHS.map(([, source]) => source).join('|')})`;
+const EN_DAY_NUMBER = '[0-9]{1,2}(?:st|nd|rd|th)?';
+const AR_DAY_NUMBER = '[0-9٠-٩۰-۹]{1,2}';
+
+/** Exact phrases removed from titles after they have served as the date. */
+export const NAMED_MONTH_DAY_MENTION_SOURCES: readonly string[] = [
+  `\\b(?:on\\s+)?${EN_NAMED_MONTH}\\s+${EN_DAY_NUMBER}\\b`,
+  `\\b(?:on\\s+)?${EN_DAY_NUMBER}\\s+(?:of\\s+)?${EN_NAMED_MONTH}\\b`,
+  `${NOT_LETTER_BEFORE}(?:يوم\\s*)?${AR_DAY_NUMBER}\\s+(?:من\\s+)?(?:شهر\\s+)?${AR_NAMED_MONTH}${NOT_LETTER_AFTER}`,
+  `${NOT_LETTER_BEFORE}${AR_NAMED_MONTH}\\s+${AR_DAY_NUMBER}${NOT_LETTER_AFTER}`,
+  `${NOT_LETTER_BEFORE}(?:ב-?\\s*)?[0-9]{1,2}\\s+ב?${HE_NAMED_MONTH}${NOT_LETTER_AFTER}`,
+  `${NOT_LETTER_BEFORE}ב?${HE_NAMED_MONTH}\\s+(?:ה-?)?[0-9]{1,2}${NOT_LETTER_AFTER}`,
+];
+
+export interface NamedMonthDay {
+  month: number;
+  day: number;
+  index: number;
+  text: string;
+}
+
+const NAMED_MONTH_DAY_PATTERNS: ReadonlyArray<readonly [RegExp, ReadonlyArray<readonly [number, string]>, 'month-first' | 'day-first']> = [
+  [new RegExp(`\\b(?:on\\s+)?(${EN_NAMED_MONTH})\\s+([0-9]{1,2})(?:st|nd|rd|th)?\\b`, 'iu'), EN_NAMED_MONTHS, 'month-first'],
+  [new RegExp(`\\b(?:on\\s+)?([0-9]{1,2})(?:st|nd|rd|th)?\\s+(?:of\\s+)?(${EN_NAMED_MONTH})\\b`, 'iu'), EN_NAMED_MONTHS, 'day-first'],
+  [new RegExp(`${NOT_LETTER_BEFORE}(?:يوم\\s*)?(${AR_DAY_NUMBER})\\s+(?:من\\s+)?(?:شهر\\s+)?(${AR_NAMED_MONTH})${NOT_LETTER_AFTER}`, 'iu'), AR_NAMED_MONTHS, 'day-first'],
+  [new RegExp(`${NOT_LETTER_BEFORE}(${AR_NAMED_MONTH})\\s+(${AR_DAY_NUMBER})${NOT_LETTER_AFTER}`, 'iu'), AR_NAMED_MONTHS, 'month-first'],
+  [new RegExp(`${NOT_LETTER_BEFORE}(?:ב-?\\s*)?([0-9]{1,2})\\s+ב?(${HE_NAMED_MONTH})${NOT_LETTER_AFTER}`, 'iu'), HE_NAMED_MONTHS, 'day-first'],
+  [new RegExp(`${NOT_LETTER_BEFORE}ב?(${HE_NAMED_MONTH})\\s+(?:ה-?)?([0-9]{1,2})${NOT_LETTER_AFTER}`, 'iu'), HE_NAMED_MONTHS, 'month-first'],
+];
+
+function monthNumber(word: string, months: ReadonlyArray<readonly [number, string]>): number | null {
+  return months.find(([, source]) => new RegExp(`^(?:${source})$`, 'iu').test(word.trim()))?.[0] ?? null;
+}
+
+/** Read a named Gregorian month paired with a numeric day, without choosing a year. */
+export function readNamedMonthDay(rawText: string): NamedMonthDay | null {
+  if (typeof rawText !== 'string' || !rawText.trim()) return null;
+  for (const [pattern, months, order] of NAMED_MONTH_DAY_PATTERNS) {
+    const match = pattern.exec(rawText);
+    if (!match) continue;
+    const monthWord = order === 'month-first' ? match[1]! : match[2]!;
+    const dayWord = order === 'month-first' ? match[2]! : match[1]!;
+    const month = monthNumber(monthWord, months);
+    const day = Number(normalizeArabicDigits(dayWord));
+    if (month !== null && Number.isInteger(day)) return { month, day, index: match.index, text: match[0] };
+  }
+  return null;
+}
+
 /*
  * The night's end, and its midnight: «آخر الليل», «نص الليل», «الساعة 12
  * بالليل», "midnight", «חצות». They run past today's date (N-M1), and they are
@@ -1245,6 +1320,7 @@ export function namesOtherDayThanToday(rawText: string): boolean {
 const DAY_TOKEN = new RegExp(
   [
     ...RELATIVE_DAY_MENTION_SOURCES,
+    ...NAMED_MONTH_DAY_MENTION_SOURCES,
     /\b(?:sunday|monday|tuesday|wednesday|thursday|friday|saturday|next week|this week)\b/.source,
     `${NOT_LETTER_BEFORE}${AR_PROCLITIC}(?:الأحد|الاحد|الاثنين|الإثنين|الأثنين|الثلاثاء|الثلثاء|الأربعاء|الاربعاء|الخميس|الجمعة|السبت)${NOT_LETTER_AFTER}`,
     // Without the article in its frames (FIX-R8-CAPTURE; `weekdayLexicon`'s
