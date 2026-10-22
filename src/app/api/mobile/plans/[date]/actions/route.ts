@@ -103,7 +103,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ dat
     if (error instanceof PlanProposalRejected) {
       return Response.json(
         { success: false, error: error.message, reason: error.reason },
-        { status: error.conflict ? 409 : 422 },
+        { status: 422 },
       );
     }
     if (error instanceof PlanProtectionRejected) {

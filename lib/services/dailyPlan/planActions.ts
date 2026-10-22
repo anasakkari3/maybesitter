@@ -586,7 +586,7 @@ export async function setBlockProtection(
 export type PlanProposalReason = 'no_proposal' | 'stale_proposal';
 
 export class PlanProposalRejected extends Error {
-  constructor(readonly reason: PlanProposalReason, message: string, readonly conflict = false) {
+  constructor(readonly reason: PlanProposalReason, message: string) {
     super(message);
     this.name = 'PlanProposalRejected';
   }
@@ -981,12 +981,14 @@ export async function acceptPlanProposal(
     if (proposal.focusFromMemory === true && proposal.personalizationPurgeEpoch !== undefined) {
       const user = await tx.get(userDoc(uid));
       if (!personalizationPurgeMatches(user, proposal.personalizationPurgeEpoch)) {
+        // The existing stale-offer outcome (422 `stale_proposal`), and the offer
+        // is withdrawn in the same transaction, so no later read offers it
+        // again (M5B2A-R3-002).
         rejection = new PlanProposalRejected(
           'stale_proposal',
           'the memory basis changed while this proposal was waiting',
-          true,
         );
-        return null;
+        return { next: { ...current, proposal: null }, result: null };
       }
     }
     rejection = null;

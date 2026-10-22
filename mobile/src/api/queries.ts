@@ -951,7 +951,14 @@ function stampPlan<T>(plan: T, startedAt: number): T {
 /** The request-start numbers of plan requests still on their way, per client and account (M5B2A-R2-003). */
 const plansInFlightByClient = new WeakMap<QueryClient, Map<string, Set<number>>>();
 
-function plansInFlight(client: QueryClient, uid: string): Set<number> {
+/**
+ * Numbers a plan request and counts it as on its way; the returned `end` takes
+ * it off again. `end` works on the set it was given, never a new one, and drops
+ * an emptied account entry, so a request that settles after an account reset
+ * leaves nothing of the old account behind (M5B2A-R3-004).
+ */
+function beginPlanRequest(client: QueryClient, uid: string): { startedAt: number; end: () => void } {
+  const startedAt = nextPlanSequence();
   let byUid = plansInFlightByClient.get(client);
   if (!byUid) {
     byUid = new Map();
@@ -962,7 +969,16 @@ function plansInFlight(client: QueryClient, uid: string): Set<number> {
     set = new Set();
     byUid.set(uid, set);
   }
-  return set;
+  const owner = byUid;
+  const mine = set;
+  mine.add(startedAt);
+  return {
+    startedAt,
+    end: () => {
+      mine.delete(startedAt);
+      if (mine.size === 0 && owner.get(uid) === mine) owner.delete(uid);
+    },
+  };
 }
 
 /** One correction: the memory it touches (or every one), and when it succeeded. */
@@ -974,6 +990,11 @@ interface BasisCorrection {
 const basisCorrections = new WeakMap<QueryClient, Map<string, BasisCorrection[]>>();
 const basisListeners = new Set<() => void>();
 let basisVersion = 0;
+
+/** The corrections held for `uid`, without creating an entry. */
+function peekCorrections(client: QueryClient, uid: string): BasisCorrection[] | undefined {
+  return basisCorrections.get(client)?.get(uid);
+}
 
 function correctionsOf(client: QueryClient, uid: string): BasisCorrection[] {
   let byUid = basisCorrections.get(client);
@@ -989,6 +1010,23 @@ function correctionsOf(client: QueryClient, uid: string): BasisCorrection[] {
   return list;
 }
 
+function addCorrection(client: QueryClient, uid: string, target: string): BasisCorrection {
+  const correction: BasisCorrection = { token: nextPlanSequence(), target, succeededAt: null };
+  correctionsOf(client, uid).push(correction);
+  basisChanged();
+  return correction;
+}
+
+/** Takes back a correction that failed; after an account reset there is nothing to take back from. */
+function dropCorrection(client: QueryClient, uid: string, correction: BasisCorrection): void {
+  const list = peekCorrections(client, uid);
+  const index = list ? list.indexOf(correction) : -1;
+  if (!list || index < 0) return;
+  list.splice(index, 1);
+  if (list.length === 0) basisCorrections.get(client)?.delete(uid);
+  basisChanged();
+}
+
 function basisChanged(): void {
   basisVersion += 1;
   for (const listener of basisListeners) listener();
@@ -1002,6 +1040,9 @@ function basisChanged(): void {
  */
 export function resetBasisCorrections(client: QueryClient): void {
   basisCorrections.delete(client);
+  // …and the previous account's plan requests: one still on its way ends on
+  // the set it began in (M5B2A-R3-004).
+  plansInFlightByClient.delete(client);
   basisChanged();
 }
 
@@ -1011,9 +1052,10 @@ export function resetBasisCorrections(client: QueryClient): void {
  * (M5B2A-REV-006). Pending corrections always stay.
  */
 function pruneCorrections(client: QueryClient, uid: string): void {
-  const list = correctionsOf(client, uid);
-  if (list.length === 0) return;
-  const starts: number[] = Array.from(plansInFlight(client, uid));
+  // Never creates: after a reset, an old request's cleanup finds nothing.
+  const list = peekCorrections(client, uid);
+  if (!list || list.length === 0) return;
+  const starts: number[] = Array.from(plansInFlightByClient.get(client)?.get(uid) ?? []);
   for (const query of client.getQueryCache().findAll({ queryKey: ['user', uid, 'plan'] })) {
     const data = query.state.data;
     if (data && typeof data === 'object') starts.push(planStarts.get(data as object) ?? 0);
@@ -1022,12 +1064,18 @@ function pruneCorrections(client: QueryClient, uid: string): void {
   const kept = list.filter((correction) => correction.succeededAt === null || oldest < correction.succeededAt);
   if (kept.length === list.length) return;
   list.splice(0, list.length, ...kept);
+  if (kept.length === 0) basisCorrections.get(client)?.delete(uid);
   basisChanged();
 }
 
 /** For tests: how many corrections this client holds for `uid`. */
 export function basisCorrectionCountForTests(client: QueryClient, uid: string): number {
-  return correctionsOf(client, uid).length;
+  return peekCorrections(client, uid)?.length ?? 0;
+}
+
+/** For tests: whether this client holds any per-account basis state for `uid`. */
+export function basisStateHeldForTests(client: QueryClient, uid: string): boolean {
+  return basisCorrections.get(client)?.has(uid) === true || plansInFlightByClient.get(client)?.has(uid) === true;
 }
 
 /** Whether `plan`'s memory basis may be shown now. */
@@ -1035,7 +1083,7 @@ function basisVisible(client: QueryClient, uid: string, plan: DailyPlan): boolea
   const basis = plan.memoryBasis;
   if (!basis) return true;
   const startedAt = planStarts.get(plan) ?? 0;
-  return !correctionsOf(client, uid).some((correction) => (correction.target === 'all' || correction.target === basis.memoryId)
+  return !(peekCorrections(client, uid) ?? []).some((correction) => (correction.target === 'all' || correction.target === basis.memoryId)
     && (correction.succeededAt === null || startedAt < correction.succeededAt));
 }
 
@@ -1067,12 +1115,11 @@ export function usePlan(date: string) {
   return useQuery({
     queryKey: queryKeys.plan(uid, date),
     queryFn: async () => {
-      const startedAt = nextPlanSequence();
-      plansInFlight(client, uid).add(startedAt);
+      const request = beginPlanRequest(client, uid);
       try {
-        return stampPlan(await getPlan(date), startedAt);
+        return stampPlan(await getPlan(date), request.startedAt);
       } finally {
-        plansInFlight(client, uid).delete(startedAt);
+        request.end();
         // After the cache holds this answer (cleanup only; never needed to hide).
         setTimeout(() => pruneCorrections(client, uid), 0);
       }
@@ -1087,12 +1134,11 @@ export function usePlan(date: string) {
 
 /** A plan request, numbered when it starts (M5b-2a). */
 async function numberedPlan<T extends { date: string }>(client: QueryClient, uid: string, request: () => Promise<T>): Promise<T> {
-  const startedAt = nextPlanSequence();
-  plansInFlight(client, uid).add(startedAt);
+  const inFlight = beginPlanRequest(client, uid);
   try {
-    return stampPlan(await request(), startedAt);
+    return stampPlan(await request(), inFlight.startedAt);
   } finally {
-    plansInFlight(client, uid).delete(startedAt);
+    inFlight.end();
   }
 }
 
@@ -1273,14 +1319,13 @@ export function useAcceptWeekDay(decisions: WeekDecisions) {
   const uid = useUid();
   return useMutation({
     mutationFn: async ({ date, shown, layoutDigest }: WeekDaySave) => {
-      const startedAt = nextPlanSequence();
-      plansInFlight(client, uid).add(startedAt);
+      const request = beginPlanRequest(client, uid);
       try {
         const answer = await acceptWeekDay(date, shown, decisions, layoutDigest);
-        stampPlan(answer.plan, startedAt);
+        stampPlan(answer.plan, request.startedAt);
         return answer;
       } finally {
-        plansInFlight(client, uid).delete(startedAt);
+        request.end();
       }
     },
     onSuccess: ({ plan, week }) => {
@@ -1725,20 +1770,34 @@ export function useMemory() {
   });
 }
 
+/** How often an on-screen memory basis asks again whether it can still be opened. */
+export const MEMORY_OPEN_RECHECK_MS = 60_000;
+
 /**
- * Whether Memory can be opened now (M5B2A-R2-002): a plan may name the memory
- * it used only while the person can open and correct it. Read through the
- * memory list itself — a killed memory module answers 404 — and only when a
- * plan has a basis to show. Unknown or failed is closed.
+ * Whether the memory a plan names can be opened and corrected now
+ * (M5B2A-R2-002, M5B2A-R3-003). Read through the memory list itself — a killed
+ * memory module answers 404 — and only while a plan has a basis to show. Open
+ * only on an answer fetched since this screen mounted (a list cached before a
+ * kill or another device's delete proves nothing) that still lists the named
+ * memory; asked again on focus and every minute while the line is up, so a
+ * runtime kill closes it. Unknown, failed or missing is closed.
  */
-export function useMemoryOpen(enabled: boolean): boolean {
+export function useMemoryOpen(memoryId: string | null | undefined, enabled: boolean): boolean {
   const uid = useUid();
+  const on = enabled && memoryId != null && uid !== 'signed-out';
   const query = useQuery({
     queryKey: queryKeys.memory(uid),
     queryFn: listMemory,
-    enabled: enabled && uid !== 'signed-out',
+    enabled: on,
+    refetchOnMount: 'always',
+    refetchOnWindowFocus: 'always',
+    refetchInterval: on ? MEMORY_OPEN_RECHECK_MS : false,
   });
-  return query.status === 'success' && !query.isRefetchError;
+  return on
+    && query.status === 'success'
+    && query.isFetchedAfterMount
+    && !query.isRefetchError
+    && query.data.items.some((item) => item.id === memoryId);
 }
 
 /**
@@ -1776,20 +1835,13 @@ function useMemoryMutation<TInput>(
       const target = basisTarget(input);
       if (target === null) return { correction: null as BasisCorrection | null };
       // Hidden from the moment the correction begins (M5B2A-020).
-      const correction: BasisCorrection = { token: nextPlanSequence(), target, succeededAt: null };
-      correctionsOf(client, uid).push(correction);
-      basisChanged();
-      return { correction };
+      return { correction: addCorrection(client, uid, target) };
     },
     onError: (_error, _input, context) => {
       // Nothing changed on the server: the line the cache still holds is
       // valid again, with no refetch (M5B2A-021).
       const correction = context?.correction;
-      if (!correction) return;
-      const list = correctionsOf(client, uid);
-      const index = list.indexOf(correction);
-      if (index >= 0) list.splice(index, 1);
-      basisChanged();
+      if (correction) dropCorrection(client, uid, correction);
     },
     onSuccess: (_data, _input, context) => {
       const correction = context?.correction;
@@ -1844,18 +1896,11 @@ export function useMemorySuggestion() {
     // Keeping a focus window replaces the one plans were arranged around (M5b-2a).
     onMutate: (input) => {
       if (input.decision !== 'keep' || !input.suggestion.fingerprint.startsWith('R1_focus_window')) return { correction: null as BasisCorrection | null };
-      const correction: BasisCorrection = { token: nextPlanSequence(), target: 'all', succeededAt: null };
-      correctionsOf(client, uid).push(correction);
-      basisChanged();
-      return { correction };
+      return { correction: addCorrection(client, uid, 'all') };
     },
     onError: (_error, _input, context) => {
       const correction = context?.correction;
-      if (!correction) return;
-      const list = correctionsOf(client, uid);
-      const index = list.indexOf(correction);
-      if (index >= 0) list.splice(index, 1);
-      basisChanged();
+      if (correction) dropCorrection(client, uid, correction);
     },
     onSuccess: (_data, _input, context) => {
       const correction = context?.correction;

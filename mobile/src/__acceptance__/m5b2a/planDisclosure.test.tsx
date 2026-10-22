@@ -69,6 +69,16 @@ function OpenPlan() {
   return null;
 }
 
+function OpenMemoryFocused() {
+  const { actions } = useApp();
+  const open = useRef(actions.openMemoryFocused);
+  useEffect(() => {
+    const timer = setTimeout(() => open.current(BASIS_ID), 0);
+    return () => clearTimeout(timer);
+  }, []);
+  return null;
+}
+
 async function loadedRoot(memoryExists: boolean) {
   const state = initialState({ memoryItems: [memoryItem(memoryExists ? BASIS_ID : 'some-other-memory')] });
   harness = await prepare('en', state, planHandler(planWithBasis()));
@@ -96,8 +106,12 @@ describe('M5b-2a R2 plan disclosure', () => {
   });
 
   it('R2 correction opens Memory unfocused when the named row is gone', async () => {
-    await loadedRoot(false);
-    await fireEvent.press(screen.getByTestId('m5b-plan-memory-basis-fix'));
+    // GA-M5B2A-AMEND-7 (Claude): a fresh list without the named row now closes
+    // the line (M5B2A-R3-003), so the row vanishing is the race this covers —
+    // the correction still reaching Memory with the row gone — driven through
+    // the same action the button calls.
+    harness = await prepare('en', initialState({ memoryItems: [memoryItem('some-other-memory')] }), planHandler(planWithBasis()));
+    await render(<Providers harness={harness}><OpenPlan /><Root /><OpenMemoryFocused /></Providers>);
 
     await waitFor(() => expect(screen.queryByTestId('memory-screen-item-some-other-memory')).not.toBeNull());
     expect(screen.queryByTestId(`memory-screen-focused-${BASIS_ID}`)).toBeNull();

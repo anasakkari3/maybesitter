@@ -553,7 +553,7 @@ export interface WeekDto {
   readonly waiting: number;
 }
 
-export function weekDayLayoutDigest(date: string, plan: Plan, constraints?: PlanningConstraints): string {
+export function weekDayLayoutDigest(date: string, plan: Plan, constraints?: PlanningConstraints, focusFromMemory?: boolean): string {
   const rows = [
     ...plan.scheduled.map((item) => ({ itemId: item.itemId, startsAt: item.interval.startsAt, endsAt: item.interval.endsAt })),
     ...(constraints ? pinnedEventsOnDay(constraints.fixedEvents, constraints.horizon).flatMap((event) => event.sourceCommitmentId ? [{
@@ -562,7 +562,10 @@ export function weekDayLayoutDigest(date: string, plan: Plan, constraints?: Plan
   ]
     .sort((left, right) => left.itemId < right.itemId ? -1 : left.itemId > right.itemId ? 1 : 0)
     .map((item) => `${item.itemId}|${item.startsAt}|${item.endsAt}`);
-  return createHash('sha256').update([date, ...rows].join('\n')).digest('hex');
+  // The solve's memory provenance is part of the card (M5B2A-R3-001); absent
+  // (off mode, M5b-1) the digest is exactly what it was.
+  const provenance = focusFromMemory === undefined ? [] : [`focusFromMemory|${focusFromMemory}`];
+  return createHash('sha256').update([date, ...rows, ...provenance].join('\n')).digest('hex');
 }
 
 export function weekToDto(layout: WeekLayout): WeekDto {
@@ -611,7 +614,7 @@ export function weekToDto(layout: WeekLayout): WeekDto {
       return {
         date: day.date,
         state: 'proposed',
-        ...(resolveMemoryLearning() ? { layoutDigest: weekDayLayoutDigest(day.date, day.plan, day.constraints) } : {}),
+        ...(resolveMemoryLearning() ? { layoutDigest: weekDayLayoutDigest(day.date, day.plan, day.constraints, day.focusFromMemory) } : {}),
         items: [...day.plan.scheduled]
           .sort((left, right) => toEpochMs(left.interval.startsAt) - toEpochMs(right.interval.startsAt))
           .map((item) => ({
@@ -680,8 +683,18 @@ export async function acceptWeekDay(
   if (!day) throw new PlanDateOutOfRangeError(date, PLAN_PROPOSAL_DAYS);
   if (day.kind === 'stored') return { outcome: 'already_planned', stored: day.stored, layout };
   if (!sameSteps(day, shown)) return { outcome: 'week_changed', layout };
-  if (resolveMemoryLearning() && layoutDigest !== undefined && layoutDigest !== weekDayLayoutDigest(day.date, day.plan, day.constraints)) {
-    return { outcome: 'week_changed', layout };
+  // The route passes null for a request that sent no digest; `undefined` is an
+  // internal caller with no card. On, a digest is required and binds times and
+  // memory provenance (M5B1-014). A digest is only ever sent for a card drawn
+  // while M5b was on, so one accepted now with M5b off is not the solve that
+  // would be stored: the week has changed under it, and it is redrawn rather
+  // than re-solved silently (M5B2A-R3-001).
+  if (layoutDigest !== undefined) {
+    const on = resolveMemoryLearning();
+    if (on && layoutDigest !== weekDayLayoutDigest(day.date, day.plan, day.constraints, day.focusFromMemory)) {
+      return { outcome: 'week_changed', layout };
+    }
+    if (!on && layoutDigest !== null) return { outcome: 'week_changed', layout };
   }
   // A day the week places nothing on is not saved as a plan (audit
   // 2026-10-03 #4): no document, no acceptance, no planned day in «نشاطي».

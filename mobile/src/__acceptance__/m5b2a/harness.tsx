@@ -14,7 +14,7 @@ import {
   Providers,
   TODAY,
   ZONE,
-  initialState,
+  initialState as baseState,
   memoryItem,
   plan,
   prepare,
@@ -25,8 +25,18 @@ import {
   type RouteReply,
 } from '../m5b/harness';
 
-export { NOW, Providers, TODAY, ZONE, initialState, memoryItem, prepare, teardown };
+export { NOW, Providers, TODAY, ZONE, memoryItem, prepare, teardown };
 export type { M5bHarness, RecordedRequest, RouteHandler, RouteReply };
+
+/**
+ * GA-M5B2A-AMEND-7 (Claude): a plan's basis line shows only while a fresh
+ * memory list still names its memory (M5B2A-R3-003), so the default account
+ * holds the basis memory too. `memoryItems[0]` stays `memory-1`, the row the
+ * write routes answer with.
+ */
+export function initialState(overrides: Parameters<typeof baseState>[0] = {}) {
+  return baseState({ memoryItems: [memoryItem(), memoryItem(BASIS_ID)], ...overrides });
+}
 
 export const FUTURE = '2030-03-30';
 export const BASIS_ID = 'memory-focus';

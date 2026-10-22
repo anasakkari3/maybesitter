@@ -12,14 +12,14 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createStorageRuntimeMemoryStore } from '../../../lib/runtimeMemory/runtimeMemoryStore.ts';
 import { composeDailyPlan } from '../../../lib/services/dailyPlan/dailyPlanService.ts';
-import { composeWeek, weekToDto } from '../../../lib/services/dailyPlan/weekPlan.ts';
+import { composeWeek, weekDayLayoutDigest, weekToDto } from '../../../lib/services/dailyPlan/weekPlan.ts';
 import { planPath } from '../../../lib/services/dailyPlan/planStore.ts';
 import { deleteMemory, patchMemory } from '../../../lib/services/mobile/memoryService.ts';
 import { userDoc } from '../../../lib/storage/paths.ts';
 import {
   AUTO_APPLY, NOW, REFERENCE, REVIEW, TODAY, TOMORROW, TZ, acceptPlanRoute, addCommitment, addFloating, at, begin, buildPlan,
   call, currentStorage, end, getPlan, grantPersonalization, planAction, replan, setAccount, show, storedPlan, threeTasks,
-  touchPlan, type M5bSwitches,
+  setM5bSwitches, touchPlan, type M5bSwitches,
 } from './support.ts';
 
 test.afterEach(() => end());
@@ -342,6 +342,23 @@ test('R2 on: a purge between the week layout and its acceptance answers week_cha
   assert.equal(await currentStorage().get(planPath(uid, TOMORROW)), null);
 });
 
+test('M5B2A-R3-001 (Claude): a card drawn with M5b on, accepted after M5b is switched off, answers week_changed and stores nothing', async () => {
+  const { uid, body } = await weekAccount();
+  setM5bSwitches({ on: false });
+  const accepted = await call(uid, 'plans/week/accept', 'POST', { body });
+  assert.equal(accepted.status, 409, show(accepted.body));
+  assert.equal(accepted.body.reason, 'week_changed');
+  assert.equal(await currentStorage().get(planPath(uid, TOMORROW)), null);
+});
+
+test('M5B2A-R3-001 (Claude): the layout digest binds the solve\'s memory provenance, and is unchanged without one', () => {
+  const plan = { scheduled: [{ itemId: 'a', interval: { startsAt: at(TOMORROW, '09:00'), endsAt: at(TOMORROW, '10:00') } }] } as any;
+  const legacy = weekDayLayoutDigest(TOMORROW, plan);
+  assert.notEqual(weekDayLayoutDigest(TOMORROW, plan, undefined, true), weekDayLayoutDigest(TOMORROW, plan, undefined, false));
+  assert.notEqual(weekDayLayoutDigest(TOMORROW, plan, undefined, true), legacy);
+  assert.equal(weekDayLayoutDigest(TOMORROW, plan, undefined, undefined), legacy);
+});
+
 /* ── replan offers and auto-apply ──────────────────────────────────── */
 
 test('R2 on: a replan auto-apply that solved inside the window stores the marker', async () => {
@@ -373,9 +390,14 @@ test('R2 on: an offer made, then a purge, then acceptance: stale_proposal, and n
   assert.ok(before.proposal?.proposalId, 'fixture: no offer');
   await startPurge(uid);
   const accepted = await planAction(uid, { action: 'accept_proposal', proposalId: before.proposal.proposalId });
-  assert.equal(accepted.status, 409, show(accepted.body));
+  // GB-M5B2A-AMEND-2 (Claude): the plan says "the existing stale-offer
+  // outcome", which is 422 `stale_proposal` (the app parses offer refusals on
+  // 422); and the dead offer is withdrawn so no later read offers it (R3-002).
+  assert.equal(accepted.status, 422, show(accepted.body));
   assert.equal(accepted.body.reason, 'stale_proposal');
-  assert.equal((await storedPlan(uid)).generation, before.generation, 'a plan was installed');
+  const after = await storedPlan(uid);
+  assert.equal(after.generation, before.generation, 'a plan was installed');
+  assert.equal(after.proposal ?? null, null, 'the offer is still offered');
 });
 
 test('R2 on: an on-mode offer accepted while M5b is off keeps its marker in storage, shows nothing, and is projected again once on', async () => {

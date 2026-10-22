@@ -301,8 +301,8 @@ function LoadedPlan({ plan, date, readOnly }: { plan: DailyPlan; date: string; r
   const m5bOn = useM5bOn();
   // At the cap, a plan whose reading changed says it stays as it is, and the
   // rebuild it can no longer have is not drawn (M5B-010).
-  // The memory the line would name must be one the person can open (M5B2A-R2-002).
-  const memoryOpen = useMemoryOpen(m5bOn === true && plan.memoryBasis != null);
+  // The memory the line would name must be one the person can open now (M5B2A-R2-002, R3-003).
+  const memoryOpen = useMemoryOpen(plan.memoryBasis?.memoryId, m5bOn === true);
   const rebuildHidden = (m5bOn === true && plan.basisChanged === true && capReached)
     // …and so does one whose remembered basis changed (M5b-2a R2).
     || (m5bOn === true && plan.memoryBasisChanged === true && capReached);
