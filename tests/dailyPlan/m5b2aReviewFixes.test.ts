@@ -1311,6 +1311,23 @@ test("R30-004: a purge renews its lease as it works, so a long one is never take
   assert.ok(leaseAtMemoryStep && Date.now() - Date.parse(leaseAtMemoryStep) < 60_000, `the lease was not renewed: ${leaseAtMemoryStep}`);
 });
 
+test('R31-002: a purge whose step fails gives its lease up, so a retry takes over at once', async () => {
+  const uid = await keptFocusPlan();
+  const storage = currentStorage() as any;
+  const { deletePersonalizationScope } = await import('../../lib/personalization/deletion.ts');
+  const { createStorageFeedbackEventStore } = await import('../../lib/feedback/feedbackEventStore.ts');
+  await assert.rejects(deletePersonalizationScope({
+    scopeId: uid, now: new Date().toISOString(), storage,
+    feedbackEvents: createStorageFeedbackEventStore(storage),
+    runtimeMemory: createStorageRuntimeMemoryStore(undefined, storage),
+    onFenced: async () => { throw new Error('transient'); },
+  } as any), /transient/);
+  assert.equal(((await storage.get(userDoc(uid))) ?? {}).personalizationPurge?.state, 'purging', 'the fence opened after a failed purge');
+  // An immediate retry is not made to wait behind the dead purge.
+  await purgeFor(uid, storage, new Date().toISOString(), { attempts: 2, delayMs: 1 });
+  assert.equal(((await storage.get(userDoc(uid))) ?? {}).personalizationPurge?.state, 'active');
+});
+
 test('R20-004: a fresh run never answers a suggestion whose outcome was dismissed right after the commit', async () => {
   const uid = await begin();
   await grantRecommendations(uid);

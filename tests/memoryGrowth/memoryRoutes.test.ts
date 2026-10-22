@@ -321,6 +321,48 @@ test('M5B2A-R30-001: Keep and Dismiss write nothing while a personalization purg
   }
 });
 
+test('M5B2A-R31-001: Keep writes nothing during a withdrawal, nor when the fence moves while it writes', async () => {
+  const real = createMemoryStorage();
+  let bumpOnGuardedWrite = false;
+  const storage = new Proxy(real, {
+    get(target, key) {
+      if (key === 'runTransaction') {
+        return async (fn: (tx: StorageTransaction) => Promise<unknown>) => {
+          if (bumpOnGuardedWrite) {
+            bumpOnGuardedWrite = false;
+            // A withdrawal or purge lands between the keep's decision and its write.
+            const user = (await target.get<Record<string, any>>(userDoc(OWNER))) ?? {};
+            await target.set(userDoc(OWNER), { ...user, personalizationPurge: { ...(user.personalizationPurge ?? {}), state: 'active', epoch: 99 } });
+          }
+          return target.runTransaction(fn as never);
+        };
+      }
+      const value = Reflect.get(target, key);
+      return typeof value === 'function' ? value.bind(target) : value;
+    },
+  }) as StorageAdapter;
+  begin(storage);
+  try {
+    await seedMorningHabit(OWNER);
+    await enableConsent(OWNER);
+    const user = (await getStorage().get<Record<string, unknown>>(userDoc(OWNER))) ?? {};
+    await getStorage().set(userDoc(OWNER), {
+      ...user,
+      personalizationPurge: { state: 'withdrawing', epoch: 3, withdrawalOwner: 'w', withdrawalLeaseAt: new Date().toISOString() },
+    });
+    assert.equal((await keep(OWNER, 'R1_focus_window:09:00-12:00')).status, 409, 'a keep was accepted mid-withdrawal');
+    assert.equal((await getStorage().list(userCol(OWNER, MEMORY))).length, 0);
+
+    const reopened = (await getStorage().get<Record<string, unknown>>(userDoc(OWNER))) ?? {};
+    await getStorage().set(userDoc(OWNER), { ...reopened, personalizationPurge: { state: 'active', epoch: 4 } });
+    bumpOnGuardedWrite = true;
+    assert.equal((await keep(OWNER, 'R1_focus_window:09:00-12:00')).status, 409, 'a keep landed after the fence moved');
+    assert.equal((await getStorage().list(userCol(OWNER, MEMORY))).length, 0, 'a memory record was written across a fence move');
+  } finally {
+    end();
+  }
+});
+
 test('Keep stores a rule-derived preference, and it lists instead of being suggested', async () => {
   begin();
   try {

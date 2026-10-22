@@ -227,15 +227,24 @@ export interface MemoryExport {
  * round trip rather than a file read. The semantics below are unchanged — what
  * moved is where the records are, not what the verbs mean.
  */
+/**
+ * A condition on the account's user document, checked in the same transaction
+ * as the write (M5B2A-R31-001): a behaviour-derived record is written only
+ * while personalization is open at the epoch its caller decided under.
+ */
+export interface MemoryWriteGuard {
+  accepts(userDocument: unknown): boolean;
+}
+
 export interface RuntimeMemoryStore {
-  put(input: CreateMemoryInput, now: string): Promise<RuntimeMemoryRecord>;
+  put(input: CreateMemoryInput, now: string, guard?: MemoryWriteGuard): Promise<RuntimeMemoryRecord>;
   get(id: string): Promise<RuntimeMemoryRecord | null>;
   /** Active, non-stale records only. The only read path for consumers. */
   retrieve(query: MemoryQuery): Promise<readonly RuntimeMemoryRecord[]>;
   /** Every record in the scope regardless of status, for user inspection. */
   listAll(scopeId: string): Promise<readonly RuntimeMemoryRecord[]>;
   /** Writes a replacement and marks the prior record superseded, keeping both. */
-  supersede(oldId: string, input: CreateMemoryInput, now: string): Promise<RuntimeMemoryRecord>;
+  supersede(oldId: string, input: CreateMemoryInput, now: string, guard?: MemoryWriteGuard): Promise<RuntimeMemoryRecord>;
   /** Hides from retrieval, keeps inspectable. Returns false if not found. */
   revoke(id: string, at: string): Promise<boolean>;
   /** Removes outright. Returns false if not found. */
