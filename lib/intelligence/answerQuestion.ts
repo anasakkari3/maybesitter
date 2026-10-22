@@ -4,6 +4,7 @@ import { suggestionPath, type IntelligenceSuggestion } from './proposalEngine';
 import { createHash } from 'node:crypto';
 import { observationPath } from './observationStore';
 import { isDismissedBehaviourOutcome } from './proposalEngine';
+import { pendingSuggestionAvailability, SuggestionUnavailableError } from './memoryBasis';
 
 /** A question's answer becomes evidence for the next cycle, not an obligation. */
 export async function answerIntelligenceQuestion(
@@ -22,16 +23,20 @@ export async function answerIntelligenceQuestion(
     if (!current || current.kind !== 'question' || current.status === 'dismissed') return null;
     if (current.status === 'accepting' && current.answerDigest !== digest) return null;
     if (current.status === 'pending') {
-      const cited = await Promise.all(current.observationIds.map(observationId =>
-        tx.get(observationPath(uid, observationId))));
+      const [availability, cited] = await Promise.all([
+        pendingSuggestionAvailability(tx, uid, current, now),
+        Promise.all(current.observationIds.map(observationId => tx.get(observationPath(uid, observationId)))),
+      ]);
       if (cited.some(isDismissedBehaviourOutcome)) {
         tx.set(path, { ...current, status: 'dismissed', decidedAt: now });
-        return null;
+        return availability.available ? null : availability;
       }
+      if (!availability.available) return availability;
     }
     if (current.status === 'pending') tx.set(path, { ...current, status: 'accepting', answerDigest: digest });
     return current;
   });
+  if (claimed && 'available' in claimed) throw new SuggestionUnavailableError();
   if (!claimed) return null;
   if (claimed.status === 'accepted') return claimed;
   await analyzeSource(uid, 'manual', `answer:${id}`, text, now, { storage });

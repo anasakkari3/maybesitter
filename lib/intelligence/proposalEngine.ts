@@ -502,7 +502,7 @@ export async function proposeFromObservations<TransactionGuardState = undefined>
   const storage = options.storage ?? getStorage();
   const mode = m5bBasisMode();
   const runPath = intelligenceRunPath(uid);
-  if (options.visit) {
+  if (options.visit && !options._memoryFreeRetry) {
     const reused = await reuseRunForVisit(uid, now, storage);
     if (reused) return reused;
   }
@@ -524,7 +524,17 @@ export async function proposeFromObservations<TransactionGuardState = undefined>
   const observations = filterMemoryObservations(availableObservations, mode, memorySnapshot)
     .filter(item => !(item.source === 'memory' && linkedGoalMemories.has(item.sourceRef)))
     .slice(0, 30);
-  if (observations.length === 0) return [];
+  if (observations.length === 0) {
+    if (!options._memoryFreeRetry) return [];
+    await storage.runTransaction(async tx => {
+      const current = await tx.get<IntelligenceRun>(runPath);
+      if (current?.claimId !== options._memoryFreeRetry!.claimId) return false;
+      await requireLiveAccount(tx, uid);
+      tx.set(runPath, { ...current, status: 'complete', suggestionIds: [] });
+      return true;
+    });
+    return [];
+  }
   const [memory, state, planSettings] = await Promise.all([
     mode === 'on_nobasis' ? Promise.resolve([]) : mode === 'on_basis'
       ? Promise.resolve(memorySnapshot?.available ? Array.from(memorySnapshot.records.values()) : [])
