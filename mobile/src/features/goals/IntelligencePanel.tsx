@@ -409,9 +409,10 @@ function IntelligencePanelForAccount({ onChanged, autoGenerate = false, whenOff 
     }
   };
 
-  // «مش صحيح» on a tapped outcome (R1, M5B2A-008): asked fresh first, and
-  // counted only when the server answers that the outcome is dismissed.
-  const dismissOutcome = async (id: string) => {
+  // «مش صحيح» on a tapped outcome (R1, M5B2A-008), and «آه، هيك صح» or
+  // «مش صحيح» on a re-add guess (M5b-2b-2 R3): asked fresh first, and counted
+  // only when the server answers that the row moved to what was asked.
+  const reviewOutcome = async (id: string, review: 'confirmed' | 'dismissed') => {
     if (inFlight.current) return;
     inFlight.current = true;
     setBusy(true);
@@ -426,13 +427,13 @@ function IntelligencePanelForAccount({ onChanged, autoGenerate = false, whenOff 
       if (await freshM5b() !== true) return;
       let answer;
       try {
-        answer = await reviewIntelligenceObservation(id, 'dismissed', bound);
+        answer = await reviewIntelligenceObservation(id, review, bound);
       } catch (cause) {
         setError(cause);
         try { await refresh(); } catch { /* Keep the original error visible. */ }
         return;
       }
-      if (answer.observation.review !== 'dismissed') {
+      if (answer.observation.review !== review) {
         // Turned off after this was drawn: nothing was learned away. The
         // switch and the list are read again, and nothing is announced.
         void freshM5b();
@@ -443,12 +444,13 @@ function IntelligencePanelForAccount({ onChanged, autoGenerate = false, whenOff 
       if (!scanMounted.current) return;
       // The server's answer is the outcome now: the row leaves at once, even
       // if the re-read below fails (M5B2A-REV-003).
-      const dismissed = answer.observation;
+      const moved = answer.observation;
       setInbox(current => current
-        ? { ...current, observations: current.observations.map(item => (item.id === dismissed.id ? dismissed : item)) }
+        ? { ...current, observations: current.observations.map(item => (item.id === moved.id ? moved : item)) }
         : current);
-      setLearnedStatus(t.m5bLearnedWrongDone);
-      if (Platform.OS === 'ios') AccessibilityInfo.announceForAccessibility(t.m5bLearnedWrongDone);
+      const done = review === 'confirmed' ? t.m5bLearnedRightDone : t.m5bLearnedWrongDone;
+      setLearnedStatus(done);
+      if (Platform.OS === 'ios') AccessibilityInfo.announceForAccessibility(done);
       onChanged();
       try { await refresh(); } catch { setRefreshFailed(true); }
     } finally {
@@ -734,7 +736,8 @@ function IntelligencePanelForAccount({ onChanged, autoGenerate = false, whenOff 
       open={learnedOpen}
       onToggle={() => setLearnedOpen(value => !value)}
       busy={busy}
-      onWrong={(id) => void dismissOutcome(id)}
+      onWrong={(id) => void reviewOutcome(id, 'dismissed')}
+      onRight={(id) => void reviewOutcome(id, 'confirmed')}
     /> : null}
     <TextInput
       testID="intelligence-statement"
@@ -889,26 +892,78 @@ function SuggestionBasis({ suggestion, items, hidden, onFix }: {
 
 /** The newest tapped outcomes the person can still say «مش صحيح» to. */
 const LEARNED_LIMIT = 5;
+/** The newest re-add guesses still waiting for an answer (M5b-2b-2 R3). */
+const READD_PENDING_LIMIT = 3;
 const LEARNED_KEY = { completed: 'm5bLearnedCompleted', postponed: 'm5bLearnedPostponed', dropped: 'm5bLearnedDropped' } as const;
+const READD_KEY = { dropped: 'm5bLearnedReaddedAfterDrop', completed: 'm5bLearnedReaddedAfterDone' } as const;
+
+const newestFirst = (a: IntelligenceObservation, b: IntelligenceObservation) =>
+  b.observedAt.localeCompare(a.observedAt) || a.id.localeCompare(b.id);
 
 /**
  * «شو تعلّمت من اللي عملته» (M5b-2a R1): collapsed by default — what was
  * learned is one tap away, not a paragraph on the panel — and gone when
  * there is nothing to show, including on a server that sends no outcome.
+ *
+ * M5b-2b-2 (R3): re-adds the server guessed sit above the confirmed rows,
+ * each tagged as a guess so it never reads as fact, with «آه، هيك صح» and
+ * «مش صحيح». A confirmed re-add joins the confirmed rows with «مش صحيح»
+ * only. A row with no `readd` projection (an older server, or the module
+ * off) draws nothing.
  */
-function LearnedOutcomes({ observations, open, onToggle, busy, onWrong }: {
+function LearnedOutcomes({ observations, open, onToggle, busy, onWrong, onRight }: {
   observations: readonly IntelligenceObservation[];
   open: boolean;
   onToggle: () => void;
   busy: boolean;
   onWrong: (id: string) => void;
+  onRight: (id: string) => void;
 }) {
   const { t, p } = useApp();
-  const learned = observations
-    .filter(item => item.source === 'behavior' && item.kind === 'outcome' && item.review === 'confirmed' && item.outcome)
-    .sort((a, b) => b.observedAt.localeCompare(a.observedAt) || a.id.localeCompare(b.id))
+  const behaviour = observations.filter(item => item.source === 'behavior' && item.kind === 'outcome');
+  const guesses = behaviour
+    .filter(item => item.review === 'pending' && item.readd)
+    .sort(newestFirst)
+    .slice(0, READD_PENDING_LIMIT);
+  const learned = behaviour
+    .filter(item => item.review === 'confirmed' && (item.outcome || item.readd))
+    .sort(newestFirst)
     .slice(0, LEARNED_LIMIT);
-  if (learned.length === 0) return null;
+  if (guesses.length === 0 && learned.length === 0) return null;
+  const lineFor = (item: IntelligenceObservation) => item.readd
+    ? fill(t[READD_KEY[item.readd.after]], { title: isolateAuto(item.readd.title) })
+    : fill(t[LEARNED_KEY[item.outcome!.signal]], { title: isolateAuto(item.outcome!.title) });
+  const action = (testID: string, label: string, text: string, onPress: () => void) => <Btn
+    testID={testID}
+    label={label}
+    {...(busy ? { disabled: true } : {})}
+    onPress={busy ? undefined : onPress}
+    scaleTo={0.97}
+    hitSlop={8}
+    style={{ minHeight: 44, justifyContent: 'center', paddingVertical: 6 }}
+  >
+    <Txt size={14} color={busy ? p.mu : p.acd}>{text}</Txt>
+  </Btn>;
+  const row = (item: IntelligenceObservation, guess: boolean) => {
+    const line = lineFor(item);
+    return <View
+      key={item.id}
+      testID={item.readd ? `m5b-learned-readd-${item.id}` : `m5b-learned-row-${item.id}`}
+      style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}
+    >
+      {/* A guess says so in words, on the proposal colour (amber marks
+          proposals), before the line it qualifies. */}
+      {guess ? <View testID={`m5b-learned-guess-${item.id}`} style={{ backgroundColor: p.wms, borderRadius: 999, paddingHorizontal: 8, paddingVertical: 2 }}>
+        <Txt size={13} color={p.wm}>{t.m5bLearnedGuess}</Txt>
+      </View> : null}
+      <Txt role="supporting" style={{ flexShrink: 1 }}>{line}</Txt>
+      {/* The inline action the Memory rows use («ليش؟ · عدّل · امسح»), not a
+          pill on its own line: five rows stayed shorter than the screen
+          (design critique, SIM-M5B2A-01). Still a ≥44 target. */}
+      {guess ? action(`m5b-learned-right-${item.id}`, fill(t.m5bLearnedRightA11y, { line }), t.xIntelligenceConfirm, () => onRight(item.id)) : null}
+      {action(`m5b-learned-wrong-${item.id}`, fill(t.m5bLearnedWrongA11y, { line }), t.m5bLearnedWrong, () => onWrong(item.id))}
+    </View>;
+  };
   return <View style={{ gap: 8, backgroundColor: p.sf2, borderRadius: 14, padding: 12 }}>
     <Btn
       testID="m5b-learned"
@@ -921,26 +976,10 @@ function LearnedOutcomes({ observations, open, onToggle, busy, onWrong }: {
       <Txt role="action" style={{ flexShrink: 1 }}>{t.m5bLearnedTitle}</Txt>
       <ReferenceIcon name={open ? 'chevron-up' : 'chevron-down'} size={18} color={p.mu} />
     </Btn>
-    {open ? learned.map(item => {
-      const line = fill(t[LEARNED_KEY[item.outcome!.signal]], { title: isolateAuto(item.outcome!.title) });
-      return <View key={item.id} testID={`m5b-learned-row-${item.id}`} style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
-        <Txt role="supporting" style={{ flexShrink: 1 }}>{line}</Txt>
-        {/* The inline action the Memory rows use («ليش؟ · عدّل · امسح»), not a
-            pill on its own line: five rows stayed shorter than the screen
-            (design critique, SIM-M5B2A-01). Still a ≥44 target. */}
-        <Btn
-          testID={`m5b-learned-wrong-${item.id}`}
-          label={fill(t.m5bLearnedWrongA11y, { line })}
-          {...(busy ? { disabled: true } : {})}
-          onPress={busy ? undefined : () => onWrong(item.id)}
-          scaleTo={0.97}
-          hitSlop={8}
-          style={{ minHeight: 44, justifyContent: 'center', paddingVertical: 6 }}
-        >
-          <Txt size={14} color={busy ? p.mu : p.acd}>{t.m5bLearnedWrong}</Txt>
-        </Btn>
-      </View>;
-    }) : null}
+    {open ? <>
+      {guesses.map(item => row(item, true))}
+      {learned.map(item => row(item, false))}
+    </> : null}
   </View>;
 }
 

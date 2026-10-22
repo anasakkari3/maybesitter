@@ -12,6 +12,8 @@ export const observationSchema = z.object({
   autoAddId: z.string().optional(),
   /** M5b-2a: a tapped outcome, as the server parsed it. Absent off and on an older server. */
   outcome: z.object({ signal: z.enum(['completed', 'postponed', 'dropped']), title: z.string() }).optional(),
+  /** M5b-2b-2: a re-add the server guessed, projected live from the commitment and the earlier outcome. Absent off and on an older server. */
+  readd: z.object({ after: z.enum(['dropped', 'completed']), title: z.string() }).optional(),
 });
 
 export const suggestionSchema = z.object({
