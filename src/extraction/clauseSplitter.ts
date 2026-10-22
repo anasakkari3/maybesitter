@@ -679,7 +679,13 @@ function splitTimedConjuncts(segment: string): string[] {
     tried += 1;
     const before = rest.slice(0, join.index).trim();
     const after = rest.slice(join.index + join[0].length).trim();
-    const opens = statesATime(after)
+    // A thought beside a timed commitment owns no time of its own. Split it
+    // before either engine reads the clauses, even though the thought itself
+    // is intentionally untimed. Without this branch, the model boundary
+    // validates both returned items against the whole sentence and the rules
+    // extractor merges the thought into the timed commitment (#736).
+    const opensThought = opensWithUnresolvedIntent(after.replace(LEADING_CONNECTOR, '').trim());
+    const opens = opensThought || statesATime(after)
       && (opensCommitment(after, before) || OPENS_WITH_APPOINTMENT_NOUN.test(after));
     if (before && after && opens && isWholeTimedCommitment(before)) {
       out.push(before);

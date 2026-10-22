@@ -53,6 +53,7 @@
  */
 import type { SeedKind } from '../contracts/v1/intentContracts';
 import { SEED_SUMMARY_MAX_CHARACTERS } from '../contracts/v1/intentContracts';
+import { opensWithAction } from './requestEvidence';
 
 /**
  * The speaker is waiting on somebody or something else.
@@ -241,9 +242,29 @@ function plainApostrophes(text: string): string {
   return text.replace(/[\u2018\u2019]/g, "'");
 }
 
+/**
+ * An elided first-person English thought: "maybe travel next summer".
+ *
+ * A bare "maybe" is not enough — "Maybe it runs late" is a remark about the
+ * point before it. The words after it must open one of the same closed-list
+ * actions the capture boundary already recognises. This keeps the detector's
+ * first-person relevance rule while accepting the ordinary note-taking form
+ * where English drops "I will".
+ */
+function opensWithBareMaybeAction(text: string): boolean {
+  const clause = text.trimStart().replace(/^and\s+/i, '');
+  const match = /^maybe(?=$|[\s,.:;!?"'()\-\u2013\u2014])/i.exec(clause);
+  if (!match) return false;
+  const rest = clause.slice(match[0].length).replace(/^[\s,:;.!?\-\u2013\u2014]+/, '');
+  // "travel" is deliberately local to the thought detector. Treating every
+  // bare "travel …" as an errand would broaden ordinary commitment parsing.
+  return opensWithAction(rest) || /^travel\b/i.test(rest);
+}
+
 export function opensWithUnresolvedIntent(text: unknown): boolean {
   const clause = typeof text === 'string' ? plainApostrophes(text.trimStart()) : '';
   if (!clause) return false;
+  if (opensWithBareMaybeAction(clause)) return true;
   return [WAITING_FOR, POSSIBLE_GOAL, CONSIDERATION, IDEA].some((pattern) => {
     const match = new RegExp(pattern.source, pattern.flags.replace('g', '')).exec(clause);
     return match !== null && match.index === 0;
@@ -259,6 +280,9 @@ export function opensWithUnresolvedIntent(text: unknown): boolean {
 export function afterUnresolvedIntentMarker(text: unknown): string | null {
   const clause = typeof text === 'string' ? plainApostrophes(text.trimStart()) : '';
   if (!clause) return null;
+  if (opensWithBareMaybeAction(clause)) {
+    return clause.replace(/^(?:and\s+)?maybe(?=$|[\s,.:;!?"'()\-\u2013\u2014])/i, '');
+  }
   for (const pattern of [WAITING_FOR, POSSIBLE_GOAL, CONSIDERATION, IDEA]) {
     const match = new RegExp(pattern.source, pattern.flags.replace('g', '')).exec(clause);
     if (match !== null && match.index === 0) return clause.slice(match[0].length);
@@ -278,7 +302,7 @@ export function detectUnresolvedIntent(rawSegment: unknown): UnresolvedIntentRea
 
   if (WAITING_FOR.test(segment)) return { kind: 'waiting_for' };
   if (POSSIBLE_GOAL.test(segment)) return { kind: 'possible_goal' };
-  if (CONSIDERATION.test(segment)) return { kind: 'consideration' };
+  if (CONSIDERATION.test(segment) || opensWithBareMaybeAction(segment)) return { kind: 'consideration' };
   if (IDEA.test(segment)) return { kind: 'idea' };
   return null;
 }

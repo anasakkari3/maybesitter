@@ -13,6 +13,7 @@ import assert from 'node:assert/strict';
 import { CHAT_PROMPT_VERSION } from '../../../lib/services/captureChat/chatPrompt.ts';
 import {
   TOMORROW,
+  at,
   assertUnderstoodValid,
   beginModel,
   beginRules,
@@ -139,6 +140,69 @@ test('B1 kinds (model path): a model item of kind possible_goal / consideration 
     assertUnderstoodValid(body.proposal);
   } finally {
     end();
+  }
+});
+
+const FIRST_TURN_THOUGHTS = [
+  {
+    label: 'English comma + and', locale: 'en' as const,
+    message: "Call mom tomorrow at 5 PM, and I'm thinking about traveling next summer",
+    call: 'Call mom', thought: 'Travel next summer', words: /travel(?:ing)? next summer/i,
+  },
+  {
+    label: 'English sentence', locale: 'en' as const,
+    message: "Call mom tomorrow at 5 PM. I'm thinking about traveling next summer",
+    call: 'Call mom', thought: 'Travel next summer', words: /travel(?:ing)? next summer/i,
+  },
+  {
+    label: 'English bare maybe', locale: 'en' as const,
+    message: 'Call mom tomorrow at 5 PM, and maybe travel next summer',
+    call: 'Call mom', thought: 'Travel next summer', words: /travel next summer/i,
+  },
+  {
+    label: 'Arabic control', locale: 'ar' as const,
+    message: 'لازم اتصل بأمي بكرا الساعة 5 المسا، وعم بفكر أسافر الصيف الجاي',
+    call: 'اتصل بأمي', thought: 'أسافر الصيف الجاي', words: /أسافر الصيف الجاي/,
+  },
+] as const;
+
+function assertCallAndUntimedThought(
+  body: Awaited<ReturnType<typeof chat>>,
+  scenario: (typeof FIRST_TURN_THOUGHTS)[number],
+): void {
+  assert.ok(body.proposal, `${scenario.label}: no proposal`);
+  assert.equal(body.proposal!.items.length, 1, `${scenario.label}: ${JSON.stringify(body.proposal)}`);
+  assert.equal(body.proposal!.items[0]!.resolvedTime, at(TOMORROW, '17:00'), scenario.label);
+  assert.equal(body.proposal!.seeds.length, 1, `${scenario.label}: ${JSON.stringify(body.proposal)}`);
+  assert.equal(body.proposal!.seeds[0]!.kind, 'consideration', scenario.label);
+  assert.match(body.proposal!.seeds[0]!.summary, scenario.words, scenario.label);
+  assertUnderstoodValid(body.proposal, scenario.label);
+}
+
+test('#736 rules: a first-turn thought beside a timed call stays an untimed seed', async () => {
+  for (const scenario of FIRST_TURN_THOUGHTS) {
+    const uid = beginRules();
+    try {
+      assertCallAndUntimedThought(await chat(uid, scenario.message, { locale: scenario.locale }), scenario);
+    } finally {
+      end();
+    }
+  }
+});
+
+test('#736 model: the recorded call plus consideration shape cannot inherit the call time', async () => {
+  for (const scenario of FIRST_TURN_THOUGHTS) {
+    const uid = beginModel(modelFirstAnswer('Review it.', 'propose', [
+      modelItem(scenario.call, TOMORROW, '17:00', { kind: 'commitment' }),
+      modelItem(scenario.thought, null, null, { kind: 'consideration' }),
+    ]));
+    try {
+      const body = await chat(uid, scenario.message, { locale: scenario.locale });
+      assert.equal(body.engine, 'model', scenario.label);
+      assertCallAndUntimedThought(body, scenario);
+    } finally {
+      end();
+    }
   }
 });
 

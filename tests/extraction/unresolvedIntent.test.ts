@@ -130,6 +130,8 @@ test('unresolvedIntent: the controls', () => {
   assert.equal(detectUnresolvedIntent('NVIDIA makes GPUs.'), null);
   assert.equal(detectUnresolvedIntent('Submit the NVIDIA application Friday.'), null);
   assert.equal(detectUnresolvedIntent("Maybe I'll apply to NVIDIA.")?.kind, 'consideration');
+  assert.equal(detectUnresolvedIntent('maybe travel next summer')?.kind, 'consideration');
+  assert.equal(detectUnresolvedIntent('Maybe it runs late'), null);
 });
 
 /**
