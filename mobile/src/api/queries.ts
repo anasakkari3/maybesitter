@@ -551,6 +551,8 @@ interface CalendarConsentState {
   inFlight: number;
   /** The consent the server last confirmed, which a failed newest write falls back to (R8-002). */
   confirmed: boolean | undefined;
+  /** The whole trust answer of the last confirmed write, for that fallback (R11-003). */
+  confirmedResponse: TrustResponse | undefined;
   /** Longer calendar operations (a disconnect) that hold every consent control (R8-003). */
   operations: number;
 }
@@ -567,7 +569,7 @@ function consentStateOf(client: QueryClient, uid: string): CalendarConsentState 
   if (!state) {
     state = {
       revoking: 0, granting: 0, confirmedOffAt: 0, lastRevokeAt: 0, latestWrite: 0, chain: Promise.resolve(),
-      inFlight: 0, confirmed: undefined, operations: 0,
+      inFlight: 0, confirmed: undefined, confirmedResponse: undefined, operations: 0,
     };
     states.set(uid, state);
   }
@@ -626,8 +628,13 @@ export function useCalendarConsentWritePending(): boolean {
   );
 }
 
+/** Both projections of the calendar consent, kept equal as the server keeps them (Codex M6B-R11-002). */
 function withCalendarConsent(response: TrustResponse, granted: boolean): TrustResponse {
-  return { ...response, trust: { ...response.trust, calendarConsent: granted } };
+  return {
+    ...response,
+    trust: { ...response.trust, calendarConsent: granted },
+    whatKnows: { ...response.whatKnows, calendarConnected: granted },
+  };
 }
 
 async function readTrustFor(client: QueryClient, uid: string): Promise<TrustResponse> {
@@ -1430,6 +1437,7 @@ export function useTrustAction() {
       const state = consentStateOf(client, uid);
       if (state.inFlight === 0) {
         state.confirmed = client.getQueryData<TrustResponse>(queryKeys.trust(uid))?.trust.calendarConsent;
+        state.confirmedResponse = undefined;
       }
       state.inFlight += 1;
       const turn = state.chain;
@@ -1465,8 +1473,12 @@ export function useTrustAction() {
       if (context.startedAt === state.latestWrite && state.confirmed !== undefined) {
         const granted = state.confirmed;
         if (granted) state.confirmedOffAt = 0;
+        // A write before this one succeeded: its whole answer is the state now
+        // (a revoke's consents, quiet mode, revokedAt), not only the calendar
+        // field (Codex M6B-R11-003).
+        const confirmedResponse = state.confirmedResponse;
         client.setQueryData<TrustResponse>(queryKeys.trust(context.uid), (current) => (
-          current ? withCalendarConsent(current, granted) : current
+          confirmedResponse ?? (current ? withCalendarConsent(current, granted) : current)
         ));
       }
       consentChanged();
@@ -1484,6 +1496,7 @@ export function useTrustAction() {
         // server holds now (R8-002).
         const granted = response.trust.calendarConsent;
         state.confirmed = granted;
+        state.confirmedResponse = response;
         trustSequence += 1;
         if (!granted) state.confirmedOffAt = trustSequence;
         // The newest write's answer is the consent now, whichever way it went,

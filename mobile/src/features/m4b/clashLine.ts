@@ -2,6 +2,7 @@ import type { Clash } from '../../api/schemas/m4b';
 import { dayKey, formatDayKey, formatTime, formatTimeRange } from '../../i18n/format';
 import { isolateAuto } from '../../i18n/bidi';
 import { fill, ltr, type Lang, type Strings } from '../../i18n/strings';
+import { unbreakableRange } from '../calendar/busyConflictText';
 
 /**
  * One clash as a line (M4b R1.5), the capture card's own wording
@@ -19,7 +20,7 @@ export function clashLine(
   const start = new Date(clash.startsAt);
   const end = new Date(clash.endsAt);
   const ranged = clash.kind === 'weekly' || clash.kind === 'calendar_busy';
-  const clock = ranged ? formatTimeRange(start, end, format) : ltr(formatTime(start, format));
+  const clock = ranged ? unbreakableRange(formatTimeRange(start, end, format)) : ltr(formatTime(start, format));
   const day = dayKey(start, timezone);
   const when = day === options.subjectDay
     ? clock

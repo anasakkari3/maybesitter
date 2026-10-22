@@ -3,6 +3,7 @@ import type { CaptureItemEdit } from './captureMachine';
 import { dayKey, formatDayKey, formatTime, formatTimeRange } from '../../i18n/format';
 import { isolateAuto, stripIsolates } from '../../i18n/bidi';
 import { fill, ltr, type Lang, type Strings } from '../../i18n/strings';
+import { unbreakableRange } from '../calendar/busyConflictText';
 
 export type ChatItemConflict = NonNullable<CaptureProposalItem['conflicts']>[number];
 
@@ -40,7 +41,7 @@ export function chatConflictLines(
     const start = new Date(conflict.startsAt);
     const end = new Date(conflict.endsAt);
     const ranged = conflict.kind === 'weekly' || conflict.kind === 'calendar_busy';
-    const clock = ranged ? formatTimeRange(start, end, format) : ltr(formatTime(start, format));
+    const clock = ranged ? unbreakableRange(formatTimeRange(start, end, format)) : ltr(formatTime(start, format));
     const day = dayKey(start, timezone);
     const when = day === itemDay
       ? clock

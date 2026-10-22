@@ -334,9 +334,19 @@ const SAME_APPOINTMENT_SUBJECT = new Set([
 ]);
 const SUBJECT_AUXILIARY = new Set(['should', 'would', 'could', 'will', 'might', 'must', 'can', 'رح', 'لازم', 'بدو', 'צריך', 'צריכה']);
 
+/**
+ * Connectives and prepositions, which two unrelated subjects share all the
+ * time: "my flight with Bob" is not "the meeting with Alice" (Codex M6B-R11-001).
+ */
+const FUNCTION_WORDS = new Set([
+  'with', 'and', 'for', 'from', 'about', 'into', 'onto', 'over', 'under', 'after', 'before', 'between', 'this', 'that', 'than', 'then', 'there',
+  'مع', 'على', 'عند', 'من', 'في', 'إلى', 'الى', 'عن', 'بعد', 'قبل', 'لما', 'اللي', 'هاد', 'هاي',
+  'עם', 'של', 'על', 'אל', 'אחרי', 'לפני', 'בין', 'גם', 'זה', 'זאת',
+]);
+
 function contentWords(text: string): Set<string> {
   return new Set(text.toLowerCase().split(/\s+/).map((word) => word.replace(EDGE_PUNCTUATION, ''))
-    .filter((word) => word.length >= 3 && !SAME_APPOINTMENT_SUBJECT.has(word)));
+    .filter((word) => word.length >= 3 && !SAME_APPOINTMENT_SUBJECT.has(word) && !FUNCTION_WORDS.has(word)));
 }
 
 /** The speaker as a subject: "I will be running at 5" is the speaker doing something. */
@@ -370,7 +380,7 @@ function restatesInItsOwnWords(rest: string, previous: string): boolean {
   if (actionAfterCopula(words.slice(at + 1), subject)) return false;
   if (subject.every((word) => SAME_APPOINTMENT_SUBJECT.has(word))) return true;
   const before = contentWords(previous);
-  return subject.some((word) => before.has(word));
+  return subject.some((word) => !FUNCTION_WORDS.has(word) && before.has(word));
 }
 
 /** The words after the intent marker are something to do, not only an hour or a copula. */

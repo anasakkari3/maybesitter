@@ -418,4 +418,49 @@ describe('the calendar switches follow «uses your calendar»', () => {
     expect(calendarConsentEffective(harness!.client, ACCOUNT_A.uid)).toBe(true);
     await waitFor(() => expect(screen.getByTestId('calendar-include-work').props.accessibilityState).toMatchObject({ disabled: false }));
   });
+
+  it('the calendar consent and calendarConnected stay equal in the cache through a switch-off (Codex M6B-R11-002)', async () => {
+    let answer: ((reply: RouteReply) => void) | undefined;
+    harness = await prepare('en', { ...initialState(), trustConsent: true }, (request) => {
+      if (request.path !== '/api/mobile/pilot/trust' || request.method !== 'POST') return undefined;
+      return new Promise<RouteReply>((resolve) => { answer = resolve; });
+    });
+    const { hooks, A, B } = twoHooks();
+    await render(<Providers harness={harness}><A /><B /></Providers>);
+    await waitFor(() => expect(harness!.client.getQueryData(queryKeys.trust(ACCOUNT_A.uid))).toBeDefined());
+    await act(async () => { hooks.a!({ type: 'set_calendar_consent', granted: false }); await jest.advanceTimersByTimeAsync(20); });
+    const cached = harness.client.getQueryData<{ trust: { calendarConsent: boolean }; whatKnows: { calendarConnected: boolean } }>(queryKeys.trust(ACCOUNT_A.uid));
+    expect(cached?.trust.calendarConsent).toBe(false);
+    expect(cached?.whatKnows.calendarConnected).toBe(false);
+    await act(async () => { answer!({ status: 200, body: trustResponse(false) }); await jest.advanceTimersByTimeAsync(50); });
+  });
+
+  it('a revoke that succeeded, then a later write that failed: the revoke\'s whole answer stands (Codex M6B-R11-003)', async () => {
+    let posts = 0;
+    const revoked = (() => {
+      const base = trustResponse(false);
+      return { ...base, trust: { ...base.trust, recommendationConsent: false, quietMode: true, revokedAt: '2030-03-29T09:00:00.000Z' } };
+    })();
+    harness = await prepare('en', { ...initialState(), trustConsent: true }, (request) => {
+      if (request.path !== '/api/mobile/pilot/trust') return undefined;
+      if (request.method === 'POST') {
+        posts += 1;
+        // The revoke succeeds; the grant after it is refused (revoked state).
+        return posts === 1 ? { status: 200, body: revoked } : { status: 409, body: { success: false } };
+      }
+      return posts > 0 ? { status: 503, body: { success: false } } : undefined;
+    });
+    const { hooks, A, B } = twoHooks();
+    await render(<Providers harness={harness}><A /><B /></Providers>);
+    await waitFor(() => expect(harness!.client.getQueryData(queryKeys.trust(ACCOUNT_A.uid))).toBeDefined());
+    await act(async () => {
+      hooks.a!({ type: 'revoke' });
+      hooks.b!({ type: 'set_calendar_consent', granted: true });
+      await jest.advanceTimersByTimeAsync(300);
+    });
+    await waitFor(() => expect(posts).toBe(2));
+    await act(async () => { await jest.advanceTimersByTimeAsync(300); });
+    const cached = harness.client.getQueryData<{ trust: Record<string, unknown> }>(queryKeys.trust(ACCOUNT_A.uid));
+    expect(cached?.trust).toMatchObject({ calendarConsent: false, quietMode: true, revokedAt: '2030-03-29T09:00:00.000Z' });
+  });
 });
