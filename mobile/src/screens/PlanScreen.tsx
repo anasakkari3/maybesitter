@@ -16,6 +16,7 @@ import {
   useAnalyticsConsent,
   useBuildPlan,
   useMemoryOpen,
+  useUid,
   usePlan,
   usePlanAction,
   usePlanEdit,
@@ -239,6 +240,7 @@ function LoadedPlan({ plan, date, readOnly }: { plan: DailyPlan; date: string; r
    * about how many times React re-rendered it, and accepting rewrites the
    * cached plan and re-renders this component.
    */
+  const uid = useUid();
   const analyticsConsent = useAnalyticsConsent();
   const recordAnalytics = useRecordAnalytics();
   const record = recordAnalytics.mutate;
@@ -255,9 +257,11 @@ function LoadedPlan({ plan, date, readOnly }: { plan: DailyPlan; date: string; r
     // consent-gated metrics, and this append to the user's own plan ledger is
     // what R3 may one day read. Fire-and-forget for the same reason — a lost
     // signal is one missing open in a habit count, never something on screen.
-    void markPlanOpened(date).catch(() => {});
+    const controller = new AbortController();
+    void markPlanOpened(date, { ...(uid !== 'signed-out' ? { asUid: uid } : {}), signal: controller.signal }).catch(() => {});
+    return () => controller.abort();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [date]);
+  }, [date, uid]);
 
   /*
    * One tap, one request — enforced with refs rather than with `isPending`.

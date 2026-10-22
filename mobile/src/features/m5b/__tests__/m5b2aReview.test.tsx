@@ -694,4 +694,23 @@ describe('M5b-2a inspection fixes', () => {
     await act(async () => { held.resolve({ status: 500, body: { success: false, error: 'boom' } }); await jest.advanceTimersByTimeAsync(100); });
     expect(basisCorrectionCountForTests(harness.client, ACCOUNT_A.uid)).toBe(0);
   });
+
+  it('R20-001: the plan-opened signal started for account A is not sent once account B is signed in', async () => {
+    harness = await prepare('en', initialState(), planOnly(planWithBasis()));
+    const repository = harness.repository as unknown as { getIdToken: (force?: boolean) => Promise<string | null>; currentUser: () => unknown };
+    const realToken = repository.getIdToken.bind(repository);
+    const held: (() => Promise<void>)[] = [];
+    jest.spyOn(repository, 'getIdToken').mockImplementation((force?: boolean) => {
+      if (harness!.server.matching('GET', new RegExp(`^/api/mobile/plans/${TODAY}$`)).length === 0) return realToken(force);
+      const token = deferred<string | null>();
+      held.push(async () => { token.resolve(await realToken(force)); });
+      return token.promise;
+    });
+    await render(<Providers harness={harness}><PlanScreen date={TODAY} onBack={() => undefined} /></Providers>);
+    await waitFor(() => expect(screen.queryByTestId('plan-why')).not.toBeNull());
+    await act(async () => { await jest.advanceTimersByTimeAsync(100); });
+    jest.spyOn(repository, 'currentUser').mockReturnValue(ACCOUNT_B);
+    await act(async () => { for (const release of held) await release(); await jest.advanceTimersByTimeAsync(100); });
+    expect(harness.server.matching('POST', new RegExp(`^/api/mobile/plans/${TODAY}/opened$`))).toHaveLength(0);
+  });
 });

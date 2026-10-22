@@ -1014,7 +1014,7 @@ describe('what the screen reports about what somebody did', () => {
       // R3 cannot learn from a record consent never let exist. Default consent
       // here is declined — the append must happen anyway.
       await loaded();
-      await waitFor(() => expect(planEndpoints.markPlanOpened).toHaveBeenCalledWith(DATE));
+      await waitFor(() => expect(planEndpoints.markPlanOpened).toHaveBeenCalledWith(DATE, expect.objectContaining({ asUid: 'plan-user' })));
       await fireEvent.press(screen.getByTestId('plan-accept'));
       await waitFor(() => expect(screen.queryByTestId('plan-accepted')).not.toBeNull());
       await act(async () => { await Promise.resolve(); await Promise.resolve(); });

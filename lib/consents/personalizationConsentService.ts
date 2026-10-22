@@ -72,6 +72,18 @@ export class PersonalizationWithdrawalBusyError extends Error {
   }
 }
 
+/**
+ * The withdrawal lost the fence before it could disable consent — a grant, or
+ * another withdrawal, took over after its lease ran out (M5B2A-R20-002).
+ * Nothing it would write is written; asking again withdraws.
+ */
+export class PersonalizationWithdrawalSupersededError extends PersonalizationWithdrawalBusyError {
+  constructor() {
+    super();
+    this.name = 'PersonalizationWithdrawalSupersededError';
+  }
+}
+
 const PURGE_WAIT = { attempts: 40, delayMs: 250 } as const;
 
 /** A withdrawal still between its phases after this long is taken to have died. */
@@ -194,6 +206,9 @@ export async function setPersonalizationConsent(
     // otherwise finish after this and leave memory closed under a grant that
     // said it worked. Waited for, as a withdrawal waits; refused if it lasts.
     await waitForNoLiveWithdrawal(storage, uid, options.purgeWait ?? PURGE_WAIT);
+    // A withdrawal whose lease ran out is superseded *before* the grant is
+    // written, so its delayed disable can no longer land after it (R20-002).
+    await reopenAbandonedWithdrawal(storage, uid);
     const record = await setConsent(PERSONALIZATION_CONSENT, uid, { ...input, at }, { storage });
     try {
       await store.write(uid, 'enabled', record.changedAt);
@@ -257,7 +272,19 @@ export async function disablePersonalizationFenced(
   }
   const held = lease;
   try {
-    return await store.write(uid, 'disabled', at);
+    // Written only while this withdrawal still owns the fence (M5B2A-R20-002):
+    // one that outlived its lease, superseded by a grant, must not turn the
+    // newer grant off. A store that cannot guard writes as before.
+    if (!store.writeGuarded) return await store.write(uid, 'disabled', at);
+    const written = await store.writeGuarded(uid, 'disabled', at, {
+      path: userDoc(uid),
+      accepts: (value) => {
+        const fence = (value as { personalizationPurge?: FenceDocument } | null)?.personalizationPurge;
+        return fence?.state === 'withdrawing' && fence.epoch === held.epoch && fence.withdrawalOwner === held.owner;
+      },
+    });
+    if (written === null) throw new PersonalizationWithdrawalSupersededError();
+    return written;
   } finally {
     // Reopened once consent reads off. A withdrawal whose own write failed
     // reopens too — consent is still on, and the epoch has moved — unless it

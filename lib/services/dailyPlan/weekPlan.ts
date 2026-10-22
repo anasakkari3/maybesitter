@@ -62,6 +62,7 @@
  * A date that already has a plan is shown as that plan and never re-proposed:
  * the week does not rewrite a stored day, touched or not.
  */
+import { isDeepStrictEqual } from 'node:util';
 import { getStorage, type StorageAdapter } from '../../storage';
 import { userDoc } from '../../storage/paths';
 import { schedulePlan } from '../../planning/scheduler';
@@ -93,6 +94,15 @@ import { resolveMemoryLearning } from '../../release/m5bCapabilities';
 /* ── What the client sends ─────────────────────────────────────────── */
 
 /** One step the person moved to another day of the week. */
+
+/**
+ * Whether a re-read plan is still exactly the document a write stored, by
+ * content — a storage round trip may drop undefined fields or reorder keys.
+ */
+function sameStoredDocument(current: unknown, stored: unknown): boolean {
+  return isDeepStrictEqual(JSON.parse(JSON.stringify(current)), JSON.parse(JSON.stringify(stored)));
+}
+
 export interface WeekMove {
   readonly itemId: string;
   readonly date: string;
@@ -766,10 +776,9 @@ export async function acceptWeekDay(
       // removed unaccepted, as an empty one is.
       await storage.runTransaction(async (tx) => {
         const current = await tx.get<StoredDailyPlan>(planPath(uid, date));
-        if (current
-          && current.status === 'proposed'
-          && current.generation === stored.generation
-          && current.inputDigest === stored.inputDigest) tx.delete(planPath(uid, date));
+        // Only the very document this call stored (M5B2A-R20-003): one another
+        // device has touched since — a protected block, an edit — is kept.
+        if (current && sameStoredDocument(current, stored)) tx.delete(planPath(uid, date));
       });
       return { outcome: 'week_changed', layout: await composeWeek(uid, decisions, { ...deps, storage }) };
     }
@@ -780,9 +789,7 @@ export async function acceptWeekDay(
     await storage.runTransaction(async (tx) => {
       const current = await tx.get<StoredDailyPlan>(planPath(uid, date));
       if (current
-        && current.status === 'proposed'
-        && current.generation === stored.generation
-        && current.inputDigest === stored.inputDigest
+        && sameStoredDocument(current, stored)
         && effectiveSchedule(current).length === 0) {
         tx.delete(planPath(uid, date));
       }

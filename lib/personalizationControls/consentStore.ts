@@ -52,6 +52,17 @@ export interface PersonalizationConsentStore {
   write(scopeId: string, state: PersonalizationConsentState, at: string): Promise<PersonalizationConsent>;
   /** Removes the stored record, returning the scope to the default. 1 or 0. */
   deleteScope(scopeId: string): Promise<number>;
+  /**
+   * Writes only if `guard.accepts` the document at `guard.path`, read in the
+   * same transaction; null when it did not (M5B2A-R20-002). Optional: a store
+   * without it cannot be guarded.
+   */
+  writeGuarded?(
+    scopeId: string,
+    state: PersonalizationConsentState,
+    at: string,
+    guard: { readonly path: string; readonly accepts: (value: unknown) => boolean },
+  ): Promise<PersonalizationConsent | null>;
 }
 
 interface StoredConsent {
@@ -115,6 +126,24 @@ export class StoragePersonalizationConsentStore implements PersonalizationConsen
       changedAt: at,
     });
     return Object.freeze({ state, changedAt: at });
+  }
+
+  async writeGuarded(
+    scopeId: string,
+    state: PersonalizationConsentState,
+    at: string,
+    guard: { readonly path: string; readonly accepts: (value: unknown) => boolean },
+  ): Promise<PersonalizationConsent | null> {
+    if (!isNonEmptyString(scopeId)) fail('scopeId must be a non-empty string');
+    if (!(PERSONALIZATION_CONSENT_STATES as readonly unknown[]).includes(state)) {
+      fail(`state must be one of ${PERSONALIZATION_CONSENT_STATES.join(', ')}`);
+    }
+    if (!isInstant(at)) fail('at must be an ISO instant with an explicit offset');
+    return this.storage.runTransaction(async (tx) => {
+      if (!guard.accepts(await tx.get(guard.path))) return null;
+      tx.set<StoredConsent>(documentPath(scopeId), { version: CONSENT_SCHEMA_VERSION, scopeId, state, changedAt: at });
+      return Object.freeze({ state, changedAt: at });
+    });
   }
 
   async deleteScope(scopeId: string): Promise<number> {

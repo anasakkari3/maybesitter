@@ -152,8 +152,14 @@ export async function buildPlan(date: string, options: { asUid?: string } = {}):
  * looking at. It is a POST of its own rather than a side effect of `getPlan`
  * because a fetch cannot tell "shown" from "refetched".
  */
-export async function markPlanOpened(date: string): Promise<void> {
-  await apiRequest('POST', planPath(date, '/opened'), { schema: planOpenedSchema });
+export async function markPlanOpened(date: string, options: { asUid?: string; signal?: AbortSignal } = {}): Promise<void> {
+  // Bound to the account whose screen showed the plan, and dropped with it
+  // (M5B2A-R20-001): A's open is never appended to B's ledger.
+  await apiRequest('POST', planPath(date, '/opened'), {
+    schema: planOpenedSchema,
+    ...(options.asUid !== undefined ? { asUid: options.asUid } : {}),
+    ...(options.signal ? { signal: options.signal } : {}),
+  });
 }
 
 export async function getPlanSettings(): Promise<PlanSettings> {

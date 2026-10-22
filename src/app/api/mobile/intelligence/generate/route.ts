@@ -4,9 +4,10 @@ import { getRecommendationConsent } from '../../../../../../lib/consents/recomme
 import { intelligenceDisabledResponse } from '../../../../../../lib/intelligence/gate';
 import { learnOutcomesWithin } from '../../../../../../lib/intelligence/outcomeLearning';
 import {
-  intelligenceRunPath, nextVisitAt, proposeFromObservations, reuseRunForVisit,
+  hideDismissedOutcomeSuggestions, intelligenceRunPath, nextVisitAt, proposeFromObservations, reuseRunForVisit,
   type IntelligenceRun, type IntelligenceSuggestion,
 } from '../../../../../../lib/intelligence/proposalEngine';
+import { listObservations } from '../../../../../../lib/intelligence/observationStore';
 import { previewSuggestionSchedule } from '../../../../../../lib/intelligence/schedulePreview';
 import { readJsonBody } from '../../../../../../lib/net/requestBody';
 import { getStorage } from '../../../../../../lib/storage';
@@ -40,6 +41,10 @@ export async function POST(request: Request) {
       await learnOutcomesWithin(user.uid);
       suggestions = await proposeFromObservations(user.uid, now, { visit });
     }
+    // Answered through the same dismissed-outcome filter as the inbox, read
+    // after the run committed (M5B2A-R20-004): an outcome dismissed in between
+    // never comes back as a suggestion on Today's banner.
+    suggestions = hideDismissedOutcomeSuggestions(suggestions, await listObservations(user.uid));
     let schedule: Awaited<ReturnType<typeof previewSuggestionSchedule>> = [];
     try { schedule = await previewSuggestionSchedule(user.uid, suggestions, new Date().toISOString()); }
     catch { /* A failed preview never turns a suggestion into a false promise. */ }

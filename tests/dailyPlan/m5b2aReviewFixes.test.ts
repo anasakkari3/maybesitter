@@ -805,3 +805,120 @@ test('R18-002: a reused pre-memoryUse (on-mode) pending offer is fenced at the w
   const after = await storedPlan(uid);
   assert.notEqual(after.focusFromMemory, true, show({ action: report.pipelineResult.policyDecision?.action, focus: after.focusFromMemory }));
 });
+
+test('R20-002: a withdrawal that outlives its lease cannot turn off a grant that superseded it', async () => {
+  const uid = await keptFocusPlan();
+  const storage = currentStorage() as any;
+  const base = createStoragePersonalizationConsentStore(storage);
+  let releaseW1!: () => void;
+  const w1Paused = new Promise<void>((resolve) => { releaseW1 = resolve; });
+  let w1Entered!: () => void;
+  const w1InStore = new Promise<void>((resolve) => { w1Entered = resolve; });
+  const pausing = {
+    read: base.read.bind(base), write: base.write.bind(base), deleteScope: base.deleteScope.bind(base),
+    writeGuarded: async (...args: Parameters<NonNullable<typeof base.writeGuarded>>) => { w1Entered(); await w1Paused; return base.writeGuarded!(...args); },
+  };
+  const w1 = setPersonalizationConsent(uid, { state: 'declined', version: PERSONALIZATION_CONSENT_VERSION, at: new Date() }, { storage, consent: pausing as any });
+  await w1InStore;
+  // W1's lease runs out while it is still running; the person grants again.
+  const fence = ((await storage.get(userDoc(uid))) ?? {}).personalizationPurge;
+  await setFence(storage, uid, { ...fence, withdrawalLeaseAt: new Date(Date.now() - 5 * 60_000).toISOString() });
+  await grantPersonalization(uid);
+  releaseW1();
+  await assert.rejects(w1, PersonalizationWithdrawalBusyError);
+  assert.equal((await base.read(uid)).state, 'enabled', 'the stale withdrawal turned the newer grant off');
+  assert.equal(((await storage.get(userDoc(uid))) ?? {}).personalizationPurge?.state, 'active');
+  assert.ok(await memoryFocusForPlan(uid, NOW(), { storage }), 'memory is not back after the grant');
+});
+
+test('R20-004: a fresh run never answers a suggestion whose outcome was dismissed right after the commit', async () => {
+  const uid = await begin();
+  await grantRecommendations(uid);
+  const outcome = await outcomeObservation(uid, 'Completed: Call the dentist', NOW());
+  const real = currentStorage() as any;
+  const { proposeFromObservations, intelligenceRunPath } = await import('../../lib/intelligence/proposalEngine.ts');
+  const { observationPath } = await import('../../lib/intelligence/observationStore.ts');
+  let dismissedAfterCommit = false;
+  const storage = new Proxy(real, {
+    get(target, key) {
+      if (key === 'runTransaction') {
+        return async (fn: (tx: any) => Promise<unknown>) => {
+          let completesRun = false;
+          const result = await target.runTransaction((tx: any) => fn(new Proxy(tx, {
+            get(t, k) {
+              const v = Reflect.get(t, k);
+              if (k === 'set' && typeof v === 'function') {
+                return (path: string, value: any, ...rest: unknown[]) => {
+                  if (path === intelligenceRunPath(uid) && value?.status === 'complete') completesRun = true;
+                  return v.call(t, path, value, ...rest);
+                };
+              }
+              return typeof v === 'function' ? v.bind(t) : v;
+            },
+          })));
+          if (completesRun && !dismissedAfterCommit) {
+            dismissedAfterCommit = true;
+            const stored = await target.get(observationPath(uid, outcome.id));
+            await target.set(observationPath(uid, outcome.id), { ...stored, review: 'dismissed', reviewedAt: new Date().toISOString() });
+          }
+          return result;
+        };
+      }
+      const value = Reflect.get(target, key);
+      return typeof value === 'function' ? value.bind(target) : value;
+    },
+  });
+  const suggestions = await proposeFromObservations(uid, new Date().toISOString(), { storage, generate: async () => ({
+    text: JSON.stringify({ suggestions: [
+      { kind: 'action', title: 'Call the dentist again soon', reason: 'Because you did it', observationIds: [outcome.id], confidence: 0.8, durationMinutes: 30 },
+    ] }), model: 'fake', latencyMs: 1, promptTokens: 1, outputTokens: 1,
+  }) } as any);
+  assert.ok(dismissedAfterCommit, 'fixture: the run never completed');
+  assert.equal(suggestions.length, 0, 'a suggestion citing the just-dismissed outcome was answered');
+});
+
+test('R20-003: a week plan another device touched between the store and a refused accept is kept, not deleted', async () => {
+  const uid = await keptFocusPlan();
+  const storage = currentStorage() as any;
+  const { composeWeek, acceptWeekDay } = await import('../../lib/services/dailyPlan/weekPlan.ts');
+  const TOMORROW = new Intl.DateTimeFormat('en-CA', { timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(Date.parse(NOW()) + 86_400_000));
+  await addFloating(uid, 'Write the quarterly report', 'cmt-r20-week-task-00000000001');
+  const decisions = { moves: [{ itemId: 'cmt-r20-week-task-00000000001', date: TOMORROW }], drops: [] };
+  const layout = await composeWeek(uid, decisions as any, { storage, now: () => new Date() } as any);
+  const day = (layout.days as any[]).find((candidate) => candidate.date === TOMORROW);
+  assert.ok(day && day.kind === 'proposed', 'fixture: tomorrow is not a proposed day');
+  let fired = false;
+  const proxied = new Proxy(storage, {
+    get(target, key) {
+      if (key === 'runTransaction') {
+        return async (fn: (tx: any) => Promise<unknown>) => {
+          let createsPlan = false;
+          const result = await target.runTransaction((tx: any) => fn(new Proxy(tx, {
+            get(t, k) {
+              const v = Reflect.get(t, k);
+              if ((k === 'set' || k === 'create') && typeof v === 'function') {
+                return (path: string, ...rest: unknown[]) => { if (path === planPath(uid, TOMORROW)) createsPlan = true; return v.call(t, path, ...rest); };
+              }
+              return typeof v === 'function' ? v.bind(t) : v;
+            },
+          })));
+          if (createsPlan && !fired) {
+            fired = true;
+            // Another device touches the plan, then personalization is withdrawn and re-granted.
+            const stored = await target.get(planPath(uid, TOMORROW));
+            await target.set(planPath(uid, TOMORROW), { ...stored, updatedAt: new Date(Date.now() + 1000).toISOString(), protections: [{ touchedBy: 'other-device' }] });
+            await setPersonalizationConsent(uid, { state: 'declined', version: PERSONALIZATION_CONSENT_VERSION, at: new Date() }, { storage: target });
+            await grantPersonalization(uid);
+          }
+          return result;
+        };
+      }
+      const value = Reflect.get(target, key);
+      return typeof value === 'function' ? value.bind(target) : value;
+    },
+  });
+  const outcome = await acceptWeekDay(uid, TOMORROW, decisions as any, day.assignment.include, { storage: proxied, now: () => new Date() } as any, undefined);
+  assert.ok(fired, 'fixture: the plan was never stored');
+  assert.notEqual(outcome.outcome, 'accepted');
+  assert.notEqual(await storage.get(planPath(uid, TOMORROW)), null, "another device's change was deleted");
+});

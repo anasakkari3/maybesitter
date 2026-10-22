@@ -608,8 +608,14 @@ export async function proposeFromObservations<TransactionGuardState = undefined>
     return true;
   });
   if (!committed && options.transactionComplete) throw new Error('proposal_claim_lost');
-  return Promise.all(suggestions.map(async suggestion =>
-    (await storage.get<IntelligenceSuggestion>(suggestionPath(uid, suggestion.id))) ?? suggestion));
+  // Read back with the observations as they are now (M5B2A-R20-004): an
+  // outcome dismissed after the commit never comes back as a suggestion.
+  const [found, current] = await Promise.all([
+    Promise.all(suggestions.map(async suggestion =>
+      (await storage.get<IntelligenceSuggestion>(suggestionPath(uid, suggestion.id))) ?? suggestion)),
+    listObservations(uid, storage),
+  ]);
+  return hideDismissedOutcomeSuggestions(found, current);
 }
 
 async function readRun(uid: string, run: IntelligenceRun, storage: StorageAdapter): Promise<IntelligenceSuggestion[]> {
