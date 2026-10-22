@@ -623,3 +623,28 @@ test('R13-001: off mode too — after a withdrawal and a re-grant, an untouched 
   const accepted = await call(uid, 'plans/[date]/actions', 'POST', { params: { date: TODAY }, body: { action: 'accept' } });
   assert.equal(accepted.status, 200, show(accepted.body));
 });
+
+test('R14-002: a touched off-mode memory plan, after withdraw and re-grant, is accepted under the current fence when it still stands on the allowed window', async () => {
+  const uid = await offModeFocusAccount();
+  await buildPlan(uid);
+  await touchPlan(uid);
+  const before = await storedPlan(uid);
+  assert.ok(before.memoryUse, 'fixture: the touched plan records no memory use');
+  await setPersonalizationConsent(uid, { state: 'declined', version: PERSONALIZATION_CONSENT_VERSION, at: new Date() }, { storage: currentStorage() as any });
+  await grantPersonalization(uid);
+  const accepted = await call(uid, 'plans/[date]/actions', 'POST', { params: { date: TODAY }, body: { action: 'accept' } });
+  assert.equal(accepted.status, 200, show(accepted.body));
+  const after = await storedPlan(uid);
+  assert.equal(after.status, 'accepted');
+  assert.notEqual(after.memoryUse?.epoch, before.memoryUse.epoch, 'the accepted plan kept the stale fence');
+});
+
+test('R14-002: still withdrawn, the touched memory plan is refused (409 plan_changed), never accepted', async () => {
+  const uid = await offModeFocusAccount();
+  await buildPlan(uid);
+  await touchPlan(uid);
+  await setPersonalizationConsent(uid, { state: 'declined', version: PERSONALIZATION_CONSENT_VERSION, at: new Date() }, { storage: currentStorage() as any });
+  const accepted = await call(uid, 'plans/[date]/actions', 'POST', { params: { date: TODAY }, body: { action: 'accept' } });
+  assert.equal(accepted.status, 409, show(accepted.body));
+  assert.notEqual((await storedPlan(uid)).status, 'accepted');
+});

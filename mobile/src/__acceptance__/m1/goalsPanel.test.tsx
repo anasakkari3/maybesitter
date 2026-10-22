@@ -287,7 +287,7 @@ it('A4 goals actions: analyze explains first, freezes a trimmed snapshot, and pr
   expect(screen.getAllByRole('button').filter(node => node.parent === confirm!.parent)).toHaveLength(2);
 
   await act(async () => { await fireEvent.press(confirm!); });
-  expect(mockAnalyze).toHaveBeenCalledWith('first version');
+  expect(mockAnalyze).toHaveBeenCalledWith('first version', { asUid: 'm1-goals-user' });
   expect(screen.getByTestId('intelligence-statement').props.editable).toBe(false);
   currentInbox = inbox([observation()], []);
   await act(async () => { resolveAnalyze({ success: true, observations: [observation()] }); });
@@ -303,7 +303,7 @@ it('A4 goals actions: analyze clears the field after success only while it still
   expect(confirm).not.toBeNull();
   await act(async () => { await fireEvent.press(confirm!); });
   await waitFor(() => expect(mockOnChanged).toHaveBeenCalledTimes(1));
-  expect(mockAnalyze).toHaveBeenCalledWith('unchanged');
+  expect(mockAnalyze).toHaveBeenCalledWith('unchanged', { asUid: 'm1-goals-user' });
   expect(screen.getByTestId('intelligence-statement').props.value).toBe('');
 });
 

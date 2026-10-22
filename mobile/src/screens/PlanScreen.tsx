@@ -23,7 +23,7 @@ import {
   useRecordAnalytics,
   useRegeneratePlan,
 } from '../api/queries';
-import { QuotaExceededError } from '../api/errors';
+import { ConflictError, QuotaExceededError } from '../api/errors';
 import { markPlanOpened } from '../api/endpoints/plans';
 import { userFacingMessage } from '../api/ui/userFacingMessage';
 import type { DailyPlan, PlanItem } from '../api/schemas/plan';
@@ -604,6 +604,10 @@ function LoadedPlan({ plan, date, readOnly }: { plan: DailyPlan; date: string; r
         </View>
         {acceptRefusal ? (
           <Txt size={13} color={p.wm} testID="plan-accept-refused">{t[acceptRefusal.key] as string}</Txt>
+        ) : accept.error instanceof ConflictError ? (
+          // The plan changed under the button (M5B2A-R14-002) — it is read
+          // again; said, so a refused tap is never silent.
+          <Txt size={13} color={p.wm} testID="plan-accept-error">{userFacingMessage(accept.error, t)}</Txt>
         ) : null}
         {/* A remembered thing this plan used has changed (M5b-2a R2): said
             next to the rebuild that would apply it, or — at the cap — that the

@@ -208,7 +208,7 @@ describe('«يتابع لك»', () => {
     await waitFor(() => expect(screen.queryByTestId('intelligence-suggestion-a1')).not.toBeNull());
     // Opening the hub is a visit: asked once, in the background.
     await waitFor(() => expect(generate).toHaveBeenCalledTimes(1));
-    expect(generate).toHaveBeenCalledWith({ visit: true });
+    expect(generate).toHaveBeenCalledWith({ visit: true, asUid: 'hub-user' });
     // Nothing new came back, so the inbox is not read twice.
     expect(read).toHaveBeenCalledTimes(1);
     expect(screen.queryByTestId('intelligence-suggestion-q1')).not.toBeNull();
@@ -219,7 +219,7 @@ describe('«يتابع لك»', () => {
     expect(card.getByText(en.suggestionNote)).toBeTruthy();
     expect(decide).not.toHaveBeenCalled();
     await fireEvent.press(card.getByText(en.xIntelligenceDismiss));
-    await waitFor(() => expect(decide).toHaveBeenCalledWith('a1', 'dismiss'));
+    await waitFor(() => expect(decide).toHaveBeenCalledWith('a1', 'dismiss', undefined, undefined, { asUid: 'hub-user' }));
     await waitFor(() => expect(invalidate).toHaveBeenCalledWith({ queryKey: ['user', USER.uid, 'commitments'] }));
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ['user', USER.uid, 'plan'] });
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ['user', USER.uid, 'memory'] });

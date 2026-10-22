@@ -33,7 +33,7 @@ function minute(value: string): number | null {
   return Number(match[1]) * 60 + Number(match[2]);
 }
 
-function planUsedWindow(stored: StoredDailyPlan, window: { start: string; end: string }): boolean {
+export function planUsedWindow(stored: StoredDailyPlan, window: { start: string; end: string }): boolean {
   const startMinute = minute(window.start);
   const endMinute = minute(window.end);
   if (startMinute === null || endMinute === null) return false;

@@ -221,10 +221,18 @@ function IntelligencePanelForAccount({ onChanged, autoGenerate = false, whenOff 
     void loadMonitorUpgradeDismissed(uid).then((dismissed) => { if (alive) setUpgradeDismissed(dismissed); });
     return () => { alive = false; };
   }, [uid]);
+  // Every call the panel makes carries the account it was opened for
+  // (M5B2A-R14-001).
+  const bound = React.useMemo(() => (uid ? { asUid: uid } : {}), [uid]);
+  // The reads take it when they run, so the account arriving after the first
+  // render does not read the inbox a second time.
+  const readUid = React.useRef(uid);
+  React.useEffect(() => { readUid.current = uid; });
   const read = React.useCallback(async () => {
+    const asOf = readUid.current ? { asUid: readUid.current } : {};
     // The Gmail switch is one row of the panel; its failure must not take
     // the evidence and suggestions with it.
-    const [next, monitor] = await Promise.all([getIntelligenceInbox(), getGmailIntelligenceMonitor().catch(() => null)]);
+    const [next, monitor] = await Promise.all([getIntelligenceInbox(asOf), getGmailIntelligenceMonitor(asOf).catch(() => null)]);
     return { next, monitor };
   }, []);
   const refresh = React.useCallback(async () => {
@@ -265,7 +273,7 @@ function IntelligencePanelForAccount({ onChanged, autoGenerate = false, whenOff 
     void (async () => {
       if (!(await claimVisit(uid))) return;
       try {
-        const answer = await generateIntelligenceSuggestions({ visit: true });
+        const answer = await generateIntelligenceSuggestions({ visit: true, ...bound });
         recordVisitAnswer(uid, answer.nextVisitAt);
         const known = new Set((shown.current?.suggestions ?? []).map(item => item.id));
         if (alive && answer.suggestions.some(item => item.status === 'pending' && !known.has(item.id))) await refresh();
@@ -274,7 +282,7 @@ function IntelligencePanelForAccount({ onChanged, autoGenerate = false, whenOff 
       }
     })();
     return () => { alive = false; };
-  }, [autoGenerate, uid, recommendationsEnabled, phase, refresh]);
+  }, [autoGenerate, uid, recommendationsEnabled, phase, refresh, bound]);
   // A decision on a card. The mutation decides success; a failed re-read of
   // the inbox afterwards is its own state, retried by re-reading only — never
   // by sending the decision again.
@@ -321,7 +329,7 @@ function IntelligencePanelForAccount({ onChanged, autoGenerate = false, whenOff 
       if (await freshM5b() !== true) return;
       let answer;
       try {
-        answer = await reviewIntelligenceObservation(id, 'dismissed', uid ? { asUid: uid } : {});
+        answer = await reviewIntelligenceObservation(id, 'dismissed', bound);
       } catch (cause) {
         setError(cause);
         try { await refresh(); } catch { /* Keep the original error visible. */ }
@@ -380,7 +388,7 @@ function IntelligencePanelForAccount({ onChanged, autoGenerate = false, whenOff 
       try {
         if (action === 'analyze') {
           const sent = snapshot;
-          const answer = await analyzeIntelligenceStatement(sent);
+          const answer = await analyzeIntelligenceStatement(sent, bound);
           // Cleared only if the field still holds what was sent.
           setDraft(current => (current.trim() === sent ? '' : current));
           if (answer.route === 'plan_flow') {
@@ -396,7 +404,7 @@ function IntelligencePanelForAccount({ onChanged, autoGenerate = false, whenOff 
           let visited = 0;
           setGmailScanProgress(0);
           while (scanMounted.current && status !== 'complete') {
-            const answer = await scanGmailForIntelligence();
+            const answer = await scanGmailForIntelligence(bound);
             status = answer.scan.status;
             visited = answer.scan.messagesVisited;
             if (scanMounted.current) setGmailScanProgress(visited);
@@ -453,7 +461,6 @@ function IntelligencePanelForAccount({ onChanged, autoGenerate = false, whenOff 
   // enrols it (M5A-R4-001); then the last seven days are offered, never
   // assumed (condition 32).
   const monitorWait = emailM5 ? gmailMonitor?.waiting ?? null : null;
-  const asAccount = React.useMemo(() => (uid ? { asUid: uid } : {}), [uid]);
   const enableMonitorM5 = async () => {
     setMonitorInfo(false);
     if (inFlight.current) return;
@@ -467,7 +474,7 @@ function IntelligencePanelForAccount({ onChanged, autoGenerate = false, whenOff 
         setError(M5A_NOT_NOW());
         return;
       }
-      setGmailMonitor(await setGmailIntelligenceMonitor(true, { timezone: deviceTimeZone() }, asAccount));
+      setGmailMonitor(await setGmailIntelligenceMonitor(true, { timezone: deviceTimeZone() }, bound));
       // Not offered while a scan of the last day exists or was accepted (R4.1),
       // and only from a fresh, successful answer (M5A-R7-003): loading or
       // failed is unknown, and unknown offers nothing.
@@ -513,7 +520,7 @@ function IntelligencePanelForAccount({ onChanged, autoGenerate = false, whenOff 
     }
     await run(async () => {
       if (await freshCapability('emailSources') !== true) throw M5A_NOT_NOW();
-      return setGmailIntelligenceMonitor(true, { timezone: deviceTimeZone() }, asAccount);
+      return setGmailIntelligenceMonitor(true, { timezone: deviceTimeZone() }, bound);
     });
   };
   // The monitor switch chooses between the M5a enrolment (its information
@@ -521,7 +528,7 @@ function IntelligencePanelForAccount({ onChanged, autoGenerate = false, whenOff 
   // (M5A-R10-001), and an unknown answer takes neither.
   const pressMonitor = async () => {
     if (gmailMonitor?.enabled) {
-      void run(() => setGmailIntelligenceMonitor(false, undefined, asAccount));
+      void run(() => setGmailIntelligenceMonitor(false, undefined, bound));
       return;
     }
     const m5 = await freshCapability('emailSources');
@@ -530,7 +537,7 @@ function IntelligencePanelForAccount({ onChanged, autoGenerate = false, whenOff 
       return;
     }
     if (m5) setMonitorInfo(true);
-    else void run(() => setGmailIntelligenceMonitor(true, undefined, asAccount));
+    else void run(() => setGmailIntelligenceMonitor(true, undefined, bound));
   };
   // A daily sweep held for want of a time zone: an enabled monitor sends the
   // phone's again, once per visit (M5A-R35-004).
@@ -539,10 +546,10 @@ function IntelligencePanelForAccount({ onChanged, autoGenerate = false, whenOff 
   React.useEffect(() => {
     if (!heldForZone || timezoneResent.current) return;
     timezoneResent.current = true;
-    void setGmailIntelligenceMonitor(true, { timezone: deviceTimeZone() }, asAccount)
+    void setGmailIntelligenceMonitor(true, { timezone: deviceTimeZone() }, bound)
       .then((next) => { setGmailMonitor(next); void scanOverview.refetch(); })
       .catch(() => undefined);
-  }, [heldForZone, scanOverview, asAccount]);
+  }, [heldForZone, scanOverview, bound]);
 
   if (phase === 'off') return whenOff === undefined ? null : <>{whenOff}</>;
   if (whenOff !== undefined && phase !== 'ready') {
@@ -590,18 +597,18 @@ function IntelligencePanelForAccount({ onChanged, autoGenerate = false, whenOff 
         <Pill label={item.kind === 'question' ? t.xIntelligenceAnswer : item.kind === 'warning' ? t.xIntelligenceAcknowledge : t.xIntelligenceAccept}
           disabled={busy || (item.kind === 'question' && !(answers[item.id] ?? '').trim())}
           onPress={() => void run(() => item.kind === 'question'
-            ? answerIntelligenceQuestion(item.id, (answers[item.id] ?? '').trim())
+            ? answerIntelligenceQuestion(item.id, (answers[item.id] ?? '').trim(), bound)
             : decideIntelligenceSuggestion(item.id, 'accept', (editedTitles[item.id] ?? '').trim() || undefined,
-              item.kind === 'action' ? schedule.get(item.id)?.slot ?? undefined : undefined))} />
-        <Pill label={t.xIntelligenceDismiss} kind="outline" disabled={busy} onPress={() => void run(() => decideIntelligenceSuggestion(item.id, 'dismiss'))} />
+              item.kind === 'action' ? schedule.get(item.id)?.slot ?? undefined : undefined, bound))} />
+        <Pill label={t.xIntelligenceDismiss} kind="outline" disabled={busy} onPress={() => void run(() => decideIntelligenceSuggestion(item.id, 'dismiss', undefined, undefined, bound))} />
       </View>
       {item.kind !== 'question' ? <Txt role="supporting" color={p.mu}>{t.suggestionNote}</Txt> : null}
     </View>)}
     {inbox.observations.filter(item => item.review === 'pending' && !SELF_CONFIRMED_SOURCES.has(item.source)).slice(0, MAX_CONFIRM_CARDS).map(item => <View key={item.id} testID={`intelligence-observation-${item.id}`}>
       <Txt role="supporting">{fill(t[UNDERSTOOD_KEY[item.kind]], { evidence: isolateAuto(item.evidence) })}</Txt>
       <View style={{ flexDirection: rtl ? 'row-reverse' : 'row', gap: 8 }}>
-        <Pill label={t.xIntelligenceConfirm} disabled={busy} onPress={() => void run(() => reviewIntelligenceObservation(item.id, 'confirmed'))} />
-        <Pill label={t.xIntelligenceDismiss} kind="outline" disabled={busy} onPress={() => void run(() => reviewIntelligenceObservation(item.id, 'dismissed'))} />
+        <Pill label={t.xIntelligenceConfirm} disabled={busy} onPress={() => void run(() => reviewIntelligenceObservation(item.id, 'confirmed', bound))} />
+        <Pill label={t.xIntelligenceDismiss} kind="outline" disabled={busy} onPress={() => void run(() => reviewIntelligenceObservation(item.id, 'dismissed', bound))} />
       </View>
     </View>)}
     {m5bOn === true ? <LearnedOutcomes
@@ -739,16 +746,20 @@ function LearnedOutcomes({ observations, open, onToggle, busy, onWrong }: {
       const line = fill(t[LEARNED_KEY[item.outcome!.signal]], { title: isolateAuto(item.outcome!.title) });
       return <View key={item.id} testID={`m5b-learned-row-${item.id}`} style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
         <Txt role="supporting" style={{ flexShrink: 1 }}>{line}</Txt>
-        <Pill
+        {/* The inline action the Memory rows use («ليش؟ · عدّل · امسح»), not a
+            pill on its own line: five rows stayed shorter than the screen
+            (design critique, SIM-M5B2A-01). Still a ≥44 target. */}
+        <Btn
           testID={`m5b-learned-wrong-${item.id}`}
-          label={t.m5bLearnedWrong}
-          accessibilityLabel={fill(t.m5bLearnedWrongA11y, { line })}
-          kind="outline"
-          size={13}
-          pad={10}
-          disabled={busy}
-          onPress={() => onWrong(item.id)}
-        />
+          label={fill(t.m5bLearnedWrongA11y, { line })}
+          {...(busy ? { disabled: true } : {})}
+          onPress={busy ? undefined : () => onWrong(item.id)}
+          scaleTo={0.97}
+          hitSlop={8}
+          style={{ minHeight: 44, justifyContent: 'center', paddingVertical: 6 }}
+        >
+          <Txt size={14} color={busy ? p.mu : p.acd}>{t.m5bLearnedWrong}</Txt>
+        </Btn>
       </View>;
     }) : null}
   </View>;

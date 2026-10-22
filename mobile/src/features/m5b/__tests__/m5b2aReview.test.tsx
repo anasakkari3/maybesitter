@@ -632,4 +632,46 @@ describe('M5b-2a inspection fixes', () => {
     await fireEvent.press(screen.getByTestId('w-accept'));
     await waitFor(() => expect(reads).toBeGreaterThan(before));
   });
+
+  it.each([
+    ['statement analysis', 'analyze', 'POST', /^\/api\/mobile\/intelligence$/],
+    ['observation review', 'observe', 'POST', /^\/api\/mobile\/intelligence\/observations\/p1$/],
+  ] as [string, string, string, RegExp][])('R14-001: a panel %s started for account A is not sent once account B is signed in', async (_label, what, method, path) => {
+    const pending = outcome('p1', 'completed', undefined, { kind: 'preference', source: 'manual', review: 'pending', reviewedAt: null, outcome: undefined });
+    harness = await prepare('en', initialState(), panelHandler({ observations: [pending] }));
+    await showPanel(harness);
+    await waitFor(() => expect(screen.queryByTestId('intelligence-observation-p1')).not.toBeNull());
+    if (what === 'analyze') {
+      await fireEvent.changeText(screen.getByTestId('intelligence-statement'), 'I want more time to read');
+      await fireEvent.press(screen.getByTestId('intelligence-analyze'));
+    }
+    const repository = harness.repository as unknown as { getIdToken: (force?: boolean) => Promise<string | null>; currentUser: () => unknown };
+    const realToken = repository.getIdToken.bind(repository);
+    const held: (() => Promise<void>)[] = [];
+    jest.spyOn(repository, 'getIdToken').mockImplementation((force?: boolean) => {
+      const token = deferred<string | null>();
+      held.push(async () => { token.resolve(await realToken(force)); });
+      return token.promise;
+    });
+    if (what === 'analyze') await fireEvent.press(screen.getByTestId('intelligence-analyze-confirm'));
+    else await fireEvent.press(within(screen.getByTestId('intelligence-observation-p1')).getByText("Yes, that's right"));
+    await waitFor(() => expect(held.length).toBeGreaterThan(0));
+    jest.spyOn(repository, 'currentUser').mockReturnValue(ACCOUNT_B);
+    await act(async () => { for (const release of held) await release(); await jest.advanceTimersByTimeAsync(100); });
+    expect(harness.server.matching(method, path)).toHaveLength(0);
+  });
+
+  it('R14-002: an accept refused because the plan changed says so on the plan screen', async () => {
+    harness = await prepare('en', initialState(), (request) => {
+      if (request.method === 'GET' && request.path === `/api/mobile/plans/${TODAY}`) return { status: 200, body: planEnvelope(planWithBasis()) };
+      if (request.method === 'POST' && request.path === `/api/mobile/plans/${TODAY}/actions`) {
+        return { status: 409, body: { success: false, error: 'the plan changed; read it again', reason: 'plan_changed' } };
+      }
+      return undefined;
+    });
+    await render(<Providers harness={harness}><PlanScreen date={TODAY} onBack={() => undefined} /></Providers>);
+    await waitFor(() => expect(screen.queryByTestId('plan-accept')).not.toBeNull());
+    await fireEvent.press(screen.getByTestId('plan-accept'));
+    await waitFor(() => expect(screen.queryByTestId('plan-accept-error')).not.toBeNull());
+  });
 });

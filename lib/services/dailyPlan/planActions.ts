@@ -80,7 +80,8 @@ import { readBusyBlocksForPlanning } from '../../calendar/busyBlocks';
 import { buildDailyPlanInput, dayHorizon } from './buildDailyPlan';
 import { loadDomainState } from '../mobile/participantState';
 import type { Commitment } from '../../../src/domain/stateMachine';
-import { composeDailyPlan, composedPlanPurgeEpoch, personalizationPurgeMatches, type DailyPlanDeps } from './dailyPlanService';
+import { composeDailyPlan, composedPlanPurgeEpoch, memoryFocusForPlan, personalizationPurgeMatches, type DailyPlanDeps } from './dailyPlanService';
+import { planUsedWindow } from './planMemoryBasis';
 import { resolveMemoryLearning } from '../../release/m5bCapabilities';
 
 export type PlanEditReason =
@@ -255,6 +256,15 @@ export async function acceptPlan(uid: string, date: string, options: PlanActionO
   const at = clockOf(options).toISOString();
   let empty = false;
   let fenced = false;
+  // The memory the person allows now, read only for a plan that recorded
+  // memory use (M5B2A-R14-002): a plan solved under an earlier fence that
+  // still stands on exactly this window is the plan they would get again, so
+  // its acceptance takes the current fence instead of being refused for good.
+  // Its epoch was taken before the read, and is checked again inside.
+  const before = await readStoredPlan(uid, date, options.storage);
+  const authorized = before && (before.memoryUse || before.focusFromMemory === true)
+    ? await memoryFocusForPlan(uid, at, { ...(options.storage ? { storage: options.storage } : {}) })
+    : null;
   const outcome = await mutateStoredPlan<null>(uid, date, async (current, tx) => {
     empty = false;
     fenced = false;
@@ -271,17 +281,29 @@ export async function acceptPlan(uid: string, date: string, options: PlanActionO
     // are one transaction.
     const memoryEpoch = current.memoryUse?.epoch
       ?? (current.focusFromMemory === true ? current.personalizationPurgeEpoch ?? options.personalizationPurgeEpoch : undefined);
-    if (memoryEpoch !== undefined
-      && !personalizationPurgeMatches(await tx.get(userDoc(uid)), memoryEpoch)) {
-      fenced = true;
-      return null;
+    let rebased: Partial<StoredDailyPlan> = {};
+    if (memoryEpoch !== undefined) {
+      const user = await tx.get(userDoc(uid));
+      if (!personalizationPurgeMatches(user, memoryEpoch)) {
+        const stillAuthorized = authorized !== null
+          && personalizationPurgeMatches(user, authorized.purgeEpoch)
+          && planUsedWindow(current, authorized.window);
+        if (!stillAuthorized) {
+          fenced = true;
+          return null;
+        }
+        rebased = {
+          ...(current.memoryUse ? { memoryUse: { epoch: authorized!.purgeEpoch } } : {}),
+          ...(current.personalizationPurgeEpoch !== undefined ? { personalizationPurgeEpoch: authorized!.purgeEpoch } : {}),
+        };
+      }
     }
     return {
       // `proposal: null` in the same transaction, assigned and not omitted —
       // see `clearsProposal` above. Accepting *the plan* is a statement about
       // the plan the user is looking at; a patch of it that was solved before
       // they pressed the button is not part of what they accepted.
-      next: { ...current, status: 'accepted', acceptedAt: at, updatedAt: at, proposal: null },
+      next: { ...current, ...rebased, status: 'accepted', acceptedAt: at, updatedAt: at, proposal: null },
       result: null,
     };
   }, options.storage);
