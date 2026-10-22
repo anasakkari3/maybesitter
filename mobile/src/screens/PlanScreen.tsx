@@ -15,6 +15,7 @@ import { useIsOnline } from '../api/ui/OfflineBanner';
 import {
   useAnalyticsConsent,
   useBuildPlan,
+  useMemoryOpen,
   usePlan,
   usePlanAction,
   usePlanEdit,
@@ -300,6 +301,8 @@ function LoadedPlan({ plan, date, readOnly }: { plan: DailyPlan; date: string; r
   const m5bOn = useM5bOn();
   // At the cap, a plan whose reading changed says it stays as it is, and the
   // rebuild it can no longer have is not drawn (M5B-010).
+  // The memory the line would name must be one the person can open (M5B2A-R2-002).
+  const memoryOpen = useMemoryOpen(m5bOn === true && plan.memoryBasis != null);
   const rebuildHidden = (m5bOn === true && plan.basisChanged === true && capReached)
     // …and so does one whose remembered basis changed (M5b-2a R2).
     || (m5bOn === true && plan.memoryBasisChanged === true && capReached);
@@ -368,7 +371,7 @@ function LoadedPlan({ plan, date, readOnly }: { plan: DailyPlan; date: string; r
           person wrote is shown here. Only while M5b is known to be on: a
           cached on-mode plan says nothing once the switch is off or unknown
           (M5B2A-REV-001). */}
-      {m5bOn === true && plan.memoryBasis ? (
+      {m5bOn === true && memoryOpen && plan.memoryBasis ? (
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8, paddingHorizontal: 4 }}>
           <Txt size={14} color={p.mu} lh={1.5} style={{ flexShrink: 1 }} testID="m5b-plan-memory-basis">
             {fill(t.m5bPlanFocusBasis, { range: formatClockRange(plan.memoryBasis.window.start, plan.memoryBasis.window.end) })}

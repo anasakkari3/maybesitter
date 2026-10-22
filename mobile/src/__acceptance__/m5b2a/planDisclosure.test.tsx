@@ -79,7 +79,9 @@ async function loadedRoot(memoryExists: boolean) {
 describe('M5b-2a R2 plan disclosure', () => {
   it('R2 shows the memory basis window as one LTR clock range and an accessible correction action', async () => {
     await loadedPlan();
-    const line = screen.getByTestId('m5b-plan-memory-basis');
+    // GA-M5B2A-AMEND-6 (Claude): the line also waits for Memory to answer as
+    // openable (M5B2A-R2-002), so it is awaited, not read at once.
+    const line = await screen.findByTestId('m5b-plan-memory-basis');
 
     expect(textOf(line.props.children)).toContain(formatClockRange(BASIS_WINDOW.start, BASIS_WINDOW.end));
     expect(screen.getByTestId('m5b-plan-memory-basis-fix').props.accessibilityRole).toBe('button');

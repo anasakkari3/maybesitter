@@ -948,8 +948,22 @@ function stampPlan<T>(plan: T, startedAt: number): T {
   return plan;
 }
 
-/** The request-start numbers of plan requests still on their way. */
-const plansInFlight = new Set<number>();
+/** The request-start numbers of plan requests still on their way, per client and account (M5B2A-R2-003). */
+const plansInFlightByClient = new WeakMap<QueryClient, Map<string, Set<number>>>();
+
+function plansInFlight(client: QueryClient, uid: string): Set<number> {
+  let byUid = plansInFlightByClient.get(client);
+  if (!byUid) {
+    byUid = new Map();
+    plansInFlightByClient.set(client, byUid);
+  }
+  let set = byUid.get(uid);
+  if (!set) {
+    set = new Set();
+    byUid.set(uid, set);
+  }
+  return set;
+}
 
 /** One correction: the memory it touches (or every one), and when it succeeded. */
 interface BasisCorrection {
@@ -999,7 +1013,7 @@ export function resetBasisCorrections(client: QueryClient): void {
 function pruneCorrections(client: QueryClient, uid: string): void {
   const list = correctionsOf(client, uid);
   if (list.length === 0) return;
-  const starts: number[] = [...plansInFlight];
+  const starts: number[] = Array.from(plansInFlight(client, uid));
   for (const query of client.getQueryCache().findAll({ queryKey: ['user', uid, 'plan'] })) {
     const data = query.state.data;
     if (data && typeof data === 'object') starts.push(planStarts.get(data as object) ?? 0);
@@ -1054,11 +1068,11 @@ export function usePlan(date: string) {
     queryKey: queryKeys.plan(uid, date),
     queryFn: async () => {
       const startedAt = nextPlanSequence();
-      plansInFlight.add(startedAt);
+      plansInFlight(client, uid).add(startedAt);
       try {
         return stampPlan(await getPlan(date), startedAt);
       } finally {
-        plansInFlight.delete(startedAt);
+        plansInFlight(client, uid).delete(startedAt);
         // After the cache holds this answer (cleanup only; never needed to hide).
         setTimeout(() => pruneCorrections(client, uid), 0);
       }
@@ -1072,13 +1086,13 @@ export function usePlan(date: string) {
 }
 
 /** A plan request, numbered when it starts (M5b-2a). */
-async function numberedPlan<T extends { date: string }>(request: () => Promise<T>): Promise<T> {
+async function numberedPlan<T extends { date: string }>(client: QueryClient, uid: string, request: () => Promise<T>): Promise<T> {
   const startedAt = nextPlanSequence();
-  plansInFlight.add(startedAt);
+  plansInFlight(client, uid).add(startedAt);
   try {
     return stampPlan(await request(), startedAt);
   } finally {
-    plansInFlight.delete(startedAt);
+    plansInFlight(client, uid).delete(startedAt);
   }
 }
 
@@ -1121,7 +1135,7 @@ export function usePlanAction(date: string) {
   const client = useQueryClient();
   const uid = useUid();
   return useMutation({
-    mutationFn: (variables: PlanActionVariables) => numberedPlan(() => actOnPlan(date, typeof variables === 'string' ? { action: variables } : variables)),
+    mutationFn: (variables: PlanActionVariables) => numberedPlan(client, uid, () => actOnPlan(date, typeof variables === 'string' ? { action: variables } : variables)),
     onSuccess: plan => adoptPlan(client, uid, date, plan),
     // A refused offer (#611) means the offer on screen is not the one the
     // server holds: the day moved, a newer offer replaced it, or it is gone.
@@ -1150,7 +1164,7 @@ export function usePlanEdit(date: string) {
   const client = useQueryClient();
   const uid = useUid();
   return useMutation({
-    mutationFn: (edit: PlanEdit) => numberedPlan(() => actOnPlan(date, { action: 'edit', ...edit })),
+    mutationFn: (edit: PlanEdit) => numberedPlan(client, uid, () => actOnPlan(date, { action: 'edit', ...edit })),
     onMutate: async (edit: PlanEdit) => {
       const key = queryKeys.plan(uid, date);
       await client.cancelQueries({ queryKey: key });
@@ -1180,7 +1194,7 @@ export function useBuildPlan(date: string) {
   const client = useQueryClient();
   const uid = useUid();
   return useMutation({
-    mutationFn: (_: void) => numberedPlan(() => buildPlan(date)),
+    mutationFn: (_: void) => numberedPlan(client, uid, () => buildPlan(date)),
     onSuccess: plan => adoptPlan(client, uid, date, plan),
   });
 }
@@ -1196,7 +1210,7 @@ export function useRegeneratePlan(date: string) {
   const client = useQueryClient();
   const uid = useUid();
   return useMutation({
-    mutationFn: (_: void) => numberedPlan(() => regeneratePlan(date)),
+    mutationFn: (_: void) => numberedPlan(client, uid, () => regeneratePlan(date)),
     onSuccess: plan => adoptPlan(client, uid, date, plan),
   });
 }
@@ -1260,13 +1274,13 @@ export function useAcceptWeekDay(decisions: WeekDecisions) {
   return useMutation({
     mutationFn: async ({ date, shown, layoutDigest }: WeekDaySave) => {
       const startedAt = nextPlanSequence();
-      plansInFlight.add(startedAt);
+      plansInFlight(client, uid).add(startedAt);
       try {
         const answer = await acceptWeekDay(date, shown, decisions, layoutDigest);
         stampPlan(answer.plan, startedAt);
         return answer;
       } finally {
-        plansInFlight.delete(startedAt);
+        plansInFlight(client, uid).delete(startedAt);
       }
     },
     onSuccess: ({ plan, week }) => {
@@ -1709,6 +1723,22 @@ export function useMemory() {
     queryKey: queryKeys.memory(uid),
     queryFn: listMemory,
   });
+}
+
+/**
+ * Whether Memory can be opened now (M5B2A-R2-002): a plan may name the memory
+ * it used only while the person can open and correct it. Read through the
+ * memory list itself — a killed memory module answers 404 — and only when a
+ * plan has a basis to show. Unknown or failed is closed.
+ */
+export function useMemoryOpen(enabled: boolean): boolean {
+  const uid = useUid();
+  const query = useQuery({
+    queryKey: queryKeys.memory(uid),
+    queryFn: listMemory,
+    enabled: enabled && uid !== 'signed-out',
+  });
+  return query.status === 'success' && !query.isRefetchError;
 }
 
 /**

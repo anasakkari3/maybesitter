@@ -35,6 +35,7 @@ import {
   type PersonalizationConsentStore,
 } from '../personalizationControls/consentStore';
 import { getStorage, type StorageAdapter } from '../storage';
+import { userDoc } from '../storage/paths';
 import { getConsent, setConsent, type SetConsentInput } from './consentService';
 
 /**
@@ -57,6 +58,18 @@ export interface PersonalizationConsentOptions {
 
 function storeOf(options: PersonalizationConsentOptions): PersonalizationConsentStore {
   return options.consent ?? createStoragePersonalizationConsentStore(options.storage ?? getStorage());
+}
+
+async function advancePersonalizationFence(storage: StorageAdapter, uid: string, at: string): Promise<void> {
+  await storage.runTransaction(async (tx) => {
+    const user = await tx.get<Record<string, unknown>>(userDoc(uid));
+    const prior = user?.personalizationPurge as { state?: unknown; epoch?: unknown } | undefined;
+    if (prior?.state === 'purging') return;
+    const epoch = (Number.isSafeInteger(prior?.epoch) && (prior!.epoch as number) >= 0 ? (prior!.epoch as number) : 0) + 1;
+    const personalizationPurge = { ...(prior ?? {}), state: 'active', epoch, consentWithdrawnAt: at };
+    if (user) tx.merge(userDoc(uid), { personalizationPurge });
+    else tx.set(userDoc(uid), { personalizationPurge });
+  });
 }
 
 export async function setPersonalizationConsent(
@@ -87,6 +100,12 @@ export async function setPersonalizationConsent(
     if (!PERSONALIZATION_CONSENT.isSupportedVersion(input.version)) {
       return setConsent(PERSONALIZATION_CONSENT, uid, { ...input, at }, { storage });
     }
+    // Withdrawal moves the personalization fence (M5B2A-R2-001): a plan that
+    // read the kept focus window before this and writes after it is refused
+    // by the same epoch check a purge uses, and a basis read across it is not
+    // shown. Not while a purge runs: the purge owns the epoch then, and
+    // already fences every write.
+    await advancePersonalizationFence(storage, uid, at.toISOString());
     await store.write(uid, 'disabled', at.toISOString());
     return setConsent(PERSONALIZATION_CONSENT, uid, { ...input, at }, { storage });
   }

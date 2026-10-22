@@ -96,4 +96,17 @@ describe('M5b-2a inspection fixes', () => {
     expect(harness.client.getQueryData(queryKeys.plan(ACCOUNT_A.uid, TODAY))).toBeDefined();
     expect(basisCorrectionCountForTests(harness.client, ACCOUNT_A.uid)).toBe(0);
   });
+
+  it('R2-002: a plan does not name a memory the person cannot open (the memory module answers 404)', async () => {
+    harness = await prepare('en', initialState(), planOnly(planWithBasis(), (request) => (
+      request.method === 'GET' && request.path === '/api/mobile/memory'
+        ? { status: 404, body: { success: false, error: 'not found', reason: 'feature_unavailable' } }
+        : undefined
+    )));
+    await render(<Providers harness={harness}><PlanScreen date={TODAY} onBack={() => undefined} /></Providers>);
+    await waitFor(() => expect(screen.queryByTestId('plan-why')).not.toBeNull());
+    await waitFor(() => expect(harness!.server.matching('GET', /^\/api\/mobile\/memory$/).length).toBeGreaterThan(0));
+    await act(async () => { await jest.advanceTimersByTimeAsync(100); });
+    expect(screen.queryByTestId('m5b-plan-memory-basis')).toBeNull();
+  });
 });

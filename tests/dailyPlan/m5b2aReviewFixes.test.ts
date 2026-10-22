@@ -6,9 +6,11 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createStorageRuntimeMemoryStore } from '../../lib/runtimeMemory/runtimeMemoryStore.ts';
 import { readPlanMemoryProjection } from '../../lib/services/dailyPlan/planMemoryBasis.ts';
+import { composeDailyPlan } from '../../lib/services/dailyPlan/dailyPlanService.ts';
+import { setPersonalizationConsent, PERSONALIZATION_CONSENT_VERSION } from '../../lib/consents/personalizationConsentService.ts';
 import { userDoc } from '../../lib/storage/paths.ts';
 import {
-  NOW, begin, buildPlan, call, currentStorage, end, grantPersonalization, outcomeObservation, show, storedPlan, threeTasks,
+  NOW, TODAY, TZ, begin, buildPlan, call, currentStorage, end, grantPersonalization, outcomeObservation, show, storedPlan, threeTasks,
 } from '../acceptance/m5b2a/support.ts';
 
 test.afterEach(() => end());
@@ -56,4 +58,25 @@ test('REV-007: an outcome whose title spans lines still gets its signal and titl
   assert.equal(inbox.status, 200, show(inbox.body));
   const row = inbox.body.observations.find((item: any) => item.id === multi.id);
   assert.deepEqual(row.outcome, { signal: 'completed', title: 'First line\nsecond line' });
+});
+
+test('R2-001: withdrawing personalization consent moves the fence, so a plan that read the window before it writes no memory marker', async () => {
+  const uid = await keptFocusPlan();
+  const before = ((await currentStorage().get<Record<string, any>>(userDoc(uid))) ?? {}).personalizationPurge?.epoch ?? 0;
+  let fired = false;
+  const stored = await composeDailyPlan(uid, TODAY, { timezone: TZ }, 2, {
+    storage: currentStorage() as any,
+    now: () => new Date(),
+    busyBlocks: async () => {
+      if (!fired) {
+        fired = true;
+        await setPersonalizationConsent(uid, { state: 'declined', version: PERSONALIZATION_CONSENT_VERSION, at: new Date() }, { storage: currentStorage() as any });
+      }
+      return [];
+    },
+  } as any);
+  assert.ok(fired, 'fixture: the busy read never ran');
+  const after = ((await currentStorage().get<Record<string, any>>(userDoc(uid))) ?? {}).personalizationPurge?.epoch ?? 0;
+  assert.equal(after, before + 1, 'the withdrawal did not move the fence');
+  assert.equal((stored as any).focusFromMemory, false, show((stored as any).focusFromMemory));
 });
