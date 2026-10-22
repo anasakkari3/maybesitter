@@ -186,6 +186,10 @@ export interface PersonalizationDeletionInput {
    * being edited.
    */
   readonly storage?: StorageAdapter;
+  /** Run with the receipt while the fence is still closed, before it reopens (R32-003); a throw keeps it closed. */
+  readonly beforeReopen?: (receipt: PersonalizationDeletionReceipt) => Promise<void>;
+  /** How often a running step renews its lease (tests shorten it). */
+  readonly heartbeatMs?: number;
   /** Run once the purge holds the fence, before anything is erased; skipped when the purge is refused. */
   readonly onFenced?: () => Promise<void>;
   /** How long the purge waits behind a live withdrawal (tests shorten it). */
@@ -326,7 +330,16 @@ export async function deletePersonalizationScope(
       tx.merge(userDoc(input.scopeId), { personalizationPurge: { ...fence, purgeLeaseAt: new Date().toISOString() } });
     });
   };
-  const owned = async (step: () => Promise<unknown>): Promise<void> => { await stillOwns(); await step(); };
+  // While a step runs, its lease is kept alive (R32-002): a long sweep is
+  // never taken for a dead purge, so no successor erases beside it. A process
+  // that dies stops beating, and its lease runs out as before.
+  const owned = async (step: () => Promise<unknown>): Promise<void> => {
+    await stillOwns();
+    const beat = setInterval(() => { void stillOwns().catch(() => undefined); }, input.heartbeatMs ?? HEARTBEAT_MS);
+    (beat as { unref?: () => void }).unref?.();
+    try { await step(); } finally { clearInterval(beat); }
+  };
+  let receipt: PersonalizationDeletionReceipt | undefined;
   // A step that fails gives this purge's lease up at once, the fence still
   // closed (M5B2A-R31-002): a retry takes it over instead of waiting out ten
   // minutes behind an operation that has already ended.
@@ -377,6 +390,13 @@ export async function deletePersonalizationScope(
     await owned(() => releaseUnfollowedFixtures(input.scopeId, input.now, { storage }));
     await owned(() => input.runtimeMemory.deleteScope(input.scopeId));
 
+    // The remainders are counted, and the caller's own checks run, while the
+    // fence is still closed (R32-003): a write that lands after the sweep is
+    // refused, or counted — never one that survives a receipt of success.
+    await stillOwns();
+    receipt = await receiptFor(storage, input);
+    if (input.beforeReopen) await owned(() => input.beforeReopen!(receipt!));
+
     await storage.runTransaction(async (tx) => {
       const user = await tx.get<Record<string, unknown>>(userDoc(input.scopeId));
       const current = user?.personalizationPurge as { state?: unknown; epoch?: unknown; purgeOwner?: unknown } | undefined;
@@ -391,7 +411,12 @@ export async function deletePersonalizationScope(
     await abandonPurgeLease(storage, input.scopeId, purgeEpoch, purgeOwner).catch(() => undefined);
     throw error;
   }
+  return receipt!;
+}
 
+const HEARTBEAT_MS = 60_000;
+
+async function receiptFor(storage: StorageAdapter, input: PersonalizationDeletionInput): Promise<PersonalizationDeletionReceipt> {
   return {
     version: PERSONALIZATION_CONTRACT_VERSION,
     schemaVersion: PERSONALIZATION_SCHEMA_VERSION,

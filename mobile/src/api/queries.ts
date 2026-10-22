@@ -1,5 +1,5 @@
 import { useCallback, useRef, useSyncExternalStore } from 'react';
-import { keepPreviousData, useInfiniteQuery, useMutation, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
+import { keepPreviousData, useInfiniteQuery, useMutation, useMutationState, useQuery, useQueryClient, type MutationState, type QueryClient } from '@tanstack/react-query';
 import type { CaptureConfirmation } from './schemas/capture';
 import * as Crypto from 'expo-crypto';
 import { useTimeZone } from '../i18n/timezone';
@@ -2088,7 +2088,7 @@ export function useProfile(options: { enabled?: boolean } = {}) {
   const uid = useUid();
   return useQuery({
     queryKey: queryKeys.profile(uid),
-    queryFn: getProfile,
+    queryFn: ({ signal }) => getProfile({ ...asAccount(uid), signal }),
     enabled: options.enabled ?? true,
   });
 }
@@ -2097,7 +2097,7 @@ export function usePutRoutine() {
   const client = useQueryClient();
   const uid = useUid();
   return useMutation({
-    mutationFn: (profile: RoutineProfilePayload) => putRoutine(profile),
+    mutationFn: (profile: RoutineProfilePayload) => putRoutine(profile, asAccount(uid)),
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: queryKeys.profile(uid) });
       // Saving the survey supersedes the facts derived from it.
@@ -2107,12 +2107,66 @@ export function usePutRoutine() {
   });
 }
 
+/* ── M5B2A-R32-003/004: delete-all, as every memory surface sees it ── */
+
+/**
+ * Memory list answers and memory writes share one counter, taken when a list
+ * request *starts* and when a write is *called*. A list answer's number says
+ * whether its request began after a write — what `dataUpdatedAt`, the moment
+ * the answer arrived, cannot: a read begun before delete-all may land after it
+ * was sent, with the rows it was erasing (M5B2A-R32-004).
+ */
+let memorySequence = 0;
+/** The request-start number of each memory list answer, by the answer object itself. */
+const memoryListStarts = new WeakMap<object, number>();
+
+function nextMemorySequence(): number {
+  memorySequence += 1;
+  return memorySequence;
+}
+
+async function numberedMemoryList<T>(read: () => Promise<T>): Promise<T> {
+  const startedAt = nextMemorySequence();
+  const list = await read();
+  if (list && typeof list === 'object') memoryListStarts.set(list as object, startedAt);
+  return list;
+}
+
+/** Delete-all's mutation key, so every surface can see one on its way, wherever it was pressed (M5B2A-R32-003). */
+const memoryPurgeKey = (uid: string) => [...queryKeys.memory(uid), 'deleteAll'] as const;
+
+/**
+ * Whether the memory on screen is one delete-all may be erasing. True while a
+ * delete-all is on its way, from any screen (M5B2A-R32-003); and after one
+ * whose outcome nobody can be sure of, until a list read that *began after it
+ * was called* has answered (M5B2A-R30-002, R32-004). A definite refusal is
+ * not purging: nothing was erased. `list` is the memory query's data.
+ */
+export function useMemoryPurging(list: unknown): boolean {
+  const uid = useUid();
+  const purges = useMutationState({
+    filters: { mutationKey: memoryPurgeKey(uid) },
+    select: (mutation) => mutation.state as MutationState<unknown, Error, MemoryWrite<void>, unknown>,
+  });
+  if (purges.some(state => state.status === 'pending')) return true;
+  let last: MutationState<unknown, Error, MemoryWrite<void>, unknown> | undefined;
+  for (const state of purges) {
+    if (!last || (state.variables?.calledAt ?? 0) >= (last.variables?.calledAt ?? 0)) last = state;
+  }
+  if (!last || last.status !== 'error' || writeRefused(last.error)) return false;
+  const listStartedAt = list && typeof list === 'object' ? memoryListStarts.get(list) ?? 0 : 0;
+  return listStartedAt <= (last.variables?.calledAt ?? Number.POSITIVE_INFINITY);
+}
+
 /** `fresh`: asked again whenever the screen mounts, even over a fresh cache (M5B2A-R6-003). */
 export function useMemory(options: { fresh?: boolean } = {}) {
   const uid = useUid();
   return useQuery({
     queryKey: queryKeys.memory(uid),
-    queryFn: ({ signal }) => listMemory({ ...asAccount(uid), signal }),
+    queryFn: ({ signal }) => numberedMemoryList(() => listMemory({ ...asAccount(uid), signal })),
+    // A new answer is a new object, so its start number is never lost to a
+    // kept, structurally equal older one (M5B2A-R32-004).
+    structuralSharing: false,
     enabled: uid !== 'signed-out',
     ...(options.fresh ? { refetchOnMount: 'always' as const } : {}),
   });
@@ -2135,7 +2189,8 @@ export function useMemoryOpen(memoryId: string | null | undefined, enabled: bool
   const on = enabled && memoryId != null && uid !== 'signed-out';
   const query = useQuery({
     queryKey: queryKeys.memory(uid),
-    queryFn: ({ signal }) => listMemory({ ...asAccount(uid), signal }),
+    queryFn: ({ signal }) => numberedMemoryList(() => listMemory({ ...asAccount(uid), signal })),
+    structuralSharing: false,
     enabled: on,
     refetchOnMount: 'always',
     refetchOnWindowFocus: 'always',
@@ -2174,6 +2229,8 @@ export function useMemorySummary(language: 'ar' | 'en' | 'he', enabled: boolean)
 interface MemoryWrite<TInput> {
   readonly input: TInput;
   readonly correction: BasisCorrection | null;
+  /** The memory counter when the write was called: list reads numbered above it began after it (M5B2A-R32-004). */
+  readonly calledAt: number;
 }
 
 type MemoryMutateOptions<TData, TInput> = {
@@ -2188,10 +2245,13 @@ function useMemoryMutation<TInput, TData = unknown>(
   basisTarget: (input: TInput) => string | null = () => null,
   /** Also on every outcome, refused or not (a memory suggestion: M5B2A-R30-005). */
   onAnySettled?: () => void,
+  /** Lets other surfaces watch this write (delete-all: M5B2A-R32-003). */
+  mutationKey?: readonly unknown[],
 ) {
   const client = useQueryClient();
   const uid = useUid();
   const base = useMutation({
+    ...(mutationKey ? { mutationKey } : {}),
     mutationFn: (write: MemoryWrite<TInput>) => mutationFn(write.input),
     onError: (error, write) => {
       if (write.correction) settleCorrection(client, uid, write.correction, error);
@@ -2214,7 +2274,7 @@ function useMemoryMutation<TInput, TData = unknown>(
   // after the call must not commit one frame of the old basis (M5B2A-R4-003).
   const begin = (input: TInput): MemoryWrite<TInput> => {
     const target = basisTarget(input);
-    return { input, correction: target === null ? null : addCorrection(client, uid, target) };
+    return { input, correction: target === null ? null : addCorrection(client, uid, target), calledAt: nextMemorySequence() };
   };
   const relay = (options?: MemoryMutateOptions<TData, TInput>) => {
     if (!options) return undefined;
@@ -2236,8 +2296,9 @@ function useMemoryMutation<TInput, TData = unknown>(
 }
 
 export function useCreateMemory() {
+  const uid = useUid();
   return useMemoryMutation((input: { kind: 'fact' | 'preference' | 'goal'; content: string; language: 'ar' | 'he' | 'en' | 'mixed' }) =>
-    createMemory(input));
+    createMemory(input, asAccount(uid)));
 }
 
 export function usePatchMemory() {
@@ -2254,7 +2315,7 @@ export function useDeleteMemory() {
 export function useDeleteAllMemory() {
   const client = useQueryClient();
   const uid = useUid();
-  const base = useMemoryMutation((_: void) => deleteAllMemory(asAccount(uid)), () => 'all');
+  const base = useMemoryMutation((_: void) => deleteAllMemory(asAccount(uid)), () => 'all', undefined, memoryPurgeKey(uid));
   // A delete-all that succeeded empties the list at once (M5B2A-R30-002): the
   // re-read may be slow, paused or fail, and the erased rows must not come
   // back from the old cache meanwhile.
@@ -2328,8 +2389,9 @@ export function useCommitmentSearch(foldedQuery: string, rawQuery: string, enabl
 }
 
 export function useDescribeProfile() {
+  const uid = useUid();
   return useMutation({
-    mutationFn: (text: string) => describeProfile(text, apiLocale()),
+    mutationFn: (text: string) => describeProfile(text, apiLocale(), asAccount(uid)),
   });
 }
 
@@ -2338,9 +2400,10 @@ export function useDescribeProfile() {
  * against a daily cap of three, and the user can press the button again.
  */
 export function useImportAiContext() {
+  const uid = useUid();
   return useMutation({
     mutationFn: (input: { text: string; assistant: ImportAssistant }) =>
-      importAiContext(input.text, input.assistant, apiLocale()),
+      importAiContext(input.text, input.assistant, apiLocale(), asAccount(uid)),
     retry: false,
   });
 }
@@ -2352,7 +2415,7 @@ export function useConfirmAiContextImport() {
     mutationFn: (input: {
       proposalId: string;
       accepted: { index: number; content?: string; resolve?: 'replace' | 'keep_both' }[];
-    }) => confirmAiContextImport(input.proposalId, input.accepted),
+    }) => confirmAiContextImport(input.proposalId, input.accepted, asAccount(uid)),
     onSuccess: () => {
       // Two things went stale: the kept rows are memory now, and the Settings
       // row that says when context was last brought over lives on the profile.
@@ -2367,7 +2430,7 @@ export function useConfirmProfileSuggestions() {
   const uid = useUid();
   return useMutation({
     mutationFn: (input: { proposalId: string; accepted: { index: number; content?: string }[] }) =>
-      confirmProfileSuggestions(input.proposalId, input.accepted),
+      confirmProfileSuggestions(input.proposalId, input.accepted, asAccount(uid)),
     onSuccess: () => {
       // The confirmed facts are memory now, so the "what it knows" screen is
       // out of date the moment this returns.

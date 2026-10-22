@@ -1328,6 +1328,53 @@ test('R31-002: a purge whose step fails gives its lease up, so a retry takes ove
   assert.equal(((await storage.get(userDoc(uid))) ?? {}).personalizationPurge?.state, 'active');
 });
 
+test('R32-002: a long purge step keeps its lease alive, so no successor takes over while it is still erasing', async () => {
+  const uid = await keptFocusPlan();
+  const storage = currentStorage() as any;
+  const { deletePersonalizationScope } = await import('../../lib/personalization/deletion.ts');
+  const { createStorageFeedbackEventStore } = await import('../../lib/feedback/feedbackEventStore.ts');
+  const memory = createStorageRuntimeMemoryStore(undefined, storage);
+  let successor: unknown = 'not tried';
+  await deletePersonalizationScope({
+    scopeId: uid, now: new Date().toISOString(), storage, heartbeatMs: 5,
+    feedbackEvents: createStorageFeedbackEventStore(storage),
+    runtimeMemory: { ...memory, listAll: memory.listAll.bind(memory), deleteScope: async (scopeId: string) => {
+      // The sweep "has run for an hour": its lease looks stale…
+      const fence = ((await storage.get(userDoc(uid))) ?? {}).personalizationPurge;
+      await setFence(storage, uid, { ...fence, purgeLeaseAt: new Date(Date.now() - 3_600_000).toISOString() });
+      // …but it is still working, and its heartbeat renews the lease.
+      await new Promise((resolve) => setTimeout(resolve, 40));
+      successor = await purgeFor(uid, storage, new Date().toISOString(), { attempts: 1, delayMs: 1 }).then(() => 'took over', (error) => error);
+      return memory.deleteScope(scopeId);
+    } } as any,
+  } as any);
+  assert.ok(successor instanceof PersonalizationWithdrawalBusyError, `a successor took over a purge still erasing: ${String(successor)}`);
+});
+
+test('R32-003: the purge keeps the fence closed while its caller verifies, and manual memory writes are refused meanwhile', async () => {
+  const uid = await keptFocusPlan();
+  const storage = currentStorage() as any;
+  const { createManualMemory } = await import('../../lib/services/mobile/memoryService.ts');
+  const { MemoryWriteRefusedError } = await import('../../lib/runtimeMemory/runtimeMemoryStore.ts');
+  let stateDuringVerify: unknown;
+  let refused: unknown;
+  const { deletePersonalizationScope } = await import('../../lib/personalization/deletion.ts');
+  const { createStorageFeedbackEventStore } = await import('../../lib/feedback/feedbackEventStore.ts');
+  await deletePersonalizationScope({
+    scopeId: uid, now: new Date().toISOString(), storage,
+    feedbackEvents: createStorageFeedbackEventStore(storage),
+    runtimeMemory: createStorageRuntimeMemoryStore(undefined, storage),
+    beforeReopen: async () => {
+      stateDuringVerify = ((await storage.get(userDoc(uid))) ?? {}).personalizationPurge?.state;
+      refused = await createManualMemory(uid, { kind: 'fact', content: 'I cook on Fridays', language: 'en' } as any, new Date().toISOString(), { storage } as any)
+        .then(() => 'written', (error) => error);
+    },
+  } as any);
+  assert.equal(stateDuringVerify, 'purging', 'the fence reopened before the caller verified');
+  assert.ok(refused instanceof MemoryWriteRefusedError, `a manual memory was written during the purge: ${String(refused)}`);
+  assert.equal((await createStorageRuntimeMemoryStore(undefined, storage).listAll(uid)).length, 0);
+});
+
 test('R20-004: a fresh run never answers a suggestion whose outcome was dismissed right after the commit', async () => {
   const uid = await begin();
   await grantRecommendations(uid);

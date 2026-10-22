@@ -395,7 +395,7 @@ export class StorageRuntimeMemoryStore implements RuntimeMemoryStore {
   }
 
   /** A reviewed suggestion has one stable memory id across retries and devices. */
-  async putIdempotent(input: CreateMemoryInput, now: string, key: string): Promise<RuntimeMemoryRecord> {
+  async putIdempotent(input: CreateMemoryInput, now: string, key: string, guard?: MemoryWriteGuard): Promise<RuntimeMemoryRecord> {
     assertTimestamp(now, 'now');
     assertValidInput(input);
     if (!key || key.length > 200) fail('idempotency key is invalid');
@@ -404,6 +404,7 @@ export class StorageRuntimeMemoryStore implements RuntimeMemoryStore {
     return this.storage.runTransaction(async tx => {
       const existing = await tx.get<RuntimeMemoryRecord>(recordPath(input.scopeId, id));
       if (existing) return freezeRecord(existing);
+      if (guard && !guard.accepts(await tx.get(userDoc(userIdForKey(input.scopeId))))) throw new MemoryWriteRefusedError();
       tx.create(recordPath(input.scopeId, id), record);
       return record;
     });
