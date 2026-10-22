@@ -298,6 +298,8 @@ export function CaptureScreen({ entryQuestion }: { entryQuestion?: { entry: Capt
   const [sentAt, setSentAt] = useState<Date | null>(null);
   const [answering, setAnswering] = useState(false);
   const [skipped, setSkipped] = useState<string[]>([]);
+  // The question's heading: where a screen reader is taken after «هيك صح» (#752).
+  const clarifyQuestion = useRef<View>(null);
   const [clarifyError, setClarifyError] = useState<{ itemId: string; key: UserFacingKey } | null>(null);
   const [clipboard, setClipboard] = useState<ClipboardImport | null>(null);
   const [voiceEpoch, setVoiceEpoch] = useState(0);
@@ -588,7 +590,7 @@ export function CaptureScreen({ entryQuestion }: { entryQuestion?: { entry: Capt
 
   // The one question's quick replies sit under the reply that asks it, above
   // the cards (Stitch 03b); answering is still `/capture/clarify`.
-  const clarification = reviewing && asking ? <ClarifySheet key={asking.itemId} item={asking} position={unclarified.length - waiting.length + 1}
+  const clarification = reviewing && asking ? <ClarifySheet key={asking.itemId} item={asking} position={unclarified.length - waiting.length + 1} questionRef={clarifyQuestion}
     total={unclarified.length} busy={answering || flow.writing} error={clarifyError?.itemId === asking.itemId ? t[clarifyError.key] : null}
     onAnswer={value => { void answer(asking.itemId, value); }} onSkip={() => {
       const noTime = asking.clarification?.options.find(option => !option.value.localTime && !option.value.localDate);
@@ -804,7 +806,7 @@ export function CaptureScreen({ entryQuestion }: { entryQuestion?: { entry: Capt
         quickActions={reviewing || state.text.trim() || state.turns.length > 0 || state.earlier.length > 0 || state.status === 'analyzing' ? []
           : COMPOSER_EXAMPLE_KEYS.map(key => ({ id: `example-${key}`, label: exampleText(key, t) }))}
         onQuickAction={quickAction} rtl={rtl} safeBottom={insets.bottom} keyboardShown={keyboardShown} mode={mode} listening={voiceStatus === 'listening'}
-        bodyOverride={bodyOverride} bodyKey={overlayKey} clarification={clarification} reviewExtras={afterChat} reviewFooter={reviewFooter} languageControl={language}
+        bodyOverride={bodyOverride} bodyKey={overlayKey} clarification={clarification} clarificationFocus={() => clarifyQuestion.current} reviewExtras={afterChat} reviewFooter={reviewFooter} languageControl={language}
         onCancelListening={cancelDictation}
         // After a save the field is NOT focused (audit 2026-10-03 #8): the
         // keyboard it raised hid the line saying what was saved. The person
