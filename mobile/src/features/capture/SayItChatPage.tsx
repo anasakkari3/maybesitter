@@ -7,6 +7,7 @@ import Svg, { Circle, Path, Rect } from 'react-native-svg';
 import { textAlignment } from '../../ui/primitives';
 import { Rings } from '../../ui/motion';
 import { focusForAccessibility } from '../../ui/accessibilityFocus';
+import { LiveRegion } from '../../ui/liveRegion';
 
 /** An independent native presentation. The host owns all messages, proposals,
  * permissions, keyboard avoidance, localization, and every state change.
@@ -323,40 +324,91 @@ export function SayItChatPage({
   // kept the typing bubble's «بنفهمها…»), and set in the face its alphabet
   // needs, as the person's own message is — an English reply in the Arabic
   // page is not Naskh's Latin.
-  const message = (value: ChatMessage & Pick<ChatHistoryEntry, 'tone' | 'actions' | 'tail' | 'body'>, testID: string, first = false) => {
-    const paragraphs = value.text.split(/\n\n+/);
+  type Said = ChatMessage & Pick<ChatHistoryEntry, 'tone' | 'actions' | 'tail' | 'body'>;
+  /** What the reply says, as a screen reader hears it: its words, then its next line. */
+  const spoken = (value: Said) => value.tail ? `${value.text}\n\n${value.tail}` : value.text;
+  const bubbleStyle = (value: Said) => [styles.assistantBubble,
+    { backgroundColor: p.sf, borderColor: value.tone === 'saved' ? p.success : p.ln }, expanded && styles.expandedBubble];
+  /** The reply's words, with the save's check before them. */
+  const replyWords = (value: Said, testID: string) => {
     const saved = value.tone === 'saved';
-    return (
-      <View testID={testID} accessible={value.actions == null && value.body == null} accessibilityLabel={value.tail ? `${value.text}\n\n${value.tail}` : value.text}
-        style={[styles.assistantBlock, !first && styles.followup]}>
-        <View style={styles.assistantRow}>
-          {avatar}
-          <View style={[styles.assistantColumn, expanded && styles.expandedColumn]}>
-            <View style={[styles.assistantBubble, { backgroundColor: p.sf, borderColor: saved ? p.success : p.ln }, expanded && styles.expandedBubble]}>
-              <View style={saved ? styles.savedRow : null}>
-                {saved ? <ChatIcon name="checkCircle" size={22} color={p.success} /> : null}
-                <View style={saved ? styles.savedWords : styles.words}>
-                  {paragraphs.map((paragraph, index) => (
-                    <Text key={index} testID={`${testID}-text-${index}`}
-                      style={contentStyle(paragraph, 15, saved && index === 0 ? 'semibold' : 'regular')}>{paragraph}</Text>
-                  ))}
-                </View>
-              </View>
-              {value.body ? <View testID={`${testID}-body`} style={styles.bubbleBody}>{value.body}</View> : null}
-              {value.actions ? <View testID={`${testID}-actions`} style={[styles.bubbleActions, { borderTopColor: p.ln }]}>{value.actions}</View> : null}
-            </View>
-            {value.tail ? <View style={[styles.assistantBubble, styles.tailBubble, { backgroundColor: p.sf, borderColor: p.ln }]}>
-              <Text testID={`${testID}-text-${paragraphs.length}`} style={contentStyle(value.tail, 15)}>{value.tail}</Text>
-            </View> : null}
-          </View>
-        </View>
-        {value.time ? <Text style={[timestampStyle, styles.incomingTime]}>{value.time}</Text> : null}
+    return <>
+      {saved ? <ChatIcon name="checkCircle" size={22} color={p.success} /> : null}
+      <View style={saved ? styles.savedWords : styles.words}>
+        {value.text.split(/\n\n+/).map((paragraph, index) => (
+          <Text key={index} testID={`${testID}-text-${index}`}
+            style={contentStyle(paragraph, 15, saved && index === 0 ? 'semibold' : 'regular')}>{paragraph}</Text>
+        ))}
       </View>
-    );
+    </>;
   };
+  /** Under the words, inside the bubble: the summary (M2a), then the controls. */
+  const replyExtras = (value: Said, testID: string) => <>
+    {value.body ? <View testID={`${testID}-body`} style={styles.bubbleBody}>{value.body}</View> : null}
+    {value.actions ? <View testID={`${testID}-actions`} style={[styles.bubbleActions, { borderTopColor: p.ln }]}>{value.actions}</View> : null}
+  </>;
+  /** The next line, in a bubble of its own; `spokenElsewhere` when the words' element already says it. */
+  const replyTail = (value: Said, testID: string, spokenElsewhere = false) => value.tail
+    ? <View style={[styles.assistantBubble, styles.tailBubble, { backgroundColor: p.sf, borderColor: p.ln }]}
+      {...(spokenElsewhere ? { accessibilityElementsHidden: true, importantForAccessibility: 'no-hide-descendants' as const } : {})}>
+      <Text testID={`${testID}-text-${value.text.split(/\n\n+/).length}`} style={contentStyle(value.tail, 15)}>{value.tail}</Text>
+    </View> : null;
+  const message = (value: Said, testID: string, first = false) => (
+    <View testID={testID} accessible={value.actions == null && value.body == null} accessibilityLabel={spoken(value)}
+      style={[styles.assistantBlock, !first && styles.followup]}>
+      <View style={styles.assistantRow}>
+        {avatar}
+        <View style={[styles.assistantColumn, expanded && styles.expandedColumn]}>
+          <View style={bubbleStyle(value)}>
+            <View style={value.tone === 'saved' ? styles.savedRow : null}>{replyWords(value, testID)}</View>
+            {replyExtras(value, testID)}
+          </View>
+          {replyTail(value, testID)}
+        </View>
+      </View>
+      {value.time ? <Text style={[timestampStyle, styles.incomingTime]}>{value.time}</Text> : null}
+    </View>
+  );
 
   /** The newest turn, when it is the assistant's reply: it is the one announced. */
   const newestReply = !typing && history.length > 0 && history[history.length - 1]!.role === 'assistant' ? history.length - 1 : -1;
+  const reply = newestReply >= 0 ? history[newestReply]! : null;
+  const replyID = reply ? reply.id ?? `chat-turn-assistant-${newestReply}` : '';
+  /*
+   * The newest reply or the typing bubble, in one slot whose views are always
+   * mounted, so the live region inside it is never mounted with its content
+   * (review I1). The region holds only what is said — the typing bubble, or
+   * the reply's words as one element — and the reply's summary and controls
+   * sit beside it in the same bubble: «هيك صح» takes those away, and a change
+   * inside the region would have TalkBack read the reply again over the move
+   * to the question (#780, #752).
+   */
+  const newest = (
+    <View testID={reply ? replyID : undefined} style={typing || reply ? [styles.assistantBlock, styles.followup] : null}>
+      <View style={typing || reply ? styles.assistantRow : null}>
+        {typing || reply ? avatar : null}
+        <View style={typing ? styles.flexShrink : reply ? [styles.assistantColumn, expanded && styles.expandedColumn] : null}>
+          <View style={typing ? [styles.assistantBubble, styles.typingBubble, { backgroundColor: p.sf, borderColor: p.ln }]
+            : reply ? bubbleStyle(reply) : null}>
+            {/* Always mounted: TalkBack hears what changes inside it — the
+                typing bubble while a message is on its way, then the reply's
+                words that replace it (the census in liveRegion.test). */}
+            <LiveRegion testID="chat-live">
+              {/* Keyed apart, so the reply is a view of its own and never the
+                  typing bubble's native view with its label left on it. */}
+              {typing ? <View key="typing" testID="chat-typing" accessible accessibilityLabel={typingLabel}>{typing}</View>
+                : reply ? <View key={`reply-${newestReply}`} testID={`${replyID}-words`} accessible accessibilityLabel={spoken(reply)}
+                  style={reply.tone === 'saved' ? styles.savedRow : null}>{replyWords(reply, replyID)}</View>
+                  : null}
+            </LiveRegion>
+            {reply ? replyExtras(reply, replyID) : null}
+          </View>
+          {reply ? replyTail(reply, replyID, true) : null}
+        </View>
+      </View>
+      {reply?.time ? <Text style={[timestampStyle, styles.incomingTime]}>{reply.time}</Text> : null}
+    </View>
+  );
 
   /** The person's own message: a bubble on the end side, with its time and ✓✓. */
   const mine = (value: ChatMessage, testID: string, textTestID: string) => (
@@ -398,22 +450,7 @@ export function SayItChatPage({
           {history.map((entry, index) => index === newestReply ? null : entry.role === 'user'
             ? <View key={index} style={styles.laterTurn}>{mine(entry, `chat-turn-user-${index}`, `chat-turn-text-${index}`)}</View>
             : <React.Fragment key={index}>{message(entry, entry.id ?? `chat-turn-assistant-${index}`)}</React.Fragment>)}
-          {/* Always mounted, so TalkBack hears what changes inside it: the
-              typing bubble while a message is on its way, then the reply that
-              replaces it (review I1; the census in liveRegion.test). */}
-          <View testID="chat-live" accessibilityLiveRegion="polite">
-            {/* Keyed apart, so the reply is a view of its own and never the
-                typing bubble's native view with its label left on it. */}
-            {typing ? <View key="typing" testID="chat-typing" style={[styles.assistantBlock, styles.followup]}
-              accessible accessibilityLabel={typingLabel}>
-              <View style={styles.assistantRow}>
-                {avatar}
-                <View style={[styles.assistantBubble, styles.typingBubble, { backgroundColor: p.sf, borderColor: p.ln }]}>{typing}</View>
-              </View>
-            </View> : newestReply >= 0
-              ? <React.Fragment key={`reply-${newestReply}`}>{message(history[newestReply]!, history[newestReply]!.id ?? `chat-turn-assistant-${newestReply}`)}</React.Fragment>
-              : null}
-          </View>
+          {newest}
           {/* Remounted per question, so the next question is measured afresh (Q-A1-R4-002). */}
           {clarification ? <View key={`clarification-${revealConfirmKey ?? 'none'}`} testID="chat-clarification" onLayout={(event) => {
             const { y, height } = event.nativeEvent.layout;

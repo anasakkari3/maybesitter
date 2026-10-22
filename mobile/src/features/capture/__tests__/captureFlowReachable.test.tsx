@@ -150,8 +150,9 @@ async function enterCapture() {
  * What the chat's n-th saved line says (owner request 2026-09-30: a save
  * keeps the person in the chat), its paragraphs joined, isolates removed.
  */
+/** Every paragraph on screen; the invitation's bubble is hidden from a screen reader (its words' element says it), not from sight. */
 function savedLine(n = 1): string {
-  return screen.queryAllByTestId(new RegExp(`^chat-saved-${n}-text-\\d+$`))
+  return screen.queryAllByTestId(new RegExp(`^chat-saved-${n}-text-\\d+$`), { includeHiddenElements: true })
     .map((node) => stripIsolates([node.props.children].flat().join(''))).join('\n\n');
 }
 

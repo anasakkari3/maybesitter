@@ -438,7 +438,8 @@ describe('starting over, and failures', () => {
  */
 describe('after a save, the chat stays open for the next one', () => {
   /** The saved line's words, its paragraphs joined, isolates removed. */
-  const savedLine = (n = 1): string => screen.queryAllByTestId(new RegExp(`^chat-saved-${n}-text-\\d+$`))
+  // The invitation's bubble is hidden from a screen reader (the words' element says it), not from sight.
+  const savedLine = (n = 1): string => screen.queryAllByTestId(new RegExp(`^chat-saved-${n}-text-\\d+$`), { includeHiddenElements: true })
     .map((node) => stripIsolates([node.props.children].flat().join(''))).join('\n\n');
 
   async function saveOne() {
