@@ -389,6 +389,42 @@ test('M5B2A-R8-002 (Claude): a withdrawal between the week store and its accepta
   assert.equal(await real.get(planPath(uid, TOMORROW)), null, 'the memory-shaped plan was left behind');
 });
 
+test('M5B2A-R15-002 (Claude): a withdrawal and quick re-grant between the week store and its acceptance still answers week_changed and leaves no plan', async () => {
+  const { uid, body } = await weekAccount();
+  const real = currentStorage() as any;
+  let fired = false;
+  const storage = new Proxy(real, {
+    get(target, key) {
+      if (key === 'runTransaction') {
+        return async (fn: (tx: any) => Promise<unknown>) => {
+          let createsPlan = false;
+          const result = await target.runTransaction((tx: any) => fn(new Proxy(tx, {
+            get(t, k) {
+              const v = Reflect.get(t, k);
+              if ((k === 'set' || k === 'create') && typeof v === 'function') {
+                return (path: string, ...rest: unknown[]) => { if (path === planPath(uid, TOMORROW)) createsPlan = true; return v.call(t, path, ...rest); };
+              }
+              return typeof v === 'function' ? v.bind(t) : v;
+            },
+          })));
+          if (createsPlan && !fired) {
+            fired = true;
+            await setPersonalizationConsent(uid, { state: 'declined', version: PERSONALIZATION_CONSENT_VERSION, at: new Date() }, { storage: real });
+            await grantPersonalization(uid);
+          }
+          return result;
+        };
+      }
+      const value = Reflect.get(target, key);
+      return typeof value === 'function' ? value.bind(target) : value;
+    },
+  });
+  const outcome = await acceptWeekDay(uid, TOMORROW, { moves: (body as any).moves, drops: (body as any).drops }, (body as any).shown, { storage, now: () => new Date() } as any, (body as any).layoutDigest);
+  assert.ok(fired, 'fixture: the plan document was never created');
+  assert.equal(outcome.outcome, 'week_changed');
+  assert.equal(await real.get(planPath(uid, TOMORROW)), null, 'the reviewed card was rebased instead of expiring');
+});
+
 test('M5B2A-R3-001 (Claude): the layout digest binds the solve\'s memory provenance, and is unchanged without one', () => {
   const plan = { scheduled: [{ itemId: 'a', interval: { startsAt: at(TOMORROW, '09:00'), endsAt: at(TOMORROW, '10:00') } }] } as any;
   const legacy = weekDayLayoutDigest(TOMORROW, plan);

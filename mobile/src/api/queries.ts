@@ -1345,6 +1345,8 @@ async function numberedPlan<T extends { date: string }>(client: QueryClient, uid
     return stampPlan(await request(), inFlight.startedAt);
   } finally {
     inFlight.end();
+    // It may have been the last thing holding a succeeded correction (M5B2A-R15-003).
+    setTimeout(() => pruneCorrections(client, uid), 0);
   }
 }
 
@@ -1534,6 +1536,7 @@ export function useAcceptWeekDay(decisions: WeekDecisions) {
         return answer;
       } finally {
         request.end();
+        setTimeout(() => pruneCorrections(client, uid), 0);
       }
     },
     onSuccess: ({ plan, week }) => {

@@ -747,6 +747,7 @@ export async function acceptWeekDay(
     accepted = await acceptPlan(uid, date, {
       storage,
       ...(deps.now ? { now: deps.now } : {}),
+      strictMemoryEpoch: true,
       // The fence the reviewed solve was made under, checked again as the
       // acceptance commits (M5B2A-R8-002).
       ...(solved?.focusFromMemory === true && solved.personalizationPurgeEpoch !== undefined

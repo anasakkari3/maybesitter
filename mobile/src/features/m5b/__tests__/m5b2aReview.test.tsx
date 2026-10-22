@@ -674,4 +674,24 @@ describe('M5b-2a inspection fixes', () => {
     await fireEvent.press(screen.getByTestId('plan-accept'));
     await waitFor(() => expect(screen.queryByTestId('plan-accept-error')).not.toBeNull());
   });
+
+  it('R15-003: a correction held only by a plan action that then fails is dropped when that action ends', async () => {
+    const held = deferred<RouteReply>();
+    harness = await prepare('en', initialState(), (request) => {
+      if (request.method === 'POST' && request.path === `/api/mobile/plans/${TODAY}/actions`) return held.promise;
+      return undefined;
+    });
+    // No plan cached or read: only the action is on its way.
+    await render(<Providers harness={harness}><Writes /></Providers>);
+    await act(async () => { await jest.advanceTimersByTimeAsync(100); });
+    await fireEvent.press(screen.getByTestId('w-accept'));
+    await waitFor(() => expect(harness!.server.matching('POST', new RegExp(`^/api/mobile/plans/${TODAY}/actions$`))).toHaveLength(1));
+    await fireEvent.press(screen.getByTestId('gate-patch'));
+    await waitFor(() => expect(harness!.server.matching('PATCH', new RegExp(`^/api/mobile/memory/${BASIS_ID}$`))).toHaveLength(1));
+    await act(async () => { await jest.advanceTimersByTimeAsync(100); });
+    // The older action still on its way holds the succeeded correction.
+    expect(basisCorrectionCountForTests(harness.client, ACCOUNT_A.uid)).toBe(1);
+    await act(async () => { held.resolve({ status: 500, body: { success: false, error: 'boom' } }); await jest.advanceTimersByTimeAsync(100); });
+    expect(basisCorrectionCountForTests(harness.client, ACCOUNT_A.uid)).toBe(0);
+  });
 });

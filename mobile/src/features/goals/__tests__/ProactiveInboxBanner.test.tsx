@@ -108,3 +108,22 @@ it('switching back to Today reads what is waiting instead of asking again', asyn
   expect(mockGenerate).toHaveBeenCalledTimes(1);
   expect(mockInbox).toHaveBeenCalledTimes(2);
 });
+
+it("M5B2A-R15-001: an account switch takes the previous account's suggestion away at once, and each read is bound to its account", async () => {
+  mockGenerate.mockResolvedValue({ success: true, schedule: [], suggestions: [suggestion('a1', 'Account A private plan')] });
+  const repository = createFakeAuthRepository({ initialUser: USER });
+  setAuthRepository(repository);
+  await render(<SafeAreaProvider initialMetrics={metrics}><AppProvider><AuthProvider repository={repository} isDevBundle={false}>
+    <ProactiveInboxBanner />
+  </AuthProvider></AppProvider></SafeAreaProvider>);
+  await waitFor(() => expect(screen.queryByText(/Account A private plan/)).not.toBeNull());
+  expect(mockGenerate.mock.calls[0]![0]).toMatchObject({ visit: true, asUid: 'banner-user' });
+  // B's own reads fail (offline): A's suggestion must not stay on B's screen.
+  mockGenerate.mockRejectedValue(new Error('offline'));
+  mockInbox.mockRejectedValue(new Error('offline'));
+  await act(async () => { repository.emit({ ...USER, uid: 'banner-user-b' }); });
+  await settle();
+  expect(screen.queryByText(/Account A private plan/)).toBeNull();
+  const lastCall = (mockGenerate.mock.calls.at(-1) ?? mockInbox.mock.calls.at(-1))!;
+  expect(lastCall[0]).toMatchObject({ asUid: 'banner-user-b' });
+});

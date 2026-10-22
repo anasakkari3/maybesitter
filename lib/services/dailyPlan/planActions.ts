@@ -233,6 +233,12 @@ export interface PlanActionOptions {
    * fence has moved (M5B2A-R8-002).
    */
   personalizationPurgeEpoch?: number;
+  /**
+   * `acceptPlan` only: never rebase a moved fence (M5B2A-R15-002). A reviewed
+   * week card expires with `week_changed` when its epoch moved, even if the
+   * same window is allowed again.
+   */
+  strictMemoryEpoch?: boolean;
 }
 
 function clockOf(options: PlanActionOptions): Date {
@@ -262,7 +268,7 @@ export async function acceptPlan(uid: string, date: string, options: PlanActionO
   // its acceptance takes the current fence instead of being refused for good.
   // Its epoch was taken before the read, and is checked again inside.
   const before = await readStoredPlan(uid, date, options.storage);
-  const authorized = before && (before.memoryUse || before.focusFromMemory === true)
+  const authorized = !options.strictMemoryEpoch && before && (before.memoryUse || before.focusFromMemory === true)
     ? await memoryFocusForPlan(uid, at, { ...(options.storage ? { storage: options.storage } : {}) })
     : null;
   const outcome = await mutateStoredPlan<null>(uid, date, async (current, tx) => {
