@@ -84,6 +84,9 @@ test('BB-04 review (Codex M6B-R4-002): a timed thought after a day-only point is
     "Dentist on Sunday. I'm thinking I will be running at 5",
     // Two subjects sharing only a connective are different things (Codex M6B-R11-001).
     "Meeting with Alice on Sunday. I'm thinking my flight with Bob should be at 5",
+    // A shared person or day is a modifier, not the same thing (Codex M6B-R12-002).
+    "Meeting with Alice on Sunday. I'm thinking my flight with Alice should be at 5",
+    "Dentist on Sunday. I'm thinking my flight Sunday should be at 5",
     "Dentist on Sunday. I\u2019m thinking of calling the airline at 5",
     'عندي طبيب أسنان يوم الأحد. عم بفكر أسافر الساعة 5',
     'רופא שיניים ביום ראשון. אני חושב על לעבור דירה בשעה 5',

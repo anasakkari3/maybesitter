@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
 import React from 'react';
 import { act, cleanup, render, screen, waitFor } from '@testing-library/react-native';
-import { beginCalendarConsentOperation, calendarConsentEffective, queryKeys, useCalendarConsentWritePending, useTrust, useTrustAction } from '../../../api/queries';
+import { beginCalendarConsentOperation, calendarConsentEffective, calendarConsentWritePending, queryKeys, useCalendarConsentWritePending, useTrust, useTrustAction } from '../../../api/queries';
 import { Text } from 'react-native';
 import type { TrustAction } from '../../../api/schemas/trust';
 import { BusyCalendarHost, useBusyCalendar } from '../../calendar/useBusyCalendar';
@@ -180,11 +180,18 @@ describe('the calendar switches follow «uses your calendar»', () => {
     );
     await waitFor(() => expect(screen.getByTestId('calendar-include-work').props.accessibilityState).toMatchObject({ disabled: false }));
 
-    // Another trust action goes first and is slow to answer.
+    // Another trust action goes first and is slow to answer. Since R12-001 the
+    // calendar switch-off waits for it: every trust write is sent in tap order.
     await act(async () => { mutate!({ type: 'set_analytics_consent', granted: true }); });
     await waitFor(() => expect(analyticsAnswer).toBeDefined());
     await changeSwitch('calendar-use-toggle', false);
+    await act(async () => { await jest.advanceTimersByTimeAsync(50); });
+    expect(calendarAnswer).toBeUndefined();
+    // The slower action answers, saying on — from before the switch-off was sent.
+    await act(async () => { analyticsAnswer!({ status: 200, body: trustResponse(true) }); await jest.advanceTimersByTimeAsync(50); });
     await waitFor(() => expect(calendarAnswer).toBeDefined());
+    // The switch is still off: the analytics answer predates the switch-off.
+    expect(screen.getByTestId('calendar-use-toggle').props.value).toBe(false);
     // A read starts while the switch-off is on its way, and lands before the
     // server has applied it, saying on.
     holdNextRead = true;
@@ -197,7 +204,6 @@ describe('the calendar switches follow «uses your calendar»', () => {
     // action's answer lands saying on.
     confirmed = true;
     await act(async () => { calendarAnswer!({ status: 200, body: trustResponse(false) }); });
-    await act(async () => { analyticsAnswer!({ status: 200, body: trustResponse(true) }); });
     await act(async () => { await jest.advanceTimersByTimeAsync(500); });
     expect(harness!.client.getQueryData<{ trust: { calendarConsent: boolean } }>(queryKeys.trust(ACCOUNT_A.uid))?.trust.calendarConsent).toBe(false);
     expect(screen.getByTestId('calendar-use-toggle').props.value).toBe(false);
@@ -462,5 +468,58 @@ describe('the calendar switches follow «uses your calendar»', () => {
     await act(async () => { await jest.advanceTimersByTimeAsync(300); });
     const cached = harness.client.getQueryData<{ trust: Record<string, unknown> }>(queryKeys.trust(ACCOUNT_A.uid));
     expect(cached?.trust).toMatchObject({ calendarConsent: false, quietMode: true, revokedAt: '2030-03-29T09:00:00.000Z' });
+  });
+
+  it('a failed calendar write falls back to the newest confirmed answer of any trust write (Codex M6B-R12-001)', async () => {
+    let posts = 0;
+    const withTrust = (patch: Record<string, unknown>, calendar: boolean) => {
+      const base = trustResponse(calendar);
+      return { ...base, trust: { ...base.trust, ...patch } };
+    };
+    harness = await prepare('en', { ...initialState(), trustConsent: true }, (request) => {
+      if (request.path !== '/api/mobile/pilot/trust') return undefined;
+      if (request.method === 'POST') {
+        posts += 1;
+        // Answered by what was asked, not by arrival order.
+        const type = (request.body as { action: { type: string } }).action.type;
+        if (type === 'revoke') return { status: 200, body: withTrust({ quietMode: true, revokedAt: '2030-03-29T09:00:00.000Z' }, false) };
+        if (type === 'set_quiet_mode') return { status: 200, body: withTrust({ quietMode: false, revokedAt: '2030-03-29T09:00:00.000Z' }, false) };
+        return { status: 409, body: { success: false } };
+      }
+      return posts > 0 ? { status: 503, body: { success: false } } : undefined;
+    });
+    const { hooks, A, B } = twoHooks();
+    await render(<Providers harness={harness}><A /><B /></Providers>);
+    await waitFor(() => expect(harness!.client.getQueryData(queryKeys.trust(ACCOUNT_A.uid))).toBeDefined());
+    await act(async () => {
+      hooks.a!({ type: 'revoke' });
+      hooks.b!({ type: 'set_quiet_mode', enabled: false });
+      hooks.a!({ type: 'set_calendar_consent', granted: true });
+      await jest.advanceTimersByTimeAsync(300);
+    });
+    await waitFor(() => expect(posts).toBe(3));
+    await act(async () => { await jest.advanceTimersByTimeAsync(300); });
+    const cached = harness.client.getQueryData<{ trust: Record<string, unknown> }>(queryKeys.trust(ACCOUNT_A.uid));
+    // The quiet-mode change that succeeded after the revoke is not undone.
+    expect(cached?.trust).toMatchObject({ calendarConsent: false, quietMode: false });
+  });
+
+  it('two calls with the same object each get their own turn, and both are sent (Codex M6B-R12-003)', async () => {
+    let posts = 0;
+    harness = await prepare('en', { ...initialState(), trustConsent: true }, (request) => {
+      if (request.path === '/api/mobile/pilot/trust' && request.method === 'POST') {
+        posts += 1;
+        return { status: 200, body: trustResponse(false) };
+      }
+      return undefined;
+    });
+    const { hooks, A, B } = twoHooks();
+    await render(<Providers harness={harness}><A /><B /></Providers>);
+    await waitFor(() => expect(harness!.client.getQueryData(queryKeys.trust(ACCOUNT_A.uid))).toBeDefined());
+    const same: TrustAction = { type: 'set_calendar_consent', granted: false };
+    await act(async () => { hooks.a!(same); hooks.b!(same); await jest.advanceTimersByTimeAsync(300); });
+    await waitFor(() => expect(posts).toBe(2));
+    // Neither turn was lost: nothing is left waiting, and the lock is free.
+    await waitFor(() => expect(calendarConsentWritePending(harness!.client, ACCOUNT_A.uid)).toBe(false));
   });
 });

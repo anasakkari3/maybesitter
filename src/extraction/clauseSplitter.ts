@@ -378,9 +378,16 @@ function restatesInItsOwnWords(rest: string, previous: string): boolean {
   // still describes the appointment (Codex M6B-R8-004).
   const subject = words.slice(0, at).map((word) => word.toLowerCase()).filter((word) => !SUBJECT_AUXILIARY.has(word));
   if (actionAfterCopula(words.slice(at + 1), subject)) return false;
-  if (subject.every((word) => SAME_APPOINTMENT_SUBJECT.has(word))) return true;
-  const before = contentWords(previous);
-  return subject.some((word) => !FUNCTION_WORDS.has(word) && before.has(word));
+  // The subject's head: what comes before its first preposition, less day and
+  // time words — "my flight" of "my flight with Alice", "my flight" of "my
+  // flight Sunday". A shared modifier (a person, a day) is not a shared thing
+  // (Codex M6B-R12-002).
+  const cut = subject.findIndex((word) => FUNCTION_WORDS.has(word));
+  const head = (cut < 0 ? subject : subject.slice(0, cut))
+    .filter((word) => !SAME_APPOINTMENT_SUBJECT.has(word) && timeOfDayEvidence(word) === 'none');
+  if (head.length === 0) return true;
+  const before = new Set(Array.from(contentWords(previous)).filter((word) => timeOfDayEvidence(word) === "none"));
+  return head.some((word) => before.has(word));
 }
 
 /** The words after the intent marker are something to do, not only an hour or a copula. */
