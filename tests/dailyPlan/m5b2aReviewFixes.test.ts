@@ -1397,6 +1397,52 @@ test('R33-001: an AI import that spans a purge is refused, and delete-all counts
   assert.match(source, /\+ receipt\.remainingAiContextImportCount/, 'delete-all ignores a surviving AI import');
 });
 
+test('R34-003: a purge that fails while completing a dead withdrawal hands it on, and the retry completes it', async () => {
+  const uid = await keptFocusPlan();
+  const real = currentStorage() as any;
+  const base = createStoragePersonalizationConsentStore(real);
+  // A withdrawal died after taking the fence: its lease ran out, consent is still on.
+  const fence = ((await real.get(userDoc(uid))) ?? {}).personalizationPurge;
+  await setFence(real, uid, { ...fence, state: 'withdrawing', epoch: (fence?.epoch ?? 0) + 1, withdrawalOwner: 'dead', withdrawalLeaseAt: new Date(Date.now() - 3_600_000).toISOString() });
+  let failOnce = true;
+  const flaky = new Proxy(real, {
+    get(target, key) {
+      if (key === 'set' || key === 'runTransaction') {
+        const original = Reflect.get(target, key).bind(target);
+        if (key === 'set') {
+          return async (path: string, ...rest: unknown[]) => {
+            if (failOnce && path.endsWith('/consents/personalization')) { failOnce = false; throw new Error('transient'); }
+            return original(path, ...rest);
+          };
+        }
+        return (fn: (tx: any) => Promise<unknown>) => original((tx: any) => fn(new Proxy(tx, {
+          get(t, k) {
+            const v = Reflect.get(t, k);
+            if (k === 'set' && typeof v === 'function') {
+              return (path: string, ...rest: unknown[]) => {
+                if (failOnce && path.endsWith('/consents/personalization')) { failOnce = false; throw new Error('transient'); }
+                return v.call(t, path, ...rest);
+              };
+            }
+            return typeof v === 'function' ? v.bind(t) : v;
+          },
+        })));
+      }
+      const value = Reflect.get(target, key);
+      return typeof value === 'function' ? value.bind(target) : value;
+    },
+  });
+  await assert.rejects(purgeFor(uid, flaky, new Date().toISOString(), { attempts: 2, delayMs: 1 }));
+  const handed = ((await real.get(userDoc(uid))) ?? {}).personalizationPurge;
+  assert.deepEqual([handed?.state, handed?.withdrawalPending], ['purging', true], 'the dead withdrawal was not handed on');
+  await purgeFor(uid, real, new Date().toISOString(), { attempts: 2, delayMs: 1 });
+  const { getConsent } = await import('../../lib/consents/consentService.ts');
+  const { PERSONALIZATION_CONSENT } = await import('../../src/contracts/v1/consentContracts.ts');
+  assert.equal((await base.read(uid)).state, 'disabled', 'the retry left the store enabled');
+  assert.equal(await getConsent(PERSONALIZATION_CONSENT, uid, { storage: real }), 'declined', 'the retry left the answer granted');
+  assert.equal(((await real.get(userDoc(uid))) ?? {}).personalizationPurge?.state, 'active');
+});
+
 test('R20-004: a fresh run never answers a suggestion whose outcome was dismissed right after the commit', async () => {
   const uid = await begin();
   await grantRecommendations(uid);

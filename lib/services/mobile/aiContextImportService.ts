@@ -38,7 +38,7 @@ import { compareByCodePoint } from '../../planning/shared/compare';
 import { createPilotAuditEvent } from '../../pilot/closedPilotControls';
 import { appendAudit } from '../../pilot/pilotTrustStore';
 import { shareLlmProvider, type ShareStructuredGenerator } from '../../llm/shareProvider';
-import { createStorageRuntimeMemoryStore } from '../../runtimeMemory/runtimeMemoryStore';
+import { createStorageRuntimeMemoryStore, MemoryWriteRefusedError, personalizationWriteGuard } from '../../runtimeMemory/runtimeMemoryStore';
 import {
   AI_CONTEXT_IMPORTS,
   getStorage,
@@ -67,7 +67,7 @@ import { normalizeForComparison, validateImportCandidates } from '../../../src/p
 import { languageOf, stripUndefined } from '../../../src/profile/memoryWriteHelpers';
 import { splitPrompt } from '../../llm/captureProvider';
 import { USER_STATED_MEMORY_TTL_MS } from '../../../src/contracts/v1/memoryContracts';
-import type { CreateMemoryInput, RuntimeMemoryRecord, RuntimeMemoryStore } from '../../../src/contracts/v1/memoryContracts';
+import type { CreateMemoryInput, MemoryWriteGuard, RuntimeMemoryRecord, RuntimeMemoryStore } from '../../../src/contracts/v1/memoryContracts';
 
 /**
  * Between the provider's 8 s text default and its 45 s media default. This call
@@ -367,6 +367,8 @@ export async function confirmAiContextImport(
   if (!Number.isFinite(age) || age > AI_CONTEXT_IMPORT_TTL_MS) throw new ImportProposalNotFoundError();
 
   const memory = memoryOf(options);
+  // Fenced against a delete-all or a withdrawal that starts while this confirms (M5B2A-R34-001).
+  const guard = await personalizationWriteGuard(storage, uid);
   const isoAt = at.toISOString();
   const result: ImportApplyResult = {
     created: 0, superseded: 0, unchanged: 0, conflicts: 0, demoted: 0, kinds: {},
@@ -418,21 +420,21 @@ export async function confirmAiContextImport(
 
     if (candidate.relation === 'update') {
       if (!target) {
-        await memory.put(input, isoAt);
+        await memory.put(input, isoAt, guard);
         result.demoted += 1;
         result.created += 1;
       } else if (target.content === content) {
         // Nothing to say. This is what makes a re-import idempotent rather than
         // a churn of supersessions that all mean the same sentence.
         result.unchanged += 1;
-      } else if (await supersedeOrPut(memory, target.id, input, isoAt)) {
+      } else if (await supersedeOrPut(memory, target.id, input, isoAt, guard)) {
         result.superseded += 1;
       } else {
         result.demoted += 1;
         result.created += 1;
       }
     } else if (candidate.relation === 'conflict' && choice.resolve === 'replace' && target) {
-      if (await supersedeOrPut(memory, target.id, input, isoAt)) {
+      if (await supersedeOrPut(memory, target.id, input, isoAt, guard)) {
         result.superseded += 1;
       } else {
         result.demoted += 1;
@@ -441,10 +443,10 @@ export async function confirmAiContextImport(
     } else if (candidate.relation === 'conflict') {
       // Both survive. Deciding between them is the user's, and the memory
       // screen is where they can see both sentences and their provenance.
-      await memory.put(input, isoAt);
+      await memory.put(input, isoAt, guard);
       result.conflicts += 1;
     } else {
-      await memory.put(input, isoAt);
+      await memory.put(input, isoAt, guard);
       result.created += 1;
     }
 
@@ -549,12 +551,15 @@ async function supersedeOrPut(
   targetId: string,
   input: CreateMemoryInput,
   isoAt: string,
+  guard: MemoryWriteGuard,
 ): Promise<boolean> {
   try {
-    await memory.supersede(targetId, input, isoAt);
+    await memory.supersede(targetId, input, isoAt, guard);
     return true;
-  } catch {
-    await memory.put(input, isoAt);
+  } catch (error) {
+    // A refusal by the fence is final: it never turns into an unguarded put (R34-001).
+    if (error instanceof MemoryWriteRefusedError) throw error;
+    await memory.put(input, isoAt, guard);
     return false;
   }
 }

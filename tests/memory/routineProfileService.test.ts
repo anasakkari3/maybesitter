@@ -186,3 +186,48 @@ test('a profile never written reads as absent rather than as an empty one', asyn
     end();
   }
 });
+
+test('M5B2A-R34-001: routine facts are never written while a purge or a withdrawal holds the personalization fence', async () => {
+  begin();
+  try {
+    const { getStorage } = await import('../../lib/storage/index.ts');
+    const { userDoc } = await import('../../lib/storage/paths.ts');
+    const { MemoryWriteRefusedError } = await import('../../lib/runtimeMemory/runtimeMemoryStore.ts');
+    for (const state of ['purging', 'withdrawing'] as const) {
+      await getStorage().set(userDoc(UID), { uid: UID, personalizationPurge: { state, epoch: 4 } });
+      await assert.rejects(saveRoutineProfile(UID, input(), FIRST), MemoryWriteRefusedError);
+      assert.equal((await allRecords()).length, 0, `a routine fact was written while ${state}`);
+    }
+  } finally {
+    end();
+  }
+});
+
+test('M5B2A-R34-001: a routine save that a purge overtakes mid-way writes nothing after it', async () => {
+  begin();
+  try {
+    const { getStorage } = await import('../../lib/storage/index.ts');
+    const { userDoc } = await import('../../lib/storage/paths.ts');
+    await getStorage().set(userDoc(UID), { uid: UID, personalizationPurge: { state: 'active', epoch: 4 } });
+    const real = getStorage();
+    let moved = false;
+    const storage = new Proxy(real, {
+      get(target, key) {
+        if (key === 'list') {
+          return async (...args: unknown[]) => {
+            // A delete-all runs to completion after the save decided to write facts
+            // (it reads the existing ones) and before it writes them.
+            if (!moved) { moved = true; await target.set(userDoc(UID), { uid: UID, personalizationPurge: { state: 'active', epoch: 5 } }); }
+            return (target.list as (...a: unknown[]) => unknown)(...args);
+          };
+        }
+        const value = Reflect.get(target, key);
+        return typeof value === 'function' ? value.bind(target) : value;
+      },
+    });
+    await assert.rejects(saveRoutineProfile(UID, input(), FIRST, { storage } as never));
+    assert.equal((await allRecords()).length, 0, 'a routine fact was written across a completed purge');
+  } finally {
+    end();
+  }
+});

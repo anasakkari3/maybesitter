@@ -136,7 +136,8 @@ function withoutInternalProfileFields(profile: Record<string, unknown>): Record<
   const purge = rest.personalizationPurge;
   if (purge && typeof purge === 'object' && !Array.isArray(purge)) {
     const {
-      withdrawalOwner: _owner, withdrawalLeaseAt: _lease, purgeOwner: _purgeOwner, purgeLeaseAt: _purgeLease, ...fence
+      withdrawalOwner: _owner, withdrawalLeaseAt: _lease, purgeOwner: _purgeOwner, purgeLeaseAt: _purgeLease,
+      withdrawalPending: _pending, ...fence
     } = purge as Record<string, unknown>;
     rest.personalizationPurge = fence;
   }
