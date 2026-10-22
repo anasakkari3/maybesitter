@@ -394,8 +394,12 @@ export async function completeAbandonedWithdrawal(
   options: PersonalizationConsentOptions = {},
 ): Promise<void> {
   const storage = options.storage ?? getStorage();
-  await storeOf({ ...options, storage }).write(uid, 'disabled', at);
+  const store = storeOf({ ...options, storage });
+  await store.write(uid, 'disabled', at);
   await setConsent(PERSONALIZATION_CONSENT, uid, { state: 'declined', version: PERSONALIZATION_CONSENT_VERSION, at: new Date(at) }, { storage });
+  // Verified, not assumed (R34-003): the purge clears its pending marker only after this returns.
+  const [effective, answer] = await Promise.all([store.read(uid), getConsent(PERSONALIZATION_CONSENT, uid, { storage })]);
+  if (effective.state !== 'disabled' || answer !== 'declined') throw new Error('abandoned withdrawal not completed');
 }
 
 /**

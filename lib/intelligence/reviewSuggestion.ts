@@ -1,6 +1,6 @@
 import type { Command } from '../../src/domain/stateMachine';
 import { getStorage, type StorageAdapter } from '../storage';
-import { createStorageRuntimeMemoryStore } from '../runtimeMemory/runtimeMemoryStore';
+import { createStorageRuntimeMemoryStore, personalizationWriteGuard } from '../runtimeMemory/runtimeMemoryStore';
 import { commitCommandsWithClaim } from '../services/mobile/participantState';
 import { isDismissedBehaviourOutcome, suggestionPath, type IntelligenceSuggestion } from './proposalEngine';
 import { slotStillFitsSchedule } from './schedulePreview';
@@ -159,12 +159,14 @@ export async function reviewSuggestion(
     });
     if (claimed && 'available' in claimed) throw new SuggestionUnavailableError();
     if (!claimed) return storage.get<IntelligenceSuggestion>(path);
+    // Fenced against a delete-all or a withdrawal (M5B2A-R34-001).
+    const guard = await personalizationWriteGuard(storage, uid);
     const memory = await createStorageRuntimeMemoryStore(undefined, storage).putIdempotent({
       scopeId: uid, kind: 'goal', content: claimed.title, language: languageOf(claimed.title),
       source: 'model_inferred', confidence: claimed.confidence, observedAt: now,
       evidenceIds: claimed.observationIds,
       provenance: { origin: 'proactive_suggestion', originRef: id, confirmedByUserAt: now },
-    }, now, `proactive:${id}`);
+    }, now, `proactive:${id}`, guard);
     return storage.runTransaction(async tx => {
       const latest = await tx.get<IntelligenceSuggestion>(path);
       if (!latest) return null;

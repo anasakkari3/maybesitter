@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { getStorage, INTELLIGENCE_OBSERVATIONS, requireUserId, userCol, type StorageAdapter } from '../storage';
-import { createStorageRuntimeMemoryStore } from '../runtimeMemory/runtimeMemoryStore';
+import { createStorageRuntimeMemoryStore, personalizationWriteGuard } from '../runtimeMemory/runtimeMemoryStore';
 import type { SemanticObservation } from './semantic';
 import { resolveMemoryLearning } from '../release/m5bCapabilities';
 import { requireLiveAccount } from './memoryBasis';
@@ -132,12 +132,14 @@ export async function reviewObservation(
   const content = reviewed.evidence.trim();
   const language = /[\u0590-\u05ff]/.test(content) ? 'he'
     : /[\u0600-\u06ff]/.test(content) ? 'ar' : 'en';
+  // Fenced against a delete-all or a withdrawal (M5B2A-R34-001).
+  const guard = await personalizationWriteGuard(storage, uid);
   const memory = await createStorageRuntimeMemoryStore(undefined, storage).putIdempotent({
     scopeId: uid, kind: 'goal', content, language,
     source: 'model_inferred', confidence: reviewed.confidence,
     observedAt: reviewed.observedAt, evidenceIds: [reviewed.id],
     provenance: { origin: 'proactive_suggestion', originRef: reviewed.id, confirmedByUserAt: reviewed.reviewedAt ?? at },
-  }, reviewed.reviewedAt ?? at, `observation-goal:${reviewed.id}`);
+  }, reviewed.reviewedAt ?? at, `observation-goal:${reviewed.id}`, guard);
   return storage.runTransaction(async tx => {
     const current = await tx.get<StoredObservation>(observationPath(uid, id));
     if (!current) return null;

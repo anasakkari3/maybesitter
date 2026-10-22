@@ -101,6 +101,27 @@ export class MemoryNotFoundError extends Error {
 }
 
 /** The target still exists, but another edit already changed the chain head. */
+/**
+ * A guard for a write that belongs to an operation already under way
+ * (M5B2A-R34-001): the fence is read now, refused if a purge or a withdrawal
+ * holds it, and every later write must find it still open at this same epoch
+ * — so an operation that spans a delete-all cannot write after its sweep.
+ */
+export async function personalizationWriteGuard(storage: StorageAdapter, scopeId: string): Promise<MemoryWriteGuard> {
+  const read = (user: unknown) => {
+    const fence = (user as { personalizationPurge?: { state?: unknown; epoch?: unknown } } | null)?.personalizationPurge ?? {};
+    return { state: fence.state, epoch: Number.isSafeInteger(fence.epoch) ? fence.epoch as number : 0 };
+  };
+  const start = read(await storage.get(userDoc(userIdForKey(scopeId))));
+  if (start.state === 'purging' || start.state === 'withdrawing') throw new MemoryWriteRefusedError();
+  return {
+    accepts: (user: unknown) => {
+      const now = read(user);
+      return now.state !== 'purging' && now.state !== 'withdrawing' && now.epoch === start.epoch;
+    },
+  };
+}
+
 /** A guarded write whose guard refused, in the write's own transaction (M5B2A-R31-001). */
 export class MemoryWriteRefusedError extends Error {
   constructor() {
