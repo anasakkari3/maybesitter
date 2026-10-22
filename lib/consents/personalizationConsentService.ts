@@ -383,6 +383,45 @@ async function withdrawFenced(
 }
 
 /**
+ * Completes a withdrawal that died while it held the fence (M5B2A-R27-002):
+ * the store disabled and the answer declined, what it set out to record. Run
+ * by a purge that took such a fence over, while the purge holds it, so no
+ * reader sees memory in between and the two records agree afterwards.
+ */
+export async function completeAbandonedWithdrawal(
+  uid: string,
+  at: string,
+  options: PersonalizationConsentOptions = {},
+): Promise<void> {
+  const storage = options.storage ?? getStorage();
+  await storeOf({ ...options, storage }).write(uid, 'disabled', at);
+  await setConsent(PERSONALIZATION_CONSENT, uid, { state: 'declined', version: PERSONALIZATION_CONSENT_VERSION, at: new Date(at) }, { storage });
+}
+
+/**
+ * Enables the store behind the fence, as a grant does (M5B2A-R27-003): at an
+ * active epoch taken in one transaction, and only if that epoch still stands
+ * when the store is written. For the legacy control centre's raw `enable`.
+ */
+export async function enablePersonalizationFenced(
+  uid: string,
+  at: string,
+  options: PersonalizationConsentOptions = {},
+): Promise<PersonalizationConsent> {
+  const storage = options.storage ?? getStorage();
+  const store = storeOf({ ...options, storage });
+  const version = await captureGrantVersion(storage, uid, options.purgeWait ?? PURGE_WAIT);
+  if (!store.writeGuarded) return store.write(uid, 'enabled', at);
+  const written = await store.writeGuarded(uid, 'enabled', at, {
+    path: userDoc(uid),
+    accepts: (value) => fenceActive((value as { personalizationPurge?: FenceDocument } | null)?.personalizationPurge)
+      && fenceEpoch(value) === version,
+  });
+  if (written === null) throw new PersonalizationWithdrawalBusyError();
+  return written;
+}
+
+/**
  * A consent store whose `disabled` writes go through the fence. For every
  * caller that holds a raw store — the legacy control centre route — so none
  * can withdraw around it (M5B2A-R11-001).
@@ -397,7 +436,7 @@ export function fencedPersonalizationConsentStore(
     read: (scopeId) => base.read(scopeId),
     write: (scopeId, state, at) => (state === 'disabled'
       ? disablePersonalizationFenced(scopeId, at, { ...options, consent: base })
-      : base.write(scopeId, state, at)),
+      : enablePersonalizationFenced(scopeId, at, { ...options, consent: base })),
     deleteScope: (scopeId) => base.deleteScope(scopeId),
   };
 }
