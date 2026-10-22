@@ -960,7 +960,7 @@ function carriedAcrossEdit(state: CaptureState, next: CaptureProposal, folded?: 
     const rest: CaptureItemEdit = { ...staged };
     if (folded.title) delete rest.title;
     if (folded.time) delete rest.localDateTime;
-    if (Object.keys(rest).length > 0) edits[item.itemId] = rest;
+    if (carriesServerEdit(rest)) edits[item.itemId] = rest;
   }
   return { ...carried, edits };
 }
