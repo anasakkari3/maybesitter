@@ -347,7 +347,7 @@ describe('delete, and the five seconds after it', () => {
     await fireEvent.press(screen.getByTestId('memory-screen-delete-mem_told'));
     await act(async () => { jest.advanceTimersByTime(UNDO_WINDOW_MS); });
 
-    expect(profileEndpoints.deleteMemory).toHaveBeenCalledWith('mem_told');
+    expect(profileEndpoints.deleteMemory).toHaveBeenCalledWith('mem_told', { asUid: 'memory-user' });
   });
 
   it('commits the delete when the user leaves before the window closes', async () => {
@@ -360,7 +360,7 @@ describe('delete, and the five seconds after it', () => {
     await fireEvent.press(screen.getByTestId('memory-screen-delete-mem_told'));
     await view.unmount();
 
-    expect(profileEndpoints.deleteMemory).toHaveBeenCalledWith('mem_told');
+    expect(profileEndpoints.deleteMemory).toHaveBeenCalledWith('mem_told', { asUid: 'memory-user' });
   });
 });
 

@@ -69,9 +69,10 @@ export function patchMemory(id: string, content: string, options: { asUid?: stri
 }
 
 /** Removes the fact and every record in its supersession chain. Irreversible. */
-export function deleteMemory(id: string) {
+export function deleteMemory(id: string, options: { asUid?: string } = {}) {
   return apiRequest('DELETE', `/api/mobile/memory/${encodeURIComponent(id)}`, {
     schema: memoryDeletedSchema,
+    ...(options.asUid !== undefined ? { asUid: options.asUid } : {}),
   });
 }
 
@@ -79,24 +80,26 @@ export function deleteMemory(id: string) {
  * Keeps a suggestion (UC-3.16, #202). The server recomputes it and stores its
  * own sentence in `language`; a 409 means the suggestion is no longer offered.
  */
-export function keepMemorySuggestion(suggestion: Pick<MemorySuggestion, 'ruleId' | 'fingerprint'>, language: 'ar' | 'he' | 'en') {
+export function keepMemorySuggestion(suggestion: Pick<MemorySuggestion, 'ruleId' | 'fingerprint'>, language: 'ar' | 'he' | 'en', options: { asUid?: string } = {}) {
   return apiRequest('POST', `/api/mobile/memory/suggestions/${encodeURIComponent(suggestion.ruleId)}`, {
     body: { decision: 'keep', fingerprint: suggestion.fingerprint, language },
     schema: memorySuggestionDecisionSchema,
     expectStatus: 201,
+    ...(options.asUid !== undefined ? { asUid: options.asUid } : {}),
   });
 }
 
 /** "Not right": the same claim is not offered again until what it would say changes. */
-export function dismissMemorySuggestion(suggestion: Pick<MemorySuggestion, 'ruleId' | 'fingerprint'>) {
+export function dismissMemorySuggestion(suggestion: Pick<MemorySuggestion, 'ruleId' | 'fingerprint'>, options: { asUid?: string } = {}) {
   return apiRequest('POST', `/api/mobile/memory/suggestions/${encodeURIComponent(suggestion.ruleId)}`, {
     body: { decision: 'dismiss', fingerprint: suggestion.fingerprint },
     schema: memorySuggestionDecisionSchema,
+    ...(options.asUid !== undefined ? { asUid: options.asUid } : {}),
   });
 }
 
-export function deleteAllMemory() {
-  return apiRequest('DELETE', '/api/mobile/memory', { schema: memoryDeletedSchema });
+export function deleteAllMemory(options: { asUid?: string } = {}) {
+  return apiRequest('DELETE', '/api/mobile/memory', { schema: memoryDeletedSchema, ...(options.asUid !== undefined ? { asUid: options.asUid } : {}), });
 }
 
 /**

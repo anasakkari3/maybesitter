@@ -321,7 +321,7 @@ function IntelligencePanelForAccount({ onChanged, autoGenerate = false, whenOff 
       if (await freshM5b() !== true) return;
       let answer;
       try {
-        answer = await reviewIntelligenceObservation(id, 'dismissed');
+        answer = await reviewIntelligenceObservation(id, 'dismissed', uid ? { asUid: uid } : {});
       } catch (cause) {
         setError(cause);
         try { await refresh(); } catch { /* Keep the original error visible. */ }

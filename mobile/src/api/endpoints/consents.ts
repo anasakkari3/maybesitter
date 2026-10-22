@@ -52,9 +52,10 @@ export function putRecommendationConsent(answer: ConsentAnswer) {
  * their plan. It does not delete what they kept — that is the memory screen's
  * Delete, and the toggle's copy says so.
  */
-export function putPersonalizationConsent(answer: ConsentAnswer) {
+export function putPersonalizationConsent(answer: ConsentAnswer, options: { asUid?: string } = {}) {
   return apiRequest('PUT', '/api/mobile/consents/personalization', {
     body: answer,
     schema: personalizationConsentUpdatedSchema,
+    ...(options.asUid !== undefined ? { asUid: options.asUid } : {}),
   });
 }

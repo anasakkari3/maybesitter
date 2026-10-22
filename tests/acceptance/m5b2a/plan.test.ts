@@ -12,7 +12,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createStorageRuntimeMemoryStore } from '../../../lib/runtimeMemory/runtimeMemoryStore.ts';
 import { composeDailyPlan } from '../../../lib/services/dailyPlan/dailyPlanService.ts';
-import { composeWeek, weekDayLayoutDigest, weekToDto } from '../../../lib/services/dailyPlan/weekPlan.ts';
+import { acceptWeekDay, composeWeek, weekDayLayoutDigest, weekToDto } from '../../../lib/services/dailyPlan/weekPlan.ts';
+import { setPersonalizationConsent, PERSONALIZATION_CONSENT_VERSION } from '../../../lib/consents/personalizationConsentService.ts';
 import { planPath } from '../../../lib/services/dailyPlan/planStore.ts';
 import { deleteMemory, patchMemory } from '../../../lib/services/mobile/memoryService.ts';
 import { userDoc } from '../../../lib/storage/paths.ts';
@@ -349,6 +350,43 @@ test('M5B2A-R3-001 (Claude): a card drawn with M5b on, accepted after M5b is swi
   assert.equal(accepted.status, 409, show(accepted.body));
   assert.equal(accepted.body.reason, 'week_changed');
   assert.equal(await currentStorage().get(planPath(uid, TOMORROW)), null);
+});
+
+test('M5B2A-R8-002 (Claude): a withdrawal between the week store and its acceptance answers week_changed and leaves no plan', async () => {
+  const { uid, body } = await weekAccount();
+  const real = currentStorage() as any;
+  let fired = false;
+  // The transaction that creates tomorrow's plan document commits; then, before
+  // the acceptance, personalization is withdrawn.
+  const storage = new Proxy(real, {
+    get(target, key) {
+      if (key === 'runTransaction') {
+        return async (fn: (tx: any) => Promise<unknown>) => {
+          let createsPlan = false;
+          const result = await target.runTransaction((tx: any) => fn(new Proxy(tx, {
+            get(t, k) {
+              const v = Reflect.get(t, k);
+              if ((k === 'set' || k === 'create') && typeof v === 'function') {
+                return (path: string, ...rest: unknown[]) => { if (path === planPath(uid, TOMORROW)) createsPlan = true; return v.call(t, path, ...rest); };
+              }
+              return typeof v === 'function' ? v.bind(t) : v;
+            },
+          })));
+          if (createsPlan && !fired) {
+            fired = true;
+            await setPersonalizationConsent(uid, { state: 'declined', version: PERSONALIZATION_CONSENT_VERSION, at: new Date() }, { storage: real });
+          }
+          return result;
+        };
+      }
+      const value = Reflect.get(target, key);
+      return typeof value === 'function' ? value.bind(target) : value;
+    },
+  });
+  const outcome = await acceptWeekDay(uid, TOMORROW, { moves: (body as any).moves, drops: (body as any).drops }, (body as any).shown, { storage, now: () => new Date() } as any, (body as any).layoutDigest);
+  assert.ok(fired, 'fixture: the plan document was never created');
+  assert.equal(outcome.outcome, 'week_changed');
+  assert.equal(await real.get(planPath(uid, TOMORROW)), null, 'the memory-shaped plan was left behind');
 });
 
 test('M5B2A-R3-001 (Claude): the layout digest binds the solve\'s memory provenance, and is unchanged without one', () => {

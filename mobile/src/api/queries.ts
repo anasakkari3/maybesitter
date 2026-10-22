@@ -954,6 +954,14 @@ function stampPlan<T>(plan: T, startedAt: number): T {
   return plan;
 }
 
+/**
+ * Binds a request to the account that made it (M5B2A-R8-001): an account
+ * switch between the tap and the token never sends A's write under B's token.
+ */
+function asAccount(uid: string): { asUid?: string } {
+  return uid === 'signed-out' ? {} : { asUid: uid };
+}
+
 /** The request-start numbers of plan requests still on their way, per client and account (M5B2A-R2-003). */
 const plansInFlightByClient = new WeakMap<QueryClient, Map<string, Set<number>>>();
 
@@ -1182,7 +1190,7 @@ export function usePlan(date: string) {
     queryFn: async () => {
       const request = beginPlanRequest(client, uid);
       try {
-        return stampPlan(await getPlan(date), request.startedAt);
+        return stampPlan(await getPlan(date, asAccount(uid)), request.startedAt);
       } finally {
         request.end();
         // After the cache holds this answer (cleanup only; never needed to hide).
@@ -1246,7 +1254,7 @@ export function usePlanAction(date: string) {
   const client = useQueryClient();
   const uid = useUid();
   return useMutation({
-    mutationFn: (variables: PlanActionVariables) => numberedPlan(client, uid, () => actOnPlan(date, typeof variables === 'string' ? { action: variables } : variables)),
+    mutationFn: (variables: PlanActionVariables) => numberedPlan(client, uid, () => actOnPlan(date, typeof variables === 'string' ? { action: variables } : variables, asAccount(uid))),
     onSuccess: plan => adoptPlan(client, uid, date, plan),
     // A refused offer (#611) means the offer on screen is not the one the
     // server holds: the day moved, a newer offer replaced it, or it is gone.
@@ -1275,7 +1283,7 @@ export function usePlanEdit(date: string) {
   const client = useQueryClient();
   const uid = useUid();
   return useMutation({
-    mutationFn: (edit: PlanEdit) => numberedPlan(client, uid, () => actOnPlan(date, { action: 'edit', ...edit })),
+    mutationFn: (edit: PlanEdit) => numberedPlan(client, uid, () => actOnPlan(date, { action: 'edit', ...edit }, asAccount(uid))),
     onMutate: async (edit: PlanEdit) => {
       const key = queryKeys.plan(uid, date);
       await client.cancelQueries({ queryKey: key });
@@ -1305,7 +1313,7 @@ export function useBuildPlan(date: string) {
   const client = useQueryClient();
   const uid = useUid();
   return useMutation({
-    mutationFn: (_: void) => numberedPlan(client, uid, () => buildPlan(date)),
+    mutationFn: (_: void) => numberedPlan(client, uid, () => buildPlan(date, asAccount(uid))),
     onSuccess: plan => adoptPlan(client, uid, date, plan),
   });
 }
@@ -1321,7 +1329,7 @@ export function useRegeneratePlan(date: string) {
   const client = useQueryClient();
   const uid = useUid();
   return useMutation({
-    mutationFn: (_: void) => numberedPlan(client, uid, () => regeneratePlan(date)),
+    mutationFn: (_: void) => numberedPlan(client, uid, () => regeneratePlan(date, asAccount(uid))),
     onSuccess: plan => adoptPlan(client, uid, date, plan),
   });
 }
@@ -1386,7 +1394,7 @@ export function useAcceptWeekDay(decisions: WeekDecisions) {
     mutationFn: async ({ date, shown, layoutDigest }: WeekDaySave) => {
       const request = beginPlanRequest(client, uid);
       try {
-        const answer = await acceptWeekDay(date, shown, decisions, layoutDigest);
+        const answer = await acceptWeekDay(date, shown, decisions, layoutDigest, asAccount(uid));
         stampPlan(answer.plan, request.startedAt);
         return answer;
       } finally {
@@ -1647,7 +1655,7 @@ export function useSetPersonalizationConsent() {
   const client = useQueryClient();
   const uid = useUid();
   const base = useMutation({
-    mutationFn: (write: { answer: ConsentAnswer; correction: BasisCorrection | null }) => putPersonalizationConsent(write.answer),
+    mutationFn: (write: { answer: ConsentAnswer; correction: BasisCorrection | null }) => putPersonalizationConsent(write.answer, asAccount(uid)),
     onError: (error, write) => {
       if (write.correction) settleCorrection(client, uid, write.correction, error);
     },
@@ -1979,15 +1987,17 @@ export function useCreateMemory() {
 export function usePatchMemory() {
   const uid = useUid();
   return useMemoryMutation((input: { id: string; content: string }) =>
-    patchMemory(input.id, input.content, uid === 'signed-out' ? {} : { asUid: uid }), (input) => input.id);
+    patchMemory(input.id, input.content, asAccount(uid)), (input) => input.id);
 }
 
 export function useDeleteMemory() {
-  return useMemoryMutation((id: string) => deleteMemory(id), (id) => id);
+  const uid = useUid();
+  return useMemoryMutation((id: string) => deleteMemory(id, asAccount(uid)), (id) => id);
 }
 
 export function useDeleteAllMemory() {
-  return useMemoryMutation((_: void) => deleteAllMemory(), () => 'all');
+  const uid = useUid();
+  return useMemoryMutation((_: void) => deleteAllMemory(asAccount(uid)), () => 'all');
 }
 
 /**
@@ -2001,8 +2011,8 @@ export function useMemorySuggestion() {
   return useMutation({
     mutationFn: (input: { suggestion: MemorySuggestion; decision: 'keep' | 'dismiss'; language: 'ar' | 'he' | 'en' }) =>
       (input.decision === 'keep'
-        ? keepMemorySuggestion(input.suggestion, input.language)
-        : dismissMemorySuggestion(input.suggestion)),
+        ? keepMemorySuggestion(input.suggestion, input.language, asAccount(uid))
+        : dismissMemorySuggestion(input.suggestion, asAccount(uid))),
     // Keeping a focus window replaces the one plans were arranged around (M5b-2a).
     onMutate: (input) => {
       if (input.decision !== 'keep' || !input.suggestion.fingerprint.startsWith('R1_focus_window')) return { correction: null as BasisCorrection | null };

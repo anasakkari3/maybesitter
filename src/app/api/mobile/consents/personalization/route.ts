@@ -2,6 +2,7 @@ import { mobileAuthErrorResponse, requireMobileUser } from '../../../../../../li
 import { UnsupportedConsentVersionError } from '../../../../../../lib/consents/consentService';
 import {
   PersonalizationConsentNotRecordedError,
+  PersonalizationWithdrawalBusyError,
   setPersonalizationConsent,
 } from '../../../../../../lib/consents/personalizationConsentService';
 import { mobileError } from '../../../../../../lib/services/mobile/response';
@@ -63,6 +64,13 @@ export async function PUT(request: Request) {
     if (error instanceof PersonalizationConsentNotRecordedError) {
       return Response.json(
         { success: false, error: 'consent could not be recorded', reason: 'consent_not_recorded' },
+        { status: 503 },
+      );
+    }
+    if (error instanceof PersonalizationWithdrawalBusyError) {
+      // A purge is running; nothing changed, and asking again withdraws (M5B2A-R8-003).
+      return Response.json(
+        { success: false, error: 'a deletion is still running', reason: 'purge_running' },
         { status: 503 },
       );
     }

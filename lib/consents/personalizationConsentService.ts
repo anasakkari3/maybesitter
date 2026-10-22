@@ -54,7 +54,23 @@ export interface PersonalizationConsentOptions {
   storage?: StorageAdapter;
   /** The `enabled | disabled` store; defaults to one over `storage`. */
   consent?: PersonalizationConsentStore;
+  /** How long a withdrawal waits behind a running purge (tests shorten it). */
+  purgeWait?: { readonly attempts: number; readonly delayMs: number };
 }
+
+/**
+ * A withdrawal that arrived while a personalization purge was running, and the
+ * purge did not finish in time. Nothing was changed: consent is as it was,
+ * and asking again once the purge is done withdraws it.
+ */
+export class PersonalizationWithdrawalBusyError extends Error {
+  constructor() {
+    super('a personalization purge is running; the withdrawal was not recorded');
+    this.name = 'PersonalizationWithdrawalBusyError';
+  }
+}
+
+const PURGE_WAIT = { attempts: 40, delayMs: 250 } as const;
 
 function storeOf(options: PersonalizationConsentOptions): PersonalizationConsentStore {
   return options.consent ?? createStoragePersonalizationConsentStore(options.storage ?? getStorage());
@@ -65,8 +81,8 @@ function storeOf(options: PersonalizationConsentOptions): PersonalizationConsent
  * *and* marks the fence `withdrawing`, which every memory reader and write
  * guard reads as not active. Nothing that read memory before this can write
  * after it, and nothing can read memory again until phase two. Returns the
- * epoch it set, or null while a purge runs: the purge owns the fence then, and
- * already refuses every write.
+ * epoch it set, or null while a purge runs: the purge owns the fence then,
+ * and the caller waits for it (M5B2A-R8-003).
  */
 async function beginPersonalizationWithdrawal(storage: StorageAdapter, uid: string, at: string): Promise<number | null> {
   return storage.runTransaction(async (tx) => {
@@ -133,11 +149,22 @@ export async function setPersonalizationConsent(
     // the store is off, so any reader after it sees consent withdrawn. If the
     // store write fails the fence still reopens — the epoch has already moved,
     // so nothing read before is written — and the caller is told.
-    const epoch = await beginPersonalizationWithdrawal(storage, uid, at.toISOString());
+    //
+    // Behind a running purge it waits (M5B2A-R8-003): every withdrawal takes
+    // its own epoch, so a plan that read the window under the purge's epoch
+    // after the purge reopened is refused too. A purge that outlasts the wait
+    // fails the withdrawal before anything changes.
+    const wait = options.purgeWait ?? PURGE_WAIT;
+    let epoch = await beginPersonalizationWithdrawal(storage, uid, at.toISOString());
+    for (let attempt = 1; epoch === null; attempt += 1) {
+      if (attempt >= wait.attempts) throw new PersonalizationWithdrawalBusyError();
+      await new Promise((resolve) => setTimeout(resolve, wait.delayMs));
+      epoch = await beginPersonalizationWithdrawal(storage, uid, at.toISOString());
+    }
     try {
       await store.write(uid, 'disabled', at.toISOString());
     } finally {
-      if (epoch !== null) await finishPersonalizationWithdrawal(storage, uid, epoch);
+      await finishPersonalizationWithdrawal(storage, uid, epoch);
     }
     return setConsent(PERSONALIZATION_CONSENT, uid, { ...input, at }, { storage });
   }

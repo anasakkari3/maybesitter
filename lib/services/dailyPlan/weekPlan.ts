@@ -741,8 +741,25 @@ export async function acceptWeekDay(
   }
   let accepted: StoredDailyPlan | null;
   try {
-    accepted = await acceptPlan(uid, date, { storage, ...(deps.now ? { now: deps.now } : {}) });
+    accepted = await acceptPlan(uid, date, {
+      storage,
+      ...(deps.now ? { now: deps.now } : {}),
+      // The fence the reviewed solve was made under, checked again as the
+      // acceptance commits (M5B2A-R8-002).
+      ...(solved?.focusFromMemory === true && solved.personalizationPurgeEpoch !== undefined
+        ? { personalizationPurgeEpoch: solved.personalizationPurgeEpoch } : {}),
+    });
   } catch (error) {
+    if (error instanceof PlanWriteGuardRejected) {
+      // Withdrawn or purged between the store and the accept: the document this
+      // call just created was shaped by memory it no longer may use, and is
+      // removed unaccepted, as an empty one is.
+      await storage.runTransaction(async (tx) => {
+        const current = await tx.get<StoredDailyPlan>(planPath(uid, date));
+        if (current && current.status === 'proposed' && current.generation === stored.generation) tx.delete(planPath(uid, date));
+      });
+      return { outcome: 'week_changed', layout: await composeWeek(uid, decisions, { ...deps, storage }) };
+    }
     if (!(error instanceof PlanEditRejected) || error.reason !== 'empty_plan') throw error;
     // The store re-solved against busy time read after the week was composed,
     // and placed nothing. The document this call just created is not a plan

@@ -2,9 +2,9 @@ import React, { Profiler, useEffect, useRef, useState } from 'react';
 import { BackHandler, Pressable, View } from 'react-native';
 import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react-native';
-import { basisCorrectionCountForTests, basisStateHeldForTests, queryKeys, resetBasisCorrections, useSetPersonalizationConsent } from '../../../api/queries';
+import { basisCorrectionCountForTests, basisStateHeldForTests, queryKeys, resetBasisCorrections, useMemorySuggestion, usePlanAction, useSetPersonalizationConsent } from '../../../api/queries';
 import personalizationRecorded from '../../../api/__fixtures__/consents.personalizationRecorded.json';
-import { ACCOUNT_A } from '../../../__acceptance__/m5b/harness';
+import { ACCOUNT_A, ACCOUNT_B } from '../../../__acceptance__/m5b/harness';
 import {
   BASIS_ID, MemoryMutationDriver, NOW, Providers, TODAY, deferred, initialState, memoryItem, outcome, panelHandler,
   planEnvelope, planWithBasis, prepare, showPanel, teardown, type M5bHarness, type RouteHandler, type RouteReply,
@@ -530,5 +530,64 @@ describe('M5b-2a inspection fixes', () => {
     await act(async () => { await jest.advanceTimersByTimeAsync(100); });
     await fireEvent.press(screen.getByTestId('open-memory-focused'));
     await waitFor(() => expect(screen.queryByTestId(`memory-screen-focused-${BASIS_ID}`)).not.toBeNull());
+  });
+
+  // R8-001: account A taps; account B is signed in while A's token is fetched.
+  // The write must never reach the server under B's token.
+  function Writes() {
+    const consent = useSetPersonalizationConsent();
+    const decide = useMemorySuggestion();
+    const act = usePlanAction(TODAY);
+    const swallow = (p: Promise<unknown>) => { void p.catch(() => undefined); };
+    return <View>
+      <MemoryMutationDriver />
+      <Pressable testID="w-withdraw" onPress={() => swallow(consent.mutateAsync({ state: 'declined', version: 'v1' }))} />
+      <Pressable testID="w-keep" onPress={() => decide.mutate({ suggestion: { ruleId: 'R1', fingerprint: 'R1_focus_window:09:00-12:00' } as never, decision: 'keep', language: 'en' })} />
+      <Pressable testID="w-accept" onPress={() => act.mutate('accept')} />
+    </View>;
+  }
+  const accountBound: [string, string, string, string][] = [
+    ['delete', 'gate-delete', 'DELETE', `/api/mobile/memory/${BASIS_ID}`],
+    ['delete-all', 'gate-delete-all', 'DELETE', '/api/mobile/memory'],
+    ['patch', 'gate-patch', 'PATCH', `/api/mobile/memory/${BASIS_ID}`],
+    ['withdrawal', 'w-withdraw', 'PUT', '/api/mobile/consents/personalization'],
+    ['focus-window keep', 'w-keep', 'POST', '/api/mobile/memory/suggestions/R1'],
+    ['plan action', 'w-accept', 'POST', `/api/mobile/plans/${TODAY}/actions`],
+  ];
+  it.each(accountBound)('R8-001: a %s started for account A is not sent once account B is signed in', async (_label, testID, method, path) => {
+    harness = await prepare('en', initialState(), planOnly(planWithBasis()));
+    await render(<Providers harness={harness}><Writes /></Providers>);
+    await act(async () => { await jest.advanceTimersByTimeAsync(100); });
+    const token = deferred<string | null>();
+    const repository = harness.repository as unknown as { getIdToken: (force?: boolean) => Promise<string | null>; currentUser: () => unknown };
+    const realToken = repository.getIdToken.bind(repository);
+    jest.spyOn(repository, 'getIdToken').mockImplementationOnce(() => token.promise);
+    await fireEvent.press(screen.getByTestId(testID));
+    // B signs in while A's token is still being fetched.
+    jest.spyOn(repository, 'currentUser').mockReturnValue(ACCOUNT_B);
+    await act(async () => { token.resolve(await realToken(false)); await jest.advanceTimersByTimeAsync(100); });
+    expect(harness.server.matching(method, new RegExp(`^${path}$`))).toHaveLength(0);
+  });
+
+  it('R8-001: an outcome dismissal started for account A is not sent once account B is signed in', async () => {
+    harness = await prepare('en', initialState(), panelHandler({ observations: [outcome('o1')] }));
+    await showPanel(harness);
+    await waitFor(() => expect(screen.queryByTestId('m5b-learned')).not.toBeNull());
+    await fireEvent.press(screen.getByTestId('m5b-learned'));
+    await act(async () => { await jest.advanceTimersByTimeAsync(100); });
+    const repository = harness.repository as unknown as { getIdToken: (force?: boolean) => Promise<string | null>; currentUser: () => unknown };
+    const realToken = repository.getIdToken.bind(repository);
+    // The fresh capability check comes first, then the dismissal: hold the dismissal's token.
+    const token = deferred<string | null>();
+    let calls = 0;
+    jest.spyOn(repository, 'getIdToken').mockImplementation((force?: boolean) => {
+      calls += 1;
+      return calls === 2 ? token.promise : realToken(force);
+    });
+    await fireEvent.press(screen.getByTestId('m5b-learned-wrong-o1'));
+    await waitFor(() => expect(calls).toBe(2));
+    jest.spyOn(repository, 'currentUser').mockReturnValue(ACCOUNT_B);
+    await act(async () => { token.resolve(await realToken(false)); await jest.advanceTimersByTimeAsync(100); });
+    expect(harness.server.matching('POST', /^\/api\/mobile\/intelligence\/observations\/o1$/)).toHaveLength(0);
   });
 });

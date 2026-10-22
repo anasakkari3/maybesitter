@@ -204,7 +204,7 @@ describe('“Looks good”', () => {
     });
     await waitFor(() => expect(screen.queryByTestId('plan-accepted')).not.toBeNull());
     expect(planEndpoints.actOnPlan).toHaveBeenCalledTimes(1);
-    expect(planEndpoints.actOnPlan).toHaveBeenCalledWith(DATE, { action: 'accept' });
+    expect(planEndpoints.actOnPlan).toHaveBeenCalledWith(DATE, { action: 'accept' }, { asUid: 'plan-user' });
   });
 
   it('is still sendable after one that failed', async () => {
@@ -282,7 +282,7 @@ describe('“Looks good”', () => {
     await loaded();
     await fireEvent.press(screen.getByTestId('plan-dismiss'));
     await waitFor(() => expect(screen.queryByTestId('plan-dismissed')).not.toBeNull());
-    expect(planEndpoints.actOnPlan).toHaveBeenCalledWith(DATE, { action: 'dismiss' });
+    expect(planEndpoints.actOnPlan).toHaveBeenCalledWith(DATE, { action: 'dismiss' }, { asUid: 'plan-user' });
   });
 
   it('still offers accepting a plan set aside, in case the person changes their mind', async () => {
@@ -471,7 +471,7 @@ describe('moving an item the plan will not allow', () => {
     await waitFor(() => expect(screen.queryByTestId(`plan-remove-${ITEM.itemId}`)).not.toBeNull());
     await fireEvent.press(screen.getByTestId(`plan-remove-${ITEM.itemId}`));
     await waitFor(() =>
-      expect(planEndpoints.actOnPlan).toHaveBeenCalledWith(DATE, { action: 'edit', removals: [ITEM.itemId] }));
+      expect(planEndpoints.actOnPlan).toHaveBeenCalledWith(DATE, { action: 'edit', removals: [ITEM.itemId] }, { asUid: 'plan-user' }));
   });
 
   it('does not explain a lost connection as a refused placement', async () => {
@@ -514,7 +514,7 @@ describe('asking for a new plan', () => {
   it('rebuilds, and shows the plan that came back', async () => {
     await loaded();
     await fireEvent.press(screen.getByTestId('plan-regenerate'));
-    await waitFor(() => expect(planEndpoints.regeneratePlan).toHaveBeenCalledWith(DATE));
+    await waitFor(() => expect(planEndpoints.regeneratePlan).toHaveBeenCalledWith(DATE, { asUid: 'plan-user' }));
     await waitFor(() =>
       expect(screen.getByTestId('plan-regenerate-left').props.children).toContain('3'));
   });
@@ -632,7 +632,7 @@ describe('when there is no plan for the day', () => {
   it('builds, and shows the plan that came back in place', async () => {
     await empty();
     await fireEvent.press(screen.getByTestId('plan-build'));
-    await waitFor(() => expect(planEndpoints.buildPlan).toHaveBeenCalledWith(DATE));
+    await waitFor(() => expect(planEndpoints.buildPlan).toHaveBeenCalledWith(DATE, { asUid: 'plan-user' }));
     await waitFor(() => expect(screen.queryByTestId('plan-why')).not.toBeNull());
     expect(screen.queryByTestId('plan-empty')).toBeNull();
     // Generation 1: all four of the day's rebuilds are still there.
@@ -1152,7 +1152,7 @@ describe('a plan built after the day\'s hours (L5)', () => {
     await show(date);
     await waitFor(() => expect(screen.queryByTestId('plan-build-tomorrow')).not.toBeNull());
     await fireEvent.press(screen.getByTestId('plan-build-tomorrow'));
-    await waitFor(() => expect(planEndpoints.buildPlan).toHaveBeenCalledWith(tomorrow));
+    await waitFor(() => expect(planEndpoints.buildPlan).toHaveBeenCalledWith(tomorrow, { asUid: 'plan-user' }));
   });
 
   it('is an ordinary empty day while the hours are still running', async () => {

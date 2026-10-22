@@ -24,9 +24,10 @@ export function generateIntelligenceSuggestions(options: { signal?: AbortSignal;
     ...(options.signal ? { signal: options.signal } : {}),
   });
 }
-export function reviewIntelligenceObservation(id: string, review: 'confirmed' | 'dismissed') {
+export function reviewIntelligenceObservation(id: string, review: 'confirmed' | 'dismissed', options: { asUid?: string } = {}) {
   return apiRequest('POST', `/api/mobile/intelligence/observations/${encodeURIComponent(id)}`, {
     body: { review }, schema: intelligenceObservationReviewSchema,
+    ...(options.asUid !== undefined ? { asUid: options.asUid } : {}),
   });
 }
 export function decideIntelligenceSuggestion(

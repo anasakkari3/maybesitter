@@ -9,7 +9,7 @@ import { readPlanMemoryProjection } from '../../lib/services/dailyPlan/planMemor
 import { assemblePlanResponse } from '../../lib/services/dailyPlan/planDto.ts';
 import { composeDailyPlan, memoryFocusForPlan, personalizationPurgeMatches } from '../../lib/services/dailyPlan/dailyPlanService.ts';
 import { createStoragePersonalizationConsentStore } from '../../lib/personalizationControls/consentStore.ts';
-import { setPersonalizationConsent, PERSONALIZATION_CONSENT_VERSION } from '../../lib/consents/personalizationConsentService.ts';
+import { setPersonalizationConsent, PersonalizationWithdrawalBusyError, PERSONALIZATION_CONSENT_VERSION } from '../../lib/consents/personalizationConsentService.ts';
 import { userDoc } from '../../lib/storage/paths.ts';
 import { setStorageForTests } from '../../lib/storage/index.ts';
 import {
@@ -204,4 +204,46 @@ test('R7-003: GET and building over an existing plan answer the plan without a b
     setStorageForTests(storage);
   }
   assert.equal((await storedPlan(uid)).generation, before.generation, 'an unreadable projection rebuilt the plan');
+});
+
+/** Sets the personalization fence as a purge's own transaction would. */
+async function setFence(storage: any, uid: string, fence: { state: string; epoch: number }): Promise<void> {
+  await storage.runTransaction(async (tx: any) => { tx.merge(userDoc(uid), { personalizationPurge: fence }); });
+}
+
+test('R8-003: a withdrawal behind a running purge waits for it and takes its own epoch, refusing a plan that read the window under the purge epoch', async () => {
+  const uid = await keptFocusPlan();
+  const storage = currentStorage() as any;
+  const prior = ((await storage.get(userDoc(uid))) ?? {}).personalizationPurge?.epoch ?? 0;
+  const purgeEpoch = prior + 1;
+  await setFence(storage, uid, { state: 'purging', epoch: purgeEpoch });
+  let underPurgeEpoch: Awaited<ReturnType<typeof memoryFocusForPlan>> = null;
+  const withdrawal = setPersonalizationConsent(uid, { state: 'declined', version: PERSONALIZATION_CONSENT_VERSION, at: new Date() }, {
+    storage, purgeWait: { attempts: 50, delayMs: 5 },
+  });
+  // The purge finishes while the withdrawal waits; a plan then reads the window under its epoch.
+  await new Promise((resolve) => setTimeout(resolve, 12));
+  await setFence(storage, uid, { state: 'active', epoch: purgeEpoch });
+  underPurgeEpoch = await memoryFocusForPlan(uid, NOW(), { storage });
+  await withdrawal;
+  const fence = ((await storage.get(userDoc(uid))) ?? {}).personalizationPurge;
+  assert.deepEqual([fence?.state, fence?.epoch], ['active', purgeEpoch + 1], 'the withdrawal did not take its own epoch');
+  assert.ok(underPurgeEpoch, 'fixture: no plan read the window between the purge and the withdrawal');
+  assert.equal(personalizationPurgeMatches({ personalizationPurge: fence }, underPurgeEpoch!.purgeEpoch), false, 'a plan read under the purge epoch would still be written');
+});
+
+test('R8-003: a purge that outlasts the wait fails the withdrawal before anything changes', async () => {
+  const uid = await keptFocusPlan();
+  const storage = currentStorage() as any;
+  const prior = ((await storage.get(userDoc(uid))) ?? {}).personalizationPurge?.epoch ?? 0;
+  await setFence(storage, uid, { state: 'purging', epoch: prior + 1 });
+  const base = createStoragePersonalizationConsentStore(storage);
+  let writes = 0;
+  const consent = { ...base, read: base.read.bind(base), write: async (...args: Parameters<typeof base.write>) => { writes += 1; return base.write(...args); } };
+  await assert.rejects(
+    setPersonalizationConsent(uid, { state: 'declined', version: PERSONALIZATION_CONSENT_VERSION, at: new Date() }, { storage, consent: consent as any, purgeWait: { attempts: 3, delayMs: 1 } }),
+    PersonalizationWithdrawalBusyError,
+  );
+  assert.equal(writes, 0, 'the store was disabled although the withdrawal failed');
+  assert.equal((await base.read(uid)).state, 'enabled');
 });

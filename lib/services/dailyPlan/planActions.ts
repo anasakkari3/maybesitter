@@ -226,6 +226,12 @@ export function validateEdit(stored: StoredDailyPlan, edit: { moves: readonly Pl
 export interface PlanActionOptions {
   storage?: StorageAdapter;
   now?: () => Date;
+  /**
+   * `acceptPlan` only: the personalization epoch a memory-shaped plan was
+   * solved under. The acceptance is refused, in its own transaction, once the
+   * fence has moved (M5B2A-R8-002).
+   */
+  personalizationPurgeEpoch?: number;
 }
 
 function clockOf(options: PlanActionOptions): Date {
@@ -248,13 +254,24 @@ export function placesNothing(stored: StoredDailyPlan): boolean {
 export async function acceptPlan(uid: string, date: string, options: PlanActionOptions = {}): Promise<StoredDailyPlan | null> {
   const at = clockOf(options).toISOString();
   let empty = false;
-  const outcome = await mutateStoredPlan<null>(uid, date, (current) => {
+  let fenced = false;
+  const outcome = await mutateStoredPlan<null>(uid, date, async (current, tx) => {
+    empty = false;
+    fenced = false;
     // Refused inside the transaction, against the document as it is now — and
     // recorded rather than thrown, as `editPlan` does: a thrown refusal would
     // be retried by the adapter. Nothing is written: no status, no ledger
     // entry, no activity counter.
     if (placesNothing(current)) {
       empty = true;
+      return null;
+    }
+    // A memory-shaped plan whose personalization fence moved since it was
+    // solved is not accepted (M5B2A-R8-002): the read and the status change
+    // are one transaction.
+    if (options.personalizationPurgeEpoch !== undefined && current.focusFromMemory === true
+      && !personalizationPurgeMatches(await tx.get(userDoc(uid)), options.personalizationPurgeEpoch)) {
+      fenced = true;
       return null;
     }
     return {
@@ -267,6 +284,7 @@ export async function acceptPlan(uid: string, date: string, options: PlanActionO
     };
   }, options.storage);
   if (empty) throw new PlanEditRejected('empty_plan', null, 'the plan places nothing, so there is nothing to accept');
+  if (fenced) throw new PlanWriteGuardRejected();
   if (!outcome) return null;
   const { path, record } = preparePlanEvent(uid, {
     type: 'plan_accepted', date, at, generation: outcome.stored.generation, inputDigest: outcome.stored.inputDigest,

@@ -72,9 +72,9 @@ function withProposal(response: { plan: DailyPlan; proposal?: DailyPlan['proposa
 }
 
 /** That date's plan, or null when none was built. */
-export async function getPlan(date: string): Promise<DailyPlan | null> {
+export async function getPlan(date: string, options: { asUid?: string } = {}): Promise<DailyPlan | null> {
   try {
-    const response = await apiRequest('GET', planPath(date), { schema: planResponseSchema });
+    const response = await apiRequest('GET', planPath(date), { schema: planResponseSchema, ...(options.asUid !== undefined ? { asUid: options.asUid } : {}), });
     return withProposal(response);
   } catch (error) {
     if (error instanceof NotFoundError) return null;
@@ -89,11 +89,12 @@ export async function getPlan(date: string): Promise<DailyPlan | null> {
  * here re-reads to find out what its own call did. A refused edit is a 422 and
  * arrives as `PlanEditRefusedError`, carrying the reason and the item.
  */
-export async function actOnPlan(date: string, body: PlanActionBody): Promise<DailyPlan> {
+export async function actOnPlan(date: string, body: PlanActionBody, options: { asUid?: string } = {}): Promise<DailyPlan> {
   try {
     const response = await apiRequest('POST', planPath(date, '/actions'), {
       body,
       schema: planResponseSchema,
+      ...(options.asUid !== undefined ? { asUid: options.asUid } : {}),
     });
     return withProposal(response);
   } catch (error) {
@@ -116,10 +117,11 @@ export async function actOnPlan(date: string, body: PlanActionBody): Promise<Dai
  * The screen stops offering the button before that, from the generation it can
  * already see; the 429 is the second line, for a rebuild another device spent.
  */
-export async function regeneratePlan(date: string): Promise<DailyPlan> {
+export async function regeneratePlan(date: string, options: { asUid?: string } = {}): Promise<DailyPlan> {
   const response = await apiRequest('POST', planPath(date, '/regenerate'), {
     body: {},
     schema: planResponseSchema,
+    ...(options.asUid !== undefined ? { asUid: options.asUid } : {}),
   });
   return withProposal(response);
 }
@@ -132,10 +134,11 @@ export async function regeneratePlan(date: string): Promise<DailyPlan> {
  * answers that plan, generation and all, so a retry after a lost response
  * cannot spend a second generation.
  */
-export async function buildPlan(date: string): Promise<DailyPlan> {
+export async function buildPlan(date: string, options: { asUid?: string } = {}): Promise<DailyPlan> {
   const response = await apiRequest('POST', planPath(date, '/build'), {
     body: {},
     schema: planResponseSchema,
+    ...(options.asUid !== undefined ? { asUid: options.asUid } : {}),
   });
   return withProposal(response);
 }
@@ -251,6 +254,7 @@ export async function acceptWeekDay(
   shown: readonly string[],
   decisions: WeekDecisions,
   layoutDigest?: string,
+  options: { asUid?: string } = {},
 ): Promise<{ plan: DailyPlan; week: Week }> {
   if (!PLAN_DATE.test(date)) throw new ValidationError('a plan date must be YYYY-MM-DD');
   const response = await apiRequest('POST', '/api/mobile/plans/week/accept', {
@@ -258,6 +262,7 @@ export async function acceptWeekDay(
     // without M5b sends none, and then none is sent back.
     body: { date, shown, moves: decisions.moves, drops: decisions.drops, ...(layoutDigest ? { layoutDigest } : {}) },
     schema: weekAcceptResponseSchema,
+    ...(options.asUid !== undefined ? { asUid: options.asUid } : {}),
   });
   return { plan: { ...response.plan, proposal: null }, week: response.week };
 }
