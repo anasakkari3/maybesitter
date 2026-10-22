@@ -2134,5 +2134,7 @@
   "m5bBasisFix": "صحّحها",
   "m5bPlanMemoryChanged": "تغيّر شي بيتذكّره عنك وانبنت عليه الخطة. لتنطبق، ابنيها من جديد.",
   "m5bPlanMemoryChangedNoRebuild": "تغيّر شي بيتذكّره عنك وانبنت عليه الخطة. خلصت مرّات إعادة البنا لليوم، فالخطة الحالية بتضل على حالها.",
-  "m5bLearnedWrongA11y": "مش صحيح: {line}"
+  "m5bLearnedWrongA11y": "مش صحيح: {line}",
+  "m5bSuggestionBasis": "اعتمدنا على: «{memory}»",
+  "m5bSuggestionBasisFixA11y": "صحّح: «{memory}»"
 }

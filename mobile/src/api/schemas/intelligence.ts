@@ -22,12 +22,30 @@ export const suggestionSchema = z.object({
   position: z.number().int().nonnegative().optional(),
   answerDigest: z.string().optional(),
   decidedAt: isoDateTime.nullable(), linkedEntityId: z.string().nullable(), generatedAt: isoDateTime,
+  /**
+   * M5b-2b-1 (R2/R3): the memories that shaped a pending suggestion, by id
+   * only — never their words. At most three on the wire; an over-long list
+   * is cut to three rather than failing the whole inbox. Absent off, on an
+   * older server and on any suggestion that is not pending.
+   */
+  memoryBasis: z.array(z.object({ memoryId: z.string().min(1) })).optional()
+    .transform(list => (list === undefined ? undefined : list.slice(0, 3))),
 });
 
 const suggestionScheduleSchema = z.object({
   suggestionId: z.string(), slot: z.object({ startsAt: isoDateTime, endsAt: isoDateTime }).nullable(), reason: z.string().nullable(),
 });
-export const intelligenceInboxSchema = z.object({ success: z.literal(true), observations: z.array(observationSchema), suggestions: z.array(suggestionSchema), schedule: z.array(suggestionScheduleSchema) });
+/**
+ * M5b-2b-1 (R13-001): the effective mode the server filtered a response
+ * under. Absent in off (so off-mode bytes are unchanged, R14-002) and from an
+ * older server; the app reads its absence as off only when the capability is
+ * known false (`features/m5b/suggestionBasis.ts`).
+ */
+const basisModeSchema = z.enum(['on_basis', 'on_nobasis']).optional();
+export const intelligenceInboxSchema = z.object({
+  success: z.literal(true), observations: z.array(observationSchema), suggestions: z.array(suggestionSchema), schedule: z.array(suggestionScheduleSchema),
+  basisMode: basisModeSchema,
+});
 // `route: 'plan_flow'`: the statement asked for a plan («ابنيلي خطة», M3A-032), so
 // the app opens the plan path with it instead of showing observations.
 export const intelligenceAnalyzeSchema = z.object({
@@ -39,6 +57,7 @@ export const intelligenceAnalyzeSchema = z.object({
 export const intelligenceGenerateSchema = z.object({
   success: z.literal(true), suggestions: z.array(suggestionSchema), schedule: z.array(suggestionScheduleSchema),
   nextVisitAt: isoDateTime.optional(),
+  basisMode: basisModeSchema,
 });
 export const intelligenceSuggestionDecisionSchema = z.object({ success: z.literal(true), suggestion: suggestionSchema });
 export const intelligenceObservationReviewSchema = z.object({ success: z.literal(true), observation: observationSchema });
@@ -56,6 +75,7 @@ export const intelligenceGmailMonitorSchema = z.object({
   timezone: z.string().min(1).nullable().optional(),
 }).strict(); // PLAN-M5a Wire: the extended monitor response is strict (M5A-R10-003).
 
+export type BasisMode = NonNullable<z.infer<typeof basisModeSchema>>;
 export type IntelligenceInbox = z.infer<typeof intelligenceInboxSchema>;
 export type IntelligenceSuggestion = z.infer<typeof suggestionSchema>;
 export type IntelligenceObservation = z.infer<typeof observationSchema>;

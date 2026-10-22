@@ -2137,5 +2137,7 @@
   "m5bBasisFix": "תקן",
   "m5bPlanMemoryChanged": "משהו שנזכר והתוכנית התבססה עליו השתנה. כדי שזה ייכנס, בנה אותה מחדש.",
   "m5bPlanMemoryChangedNoRebuild": "משהו שנזכר והתוכנית התבססה עליו השתנה. ניצלת את הבניות מחדש של היום, אז התוכנית הנוכחית נשארת כמו שהיא.",
-  "m5bLearnedWrongA11y": "לא נכון: {line}"
+  "m5bLearnedWrongA11y": "לא נכון: {line}",
+  "m5bSuggestionBasis": "על סמך: “{memory}”",
+  "m5bSuggestionBasisFixA11y": "תקן: “{memory}”"
 }
