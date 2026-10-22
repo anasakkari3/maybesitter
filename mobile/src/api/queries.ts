@@ -1103,7 +1103,9 @@ export function usePlanEdit(date: string) {
       const key = queryKeys.plan(uid, date);
       await client.cancelQueries({ queryKey: key });
       const previous = client.getQueryData<DailyPlan | null>(key) ?? null;
-      if (previous) client.setQueryData(key, applyEditLocally(previous, edit));
+      // The local copy keeps the answer's number (M5b-2a): it is the same plan
+      // answer, edited, not a newer one.
+      if (previous) client.setQueryData(key, stampPlan(applyEditLocally(previous, edit), planStarts.get(previous) ?? 0));
       return { previous };
     },
     onError: (_error, _edit, context) => {
