@@ -85,7 +85,10 @@ describe('M5b-2a R1 learned outcomes', () => {
   it.each(hiddenCases)('R1 parity hides the card with %s', async (_case, observations, capability) => {
     await loaded({ observations: [...observations], capability });
     expect(screen.queryByTestId('m5b-learned')).toBeNull();
-    expect(screen.queryByTestId('m5b-learned-status')).not.toBeNull();
+    // GA-M5B2A-AMEND-5 (Claude): the panel has one live region (M1 A5); the
+    // learned line is said there, so the region is the panel's.
+    expect(screen.queryByTestId('intelligence-status')).not.toBeNull();
+    expect(screen.queryByTestId('m5b-learned-status')).toBeNull();
   });
 
   it('R1 parity hides the card for an older inbox with no outcome field', async () => {
@@ -123,7 +126,7 @@ describe('M5b-2a R1 learned outcomes', () => {
     // is off (R1 App "When it is hidden"); the fresh answer said off, so the
     // card goes — and nothing was dismissed or announced.
     expect(screen.queryByTestId('m5b-learned')).toBeNull();
-    expect(screen.getByTestId('m5b-learned-status').props.children).toBeNull();
+    expect(screen.queryByTestId('m5b-learned-status')).toBeNull();
   });
 
   it('R1 success removes the last row, refetches, and announces from the panel-scope live region', async () => {
@@ -139,7 +142,8 @@ describe('M5b-2a R1 learned outcomes', () => {
     await waitFor(() => expect(screen.queryByTestId('m5b-learned-row-last')).toBeNull());
 
     expect(screen.queryByTestId('m5b-learned')).toBeNull();
-    expect(screen.getByTestId('m5b-learned-status').props.accessibilityLiveRegion).toBe('polite');
+    // GA-M5B2A-AMEND-5: said in the panel's one live region.
+    expect(screen.getByTestId('intelligence-status').props.accessibilityLiveRegion).toBe('polite');
     expect(textOf(screen.getByTestId('m5b-learned-status').props.children).length).toBeGreaterThan(0);
     expect(announce).toHaveBeenCalledTimes(1);
     expect(harness!.server.matching('GET', /^\/api\/mobile\/intelligence$/).length).toBeGreaterThan(readsBefore);
@@ -155,7 +159,7 @@ describe('M5b-2a R1 learned outcomes', () => {
     await waitFor(() => expect(harness!.server.matching('GET', /^\/api\/mobile\/intelligence$/).length).toBeGreaterThan(reads));
 
     expect(screen.queryByTestId('m5b-learned-row-unchanged')).not.toBeNull();
-    expect(textOf(screen.getByTestId('m5b-learned-status').props.children)).toBe('');
+    expect(screen.queryByTestId('m5b-learned-status')).toBeNull();
     expect(harness!.server.matching('GET', /^\/api\/mobile\/capabilities\/m5b$/).length).toBeGreaterThan(caps);
   });
 
@@ -168,7 +172,7 @@ describe('M5b-2a R1 learned outcomes', () => {
 
     expect(screen.queryByTestId('m5b-learned-row-failed')).not.toBeNull();
     expect(screen.queryByTestId('intelligence-status')).not.toBeNull();
-    expect(textOf(screen.getByTestId('m5b-learned-status').props.children)).toBe('');
+    expect(screen.queryByTestId('m5b-learned-status')).toBeNull();
     expect(view.getAllByText(/[\s\S]*/).length).toBeGreaterThan(textNodesBefore);
   });
 });

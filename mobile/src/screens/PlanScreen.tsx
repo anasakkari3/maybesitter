@@ -335,6 +335,24 @@ function LoadedPlan({ plan, date, readOnly }: { plan: DailyPlan; date: string; r
   const explanationInLanguage = plan.explanation.locale === lang;
   const [whyOpen, setWhyOpen] = useState(true);
 
+  // The rebuild control: drawn alone, or with the memory-changed notice (M5b-2a).
+  const regenerateButton = (
+    <Pill
+      label={t.planRegenerate}
+      kind="outline"
+      size={14}
+      testID="plan-regenerate"
+      disabled={readOnly || rebuild.isPending || capReached}
+      onPress={() => {
+        if (!rebuilding.enter()) return;
+        rebuild.mutate(undefined, {
+          onSuccess: rebuilt => void reportPlanRegenerated(rebuilt, reporter),
+          onSettled: rebuilding.leave,
+        });
+      }}
+    />
+  );
+
   if (rebuild.isPending) return <Generating />;
 
   return (
@@ -589,25 +607,13 @@ function LoadedPlan({ plan, date, readOnly }: { plan: DailyPlan; date: string; r
           <Txt size={13} color={p.wm} lh={1.5} testID="m5b-plan-memory-changed-no-rebuild">{t.m5bPlanMemoryChangedNoRebuild}</Txt>
         ) : null}
         <ActionRow>
-          {rebuildHidden ? null : <View style={{ gap: 8 }}>
-            {plan.memoryBasisChanged === true && !capReached ? (
+          {rebuildHidden ? null : plan.memoryBasisChanged === true && !capReached ? (
+            // The notice sits with the rebuild it points at, as one cell.
+            <View style={{ gap: 8 }}>
               <Txt size={13} color={p.wm} lh={1.5} testID="m5b-plan-memory-changed">{t.m5bPlanMemoryChanged}</Txt>
-            ) : null}
-            <Pill
-              label={t.planRegenerate}
-              kind="outline"
-              size={14}
-              testID="plan-regenerate"
-              disabled={readOnly || rebuild.isPending || capReached}
-              onPress={() => {
-                if (!rebuilding.enter()) return;
-                rebuild.mutate(undefined, {
-                  onSuccess: rebuilt => void reportPlanRegenerated(rebuilt, reporter),
-                  onSettled: rebuilding.leave,
-                });
-              }}
-            />
-          </View>}
+              {regenerateButton}
+            </View>
+          ) : regenerateButton}
           <Pill
             label={t.planDismiss}
             kind="ghost"

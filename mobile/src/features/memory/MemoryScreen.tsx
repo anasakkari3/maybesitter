@@ -167,11 +167,12 @@ export function MemoryScreen({ onBack, focusId = null }: {
   // open. A row that is gone opens the screen as it always opens.
   const [focusApplied, setFocusApplied] = useState(false);
   const focusPresent = focusId !== null && items.some(item => item.id === focusId);
-  useEffect(() => {
-    if (focusApplied || focusId === null || memory.data === undefined) return;
+  // Applied while rendering, once the list is known — derived state, not an
+  // effect that would draw the screen once unfocused first.
+  if (!focusApplied && focusId !== null && memory.data !== undefined) {
     setFocusApplied(true);
     if (focusPresent) setEditing(focusId);
-  }, [focusApplied, focusId, focusPresent, memory.data]);
+  }
 
   const groups = MEMORY_GROUP_ORDER
     .map(group => [group, items.filter(item => groupOf(item) === group)] as const)

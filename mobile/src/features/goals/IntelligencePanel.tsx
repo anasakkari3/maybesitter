@@ -193,7 +193,7 @@ function IntelligencePanelForAccount({ onChanged, autoGenerate = false, whenOff 
   const m5bOn = useM5bOn();
   const freshM5b = useFreshM5bOn();
   const [learnedOpen, setLearnedOpen] = React.useState(false);
-  // What the panel-scope region says after a dismissal; the region itself is
+  // What the panel's one live region says after a dismissal; the region is
   // always mounted, so it outlives the card when its last row leaves (M5B2A-009).
   const [learnedStatus, setLearnedStatus] = React.useState<string | null>(null);
   // What a successful action will say once the inbox can be read again: a
@@ -596,9 +596,6 @@ function IntelligencePanelForAccount({ onChanged, autoGenerate = false, whenOff 
       busy={busy}
       onWrong={(id) => void dismissOutcome(id)}
     /> : null}
-    <LiveRegion testID="m5b-learned-status">
-      {learnedStatus ? <Txt role="supporting" testID="m5b-learned-status-text">{learnedStatus}</Txt> : null}
-    </LiveRegion>
     <TextInput
       testID="intelligence-statement"
       accessibilityLabel={t.xIntelligenceTitle}
@@ -640,8 +637,11 @@ function IntelligencePanelForAccount({ onChanged, autoGenerate = false, whenOff 
         with its retry — said once, never repeated in a second line. */}
     <LiveRegion testID="intelligence-status">
       {/* The monitor's quota wait is said here too, in the panel's one region (R4.1). */}
-      {announced || refreshFailed || monitorWait ? <View style={{ gap: 8 }}>
+      {announced || refreshFailed || monitorWait || learnedStatus ? <View style={{ gap: 8 }}>
       {monitorWait ? <WaitLine wait={monitorWait} /> : null}
+      {/* M5b-2a: what «مش صحيح» did, said in the panel's one region, which
+          outlives the learned card (M5B2A-009). */}
+      {learnedStatus ? <Txt role="supporting" testID="m5b-learned-status">{learnedStatus}</Txt> : null}
       {announced ? <Txt role="supporting" testID="intelligence-status-text">{announced}</Txt> : null}
       {refreshFailed ? <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
         <Txt role="supporting" color={p.wm} testID="intelligence-refresh-failed">{t.xIntelligenceRefreshFailed}</Txt>
