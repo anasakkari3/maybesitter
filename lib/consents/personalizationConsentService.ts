@@ -196,12 +196,14 @@ export function fencedPersonalizationConsentStore(
   options: PersonalizationConsentOptions = {},
 ): PersonalizationConsentStore {
   const base = storeOf(options);
+  // Every method delegated by name: the storage store's methods live on its
+  // prototype, which a spread does not copy (M5B2A-R12-001).
   return {
-    ...base,
     read: (scopeId) => base.read(scopeId),
     write: (scopeId, state, at) => (state === 'disabled'
       ? disablePersonalizationFenced(scopeId, at, { ...options, consent: base })
       : base.write(scopeId, state, at)),
+    deleteScope: (scopeId) => base.deleteScope(scopeId),
   };
 }
 

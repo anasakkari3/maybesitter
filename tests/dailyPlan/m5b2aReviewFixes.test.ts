@@ -15,6 +15,7 @@ import { acceptWeekDay, composeWeek } from '../../lib/services/dailyPlan/weekPla
 import { createStoragePersonalizationConsentStore } from '../../lib/personalizationControls/consentStore.ts';
 import { fencedPersonalizationConsentStore, setPersonalizationConsent, PersonalizationWithdrawalBusyError, PERSONALIZATION_CONSENT_VERSION } from '../../lib/consents/personalizationConsentService.ts';
 import { readFileSync } from 'node:fs';
+import { POST as personalizationControlsPost } from '../../src/app/api/personalization/route.ts';
 import { userDoc } from '../../lib/storage/paths.ts';
 import { setStorageForTests } from '../../lib/storage/index.ts';
 import {
@@ -565,4 +566,22 @@ test('R11-002: an ordinary accept of a plan shaped by since-withdrawn memory ans
   assert.equal(accepted.status, 409, show(accepted.body));
   assert.equal(accepted.body.reason, 'plan_changed');
   assert.equal((await storedPlan(uid)).status, before.status, 'the withdrawn plan was accepted');
+});
+
+test('R12-001: the control-centre delete, through the fenced consent store, answers its receipt and leaves consent at the default', async () => {
+  const uid = await keptFocusPlan();
+  const storage = currentStorage() as any;
+  const fenceBefore = ((await storage.get(userDoc(uid))) ?? {}).personalizationPurge?.epoch ?? 0;
+  const post = (body: Record<string, unknown>) => personalizationControlsPost(new Request('http://localhost/api/personalization', {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
+  }));
+  assert.equal((await post({ scopeId: uid, now: new Date().toISOString(), action: 'enable' })).status, 200);
+  const deleted = await post({ scopeId: uid, now: new Date().toISOString(), action: 'delete' });
+  const body = await deleted.json() as any;
+  assert.equal(deleted.status, 200, JSON.stringify(body));
+  assert.equal(body.kind, 'deleted');
+  const consent = await createStoragePersonalizationConsentStore(storage).read(uid);
+  assert.deepEqual([consent.state, consent.changedAt], ['disabled', null], 'the consent record survived the delete');
+  const fenceAfter = ((await storage.get(userDoc(uid))) ?? {}).personalizationPurge?.epoch ?? 0;
+  assert.ok(fenceAfter > fenceBefore, 'the deletion did not move the personalization fence');
 });
