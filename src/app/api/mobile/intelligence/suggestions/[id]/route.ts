@@ -3,6 +3,9 @@ import { intelligenceDisabledResponse } from '../../../../../../../lib/intellige
 import { getRecommendationConsent } from '../../../../../../../lib/consents/recommendationConsentService';
 import { AutoAddedSuggestionError, InvalidSuggestionEditError, QuestionAnswerRequiredError, SuggestionScheduleChangedError, reviewSuggestion } from '../../../../../../../lib/intelligence/reviewSuggestion';
 import { RequestBodyTooLargeError, readJsonBody, requestBodyTooLargeResponse } from '../../../../../../../lib/net/requestBody';
+import { suggestionAvailableForAction } from '../../../../../../../lib/intelligence/memoryBasis';
+import { getStorage } from '../../../../../../../lib/storage';
+import { dismissSuggestionWithDismissedOutcome, suggestionToDto } from '../../../../../../../lib/intelligence/proposalEngine';
 
 export const dynamic = 'force-dynamic';
 
@@ -35,11 +38,16 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     return Response.json({ success: false, reason: 'invalid_slot' }, { status: 400 });
   }
   const { id } = await context.params;
+  const decisionAt = new Date().toISOString();
+  if (!(await suggestionAvailableForAction(user.uid, id, decisionAt, getStorage()))) {
+    await dismissSuggestionWithDismissedOutcome(user.uid, id, decisionAt, getStorage()).catch(() => false);
+    return Response.json({ success: false, reason: 'suggestion_unavailable' }, { status: 404 });
+  }
   try {
     const suggestion = await reviewSuggestion(user.uid, id, decision, new Date().toISOString(), undefined,
       { ...(title === undefined ? {} : { title }), ...(slot === undefined ? {} : { slot: slot as { startsAt: string; endsAt: string } }) });
     if (!suggestion) return Response.json({ success: false, reason: 'not_found' }, { status: 404 });
-    return Response.json({ success: true, suggestion });
+    return Response.json({ success: true, suggestion: suggestionToDto(suggestion) });
   } catch (error) {
     if (error instanceof QuestionAnswerRequiredError) {
       return Response.json({ success: false, reason: 'question_requires_answer' }, { status: 400 });

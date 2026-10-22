@@ -99,6 +99,7 @@ import {
   type LocalWindow,
 } from '../../memoryGrowth/rules';
 import { languageOf } from '../../../src/profile/memoryWriteHelpers';
+import { cleanupMemoryDependents } from '../../intelligence/memoryBasis';
 
 /** The kinds a person may file something under by hand. */
 export const MANUAL_MEMORY_KINDS: readonly RuntimeMemoryKind[] = ['fact', 'preference', 'goal'];
@@ -578,6 +579,7 @@ export async function patchMemory(
     provenance: stripUndefined(replacement.provenance!),
   };
   const replaced = await store.supersede(prior.id, cleaned, at);
+  await cleanupMemoryDependents(uid, [prior.id], options.storage ?? getStorage());
   // The goal now says something else under a new id. Steps a model wrote for
   // the old wording could never be read again, and must not linger in the
   // export as a paraphrase of words the user took back (CL3).
@@ -603,6 +605,8 @@ export async function deleteMemory(
     const { markGoalLineageDeleting } = await import('./goalPlanService');
     await markGoalLineageDeleting(uid, record.id, options.storage ?? getStorage());
   }
+  const chainBeforeDelete = await discoverChain(store, uid, record);
+  await cleanupMemoryDependents(uid, chainBeforeDelete.map(entry => entry.id), options.storage ?? getStorage());
   const { removed, ruleFingerprints, ids } = await deleteChain(store, uid, record);
   // Steps proposed for this goal go with it, at every id its chain ever had
   // (CL3). They are a model's paraphrase of the sentence being deleted.
@@ -718,25 +722,7 @@ async function deleteChain(
   uid: string,
   record: RuntimeMemoryRecord,
 ): Promise<{ removed: number; ruleFingerprints: string[]; ids: string[] }> {
-  const seen = new Set<string>();
-  const queue: RuntimeMemoryRecord[] = [record];
-  const chain: RuntimeMemoryRecord[] = [];
-
-  while (queue.length > 0) {
-    const current = queue.pop()!;
-    if (seen.has(current.id)) continue;
-    seen.add(current.id);
-    // A link that somehow points out of the scope is followed no further. It
-    // cannot happen through `supersede`, which refuses to cross scopes, and if
-    // it ever did this must not become a way to delete somebody else's record.
-    if (current.scopeId !== uid) continue;
-    chain.push(current);
-    for (const neighbour of [current.supersedesId, current.supersededById]) {
-      if (!neighbour || seen.has(neighbour)) continue;
-      const next = await store.get(neighbour);
-      if (next) queue.push(next);
-    }
-  }
+  const chain = await discoverChain(store, uid, record);
 
   let removed = 0;
   const ruleFingerprints: string[] = [];
@@ -767,6 +753,34 @@ async function deleteChain(
     Boolean(entry.supersedesId && deletedIds.has(entry.supersedesId)) && !deletedIds.has(entry.id));
   if (survivors.length > 0) throw new Error('memory chain deletion did not converge after 5 passes');
   return { removed, ruleFingerprints, ids };
+}
+
+async function discoverChain(
+  store: RuntimeMemoryStore,
+  uid: string,
+  record: RuntimeMemoryRecord,
+): Promise<RuntimeMemoryRecord[]> {
+  const seen = new Set<string>();
+  const queue: RuntimeMemoryRecord[] = [record];
+  const chain: RuntimeMemoryRecord[] = [];
+
+  while (queue.length > 0) {
+    const current = queue.pop()!;
+    if (seen.has(current.id)) continue;
+    seen.add(current.id);
+    // A link that somehow points out of the scope is followed no further. It
+    // cannot happen through `supersede`, which refuses to cross scopes, and if
+    // it ever did this must not become a way to delete somebody else's record.
+    if (current.scopeId !== uid) continue;
+    chain.push(current);
+    for (const neighbour of [current.supersedesId, current.supersededById]) {
+      if (!neighbour || seen.has(neighbour)) continue;
+      const next = await store.get(neighbour);
+      if (next) queue.push(next);
+    }
+  }
+
+  return chain;
 }
 
 /**

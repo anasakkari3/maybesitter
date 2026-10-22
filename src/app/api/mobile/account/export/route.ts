@@ -1,6 +1,14 @@
-import { ExportTooLargeError, MAX_EXPORTS_PER_DAY, buildAccountExport } from '../../../../../../lib/account/accountExport';
+import {
+  ExportTooLargeError,
+  ExportUnavailableError,
+  MAX_EXPORTS_PER_DAY,
+  buildAccountExport,
+  commitAccountExport,
+  releaseAccountExport,
+  reserveAccountExport,
+} from '../../../../../../lib/account/accountExport';
 import { mobileAuthErrorResponse, requireMobileUser } from '../../../../../../lib/auth/mobileAuth';
-import { reserveDailyAction } from '../../../../../../lib/llm/usageGuard';
+import { getStorage } from '../../../../../../lib/storage';
 
 export const dynamic = 'force-dynamic';
 
@@ -25,8 +33,12 @@ export async function GET(request: Request): Promise<Response> {
 
   // Fails closed: a counter that cannot be read refuses rather than waves the
   // export through, as every other daily action does.
-  const reservation = await reserveDailyAction(user.uid, 'account_export', MAX_EXPORTS_PER_DAY);
-  if (reservation !== 'ok') {
+  const storage = getStorage();
+  const at = new Date().toISOString();
+  let reservation;
+  try { reservation = await reserveAccountExport(user.uid, at, storage); }
+  catch { reservation = null; }
+  if (!reservation) {
     return Response.json(
       {
         success: false,
@@ -40,13 +52,22 @@ export async function GET(request: Request): Promise<Response> {
 
   try {
     // The uid comes from the verified token and from nowhere else.
-    const exported = await buildAccountExport(user.uid);
+    const exported = await buildAccountExport(user.uid, { storage, now: new Date(at) });
+    await commitAccountExport(user.uid, reservation, at, storage);
     return Response.json(exported, { headers: { 'Cache-Control': 'no-store' } });
   } catch (error) {
     if (error instanceof ExportTooLargeError) {
+      await commitAccountExport(user.uid, reservation, at, storage).catch(() => undefined);
       return Response.json(
         { success: false, error: 'export too large', reason: 'export_too_large' },
         { status: 413, headers: { 'Cache-Control': 'no-store' } },
+      );
+    }
+    await releaseAccountExport(reservation, storage).catch(() => undefined);
+    if (error instanceof ExportUnavailableError) {
+      return Response.json(
+        { success: false, error: 'could not export the account', reason: 'export_retryable' },
+        { status: 503, headers: { 'Cache-Control': 'no-store' } },
       );
     }
     return Response.json(

@@ -3175,8 +3175,11 @@ test('exports a fixture for every /api/mobile call the React Native client makes
     };
     assert.deepEqual(
       recordedExport.collections.usage.map(doc => [doc.id, doc.data.date]),
-      [[`account_export-${STABLE_DAY}`, STABLE_DAY]],
+      [],
     );
+    assert.equal((await getStorage().get<{ calls: number }>(
+      `users/${EXPORT_USER}/usage/account_export-${new Date().toISOString().slice(0, 10)}`,
+    ))?.calls, 1, 'the export count is committed after the archive is built');
 
     // ── Health → energy: the snapshot the phone sends (HealthKit) ──
     // Built by the same `buildHealthKitReadinessSnapshot` the phone's adapter

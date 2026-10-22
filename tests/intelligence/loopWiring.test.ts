@@ -17,7 +17,8 @@
  */
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { createMemoryStorage, resetStorageForTests, setStorageForTests, type StorageAdapter } from '../../lib/storage/index.ts';
+import { createMemoryStorage as createRawMemoryStorage, resetStorageForTests, setStorageForTests, type StorageAdapter } from '../../lib/storage/index.ts';
+import { userDoc } from '../../lib/storage/paths.ts';
 import { installFakeAuth, tokenFor, uidFor, type FakeAuthControls } from '../support/fakeAuth.ts';
 import { applyParticipantCommands, loadDomainState } from '../../lib/services/mobile/participantState.ts';
 import { setPersonalizationConsent } from '../../lib/consents/personalizationConsentService.ts';
@@ -39,6 +40,12 @@ import { DELETE as commitmentDelete, PATCH as commitmentPatch } from '../../src/
 const BASE = 'http://127.0.0.1:4321';
 const UID = uidFor('LoopWiringUser');
 const ENV_KEYS = ['MAYBESITTER_ENV', 'MAYBESITTER_FEATURE_PROACTIVE_LOOP', 'MAYBESITTER_KILL_SWITCH_PROACTIVE_LOOP', 'MAYBESITTER_LLM_PROVIDER'] as const;
+
+function createMemoryStorage() {
+  const storage = createRawMemoryStorage();
+  void storage.set(userDoc(UID), { trust: null });
+  return storage;
+}
 
 interface Harness { storage: StorageAdapter; calls: ModelCall[]; restore: () => void }
 interface ModelCall { system: string; context: { observations: Array<{ id: string; kind: string; evidence: string }> } }

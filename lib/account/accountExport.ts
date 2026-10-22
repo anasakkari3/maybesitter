@@ -34,6 +34,7 @@
  *
  * Nothing here logs. The whole output is the user's content.
  */
+import { randomUUID } from 'node:crypto';
 import { getStorage } from '../storage';
 import {
   GOOGLE_PICKER_TICKETS,
@@ -44,6 +45,10 @@ import {
   PROVIDER_CONNECTIONS,
   PROVIDER_CREDENTIALS,
   PROVIDER_OAUTH_STATES,
+  EXPORT_LEASES,
+  INTELLIGENCE_PROPOSALS,
+  MEMORY_CITATIONS,
+  USAGE,
   USER_SCOPED_COLLECTIONS,
   requireUserId,
   userCol,
@@ -54,6 +59,7 @@ import { JOBS } from '../scheduler/storageSchedulerStore';
 import { TOP_LEVEL_USER_COLLECTIONS } from './topLevelUserData';
 import type { Commitment } from '../../src/domain/stateMachine';
 import { hydrateAddedFrom } from '../intelligence/autoAdds';
+import { cleanupMemoryResidues, readActiveMemorySnapshot, requireLiveAccount } from '../intelligence/memoryBasis';
 
 export const ACCOUNT_EXPORT_SCHEMA_VERSION = 'account-export-v1';
 
@@ -82,6 +88,8 @@ export const EXPORT_EXCLUDED_COLLECTIONS: Readonly<Record<string, string>> = Obj
   [PROVIDER_CREDENTIALS]: 'encrypted OAuth access and refresh tokens: a secret held on the person\'s behalf, not a record of them',
   [PROVIDER_OAUTH_STATES]: 'an in-flight OAuth authorization holding a PKCE verifier: a secret with a lifetime of minutes',
   [GOOGLE_PICKER_TICKETS]: 'a one-time, two-minute ticket that opens the Google Picker page: an access credential in waiting, not a record of the person',
+  [MEMORY_CITATIONS]: 'an internal reverse index whose rows would reconstruct which memories shaped which suggestions',
+  [EXPORT_LEASES]: 'short-lived export coordination state (owner, reservation state and lease expiry), not a record of the person',
 });
 
 /**
@@ -167,6 +175,65 @@ export class ExportTooLargeError extends Error {
   }
 }
 
+export class ExportUnavailableError extends Error {
+  constructor() {
+    super('account export could not obtain a verified memory snapshot');
+    this.name = 'ExportUnavailableError';
+  }
+}
+
+export interface ExportLease {
+  path: string;
+  owner: string;
+  day: string;
+}
+
+function exportCountPath(uid: string, day: string): string {
+  return `${userCol(uid, USAGE)}/account_export-${day}`;
+}
+
+export async function reserveAccountExport(
+  uid: string,
+  at: string,
+  storage: StorageAdapter = getStorage(),
+): Promise<ExportLease | null> {
+  const day = at.slice(0, 10);
+  const owner = randomUUID();
+  const path = `${userCol(uid, EXPORT_LEASES)}/account_export-${day}-${owner}`;
+  return storage.runTransaction(async tx => {
+    await requireLiveAccount(tx, uid);
+    const count = await tx.get<{ calls?: number }>(exportCountPath(uid, day));
+    const leases = await tx.list<{ day?: string; leaseExpiresAt?: string }>(userCol(uid, EXPORT_LEASES), {
+      where: [['day', '==', day]],
+    });
+    const active = leases.filter(row => Date.parse(row.data.leaseExpiresAt ?? '') > Date.parse(at)).length;
+    if ((count?.calls ?? 0) + active >= MAX_EXPORTS_PER_DAY) return null;
+    tx.create(path, { action: 'account_export', day, owner, reservationState: 'reserved',
+      leaseExpiresAt: new Date(Date.parse(at) + 5 * 60_000).toISOString() });
+    return { path, owner, day };
+  });
+}
+
+export async function releaseAccountExport(lease: ExportLease, storage: StorageAdapter = getStorage()): Promise<void> {
+  await storage.delete(lease.path);
+}
+
+export async function commitAccountExport(
+  uid: string,
+  lease: ExportLease,
+  at: string,
+  storage: StorageAdapter = getStorage(),
+): Promise<void> {
+  await storage.runTransaction(async tx => {
+    await requireLiveAccount(tx, uid);
+    const held = await tx.get<{ owner?: string }>(lease.path);
+    const count = await tx.get<{ calls?: number }>(exportCountPath(uid, lease.day));
+    if (held?.owner !== lease.owner) throw new Error('export_lease_lost');
+    tx.set(exportCountPath(uid, lease.day), { calls: (count?.calls ?? 0) + 1, date: lease.day, updatedAt: at });
+    tx.delete(lease.path);
+  });
+}
+
 /** The user-tree collections an export reads, in deletion's order. */
 export function exportedUserCollections(): string[] {
   return USER_SCOPED_COLLECTIONS.filter((name) => !(name in EXPORT_EXCLUDED_COLLECTIONS));
@@ -233,6 +300,10 @@ export function redactForExport(value: unknown, seen: WeakSet<object> = new Weak
 }
 
 function withoutInternalFields(collection: string, data: Record<string, unknown>): Record<string, unknown> {
+  if (collection === INTELLIGENCE_PROPOSALS) {
+    const { memoryBasis: _memoryBasis, ...visible } = data;
+    return visible;
+  }
   const internal = EXPORT_INTERNAL_FIELDS[collection];
   if (!internal) return data;
   const out = { ...data };
@@ -259,6 +330,14 @@ export async function buildAccountExport(uid: string, options: BuildAccountExpor
   const storage = options.storage ?? getStorage();
   const maxDocuments = options.maxDocuments ?? EXPORT_MAX_DOCUMENTS;
   const maxChars = options.maxChars ?? EXPORT_MAX_CHARS;
+  const exportNow = (options.now ?? new Date()).toISOString();
+  const snapshot = await readActiveMemorySnapshot(uid, exportNow, storage);
+  let cleaned = false;
+  try { cleaned = snapshot.available && await cleanupMemoryResidues(uid, exportNow, storage, snapshot); }
+  catch { cleaned = false; }
+  if (!cleaned) {
+    throw new ExportUnavailableError();
+  }
   let remaining = maxDocuments;
   let chars = 0;
 
@@ -292,7 +371,7 @@ export async function buildAccountExport(uid: string, options: BuildAccountExpor
   }
 
   return {
-    exportedAt: (options.now ?? new Date()).toISOString(),
+    exportedAt: exportNow,
     schemaVersion: ACCOUNT_EXPORT_SCHEMA_VERSION,
     account: { uid, profile },
     collections,
