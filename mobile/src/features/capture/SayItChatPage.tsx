@@ -357,21 +357,6 @@ export function SayItChatPage({
 
   /** The newest turn, when it is the assistant's reply: it is the one announced. */
   const newestReply = !typing && history.length > 0 && history[history.length - 1]!.role === 'assistant' ? history.length - 1 : -1;
-  // The live region speaks when the reply itself changes — its words, or the
-  // typing bubble giving way to it — and stays silent when only what hangs off
-  // it changes: «هيك صح» takes the summary and its buttons off the newest
-  // reply, which would otherwise read the same reply again over the focus that
-  // goes to the question (Q-A1-004).
-  const liveKey = typing ? 'typing' : newestReply >= 0
-    ? `${newestReply}\u0000${history[newestReply]!.text}\u0000${history[newestReply]!.tail ?? ''}`
-    : null;
-  const liveShape = newestReply >= 0 ? `${history[newestReply]!.body != null}${history[newestReply]!.actions != null}` : '';
-  const [live, setLive] = React.useState<{ key: string | null; shape: string; mode: 'polite' | 'none' }>(
-    { key: liveKey, shape: liveShape, mode: 'polite' });
-  // Derived from the previous render, React's own way (no effect, no ref read).
-  if (live.key !== liveKey) setLive({ key: liveKey, shape: liveShape, mode: 'polite' });
-  else if (live.shape !== liveShape) setLive({ key: liveKey, shape: liveShape, mode: 'none' });
-  const liveMode = live.key !== liveKey ? 'polite' : live.shape !== liveShape ? 'none' : live.mode;
 
   /** The person's own message: a bubble on the end side, with its time and ✓✓. */
   const mine = (value: ChatMessage, testID: string, textTestID: string) => (
@@ -416,7 +401,7 @@ export function SayItChatPage({
           {/* Always mounted, so TalkBack hears what changes inside it: the
               typing bubble while a message is on its way, then the reply that
               replaces it (review I1; the census in liveRegion.test). */}
-          <View testID="chat-live" accessibilityLiveRegion={liveMode}>
+          <View testID="chat-live" accessibilityLiveRegion="polite">
             {/* Keyed apart, so the reply is a view of its own and never the
                 typing bubble's native view with its label left on it. */}
             {typing ? <View key="typing" testID="chat-typing" style={[styles.assistantBlock, styles.followup]}

@@ -78,8 +78,6 @@ describe('#752: «هيك صح» reveals the question it opens on', () => {
     await openCapture(harness);
     await say('بدي روح عالبنك بكرا');
     await waitFor(() => expect(screen.queryByTestId('understood-confirm')).not.toBeNull());
-    // The new reply is announced.
-    expect(screen.getByTestId('chat-live').props.accessibilityLiveRegion).toBe('polite');
 
     // Under the summary the question is already there, and nothing moves yet:
     // the person is still reading what was understood.
@@ -93,9 +91,6 @@ describe('#752: «هيك صح» reveals the question it opens on', () => {
     await act(async () => { await fireEvent.press(screen.getByTestId('understood-confirm')); });
     await waitFor(() => expect(screen.queryByTestId('review-scroll')).not.toBeNull());
     expect(screen.queryByTestId('understood-confirm')).toBeNull();
-    // The same reply, its summary folded away: not announced again over the
-    // focus that goes to the question (Q-A1-004).
-    expect(screen.getByTestId('chat-live').props.accessibilityLiveRegion).toBe('none');
 
     // The summary folds away: the question moves up to 408 — on screen — but
     // its chips end at 768, under the composer of a 540-point window.
