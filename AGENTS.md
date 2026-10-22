@@ -111,6 +111,13 @@ approved execution commitments.
 
 ---
 
+## 7. Turn off emulators and simulators when your job ends
+
+This laptop is shared by several agents, and leftover emulators froze it once (2026-10-09). Owner order, repeated 2026-10-22, for every agent (Claude, Codex, agy, subagents):
+- **Stop everything you started.** That means every Android emulator, iOS simulator, Firebase emulator, Metro bundler and dev server, the moment your job ends. Never leave one running for the next task.
+- **Verify it is off,** and say so in your report: `xcrun simctl list devices booted`, `pgrep -fl qemu-system`, and a port check of what you used.
+- **Before heavy work,** check memory first: `memory_pressure | grep "free percentage"` and `sysctl vm.swapusage`. Run at most one Android emulator and one booted simulator.
+
 ## Architecture
 
 The intended runtime path is:

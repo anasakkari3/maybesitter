@@ -76,7 +76,7 @@ describe('the clash line', () => {
 
   it('reads a weekly block as its range, and a clash on another day with its day', () => {
     const block = { title: 'Gym', startsAt: FRIDAY_1730, endsAt: FRIDAY_19, kind: 'weekly' as const };
-    expect(lines(dinner([block]), en as Strings, 'en')).toEqual(['Clashes with "Gym" 17:30–19:00']);
+    expect(lines(dinner([block]), en as Strings, 'en')).toEqual(['Clashes with "Gym" 17:30\u2060–\u206019:00']);
     const lateMatch = { title: 'Barcelona – Real Madrid', startsAt: THURSDAY_22, endsAt: FRIDAY_18, kind: 'fixture' as const };
     const [line] = lines(dinner([lateMatch]), en as Strings, 'en');
     expect(line).toMatch(/^Clashes with "Barcelona – Real Madrid" .+ · 22:00$/);
@@ -84,8 +84,8 @@ describe('the clash line', () => {
 
   it('gives the calendar’s busy time no title, and says nothing the device chip already says', () => {
     const busy = { title: null, startsAt: FRIDAY_1730, endsAt: FRIDAY_19, kind: 'calendar_busy' as const };
-    expect(lines(dinner([busy]), en as Strings, 'en')).toEqual(['Overlaps a calendar event 17:30–19:00']);
-    expect(lines(dinner([busy, busy]), ar as Strings, 'ar')).toEqual(['بيتقاطع مع موعد بتقويمك 17:30–19:00']);
+    expect(lines(dinner([busy]), en as Strings, 'en')).toEqual(['Overlaps a calendar event 17:30\u2060–\u206019:00']);
+    expect(lines(dinner([busy, busy]), ar as Strings, 'ar')).toEqual(['بيتقاطع مع موعد بتقويمك 17:30\u2060–\u206019:00']);
     expect(lines(dinner([busy]), en as Strings, 'en', { busyChipShown: true })).toEqual([]);
     // A named clash still shows beside the chip.
     expect(lines(dinner([busy, wedding]), en as Strings, 'en', { busyChipShown: true })).toEqual(['Clashes with "عرس ابن عمي" 18:00']);

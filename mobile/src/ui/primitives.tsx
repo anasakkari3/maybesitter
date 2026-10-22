@@ -27,7 +27,7 @@ export function textAlignment(align: Align, rtl: boolean, platform: string) {
 }
 
 export function Txt({
-  children, role = 'body', size = typography[role].size, weight = typography[role].weight, color, align = 'start', style, lines, lh, latin, selectable, testID, onTextLayout, dir,
+  children, role = 'body', size = typography[role].size, weight = typography[role].weight, color, align = 'start', style, lines, lh, latin, selectable, testID, onTextLayout, dir, maxScale,
 }: {
   children: React.ReactNode;
   role?: TextRole;
@@ -42,6 +42,11 @@ export function Txt({
   latin?: boolean | undefined;
   /** For an opaque id the user may need to read out or paste (#149). */
   selectable?: boolean | undefined;
+  /**
+   * Caps text scaling for a glyph that must stay inside a fixed shape — the
+   * avatar's initial in its 44-pt circle (M6b BB-09). Never for running text.
+   */
+  maxScale?: number | undefined;
   testID?: string | undefined;
   /** For chrome that has to know whether this label still fits its slot (TabBar). */
   onTextLayout?: ((e: NativeSyntheticEvent<TextLayoutEventData>) => void) | undefined;
@@ -78,6 +83,7 @@ export function Txt({
     <Text
       numberOfLines={lines}
       selectable={selectable}
+      {...(maxScale !== undefined ? { maxFontSizeMultiplier: maxScale } : {})}
       testID={testID}
       onTextLayout={onTextLayout}
       accessibilityRole={role === 'page' || role === 'section' ? 'header' : undefined}

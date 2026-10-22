@@ -169,11 +169,17 @@ function NamedPlace({ title, place, savedAt, busy, disabled, onPin, onRemove, on
         <Txt size={13} color={p.mu} testID={`${testID}-state`}>{busy ? t.placeLocating : place ? t.placeSet : t.xNotSet}</Txt>
         {place && savedAt ? <Txt size={13} color={p.mu} testID={`${testID}-saved-at`}>{savedAt}</Txt> : null}
       </View>
+      {/* Two equal actions at most: three in one row squeezed each label to
+          three lines in a tall pill (M6b BB-03). Remove sits on its own line. */}
       <ActionRow>
         <Pill testID={`${testID}-pin`} label={t.placeSetHere} kind="outline" size={14} pad={12} disabled={disabled} onPress={onPin} />
         {place && onMap ? <Pill testID={`${testID}-map`} label={t.placeViewMap} kind="outline" size={14} pad={12} disabled={disabled} onPress={onMap} /> : null}
-        {place ? <Pill testID={`${testID}-remove`} label={t.placeRemove} accessibilityLabel={fill(t.placeRemoveNamed, { place: title })} kind="ghost" size={14} pad={12} disabled={disabled} onPress={onRemove} /> : null}
       </ActionRow>
+      {place ? (
+        <View style={{ alignItems: 'flex-start' }}>
+          <Pill testID={`${testID}-remove`} label={t.placeRemove} accessibilityLabel={fill(t.placeRemoveNamed, { place: title })} kind="ghost" size={14} pad={12} disabled={disabled} onPress={onRemove} />
+        </View>
+      ) : null}
     </Card>
   );
 }

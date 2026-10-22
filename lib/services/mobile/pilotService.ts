@@ -595,7 +595,7 @@ export async function updateMobilePilotTrust(participantId: string, input: Mobil
   const access = await resolveUserAccess(participantId, at, false);
   if (!access.trust) throw new MobilePilotError('participant is not admitted to this pilot instance', 403, access.decision.reason);
   const action = trustAction(input.action, at);
-  const trust = await applyTrustAction(participantId, action);
+  const trust = await applyTrustAction(participantId, action, { stampAtApply: true });
   // No `data_deleted` branch: `delete` is refused when the action is parsed
   // (#149), so it cannot reach here. Account deletion writes its own audit.
   const eventType = action.type === 'set_quiet_mode'

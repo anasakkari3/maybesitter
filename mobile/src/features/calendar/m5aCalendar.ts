@@ -733,8 +733,10 @@ export async function startSelection(
     // applied, else what is applied — read here, under the lock, so two quick
     // taps never both start from the same stale list (M5A-R3-005).
     let next: string[];
+    let prior: PendingSelection | null;
     try {
-      const base = (await loadPendingSelection(uid))?.included ?? await loadIncludedCalendarIds(uid);
+      prior = await loadPendingSelection(uid);
+      const base = prior?.included ?? await loadIncludedCalendarIds(uid);
       next = [...new Set(typeof change === 'function' ? change(base) : change)];
     } catch {
       return { kind: 'failed' as const };
@@ -747,14 +749,27 @@ export async function startSelection(
       epoch: null,
       opId: null,
     };
-    // The account this tap was made in, still (M5A-R53-002).
-    if (!current()) return { kind: 'superseded' as const };
+    // The account this tap was made in, still (M5A-R53-002). And a calendar
+    // chosen only while the consent says on (Codex M6B-R5-002, R6-001): a
+    // pending selection saved with it off would resume the day it is turned
+    // back on. `consented` counts a switch-off from its tap, synchronously; it
+    // is read before the generation write, again right before the save, and
+    // once more after it — a switch-off that began during the save puts the
+    // record back as it was. A clear runs whatever the consent.
+    const allowed = () => record.operation === 'clear' || context.consented();
+    if (!current() || !allowed()) return { kind: 'superseded' as const };
     try {
       // A new generation first (R1.1c, M5A-R4-001): if saving the record then
       // fails, nothing durable claims a selection the person was told failed,
       // and the old cache already never matches again.
       await bumpInclusionGeneration(uid);
+      if (!current() || !allowed()) return { kind: 'superseded' as const };
       await savePendingSelection(uid, record);
+      if (!allowed()) {
+        if (prior) await savePendingSelection(uid, prior);
+        else await removePendingSelection(uid);
+        return { kind: 'superseded' as const };
+      }
     } catch {
       return { kind: 'failed' as const };
     }
@@ -828,8 +843,13 @@ async function runSelection(uid: string, first: PendingSelection, context: M5aPa
     return;
   }
   let record = first;
+  // An upload goes only while the consent says on, re-read after every wait
+  // (Codex M6B-R7-001): a switch-off counts from its tap
+  // (`calendarConsentEffective`), and the server refuses an upload only once
+  // that request has reached it. A clear runs whatever the consent.
+  const allowed = () => record.operation === 'clear' || context.consented();
   for (let attempt = 0; attempt < 3; attempt += 1) {
-    if (!current()) return;
+    if (!current() || !allowed()) return;
     const source = await ensureRegisteredSource(uid);
     if (source.kind !== 'ready' || !current()) return;
 
@@ -850,7 +870,7 @@ async function runSelection(uid: string, first: PendingSelection, context: M5aPa
         if (error instanceof M5aRefusedError && error.code === 'source_revoked') await markPhoneRemoved(uid);
         return;
       }
-      if (!current() || intent.intentId !== record.intentId) return;
+      if (!current() || !allowed() || intent.intentId !== record.intentId) return;
       const acknowledged: PendingSelection = { ...record, opId: intent.opId, epoch: intent.epoch };
       const kept = await underPendingLock(uid, async () => {
         if (!(await stillPending(uid, acknowledged.intentId))) return 'superseded' as const;
@@ -890,7 +910,7 @@ async function runSelection(uid: string, first: PendingSelection, context: M5aPa
         patch(uid, { clearFailed: false });
       } else {
         if (!context.consented()) return;
-        const outcome = await readAndUpload(uid, record.included, op, () => current() && selectionGeneration === applied);
+        const outcome = await readAndUpload(uid, record.included, op, () => current() && context.consented() && selectionGeneration === applied);
         if (outcome.kind !== 'synced') return;
       }
     } catch (error) {

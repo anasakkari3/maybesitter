@@ -6,6 +6,7 @@ import { useApp } from '../../state/AppContext';
 import { Btn, Card, Pill, Txt } from '../../ui/primitives';
 import { Screen, ScreenScroll } from '../../ui/screen';
 import {
+  useCalendarConsentWritePending,
   useConsents,
   useSetPersonalizationConsent,
   useSetRecommendationConsent,
@@ -92,6 +93,7 @@ export function TrustScreen({ onBack, onKnows }: { onBack: () => void; onKnows: 
   // renders from (UAT round 6, D-d): the phone's answer is read on arrival and
   // on every return from phone settings, not only after this switch asked.
   const calendar = useCalendarConnection(state?.calendarConsent === true);
+  const calendarWritePending = useCalendarConsentWritePending();
   const calendarLine = calendar.line === null || calendar.line === 'denied' ? undefined : t[calendar.line];
   const policy = privacyPolicyUrl(lang);
 
@@ -201,7 +203,9 @@ export function TrustScreen({ onBack, onKnows }: { onBack: () => void; onKnows: 
             // 882/883). The consent is kept on the account, so allowing access
             // in phone settings brings the switch straight back.
             value={state?.calendarConsent === true && calendar.access !== 'denied'}
-            disabled={state === undefined || calendar.access === 'denied'}
+            // Locked while any calendar-consent write for the account is on its
+            // way, here or in Settings → Calendar (Codex M6B-R6-002).
+            disabled={state === undefined || calendar.access === 'denied' || calendarWritePending}
             onChange={async next => {
               // On the way on, ask the phone first (first iPhone run, L7):
               // recording the consent alone left the busy read failing,

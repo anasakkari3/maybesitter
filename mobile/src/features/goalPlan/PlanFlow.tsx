@@ -3,7 +3,7 @@ import { AccessibilityInfo, TextInput, View } from 'react-native';
 import type { GoalPlan, GoalPlanStep, GoalPlanTimes, GoalPlanTimesStep, GoalPlanSlot, GoalPlanWeekly, GoalPlanPhase, GoalPlanRhythm } from '../../api/schemas/goalPlan';
 import type { GoalPlanEditOp } from '../../api/endpoints/goalPlan';
 import { GoalPlanRefusedError } from '../../api/errors';
-import { isolateAuto } from '../../i18n/bidi';
+import { isolateAuto, isolateQuoted } from '../../i18n/bidi';
 import { civilDate, formatDate, formatTimeRange, formatClockRange, dayKey, formatDayKey } from '../../i18n/format';
 import { fill } from '../../i18n/strings';
 import { useTimeZone } from '../../i18n/timezone';
@@ -179,7 +179,7 @@ function PlanStep({ flow, plan, linkedWork }: { flow: Flow; plan: GoalPlan; link
     </View>)}
     {plan.removedSteps.length > 0 ? <View style={{ gap: 8 }}>
       {plan.removedSteps.map(removed => <View key={removed.stepId} testID={`plan-removed-${removed.stepId}`} style={{ gap: 6 }}>
-        <Txt role="supporting" color={p.mu}>{fill(t.xPlanRemoved, { step: isolateAuto(removed.title) })}</Txt>
+        <Txt role="supporting" color={p.mu}>{fill(t.xPlanRemoved, { step: isolateAuto(isolateQuoted(removed.title)) })}</Txt>
         {editing ? <Pill testID={`plan-restore-${removed.stepId}`} label={t.xPlanRestore} kind="outline" disabled={busy}
           onPress={() => flow.edit({ op: 'restore', stepId: removed.stepId })} /> : null}
       </View>)}
@@ -226,9 +226,9 @@ function StepCard({ step, plan, editing, busy, first, last, onEdit }: {
   const { t, tr, p } = useApp();
   const [open, setOpen] = React.useState(false);
   const editToggle = React.useRef<View>(null);
-  const title = isolateAuto(step.title);
+  const title = isolateAuto(isolateQuoted(step.title));
   return <Card testID={`plan-step-${step.stepId}`} style={{ gap: 8 }}>
-    <Txt role="body" weight={700}>{step.title}</Txt>
+    <Txt role="body" weight={700} dir="auto">{isolateQuoted(step.title)}</Txt>
     <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
       <Txt role="metadata" color={p.mu} testID={`plan-step-kind-${step.stepId}`}>{step.kind === 'habit' ? t.xPlanKindHabit : t.xPlanKindOnce}</Txt>
       <Txt role="metadata" color={p.mu} testID={`plan-step-duration-${step.stepId}`}>{tr('xMinutes', { count: step.durationMinutes })}</Txt>
@@ -503,7 +503,7 @@ function TimesStep({ flow, times, plan }: { flow: Flow; times: GoalPlanTimes; pl
     {allOpen ? <AllTimesSheet busy={busy} onApply={(preference) => { setAllOpen(false); setChanging(null); flow.batch(preference); }} /> : null}
     <LiveRegion>
       {unplacedTitles.length > 0 ? <Txt role="supporting" color={p.wm} testID="plan-times-unplaced">
-        {fill(t.yUnplaced, { titles: unplacedTitles.map(isolateAuto).join(lang === 'en' ? ', ' : '، ') })}
+        {fill(t.yUnplaced, { titles: unplacedTitles.map((title) => isolateAuto(isolateQuoted(title))).join(lang === 'en' ? ', ' : '، ') })}
       </Txt> : null}
     </LiveRegion>
     {times.steps.map(step => {
@@ -514,7 +514,7 @@ function TimesStep({ flow, times, plan }: { flow: Flow; times: GoalPlanTimes; pl
       const reason = reasonOf(step);
       const alternatives = alternativesOf(step);
       return <Card key={step.stepId} testID={`plan-times-step-${step.stepId}`} style={{ gap: 8 }}>
-        {name ? <Txt role="body" weight={700}>{name}</Txt> : null}
+        {name ? <Txt role="body" weight={700} dir="auto">{isolateQuoted(name)}</Txt> : null}
         {later ? <Txt role="supporting" color={p.mu} testID={`plan-times-later-${step.stepId}`}>{fill(t.xPlanTimesLater, { n: later.weekIndex })}</Txt> : <>
           {slot ? <Txt testID={`plan-times-slot-${step.stepId}`}>{slotLine(slot)}</Txt> : null}
           {weekly ? <Txt testID={`plan-times-weekly-${step.stepId}`}>{weeklyLine(weekly, startOf(step.stepId))}</Txt> : null}
@@ -565,7 +565,7 @@ function ConfirmStep({ flow, times, plan }: { flow: Flow; times: GoalPlanTimes; 
         const slot = slotOf(step);
         const weekly = weeklyOf(step);
         return <View key={step.stepId} testID={`plan-will-save-${step.stepId}`} style={{ gap: 2 }}>
-          <Txt role="body">{titleIn(plan, step.stepId) ?? ''}</Txt>
+          <Txt role="body" dir="auto">{isolateQuoted(titleIn(plan, step.stepId) ?? '')}</Txt>
           <Txt role="metadata" color={p.mu}>{slot ? slotLine(slot) : weekly ? weeklyLine(weekly, startOf(step.stepId)) : t.xPlanTimesNone}</Txt>
         </View>;
       })}
@@ -575,12 +575,12 @@ function ConfirmStep({ flow, times, plan }: { flow: Flow; times: GoalPlanTimes; 
       {stayed.map(step => {
         const later = laterOf(step);
         return <View key={step.stepId} testID={`plan-will-stay-${step.stepId}`} style={{ gap: 2 }}>
-          <Txt role="body">{titleIn(plan, step.stepId) ?? ''}</Txt>
+          <Txt role="body" dir="auto">{isolateQuoted(titleIn(plan, step.stepId) ?? '')}</Txt>
           <Txt role="metadata" color={p.mu}>{later ? fill(t.xPlanStayLaterWeek, { n: later.weekIndex }) : t.xPlanStayNoRoom}</Txt>
         </View>;
       })}
       {removed.map(step => <View key={step.stepId} testID={`plan-will-stay-${step.stepId}`} style={{ gap: 2 }}>
-        <Txt role="body">{step.title}</Txt>
+        <Txt role="body" dir="auto">{isolateQuoted(step.title)}</Txt>
         <Txt role="metadata" color={p.mu}>{t.xPlanStayRemoved}</Txt>
       </View>)}
     </Card> : null}
@@ -599,14 +599,14 @@ function ResultStep({ result, onOpenToday }: { result: import('../../api/schemas
     <StepHeading color={p.success}>{t.xPlanSavedTitle}</StepHeading>
     <Txt role="supporting">{tr('xPlanSavedBodyN', { n: result.saved.length })}</Txt>
     {result.saved.map(item => <View key={item.stepId} testID={`plan-result-saved-${item.stepId}`} style={{ gap: 2 }}>
-      <Txt role="body">{item.title}</Txt>
+      <Txt role="body" dir="auto">{isolateQuoted(item.title)}</Txt>
       <Txt role="metadata" color={p.mu}>{item.when.kind === 'slot' ? slotLine(item.when)
         : item.when.kind === 'weekly' ? weeklyLine(item.when) : t.xPlanTimesNone}</Txt>
     </View>)}
     {result.stayed.length > 0 ? <>
       <Txt role="label">{t.xPlanStayedTitle}</Txt>
       {result.stayed.map(item => <View key={item.stepId} testID={`plan-result-stayed-${item.stepId}`} style={{ gap: 2 }}>
-        <Txt role="body">{item.title}</Txt>
+        <Txt role="body" dir="auto">{isolateQuoted(item.title)}</Txt>
         <Txt role="metadata" color={p.mu}>{item.why.kind === 'later_week' ? fill(t.xPlanStayLaterWeek, { n: item.why.weekIndex })
           : item.why.kind === 'removed' ? t.xPlanStayRemoved : t.xPlanStayNoRoom}</Txt>
       </View>)}

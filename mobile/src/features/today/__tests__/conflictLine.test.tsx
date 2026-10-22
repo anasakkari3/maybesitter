@@ -110,3 +110,24 @@ describe('the line', () => {
     await waitFor(() => expect(screen.getByTestId('probe-detail').props.children).toBe('dentist'));
   });
 });
+
+describe('M6b BB-01 / BB-02', () => {
+  const FIXED: TodayConflict = {
+    ...CONFLICT,
+    block: { ...block('2026-10-02T17:00:00.000Z', '2026-10-02T18:00:00.000Z'), nativeId: 'weekly:wb-1:2026-10-02T17:00:00.000Z' } as DeviceBusyBlock,
+  };
+
+  it('BB-01: a weekly fixed block is named as the person\'s fixed time, not a calendar event', async () => {
+    await render(<SafeAreaProvider initialMetrics={METRICS}><AppProvider><ConflictLine conflict={FIXED} onOpen={() => {}} /></AppProvider></SafeAreaProvider>);
+    const line = String(screen.getByTestId('today-conflict-busy').props.children);
+    expect(line).toContain(en.fixedBlockConflict.replace(' {range}', ''));
+    expect(line).not.toContain(en.calendarBusyConflict.replace(' {range}', ''));
+  });
+
+  it('BB-02: the range inside the sentence cannot break after its dash', async () => {
+    await show();
+    const line = String(screen.getByTestId('today-conflict-busy').props.children);
+    expect(line).toContain('⁠–⁠');
+    expect(line).not.toMatch(/[^⁠]–|–[^⁠]/);
+  });
+});

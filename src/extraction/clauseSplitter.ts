@@ -17,7 +17,9 @@
  *   a sentence end . ! ? ؟     only when the next sentence starts with an
  *                             explicit request marker (CL1 round 4, N1) or an
  *                             errand verb (round 5) that is followed by an
- *                             object (round 6), the one before it is not a
+ *                             object (round 6), or with an unresolved-intent
+ *                             marker — «عم بفكر», «مستني», «حلمي», "I'm thinking
+ *                             of" (M6b BB-04) — the one before it is not a
  *                             bare request, and the new sentence does not
  *                             restate the appointment's hour (round 6)
  *
@@ -62,7 +64,7 @@
 import { stripTimeExpressions } from './ruleBasedExtractor';
 import { namesDay, RELATIVE_DAY_MENTION_SOURCES, statesClock, timeOfDayEvidence } from './timeLexicon';
 import { LEADING_CONNECTOR, NOT_LETTERS, REQUEST_MARKER, opensWithAction } from './requestEvidence';
-import { opensWithUnresolvedIntent } from './unresolvedIntent';
+import { afterUnresolvedIntentMarker, opensWithUnresolvedIntent } from './unresolvedIntent';
 
 const B = '(?<![\\p{L}\\p{M}])';
 const A = '(?![\\p{L}\\p{M}])';
@@ -138,7 +140,9 @@ function normalizeNoun(noun: string): string {
 const SENTENCE_OPENER = new RegExp(
   '^(?:' + [
     // Arabic: I want / I have to / remind me / note down / don't forget.
-    `(?:بدي|بدّي|بدنا|بدّنا|لازم|لازمني|ذكرني|ذكّرني|ذكريني|ذكّريني|سجل|سجّل|سجلي|سجّلي|لا\\s+تنسى|لا\\s+تنسي|ما\\s+تنسى|ما\\s+تنسي)${A}`,
+    // «حابب / ناوي» open a point too (M6b BB-04): «… يوم الأحد. حابب أنزل
+    // بالوزن» is a second point, not the bill's tail.
+    `(?:بدي|بدّي|بدنا|بدّنا|لازم|لازمني|حابب|حابّب|حابة|حابّة|حابين|ناوي|ناوية|ذكرني|ذكّرني|ذكريني|ذكّريني|سجل|سجّل|سجلي|سجّلي|لا\\s+تنسى|لا\\s+تنسي|ما\\s+تنسى|ما\\s+تنسي)${A}`,
     `(?:ممكن|بتقدر|بتقدري|هل\\s+بتقدر|هل\\s+بتقدري|لو\\s+سمحت|بليز)\\s+(?:تذكرني|تذكريني|ذكرني|ذكّرني|تسجل|تسجّل|تسجلي)${A}`,
     // English: I need / I have to / I must / remind me / I want to / I'll / don't forget.
     "(?:(?:please|can\\s+you|could\\s+you|would\\s+you)\\s+)?remind\\s+me\\b",
@@ -285,12 +289,132 @@ const EXPLICIT_REMINDER_OPENER = new RegExp(
   'iu',
 );
 
+/**
+ * A bare hedge — «يمكن / ممكن / ربما», «אולי» — never opens a point after a
+ * sentence end: what follows it is as often the hour of the point before
+ * («… . ممكن الساعة 5»), a remark on it («… . ممكن أحمد يتأخر», «… . אולי נועה
+ * תאחר») as a new plan, and no letter-level test tells them apart (Codex
+ * M6B-R2-001). It stays with the point before, as it did before BB-04. The
+ * explicit markers — «عم بفكر», «ناوي», «مستني», «حلمي», "I'm thinking of",
+ * "maybe I…" — still open one.
+ */
+const BARE_HEDGE = new RegExp('^(?:يمكن|ممكن|ربما|אולי)(?=[\\s,،.:;!?؟\\-–—]|$)', 'u');
+function opensWithIntentOfMyOwn(text: string): boolean {
+  return opensWithUnresolvedIntent(text) && !BARE_HEDGE.test(text);
+}
+
+/**
+ * A copula — "the appointment should be at 5", «الموعد يكون الساعة 5»,
+ * «שהתור יהיה בשעה 5», "it's at 5" — says when the point before happens, not
+ * something new to do (Codex M6B-R5-003). A modal alone does not: "I should
+ * call the airline at 5" is an action (R6-004); "should be" is caught by its
+ * "be".
+ */
+const RESTATEMENT_VERB = new RegExp(
+  '^(?:' + [
+    "is|are|was|were|be|been|being|it'?s|that'?s|this'?s|he'?s|she'?s|they'?re",
+    'يكون|بكون|تكون|يصير|بيصير|تصير|بتصير|كان|كانت|رح\s+يكون|لازم\s+يكون',
+    'יהיה|תהיה|יהיו|היה|הייתה|יתקיים|תתקיים|שיהיה|שתהיה',
+  ].join('|') + ')$',
+  'iu',
+);
+
+/**
+ * Words that name the appointment before rather than a new subject: "it",
+ * "the appointment", «الموعد», «התור», the speaker. A copula with one of these
+ * as its subject — or a word the sentence before also used ("the dentist
+ * should be at 5" after "Dentist on Sunday") — gives that appointment its
+ * time. Any other subject ("my flight should be at 5") is a thing of its own
+ * (Codex M6B-R7-003).
+ */
+const SAME_APPOINTMENT_SUBJECT = new Set([
+  'it', 'that', 'this', 'he', 'she', 'they', 'i', 'we', 'appointment', 'meeting', 'the', 'my', 'our',
+  'هو', 'هي', 'هاد', 'هاي', 'هذا', 'هذه', 'أنا', 'انا', 'الموعد', 'موعد', 'موعدي', 'الاجتماع', 'اللقاء',
+  'הוא', 'היא', 'זה', 'זאת', 'אני', 'התור', 'תור', 'הפגישה', 'פגישה',
+]);
+const SUBJECT_AUXILIARY = new Set(['should', 'would', 'could', 'will', 'might', 'must', 'can', 'رح', 'لازم', 'بدو', 'צריך', 'צריכה']);
+
+/**
+ * Connectives and prepositions, which two unrelated subjects share all the
+ * time: "my flight with Bob" is not "the meeting with Alice" (Codex M6B-R11-001).
+ */
+const FUNCTION_WORDS = new Set([
+  'with', 'and', 'for', 'from', 'about', 'into', 'onto', 'over', 'under', 'after', 'before', 'between', 'this', 'that', 'than', 'then', 'there',
+  'مع', 'على', 'عند', 'من', 'في', 'إلى', 'الى', 'عن', 'بعد', 'قبل', 'لما', 'اللي', 'هاد', 'هاي',
+  'עם', 'של', 'על', 'אל', 'אחרי', 'לפני', 'בין', 'גם', 'זה', 'זאת',
+]);
+
+function contentWords(text: string): Set<string> {
+  return new Set(text.toLowerCase().split(/\s+/).map((word) => word.replace(EDGE_PUNCTUATION, ''))
+    .filter((word) => word.length >= 3 && !SAME_APPOINTMENT_SUBJECT.has(word) && !FUNCTION_WORDS.has(word)));
+}
+
+/** The speaker as a subject: "I will be running at 5" is the speaker doing something. */
+const SPEAKER_SUBJECT = new Set(['i', 'we', 'أنا', 'انا', 'إحنا', 'احنا', 'אני', 'אנחנו']);
+
+/**
+ * An English progressive right after the copula — with an object, or with the
+ * speaker as subject even without one ("I will be running at 5", Codex
+ * M6B-R10-004) — or one of the errand verbs.
+ */
+function actionAfterCopula(after: readonly string[], subject: readonly string[]): boolean {
+  if (after.length === 0) return false;
+  if (/^[a-z]{3,}ing$/i.test(after[0]!)) {
+    if (subject.length > 0 && subject.every((word) => SPEAKER_SUBJECT.has(word))) return true;
+    if (followedByObject(after.slice(1).join(' '))) return true;
+  }
+  const text = after.join(' ');
+  const verb = SENTENCE_VERB_OPENER.exec(text);
+  return verb !== null && followedByObject(text.slice(verb[0].length));
+}
+
+function restatesInItsOwnWords(rest: string, previous: string): boolean {
+  const words = rest.trim().split(/\s+/).map((word) => word.replace(EDGE_PUNCTUATION, '')).filter(Boolean);
+  const at = words.slice(0, 6).findIndex((word) => RESTATEMENT_VERB.test(word));
+  if (at < 0) return false;
+  // "I will be calling the airline at 5": what follows the copula is an
+  // action with an object, not a time. An adjective or a noun after it ("the
+  // dentist should be available at 5", "the appointment is a video call")
+  // still describes the appointment (Codex M6B-R8-004).
+  const subject = words.slice(0, at).map((word) => word.toLowerCase()).filter((word) => !SUBJECT_AUXILIARY.has(word));
+  if (actionAfterCopula(words.slice(at + 1), subject)) return false;
+  // The subject's head: what comes before its first preposition, less day and
+  // time words — "my flight" of "my flight with Alice", "my flight" of "my
+  // flight Sunday". A shared modifier (a person, a day) is not a shared thing
+  // (Codex M6B-R12-002).
+  const cut = subject.findIndex((word) => FUNCTION_WORDS.has(word));
+  const head = (cut < 0 ? subject : subject.slice(0, cut))
+    .filter((word) => !SAME_APPOINTMENT_SUBJECT.has(word) && timeOfDayEvidence(word) === 'none');
+  if (head.length === 0) return true;
+  const before = new Set(Array.from(contentWords(previous)).filter((word) => timeOfDayEvidence(word) === "none"));
+  return head.some((word) => before.has(word));
+}
+
+/** The words after the intent marker are something to do, not only an hour or a copula. */
+function intentNamesAnAction(text: string, previous: string): boolean {
+  const rest = afterUnresolvedIntentMarker(text);
+  if (rest === null) return false;
+  const words = rest.replace(/^\s*(?:of|about)\s+/i, '');
+  return followedByObject(words) && !restatesInItsOwnWords(words, previous);
+}
+
 /** Whether a sentence opens a clause of its own, after `previous`. */
 function opensCommitment(sentence: string, previous: string): boolean {
   const text = sentence.replace(LEADING_CONNECTOR, '').trim();
   if (!text) return false;
   if (EXPLICIT_REMINDER_OPENER.test(text)) return true;
+  // A thought with something to do in it is its own point even when it names
+  // an hour after a day-only point (Codex M6B-R4-002): "Dentist on Sunday.
+  // I'm thinking of calling the airline at 5" must not give the dentist 17:00.
+  // An opener like «بدي» or "Call" still restates the hour, as CL1 round 6
+  // decided; only an unresolved-intent marker followed by an object goes first.
+  if (opensWithIntentOfMyOwn(text) && intentNamesAnAction(text, previous)) return true;
   if (restatesTheHour(text, previous)) return false;
+  // A thought, a wait, a someday or an idea is a point of its own (M6b BB-04):
+  // «… بكرا من 4 لـ 8 المسا. عم بفكر أسافر الصيف الجاي» must not hand the
+  // meeting a trip it was only thinking about. The same markers already let a
+  // «و» open a point (`withoutClauseJoiner`).
+  if (opensWithIntentOfMyOwn(text)) return true;
   const opener = SENTENCE_OPENER.exec(text) ?? SENTENCE_VERB_OPENER.exec(text);
   if (opener) return followedByObject(text.slice(opener[0].length));
   const possession = POSSESSION_OPENER.exec(text);

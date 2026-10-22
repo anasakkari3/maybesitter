@@ -220,8 +220,17 @@ export interface UnresolvedIntentReading {
  * Codex inspection F3-005). The joiner rule asks this of the words after a
  * «و»/«ו», so a marker later in a word's own clause never counts.
  */
+/**
+ * A smart apostrophe (’ ‘) read as ', one character for one, so offsets into
+ * the original text stay right: "I’m thinking of…" is the same opener as
+ * "I'm thinking of…" (Codex M6B-R10-003).
+ */
+function plainApostrophes(text: string): string {
+  return text.replace(/[\u2018\u2019]/g, "'");
+}
+
 export function opensWithUnresolvedIntent(text: unknown): boolean {
-  const clause = typeof text === 'string' ? text.trimStart() : '';
+  const clause = typeof text === 'string' ? plainApostrophes(text.trimStart()) : '';
   if (!clause) return false;
   return [WAITING_FOR, POSSIBLE_GOAL, CONSIDERATION, IDEA].some((pattern) => {
     const match = new RegExp(pattern.source, pattern.flags.replace('g', '')).exec(clause);
@@ -229,8 +238,24 @@ export function opensWithUnresolvedIntent(text: unknown): boolean {
   });
 }
 
+/**
+ * The words after the unresolved-intent marker a clause opens with, or null
+ * when it opens with none. «عم بفكر أسافر الساعة 5» gives «أسافر الساعة 5»:
+ * the splitter asks whether that is something to do or only an hour (Codex
+ * M6B-R4-002).
+ */
+export function afterUnresolvedIntentMarker(text: unknown): string | null {
+  const clause = typeof text === 'string' ? plainApostrophes(text.trimStart()) : '';
+  if (!clause) return null;
+  for (const pattern of [WAITING_FOR, POSSIBLE_GOAL, CONSIDERATION, IDEA]) {
+    const match = new RegExp(pattern.source, pattern.flags.replace('g', '')).exec(clause);
+    if (match !== null && match.index === 0) return clause.slice(match[0].length);
+  }
+  return null;
+}
+
 export function detectUnresolvedIntent(rawSegment: unknown): UnresolvedIntentReading | null {
-  const segment = typeof rawSegment === 'string' ? rawSegment.trim() : '';
+  const segment = typeof rawSegment === 'string' ? plainApostrophes(rawSegment.trim()) : '';
   if (!segment) return null;
   // Counted in code points for the reason `SEED_SUMMARY_MAX_CHARACTERS` gives.
   // `Array.from` rather than spread: the repository's TS target does not
