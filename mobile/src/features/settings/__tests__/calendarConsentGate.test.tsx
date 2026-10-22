@@ -352,4 +352,34 @@ describe('the calendar switches follow «uses your calendar»', () => {
     await waitFor(() => expect(finished).toBe(true));
     await waitFor(() => expect(screen.getByTestId('consent-write-pending').props.children).toBe('false'));
   });
+
+  it('a revoke is a switch-off too: it counts from the tap, holds through a failed refetch, and queues behind a grant (Codex M6B-R9-001)', async () => {
+    const order: string[] = [];
+    const answers: ((reply: RouteReply) => void)[] = [];
+    harness = await prepare('en', { ...initialState(), trustConsent: false }, (request) => {
+      if (request.path !== '/api/mobile/pilot/trust') return undefined;
+      if (request.method === 'POST') {
+        const action = (request.body as { action: { type: string; granted?: boolean } }).action;
+        order.push(action.type === 'revoke' ? 'revoke' : action.granted ? 'on' : 'off');
+        return new Promise<RouteReply>((resolve) => { answers.push(resolve); });
+      }
+      return order.length > 0 ? { status: 503, body: { success: false } } : undefined;
+    });
+    const { hooks, A, B } = twoHooks();
+    await render(<Providers harness={harness}><A /><B /></Providers>);
+    await waitFor(() => expect(hooks.a && hooks.b).toBeTruthy());
+    await waitFor(() => expect(harness!.client.getQueryData(queryKeys.trust(ACCOUNT_A.uid))).toBeDefined());
+    // A grant is on its way; the revoke tapped after it waits its turn.
+    await act(async () => {
+      hooks.a!({ type: 'set_calendar_consent', granted: true });
+      hooks.b!({ type: 'revoke' });
+      await jest.advanceTimersByTimeAsync(50);
+    });
+    expect(order).toEqual(['on']);
+    await act(async () => { answers[0]!({ status: 200, body: trustResponse(true) }); await jest.advanceTimersByTimeAsync(50); });
+    await waitFor(() => expect(order).toEqual(['on', 'revoke']));
+    await act(async () => { answers[1]!({ status: 200, body: trustResponse(false) }); await jest.advanceTimersByTimeAsync(200); });
+    // Every refetch failed; the revoke's answer holds.
+    expect(harness.client.getQueryData<{ trust: { calendarConsent: boolean } }>(queryKeys.trust(ACCOUNT_A.uid))?.trust.calendarConsent).toBe(false);
+  });
 });

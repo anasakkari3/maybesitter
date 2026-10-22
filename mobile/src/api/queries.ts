@@ -1418,7 +1418,12 @@ export function useTrustAction() {
     // Synchronous to its end: the turn is reserved and the switch-off counts
     // before anything else can run (R8-001).
     onMutate: (action) => {
-      const calendar = action.type === 'set_calendar_consent' && uid !== 'signed-out';
+      // `revoke` and `delete` clear the calendar consent too
+      // (`closedPilotControls`), so they are switch-offs here: counted from
+      // the tap, in the same queue (Codex M6B-R9-001).
+      const granting = action.type === 'set_calendar_consent' && action.granted;
+      const revoking = (action.type === 'set_calendar_consent' && !action.granted) || action.type === 'revoke' || action.type === 'delete';
+      const calendar = (granting || revoking) && uid !== 'signed-out';
       if (!calendar) return { uid, kind: 'other' as const, startedAt: 0 };
       const state = consentStateOf(client, uid);
       if (state.inFlight === 0) {
@@ -1432,7 +1437,7 @@ export function useTrustAction() {
       trustSequence += 1;
       const startedAt = trustSequence;
       state.latestWrite = startedAt;
-      if (action.granted) {
+      if (granting) {
         state.granting += 1;
       } else {
         // Off from here for every reader (`calendarConsentEffective`), and in
@@ -1443,7 +1448,7 @@ export function useTrustAction() {
         client.setQueryData<TrustResponse>(queryKeys.trust(uid), (current) => (current ? withCalendarConsent(current, false) : current));
       }
       consentChanged();
-      return { uid, kind: action.granted ? 'grant' as const : 'revoke' as const, startedAt };
+      return { uid, kind: granting ? 'grant' as const : 'revoke' as const, startedAt };
     },
     onError: (_error, action, context) => {
       if (!context || context.kind === 'other') return;
