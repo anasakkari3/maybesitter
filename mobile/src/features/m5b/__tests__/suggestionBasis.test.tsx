@@ -10,16 +10,23 @@
  *   - Suggestions a classification hides do not leave a «no ideas» line
  *     claiming there are none.
  *   - A memory list that fails at mount does not hold a cited card back.
+ *   - Codex inspection: a visit whose answer changes a held suggestion's
+ *     basis (same id) reads again (APP-001); an unavailable suggestion leaves
+ *     at once, and a failed read after it does not bring it back (APP-002); a
+ *     failed signal reread claims no «no ideas» (APP-003); an empty holder
+ *     polls nothing (APP-004).
  */
 import React from 'react';
 import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
-import { act, fireEvent, screen, waitFor } from '@testing-library/react-native';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react-native';
+import { IntelligencePanel } from '../../goals/IntelligencePanel';
 import { resetVisitThrottleForTests } from '../../../lib/deviceSettings/visitThrottle';
 import en from '../../../i18n/locales/en.json';
 import {
   MEMORY_A,
   MemoryCorrectionDriver,
   NOW,
+  Providers,
   SUGGESTION_ID,
   generated,
   inbox,
@@ -115,6 +122,8 @@ describe('M5b-2b-1 suggestion basis, beyond the gate', () => {
     await scheduledSettlement();
     await waitFor(() => expect(reads).toBeGreaterThan(1));
     await waitFor(() => expect(screen.queryByTestId(CARD)).toBeNull());
+    // APP-003: unknown is not «nothing to suggest».
+    expect(screen.queryByText(en.xIntelligenceNoIdeas)).toBeNull();
   });
 
   it('R9-001 a failed signal reread clears Today\'s banner', async () => {
@@ -194,5 +203,94 @@ describe('M5b-2b-1 suggestion basis, beyond the gate', () => {
 
     await waitFor(() => expect(screen.queryByTestId(CARD)).not.toBeNull());
     expect(screen.queryByTestId(LINE)).toBeNull();
+  });
+
+  it('APP-001 a visit whose answer changes a held suggestion\'s basis under the same id reads the inbox again', async () => {
+    let reads = 0;
+    const handler: RouteHandler = request => {
+      if (request.method === 'GET' && request.path === '/api/mobile/intelligence') {
+        reads += 1;
+        return { status: 200, body: inbox([suggestion(SUGGESTION_ID, reads === 1 ? { memoryIds: [MEMORY_A] } : {})], { basisMode: 'on_basis' }) };
+      }
+      if (request.method === 'POST' && request.path === '/api/mobile/intelligence/generate') {
+        return { status: 200, body: generated([suggestion(SUGGESTION_ID)], { basisMode: 'on_basis' }) };
+      }
+      if (request.method === 'GET' && request.path === '/api/mobile/memory') return memoryList([MEMORY_A]);
+      return undefined;
+    };
+    harness = await prepare('en', initialState({ memoryItems: [memory(MEMORY_A)] }), handler);
+    noRetries(harness);
+    await render(<Providers harness={harness}><IntelligencePanel onChanged={() => undefined} autoGenerate /></Providers>);
+    await waitFor(() => expect(harness!.server.matching('POST', /\/intelligence\/generate$/)).toHaveLength(1));
+    await waitFor(() => expect(reads).toBe(2));
+    await waitFor(() => expect(screen.queryByTestId(CARD)).not.toBeNull());
+    expect(screen.queryByTestId(LINE)).toBeNull();
+  });
+
+  it('APP-002 an unavailable suggestion leaves at once, and a failed read after it does not bring it back', async () => {
+    let reads = 0;
+    let release!: () => void;
+    const held = new Promise<void>(resolve => { release = resolve; });
+    const handler: RouteHandler = request => {
+      if (request.method === 'GET' && request.path === '/api/mobile/intelligence') {
+        reads += 1;
+        if (reads === 1) return { status: 200, body: inbox([suggestion(SUGGESTION_ID, { memoryIds: [MEMORY_A] })], { basisMode: 'on_basis' }) };
+        return held.then(() => ({ status: 500, body: { success: false, error: 'unavailable' } }));
+      }
+      if (request.method === 'POST' && request.path === `/api/mobile/intelligence/suggestions/${SUGGESTION_ID}`) {
+        return { status: 404, body: { success: false, error: 'not_found', reason: 'suggestion_unavailable' } };
+      }
+      if (request.method === 'GET' && request.path === '/api/mobile/memory') return memoryList([MEMORY_A]);
+      return undefined;
+    };
+    harness = await prepare('en', initialState({ memoryItems: [memory(MEMORY_A)] }), handler);
+    noRetries(harness);
+    await showPanel(harness);
+    await waitFor(() => expect(screen.queryByTestId(CARD)).not.toBeNull());
+
+    await fireEvent.press(within(screen.getByTestId(CARD)).getAllByRole('button')[0]!);
+    await waitFor(() => expect(reads).toBe(2));
+    // Gone while the read after it is still on its way.
+    expect(screen.queryByTestId(CARD)).toBeNull();
+    await act(async () => { release(); await jest.advanceTimersByTimeAsync(10); });
+    expect(screen.queryByTestId(CARD)).toBeNull();
+    expect(screen.queryByTestId('m5b-suggestion-action-error')).toBeNull();
+    expect(screen.queryByText(en.xIntelligenceNoIdeas)).toBeNull();
+  });
+
+  it('APP-004 an empty panel polls neither the memory list nor the inbox', async () => {
+    const handler: RouteHandler = request => {
+      if (request.method === 'GET' && request.path === '/api/mobile/intelligence') {
+        return { status: 200, body: inbox([], { basisMode: 'on_basis' }) };
+      }
+      if (request.method === 'GET' && request.path === '/api/mobile/memory') return memoryList([MEMORY_A]);
+      return undefined;
+    };
+    harness = await prepare('en', initialState({ memoryItems: [memory(MEMORY_A)] }), handler);
+    noRetries(harness);
+    await showPanel(harness);
+    await waitFor(() => expect(screen.queryByText(en.xIntelligenceNoIdeas)).not.toBeNull());
+
+    for (let minute = 0; minute < 3; minute += 1) await scheduledSettlement();
+    expect(harness.server.matching('GET', /^\/api\/mobile\/memory$/)).toHaveLength(0);
+    expect(harness.server.matching('GET', INBOX)).toHaveLength(1);
+  });
+
+  it('APP-004 an empty Today banner polls neither the memory list nor the inbox', async () => {
+    const handler: RouteHandler = request => {
+      if (request.method === 'POST' && request.path === '/api/mobile/intelligence/generate') {
+        return { status: 200, body: generated([], { basisMode: 'on_basis' }) };
+      }
+      if (request.method === 'GET' && request.path === '/api/mobile/memory') return memoryList([MEMORY_A]);
+      return undefined;
+    };
+    harness = await prepare('en', initialState({ memoryItems: [memory(MEMORY_A)] }), handler);
+    noRetries(harness);
+    await showBanner(harness);
+    await waitFor(() => expect(harness!.server.matching('POST', /\/intelligence\/generate$/)).toHaveLength(1));
+
+    for (let minute = 0; minute < 3; minute += 1) await scheduledSettlement();
+    expect(harness.server.matching('GET', /^\/api\/mobile\/memory$/)).toHaveLength(0);
+    expect(harness.server.matching('GET', INBOX)).toHaveLength(0);
   });
 });
