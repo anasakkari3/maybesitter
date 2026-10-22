@@ -37,6 +37,7 @@ import {
 import type { PersonalizationConsent } from '../../src/contracts/v1/personalizationContracts';
 import { getStorage, type StorageAdapter } from '../storage';
 import { userDoc } from '../storage/paths';
+import { randomUUID } from 'node:crypto';
 import { getConsent, setConsent, type SetConsentInput } from './consentService';
 
 /**
@@ -88,25 +89,45 @@ function storeOf(options: PersonalizationConsentOptions): PersonalizationConsent
  * epoch it set, or null while a purge runs: the purge owns the fence then,
  * and the caller waits for it (M5B2A-R8-003).
  */
-async function beginPersonalizationWithdrawal(storage: StorageAdapter, uid: string, at: string): Promise<number | null> {
+interface WithdrawalLease {
+  readonly epoch: number;
+  /** Unguessable: only the withdrawal that took the fence can reopen it. */
+  readonly owner: string;
+  /** Whether it took the fence over from a withdrawal that may still be running. */
+  readonly tookOver: boolean;
+}
+
+type FenceDocument = {
+  state?: unknown; epoch?: unknown; withdrawalOwner?: unknown; withdrawalLeaseAt?: unknown; consentWithdrawnAt?: unknown;
+};
+
+/** Whether a `withdrawing` fence's lease, on the server's clock, has run out. */
+function leaseExpired(fence: FenceDocument): boolean {
+  const since = typeof fence.withdrawalLeaseAt === 'string' ? Date.parse(fence.withdrawalLeaseAt)
+    : typeof fence.consentWithdrawnAt === 'string' ? Date.parse(fence.consentWithdrawnAt) : Number.NaN;
+  return !Number.isFinite(since) || Date.now() - since >= STALE_WITHDRAWAL_MS;
+}
+
+async function beginPersonalizationWithdrawal(storage: StorageAdapter, uid: string, at: string): Promise<WithdrawalLease | null> {
   return storage.runTransaction(async (tx) => {
     const user = await tx.get<Record<string, unknown>>(userDoc(uid));
-    const prior = user?.personalizationPurge as { state?: unknown; epoch?: unknown; consentWithdrawnAt?: unknown } | undefined;
+    const prior = user?.personalizationPurge as FenceDocument | undefined;
     if (prior?.state === 'purging') return null;
     // One owner of the fence at a time (M5B2A-R17-001): another withdrawal
-    // still between its phases is waited for, or a second one could reopen
-    // the fence while the first has not yet disabled consent. One left
-    // withdrawing for longer than a stale owner could live is taken over, so
-    // a crash between the phases cannot close memory for good.
-    if (prior?.state === 'withdrawing') {
-      const since = typeof prior.consentWithdrawnAt === 'string' ? Date.parse(prior.consentWithdrawnAt) : Number.NaN;
-      if (Number.isFinite(since) && Date.parse(at) - since < STALE_WITHDRAWAL_MS) return null;
-    }
+    // still between its phases is waited for. A lease that ran out — on the
+    // server's clock, never a caller's (M5B2A-R18-001) — is taken over, so a
+    // crash cannot close memory for good; but a takeover never reopens the
+    // fence unless consent is verified off (see the caller).
+    if (prior?.state === 'withdrawing' && !leaseExpired(prior)) return null;
     const epoch = (Number.isSafeInteger(prior?.epoch) && (prior!.epoch as number) >= 0 ? (prior!.epoch as number) : 0) + 1;
-    const personalizationPurge = { ...(prior ?? {}), state: 'withdrawing', epoch, consentWithdrawnAt: at };
+    const owner = randomUUID();
+    const personalizationPurge = {
+      ...(prior ?? {}), state: 'withdrawing', epoch, consentWithdrawnAt: at,
+      withdrawalOwner: owner, withdrawalLeaseAt: new Date().toISOString(),
+    };
     if (user) tx.merge(userDoc(uid), { personalizationPurge });
     else tx.set(userDoc(uid), { personalizationPurge });
-    return epoch;
+    return { epoch, owner, tookOver: prior?.state === 'withdrawing' };
   });
 }
 
@@ -116,12 +137,28 @@ async function beginPersonalizationWithdrawal(storage: StorageAdapter, uid: stri
  * Only that exact epoch, still withdrawing: a purge that began in between owns
  * the fence, and a later withdrawal finishes its own.
  */
-async function finishPersonalizationWithdrawal(storage: StorageAdapter, uid: string, epoch: number): Promise<void> {
+async function finishPersonalizationWithdrawal(storage: StorageAdapter, uid: string, lease: WithdrawalLease): Promise<void> {
   await storage.runTransaction(async (tx) => {
     const user = await tx.get<Record<string, unknown>>(userDoc(uid));
-    const current = user?.personalizationPurge as { state?: unknown; epoch?: unknown } | undefined;
-    if (current?.state !== 'withdrawing' || current.epoch !== epoch) return;
-    tx.merge(userDoc(uid), { personalizationPurge: { ...current, state: 'active' } });
+    const current = user?.personalizationPurge as FenceDocument | undefined;
+    if (current?.state !== 'withdrawing' || current.epoch !== lease.epoch || current.withdrawalOwner !== lease.owner) return;
+    const { withdrawalOwner: _owner, withdrawalLeaseAt: _lease, ...rest } = current;
+    tx.merge(userDoc(uid), { personalizationPurge: { ...rest, state: 'active', withdrawalOwner: null, withdrawalLeaseAt: null } });
+  });
+}
+
+/**
+ * A grant reopens a fence a dead withdrawal left closed (lease run out), so
+ * the person who turns memory back on gets it back. A live withdrawal's fence
+ * is left to that withdrawal.
+ */
+async function reopenAbandonedWithdrawal(storage: StorageAdapter, uid: string): Promise<void> {
+  await storage.runTransaction(async (tx) => {
+    const user = await tx.get<Record<string, unknown>>(userDoc(uid));
+    const current = user?.personalizationPurge as FenceDocument | undefined;
+    if (current?.state !== 'withdrawing' || !leaseExpired(current)) return;
+    const epoch = (Number.isSafeInteger(current.epoch) ? (current.epoch as number) : 0) + 1;
+    tx.merge(userDoc(uid), { personalizationPurge: { ...current, state: 'active', epoch, withdrawalOwner: null, withdrawalLeaseAt: null } });
   });
 }
 
@@ -145,6 +182,9 @@ export async function setPersonalizationConsent(
         .catch(() => undefined);
       throw new PersonalizationConsentNotRecordedError(error);
     }
+    // A fence a dead withdrawal left closed opens with the grant; failing that
+    // only leaves memory closed, never the answer unrecorded.
+    await reopenAbandonedWithdrawal(storage, uid).catch(() => undefined);
     return record;
   }
   if (input.state === 'declined') {
@@ -169,9 +209,9 @@ export async function setPersonalizationConsent(
  * the kept window before phase one is refused by its write guard; a basis read
  * across it is not shown; and while the fence is closed no reader takes the
  * window at all. Reopened only once the store is off, so any reader after it
- * sees consent withdrawn. If the store write fails the fence still reopens —
- * the epoch has already moved, so nothing read before is written — and the
- * caller is told.
+ * sees consent withdrawn. If the store write fails the fence reopens — consent
+ * is still on and the epoch has moved — unless it was taken over from a
+ * withdrawal that may still be running (M5B2A-R18-001); the caller is told.
  *
  * Behind a running purge it waits (M5B2A-R8-003): every withdrawal takes its
  * own epoch, so a plan that read the window under the purge's epoch after the
@@ -186,16 +226,22 @@ export async function disablePersonalizationFenced(
   const storage = options.storage ?? getStorage();
   const store = storeOf(options);
   const wait = options.purgeWait ?? PURGE_WAIT;
-  let epoch = await beginPersonalizationWithdrawal(storage, uid, at);
-  for (let attempt = 1; epoch === null; attempt += 1) {
+  let lease = await beginPersonalizationWithdrawal(storage, uid, at);
+  for (let attempt = 1; lease === null; attempt += 1) {
     if (attempt >= wait.attempts) throw new PersonalizationWithdrawalBusyError();
     await new Promise((resolve) => setTimeout(resolve, wait.delayMs));
-    epoch = await beginPersonalizationWithdrawal(storage, uid, at);
+    lease = await beginPersonalizationWithdrawal(storage, uid, at);
   }
+  const held = lease;
   try {
     return await store.write(uid, 'disabled', at);
   } finally {
-    await finishPersonalizationWithdrawal(storage, uid, epoch);
+    // Reopened once consent reads off. A withdrawal whose own write failed
+    // reopens too — consent is still on, and the epoch has moved — unless it
+    // took over from one that may still be running (M5B2A-R18-001): then the
+    // fence stays closed until consent is off or the lease runs out.
+    const off = await store.read(uid).then((consent) => consent.state === 'disabled', () => false);
+    if (off || !held.tookOver) await finishPersonalizationWithdrawal(storage, uid, held);
   }
 }
 

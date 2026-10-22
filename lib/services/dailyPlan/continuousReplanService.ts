@@ -1079,7 +1079,13 @@ async function processStateChangesAttempt(
   const writtenBasisSnapshot = reusedPendingSolveInputs ? pending?.basisSnapshot : basisSnapshot;
   const writtenFocusFromMemory = reusedPendingSolveInputs ? pending?.focusFromMemory : focusFromMemory;
   const writtenPurgeEpoch = reusedPendingSolveInputs ? pending?.personalizationPurgeEpoch : personalizationPurgeEpoch;
-  const writtenMemoryUse = reusedPendingSolveInputs ? pending?.memoryUse : memoryUse;
+  // One effective epoch for the write, whatever shape the reused offer was
+  // stored in (M5B2A-R18-002): an offer from before `memoryUse` existed
+  // records its fence as on-mode `focusFromMemory` + `personalizationPurgeEpoch`,
+  // and is normalised so its guard and the stored provenance both see it.
+  const pendingLegacyUse = pending?.focusFromMemory === true && pending.personalizationPurgeEpoch !== undefined
+    ? { epoch: pending.personalizationPurgeEpoch } : undefined;
+  const writtenMemoryUse = reusedPendingSolveInputs ? pending?.memoryUse ?? pendingLegacyUse : memoryUse;
   const writtenStoredPurgeEpoch = reusedPendingSolveInputs ? pending?.storedPurgeEpoch ?? storedPurgeEpoch : storedPurgeEpoch;
 
   /**

@@ -37,6 +37,9 @@ export interface UserDocument<TTrust = unknown> {
     epoch?: number;
     startedAt?: string;
     completedAt?: string;
+    /** The withdrawal holding a `withdrawing` fence, and when it took it (server clock). */
+    withdrawalOwner?: string | null;
+    withdrawalLeaseAt?: string | null;
   };
 }
 

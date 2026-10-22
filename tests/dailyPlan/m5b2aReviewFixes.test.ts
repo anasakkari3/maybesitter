@@ -295,7 +295,7 @@ test('R7-003: GET and building over an existing plan answer the plan without a b
 });
 
 /** Sets the personalization fence as a purge's own transaction would. */
-async function setFence(storage: any, uid: string, fence: { state: string; epoch: number; consentWithdrawnAt?: string }): Promise<void> {
+async function setFence(storage: any, uid: string, fence: Record<string, unknown>): Promise<void> {
   await storage.runTransaction(async (tx: any) => { tx.merge(userDoc(uid), { personalizationPurge: fence }); });
 }
 
@@ -718,4 +718,73 @@ test('R17-001: a withdrawal left between its phases longer than a stale owner co
   await setPersonalizationConsent(uid, { state: 'declined', version: PERSONALIZATION_CONSENT_VERSION, at: new Date() }, { storage, purgeWait: { attempts: 2, delayMs: 1 } });
   const fence = ((await storage.get(userDoc(uid))) ?? {}).personalizationPurge;
   assert.deepEqual([fence?.state, fence?.epoch], ['active', 8]);
+});
+
+test('R18-001: a takeover of a live-but-slow withdrawal whose own write fails leaves the fence closed while consent is on', async () => {
+  const uid = await keptFocusPlan();
+  const storage = currentStorage() as any;
+  const base = createStoragePersonalizationConsentStore(storage);
+  let releaseW1!: () => void;
+  const w1Paused = new Promise<void>((resolve) => { releaseW1 = resolve; });
+  let w1Entered!: () => void;
+  const w1InStore = new Promise<void>((resolve) => { w1Entered = resolve; });
+  const pausing = { ...base, read: base.read.bind(base), write: async (...args: Parameters<typeof base.write>) => { w1Entered(); await w1Paused; return base.write(...args); } };
+  const failing = { ...base, read: base.read.bind(base), write: async () => { throw new Error('store unavailable'); } };
+  const w1 = setPersonalizationConsent(uid, { state: 'declined', version: PERSONALIZATION_CONSENT_VERSION, at: new Date() }, { storage, consent: pausing as any });
+  await w1InStore;
+  // W1 is still running but its lease has run out (a slow store): W2 takes over, and its own write fails.
+  const fence1 = ((await storage.get(userDoc(uid))) ?? {}).personalizationPurge;
+  await setFence(storage, uid, { ...fence1, withdrawalLeaseAt: new Date(Date.now() - 5 * 60_000).toISOString() });
+  await assert.rejects(setPersonalizationConsent(uid, { state: 'declined', version: PERSONALIZATION_CONSENT_VERSION, at: new Date() }, { storage, consent: failing as any, purgeWait: { attempts: 2, delayMs: 1 } }));
+  assert.equal(((await storage.get(userDoc(uid))) ?? {}).personalizationPurge?.state, 'withdrawing', 'the failed takeover reopened the fence while consent was on');
+  assert.equal(await memoryFocusForPlan(uid, NOW(), { storage }), null, 'memory was readable during the unfinished withdrawal');
+  releaseW1();
+  await w1;
+  assert.equal((await base.read(uid)).state, 'disabled');
+  assert.equal(await memoryFocusForPlan(uid, NOW(), { storage }), null);
+});
+
+test("R18-001: a caller's clock cannot make a live withdrawal look stale", async () => {
+  const uid = await keptFocusPlan();
+  const storage = currentStorage() as any;
+  await setFence(storage, uid, { state: 'withdrawing', epoch: 4, withdrawalOwner: 'someone-else', withdrawalLeaseAt: new Date().toISOString(), consentWithdrawnAt: new Date().toISOString() });
+  await assert.rejects(
+    setPersonalizationConsent(uid, { state: 'declined', version: PERSONALIZATION_CONSENT_VERSION, at: new Date(Date.now() + 24 * 3_600_000) }, { storage, purgeWait: { attempts: 2, delayMs: 1 } }),
+    PersonalizationWithdrawalBusyError,
+  );
+  const fence = ((await storage.get(userDoc(uid))) ?? {}).personalizationPurge;
+  assert.deepEqual([fence?.state, fence?.epoch, fence?.withdrawalOwner], ['withdrawing', 4, 'someone-else']);
+});
+
+test('R18-001: granting again reopens a fence a dead withdrawal left closed', async () => {
+  const uid = await keptFocusPlan();
+  const storage = currentStorage() as any;
+  await setFence(storage, uid, { state: 'withdrawing', epoch: 5, withdrawalOwner: 'dead', withdrawalLeaseAt: new Date(Date.now() - 5 * 60_000).toISOString() });
+  await grantPersonalization(uid);
+  const fence = ((await storage.get(userDoc(uid))) ?? {}).personalizationPurge;
+  assert.deepEqual([fence?.state, fence?.epoch], ['active', 6]);
+  assert.ok(await memoryFocusForPlan(uid, NOW(), { storage }), 'memory stayed closed after the grant');
+});
+
+test('R18-002: a reused pre-memoryUse (on-mode) pending offer is fenced at the write, so a withdrawal never lets it auto-apply', async () => {
+  const uid = await begin();
+  await grantPersonalization(uid);
+  await threeTasks(uid);
+  await storeKeptFocus(uid);
+  await makeSuppressedWindowMatchKeptWindow(uid);
+  await buildPlan(uid);
+  const slot = (await storedPlan(uid)).plan.scheduled[0].interval;
+  const inside = {
+    startsAt: new Date(Date.parse(slot.startsAt) + 5 * 60_000).toISOString(),
+    endsAt: new Date(Date.parse(slot.startsAt) + 15 * 60_000).toISOString(),
+  };
+  await replan(uid, REVIEW, slot, 'busy-first-legacy');
+  const stored = await storedPlan(uid);
+  assert.equal(stored.proposal?.focusFromMemory, true, 'fixture: the pending offer did not use memory');
+  // As an offer stored before \`memoryUse\` existed.
+  const { memoryUse: _use, storedPurgeEpoch: _stored, ...legacy } = stored.proposal;
+  await currentStorage().set(planPath(uid, TODAY), { ...stored, proposal: legacy });
+  const report = await replanWithWithdrawalAtWrite(uid, AUTO_APPLY, inside, 'busy-second-legacy');
+  const after = await storedPlan(uid);
+  assert.notEqual(after.focusFromMemory, true, show({ action: report.pipelineResult.policyDecision?.action, focus: after.focusFromMemory }));
 });
