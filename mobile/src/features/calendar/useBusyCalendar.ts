@@ -39,9 +39,8 @@ import { useCallback, useEffect, useRef } from 'react';
 import { AppState, Platform } from 'react-native';
 import * as Crypto from 'expo-crypto';
 import { useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
-import { queryKeys, useTrust, useTrustAction, useUid } from '../../api/queries';
+import { calendarConsentEffective, queryKeys, useTrust, useTrustAction, useUid } from '../../api/queries';
 import { getAuthRepository } from '../../api/auth';
-import type { TrustResponse } from '../../api/schemas/trust';
 import { deleteCalendarBusy, postCalendarBusy } from '../../api/endpoints/calendar';
 import { calendarReadEnabled } from '../../config/env';
 import {
@@ -284,9 +283,9 @@ export function useBusyCalendar(): BusyCalendarState {
    * rather than from a render: an effect of an earlier render can run after a
    * newer answer has landed, and the two must not disagree (M4A-R6-REV-003).
    */
-  const consentNow = useCallback((forUid: string) => (
-    client.getQueryData<TrustResponse>(queryKeys.trust(forUid))?.trust?.calendarConsent === true
-  ), [client]);
+  // And no switch-off on its way: that counts from the tap, before the cache
+  // says so (`calendarConsentEffective`, Codex M6B-R6-001).
+  const consentNow = useCallback((forUid: string) => calendarConsentEffective(client, forUid), [client]);
 
   const syncNow = useCallback(async (
     trigger: BusySyncTrigger,

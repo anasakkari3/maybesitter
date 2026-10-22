@@ -733,8 +733,10 @@ export async function startSelection(
     // applied, else what is applied — read here, under the lock, so two quick
     // taps never both start from the same stale list (M5A-R3-005).
     let next: string[];
+    let prior: PendingSelection | null;
     try {
-      const base = (await loadPendingSelection(uid))?.included ?? await loadIncludedCalendarIds(uid);
+      prior = await loadPendingSelection(uid);
+      const base = prior?.included ?? await loadIncludedCalendarIds(uid);
       next = [...new Set(typeof change === 'function' ? change(base) : change)];
     } catch {
       return { kind: 'failed' as const };
@@ -748,17 +750,26 @@ export async function startSelection(
       opId: null,
     };
     // The account this tap was made in, still (M5A-R53-002). And a calendar
-    // chosen only while the consent says on, read right before the durable
-    // write (Codex M6B-R5-002): a pending selection saved with it off would
-    // resume the day it is turned back on. A clear runs whatever the consent.
-    if (!current()) return { kind: 'superseded' as const };
-    if (record.operation !== 'clear' && !context.consented()) return { kind: 'superseded' as const };
+    // chosen only while the consent says on (Codex M6B-R5-002, R6-001): a
+    // pending selection saved with it off would resume the day it is turned
+    // back on. `consented` counts a switch-off from its tap, synchronously; it
+    // is read before the generation write, again right before the save, and
+    // once more after it — a switch-off that began during the save puts the
+    // record back as it was. A clear runs whatever the consent.
+    const allowed = () => record.operation === 'clear' || context.consented();
+    if (!current() || !allowed()) return { kind: 'superseded' as const };
     try {
       // A new generation first (R1.1c, M5A-R4-001): if saving the record then
       // fails, nothing durable claims a selection the person was told failed,
       // and the old cache already never matches again.
       await bumpInclusionGeneration(uid);
+      if (!current() || !allowed()) return { kind: 'superseded' as const };
       await savePendingSelection(uid, record);
+      if (!allowed()) {
+        if (prior) await savePendingSelection(uid, prior);
+        else await removePendingSelection(uid);
+        return { kind: 'superseded' as const };
+      }
     } catch {
       return { kind: 'failed' as const };
     }

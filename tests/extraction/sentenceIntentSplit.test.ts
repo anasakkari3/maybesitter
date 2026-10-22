@@ -72,6 +72,10 @@ test('BB-04 review (Codex M6B-R2-001): a bare hedge after a period stays with th
 test('BB-04 review (Codex M6B-R4-002): a timed thought after a day-only point is its own point (ar / en / he)', () => {
   for (const text of [
     "Dentist on Sunday. I'm thinking of calling the airline at 5",
+    // A modal before the action is still an action (Codex M6B-R6-004).
+    "Dentist on Sunday. I'm thinking I should call the airline at 5",
+    "Dentist on Sunday. I'm thinking I can book the flight at 5",
+    "Dentist on Sunday. I'm thinking I will pay the bill at 5",
     'عندي طبيب أسنان يوم الأحد. عم بفكر أسافر الساعة 5',
     'רופא שיניים ביום ראשון. אני חושב על לעבור דירה בשעה 5',
   ]) {

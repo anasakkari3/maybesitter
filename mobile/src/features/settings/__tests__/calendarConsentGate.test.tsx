@@ -135,6 +135,10 @@ describe('the calendar switches follow «uses your calendar»', () => {
     await showCalendar(harness!);
     await waitFor(() => expect(screen.queryByTestId('calendar-include-work')).not.toBeNull());
     expect(screen.getByTestId('calendar-include-work').props.accessibilityState).toMatchObject({ disabled: true });
+    // The master switch is still locked: the off is on its way whatever screen
+    // asked for it, so an on cannot race it (Codex M6B-R6-002).
+    expect(screen.getByTestId('calendar-use-toggle').props.disabled).toBe(true);
+    expect(screen.getByTestId('calendar-use-toggle').props.accessibilityState).toMatchObject({ checked: false, disabled: true });
     await changeSwitch('calendar-include-work', true);
     expect(await AsyncStorage.getItem(PENDING)).toBeNull();
     harness!.server.state.trustConsent = false;
@@ -204,5 +208,24 @@ describe('the calendar switches follow «uses your calendar»', () => {
       request.method === 'GET' && request.path === '/api/mobile/pilot/trust' ? new Promise<RouteReply>(() => {}) : undefined
     ));
     expect(screen.queryByTestId('calendar-list-needs-use')).toBeNull();
+  });
+
+  it('a switch-on the server confirmed holds even when the refetch after it fails (Codex M6B-R6-003)', async () => {
+    let posted = false;
+    await calendarWith(false, (request) => {
+      if (request.path !== '/api/mobile/pilot/trust') return undefined;
+      if (request.method === 'POST') {
+        posted = true;
+        return { status: 200, body: trustResponse(true) };
+      }
+      return posted ? { status: 503, body: { success: false } } : undefined;
+    });
+    await waitFor(() => expect(screen.getByTestId('calendar-use-toggle').props.disabled).toBe(false));
+    await changeSwitch('calendar-use-toggle', true);
+    await waitFor(() => expect(harness!.server.matching('GET', /\/api\/mobile\/pilot\/trust$/).length).toBeGreaterThan(1));
+    await act(async () => { await jest.advanceTimersByTimeAsync(200); });
+    expect(screen.getByTestId('calendar-use-toggle').props.value).toBe(true);
+    expect(screen.getByTestId('calendar-use-toggle').props.disabled).toBe(false);
+    expect(screen.getByTestId('calendar-include-work').props.accessibilityState).toMatchObject({ disabled: false });
   });
 });

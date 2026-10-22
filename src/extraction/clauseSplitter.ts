@@ -304,13 +304,15 @@ function opensWithIntentOfMyOwn(text: string): boolean {
 }
 
 /**
- * A subject and a copula or modal — "the appointment should be at 5",
- * «الموعد يكون الساعة 5», «שהתור יהיה בשעה 5», "it's at 5" — say when the
- * point before happens, not something new to do (Codex M6B-R5-003).
+ * A copula — "the appointment should be at 5", «الموعد يكون الساعة 5»,
+ * «שהתור יהיה בשעה 5», "it's at 5" — says when the point before happens, not
+ * something new to do (Codex M6B-R5-003). A modal alone does not: "I should
+ * call the airline at 5" is an action (R6-004); "should be" is caught by its
+ * "be".
  */
 const RESTATEMENT_VERB = new RegExp(
   '^(?:' + [
-    "is|are|was|were|be|been|being|should|would|could|will|might|must|can|it'?s|that'?s|this'?s|he'?s|she'?s|they'?re",
+    "is|are|was|were|be|been|being|it'?s|that'?s|this'?s|he'?s|she'?s|they'?re",
     'يكون|بكون|تكون|يصير|بيصير|تصير|بتصير|كان|كانت|رح\s+يكون|لازم\s+يكون',
     'יהיה|תהיה|יהיו|היה|הייתה|יתקיים|תתקיים|שיהיה|שתהיה',
   ].join('|') + ')$',

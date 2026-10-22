@@ -563,4 +563,27 @@ describe('M6b inspection r5 (Codex M6B-R5-002)', () => {
     await act(async () => { await startSelection(UID, [], off).catch(() => undefined); });
     expect(writes[0]).toBe('clear');
   });
+
+  it('a switch-off that begins during the generation write or the save leaves no upload pending (Codex M6B-R6-001)', async () => {
+    harness = await prepare();
+    await AsyncStorage.setItem(ENROLLED, '2030-03-20T08:00:00.000Z');
+    await showBusyHost(harness);
+    await settle();
+    const GENERATION = `calendar.inclusionGeneration.v1:${UID}`;
+    const original = (AsyncStorage.setItem as jest.Mock).getMockImplementation() as (key: string, value: string) => Promise<void>;
+    for (const during of [GENERATION, PENDING]) {
+      await AsyncStorage.removeItem(PENDING);
+      let consent = true;
+      let flipped = false;
+      jest.spyOn(AsyncStorage, 'setItem').mockImplementation(async (key, value) => {
+        await original(key, value);
+        // The switch-off is tapped while this write is on its way.
+        if (key === during && !flipped) { flipped = true; consent = false; }
+      });
+      const context = { uid: UID, accountCurrent: () => true, stillCurrent: () => consent, consented: () => consent };
+      await act(async () => { await startSelection(UID, ['work'], context); });
+      expect(flipped).toBe(true);
+      expect(await AsyncStorage.getItem(PENDING)).toBeNull();
+    }
+  });
 });

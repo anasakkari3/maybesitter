@@ -11,7 +11,7 @@ import { formatRelativeDay } from '../../i18n/format';
 import { useTimeZone } from '../../i18n/timezone';
 import { getPhoneSources, revokePhoneSource } from '../../api/endpoints/m5a';
 import type { PhoneSource } from '../../api/schemas/m5a';
-import { useTrustAction } from '../../api/queries';
+import { useCalendarConsentWritePending, useTrustAction } from '../../api/queries';
 import { useGoogleStatus } from '../google/useGoogle';
 import type { CalendarAccess, DeviceEventCalendar } from '../calendar/deviceCalendar';
 import type { BusyCalendarState } from '../calendar/useBusyCalendar';
@@ -62,8 +62,11 @@ export function M5aCalendarSections({
   // R5-002), so `consented` already says off while the request is on its way.
   const usable = consented;
   // The master switch shows the off it was just given (Codex M6B-R4-004), and
-  // takes no second change until the server has answered the first.
-  const useLocked = !trustLoaded || trustAction.isPending;
+  // takes no second change until the server has answered the first — any
+  // calendar-consent write for this account, from this screen before a
+  // remount, a disconnect, or anywhere else (Codex M6B-R6-002).
+  const consentWritePending = useCalendarConsentWritePending();
+  const useLocked = !trustLoaded || consentWritePending;
   const shown = shownIncluded(view);
   const granted = access === 'granted';
 
