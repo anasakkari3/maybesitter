@@ -20,6 +20,7 @@ import {
   currentStorage,
   type M5bSwitches,
 } from '../m5b/support.ts';
+import { m5bBasisMode } from '../../../lib/release/m5bCapabilities.ts';
 
 export * from '../m5b/support.ts';
 
@@ -80,6 +81,7 @@ export async function storeSuggestion(
   overrides: Partial<IntelligenceSuggestion> = {},
 ): Promise<IntelligenceSuggestion> {
   suggestionSeq += 1;
+  const basisMode = m5bBasisMode();
   const suggestion: IntelligenceSuggestion = {
     id: createHash('sha256').update(`m5b2a-suggestion-${suggestionSeq}`).digest('hex'),
     kind,
@@ -93,6 +95,7 @@ export async function storeSuggestion(
     decidedAt: null,
     linkedEntityId: null,
     generatedAt: new Date().toISOString(),
+    ...(basisMode === 'on_basis' || basisMode === 'on_nobasis' ? { mode: basisMode } : {}),
     ...overrides,
   };
   await currentStorage().set(suggestionPath(uid, suggestion.id), suggestion);
