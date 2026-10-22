@@ -939,6 +939,48 @@ test("R22-002: a refused grant's rollback never overwrites a newer grant that su
   assert.equal((await base.read(uid)).state, 'enabled');
 });
 
+test("R23-001: a superseded withdrawal never reopens a live takeover's fence between its disable and its answer", async () => {
+  const uid = await keptFocusPlan();
+  const storage = currentStorage() as any;
+  const base = createStoragePersonalizationConsentStore(storage);
+  const gate = () => { let open!: () => void; const wait = new Promise<void>((resolve) => { open = resolve; }); return { open, wait }; };
+  const w1Release = gate(); const w1Entered = gate();
+  const w1Store = {
+    read: base.read.bind(base), write: base.write.bind(base), deleteScope: base.deleteScope.bind(base),
+    writeGuarded: async (...args: Parameters<NonNullable<typeof base.writeGuarded>>) => { w1Entered.open(); await w1Release.wait; return base.writeGuarded!(...args); },
+  };
+  const w2Release = gate(); const w2Disabled = gate();
+  const w2Store = {
+    read: base.read.bind(base), write: base.write.bind(base), deleteScope: base.deleteScope.bind(base),
+    // W2 disables, then pauses before its declined answer is recorded.
+    writeGuarded: async (...args: Parameters<NonNullable<typeof base.writeGuarded>>) => { const written = await base.writeGuarded!(...args); w2Disabled.open(); await w2Release.wait; return written; },
+  };
+  const w1 = setPersonalizationConsent(uid, { state: 'declined', version: PERSONALIZATION_CONSENT_VERSION, at: new Date() }, { storage, consent: w1Store as any });
+  await w1Entered.wait;
+  const fence1 = ((await storage.get(userDoc(uid))) ?? {}).personalizationPurge;
+  await setFence(storage, uid, { ...fence1, withdrawalLeaseAt: new Date(Date.now() - 5 * 60_000).toISOString() });
+  const w2 = setPersonalizationConsent(uid, { state: 'declined', version: PERSONALIZATION_CONSENT_VERSION, at: new Date(Date.now() + 1_000) }, { storage, consent: w2Store as any });
+  await w2Disabled.wait;
+  const w2Fence = ((await storage.get(userDoc(uid))) ?? {}).personalizationPurge;
+  w1Release.open();
+  await assert.rejects(w1, PersonalizationWithdrawalBusyError);
+  const afterW1 = ((await storage.get(userDoc(uid))) ?? {}).personalizationPurge;
+  assert.deepEqual([afterW1?.state, afterW1?.withdrawalOwner], ['withdrawing', w2Fence.withdrawalOwner], "W1 reopened W2's live fence");
+  await assert.rejects(
+    setPersonalizationConsent(uid, { state: 'granted', version: PERSONALIZATION_CONSENT_VERSION, at: new Date(Date.now() + 2_000) }, { storage, purgeWait: { attempts: 2, delayMs: 1 } }),
+    PersonalizationWithdrawalBusyError,
+  );
+  w2Release.open();
+  await w2;
+  const { getConsent } = await import('../../lib/consents/consentService.ts');
+  const { PERSONALIZATION_CONSENT } = await import('../../src/contracts/v1/consentContracts.ts');
+  assert.equal(await getConsent(PERSONALIZATION_CONSENT, uid, { storage }), 'declined');
+  assert.equal(((await storage.get(userDoc(uid))) ?? {}).personalizationPurge?.state, 'active');
+  await setPersonalizationConsent(uid, { state: 'granted', version: PERSONALIZATION_CONSENT_VERSION, at: new Date(Date.now() + 3_000) }, { storage });
+  assert.equal(await getConsent(PERSONALIZATION_CONSENT, uid, { storage }), 'granted');
+  assert.equal((await base.read(uid)).state, 'enabled');
+});
+
 test('R20-004: a fresh run never answers a suggestion whose outcome was dismissed right after the commit', async () => {
   const uid = await begin();
   await grantRecommendations(uid);

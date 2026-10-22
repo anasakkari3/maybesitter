@@ -159,10 +159,13 @@ async function finishPersonalizationWithdrawal(
     const user = await tx.get<Record<string, unknown>>(userDoc(uid));
     const current = user?.personalizationPurge as FenceDocument | undefined;
     if (current?.state !== 'withdrawing') return;
-    // Consent verified off: whoever holds the fence now, reopening it lets no
-    // reader take memory, so a fence a takeover left behind is recovered too
-    // (M5B2A-R19-001). Otherwise only this withdrawal's own lease.
-    if (!consentOff && (current.epoch !== lease.epoch || current.withdrawalOwner !== lease.owner)) return;
+    // This withdrawal's own lease, exactly. Another owner's fence is recovered
+    // only when consent is verified off *and* that owner's lease has run out on
+    // the server's clock (M5B2A-R19-001, R23-001): a live owner may still be
+    // between its disable and its declined answer, and reopening under it
+    // would let a grant land before that answer does.
+    const own = current.epoch === lease.epoch && current.withdrawalOwner === lease.owner;
+    if (!own && !(consentOff && leaseExpired(current))) return;
     const { withdrawalOwner: _owner, withdrawalLeaseAt: _lease, ...rest } = current;
     tx.merge(userDoc(uid), { personalizationPurge: { ...rest, state: 'active', withdrawalOwner: null, withdrawalLeaseAt: null } });
   });
@@ -172,6 +175,16 @@ async function finishPersonalizationWithdrawal(
 function fenceEpoch(user: unknown): number {
   const epoch = (user as { personalizationPurge?: FenceDocument } | null)?.personalizationPurge?.epoch;
   return Number.isSafeInteger(epoch) && (epoch as number) >= 0 ? (epoch as number) : 0;
+}
+
+/** This withdrawal's fence, still closed, with its lease marked run out. */
+async function abandonWithdrawalLease(storage: StorageAdapter, uid: string, lease: WithdrawalLease): Promise<void> {
+  await storage.runTransaction(async (tx) => {
+    const user = await tx.get<Record<string, unknown>>(userDoc(uid));
+    const current = user?.personalizationPurge as FenceDocument | undefined;
+    if (current?.state !== 'withdrawing' || current.epoch !== lease.epoch || current.withdrawalOwner !== lease.owner) return;
+    tx.merge(userDoc(uid), { personalizationPurge: { ...current, withdrawalLeaseAt: new Date(0).toISOString() } });
+  });
 }
 
 /** Active, or a fence from before states existed. */
@@ -335,6 +348,10 @@ async function withdrawFenced(
     // fence stays closed until consent is off or the lease runs out.
     const off = await store.read(uid).then((consent) => consent.state === 'disabled', () => false);
     if (off || !held.tookOver) await finishPersonalizationWithdrawal(storage, uid, held, off);
+    // A takeover that failed with consent still on keeps the fence closed, but
+    // gives its lease up (R23-001): whoever later finds consent off may then
+    // recover it at once, without reopening under a live owner.
+    else await abandonWithdrawalLease(storage, uid, held).catch(() => undefined);
   }
 }
 
