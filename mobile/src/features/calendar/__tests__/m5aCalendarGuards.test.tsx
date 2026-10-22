@@ -544,3 +544,23 @@ describe('inspection r6 and the simulator pass (M5A-R6-001/002/003, SIM-M5A-02)'
   });
 });
 
+describe('M6b inspection r5 (Codex M6B-R5-002)', () => {
+  it('a selection is not saved when the consent says off at the moment of the write; a clear still is', async () => {
+    harness = await prepare();
+    await AsyncStorage.setItem(ENROLLED, '2030-03-20T08:00:00.000Z');
+    await showBusyHost(harness);
+    await settle();
+    const writes: string[] = [];
+    const original = (AsyncStorage.setItem as jest.Mock).getMockImplementation() as (key: string, value: string) => Promise<void>;
+    jest.spyOn(AsyncStorage, 'setItem').mockImplementation((key, value) => {
+      if (key === PENDING) writes.push(JSON.parse(value).operation as string);
+      return original(key, value);
+    });
+    const off = { uid: UID, accountCurrent: () => true, stillCurrent: () => false, consented: () => false };
+    await act(async () => { await startSelection(UID, ['work'], off); });
+    expect(writes).toEqual([]);
+    expect(await AsyncStorage.getItem(PENDING)).toBeNull();
+    await act(async () => { await startSelection(UID, [], off).catch(() => undefined); });
+    expect(writes[0]).toBe('clear');
+  });
+});

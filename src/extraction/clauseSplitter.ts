@@ -303,11 +303,31 @@ function opensWithIntentOfMyOwn(text: string): boolean {
   return opensWithUnresolvedIntent(text) && !BARE_HEDGE.test(text);
 }
 
+/**
+ * A subject and a copula or modal — "the appointment should be at 5",
+ * «الموعد يكون الساعة 5», «שהתור יהיה בשעה 5», "it's at 5" — say when the
+ * point before happens, not something new to do (Codex M6B-R5-003).
+ */
+const RESTATEMENT_VERB = new RegExp(
+  '^(?:' + [
+    "is|are|was|were|be|been|being|should|would|could|will|might|must|can|it'?s|that'?s|this'?s|he'?s|she'?s|they'?re",
+    'يكون|بكون|تكون|يصير|بيصير|تصير|بتصير|كان|كانت|رح\s+يكون|لازم\s+يكون',
+    'יהיה|תהיה|יהיו|היה|הייתה|יתקיים|תתקיים|שיהיה|שתהיה',
+  ].join('|') + ')$',
+  'iu',
+);
+
+function restatesInItsOwnWords(rest: string): boolean {
+  const words = rest.trim().split(/\s+/).map((word) => word.replace(EDGE_PUNCTUATION, '')).filter(Boolean).slice(0, 6);
+  return words.some((word) => RESTATEMENT_VERB.test(word));
+}
+
 /** The words after the intent marker are something to do, not only an hour or a copula. */
 function intentNamesAnAction(text: string): boolean {
   const rest = afterUnresolvedIntentMarker(text);
   if (rest === null) return false;
-  return followedByObject(rest.replace(/^\s*(?:of|about)\s+/i, ''));
+  const words = rest.replace(/^\s*(?:of|about)\s+/i, '');
+  return followedByObject(words) && !restatesInItsOwnWords(words);
 }
 
 /** Whether a sentence opens a clause of its own, after `previous`. */

@@ -1,9 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
-import { act, screen, waitFor } from '@testing-library/react-native';
+import React from 'react';
+import { act, cleanup, render, screen, waitFor } from '@testing-library/react-native';
+import { queryKeys, useTrustAction } from '../../../api/queries';
+import type { TrustAction } from '../../../api/schemas/trust';
+import { BusyCalendarHost } from '../../calendar/useBusyCalendar';
+import { CalendarSettingsScreen } from '../CalendarSettingsScreen';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { deviceCalendar } from '../../calendar/deviceCalendar';
 import {
-  ACCOUNT_A, NOW, captureAppState, changeSwitch, initialState, prepare, showCalendar, teardown, trustResponse,
+  ACCOUNT_A, NOW, Providers, captureAppState, changeSwitch, initialState, prepare, showCalendar, teardown, trustResponse,
   type M5aHarness, type RouteReply,
 } from '../../../__acceptance__/m5a/harness';
 
@@ -66,7 +71,7 @@ describe('the calendar switches follow «uses your calendar»', () => {
     await waitFor(() => expect(answer).toBeDefined());
     // The trust query still says on: the list must not, and the master switch
     // shows the off it was given, locked until the answer (Codex M6B-R4-004).
-    expect(screen.getByTestId('calendar-include-work').props.accessibilityState).toMatchObject({ disabled: true });
+    await waitFor(() => expect(screen.getByTestId('calendar-include-work').props.accessibilityState).toMatchObject({ disabled: true }));
     expect(screen.getByTestId('calendar-use-toggle').props.value).toBe(false);
     expect(screen.getByTestId('calendar-use-toggle').props.accessibilityState).toMatchObject({ checked: false, disabled: true });
     expect(screen.queryByTestId('calendar-list-needs-use')).not.toBeNull();
@@ -114,5 +119,90 @@ describe('the calendar switches follow «uses your calendar»', () => {
     reads.mockClear();
     await act(async () => { foreground('active'); await jest.advanceTimersByTimeAsync(2_000); });
     expect(reads).not.toHaveBeenCalled();
+  });
+
+  it('a switch-off on its way survives leaving and reopening the screen (Codex M6B-R5-002)', async () => {
+    let answer: ((reply: RouteReply) => void) | undefined;
+    await calendarWith(true, (request) => {
+      if (request.method !== 'POST' || request.path !== '/api/mobile/pilot/trust') return undefined;
+      return new Promise<RouteReply>((resolve) => { answer = resolve; });
+    });
+    await waitFor(() => expect(screen.getByTestId('calendar-include-work').props.accessibilityState).toMatchObject({ disabled: false }));
+    await changeSwitch('calendar-use-toggle', false);
+    await waitFor(() => expect(answer).toBeDefined());
+    // Back, and in again, with the request still open.
+    await cleanup();
+    await showCalendar(harness!);
+    await waitFor(() => expect(screen.queryByTestId('calendar-include-work')).not.toBeNull());
+    expect(screen.getByTestId('calendar-include-work').props.accessibilityState).toMatchObject({ disabled: true });
+    await changeSwitch('calendar-include-work', true);
+    expect(await AsyncStorage.getItem(PENDING)).toBeNull();
+    harness!.server.state.trustConsent = false;
+    await act(async () => { answer!({ status: 200, body: trustResponse(false) }); });
+    expect(await AsyncStorage.getItem(PENDING)).toBeNull();
+  });
+
+  it('no other trust answer brings a switch-off back: not a read that lands first, not a slower other action (Codex M6B-R5-001)', async () => {
+    let calendarAnswer: ((reply: RouteReply) => void) | undefined;
+    let analyticsAnswer: ((reply: RouteReply) => void) | undefined;
+    let staleRead: ((reply: RouteReply) => void) | undefined;
+    let holdNextRead = false;
+    let confirmed = false;
+    let mutate: ((action: TrustAction) => void) | undefined;
+    function AnalyticsProbe() {
+      const action = useTrustAction();
+      mutate = action.mutate;
+      return null;
+    }
+    harness = await prepare('en', { ...initialState(), trustConsent: true }, (request) => {
+      if (request.path !== '/api/mobile/pilot/trust') return undefined;
+      const type = (request.body as { action?: { type?: string } } | null)?.action?.type;
+      if (request.method === 'POST' && type === 'set_analytics_consent') return new Promise<RouteReply>((resolve) => { analyticsAnswer = resolve; });
+      if (request.method === 'POST') return new Promise<RouteReply>((resolve) => { calendarAnswer = resolve; });
+      if (holdNextRead) {
+        holdNextRead = false;
+        return new Promise<RouteReply>((resolve) => { staleRead = resolve; });
+      }
+      return confirmed ? { status: 503, body: { success: false } } : undefined;
+    });
+    await AsyncStorage.setItem(ENROLLED, '2030-03-20T08:00:00.000Z');
+    await render(
+      <Providers harness={harness}>
+        <BusyCalendarHost />
+        <CalendarSettingsScreen onBack={() => {}} />
+        <AnalyticsProbe />
+      </Providers>,
+    );
+    await waitFor(() => expect(screen.getByTestId('calendar-include-work').props.accessibilityState).toMatchObject({ disabled: false }));
+
+    // Another trust action goes first and is slow to answer.
+    await act(async () => { mutate!({ type: 'set_analytics_consent', granted: true }); });
+    await waitFor(() => expect(analyticsAnswer).toBeDefined());
+    await changeSwitch('calendar-use-toggle', false);
+    await waitFor(() => expect(calendarAnswer).toBeDefined());
+    // A read starts while the switch-off is on its way, and lands before the
+    // server has applied it, saying on.
+    holdNextRead = true;
+    await act(async () => { void harness!.client.invalidateQueries({ queryKey: queryKeys.trust(ACCOUNT_A.uid) }); });
+    await waitFor(() => expect(staleRead).toBeDefined());
+    await act(async () => { staleRead!({ status: 200, body: trustResponse(true) }); await jest.advanceTimersByTimeAsync(100); });
+    expect(harness!.client.getQueryData<{ trust: { calendarConsent: boolean } }>(queryKeys.trust(ACCOUNT_A.uid))?.trust.calendarConsent).toBe(false);
+    expect(screen.getByTestId('calendar-use-toggle').props.value).toBe(false);
+    // The server confirms the off; every read after it fails; the slower
+    // action's answer lands saying on.
+    confirmed = true;
+    await act(async () => { calendarAnswer!({ status: 200, body: trustResponse(false) }); });
+    await act(async () => { analyticsAnswer!({ status: 200, body: trustResponse(true) }); });
+    await act(async () => { await jest.advanceTimersByTimeAsync(500); });
+    expect(harness!.client.getQueryData<{ trust: { calendarConsent: boolean } }>(queryKeys.trust(ACCOUNT_A.uid))?.trust.calendarConsent).toBe(false);
+    expect(screen.getByTestId('calendar-use-toggle').props.value).toBe(false);
+    expect(screen.getByTestId('calendar-include-work').props.accessibilityState).toMatchObject({ disabled: true });
+  });
+
+  it('says nothing about the master switch until the trust has answered (Codex M6B-R5-004)', async () => {
+    await calendarWith(false, (request) => (
+      request.method === 'GET' && request.path === '/api/mobile/pilot/trust' ? new Promise<RouteReply>(() => {}) : undefined
+    ));
+    expect(screen.queryByTestId('calendar-list-needs-use')).toBeNull();
   });
 });

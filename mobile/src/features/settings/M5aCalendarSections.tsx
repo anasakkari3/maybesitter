@@ -57,12 +57,10 @@ export function M5aCalendarSections({
   const google = useGoogleStatus();
   const [needsPermission, setNeedsPermission] = useState(false);
   const [asking, setAsking] = useState(false);
-  // «يستعمل» turned off here and the server not caught up yet: the trust query
-  // still says on until its refetch lands, and a calendar tapped in that gap
-  // would be recorded as a choice made with the switch off (Codex M6B-R3-001).
-  const [turningOff, setTurningOff] = useState(false);
-  if (turningOff && !consented) setTurningOff(false);
-  const usable = consented && !turningOff;
+  // A switch-off is in the trust cache the moment it is asked for, for this
+  // account and outside this screen (`useTrustAction`, Codex M6B-R3-001,
+  // R5-002), so `consented` already says off while the request is on its way.
+  const usable = consented;
   // The master switch shows the off it was just given (Codex M6B-R4-004), and
   // takes no second change until the server has answered the first.
   const useLocked = !trustLoaded || trustAction.isPending;
@@ -86,9 +84,8 @@ export function M5aCalendarSections({
       return;
     }
     setNeedsPermission(false);
-    setTurningOff(!next);
-    // A refused or failed request leaves the switch on, and the list usable again.
-    trustAction.mutate({ type: 'set_calendar_consent', granted: next }, { onError: () => setTurningOff(false) });
+    // A refused or failed switch-off puts the switch back on (`useTrustAction`).
+    trustAction.mutate({ type: 'set_calendar_consent', granted: next });
   }, [granted, trustAction]);
 
   const toggle = useCallback(async (calendarId: string, on: boolean) => {
@@ -171,7 +168,7 @@ export function M5aCalendarSections({
         ) : null}
         {/* The switches below wait for «يستعمل» above; say so instead of
             letting a tap do nothing (M6b BB-08). */}
-        {granted && phoneCalendars && phoneCalendars.length > 0 && !view.removed && !usable ? (
+        {trustLoaded && granted && phoneCalendars && phoneCalendars.length > 0 && !view.removed && !usable ? (
           <View style={{ paddingHorizontal: 18, paddingBottom: 12 }}>
             <Txt role="supporting" color={p.mu} testID="calendar-list-needs-use">{t.m5CalListNeedsUse}</Txt>
           </View>

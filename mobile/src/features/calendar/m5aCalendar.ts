@@ -747,8 +747,12 @@ export async function startSelection(
       epoch: null,
       opId: null,
     };
-    // The account this tap was made in, still (M5A-R53-002).
+    // The account this tap was made in, still (M5A-R53-002). And a calendar
+    // chosen only while the consent says on, read right before the durable
+    // write (Codex M6B-R5-002): a pending selection saved with it off would
+    // resume the day it is turned back on. A clear runs whatever the consent.
     if (!current()) return { kind: 'superseded' as const };
+    if (record.operation !== 'clear' && !context.consented()) return { kind: 'superseded' as const };
     try {
       // A new generation first (R1.1c, M5A-R4-001): if saving the record then
       // fails, nothing durable claims a selection the person was told failed,

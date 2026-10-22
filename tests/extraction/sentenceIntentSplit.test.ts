@@ -91,3 +91,15 @@ test('BB-04 review (Codex M6B-R4-002): an hour that only restates the appointmen
     assert.equal(clauses.length, 1, `${text} → ${JSON.stringify(clauses)}`);
   }
 });
+
+test('BB-04 review (Codex M6B-R5-003): a thought about the appointment\'s own hour stays with it (ar / en / he)', () => {
+  for (const text of [
+    "Dentist on Sunday. I'm thinking the appointment should be at 5",
+    "Dentist on Sunday. I'm thinking it's at 5",
+    'عندي طبيب أسنان يوم الأحد. عم بفكر الموعد يكون الساعة 5',
+    'רופא שיניים ביום ראשון. אני חושב על התור שיהיה בשעה 5',
+  ]) {
+    const clauses = splitCaptureClauses(text);
+    assert.equal(clauses.length, 1, `${text} → ${JSON.stringify(clauses)}`);
+  }
+});

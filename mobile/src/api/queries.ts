@@ -102,7 +102,7 @@ import type { RoutineProfilePayload } from '../features/routine/routineProfile';
 import { applyEditLocally } from '../features/plan/optimisticEdit';
 import type { DailyPlan } from './schemas/plan';
 import type { NextStepDecisionKind, NextStepRecommendation } from './schemas/nextStep';
-import type { PilotIncidentInput, TrustAction } from './schemas/trust';
+import type { PilotIncidentInput, TrustAction, TrustResponse } from './schemas/trust';
 import type { MemorySuggestion } from './schemas/profile';
 import type { AlphaFeedbackCategory } from './schemas/feedback';
 import type { AnalyticsProperties, ClientReportableEvent } from './schemas/analytics';
@@ -520,11 +520,47 @@ export function useDeleteHabit() {
   return useHabitMutation((id: string) => deleteHabit(id));
 }
 
+/**
+ * A calendar-consent revocation the server has not answered yet, or answered
+ * after a trust read already on its way began (Codex M6B-R4-001, R5-001,
+ * R5-002). Per account, outside any screen: the off is put in the cache the
+ * moment it is asked for, and a trust answer that could not have seen it —
+ * one fetched while it was pending, or begun before it was confirmed — reads
+ * calendar consent as off. Only an answer begun after the server confirmed it
+ * is believed as it stands. Nothing else in a trust answer is touched.
+ */
+let trustReadSequence = 0;
+type Revocations = Map<string, { pending: number; confirmedAt: number }>;
+/** Per query client, so an account's state lives exactly as long as its cache. */
+const revocationsByClient = new WeakMap<QueryClient, Revocations>();
+function revocationsOf(client: QueryClient): Revocations {
+  let revocations = revocationsByClient.get(client);
+  if (!revocations) {
+    revocations = new Map();
+    revocationsByClient.set(client, revocations);
+  }
+  return revocations;
+}
+
+function withCalendarOff(response: TrustResponse): TrustResponse {
+  return { ...response, trust: { ...response.trust, calendarConsent: false } };
+}
+
+async function readTrustFor(client: QueryClient, uid: string): Promise<TrustResponse> {
+  trustReadSequence += 1;
+  const startedAt = trustReadSequence;
+  const response = await getTrust();
+  const revocation = revocationsOf(client).get(uid);
+  if (revocation && (revocation.pending > 0 || revocation.confirmedAt >= startedAt)) return withCalendarOff(response);
+  return response;
+}
+
 export function useTrust() {
+  const client = useQueryClient();
   const uid = useUid();
   return useQuery({
     queryKey: queryKeys.trust(uid),
-    queryFn: getTrust,
+    queryFn: () => readTrustFor(client, uid),
     enabled: uid !== 'signed-out',
   });
 }
@@ -1289,16 +1325,48 @@ export function useTrustAction() {
   return useMutation({
     // Bound to the account it was started for (M5A-R53-002).
     mutationFn: (action: TrustAction) => updateTrust(action, uid === 'signed-out' ? {} : { asUid: uid }),
-    // The account the change was sent for, held from the tap.
-    onMutate: () => ({ uid }),
-    onSuccess: (response, _action, context) => {
+    onMutate: async (action) => {
+      const revoking = action.type === 'set_calendar_consent' && !action.granted && uid !== 'signed-out';
+      if (!revoking) return { uid, revoking: false, previous: undefined as boolean | undefined };
+      // Off at once, everywhere the cache is read: the screen, the passes, the
+      // device busy cache. A read already on its way is dropped (Codex M6B-R5-001/002).
+      const revocations = revocationsOf(client);
+      const record = revocations.get(uid) ?? { pending: 0, confirmedAt: 0 };
+      record.pending += 1;
+      revocations.set(uid, record);
+      await client.cancelQueries({ queryKey: queryKeys.trust(uid) });
+      const previous = client.getQueryData<TrustResponse>(queryKeys.trust(uid))?.trust.calendarConsent;
+      client.setQueryData<TrustResponse>(queryKeys.trust(uid), (current) => (current ? withCalendarOff(current) : current));
+      return { uid, revoking: true, previous };
+    },
+    onError: (_error, _action, context) => {
+      if (!context?.revoking) return;
+      const record = revocationsOf(client).get(context.uid);
+      if (record) record.pending = Math.max(0, record.pending - 1);
+      // Refused or never arrived: the switch is what it was, unless another
+      // revocation is still on its way.
+      if (record && record.pending > 0) return;
+      if (context.previous !== undefined) {
+        client.setQueryData<TrustResponse>(queryKeys.trust(context.uid), (current) => (
+          current ? { ...current, trust: { ...current.trust, calendarConsent: context.previous! } } : current
+        ));
+      }
+      void client.invalidateQueries({ queryKey: queryKeys.trust(context.uid) });
+    },
+    onSuccess: (_response, action, context) => {
       const forUid = context?.uid ?? uid;
-      // The server's answer is the consent now. Written at once, so a revoked
-      // calendar consent stops every reader even when the refetch below is
-      // slow or fails (Codex M6B-R4-001); the refetch still runs. Only while
-      // that account is still the signed-in one (`uid` is this render's).
-      if (forUid !== 'signed-out' && forUid === uid) client.setQueryData(queryKeys.trust(forUid), response);
-      void client.invalidateQueries({ queryKey: queryKeys.trust(forUid) });
+      if (context?.revoking) {
+        const revocations = revocationsOf(client);
+        const record = revocations.get(forUid) ?? { pending: 1, confirmedAt: 0 };
+        record.pending = Math.max(0, record.pending - 1);
+        trustReadSequence += 1;
+        record.confirmedAt = trustReadSequence;
+        revocations.set(forUid, record);
+      } else if (action.type === 'set_calendar_consent' && action.granted) {
+        // Turned back on, and confirmed: answers from here on are believed.
+        revocationsOf(client).delete(forUid);
+      }
+      void client.invalidateQueries({ queryKey: queryKeys.trust(forUid) }, { cancelRefetch: true });
       void client.invalidateQueries({ queryKey: ['user', forUid, 'nextStep'] });
     },
   });
@@ -1351,7 +1419,7 @@ export function useAnalyticsConsent(): () => Promise<boolean> {
   const uid = useUid();
   return useCallback(async () => {
     if (uid === 'signed-out') return false;
-    const response = await client.fetchQuery({ queryKey: queryKeys.trust(uid), queryFn: getTrust });
+    const response = await client.fetchQuery({ queryKey: queryKeys.trust(uid), queryFn: () => readTrustFor(client, uid) });
     return response.trust.analyticsConsent === true;
   }, [client, uid]);
 }
