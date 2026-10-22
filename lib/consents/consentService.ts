@@ -123,6 +123,16 @@ export async function setConsent(
   input: SetConsentInput,
   options: ConsentOptions = {},
 ): Promise<ConsentRecord> {
+  return (await writeConsent(kind, uid, input, options, undefined))!;
+}
+
+async function writeConsent(
+  kind: ConsentKindContract,
+  uid: string,
+  input: SetConsentInput,
+  options: ConsentOptions,
+  onlyIfCurrent: ConsentRecord | undefined,
+): Promise<ConsentRecord | null> {
   requireUserId(uid);
   if (input.state !== 'granted' && input.state !== 'declined') {
     throw new Error('consent state must be granted or declined');
@@ -144,14 +154,17 @@ export async function setConsent(
     ...(input.platform ? { platform: input.platform } : {}),
   };
 
-  await storage.runTransaction(async (tx) => {
+  const written = await storage.runTransaction(async (tx) => {
     const current = await tx.get<ConsentBearingUser>(userDoc(uid));
+    if (onlyIfCurrent && !sameRecord(current?.consents?.[kind.key], onlyIfCurrent)) return false;
     // Merged into the existing map, never replacing it: answering one question
     // must not erase the answer to the other.
     tx.merge<ConsentBearingUser>(userDoc(uid), {
       consents: { ...(current?.consents ?? {}), [kind.key]: record },
     });
+    return true;
   });
+  if (!written) return null;
 
   // Appended after the write commits: an audit line for a change that did not
   // happen would be worse than a missing one.
@@ -165,6 +178,31 @@ export async function setConsent(
   }));
 
   return record;
+}
+
+/** Two stored answers are the same answer: every field equal. */
+function sameRecord(stored: unknown, expected: ConsentRecord): boolean {
+  if (!stored || typeof stored !== 'object') return false;
+  const a = stored as Record<string, unknown>;
+  const b = expected as unknown as Record<string, unknown>;
+  const keys = Object.keys(a);
+  return keys.length === Object.keys(b).length && keys.every((key) => a[key] === b[key]);
+}
+
+/**
+ * `setConsent`, written only while the stored answer is still exactly
+ * `expected` — a rollback that must not overwrite a newer answer someone else
+ * recorded since (M5B2A-R22-002). Null, with no write and no audit line, when
+ * the answer has moved on.
+ */
+export async function setConsentIf(
+  kind: ConsentKindContract,
+  uid: string,
+  input: SetConsentInput,
+  expected: ConsentRecord,
+  options: ConsentOptions = {},
+): Promise<ConsentRecord | null> {
+  return writeConsent(kind, uid, input, options, expected);
 }
 
 export type ConsentView = ConsentRecord & { asked: boolean };

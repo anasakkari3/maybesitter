@@ -892,6 +892,53 @@ test('R21-001: a withdrawal records its answer while the fence is still closed',
   assert.equal((await real.get(userDoc(uid)))?.personalizationPurge?.state, 'active');
 });
 
+test('R22-001: a grant decided while a withdrawal owns the fence writes nothing until that withdrawal is over', async () => {
+  const uid = await keptFocusPlan();
+  const storage = currentStorage() as any;
+  const base = createStoragePersonalizationConsentStore(storage);
+  await setPersonalizationConsent(uid, { state: 'declined', version: PERSONALIZATION_CONSENT_VERSION, at: new Date() }, { storage });
+  const epoch = ((await storage.get(userDoc(uid))) ?? {}).personalizationPurge?.epoch;
+  await setFence(storage, uid, { state: 'withdrawing', epoch: epoch + 1, withdrawalOwner: 'live', withdrawalLeaseAt: new Date().toISOString() });
+  const grant = setPersonalizationConsent(uid, { state: 'granted', version: PERSONALIZATION_CONSENT_VERSION, at: new Date(Date.now() + 1_000) }, { storage, purgeWait: { attempts: 400, delayMs: 5 } });
+  await new Promise((resolve) => setTimeout(resolve, 80));
+  const { getConsent } = await import('../../lib/consents/consentService.ts');
+  const { PERSONALIZATION_CONSENT } = await import('../../src/contracts/v1/consentContracts.ts');
+  assert.equal(await getConsent(PERSONALIZATION_CONSENT, uid, { storage }), 'declined', 'the grant was recorded under a live withdrawal');
+  assert.equal((await base.read(uid)).state, 'disabled');
+  // The withdrawal finishes; the grant, decided after it, then goes through.
+  await setFence(storage, uid, { state: 'active', epoch: epoch + 1, withdrawalOwner: null, withdrawalLeaseAt: null });
+  await grant;
+  assert.equal((await base.read(uid)).state, 'enabled');
+  assert.equal(await getConsent(PERSONALIZATION_CONSENT, uid, { storage }), 'granted');
+});
+
+test("R22-002: a refused grant's rollback never overwrites a newer grant that succeeded", async () => {
+  const uid = await keptFocusPlan();
+  const storage = currentStorage() as any;
+  const base = createStoragePersonalizationConsentStore(storage);
+  let releaseG1!: () => void;
+  const g1Paused = new Promise<void>((resolve) => { releaseG1 = resolve; });
+  let g1Entered!: () => void;
+  const g1InStore = new Promise<void>((resolve) => { g1Entered = resolve; });
+  const pausing = {
+    read: base.read.bind(base), write: base.write.bind(base), deleteScope: base.deleteScope.bind(base),
+    writeGuarded: async (...args: Parameters<NonNullable<typeof base.writeGuarded>>) => {
+      if (args[1] === 'enabled') { g1Entered(); await g1Paused; }
+      return base.writeGuarded!(...args);
+    },
+  };
+  const g1 = setPersonalizationConsent(uid, { state: 'granted', version: PERSONALIZATION_CONSENT_VERSION, at: new Date() }, { storage, consent: pausing as any });
+  await g1InStore;
+  await setPersonalizationConsent(uid, { state: 'declined', version: PERSONALIZATION_CONSENT_VERSION, at: new Date(Date.now() + 1_000) }, { storage });
+  await setPersonalizationConsent(uid, { state: 'granted', version: PERSONALIZATION_CONSENT_VERSION, at: new Date(Date.now() + 2_000) }, { storage });
+  releaseG1();
+  await assert.rejects(g1, PersonalizationConsentNotRecordedError);
+  const { getConsent } = await import('../../lib/consents/consentService.ts');
+  const { PERSONALIZATION_CONSENT } = await import('../../src/contracts/v1/consentContracts.ts');
+  assert.equal(await getConsent(PERSONALIZATION_CONSENT, uid, { storage }), 'granted', "the stale grant's rollback erased the newer grant");
+  assert.equal((await base.read(uid)).state, 'enabled');
+});
+
 test('R20-004: a fresh run never answers a suggestion whose outcome was dismissed right after the commit', async () => {
   const uid = await begin();
   await grantRecommendations(uid);

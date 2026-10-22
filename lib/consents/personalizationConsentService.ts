@@ -38,7 +38,7 @@ import type { PersonalizationConsent } from '../../src/contracts/v1/personalizat
 import { getStorage, type StorageAdapter } from '../storage';
 import { userDoc } from '../storage/paths';
 import { randomUUID } from 'node:crypto';
-import { getConsent, setConsent, type SetConsentInput } from './consentService';
+import { getConsent, setConsent, setConsentIf, type SetConsentInput } from './consentService';
 
 /**
  * A yes that could not be made true. The versioned answer was recorded but the
@@ -174,29 +174,38 @@ function fenceEpoch(user: unknown): number {
   return Number.isSafeInteger(epoch) && (epoch as number) >= 0 ? (epoch as number) : 0;
 }
 
-async function waitForNoLiveWithdrawal(storage: StorageAdapter, uid: string, wait: { readonly attempts: number; readonly delayMs: number }): Promise<void> {
-  for (let attempt = 1; ; attempt += 1) {
-    const user = await storage.get<Record<string, unknown>>(userDoc(uid));
-    const fence = user?.personalizationPurge as FenceDocument | undefined;
-    if (fence?.state !== 'withdrawing' || leaseExpired(fence)) return;
-    if (attempt >= wait.attempts) throw new PersonalizationWithdrawalBusyError();
-    await new Promise((resolve) => setTimeout(resolve, wait.delayMs));
-  }
+/** Active, or a fence from before states existed. */
+function fenceActive(fence: FenceDocument | undefined): boolean {
+  return fence === undefined || fence.state === undefined || fence.state === 'active';
 }
 
 /**
- * A grant reopens a fence a dead withdrawal left closed (lease run out), so
- * the person who turns memory back on gets it back. A live withdrawal's fence
- * is left to that withdrawal.
+ * The epoch of an active fence, read in a transaction that also supersedes a
+ * withdrawal whose lease ran out. A live withdrawal or a purge is waited for,
+ * as a withdrawal waits; one that lasts refuses the grant before anything is
+ * written.
  */
-async function reopenAbandonedWithdrawal(storage: StorageAdapter, uid: string): Promise<void> {
-  await storage.runTransaction(async (tx) => {
-    const user = await tx.get<Record<string, unknown>>(userDoc(uid));
-    const current = user?.personalizationPurge as FenceDocument | undefined;
-    if (current?.state !== 'withdrawing' || !leaseExpired(current)) return;
-    const epoch = (Number.isSafeInteger(current.epoch) ? (current.epoch as number) : 0) + 1;
-    tx.merge(userDoc(uid), { personalizationPurge: { ...current, state: 'active', epoch, withdrawalOwner: null, withdrawalLeaseAt: null } });
-  });
+async function captureGrantVersion(
+  storage: StorageAdapter,
+  uid: string,
+  wait: { readonly attempts: number; readonly delayMs: number },
+): Promise<number> {
+  for (let attempt = 1; ; attempt += 1) {
+    const version = await storage.runTransaction(async (tx) => {
+      const user = await tx.get<Record<string, unknown>>(userDoc(uid));
+      const fence = user?.personalizationPurge as FenceDocument | undefined;
+      if (fenceActive(fence)) return fenceEpoch(user);
+      if (fence!.state === 'withdrawing' && leaseExpired(fence!)) {
+        const epoch = fenceEpoch(user) + 1;
+        tx.merge(userDoc(uid), { personalizationPurge: { ...fence, state: 'active', epoch, withdrawalOwner: null, withdrawalLeaseAt: null } });
+        return epoch;
+      }
+      return null;
+    });
+    if (version !== null) return version;
+    if (attempt >= wait.attempts) throw new PersonalizationWithdrawalBusyError();
+    await new Promise((resolve) => setTimeout(resolve, wait.delayMs));
+  }
 }
 
 export async function setPersonalizationConsent(
@@ -211,15 +220,13 @@ export async function setPersonalizationConsent(
     // Never while a live withdrawal owns the fence (M5B2A-R19-001): it could
     // otherwise finish after this and leave memory closed under a grant that
     // said it worked. Waited for, as a withdrawal waits; refused if it lasts.
-    await waitForNoLiveWithdrawal(storage, uid, options.purgeWait ?? PURGE_WAIT);
-    // A withdrawal whose lease ran out is superseded *before* the grant is
-    // written, so its delayed disable can no longer land after it (R20-002).
-    await reopenAbandonedWithdrawal(storage, uid);
-    // The fence version this grant was decided under (M5B2A-R21-001). The
-    // store is enabled only if no withdrawal began since: one that ran — or is
-    // running — between here and the enable has moved or closed the fence, and
-    // a grant that resumed after it must not turn its withdrawal back on.
-    const version = fenceEpoch(await storage.get<Record<string, unknown>>(userDoc(uid)));
+    // The fence version this grant is decided under, taken in one transaction
+    // that sees the fence active (M5B2A-R21-001, R22-001). A withdrawal whose
+    // lease ran out is superseded there, before the grant is written, so its
+    // delayed disable can no longer land after it (R20-002). The store is then
+    // enabled only at this same epoch, still active: a withdrawal that began
+    // after this point has moved the epoch, and refuses the grant.
+    const version = await captureGrantVersion(storage, uid, options.purgeWait ?? PURGE_WAIT);
     const record = await setConsent(PERSONALIZATION_CONSENT, uid, { ...input, at }, { storage });
     try {
       if (!store.writeGuarded) await store.write(uid, 'enabled', record.changedAt);
@@ -228,7 +235,7 @@ export async function setPersonalizationConsent(
           path: userDoc(uid),
           accepts: (value) => {
             const fence = (value as { personalizationPurge?: FenceDocument } | null)?.personalizationPurge;
-            return fence?.state !== 'withdrawing' && fenceEpoch(value) === version;
+            return fenceActive(fence) && fenceEpoch(value) === version;
           },
         });
         if (written === null) throw new Error('a withdrawal took the fence after this grant was decided');
@@ -237,13 +244,12 @@ export async function setPersonalizationConsent(
       // Rolled back to what is actually in force. If this also fails, growth
       // is still off — `personalizationGrowthAllowed` needs the store — and the
       // caller is told the answer was not recorded either way.
-      await setConsent(PERSONALIZATION_CONSENT, uid, { ...input, state: 'declined', at }, { storage })
+      // Only while the stored answer is still this grant's own (R22-002): a
+      // newer grant that succeeded since keeps its answer.
+      await setConsentIf(PERSONALIZATION_CONSENT, uid, { ...input, state: 'declined', at }, record, { storage })
         .catch(() => undefined);
       throw new PersonalizationConsentNotRecordedError(error);
     }
-    // A fence a dead withdrawal left closed opens with the grant; failing that
-    // only leaves memory closed, never the answer unrecorded.
-    await reopenAbandonedWithdrawal(storage, uid).catch(() => undefined);
     return record;
   }
   if (input.state === 'declined') {

@@ -347,7 +347,7 @@ export function useToday(options: { referenceTime?: string } = {}) {
     queryKey: referenceTime ? [...queryKeys.today(uid, timezone), referenceTime] : queryKeys.today(uid, timezone),
     queryFn: () => listToday(referenceTime ? { timezone, referenceTime } : { timezone }),
     enabled: uid !== 'signed-out',
-    ...(referenceTime ? { placeholderData: keepPreviousData } : {}),
+    ...(referenceTime ? { placeholderData: keepSameAccountData(uid) } : {}),
   });
 }
 
@@ -379,7 +379,7 @@ export function useUpcoming(options: { referenceTime?: string } = {}) {
     queryKey: referenceTime ? [...queryKeys.upcoming(uid, timezone), referenceTime] : queryKeys.upcoming(uid, timezone),
     queryFn: () => listUpcoming(referenceTime ? { timezone, referenceTime } : { timezone }),
     enabled: uid !== 'signed-out',
-    ...(referenceTime ? { placeholderData: keepPreviousData } : {}),
+    ...(referenceTime ? { placeholderData: keepSameAccountData(uid) } : {}),
   });
 }
 
@@ -1088,6 +1088,17 @@ function stampPlan<T>(plan: T, startedAt: number): T {
 }
 
 /**
+ * `keepPreviousData`, but never across accounts (M5B2A-R22-003): on a direct
+ * A→B switch the screen stays mounted, and the new key would otherwise draw
+ * A's rows under B until the cache reset runs. Keys are `['user', uid, …]`.
+ */
+function keepSameAccountData(uid: string) {
+  return <T,>(previous: T | undefined, previousQuery?: { queryKey: readonly unknown[] }) => (
+    previousQuery?.queryKey[1] === uid ? keepPreviousData(previous) : undefined
+  );
+}
+
+/**
  * Binds a request to the account that made it (M5B2A-R8-001): an account
  * switch between the tap and the token never sends A's write under B's token.
  */
@@ -1488,9 +1499,9 @@ export function useWeek(decisions: WeekDecisions) {
   const uid = useUid();
   return useQuery({
     queryKey: queryKeys.week(uid, weekDecisionsKey(decisions)),
-    queryFn: () => proposeWeek(decisions),
+    queryFn: ({ signal }) => proposeWeek(decisions, { ...asAccount(uid), signal }),
     enabled: uid !== 'signed-out',
-    placeholderData: keepPreviousData,
+    placeholderData: keepSameAccountData(uid),
   });
 }
 
@@ -1557,7 +1568,7 @@ export function useSavedWeek() {
   const uid = useUid();
   return useQuery({
     queryKey: queryKeys.savedWeek(uid),
-    queryFn: getSavedWeek,
+    queryFn: ({ signal }) => getSavedWeek({ ...asAccount(uid), signal }),
     enabled: uid !== 'signed-out',
   });
 }

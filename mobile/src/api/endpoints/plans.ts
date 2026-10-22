@@ -239,10 +239,16 @@ export interface WeekDecisions {
  * A POST that writes nothing: the decisions are a body, not a query string.
  * Safe to repeat, so the screen calls it again after every move or drop.
  */
-export async function proposeWeek(decisions: WeekDecisions): Promise<Week> {
+export async function proposeWeek(
+  decisions: WeekDecisions,
+  options: { asUid?: string; signal?: AbortSignal } = {},
+): Promise<Week> {
   const response = await apiRequest('POST', '/api/mobile/plans/week', {
     body: { moves: decisions.moves, drops: decisions.drops },
     schema: weekResponseSchema,
+    // Bound to the account that asked, and dropped with its query (M5B2A-R22-003).
+    ...(options.asUid !== undefined ? { asUid: options.asUid } : {}),
+    ...(options.signal ? { signal: options.signal } : {}),
   });
   return response.week;
 }
@@ -277,7 +283,11 @@ export async function acceptWeekDay(
  * The days of the next seven saved from the week view, and their steps
  * (I4): what the Calendar strip draws on those dates. Reads only.
  */
-export async function getSavedWeek(): Promise<SavedWeek> {
-  const { today, saved } = await apiRequest('GET', '/api/mobile/plans/week', { schema: savedWeekResponseSchema });
+export async function getSavedWeek(options: { asUid?: string; signal?: AbortSignal } = {}): Promise<SavedWeek> {
+  const { today, saved } = await apiRequest('GET', '/api/mobile/plans/week', {
+    schema: savedWeekResponseSchema,
+    ...(options.asUid !== undefined ? { asUid: options.asUid } : {}),
+    ...(options.signal ? { signal: options.signal } : {}),
+  });
   return { today, saved };
 }
