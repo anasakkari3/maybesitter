@@ -66,12 +66,15 @@ export interface PersonalizationConsentOptions {
  */
 export class PersonalizationWithdrawalBusyError extends Error {
   constructor() {
-    super('a personalization purge is running; the withdrawal was not recorded');
+    super('a personalization purge or another withdrawal is running; this withdrawal was not recorded');
     this.name = 'PersonalizationWithdrawalBusyError';
   }
 }
 
 const PURGE_WAIT = { attempts: 40, delayMs: 250 } as const;
+
+/** A withdrawal still between its phases after this long is taken to have died. */
+const STALE_WITHDRAWAL_MS = 60_000;
 
 function storeOf(options: PersonalizationConsentOptions): PersonalizationConsentStore {
   return options.consent ?? createStoragePersonalizationConsentStore(options.storage ?? getStorage());
@@ -88,8 +91,17 @@ function storeOf(options: PersonalizationConsentOptions): PersonalizationConsent
 async function beginPersonalizationWithdrawal(storage: StorageAdapter, uid: string, at: string): Promise<number | null> {
   return storage.runTransaction(async (tx) => {
     const user = await tx.get<Record<string, unknown>>(userDoc(uid));
-    const prior = user?.personalizationPurge as { state?: unknown; epoch?: unknown } | undefined;
+    const prior = user?.personalizationPurge as { state?: unknown; epoch?: unknown; consentWithdrawnAt?: unknown } | undefined;
     if (prior?.state === 'purging') return null;
+    // One owner of the fence at a time (M5B2A-R17-001): another withdrawal
+    // still between its phases is waited for, or a second one could reopen
+    // the fence while the first has not yet disabled consent. One left
+    // withdrawing for longer than a stale owner could live is taken over, so
+    // a crash between the phases cannot close memory for good.
+    if (prior?.state === 'withdrawing') {
+      const since = typeof prior.consentWithdrawnAt === 'string' ? Date.parse(prior.consentWithdrawnAt) : Number.NaN;
+      if (Number.isFinite(since) && Date.parse(at) - since < STALE_WITHDRAWAL_MS) return null;
+    }
     const epoch = (Number.isSafeInteger(prior?.epoch) && (prior!.epoch as number) >= 0 ? (prior!.epoch as number) : 0) + 1;
     const personalizationPurge = { ...(prior ?? {}), state: 'withdrawing', epoch, consentWithdrawnAt: at };
     if (user) tx.merge(userDoc(uid), { personalizationPurge });

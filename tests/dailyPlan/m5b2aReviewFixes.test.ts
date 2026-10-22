@@ -295,7 +295,7 @@ test('R7-003: GET and building over an existing plan answer the plan without a b
 });
 
 /** Sets the personalization fence as a purge's own transaction would. */
-async function setFence(storage: any, uid: string, fence: { state: string; epoch: number }): Promise<void> {
+async function setFence(storage: any, uid: string, fence: { state: string; epoch: number; consentWithdrawnAt?: string }): Promise<void> {
   await storage.runTransaction(async (tx: any) => { tx.merge(userDoc(uid), { personalizationPurge: fence }); });
 }
 
@@ -679,4 +679,43 @@ test('R16-002: a week card shown, then withdraw and re-grant before acceptance, 
   const accepted = await call(uid, 'plans/week/accept', 'POST', { body: { date: TOMORROW, shown: day.assignment.include, ...decisions, layoutDigest: dtoDay.layoutDigest } });
   assert.equal(accepted.status, 409, show(accepted.body));
   assert.equal(accepted.body.reason, 'week_changed');
+});
+
+test('R17-001: a second withdrawal waits for one still between its phases and never reopens the fence while consent is on', async () => {
+  const uid = await keptFocusPlan();
+  const storage = currentStorage() as any;
+  const base = createStoragePersonalizationConsentStore(storage);
+  let releaseW1!: () => void;
+  const w1Paused = new Promise<void>((resolve) => { releaseW1 = resolve; });
+  let w1Entered!: () => void;
+  const w1InStore = new Promise<void>((resolve) => { w1Entered = resolve; });
+  const pausing = { ...base, read: base.read.bind(base), write: async (...args: Parameters<typeof base.write>) => { w1Entered(); await w1Paused; return base.write(...args); } };
+  const failing = { ...base, read: base.read.bind(base), write: async () => { throw new Error('store unavailable'); } };
+  const w1 = setPersonalizationConsent(uid, { state: 'declined', version: PERSONALIZATION_CONSENT_VERSION, at: new Date() }, { storage, consent: pausing as any });
+  await w1InStore;
+  const fenceDuringW1 = ((await storage.get(userDoc(uid))) ?? {}).personalizationPurge;
+  assert.equal(fenceDuringW1?.state, 'withdrawing');
+  // W2 arrives from another device while W1 has not yet disabled consent; its own store write would fail.
+  await assert.rejects(
+    setPersonalizationConsent(uid, { state: 'declined', version: PERSONALIZATION_CONSENT_VERSION, at: new Date() }, { storage, consent: failing as any, purgeWait: { attempts: 3, delayMs: 1 } }),
+    PersonalizationWithdrawalBusyError,
+  );
+  const fenceAfterW2 = ((await storage.get(userDoc(uid))) ?? {}).personalizationPurge;
+  assert.deepEqual([fenceAfterW2?.state, fenceAfterW2?.epoch], ['withdrawing', fenceDuringW1.epoch], 'W2 reopened the fence while consent was still on');
+  assert.equal(await memoryFocusForPlan(uid, NOW(), { storage }), null, 'memory was readable during the first withdrawal');
+  releaseW1();
+  await w1;
+  const fence = ((await storage.get(userDoc(uid))) ?? {}).personalizationPurge;
+  assert.deepEqual([fence?.state, fence?.epoch], ['active', fenceDuringW1.epoch]);
+  assert.equal((await base.read(uid)).state, 'disabled');
+});
+
+test('R17-001: a withdrawal left between its phases longer than a stale owner could live is taken over', async () => {
+  const uid = await keptFocusPlan();
+  const storage = currentStorage() as any;
+  const old = new Date(Date.now() - 5 * 60_000).toISOString();
+  await setFence(storage, uid, { state: 'withdrawing', epoch: 7, consentWithdrawnAt: old } as any);
+  await setPersonalizationConsent(uid, { state: 'declined', version: PERSONALIZATION_CONSENT_VERSION, at: new Date() }, { storage, purgeWait: { attempts: 2, delayMs: 1 } });
+  const fence = ((await storage.get(userDoc(uid))) ?? {}).personalizationPurge;
+  assert.deepEqual([fence?.state, fence?.epoch], ['active', 8]);
 });
