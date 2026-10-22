@@ -177,7 +177,12 @@ export function MemoryScreen({ onBack, focusId = null }: {
   // A 404 is the memory feature being off for this build. The screen still
   // renders its way back — a blank page with no exit is a worse answer than an
   // honest "nothing here".
-  const items = (memory.data?.items ?? []).filter(item => item.id !== undoable);
+  // While delete-all is on its way, nothing it is erasing is shown or offered
+  // (M5B2A-R29-003): the rows, their controls and delete-all itself go, and
+  // come back only from a fresh list — at once on a definite refusal, after
+  // the re-read when the outcome is unknown.
+  const purging = removeAll.isPending || (removeAll.isError && memory.isFetching);
+  const items = purging ? [] : (memory.data?.items ?? []).filter(item => item.id !== undoable);
   const suggestions = memory.data?.suggestions ?? [];
   const adaptive = memory.data?.adaptive ?? null;
   const suggestionLanguage: 'ar' | 'he' | 'en' = lang === 'ar' || lang === 'he' ? lang : 'en';

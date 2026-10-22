@@ -1268,6 +1268,23 @@ test('R28-002: a purge refused behind a live withdrawal runs none of its caller\
   assert.equal(/\n  await clearAiContextImportReceipt\(/.test(body), false, 'delete-all clears the import receipt before the purge');
 });
 
+test('R29-001: one purge at a time — a live purge keeps the fence, a dead one is taken over', async () => {
+  const uid = await keptFocusPlan();
+  const storage = currentStorage() as any;
+  // A live purge (another tap or device) holds the fence: a second waits, then refuses.
+  await setFence(storage, uid, { state: 'purging', epoch: 50, startedAt: new Date().toISOString(), purgeOwner: 'p1', purgeLeaseAt: new Date().toISOString() });
+  await assert.rejects(purgeFor(uid, storage, new Date().toISOString(), { attempts: 2, delayMs: 1 }), PersonalizationWithdrawalBusyError);
+  assert.deepEqual(
+    [((await storage.get(userDoc(uid))) ?? {}).personalizationPurge?.purgeOwner, ((await storage.get(userDoc(uid))) ?? {}).personalizationPurge?.epoch],
+    ['p1', 50], 'the second purge took a live purge\'s fence',
+  );
+  // A purge whose lease ran out is taken over; the takeover completes and reopens the fence.
+  await setFence(storage, uid, { state: 'purging', epoch: 50, startedAt: new Date(Date.now() - 3_600_000).toISOString(), purgeOwner: 'p1', purgeLeaseAt: new Date(Date.now() - 3_600_000).toISOString() });
+  await purgeFor(uid, storage, new Date().toISOString(), { attempts: 2, delayMs: 1 });
+  const fence = ((await storage.get(userDoc(uid))) ?? {}).personalizationPurge;
+  assert.deepEqual([fence?.state, fence?.epoch, fence?.purgeOwner ?? null], ['active', 51, null]);
+});
+
 test('R20-004: a fresh run never answers a suggestion whose outcome was dismissed right after the commit', async () => {
   const uid = await begin();
   await grantRecommendations(uid);

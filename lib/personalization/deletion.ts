@@ -170,6 +170,7 @@ import {
   userDoc,
 } from '../storage/paths';
 import type { StorageAdapter } from '../storage/storageAdapter';
+import { randomUUID } from 'node:crypto';
 import { completeAbandonedWithdrawal, liveWithdrawalOwnsFence, PersonalizationWithdrawalBusyError } from '../consents/personalizationConsentService';
 
 export interface PersonalizationDeletionInput {
@@ -234,25 +235,39 @@ export function emptyStateDigestFor(scopeId: string, now: Instant, windowDays?: 
 
 const WITHDRAWAL_WAIT = { attempts: 40, delayMs: 250 } as const;
 
+/** A purge still running after this long, on the server's clock, is taken to have died. */
+const STALE_PURGE_MS = 10 * 60_000;
+
+function livePurgeOwnsFence(fence: unknown, nowMs: number): boolean {
+  const current = fence as { state?: unknown; purgeLeaseAt?: unknown; startedAt?: unknown } | undefined;
+  if (current?.state !== 'purging') return false;
+  const since = typeof current.purgeLeaseAt === 'string' ? Date.parse(current.purgeLeaseAt)
+    : typeof current.startedAt === 'string' ? Date.parse(current.startedAt) : Number.NaN;
+  return Number.isFinite(since) && nowMs - since < STALE_PURGE_MS;
+}
+
 /** Moves the fence to `purging` at a new epoch, or null while a live withdrawal owns it. */
 async function takePurgeFence(
   storage: StorageAdapter,
   scopeId: string,
   now: Instant,
-): Promise<{ epoch: number; abandonedWithdrawal: boolean } | null> {
+): Promise<{ epoch: number; owner: string; abandonedWithdrawal: boolean } | null> {
   return storage.runTransaction(async (tx) => {
     const user = await tx.get<Record<string, unknown>>(userDoc(scopeId));
     // The server's clock, read here: the one clock this module reads, and only
     // to judge another operation's lease.
     if (liveWithdrawalOwnsFence(user?.personalizationPurge, Date.now())) return null;
+    // One purge at a time (M5B2A-R29-001): a live one keeps the fence; a dead one is taken over.
+    if (livePurgeOwnsFence(user?.personalizationPurge, Date.now())) return null;
     const abandonedWithdrawal = (user?.personalizationPurge as { state?: unknown } | undefined)?.state === 'withdrawing';
     const prior = user?.personalizationPurge as { epoch?: unknown } | undefined;
     const epoch = Number.isSafeInteger(prior?.epoch) && (prior!.epoch as number) >= 0
       ? (prior!.epoch as number) + 1 : 1;
-    const personalizationPurge = { state: 'purging', epoch, startedAt: now };
+    const owner = randomUUID();
+    const personalizationPurge = { state: 'purging', epoch, startedAt: now, purgeOwner: owner, purgeLeaseAt: new Date().toISOString() };
     if (user) tx.merge(userDoc(scopeId), { personalizationPurge });
     else tx.set(userDoc(scopeId), { personalizationPurge });
-    return { epoch, abandonedWithdrawal };
+    return { epoch, owner, abandonedWithdrawal };
   });
 }
 
@@ -277,7 +292,7 @@ export async function deletePersonalizationScope(
   // store off and answer declined, what it set out to record — so the two
   // consent records never disagree after the purge (R27-002).
   const wait = input.withdrawalWait ?? WITHDRAWAL_WAIT;
-  let taken: { epoch: number; abandonedWithdrawal: boolean } | null = null;
+  let taken: { epoch: number; owner: string; abandonedWithdrawal: boolean } | null = null;
   for (let attempt = 1; taken === null; attempt += 1) {
     taken = await takePurgeFence(storage, input.scopeId, input.now);
     if (taken !== null) break;
@@ -285,6 +300,15 @@ export async function deletePersonalizationScope(
     await new Promise((resolve) => setTimeout(resolve, wait.delayMs));
   }
   const purgeEpoch = taken.epoch;
+  const purgeOwner = taken.owner;
+  // Still this purge's fence (M5B2A-R29-001): one taken over after its lease
+  // ran out stops at the next step instead of erasing under its successor.
+  const stillOwns = async (): Promise<void> => {
+    const fence = ((await storage.get<Record<string, unknown>>(userDoc(input.scopeId)))?.personalizationPurge ?? {}) as Record<string, unknown>;
+    if (fence.state !== 'purging' || fence.epoch !== purgeEpoch || fence.purgeOwner !== purgeOwner) {
+      throw new Error('personalization purge barrier changed');
+    }
+  };
   if (taken.abandonedWithdrawal) await completeAbandonedWithdrawal(input.scopeId, input.now, { storage });
   // The caller's own erasures that must not happen on a refusal (R28-002): run
   // only once the fence is held.
@@ -293,6 +317,7 @@ export async function deletePersonalizationScope(
   // Derived stores first, the user's memory rows last. If any step throws, the
   // user has had *more* erased than they asked for, never less, and the caller
   // still refuses to report success — see `deleteAllMemory`.
+  await stillOwns();
   await input.feedbackEvents.deleteScope(input.scopeId);
   await clearUserCollection(storage, input.scopeId, BEHAVIOR_FEEDBACK);
   await clearUserCollection(storage, input.scopeId, PROFILE_PROPOSALS);
@@ -315,6 +340,7 @@ export async function deletePersonalizationScope(
   await clearUserCollection(storage, input.scopeId, GOAL_LINEAGES);
   await clearUserCollection(storage, input.scopeId, GOAL_STATEMENT_PREVIEWS);
   await clearUserCollection(storage, input.scopeId, GOAL_STATEMENT_ACCEPTS);
+  await stillOwns();
   await clearUserCollection(storage, input.scopeId, INTELLIGENCE_OBSERVATIONS);
   await clearUserCollection(storage, input.scopeId, INTELLIGENCE_PROPOSALS);
   await clearUserCollection(storage, input.scopeId, INTELLIGENCE_RUNS);
@@ -329,13 +355,18 @@ export async function deletePersonalizationScope(
   // The commitments themselves are kept as dropped history, like any other
   // commitment this purge leaves alone (football fixtures, final review I1).
   await releaseUnfollowedFixtures(input.scopeId, input.now, { storage });
+  await stillOwns();
   await input.runtimeMemory.deleteScope(input.scopeId);
 
   await storage.runTransaction(async (tx) => {
     const user = await tx.get<Record<string, unknown>>(userDoc(input.scopeId));
-    const current = user?.personalizationPurge as { state?: unknown; epoch?: unknown } | undefined;
-    if (current?.state !== 'purging' || current.epoch !== purgeEpoch) throw new Error('personalization purge barrier changed');
-    tx.merge(userDoc(input.scopeId), { personalizationPurge: { state: 'active', epoch: purgeEpoch, completedAt: input.now } });
+    const current = user?.personalizationPurge as { state?: unknown; epoch?: unknown; purgeOwner?: unknown } | undefined;
+    if (current?.state !== 'purging' || current.epoch !== purgeEpoch || current.purgeOwner !== purgeOwner) {
+      throw new Error('personalization purge barrier changed');
+    }
+    tx.merge(userDoc(input.scopeId), {
+      personalizationPurge: { state: 'active', epoch: purgeEpoch, completedAt: input.now, purgeOwner: null, purgeLeaseAt: null },
+    });
   });
 
   return {

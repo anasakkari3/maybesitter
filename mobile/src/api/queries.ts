@@ -2259,33 +2259,18 @@ export function useDeleteAllMemory() {
  * screen, whose "what it knows" counts include memory.
  */
 export function useMemorySuggestion() {
-  const client = useQueryClient();
   const uid = useUid();
-  return useMutation({
-    mutationFn: (input: { suggestion: MemorySuggestion; decision: 'keep' | 'dismiss'; language: 'ar' | 'he' | 'en' }) =>
+  // Through `useMemoryMutation`, so keeping a focus window — which replaces the
+  // one plans were arranged around (M5b-2a) — hides every basis line from the
+  // moment the call is made, not a microtask later in `onMutate` (M5B2A-R29-002).
+  // Both outcomes re-read the list (a 409 means the suggestion is gone).
+  return useMemoryMutation(
+    (input: { suggestion: MemorySuggestion; decision: 'keep' | 'dismiss'; language: 'ar' | 'he' | 'en' }) =>
       (input.decision === 'keep'
         ? keepMemorySuggestion(input.suggestion, input.language, asAccount(uid))
         : dismissMemorySuggestion(input.suggestion, asAccount(uid))),
-    // Keeping a focus window replaces the one plans were arranged around (M5b-2a).
-    onMutate: (input) => {
-      if (input.decision !== 'keep' || !input.suggestion.fingerprint.startsWith('R1_focus_window')) return { correction: null as BasisCorrection | null };
-      return { correction: addCorrection(client, uid, 'all') };
-    },
-    onError: (error, _input, context) => {
-      const correction = context?.correction;
-      if (correction) settleCorrection(client, uid, correction, error);
-    },
-    onSuccess: (_data, _input, context) => {
-      const correction = context?.correction;
-      if (correction) settleCorrection(client, uid, correction, null);
-    },
-    onSettled: () => {
-      // Settled, not success: a 409 means the suggestion is gone on the
-      // server, and the list has to be re-read to stop offering it.
-      void client.invalidateQueries({ queryKey: queryKeys.memory(uid) });
-      void client.invalidateQueries({ queryKey: queryKeys.trust(uid) });
-    },
-  });
+    (input) => (input.decision === 'keep' && input.suggestion.fingerprint.startsWith('R1_focus_window') ? 'all' : null),
+  );
 }
 
 /**

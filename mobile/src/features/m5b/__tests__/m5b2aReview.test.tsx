@@ -202,6 +202,22 @@ describe('M5b-2a inspection fixes', () => {
     expect(screen.queryByTestId('m5b-learned-status')).toBeNull();
   });
 
+  it('R29-002: keeping a focus-window suggestion hides the basis from the call itself, not a microtask later', async () => {
+    harness = await prepare('en', initialState(), planOnly(planWithBasis()));
+    const counted: number[] = [];
+    function Keep() {
+      const decide = useMemorySuggestion();
+      return <Pressable testID="r29-keep" onPress={() => {
+        decide.mutate({ suggestion: { ruleId: 'R1', fingerprint: 'R1_focus_window:09:00-12:00' } as never, decision: 'keep', language: 'en' });
+        counted.push(basisCorrectionCountForTests(harness!.client, ACCOUNT_A.uid));
+      }} />;
+    }
+    await render(<Providers harness={harness}><Keep /></Providers>);
+    await act(async () => { await jest.advanceTimersByTimeAsync(100); });
+    await fireEvent.press(screen.getByTestId('r29-keep'));
+    expect(counted).toEqual([1]);
+  });
+
   it('R28-004: the visit\'s older inbox read, answering after the dismissal\'s own read, never brings the dismissed outcome back', async () => {
     let reads = 0;
     const late = deferred<void>();

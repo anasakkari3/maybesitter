@@ -256,7 +256,8 @@ function IntelligencePanelForAccount({ onChanged, autoGenerate = false, whenOff 
         if (!alive() || seq !== readSeq.current) return;
         setInbox(next); setGmailMonitor(monitor); setPhase('ready');
       } catch (cause) {
-        if (!alive()) return;
+        // A failure only counts for the newest read, as an answer does (R29-004).
+        if (!alive() || seq !== readSeq.current) return;
         // Off or refused is a state, not an error: nothing to retry.
         setLoadError(cause);
         setPhase(forbiddenReason(cause) !== null ? 'off' : 'failed');

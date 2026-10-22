@@ -380,6 +380,22 @@ describe('delete everything', () => {
     await waitFor(() => expect(profileEndpoints.deleteAllMemory).toHaveBeenCalled());
   });
 
+  it('hides every row and delete-all while delete-all is on its way (M5B2A-R29-003)', async () => {
+    listing([item(), item({ id: 'mem_other', content: 'I swim on Mondays' })]);
+    let finish!: (value: unknown) => void;
+    jest.spyOn(profileEndpoints, 'deleteAllMemory').mockImplementation(() => new Promise(resolve => { finish = resolve; }) as never);
+    await show(<MemoryScreen onBack={() => {}} />);
+    await waitFor(() => expect(screen.queryByTestId('memory-screen-delete-mem_other')).not.toBeNull());
+    await fireEvent.press(screen.getByTestId('memory-screen-delete-all'));
+    await fireEvent.press(screen.getByTestId('memory-screen-delete-all-confirm'));
+    await waitFor(() => expect(profileEndpoints.deleteAllMemory).toHaveBeenCalled());
+    expect(screen.queryByTestId('memory-screen-delete-mem_told')).toBeNull();
+    expect(screen.queryByTestId('memory-screen-delete-mem_other')).toBeNull();
+    expect(screen.queryByTestId('memory-screen-delete-all')).toBeNull();
+    listing([]);
+    await act(async () => { finish({ success: true, deleted: 2 }); });
+  });
+
   it('cancels a row still in its undo window instead of sending it beside the purge (M5B2A-R28-001)', async () => {
     jest.useFakeTimers();
     listing([item(), item({ id: 'mem_other', content: 'I swim on Mondays' })]);
