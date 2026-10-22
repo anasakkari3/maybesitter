@@ -1159,7 +1159,7 @@ test('R26-002: an account export carries no consent operation token or withdrawa
   const uid = await keptFocusPlan();
   const storage = currentStorage() as any;
   await setPersonalizationConsent(uid, { state: 'declined', version: PERSONALIZATION_CONSENT_VERSION, at: new Date() }, { storage });
-  await setFence(storage, uid, { ...(((await storage.get(userDoc(uid))) ?? {}).personalizationPurge), withdrawalOwner: 'someone', withdrawalLeaseAt: new Date().toISOString() });
+  await setFence(storage, uid, { ...(((await storage.get(userDoc(uid))) ?? {}).personalizationPurge), withdrawalOwner: 'someone', withdrawalLeaseAt: new Date().toISOString(), purgeOwner: 'p9', purgeLeaseAt: new Date().toISOString() });
   assert.ok(((await storage.get(userDoc(uid))) ?? {}).consentOps, 'fixture: no consent operation was stored');
   const { buildAccountExport } = await import('../../lib/account/accountExport.ts');
   const archive = await buildAccountExport(uid, { storage } as any);
@@ -1167,6 +1167,9 @@ test('R26-002: an account export carries no consent operation token or withdrawa
   assert.equal(profile.consentOps, undefined);
   assert.equal(profile.personalizationPurge?.withdrawalOwner, undefined);
   assert.equal(profile.personalizationPurge?.withdrawalLeaseAt, undefined);
+  // R30-003: a purge's ownership is internal too.
+  assert.equal(profile.personalizationPurge?.purgeOwner, undefined);
+  assert.equal(profile.personalizationPurge?.purgeLeaseAt, undefined);
   assert.ok(profile.consents?.personalization, 'the consent answer itself is still exported');
 });
 
@@ -1283,6 +1286,115 @@ test('R29-001: one purge at a time — a live purge keeps the fence, a dead one 
   await purgeFor(uid, storage, new Date().toISOString(), { attempts: 2, delayMs: 1 });
   const fence = ((await storage.get(userDoc(uid))) ?? {}).personalizationPurge;
   assert.deepEqual([fence?.state, fence?.epoch, fence?.purgeOwner ?? null], ['active', 51, null]);
+});
+
+test("R30-004: a purge renews its lease as it works, so a long one is never taken for dead", async () => {
+  const uid = await keptFocusPlan();
+  const storage = currentStorage() as any;
+  const { deletePersonalizationScope } = await import('../../lib/personalization/deletion.ts');
+  const { createStorageFeedbackEventStore } = await import('../../lib/feedback/feedbackEventStore.ts');
+  const memory = createStorageRuntimeMemoryStore(undefined, storage);
+  let leaseAtMemoryStep: string | undefined;
+  await deletePersonalizationScope({
+    scopeId: uid, now: new Date().toISOString(), storage,
+    feedbackEvents: createStorageFeedbackEventStore(storage),
+    runtimeMemory: { ...memory, listAll: memory.listAll.bind(memory), deleteScope: async (scopeId: string) => {
+      leaseAtMemoryStep = ((await storage.get(userDoc(uid))) ?? {}).personalizationPurge?.purgeLeaseAt;
+      return memory.deleteScope(scopeId);
+    } } as any,
+    // The purge has been running "for an hour" when its caller's hook runs.
+    onFenced: async () => {
+      const fence = ((await storage.get(userDoc(uid))) ?? {}).personalizationPurge;
+      await setFence(storage, uid, { ...fence, purgeLeaseAt: new Date(Date.now() - 3_600_000).toISOString() });
+    },
+  } as any);
+  assert.ok(leaseAtMemoryStep && Date.now() - Date.parse(leaseAtMemoryStep) < 60_000, `the lease was not renewed: ${leaseAtMemoryStep}`);
+});
+
+test('R31-002: a purge whose step fails gives its lease up, so a retry takes over at once', async () => {
+  const uid = await keptFocusPlan();
+  const storage = currentStorage() as any;
+  const { deletePersonalizationScope } = await import('../../lib/personalization/deletion.ts');
+  const { createStorageFeedbackEventStore } = await import('../../lib/feedback/feedbackEventStore.ts');
+  await assert.rejects(deletePersonalizationScope({
+    scopeId: uid, now: new Date().toISOString(), storage,
+    feedbackEvents: createStorageFeedbackEventStore(storage),
+    runtimeMemory: createStorageRuntimeMemoryStore(undefined, storage),
+    onFenced: async () => { throw new Error('transient'); },
+  } as any), /transient/);
+  assert.equal(((await storage.get(userDoc(uid))) ?? {}).personalizationPurge?.state, 'purging', 'the fence opened after a failed purge');
+  // An immediate retry is not made to wait behind the dead purge.
+  await purgeFor(uid, storage, new Date().toISOString(), { attempts: 2, delayMs: 1 });
+  assert.equal(((await storage.get(userDoc(uid))) ?? {}).personalizationPurge?.state, 'active');
+});
+
+test('R32-002: a long purge step keeps its lease alive, so no successor takes over while it is still erasing', async () => {
+  const uid = await keptFocusPlan();
+  const storage = currentStorage() as any;
+  const { deletePersonalizationScope } = await import('../../lib/personalization/deletion.ts');
+  const { createStorageFeedbackEventStore } = await import('../../lib/feedback/feedbackEventStore.ts');
+  const memory = createStorageRuntimeMemoryStore(undefined, storage);
+  let successor: unknown = 'not tried';
+  await deletePersonalizationScope({
+    scopeId: uid, now: new Date().toISOString(), storage, heartbeatMs: 5,
+    feedbackEvents: createStorageFeedbackEventStore(storage),
+    runtimeMemory: { ...memory, listAll: memory.listAll.bind(memory), deleteScope: async (scopeId: string) => {
+      // The sweep "has run for an hour": its lease looks stale…
+      const fence = ((await storage.get(userDoc(uid))) ?? {}).personalizationPurge;
+      await setFence(storage, uid, { ...fence, purgeLeaseAt: new Date(Date.now() - 3_600_000).toISOString() });
+      // …but it is still working, and its heartbeat renews the lease.
+      await new Promise((resolve) => setTimeout(resolve, 40));
+      successor = await purgeFor(uid, storage, new Date().toISOString(), { attempts: 1, delayMs: 1 }).then(() => 'took over', (error) => error);
+      return memory.deleteScope(scopeId);
+    } } as any,
+  } as any);
+  assert.ok(successor instanceof PersonalizationWithdrawalBusyError, `a successor took over a purge still erasing: ${String(successor)}`);
+});
+
+test('R32-003: the purge keeps the fence closed while its caller verifies, and manual memory writes are refused meanwhile', async () => {
+  const uid = await keptFocusPlan();
+  const storage = currentStorage() as any;
+  const { createManualMemory } = await import('../../lib/services/mobile/memoryService.ts');
+  const { MemoryWriteRefusedError } = await import('../../lib/runtimeMemory/runtimeMemoryStore.ts');
+  let stateDuringVerify: unknown;
+  let refused: unknown;
+  const { deletePersonalizationScope } = await import('../../lib/personalization/deletion.ts');
+  const { createStorageFeedbackEventStore } = await import('../../lib/feedback/feedbackEventStore.ts');
+  await deletePersonalizationScope({
+    scopeId: uid, now: new Date().toISOString(), storage,
+    feedbackEvents: createStorageFeedbackEventStore(storage),
+    runtimeMemory: createStorageRuntimeMemoryStore(undefined, storage),
+    beforeReopen: async () => {
+      stateDuringVerify = ((await storage.get(userDoc(uid))) ?? {}).personalizationPurge?.state;
+      refused = await createManualMemory(uid, { kind: 'fact', content: 'I cook on Fridays', language: 'en' } as any, new Date().toISOString(), { storage } as any)
+        .then(() => 'written', (error) => error);
+    },
+  } as any);
+  assert.equal(stateDuringVerify, 'purging', 'the fence reopened before the caller verified');
+  assert.ok(refused instanceof MemoryWriteRefusedError, `a manual memory was written during the purge: ${String(refused)}`);
+  assert.equal((await createStorageRuntimeMemoryStore(undefined, storage).listAll(uid)).length, 0);
+});
+
+test('R33-001: an AI import that spans a purge is refused, and delete-all counts a surviving import as incomplete', async () => {
+  const uid = await keptFocusPlan();
+  const storage = currentStorage() as any;
+  const { importAiContext, PersonalizationBusyError } = await import('../../lib/services/mobile/aiContextImportService.ts');
+  // The purge begins while the import is waiting on its model.
+  let purgeStarted = false;
+  const outcome = await importAiContext(uid, 'I work best in the morning.', 'chatgpt' as any, new Date(), {
+    storage,
+    generate: async () => {
+      const fence = ((await storage.get(userDoc(uid))) ?? {}).personalizationPurge;
+      await setFence(storage, uid, { ...fence, state: 'purging', epoch: (fence?.epoch ?? 0) + 1, purgeOwner: 'p', purgeLeaseAt: new Date().toISOString() });
+      purgeStarted = true;
+      return { text: JSON.stringify({ candidates: [] }), model: 'fake', latencyMs: 1, promptTokens: 1, outputTokens: 1 };
+    },
+  } as any).then((r) => ['resolved', r], (e) => ['threw', String(e)]);
+  assert.deepEqual(outcome, ['threw', String(new PersonalizationBusyError())], 'an import was saved across the purge');
+  assert.ok(purgeStarted, 'fixture: the import never reached its model');
+  assert.equal((await storage.list(`users/${uid}/aiContextImports`)).length, 0, 'an import was saved across the purge');
+  const source = readFileSync(new URL('../../lib/services/mobile/memoryService.ts', import.meta.url), 'utf8');
+  assert.match(source, /\+ receipt\.remainingAiContextImportCount/, 'delete-all ignores a surviving AI import');
 });
 
 test('R20-004: a fresh run never answers a suggestion whose outcome was dismissed right after the commit', async () => {

@@ -197,6 +197,10 @@ export interface PersonalizationDeletionInput {
    * being edited.
    */
   readonly storage?: StorageAdapter;
+  /** Run with the receipt while the fence is still closed, before it reopens (R32-003); a throw keeps it closed. */
+  readonly beforeReopen?: (receipt: PersonalizationDeletionReceipt) => Promise<void>;
+  /** How often a running step renews its lease (tests shorten it). */
+  readonly heartbeatMs?: number;
   /** Run once the purge holds the fence, before anything is erased; skipped when the purge is refused. */
   readonly onFenced?: () => Promise<void>;
   /** How long the purge waits behind a live withdrawal (tests shorten it). */
@@ -257,6 +261,16 @@ function livePurgeOwnsFence(fence: unknown, nowMs: number): boolean {
   return Number.isFinite(since) && nowMs - since < STALE_PURGE_MS;
 }
 
+/** This purge's fence, still closed, with its lease marked run out; never a successor's. */
+async function abandonPurgeLease(storage: StorageAdapter, scopeId: string, epoch: number, owner: string): Promise<void> {
+  await storage.runTransaction(async (tx) => {
+    const user = await tx.get<Record<string, unknown>>(userDoc(scopeId));
+    const fence = (user?.personalizationPurge ?? {}) as Record<string, unknown>;
+    if (fence.state !== 'purging' || fence.epoch !== epoch || fence.purgeOwner !== owner) return;
+    tx.merge(userDoc(scopeId), { personalizationPurge: { ...fence, purgeLeaseAt: new Date(0).toISOString() } });
+  });
+}
+
 /** Moves the fence to `purging` at a new epoch, or null while a live withdrawal owns it. */
 async function takePurgeFence(
   storage: StorageAdapter,
@@ -314,73 +328,108 @@ export async function deletePersonalizationScope(
   const purgeOwner = taken.owner;
   // Still this purge's fence (M5B2A-R29-001): one taken over after its lease
   // ran out stops at the next step instead of erasing under its successor.
+  // Checked and renewed in one transaction before every erasing step and the
+  // caller's hook (R30-004): a long purge keeps its lease alive as it works,
+  // so it is never mistaken for a dead one while it is still erasing.
   const stillOwns = async (): Promise<void> => {
-    const fence = ((await storage.get<Record<string, unknown>>(userDoc(input.scopeId)))?.personalizationPurge ?? {}) as Record<string, unknown>;
-    if (fence.state !== 'purging' || fence.epoch !== purgeEpoch || fence.purgeOwner !== purgeOwner) {
-      throw new Error('personalization purge barrier changed');
-    }
-  };
-  if (taken.abandonedWithdrawal) await completeAbandonedWithdrawal(input.scopeId, input.now, { storage });
-  // The caller's own erasures that must not happen on a refusal (R28-002): run
-  // only once the fence is held.
-  if (input.onFenced) await input.onFenced();
-
-  // Derived stores first, the user's memory rows last. If any step throws, the
-  // user has had *more* erased than they asked for, never less, and the caller
-  // still refuses to report success — see `deleteAllMemory`.
-  await stillOwns();
-  await input.feedbackEvents.deleteScope(input.scopeId);
-  await clearUserCollection(storage, input.scopeId, BEHAVIOR_FEEDBACK);
-  await clearUserCollection(storage, input.scopeId, PROFILE_PROPOSALS);
-  await clearUserCollection(storage, input.scopeId, AI_CONTEXT_IMPORTS);
-  await clearUserCollection(storage, input.scopeId, MEMORY_DISMISSALS);
-  await clearUserCollection(storage, input.scopeId, FOOTBALL_FOLLOWS);
-  // Steps a model (or a template) proposed for the user's goals and nobody
-  // confirmed yet (CL3). Inferred, like `profileProposals`, so they go; the
-  // Commitments and Habits the user already confirmed out of them, and the
-  // `goalGraphLinks` naming those, are the user's own work and stay.
-  await clearUserCollection(storage, input.scopeId, GOAL_GRAPH_PROPOSALS);
-  // M3a's plan drafts and their coordination/history rows are all rooted in a
-  // goal memory. A delete-all-memory request removes that root, so retaining
-  // any of these would leave generated plan text or a replayable acceptance
-  // behind after the memory store itself is empty.
-  await clearUserCollection(storage, input.scopeId, GOAL_PLANS);
-  await clearUserCollection(storage, input.scopeId, GOAL_PLAN_TIMES);
-  await clearUserCollection(storage, input.scopeId, GOAL_PLAN_OUTCOMES);
-  await clearUserCollection(storage, input.scopeId, GOAL_PLAN_CLAIMS);
-  await clearUserCollection(storage, input.scopeId, GOAL_LINEAGES);
-  await clearUserCollection(storage, input.scopeId, GOAL_STATEMENT_PREVIEWS);
-  await clearUserCollection(storage, input.scopeId, GOAL_STATEMENT_ACCEPTS);
-  await stillOwns();
-  await clearUserCollection(storage, input.scopeId, INTELLIGENCE_OBSERVATIONS);
-  await clearUserCollection(storage, input.scopeId, INTELLIGENCE_PROPOSALS);
-  await clearUserCollection(storage, input.scopeId, INTELLIGENCE_RUNS);
-  await clearUserCollection(storage, input.scopeId, INTELLIGENCE_MONITORS);
-  // The week-scan cursor (2026-10-06): content-free, but it says when this
-  // person's mail was read, so it goes with everything else read from it.
-  await clearUserCollection(storage, input.scopeId, INTELLIGENCE_GMAIL_SCANS);
-  await clearUserCollection(storage, input.scopeId, INTELLIGENCE_SOURCE_MARKERS);
-  await clearUserCollection(storage, input.scopeId, INTELLIGENCE_AUTO_ADDS);
-  await clearUserCollection(storage, input.scopeId, MEMORY_CITATIONS);
-  // With the follows gone, the matches they projected stop holding time: an
-  // unfollow drop, never a dismissal, so following again brings them back.
-  // The commitments themselves are kept as dropped history, like any other
-  // commitment this purge leaves alone (football fixtures, final review I1).
-  await releaseUnfollowedFixtures(input.scopeId, input.now, { storage });
-  await stillOwns();
-  await input.runtimeMemory.deleteScope(input.scopeId);
-
-  await storage.runTransaction(async (tx) => {
-    const user = await tx.get<Record<string, unknown>>(userDoc(input.scopeId));
-    const current = user?.personalizationPurge as { state?: unknown; epoch?: unknown; purgeOwner?: unknown } | undefined;
-    if (current?.state !== 'purging' || current.epoch !== purgeEpoch || current.purgeOwner !== purgeOwner) {
-      throw new Error('personalization purge barrier changed');
-    }
-    tx.merge(userDoc(input.scopeId), {
-      personalizationPurge: { state: 'active', epoch: purgeEpoch, completedAt: input.now, purgeOwner: null, purgeLeaseAt: null },
+    await storage.runTransaction(async (tx) => {
+      const user = await tx.get<Record<string, unknown>>(userDoc(input.scopeId));
+      const fence = (user?.personalizationPurge ?? {}) as Record<string, unknown>;
+      if (fence.state !== 'purging' || fence.epoch !== purgeEpoch || fence.purgeOwner !== purgeOwner) {
+        throw new Error('personalization purge barrier changed');
+      }
+      tx.merge(userDoc(input.scopeId), { personalizationPurge: { ...fence, purgeLeaseAt: new Date().toISOString() } });
     });
-  });
+  };
+  // While a step runs, its lease is kept alive (R32-002): a long sweep is
+  // never taken for a dead purge, so no successor erases beside it. A process
+  // that dies stops beating, and its lease runs out as before.
+  const owned = async (step: () => Promise<unknown>): Promise<void> => {
+    await stillOwns();
+    const beat = setInterval(() => { void stillOwns().catch(() => undefined); }, input.heartbeatMs ?? HEARTBEAT_MS);
+    (beat as { unref?: () => void }).unref?.();
+    try { await step(); } finally { clearInterval(beat); }
+  };
+  let receipt: PersonalizationDeletionReceipt | undefined;
+  // A step that fails gives this purge's lease up at once, the fence still
+  // closed (M5B2A-R31-002): a retry takes it over instead of waiting out ten
+  // minutes behind an operation that has already ended.
+  try {
+    if (taken.abandonedWithdrawal) await completeAbandonedWithdrawal(input.scopeId, input.now, { storage });
+    // The caller's own erasures that must not happen on a refusal (R28-002): run
+    // only once the fence is held.
+    if (input.onFenced) await owned(input.onFenced);
 
+    // Derived stores first, the user's memory rows last. If any step throws, the
+    // user has had *more* erased than they asked for, never less, and the caller
+    // still refuses to report success — see `deleteAllMemory`.
+    await owned(() => input.feedbackEvents.deleteScope(input.scopeId));
+    await owned(() => clearUserCollection(storage, input.scopeId, BEHAVIOR_FEEDBACK));
+    await owned(() => clearUserCollection(storage, input.scopeId, PROFILE_PROPOSALS));
+    await owned(() => clearUserCollection(storage, input.scopeId, AI_CONTEXT_IMPORTS));
+    await owned(() => clearUserCollection(storage, input.scopeId, MEMORY_DISMISSALS));
+    await owned(() => clearUserCollection(storage, input.scopeId, FOOTBALL_FOLLOWS));
+    // Steps a model (or a template) proposed for the user's goals and nobody
+    // confirmed yet (CL3). Inferred, like `profileProposals`, so they go; the
+    // Commitments and Habits the user already confirmed out of them, and the
+    // `goalGraphLinks` naming those, are the user's own work and stay.
+    await owned(() => clearUserCollection(storage, input.scopeId, GOAL_GRAPH_PROPOSALS));
+    // M3a's plan drafts and their coordination/history rows are all rooted in a
+    // goal memory. A delete-all-memory request removes that root, so retaining
+    // any of these would leave generated plan text or a replayable acceptance
+    // behind after the memory store itself is empty.
+    await owned(() => clearUserCollection(storage, input.scopeId, GOAL_PLANS));
+    await owned(() => clearUserCollection(storage, input.scopeId, GOAL_PLAN_TIMES));
+    await owned(() => clearUserCollection(storage, input.scopeId, GOAL_PLAN_OUTCOMES));
+    await owned(() => clearUserCollection(storage, input.scopeId, GOAL_PLAN_CLAIMS));
+    await owned(() => clearUserCollection(storage, input.scopeId, GOAL_LINEAGES));
+    await owned(() => clearUserCollection(storage, input.scopeId, GOAL_STATEMENT_PREVIEWS));
+    await owned(() => clearUserCollection(storage, input.scopeId, GOAL_STATEMENT_ACCEPTS));
+    await owned(() => clearUserCollection(storage, input.scopeId, INTELLIGENCE_OBSERVATIONS));
+    await owned(() => clearUserCollection(storage, input.scopeId, INTELLIGENCE_PROPOSALS));
+    await owned(() => clearUserCollection(storage, input.scopeId, INTELLIGENCE_RUNS));
+    await owned(() => clearUserCollection(storage, input.scopeId, INTELLIGENCE_MONITORS));
+    // The week-scan cursor (2026-10-06): content-free, but it says when this
+    // person's mail was read, so it goes with everything else read from it.
+    await owned(() => clearUserCollection(storage, input.scopeId, INTELLIGENCE_GMAIL_SCANS));
+    await owned(() => clearUserCollection(storage, input.scopeId, INTELLIGENCE_SOURCE_MARKERS));
+    await owned(() => clearUserCollection(storage, input.scopeId, INTELLIGENCE_AUTO_ADDS));
+    // The reverse index of which memory shaped which suggestion (M5b-2b-1): memory-derived, so it goes.
+    await owned(() => clearUserCollection(storage, input.scopeId, MEMORY_CITATIONS));
+    // With the follows gone, the matches they projected stop holding time: an
+    // unfollow drop, never a dismissal, so following again brings them back.
+    // The commitments themselves are kept as dropped history, like any other
+    // commitment this purge leaves alone (football fixtures, final review I1).
+    await owned(() => releaseUnfollowedFixtures(input.scopeId, input.now, { storage }));
+    await owned(() => input.runtimeMemory.deleteScope(input.scopeId));
+
+    // The remainders are counted, and the caller's own checks run, while the
+    // fence is still closed (R32-003): a write that lands after the sweep is
+    // refused, or counted — never one that survives a receipt of success.
+    await stillOwns();
+    receipt = await receiptFor(storage, input);
+    if (input.beforeReopen) await owned(() => input.beforeReopen!(receipt!));
+
+    await storage.runTransaction(async (tx) => {
+      const user = await tx.get<Record<string, unknown>>(userDoc(input.scopeId));
+      const current = user?.personalizationPurge as { state?: unknown; epoch?: unknown; purgeOwner?: unknown } | undefined;
+      if (current?.state !== 'purging' || current.epoch !== purgeEpoch || current.purgeOwner !== purgeOwner) {
+        throw new Error('personalization purge barrier changed');
+      }
+      tx.merge(userDoc(input.scopeId), {
+        personalizationPurge: { state: 'active', epoch: purgeEpoch, completedAt: input.now, purgeOwner: null, purgeLeaseAt: null },
+      });
+    });
+  } catch (error) {
+    await abandonPurgeLease(storage, input.scopeId, purgeEpoch, purgeOwner).catch(() => undefined);
+    throw error;
+  }
+  return receipt!;
+}
+
+const HEARTBEAT_MS = 60_000;
+
+async function receiptFor(storage: StorageAdapter, input: PersonalizationDeletionInput): Promise<PersonalizationDeletionReceipt> {
   return {
     version: PERSONALIZATION_CONTRACT_VERSION,
     schemaVersion: PERSONALIZATION_SCHEMA_VERSION,

@@ -57,6 +57,7 @@ import {
   type MemorySource,
   type MemoryProvenance,
   type MemoryStatus,
+  type MemoryWriteGuard,
   type RuntimeMemoryKind,
   type RuntimeMemoryRecord,
   type RuntimeMemoryStore,
@@ -100,6 +101,14 @@ export class MemoryNotFoundError extends Error {
 }
 
 /** The target still exists, but another edit already changed the chain head. */
+/** A guarded write whose guard refused, in the write's own transaction (M5B2A-R31-001). */
+export class MemoryWriteRefusedError extends Error {
+  constructor() {
+    super('memory write refused by its guard');
+    this.name = 'MemoryWriteRefusedError';
+  }
+}
+
 export class MemorySupersedeConflictError extends Error {
   constructor(message = 'memory changed') {
     super(message);
@@ -370,16 +379,23 @@ export class StorageRuntimeMemoryStore implements RuntimeMemoryStore {
     return row && isRuntimeMemoryRecord(row.data) ? { path: row.path, record: freezeRecord(row.data) } : null;
   }
 
-  async put(input: CreateMemoryInput, now: string): Promise<RuntimeMemoryRecord> {
+  async put(input: CreateMemoryInput, now: string, guard?: MemoryWriteGuard): Promise<RuntimeMemoryRecord> {
     assertTimestamp(now, 'now');
     assertValidInput(input);
     const record = buildRecord(input, now, this.defaultTtlMs);
-    await this.storage.set<RuntimeMemoryRecord>(recordPath(record.scopeId, record.id), record);
-    return record;
+    if (!guard) {
+      await this.storage.set<RuntimeMemoryRecord>(recordPath(record.scopeId, record.id), record);
+      return record;
+    }
+    return this.storage.runTransaction(async tx => {
+      if (!guard.accepts(await tx.get(userDoc(userIdForKey(record.scopeId))))) throw new MemoryWriteRefusedError();
+      tx.set<RuntimeMemoryRecord>(recordPath(record.scopeId, record.id), record);
+      return record;
+    });
   }
 
   /** A reviewed suggestion has one stable memory id across retries and devices. */
-  async putIdempotent(input: CreateMemoryInput, now: string, key: string): Promise<RuntimeMemoryRecord> {
+  async putIdempotent(input: CreateMemoryInput, now: string, key: string, guard?: MemoryWriteGuard): Promise<RuntimeMemoryRecord> {
     assertTimestamp(now, 'now');
     assertValidInput(input);
     if (!key || key.length > 200) fail('idempotency key is invalid');
@@ -388,6 +404,7 @@ export class StorageRuntimeMemoryStore implements RuntimeMemoryStore {
     return this.storage.runTransaction(async tx => {
       const existing = await tx.get<RuntimeMemoryRecord>(recordPath(input.scopeId, id));
       if (existing) return freezeRecord(existing);
+      if (guard && !guard.accepts(await tx.get(userDoc(userIdForKey(input.scopeId))))) throw new MemoryWriteRefusedError();
       tx.create(recordPath(input.scopeId, id), record);
       return record;
     });
@@ -428,7 +445,7 @@ export class StorageRuntimeMemoryStore implements RuntimeMemoryStore {
     );
   }
 
-  async supersede(oldId: string, input: CreateMemoryInput, now: string): Promise<RuntimeMemoryRecord> {
+  async supersede(oldId: string, input: CreateMemoryInput, now: string, guard?: MemoryWriteGuard): Promise<RuntimeMemoryRecord> {
     assertTimestamp(now, 'now');
     const held = await this.findById(oldId);
     if (!held) throw new MemoryNotFoundError(`supersede target ${String(oldId)} not found`);
@@ -450,6 +467,7 @@ export class StorageRuntimeMemoryStore implements RuntimeMemoryStore {
       // transaction and this one therefore serialize in either safe order.
       const account = await tx.get<{ trust?: { deletedAt?: unknown } }>(userDoc(userIdForKey(prior.scopeId)));
       if (account?.trust?.deletedAt) throw new MemoryNotFoundError();
+      if (guard && !guard.accepts(account)) throw new MemoryWriteRefusedError();
 
       if (prior.status !== 'active' || prior.supersededById) {
         const detail = prior.supersededById

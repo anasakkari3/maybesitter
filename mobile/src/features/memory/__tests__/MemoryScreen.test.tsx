@@ -23,12 +23,14 @@ import { createFakeAuthRepository } from '../../../auth/fakeAuthRepository';
 import { resetAuthForTests, setAuthRepository } from '../../../api/auth';
 import type { AuthUser } from '../../../auth/types';
 import type { MemoryAdaptive, MemoryItem, MemorySuggestion } from '../../../api/schemas/profile';
+import { View } from 'react-native';
 import { MemoryScreen, UNDO_WINDOW_MS } from '../MemoryScreen';
+import { MemorySection } from '../MemorySection';
 import en from '../../../i18n/locales/en.json';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { LANGUAGE_STORAGE_KEY } from '../../../i18n/language';
 
-import { NotFoundError, NetworkError } from '../../../api/errors';
+import { ForbiddenError, NotFoundError, NetworkError } from '../../../api/errors';
 
 import * as profileEndpoints from '../../../api/endpoints/profile';
 
@@ -396,6 +398,34 @@ describe('delete everything', () => {
     await act(async () => { finish({ success: true, deleted: 2 }); });
   });
 
+  it('hides the suggestions too while delete-all is on its way (M5B2A-R30-001)', async () => {
+    listing([item()], [SUGGESTION]);
+    let finish!: (value: unknown) => void;
+    jest.spyOn(profileEndpoints, 'deleteAllMemory').mockImplementation(() => new Promise(resolve => { finish = resolve; }) as never);
+    await show(<MemoryScreen onBack={() => {}} />);
+    await waitFor(() => expect(screen.queryByTestId('memory-suggestions')).not.toBeNull());
+    await fireEvent.press(screen.getByTestId('memory-screen-delete-all'));
+    await fireEvent.press(screen.getByTestId('memory-screen-delete-all-confirm'));
+    await waitFor(() => expect(profileEndpoints.deleteAllMemory).toHaveBeenCalled());
+    expect(screen.queryByTestId('memory-suggestions')).toBeNull();
+    expect(screen.queryByTestId('memory-suggestion-keep-R1_focus_window:14:00-17:00')).toBeNull();
+    await act(async () => { finish({ success: true, deleted: 1 }); });
+  });
+
+  it('after a successful delete-all the old rows never come back while the re-read is slow (M5B2A-R30-002)', async () => {
+    listing([item(), item({ id: 'mem_other', content: 'I swim on Mondays' })]);
+    await show(<MemoryScreen onBack={() => {}} />);
+    await waitFor(() => expect(screen.queryByTestId('memory-screen-delete-mem_other')).not.toBeNull());
+    // The re-read after the delete never answers.
+    jest.spyOn(profileEndpoints, 'listMemory').mockImplementation(() => new Promise(() => undefined) as never);
+    await fireEvent.press(screen.getByTestId('memory-screen-delete-all'));
+    await fireEvent.press(screen.getByTestId('memory-screen-delete-all-confirm'));
+    await waitFor(() => expect(profileEndpoints.deleteAllMemory).toHaveBeenCalled());
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)); });
+    expect(screen.queryByTestId('memory-screen-delete-mem_told')).toBeNull();
+    expect(screen.queryByTestId('memory-screen-delete-mem_other')).toBeNull();
+  });
+
   it('cancels a row still in its undo window instead of sending it beside the purge (M5B2A-R28-001)', async () => {
     jest.useFakeTimers();
     listing([item(), item({ id: 'mem_other', content: 'I swim on Mondays' })]);
@@ -407,6 +437,119 @@ describe('delete everything', () => {
     await waitFor(() => expect(profileEndpoints.deleteAllMemory).toHaveBeenCalled());
     await act(async () => { await jest.advanceTimersByTimeAsync(30_000); });
     expect(profileEndpoints.deleteMemory).not.toHaveBeenCalled();
+  });
+});
+
+describe('an unknown delete-all outcome (M5B2A-R32-004)', () => {
+  it('a list read begun before delete-all, landing after it with the old rows, does not bring them back', async () => {
+    listing([item(), item({ id: 'mem_other', content: 'I swim on Mondays' })]);
+    await show(<MemoryScreen onBack={() => {}} />);
+    await waitFor(() => expect(screen.queryByTestId('memory-screen-delete-mem_other')).not.toBeNull());
+
+    // A list read starts before delete-all and is held…
+    let landPre!: (value: unknown) => void;
+    jest.spyOn(profileEndpoints, 'listMemory').mockImplementation(() => new Promise(resolve => { landPre = resolve; }) as never);
+    await act(async () => { void client.invalidateQueries({ queryKey: ['user', USER.uid, 'memory'] }); });
+    await waitFor(() => expect(landPre).toBeDefined());
+
+    // …delete-all is sent while it is on its way…
+    let failDelete!: (error: Error) => void;
+    jest.spyOn(profileEndpoints, 'deleteAllMemory').mockImplementation(() => new Promise((_resolve, reject) => { failDelete = reject; }) as never);
+    await fireEvent.press(screen.getByTestId('memory-screen-delete-all'));
+    await fireEvent.press(screen.getByTestId('memory-screen-delete-all-confirm'));
+    await waitFor(() => expect(profileEndpoints.deleteAllMemory).toHaveBeenCalled());
+    // (Time moves on, so the late answer's arrival is after the delete was sent.)
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 5)); });
+
+    // …the old read lands after it, with the rows it was erasing…
+    let landPost!: (value: unknown) => void;
+    jest.spyOn(profileEndpoints, 'listMemory').mockImplementation(() => new Promise(resolve => { landPost = resolve; }) as never);
+    await act(async () => {
+      landPre({ items: [item(), item({ id: 'mem_other', content: 'I swim on Mondays' })], suggestions: [SUGGESTION], adaptive: null });
+      await new Promise(resolve => setTimeout(resolve, 5));
+    });
+    // …and only then does delete-all fail in a way that may have landed.
+    await act(async () => { failDelete(new NetworkError('no signal')); await new Promise(resolve => setTimeout(resolve, 5)); });
+    await waitFor(() => expect(landPost).toBeDefined());
+
+    // The re-read begun after it is still on its way: nothing of the old list shows.
+    expect(screen.queryByTestId('memory-screen-delete-mem_told')).toBeNull();
+    expect(screen.queryByTestId('memory-screen-delete-mem_other')).toBeNull();
+    expect(screen.queryByTestId('memory-suggestions')).toBeNull();
+    expect(screen.queryByTestId('memory-screen-delete-all')).toBeNull();
+
+    // The read begun after it decides: here the purge never happened.
+    await act(async () => { landPost({ items: [item()], suggestions: [], adaptive: null }); });
+    await waitFor(() => expect(screen.queryByTestId('memory-screen-delete-mem_told')).not.toBeNull());
+    expect(screen.queryByTestId('memory-screen-delete-mem_other')).toBeNull();
+  });
+});
+
+describe('MemorySection while delete-all is on its way (M5B2A-R32-003)', () => {
+  const ROWS = () => [item(), item({ id: 'mem_other', content: 'I swim on Mondays' })];
+  function controlsOf(prefix = 'memory') {
+    return {
+      add: screen.queryByTestId(`${prefix}-add`),
+      addInput: screen.queryByTestId(`${prefix}-add-input`),
+      addSave: screen.queryByTestId(`${prefix}-add-save`),
+      edit: screen.queryByTestId(`${prefix}-edit-mem_told`),
+      delete: screen.queryByTestId(`${prefix}-delete-mem_other`),
+      deleteAll: screen.queryByTestId(`${prefix}-delete-all`),
+      editInput: screen.queryByTestId(`${prefix}-edit-input-mem_told`),
+    };
+  }
+
+  it('offers no add, edit or delete while its own delete-all is pending', async () => {
+    listing(ROWS());
+    let finish!: (value: unknown) => void;
+    jest.spyOn(profileEndpoints, 'deleteAllMemory').mockImplementation(() => new Promise(resolve => { finish = resolve; }) as never);
+    await show(<MemorySection />);
+    await waitFor(() => expect(screen.queryByTestId('memory-edit-mem_told')).not.toBeNull());
+    expect(screen.queryByTestId('memory-add')).not.toBeNull();
+    await fireEvent.press(screen.getByTestId('memory-delete-all'));
+    await fireEvent.press(screen.getByTestId('memory-delete-all-confirm'));
+    await waitFor(() => expect(profileEndpoints.deleteAllMemory).toHaveBeenCalled());
+    expect(controlsOf()).toEqual({ add: null, addInput: null, addSave: null, edit: null, delete: null, deleteAll: null, editInput: null });
+    expect(screen.queryByTestId('memory-item-mem_told')).toBeNull();
+    listing([]);
+    await act(async () => { finish({ success: true, deleted: 2 }); });
+  });
+
+  it('closes an open add form and an open edit when delete-all is pressed on the memory screen', async () => {
+    listing(ROWS());
+    let finish!: (value: unknown) => void;
+    jest.spyOn(profileEndpoints, 'deleteAllMemory').mockImplementation(() => new Promise(resolve => { finish = resolve; }) as never);
+    await show(<View><MemorySection /><MemoryScreen onBack={() => {}} /></View>);
+    await waitFor(() => expect(screen.queryByTestId('memory-edit-mem_told')).not.toBeNull());
+    await fireEvent.press(screen.getByTestId('memory-add'));
+    await fireEvent.changeText(screen.getByTestId('memory-add-input'), 'A new fact');
+    await fireEvent.press(screen.getByTestId('memory-edit-mem_told'));
+    expect(screen.queryByTestId('memory-add-save')).not.toBeNull();
+    expect(screen.queryByTestId('memory-edit-input-mem_told')).not.toBeNull();
+
+    await fireEvent.press(screen.getByTestId('memory-screen-delete-all'));
+    await fireEvent.press(screen.getByTestId('memory-screen-delete-all-confirm'));
+    await waitFor(() => expect(profileEndpoints.deleteAllMemory).toHaveBeenCalled());
+    expect(controlsOf()).toEqual({ add: null, addInput: null, addSave: null, edit: null, delete: null, deleteAll: null, editInput: null });
+
+    listing([]);
+    await act(async () => { finish({ success: true, deleted: 2 }); });
+  });
+
+  it('shows its controls again once a refused delete-all erased nothing', async () => {
+    listing(ROWS());
+    let refuse!: (error: Error) => void;
+    jest.spyOn(profileEndpoints, 'deleteAllMemory').mockImplementation(() => new Promise((_resolve, reject) => { refuse = reject; }) as never);
+    await show(<MemorySection />);
+    await waitFor(() => expect(screen.queryByTestId('memory-edit-mem_told')).not.toBeNull());
+    await fireEvent.press(screen.getByTestId('memory-delete-all'));
+    await fireEvent.press(screen.getByTestId('memory-delete-all-confirm'));
+    await waitFor(() => expect(profileEndpoints.deleteAllMemory).toHaveBeenCalled());
+    expect(screen.queryByTestId('memory-add')).toBeNull();
+    await act(async () => { refuse(new ForbiddenError('no')); });
+    await waitFor(() => expect(screen.queryByTestId('memory-edit-mem_told')).not.toBeNull());
+    expect(screen.queryByTestId('memory-add')).not.toBeNull();
+    expect(screen.queryByTestId('memory-delete-all')).not.toBeNull();
   });
 });
 
@@ -441,6 +584,18 @@ describe('suggestions (#202)', () => {
     listing([], [SUGGESTION]);
     await show(<MemoryScreen onBack={() => {}} />);
     await waitFor(() => expect(screen.queryByTestId('memory-suggestions')).not.toBeNull());
+  });
+
+  it('a refused Keep (consent withdrawn elsewhere) re-reads the list so the stale suggestion goes (M5B2A-R30-005)', async () => {
+    listing([], [SUGGESTION]);
+    jest.spyOn(profileEndpoints, 'keepMemorySuggestion').mockRejectedValue(new ForbiddenError('consent', 'personalization_consent_required') as never);
+    await show(<MemoryScreen onBack={() => {}} />);
+    await waitFor(() => expect(screen.queryByTestId('memory-suggestion-keep-R1_focus_window:14:00-17:00')).not.toBeNull());
+    const reads = (profileEndpoints.listMemory as jest.Mock).mock.calls.length;
+    listing([], []);
+    await fireEvent.press(screen.getByTestId('memory-suggestion-keep-R1_focus_window:14:00-17:00'));
+    await waitFor(() => expect((profileEndpoints.listMemory as jest.Mock).mock.calls.length).toBeGreaterThan(reads));
+    await waitFor(() => expect(screen.queryByTestId('memory-suggestions')).toBeNull());
   });
 
   it('Keep sends the suggestion back with the language the sentence is stored in', async () => {

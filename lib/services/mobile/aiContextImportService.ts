@@ -210,6 +210,11 @@ export async function importAiContext(
   const paste = text.trim();
   if (Array.from(paste).length > MAX_IMPORT_LENGTH) throw new ImportTextTooLongError();
 
+  // The fence as this import began (M5B2A-R33-001): its proposal is saved only
+  // while personalization is still open at this same epoch, so an import that
+  // spans a delete-all is refused rather than surviving the purge's sweep.
+  const fence = await fenceOf(storageOf(options), uid);
+  if (fence.state === 'purging' || fence.state === 'withdrawing') throw new PersonalizationBusyError();
   const memory = memoryOf(options);
   const active = [...await memory.retrieve({ scopeId: uid, now: at.toISOString() })].sort(byListOrder);
   const shown = active.slice(0, MAX_EXISTING_MEMORY_RECORDS);
@@ -229,7 +234,7 @@ export async function importAiContext(
   // The guard first, before a single token is sent. An injection attempt is not
   // a profile of anybody, and paying for it would be paying to be attacked.
   if (paste === '' || detectPromptInjection(paste)) {
-    await save(uid, proposal, options);
+    await save(uid, proposal, options, fence.epoch);
     return freeze(proposal);
   }
 
@@ -242,7 +247,7 @@ export async function importAiContext(
   // test makes this unreachable; it is here because "unreachable" is a
   // property of today's rule block.
   if (built.length > IMPORT_MAX_INPUT_CHARACTERS) {
-    await save(uid, proposal, options);
+    await save(uid, proposal, options, fence.epoch);
     return freeze(proposal);
   }
 
@@ -264,7 +269,7 @@ export async function importAiContext(
     // No model, no consent, over a cap, a timeout, or a malformed answer. All
     // of them mean the same thing to the user: nothing to bring over.
     proposal.model = null;
-    await save(uid, proposal, options);
+    await save(uid, proposal, options, fence.epoch);
     return freeze(proposal);
   }
 
@@ -277,12 +282,34 @@ export async function importAiContext(
     existingContents: new Set(active.map((record) => normalizeForComparison(record.content))),
   }).candidates];
 
-  await save(uid, proposal, options);
+  await save(uid, proposal, options, fence.epoch);
   return freeze(proposal);
 }
 
-async function save(uid: string, proposal: StoredImportProposal, options: ImportOptions): Promise<void> {
-  await storageOf(options).set<StoredImportProposal>(proposalPath(uid, proposal.proposalId), proposal);
+async function save(uid: string, proposal: StoredImportProposal, options: ImportOptions, epoch: number): Promise<void> {
+  await storageOf(options).runTransaction(async (tx) => {
+    const current = fenceFrom(await tx.get(userDoc(uid)));
+    if (current.state === 'purging' || current.state === 'withdrawing' || current.epoch !== epoch) throw new PersonalizationBusyError();
+    tx.set<StoredImportProposal>(proposalPath(uid, proposal.proposalId), proposal);
+  });
+}
+
+/** The fence's state, and its epoch with "never fenced" read as 0, so an absent fence is still compared. */
+function fenceFrom(user: unknown): { state: unknown; epoch: number } {
+  const fence = (user as { personalizationPurge?: { state?: unknown; epoch?: unknown } } | null)?.personalizationPurge ?? {};
+  return { state: fence.state, epoch: Number.isSafeInteger(fence.epoch) ? fence.epoch as number : 0 };
+}
+
+async function fenceOf(storage: StorageAdapter, uid: string): Promise<{ state: unknown; epoch: number }> {
+  return fenceFrom(await storage.get(userDoc(uid)));
+}
+
+/** A delete-all or a consent change held the personalization fence; nothing was saved (M5B2A-R33-001). */
+export class PersonalizationBusyError extends Error {
+  constructor() {
+    super('personalization is changing; the import was not saved');
+    this.name = 'PersonalizationBusyError';
+  }
 }
 
 function summarise(candidates: readonly RawImportCandidate[]): ImportSummary {

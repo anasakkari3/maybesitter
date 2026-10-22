@@ -8,6 +8,7 @@ import {
   useDeleteAllMemory,
   useDeleteMemory,
   useMemory,
+  useMemoryPurging,
   useMemorySummary,
   usePatchMemory,
 } from '../../api/queries';
@@ -42,6 +43,13 @@ import { CHIP_STRING, memorySentence, provenanceChip } from './memoryDisplay';
  * boundary reorder and a quiet-hours range renders backwards. `isolate` is
  * UC-1.R3 (#156)'s helper and every rendered fact goes through it.
  *
+ * ── Nothing is offered while delete-all may be erasing it ────────
+ *
+ * While a delete-all is on its way — pressed here or on `MemoryScreen` — and
+ * after one whose outcome is unknown until a fresh list answers, the rows and
+ * every control go, as they do on `MemoryScreen` (M5B2A-R32-003): an add, an
+ * edit or a delete sent beside the purge could land after it said done.
+ *
  * ── It is the short version of `MemoryScreen` ────────────────────
  *
  * `onOpen` adds the way through to the full screen (UC-3.16, #202), which
@@ -71,7 +79,8 @@ export function MemorySection({ onOpen }: { onOpen?: (() => void) | undefined } 
   // The paragraph is asked for only after its disclosure is on screen
   // (M5B1-011): the effect that flips this runs after the line has mounted.
   const [disclosed, setDisclosed] = useState(false);
-  const hasItems = (memory.data?.items.length ?? 0) > 0;
+  const purging = useMemoryPurging(memory.data);
+  const hasItems = !purging && (memory.data?.items.length ?? 0) > 0;
   // Rows already on screen may have been sent, so a later failed refetch of
   // the list keeps the card and its disclosure (M5B-A-004).
   const summaryOn = m5bOn === true && hasItems;
@@ -81,7 +90,7 @@ export function MemorySection({ onOpen }: { onOpen?: (() => void) | undefined } 
   // and nothing to apologise for. A failed refetch keeps the rows it had.
   if (memory.data === undefined) return null;
 
-  const items = memory.data.items;
+  const items = purging ? [] : memory.data.items;
   const strings = t as unknown as Record<string, string>;
   // Only a current answer is a paragraph (M5B-A-001): a refetch that failed,
   // or one still running after a memory change, never shows the old one.
@@ -96,7 +105,7 @@ export function MemorySection({ onOpen }: { onOpen?: (() => void) | undefined } 
         <Txt size={13} weight={600} color={p.mu}>{t.memoryTitle}</Txt>
       </View>
 
-      {items.length === 0 && !adding ? (
+      {items.length === 0 && (!adding || purging) ? (
         <View style={{ paddingHorizontal: 18, paddingBottom: 14 }}>
           <Txt size={14} color={p.mu} testID="memory-empty">{t.memoryEmpty}</Txt>
         </View>
@@ -146,7 +155,7 @@ export function MemorySection({ onOpen }: { onOpen?: (() => void) | undefined } 
 
       {summaryOn ? <SummaryDisclosure onShown={setDisclosed} /> : null}
 
-      {adding ? (
+      {purging ? null : adding ? (
         <View style={{ paddingHorizontal: 18, paddingVertical: 12, gap: 10, borderTopWidth: 1, borderTopColor: p.ln }}>
           <TextInput
             testID="memory-add-input"
