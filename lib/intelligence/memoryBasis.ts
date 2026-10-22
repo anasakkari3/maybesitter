@@ -40,6 +40,24 @@ export interface BasisObservationLike {
   sourceRef: string;
 }
 
+export type SuggestionActionAvailability =
+  | { available: true }
+  | { available: false; reason: 'suggestion_unavailable' };
+
+export const SUGGESTION_UNAVAILABLE = {
+  available: false,
+  reason: 'suggestion_unavailable',
+} as const satisfies SuggestionActionAvailability;
+
+export class SuggestionUnavailableError extends Error {
+  readonly result = SUGGESTION_UNAVAILABLE;
+
+  constructor() {
+    super('suggestion_unavailable');
+    this.name = 'SuggestionUnavailableError';
+  }
+}
+
 function fenceOf(user: unknown): { state: string; epoch: number } {
   const fence = (user as { personalizationPurge?: { state?: unknown; epoch?: unknown } } | null)?.personalizationPurge;
   return {
@@ -215,24 +233,57 @@ export async function cleanupMemoryResidues(
   ]);
   for (const row of observations) {
     if (row.data.source === 'memory' && !view.records.has(row.data.sourceRef)) {
-      await storage.delete(`${userCol(uid, INTELLIGENCE_OBSERVATIONS)}/${row.id}`);
+      await storage.runTransaction(async tx => {
+        const [current, user] = await Promise.all([
+          tx.get<BasisObservationLike>(`${userCol(uid, INTELLIGENCE_OBSERVATIONS)}/${row.id}`),
+          tx.get(userDoc(uid)),
+        ]);
+        if (!current || current.source !== 'memory' || current.sourceRef !== row.data.sourceRef) return;
+        const fence = fenceOf(user);
+        if (!liveAccount(user) || fence.state !== 'active' || fence.epoch !== view.epoch) return;
+        const memory = await tx.get(runtimeMemoryRecordPath(uid, current.sourceRef));
+        if (runtimeMemoryRecordRetrievable(memory, uid, now)) return;
+        tx.delete(`${userCol(uid, INTELLIGENCE_OBSERVATIONS)}/${row.id}`);
+      });
     }
   }
   for (const row of suggestions) {
     const basis = row.data.memoryBasis;
     if (basis && !basisEligible(basis, view)) {
-      const ids = new Set(basis.memoryIds);
-      await cleanupCitation(uid, ids, { id: `${basis.memoryIds[0] ?? 'missing'}__${row.id}`, data: {
-        memoryId: basis.memoryIds[0], suggestionId: row.id,
-      } }, storage);
+      await storage.runTransaction(async tx => {
+        const [current, run, user] = await Promise.all([
+          tx.get<BasisSuggestionLike>(suggestionPath(uid, row.id)),
+          tx.get<{ suggestionIds?: string[] }>(runPath(uid)),
+          tx.get(userDoc(uid)),
+        ]);
+        const currentBasis = current?.memoryBasis;
+        if (!current || !currentBasis
+          || currentBasis.epoch !== basis.epoch
+          || currentBasis.memoryIds.length !== basis.memoryIds.length
+          || currentBasis.memoryIds.some((id, index) => id !== basis.memoryIds[index])) return;
+        const fence = fenceOf(user);
+        if (!liveAccount(user) || fence.state !== 'active' || fence.epoch !== view.epoch) return;
+        const records = await Promise.all(currentBasis.memoryIds.map((id) =>
+          tx.get(runtimeMemoryRecordPath(uid, id))));
+        if (currentBasis.epoch === fence.epoch
+          && currentBasis.memoryIds.length > 0
+          && records.every((record) => runtimeMemoryRecordRetrievable(record, uid, now))) return;
+        tx.delete(suggestionPath(uid, row.id));
+        if (run?.suggestionIds?.includes(row.id)) {
+          tx.set(runPath(uid), { ...run, suggestionIds: run.suggestionIds.filter((id) => id !== row.id) });
+        }
+        for (const memoryId of currentBasis.memoryIds) tx.delete(citationPath(uid, memoryId, row.id));
+      });
     }
   }
+  const verified = await readActiveMemorySnapshot(uid, now, storage);
+  if (!verified.available) return false;
   const [afterObservations, afterSuggestions] = await Promise.all([
     storage.list<BasisObservationLike>(userCol(uid, INTELLIGENCE_OBSERVATIONS)),
     storage.list<BasisSuggestionLike>(userCol(uid, INTELLIGENCE_PROPOSALS)),
   ]);
-  return !afterObservations.some((row) => row.data.source === 'memory' && !view.records.has(row.data.sourceRef))
-    && !afterSuggestions.some((row) => row.data.memoryBasis && !basisEligible(row.data.memoryBasis, view));
+  return !afterObservations.some((row) => row.data.source === 'memory' && !verified.records.has(row.data.sourceRef))
+    && !afterSuggestions.some((row) => row.data.memoryBasis && !basisEligible(row.data.memoryBasis, verified));
 }
 
 /** Commit-time proof for every memory that shaped the model input. */
@@ -251,6 +302,34 @@ export async function memoriesStillEligible(
   return records.every((record) => runtimeMemoryRecordRetrievable(record, uid, now));
 }
 
+/** Exact mode and live memory basis, read by the transaction claiming a pending suggestion. */
+export async function pendingSuggestionAvailability(
+  tx: StorageTransaction,
+  uid: string,
+  suggestion: BasisSuggestionLike,
+  now: string,
+): Promise<SuggestionActionAvailability> {
+  const mode = m5bBasisMode();
+  if (suggestion.status !== 'pending') return SUGGESTION_UNAVAILABLE;
+  if (mode === 'off') {
+    return suggestion.mode === undefined && suggestion.memoryBasis === undefined
+      ? { available: true }
+      : SUGGESTION_UNAVAILABLE;
+  }
+  if (suggestion.mode !== mode) return SUGGESTION_UNAVAILABLE;
+  if (mode === 'on_nobasis') {
+    return suggestion.memoryBasis === undefined ? { available: true } : SUGGESTION_UNAVAILABLE;
+  }
+  if (!suggestion.memoryBasis) return { available: true };
+  try {
+    return await memoriesStillEligible(
+      tx, uid, now, suggestion.memoryBasis.epoch, suggestion.memoryBasis.memoryIds,
+    ) ? { available: true } : SUGGESTION_UNAVAILABLE;
+  } catch {
+    return SUGGESTION_UNAVAILABLE;
+  }
+}
+
 /** Availability check used immediately before every decision/answer claim. */
 export async function suggestionAvailableForAction(
   uid: string,
@@ -258,16 +337,11 @@ export async function suggestionAvailableForAction(
   now: string,
   storage: StorageAdapter,
 ): Promise<boolean> {
-  const mode = m5bBasisMode();
   try {
     return await storage.runTransaction(async tx => {
       const suggestion = await tx.get<BasisSuggestionLike>(suggestionPath(uid, suggestionId));
-      if (!suggestion || suggestion.status !== 'pending') return false;
-      if (mode === 'off') return suggestion.mode === undefined && suggestion.memoryBasis === undefined;
-      if (suggestion.mode !== mode) return false;
-      if (mode === 'on_nobasis') return suggestion.memoryBasis === undefined;
-      if (!suggestion.memoryBasis) return true;
-      return memoriesStillEligible(tx, uid, now, suggestion.memoryBasis.epoch, suggestion.memoryBasis.memoryIds);
+      if (!suggestion) return false;
+      return (await pendingSuggestionAvailability(tx, uid, suggestion, now)).available;
     });
   } catch {
     return false;
