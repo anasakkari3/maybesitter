@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { TextInput, View } from 'react-native';
 import { useApp } from '../../state/AppContext';
 import { family } from '../../theme/fonts';
+import { typography } from '../../theme/tokens';
 import { Btn, Pill, Txt } from '../../ui/primitives';
 import { LiveRegion } from '../../ui/liveRegion';
 import { CLARIFICATION_FREE_TEXT_MAX, freeSlotWords, optionLabel, questionText } from './clarificationCopy';
@@ -95,7 +96,8 @@ export function ClarifySheet({
       </Txt>
       {/* One element, so a screen reader can be taken to the question itself (#752). */}
       <View ref={questionRef} accessible accessibilityRole="header" accessibilityLabel={heading} testID="clarify-question-focus">
-        <Txt role="section" size={17} testID="clarify-question">{heading}</Txt>
+        {/* Drawn as a section title, but not a second header: the wrapper is the one (Q-A1-002). */}
+        <Txt role="body" size={17} weight={typography.section.weight} testID="clarify-question">{heading}</Txt>
       </View>
 
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>

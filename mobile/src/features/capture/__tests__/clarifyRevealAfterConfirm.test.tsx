@@ -10,7 +10,7 @@
  */
 import { AccessibilityInfo, ScrollView } from 'react-native';
 import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
-import { act, cleanup, fireEvent, screen, waitFor } from '@testing-library/react-native';
+import { act, cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import type { CaptureProposal } from '../../../api/schemas/capture';
 import * as captureEndpoints from '../../../api/endpoints/capture';
@@ -48,8 +48,9 @@ const bank: CaptureProposal = {
 
 const layout = (y: number, height: number) => ({ nativeEvent: { layout: { x: 0, y, width: 390, height } } });
 type Node = { props: { testID?: string } };
+/** The testIDs a screen reader was moved to: `focus` events only. */
 const focusedIds = (spy: { mock: { calls: unknown[][] } }) =>
-  spy.mock.calls.map(([node]) => (node as Node | null)?.props?.testID ?? null);
+  spy.mock.calls.filter(([, event]) => event === 'focus').map(([node]) => (node as Node | null)?.props?.testID ?? null);
 
 let harness: RootHarness;
 beforeEach(async () => { harness = await prepareRoot('ar'); });
@@ -83,7 +84,7 @@ describe('#752: «هيك صح» reveals the question it opens on', () => {
     await act(async () => { await fireEvent(screen.getByTestId('capture-scroll'), 'layout', layout(0, 540)); });
     await act(async () => { await fireEvent(screen.getByTestId('chat-clarification'), 'layout', layout(520, 360)); });
     expect(focusedIds(focus)).not.toContain('clarify-question-focus');
-    expect(scrollTo).not.toHaveBeenCalledWith({ y: 520 - 16, animated });
+    expect(scrollTo).not.toHaveBeenCalled();
     scrollTo.mockClear();
     focus.mockClear();
 
@@ -100,9 +101,42 @@ describe('#752: «هيك صح» reveals the question it opens on', () => {
     expect(screen.getByTestId('clarify-question-focus').props.accessibilityLabel)
       .toContain('روح عالبنك');
 
-    // Once per proposal: laying out again does not pull the person back.
+    // One header: the wrapper the reader lands on; the text inside is not a second one.
+    expect(screen.getByTestId('clarify-question-focus').props.accessibilityRole).toBe('header');
+    expect(screen.getByTestId('clarify-question').props.accessibilityRole).toBeUndefined();
+
+    // Once per opening: laying out again does not pull the person back.
     const calls = scrollTo.mock.calls.length;
     await act(async () => { await fireEvent(screen.getByTestId('chat-clarification'), 'layout', layout(410, 360)); });
     expect(scrollTo.mock.calls.length).toBe(calls);
+  });
+
+  it('back to the summary and «هيك صح» again reveals and focuses the question afresh (Q-A1-001)', async () => {
+    jest.spyOn(AccessibilityInfo, 'isReduceMotionEnabled').mockResolvedValue(false);
+    const focus = jest.spyOn(AccessibilityInfo, 'sendAccessibilityEvent');
+    const scrollTo = jest.spyOn(ScrollView.prototype as unknown as { scrollTo: (...args: unknown[]) => void }, 'scrollTo')
+      .mockImplementation(() => {});
+    focus.mockClear();
+    scrollTo.mockClear();
+    jest.spyOn(captureEndpoints, 'chatCapture').mockImplementation(chatServer(() => bank) as never);
+    await openCapture(harness);
+    await say('بدي روح عالبنك بكرا');
+    await waitFor(() => expect(screen.queryByTestId('understood-confirm')).not.toBeNull());
+    await act(async () => { await fireEvent(screen.getByTestId('capture-scroll'), 'layout', layout(0, 540)); });
+    await act(async () => { await fireEvent.press(screen.getByTestId('understood-confirm')); });
+    await waitFor(() => expect(screen.queryByTestId('understood-confirm')).toBeNull());
+    await act(async () => { await fireEvent(screen.getByTestId('chat-clarification'), 'layout', layout(408, 360)); });
+    await waitFor(() => expect(focusedIds(focus)).toContain('clarify-question-focus'));
+
+    // Back to the summary (the header's back), then the same proposal again.
+    await act(async () => { await fireEvent.press(within(screen.getByTestId('chat-header')).getAllByRole('button')[0]!); });
+    await waitFor(() => expect(screen.queryByTestId('understood-confirm')).not.toBeNull());
+    scrollTo.mockClear();
+    focus.mockClear();
+    await act(async () => { await fireEvent.press(screen.getByTestId('understood-confirm')); });
+    await waitFor(() => expect(screen.queryByTestId('understood-confirm')).toBeNull());
+    await act(async () => { await fireEvent(screen.getByTestId('chat-clarification'), 'layout', layout(408, 360)); });
+    expect(scrollTo).toHaveBeenLastCalledWith({ y: 768 - 540 + 80, animated: true });
+    await waitFor(() => expect(focusedIds(focus)).toContain('clarify-question-focus'));
   });
 });

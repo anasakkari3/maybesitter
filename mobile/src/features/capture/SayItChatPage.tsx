@@ -222,7 +222,10 @@ export function SayItChatPage({
     setter({ key: keyRef.current, value });
   const revealed = React.useRef<string | null>(null);
   React.useEffect(() => {
-    if (!revealConfirmKey || revealed.current === revealConfirmKey || viewport <= 0) return;
+    // Back to the summary and «هيك صح» again opens the same proposal: it is
+    // revealed, and its question focused, once per opening (Q-A1-001).
+    if (!revealConfirmKey) { revealed.current = null; return; }
+    if (revealed.current === revealConfirmKey || viewport <= 0) return;
     const first = clarification ? question : block;
     if (first?.key !== revealConfirmKey) return;
     const last = clarification ? questionEnd : looseEnd;
