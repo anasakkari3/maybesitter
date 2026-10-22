@@ -11,6 +11,17 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { splitCaptureClauses } from '../../src/extraction/clauseSplitter.ts';
+import { tidyTitle } from '../../lib/services/captureBoundary/proposalShape.ts';
+
+test('#737: a title’s own leading “and” survives clause splitting', () => {
+  const text = 'And Then There Were None rehearsal tomorrow at 5';
+  assert.deepEqual(splitCaptureClauses(text), [text]);
+});
+
+test('#737: a title’s own leading “and” survives title cleanup', () => {
+  const text = 'And Then There Were None rehearsal tomorrow at 5';
+  assert.equal(tidyTitle(text), text);
+});
 
 test('BB-04: five points joined by «. » are five clauses (the black-box repro)', () => {
   const clauses = splitCaptureClauses(

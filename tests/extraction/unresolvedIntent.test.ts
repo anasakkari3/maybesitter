@@ -87,6 +87,27 @@ test('SIM-10 RB-1: promotion strips only whole leading consideration phrases', (
   }
 });
 
+test('#756: consideration phrases match whole Arabic and Hebrew words only', () => {
+  for (const text of [
+    'جيب المفكرة من المكتب',
+    'ممكنة الزيارة بكرا',
+    'يمكنني أزور أمي',
+    'بفكرة حلوة: أرتب الخزانة',
+    'האולימפיאדה מתחילה מחר',
+  ]) {
+    assert.equal(detectUnresolvedIntent(text), null, `a longer word was read as doubt: ${text}`);
+  }
+
+  for (const text of [
+    'يمكن، أقدّم عالجامعة',
+    'ناوي أجيب المفكرة من المكتب',
+    'אולי, אגיש מועמדות לאוניברסיטה',
+    'אני שוקל לעבור דירה',
+  ]) {
+    assert.equal(detectUnresolvedIntent(text)?.kind, 'consideration', `a whole phrase was missed: ${text}`);
+  }
+});
+
 test('SIM-10 RB-2: promotion removes one connective only after a doubt phrase', () => {
   assert.equal(thoughtCommitmentTitle('عم بفكر إني أروح عالجيم'), 'أروح عالجيم');
   assert.equal(thoughtCommitmentTitle("I'm not sure whether to call mom"), 'call mom');
@@ -254,4 +275,18 @@ test('one capture can name a commitment and a maybe at once', async () => {
   assert.equal(contract.items.length, 1);
   assert.equal(contract.seeds.length, 1);
   assert.equal(contract.seeds[0]!.summary, "maybe I'll apply to NVIDIA");
+});
+
+test('#737: a first seed keeps a leading “and” as exact source evidence', async () => {
+  const text = "and I'm thinking about travelling";
+  const { contract } = await propose(text);
+  assert.equal(contract.status, 'unresolved_intent');
+  assert.equal(contract.seeds.length, 1);
+  assert.equal(contract.seeds[0]!.summary, text);
+});
+
+test('#737: a first commitment stores its leading “And”', async () => {
+  const { contract } = await propose('And Then There Were None rehearsal tomorrow at 5');
+  assert.equal(contract.items.length, 1);
+  assert.equal(contract.items[0]!.title, 'And Then There Were None rehearsal');
 });

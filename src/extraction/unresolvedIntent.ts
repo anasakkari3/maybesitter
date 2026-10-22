@@ -100,6 +100,18 @@ const POSSIBLE_GOAL = new RegExp([
  * narrowing that matters is upstream: this detector only ever sees a segment
  * the extractor already declined to read as a commitment.
  */
+/**
+ * A phrase in scripts where `\b` does not mark a useful word edge. The phrase
+ * may be surrounded only by the start/end of the sentence, whitespace or
+ * punctuation — never by another letter in a longer Arabic or Hebrew word.
+ */
+function scriptPhrase(source: string, joined = ''): string {
+  return `(?<![^\\s\\p{P}])(?:${joined})?(?:${source})(?![^\\s\\p{P}])`;
+}
+
+const ARABIC_JOINER = 'و[\\u064B-\\u065F\\u0670]*';
+const HEBREW_JOINER = 'ו[\\u0591-\\u05C7]*';
+
 const CONSIDERATION_PHRASES: readonly { detect: string; leading: string }[] = [
   {
     detect: /\bmaybe i(?:'ll|'m| will| might| should| can| could)?\b/.source,
@@ -119,15 +131,15 @@ const CONSIDERATION_PHRASES: readonly { detect: string; leading: string }[] = [
     leading: /\bi(?:'m| am) not sure(?: yet)?(?: if| whether)?\b|\bnot sure (?:yet )?(?:if|whether) i\b/.source,
   },
   {
-    detect: /يمكن|ممكن|ربما|بفكر|بفكّر|عم أفكر|عم بفكر|مفكر|مفكّر|ناوي|ناوية|بدي أفكر/.source,
-    leading: /يمكن|ممكن|ربما|بفكر|بفكّر|عم أفكر|عم بفكر|مفكر|مفكّر|مفكرة|مفكّرة|ناوي|ناوية|بدي أفكر|مش متأكد(?:ة)?(?: إذا)?|يا ريت/.source,
+    detect: scriptPhrase(/يمكن|ممكن|ربما|بفكر|بفكّر|عم أفكر|عم بفكر|مفكر|مفكّر|ناوي|ناوية|بدي أفكر/.source, ARABIC_JOINER),
+    leading: scriptPhrase(/يمكن|ممكن|ربما|بفكر|بفكّر|عم أفكر|عم بفكر|مفكر|مفكّر|مفكرة|مفكّرة|ناوي|ناوية|بدي أفكر|مش متأكد(?:ة)?(?: إذا)?|يا ريت/.source, ARABIC_JOINER),
   },
   {
-    detect: /אולי|אני חושב על|אני חושבת על|אני שוקל|אני שוקלת|צריך לחשוב על/.source,
-    leading: /אולי|אני חושב על|אני חושבת על|(?:אני\s+)?חושב(?:ת)?(?=\s+ל)|אני שוקל|אני שוקלת|צריך לחשוב על|לא בטוח(?:ה)?(?:\s+אם)?/.source,
+    detect: scriptPhrase(/אולי|אני חושב על|אני חושבת על|אני שוקל|אני שוקלת|צריך לחשוב על/.source, HEBREW_JOINER),
+    leading: scriptPhrase(/אולי|אני חושב על|אני חושבת על|(?:אני\s+)?חושב(?:ת)?(?=\s+ל)|אני שוקל|אני שוקלת|צריך לחשוב על|לא בטוח(?:ה)?(?:\s+אם)?/.source, HEBREW_JOINER),
   },
 ];
-const CONSIDERATION = new RegExp(CONSIDERATION_PHRASES.map(({ detect }) => detect).join('|'), 'i');
+const CONSIDERATION = new RegExp(CONSIDERATION_PHRASES.map(({ detect }) => detect).join('|'), 'iu');
 const LEADING_CONSIDERATION = new RegExp(
   `^(?:${CONSIDERATION_PHRASES.map(({ leading }) => leading).join('|')})(?=$|[\\s\\p{P}])`,
   'iu',

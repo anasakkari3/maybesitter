@@ -741,7 +741,13 @@ function segmentsOf(raw: string): string[] {
     .join('|')
     .replace(CLAUSE_OPENER, '|')
     .replace(/[;\n]+/g, '|')
-    .replace(/\s+(?:and then|then|also)\s+/gi, '|')
+    .replace(/\s+(and then|then|also)\s+/gi, (match, connector: string, offset: number, source: string) => {
+      // At the start of a capture, "And Then There Were None" is a title, not
+      // an empty clause followed by a sequencing word. A real connector still
+      // has content before it and keeps the existing split behaviour.
+      const before = source.slice(0, offset).trim();
+      return connector.toLowerCase() === 'then' && /^and$/i.test(before) ? match : '|';
+    })
     // «وبعدين»/«وبعدها»/«وكمان» (and then / and after / and also), and Hebrew
     // «ואז»/«וגם». Each is a whole word, so «وكمانك» is untouched.
     .replace(/\s*(?:وبعدين|وبعدها|وكمان|ثم|بعدين)\s+/g, '|')
@@ -749,7 +755,12 @@ function segmentsOf(raw: string): string[] {
     .replace(/،+/g, '|')
     .split('|')
     .map((part) => part.trim())
-    .map((part) => part.replace(/^[\s,;،]+|[\s,;،]+$/g, '').replace(/^(?:and\b|ثم(?![؀-ۿ]))\s*/i, '').trim())
+    .map((part) => part.replace(/^[\s,;،]+|[\s,;،]+$/g, '').replace(/^ثم(?![؀-ۿ])\s*/i, '').trim())
+    .filter(Boolean)
+    // The first segment owns a leading "and" (a title or verbatim seed). On a
+    // follower, the separator already proves it is the clause joiner, matching
+    // the pre-#737 rules behaviour without stripping the capture's first word.
+    .map((part, index) => index === 0 ? part : part.replace(/^and\b\s*/i, '').trim())
     // A Hebrew «ו» is attached, like an Arabic «و»: it is not cut here, where
     // «ויזה» would lose its own letter (Codex inspection F3-004); a joining one
     // goes where the follower's item or seed is made (`withoutClauseJoiner`).

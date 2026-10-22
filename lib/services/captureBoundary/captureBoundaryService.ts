@@ -1469,7 +1469,10 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
       // at its edges («and gym», «חדר כושר וחמישי»), on the card and the saved
       // commitment alike.
       const tidied = extracted.result.title
-        ? tidyTitle(followsAnother(index) ? withoutClauseJoiner(extracted.result.title) : extracted.result.title)
+        ? tidyTitle(
+          followsAnother(index) ? withoutClauseJoiner(extracted.result.title) : extracted.result.title,
+          segment,
+        )
         : extracted.result.title;
       const tidyResult = tidied === extracted.result.title ? extracted.result
         : { ...extracted.result, title: tidied, ...(extracted.result.action === extracted.result.title ? { action: tidied } : {}) };
