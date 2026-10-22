@@ -41,6 +41,17 @@ function planUsedWindow(stored: StoredDailyPlan, window: { start: string; end: s
     candidate.startMinute === startMinute && candidate.endMinute === endMinute);
 }
 
+/** The fence epoch a memory-shaped plan was solved under, if it records one. */
+function planSolveEpoch(stored: StoredDailyPlan): number | undefined {
+  return stored.memoryUse?.epoch ?? (stored.focusFromMemory === true ? stored.personalizationPurgeEpoch : undefined);
+}
+
+/** Whether the personalization fence has moved since this plan was solved from memory. */
+export function planSolveEpochMoved(stored: StoredDailyPlan, user: unknown): boolean {
+  const epoch = planSolveEpoch(stored);
+  return epoch !== undefined && epoch !== purgeEpochOf(user);
+}
+
 /** Live, content-free projection of the kept focus record used by a plan. */
 export async function readPlanMemoryProjection(
   uid: string,
@@ -62,6 +73,10 @@ export async function readPlanMemoryProjection(
   // shows no basis.
   const before = await storage.get(userDoc(uid));
   if (purgeRunning(before)) return { mode, memoryBasis: null, memoryBasisChanged: true, markerUnknown: false };
+  // Solved under an earlier fence — a withdrawal (even one re-granted since)
+  // or a purge moved it: the basis is no longer the one this plan stands on
+  // (M5B2A-R13-001).
+  if (planSolveEpochMoved(stored, before)) return { mode, memoryBasis: null, memoryBasisChanged: true, markerUnknown: false };
   const record = await keptFocusWindowRecord(uid, now, { storage });
   const after = await storage.get(userDoc(uid));
   const fenceHeld = !purgeRunning(after) && purgeEpochOf(after) === purgeEpochOf(before);

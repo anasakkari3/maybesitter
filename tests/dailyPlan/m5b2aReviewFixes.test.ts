@@ -20,7 +20,7 @@ import { userDoc } from '../../lib/storage/paths.ts';
 import { setStorageForTests } from '../../lib/storage/index.ts';
 import {
   AUTO_APPLY, NOW, REVIEW, TODAY, TZ, addFloating, begin, buildPlan, call, currentStorage, end,
-  grantPersonalization, meetingLands, outcomeObservation, replan, setAccount, show, storedPlan, threeTasks,
+  getPlan, grantPersonalization, meetingLands, outcomeObservation, replan, setAccount, show, storedPlan, threeTasks, touchPlan,
 } from '../acceptance/m5b2a/support.ts';
 
 test.afterEach(() => end());
@@ -584,4 +584,42 @@ test('R12-001: the control-centre delete, through the fenced consent store, answ
   assert.deepEqual([consent.state, consent.changedAt], ['disabled', null], 'the consent record survived the delete');
   const fenceAfter = ((await storage.get(userDoc(uid))) ?? {}).personalizationPurge?.epoch ?? 0;
   assert.ok(fenceAfter > fenceBefore, 'the deletion did not move the personalization fence');
+});
+
+test('R13-001: after a withdrawal and a quick re-grant, an untouched memory plan is re-solved under the new fence and can be accepted', async () => {
+  const uid = await keptFocusPlan();
+  const before = await storedPlan(uid);
+  const solvedAt = before.memoryUse?.epoch ?? before.personalizationPurgeEpoch;
+  assert.notEqual(solvedAt, undefined, 'fixture: the plan records no solve epoch');
+  await setPersonalizationConsent(uid, { state: 'declined', version: PERSONALIZATION_CONSENT_VERSION, at: new Date() }, { storage: currentStorage() as any });
+  await grantPersonalization(uid);
+  await getPlan(uid);
+  const after = await storedPlan(uid);
+  assert.notEqual(after.memoryUse?.epoch ?? after.personalizationPurgeEpoch, solvedAt, 'the stale plan was offered again');
+  const accepted = await call(uid, 'plans/[date]/actions', 'POST', { params: { date: TODAY }, body: { action: 'accept' } });
+  assert.equal(accepted.status, 200, show(accepted.body));
+});
+
+test('R13-001: a touched memory plan after a withdrawal and re-grant shows no basis and says it changed', async () => {
+  const uid = await keptFocusPlan();
+  await touchPlan(uid);
+  await setPersonalizationConsent(uid, { state: 'declined', version: PERSONALIZATION_CONSENT_VERSION, at: new Date() }, { storage: currentStorage() as any });
+  await grantPersonalization(uid);
+  const read = await getPlan(uid);
+  assert.equal(read.plan.memoryBasis ?? null, null, show(read.plan.memoryBasis));
+  assert.equal(read.plan.memoryBasisChanged, true);
+});
+
+test('R13-001: off mode too — after a withdrawal and a re-grant, an untouched memory plan is re-solved and can be accepted', async () => {
+  const uid = await offModeFocusAccount();
+  await buildPlan(uid);
+  const before = await storedPlan(uid);
+  assert.ok(before.memoryUse, 'fixture: the off-mode plan records no memory use');
+  await setPersonalizationConsent(uid, { state: 'declined', version: PERSONALIZATION_CONSENT_VERSION, at: new Date() }, { storage: currentStorage() as any });
+  await grantPersonalization(uid);
+  await getPlan(uid);
+  const after = await storedPlan(uid);
+  assert.notEqual(after.memoryUse?.epoch, before.memoryUse.epoch, 'the stale off-mode plan was offered again');
+  const accepted = await call(uid, 'plans/[date]/actions', 'POST', { params: { date: TODAY }, body: { action: 'accept' } });
+  assert.equal(accepted.status, 200, show(accepted.body));
 });

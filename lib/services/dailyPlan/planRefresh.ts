@@ -97,7 +97,7 @@ import { replanExplanation } from './replanMetadata';
 import { PLAN_PROPOSAL_DAYS, planDatesFrom, storedWeekAssignment } from './weekHolds';
 import { resolveMemoryLearning } from '../../release/m5bCapabilities';
 import { resolvePlanReadiness } from '../../integrations/readiness/freshReadiness';
-import { readPlanMemoryProjectionSafely } from './planMemoryBasis';
+import { planSolveEpochMoved, readPlanMemoryProjectionSafely } from './planMemoryBasis';
 
 export interface PlanRefreshDeps {
   readonly storage?: StorageAdapter;
@@ -324,8 +324,13 @@ export async function refreshStalePlan(
   // Unreadable is unknown, not changed: the stored plan stands, and the
   // response omits the basis (M5B2A-R7-003).
   const memoryProjection = await readPlanMemoryProjectionSafely(uid, stored, now.toISOString(), storage);
-  const memoryChanged = memoryProjection !== null && memoryProjection.mode !== 'off'
-    && (memoryProjection.markerUnknown || memoryProjection.memoryBasisChanged);
+  // In every mode: a plan solved from memory under a fence that has since
+  // moved is stale — its acceptance would be refused — so an untouched one is
+  // re-solved now rather than offered again (M5B2A-R13-001).
+  const fenceMoved = normallyRefreshable
+    && planSolveEpochMoved(stored, user ?? await storage.get<Record<string, unknown>>(userDoc(uid)));
+  const memoryChanged = fenceMoved || (memoryProjection !== null && memoryProjection.mode !== 'off'
+    && (memoryProjection.markerUnknown || memoryProjection.memoryBasisChanged));
   const commitmentChanged = normallyRefreshable && planInputsChanged(uid, stored, commitments, today);
   if (!commitmentChanged && !readinessChanged && !memoryChanged) return { stored, inputsChanged: false, basisChanged: false };
   if (!planIsUntouched(stored, now)) {
