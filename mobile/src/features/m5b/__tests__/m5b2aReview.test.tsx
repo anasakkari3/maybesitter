@@ -590,4 +590,26 @@ describe('M5b-2a inspection fixes', () => {
     await act(async () => { token.resolve(await realToken(false)); await jest.advanceTimersByTimeAsync(100); });
     expect(harness.server.matching('POST', /^\/api\/mobile\/intelligence\/observations\/o1$/)).toHaveLength(0);
   });
+
+  it('R9-002: the memory read behind the plan line, started for account A, is not sent once account B is signed in', async () => {
+    harness = await prepare('en', initialState(), planOnly(planWithBasis()));
+    const repository = harness.repository as unknown as { getIdToken: (force?: boolean) => Promise<string | null>; currentUser: () => unknown };
+    const realToken = repository.getIdToken.bind(repository);
+    // Every token asked for once the plan has loaded is held — the memory read's among them.
+    const held: (() => Promise<void>)[] = [];
+    jest.spyOn(repository, 'getIdToken').mockImplementation((force?: boolean) => {
+      if (harness!.server.matching('GET', new RegExp(`^/api/mobile/plans/${TODAY}$`)).length === 0) return realToken(force);
+      const token = deferred<string | null>();
+      held.push(async () => { token.resolve(await realToken(force)); });
+      return token.promise;
+    });
+    await render(<Providers harness={harness}><PlanScreen date={TODAY} onBack={() => undefined} /></Providers>);
+    await waitFor(() => expect(screen.queryByTestId('plan-why')).not.toBeNull());
+    await act(async () => { await jest.advanceTimersByTimeAsync(100); });
+    expect(held.length).toBeGreaterThan(0);
+    expect(harness.server.matching('GET', /^\/api\/mobile\/memory$/)).toHaveLength(0);
+    jest.spyOn(repository, 'currentUser').mockReturnValue(ACCOUNT_B);
+    await act(async () => { for (const release of held) await release(); await jest.advanceTimersByTimeAsync(100); });
+    expect(harness.server.matching('GET', /^\/api\/mobile\/memory$/)).toHaveLength(0);
+  });
 });

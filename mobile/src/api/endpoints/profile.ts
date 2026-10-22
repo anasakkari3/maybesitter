@@ -46,8 +46,15 @@ export function putRoutine(profile: RoutineProfilePayload) {
   });
 }
 
-export function listMemory(): Promise<{ items: MemoryItem[]; suggestions: MemorySuggestion[]; adaptive: MemoryAdaptive | null }> {
-  return apiRequest('GET', '/api/mobile/memory', { schema: memoryListSchema });
+/** `asUid` binds the read to the account that asked (M5B2A-R9-002): another account's memory never answers it. */
+export function listMemory(
+  options: { asUid?: string; signal?: AbortSignal } = {},
+): Promise<{ items: MemoryItem[]; suggestions: MemorySuggestion[]; adaptive: MemoryAdaptive | null }> {
+  return apiRequest('GET', '/api/mobile/memory', {
+    schema: memoryListSchema,
+    ...(options.asUid !== undefined ? { asUid: options.asUid } : {}),
+    ...(options.signal ? { signal: options.signal } : {}),
+  });
 }
 
 export function createMemory(input: { kind: 'fact' | 'preference' | 'goal'; content: string; language: 'ar' | 'he' | 'en' | 'mixed' }) {

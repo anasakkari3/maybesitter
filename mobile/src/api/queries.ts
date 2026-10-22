@@ -1860,7 +1860,8 @@ export function useMemory(options: { fresh?: boolean } = {}) {
   const uid = useUid();
   return useQuery({
     queryKey: queryKeys.memory(uid),
-    queryFn: listMemory,
+    queryFn: ({ signal }) => listMemory({ ...asAccount(uid), signal }),
+    enabled: uid !== 'signed-out',
     ...(options.fresh ? { refetchOnMount: 'always' as const } : {}),
   });
 }
@@ -1882,7 +1883,7 @@ export function useMemoryOpen(memoryId: string | null | undefined, enabled: bool
   const on = enabled && memoryId != null && uid !== 'signed-out';
   const query = useQuery({
     queryKey: queryKeys.memory(uid),
-    queryFn: listMemory,
+    queryFn: ({ signal }) => listMemory({ ...asAccount(uid), signal }),
     enabled: on,
     refetchOnMount: 'always',
     refetchOnWindowFocus: 'always',
