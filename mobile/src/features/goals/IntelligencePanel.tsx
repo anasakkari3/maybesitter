@@ -334,23 +334,35 @@ function IntelligencePanelForAccount({ onChanged, autoGenerate = false, whenOff 
     let alive = true;
     void (async () => {
       if (!(await claimVisit(uid))) return;
+      let answer;
       try {
-        const answer = await generateIntelligenceSuggestions({ visit: true, ...bound });
-        recordVisitAnswer(uid, answer.nextVisitAt);
-        // Read again when the visit's answer differs from what is held in
-        // anything drawn (M5b-2b-1, APP-001): a suggestion keeps its id when
-        // its basis or mode changes, or when a row of another mode replaces
-        // it, so a new id is not the only sign that what is held went stale.
-        // A visit that changed nothing still costs no second read.
-        const held = shown.current;
-        if (alive && (!held.inbox || visitSignature(answer.suggestions, answer.schedule, answer.basisMode ?? null)
-          !== visitSignature(held.inbox.suggestions, held.inbox.schedule, held.basis?.mode ?? null))) await refresh();
+        answer = await generateIntelligenceSuggestions({ visit: true, ...bound });
       } catch (cause) {
         recordVisitFailure(uid, forbiddenReason(cause) !== null);
+        return;
+      }
+      // The visit answered: that is what the throttle keeps, whatever the
+      // read after it does (APP-VISIT-006).
+      recordVisitAnswer(uid, answer.nextVisitAt);
+      // Read again when the visit's answer differs from what is held in
+      // anything drawn (M5b-2b-1, APP-001): a suggestion keeps its id when
+      // its basis or mode changes, or when a row of another mode replaces
+      // it, so a new id is not the only sign that what is held went stale.
+      // A visit that changed nothing still costs no second read.
+      const held = shown.current;
+      if (!alive || (held.inbox && visitSignature(answer.suggestions, answer.schedule, answer.basisMode ?? null)
+        === visitSignature(held.inbox.suggestions, held.inbox.schedule, held.basis?.mode ?? null))) return;
+      const before = readSeq.current;
+      try {
+        await refresh();
+      } catch {
+        // What is held is known stale and could not be read again: it goes,
+        // unless a newer read has already taken its place.
+        if (alive && readSeq.current === before + 1) failClosed();
       }
     })();
     return () => { alive = false; };
-  }, [autoGenerate, uid, recommendationsEnabled, phase, refresh, bound]);
+  }, [autoGenerate, uid, recommendationsEnabled, phase, refresh, bound, failClosed]);
   // A decision on a card. The mutation decides success; a failed re-read of
   // the inbox afterwards is its own state, retried by re-reading only — never
   // by sending the decision again.
@@ -647,14 +659,17 @@ function IntelligencePanelForAccount({ onChanged, autoGenerate = false, whenOff 
   // either, which would not be true of what is held.
   // A card that cites a memory waits for the memory list fetched since mount
   // (answered or failed), so its basis line arrives with it, not after it.
-  const awaitingList = basis?.mode === 'on_basis' && signals.capNow === true && !signals.listSettled
-    && inbox.suggestions.some(item => item.status === 'pending' && (item.memoryBasis?.length ?? 0) > 0);
-  const suggestionsShown = basisClassVisible(basis, signals.capNow) && !awaitingList;
-  const schedule = new Map(suggestionsShown ? inbox.schedule.map(item => [item.suggestionId, item]) : []);
-  const pending = suggestionsShown ? inbox.suggestions.filter(item => item.status === 'pending') : [];
+  // Only that card waits (APP-UI-004): a citationless one beside it, and its
+  // schedule row, are drawn at once.
+  const suggestionsShown = basisClassVisible(basis, signals.capNow);
+  const waitingForList = basis?.mode === 'on_basis' && signals.capNow === true && !signals.listSettled;
+  const classifiedPending = suggestionsShown ? inbox.suggestions.filter(item => item.status === 'pending') : [];
+  const pending = classifiedPending.filter(item => !(waitingForList && (item.memoryBasis?.length ?? 0) > 0));
+  const drawn = new Set(pending.map(item => item.id));
+  const schedule = new Map(inbox.schedule.filter(item => drawn.has(item.suggestionId)).map(item => [item.suggestionId, item]));
   return <><ProductSection title={t.xIntelligenceTitle} why={{ id: 'intelligence-panel', body: t.xIntelligenceBody }} icon="goal">
     {error && announced === null ? <Txt role="supporting" color={p.wm} testID="m5b-suggestion-action-error">{userFacingMessage(error, t)}</Txt> : null}
-    {recommendationsEnabled && suggestionsShown && pending.length === 0
+    {recommendationsEnabled && suggestionsShown && classifiedPending.length === 0
       ? <Txt role="supporting">{t.xIntelligenceNoIdeas}</Txt> : null}
     {recommendationsEnabled && pending.map(item => <View key={item.id} testID={`intelligence-suggestion-${item.id}`}>
       <Txt role="body">{isolateAuto(item.title)}</Txt>

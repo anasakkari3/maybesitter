@@ -272,9 +272,9 @@ export function useIntelligenceDecided(): () => void {
   const uid = useUid();
   return useCallback(() => {
     invalidateCommitments(client, uid);
-    void client.invalidateQueries({ queryKey: queryKeys.memory(uid) });
     void client.invalidateQueries({ queryKey: ['user', uid, 'goalExecution'] });
-    void client.invalidateQueries({ queryKey: queryKeys.memory(uid) });
+    // An accepted goal or an answer is memory now.
+    settleMemoryWrite(client, uid);
   }, [client, uid]);
 }
 
@@ -455,7 +455,8 @@ export function useInvalidateAfterPlanConfirm(): () => void {
     void client.invalidateQueries({ queryKey: queryKeys.habits(uid) });
     void client.invalidateQueries({ queryKey: ['user', uid, 'goalPlan'] });
     void client.invalidateQueries({ queryKey: ['user', uid, 'goalExecution'] });
-    void client.invalidateQueries({ queryKey: queryKeys.memory(uid) });
+    // A confirmed plan's goal is memory.
+    settleMemoryWrite(client, uid);
   }, [client, uid]);
 }
 
@@ -877,7 +878,8 @@ export function invalidateAfterCapture(client: QueryClient, uid: string, confirm
     void client.invalidateQueries({ queryKey: ['user', uid, 'goalExecution'] });
   }
   if ((confirmation.goalsPersisted?.length ?? 0) > 0) {
-    void client.invalidateQueries({ queryKey: queryKeys.memory(uid) });
+    // A kept goal is a memory record.
+    settleMemoryWrite(client, uid);
     void client.invalidateQueries({ queryKey: ['user', uid, 'goalExecution'] });
     void client.invalidateQueries({ queryKey: ['user', uid, 'goalPlan'] });
   }
@@ -1357,6 +1359,20 @@ export function bumpMemoryRevision(uid: string): void {
   if (uid === 'signed-out' || uid === '') return;
   memoryRevisions.set(uid, (memoryRevisions.get(uid) ?? 0) + 1);
   for (const listener of revisionListeners) listener();
+}
+
+/**
+ * Every app operation that can create, supersede or delete memory settles
+ * through here (M5b-2b-1, APP-REV-005): the memory list is read again and the
+ * revision bumped, so every holder of intelligence suggestions rereads. On a
+ * success, and on any failure that does not prove the server refused the
+ * write before touching a record (`writeRefused`): a timeout or a 5xx may
+ * have committed first.
+ */
+export function settleMemoryWrite(client: QueryClient, uid: string, error: unknown = null): void {
+  if (error !== null && writeRefused(error)) return;
+  void client.invalidateQueries({ queryKey: queryKeys.memory(uid) });
+  bumpMemoryRevision(uid);
 }
 
 /** The revision now, outside a render. */
@@ -2191,11 +2207,11 @@ export function usePutRoutine() {
     mutationFn: (profile: RoutineProfilePayload) => putRoutine(profile, asAccount(uid)),
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: queryKeys.profile(uid) });
-      // Saving the survey supersedes the facts derived from it.
-      void client.invalidateQueries({ queryKey: queryKeys.memory(uid) });
-      bumpMemoryRevision(uid);
       void client.invalidateQueries({ queryKey: ['user', uid, 'nextStep'] });
     },
+    // Saving the survey supersedes the facts derived from it — and a save
+    // that timed out may have done so too.
+    onSettled: (_saved, error) => settleMemoryWrite(client, uid, error),
   });
 }
 
@@ -2572,11 +2588,13 @@ export function useConfirmAiContextImport() {
       accepted: { index: number; content?: string; resolve?: 'replace' | 'keep_both' }[];
     }) => confirmAiContextImport(input.proposalId, input.accepted, asAccount(uid)),
     onSuccess: () => {
-      // Two things went stale: the kept rows are memory now, and the Settings
-      // row that says when context was last brought over lives on the profile.
-      void client.invalidateQueries({ queryKey: queryKeys.memory(uid) });
+      // The Settings row that says when context was last brought over lives
+      // on the profile.
       void client.invalidateQueries({ queryKey: queryKeys.profile(uid) });
     },
+    // The kept rows are memory now (some may replace older ones), even when
+    // the answer was lost after the commit.
+    onSettled: (_result, error) => settleMemoryWrite(client, uid, error),
   });
 }
 
@@ -2586,11 +2604,9 @@ export function useConfirmProfileSuggestions() {
   return useMutation({
     mutationFn: (input: { proposalId: string; accepted: { index: number; content?: string }[] }) =>
       confirmProfileSuggestions(input.proposalId, input.accepted, asAccount(uid)),
-    onSuccess: () => {
-      // The confirmed facts are memory now, so the "what it knows" screen is
-      // out of date the moment this returns.
-      void client.invalidateQueries({ queryKey: queryKeys.memory(uid) });
-    },
+    // The confirmed facts are memory now, so the "what it knows" screen is
+    // out of date the moment this returns — or times out after the commit.
+    onSettled: (_result, error) => settleMemoryWrite(client, uid, error),
   });
 }
 
@@ -2628,11 +2644,13 @@ export function useSaveReminderSettings() {
   const uid = useUid();
   return useMutation({
     mutationFn: (patch: ReminderSettingsPatch) => putReminderSettings(patch),
-    onSettled: (_result, _error, patch) => {
+    onSettled: (_result, error, patch) => {
       void client.invalidateQueries({ queryKey: queryKeys.reminderSettings(uid) });
       if (patch.quietHours !== undefined) {
         void client.invalidateQueries({ queryKey: queryKeys.profile(uid) });
-        void client.invalidateQueries({ queryKey: queryKeys.memory(uid) });
+        // Quiet hours are kept as a routine fact in memory.
+        if (error === null || !writeRefused(error)) settleMemoryWrite(client, uid);
+        else void client.invalidateQueries({ queryKey: queryKeys.memory(uid) });
         // The next step is gated on the same window.
         void client.invalidateQueries({ queryKey: ['user', uid, 'nextStep'] });
       }
@@ -2779,8 +2797,9 @@ function useSeedMutation<TInput, TResult>(mutationFn: (input: TInput) => Promise
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: queryKeys.seeds(uid) });
       void client.invalidateQueries({ queryKey: ['user', uid, 'commitments'] });
-      void client.invalidateQueries({ queryKey: queryKeys.memory(uid) });
     },
+    // A seed promoted to a goal is a memory record.
+    onSettled: (_result, error) => settleMemoryWrite(client, uid, error),
   });
 }
 
