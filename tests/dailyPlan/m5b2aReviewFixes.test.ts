@@ -20,7 +20,8 @@ import { userDoc } from '../../lib/storage/paths.ts';
 import { setStorageForTests } from '../../lib/storage/index.ts';
 import {
   AUTO_APPLY, NOW, REVIEW, TODAY, TZ, addFloating, begin, buildPlan, call, currentStorage, end,
-  getPlan, grantPersonalization, meetingLands, outcomeObservation, replan, setAccount, show, storedPlan, threeTasks, touchPlan,
+  getPlan, grantPersonalization, grantRecommendations, meetingLands, outcomeObservation, replan, setAccount, show, storedPlan,
+  storeSuggestion, storedSuggestion, threeTasks, touchPlan,
 } from '../acceptance/m5b2a/support.ts';
 
 test.afterEach(() => end());
@@ -647,4 +648,35 @@ test('R14-002: still withdrawn, the touched memory plan is refused (409 plan_cha
   const accepted = await call(uid, 'plans/[date]/actions', 'POST', { params: { date: TODAY }, body: { action: 'accept' } });
   assert.equal(accepted.status, 409, show(accepted.body));
   assert.notEqual((await storedPlan(uid)).status, 'accepted');
+});
+
+test('R16-001: accepting, with a now-stale slot, an action that cites a dismissed outcome leaves it dismissed rather than pending', async () => {
+  const uid = await begin();
+  await grantRecommendations(uid);
+  const outcome = await outcomeObservation(uid, 'Completed: Call the dentist', NOW());
+  const citing = await storeSuggestion(uid, 'action', [outcome.id]);
+  assert.equal((await call(uid, 'intelligence/observations/[id]', 'POST', { params: { id: outcome.id }, body: { review: 'dismissed' } })).status, 200);
+  // The client still shows the suggestion and the slot it offered, which has since passed.
+  const slot = { startsAt: new Date(Date.now() - 3_600_000).toISOString(), endsAt: new Date(Date.now() - 1_800_000).toISOString() };
+  const result = await call(uid, 'intelligence/suggestions/[id]', 'POST', { params: { id: citing.id }, body: { decision: 'accept', slot } });
+  assert.ok(result.status < 500, show(result.body));
+  assert.equal((await storedSuggestion(uid, citing.id))?.status, 'dismissed');
+});
+
+test('R16-002: a week card shown, then withdraw and re-grant before acceptance, answers week_changed even with the same rows', async () => {
+  const uid = await keptFocusPlan();
+  const storage = currentStorage() as any;
+  const { composeWeek, weekToDto } = await import('../../lib/services/dailyPlan/weekPlan.ts');
+  const TOMORROW = new Intl.DateTimeFormat('en-CA', { timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(Date.parse(NOW()) + 86_400_000));
+  await addFloating(uid, 'Write the quarterly report', 'cmt-r16-week-task-00000000001');
+  const decisions = { moves: [{ itemId: 'cmt-r16-week-task-00000000001', date: TOMORROW }], drops: [] };
+  const layout = await composeWeek(uid, decisions as any, { storage, now: () => new Date() } as any);
+  const day = (layout.days as any[]).find((candidate) => candidate.date === TOMORROW);
+  assert.ok(day && day.kind === 'proposed' && day.focusFromMemory === true, 'fixture: tomorrow is not a memory-shaped proposed day');
+  const dtoDay = (weekToDto(layout as any) as any).days.find((candidate: any) => candidate.date === TOMORROW);
+  await setPersonalizationConsent(uid, { state: 'declined', version: PERSONALIZATION_CONSENT_VERSION, at: new Date() }, { storage });
+  await grantPersonalization(uid);
+  const accepted = await call(uid, 'plans/week/accept', 'POST', { body: { date: TOMORROW, shown: day.assignment.include, ...decisions, layoutDigest: dtoDay.layoutDigest } });
+  assert.equal(accepted.status, 409, show(accepted.body));
+  assert.equal(accepted.body.reason, 'week_changed');
 });

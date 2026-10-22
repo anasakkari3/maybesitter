@@ -555,7 +555,7 @@ export interface WeekDto {
   readonly waiting: number;
 }
 
-export function weekDayLayoutDigest(date: string, plan: Plan, constraints?: PlanningConstraints, focusFromMemory?: boolean): string {
+export function weekDayLayoutDigest(date: string, plan: Plan, constraints?: PlanningConstraints, focusFromMemory?: boolean, memoryEpoch?: number): string {
   const rows = [
     ...plan.scheduled.map((item) => ({ itemId: item.itemId, startsAt: item.interval.startsAt, endsAt: item.interval.endsAt })),
     ...(constraints ? pinnedEventsOnDay(constraints.fixedEvents, constraints.horizon).flatMap((event) => event.sourceCommitmentId ? [{
@@ -566,7 +566,13 @@ export function weekDayLayoutDigest(date: string, plan: Plan, constraints?: Plan
     .map((item) => `${item.itemId}|${item.startsAt}|${item.endsAt}`);
   // The solve's memory provenance is part of the card (M5B2A-R3-001); absent
   // (off mode, M5b-1) the digest is exactly what it was.
-  const provenance = focusFromMemory === undefined ? [] : [`focusFromMemory|${focusFromMemory}`];
+  // …and, for a memory-shaped card, the fence epoch it was solved under: a
+  // withdrawal and re-grant before acceptance expires the card even when the
+  // same window gives the same rows (M5B2A-R16-002).
+  const provenance = [
+    ...(focusFromMemory === undefined ? [] : [`focusFromMemory|${focusFromMemory}`]),
+    ...(focusFromMemory === true && memoryEpoch !== undefined ? [`memoryEpoch|${memoryEpoch}`] : []),
+  ];
   return createHash('sha256').update([date, ...rows, ...provenance].join('\n')).digest('hex');
 }
 
@@ -616,7 +622,7 @@ export function weekToDto(layout: WeekLayout): WeekDto {
       return {
         date: day.date,
         state: 'proposed',
-        ...(resolveMemoryLearning() ? { layoutDigest: weekDayLayoutDigest(day.date, day.plan, day.constraints, day.focusFromMemory) } : {}),
+        ...(resolveMemoryLearning() ? { layoutDigest: weekDayLayoutDigest(day.date, day.plan, day.constraints, day.focusFromMemory, day.personalizationPurgeEpoch) } : {}),
         items: [...day.plan.scheduled]
           .sort((left, right) => toEpochMs(left.interval.startsAt) - toEpochMs(right.interval.startsAt))
           .map((item) => ({
@@ -693,7 +699,7 @@ export async function acceptWeekDay(
   // than re-solved silently (M5B2A-R3-001).
   if (layoutDigest !== undefined) {
     const on = resolveMemoryLearning();
-    if (on && layoutDigest !== weekDayLayoutDigest(day.date, day.plan, day.constraints, day.focusFromMemory)) {
+    if (on && layoutDigest !== weekDayLayoutDigest(day.date, day.plan, day.constraints, day.focusFromMemory, day.personalizationPurgeEpoch)) {
       return { outcome: 'week_changed', layout };
     }
     if (!on && layoutDigest !== null) return { outcome: 'week_changed', layout };

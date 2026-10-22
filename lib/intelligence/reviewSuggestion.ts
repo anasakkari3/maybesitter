@@ -55,6 +55,23 @@ export async function reviewSuggestion(
       return next;
     });
   }
+  // A suggestion that cites an outcome the person has dismissed is dismissed
+  // before any check that could fail and leave it pending — a stale slot, for
+  // one (M5B2A-R16-001). The guards inside each claim still close the race.
+  const settled = await storage.runTransaction(async tx => {
+    const latest = await tx.get<IntelligenceSuggestion>(path);
+    if (!latest) return { done: true as const, value: null };
+    if (latest.status === 'accepted' || latest.status === 'dismissed') return { done: true as const, value: latest };
+    // An accept already under way ('accepting') claimed its outcomes before
+    // they were dismissed, and its retry finishes that claim below.
+    if (latest.status !== 'pending') return { done: false as const };
+    const cited = await Promise.all(latest.observationIds.map(observationId => tx.get(observationPath(uid, observationId))));
+    if (!cited.some(isDismissedBehaviourOutcome)) return { done: false as const };
+    const next: IntelligenceSuggestion = { ...latest, status: 'dismissed', decidedAt: now };
+    tx.set(path, next);
+    return { done: true as const, value: next };
+  });
+  if (settled.done) return settled.value;
   const observations = await listObservations(uid, storage);
   const autoAdded = new Set(observations.filter(item => item.autoAddId).map(item => item.id));
   if (current.observationIds.some(id => autoAdded.has(id))) throw new AutoAddedSuggestionError();
