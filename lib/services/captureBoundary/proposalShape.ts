@@ -516,14 +516,18 @@ const BARE_DAY = new RegExp(`^${DAY_NAMES}$`, 'iu');
 /**
  * The title without the connectors and list days a rules reading leaves at
  * its edges: «and gym» → «gym», «gym and» → «gym», «חדר כושר וחמישי» →
- * «חדר כושר». A title that would be left with nothing stays as it was.
+ * «חדר כושר». A leading English "and" is removed only when `sourceTitle`
+ * shows that the parser introduced it rather than the person starting their
+ * segment with it. A title that would be left with nothing stays as it was.
  */
-export function tidyTitle(title: string): string {
+export function tidyTitle(title: string, sourceTitle = title): string {
   const words = title.trim().split(/\s+/).filter(Boolean);
   const edge = (word: string) => CONNECTORS.has(word.toLowerCase()) || JOINED_DAY.test(word);
+  const sourceStartsWithAnd = /^\s*and\b/i.test(sourceTitle);
+  const leadingEdge = (word: string) => (word.toLowerCase() !== 'and' || !sourceStartsWithAnd) && edge(word);
   let start = 0;
   let end = words.length;
-  while (start < end && edge(words[start]!)) start += 1;
+  while (start < end && leadingEdge(words[start]!)) start += 1;
   for (;;) {
     if (end > start && edge(words[end - 1]!)) { end -= 1; continue; }
     // "… and Thursday": a connector and a day, at the end.

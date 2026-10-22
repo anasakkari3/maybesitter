@@ -27,6 +27,36 @@ function assertSummaryMatchesStored(proposal: Proposal, label: string): void {
   }
 }
 
+test('#737 REG-001: only the first segment keeps its own leading “and”', async () => {
+  for (const [text, expected] of [
+    ['Pay rent tomorrow at 9; and call mom tomorrow at 5pm', ['Pay rent', 'call mom']],
+    ['call the dentist tomorrow at 10 and then gym tomorrow at 6pm', ['call the dentist', 'gym']],
+    ['And Then There Were None rehearsal tomorrow at 5', ['And Then There Were None rehearsal']],
+  ] as const) {
+    const uid = beginRules();
+    try {
+      const body = await chat(uid, text, { locale: 'en' });
+      const titles = (body.proposal?.items ?? []).map((item) => item.title);
+      assert.deepEqual(titles, expected, `${text}: ${JSON.stringify(body.proposal)}`);
+    } finally {
+      end();
+    }
+  }
+});
+
+test('#737 REG-001: a follower seed drops the certain English joiner', async () => {
+  const uid = beginRules();
+  try {
+    const body = await chat(uid, "Pay rent tomorrow at 9; and I'm thinking about travelling", { locale: 'en' });
+    const proposal = body.proposal as Proposal;
+    assert.deepEqual(proposal.items.map((item) => item.title), ['Pay rent']);
+    assert.deepEqual(proposal.seeds.map((seed) => seed.summary), ["I'm thinking about travelling"]);
+    assertSummaryMatchesStored(proposal, 'English follower seed');
+  } finally {
+    end();
+  }
+});
+
 test('F3: the literal load-pass capture stores the titles «هيك فهمت» shows, without the joining «و»', async () => {
   const uid = beginRules();
   try {

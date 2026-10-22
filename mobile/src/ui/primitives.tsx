@@ -6,6 +6,7 @@ import {
 import { useApp } from '../state/AppContext';
 import { family, LINE_HEIGHT, type Weight } from '../theme/fonts';
 import { cardShadow, typography, type Palette, type TextRole } from '../theme/tokens';
+import { useTextScale } from '../theme/textScale';
 import { useReducedMotion } from './motion';
 import { firstStrongDirection, firstStrongScript } from '../i18n/bidi';
 
@@ -215,6 +216,13 @@ export function Pill({
   radio?: { checked: boolean } | undefined;
 }) {
   const { p } = useApp();
+  // The label is keyed to the live text scale (#740). Nothing else in a pill
+  // depends on the scale, so a Dynamic Type change made while the app is open
+  // re-committed none of its props: the label went on drawing at the new size
+  // inside the frame measured at the old one — «هيك صح» an empty 50-pt pill
+  // at AX5 — until the screen remounted. A new label at each scale is
+  // measured from scratch, the way a pill opened fresh at that size is.
+  const scale = useTextScale();
   const look: Record<PillKind, { bg: string; fg: string; border?: string }> = {
     accent: { bg: p.ac, fg: p.onAccent },
     soft: { bg: p.sf2, fg: p.tx },
@@ -247,7 +255,7 @@ export function Pill({
         style,
       ]}
     >
-      <Txt size={size} weight={weight} color={l.fg} align="center">{label}</Txt>
+      <Txt key={`scale-${scale}`} size={size} weight={weight} color={l.fg} align="center">{label}</Txt>
     </Btn>
   );
 }
