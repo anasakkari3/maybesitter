@@ -28,9 +28,9 @@ const OFF: M5aCapabilities = { success: true, calendarChoice: false, emailSource
  * the feature is off — a known answer, like every other gated module. Any
  * other failure stays unknown.
  */
-async function probe(uid: string): Promise<M5aCapabilities> {
+async function probe(uid: string, signal?: AbortSignal): Promise<M5aCapabilities> {
   try {
-    return await getM5aCapabilities({ asUid: uid });
+    return await getM5aCapabilities({ asUid: uid, ...(signal ? { signal } : {}) });
   } catch (error) {
     if (error instanceof FeatureUnavailableError) return OFF;
     throw error;
@@ -43,7 +43,7 @@ export function useM5aCapabilities(): M5aCapabilities | null {
   const uid = useUid();
   const query = useQuery({
     queryKey: m5aCapabilitiesKey(uid),
-    queryFn: () => probe(uid),
+    queryFn: ({ signal }) => probe(uid, signal),
     enabled: uid !== 'signed-out',
     staleTime: FIVE_MINUTES,
     refetchInterval: FIVE_MINUTES,
@@ -61,7 +61,7 @@ export async function fetchM5aCapabilities(client: QueryClient, uid: string): Pr
   try {
     return await client.fetchQuery({
       queryKey: m5aCapabilitiesKey(uid),
-      queryFn: () => probe(uid),
+      queryFn: ({ signal }) => probe(uid, signal),
       staleTime: 60_000,
       retry: false,
     });
@@ -88,9 +88,12 @@ export function useFreshM5aCapability(): (name: keyof Omit<M5aCapabilities, 'suc
     const timeout = new Promise<null>((resolve) => { timer = setTimeout(() => resolve(null), M5A_FRESH_PROBE_MS); });
     // A request of its own (M5A-R11-001): sharing the query's key would hand
     // back a background refetch already in flight — an answer from before the
-    // tap. The fresh answer then replaces the cached one.
+    // tap. The fresh answer then replaces the cached one — after that older
+    // refetch is cancelled, or it would land afterwards and put the
+    // pre-tap answer back on screen (M5A-R12-F01).
     const fresh = probe(uid)
-      .then((answer) => {
+      .then(async (answer) => {
+        await client.cancelQueries({ queryKey: m5aCapabilitiesKey(uid), exact: true });
         client.setQueryData(m5aCapabilitiesKey(uid), answer);
         return answer[name] === true;
       })

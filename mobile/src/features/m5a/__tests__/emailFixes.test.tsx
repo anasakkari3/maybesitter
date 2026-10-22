@@ -176,4 +176,37 @@ describe('a fresh answer before the tap acts (M5A-R10-001)', () => {
     await act(async () => { release?.(); await jest.advanceTimersByTimeAsync(2_000); });
     expect(harness.server.matching('POST', /\/gmail\/scan$/)).toHaveLength(0);
   });
+
+  it('R12-F01: that refetch, landing after the fresh answer, never puts the controls back', async () => {
+    const key = ['user', ACCOUNT_A.uid, 'm5aCapabilities'];
+    let release: (() => void) | undefined;
+    let hold = false;
+    harness = await prepare('en', initialState(), request => {
+      if (hold && request.method === 'GET' && request.path === '/api/mobile/capabilities/m5a') {
+        hold = false;
+        // Started while email sources were on; its "on" is released only after
+        // the fresh probe has already said "off".
+        return new Promise(resolve => { release = () => resolve({ status: 200, body: { success: true, calendarChoice: true, emailSources: true } }); });
+      }
+      return undefined;
+    });
+    await showIntelligence(harness);
+    await waitFor(() => expect(screen.queryByTestId('email-scan-button')).not.toBeNull());
+    await press('email-scan-button');
+    await waitFor(() => expect(screen.queryByTestId('email-scan-confirm-go')).not.toBeNull());
+    hold = true;
+    await act(async () => { void harness!.client.invalidateQueries({ queryKey: key }); });
+    expect(release).toBeDefined();
+    harness.server.state.emailSources = false; // the kill switch lands while that refetch hangs
+    await press('email-scan-confirm-go');
+    await act(async () => { await jest.advanceTimersByTimeAsync(200); });
+    // The fresh probe has answered: off, and the M5a controls are gone.
+    expect(harness.client.getQueryData<{ emailSources: boolean }>(key)?.emailSources).toBe(false);
+    expect(screen.queryByTestId('email-scan-button')).toBeNull();
+    // Now the pre-kill refetch lands.
+    await act(async () => { release!(); await jest.advanceTimersByTimeAsync(2_000); });
+    expect(harness.client.getQueryData<{ emailSources: boolean }>(key)?.emailSources).toBe(false);
+    expect(screen.queryByTestId('email-scan-button')).toBeNull();
+    expect(harness.server.matching('POST', /\/gmail\/scan$/)).toHaveLength(0);
+  });
 });
