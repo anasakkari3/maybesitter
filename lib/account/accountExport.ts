@@ -229,9 +229,11 @@ export async function commitAccountExport(
 ): Promise<void> {
   await storage.runTransaction(async tx => {
     await requireLiveAccount(tx, uid);
-    const held = await tx.get<{ owner?: string }>(lease.path);
+    const held = await tx.get<{ owner?: string; leaseExpiresAt?: string }>(lease.path);
     const count = await tx.get<{ calls?: number }>(exportCountPath(uid, lease.day));
     if (held?.owner !== lease.owner) throw new Error('export_lease_lost');
+    if (!(Date.parse(held.leaseExpiresAt ?? '') > Date.parse(at))) throw new Error('export_lease_expired');
+    if ((count?.calls ?? 0) >= MAX_EXPORTS_PER_DAY) throw new Error('export_rate_limited');
     tx.set(exportCountPath(uid, lease.day), { calls: (count?.calls ?? 0) + 1, date: lease.day, updatedAt: at });
     tx.delete(lease.path);
   });
