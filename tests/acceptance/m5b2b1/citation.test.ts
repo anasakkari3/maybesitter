@@ -83,10 +83,10 @@ test('R1 schema: on_basis, the response schema offers an optional memoryRefs str
 
 /**
  * The digest of today's off-mode model requests and stored result for one
- * fixed account, computed on the base (f2c883af). Any change to the prompt,
+ * fixed account, computed on the base (f2c883af), suggestions sorted by kind and title. Any change to the prompt,
  * the schema, the context or the stored suggestion in `off` changes it.
  */
-const OFF_PARITY_DIGEST = 'c83b842d998184fb850b4a40899245f7cacfd15137b48e15acc85c66ac9ecf58';
+const OFF_PARITY_DIGEST = '63c310c3ceba935765e686e7ea36db2b840c09b5709ad2728902e85a923c2f67';
 
 test('R1 parity: off, the model request bytes, the schema and the stored suggestion are unchanged (digest)', async () => {
   const uid = await begin();
@@ -100,7 +100,9 @@ test('R1 parity: off, the model request bytes, the schema and the stored suggest
     said('question', 'Which evenings are free for study?', [evidence!.id]),
   ] }));
   await run(uid);
-  const suggestions = (await allStoredSuggestions(uid)).sort((a, b) => a.id.localeCompare(b.id));
+  // Sorted by what the model said, never by id: one id is hashed from a random
+  // memory-observation uuid, so an id order would differ from run to run.
+  const suggestions = (await allStoredSuggestions(uid)).sort((a, b) => `${a.kind}\u0000${a.title}`.localeCompare(`${b.kind}\u0000${b.title}`));
   const runDoc = await latestRun(uid);
   // The claim is a random uuid; the two digests hash the context, whose bytes the calls already carry.
   const { claimId: _claim, digest: _digest, contentDigest: _contentDigest, ...runWithoutClaim } = runDoc ?? ({} as any);
@@ -116,6 +118,7 @@ test('R1 parity: off, the model request bytes, the schema and the stored suggest
   for (const row of rows) material = material.replaceAll(row.id, 'MEMORY_ID');
   material = material.replaceAll(uid, 'UID');
   const digest = createHash('sha256').update(material).digest('hex');
+  if (process.env.GATE_B_PRINT_DIGEST) console.log('OFF_PARITY_DIGEST', digest);
   assert.equal(digest, OFF_PARITY_DIGEST, 'off-mode bytes changed');
   for (const suggestion of suggestions) {
     assert.equal('memoryBasis' in suggestion, false, show(suggestion));
