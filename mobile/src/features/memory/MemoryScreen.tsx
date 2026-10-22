@@ -131,6 +131,14 @@ export function MemoryScreen({ onBack, focusId = null }: {
 
   useEffect(() => flush, [flush]);
 
+  // Leaving sends a held delete *before* the screen changes (M5B2A-R4-003):
+  // the unmount cleanup alone runs after the screen underneath has already
+  // committed a frame, with the basis the delete is about to hide.
+  const leave = useCallback(() => {
+    flush();
+    onBack();
+  }, [flush, onBack]);
+
   const scheduleDelete = useCallback((id: string) => {
     // One at a time: a second delete commits the first rather than replacing
     // it, so no row can be dropped from the screen and never from the server.
@@ -199,7 +207,7 @@ export function MemoryScreen({ onBack, focusId = null }: {
   const failure = [patch.error, remove.error, removeAll.error, decide.error].find(error => error != null);
 
   return (
-    <Screen pinned={<SettingsHeader title={t.memoryScreenTitle} onBack={onBack} />}>
+    <Screen pinned={<SettingsHeader title={t.memoryScreenTitle} onBack={leave} />}>
       <ScreenScroll scrollRef={scrollRef}>
 
         {failure ? (

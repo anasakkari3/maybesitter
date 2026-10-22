@@ -105,8 +105,15 @@ export async function setPersonalizationConsent(
     // by the same epoch check a purge uses, and a basis read across it is not
     // shown. Not while a purge runs: the purge owns the epoch then, and
     // already fences every write.
-    await advancePersonalizationFence(storage, uid, at.toISOString());
+    //
+    // The store is disabled *before* the fence moves (M5B2A-R4-001). Every
+    // reader takes the epoch before it reads consent, so one that still saw
+    // consent on took the old epoch, and the move refuses it; one that took
+    // the new epoch reads consent after it was disabled, and gets no window.
+    // The other order let a reader take the new epoch, still see consent on,
+    // and write after the withdrawal returned.
     await store.write(uid, 'disabled', at.toISOString());
+    await advancePersonalizationFence(storage, uid, at.toISOString());
     return setConsent(PERSONALIZATION_CONSENT, uid, { ...input, at }, { storage });
   }
   return setConsent(PERSONALIZATION_CONSENT, uid, { ...input, at }, { storage });

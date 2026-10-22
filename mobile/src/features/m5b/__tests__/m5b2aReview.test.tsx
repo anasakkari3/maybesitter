@@ -1,7 +1,7 @@
-import React from 'react';
-import { View } from 'react-native';
+import React, { Profiler, useEffect, useRef, useState } from 'react';
+import { Pressable, View } from 'react-native';
 import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react-native';
 import { basisCorrectionCountForTests, basisStateHeldForTests, queryKeys, resetBasisCorrections } from '../../../api/queries';
 import { ACCOUNT_A } from '../../../__acceptance__/m5b/harness';
 import {
@@ -9,6 +9,8 @@ import {
   planEnvelope, planWithBasis, prepare, showPanel, teardown, type M5bHarness, type RouteHandler, type RouteReply,
 } from '../../../__acceptance__/m5b2a/harness';
 import { PlanScreen } from '../../../screens/PlanScreen';
+import { Root } from '../../../Root';
+import { useApp } from '../../../state/AppContext';
 
 jest.mock('expo-localization', () => ({
   getCalendars: jest.fn(() => [{ timeZone: 'Asia/Jerusalem' }]),
@@ -182,5 +184,106 @@ describe('M5b-2a inspection fixes', () => {
     await act(async () => { resetBasisCorrections(harness!.client); });
     await act(async () => { held.resolve({ status: 500, body: { success: false, error: 'boom' } }); await jest.advanceTimersByTimeAsync(100); });
     expect(basisStateHeldForTests(harness.client, ACCOUNT_A.uid)).toBe(false);
+  });
+
+  it('R4-002: another panel action takes the dismissal line out of the region', async () => {
+    const pending = outcome('p1', 'completed', undefined, { kind: 'preference', source: 'manual', review: 'pending', reviewedAt: null, outcome: undefined });
+    harness = await prepare('en', initialState(), panelHandler({ observations: [outcome('o1'), pending] }));
+    await showPanel(harness);
+    await waitFor(() => expect(screen.queryByTestId('m5b-learned')).not.toBeNull());
+    await fireEvent.press(screen.getByTestId('m5b-learned'));
+    await fireEvent.press(screen.getByTestId('m5b-learned-wrong-o1'));
+    await waitFor(() => expect(screen.queryByTestId('m5b-learned-status')).not.toBeNull());
+    const card = screen.getByTestId('intelligence-observation-p1');
+    await fireEvent.press(within(card).getByText("Yes, that's right"));
+    await act(async () => { await jest.advanceTimersByTimeAsync(100); });
+    expect(screen.queryByTestId('m5b-learned-status')).toBeNull();
+  });
+
+  it('R4-002: a dismissal takes the previous action\'s failed-refresh line out of the region', async () => {
+    let reads = 0;
+    const base = panelHandler({ observations: [outcome('o1'), outcome('o2')] });
+    harness = await prepare('en', initialState(), (request) => {
+      if (request.method === 'GET' && request.path === '/api/mobile/intelligence') {
+        reads += 1;
+        if (reads === 2) return { status: 503, body: { success: false, error: 'unavailable' } };
+      }
+      return base(request);
+    });
+    await showPanel(harness);
+    await waitFor(() => expect(screen.queryByTestId('m5b-learned')).not.toBeNull());
+    await fireEvent.press(screen.getByTestId('m5b-learned'));
+    await fireEvent.press(screen.getByTestId('m5b-learned-wrong-o1'));
+    await waitFor(() => expect(screen.queryByTestId('intelligence-refresh-failed')).not.toBeNull());
+    await fireEvent.press(screen.getByTestId('m5b-learned-wrong-o2'));
+    await waitFor(() => expect(reads).toBeGreaterThan(2));
+    await act(async () => { await jest.advanceTimersByTimeAsync(100); });
+    expect(screen.queryByTestId('intelligence-refresh-failed')).toBeNull();
+  });
+
+  it('R4-003: deleting the basis row and pressing Back at once never draws the old basis line', async () => {
+    function OpenPlan() {
+      const { actions } = useApp();
+      const open = useRef(actions.openPlan);
+      useEffect(() => open.current(TODAY), []);
+      return null;
+    }
+    // As the real server: once the row is deleted, a plan answer names no basis.
+    let deleted = false;
+    harness = await prepare('en', initialState(), (request) => {
+      if (request.method === 'DELETE' && request.path === `/api/mobile/memory/${BASIS_ID}`) deleted = true;
+      if (request.method === 'GET' && request.path === `/api/mobile/plans/${TODAY}`) {
+        return { status: 200, body: planEnvelope(deleted ? { ...planWithBasis(), memoryBasis: null } : planWithBasis()) };
+      }
+      return undefined;
+    });
+    let leaving = false;
+    let drawnAfterBack = false;
+    const probe = () => { if (leaving && screen.queryByTestId('m5b-plan-memory-basis')) drawnAfterBack = true; };
+    await render(<Providers harness={harness}><Profiler id="r4-003" onRender={probe}><OpenPlan /><Root /></Profiler></Providers>);
+    await waitFor(() => expect(screen.queryByTestId('m5b-plan-memory-basis-fix')).not.toBeNull());
+    await fireEvent.press(screen.getByTestId('m5b-plan-memory-basis-fix'));
+    await waitFor(() => expect(screen.queryByTestId(`memory-screen-focused-${BASIS_ID}`)).not.toBeNull());
+    await fireEvent.press(screen.getByText('Cancel'));
+    await fireEvent.press(screen.getByTestId(`memory-screen-delete-${BASIS_ID}`));
+    expect(screen.queryByTestId('memory-undo-bar')).not.toBeNull();
+    leaving = true;
+    await fireEvent.press(screen.getByTestId('header-back'));
+    await waitFor(() => expect(screen.queryByTestId('plan-why')).not.toBeNull());
+    await act(async () => { await jest.advanceTimersByTimeAsync(100); });
+    expect(drawnAfterBack).toBe(false);
+    expect(screen.queryByTestId('m5b-plan-memory-basis')).toBeNull();
+    expect(harness.server.matching('DELETE', new RegExp(`^/api/mobile/memory/${BASIS_ID}$`)).length).toBe(1);
+  });
+
+  it('R4-004: a correction made with no plan cached or on its way is dropped once it succeeds', async () => {
+    harness = await prepare('en', initialState(), () => undefined);
+    await render(<Providers harness={harness}><MemoryMutationDriver /></Providers>);
+    await fireEvent.press(screen.getByTestId('gate-patch'));
+    await waitFor(() => expect(harness!.server.matching('PATCH', new RegExp(`^/api/mobile/memory/${BASIS_ID}$`)).length).toBe(1));
+    await act(async () => { await jest.advanceTimersByTimeAsync(100); });
+    expect(basisCorrectionCountForTests(harness.client, ACCOUNT_A.uid)).toBe(0);
+  });
+
+  it('R4-004: the last old plan answer leaving the cache drops the correction it was holding', async () => {
+    function Toggle() {
+      const [shown, setShown] = useState(true);
+      return <View>
+        {shown ? <PlanScreen date={TODAY} onBack={() => undefined} /> : null}
+        <Pressable testID="hide-plan" onPress={() => setShown(false)} />
+        <MemoryMutationDriver />
+      </View>;
+    }
+    harness = await prepare('en', initialState(), planOnly(planWithBasis()));
+    await render(<Providers harness={harness}><Toggle /></Providers>);
+    await waitFor(() => expect(screen.queryByTestId('plan-why')).not.toBeNull());
+    await fireEvent.press(screen.getByTestId('hide-plan'));
+    await fireEvent.press(screen.getByTestId('gate-patch'));
+    await waitFor(() => expect(harness!.server.matching('PATCH', new RegExp(`^/api/mobile/memory/${BASIS_ID}$`)).length).toBe(1));
+    await act(async () => { await jest.advanceTimersByTimeAsync(100); });
+    // The cached answer began before the correction succeeded, so it is held.
+    expect(basisCorrectionCountForTests(harness.client, ACCOUNT_A.uid)).toBe(1);
+    await act(async () => { harness!.client.removeQueries({ queryKey: queryKeys.plan(ACCOUNT_A.uid, TODAY) }); });
+    expect(basisCorrectionCountForTests(harness.client, ACCOUNT_A.uid)).toBe(0);
   });
 });

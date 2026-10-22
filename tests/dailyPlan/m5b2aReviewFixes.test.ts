@@ -6,7 +6,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createStorageRuntimeMemoryStore } from '../../lib/runtimeMemory/runtimeMemoryStore.ts';
 import { readPlanMemoryProjection } from '../../lib/services/dailyPlan/planMemoryBasis.ts';
-import { composeDailyPlan } from '../../lib/services/dailyPlan/dailyPlanService.ts';
+import { composeDailyPlan, memoryFocusForPlan, personalizationPurgeMatches } from '../../lib/services/dailyPlan/dailyPlanService.ts';
+import { createStoragePersonalizationConsentStore } from '../../lib/personalizationControls/consentStore.ts';
 import { setPersonalizationConsent, PERSONALIZATION_CONSENT_VERSION } from '../../lib/consents/personalizationConsentService.ts';
 import { userDoc } from '../../lib/storage/paths.ts';
 import {
@@ -79,4 +80,26 @@ test('R2-001: withdrawing personalization consent moves the fence, so a plan tha
   const after = ((await currentStorage().get<Record<string, any>>(userDoc(uid))) ?? {}).personalizationPurge?.epoch ?? 0;
   assert.equal(after, before + 1, 'the withdrawal did not move the fence');
   assert.equal((stored as any).focusFromMemory, false, show((stored as any).focusFromMemory));
+});
+
+test('R4-001: a plan that resolves the window just as withdrawal begins is refused by the fence the withdrawal moves', async () => {
+  const uid = await keptFocusPlan();
+  const base = createStoragePersonalizationConsentStore(currentStorage() as any);
+  let raced: Awaited<ReturnType<typeof memoryFocusForPlan>> | undefined;
+  const consent = {
+    ...base,
+    read: base.read.bind(base),
+    write: async (...args: Parameters<typeof base.write>) => {
+      // The last moment a reader can still see consent on: just before the
+      // store is disabled.
+      if (args[1] === 'disabled' && raced === undefined) raced = await memoryFocusForPlan(uid, NOW(), { storage: currentStorage() as any });
+      return base.write(...args);
+    },
+  };
+  await setPersonalizationConsent(uid, { state: 'declined', version: PERSONALIZATION_CONSENT_VERSION, at: new Date() }, { storage: currentStorage() as any, consent: consent as any });
+  assert.ok(raced, 'fixture: the racing plan saw no window');
+  const user = await currentStorage().get(userDoc(uid));
+  assert.equal(personalizationPurgeMatches(user, raced.purgeEpoch), false, 'a plan shaped by the withdrawn window would still be written');
+  const later = await memoryFocusForPlan(uid, NOW(), { storage: currentStorage() as any });
+  assert.equal(later, null, 'a plan begun after the withdrawal still reads the window');
 });

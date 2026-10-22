@@ -996,7 +996,26 @@ function peekCorrections(client: QueryClient, uid: string): BasisCorrection[] | 
   return basisCorrections.get(client)?.get(uid);
 }
 
+/** Clients whose cache already tells pruning when a plan answer leaves it. */
+const prunedOnRemoval = new WeakSet<QueryClient>();
+
+/**
+ * A plan answer garbage-collected out of the cache may have been the last one
+ * holding a succeeded correction (M5B2A-R4-004), so its removal prunes too.
+ */
+function pruneOnPlanRemoval(client: QueryClient): void {
+  if (prunedOnRemoval.has(client)) return;
+  prunedOnRemoval.add(client);
+  client.getQueryCache().subscribe((event) => {
+    const key = event.query.queryKey;
+    if (event.type === 'removed' && key[0] === 'user' && key[2] === 'plan' && typeof key[1] === 'string') {
+      pruneCorrections(client, key[1]);
+    }
+  });
+}
+
 function correctionsOf(client: QueryClient, uid: string): BasisCorrection[] {
+  pruneOnPlanRemoval(client);
   let byUid = basisCorrections.get(client);
   if (!byUid) {
     byUid = new Map();
@@ -1822,34 +1841,42 @@ export function useMemorySummary(language: 'ar' | 'en' | 'he', enabled: boolean)
   });
 }
 
-function useMemoryMutation<TInput>(
-  mutationFn: (input: TInput) => Promise<unknown>,
+/** A memory write's input, with the correction it registered when it was called. */
+interface MemoryWrite<TInput> {
+  readonly input: TInput;
+  readonly correction: BasisCorrection | null;
+}
+
+type MemoryMutateOptions<TData, TInput> = {
+  onSuccess?: (data: TData, input: TInput) => unknown;
+  onError?: (error: Error, input: TInput) => unknown;
+  onSettled?: (data: TData | undefined, error: Error | null, input: TInput) => unknown;
+};
+
+function useMemoryMutation<TInput, TData = unknown>(
+  mutationFn: (input: TInput) => Promise<TData>,
   /** The memory a plan's basis may name that this changes, or `all`; null for none (M5b-2a). */
   basisTarget: (input: TInput) => string | null = () => null,
 ) {
   const client = useQueryClient();
   const uid = useUid();
-  return useMutation({
-    mutationFn,
-    onMutate: (input: TInput) => {
-      const target = basisTarget(input);
-      if (target === null) return { correction: null as BasisCorrection | null };
-      // Hidden from the moment the correction begins (M5B2A-020).
-      return { correction: addCorrection(client, uid, target) };
-    },
-    onError: (_error, _input, context) => {
+  const base = useMutation({
+    mutationFn: (write: MemoryWrite<TInput>) => mutationFn(write.input),
+    onError: (_error, write) => {
       // Nothing changed on the server: the line the cache still holds is
       // valid again, with no refetch (M5B2A-021).
-      const correction = context?.correction;
-      if (correction) dropCorrection(client, uid, correction);
+      if (write.correction) dropCorrection(client, uid, write.correction);
     },
-    onSuccess: (_data, _input, context) => {
-      const correction = context?.correction;
+    onSuccess: (_data, write) => {
+      const correction = write.correction;
       if (correction) {
         // From here, only a plan answer that began after this shows the basis.
         correction.succeededAt = nextPlanSequence();
         basisChanged();
         void client.invalidateQueries({ queryKey: ['user', uid, 'plan'] });
+        // Once the refetches it started are counted as on their way: with no
+        // plan cached or asked for, nothing else would ever prune it (R4-004).
+        setTimeout(() => pruneCorrections(client, uid), 0);
       }
       void client.invalidateQueries({ queryKey: queryKeys.memory(uid) });
       // A routine fact edited by hand changes the profile the screen shows.
@@ -1859,6 +1886,30 @@ function useMemoryMutation<TInput>(
       void client.invalidateQueries({ queryKey: queryKeys.trust(uid) });
     },
   });
+  // Hidden from the moment the correction is *called* (M5B2A-020), not from
+  // `onMutate`, which runs a microtask later: a screen that navigates right
+  // after the call must not commit one frame of the old basis (M5B2A-R4-003).
+  const begin = (input: TInput): MemoryWrite<TInput> => {
+    const target = basisTarget(input);
+    return { input, correction: target === null ? null : addCorrection(client, uid, target) };
+  };
+  const relay = (options?: MemoryMutateOptions<TData, TInput>) => {
+    if (!options) return undefined;
+    const { onSuccess, onError, onSettled } = options;
+    return {
+      ...(onSuccess ? { onSuccess: (data: TData, write: MemoryWrite<TInput>) => { onSuccess(data, write.input); } } : {}),
+      ...(onError ? { onError: (error: Error, write: MemoryWrite<TInput>) => { onError(error, write.input); } } : {}),
+      ...(onSettled ? {
+        onSettled: (data: TData | undefined, error: Error | null, write: MemoryWrite<TInput>) => { onSettled(data, error, write.input); },
+      } : {}),
+    };
+  };
+  return {
+    ...base,
+    variables: base.variables?.input,
+    mutate: (input: TInput, options?: MemoryMutateOptions<TData, TInput>) => base.mutate(begin(input), relay(options)),
+    mutateAsync: (input: TInput, options?: MemoryMutateOptions<TData, TInput>) => base.mutateAsync(begin(input), relay(options)),
+  };
 }
 
 export function useCreateMemory() {
@@ -1908,6 +1959,7 @@ export function useMemorySuggestion() {
       correction.succeededAt = nextPlanSequence();
       basisChanged();
       void client.invalidateQueries({ queryKey: ['user', uid, 'plan'] });
+      setTimeout(() => pruneCorrections(client, uid), 0);
     },
     onSettled: () => {
       // Settled, not success: a 409 means the suggestion is gone on the

@@ -284,6 +284,8 @@ function IntelligencePanelForAccount({ onChanged, autoGenerate = false, whenOff 
     setBusy(true);
     setError(null);
     say(null);
+    // One action's status at a time in the panel's region (M5B2A-R4-002).
+    setLearnedStatus(null);
     setRefreshFailed(false);
     pendingResult.current = null;
     try {
@@ -310,6 +312,11 @@ function IntelligencePanelForAccount({ onChanged, autoGenerate = false, whenOff 
     setBusy(true);
     setError(null);
     setLearnedStatus(null);
+    // …and the previous action's result, retry and pending count leave the
+    // region with it (M5B2A-R4-002).
+    say(null);
+    setRefreshFailed(false);
+    pendingResult.current = null;
     try {
       if (await freshM5b() !== true) return;
       let answer;
@@ -362,6 +369,7 @@ function IntelligencePanelForAccount({ onChanged, autoGenerate = false, whenOff 
     setConfirming(null);
     setBusy(true);
     setError(null);
+    setLearnedStatus(null);
     setRefreshFailed(false);
     pendingResult.current = null;
     say(action === 'analyze' ? t.xIntelligenceAnalyzing : t.xIntelligenceGmailScanStarted);
@@ -452,6 +460,7 @@ function IntelligencePanelForAccount({ onChanged, autoGenerate = false, whenOff 
     inFlight.current = true;
     setBusy(true);
     setError(null);
+    setLearnedStatus(null);
     try {
       // Asked fresh right before enrolling (M5A-R10-001).
       if (await freshCapability('emailSources') !== true) {
