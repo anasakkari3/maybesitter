@@ -52,7 +52,7 @@ jest.mock('../../features/m5b/suggestionBasis', () => {
     stamp: () => ({ startedAt: 0, now: false, lastKnown: false }),
     classify: (envelope: { basisMode?: string }) => ({ mode: envelope.basisMode ?? null, capAtFetch: false, offAtFetch: true, startedAt: 0 }),
   };
-  const signals = { capNow: false, freshItems: null, listSettled: false, basisHidden: () => false };
+  const signals = { capNow: false, freshItems: null, listSettled: false, basisHidden: () => false, absorbRevision: () => undefined };
   return {
     useBasisStamp: () => stamping,
     useSuggestionBasisSignals: () => signals,

@@ -10,6 +10,7 @@ import {
 import type { IntelligenceInbox, IntelligenceObservation, IntelligenceSuggestion } from '../../api/schemas/intelligence';
 import type { MemoryItem } from '../../api/schemas/profile';
 import { SuggestionUnavailableError } from '../../api/errors';
+import type { IntelligenceChange } from '../../api/queries';
 import { basisClassVisible, useBasisStamp, useSuggestionBasisSignals, type BasisClass } from '../m5b/suggestionBasis';
 import type { z } from 'zod';
 import { intelligenceGmailMonitorSchema } from '../../api/schemas/intelligence';
@@ -97,7 +98,8 @@ const UNDERSTOOD_KEY = {
  * (never their own saved records), then the ways to tell it more.
  */
 type IntelligencePanelProps = {
-  onChanged: () => void;
+  /** After a successful action; `{ memory: false }` when it wrote no memory (APP-READ-006). */
+  onChanged: (change?: IntelligenceChange) => void;
   autoGenerate?: boolean;
   /** Embedded mode: shown when the loop is off, and a failed read offers Retry. */
   whenOff?: React.ReactNode;
@@ -366,7 +368,11 @@ function IntelligencePanelForAccount({ onChanged, autoGenerate = false, whenOff 
   // A decision on a card. The mutation decides success; a failed re-read of
   // the inbox afterwards is its own state, retried by re-reading only — never
   // by sending the decision again.
-  const run = async (action: () => Promise<unknown>, suggestionId?: string) => {
+  // `memory: false` for an action that writes no memory (a dismissal, a
+  // warning acknowledged, the monitor switch): the host bumps no memory
+  // revision for it (APP-READ-006).
+  const run = async (action: () => Promise<unknown>, options: { suggestionId?: string; memory?: boolean } = {}) => {
+    const { suggestionId, memory = true } = options;
     if (inFlight.current) return;
     inFlight.current = true;
     setBusy(true);
@@ -401,7 +407,10 @@ function IntelligencePanelForAccount({ onChanged, autoGenerate = false, whenOff 
         try { await refresh(); } catch { /* Keep the original action error visible. */ }
         return;
       }
-      onChanged();
+      onChanged({ memory });
+      // The host's memory revision bump is this panel's own: the read below
+      // is the one read after the action (APP-READ-006).
+      signals.absorbRevision();
       try { await refresh(); } catch { setRefreshFailed(true); }
     } finally {
       inFlight.current = false;
@@ -452,6 +461,7 @@ function IntelligencePanelForAccount({ onChanged, autoGenerate = false, whenOff 
       setLearnedStatus(done);
       if (Platform.OS === 'ios') AccessibilityInfo.announceForAccessibility(done);
       onChanged();
+      signals.absorbRevision();
       try { await refresh(); } catch { setRefreshFailed(true); }
     } finally {
       inFlight.current = false;
@@ -520,6 +530,7 @@ function IntelligencePanelForAccount({ onChanged, autoGenerate = false, whenOff 
         return;
       }
       onChanged();
+      signals.absorbRevision();
       let next: IntelligenceInbox | null = null;
       let refreshed = true;
       try { next = await refresh(); } catch { setRefreshFailed(true); refreshed = false; }
@@ -620,14 +631,14 @@ function IntelligencePanelForAccount({ onChanged, autoGenerate = false, whenOff 
     await run(async () => {
       if (await freshCapability('emailSources') !== true) throw M5A_NOT_NOW();
       return setGmailIntelligenceMonitor(true, { timezone: deviceTimeZone() }, bound);
-    });
+    }, { memory: false });
   };
   // The monitor switch chooses between the M5a enrolment (its information
   // first) and the legacy toggle; the choice is made on a fresh answer
   // (M5A-R10-001), and an unknown answer takes neither.
   const pressMonitor = async () => {
     if (gmailMonitor?.enabled) {
-      void run(() => setGmailIntelligenceMonitor(false, undefined, bound));
+      void run(() => setGmailIntelligenceMonitor(false, undefined, bound), { memory: false });
       return;
     }
     const m5 = await freshCapability('emailSources');
@@ -636,7 +647,7 @@ function IntelligencePanelForAccount({ onChanged, autoGenerate = false, whenOff 
       return;
     }
     if (m5) setMonitorInfo(true);
-    else void run(() => setGmailIntelligenceMonitor(true, undefined, bound));
+    else void run(() => setGmailIntelligenceMonitor(true, undefined, bound), { memory: false });
   };
   // A daily sweep held for want of a time zone: an enabled monitor sends the
   // phone's again, once per visit (M5A-R35-004).
@@ -710,8 +721,11 @@ function IntelligencePanelForAccount({ onChanged, autoGenerate = false, whenOff 
           onPress={() => void run(() => item.kind === 'question'
             ? answerIntelligenceQuestion(item.id, (answers[item.id] ?? '').trim(), bound)
             : decideIntelligenceSuggestion(item.id, 'accept', (editedTitles[item.id] ?? '').trim() || undefined,
-              item.kind === 'action' ? schedule.get(item.id)?.slot ?? undefined : undefined, bound), item.id)} />
-        <Pill label={t.xIntelligenceDismiss} kind="outline" disabled={busy} onPress={() => void run(() => decideIntelligenceSuggestion(item.id, 'dismiss', undefined, undefined, bound), item.id)} />
+              item.kind === 'action' ? schedule.get(item.id)?.slot ?? undefined : undefined, bound),
+            // A warning acknowledged writes nothing; an accepted goal or
+            // action, or an answer, may write memory or a commitment.
+            { suggestionId: item.id, memory: item.kind !== 'warning' })} />
+        <Pill label={t.xIntelligenceDismiss} kind="outline" disabled={busy} onPress={() => void run(() => decideIntelligenceSuggestion(item.id, 'dismiss', undefined, undefined, bound), { suggestionId: item.id, memory: false })} />
       </View>
       {item.kind !== 'question' ? <Txt role="supporting" color={p.mu}>{t.suggestionNote}</Txt> : null}
       {/* M5b-2b-1 (R3): which remembered fact shaped it, and the way to

@@ -53,11 +53,11 @@ export async function GET(request: Request): Promise<Response> {
   try {
     // The uid comes from the verified token and from nowhere else.
     const exported = await buildAccountExport(user.uid, { storage, now: new Date(at) });
-    await commitAccountExport(user.uid, reservation, at, storage);
+    await commitAccountExport(user.uid, reservation, new Date().toISOString(), storage);
     return Response.json(exported, { headers: { 'Cache-Control': 'no-store' } });
   } catch (error) {
     if (error instanceof ExportTooLargeError) {
-      await commitAccountExport(user.uid, reservation, at, storage).catch(() => undefined);
+      await commitAccountExport(user.uid, reservation, new Date().toISOString(), storage).catch(() => undefined);
       return Response.json(
         { success: false, error: 'export too large', reason: 'export_too_large' },
         { status: 413, headers: { 'Cache-Control': 'no-store' } },

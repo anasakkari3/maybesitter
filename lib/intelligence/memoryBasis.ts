@@ -208,11 +208,10 @@ export async function cleanupMemoryDependents(
     }
     for (;;) {
       const rows = await storage.list<BasisObservationLike>(userCol(uid, INTELLIGENCE_OBSERVATIONS), {
-        where: [['sourceRef', 'in', batch]], limit: 100,
+        where: [['sourceRef', 'in', batch], ['source', '==', 'memory']], limit: 100,
       });
-      const copies = rows.filter((row) => row.data.source === 'memory');
-      if (copies.length === 0) break;
-      for (const row of copies) await storage.delete(`${userCol(uid, INTELLIGENCE_OBSERVATIONS)}/${row.id}`);
+      if (rows.length === 0) break;
+      for (const row of rows) await storage.delete(`${userCol(uid, INTELLIGENCE_OBSERVATIONS)}/${row.id}`);
       if (rows.length < 100) break;
     }
   }
@@ -312,15 +311,32 @@ export async function pendingSuggestionAvailability(
   const mode = m5bBasisMode();
   if (suggestion.status !== 'pending') return SUGGESTION_UNAVAILABLE;
   if (mode === 'off') {
-    return suggestion.mode === undefined && suggestion.memoryBasis === undefined
-      ? { available: true }
-      : SUGGESTION_UNAVAILABLE;
+    if (suggestion.mode !== undefined || suggestion.memoryBasis !== undefined) return SUGGESTION_UNAVAILABLE;
+    try {
+      await requireLiveAccount(tx, uid);
+      return { available: true };
+    } catch {
+      return SUGGESTION_UNAVAILABLE;
+    }
   }
   if (suggestion.mode !== mode) return SUGGESTION_UNAVAILABLE;
   if (mode === 'on_nobasis') {
-    return suggestion.memoryBasis === undefined ? { available: true } : SUGGESTION_UNAVAILABLE;
+    if (suggestion.memoryBasis !== undefined) return SUGGESTION_UNAVAILABLE;
+    try {
+      await requireLiveAccount(tx, uid);
+      return { available: true };
+    } catch {
+      return SUGGESTION_UNAVAILABLE;
+    }
   }
-  if (!suggestion.memoryBasis) return { available: true };
+  if (!suggestion.memoryBasis) {
+    try {
+      await requireLiveAccount(tx, uid);
+      return { available: true };
+    } catch {
+      return SUGGESTION_UNAVAILABLE;
+    }
+  }
   try {
     return await memoriesStillEligible(
       tx, uid, now, suggestion.memoryBasis.epoch, suggestion.memoryBasis.memoryIds,

@@ -751,6 +751,23 @@ export async function proposeFromObservations<TransactionGuardState = undefined>
       : undefined as TransactionGuardState;
     const dismissedIds = new Set(cited.filter(isDismissedBehaviourOutcome).map(item => item.id));
     suggestions = suggestions.filter(suggestion => !suggestion.observationIds.some(id => dismissedIds.has(id)));
+    const existingEligibility = new Map<string, boolean>();
+    const eligibilityCheckedAt = new Date().toISOString();
+    await Promise.all(suggestions.map(async suggestion => {
+      const existing = existingById.get(suggestion.id);
+      if (!existing || existing.status !== 'pending') return;
+      let eligible = mode === 'off'
+        && existing.mode === undefined
+        && existing.memoryBasis === undefined;
+      if (mode === 'on_basis' && existing.mode === 'on_basis') {
+        eligible = !existing.memoryBasis || await memoriesStillEligible(
+          tx, uid, eligibilityCheckedAt, existing.memoryBasis.epoch, existing.memoryBasis.memoryIds,
+        );
+      } else if (mode === 'on_nobasis') {
+        eligible = existing.mode === 'on_nobasis' && !existing.memoryBasis;
+      }
+      existingEligibility.set(suggestion.id, eligible);
+    }));
     const kept: IntelligenceSuggestion[] = [];
     for (const suggestion of suggestions) {
       const existing = existingById.get(suggestion.id);
@@ -770,15 +787,7 @@ export async function proposeFromObservations<TransactionGuardState = undefined>
         if (mode === 'off') kept.push(existing);
         continue;
       }
-      let eligibleExisting = mode === 'off';
-      if (mode === 'on_basis' && existing.mode === 'on_basis') {
-        eligibleExisting = !existing.memoryBasis || await memoriesStillEligible(
-          tx, uid, new Date().toISOString(), existing.memoryBasis.epoch, existing.memoryBasis.memoryIds,
-        );
-      } else if (mode === 'on_nobasis') {
-        eligibleExisting = existing.mode === 'on_nobasis' && !existing.memoryBasis;
-      }
-      if (eligibleExisting) {
+      if (existingEligibility.get(suggestion.id)) {
         kept.push(existing);
         continue;
       }
