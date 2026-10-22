@@ -489,18 +489,22 @@ export function personalizationPurgeMatches(user: unknown, epoch: number): boole
 export async function memoryFocusForPlan(
   uid: string,
   now: string,
-  options: { storage?: StorageAdapter; routineHasFocus?: boolean; suppress?: boolean } = {},
+  options: { storage?: StorageAdapter; routineHasFocus?: boolean; suppress?: boolean; purgeSnapshot?: unknown } = {},
 ): Promise<PlanMemoryFocus | null> {
   if (options.routineHasFocus || options.suppress) return null;
   const storage = options.storage ?? getStorage();
   const mode = m5bBasisMode();
   if (mode === 'on_nobasis') return null;
+  // Capture the fence before either implementation reads the kept window.
+  // Every writer later proves this same active epoch transactionally.
+  const purge = purgeOf(options.purgeSnapshot === undefined
+    ? await storage.get(userDoc(uid))
+    : options.purgeSnapshot);
+  if (purge.state !== 'active') return null;
   if (mode === 'off') {
     const window = await keptFocusWindow(uid, now, { storage });
-    return window ? { window, memoryId: null, purgeEpoch: 0, tracked: false } : null;
+    return window ? { window, memoryId: null, purgeEpoch: purge.epoch, tracked: false } : null;
   }
-  const purge = purgeOf(await storage.get(userDoc(uid)));
-  if (purge.state !== 'active') return null;
   const record = await keptFocusWindowRecord(uid, now, { storage });
   return record ? { window: record.window, memoryId: record.id, purgeEpoch: purge.epoch, tracked: true } : null;
 }
@@ -517,6 +521,7 @@ export async function preloadDailyPlanRequest(
   const memoryFocus = await memoryFocusForPlan(uid, now, {
     storage,
     routineHasFocus: (profile?.focusWindows ?? []).length > 0,
+    purgeSnapshot: userDocument,
   });
   return { commitments, profile, focusHint: memoryFocus?.window ?? null, memoryFocus };
 }
@@ -530,6 +535,10 @@ export interface DailyPlanRequest {
   readonly basisSnapshot?: { readonly readinessApplied: ReadinessApplied };
   readonly focusFromMemory?: boolean;
   readonly personalizationPurgeEpoch?: number;
+  /** Internal, content-free provenance; deliberately absent from every DTO. */
+  readonly memoryUse?: { readonly epoch: number };
+  /** Distinguishes current memory-neutral proposals from legacy proposals. */
+  readonly storedPurgeEpoch: number;
 }
 
 /**
@@ -633,7 +642,7 @@ export async function composeDailyPlanRequest(
     ...(readinessApplied ? { readinessApplied } : {}),
   }, { storage, userDocument: input.userDocument });
   const mode = m5bBasisMode();
-  if (!deps.suppressMemory && mode !== 'off' && memoryFocus?.tracked) {
+  if (!deps.suppressMemory && memoryFocus) {
     const currentUser = await storage.get(userDoc(uid));
     if (!personalizationPurgeMatches(currentUser, memoryFocus.purgeEpoch)) {
       return composeDailyPlanRequest(input, { ...deps, suppressMemory: true });
@@ -648,6 +657,8 @@ export async function composeDailyPlanRequest(
       focusFromMemory: Boolean(memoryFocus?.tracked),
       personalizationPurgeEpoch: memoryFocus?.purgeEpoch ?? purgeOf(input.userDocument).epoch,
     }),
+    ...(memoryFocus ? { memoryUse: { epoch: memoryFocus.purgeEpoch } } : {}),
+    storedPurgeEpoch: memoryFocus?.purgeEpoch ?? purgeOf(input.userDocument).epoch,
   };
 }
 
@@ -677,6 +688,8 @@ export interface SolvedDailyPlanSnapshot {
   readonly locale: UserLocale;
   readonly focusFromMemory?: boolean;
   readonly personalizationPurgeEpoch?: number;
+  readonly memoryUse?: { readonly epoch: number };
+  readonly storedPurgeEpoch?: number;
 }
 
 const purgeEpochByComposedPlan = new WeakMap<StoredDailyPlan, number>();
@@ -734,6 +747,8 @@ export async function composeDailyPlan(
   const config = solved?.config ?? request!.config;
   const basisSnapshot = solved ? { readinessApplied: solved.readinessApplied } : request!.basisSnapshot;
   const focusFromMemory = solved?.focusFromMemory ?? request?.focusFromMemory;
+  const personalizationPurgeEpoch = solved?.personalizationPurgeEpoch ?? request?.personalizationPurgeEpoch;
+  const memoryUse = solved?.memoryUse ?? request?.memoryUse;
   const plan = solved?.plan ?? schedulePlan(constraints, config);
   // One block per occurrence the planner was asked about, placements applied
   // back. Throws `ScheduleBlockIntegrityError` — and the build fails — if the
@@ -775,9 +790,11 @@ export async function composeDailyPlan(
     updatedAt: now.toISOString(),
     ...(basisSnapshot ? { readinessApplied: basisSnapshot.readinessApplied } : {}),
     ...(focusFromMemory === undefined ? {} : { focusFromMemory }),
+    ...(personalizationPurgeEpoch === undefined ? {} : { personalizationPurgeEpoch }),
+    ...(memoryUse ? { memoryUse } : {}),
     ...(heldByWeek.length > 0 ? { heldByWeek } : {}),
   };
-  const purgeEpoch = solved?.personalizationPurgeEpoch ?? request?.personalizationPurgeEpoch;
+  const purgeEpoch = memoryUse?.epoch;
   if (purgeEpoch !== undefined) purgeEpochByComposedPlan.set(document, purgeEpoch);
   return document;
 }
@@ -823,19 +840,19 @@ async function storeFirstPlan(
   if (existing) return { created: false, stored: existing };
 
   let composed = await composeDailyPlan(uid, date, settings, 1, deps, undefined, options.week?.assignment ?? null, options.week?.solved);
-  const write = async (candidate: StoredDailyPlan, guarded: boolean) => {
+  const write = async (candidate: StoredDailyPlan) => {
     const withWeek: StoredDailyPlan = options.week ? { ...candidate, weekPlan: options.week.origin } : candidate;
     const document: StoredDailyPlan = options.pushPending ? { ...withWeek, pushPending: options.pushPending() } : withWeek;
     const epoch = composedPlanPurgeEpoch(candidate);
-    return createIfAbsent(uid, document, storage, guarded && epoch !== undefined ? purgeGuard(uid, epoch) : undefined);
+    return createIfAbsent(uid, document, storage, epoch !== undefined ? purgeGuard(uid, epoch) : undefined);
   };
   let result;
   try {
-    result = await write(composed, composed.focusFromMemory === true);
+    result = await write(composed);
   } catch (error) {
     if (!(error instanceof PlanWriteGuardRejected) || options.week?.solved) throw error;
     composed = await composeDailyPlan(uid, date, settings, 1, deps, undefined, options.week?.assignment ?? null, undefined, true);
-    result = await write(composed, false);
+    result = await write(composed);
   }
   const { created, stored } = result;
   if (!created) return { created: false, stored };

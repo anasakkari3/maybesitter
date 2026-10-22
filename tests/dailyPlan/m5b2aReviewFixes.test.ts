@@ -7,13 +7,18 @@ import assert from 'node:assert/strict';
 import { createStorageRuntimeMemoryStore } from '../../lib/runtimeMemory/runtimeMemoryStore.ts';
 import { readPlanMemoryProjection } from '../../lib/services/dailyPlan/planMemoryBasis.ts';
 import { assemblePlanResponse } from '../../lib/services/dailyPlan/planDto.ts';
-import { composeDailyPlan, memoryFocusForPlan, personalizationPurgeMatches } from '../../lib/services/dailyPlan/dailyPlanService.ts';
+import { buildDailyPlanOnDemand, composeDailyPlan, memoryFocusForPlan, personalizationPurgeMatches } from '../../lib/services/dailyPlan/dailyPlanService.ts';
+import { acceptPlan } from '../../lib/services/dailyPlan/planActions.ts';
+import { processStateChangesForUser } from '../../lib/services/dailyPlan/continuousReplanService.ts';
+import { PlanWriteGuardRejected, planPath } from '../../lib/services/dailyPlan/planStore.ts';
+import { acceptWeekDay, composeWeek } from '../../lib/services/dailyPlan/weekPlan.ts';
 import { createStoragePersonalizationConsentStore } from '../../lib/personalizationControls/consentStore.ts';
 import { setPersonalizationConsent, PersonalizationWithdrawalBusyError, PERSONALIZATION_CONSENT_VERSION } from '../../lib/consents/personalizationConsentService.ts';
 import { userDoc } from '../../lib/storage/paths.ts';
 import { setStorageForTests } from '../../lib/storage/index.ts';
 import {
-  NOW, TODAY, TZ, begin, buildPlan, call, currentStorage, end, grantPersonalization, outcomeObservation, show, storedPlan, threeTasks,
+  AUTO_APPLY, NOW, REVIEW, TODAY, TZ, addFloating, begin, buildPlan, call, currentStorage, end,
+  grantPersonalization, meetingLands, outcomeObservation, replan, setAccount, show, storedPlan, threeTasks,
 } from '../acceptance/m5b2a/support.ts';
 
 test.afterEach(() => end());
@@ -22,14 +27,94 @@ async function keptFocusPlan(): Promise<string> {
   const uid = await begin();
   await grantPersonalization(uid);
   await threeTasks(uid);
-  await createStorageRuntimeMemoryStore(undefined, currentStorage() as any).put({
-    scopeId: uid, kind: 'preference', content: 'You often finish things between 09:00 and 12:00.', language: 'en',
-    source: 'deterministic_rule', confidence: 0.7, observedAt: NOW(), evidenceIds: ['ev1', 'ev2'],
-    provenance: { origin: 'behaviour_rule', originRef: 'R1_focus_window:09:00-12:00', confirmedByUserAt: NOW() },
-  } as any, NOW());
+  await storeKeptFocus(uid);
   const built = await buildPlan(uid);
   assert.ok(built.memoryBasis, 'fixture: no basis');
   return uid;
+}
+
+async function storeKeptFocus(uid: string, originRef = 'R1_focus_window:09:00-12:00'): Promise<void> {
+  await createStorageRuntimeMemoryStore(undefined, currentStorage() as any).put({
+    scopeId: uid, kind: 'preference', content: 'You often finish things between 09:00 and 12:00.', language: 'en',
+    source: 'deterministic_rule', confidence: 0.7, observedAt: NOW(), evidenceIds: ['ev1', 'ev2'],
+    provenance: { origin: 'behaviour_rule', originRef, confirmedByUserAt: NOW() },
+  } as any, NOW());
+}
+
+async function offModeFocusAccount(originRef?: string): Promise<string> {
+  const uid = await begin({ on: false });
+  await grantPersonalization(uid);
+  await threeTasks(uid);
+  await storeKeptFocus(uid, originRef);
+  return uid;
+}
+
+function workingWindows(stored: any): number[][] {
+  return stored.constraints.workingWindows.map((window: any) => [window.startMinute, window.endMinute]);
+}
+
+async function makeSuppressedWindowMatchKeptWindow(uid: string): Promise<void> {
+  await setAccount(uid, { profile: { routine: {
+    schemaVersion: 1,
+    updatedAt: NOW(),
+    timezone: TZ,
+    sleepWindow: { start: '12:00', end: '09:00' },
+    focusWindows: [],
+    fixedCommitmentWindows: [],
+    preferredReminderIntensity: 'followUp',
+    quietHours: null,
+    surveySkipped: false,
+  } } });
+}
+
+async function replanWithWithdrawalAtWrite(
+  uid: string,
+  policyConfig: Record<string, unknown>,
+  interval: { startsAt: string; endsAt: string },
+  blockId: string,
+): Promise<any> {
+  const change = await meetingLands(uid, interval, blockId);
+  const real = currentStorage() as any;
+  let armed = false;
+  let withdrew = false;
+  const storage = new Proxy(real, {
+    get(target, key) {
+      if (key === 'runTransaction') {
+        return async (fn: (tx: any) => Promise<unknown>) => {
+          return target.runTransaction((tx: any) => fn(new Proxy(tx, {
+            get(inner, property) {
+              const member = Reflect.get(inner, property);
+              if (property === 'get' && typeof member === 'function') {
+                return async (path: string, ...rest: unknown[]) => {
+                  if (path === planPath(uid, TODAY)) armed = true;
+                  const value = await member.call(inner, path, ...rest);
+                  if (path === userDoc(uid) && armed && !withdrew) {
+                    withdrew = true;
+                    const epoch = (value?.personalizationPurge?.epoch ?? 0) + 1;
+                    return { ...(value ?? {}), personalizationPurge: { state: 'withdrawing', epoch } };
+                  }
+                  return value;
+                };
+              }
+              return typeof member === 'function' ? member.bind(inner) : member;
+            },
+          })));
+        };
+      }
+      const value = Reflect.get(target, key);
+      return typeof value === 'function' ? value.bind(target) : value;
+    },
+  });
+  const report = await processStateChangesForUser(uid, {
+    storage,
+    now: new Date(),
+    date: TODAY,
+    changes: [change],
+    entityFactsByChangeId: new Map([[change.changeId, { interval, blocking: true }]]) as any,
+    policyConfig: policyConfig as any,
+  });
+  assert.ok(withdrew, 'fixture: withdrawal never landed at the replan write');
+  return report;
 }
 
 test('REV-004: a purge that begins between the two reads of the projection shows no basis', async () => {
@@ -246,4 +331,211 @@ test('R8-003: a purge that outlasts the wait fails the withdrawal before anythin
   );
   assert.equal(writes, 0, 'the store was disabled although the withdrawal failed');
   assert.equal((await base.read(uid)).state, 'enabled');
+});
+
+test('R10-001: off-mode build retries without the kept window when withdrawal lands between read and write', async () => {
+  const uid = await offModeFocusAccount();
+  const real = currentStorage() as any;
+  let armed = false;
+  let withdrew = false;
+  const storage = new Proxy(real, {
+    get(target, key) {
+      if (key === 'runTransaction') {
+        return async (fn: (tx: any) => Promise<unknown>) => {
+          if (armed && !withdrew) {
+            withdrew = true;
+            await setPersonalizationConsent(
+              uid,
+              { state: 'declined', version: PERSONALIZATION_CONSENT_VERSION, at: new Date() },
+              { storage: real },
+            );
+          }
+          return target.runTransaction(fn);
+        };
+      }
+      const value = Reflect.get(target, key);
+      return typeof value === 'function' ? value.bind(target) : value;
+    },
+  });
+  const built = await buildDailyPlanOnDemand(uid, TODAY, {
+    storage,
+    now: () => new Date(),
+    busyBlocks: async () => {
+      armed = true;
+      return [];
+    },
+  });
+  assert.ok(withdrew, 'fixture: withdrawal never landed between the solve and its write');
+  assert.equal(built.created, true);
+  assert.equal(built.stored.memoryUse, undefined, 'the suppressed retry still claims memory use');
+  assert.equal(built.stored.focusFromMemory, undefined, 'off-mode wire provenance leaked into storage');
+  assert.notDeepEqual(workingWindows(built.stored), [[540, 720]], 'the stored plan still uses the withdrawn window');
+});
+
+test('R10-001 (Claude review): an off-mode account whose fence has already moved still plans with its kept window', async () => {
+  const uid = await offModeFocusAccount();
+  // An earlier purge or withdrawal-and-regrant left the fence at a later epoch.
+  await setFence(currentStorage() as any, uid, { state: 'active', epoch: 3 });
+  const built = await buildDailyPlanOnDemand(uid, TODAY, { storage: currentStorage() as any, now: () => new Date(), busyBlocks: async () => [] });
+  assert.equal(built.created, true);
+  assert.deepEqual(built.stored.memoryUse, { epoch: 3 }, 'the off-mode read did not record the real fence');
+  assert.deepEqual(workingWindows(built.stored), [[540, 720]], 'a moved fence silently dropped the kept window');
+});
+
+test('R10-001: an off-mode proposal is stale and withdrawn after consent withdrawal', async () => {
+  const uid = await offModeFocusAccount();
+  await buildPlan(uid);
+  await replan(uid, REVIEW);
+  const offered = await storedPlan(uid);
+  assert.ok(offered.proposal?.memoryUse, 'fixture: the off-mode offer has no internal memory provenance');
+
+  await setPersonalizationConsent(
+    uid,
+    { state: 'declined', version: PERSONALIZATION_CONSENT_VERSION, at: new Date() },
+    { storage: currentStorage() as any },
+  );
+  const response = await call(uid, 'plans/[date]/actions', 'POST', {
+    params: { date: TODAY },
+    body: { action: 'accept_proposal', proposalId: offered.proposal.proposalId },
+  });
+  assert.equal(response.status, 422, show(response.body));
+  assert.equal(response.body.reason, 'stale_proposal');
+  const after = await storedPlan(uid);
+  assert.equal(after.generation, offered.generation, 'the stale offer was installed');
+  assert.equal(after.proposal, null, 'the stale offer was not withdrawn');
+});
+
+test('R10-001: a legacy proposal with no provenance fails closed after the fence moves', async () => {
+  const uid = await offModeFocusAccount();
+  await buildPlan(uid);
+  await replan(uid, REVIEW);
+  const stored = await storedPlan(uid);
+  assert.ok(stored.proposal, 'fixture: no offer');
+  const {
+    memoryUse: _memoryUse,
+    focusFromMemory: _focusFromMemory,
+    personalizationPurgeEpoch: _purgeEpoch,
+    storedPurgeEpoch: _storedPurgeEpoch,
+    ...legacyProposal
+  } = stored.proposal;
+  await currentStorage().set(planPath(uid, TODAY), { ...stored, proposal: legacyProposal });
+
+  await setPersonalizationConsent(
+    uid,
+    { state: 'declined', version: PERSONALIZATION_CONSENT_VERSION, at: new Date() },
+    { storage: currentStorage() as any },
+  );
+  const response = await call(uid, 'plans/[date]/actions', 'POST', {
+    params: { date: TODAY },
+    body: { action: 'accept_proposal', proposalId: legacyProposal.proposalId },
+  });
+  assert.equal(response.status, 422, show(response.body));
+  assert.equal(response.body.reason, 'stale_proposal');
+  assert.equal((await storedPlan(uid)).proposal, null, 'the unknowable legacy offer was not withdrawn');
+});
+
+test('R10-001/R10-003: off-mode week acceptance and an ordinary accept both refuse a withdrawn memory-shaped plan', async () => {
+  const uid = await begin({ on: false });
+  await grantPersonalization(uid);
+  await addFloating(uid, 'Write the weekly report');
+  await storeKeptFocus(uid);
+  const real = currentStorage() as any;
+  const layout = await composeWeek(uid, { moves: [], drops: [] }, { storage: real, now: () => new Date() });
+  const day = layout.days.find((candidate) => candidate.kind === 'proposed' && candidate.plan.scheduled.length > 0);
+  assert.ok(day?.kind === 'proposed' && day.memoryUse, 'fixture: no proposed day used the kept window');
+  const targetDate = day.date;
+
+  let ordinaryAcceptRefused = false;
+  let raced = false;
+  const storage = new Proxy(real, {
+    get(target, key) {
+      if (key === 'runTransaction') {
+        return async (fn: (tx: any) => Promise<unknown>) => {
+          let createdPlan = false;
+          const result = await target.runTransaction((tx: any) => fn(new Proxy(tx, {
+            get(inner, property) {
+              const member = Reflect.get(inner, property);
+              if ((property === 'set' || property === 'create') && typeof member === 'function') {
+                return (path: string, ...rest: unknown[]) => {
+                  if (path === planPath(uid, targetDate)) createdPlan = true;
+                  return member.call(inner, path, ...rest);
+                };
+              }
+              return typeof member === 'function' ? member.bind(inner) : member;
+            },
+          })));
+          if (createdPlan && !raced) {
+            raced = true;
+            await setPersonalizationConsent(
+              uid,
+              { state: 'declined', version: PERSONALIZATION_CONSENT_VERSION, at: new Date() },
+              { storage: real },
+            );
+            try {
+              await acceptPlan(uid, targetDate, { storage: real, now: () => new Date() });
+            } catch (error) {
+              if (!(error instanceof PlanWriteGuardRejected)) throw error;
+              ordinaryAcceptRefused = true;
+            }
+          }
+          return result;
+        };
+      }
+      const value = Reflect.get(target, key);
+      return typeof value === 'function' ? value.bind(target) : value;
+    },
+  });
+
+  const outcome = await acceptWeekDay(
+    uid,
+    targetDate,
+    { moves: [], drops: [] },
+    day.assignment.include,
+    { storage, now: () => new Date() },
+  );
+  assert.ok(raced, 'fixture: the plan was never stored');
+  assert.equal(ordinaryAcceptRefused, true, 'ordinary accept bypassed the stored provenance fence');
+  assert.equal(outcome.outcome, 'week_changed');
+  assert.equal(await real.get(planPath(uid, targetDate)), null, 'the refused week plan was left behind');
+});
+
+test('R10-002: a withdrawn pending offer is freshly re-solved and replaced without memory', async () => {
+  const uid = await offModeFocusAccount();
+  await makeSuppressedWindowMatchKeptWindow(uid);
+  await buildPlan(uid);
+  const slot = (await storedPlan(uid)).plan.scheduled[0].interval;
+  const inside = {
+    startsAt: new Date(Date.parse(slot.startsAt) + 5 * 60_000).toISOString(),
+    endsAt: new Date(Date.parse(slot.startsAt) + 15 * 60_000).toISOString(),
+  };
+  await replan(uid, REVIEW, slot, 'busy-first');
+  const before = await storedPlan(uid);
+  assert.ok(before.proposal?.memoryUse, 'fixture: the pending offer has no memory provenance');
+
+  const report = await replanWithWithdrawalAtWrite(uid, REVIEW, inside, 'busy-second');
+  assert.equal(report.pipelineResult.policyDecision?.action, 'propose_for_review');
+  const after = await storedPlan(uid);
+  assert.ok(after.proposal, 'the still-conflicted day has no fresh offer');
+  assert.notEqual(after.proposal.proposalId, before.proposal.proposalId, 'the stale pending solve was reused');
+  assert.equal(after.proposal.memoryUse, undefined, 'the replacement offer kept stale memory provenance');
+});
+
+test('R10-002: auto-apply writes the fresh suppressed solve, not the withdrawn pending solve', async () => {
+  const uid = await offModeFocusAccount();
+  await makeSuppressedWindowMatchKeptWindow(uid);
+  await buildPlan(uid);
+  const slot = (await storedPlan(uid)).plan.scheduled[0].interval;
+  const inside = {
+    startsAt: new Date(Date.parse(slot.startsAt) + 5 * 60_000).toISOString(),
+    endsAt: new Date(Date.parse(slot.startsAt) + 15 * 60_000).toISOString(),
+  };
+  await replan(uid, REVIEW, slot, 'busy-first-auto');
+  const before = await storedPlan(uid);
+  assert.ok(before.proposal?.memoryUse, 'fixture: the pending offer has no memory provenance');
+
+  const report = await replanWithWithdrawalAtWrite(uid, AUTO_APPLY, inside, 'busy-second-auto');
+  assert.equal(report.pipelineResult.policyDecision?.action, 'auto_apply');
+  const after = await storedPlan(uid);
+  assert.ok(after.generation > before.generation, 'the fresh auto-apply was not stored');
+  assert.equal(after.memoryUse, undefined, 'the auto-applied generation kept stale memory provenance');
 });

@@ -128,6 +128,10 @@ export interface StoredDailyPlan {
   readonly readinessApplied?: ReadinessApplied;
   /** Whether this generation used the kept focus-window memory. No id or content. */
   readonly focusFromMemory?: boolean;
+  /** The on-mode personalization fence this generation was solved under. Server-only. */
+  readonly personalizationPurgeEpoch?: number;
+  /** Content-free provenance, present only when kept focus memory shaped this generation. */
+  readonly memoryUse?: { readonly epoch: number };
   /**
    * The state changes this generation was built from (#527, AC 2).
    *
@@ -334,6 +338,10 @@ export interface StoredPlanProposal {
   /** Solve-time memory provenance; copied verbatim if the offer is accepted. */
   readonly focusFromMemory?: boolean;
   readonly personalizationPurgeEpoch?: number;
+  /** Content-free provenance for an offer shaped by the kept focus window. */
+  readonly memoryUse?: { readonly epoch: number };
+  /** Marks a current writer; legacy offers have no known stored fence epoch. */
+  readonly storedPurgeEpoch?: number;
   /** The existing diff contract, not a second one (#523's `PlanDiff` step). */
   readonly diff: PlanDiff;
   readonly reason: ReplanPolicyReason;

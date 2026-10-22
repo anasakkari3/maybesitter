@@ -269,8 +269,10 @@ export async function acceptPlan(uid: string, date: string, options: PlanActionO
     // A memory-shaped plan whose personalization fence moved since it was
     // solved is not accepted (M5B2A-R8-002): the read and the status change
     // are one transaction.
-    if (options.personalizationPurgeEpoch !== undefined && current.focusFromMemory === true
-      && !personalizationPurgeMatches(await tx.get(userDoc(uid)), options.personalizationPurgeEpoch)) {
+    const memoryEpoch = current.memoryUse?.epoch
+      ?? (current.focusFromMemory === true ? current.personalizationPurgeEpoch ?? options.personalizationPurgeEpoch : undefined);
+    if (memoryEpoch !== undefined
+      && !personalizationPurgeMatches(await tx.get(userDoc(uid)), memoryEpoch)) {
       fenced = true;
       return null;
     }
@@ -996,9 +998,16 @@ export async function acceptPlanProposal(
       rejection = new PlanProposalRejected('stale_proposal', 'the proposed change needs a new solve snapshot');
       return null;
     }
-    if (proposal.focusFromMemory === true && proposal.personalizationPurgeEpoch !== undefined) {
+    const proposalMemoryEpoch = proposal.memoryUse?.epoch
+      ?? (proposal.focusFromMemory === true
+        ? proposal.personalizationPurgeEpoch ?? proposal.storedPurgeEpoch ?? 0
+        // No marker of any kind is a legacy offer. Its real stored epoch is
+        // unknowable, so preserve epoch-zero compatibility and fail closed
+        // after the first fence movement.
+        : proposal.focusFromMemory === undefined && proposal.storedPurgeEpoch === undefined ? 0 : undefined);
+    if (proposalMemoryEpoch !== undefined) {
       const user = await tx.get(userDoc(uid));
-      if (!personalizationPurgeMatches(user, proposal.personalizationPurgeEpoch)) {
+      if (!personalizationPurgeMatches(user, proposalMemoryEpoch)) {
         // The existing stale-offer outcome (422 `stale_proposal`), and the offer
         // is withdrawn in the same transaction, so no later read offers it
         // again (M5B2A-R3-002).
@@ -1016,7 +1025,13 @@ export async function acceptPlanProposal(
     const { edits, status } = editsSurvivingReschedule(current);
     const causeChangeIds = proposal.causeChangeIds;
     const causes = causeChangeIds.length > 0 ? { causeChangeIds: [...causeChangeIds] } : {};
-    const { readinessApplied: _oldReadiness, focusFromMemory: _oldFocusFromMemory, ...withoutOldBasis } = current;
+    const {
+      readinessApplied: _oldReadiness,
+      focusFromMemory: _oldFocusFromMemory,
+      personalizationPurgeEpoch: _oldPurgeEpoch,
+      memoryUse: _oldMemoryUse,
+      ...withoutOldBasis
+    } = current;
     return {
       next: {
         ...withoutOldBasis,
@@ -1050,6 +1065,8 @@ export async function acceptPlanProposal(
           ? { readinessApplied: proposal.basisSnapshot.readinessApplied }
           : {}),
         ...(proposal.focusFromMemory === undefined ? {} : { focusFromMemory: proposal.focusFromMemory }),
+        ...(proposal.personalizationPurgeEpoch === undefined ? {} : { personalizationPurgeEpoch: proposal.personalizationPurgeEpoch }),
+        ...(proposal.memoryUse ? { memoryUse: proposal.memoryUse } : {}),
       },
       result: null,
       // Both in this commit. See "What the ledger says" above.
@@ -1242,7 +1259,7 @@ export async function regeneratePlan(
       rebuild(composed),
       current.generation,
       deps.storage,
-      composed.focusFromMemory === true && epoch !== undefined
+      epoch !== undefined
         ? { path: userDoc(uid), accepts: value => personalizationPurgeMatches(value, epoch) }
         : undefined,
     );

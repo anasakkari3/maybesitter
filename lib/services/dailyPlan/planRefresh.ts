@@ -342,7 +342,7 @@ export async function refreshStalePlan(
   // saved week day left untouched keeps its own work, and a day built around
   // saved week days keeps leaving their work off.
   const assignment = storedWeekAssignment(stored, today);
-  const { constraints, config, basisSnapshot, focusFromMemory, personalizationPurgeEpoch } = await composeDailyPlanRequest({
+  const { constraints, config, basisSnapshot, focusFromMemory, personalizationPurgeEpoch, memoryUse } = await composeDailyPlanRequest({
     uid,
     date: stored.date,
     timezone: stored.timezone,
@@ -356,8 +356,8 @@ export async function refreshStalePlan(
   let purgeMoved = false;
   const written = await mutateStoredPlan<null>(uid, stored.date, async (current, tx) => {
     if (!stillTheStateJudged(current, stored)) return null;
-    if (focusFromMemory === true && personalizationPurgeEpoch !== undefined
-      && !personalizationPurgeMatches(await tx.get(userDoc(uid)), personalizationPurgeEpoch)) {
+    if (memoryUse
+      && !personalizationPurgeMatches(await tx.get(userDoc(uid)), memoryUse.epoch)) {
       purgeMoved = true;
       return null;
     }
@@ -388,6 +388,8 @@ export async function refreshStalePlan(
       updatedAt: nowIso,
       ...(basisSnapshot ? { readinessApplied: basisSnapshot.readinessApplied } : {}),
       ...(focusFromMemory === undefined ? {} : { focusFromMemory }),
+      ...(personalizationPurgeEpoch === undefined ? {} : { personalizationPurgeEpoch }),
+      ...(memoryUse ? { memoryUse } : {}),
       // Assigned, not inherited: a patch of the generation being replaced
       // describes a plan that no longer exists.
       proposal: null,

@@ -211,6 +211,7 @@ interface ProposedDay {
   readonly readinessApplied?: ReadinessApplied;
   readonly focusFromMemory?: boolean;
   readonly personalizationPurgeEpoch?: number;
+  readonly memoryUse?: { readonly epoch: number };
   readonly assignment: DayAssignment;
   readonly reasons: ReadonlyMap<string, WeekStepReason | null>;
 }
@@ -482,6 +483,7 @@ export async function composeWeek(
       ...(request.basisSnapshot ? { readinessApplied: request.basisSnapshot.readinessApplied } : {}),
       ...(request.focusFromMemory === undefined ? {} : { focusFromMemory: request.focusFromMemory }),
       ...(request.personalizationPurgeEpoch === undefined ? {} : { personalizationPurgeEpoch: request.personalizationPurgeEpoch }),
+      ...(request.memoryUse ? { memoryUse: request.memoryUse } : {}),
       assignment: { include: final, exclude: rule.filter((itemId) => !finalSet.has(itemId)) },
       reasons,
     });
@@ -723,6 +725,7 @@ export async function acceptWeekDay(
     locale: layout.locale,
     ...(day.focusFromMemory === undefined ? {} : { focusFromMemory: day.focusFromMemory }),
     ...(day.personalizationPurgeEpoch === undefined ? {} : { personalizationPurgeEpoch: day.personalizationPurgeEpoch }),
+    ...(day.memoryUse ? { memoryUse: day.memoryUse } : {}),
   } : undefined;
   let created: boolean;
   let stored: StoredDailyPlan;
@@ -756,7 +759,10 @@ export async function acceptWeekDay(
       // removed unaccepted, as an empty one is.
       await storage.runTransaction(async (tx) => {
         const current = await tx.get<StoredDailyPlan>(planPath(uid, date));
-        if (current && current.status === 'proposed' && current.generation === stored.generation) tx.delete(planPath(uid, date));
+        if (current
+          && current.status === 'proposed'
+          && current.generation === stored.generation
+          && current.inputDigest === stored.inputDigest) tx.delete(planPath(uid, date));
       });
       return { outcome: 'week_changed', layout: await composeWeek(uid, decisions, { ...deps, storage }) };
     }
@@ -766,7 +772,11 @@ export async function acceptWeekDay(
     // the person saved: it is removed, unaccepted, rather than left behind.
     await storage.runTransaction(async (tx) => {
       const current = await tx.get<StoredDailyPlan>(planPath(uid, date));
-      if (current && current.status === 'proposed' && current.generation === stored.generation && effectiveSchedule(current).length === 0) {
+      if (current
+        && current.status === 'proposed'
+        && current.generation === stored.generation
+        && current.inputDigest === stored.inputDigest
+        && effectiveSchedule(current).length === 0) {
         tx.delete(planPath(uid, date));
       }
     });

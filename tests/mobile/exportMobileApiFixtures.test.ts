@@ -2872,6 +2872,11 @@ test('exports a fixture for every /api/mobile call the React Native client makes
         { itemId: dropped.itemId, reason: { code: 'NO_FEASIBLE_SLOT' as const, itemId: dropped.itemId, detail: 'fixture' } },
       ],
     };
+    // As the replan service writes it now (M5B2A-R10-001): a memory-neutral
+    // offer records the fence it was stored under. One with no provenance at
+    // all is a legacy offer, refused once the fence has ever moved — and an
+    // earlier fixture in this run withdraws personalization consent.
+    const fenceEpoch = ((await getStorage().get<{ personalizationPurge?: { epoch?: number } }>(userDoc(USER)))?.personalizationPurge?.epoch) ?? 0;
     const offered = await storePlanProposal(USER, PLAN_DATE, {
       proposalId: 'prp_fixture',
       proposedAt: REFERENCE_TIME,
@@ -2879,6 +2884,7 @@ test('exports a fixture for every /api/mobile call the React Native client makes
       baseInputDigest: base.inputDigest,
       plan: patched,
       solveInputs: { constraints: base.constraints, config: base.config },
+      storedPurgeEpoch: fenceEpoch,
       diff: diffPlans(base.plan, patched),
       reason: 'contains_removals',
       userControlMode: 'automatic_time_only',
