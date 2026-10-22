@@ -206,11 +206,17 @@ export async function cleanupMemoryDependents(
       if (rows.length === 0) break;
       for (const row of rows) await cleanupCitation(uid, targets, row, storage);
     }
+  }
+  // Memory copies are found per memory with two equalities, which Firestore
+  // serves from single-field indexes: an `in` beside an equality would need a
+  // composite index, and the deploy adds indexes only after traffic has moved
+  // to the code that queries them. Each page is deleted before the next read,
+  // so non-memory rows sharing a sourceRef can never hide a copy.
+  for (const memoryId of unique) {
     for (;;) {
       const rows = await storage.list<BasisObservationLike>(userCol(uid, INTELLIGENCE_OBSERVATIONS), {
-        where: [['sourceRef', 'in', batch], ['source', '==', 'memory']], limit: 100,
+        where: [['sourceRef', '==', memoryId], ['source', '==', 'memory']], limit: 100,
       });
-      if (rows.length === 0) break;
       for (const row of rows) await storage.delete(`${userCol(uid, INTELLIGENCE_OBSERVATIONS)}/${row.id}`);
       if (rows.length < 100) break;
     }
