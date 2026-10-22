@@ -60,15 +60,39 @@ function storeOf(options: PersonalizationConsentOptions): PersonalizationConsent
   return options.consent ?? createStoragePersonalizationConsentStore(options.storage ?? getStorage());
 }
 
-async function advancePersonalizationFence(storage: StorageAdapter, uid: string, at: string): Promise<void> {
-  await storage.runTransaction(async (tx) => {
+/**
+ * Phase one of a withdrawal (M5B2A-R7-001): one transaction moves the epoch
+ * *and* marks the fence `withdrawing`, which every memory reader and write
+ * guard reads as not active. Nothing that read memory before this can write
+ * after it, and nothing can read memory again until phase two. Returns the
+ * epoch it set, or null while a purge runs: the purge owns the fence then, and
+ * already refuses every write.
+ */
+async function beginPersonalizationWithdrawal(storage: StorageAdapter, uid: string, at: string): Promise<number | null> {
+  return storage.runTransaction(async (tx) => {
     const user = await tx.get<Record<string, unknown>>(userDoc(uid));
     const prior = user?.personalizationPurge as { state?: unknown; epoch?: unknown } | undefined;
-    if (prior?.state === 'purging') return;
+    if (prior?.state === 'purging') return null;
     const epoch = (Number.isSafeInteger(prior?.epoch) && (prior!.epoch as number) >= 0 ? (prior!.epoch as number) : 0) + 1;
-    const personalizationPurge = { ...(prior ?? {}), state: 'active', epoch, consentWithdrawnAt: at };
+    const personalizationPurge = { ...(prior ?? {}), state: 'withdrawing', epoch, consentWithdrawnAt: at };
     if (user) tx.merge(userDoc(uid), { personalizationPurge });
     else tx.set(userDoc(uid), { personalizationPurge });
+    return epoch;
+  });
+}
+
+/**
+ * Phase two: the fence is active again at the epoch phase one set — once the
+ * store is disabled, so a reader that sees it active also sees consent off.
+ * Only that exact epoch, still withdrawing: a purge that began in between owns
+ * the fence, and a later withdrawal finishes its own.
+ */
+async function finishPersonalizationWithdrawal(storage: StorageAdapter, uid: string, epoch: number): Promise<void> {
+  await storage.runTransaction(async (tx) => {
+    const user = await tx.get<Record<string, unknown>>(userDoc(uid));
+    const current = user?.personalizationPurge as { state?: unknown; epoch?: unknown } | undefined;
+    if (current?.state !== 'withdrawing' || current.epoch !== epoch) return;
+    tx.merge(userDoc(uid), { personalizationPurge: { ...current, state: 'active' } });
   });
 }
 
@@ -100,20 +124,21 @@ export async function setPersonalizationConsent(
     if (!PERSONALIZATION_CONSENT.isSupportedVersion(input.version)) {
       return setConsent(PERSONALIZATION_CONSENT, uid, { ...input, at }, { storage });
     }
-    // Withdrawal moves the personalization fence (M5B2A-R2-001): a plan that
-    // read the kept focus window before this and writes after it is refused
-    // by the same epoch check a purge uses, and a basis read across it is not
-    // shown. Not while a purge runs: the purge owns the epoch then, and
-    // already fences every write.
-    //
-    // The store is disabled *before* the fence moves (M5B2A-R4-001). Every
-    // reader takes the epoch before it reads consent, so one that still saw
-    // consent on took the old epoch, and the move refuses it; one that took
-    // the new epoch reads consent after it was disabled, and gets no window.
-    // The other order let a reader take the new epoch, still see consent on,
-    // and write after the withdrawal returned.
-    await store.write(uid, 'disabled', at.toISOString());
-    await advancePersonalizationFence(storage, uid, at.toISOString());
+    // Withdrawal moves the personalization fence (M5B2A-R2-001), in two
+    // phases (M5B2A-R7-001): the epoch moves and the fence closes in one
+    // transaction, the store is disabled, then the fence reopens at that
+    // epoch. A plan that read the kept window before phase one is refused by
+    // its write guard; a basis read across it is not shown; and while the
+    // fence is closed no reader takes the window at all. Reopened only once
+    // the store is off, so any reader after it sees consent withdrawn. If the
+    // store write fails the fence still reopens — the epoch has already moved,
+    // so nothing read before is written — and the caller is told.
+    const epoch = await beginPersonalizationWithdrawal(storage, uid, at.toISOString());
+    try {
+      await store.write(uid, 'disabled', at.toISOString());
+    } finally {
+      if (epoch !== null) await finishPersonalizationWithdrawal(storage, uid, epoch);
+    }
     return setConsent(PERSONALIZATION_CONSENT, uid, { ...input, at }, { storage });
   }
   return setConsent(PERSONALIZATION_CONSENT, uid, { ...input, at }, { storage });

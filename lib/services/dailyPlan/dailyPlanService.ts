@@ -480,7 +480,9 @@ function purgeOf(user: unknown): { state: string; epoch: number } {
 
 export function personalizationPurgeMatches(user: unknown, epoch: number): boolean {
   const purge = purgeOf(user);
-  return purge.state !== 'purging' && purge.epoch === epoch;
+  // Only an explicitly active fence: a purge, or a consent withdrawal between
+  // its phases (M5B2A-R7-001), refuses every write that read memory.
+  return purge.state === 'active' && purge.epoch === epoch;
 }
 
 /** Resolves the only memory input used by planning, together with its purge fence. */
@@ -498,7 +500,7 @@ export async function memoryFocusForPlan(
     return window ? { window, memoryId: null, purgeEpoch: 0, tracked: false } : null;
   }
   const purge = purgeOf(await storage.get(userDoc(uid)));
-  if (purge.state === 'purging') return null;
+  if (purge.state !== 'active') return null;
   const record = await keptFocusWindowRecord(uid, now, { storage });
   return record ? { window: record.window, memoryId: record.id, purgeEpoch: purge.epoch, tracked: true } : null;
 }

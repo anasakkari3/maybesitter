@@ -107,14 +107,14 @@ import type { MemorySuggestion } from './schemas/profile';
 import type { AlphaFeedbackCategory } from './schemas/feedback';
 import type { AnalyticsProperties, ClientReportableEvent } from './schemas/analytics';
 import {
-  ApiError,
+  AccountChangedError,
   ConflictError,
-  ContractError,
   ForbiddenError,
-  NetworkError,
-  ServerError,
-  ServiceUnavailableError,
-  TimeoutError,
+  InputTooLargeError,
+  QuotaExceededError,
+  RecentLoginRequiredError,
+  UnauthorizedError,
+  ValidationError,
   InvalidTransitionError,
   PlanProposalRefusedError,
   StaleCommitmentError,
@@ -1053,15 +1053,21 @@ function dropCorrection(client: QueryClient, uid: string, correction: BasisCorre
 }
 
 /**
- * Whether a failed write certainly changed nothing (M5B2A-R6-001): the server
- * answered, and refused it. A lost answer, a timeout, a 5xx or an unreadable
- * 200 may have committed first, so those settle like a success.
+ * Whether a failed write certainly changed nothing: the server refused the
+ * request itself — what was sent, who sent it, or how much — before touching
+ * any record. Everything else settles like a success (M5B2A-R6-001): a lost
+ * answer, a timeout, a 5xx or an unreadable 200 may have committed first, and
+ * a 404 or 409 says the record changed under the write (M5B2A-R7-002), so the
+ * cached basis may name a memory that is gone.
  */
 function writeRefused(error: unknown): boolean {
-  return error instanceof ApiError
-    && !(error instanceof NetworkError || error instanceof TimeoutError
-      || error instanceof ServiceUnavailableError || error instanceof ServerError
-      || error instanceof ContractError);
+  return error instanceof ValidationError
+    || error instanceof UnauthorizedError
+    || error instanceof RecentLoginRequiredError
+    || error instanceof ForbiddenError
+    || error instanceof InputTooLargeError
+    || error instanceof QuotaExceededError
+    || error instanceof AccountChangedError;
 }
 
 /**

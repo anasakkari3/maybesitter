@@ -408,6 +408,9 @@ describe('M5b-2a inspection fixes', () => {
   const ambiguous: [string, () => RouteReply | Promise<RouteReply>][] = [
     ['commit-then-500', () => ({ status: 500, body: { success: false, error: 'audit_failed' } })],
     ['lost answer', () => Promise.reject(new TypeError('Network request failed'))],
+    // R7-002: the record changed under the write — deleted or superseded elsewhere.
+    ['404 (gone elsewhere)', () => ({ status: 404, body: { success: false, error: 'not found', reason: 'memory_not_found' } })],
+    ['409 (superseded elsewhere)', () => ({ status: 409, body: { success: false, error: 'changed', reason: 'memory_changed' } })],
   ];
 
   it.each(ambiguous.flatMap(([label, reply]) => (['patch', 'delete', 'delete-all'] as const).map((operation) => [operation, label, reply] as const)))(

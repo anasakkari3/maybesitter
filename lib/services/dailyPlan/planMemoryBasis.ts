@@ -21,8 +21,10 @@ function purgeEpochOf(user: unknown): number {
   return typeof epoch === 'number' && Number.isFinite(epoch) ? epoch : 0;
 }
 
+/** A purge, or a consent withdrawal between its phases (M5B2A-R7-001): memory is not readable. */
 function purgeRunning(user: unknown): boolean {
-  return (user as { personalizationPurge?: { state?: unknown } } | null)?.personalizationPurge?.state === 'purging';
+  const state = (user as { personalizationPurge?: { state?: unknown } } | null)?.personalizationPurge?.state;
+  return state !== undefined && state !== 'active';
 }
 
 function minute(value: string): number | null {
@@ -72,4 +74,23 @@ export async function readPlanMemoryProjection(
     };
   }
   return { mode, memoryBasis: null, memoryBasisChanged: true, markerUnknown: false };
+}
+
+/**
+ * The projection as an optional disclosure (M5B2A-R6-002, R7-003): null when
+ * it cannot be read, so neither a plan read, its refresh, nor a route whose
+ * outcome is already written fails on it. Every caller outside this module
+ * reads it through here.
+ */
+export async function readPlanMemoryProjectionSafely(
+  uid: string,
+  stored: StoredDailyPlan,
+  now: string,
+  storage: StorageAdapter = getStorage(),
+): Promise<PlanMemoryProjection | null> {
+  try {
+    return await readPlanMemoryProjection(uid, stored, now, storage);
+  } catch {
+    return null;
+  }
 }

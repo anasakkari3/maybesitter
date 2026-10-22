@@ -29,7 +29,7 @@ import { pendingProposalOf, type StoredDailyPlan, type StoredPlanProposal } from
 import { resolveMemoryLearning } from '../../release/m5bCapabilities';
 import type { ReadinessApplied } from '../../integrations/readiness/freshReadiness';
 import { getStorage, type StorageAdapter } from '../../storage';
-import { readPlanMemoryProjection, type PlanMemoryBasisDto } from './planMemoryBasis';
+import { readPlanMemoryProjectionSafely, type PlanMemoryBasisDto } from './planMemoryBasis';
 
 export interface PlanItemDto {
   readonly itemId: string;
@@ -295,18 +295,13 @@ export async function assemblePlanResponse(
   // mutation route, after it was written. A failed read omits it rather than
   // failing a route whose outcome already happened (M5B2A-R6-002): the app
   // shows no basis, and a retried rebuild is not spent twice.
-  let projection: Awaited<ReturnType<typeof readPlanMemoryProjection>>;
-  try {
-    projection = await readPlanMemoryProjection(
-      uid,
-      stored,
-      typeof now === 'string' ? now : now.toISOString(),
-      options.storage ?? getStorage(),
-    );
-  } catch {
-    return dto;
-  }
-  if (projection.mode === 'off') return dto;
+  const projection = await readPlanMemoryProjectionSafely(
+    uid,
+    stored,
+    typeof now === 'string' ? now : now.toISOString(),
+    options.storage ?? getStorage(),
+  );
+  if (projection === null || projection.mode === 'off') return dto;
   if (projection.mode === 'on_nobasis') {
     return { ...dto, memoryBasisChanged: projection.memoryBasisChanged };
   }

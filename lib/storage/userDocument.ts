@@ -32,7 +32,8 @@ export interface UserDocument<TTrust = unknown> {
   calendarEpoch?: number;
   /** Monotonic fence around deletion of personalization-derived data. */
   personalizationPurge?: {
-    state?: 'active' | 'purging';
+    /** `withdrawing`: a consent withdrawal is between its phases; read as not active. */
+    state?: 'active' | 'purging' | 'withdrawing';
     epoch?: number;
     startedAt?: string;
     completedAt?: string;

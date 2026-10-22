@@ -97,7 +97,7 @@ import { replanExplanation } from './replanMetadata';
 import { PLAN_PROPOSAL_DAYS, planDatesFrom, storedWeekAssignment } from './weekHolds';
 import { resolveMemoryLearning } from '../../release/m5bCapabilities';
 import { resolvePlanReadiness } from '../../integrations/readiness/freshReadiness';
-import { readPlanMemoryProjection } from './planMemoryBasis';
+import { readPlanMemoryProjectionSafely } from './planMemoryBasis';
 
 export interface PlanRefreshDeps {
   readonly storage?: StorageAdapter;
@@ -321,8 +321,10 @@ export async function refreshStalePlan(
   const readinessChanged = normallyRefreshable && memoryLearning
     ? stored.readinessApplied === undefined || !isDeepStrictEqual(stored.readinessApplied, currentReadiness)
     : false;
-  const memoryProjection = await readPlanMemoryProjection(uid, stored, now.toISOString(), storage);
-  const memoryChanged = memoryProjection.mode !== 'off'
+  // Unreadable is unknown, not changed: the stored plan stands, and the
+  // response omits the basis (M5B2A-R7-003).
+  const memoryProjection = await readPlanMemoryProjectionSafely(uid, stored, now.toISOString(), storage);
+  const memoryChanged = memoryProjection !== null && memoryProjection.mode !== 'off'
     && (memoryProjection.markerUnknown || memoryProjection.memoryBasisChanged);
   const commitmentChanged = normallyRefreshable && planInputsChanged(uid, stored, commitments, today);
   if (!commitmentChanged && !readinessChanged && !memoryChanged) return { stored, inputsChanged: false, basisChanged: false };

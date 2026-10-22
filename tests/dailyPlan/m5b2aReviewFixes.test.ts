@@ -11,6 +11,7 @@ import { composeDailyPlan, memoryFocusForPlan, personalizationPurgeMatches } fro
 import { createStoragePersonalizationConsentStore } from '../../lib/personalizationControls/consentStore.ts';
 import { setPersonalizationConsent, PERSONALIZATION_CONSENT_VERSION } from '../../lib/consents/personalizationConsentService.ts';
 import { userDoc } from '../../lib/storage/paths.ts';
+import { setStorageForTests } from '../../lib/storage/index.ts';
 import {
   NOW, TODAY, TZ, begin, buildPlan, call, currentStorage, end, grantPersonalization, outcomeObservation, show, storedPlan, threeTasks,
 } from '../acceptance/m5b2a/support.ts';
@@ -98,9 +99,11 @@ test('R4-001: a plan that resolves the window just as withdrawal begins is refus
     },
   };
   await setPersonalizationConsent(uid, { state: 'declined', version: PERSONALIZATION_CONSENT_VERSION, at: new Date() }, { storage: currentStorage() as any, consent: consent as any });
-  assert.ok(raced, 'fixture: the racing plan saw no window');
+  assert.notEqual(raced, undefined, 'fixture: the racing plan never ran');
+  // Since R7-001 the closed fence gives it no window at all; either way, a
+  // plan shaped by the withdrawn window is never written.
   const user = await currentStorage().get(userDoc(uid));
-  assert.equal(personalizationPurgeMatches(user, raced.purgeEpoch), false, 'a plan shaped by the withdrawn window would still be written');
+  assert.ok(raced === null || !personalizationPurgeMatches(user, raced!.purgeEpoch), 'a plan shaped by the withdrawn window would still be written');
   const later = await memoryFocusForPlan(uid, NOW(), { storage: currentStorage() as any });
   assert.equal(later, null, 'a plan begun after the withdrawal still reads the window');
 });
@@ -123,4 +126,82 @@ test('R6-002: a memory projection that cannot be read omits the basis instead of
   assert.equal((dto as any).memoryBasisChanged, undefined);
   assert.equal(dto.date, (healthy as any).date);
   assert.deepEqual(dto.scheduled, (healthy as any).scheduled);
+});
+
+test('R7-001: between the phases of a withdrawal nothing reads the kept window, shows its basis, or writes with the old epoch', async () => {
+  const uid = await keptFocusPlan();
+  const storage = currentStorage() as any;
+  const stored = await storedPlan(uid);
+  const oldEpoch = ((await storage.get(userDoc(uid))) ?? {}).personalizationPurge?.epoch ?? 0;
+  const base = createStoragePersonalizationConsentStore(storage);
+  const seen: Record<string, unknown> = {};
+  const consent = {
+    ...base,
+    read: base.read.bind(base),
+    write: async (...args: Parameters<typeof base.write>) => {
+      if (args[1] !== 'disabled') return base.write(...args);
+      // Just before the store is disabled: consent still reads on.
+      seen.focusBefore = await memoryFocusForPlan(uid, NOW(), { storage });
+      seen.basisBefore = (await readPlanMemoryProjection(uid, stored, NOW(), storage)).memoryBasis;
+      const written = await base.write(...args);
+      // Just after it, before the fence reopens: a plan that read the window
+      // earlier tries its guarded write.
+      seen.oldEpochWrites = personalizationPurgeMatches(await storage.get(userDoc(uid)), oldEpoch);
+      return written;
+    },
+  };
+  await setPersonalizationConsent(uid, { state: 'declined', version: PERSONALIZATION_CONSENT_VERSION, at: new Date() }, { storage, consent: consent as any });
+  assert.equal(seen.focusBefore, null, 'a plan read the kept window during the withdrawal');
+  assert.equal(seen.basisBefore, null, 'a basis was shown during the withdrawal');
+  assert.equal(seen.oldEpochWrites, false, 'a plan that read the window before the withdrawal could still write');
+  const fence = ((await storage.get(userDoc(uid))) ?? {}).personalizationPurge;
+  assert.equal(fence?.state, 'active', 'the fence did not reopen');
+  assert.equal(fence?.epoch, oldEpoch + 1);
+});
+
+test('R7-001: a withdrawal whose store write fails still reopens the fence at the moved epoch', async () => {
+  const uid = await keptFocusPlan();
+  const storage = currentStorage() as any;
+  const oldEpoch = ((await storage.get(userDoc(uid))) ?? {}).personalizationPurge?.epoch ?? 0;
+  const base = createStoragePersonalizationConsentStore(storage);
+  const consent = { ...base, read: base.read.bind(base), write: async () => { throw new Error('store unavailable'); } };
+  await assert.rejects(setPersonalizationConsent(uid, { state: 'declined', version: PERSONALIZATION_CONSENT_VERSION, at: new Date() }, { storage, consent: consent as any }));
+  const fence = ((await storage.get(userDoc(uid))) ?? {}).personalizationPurge;
+  assert.deepEqual([fence?.state, fence?.epoch], ['active', oldEpoch + 1]);
+});
+
+/** The same storage, with every read of the runtime-memory collection failing: only the optional projection reads it on these paths. */
+function memoryUnreadable(storage: any): any {
+  const failing = (path: unknown) => typeof path === 'string' && /\/memory(\/|$)/.test(path);
+  return new Proxy(storage, {
+    get(target, key) {
+      const value = Reflect.get(target, key);
+      if (key === 'list' || key === 'listGroup') {
+        return async (path: unknown, ...rest: unknown[]) => {
+          if (failing(path) || key === 'listGroup') throw new Error('memory unreadable');
+          return value.call(target, path, ...rest);
+        };
+      }
+      return typeof value === 'function' ? value.bind(target) : value;
+    },
+  });
+}
+
+test('R7-003: GET and building over an existing plan answer the plan without a basis when the memory projection cannot be read', async () => {
+  const uid = await keptFocusPlan();
+  const storage = currentStorage() as any;
+  const before = await storedPlan(uid);
+  setStorageForTests(memoryUnreadable(storage));
+  try {
+    const read = await call(uid, 'plans/[date]', 'GET', { params: { date: TODAY } });
+    assert.equal(read.status, 200, show(read.body));
+    assert.equal(read.body.plan.memoryBasis, undefined);
+    assert.equal(read.body.plan.date, TODAY);
+    const built = await call(uid, 'plans/[date]/build', 'POST', { params: { date: TODAY } });
+    assert.equal(built.status, 200, show(built.body));
+    assert.equal(built.body.plan.memoryBasis, undefined);
+  } finally {
+    setStorageForTests(storage);
+  }
+  assert.equal((await storedPlan(uid)).generation, before.generation, 'an unreadable projection rebuilt the plan');
 });
