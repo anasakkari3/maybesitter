@@ -38,7 +38,7 @@ import type { PersonalizationConsent } from '../../src/contracts/v1/personalizat
 import { getStorage, type StorageAdapter } from '../storage';
 import { userDoc } from '../storage/paths';
 import { randomUUID } from 'node:crypto';
-import { getConsent, setConsent, setConsentIf, setConsentWithToken, type SetConsentInput } from './consentService';
+import { getConsent, setConsent, setConsentIf, setConsentWhile, setConsentWithToken, type SetConsentInput } from './consentService';
 
 /**
  * A yes that could not be made true. The versioned answer was recorded but the
@@ -187,6 +187,12 @@ async function abandonWithdrawalLease(storage: StorageAdapter, uid: string, leas
   });
 }
 
+/** Whether `lease` still owns the fence in this user document. */
+function ownsFence(user: unknown, lease: WithdrawalLease): boolean {
+  const fence = (user as { personalizationPurge?: FenceDocument } | null)?.personalizationPurge;
+  return fence?.state === 'withdrawing' && fence.epoch === lease.epoch && fence.withdrawalOwner === lease.owner;
+}
+
 /** Active, or a fence from before states existed. */
 function fenceActive(fence: FenceDocument | undefined): boolean {
   return fence === undefined || fence.state === undefined || fence.state === 'active';
@@ -230,6 +236,12 @@ export async function setPersonalizationConsent(
   const store = storeOf(options);
   const at = input.at ?? new Date();
   if (input.state === 'granted') {
+    // Refused before any fence is touched (M5B2A-R25-001): an answer that will
+    // not be recorded must not supersede a withdrawal on its way to that
+    // refusal. `setConsent` throws the same refusal it always has.
+    if (!PERSONALIZATION_CONSENT.isSupportedVersion(input.version)) {
+      return setConsent(PERSONALIZATION_CONSENT, uid, { ...input, at }, { storage });
+    }
     // Never while a live withdrawal owns the fence (M5B2A-R19-001): it could
     // otherwise finish after this and leave memory closed under a grant that
     // said it worked. Waited for, as a withdrawal waits; refused if it lasts.
@@ -274,9 +286,13 @@ export async function setPersonalizationConsent(
     // The answer is recorded while the fence is still closed (M5B2A-R21-001):
     // a grant decided after this withdrawal reopens cannot be overtaken by
     // this withdrawal's own answer landing late.
-    let record: ConsentRecord | undefined;
-    await withdrawFenced(uid, at.toISOString(), { ...options, storage, consent: store }, async () => {
-      record = await setConsent(PERSONALIZATION_CONSENT, uid, { ...input, at }, { storage });
+    // …and only while this withdrawal still owns the fence (R25-002): one that
+    // stalled past its lease and was superseded by a grant must not write its
+    // older "declined" over the newer answer.
+    let record: ConsentRecord | null = null;
+    await withdrawFenced(uid, at.toISOString(), { ...options, storage, consent: store }, async (held) => {
+      record = await setConsentWhile(PERSONALIZATION_CONSENT, uid, { ...input, at }, (user) => ownsFence(user, held), { storage });
+      if (record === null) throw new PersonalizationWithdrawalSupersededError();
     });
     return record!;
   }
@@ -315,7 +331,7 @@ async function withdrawFenced(
   uid: string,
   at: string,
   options: PersonalizationConsentOptions,
-  whileClosed?: () => Promise<void>,
+  whileClosed?: (held: WithdrawalLease) => Promise<void>,
 ): Promise<PersonalizationConsent> {
   const storage = options.storage ?? getStorage();
   const store = storeOf(options);
@@ -339,7 +355,7 @@ async function withdrawFenced(
       },
     });
     if (written === null) throw new PersonalizationWithdrawalSupersededError();
-    if (whileClosed) await whileClosed();
+    if (whileClosed) await whileClosed(held);
     return written;
   } finally {
     // Reopened once consent reads off. A withdrawal whose own write failed

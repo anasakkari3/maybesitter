@@ -149,7 +149,7 @@ async function writeConsent(
   uid: string,
   input: SetConsentInput,
   options: ConsentOptions,
-  onlyIfToken: string | undefined,
+  accepts: ((user: ConsentBearingUser | null) => boolean) | undefined,
 ): Promise<{ record: ConsentRecord; token: string } | null> {
   requireUserId(uid);
   if (input.state !== 'granted' && input.state !== 'declined') {
@@ -175,7 +175,7 @@ async function writeConsent(
   const token = randomUUID();
   const written = await storage.runTransaction(async (tx) => {
     const current = await tx.get<ConsentBearingUser>(userDoc(uid));
-    if (onlyIfToken !== undefined && current?.consentOps?.[kind.key] !== onlyIfToken) return false;
+    if (accepts && !accepts(current)) return false;
     // Merged into the existing map, never replacing it: answering one question
     // must not erase the answer to the other.
     tx.merge<ConsentBearingUser>(userDoc(uid), {
@@ -213,7 +213,23 @@ export async function setConsentIf(
   token: string,
   options: ConsentOptions = {},
 ): Promise<ConsentRecord | null> {
-  return (await writeConsent(kind, uid, input, options, token))?.record ?? null;
+  return (await writeConsent(kind, uid, input, options, (user) => user?.consentOps?.[kind.key] === token))?.record ?? null;
+}
+
+/**
+ * `setConsent`, written only while `accepts` holds for the user document read
+ * in the same transaction — a withdrawal's answer, recorded only while it
+ * still owns the personalization fence (M5B2A-R25-002). Null, with no write
+ * and no audit line, otherwise.
+ */
+export async function setConsentWhile(
+  kind: ConsentKindContract,
+  uid: string,
+  input: SetConsentInput,
+  accepts: (user: unknown) => boolean,
+  options: ConsentOptions = {},
+): Promise<ConsentRecord | null> {
+  return (await writeConsent(kind, uid, input, options, accepts))?.record ?? null;
 }
 
 export type ConsentView = ConsentRecord & { asked: boolean };

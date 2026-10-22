@@ -739,7 +739,10 @@ test('R18-001: a takeover of a live-but-slow withdrawal whose own write fails le
   assert.equal(((await storage.get(userDoc(uid))) ?? {}).personalizationPurge?.state, 'withdrawing', 'the failed takeover reopened the fence while consent was on');
   assert.equal(await memoryFocusForPlan(uid, NOW(), { storage }), null, 'memory was readable during the unfinished withdrawal');
   releaseW1();
-  await w1;
+  // W2 took the fence over, so W1 no longer owns it: its unguarded store write
+  // (a store without `writeGuarded`) lands, but its answer is not recorded
+  // (R25-002), and it is told to ask again.
+  await assert.rejects(w1, PersonalizationWithdrawalBusyError);
   assert.equal((await base.read(uid)).state, 'disabled');
   assert.equal(await memoryFocusForPlan(uid, NOW(), { storage }), null);
   // R19-001: consent is off now, so the fence W2 left behind is recovered, and
@@ -1076,6 +1079,44 @@ test('R24-003: a kept focus record deleted between the rebase read and the accep
   await assert.rejects(acceptPlan(uid, TODAY, { storage } as any), PlanWriteGuardRejected);
   assert.ok(deleted, 'fixture: the acceptance never reached its transaction');
   assert.notEqual((await storedPlan(uid)).status, 'accepted');
+});
+
+test('R25-001: a grant refused for its version never touches the fence of a slow withdrawal', async () => {
+  const uid = await keptFocusPlan();
+  const storage = currentStorage() as any;
+  await setFence(storage, uid, { state: 'withdrawing', epoch: 12, withdrawalOwner: 'slow', withdrawalLeaseAt: new Date(Date.now() - 5 * 60_000).toISOString() });
+  const { UnsupportedConsentVersionError } = await import('../../lib/consents/consentService.ts');
+  await assert.rejects(
+    setPersonalizationConsent(uid, { state: 'granted', version: 'personalization-v999', at: new Date() }, { storage }),
+    UnsupportedConsentVersionError,
+  );
+  const fence = ((await storage.get(userDoc(uid))) ?? {}).personalizationPurge;
+  assert.deepEqual([fence?.state, fence?.epoch, fence?.withdrawalOwner], ['withdrawing', 12, 'slow'], 'a refused grant superseded the withdrawal');
+});
+
+test("R25-002: a withdrawal that stalls past its lease after disabling never writes its declined over a newer grant", async () => {
+  const uid = await keptFocusPlan();
+  const storage = currentStorage() as any;
+  const base = createStoragePersonalizationConsentStore(storage);
+  let release!: () => void;
+  const paused = new Promise<void>((resolve) => { release = resolve; });
+  let disabled!: () => void;
+  const afterDisable = new Promise<void>((resolve) => { disabled = resolve; });
+  const stalling = {
+    read: base.read.bind(base), write: base.write.bind(base), deleteScope: base.deleteScope.bind(base),
+    writeGuarded: async (...args: Parameters<NonNullable<typeof base.writeGuarded>>) => { const written = await base.writeGuarded!(...args); disabled(); await paused; return written; },
+  };
+  const w = setPersonalizationConsent(uid, { state: 'declined', version: PERSONALIZATION_CONSENT_VERSION, at: new Date() }, { storage, consent: stalling as any });
+  await afterDisable;
+  const fence = ((await storage.get(userDoc(uid))) ?? {}).personalizationPurge;
+  await setFence(storage, uid, { ...fence, withdrawalLeaseAt: new Date(Date.now() - 5 * 60_000).toISOString() });
+  await setPersonalizationConsent(uid, { state: 'granted', version: PERSONALIZATION_CONSENT_VERSION, at: new Date(Date.now() + 1_000) }, { storage });
+  release();
+  await assert.rejects(w, PersonalizationWithdrawalBusyError);
+  const { getConsent } = await import('../../lib/consents/consentService.ts');
+  const { PERSONALIZATION_CONSENT } = await import('../../src/contracts/v1/consentContracts.ts');
+  assert.equal(await getConsent(PERSONALIZATION_CONSENT, uid, { storage }), 'granted', 'the superseded withdrawal wrote its declined answer');
+  assert.equal((await base.read(uid)).state, 'enabled');
 });
 
 test('R20-004: a fresh run never answers a suggestion whose outcome was dismissed right after the commit', async () => {
