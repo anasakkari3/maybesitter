@@ -15,12 +15,16 @@
  *     at once, and a failed read after it does not bring it back (APP-002); a
  *     failed signal reread claims no «no ideas» (APP-003); an empty holder
  *     polls nothing (APP-004).
+ *   - Codex second inspection: only a cited card waits for the memory list,
+ *     not a citationless one beside it (APP-UI-004); a visit whose follow-up
+ *     read fails clears what it proved stale and keeps the visit's throttle
+ *     (APP-VISIT-006).
  */
 import React from 'react';
 import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react-native';
 import { IntelligencePanel } from '../../goals/IntelligencePanel';
-import { resetVisitThrottleForTests } from '../../../lib/deviceSettings/visitThrottle';
+import { claimVisit, resetVisitThrottleForTests } from '../../../lib/deviceSettings/visitThrottle';
 import en from '../../../i18n/locales/en.json';
 import {
   MEMORY_A,
@@ -34,6 +38,7 @@ import {
   memory,
   noRetries,
   prepare,
+  schedule,
   showBanner,
   showPanel,
   suggestion,
@@ -292,5 +297,60 @@ describe('M5b-2b-1 suggestion basis, beyond the gate', () => {
     for (let minute = 0; minute < 3; minute += 1) await scheduledSettlement();
     expect(harness.server.matching('GET', /^\/api\/mobile\/memory$/)).toHaveLength(0);
     expect(harness.server.matching('GET', INBOX)).toHaveLength(0);
+  });
+
+  it('APP-UI-004 a slow memory list holds back only the cited card, not the citationless one and its schedule', async () => {
+    const OTHER = 'plain-suggestion';
+    const handler: RouteHandler = request => {
+      if (request.method === 'GET' && request.path === '/api/mobile/intelligence') {
+        return { status: 200, body: inbox(
+          [suggestion(SUGGESTION_ID, { memoryIds: [MEMORY_A] }), suggestion(OTHER)],
+          { basisMode: 'on_basis', schedule: [schedule(SUGGESTION_ID), schedule(OTHER)] },
+        ) };
+      }
+      // The memory list never answers here.
+      if (request.method === 'GET' && request.path === '/api/mobile/memory') return new Promise<RouteReply>(() => undefined);
+      return undefined;
+    };
+    harness = await prepare('en', initialState({ memoryItems: [memory(MEMORY_A)] }), handler);
+    noRetries(harness);
+    await showPanel(harness);
+
+    await waitFor(() => expect(screen.queryByTestId(`intelligence-suggestion-${OTHER}`)).not.toBeNull());
+    expect(screen.queryByTestId(`m5b-suggestion-schedule-${OTHER}`)).not.toBeNull();
+    expect(screen.queryByTestId(CARD)).toBeNull();
+    expect(screen.queryByTestId(`m5b-suggestion-schedule-${SUGGESTION_ID}`)).toBeNull();
+    expect(screen.queryByText(en.xIntelligenceNoIdeas)).toBeNull();
+  });
+
+  it('APP-VISIT-006 a differing visit whose follow-up read fails clears what is held and keeps the visit\'s throttle', async () => {
+    let reads = 0;
+    let answerVisit!: () => void;
+    const visit = new Promise<void>(resolve => { answerVisit = resolve; });
+    const handler: RouteHandler = request => {
+      if (request.method === 'GET' && request.path === '/api/mobile/intelligence') {
+        reads += 1;
+        return reads === 1
+          ? { status: 200, body: inbox([suggestion(SUGGESTION_ID, { memoryIds: [MEMORY_A] })], { basisMode: 'on_basis' }) }
+          : { status: 500, body: { success: false, error: 'unavailable' } };
+      }
+      if (request.method === 'POST' && request.path === '/api/mobile/intelligence/generate') {
+        return visit.then(() => ({ status: 200, body: generated([suggestion(SUGGESTION_ID)], { basisMode: 'on_basis' }) }));
+      }
+      if (request.method === 'GET' && request.path === '/api/mobile/memory') return memoryList([MEMORY_A]);
+      return undefined;
+    };
+    harness = await prepare('en', initialState({ memoryItems: [memory(MEMORY_A)] }), handler);
+    noRetries(harness);
+    await render(<Providers harness={harness}><IntelligencePanel onChanged={() => undefined} autoGenerate /></Providers>);
+    await waitFor(() => expect(screen.queryByTestId(LINE)).not.toBeNull());
+
+    await act(async () => { answerVisit(); });
+    await waitFor(() => expect(reads).toBe(2));
+    await waitFor(() => expect(screen.queryByTestId(CARD)).toBeNull());
+    expect(screen.queryByText(en.xIntelligenceNoIdeas)).toBeNull();
+    // The visit answered, so the next one waits the visit's interval, not
+    // the half hour a failed visit waits.
+    expect(await claimVisit('m5b-account-a', NOW.getTime() + 31 * 60_000)).toBe(false);
   });
 });
