@@ -161,6 +161,14 @@ describe('email verification banner', () => {
     expect(repository.calls).toHaveLength(1);
   });
 
+  it('says the email did not go when sending fails, instead of staying silent (owner report 2026-10-22)', async () => {
+    const repository = createFakeAuthRepository({ initialUser: UNVERIFIED });
+    repository.sendVerificationEmail = async () => { throw Object.assign(new Error('rate limited'), { code: 'auth/too-many-requests' }); };
+    await renderBanner(repository);
+    await fireEvent.press(screen.getByLabelText(en.authVerifyResend));
+    expect(String(screen.getByTestId('m6-verify-sentence').props.children)).toBe(en.authVerifyFailed);
+  });
+
   it('counts the cooldown down and offers the button again', async () => {
     const repository = createFakeAuthRepository({ initialUser: UNVERIFIED });
     await renderBanner(repository);

@@ -17,7 +17,7 @@ import {
   useIcsFeeds,
   useRefreshIcsFeed,
   useTrust,
-  useTrustAction,
+  useCalendarConsentWritePending, useTrustAction,
   useUpdateIcsFeed,
 } from '../../api/queries';
 import { userFacingMessage } from '../../api/ui/userFacingMessage';
@@ -128,6 +128,9 @@ function FeedsBody({ rtl }: { rtl: boolean }) {
 function ConsentCard() {
   const { t, p } = useApp();
   const action = useTrustAction();
+  // Any calendar-consent write for the account still on its way, from any
+  // screen, keeps this one waiting (Codex M6B-R7-002).
+  const writing = useCalendarConsentWritePending();
   return (
     <View style={{ gap: 10 }} testID="ics-consent">
       <Txt size={15}>{t.icsFeedsConsentTitle}</Txt>
@@ -135,8 +138,8 @@ function ConsentCard() {
       <ActionButton
         label={t.icsFeedsConsentAction}
         testID="ics-consent-allow"
-        busy={action.isPending}
-        onPress={() => action.mutate({ type: 'set_calendar_consent', granted: true })}
+        busy={action.isPending || writing}
+        onPress={() => { if (!writing) action.mutate({ type: 'set_calendar_consent', granted: true }); }}
       />
       {action.isError ? (
         <Txt size={13} color={p.mu} lh={1.5} testID="ics-consent-error">{userFacingMessage(action.error, t)}</Txt>

@@ -90,10 +90,29 @@ export async function readTrust(participantId: string): Promise<PilotTrustState 
  * The read and the write are in one transaction, so two consent changes racing
  * cannot both start from the same record and lose one of them.
  */
-export async function applyTrustAction(participantId: string, action: PilotTrustAction): Promise<PilotTrustState> {
+export async function applyTrustAction(
+  participantId: string,
+  requested: PilotTrustAction,
+  options: {
+    /**
+     * Stamp the action when the transaction applies it, not when its request
+     * began (Codex M6B-R12-004). For a change the person makes now: two quick
+     * changes otherwise commit in reverse order, and the earlier-started one
+     * is refused as backdated although it is a current action. The app sends
+     * calendar-consent changes one after another; this keeps the server from
+     * reordering what arrives.
+     */
+    readonly stampAtApply?: boolean;
+    readonly now?: () => Date;
+  } = {},
+): Promise<PilotTrustState> {
   requirePilotParticipantId(participantId);
   return getStorage().runTransaction(async (tx) => {
     const user = await tx.get<TrustUser>(userDoc(participantId));
+    const appliedAt = (options.now ?? (() => new Date()))().toISOString();
+    const action: PilotTrustAction = options.stampAtApply && Date.parse(appliedAt) > Date.parse(requested.at)
+      ? { ...requested, at: appliedAt }
+      : requested;
     const current = user?.trust
       ? requirePilotTrustState(user.trust)
       : createPilotTrustState(participantId, action.at);

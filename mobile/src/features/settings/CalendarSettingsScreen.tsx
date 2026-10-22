@@ -9,7 +9,7 @@ import { Screen, ScreenScroll } from '../../ui/screen';
 import { SettingsHeader, SettingsRow } from './SettingsChrome';
 import { ServerToggle } from './ServerToggle';
 import { toggleFailureKey, type UserFacingKey } from '../../api/ui/userFacingMessage';
-import { useSetCalendarWriteTarget, useToday, useTrust, useTrustAction, useUid, useUpcoming } from '../../api/queries';
+import { useSetCalendarWriteTarget, useToday, useTrust, useCalendarConsentWritePending, useTrustAction, useUid, useUpcoming } from '../../api/queries';
 import { useM5aCapabilitiesOnOpen } from '../m5a/capabilities';
 import { refreshM5aView, useM5aCalendarView } from '../calendar/m5aCalendar';
 import { M5aCalendarSections } from './M5aCalendarSections';
@@ -131,6 +131,8 @@ export function CalendarSettingsScreen({ onBack, onFeeds }: { onBack: () => void
   const trust = useTrust();
   const trustAction = useTrustAction();
   const consented = trust.data?.trust?.calendarConsent === true;
+  // Locked while any calendar-consent write for the account is on its way (Codex M6B-R7-002).
+  const consentWritePending = useCalendarConsentWritePending();
   const uid = useUid();
   // M5a (R1.2, M5A-R2-003): an enrolled phone always shows the four
   // sections, whatever the flag; the old screen is only for a phone that
@@ -412,7 +414,7 @@ export function CalendarSettingsScreen({ onBack, onFeeds }: { onBack: () => void
               // round 6, D-c, shot 761). The consent itself is kept, so allowing
               // it in phone settings brings the switch straight back.
               value={consented && !denied}
-              disabled={!calendarReadEnabled() || trust.data === undefined || denied}
+              disabled={!calendarReadEnabled() || trust.data === undefined || denied || consentWritePending}
               onChange={changeRead}
               testID="calendar-read-toggle"
             />
@@ -512,7 +514,7 @@ export function CalendarSettingsScreen({ onBack, onFeeds }: { onBack: () => void
               label={t.calendarDisconnectAction}
               testID="calendar-disconnect"
               onPress={() => setConfirmDisconnect(true)}
-              disabled={disconnecting}
+              disabled={disconnecting || consentWritePending}
               style={{ borderRadius: 16, minHeight: 52, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: p.ln }}
             >
               {disconnecting

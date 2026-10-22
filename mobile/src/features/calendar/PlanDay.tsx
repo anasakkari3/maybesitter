@@ -21,6 +21,7 @@ import type { DeviceBusyBlock } from './busyBlocks';
 import { HOUR_HEIGHT, hourWindow, minuteOfDay, placeSpans, yOf, type TimelineSpan } from './dayTimeline';
 import { GapRow } from './FreeTimeRows';
 import type { Gap } from './freeTime';
+import { unbreakableRange } from './busyConflictText';
 
 /**
  * The selected day on the Plan tab (Stitch `02-plan`): the proportional
@@ -65,7 +66,7 @@ function importanceWord(importance: CommitmentView['importance'], t: ReturnType<
 function conflictText(block: DeviceBusyBlock, t: ReturnType<typeof useApp>['t'], lang: ReturnType<typeof useApp>['lang'], timeZone: string): string {
   return block.allDay
     ? t.calendarBusyConflictAllDay
-    : fill(t.calendarBusyConflict, { range: formatTimeRange(new Date(block.startAt), new Date(block.endAt), { locale: lang, timeZone }) });
+    : fill(t.calendarBusyConflict, { range: unbreakableRange(formatTimeRange(new Date(block.startAt), new Date(block.endAt), { locale: lang, timeZone })) });
 }
 
 /** A commitment: its time (or «بدون وقت»), title, importance, and what it runs into. Opens Details. */

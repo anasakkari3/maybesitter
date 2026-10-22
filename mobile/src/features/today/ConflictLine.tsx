@@ -11,12 +11,10 @@ import { ActionRow } from '../../ui/chrome';
 import { BottomSheet, SheetHeader } from '../../ui/bottomSheet';
 import { useReferencePalette } from '../../ui/referenceDesign';
 import type { TodayConflict } from './todayConflict';
+import { busyConflictSentence, isWeeklyFixedBlock, unbreakableRange } from '../calendar/busyConflictText';
 
-/** The sentence under the title: the busy range, or the all-day wording when that is all there is. */
-function busySentence(conflict: TodayConflict, t: ReturnType<typeof useApp>['t'], lang: ReturnType<typeof useApp>['lang'], timeZone: string): string {
-  return conflict.block.allDay
-    ? t.calendarBusyConflictAllDay
-    : fill(t.calendarBusyConflict, { range: formatTimeRange(new Date(conflict.block.startAt), new Date(conflict.block.endAt), { locale: lang, timeZone }) });
+function isFixedBlock(conflict: TodayConflict): boolean {
+  return isWeeklyFixedBlock(conflict.block);
 }
 
 /**
@@ -32,7 +30,7 @@ export function ConflictLine({ conflict, onOpen }: { conflict: TodayConflict; on
   const p = useReferencePalette();
   const timezone = useTimeZone();
   const time = ltr(formatTime(new Date(conflict.at), { locale: lang, timeZone: timezone }));
-  const sentence = busySentence(conflict, t, lang, timezone);
+  const sentence = busyConflictSentence(conflict.block, t, lang, timezone);
   return (
     <Btn
       testID="today-conflict"
@@ -73,10 +71,10 @@ export function ConflictSheet({ conflict, onClose }: { conflict: TodayConflict |
           <SheetHeader title={t.todayConflictTitle} icon="alert" tone="attention" onClose={onClose} closeTestID="today-conflict-close" />
           <View style={{ backgroundColor: p.sf2, borderRadius: 18, borderWidth: 1, borderColor: p.ln, padding: 16, gap: 8 }}>
             <Txt size={15} lh={1.6} testID="today-conflict-explain">
-              {fill(conflict.block.allDay ? t.todayConflictBodyAllDay : t.todayConflictBody, {
+              {fill(conflict.block.allDay ? t.todayConflictBodyAllDay : isFixedBlock(conflict) ? t.fixedBlockConflictBody : t.todayConflictBody, {
                 title: isolateAuto(conflict.item.title),
                 time: ltr(formatTime(new Date(conflict.at), { locale: lang, timeZone: timezone })),
-                range: conflict.block.allDay ? '' : formatTimeRange(new Date(conflict.block.startAt), new Date(conflict.block.endAt), { locale: lang, timeZone: timezone }),
+                range: conflict.block.allDay ? '' : unbreakableRange(formatTimeRange(new Date(conflict.block.startAt), new Date(conflict.block.endAt), { locale: lang, timeZone: timezone })),
               })}
             </Txt>
             <Txt size={13} color={p.mu} lh={1.5}>{t.todayConflictHint}</Txt>

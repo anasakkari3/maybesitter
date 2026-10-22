@@ -544,3 +544,72 @@ describe('inspection r6 and the simulator pass (M5A-R6-001/002/003, SIM-M5A-02)'
   });
 });
 
+describe('M6b inspection r5 (Codex M6B-R5-002)', () => {
+  it('a selection is not saved when the consent says off at the moment of the write; a clear still is', async () => {
+    harness = await prepare();
+    await AsyncStorage.setItem(ENROLLED, '2030-03-20T08:00:00.000Z');
+    await showBusyHost(harness);
+    await settle();
+    const writes: string[] = [];
+    const original = (AsyncStorage.setItem as jest.Mock).getMockImplementation() as (key: string, value: string) => Promise<void>;
+    jest.spyOn(AsyncStorage, 'setItem').mockImplementation((key, value) => {
+      if (key === PENDING) writes.push(JSON.parse(value).operation as string);
+      return original(key, value);
+    });
+    const off = { uid: UID, accountCurrent: () => true, stillCurrent: () => false, consented: () => false };
+    await act(async () => { await startSelection(UID, ['work'], off); });
+    expect(writes).toEqual([]);
+    expect(await AsyncStorage.getItem(PENDING)).toBeNull();
+    await act(async () => { await startSelection(UID, [], off).catch(() => undefined); });
+    expect(writes[0]).toBe('clear');
+  });
+
+  it('a switch-off that begins during the generation write or the save leaves no upload pending (Codex M6B-R6-001)', async () => {
+    harness = await prepare();
+    await AsyncStorage.setItem(ENROLLED, '2030-03-20T08:00:00.000Z');
+    await showBusyHost(harness);
+    await settle();
+    const GENERATION = `calendar.inclusionGeneration.v1:${UID}`;
+    const original = (AsyncStorage.setItem as jest.Mock).getMockImplementation() as (key: string, value: string) => Promise<void>;
+    for (const during of [GENERATION, PENDING]) {
+      await AsyncStorage.removeItem(PENDING);
+      let consent = true;
+      let flipped = false;
+      jest.spyOn(AsyncStorage, 'setItem').mockImplementation(async (key, value) => {
+        await original(key, value);
+        // The switch-off is tapped while this write is on its way.
+        if (key === during && !flipped) { flipped = true; consent = false; }
+      });
+      const context = { uid: UID, accountCurrent: () => true, stillCurrent: () => consent, consented: () => consent };
+      await act(async () => { await startSelection(UID, ['work'], context); });
+      expect(flipped).toBe(true);
+      expect(await AsyncStorage.getItem(PENDING)).toBeNull();
+    }
+  });
+
+  it('a switch-off during the phone read of a selection uploads nothing and caches nothing (Codex M6B-R7-001)', async () => {
+    harness = await prepare();
+    await AsyncStorage.setItem(ENROLLED, '2030-03-20T08:00:00.000Z');
+    await showBusyHost(harness);
+    await settle();
+    let release: (() => void) | undefined;
+    let consent = true;
+    jest.mocked(deviceCalendar.fetchBusyBlocks).mockImplementation(() => new Promise((resolve) => {
+      release = () => resolve([{ nativeId: 'n1', startAt: '2030-03-29T10:00:00.000Z', endAt: '2030-03-29T11:00:00.000Z', allDay: false }] as never);
+    }));
+    await AsyncStorage.removeItem(BUSY_BLOCKS_KEY);
+    const uploads = () => harness!.server.matching('POST', /^\/api\/mobile\/calendar\/busy$/).length;
+    const before = uploads();
+    const context = { uid: UID, accountCurrent: () => true, stillCurrent: () => consent, consented: () => consent };
+    await act(async () => { await startSelection(UID, ['work'], context); });
+    for (let i = 0; i < 400 && !release; i += 1) await act(async () => { await jest.advanceTimersByTimeAsync(5); });
+    expect(release).toBeDefined();
+    // The switch-off is tapped while the phone is being read.
+    consent = false;
+    await act(async () => { release!(); await jest.advanceTimersByTimeAsync(200); });
+    await settle();
+    expect(uploads()).toBe(before);
+    const cached = JSON.parse((await AsyncStorage.getItem(BUSY_BLOCKS_KEY)) ?? 'null') as { blocks?: unknown[] } | null;
+    expect(cached?.blocks ?? []).toEqual([]);
+  });
+});

@@ -102,7 +102,7 @@ import type { RoutineProfilePayload } from '../features/routine/routineProfile';
 import { applyEditLocally } from '../features/plan/optimisticEdit';
 import type { DailyPlan } from './schemas/plan';
 import type { NextStepDecisionKind, NextStepRecommendation } from './schemas/nextStep';
-import type { PilotIncidentInput, TrustAction } from './schemas/trust';
+import type { PilotIncidentInput, TrustAction, TrustResponse } from './schemas/trust';
 import type { MemorySuggestion } from './schemas/profile';
 import type { AlphaFeedbackCategory } from './schemas/feedback';
 import type { AnalyticsProperties, ClientReportableEvent } from './schemas/analytics';
@@ -526,11 +526,144 @@ export function useDeleteHabit() {
   return useHabitMutation((id: string) => deleteHabit(id));
 }
 
+/**
+ * The account's calendar consent, as one place holds it (Codex M6B-R4-001,
+ * R5-001/002, R6-001…003). Per query client and account, outside any screen
+ * and any one mutation observer:
+ *
+ * - a switch-off counts from the tap: `calendarConsentEffective` is false
+ *   while one is on its way, synchronously, and the cached value is set off;
+ * - a trust read that could not have seen a confirmed switch-off — fetched
+ *   while one was pending, or begun before it was confirmed — reads calendar
+ *   consent as off; nothing else in a trust answer is touched;
+ * - a confirmed switch-on is written into the cache from the server's answer,
+ *   unless a switch-off began after it;
+ * - `calendarConsentWritePending` says a write in either direction is on its
+ *   way, so every switch for it can stay locked until it is answered.
+ */
+let trustSequence = 0;
+interface CalendarConsentState {
+  revoking: number;
+  granting: number;
+  /** The sequence at which the last switch-off was confirmed (0: none to honour). */
+  confirmedOffAt: number;
+  /** The sequence at which the last switch-off began. */
+  lastRevokeAt: number;
+  /** The sequence of the newest calendar-consent write: only its answer decides (R7-002). */
+  latestWrite: number;
+  /** Calendar-consent writes go to the server one after another, in tap order. */
+  chain: Promise<unknown>;
+  /** Writes reserved and not yet settled. */
+  inFlight: number;
+  /** The consent the server last confirmed, which a failed newest write falls back to (R8-002). */
+  confirmed: boolean | undefined;
+  /** The whole trust answer of the last confirmed write, for that fallback (R11-003). */
+  confirmedResponse: TrustResponse | undefined;
+  /** Longer calendar operations (a disconnect) that hold every consent control (R8-003). */
+  operations: number;
+  /** Each trust write's reserved turn, in tap order; its request takes the first (R12-003). */
+  queue: TrustTurn[];
+}
+
+interface TrustTurn {
+  readonly turn: Promise<unknown>;
+  readonly release: () => void;
+}
+const consentStatesByClient = new WeakMap<QueryClient, Map<string, CalendarConsentState>>();
+const consentListeners = new Set<() => void>();
+
+function consentStateOf(client: QueryClient, uid: string): CalendarConsentState {
+  let states = consentStatesByClient.get(client);
+  if (!states) {
+    states = new Map();
+    consentStatesByClient.set(client, states);
+  }
+  let state = states.get(uid);
+  if (!state) {
+    state = {
+      revoking: 0, granting: 0, confirmedOffAt: 0, lastRevokeAt: 0, latestWrite: 0, chain: Promise.resolve(),
+      inFlight: 0, confirmed: undefined, confirmedResponse: undefined, operations: 0, queue: [],
+    };
+    states.set(uid, state);
+  }
+  return state;
+}
+
+function consentChanged(): void {
+  for (const listener of consentListeners) listener();
+}
+
+/** The calendar consent as the app may act on it now: the cache, and no switch-off on its way. */
+export function calendarConsentEffective(client: QueryClient, uid: string): boolean {
+  const state = consentStateOf(client, uid);
+  // A switch-off on its way, or a disconnect still clearing (Codex M6B-R10-001).
+  if (state.revoking > 0 || state.operations > 0) return false;
+  return client.getQueryData<TrustResponse>(queryKeys.trust(uid))?.trust?.calendarConsent === true;
+}
+
+/** Whether a calendar-consent write for this account is on its way, in either direction. */
+export function calendarConsentWritePending(client: QueryClient, uid: string): boolean {
+  const state = consentStateOf(client, uid);
+  return state.revoking + state.granting + state.operations > 0;
+}
+
+/**
+ * Holds every calendar-consent control for the account from now until the
+ * returned release is called: a disconnect, from its confirmation to its last
+ * step, so no other screen can start a write it would overtake (Codex M6B-R8-003).
+ */
+export function beginCalendarConsentOperation(client: QueryClient, uid: string): () => void {
+  const state = consentStateOf(client, uid);
+  state.operations += 1;
+  consentChanged();
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    state.operations = Math.max(0, state.operations - 1);
+    consentChanged();
+  };
+}
+
+
+
+/** `calendarConsentWritePending`, for a render: every screen sees the same answer. */
+export function useCalendarConsentWritePending(): boolean {
+  const client = useQueryClient();
+  const uid = useUid();
+  return useSyncExternalStore(
+    (listener) => {
+      consentListeners.add(listener);
+      return () => { consentListeners.delete(listener); };
+    },
+    () => uid !== 'signed-out' && calendarConsentWritePending(client, uid),
+  );
+}
+
+/** Both projections of the calendar consent, kept equal as the server keeps them (Codex M6B-R11-002). */
+function withCalendarConsent(response: TrustResponse, granted: boolean): TrustResponse {
+  return {
+    ...response,
+    trust: { ...response.trust, calendarConsent: granted },
+    whatKnows: { ...response.whatKnows, calendarConnected: granted },
+  };
+}
+
+async function readTrustFor(client: QueryClient, uid: string): Promise<TrustResponse> {
+  trustSequence += 1;
+  const startedAt = trustSequence;
+  const response = await getTrust();
+  const state = consentStateOf(client, uid);
+  if (state.revoking > 0 || state.confirmedOffAt >= startedAt) return withCalendarConsent(response, false);
+  return response;
+}
+
 export function useTrust() {
+  const client = useQueryClient();
   const uid = useUid();
   return useQuery({
     queryKey: queryKeys.trust(uid),
-    queryFn: getTrust,
+    queryFn: () => readTrustFor(client, uid),
     enabled: uid !== 'signed-out',
   });
 }
@@ -1585,11 +1718,114 @@ export function useTrustAction() {
   const client = useQueryClient();
   const uid = useUid();
   return useMutation({
-    // Bound to the account it was started for (M5A-R53-002).
-    mutationFn: (action: TrustAction) => updateTrust(action, uid === 'signed-out' ? {} : { asUid: uid }),
-    onSuccess: () => {
-      void client.invalidateQueries({ queryKey: queryKeys.trust(uid) });
-      void client.invalidateQueries({ queryKey: ['user', uid, 'nextStep'] });
+    // Bound to the account it was started for (M5A-R53-002). Every trust write
+    // waits for the turn reserved at its tap, so the server applies them in tap
+    // order, whichever screen or hook started them (Codex M6B-R7-002, R8-001,
+    // R12-001). Turns are taken first-in, first-out: each call has its own,
+    // whatever object it was called with (R12-003).
+    mutationFn: async (action: TrustAction) => {
+      const send = () => updateTrust(action, uid === 'signed-out' ? {} : { asUid: uid });
+      if (uid === 'signed-out') return send();
+      const reserved = consentStateOf(client, uid).queue.shift();
+      if (reserved) await reserved.turn.catch(() => undefined);
+      return send();
+    },
+    // Synchronous to its end: the turn is reserved and a switch-off counts
+    // before anything else can run (R8-001).
+    onMutate: (action) => {
+      if (uid === 'signed-out') return { uid, kind: 'other' as const, startedAt: 0, reservation: null as TrustTurn | null };
+      const state = consentStateOf(client, uid);
+      if (state.inFlight === 0) {
+        state.confirmed = client.getQueryData<TrustResponse>(queryKeys.trust(uid))?.trust.calendarConsent;
+        state.confirmedResponse = undefined;
+      }
+      state.inFlight += 1;
+      const turn = state.chain;
+      let release = () => {};
+      state.chain = new Promise<void>((resolve) => { release = resolve; });
+      const reservation: TrustTurn = { turn, release };
+      state.queue.push(reservation);
+      // `revoke` and `delete` clear the calendar consent too
+      // (`closedPilotControls`), so they are switch-offs here (R9-001).
+      const granting = action.type === 'set_calendar_consent' && action.granted;
+      const revoking = (action.type === 'set_calendar_consent' && !action.granted) || action.type === 'revoke' || action.type === 'delete';
+      if (!granting && !revoking) return { uid, kind: 'other' as const, startedAt: 0, reservation };
+      trustSequence += 1;
+      const startedAt = trustSequence;
+      state.latestWrite = startedAt;
+      if (granting) {
+        state.granting += 1;
+      } else {
+        // Off from here for every reader (`calendarConsentEffective`), and in
+        // the cache; a read already on its way is read as off (`readTrustFor`).
+        state.revoking += 1;
+        state.lastRevokeAt = startedAt;
+        void client.cancelQueries({ queryKey: queryKeys.trust(uid) });
+        client.setQueryData<TrustResponse>(queryKeys.trust(uid), (current) => (current ? withCalendarConsent(current, false) : current));
+      }
+      consentChanged();
+      return { uid, kind: granting ? 'grant' as const : 'revoke' as const, startedAt, reservation };
+    },
+    onError: (_error, _action, context) => {
+      if (!context || context.reservation === null) return;
+      const state = consentStateOf(client, context.uid);
+      state.inFlight = Math.max(0, state.inFlight - 1);
+      context.reservation.release();
+      if (context.kind === 'other') return;
+      if (context.kind === 'grant') state.granting = Math.max(0, state.granting - 1);
+      else state.revoking = Math.max(0, state.revoking - 1);
+      // The newest calendar write failed: the trust state is what the server
+      // last confirmed — the whole answer of the last write that succeeded,
+      // whatever it was (a revoke, a quiet-mode change), since every trust
+      // write is answered in order (R8-002, R11-003, R12-001).
+      if (context.startedAt === state.latestWrite && state.confirmed !== undefined) {
+        const granted = state.confirmed;
+        if (granted) state.confirmedOffAt = 0;
+        const confirmedResponse = state.confirmedResponse;
+        client.setQueryData<TrustResponse>(queryKeys.trust(context.uid), (current) => (
+          confirmedResponse ?? (current ? withCalendarConsent(current, granted) : current)
+        ));
+      }
+      consentChanged();
+      void client.invalidateQueries({ queryKey: queryKeys.trust(context.uid) });
+    },
+    onSuccess: (response, action, context) => {
+      const forUid = context?.uid ?? uid;
+      if (context && context.reservation !== null) {
+        const state = consentStateOf(client, forUid);
+        state.inFlight = Math.max(0, state.inFlight - 1);
+        context.reservation.release();
+        // Every trust write is answered in the order it was sent: this is
+        // what the server holds now, for every field (R12-001). An answer
+        // without a trust record is not one to remember.
+        const known = typeof response?.trust?.calendarConsent === 'boolean';
+        const granted = known ? response.trust.calendarConsent : state.confirmed === true;
+        if (known) {
+          state.confirmed = granted;
+          state.confirmedResponse = response;
+        }
+        if (context.kind !== 'other') {
+          if (context.kind === 'grant') state.granting = Math.max(0, state.granting - 1);
+          else state.revoking = Math.max(0, state.revoking - 1);
+          trustSequence += 1;
+          if (!granted) state.confirmedOffAt = trustSequence;
+          // The newest calendar write's answer is the consent now, whichever
+          // way it went, even when the refetch below fails (R6-003, R7-002).
+          if (context.startedAt === state.latestWrite) {
+            if (granted) state.confirmedOffAt = 0;
+            // A revoke or a delete changes the whole trust state: its answer is
+            // written as it is (R10-002). A consent switch touches its own fields.
+            client.setQueryData<TrustResponse>(queryKeys.trust(forUid), (current) => (
+              action.type === 'revoke' || action.type === 'delete'
+                ? response
+                : current ? withCalendarConsent(current, granted) : current
+            ));
+          }
+          consentChanged();
+        }
+      }
+      void client.invalidateQueries({ queryKey: queryKeys.trust(forUid) }, { cancelRefetch: true });
+      void client.invalidateQueries({ queryKey: ['user', forUid, 'nextStep'] });
     },
   });
 }
@@ -1641,7 +1877,7 @@ export function useAnalyticsConsent(): () => Promise<boolean> {
   const uid = useUid();
   return useCallback(async () => {
     if (uid === 'signed-out') return false;
-    const response = await client.fetchQuery({ queryKey: queryKeys.trust(uid), queryFn: getTrust });
+    const response = await client.fetchQuery({ queryKey: queryKeys.trust(uid), queryFn: () => readTrustFor(client, uid) });
     return response.trust.analyticsConsent === true;
   }, [client, uid]);
 }

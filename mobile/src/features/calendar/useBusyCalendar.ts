@@ -39,9 +39,8 @@ import { useCallback, useEffect, useRef } from 'react';
 import { AppState, Platform } from 'react-native';
 import * as Crypto from 'expo-crypto';
 import { useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
-import { queryKeys, useTrust, useTrustAction, useUid } from '../../api/queries';
+import { beginCalendarConsentOperation, calendarConsentEffective, queryKeys, useTrust, useTrustAction, useUid } from '../../api/queries';
 import { getAuthRepository } from '../../api/auth';
-import type { TrustResponse } from '../../api/schemas/trust';
 import { deleteCalendarBusy, postCalendarBusy } from '../../api/endpoints/calendar';
 import { calendarReadEnabled } from '../../config/env';
 import {
@@ -284,9 +283,9 @@ export function useBusyCalendar(): BusyCalendarState {
    * rather than from a render: an effect of an earlier render can run after a
    * newer answer has landed, and the two must not disagree (M4A-R6-REV-003).
    */
-  const consentNow = useCallback((forUid: string) => (
-    client.getQueryData<TrustResponse>(queryKeys.trust(forUid))?.trust?.calendarConsent === true
-  ), [client]);
+  // And no switch-off on its way: that counts from the tap, before the cache
+  // says so (`calendarConsentEffective`, Codex M6B-R6-001).
+  const consentNow = useCallback((forUid: string) => calendarConsentEffective(client, forUid), [client]);
 
   const syncNow = useCallback(async (
     trigger: BusySyncTrigger,
@@ -370,6 +369,11 @@ export function useBusyCalendar(): BusyCalendarState {
     included: readonly string[] | ((current: readonly string[]) => readonly string[]),
   ): Promise<void> => {
     const current = latest.current;
+    // No calendar is chosen while the account's consent says off (Codex
+    // M6B-R02/R3-001): a pending selection would otherwise resume the moment
+    // it is turned back on. A pass's own pruning goes through startSelection
+    // directly and only runs with consent on.
+    if (!consentNow(current.uid)) return;
     const generation = passGeneration;
     const accountCurrent = () => passGeneration === generation
       && latest.current.uid === current.uid
@@ -393,7 +397,7 @@ export function useBusyCalendar(): BusyCalendarState {
     return back;
   }, [syncNow]);
 
-  const disconnect = useCallback(async (): Promise<{ local: true; server: boolean }> => {
+  const disconnectHeld = useCallback(async (): Promise<{ local: true; server: boolean }> => {
     const current = latest.current;
     // A pass already running read the calendar being disconnected: from here
     // on it keeps, sends and records nothing (M4A-R4-REV-001), and no new pass
@@ -433,6 +437,19 @@ export function useBusyCalendar(): BusyCalendarState {
       void client.refetchQueries({ queryKey: queryKeys.trust(current.uid) }, { cancelRefetch: true });
     }
   }, [client, trustAction]);
+
+  const disconnect = useCallback(async (): Promise<{ local: true; server: boolean }> => {
+    // Every calendar-consent control stays locked from here to the last step,
+    // on every screen, so nothing tapped meanwhile is overtaken by this
+    // disconnect's switch-off (Codex M6B-R8-003).
+    const release = beginCalendarConsentOperation(client, latest.current.uid);
+    try {
+      return await disconnectHeld();
+    } finally {
+      release();
+    }
+  }, [client, disconnectHeld]);
+
 
   // The server's answer has caught up with a disconnect: from here on the
   // consent itself decides. On means the switch never went off, or was turned

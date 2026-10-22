@@ -11,7 +11,7 @@ import { formatRelativeDay } from '../../i18n/format';
 import { useTimeZone } from '../../i18n/timezone';
 import { getPhoneSources, revokePhoneSource } from '../../api/endpoints/m5a';
 import type { PhoneSource } from '../../api/schemas/m5a';
-import { useTrustAction } from '../../api/queries';
+import { useCalendarConsentWritePending, useTrustAction } from '../../api/queries';
 import { useGoogleStatus } from '../google/useGoogle';
 import type { CalendarAccess, DeviceEventCalendar } from '../calendar/deviceCalendar';
 import type { BusyCalendarState } from '../calendar/useBusyCalendar';
@@ -57,6 +57,18 @@ export function M5aCalendarSections({
   const google = useGoogleStatus();
   const [needsPermission, setNeedsPermission] = useState(false);
   const [asking, setAsking] = useState(false);
+  // A switch-off is in the trust cache the moment it is asked for, for this
+  // account and outside this screen (`useTrustAction`, Codex M6B-R3-001,
+  // R5-002), so `consented` already says off while the request is on its way.
+  // …and no calendar is chosen while any consent write or a disconnect is on
+  // its way (Codex M6B-R10-001).
+  const consentWritePending = useCalendarConsentWritePending();
+  const usable = consented && !consentWritePending;
+  // The master switch shows the off it was just given (Codex M6B-R4-004), and
+  // takes no second change until the server has answered the first — any
+  // calendar-consent write for this account, from this screen before a
+  // remount, a disconnect, or anywhere else (Codex M6B-R6-002).
+  const useLocked = !trustLoaded || consentWritePending;
   const shown = shownIncluded(view);
   const granted = access === 'granted';
 
@@ -77,10 +89,14 @@ export function M5aCalendarSections({
       return;
     }
     setNeedsPermission(false);
+    // A refused or failed switch-off puts the switch back on (`useTrustAction`).
     trustAction.mutate({ type: 'set_calendar_consent', granted: next });
   }, [granted, trustAction]);
 
   const toggle = useCallback(async (calendarId: string, on: boolean) => {
+    // No choice is recorded while the master switch is off (Codex M6B-R02): a
+    // pending selection could otherwise resume when it is turned back on.
+    if (!usable) return;
     try {
       // Applied to the newest selection at save time, not to this render's list (M5A-R3-005).
       await busyCalendar.toggleCalendar(calendarId, on);
@@ -88,7 +104,7 @@ export function M5aCalendarSections({
       // The line under the list says it; the switch never moved.
       if (!(error instanceof SelectionNotSavedError)) throw error;
     }
-  }, [busyCalendar]);
+  }, [busyCalendar, usable]);
 
   const googleStatus = google.data;
   // The connected account's address: an LTR run inside the line.
@@ -122,9 +138,9 @@ export function M5aCalendarSections({
             testID="calendar-use-toggle"
             accessibilityRole="switch"
             accessibilityLabel={t.m5CalUseTitle}
-            accessibilityState={{ checked: consented, disabled: false }}
-            value={consented}
-            disabled={!trustLoaded}
+            accessibilityState={{ checked: usable, disabled: useLocked }}
+            value={usable}
+            disabled={useLocked}
             trackColor={{ false: p.ln, true: p.ac }}
             onValueChange={changeUse}
           />
@@ -155,6 +171,13 @@ export function M5aCalendarSections({
             <Txt role="supporting" color={p.wm} testID="calendar-none-chosen">{t.m5CalNoneChosen}</Txt>
           </View>
         ) : null}
+        {/* The switches below wait for «يستعمل» above; say so instead of
+            letting a tap do nothing (M6b BB-08). */}
+        {trustLoaded && granted && phoneCalendars && phoneCalendars.length > 0 && !view.removed && !usable ? (
+          <View style={{ paddingHorizontal: 18, paddingBottom: 12 }}>
+            <Txt role="supporting" color={p.mu} testID="calendar-list-needs-use">{t.m5CalListNeedsUse}</Txt>
+          </View>
+        ) : null}
         {granted && phoneCalendars ? groupByAccount(phoneCalendars).map(({ source, calendars }) => {
           const account = source === OTHER_SOURCE ? t.calendarDeviceSourceOther : source;
           // iOS names its own local sources in English whatever the language
@@ -172,9 +195,9 @@ export function M5aCalendarSections({
                       testID={`calendar-include-${calendar.id}`}
                       accessibilityRole="switch"
                       accessibilityLabel={fill(t.m5CalCalendarA11y, { title: calendar.title, account })}
-                      accessibilityState={{ checked: on, disabled: view.removed || !view.enrolled }}
+                      accessibilityState={{ checked: on, disabled: view.removed || !view.enrolled || !usable }}
                       value={on}
-                      disabled={view.removed || !view.enrolled}
+                      disabled={view.removed || !view.enrolled || !usable}
                       trackColor={{ false: p.ln, true: p.ac }}
                       onValueChange={(next) => void toggle(calendar.id, next)}
                     />
