@@ -114,10 +114,21 @@ type FenceDocument = {
 };
 
 /** Whether a `withdrawing` fence's lease, on the server's clock, has run out. */
-function leaseExpired(fence: FenceDocument): boolean {
+function leaseExpired(fence: FenceDocument, nowMs: number = Date.now()): boolean {
   const since = typeof fence.withdrawalLeaseAt === 'string' ? Date.parse(fence.withdrawalLeaseAt)
     : typeof fence.consentWithdrawnAt === 'string' ? Date.parse(fence.consentWithdrawnAt) : Number.NaN;
-  return !Number.isFinite(since) || Date.now() - since >= STALE_WITHDRAWAL_MS;
+  return !Number.isFinite(since) || nowMs - since >= STALE_WITHDRAWAL_MS;
+}
+
+/**
+ * Whether a withdrawal still owns this fence: `withdrawing`, its lease not run
+ * out at `nowMs`. A purge must not take the fence from it (M5B2A-R26-001): the
+ * withdrawal may sit between its disable and its declined answer, and losing
+ * the fence there would leave the two consent records disagreeing.
+ */
+export function liveWithdrawalOwnsFence(fence: unknown, nowMs: number): boolean {
+  const current = fence as FenceDocument | undefined;
+  return current?.state === 'withdrawing' && !leaseExpired(current, nowMs);
 }
 
 async function beginPersonalizationWithdrawal(storage: StorageAdapter, uid: string, at: string): Promise<WithdrawalLease | null> {

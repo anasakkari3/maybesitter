@@ -170,6 +170,7 @@ import {
   userDoc,
 } from '../storage/paths';
 import type { StorageAdapter } from '../storage/storageAdapter';
+import { liveWithdrawalOwnsFence, PersonalizationWithdrawalBusyError } from '../consents/personalizationConsentService';
 
 export interface PersonalizationDeletionInput {
   readonly scopeId: string;
@@ -184,6 +185,8 @@ export interface PersonalizationDeletionInput {
    * being edited.
    */
   readonly storage?: StorageAdapter;
+  /** How long the purge waits behind a live withdrawal (tests shorten it). */
+  readonly withdrawalWait?: { readonly attempts: number; readonly delayMs: number };
   /**
    * The window the profile would have been derived over. It enters the digest,
    * so the caller and the receipt must agree on it or the recomputation will
@@ -227,6 +230,23 @@ export function emptyStateDigestFor(scopeId: string, now: Instant, windowDays?: 
   });
 }
 
+const WITHDRAWAL_WAIT = { attempts: 40, delayMs: 250 } as const;
+
+/** Moves the fence to `purging` at a new epoch, or null while a live withdrawal owns it. */
+async function takePurgeFence(storage: StorageAdapter, scopeId: string, now: Instant): Promise<number | null> {
+  return storage.runTransaction(async (tx) => {
+    const user = await tx.get<Record<string, unknown>>(userDoc(scopeId));
+    if (liveWithdrawalOwnsFence(user?.personalizationPurge, Date.parse(now))) return null;
+    const prior = user?.personalizationPurge as { epoch?: unknown } | undefined;
+    const epoch = Number.isSafeInteger(prior?.epoch) && (prior!.epoch as number) >= 0
+      ? (prior!.epoch as number) + 1 : 1;
+    const personalizationPurge = { state: 'purging', epoch, startedAt: now };
+    if (user) tx.merge(userDoc(scopeId), { personalizationPurge });
+    else tx.set(userDoc(scopeId), { personalizationPurge });
+    return epoch;
+  });
+}
+
 /**
  * Purges every trace of a scope and returns the receipt for it.
  *
@@ -241,16 +261,18 @@ export async function deletePersonalizationScope(
 ): Promise<PersonalizationDeletionReceipt> {
   const storage = input.storage ?? getStorage();
 
-  const purgeEpoch = await storage.runTransaction(async (tx) => {
-    const user = await tx.get<Record<string, unknown>>(userDoc(input.scopeId));
-    const prior = user?.personalizationPurge as { epoch?: unknown } | undefined;
-    const epoch = Number.isSafeInteger(prior?.epoch) && (prior!.epoch as number) >= 0
-      ? (prior!.epoch as number) + 1 : 1;
-    const personalizationPurge = { state: 'purging', epoch, startedAt: input.now };
-    if (user) tx.merge(userDoc(input.scopeId), { personalizationPurge });
-    else tx.set(userDoc(input.scopeId), { personalizationPurge });
-    return epoch;
-  });
+  // A live withdrawal keeps the fence until it is done (M5B2A-R26-001): the
+  // purge waits for it, and a withdrawal whose lease ran out is taken over.
+  // Expiry is judged at the caller's server time, `now`.
+  const wait = input.withdrawalWait ?? WITHDRAWAL_WAIT;
+  let taken: number | null = null;
+  for (let attempt = 1; taken === null; attempt += 1) {
+    taken = await takePurgeFence(storage, input.scopeId, input.now);
+    if (taken !== null) break;
+    if (attempt >= wait.attempts) throw new PersonalizationWithdrawalBusyError();
+    await new Promise((resolve) => setTimeout(resolve, wait.delayMs));
+  }
+  const purgeEpoch = taken;
 
   // Derived stores first, the user's memory rows last. If any step throws, the
   // user has had *more* erased than they asked for, never less, and the caller
