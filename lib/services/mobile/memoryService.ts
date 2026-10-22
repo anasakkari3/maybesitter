@@ -693,6 +693,9 @@ export async function deleteAllMemory(
         + receipt.remainingMemoryDismissalCount
         + receipt.remainingFootballFollowsCount
         + receipt.remainingGoalStepProposalCount
+        // An AI import saved across the purge is a proposal that could later be
+        // confirmed into memory (M5B2A-R33-001).
+        + receipt.remainingAiContextImportCount
         + (baseline === null ? 0 : 1);
       if (receipt.remainingRuntimeMemoryRecordCount > 0 || remainingRows > 0) {
         throw new MemoryDeletionIncompleteError(receipt.remainingRuntimeMemoryRecordCount, remainingRows);

@@ -1375,6 +1375,28 @@ test('R32-003: the purge keeps the fence closed while its caller verifies, and m
   assert.equal((await createStorageRuntimeMemoryStore(undefined, storage).listAll(uid)).length, 0);
 });
 
+test('R33-001: an AI import that spans a purge is refused, and delete-all counts a surviving import as incomplete', async () => {
+  const uid = await keptFocusPlan();
+  const storage = currentStorage() as any;
+  const { importAiContext, PersonalizationBusyError } = await import('../../lib/services/mobile/aiContextImportService.ts');
+  // The purge begins while the import is waiting on its model.
+  let purgeStarted = false;
+  const outcome = await importAiContext(uid, 'I work best in the morning.', 'chatgpt' as any, new Date(), {
+    storage,
+    generate: async () => {
+      const fence = ((await storage.get(userDoc(uid))) ?? {}).personalizationPurge;
+      await setFence(storage, uid, { ...fence, state: 'purging', epoch: (fence?.epoch ?? 0) + 1, purgeOwner: 'p', purgeLeaseAt: new Date().toISOString() });
+      purgeStarted = true;
+      return { text: JSON.stringify({ candidates: [] }), model: 'fake', latencyMs: 1, promptTokens: 1, outputTokens: 1 };
+    },
+  } as any).then((r) => ['resolved', r], (e) => ['threw', String(e)]);
+  assert.deepEqual(outcome, ['threw', String(new PersonalizationBusyError())], 'an import was saved across the purge');
+  assert.ok(purgeStarted, 'fixture: the import never reached its model');
+  assert.equal((await storage.list(`users/${uid}/aiContextImports`)).length, 0, 'an import was saved across the purge');
+  const source = readFileSync(new URL('../../lib/services/mobile/memoryService.ts', import.meta.url), 'utf8');
+  assert.match(source, /\+ receipt\.remainingAiContextImportCount/, 'delete-all ignores a surviving AI import');
+});
+
 test('R20-004: a fresh run never answers a suggestion whose outcome was dismissed right after the commit', async () => {
   const uid = await begin();
   await grantRecommendations(uid);
