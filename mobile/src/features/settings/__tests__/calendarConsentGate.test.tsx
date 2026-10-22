@@ -1,9 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
 import React from 'react';
 import { act, cleanup, render, screen, waitFor } from '@testing-library/react-native';
-import { queryKeys, useTrustAction } from '../../../api/queries';
+import { queryKeys, useCalendarConsentWritePending, useTrust, useTrustAction } from '../../../api/queries';
+import { Text } from 'react-native';
 import type { TrustAction } from '../../../api/schemas/trust';
-import { BusyCalendarHost } from '../../calendar/useBusyCalendar';
+import { BusyCalendarHost, useBusyCalendar } from '../../calendar/useBusyCalendar';
 import { CalendarSettingsScreen } from '../CalendarSettingsScreen';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { deviceCalendar } from '../../calendar/deviceCalendar';
@@ -266,5 +267,89 @@ describe('the calendar switches follow «uses your calendar»', () => {
     // The newest write was on, and its answer holds even though every refetch fails.
     expect(harness.client.getQueryData<{ trust: { calendarConsent: boolean } }>(queryKeys.trust(ACCOUNT_A.uid))?.trust.calendarConsent).toBe(true);
     await waitFor(() => expect(screen.getByTestId('calendar-use-toggle').props.value).toBe(true));
+  });
+
+  function twoHooks() {
+    const hooks: { a?: (action: TrustAction) => void; b?: (action: TrustAction) => void } = {};
+    function A() { hooks.a = useTrustAction().mutate; return null; }
+    function B() { hooks.b = useTrustAction().mutate; useTrust(); return null; }
+    return { hooks, A, B };
+  }
+
+  it('a switch-off and a switch-on tapped back to back from two places reach the server in tap order (Codex M6B-R8-001)', async () => {
+    const order: boolean[] = [];
+    const answers: ((reply: RouteReply) => void)[] = [];
+    harness = await prepare('en', { ...initialState(), trustConsent: true }, (request) => {
+      if (request.path !== '/api/mobile/pilot/trust') return undefined;
+      if (request.method === 'POST') {
+        order.push((request.body as { action: { granted: boolean } }).action.granted);
+        return new Promise<RouteReply>((resolve) => { answers.push(resolve); });
+      }
+      return order.length > 0 ? { status: 503, body: { success: false } } : undefined;
+    });
+    const { hooks, A, B } = twoHooks();
+    await render(<Providers harness={harness}><A /><B /></Providers>);
+    await waitFor(() => expect(hooks.a && hooks.b).toBeTruthy());
+    await waitFor(() => expect(harness!.client.getQueryData(queryKeys.trust(ACCOUNT_A.uid))).toBeDefined());
+    await act(async () => {
+      hooks.a!({ type: 'set_calendar_consent', granted: false });
+      hooks.b!({ type: 'set_calendar_consent', granted: true });
+      await jest.advanceTimersByTimeAsync(50);
+    });
+    expect(order).toEqual([false]);
+    await act(async () => { answers[0]!({ status: 200, body: trustResponse(false) }); await jest.advanceTimersByTimeAsync(50); });
+    await waitFor(() => expect(order).toEqual([false, true]));
+    await act(async () => { answers[1]!({ status: 200, body: trustResponse(true) }); await jest.advanceTimersByTimeAsync(200); });
+    expect(harness.client.getQueryData<{ trust: { calendarConsent: boolean } }>(queryKeys.trust(ACCOUNT_A.uid))?.trust.calendarConsent).toBe(true);
+  });
+
+  it('a newest write that fails falls back to what the server last confirmed, counting the write before it (Codex M6B-R8-002)', async () => {
+    let posts = 0;
+    harness = await prepare('en', { ...initialState(), trustConsent: false }, (request) => {
+      if (request.path !== '/api/mobile/pilot/trust') return undefined;
+      if (request.method === 'POST') {
+        posts += 1;
+        // The grant succeeds; the switch-off after it fails.
+        return posts === 1 ? { status: 200, body: trustResponse(true) } : { status: 503, body: { success: false } };
+      }
+      return posts > 0 ? { status: 503, body: { success: false } } : undefined;
+    });
+    const { hooks, A, B } = twoHooks();
+    await render(<Providers harness={harness}><A /><B /></Providers>);
+    await waitFor(() => expect(hooks.a && hooks.b).toBeTruthy());
+    await waitFor(() => expect(harness!.client.getQueryData(queryKeys.trust(ACCOUNT_A.uid))).toBeDefined());
+    await act(async () => {
+      hooks.a!({ type: 'set_calendar_consent', granted: true });
+      hooks.b!({ type: 'set_calendar_consent', granted: false });
+      await jest.advanceTimersByTimeAsync(300);
+    });
+    await waitFor(() => expect(posts).toBe(2));
+    await act(async () => { await jest.advanceTimersByTimeAsync(300); });
+    expect(harness.client.getQueryData<{ trust: { calendarConsent: boolean } }>(queryKeys.trust(ACCOUNT_A.uid))?.trust.calendarConsent).toBe(true);
+  });
+
+  it('a disconnect holds every calendar-consent control from its first step to its last (Codex M6B-R8-003)', async () => {
+    let releaseDelete: (() => void) | undefined;
+    harness = await prepare('en', { ...initialState(), trustConsent: true }, (request) => {
+      if (request.method === 'DELETE') return new Promise<RouteReply>((resolve) => { releaseDelete = () => resolve({ status: 200, body: { success: true } }); });
+      return undefined;
+    });
+    let disconnect: (() => Promise<unknown>) | undefined;
+    function Probe() {
+      const busy = useBusyCalendar();
+      disconnect = busy.disconnect;
+      return <Text testID="consent-write-pending">{String(useCalendarConsentWritePending())}</Text>;
+    }
+    await render(<Providers harness={harness}><BusyCalendarHost /><Probe /></Providers>);
+    await waitFor(() => expect(disconnect).toBeDefined());
+    expect(screen.getByTestId('consent-write-pending').props.children).toBe('false');
+    let finished = false;
+    await act(async () => { void disconnect!().then(() => { finished = true; }); await jest.advanceTimersByTimeAsync(50); });
+    await waitFor(() => expect(releaseDelete).toBeDefined());
+    // The server delete is still on its way, and no consent write has started yet.
+    expect(screen.getByTestId('consent-write-pending').props.children).toBe('true');
+    await act(async () => { releaseDelete!(); await jest.advanceTimersByTimeAsync(300); });
+    await waitFor(() => expect(finished).toBe(true));
+    await waitFor(() => expect(screen.getByTestId('consent-write-pending').props.children).toBe('false'));
   });
 });

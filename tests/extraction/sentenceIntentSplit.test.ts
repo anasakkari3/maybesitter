@@ -105,6 +105,9 @@ test('BB-04 review (Codex M6B-R5-003): a thought about the appointment\'s own ho
     "Dentist on Sunday. I'm thinking it's at 5",
     "Dentist on Sunday. I'm thinking the dentist should be at 5",
     "Dentist on Sunday. I'm thinking I should be there at 5",
+    // An adjective or a noun after the copula still describes it (Codex M6B-R8-004).
+    "Dentist on Sunday. I'm thinking the dentist should be available at 5",
+    "Dentist on Sunday. I'm thinking the appointment is a video call at 5",
     'عندي طبيب أسنان يوم الأحد. عم بفكر الموعد يكون الساعة 5',
     'רופא שיניים ביום ראשון. אני חושב על התור שיהיה בשעה 5',
   ]) {

@@ -39,7 +39,7 @@ import { useCallback, useEffect, useRef } from 'react';
 import { AppState, Platform } from 'react-native';
 import * as Crypto from 'expo-crypto';
 import { useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
-import { calendarConsentEffective, queryKeys, useTrust, useTrustAction, useUid } from '../../api/queries';
+import { beginCalendarConsentOperation, calendarConsentEffective, queryKeys, useTrust, useTrustAction, useUid } from '../../api/queries';
 import { getAuthRepository } from '../../api/auth';
 import { deleteCalendarBusy, postCalendarBusy } from '../../api/endpoints/calendar';
 import { calendarReadEnabled } from '../../config/env';
@@ -397,7 +397,7 @@ export function useBusyCalendar(): BusyCalendarState {
     return back;
   }, [syncNow]);
 
-  const disconnect = useCallback(async (): Promise<{ local: true; server: boolean }> => {
+  const disconnectHeld = useCallback(async (): Promise<{ local: true; server: boolean }> => {
     const current = latest.current;
     // A pass already running read the calendar being disconnected: from here
     // on it keeps, sends and records nothing (M4A-R4-REV-001), and no new pass
@@ -437,6 +437,19 @@ export function useBusyCalendar(): BusyCalendarState {
       void client.refetchQueries({ queryKey: queryKeys.trust(current.uid) }, { cancelRefetch: true });
     }
   }, [client, trustAction]);
+
+  const disconnect = useCallback(async (): Promise<{ local: true; server: boolean }> => {
+    // Every calendar-consent control stays locked from here to the last step,
+    // on every screen, so nothing tapped meanwhile is overtaken by this
+    // disconnect's switch-off (Codex M6B-R8-003).
+    const release = beginCalendarConsentOperation(client, latest.current.uid);
+    try {
+      return await disconnectHeld();
+    } finally {
+      release();
+    }
+  }, [client, disconnectHeld]);
+
 
   // The server's answer has caught up with a disconnect: from here on the
   // consent itself decides. On means the switch never went off, or was turned
