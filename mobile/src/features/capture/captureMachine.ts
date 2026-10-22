@@ -480,18 +480,6 @@ export function chatSaves(state: CaptureState): number {
 }
 
 /**
- * Whether the user has answered a flagged item's question themselves (#492).
- *
- * The mirror of the server's rule in `commandsFor()`: a title *and* a time,
- * both supplied by hand, make a clarification item into a commitment. Half an
- * answer does not — a title with no time has nothing to remind anyone about,
- * and the server refuses it either way (`captureAtomicEdits.test.ts`, "a
- * clarification item with only half an answer stays unconfirmable").
- *
- * The empty `localDateTime` is the "No time" switch, which is the absence of a
- * time rather than one, so it does not complete anything.
- */
-/**
  * Whether an edit holds a field the confirm would send — the same rule as
  * `toServerEdits`: a defined title or priority, any `localDateTime` (the empty
  * string is "No time", a real change), and a place reminder that is not
@@ -504,6 +492,18 @@ function carriesServerEdit(edit: CaptureItemEdit): boolean {
     || !!edit.locationTrigger;
 }
 
+/**
+ * Whether the user has answered a flagged item's question themselves (#492).
+ *
+ * The mirror of the server's rule in `commandsFor()`: a title *and* a time,
+ * both supplied by hand, make a clarification item into a commitment. Half an
+ * answer does not — a title with no time has nothing to remind anyone about,
+ * and the server refuses it either way (`captureAtomicEdits.test.ts`, "a
+ * clarification item with only half an answer stays unconfirmable").
+ *
+ * The empty `localDateTime` is the "No time" switch, which is the absence of a
+ * time rather than one, so it does not complete anything.
+ */
 function completedByHand(edit: CaptureItemEdit | undefined): boolean {
   return Boolean(edit?.title?.trim()) && Boolean(edit?.localDateTime?.trim());
 }
