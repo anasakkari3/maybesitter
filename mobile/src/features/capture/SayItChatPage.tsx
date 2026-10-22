@@ -414,7 +414,8 @@ export function SayItChatPage({
               ? <React.Fragment key={`reply-${newestReply}`}>{message(history[newestReply]!, history[newestReply]!.id ?? `chat-turn-assistant-${newestReply}`)}</React.Fragment>
               : null}
           </View>
-          {clarification ? <View testID="chat-clarification" onLayout={(event) => {
+          {/* Remounted per question, so the next question is measured afresh (Q-A1-R4-002). */}
+          {clarification ? <View key={`clarification-${revealConfirmKey ?? 'none'}`} testID="chat-clarification" onLayout={(event) => {
             const { y, height } = event.nativeEvent.layout;
             measured(setQuestion, y); measured(setQuestionEnd, y + height);
           }} style={[styles.clarification, expanded && styles.expandedSchedule]}>{clarification}</View> : null}

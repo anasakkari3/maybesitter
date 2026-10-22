@@ -590,7 +590,7 @@ export function CaptureScreen({ entryQuestion }: { entryQuestion?: { entry: Capt
 
   // The one question's quick replies sit under the reply that asks it, above
   // the cards (Stitch 03b); answering is still `/capture/clarify`.
-  const clarification = reviewing && asking ? <ClarifySheet key={asking.itemId} item={asking} position={unclarified.length - waiting.length + 1} questionRef={clarifyQuestion}
+  const clarification = reviewing && asking ? <ClarifySheet key={`${asking.itemId}:${asking.clarification?.questionId ?? ''}`} item={asking} position={unclarified.length - waiting.length + 1} questionRef={clarifyQuestion}
     total={unclarified.length} busy={answering || flow.writing} error={clarifyError?.itemId === asking.itemId ? t[clarifyError.key] : null}
     onAnswer={value => { void answer(asking.itemId, value); }} onSkip={() => {
       const noTime = asking.clarification?.options.find(option => !option.value.localTime && !option.value.localDate);
@@ -812,7 +812,11 @@ export function CaptureScreen({ entryQuestion }: { entryQuestion?: { entry: Capt
         // keyboard it raised hid the line saying what was saved. The person
         // taps the field when they have the next thing to say.
         // A new proposal scrolls its confirm into view above the composer.
-        revealConfirmKey={cardsOpen && !revealRow ? state.proposal?.proposalId ?? null : null}
+        // Keyed by the question too (Q-A1-R4-002): answering one question
+        // keeps the proposal id, and the next one must be revealed and focused.
+        revealConfirmKey={cardsOpen && !revealRow && state.proposal
+          ? `${state.proposal.proposalId}${asking?.clarification ? `:${asking.itemId}:${asking.clarification.questionId}` : ''}`
+          : null}
         reviewing={cardsOpen} revealRow={cardsOpen ? revealRow : null} revealAnchor={(id) => seedAnchors.current.get(id) ?? null}
         reduceMotion={reducedMotion}
         // While listening the panel above the field says so; the note line

@@ -111,6 +111,48 @@ describe('#752: «هيك صح» reveals the question it opens on', () => {
     expect(scrollTo.mock.calls.length).toBe(calls);
   });
 
+  it('answering one question reveals and focuses the next one (Q-A1-R4-002)', async () => {
+    const rentAsk = {
+      questionId: 'q-day', field: 'which_day', questionKey: 'ask_day', params: { title: 'ادفع الإيجار', time: '09:00' },
+      options: [{ optionId: 'tomorrow', labelKey: 'tomorrow', labelParams: {}, value: { localDate: TOMORROW, localTime: '09:00' } }],
+      allowFreeText: true,
+    };
+    const two = {
+      ...bank, proposalId: 'p-two',
+      items: [...bank.items, { itemId: 'rent', title: 'ادفع الإيجار', resolvedTime: null, needsClarification: true, clarification: rentAsk }],
+      understood: [...(bank.understood ?? []), { kind: 'commitment', itemId: 'rent', text: 'ادفع الإيجار' }],
+    } as unknown as CaptureProposal;
+    const bankSettled = {
+      ...two,
+      items: [{ ...two.items[0]!, needsClarification: false, clarification: null, resolvedTime: `${TOMORROW}T08:30:00.000Z` }, two.items[1]!],
+    } as unknown as CaptureProposal;
+    jest.spyOn(AccessibilityInfo, 'isReduceMotionEnabled').mockResolvedValue(false);
+    const focus = jest.spyOn(AccessibilityInfo, 'sendAccessibilityEvent');
+    const scrollTo = jest.spyOn(ScrollView.prototype as unknown as { scrollTo: (...args: unknown[]) => void }, 'scrollTo')
+      .mockImplementation(() => {});
+    focus.mockClear();
+    scrollTo.mockClear();
+    jest.spyOn(captureEndpoints, 'chatCapture').mockImplementation(chatServer(() => two) as never);
+    jest.spyOn(captureEndpoints, 'clarifyCapture').mockResolvedValue(bankSettled as never);
+    await openCapture(harness);
+    await say('بدي روح عالبنك بكرا وادفع الإيجار');
+    await waitFor(() => expect(screen.queryByTestId('understood-confirm')).not.toBeNull());
+    await act(async () => { await fireEvent(screen.getByTestId('capture-scroll'), 'layout', layout(0, 540)); });
+    await act(async () => { await fireEvent.press(screen.getByTestId('understood-confirm')); });
+    await waitFor(() => expect(screen.queryByTestId('understood-confirm')).toBeNull());
+    await act(async () => { await fireEvent(screen.getByTestId('chat-clarification'), 'layout', layout(408, 360)); });
+    await waitFor(() => expect(focusedIds(focus)).toContain('clarify-question-focus'));
+
+    // The bank's time is answered; the rent's day question takes its place.
+    scrollTo.mockClear();
+    focus.mockClear();
+    await act(async () => { await fireEvent.press(screen.getByTestId('clarify-option-slot-1')); });
+    await waitFor(() => expect(screen.getByTestId('clarify-question-focus').props.accessibilityLabel).toContain('يوم'));
+    await act(async () => { await fireEvent(screen.getByTestId('chat-clarification'), 'layout', layout(420, 360)); });
+    expect(scrollTo).toHaveBeenLastCalledWith({ y: 780 - 540 + 80, animated: true });
+    await waitFor(() => expect(focusedIds(focus)).toContain('clarify-question-focus'));
+  });
+
   it('back to the summary and «هيك صح» again reveals and focuses the question afresh (Q-A1-001)', async () => {
     jest.spyOn(AccessibilityInfo, 'isReduceMotionEnabled').mockResolvedValue(false);
     const focus = jest.spyOn(AccessibilityInfo, 'sendAccessibilityEvent');
