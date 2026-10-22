@@ -48,6 +48,19 @@ test('BB-04: each intent marker after a period opens its own clause (ar / en / h
   }
 });
 
+test('#736: an untimed English thought beside a timed commitment opens its own clause', () => {
+  for (const text of [
+    "Call mom tomorrow at 5 PM, and I'm thinking about traveling next summer",
+    "Call mom tomorrow at 5 PM. I'm thinking about traveling next summer",
+    'Call mom tomorrow at 5 PM, and maybe travel next summer',
+  ]) {
+    const clauses = splitCaptureClauses(text);
+    assert.equal(clauses.length, 2, `${text} \u2192 ${JSON.stringify(clauses)}`);
+    assert.match(clauses[0]!, /^Call mom tomorrow at 5 PM[.]?$/);
+    assert.match(clauses[1]!, /travel(?:ing)? next summer$/i);
+  }
+});
+
 test('BB-04 guards: a sentence that restates the hour or is only a time still belongs to the one before', () => {
   for (const text of [
     'عندي موعد دكتور بكرا. الساعة 5 المسا',
