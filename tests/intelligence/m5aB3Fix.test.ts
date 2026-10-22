@@ -689,6 +689,7 @@ test('L1 a live quota wait moves the monitor poll and is not reclaimed before ne
 
 test('G7 proposal rows and caller completion are one guarded all-or-nothing transaction', async () => {
   const storage = createMemoryStorage();
+  await storage.set('users/proposal-atomic', { trust: null });
   const [observation] = await putObservations('proposal-atomic', 'manual', 'note', NOW, [{
     kind: 'request', evidence: 'Please send the form', confidence: 0.9,
   }], storage);
@@ -706,10 +707,10 @@ test('G7 proposal rows and caller completion are one guarded all-or-nothing tran
 test('H1 proposal scheduler reads every authority guard before writing proposal completion', async () => {
   const storage = createMemoryStorage({ enforceFirestoreReadOrder: true });
   const uid = 'proposal-read-order';
+  await storage.set(`users/${uid}`, { monitoringSettings: { paused: false, updatedAt: NOW } });
   const [observation] = await putObservations(uid, 'manual', 'note', NOW, [{
     kind: 'request', evidence: 'Please send the form', confidence: 0.9,
   }], storage);
-  await storage.set(`users/${uid}`, { monitoringSettings: { paused: false, updatedAt: NOW } });
   await storage.set('system/m5aControls', { email: { epoch: 7, enabled: true }, calendar: { epoch: 1, enabled: true } });
   await storage.set(userSubDoc(uid, PROVIDER_CONNECTIONS, connectionIdFor('google')), {
     identity: { provider: 'google', providerAccountId: 'acct' }, state: 'connected', credentialRef: 'vault',
