@@ -40,6 +40,22 @@ let mockCommitment: any;
 jest.mock('../../m5a/capabilities', () => ({ useM5aCapabilities: () => null, useFreshM5aCapability: () => async () => false, M5A_NOT_NOW: () => new Error('not now') }));
 // M5b-2a: the learned card reads the M5b capability; this panel renders without a QueryClient here.
 jest.mock('../../m5b/capabilities', () => ({ useM5bOn: () => null, useFreshM5bOn: () => async () => null }));
+// M5b-2b-1: the suggestion basis machinery reads the M5b capability and the
+// memory list through the query layer, which these tests render without; it
+// stands in here as M5b known off, where the holder behaves exactly as before.
+jest.mock('../../m5b/suggestionBasis', () => {
+  // Stable identities, as the real hooks keep: a holder's reads depend on them.
+  const stamping = {
+    stamp: () => ({ startedAt: 0, now: false, lastKnown: false }),
+    classify: (envelope: { basisMode?: string }) => ({ mode: envelope.basisMode ?? null, capAtFetch: false, offAtFetch: true, startedAt: 0 }),
+  };
+  const signals = { capNow: false, freshItems: null, listSettled: false, basisHidden: () => false };
+  return {
+    useBasisStamp: () => stamping,
+    useSuggestionBasisSignals: () => signals,
+    basisClassVisible: (cls: unknown) => cls !== null,
+  };
+});
 jest.mock('../../m5a/emailScan', () => ({
   useEmailScanOverview: () => ({ data: undefined, refetch: async () => undefined }),
   EmailScanEntry: () => null,

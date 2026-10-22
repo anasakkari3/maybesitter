@@ -26,6 +26,7 @@ import * as habitEndpoints from '../../../api/endpoints/habits';
 import * as seedEndpoints from '../../../api/endpoints/seeds';
 import * as intelligenceEndpoints from '../../../api/endpoints/intelligence';
 import * as backgroundEndpoints from '../../../api/endpoints/backgroundActivity';
+import * as m5bEndpoints from '../../../api/endpoints/m5b';
 import { FeatureUnavailableError } from '../../../api/errors';
 import one from '../../../api/__fixtures__/commitments.one.json';
 import retrying from '../../../api/__fixtures__/backgroundActivity.footballRetrying.json';
@@ -78,6 +79,9 @@ beforeEach(async () => {
   resetVisitThrottleForTests();
   onlineManager.setOnline(true);
   client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+  // M5b known off (its module answers 404): the hub's suggestions are the
+  // ordinary ones, read without a basis mode (M5b-2b-1, R14-002).
+  jest.spyOn(m5bEndpoints, 'getM5bCapabilities').mockRejectedValue(new FeatureUnavailableError('off'));
   jest.spyOn(consentEndpoints, 'getConsents').mockResolvedValue({
     success: true,
     currentVersions: { aiProcessing: 'ai-consent-v1', recommendations: 'rec-consent-v1' },

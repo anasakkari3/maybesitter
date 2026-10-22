@@ -7,7 +7,10 @@ import {
   answerIntelligenceQuestion,
   getGmailIntelligenceMonitor, setGmailIntelligenceMonitor,
 } from '../../api/endpoints/intelligence';
-import type { IntelligenceInbox, IntelligenceObservation } from '../../api/schemas/intelligence';
+import type { IntelligenceInbox, IntelligenceObservation, IntelligenceSuggestion } from '../../api/schemas/intelligence';
+import type { MemoryItem } from '../../api/schemas/profile';
+import { SuggestionUnavailableError } from '../../api/errors';
+import { basisClassVisible, useBasisStamp, useSuggestionBasisSignals, type BasisClass } from '../m5b/suggestionBasis';
 import type { z } from 'zod';
 import { intelligenceGmailMonitorSchema } from '../../api/schemas/intelligence';
 import { forbiddenReason, userFacingMessage } from '../../api/ui/userFacingMessage';
@@ -228,22 +231,31 @@ function IntelligencePanelForAccount({ onChanged, autoGenerate = false, whenOff 
   // render does not read the inbox a second time.
   const readUid = React.useRef(uid);
   React.useEffect(() => { readUid.current = uid; });
+  // M5b-2b-1 (R13-001): each answer is held with the mode it was filtered
+  // under and the capability it was read under, and drawn only while that
+  // classification allows.
+  const { stamp, classify } = useBasisStamp();
+  const [basis, setBasis] = React.useState<BasisClass | null>(null);
+  const lastReadStart = React.useRef(0);
   const read = React.useCallback(async () => {
     const asOf = readUid.current ? { asUid: readUid.current } : {};
+    const at = stamp();
+    lastReadStart.current = Math.max(lastReadStart.current, at.startedAt);
     // The Gmail switch is one row of the panel; its failure must not take
     // the evidence and suggestions with it.
     const [next, monitor] = await Promise.all([getIntelligenceInbox(asOf), getGmailIntelligenceMonitor(asOf).catch(() => null)]);
-    return { next, monitor };
-  }, []);
+    return { next, monitor, cls: classify(next, at) };
+  }, [stamp, classify]);
   // Only the newest read is applied (M5B2A-R28-004): a background read that
   // started before «مش صحيح» and answers after the dismissal's own read would
   // otherwise put the dismissed outcome, and what cites it, back on screen.
   const readSeq = React.useRef(0);
   const refresh = React.useCallback(async () => {
     const seq = ++readSeq.current;
-    const { next, monitor } = await read();
+    const { next, monitor, cls } = await read();
     if (seq !== readSeq.current) return next;
     setInbox(next);
+    setBasis(cls);
     setGmailMonitor(monitor);
     setPhase('ready');
     return next;
@@ -252,9 +264,9 @@ function IntelligencePanelForAccount({ onChanged, autoGenerate = false, whenOff 
     void (async () => {
       const seq = ++readSeq.current;
       try {
-        const { next, monitor } = await read();
+        const { next, monitor, cls } = await read();
         if (!alive() || seq !== readSeq.current) return;
-        setInbox(next); setGmailMonitor(monitor); setPhase('ready');
+        setInbox(next); setBasis(cls); setGmailMonitor(monitor); setPhase('ready');
       } catch (cause) {
         // A failure only counts for the newest read, as an answer does (R29-004).
         if (!alive() || seq !== readSeq.current) return;
@@ -269,6 +281,36 @@ function IntelligencePanelForAccount({ onChanged, autoGenerate = false, whenOff 
     load(() => alive);
     return () => { alive = false; };
   }, [load]);
+  // A read asked for by a signal, not a tap (M5b-2b-1: a memory write, the
+  // memory list settling, a capability transition). Only the newest read
+  // lands; if it fails, the suggestions it would have checked are cleared
+  // rather than left standing unverified (R9-001).
+  const signalReread = React.useCallback(() => {
+    void (async () => {
+      const seq = ++readSeq.current;
+      try {
+        const { next, monitor, cls } = await read();
+        if (!scanMounted.current || seq !== readSeq.current) return;
+        setInbox(next); setBasis(cls); setGmailMonitor(monitor);
+      } catch {
+        if (!scanMounted.current || seq !== readSeq.current) return;
+        setInbox(current => (current ? { ...current, suggestions: [], schedule: [] } : current));
+      }
+    })();
+  }, [read]);
+  const m5bReady = phase === 'ready' && inbox !== null;
+  const signals = useSuggestionBasisSignals({
+    held: basis,
+    ready: m5bReady,
+    holding: inbox?.suggestions.some(item => item.status === 'pending') === true,
+    // Watched while M5b is known on, from the first frame: the basis line
+    // quotes only a list fetched since mount, and a mode or fence change can
+    // change what may stand while the list stays the same (R10-002).
+    watchList: m5bOn === true && phase !== 'off',
+    lastReadStart: () => lastReadStart.current,
+    reread: signalReread,
+  });
+
   // The visit, once per mount, after the inbox is on screen and the account
   // is known; never on a loop that answered off.
   const visited = React.useRef(false);
@@ -308,6 +350,13 @@ function IntelligencePanelForAccount({ onChanged, autoGenerate = false, whenOff 
       try {
         await action();
       } catch (cause) {
+        // M5b-2b-1 (R4-003): the suggestion can no longer be acted on (the
+        // memory mode changed, or a memory that shaped it went). Not an error
+        // to show or say: the inbox is read again and the card leaves.
+        if (cause instanceof SuggestionUnavailableError) {
+          try { await refresh(); } catch { setRefreshFailed(true); }
+          return;
+        }
         setError(cause);
         try { await refresh(); } catch { /* Keep the original action error visible. */ }
         return;
@@ -565,12 +614,21 @@ function IntelligencePanelForAccount({ onChanged, autoGenerate = false, whenOff 
   }
   if (phase !== 'ready' || !inbox) return null;
   const evidence = new Map(inbox.observations.map(item => [item.id, item.evidence]));
-  const schedule = new Map(inbox.schedule.map(item => [item.suggestionId, item]));
+  // M5b-2b-1 (R13-001): a response whose classification does not allow it
+  // now draws no suggestion and no schedule row — and no «no ideas» line
+  // either, which would not be true of what is held.
+  // A card that cites a memory waits for the memory list fetched since mount
+  // (answered or failed), so its basis line arrives with it, not after it.
+  const awaitingList = basis?.mode === 'on_basis' && signals.capNow === true && !signals.listSettled
+    && inbox.suggestions.some(item => item.status === 'pending' && (item.memoryBasis?.length ?? 0) > 0);
+  const suggestionsShown = basisClassVisible(basis, signals.capNow) && !awaitingList;
+  const schedule = new Map(suggestionsShown ? inbox.schedule.map(item => [item.suggestionId, item]) : []);
+  const pending = suggestionsShown ? inbox.suggestions.filter(item => item.status === 'pending') : [];
   return <><ProductSection title={t.xIntelligenceTitle} why={{ id: 'intelligence-panel', body: t.xIntelligenceBody }} icon="goal">
-    {error && announced === null ? <Txt role="supporting" color={p.wm}>{userFacingMessage(error, t)}</Txt> : null}
-    {recommendationsEnabled && inbox.suggestions.filter(item => item.status === 'pending').length === 0
+    {error && announced === null ? <Txt role="supporting" color={p.wm} testID="m5b-suggestion-action-error">{userFacingMessage(error, t)}</Txt> : null}
+    {recommendationsEnabled && suggestionsShown && pending.length === 0
       ? <Txt role="supporting">{t.xIntelligenceNoIdeas}</Txt> : null}
-    {recommendationsEnabled && inbox.suggestions.filter(item => item.status === 'pending').map(item => <View key={item.id} testID={`intelligence-suggestion-${item.id}`}>
+    {recommendationsEnabled && pending.map(item => <View key={item.id} testID={`intelligence-suggestion-${item.id}`}>
       <Txt role="body">{isolateAuto(item.title)}</Txt>
       <Txt role="supporting">{isolateAuto(item.reason)}</Txt>
       {(item.kind === 'action' || item.kind === 'goal') ? <TextInput
@@ -584,12 +642,12 @@ function IntelligencePanelForAccount({ onChanged, autoGenerate = false, whenOff 
         style={{ color: p.tx, backgroundColor: p.bg, padding: 12, borderRadius: 12, fontSize: 16, textAlign: rtl ? 'right' : 'left' }}
       /> : null}
       <Txt role="supporting">{fill(t.xIntelligenceEvidence, { evidence: item.observationIds.map(id => evidence.get(id) ?? '').filter(Boolean).map(isolateAuto).join(' · ') })}</Txt>
-      {item.kind === 'action' && schedule.get(item.id)?.slot ? <Txt role="supporting">{fill(t.xIntelligenceSlot, {
+      {item.kind === 'action' && schedule.get(item.id)?.slot ? <Txt role="supporting" testID={`m5b-suggestion-schedule-${item.id}`}>{fill(t.xIntelligenceSlot, {
         date: formatDate(new Date(schedule.get(item.id)!.slot!.startsAt), 'short', { locale: lang, timeZone: zone }),
         time: ltr(formatTime(new Date(schedule.get(item.id)!.slot!.startsAt), { locale: lang, timeZone: zone })),
       })}</Txt> : null}
       {item.kind === 'action' && schedule.get(item.id) && !schedule.get(item.id)?.slot
-        ? <Txt role="supporting">{t.xIntelligenceNoSlot}</Txt> : null}
+        ? <Txt role="supporting" testID={`m5b-suggestion-schedule-${item.id}`}>{t.xIntelligenceNoSlot}</Txt> : null}
       {item.kind === 'question' ? <TextInput
         testID={`intelligence-answer-${item.id}`}
         accessibilityLabel={item.title}
@@ -611,6 +669,15 @@ function IntelligencePanelForAccount({ onChanged, autoGenerate = false, whenOff 
         <Pill label={t.xIntelligenceDismiss} kind="outline" disabled={busy} onPress={() => void run(() => decideIntelligenceSuggestion(item.id, 'dismiss', undefined, undefined, bound))} />
       </View>
       {item.kind !== 'question' ? <Txt role="supporting" color={p.mu}>{t.suggestionNote}</Txt> : null}
+      {/* M5b-2b-1 (R3): which remembered fact shaped it, and the way to
+          correct that fact. After the decision row, so the card's own
+          actions keep their place. */}
+      {m5bOn === true && basis ? <SuggestionBasis
+        suggestion={item}
+        items={signals.freshItems}
+        hidden={memoryId => signals.basisHidden(memoryId, basis.startedAt)}
+        onFix={memoryId => actions.openMemoryFocused(memoryId)}
+      /> : null}
     </View>)}
     {inbox.observations.filter(item => item.review === 'pending' && !SELF_CONFIRMED_SOURCES.has(item.source)).slice(0, MAX_CONFIRM_CARDS).map(item => <View key={item.id} testID={`intelligence-observation-${item.id}`}>
       <Txt role="supporting">{fill(t[UNDERSTOOD_KEY[item.kind]], { evidence: isolateAuto(item.evidence) })}</Txt>
@@ -714,6 +781,49 @@ function IntelligencePanelForAccount({ onChanged, autoGenerate = false, whenOff 
   {/* What was added from the person's own replies sits beside the panel, not inside it (R3.5). */}
   <AddedCard />
   </>;
+}
+
+/** At most this many basis lines on a card, as the wire allows. */
+const BASIS_LIMIT = 3;
+
+/**
+ * «اعتمدنا على: «…»» · «صحّحها» (M5b-2b-1, R3): one line per memory the
+ * suggestion cites, quoting that memory's own words from a list fetched since
+ * mount. A cited memory missing from that list (deleted, superseded, the
+ * module killed), or one being corrected right now, draws no line. The
+ * correction is the inline action the learned rows use, a ≥44 target whose
+ * accessible name says which memory it corrects (REV-005).
+ */
+function SuggestionBasis({ suggestion, items, hidden, onFix }: {
+  suggestion: IntelligenceSuggestion;
+  items: ReadonlyMap<string, MemoryItem> | null;
+  hidden: (memoryId: string) => boolean;
+  onFix: (memoryId: string) => void;
+}) {
+  const { t, p } = useApp();
+  if (!items || !suggestion.memoryBasis || suggestion.memoryBasis.length === 0) return null;
+  const lines = suggestion.memoryBasis.slice(0, BASIS_LIMIT).flatMap(({ memoryId }) => {
+    const memory = items.get(memoryId);
+    return memory && !hidden(memoryId) ? [{ memoryId, quote: isolateAuto(memory.content) }] : [];
+  });
+  if (lines.length === 0) return null;
+  return <View style={{ gap: 4 }}>
+    {lines.map(({ memoryId, quote }) => <View key={memoryId} style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', columnGap: 8 }}>
+      <Txt role="supporting" color={p.mu} style={{ flexShrink: 1 }} testID={`m5b-suggestion-basis-${suggestion.id}-${memoryId}`}>
+        {fill(t.m5bSuggestionBasis, { memory: quote })}
+      </Txt>
+      <Btn
+        testID={`m5b-suggestion-basis-fix-${suggestion.id}-${memoryId}`}
+        label={fill(t.m5bSuggestionBasisFixA11y, { memory: quote })}
+        onPress={() => onFix(memoryId)}
+        scaleTo={0.97}
+        hitSlop={8}
+        style={{ minHeight: 44, justifyContent: 'center', paddingVertical: 6 }}
+      >
+        <Txt size={14} color={p.acd}>{t.m5bBasisFix}</Txt>
+      </Btn>
+    </View>)}
+  </View>;
 }
 
 /** The newest tapped outcomes the person can still say «مش صحيح» to. */
