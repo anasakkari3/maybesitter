@@ -1,5 +1,5 @@
 import React from 'react';
-import { Platform, View, type StyleProp, type ViewStyle } from 'react-native';
+import { View, type StyleProp, type ViewStyle } from 'react-native';
 
 /** An empty region takes no room: no padding, and no gap in a flex parent. */
 const OUT_OF_FLOW: ViewStyle = { position: 'absolute', width: 0, height: 0, overflow: 'hidden' };
@@ -34,37 +34,5 @@ export function LiveRegion({ children, style, testID, alert = false }: {
     >
       {children}
     </View>
-  );
-}
-
-/** A one-point node: Android keeps it on screen, so its region is announced. */
-const ANNOUNCEMENT_NODE: ViewStyle = { position: 'absolute', width: 1, height: 1, overflow: 'hidden' };
-
-/**
- * A polite live region that says one line and draws nothing, for a status
- * whose visible card must be measured afresh after a live text-size change
- * (Q-LIVE2-001).
- *
- * A card drawn inside a `LiveRegion` replaces its paragraphs on a text-size
- * change (`SaidWords`, `Btn`), and Android hears any subtree replacement in a
- * region as new content: TalkBack read the refusal again although nothing had
- * changed. So the card sits outside, and this node is the region's only
- * content — a view with a label and no children, which a text-size change
- * leaves alone. It changes only when `text` does. iOS has no live regions;
- * the node is hidden from VoiceOver there, which reads the card.
- */
-export function LiveAnnouncement({ text, testID }: { text: string | null; testID?: string }) {
-  return (
-    <LiveRegion {...(testID ? { testID } : {})} style={ANNOUNCEMENT_NODE}>
-      {text ? (
-        <View
-          accessible
-          accessibilityLabel={text}
-          accessibilityElementsHidden={Platform.OS === 'ios'}
-          {...(testID ? { testID: `${testID}-said` } : {})}
-          style={ANNOUNCEMENT_NODE}
-        />
-      ) : null}
-    </LiveRegion>
   );
 }

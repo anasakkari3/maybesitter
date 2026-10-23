@@ -14,7 +14,7 @@
  * restored after each test.
  */
 import React from 'react';
-import { Dimensions, StyleSheet } from 'react-native';
+import { AccessibilityInfo, Dimensions, StyleSheet } from 'react-native';
 import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
 import { act, cleanup, render, screen, waitFor, within } from '@testing-library/react-native';
 import { SafeAreaProvider, type Metrics } from 'react-native-safe-area-context';
@@ -110,6 +110,16 @@ async function expectRemeasured(regions: readonly string[], kept: readonly strin
   }
 }
 
+
+type JsonNode = { props?: Record<string, unknown>; children?: (JsonNode | string)[] | null };
+/** Every host node in the rendered tree that passes `test`. */
+function hostNodes(test: (node: JsonNode) => boolean, tree: unknown = screen.toJSON()): JsonNode[] {
+  if (tree === null || typeof tree !== 'object') return [];
+  if (Array.isArray(tree)) return tree.flatMap((child) => hostNodes(test, child));
+  const node = tree as JsonNode;
+  return [...(test(node) ? [node] : []), ...(node.children ?? []).flatMap((child) => hostNodes(test, child))];
+}
+
 describe('the reminders screen after a live text-size change', () => {
   it('denied: the line is said by a view that stays, «رجوع» and «افتح إعدادات التلفون» keep their buttons, every drawn paragraph is new', async () => {
     await show('denied', 'notifications-denied-said');
@@ -119,32 +129,27 @@ describe('the reminders screen after a live text-size change', () => {
     expect(screen.getByTestId('notifications-denied').props.accessible).toBe(false);
     await expectRemeasured(
       ['notifications-denied-said', 'notifications-open-settings', 'header-back'],
-      ['notifications-denied-said', 'notifications-open-settings', 'header-back', 'notifications-status', 'notifications-status-live'],
+      ['notifications-denied-said', 'notifications-open-settings', 'header-back', 'notifications-status'],
     );
   });
 
-  // Q-LIVE2-001: Android hears any subtree replacement in a live region as
-  // new content, so the card that replaces its words must sit outside it, and
-  // the region's one node must survive a text-size change untouched.
-  it('denied: the live region holds one childless node that a text-size change leaves alone, and the card sits outside it', async () => {
+  // Q-LIVE2-001/002: the refusal is no live region's content — a text-size
+  // change replaces the card's words — and no hidden node says it twice. The
+  // card's one element says it, and a text-size change announces nothing.
+  it('denied: one element says the refusal, no live region holds it, and a text-size change announces nothing', async () => {
+    const announce = jest.spyOn(AccessibilityInfo, 'announceForAccessibility');
+    announce.mockClear();
     await show('denied', 'notifications-denied-said');
-    const region = screen.getByTestId('notifications-status-live');
-    expect(region.props.accessibilityLiveRegion).toBe('polite');
-    expect(within(region).queryByTestId('notifications-status')).toBeNull();
-    expect(within(region).queryByTestId('notifications-open-settings')).toBeNull();
-    const node = screen.getByTestId('notifications-status-live-said', { includeHiddenElements: true });
-    const label = node.props.accessibilityLabel;
-    expect(label).toBe(screen.getByTestId('notifications-denied').props.children);
-    expect(node.children).toHaveLength(0);
-    // iOS has no live regions: VoiceOver reads the card, not this node.
-    expect(node.props.accessibilityElementsHidden).toBe(true);
+    const line = screen.getByTestId('notifications-denied').props.children;
+    const sayers = () => hostNodes((node) => node.props?.accessibilityLabel === line);
+    expect(sayers()).toHaveLength(1);
+    expect(hostNodes((node) => node.props?.accessibilityLiveRegion != null
+      && hostNodes((inner) => inner.props?.testID === 'notifications-status', node).length > 0)).toHaveLength(0);
     for (const scale of [AX5, 1, AX5]) {
       await act(async () => { setFontScale(scale); });
-      expect(screen.getByTestId('notifications-status-live')).toBe(region);
-      expect(screen.getByTestId('notifications-status-live-said', { includeHiddenElements: true })).toBe(node);
-      expect(node.props.accessibilityLabel).toBe(label);
-      expect(node.children).toHaveLength(0);
+      expect(sayers()).toHaveLength(1);
     }
+    expect(announce).not.toHaveBeenCalled();
   });
 
   it('not asked yet: the line above «اسمح» is said by a view that stays, the button keeps its node', async () => {

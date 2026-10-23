@@ -22,7 +22,7 @@ import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react-native';
 import { SafeAreaProvider, type Metrics } from 'react-native-safe-area-context';
 import { QueryClient, QueryClientProvider, onlineManager } from '@tanstack/react-query';
-import { AppState, Linking, Platform, type AppStateStatus } from 'react-native';
+import { AccessibilityInfo, AppState, Linking, Platform, type AppStateStatus } from 'react-native';
 import * as notifications from 'expo-notifications';
 import { AppProvider } from '../../../state/AppContext';
 import { AuthProvider } from '../../../auth/AuthProvider';
@@ -121,6 +121,16 @@ function positionOf(testID: string): number {
   return JSON.stringify(screen.toJSON()).indexOf(`"testID":"${testID}"`);
 }
 
+
+type JsonNode = { props?: Record<string, unknown>; children?: (JsonNode | string)[] | null };
+/** Every host node in the rendered tree that passes `test`. */
+function hostNodes(test: (node: JsonNode) => boolean, tree: unknown = screen.toJSON()): JsonNode[] {
+  if (tree === null || typeof tree !== 'object') return [];
+  if (Array.isArray(tree)) return tree.flatMap((child) => hostNodes(test, child));
+  const node = tree as JsonNode;
+  return [...(test(node) ? [node] : []), ...(node.children ?? []).flatMap((child) => hostNodes(test, child))];
+}
+
 describe('denied', () => {
   beforeEach(() => {
     jest.spyOn(permission, 'getNotificationPermission').mockResolvedValue('denied');
@@ -193,10 +203,12 @@ describe('granted', () => {
     expect(screen.queryByTestId('plan-morning-toggle-blocked')).toBeNull();
   });
 
-  it('keeps the empty status live region mounted for a later permission refusal', async () => {
+  it('says nothing on opening, and has no live region for the refusal', async () => {
+    const announce = jest.spyOn(AccessibilityInfo, 'announceForAccessibility');
+    announce.mockClear();
     await show();
-    expect(screen.getByTestId('notifications-status-live').props.accessibilityLiveRegion).toBe('polite');
-    expect(screen.queryByTestId('notifications-denied')).toBeNull();
+    expect(screen.queryByTestId('notifications-status-live')).toBeNull();
+    expect(announce).not.toHaveBeenCalled();
   });
 });
 
@@ -330,6 +342,33 @@ describe('Android 13+, never asked', () => {
     expect(screen.queryByTestId('notifications-denied')).toBeNull();
     await fireEvent.press(screen.getByTestId('notifications-allow'));
     await waitFor(() => expect(permission.requestNotificationPermission).toHaveBeenCalled());
+  });
+
+  // Review I1 with Q-LIVE2-002: the refusal that lands after «اسمح» is said
+  // once, by an announcement — no live region, no second element saying it.
+  it('announces a refusal that lands after «اسمح», once', async () => {
+    androidSays(true);
+    const announce = jest.spyOn(AccessibilityInfo, 'announceForAccessibility');
+    announce.mockClear();
+    jest.spyOn(permission, 'requestNotificationPermission').mockResolvedValue('denied');
+    await show();
+    await waitFor(() => expect(screen.queryByTestId('notifications-allow')).not.toBeNull());
+    expect(announce).not.toHaveBeenCalled();
+    await fireEvent.press(screen.getByTestId('notifications-allow'));
+    await waitFor(() => expect(screen.queryByTestId('notifications-denied')).not.toBeNull());
+    const line = screen.getByTestId('notifications-denied').props.children;
+    expect(announce).toHaveBeenCalledTimes(1);
+    expect(announce).toHaveBeenCalledWith(line);
+    expect(hostNodes((node) => node.props?.accessibilityLabel === line)).toHaveLength(1);
+  });
+
+  it('says nothing on opening a phone that already refused', async () => {
+    androidSays(false);
+    const announce = jest.spyOn(AccessibilityInfo, 'announceForAccessibility');
+    announce.mockClear();
+    await show();
+    await waitFor(() => expect(screen.queryByTestId('notifications-open-settings')).not.toBeNull());
+    expect(announce).not.toHaveBeenCalled();
   });
 
   it('keeps «open phone settings» for a phone that will not ask again', async () => {

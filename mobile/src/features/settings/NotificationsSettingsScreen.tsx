@@ -1,9 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { AppState, Linking, Platform, View } from 'react-native';
+import { AccessibilityInfo, AppState, Linking, Platform, View } from 'react-native';
 import { AppDateTimePicker as DateTimePicker } from '../../ui/AppDateTimePicker';
 import { useApp } from '../../state/AppContext';
 import { Btn, Card, Pill, SaidWords, Txt } from '../../ui/primitives';
-import { LiveAnnouncement } from '../../ui/liveRegion';
 import { Screen, ScreenScroll } from '../../ui/screen';
 import {
   usePlanSettings,
@@ -330,17 +329,29 @@ export function NotificationsSettingsScreen({ onBack }: { onBack: () => void }) 
     );
   };
 
+  /*
+   * A refusal that lands after «اسمح» is said once, when it lands (review I1).
+   * Not by a live region: the card replaces its words after a live text-size
+   * change, and TalkBack read that subtree change inside a region as a new
+   * refusal (Q-LIVE2-001); a hidden node in a region was a second swipe stop
+   * that read it twice (Q-LIVE2-002). So the card is the line's one element,
+   * and the move from a known answer to «لا» is announced — never on opening a
+   * screen already denied, never on a re-render.
+   */
+  const heardPermission = useRef<NotificationPermission | null>(null);
+  useEffect(() => {
+    const before = heardPermission.current;
+    heardPermission.current = osPermission;
+    if (before !== null && before !== 'denied' && osPermission === 'denied') {
+      AccessibilityInfo.announceForAccessibility(t.notifDenied);
+    }
+  }, [osPermission, t.notifDenied]);
+
   const notificationStatus = permissionDenied || needsAsking || osPermission === null || osPermission === 'undetermined';
   return (
     <Screen pinned={<SettingsHeader title={t.notifTitle} onBack={onBack} />}>
       <ScreenScroll>
         {/* What the phone allows, first (CL2b #18). */}
-        {/* Mounted whatever the permission, so a refusal that lands after
-            «اسمح» is heard by TalkBack (review I1). It says the line and draws
-            nothing: the card below replaces its words after a live text-size
-            change, and inside the region TalkBack read that as a new refusal
-            (Q-LIVE2-001). */}
-        <LiveAnnouncement text={permissionDenied ? t.notifDenied : null} testID="notifications-status-live" />
         {/* The card's words are measured afresh after a live text-size change:
             at AX5 they were slivers, and back at the default size the card
             stayed 795 pt tall (simulator 2026-10-24). Each paragraph sits in a
