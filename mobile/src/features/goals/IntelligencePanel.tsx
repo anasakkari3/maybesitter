@@ -934,9 +934,15 @@ function applyReviewedOutcome(current: IntelligenceInbox, moved: IntelligenceObs
   const bound = new Set(observations
     .filter(item => item.id !== moved.id && item.matchedOutcomeId !== undefined && item.matchedOutcomeId === moved.id)
     .map(item => item.id));
-  if (bound.size === 0) return { ...current, observations };
+  // A re-add marker dismissed itself takes the suggestions citing it too
+  // (Codex inspection M5B2B2-APP-R2-001): the server already hides and
+  // refuses them, so a slow or failed re-read must not leave them on screen.
+  // Only a marker carries `matchedOutcomeId`; the row itself stays, dismissed.
+  const cited = new Set(bound);
+  if (moved.matchedOutcomeId !== undefined) cited.add(moved.id);
+  if (cited.size === 0) return { ...current, observations };
   const gone = new Set(current.suggestions
-    .filter(item => item.observationIds.some(id => bound.has(id)))
+    .filter(item => item.observationIds.some(id => cited.has(id)))
     .map(item => item.id));
   return {
     ...current,
