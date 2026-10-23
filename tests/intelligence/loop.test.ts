@@ -18,12 +18,13 @@ import { answerIntelligenceQuestion } from '../../lib/intelligence/answerQuestio
 import { loadDomainState } from '../../lib/services/mobile/participantState.ts';
 import { createStorageRuntimeMemoryStore } from '../../lib/runtimeMemory/runtimeMemoryStore.ts';
 import { intelligenceEnabled } from '../../lib/intelligence/gate.ts';
+import { createPilotTrustState } from '../../lib/pilot/closedPilotControls.ts';
 
 const NOW = '2026-09-30T10:00:00.000Z';
 
 function createMemoryStorage() {
   const storage = createRawMemoryStorage();
-  void storage.set(userDoc('alice'), { trust: null });
+  void storage.set(userDoc('alice'), { trust: createPilotTrustState('alice', NOW) });
   return storage;
 }
 

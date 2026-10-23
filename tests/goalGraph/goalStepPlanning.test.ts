@@ -51,6 +51,7 @@ import {
   UAT_GOAL,
   seedGoal,
 } from './goalGraphSupport.ts';
+import { seedLiveAccount } from '../support/liveAccount.ts';
 
 function stepsOf(graph: GoalExecutionGraph): DecompositionStepNode[] {
   return graph.nodes.filter((node): node is DecompositionStepNode => node.kind === 'decomposition_step_proposal');
@@ -247,6 +248,7 @@ test('model steps are generated once, confirmed into real work, counted, and sur
   const { storage, goal } = await seedGoal(UAT_GOAL, { scopeId: OWNER, language: 'ar' });
   // Canonical writers reach storage through the process-wide adapter.
   setStorageForTests(storage);
+  await seedLiveAccount(OWNER, storage);
   t.after(resetStorageForTests);
   // G2 (no formal marker) is kept for the regeneration: it is the recording
   // whose answer carries a habit kind, which this test follows into the graph.
@@ -337,6 +339,7 @@ test('forget clears unconfirmed goal step proposals for every goal, and keeps th
   const { storage, goal } = await seedGoal(UAT_GOAL, { scopeId: OWNER, language: 'ar' });
   const { goal: second } = await seedGoal('أجهّز تطبيقي للنشر قبل الصيف', { scopeId: OWNER, language: 'ar', storage });
   setStorageForTests(storage);
+  await seedLiveAccount(OWNER, storage);
   t.after(resetStorageForTests);
   const { generate } = recordedGenerator([RECORDED_GOAL_STEPS_V4_G1]);
   const options = { storage, goalStepModel: createGoalStepModel(OWNER, { generate }), habits: createHabitServices(storage) };

@@ -30,6 +30,7 @@ import {
 import { createStorageSchedulerStore } from '../../lib/scheduler/storageSchedulerStore.ts';
 import { persistParticipantState, readParticipantState } from '../../lib/services/mobile/participantState.ts';
 import { applyCommand as applyDomainCommand, createEmptyDomainState } from '../../src/domain/stateMachine.ts';
+import { seedLiveAccount } from '../support/liveAccount.ts';
 
 const SA = 'maybesitter-scheduler@example-project.iam.gserviceaccount.com';
 const AUDIENCE = 'https://api.example.invalid';
@@ -192,6 +193,7 @@ function stateWithDueReminder() {
 
 test('run: a due reminder in a participant\'s durable state is completed exactly once', async () => {
   await withStorage(createMemoryStorage(), async () => {
+    await seedLiveAccount(UID);
     await persistParticipantState(UID, stateWithDueReminder());
     const before = JSON.stringify(await readParticipantState(UID));
     const store = createStorageSchedulerStore();

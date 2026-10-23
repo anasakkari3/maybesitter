@@ -45,6 +45,7 @@ import {
 } from '../../lib/services/habits/habitService.ts';
 import { buildHabitPlanningRequest } from '../../lib/services/habits/habitPlanningAdapter.ts';
 import type { HabitDefinitionInput } from '../../src/contracts/v1/habitContracts.ts';
+import { seedLiveAccount } from '../support/liveAccount.ts';
 
 const PEPPER = 'test-pepper-not-the-real-one';
 const TARGET = 'user_with_habits_deleted';
@@ -128,6 +129,8 @@ test('a deleted account keeps no habit and none of the dates it asked for', asyn
   try {
     await storage.set(userDoc(TARGET), { uid: TARGET });
     await storage.set(userDoc(SIBLING), { uid: SIBLING });
+    await seedLiveAccount(TARGET, storage);
+    await seedLiveAccount(SIBLING, storage);
     await seedHabitAccount(TARGET);
     await seedHabitAccount(SIBLING);
 
@@ -171,6 +174,8 @@ test('the planner is given nothing to schedule for a deleted account', async () 
   try {
     await storage.set(userDoc(TARGET), { uid: TARGET });
     await storage.set(userDoc(SIBLING), { uid: SIBLING });
+    await seedLiveAccount(TARGET, storage);
+    await seedLiveAccount(SIBLING, storage);
     await seedHabitAccount(TARGET);
     await seedHabitAccount(SIBLING);
 

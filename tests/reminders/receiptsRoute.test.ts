@@ -22,6 +22,7 @@ import {
 import { reconcileHardReminderIndex } from '../../lib/services/reminders/hardReminderIndex.ts';
 import { mustRingIdentifier } from '../../lib/services/reminders/mustRingIdentifier.ts';
 import { installFakeAuth, tokenFor, uidFor, type FakeAuthControls } from '../support/fakeAuth.ts';
+import { seedLiveAccount } from '../support/liveAccount.ts';
 
 const BASE = 'http://127.0.0.1:4321';
 const ALICE = uidFor('ReceiptAlice');
@@ -62,6 +63,7 @@ function mustFor(start = START): Commitment {
 }
 
 async function aliceRings(): Promise<void> {
+  await seedLiveAccount(ALICE);
   await saveReminderSettings(ALICE, { hardEnabled: true, escalationCeiling: 'hard' }, new Date().toISOString());
   const state = createEmptyDomainState();
   state.commitments.c1 = mustFor();

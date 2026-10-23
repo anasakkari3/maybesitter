@@ -25,6 +25,7 @@ import assert from 'node:assert/strict';
 import { createMemoryStorage } from '../../lib/storage/memoryAdapter.ts';
 import { resetStorageForTests, setStorageForTests } from '../../lib/storage/index.ts';
 import { userDoc } from '../../lib/storage/paths.ts';
+import { seedLiveAccount } from '../support/liveAccount.ts';
 import { applyCommand as applyDomainCommand, createEmptyDomainState } from '../../src/domain/stateMachine.ts';
 import { persistParticipantState } from '../../lib/services/mobile/participantState.ts';
 import {
@@ -103,6 +104,7 @@ async function planWith(blocks: readonly BusyBlock[]) {
   const storage = createMemoryStorage();
   setStorageForTests(storage);
   const deps = { storage, now: () => MORNING };
+  await seedLiveAccount(UID, storage); // #772: the user document a live account has
   await persistParticipantState(UID, seedState());
   const user = await storage.get<Record<string, unknown>>(userDoc(UID));
   await storage.set(userDoc(UID), { ...(user ?? {}), timezone: TZ, locale: 'en' });
@@ -198,6 +200,7 @@ test('another account being busy all day does not narrow this one\'s plan', asyn
     ], { storage });
 
     const deps = { storage, now: () => MORNING };
+    await seedLiveAccount(UID, storage); // #772: the user document a live account has
     await persistParticipantState(UID, seedState());
     const user = await storage.get<Record<string, unknown>>(userDoc(UID));
     await storage.set(userDoc(UID), { ...(user ?? {}), timezone: TZ, locale: 'en' });
@@ -233,6 +236,7 @@ test('this account being busy all day does not narrow another one\'s plan', asyn
     await replaceBusyBlocks(UID, SOURCE, HORIZON, [busy('all-my-day', 6, 22)], { storage });
 
     const deps = { storage, now: () => MORNING };
+    await seedLiveAccount(neighbour, storage); // #772: the user document a live account has
     await persistParticipantState(neighbour, seedState());
     const user = await storage.get<Record<string, unknown>>(userDoc(neighbour));
     await storage.set(userDoc(neighbour), { ...(user ?? {}), timezone: TZ, locale: 'en' });

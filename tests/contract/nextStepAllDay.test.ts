@@ -26,6 +26,7 @@ import { clarifyMobileCapture, confirmMobileCapture, proposeMobileCapture } from
 import { getParticipantStateSnapshot } from '../../lib/services/mobile/participantState.ts';
 import { createMemoryStorage } from '../../lib/storage/memoryAdapter.ts';
 import { resetStorageForTests, setStorageForTests } from '../../lib/storage/index.ts';
+import { seedLiveAccount } from '../support/liveAccount.ts';
 import { getLiveNextStep } from '../../lib/services/nextStepLiveService.ts';
 import { candidatesFromDomainState, scoreBaselineCandidate } from '../../lib/services/nextStepBaseline.ts';
 import { rankForMobile } from '../../lib/priority/mobileRanking.ts';
@@ -45,8 +46,10 @@ const UID = 'n18-user';
 const controls = { version: 'v1' as const, featureFlags: { ...MODULE_FEATURE_FLAG_DEFAULTS, recommendation: true }, killSwitches: { ...MODULE_KILL_SWITCH_DEFAULTS } };
 
 async function withMemoryStorage<T>(run: () => Promise<T>): Promise<T> {
-  setStorageForTests(createMemoryStorage());
+  const storage = createMemoryStorage();
+  setStorageForTests(storage);
   try {
+    await seedLiveAccount(UID, storage); // #772: the user document a live account has
     return await run();
   } finally {
     resetStorageForTests();

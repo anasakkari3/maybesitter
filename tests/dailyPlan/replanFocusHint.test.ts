@@ -40,6 +40,7 @@ import { setPersonalizationConsent } from '../../lib/consents/personalizationCon
 import { PERSONALIZATION_CONSENT_VERSION } from '../../src/contracts/v1/consentContracts.ts';
 import type { PlanningStateChange } from '../../src/contracts/v1/watcherContracts.ts';
 import type { Plan, TimeInterval } from '../../src/contracts/v1/planningContracts.ts';
+import { seedLiveAccount } from '../support/liveAccount.ts';
 
 const TZ = 'Asia/Jerusalem';
 const DATE = '2026-09-15';
@@ -98,6 +99,7 @@ async function keepFocusWindow(storage: StorageAdapter, uid: string): Promise<vo
  * built through the real morning build.
  */
 async function seedAccount(storage: StorageAdapter, uid: string, consent: 'granted' | 'declined'): Promise<StoredDailyPlan> {
+  await seedLiveAccount(uid, storage);
   await persistParticipantState(uid, seedState());
   const user = await storage.get<Record<string, unknown>>(userDoc(uid));
   await storage.set(userDoc(uid), { ...(user ?? {}), timezone: TZ, locale: 'en' });

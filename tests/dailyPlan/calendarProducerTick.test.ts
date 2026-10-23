@@ -23,6 +23,7 @@ import { resetStorageForTests, setStorageForTests } from '../../lib/storage/inde
 import type { StorageAdapter } from '../../lib/storage/storageAdapter.ts';
 import { PLANNING_STATE_CHANGES, userCol, userDoc } from '../../lib/storage/paths.ts';
 import { persistParticipantState } from '../../lib/services/mobile/participantState.ts';
+import { seedLiveAccount } from '../support/liveAccount.ts';
 import { applyCommand as applyDomainCommand, createEmptyDomainState } from '../../src/domain/stateMachine.ts';
 import { buildAndStoreDailyPlan, claimDueDelivery, savePlanSettings } from '../../lib/services/dailyPlan/dailyPlanService.ts';
 import { listPlanEvents, readStoredPlan, type StoredDailyPlan } from '../../lib/services/dailyPlan/planStore.ts';
@@ -76,6 +77,7 @@ function seedState() {
 
 /** The morning plan, built by the real morning build, and calendar consent on. */
 async function seedAccount(storage: StorageAdapter, uid: string): Promise<StoredDailyPlan> {
+  await seedLiveAccount(uid, storage); // #772: the user document a live account has
   await persistParticipantState(uid, seedState());
   const user = await storage.get<Record<string, unknown>>(userDoc(uid));
   await storage.set(userDoc(uid), { ...(user ?? {}), timezone: TZ, locale: 'en' });

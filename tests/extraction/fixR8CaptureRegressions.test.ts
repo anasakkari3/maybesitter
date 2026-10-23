@@ -33,6 +33,7 @@ import { createEmptyDomainState, type Commitment } from '../../src/domain/stateM
 import { localTimeSpecFor, instantFromLocal } from '../../src/extraction/timeLexicon.ts';
 import { splitCaptureClauses } from '../../src/extraction/clauseSplitter.ts';
 import { extract } from '../../src/extraction/ruleBasedExtractor.ts';
+import { seedLiveAccount } from '../support/liveAccount.ts';
 
 const TZ = 'Asia/Jerusalem';
 /** Tuesday 29 Sep 2026, 11:00 in Jerusalem — when the owner typed them. */
@@ -70,6 +71,7 @@ async function rules(text: string, now: Date, uid = nextUid()) {
 }
 
 async function confirmedCommitments(uid: string, proposalId: string, itemIds: string[], revision?: number): Promise<Commitment[]> {
+  await seedLiveAccount(uid);
   await confirmMobileCapture({ proposalId, itemIds, ...(revision === undefined ? {} : { revision }) }, { participantId: uid });
   return Object.values((await getParticipantStateSnapshot(uid)).commitments);
 }

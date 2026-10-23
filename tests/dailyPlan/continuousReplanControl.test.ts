@@ -74,6 +74,7 @@ import {
 } from '../../src/contracts/v1/planningContracts.ts';
 import { DAILY_PLAN_CONFIG, dailyPlanScheduleSources } from '../../lib/services/dailyPlan/buildDailyPlan.ts';
 import { reconcileScheduleBlocks } from '../../lib/planning/scheduler/index.ts';
+import { seedLiveAccount } from '../support/liveAccount.ts';
 
 const BASE = 'http://127.0.0.1:4321';
 const DATE = '2026-11-09';
@@ -189,6 +190,9 @@ async function seedSyncedAccount(
   userDocument: Record<string, unknown>,
 ): Promise<void> {
   await storage.set(userDoc(uid), { timezone: TZ, locale: 'en', ...userDocument });
+  // #772: the trust record authentication writes, merged in after the root so
+  // the legacy fields under test stay exactly as the caller gave them.
+  await seedLiveAccount(uid, storage);
   await storage.set(userSubDoc(uid, PROVIDER_CONNECTIONS, CONNECTION.connectionId), { ...CONNECTION });
 
   const state: DomainState = { ...createEmptyDomainState(), commitments: { 'com-1': commitmentFor('com-1') } };

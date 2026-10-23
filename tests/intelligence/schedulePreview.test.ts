@@ -6,11 +6,12 @@ import { previewSuggestionSchedule } from '../../lib/intelligence/schedulePrevie
 import { suggestionPath, type IntelligenceSuggestion } from '../../lib/intelligence/proposalEngine.ts';
 import { reviewSuggestion, SuggestionScheduleChangedError } from '../../lib/intelligence/reviewSuggestion.ts';
 import { loadDomainState } from '../../lib/services/mobile/participantState.ts';
+import { createPilotTrustState } from '../../lib/pilot/closedPilotControls.ts';
 
 test('a proposed action is never previewed in time already gone', async () => {
   const storage = createMemoryStorage();
   const now = '2026-09-30T10:00:00.000Z';
-  await storage.set(userDoc('alice'), { trust: null });
+  await storage.set(userDoc('alice'), { trust: createPilotTrustState('alice', now) });
   const [exam] = await putObservations('alice', 'manual', 'exam', now,
     [{ kind: 'event', evidence: 'Exam tomorrow', confidence: 1 }], storage);
   const action: IntelligenceSuggestion = {
@@ -28,7 +29,7 @@ test('accepting the shown slot pins the task; a changed slot is refused', async 
   setStorageForTests(storage);
   try {
     const now = '2026-09-30T10:00:00.000Z';
-    await storage.set(userDoc('alice'), { trust: null });
+    await storage.set(userDoc('alice'), { trust: createPilotTrustState('alice', now) });
     const [exam] = await putObservations('alice', 'manual', 'exam', now,
       [{ kind: 'event', evidence: 'Exam tomorrow', confidence: 1 }], storage);
     const action: IntelligenceSuggestion = {

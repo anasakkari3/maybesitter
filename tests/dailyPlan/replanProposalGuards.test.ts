@@ -72,6 +72,7 @@ import type { PlanningStateChange } from '../../src/contracts/v1/watcherContract
 import type { Plan, PlannedItem, TimeInterval } from '../../src/contracts/v1/planningContracts.ts';
 import { GET as planGet } from '../../src/app/api/mobile/plans/[date]/route.ts';
 import { POST as actionsPost } from '../../src/app/api/mobile/plans/[date]/actions/route.ts';
+import { seedLiveAccount } from '../support/liveAccount.ts';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const TZ = 'Asia/Jerusalem';
@@ -123,6 +124,7 @@ async function withStorage(fn: (storage: StorageAdapter) => Promise<void>): Prom
 
 /** The morning's plan, built and stored through the real morning build. */
 async function seedAccount(storage: StorageAdapter, uid: string, extra: Record<string, unknown> = {}): Promise<StoredDailyPlan> {
+  await seedLiveAccount(uid, storage);
   await persistParticipantState(uid, seedState());
   const user = await storage.get<Record<string, unknown>>(userDoc(uid));
   await storage.set(userDoc(uid), { ...(user ?? {}), timezone: TZ, locale: 'en' });

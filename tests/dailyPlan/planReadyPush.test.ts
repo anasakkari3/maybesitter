@@ -36,6 +36,7 @@ import { persistParticipantState } from '../../lib/services/mobile/participantSt
 import { applyCommand, createEmptyDomainState, type DomainState } from '../../src/domain/stateMachine.ts';
 import type { UserLocale } from '../../lib/storage/userDocument.ts';
 import { routeFromNotification } from '../../mobile/src/notifications/routeFromNotification.ts';
+import { seedLiveAccount } from '../support/liveAccount.ts';
 
 const TZ = 'Asia/Jerusalem';
 /** 09:00 in Jerusalem, past a 07:30 delivery. */
@@ -60,6 +61,7 @@ function withCommitments(titles: readonly string[]): DomainState {
 }
 
 async function seed(storage: StorageAdapter, uid: string, locale: UserLocale, devices: number): Promise<void> {
+  await seedLiveAccount(uid, storage);
   await persistParticipantState(uid, withCommitments(TITLES));
   const user = await storage.get<Record<string, unknown>>(userDoc(uid));
   await storage.set(userDoc(uid), { ...(user ?? {}), timezone: TZ, locale });

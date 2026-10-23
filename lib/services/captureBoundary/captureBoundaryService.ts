@@ -2072,6 +2072,9 @@ export async function confirmCapture(
       return committed.replayed ? { ...committed.result, replayed: true } : committed.result;
     } catch (error) {
       if (error instanceof ProposalChangedError || (error instanceof Error && error.name === 'ProposalChangedError')) throw error;
+      // The account was deleted while this confirm was on its way (#772): not a
+      // storage failure, and the route answers it as a deleted account.
+      if (error instanceof Error && error.name === 'AccountUnavailableError') throw error;
       // The message goes to the operator log, where paths and uids are already
       // permitted; only the cause's name travels on the contract (#419).
       console.error('[capture/confirm] the confirmation transaction failed', error);

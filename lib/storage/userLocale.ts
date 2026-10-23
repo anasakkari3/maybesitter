@@ -7,14 +7,22 @@
  * request only, and the next night's run fell back to a device record (which a
  * user without push has none of) or English.
  *
- * A merge into an existing document, or a fresh `newUserDocument` when there
- * is none, in one transaction -- the shape `pilotTrustStore.ts` uses -- so it
- * never erases the trust record, consents or `domainVersion` beside it. The
- * field is part of `users/{uid}`, which account deletion removes as a whole
- * tree.
+ * A merge into the existing document, in one transaction, so it never erases
+ * the trust record, consents or `domainVersion` beside it. The field is part
+ * of `users/{uid}`, which account deletion removes as a whole tree.
+ *
+ * ── Never a new root (Q772-001) ─────────────────────────────────
+ * This used to create `users/{uid}` from `newUserDocument` when it was
+ * missing. Authentication creates the document with its trust record before
+ * any request reaches here, so a missing root means account deletion swept it
+ * while this request was in flight -- and the re-created root, `trust: null`,
+ * no `deletedAt`, undid the deletion. The transaction now reads the account's
+ * liveness first and refuses (`AccountUnavailableError`) a root that is gone,
+ * has no trust record, or is marked deleted; nothing is written.
  */
+import { assertLiveAccount } from '../account/accountLiveness';
 import { getStorage, userDoc, type StorageAdapter } from './index';
-import { newUserDocument, type UserDocument, type UserLocale } from './userDocument';
+import type { UserDocument, UserLocale } from './userDocument';
 
 export async function setUserLocale(
   uid: string,
@@ -25,8 +33,8 @@ export async function setUserLocale(
   const storage = deps.storage ?? getStorage();
   await storage.runTransaction(async (tx) => {
     const user = await tx.get<UserDocument>(userDoc(uid));
-    if (user?.locale === locale) return;
-    if (user) tx.merge<UserDocument>(userDoc(uid), { locale, updatedAt: at });
-    else tx.set<UserDocument>(userDoc(uid), { ...newUserDocument(at), locale });
+    assertLiveAccount(user);
+    if (user!.locale === locale) return;
+    tx.merge<UserDocument>(userDoc(uid), { locale, updatedAt: at });
   });
 }

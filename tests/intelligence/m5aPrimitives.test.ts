@@ -1,4 +1,5 @@
 import test from 'node:test';
+import { createPilotTrustState } from '../../lib/pilot/closedPilotControls.ts';
 import assert from 'node:assert/strict';
 import type { Commitment } from '../../src/domain/stateMachine';
 import { COMMITMENT_BASELINE_FIELD_CLASSIFICATION, commitmentBaselineFingerprint } from '../../lib/intelligence/autoAdds';
@@ -170,7 +171,7 @@ test('/added asks storage for the indexed page and batches the commitment join',
 
 test('legacy Gmail arbitration spends one semantic analysis and leaves one observation', async () => {
   const storage = createMemoryStorage();
-  await storage.set('users/alice', { trust: null });
+  await storage.set('users/alice', { trust: createPilotTrustState('alice', NOW) });
   let calls = 0;
   const runtime: GoogleRuntime = {
     storage, env: { MAYBESITTER_ENV: 'staging' } as GoogleRuntime['env'], secrets: null, fetchImpl: fetch,
@@ -260,7 +261,7 @@ test('B3 calendar maintenance keeps a fenced target on mismatch, then certifies 
     intervals: [{ start: '2026-10-19T11:00:00.000Z', end: '2026-10-19T12:00:00.000Z' }], digest: 'a'.repeat(64), nextEligibleAt: NOW };
   await storage.set(fencePath, { generation: 7, jitTarget: target });
   await storage.set('system/m5aControls', { email: { epoch: 3, enabled: false }, calendar: { epoch: 2, enabled: true } });
-  await storage.set(`users/${uid}`, { trust: { calendarConsent: true }, calendarEpoch: 0 });
+  await storage.set(`users/${uid}`, { trust: { ...createPilotTrustState(uid, NOW), calendarConsent: true }, calendarEpoch: 0 });
   await storage.set(userSubDoc(uid, PROVIDER_CONNECTIONS, connectionIdFor('google')), {
     identity: { provider: 'google', providerAccountId: 'google-account' }, state: 'connected', credentialRef: 'vault',
     capabilities: ['calendar_busy'], grantedScopes: [GOOGLE_FEATURE_SCOPES.calendar],
@@ -269,7 +270,7 @@ test('B3 calendar maintenance keeps a fenced target on mismatch, then certifies 
     fetchImpl: fetch, now: () => new Date(NOW) };
   assert.equal(await runCalendarMaintenanceStep(uid, runtime), false);
   assert.equal((await storage.get<any>(fencePath))?.jitTarget?.targetId, target.targetId);
-  await storage.set(`users/${uid}`, { trust: { calendarConsent: true }, calendarEpoch: 1 });
+  await storage.set(`users/${uid}`, { trust: { ...createPilotTrustState(uid, NOW), calendarConsent: true }, calendarEpoch: 1 });
   assert.equal(await runCalendarMaintenanceStep(uid, { ...runtime, now: () => new Date('2026-10-19T10:01:00.000Z') }), true);
   assert.equal((await storage.get<any>(fencePath))?.jitTarget, undefined);
   assert.equal((await storage.get<any>(userSubDoc(uid, CALENDAR_SOURCES, docIdForKey(GOOGLE_BUSY_SOURCE_ID))))?.m5Certificate?.providerAccountId, 'google-account');

@@ -23,6 +23,7 @@ import { upsertFixtures } from '../../../lib/football/fixtureStore.ts';
 import { setFollowedClubs } from '../../../lib/football/followedClubs.ts';
 import { projectFixturesForUser } from '../../../lib/football/projectFixtures.ts';
 import { getRef } from '../../../lib/football/externalTaskRefStore.ts';
+import { seedLiveAccount } from '../../support/liveAccount.ts';
 import { fixtureContentHash, FIXTURE_CONTRACT_VERSION, FIXTURE_SCHEMA_VERSION, type Fixture, type FixtureCore } from '../../../src/contracts/v1/fixtureContracts.ts';
 
 const ENV = ['MAYBESITTER_ENV', 'MAYBESITTER_FEATURE_EXTERNAL_CLASH_HOLD', 'MAYBESITTER_KILL_SWITCH_EXTERNAL_CLASH_HOLD'] as const;
@@ -53,6 +54,9 @@ async function withEmulator(run: (uid: string, kickoff: string) => Promise<void>
   const day = new Date(Date.now() + 3 * 24 * 3_600_000);
   const kickoff = new Date(Date.UTC(day.getUTCFullYear(), day.getUTCMonth(), day.getUTCDate(), 18, 0, 0)).toISOString();
   try {
+    // #772: the live root, with the trust record authentication writes; the
+    // follow, the projection and the commitment writes below all refuse without it.
+    await seedLiveAccount(uid, storage);
     await setFollowedClubs(uid, ['barcelona'], new Date().toISOString());
     await upsertFixtures([fixture(`${uid}-1`, kickoff)]);
     await run(uid, kickoff);

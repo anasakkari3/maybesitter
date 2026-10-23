@@ -1,4 +1,5 @@
 import { mobileAuthErrorResponse, requireMobileUser } from '../../../../../../lib/auth/mobileAuth';
+import { AccountUnavailableError, accountUnavailableResponse } from '../../../../../../lib/account/accountLiveness';
 import {
   collisionsForExistingCommitment,
   dropCommitment,
@@ -82,6 +83,7 @@ export async function PATCH(
       headers: { ETag: etagFor(updated) },
     });
   } catch (error) {
+    if (error instanceof AccountUnavailableError) return accountUnavailableResponse();
     if (error instanceof StaleCommitmentError) {
       const addedFrom = await addedFromByCommitment(user.uid, [error.current]);
       return staleCommitmentResponse(error.current, addedFrom.get(error.current.id));
@@ -120,6 +122,7 @@ export async function DELETE(
       status: commitment.status,
     }, { headers: { ETag: etagFor(commitment) } });
   } catch (error) {
+    if (error instanceof AccountUnavailableError) return accountUnavailableResponse();
     if (error instanceof StaleCommitmentError) {
       const addedFrom = await addedFromByCommitment(user.uid, [error.current]);
       return staleCommitmentResponse(error.current, addedFrom.get(error.current.id));

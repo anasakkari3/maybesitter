@@ -12,6 +12,7 @@ import assert from 'node:assert/strict';
 import { createMemoryStorage } from '../../lib/storage/memoryAdapter.ts';
 import { getStorage, resetStorageForTests, setStorageForTests } from '../../lib/storage/index.ts';
 import { installFakeAuth, tokenFor, uidFor, type FakeAuthControls } from '../support/fakeAuth.ts';
+import { seedLiveAccount } from '../support/liveAccount.ts';
 import { applyParticipantCommands } from '../../lib/services/mobile/participantState.ts';
 import { userDoc } from '../../lib/storage/paths.ts';
 import { activityStatsPath } from '../../lib/services/activity/activityStats.ts';
@@ -63,6 +64,7 @@ async function setProfile(uid: string, locale: 'ar' | 'en' | 'he'): Promise<void
  * different thing to test (see the ordering tests in eventLog.test.ts).
  */
 async function completeOne(uid: string, id: string, title: string, at: string, dueAt: string): Promise<void> {
+  await seedLiveAccount(uid); // #772: the user document a live account has before its first domain write
   const plus = (minutes: number) => new Date(Date.parse(at) + minutes * 60_000).toISOString();
   await applyParticipantCommands(uid, [
     {
