@@ -12,8 +12,8 @@ import React from 'react';
 import { StyleSheet, useWindowDimensions } from 'react-native';
 import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
 import { render, screen, waitFor, within } from '@testing-library/react-native';
-import { DayAgenda, DayTimeline, UntimedSection, timelineLaneWidth, timelineSpans, type PlanRow } from '../PlanDay';
-import { HOUR_HEIGHT, lanesFit, maxLanes, placeSpans } from '../dayTimeline';
+import { DayAgenda, DayTimeline, UntimedSection, timelineCardHeight, timelineLaneWidth, timelineSpans, type PlanRow } from '../PlanDay';
+import { HOUR_HEIGHT, lanesFit, maxLanes, minLaneWidth, placeSpans } from '../dayTimeline';
 import { LINE_HEIGHT } from '../../../theme/fonts';
 import { layoutModeFor } from '../../../theme/textScale';
 import { toViewModel, type CommitmentView } from '../../commitments/model';
@@ -279,10 +279,15 @@ describe('Q738-001 a block\'s duration is drawn apart from its label and its tar
  * Q788b-A (simulator pass 2026-10-23, screenshot 21): on Sunday the 25th,
  * «اتصال مع المحاسبة» at 10:00 wrapped to two lines in its shared lane and
  * drew 126 pt, but only 98 had been kept for it, so it covered the top of the
- * 12:00 «صلاة الظهر» block under it. The room kept for a shared-lane card is
- * now the most it can draw, with its title clamped to two lines.
+ * 12:00 «صلاة الظهر» block under it.
+ *
+ * Q788B-001/002/003: every text on a timeline card — title, due, overlap — is
+ * clamped, beside nothing as well as in a shared lane, and the room kept is
+ * the tallest the card can then draw: fixed chrome as it is, text line boxes
+ * at the reader's size. Safe (never under) and tight (never over, so the
+ * reserve cannot invent a lane).
  */
-describe('Q788b-A a shared-lane card never covers the next block in its lane', () => {
+describe('Q788b-A a timeline card never covers the next entry in its lane', () => {
   // A title that wraps in any lane the floor allows: «اتصال مع المحاسبة بخصوص الضرائب السنوية».
   const WRAPPING = ranged('accountant', 'اتصال مع المحاسبة بخصوص الضرائب السنوية', '10:00', null);
   const LONG_RANGE = ranged('conference', 'مؤتمر المبادرين بالجامعة', '09:00', '19:00', 'high');
@@ -290,20 +295,36 @@ describe('Q788b-A a shared-lane card never covers the next block in its lane', (
     kind: 'weekly', key: 'weekly-prayer', at: Date.parse(instant(TODAY, from)),
     occurrence: { occurrenceId: 'prayer-1', weeklyBlockId: 'prayer', title: 'صلاة الظهر', startAt: instant(TODAY, from), endAt: instant(TODAY, to) },
   });
+  const SCRIPT = { ar: 'arabic', en: 'latin', he: 'hebrew' } as const;
 
   /**
-   * The tallest the card can draw at `fontScale`, worked out apart from the
-   * code under test: the border, padding and gaps stay; RN scales each text's
-   * line box (15-pt title × 2 lines, 13-pt Latin time, the chip's word).
+   * The tallest the card can draw, worked out from the components' own
+   * metrics apart from the code under test: border 2, padding 8 (marker) or
+   * 12 (ranged) each side, the 28/40-pt icon at the normal layout beside
+   * nothing, the gaps (2 under the title, 6 before the chip or overlap) and
+   * the chip's and overlap box's padding stay as they are; RN scales every
+   * text's line box (`Txt`: round(size × ratio)). Title, due and overlap at
+   * two lines each.
    */
-  function tallestCard(fontScale: number): number {
+  function tallestCard({ ranged: isRanged = false, narrow = false, due = false, conflict = false, fontScale = 1, script = 'arabic' as keyof typeof LINE_HEIGHT }) {
     const compact = layoutModeFor(fontScale) !== 'normal';
     const line = (size: number, ratio: number) => Math.round(size * ratio) * fontScale;
-    const title = 2 * line(15, LINE_HEIGHT.arabic);
-    const time = line(13, LINE_HEIGHT.latin);
-    const chip = (compact ? 4 : 8) + line(compact ? 11 : 13, LINE_HEIGHT.arabic);
-    return 2 + 16 + title + 2 + time + 6 + chip;
+    const column = 2 * line(15, LINE_HEIGHT[script]) + 2 + line(13, LINE_HEIGHT.latin) + (due ? 2 * line(13, LINE_HEIGHT[script]) : 0);
+    const chip = compact ? 4 + line(11, LINE_HEIGHT[script]) : 8 + line(13, LINE_HEIGHT[script]);
+    const icon = compact || narrow ? 0 : isRanged ? 40 : 28;
+    const row = narrow ? column + 6 + chip : Math.max(icon, column, chip);
+    const overlap = conflict ? 6 + 8 + 2 * line(13, LINE_HEIGHT[script]) : 0;
+    return Math.ceil(2 + (isRanged ? 24 : 16) + row + overlap);
   }
+
+  /** `HH:MM`, `minutes` after `from`. */
+  function clockAfter(from: string, minutes: number): string {
+    const [h, m] = from.split(':').map(Number) as [number, number];
+    const total = h * 60 + m + minutes;
+    return `${String(Math.floor(total / 60)).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}`;
+  }
+  /** The first whole minute at or after `points` of timeline. */
+  const minutesFor = (points: number) => Math.ceil((points * 60) / HOUR_HEIGHT);
 
   function frameOf(testID: string) {
     const style = flatStyle(screen.getByTestId(testID));
@@ -313,23 +334,18 @@ describe('Q788b-A a shared-lane card never covers the next block in its lane', (
   it.each<[string, number, number, string]>([
     ['default size on a phone', 1, 390, '12:30'],
     ['AX5 on a wide window', 3.12, 900, '17:30'],
-  ])('%s: the two-line title above a short block in its lane keeps its whole height', async (_label, fontScale, width, blockAt) => {
+  ])('%s: the two-line title above a short block in its shared lane keeps exactly its tallest height', async (_label, fontScale, width, blockAt) => {
     atScale(fontScale, width);
-    const [h, m] = blockAt.split(':').map(Number) as [number, number];
-    const blockEnd = `${String(h).padStart(2, '0')}:${String(m + 20).padStart(2, '0')}`;
-    await showTimeline([commitmentRow(LONG_RANGE), commitmentRow(WRAPPING), weeklyAt(blockAt, blockEnd)]);
+    await showTimeline([commitmentRow(LONG_RANGE), commitmentRow(WRAPPING), weeklyAt(blockAt, clockAfter(blockAt, 20))]);
     expect(screen.queryByTestId('calendar-timeline')).not.toBeNull();
-
     const card = frameOf('m6-timeline-block-c-accountant');
     const block = frameOf('m6-timeline-block-weekly-prayer');
     // The scenario: the card and the short block share a lane, beside the long range.
     expect(card.start).toBe(block.start);
     expect(card.width).toBe('50%');
-    expect(card.top).toBeLessThan(block.top);
-    // The title stops at two lines, so the card can never draw past what was kept…
     expect(screen.getByTestId('m6-calendar-title-accountant').props.numberOfLines).toBe(2);
-    // …and what was kept holds the tallest card, so it ends before the block starts.
-    expect(card.height).toBeGreaterThanOrEqual(tallestCard(fontScale));
+    // Safe and tight: exactly the tallest card, and it ends before the block.
+    expect(card.height).toBe(tallestCard({ narrow: true, fontScale }));
     expect(card.top + card.height).toBeLessThanOrEqual(block.top);
   });
 
@@ -338,6 +354,90 @@ describe('Q788b-A a shared-lane card never covers the next block in its lane', (
     expect(screen.queryByTestId('calendar-timeline')).toBeNull();
     const list = screen.getByTestId('calendar-agenda-list');
     for (const id of ['calendar-item-conference', 'calendar-item-accountant', 'calendar-weekly-prayer']) expect(within(list).queryByTestId(id)).not.toBeNull();
+  });
+
+  it('Q788B-001 beside nothing: a two-line title is clamped and reserved, and the next entry at the lane boundary is not covered', async () => {
+    const tallest = tallestCard({});
+    expect(tallest).toBe(90); // 2 + 16 + 2 × 26 + 2 + 18: the 70 kept before was 20 short.
+    const next = clockAfter('10:00', minutesFor(tallest));
+    await showTimeline([commitmentRow(WRAPPING), weeklyAt(next, clockAfter(next, 20))]);
+    const card = frameOf('m6-timeline-block-c-accountant');
+    const block = frameOf('m6-timeline-block-weekly-prayer');
+    expect(card.width).toBe('100%');
+    expect(block.width).toBe('100%');
+    expect(screen.getByTestId('m6-calendar-title-accountant').props.numberOfLines).toBe(2);
+    expect(String(screen.getByTestId('calendar-item-accountant').props.accessibilityLabel)).toContain('اتصال مع المحاسبة بخصوص الضرائب السنوية');
+    expect(card.height).toBe(tallest);
+    expect(card.top + card.height).toBeLessThanOrEqual(block.top);
+  });
+
+  it('Q788B-001 at text size 0.8, a short ranged card keeps its fixed icon and padding: never under-reserved', async () => {
+    atScale(0.8);
+    await showTimeline([commitmentRow(ranged('short', 'x', '10:00', '10:15'))]);
+    const card = frameOf('m6-timeline-block-c-short');
+    // 2 + 24 + the 40-pt icon at least: the text shrinks, the chrome does not.
+    expect(card.height).toBeGreaterThanOrEqual(66);
+    expect(card.height).toBe(tallestCard({ ranged: true, fontScale: 0.8 }));
+  });
+
+  it('Q788B-001 pure: where the text is shorter than the icon tile, the tile sets the row (fixed 2 + 24 + 40)', () => {
+    for (const script of ['latin', 'arabic', 'hebrew'] as const) {
+      const height = timelineCardHeight({ ranged: true, narrow: false, due: false, conflict: false, scale: 0.5, script });
+      expect(height).toBe(tallestCard({ ranged: true, fontScale: 0.5, script }));
+      expect(height).toBeGreaterThanOrEqual(66);
+    }
+    expect(timelineCardHeight({ ranged: false, narrow: false, due: false, conflict: false, scale: 0.3, script: 'latin' })).toBe(2 + 16 + 28);
+  });
+
+  // A due and an all-day overlap that wrap in a 138-pt lane, clamped at two lines each.
+  const DUES = {
+    ar: 'موعدها بكرا · 15:00، قبل اجتماع الفريق الأسبوعي مع المدير الجديد',
+    en: 'Due tomorrow · 15:00, before the weekly team meeting with the new manager',
+    he: 'מועד היעד מחר · 15:00, לפני פגישת הצוות השבועית עם המנהל החדש',
+  } as const;
+  it.each<['ar' | 'en' | 'he']>([['ar'], ['en'], ['he']])('Q788B-002 (%s) at the minimum lane width, a wrapping due and a three-line overlap are clamped and reserved exactly', async (lang) => {
+    // Two lanes of exactly the floor: 2 × minLaneWidth(1) = 276 pt of lanes.
+    const width = 276 + 390 - timelineLaneWidth(390);
+    expect(timelineLaneWidth(width) / 2).toBe(minLaneWidth(1));
+    atScale(1, width);
+    harness = await prepareM6(lang);
+    const busy = { nativeId: 'all-day', startAt: instant(TODAY, '00:00'), endAt: instant(TODAY, '23:59'), allDay: true };
+    const row = { ...commitmentRow(WRAPPING), due: DUES[lang], conflict: busy };
+    await render(<Providers harness={harness}><DayTimeline rows={[commitmentRow(LONG_RANGE), row]} day={TODAY} nowIso={null} /></Providers>);
+    expect(screen.queryByTestId('calendar-timeline')).not.toBeNull();
+    const card = frameOf('m6-timeline-block-c-accountant');
+    expect(card.width).toBe('50%');
+    expect(screen.getByTestId('calendar-due-accountant').props.numberOfLines).toBe(2);
+    expect(screen.getByTestId('calendar-conflict-text-accountant').props.numberOfLines).toBe(2);
+    // The clamped words are still all said.
+    const label = String(screen.getByTestId('calendar-item-accountant').props.accessibilityLabel);
+    expect(label).toContain(DUES[lang]);
+    expect(label).toContain(String(screen.getByTestId('calendar-conflict-text-accountant').props.children));
+    expect(card.height).toBe(tallestCard({ narrow: true, due: true, conflict: true, script: SCRIPT[lang] }));
+  });
+
+  it('Q788B-002 the ordered list still never clamps the due or the overlap', async () => {
+    harness = await prepareM6('ar');
+    const busy = { nativeId: 'all-day', startAt: instant(TODAY, '00:00'), endAt: instant(TODAY, '23:59'), allDay: true };
+    await render(<Providers harness={harness}><DayAgenda rows={[{ ...commitmentRow(WRAPPING), due: DUES.ar, conflict: busy }]} day={TODAY} /></Providers>);
+    expect(screen.getByTestId('calendar-due-accountant').props.numberOfLines ?? 0).toBe(0);
+    expect(screen.getByTestId('calendar-conflict-text-accountant').props.numberOfLines ?? 0).toBe(0);
+  });
+
+  it('Q788B-003 tight at large text: the compact chip and unscaled chrome keep a block in the card\'s lane, so no third lane and no list', async () => {
+    atScale(1.35, 500);
+    const tallest = tallestCard({ narrow: true, fontScale: 1.35 });
+    // Scaling the whole 126-pt card instead would keep 170 and push the block into a third lane.
+    expect(tallest).toBeLessThan(126 * 1.35);
+    const next = clockAfter('10:00', minutesFor(tallest));
+    await showTimeline([commitmentRow(LONG_RANGE), commitmentRow(WRAPPING), weeklyAt(next, clockAfter(next, 20))]);
+    expect(screen.queryByTestId('calendar-timeline')).not.toBeNull();
+    const card = frameOf('m6-timeline-block-c-accountant');
+    const block = frameOf('m6-timeline-block-weekly-prayer');
+    expect(card.width).toBe('50%');
+    expect(block.start).toBe(card.start);
+    expect(card.height).toBe(tallest);
+    expect(card.top + card.height).toBeLessThanOrEqual(block.top);
   });
 });
 
