@@ -3,7 +3,7 @@ import { getStorage, INTELLIGENCE_OBSERVATIONS, requireUserId, userCol, userDoc,
 import { createStorageRuntimeMemoryStore, personalizationWriteGuard } from '../runtimeMemory/runtimeMemoryStore';
 import type { SemanticObservation } from './semantic';
 import { resolveMemoryLearning } from '../release/m5bCapabilities';
-import { requireLiveAccount } from './memoryBasis';
+import { liveAccount, requireLiveAccount } from './memoryBasis';
 import { runtimeMemoryRecordPath, runtimeMemoryRecordRetrievable } from '../runtimeMemory/runtimeMemoryStore';
 import { personalizationPurgeMatches } from '../personalization/purgeFence';
 
@@ -123,7 +123,8 @@ export async function putReaddMarkerInTransaction(
       tx.get<StoredObservation>(observationPath(uid, matchedOutcomeId)),
       tx.get<StoredObservation>(observationPath(uid, id)),
     ]);
-    if (!personalizationPurgeMatches(account, personalizationEpoch)) return null;
+    // A new writer re-reads the account deletion fence too (M5B2B2-CR-001).
+    if (!liveAccount(account) || !personalizationPurgeMatches(account, personalizationEpoch)) return null;
     if (!matched || matched.review !== 'confirmed' || matched.source !== 'behavior'
       || matched.kind !== 'outcome' || matched.sourceRef.startsWith('readd:')) return null;
     if (existing) return existing;
