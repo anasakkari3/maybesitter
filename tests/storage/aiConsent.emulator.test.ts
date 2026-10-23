@@ -7,6 +7,7 @@
  * made here, through independent Firestore handles — which is what "another
  * instance" means from this side of the seam.
  */
+import { seedLiveAccount } from '../support/liveAccount.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createFirestoreStorage, resetFirestoreForTests } from '../../lib/storage/firestoreAdapter.ts';
@@ -50,6 +51,7 @@ test('firestore: AI is always on — never asked reads granted elsewhere, a gran
   const writer = createFirestoreStorage();
   const reader = createFirestoreStorage();
   try {
+    await seedLiveAccount(uid, writer); // consent answers write behind the deletion fence (#772)
     // Never asked.
     assert.equal(await getAiConsent(uid, { storage: reader }), 'granted');
 
@@ -73,6 +75,7 @@ test('firestore: the gate keeps serving after a decline was refused elsewhere', 
   const writer = createFirestoreStorage();
   const serving = createFirestoreStorage();
   try {
+    await seedLiveAccount(uid, writer); // consent answers write behind the deletion fence (#772)
     const inner = spyProvider();
     const gated = consentGatedProvider(uid, { provider: inner, storage: serving });
     const body = { system: '', user: 'x', responseSchema: {}, purpose: 'capture_extraction' as const, uid };
