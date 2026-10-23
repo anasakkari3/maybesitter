@@ -457,7 +457,18 @@ export async function completeGoogleConnect(
  * connection in `error`: deleting our only copy of a token Google still
  * honours would leave a live grant nobody can see or withdraw.
  */
-export async function disconnectGoogle(uid: string, runtime: GoogleRuntime): Promise<{ readonly disconnected: boolean }> {
+export async function disconnectGoogle(
+  uid: string,
+  runtime: GoogleRuntime,
+  options: {
+    /**
+     * Only from account deletion's revocation hook, after `markDeleted` (#772,
+     * Q772C-004): the record is marked `revoked` through the deletion-only
+     * method, since every other connection write now refuses a deleted account.
+     */
+    readonly accountDeletion?: boolean;
+  } = {},
+): Promise<{ readonly disconnected: boolean }> {
   const config = await requireConfig(runtime);
   const { connections, vault } = stores(uid, runtime);
   try {
@@ -465,6 +476,7 @@ export async function disconnectGoogle(uid: string, runtime: GoogleRuntime): Pro
       scopeId: uid,
       connectionId: connectionIdFor(GOOGLE_PROVIDER),
       now: runtime.now().toISOString(),
+      ...(options.accountDeletion ? { accountDeletion: true } : {}),
     });
     // Identity-bound Gmail work cannot survive an account change. This runs
     // after provider revocation landed and before any later connection can be
@@ -511,6 +523,9 @@ export async function disconnectGoogle(uid: string, runtime: GoogleRuntime): Pro
     });
     return { disconnected: record !== null };
   } catch (error) {
+    // A connection write the account deletion fence refused (#772): answered
+    // as a deleted account, not as Google being unavailable.
+    if (error instanceof AccountUnavailableError) throw error;
     throw asConnectError(error);
   }
 }

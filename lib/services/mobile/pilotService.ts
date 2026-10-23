@@ -14,7 +14,7 @@ import {
   type PilotTrustIncident,
   type PilotTrustState,
 } from '../../pilot/closedPilotControls';
-import { resolveUserAccess } from '../../pilot/pilotAccess';
+import { exposureFor, resolveUserAccess } from '../../pilot/pilotAccess';
 import {
   isSilentRefusal,
   resolveNextStepAccess,
@@ -599,7 +599,6 @@ export async function updateMobilePilotTrust(participantId: string, input: Mobil
   const access = await resolveUserAccess(participantId, at, false);
   if (!access.trust) throw new MobilePilotError('participant is not admitted to this pilot instance', 403, access.decision.reason);
   const action = trustAction(input.action, at);
-  const trust = await applyTrustAction(participantId, action, { stampAtApply: true });
   // No `data_deleted` branch: `delete` is refused when the action is parsed
   // (#149), so it cannot reach here. Account deletion writes its own audit.
   const eventType = action.type === 'set_quiet_mode'
@@ -607,15 +606,25 @@ export async function updateMobilePilotTrust(participantId: string, input: Mobil
     : action.type === 'revoke'
       ? 'revoked'
       : 'consent_changed';
-  await appendAudit(createPilotAuditEvent({
-    version: 'v1',
-    eventType,
-    participantId,
-    occurredAt: at,
-    outcome: 'recorded',
-    reasonCode: action.type,
-  }));
-  const exposure = (await resolveUserAccess(participantId, at, false)).decision;
+  // The change and its audit line in one transaction that requires a live
+  // account (#772, Q772C-002): an append after the commit could re-create the
+  // audit collection under an account deleted in between, and still answer
+  // success.
+  const trust = await applyTrustAction(participantId, action, {
+    stampAtApply: true,
+    audit: createPilotAuditEvent({
+      version: 'v1',
+      eventType,
+      participantId,
+      occurredAt: at,
+      outcome: 'recorded',
+      reasonCode: action.type,
+    }),
+  });
+  // From the record just written, not through `resolveUserAccess`: its
+  // `getOrCreateTrust` would re-create `users/{uid}` had the account been
+  // swept since the change committed (#772, Q772C-002).
+  const exposure = exposureFor(trust);
   return {
     success: true,
     participantId,

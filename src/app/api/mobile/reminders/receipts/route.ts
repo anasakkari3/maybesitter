@@ -1,3 +1,4 @@
+import { AccountUnavailableError, accountUnavailableResponse } from '../../../../../../lib/account/accountLiveness';
 import { mobileAuthErrorResponse, requireMobileUser } from '../../../../../../lib/auth/mobileAuth';
 import { mobileError } from '../../../../../../lib/services/mobile/response';
 import {
@@ -44,6 +45,8 @@ export async function POST(request: Request) {
     const result = await recordHardReceipts(user.uid, upload, new Date());
     return Response.json({ success: true, ...result });
   } catch (error) {
+    // The index reconcile the upload may run refuses a deleted account (#772).
+    if (error instanceof AccountUnavailableError) return accountUnavailableResponse();
     if (error instanceof HardReceiptValidationError) {
       return Response.json({ success: false, error: error.message, reason: error.reason }, { status: 400 });
     }

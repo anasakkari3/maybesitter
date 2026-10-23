@@ -51,6 +51,7 @@ import {
   type StorageTransaction,
 } from '../../storage';
 import { hardSettingsOfUser, ringsForMust, type HardReminderSettings } from '../mobile/reminderSettingsService';
+import { assertLiveAccount } from '../../account/accountLiveness';
 
 /** Ten minutes before the start, as #197 rings locally. */
 export const HARD_LEAD_MS = 10 * 60_000;
@@ -227,7 +228,8 @@ export interface ReconcileResult {
  *
  * A row already at the right instant is kept exactly as it is — status and
  * receipt included — so running this is always safe, which is what lets it run
- * on every receipt upload.
+ * on every receipt upload. Refused (`AccountUnavailableError`) unless the
+ * account is live, in this same transaction (#772).
  */
 export async function reconcileHardReminderIndex(
   uid: string,
@@ -242,6 +244,11 @@ export async function reconcileHardReminderIndex(
       tx.list<Commitment>(userCol(uid, COMMITMENTS)),
       tx.list<HardReminderEntry>(userCol(uid, HARD_REMINDERS)),
     ]);
+    // The account deletion fence (#772, Q772C-005), before any write: a
+    // settings save or a receipt upload whose own write committed before the
+    // deletion reaches this afterwards, and a row it indexed under a deleted
+    // account could be claimed and pushed by the job before the sweep.
+    assertLiveAccount(user);
     const settings = hardSettingsOfUser(user);
     const wanted = new Map<string, { commitment: Commitment; fireAt: string }>();
     for (const { data } of commitments) {

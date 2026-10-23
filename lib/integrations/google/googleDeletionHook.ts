@@ -35,7 +35,9 @@ export async function revokeGoogleForDeletedAccount(uid: string): Promise<void> 
     return;
   }
   if (status.status === 'not_connected') return;
-  await disconnectGoogle(uid, runtime);
+  // The deletion-only path (#772, Q772C-004): the account is marked deleted by
+  // now, so the record can only be moved to `revoked`, never to anything else.
+  await disconnectGoogle(uid, runtime, { accountDeletion: true });
 }
 
 registerDeletionHook(GOOGLE_DELETION_HOOK, revokeGoogleForDeletedAccount);

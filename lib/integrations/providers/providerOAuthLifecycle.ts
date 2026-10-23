@@ -246,6 +246,27 @@ export interface DisconnectProviderOAuthInput {
   readonly scopeId: string;
   readonly connectionId: string;
   readonly now: string;
+  /**
+   * Set only by account deletion's revocation hook (#772, Q772C-004), which
+   * runs after `markDeleted`. The record is then marked through
+   * `markRevokedForAccountDeletion` — the one connection write a marked-deleted
+   * account accepts, and only to `revoked` — and a revocation the provider
+   * refuses is not recorded as `error`: the deletion receipt records it.
+   */
+  readonly accountDeletion?: boolean;
+}
+
+/** A connection store that can mark a record revoked for a marked-deleted account. */
+export interface AccountDeletionConnectionMarker {
+  markRevokedForAccountDeletion(connectionId: string, now: string): Promise<IntegrationConnectionRecord | null>;
+}
+
+function deletionMarker(connections: IntegrationConnectionStore): AccountDeletionConnectionMarker {
+  const marker = connections as Partial<AccountDeletionConnectionMarker>;
+  if (typeof marker.markRevokedForAccountDeletion !== 'function') {
+    throw new Error('this connection store cannot mark a record revoked for account deletion');
+  }
+  return marker as AccountDeletionConnectionMarker;
 }
 
 export async function disconnectProviderOAuth(
@@ -259,18 +280,21 @@ export async function disconnectProviderOAuth(
   if (connection.scopeId !== input.scopeId) throw new ProviderOAuthError('state_scope_mismatch');
   if (connection.identity.provider !== client.provider) throw new ProviderOAuthError('provider_mismatch');
 
+  const marker = input.accountDeletion ? deletionMarker(connections) : null;
   const credentialRef = connection.credentialRef ?? null;
   const tokenSet = credentialRef ? await vault.loadOAuthTokenSet(credentialRef) : null;
   if (tokenSet) {
     try {
       await client.revoke(tokenSet);
     } catch {
-      await connections.markState(connection.connectionId, 'error', input.now, 'oauth_revoke_failed');
+      if (!marker) await connections.markState(connection.connectionId, 'error', input.now, 'oauth_revoke_failed');
       throw new ProviderOAuthError('revocation_failed');
     }
   }
   if (credentialRef) await vault.delete(credentialRef);
-  return connections.markState(connection.connectionId, 'revoked', input.now);
+  return marker
+    ? marker.markRevokedForAccountDeletion(connection.connectionId, input.now)
+    : connections.markState(connection.connectionId, 'revoked', input.now);
 }
 
 function validateTokenSet(tokenSet: ProviderOAuthTokenSet): void {

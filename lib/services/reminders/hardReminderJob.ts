@@ -50,6 +50,7 @@ import { getStorage, HARD_REMINDERS, userDoc, type StorageAdapter } from '../../
 import { commitmentDocPath } from '../mobile/participantState';
 import { mustRingIdentifier } from './mustRingIdentifier';
 import { hardSettingsOfUser, ringsForMust, type HardReminderSettings } from '../mobile/reminderSettingsService';
+import { liveAccount } from '../../account/accountLiveness';
 import {
   HARD_LOOKBACK_MS,
   hardFireAtFor,
@@ -250,6 +251,12 @@ async function processRow(
       tx.get<Commitment>(commitmentDocPath(uid, entry.commitmentId)),
       entry.localReceipt ? tx.get<DeviceRecord>(devicePath(uid, entry.localReceipt.installationId)) : null,
     ]);
+    // The account deletion fence (#772, Q772C-005), before the claim: a row
+    // under a deleted account is neither claimed nor sent, and nothing is
+    // written to it — the sweep takes it. The no-op outcome rather than a
+    // throw: this is one account among many in a background sweep, and a
+    // deleted account is not a failure of the job.
+    if (!liveAccount(user)) return { decision: { kind: 'skip' } as HardDecision };
     const settings = hardSettingsOfUser(user);
     const decision = decideHardReminder({
       entry,

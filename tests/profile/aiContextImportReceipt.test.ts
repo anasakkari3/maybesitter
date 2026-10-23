@@ -19,7 +19,8 @@
 import test, { beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { createMemoryStorage, resetStorageForTests, setStorageForTests } from '../../lib/storage/index.ts';
-import { createInMemoryRuntimeMemoryStore } from '../../lib/runtimeMemory/runtimeMemoryStore.ts';
+import { createStorageRuntimeMemoryStore } from '../../lib/runtimeMemory/runtimeMemoryStore.ts';
+import { seedLiveAccount } from '../support/liveAccount.ts';
 import type { RuntimeMemoryStore } from '../../src/contracts/v1/memoryContracts.ts';
 import { confirmAiContextImport, importAiContext, readAiContextImportReceipt } from '../../lib/services/mobile/aiContextImportService.ts';
 import { deleteAllMemory } from '../../lib/services/mobile/memoryService.ts';
@@ -29,10 +30,14 @@ const AT = new Date('2026-09-23T09:00:00.000Z');
 
 let memory: RuntimeMemoryStore;
 
-beforeEach(() => {
+beforeEach(async () => {
   resetStorageForTests();
   setStorageForTests(createMemoryStorage());
-  memory = createInMemoryRuntimeMemoryStore();
+  // On the same storage as the account, as in production: every guarded memory
+  // write re-reads `users/{uid}` in its own transaction for the account
+  // deletion fence (#772), so the store and the account cannot live apart.
+  memory = createStorageRuntimeMemoryStore();
+  await seedLiveAccount(UID);
 });
 
 async function importAndKeep(): Promise<void> {

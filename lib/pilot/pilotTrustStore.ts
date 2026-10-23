@@ -42,6 +42,8 @@ import {
   userDoc,
 } from '../storage';
 import { newUserDocument, type UserDocument } from '../storage/userDocument';
+import type { StorageAdapter, StorageTransaction } from '../storage/storageAdapter';
+import { assertLiveAccount } from '../account/accountLiveness';
 
 type TrustUser = UserDocument<PilotTrustState>;
 
@@ -104,11 +106,20 @@ export async function applyTrustAction(
      */
     readonly stampAtApply?: boolean;
     readonly now?: () => Date;
+    /**
+     * The audit line for this change, written in the same transaction (#772,
+     * Q772C-002). With it the account must be live: the change and its line
+     * commit together under a live account, or neither does and the call
+     * throws `AccountUnavailableError` — no re-created root, no audit row
+     * appended after the deletion swept the tree.
+     */
+    readonly audit?: PilotAuditEvent;
   } = {},
 ): Promise<PilotTrustState> {
   requirePilotParticipantId(participantId);
   return getStorage().runTransaction(async (tx) => {
     const user = await tx.get<TrustUser>(userDoc(participantId));
+    if (options.audit) assertLiveAccount(user);
     const appliedAt = (options.now ?? (() => new Date()))().toISOString();
     const action: PilotTrustAction = options.stampAtApply && Date.parse(appliedAt) > Date.parse(requested.at)
       ? { ...requested, at: appliedAt }
@@ -129,7 +140,40 @@ export async function applyTrustAction(
       trust: updated,
       ...(calendarChanged ? { calendarEpoch } : {}),
     });
+    if (options.audit) appendAuditInTransaction(tx, options.audit);
     return updated;
+  });
+}
+
+/**
+ * The audit line, written by a transaction that already holds the account
+ * deletion fence (#772, Q772C-002): the caller has read `users/{uid}` in `tx`
+ * and found it live, so the line commits with the change it records or not at
+ * all.
+ */
+export function appendAuditInTransaction(tx: StorageTransaction, event: PilotAuditEvent): PilotAuditEvent {
+  const validated = createPilotAuditEvent(event);
+  requireUserId(validated.participantId);
+  tx.set(`${userCol(validated.participantId, AUDIT_EVENTS)}/${auditDocId(validated)}`, validated);
+  return { ...validated };
+}
+
+/**
+ * `appendAudit`, refused (`AccountUnavailableError`) unless the account is live
+ * in the same transaction (#772, Q772C-002). For an audit line that follows a
+ * change committed in an earlier transaction: a plain `set` landing after the
+ * deletion sweep would re-create `users/{uid}/auditEvents` under an account
+ * the person deleted.
+ */
+export async function appendAuditWhileLive(
+  event: PilotAuditEvent,
+  storage: StorageAdapter = getStorage(),
+): Promise<PilotAuditEvent> {
+  const validated = createPilotAuditEvent(event);
+  requireUserId(validated.participantId);
+  return storage.runTransaction(async (tx) => {
+    assertLiveAccount(await tx.get(userDoc(validated.participantId)));
+    return appendAuditInTransaction(tx, validated);
   });
 }
 

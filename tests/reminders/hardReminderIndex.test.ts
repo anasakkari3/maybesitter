@@ -280,6 +280,7 @@ test('one account s commitments never reach another account s index', async () =
     await store(commitment());
     const other = 'hardIndexOther';
     await getStorage().set(userDoc(other), { reminderSettings: { softEnabled: true, softLeadMinutes: 60, hardEnabled: true, escalationCeiling: 'hard', mustThroughQuietHours: false, updatedAt: NOW.toISOString() } });
+    await seedLiveAccount(other); // the reconcile re-reads the deletion fence (#772)
     await reconcileHardReminderIndex(other, NOW);
     assert.equal((await getStorage().list(userCol(other, HARD_REMINDERS))).length, 0);
     assert.equal(await rowCount(), 1);
