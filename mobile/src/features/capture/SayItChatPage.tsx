@@ -1,10 +1,10 @@
 import React from 'react';
 import {
   AccessibilityInfo, ActivityIndicator, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View,
-  type TextStyle,
+  type TextStyle, type ViewStyle,
 } from 'react-native';
 import Svg, { Circle, Path, Rect } from 'react-native-svg';
-import { RemeasureOnTextScale, RemeasuredText, textAlignment } from '../../ui/primitives';
+import { RemeasureOnTextScale, RemeasuredText, SaidWords, textAlignment } from '../../ui/primitives';
 import { Rings } from '../../ui/motion';
 import { focusForAccessibility } from '../../ui/accessibilityFocus';
 import { LiveRegion } from '../../ui/liveRegion';
@@ -191,6 +191,9 @@ export interface SayItChatPageProps {
 
 /** The avatar column: a 32-point dot plus the gap to the bubble. */
 const AVATAR_COLUMN = 42;
+/** The save's check before its words: the icon, then the gap to the words. */
+const SAVED_ICON = 22;
+const SAVED_ICON_GAP = 10;
 
 export function SayItChatPage({
   colors: p, fonts, copy, text, onChangeText, onSend, canSend, inputDisabled = false, composerDisabled = false, toolsDisabled = false, onClose, onMore, onPaste,
@@ -296,6 +299,17 @@ export function SayItChatPage({
     ...textStyle(12, 'regular', true), fontFamily: fonts.latin ?? fonts.regular,
     lineHeight: 16, writingDirection: 'ltr',
   };
+  /**
+   * A message's time. Measured afresh after a live text-size change: back at
+   * the default size after AX5 the outgoing «01:31» kept its AX5 width and
+   * pushed ✓✓ onto a line of its own (simulator 2026-10-24). The view says
+   * the time and stays; only the drawn paragraph is replaced (SaidWords).
+   */
+  const stamp = (time: string, testID: string, style?: ViewStyle) => (
+    <SaidWords label={time} testID={testID} style={style}>
+      <RemeasuredText accessible={false} testID={`${testID}-text`} style={timestampStyle}>{time}</RemeasuredText>
+    </SaidWords>
+  );
   const header = (
     <View testID="chat-header" style={[styles.header, { paddingTop: safeTop + 6, borderBottomColor: p.ln, backgroundColor: p.bg }]}>
       <View style={styles.headerRow}>
@@ -343,12 +357,23 @@ export function SayItChatPage({
    * words are always inside an accessible element that stays — the newest
    * reply's `-words` view, a whole message without controls, or (`ownElement`)
    * the words' own view in a message whose bubble is a container.
+   *
+   * A save's check sits in the start padding of its line (`savedLine`), out
+   * of flow, and the words fill the rest — never a row beside them. In a row,
+   * the words would only fit by shrinking, and Yoga skips that shrink when it
+   * measures the row at an exact height (`canSkipFlex`, which the bubble's
+   * own measuring does): the row came back at icon + gap + one unbroken line
+   * and pushed the bubble past the column and off the screen's start edge at
+   * the default size (simulator 2026-10-24, screens 32 and 34).
    */
   const replyWords = (value: Said, testID: string, ownElement = false) => {
     const saved = value.tone === 'saved';
     return <>
-      {saved ? <ChatIcon name="checkCircle" size={22} color={p.success} /> : null}
-      <View style={saved ? styles.savedWords : styles.words}
+      {saved ? <View testID={`${testID}-check`} style={styles.savedIcon}
+        accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
+        <ChatIcon name="checkCircle" size={SAVED_ICON} color={p.success} />
+      </View> : null}
+      <View style={styles.words}
         {...(ownElement ? { accessible: true, accessibilityRole: 'text' as const, accessibilityLabel: visibleWords(value), testID: `${testID}-said` } : {})}>
         <RemeasureOnTextScale>
           {value.text ? value.text.split(/\n\n+/).map((paragraph, index) => (
@@ -390,13 +415,13 @@ export function SayItChatPage({
         {avatar}
         <View style={[styles.assistantColumn, expanded && styles.expandedColumn]}>
           <View style={bubbleStyle(value)}>
-            <View style={value.tone === 'saved' ? styles.savedRow : null}>{replyWords(value, testID, value.actions != null || value.body != null)}</View>
+            <View testID={`${testID}-line`} style={value.tone === 'saved' ? styles.savedLine : null}>{replyWords(value, testID, value.actions != null || value.body != null)}</View>
             {replyExtras(value, testID)}
           </View>
           {replyTail(value, testID, false, value.actions != null || value.body != null)}
         </View>
       </View>
-      {value.time ? <Text style={[timestampStyle, styles.incomingTime]}>{value.time}</Text> : null}
+      {value.time ? stamp(value.time, `${testID}-time`, styles.incomingTime) : null}
     </View>
   );
 
@@ -430,13 +455,13 @@ export function SayItChatPage({
               {typing ? <View key="typing" testID="chat-typing" accessible accessibilityLabel={typingLabel}>{typing}</View> : null}
             </LiveRegion>
             {reply ? <View testID={`${replyID}-words`} accessible accessibilityRole="text" accessibilityLabel={spoken(reply)}
-              style={reply.tone === 'saved' ? styles.savedRow : null}>{replyWords(reply, replyID)}</View> : null}
+              style={reply.tone === 'saved' ? styles.savedLine : null}>{replyWords(reply, replyID)}</View> : null}
             {reply ? replyExtras(reply, replyID) : null}
           </View>
           {reply ? replyTail(reply, replyID, true) : null}
         </View>
       </View>
-      {reply?.time ? <Text style={[timestampStyle, styles.incomingTime]}>{reply.time}</Text> : null}
+      {reply?.time ? stamp(reply.time, `${replyID}-time`, styles.incomingTime) : null}
     </View>
   );
 
@@ -447,7 +472,7 @@ export function SayItChatPage({
         <Text testID={textTestID} style={contentStyle(value.text, 15)}>{value.text}</Text>
       </View>
       {value.time || value.delivered ? <View style={styles.outgoingTime}>
-        {value.time ? <Text style={timestampStyle}>{value.time}</Text> : null}
+        {value.time ? stamp(value.time, `${testID}-time`) : null}
         {value.delivered ? <ChatIcon name="checks" size={14} color={p.ac} /> : null}
       </View> : null}
     </View>
@@ -725,8 +750,9 @@ const styles = StyleSheet.create({
   tailBubble: { alignSelf: 'flex-start' },
   expandedBubble: { alignSelf: 'stretch' },
   words: { gap: 6 },
-  savedRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 10 },
-  savedWords: { flexShrink: 1, gap: 6 },
+  // A column, not a row: the words never depend on a shrink (see replyWords).
+  savedLine: { paddingStart: SAVED_ICON + SAVED_ICON_GAP, minHeight: SAVED_ICON },
+  savedIcon: { position: 'absolute', start: 0, top: 0, width: SAVED_ICON, height: SAVED_ICON },
   bubbleBody: { marginTop: 4, alignSelf: 'stretch' },
   bubbleActions: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginTop: 6, paddingTop: 10, borderTopWidth: StyleSheet.hairlineWidth },
   incomingTime: { marginStart: AVATAR_COLUMN, marginTop: 4 },

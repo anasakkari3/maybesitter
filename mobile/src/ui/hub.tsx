@@ -3,7 +3,7 @@ import { View } from 'react-native';
 import { useApp } from '../state/AppContext';
 import { useLayoutMode } from '../theme/textScale';
 import { ChevronIcon } from './icons';
-import { Btn, Txt } from './primitives';
+import { Btn, SaidWords, Txt } from './primitives';
 import { ReferenceIcon } from './referenceIcons';
 
 /**
@@ -95,7 +95,13 @@ export function HubHeading({ title, icon, count, end, testID }: {
     <View style={{ flexDirection: stacked ? 'column' : 'row', alignItems: stacked ? 'flex-start' : 'center', justifyContent: 'space-between', gap: 8, paddingHorizontal: 4, paddingTop: 6 }}>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flexShrink: 1 }}>
         {icon ? <ReferenceIcon name={icon} size={18} color={p.mu} /> : null}
-        <Txt role="section" size={17} weight={700} testID={testID} style={{ flexShrink: 1 }}>{title}</Txt>
+        {/* Measured afresh after a live text-size change: «آخر ما حفظته» was a
+            sliver at AX5 and left a 207 pt gap back at the default size
+            (simulator 2026-10-24). The heading the rotor finds is the view,
+            which stays; only the drawn paragraph is replaced (SaidWords). */}
+        <SaidWords role="header" label={title} testID={testID ? `${testID}-said` : undefined} style={{ flexShrink: 1 }}>
+          <Txt role="section" size={17} weight={700} testID={testID} accessible={false}>{title}</Txt>
+        </SaidWords>
         {count === undefined ? null : <CountChip count={count} />}
       </View>
       {end ?? null}

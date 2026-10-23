@@ -183,7 +183,7 @@ function fixture(name: string): unknown {
   return JSON.parse(readFileSync(join(FIXTURES, `${name}.json`), 'utf8'));
 }
 
-const CASES: Array<[string, z.ZodType]> = [
+const CASES: [string, z.ZodType][] = [
   // The one plan path (M3a), generated from the real handlers by Task B.
   // Free times on a capture (M4a R002), and the answer when one stopped being free.
   ['capture.freeSlots', captureProposalSchema],
