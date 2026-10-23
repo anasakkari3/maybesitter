@@ -28,6 +28,7 @@ import {
   userSubDoc,
   type StorageAdapter,
 } from '../storage';
+import { requireLiveAccount } from '../account/accountLiveness';
 import type { GoalStepDraft } from './goalStepPlan';
 
 export const GOAL_STEP_PROPOSAL_SCHEMA_VERSION = 1 as const;
@@ -95,7 +96,10 @@ class StorageGoalStepProposalStore implements GoalStepProposalStore {
   async putIfAbsent(scopeId: string, proposal: StoredGoalStepProposal): Promise<StoredGoalStepProposal> {
     const path = proposalPath(scopeId, proposal.goalMemoryId, proposal.generation);
     return this.storage.runTransaction(async (tx) => {
-      const existing = await tx.get<StoredGoalStepProposal>(path);
+      const [existing] = await Promise.all([
+        tx.get<StoredGoalStepProposal>(path),
+        requireLiveAccount(tx, scopeId), // the deletion fence (#772)
+      ]);
       if (existing && existing.schemaVersion === GOAL_STEP_PROPOSAL_SCHEMA_VERSION
         && existing.goalTextKey === proposal.goalTextKey) {
         return existing;

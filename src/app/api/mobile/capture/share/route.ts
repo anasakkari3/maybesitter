@@ -34,6 +34,7 @@
  * a commitment was read off. It is not traced, not logged, and not persisted —
  * confirm goes through the ordinary capture path, which has no field for it.
  */
+import { AccountUnavailableError, accountUnavailableResponse } from '../../../../../../lib/account/accountLiveness';
 import { mobileAuthErrorResponse, requireMobileUser } from '../../../../../../lib/auth/mobileAuth';
 import { recordTraceStage, stage } from '../../../../../../lib/alphaTrace/traceRecorder';
 import { mobileError } from '../../../../../../lib/services/mobile/response';
@@ -248,6 +249,8 @@ export async function POST(request: Request) {
     // Deliberately not `error.message` for anything else: a failure deeper in
     // the pipeline can quote the text it was reading, and here that text came
     // out of somebody's chat history.
+    // The account was deleted while this was on its way (#772).
+    if (error instanceof AccountUnavailableError) return accountUnavailableResponse();
     return mobileError('the share could not be read');
   }
 }

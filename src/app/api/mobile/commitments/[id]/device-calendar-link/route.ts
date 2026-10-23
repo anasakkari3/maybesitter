@@ -1,3 +1,4 @@
+import { AccountUnavailableError, accountUnavailableResponse } from '../../../../../../../lib/account/accountLiveness';
 import { mobileAuthErrorResponse, requireMobileUser } from '../../../../../../../lib/auth/mobileAuth';
 import { mobileError } from '../../../../../../../lib/services/mobile/response';
 import { getCommitment } from '../../../../../../../lib/services/mobile/commitmentService';
@@ -71,6 +72,7 @@ export async function PUT(
     );
     return Response.json({ success: true, id, deviceCalendarLink: link });
   } catch (error) {
+    if (error instanceof AccountUnavailableError) return accountUnavailableResponse();
     return linkErrorResponse(error, 'could not store the calendar link');
   }
 }

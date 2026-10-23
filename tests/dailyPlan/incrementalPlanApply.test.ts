@@ -17,6 +17,7 @@
  * always-racing wrapper makes a competitor win every single attempt, which is
  * what proves the refusal path rather than the retry path.
  */
+import { seedLiveAccount } from '../support/liveAccount.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
@@ -175,6 +176,7 @@ function patchComputer(
 }
 
 async function seed(storage: StorageAdapter, document: StoredDailyPlan): Promise<void> {
+  await seedLiveAccount(UID, storage); // #772: the plan writers re-read a live account
   await storage.set<StoredDailyPlan>(planPath(UID, DATE), document);
 }
 

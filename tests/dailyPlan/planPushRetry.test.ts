@@ -17,7 +17,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createMemoryStorage } from '../../lib/storage/memoryAdapter.ts';
 import { resetStorageForTests, setStorageForTests } from '../../lib/storage/index.ts';
-import type { StorageAdapter } from '../../lib/storage/storageAdapter.ts';
+import type { StorageAdapter, StorageTransaction } from '../../lib/storage/storageAdapter.ts';
 import { userDoc } from '../../lib/storage/paths.ts';
 import { upsertDevice } from '../../lib/push/deviceRegistry.ts';
 import type { FcmMessage, MessagingClient } from '../../lib/push/pushService.ts';
@@ -277,7 +277,24 @@ function crashingAfterPlanWrite(storage: StorageAdapter): StorageAdapter & { cra
     listGroup: storage.listGroup.bind(storage),
     delete: storage.delete.bind(storage),
     deleteTree: storage.deleteTree.bind(storage),
-    runTransaction: storage.runTransaction.bind(storage),
+    // The ledger entry is appended in a transaction since #772 (the account
+    // deletion fence reads the account in it), so the crash is staged on
+    // that transaction's ledger write as well as on a bare `set`.
+    runTransaction<R>(fn: (tx: StorageTransaction) => Promise<R>): Promise<R> {
+      return storage.runTransaction((tx) => fn(new Proxy(tx, {
+        get(target, property, receiver) {
+          const value = Reflect.get(target, property, receiver);
+          if (property !== 'set' || typeof value !== 'function') return typeof value === 'function' ? value.bind(target) : value;
+          return (path: string, data: unknown) => {
+            if (!crashing.crashed && path.includes('/planEvents/')) {
+              crashing.crashed = true;
+              throw new Error('the instance went away');
+            }
+            return value.call(target, path, data);
+          };
+        },
+      })));
+    },
     async set<T>(path: string, value: T): Promise<void> {
       if (!crashing.crashed && path.includes('/planEvents/')) {
         crashing.crashed = true;

@@ -43,6 +43,7 @@
  * This is an addition. `npm run test:perf` still owns the actual milliseconds,
  * and is still the only place that measures them.
  */
+import { seedLiveAccount } from '../support/liveAccount.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
@@ -300,6 +301,8 @@ test('E: a long chat never hands a regex more than the cap — the person’s tu
   const { chatMobileCapture } = await import('../../lib/services/captureChat/captureChatService.ts');
   setStorageForTests(createMemoryStorage());
   try {
+    // #772: the conversation and its proposal are written behind the account deletion fence.
+    await seedLiveAccount('scope-chat-514');
     const item = {
       type: 'task', action: 'Call mom', title: 'Call mom', person: null, dueAt: null, remindAt: null, localTimeSpec: null,
       priority: { level: 'normal', source: 'default', pressureAllowed: false, pressureImplied: false }, flexibility: 'movable',

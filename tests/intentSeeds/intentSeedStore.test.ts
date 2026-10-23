@@ -17,6 +17,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createMemoryStorage } from '../../lib/storage/memoryAdapter.ts';
 import { StorageIntentSeedStore } from '../../lib/intentSeeds/intentSeedStore.ts';
+import { seedLiveAccount } from '../support/liveAccount.ts';
 import type { CreateSeedInput } from '../../src/contracts/v1/intentContracts.ts';
 
 const NOW = '2026-09-20T09:00:00.000Z';
@@ -24,8 +25,12 @@ const LATER = '2026-09-20T10:00:00.000Z';
 const MINE = 'seedStoreOwner';
 const THEIRS = 'seedStoreStranger';
 
-function storeWithAdapter() {
-  return new StorageIntentSeedStore(createMemoryStorage());
+/** Over a fresh adapter, with the two accounts live: seeds are written behind the #772 fence. */
+async function storeWithAdapter() {
+  const storage = createMemoryStorage();
+  await seedLiveAccount(MINE, storage);
+  await seedLiveAccount(THEIRS, storage);
+  return new StorageIntentSeedStore(storage);
 }
 
 function input(overrides: Partial<CreateSeedInput> = {}): CreateSeedInput {
@@ -42,7 +47,7 @@ function input(overrides: Partial<CreateSeedInput> = {}): CreateSeedInput {
 }
 
 test('create is keyed by the idempotency key, so two taps write one seed', async () => {
-  const store = storeWithAdapter();
+  const store = await storeWithAdapter();
   const first = await store.create(input(), NOW);
   const second = await store.create(input(), LATER);
 
@@ -55,7 +60,7 @@ test('create is keyed by the idempotency key, so two taps write one seed', async
 });
 
 test('a created seed is open, unpromoted, and carries no date the user did not set', async () => {
-  const { seed } = await storeWithAdapter().create(input(), NOW);
+  const { seed } = await (await storeWithAdapter()).create(input(), NOW);
 
   assert.equal(seed.status, 'open');
   assert.equal(seed.promotedTo, null);
@@ -65,7 +70,7 @@ test('a created seed is open, unpromoted, and carries no date the user did not s
 });
 
 test('patch refuses every status that is not the user’s to choose', async () => {
-  const store = storeWithAdapter();
+  const store = await storeWithAdapter();
   const { seed } = await store.create(input(), NOW);
 
   for (const status of ['promoted', 'expired'] as const) {
@@ -79,7 +84,7 @@ test('patch refuses every status that is not the user’s to choose', async () =
 });
 
 test('patch accepts the four the user can choose', async () => {
-  const store = storeWithAdapter();
+  const store = await storeWithAdapter();
   const { seed } = await store.create(input(), NOW);
 
   for (const status of ['snoozed', 'waiting', 'open', 'dismissed'] as const) {
@@ -89,7 +94,7 @@ test('patch accepts the four the user can choose', async () => {
 });
 
 test('a promotion is claimed exactly once, whoever asks second', async () => {
-  const store = storeWithAdapter();
+  const store = await storeWithAdapter();
   const { seed } = await store.create(input(), NOW);
 
   const first = await store.claimPromotion(MINE, seed.seedId, { kind: 'commitment', id: 'c1' }, LATER);
@@ -104,7 +109,7 @@ test('a promotion is claimed exactly once, whoever asks second', async () => {
 });
 
 test('a dismissed seed cannot be claimed, and a promoted one cannot be patched', async () => {
-  const store = storeWithAdapter();
+  const store = await storeWithAdapter();
   const { seed } = await store.create(input(), NOW);
   await store.patch(MINE, seed.seedId, { status: 'dismissed' }, LATER);
   assert.equal(await store.claimPromotion(MINE, seed.seedId, { kind: 'goal', id: 'g1' }, LATER), null);
@@ -119,7 +124,7 @@ test('a dismissed seed cannot be claimed, and a promoted one cannot be patched',
 });
 
 test('a seed in another scope is not readable, patchable, claimable or removable', async () => {
-  const store = storeWithAdapter();
+  const store = await storeWithAdapter();
   const { seed } = await store.create(input(), NOW);
 
   assert.equal(await store.get(THEIRS, seed.seedId), null);
@@ -131,7 +136,7 @@ test('a seed in another scope is not readable, patchable, claimable or removable
 });
 
 test('the list is newest first, and ties break the same way on every read', async () => {
-  const store = storeWithAdapter();
+  const store = await storeWithAdapter();
   // Three distinct instants, created out of order, so "newest first" is a
   // claim about the timestamps rather than about whatever order the adapter
   // happens to return documents in. Two of the three share an instant, which
@@ -157,7 +162,7 @@ test('the list is newest first, and ties break the same way on every read', asyn
 });
 
 test('deleteScope empties one scope and leaves the other alone', async () => {
-  const store = storeWithAdapter();
+  const store = await storeWithAdapter();
   await store.create(input(), NOW);
   await store.create(input({ scopeId: THEIRS, idempotencyKey: 'theirs' }), NOW);
 
@@ -167,7 +172,7 @@ test('deleteScope empties one scope and leaves the other alone', async () => {
 });
 
 test('the export names the scope and the instant, and carries terminal rows', async () => {
-  const store = storeWithAdapter();
+  const store = await storeWithAdapter();
   const { seed } = await store.create(input(), NOW);
   await store.patch(MINE, seed.seedId, { status: 'dismissed' }, LATER);
 

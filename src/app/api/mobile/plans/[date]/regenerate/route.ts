@@ -1,3 +1,4 @@
+import { AccountUnavailableError, accountUnavailableResponse } from '../../../../../../../lib/account/accountLiveness';
 import { mobileAuthErrorResponse, requireMobileUser } from '../../../../../../../lib/auth/mobileAuth';
 import { mobileError } from '../../../../../../../lib/services/mobile/response';
 import {
@@ -24,7 +25,14 @@ export async function POST(request: Request, { params }: { params: Promise<{ dat
   const { date } = await params;
   if (!isPlanDate(date)) return mobileError('date must be YYYY-MM-DD');
 
-  const outcome = await regeneratePlan(user.uid, date);
+  let outcome;
+  try {
+    outcome = await regeneratePlan(user.uid, date);
+  } catch (error) {
+    // The account was deleted while this rebuild was on its way (#772).
+    if (error instanceof AccountUnavailableError) return accountUnavailableResponse();
+    throw error;
+  }
   if (!outcome.ok) {
     if (outcome.reason === 'not_found') return mobileError('no plan for that date', 404);
     if (outcome.reason === 'limit_reached') {

@@ -8,6 +8,7 @@
  * collections by one cursor — so both are exercised here against the emulator,
  * through independent handles for the writer and the reader.
  */
+import { seedLiveAccount } from '../support/liveAccount.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createFirestoreStorage } from '../../lib/storage/firestoreAdapter.ts';
@@ -40,6 +41,7 @@ test('firestore: accepting plans writes the ledger and the counter together, and
   const reader = createFirestoreStorage();
   try {
     await writer.set(userDoc(uid), { timezone: 'Asia/Jerusalem', locale: 'ar' });
+    await seedLiveAccount(uid, writer); // the trust record auth creates (#772)
     for (const [date, at] of [['2026-09-14', '2026-09-14T05:00:00.000Z'], ['2026-09-15', '2026-09-15T05:00:00.000Z'], ['2026-09-16', '2026-09-16T05:00:00.000Z']] as const) {
       await writer.set(planPath(uid, date), storedPlan(date));
       await acceptPlan(uid, date, { storage: writer, now: () => new Date(at) });

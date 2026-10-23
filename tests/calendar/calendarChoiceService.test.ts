@@ -34,6 +34,7 @@ import type { StorageTransaction } from '../../lib/storage/storageAdapter.ts';
 import type { PlanningStateChange } from '../../src/contracts/v1/watcherContracts.ts';
 import { GOOGLE_BUSY_SOURCE_ID, GOOGLE_FEATURE_SCOPES } from '../../lib/integrations/google/googleConfig.ts';
 import { connectionIdFor } from '../../lib/integrations/providers/production/storedConnectionStore.ts';
+import { seedLiveAccount } from '../support/liveAccount.ts';
 
 function configured() {
   process.env.MAYBESITTER_ENV = 'test';
@@ -46,6 +47,7 @@ function configured() {
 async function activePhone(storage: ReturnType<typeof createMemoryStorage>, uid: string) {
   const at = '2026-10-20T00:00:00.000Z';
   await storage.set(`users/${uid}`, newUserDocument(at));
+  await seedLiveAccount(uid, storage); // a live account, as authentication leaves it (#772)
   await storage.set('system/m5aControls', { email: { epoch: 0, enabled: false }, calendar: { epoch: 0, enabled: true } });
   await storage.set(userSubDoc(uid, CALENDAR_CHOICE, 'state'), { v: 1, generation: 1, state: 'active', enrolledAt: at, purge: null });
   const secret = `${randomUUID()}${randomUUID()}`;
@@ -59,6 +61,7 @@ test('calendar enrollment purges orphan device rows, then registration and retir
   const storage = configured();
   const uid = 'choice_unit';
   await storage.set(`users/${uid}`, { schemaVersion: 1 });
+  await seedLiveAccount(uid, storage); // the trust record this fixture's overwrite dropped (#772)
   await storage.set('system/m5aControls', { email: { epoch: 0, enabled: false }, calendar: { epoch: 0, enabled: true } });
   const orphanBlockId = 'a'.repeat(64);
   await storage.set(userSubDoc(uid, BUSY_BLOCKS, docIdForKey(`device:orphan\u001f${orphanBlockId}`)), {
@@ -83,6 +86,7 @@ test('a paused upload chunk cannot commit after a newer selection fence wins', a
   const sourceId = 'device:race';
   const secret = `${randomUUID()}${randomUUID()}`;
   await storage.set(`users/${uid}`, { schemaVersion: 1 });
+  await seedLiveAccount(uid, storage); // the trust record this fixture's overwrite dropped (#772)
   await storage.set('system/m5aControls', { email: { epoch: 0, enabled: false }, calendar: { epoch: 0, enabled: true } });
   await storage.set(userSubDoc(uid, CALENDAR_CHOICE, 'state'), { v: 1, generation: 1, state: 'active', enrolledAt: new Date().toISOString(), purge: null });
   await storage.set(userSubDoc(uid, REGISTERED_DEVICE_SOURCES, docIdForKey(sourceId)), {
@@ -172,6 +176,7 @@ test('enrollment purge lease takeover refuses the late owner and finishes the pa
   const storage = configured();
   const uid = 'choice_purge_takeover';
   await storage.set(`users/${uid}`, newUserDocument('2026-10-20T00:00:00.000Z'));
+  await seedLiveAccount(uid, storage); // a live account, as authentication leaves it (#772)
   await storage.set('system/m5aControls', { email: { epoch: 0, enabled: false }, calendar: { epoch: 0, enabled: true } });
   await storage.set(userSubDoc(uid, CALENDAR_CHOICE, 'state'), {
     v: 1, generation: 1, state: 'purging', enrolledAt: '2026-10-20T00:00:00.000Z',
@@ -291,6 +296,7 @@ test('revocation and enrollment purge also stale Google coverage before their de
   const purgeStorage = configured();
   const purgeUid = 'choice_google_stale_purge';
   await purgeStorage.set(`users/${purgeUid}`, newUserDocument('2026-10-20T00:00:00.000Z'));
+  await seedLiveAccount(purgeUid, purgeStorage); // a live account, as authentication leaves it (#772)
   await purgeStorage.set('system/m5aControls', { email: { epoch: 0, enabled: false }, calendar: { epoch: 0, enabled: true } });
   await seedGoogle(purgeStorage, purgeUid, null);
   assert.equal(candidateClashes(await readFreeSlotSchedule(purgeUid, window, purgeStorage), candidate).state, 'free');
@@ -305,6 +311,7 @@ test('shared replacement fence makes a late ICS refresh lose to the newer owner'
   const storage = configured();
   const uid = 'choice_ics_replace_fence';
   await storage.set(`users/${uid}`, newUserDocument('2026-10-20T00:00:00.000Z'));
+  await seedLiveAccount(uid, storage); // a live account, as authentication leaves it (#772)
   await storage.set('system/m5aControls', { email: { epoch: 0, enabled: false }, calendar: { epoch: 0, enabled: true } });
   const sourceId = 'ics:concurrent';
   const window = { startsAt: '2026-10-20T00:00:00.000Z', endsAt: '2026-10-21T00:00:00.000Z' };

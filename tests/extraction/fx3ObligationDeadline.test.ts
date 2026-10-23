@@ -15,6 +15,7 @@
  * `scripts/live-capture-check.ts --only FX3 --record`). The fake provider
  * answers a clause with its recording and fails on anything else.
  */
+import { seedLiveAccount } from '../support/liveAccount.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -294,10 +295,12 @@ test('FX3 #7: said on the month\'s last day, the deadline is that same day and i
 test('FX3 #7: through the mobile route\'s guarded extractor too, on the month\'s last day', async () => {
   setStorageForTests(createMemoryStorage());
   try {
+    await seedLiveAccount('default'); // #772: the proposal is written behind the account deletion fence
     const proposal = await proposeMobileCapture({ text: BILL_CLAUSE, timezone: TZ, referenceTime: '2026-09-30T07:00:00.000Z' });
     assert.equal(proposal.status, 'proposed');
     assert.deepEqual(proposal.items.map(billShape), ['أدفع فاتورة الكهربا | 2026-09-30 | - | said | settled']);
     // A day later it is a new month, with its own last day.
+    await seedLiveAccount('default'); // #772: the proposal is written behind the account deletion fence
     const october = await proposeMobileCapture({ text: BILL_CLAUSE, timezone: TZ, referenceTime: '2026-10-01T07:00:00.000Z' });
     assert.deepEqual(october.items.map(billShape), ['أدفع فاتورة الكهربا | 2026-10-31 | - | said | settled']);
   } finally {
@@ -346,6 +349,7 @@ test('FX3 #7: the deadline stays with its own clause in the six-item capture; th
 async function probeLine(text: string, referenceTime = NOW.toISOString()) {
   setStorageForTests(createMemoryStorage());
   try {
+    await seedLiveAccount('default'); // #772: the proposal is written behind the account deletion fence
     const p = await proposeMobileCapture({ text, timezone: TZ, referenceTime });
     return {
       status: p.status,

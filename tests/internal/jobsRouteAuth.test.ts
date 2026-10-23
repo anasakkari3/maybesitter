@@ -293,6 +293,7 @@ test('maintenance: a weekly block due for renewal is materialized again, and one
   const storage = createMemoryStorage();
   const created = new Date('2026-09-29T09:00:00.000Z');
   const input = { title: 'تدريب', weekdays: [6], start: '10:00', end: '16:00', timezone: 'Asia/Jerusalem', confirmedAt: created.toISOString() };
+  await seedLiveAccount('user_weekly_renewal', storage); // #772: weekly block writers re-read a live account
   const { block } = await createWeeklyBlock('user_weekly_renewal', input, { storage, now: created });
   const lastStart = async () => (await listBusyBlocksOfSource('user_weekly_renewal', weeklyBusySourceId(block.id), { storage })).at(-1)!.startAt;
   const before = await lastStart();

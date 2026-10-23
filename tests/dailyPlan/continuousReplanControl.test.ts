@@ -603,6 +603,7 @@ test('a replanning-only write leaves the morning delivery exactly as stored, on 
   });
   try {
     // Armed on one day; the replanning write arrives a day later.
+    await seedLiveAccount(uid, storage); // the settings write re-reads the deletion fence (#772)
     await savePlanSettings(uid, { enabled: true, deliveryLocalTime: '07:30' }, new Date('2026-08-08T12:00:00.000Z'), { storage });
     const armed = await readPlanSettings(uid, { storage });
     assert.ok(armed.nextRunAt, 'the fixture must start armed');

@@ -11,6 +11,7 @@ import {
   type SubjectiveEnergyLevel,
 } from '../../src/contracts/v1/readinessContracts';
 import type { UserStateProjection } from '../../src/contracts/v1/userStateProjectionContracts';
+import { assertLiveAccount } from '../account/accountLiveness';
 import { getStorage, type StorageAdapter } from '../storage';
 import { userDoc } from '../storage/paths';
 import {
@@ -211,6 +212,9 @@ async function updateContext(
 ): Promise<ReadinessContextWrite> {
   return storage.runTransaction(async (tx) => {
     const user = await tx.get<Record<string, unknown>>(userDoc(uid));
+    // The account deletion fence (#772): a missing user document (swept) or a
+    // deleted account is refused before the merge could re-create it.
+    assertLiveAccount(user);
     if (!user) throw new Error('readiness context requires an existing user');
     const current = storedReadinessContext(user.readinessContext, uid) ?? emptyContext(at);
     const outcome = update(current);

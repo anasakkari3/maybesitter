@@ -1,3 +1,4 @@
+import { AccountUnavailableError, accountUnavailableResponse } from '../../../../../lib/account/accountLiveness';
 import { mobileAuthErrorResponse, requireMobileUser } from '../../../../../lib/auth/mobileAuth';
 import { mobileError } from '../../../../../lib/services/mobile/response';
 import {
@@ -79,6 +80,7 @@ export async function POST(request: Request) {
     const created = await createWatcherStore(user.uid).create(input, now);
     return Response.json({ success: true, watcher: presentWatcher(created) }, { status: 201 });
   } catch (error) {
+    if (error instanceof AccountUnavailableError) return accountUnavailableResponse();
     if (error instanceof FootballNotConfiguredError) {
       return Response.json({ success: false, error: error.message, reason: error.reason }, { status: 409 });
     }

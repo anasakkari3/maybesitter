@@ -1,3 +1,4 @@
+import { AccountUnavailableError, accountUnavailableResponse } from '../../../../../../lib/account/accountLiveness';
 import { mobileAuthErrorResponse, requireMobileUser } from '../../../../../../lib/auth/mobileAuth';
 import { mobileError } from '../../../../../../lib/services/mobile/response';
 import {
@@ -74,6 +75,7 @@ export async function PATCH(request: Request) {
       paused: settings.paused,
     });
   } catch (error) {
+    if (error instanceof AccountUnavailableError) return accountUnavailableResponse();
     console.error('[settings] saving monitoring settings failed', error);
     return mobileError('could not save monitoring settings', 500);
   }

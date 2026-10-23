@@ -41,6 +41,7 @@ import { runWatcherSweep } from '../../lib/watchers/watcherEngine.ts';
 import { createWatcherSignalRegistry, type WatcherSignalObserver } from '../../lib/watchers/signals.ts';
 import { WATCHER_SIGNAL_SCHEMA_VERSION } from '../../src/contracts/v1/watcherContracts.ts';
 import type { NewWatcherInput } from '../../lib/watchers/watcherStore.ts';
+import { seedLiveAccount } from '../support/liveAccount.ts';
 
 const PEPPER = 'test-pepper-not-the-real-one';
 const TARGET = 'user_watched_and_deleted';
@@ -111,6 +112,7 @@ async function watcherRowsFor(uid: string): Promise<string[]> {
  * firing writes a proposal and a notification as well as a history row.
  */
 async function seedWatchedAccount(uid: string): Promise<void> {
+  await seedLiveAccount(uid, storage); // watchers are written behind the deletion fence (#772)
   const store = createWatcherStore(uid, storage);
   await store.create(watcherInput('notify'), T0.toISOString());
   await store.create(watcherInput('propose_commitment'), T0.toISOString());

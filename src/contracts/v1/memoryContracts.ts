@@ -245,8 +245,11 @@ export interface RuntimeMemoryStore {
   listAll(scopeId: string): Promise<readonly RuntimeMemoryRecord[]>;
   /** Writes a replacement and marks the prior record superseded, keeping both. */
   supersede(oldId: string, input: CreateMemoryInput, now: string, guard?: MemoryWriteGuard): Promise<RuntimeMemoryRecord>;
-  /** Hides from retrieval, keeps inspectable. Returns false if not found. */
-  revoke(id: string, at: string): Promise<boolean>;
+  /**
+   * Hides from retrieval, keeps inspectable. Returns false if not found. With a
+   * guard, the record and the account are re-read in the write's transaction.
+   */
+  revoke(id: string, at: string, guard?: MemoryWriteGuard): Promise<boolean>;
   /** Removes outright. Returns false if not found. */
   deleteById(id: string): Promise<boolean>;
   /** Removes every record in a scope. Returns the number deleted. */

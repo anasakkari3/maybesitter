@@ -7,6 +7,7 @@ import { setRecommendationConsent } from '../../lib/consents/recommendationConse
 import { RECOMMENDATION_CONSENT_VERSION } from '../../src/contracts/v1/consentContracts.ts';
 import { saveRoutineProfile } from '../../lib/services/mobile/routineProfileService.ts';
 import { getMobileNextStep, MobilePilotError } from '../../lib/services/mobile/pilotService.ts';
+import { seedLiveAccount } from '../support/liveAccount.ts';
 
 /**
  * Which consent opens the next step (UC-2.9, #170).
@@ -93,6 +94,7 @@ async function refusalReason(uid: string): Promise<string | undefined> {
 
 test('onboarding consent alone opens the next step', async () => {
   const cleanup = setup();
+  await seedLiveAccount(UID); // its writers re-read the deletion fence (#772)
   try {
     // No `grant_recommendation_consent`. This is the state every real user is
     // in after onboarding, and it used to be refused.
@@ -107,6 +109,7 @@ test('onboarding consent alone opens the next step', async () => {
 
 test('the closed pilot flag alone opens nothing', async () => {
   const cleanup = setup();
+  await seedLiveAccount(UID); // its writers re-read the deletion fence (#772)
   try {
     await applyTrustAction(UID, { type: 'grant_recommendation_consent', at: AT });
     assert.equal(await refusalReason(UID), 'consent_required');
@@ -117,6 +120,7 @@ test('the closed pilot flag alone opens nothing', async () => {
 
 test('a fresh account has never been asked, so it has not agreed', async () => {
   const cleanup = setup();
+  await seedLiveAccount(UID); // its writers re-read the deletion fence (#772)
   try {
     assert.equal(await refusalReason(UID), 'consent_required');
   } finally {
@@ -126,6 +130,7 @@ test('a fresh account has never been asked, so it has not agreed', async () => {
 
 test('declining in onboarding closes it again', async () => {
   const cleanup = setup();
+  await seedLiveAccount(UID); // its writers re-read the deletion fence (#772)
   try {
     await onboardingConsent(UID);
     await setRecommendationConsent(UID, { state: 'declined', version: RECOMMENDATION_CONSENT_VERSION });
@@ -137,6 +142,7 @@ test('declining in onboarding closes it again', async () => {
 
 test('revoking still comes before any consent', async () => {
   const cleanup = setup();
+  await seedLiveAccount(UID); // its writers re-read the deletion fence (#772)
   try {
     await onboardingConsent(UID);
     await applyTrustAction(UID, { type: 'revoke', at: AT });
@@ -148,6 +154,7 @@ test('revoking still comes before any consent', async () => {
 
 test('inside the user’s own quiet window there is no card, and no error', async () => {
   const cleanup = setup();
+  await seedLiveAccount(UID); // its writers re-read the deletion fence (#772)
   try {
     await onboardingConsent(UID);
     await saveRoutineProfile(UID, { ...ROUTINE, quietHours: windowAroundNow() }, AT);
@@ -165,6 +172,7 @@ test('inside the user’s own quiet window there is no card, and no error', asyn
 
 test('quiet hours say when they end, so the card can say when suggestions come back (UAT round 3, N12)', async () => {
   const cleanup = setup();
+  await seedLiveAccount(UID); // its writers re-read the deletion fence (#772)
   try {
     await onboardingConsent(UID);
     const window = windowAroundNow();
@@ -178,6 +186,7 @@ test('quiet hours say when they end, so the card can say when suggestions come b
 
 test('quiet mode carries no end time: it lasts until the person turns it off', async () => {
   const cleanup = setup();
+  await seedLiveAccount(UID); // its writers re-read the deletion fence (#772)
   try {
     await onboardingConsent(UID);
     await applyTrustAction(UID, { type: 'set_quiet_mode', enabled: true, at: AT });
@@ -190,6 +199,7 @@ test('quiet mode carries no end time: it lasts until the person turns it off', a
 
 test('no proposal is computed at all during quiet hours', async () => {
   const cleanup = setup();
+  await seedLiveAccount(UID); // its writers re-read the deletion fence (#772)
   try {
     await onboardingConsent(UID);
     await saveRoutineProfile(UID, { ...ROUTINE, quietHours: windowAroundNow() }, AT);

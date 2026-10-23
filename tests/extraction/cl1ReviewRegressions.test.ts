@@ -15,6 +15,7 @@
  * m-1  The email-share day reader matched «غدا» inside «الغداء».
  * m-2  «הבוקר» left the title of an item it gave no time to.
  */
+import { seedLiveAccount } from '../support/liveAccount.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createMemoryStorage } from '../../lib/storage/memoryAdapter.ts';
@@ -38,6 +39,10 @@ const TOMORROW = '2026-09-27';
 
 async function withStorage<T>(run: () => Promise<T>): Promise<T> {
   setStorageForTests(createMemoryStorage());
+  // #772: the in-process capture files its proposal under users/{scope} ('default'
+  // when no scope is sent), behind the deletion fence
+  await seedLiveAccount('default');
+  await seedLiveAccount('s');
   try {
     return await run();
   } finally {

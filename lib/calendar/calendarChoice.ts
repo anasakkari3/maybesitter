@@ -1,4 +1,5 @@
 import { createHash, randomUUID, timingSafeEqual } from 'node:crypto';
+import { requireLiveAccount } from '../account/accountLiveness';
 import { getStorage } from '../storage';
 import type { StorageAdapter, StorageTransaction } from '../storage/storageAdapter';
 import {
@@ -204,6 +205,10 @@ export async function enrollCalendarChoice(uid: string, storage: StorageAdapter 
   const now = new Date();
   const owner = randomUUID();
   let state = await storage.runTransaction(async (tx) => {
+    // The account deletion fence (#772), in every transaction here that writes
+    // under the account: a choice, a registration, a fence or a source row
+    // written after the account was swept would re-create documents under it.
+    await requireLiveAccount(tx, uid);
     const existing = await tx.get<CalendarChoiceState>(choicePath(uid));
     if (activeChoice(existing)) return existing;
     const controls = parseM5aControls(await tx.get(M5A_CONTROLS_PATH));
@@ -254,6 +259,7 @@ export async function enrollCalendarChoice(uid: string, storage: StorageAdapter 
     if (sourceId !== null) {
       if (calendarChoiceTestHook) await calendarChoiceTestHook('purge_page_deleted', { uid, sourceId });
       state = await storage.runTransaction(async (tx) => {
+        await requireLiveAccount(tx, uid);
         const [current, controls] = await Promise.all([
           requirePurgeFence(tx, uid, expected),
           tx.get(M5A_CONTROLS_PATH),
@@ -276,6 +282,7 @@ export async function enrollCalendarChoice(uid: string, storage: StorageAdapter 
     }
 
     state = await storage.runTransaction(async (tx) => {
+      await requireLiveAccount(tx, uid);
       const [current, controls] = await Promise.all([
         requirePurgeFence(tx, uid, expected),
         tx.get(M5A_CONTROLS_PATH),
@@ -292,6 +299,7 @@ export async function enrollCalendarChoice(uid: string, storage: StorageAdapter 
     const registrations = await storage.list<DeviceRegistration>(userCol(uid, REGISTERED_DEVICE_SOURCES), { limit: PHONE_LIMIT + 1 });
     for (const { data: registration } of registrations) {
       await storage.runTransaction(async (tx) => {
+        await requireLiveAccount(tx, uid);
         await writeDeviceStaleState(tx, uid, registration.sourceId, state.generation);
       });
     }
@@ -319,6 +327,7 @@ export async function registerDeviceSource(
   const sourceSecret = input.sourceSecret;
   const now = new Date().toISOString();
   return storage.runTransaction(async (tx) => {
+    await requireLiveAccount(tx, uid);
     const choice = await tx.get<CalendarChoiceState>(choicePath(uid));
     const retired = await tx.get<{ sourceId: string }>(retiredPath(uid, sourceInstallationId));
     if (retired) throw new CalendarChoiceError('source_revoked');
@@ -374,6 +383,7 @@ export async function startSelectionIntent(
   const operation = input.operation;
   const now = new Date();
   return storage.runTransaction(async (tx) => {
+    await requireLiveAccount(tx, uid);
     const choice = await tx.get<CalendarChoiceState>(choicePath(uid));
     if (!activeChoice(choice)) throw new CalendarChoiceError(choice?.state === 'purging' ? 'calendar_choice_purging' : 'calendar_choice_required');
     await authorizeRegistration(tx, uid, sourceId, secret);
@@ -441,6 +451,7 @@ export async function finishDeviceUpload(
   source: CalendarSource, storage: StorageAdapter = getStorage(),
 ): Promise<void> {
   await storage.runTransaction(async (tx) => {
+    await requireLiveAccount(tx, uid);
     const current = await tx.get<SourceRow>(sourcePath(uid, sourceId));
     const finalized = await finishDeviceUploadInTransaction(tx, uid, sourceId, secret, opId, epoch, source, current);
     tx.set(sourcePath(uid, sourceId), {
@@ -503,6 +514,7 @@ export async function finishDeviceClear(
   });
   // Re-check after the multi-row delete so a newer intent cannot be settled by this runner.
   await storage.runTransaction(async (tx) => {
+    await requireLiveAccount(tx, uid);
     const { choice } = await validateSelectionContinuationInTransaction(tx, uid, sourceId, secret, 'clear', opId, epoch);
     await writeDeviceStaleState(tx, uid, sourceId, choice.generation);
   });
@@ -530,6 +542,7 @@ export async function retireDeviceSource(uid: string, sourceId: string, storage:
   const nowDate = new Date();
   const now = nowDate.toISOString();
   const claim = await storage.runTransaction(async (tx) => {
+    await requireLiveAccount(tx, uid);
     const choice = await tx.get<CalendarChoiceState>(choicePath(uid));
     if (!choice) throw new CalendarChoiceError('calendar_choice_required');
     const found = await tx.get<DeviceRegistration>(registrationPath(uid, sourceId));

@@ -22,6 +22,7 @@ import { CAPTURE_PROPOSAL_TTL_MS } from '../../../src/contracts/v1/captureContra
 import type { CaptureEntry } from '../../../src/contracts/v1/captureContracts';
 import { CAPTURE_PROPOSAL_RETENTION_MS } from '../captureBoundary/proposalStore';
 import { CAPTURE_CONVERSATIONS, getStorage, userSubDoc, type StorageAdapter } from '../../storage';
+import { requireLiveAccount } from '../../account/accountLiveness';
 
 export interface CaptureChatTurn {
   role: 'user' | 'assistant';
@@ -125,8 +126,14 @@ export class CaptureConversationStore {
     };
   }
 
+  /**
+   * One transaction, for the account deletion fence (#772): the account is
+   * read and must be live before the conversation is written, so a chat turn
+   * in flight when the account was deleted cannot re-create it.
+   */
   async put(uid: string, conversation: StoredCaptureConversation, now: Date = new Date()): Promise<void> {
-    await this.storage.set<ConversationDocument>(captureConversationPath(uid, conversation.conversationId), {
+    const path = captureConversationPath(uid, conversation.conversationId);
+    const document: ConversationDocument = {
       conversationId: conversation.conversationId,
       turns: conversation.turns.map((turn) => ({
         role: turn.role,
@@ -139,6 +146,10 @@ export class CaptureConversationStore {
       updatedAt: conversation.updatedAt,
       ...(conversation.messageReceipt === undefined ? {} : { messageReceipt: conversation.messageReceipt }),
       expiresAt: new Date(now.getTime() + CAPTURE_PROPOSAL_RETENTION_MS),
+    };
+    await this.storage.runTransaction(async (tx) => {
+      await requireLiveAccount(tx, uid);
+      tx.set<ConversationDocument>(path, document);
     });
   }
 }

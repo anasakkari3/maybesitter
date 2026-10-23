@@ -8,6 +8,7 @@
  */
 import { createStorageRuntimeMemoryStore } from '../../lib/runtimeMemory/runtimeMemoryStore.ts';
 import { createMemoryStorage } from '../../lib/storage/memoryAdapter.ts';
+import { seedLiveAccount } from '../support/liveAccount.ts';
 import type { StorageAdapter } from '../../lib/storage/index.ts';
 import type {
   MemoryLanguage,
@@ -43,6 +44,9 @@ export async function seedGoal(
   options: { scopeId?: string; language?: MemoryLanguage; storage?: StorageAdapter } = {},
 ): Promise<SeededGoal> {
   const storage = options.storage ?? createMemoryStorage();
+  // The goal's owner is a live account (#772): its step proposals and links
+  // are written behind the account deletion fence.
+  await seedLiveAccount(options.scopeId ?? OWNER, storage);
   const store = createStorageRuntimeMemoryStore(undefined, storage);
   const goal = await store.put({
     scopeId: options.scopeId ?? OWNER,

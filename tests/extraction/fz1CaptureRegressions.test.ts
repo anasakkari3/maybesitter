@@ -93,7 +93,9 @@ async function proposeModel(text: string, now: Date, provider: (prompt: string) 
 
 function withMemoryStorage<T>(run: () => Promise<T>): Promise<T> {
   setStorageForTests(createMemoryStorage());
-  return run().finally(() => resetStorageForTests());
+  // #772: an in-process capture with no participant files its proposal under
+  // users/default, behind the account deletion fence.
+  return seedLiveAccount('default').then(run).finally(() => resetStorageForTests());
 }
 
 async function proposeRules(text: string, now: Date) {
@@ -196,6 +198,7 @@ test('FZ1 N10: a typed answer to "what time?" with no time of day and no day tak
 async function answerN10OnRules(freeText: string) {
   const uid = 'fz1-n10';
   return withMemoryStorage(async () => {
+    await seedLiveAccount(uid); // #772: the proposal is written behind the account deletion fence
     const proposal = await proposeMobileCapture({ text: N10, timezone: TZ, referenceTime: N10_NOW.toISOString() }, { participantId: uid });
     const item = proposal.items[0]!;
     assert.equal(item.clarification?.questionKey, 'ask_time');
@@ -388,6 +391,7 @@ async function answerAmPm(text: string, freeText: string, engine: 'rules' | 'mod
   }
   const uid = 'fz1-ampm';
   return withMemoryStorage(async () => {
+    await seedLiveAccount(uid); // #772: the proposal is written behind the account deletion fence
     const proposal = await proposeMobileCapture({ text, timezone: TZ, referenceTime: now.toISOString() }, { participantId: uid });
     const item = proposal.items[0]!;
     assert.equal(item.clarification?.questionKey, 'ask_am_pm', text);
@@ -441,6 +445,7 @@ test('FZ1 round 2 (superseded by R2-M2): on the model engine too a typed answer 
 async function answerAmPmOption(text: string, optionId: 'am' | 'pm') {
   const uid = 'fz1-ampm-option';
   return withMemoryStorage(async () => {
+    await seedLiveAccount(uid); // #772: the proposal is written behind the account deletion fence
     const proposal = await proposeMobileCapture({ text, timezone: TZ, referenceTime: N10_NOW.toISOString() }, { participantId: uid });
     const item = proposal.items[0]!;
     assert.equal(item.clarification?.questionKey, 'ask_am_pm', text);
@@ -627,6 +632,7 @@ test('FZ1 round 3 M5a: a typed number with a part of the day answers the time qu
   // A number at night follows the night's rule: «2 بالليل» for tomorrow's email is 02:00.
   const uid = 'fz1-m5a-night';
   const items = await withMemoryStorage(async () => {
+    await seedLiveAccount(uid); // #772: the proposal is written behind the account deletion fence
     const proposal = await proposeMobileCapture({ text: 'بكرا لازم أبعت الإيميل للمدير', timezone: TZ, referenceTime: MON_9.toISOString() }, { participantId: uid });
     const item = proposal.items[0]!;
     const updated = await clarifyMobileCapture({
@@ -662,6 +668,7 @@ test('FZ1 round 3 add-on: an appointment answered «الصبح», then cleared t
   const zone = 'Asia/Jerusalem';
   const now = new Date('2026-09-28T07:00:00.000Z'); // Mon 10:00
   await withMemoryStorage(async () => {
+    await seedLiveAccount(uid); // #772: the proposal is written behind the account deletion fence
     const proposal = await proposeMobileCapture({ text: 'سجّل موعد أسنان يوم الجمعة', timezone: zone, referenceTime: now.toISOString() }, { participantId: uid });
     const item = proposal.items[0]!;
     assert.equal(item.clarification?.questionKey, 'ask_time');
@@ -687,6 +694,7 @@ test('FZ1 round 3 add-on: any answered time keeps the person\'s zone on the stor
   const zone = 'Asia/Jerusalem';
   const now = new Date('2026-09-28T07:00:00.000Z');
   await withMemoryStorage(async () => {
+    await seedLiveAccount(uid); // #772: the proposal is written behind the account deletion fence
     const proposal = await proposeMobileCapture({ text: 'بكرا لازم أبعت الإيميل للمدير', timezone: zone, referenceTime: now.toISOString() }, { participantId: uid });
     const item = proposal.items[0]!;
     await clarifyMobileCapture({
@@ -706,6 +714,7 @@ test('FZ1 round 3 add-on: west of UTC the cleared appointment is still on Friday
   const zone = 'America/Los_Angeles';
   const now = new Date('2026-09-28T17:00:00.000Z'); // Mon 10:00 in Los Angeles
   await withMemoryStorage(async () => {
+    await seedLiveAccount(uid); // #772: the proposal is written behind the account deletion fence
     const proposal = await proposeMobileCapture({ text: 'سجّل موعد أسنان يوم الجمعة', timezone: zone, referenceTime: now.toISOString() }, { participantId: uid });
     const item = proposal.items[0]!;
     await clarifyMobileCapture({
@@ -730,6 +739,7 @@ async function answerTomorrowEmail(freeText: string): Promise<string> {
   const uid = 'fz1-r4';
   const now = new Date('2026-09-28T07:00:00.000Z');
   return withMemoryStorage(async () => {
+    await seedLiveAccount(uid); // #772: the proposal is written behind the account deletion fence
     const proposal = await proposeMobileCapture({ text: 'بكرا لازم أبعت الإيميل للمدير', timezone: TZ, referenceTime: now.toISOString() }, { participantId: uid });
     const item = proposal.items[0]!;
     assert.equal(item.clarification?.questionKey, 'ask_time');

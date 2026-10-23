@@ -10,6 +10,7 @@
  *
  * This is the round trip that had to run against the emulator to catch it.
  */
+import { seedLiveAccount } from '../support/liveAccount.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createFirestoreStorage } from '../../lib/storage/firestoreAdapter.ts';
@@ -30,6 +31,7 @@ const CONTRACT = {
 test('firestore: a proposal round-trips with its commands intact', async () => {
   const storage = createFirestoreStorage();
   const uid = `capture_${Date.now().toString(36)}`;
+  await seedLiveAccount(uid, storage); // the trust record auth creates (#772)
   const proposalId = `p-${Date.now().toString(36)}`;
   const commands = [{ type: 'CreateDraft', now: '2026-08-17T08:00:00.000Z', commitment: { id: 'cmt_1', kind: 'task', title: 'Call the doctor', timeSpec: { kind: 'due_by', dueAt: '2026-08-17T12:00:00.000Z', remindAt: '2026-08-17T12:00:00.000Z', timezone: 'UTC' } }, draftStatus: 'pending_confirmation' }] as unknown as Command[];
 

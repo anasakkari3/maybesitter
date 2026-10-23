@@ -38,6 +38,7 @@ import { saveRoutineProfile } from '../../lib/services/mobile/routineProfileServ
 import { parseRoutineProfileInput } from '../../src/contracts/v1/routineContracts.ts';
 import { mock } from 'node:test';
 import { phoneReminderEngine } from '../support/phoneReminderEngine.ts';
+import { seedLiveAccount } from '../support/liveAccount.ts';
 
 const BASE = 'http://127.0.0.1:4321';
 const UID = uidFor('MeetingPrepRouteUser');
@@ -109,9 +110,12 @@ function withGemini(): { calls: Array<{ config: Record<string, unknown>; content
 
 let auth: FakeAuthControls | null = null;
 
-function begin(): void {
+async function begin(): Promise<void> {
   auth = installFakeAuth();
   setStorageForTests(createMemoryStorage());
+  // Live accounts, as authentication leaves them: the writers these tests
+  // drive directly re-read the account deletion fence (#772).
+  await seedLiveAccount(UID);
 }
 
 function end(): void {
@@ -159,7 +163,7 @@ async function logsDuring<T>(run: () => Promise<T>): Promise<{ result: T; logs: 
 // ── refusals ───────────────────────────────────────────────────────
 
 test('an unauthenticated prep is refused before the body is read', async () => {
-  begin();
+  await begin();
   try {
     const response = await preparePost(request({ notes: NOTE, ...block() }, { uid: null }));
     assert.equal(response.status, 401);
@@ -167,7 +171,7 @@ test('an unauthenticated prep is refused before the body is read', async () => {
 });
 
 test('a body larger than the route reads is refused while it is read', async () => {
-  begin();
+  await begin();
   try {
     const response = await preparePost(request(null, { raw: JSON.stringify({ notes: 'x'.repeat(40_000), ...block() }) }));
     assert.equal(response.status, 413);
@@ -177,7 +181,7 @@ test('a body larger than the route reads is refused while it is read', async () 
 });
 
 test('bad requests say which: not JSON, not an object, no notes, no block, a block too soon', async () => {
-  begin();
+  await begin();
   try {
     assert.equal((await preparePost(request(null, { raw: '{not json' }))).status, 400);
     assert.equal((await preparePost(request(null, { raw: 'null' }))).status, 400);
@@ -194,7 +198,7 @@ test('bad requests say which: not JSON, not an object, no notes, no block, a blo
 });
 
 test('notes past the capture limit are answered as capture answers them', async () => {
-  begin();
+  await begin();
   try {
     const response = await preparePost(request({ notes: 'x'.repeat(2_001), ...block() }));
     assert.equal(response.status, 413);
@@ -205,7 +209,7 @@ test('notes past the capture limit are answered as capture answers them', async 
 });
 
 test('the daily cap answers 429 with the scope the client reads, and a refused request never spends one', async () => {
-  begin();
+  await begin();
   try {
     // A refusal first: it must not count.
     await preparePost(request({ notes: '', ...block() }));
@@ -227,7 +231,7 @@ test('the daily cap answers 429 with the scope the client reads, and a refused r
 // ── the chain ──────────────────────────────────────────────────────
 
 test('with consent, the recorded Gemini answer becomes a prep step and a follow-up, confirmed onto the lists', async () => {
-  begin();
+  await begin();
   await setAiConsent(UID, { state: 'granted', version: AI_CONSENT_VERSION });
   const gemini = withGemini();
   try {
@@ -279,7 +283,7 @@ test('with consent, the recorded Gemini answer becomes a prep step and a follow-
 
 test('AI is always on: an account that never answered gets the model prep', async () => {
   // Before 2026-09-30 this account stayed on the rules with zero model calls.
-  begin();
+  await begin();
   const gemini = withGemini();
   try {
     const response = await preparePost(request({ notes: NOTE, ...block(), timezone: 'Asia/Jerusalem' }));
@@ -296,7 +300,7 @@ test('AI is always on: an account that never answered gets the model prep', asyn
 test('with no model reachable, still exactly one prep step from the notes', async () => {
   // No provider configured: the model path falls back to the rules, which is
   // what every cap and outage does too.
-  begin();
+  await begin();
   try {
     const response = await preparePost(request({ notes: NOTE, ...block(), timezone: 'Asia/Jerusalem' }));
     assert.equal(response.status, 200);
@@ -356,7 +360,7 @@ for (const [ceiling, startInMinutes, rings] of [
   ['followUp', 20, true], ['followUp', 40, true], ['followUp', 180, true],
 ] as const) {
   test(`${ceiling}, a meeting ${startInMinutes} min away: prep.remindAt is what the phone rings${rings ? '' : ', and nothing is claimed when nothing rings'}`, async () => {
-    begin();
+    await begin();
     try {
       await saveReminderSettings(UID, { escalationCeiling: ceiling }, new Date().toISOString());
       const result = await claimedAndRung(startInMinutes);
@@ -387,7 +391,7 @@ async function saveRoutine(intensity: 'none' | 'followUp', quietHours: { start: 
 }
 
 test('the survey said «صامتة» (stored `none`): the route claims no reminder, says it was the person\'s choice, and the phone rings nothing', async () => {
-  begin();
+  await begin();
   try {
     // The reminders switch stays on: only the stored survey answer silences them.
     await saveRoutine('none', null);
@@ -402,7 +406,7 @@ test('quiet hours stored on the profile leave no moment to ring: meetings just a
   // 22:40 in Jerusalem, quiet 22:30–07:30: a meeting at 07:32, at 06:00 and at 00:00.
   const now = Date.parse('2026-09-27T19:40:00.000Z');
   for (const startAt of ['2026-09-28T04:32:00.000Z', '2026-09-28T03:00:00.000Z', '2026-09-27T21:00:00.000Z']) {
-    begin();
+    await begin();
     mock.timers.enable({ apis: ['Date'], now });
     try {
       await saveRoutine('followUp', { start: '22:30', end: '07:30' });
@@ -436,7 +440,7 @@ test('the UAT repro: a meeting Mon 15:00–16:00 prepared on Sunday is at 14:00 
   const startAt = '2026-09-28T12:00:00.000Z';
   const endAt = '2026-09-28T13:00:00.000Z';
   const fourteen = '2026-09-28T11:00:00.000Z';
-  begin();
+  await begin();
   mock.timers.enable({ apis: ['Date'], now: sunday });
   try {
     const headers = { authorization: `Bearer ${tokenFor(UID)}` };
@@ -499,7 +503,7 @@ const MON_1400 = '2026-09-28T11:00:00.000Z';
 async function onAmmanSunday(body: (headers: Record<string, string>) => Promise<void>): Promise<void> {
   const previous = process.env.MAYBESITTER_FEATURE_PRIORITY;
   process.env.MAYBESITTER_FEATURE_PRIORITY = 'true';
-  begin();
+  await begin();
   mock.timers.enable({ apis: ['Date'], now: AMMAN_SUNDAY });
   try {
     await body({ authorization: `Bearer ${tokenFor(UID)}` });

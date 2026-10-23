@@ -52,6 +52,7 @@ import type {
 import { ownershipOf, type ScheduleBlock } from '../../../src/contracts/v1/scheduleBlockContracts';
 import { getStorage, type StorageAdapter } from '../../storage';
 import { userDoc } from '../../storage/paths';
+import { requireLiveAccount } from '../../account/accountLiveness';
 import { readActivityStats, recordActivityEvents } from '../activity/activityStats';
 import { earliestLedgerAcceptance, planEventAsRecord } from '../activity/planActivity';
 import { applyEditsToBlocks, protectionAfterMove, protectionOf, schedulePlan } from '../../planning/scheduler';
@@ -328,7 +329,10 @@ export async function acceptPlan(uid: string, date: string, options: PlanActionO
   // counter bumped in a second write drifts on every crash between the two,
   // and the first-plan Moment would then disagree with the history.
   await (options.storage ?? getStorage()).runTransaction(async (tx) => {
-    const stats = await readActivityStats(tx, uid);
+    // The deletion fence (#772), read with the counter: the plan's own commit
+    // above was fenced, and a deletion that lands between the two must not
+    // let this one re-create the ledger and the counter under the account.
+    const [stats] = await Promise.all([readActivityStats(tx, uid), requireLiveAccount(tx, uid)]);
     // A legacy acceptance (ledger entry, no counter) keeps its own, earlier
     // date: once this sets the counter, the summary stops scanning for one.
     const legacy = stats.firstPlanAcceptedAt === null ? await earliestLedgerAcceptance(tx, uid) : null;

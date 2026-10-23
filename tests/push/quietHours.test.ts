@@ -23,6 +23,7 @@ import { createMemoryStorage } from '../../lib/storage/memoryAdapter.ts';
 import { saveRoutineProfile } from '../../lib/services/mobile/routineProfileService.ts';
 import { userDoc } from '../../lib/storage/paths.ts';
 import type { RoutineTimeWindow } from '../../src/contracts/v1/routineContracts.ts';
+import { seedLiveAccount } from '../support/liveAccount.ts';
 
 const QUARTER_HOUR = 15 * 60 * 1000;
 
@@ -103,6 +104,7 @@ test('the window is read from the routine profile, which is where the survey wri
   const storage = createMemoryStorage();
   const uid = 'quietHoursUser';
   await storage.set(userDoc(uid), { timezone: 'Europe/Berlin' });
+  await seedLiveAccount(uid, storage); // the survey write re-reads the deletion fence (#772)
 
   // Nothing stored yet: no window, and the account's own zone as the fallback.
   const before = await readQuietHours(uid, { storage });

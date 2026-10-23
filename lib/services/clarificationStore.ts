@@ -37,6 +37,7 @@ import {
   userIdForKey,
   type StorageAdapter,
 } from '../storage';
+import { requireLiveAccount } from '../account/accountLiveness';
 
 export interface PendingClarification {
   id: string;
@@ -53,6 +54,15 @@ export interface PendingClarificationInput {
   partialExtraction: ExtractionResult;
   now: Date;
   ttlMs: number;
+  /**
+   * The authenticated account this clarification is asked for, when there is
+   * one (#772). Its `users/{uid}` document is read in the transaction that
+   * writes, and the write is refused (`AccountUnavailableError`) unless the
+   * account is live. The scope cannot stand in for it: the legacy route may
+   * scope a clarification by a session or conversation id, which names no
+   * account at all.
+   */
+  accountUid?: string;
 }
 
 /** Async since UC-1.0c (#142): every method is a storage round trip. */
@@ -112,10 +122,20 @@ export class StorageClarificationStore implements ClarificationStore {
       createdAt: input.now.toISOString(),
       expiresAt: new Date(input.now.getTime() + input.ttlMs).toISOString(),
     };
-    await this.storage.set<StoredClarification>(documentPath(record.scopeId, record.id), {
+    const path = documentPath(record.scopeId, record.id);
+    const stored: StoredClarification = {
       record,
       scopeId: record.scopeId,
       expiresAt: new Date(input.now.getTime() + CLARIFICATION_RETENTION_MS),
+    };
+    const accountUid = input.accountUid;
+    if (accountUid === undefined) {
+      await this.storage.set<StoredClarification>(path, stored);
+      return record;
+    }
+    await this.storage.runTransaction(async (tx) => {
+      await requireLiveAccount(tx, accountUid); // the deletion fence (#772)
+      tx.set<StoredClarification>(path, stored);
     });
     return record;
   }

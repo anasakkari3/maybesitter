@@ -76,6 +76,7 @@ async function json(response: Response): Promise<Record<string, any>> {
 }
 
 async function setProfile(uid: string, locale: 'ar' | 'en' | 'he'): Promise<void> {
+  await seedLiveAccount(uid); // #772: plan writers refuse an account without a live user document
   const storage = getStorage();
   const existing = await storage.get<UserDocument>(userDoc(uid));
   await storage.set<UserDocument>(userDoc(uid), { ...(existing as UserDocument), timezone: ZONE, locale });

@@ -42,8 +42,9 @@ import {
   type RoutineFactKey,
 } from '../../memory/routineFacts';
 import { createPilotAuditEvent } from '../../pilot/closedPilotControls';
-import { appendAudit } from '../../pilot/pilotTrustStore';
+import { appendAuditWhileLive } from '../../pilot/pilotTrustStore';
 import { createStorageRuntimeMemoryStore, personalizationWriteGuard } from '../../runtimeMemory/runtimeMemoryStore';
+import { assertLiveAccount } from '../../account/accountLiveness';
 import { getStorage, requireUserId, userDoc, type StorageAdapter } from '../../storage';
 import type { RuntimeMemoryStore } from '../../../src/contracts/v1/memoryContracts';
 
@@ -127,6 +128,9 @@ export async function saveRoutineProfile(
 
   await storage.runTransaction(async (tx) => {
     const current = await tx.get<ProfileBearingUser>(userDoc(uid));
+    // The account deletion fence (#772): a merge into a swept account would
+    // re-create its user document.
+    assertLiveAccount(current);
     tx.merge<ProfileBearingUser>(userDoc(uid), {
       profile: { ...(current?.profile ?? {}), routine: profile },
     });
@@ -136,7 +140,10 @@ export async function saveRoutineProfile(
 
   // After the writes commit, for the same reason consent does it that way: an
   // audit line for a save that did not happen is worse than a missing one.
-  await appendAudit(createPilotAuditEvent({
+  // Behind the account deletion fence (#772, Q772C-002): a plain append would
+  // re-create the audit collection under an account swept since the facts were
+  // written, and the save would still answer success.
+  await appendAuditWhileLive(createPilotAuditEvent({
     version: 'v1',
     eventType: 'profile_updated',
     participantId: uid,
@@ -144,7 +151,7 @@ export async function saveRoutineProfile(
     outcome: 'recorded',
     reasonCode: options.reasonCode
       ?? (profile.surveySkipped ? 'routine_survey_skipped' : 'routine_survey_saved'),
-  }));
+  }), storage);
 
   return { profile, facts };
 }
@@ -185,7 +192,10 @@ export async function reconcileRoutineFacts(
   options: RoutineProfileOptions = {},
 ): Promise<SaveRoutineProfileResult['facts']> {
   const memory = memoryOf(options);
-  // Every fact write below is fenced against a delete-all or a withdrawal (M5B2A-R34-001).
+  // Every fact write below is fenced against a delete-all or a withdrawal
+  // (M5B2A-R34-001), and against the account's deletion (#772, Q772C-001):
+  // the profile merge committed in its own transaction, so a deletion can land
+  // between it and any of these.
   const guard = await personalizationWriteGuard(storageOf(options), uid);
   const existing = groupByKey(await memory.listAll(uid));
   const desired = groupInputsByKey(routineProfileToFacts(profile, uid, { observedAt: at }));
@@ -214,7 +224,7 @@ export async function reconcileRoutineFacts(
       superseded += 1;
     }
     for (let index = paired; index < before.length; index += 1) {
-      await memory.revoke(before[index]!.id, at);
+      await memory.revoke(before[index]!.id, at, guard);
       revoked += 1;
     }
     for (let index = paired; index < after.length; index += 1) {

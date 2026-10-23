@@ -44,8 +44,20 @@
  * timestamp is a parameter and every id is derived, so an append is fully
  * reproducible — which is what makes the idempotency above verifiable rather
  * than merely likely.
+ *
+ * ── The account deletion fence (#772) ────────────────────────────
+ *
+ * A store built with `{ accountScoped: true }` treats every scope id as the
+ * account it lives under, and every write (`append`, `revoke`,
+ * `writeBaseline`) reads `users/{scope}` in the transaction that writes and
+ * refuses (`AccountUnavailableError`) unless the account is live. The mobile
+ * feedback-history routes build theirs that way: their scope is the verified
+ * uid. A store without the option keeps the old behaviour, because its scope
+ * may be a session, a conversation or `local` on the frozen legacy surfaces,
+ * whose `users/{scope}` root is no account at all.
  */
 import { createHash } from 'node:crypto';
+import { requireLiveAccount } from '../account/accountLiveness';
 import {
   FEEDBACK_EVENT_SCHEMA_VERSION,
   type AppendFeedbackEventInput,
@@ -304,8 +316,22 @@ function baselinePath(scopeId: string): string {
   return `${userCol(userIdForKey(scopeId), FEEDBACK_BASELINES)}/${docIdForKey(scopeId)}`;
 }
 
+export interface FeedbackEventStoreOptions {
+  /** Scope ids are account uids: every write re-reads the deletion fence (#772). */
+  readonly accountScoped?: boolean;
+}
+
+type FenceReader = Parameters<typeof requireLiveAccount>[0];
+
 export class StorageFeedbackEventStore implements FeedbackEventStore {
-  constructor(private readonly injected?: StorageAdapter) {}
+  /** Refuses unless the scope's account is live; a no-op when not account-scoped. */
+  private readonly fence: (tx: FenceReader, scopeId: string) => Promise<void>;
+
+  constructor(private readonly injected?: StorageAdapter, options: FeedbackEventStoreOptions = {}) {
+    this.fence = options.accountScoped
+      ? async (tx, scopeId) => { await requireLiveAccount(tx, userIdForKey(scopeId)); }
+      : async () => undefined;
+  }
 
   /** Resolved per call so a test may swap the adapter after construction. */
   private get storage(): StorageAdapter {
@@ -341,6 +367,7 @@ export class StorageFeedbackEventStore implements FeedbackEventStore {
     // returned untouched: its recordedAt is when we first heard about the
     // behaviour, and a retry is not new information.
     return this.storage.runTransaction(async (tx) => {
+      await this.fence(tx, candidate.scopeId);
       const existing = await tx.get<FeedbackEvent>(path);
       if (existing && isFeedbackEvent(existing)) return freezeEvent(existing);
       tx.set<FeedbackEvent>(path, candidate);
@@ -384,8 +411,16 @@ export class StorageFeedbackEventStore implements FeedbackEventStore {
     // Not an error, but not a second correction either: the first timestamp
     // is when the user objected, and re-stamping it would misdate them.
     if (held.event.revokedAt !== undefined) return false;
-    await this.storage.set<FeedbackEvent>(held.path, withRevocation(held.event, at));
-    return true;
+    // Re-read in the writing transaction, behind the account fence: the event
+    // the group read found may have been revoked since, or swept with its
+    // account, and a revocation must not re-create it.
+    return this.storage.runTransaction(async (tx) => {
+      await this.fence(tx, held.event.scopeId);
+      const current = await tx.get<FeedbackEvent>(held.path);
+      if (!current || !isFeedbackEvent(current) || current.revokedAt !== undefined) return false;
+      tx.set<FeedbackEvent>(held.path, withRevocation(freezeEvent(current), at));
+      return true;
+    });
   }
 
   async deleteScope(scopeId: string): Promise<number> {
@@ -423,12 +458,18 @@ export class StorageFeedbackEventStore implements FeedbackEventStore {
       fail('baseline must carry the current version, a scopeId, five non-negative integer counters, '
         + 'migratedAt, and timestampsUnavailable: true');
     }
-    await this.storage.set<FeedbackBaseline>(baselinePath(baseline.scopeId), buildBaseline(baseline));
+    await this.storage.runTransaction(async (tx) => {
+      await this.fence(tx, baseline.scopeId);
+      tx.set<FeedbackBaseline>(baselinePath(baseline.scopeId), buildBaseline(baseline));
+    });
   }
 }
 
-export function createStorageFeedbackEventStore(storage?: StorageAdapter): FeedbackEventStore {
-  return new StorageFeedbackEventStore(storage);
+export function createStorageFeedbackEventStore(
+  storage?: StorageAdapter,
+  options: FeedbackEventStoreOptions = {},
+): FeedbackEventStore {
+  return new StorageFeedbackEventStore(storage, options);
 }
 
 /**

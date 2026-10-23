@@ -7,6 +7,7 @@
  * so the app's existing handling of a quota, an over-long text or an
  * unreadable file applies to a Gmail scan and a Drive import unchanged.
  */
+import { AccountUnavailableError, accountUnavailableResponse } from '../../account/accountLiveness';
 import { CaptureInputTooLargeError } from '../../services/captureBoundary/captureBoundaryService';
 import { ShareQuotaError } from '../../services/share/shareIntakeService';
 import { ShareInputError, ShareTextTooLongError } from '../../services/share/shareTypes';
@@ -38,6 +39,9 @@ export function invalidGoogleRequest(): Response {
 }
 
 export function googleFailureResponse(error: unknown): Response {
+  // A write the account deletion fence refused (#772): the same 403 a deleted
+  // account gets at sign-in.
+  if (error instanceof AccountUnavailableError) return accountUnavailableResponse();
   if (error instanceof GoogleCalendarConsentError) {
     return Response.json(
       { success: false, error: 'calendar_consent_required', reason: 'calendar_consent_required' },

@@ -50,6 +50,7 @@ import { getStorage, HARD_REMINDERS, userDoc, type StorageAdapter } from '../../
 import { commitmentDocPath } from '../mobile/participantState';
 import { mustRingIdentifier } from './mustRingIdentifier';
 import { hardSettingsOfUser, ringsForMust, type HardReminderSettings } from '../mobile/reminderSettingsService';
+import { liveAccount } from '../../account/accountLiveness';
 import {
   HARD_LOOKBACK_MS,
   hardFireAtFor,
@@ -250,6 +251,12 @@ async function processRow(
       tx.get<Commitment>(commitmentDocPath(uid, entry.commitmentId)),
       entry.localReceipt ? tx.get<DeviceRecord>(devicePath(uid, entry.localReceipt.installationId)) : null,
     ]);
+    // The account deletion fence (#772, Q772C-005), before the claim: a row
+    // under a deleted account is neither claimed nor sent, and nothing is
+    // written to it — the sweep takes it. The no-op outcome rather than a
+    // throw: this is one account among many in a background sweep, and a
+    // deleted account is not a failure of the job.
+    if (!liveAccount(user)) return { decision: { kind: 'skip' } as HardDecision };
     const settings = hardSettingsOfUser(user);
     const decision = decideHardReminder({
       entry,
@@ -294,19 +301,32 @@ async function processRow(
   } catch (error) {
     // Not retried: the row stays out of `pending`, which is the at-most-once
     // half of the contract. The reason says what happened.
-    await storage.runTransaction(async (tx) => {
-      await tx.get(path);
-      tx.merge<HardReminderEntry>(path, { status: 'suppressed', reason: 'send_failed', updatedAt: at });
-    });
+    await writeBackWhileLive(storage, uid, path, { status: 'suppressed', reason: 'send_failed', updatedAt: at });
     throw error;
   }
   const reason = RESULT_REASON[result.status];
   if (reason) {
-    await storage.runTransaction(async (tx) => {
-      await tx.get(path);
-      tx.merge<HardReminderEntry>(path, { status: 'suppressed', reason, updatedAt: at });
-    });
+    await writeBackWhileLive(storage, uid, path, { status: 'suppressed', reason, updatedAt: at });
     return 'suppressed';
   }
   return 'sent';
+}
+
+/**
+ * A result written back after the send (#772, Q772F-001): only onto a row that
+ * still exists under a live account. A deletion that landed during the send
+ * swept or is sweeping the row; merging into it would re-create
+ * `users/{uid}/hardReminders/{id}` behind the deletion.
+ */
+async function writeBackWhileLive(
+  storage: StorageAdapter,
+  uid: string,
+  path: string,
+  patch: Partial<HardReminderEntry>,
+): Promise<void> {
+  await storage.runTransaction(async (tx) => {
+    const [entry, user] = await Promise.all([tx.get<HardReminderEntry>(path), tx.get<unknown>(userDoc(uid))]);
+    if (!entry || !liveAccount(user)) return;
+    tx.merge<HardReminderEntry>(path, patch);
+  });
 }

@@ -24,6 +24,7 @@
  * `tests/packs/packWatcherIntegrity.test.ts` asserts the invariant directly.
  */
 
+import { requireLiveAccount } from '../account/accountLiveness';
 import { getStorage, type StorageAdapter } from '../storage';
 import { PACK_INSTALLATIONS, userCol, userSubDoc } from '../storage/paths';
 import type { PackInstallationRecord } from '../../src/contracts/v1/verticalPackContracts';
@@ -117,11 +118,16 @@ export async function forgetPackWatcher(
     const keep = record.watcherIds
       .map((id, index) => ({ id, templateId: record.templateIds[index] }))
       .filter((entry) => entry.id !== watcherId);
-    await storage.set(userSubDoc(scopeId, PACK_INSTALLATIONS, record.packId), {
-      ...record,
-      watcherIds: Object.freeze(keep.map((entry) => entry.id)),
-      templateIds: Object.freeze(keep.map((entry) => entry.templateId).filter((id): id is string => id !== undefined)),
-      updatedAt: now,
+    // The account deletion fence (#772): the pruned record is written only
+    // while the account is live.
+    await storage.runTransaction(async (tx) => {
+      await requireLiveAccount(tx, scopeId);
+      tx.set(userSubDoc(scopeId, PACK_INSTALLATIONS, record.packId), {
+        ...record,
+        watcherIds: Object.freeze(keep.map((entry) => entry.id)),
+        templateIds: Object.freeze(keep.map((entry) => entry.templateId).filter((id): id is string => id !== undefined)),
+        updatedAt: now,
+      });
     });
     touched.push(record.packId);
   }

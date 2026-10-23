@@ -19,7 +19,15 @@
  * which is fixed at construction and never taken from a caller's argument.
  * There is no method that accepts a uid, so there is no method that can be
  * handed the wrong one.
+ *
+ * ── The account deletion fence (#772) ────────────────────────────
+ *
+ * A put reads `users/{uid}` in the transaction that writes the row and refuses
+ * (`AccountUnavailableError`) unless the account is live, so a save in flight
+ * when the account is deleted cannot re-create a row under it. The deletes are
+ * left plain: removing a row can never re-create anything.
  */
+import { requireLiveAccount } from '../../account/accountLiveness';
 import {
   isFinancialFieldId,
   type FinancialFieldId,
@@ -84,8 +92,16 @@ export class StoredManualFinancialStore {
     };
   }
 
+  /** One row, written only while the account is live (#772). */
+  private async putRow(path: string, row: StoredRow): Promise<void> {
+    await this.storage.runTransaction(async (tx) => {
+      await requireLiveAccount(tx, this.uid);
+      tx.set<StoredRow>(path, row);
+    });
+  }
+
   async putField(row: ManualFieldRow): Promise<void> {
-    await this.storage.set<StoredFieldRow>(this.path(fieldDocId(row.field)), { ...row, rowType: 'field' });
+    await this.putRow(this.path(fieldDocId(row.field)), { ...row, rowType: 'field' });
   }
 
   /** The undo: the field goes back to whatever the provider says about it. */
@@ -94,10 +110,7 @@ export class StoredManualFinancialStore {
   }
 
   async putObligation(row: ManualObligationRow): Promise<void> {
-    await this.storage.set<StoredObligationRow>(this.path(obligationDocId(row.obligationId)), {
-      ...row,
-      rowType: 'obligation',
-    });
+    await this.putRow(this.path(obligationDocId(row.obligationId)), { ...row, rowType: 'obligation' });
   }
 
   async deleteObligation(obligationId: string): Promise<void> {

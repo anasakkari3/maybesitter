@@ -33,6 +33,7 @@ import {
   type CommitmentCategory,
   type CommitmentCategoryPreferences,
 } from '../../../src/contracts/v1/categoryContracts';
+import { assertLiveAccount } from '../../account/accountLiveness';
 import { getStorage, type StorageAdapter } from '../../storage';
 import { userDoc } from '../../storage/paths';
 
@@ -113,6 +114,9 @@ export async function saveCategoryPreferences(
   const next = parseCategoryPreferences(body);
   return storageOf(deps).runTransaction(async (tx) => {
     const user = await tx.get<CategoryPreferencesBearingUser>(userDoc(uid));
+    // The account deletion fence (#772): a save in flight when the account is
+    // deleted must not re-create the user document it was about to rewrite.
+    assertLiveAccount(user);
     tx.set(userDoc(uid), { ...(user ?? {}), categoryPreferences: next });
     return next;
   });

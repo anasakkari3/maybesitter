@@ -16,6 +16,7 @@
  * The clock is fixed: Tuesday 2026-09-29 12:00 in Jerusalem (UTC+3 until
  * 2026-10-25, which the eight-week horizon crosses — the DST case).
  */
+import { seedLiveAccount } from '../support/liveAccount.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createMemoryStorage, type MemoryStorageAdapter } from '../../lib/storage/memoryAdapter.ts';
@@ -55,9 +56,11 @@ const SATURDAY_TRAINING: WeeklyBlockInput = {
 };
 
 let storage: MemoryStorageAdapter;
-function fresh(): MemoryStorageAdapter {
+async function fresh(): Promise<MemoryStorageAdapter> {
   storage = createMemoryStorage();
   setStorageForTests(storage);
+  // #772: weekly block writers re-read a live account.
+  await seedLiveAccount(UID, storage);
   return storage;
 }
 test.afterEach(() => resetStorageForTests());
@@ -87,7 +90,7 @@ test('the weekly source is its own busy kind, and a phone upload cannot claim it
 });
 
 test('create: eight Saturdays 10:00–16:00 on the Jerusalem clock, across the DST change, title-free', async () => {
-  fresh();
+  await fresh();
   const { block } = await createWeeklyBlock(UID, SATURDAY_TRAINING, { storage, now: T0 });
   assert.equal(block.status, 'active');
   assert.equal(block.source, 'manual');
@@ -114,7 +117,7 @@ test('create: eight Saturdays 10:00–16:00 on the Jerusalem clock, across the D
 });
 
 test('create on the Saturday itself, mid-session: today\'s occurrence still blocks what is left of it', async () => {
-  fresh();
+  await fresh();
   const saturdayNoon = new Date('2026-10-03T09:00:00.000Z');
   const { block } = await createWeeklyBlock(UID, SATURDAY_TRAINING, { storage, now: saturdayNoon });
   const [first] = await occurrencesOf(block.id);
@@ -123,7 +126,7 @@ test('create on the Saturday itself, mid-session: today\'s occurrence still bloc
 });
 
 test('pause removes every occurrence that has not ended, and keeps the past exactly as it was', async () => {
-  fresh();
+  await fresh();
   const { block } = await createWeeklyBlock(UID, SATURDAY_TRAINING, { storage, now: T0 });
   const before = await occurrencesOf(block.id);
   const later = new Date(T0.getTime() + 15 * DAY); // Wed 2026-10-14: two Saturdays have passed
@@ -143,7 +146,7 @@ test('pause removes every occurrence that has not ended, and keeps the past exac
 });
 
 test('an edit re-expands the future and never rewrites a past occurrence', async () => {
-  fresh();
+  await fresh();
   const { block } = await createWeeklyBlock(UID, SATURDAY_TRAINING, { storage, now: T0 });
   const later = new Date(T0.getTime() + 15 * DAY);
   const past = (await occurrencesOf(block.id)).filter((o) => Date.parse(o.endAt) <= later.getTime());
@@ -158,7 +161,7 @@ test('an edit re-expands the future and never rewrites a past occurrence', async
 });
 
 test('a patch that would put the start after the end is refused and changes nothing', async () => {
-  fresh();
+  await fresh();
   const { block } = await createWeeklyBlock(UID, SATURDAY_TRAINING, { storage, now: T0 });
   const occurrences = await occurrencesOf(block.id);
   await assert.rejects(() => patchWeeklyBlock(UID, block.id, { start: '17:00' }, { storage, now: T0 }), /overnight/);
@@ -167,7 +170,7 @@ test('a patch that would put the start after the end is refused and changes noth
 });
 
 test('delete removes the block and every occurrence, past ones included', async () => {
-  fresh();
+  await fresh();
   const { block } = await createWeeklyBlock(UID, SATURDAY_TRAINING, { storage, now: T0 });
   const later = new Date(T0.getTime() + 15 * DAY);
   assert.equal(await deleteWeeklyBlock(UID, block.id, { storage, now: later }), true);
@@ -178,7 +181,7 @@ test('delete removes the block and every occurrence, past ones included', async 
 });
 
 test('the renewal sweep extends only the blocks that are due, and prunes history older than four weeks', async () => {
-  fresh();
+  await fresh();
   const { block: due } = await createWeeklyBlock(UID, SATURDAY_TRAINING, { storage, now: T0 });
   const { block: paused } = await createWeeklyBlock(UID, { ...SATURDAY_TRAINING, title: 'دوام', weekdays: [0] }, { storage, now: T0 });
   await patchWeeklyBlock(UID, paused.id, { status: 'paused' }, { storage, now: T0 });
@@ -203,7 +206,7 @@ test('the renewal sweep extends only the blocks that are due, and prunes history
 });
 
 test('the occurrences read joins the title back, in the window asked for', async () => {
-  fresh();
+  await fresh();
   const { block } = await createWeeklyBlock(UID, SATURDAY_TRAINING, { storage, now: T0 });
   const occurrences = await listWeeklyBlockOccurrences(UID, {
     startsAt: '2026-10-01T00:00:00.000Z',
@@ -217,7 +220,7 @@ test('the occurrences read joins the title back, in the window asked for', async
 });
 
 test('covering: inside an active Saturday session, and nowhere else', async () => {
-  fresh();
+  await fresh();
   const { block } = await createWeeklyBlock(UID, SATURDAY_TRAINING, { storage, now: T0 });
   const inside = await weeklyBlockCovering(UID, new Date('2026-10-03T09:00:00.000Z'), { storage });
   assert.equal(inside?.block.id, block.id);
@@ -227,7 +230,7 @@ test('covering: inside an active Saturday session, and nowhere else', async () =
 });
 
 test('the device event carries what one recurring calendar event needs', async () => {
-  fresh();
+  await fresh();
   const { block } = await createWeeklyBlock(UID, SATURDAY_TRAINING, { storage, now: T0 });
   assert.deepEqual(presentWeeklyBlock(block).deviceEvent, {
     title: 'تدريب', weekdays: [6], start: '10:00', end: '16:00', timezone: TZ, startsOn: '2026-10-03',

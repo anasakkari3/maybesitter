@@ -27,6 +27,8 @@ import { userDoc, WATCHERS } from '../../lib/storage/paths.ts';
 import { disablePack, enablePack, listPackInstallations } from '../../lib/packs/packLifecycle.ts';
 import { packsClaiming } from '../../lib/packs/packWatcherGuard.ts';
 import { FOOTBALL_PACK } from '../../lib/packs/catalog.ts';
+import { seedLiveAccount } from '../support/liveAccount.ts';
+import type { StorageTransaction } from '../../lib/storage/storageAdapter.ts';
 
 const BASE = 'https://api.maybesitter.test';
 const ALICE = uidFor('PackAlice');
@@ -35,10 +37,13 @@ const NOW = '2026-09-22T09:00:00.000Z';
 let storage: MemoryStorageAdapter;
 let auth: FakeAuthControls | null = null;
 
-function begin(): void {
+async function begin(): Promise<void> {
   storage = createMemoryStorage();
   setStorageForTests(storage);
   auth = installFakeAuth();
+  // Live accounts, as authentication leaves them: the writers these tests
+  // drive directly re-read the account deletion fence (#772).
+  await seedLiveAccount(ALICE);
 }
 
 function end(): void {
@@ -64,6 +69,7 @@ function params(id: string): { params: Promise<{ id: string }> } {
 
 async function installFootball(): Promise<readonly string[]> {
   await storage.set(userDoc(ALICE), { uid: ALICE });
+  await seedLiveAccount(ALICE); // the trust record this fixture's overwrite dropped (#772)
   const outcome = await enablePack({
     pack: FOOTBALL_PACK,
     scopeId: ALICE,
@@ -82,7 +88,7 @@ async function installFootball(): Promise<readonly string[]> {
 /* ── The client may not mint a pack watcher ──────────────────────── */
 
 test('POST /api/mobile/watchers refuses a client-supplied createdBy of pack_template', async () => {
-  begin();
+  await begin();
   try {
     const response = await createWatcher(request('/api/mobile/watchers', {
       uid: ALICE,
@@ -107,7 +113,7 @@ test('POST /api/mobile/watchers refuses a client-supplied createdBy of pack_temp
 });
 
 test('a watcher a client does create is attributed to the user, and stays enable-able', async () => {
-  begin();
+  await begin();
   try {
     const response = await createWatcher(request('/api/mobile/watchers', {
       uid: ALICE,
@@ -141,7 +147,7 @@ test('a watcher a client does create is attributed to the user, and stays enable
 /* ── A disabled pack's watchers cannot be resumed from the API ───── */
 
 test('the pause route refuses to resume a watcher whose pack is disabled', async () => {
-  begin();
+  await begin();
   try {
     const watcherIds = await installFootball();
     // Paired success first: while the pack is enabled, the route works.
@@ -170,7 +176,7 @@ test('the pause route refuses to resume a watcher whose pack is disabled', async
 });
 
 test('the PATCH route refuses to enable a watcher whose pack is disabled, but still allows disabling it', async () => {
-  begin();
+  await begin();
   try {
     const watcherIds = await installFootball();
     await disablePack({ scopeId: ALICE, packId: FOOTBALL_PACK.packId, now: NOW, storage });
@@ -195,9 +201,10 @@ test('the PATCH route refuses to enable a watcher whose pack is disabled, but st
 });
 
 test('an unattributable pack watcher cannot be switched on by anybody', async () => {
-  begin();
+  await begin();
   try {
     await storage.set(userDoc(ALICE), { uid: ALICE });
+    await seedLiveAccount(ALICE); // the trust record this fixture's overwrite dropped (#772)
     // The state a crashed install used to be able to leave behind. It must not
     // be reachable any more, but if one ever appears it fails closed rather
     // than running unstoppably.
@@ -250,7 +257,7 @@ async function assertEveryPackWatcherIsClaimed(uid: string): Promise<number> {
 }
 
 test('a completed install leaves every pack watcher claimed by exactly one record', async () => {
-  begin();
+  await begin();
   try {
     await installFootball();
     assert.equal(await assertEveryPackWatcherIsClaimed(ALICE), FOOTBALL_PACK.watcherTemplates.length);
@@ -260,9 +267,10 @@ test('a completed install leaves every pack watcher claimed by exactly one recor
 });
 
 test('an install missing a subject creates nothing at all, so no watcher is left unclaimed', async () => {
-  begin();
+  await begin();
   try {
     await storage.set(userDoc(ALICE), { uid: ALICE });
+    await seedLiveAccount(ALICE); // the trust record this fixture's overwrite dropped (#772)
     const [first] = FOOTBALL_PACK.watcherTemplates;
     await assert.rejects(
       enablePack({
@@ -291,18 +299,29 @@ test('an install missing a subject creates nothing at all, so no watcher is left
 });
 
 test('an install whose record write fails undoes the watchers it already created', async () => {
-  begin();
+  await begin();
   try {
     await storage.set(userDoc(ALICE), { uid: ALICE });
-    const realSet = storage.set.bind(storage);
+    await seedLiveAccount(ALICE); // the trust record this fixture's overwrite dropped (#772)
+    const realRun = storage.runTransaction.bind(storage);
     // Fail exactly the installation-record write, after both watchers exist.
-    storage.set = (async (path: string, value: unknown) => {
-      if (path.includes('/packInstallations/')) throw new Error('storage exploded');
-      return realSet(path, value as never);
-    }) as typeof storage.set;
+    // It is a transactional write now (the #772 account fence reads the
+    // account in the same transaction), so the failure is staged there.
+    storage.runTransaction = (async (fn: (tx: StorageTransaction) => Promise<unknown>) => realRun((tx) => fn(new Proxy(tx, {
+      get(target, key) {
+        if (key === 'set') {
+          return (path: string, value: unknown) => {
+            if (path.includes('/packInstallations/')) throw new Error('storage exploded');
+            return target.set(path, value);
+          };
+        }
+        const member = Reflect.get(target, key);
+        return typeof member === 'function' ? member.bind(target) : member;
+      },
+    })))) as typeof storage.runTransaction;
 
     await assert.rejects(installFootball(), /storage exploded/);
-    storage.set = realSet;
+    storage.runTransaction = realRun;
 
     const rows = (await storage.listGroup<StoredWatcher>(WATCHERS))
       .filter((row) => row.path.startsWith(`${userDoc(ALICE)}/`));
@@ -314,7 +333,7 @@ test('an install whose record write fails undoes the watchers it already created
 });
 
 test('deleting a pack watcher stops the record claiming it, and a re-enable reinstalls the template', async () => {
-  begin();
+  await begin();
   try {
     const watcherIds = await installFootball();
     const victim = watcherIds[0]!;

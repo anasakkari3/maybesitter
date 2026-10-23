@@ -19,6 +19,7 @@
  * these assert on: the invariant is about what crosses that line, not about
  * what a real model would answer.
  */
+import { seedLiveAccount } from '../support/liveAccount.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
@@ -126,7 +127,8 @@ function modelSpy(answer: (shown: number) => number[] = (shown) => Array.from({ 
   return spy;
 }
 
-function share(input: Partial<ShareIntakeInput>, context: Partial<ShareIntakeContext> = {}) {
+async function share(input: Partial<ShareIntakeInput>, context: Partial<ShareIntakeContext> = {}) {
+  await seedLiveAccount(USER); // #772: the share's proposal is written behind the account deletion fence
   return proposeFromShare(
     { files: [], timezone: 'Asia/Jerusalem', referenceTime: REFERENCE_TIME, ...input },
     {

@@ -30,8 +30,9 @@ import {
   type UpsertIntegrationConnectionInput,
   type ContextProviderKind,
 } from '../../../../src/contracts/v1/integrationConnectionContracts';
-import { PROVIDER_CONNECTIONS, docIdForKey, userCol, userSubDoc } from '../../../storage/paths';
+import { PROVIDER_CONNECTIONS, docIdForKey, userCol, userDoc, userSubDoc } from '../../../storage/paths';
 import type { StorageAdapter } from '../../../storage/storageAdapter';
+import { AccountUnavailableError, requireLiveAccount } from '../../../account/accountLiveness';
 
 /** Deterministic, so reconnecting replaces rather than duplicates. */
 export function connectionIdFor(provider: ContextProviderKind): string {
@@ -60,6 +61,12 @@ export class StoredIntegrationConnectionStore implements IntegrationConnectionSt
     const connectionId = connectionIdFor(input.identity.provider);
     const path = this.path(connectionId);
     return this.storage.runTransaction(async (tx) => {
+      // The account deletion fence (#772): a connection completed after the
+      // account was deleted is refused before it is stored. `markState` is
+      // fenced the same way; account deletion's own Google revocation hook,
+      // which runs after `markDeleted`, has its own narrower method
+      // (`markRevokedForAccountDeletion`).
+      await requireLiveAccount(tx, this.uid);
       const existing = await tx.get<IntegrationConnectionRecord>(path);
       const record: IntegrationConnectionRecord = {
         version: INTEGRATION_CONNECTION_CONTRACT_VERSION,
@@ -105,6 +112,13 @@ export class StoredIntegrationConnectionStore implements IntegrationConnectionSt
     });
   }
 
+  /**
+   * Behind the account deletion fence (#772, Q772C-004). A refresh, a resource
+   * call or a disconnect that began before the deletion reaches this after
+   * `markDeleted`: unfenced, it would overwrite the deletion hook's `revoked`
+   * with `error` or `needs_reauth`. Refused (`AccountUnavailableError`) unless
+   * the account is live, in the transaction that writes.
+   */
   async markState(
     connectionId: string,
     state: IntegrationConnectionState,
@@ -113,6 +127,7 @@ export class StoredIntegrationConnectionStore implements IntegrationConnectionSt
   ): Promise<IntegrationConnectionRecord | null> {
     const path = this.path(connectionId);
     return this.storage.runTransaction(async (tx) => {
+      await requireLiveAccount(tx, this.uid);
       const existing = await tx.get<IntegrationConnectionRecord>(path);
       if (!existing) return null;
       const next: IntegrationConnectionRecord = {
@@ -122,6 +137,39 @@ export class StoredIntegrationConnectionStore implements IntegrationConnectionSt
         // time rather than only a label.
         revokedAt: state === 'revoked' ? (existing.revokedAt ?? now) : existing.revokedAt,
         ...(errorCode ? { errorCode } : {}),
+        updatedAt: now,
+      } as IntegrationConnectionRecord;
+      tx.set(path, next);
+      return next;
+    });
+  }
+
+  /**
+   * The one connection write account deletion makes (#772, Q772C-004): the
+   * Google revocation hook marks the record `revoked` after `markDeleted` and
+   * before the sweep. Only that: the root must be there and marked deleted
+   * (`trust.deletedAt` set) — a live account disconnects through `markState`
+   * — and the record must still exist, so nothing is re-created after the
+   * sweep. The transition is monotonic: a record already `revoked` is left as
+   * it is, its first `revokedAt` the auditable one. Null when there is no
+   * record; `AccountUnavailableError` when the root is not marked deleted.
+   */
+  async markRevokedForAccountDeletion(
+    connectionId: string,
+    now: string,
+  ): Promise<IntegrationConnectionRecord | null> {
+    const path = this.path(connectionId);
+    return this.storage.runTransaction(async (tx) => {
+      const user = await tx.get<{ trust?: { deletedAt?: unknown } }>(userDoc(this.uid));
+      const deletedAt = user?.trust?.deletedAt;
+      if (typeof deletedAt !== 'string' || deletedAt === '') throw new AccountUnavailableError();
+      const existing = await tx.get<IntegrationConnectionRecord>(path);
+      if (!existing) return null;
+      if (existing.state === 'revoked') return existing;
+      const next: IntegrationConnectionRecord = {
+        ...existing,
+        state: 'revoked',
+        revokedAt: existing.revokedAt ?? now,
         updatedAt: now,
       } as IntegrationConnectionRecord;
       tx.set(path, next);

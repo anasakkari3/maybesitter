@@ -1,3 +1,4 @@
+import { AccountUnavailableError, accountUnavailableResponse } from '../../../../../../../lib/account/accountLiveness';
 import { mobileAuthErrorResponse, requireMobileUser } from '../../../../../../../lib/auth/mobileAuth';
 import { moduleDisabledResponse } from '../../../../../../../lib/services/mobile/moduleGate';
 import {
@@ -62,6 +63,7 @@ export async function POST(request: Request) {
     const result = await confirmProfileSuggestions(user.uid, body.proposalId, accepted, new Date());
     return Response.json({ success: true, ...result });
   } catch (error) {
+    if (error instanceof AccountUnavailableError) return accountUnavailableResponse();
     if (error instanceof ProposalNotFoundError) {
       return Response.json(
         { success: false, error: 'proposal not found', reason: 'proposal_not_found' },

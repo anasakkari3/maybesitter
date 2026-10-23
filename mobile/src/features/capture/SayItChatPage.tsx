@@ -189,6 +189,9 @@ export interface SayItChatPageProps {
 
 /** The avatar column: a 32-point dot plus the gap to the bubble. */
 const AVATAR_COLUMN = 42;
+/** The save's check before its words: the icon, then the gap to the words. */
+const SAVED_ICON = 22;
+const SAVED_ICON_GAP = 10;
 
 export function SayItChatPage({
   colors: p, fonts, copy, text, onChangeText, onSend, canSend, inputDisabled = false, composerDisabled = false, toolsDisabled = false, onClose, onMore, onPaste,
@@ -351,12 +354,23 @@ export function SayItChatPage({
    * words are always inside an accessible element that stays — the newest
    * reply's `-words` view, a whole message without controls, or (`ownElement`)
    * the words' own view in a message whose bubble is a container.
+   *
+   * A save's check sits in the start padding of its line (`savedLine`), out
+   * of flow, and the words fill the rest — never a row beside them. In a row,
+   * the words would only fit by shrinking, and Yoga skips that shrink when it
+   * measures the row at an exact height (`canSkipFlex`, which the bubble's
+   * own measuring does): the row came back at icon + gap + one unbroken line
+   * and pushed the bubble past the column and off the screen's start edge at
+   * the default size (simulator 2026-10-24, screens 32 and 34).
    */
   const replyWords = (value: Said, testID: string, ownElement = false) => {
     const saved = value.tone === 'saved';
     return <>
-      {saved ? <ChatIcon name="checkCircle" size={22} color={p.success} /> : null}
-      <View style={saved ? styles.savedWords : styles.words}
+      {saved ? <View testID={`${testID}-check`} style={styles.savedIcon}
+        accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
+        <ChatIcon name="checkCircle" size={SAVED_ICON} color={p.success} />
+      </View> : null}
+      <View style={styles.words}
         {...(ownElement ? { accessible: true, accessibilityRole: 'text' as const, accessibilityLabel: value.text, testID: `${testID}-said` } : {})}>
         <RemeasureOnTextScale>
           {value.text.split(/\n\n+/).map((paragraph, index) => (
@@ -396,7 +410,7 @@ export function SayItChatPage({
         {avatar}
         <View style={[styles.assistantColumn, expanded && styles.expandedColumn]}>
           <View style={bubbleStyle(value)}>
-            <View style={value.tone === 'saved' ? styles.savedRow : null}>{replyWords(value, testID, value.actions != null || value.body != null)}</View>
+            <View testID={`${testID}-line`} style={value.tone === 'saved' ? styles.savedLine : null}>{replyWords(value, testID, value.actions != null || value.body != null)}</View>
             {replyExtras(value, testID)}
           </View>
           {replyTail(value, testID, false, value.actions != null || value.body != null)}
@@ -434,7 +448,7 @@ export function SayItChatPage({
                   typing bubble's native view with its label left on it. */}
               {typing ? <View key="typing" testID="chat-typing" accessible accessibilityLabel={typingLabel}>{typing}</View>
                 : reply ? <View key={`reply-${newestReply}`} testID={`${replyID}-words`} accessible accessibilityLabel={spoken(reply)}
-                  style={reply.tone === 'saved' ? styles.savedRow : null}>{replyWords(reply, replyID)}</View>
+                  style={reply.tone === 'saved' ? styles.savedLine : null}>{replyWords(reply, replyID)}</View>
                   : null}
             </LiveRegion>
             {reply ? replyExtras(reply, replyID) : null}
@@ -731,8 +745,9 @@ const styles = StyleSheet.create({
   tailBubble: { alignSelf: 'flex-start' },
   expandedBubble: { alignSelf: 'stretch' },
   words: { gap: 6 },
-  savedRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 10 },
-  savedWords: { flexShrink: 1, gap: 6 },
+  // A column, not a row: the words never depend on a shrink (see replyWords).
+  savedLine: { paddingStart: SAVED_ICON + SAVED_ICON_GAP, minHeight: SAVED_ICON },
+  savedIcon: { position: 'absolute', start: 0, top: 0, width: SAVED_ICON, height: SAVED_ICON },
   bubbleBody: { marginTop: 4, alignSelf: 'stretch' },
   bubbleActions: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginTop: 6, paddingTop: 10, borderTopWidth: StyleSheet.hairlineWidth },
   incomingTime: { marginStart: AVATAR_COLUMN, marginTop: 4 },

@@ -20,6 +20,7 @@ import { PERSONALIZATION_CONSENT_VERSION } from '../../src/contracts/v1/consentC
 import { deleteMemory } from '../../lib/services/mobile/memoryService.ts';
 import { keptFocusWindow } from '../../lib/memoryGrowth/suggestionService.ts';
 import type { UserRoutineProfile } from '../../src/contracts/v1/routineContracts.ts';
+import { seedLiveAccount } from '../support/liveAccount.ts';
 
 const UID = 'plan_hint_user';
 const ZONE = 'Asia/Jerusalem';
@@ -47,6 +48,7 @@ async function keepR1(storage: StorageAdapter, fingerprint = 'R1_focus_window:09
 async function account(consent: 'enabled' | 'disabled' | null): Promise<StorageAdapter> {
   const storage = createMemoryStorage();
   await storage.set(userDoc(UID), { uid: UID, timezone: ZONE });
+  await seedLiveAccount(UID, storage); // a live account: the consent writes re-read the deletion fence (#772)
   if (consent) {
     await setPersonalizationConsent(UID, {
       state: consent === 'enabled' ? 'granted' : 'declined',

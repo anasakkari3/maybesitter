@@ -64,6 +64,7 @@ import {
   type RuntimeMemoryStoreOptions,
 } from '../../src/contracts/v1/memoryContracts';
 import { isIsoTimestamp, isNonEmptyString } from '../evaluation/registry/validationPrimitives';
+import { assertLiveAccount } from '../account/accountLiveness';
 import {
   MEMORY,
   createMemoryStorage,
@@ -100,23 +101,34 @@ export class MemoryNotFoundError extends Error {
   }
 }
 
-/** The target still exists, but another edit already changed the chain head. */
 /**
  * A guard for a write that belongs to an operation already under way
  * (M5B2A-R34-001): the fence is read now, refused if a purge or a withdrawal
  * holds it, and every later write must find it still open at this same epoch
  * — so an operation that spans a delete-all cannot write after its sweep.
+ *
+ * Behind the account deletion fence too (#772, Q772C-001): the account must be
+ * live when the guard is taken and again in every guarded write's own
+ * transaction, or the write throws `AccountUnavailableError` before the
+ * personalization fence is even asked. An operation whose first write was
+ * fenced (a routine profile save) and whose memory writes follow in later
+ * transactions cannot write those under an account deleted in between. For a
+ * live account nothing changes: the liveness check passes and the
+ * personalization predicate answers exactly as before.
  */
 export async function personalizationWriteGuard(storage: StorageAdapter, scopeId: string): Promise<MemoryWriteGuard> {
   const read = (user: unknown) => {
     const fence = (user as { personalizationPurge?: { state?: unknown; epoch?: unknown } } | null)?.personalizationPurge ?? {};
     return { state: fence.state, epoch: Number.isSafeInteger(fence.epoch) ? fence.epoch as number : 0 };
   };
-  const start = read(await storage.get(userDoc(userIdForKey(scopeId))));
+  const user = await storage.get(userDoc(userIdForKey(scopeId)));
+  assertLiveAccount(user);
+  const start = read(user);
   if (start.state === 'purging' || start.state === 'withdrawing') throw new MemoryWriteRefusedError();
   return {
-    accepts: (user: unknown) => {
-      const now = read(user);
+    accepts: (current: unknown) => {
+      assertLiveAccount(current);
+      const now = read(current);
       return now.state !== 'purging' && now.state !== 'withdrawing' && now.epoch === start.epoch;
     },
   };
@@ -130,6 +142,7 @@ export class MemoryWriteRefusedError extends Error {
   }
 }
 
+/** The target still exists, but another edit already changed the chain head. */
 export class MemorySupersedeConflictError extends Error {
   constructor(message = 'memory changed') {
     super(message);
@@ -486,9 +499,11 @@ export class StorageRuntimeMemoryStore implements RuntimeMemoryStore {
 
       // Account deletion writes this fence before deleting the user tree. Its
       // transaction and this one therefore serialize in either safe order.
+      // A guarded write asks its guard first, so a deleted account is answered
+      // as one (`AccountUnavailableError`, #772) rather than as a missing record.
       const account = await tx.get<{ trust?: { deletedAt?: unknown } }>(userDoc(userIdForKey(prior.scopeId)));
-      if (account?.trust?.deletedAt) throw new MemoryNotFoundError();
       if (guard && !guard.accepts(account)) throw new MemoryWriteRefusedError();
+      if (account?.trust?.deletedAt) throw new MemoryNotFoundError();
 
       if (prior.status !== 'active' || prior.supersededById) {
         const detail = prior.supersededById
@@ -508,17 +523,32 @@ export class StorageRuntimeMemoryStore implements RuntimeMemoryStore {
     });
   }
 
-  async revoke(id: string, at: string): Promise<boolean> {
+  async revoke(id: string, at: string, guard?: MemoryWriteGuard): Promise<boolean> {
     assertTimestamp(at, 'at');
     const held = await this.findById(id);
     if (!held) return false;
-    // Idempotent, and the first revocation timestamp is the auditable one.
-    if (held.record.status === 'revoked') return true;
-    await this.storage.set<RuntimeMemoryRecord>(
-      held.path,
-      withStatus(held.record, { status: 'revoked', revokedAt: at, updatedAt: at }),
-    );
-    return true;
+    if (!guard) {
+      // Idempotent, and the first revocation timestamp is the auditable one.
+      if (held.record.status === 'revoked') return true;
+      await this.storage.set<RuntimeMemoryRecord>(
+        held.path,
+        withStatus(held.record, { status: 'revoked', revokedAt: at, updatedAt: at }),
+      );
+      return true;
+    }
+    // Guarded (Q772C-001): the record and the account are re-read in the
+    // write's own transaction, so a revocation that belongs to an operation
+    // already under way refuses once the account is deleted or the
+    // personalization fence moved, and never rewrites a record that went.
+    return this.storage.runTransaction(async (tx) => {
+      const stored = await tx.get<RuntimeMemoryRecord>(held.path);
+      if (!stored || !isRuntimeMemoryRecord(stored)) return false;
+      const record = freezeRecord(stored);
+      if (!guard.accepts(await tx.get(userDoc(userIdForKey(record.scopeId))))) throw new MemoryWriteRefusedError();
+      if (record.status === 'revoked') return true;
+      tx.set<RuntimeMemoryRecord>(held.path, withStatus(record, { status: 'revoked', revokedAt: at, updatedAt: at }));
+      return true;
+    });
   }
 
   async deleteById(id: string): Promise<boolean> {

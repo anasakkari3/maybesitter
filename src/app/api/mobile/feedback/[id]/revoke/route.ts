@@ -1,3 +1,4 @@
+import { AccountUnavailableError, accountUnavailableResponse } from '../../../../../../../lib/account/accountLiveness';
 import { installDefaultFeedbackHistoryPort } from '../../../../../../../lib/feedbackHistory/bootstrap';
 import { mobileAuthErrorResponse } from '../../../../../../../lib/auth/mobileAuth';
 import {
@@ -48,7 +49,14 @@ export async function POST(
   const port = requireFeedbackHistoryPort();
   if (!port) return feedbackHistoryUnavailableResponse();
 
-  const result = await port.revokeForScope({ scopeId, eventId, at: new Date().toISOString() });
+  let result;
+  try {
+    result = await port.revokeForScope({ scopeId, eventId, at: new Date().toISOString() });
+  } catch (error) {
+    // The account deletion fence refused the revocation (#772).
+    if (error instanceof AccountUnavailableError) return accountUnavailableResponse();
+    throw error;
+  }
   if (result.outcome === 'not_found') {
     // Same answer whether the event does not exist or belongs to someone else.
     // Event ids are derived from their own fields, so an id is guessable and

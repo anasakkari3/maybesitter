@@ -52,6 +52,7 @@ import {
   type UserRoutineProfile,
 } from '../../../src/contracts/v1/routineContracts';
 import { readRoutineProfile, saveRoutineProfile } from './routineProfileService';
+import { assertLiveAccount } from '../../account/accountLiveness';
 import { getStorage, requireUserId, userDoc, type StorageAdapter } from '../../storage';
 import {
   DEFAULT_PRESSURE_CEILING,
@@ -372,7 +373,9 @@ export async function saveReminderSettings(
   };
 
   await storage.runTransaction(async (tx) => {
-    await tx.get<ReminderSettingsBearingUser>(userDoc(uid));
+    // The account deletion fence (#772): a merge into a swept account would
+    // re-create its user document.
+    assertLiveAccount(await tx.get<ReminderSettingsBearingUser>(userDoc(uid)));
     tx.merge<ReminderSettingsBearingUser>(userDoc(uid), { reminderSettings: next });
   });
 

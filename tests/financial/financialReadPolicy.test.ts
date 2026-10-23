@@ -14,6 +14,7 @@
  * policy row that says `auditRequired` without a persisted record is only a
  * declaration, so these tests inspect the storage the production service uses.
  */
+import { seedLiveAccount } from '../support/liveAccount.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createMemoryStorage } from '../../lib/storage/memoryAdapter.ts';
@@ -51,6 +52,7 @@ function countingPort(): { port: FinancialDataPort; calls: () => number } {
 
 async function connectedStorage() {
   const storage = createMemoryStorage();
+  await seedLiveAccount(UID, storage); // the trust record auth creates (#772)
   await connectFinancialSandbox(UID, AS_OF, storage);
   return storage;
 }

@@ -1,3 +1,4 @@
+import { AccountUnavailableError, accountUnavailableResponse } from '../../../../../../lib/account/accountLiveness';
 import { mobileAuthErrorResponse, requireMobileUser } from '../../../../../../lib/auth/mobileAuth';
 import { moduleDisabledResponse } from '../../../../../../lib/services/mobile/moduleGate';
 import { mobileError } from '../../../../../../lib/services/mobile/response';
@@ -43,6 +44,7 @@ export async function PUT(request: Request) {
     const result = await saveRoutineProfile(user.uid, input, new Date().toISOString());
     return Response.json({ success: true, routine: result.profile, facts: result.facts });
   } catch (error) {
+    if (error instanceof AccountUnavailableError) return accountUnavailableResponse();
     if (error instanceof RoutineProfileValidationError) {
       return Response.json(
         { success: false, error: error.message, reason: 'invalid_profile' },

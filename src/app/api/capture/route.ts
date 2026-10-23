@@ -1,3 +1,4 @@
+import { AccountUnavailableError, accountUnavailableResponse } from '../../../../lib/account/accountLiveness';
 import { analyticsContextFrom } from '../../../../lib/analytics/analyticsContext';
 import { appendAnalyticsEvent } from '../../../../lib/analytics/eventStore';
 import { recordCaptureAnalytics } from '../../../../lib/analytics/loopAnalytics';
@@ -74,6 +75,8 @@ export async function POST(request: Request) {
         { status: 413 },
       );
     }
+    // The account was deleted while this capture was on its way (#772).
+    if (error instanceof AccountUnavailableError) return accountUnavailableResponse();
     throw error;
   }
 }

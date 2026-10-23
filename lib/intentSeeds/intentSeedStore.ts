@@ -47,6 +47,7 @@ import {
   userSubDoc,
   type StorageAdapter,
 } from '../storage';
+import { requireLiveAccount } from '../account/accountLiveness';
 
 /** The document, which is the seed exactly. Nothing is stored beside it. */
 type StoredSeed = IntentSeed;
@@ -104,7 +105,10 @@ export class StorageIntentSeedStore implements IntentSeedStore {
       updatedAt: now,
     };
     return this.storage.runTransaction(async (tx) => {
-      const existing = await tx.get<StoredSeed>(path);
+      const [existing] = await Promise.all([
+        tx.get<StoredSeed>(path),
+        requireLiveAccount(tx, input.scopeId), // the deletion fence (#772)
+      ]);
       // The replay. Not an error and not a second row: the first seed, with
       // the flag that lets the route answer 200 rather than 201.
       if (existing) return { seed: existing, replayed: true };
@@ -133,7 +137,10 @@ export class StorageIntentSeedStore implements IntentSeedStore {
   ): Promise<IntentSeed | null> {
     const path = seedPath(scopeId, seedId);
     return this.storage.runTransaction(async (tx) => {
-      const existing = await tx.get<StoredSeed>(path);
+      const [existing] = await Promise.all([
+        tx.get<StoredSeed>(path),
+        requireLiveAccount(tx, scopeId), // the deletion fence (#772)
+      ]);
       if (!existing) return null;
       // A promoted seed is finished. Editing the summary of something that is
       // now a commitment would leave the two disagreeing, with the commitment
@@ -169,7 +176,10 @@ export class StorageIntentSeedStore implements IntentSeedStore {
   ): Promise<IntentSeed | null> {
     const path = seedPath(scopeId, seedId);
     return this.storage.runTransaction(async (tx) => {
-      const existing = await tx.get<StoredSeed>(path);
+      const [existing] = await Promise.all([
+        tx.get<StoredSeed>(path),
+        requireLiveAccount(tx, scopeId), // the deletion fence (#772)
+      ]);
       if (!existing) return null;
       // Already promoted, or deliberately dropped. Either way this claim is
       // not the one that gets to create something.

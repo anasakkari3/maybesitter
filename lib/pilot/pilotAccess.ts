@@ -42,12 +42,7 @@ export async function resolveUserAccess(uid: string, at: string, audit = true): 
   requirePilotParticipantId(uid);
 
   const trust = await getOrCreateTrust(uid, at);
-  const controls = readRuntimeControls();
-  const decision = decidePilotExposure({
-    trust,
-    featureEnabled: controls.featureFlags.recommendation,
-    killSwitchActive: controls.killSwitches.recommendation,
-  });
+  const decision = exposureFor(trust);
 
   if (audit) {
     await appendAudit(createPilotAuditEvent({
@@ -60,6 +55,21 @@ export async function resolveUserAccess(uid: string, at: string, audit = true): 
     }));
   }
   return { decision, trust };
+}
+
+/**
+ * The exposure decision for a trust record already in hand, with no read and
+ * no write. For a caller that has just changed the record and must not go back
+ * through `getOrCreateTrust`, which would re-create `users/{uid}` if the
+ * account was swept in between (#772, Q772C-002).
+ */
+export function exposureFor(trust: PilotTrustState): PilotExposureDecision {
+  const controls = readRuntimeControls();
+  return decidePilotExposure({
+    trust,
+    featureEnabled: controls.featureFlags.recommendation,
+    killSwitchActive: controls.killSwitches.recommendation,
+  });
 }
 
 /**

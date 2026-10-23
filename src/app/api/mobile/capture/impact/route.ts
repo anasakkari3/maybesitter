@@ -1,3 +1,4 @@
+import { AccountUnavailableError, accountUnavailableResponse } from '../../../../../../lib/account/accountLiveness';
 import { mobileAuthErrorResponse, requireMobileUser } from '../../../../../../lib/auth/mobileAuth';
 import { resolveEveningImpact } from '../../../../../../lib/release/m4bCapabilities';
 import { answerEveningImpact } from '../../../../../../lib/planning/eveningImpactDecision';
@@ -19,7 +20,13 @@ export async function POST(request: Request) {
     || Object.keys(value).some((key) => !['proposalId', 'revision', 'itemId', 'readiness'].includes(key))) {
     return Response.json({ success: false, error: 'invalid_request' }, { status: 400 });
   }
-  const result = await answerEveningImpact(user.uid, value as unknown as { proposalId: string; revision: number; itemId: string; readiness: 'ready' | 'not_ready' | 'unsure' });
+  let result;
+  try {
+    result = await answerEveningImpact(user.uid, value as unknown as { proposalId: string; revision: number; itemId: string; readiness: 'ready' | 'not_ready' | 'unsure' });
+  } catch (error) {
+    if (error instanceof AccountUnavailableError) return accountUnavailableResponse();
+    throw error;
+  }
   if (result.kind === 'not_found') return Response.json({ success: false, error: 'not_found' }, { status: 404 });
   if (result.kind === 'expired') return Response.json({ success: false, error: 'proposal_expired' }, { status: 410 });
   if (result.kind === 'changed') return Response.json({ success: false, error: 'proposal_changed', proposal: result.proposal }, { status: 409 });

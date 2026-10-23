@@ -27,6 +27,8 @@ let bootstrapped = false;
  */
 export function installDefaultFeedbackHistoryPort(): void {
   if (bootstrapped || getFeedbackHistoryPort() !== null) return;
-  setFeedbackHistoryPort(createFeedbackHistoryPort(createStorageFeedbackEventStore()));
+  // Account-scoped: the routes' scope is the verified uid, so every write
+  // re-reads the account deletion fence (#772).
+  setFeedbackHistoryPort(createFeedbackHistoryPort(createStorageFeedbackEventStore(undefined, { accountScoped: true })));
   bootstrapped = true;
 }

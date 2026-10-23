@@ -1,3 +1,4 @@
+import { AccountUnavailableError, accountUnavailableResponse } from '../../../../../../lib/account/accountLiveness';
 import { mobileAuthErrorResponse, requireMobileUser } from '../../../../../../lib/auth/mobileAuth';
 import { mobileError } from '../../../../../../lib/services/mobile/response';
 import {
@@ -54,6 +55,7 @@ export async function PUT(request: Request) {
     const preferences = await saveCategoryPreferences(user.uid, body);
     return Response.json({ success: true, categoryPreferences: dto(preferences) });
   } catch (error) {
+    if (error instanceof AccountUnavailableError) return accountUnavailableResponse();
     if (error instanceof CategoryPreferencesValidationError) {
       return Response.json({ success: false, error: error.message, reason: error.reason }, { status: 400 });
     }

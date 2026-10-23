@@ -51,6 +51,7 @@ import {
   userSubDoc,
   type StorageAdapter,
 } from '../storage';
+import { requireLiveAccount } from '../account/accountLiveness';
 
 /** The document, which is the link exactly. Nothing is stored beside it. */
 type StoredLink = GoalNodeLink;
@@ -145,7 +146,10 @@ export class StorageGoalNodeLinkStore implements GoalNodeLinkStore {
       updatedAt: now,
     };
     return this.storage.runTransaction(async (tx) => {
-      const existing = await tx.get<StoredLink>(path);
+      const [existing] = await Promise.all([
+        tx.get<StoredLink>(path),
+        requireLiveAccount(tx, input.scopeId), // the deletion fence (#772)
+      ]);
       // The replay. Not an error and not a second row: the first link, with
       // the flag that tells the caller to create nothing.
       if (existing) return { link: existing, replayed: true };
@@ -162,7 +166,10 @@ export class StorageGoalNodeLinkStore implements GoalNodeLinkStore {
   ): Promise<GoalNodeLink | null> {
     const path = linkPath(scopeId, linkId);
     return this.storage.runTransaction(async (tx) => {
-      const existing = await tx.get<StoredLink>(path);
+      const [existing] = await Promise.all([
+        tx.get<StoredLink>(path),
+        requireLiveAccount(tx, scopeId), // the deletion fence (#772)
+      ]);
       if (!existing) return null;
       const settled: GoalNodeLink = { ...existing, entityId, state: 'linked', updatedAt: now };
       tx.set<StoredLink>(path, settled);
