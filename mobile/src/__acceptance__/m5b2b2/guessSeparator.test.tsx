@@ -16,7 +16,7 @@ let harness: M5bHarness | undefined;
 beforeEach(() => { process.env.TZ = ZONE; jest.useFakeTimers(); jest.setSystemTime(NOW); });
 afterEach(async () => { await teardown(harness); harness = undefined; jest.useRealTimers(); });
 
-it('a guess row separates «آه، هيك صح» from «مش صحيح» with a hidden dot; a confirmed row does not', async () => {
+it('a guess row separates the right and wrong answers with a hidden dot; a confirmed row does not', async () => {
   harness = await prepare('ar', initialState(), panelHandler(panelState({
     observations: [readdMarker('g1'), readdMarker('c1', 'confirmed', 'completed')],
   })));
