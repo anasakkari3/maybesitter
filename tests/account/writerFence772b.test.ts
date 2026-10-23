@@ -383,8 +383,10 @@ for (const step of STEPS) {
     }
   });
 
-  test(`goal graph: a link claim and a step proposal when the account is ${step} are refused and not stored`, async () => {
-    await withHarness(`goalGraph${step}`, { viaRoute: false }, async (h) => {
+  // Separate harnesses (Codex inspection Q772B-002): each race starts from a
+  // live account and a clean tree, for both deletion steps.
+  test(`goal graph: a link claim when the account is ${step} is refused and not stored`, async () => {
+    await withHarness(`goalLink${step}`, { viaRoute: false }, async (h) => {
       await race(h, step, 'link claim', async () => {
         await assert.rejects(createStorageGoalNodeLinkStore(h.storage).claim({
           scopeId: h.uid,
@@ -395,7 +397,11 @@ for (const step of STEPS) {
           confirmedByUserAt: '2026-10-03T09:00:00.000Z',
         }, '2026-10-03T09:00:00.000Z'), AccountUnavailableError);
       });
-      if (step === 'swept') return; // the account is gone; the second write is the same case
+    });
+  });
+
+  test(`goal graph: a step proposal when the account is ${step} is refused and not stored`, async () => {
+    await withHarness(`goalSteps${step}`, { viaRoute: false }, async (h) => {
       await race(h, step, 'step proposal', async () => {
         await assert.rejects(createStorageGoalStepProposalStore(h.storage).putIfAbsent(h.uid, {
           schemaVersion: GOAL_STEP_PROPOSAL_SCHEMA_VERSION,
