@@ -1730,6 +1730,8 @@
   "chatSavedGoal": "It now counts toward your goal {goals}.",
   "chatSaved": "Saved ✓ {titles}",
   "chatSavedNext": "Anything else? Tell me.",
+  "chatUnderstoodSoFar": "Here's what I understood so far.",
+  "chatUnderstoodCheckList": "Here's what I understood. Check the list and confirm it if it looks right.",
   "chatDone": "Back to Today",
   "chatProposedN": "Suggested commitments ({n})",
   "chatSaveN": "{n, plural, =0{Nothing to save} one{Save it} =2{Save both} other{Save all #}}",

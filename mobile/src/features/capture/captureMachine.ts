@@ -168,7 +168,19 @@ export interface ChatSavedNote {
  * their turns and what each saved. Memory only, like everything here, and
  * shown above the conversation that is going on now.
  */
-export type ChatEarlierEntry = { kind: 'turn'; role: CaptureChatTurn['role']; text: string } | ChatSavedNote;
+export type ChatEarlierEntry = {
+  kind: 'turn'; role: CaptureChatTurn['role']; text: string;
+  /** A reply whose question was answered before the save: what it says instead (`settledReply`). */
+  settled?: SettledReply;
+} | ChatSavedNote;
+
+/**
+ * What the newest reply says once the point its question was about is
+ * answered without a new reply (`settledReply`): «هيك فهمت لحد هلّق.» while
+ * another question still waits under it, «هيك فهمت. شوف القائمة…» when none
+ * does — the server's own words over such a list (`chatReply` templates).
+ */
+export type SettledReply = 'soFar' | 'list';
 
 /**
  * An edit the user made in review, before anything was saved.
@@ -295,6 +307,15 @@ export interface CaptureState {
    * same proposal keeps the cards open.
    */
   reviewOf: string | null;
+  /**
+   * The point the newest reply asks about, as the server chooses it: the
+   * first point of the proposal it answered with that still needs
+   * clarification (`chatReply` `itemAskingForTime`; a model reply that does
+   * not ask for that point is not shown). Read from the proposal, never from
+   * the reply's words. A `/capture/clarify` answer or a time set on the card
+   * settles the point without a new reply (sim 2026-10-24) — `settledReply`.
+   */
+  replyAsks: { proposalId: string; itemId: string } | null;
   /**
    * The draft came from dictation (M2b): the next message says `spoken: true`,
    * edited by hand or not. Forgotten when the draft is sent or emptied.
@@ -463,6 +484,7 @@ export function initialCaptureState(
     turns: [],
     earlier: [],
     reviewOf: null,
+    replyAsks: null,
     spoken: false,
     alternatives: [],
     reviewNotice: null,
@@ -542,6 +564,34 @@ const ACTIONABLE_PROPOSAL_STATUSES: ReadonlySet<CaptureProposal['status']> = new
   'proposed',
   'needs_clarification',
 ]);
+
+/** The point the reply over this proposal asks about: its first still needing clarification. */
+function askedBy(proposal: CaptureProposal | null): CaptureState['replyAsks'] {
+  const asked = proposal?.items.find((item) => item.needsClarification);
+  return proposal && asked ? { proposalId: proposal.proposalId, itemId: asked.itemId } : null;
+}
+
+/** Still waiting for its answer: what the one question under the summary asks about. */
+const stillAsked = (item: CaptureProposal['items'][number], edits: Record<string, CaptureItemEdit>): boolean =>
+  item.needsClarification && !completedByHand(edits[item.itemId]);
+
+/**
+ * Whether the newest reply's question is answered, and what it says then
+ * (sim 2026-10-24: «أي ساعة بدك «روح عالبنك»؟» stayed above a list that had
+ * both hours). Null — the reply as the server said it — unless the point it
+ * asks about (`replyAsks`) is on the proposal on screen and no longer waits.
+ * A reply with no question in it asks nothing and always stays: the refusal,
+ * «ما قدرت أطبّق التعديل», the kinds edit's «تمام، عدّلتها».
+ */
+export function settledReply(state: Pick<CaptureState, 'replyAsks' | 'proposal' | 'edits' | 'turns'>): SettledReply | null {
+  const asks = state.replyAsks;
+  const newest = state.turns[state.turns.length - 1];
+  if (!asks || !state.proposal || state.proposal.proposalId !== asks.proposalId) return null;
+  if (newest?.role !== 'assistant' || !/[?؟]/.test(newest.text)) return null;
+  const point = state.proposal.items.find((item) => item.itemId === asks.itemId);
+  if (!point || stillAsked(point, state.edits)) return null;
+  return state.proposal.items.some((item) => stillAsked(item, state.edits)) ? 'soFar' : 'list';
+}
 
 export function confirmableItems(
   proposal: CaptureProposal | null,
@@ -1065,6 +1115,7 @@ export function captureReducer(state: CaptureState, event: CaptureEvent): Captur
         alternatives: [],
         conversationId: answer.conversationId,
         turns: answer.turns,
+        replyAsks: askedBy(proposal),
         errorReason: null,
         messageKey: null,
       };
@@ -1083,7 +1134,7 @@ export function captureReducer(state: CaptureState, event: CaptureEvent): Captur
       // chips stay exactly as they were (M2b).
       const { answer } = event;
       const proposal = chatProposalShown(answer.proposal);
-      const conversation = { ...state, conversationId: answer.conversationId, turns: answer.turns, errorReason: null, messageKey: null };
+      const conversation = { ...state, conversationId: answer.conversationId, turns: answer.turns, replyAsks: askedBy(proposal), errorReason: null, messageKey: null };
       if (!proposal) {
         return { ...conversation, status: state.text.trim() ? 'editing' : 'idle', proposal: null, original: null, selected: [], edits: {}, onceOnly: [], goalUnlinked: [], reviewOf: null, refusedEdit: null };
       }
@@ -1284,7 +1335,11 @@ export function captureReducer(state: CaptureState, event: CaptureEvent): Captur
         status: state.text.trim() ? 'editing' : 'idle',
         earlier: [
           ...state.earlier,
-          ...state.turns.map((turn): ChatEarlierEntry => ({ kind: 'turn', role: turn.role, text: turn.text })),
+          ...state.turns.map((turn, index): ChatEarlierEntry => {
+            // The newest reply keeps what it said once its question was answered.
+            const settled = index === state.turns.length - 1 ? settledReply(state) : null;
+            return { kind: 'turn', role: turn.role, text: turn.text, ...(settled ? { settled } : {}) };
+          }),
           {
             kind: 'saved', persisted: saved.persisted, failed: saved.failed, collisions: saved.collisions, weeklySaved: saved.weeklySaved,
             failedTitles: saved.failed.map((item) => state.proposal?.items.find((candidate) => candidate.itemId === item.itemId)?.title ?? '')
@@ -1296,6 +1351,7 @@ export function captureReducer(state: CaptureState, event: CaptureEvent): Captur
           },
         ],
         turns: [],
+        replyAsks: null,
         conversationId: null,
         proposal: null, original: null, selected: [], edits: {}, onceOnly: [], goalUnlinked: [], errorReason: null, messageKey: null,
         reviewOf: null, deselectedPoints: [],
@@ -1334,6 +1390,7 @@ export function captureReducer(state: CaptureState, event: CaptureEvent): Captur
         proposal: null, original: null, selected: [], edits: {}, onceOnly: [], goalUnlinked: [], errorReason: null, messageKey: null,
         conversationId: null,
         turns: [],
+        replyAsks: null,
         reviewOf: null,
       };
     }

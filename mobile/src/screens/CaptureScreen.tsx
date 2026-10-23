@@ -3,7 +3,7 @@ import { AccessibilityInfo, BackHandler, Keyboard, Platform, View } from 'react-
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useApp } from '../state/AppContext';
 import { useCaptureFlow } from '../features/capture/CaptureProvider';
-import { MAX_CAPTURE_LENGTH, chatSaves, confirmableGoals, confirmableHabits, confirmableItems, confirmableThoughts, goalLinkKept, pointSelected, selectedCount, showsUnderstood, summaryPoints, wantsDiscardConfirmation, weeklyChoice, weeklyLockedByEdit, type CaptureItemEdit, type ChatSavedNote } from '../features/capture/captureMachine';
+import { MAX_CAPTURE_LENGTH, chatSaves, confirmableGoals, confirmableHabits, confirmableItems, confirmableThoughts, goalLinkKept, pointSelected, selectedCount, settledReply, showsUnderstood, summaryPoints, wantsDiscardConfirmation, weeklyChoice, weeklyLockedByEdit, type CaptureItemEdit, type ChatSavedNote, type SettledReply } from '../features/capture/captureMachine';
 import { GoalProposalCard, HabitProposalCard, SeedCommitAction, ThoughtProposalCard } from '../features/capture/ProposalPointCards';
 import { tFor } from '../i18n';
 import { LiveRegion } from '../ui/liveRegion';
@@ -356,8 +356,11 @@ export function CaptureScreen({ entryQuestion }: { entryQuestion?: { entry: Capt
   // person here, owner request 2026-09-30), then this conversation.
   const saves = chatSaves(state);
   let savedLines = 0;
+  // A reply whose question was answered by the chips or the card, with no new
+  // reply (sim 2026-10-24), says what the server says over such a list.
+  const settledText = (settled: SettledReply) => settled === 'soFar' ? t.chatUnderstoodSoFar : t.chatUnderstoodCheckList;
   const earlier: ChatHistoryEntry[] = state.earlier.map(entry => entry.kind === 'turn'
-    ? { role: entry.role, text: entry.text, ...(entry.role === 'user' ? { delivered: true } : {}) }
+    ? { role: entry.role, text: entry.settled ? settledText(entry.settled) : entry.text, ...(entry.role === 'user' ? { delivered: true } : {}) }
     : { role: 'assistant', id: `chat-saved-${++savedLines}`, tone: 'saved', text: savedNoteText(entry, t, lang, timezone), tail: t.chatSavedNext });
   const newest: { role: string; text: string; tail?: string } | undefined = state.turns.length > 0 ? state.turns[state.turns.length - 1] : earlier[earlier.length - 1];
   // Not while the entry question has the page: the chat is not showing, and
@@ -678,9 +681,10 @@ export function CaptureScreen({ entryQuestion }: { entryQuestion?: { entry: Capt
 
   const sentTime = sentAt ? ltr(formatTime(sentAt, { locale: lang, timeZone: timezone })) : undefined;
   const lastMine = state.turns.map(turn => turn.role).lastIndexOf('user');
+  const settled = settledReply(state);
   const history: ChatHistoryEntry[] = [...earlier, ...state.turns.map((turn, index): ChatHistoryEntry => turn.role === 'user'
     ? { role: 'user', text: turn.text, delivered: true, ...(index === lastMine && sentTime && state.status !== 'analyzing' ? { time: sentTime } : {}) }
-    : { role: 'assistant', text: turn.text })];
+    : { role: 'assistant', text: settled && index === state.turns.length - 1 ? settledText(settled) : turn.text })];
   // Which sheet is showing, in the order the chain above picks it: the page
   // starts each one at its top (M2B-A-R5-REVIEW-002).
   const overlayKey = bodyOverride == null ? null

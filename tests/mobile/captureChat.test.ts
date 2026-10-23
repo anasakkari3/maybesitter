@@ -1998,6 +1998,58 @@ test('the existing clarify route answers a chat proposal’s question', async ()
   }
 });
 
+/*
+ * Sim 2026-10-24 (rules path): «بدي روح عالبنك بكرا», «لازم اتصل بسامي بعد
+ * بكرا», both hours answered — and the second reply still asked the bank's
+ * hour. The server's side is held here: each answer lands on its own point,
+ * and a reply is about the first point still waiting when it is made. The
+ * stale words were the app's (`settledReply`, mobile).
+ */
+type ClarifyItem = Omit<Item, 'clarification'> & { clarification: { questionId: string; options: Array<{ optionId: string; value: { localTime?: string } }> } };
+async function clarifyTime(uid: string, proposal: Proposal, entry: Item): Promise<Proposal> {
+  const asked = entry as unknown as ClarifyItem;
+  const option = asked.clarification.options.find((candidate) => candidate.value.localTime) ?? asked.clarification.options[0]!;
+  const response = await clarifyPost(post('/api/mobile/capture/clarify', uid, {
+    proposalId: proposal.proposalId, itemId: entry.itemId, questionId: asked.clarification.questionId, optionId: option.optionId, timezone: TZ,
+  }));
+  const body = await response.json();
+  assert.equal(response.status, 200, JSON.stringify(body));
+  return body as Proposal;
+}
+
+test('rules path: two messages, two hours answered — each answer lands on its own point, and no reply asks an answered one', async () => {
+  begin({ llmProviderFor: () => null });
+  try {
+    // Both answered after the second message, as in the simulator.
+    const uid = uidFor('ChatAskAgainAfter');
+    const first = await chat(uid, 'بدي روح عالبنك بكرا');
+    assert.equal(first.engine, 'rules');
+    assert.equal(first.reply, 'هيك فهمت لحد هلّق. أي ساعة بدك «روح عالبنك»؟');
+    const second = await chat(uid, 'لازم اتصل بسامي بعد بكرا', first.conversationId);
+    assert.deepEqual(second.proposal!.items.map((entry) => [entry.title, entry.needsClarification]), [['روح عالبنك', true], ['اتصل بسامي', true]]);
+    // Right when it was said: the bank is the first point still waiting.
+    assert.equal(second.reply, 'هيك فهمت لحد هلّق. أي ساعة بدك «روح عالبنك»؟');
+    const [bankItem, samiItem] = second.proposal!.items;
+    const bankDone = await clarifyTime(uid, second.proposal!, bankItem!);
+    assert.equal(bankDone.proposalId, second.proposal!.proposalId);
+    assert.deepEqual(bankDone.items.map((entry) => [entry.itemId, entry.needsClarification]), [[bankItem!.itemId, false], [samiItem!.itemId, true]]);
+    assert.equal(bankDone.items[0]!.resolvedDate ?? localTimeSpecFor(new Date(bankDone.items[0]!.resolvedTime!), TZ)!.date, TOMORROW);
+    const bothDone = await clarifyTime(uid, bankDone, bankDone.items[1]!);
+    assert.deepEqual(bothDone.items.map((entry) => [entry.itemId, entry.needsClarification]), [[bankItem!.itemId, false], [samiItem!.itemId, false]]);
+    assert.equal(localTimeSpecFor(new Date(bothDone.items[1]!.resolvedTime!), TZ)!.date, DAY_AFTER);
+
+    // The bank answered before the second message: that reply asks about Sami.
+    const other = uidFor('ChatAskAgainBefore');
+    const opening = await chat(other, 'بدي روح عالبنك بكرا');
+    await clarifyTime(other, opening.proposal!, opening.proposal!.items[0]!);
+    const next = await chat(other, 'لازم اتصل بسامي بعد بكرا', opening.conversationId);
+    assert.deepEqual(next.proposal!.items.map((entry) => [entry.title, entry.needsClarification]), [['روح عالبنك', false], ['اتصل بسامي', true]]);
+    assert.equal(next.reply, 'هيك فهمت لحد هلّق. أي ساعة بدك «اتصل بسامي»؟');
+  } finally {
+    end();
+  }
+});
+
 /* ── 13. injection and the prompt boundary ──────────────────────── */
 
 test('an injected message is refused before the model and is not kept', async () => {
