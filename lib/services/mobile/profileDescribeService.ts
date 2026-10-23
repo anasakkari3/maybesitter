@@ -54,6 +54,7 @@ import {
   userDoc,
   type StorageAdapter,
 } from '../../storage';
+import { requireLiveAccount } from '../../account/accountLiveness';
 import {
   USER_STATED_MEMORY_TTL_MS,
   type CreateMemoryInput,
@@ -183,8 +184,12 @@ export async function describeProfile(
   return freeze(proposal);
 }
 
+/** Written only while the account is live (#772): the model call can outlast a deletion. */
 async function save(uid: string, proposal: StoredProposal, options: DescribeOptions): Promise<void> {
-  await storageOf(options).set<StoredProposal>(proposalPath(uid, proposal.proposalId), proposal);
+  await storageOf(options).runTransaction(async (tx) => {
+    await requireLiveAccount(tx, uid);
+    tx.set<StoredProposal>(proposalPath(uid, proposal.proposalId), proposal);
+  });
 }
 
 function freeze(proposal: StoredProposal): ProfileProposal {

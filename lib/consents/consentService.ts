@@ -43,6 +43,7 @@ import {
   type ConsentRecord,
   type ConsentState,
 } from '../../src/contracts/v1/consentContracts';
+import { assertLiveAccount } from '../account/accountLiveness';
 import { createPilotAuditEvent } from '../pilot/closedPilotControls';
 import { AiProcessingAlwaysOnError, alwaysOnAiRecord, isAlwaysOnConsent } from './aiProcessingPolicy';
 import { appendAudit } from '../pilot/pilotTrustStore';
@@ -175,6 +176,10 @@ async function writeConsent(
   const token = randomUUID();
   const written = await storage.runTransaction(async (tx) => {
     const current = await tx.get<ConsentBearingUser>(userDoc(uid));
+    // The account deletion fence (#772), before any caller condition: a merge
+    // into a swept account would re-create its user document, and an answer
+    // recorded under a deleted one would outlive the deletion it raced.
+    assertLiveAccount(current);
     if (accepts && !accepts(current)) return false;
     // Merged into the existing map, never replacing it: answering one question
     // must not erase the answer to the other.

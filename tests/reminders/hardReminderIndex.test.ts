@@ -80,6 +80,7 @@ async function store(...commitments: Commitment[]): Promise<DomainState> {
 
 /** The account has turned Must reminders on. */
 async function ringing(): Promise<void> {
+  await seedLiveAccount(USER); // the settings write re-reads the deletion fence (#772)
   await saveReminderSettings(USER, { hardEnabled: true, escalationCeiling: 'hard' }, NOW.toISOString());
 }
 
@@ -158,6 +159,7 @@ test('an account that has not asked for ringing indexes nothing, and asking late
 test('a survey answer alone never indexes a ring, not even "be firm" (#430 review F1)', async () => {
   const teardown = setup();
   try {
+    await seedLiveAccount(USER); // the survey write re-reads the deletion fence (#772)
     await saveRoutineProfile(USER, {
       timezone: ZONE,
       sleepWindow: null,

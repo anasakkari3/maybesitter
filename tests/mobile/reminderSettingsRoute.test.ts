@@ -22,6 +22,7 @@ import {
   setRecommendationConsent,
 } from '../../lib/consents/recommendationConsentService.ts';
 import { installFakeAuth, tokenFor, uidFor, type FakeAuthControls } from '../support/fakeAuth.ts';
+import { seedLiveAccount } from '../support/liveAccount.ts';
 
 const BASE = 'http://127.0.0.1:4321';
 const USER = uidFor('ReminderUser');
@@ -55,6 +56,7 @@ async function json(response: Response): Promise<Record<string, unknown>> {
 
 test('an account that has never chosen gets soft reminders on, an hour ahead', async () => {
   const teardown = setup();
+  await seedLiveAccount(USER); // its writers re-read the deletion fence (#772)
   try {
     const body = await json(await remindersGet(request()));
     assert.deepEqual(body.reminderSettings, {
@@ -75,6 +77,7 @@ test('an account that has never chosen gets soft reminders on, an hour ahead', a
 
 test('no token is 401', async () => {
   const teardown = setup();
+  await seedLiveAccount(USER); // its writers re-read the deletion fence (#772)
   try {
     assert.equal((await remindersGet(request(undefined, { uid: null }))).status, 401);
     assert.equal((await remindersPut(request({ softEnabled: false }, { uid: null }))).status, 401);
@@ -85,6 +88,7 @@ test('no token is 401', async () => {
 
 test('the lead time is one of the three the screen offers', async () => {
   const teardown = setup();
+  await seedLiveAccount(USER); // its writers re-read the deletion fence (#772)
   try {
     for (const softLeadMinutes of [60, 30, 15]) {
       const response = await remindersPut(request({ softLeadMinutes }));
@@ -101,6 +105,7 @@ test('the lead time is one of the three the screen offers', async () => {
 
 test('quiet hours written here are the quiet hours the next step and the push service read', async () => {
   const teardown = setup();
+  await seedLiveAccount(USER); // its writers re-read the deletion fence (#772)
   try {
     const response = await remindersPut(request({
       softEnabled: true,
@@ -140,6 +145,7 @@ test('quiet hours written here are the quiet hours the next step and the push se
 
 test('editing quiet hours here keeps the rest of the survey', async () => {
   const teardown = setup();
+  await seedLiveAccount(USER); // its writers re-read the deletion fence (#772)
   try {
     await remindersPut(request({ quietHours: { start: '22:00', end: '07:00', timezone: 'Asia/Jerusalem' } }));
     // A full survey save, as the routine screen would make it.
@@ -168,6 +174,7 @@ test('editing quiet hours here keeps the rest of the survey', async () => {
 
 test('null quiet hours clears the window; omitting the key leaves it alone', async () => {
   const teardown = setup();
+  await seedLiveAccount(USER); // its writers re-read the deletion fence (#772)
   try {
     await remindersPut(request({ quietHours: { start: '22:00', end: '07:00', timezone: 'Asia/Jerusalem' } }));
 
@@ -183,6 +190,7 @@ test('null quiet hours clears the window; omitting the key leaves it alone', asy
 
 test('a malformed window is refused rather than half-written', async () => {
   const teardown = setup();
+  await seedLiveAccount(USER); // its writers re-read the deletion fence (#772)
   try {
     for (const quietHours of [
       { start: '25:00', end: '07:00', timezone: 'Asia/Jerusalem' },
@@ -215,6 +223,7 @@ test('a malformed window is refused rather than half-written', async () => {
  */
 test('a zone in the body does not move the routine profile s other windows', async () => {
   const teardown = setup();
+  await seedLiveAccount(USER); // its writers re-read the deletion fence (#772)
   try {
     // The survey first: a full profile, answered in Asia/Jerusalem.
     const { saveRoutineProfile } = await import('../../lib/services/mobile/routineProfileService.ts');
@@ -251,6 +260,7 @@ test('a zone in the body does not move the routine profile s other windows', asy
 
 test('the body s zone is still what creates a first profile', async () => {
   const teardown = setup();
+  await seedLiveAccount(USER); // its writers re-read the deletion fence (#772)
   try {
     // Nothing to contradict it, so an account that never answered the survey
     // gets the zone the phone reported. Without this the write-through could
@@ -268,6 +278,7 @@ test('the body s zone is still what creates a first profile', async () => {
 
 test('reminderSettings never grows a second copy of quiet hours', async () => {
   const teardown = setup();
+  await seedLiveAccount(USER); // its writers re-read the deletion fence (#772)
   try {
     await remindersPut(request({
       softEnabled: false,
@@ -316,11 +327,13 @@ async function hardHalf(): Promise<Record<string, unknown>> {
 
 test('a legacy document written before #197 maps the old strong survey answer to the hard ceiling, not to ringing', async () => {
   const teardown = setup();
+  await seedLiveAccount(USER); // its writers re-read the deletion fence (#772)
   try {
     // Exactly what #196 wrote: three fields, none of them about ringing.
     await getStorage().set(userDoc(USER), {
       reminderSettings: { softEnabled: true, softLeadMinutes: 30, updatedAt: '2026-09-10T00:00:00.000Z' },
     });
+    await seedLiveAccount(USER); // the trust record this fixture's overwrite dropped (#772)
 
     await surveyWith('strongReminder');
     // "Be firm about the important ones" raises the ceiling and turns nothing on.
@@ -340,6 +353,7 @@ test('a legacy document written before #197 maps the old strong survey answer to
 
 test('the settings screen s answer outranks the survey for good, once given', async () => {
   const teardown = setup();
+  await seedLiveAccount(USER); // its writers re-read the deletion fence (#772)
   try {
     await surveyWith('strongReminder');
     const response = await remindersPut(request({ hardEnabled: false, escalationCeiling: 'followUp' }));
@@ -356,6 +370,7 @@ test('the settings screen s answer outranks the survey for good, once given', as
 
 test('any save freezes the answer the account had, so a later survey edit cannot start ringing', async () => {
   const teardown = setup();
+  await seedLiveAccount(USER); // its writers re-read the deletion fence (#772)
   try {
     await surveyWith('softAwareness');
     // A save that only touches the lead time.
@@ -369,6 +384,7 @@ test('any save freezes the answer the account had, so a later survey edit cannot
 
 test('turning Must reminders on stores all three, and they round-trip', async () => {
   const teardown = setup();
+  await seedLiveAccount(USER); // its writers re-read the deletion fence (#772)
   try {
     const response = await remindersPut(request({ hardEnabled: true, escalationCeiling: 'hard', mustThroughQuietHours: true }));
     assert.equal(response.status, 200);
@@ -385,6 +401,7 @@ test('turning Must reminders on stores all three, and they round-trip', async ()
 
 test('a wrong type or an unknown ceiling is refused, not coerced', async () => {
   const teardown = setup();
+  await seedLiveAccount(USER); // its writers re-read the deletion fence (#772)
   try {
     for (const [body, reason] of [
       [{ hardEnabled: 'true' }, 'invalid_hard_enabled'],
@@ -417,6 +434,7 @@ async function storeReminderSettings(value: Record<string, unknown>): Promise<vo
 
 test('a stored ceiling that is present but unreadable is the gentlest one, never the survey s louder answer', async () => {
   const teardown = setup();
+  await seedLiveAccount(USER); // its writers re-read the deletion fence (#772)
   try {
     await surveyWith('strongReminder');
     await storeReminderSettings({
@@ -437,6 +455,7 @@ test('a stored ceiling that is present but unreadable is the gentlest one, never
 
 test('an opt-in stored as anything but a boolean is not an opt-in', async () => {
   const teardown = setup();
+  await seedLiveAccount(USER); // its writers re-read the deletion fence (#772)
   try {
     await surveyWith('softAwareness');
     for (const hardEnabled of ['true', 1, 'yes', {}]) {

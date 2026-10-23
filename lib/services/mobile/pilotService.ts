@@ -1,5 +1,6 @@
 import { weeklyBlockCovering } from '../../weeklyBlocks/weeklyBlockService';
 import { randomUUID } from 'node:crypto';
+import { AccountUnavailableError, accountUnavailableResponse } from '../../account/accountLiveness';
 import { analyticsContextFrom } from '../../analytics/analyticsContext';
 import { appendAnalyticsEvent } from '../../analytics/eventStore';
 import { isClientReportableEvent, recordClientEvent, recordFirstValueReached } from '../../analytics/loopAnalytics';
@@ -67,6 +68,9 @@ export class MobilePilotError extends Error {
 }
 
 export function mobilePilotErrorResponse(error: unknown): Response {
+  // A write the account deletion fence refused (#772): the same 403 a deleted
+  // account gets at sign-in, not a 400 for a message nobody matches.
+  if (error instanceof AccountUnavailableError) return accountUnavailableResponse();
   if (error instanceof MobilePilotError) {
     return Response.json(
       { success: false, error: error.message, ...(error.reason ? { reason: error.reason } : {}) },

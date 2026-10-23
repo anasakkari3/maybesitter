@@ -8,6 +8,7 @@
  * state that changed while paused.
  */
 import { createHash } from 'node:crypto';
+import { assertLiveAccount } from '../account/accountLiveness';
 import { getStorage, type StorageAdapter } from '../storage';
 import { INTELLIGENCE_MONITORS, INTELLIGENCE_SOURCE_MARKERS, userCol, userDoc } from '../storage/paths';
 import { INTELLIGENCE_GMAIL_SCANS } from '../storage/paths';
@@ -108,6 +109,9 @@ export async function saveMonitoringSettings(
       }; waitingMessageId?: string | null }>(monitorPath),
       tx.get<Record<string, unknown>>(dailyPath),
     ]);
+    // The account deletion fence (#772): the save rewrites the user document,
+    // which after a sweep would re-create it.
+    assertLiveAccount(storedUser);
     const user = storedUser ?? { uid };
     if (monitor?.waitingMessageId && monitor.m5?.providerAccountId) {
       const ids = [providerMarkerIdFor(uid, monitor.m5.providerAccountId, monitor.waitingMessageId),

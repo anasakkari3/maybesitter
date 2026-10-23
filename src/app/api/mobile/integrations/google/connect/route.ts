@@ -1,3 +1,4 @@
+import { AccountUnavailableError, accountUnavailableResponse } from '../../../../../../../lib/account/accountLiveness';
 import { mobileAuthErrorResponse, requireMobileUser } from '../../../../../../../lib/auth/mobileAuth';
 import { beginGoogleConnect } from '../../../../../../../lib/integrations/google/googleConnectService';
 import { isGoogleFeature } from '../../../../../../../lib/integrations/google/googleConfig';
@@ -39,6 +40,7 @@ export async function POST(request: Request) {
   try {
     return Response.json({ success: true, ...(await beginGoogleConnect(user.uid, feature, googleRuntime())) });
   } catch (error) {
+    if (error instanceof AccountUnavailableError) return accountUnavailableResponse();
     return googleFailureResponse(error);
   }
 }

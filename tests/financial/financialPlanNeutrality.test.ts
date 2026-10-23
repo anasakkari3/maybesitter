@@ -27,6 +27,7 @@ import {
   readFinancialState,
 } from '../../lib/services/financial/financialStateService.ts';
 import { StoredManualFinancialStore } from '../../lib/services/financial/manualFinancialStore.ts';
+import { seedLiveAccount } from '../support/liveAccount.ts';
 
 const TZ = 'Asia/Jerusalem';
 const DATE = '2026-09-23';
@@ -92,6 +93,7 @@ test('a tight financial context does not move one block of the plan', async () =
 
     // Now give the account the fullest, tightest financial picture the feature
     // can produce: a connected source, a bill due today, and a correction.
+    await seedLiveAccount(UID); // the connection and manual inputs write behind the deletion fence (#772)
     await connectFinancialSandbox(UID, BUILT_AT);
     const manual = new StoredManualFinancialStore(UID, getStorage());
     await manual.putObligation({

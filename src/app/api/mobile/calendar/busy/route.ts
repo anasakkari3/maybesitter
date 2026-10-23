@@ -1,3 +1,4 @@
+import { AccountUnavailableError, accountUnavailableResponse } from '../../../../../../lib/account/accountLiveness';
 import { mobileAuthErrorResponse, requireMobileUser } from '../../../../../../lib/auth/mobileAuth';
 import { mobileError } from '../../../../../../lib/services/mobile/response';
 import { readTrust } from '../../../../../../lib/pilot/pilotTrustStore';
@@ -262,6 +263,7 @@ export async function POST(request: Request) {
     try {
       await validateSelectionContinuation(user.uid, upload.sourceId, sourceSecret, 'upload', m5.opId, m5.epoch);
     } catch (error) {
+      if (error instanceof AccountUnavailableError) return accountUnavailableResponse();
       if (error instanceof CalendarChoiceError) {
         return Response.json({ success: false, error: error.code, ...(error.currentEpoch === undefined ? {} : { currentEpoch: error.currentEpoch }) }, { status: error.code === 'source_secret_invalid' ? 403 : 409 });
       }
@@ -291,6 +293,7 @@ export async function POST(request: Request) {
       } : {}),
     });
   } catch (error) {
+    if (error instanceof AccountUnavailableError) return accountUnavailableResponse();
     if (error instanceof CalendarChoiceError) {
       return Response.json({ success: false, error: error.code, ...(error.currentEpoch === undefined ? {} : { currentEpoch: error.currentEpoch }) }, { status: error.code === 'source_secret_invalid' ? 403 : 409 });
     }

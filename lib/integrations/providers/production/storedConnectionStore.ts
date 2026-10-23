@@ -32,6 +32,7 @@ import {
 } from '../../../../src/contracts/v1/integrationConnectionContracts';
 import { PROVIDER_CONNECTIONS, docIdForKey, userCol, userSubDoc } from '../../../storage/paths';
 import type { StorageAdapter } from '../../../storage/storageAdapter';
+import { requireLiveAccount } from '../../../account/accountLiveness';
 
 /** Deterministic, so reconnecting replaces rather than duplicates. */
 export function connectionIdFor(provider: ContextProviderKind): string {
@@ -60,6 +61,12 @@ export class StoredIntegrationConnectionStore implements IntegrationConnectionSt
     const connectionId = connectionIdFor(input.identity.provider);
     const path = this.path(connectionId);
     return this.storage.runTransaction(async (tx) => {
+      // The account deletion fence (#772): a connection completed after the
+      // account was deleted is refused before it is stored. `markState` is
+      // deliberately not fenced: account deletion's own Google revocation hook
+      // marks the record `revoked` after `markDeleted`, and it only ever
+      // rewrites a record that is still there, so it can re-create nothing.
+      await requireLiveAccount(tx, this.uid);
       const existing = await tx.get<IntegrationConnectionRecord>(path);
       const record: IntegrationConnectionRecord = {
         version: INTEGRATION_CONNECTION_CONTRACT_VERSION,

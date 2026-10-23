@@ -1,3 +1,4 @@
+import { AccountUnavailableError, accountUnavailableResponse } from '../../../../../../lib/account/accountLiveness';
 import { mobileAuthErrorResponse, requireMobileUser } from '../../../../../../lib/auth/mobileAuth';
 import { getAiConsent } from '../../../../../../lib/consents/aiConsentService';
 import { moduleDisabledResponse } from '../../../../../../lib/services/mobile/moduleGate';
@@ -66,6 +67,7 @@ export async function POST(request: Request) {
     });
     return Response.json({ success: true, ...proposal });
   } catch (error) {
+    if (error instanceof AccountUnavailableError) return accountUnavailableResponse();
     if (error instanceof DescriptionTooLongError) {
       return Response.json(
         { success: false, error: error.message, reason: 'description_too_long' },

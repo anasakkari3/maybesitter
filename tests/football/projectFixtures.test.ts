@@ -35,7 +35,7 @@ import { projectFixturesForUser, dismissFixtureCommitment, type FixtureExternalT
 import { deletePersonalizationScope } from '../../lib/personalization/deletion.ts';
 import { createStorageFeedbackEventStore } from '../../lib/feedback/feedbackEventStore.ts';
 import { createStorageRuntimeMemoryStore } from '../../lib/runtimeMemory/runtimeMemoryStore.ts';
-import { getRef, putRef, putRefCarryingForwardDetachment } from '../../lib/football/externalTaskRefStore.ts';
+import { getRef, putRef, putRefCarryingForwardDetachment, refDocPath } from '../../lib/football/externalTaskRefStore.ts';
 import { applyParticipantCommands, persistParticipantState, readParticipantState } from '../../lib/services/mobile/participantState.ts';
 import { upsertDevice } from '../../lib/push/deviceRegistry.ts';
 import { fixtureContentHash, FIXTURE_CONTRACT_VERSION, FIXTURE_SCHEMA_VERSION, type Fixture, type FixtureCore } from '../../src/contracts/v1/fixtureContracts.ts';
@@ -394,7 +394,11 @@ test('a dismissal landing mid-recreate wins the race, not the sync', async () =>
     if (fired) return;
     fired = true;
     const stale = await getRef('u1', 'football-data:1');
-    await putRef('u1', { ...stale!, linkState: 'detached', detachedAt: NOW, updatedAt: NOW });
+    // The same document write `putRef` makes, issued straight to the adapter:
+    // `putRef` itself now opens a transaction (the #772 account fence), and a
+    // second transaction inside this hook would wait on the FIFO lock the
+    // hooked one still holds.
+    await storage.set(refDocPath('u1', stale!.taskRefId), { ...stale!, linkState: 'detached', detachedAt: NOW, updatedAt: NOW });
   });
 
   let tally;
@@ -488,7 +492,8 @@ test('a dismissal landing mid-write on the drop path is not undone', async () =>
     if (fired) return;
     fired = true;
     const stale = await getRef('u1', externalId);
-    await putRef('u1', { ...stale!, linkState: 'detached', detachedAt: NOW, updatedAt: NOW });
+    // Straight to the adapter, for the reason the test above gives (#772).
+    await storage.set(refDocPath('u1', stale!.taskRefId), { ...stale!, linkState: 'detached', detachedAt: NOW, updatedAt: NOW });
   });
 
   try {

@@ -1,3 +1,4 @@
+import { AccountUnavailableError, accountUnavailableResponse } from '../../../../../../../lib/account/accountLiveness';
 import { mobileAuthErrorResponse, requireMobileUser } from '../../../../../../../lib/auth/mobileAuth';
 import { CalendarChoiceError, registerDeviceSource } from '../../../../../../../lib/calendar/calendarChoice';
 import { readJsonBody } from '../../../../../../../lib/net/requestBody';
@@ -17,6 +18,7 @@ export async function POST(request: Request) {
     });
     return Response.json({ success: true, sourceId });
   } catch (error) {
+    if (error instanceof AccountUnavailableError) return accountUnavailableResponse();
     if (error instanceof CalendarChoiceError) {
       const status = error.code === 'source_secret_invalid' ? 403 : error.code === 'invalid_request' ? 400 : 409;
       return Response.json({ success: false, error: error.code }, { status });

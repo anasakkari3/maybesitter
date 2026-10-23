@@ -1,3 +1,4 @@
+import { AccountUnavailableError, accountUnavailableResponse } from '../../../../../../lib/account/accountLiveness';
 import { mobileAuthErrorResponse, requireMobileUser } from '../../../../../../lib/auth/mobileAuth';
 import { mobileError } from '../../../../../../lib/services/mobile/response';
 import { PlanSettingsValidationError, type PlanSettings } from '../../../../../../lib/services/dailyPlan/planSettings';
@@ -71,6 +72,7 @@ export async function PUT(request: Request) {
     );
     return Response.json({ success: true, planSettings: settingsDto(settings) });
   } catch (error) {
+    if (error instanceof AccountUnavailableError) return accountUnavailableResponse();
     if (error instanceof PlanSettingsValidationError) {
       return Response.json({ success: false, error: error.message, reason: error.reason }, { status: 400 });
     }

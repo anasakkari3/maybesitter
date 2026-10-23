@@ -1,9 +1,11 @@
+import { AccountUnavailableError, accountUnavailableResponse } from '../../../../../../lib/account/accountLiveness';
 import { mobileAuthErrorResponse, requireMobileUser } from '../../../../../../lib/auth/mobileAuth';
 import { calendarChoiceProbe, CalendarChoiceError, enrollCalendarChoice } from '../../../../../../lib/calendar/calendarChoice';
 
 export const dynamic = 'force-dynamic';
 
 function errorResponse(error: unknown): Response {
+  if (error instanceof AccountUnavailableError) return accountUnavailableResponse();
   if (error instanceof CalendarChoiceError) {
     const status = error.code === 'calendar_choice_unavailable' ? 404 : 409;
     return Response.json({ success: false, error: error.code }, { status });

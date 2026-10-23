@@ -60,6 +60,7 @@
  * One of those alone is a race; both together are the property.
  */
 
+import { requireLiveAccount } from '../account/accountLiveness';
 import { getStorage, type StorageAdapter } from '../storage';
 import { PACK_INSTALLATIONS, userCol, userSubDoc } from '../storage/paths';
 import type { ContextProviderKind } from '../../src/contracts/v1/integrationConnectionContracts';
@@ -102,6 +103,24 @@ export interface PackLifecycleOutcome {
 
 function installationPath(scopeId: string, packId: string): string {
   return userSubDoc(scopeId, PACK_INSTALLATIONS, packId);
+}
+
+/**
+ * The installation record, written only while the account is live (#772): an
+ * enable or an entitlement change that lands after the account was deleted
+ * must not re-create a record under it. A refused first enable rolls its
+ * watchers back, as any other failed record write does.
+ */
+async function writeInstallation(
+  storage: StorageAdapter,
+  scopeId: string,
+  packId: string,
+  record: PackInstallationRecord,
+): Promise<void> {
+  await storage.runTransaction(async (tx) => {
+    await requireLiveAccount(tx, scopeId);
+    tx.set(installationPath(scopeId, packId), record);
+  });
 }
 
 export async function readPackInstallation(
@@ -185,7 +204,7 @@ export async function enablePack(args: EnablePackArgs): Promise<PackLifecycleOut
       updatedAt: args.now,
     };
     try {
-      await storage.set(installationPath(scopeId, pack.packId), record);
+      await writeInstallation(storage, scopeId, pack.packId, record);
     } catch (error) {
       await rollback(added.watcherIds, store);
       throw error;
@@ -222,7 +241,7 @@ export async function enablePack(args: EnablePackArgs): Promise<PackLifecycleOut
     updatedAt: args.now,
   };
   try {
-    await storage.set(installationPath(scopeId, pack.packId), record);
+    await writeInstallation(storage, scopeId, pack.packId, record);
   } catch (error) {
     // The record is what makes a pack watcher stoppable, so an install that
     // could not write one undoes itself rather than leaving orphans.
@@ -330,7 +349,7 @@ export async function disablePack(args: DisablePackArgs): Promise<PackLifecycleO
     reason: args.reason ?? 'user_disabled',
     updatedAt: args.now,
   };
-  await storage.set(installationPath(args.scopeId, args.packId), record);
+  await writeInstallation(storage, args.scopeId, args.packId, record);
   return {
     packId: args.packId,
     state: 'disabled',
@@ -392,7 +411,7 @@ export async function applyPackEntitlement(args: ApplyPackEntitlementArgs): Prom
     const record: PackInstallationRecord = recordMoves
       ? { ...existing, state: 'disabled', reason: 'entitlement_lost', updatedAt: args.now }
       : existing;
-    if (recordMoves) await storage.set(installationPath(scopeId, pack.packId), record);
+    if (recordMoves) await writeInstallation(storage, scopeId, pack.packId, record);
     return {
       packId: pack.packId,
       state: 'disabled',
@@ -414,7 +433,7 @@ export async function applyPackEntitlement(args: ApplyPackEntitlementArgs): Prom
       reason: 'entitlement_restored',
       updatedAt: args.now,
     };
-    await storage.set(installationPath(scopeId, pack.packId), record);
+    await writeInstallation(storage, scopeId, pack.packId, record);
     return {
       packId: pack.packId,
       state: 'enabled',

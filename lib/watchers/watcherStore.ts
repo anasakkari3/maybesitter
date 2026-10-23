@@ -15,8 +15,17 @@
  * the one cross-account reader (`listWatchersAcrossUsers`), and it is
  * collection-group based for the reason `listFollowedUserIds` is: the
  * per-minute job must not need the list of uids up front.
+ *
+ * ── The account deletion fence (#772) ──────────────────────────────
+ *
+ * `create` and `update` read `users/{uid}` in the transaction that writes the
+ * watcher and refuse (`AccountUnavailableError`) unless the account is live:
+ * a follow, a pack install or a pause in flight when the account is deleted
+ * must not re-create a watcher the per-minute sweep would then keep finding.
+ * `remove` is left plain: a delete re-creates nothing.
  */
 import { randomUUID } from 'node:crypto';
+import { requireLiveAccount } from '../account/accountLiveness';
 import {
   type WatcherFireEvent,
   WATCHER_CONTRACT_VERSION,
@@ -94,7 +103,10 @@ export class WatcherStore {
       },
       runtime: initialWatcherRuntime(watcherId, this.uid, now),
     };
-    await this.storage.set(this.path(watcherId), stored);
+    await this.storage.runTransaction(async (tx) => {
+      await requireLiveAccount(tx, this.uid);
+      tx.set(this.path(watcherId), stored);
+    });
     return stored;
   }
 
@@ -119,6 +131,7 @@ export class WatcherStore {
   ): Promise<StoredWatcher | null> {
     const path = this.path(watcherId);
     return this.storage.runTransaction(async (tx) => {
+      await requireLiveAccount(tx, this.uid);
       const current = await tx.get<StoredWatcher>(path);
       if (!current) return null;
       const next = mutate(current);

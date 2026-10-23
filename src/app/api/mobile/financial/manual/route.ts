@@ -1,3 +1,4 @@
+import { AccountUnavailableError, accountUnavailableResponse } from '../../../../../../lib/account/accountLiveness';
 import { mobileAuthErrorResponse, requireMobileUser } from '../../../../../../lib/auth/mobileAuth';
 import { mobileError } from '../../../../../../lib/services/mobile/response';
 import { storageFailureCause } from '../../../../../../lib/storage/storageAdapter';
@@ -108,6 +109,7 @@ export async function PUT(request: Request) {
     await store.putField(row);
     return Response.json({ success: true, field: row });
   } catch (error) {
+    if (error instanceof AccountUnavailableError) return accountUnavailableResponse();
     if (error instanceof FinancialValidationError) return financialValidationResponse(error);
     console.error('[financial] saving a manual financial input failed', storageFailureCause(error));
     return mobileError('could not save what you told us', 500);

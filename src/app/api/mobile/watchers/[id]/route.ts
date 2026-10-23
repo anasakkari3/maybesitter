@@ -1,3 +1,4 @@
+import { AccountUnavailableError, accountUnavailableResponse } from '../../../../../../lib/account/accountLiveness';
 import { mobileAuthErrorResponse, requireMobileUser } from '../../../../../../lib/auth/mobileAuth';
 import { mobileError } from '../../../../../../lib/services/mobile/response';
 import {
@@ -79,6 +80,7 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
     if (!updated) return mobileError('no such watcher', 404);
     return Response.json({ success: true, watcher: presentWatcher(updated) });
   } catch (error) {
+    if (error instanceof AccountUnavailableError) return accountUnavailableResponse();
     if (error instanceof PackWatcherLockedError) return mobileError(error.message, 409);
     if (error instanceof WatcherValidationError) return watcherValidationResponse(error);
     console.error('[watchers] patching a watcher failed', error);
@@ -120,6 +122,7 @@ export async function DELETE(request: Request, context: { params: Promise<{ id: 
     const projection = removed ? await releaseClubAfterWatcherRemoved(user.uid, removed, now) : {};
     return Response.json({ success: true, watcherId, deleted: true, ...projection });
   } catch (error) {
+    if (error instanceof AccountUnavailableError) return accountUnavailableResponse();
     if (error instanceof WatcherValidationError) return watcherValidationResponse(error);
     console.error('[watchers] deleting a watcher failed', error);
     return mobileError('could not delete the watcher', 500);

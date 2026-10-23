@@ -5,6 +5,7 @@ import {
   requireUserId,
   userCol,
 } from '../../storage';
+import { requireLiveAccount } from '../../account/accountLiveness';
 import type { NextStepDecision } from '../../../src/contracts/v1/nextStepContracts';
 import { parseIsoInstant } from './time';
 
@@ -83,10 +84,15 @@ export async function appendNextStepDecision(
   record: NextStepDecisionRecord,
 ): Promise<void> {
   requireUserId(uid);
-  await getStorage().set(
-    `${userCol(uid, NEXT_STEP_DECISIONS)}/${decisionDocId(record)}`,
-    record as unknown as Record<string, unknown>,
-  );
+  // In a transaction only for the account deletion fence (#772): a decision
+  // recorded after the account was deleted must not re-create a row under it.
+  await getStorage().runTransaction(async (tx) => {
+    await requireLiveAccount(tx, uid);
+    tx.set(
+      `${userCol(uid, NEXT_STEP_DECISIONS)}/${decisionDocId(record)}`,
+      record as unknown as Record<string, unknown>,
+    );
+  });
 }
 
 /** Everything decided inside the history window, newest first. */
