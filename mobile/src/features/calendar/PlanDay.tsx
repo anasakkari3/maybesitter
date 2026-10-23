@@ -128,7 +128,9 @@ export function CommitmentCard({ row, marker = false, narrow = false, agenda = f
                 line, wrapping only when the text is large. */}
             <View testID={`calendar-meta-${item.id}`} style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', columnGap: 8, rowGap: 2 }}>
               <Tag kind={priorityTagKind(item.importance)} label={importanceWord(item.importance, t)} testID={`calendar-importance-${item.id}`} />
-              {due ? <Txt size={13} color={p.mu} lines={1} style={{ flexShrink: 1 }} testID={`calendar-due-${item.id}`}>{due}</Txt> : null}
+              {/* Never clamped (Q788-001): «موعدها بكرا · 15:00» outgrows an
+                  AX5 row; it wraps under the chip instead of being cut. */}
+              {due ? <Txt size={13} color={p.mu} style={{ flexShrink: 1 }} testID={`calendar-due-${item.id}`}>{due}</Txt> : null}
             </View>
           </View>
         ) : (

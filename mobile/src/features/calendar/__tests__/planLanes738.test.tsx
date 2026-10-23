@@ -138,6 +138,25 @@ describe('#738 the five-item day on a phone', () => {
     expectVisibleImportance([OFFSITE, LAWYER, DENTIST, CALL]);
   });
 
+  it.each<['ar' | 'en' | 'he', string]>([
+    ['ar', 'موعدها بكرا · 15:00، قبل اجتماع الفريق الأسبوعي'],
+    ['en', 'Due tomorrow · 15:00, before the weekly team meeting'],
+    ['he', 'מועד היעד מחר · 15:00, לפני פגישת הצוות השבועית'],
+  ])('#788 Q788-001 at AX5 a long due (%s) wraps beside the chip and is never line-clamped', async (lang, due) => {
+    atScale(3.12);
+    harness = await prepareM6(lang);
+    const rows = [OFFSITE, LAWYER].map(item => ({ ...commitmentRow(item), due }));
+    await render(<Providers harness={harness}><DayAgenda rows={rows} day={TODAY} /></Providers>);
+    for (const item of [OFFSITE, LAWYER]) {
+      const meta = screen.getByTestId(`calendar-meta-${item.id}`);
+      const dueNode = within(meta).getByTestId(`calendar-due-${item.id}`);
+      expect(dueNode.props.children).toBe(due);
+      expect(dueNode.props.numberOfLines ?? 0).toBe(0);
+      expect(StyleSheet.flatten(meta.props.style).flexWrap).toBe('wrap');
+      expect(within(meta).getByTestId(`calendar-importance-${item.id}`)).toBeTruthy();
+    }
+  });
+
   it('#788 at AX5 the importance chip and the due share the second line and wrap, never clipped', async () => {
     atScale(3.12);
     harness = await prepareM6('ar');
