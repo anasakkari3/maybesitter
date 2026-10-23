@@ -9,10 +9,10 @@
  * about the width a person actually has.
  */
 import React from 'react';
-import { useWindowDimensions } from 'react-native';
+import { StyleSheet, useWindowDimensions } from 'react-native';
 import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
 import { render, screen, waitFor, within } from '@testing-library/react-native';
-import { DayAgenda, DayTimeline, timelineLaneWidth, timelineSpans, type PlanRow } from '../PlanDay';
+import { DayAgenda, DayTimeline, UntimedSection, timelineLaneWidth, timelineSpans, type PlanRow } from '../PlanDay';
 import { HOUR_HEIGHT, lanesFit, maxLanes, placeSpans } from '../dayTimeline';
 import { toViewModel, type CommitmentView } from '../../commitments/model';
 import ar from '../../../i18n/locales/ar.json';
@@ -125,10 +125,48 @@ describe('#738 the five-item day on a phone', () => {
     expectVisibleImportance([OFFSITE, LAWYER, DENTIST, CALL]);
   });
 
-  it('the dense list elsewhere (large text, a crowded day) keeps its own look: no added chip', async () => {
+  it('#788 every dense list (large text, a crowded day) says the importance in words, not by colour alone', async () => {
     harness = await prepareM6('ar');
     await render(<Providers harness={harness}><DayAgenda rows={REPRO} day={TODAY} /></Providers>);
-    expect(screen.queryAllByTestId(/^calendar-importance-/)).toHaveLength(0);
+    expectVisibleImportance([OFFSITE, LAWYER, DENTIST, CALL]);
+  });
+
+  it('#788 the untimed list says the importance in words too', async () => {
+    harness = await prepareM6('ar');
+    const untimed = REPRO.filter((row): row is Extract<PlanRow, { kind: 'commitment' }> => row.kind === 'commitment');
+    await render(<Providers harness={harness}><UntimedSection rows={untimed} title="t" /></Providers>);
+    expectVisibleImportance([OFFSITE, LAWYER, DENTIST, CALL]);
+  });
+
+  it.each<['ar' | 'en' | 'he', string]>([
+    ['ar', 'موعدها بكرا · 15:00، قبل اجتماع الفريق الأسبوعي'],
+    ['en', 'Due tomorrow · 15:00, before the weekly team meeting'],
+    ['he', 'מועד היעד מחר · 15:00, לפני פגישת הצוות השבועית'],
+  ])('#788 Q788-001 at AX5 a long due (%s) wraps beside the chip and is never line-clamped', async (lang, due) => {
+    atScale(3.12);
+    harness = await prepareM6(lang);
+    const rows = [OFFSITE, LAWYER].map(item => ({ ...commitmentRow(item), due }));
+    await render(<Providers harness={harness}><DayAgenda rows={rows} day={TODAY} /></Providers>);
+    for (const item of [OFFSITE, LAWYER]) {
+      const meta = screen.getByTestId(`calendar-meta-${item.id}`);
+      const dueNode = within(meta).getByTestId(`calendar-due-${item.id}`);
+      expect(dueNode.props.children).toBe(due);
+      expect(dueNode.props.numberOfLines ?? 0).toBe(0);
+      expect(StyleSheet.flatten(meta.props.style).flexWrap).toBe('wrap');
+      expect(within(meta).getByTestId(`calendar-importance-${item.id}`)).toBeTruthy();
+    }
+  });
+
+  it('#788 at AX5 the importance chip and the due share the second line and wrap, never clipped', async () => {
+    atScale(3.12);
+    harness = await prepareM6('ar');
+    await render(<Providers harness={harness}><DayAgenda rows={REPRO} day={TODAY} /></Providers>);
+    expectVisibleImportance([OFFSITE, LAWYER, DENTIST, CALL]);
+    for (const item of [OFFSITE, LAWYER, DENTIST, CALL]) {
+      const meta = screen.getByTestId(`calendar-meta-${item.id}`);
+      expect(StyleSheet.flatten(meta.props.style).flexWrap).toBe('wrap');
+      expect(within(meta).getByTestId(`calendar-importance-${item.id}`)).toBeTruthy();
+    }
   });
 
   it('at AX5, the day is the ordered list too', async () => {
