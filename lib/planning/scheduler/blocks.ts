@@ -106,6 +106,7 @@ function blockForItem(
   item: PlanningConstraints['items'][number],
   source: ScheduleBlockSource,
   generation: number,
+  preferredWindows: readonly TimeInterval[],
 ): ScheduleBlock {
   return {
     blockId: scheduleBlockId(source),
@@ -118,7 +119,7 @@ function blockForItem(
     placement: {
       earliestStartAt: item.earliestStartAt,
       latestEndAt: item.deadlineAt,
-      preferredWindows: [],
+      preferredWindows,
     },
     currentInterval: null,
     lastPlacedBy: 'planner',
@@ -169,6 +170,8 @@ export interface ReconcileScheduleBlocksArgs {
   /** The generation of the plan being reconciled (1 for a first build). */
   readonly generation: number;
   readonly sources: ScheduleBlockSources;
+  /** Item-level preferences supplied by source adapters, keyed by solver item id. */
+  readonly preferredWindows?: ReadonlyMap<string, readonly TimeInterval[]>;
   /** The previous generation's blocks, when regenerating. Property 4. */
   readonly previous?: readonly ScheduleBlock[] | null;
 }
@@ -241,7 +244,13 @@ export function reconcileScheduleBlocks(args: ReconcileScheduleBlocksArgs): Sche
       fail('a planning item is not in exactly one of the plan\'s scheduled and unscheduled lists');
     }
 
-    let block = blockForItem(constraints.scopeId, item, source, generation);
+    let block = blockForItem(
+      constraints.scopeId,
+      item,
+      source,
+      generation,
+      args.preferredWindows?.get(item.itemId) ?? [],
+    );
     if (placed !== undefined) {
       block = { ...block, currentInterval: placed };
     } else {

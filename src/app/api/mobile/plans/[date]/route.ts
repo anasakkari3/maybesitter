@@ -5,7 +5,7 @@ import { readCurrentPlan } from '../../../../../../lib/services/dailyPlan/planRe
 import { reconcilePendingGoalPlanProjections } from '../../../../../../lib/services/mobile/goalPlanService';
 import { assemblePlanResponse, pendingProposalToDto } from '../../../../../../lib/services/dailyPlan/planDto';
 import { fixedTimeForOffer } from '../../../../../../lib/services/dailyPlan/planActions';
-import { titlesOf } from '../../../../../../lib/services/dailyPlan/dailyPlanService';
+import { currentPlanTitles } from '../../../../../../lib/services/dailyPlan/dailyPlanService';
 import { loadDomainState } from '../../../../../../lib/services/mobile/participantState';
 import { getStorage } from '../../../../../../lib/storage';
 
@@ -56,7 +56,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ date
   const current = await readCurrentPlan(user.uid, date, { commitments });
   if (!current) return mobileError('no plan for that date', 404);
   const { stored, inputsChanged, basisChanged } = current;
-  const titles = titlesOf(commitments);
+  const titles = await currentPlanTitles(user.uid, commitments, stored, getStorage());
   // The time taken now, read only when there is a live offer to check against
   // it (#611 guards): an offer that would land on it is withheld.
   const now = new Date();
