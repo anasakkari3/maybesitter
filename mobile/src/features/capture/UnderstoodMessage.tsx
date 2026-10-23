@@ -7,7 +7,7 @@ import { useApp } from '../../state/AppContext';
 import { useTimeZone } from '../../i18n/timezone';
 import { fill, type Strings } from '../../i18n/strings';
 import { isolateAuto, stripIsolates } from '../../i18n/bidi';
-import { Btn, Txt } from '../../ui/primitives';
+import { Btn, RemeasureOnTextScale, Txt } from '../../ui/primitives';
 import { useLayoutMode } from '../../theme/textScale';
 
 /** What a line of the summary opens: an item's card, a seed's row, or a habit's or goal's card (M3b). */
@@ -70,8 +70,11 @@ export function UnderstoodMessage(props: Parameters<typeof UnderstoodLines>[0] &
   const { onRestore, ...rest } = props;
   const removed = props.editable ? props.proposal.removedItems ?? [] : [];
   const lines = <UnderstoodLines {...rest} />;
-  if (removed.length === 0) return lines;
-  return <View style={{ alignSelf: 'stretch', gap: 6 }}>
+  // The card restacks at large text, so it re-renders on a live text-size
+  // change and its unchanged lines came back with the old size's measurement:
+  // its text is measured afresh at each scale (see RemeasureOnTextScale).
+  if (removed.length === 0) return <RemeasureOnTextScale>{lines}</RemeasureOnTextScale>;
+  return <RemeasureOnTextScale><View style={{ alignSelf: 'stretch', gap: 6 }}>
     {lines}
     {removed.map((entry) => {
       const id = entry.itemId ?? entry.seedItemId!;
@@ -85,7 +88,7 @@ export function UnderstoodMessage(props: Parameters<typeof UnderstoodLines>[0] &
         </Btn> : null}
       </View>;
     })}
-  </View>;
+  </View></RemeasureOnTextScale>;
 }
 
 function UnderstoodLines({ proposal, points, edits, onOpen, editable = false, onEdit, onRejectCorrection, busy = false, editRef }: {

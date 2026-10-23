@@ -12,6 +12,41 @@ import { firstStrongDirection, firstStrongScript } from '../i18n/bidi';
 
 type Align = 'start' | 'center' | 'end';
 
+/**
+ * Inside a `RemeasureOnTextScale`, the live text scale; outside one, null.
+ * Each `Txt` keys its paragraph on it (see below).
+ */
+const RemeasureScaleContext = React.createContext<number | null>(null);
+
+/**
+ * Text inside this boundary is measured afresh after a live text-size change
+ * (simulator 2026-10-23, follow-up to #740).
+ *
+ * On a Dynamic Type change Fabric re-measures text in a commit of its own
+ * (`SurfaceHandler::constraintLayout` → `dirtyMeasurableNodes`). React's next
+ * commit is built from React's own shadow nodes (RN 0.86 does not hand
+ * React the native clones: `updateRuntimeShadowNodeReferencesOnCommit` is
+ * off), and a paragraph whose props did not change goes back into the tree
+ * as React holds it — not dirty, its Yoga measurement from an earlier scale
+ * (`ParagraphShadowNode::shouldNewRevisionDirtyMeasurement` dirties only on
+ * new props). A view that re-renders on the change, as a card that restacks
+ * at large text does, commits in that window: back at the default size
+ * «هيك فهمت» kept its AX5 row heights, «اتصل بسامي» drawn over the bubble
+ * below and «عدّل» cut off at the start edge, while only the already-keyed
+ * «هيك صح» pill resized.
+ *
+ * Under the boundary every `Txt` keys its paragraph on the live scale, so a
+ * change mounts a new paragraph that native measures from scratch — the path
+ * of a card opened fresh at that size. Only the text leaves are replaced:
+ * the buttons around them, which carry the accessible names and hold a
+ * screen reader's focus, stay mounted. A rotation (same scale) replaces
+ * nothing. Text outside a boundary is untouched.
+ */
+export function RemeasureOnTextScale({ children }: { children: React.ReactNode }) {
+  const scale = useTextScale();
+  return <RemeasureScaleContext.Provider value={scale}>{children}</RemeasureScaleContext.Provider>;
+}
+
 // Fabric swaps a Text's left/right with the inherited Yoga direction on BOTH
 // platforms: iOS in RCTAttributedTextUtils.mm, Android in
 // TextLayoutManager.getTextAlignment, which picks ALIGN_NORMAL/OPPOSITE
@@ -60,6 +95,7 @@ export function Txt({
   dir?: 'auto' | undefined;
 }) {
   const { rtl: uiRtl, script, p } = useApp();
+  const remeasureScale = React.useContext(RemeasureScaleContext);
   const text = typeof children === 'string' ? children : Array.isArray(children) && children.every(c => typeof c === 'string') ? children.join('') : null;
   const contentRtl = dir === 'auto' && text !== null ? firstStrongDirection(text, uiRtl ? 'rtl' : 'ltr') === 'rtl' : uiRtl;
   // Alignment is logical to the layout (see `textAlignment`): a paragraph
@@ -82,6 +118,7 @@ export function Txt({
   // produces a squared line box at accessibility sizes, wasting the viewport.
   return (
     <Text
+      key={remeasureScale === null ? undefined : `scale-${remeasureScale}`}
       numberOfLines={lines}
       selectable={selectable}
       {...(maxScale !== undefined ? { maxFontSizeMultiplier: maxScale } : {})}
