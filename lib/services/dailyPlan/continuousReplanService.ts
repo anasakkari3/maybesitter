@@ -66,7 +66,6 @@ import {
 import { randomUUID } from 'node:crypto';
 import { DEFAULT_DELIVERY_LOCAL_TIME, DEFAULT_PLAN_ENABLED, localDateOf, planSettingsOf } from './planSettings';
 import { DEFAULT_MOBILE_TIMEZONE } from '../mobile/time';
-import { dailyPlanScheduleSources } from './buildDailyPlan';
 import { composeDailyPlanRequest, personalizationPurgeMatches } from './dailyPlanService';
 import {
   PROTECTED_OWNERSHIP,
@@ -909,6 +908,8 @@ async function processStateChangesAttempt(
     commitments,
     constraints,
     config,
+    scheduleSources: sources,
+    preferredWindows,
     basisSnapshot,
     focusFromMemory,
     personalizationPurgeEpoch,
@@ -923,7 +924,6 @@ async function processStateChangesAttempt(
     previousBlocks: storedPlan?.blocks ?? null,
     ...(weekAssignment ? { assignment: weekAssignment } : {}),
   }, { storage, suppressMemory: options.suppressMemory });
-  const sources = dailyPlanScheduleSources(constraints);
 
   // Planner solve closure. The diff is visible day against visible day
   // (#610): the plan as it would read once installed, measured against the
@@ -1187,6 +1187,7 @@ async function processStateChangesAttempt(
           plan: newPlan,
           generation,
           sources,
+          preferredWindows,
           previous: current.blocks,
         }),
         newPlan.scheduled,

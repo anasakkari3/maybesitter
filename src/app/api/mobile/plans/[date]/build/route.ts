@@ -6,7 +6,7 @@ import { fixedTimeForOffer } from '../../../../../../../lib/services/dailyPlan/p
 import {
   PlanDateOutOfRangeError,
   buildDailyPlanOnDemand,
-  titlesOf,
+  currentPlanTitles,
 } from '../../../../../../../lib/services/dailyPlan/dailyPlanService';
 import { loadDomainState } from '../../../../../../../lib/services/mobile/participantState';
 import { getStorage } from '../../../../../../../lib/storage';
@@ -50,7 +50,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ dat
   }
   const state = await loadDomainState(getStorage(), user.uid);
   const commitments = Object.values(state.commitments);
-  const titles = titlesOf(commitments);
+  const titles = await currentPlanTitles(user.uid, commitments, stored, getStorage());
   // The time taken now, read only when there is a live offer to check against
   // it (#611 guards): an offer that would land on it is withheld.
   const now = new Date();

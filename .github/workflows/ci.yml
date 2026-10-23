@@ -186,11 +186,12 @@ jobs:
       # In one process, on purpose: in-band timing caught a double-press race
       # that parallel workers hid (#195, `features/plan/oneAtATime.ts`). The
       # heap grows suite by suite there, to ~4 GB on PR #744, where V8's
-      # default limit aborted the run (exit 134); 6 GB leaves room on the
-      # 16 GB runner. The second-zone job below runs the parallel profile.
+      # default limit aborted the run (exit 134). 6 GB ran out in turn at
+      # 478 suites (PR #783); 10 GB still leaves 6 GB of the 16 GB runner.
+      # The second-zone job below runs the parallel profile.
       - name: Test
         env:
-          NODE_OPTIONS: --max-old-space-size=6144
+          NODE_OPTIONS: --max-old-space-size=10240
         run: npm test -- --runInBand
 
       # A staging or production configuration without a real https backend URL

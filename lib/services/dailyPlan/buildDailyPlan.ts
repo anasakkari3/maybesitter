@@ -55,6 +55,7 @@ import type {
   WorkingWindow,
 } from '../../../src/contracts/v1/planningContracts';
 import type { ScheduleBlockSources } from '../../planning/scheduler/blocks';
+import type { ScheduleBlockSource } from '../../../src/contracts/v1/scheduleBlockContracts';
 import { instantFromResolution, intervalsOverlap, resolveLocalTime, toEpochMs, toInstant, weekdayAt } from '../../planning/shared/time';
 import { DEFAULT_FIXED_EVENT_MINUTES, fixedEndFor } from '../timeCollision';
 
@@ -523,19 +524,23 @@ export function buildDailyPlanInput(args: DailyPlanInputArgs): DailyPlanInput {
  * This is the adapter's half of the block projection, and it is the one place
  * the claim is allowed to live: `buildDailyPlanInput` mints each `itemId` from
  * a commitment id and each sourced `FixedEvent` from a pinned commitment, so
- * the schedule source of both is `{ kind: 'commitment', id }`. Busy blocks are
- * deliberately absent — a calendar obstacle is nobody's work and gets no block
- * (see `blocks.ts`, property 3).
+ * those sources are `{ kind: 'commitment', id }`. A downstream source adapter
+ * may override an item's claim (the habit adapter does); fixed events remain
+ * commitments. Busy blocks are deliberately absent — a calendar obstacle is
+ * nobody's work and gets no block (see `blocks.ts`, property 3).
  *
  * Derived from the constraints rather than returned beside them so the answer
  * is the same whether the caller built the request here or read it back out of
  * a stored plan — which is exactly what a replay or an edit does.
  */
-export function dailyPlanScheduleSources(constraints: PlanningConstraints): ScheduleBlockSources {
+export function dailyPlanScheduleSources(
+  constraints: PlanningConstraints,
+  itemSources: ReadonlyMap<string, ScheduleBlockSource> = new Map(),
+): ScheduleBlockSources {
   return {
     items: new Map(constraints.items.map((item) => [
       item.itemId,
-      { kind: 'commitment' as const, id: item.itemId },
+      itemSources.get(item.itemId) ?? { kind: 'commitment' as const, id: item.itemId },
     ])),
     fixedEvents: new Map(constraints.fixedEvents.flatMap((event) => event.sourceCommitmentId === null
       ? []
