@@ -198,9 +198,16 @@ function IntelligencePanelForAccount({ onChanged, autoGenerate = false, whenOff 
   const m5bOn = useM5bOn();
   const freshM5b = useFreshM5bOn();
   const [learnedOpen, setLearnedOpen] = React.useState(false);
-  // What the panel's one live region says after a dismissal; the region is
-  // always mounted, so it outlives the card when its last row leaves (M5B2A-009).
+  // What a review on the learned card did. It is drawn inside the card, under
+  // its header, where the person tapped (SIM-M5B2A-02): the panel's status
+  // area sits 400 pt below the row at the default size and 2000 pt at AX5.
+  // The card stays while it holds this line, even when its last row left.
   const [learnedStatus, setLearnedStatus] = React.useState<string | null>(null);
+  // Who hears it is unchanged: VoiceOver is told once from `reviewOutcome`,
+  // and TalkBack hears the panel's one live region, so the line is also put
+  // there on Android only. iOS reads no live region, and a copy there would
+  // be a second line to see and to swipe past (M1 A5: one region).
+  const learnedSpoken = Platform.OS === 'android' ? learnedStatus : null;
   // What a successful action will say once the inbox can be read again: a
   // count of new suggestions is only true of a list that is on screen.
   const pendingResult = React.useRef<((next: IntelligenceInbox) => string | null) | null>(null);
@@ -747,6 +754,7 @@ function IntelligencePanelForAccount({ onChanged, autoGenerate = false, whenOff 
       open={learnedOpen}
       onToggle={() => setLearnedOpen(value => !value)}
       busy={busy}
+      status={learnedStatus}
       onWrong={(id) => void reviewOutcome(id, 'dismissed')}
       onRight={(id) => void reviewOutcome(id, 'confirmed')}
     /> : null}
@@ -791,11 +799,11 @@ function IntelligencePanelForAccount({ onChanged, autoGenerate = false, whenOff 
         with its retry — said once, never repeated in a second line. */}
     <LiveRegion testID="intelligence-status">
       {/* The monitor's quota wait is said here too, in the panel's one region (R4.1). */}
-      {announced || refreshFailed || monitorWait || learnedStatus ? <View style={{ gap: 8 }}>
+      {announced || refreshFailed || monitorWait || learnedSpoken ? <View style={{ gap: 8 }}>
       {monitorWait ? <WaitLine wait={monitorWait} /> : null}
-      {/* M5b-2a: what «مش صحيح» did, said in the panel's one region, which
-          outlives the learned card (M5B2A-009). */}
-      {learnedStatus ? <Txt role="supporting" testID="m5b-learned-status">{learnedStatus}</Txt> : null}
+      {/* M5b-2a: what a learned-card review did, for TalkBack — the line the
+          person sees is in the card (SIM-M5B2A-02). */}
+      {learnedSpoken ? <Txt role="supporting" testID="m5b-learned-status-live">{learnedSpoken}</Txt> : null}
       {announced ? <Txt role="supporting" testID="intelligence-status-text">{announced}</Txt> : null}
       {refreshFailed ? <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
         <Txt role="supporting" color={p.wm} testID="intelligence-refresh-failed">{t.xIntelligenceRefreshFailed}</Txt>
@@ -956,12 +964,18 @@ function applyReviewedOutcome(current: IntelligenceInbox, moved: IntelligenceObs
  * «مش صحيح». A confirmed re-add joins the confirmed rows with «مش صحيح»
  * only. A row with no `readd` projection (an older server, or the module
  * off) draws nothing.
+ *
+ * `status` is what the last review here did (SIM-M5B2A-02). It sits under the
+ * header, above the rows, so it shows where the person tapped; the rows
+ * keep their order and only step down by one line. The card stays for it
+ * after its last row left, until the next action clears it.
  */
-function LearnedOutcomes({ observations, open, onToggle, busy, onWrong, onRight }: {
+function LearnedOutcomes({ observations, open, onToggle, busy, status, onWrong, onRight }: {
   observations: readonly IntelligenceObservation[];
   open: boolean;
   onToggle: () => void;
   busy: boolean;
+  status: string | null;
   onWrong: (id: string) => void;
   onRight: (id: string) => void;
 }) {
@@ -975,7 +989,7 @@ function LearnedOutcomes({ observations, open, onToggle, busy, onWrong, onRight 
     .filter(item => item.review === 'confirmed' && (item.outcome || item.readd))
     .sort(newestFirst)
     .slice(0, LEARNED_LIMIT);
-  if (guesses.length === 0 && learned.length === 0) return null;
+  if (guesses.length === 0 && learned.length === 0 && !status) return null;
   const lineFor = (item: IntelligenceObservation) => item.readd
     ? fill(t[READD_KEY[item.readd.after]], { title: isolateAuto(item.readd.title) })
     : fill(t[LEARNED_KEY[item.outcome!.signal]], { title: isolateAuto(item.outcome!.title) });
@@ -1016,7 +1030,7 @@ function LearnedOutcomes({ observations, open, onToggle, busy, onWrong, onRight 
       {action(`m5b-learned-wrong-${item.id}`, fill(t.m5bLearnedWrongA11y, { line }), t.m5bLearnedWrong, () => onWrong(item.id))}
     </View>;
   };
-  return <View style={{ gap: 8, backgroundColor: p.sf2, borderRadius: 14, padding: 12 }}>
+  return <View testID="m5b-learned-card" style={{ gap: 8, backgroundColor: p.sf2, borderRadius: 14, padding: 12 }}>
     <Btn
       testID="m5b-learned"
       label={t.m5bLearnedTitle}
@@ -1028,6 +1042,7 @@ function LearnedOutcomes({ observations, open, onToggle, busy, onWrong, onRight 
       <Txt role="action" style={{ flexShrink: 1 }}>{t.m5bLearnedTitle}</Txt>
       <ReferenceIcon name={open ? 'chevron-up' : 'chevron-down'} size={18} color={p.mu} />
     </Btn>
+    {status ? <Txt role="supporting" testID="m5b-learned-status">{status}</Txt> : null}
     {open ? <>
       {guesses.map(item => row(item, true))}
       {learned.map(item => row(item, false))}

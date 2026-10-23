@@ -1,7 +1,7 @@
 import React from 'react';
 import { AccessibilityInfo } from 'react-native';
 import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
-import { fireEvent, screen, waitFor } from '@testing-library/react-native';
+import { fireEvent, screen, waitFor, within } from '@testing-library/react-native';
 import { isolateAuto } from '../../i18n/bidi';
 import {
   NOW,
@@ -141,10 +141,13 @@ describe('M5b-2a R1 learned outcomes', () => {
     await fireEvent.press(screen.getByTestId('m5b-learned-wrong-last'));
     await waitFor(() => expect(screen.queryByTestId('m5b-learned-row-last')).toBeNull());
 
-    expect(screen.queryByTestId('m5b-learned')).toBeNull();
-    // GA-M5B2A-AMEND-5: said in the panel's one live region.
-    expect(screen.getByTestId('intelligence-status').props.accessibilityLiveRegion).toBe('polite');
+    // SIM-M5B2A-02: the card stays for its result line, with no row left; the
+    // line is drawn in the card, where the person tapped. The panel's one live
+    // region (GA-M5B2A-AMEND-5) is still mounted, and VoiceOver hears it once.
+    expect(screen.queryAllByTestId(/^m5b-learned-(row|readd)-/)).toHaveLength(0);
+    expect(within(screen.getByTestId('m5b-learned-card')).getByTestId('m5b-learned-status')).toBeTruthy();
     expect(textOf(screen.getByTestId('m5b-learned-status').props.children).length).toBeGreaterThan(0);
+    expect(screen.getByTestId('intelligence-status').props.accessibilityLiveRegion).toBe('polite');
     expect(announce).toHaveBeenCalledTimes(1);
     expect(harness!.server.matching('GET', /^\/api\/mobile\/intelligence$/).length).toBeGreaterThan(readsBefore);
   });
