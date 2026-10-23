@@ -59,3 +59,36 @@ export function useTextScale(): number {
 export function useLayoutMode(): LayoutMode {
   return layoutModeFor(useWindowDimensions().fontScale);
 }
+
+/**
+ * Row sizing for a node whose style changes with the layout mode — `{ flex: 1 }`
+ * beside its controls at the ordinary sizes, something else when stacked.
+ *
+ * Never `flex: 1` (or any `flexBasis`) there. Yoga keeps the flex basis it
+ * computed for a node (`layout.computedFlexBasis`) and recomputes a basis
+ * that comes from `flex`/`flexBasis` only while that cache is empty
+ * (`computeFlexBasisForChild`). Plain Yoga empties it whenever a style
+ * changes (`markDirtyAndPropagate`); Fabric does not — a clone copies the
+ * Yoga node with its layout, and new props only `setDirty(true)` it
+ * (`YogaLayoutableShadowNode::updateYogaProps`, RN 0.86). So a node that
+ * comes back to `flex: 1` from a mode where its basis came from a width or
+ * from measuring keeps that old basis: after a live change from AX5 back to
+ * the default size, each tab item kept its AX5 third of the bar (about
+ * 125 pt) and «احكيها» and «يتابع لك» went off the screen, while a fresh open
+ * at the default size was fine (simulator 2026-10-23).
+ *
+ * A basis taken from `width`, or from measuring the content, is recomputed on
+ * every layout, so these two say the same as `flex: 1` without the cache:
+ *
+ *   growInRow   one node takes the room its siblings leave (basis: its
+ *               content; it grows into the rest, or gives way if the row is
+ *               short). `flex: 1` beside a control.
+ *   shareOfRow  equal shares of a row (basis 0, from `width`). `flex: 1` on
+ *               every item. Only in a row: the `width` would be the cross
+ *               size in a column, so a stacked layout must not carry it.
+ *
+ * Plain `flex: 1` stays fine where it never changes and its parent's
+ * direction never changes.
+ */
+export const growInRow = { flexGrow: 1, flexShrink: 1 } as const;
+export const shareOfRow = { flexGrow: 1, flexShrink: 1, width: 0 } as const;

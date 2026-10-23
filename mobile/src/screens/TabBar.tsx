@@ -8,7 +8,7 @@ import { barShadow, type Palette } from '../theme/tokens';
 import { Btn, Txt } from '../ui/primitives';
 import { ReferenceIcon } from '../ui/referenceIcons';
 import { BrandMark } from '../ui/brand';
-import { useLayoutMode } from '../theme/textScale';
+import { shareOfRow, useLayoutMode } from '../theme/textScale';
 
 /**
  * The bottom bar: «احكيها» · Today · Plan · My things · Watching.
@@ -33,8 +33,12 @@ export function TabBar({ onClearanceChange }: { onClearanceChange?: (height: num
   const enlarged = mode !== 'normal';
   const twoRows = mode === 'xl';
   // Every item the same width in both rows: a third of the bar, never grown,
-  // with the second row's two centred (inspection M1A-R4-004).
-  const slot = twoRows ? { width: '32%' as const, minWidth: 0 } : { flex: 1, minWidth: 0 };
+  // with the second row's two centred (inspection M1A-R4-004). In one row,
+  // a fifth each — as `shareOfRow`, never `flex: 1`: coming back from the two
+  // rows, a `flex: 1` item kept its cached basis of a third (Yoga on Fabric,
+  // see `growInRow`), and five thirds pushed «احكيها» and «يتابع لك» off the
+  // screen after a live change from AX5 to the default size.
+  const slot = twoRows ? { width: '32%' as const, minWidth: 0 } : { ...shareOfRow, minWidth: 0 };
 
   const tabs: { screen: NavTab; label: string; testID: string; icon: string }[] = [
     { screen: 'today', label: t.tabToday, testID: 'tab-today', icon: 'today' },

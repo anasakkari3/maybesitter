@@ -3,7 +3,7 @@ import { StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
 import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
 import { useApp } from '../state/AppContext';
 import { referenceGradients, referencePalettes } from '../theme/tokens';
-import { useLayoutMode } from '../theme/textScale';
+import { growInRow, useLayoutMode } from '../theme/textScale';
 import { Btn, Txt } from './primitives';
 import { ReferenceIcon } from './referenceIcons';
 import { AvatarButton } from './chrome';
@@ -84,7 +84,7 @@ export function ReferenceHeader({ eyebrow, title, subtitle, end, eyebrowTestID }
     <View style={{ gap: 5 }}>
       {eyebrow ? <Txt size={14} color={p.mu} testID={eyebrowTestID}>{eyebrow}</Txt> : null}
       <View style={{ flexDirection: stacked ? 'column' : 'row', alignItems: stacked ? 'stretch' : 'center', gap: 10 }}>
-        <Txt role="page" size={30} weight={700} color={p.tx} style={stacked ? undefined : { flex: 1 }}>{title}</Txt>
+        <Txt role="page" size={30} weight={700} color={p.tx} style={stacked ? undefined : growInRow}>{title}</Txt>
         {end}
       </View>
       {subtitle ? <Txt role="supporting" color={p.mu}>{subtitle}</Txt> : null}

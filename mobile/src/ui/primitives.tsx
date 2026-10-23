@@ -1,7 +1,7 @@
 import React, { useRef } from 'react';
 import {
   Animated, Platform, Pressable, Text, View,
-  type AccessibilityState, type GestureResponderEvent, type NativeSyntheticEvent, type StyleProp, type TextLayoutEventData, type TextStyle, type ViewStyle,
+  type AccessibilityState, type GestureResponderEvent, type NativeSyntheticEvent, type StyleProp, type TextLayoutEventData, type TextProps, type TextStyle, type ViewStyle,
 } from 'react-native';
 import { useApp } from '../state/AppContext';
 import { family, LINE_HEIGHT, type Weight } from '../theme/fonts';
@@ -49,10 +49,49 @@ const RemeasureScaleContext = React.createContext<number | null>(null);
  * itself `accessible={false}` — the wrapper stays, only the drawing changes.
  * Controls must also keep one parent in every layout mode, or the layout
  * change remounts them too.
+ *
+ * ── One boundary for the whole app ───────────────────────────────
+ *
+ * #786 put it around «هيك فهمت» alone; the same simulator pass found the
+ * class everywhere outside it — the learned card in «يتابع لك» drawn as
+ * slivers at AX5, its title 305 pt tall back at the default size, the gap
+ * under the Watching header, the chat bubble's first line cut off. So the
+ * app root (`DirectionRoot`) holds one, around the sign-in screens and the
+ * signed-in tree alike, and every `Txt` and `RemeasuredText` in the app is
+ * measured afresh on a text-size change. The card keeps its own boundary
+ * (redundant under the root, same value) so it stays correct wherever it is
+ * rendered on its own.
+ *
+ * The cost is what the rule above says, now app-wide: a screen reader's focus
+ * on a *standalone* paragraph — a plain `Txt` that is its own accessible
+ * element, not inside a button or an accessible wrapper — is lost when the
+ * text size changes while it is focused; VoiceOver moves to the nearest
+ * element. That takes the reader changing the text size in Settings or
+ * Control Center while VoiceOver rests on body text, and it costs one swipe.
+ * What it buys is text that fits its box after every change, for everyone
+ * who changes the size (WCAG 1.4.4). Buttons, rows, inputs and the wrappers
+ * that name standalone words stay mounted, so focus on any control, and
+ * whatever is typed in an input (a `TextInput` is not a `Txt`), survive. A
+ * scroll view is not replaced either, so its position stays.
+ *
+ * A boundary does not fix a layout that depends on the scale in JS. The
+ * layout modes switch styles live; the one trap there is a node that returns
+ * to `flex: 1` — see `growInRow` in theme/textScale.
  */
 export function RemeasureOnTextScale({ children }: { children: React.ReactNode }) {
   const scale = useTextScale();
   return <RemeasureScaleContext.Provider value={scale}>{children}</RemeasureScaleContext.Provider>;
+}
+
+/**
+ * React Native's `Text`, replaced on a text-size change under a
+ * `RemeasureOnTextScale` exactly as a `Txt` is. For a screen that sets its
+ * own text styles (the «احكيها» chat): its bubbles' words were the paragraphs
+ * left with the old size's measurement there.
+ */
+export function RemeasuredText(props: TextProps) {
+  const remeasureScale = React.useContext(RemeasureScaleContext);
+  return <Text key={remeasureScale === null ? undefined : `scale-${remeasureScale}`} {...props} />;
 }
 
 // Fabric swaps a Text's left/right with the inherited Yoga direction on BOTH

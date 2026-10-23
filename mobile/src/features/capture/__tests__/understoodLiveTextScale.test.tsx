@@ -126,7 +126,13 @@ describe('the understood card re-measures after a live text-size change', () => 
     // …and the card takes the layout it has opened fresh at the default size.
     expect(pairDirection()).toBe('row');
     expect(screen.queryByTestId('understood-edit-indent-2', { includeHiddenElements: true })).toBeNull();
-    expect(StyleSheet.flatten(screen.getByTestId('understood-line-2').parent!.props.style)).toEqual(expect.objectContaining({ flex: 1 }));
+    // The line grows into the row without a `flex` basis: a `flex: 1` line
+    // kept the basis Yoga measured for it stacked — its AX5 height — and
+    // pushed «عدّل» to the bubble's edge (simulator 2026-10-23, growInRow).
+    const lineBox = StyleSheet.flatten(screen.getByTestId('understood-line-2').parent!.props.style);
+    expect(lineBox).toEqual(expect.objectContaining({ flexGrow: 1, flexShrink: 1 }));
+    expect(lineBox?.flex).toBeUndefined();
+    expect(lineBox?.flexBasis).toBeUndefined();
     // Same words at base metrics (the native renderer applies the scale once).
     expect(back.text2!.props.children).toBe('اتصل بسامي');
     expect((StyleSheet.flatten(back.text2!.props.style) as { fontSize: number }).fontSize).toBe(15);

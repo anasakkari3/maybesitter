@@ -8,7 +8,7 @@ import { ltr, type Strings } from '../../i18n/strings';
 import { family } from '../../theme/fonts';
 import { Btn, Pill, Txt } from '../../ui/primitives';
 import type { CaptureProposalEdit } from '../../api/endpoints/capture';
-import { useLayoutMode } from '../../theme/textScale';
+import { shareOfRow, useLayoutMode } from '../../theme/textScale';
 import { MAX_TITLE_LENGTH } from './captureMachine';
 import { clampCodePoints, clampUnits } from './titleBounds';
 import { instantForLocalDateTime, localDateTimeFor } from './localInstant';
@@ -146,8 +146,8 @@ export function SummaryEditSheet({ kind: startKind, offered = { habit: false, go
       {/* Side by side, or one under the other at large text, where two halves
           break «احفظ التعديل» inside its words (simulator, AX5). */}
       <View style={{ flexDirection: stacked ? 'column' : 'row', gap: 10 }}>
-        <Pill testID="understood-edit-save" label={t.understoodEditSave} onPress={save} disabled={busy} style={stacked ? undefined : { flex: 1 }} />
-        <Pill testID="understood-edit-cancel" label={t.cancel} onPress={onCancel} kind="outline" style={stacked ? undefined : { flex: 1 }} />
+        <Pill testID="understood-edit-save" label={t.understoodEditSave} onPress={save} disabled={busy} style={stacked ? undefined : shareOfRow} />
+        <Pill testID="understood-edit-cancel" label={t.cancel} onPress={onCancel} kind="outline" style={stacked ? undefined : shareOfRow} />
       </View>
     </View>
   );
@@ -179,12 +179,12 @@ function SummaryTimeField({ testID, value, timeZone, onValueChange, disabled = f
       <View style={{ flexDirection: stacked ? 'column' : 'row', gap: 8 }}>
         <Btn testID={`${testID}-date`} label={instant ? formatDate(instant, 'short', { locale: lang, timeZone }) : t.understoodEditPickTime}
           onPress={() => setPicking('date')} disabled={disabled}
-          style={{ ...(stacked ? {} : { flex: 1 }), backgroundColor: p.sf2, borderRadius: 18, paddingVertical: 12, alignItems: 'center', minHeight: 48, justifyContent: 'center' }}>
+          style={{ ...(stacked ? {} : shareOfRow), backgroundColor: p.sf2, borderRadius: 18, paddingVertical: 12, alignItems: 'center', minHeight: 48, justifyContent: 'center' }}>
           <Txt size={14}>{instant ? formatDate(instant, 'short', { locale: lang, timeZone }) : t.understoodEditPickTime}</Txt>
         </Btn>
         <Btn testID={`${testID}-clock`} label={instant ? formatTime(instant, { locale: lang, timeZone }) : t.understoodEditPickTime}
           onPress={() => setPicking('time')} disabled={disabled}
-          style={{ ...(stacked ? {} : { flex: 1 }), backgroundColor: p.sf2, borderRadius: 18, paddingVertical: 12, alignItems: 'center', minHeight: 48, justifyContent: 'center' }}>
+          style={{ ...(stacked ? {} : shareOfRow), backgroundColor: p.sf2, borderRadius: 18, paddingVertical: 12, alignItems: 'center', minHeight: 48, justifyContent: 'center' }}>
           <Txt size={14} latin>{instant ? ltr(formatTime(instant, { locale: lang, timeZone })) : '—'}</Txt>
         </Btn>
       </View>

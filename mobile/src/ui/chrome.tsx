@@ -3,7 +3,7 @@ import { View, type StyleProp, type ViewStyle } from 'react-native';
 import { useApp } from '../state/AppContext';
 import { Shimmer } from './motion';
 import { Btn, Txt } from './primitives';
-import { useLayoutMode } from '../theme/textScale';
+import { growInRow, shareOfRow, useLayoutMode } from '../theme/textScale';
 import { BrandLockup, BrandMark } from './brand';
 import { ChevronIcon, TodayIcon } from './icons';
 import { ReferenceIcon } from './referenceIcons';
@@ -55,7 +55,7 @@ export function AvatarButton() {
 export function ActionRow({ children, testID }: { children: React.ReactNode; testID?: string }) {
   const stacked = useLayoutMode() !== 'normal';
   return <View testID={testID} style={{ flexDirection: stacked ? 'column' : 'row', gap: 10 }}>
-    {React.Children.toArray(children).map((child, i) => <View key={i} style={stacked ? undefined : { flex: 1 }}>{child}</View>)}
+    {React.Children.toArray(children).map((child, i) => <View key={i} style={stacked ? undefined : shareOfRow}>{child}</View>)}
   </View>;
 }
 
@@ -258,7 +258,7 @@ export function Notice({ text, action, onAction, testID, actionTestID, style }: 
   const stacked = useLayoutMode() !== 'normal';
   return (
     <View testID={testID} style={[{ flexDirection: stacked ? 'column' : 'row', alignItems: stacked ? 'stretch' : 'center', gap: 10, backgroundColor: p.sf2, borderRadius: 14, paddingVertical: 10, paddingHorizontal: 14 }, style]}>
-      <Txt role="supporting" color={p.mu} style={stacked ? undefined : { flex: 1 }}>{text}</Txt>
+      <Txt role="supporting" color={p.mu} style={stacked ? undefined : growInRow}>{text}</Txt>
       {action && onAction ? <TextLink label={action} onPress={onAction} size={13} testID={actionTestID} /> : null}
     </View>
   );

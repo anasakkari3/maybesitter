@@ -2,7 +2,7 @@ import { useReplayEvent } from '../clarity/ClarityProvider';
 import React, { useEffect, useMemo, useState } from 'react';
 import { Platform, View } from 'react-native';
 import DateTimePicker from '@react-native-community/datetimepicker';
-import { useLayoutMode } from '../theme/textScale';
+import { growInRow, useLayoutMode } from '../theme/textScale';
 import { useApp } from '../state/AppContext';
 import { Btn, Card, Pill, Txt } from '../ui/primitives';
 import { ActionRow, BackHeader, EmptyState, SectionLabel, Skeleton, Tag, TextLink } from '../ui/chrome';
@@ -727,7 +727,7 @@ function FixedRow({ item, zone }: { item: PlanItem; zone: string }) {
         >
           <Txt size={13} weight={600} latin color={p.mu} testID={`plan-fixed-time-${item.itemId}`} style={stacked ? undefined : { minWidth: 48 }}>{formatTime(start, { locale: lang, timeZone: zone })}</Txt>
           {!stacked ? <View style={{ width: 2, alignSelf: 'stretch', borderRadius: 2, backgroundColor: p.ln, minHeight: 28 }} /> : null}
-          <View style={{ ...(stacked ? {} : { flex: 1 }), gap: 4, alignItems: 'flex-start' }}>
+          <View style={{ ...(stacked ? {} : growInRow), gap: 4, alignItems: 'flex-start' }}>
             <Txt size={15} weight={600}>{item.title ? isolateAuto(item.title) : t.planRemovedItem}</Txt>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
               <Txt size={13} color={p.mu} latin testID={`plan-fixed-when-${item.itemId}`}>{when}</Txt>
@@ -808,7 +808,7 @@ function PlannedRow({
             item's colour, then the title with its range and whether it moves. */}
         <Txt size={13} weight={700} latin testID={`plan-item-time-${item.itemId}`} style={stacked ? undefined : { minWidth: 48 }}>{formatTime(start, { locale: lang, timeZone: zone })}</Txt>
         {!stacked ? <View style={{ width: 3, alignSelf: 'stretch', borderRadius: 2, backgroundColor: readOnly ? p.lnStrong : p.ac, minHeight: 28 }} /> : null}
-        <View style={{ ...(stacked ? {} : { flex: 1 }), gap: 4 }}>
+        <View style={{ ...(stacked ? {} : growInRow), gap: 4 }}>
           <Txt size={15} weight={600}>{item.title ? isolateAuto(item.title) : t.planRemovedItem}</Txt>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
             <Txt size={13} color={p.mu} latin>{when}</Txt>

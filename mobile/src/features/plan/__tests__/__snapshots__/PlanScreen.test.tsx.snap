@@ -604,7 +604,8 @@ exports[`right to left matches the Arabic layout it was reviewed in 1`] = `
                   <View
                     style={
                       {
-                        "flex": 1,
+                        "flexGrow": 1,
+                        "flexShrink": 1,
                         "gap": 4,
                       }
                     }
@@ -792,7 +793,8 @@ exports[`right to left matches the Arabic layout it was reviewed in 1`] = `
                   <View
                     style={
                       {
-                        "flex": 1,
+                        "flexGrow": 1,
+                        "flexShrink": 1,
                         "gap": 4,
                       }
                     }
@@ -980,7 +982,8 @@ exports[`right to left matches the Arabic layout it was reviewed in 1`] = `
                   <View
                     style={
                       {
-                        "flex": 1,
+                        "flexGrow": 1,
+                        "flexShrink": 1,
                         "gap": 4,
                       }
                     }
@@ -1337,7 +1340,9 @@ exports[`right to left matches the Arabic layout it was reviewed in 1`] = `
                 <View
                   style={
                     {
-                      "flex": 1,
+                      "flexGrow": 1,
+                      "flexShrink": 1,
+                      "width": 0,
                     }
                   }
                 >
@@ -1415,7 +1420,9 @@ exports[`right to left matches the Arabic layout it was reviewed in 1`] = `
                 <View
                   style={
                     {
-                      "flex": 1,
+                      "flexGrow": 1,
+                      "flexShrink": 1,
+                      "width": 0,
                     }
                   }
                 >

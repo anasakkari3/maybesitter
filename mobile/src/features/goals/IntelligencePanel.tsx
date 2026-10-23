@@ -23,7 +23,7 @@ import { Btn, Pill, Txt } from '../../ui/primitives';
 import { ReferenceIcon } from '../../ui/referenceIcons';
 import { useFreshM5bOn, useM5bOn } from '../m5b/capabilities';
 import { Disclosure } from '../../ui/Disclosure';
-import { useLayoutMode } from '../../theme/textScale';
+import { shareOfRow, useLayoutMode } from '../../theme/textScale';
 import { LiveRegion } from '../../ui/liveRegion';
 import { ProductSection } from '../../ui/product';
 import { QueryBoundary } from '../../api/ui/QueryBoundary';
@@ -130,7 +130,7 @@ function IntelligencePanelForAccount({ onChanged, autoGenerate = false, whenOff 
   // One row of three equal buttons at the ordinary sizes; at the larger text
   // sizes they wrap at their natural widths instead of squeezing the words.
   const actionStyle = useLayoutMode() === 'normal'
-    ? { flexGrow: 1, flexBasis: 0, minWidth: 0, paddingHorizontal: 8 }
+    ? { ...shareOfRow, minWidth: 0, paddingHorizontal: 8 }
     : { paddingHorizontal: 14 };
   const uid = useOptionalAuth()?.user?.uid ?? '';
   const consents = useConsents();
