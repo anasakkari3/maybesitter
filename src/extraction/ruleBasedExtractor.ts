@@ -21,9 +21,11 @@ import {
   namesTwelveInTheEvening,
   MONTH_END_MENTION_SOURCES,
   MONTH_END_OFFSET_SOURCE,
+  NAMED_MONTH_DAY_MENTION_SOURCES,
   NIGHT_HOUR,
   nightClockHour,
   readPeriodEndDeadline,
+  readNamedMonthDay,
   relativeDayIsUnsettled,
   relativeDayOffset,
   timeAnchorOf,
@@ -184,6 +186,13 @@ interface ParsedTime {
 function parseDateTime(raw: string, context: ExtractionContext): ParsedTime {
   const now = context.now;
   const tz = resolveTimezone(context);
+  const namedMonthDay = readNamedMonthDay(raw);
+  // Hebrew writes a date as «ב-3 בנובמבר». Without lifting that date phrase
+  // out first, the generic Hebrew clock marker reads its «ב-3» as 03:00 and
+  // never reaches the actual «בשעה 9:00» later in the sentence.
+  const clockText = namedMonthDay
+    ? `${raw.slice(0, namedMonthDay.index)} ${raw.slice(namedMonthDay.index + namedMonthDay.text.length)}`
+    : raw;
   // «الساعة 12 المسا» names no hour anybody can read (POLISH-CAPTURE review,
   // M7): no clock and no part of the day, so the day is kept and the hour asked.
   //
@@ -193,14 +202,14 @@ function parseDateTime(raw: string, context: ExtractionContext): ParsedTime {
   // day's own hour (14:00, 18:00) replaced the stated 5 before. A pair nobody
   // can read — «12 الصبح», «11 الضهر» — is asked, like «12 المسا». Not in a
   // range: «من الساعة 2 للساعة 4 المسا» starts at the range's start.
-  const statedWithDayPart = namesTimeRange(raw) ? null : hourWithDayPart(raw);
-  const twelveInTheEvening = namesTwelveInTheEvening(raw) || statedWithDayPart === 'ambiguous';
+  const statedWithDayPart = namesTimeRange(clockText) ? null : hourWithDayPart(clockText);
+  const twelveInTheEvening = namesTwelveInTheEvening(clockText) || statedWithDayPart === 'ambiguous';
   // A range's start is its clock (FIX-R8-CAPTURE): «מ-10 עד 4» was read from
   // «עד 4» alone, a Saturday 04:00 deadline. A start with no half of the day
   // of its own takes the end's when the end has one («من 10 لـ 4 المسا» is
   // 10:00, `rangeStartTime`); otherwise it is the start's number, read by
   // every existing clock rule (a bare 1–6 is asked).
-  const range = twelveInTheEvening || statedWithDayPart ? null : readClockRange(raw);
+  const range = twelveInTheEvening || statedWithDayPart ? null : readClockRange(clockText);
   const rangeStart = range ? rangeStartTime(range) : null;
   const clock = twelveInTheEvening
     ? null
@@ -210,7 +219,7 @@ function parseDateTime(raw: string, context: ExtractionContext): ParsedTime {
         ? clockOf(rangeStart)
         : range
           ? { hour: range.start.hour, minute: range.start.minute }
-          : parseClock(raw);
+          : parseClock(clockText);
   let targetDate: Date | null = null;
   let timeConfidence = 0;
   let dateInferred = false;
@@ -237,6 +246,29 @@ function parseDateTime(raw: string, context: ExtractionContext): ParsedTime {
     // ("the 4th"): the Sunday picked here may not be it, and saying so is the
     // honest answer.
     dateInferred = weekday.daysAhead !== 0;
+  }
+
+  // A numeric day paired with a named Gregorian month is an explicit date
+  // (#735). Resolve its next occurrence on the person's calendar. February 29
+  // advances to the next leap year; a day no year can contain (31 November)
+  // fails closed and keeps any stated hour only for the day clarification.
+  let invalidNamedDate = false;
+  if (namedMonthDay) {
+    const maximumDay = new Date(Date.UTC(2000, namedMonthDay.month, 0)).getUTCDate();
+    invalidNamedDate = namedMonthDay.day < 1 || namedMonthDay.day > maximumDay;
+    if (invalidNamedDate) {
+      targetDate = null;
+      timeConfidence = 0.1;
+      dateInferred = false;
+    } else {
+      const today = wallClockParts(now, tz);
+      let year = today.year;
+      if (namedMonthDay.month * 100 + namedMonthDay.day < (today.month + 1) * 100 + today.day) year += 1;
+      while (new Date(Date.UTC(year, namedMonthDay.month - 1, namedMonthDay.day)).getUTCDate() !== namedMonthDay.day) year += 1;
+      targetDate = fromWallClock({ year, month: namedMonthDay.month - 1, day: namedMonthDay.day, hour: 12, minute: 0, second: 0 }, tz);
+      timeConfidence = 0.95;
+      dateInferred = false;
+    }
   }
 
   // «قبل آخر الشهر», "by the end of the month", «עד סוף החודש» (FX3): the
@@ -270,13 +302,13 @@ function parseDateTime(raw: string, context: ExtractionContext): ParsedTime {
   // CAPTURE): «كل أسبوع الساعة 10», «كل جمعة الساعة 5» name no day of their
   // own, and the owner's «كل سبت من 10 لـ 4» became an event today. The hour
   // is kept with no day (`undatedTime`) and the day is asked.
-  const undated = !targetDate && clock !== null && readRecurrence(raw) !== null;
+  const undated = !targetDate && clock !== null && (readRecurrence(raw) !== null || invalidNamedDate);
   if (!targetDate && clock) {
     targetDate = new Date(now);
     timeConfidence = 0.72;
   }
 
-  const evidence = timeOfDayEvidence(raw);
+  const evidence = timeOfDayEvidence(clockText);
 
   if (!targetDate) {
     return { dueAt: null, remindAt: null, confidence: 0.1, evidence, localTimeSpec: null, dateInferred: false };
@@ -289,7 +321,7 @@ function parseDateTime(raw: string, context: ExtractionContext): ParsedTime {
   // hour the user never said and never asked about it. A caller that sets
   // `defaultReminderHour` has *chosen* a default and still gets one; its
   // absence now means "no time stated" rather than "six".
-  const daypart = twelveInTheEvening ? null : dayPartHour(raw);
+  const daypart = twelveInTheEvening ? null : dayPartHour(clockText);
   let hour: number;
   let minute = 0;
   if (clock) {
@@ -392,6 +424,7 @@ export function stripTimeExpressions(text: string): string {
 const FOLLOWING_WEEK_STRIP = FOLLOWING_WEEK_STRIP_SOURCES.map((source) => new RegExp(source, 'giu'));
 const DAY_PART_STRIP = DAY_PART_MENTION_SOURCES.map((source) => new RegExp(source, 'giu'));
 const RELATIVE_DAY_STRIP = RELATIVE_DAY_MENTION_SOURCES.map((source) => new RegExp(source, 'giu'));
+const NAMED_DATE_STRIP = NAMED_MONTH_DAY_MENTION_SOURCES.map((source) => new RegExp(source, 'giu'));
 const WEEKDAY_STRIP = WEEKDAY_MENTION_SOURCES.map((source) => new RegExp(source, 'gu'));
 const CLOCK_STRIP = [...RANGE_PATTERN_SOURCES, ...CLOCK_PATTERN_SOURCES].map((source) => new RegExp(source, 'gi'));
 // Ranges first, so «من الساعة 2 للساعة 4 المسا» is not cut inside its range.
@@ -443,6 +476,7 @@ function stripTiming(text: string, options: { monthEnd?: boolean } = {}): string
   // The month's end with its limit word (FX3), before «آخر» or «الشهر» can be
   // left behind by anything below — only when it is this item's deadline.
   if (options.monthEnd) for (const pattern of MONTH_END_STRIP) stripped = stripped.replace(pattern, ' ');
+  for (const pattern of NAMED_DATE_STRIP) stripped = stripped.replace(pattern, ' ');
   // Parts of the day first, by the lexicon's own whole-word rule, while the
   // "tomorrow" that frames "tomorrow morning" is still there to be read. A
   // word that only contains one — «المساعدة», «המערב», "the morning report"
