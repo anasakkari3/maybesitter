@@ -268,6 +268,28 @@ describe('M5b-2b-2 review on the real wire (inspection round 1)', () => {
     expectBoundGone();
   });
 
+  it.each(['fail', 'gate'] as const)('M5B2B2-APP-R2-001 dismissing the re-add marker itself hides the suggestions citing it at once (%s re-read)', async (mode) => {
+    const gate = deferred<void>();
+    const state = decisionFourState(mode === 'fail' ? 'fail' : { gate: gate.promise });
+    await loaded(state);
+    await waitFor(() => expect(screen.queryByTestId('intelligence-suggestion-readd-backed')).not.toBeNull());
+    expect(screen.getByTestId('m5b-suggestion-schedule-readd-backed')).toBeTruthy();
+    const readsBefore = inboxReads();
+
+    await fireEvent.press(screen.getByTestId(readdTestIds.wrong('bound')));
+    await waitFor(() => expect(inboxReads()).toBeGreaterThan(readsBefore));
+    await waitFor(() => expect(screen.queryByTestId('m5b-learned-status')).not.toBeNull());
+
+    // Before (or without) any re-read: what cites the dismissed marker is gone,
+    // what cites another marker stays.
+    expect(state.servedAfterReview).toBe(0);
+    expect(screen.queryByTestId('intelligence-suggestion-readd-backed')).toBeNull();
+    expect(screen.queryByTestId('m5b-suggestion-schedule-readd-backed')).toBeNull();
+    expect(screen.getByTestId('intelligence-suggestion-unrelated')).toBeTruthy();
+    expect(screen.getByTestId('m5b-suggestion-schedule-unrelated')).toBeTruthy();
+    if (mode === 'gate') gate.resolve();
+  });
+
   it('M5B2B2-APP-002 parity: without matchedOutcomeId (an older server) the dismissal patches only the outcome until the re-read', async () => {
     const gate = deferred<void>();
     const state = decisionFourState({ gate: gate.promise }, false);

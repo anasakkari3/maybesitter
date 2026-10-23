@@ -41,6 +41,7 @@ import {
 import { listPlanEvents, readStoredPlan } from '../../lib/services/dailyPlan/planStore.ts';
 import { persistParticipantState } from '../../lib/services/mobile/participantState.ts';
 import { applyCommand, createEmptyDomainState, type DomainState } from '../../src/domain/stateMachine.ts';
+import { seedLiveAccount } from '../support/liveAccount.ts';
 
 if (!process.env.FIRESTORE_EMULATOR_HOST) {
   throw new Error(
@@ -77,6 +78,8 @@ function withCommitments(titles: readonly string[]): DomainState {
 }
 
 async function seed(storage: StorageAdapter, uid: string, enabled = true): Promise<void> {
+  // #772: the live root, with the trust record authentication writes, before any direct domain write.
+  await seedLiveAccount(uid, storage);
   await persistParticipantState(uid, withCommitments(['Write the summary', 'Call the bank']));
   const user = await storage.get<Record<string, unknown>>(userDoc(uid));
   await storage.set(userDoc(uid), { ...(user ?? {}), timezone: TZ, locale: 'ar' });
@@ -121,6 +124,7 @@ test('firestore: the sweep returns a due account and omits a disabled, a future 
     await seed(storage, due);
     await seed(storage, disabled, false);
     await seed(storage, future);
+    await seedLiveAccount(never, storage); // #772: a live root before the direct domain write
     await persistParticipantState(never, withCommitments(['Something']));
 
     const found = new Set(await listDueAccounts(MORNING, { storage }, WIDE));

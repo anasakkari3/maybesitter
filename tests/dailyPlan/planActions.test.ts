@@ -20,6 +20,7 @@ import type { StorageAdapter } from '../../lib/storage/storageAdapter.ts';
 import { userDoc } from '../../lib/storage/paths.ts';
 import { installFakeAuth, tokenFor, uidFor, type FakeAuthControls } from '../support/fakeAuth.ts';
 import { persistParticipantState } from '../../lib/services/mobile/participantState.ts';
+import { seedLiveAccount } from '../support/liveAccount.ts';
 import { applyCommand as applyDomainCommand, createEmptyDomainState } from '../../src/domain/stateMachine.ts';
 import {
   buildAndStoreDailyPlan,
@@ -83,6 +84,7 @@ async function setup(): Promise<Harness> {
   const storage = createMemoryStorage();
   setStorageForTests(storage);
   const auth = installFakeAuth();
+  await seedLiveAccount(USER, storage); // #772: the user document a live account has
   await persistParticipantState(USER, seedState());
   const user = await storage.get<Record<string, unknown>>(userDoc(USER));
   await storage.set(userDoc(USER), { ...(user ?? {}), timezone: TZ, locale: 'en' });

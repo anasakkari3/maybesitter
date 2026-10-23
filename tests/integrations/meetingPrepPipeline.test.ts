@@ -44,6 +44,7 @@ import { NO_QUIET_HOURS, type QuietHours } from '../../lib/push/quietHours.ts';
 import { uidFor } from '../support/fakeAuth.ts';
 import { importsOutsideTheRoot, phoneReminderEngine, type PhoneReminderSettings as EngineReminderSettings } from '../support/phoneReminderEngine.ts';
 import { readFileSync } from 'node:fs';
+import { seedLiveAccount } from '../support/liveAccount.ts';
 
 const UID = uidFor('MeetingPrepUser');
 const MINUTE = 60_000;
@@ -346,6 +347,7 @@ test('«يوم الأحد الصبح» is Sunday at the morning hour capture giv
     assert.equal(followUp.timeEstimated, true);
     assert.equal(proposal.items[0]!.timeEstimated, false);
 
+    await seedLiveAccount(UID);
     const result = await confirmMobileCapture(
       { proposalId: proposal.proposalId, itemIds: proposal.items.map((item) => item.itemId) },
       { participantId: UID },
@@ -424,6 +426,7 @@ test('confirmed through the capture confirm, the prep step is at the hour before
     assert.equal(Date.parse(prep.remindAt!), start - 60 * MINUTE);
     assert.equal(Date.parse(prep.dueAt), start, 'the phone rings at the deadline − 60: the deadline must be the start');
     assert.equal(proposal.items[0]!.resolvedTime, prep.remindAt, 'Review shows the hour before');
+    await seedLiveAccount(UID);
     const result = await confirmMobileCapture(
       { proposalId: proposal.proposalId, itemIds: proposal.items.map((item) => item.itemId) },
       { participantId: UID },
@@ -453,6 +456,7 @@ test('between its reminder and the meeting, the prep step is not overdue on the 
     const now = new Date(Date.now());
     const input = inputFor(now);
     const { proposal, prep } = await prepareMeeting(UID, input, { now, consent: declined, quietHours: NO_QUIET_HOURS });
+    await seedLiveAccount(UID);
     const result = await confirmMobileCapture(
       { proposalId: proposal.proposalId, itemIds: [prep.itemId] },
       { participantId: UID },
@@ -580,6 +584,7 @@ async function prepFor(minutesAway: number, ceiling: Ceiling, lead: number, opti
 
 /** Confirms the prep step alone and returns the commitment it became, as stored. */
 async function confirmedPrep(proposalId: string, itemId: string) {
+  await seedLiveAccount(UID);
   const result = await confirmMobileCapture({ proposalId, itemIds: [itemId] }, { participantId: UID });
   assert.equal(result.success, true);
   const state = await getParticipantStateSnapshot(UID);

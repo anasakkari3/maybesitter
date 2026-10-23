@@ -24,6 +24,7 @@ import { USER_SCOPED_COLLECTIONS, userCol } from '../../../lib/storage/paths.ts'
 import { resetProviderForTests } from '../../../src/extraction/llm/index.ts';
 import { applyParticipantCommands, getParticipantStateSnapshot } from '../../../lib/services/mobile/participantState.ts';
 import { installFakeAuth, tokenFor, uidFor, type FakeAuthControls } from '../../support/fakeAuth.ts';
+import { seedLiveAccount } from '../../support/liveAccount.ts';
 import { seedGoal } from '../../goalGraph/goalGraphSupport.ts';
 import { instantFromLocal } from '../../../src/extraction/timeLexicon.ts';
 
@@ -133,6 +134,9 @@ export async function setup(options: SetupOptions = {}): Promise<Harness> {
   mock.timers.enable({ apis: ['Date'], now: Date.parse(REFERENCE) });
   const storage = createMemoryStorage();
   setStorageForTests(storage);
+  // The live account auth would have created before any write (#772): the
+  // calendar helpers write domain state directly, before any route runs.
+  await seedLiveAccount(options.uid ?? USER, storage);
   const auth: FakeAuthControls = installFakeAuth();
   const previous = Object.fromEntries(ENV_KEYS.map((key) => [key, process.env[key]]));
   const env = { MAYBESITTER_FEATURE_GOAL_PLAN: 'true', ...(options.env ?? {}) };

@@ -42,6 +42,7 @@ import {
   userSubDoc,
   type StorageAdapter,
 } from '../storage';
+import { requireLiveAccount } from '../account/accountLiveness';
 
 /** The document, which is the habit exactly. Nothing is stored beside it. */
 type StoredHabit = HabitDefinition;
@@ -75,7 +76,12 @@ export class StorageHabitStore implements HabitStore {
     // Re-validated, not trusted. See the header.
     const validated = parseHabitDefinitionInput(input);
     const habit = buildHabitDefinition(randomUUID(), validated, now);
-    await this.storage.set<StoredHabit>(habitPath(habit.scopeId, habit.habitId), habit);
+    // With the account's deletion fence (#772): a create that lands after the
+    // account was deleted would put a habit back under it.
+    await this.storage.runTransaction(async (tx) => {
+      await requireLiveAccount(tx, habit.scopeId);
+      tx.set<StoredHabit>(habitPath(habit.scopeId, habit.habitId), habit);
+    });
     return habit;
   }
 
@@ -100,7 +106,10 @@ export class StorageHabitStore implements HabitStore {
   ): Promise<HabitDefinition | null> {
     const path = habitPath(scopeId, habitId);
     return this.storage.runTransaction(async (tx) => {
-      const existing = await tx.get<StoredHabit>(path);
+      const [existing] = await Promise.all([
+        tx.get<StoredHabit>(path),
+        requireLiveAccount(tx, scopeId), // the deletion fence (#772)
+      ]);
       if (!existing || !isHabitDefinition(existing)) return null;
       // Throws rather than returning null when the patch is incoherent — "not
       // found" and "minimumOccurrences above the ceiling" are different answers

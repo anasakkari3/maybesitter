@@ -23,6 +23,7 @@ import { upsertDevice } from '../../lib/push/deviceRegistry.ts';
 import type { FcmMessage, MessagingClient } from '../../lib/push/pushService.ts';
 import { saveRoutineProfile } from '../../lib/services/mobile/routineProfileService.ts';
 import { persistParticipantState } from '../../lib/services/mobile/participantState.ts';
+import { seedLiveAccount } from '../support/liveAccount.ts';
 import { applyCommand, createEmptyDomainState, type DomainState } from '../../src/domain/stateMachine.ts';
 import {
   runDailyPlanTick,
@@ -78,6 +79,7 @@ function withCommitments(titles: readonly string[]): DomainState {
 }
 
 async function seed(storage: StorageAdapter, uid: string, options: { delivery?: string; quietHours?: { start: string; end: string } } = {}): Promise<void> {
+  await seedLiveAccount(uid, storage); // #772: the user document a live account has
   await persistParticipantState(uid, withCommitments(TITLES));
   const user = await storage.get<Record<string, unknown>>(userDoc(uid));
   await storage.set(userDoc(uid), { ...(user ?? {}), timezone: TZ, locale: 'en' });

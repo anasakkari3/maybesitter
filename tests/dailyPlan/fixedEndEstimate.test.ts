@@ -15,6 +15,7 @@ import { resetStorageForTests, setStorageForTests } from '../../lib/storage/inde
 import type { StorageAdapter } from '../../lib/storage/storageAdapter.ts';
 import { userDoc } from '../../lib/storage/paths.ts';
 import { installFakeAuth, tokenFor, uidFor } from '../support/fakeAuth.ts';
+import { seedLiveAccount } from '../support/liveAccount.ts';
 import { confirmMobileCapture, proposeMobileCapture } from '../../lib/services/mobile/mobileCaptureService.ts';
 import { DEFAULT_FIXED_EVENT_MINUTES } from '../../lib/services/dailyPlan/buildDailyPlan.ts';
 import { POST as weekPost } from '../../src/app/api/mobile/plans/week/route.ts';
@@ -41,6 +42,7 @@ async function withHarness(run: (storage: StorageAdapter) => Promise<void>): Pro
   try {
     const user = await storage.get<Record<string, unknown>>(userDoc(USER));
     await storage.set(userDoc(USER), { ...(user ?? {}), timezone: TZ, locale: 'ar' });
+    await seedLiveAccount(USER, storage);
     await run(storage);
   } finally {
     auth.restore();

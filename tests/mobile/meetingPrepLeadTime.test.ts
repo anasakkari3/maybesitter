@@ -18,6 +18,7 @@ import { prepareMeeting } from '../../lib/services/mobile/meetingPrepService.ts'
 import { NO_QUIET_HOURS, type QuietHours } from '../../lib/push/quietHours.ts';
 import { createMemoryStorage } from '../../lib/storage/memoryAdapter.ts';
 import { resetStorageForTests, setStorageForTests } from '../../lib/storage/index.ts';
+import { seedLiveAccount } from '../support/liveAccount.ts';
 import type { Commitment } from '../../src/domain/stateMachine.ts';
 
 const TZ = 'Asia/Jerusalem';
@@ -31,6 +32,7 @@ const RINGS = { softEnabled: true, softLeadMinutes: 30, escalationCeiling: 'foll
 async function withMemoryStorage<T>(run: () => Promise<T>): Promise<T> {
   setStorageForTests(createMemoryStorage());
   try {
+    await seedLiveAccount(UID);
     return await run();
   } finally {
     resetStorageForTests();

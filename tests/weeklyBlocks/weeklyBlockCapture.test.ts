@@ -20,6 +20,7 @@ import { resetStorageForTests, setStorageForTests } from '../../lib/storage/inde
 import { userCol, WEEKLY_BLOCKS } from '../../lib/storage/paths.ts';
 import { clarifyMobileCapture, confirmMobileCapture, proposeMobileCapture } from '../../lib/services/mobile/mobileCaptureService.ts';
 import { getParticipantStateSnapshot } from '../../lib/services/mobile/participantState.ts';
+import { seedLiveAccount } from '../support/liveAccount.ts';
 import { listBusyBlocksOfSource } from '../../lib/calendar/busyBlocks.ts';
 import { weeklyBusySourceId } from '../../lib/weeklyBlocks/weeklyBlockService.ts';
 import type { WeeklyBlockDocument } from '../../src/contracts/v1/weeklyBlockContracts.ts';
@@ -47,6 +48,7 @@ function fresh(): string {
 test.afterEach(() => resetStorageForTests());
 
 async function propose(uid: string, text: string) {
+  await seedLiveAccount(uid);
   const proposal = await proposeMobileCapture({ text, timezone: TZ, referenceTime: TUE.toISOString() }, { participantId: uid });
   return { proposal, items: proposal.items as Item[] };
 }

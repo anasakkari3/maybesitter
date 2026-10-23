@@ -39,6 +39,7 @@ import { getRef, putRef, putRefCarryingForwardDetachment } from '../../lib/footb
 import { applyParticipantCommands, persistParticipantState, readParticipantState } from '../../lib/services/mobile/participantState.ts';
 import { upsertDevice } from '../../lib/push/deviceRegistry.ts';
 import { fixtureContentHash, FIXTURE_CONTRACT_VERSION, FIXTURE_SCHEMA_VERSION, type Fixture, type FixtureCore } from '../../src/contracts/v1/fixtureContracts.ts';
+import { seedLiveAccount } from '../support/liveAccount.ts';
 
 const NOW = '2026-10-01T09:00:00.000Z';
 
@@ -73,6 +74,7 @@ async function commitments() {
 
 test.beforeEach(async () => {
   setStorageForTests(createMemoryStorage());
+  await seedLiveAccount('u1');
   await setFollowedClubs('u1', ['barcelona'], NOW);
 });
 test.afterEach(() => resetStorageForTests());
@@ -358,6 +360,7 @@ test('a dismissal landing mid-recreate wins the race, not the sync', async () =>
   // returned 200.
   const storage = createMemoryStorage();
   setStorageForTests(storage);
+  await seedLiveAccount('u1');
   await setFollowedClubs('u1', ['barcelona'], NOW);
 
   // 1. An ordinary active commitment.
@@ -465,6 +468,7 @@ test('a dismissal landing mid-write on the drop path is not undone', async () =>
   // to hang it on.
   const storage = createMemoryStorage();
   setStorageForTests(storage);
+  await seedLiveAccount('u1');
   await setFollowedClubs('u1', ['barcelona'], NOW);
 
   await upsertFixtures([fixture('1', '2026-10-25T19:00:00.000Z')]);

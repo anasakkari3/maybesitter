@@ -1,4 +1,5 @@
 import { mobileAuthErrorResponse, requireMobileUser } from '../../../../../../../lib/auth/mobileAuth';
+import { AccountUnavailableError, accountUnavailableResponse } from '../../../../../../../lib/account/accountLiveness';
 import {
   applyCommitmentAction,
   InvalidTransitionError,
@@ -93,6 +94,7 @@ export async function POST(
       ...(replayed ? { replayed: true } : {}),
     }, { headers: { ETag: etagFor(commitment) } });
   } catch (error) {
+    if (error instanceof AccountUnavailableError) return accountUnavailableResponse();
     if (error instanceof SlotDecisionError) {
       const fresh = await postponeSlots(user.uid, id);
       return Response.json({ success: false, error: error.code, slots: fresh?.slots ?? [], complete: fresh?.complete ?? false }, { status: 409 });

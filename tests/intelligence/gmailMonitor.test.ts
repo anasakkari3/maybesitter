@@ -6,12 +6,13 @@ import { runGmailMonitorTick, readGmailMonitor, type GmailMonitor } from '../../
 import { scanGmailIntelligence } from '../../lib/intelligence/googleGmailIntelligence.ts';
 import type { GmailTransport } from '../../lib/integrations/gmail/production/gmailTransport.ts';
 import type { GoogleRuntime } from '../../lib/integrations/google/googleRuntime.ts';
+import { createPilotTrustState } from '../../lib/pilot/closedPilotControls.ts';
 
 const FIRST = '2026-09-30T10:00:00.000Z';
 
 function createMemoryStorage() {
   const storage = createRawMemoryStorage();
-  void storage.set(userDoc('alice'), { trust: null });
+  void storage.set(userDoc('alice'), { trust: createPilotTrustState('alice', FIRST) });
   return storage;
 }
 

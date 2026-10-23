@@ -38,9 +38,17 @@
  * avoid needing — and it is why `FOOTBALL_FOLLOWS` is a subcollection under
  * `users/{uid}` rather than, say, a single global document: a collection
  * group is queryable across every user's copy, a single document is not.
+ *
+ * ── The account deletion fence (#772, Q772-001) ───────────────────────────
+ * `setFollowedClubs` reads `users/{uid}` in the transaction that writes the
+ * list and refuses (`AccountUnavailableError`) unless the account is live. A
+ * follow saved by a request that authenticated before the account was swept
+ * otherwise re-created this document under the deleted account, and the
+ * nightly sync's collection-group read would have kept finding it.
  */
+import { assertLiveAccount } from '../account/accountLiveness';
 import { getStorage, type StorageAdapter } from '../storage';
-import { FOOTBALL_FOLLOWS, userSubDoc } from '../storage/paths';
+import { FOOTBALL_FOLLOWS, userDoc, userSubDoc } from '../storage/paths';
 import { clubById } from './clubs';
 
 /** The one fixed document id every user's follow list lives at. */
@@ -104,10 +112,13 @@ export async function setFollowedClubs(
     }
   }
   const storage = storageOf(deps);
-  await storage.set(userSubDoc(uid, FOOTBALL_FOLLOWS, CLUBS_DOC_ID), {
-    clubIds: deduped,
-    updatedAt: now,
-  } satisfies FollowedClubsDoc);
+  await storage.runTransaction(async (tx) => {
+    assertLiveAccount(await tx.get(userDoc(uid)));
+    tx.set<FollowedClubsDoc>(userSubDoc(uid, FOOTBALL_FOLLOWS, CLUBS_DOC_ID), {
+      clubIds: deduped,
+      updatedAt: now,
+    });
+  });
   return deduped;
 }
 

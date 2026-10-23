@@ -21,6 +21,7 @@ import type { StorageAdapter } from '../../lib/storage/storageAdapter.ts';
 import { userDoc } from '../../lib/storage/paths.ts';
 import { installFakeAuth, tokenFor, uidFor, type FakeAuthControls } from '../support/fakeAuth.ts';
 import { persistParticipantState } from '../../lib/services/mobile/participantState.ts';
+import { seedLiveAccount } from '../support/liveAccount.ts';
 import { applyCommand as applyDomainCommand, createEmptyDomainState } from '../../src/domain/stateMachine.ts';
 import {
   PlanDateOutOfRangeError,
@@ -77,6 +78,7 @@ function seedState() {
 
 /** An account with commitments and no plan. Delivery is off unless asked. */
 async function seed(storage: StorageAdapter, uid: string, options: { delivery?: boolean; timezone?: string } = {}): Promise<void> {
+  await seedLiveAccount(uid, storage); // #772: the user document a live account has
   await persistParticipantState(uid, seedState());
   const user = await storage.get<Record<string, unknown>>(userDoc(uid));
   await storage.set(userDoc(uid), { ...(user ?? {}), timezone: options.timezone ?? TZ, locale: 'en' });

@@ -1,4 +1,5 @@
 import { mobileAuthErrorResponse, requireMobileUser } from '../../../../../lib/auth/mobileAuth';
+import { AccountUnavailableError, accountUnavailableResponse } from '../../../../../lib/account/accountLiveness';
 import { mobileError } from '../../../../../lib/services/mobile/response';
 import { parseHabitDefinitionInput } from '../../../../../src/contracts/v1/habitContracts';
 import {
@@ -104,6 +105,7 @@ export async function POST(request: Request) {
       occurrences: materialization.occurrences.map(presentOccurrence),
     }, { status: 201 });
   } catch (error) {
+    if (error instanceof AccountUnavailableError) return accountUnavailableResponse();
     if (error instanceof HabitValidationError) return habitValidationResponse(error);
     console.error('[habits] creating a habit failed', error);
     return mobileError('could not create the habit', 500);

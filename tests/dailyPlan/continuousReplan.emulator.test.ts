@@ -20,6 +20,7 @@ import { acceptPlan, acceptPlanProposal, replayStoredPlan } from '../../lib/serv
 import { processStateChangesForUser } from '../../lib/services/dailyPlan/continuousReplanService.ts';
 import { readStoredPlan } from '../../lib/services/dailyPlan/planStore.ts';
 import { replaceBusyBlocks } from '../../lib/calendar/busyBlocks.ts';
+import { seedLiveAccount } from '../support/liveAccount.ts';
 
 if (!process.env.FIRESTORE_EMULATOR_HOST) {
   throw new Error('FIRESTORE_EMULATOR_HOST is unset. Run through `npm run test:emulator`.');
@@ -46,6 +47,8 @@ test('firestore: a calendar change installs a replayable incremental generation'
         type: 'ConfirmCommitment', commitmentId: id, now: '2026-09-14T06:00:00.000Z', reminders: [],
       }).newState;
     }
+    // #772: the live root, with the trust record authentication writes, before any direct domain write.
+    await seedLiveAccount(uid, storage);
     await persistParticipantState(uid, state);
     const user = await storage.get<Record<string, unknown>>(userDoc(uid));
     await storage.set(userDoc(uid), { ...(user ?? {}), timezone: TZ, locale: 'en' });

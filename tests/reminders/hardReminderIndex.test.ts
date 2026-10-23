@@ -14,6 +14,7 @@ import { getStorage, resetStorageForTests, setStorageForTests } from '../../lib/
 import { HARD_REMINDERS, userCol, userDoc } from '../../lib/storage/paths.ts';
 import { createEmptyDomainState, type Commitment, type DomainState } from '../../src/domain/stateMachine.ts';
 import { persistParticipantState } from '../../lib/services/mobile/participantState.ts';
+import { seedLiveAccount } from '../support/liveAccount.ts';
 import {
   completeCommitment,
   dropCommitment,
@@ -71,6 +72,7 @@ function commitment(overrides: Partial<Commitment> = {}): Commitment {
 }
 
 async function store(...commitments: Commitment[]): Promise<DomainState> {
+  await seedLiveAccount(USER);
   const state = createEmptyDomainState();
   for (const item of commitments) state.commitments[item.id] = item;
   return persistParticipantState(USER, state);

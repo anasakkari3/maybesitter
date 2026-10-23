@@ -61,7 +61,8 @@ import {
   type StorageReader,
   type StorageTransaction,
 } from '../../storage';
-import { newUserDocument, type UserDocument } from '../../storage/userDocument';
+import type { UserDocument } from '../../storage/userDocument';
+import { assertLiveAccount } from '../../account/accountLiveness';
 import { readActivityStats, recordActivityEvents } from '../activity/activityStats';
 import { commitmentValidator } from './commitmentValidator';
 import { referenceStateForContract } from '../captureChat/chatReferences';
@@ -226,6 +227,17 @@ function diffCollection(
  *
  * Must be called after every read the transaction needs, because Firestore
  * refuses a read issued after a write and both adapters enforce that.
+ *
+ * ── The account deletion fence (#772) ───────────────────────────
+ *
+ * `user` is the `users/{uid}` document this transaction read, so it is also
+ * the fence: a document that is gone (the deletion swept the tree) or carries
+ * `trust.deletedAt` throws `AccountUnavailableError` before anything is
+ * written, and the throw aborts every write the caller queued before this
+ * one. Without it, a request that authenticated before the deletion recreated
+ * the account's commitments, events and user document after it. Every caller
+ * already reads the user document in the same transaction, so the fence costs
+ * no extra read here.
  */
 export function writeDomainDiff(
   tx: StorageTransaction,
@@ -237,6 +249,7 @@ export function writeDomainDiff(
   at: string,
 ): void {
   requireUserId(uid);
+  assertLiveAccount(user);
   diffCollection(tx, uid, COMMITMENTS, before.commitments, after.commitments);
   diffCollection(tx, uid, REMINDERS, before.reminders, after.reminders);
   diffCollection(tx, uid, ESCALATION_STATES, before.escalationStates, after.escalationStates);
@@ -251,9 +264,8 @@ export function writeDomainDiff(
     tx.create(entryPath(uid, EVENTS, event.id), { ...event, recordedAt: at });
   }
 
-  const version = { domainVersion: (user?.domainVersion ?? 0) + 1, updatedAt: at };
-  if (user) tx.merge<UserDocument>(userDoc(uid), version);
-  else tx.set<UserDocument>(userDoc(uid), { ...newUserDocument(at), ...version });
+  // `user` exists: the fence above refused a missing document.
+  tx.merge<UserDocument>(userDoc(uid), { domainVersion: (user?.domainVersion ?? 0) + 1, updatedAt: at });
 }
 
 function nowIso(): string {
@@ -347,6 +359,10 @@ export async function applyCommandInTransaction(
       ? tx.get<HardReminderEntry>(hardReminderPath(participantId, command.commitmentId))
       : Promise.resolve(null),
   ]);
+  // The deletion fence (#772), before any outcome: a no-op still leaves a
+  // receipt in `applyParticipantCommandOnce`, and that receipt is a document
+  // under the deleted account too.
+  assertLiveAccount(user);
   // Inside the transaction, against the state it just read. A commitment that
   // moves between this check and the commit moves the version the transaction
   // recorded, so the transaction retries and checks again.
@@ -505,9 +521,9 @@ export async function deleteParticipantDomainState(participantId: string): Promi
     PARTICIPANT_COLLECTIONS.forEach((collection, index) => {
       for (const { id } of listings[index]) tx.delete(`${userCol(participantId, collection)}/${id}`);
     });
-    const version = { domainVersion: (user?.domainVersion ?? 0) + 1, updatedAt: at };
-    if (user) tx.merge<UserDocument>(userDoc(participantId), version);
-    else tx.set<UserDocument>(userDoc(participantId), { ...newUserDocument(at), ...version });
+    // Never re-creates the user document (#772): one that is gone was swept by
+    // an account deletion, and writing a fresh one would bring the account back.
+    if (user) tx.merge<UserDocument>(userDoc(participantId), { domainVersion: (user.domainVersion ?? 0) + 1, updatedAt: at });
   });
 }
 
@@ -576,6 +592,10 @@ export async function commitCaptureConfirmation<T>(
       loadDomainState(tx, participantId),
       readActivityStats(tx, participantId),
     ]);
+    // The deletion fence (#772), before the replay and revision checks: a
+    // swept account has no proposal either, and the revision check would fail
+    // on that with a TypeError before `writeDomainDiff` could refuse cleanly.
+    assertLiveAccount(user);
 
     // Already confirmed, by an earlier request or by one that committed while
     // this transaction was reading. Either way the commitments exist and this

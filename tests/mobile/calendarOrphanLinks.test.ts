@@ -19,6 +19,7 @@ import assert from 'node:assert/strict';
 import { createMemoryStorage } from '../../lib/storage/memoryAdapter.ts';
 import { resetStorageForTests, setStorageForTests } from '../../lib/storage/index.ts';
 import { installFakeAuth, tokenFor, uidFor, type FakeAuthControls } from '../support/fakeAuth.ts';
+import { seedLiveAccount } from '../support/liveAccount.ts';
 import { configureCommandService } from '../../lib/services/commandService.ts';
 import { createEmptyDomainState, type Command } from '../../src/domain/stateMachine.ts';
 import { applyParticipantCommand } from '../../lib/services/mobile/participantState.ts';
@@ -74,6 +75,7 @@ async function today(): Promise<ListBody> {
 
 /** A confirmed, dated commitment with an event already written for it. */
 async function linkedCommitment(id: string, dueAt: string): Promise<void> {
+  await seedLiveAccount(USER);
   await applyParticipantCommand(USER, {
     type: 'CreateDraft',
     now: NOW,

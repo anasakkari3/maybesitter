@@ -23,6 +23,7 @@ import {
   type StoredDailyPlan,
 } from '../../lib/services/dailyPlan/planStore';
 import { replaceBusyBlocksAsFixture } from '../support/busyFixtures.ts';
+import { seedLiveAccount } from '../support/liveAccount.ts';
 import { persistParticipantState, readParticipantState } from '../../lib/services/mobile/participantState';
 import { createEmptyDomainState } from '../../src/domain/stateMachine';
 import type { Commitment, DomainState } from '../../src/domain/stateMachine';
@@ -148,6 +149,7 @@ test('processStateChangesForUser: REPLAN_REQUIRED auto-applies minor shift, incr
   try {
     // 1. Seed user document
     await storage.set(userDoc(UID), { timezone: TZ, locale: 'en' });
+    await seedLiveAccount(UID, storage); // #772: the trust record authentication writes
 
     // 2. Seed domain state with commitment
     const domainState: DomainState = {
@@ -257,6 +259,7 @@ test('processStateChangesForUser: PLAN_STALE marks user state projection without
 
   try {
     await storage.set(userDoc(UID), { timezone: TZ, locale: 'en' });
+    await seedLiveAccount(UID, storage); // #772: the trust record authentication writes
     const domainState: DomainState = {
       ...createEmptyDomainState(),
       commitments: { 'com-1': sampleCommitment('com-1') },

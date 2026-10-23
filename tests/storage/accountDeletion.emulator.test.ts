@@ -21,6 +21,7 @@ import { deleteAccount, DELETION_RECEIPTS, subjectHashFor } from '../../lib/acco
 import { resetDeletionHooksForTests } from '../../lib/account/deletionHooks.ts';
 import { requireMobileUser } from '../../lib/auth/mobileAuth.ts';
 import { proposeMobileCapture, confirmMobileCapture } from '../../lib/services/mobile/mobileCaptureService.ts';
+import { seedLiveAccount } from '../support/liveAccount.ts';
 
 const AUTH_HOST = process.env.FIREBASE_AUTH_EMULATOR_HOST;
 if (!AUTH_HOST) {
@@ -63,6 +64,9 @@ test('firestore + auth: deleting an account removes the data, the user, and the 
   setStorageForTests(createFirestoreStorage());
   const account = await signUp();
   try {
+    // #772: the live root, with the trust record authentication writes on the
+    // first request, before the capture confirm writes under it directly.
+    await seedLiveAccount(account.uid, createFirestoreStorage());
     // Real data, made the way the app makes it.
     const proposal = await proposeMobileCapture(
       { text: 'Renew the passport tomorrow at 2pm', timezone: 'UTC' },

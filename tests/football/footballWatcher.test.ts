@@ -37,6 +37,7 @@ import { readParticipantState } from '../../lib/services/mobile/participantState
 import { buildDailyPlanInput } from '../../lib/services/dailyPlan/buildDailyPlan.ts';
 import type { ClubSyncState, FixtureProvider } from '../../src/contracts/v1/fixtureContracts.ts';
 import type { UserRoutineProfile } from '../../src/contracts/v1/routineContracts.ts';
+import { seedLiveAccount } from '../support/liveAccount.ts';
 
 const BASE = 'https://api.maybesitter.test';
 const ALICE = uidFor('FootballWatcherAlice');
@@ -341,6 +342,7 @@ test('the per-minute watcher cron runs the football poll through its default wir
 test('without the key, Settings cannot follow a club into a watcher that never fetches — but can still stop following', async () => {
   begin(null);
   try {
+    await seedLiveAccount(ALICE); // authentication's trust record (#772)
     // A follow saved before the watcher lane (Settings → Football was open to
     // everyone then), and no key on this server.
     await setFollowedClubs(ALICE, ['barcelona'], iso(T0));
@@ -369,6 +371,7 @@ test('without the key, Settings cannot follow a club into a watcher that never f
 test('once the key exists, a follow from before the watcher lane gets its watcher on the first poll, named in the account language', async () => {
   begin('test-key');
   try {
+    await seedLiveAccount(ALICE); // authentication's trust record (#772)
     await setFollowedClubs(ALICE, ['barcelona'], iso(T0));
     await setUserLocale(ALICE, 'ar', iso(T0));
     assert.deepEqual(await footballWatcherLabels(), []);
@@ -388,6 +391,7 @@ test('once the key exists, a follow from before the watcher lane gets its watche
 test('Settings names a new follow\'s watcher in the account language when the save carries none', async () => {
   begin('test-key');
   try {
+    await seedLiveAccount(ALICE); // authentication's trust record (#772)
     await setUserLocale(ALICE, 'he', iso(T0));
     await putFootball(request('/api/mobile/football', { method: 'PUT', body: { clubIds: ['barcelona'] } }));
     const [[, label]] = await footballWatcherLabels() as [[string, string | null]];

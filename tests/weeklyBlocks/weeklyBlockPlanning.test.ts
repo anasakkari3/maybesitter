@@ -15,6 +15,7 @@ import { resetStorageForTests, setStorageForTests } from '../../lib/storage/inde
 import { userDoc } from '../../lib/storage/paths.ts';
 import { applyCommand as applyDomainCommand, createEmptyDomainState } from '../../src/domain/stateMachine.ts';
 import { persistParticipantState } from '../../lib/services/mobile/participantState.ts';
+import { seedLiveAccount } from '../support/liveAccount.ts';
 import { buildAndStoreDailyPlan, claimDueDelivery, savePlanSettings } from '../../lib/services/dailyPlan/dailyPlanService.ts';
 import { readStoredPlan } from '../../lib/services/dailyPlan/planStore.ts';
 import { composeWeek, weekToDto } from '../../lib/services/dailyPlan/weekPlan.ts';
@@ -52,6 +53,7 @@ function seedState() {
 async function account(withBlock: boolean): Promise<MemoryStorageAdapter> {
   const storage = createMemoryStorage();
   setStorageForTests(storage);
+  await seedLiveAccount(UID, storage);
   await persistParticipantState(UID, seedState());
   const user = await storage.get<Record<string, unknown>>(userDoc(UID));
   await storage.set(userDoc(UID), { ...(user ?? {}), timezone: TZ, locale: 'en' });

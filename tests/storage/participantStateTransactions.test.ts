@@ -24,6 +24,7 @@ import { CAPTURE_CONTRACT_VERSION, type CaptureProposalContract } from '../../sr
 import { ProposalChangedError } from '../../lib/services/captureBoundary/proposalProtocol.ts';
 import type { UserDocument } from '../../lib/storage/userDocument.ts';
 import type { Command } from '../../src/domain/stateMachine.ts';
+import { seedLiveAccount } from '../support/liveAccount.ts';
 
 const UID = 'p-900';
 const NOW = '2026-08-09T08:00:00.000Z';
@@ -67,6 +68,7 @@ test('20 concurrent commands with an injected competing write lose nothing', asy
     // landing after its last read. It preserves `domainVersion`, so the only
     // thing it changes is the document's version — which is exactly what a
     // second instance's unrelated write to the same user would do.
+    await seedLiveAccount(UID, storage);
     let injected = 0;
     storage.setBeforeCommitHookForTests(async () => {
       if (injected >= CONCURRENCY) return;
@@ -150,6 +152,7 @@ test('a decision replayed with a different body is refused rather than overwritt
 test('a command that changes nothing writes nothing and does not move the version', async () => {
   const { storage, cleanup } = setup();
   try {
+    await seedLiveAccount(UID, storage);
     await applyParticipantCommand(UID, createDraft('only'));
     const before = (await storage.get<UserDocument>(userDoc(UID)))?.domainVersion;
 
@@ -180,6 +183,7 @@ function proposal(revision: number): CaptureProposalContract {
 test('capture confirmation compares the proposal revision in the memory transaction', async () => {
   const { storage, cleanup } = setup();
   try {
+    await seedLiveAccount(UID, storage);
     const path = `${userCol(UID, CAPTURE_PROPOSALS)}/participant-state-cas`;
     await storage.set(path, { contract: proposal(1) });
     await assert.rejects(
@@ -195,6 +199,7 @@ test('capture confirmation compares the proposal revision in the memory transact
 test('a different confirmation receipt is a confirmed conflict, never a replay of another winner', async () => {
   const { storage, cleanup } = setup();
   try {
+    await seedLiveAccount(UID, storage);
     const path = `${userCol(UID, CAPTURE_PROPOSALS)}/participant-state-confirmed`;
     await storage.set(path, {
       contract: { ...proposal(1), proposalId: 'participant-state-confirmed' },

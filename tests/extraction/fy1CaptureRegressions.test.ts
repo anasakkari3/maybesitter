@@ -42,6 +42,7 @@ import { resetStorageForTests, setStorageForTests } from '../../lib/storage/inde
 import { createEmptyDomainState, type Command, type Commitment } from '../../src/domain/stateMachine.ts';
 import { localTimeSpecFor } from '../../src/extraction/timeLexicon.ts';
 import { extractWithFallback } from '../../src/extraction/extractionService.ts';
+import { seedLiveAccount } from '../support/liveAccount.ts';
 
 const TZ = 'Asia/Jerusalem';
 /** Sunday 27 Sep 2026, 18:08 in Jerusalem — when N1 was typed. */
@@ -248,6 +249,7 @@ async function confirmedDoctorOnRules(): Promise<{ answered: { resolvedTime: str
     timezone: TZ, referenceTime: N1_NOW.toISOString(),
   }, { participantId: uid });
   const answered = updated.items.find((candidate) => candidate.itemId === item.itemId)!;
+  await seedLiveAccount(uid);
   await confirmMobileCapture({ proposalId: proposal.proposalId, itemIds: [item.itemId] }, { participantId: uid });
   const commitment = Object.values((await getParticipantStateSnapshot(uid)).commitments)[0]!;
   return { answered, commitment };
@@ -325,6 +327,7 @@ test('FY1 N4: a task (not an appointment) answered «بدون وقت محدد» 
       timezone: TZ, referenceTime: N1_NOW.toISOString(),
     }, { participantId: uid });
     assert.equal(updated.items[0]!.allDayEvent, undefined);
+    await seedLiveAccount(uid);
     await confirmMobileCapture({ proposalId: proposal.proposalId, itemIds: [item.itemId] }, { participantId: uid });
     return Object.values((await getParticipantStateSnapshot(uid)).commitments)[0]!;
   });
@@ -541,6 +544,7 @@ async function answeredNoTime(text: string) {
       proposalId: proposal.proposalId, itemId: item.itemId, questionId: item.clarification!.questionId, optionId: 'none',
       timezone: TZ, referenceTime: N1_NOW.toISOString(),
     }, { participantId: uid });
+    await seedLiveAccount(uid);
     await confirmMobileCapture({ proposalId: proposal.proposalId, itemIds: [item.itemId] }, { participantId: uid });
     const commitment = Object.values((await getParticipantStateSnapshot(uid)).commitments)[0]!;
     return { answered: updated.items[0]!, commitment };

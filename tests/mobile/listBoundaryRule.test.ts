@@ -68,6 +68,7 @@ import { listTodayRanked, listUpcomingRanked } from '../../lib/services/mobile/c
 import { localDayKey } from '../../lib/services/mobile/time.ts';
 import { belongsToDay, dayHorizon, isPlannable, rollsIntoDay } from '../../lib/services/dailyPlan/buildDailyPlan.ts';
 import { uidFor } from '../support/fakeAuth.ts';
+import { seedLiveAccount } from '../support/liveAccount.ts';
 
 const UID = uidFor('ListBoundaryUser');
 
@@ -119,6 +120,7 @@ function commitment(
 
 async function seed(commitments: Commitment[]): Promise<void> {
   setStorageForTests(createMemoryStorage());
+  await seedLiveAccount(UID);
   const state = createEmptyDomainState();
   for (const item of commitments) state.commitments[item.id] = item;
   await persistParticipantState(UID, state);
