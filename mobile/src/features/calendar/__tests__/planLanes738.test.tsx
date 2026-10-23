@@ -12,9 +12,10 @@ import React from 'react';
 import { useWindowDimensions } from 'react-native';
 import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
 import { render, screen, waitFor, within } from '@testing-library/react-native';
-import { DayTimeline, timelineLaneWidth, timelineSpans, type PlanRow } from '../PlanDay';
+import { DayAgenda, DayTimeline, timelineLaneWidth, timelineSpans, type PlanRow } from '../PlanDay';
 import { HOUR_HEIGHT, lanesFit, maxLanes, placeSpans } from '../dayTimeline';
-import { toViewModel } from '../../commitments/model';
+import { toViewModel, type CommitmentView } from '../../commitments/model';
+import ar from '../../../i18n/locales/ar.json';
 import { CalendarScreen } from '../../../screens/CalendarScreen';
 import { NOW, Providers, TODAY, ZONE, commitment, flatStyle, instant, prepareM6, teardown, type M6Harness } from '../../../__acceptance__/m6/harness';
 
@@ -46,18 +47,19 @@ afterEach(async () => {
 });
 
 /** A commitment at `from` local time, ranged to `to` when given. */
-function ranged(id: string, title: string, from: string, to: string | null) {
+function ranged(id: string, title: string, from: string, to: string | null, level: 'high' | 'normal' | 'low' = 'normal') {
   return commitment(id, {
     title,
+    priority: { level, source: 'user_explicit', pressureAllowed: false, pressureLevel: 'none' },
     timeSpec: { kind: 'scheduled_event', dueAt: instant(TODAY, from), endAt: to ? instant(TODAY, to) : null, remindAt: null, allDay: false, timezone: ZONE },
   });
 }
 
 // «يوم عمل خارجي للفريق», «موعد مع المحامي», «موعد عند دكتور الأسنان», «مكالمة مع العميل الجديد».
 const OFFSITE = ranged('offsite', 'يوم عمل خارجي للفريق', '09:00', '17:00');
-const LAWYER = ranged('lawyer', 'موعد مع المحامي', '10:00', null);
+const LAWYER = ranged('lawyer', 'موعد مع المحامي', '10:00', null, 'high');
 const DENTIST = ranged('dentist', 'موعد عند دكتور الأسنان', '10:30', '11:30');
-const CALL = ranged('call', 'مكالمة مع العميل الجديد', '11:00', '13:00');
+const CALL = ranged('call', 'مكالمة مع العميل الجديد', '11:00', '13:00', 'low');
 
 function commitmentRow(item: ReturnType<typeof commitment>): Extract<PlanRow, { kind: 'commitment' }> {
   const view = toViewModel(item, NOW.toISOString());
@@ -85,6 +87,25 @@ function expectSafeList() {
   for (const id of REPRO_IDS) expect(within(list).queryByTestId(id)).not.toBeNull();
 }
 
+/** The importance word a person reads on screen (the chip's text), not only what a screen reader hears. */
+function importanceWord(importance: CommitmentView['importance']): string {
+  return importance === 'must' ? ar.todayGroupMust : importance === 'should' ? ar.todayGroupShould : ar.todayGroupNice;
+}
+
+/** Q738-002: every commitment in the fallback list still says its importance in words. */
+function expectVisibleImportance(items: ReturnType<typeof commitment>[]) {
+  const words = new Set<string>();
+  for (const item of items) {
+    const word = importanceWord(toViewModel(item, NOW.toISOString()).importance);
+    words.add(word);
+    const card = screen.getByTestId(`calendar-item-${item.id}`);
+    const chip = within(card).getByTestId(`calendar-importance-${item.id}`);
+    expect(chip.props.children).toBe(word);
+  }
+  // The fixture spans all three words, so a constant label would not pass.
+  expect(words.size).toBe(3);
+}
+
 describe('#738 the five-item day on a phone', () => {
   it('pure: the real rows need five lanes at once, more than a 390-pt phone holds at the floor', () => {
     const timed = REPRO.filter((row): row is Exclude<PlanRow, { kind: 'gap' }> => row.kind !== 'gap');
@@ -101,12 +122,20 @@ describe('#738 the five-item day on a phone', () => {
     expect(lawyer.props.accessibilityRole).toBe('button');
     expect(String(lawyer.props.accessibilityLabel)).toContain('المحامي');
     expect(screen.getByTestId('calendar-weekly-wb').props.accessibilityRole).toBe('button');
+    expectVisibleImportance([OFFSITE, LAWYER, DENTIST, CALL]);
+  });
+
+  it('the dense list elsewhere (large text, a crowded day) keeps its own look: no added chip', async () => {
+    harness = await prepareM6('ar');
+    await render(<Providers harness={harness}><DayAgenda rows={REPRO} day={TODAY} /></Providers>);
+    expect(screen.queryAllByTestId(/^calendar-importance-/)).toHaveLength(0);
   });
 
   it('at AX5, the day is the ordered list too', async () => {
     atScale(3.12);
     await showTimeline(REPRO);
     expectSafeList();
+    expectVisibleImportance([OFFSITE, LAWYER, DENTIST, CALL]);
   });
 
   it('at AX5, even two lanes are under the floor, so a day that fits at size 1 is the list', async () => {
@@ -123,6 +152,7 @@ describe('#738 the five-item day on a phone', () => {
     const list = screen.getByTestId('calendar-agenda-list');
     expect(screen.queryByTestId('calendar-timeline')).toBeNull();
     for (const id of ['offsite', 'lawyer', 'dentist', 'call']) expect(within(list).queryByTestId(`calendar-item-${id}`)).not.toBeNull();
+    expectVisibleImportance([OFFSITE, LAWYER, DENTIST, CALL]);
   });
 });
 
@@ -153,5 +183,54 @@ describe('#738 what still fits stays on the hours', () => {
     await showTimeline([busy, commitmentRow(ranged('later', 'x', '15:00', null))]);
     expect(screen.queryByTestId('calendar-timeline')).not.toBeNull();
     expect(flatStyle(screen.getByTestId('calendar-busy-body')).flexDirection).toBe('column');
+  });
+});
+
+describe('Q738-001 a block\'s duration is drawn apart from its label and its target', () => {
+  it('a five-minute weekly block beside the lawyer: a sliver of duration, a full-size button laid out in the room the lanes kept', async () => {
+    const short: PlanRow = {
+      kind: 'weekly', key: 'weekly-short', at: Date.parse(instant(TODAY, '10:00')),
+      occurrence: { occurrenceId: 'short-1', weeklyBlockId: 'short', title: 'x', startAt: instant(TODAY, '10:00'), endAt: instant(TODAY, '10:05') },
+    };
+    await showTimeline([short, commitmentRow(LAWYER)]);
+    expect(screen.queryByTestId('calendar-timeline')).not.toBeNull();
+    expect(flatStyle(screen.getByTestId('calendar-weekly-short-body')).flexDirection).toBe('column');
+    // The duration: five minutes of a 56-pt hour.
+    expect(Number(flatStyle(screen.getByTestId('calendar-weekly-short-duration')).height)).toBeCloseTo((5 * HOUR_HEIGHT) / 60, 5);
+    // The button and its frame: the stacked label's reserved room (88 pt), never under 44.
+    const button = Number(flatStyle(screen.getByTestId('calendar-weekly-short')).height);
+    const frame = Number(flatStyle(screen.getByTestId('m6-timeline-block-weekly-short')).height);
+    expect(button).toBe(88);
+    expect(frame).toBe(88);
+    expect(button).toBeGreaterThanOrEqual(44);
+  });
+
+  it('an hour of busy time with the prepare action beside a commitment: the stacked action lies inside its card, laid out in the reserved room', async () => {
+    const busy: PlanRow = {
+      kind: 'busy', key: 'busy-prep', at: Date.parse(instant(TODAY, '14:00')),
+      block: { nativeId: 'evt-prep', startAt: instant(TODAY, '14:00'), endAt: instant(TODAY, '15:00'), allDay: false },
+      prep: { startAt: instant(TODAY, '14:00'), endAt: instant(TODAY, '15:00') },
+    };
+    await showTimeline([busy, commitmentRow(ranged('later', 'x', '14:30', null))]);
+    expect(screen.queryByTestId('calendar-timeline')).not.toBeNull();
+    expect(flatStyle(screen.getByTestId('calendar-busy-body')).flexDirection).toBe('column');
+    expect(Number(flatStyle(screen.getByTestId('calendar-busy-duration')).height)).toBe(HOUR_HEIGHT);
+    // 80 for the stacked text and 52 for the action under it.
+    const card = Number(flatStyle(screen.getByTestId('calendar-busy-row')).height);
+    const frame = Number(flatStyle(screen.getByTestId('m6-timeline-block-busy-prep')).height);
+    expect(card).toBe(132);
+    expect(frame).toBe(132);
+    expect(Number(flatStyle(screen.getByTestId('calendar-busy-prepare')).minHeight)).toBeGreaterThanOrEqual(44);
+    expect(within(screen.getByTestId('calendar-busy-row')).queryByTestId('calendar-busy-prepare')).not.toBeNull();
+  });
+
+  it('a long block is still drawn exactly as long as it lasts, its card no taller', async () => {
+    const busy: PlanRow = {
+      kind: 'busy', key: 'busy-long', at: Date.parse(instant(TODAY, '14:00')),
+      block: { nativeId: 'evt-long', startAt: instant(TODAY, '14:00'), endAt: instant(TODAY, '17:00'), allDay: false }, prep: null,
+    };
+    await showTimeline([busy]);
+    expect(Number(flatStyle(screen.getByTestId('calendar-busy-duration')).height)).toBe(3 * HOUR_HEIGHT);
+    expect(Number(flatStyle(screen.getByTestId('calendar-busy-row')).height)).toBe(3 * HOUR_HEIGHT);
   });
 });

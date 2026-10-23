@@ -79,7 +79,7 @@ function conflictText(block: DeviceBusyBlock, t: ReturnType<typeof useApp>['t'],
 }
 
 /** A commitment: its time (or «بدون وقت»), title, importance, and what it runs into. Opens Details. */
-export function CommitmentCard({ row, marker = false, narrow = false, agenda = false, minHeight = 44 }: {
+export function CommitmentCard({ row, marker = false, narrow = false, agenda = false, importance = false, minHeight = 44 }: {
   row: Extract<PlanRow, { kind: 'commitment' }>;
   /** On the timeline: a tighter card whose top edge is its time. */
   marker?: boolean;
@@ -87,6 +87,12 @@ export function CommitmentCard({ row, marker = false, narrow = false, agenda = f
   narrow?: boolean;
   /** Dense ordered-list treatment used when a timeline would be unreadable. */
   agenda?: boolean;
+  /**
+   * In the dense list, the importance word on its own line under the title —
+   * for the day that fell back from the timeline (#738), where the coloured
+   * start border alone would be the only sign of it.
+   */
+  importance?: boolean;
   /** On the timeline, a ranged commitment's true height. */
   minHeight?: number;
 }) {
@@ -117,12 +123,13 @@ export function CommitmentCard({ row, marker = false, narrow = false, agenda = f
           </View>
         ) : null}
         {agenda ? (
-          <View style={{ flex: 1, gap: due ? 2 : 0 }}>
+          <View style={{ flex: 1, gap: due || importance ? 2 : 0, alignItems: 'stretch' }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
               <Txt size={15} weight={700} color={p.tx} lines={2} style={{ flex: 1 }} testID={`m6-calendar-title-${item.id}`}>{isolateAuto(item.title)}</Txt>
               <Txt size={13} color={p.mu} latin={time !== null && !offDay} lines={1} testID={`calendar-time-${item.id}`}>{time ?? t.noTimeYet}</Txt>
             </View>
             {due ? <Txt size={13} color={p.mu} lines={1} testID={`calendar-due-${item.id}`}>{due}</Txt> : null}
+            {importance ? <Tag kind={priorityTagKind(item.importance)} label={importanceWord(item.importance, t)} testID={`calendar-importance-${item.id}`} /> : null}
           </View>
         ) : (
           <View style={{ flex: 1, gap: 2, alignItems: 'flex-start' }}>
@@ -154,9 +161,12 @@ export function CommitmentCard({ row, marker = false, narrow = false, agenda = f
  * title, ever. A meeting about to start carries «حضّرني», beside the text
  * rather than inside it so a screen reader reaches both.
  */
-export function BusyCard({ row, height, narrow = false }: {
+export function BusyCard({ row, height, reserve = 0, narrow = false }: {
   row: Extract<PlanRow, { kind: 'busy' }>;
+  /** On the timeline, how long it lasts: the hatched block is drawn exactly this tall. */
   height?: number | undefined;
+  /** On the timeline, the room the lanes kept for its label and «حضّرني»: the card is laid out (and pressed) in at least this, and 44. */
+  reserve?: number;
   /** Sharing its moment on the timeline: no icon, and «حضّرني» under the text rather than beside it, so neither squeezes a word. */
   narrow?: boolean;
 }) {
@@ -166,8 +176,10 @@ export function BusyCard({ row, height, narrow = false }: {
   const range = block.allDay ? null : formatTimeRange(new Date(block.startAt), new Date(block.endAt), { locale: lang, timeZone });
   const start = ltr(formatTime(new Date(block.startAt), { locale: lang, timeZone }));
   return (
-    <View testID="calendar-busy-row" style={{ ...(height !== undefined ? { height } : { minHeight: 52 }) }}>
-      <View accessible={false} style={{ position: 'absolute', top: 0, bottom: 0, start: 0, end: 0, borderRadius: 14, borderWidth: 1, borderStyle: 'dashed', borderColor: p.lnStrong, backgroundColor: p.sf2, overflow: 'hidden' }}>
+    <View testID="calendar-busy-row" style={{ ...(height !== undefined ? { height: Math.max(height, reserve, 44) } : { minHeight: 52 }) }}>
+      {/* The duration, drawn on its own: the label and the action may need
+          more room than a short block lasts, and they keep it (Q738-001). */}
+      <View testID="calendar-busy-duration" accessible={false} style={{ position: 'absolute', top: 0, ...(height !== undefined ? { height: Math.max(height, 1) } : { bottom: 0 }), start: 0, end: 0, borderRadius: 14, borderWidth: 1, borderStyle: 'dashed', borderColor: p.lnStrong, backgroundColor: p.sf2, overflow: 'hidden' }}>
         <Hatch color={p.hatch} radius={14} />
       </View>
       <View testID="calendar-busy-body" style={{ flexDirection: narrow ? 'column' : 'row', alignItems: narrow ? 'stretch' : 'center', gap: narrow ? 6 : 8, paddingVertical: 6, paddingHorizontal: 10, minHeight: Math.min(height ?? 52, 52) }}>
@@ -191,9 +203,12 @@ export function BusyCard({ row, height, narrow = false }: {
 }
 
 /** A weekly fixed block on the timeline: «ثابت», its title, its hours. Opens «الثابت الأسبوعي». */
-function WeeklyCard({ occurrence, height, narrow = false }: {
+function WeeklyCard({ occurrence, height, reserve, narrow = false }: {
   occurrence: WeeklyBlockOccurrence;
+  /** How long it lasts: the filled block is drawn exactly this tall. */
   height: number;
+  /** The room the lanes kept for its label: the button is laid out (and pressed) in at least this, and 44. */
+  reserve: number;
   /** Sharing its moment: «ثابت» moves above the title, as a commitment's chip moves under its title, so the title keeps the lane's whole width. */
   narrow?: boolean;
 }) {
@@ -210,8 +225,11 @@ function WeeklyCard({ occurrence, height, narrow = false }: {
       hint={t.wbTitle}
       onPress={() => actions.go('weeklyBlocks')}
       scaleTo={0.98}
-      style={{ height, borderRadius: 14, backgroundColor: p.sf2, borderStartWidth: 3, borderStartColor: p.lnStrong }}
+      style={{ height: Math.max(height, reserve, 44), borderRadius: 14 }}
     >
+      {/* The duration, drawn on its own (Q738-001): a five-minute block is a
+          sliver, and its label and target still get their room. */}
+      <View testID={`${testID}-duration`} accessible={false} style={{ position: 'absolute', top: 0, start: 0, end: 0, height: Math.max(height, 1), borderRadius: 14, backgroundColor: p.sf2, borderStartWidth: 3, borderStartColor: p.lnStrong }} />
       <View testID={`${testID}-body`} style={{ flexDirection: narrow ? 'column' : 'row', alignItems: narrow ? 'flex-start' : 'center', gap: narrow ? 4 : 8, paddingVertical: 6, paddingHorizontal: 10, minHeight: Math.min(height, 52) }}>
         <Tag kind="fixed" label={t.wbFixedTag} />
         <View style={{ ...(narrow ? { alignSelf: 'stretch' as const } : { flex: 1 }), alignItems: 'flex-start' }}>
@@ -248,7 +266,7 @@ export function DayTimeline({ rows: allRows, day, nowIso }: { rows: readonly Pla
   const placed = placeSpans(spans, from);
   // More lanes at once than fit at their floor: the same rows as the ordered
   // list, which the large text sizes already use (#738).
-  if (!lanesFit(placed, timelineLaneWidth(width), scale)) return <DayAgenda rows={allRows} day={day} />;
+  if (!lanesFit(placed, timelineLaneWidth(width), scale)) return <DayAgenda rows={allRows} day={day} importance />;
   const byKey = new Map(rows.map(row => [row.key, row]));
   const gridHeight = (to - from) * HOUR_HEIGHT;
   const overhang = Math.max(0, ...placed.map(entry => entry.top + entry.visual - gridHeight));
@@ -298,10 +316,12 @@ export function DayTimeline({ rows: allRows, day, nowIso }: { rows: readonly Pla
               );
             }
             return (
-              <View key={entry.key} style={{ ...frame, height: Math.max(entry.height, 1) }} testID={`m6-timeline-block-${entry.key}`}>
+              // The frame is the room the lanes kept (never under 44); the
+              // card draws its duration inside it.
+              <View key={entry.key} style={{ ...frame, height: Math.max(entry.visual, 44) }} testID={`m6-timeline-block-${entry.key}`}>
                 {row.kind === 'busy'
-                  ? <BusyCard row={row} height={entry.height} narrow={entry.lanes > 1} />
-                  : <WeeklyCard occurrence={row.occurrence} height={entry.height} narrow={entry.lanes > 1} />}
+                  ? <BusyCard row={row} height={entry.height} reserve={entry.visual} narrow={entry.lanes > 1} />
+                  : <WeeklyCard occurrence={row.occurrence} height={entry.height} reserve={entry.visual} narrow={entry.lanes > 1} />}
               </View>
             );
           })}
@@ -353,11 +373,16 @@ export function timelineSpans(rows: readonly Exclude<PlanRow, { kind: 'gap' }>[]
 }
 
 /** The same rows as a list in time order, for the large text sizes. */
-export function DayAgenda({ rows, day }: { rows: readonly PlanRow[]; day: string }) {
+export function DayAgenda({ rows, day, importance = false }: {
+  rows: readonly PlanRow[];
+  day: string;
+  /** Each commitment says its importance in words (the timeline's fallback, #738). */
+  importance?: boolean;
+}) {
   return (
     <View testID="calendar-agenda-list" style={{ gap: 10 }}>
       {rows.map(row => row.kind === 'commitment'
-        ? <CommitmentCard key={row.key} row={row} agenda />
+        ? <CommitmentCard key={row.key} row={row} agenda importance={importance} />
         : row.kind === 'busy'
           ? <BusyCard key={row.key} row={row} />
           : row.kind === 'gap'
