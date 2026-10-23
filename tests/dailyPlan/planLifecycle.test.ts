@@ -36,6 +36,7 @@ import type { StorageAdapter } from '../../lib/storage/storageAdapter.ts';
 import { PLANNING_STATE_CHANGES, docIdForKey, userCol, userDoc, userSubDoc } from '../../lib/storage/paths.ts';
 import { installFakeAuth, tokenFor, uidFor, type FakeAuthControls } from '../support/fakeAuth.ts';
 import { loadDomainState, persistParticipantState } from '../../lib/services/mobile/participantState.ts';
+import { seedLiveAccount } from '../support/liveAccount.ts';
 import {
   applyCommand as applyDomainCommand,
   createEmptyDomainState,
@@ -135,6 +136,7 @@ async function build(date = DATE): Promise<{ status: number; body: PlanBody }> {
 
 /** An account with a zone, a locale, and nothing captured yet. */
 async function seedAccount(storage: StorageAdapter): Promise<void> {
+  await seedLiveAccount(USER, storage);
   await persistParticipantState(USER, createEmptyDomainState());
   const user = await storage.get<Record<string, unknown>>(userDoc(USER));
   await storage.set(userDoc(USER), { ...(user ?? {}), timezone: TZ, locale: 'en' });

@@ -5,6 +5,7 @@ import { resetStorageForTests, setStorageForTests } from '../../lib/storage/inde
 import { proposeMobileCapture, clarifyMobileCapture } from '../../lib/services/mobile/mobileCaptureService.ts';
 import { createStorageCaptureProposalStore } from '../../lib/services/captureBoundary/proposalStore.ts';
 import { ClarifyError } from '../../lib/services/captureBoundary/clarifyService.ts';
+import { seedLiveAccount } from '../support/liveAccount.ts';
 import './captureRevisionTransactions.cases.ts';
 
 /**
@@ -33,6 +34,7 @@ function setup() {
  * `needs_clarification`, and the builder asks `ask_time`.
  */
 async function proposeAmbiguous(text = 'Remind me to call Dana') {
+  await seedLiveAccount(UID);
   const proposal = await proposeMobileCapture(
     { text, timezone: ZONE, referenceTime: NOW },
     { participantId: UID },

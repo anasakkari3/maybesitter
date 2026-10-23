@@ -22,6 +22,7 @@ import { getStorage, resetStorageForTests, setStorageForTests } from '../../lib/
 import { userDoc } from '../../lib/storage/paths.ts';
 import type { UserDocument } from '../../lib/storage/userDocument.ts';
 import { installFakeAuth, tokenFor, uidFor, type FakeAuthControls } from '../support/fakeAuth.ts';
+import { seedLiveAccount } from '../support/liveAccount.ts';
 import { applyParticipantCommands } from '../../lib/services/mobile/participantState.ts';
 import { composeDailyPlan } from '../../lib/services/dailyPlan/dailyPlanService.ts';
 import { appendPlanEvent, createIfAbsent, readStoredPlan, storePlanProposal } from '../../lib/services/dailyPlan/planStore.ts';
@@ -86,6 +87,7 @@ async function setProfile(uid: string, locale: 'ar' | 'en' | 'he'): Promise<void
  * put three records on one instant across both collections.
  */
 async function seedTask(uid: string, id: string, at: string, sameInstant = false): Promise<void> {
+  await seedLiveAccount(uid); // #772: the user document a live account has before its first domain write
   const confirmedAt = sameInstant ? at : new Date(Date.parse(at) + 60_000).toISOString();
   await applyParticipantCommands(uid, [
     {

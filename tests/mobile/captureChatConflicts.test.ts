@@ -31,6 +31,7 @@ import assert from 'node:assert/strict';
 import { createMemoryStorage } from '../../lib/storage/memoryAdapter.ts';
 import { resetStorageForTests, setStorageForTests } from '../../lib/storage/index.ts';
 import { installFakeAuth, tokenFor, uidFor, type FakeAuthControls } from '../support/fakeAuth.ts';
+import { seedLiveAccount } from '../support/liveAccount.ts';
 import { POST as chatPost } from '../../src/app/api/mobile/capture/chat/route.ts';
 import { POST as confirmPost } from '../../src/app/api/mobile/capture/confirm/route.ts';
 import { collisionStartsFrom, setCaptureChatDependenciesForTests } from '../../lib/services/captureChat/captureChatService.ts';
@@ -303,6 +304,7 @@ test('a proposal on top of a followed club’s match names the match', async () 
   try {
     const uid = uidFor('ChatClashFixture');
     const now = new Date().toISOString();
+    await seedLiveAccount(uid);
     await setFollowedClubs(uid, ['barcelona'], now);
     await upsertFixtures([fixture('1', at(FRIDAY, '20:00'))]);
     await projectFixturesForUser(uid, now);

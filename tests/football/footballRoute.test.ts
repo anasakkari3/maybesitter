@@ -47,6 +47,7 @@ import { GET, PUT } from '../../src/app/api/mobile/football/route.ts';
 import { DELETE } from '../../src/app/api/mobile/football/fixtures/[commitmentId]/route.ts';
 import { DELETE as DELETE_COMMITMENT } from '../../src/app/api/mobile/commitments/[id]/route.ts';
 import { projectFixturesForUser } from '../../lib/football/projectFixtures.ts';
+import { seedLiveAccount } from '../support/liveAccount.ts';
 
 const BASE = 'http://127.0.0.1:4321';
 const USER = uidFor('FootballUser');
@@ -110,6 +111,7 @@ function fixture(id: string, kickoffUtc: string, over: Partial<FixtureCore> = {}
 /** A commitment nobody's follow list ever touched -- a user typed this. */
 async function userTypedCommitment(uid: string, id: string): Promise<string> {
   const now = '2026-10-01T09:00:00.000Z';
+  await seedLiveAccount(uid);
   await applyParticipantCommand(uid, {
     type: 'CreateDraft', now, commitment: { id, kind: 'task', title: 'Pick up the kids' },
     draftStatus: 'pending_confirmation',
@@ -195,6 +197,7 @@ test('a projected match says so when something else already landed on top of it'
     const now = '2026-09-16T09:00:00.000Z';
     // A commitment the user made themselves, half an hour into the match's
     // two-hour block.
+    await seedLiveAccount(USER);
     await applyParticipantCommand(USER, {
       type: 'CreateDraft', now,
       commitment: {

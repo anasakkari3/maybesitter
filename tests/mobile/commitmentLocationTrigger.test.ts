@@ -17,6 +17,7 @@ import assert from 'node:assert/strict';
 import { createMemoryStorage } from '../../lib/storage/memoryAdapter.ts';
 import { resetStorageForTests, setStorageForTests } from '../../lib/storage/index.ts';
 import { installFakeAuth, tokenFor, uidFor, type FakeAuthControls } from '../support/fakeAuth.ts';
+import { seedLiveAccount } from '../support/liveAccount.ts';
 import { GET as todayGet } from '../../src/app/api/mobile/commitments/today/route.ts';
 import { GET as commitmentGet, PATCH as commitmentPatch } from '../../src/app/api/mobile/commitments/[id]/route.ts';
 import { getCommitment } from '../../lib/services/mobile/commitmentService.ts';
@@ -54,6 +55,7 @@ function setup(): () => void {
 }
 
 async function seed(): Promise<void> {
+  await seedLiveAccount(USER);
   const commands: Command[] = [
     {
       type: 'CreateDraft',

@@ -17,6 +17,7 @@ import { persistParticipantState } from '../../lib/services/mobile/participantSt
 import { applyCommand, createEmptyDomainState } from '../../src/domain/stateMachine.ts';
 import { acceptWeekDay, composeWeek, weekToDto } from '../../lib/services/dailyPlan/weekPlan.ts';
 import { listPlanEvents, readStoredPlan } from '../../lib/services/dailyPlan/planStore.ts';
+import { seedLiveAccount } from '../support/liveAccount.ts';
 
 const TZ = 'Asia/Jerusalem';
 const USER = 'week-store-race';
@@ -35,6 +36,7 @@ test('a meeting landing between the week\'s compose and its store: empty_day, an
       commitment: { id: 'cmt_a', kind: 'task', title: 'Write the summary', timeSpec: { kind: 'due_by', dueAt: null, remindAt: null, timezone: TZ } },
     } as never).newState;
     state = applyCommand(state, { type: 'ConfirmCommitment', commitmentId: 'cmt_a', now, reminders: [] } as never).newState;
+    await seedLiveAccount(USER, storage);
     await persistParticipantState(USER, state);
     const user = await storage.get<Record<string, unknown>>(userDoc(USER));
     await storage.set(userDoc(USER), { ...(user ?? {}), timezone: TZ, locale: 'en' });

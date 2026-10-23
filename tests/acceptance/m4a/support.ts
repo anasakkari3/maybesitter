@@ -18,6 +18,7 @@
 import assert from 'node:assert/strict';
 import { mock } from 'node:test';
 import { tokenFor } from '../../support/fakeAuth.ts';
+import { seedLiveAccount } from '../../support/liveAccount.ts';
 import { applyParticipantCommands } from '../../../lib/services/mobile/participantState.ts';
 import {
   REFERENCE,
@@ -142,6 +143,7 @@ export async function addEvent(uid: string, slot: Slot, title = 'موعد'): Pro
   seedCounter += 1;
   const id = `0c0ffee4-0000-4000-8000-${String(seedCounter).padStart(12, '0')}`;
   const now = new Date().toISOString();
+  await seedLiveAccount(uid); // #772: the user document a live account has before its first domain write
   await applyParticipantCommands(uid, [
     { type: 'CreateDraft', now, commitment: { id, kind: 'task', title,
       timeSpec: { kind: 'scheduled_event', dueAt: slot.startsAt, endAt: slot.endsAt, allDay: false, timezone: TZ } } } as any,

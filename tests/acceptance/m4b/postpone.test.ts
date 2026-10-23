@@ -9,6 +9,7 @@ import assert from 'node:assert/strict';
 import { mock } from 'node:test';
 import { applyParticipantCommands } from '../../../lib/services/mobile/participantState.ts';
 import { userDoc } from '../../../lib/storage/paths.ts';
+import { seedLiveAccount } from '../../support/liveAccount.ts';
 import {
   currentStorage,
   addAllDayEvent,
@@ -120,6 +121,7 @@ test('M4B-R5-008: candidates span the whole horizon — a light day 6 wins over 
 });
 
 async function seedEveningHabit(uid: string): Promise<void> {
+  await seedLiveAccount(uid); // #772: the user document a live account has before its first domain write
   // Eight «health» completions at ~18:30 local over the last 28 days.
   for (let index = 0; index < 8; index += 1) {
     const day = localDateOf(new Date(Date.parse(at(TODAY, '12:00')) - (3 + index * 3) * DAY).toISOString());

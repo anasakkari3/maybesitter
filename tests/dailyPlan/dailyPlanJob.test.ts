@@ -46,6 +46,7 @@ import { busyBlockId, replaceBusyBlocks, type BusyBlock } from '../../lib/calend
 import { dayHorizon } from '../../lib/services/dailyPlan/buildDailyPlan.ts';
 import { toEpochMs } from '../../lib/planning/shared/time.ts';
 import { persistParticipantState } from '../../lib/services/mobile/participantState.ts';
+import { seedLiveAccount } from '../support/liveAccount.ts';
 import { applyCommand as applyDomainCommand, createEmptyDomainState } from '../../src/domain/stateMachine.ts';
 import type { DomainState } from '../../src/domain/stateMachine.ts';
 import {
@@ -137,6 +138,7 @@ async function seed(
   uid: string,
   options: { titles?: readonly string[]; enabled?: boolean; deliveryLocalTime?: string; armedAt?: Date } = {},
 ): Promise<void> {
+  await seedLiveAccount(uid, storage); // #772: the user document a live account has
   await persistParticipantState(uid, withCommitments(options.titles ?? ['Write the summary', 'Call the bank']));
   const user = await storage.get<Record<string, unknown>>(userDoc(uid));
   await storage.set(userDoc(uid), { ...(user ?? {}), timezone: TZ, locale: 'en' });
@@ -189,6 +191,7 @@ test('an account that switched delivery off is not due, and not merely filtered 
 
 test('two accounts in different zones are both served by one sweep', async () => {
   await withStorage(async (storage) => {
+    await seedLiveAccount('user_nz', storage); // #772: the user document a live account has
     await persistParticipantState('user_nz', withCommitments(['Something']));
     const nz = await storage.get<Record<string, unknown>>(userDoc('user_nz'));
     await storage.set(userDoc('user_nz'), { ...(nz ?? {}), timezone: 'Pacific/Auckland', locale: 'en' });
@@ -507,6 +510,7 @@ test('a week-stale delivery builds today\'s plan, not a plan for a date that has
     assert.equal(totals.built, 0, 'the claim above already took the delivery');
     // And through the sweep, from a fresh arming: one plan, dated today.
     await storage.set(userDoc('user_stale_2'), { timezone: TZ, locale: 'en', planSettings: { enabled: true, deliveryLocalTime: '07:30', timezone: TZ, nextRunAt: '2026-09-08T04:30:00.000Z' } });
+    await seedLiveAccount('user_stale_2', storage); // #772: the user document a live account has
     await persistParticipantState('user_stale_2', withCommitments(['Write the summary']));
     const second = await runDailyPlanTick({ storage, push: push.push, now: () => MORNING });
     assert.equal(second.built, 1);

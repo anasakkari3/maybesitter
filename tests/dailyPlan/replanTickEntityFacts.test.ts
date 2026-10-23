@@ -45,6 +45,7 @@ import { replaceBusyBlocksAsFixture } from '../support/busyFixtures.ts';
 import { ownershipOf, scheduleBlockId } from '../../src/contracts/v1/scheduleBlockContracts.ts';
 import type { PlanningStateChange } from '../../src/contracts/v1/watcherContracts.ts';
 import type { Plan, PlannedItem, TimeInterval } from '../../src/contracts/v1/planningContracts.ts';
+import { seedLiveAccount } from '../support/liveAccount.ts';
 
 const TZ = 'Asia/Jerusalem';
 const DATE = '2026-09-15';
@@ -93,6 +94,7 @@ async function seedAccount(
   uid: string,
   planSettings: Record<string, unknown> = {},
 ): Promise<StoredDailyPlan> {
+  await seedLiveAccount(uid, storage);
   await persistParticipantState(uid, seedState());
   const user = await storage.get<Record<string, unknown>>(userDoc(uid));
   await storage.set(userDoc(uid), { ...(user ?? {}), timezone: TZ, locale: 'en' });

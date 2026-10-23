@@ -32,6 +32,7 @@ import { createStorageGoalNodeLinkStore } from '../../lib/goalGraph/linkStore.ts
 import { goalNodeKeyOf } from '../../lib/goalGraph/ids.ts';
 import type { GoalExecutionGraph } from '../../src/contracts/v1/goalGraphContracts.ts';
 import { NOW, OWNER, seedGoal } from './goalGraphSupport.ts';
+import { seedLiveAccount } from '../support/liveAccount.ts';
 
 const CONFIRMED_AT = '2026-09-22T12:00:00.000Z';
 const DERIVED_AT = '2026-09-24T12:00:00.000Z';
@@ -49,6 +50,7 @@ const GYM = {
 async function generatedGraph(): Promise<GoalExecutionGraph> {
   const { storage, goal } = await seedGoal();
   setStorageForTests(storage);
+  await seedLiveAccount(OWNER, storage);
   const { graph } = await generateGoalExecutionGraph({ goal, generatedAt: NOW });
   return graph;
 }

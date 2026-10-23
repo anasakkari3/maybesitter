@@ -24,6 +24,7 @@ import { fixtureContentHash, FIXTURE_CONTRACT_VERSION, FIXTURE_SCHEMA_VERSION, t
 import { runFootballSyncJob, handleFootballSyncRequest, type FootballSyncJobReport } from '../../lib/jobs/internalJobs.ts';
 import { readParticipantState } from '../../lib/services/mobile/participantState.ts';
 import { AUDIENCE_ENV_VAR, SCHEDULER_SA_ENV_VAR, type OidcPayload } from '../../lib/auth/schedulerOidc.ts';
+import { seedLiveAccount } from '../support/liveAccount.ts';
 
 const NOW = '2026-10-01T09:00:00.000Z';
 const noSleep = async () => {};
@@ -249,6 +250,7 @@ test('a missing API key reports the feature as off, and throws nothing', async (
 });
 
 test('the job fetches fixtures and turns them into a commitment for a follower', async () => {
+  await seedLiveAccount('u1');
   await setFollowedClubs('u1', ['barcelona'], NOW);
   const provider = providerReturning({ '81': [fixture('1', '2026-10-25T19:00:00.000Z')] });
   const report = await runFootballSyncJob({ env: { FOOTBALL_DATA_API_KEY: 'k' }, provider, sleep: noSleep, now: new Date(NOW) });

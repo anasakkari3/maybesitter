@@ -40,6 +40,7 @@ import { createEmptyDomainState, type Command } from '../../src/domain/stateMach
 import { createMemoryStorage } from '../../lib/storage/memoryAdapter.ts';
 import { resetStorageForTests, setStorageForTests } from '../../lib/storage/index.ts';
 import { installFakeAuth, tokenFor, uidFor, type FakeAuthControls } from '../support/fakeAuth.ts';
+import { seedLiveAccount } from '../support/liveAccount.ts';
 import { POST as capturePost } from '../../src/app/api/mobile/capture/route.ts';
 import { POST as confirmPost } from '../../src/app/api/mobile/capture/confirm/route.ts';
 import { PATCH as commitmentPatch } from '../../src/app/api/mobile/commitments/[id]/route.ts';
@@ -327,6 +328,7 @@ const POSTPONER = uidFor('PostponeBoundaryUser');
 const POSTPONE_ID = 'cmt_postpone_boundary';
 
 async function seedForParticipant(): Promise<void> {
+  await seedLiveAccount(POSTPONER);
   await applyParticipantCommands(POSTPONER, [
     {
       type: 'CreateDraft',

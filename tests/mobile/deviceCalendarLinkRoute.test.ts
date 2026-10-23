@@ -13,6 +13,7 @@ import assert from 'node:assert/strict';
 import { createMemoryStorage } from '../../lib/storage/memoryAdapter.ts';
 import { resetStorageForTests, setStorageForTests } from '../../lib/storage/index.ts';
 import { installFakeAuth, tokenFor, uidFor, type FakeAuthControls } from '../support/fakeAuth.ts';
+import { seedLiveAccount } from '../support/liveAccount.ts';
 import { configureCommandService } from '../../lib/services/commandService.ts';
 import { createEmptyDomainState } from '../../src/domain/stateMachine.ts';
 import { applyParticipantCommand } from '../../lib/services/mobile/participantState.ts';
@@ -75,6 +76,7 @@ function link(overrides: Record<string, unknown> = {}): Record<string, unknown> 
 
 /** A confirmed commitment in this user's own tree, which is what a link needs. */
 async function commitmentFor(uid: string, id: string): Promise<string> {
+  await seedLiveAccount(uid);
   const now = '2026-09-15T09:00:00.000Z';
   await applyParticipantCommand(uid, {
     type: 'CreateDraft',

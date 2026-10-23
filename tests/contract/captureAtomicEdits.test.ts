@@ -374,10 +374,12 @@ test('confirming twice with different edits is two intents, not a replay', async
   const { createMemoryStorage } = await import('../../lib/storage/memoryAdapter.ts');
   const { resetStorageForTests, setStorageForTests } = await import('../../lib/storage/index.ts');
   const { proposeMobileCapture, confirmMobileCapture } = await import('../../lib/services/mobile/mobileCaptureService.ts');
+  const { seedLiveAccount } = await import('../support/liveAccount.ts');
 
   setStorageForTests(createMemoryStorage());
   try {
     const participantId = 'user-atomic-edits';
+    await seedLiveAccount(participantId); // #772: the user document a live account has
     const referenceTime = new Date().toISOString();
     const proposal = await proposeMobileCapture(
       { text: 'Remind me to call the clinic tomorrow at 9am', referenceTime, timezone: 'Asia/Jerusalem' },

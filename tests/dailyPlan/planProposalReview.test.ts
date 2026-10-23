@@ -35,6 +35,7 @@ import type { StorageAdapter } from '../../lib/storage/storageAdapter.ts';
 import { PLANNING_STATE_CHANGES, docIdForKey, userCol, userDoc, userSubDoc } from '../../lib/storage/paths.ts';
 import { installFakeAuth, tokenFor, uidFor, type FakeAuthControls } from '../support/fakeAuth.ts';
 import { persistParticipantState } from '../../lib/services/mobile/participantState.ts';
+import { seedLiveAccount } from '../support/liveAccount.ts';
 import { applyCommand as applyDomainCommand, createEmptyDomainState } from '../../src/domain/stateMachine.ts';
 import {
   buildAndStoreDailyPlan,
@@ -102,6 +103,7 @@ function seedState() {
 }
 
 async function seedAccount(uid: string, storage: StorageAdapter): Promise<void> {
+  await seedLiveAccount(uid, storage); // #772: the user document a live account has
   await persistParticipantState(uid, seedState());
   const user = await storage.get<Record<string, unknown>>(userDoc(uid));
   await storage.set(userDoc(uid), { ...(user ?? {}), timezone: TZ, locale: 'en' });
