@@ -361,11 +361,22 @@ export function SayItChatPage({
     {value.body ? <View testID={`${testID}-body`} style={styles.bubbleBody}>{value.body}</View> : null}
     {value.actions ? <View testID={`${testID}-actions`} style={[styles.bubbleActions, { borderTopColor: p.ln }]}>{value.actions}</View> : null}
   </>;
-  /** The next line, in a bubble of its own; `spokenElsewhere` when the words' element already says it. */
-  const replyTail = (value: Said, testID: string, spokenElsewhere = false) => value.tail
+  /**
+   * The next line, in a bubble of its own; `spokenElsewhere` when the words'
+   * element already says it. Measured afresh after a live text-size change
+   * like the words above it (Codex Q-LIVE-R2-001: «في إشي تاني؟ احكيلي.» on a
+   * saved message kept its old measurement). In a message whose bubble is a
+   * container (`ownElement`), the tail's own view is the stable accessible
+   * element, so a screen reader never rests on the paragraph that is replaced.
+   */
+  const replyTail = (value: Said, testID: string, spokenElsewhere = false, ownElement = false) => value.tail
     ? <View style={[styles.assistantBubble, styles.tailBubble, { backgroundColor: p.sf, borderColor: p.ln }]}
-      {...(spokenElsewhere ? { accessibilityElementsHidden: true, importantForAccessibility: 'no-hide-descendants' as const } : {})}>
-      <Text testID={`${testID}-text-${value.text.split(/\n\n+/).length}`} style={contentStyle(value.tail, 15)}>{value.tail}</Text>
+      {...(spokenElsewhere
+        ? { accessibilityElementsHidden: true, importantForAccessibility: 'no-hide-descendants' as const }
+        : ownElement ? { accessible: true, accessibilityRole: 'text' as const, accessibilityLabel: value.tail, testID: `${testID}-tail-said` } : {})}>
+      <RemeasureOnTextScale>
+        <RemeasuredText testID={`${testID}-text-${value.text.split(/\n\n+/).length}`} style={contentStyle(value.tail, 15)}>{value.tail}</RemeasuredText>
+      </RemeasureOnTextScale>
     </View> : null;
   const message = (value: Said, testID: string, first = false) => (
     <View testID={testID} accessible={value.actions == null && value.body == null} accessibilityLabel={spoken(value)}
@@ -377,7 +388,7 @@ export function SayItChatPage({
             <View style={value.tone === 'saved' ? styles.savedRow : null}>{replyWords(value, testID, value.actions != null || value.body != null)}</View>
             {replyExtras(value, testID)}
           </View>
-          {replyTail(value, testID)}
+          {replyTail(value, testID, false, value.actions != null || value.body != null)}
         </View>
       </View>
       {value.time ? <Text style={[timestampStyle, styles.incomingTime]}>{value.time}</Text> : null}

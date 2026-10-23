@@ -22,7 +22,7 @@
  * `useWindowDimensions` and `Dimensions.set`, as in understoodLiveTextScale.test.
  */
 import React from 'react';
-import { Dimensions, StyleSheet } from 'react-native';
+import { Dimensions, Pressable, StyleSheet, Text } from 'react-native';
 import { afterEach, describe, expect, it, jest } from '@jest/globals';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -184,6 +184,35 @@ describe('the reply bubble after a live text-size change', () => {
       expect(screen.getByTestId('older-said')).toBe(said);
       expect(screen.getByTestId('older-text-0')).not.toBe(paragraph);
       paragraph = screen.getByTestId('older-text-0');
+    }
+  });
+
+  it('Q-LIVE-R2-001 a saved message tail is re-measured too: replaced on each change, said by a wrapper that stays', async () => {
+    setFontScale(1);
+    await AsyncStorage.setItem(LANGUAGE_STORAGE_KEY, 'ar');
+    const TAIL = 'في إشي تاني؟ احكيلي.';
+    function Saved() {
+      const mode = useLayoutMode();
+      return <SayItChatPage {...baseProps} mode={mode} history={[
+        // An older saved message whose bubble holds controls, so its tail has its own element.
+        { role: 'assistant', id: 'saved', text: 'انحفظت.', tone: 'saved', tail: TAIL,
+          actions: <Pressable testID="saved-undo" accessibilityRole="button" onPress={jest.fn()}><Text>تراجع</Text></Pressable> },
+        { role: 'user', text: 'تمام' },
+      ]} />;
+    }
+    await render(<AppProvider><Saved /></AppProvider>);
+    await waitFor(() => expect(screen.queryByTestId('saved-tail-said')).not.toBeNull());
+    const said = screen.getByTestId('saved-tail-said');
+    expect(said.props.accessible).toBe(true);
+    expect(said.props.accessibilityLabel).toBe(TAIL);
+    const undo = screen.getByTestId('saved-undo');
+    let tail = screen.getByTestId('saved-text-1');
+    for (const scale of [AX5, 1]) {
+      await act(async () => { setFontScale(scale); });
+      expect(screen.getByTestId('saved-tail-said')).toBe(said);
+      expect(screen.getByTestId('saved-undo')).toBe(undo);
+      expect(screen.getByTestId('saved-text-1')).not.toBe(tail);
+      tail = screen.getByTestId('saved-text-1');
     }
   });
 
