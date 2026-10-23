@@ -67,6 +67,7 @@ import {
 import { GET as planGet } from '../../src/app/api/mobile/plans/[date]/route.ts';
 import { GET as weekGet, POST as weekPost } from '../../src/app/api/mobile/plans/week/route.ts';
 import { POST as weekAcceptPost } from '../../src/app/api/mobile/plans/week/accept/route.ts';
+import { seedLiveAccount } from '../support/liveAccount.ts';
 
 const BASE = 'http://127.0.0.1:4321';
 const TZ = 'Asia/Jerusalem';
@@ -115,6 +116,7 @@ function seedState(): DomainState {
 }
 
 async function seed(storage: StorageAdapter, options: { delivery?: boolean } = {}): Promise<void> {
+  await seedLiveAccount(USER, storage);
   await persistParticipantState(USER, seedState());
   const user = await storage.get<Record<string, unknown>>(userDoc(USER));
   await storage.set(userDoc(USER), { ...(user ?? {}), timezone: TZ, locale: 'en' });
@@ -124,6 +126,7 @@ async function seed(storage: StorageAdapter, options: { delivery?: boolean } = {
 }
 
 async function addCommitment(storage: StorageAdapter, id: string, title: string, spec: Spec, now: string): Promise<void> {
+  await seedLiveAccount(USER, storage);
   const state = await loadDomainState(storage, USER);
   await persistParticipantState(USER, withCommitment(state, id, title, spec, now));
 }
@@ -1079,6 +1082,7 @@ test('work due on a day still ahead is never proposed after it, nor called «م�
     state = withCommitment(state, 'cmt_report', 'Hand in the report', { kind: 'due', dueAt: '2026-09-16T06:00:00.000Z' });
     state = withCommitment(state, 'cmt_market', 'Go to the market', { kind: 'due', dueAt: '2026-09-16T12:00:00.000Z' });
     state = withCommitment(state, 'cmt_late', 'Return the form', { kind: 'due', dueAt: '2026-09-14T12:00:00.000Z' });
+    await seedLiveAccount(USER, storage);
     await persistParticipantState(USER, state);
     await storage.set(userDoc(USER), { timezone: TZ, locale: 'en' });
     const dto = await week(storage);

@@ -13,16 +13,28 @@ import { createMemoryStorage } from '../../lib/storage/memoryAdapter.ts';
 import { StorageHabitStore } from '../../lib/habits/habitStore.ts';
 import { parseHabitPatchInput } from '../../src/contracts/v1/habitContracts.ts';
 import { NOW, SCOPE, habitInput } from './habitSupport.ts';
+import { seedLiveAccount } from '../support/liveAccount.ts';
 
 const LATER = '2026-03-10T09:00:00.000Z';
 const STRANGER = 'habitStranger';
 
-function store() {
-  return new StorageHabitStore(createMemoryStorage());
+/**
+ * Both accounts exist, as authentication would have left them: the store's
+ * writes re-read the account deletion fence (#772).
+ */
+async function liveStorage() {
+  const storage = createMemoryStorage();
+  await seedLiveAccount(SCOPE, storage, NOW);
+  await seedLiveAccount(STRANGER, storage, NOW);
+  return storage;
+}
+
+async function store() {
+  return new StorageHabitStore(await liveStorage());
 }
 
 test('a created habit is active, stamped, and readable back in its own scope', async () => {
-  const habits = store();
+  const habits = await store();
   const created = await habits.create(habitInput(), NOW);
 
   assert.equal(created.status, 'active');
@@ -33,7 +45,7 @@ test('a created habit is active, stamped, and readable back in its own scope', a
 });
 
 test('the store re-validates rather than trusting its caller', async () => {
-  const habits = store();
+  const habits = await store();
   // A route that skipped its own parse, or a service that built the object by
   // hand: the confirmation is the one field that must never be optional, and
   // the check that matters is the one nearest the write.
@@ -50,7 +62,7 @@ test('the store re-validates rather than trusting its caller', async () => {
 });
 
 test('a habit id from another account reads as absent, and patches nothing', async () => {
-  const habits = store();
+  const habits = await store();
   const mine = await habits.create(habitInput(), NOW);
 
   assert.equal(await habits.get(STRANGER, mine.habitId), null);
@@ -60,7 +72,7 @@ test('a habit id from another account reads as absent, and patches nothing', asy
 });
 
 test('pausing is a patch, and it keeps the habit and its history', async () => {
-  const habits = store();
+  const habits = await store();
   const created = await habits.create(habitInput(), NOW);
 
   const paused = await habits.patch(SCOPE, created.habitId, parseHabitPatchInput({ status: 'paused' }), LATER);
@@ -76,7 +88,7 @@ test('pausing is a patch, and it keeps the habit and its history', async () => {
 });
 
 test('a document nothing wrote reads as absent rather than as a habit', async () => {
-  const storage = createMemoryStorage();
+  const storage = await liveStorage();
   const habits = new StorageHabitStore(storage);
   const created = await habits.create(habitInput(), NOW);
   // Somebody edits the console, or a migration half-lands. Materialization
@@ -90,7 +102,7 @@ test('a document nothing wrote reads as absent rather than as a habit', async ()
 });
 
 test('remove and deleteScope take this account’s habits and nobody else’s', async () => {
-  const habits = store();
+  const habits = await store();
   const mine = await habits.create(habitInput(), NOW);
   const alsoMine = await habits.create(habitInput({ title: 'Reading' }), LATER);
   const theirs = await habits.create(habitInput({ scopeId: STRANGER }), NOW);
@@ -105,7 +117,7 @@ test('remove and deleteScope take this account’s habits and nobody else’s', 
 });
 
 test('the list order is stable across reads, including for a tie', async () => {
-  const habits = store();
+  const habits = await store();
   const first = await habits.create(habitInput({ title: 'One' }), NOW);
   const second = await habits.create(habitInput({ title: 'Two' }), NOW);
   const expected = [first, second].sort((a, b) => (a.habitId < b.habitId ? -1 : 1))

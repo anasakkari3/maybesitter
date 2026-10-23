@@ -34,6 +34,7 @@ import { resetStorageForTests, setStorageForTests } from '../../lib/storage/inde
 import type { StorageAdapter, StorageTransaction } from '../../lib/storage/storageAdapter.ts';
 import { userCol, userDoc } from '../../lib/storage/paths.ts';
 import { persistParticipantState } from '../../lib/services/mobile/participantState.ts';
+import { seedLiveAccount } from '../support/liveAccount.ts';
 import { applyCommand as applyDomainCommand, createEmptyDomainState } from '../../src/domain/stateMachine.ts';
 import {
   buildAndStoreDailyPlan,
@@ -227,6 +228,7 @@ test('a whole plan lifecycle writes nothing into any commitments collection', as
   const inner = createMemoryStorage();
   setStorageForTests(inner);
   try {
+    await seedLiveAccount(UID, inner); // #772: the user document a live account has
     await persistParticipantState(UID, seedState());
     const user = await inner.get<Record<string, unknown>>(userDoc(UID));
     await inner.set(userDoc(UID), { ...(user ?? {}), timezone: TZ, locale: 'en' });

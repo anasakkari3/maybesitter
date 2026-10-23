@@ -28,6 +28,7 @@ import { upsertDevice, deleteDevice } from '../../lib/push/deviceRegistry.ts';
 import { PUSH_DATA_KEYS, sendToUser, type FcmMessage, type MessagingClient } from '../../lib/push/pushService.ts';
 import { hardReminderPath, HARD_LEAD_MS, type HardReminderEntry } from '../../lib/services/reminders/hardReminderIndex.ts';
 import { recordHardReceipts } from '../../lib/services/reminders/hardReceipts.ts';
+import { seedLiveAccount } from '../support/liveAccount.ts';
 import {
   HARD_REMINDER_COPY,
   INEXACT_GRACE_MS,
@@ -96,6 +97,7 @@ function mustCommitment(overrides: Partial<Commitment> = {}): Commitment {
 }
 
 async function world(options: { settings?: Record<string, unknown>; phones?: string[]; commitment?: Commitment } = {}) {
+  await seedLiveAccount(USER);
   await saveReminderSettings(USER, { hardEnabled: true, escalationCeiling: 'hard', ...options.settings }, NOW.toISOString());
   for (const installationId of options.phones ?? [PHONE_A]) {
     await upsertDevice(USER, {

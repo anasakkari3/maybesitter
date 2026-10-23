@@ -79,7 +79,7 @@ function conflictText(block: DeviceBusyBlock, t: ReturnType<typeof useApp>['t'],
 }
 
 /** A commitment: its time (or «بدون وقت»), title, importance, and what it runs into. Opens Details. */
-export function CommitmentCard({ row, marker = false, narrow = false, agenda = false, importance = false, minHeight = 44 }: {
+export function CommitmentCard({ row, marker = false, narrow = false, agenda = false, minHeight = 44 }: {
   row: Extract<PlanRow, { kind: 'commitment' }>;
   /** On the timeline: a tighter card whose top edge is its time. */
   marker?: boolean;
@@ -87,12 +87,6 @@ export function CommitmentCard({ row, marker = false, narrow = false, agenda = f
   narrow?: boolean;
   /** Dense ordered-list treatment used when a timeline would be unreadable. */
   agenda?: boolean;
-  /**
-   * In the dense list, the importance word on its own line under the title —
-   * for the day that fell back from the timeline (#738), where the coloured
-   * start border alone would be the only sign of it.
-   */
-  importance?: boolean;
   /** On the timeline, a ranged commitment's true height. */
   minHeight?: number;
 }) {
@@ -123,13 +117,21 @@ export function CommitmentCard({ row, marker = false, narrow = false, agenda = f
           </View>
         ) : null}
         {agenda ? (
-          <View style={{ flex: 1, gap: due || importance ? 2 : 0, alignItems: 'stretch' }}>
+          <View style={{ flex: 1, gap: 2, alignItems: 'stretch' }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
               <Txt size={15} weight={700} color={p.tx} lines={2} style={{ flex: 1 }} testID={`m6-calendar-title-${item.id}`}>{isolateAuto(item.title)}</Txt>
               <Txt size={13} color={p.mu} latin={time !== null && !offDay} lines={1} testID={`calendar-time-${item.id}`}>{time ?? t.noTimeYet}</Txt>
             </View>
-            {due ? <Txt size={13} color={p.mu} lines={1} testID={`calendar-due-${item.id}`}>{due}</Txt> : null}
-            {importance ? <Tag kind={priorityTagKind(item.importance)} label={importanceWord(item.importance, t)} testID={`calendar-importance-${item.id}`} /> : null}
+            {/* The second line says the importance in words beside the due
+                (#788): the coloured start border alone failed colour-blind
+                readers and the rule that every state has a text label. One
+                line, wrapping only when the text is large. */}
+            <View testID={`calendar-meta-${item.id}`} style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', columnGap: 8, rowGap: 2 }}>
+              <Tag kind={priorityTagKind(item.importance)} label={importanceWord(item.importance, t)} testID={`calendar-importance-${item.id}`} />
+              {/* Never clamped (Q788-001): «موعدها بكرا · 15:00» outgrows an
+                  AX5 row; it wraps under the chip instead of being cut. */}
+              {due ? <Txt size={13} color={p.mu} style={{ flexShrink: 1 }} testID={`calendar-due-${item.id}`}>{due}</Txt> : null}
+            </View>
           </View>
         ) : (
           <View style={{ flex: 1, gap: 2, alignItems: 'flex-start' }}>
@@ -266,7 +268,7 @@ export function DayTimeline({ rows: allRows, day, nowIso }: { rows: readonly Pla
   const placed = placeSpans(spans, from);
   // More lanes at once than fit at their floor: the same rows as the ordered
   // list, which the large text sizes already use (#738).
-  if (!lanesFit(placed, timelineLaneWidth(width), scale)) return <DayAgenda rows={allRows} day={day} importance />;
+  if (!lanesFit(placed, timelineLaneWidth(width), scale)) return <DayAgenda rows={allRows} day={day} />;
   const byKey = new Map(rows.map(row => [row.key, row]));
   const gridHeight = (to - from) * HOUR_HEIGHT;
   const overhang = Math.max(0, ...placed.map(entry => entry.top + entry.visual - gridHeight));
@@ -373,16 +375,14 @@ export function timelineSpans(rows: readonly Exclude<PlanRow, { kind: 'gap' }>[]
 }
 
 /** The same rows as a list in time order, for the large text sizes. */
-export function DayAgenda({ rows, day, importance = false }: {
+export function DayAgenda({ rows, day }: {
   rows: readonly PlanRow[];
   day: string;
-  /** Each commitment says its importance in words (the timeline's fallback, #738). */
-  importance?: boolean;
 }) {
   return (
     <View testID="calendar-agenda-list" style={{ gap: 10 }}>
       {rows.map(row => row.kind === 'commitment'
-        ? <CommitmentCard key={row.key} row={row} agenda importance={importance} />
+        ? <CommitmentCard key={row.key} row={row} agenda />
         : row.kind === 'busy'
           ? <BusyCard key={row.key} row={row} />
           : row.kind === 'gap'

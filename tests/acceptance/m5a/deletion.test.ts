@@ -9,6 +9,7 @@ import assert from 'node:assert/strict';
 import { createMemoryStorage } from '../../../lib/storage/memoryAdapter.ts';
 import { createStorageFeedbackEventStore } from '../../../lib/feedback/feedbackEventStore.ts';
 import { createStorageRuntimeMemoryStore } from '../../../lib/runtimeMemory/runtimeMemoryStore.ts';
+import { seedLiveAccount } from '../../support/liveAccount.ts';
 
 function purgeInput(scopeId: string, storage: ReturnType<typeof createMemoryStorage>) {
   return { scopeId, now: '2026-10-07T07:00:00.000Z', storage, feedbackEvents: createStorageFeedbackEventStore(storage), runtimeMemory: createStorageRuntimeMemoryStore(undefined, storage) } as any;
@@ -68,6 +69,7 @@ test('M5A-R55-002: account export never includes a device secret hash', async ()
   const storage = createMemoryStorage();
   const uid = 'user_m5a_export';
   await storage.set(`users/${uid}`, { schemaVersion: 1 });
+  await seedLiveAccount(uid, storage);
   await storage.set(`users/${uid}/registeredDeviceSources/abc`, { sourceInstallationId: 'inst-1', secretHash: 'deadbeef', secretVersion: 1, state: 'active' });
   const exported = await exportModule.buildAccountExport(uid, { storage });
   assert.match(JSON.stringify(exported), /inst-1/, 'registeredDeviceSources is not exported at all');

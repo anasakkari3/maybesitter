@@ -26,6 +26,7 @@ import { POST as weekAcceptPost } from '../../src/app/api/mobile/plans/week/acce
 import { GET as summaryGet } from '../../src/app/api/mobile/activity/summary/route.ts';
 import { replaceBusyBlocksAsFixture } from '../support/busyFixtures.ts';
 import { getParticipantStateSnapshot } from '../../lib/services/mobile/participantState.ts';
+import { seedLiveAccount } from '../support/liveAccount.ts';
 
 const BASE = 'http://127.0.0.1:4321';
 const TZ = 'Asia/Jerusalem';
@@ -50,6 +51,7 @@ async function withHarness(run: (storage: StorageAdapter) => Promise<void>): Pro
   try {
     const user = await storage.get<Record<string, unknown>>(userDoc(USER));
     await storage.set(userDoc(USER), { ...(user ?? {}), timezone: TZ, locale: 'ar' });
+    await seedLiveAccount(USER, storage); // #772: the trust record authentication writes
     await run(storage);
   } finally {
     auth.restore();

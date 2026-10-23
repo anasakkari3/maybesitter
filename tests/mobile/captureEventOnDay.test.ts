@@ -20,6 +20,7 @@ import type { StorageAdapter, StorageTransaction } from '../../lib/storage/stora
 import { CAPTURE_PROPOSALS, userDoc } from '../../lib/storage/paths.ts';
 import { getStorage } from '../../lib/storage/index.ts';
 import { composeWeek, weekToDto } from '../../lib/services/dailyPlan/weekPlan.ts';
+import { seedLiveAccount } from '../support/liveAccount.ts';
 
 const TZ = 'Asia/Jerusalem';
 /** Monday 28 September 2026, 03:37 in Jerusalem: when the round-3 UAT ran it. */
@@ -39,6 +40,7 @@ type ProposedItem = { itemId: string; resolvedTime: string | null; resolvedDate?
 
 /** Capture, answer «الصبح», then confirm with the edit sheet's «بدون وقت». */
 async function answeredMorningThenNoTime(text: string, uid: string) {
+  await seedLiveAccount(uid);
   const proposal = await proposeMobileCapture({ text, timezone: TZ, referenceTime: NOW.toISOString() }, { participantId: uid });
   const item = proposal.items[0]!;
   assert.equal(item.resolvedDate, FRIDAY, text);
@@ -209,6 +211,7 @@ for (const [zone, now] of [
     await withMemoryStorage(async () => {
       const storage = getStorage();
       await storage.set(userDoc(uid), { uid, timezone: zone, locale: 'ar' });
+      await seedLiveAccount(uid, storage); // #772: the trust record authentication writes
       const proposal = await proposeMobileCapture({ text: 'سجّل موعد أسنان يوم الجمعة', timezone: zone, referenceTime: now.toISOString() }, { participantId: uid });
       const item = proposal.items[0]!;
       assert.equal(item.clarification?.questionKey, 'ask_time');

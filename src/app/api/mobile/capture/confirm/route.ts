@@ -1,4 +1,5 @@
 import { mobileAuthErrorResponse, requireMobileUser } from '../../../../../../lib/auth/mobileAuth';
+import { AccountUnavailableError, accountUnavailableResponse } from '../../../../../../lib/account/accountLiveness';
 import { CaptureConfirmRefusedError, confirmMobileCapture } from '../../../../../../lib/services/mobile/mobileCaptureService';
 import { ProposalChangedError } from '../../../../../../lib/services/captureBoundary';
 import { mobileError } from '../../../../../../lib/services/mobile/response';
@@ -41,6 +42,7 @@ export async function POST(request: Request) {
     await learnOutcomesWithin(user.uid);
     return Response.json(result);
   } catch (error) {
+    if (error instanceof AccountUnavailableError) return accountUnavailableResponse();
     if (error instanceof CaptureConfirmRefusedError) {
       return Response.json({ success: false, error: error.message, reason: error.reason }, { status: 409 });
     }

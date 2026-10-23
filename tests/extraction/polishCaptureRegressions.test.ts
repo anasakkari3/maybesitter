@@ -46,6 +46,7 @@ import { validateExtractionResult } from '../../src/extraction/schemaValidator.t
 import { finalizeUnderstood, type CaptureSourceOrdinals } from '../../lib/services/captureBoundary/understood.ts';
 import { claimsSaved, templateReply } from '../../lib/services/captureChat/chatReply.ts';
 import type { CaptureProposalContract, CaptureUnderstoodPoint } from '../../src/contracts/v1/captureContracts.ts';
+import { seedLiveAccount } from '../support/liveAccount.ts';
 
 const TZ = 'Asia/Hebron';
 /** Monday 28 Sep 2026, 06:58 on the phone — when N15 was typed. */
@@ -421,6 +422,7 @@ test('a task cleared to no time at confirm echoes no time — the echo is what w
     const proposal = await proposeMobileCapture({ text, timezone: TZ, referenceTime: MON_10.toISOString() }, { participantId: uid });
     const item = proposal.items[0]!;
     assert.equal(line(item), 'أشتري دوا من الصيدلية | 2026-09-29 17:00 | settled');
+    await seedLiveAccount(uid);
     const confirmed = await confirmMobileCapture({ proposalId: proposal.proposalId, itemIds: [item.itemId], edits: [{ itemId: item.itemId, resolvedTime: null }] }, { participantId: uid });
     assert.equal(confirmed.success, true, JSON.stringify(confirmed));
     const commitment = Object.values((await getParticipantStateSnapshot(uid)).commitments)[0]!;
@@ -437,6 +439,7 @@ test('a task cleared to no time at confirm echoes no time — the echo is what w
     const text = 'لازم أشتري دوا من الصيدلية بكرا الساعة 5 المسا';
     const proposal = await proposeMobileCapture({ text, timezone: TZ, referenceTime: MON_10.toISOString() }, { participantId: uid });
     const item = proposal.items[0]!;
+    await seedLiveAccount(uid);
     const confirmed = await confirmMobileCapture({ proposalId: proposal.proposalId, itemIds: [item.itemId], edits: [{ itemId: item.itemId, resolvedTime: later }] }, { participantId: uid });
     assert.deepEqual(confirmed.persisted.map((persisted) => persisted.resolvedTime), [later]);
   });

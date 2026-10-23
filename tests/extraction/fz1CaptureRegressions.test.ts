@@ -40,6 +40,7 @@ import { createEmptyDomainState } from '../../src/domain/stateMachine.ts';
 import { localTimeSpecFor, typedHalfOfDay } from '../../src/extraction/timeLexicon.ts';
 import { extractWithFallback } from '../../src/extraction/extractionService.ts';
 import { validateExtractionResult } from '../../src/extraction/schemaValidator.ts';
+import { seedLiveAccount } from '../support/liveAccount.ts';
 
 const TZ = 'Asia/Hebron';
 /** Monday 28 Sep 2026, 03:22 on the phone — when N10 was typed. */
@@ -669,6 +670,7 @@ test('FZ1 round 3 add-on: an appointment answered «الصبح», then cleared t
       timezone: zone, referenceTime: now.toISOString(),
     }, { participantId: uid });
     assert.equal(answered.items[0]!.resolvedDate, '2026-10-02');
+    await seedLiveAccount(uid);
     const confirmed = await confirmMobileCapture({ proposalId: proposal.proposalId, itemIds: [item.itemId], edits: [{ itemId: item.itemId, resolvedTime: null }] }, { participantId: uid });
     assert.equal(confirmed.success, true, JSON.stringify(confirmed));
     const commitment = Object.values((await getParticipantStateSnapshot(uid)).commitments)[0]!;
@@ -691,6 +693,7 @@ test('FZ1 round 3 add-on: any answered time keeps the person\'s zone on the stor
       proposalId: proposal.proposalId, itemId: item.itemId, questionId: item.clarification!.questionId, optionId: 'morning',
       timezone: zone, referenceTime: now.toISOString(),
     }, { participantId: uid });
+    await seedLiveAccount(uid);
     await confirmMobileCapture({ proposalId: proposal.proposalId, itemIds: [item.itemId] }, { participantId: uid });
     const commitment = Object.values((await getParticipantStateSnapshot(uid)).commitments)[0]!;
     assert.equal(commitment.timeSpec.timezone, zone);
@@ -709,6 +712,7 @@ test('FZ1 round 3 add-on: west of UTC the cleared appointment is still on Friday
       proposalId: proposal.proposalId, itemId: item.itemId, questionId: item.clarification!.questionId, optionId: 'morning',
       timezone: zone, referenceTime: now.toISOString(),
     }, { participantId: uid });
+    await seedLiveAccount(uid);
     const confirmed = await confirmMobileCapture({ proposalId: proposal.proposalId, itemIds: [item.itemId], edits: [{ itemId: item.itemId, resolvedTime: null }] }, { participantId: uid });
     assert.equal(confirmed.success, true, JSON.stringify(confirmed));
     const commitment = Object.values((await getParticipantStateSnapshot(uid)).commitments)[0]!;

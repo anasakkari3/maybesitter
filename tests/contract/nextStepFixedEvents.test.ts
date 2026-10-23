@@ -19,6 +19,7 @@ import { confirmMobileCapture, proposeMobileCapture } from '../../lib/services/m
 import { getParticipantStateSnapshot } from '../../lib/services/mobile/participantState.ts';
 import { createMemoryStorage } from '../../lib/storage/memoryAdapter.ts';
 import { resetStorageForTests, setStorageForTests } from '../../lib/storage/index.ts';
+import { seedLiveAccount } from '../support/liveAccount.ts';
 import { getLiveNextStep, prepareLiveNextStepDecision } from '../../lib/services/nextStepLiveService.ts';
 import { namesEvent, preparationTitle } from '../../lib/services/nextStepPreparation.ts';
 import { NEXT_STEP_PINNED_ARM_ENV } from '../../lib/experiments/experimentControls.ts';
@@ -37,8 +38,10 @@ const NIGHT_OUT = 'سهرة مع الصحاب الليلة 21:00';
 const controls = { version: 'v1' as const, featureFlags: { ...MODULE_FEATURE_FLAG_DEFAULTS, recommendation: true }, killSwitches: { ...MODULE_KILL_SWITCH_DEFAULTS } };
 
 async function withMemoryStorage<T>(run: () => Promise<T>): Promise<T> {
-  setStorageForTests(createMemoryStorage());
+  const storage = createMemoryStorage();
+  setStorageForTests(storage);
   try {
+    await seedLiveAccount(UID, storage); // #772: the user document a live account has
     return await run();
   } finally {
     resetStorageForTests();

@@ -36,6 +36,7 @@ import { composeWeek, NO_WEEK_DECISIONS, weekToDto } from '../../lib/services/da
 import { habitInput } from '../habits/habitSupport.ts';
 import type { HabitDefinitionInput } from '../../src/contracts/v1/habitContracts.ts';
 import { installFakeAuth, tokenFor } from '../support/fakeAuth.ts';
+import { seedLiveAccount } from '../support/liveAccount.ts';
 import { GET as planGet } from '../../src/app/api/mobile/plans/[date]/route.ts';
 
 const UID = 'habit_daily_plan_user';
@@ -47,6 +48,7 @@ const NOW = new Date('2026-03-07T05:00:00.000Z');
 async function seedAccount(storage: StorageAdapter, uid = UID): Promise<Record<string, unknown>> {
   const user = { timezone: TIMEZONE, locale: 'en' };
   await storage.set(userDoc(uid), user);
+  await seedLiveAccount(uid, storage);
   return user;
 }
 

@@ -16,6 +16,7 @@ import { personalizationGrowthAllowed } from '../consents/personalizationConsent
 import { keptFocusWindow } from '../memoryGrowth/suggestionService';
 import { getStorage, userDoc, type StorageAdapter } from '../storage';
 import type { UserDocument } from '../storage/userDocument';
+import { assertLiveAccount } from '../account/accountLiveness';
 import { readActivityStats, recordActivityEvents } from '../services/activity/activityStats';
 import {
   candidateClashes,
@@ -164,6 +165,13 @@ export async function applyPostponeSlot(uid: string, id: string, input: { postpo
   const storage = getStorage(); const now = new Date();
   let replayed = false;
   await storage.runTransaction(async (tx) => {
+    // The account deletion fence (#772, Q772-002), first: before validation,
+    // a replay or a no-op. `writeDomainDiff` fences only a postpone that
+    // changes something, while the receipt below is written either way -- an
+    // exact no-op with a fresh clientActionId used to land under a deleted
+    // account.
+    const user = await tx.get<UserDocument>(userDoc(uid));
+    assertLiveAccount(user);
     const fingerprint = `postpone|${input.postponedUntil}|fromSlot:true|${input.slotToken}`;
     const receiptPath = input.clientActionId ? commitmentActionReceiptPath(uid, input.clientActionId) : null;
     const existing = receiptPath ? await tx.get<CommitmentActionReceipt>(receiptPath) : null;
@@ -171,9 +179,8 @@ export async function applyPostponeSlot(uid: string, id: string, input: { postpo
       if (existing.fingerprint !== fingerprint || existing.commitmentId !== id) throw new ClientActionIdReusedError();
       replayed = true; return;
     }
-    const [state, user, stats] = await Promise.all([
+    const [state, stats] = await Promise.all([
       loadDomainState(tx, uid),
-      tx.get<UserDocument>(userDoc(uid)),
       readActivityStats(tx, uid),
     ]);
     const row = state.commitments[id];

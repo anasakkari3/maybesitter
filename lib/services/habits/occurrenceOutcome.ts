@@ -32,6 +32,7 @@
  * being `unchanged` rather than `applied`.
  */
 import { mobileError } from '../mobile/response';
+import { AccountUnavailableError, accountUnavailableResponse } from '../../account/accountLiveness';
 import {
   HabitValidationError,
   habitValidationResponse,
@@ -114,6 +115,7 @@ export async function respondToOccurrenceOutcome(
       }),
     });
   } catch (error) {
+    if (error instanceof AccountUnavailableError) return accountUnavailableResponse();
     if (error instanceof HabitValidationError) return habitValidationResponse(error);
     console.error(`[habits] marking an occurrence ${outcome} failed`, error);
     return mobileError(`could not mark the occurrence ${outcome}`, 500);
