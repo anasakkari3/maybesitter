@@ -539,6 +539,7 @@ async function proposeThroughRoute(text: string, answer: Record<string, unknown>
   try {
     const uid = 'r6-route';
     if (answer) {
+      await seedLiveAccount(uid); // consent answers write behind the deletion fence (#772)
       await setAiConsent(uid, { state: 'granted', version: AI_CONSENT_VERSION });
       process.env.MAYBESITTER_LLM_PROVIDER = 'gemini';
       process.env.MAYBESITTER_VERTEX_LOCATION = 'europe-west1';

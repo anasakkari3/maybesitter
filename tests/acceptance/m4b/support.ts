@@ -210,6 +210,7 @@ export async function addWeekly(uid: string, title: string, weekdays: number[], 
 }
 
 export async function grantPersonalization(uid: string): Promise<void> {
+  await seedLiveAccount(uid, currentStorage() as any); // consent writes behind the deletion fence (#772)
   await setPersonalizationConsent(uid, { state: 'granted', version: PERSONALIZATION_CONSENT_VERSION, at: new Date() }, { storage: currentStorage() as any });
 }
 

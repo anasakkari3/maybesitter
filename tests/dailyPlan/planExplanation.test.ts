@@ -12,6 +12,7 @@
  * be usable ends in the same deterministic sentence, and the `source` field
  * says which happened so the fallback rate is measurable.
  */
+import { seedLiveAccount } from '../support/liveAccount.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createMemoryStorage } from '../../lib/storage/memoryAdapter.ts';
@@ -71,6 +72,7 @@ function fakeProvider(answer: string | Error, delayMs = 0): LlmProvider & { call
 async function withStorage<T>(fn: (storage: StorageAdapter) => Promise<T>): Promise<T> {
   const storage = createMemoryStorage();
   setStorageForTests(storage);
+  await seedLiveAccount(UID, storage); // the trust record auth creates (#772)
   try {
     return await fn(storage);
   } finally {

@@ -19,6 +19,7 @@
  * reusable — a real pack (football, athlete, travel) plugs in exactly the
  * same way the synthetic one does, and the retrofit is the follow-up slice.
  */
+import { seedLiveAccount } from '../support/liveAccount.ts';
 import {
   createMemoryStorage,
   type MemoryStorageAdapter,
@@ -170,6 +171,7 @@ async function provision(
 ): Promise<Rig> {
   const storage = createMemoryStorage();
   await storage.set(userDoc(UID), { uid: UID });
+  await seedLiveAccount(UID, storage); // the trust record auth creates (#772)
 
   const connectionId = fixture.connectionId ?? 'conn_conformance';
   const wantsConnection = options.withConnection ?? template.requiresConnection;
@@ -425,6 +427,7 @@ const CONTENT_KEY_NAMES = ['payload', 'rawBody', 'providerResponse', 'title', 'b
 const firingArtifactsStayInThePipeline: Check = async (fixture) => {
   const storage = createMemoryStorage();
   await storage.set(userDoc(UID), { uid: UID });
+  await seedLiveAccount(UID, storage); // the trust record auth creates (#772)
   const state: SignalState = { digest: 'digest-1' };
   const connectionId = fixture.connectionId ?? 'conn_conformance';
   let connectionSeeded = false;
