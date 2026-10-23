@@ -1,4 +1,5 @@
 import { appendAnalyticsEvent } from '../../../../lib/analytics/eventStore';
+import { AccountUnavailableError, accountUnavailableResponse } from '../../../../lib/account/accountLiveness';
 import { resolveUserAccess } from '../../../../lib/pilot/pilotAccess';
 import { applyTrustAction } from '../../../../lib/pilot/pilotTrustStore';
 import { getCommandServiceState } from '../../../../lib/services/commandService';
@@ -33,6 +34,8 @@ export async function GET(request: Request) {
     }
     return Response.json(proposal);
   } catch (error) {
+    // A deleted account is 403 `deleted` (#794), not a configuration outage.
+    if (error instanceof AccountUnavailableError) return accountUnavailableResponse();
     return Response.json({ error: error instanceof Error ? error.message : 'closed pilot is not configured' }, { status: 503 });
   }
 }
@@ -61,6 +64,7 @@ export async function POST(request: Request) {
     const outcome = await recordLiveNextStepDecision(canonicalProposal, body.decision, context, body.editedTitle);
     return Response.json(outcome);
   } catch (error) {
+    if (error instanceof AccountUnavailableError) return accountUnavailableResponse();
     return Response.json({ error: error instanceof Error ? error.message : 'decision rejected' }, { status: 400 });
   }
 }

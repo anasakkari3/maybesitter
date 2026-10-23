@@ -47,6 +47,7 @@ import { resolveMemoryLearning } from '../../release/m5bCapabilities';
 import { resolveFreshReadiness } from '../../integrations/readiness/freshReadiness';
 import { storedReadinessContext } from '../../userState/userStateService';
 import { getStorage } from '../../storage';
+import { AccountUnavailableError, accountUnavailableResponse } from '../../account/accountLiveness';
 import { userDoc } from '../../storage/paths';
 
 type MobilePilotSource = Record<string, unknown>;
@@ -67,6 +68,10 @@ export class MobilePilotError extends Error {
 }
 
 export function mobilePilotErrorResponse(error: unknown): Response {
+  // A deletion that swept the account after authentication: the trust store
+  // refuses to create a record behind it (#794). The same 403 `deleted` the
+  // auth guard and the domain-write fence answer, not a 400.
+  if (error instanceof AccountUnavailableError) return accountUnavailableResponse();
   if (error instanceof MobilePilotError) {
     return Response.json(
       { success: false, error: error.message, ...(error.reason ? { reason: error.reason } : {}) },

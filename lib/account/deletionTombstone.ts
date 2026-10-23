@@ -34,23 +34,37 @@
  * every account it creates, and nothing in this repository creates one with a
  * chosen uid.
  *
- * ── Why the pepper is optional off Cloud Run ─────────────────────
+ * ── When a missing pepper is allowed (Q794-003) ──────────────────
  *
- * The id needs the deletion pepper. `deleteAccount` computes the subject hash
- * before its first write, so a process without the pepper cannot have started a
- * deletion and there is no tombstone to look for — which is every local and
- * test process that never deletes anything. On Cloud Run the pepper is a
- * deployed secret (`infra/cloudrun/flags.sh`), and its absence there is refused
- * rather than read as "nobody was ever deleted".
+ * The id needs the deletion pepper, and a process without it cannot tell a
+ * deleted uid from a new one. That is harmless only where no other process's
+ * deletion can have written a tombstone, and that is a property of the storage
+ * backend, not of the host: the in-memory backend (one process's private store,
+ * which is every unit test and the default off Cloud Run), or Firestore bound to
+ * the local emulator (`FIRESTORE_EMULATOR_HOST`). With the Firestore backend on
+ * a real project — Cloud Run, or an operator shell with
+ * `MAYBESITTER_STORAGE_BACKEND=firestore` like the one
+ * `docs/operations/ACCOUNT_DELETION.md` runs — a missing pepper is refused.
+ *
+ * ── Rotation (Q794-002) ──────────────────────────────────────────
+ *
+ * Every tombstone written before a pepper rotation sits under the old pepper's
+ * hash. `MAYBESITTER_DELETION_RECEIPT_PEPPER_PREVIOUS` names that old pepper,
+ * and while it is set the lookup reads both paths in the same transaction. The
+ * runbook (`docs/operations/GCP_BOOTSTRAP.md`) keeps it set for at least the
+ * tombstone's 30-day TTL after a rotation. Unset, it costs nothing: one point
+ * read, as before.
  */
 import { createHmac } from 'node:crypto';
+import { resolveStorageBackend } from '../storage';
 import { requireUserId } from '../storage/paths';
 
 export const ACCOUNT_DELETIONS = 'accountDeletions';
 
 const PEPPER_ENV_VAR = 'MAYBESITTER_DELETION_RECEIPT_PEPPER';
-/** Set by Cloud Run on every revision. */
-const CLOUD_RUN_ENV_VAR = 'K_SERVICE';
+/** The pepper before the last rotation, kept for the tombstone TTL after it. */
+const PREVIOUS_PEPPER_ENV_VAR = 'MAYBESITTER_DELETION_RECEIPT_PEPPER_PREVIOUS';
+const FIRESTORE_EMULATOR_ENV_VAR = 'FIRESTORE_EMULATOR_HOST';
 
 /** The pepper, or a clear failure. Never logged, never defaulted. */
 export function requireDeletionPepper(env: NodeJS.ProcessEnv = process.env): string {
@@ -72,19 +86,43 @@ export function deletionJobPath(subjectHash: string): string {
 }
 
 /**
- * Where a deletion of this uid would have left its tombstone, or `null` when
- * this process cannot have deleted anyone (no pepper, not on Cloud Run).
+ * Whether this process's storage backend can hold a tombstone some other
+ * process wrote.
  *
- * The document exists from the moment a deletion is claimed. Its presence is
- * the whole answer: in progress, done or stuck, the account is going or gone.
+ * Only two answers are "no", and both are named: the in-memory backend and
+ * Firestore bound to the emulator. The Firestore backend on a real project is
+ * shared wherever the process runs. A backend setting `resolveStorageBackend`
+ * refuses (memory on Cloud Run) throws here too, and the caller refuses.
  */
-export function deletionTombstonePath(uid: string, env: NodeJS.ProcessEnv = process.env): string | null {
+export function storageMayHoldSharedTombstones(env: NodeJS.ProcessEnv = process.env): boolean {
+  if (resolveStorageBackend(env) === 'memory') return false;
+  return !env[FIRESTORE_EMULATOR_ENV_VAR];
+}
+
+/**
+ * Every path a deletion of this uid could have left its tombstone at: one per
+ * configured pepper (current, and the previous one while a rotation is within
+ * the tombstone TTL). Empty only where `storageMayHoldSharedTombstones` says no
+ * other process's deletion can be stored and this process has no pepper.
+ *
+ * Any one of them existing is the whole answer: in progress, done or stuck, the
+ * account is going or gone.
+ */
+export function deletionTombstonePaths(
+  uid: string,
+  options: { readonly sharedStorage: boolean; readonly env?: NodeJS.ProcessEnv },
+): string[] {
   requireUserId(uid);
-  if (!env[PEPPER_ENV_VAR]) {
-    if (env[CLOUD_RUN_ENV_VAR]) {
-      throw new Error(`${PEPPER_ENV_VAR} is not set on Cloud Run, so a deleted account cannot be told apart from a new one`);
+  const env = options.env ?? process.env;
+  const current = env[PEPPER_ENV_VAR];
+  if (!current) {
+    if (options.sharedStorage) {
+      throw new Error(`${PEPPER_ENV_VAR} is not set against shared storage, so a deleted account cannot be told apart from a new one`);
     }
-    return null;
+    return [];
   }
-  return deletionJobPath(subjectHashFor(uid, requireDeletionPepper(env)));
+  const peppers = [current];
+  const previous = env[PREVIOUS_PEPPER_ENV_VAR];
+  if (previous && previous !== current) peppers.push(previous);
+  return peppers.map((pepper) => deletionJobPath(subjectHashFor(uid, pepper)));
 }

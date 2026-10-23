@@ -142,14 +142,42 @@ retained **only** by that nightly prune, so until it runs they keep everything.
 
 ## Rotating the deletion-receipt pepper
 
-The pepper is only used to derive deletion receipts, so rotating it invalidates
-old receipts but loses no user data:
+The pepper derives the subject hash of deletion receipts **and** the id of each
+deletion job record, which is also the deletion tombstone (#794): a uid's first
+request looks for `accountDeletions/{HMAC(pepper, uid)}` before it creates
+`users/{uid}`. Rotating the pepper alone therefore hides every tombstone written
+under the old one, and reopens the race #794 closed for tokens still in flight.
+Old receipts stop being re-derivable either way; no user data is lost.
+
+**Never rotate without `MAYBESITTER_DELETION_RECEIPT_PEPPER_PREVIOUS`.** While it
+is set, the tombstone lookup reads the path under both peppers in the same
+transaction. Mount the old version by number, so the value is never copied:
 
 ```bash
+# 1. Note the version that is current now, before adding the new one.
+OLD_VERSION="$(gcloud secrets versions list maybesitter-deletion-receipt-pepper \
+  --filter=state=enabled --sort-by=~createTime --limit=1 --format='value(name)')"
+# 2. Add the new pepper.
 openssl rand -hex 32 | gcloud secrets versions add maybesitter-deletion-receipt-pepper --data-file=-
+# 3. Mount both, on every service that mounts the pepper.
 gcloud run services update maybesitter-api --region europe-west1 \
-  --update-secrets MAYBESITTER_DELETION_RECEIPT_PEPPER=maybesitter-deletion-receipt-pepper:latest
+  --update-secrets "MAYBESITTER_DELETION_RECEIPT_PEPPER=maybesitter-deletion-receipt-pepper:latest,MAYBESITTER_DELETION_RECEIPT_PEPPER_PREVIOUS=maybesitter-deletion-receipt-pepper:${OLD_VERSION}"
 ```
+
+Keep `PREVIOUS` mounted for **at least 30 days** — the tombstone TTL
+(`accountDeletions.expiresAt`, `infra/firestore-ttl.sh`) — and do not disable or
+destroy the old secret version before then. After 30 days, remove it with
+`--remove-secrets MAYBESITTER_DELETION_RECEIPT_PEPPER_PREVIOUS`. Do not rotate
+again inside that window: only one previous pepper is read.
+
+Two traps inside the window:
+
+- `infra/cloudrun/flags.sh` deploys with `--set-secrets`, which **replaces** the
+  whole mounted set. A deploy from it in the 30 days drops `PREVIOUS` unless the
+  mapping is appended to that flag for the deploy.
+- An operator shell that runs `scripts/delete-account.ts` or anything that
+  creates trust against shared Firestore needs both values in its environment
+  too (`docs/operations/ACCOUNT_DELETION.md`).
 
 Cloud Run pins `:latest` at deploy time, so the service has to be updated for a
 new version to take effect.

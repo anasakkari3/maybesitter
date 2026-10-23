@@ -11,7 +11,10 @@
  * The tombstone is the deletion job record (`lib/account/deletionTombstone.ts`),
  * so the other tests here pin the properties it depends on: it survives the
  * sweep, it is there even when a deletion stops after its first step, it names
- * nobody once done, and it blocks only the uid it was written for.
+ * nobody once done, and it blocks only the uid it was written for. Round 1
+ * (Q794-002/003) adds the previous pepper after a rotation, and the rule that a
+ * missing pepper is allowed only where storage cannot hold another process's
+ * tombstone.
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -20,14 +23,23 @@ import { MobileAuthError, mobileAuthErrorResponse, requireMobileUser } from '../
 import { resetTokenVerifierForTests, setTokenVerifierForTests, type TokenVerifier } from '../../lib/auth/tokenVerifier.ts';
 import { setAccountDirectoryForTests } from '../../lib/auth/accountDirectory.ts';
 import { deleteAccount, type DeletionAuthAdmin, type DeletionJobRecord } from '../../lib/account/accountDeletion.ts';
-import { deletionTombstonePath } from '../../lib/account/deletionTombstone.ts';
+import { deletionTombstonePaths } from '../../lib/account/deletionTombstone.ts';
 import { AccountUnavailableError } from '../../lib/account/accountLiveness.ts';
-import { getOrCreateTrust, readTrust } from '../../lib/pilot/pilotTrustStore.ts';
+import { applyTrustAction, getOrCreateTrust, readTrust } from '../../lib/pilot/pilotTrustStore.ts';
 import { createMemoryStorage, type MemoryStorageAdapter } from '../../lib/storage/memoryAdapter.ts';
+import type { StorageAdapter, StorageTransaction } from '../../lib/storage/storageAdapter.ts';
 import { resetStorageForTests, setStorageForTests } from '../../lib/storage/index.ts';
 import { userDoc, userSubDoc } from '../../lib/storage/paths.ts';
 
 const PEPPER = 'tombstone-794-test-pepper';
+const ROTATED_PEPPER = 'tombstone-794-rotated-pepper';
+const ENV_NAMES = [
+  'MAYBESITTER_DELETION_RECEIPT_PEPPER',
+  'MAYBESITTER_DELETION_RECEIPT_PEPPER_PREVIOUS',
+  'FIRESTORE_EMULATOR_HOST',
+  'MAYBESITTER_STORAGE_BACKEND',
+  'K_SERVICE',
+] as const;
 /** Firebase uids: 28 characters, mixed case. */
 const UID = 'Tm794DeLeTeDaCcOuNt00000001';
 const NEW_UID = 'Tm794NeWaCcOuNtSaMeEmAiL002';
@@ -59,15 +71,44 @@ interface Env {
   restore: () => void;
 }
 
-function begin(env: Record<string, string | undefined> = { MAYBESITTER_DELETION_RECEIPT_PEPPER: PEPPER }): Env {
+/** The same memory store, counting the tombstone reads its transactions make. */
+function sharedView(inner: MemoryStorageAdapter): StorageAdapter & { tombstoneReads: string[] } {
+  const tombstoneReads: string[] = [];
+  const countingTx = (tx: StorageTransaction): StorageTransaction => new Proxy(tx, {
+    get(target, prop) {
+      const value = Reflect.get(target, prop, target);
+      if (prop !== 'get') return typeof value === 'function' ? value.bind(target) : value;
+      return (path: string) => {
+        if (path.startsWith('accountDeletions/')) tombstoneReads.push(path);
+        return target.get(path);
+      };
+    },
+  });
+  return {
+    tombstoneReads,
+    get: (path) => inner.get(path),
+    getMany: (paths) => inner.getMany(paths),
+    list: (path, options) => inner.list(path, options),
+    listGroup: (id, options) => inner.listGroup(id, options),
+    set: (path, value) => inner.set(path, value),
+    delete: (path) => inner.delete(path),
+    deleteTree: (path) => inner.deleteTree(path),
+    runTransaction: (fn) => inner.runTransaction((tx) => fn(countingTx(tx))),
+  } as StorageAdapter & { tombstoneReads: string[] };
+}
+
+function begin(
+  env: Partial<Record<(typeof ENV_NAMES)[number], string>> = { MAYBESITTER_DELETION_RECEIPT_PEPPER: PEPPER },
+  view?: (storage: MemoryStorageAdapter) => StorageAdapter,
+): Env {
   const previous: Record<string, string | undefined> = {};
-  for (const name of ['MAYBESITTER_DELETION_RECEIPT_PEPPER', 'K_SERVICE']) {
+  for (const name of ENV_NAMES) {
     previous[name] = process.env[name];
     if (env[name] === undefined) delete process.env[name];
     else process.env[name] = env[name];
   }
   const storage = createMemoryStorage();
-  setStorageForTests(storage);
+  setStorageForTests(view ? view(storage) : storage);
   return {
     storage,
     restore() {
@@ -161,7 +202,7 @@ test('#794: the tombstone survives the deletion sweep, names nobody, and keeps r
     await deleteAccount(UID, { initiatedBy: 'user', storage, hooks: [], auth: fakeDeletionAuth() });
     assert.deepEqual(underTree(storage, UID), [], 'the sweep left part of the tree');
 
-    const tombstonePath = deletionTombstonePath(UID);
+    const [tombstonePath] = deletionTombstonePaths(UID, { sharedStorage: true });
     assert.ok(tombstonePath, 'with the pepper set there is somewhere to look');
     const tombstone = await storage.get<DeletionJobRecord>(tombstonePath);
     assert.ok(tombstone, 'the tombstone did not survive the deletion');
@@ -238,28 +279,111 @@ test('#794: an ordinary first request still creates the trust record, and anothe
   }
 });
 
-test('#794: without the pepper off Cloud Run nothing can have been deleted, so first sight still creates trust', async () => {
-  const { restore } = begin({ MAYBESITTER_DELETION_RECEIPT_PEPPER: undefined, K_SERVICE: undefined });
+test('#794: without the pepper, the in-memory backend still creates trust: no other process can have deleted anyone there', async () => {
+  for (const env of [{}, { MAYBESITTER_STORAGE_BACKEND: 'memory' }] as const) {
+    const { restore } = begin(env);
+    try {
+      assert.deepEqual(deletionTombstonePaths(UID, { sharedStorage: false }), []);
+      setTokenVerifierForTests(verifierFor(UID));
+      setAccountDirectoryForTests({ async exists() { return true; } });
+      await requireMobileUser(request());
+      assert.ok(await readTrust(UID), `a first request on the memory backend got no trust record (${JSON.stringify(env)})`);
+    } finally {
+      restore();
+    }
+  }
+});
+
+test('Q794-003: the Firestore backend without the pepper refuses a first request (503), on Cloud Run or off it', async () => {
+  // An operator shell against real Firestore (no K_SERVICE) is refused just as
+  // Cloud Run is: the backend decides, not the host.
+  for (const env of [{ MAYBESITTER_STORAGE_BACKEND: 'firestore' }, { K_SERVICE: 'maybesitter-api' }] as const) {
+    let view!: ReturnType<typeof sharedView>;
+    const { storage, restore } = begin(env, (inner) => (view = sharedView(inner)));
+    try {
+      setTokenVerifierForTests(verifierFor(UID));
+      setAccountDirectoryForTests({ async exists() { return true; } });
+      const refusal = await refusalOf(requireMobileUser(request()));
+      assert.equal(refusal?.status, 503, JSON.stringify(env));
+      assert.equal(refusal?.body.reason, 'auth_unavailable');
+      assert.deepEqual(underTree(storage, UID), [], 'a refused first request still wrote a root');
+      assert.deepEqual(view.tombstoneReads, []);
+    } finally {
+      restore();
+    }
+  }
+});
+
+test('Q794-003: the Firestore backend on the local emulator without the pepper still creates trust', async () => {
+  const { restore } = begin({ MAYBESITTER_STORAGE_BACKEND: 'firestore', FIRESTORE_EMULATOR_HOST: '127.0.0.1:8080' });
   try {
-    assert.equal(deletionTombstonePath(UID), null);
     setTokenVerifierForTests(verifierFor(UID));
     setAccountDirectoryForTests({ async exists() { return true; } });
     await requireMobileUser(request());
-    assert.ok(await readTrust(UID), 'a local first request got no trust record');
+    assert.ok(await readTrust(UID), 'an emulator first request got no trust record');
   } finally {
     restore();
   }
 });
 
-test('#794: on Cloud Run a missing pepper refuses a first request instead of guessing nobody was deleted', async () => {
-  const { storage, restore } = begin({ MAYBESITTER_DELETION_RECEIPT_PEPPER: undefined, K_SERVICE: 'maybesitter-api' });
+test('Q794-002: after a pepper rotation, the previous pepper still finds a tombstone written before it', async () => {
+  // Deleted under the old pepper.
+  let view!: ReturnType<typeof sharedView>;
+  const { storage, restore } = begin({ MAYBESITTER_DELETION_RECEIPT_PEPPER: PEPPER }, (inner) => (view = sharedView(inner)));
   try {
+    await deleteAccount(UID, { initiatedBy: 'user', storage, hooks: [], auth: fakeDeletionAuth() });
+
+    // Rotated without PREVIOUS: the old tombstone is invisible, one read, and
+    // the deleted uid gets a fresh record. This is why the runbook forbids it.
+    process.env.MAYBESITTER_DELETION_RECEIPT_PEPPER = ROTATED_PEPPER;
+    view.tombstoneReads.length = 0;
+    await getOrCreateTrust(UID, '2026-10-02T00:00:00.000Z');
+    assert.equal(view.tombstoneReads.length, 1, 'without PREVIOUS the lookup is one point read');
+    await storage.deleteTree(userDoc(UID));
+
+    // Rotated with PREVIOUS: both paths are read in the transaction, and the
+    // old one refuses.
+    process.env.MAYBESITTER_DELETION_RECEIPT_PEPPER_PREVIOUS = PEPPER;
+    view.tombstoneReads.length = 0;
+    await assert.rejects(getOrCreateTrust(UID, '2026-10-03T00:00:00.000Z'), AccountUnavailableError);
+    assert.equal(view.tombstoneReads.length, 2, 'with PREVIOUS the lookup reads both paths');
+    assert.deepEqual(underTree(storage, UID), [], 'a refused create still wrote something');
+
+    // And through authentication: 403 deleted.
     setTokenVerifierForTests(verifierFor(UID));
     setAccountDirectoryForTests({ async exists() { return true; } });
     const refusal = await refusalOf(requireMobileUser(request()));
-    assert.equal(refusal?.status, 503);
-    assert.equal(refusal?.body.reason, 'auth_unavailable');
-    assert.deepEqual(underTree(storage, UID), []);
+    assert.equal(refusal?.status, 403);
+    assert.equal(refusal?.body.reason, 'deleted');
+  } finally {
+    restore();
+  }
+});
+
+test('Q794-001: applyTrustAction will not create trust for a deleted account, absent root or trust-less root', async () => {
+  const { storage, restore } = begin();
+  try {
+    await deleteAccount(UID, { initiatedBy: 'user', storage, hooks: [], auth: fakeDeletionAuth() });
+    const action = { type: 'set_analytics_consent', granted: true, at: '2026-10-02T00:00:00.000Z' } as const;
+
+    await assert.rejects(applyTrustAction(UID, action), AccountUnavailableError);
+    assert.deepEqual(underTree(storage, UID), [], 'a consent action re-created the deleted account');
+
+    await storage.set(userDoc(UID), { locale: 'ar' });
+    await assert.rejects(applyTrustAction(UID, { type: 'record_first_value', at: action.at }), AccountUnavailableError);
+    const root = await storage.get<{ trust?: unknown }>(userDoc(UID));
+    assert.equal(root?.trust, undefined, 'a first-value action merged trust into a deleted account\'s root');
+  } finally {
+    restore();
+  }
+});
+
+test('Q794-001: applyTrustAction on a never-deleted uid with no record still creates one', async () => {
+  const { restore } = begin();
+  try {
+    const trust = await applyTrustAction(NEW_UID, { type: 'set_analytics_consent', granted: true, at: '2026-10-02T00:00:00.000Z' });
+    assert.equal(trust.analyticsConsent, true);
+    assert.ok(await readTrust(NEW_UID));
   } finally {
     restore();
   }

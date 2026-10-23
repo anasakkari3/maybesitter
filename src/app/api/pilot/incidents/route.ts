@@ -13,6 +13,7 @@ import {
   updateIncident,
 } from '../../../../../lib/pilot/pilotTrustStore';
 import { resolveUserAccess } from '../../../../../lib/pilot/pilotAccess';
+import { AccountUnavailableError, accountUnavailableResponse } from '../../../../../lib/account/accountLiveness';
 
 export const dynamic = 'force-dynamic';
 
@@ -61,6 +62,7 @@ export async function POST(request: Request) {
     }));
     return Response.json({ incidentId: incident.incidentId, status: incident.status }, { status: 201 });
   } catch (error) {
+    if (error instanceof AccountUnavailableError) return accountUnavailableResponse();
     return Response.json({ error: error instanceof Error ? error.message : 'incident report rejected' }, { status: 400 });
   }
 }

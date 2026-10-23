@@ -1,6 +1,7 @@
 import { buildCalendarFeed } from '../../../../lib/services/calendarFeedService';
 import { getUnifiedAppSnapshot } from '../../../../lib/services/domainAppSnapshotAdapter';
 import { resolveUserAccess } from '../../../../lib/pilot/pilotAccess';
+import { AccountUnavailableError, accountUnavailableResponse } from '../../../../lib/account/accountLiveness';
 import { readRuntimeControls } from '../../../contracts/v1/runtimeControls';
 
 export const dynamic = 'force-dynamic';
@@ -20,6 +21,7 @@ export async function GET(request: Request) {
         return Response.json({ error: 'calendar access requires an authorized pilot participant and calendar consent' }, { status: 403 });
       }
     } catch (error) {
+      if (error instanceof AccountUnavailableError) return accountUnavailableResponse();
       return Response.json({ error: error instanceof Error ? error.message : 'closed pilot is not configured' }, { status: 503 });
     }
   }

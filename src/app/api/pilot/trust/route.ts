@@ -1,3 +1,4 @@
+import { AccountUnavailableError, accountUnavailableResponse } from '../../../../../lib/account/accountLiveness';
 import { analyticsContextFrom } from '../../../../../lib/analytics/analyticsContext';
 import { appendAnalyticsEvent } from '../../../../../lib/analytics/eventStore';
 import { recordDataDeleted } from '../../../../../lib/analytics/loopAnalytics';
@@ -24,6 +25,8 @@ type ClientAction =
   | { type: 'delete' };
 
 function errorResponse(error: unknown): Response {
+  // A deleted account is 403 `deleted` (#794), whichever check caught it.
+  if (error instanceof AccountUnavailableError) return accountUnavailableResponse();
   const message = error instanceof Error ? error.message : 'pilot trust request failed';
   const status = /allowlist must contain|instance participant binding is required/.test(message) ? 503 : /not admitted/.test(message) ? 403 : 400;
   return Response.json({ error: message }, { status });

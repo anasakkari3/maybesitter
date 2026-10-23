@@ -197,7 +197,14 @@ esac
 #
 # Both services mount the same four Secret Manager secrets; the runtime SA
 # has secretAccessor on each (checked 2026-09-29):
-#   MAYBESITTER_DELETION_RECEIPT_PEPPER  deletion receipts;
+#   MAYBESITTER_DELETION_RECEIPT_PEPPER  deletion receipts, and the id of the
+#                                        deletion tombstone first-time trust
+#                                        creation reads (#794). Within 30 days
+#                                        of a pepper rotation, append
+#                                        MAYBESITTER_DELETION_RECEIPT_PEPPER_PREVIOUS
+#                                        =<secret>:<old version> to the
+#                                        --set-secrets below, which replaces the
+#                                        whole mounted set (GCP_BOOTSTRAP.md);
 #   MAYBESITTER_LLM_UID_SALT             salts the uid hash in model log lines
 #                                        (lib/llm/llmLog.ts);
 #   FOOTBALL_DATA_API_KEY                football fixtures (football-data.org).
