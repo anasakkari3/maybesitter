@@ -30,7 +30,7 @@ import type { DeviceBusyBlock } from '../features/calendar/busyBlocks';
 import { TodayPlanRow } from '../features/plan/TodayPlanRow';
 import { drawnAt, drawnClockAt, drawnWhenLine, dueAsideText, laterWhen, placeView, savedPlacements } from '../features/plan/savedPlacement';
 import { composeToday, type Primary } from '../features/today/composeToday';
-import { Btn, Txt } from '../ui/primitives';
+import { Btn, SaidWords, Txt } from '../ui/primitives';
 import { AvatarButton, SectionLabel, Tag, TextLink, priorityTagKind } from '../ui/chrome';
 import { CheckIcon } from '../ui/icons';
 import { isolateAuto } from '../i18n/bidi';
@@ -241,6 +241,7 @@ export function TodayScreen({ tabClearance = TAB_CLEARANCE }: { tabClearance?: n
   useM4bCapabilities();
   const football = useFootballCommitmentIds();
   const stacked = useLayoutMode() !== 'normal';
+  const dateLine = formatDate(new Date(), 'weekday', { locale: lang, timeZone: timezone });
 
   return (
     <OpenPostponeSheet.Provider value={setPostponeId}>
@@ -257,7 +258,13 @@ export function TodayScreen({ tabClearance = TAB_CLEARANCE }: { tabClearance?: n
         <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8, paddingHorizontal: 4 }}>
           <View style={{ flexShrink: 1, gap: 2, alignItems: 'flex-start' }}>
             <Txt role="page" size={stacked ? 22 : 28} weight={700} color={p.tx}>{t.todayTitle}</Txt>
-            <Txt size={13} weight={500} color={p.mu} testID="today-date">{formatDate(new Date(), 'weekday', { locale: lang, timeZone: timezone })}</Txt>
+            {/* Measured afresh after a live text-size change: nothing about the
+                date changes with the scale, so it kept the old measurement — a
+                sliver at AX5, a 157 pt box back at the default size (simulator
+                2026-10-24). The view says it and stays (SaidWords). */}
+            <SaidWords label={dateLine} testID="today-date-said">
+              <Txt size={13} weight={500} color={p.mu} testID="today-date" accessible={false}>{dateLine}</Txt>
+            </SaidWords>
           </View>
           <View style={{ flexDirection: 'row', gap: 8 }}>
             <Btn label={t.xSearch} testID="reference-search" onPress={() => actions.go('commitments')} scaleTo={0.94}
@@ -537,14 +544,23 @@ function FallbackCard({ item, strings, timezone, lang, busy, onPostpone }: {
         shadowColor: p.ac, shadowOpacity: p.shadow ? 0.12 : 0.22, shadowRadius: 22, shadowOffset: { width: 0, height: 8 }, elevation: 4,
       }}
     >
-      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: p.acs, borderRadius: 999, paddingVertical: 4, paddingHorizontal: 12 }}>
+      {/* Measured afresh after a live text-size change: the pill, the chip and
+          the time kept the old measurement — back at the default size the pill
+          stayed tall and empty and the row stayed stacked (simulator
+          2026-10-24). Each sits in a view that says it and stays (SaidWords). */}
+      <View testID="today-primary-meta" style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
+        <SaidWords label={t.nextStepLabel} testID="today-primary-badge"
+          style={{ flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: p.acs, borderRadius: 999, paddingVertical: 4, paddingHorizontal: 12 }}>
           <View accessible={false} style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: p.ac }} />
-          <Txt size={13} weight={600} color={p.acd}>{t.nextStepLabel}</Txt>
-        </View>
+          <Txt size={13} weight={600} color={p.acd} accessible={false} testID="today-primary-badge-text">{t.nextStepLabel}</Txt>
+        </SaidWords>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap', flexShrink: 1 }}>
-          <Tag kind={priorityTagKind(item.importance)} label={importanceLabel(item, t)} />
-          <Txt size={13} weight={500} color={p.mu} latin={!line?.dated} testID={`today-time-${item.id}`}>{when}</Txt>
+          <SaidWords label={importanceLabel(item, t)} testID={`today-importance-${item.id}`}>
+            <Tag kind={priorityTagKind(item.importance)} label={importanceLabel(item, t)} accessible={false} />
+          </SaidWords>
+          <SaidWords label={when} testID={`today-time-${item.id}-said`}>
+            <Txt size={13} weight={500} color={p.mu} latin={!line?.dated} testID={`today-time-${item.id}`} accessible={false}>{when}</Txt>
+          </SaidWords>
         </View>
       </View>
       <Btn

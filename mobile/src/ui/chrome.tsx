@@ -2,7 +2,7 @@ import React from 'react';
 import { View, type StyleProp, type ViewStyle } from 'react-native';
 import { useApp } from '../state/AppContext';
 import { Shimmer } from './motion';
-import { Btn, Txt } from './primitives';
+import { Btn, SaidWords, Txt } from './primitives';
 import { fillRow, useLayoutMode } from '../theme/textScale';
 import { BrandLockup, BrandMark } from './brand';
 import { ChevronIcon, TodayIcon } from './icons';
@@ -108,8 +108,15 @@ export function ScreenHeader({ eyebrow, title, end, eyebrowTestID, brand = true 
             pushed the screen's own title off the top of the display. The title
             below it wraps freely: it is the content, and it may take the room
             the reader asked for. Found on device at AX5, Round 2 Phase M. */}
-        {eyebrow ? <Txt size={13} color={p.mu} lines={1} testID={eyebrowTestID}>{eyebrow}</Txt> : null}
-        <Txt role="page" size={compact ? 22 : undefined} weight={700}>{title}</Txt>
+        {/* Both measured afresh after a live text-size change (simulator
+            2026-10-24): each sits in a view that says it and stays; only the
+            drawn paragraph is replaced (SaidWords). */}
+        {eyebrow ? <SaidWords label={eyebrow} testID={eyebrowTestID ? `${eyebrowTestID}-said` : undefined}>
+          <Txt size={13} color={p.mu} lines={1} testID={eyebrowTestID} accessible={false}>{eyebrow}</Txt>
+        </SaidWords> : null}
+        <SaidWords role="header" label={title}>
+          <Txt role="page" size={compact ? 22 : undefined} weight={700} accessible={false}>{title}</Txt>
+        </SaidWords>
       </View>
       {end ?? null}
     </View>
@@ -176,7 +183,11 @@ export function priorityTagKind(importance: 'must' | 'should' | 'nice' | null | 
  * A state, in a word. A proposal's tag is dashed in the proposal colour: it
  * is the one visual promise this product makes that nothing has been written.
  */
-export function Tag({ kind, label, testID }: { kind: TagKind; label: string; testID?: string | undefined }) {
+export function Tag({ kind, label, testID, accessible }: {
+  kind: TagKind; label: string; testID?: string | undefined;
+  /** `false` inside a `SaidWords` that already says the word (a live text-size change replaces the drawn one). */
+  accessible?: boolean | undefined;
+}) {
   const { p } = useApp();
   const compact = useLayoutMode() !== 'normal';
   const look: Record<TagKind, { bg?: string; fg: string; border?: string; dashed?: boolean; weight: 400 | 600 }> = {
@@ -201,7 +212,7 @@ export function Tag({ kind, label, testID }: { kind: TagKind; label: string; tes
       }}
     >
       {/* The testID sits on the text, so a test reads the word, not a box. */}
-      <Txt size={compact ? 11 : 13} weight={l.weight} color={l.fg} testID={testID}>{label}</Txt>
+      <Txt size={compact ? 11 : 13} weight={l.weight} color={l.fg} testID={testID} accessible={accessible}>{label}</Txt>
     </View>
   );
 }

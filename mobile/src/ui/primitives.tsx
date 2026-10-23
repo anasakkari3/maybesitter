@@ -61,6 +61,20 @@ const RemeasureScaleContext = React.createContext<number | null>(null);
  * accessible wrapper that says the words — so a focused element is never the
  * one replaced.
  *
+ * The simulator pass of 2026-10-24 found the class again outside those five:
+ * the Today date and the next-step pill, the Plan buttons, chips and strip,
+ * the reminders card, the «أشيائي» heading and rows, the chat's times. Two
+ * shared places now hold it for every screen:
+ *
+ *   - `Btn` holds a boundary around its children. A button is the one
+ *     element a screen reader rests on, and it stays; the words drawn inside
+ *     it are never a focus target of their own. So every button's label —
+ *     «خطّط أسبوعي», a filter chip, a strip day, «رجوع», a hub row — is
+ *     measured afresh, with no wrapper to add.
+ *   - `SaidWords` is the stable accessible wrapper for standalone words, with
+ *     its own boundary inside: the wrapper says them and stays, only the drawn
+ *     paragraph (`accessible={false}`) is replaced.
+ *
  * There is deliberately no app-wide boundary. It would replace every
  * standalone paragraph — VoiceOver resting on body text would lose its place
  * — and every selectable one mid-selection. Selectable text is never keyed,
@@ -86,6 +100,27 @@ export function RemeasureOnTextScale({ children }: { children: React.ReactNode }
 export function RemeasuredText(props: TextProps) {
   const remeasureScale = React.useContext(RemeasureScaleContext);
   return <Text key={remeasureKey(remeasureScale, props.selectable)} {...props} />;
+}
+
+/**
+ * Standalone words that follow a live text-size change: an accessible view
+ * that says them (`label`) and stays mounted, around a boundary in which the
+ * drawn paragraphs are replaced. Every `Txt` inside must be
+ * `accessible={false}` — the view is what a screen reader rests on. `header`
+ * for a heading, so the rotor still finds it.
+ */
+export function SaidWords({ label, role = 'text', testID, style, children }: {
+  label: string;
+  role?: 'text' | 'header' | undefined;
+  testID?: string | undefined;
+  style?: StyleProp<ViewStyle> | undefined;
+  children: React.ReactNode;
+}) {
+  return (
+    <View testID={testID} accessible accessibilityRole={role} accessibilityLabel={label} style={style}>
+      <RemeasureOnTextScale>{children}</RemeasureOnTextScale>
+    </View>
+  );
 }
 
 /** The paragraph's key under a boundary: none outside one, and none for selectable text. */
@@ -268,7 +303,10 @@ export function Btn({
       onPressOut={e => { spring(1); onPressOut?.(e); }}
       style={[style, { transform: [{ scale: reduced ? 1 : v }] }]}
     >
-      {children}
+      {/* The words in a button are measured afresh after a live text-size
+          change; the button, which says them and holds a screen reader's
+          focus, stays (see RemeasureOnTextScale). */}
+      <RemeasureOnTextScale>{children}</RemeasureOnTextScale>
     </AnimatedPressable>
   );
 }

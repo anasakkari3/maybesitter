@@ -8,7 +8,7 @@ import { TodayEnergy } from '../m5b/energy';
 import { QueryBoundary } from '../../api/ui/QueryBoundary';
 import { ConflictError } from '../../api/errors';
 import { family } from '../../theme/fonts';
-import { Btn, Pill, Txt } from '../../ui/primitives';
+import { Btn, Pill, SaidWords, Txt } from '../../ui/primitives';
 import { Tag, TextLink, priorityTagKind } from '../../ui/chrome';
 import { evidencePhrases } from './evidence';
 import { FeedbackFlagButton } from './FeedbackFlagButton';
@@ -188,11 +188,16 @@ const DEFER_LABEL = (t: Record<string, string>): Record<PostponePreset, string> 
 function NextStepBadge({ suggested = false }: { suggested?: boolean }) {
   const { t } = useApp();
   const p = useReferencePalette();
+  const label = suggested ? t.nextStepSuggestedLabel : t.nextStepLabel;
+  // Measured afresh after a live text-size change: back at the default size
+  // after AX5 the pill stayed tall and empty (simulator 2026-10-24). The pill
+  // says the words and stays; only the drawn paragraph is replaced.
   return (
-    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-start', backgroundColor: p.acs, borderRadius: 999, paddingVertical: 4, paddingHorizontal: 12 }}>
+    <SaidWords label={label} testID="next-step-badge-said"
+      style={{ flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-start', backgroundColor: p.acs, borderRadius: 999, paddingVertical: 4, paddingHorizontal: 12 }}>
       <View accessible={false} style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: p.ac }} />
-      <Txt size={13} weight={600} color={p.acd} testID="next-step-badge">{suggested ? t.nextStepSuggestedLabel : t.nextStepLabel}</Txt>
-    </View>
+      <Txt size={13} weight={600} color={p.acd} testID="next-step-badge" accessible={false}>{label}</Txt>
+    </SaidWords>
   );
 }
 
@@ -288,9 +293,16 @@ function Ready({
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap', flexShrink: 1 }}>
           {/* Started only. A proposal already says so in its badge;
               a tag saying it again was #17's duplicate (UAT 2026-09-27). */}
-          {started ? <Tag kind="started" label={t.nextStepTagStarted} testID="next-step-tag" /> : null}
-          {impLabel && item ? <Tag kind={priorityTagKind(item.importance)} label={impLabel} /> : null}
-          {item ? <Txt size={13} weight={500} color={p.mu} latin={!when?.dated} testID="next-step-when">{when?.text ?? t.noTimeYet}</Txt> : null}
+          {/* Each says itself from a view that stays, as the badge does. */}
+          {started ? <SaidWords label={t.nextStepTagStarted} testID="next-step-tag-said">
+            <Tag kind="started" label={t.nextStepTagStarted} testID="next-step-tag" accessible={false} />
+          </SaidWords> : null}
+          {impLabel && item ? <SaidWords label={impLabel} testID="next-step-importance">
+            <Tag kind={priorityTagKind(item.importance)} label={impLabel} accessible={false} />
+          </SaidWords> : null}
+          {item ? <SaidWords label={when?.text ?? t.noTimeYet} testID="next-step-when-said">
+            <Txt size={13} weight={500} color={p.mu} latin={!when?.dated} testID="next-step-when" accessible={false}>{when?.text ?? t.noTimeYet}</Txt>
+          </SaidWords> : null}
         </View>
       </View>
 

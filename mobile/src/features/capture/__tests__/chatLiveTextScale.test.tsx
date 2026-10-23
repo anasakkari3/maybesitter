@@ -226,4 +226,37 @@ describe('the reply bubble after a live text-size change', () => {
       expect(screen.getByTestId('capture-input').props.value).toBe('لازم اتصل بسامي');
     }
   });
+
+  it('the times: «01:31» beside ✓✓ is said by a view that stays, its drawn paragraph new after each change, and the row back to its fresh layout (simulator 2026-10-24, shot 35)', async () => {
+    setFontScale(1);
+    await AsyncStorage.setItem(LANGUAGE_STORAGE_KEY, 'ar');
+    function Timed() {
+      const mode = useLayoutMode();
+      return <SayItChatPage {...baseProps} mode={mode} outgoing={{ text: 'لازم اتصل بسامي بعد بكرا', time: '01:31', delivered: true }} history={[
+        { role: 'assistant', id: 'older', text: REPLY, time: '01:30',
+          actions: <Pressable testID="older-undo" accessibilityRole="button" onPress={jest.fn()}><Text>تراجع</Text></Pressable> },
+      ]} />;
+    }
+    await render(<AppProvider><Timed /></AppProvider>);
+    await waitFor(() => expect(screen.queryByTestId('chat-outgoing-time')).not.toBeNull());
+    const SAID = ['chat-outgoing-time', 'older-time'];
+    const said = SAID.map((id) => screen.getByTestId(id));
+    expect(said.map((node) => node.props.accessibilityLabel)).toEqual(['01:31', '01:30']);
+    for (const node of said) expect(node.props.accessible).toBe(true);
+    const row = () => StyleSheet.flatten(screen.getByTestId('chat-outgoing-time').parent!.props.style) as Style;
+    const freshRow = row();
+    expect(freshRow.flexDirection).toBe('row');
+    let drawn = SAID.map((id) => screen.getByTestId(`${id}-text`));
+    for (const node of drawn) expect(node.props.accessible).toBe(false);
+    for (const scale of [AX5, 1]) {
+      await act(async () => { setFontScale(scale); });
+      SAID.forEach((id, i) => expect(screen.getByTestId(id)).toBe(said[i]));
+      const next = SAID.map((id) => screen.getByTestId(`${id}-text`));
+      next.forEach((node, i) => expect(node).not.toBe(drawn[i]));
+      drawn = next;
+    }
+    expect(row()).toEqual(freshRow);
+    expect(freshRow.flex).toBeUndefined();
+    expect(freshRow.flexBasis).toBeUndefined();
+  });
 });
