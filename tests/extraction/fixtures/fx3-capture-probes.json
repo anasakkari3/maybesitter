@@ -549,7 +549,8 @@
    "expected": {
     "status": "needs_clarification",
     "items": [
-     "להתקשר לאמא ולשלם חשבון חשמל עד סוף החודש | 2026-09-27 - | ask_am_pm | normal~"
+     "להתקשר לאמא | 2026-09-27 - | ask_am_pm | normal~",
+     "לשלם חשבון חשמל | 2026-09-30 - |  | normal~"
     ]
    }
   },
@@ -799,7 +800,8 @@
    "expected": {
     "status": "needs_clarification",
     "items": [
-     "أتصل بأمي وأدفع الفاتورة قبل آخر الشهر | 2026-09-27 - | ask_am_pm | normal~"
+     "أتصل بأمي | 2026-09-27 - | ask_am_pm | normal~",
+     "أدفع الفاتورة | 2026-09-30 - |  | normal~"
     ]
    }
   },
@@ -808,7 +810,8 @@
    "expected": {
     "status": "proposed",
     "items": [
-     "Call mom and pay the bill by the end of the month | 2026-09-27 17:00 |  | normal~"
+     "Call mom | 2026-09-27 17:00 |  | normal~",
+     "pay the bill | 2026-09-30 - |  | normal~"
     ]
    }
   },

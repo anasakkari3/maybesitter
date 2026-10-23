@@ -373,9 +373,6 @@ test('FX3 I-1: the month-end phrase that nothing read stays in the title, and a 
     ['Tomorrow at 5pm call the landlord about the rent due by the end of the month', 'proposed', 'call the landlord about the rent due by the end of the month | 2026-09-27 17:00 |  | normal~'],
     ['להכין את דוח סוף החודש מחר ב-10', 'proposed', 'להכין את דוח סוף החודש | 2026-09-27 10:00 |  | normal~'],
     ['לשלם חשבון חשמל עד סוף החודש ולהתקשר לאמא מחר ב-5', 'needs_clarification', 'לשלם חשבון חשמל עד סוף החודש ולהתקשר לאמא | 2026-09-27 - | ask_am_pm | normal~'],
-    ['بدي أتصل بأمي بكرا الساعة 5 وأدفع الفاتورة قبل آخر الشهر', 'needs_clarification', 'أتصل بأمي وأدفع الفاتورة قبل آخر الشهر | 2026-09-27 - | ask_am_pm | normal~'],
-    ['Call mom tomorrow at 5pm and pay the bill by the end of the month', 'proposed', 'Call mom and pay the bill by the end of the month | 2026-09-27 17:00 |  | normal~'],
-    ['להתקשר לאמא מחר ב-5 ולשלם חשבון חשמל עד סוף החודש', 'needs_clarification', 'להתקשר לאמא ולשלם חשבון חשמל עד סוף החודש | 2026-09-27 - | ask_am_pm | normal~'],
   ];
   const drift: string[] = [];
   for (const [text, status, line] of rows) {
@@ -383,6 +380,37 @@ test('FX3 I-1: the month-end phrase that nothing read stays in the title, and a 
     if (actual.status !== status || actual.items.length !== 1 || actual.items[0] !== line) drift.push(`${text}\n   want ${status}: ${line}\n   got  ${actual.status}: ${actual.items.join(' ;; ')}`);
   }
   assert.deepEqual(drift, []);
+});
+
+// #743: a timed commitment, "and", then a second commitment whose only due is
+// the month's end. It was one item at the first one's hour, the bill's own
+// deadline lost; it is two now, the second due on the month's last day with no
+// hour asked. Still one item: the month's end that modifies a noun.
+test('#743: "… at 5pm and pay the bill by the end of the month" is two items, the bill due at the month\'s end', async () => {
+  const two: Array<[string, string, string[]]> = [
+    ['Call mom tomorrow at 5pm and pay the bill by the end of the month', 'proposed',
+      ['Call mom | 2026-09-27 17:00 |  | normal~', 'pay the bill | 2026-09-30 - |  | normal~']],
+    ['بدي أتصل بأمي بكرا الساعة 5 وأدفع الفاتورة قبل آخر الشهر', 'needs_clarification',
+      ['أتصل بأمي | 2026-09-27 - | ask_am_pm | normal~', 'أدفع الفاتورة | 2026-09-30 - |  | normal~']],
+    ['להתקשר לאמא מחר ב-5 ולשלם חשבון חשמל עד סוף החודש', 'needs_clarification',
+      ['להתקשר לאמא | 2026-09-27 - | ask_am_pm | normal~', 'לשלם חשבון חשמל | 2026-09-30 - |  | normal~']],
+  ];
+  const drift: string[] = [];
+  for (const [text, status, lines] of two) {
+    const actual = await probeLine(text);
+    if (actual.status !== status || JSON.stringify(actual.items) !== JSON.stringify(lines)) {
+      drift.push(`${text}\n   want ${status}: ${lines.join(' ;; ')}\n   got  ${actual.status}: ${actual.items.join(' ;; ')}`);
+    }
+  }
+  assert.deepEqual(drift, []);
+  // The month's end as part of a noun is no due of its own: still one item.
+  for (const text of [
+    'Call mom tomorrow at 5pm and tell her about the end of the month party',
+    'بدي أتصل بأمي بكرا الساعة 5 وأحكيلها عن حفلة آخر الشهر',
+  ]) {
+    const actual = await probeLine(text);
+    assert.equal(actual.items.length, 1, `${text}: ${actual.items.join(' ;; ')}`);
+  }
 });
 
 test('FX3 I-1: which month-end mentions are a deadline — the rule, both directions', () => {

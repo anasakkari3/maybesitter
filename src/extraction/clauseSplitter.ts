@@ -62,7 +62,7 @@
  *     sentence is about something, not asking for it (`followedByObject`).
  */
 import { stripTimeExpressions } from './ruleBasedExtractor';
-import { namesDay, RELATIVE_DAY_MENTION_SOURCES, statesClock, timeOfDayEvidence } from './timeLexicon';
+import { namesDay, namesDayOfMonth, readPeriodEndDeadline, RELATIVE_DAY_MENTION_SOURCES, statesClock, timeOfDayEvidence } from './timeLexicon';
 import { LEADING_CONNECTOR, NOT_LETTERS, REQUEST_MARKER, opensWithAction } from './requestEvidence';
 import { afterUnresolvedIntentMarker, opensWithUnresolvedIntent } from './unresolvedIntent';
 
@@ -663,6 +663,19 @@ const CONJUNCTION = new RegExp(`\\s+and\\s+|\\s*,\\s+|\\s+[وו](?=[\\p{L}])`, '
 const OPENS_WITH_APPOINTMENT_NOUN = new RegExp(`^(?:the\\s+|my\\s+|a\\s+|an\\s+)?(?:${COMMITMENT_NOUN.source})`, 'iu');
 const MAX_CONJUNCTION_SPLITS = 8;
 
+/**
+ * The clause after an "and" states when it is due on its own: a day or a
+ * clock, or a deadline that is neither — "by the end of the month", «لآخر
+ * الشهر», «עד סוף החודש», «يوم 3» (#743). Only for the clause after the join:
+ * "Call mom tomorrow at 5pm and pay the bill by the end of the month" was one
+ * item at 17:00, the bill's own deadline lost.
+ */
+function statesItsOwnDue(clause: string): boolean {
+  // The month's end only where the shared reader takes it as a deadline:
+  // "tell her about the end of the month party" names a party, not a due date.
+  return statesATime(clause) || namesDayOfMonth(clause) || readPeriodEndDeadline(clause) === 'month';
+}
+
 function isWholeTimedCommitment(clause: string): boolean {
   return statesATime(clause) && !isTimeOnlyClause(clause) && hasActionEvidence(clause);
 }
@@ -685,7 +698,7 @@ function splitTimedConjuncts(segment: string): string[] {
     // validates both returned items against the whole sentence and the rules
     // extractor merges the thought into the timed commitment (#736).
     const opensThought = opensWithUnresolvedIntent(after.replace(LEADING_CONNECTOR, '').trim());
-    const opens = opensThought || statesATime(after)
+    const opens = opensThought || statesItsOwnDue(after)
       && (opensCommitment(after, before) || OPENS_WITH_APPOINTMENT_NOUN.test(after));
     if (before && after && opens && isWholeTimedCommitment(before)) {
       out.push(before);
