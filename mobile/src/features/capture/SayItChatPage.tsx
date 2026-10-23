@@ -1,15 +1,10 @@
 import React from 'react';
 import {
-  AccessibilityInfo, ActivityIndicator, Platform, Pressable, ScrollView, StyleSheet, TextInput, View,
+  AccessibilityInfo, ActivityIndicator, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View,
   type TextStyle,
 } from 'react-native';
 import Svg, { Circle, Path, Rect } from 'react-native-svg';
-// Every paragraph here is a `RemeasuredText`: under the app's
-// `RemeasureOnTextScale` it is replaced on a live text-size change, so a bubble
-// is measured as it would be on a fresh open (simulator 2026-10-23: back at the
-// default size the reply's first line kept its AX5 measurement, cut off).
-import { RemeasuredText, textAlignment } from '../../ui/primitives';
-import { growInRow } from '../../theme/textScale';
+import { RemeasureOnTextScale, RemeasuredText, textAlignment } from '../../ui/primitives';
 import { Rings } from '../../ui/motion';
 import { focusForAccessibility } from '../../ui/accessibilityFocus';
 import { LiveRegion } from '../../ui/liveRegion';
@@ -309,8 +304,8 @@ export function SayItChatPage({
             <BrandTile colors={p} latinFace={fonts.latin ?? fonts.semibold} />
             <View style={styles.titles}>
               {/* No "online" dot: nothing here is live presence. */}
-              <RemeasuredText accessibilityRole="header" style={[textStyle(16, 'semibold'), styles.flexShrink]}>{copy.title}</RemeasuredText>
-              <RemeasuredText testID="chat-subtitle" style={[textStyle(13, 'regular', true), styles.flexShrink]}>{copy.subtitle}</RemeasuredText>
+              <Text accessibilityRole="header" style={[textStyle(16, 'semibold'), styles.flexShrink]}>{copy.title}</Text>
+              <Text testID="chat-subtitle" style={[textStyle(13, 'regular', true), styles.flexShrink]}>{copy.subtitle}</Text>
             </View>
           </View>
         </View>
@@ -334,16 +329,30 @@ export function SayItChatPage({
   const spoken = (value: Said) => value.tail ? `${value.text}\n\n${value.tail}` : value.text;
   const bubbleStyle = (value: Said) => [styles.assistantBubble,
     { backgroundColor: p.sf, borderColor: value.tone === 'saved' ? p.success : p.ln }, expanded && styles.expandedBubble];
-  /** The reply's words, with the save's check before them. */
-  const replyWords = (value: Said, testID: string) => {
+  /**
+   * The reply's words, with the save's check before them.
+   *
+   * Measured afresh after a live text-size change: back at the default size
+   * after AX5 the first line, «هيك فهمت لحد هلّق…», kept its AX5 measurement
+   * and was cut off at the start edge (simulator 2026-10-23). Each paragraph
+   * is a `RemeasuredText` under its own `RemeasureOnTextScale`, so a change
+   * replaces it. A screen reader never rests on a paragraph that goes: the
+   * words are always inside an accessible element that stays — the newest
+   * reply's `-words` view, a whole message without controls, or (`ownElement`)
+   * the words' own view in a message whose bubble is a container.
+   */
+  const replyWords = (value: Said, testID: string, ownElement = false) => {
     const saved = value.tone === 'saved';
     return <>
       {saved ? <ChatIcon name="checkCircle" size={22} color={p.success} /> : null}
-      <View style={saved ? styles.savedWords : styles.words}>
-        {value.text.split(/\n\n+/).map((paragraph, index) => (
-          <RemeasuredText key={index} testID={`${testID}-text-${index}`}
-            style={contentStyle(paragraph, 15, saved && index === 0 ? 'semibold' : 'regular')}>{paragraph}</RemeasuredText>
-        ))}
+      <View style={saved ? styles.savedWords : styles.words}
+        {...(ownElement ? { accessible: true, accessibilityRole: 'text' as const, accessibilityLabel: value.text, testID: `${testID}-said` } : {})}>
+        <RemeasureOnTextScale>
+          {value.text.split(/\n\n+/).map((paragraph, index) => (
+            <RemeasuredText key={index} testID={`${testID}-text-${index}`}
+              style={contentStyle(paragraph, 15, saved && index === 0 ? 'semibold' : 'regular')}>{paragraph}</RemeasuredText>
+          ))}
+        </RemeasureOnTextScale>
       </View>
     </>;
   };
@@ -356,7 +365,7 @@ export function SayItChatPage({
   const replyTail = (value: Said, testID: string, spokenElsewhere = false) => value.tail
     ? <View style={[styles.assistantBubble, styles.tailBubble, { backgroundColor: p.sf, borderColor: p.ln }]}
       {...(spokenElsewhere ? { accessibilityElementsHidden: true, importantForAccessibility: 'no-hide-descendants' as const } : {})}>
-      <RemeasuredText testID={`${testID}-text-${value.text.split(/\n\n+/).length}`} style={contentStyle(value.tail, 15)}>{value.tail}</RemeasuredText>
+      <Text testID={`${testID}-text-${value.text.split(/\n\n+/).length}`} style={contentStyle(value.tail, 15)}>{value.tail}</Text>
     </View> : null;
   const message = (value: Said, testID: string, first = false) => (
     <View testID={testID} accessible={value.actions == null && value.body == null} accessibilityLabel={spoken(value)}
@@ -365,13 +374,13 @@ export function SayItChatPage({
         {avatar}
         <View style={[styles.assistantColumn, expanded && styles.expandedColumn]}>
           <View style={bubbleStyle(value)}>
-            <View style={value.tone === 'saved' ? styles.savedRow : null}>{replyWords(value, testID)}</View>
+            <View style={value.tone === 'saved' ? styles.savedRow : null}>{replyWords(value, testID, value.actions != null || value.body != null)}</View>
             {replyExtras(value, testID)}
           </View>
           {replyTail(value, testID)}
         </View>
       </View>
-      {value.time ? <RemeasuredText style={[timestampStyle, styles.incomingTime]}>{value.time}</RemeasuredText> : null}
+      {value.time ? <Text style={[timestampStyle, styles.incomingTime]}>{value.time}</Text> : null}
     </View>
   );
 
@@ -411,7 +420,7 @@ export function SayItChatPage({
           {reply ? replyTail(reply, replyID, true) : null}
         </View>
       </View>
-      {reply?.time ? <RemeasuredText style={[timestampStyle, styles.incomingTime]}>{reply.time}</RemeasuredText> : null}
+      {reply?.time ? <Text style={[timestampStyle, styles.incomingTime]}>{reply.time}</Text> : null}
     </View>
   );
 
@@ -419,10 +428,10 @@ export function SayItChatPage({
   const mine = (value: ChatMessage, testID: string, textTestID: string) => (
     <View testID={testID} style={styles.outgoingBlock}>
       <View style={[styles.outgoingBubble, { backgroundColor: p.acs, borderColor: p.ul ?? p.lnStrong }, expanded && styles.expandedOutgoing]}>
-        <RemeasuredText testID={textTestID} style={contentStyle(value.text, 15)}>{value.text}</RemeasuredText>
+        <Text testID={textTestID} style={contentStyle(value.text, 15)}>{value.text}</Text>
       </View>
       {value.time || value.delivered ? <View style={styles.outgoingTime}>
-        {value.time ? <RemeasuredText style={timestampStyle}>{value.time}</RemeasuredText> : null}
+        {value.time ? <Text style={timestampStyle}>{value.time}</Text> : null}
         {value.delivered ? <ChatIcon name="checks" size={14} color={p.ac} /> : null}
       </View> : null}
     </View>
@@ -437,8 +446,8 @@ export function SayItChatPage({
       backgroundColor: !canConfirm || confirming ? p.dis : pressed ? p.acd : p.ac,
     }]}>
     {confirming ? <ActivityIndicator color={p.disTx} /> : <ChatIcon name="checkCircle" size={20} color={canConfirm ? p.onAccent : p.disTx} />}
-    <RemeasuredText style={[textStyle(16, 'semibold'), styles.flexShrink, styles.center,
-      { color: !canConfirm || confirming ? p.disTx : p.onAccent }]}>{copy.confirmLabel}</RemeasuredText>
+    <Text style={[textStyle(16, 'semibold'), styles.flexShrink, styles.center,
+      { color: !canConfirm || confirming ? p.disTx : p.onAccent }]}>{copy.confirmLabel}</Text>
   </Pressable></View>;
   return (
     <View testID="say-it-chat-page" style={[styles.page, { backgroundColor: p.bg }]}>
@@ -467,15 +476,15 @@ export function SayItChatPage({
               testID="chat-schedule-card">
               {copy.proposalsTitle ? <View style={[styles.blockTitle, { borderBottomColor: p.ln }]}>
                 <ChatIcon name="calendar" size={20} color={p.wm ?? p.tx} />
-                <RemeasuredText testID="review-proposals-title" accessibilityRole="header"
-                  style={[textStyle(15, 'semibold'), styles.flexShrink, { color: p.wm ?? p.tx }]}>{copy.proposalsTitle}</RemeasuredText>
+                <Text testID="review-proposals-title" accessibilityRole="header"
+                  style={[textStyle(15, 'semibold'), styles.flexShrink, { color: p.wm ?? p.tx }]}>{copy.proposalsTitle}</Text>
               </View> : null}
               {scheduleGroups.map((group) => <View key={group.id} style={styles.group}>
                 {/* The day the cards below are on. With one card it still
                     says the day: the card's own line says only the time. */}
-                {group.title ? <RemeasuredText testID={`review-group-${group.id}`} style={[textStyle(13, 'semibold', true), styles.groupTitle]}>
-                  {group.title}{group.subtitle ? <RemeasuredText style={{ fontFamily: fonts.regular }}> · {group.subtitle}</RemeasuredText> : null}
-                </RemeasuredText> : null}
+                {group.title ? <Text testID={`review-group-${group.id}`} style={[textStyle(13, 'semibold', true), styles.groupTitle]}>
+                  {group.title}{group.subtitle ? <Text style={{ fontFamily: fonts.regular }}> · {group.subtitle}</Text> : null}
+                </Text> : null}
                 {group.rows.map((row) => {
                   const excluded = row.selected === false;
                   return <View key={row.id} testID={`review-card-${row.id}`} style={[styles.itemCard, { backgroundColor: p.sf2, borderColor: p.ln }]}
@@ -486,10 +495,10 @@ export function SayItChatPage({
                         <ChatIcon name={row.icon ?? 'calendar'} size={22} color={excluded ? p.mu : p.ac} />
                       </View>
                       <View style={styles.rowWords}>
-                        <RemeasuredText testID={`review-title-${row.id}`} style={contentStyle(row.title, 15, 'semibold', excluded)}>{row.title}</RemeasuredText>
+                        <Text testID={`review-title-${row.id}`} style={contentStyle(row.title, 15, 'semibold', excluded)}>{row.title}</Text>
                         {row.subtitle ? <View style={styles.whenRow}>
                           <ChatIcon name="clock" size={15} color={p.mu} />
-                          <RemeasuredText testID={`review-when-${row.id}`} style={[textStyle(13, 'regular', true), styles.flexShrink]}>{row.subtitle}</RemeasuredText>
+                          <Text testID={`review-when-${row.id}`} style={[textStyle(13, 'regular', true), styles.flexShrink]}>{row.subtitle}</Text>
                         </View> : null}
                       </View>
                       {row.badge ? <View style={styles.badge}>{row.badge}</View> : null}
@@ -502,7 +511,7 @@ export function SayItChatPage({
                         onPress={() => onRowPress(row.id)}
                         style={({ pressed }) => [styles.itemAction, pressed && { backgroundColor: p.sf }]}>
                         <ChatIcon name="edit" size={18} color={row.disabled ? p.mu : p.tx} />
-                        <RemeasuredText style={[textStyle(13, 'semibold'), row.disabled && { color: p.mu }]}>{copy.editLabel}</RemeasuredText>
+                        <Text style={[textStyle(13, 'semibold'), row.disabled && { color: p.mu }]}>{copy.editLabel}</Text>
                       </Pressable> : <View />}
                       {/* «ينحفظ»: a positive checkbox. Selection is never colour
                           alone — the box carries a check when the card will be
@@ -518,7 +527,7 @@ export function SayItChatPage({
                           : { backgroundColor: 'transparent', borderColor: row.selectionDisabled ? p.mu : p.lnStrong }]}>
                           {row.selected ? <ChatIcon name="check" size={14} color={p.onAccent} /> : null}
                         </View>
-                        <RemeasuredText style={[textStyle(13, 'semibold'), row.selectionDisabled && { color: p.mu }]}>{copy.includeLabel}</RemeasuredText>
+                        <Text style={[textStyle(13, 'semibold'), row.selectionDisabled && { color: p.mu }]}>{copy.includeLabel}</Text>
                       </Pressable> : null}
                     </View> : null}
                   </View>;
@@ -529,7 +538,7 @@ export function SayItChatPage({
               {onConfirm ? confirmButton : null}
               {reviewFooter ? <View testID="chat-review-footer" style={styles.reviewFooter}>{reviewFooter}</View> : null}
             </View>
-            {scheduleTime ? <RemeasuredText style={[timestampStyle, styles.scheduleTime]}>{scheduleTime}</RemeasuredText> : null}
+            {scheduleTime ? <Text style={[timestampStyle, styles.scheduleTime]}>{scheduleTime}</Text> : null}
           </View> : reviewExtras || reviewFooter ? <View testID="chat-review-loose" style={[styles.reviewExtras, styles.looseExtras]}
             // With no schedule (a habit, a goal or a thought alone, M3b), these
             // cards are the proposal's first decision, so the reveal starts here.
@@ -551,20 +560,20 @@ export function SayItChatPage({
             disabled={action.disabled || !onQuickAction} onPress={() => onQuickAction?.(action.id)}
             style={({ pressed }) => [styles.quickAction, { borderColor: p.lnStrong, backgroundColor: pressed ? p.sf : p.sf2 }]}>
             {action.icon ? <ChatIcon name={action.icon} size={18} color={action.disabled ? p.mu : (p.wm ?? p.ac)} /> : null}
-            <RemeasuredText style={[textStyle(13), action.disabled && { color: p.mu }]}>{action.label}</RemeasuredText>
+            <Text style={[textStyle(13), action.disabled && { color: p.mu }]}>{action.label}</Text>
           </Pressable>)}
         </ScrollView> : null}
         {listening && copy.listeningTitle ? <View testID="voice-listening-panel"
           style={[styles.listeningPanel, { backgroundColor: p.sf, borderColor: p.ul ?? p.lnStrong }]}>
           <View style={styles.listeningWords}>
-            <RemeasuredText testID="voice-listening-title" style={textStyle(15, 'semibold')}>{copy.listeningTitle}</RemeasuredText>
-            {copy.listeningNote ? <RemeasuredText testID="voice-listening-note" style={textStyle(13, 'regular', true)}>{copy.listeningNote}</RemeasuredText> : null}
+            <Text testID="voice-listening-title" style={textStyle(15, 'semibold')}>{copy.listeningTitle}</Text>
+            {copy.listeningNote ? <Text testID="voice-listening-note" style={textStyle(13, 'regular', true)}>{copy.listeningNote}</Text> : null}
           </View>
           {onCancelListening && copy.cancelListeningLabel ? <Pressable testID="voice-cancel" accessibilityRole="button"
             accessibilityLabel={copy.cancelListeningLabel} onPress={onCancelListening}
             style={({ pressed }) => [styles.listeningCancel, { backgroundColor: pressed ? p.sf : p.sf2 }]}>
             <ChatIcon name="close" size={18} color={p.tx} />
-            <RemeasuredText style={textStyle(13, 'semibold')}>{copy.cancelListeningLabel}</RemeasuredText>
+            <Text style={textStyle(13, 'semibold')}>{copy.cancelListeningLabel}</Text>
           </Pressable> : null}
         </View> : null}
         {voiceNotice}
@@ -601,7 +610,7 @@ export function SayItChatPage({
 function BrandTile({ colors: p, latinFace }: { colors: ChatColors; latinFace: string }) {
   return <View style={[styles.brandTile, { backgroundColor: p.ac }]}
     accessible={false} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
-    <RemeasuredText style={{ color: p.onAccent, fontFamily: latinFace, fontSize: 16, lineHeight: 20, fontWeight: '700', textAlign: 'center' }}>M</RemeasuredText>
+    <Text style={{ color: p.onAccent, fontFamily: latinFace, fontSize: 16, lineHeight: 20, fontWeight: '700', textAlign: 'center' }}>M</Text>
   </View>;
 }
 
@@ -635,7 +644,7 @@ export function ChatLanguage({ colors: p, label, accessibilityLabel, fontFamily,
   return <Pressable testID="voice-language" accessibilityRole="button" accessibilityLabel={accessibilityLabel}
     onPress={onPress} hitSlop={6} style={({ pressed }) => [styles.language, { backgroundColor: pressed ? p.sf2 : p.sf, borderColor: p.ln }]}>
     <ChatIcon name="globe" size={16} color={p.tx} />
-    <RemeasuredText style={{ color: p.tx, fontFamily, fontSize: 13, lineHeight: 20, textAlign: 'center' }}>{label}</RemeasuredText>
+    <Text style={{ color: p.tx, fontFamily, fontSize: 13, lineHeight: 20, textAlign: 'center' }}>{label}</Text>
   </Pressable>;
 }
 
@@ -692,8 +701,10 @@ const styles = StyleSheet.create({
   avatar: { width: 32, height: 32, borderRadius: 16, borderWidth: 1, alignItems: 'center', justifyContent: 'center', marginTop: 4 },
   avatarDot: { width: 10, height: 10, borderRadius: 5 },
   assistantColumn: { flexShrink: 1, maxWidth: '88%', alignItems: 'flex-start', gap: 8 },
-  // Not `flex: 1`: a basis cached in the other mode would stick (see growInRow).
-  expandedColumn: { ...growInRow, maxWidth: '100%' },
+  // `flex: 1` over the column's `flexShrink: 1` — grow 1, shrink 1, basis 0 —
+  // with the basis from `width: 0`: a `flex` basis cached at the default size
+  // would stick here (see fillRow in theme/textScale).
+  expandedColumn: { flexGrow: 1, width: 0, maxWidth: '100%' },
   assistantBubble: { flexShrink: 1, borderRadius: 16, borderTopStartRadius: 4, borderWidth: 1, paddingHorizontal: 16, paddingVertical: 12, gap: 6 },
   tailBubble: { alignSelf: 'flex-start' },
   expandedBubble: { alignSelf: 'stretch' },

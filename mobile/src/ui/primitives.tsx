@@ -50,33 +50,28 @@ const RemeasureScaleContext = React.createContext<number | null>(null);
  * Controls must also keep one parent in every layout mode, or the layout
  * change remounts them too.
  *
- * ── One boundary for the whole app ───────────────────────────────
+ * ── Only where the stale measurement was seen ────────────────────
  *
- * #786 put it around «هيك فهمت» alone; the same simulator pass found the
- * class everywhere outside it — the learned card in «يتابع لك» drawn as
- * slivers at AX5, its title 305 pt tall back at the default size, the gap
- * under the Watching header, the chat bubble's first line cut off. So the
- * app root (`DirectionRoot`) holds one, around the sign-in screens and the
- * signed-in tree alike, and every `Txt` and `RemeasuredText` in the app is
- * measured afresh on a text-size change. The card keeps its own boundary
- * (redundant under the root, same value) so it stays correct wherever it is
- * rendered on its own.
+ * #786 put it around «هيك فهمت». The next simulator pass found the same class
+ * in four more places, and each holds its own boundary now: the learned card
+ * in «يتابع لك» (slivers at AX5, a 305 pt title back at the default size),
+ * the Watching header's line (a gap), the «احكيها» reply's words (cut off at
+ * the start edge), and the tab bar's labels. Every one of them puts what a
+ * screen reader can rest on in an element that stays — a button, or an
+ * accessible wrapper that says the words — so a focused element is never the
+ * one replaced.
  *
- * The cost is what the rule above says, now app-wide: a screen reader's focus
- * on a *standalone* paragraph — a plain `Txt` that is its own accessible
- * element, not inside a button or an accessible wrapper — is lost when the
- * text size changes while it is focused; VoiceOver moves to the nearest
- * element. That takes the reader changing the text size in Settings or
- * Control Center while VoiceOver rests on body text, and it costs one swipe.
- * What it buys is text that fits its box after every change, for everyone
- * who changes the size (WCAG 1.4.4). Buttons, rows, inputs and the wrappers
- * that name standalone words stay mounted, so focus on any control, and
- * whatever is typed in an input (a `TextInput` is not a `Txt`), survive. A
- * scroll view is not replaced either, so its position stays.
+ * There is deliberately no app-wide boundary. It would replace every
+ * standalone paragraph — VoiceOver resting on body text would lose its place
+ * — and every selectable one mid-selection. Selectable text is never keyed,
+ * even inside a boundary: the receipt id, the version, the AI-import prompt
+ * keep their selection, at the price of an old measurement until they next
+ * re-render. A new surface that shows the bug gets a boundary of its own, with
+ * the same wrappers.
  *
  * A boundary does not fix a layout that depends on the scale in JS. The
  * layout modes switch styles live; the one trap there is a node that returns
- * to `flex: 1` — see `growInRow` in theme/textScale.
+ * to `flex: 1` — see `fillRow` in theme/textScale.
  */
 export function RemeasureOnTextScale({ children }: { children: React.ReactNode }) {
   const scale = useTextScale();
@@ -86,12 +81,16 @@ export function RemeasureOnTextScale({ children }: { children: React.ReactNode }
 /**
  * React Native's `Text`, replaced on a text-size change under a
  * `RemeasureOnTextScale` exactly as a `Txt` is. For a screen that sets its
- * own text styles (the «احكيها» chat): its bubbles' words were the paragraphs
- * left with the old size's measurement there.
+ * own text styles: the «احكيها» reply's words.
  */
 export function RemeasuredText(props: TextProps) {
   const remeasureScale = React.useContext(RemeasureScaleContext);
-  return <Text key={remeasureScale === null ? undefined : `scale-${remeasureScale}`} {...props} />;
+  return <Text key={remeasureKey(remeasureScale, props.selectable)} {...props} />;
+}
+
+/** The paragraph's key under a boundary: none outside one, and none for selectable text. */
+function remeasureKey(scale: number | null, selectable: boolean | undefined): string | undefined {
+  return scale === null || selectable ? undefined : `scale-${scale}`;
 }
 
 // Fabric swaps a Text's left/right with the inherited Yoga direction on BOTH
@@ -171,7 +170,7 @@ export function Txt({
   // produces a squared line box at accessibility sizes, wasting the viewport.
   return (
     <Text
-      key={remeasureScale === null ? undefined : `scale-${remeasureScale}`}
+      key={remeasureKey(remeasureScale, selectable)}
       numberOfLines={lines}
       selectable={selectable}
       {...(accessible !== undefined ? { accessible } : {})}

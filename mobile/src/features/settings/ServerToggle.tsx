@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { ActivityIndicator, Switch, View } from 'react-native';
 import { useApp } from '../../state/AppContext';
 import { Txt } from '../../ui/primitives';
-import { growInRow, useLayoutMode } from '../../theme/textScale';
+import { fillRow, useLayoutMode } from '../../theme/textScale';
 import { useAnnounceOnIos } from '../../ui/announce';
 import { LiveRegion } from '../../ui/liveRegion';
 import { toggleFailureKey, type UserFacingKey } from '../../api/ui/userFacingMessage';
@@ -77,7 +77,7 @@ export function ServerToggle({
   return (
     <View style={{ paddingVertical: 18, paddingHorizontal: 18, gap: 8, borderBottomWidth: 1, borderBottomColor: p.ln }}>
       <View style={{ flexDirection: stacked ? 'column' : 'row', alignItems: stacked ? 'flex-start' : 'center', gap: 12 }}>
-        <View style={stacked ? { width: '100%' } : { ...growInRow, minWidth: 0 }}>
+        <View style={stacked ? { width: '100%' } : { ...fillRow, minWidth: 0 }}>
           {titleAccessory
             ? titleAccessory(<Txt role="action">{title}</Txt>)
             : <Txt role="action">{title}</Txt>}

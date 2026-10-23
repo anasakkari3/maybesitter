@@ -7,12 +7,16 @@
  * edge; reopened, it was fine. Two causes, both covered here:
  *
  * - the chat sets its own text styles with React Native's `Text`, outside
- *   #786's boundary, so its paragraphs kept the AX5 measurement. They are
- *   `RemeasuredText` now, replaced under the app root's boundary;
+ *   #786's boundary, so the reply's paragraphs kept the AX5 measurement.
+ *   They are `RemeasuredText` now under a boundary of their own, always
+ *   inside an accessible element that stays (the `-words` view of the newest
+ *   reply, the `-said` view of an older message whose bubble holds controls);
  * - the «هيك فهمت» lines inside the bubble came back to `flex: 1`, and Yoga
  *   on Fabric kept the basis it measured for them stacked (their AX5 height),
  *   so each row overflowed the bubble. They grow without a basis now
- *   (`growInRow`), and so does the expanded column.
+ *   as `fillRow` now — `flex: 1`'s grow 1, shrink 0 and zero basis, from
+ *   `width: 0`, which Yoga recomputes on every layout — and so does the
+ *   expanded column.
  *
  * The host passes the live layout mode as CaptureScreen does. Real
  * `useWindowDimensions` and `Dimensions.set`, as in understoodLiveTextScale.test.
@@ -118,6 +122,7 @@ describe('the reply bubble after a live text-size change', () => {
   it('default → AX5 → default: its first line is a new paragraph, and the column and rows take the fresh default layout', async () => {
     await mount();
     const header = screen.getByTestId('reply-text-0');
+    const words = screen.getByTestId('reply-words');
     expect(header.props.children).toBe(REPLY);
     const freshColumn = column();
     const freshLines = [lineBox(1), lineBox(2)];
@@ -130,9 +135,10 @@ describe('the reply bubble after a live text-size change', () => {
     await act(async () => { setFontScale(AX5); });
     const atAx5 = screen.getByTestId('reply-text-0');
     expect(atAx5).not.toBe(header);
-    // Expanded, the column takes the whole row by growing — not with a
-    // `flex` basis, which Yoga on Fabric would keep (growInRow).
-    expect(column()).toEqual(expect.objectContaining({ maxWidth: '100%', flexGrow: 1 }));
+    // Expanded, the column takes the whole row as `flex: 1` did — grow 1 over
+    // its own shrink 1, basis 0 from `width: 0` — never with a `flex` basis,
+    // which Yoga on Fabric would keep.
+    expect(column()).toEqual(expect.objectContaining({ maxWidth: '100%', flexGrow: 1, flexShrink: 1, width: 0 }));
     expect(column().flex).toBeUndefined();
 
     await act(async () => { setFontScale(1); });
@@ -144,13 +150,41 @@ describe('the reply bubble after a live text-size change', () => {
     expect(column()).toEqual(freshColumn);
     expect([lineBox(1), lineBox(2)]).toEqual(freshLines);
     for (const box of freshLines) {
-      expect(box).toEqual(expect.objectContaining({ flexGrow: 1, flexShrink: 1 }));
+      expect(box).toEqual(expect.objectContaining({ flexGrow: 1, flexShrink: 0, width: 0 }));
       expect(box.flex).toBeUndefined();
       expect(box.flexBasis).toBeUndefined();
     }
-    // The lines and «عدّل» — what a screen reader is on — never remounted.
+    // The words' element, the lines and «عدّل» — what a screen reader is on —
+    // never remounted.
+    expect(screen.getByTestId('reply-words')).toBe(words);
+    expect(words.props.accessible).toBe(true);
     ['understood-line-1', 'understood-line-2', 'understood-edit-1', 'understood-edit-2']
       .forEach((id, i) => expect(screen.getByTestId(id)).toBe(kept[i]));
+  });
+
+  it('an older message whose bubble holds a summary: its words are said by a wrapper that stays, the paragraphs replaced', async () => {
+    setFontScale(1);
+    await AsyncStorage.setItem(LANGUAGE_STORAGE_KEY, 'ar');
+    function Older() {
+      const mode = useLayoutMode();
+      return <SayItChatPage {...baseProps} mode={mode} history={[
+        { role: 'assistant', id: 'older', text: REPLY,
+          body: <UnderstoodMessage proposal={proposal} points={points} edits={{}} onOpen={jest.fn()} editable onEdit={jest.fn()} /> },
+        { role: 'user', text: 'الساعة عشرة' },
+      ]} />;
+    }
+    await render(<AppProvider><Older /></AppProvider>);
+    await waitFor(() => expect(screen.queryByTestId('older-said')).not.toBeNull());
+    const said = screen.getByTestId('older-said');
+    expect(said.props.accessible).toBe(true);
+    expect(said.props.accessibilityLabel).toBe(REPLY);
+    let paragraph = screen.getByTestId('older-text-0');
+    for (const scale of [AX5, 1]) {
+      await act(async () => { setFontScale(scale); });
+      expect(screen.getByTestId('older-said')).toBe(said);
+      expect(screen.getByTestId('older-text-0')).not.toBe(paragraph);
+      paragraph = screen.getByTestId('older-text-0');
+    }
   });
 
   it('keeps the composer and what is typed in it across the change', async () => {

@@ -5,7 +5,7 @@ import { useApp } from '../../state/AppContext';
 import { useTimeZone } from '../../i18n/timezone';
 import { fill } from '../../i18n/strings';
 import { family } from '../../theme/fonts';
-import { shareOfRow, useLayoutMode } from '../../theme/textScale';
+import { fillRow, useLayoutMode } from '../../theme/textScale';
 import { Btn, Card, Txt } from '../../ui/primitives';
 import { EmptyState, Tag } from '../../ui/chrome';
 import { Dialog } from '../../ui/dialog';
@@ -245,8 +245,8 @@ function WeeklyBlockEditor({ block, onDone }: { block: WeeklyBlock | null; onDon
         </View>
 
         <View style={{ gap: 8, flexDirection: stacked ? 'column' : 'row' }}>
-          <View style={stacked ? undefined : shareOfRow}>{timeRow('start')}</View>
-          <View style={stacked ? undefined : shareOfRow}>{timeRow('end')}</View>
+          <View style={stacked ? undefined : fillRow}>{timeRow('start')}</View>
+          <View style={stacked ? undefined : fillRow}>{timeRow('end')}</View>
         </View>
         {picking ? (
           <DateTimePicker

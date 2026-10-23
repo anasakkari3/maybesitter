@@ -93,12 +93,14 @@ describe('the week strip', () => {
     return screen.getAllByTestId(/^calendar-day-\d/).map(node => String(node.props.testID).replace('calendar-day-', ''));
   }
 
-  it('ar: each day keeps its share of the week (the cells are flex: 1)', async () => {
+  it('ar: each day keeps its share of the week (the cells grow from their content, as flex: 1 does in a scroll)', async () => {
     await showCalendar('ar');
     for (const cell of screen.getAllByTestId(/^calendar-day-\d/)) {
       let wrapper = cell.parent;
       while (wrapper && (wrapper.type !== 'View' || wrapper.props.testID === cell.props.testID)) wrapper = wrapper.parent;
-      expect(StyleSheet.flatten(wrapper?.props.style)).toMatchObject({ flex: 1, direction: 'rtl' });
+      // `growFromContent`, never a `flex` basis (theme/textScale).
+      expect(StyleSheet.flatten(wrapper?.props.style)).toMatchObject({ flexGrow: 1, flexShrink: 0, direction: 'rtl' });
+      expect(StyleSheet.flatten(wrapper?.props.style)?.flex).toBeUndefined();
     }
   });
 

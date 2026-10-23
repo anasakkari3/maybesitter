@@ -72,10 +72,11 @@ it.each([
   // Stacked, the line itself is not squeezed beside a control.
   const lineBox = StyleSheet.flatten(screen.getByTestId('understood-line-2').parent!.props.style);
   if (direction === 'column') expect(lineBox).toEqual(expect.objectContaining({ alignSelf: 'stretch' }));
-  // Beside «عدّل» the line takes the rest of the row — by growing, never with a
-  // `flex` basis, which Yoga on Fabric keeps from the stacked layout (growInRow).
+  // Beside «عدّل» the line takes the rest of the row: `flex: 1` as `fillRow`
+  // (grow 1, shrink 0, zero width), never a `flex` basis, which Yoga on Fabric
+  // keeps from the stacked layout (theme/textScale).
   else {
-    expect(lineBox).toEqual(expect.objectContaining({ flexGrow: 1, flexShrink: 1 }));
+    expect(lineBox).toEqual(expect.objectContaining({ flexGrow: 1, flexShrink: 0, width: 0 }));
     expect(lineBox?.flex).toBeUndefined();
   }
 });

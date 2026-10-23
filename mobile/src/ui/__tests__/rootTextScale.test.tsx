@@ -1,12 +1,14 @@
 /**
- * The app root re-measures every screen's text after a live text-size change
- * (simulator 2026-10-23, follow-up to #786).
+ * Where a live text-size change replaces paragraphs, and where it must not
+ * (simulator 2026-10-23, follow-up to #786; Q-LIVE-003).
  *
- * #786 bounded «هيك فهمت» alone. Outside it, the same pass found the learned
- * card drawn as slivers at AX5, the Watching header leaving a gap and the tab
- * bar wider than the screen after AX5 → default. `DirectionRoot` — the view
- * every screen, signed in or not, renders under — now holds the one
- * `RemeasureOnTextScale`, so this file renders through it.
+ * Only the surfaces where the stale measurement was seen hold a
+ * `RemeasureOnTextScale`: «هيك فهمت», the learned card, the Watching header's
+ * line, the «احكيها» reply's words and the tab bar's labels. The app root
+ * (`DirectionRoot`) holds none, so a standalone paragraph elsewhere — where a
+ * screen reader may rest — and selectable text keep their nodes. Inside a
+ * boundary, selectable text is never keyed either, and controls, wrappers and
+ * inputs stay.
  *
  * The scale changes as on a phone: `Dimensions` emits a change and the real
  * `useWindowDimensions` hears it. The global jest setup replaces that hook
@@ -23,7 +25,7 @@ import { AppProvider } from '../../state/AppContext';
 import { LANGUAGE_STORAGE_KEY } from '../../i18n/language';
 import { TabBar } from '../../screens/TabBar';
 import { DirectionRoot } from '../DirectionRoot';
-import { Btn, Txt } from '../primitives';
+import { Btn, RemeasureOnTextScale, Txt } from '../primitives';
 
 jest.mock('react-native/Libraries/Utilities/useWindowDimensions', () =>
   jest.requireActual('react-native/Libraries/Utilities/useWindowDimensions'),
@@ -64,7 +66,7 @@ async function mount(children: React.ReactNode, fontScale = 1) {
   );
 }
 
-/** A screen in miniature: a control, a standalone paragraph, an input the person typed into, a scroller. */
+/** A screen in miniature: a control, a standalone paragraph, selectable text, a wrapper, an input, a scroller. */
 function Probe() {
   const [draft, setDraft] = React.useState('');
   return (
@@ -73,6 +75,7 @@ function Probe() {
         <Txt testID="probe-button-text">زر</Txt>
       </Btn>
       <Txt testID="probe-paragraph">فقرة لحالها</Txt>
+      <Txt testID="probe-selectable" selectable>receipt-7f3a</Txt>
       <View testID="probe-wrapper" accessible accessibilityRole="text" accessibilityLabel="كلام">
         <Txt testID="probe-wrapped" accessible={false}>كلام</Txt>
       </View>
@@ -81,18 +84,41 @@ function Probe() {
   );
 }
 
-describe('the root boundary', () => {
-  it('replaces every paragraph on a scale change and nothing else: controls, wrappers, the input and its words, the scroller stay', async () => {
+const KEPT = ['probe-scroll', 'probe-button', 'probe-wrapper', 'probe-input'];
+
+async function typeAndCapture() {
+  await act(async () => { await fireEvent.changeText(screen.getByTestId('probe-input'), 'بدي روح عالبنك'); });
+  return KEPT.map((id) => screen.getByTestId(id));
+}
+
+describe('outside the proven surfaces', () => {
+  it('the app root replaces nothing: a standalone paragraph and selectable text keep their nodes', async () => {
     await mount(<Probe />);
-    await act(async () => { await fireEvent.changeText(screen.getByTestId('probe-input'), 'بدي روح عالبنك'); });
-    const kept = ['probe-scroll', 'probe-button', 'probe-wrapper', 'probe-input'].map((id) => screen.getByTestId(id));
+    const kept = await typeAndCapture();
+    const text = ['probe-button-text', 'probe-paragraph', 'probe-selectable', 'probe-wrapped'].map((id) => screen.getByTestId(id));
+    for (const scale of [AX5, 1, 1.12]) {
+      await act(async () => { setFontScale(scale); });
+      KEPT.forEach((id, i) => expect(screen.getByTestId(id)).toBe(kept[i]));
+      ['probe-button-text', 'probe-paragraph', 'probe-selectable', 'probe-wrapped']
+        .forEach((id, i) => expect(screen.getByTestId(id)).toBe(text[i]));
+    }
+  });
+});
+
+describe('inside a boundary', () => {
+  it('replaces each plain paragraph on a scale change, never selectable text, and keeps controls, wrappers, the input and its words, the scroller', async () => {
+    await mount(<RemeasureOnTextScale><Probe /></RemeasureOnTextScale>);
+    const kept = await typeAndCapture();
+    const selectable = screen.getByTestId('probe-selectable');
     let text = ['probe-button-text', 'probe-paragraph', 'probe-wrapped'].map((id) => screen.getByTestId(id));
 
     for (const scale of [AX5, 1, 1.12]) {
       await act(async () => { setFontScale(scale); });
-      ['probe-scroll', 'probe-button', 'probe-wrapper', 'probe-input'].forEach((id, i) => expect(screen.getByTestId(id)).toBe(kept[i]));
+      KEPT.forEach((id, i) => expect(screen.getByTestId(id)).toBe(kept[i]));
       // Whatever was typed is still there: a TextInput is not a Txt.
       expect(screen.getByTestId('probe-input').props.value).toBe('بدي روح عالبنك');
+      // A selection in progress survives: selectable text is never keyed.
+      expect(screen.getByTestId('probe-selectable')).toBe(selectable);
       const next = ['probe-button-text', 'probe-paragraph', 'probe-wrapped'].map((id) => screen.getByTestId(id));
       next.forEach((node, i) => expect(node).not.toBe(text[i]));
       text = next;
@@ -100,7 +126,7 @@ describe('the root boundary', () => {
   });
 
   it('replaces nothing on a rotation (same scale)', async () => {
-    await mount(<Probe />, AX5);
+    await mount(<RemeasureOnTextScale><Probe /></RemeasureOnTextScale>, AX5);
     const before = screen.getByTestId('probe-paragraph');
     await act(async () => { setFontScale(AX5, 844, 390); });
     expect(screen.getByTestId('probe-paragraph')).toBe(before);
@@ -112,17 +138,17 @@ function slotStyles() {
   return TAB_IDS.map((id) => StyleSheet.flatten(screen.getByTestId(id).props.style) as Record<string, unknown>);
 }
 
-describe('the tab bar after a live text-size change', () => {
+describe('the tab bar after a live text-size change (its own boundary)', () => {
   it('default → AX5 → default: labels are new paragraphs, the items stay mounted, and each slot is what a fresh open gives', async () => {
     await mount(<TabBar />);
     await waitFor(() => expect(screen.getByTestId('tab-capture').props.accessibilityLabel).toBe('احكيها'));
     const items = TAB_IDS.map((id) => screen.getByTestId(id));
     const fresh = slotStyles();
     const labels = LABEL_IDS.map((id) => screen.getByTestId(id));
-    // A fifth each, from a zero width that grows: never a `flex` basis, which
-    // Yoga on Fabric keeps across the change (theme/textScale, growInRow).
+    // A fifth each — `flex: 1` as `fillRow` (grow 1, shrink 0, zero width):
+    // never a `flex` basis, which Yoga on Fabric keeps across the change.
     for (const style of fresh) {
-      expect(style).toEqual(expect.objectContaining({ flexGrow: 1, flexShrink: 1, width: 0 }));
+      expect(style).toEqual(expect.objectContaining({ flexGrow: 1, flexShrink: 0, width: 0 }));
       expect(style.flex).toBeUndefined();
       expect(style.flexBasis).toBeUndefined();
     }

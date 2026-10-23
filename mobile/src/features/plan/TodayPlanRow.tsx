@@ -2,7 +2,7 @@ import type { PlanPreviewItem } from '../today/dayContext';
 import { ltr } from '../../i18n/strings';
 import React from 'react';
 import { View } from 'react-native';
-import { growInRow, useLayoutMode } from '../../theme/textScale';
+import { fillRow, useLayoutMode } from '../../theme/textScale';
 import { CheckIcon, ChevronIcon } from '../../ui/icons';
 import { useApp } from '../../state/AppContext';
 import { useTimeZone } from '../../i18n/timezone';
@@ -95,7 +95,7 @@ export function TodayPlanRow({ row, preview = [] }: { row: PlanRowModel; preview
         <View style={{ width: 38, height: 42, borderRadius: 15, alignItems: 'center', justifyContent: 'center', backgroundColor: accepted ? p.successSoft : p.acs }}>
           <ReferenceIcon name="calendar" size={23} color={accepted ? p.success : p.acd} />
         </View>
-        <View style={{ ...(stacked ? {} : growInRow), gap: 4 }}>
+        <View style={{ ...(stacked ? {} : fillRow), gap: 4 }}>
           <Txt size={15} weight={600} color={p.tx} testID="today-plan-title">{title}</Txt>
           <Txt size={12} color={p.mu} testID="today-plan-summary">{sub}</Txt>
         </View>
