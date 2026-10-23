@@ -60,10 +60,11 @@
  * remembered.
  */
 import { getAdminApp } from '../firebase/admin';
-import { docIdForKey, getStorage, PUSH_LOG, requireUserId, userSubDoc, type StorageAdapter } from '../storage';
+import { docIdForKey, getStorage, PUSH_LOG, requireUserId, userDoc, userSubDoc, type StorageAdapter } from '../storage';
 import { deleteDevice, listPushableDevices, type DeviceRecord } from './deviceRegistry';
 import { isInQuietHours, readQuietHours } from './quietHours';
 import { readPushAccess } from './pushAccess';
+import { liveAccount } from '../account/accountLiveness';
 
 export type PushKind = 'plan_ready' | 'hard_reminder';
 
@@ -483,7 +484,15 @@ export async function sendToUser(
   //    key cannot both win — and a read-then-create outside one could.
   const lockPath = userSubDoc(message.uid, PUSH_LOG, docIdForKey(message.dedupeKey));
   const claimed = await storage.runTransaction(async (tx) => {
-    const existing = await tx.get<PushLogEntry>(lockPath);
+    const [existing, user] = await Promise.all([
+      tx.get<PushLogEntry>(lockPath),
+      tx.get<unknown>(userDoc(message.uid)),
+    ]);
+    // The deletion fence (#772, Q772F-001), in the lock's own transaction: a
+    // deletion that landed after the access read takes no lock, writes no log
+    // row under the account and sends nothing. What is left is the send
+    // itself, an outside call no Firestore transaction can hold.
+    if (!liveAccount(user)) return 'gone' as const;
     if (existing) return false;
     const entry: PushLogEntry = {
       dedupeKey: message.dedupeKey,
@@ -494,6 +503,7 @@ export async function sendToUser(
     tx.create<PushLogEntry>(lockPath, entry);
     return true;
   });
+  if (claimed === 'gone') return { status: 'suppressed_no_access', delivered: 0, removed: 0 };
   if (!claimed) return { status: 'duplicate', delivered: 0, removed: 0 };
 
   // 6. The send.

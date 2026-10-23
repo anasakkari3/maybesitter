@@ -28,7 +28,8 @@ import assert from 'node:assert/strict';
 import { seedLiveAccount } from '../support/liveAccount.ts';
 import { createMemoryStorage, type MemoryStorageAdapter } from '../../lib/storage/memoryAdapter.ts';
 import { resetStorageForTests, setStorageForTests } from '../../lib/storage/index.ts';
-import { AUDIT_EVENTS, HARD_REMINDERS, MEMORY, PROVIDER_CONNECTIONS, userCol, userDoc } from '../../lib/storage/paths.ts';
+import { AUDIT_EVENTS, HARD_REMINDERS, MEMORY, PROVIDER_CONNECTIONS, PUSH_LOG, userCol, userDoc } from '../../lib/storage/paths.ts';
+import { sendToUser } from '../../lib/push/pushService.ts';
 import type { StorageAdapter } from '../../lib/storage/storageAdapter.ts';
 import { AccountUnavailableError } from '../../lib/account/accountLiveness.ts';
 // Q772C-001
@@ -649,5 +650,76 @@ test('the reminder job still claims and sends a live account s due row', async (
     assert.equal(sends, 1);
     assert.equal(totals.sent, 1);
     assert.equal((await s.base.get<HardReminderEntry>(hardReminderPath(uid, 'c1')))?.status, 'sent');
+  });
+});
+
+// ── Q772F-001: a deletion that lands after the claim, during the send ──────
+
+for (const outcome of ['no_devices', 'throws'] as const) {
+  test(`Q772F-001 the reminder job's write-back after a send (${outcome}) never re-creates a row the deletion swept`, async () => {
+    const uid = `fo772-tickSwept-${outcome}`;
+    await withStaged(uid, async (s) => {
+      const row = await indexedRow(uid, s);
+      const run = runHardReminderTick({
+        now: () => new Date(row.fireAt),
+        storage: s.storage,
+        // The claim committed under a live account; the deletion sweeps while
+        // the push is out, then the send answers.
+        send: (async () => {
+          await deleteAccount(s.base, uid, 'swept');
+          if (outcome === 'throws') throw new Error('fcm down');
+          return { status: 'no_devices', delivered: 0, removed: 0 };
+        }) as never,
+      });
+      // The tick counts a send that threw as failed; it does not rethrow.
+      await run.catch(() => undefined);
+      assert.deepEqual(await snapshot(s.base, uid), {}, 'the write-back re-created a document under the swept account');
+    });
+  });
+}
+
+test('Q772F-001 a push whose account is swept after the access and device reads takes no lock, writes no log row and sends nothing', async () => {
+  const uid = 'fo772-pushSwept';
+  await withStaged(uid, async (s) => {
+    // The access check and the device list read a live account; the deletion
+    // then sweeps just before the lock's transaction (the first transaction
+    // sendToUser runs).
+    let first = true;
+    const racing = new Proxy(s.base, {
+      get(target, prop, receiver) {
+        if (prop === 'runTransaction') {
+          return async (fn: never) => {
+            if (first) { first = false; await deleteAccount(target, uid, 'swept'); }
+            return target.runTransaction(fn);
+          };
+        }
+        const v = Reflect.get(target, prop, receiver);
+        return typeof v === 'function' ? v.bind(target) : v;
+      },
+    });
+    let sends = 0;
+    const messaging = { send: async () => { sends += 1; return 'id'; } };
+    await s.base.set(`${userDoc(uid)}/devices/inst-1`, {
+      installationId: 'inst-1', fcmToken: 'tok', platform: 'ios', pushPermission: 'granted',
+      updatedAt: new Date().toISOString(), createdAt: new Date().toISOString(),
+    });
+    const result = await sendToUser({
+      uid, kind: 'hard_reminder', dedupeKey: 'k1', title: 't', body: 'b', data: {}, respectQuietHours: false, urgency: 'normal',
+    } as never, new Date(), { storage: racing as never, messaging: messaging as never });
+    assert.equal(first, false, 'the lock transaction never ran: the race was not staged');
+    assert.equal(sends, 0, 'a push went out after the deletion');
+    assert.equal(result.status, 'suppressed_no_access');
+    assert.deepEqual(await snapshot(s.base, uid), {}, 'a push-log row or other document was re-created under the swept account');
+  });
+});
+
+test('Q772F-001 a push to an account with no root at all is refused as deleted, not allowed as untouched', async () => {
+  const uid = 'fo772-pushNoRoot';
+  await withStaged(uid, async (s) => {
+    await deleteAccount(s.base, uid, 'swept');
+    const result = await sendToUser({
+      uid, kind: 'hard_reminder', dedupeKey: 'k2', title: 't', body: 'b', data: {}, respectQuietHours: false, urgency: 'normal',
+    } as never, new Date(), { storage: s.base as never, messaging: { send: async () => 'id' } as never });
+    assert.equal(result.status, 'suppressed_no_access');
   });
 });

@@ -301,19 +301,32 @@ async function processRow(
   } catch (error) {
     // Not retried: the row stays out of `pending`, which is the at-most-once
     // half of the contract. The reason says what happened.
-    await storage.runTransaction(async (tx) => {
-      await tx.get(path);
-      tx.merge<HardReminderEntry>(path, { status: 'suppressed', reason: 'send_failed', updatedAt: at });
-    });
+    await writeBackWhileLive(storage, uid, path, { status: 'suppressed', reason: 'send_failed', updatedAt: at });
     throw error;
   }
   const reason = RESULT_REASON[result.status];
   if (reason) {
-    await storage.runTransaction(async (tx) => {
-      await tx.get(path);
-      tx.merge<HardReminderEntry>(path, { status: 'suppressed', reason, updatedAt: at });
-    });
+    await writeBackWhileLive(storage, uid, path, { status: 'suppressed', reason, updatedAt: at });
     return 'suppressed';
   }
   return 'sent';
+}
+
+/**
+ * A result written back after the send (#772, Q772F-001): only onto a row that
+ * still exists under a live account. A deletion that landed during the send
+ * swept or is sweeping the row; merging into it would re-create
+ * `users/{uid}/hardReminders/{id}` behind the deletion.
+ */
+async function writeBackWhileLive(
+  storage: StorageAdapter,
+  uid: string,
+  path: string,
+  patch: Partial<HardReminderEntry>,
+): Promise<void> {
+  await storage.runTransaction(async (tx) => {
+    const [entry, user] = await Promise.all([tx.get<HardReminderEntry>(path), tx.get<unknown>(userDoc(uid))]);
+    if (!entry || !liveAccount(user)) return;
+    tx.merge<HardReminderEntry>(path, patch);
+  });
 }

@@ -118,5 +118,8 @@ export async function readPushAccess(
   requireUserId(uid);
   const storage = options.storage ?? getStorage();
   const user = await storage.get<TrustBearingUser>(userDoc(uid));
-  return pushAccessOf(user?.trust);
+  // No root at all is an account deletion swept (#772, Q772F-001): every live
+  // account has one, created at sign-in. Not "nobody touched trust".
+  if (!user) return refuse('deleted');
+  return pushAccessOf(user.trust);
 }
