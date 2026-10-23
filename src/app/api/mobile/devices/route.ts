@@ -1,3 +1,4 @@
+import { AccountUnavailableError, accountUnavailableResponse } from '../../../../../lib/account/accountLiveness';
 import { mobileAuthErrorResponse, requireMobileUser } from '../../../../../lib/auth/mobileAuth';
 import { mobileError } from '../../../../../lib/services/mobile/response';
 import {
@@ -46,6 +47,7 @@ export async function POST(request: Request) {
     await upsertDevice(user.uid, registration, new Date().toISOString());
     return Response.json({ success: true, ok: true });
   } catch (error) {
+    if (error instanceof AccountUnavailableError) return accountUnavailableResponse();
     if (error instanceof DeviceValidationError) {
       return Response.json({ success: false, error: error.message, reason: error.reason }, { status: 400 });
     }

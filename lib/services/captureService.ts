@@ -436,6 +436,9 @@ export async function captureText(
         partialExtraction: merged.result,
         now,
         ttlMs,
+        // The account deletion fence (#772): the authenticated account, never
+        // the scope, which may be a session id.
+        ...(options.userId ? { accountUid: options.userId } : {}),
       });
       return {
         success: false,
@@ -478,6 +481,7 @@ export async function captureText(
       partialExtraction: result,
       now,
       ttlMs,
+      ...(options.userId ? { accountUid: options.userId } : {}),
     });
   }
 

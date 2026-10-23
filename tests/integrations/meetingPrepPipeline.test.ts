@@ -53,8 +53,11 @@ const SENTINEL = 'ZZQXMEETINGNOTESENTINELQZZ';
 /** A realistic note, the kind the sheet's question asks for. */
 const ARABIC_NOTE = 'اجتماع مع المدير عن ميزانية الربع الجاي.\nبدي أراجع أرقام المصاريف وأطبع التقرير.\nبعد الاجتماع لازم أبعت الملخص لسامي.';
 
-function begin(): void {
-  setStorageForTests(createMemoryStorage());
+async function begin(): Promise<void> {
+  const storage = createMemoryStorage();
+  setStorageForTests(storage);
+  // The proposal is written behind the account deletion fence (#772).
+  await seedLiveAccount(UID, storage);
 }
 
 function end(): void {
@@ -197,7 +200,7 @@ function inputFor(now: Date, notes = ARABIC_NOTE, startInMinutes = 180) {
 }
 
 test('with consent, the recorded model answer becomes one prep step and a follow-up to confirm', async () => {
-  begin();
+  await begin();
   try {
     const now = new Date(Date.now());
     const model = recordedModel();
@@ -226,7 +229,7 @@ test('with consent, the recorded model answer becomes one prep step and a follow
 });
 
 test('with consent off, no model is asked and the prep step is the first action sentence', async () => {
-  begin();
+  await begin();
   try {
     const now = new Date(Date.now());
     const model = recordedModel();
@@ -239,7 +242,7 @@ test('with consent off, no model is asked and the prep step is the first action 
 });
 
 test('an instruction hidden in the notes keeps them away from the model', async () => {
-  begin();
+  await begin();
   try {
     const now = new Date(Date.now());
     const model = recordedModel();
@@ -252,7 +255,7 @@ test('an instruction hidden in the notes keeps them away from the model', async 
 });
 
 test('a model answer with no usable prep step falls back to the rules, and says so', async () => {
-  begin();
+  await begin();
   try {
     const now = new Date(Date.now());
     const model = recordedModel({ prepStep: { action: '' }, followUps: [] });
@@ -269,7 +272,7 @@ const THURSDAY = new Date('2026-10-01T06:00:00.000Z');
 const THURSDAY_MEETING = { startAt: '2026-10-01T09:00:00.000Z', endAt: '2026-10-01T09:45:00.000Z', timezone: 'Asia/Jerusalem' };
 
 test('a follow-up keeps a written hour; a day before the meeting, or no day, is no time at all', async () => {
-  begin();
+  await begin();
   try {
     const notes = 'Budget review with finance.\nPrint the report.\nSend the summary on Sunday at 4pm.';
     const model = recordedModel({
@@ -294,7 +297,7 @@ test('a follow-up keeps a written hour; a day before the meeting, or no day, is 
 });
 
 test('English notes in an Arabic app: the steps are titled in Arabic, the follow-up\'s hour still read from its English clause', async () => {
-  begin();
+  await begin();
   try {
     const notes = 'Budget review with finance.\nPrint the report.\nSend the summary to Sara on Sunday at 4pm.';
     const model = recordedModel({
@@ -325,7 +328,7 @@ test('English notes in an Arabic app: the steps are titled in Arabic, the follow
 });
 
 test('«يوم الأحد الصبح» is Sunday at the morning hour capture gives it, never the hour the model guessed', async () => {
-  begin();
+  await begin();
   try {
     const notes = 'اجتماع مع المدير عن الميزانية.\nبدي أراجع المصاريف وأطبع التقرير.\nبعد الاجتماع لازم أبعت الملخص لسامي يوم الأحد الصبح.';
     // The shape the live run answered with (CL5a-live-run.txt): the model
@@ -363,7 +366,7 @@ test('«يوم الأحد الصبح» is Sunday at the morning hour capture giv
 });
 
 test('a day with no hour and no part of the day stays all-day, whatever hour the model guessed', async () => {
-  begin();
+  await begin();
   try {
     const notes = 'اجتماع مع المدير الساعة ١٠.\nبدي أطبع التقرير.\nبعد الاجتماع لازم أبعت الملخص لسامي يوم الأحد.';
     const model = recordedModel({
@@ -379,7 +382,7 @@ test('a day with no hour and no part of the day stays all-day, whatever hour the
 });
 
 test('the notes are not written anywhere', async () => {
-  begin();
+  await begin();
   try {
     const now = new Date(Date.now());
     await prepareMeeting(UID, inputFor(now, `Prepare the deck. ${SENTINEL}`), { now, generate: recordedModel().generate, consent: granted, quietHours: NO_QUIET_HOURS });
@@ -396,7 +399,7 @@ test('the notes are not written anywhere', async () => {
 });
 
 test('refusals: no notes, notes past the capture limit, a block too soon, a block that ends before it starts', async () => {
-  begin();
+  await begin();
   try {
     const now = new Date(Date.now());
     const options = { now, consent: declined, quietHours: NO_QUIET_HOURS };
@@ -414,7 +417,7 @@ test('refusals: no notes, notes past the capture limit, a block too soon, a bloc
 });
 
 test('confirmed through the capture confirm, the prep step is at the hour before, due by the start, and reminded when it is shown', async () => {
-  begin();
+  await begin();
   try {
     const now = new Date(Date.now());
     const input = inputFor(now);
@@ -451,7 +454,7 @@ test('confirmed through the capture confirm, the prep step is at the hour before
 test('between its reminder and the meeting, the prep step is not overdue on the lists; after the start it is', async () => {
   const previous = process.env.MAYBESITTER_FEATURE_PRIORITY;
   process.env.MAYBESITTER_FEATURE_PRIORITY = 'true';
-  begin();
+  await begin();
   try {
     const now = new Date(Date.now());
     const input = inputFor(now);
@@ -483,7 +486,7 @@ test('between its reminder and the meeting, the prep step is not overdue on the 
 
 for (const lead of [15, 30, 60]) {
   test(`with a ${lead}-minute reminder lead, the prep step is due by the start and still rings an hour before (R1)`, async () => {
-    begin();
+    await begin();
     try {
       await saveReminderSettings(UID, { softLeadMinutes: lead }, new Date().toISOString());
       const now = new Date(Date.now());
@@ -498,7 +501,7 @@ for (const lead of [15, 30, 60]) {
 }
 
 test('moved to the evening before by quiet hours, the prep step is shown and rung then, and due by the meeting', async () => {
-  begin();
+  await begin();
   try {
     const now = new Date('2026-09-27T12:00:00.000Z');
     const start = '2026-09-28T04:00:00.000Z'; // 07:00 in Jerusalem, quiet until 07:30
@@ -595,7 +598,7 @@ for (const minutesAway of [20, 40, 64, 180]) {
   for (const ceiling of ['soft', 'followUp', 'hard'] as const) {
     for (const lead of [60, 30, 15]) {
       test(`a meeting ${minutesAway} min away, ceiling ${ceiling}, lead ${lead}: the reminder claimed is the phone's first ring, or none is claimed and none rings`, async () => {
-        begin();
+        await begin();
         try {
           const { prep, proposal, rings, storedRings, stored, startAt } = await prepFor(minutesAway, ceiling, lead);
           const shownAt = proposal.items[0]!.resolvedTime!;
@@ -630,7 +633,7 @@ test('short notice, spelled out: 20 or 40 min away, it rings in five minutes, at
     [40, 'hard', 60, '2026-10-01T06:05:00.000Z'],
   ];
   for (const [minutesAway, ceiling, lead, expected] of cases) {
-    begin();
+    await begin();
     try {
       const { prep } = await prepFor(minutesAway, ceiling, lead);
       assert.equal(prep.adjustment, 'short_notice');
@@ -640,7 +643,7 @@ test('short notice, spelled out: 20 or 40 min away, it rings in five minutes, at
 });
 
 test('with reminders off, no reminder is claimed, and it says why', async () => {
-  begin();
+  await begin();
   try {
     const { prep, rings } = await prepFor(180, 'followUp', 60, { softEnabled: false });
     assert.deepEqual(rings, []);
@@ -659,7 +662,7 @@ test('quiet hours, through the phone: moved to when they end, or to the evening 
     ['2026-09-27T12:00:00.000Z', '2026-09-28T04:00:00.000Z', 'followUp', 15, '2026-09-27T19:25:00.000Z'],
   ];
   for (const [now, start, ceiling, lead, expected] of cases) {
-    begin();
+    await begin();
     try {
       const { prep, rings } = await prepFor(0, ceiling, lead, { now: new Date(now), start, quiet: JERUSALEM_QUIET });
       assert.equal(prep.adjustment, 'quiet_hours');
@@ -670,7 +673,7 @@ test('quiet hours, through the phone: moved to when they end, or to the evening 
 });
 
 test('a meeting a few minutes after a quiet night the person is already in: the phone drops the ring, so none is claimed', async () => {
-  begin();
+  await begin();
   try {
     // 22:40 in Jerusalem, quiet since 22:30; the meeting is at 07:32, two minutes after quiet hours end.
     const { prep, rings } = await prepFor(0, 'followUp', 60, {
@@ -688,7 +691,7 @@ test('a meeting a few minutes after a quiet night the person is already in: the 
 
 test('a meeting inside the quiet hours the person is already in (06:00, 00:00): nothing rings, and the reason is the quiet hours, not "too close" (I-4)', async () => {
   for (const start of ['2026-09-28T03:00:00.000Z', '2026-09-27T21:00:00.000Z']) {
-    begin();
+    await begin();
     try {
       // 22:40 in Jerusalem, quiet 22:30–07:30; the meeting at 06:00, then at 00:00.
       const { prep, rings } = await prepFor(0, 'followUp', 60, {
@@ -702,7 +705,7 @@ test('a meeting inside the quiet hours the person is already in (06:00, 00:00): 
 });
 
 test('the survey\'s silent answer: nothing rings, and it is said as the person\'s choice, not as reminders switched off', async () => {
-  begin();
+  await begin();
   try {
     // The switch in Settings is on; the survey said «صامتة». The phone plans
     // nothing for `none` (`stagesFor`), so nothing is claimed.
@@ -736,7 +739,7 @@ test('the meeting\'s own «الساعة ١٠» does not let a guessed hour onto 
     ['اجتماع الساعة ١٠ لازم أبعت الملخص لسامي يوم الأحد الصبح', 'all-day'],
   ];
   for (const [notes, expected] of probes) {
-    begin();
+    await begin();
     try {
       const english = /^[A-Za-z]/.test(notes);
       const model = recordedModel({
@@ -771,7 +774,7 @@ test('a follow-up whose own clause writes the hour keeps it, whatever else the n
     ['اجتماع الساعة ١٠ وبعده لازم أبعت الملخص لسامي يوم الأحد الساعة ٤ العصر', 'إرسال الملخص لسامي', '16:00'],
   ];
   for (const [notes, action, time] of cases) {
-    begin();
+    await begin();
     try {
       const model = recordedModel({
         prepStep: { action: 'Print the report' },

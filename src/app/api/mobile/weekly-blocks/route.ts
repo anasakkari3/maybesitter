@@ -1,3 +1,4 @@
+import { AccountUnavailableError, accountUnavailableResponse } from '../../../../../lib/account/accountLiveness';
 import { mobileAuthErrorResponse, requireMobileUser } from '../../../../../lib/auth/mobileAuth';
 import { mobileError } from '../../../../../lib/services/mobile/response';
 import { parseWeeklyBlockInput } from '../../../../../src/contracts/v1/weeklyBlockContracts';
@@ -59,6 +60,8 @@ export async function POST(request: Request) {
     return Response.json({ success: true, block: presentWeeklyBlock(block) }, { status: 201 });
   } catch (error) {
     if (error instanceof WeeklyBlockValidationError) return weeklyBlockValidationResponse(error);
+    // The account was deleted while this was on its way (#772).
+    if (error instanceof AccountUnavailableError) return accountUnavailableResponse();
     console.error('[weekly-blocks] create failed', error instanceof Error ? error.name : 'unknown');
     return mobileError('could not create the weekly block', 500);
   }

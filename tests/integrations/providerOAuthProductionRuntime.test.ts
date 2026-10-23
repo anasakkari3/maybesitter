@@ -15,6 +15,7 @@ import assert from 'node:assert/strict';
 import { createInMemoryKms } from '../../lib/security/inMemoryKms.ts';
 import { KMS_KEY_ENV_VAR, type FieldEncryptionOptions } from '../../lib/security/fieldEncryption.ts';
 import { createMemoryStorage } from '../../lib/storage/memoryAdapter.ts';
+import { seedLiveAccount } from '../support/liveAccount.ts';
 import {
   EncryptedProviderCredentialVault,
   credentialKeyId,
@@ -39,6 +40,14 @@ const KEY = 'projects/p/locations/l/keyRings/r/cryptoKeys/user-secrets';
 const UID_A = 'userA';
 const UID_B = 'userB';
 const NOW = '2026-09-18T09:00:00.000Z';
+
+/** A storage with both accounts live: every store here writes behind the #772 fence. */
+async function liveStorage(): Promise<ReturnType<typeof createMemoryStorage>> {
+  const storage = createMemoryStorage();
+  await seedLiveAccount(UID_A, storage);
+  await seedLiveAccount(UID_B, storage);
+  return storage;
+}
 
 function crypto(): FieldEncryptionOptions {
   return { env: { [KMS_KEY_ENV_VAR]: KEY } as unknown as NodeJS.ProcessEnv, kms: createInMemoryKms({ keyName: KEY }) };
@@ -73,6 +82,8 @@ function client(over: Partial<ProviderOAuthClient> = {}): ProviderOAuthClient {
 }
 
 async function connect(uid = UID_A, storage = createMemoryStorage(), options = crypto()) {
+  // The stores write behind the account deletion fence (#772).
+  await seedLiveAccount(uid, storage);
   const stateStore = new StoredProviderOAuthStateStore(uid, storage, options);
   const vault = new EncryptedProviderCredentialVault(uid, storage, options);
   const connections = new StoredIntegrationConnectionStore(uid, storage);
@@ -143,7 +154,7 @@ test("copying A's ciphertext into B's tree still does not decrypt", async () => 
 });
 
 test('a vault refuses to store a token for a different account', async () => {
-  const storage = createMemoryStorage();
+  const storage = await liveStorage();
   const vault = new EncryptedProviderCredentialVault(UID_A, storage, crypto());
   await assert.rejects(
     () => vault.storeOAuthTokenSet({ scopeId: UID_B, provider: 'google', tokenSet: tokenSet() }),
@@ -152,7 +163,7 @@ test('a vault refuses to store a token for a different account', async () => {
 });
 
 test('a replayed state is rejected: the second callback fails', async () => {
-  const storage = createMemoryStorage();
+  const storage = await liveStorage();
   const options = crypto();
   const stateStore = new StoredProviderOAuthStateStore(UID_A, storage, options);
   const vault = new EncryptedProviderCredentialVault(UID_A, storage, options);
@@ -181,7 +192,7 @@ test('an unknown state is rejected', async () => {
 });
 
 test('an expired state is rejected and is still spent', async () => {
-  const storage = createMemoryStorage();
+  const storage = await liveStorage();
   const stateStore = new StoredProviderOAuthStateStore(UID_A, storage, crypto());
   const state: ProviderOAuthState = {
     state: 'st-1',
@@ -200,7 +211,7 @@ test('an expired state is rejected and is still spent', async () => {
 });
 
 test("a state minted for another account cannot be spent by this one", async () => {
-  const storage = createMemoryStorage();
+  const storage = await liveStorage();
   // One KMS for both stores, so a failure below is the AAD refusing and not
   // two different keys failing to agree.
   const shared = crypto();
@@ -448,7 +459,7 @@ async function storedStateDocs(storage: ReturnType<typeof createMemoryStorage>, 
 }
 
 test('the persisted state document contains no raw state', async () => {
-  const storage = createMemoryStorage();
+  const storage = await liveStorage();
   const store = new StoredProviderOAuthStateStore(UID_A, storage, crypto());
   await store.create(inFlight());
   const serialized = JSON.stringify(await storedStateDocs(storage));
@@ -456,7 +467,7 @@ test('the persisted state document contains no raw state', async () => {
 });
 
 test('the persisted state document contains no PKCE verifier', async () => {
-  const storage = createMemoryStorage();
+  const storage = await liveStorage();
   const store = new StoredProviderOAuthStateStore(UID_A, storage, crypto());
   await store.create(inFlight());
   const serialized = JSON.stringify(await storedStateDocs(storage));
@@ -464,7 +475,7 @@ test('the persisted state document contains no PKCE verifier', async () => {
 });
 
 test('the document still describes the authorization, so it is auditable', async () => {
-  const storage = createMemoryStorage();
+  const storage = await liveStorage();
   const store = new StoredProviderOAuthStateStore(UID_A, storage, crypto());
   await store.create(inFlight());
   const serialized = JSON.stringify(await storedStateDocs(storage));
@@ -475,7 +486,7 @@ test('the document still describes the authorization, so it is auditable', async
 });
 
 test('a legitimate consume returns the original verifier', async () => {
-  const storage = createMemoryStorage();
+  const storage = await liveStorage();
   const store = new StoredProviderOAuthStateStore(UID_A, storage, crypto());
   await store.create(inFlight());
   const consumed = await store.consume(RAW_STATE, NOW);
@@ -485,7 +496,7 @@ test('a legitimate consume returns the original verifier', async () => {
 });
 
 test("another account cannot decrypt a copied state document", async () => {
-  const storage = createMemoryStorage();
+  const storage = await liveStorage();
   const shared = crypto();
   const asA = new StoredProviderOAuthStateStore(UID_A, storage, shared);
   await asA.create(inFlight());
@@ -509,7 +520,7 @@ test('the AAD alone stops another account, with scopeId rewritten too', async ()
    * B's tree, `scopeId` claiming to be B. Now the only thing left between B
    * and A's verifier is the AAD.
    */
-  const storage = createMemoryStorage();
+  const storage = await liveStorage();
   const shared = crypto();
   const asA = new StoredProviderOAuthStateStore(UID_A, storage, shared);
   await asA.create(inFlight());
@@ -528,7 +539,7 @@ test('the AAD alone stops another account, with scopeId rewritten too', async ()
 });
 
 test('a replayed state is still rejected after the hardening', async () => {
-  const storage = createMemoryStorage();
+  const storage = await liveStorage();
   const store = new StoredProviderOAuthStateStore(UID_A, storage, crypto());
   await store.create(inFlight());
   assert.ok(await store.consume(RAW_STATE, NOW), 'the first consume must succeed');
@@ -536,7 +547,7 @@ test('a replayed state is still rejected after the hardening', async () => {
 });
 
 test('an expired state is still spent after the hardening', async () => {
-  const storage = createMemoryStorage();
+  const storage = await liveStorage();
   const store = new StoredProviderOAuthStateStore(UID_A, storage, crypto());
   await store.create(inFlight({ expiresAt: '2026-09-18T08:10:00.000Z' }));
   assert.equal(await store.consume(RAW_STATE, NOW), null, 'expired must not be returned');
@@ -544,7 +555,7 @@ test('an expired state is still spent after the hardening', async () => {
 });
 
 test('corrupted ciphertext fails closed and does not restore the state', async () => {
-  const storage = createMemoryStorage();
+  const storage = await liveStorage();
   const store = new StoredProviderOAuthStateStore(UID_A, storage, crypto());
   await store.create(inFlight());
   const docs = await storedStateDocs(storage);
@@ -561,7 +572,7 @@ test('corrupted ciphertext fails closed and does not restore the state', async (
 });
 
 test('a failed decrypt surfaces no state, verifier or ciphertext', async () => {
-  const storage = createMemoryStorage();
+  const storage = await liveStorage();
   const store = new StoredProviderOAuthStateStore(UID_A, storage, crypto());
   await store.create(inFlight());
   const docs = await storedStateDocs(storage);
@@ -578,7 +589,7 @@ test('a failed decrypt surfaces no state, verifier or ciphertext', async () => {
 });
 
 test('create refuses an authorization with no state or no verifier', async () => {
-  const storage = createMemoryStorage();
+  const storage = await liveStorage();
   const store = new StoredProviderOAuthStateStore(UID_A, storage, crypto());
   await assert.rejects(() => store.create(inFlight({ state: '' })));
   await assert.rejects(() => store.create(inFlight({ codeVerifier: '' })));

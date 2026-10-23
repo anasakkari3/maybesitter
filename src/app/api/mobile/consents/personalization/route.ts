@@ -1,3 +1,4 @@
+import { AccountUnavailableError, accountUnavailableResponse } from '../../../../../../lib/account/accountLiveness';
 import { mobileAuthErrorResponse, requireMobileUser } from '../../../../../../lib/auth/mobileAuth';
 import { UnsupportedConsentVersionError } from '../../../../../../lib/consents/consentService';
 import {
@@ -61,6 +62,7 @@ export async function PUT(request: Request) {
     });
     return Response.json({ success: true, personalization: record });
   } catch (error) {
+    if (error instanceof AccountUnavailableError) return accountUnavailableResponse();
     if (error instanceof PersonalizationConsentNotRecordedError) {
       return Response.json(
         { success: false, error: 'consent could not be recorded', reason: 'consent_not_recorded' },

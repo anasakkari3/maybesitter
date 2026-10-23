@@ -46,6 +46,7 @@ import {
 } from '../../src/contracts/v1/watcherContracts.ts';
 import type { IntegrationConnectionRecord } from '../../src/contracts/v1/integrationConnectionContracts.ts';
 import type { VerticalPackDefinition } from '../../src/contracts/v1/verticalPackContracts.ts';
+import { seedLiveAccount } from '../support/liveAccount.ts';
 
 const UID = 'pack_lifecycle_user_00001';
 const CONNECTION_ID = 'conn_shared';
@@ -122,6 +123,9 @@ function buildRig(): Rig {
 
 async function seed(rig: Rig): Promise<void> {
   await rig.storage.set(userDoc(UID), { uid: UID });
+  // A live account: the installation record and its watchers are written
+  // behind the account deletion fence (#772).
+  await seedLiveAccount(UID, rig.storage);
   await rig.storage.set(userSubDoc(UID, PROVIDER_CONNECTIONS, CONNECTION_ID), connectionRecord());
 }
 

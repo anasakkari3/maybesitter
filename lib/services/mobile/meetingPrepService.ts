@@ -60,9 +60,14 @@ import { splitPrompt } from '../../llm/captureProvider';
 import { NO_QUIET_HOURS, isInQuietHours, readQuietHours, type QuietHours } from '../../push/quietHours';
 import {
   CaptureInputTooLargeError,
-  createStorageCaptureProposalStore,
   type CaptureProposalStore,
 } from '../captureBoundary';
+import {
+  captureProposalPath,
+  captureProposalToDocument,
+  type StoredCaptureProposal,
+} from '../captureBoundary/proposalStore';
+import { requireLiveAccount } from '../../account/accountLiveness';
 import { getStorage, userDoc, type StorageAdapter } from '../../storage';
 import { localDayKey, localMidnightOf, normalizeTimezone } from './time';
 import { hardSettingsOfUser, readReminderSettings } from './reminderSettingsService';
@@ -771,6 +776,20 @@ async function readPrepRingSettings(uid: string, options: { storage?: StorageAda
   };
 }
 
+/**
+ * The proposal, written where `StorageCaptureProposalStore.put` writes it, in
+ * a transaction that first re-reads the account deletion fence (#772): a
+ * preparation that finishes after the account was deleted (the model call can
+ * take seconds) must not re-create a proposal under it.
+ */
+async function putProposalWhileLive(uid: string, proposal: StoredCaptureProposal, storage: StorageAdapter): Promise<void> {
+  const document = captureProposalToDocument(proposal, new Date());
+  await storage.runTransaction(async (tx) => {
+    await requireLiveAccount(tx, uid);
+    tx.set(captureProposalPath(uid, proposal.contract.proposalId), document);
+  });
+}
+
 export async function prepareMeeting(uid: string, input: MeetingPrepInput, options: MeetingPrepOptions = {}): Promise<MeetingPrepResult> {
   const now = options.now ?? new Date();
   const valid = validateMeetingPrepInput(input, now);
@@ -898,15 +917,16 @@ export async function prepareMeeting(uid: string, input: MeetingPrepInput, optio
     provenance: { requestedEngine, executedEngine, fallbackUsed: requestedEngine === 'model' && !answered },
   };
 
-  const store = options.store ?? createStorageCaptureProposalStore(options.storage);
-  await store.put({
+  const stored: StoredCaptureProposal = {
     contract,
     scopeId: uid,
     commandsByItemId,
     // The server's clock, as capture does it: the confirm's staleness guard
     // measures from here.
     proposedAt: new Date().toISOString(),
-  });
+  };
+  if (options.store) await options.store.put(stored);
+  else await putProposalWhileLive(uid, stored, options.storage ?? getStorage());
 
   return {
     proposal: contract,

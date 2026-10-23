@@ -26,6 +26,7 @@
  *
  * The zone is `Pacific/Kiritimati` — UTC+14, and nobody's host clock.
  */
+import { seedLiveAccount } from '../support/liveAccount.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
@@ -679,6 +680,7 @@ async function shareOf(
   referenceTime: Date,
   generateStructured: ReturnType<typeof emailModelStub>['generate'],
 ): Promise<ShareResult> {
+  await seedLiveAccount(READER); // #772: the share's proposal is written behind the account deletion fence
   return await proposeFromShare(
     {
       text: raw,
@@ -963,7 +965,10 @@ test('an appointment whose day has passed is dropped like any other past item', 
  */
 async function reviewOf(run: () => Promise<ShareResult>): Promise<ShareResult> {
   let result: ShareResult | undefined;
-  await withStorage(async () => { result = await run(); });
+  await withStorage(async () => {
+    await seedLiveAccount(READER); // #772: the share's proposal is written behind the account deletion fence
+    result = await run();
+  });
   return result!;
 }
 

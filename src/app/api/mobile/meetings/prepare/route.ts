@@ -28,6 +28,7 @@
  * An error's name, never its message and never the notes: a failure deeper
  * in the pipeline can quote the text it was reading.
  */
+import { AccountUnavailableError, accountUnavailableResponse } from '../../../../../../lib/account/accountLiveness';
 import { mobileAuthErrorResponse, requireMobileUser } from '../../../../../../lib/auth/mobileAuth';
 import { reserveDailyAction, retryAfterSecondsFor } from '../../../../../../lib/llm/usageGuard';
 import { CaptureInputTooLargeError } from '../../../../../../lib/services/captureBoundary/captureBoundaryService';
@@ -105,8 +106,11 @@ export async function POST(request: Request) {
     const result = await prepareMeeting(user.uid, input, { now });
     return Response.json({ success: true, ...result });
   } catch (error) {
+    if (error instanceof AccountUnavailableError) return accountUnavailableResponse();
     if (error instanceof MeetingPrepInputError) return refused(error);
     if (error instanceof CaptureInputTooLargeError) return tooLong(error);
+    // The account was deleted while this was on its way (#772).
+    if (error instanceof AccountUnavailableError) return accountUnavailableResponse();
     console.error(`[meetings/prepare] preparing failed: ${error instanceof Error ? error.name : 'unknown'}`);
     return mobileError('could not prepare this meeting', 500);
   }

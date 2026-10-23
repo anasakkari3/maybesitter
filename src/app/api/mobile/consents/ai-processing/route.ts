@@ -1,3 +1,4 @@
+import { AccountUnavailableError, accountUnavailableResponse } from '../../../../../../lib/account/accountLiveness';
 import { mobileAuthErrorResponse, requireMobileUser } from '../../../../../../lib/auth/mobileAuth';
 import {
   AI_ALWAYS_ON_CODE,
@@ -94,6 +95,7 @@ export async function PUT(request: Request) {
     });
     return Response.json({ success: true, aiProcessing: record });
   } catch (error) {
+    if (error instanceof AccountUnavailableError) return accountUnavailableResponse();
     if (error instanceof AiProcessingAlwaysOnError) return alwaysOnRefusal();
     if (error instanceof UnsupportedConsentVersionError) {
       return Response.json(

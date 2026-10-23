@@ -88,6 +88,7 @@ test('N11: a task on Friday carries no such flag — cleared of its hour, it los
 
 test('N11: an appointment with its hour already said is flagged on the first proposal', async () => {
   await withMemoryStorage(async () => {
+    await seedLiveAccount('n11-timed'); // #772: the proposal is written behind the account deletion fence
     const proposal = await proposeMobileCapture(
       { text: 'موعد دكتور يوم الجمعة الساعة 10 الصبح', timezone: TZ, referenceTime: NOW.toISOString() },
       { participantId: 'n11-timed' },
@@ -155,6 +156,7 @@ test('N11 review M3: a failed flag read after a saved clarify answer returns the
   setStorageForTests(storage);
   try {
     const uid = 'n11-flaky';
+    await seedLiveAccount(uid); // #772: the proposal is written behind the account deletion fence
     const proposal = await proposeMobileCapture({ text: 'سجّل موعد أسنان يوم الجمعة', timezone: TZ, referenceTime: NOW.toISOString() }, { participantId: uid });
     const item = proposal.items[0]!;
     const morning = item.clarification!.options.find((option) => option.value.localTime === '09:00')!;
@@ -177,6 +179,7 @@ test('N11 review M3: a failed flag read after a stored proposal returns the prop
   setStorageForTests(storage);
   try {
     arm();
+    await seedLiveAccount('n11-flaky-propose'); // #772: the proposal is written behind the account deletion fence
     const proposal = await proposeMobileCapture(
       { text: 'موعد دكتور يوم الجمعة الساعة 10 الصبح', timezone: TZ, referenceTime: NOW.toISOString() },
       { participantId: 'n11-flaky-propose' },

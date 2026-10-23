@@ -41,6 +41,9 @@ const ALLOWED_IMPORTS = [
   // which is the same rule that denies it an OAuth store or a scheduler.
   '../storage',
   '../storage/paths',
+  // The account deletion fence (#772): a pure check of the user document a
+  // pack's own writes read in their transaction, never a store of its own.
+  '../account/accountLiveness',
   './packEntitlement',
   './instantiate',
   './catalog',

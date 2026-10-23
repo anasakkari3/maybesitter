@@ -336,7 +336,8 @@ test('a dismiss that fails for any reason other than "no such fixture" is a 500,
     const real = getStorage();
     setStorageForTests(new Proxy(real, {
       get(target, prop, receiver) {
-        if (prop === 'set') return async () => { throw new Error('storage unavailable'); };
+        // Every write entry: the ref write is a transaction now (#772 fence).
+        if (prop === 'set' || prop === 'runTransaction') return async () => { throw new Error('storage unavailable'); };
         const value = Reflect.get(target, prop, receiver);
         return typeof value === 'function' ? value.bind(target) : value;
       },

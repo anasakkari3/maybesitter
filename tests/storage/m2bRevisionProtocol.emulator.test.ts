@@ -1,3 +1,4 @@
+import { seedLiveAccount } from '../support/liveAccount.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
@@ -49,6 +50,9 @@ async function withFirestore(label: string, run: (uid: string) => Promise<void>)
   setCaptureChatDependenciesForTests({ llmProviderFor: () => null });
   const uid = uidFor(`${label}${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`);
   try {
+    // The trust record auth creates (#772): some cases write the proposal
+    // store directly, behind the deletion fence, before any route runs.
+    await seedLiveAccount(uid, storage);
     await run(uid);
   } finally {
     setCaptureChatDependenciesForTests(null);

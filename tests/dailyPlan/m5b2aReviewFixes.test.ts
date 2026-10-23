@@ -84,6 +84,12 @@ async function replanWithWithdrawalAtWrite(
     get(target, key) {
       if (key === 'runTransaction') {
         return async (fn: (tx: any) => Promise<unknown>) => {
+          // The withdrawal lands once, and every read of the account in the
+          // transaction it lands in sees it: since #772 the plan write reads
+          // the account for the deletion fence as well as for the purge
+          // fence, and a withdrawal committed before the first of those
+          // reads is committed before the second.
+          let withdrawnHere: Record<string, unknown> | null = null;
           return target.runTransaction((tx: any) => fn(new Proxy(tx, {
             get(inner, property) {
               const member = Reflect.get(inner, property);
@@ -91,10 +97,12 @@ async function replanWithWithdrawalAtWrite(
                 return async (path: string, ...rest: unknown[]) => {
                   if (path === planPath(uid, TODAY)) armed = true;
                   const value = await member.call(inner, path, ...rest);
+                  if (path === userDoc(uid) && withdrawnHere) return withdrawnHere;
                   if (path === userDoc(uid) && armed && !withdrew) {
                     withdrew = true;
                     const epoch = (value?.personalizationPurge?.epoch ?? 0) + 1;
-                    return { ...(value ?? {}), personalizationPurge: { state: 'withdrawing', epoch } };
+                    withdrawnHere = { ...(value ?? {}), personalizationPurge: { state: 'withdrawing', epoch } };
+                    return withdrawnHere;
                   }
                   return value;
                 };

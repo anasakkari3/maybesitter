@@ -237,6 +237,11 @@ test('no watcher module can reach the planner, the domain state machine or a com
     // and a Trust audit come to disagree about which monitor they mean.
     './backgroundMonitors',
     './backgroundAttribution',
+    // The account deletion fence (#772): `watcherStore` and
+    // `monitoringSettings` read whether the account is live in the
+    // transaction that writes. It imports the trust-record validator and the
+    // storage paths, nothing that plans or writes commitments.
+    '../account/accountLiveness',
   ];
 
   for (const { file, text } of watcherSources()) {

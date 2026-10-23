@@ -1,3 +1,4 @@
+import { AccountUnavailableError, accountUnavailableResponse } from '../../../../../../../../lib/account/accountLiveness';
 import { mobileAuthErrorResponse, requireMobileUser } from '../../../../../../../../lib/auth/mobileAuth';
 import { mobileError } from '../../../../../../../../lib/services/mobile/response';
 import {
@@ -92,6 +93,8 @@ export async function POST(request: Request, context: RouteContext) {
       console.error('[goalGraph] graph failed its own validation before a confirm', error.codes);
       return mobileError('could not build an execution plan for this goal', 500);
     }
+    // The account was deleted while this was on its way (#772).
+    if (error instanceof AccountUnavailableError) return accountUnavailableResponse();
     console.error('[goalGraph] confirming execution nodes failed', error);
     return mobileError('could not confirm those steps', 500);
   }

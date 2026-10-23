@@ -53,6 +53,7 @@ import {
 } from '../../../security/fieldEncryption';
 import { PROVIDER_OAUTH_STATES, docIdForKey, userSubDoc } from '../../../storage/paths';
 import type { StorageAdapter } from '../../../storage/storageAdapter';
+import { requireLiveAccount } from '../../../account/accountLiveness';
 import {
   ProviderOAuthError,
   type ProviderOAuthState,
@@ -156,6 +157,9 @@ export class StoredProviderOAuthStateStore implements ProviderOAuthStateStore {
     };
     const path = this.path(docId);
     await this.storage.runTransaction(async (tx) => {
+      // The account deletion fence (#772): a connect begun after the account
+      // was deleted stores no state (and so no encrypted verifier) under it.
+      await requireLiveAccount(tx, this.uid);
       // A collision means a state value was reused, which is the one thing a
       // nonce must never do. `MemoryProviderOAuthStateStore` refuses it too.
       const existing = await tx.get<StoredOAuthStateDocument>(path);

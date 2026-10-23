@@ -43,9 +43,10 @@ import {
   type ConsentRecord,
   type ConsentState,
 } from '../../src/contracts/v1/consentContracts';
+import { assertLiveAccount } from '../account/accountLiveness';
 import { createPilotAuditEvent } from '../pilot/closedPilotControls';
 import { AiProcessingAlwaysOnError, alwaysOnAiRecord, isAlwaysOnConsent } from './aiProcessingPolicy';
-import { appendAudit } from '../pilot/pilotTrustStore';
+import { appendAuditInTransaction } from '../pilot/pilotTrustStore';
 import { getStorage, requireUserId, userDoc, type StorageAdapter } from '../storage';
 
 /** The user document's consent map, as this service reads and writes it. */
@@ -175,6 +176,10 @@ async function writeConsent(
   const token = randomUUID();
   const written = await storage.runTransaction(async (tx) => {
     const current = await tx.get<ConsentBearingUser>(userDoc(uid));
+    // The account deletion fence (#772), before any caller condition: a merge
+    // into a swept account would re-create its user document, and an answer
+    // recorded under a deleted one would outlive the deletion it raced.
+    assertLiveAccount(current);
     if (accepts && !accepts(current)) return false;
     // Merged into the existing map, never replacing it: answering one question
     // must not erase the answer to the other.
@@ -182,20 +187,23 @@ async function writeConsent(
       consents: { ...(current?.consents ?? {}), [kind.key]: record },
       consentOps: { ...(current?.consentOps ?? {}), [kind.key]: token },
     });
+    // The audit line commits with the answer, in the transaction that found
+    // the account live (#772, Q772C-002): an audit line for a change that did
+    // not happen would be worse than a missing one, and one appended after
+    // the commit could land after the deletion swept the tree and re-create
+    // it. A refused write — deleted account, or a caller condition that no
+    // longer holds (a rolled-back grant) — leaves no line at all.
+    appendAuditInTransaction(tx, createPilotAuditEvent({
+      version: 'v1',
+      eventType: 'consent_changed',
+      participantId: uid,
+      occurredAt: at,
+      outcome: 'recorded',
+      reasonCode: `${kind.auditCode}_${input.state}`,
+    }));
     return true;
   });
   if (!written) return null;
-
-  // Appended after the write commits: an audit line for a change that did not
-  // happen would be worse than a missing one.
-  await appendAudit(createPilotAuditEvent({
-    version: 'v1',
-    eventType: 'consent_changed',
-    participantId: uid,
-    occurredAt: at,
-    outcome: 'recorded',
-    reasonCode: `${kind.auditCode}_${input.state}`,
-  }));
 
   return { record, token };
 }

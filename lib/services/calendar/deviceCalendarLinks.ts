@@ -39,6 +39,7 @@
  * A tombstone is not forever: `DELETE` removes the row, which is what the
  * "Remove events MaybeSitter added" button does for the links it still owns.
  */
+import { requireLiveAccount } from '../../account/accountLiveness';
 import { getStorage, type StorageAdapter } from '../../storage';
 import { DEVICE_CALENDAR_LINKS, userCol, userSubDoc } from '../../storage/paths';
 
@@ -183,6 +184,9 @@ export async function putDeviceCalendarLink(
   const parsed = parseDeviceCalendarLinkInput(input);
   const path = userSubDoc(uid, DEVICE_CALENDAR_LINKS, commitmentId);
   return storageOf(deps).runTransaction(async (tx) => {
+    // The account deletion fence (#772): a link written after the account was
+    // swept would re-create a document under it.
+    await requireLiveAccount(tx, uid);
     const current = await tx.get<DeviceCalendarLink>(path);
     if (current) {
       if (current.writerId !== parsed.writerId) {

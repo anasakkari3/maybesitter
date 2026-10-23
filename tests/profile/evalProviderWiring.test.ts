@@ -19,6 +19,7 @@ import { runCaptureEvaluation } from '../../src/evaluation/captureEvalRunner.ts'
 import { extract as ruleBasedExtract } from '../../src/extraction/ruleBasedExtractor.ts';
 import { LLMUnavailableError, type LlmProvider, type LlmRequest } from '../../src/extraction/llm/index.ts';
 import type { ReserveOptions } from '../../lib/llm/usageGuard.ts';
+import { seedLiveAccount } from '../support/liveAccount.ts';
 
 const reply = JSON.stringify({ suggestions: [{ kind: 'goal', category: 'learning', content: 'Finish thesis', confidence: 0.9, targetDate: null }] });
 function harness() {
@@ -91,6 +92,7 @@ test('synthetic adapters retain kill switch and reservation refusal', async () =
 test('production profile composition uses profile schema; a declined gate still stops before reservation', async () => {
   const h = harness();
   const uid = 'profile-production-test';
+  await seedLiveAccount(uid); // consent and the proposal write behind the deletion fence (#772)
   await setAiConsent(uid, { state: 'granted', version: AI_CONSENT_VERSION });
   let consent: 'granted' | 'declined' = 'granted';
   const reader = async () => consent;

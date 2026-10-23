@@ -8,6 +8,7 @@
  * without a cloud project: a second store instance over the same adapter is
  * what a second instance (or the process after a redeploy) sees.
  */
+import { seedLiveAccount } from '../support/liveAccount.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createEmptyDomainState, type Command } from '../../src/domain/stateMachine.ts';
@@ -79,6 +80,7 @@ async function proposeOn(deps: ReturnType<typeof instance>) {
 
 test('a proposal made on one instance is confirmed on another', async () => {
   const storage = createMemoryStorage();
+  await seedLiveAccount(SCOPE, storage); // #772: proposals are written behind the account deletion fence
   const persistence = recordingPersistence();
 
   const proposal = await proposeOn(instance(storage, persistence));
@@ -103,6 +105,7 @@ test('the commands survive storage, which a Map does not force you to check', as
   // would find the proposal and then refuse it as `invalid_selection` — a
   // different silent failure, so it is asserted directly.
   const storage = createMemoryStorage();
+  await seedLiveAccount(SCOPE, storage); // #772: proposals are written behind the account deletion fence
   const proposal = await proposeOn(instance(storage, recordingPersistence()));
   const readBack = await new StorageCaptureProposalStore(storage).get(proposal.proposalId);
 
@@ -117,6 +120,7 @@ test('a confirm replayed on a third instance does not persist a second time', as
   // The Map-backed store recorded the result by mutating the object it held.
   // A durable store needs the write-back, or a replay re-persists everything.
   const storage = createMemoryStorage();
+  await seedLiveAccount(SCOPE, storage); // #772: proposals are written behind the account deletion fence
   const persistence = recordingPersistence();
   const proposal = await proposeOn(instance(storage, persistence));
   const itemId = proposal.items[0]!.itemId;
@@ -133,6 +137,7 @@ test('a confirm replayed on a third instance does not persist a second time', as
 
 test('another scope cannot confirm the proposal, even though the lookup is by id', async () => {
   const storage = createMemoryStorage();
+  await seedLiveAccount(SCOPE, storage); // #772: proposals are written behind the account deletion fence
   const persistence = recordingPersistence();
   const proposal = await proposeOn(instance(storage, persistence));
 
@@ -176,6 +181,7 @@ test('the mobile capture path itself stores proposals durably, not in process me
   setStorageForTests(storage);
   try {
     const uid = 'user_wiring_1';
+    await seedLiveAccount(uid); // #772: the proposal is written behind the account deletion fence
     const proposal = await proposeMobileCapture(
       { text: 'Remind me to call the dentist tomorrow at 3pm', timezone: 'UTC' },
       { participantId: uid },

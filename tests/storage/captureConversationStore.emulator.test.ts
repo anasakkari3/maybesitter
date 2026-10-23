@@ -8,6 +8,7 @@
  * that a conversation is addressed by its owner: the same id read under
  * another uid is nothing, through a separate instance.
  */
+import { seedLiveAccount } from '../support/liveAccount.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createFirestoreStorage, resetFirestoreForTests } from '../../lib/storage/firestoreAdapter.ts';
@@ -21,6 +22,9 @@ test('firestore: a conversation round-trips with its turns, and only under its o
   const writer = createFirestoreStorage();
   const reader = createFirestoreStorage();
   try {
+    // The trust record auth creates (#772): the store writes behind the deletion fence.
+    await seedLiveAccount(owner, writer);
+    await seedLiveAccount(other, writer);
     await new CaptureConversationStore(writer).put(owner, {
       conversationId,
       turns: [

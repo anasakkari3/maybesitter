@@ -97,6 +97,7 @@ import {
   userSubDoc,
   type StorageAdapter,
 } from '../../storage';
+import { requireLiveAccount } from '../../account/accountLiveness';
 import { createManualMemory } from './memoryService';
 import { applyParticipantCommand, applyParticipantCommands } from './participantState';
 
@@ -257,7 +258,10 @@ export async function createSeed(
     const storage = options.storage ?? getStorage();
     const proposalPath = captureProposalPath(uid, proposalId);
     const created = await storage.runTransaction(async (tx) => {
-      const proposalDocument = await tx.get<StoredProposalDocument>(proposalPath);
+      const [proposalDocument] = await Promise.all([
+        tx.get<StoredProposalDocument>(proposalPath),
+        requireLiveAccount(tx, uid), // the deletion fence (#772)
+      ]);
       if (!proposalDocument) throw new SeedNotFoundError();
       const stored = captureProposalFromDocument(proposalDocument);
       // A proposal in another account is deliberately indistinguishable from

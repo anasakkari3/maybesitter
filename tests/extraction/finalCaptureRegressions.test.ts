@@ -23,6 +23,7 @@
  *
  * Rows that script a model answer say so; the recorded rows never do.
  */
+import { seedLiveAccount } from '../support/liveAccount.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -134,6 +135,7 @@ for (const probe of PROBES) {
   test(`N19 rules path: «${probe.text}» keeps its day, and the question names it`, async () => {
     setStorageForTests(createMemoryStorage());
     try {
+      await seedLiveAccount('default'); // #772: the proposal is written behind the account deletion fence
       const proposal = await proposeMobileCapture({ text: probe.text, timezone: TZ, referenceTime: NOW.toISOString() });
       assert.equal(proposal.items.length, 1);
       assert.deepEqual(shown(proposal.items[0]!), [probe.day, null, 'ask_time', probe.day]);
@@ -190,6 +192,7 @@ test('N19 guard (SCRIPTED, review M2): a day ruled out or left open gets no fill
     // The rules path reads the same words the same way: no day, asked.
     setStorageForTests(createMemoryStorage());
     try {
+      await seedLiveAccount('default'); // #772: the proposal is written behind the account deletion fence
       const proposal = await proposeMobileCapture({ text, timezone: TZ, referenceTime: NOW.toISOString() });
       const rules = proposal.items[0]!;
       assert.deepEqual([rules.resolvedDate ?? null, rules.resolvedTime, rules.needsClarification], [null, null, true], `rules: ${text}`);
@@ -244,6 +247,7 @@ const M2_TITLES: ReadonlyArray<{ text: string; phrase: string }> = [
 async function rulesTitles(text: string, referenceTime = NOW.toISOString()): Promise<string[]> {
   setStorageForTests(createMemoryStorage());
   try {
+    await seedLiveAccount('default'); // #772: the proposal is written behind the account deletion fence
     const proposal = await proposeMobileCapture({ text, timezone: TZ, referenceTime });
     return proposal.items.map((item) => item.title);
   } finally {
@@ -446,6 +450,7 @@ for (const variant of R6_MONTH_END_VARIANTS) {
 
 test('R6 month end: the rules path marks the same day the same way', async () => {
   setStorageForTests(createMemoryStorage());
+  await seedLiveAccount('default'); // #772: the proposal is written behind the account deletion fence
   const proposal = await proposeMobileCapture({ text: R6_MONTH_END, timezone: TZ, referenceTime: NOW.toISOString() }).finally(() => resetStorageForTests());
   const item = proposal.items[0]!;
   assert.deepEqual([item.resolvedDate ?? null, item.resolvedTime, item.clarification?.questionKey ?? null, item.dateEstimated], [MONTH_LAST, null, 'ask_time', true]);
@@ -534,11 +539,13 @@ async function proposeThroughRoute(text: string, answer: Record<string, unknown>
   try {
     const uid = 'r6-route';
     if (answer) {
+      await seedLiveAccount(uid); // consent answers write behind the deletion fence (#772)
       await setAiConsent(uid, { state: 'granted', version: AI_CONSENT_VERSION });
       process.env.MAYBESITTER_LLM_PROVIDER = 'gemini';
       process.env.MAYBESITTER_VERTEX_LOCATION = 'europe-west1';
     }
     resetProviderForTests();
+    await seedLiveAccount(uid); // #772: the proposal is written behind the account deletion fence
     const proposal = await proposeMobileCapture({ text, timezone: TZ, referenceTime: NOW.toISOString() }, { participantId: uid });
     return { proposal, calls };
   } finally {
@@ -668,6 +675,7 @@ for (const variant of R6_BANK_VARIANTS) {
 
 test('R6 D1: the rules path asks the same question about the same sentence', async () => {
   setStorageForTests(createMemoryStorage());
+  await seedLiveAccount('default'); // #772: the proposal is written behind the account deletion fence
   const proposal = await proposeMobileCapture({ text: R6_BANK, timezone: TZ, referenceTime: NOW.toISOString() }).finally(() => resetStorageForTests());
   assert.deepEqual(amPmShown(proposal.items[0]!), ASKED_TOMORROW);
 });
@@ -726,6 +734,7 @@ test('R6 D1 (SCRIPTED): a bare early hour today whose morning has gone is asked,
   const { contract } = await proposeModel(text, bankModel({ dueAt: at(TODAY, '17:00'), localTimeSpec: { date: TODAY, time: '17:00', timezone: TZ } }));
   assert.deepEqual(amPmShown(contract.items[0]!), [TODAY, null, true, 'ask_am_pm', [`pm ${TODAY} 17:00`]]);
   setStorageForTests(createMemoryStorage());
+  await seedLiveAccount('default'); // #772: the proposal is written behind the account deletion fence
   const rules = await proposeMobileCapture({ text, timezone: TZ, referenceTime: NOW.toISOString() }).finally(() => resetStorageForTests());
   assert.deepEqual(amPmShown(rules.items[0]!), [TODAY, null, true, 'ask_am_pm', [`pm ${TODAY} 17:00`]]);
 });
@@ -809,6 +818,7 @@ test('R6 title hour: on the rules path a clock number leaves the title with its 
   for (const probe of R6_TITLE_HOURS) {
     setStorageForTests(createMemoryStorage());
     try {
+      await seedLiveAccount('default'); // #772: the proposal is written behind the account deletion fence
       const proposal = await proposeMobileCapture({ text: probe.text, timezone: TZ, referenceTime: NOW.toISOString() });
       seen.push([probe.text, proposal.items.map((item) => [item.title, item.resolvedDate ?? null, item.resolvedTime])]);
     } finally {
@@ -821,6 +831,7 @@ test('R6 title hour: on the rules path a clock number leaves the title with its 
 test('R6 title hour: a bare «5» the item did not take as its hour stays in the title, and is asked as it was', async () => {
   setStorageForTests(createMemoryStorage());
   try {
+    await seedLiveAccount('default'); // #772: the proposal is written behind the account deletion fence
     const proposal = await proposeMobileCapture({ text: 'بكرا 5 لازم أتصل بأمي', timezone: TZ, referenceTime: NOW.toISOString() });
     const item = proposal.items[0]!;
     assert.deepEqual([proposal.items.length, item.title, item.resolvedDate ?? null, item.resolvedTime], [1, '5 لازم أتصل بأمي', TOMORROW, null]);
@@ -847,6 +858,7 @@ test('R6 title hour: a capture that is only «بكرا 5 المسا» asks what 
   for (const text of ['بكرا 5 المسا', 'اليوم 8 بالليل', 'بكرا الساعة 5 المسا', 'tomorrow 5pm', 'מחר ב-5 בערב']) {
     setStorageForTests(createMemoryStorage());
     try {
+      await seedLiveAccount('default'); // #772: the proposal is written behind the account deletion fence
       const proposal = await proposeMobileCapture({ text, timezone: TZ, referenceTime: NOW.toISOString() });
       seen.push([text, proposal.status, proposal.items.map((item) => [item.resolvedDate ?? null, item.clarification?.questionKey ?? null])]);
     } finally {
@@ -943,6 +955,7 @@ test('R6 stated hour: on the rules path the number before the part of the day is
   for (const [text] of R6_STATED_HOURS) {
     setStorageForTests(createMemoryStorage());
     try {
+      await seedLiveAccount('default'); // #772: the proposal is written behind the account deletion fence
       const proposal = await proposeMobileCapture({ text, timezone: TZ, referenceTime: NOW.toISOString() });
       seen.push([text, ...proposal.items.map((item) => hourShown(item))]);
     } finally {
@@ -955,6 +968,7 @@ test('R6 stated hour: on the rules path the number before the part of the day is
 test('R6 stated hour: «اليوم 9 الصبح» at 10:05 is a passed hour and asked, as it was', async () => {
   setStorageForTests(createMemoryStorage());
   try {
+    await seedLiveAccount('default'); // #772: the proposal is written behind the account deletion fence
     const proposal = await proposeMobileCapture({ text: 'اليوم 9 الصبح لازم أتصل بأمي', timezone: TZ, referenceTime: NOW.toISOString() });
     assert.deepEqual(proposal.items.map((item) => [item.resolvedDate, ...hourShown(item)]), [[TODAY, 'أتصل بأمي', null, false, 'ask_time']]);
   } finally {
@@ -1012,6 +1026,7 @@ test('R6 stated hour: a typed answer reads the number and its part of the day as
   for (const freeText of ['خمسة المسا', '5 العصر', 'tomorrow 5 in the evening', '11 الضهر', '9 العصر']) {
     setStorageForTests(createMemoryStorage());
     try {
+      await seedLiveAccount('r6-stated'); // #772: the proposal is written behind the account deletion fence
       const proposal = await proposeMobileCapture({ text: 'بكرا لازم أبعت الإيميل للمدير', timezone: TZ, referenceTime: NOW.toISOString() }, { participantId: 'r6-stated' });
       const item = proposal.items[0]!;
       assert.equal(item.clarification?.questionKey, 'ask_time');
@@ -1083,6 +1098,7 @@ async function rulesAsked(
 ): Promise<{ items: AskedItem[]; answered?: AskedItem | string }> {
   setStorageForTests(createMemoryStorage());
   try {
+    await seedLiveAccount('r6-passed'); // #772: the proposal is written behind the account deletion fence
     const proposal = await proposeMobileCapture({ text, timezone: HEBRON, referenceTime: now.toISOString() }, { participantId: 'r6-passed' });
     const items = proposal.items as AskedItem[];
     if (!answer) return { items };
@@ -1212,6 +1228,7 @@ test('R6 passed part (race across the hour): a button tapped after its hour went
 test('R6 passed part (race): the refused tap does not spend the round — «بدون وقت محدد» still answers it', async () => {
   setStorageForTests(createMemoryStorage());
   try {
+    await seedLiveAccount('r6-race'); // #772: the proposal is written behind the account deletion fence
     const proposal = await proposeMobileCapture({ text: 'لازم أتصل بأمي اليوم', timezone: HEBRON, referenceTime: hebron('18:59').toISOString() }, { participantId: 'r6-race' });
     const item = proposal.items[0]!;
     const ask = (optionId: string) => clarifyMobileCapture({

@@ -1,3 +1,4 @@
+import { AccountUnavailableError, accountUnavailableResponse } from '../../../../../../../lib/account/accountLiveness';
 import { mobileAuthErrorResponse, requireMobileUser } from '../../../../../../../lib/auth/mobileAuth';
 import { completeGoogleConnect, GoogleConnectError } from '../../../../../../../lib/integrations/google/googleConnectService';
 import { googleFailureResponse, invalidGoogleRequest } from '../../../../../../../lib/integrations/google/googleRouteSupport';
@@ -42,6 +43,7 @@ export async function POST(request: Request) {
   try {
     return Response.json({ success: true, google: await completeGoogleConnect(user.uid, { code, state }, googleRuntime()) });
   } catch (error) {
+    if (error instanceof AccountUnavailableError) return accountUnavailableResponse();
     return googleFailureResponse(error);
   }
 }

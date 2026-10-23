@@ -316,6 +316,7 @@ test('runContinuousReplanTick: processes accounts with pending changes', async (
 
   try {
     await storage.set(userDoc(UID), { timezone: TZ, locale: 'en' });
+    await seedLiveAccount(UID, storage); // #772: the trust record authentication writes
     await storage.set(userDoc('user_other'), { timezone: TZ, locale: 'en' });
 
     // Seed initial plan for UID

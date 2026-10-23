@@ -42,6 +42,7 @@ import { POST as suggestionPost } from '../../src/app/api/mobile/memory/suggesti
 import { keptFocusWindow } from '../../lib/memoryGrowth/suggestionService.ts';
 import { createStorageRuntimeMemoryStore } from '../../lib/runtimeMemory/runtimeMemoryStore.ts';
 import { EVENTS, userDoc, userSubDoc } from '../../lib/storage/paths.ts';
+import { seedLiveAccount } from '../support/liveAccount.ts';
 
 const BASE = 'http://127.0.0.1:4321';
 const ZONE = 'Asia/Jerusalem';
@@ -154,6 +155,7 @@ test('an existing account with AI processing and next-step suggestions on is sti
   try {
     const uid = uidFor('PersonalizationExisting');
     await seedHabit(uid);
+    await seedLiveAccount(uid); // the consent answers write behind the deletion fence (#772)
     await setAiConsent(uid, { state: 'granted', version: AI_CONSENT_VERSION });
     await setRecommendationConsent(uid, { state: 'granted', version: RECOMMENDATION_CONSENT_VERSION });
 

@@ -60,6 +60,16 @@ import {
   type StorageTransaction,
 } from '../../storage';
 import type { UserDocument } from '../../storage/userDocument';
+import { liveAccount, requireLiveAccount } from '../../account/accountLiveness';
+
+/**
+ * The account deletion fence (#772), read first in every transaction here that
+ * writes under `users/{uid}`: a goal plan, its times, its claim or a statement
+ * preview written after account deletion would re-create the person's goal
+ * under an account they deleted. Throws `AccountUnavailableError`, which the
+ * goal routes answer 403 `deleted`.
+ */
+const fence = (tx: StorageTransaction, uid: string): Promise<unknown> => requireLiveAccount(tx, uid);
 
 const CLAIM_LEASE_MS = 120_000;
 const PREVIEW_TTL_MS = 30 * 60_000;
@@ -370,6 +380,7 @@ export async function generateGoalPlan(uid: string, goalId: string, input: { ide
   const now = new Date();
   const nowIso = now.toISOString();
   const claim = await storage.runTransaction(async (tx) => {
+    await fence(tx, uid);
     const lineage = await requireCurrentGoal(tx, uid, goalId);
     const existing = await tx.get<GenerationClaim>(claimPath(uid, lineage.lineageId));
     if (lineage.activeDraftPlanId) {
@@ -404,6 +415,7 @@ export async function generateGoalPlan(uid: string, goalId: string, input: { ide
     else { generated = await modelPlan(uid, goal.content); source = 'model'; }
   } catch (error) {
     await storage.runTransaction(async (tx) => {
+      await fence(tx, uid);
       const active = await tx.get<GenerationClaim>(claimPath(uid, claim.lineage.lineageId));
       if (active?.claimId === claim.claimId && active.state === 'claimed') {
         tx.set<GenerationClaim>(claimPath(uid, claim.lineage.lineageId), { ...active, state: 'lost', reservedUntil: nowIso });
@@ -422,6 +434,7 @@ export async function generateGoalPlan(uid: string, goalId: string, input: { ide
     const [currentClaim, lineage] = await Promise.all([
       tx.get<GenerationClaim>(claimPath(uid, claim.lineage.lineageId)),
       requireCurrentGoal(tx, uid, goalId),
+      fence(tx, uid),
     ]);
     if (!currentClaim || currentClaim.claimId !== claim.claimId || currentClaim.state !== 'claimed') return null;
     if (lineage.activeDraftPlanId) return tx.get<StoredGoalPlan>(planPath(uid, lineage.activeDraftPlanId));
@@ -482,6 +495,7 @@ function validateEditableStep(step: InternalStep, horizon: 'days' | 'weeks'): bo
 
 export async function editGoalPlan(uid: string, goalId: string, planId: string, revision: number, op: GoalPlanEdit, storage = getStorage()): Promise<GoalPlan> {
   return storage.runTransaction(async (tx) => {
+    await fence(tx, uid);
     const { plan } = await currentPlanForMutation(tx, uid, goalId, planId);
     if (plan.revision !== revision) apiError(409, 'stale', { plan: publicPlan(plan) });
     if (plan.editCount >= MAX_EDITS) apiError(422, 'too_many_edits', { plan: publicPlan(plan) });
@@ -634,6 +648,7 @@ export async function approveGoalPlan(uid: string, goalId: string, planId: strin
   });
   const times = await buildTimes(storage, uid, prepared.plan, prepared.anchor, prepared.plan.steps, now);
   return storage.runTransaction(async (tx) => {
+    await fence(tx, uid);
     const { plan } = await currentPlanForMutation(tx, uid, goalId, planId);
     if (plan.revision !== revision) apiError(409, 'stale', { plan: publicPlan(plan) });
     const approved: StoredGoalPlan = { ...plan, status: 'approved', anchor: prepared.anchor, updatedAt: now };
@@ -801,6 +816,7 @@ export async function chooseGoalPlanTime(uid: string, goalId: string, planId: st
     now,
   );
   return storage.runTransaction(async (tx) => {
+    await fence(tx, uid);
     const { plan: currentPlan } = await currentPlanForMutation(tx, uid, goalId, planId, true);
     const latest = await tx.get<StoredTimes>(timesPath(uid, timesId));
     const latestProposals = (await tx.list<StoredTimes>(userCol(uid, GOAL_PLAN_TIMES))).map((row) => row.data);
@@ -912,6 +928,7 @@ export async function batchGoalPlanTimes(
   }
 
   return storage.runTransaction(async (tx) => {
+    await fence(tx, uid);
     const { plan: currentPlan } = await currentPlanForMutation(tx, uid, goalId, planId, true);
     const latest = await tx.get<StoredTimes>(timesPath(uid, timesId));
     const proposals = (await tx.list<StoredTimes>(userCol(uid, GOAL_PLAN_TIMES))).map((row) => row.data);
@@ -1100,6 +1117,7 @@ export async function confirmGoalPlan(uid: string, goalId: string, planId: strin
       : result.plan.steps.filter((step) => reviewedStepIds.has(step.stepId));
     const fresh = await buildTimes(storage, uid, result.plan, result.times.anchor, selected, new Date().toISOString(), result.times.weekIndex);
     await storage.runTransaction(async (tx) => {
+      await fence(tx, uid);
       const proposals = await tx.list<StoredTimes>(userCol(uid, GOAL_PLAN_TIMES));
       for (const row of proposals) {
         if (row.data.planId === result.plan.planId && row.data.weekIndex === result.times.weekIndex && !row.data.invalidated) {
@@ -1120,6 +1138,7 @@ export async function confirmGoalPlan(uid: string, goalId: string, planId: strin
 export async function regenerateGoalPlan(uid: string, goalId: string, input: { currentPlanId: string; revision: number; idempotencyKey: string }, storage = getStorage()): Promise<GoalPlan> {
   const now = new Date(); const nowIso = now.toISOString();
   const claim = await storage.runTransaction(async (tx) => {
+    await fence(tx, uid);
     const lineage = await requireCurrentGoal(tx, uid, goalId);
     const existingClaim = await tx.get<GenerationClaim>(claimPath(uid, lineage.lineageId));
     if (existingClaim?.state === 'done' && existingClaim.idempotencyKey === input.idempotencyKey
@@ -1155,6 +1174,7 @@ export async function regenerateGoalPlan(uid: string, goalId: string, input: { c
     generated = await modelPlan(uid, claim.plan.summary.goalText);
   } catch (error) {
     await storage.runTransaction(async (tx) => {
+      await fence(tx, uid);
       const active = await tx.get<GenerationClaim>(claimPath(uid, claim.lineage.lineageId));
       if (active?.claimId === claim.claimId && active.state === 'claimed') {
         tx.set<GenerationClaim>(claimPath(uid, claim.lineage.lineageId), { ...active, state: 'lost', reservedUntil: nowIso });
@@ -1164,6 +1184,7 @@ export async function regenerateGoalPlan(uid: string, goalId: string, input: { c
   }
   const newId = randomUUID();
   const result = await storage.runTransaction(async (tx) => {
+    await fence(tx, uid);
     const currentClaim = await tx.get<GenerationClaim>(claimPath(uid, claim.lineage.lineageId));
     const lineage = await requireCurrentGoal(tx, uid, goalId);
     const plan = await tx.get<StoredGoalPlan>(planPath(uid, input.currentPlanId));
@@ -1197,6 +1218,7 @@ export async function createLaterWeekTimes(uid: string, goalId: string, planId: 
       tx.get<StoredGoalPlan>(planPath(uid, planId)),
       requireCurrentGoal(tx, uid, goalId),
       tx.list<StoredTimes>(userCol(uid, GOAL_PLAN_TIMES)),
+      fence(tx, uid),
     ]);
     const currentPending = currentPlan?.pendingLaterSteps.find((entry) => entry.weekIndex === weekIndex);
     if (!currentPlan || currentPlan.status !== 'confirmed' || currentLineage.latestConfirmedPlanId !== planId
@@ -1252,7 +1274,10 @@ export async function previewGoalStatement(uid: string, statement: unknown, loca
   if (Array.from(text).length < 5) apiError(422, 'goal_too_vague', { question });
   const now = new Date(); const summaryId = randomUUID(); const expiresAt = new Date(now.getTime() + PREVIEW_TTL_MS).toISOString();
   const preview = { summaryId, revision: 1, understood: { goalText: text }, locale: typeof locale === 'string' ? locale : 'ar', expiresAt };
-  await storage.set<StatementPreview>(path(uid, GOAL_STATEMENT_PREVIEWS, summaryId), { ...preview, expiresAt: new Date(expiresAt) });
+  await storage.runTransaction(async (tx) => {
+    await fence(tx, uid);
+    tx.set<StatementPreview>(path(uid, GOAL_STATEMENT_PREVIEWS, summaryId), { ...preview, expiresAt: new Date(expiresAt) });
+  });
   return preview;
 }
 
@@ -1272,7 +1297,10 @@ export async function acceptGoalStatement(uid: string, input: { summaryId: strin
     { storage },
   );
   await storage.runTransaction(async (tx) => {
-    const existing = await tx.get<StatementAcceptReceipt>(path(uid, GOAL_STATEMENT_ACCEPTS, receiptId));
+    const [existing] = await Promise.all([
+      tx.get<StatementAcceptReceipt>(path(uid, GOAL_STATEMENT_ACCEPTS, receiptId)),
+      fence(tx, uid),
+    ]);
     if (existing && existing.fingerprint !== fingerprint) apiError(409, 'key_reused');
     if (!existing) tx.set(path(uid, GOAL_STATEMENT_ACCEPTS, receiptId), { fingerprint, goalId: created.id, createdAt: new Date().toISOString() });
     tx.delete(path(uid, GOAL_STATEMENT_PREVIEWS, input.summaryId));
@@ -1290,7 +1318,9 @@ export async function supersedeGoalPlanLineage(uid: string, oldGoalId: string, n
     // The memory supersession and this follow-up are separate transactions.
     // Reading both fences here makes an account deletion or memory deletion
     // invalidate this commit instead of recreating goal-plan rows below it.
-    if (!replacement || account?.trust?.deletedAt) return;
+    // `liveAccount`, not only `deletedAt`: a swept root, or one re-created
+    // without a trust record, is not a live account either (Q772-001).
+    if (!replacement || !liveAccount(account)) return;
     const lineage = await lineageFor(tx, uid, oldGoalId) ?? { lineageId: oldGoalId, state: 'active' as const, currentGoalId: oldGoalId, activeDraftPlanId: null, latestConfirmedPlanId: null, updatedAt: now };
     const [plans, times, links, claims] = await Promise.all([
       tx.list<StoredGoalPlan>(userCol(uid, GOAL_PLANS)), tx.list<StoredTimes>(userCol(uid, GOAL_PLAN_TIMES)), tx.list<GoalNodeLink>(userCol(uid, GOAL_GRAPH_LINKS)),
@@ -1311,7 +1341,12 @@ export async function supersedeGoalPlanLineage(uid: string, oldGoalId: string, n
 export async function markGoalLineageDeleting(uid: string, goalId: string, storage = getStorage()): Promise<void> {
   const now = new Date().toISOString();
   await storage.runTransaction(async (tx) => {
-    const lineage = await lineageFor(tx, uid, goalId) ?? { lineageId: goalId, state: 'active' as const, currentGoalId: goalId, activeDraftPlanId: null, latestConfirmedPlanId: null, updatedAt: now };
+    const [account, found] = await Promise.all([tx.get(userDoc(uid)), lineageFor(tx, uid, goalId)]);
+    // A goal deleted under an account that is itself being deleted (#772):
+    // nothing to mark, since every writer is fenced and the sweep takes the
+    // lineage; a mark written now would re-create it after the sweep.
+    if (!liveAccount(account)) return;
+    const lineage = found ?? { lineageId: goalId, state: 'active' as const, currentGoalId: goalId, activeDraftPlanId: null, latestConfirmedPlanId: null, updatedAt: now };
     const aliases = await tx.list<GoalLineage>(userCol(uid, GOAL_LINEAGES));
     for (const row of aliases.filter((row) => row.data.lineageId === lineage.lineageId)) tx.set(path(uid, GOAL_LINEAGES, row.id), { ...row.data, state: 'deleting', updatedAt: now });
     tx.set(linePath(uid, goalId), { ...lineage, state: 'deleting', updatedAt: now });
@@ -1324,7 +1359,10 @@ export async function deleteGoalPlanLineage(uid: string, goalIds: readonly strin
   for (const id of goalIds) lineageIds.add(id);
   await storage.runTransaction(async (tx) => {
     const collections = [GOAL_PLANS, GOAL_PLAN_TIMES, GOAL_PLAN_OUTCOMES, GOAL_PLAN_CLAIMS, GOAL_LINEAGES, GOAL_GRAPH_LINKS] as const;
-    const listings = await Promise.all(collections.map((collection) => tx.list<Record<string, unknown>>(userCol(uid, collection))));
+    const [account, listings] = await Promise.all([
+      tx.get(userDoc(uid)),
+      Promise.all(collections.map((collection) => tx.list<Record<string, unknown>>(userCol(uid, collection)))),
+    ]);
     collections.forEach((collection, index) => {
       for (const row of listings[index]!) {
         const data = row.data;
@@ -1334,6 +1372,10 @@ export async function deleteGoalPlanLineage(uid: string, goalIds: readonly strin
         if (owned) tx.delete(path(uid, collection, row.id));
       }
     });
+    // The deletes above always run. The tombstones below are new documents,
+    // and under an account being deleted they would outlive the sweep (#772):
+    // they are written only while the account is live.
+    if (!liveAccount(account)) return;
     const deletedAt = new Date().toISOString();
     for (const goalId of goalIds) {
       tx.set<GoalLineage>(linePath(uid, goalId), {

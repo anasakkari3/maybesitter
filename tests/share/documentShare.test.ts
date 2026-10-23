@@ -24,6 +24,7 @@
  * `imageShare.test.ts` or `emailShare.test.ts` pins, so the three suites cannot
  * agree because they share a mistake.
  */
+import { seedLiveAccount } from '../support/liveAccount.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -409,6 +410,7 @@ test('neither the document bytes nor the transcript sample is returned', async (
 
 test('the envelope carries counts, the course name, and no file name', async () => {
   const bytes = committedPdf('syllabus_en');
+  await seedLiveAccount(READER); // #772: the share's proposal is written behind the account deletion fence
   const proposal = await proposeFromShare(
     {
       files: [{ bytes: bytes.slice(), declaredType: 'application/pdf', fileName: 'Syllabus — Dr Haddad.pdf' }],

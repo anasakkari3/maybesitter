@@ -151,6 +151,7 @@ import {
   readWeekHolds,
 } from './weekHolds';
 import type { UserRoutineProfile } from '../../../src/contracts/v1/routineContracts';
+import { assertLiveAccount, liveAccount } from '../../account/accountLiveness';
 
 export { PLAN_PROPOSAL_DAYS, addCivilDays, planDatesFrom };
 
@@ -289,6 +290,13 @@ export async function claimDueDeliveryOutcome(
   const nowMs = toEpochMs(nowIso);
   return storageOf(deps).runTransaction<DeliveryClaimOutcome>(async (tx) => {
     const user = await tx.get<PlanSettingsBearingUser>(userDoc(uid));
+    // The account deletion fence (#772). The claim rewrites the user document,
+    // which after a sweep would re-create it and before one would arm the
+    // next morning under an account being deleted. It runs in the background
+    // sweep, for one account among many, so it answers the no-op outcome
+    // rather than throwing: nothing is claimed, nothing is written, and the
+    // sweep goes on to the next account. The sweep removes the record anyway.
+    if (!liveAccount(user)) return { kind: 'not_due' };
     const raw = (user?.planSettings ?? null) as Record<string, unknown> | null;
     const rawArmed = raw !== null && raw.enabled === true && raw.nextRunAt !== undefined;
     const rawNextMs = rawArmed ? instantMs(raw!.nextRunAt) : undefined;
@@ -1378,6 +1386,10 @@ export async function savePlanSettings(
 ): Promise<PlanSettings> {
   return storageOf(deps).runTransaction(async (tx) => {
     const user = await tx.get<PlanSettingsBearingUser>(userDoc(uid));
+    // The account deletion fence (#772): this write replaces the whole user
+    // document, so after a sweep it would re-create the root without a trust
+    // record. Refused (`AccountUnavailableError`) before anything is written.
+    assertLiveAccount(user);
     const current = planSettingsOf(user, user?.timezone ?? DEFAULT_MOBILE_TIMEZONE);
     const deliveryLocalTime = input.deliveryLocalTime ?? current.deliveryLocalTime;
     // Throws `PlanSettingsValidationError` on anything that is not HH:mm, which

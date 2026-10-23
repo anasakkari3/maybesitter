@@ -12,6 +12,7 @@
  *
  * Deterministic: no model is called, and storage is in memory.
  */
+import { seedLiveAccount } from '../support/liveAccount.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -51,6 +52,8 @@ test('FX3 probes, rules path: every row gives what it gives now', async () => {
   const drift: string[] = [];
   for (const row of PROBES.rules) {
     setStorageForTests(createMemoryStorage());
+    // #772: the in-process capture files its proposal under users/default, behind the deletion fence
+    await seedLiveAccount('default');
     try {
       const proposal = await proposeMobileCapture({ text: row.text, timezone: TZ, referenceTime: row.referenceTime ?? NOW });
       const actual = { status: proposal.status, items: proposal.items.map(line) };

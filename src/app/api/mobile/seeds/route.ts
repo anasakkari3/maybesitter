@@ -1,3 +1,4 @@
+import { AccountUnavailableError, accountUnavailableResponse } from '../../../../../lib/account/accountLiveness';
 import { mobileAuthErrorResponse, requireMobileUser } from '../../../../../lib/auth/mobileAuth';
 import {
   SeedNotFoundError,
@@ -83,6 +84,8 @@ export async function POST(request: Request) {
     if (error instanceof SeedNotFoundError) {
       return Response.json({ success: false, error: 'not found', reason: 'seed_not_found' }, { status: 404 });
     }
+    // The account was deleted while this was on its way (#772).
+    if (error instanceof AccountUnavailableError) return accountUnavailableResponse();
     return mobileError(error instanceof Error ? error.message : 'could not keep the seed', 500);
   }
 }

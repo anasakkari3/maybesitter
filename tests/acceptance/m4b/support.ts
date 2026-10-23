@@ -204,11 +204,13 @@ export async function addDeviceBusy(uid: string, blocks: Interval[], window?: In
 
 /** A weekly block through the real writer (weekday 0 = Sunday). */
 export async function addWeekly(uid: string, title: string, weekdays: number[], start: string, endTime: string): Promise<string> {
+  await seedLiveAccount(uid, currentStorage() as any); // #772: weekly block writers re-read a live account
   const { block } = await createWeeklyBlock(uid, { title, weekdays, start, end: endTime, timezone: TZ, confirmedAt: NOW() }, { storage: currentStorage() as any, now: new Date() } as any);
   return block.id;
 }
 
 export async function grantPersonalization(uid: string): Promise<void> {
+  await seedLiveAccount(uid, currentStorage() as any); // consent writes behind the deletion fence (#772)
   await setPersonalizationConsent(uid, { state: 'granted', version: PERSONALIZATION_CONSENT_VERSION, at: new Date() }, { storage: currentStorage() as any });
 }
 

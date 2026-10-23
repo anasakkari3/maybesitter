@@ -29,6 +29,7 @@
  * only its own plans: the adapter's `listGroup` is narrowed *after* the real
  * query, so the query itself is still Firestore's.
  */
+import { seedLiveAccount } from '../support/liveAccount.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
@@ -69,6 +70,7 @@ function uniqueUid(prefix: string): string {
  * meaningful; the rest is the shape, so Firestore stores what production does.
  */
 async function seedPendingPlan(storage: StorageAdapter, uid: string, nextAttemptAt: string): Promise<void> {
+  await seedLiveAccount(uid, storage); // the trust record auth creates (#772)
   const pushPending: PlanPushPending = { attempts: 1, failedSends: 1, nextAttemptAt, reason: 'send_failed' };
   await storage.set(planPath(uid, DATE), {
     date: DATE,

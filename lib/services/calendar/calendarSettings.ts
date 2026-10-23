@@ -24,6 +24,7 @@
  * fail in. So a record written by a future schema, or edited by hand, reads as
  * `off` rather than as the value it half-resembles.
  */
+import { assertLiveAccount } from '../../account/accountLiveness';
 import { getStorage, type StorageAdapter } from '../../storage';
 import { userDoc } from '../../storage/paths';
 
@@ -110,6 +111,8 @@ export async function saveCalendarWriteTarget(
   }
   return storageOf(deps).runTransaction(async (tx) => {
     const user = await tx.get<CalendarSettingsBearingUser>(userDoc(uid));
+    // The account deletion fence (#772): refused before the rewrite.
+    assertLiveAccount(user);
     const next: CalendarSettings = { writeTarget, updatedAt: now.toISOString() };
     tx.set(userDoc(uid), { ...(user ?? {}), calendarSettings: next });
     return next;

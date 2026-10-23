@@ -13,6 +13,7 @@
  *     cross-account case is the one that matters: guessing another user's id
  *     must write nothing into either account.
  */
+import { seedLiveAccount } from '../support/liveAccount.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createMemoryStorage } from '../../lib/storage/memoryAdapter.ts';
@@ -61,6 +62,7 @@ async function json(response: Response): Promise<Record<string, any>> {
 }
 
 async function grant(uid = UID): Promise<void> {
+  await seedLiveAccount(uid); // consent answers write behind the deletion fence (#772)
   await setAiConsent(uid, { state: 'granted', version: AI_CONSENT_VERSION });
 }
 
