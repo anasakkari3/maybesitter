@@ -76,10 +76,14 @@ function findAll(from: Node, match: (node: Node) => boolean): Node[] {
   const own = match(from) ? [from] : [];
   return [...own, ...from.children.flatMap(child => (typeof child === 'string' ? [] : findAll(child, match)))];
 }
-/** Every node in the screen a reader could stop on or be told, that says exactly `text`. */
+/**
+ * Every node in the screen a reader could stop on or be told, that says
+ * exactly `text`. A paragraph marked `accessible={false}` is the drawing of
+ * words its wrapper says (the card's text-size boundary): not a stop.
+ */
 function nodesSaying(text: string): Node[] {
   return findAll(screen.container, node => node.props.accessibilityLabel === text
-    || (node.type === 'Text' && node.children.some(child => child === text)));
+    || (node.type === 'Text' && node.props.accessible !== false && node.children.some(child => child === text)));
 }
 
 /** Every polite live region on screen, as goalsPanel.test's A5 counts them. */
@@ -107,7 +111,9 @@ function expectOneLineInCard() {
   // Under the header and above every row: where the person tapped.
   const order = cardOrder();
   expect(['m5b-learned', 'm5b-learned-title']).toContain(order[0]);
-  expect(order[1]).toBe('m5b-learned-status');
+  // The status is said by its wrapper, which stays when the drawn line is
+  // replaced on a text-size change.
+  expect(order[1]).toBe('m5b-learned-status-said');
   return text;
 }
 
@@ -182,7 +188,7 @@ describe('SIM-M5B2A-02 the learned result line sits in the learned card', () => 
     expect(findAll(card, node => typeof node.props.onPress === 'function')).toHaveLength(0);
     expect(findAll(card, node => node.props.accessibilityRole === 'button')).toHaveLength(0);
     expect(findAll(card, node => /^chevron-/.test(String(node.props.name ?? '')))).toHaveLength(0);
-    expect(cardOrder()).toEqual(['m5b-learned-title', 'm5b-learned-status']);
+    expect(cardOrder()).toEqual(['m5b-learned-title', 'm5b-learned-status-said']);
     expect(announce).toHaveBeenCalledTimes(1);
   });
 
@@ -196,7 +202,7 @@ describe('SIM-M5B2A-02 the learned result line sits in the learned card', () => 
     await fireEvent.press(screen.getByTestId('m5b-learned'));
 
     expect(screen.queryByTestId(readdTestIds.row('guess'))).toBeNull();
-    expect(cardOrder()).toEqual(['m5b-learned', 'm5b-learned-status']);
+    expect(cardOrder()).toEqual(['m5b-learned', 'm5b-learned-status-said']);
     expect(screen.getByTestId('m5b-learned').props.accessibilityState).toEqual(expect.objectContaining({ expanded: false }));
   });
 });

@@ -4,7 +4,7 @@ import {
   type TextStyle,
 } from 'react-native';
 import Svg, { Circle, Path, Rect } from 'react-native-svg';
-import { textAlignment } from '../../ui/primitives';
+import { RemeasureOnTextScale, RemeasuredText, textAlignment } from '../../ui/primitives';
 import { Rings } from '../../ui/motion';
 import { focusForAccessibility } from '../../ui/accessibilityFocus';
 import { LiveRegion } from '../../ui/liveRegion';
@@ -329,16 +329,30 @@ export function SayItChatPage({
   const spoken = (value: Said) => value.tail ? `${value.text}\n\n${value.tail}` : value.text;
   const bubbleStyle = (value: Said) => [styles.assistantBubble,
     { backgroundColor: p.sf, borderColor: value.tone === 'saved' ? p.success : p.ln }, expanded && styles.expandedBubble];
-  /** The reply's words, with the save's check before them. */
-  const replyWords = (value: Said, testID: string) => {
+  /**
+   * The reply's words, with the save's check before them.
+   *
+   * Measured afresh after a live text-size change: back at the default size
+   * after AX5 the first line, «هيك فهمت لحد هلّق…», kept its AX5 measurement
+   * and was cut off at the start edge (simulator 2026-10-23). Each paragraph
+   * is a `RemeasuredText` under its own `RemeasureOnTextScale`, so a change
+   * replaces it. A screen reader never rests on a paragraph that goes: the
+   * words are always inside an accessible element that stays — the newest
+   * reply's `-words` view, a whole message without controls, or (`ownElement`)
+   * the words' own view in a message whose bubble is a container.
+   */
+  const replyWords = (value: Said, testID: string, ownElement = false) => {
     const saved = value.tone === 'saved';
     return <>
       {saved ? <ChatIcon name="checkCircle" size={22} color={p.success} /> : null}
-      <View style={saved ? styles.savedWords : styles.words}>
-        {value.text.split(/\n\n+/).map((paragraph, index) => (
-          <Text key={index} testID={`${testID}-text-${index}`}
-            style={contentStyle(paragraph, 15, saved && index === 0 ? 'semibold' : 'regular')}>{paragraph}</Text>
-        ))}
+      <View style={saved ? styles.savedWords : styles.words}
+        {...(ownElement ? { accessible: true, accessibilityRole: 'text' as const, accessibilityLabel: value.text, testID: `${testID}-said` } : {})}>
+        <RemeasureOnTextScale>
+          {value.text.split(/\n\n+/).map((paragraph, index) => (
+            <RemeasuredText key={index} testID={`${testID}-text-${index}`}
+              style={contentStyle(paragraph, 15, saved && index === 0 ? 'semibold' : 'regular')}>{paragraph}</RemeasuredText>
+          ))}
+        </RemeasureOnTextScale>
       </View>
     </>;
   };
@@ -347,11 +361,22 @@ export function SayItChatPage({
     {value.body ? <View testID={`${testID}-body`} style={styles.bubbleBody}>{value.body}</View> : null}
     {value.actions ? <View testID={`${testID}-actions`} style={[styles.bubbleActions, { borderTopColor: p.ln }]}>{value.actions}</View> : null}
   </>;
-  /** The next line, in a bubble of its own; `spokenElsewhere` when the words' element already says it. */
-  const replyTail = (value: Said, testID: string, spokenElsewhere = false) => value.tail
+  /**
+   * The next line, in a bubble of its own; `spokenElsewhere` when the words'
+   * element already says it. Measured afresh after a live text-size change
+   * like the words above it (Codex Q-LIVE-R2-001: «في إشي تاني؟ احكيلي.» on a
+   * saved message kept its old measurement). In a message whose bubble is a
+   * container (`ownElement`), the tail's own view is the stable accessible
+   * element, so a screen reader never rests on the paragraph that is replaced.
+   */
+  const replyTail = (value: Said, testID: string, spokenElsewhere = false, ownElement = false) => value.tail
     ? <View style={[styles.assistantBubble, styles.tailBubble, { backgroundColor: p.sf, borderColor: p.ln }]}
-      {...(spokenElsewhere ? { accessibilityElementsHidden: true, importantForAccessibility: 'no-hide-descendants' as const } : {})}>
-      <Text testID={`${testID}-text-${value.text.split(/\n\n+/).length}`} style={contentStyle(value.tail, 15)}>{value.tail}</Text>
+      {...(spokenElsewhere
+        ? { accessibilityElementsHidden: true, importantForAccessibility: 'no-hide-descendants' as const }
+        : ownElement ? { accessible: true, accessibilityRole: 'text' as const, accessibilityLabel: value.tail, testID: `${testID}-tail-said` } : {})}>
+      <RemeasureOnTextScale>
+        <RemeasuredText testID={`${testID}-text-${value.text.split(/\n\n+/).length}`} style={contentStyle(value.tail, 15)}>{value.tail}</RemeasuredText>
+      </RemeasureOnTextScale>
     </View> : null;
   const message = (value: Said, testID: string, first = false) => (
     <View testID={testID} accessible={value.actions == null && value.body == null} accessibilityLabel={spoken(value)}
@@ -360,10 +385,10 @@ export function SayItChatPage({
         {avatar}
         <View style={[styles.assistantColumn, expanded && styles.expandedColumn]}>
           <View style={bubbleStyle(value)}>
-            <View style={value.tone === 'saved' ? styles.savedRow : null}>{replyWords(value, testID)}</View>
+            <View style={value.tone === 'saved' ? styles.savedRow : null}>{replyWords(value, testID, value.actions != null || value.body != null)}</View>
             {replyExtras(value, testID)}
           </View>
-          {replyTail(value, testID)}
+          {replyTail(value, testID, false, value.actions != null || value.body != null)}
         </View>
       </View>
       {value.time ? <Text style={[timestampStyle, styles.incomingTime]}>{value.time}</Text> : null}
@@ -687,7 +712,10 @@ const styles = StyleSheet.create({
   avatar: { width: 32, height: 32, borderRadius: 16, borderWidth: 1, alignItems: 'center', justifyContent: 'center', marginTop: 4 },
   avatarDot: { width: 10, height: 10, borderRadius: 5 },
   assistantColumn: { flexShrink: 1, maxWidth: '88%', alignItems: 'flex-start', gap: 8 },
-  expandedColumn: { flex: 1, maxWidth: '100%' },
+  // `flex: 1` over the column's `flexShrink: 1` — grow 1, shrink 1, basis 0 —
+  // with the basis from `width: 0`: a `flex` basis cached at the default size
+  // would stick here (see fillRow in theme/textScale).
+  expandedColumn: { flexGrow: 1, width: 0, maxWidth: '100%' },
   assistantBubble: { flexShrink: 1, borderRadius: 16, borderTopStartRadius: 4, borderWidth: 1, paddingHorizontal: 16, paddingVertical: 12, gap: 6 },
   tailBubble: { alignSelf: 'flex-start' },
   expandedBubble: { alignSelf: 'stretch' },

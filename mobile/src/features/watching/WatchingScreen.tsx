@@ -6,7 +6,7 @@ import { formatDate, formatTime } from '../../i18n/format';
 import { useTimeZone } from '../../i18n/timezone';
 import { AvatarButton, ScreenHeader, TextLink } from '../../ui/chrome';
 import { HubHeading, HubRow } from '../../ui/hub';
-import { Card, Txt } from '../../ui/primitives';
+import { Card, RemeasureOnTextScale, Txt } from '../../ui/primitives';
 import { Screen, ScreenScroll, TAB_CLEARANCE } from '../../ui/screen';
 import { ServerToggle } from '../settings/ServerToggle';
 import { AvailabilityBadge } from '../../ui/product';
@@ -69,7 +69,15 @@ export function WatchingScreen({ tabClearance = TAB_CLEARANCE }: { tabClearance?
       <AvoidKeyboard testID="watching-kav">
       <ScreenScroll testID="watching-scroll" floating={tabClearance} gap={12} topGap={8} keyboardShouldPersistTaps="handled">
         <ScreenHeader brand={false} title={t.tabWatching} end={<AvatarButton />} />
-        <Txt role="supporting" color={p.mu}>{t.watchingBody}</Txt>
+        {/* Measured afresh after a live text-size change: it kept its AX5 height
+            back at the default size and left a gap under the header (simulator
+            2026-10-23). The wrapper says the words and stays; only the drawn
+            paragraph is replaced (RemeasureOnTextScale). */}
+        <View testID="watching-body" accessible accessibilityRole="text" accessibilityLabel={t.watchingBody}>
+          <RemeasureOnTextScale>
+            <Txt role="supporting" color={p.mu} accessible={false} testID="watching-body-text">{t.watchingBody}</Txt>
+          </RemeasureOnTextScale>
+        </View>
         <HubRow testID="watching-knows" icon="person" title={t.knowsTitle} onPress={() => actions.go('knows')} />
 
         {heldCount > 0 ? (

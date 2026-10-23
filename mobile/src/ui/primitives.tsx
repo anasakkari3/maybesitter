@@ -1,7 +1,7 @@
 import React, { useRef } from 'react';
 import {
   Animated, Platform, Pressable, Text, View,
-  type AccessibilityState, type GestureResponderEvent, type NativeSyntheticEvent, type StyleProp, type TextLayoutEventData, type TextStyle, type ViewStyle,
+  type AccessibilityState, type GestureResponderEvent, type NativeSyntheticEvent, type StyleProp, type TextLayoutEventData, type TextProps, type TextStyle, type ViewStyle,
 } from 'react-native';
 import { useApp } from '../state/AppContext';
 import { family, LINE_HEIGHT, type Weight } from '../theme/fonts';
@@ -49,10 +49,48 @@ const RemeasureScaleContext = React.createContext<number | null>(null);
  * itself `accessible={false}` — the wrapper stays, only the drawing changes.
  * Controls must also keep one parent in every layout mode, or the layout
  * change remounts them too.
+ *
+ * ── Only where the stale measurement was seen ────────────────────
+ *
+ * #786 put it around «هيك فهمت». The next simulator pass found the same class
+ * in four more places, and each holds its own boundary now: the learned card
+ * in «يتابع لك» (slivers at AX5, a 305 pt title back at the default size),
+ * the Watching header's line (a gap), the «احكيها» reply's words (cut off at
+ * the start edge), and the tab bar's labels. Every one of them puts what a
+ * screen reader can rest on in an element that stays — a button, or an
+ * accessible wrapper that says the words — so a focused element is never the
+ * one replaced.
+ *
+ * There is deliberately no app-wide boundary. It would replace every
+ * standalone paragraph — VoiceOver resting on body text would lose its place
+ * — and every selectable one mid-selection. Selectable text is never keyed,
+ * even inside a boundary: the receipt id, the version, the AI-import prompt
+ * keep their selection, at the price of an old measurement until they next
+ * re-render. A new surface that shows the bug gets a boundary of its own, with
+ * the same wrappers.
+ *
+ * A boundary does not fix a layout that depends on the scale in JS. The
+ * layout modes switch styles live; the one trap there is a node that returns
+ * to `flex: 1` — see `fillRow` in theme/textScale.
  */
 export function RemeasureOnTextScale({ children }: { children: React.ReactNode }) {
   const scale = useTextScale();
   return <RemeasureScaleContext.Provider value={scale}>{children}</RemeasureScaleContext.Provider>;
+}
+
+/**
+ * React Native's `Text`, replaced on a text-size change under a
+ * `RemeasureOnTextScale` exactly as a `Txt` is. For a screen that sets its
+ * own text styles: the «احكيها» reply's words.
+ */
+export function RemeasuredText(props: TextProps) {
+  const remeasureScale = React.useContext(RemeasureScaleContext);
+  return <Text key={remeasureKey(remeasureScale, props.selectable)} {...props} />;
+}
+
+/** The paragraph's key under a boundary: none outside one, and none for selectable text. */
+function remeasureKey(scale: number | null, selectable: boolean | undefined): string | undefined {
+  return scale === null || selectable ? undefined : `scale-${scale}`;
 }
 
 // Fabric swaps a Text's left/right with the inherited Yoga direction on BOTH
@@ -132,7 +170,7 @@ export function Txt({
   // produces a squared line box at accessibility sizes, wasting the viewport.
   return (
     <Text
-      key={remeasureScale === null ? undefined : `scale-${remeasureScale}`}
+      key={remeasureKey(remeasureScale, selectable)}
       numberOfLines={lines}
       selectable={selectable}
       {...(accessible !== undefined ? { accessible } : {})}

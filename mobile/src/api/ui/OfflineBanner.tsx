@@ -6,7 +6,7 @@ import { onlineManager } from '@tanstack/react-query';
 import { useApp } from '../../state/AppContext';
 import { Btn, Txt } from '../../ui/primitives';
 import { ReferenceIcon } from '../../ui/referenceIcons';
-import { useLayoutMode } from '../../theme/textScale';
+import { fillRow, useLayoutMode } from '../../theme/textScale';
 import { ScreenTopInsetConsumedContext } from '../../ui/screen';
 
 /**
@@ -45,7 +45,7 @@ export function OfflineBanner({ children }: { children?: React.ReactNode }) {
         // (`NetInfo.refresh`), the same source the query layer listens to.
         <View testID="offline-banner" style={{ backgroundColor: p.bg, paddingTop: (consumedAbove ? 0 : insets.top) + 10, paddingBottom: 4, paddingHorizontal: 16 }}>
           <View style={{ flexDirection: stacked ? 'column' : 'row', alignItems: stacked ? 'stretch' : 'center', gap: 10, backgroundColor: p.wms, borderWidth: 1, borderColor: p.prop, borderRadius: 16, paddingVertical: 10, paddingHorizontal: 12 }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, flex: stacked ? undefined : 1 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, ...(stacked ? {} : fillRow) }}>
               <View accessible={false} style={{ width: 36, height: 36, borderRadius: 12, backgroundColor: p.wms, alignItems: 'center', justifyContent: 'center' }}>
                 <ReferenceIcon name="cloud-off" size={20} color={p.wm} />
               </View>

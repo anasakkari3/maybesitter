@@ -4,7 +4,7 @@ import { useFonts } from 'expo-font';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { apiLocale } from './src/i18n/locale';
-import { AppProvider, useApp } from './src/state/AppContext';
+import { AppProvider } from './src/state/AppContext';
 import { ApiProvider } from './src/api/ui/ApiProvider';
 import { AccountDeletionProvider } from './src/features/account/AccountDeletionProvider';
 import { AccountDeletedGate } from './src/features/account/AccountDeletedGate';
@@ -17,6 +17,7 @@ import { color } from './src/theme/tokens';
 import { initialiseCrashReporting } from './src/lib/crash';
 import { ErrorBoundary } from './src/ui/ErrorBoundary';
 import { ClarityProvider } from './src/clarity/ClarityProvider';
+import { DirectionRoot } from './src/ui/DirectionRoot';
 
 /**
  * The root, which is only the boundary (UC-4.4, #180 step 4).
@@ -101,22 +102,3 @@ function AppTree() {
     </SafeAreaProvider>
   );
 }
-
-/**
- * Wraps the entire screen hierarchy inside `AppProvider` with the active Yoga
- * layout direction (`rtl` or `ltr`).
- *
- * Pre-root lifecycle gates (`LanguageStep`, `SignInScreen`, `EmailAuthScreen`,
- * `AccountDeletedScreen`, and `OnboardingFlow`) mount above `src/Root.tsx`.
- * Without a direction-aware wrapper here, their flex layouts and text alignment
- * default to LTR even when Arabic or Hebrew is selected.
- */
-function DirectionRoot({ children }: { children: React.ReactNode }) {
-  const { rtl, p } = useApp();
-  return (
-    <View testID="direction-root" style={{ flex: 1, backgroundColor: p.bg, direction: rtl ? 'rtl' : 'ltr' }}>
-      {children}
-    </View>
-  );
-}
-
