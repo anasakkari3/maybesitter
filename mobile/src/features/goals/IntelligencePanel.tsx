@@ -453,10 +453,7 @@ function IntelligencePanelForAccount({ onChanged, autoGenerate = false, whenOff 
       if (!scanMounted.current) return;
       // The server's answer is the outcome now: the row leaves at once, even
       // if the re-read below fails (M5B2A-REV-003).
-      const moved = answer.observation;
-      setInbox(current => current
-        ? { ...current, observations: current.observations.map(item => (item.id === moved.id ? moved : item)) }
-        : current);
+      setInbox(current => (current ? applyReviewedOutcome(current, answer.observation) : current));
       const done = review === 'confirmed' ? t.m5bLearnedRightDone : t.m5bLearnedWrongDone;
       setLearnedStatus(done);
       if (Platform.OS === 'ios') AccessibilityInfo.announceForAccessibility(done);
@@ -913,6 +910,41 @@ const READD_KEY = { dropped: 'm5bLearnedReaddedAfterDrop', completed: 'm5bLearne
 
 const newestFirst = (a: IntelligenceObservation, b: IntelligenceObservation) =>
   b.observedAt.localeCompare(a.observedAt) || a.id.localeCompare(b.id);
+
+/**
+ * The inbox once the server confirmed a review of one learned row, before the
+ * re-read that follows it lands (or fails).
+ *
+ * - The review route answers with the stored row, which carries no live
+ *   `readd` projection; the row's own projection is kept so a confirmed
+ *   re-add joins the confirmed list instead of vanishing
+ *   (M5B2B2-APP-001). Only for the same id.
+ * - A dismissed earlier outcome takes with it, at once, every re-add marker
+ *   bound to it by `matchedOutcomeId`, every suggestion citing such a
+ *   marker, and their schedule rows (owner decision 4, REV-004;
+ *   M5B2B2-APP-002). A payload without `matchedOutcomeId` binds nothing, so
+ *   an older server's inbox changes exactly as before.
+ */
+function applyReviewedOutcome(current: IntelligenceInbox, moved: IntelligenceObservation): IntelligenceInbox {
+  const observations = current.observations.map(item => {
+    if (item.id !== moved.id) return item;
+    return moved.readd === undefined && item.readd !== undefined ? { ...moved, readd: item.readd } : moved;
+  });
+  if (moved.review !== 'dismissed') return { ...current, observations };
+  const bound = new Set(observations
+    .filter(item => item.id !== moved.id && item.matchedOutcomeId !== undefined && item.matchedOutcomeId === moved.id)
+    .map(item => item.id));
+  if (bound.size === 0) return { ...current, observations };
+  const gone = new Set(current.suggestions
+    .filter(item => item.observationIds.some(id => bound.has(id)))
+    .map(item => item.id));
+  return {
+    ...current,
+    observations: observations.filter(item => !bound.has(item.id)),
+    suggestions: current.suggestions.filter(item => !gone.has(item.id)),
+    schedule: current.schedule.filter(item => !gone.has(item.suggestionId)),
+  };
+}
 
 /**
  * «شو تعلّمت من اللي عملته» (M5b-2a R1): collapsed by default — what was
