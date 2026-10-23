@@ -63,6 +63,8 @@ export type AppState = {
   goalId: string | null;
   /** The goal page's one-shot «اعمللي خطة» (M3b); derived, like `goalId`. */
   startPlan: boolean;
+  /** Derived from `nav`: the memory row Memory was opened focused on (M5b-2a), or null. */
+  memoryFocusId: string | null;
   /**
    * Derived from `nav`: the open task is showing again after back from a
    * screen opened over it (capture → Trust → back). Capture keeps its draft
@@ -79,14 +81,14 @@ function onToday(screen: Screen): Partial<AppState> | undefined {
 /** Recompute the derived fields from the history. Every nav change goes through here. */
 function withNav(st: AppState, next: nav.Nav): AppState {
   const d = nav.derive(next);
-  return { ...st, nav: next, screen: d.screen, detailId: d.detailId, planDate: d.planDate, goalId: d.goalId, startPlan: d.startPlan, taskResumed: d.taskResumed, showTabs: d.showTabs };
+  return { ...st, nav: next, screen: d.screen, detailId: d.detailId, planDate: d.planDate, goalId: d.goalId, startPlan: d.startPlan, memoryFocusId: d.memoryFocusId, taskResumed: d.taskResumed, showTabs: d.showTabs };
 }
 
 const initial: AppState = {
   nav: nav.initialNav, screen: 'today', showTabs: true,
   captureSource: 'tab', captureInput: 'text', captureEntry: null,
   sheet: null, meetingPrep: null, toast: null,
-  selDate: null, detailId: null, planDate: null, goalId: null, startPlan: false, taskResumed: false,
+  selDate: null, detailId: null, planDate: null, goalId: null, startPlan: false, memoryFocusId: null, taskResumed: false,
 };
 
 function useAppModel() {
@@ -213,6 +215,8 @@ function useAppModel() {
      * checked is a plain `YYYY-MM-DD`.
      */
     openPlan: (date: string) => move(n => nav.push(n, { name: 'plan', planDate: date })),
+    /** «صحّحها» on the plan's memory line (M5b-2a R2): Memory, on that row. */
+    openMemoryFocused: (memoryId: string) => move(n => nav.push(n, { name: 'memory', memoryFocusId: memoryId })),
     /**
      * The plan opened from the morning notification or a link: the plan, with
      * Today underneath and nothing else, so back is Today (UC-3.10b, #195).

@@ -28,6 +28,8 @@ import {
 import { pendingProposalOf, type StoredDailyPlan, type StoredPlanProposal } from './planStore';
 import { resolveMemoryLearning } from '../../release/m5bCapabilities';
 import type { ReadinessApplied } from '../../integrations/readiness/freshReadiness';
+import { getStorage, type StorageAdapter } from '../../storage';
+import { readPlanMemoryProjectionSafely, type PlanMemoryBasisDto } from './planMemoryBasis';
 
 export interface PlanItemDto {
   readonly itemId: string;
@@ -144,6 +146,8 @@ export interface DailyPlanDto {
   readonly workingEndsAt: string | null;
   readonly readinessApplied?: ReadinessApplied | null;
   readonly basisChanged?: boolean;
+  readonly memoryBasis?: PlanMemoryBasisDto | null;
+  readonly memoryBasisChanged?: boolean;
 }
 
 /** The end of the day's last working window, as an instant; null when there is none. */
@@ -276,6 +280,35 @@ export function planToDto(
       readinessApplied: stored.readinessApplied ?? null,
       basisChanged: options.basisChanged ?? false,
     } : {}),
+  };
+}
+
+export async function assemblePlanResponse(
+  uid: string,
+  stored: StoredDailyPlan,
+  now: Date | string,
+  titles: ReadonlyMap<string, string>,
+  options: PlanDtoOptions & { readonly storage?: StorageAdapter } = {},
+): Promise<DailyPlanDto> {
+  const dto = planToDto(stored, titles, options);
+  // The basis is an optional disclosure read after the plan was decided — on a
+  // mutation route, after it was written. A failed read omits it rather than
+  // failing a route whose outcome already happened (M5B2A-R6-002): the app
+  // shows no basis, and a retried rebuild is not spent twice.
+  const projection = await readPlanMemoryProjectionSafely(
+    uid,
+    stored,
+    typeof now === 'string' ? now : now.toISOString(),
+    options.storage ?? getStorage(),
+  );
+  if (projection === null || projection.mode === 'off') return dto;
+  if (projection.mode === 'on_nobasis') {
+    return { ...dto, memoryBasisChanged: projection.memoryBasisChanged };
+  }
+  return {
+    ...dto,
+    memoryBasis: projection.memoryBasis,
+    memoryBasisChanged: projection.memoryBasisChanged,
   };
 }
 

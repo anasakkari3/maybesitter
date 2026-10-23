@@ -30,6 +30,8 @@ let mockPlanPath: { isPending: boolean; error: unknown; data: unknown[] | undefi
 // M5a's panel parts read through TanStack Query; this suite renders the panel
 // without a client, on a server whose M5a capability is off (today's panel).
 jest.mock('../../m5a/capabilities', () => ({ useM5aCapabilities: () => null, useFreshM5aCapability: () => async () => false, M5A_NOT_NOW: () => new Error('not now') }));
+// M5b-2a: the learned card reads the M5b capability; this panel renders without a QueryClient here.
+jest.mock('../../m5b/capabilities', () => ({ useM5bOn: () => null, useFreshM5bOn: () => async () => null }));
 jest.mock('../../m5a/emailScan', () => ({
   useEmailScanOverview: () => ({ data: undefined, refetch: async () => undefined }),
   EmailScanEntry: () => null,
@@ -128,12 +130,12 @@ it('takes a wish through analysis and an explicit confirmation of what came back
   currentInbox = { success: true, observations: [evidence], suggestions: [suggestion], schedule: [] };
   await act(async () => { await fireEvent.press(screen.getByTestId('intelligence-analyze')); });
   await act(async () => { await fireEvent.press(screen.getByTestId('intelligence-analyze-confirm')); });
-  await waitFor(() => expect(mockAnalyze).toHaveBeenCalledWith('I want more Pilates time'));
+  await waitFor(() => expect(mockAnalyze).toHaveBeenCalledWith('I want more Pilates time', { asUid: 'panel-user' }));
   await waitFor(() => expect(mockInbox).toHaveBeenCalledTimes(2));
   await waitFor(() => expect(screen.queryByText(/Find a Pilates class/)).not.toBeNull());
   expect(mockDecide).not.toHaveBeenCalled();
   await act(async () => { await fireEvent.press(screen.getByText('Add to my plan')); });
-  await waitFor(() => expect(mockDecide).toHaveBeenCalledWith('proposal-1', 'accept', undefined, undefined));
+  await waitFor(() => expect(mockDecide).toHaveBeenCalledWith('proposal-1', 'accept', undefined, undefined, { asUid: 'panel-user' }));
 });
 
 // The plan path mounts a second flow under the panel; under a loaded machine its first frames take longer than waitFor's default second.
@@ -184,7 +186,7 @@ it('lets the person correct a suggestion before accepting it', async () => {
   await waitFor(() => expect(screen.queryByTestId('intelligence-edit-proposal-1')).not.toBeNull());
   await fireEvent.changeText(screen.getByTestId('intelligence-edit-proposal-1'), 'Book a Pilates class');
   await act(async () => { await fireEvent.press(screen.getByText('Add to my plan')); });
-  await waitFor(() => expect(mockDecide).toHaveBeenCalledWith('proposal-1', 'accept', 'Book a Pilates class', slot));
+  await waitFor(() => expect(mockDecide).toHaveBeenCalledWith('proposal-1', 'accept', 'Book a Pilates class', slot, { asUid: 'panel-user' }));
 });
 
 it('shows in a production build when the server answers, with each suggestion marked as only a suggestion', async () => {
@@ -219,7 +221,7 @@ it('on «يتابع لك» shows what is waiting first, then asks as a visit and
   // The model is still thinking; the review is already there.
   await waitFor(() => expect(screen.queryByTestId('intelligence-suggestion-proposal-1')).not.toBeNull());
   expect(mockGenerate).toHaveBeenCalledTimes(1);
-  expect(mockGenerate).toHaveBeenCalledWith({ visit: true });
+  expect(mockGenerate).toHaveBeenCalledWith({ visit: true, asUid: 'panel-user' });
   expect(mockInbox).toHaveBeenCalledTimes(1);
   currentInbox = { success: true, observations: [evidence], suggestions: [suggestion, fresh], schedule: [] };
   await act(async () => { answer({ success: true, suggestions: [suggestion, fresh], schedule: [], nextVisitAt: new Date(Date.now() + 3_600_000).toISOString() }); });
@@ -227,7 +229,7 @@ it('on «يتابع لك» shows what is waiting first, then asks as a visit and
   expect(mockInbox).toHaveBeenCalledTimes(2);
   expect(screen.queryByTestId('off')).toBeNull();
   await act(async () => { await fireEvent.press(within(screen.getByTestId('intelligence-suggestion-proposal-1')).getByText('Not for me')); });
-  await waitFor(() => expect(mockDecide).toHaveBeenCalledWith('proposal-1', 'dismiss'));
+  await waitFor(() => expect(mockDecide).toHaveBeenCalledWith('proposal-1', 'dismiss', undefined, undefined, { asUid: 'panel-user' }));
   await waitFor(() => expect(onChanged).toHaveBeenCalled());
 });
 
@@ -375,7 +377,7 @@ it('runs a confirmed action once even when «Continue» is pressed twice in one 
   await act(async () => { release({ success: true, observations: [evidence] }); });
   await waitFor(() => expect(screen.getByTestId('intelligence-status-text')).toHaveTextContent('I understood 1 thing — review it below'));
   expect(mockAnalyze).toHaveBeenCalledTimes(1);
-  expect(mockAnalyze).toHaveBeenCalledWith('Book the dentist');
+  expect(mockAnalyze).toHaveBeenCalledWith('Book the dentist', { asUid: 'panel-user' });
 });
 
 it('says plainly when nothing clear came out of the words', async () => {

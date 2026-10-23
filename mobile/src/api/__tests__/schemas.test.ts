@@ -364,6 +364,9 @@ const CASES: Array<[string, z.ZodType]> = [
   // protection schema is never parsed against anything a handler produced.
   ['plan.protected', planResponseSchema],
   ['plan.withProposal', planResponseSchema],
+  // M5b-2a (R2): the kept focus window by record and window, and the changed notice.
+  ['plan.memoryBasis', planResponseSchema],
+  ['plan.memoryBasisChanged', planResponseSchema],
   ['plan.built', planResponseSchema],
   ['plan.refreshedWithFixed', planResponseSchema],
   ['plan.cause', planCauseResponseSchema],
@@ -567,6 +570,8 @@ const CASES: Array<[string, z.ZodType]> = [
   ['intelligence.gmailScanComplete', intelligenceGmailScanSchema],
   ['intelligence.inbox', intelligenceInboxSchema],
   ['intelligence.observationReviewed', intelligenceObservationReviewSchema],
+  // M5b-2a (R1): behaviour outcomes with their parsed signal and title.
+  ['intelligence.outcomes', intelligenceInboxSchema],
   ['google.gmailScanPartial', shareProposalSchema],
   ['google.gmailScanPartialEmpty', shareProposalSchema],
   ['google.gmailScanBudget', shareProposalSchema],

@@ -62,6 +62,7 @@
  * A date that already has a plan is shown as that plan and never re-proposed:
  * the week does not rewrite a stored day, touched or not.
  */
+import { isDeepStrictEqual } from 'node:util';
 import { getStorage, type StorageAdapter } from '../../storage';
 import { userDoc } from '../../storage/paths';
 import { schedulePlan } from '../../planning/scheduler';
@@ -80,7 +81,7 @@ import {
 } from './dailyPlanService';
 import { PlanEditRejected, acceptPlan, effectiveSchedule } from './planActions';
 import { endIsEstimated, planToDto } from './planDto';
-import { planPath, readStoredPlan, type StoredDailyPlan, type WeekPlanOrigin } from './planStore';
+import { PlanWriteGuardRejected, planPath, readStoredPlan, type StoredDailyPlan, type WeekPlanOrigin } from './planStore';
 import { isPlanDate, localDateOf, planSettingsOf } from './planSettings';
 import { PLAN_PROPOSAL_DAYS, heldBySavedWeekDay, planDatesFrom } from './weekHolds';
 import { DEFAULT_MOBILE_TIMEZONE } from '../mobile/time';
@@ -93,6 +94,15 @@ import { resolveMemoryLearning } from '../../release/m5bCapabilities';
 /* ── What the client sends ─────────────────────────────────────────── */
 
 /** One step the person moved to another day of the week. */
+
+/**
+ * Whether a re-read plan is still exactly the document a write stored, by
+ * content — a storage round trip may drop undefined fields or reorder keys.
+ */
+function sameStoredDocument(current: unknown, stored: unknown): boolean {
+  return isDeepStrictEqual(JSON.parse(JSON.stringify(current)), JSON.parse(JSON.stringify(stored)));
+}
+
 export interface WeekMove {
   readonly itemId: string;
   readonly date: string;
@@ -209,6 +219,9 @@ interface ProposedDay {
   readonly plan: Plan;
   readonly config: DailyPlanRequest['config'];
   readonly readinessApplied?: ReadinessApplied;
+  readonly focusFromMemory?: boolean;
+  readonly personalizationPurgeEpoch?: number;
+  readonly memoryUse?: { readonly epoch: number };
   readonly assignment: DayAssignment;
   readonly reasons: ReadonlyMap<string, WeekStepReason | null>;
 }
@@ -478,6 +491,9 @@ export async function composeWeek(
       plan,
       config: request.config,
       ...(request.basisSnapshot ? { readinessApplied: request.basisSnapshot.readinessApplied } : {}),
+      ...(request.focusFromMemory === undefined ? {} : { focusFromMemory: request.focusFromMemory }),
+      ...(request.personalizationPurgeEpoch === undefined ? {} : { personalizationPurgeEpoch: request.personalizationPurgeEpoch }),
+      ...(request.memoryUse ? { memoryUse: request.memoryUse } : {}),
       assignment: { include: final, exclude: rule.filter((itemId) => !finalSet.has(itemId)) },
       reasons,
     });
@@ -549,7 +565,7 @@ export interface WeekDto {
   readonly waiting: number;
 }
 
-export function weekDayLayoutDigest(date: string, plan: Plan, constraints?: PlanningConstraints): string {
+export function weekDayLayoutDigest(date: string, plan: Plan, constraints?: PlanningConstraints, focusFromMemory?: boolean, memoryEpoch?: number): string {
   const rows = [
     ...plan.scheduled.map((item) => ({ itemId: item.itemId, startsAt: item.interval.startsAt, endsAt: item.interval.endsAt })),
     ...(constraints ? pinnedEventsOnDay(constraints.fixedEvents, constraints.horizon).flatMap((event) => event.sourceCommitmentId ? [{
@@ -558,7 +574,16 @@ export function weekDayLayoutDigest(date: string, plan: Plan, constraints?: Plan
   ]
     .sort((left, right) => left.itemId < right.itemId ? -1 : left.itemId > right.itemId ? 1 : 0)
     .map((item) => `${item.itemId}|${item.startsAt}|${item.endsAt}`);
-  return createHash('sha256').update([date, ...rows].join('\n')).digest('hex');
+  // The solve's memory provenance is part of the card (M5B2A-R3-001); absent
+  // (off mode, M5b-1) the digest is exactly what it was.
+  // …and, for a memory-shaped card, the fence epoch it was solved under: a
+  // withdrawal and re-grant before acceptance expires the card even when the
+  // same window gives the same rows (M5B2A-R16-002).
+  const provenance = [
+    ...(focusFromMemory === undefined ? [] : [`focusFromMemory|${focusFromMemory}`]),
+    ...(focusFromMemory === true && memoryEpoch !== undefined ? [`memoryEpoch|${memoryEpoch}`] : []),
+  ];
+  return createHash('sha256').update([date, ...rows, ...provenance].join('\n')).digest('hex');
 }
 
 export function weekToDto(layout: WeekLayout): WeekDto {
@@ -607,7 +632,7 @@ export function weekToDto(layout: WeekLayout): WeekDto {
       return {
         date: day.date,
         state: 'proposed',
-        ...(resolveMemoryLearning() ? { layoutDigest: weekDayLayoutDigest(day.date, day.plan, day.constraints) } : {}),
+        ...(resolveMemoryLearning() ? { layoutDigest: weekDayLayoutDigest(day.date, day.plan, day.constraints, day.focusFromMemory, day.personalizationPurgeEpoch) } : {}),
         items: [...day.plan.scheduled]
           .sort((left, right) => toEpochMs(left.interval.startsAt) - toEpochMs(right.interval.startsAt))
           .map((item) => ({
@@ -676,8 +701,18 @@ export async function acceptWeekDay(
   if (!day) throw new PlanDateOutOfRangeError(date, PLAN_PROPOSAL_DAYS);
   if (day.kind === 'stored') return { outcome: 'already_planned', stored: day.stored, layout };
   if (!sameSteps(day, shown)) return { outcome: 'week_changed', layout };
-  if (resolveMemoryLearning() && layoutDigest !== undefined && layoutDigest !== weekDayLayoutDigest(day.date, day.plan, day.constraints)) {
-    return { outcome: 'week_changed', layout };
+  // The route passes null for a request that sent no digest; `undefined` is an
+  // internal caller with no card. On, a digest is required and binds times and
+  // memory provenance (M5B1-014). A digest is only ever sent for a card drawn
+  // while M5b was on, so one accepted now with M5b off is not the solve that
+  // would be stored: the week has changed under it, and it is redrawn rather
+  // than re-solved silently (M5B2A-R3-001).
+  if (layoutDigest !== undefined) {
+    const on = resolveMemoryLearning();
+    if (on && layoutDigest !== weekDayLayoutDigest(day.date, day.plan, day.constraints, day.focusFromMemory, day.personalizationPurgeEpoch)) {
+      return { outcome: 'week_changed', layout };
+    }
+    if (!on && layoutDigest !== null) return { outcome: 'week_changed', layout };
   }
   // A day the week places nothing on is not saved as a plan (audit
   // 2026-10-03 #4): no document, no acceptance, no planned day in «نشاطي».
@@ -704,26 +739,58 @@ export async function acceptWeekDay(
     commitments: layout.commitments,
     timezone: layout.timezone,
     locale: layout.locale,
+    ...(day.focusFromMemory === undefined ? {} : { focusFromMemory: day.focusFromMemory }),
+    ...(day.personalizationPurgeEpoch === undefined ? {} : { personalizationPurgeEpoch: day.personalizationPurgeEpoch }),
+    ...(day.memoryUse ? { memoryUse: day.memoryUse } : {}),
   } : undefined;
-  const { created, stored } = await storeWeekDayPlan(uid, date, {
-    assignment: day.assignment,
-    origin,
-    ...(solved ? { solved } : {}),
-  }, { ...deps, storage });
+  let created: boolean;
+  let stored: StoredDailyPlan;
+  try {
+    ({ created, stored } = await storeWeekDayPlan(uid, date, {
+      assignment: day.assignment,
+      origin,
+      ...(solved ? { solved } : {}),
+    }, { ...deps, storage }));
+  } catch (error) {
+    if (!(error instanceof PlanWriteGuardRejected)) throw error;
+    return { outcome: 'week_changed', layout: await composeWeek(uid, decisions, { ...deps, storage }) };
+  }
   if (!created) {
     return { outcome: 'already_planned', stored, layout: await composeWeek(uid, decisions, { ...deps, storage }) };
   }
   let accepted: StoredDailyPlan | null;
   try {
-    accepted = await acceptPlan(uid, date, { storage, ...(deps.now ? { now: deps.now } : {}) });
+    accepted = await acceptPlan(uid, date, {
+      storage,
+      ...(deps.now ? { now: deps.now } : {}),
+      strictMemoryEpoch: true,
+      // The fence the reviewed solve was made under, checked again as the
+      // acceptance commits (M5B2A-R8-002).
+      ...(solved?.focusFromMemory === true && solved.personalizationPurgeEpoch !== undefined
+        ? { personalizationPurgeEpoch: solved.personalizationPurgeEpoch } : {}),
+    });
   } catch (error) {
+    if (error instanceof PlanWriteGuardRejected) {
+      // Withdrawn or purged between the store and the accept: the document this
+      // call just created was shaped by memory it no longer may use, and is
+      // removed unaccepted, as an empty one is.
+      await storage.runTransaction(async (tx) => {
+        const current = await tx.get<StoredDailyPlan>(planPath(uid, date));
+        // Only the very document this call stored (M5B2A-R20-003): one another
+        // device has touched since — a protected block, an edit — is kept.
+        if (current && sameStoredDocument(current, stored)) tx.delete(planPath(uid, date));
+      });
+      return { outcome: 'week_changed', layout: await composeWeek(uid, decisions, { ...deps, storage }) };
+    }
     if (!(error instanceof PlanEditRejected) || error.reason !== 'empty_plan') throw error;
     // The store re-solved against busy time read after the week was composed,
     // and placed nothing. The document this call just created is not a plan
     // the person saved: it is removed, unaccepted, rather than left behind.
     await storage.runTransaction(async (tx) => {
       const current = await tx.get<StoredDailyPlan>(planPath(uid, date));
-      if (current && current.status === 'proposed' && current.generation === stored.generation && effectiveSchedule(current).length === 0) {
+      if (current
+        && sameStoredDocument(current, stored)
+        && effectiveSchedule(current).length === 0) {
         tx.delete(planPath(uid, date));
       }
     });

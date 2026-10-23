@@ -72,9 +72,9 @@ function withProposal(response: { plan: DailyPlan; proposal?: DailyPlan['proposa
 }
 
 /** That date's plan, or null when none was built. */
-export async function getPlan(date: string): Promise<DailyPlan | null> {
+export async function getPlan(date: string, options: { asUid?: string } = {}): Promise<DailyPlan | null> {
   try {
-    const response = await apiRequest('GET', planPath(date), { schema: planResponseSchema });
+    const response = await apiRequest('GET', planPath(date), { schema: planResponseSchema, ...(options.asUid !== undefined ? { asUid: options.asUid } : {}), });
     return withProposal(response);
   } catch (error) {
     if (error instanceof NotFoundError) return null;
@@ -89,11 +89,12 @@ export async function getPlan(date: string): Promise<DailyPlan | null> {
  * here re-reads to find out what its own call did. A refused edit is a 422 and
  * arrives as `PlanEditRefusedError`, carrying the reason and the item.
  */
-export async function actOnPlan(date: string, body: PlanActionBody): Promise<DailyPlan> {
+export async function actOnPlan(date: string, body: PlanActionBody, options: { asUid?: string } = {}): Promise<DailyPlan> {
   try {
     const response = await apiRequest('POST', planPath(date, '/actions'), {
       body,
       schema: planResponseSchema,
+      ...(options.asUid !== undefined ? { asUid: options.asUid } : {}),
     });
     return withProposal(response);
   } catch (error) {
@@ -116,10 +117,11 @@ export async function actOnPlan(date: string, body: PlanActionBody): Promise<Dai
  * The screen stops offering the button before that, from the generation it can
  * already see; the 429 is the second line, for a rebuild another device spent.
  */
-export async function regeneratePlan(date: string): Promise<DailyPlan> {
+export async function regeneratePlan(date: string, options: { asUid?: string } = {}): Promise<DailyPlan> {
   const response = await apiRequest('POST', planPath(date, '/regenerate'), {
     body: {},
     schema: planResponseSchema,
+    ...(options.asUid !== undefined ? { asUid: options.asUid } : {}),
   });
   return withProposal(response);
 }
@@ -132,10 +134,11 @@ export async function regeneratePlan(date: string): Promise<DailyPlan> {
  * answers that plan, generation and all, so a retry after a lost response
  * cannot spend a second generation.
  */
-export async function buildPlan(date: string): Promise<DailyPlan> {
+export async function buildPlan(date: string, options: { asUid?: string } = {}): Promise<DailyPlan> {
   const response = await apiRequest('POST', planPath(date, '/build'), {
     body: {},
     schema: planResponseSchema,
+    ...(options.asUid !== undefined ? { asUid: options.asUid } : {}),
   });
   return withProposal(response);
 }
@@ -149,8 +152,14 @@ export async function buildPlan(date: string): Promise<DailyPlan> {
  * looking at. It is a POST of its own rather than a side effect of `getPlan`
  * because a fetch cannot tell "shown" from "refetched".
  */
-export async function markPlanOpened(date: string): Promise<void> {
-  await apiRequest('POST', planPath(date, '/opened'), { schema: planOpenedSchema });
+export async function markPlanOpened(date: string, options: { asUid?: string; signal?: AbortSignal } = {}): Promise<void> {
+  // Bound to the account whose screen showed the plan, and dropped with it
+  // (M5B2A-R20-001): A's open is never appended to B's ledger.
+  await apiRequest('POST', planPath(date, '/opened'), {
+    schema: planOpenedSchema,
+    ...(options.asUid !== undefined ? { asUid: options.asUid } : {}),
+    ...(options.signal ? { signal: options.signal } : {}),
+  });
 }
 
 export async function getPlanSettings(): Promise<PlanSettings> {
@@ -230,10 +239,16 @@ export interface WeekDecisions {
  * A POST that writes nothing: the decisions are a body, not a query string.
  * Safe to repeat, so the screen calls it again after every move or drop.
  */
-export async function proposeWeek(decisions: WeekDecisions): Promise<Week> {
+export async function proposeWeek(
+  decisions: WeekDecisions,
+  options: { asUid?: string; signal?: AbortSignal } = {},
+): Promise<Week> {
   const response = await apiRequest('POST', '/api/mobile/plans/week', {
     body: { moves: decisions.moves, drops: decisions.drops },
     schema: weekResponseSchema,
+    // Bound to the account that asked, and dropped with its query (M5B2A-R22-003).
+    ...(options.asUid !== undefined ? { asUid: options.asUid } : {}),
+    ...(options.signal ? { signal: options.signal } : {}),
   });
   return response.week;
 }
@@ -251,6 +266,7 @@ export async function acceptWeekDay(
   shown: readonly string[],
   decisions: WeekDecisions,
   layoutDigest?: string,
+  options: { asUid?: string } = {},
 ): Promise<{ plan: DailyPlan; week: Week }> {
   if (!PLAN_DATE.test(date)) throw new ValidationError('a plan date must be YYYY-MM-DD');
   const response = await apiRequest('POST', '/api/mobile/plans/week/accept', {
@@ -258,6 +274,7 @@ export async function acceptWeekDay(
     // without M5b sends none, and then none is sent back.
     body: { date, shown, moves: decisions.moves, drops: decisions.drops, ...(layoutDigest ? { layoutDigest } : {}) },
     schema: weekAcceptResponseSchema,
+    ...(options.asUid !== undefined ? { asUid: options.asUid } : {}),
   });
   return { plan: { ...response.plan, proposal: null }, week: response.week };
 }
@@ -266,7 +283,11 @@ export async function acceptWeekDay(
  * The days of the next seven saved from the week view, and their steps
  * (I4): what the Calendar strip draws on those dates. Reads only.
  */
-export async function getSavedWeek(): Promise<SavedWeek> {
-  const { today, saved } = await apiRequest('GET', '/api/mobile/plans/week', { schema: savedWeekResponseSchema });
+export async function getSavedWeek(options: { asUid?: string; signal?: AbortSignal } = {}): Promise<SavedWeek> {
+  const { today, saved } = await apiRequest('GET', '/api/mobile/plans/week', {
+    schema: savedWeekResponseSchema,
+    ...(options.asUid !== undefined ? { asUid: options.asUid } : {}),
+    ...(options.signal ? { signal: options.signal } : {}),
+  });
   return { today, saved };
 }

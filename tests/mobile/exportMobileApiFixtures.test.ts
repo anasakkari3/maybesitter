@@ -267,6 +267,20 @@ import {
   end as endM6,
 } from '../acceptance/m6/support.ts';
 import { commitmentBaselineFingerprint } from '../../lib/intelligence/autoAdds.ts';
+import { createStorageRuntimeMemoryStore } from '../../lib/runtimeMemory/runtimeMemoryStore.ts';
+import { deleteMemory } from '../../lib/services/mobile/memoryService.ts';
+import {
+  NOW as M5B2A_NOW,
+  TODAY as M5B2A_TODAY,
+  acceptPlanRoute as acceptM5b2aPlan,
+  begin as beginM5b2a,
+  call as callM5b2a,
+  currentStorage as m5b2aStorage,
+  end as endM5b2a,
+  grantPersonalization as grantM5b2aPersonalization,
+  outcomeObservation as addM5b2aOutcome,
+  threeTasks as addM5b2aTasks,
+} from '../acceptance/m5b2a/support.ts';
 
 const BASE = 'http://127.0.0.1:4321';
 const REFERENCE_TIME = '2026-08-09T08:00:00.000Z';
@@ -2858,6 +2872,11 @@ test('exports a fixture for every /api/mobile call the React Native client makes
         { itemId: dropped.itemId, reason: { code: 'NO_FEASIBLE_SLOT' as const, itemId: dropped.itemId, detail: 'fixture' } },
       ],
     };
+    // As the replan service writes it now (M5B2A-R10-001): a memory-neutral
+    // offer records the fence it was stored under. One with no provenance at
+    // all is a legacy offer, refused once the fence has ever moved — and an
+    // earlier fixture in this run withdraws personalization consent.
+    const fenceEpoch = ((await getStorage().get<{ personalizationPurge?: { epoch?: number } }>(userDoc(USER)))?.personalizationPurge?.epoch) ?? 0;
     const offered = await storePlanProposal(USER, PLAN_DATE, {
       proposalId: 'prp_fixture',
       proposedAt: REFERENCE_TIME,
@@ -2865,6 +2884,7 @@ test('exports a fixture for every /api/mobile call the React Native client makes
       baseInputDigest: base.inputDigest,
       plan: patched,
       solveInputs: { constraints: base.constraints, config: base.config },
+      storedPurgeEpoch: fenceEpoch,
       diff: diffPlans(base.plan, patched),
       reason: 'contains_removals',
       userControlMode: 'automatic_time_only',
@@ -3711,6 +3731,40 @@ test('exports the M5b fixtures from the real handlers', async () => {
     await recordM4b('next-step.m5b', 200, await callM5b(uid, 'recommendations/next-step', 'GET', { query: { locale: 'en', timezone: 'Asia/Jerusalem' } }));
   } finally {
     endM5b();
+  }
+});
+
+test('exports the M5b-2a fixtures from the real handlers', async () => {
+  const uid = await beginM5b2a();
+  try {
+    await grantM5b2aPersonalization(uid);
+    await addM5b2aTasks(uid);
+    const memory = await createStorageRuntimeMemoryStore(undefined, m5b2aStorage() as any).put({
+      scopeId: uid,
+      kind: 'preference',
+      content: 'You often finish things between 09:00 and 12:00.',
+      language: 'en',
+      source: 'deterministic_rule',
+      confidence: 0.7,
+      observedAt: M5B2A_NOW(),
+      evidenceIds: ['fixture-outcome-1', 'fixture-outcome-2'],
+      provenance: { origin: 'behaviour_rule', originRef: 'R1_focus_window:09:00-12:00', confirmedByUserAt: M5B2A_NOW() },
+    } as any, M5B2A_NOW());
+    await recordM4b('plan.memoryBasis', 200, await callM5b2a(uid, 'plans/[date]/build', 'POST', {
+      params: { date: M5B2A_TODAY },
+    }));
+    await acceptM5b2aPlan(uid);
+    await deleteMemory(uid, (memory as any).id, M5B2A_NOW(), { storage: m5b2aStorage() as any } as any);
+    await recordM4b('plan.memoryBasisChanged', 200, await callM5b2a(uid, 'plans/[date]', 'GET', {
+      params: { date: M5B2A_TODAY },
+    }));
+
+    await addM5b2aOutcome(uid, 'Completed: Call the dentist', 'fixture-outcome-completed');
+    await addM5b2aOutcome(uid, 'Postponed: Renew the passport', 'fixture-outcome-postponed');
+    await addM5b2aOutcome(uid, 'Dropped: Clean the garage', 'fixture-outcome-dropped');
+    await recordM4b('intelligence.outcomes', 200, await callM5b2a(uid, 'intelligence', 'GET'));
+  } finally {
+    endM5b2a();
   }
 });
 

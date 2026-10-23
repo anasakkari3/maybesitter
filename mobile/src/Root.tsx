@@ -208,7 +208,7 @@ export function Root() {
               onImport={() => latest.current.go('aiImport')}
             />
           )}
-          {s.screen === 'memory' && <MemoryScreen key="memory" onBack={() => latest.current.back()} />}
+          {s.screen === 'memory' && <MemoryScreen key={`memory-${s.memoryFocusId ?? ''}`} focusId={s.memoryFocusId} onBack={() => latest.current.back()} />}
           {s.screen === 'aiImport' && <AiImportScreen key="aiImport" onBack={() => latest.current.back()} />}
           {s.screen === 'feedbackHistory' && (
             <FeedbackHistoryScreen key="feedbackHistory" onBack={() => latest.current.back()} />

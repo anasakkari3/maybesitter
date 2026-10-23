@@ -43,7 +43,7 @@ import {
 } from '../../memory/routineFacts';
 import { createPilotAuditEvent } from '../../pilot/closedPilotControls';
 import { appendAudit } from '../../pilot/pilotTrustStore';
-import { createStorageRuntimeMemoryStore } from '../../runtimeMemory/runtimeMemoryStore';
+import { createStorageRuntimeMemoryStore, personalizationWriteGuard } from '../../runtimeMemory/runtimeMemoryStore';
 import { getStorage, requireUserId, userDoc, type StorageAdapter } from '../../storage';
 import type { RuntimeMemoryStore } from '../../../src/contracts/v1/memoryContracts';
 
@@ -185,6 +185,8 @@ export async function reconcileRoutineFacts(
   options: RoutineProfileOptions = {},
 ): Promise<SaveRoutineProfileResult['facts']> {
   const memory = memoryOf(options);
+  // Every fact write below is fenced against a delete-all or a withdrawal (M5B2A-R34-001).
+  const guard = await personalizationWriteGuard(storageOf(options), uid);
   const existing = groupByKey(await memory.listAll(uid));
   const desired = groupInputsByKey(routineProfileToFacts(profile, uid, { observedAt: at }));
 
@@ -208,7 +210,7 @@ export async function reconcileRoutineFacts(
         unchanged += 1;
         continue;
       }
-      await memory.supersede(prior.id, next, at);
+      await memory.supersede(prior.id, next, at, guard);
       superseded += 1;
     }
     for (let index = paired; index < before.length; index += 1) {
@@ -216,7 +218,7 @@ export async function reconcileRoutineFacts(
       revoked += 1;
     }
     for (let index = paired; index < after.length; index += 1) {
-      await memory.put(after[index]!, at);
+      await memory.put(after[index]!, at, guard);
       created += 1;
     }
   }

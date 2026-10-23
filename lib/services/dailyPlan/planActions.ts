@@ -51,6 +51,7 @@ import type {
 } from '../../../src/contracts/v1/planningContracts';
 import { ownershipOf, type ScheduleBlock } from '../../../src/contracts/v1/scheduleBlockContracts';
 import { getStorage, type StorageAdapter } from '../../storage';
+import { userDoc } from '../../storage/paths';
 import { readActivityStats, recordActivityEvents } from '../activity/activityStats';
 import { earliestLedgerAcceptance, planEventAsRecord } from '../activity/planActivity';
 import { applyEditsToBlocks, protectionAfterMove, protectionOf, schedulePlan } from '../../planning/scheduler';
@@ -58,6 +59,7 @@ import { planIncrementalPatch } from '../../planning/incremental/freezeResolve';
 import { randomUUID } from 'node:crypto';
 import {
   MAX_REJECTED_PROPOSALS,
+  PlanWriteGuardRejected,
   appendPlanEvent,
   mutateStoredPlan,
   pendingProposalOf,
@@ -78,7 +80,8 @@ import { readBusyBlocksForPlanning } from '../../calendar/busyBlocks';
 import { buildDailyPlanInput, dayHorizon } from './buildDailyPlan';
 import { loadDomainState } from '../mobile/participantState';
 import type { Commitment } from '../../../src/domain/stateMachine';
-import { composeDailyPlan, type DailyPlanDeps } from './dailyPlanService';
+import { composeDailyPlan, composedPlanPurgeEpoch, memoryFocusForAccept, memoryFocusStands, personalizationPurgeMatches, routineOwnsFocus, type DailyPlanDeps } from './dailyPlanService';
+import { planUsedWindow } from './planMemoryBasis';
 import { resolveMemoryLearning } from '../../release/m5bCapabilities';
 
 export type PlanEditReason =
@@ -224,6 +227,18 @@ export function validateEdit(stored: StoredDailyPlan, edit: { moves: readonly Pl
 export interface PlanActionOptions {
   storage?: StorageAdapter;
   now?: () => Date;
+  /**
+   * `acceptPlan` only: the personalization epoch a memory-shaped plan was
+   * solved under. The acceptance is refused, in its own transaction, once the
+   * fence has moved (M5B2A-R8-002).
+   */
+  personalizationPurgeEpoch?: number;
+  /**
+   * `acceptPlan` only: never rebase a moved fence (M5B2A-R15-002). A reviewed
+   * week card expires with `week_changed` when its epoch moved, even if the
+   * same window is allowed again.
+   */
+  strictMemoryEpoch?: boolean;
 }
 
 function clockOf(options: PlanActionOptions): Date {
@@ -246,7 +261,19 @@ export function placesNothing(stored: StoredDailyPlan): boolean {
 export async function acceptPlan(uid: string, date: string, options: PlanActionOptions = {}): Promise<StoredDailyPlan | null> {
   const at = clockOf(options).toISOString();
   let empty = false;
-  const outcome = await mutateStoredPlan<null>(uid, date, (current) => {
+  let fenced = false;
+  // The memory the person allows now, read only for a plan that recorded
+  // memory use (M5B2A-R14-002): a plan solved under an earlier fence that
+  // still stands on exactly this window is the plan they would get again, so
+  // its acceptance takes the current fence instead of being refused for good.
+  // Its epoch was taken before the read, and is checked again inside.
+  const before = await readStoredPlan(uid, date, options.storage);
+  const authorized = !options.strictMemoryEpoch && before && (before.memoryUse || before.focusFromMemory === true)
+    ? await memoryFocusForAccept(uid, at, options.storage ?? getStorage())
+    : null;
+  const outcome = await mutateStoredPlan<null>(uid, date, async (current, tx) => {
+    empty = false;
+    fenced = false;
     // Refused inside the transaction, against the document as it is now — and
     // recorded rather than thrown, as `editPlan` does: a thrown refusal would
     // be retried by the adapter. Nothing is written: no status, no ledger
@@ -255,16 +282,44 @@ export async function acceptPlan(uid: string, date: string, options: PlanActionO
       empty = true;
       return null;
     }
+    // A memory-shaped plan whose personalization fence moved since it was
+    // solved is not accepted (M5B2A-R8-002): the read and the status change
+    // are one transaction.
+    const memoryEpoch = current.memoryUse?.epoch
+      ?? (current.focusFromMemory === true ? current.personalizationPurgeEpoch ?? options.personalizationPurgeEpoch : undefined);
+    let rebased: Partial<StoredDailyPlan> = {};
+    if (memoryEpoch !== undefined) {
+      const user = await tx.get(userDoc(uid));
+      if (!personalizationPurgeMatches(user, memoryEpoch)) {
+        // The routine taking focus time since (R24-002), or the kept record
+        // edited, deleted or replaced since it was read (R24-003), is checked
+        // here, in the same transaction as the acceptance.
+        const stillAuthorized = authorized !== null
+          && personalizationPurgeMatches(user, authorized.purgeEpoch)
+          && !routineOwnsFocus(user)
+          && planUsedWindow(current, authorized.window)
+          && await memoryFocusStands(tx, uid, authorized, at);
+        if (!stillAuthorized) {
+          fenced = true;
+          return null;
+        }
+        rebased = {
+          ...(current.memoryUse ? { memoryUse: { epoch: authorized!.purgeEpoch } } : {}),
+          ...(current.personalizationPurgeEpoch !== undefined ? { personalizationPurgeEpoch: authorized!.purgeEpoch } : {}),
+        };
+      }
+    }
     return {
       // `proposal: null` in the same transaction, assigned and not omitted —
       // see `clearsProposal` above. Accepting *the plan* is a statement about
       // the plan the user is looking at; a patch of it that was solved before
       // they pressed the button is not part of what they accepted.
-      next: { ...current, status: 'accepted', acceptedAt: at, updatedAt: at, proposal: null },
+      next: { ...current, ...rebased, status: 'accepted', acceptedAt: at, updatedAt: at, proposal: null },
       result: null,
     };
   }, options.storage);
   if (empty) throw new PlanEditRejected('empty_plan', null, 'the plan places nothing, so there is nothing to accept');
+  if (fenced) throw new PlanWriteGuardRejected();
   if (!outcome) return null;
   const { path, record } = preparePlanEvent(uid, {
     type: 'plan_accepted', date, at, generation: outcome.stored.generation, inputDigest: outcome.stored.inputDigest,
@@ -930,7 +985,7 @@ export async function acceptPlanProposal(
   const checkedTimezone = offeredTimezone ?? before?.timezone;
   const taken = before ? await fixedTimeInForce(uid, { ...before, timezone: checkedTimezone! }, at, { storage: options.storage }) : [];
 
-  const outcome = await mutateStoredPlan<null>(uid, date, (current) => {
+  const outcome = await mutateStoredPlan<null>(uid, date, async (current, tx) => {
     // Re-read inside the transaction, and everything below is derived from
     // *this* `current`. See the header: a document assembled from an earlier
     // read clobbers whatever landed in between.
@@ -976,6 +1031,26 @@ export async function acceptPlanProposal(
       rejection = new PlanProposalRejected('stale_proposal', 'the proposed change needs a new solve snapshot');
       return null;
     }
+    const proposalMemoryEpoch = proposal.memoryUse?.epoch
+      ?? (proposal.focusFromMemory === true
+        ? proposal.personalizationPurgeEpoch ?? proposal.storedPurgeEpoch ?? 0
+        // No marker of any kind is a legacy offer. Its real stored epoch is
+        // unknowable, so preserve epoch-zero compatibility and fail closed
+        // after the first fence movement.
+        : proposal.focusFromMemory === undefined && proposal.storedPurgeEpoch === undefined ? 0 : undefined);
+    if (proposalMemoryEpoch !== undefined) {
+      const user = await tx.get(userDoc(uid));
+      if (!personalizationPurgeMatches(user, proposalMemoryEpoch)) {
+        // The existing stale-offer outcome (422 `stale_proposal`), and the offer
+        // is withdrawn in the same transaction, so no later read offers it
+        // again (M5B2A-R3-002).
+        rejection = new PlanProposalRejected(
+          'stale_proposal',
+          'the memory basis changed while this proposal was waiting',
+        );
+        return { next: { ...current, proposal: null }, result: null };
+      }
+    }
     rejection = null;
 
     const generation = current.generation + 1;
@@ -983,10 +1058,16 @@ export async function acceptPlanProposal(
     const { edits, status } = editsSurvivingReschedule(current);
     const causeChangeIds = proposal.causeChangeIds;
     const causes = causeChangeIds.length > 0 ? { causeChangeIds: [...causeChangeIds] } : {};
-    const { readinessApplied: _oldReadiness, ...withoutOldReadiness } = current;
+    const {
+      readinessApplied: _oldReadiness,
+      focusFromMemory: _oldFocusFromMemory,
+      personalizationPurgeEpoch: _oldPurgeEpoch,
+      memoryUse: _oldMemoryUse,
+      ...withoutOldBasis
+    } = current;
     return {
       next: {
-        ...withoutOldReadiness,
+        ...withoutOldBasis,
         generation,
         replaces: { generation: current.generation, inputDigest: current.inputDigest },
         plan: proposal.plan,
@@ -1016,6 +1097,9 @@ export async function acceptPlanProposal(
         ...(resolveMemoryLearning() && proposal.basisSnapshot
           ? { readinessApplied: proposal.basisSnapshot.readinessApplied }
           : {}),
+        ...(proposal.focusFromMemory === undefined ? {} : { focusFromMemory: proposal.focusFromMemory }),
+        ...(proposal.personalizationPurgeEpoch === undefined ? {} : { personalizationPurgeEpoch: proposal.personalizationPurgeEpoch }),
+        ...(proposal.memoryUse ? { memoryUse: proposal.memoryUse } : {}),
       },
       result: null,
       // Both in this commit. See "What the ledger says" above.
@@ -1187,7 +1271,7 @@ export async function regeneratePlan(
   if (!current) return { ok: false, reason: 'not_found' };
   if (rebuildsLeftOf(current) === 0) return { ok: false, reason: 'limit_reached' };
 
-  const composed = await composeDailyPlan(uid, date, { timezone: current.timezone }, current.generation + 1, deps, {
+  let composed = await composeDailyPlan(uid, date, { timezone: current.timezone }, current.generation + 1, deps, {
     previousGeneration: current.generation,
     previousInputDigest: current.inputDigest,
     // `?? []` for documents written before blocks existed (#521): the new
@@ -1197,10 +1281,30 @@ export async function regeneratePlan(
   });
   // The refreshes already written today stay uncounted after a rebuild, or
   // the rebuild would charge the person for them retroactively.
-  const rebuilt: StoredDailyPlan = current.automaticGenerations
-    ? { ...composed, automaticGenerations: current.automaticGenerations }
-    : composed;
-  const stored = await replaceStoredPlan(uid, rebuilt, current.generation, deps.storage);
+  const rebuild = (candidate: StoredDailyPlan): StoredDailyPlan => current.automaticGenerations
+    ? { ...candidate, automaticGenerations: current.automaticGenerations }
+    : candidate;
+  let stored: StoredDailyPlan | null;
+  try {
+    const epoch = composedPlanPurgeEpoch(composed);
+    stored = await replaceStoredPlan(
+      uid,
+      rebuild(composed),
+      current.generation,
+      deps.storage,
+      epoch !== undefined
+        ? { path: userDoc(uid), accepts: value => personalizationPurgeMatches(value, epoch) }
+        : undefined,
+    );
+  } catch (error) {
+    if (!(error instanceof PlanWriteGuardRejected)) throw error;
+    composed = await composeDailyPlan(uid, date, { timezone: current.timezone }, current.generation + 1, deps, {
+      previousGeneration: current.generation,
+      previousInputDigest: current.inputDigest,
+      previousBlocks: current.blocks ?? [],
+    }, undefined, undefined, true);
+    stored = await replaceStoredPlan(uid, rebuild(composed), current.generation, deps.storage);
+  }
   if (!stored) return { ok: false, reason: 'raced' };
 
   await appendPlanEvent(uid, {

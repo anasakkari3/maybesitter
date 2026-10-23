@@ -1,9 +1,17 @@
+import { createHash } from 'node:crypto';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createMemoryStorage, resetStorageForTests, setStorageForTests } from '../../lib/storage/index.ts';
 import { analyzeSource } from '../../lib/intelligence/analyzeSource.ts';
-import { observationId, putObservations, reviewObservation } from '../../lib/intelligence/observationStore.ts';
-import { groundCommitmentReasons, hideSavedGoalProposals, proposeFromObservations, validateSuggestions } from '../../lib/intelligence/proposalEngine.ts';
+import { observationId, observationPath, putObservations, reviewObservation } from '../../lib/intelligence/observationStore.ts';
+import {
+  groundCommitmentReasons,
+  hideSavedGoalProposals,
+  proposeFromObservations,
+  suggestionPath,
+  validateSuggestions,
+  type IntelligenceSuggestion,
+} from '../../lib/intelligence/proposalEngine.ts';
 import { reviewSuggestion } from '../../lib/intelligence/reviewSuggestion.ts';
 import { answerIntelligenceQuestion } from '../../lib/intelligence/answerQuestion.ts';
 import { loadDomainState } from '../../lib/services/mobile/participantState.ts';
@@ -281,5 +289,65 @@ test('multi-step proposal is reviewed before work exists; retries create one act
       })) }), model: 'fake', latencyMs: 1, promptTokens: 1, outputTokens: 1,
     }) });
     assert.equal(repeated.find(item => item.id === question.id)?.status, 'accepted');
+  } finally { resetStorageForTests(); }
+});
+
+test('accepting goal and question retries survive dismissal of outcomes they already claimed', async () => {
+  const storage = createMemoryStorage();
+  setStorageForTests(storage);
+  try {
+    const [goalOutcome, questionOutcome] = await putObservations('alice', 'behavior', 'retry-outcomes', NOW, [
+      { kind: 'outcome', evidence: 'Completed: Call the dentist', confidence: 1 },
+      { kind: 'outcome', evidence: 'Completed: Plan the morning', confidence: 1 },
+    ], storage);
+    const suggestion = (kind: 'goal' | 'question', observationIds: string[]): IntelligenceSuggestion => ({
+      id: createHash('sha256').update(`retry-${kind}`).digest('hex'),
+      kind,
+      title: kind === 'goal' ? 'Keep a steady morning routine' : 'Are mornings difficult?',
+      reason: 'Because of what you did',
+      observationIds,
+      confidence: 0.7,
+      durationMinutes: null,
+      status: 'accepting',
+      decidedAt: null,
+      linkedEntityId: null,
+      generatedAt: NOW,
+    });
+
+    // The first request claimed the goal and wrote its idempotent memory, then
+    // stopped before linking it back to the suggestion.
+    const goal = suggestion('goal', [goalOutcome!.id]);
+    await storage.set(suggestionPath('alice', goal.id), goal);
+    const memoryStore = createStorageRuntimeMemoryStore(undefined, storage);
+    const memory = await memoryStore.putIdempotent({
+      scopeId: 'alice', kind: 'goal', content: goal.title, language: 'en',
+      source: 'model_inferred', confidence: goal.confidence, observedAt: NOW,
+      evidenceIds: goal.observationIds,
+      provenance: { origin: 'proactive_suggestion', originRef: goal.id, confirmedByUserAt: NOW },
+    }, NOW, `proactive:${goal.id}`);
+    await storage.set(observationPath('alice', goalOutcome!.id), {
+      ...goalOutcome!, review: 'dismissed', reviewedAt: NOW,
+    });
+    const retriedGoal = await reviewSuggestion('alice', goal.id, 'accept', NOW, storage);
+    assert.equal(retriedGoal?.status, 'accepted');
+    assert.equal(retriedGoal?.linkedEntityId, memory.id);
+    assert.deepEqual((await memoryStore.listAll('alice')).map((row) => row.id), [memory.id]);
+
+    // The equivalent interrupted question has already persisted its answer
+    // evidence under answer:{id}; its retry must finish that same claim.
+    const question = suggestion('question', [questionOutcome!.id]);
+    const answer = 'Mornings are difficult';
+    question.answerDigest = createHash('sha256').update(answer).digest('hex');
+    await storage.set(suggestionPath('alice', question.id), question);
+    const [answerEvidence] = await putObservations('alice', 'manual', `answer:${question.id}`, NOW, [{
+      kind: 'intention', evidence: answer, confidence: 0.5,
+    }], storage);
+    await storage.set(observationPath('alice', questionOutcome!.id), {
+      ...questionOutcome!, review: 'dismissed', reviewedAt: NOW,
+    });
+    const retriedQuestion = await answerIntelligenceQuestion('alice', question.id, answer, NOW, storage);
+    assert.equal(retriedQuestion?.status, 'accepted');
+    const answerRows = await storage.list(`users/alice/intelligenceObservations`);
+    assert.deepEqual(answerRows.filter((row) => row.id === answerEvidence!.id).map((row) => row.id), [answerEvidence!.id]);
   } finally { resetStorageForTests(); }
 });

@@ -6,11 +6,16 @@ import {
   intelligenceGmailMonitorSchema,
 } from '../schemas/intelligence';
 
-export function getIntelligenceInbox() {
-  return apiRequest('GET', '/api/mobile/intelligence', { schema: intelligenceInboxSchema });
+/**
+ * Every call here takes `asUid` (M5B2A-R14-001): the panel binds each read and
+ * write to the account it was opened for, so an account switch while a token
+ * is fetched never sends one account's words under another's.
+ */
+export function getIntelligenceInbox(options: { asUid?: string } = {}) {
+  return apiRequest('GET', '/api/mobile/intelligence', { schema: intelligenceInboxSchema, ...(options.asUid !== undefined ? { asUid: options.asUid } : {}), });
 }
-export function analyzeIntelligenceStatement(text: string) {
-  return apiRequest('POST', '/api/mobile/intelligence', { body: { text }, schema: intelligenceAnalyzeSchema, expectStatus: 201 });
+export function analyzeIntelligenceStatement(text: string, options: { asUid?: string } = {}) {
+  return apiRequest('POST', '/api/mobile/intelligence', { body: { text }, schema: intelligenceAnalyzeSchema, expectStatus: 201, ...(options.asUid !== undefined ? { asUid: options.asUid } : {}), });
 }
 /**
  * `visit`: a screen opening (Today's banner, «يتابع لك»), which the server
@@ -18,33 +23,38 @@ export function analyzeIntelligenceStatement(text: string) {
  * Without it the request is explicit (the panel's button). A server that
  * predates the floor ignores the body.
  */
-export function generateIntelligenceSuggestions(options: { signal?: AbortSignal; visit?: boolean } = {}) {
+export function generateIntelligenceSuggestions(options: { signal?: AbortSignal; visit?: boolean; asUid?: string } = {}) {
   return apiRequest('POST', '/api/mobile/intelligence/generate', {
     body: options.visit ? { trigger: 'visit' } : {}, schema: intelligenceGenerateSchema,
     ...(options.signal ? { signal: options.signal } : {}),
+    ...(options.asUid !== undefined ? { asUid: options.asUid } : {}),
   });
 }
-export function reviewIntelligenceObservation(id: string, review: 'confirmed' | 'dismissed') {
+export function reviewIntelligenceObservation(id: string, review: 'confirmed' | 'dismissed', options: { asUid?: string } = {}) {
   return apiRequest('POST', `/api/mobile/intelligence/observations/${encodeURIComponent(id)}`, {
     body: { review }, schema: intelligenceObservationReviewSchema,
+    ...(options.asUid !== undefined ? { asUid: options.asUid } : {}),
   });
 }
 export function decideIntelligenceSuggestion(
   id: string, decision: 'accept' | 'dismiss', title?: string,
   slot?: { startsAt: string; endsAt: string },
+  options: { asUid?: string } = {},
 ) {
   return apiRequest('POST', `/api/mobile/intelligence/suggestions/${encodeURIComponent(id)}`, {
     body: { decision, ...(title === undefined ? {} : { title }), ...(slot === undefined ? {} : { slot }) },
     schema: intelligenceSuggestionDecisionSchema,
+    ...(options.asUid !== undefined ? { asUid: options.asUid } : {}),
   });
 }
-export function scanGmailForIntelligence() {
+export function scanGmailForIntelligence(options: { asUid?: string } = {}) {
   return apiRequest('POST', '/api/mobile/intelligence/sources/gmail/scan', {
     body: {}, schema: intelligenceGmailScanSchema, timeoutMs: 60_000,
+    ...(options.asUid !== undefined ? { asUid: options.asUid } : {}),
   });
 }
-export function getGmailIntelligenceMonitor() {
-  return apiRequest('GET', '/api/mobile/intelligence/sources/gmail/monitor', { schema: intelligenceGmailMonitorSchema });
+export function getGmailIntelligenceMonitor(options: { asUid?: string } = {}) {
+  return apiRequest('GET', '/api/mobile/intelligence/sources/gmail/monitor', { schema: intelligenceGmailMonitorSchema, ...(options.asUid !== undefined ? { asUid: options.asUid } : {}), });
 }
 /**
  * `m5`: enrol the monitor in M5a's live reading, daily sweep and own-reply
@@ -60,8 +70,9 @@ export function setGmailIntelligenceMonitor(enabled: boolean, m5?: { timezone: s
     ...(options.asUid !== undefined ? { asUid: options.asUid } : {}),
   });
 }
-export function answerIntelligenceQuestion(id: string, answer: string) {
+export function answerIntelligenceQuestion(id: string, answer: string, options: { asUid?: string } = {}) {
   return apiRequest('POST', `/api/mobile/intelligence/suggestions/${encodeURIComponent(id)}/answer`, {
     body: { answer }, schema: intelligenceSuggestionDecisionSchema,
+    ...(options.asUid !== undefined ? { asUid: options.asUid } : {}),
   });
 }

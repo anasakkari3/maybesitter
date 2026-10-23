@@ -10,6 +10,7 @@
  * dismissal when a kept suggestion is deleted without importing the service
  * that imports it.
  */
+import { userDoc } from '../storage/paths';
 import { MEMORY_DISMISSALS, requireUserId, userSubDoc, type StorageAdapter, type StorageReader } from '../storage';
 import { MEMORY_GROWTH_RULE_IDS, type MemoryGrowthRuleId } from './rules';
 
@@ -39,17 +40,24 @@ export async function readDismissedFingerprint(
   return stored && typeof stored.fingerprint === 'string' ? stored.fingerprint : null;
 }
 
+/**
+ * Records a dismissal, in a transaction that refuses while a personalization
+ * purge holds the fence (M5B2A-R30-001): one written beside a delete-all could
+ * land after the purge's remainder check and survive a delete that said done.
+ * False when refused; nothing is written then.
+ */
 export async function recordDismissal(
   storage: StorageAdapter,
   uid: string,
   fingerprint: string,
   at: string,
-): Promise<void> {
+): Promise<boolean> {
   const ruleId = ruleIdOfFingerprint(fingerprint);
-  if (!ruleId) return;
-  await storage.set<StoredMemoryDismissal>(userSubDoc(requireUserId(uid), MEMORY_DISMISSALS, ruleId), {
-    ruleId,
-    fingerprint,
-    dismissedAt: at,
+  if (!ruleId) return true;
+  return storage.runTransaction(async (tx) => {
+    const user = await tx.get<{ personalizationPurge?: { state?: unknown } }>(userDoc(requireUserId(uid)));
+    if (user?.personalizationPurge?.state === 'purging') return false;
+    tx.set<StoredMemoryDismissal>(userSubDoc(uid, MEMORY_DISMISSALS, ruleId), { ruleId, fingerprint, dismissedAt: at });
+    return true;
   });
 }

@@ -83,7 +83,7 @@ import { toEpochMs } from '../../planning/shared/time';
 import type { Commitment } from '../../../src/domain/stateMachine';
 import { loadDomainState } from '../mobile/participantState';
 import { buildDailyPlanInput, dailyPlanScheduleSources, pinnedEventsOnDay, type BusyBlockReader } from './buildDailyPlan';
-import { composeDailyPlanRequest } from './dailyPlanService';
+import { composeDailyPlanRequest, personalizationPurgeMatches } from './dailyPlanService';
 import {
   NO_EDITS,
   mutateStoredPlan,
@@ -94,9 +94,10 @@ import {
 } from './planStore';
 import { localDateOf } from './planSettings';
 import { replanExplanation } from './replanMetadata';
-import { storedWeekAssignment } from './weekHolds';
+import { PLAN_PROPOSAL_DAYS, planDatesFrom, storedWeekAssignment } from './weekHolds';
 import { resolveMemoryLearning } from '../../release/m5bCapabilities';
 import { resolvePlanReadiness } from '../../integrations/readiness/freshReadiness';
+import { planSolveEpochMoved, readPlanMemoryProjectionSafely } from './planMemoryBasis';
 
 export interface PlanRefreshDeps {
   readonly storage?: StorageAdapter;
@@ -104,6 +105,8 @@ export interface PlanRefreshDeps {
   readonly busyBlocks?: BusyBlockReader;
   /** The account's commitments, for a caller that has already loaded them. */
   readonly commitments?: readonly Commitment[];
+  /** Internal one-retry path after the purge fence moves. */
+  readonly suppressMemory?: boolean;
 }
 
 /** A plan as a reader should see it now. */
@@ -298,20 +301,38 @@ export async function refreshStalePlan(
 ): Promise<CurrentPlan> {
   const storage = deps.storage ?? getStorage();
   const now = (deps.now ?? (() => new Date()))();
-  if (!isRefreshableDate(stored, now)) return { stored, inputsChanged: false, basisChanged: false };
-
-  const commitments = deps.commitments ?? Object.values((await loadDomainState(storage, uid)).commitments);
   const today = localDateOf(now.toISOString(), stored.timezone);
+  const normallyRefreshable = isRefreshableDate(stored, now);
+  const memoryRefreshable = planDatesFrom(today, PLAN_PROPOSAL_DAYS).includes(stored.date);
+  if (!normallyRefreshable && !memoryRefreshable) return { stored, inputsChanged: false, basisChanged: false };
+
   const memoryLearning = resolveMemoryLearning();
-  const user = memoryLearning ? await storage.get<Record<string, unknown>>(userDoc(uid)) : undefined;
-  const currentReadiness = memoryLearning
+  if (!normallyRefreshable && !memoryLearning) return { stored, inputsChanged: false, basisChanged: false };
+
+  const commitments = normallyRefreshable
+    ? deps.commitments ?? Object.values((await loadDomainState(storage, uid)).commitments)
+    : [];
+  const user = normallyRefreshable && memoryLearning
+    ? await storage.get<Record<string, unknown>>(userDoc(uid))
+    : undefined;
+  const currentReadiness = normallyRefreshable && memoryLearning
     ? resolvePlanReadiness({ uid, now: now.toISOString(), userDocument: user }).readinessApplied
     : null;
-  const readinessChanged = memoryLearning
+  const readinessChanged = normallyRefreshable && memoryLearning
     ? stored.readinessApplied === undefined || !isDeepStrictEqual(stored.readinessApplied, currentReadiness)
     : false;
-  const commitmentChanged = planInputsChanged(uid, stored, commitments, today);
-  if (!commitmentChanged && !readinessChanged) return { stored, inputsChanged: false, basisChanged: false };
+  // Unreadable is unknown, not changed: the stored plan stands, and the
+  // response omits the basis (M5B2A-R7-003).
+  const memoryProjection = await readPlanMemoryProjectionSafely(uid, stored, now.toISOString(), storage);
+  // In every mode: a plan solved from memory under a fence that has since
+  // moved is stale — its acceptance would be refused — so an untouched one is
+  // re-solved now rather than offered again (M5B2A-R13-001).
+  const fenceMoved = normallyRefreshable
+    && planSolveEpochMoved(stored, user ?? await storage.get<Record<string, unknown>>(userDoc(uid)));
+  const memoryChanged = fenceMoved || (memoryProjection !== null && memoryProjection.mode !== 'off'
+    && (memoryProjection.markerUnknown || memoryProjection.memoryBasisChanged));
+  const commitmentChanged = normallyRefreshable && planInputsChanged(uid, stored, commitments, today);
+  if (!commitmentChanged && !readinessChanged && !memoryChanged) return { stored, inputsChanged: false, basisChanged: false };
   if (!planIsUntouched(stored, now)) {
     return {
       stored,
@@ -326,7 +347,7 @@ export async function refreshStalePlan(
   // saved week day left untouched keeps its own work, and a day built around
   // saved week days keeps leaving their work off.
   const assignment = storedWeekAssignment(stored, today);
-  const { constraints, config, basisSnapshot } = await composeDailyPlanRequest({
+  const { constraints, config, basisSnapshot, focusFromMemory, personalizationPurgeEpoch, memoryUse } = await composeDailyPlanRequest({
     uid,
     date: stored.date,
     timezone: stored.timezone,
@@ -334,11 +355,17 @@ export async function refreshStalePlan(
     userDocument,
     previousBlocks: stored.blocks ?? [],
     ...(assignment ? { assignment } : {}),
-  }, { storage, ...(deps.busyBlocks ? { busyBlocks: deps.busyBlocks } : {}) });
+  }, { storage, ...(deps.busyBlocks ? { busyBlocks: deps.busyBlocks } : {}), suppressMemory: deps.suppressMemory });
   const plan = schedulePlan(constraints, config);
 
-  const written = await mutateStoredPlan<null>(uid, stored.date, (current) => {
+  let purgeMoved = false;
+  const written = await mutateStoredPlan<null>(uid, stored.date, async (current, tx) => {
     if (!stillTheStateJudged(current, stored)) return null;
+    if (memoryUse
+      && !personalizationPurgeMatches(await tx.get(userDoc(uid)), memoryUse.epoch)) {
+      purgeMoved = true;
+      return null;
+    }
     const generation = current.generation + 1;
     const next: StoredDailyPlan = {
       date: current.date,
@@ -365,6 +392,9 @@ export async function refreshStalePlan(
       acceptedAt: null,
       updatedAt: nowIso,
       ...(basisSnapshot ? { readinessApplied: basisSnapshot.readinessApplied } : {}),
+      ...(focusFromMemory === undefined ? {} : { focusFromMemory }),
+      ...(personalizationPurgeEpoch === undefined ? {} : { personalizationPurgeEpoch }),
+      ...(memoryUse ? { memoryUse } : {}),
       // Assigned, not inherited: a patch of the generation being replaced
       // describes a plan that no longer exists.
       proposal: null,
@@ -387,6 +417,9 @@ export async function refreshStalePlan(
   }, storage);
 
   if (written !== null) return { stored: written.stored, inputsChanged: false, basisChanged: false };
+  if (purgeMoved && !deps.suppressMemory) {
+    return refreshStalePlan(uid, stored, { ...deps, suppressMemory: true });
+  }
   // The plan moved while this was solving: somebody touched it, or another
   // reader refreshed it first. Whatever is stored now is the answer, judged
   // again on the next read.

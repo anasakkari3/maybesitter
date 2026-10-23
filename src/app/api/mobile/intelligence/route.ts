@@ -6,11 +6,12 @@ import { analyzeSource } from '../../../../../lib/intelligence/analyzeSource';
 import { intelligenceDisabledResponse } from '../../../../../lib/intelligence/gate';
 import { listObservations } from '../../../../../lib/intelligence/observationStore';
 import { learnOutcomesWithin } from '../../../../../lib/intelligence/outcomeLearning';
-import { hideSavedGoalProposals, listSuggestions } from '../../../../../lib/intelligence/proposalEngine';
+import { hideDismissedOutcomeSuggestions, hideSavedGoalProposals, listSuggestions } from '../../../../../lib/intelligence/proposalEngine';
 import { previewSuggestionSchedule } from '../../../../../lib/intelligence/schedulePreview';
 import { RequestBodyTooLargeError, readJsonBody, requestBodyTooLargeResponse } from '../../../../../lib/net/requestBody';
 import { isPlanImperative } from '../../../../../lib/services/mobile/goalPlanService';
 import { resolveModuleRuntime } from '../../../../../src/contracts/v1/runtimeControls';
+import { resolveMemoryLearning } from '../../../../../lib/release/m5bCapabilities';
 
 export const dynamic = 'force-dynamic';
 
@@ -29,11 +30,19 @@ export async function GET(request: Request) {
     // Keep the person's evidence review available after a revocation, but
     // never display an old recommendation under an off switch.
     const suggestions = consent === 'granted'
-      ? hideSavedGoalProposals(await listSuggestions(user.uid), observations) : [];
+      ? hideDismissedOutcomeSuggestions(hideSavedGoalProposals(await listSuggestions(user.uid), observations), observations) : [];
     let schedule: Awaited<ReturnType<typeof previewSuggestionSchedule>> = [];
     try { schedule = await previewSuggestionSchedule(user.uid, suggestions, new Date().toISOString()); }
     catch { /* A failed preview must not hide the evidence or suggestions. */ }
-    return Response.json({ success: true, observations, suggestions, schedule });
+    const projectedObservations = resolveMemoryLearning() ? observations.map(observation => {
+      if (observation.source !== 'behavior' || observation.kind !== 'outcome') return observation;
+      // A title may span lines (M5B2A-REV-007).
+      const match = /^(Completed|Postponed|Dropped): ([\s\S]+)$/.exec(observation.evidence);
+      if (!match) return observation;
+      const signal = match[1] === 'Completed' ? 'completed' : match[1] === 'Postponed' ? 'postponed' : 'dropped';
+      return { ...observation, outcome: { signal, title: match[2] } };
+    }) : observations;
+    return Response.json({ success: true, observations: projectedObservations, suggestions, schedule });
   } catch {
     return Response.json({ success: false, error: 'could not read intelligence inbox' }, { status: 500 });
   }

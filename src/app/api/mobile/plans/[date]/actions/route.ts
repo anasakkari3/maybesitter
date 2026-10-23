@@ -15,11 +15,11 @@ import {
   rejectPlanProposal,
   setBlockProtection,
 } from '../../../../../../../lib/services/dailyPlan/planActions';
-import { pendingProposalToDto, planToDto } from '../../../../../../../lib/services/dailyPlan/planDto';
+import { assemblePlanResponse, pendingProposalToDto } from '../../../../../../../lib/services/dailyPlan/planDto';
 import { titlesOf } from '../../../../../../../lib/services/dailyPlan/dailyPlanService';
 import { loadDomainState } from '../../../../../../../lib/services/mobile/participantState';
 import { getStorage } from '../../../../../../../lib/storage';
-import type { StoredDailyPlan } from '../../../../../../../lib/services/dailyPlan/planStore';
+import { PlanWriteGuardRejected, type StoredDailyPlan } from '../../../../../../../lib/services/dailyPlan/planStore';
 import { RequestBodyTooLargeError, readJsonBody, requestBodyTooLargeResponse } from '../../../../../../../lib/net/requestBody';
 
 export const dynamic = 'force-dynamic';
@@ -106,6 +106,14 @@ export async function POST(request: Request, { params }: { params: Promise<{ dat
         { status: 422 },
       );
     }
+    // The plan on screen was shaped by memory the person has since withdrawn
+    // (M5B2A-R11-002): nothing was accepted, and the app re-reads the plan.
+    if (error instanceof PlanWriteGuardRejected) {
+      return Response.json(
+        { success: false, error: 'the plan changed; read it again', reason: 'plan_changed' },
+        { status: 409 },
+      );
+    }
     if (error instanceof PlanProtectionRejected) {
       return Response.json(
         { success: false, error: error.message, reason: error.reason, blockId: error.blockId },
@@ -125,7 +133,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ dat
   const taken = await fixedTimeForOffer(user.uid, stored, now, { storage: getStorage(), commitments });
   return Response.json({
     success: true,
-    plan: planToDto(stored, titles, { commitments }),
+    plan: await assemblePlanResponse(user.uid, stored, now, titles, { commitments }),
     // The same key GET answers with, on every action: a client that has just
     // accepted or rejected a patch learns from its own response that the offer
     // is gone, instead of re-fetching to find out.

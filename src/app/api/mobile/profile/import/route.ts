@@ -4,6 +4,7 @@ import { reserveDailyAction } from '../../../../../../lib/llm/usageGuard';
 import { moduleDisabledResponse } from '../../../../../../lib/services/mobile/moduleGate';
 import {
   ImportTextTooLongError,
+  PersonalizationBusyError,
   importAiContext,
 } from '../../../../../../lib/services/mobile/aiContextImportService';
 import { mobileError } from '../../../../../../lib/services/mobile/response';
@@ -99,6 +100,11 @@ export async function POST(request: Request) {
     return Response.json({ success: true, ...proposal });
   } catch (error) {
     if (error instanceof ImportTextTooLongError) return tooLongResponse();
+    // A delete-all or a consent change held the personalization fence
+    // (M5B2A-R33-001): nothing was saved; asking again works.
+    if (error instanceof PersonalizationBusyError) {
+      return Response.json({ success: false, error: 'personalization is changing', reason: 'personalization_busy' }, { status: 503 });
+    }
     return mobileError(error instanceof Error ? error.message : 'could not read the profile', 500);
   }
 }

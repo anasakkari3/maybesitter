@@ -27,7 +27,7 @@
  * Scheduler retry, and a recovered claim. This is `StorageSchedulerStore`'s
  * dedupe, applied to a different document.
  */
-import { getStorage, type StorageAdapter } from '../../storage';
+import { getStorage, type StorageAdapter, type StorageTransaction } from '../../storage';
 import { sortableDocId, userCol, userSubDoc } from '../../storage/paths';
 import { PLANS, PLAN_EVENTS } from '../../storage/paths';
 import type { Plan, PlanDiff, PlanningConfig, PlanningConstraints } from '../../../src/contracts/v1/planningContracts';
@@ -126,6 +126,12 @@ export interface StoredDailyPlan {
   readonly updatedAt: string;
   /** M5b: the exact fresh readiness identity used by this generation. */
   readonly readinessApplied?: ReadinessApplied;
+  /** Whether this generation used the kept focus-window memory. No id or content. */
+  readonly focusFromMemory?: boolean;
+  /** The on-mode personalization fence this generation was solved under. Server-only. */
+  readonly personalizationPurgeEpoch?: number;
+  /** Content-free provenance, present only when kept focus memory shaped this generation. */
+  readonly memoryUse?: { readonly epoch: number };
   /**
    * The state changes this generation was built from (#527, AC 2).
    *
@@ -329,6 +335,13 @@ export interface StoredPlanProposal {
   };
   /** M5b: the solve basis an accepted offer installs, not a later reading. */
   readonly basisSnapshot?: { readonly readinessApplied: ReadinessApplied };
+  /** Solve-time memory provenance; copied verbatim if the offer is accepted. */
+  readonly focusFromMemory?: boolean;
+  readonly personalizationPurgeEpoch?: number;
+  /** Content-free provenance for an offer shaped by the kept focus window. */
+  readonly memoryUse?: { readonly epoch: number };
+  /** Marks a current writer; legacy offers have no known stored fence epoch. */
+  readonly storedPurgeEpoch?: number;
   /** The existing diff contract, not a second one (#523's `PlanDiff` step). */
   readonly diff: PlanDiff;
   readonly reason: ReplanPolicyReason;
@@ -564,14 +577,26 @@ export async function createIfAbsent(
   uid: string,
   document: StoredDailyPlan,
   storage?: StorageAdapter,
+  guard?: { readonly path: string; readonly accepts: (value: unknown) => boolean },
 ): Promise<{ created: boolean; stored: StoredDailyPlan }> {
   const path = planPath(uid, document.date);
   return storageOf(storage).runTransaction(async (tx) => {
-    const existing = await tx.get<StoredDailyPlan>(path);
+    const [existing, guarded] = await Promise.all([
+      tx.get<StoredDailyPlan>(path),
+      guard ? tx.get(guard.path) : Promise.resolve(null),
+    ]);
     if (existing) return { created: false, stored: existing };
+    if (guard && !guard.accepts(guarded)) throw new PlanWriteGuardRejected();
     tx.set<StoredDailyPlan>(path, document);
     return { created: true, stored: document };
   });
+}
+
+export class PlanWriteGuardRejected extends Error {
+  constructor() {
+    super('plan write guard changed');
+    this.name = 'PlanWriteGuardRejected';
+  }
 }
 
 /**
@@ -585,14 +610,14 @@ export async function createIfAbsent(
 export async function mutateStoredPlan<T>(
   uid: string,
   date: string,
-  mutate: (current: StoredDailyPlan) => PlanMutation<T> | null,
+  mutate: (current: StoredDailyPlan, tx: StorageTransaction) => PlanMutation<T> | null | Promise<PlanMutation<T> | null>,
   storage?: StorageAdapter,
 ): Promise<{ stored: StoredDailyPlan; result: T } | null> {
   const path = planPath(uid, date);
   return storageOf(storage).runTransaction(async (tx) => {
     const current = await tx.get<StoredDailyPlan>(path);
     if (!current) return null;
-    const outcome = mutate(current);
+    const outcome = await mutate(current, tx);
     if (!outcome) return null;
     tx.set<StoredDailyPlan>(path, outcome.next);
     for (const entry of outcome.ledger ?? []) tx.set<PlanEvent>(entry.path, entry.record);
@@ -626,11 +651,16 @@ export async function replaceStoredPlan(
   document: StoredDailyPlan,
   expectedGeneration: number,
   storage?: StorageAdapter,
+  guard?: { readonly path: string; readonly accepts: (value: unknown) => boolean },
 ): Promise<StoredDailyPlan | null> {
   const path = planPath(uid, document.date);
   return storageOf(storage).runTransaction(async (tx) => {
-    const current = await tx.get<StoredDailyPlan>(path);
+    const [current, guarded] = await Promise.all([
+      tx.get<StoredDailyPlan>(path),
+      guard ? tx.get(guard.path) : Promise.resolve(null),
+    ]);
     if (!current || current.generation !== expectedGeneration) return null;
+    if (guard && !guard.accepts(guarded)) throw new PlanWriteGuardRejected();
     tx.set<StoredDailyPlan>(path, document);
     return document;
   });

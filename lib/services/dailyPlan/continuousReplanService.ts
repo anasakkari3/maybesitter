@@ -67,7 +67,7 @@ import { randomUUID } from 'node:crypto';
 import { DEFAULT_DELIVERY_LOCAL_TIME, DEFAULT_PLAN_ENABLED, localDateOf, planSettingsOf } from './planSettings';
 import { DEFAULT_MOBILE_TIMEZONE } from '../mobile/time';
 import { dailyPlanScheduleSources } from './buildDailyPlan';
-import { composeDailyPlanRequest } from './dailyPlanService';
+import { composeDailyPlanRequest, personalizationPurgeMatches } from './dailyPlanService';
 import {
   PROTECTED_OWNERSHIP,
   applyEditsToBlocks,
@@ -114,6 +114,8 @@ export interface ContinuousReplanServiceOptions {
   readonly entityFactsByChangeId?: EntityFactsByChangeId;
   readonly policyConfig?: Partial<ReplanPolicyConfig>;
   readonly date?: string;
+  /** Internal one-shot retry after the memory-basis purge fence moves. */
+  readonly suppressMemory?: boolean;
 }
 
 export interface ContinuousReplanUserReport {
@@ -609,7 +611,7 @@ function movedSpans(visible: Plan, placed: Plan): TimeInterval[] {
 /**
  * Process pending state changes for a user and apply continuous replanning.
  */
-export async function processStateChangesForUser(
+async function processStateChangesAttempt(
   uid: string,
   options: ContinuousReplanServiceOptions = {},
 ): Promise<ContinuousReplanUserReport> {
@@ -903,7 +905,16 @@ export async function processStateChangesForUser(
   // off a step the person moved onto this day. Rebuilt from the document, as
   // of the account's local date now, so #383 still rolls in yesterday's work.
   const weekAssignment = storedWeekAssignment(storedPlan, localDateOf(nowIso, settings.timezone));
-  const { commitments, constraints, config, basisSnapshot } = await composeDailyPlanRequest({
+  const {
+    commitments,
+    constraints,
+    config,
+    basisSnapshot,
+    focusFromMemory,
+    personalizationPurgeEpoch,
+    memoryUse,
+    storedPurgeEpoch,
+  } = await composeDailyPlanRequest({
     uid,
     date,
     timezone: settings.timezone,
@@ -911,7 +922,7 @@ export async function processStateChangesForUser(
     userDocument: user,
     previousBlocks: storedPlan?.blocks ?? null,
     ...(weekAssignment ? { assignment: weekAssignment } : {}),
-  }, { storage });
+  }, { storage, suppressMemory: options.suppressMemory });
   const sources = dailyPlanScheduleSources(constraints);
 
   // Planner solve closure. The diff is visible day against visible day
@@ -938,7 +949,16 @@ export async function processStateChangesForUser(
       // inside the meeting that caused the offer). Keep that exact, replayable
       // question instead of letting overlapping fixed events force a full
       // solve that churns unrelated work into a different offer.
-      if (relevantChanges.every((change) => change.source === 'calendar')
+      const pendingMemoryEpoch = pending?.memoryUse?.epoch
+        ?? (pending?.focusFromMemory === true ? pending.personalizationPurgeEpoch : undefined);
+      const pendingHasKnownProvenance = pending !== null
+        && (pending.memoryUse !== undefined || pending.focusFromMemory !== undefined || pending.storedPurgeEpoch !== undefined);
+      if (!options.suppressMemory
+        && pendingHasKnownProvenance
+        && pendingMemoryEpoch === memoryUse?.epoch
+        && pending?.focusFromMemory === focusFromMemory
+        && pending?.personalizationPurgeEpoch === personalizationPurgeEpoch
+        && relevantChanges.every((change) => change.source === 'calendar')
         && pending?.solveInputs
         && !scheduleCollidesWithFixedTime(pending.plan.scheduled, constraints.fixedEvents)) {
         reusedPendingSolveInputs = pending.solveInputs;
@@ -1016,6 +1036,8 @@ export async function processStateChangesForUser(
    * against whatever is in force by then.
    */
   let lostToConcurrentWrite = false;
+  /** The solve used memory whose purge epoch stopped being current before its write. */
+  let purgeMoved = false;
   /**
    * The document the drain must still find for the verdict to hold. The plan
    * the run read, unless this run wrote an offer (stored, extended or
@@ -1051,6 +1073,20 @@ export async function processStateChangesForUser(
     placed: planUnderKeptRemovals(plan, removals),
     filterCarried,
   });
+  // A reused pending solve owns its provenance. Fresh and suppressed solves
+  // own the request provenance instead. Writes and guards use this tuple, not
+  // whichever request happened to be read most recently.
+  const writtenBasisSnapshot = reusedPendingSolveInputs ? pending?.basisSnapshot : basisSnapshot;
+  const writtenFocusFromMemory = reusedPendingSolveInputs ? pending?.focusFromMemory : focusFromMemory;
+  const writtenPurgeEpoch = reusedPendingSolveInputs ? pending?.personalizationPurgeEpoch : personalizationPurgeEpoch;
+  // One effective epoch for the write, whatever shape the reused offer was
+  // stored in (M5B2A-R18-002): an offer from before `memoryUse` existed
+  // records its fence as on-mode `focusFromMemory` + `personalizationPurgeEpoch`,
+  // and is normalised so its guard and the stored provenance both see it.
+  const pendingLegacyUse = pending?.focusFromMemory === true && pending.personalizationPurgeEpoch !== undefined
+    ? { epoch: pending.personalizationPurgeEpoch } : undefined;
+  const writtenMemoryUse = reusedPendingSolveInputs ? pending?.memoryUse ?? pendingLegacyUse : memoryUse;
+  const writtenStoredPurgeEpoch = reusedPendingSolveInputs ? pending?.storedPurgeEpoch ?? storedPurgeEpoch : storedPurgeEpoch;
 
   /**
    * Whether the day in force still has a conflict (#611 guards, round 3).
@@ -1133,8 +1169,13 @@ export async function processStateChangesForUser(
      * overwrite anything that landed since with the snapshot's values, and
      * the generation-only compare-and-set this replaced could not see it.
      */
-    const written = await mutateStoredPlan<null>(uid, date, (current) => {
+    const written = await mutateStoredPlan<null>(uid, date, async (current, tx) => {
       if (!stillTheStateSolvedAgainst(current, storedPlan)) return null;
+      if (writtenMemoryUse
+        && !personalizationPurgeMatches(await tx.get(userDoc(uid)), writtenMemoryUse.epoch)) {
+        purgeMoved = true;
+        return null;
+      }
       const generation = current.generation + 1;
       // Moves dropped, removals kept, status carried (#610, AC 2 and 3). This
       // is the rule accepting a patch follows, and the diff the policy just
@@ -1152,10 +1193,16 @@ export async function processStateChangesForUser(
         edits,
         generation,
       );
-      const { readinessApplied: _oldReadiness, ...withoutOldReadiness } = current;
+      const {
+        readinessApplied: _oldReadiness,
+        focusFromMemory: _oldFocusFromMemory,
+        personalizationPurgeEpoch: _oldPurgeEpoch,
+        memoryUse: _oldMemoryUse,
+        ...withoutOldBasis
+      } = current;
       return {
         next: {
-          ...withoutOldReadiness,
+          ...withoutOldBasis,
           generation,
           replaces: { generation: current.generation, inputDigest: current.inputDigest },
           plan: newPlan,
@@ -1180,7 +1227,10 @@ export async function processStateChangesForUser(
            * exists.
            */
           proposal: null,
-          ...(basisSnapshot ? { readinessApplied: basisSnapshot.readinessApplied } : {}),
+          ...(writtenBasisSnapshot ? { readinessApplied: writtenBasisSnapshot.readinessApplied } : {}),
+          ...(writtenFocusFromMemory === undefined ? {} : { focusFromMemory: writtenFocusFromMemory }),
+          ...(writtenPurgeEpoch === undefined ? {} : { personalizationPurgeEpoch: writtenPurgeEpoch }),
+          ...(writtenMemoryUse ? { memoryUse: writtenMemoryUse } : {}),
         },
         result: null,
       };
@@ -1200,7 +1250,7 @@ export async function processStateChangesForUser(
         },
         storage,
       );
-    } else {
+    } else if (!purgeMoved) {
       lostToConcurrentWrite = true;
     }
   } else if (pipelineResult.policyDecision?.action === 'propose_for_review' && storedPlan) {
@@ -1217,7 +1267,6 @@ export async function processStateChangesForUser(
      * concurrent rebuild refused would be the same lie in the other direction.
      */
     const causes = pipelineResult.newPlan ? causesFor(pipelineResult.newPlan) : null;
-    const effectiveBasisSnapshot = reusedPendingSolveInputs ? pending?.basisSnapshot : basisSnapshot;
     const proposal: StoredPlanProposal | null = pipelineResult.newPlan && pipelineResult.policyDecision.diff && causes
       ? {
         proposalId: randomUUID(),
@@ -1226,7 +1275,11 @@ export async function processStateChangesForUser(
         baseInputDigest: storedPlan.inputDigest,
         plan: pipelineResult.newPlan,
         solveInputs: reusedPendingSolveInputs ?? { constraints, config, incrementalSolve },
-        ...(effectiveBasisSnapshot ? { basisSnapshot: effectiveBasisSnapshot } : {}),
+        ...(writtenBasisSnapshot ? { basisSnapshot: writtenBasisSnapshot } : {}),
+        ...(writtenFocusFromMemory === undefined ? {} : { focusFromMemory: writtenFocusFromMemory }),
+        ...(writtenPurgeEpoch === undefined ? {} : { personalizationPurgeEpoch: writtenPurgeEpoch }),
+        ...(writtenMemoryUse ? { memoryUse: writtenMemoryUse } : {}),
+        storedPurgeEpoch: writtenStoredPurgeEpoch,
         diff: pipelineResult.policyDecision.diff,
         reason: pipelineResult.policyDecision.reason,
         userControlMode: pipelineResult.policyDecision.userControlMode,
@@ -1270,23 +1323,42 @@ export async function processStateChangesForUser(
     let sameOffer = false;
     const keptCauses = pending !== null && pipelineResult.newPlan ? causesFor(pipelineResult.newPlan, false) : null;
     const stored = proposal
-      ? await mutateStoredPlan<null>(uid, date, (current) => {
+      ? await mutateStoredPlan<null>(uid, date, async (current, tx) => {
         alreadyRejected = false;
         sameOffer = false;
         if (!stillTheStateSolvedAgainst(current, storedPlan)) return null;
+        if (proposal.memoryUse
+          && !personalizationPurgeMatches(await tx.get(userDoc(uid)), proposal.memoryUse.epoch)) {
+          purgeMoved = true;
+          return null;
+        }
         if (proposalWasRejected(current, proposal)) {
           alreadyRejected = true;
           return null;
         }
         // The guard above has required the document to carry `pending`'s id.
-        if (pending !== null && proposalFingerprint(pending.plan) === proposalFingerprint(proposal.plan)) {
+        if (pending !== null
+          && pending.memoryUse?.epoch === proposal.memoryUse?.epoch
+          && pending.focusFromMemory === proposal.focusFromMemory
+          && proposalFingerprint(pending.plan) === proposalFingerprint(proposal.plan)) {
           sameOffer = true;
-          const { basisSnapshot: _oldBasisSnapshot, ...pendingWithoutBasisSnapshot } = pending;
+          const {
+            basisSnapshot: _oldBasisSnapshot,
+            focusFromMemory: _oldFocusFromMemory,
+            personalizationPurgeEpoch: _oldPurgeEpoch,
+            memoryUse: _oldMemoryUse,
+            storedPurgeEpoch: _oldStoredPurgeEpoch,
+            ...pendingWithoutBasisSnapshot
+          } = pending;
           const refreshed = {
             ...pendingWithoutBasisSnapshot,
             plan: proposal.plan,
             solveInputs: proposal.solveInputs,
             ...(proposal.basisSnapshot ? { basisSnapshot: proposal.basisSnapshot } : {}),
+            ...(proposal.focusFromMemory === undefined ? {} : { focusFromMemory: proposal.focusFromMemory }),
+            ...(proposal.personalizationPurgeEpoch === undefined ? {} : { personalizationPurgeEpoch: proposal.personalizationPurgeEpoch }),
+            ...(proposal.memoryUse ? { memoryUse: proposal.memoryUse } : {}),
+            storedPurgeEpoch: proposal.storedPurgeEpoch,
             causeChangeIds: keptCauses!.changeIds,
             causeRefs: keptCauses!.refs,
           };
@@ -1323,7 +1395,7 @@ export async function processStateChangesForUser(
         },
         storage,
       );
-    } else if (proposal && !alreadyRejected && !sameOffer) {
+    } else if (proposal && !alreadyRejected && !sameOffer && !purgeMoved) {
       lostToConcurrentWrite = true;
     }
   } else if (pipelineResult.policyDecision?.action === 'discard' && storedPlan && pending) {
@@ -1331,6 +1403,16 @@ export async function processStateChangesForUser(
     // beside it is withdrawn too. This is the only way an offer stored before
     // `causeRefs` existed is withdrawn.
     await withdrawOffer(storedPlan);
+  }
+
+  // The purge fence moved between solve and write. Leave the change rows in
+  // place and retry once from fresh inputs with memory deliberately absent.
+  if (purgeMoved) {
+    if (!options.suppressMemory) return processStateChangesAttempt(uid, { ...options, suppressMemory: true });
+    // A second refusal is terminal for this tick. Keep the rows so the next
+    // tick judges them from newly read state instead of acknowledging work
+    // whose result was never stored.
+    lostToConcurrentWrite = true;
   }
 
   // 7. Acknowledge/delete processed planning state changes (#610, AC 5).
@@ -1357,6 +1439,14 @@ export async function processStateChangesForUser(
     offerOutcome,
     replanMode,
   };
+}
+
+/** Process pending state changes, including the one permitted purge-fence retry. */
+export async function processStateChangesForUser(
+  uid: string,
+  options: ContinuousReplanServiceOptions = {},
+): Promise<ContinuousReplanUserReport> {
+  return processStateChangesAttempt(uid, options);
 }
 
 export interface ContinuousReplanTickTotals {

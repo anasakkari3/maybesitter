@@ -28,8 +28,24 @@ import type { Locale } from '../../i18n/locale';
  * screens treat that as "this section does not exist" and hide it, rather than
  * as an error to show somebody.
  */
-export function getProfile(): Promise<ProfileResponse> {
-  return apiRequest('GET', '/api/mobile/profile', { schema: profileResponseSchema });
+/**
+ * `asUid` on every read and write here binds it to the account that asked
+ * (M5B2A-R32-001): if another account signs in while the token is fetched, the
+ * request is never sent under the new account's token, and its answer is never
+ * read for it. Only `apiRequest` checks, and only when `asUid` is supplied.
+ */
+type Bound = { asUid?: string };
+
+function bound(options: Bound): Bound {
+  return options.asUid !== undefined ? { asUid: options.asUid } : {};
+}
+
+export function getProfile(options: Bound & { signal?: AbortSignal } = {}): Promise<ProfileResponse> {
+  return apiRequest('GET', '/api/mobile/profile', {
+    schema: profileResponseSchema,
+    ...bound(options),
+    ...(options.signal ? { signal: options.signal } : {}),
+  });
 }
 
 /**
@@ -39,19 +55,31 @@ export function getProfile(): Promise<ProfileResponse> {
  * without a replay queue: the call is idempotent, so sending it twice is the
  * same as sending it once (UC-1.R4 #157's no-offline-queue rule).
  */
-export function putRoutine(profile: RoutineProfilePayload) {
+export function putRoutine(profile: RoutineProfilePayload, options: Bound = {}) {
   return apiRequest('PUT', '/api/mobile/profile/routine', {
     body: profile,
     schema: routineSavedSchema,
+    ...bound(options),
   });
 }
 
-export function listMemory(): Promise<{ items: MemoryItem[]; suggestions: MemorySuggestion[]; adaptive: MemoryAdaptive | null }> {
-  return apiRequest('GET', '/api/mobile/memory', { schema: memoryListSchema });
+/** `asUid` binds the read to the account that asked (M5B2A-R9-002): another account's memory never answers it. */
+export function listMemory(
+  options: { asUid?: string; signal?: AbortSignal } = {},
+): Promise<{ items: MemoryItem[]; suggestions: MemorySuggestion[]; adaptive: MemoryAdaptive | null }> {
+  return apiRequest('GET', '/api/mobile/memory', {
+    schema: memoryListSchema,
+    ...(options.asUid !== undefined ? { asUid: options.asUid } : {}),
+    ...(options.signal ? { signal: options.signal } : {}),
+  });
 }
 
-export function createMemory(input: { kind: 'fact' | 'preference' | 'goal'; content: string; language: 'ar' | 'he' | 'en' | 'mixed' }) {
-  return apiRequest('POST', '/api/mobile/memory', { body: input, schema: memoryCreatedSchema, expectStatus: 201 });
+/** Bound to the account that typed it (M5B2A-R32-001): A's words are never stored in B's memory. */
+export function createMemory(
+  input: { kind: 'fact' | 'preference' | 'goal'; content: string; language: 'ar' | 'he' | 'en' | 'mixed' },
+  options: Bound = {},
+) {
+  return apiRequest('POST', '/api/mobile/memory', { body: input, schema: memoryCreatedSchema, expectStatus: 201, ...bound(options) });
 }
 
 /**
@@ -69,9 +97,10 @@ export function patchMemory(id: string, content: string, options: { asUid?: stri
 }
 
 /** Removes the fact and every record in its supersession chain. Irreversible. */
-export function deleteMemory(id: string) {
+export function deleteMemory(id: string, options: { asUid?: string } = {}) {
   return apiRequest('DELETE', `/api/mobile/memory/${encodeURIComponent(id)}`, {
     schema: memoryDeletedSchema,
+    ...(options.asUid !== undefined ? { asUid: options.asUid } : {}),
   });
 }
 
@@ -79,24 +108,26 @@ export function deleteMemory(id: string) {
  * Keeps a suggestion (UC-3.16, #202). The server recomputes it and stores its
  * own sentence in `language`; a 409 means the suggestion is no longer offered.
  */
-export function keepMemorySuggestion(suggestion: Pick<MemorySuggestion, 'ruleId' | 'fingerprint'>, language: 'ar' | 'he' | 'en') {
+export function keepMemorySuggestion(suggestion: Pick<MemorySuggestion, 'ruleId' | 'fingerprint'>, language: 'ar' | 'he' | 'en', options: { asUid?: string } = {}) {
   return apiRequest('POST', `/api/mobile/memory/suggestions/${encodeURIComponent(suggestion.ruleId)}`, {
     body: { decision: 'keep', fingerprint: suggestion.fingerprint, language },
     schema: memorySuggestionDecisionSchema,
     expectStatus: 201,
+    ...(options.asUid !== undefined ? { asUid: options.asUid } : {}),
   });
 }
 
 /** "Not right": the same claim is not offered again until what it would say changes. */
-export function dismissMemorySuggestion(suggestion: Pick<MemorySuggestion, 'ruleId' | 'fingerprint'>) {
+export function dismissMemorySuggestion(suggestion: Pick<MemorySuggestion, 'ruleId' | 'fingerprint'>, options: { asUid?: string } = {}) {
   return apiRequest('POST', `/api/mobile/memory/suggestions/${encodeURIComponent(suggestion.ruleId)}`, {
     body: { decision: 'dismiss', fingerprint: suggestion.fingerprint },
     schema: memorySuggestionDecisionSchema,
+    ...(options.asUid !== undefined ? { asUid: options.asUid } : {}),
   });
 }
 
-export function deleteAllMemory() {
-  return apiRequest('DELETE', '/api/mobile/memory', { schema: memoryDeletedSchema });
+export function deleteAllMemory(options: { asUid?: string } = {}) {
+  return apiRequest('DELETE', '/api/mobile/memory', { schema: memoryDeletedSchema, ...(options.asUid !== undefined ? { asUid: options.asUid } : {}), });
 }
 
 /**
@@ -107,10 +138,11 @@ export function deleteAllMemory() {
  * declining is a normal choice, not a failure.
  */
 /** `locale`: the app language, so the suggestions come back in it (M6A-008). */
-export function describeProfile(text: string, locale?: 'ar' | 'en' | 'he') {
+export function describeProfile(text: string, locale?: 'ar' | 'en' | 'he', options: Bound = {}) {
   return apiRequest('POST', '/api/mobile/profile/describe', {
     body: { text, ...(locale ? { locale } : {}) },
     schema: profileProposalSchema,
+    ...bound(options),
   });
 }
 
@@ -124,10 +156,12 @@ export function describeProfile(text: string, locale?: 'ar' | 'en' | 'he') {
 export function confirmProfileSuggestions(
   proposalId: string,
   accepted: { index: number; content?: string }[],
+  options: Bound = {},
 ) {
   return apiRequest('POST', '/api/mobile/profile/describe/confirm', {
     body: { proposalId, accepted },
     schema: profileConfirmedSchema,
+    ...bound(options),
   });
 }
 
@@ -143,11 +177,12 @@ export function confirmProfileSuggestions(
  * The paste is not stored and is not echoed back. What returns is the
  * candidates, plus how many existing records they were compared against.
  */
-export function importAiContext(text: string, assistant: ImportAssistant, locale?: Locale) {
+export function importAiContext(text: string, assistant: ImportAssistant, locale?: Locale, options: Bound = {}) {
   return apiRequest('POST', '/api/mobile/profile/import', {
     // The app's UI language: the candidates are written in it (owner request 2026-09-30).
     body: { text, assistant, ...(locale ? { locale } : {}) },
     schema: aiContextImportProposalSchema,
+    ...bound(options),
   });
 }
 
@@ -161,9 +196,11 @@ export function importAiContext(text: string, assistant: ImportAssistant, locale
 export function confirmAiContextImport(
   proposalId: string,
   accepted: { index: number; content?: string; resolve?: 'replace' | 'keep_both' }[],
+  options: Bound = {},
 ) {
   return apiRequest('POST', '/api/mobile/profile/import/confirm', {
     body: { proposalId, accepted },
     schema: aiContextImportConfirmedSchema,
+    ...bound(options),
   });
 }

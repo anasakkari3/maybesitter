@@ -1,3 +1,5 @@
+import { MemoryWriteRefusedError } from '../../../../../lib/runtimeMemory/runtimeMemoryStore';
+import { PersonalizationWithdrawalBusyError } from '../../../../../lib/consents/personalizationConsentService';
 import { mobileAuthErrorResponse, requireMobileUser } from '../../../../../lib/auth/mobileAuth';
 import {
   MEMORY_ADAPTIVE_UNSET,
@@ -91,6 +93,11 @@ export async function POST(request: Request) {
     );
     return Response.json({ success: true, memory: created }, { status: 201 });
   } catch (error) {
+    // A delete-all or a consent change holds the personalization fence
+    // (M5B2A-R32-003): nothing was written; asking again works.
+    if (error instanceof MemoryWriteRefusedError) {
+      return Response.json({ success: false, error: 'personalization is changing', reason: 'personalization_busy' }, { status: 503 });
+    }
     if (error instanceof MemoryValidationError) {
       return Response.json({ success: false, error: error.message, reason: 'invalid_memory' }, { status: 400 });
     }
@@ -126,6 +133,11 @@ export async function DELETE(request: Request) {
     const deleted = await deleteAllMemory(user.uid, new Date().toISOString());
     return Response.json({ success: true, deleted });
   } catch (error) {
+    // A withdrawal still owned the personalization fence for longer than the
+    // purge waits (M5B2A-R26-001): nothing was erased; asking again works.
+    if (error instanceof PersonalizationWithdrawalBusyError) {
+      return Response.json({ success: false, error: 'a consent change is still running', reason: 'withdrawal_running' }, { status: 503 });
+    }
     if (error instanceof MemoryDeletionIncompleteError) {
       return Response.json(
         { success: false, error: error.message, reason: 'memory_delete_incomplete' },

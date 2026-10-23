@@ -34,6 +34,7 @@
  * The alternative — the domain event log — is replayed to rebuild commitments,
  * and a consent record has no business in that stream.
  */
+import { randomUUID } from 'node:crypto';
 import {
   CONSENT_KINDS,
   type ConsentKindContract,
@@ -50,6 +51,8 @@ import { getStorage, requireUserId, userDoc, type StorageAdapter } from '../stor
 /** The user document's consent map, as this service reads and writes it. */
 type ConsentBearingUser = {
   consents?: Partial<Record<ConsentKindContract['key'], ConsentRecord>>;
+  /** The token of the write that set each answer; internal, never in a view. */
+  consentOps?: Partial<Record<ConsentKindContract['key'], string>>;
 };
 
 export class UnsupportedConsentVersionError extends Error {
@@ -123,6 +126,31 @@ export async function setConsent(
   input: SetConsentInput,
   options: ConsentOptions = {},
 ): Promise<ConsentRecord> {
+  return (await writeConsent(kind, uid, input, options, undefined))!.record;
+}
+
+/**
+ * `setConsent`, also answering the write's internal operation token: an
+ * unguessable id stored beside the answer (never in any view), so a later
+ * `setConsentIf` can tell this exact write from an identical-looking newer one
+ * (M5B2A-R24-001).
+ */
+export async function setConsentWithToken(
+  kind: ConsentKindContract,
+  uid: string,
+  input: SetConsentInput,
+  options: ConsentOptions = {},
+): Promise<{ record: ConsentRecord; token: string }> {
+  return (await writeConsent(kind, uid, input, options, undefined))!;
+}
+
+async function writeConsent(
+  kind: ConsentKindContract,
+  uid: string,
+  input: SetConsentInput,
+  options: ConsentOptions,
+  accepts: ((user: ConsentBearingUser | null) => boolean) | undefined,
+): Promise<{ record: ConsentRecord; token: string } | null> {
   requireUserId(uid);
   if (input.state !== 'granted' && input.state !== 'declined') {
     throw new Error('consent state must be granted or declined');
@@ -144,14 +172,19 @@ export async function setConsent(
     ...(input.platform ? { platform: input.platform } : {}),
   };
 
-  await storage.runTransaction(async (tx) => {
+  const token = randomUUID();
+  const written = await storage.runTransaction(async (tx) => {
     const current = await tx.get<ConsentBearingUser>(userDoc(uid));
+    if (accepts && !accepts(current)) return false;
     // Merged into the existing map, never replacing it: answering one question
     // must not erase the answer to the other.
     tx.merge<ConsentBearingUser>(userDoc(uid), {
       consents: { ...(current?.consents ?? {}), [kind.key]: record },
+      consentOps: { ...(current?.consentOps ?? {}), [kind.key]: token },
     });
+    return true;
   });
+  if (!written) return null;
 
   // Appended after the write commits: an audit line for a change that did not
   // happen would be worse than a missing one.
@@ -164,7 +197,39 @@ export async function setConsent(
     reasonCode: `${kind.auditCode}_${input.state}`,
   }));
 
-  return record;
+  return { record, token };
+}
+
+/**
+ * `setConsent`, written only while the stored answer is still the one the
+ * write with `token` made — a rollback that must not overwrite a newer answer
+ * recorded since, even one with identical fields (M5B2A-R22-002, R24-001).
+ * Null, with no write and no audit line, when the answer has moved on.
+ */
+export async function setConsentIf(
+  kind: ConsentKindContract,
+  uid: string,
+  input: SetConsentInput,
+  token: string,
+  options: ConsentOptions = {},
+): Promise<ConsentRecord | null> {
+  return (await writeConsent(kind, uid, input, options, (user) => user?.consentOps?.[kind.key] === token))?.record ?? null;
+}
+
+/**
+ * `setConsent`, written only while `accepts` holds for the user document read
+ * in the same transaction — a withdrawal's answer, recorded only while it
+ * still owns the personalization fence (M5B2A-R25-002). Null, with no write
+ * and no audit line, otherwise.
+ */
+export async function setConsentWhile(
+  kind: ConsentKindContract,
+  uid: string,
+  input: SetConsentInput,
+  accepts: (user: unknown) => boolean,
+  options: ConsentOptions = {},
+): Promise<ConsentRecord | null> {
+  return (await writeConsent(kind, uid, input, options, accepts))?.record ?? null;
 }
 
 export type ConsentView = ConsentRecord & { asked: boolean };

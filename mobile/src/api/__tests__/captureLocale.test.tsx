@@ -19,6 +19,7 @@ import { useCapture, useCaptureChat, useImportAiContext, usePrepareMeeting, useP
 import * as shareEndpoints from '../endpoints/share';
 import * as apiClient from '../client';
 import { createFakeAuthRepository } from '../../auth/fakeAuthRepository';
+import { AuthProvider } from '../../auth/AuthProvider';
 import { setAuthRepository, resetAuthForTests } from '../auth';
 import { setLocale } from '../../i18n';
 import type { Locale } from '../../i18n/locale';
@@ -35,6 +36,7 @@ jest.mock('expo-localization', () => ({
 
 let sent: { path: string; body: Record<string, unknown> }[];
 let client: ReturnType<typeof createAppQueryClient>;
+let repository: ReturnType<typeof createFakeAuthRepository>;
 
 /** What each path answers: the real route's fixture, so the schemas accept it. */
 function answerFor(path: string): unknown {
@@ -50,9 +52,10 @@ function answerFor(path: string): unknown {
 beforeEach(() => {
   client = createAppQueryClient();
   process.env.EXPO_PUBLIC_API_BASE_URL = 'http://localhost:3000';
-  setAuthRepository(createFakeAuthRepository({
+  repository = createFakeAuthRepository({
     initialUser: { uid: 'alice', email: null, emailVerified: true, displayName: null, providerIds: ['password'] },
-  }));
+  });
+  setAuthRepository(repository);
   sent = [];
   (globalThis as { fetch: unknown }).fetch = jest.fn(async (url: string, init: { body?: string }) => {
     const path = new URL(String(url)).pathname;
@@ -90,9 +93,12 @@ function Probe() {
 
 async function sendAll(): Promise<void> {
   await render(
-    <QueryClientProvider client={client}>
-      <Probe />
-    </QueryClientProvider>,
+    // The AI import is bound to the account that sent it (M5B2A-R32-001), so it reads the signed-in uid.
+    <AuthProvider repository={repository} isDevBundle={false}>
+      <QueryClientProvider client={client}>
+        <Probe />
+      </QueryClientProvider>
+    </AuthProvider>,
   );
   for (const id of ['capture', 'chat', 'share', 'prepare', 'import']) await fireEvent.press(screen.getByTestId(id));
   await waitFor(() => expect(screen.getByTestId('settled')).toHaveTextContent('5'));
@@ -117,9 +123,11 @@ describe('the app language on the requests a model titles', () => {
   it('follows a language change made after the screen mounted', async () => {
     await setLocale('en');
     await render(
-      <QueryClientProvider client={client}>
-        <Probe />
-      </QueryClientProvider>,
+      <AuthProvider repository={repository} isDevBundle={false}>
+        <QueryClientProvider client={client}>
+          <Probe />
+        </QueryClientProvider>
+      </AuthProvider>,
     );
     await setLocale('ar');
     await fireEvent.press(screen.getByTestId('capture'));

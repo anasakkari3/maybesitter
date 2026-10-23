@@ -1,7 +1,8 @@
 import { createHash } from 'node:crypto';
 import { getStorage, INTELLIGENCE_OBSERVATIONS, requireUserId, userCol, type StorageAdapter } from '../storage';
-import { createStorageRuntimeMemoryStore } from '../runtimeMemory/runtimeMemoryStore';
+import { createStorageRuntimeMemoryStore, personalizationWriteGuard } from '../runtimeMemory/runtimeMemoryStore';
 import type { SemanticObservation } from './semantic';
+import { resolveMemoryLearning } from '../release/m5bCapabilities';
 
 export type ObservationSource = 'manual' | 'gmail' | 'calendar' | 'drive' | 'share' | 'behavior' | 'memory' | 'commitment';
 export type ObservationReview = 'pending' | 'confirmed' | 'dismissed';
@@ -39,7 +40,7 @@ export function observationId(source: ObservationSource, sourceRef: string, item
   return createHash('sha256').update([source, sourceRef, item.kind, item.evidence].join('\0')).digest('hex');
 }
 
-function path(uid: string, id: string): string {
+export function observationPath(uid: string, id: string): string {
   requireUserId(uid);
   if (!/^[a-f0-9]{64}$/.test(id)) throw new Error('invalid observation id');
   return `${userCol(uid, INTELLIGENCE_OBSERVATIONS)}/${id}`;
@@ -63,26 +64,26 @@ export async function putObservations(
       const guarded = await storage.runTransaction(async tx => {
         const [monitor, existing] = await Promise.all([
           tx.get<{ enabled: boolean; generation: string }>(monitorGuard.path),
-          tx.get<StoredObservation>(path(uid, id)),
+          tx.get<StoredObservation>(observationPath(uid, id)),
         ]);
         if (!monitor?.enabled || monitor.generation !== monitorGuard.generation) return null;
         if (existing) return existing;
         const record: StoredObservation = { ...item, id, source, sourceRef, observedAt,
           ...initialReview(source, observedAt), linkedMemoryId: null };
-        tx.create(path(uid, id), record);
+        tx.create(observationPath(uid, id), record);
         return record;
       });
       if (!guarded) throw new Error('monitor_disabled');
       out.push(guarded);
       continue;
     }
-    const existing = await storage.get<StoredObservation>(path(uid, id));
+    const existing = await storage.get<StoredObservation>(observationPath(uid, id));
     if (existing) { out.push(existing); continue; }
     const record: StoredObservation = {
       ...item, id, source, sourceRef, observedAt,
       ...initialReview(source, observedAt), linkedMemoryId: null,
     };
-    await storage.set(path(uid, id), record);
+    await storage.set(observationPath(uid, id), record);
     out.push(record);
   }
   return out;
@@ -103,11 +104,18 @@ export async function reviewObservation(
 ): Promise<StoredObservation | null> {
   if (!Number.isFinite(Date.parse(at))) throw new Error('invalid review time');
   const reviewed = await storage.runTransaction(async tx => {
-    const current = await tx.get<StoredObservation>(path(uid, id));
+    const current = await tx.get<StoredObservation>(observationPath(uid, id));
     if (!current) return null;
+    if (review === 'dismissed' && current.review === 'confirmed'
+      && current.source === 'behavior' && current.kind === 'outcome'
+      && resolveMemoryLearning()) {
+      const next: StoredObservation = { ...current, review: 'dismissed', reviewedAt: at };
+      tx.set(observationPath(uid, id), next);
+      return next;
+    }
     if (current.review !== 'pending') return current;
     const next = { ...current, review, reviewedAt: at };
-    tx.set(path(uid, id), next);
+    tx.set(observationPath(uid, id), next);
     return next;
   });
   if (!reviewed || reviewed.review !== 'confirmed' || reviewed.kind !== 'goal' || reviewed.linkedMemoryId) return reviewed;
@@ -118,18 +126,20 @@ export async function reviewObservation(
   const content = reviewed.evidence.trim();
   const language = /[\u0590-\u05ff]/.test(content) ? 'he'
     : /[\u0600-\u06ff]/.test(content) ? 'ar' : 'en';
+  // Fenced against a delete-all or a withdrawal (M5B2A-R34-001).
+  const guard = await personalizationWriteGuard(storage, uid);
   const memory = await createStorageRuntimeMemoryStore(undefined, storage).putIdempotent({
     scopeId: uid, kind: 'goal', content, language,
     source: 'model_inferred', confidence: reviewed.confidence,
     observedAt: reviewed.observedAt, evidenceIds: [reviewed.id],
     provenance: { origin: 'proactive_suggestion', originRef: reviewed.id, confirmedByUserAt: reviewed.reviewedAt ?? at },
-  }, reviewed.reviewedAt ?? at, `observation-goal:${reviewed.id}`);
+  }, reviewed.reviewedAt ?? at, `observation-goal:${reviewed.id}`, guard);
   return storage.runTransaction(async tx => {
-    const current = await tx.get<StoredObservation>(path(uid, id));
+    const current = await tx.get<StoredObservation>(observationPath(uid, id));
     if (!current) return null;
     if (current.review !== 'confirmed' || current.linkedMemoryId) return current;
     const next = { ...current, linkedMemoryId: memory.id };
-    tx.set(path(uid, id), next);
+    tx.set(observationPath(uid, id), next);
     return next;
   });
 }

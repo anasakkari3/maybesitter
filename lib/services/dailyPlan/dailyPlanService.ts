@@ -74,18 +74,20 @@
  * than about a fake.
  */
 import { getStorage, type StorageAdapter } from '../../storage';
+import type { StorageTransaction } from '../../storage/storageAdapter';
 import { USERS, userDoc } from '../../storage/paths';
 import type { UserLocale } from '../../storage/userDocument';
 import { loadDomainState } from '../mobile/participantState';
 import { readRoutineProfile, routineProfileOf } from '../mobile/routineProfileService';
-import { keptFocusWindow } from '../../memoryGrowth/suggestionService';
+import { keptFocusRecordStands, keptFocusWindow, keptFocusWindowRecord } from '../../memoryGrowth/suggestionService';
+import type { LocalWindow } from '../../memoryGrowth/rules';
 import {
   projectBlockProtectionIntoPlanningConstraints,
   reconcileScheduleBlocks,
   schedulePlan,
 } from '../../planning/scheduler';
 import { projectReadinessIntoPlanningConstraints } from '../../planning/scheduler/readiness';
-import { resolveMemoryLearning } from '../../release/m5bCapabilities';
+import { m5bBasisMode, resolveMemoryLearning } from '../../release/m5bCapabilities';
 import { NO_READINESS_APPLIED, resolvePlanReadiness, type ReadinessApplied } from '../../integrations/readiness/freshReadiness';
 import { toEpochMs } from '../../planning/shared/time';
 import type { PlanningConfig, PlanningConstraints } from '../../../src/contracts/v1/planningContracts';
@@ -103,6 +105,7 @@ import { explanationFactsFrom } from './explanationValidator';
 import { explainPlan, type ExplanationDeps } from './explanationService';
 import {
   NO_EDITS,
+  PlanWriteGuardRejected,
   appendPlanEvent,
   createIfAbsent,
   mutateStoredPlan,
@@ -458,6 +461,74 @@ export interface DailyPlanRequestPreload {
   readonly commitments: readonly Commitment[];
   readonly profile: UserRoutineProfile | null;
   readonly focusHint: Awaited<ReturnType<typeof keptFocusWindow>>;
+  readonly memoryFocus: PlanMemoryFocus | null;
+}
+
+export interface PlanMemoryFocus {
+  readonly window: LocalWindow;
+  readonly memoryId: string | null;
+  readonly purgeEpoch: number;
+  readonly tracked: boolean;
+}
+
+function purgeOf(user: unknown): { state: string; epoch: number } {
+  const purge = (user as { personalizationPurge?: { state?: unknown; epoch?: unknown } } | null)?.personalizationPurge;
+  return {
+    state: typeof purge?.state === 'string' ? purge.state : 'active',
+    epoch: typeof purge?.epoch === 'number' && Number.isFinite(purge.epoch) ? purge.epoch : 0,
+  };
+}
+
+export function personalizationPurgeMatches(user: unknown, epoch: number): boolean {
+  const purge = purgeOf(user);
+  // Only an explicitly active fence: a purge, or a consent withdrawal between
+  // its phases (M5B2A-R7-001), refuses every write that read memory.
+  return purge.state === 'active' && purge.epoch === epoch;
+}
+
+/** Resolves the only memory input used by planning, together with its purge fence. */
+export async function memoryFocusForPlan(
+  uid: string,
+  now: string,
+  options: { storage?: StorageAdapter; routineHasFocus?: boolean; suppress?: boolean; purgeSnapshot?: unknown; withRecord?: boolean } = {},
+): Promise<PlanMemoryFocus | null> {
+  if (options.routineHasFocus || options.suppress) return null;
+  const storage = options.storage ?? getStorage();
+  const mode = m5bBasisMode();
+  if (mode === 'on_nobasis') return null;
+  // Capture the fence before either implementation reads the kept window.
+  // Every writer later proves this same active epoch transactionally.
+  const purge = purgeOf(options.purgeSnapshot === undefined
+    ? await storage.get(userDoc(uid))
+    : options.purgeSnapshot);
+  if (purge.state !== 'active') return null;
+  if (mode === 'off' && !options.withRecord) {
+    const window = await keptFocusWindow(uid, now, { storage });
+    return window ? { window, memoryId: null, purgeEpoch: purge.epoch, tracked: false } : null;
+  }
+  const record = await keptFocusWindowRecord(uid, now, { storage });
+  return record ? { window: record.window, memoryId: record.id, purgeEpoch: purge.epoch, tracked: mode !== 'off' } : null;
+}
+
+/**
+ * The memory an acceptance may rebase onto (M5B2A-R14-002), decided as a
+ * fresh solve would decide it: never while the routine owns focus time
+ * (R24-002), and with the selected record's identity, so the acceptance
+ * transaction can prove it still stands (R24-003).
+ */
+export async function memoryFocusForAccept(uid: string, now: string, storage: StorageAdapter): Promise<PlanMemoryFocus | null> {
+  const user = await storage.get(userDoc(uid));
+  return memoryFocusForPlan(uid, now, { storage, routineHasFocus: routineOwnsFocus(user), purgeSnapshot: user, withRecord: true });
+}
+
+/** Whether the routine names a focus window of its own, which outranks memory. */
+export function routineOwnsFocus(userDocument: unknown): boolean {
+  return (routineProfileOf(userDocument)?.focusWindows ?? []).length > 0;
+}
+
+/** Whether the selected kept focus record still stands, in the caller's transaction. */
+export async function memoryFocusStands(tx: StorageTransaction, uid: string, focus: PlanMemoryFocus, now: string): Promise<boolean> {
+  return focus.memoryId !== null && keptFocusRecordStands(tx, uid, focus.memoryId, focus.window, now);
 }
 
 /** Reads what `DailyPlanRequestPreload` holds, once, as `composeDailyPlanRequest` would. */
@@ -469,8 +540,12 @@ export async function preloadDailyPlanRequest(
 ): Promise<DailyPlanRequestPreload> {
   const commitments = Object.values((await loadDomainState(storage, uid)).commitments);
   const profile = routineProfileOf(userDocument);
-  const focusHint = (profile?.focusWindows ?? []).length > 0 ? null : await keptFocusWindow(uid, now, { storage });
-  return { commitments, profile, focusHint };
+  const memoryFocus = await memoryFocusForPlan(uid, now, {
+    storage,
+    routineHasFocus: (profile?.focusWindows ?? []).length > 0,
+    purgeSnapshot: userDocument,
+  });
+  return { commitments, profile, focusHint: memoryFocus?.window ?? null, memoryFocus };
 }
 
 export interface DailyPlanRequest {
@@ -480,6 +555,12 @@ export interface DailyPlanRequest {
   readonly constraints: PlanningConstraints;
   readonly config: PlanningConfig;
   readonly basisSnapshot?: { readonly readinessApplied: ReadinessApplied };
+  readonly focusFromMemory?: boolean;
+  readonly personalizationPurgeEpoch?: number;
+  /** Internal, content-free provenance; deliberately absent from every DTO. */
+  readonly memoryUse?: { readonly epoch: number };
+  /** Distinguishes current memory-neutral proposals from legacy proposals. */
+  readonly storedPurgeEpoch: number;
 }
 
 /**
@@ -523,6 +604,7 @@ export async function composeDailyPlanRequest(
     readonly busyBlocks?: BusyBlockReader;
     /** The date-free reads, already made at this `now` (see `DailyPlanRequestPreload`). */
     readonly preloaded?: DailyPlanRequestPreload;
+    readonly suppressMemory?: boolean;
   },
 ): Promise<DailyPlanRequest> {
   const { uid, date, timezone, now } = input;
@@ -531,15 +613,23 @@ export async function composeDailyPlanRequest(
   let commitments: readonly Commitment[];
   let profile: UserRoutineProfile | null;
   let focusHint: DailyPlanRequestPreload['focusHint'];
+  let memoryFocus: PlanMemoryFocus | null;
   if (deps.preloaded) {
-    ({ commitments, profile, focusHint } = deps.preloaded);
+    ({ commitments, profile, focusHint, memoryFocus } = deps.preloaded);
+    if (deps.suppressMemory) {
+      focusHint = null;
+      memoryFocus = null;
+    }
   } else {
     const state = await loadDomainState(storage, uid);
     commitments = Object.values(state.commitments);
     profile = await readRoutineProfile(uid, { storage });
-    focusHint = (profile?.focusWindows ?? []).length > 0
-      ? null
-      : await keptFocusWindow(uid, now, { storage });
+    memoryFocus = await memoryFocusForPlan(uid, now, {
+      storage,
+      routineHasFocus: (profile?.focusWindows ?? []).length > 0,
+      suppress: deps.suppressMemory,
+    });
+    focusHint = memoryFocus?.window ?? null;
   }
   const busyBlocks = await (deps.busyBlocks ?? storedBusyBlocks(storage))(uid, dayHorizon(date, timezone));
 
@@ -573,7 +663,25 @@ export async function composeDailyPlanRequest(
     previousBlocks: input.previousBlocks,
     ...(readinessApplied ? { readinessApplied } : {}),
   }, { storage, userDocument: input.userDocument });
-  return { commitments, constraints, config, ...(readinessApplied ? { basisSnapshot: { readinessApplied } } : {}) };
+  const mode = m5bBasisMode();
+  if (!deps.suppressMemory && memoryFocus) {
+    const currentUser = await storage.get(userDoc(uid));
+    if (!personalizationPurgeMatches(currentUser, memoryFocus.purgeEpoch)) {
+      return composeDailyPlanRequest(input, { ...deps, suppressMemory: true });
+    }
+  }
+  return {
+    commitments,
+    constraints,
+    config,
+    ...(readinessApplied ? { basisSnapshot: { readinessApplied } } : {}),
+    ...(mode === 'off' ? {} : {
+      focusFromMemory: Boolean(memoryFocus?.tracked),
+      personalizationPurgeEpoch: memoryFocus?.purgeEpoch ?? purgeOf(input.userDocument).epoch,
+    }),
+    ...(memoryFocus ? { memoryUse: { epoch: memoryFocus.purgeEpoch } } : {}),
+    storedPurgeEpoch: memoryFocus?.purgeEpoch ?? purgeOf(input.userDocument).epoch,
+  };
 }
 
 /**
@@ -600,6 +708,20 @@ export interface SolvedDailyPlanSnapshot {
   readonly commitments: readonly Commitment[];
   readonly timezone: string;
   readonly locale: UserLocale;
+  readonly focusFromMemory?: boolean;
+  readonly personalizationPurgeEpoch?: number;
+  readonly memoryUse?: { readonly epoch: number };
+  readonly storedPurgeEpoch?: number;
+}
+
+const purgeEpochByComposedPlan = new WeakMap<StoredDailyPlan, number>();
+
+export function composedPlanPurgeEpoch(plan: StoredDailyPlan): number | undefined {
+  return purgeEpochByComposedPlan.get(plan);
+}
+
+function purgeGuard(uid: string, epoch: number) {
+  return { path: userDoc(uid), accepts: (value: unknown) => personalizationPurgeMatches(value, epoch) };
 }
 
 /**
@@ -618,6 +740,7 @@ export async function composeDailyPlan(
   /** The week view's decision about this day (CL5b); absent for a day planned on its own. */
   assignment?: DayAssignment | null,
   solved?: SolvedDailyPlanSnapshot,
+  suppressMemory = false,
 ): Promise<StoredDailyPlan> {
   const storage = storageOf(deps);
   const now = (deps.now ?? (() => new Date()))();
@@ -640,11 +763,14 @@ export async function composeDailyPlan(
     userDocument: user,
     previousBlocks: ancestry?.previousBlocks ?? null,
     ...(effectiveAssignment ? { assignment: effectiveAssignment } : {}),
-  }, { storage, ...(deps.busyBlocks ? { busyBlocks: deps.busyBlocks } : {}) });
+  }, { storage, ...(deps.busyBlocks ? { busyBlocks: deps.busyBlocks } : {}), suppressMemory });
   const commitments = solved?.commitments ?? request!.commitments;
   const constraints = solved?.constraints ?? request!.constraints;
   const config = solved?.config ?? request!.config;
   const basisSnapshot = solved ? { readinessApplied: solved.readinessApplied } : request!.basisSnapshot;
+  const focusFromMemory = solved?.focusFromMemory ?? request?.focusFromMemory;
+  const personalizationPurgeEpoch = solved?.personalizationPurgeEpoch ?? request?.personalizationPurgeEpoch;
+  const memoryUse = solved?.memoryUse ?? request?.memoryUse;
   const plan = solved?.plan ?? schedulePlan(constraints, config);
   // One block per occurrence the planner was asked about, placements applied
   // back. Throws `ScheduleBlockIntegrityError` — and the build fails — if the
@@ -665,7 +791,7 @@ export async function composeDailyPlan(
     ...(deps.explanation ?? {}),
   });
 
-  return {
+  const document: StoredDailyPlan = {
     date,
     timezone,
     locale,
@@ -685,8 +811,14 @@ export async function composeDailyPlan(
     acceptedAt: null,
     updatedAt: now.toISOString(),
     ...(basisSnapshot ? { readinessApplied: basisSnapshot.readinessApplied } : {}),
+    ...(focusFromMemory === undefined ? {} : { focusFromMemory }),
+    ...(personalizationPurgeEpoch === undefined ? {} : { personalizationPurgeEpoch }),
+    ...(memoryUse ? { memoryUse } : {}),
     ...(heldByWeek.length > 0 ? { heldByWeek } : {}),
   };
+  const purgeEpoch = memoryUse?.epoch;
+  if (purgeEpoch !== undefined) purgeEpochByComposedPlan.set(document, purgeEpoch);
+  return document;
 }
 
 /**
@@ -729,10 +861,22 @@ async function storeFirstPlan(
   const existing = await readStoredPlan(uid, date, storage);
   if (existing) return { created: false, stored: existing };
 
-  const composed = await composeDailyPlan(uid, date, settings, 1, deps, undefined, options.week?.assignment ?? null, options.week?.solved);
-  const withWeek: StoredDailyPlan = options.week ? { ...composed, weekPlan: options.week.origin } : composed;
-  const document: StoredDailyPlan = options.pushPending ? { ...withWeek, pushPending: options.pushPending() } : withWeek;
-  const { created, stored } = await createIfAbsent(uid, document, storage);
+  let composed = await composeDailyPlan(uid, date, settings, 1, deps, undefined, options.week?.assignment ?? null, options.week?.solved);
+  const write = async (candidate: StoredDailyPlan) => {
+    const withWeek: StoredDailyPlan = options.week ? { ...candidate, weekPlan: options.week.origin } : candidate;
+    const document: StoredDailyPlan = options.pushPending ? { ...withWeek, pushPending: options.pushPending() } : withWeek;
+    const epoch = composedPlanPurgeEpoch(candidate);
+    return createIfAbsent(uid, document, storage, epoch !== undefined ? purgeGuard(uid, epoch) : undefined);
+  };
+  let result;
+  try {
+    result = await write(composed);
+  } catch (error) {
+    if (!(error instanceof PlanWriteGuardRejected) || options.week?.solved) throw error;
+    composed = await composeDailyPlan(uid, date, settings, 1, deps, undefined, options.week?.assignment ?? null, undefined, true);
+    result = await write(composed);
+  }
+  const { created, stored } = result;
   if (!created) return { created: false, stored };
 
   await appendPlanEvent(uid, {

@@ -30,6 +30,22 @@ export interface UserDocument<TTrust = unknown> {
   domainVersion: number;
   /** Monotonic fence for calendar authority; absent legacy rows read as zero. */
   calendarEpoch?: number;
+  /** Monotonic fence around deletion of personalization-derived data. */
+  personalizationPurge?: {
+    /** `withdrawing`: a consent withdrawal is between its phases; read as not active. */
+    state?: 'active' | 'purging' | 'withdrawing';
+    epoch?: number;
+    startedAt?: string;
+    completedAt?: string;
+    /** The withdrawal holding a `withdrawing` fence, and when it took it (server clock). */
+    withdrawalOwner?: string | null;
+    withdrawalLeaseAt?: string | null;
+    /** The purge holding a `purging` fence, and its lease (server clock), renewed as it works. */
+    purgeOwner?: string | null;
+    purgeLeaseAt?: string | null;
+    /** A dead withdrawal this purge must still complete; carried across purge takeovers. */
+    withdrawalPending?: boolean | null;
+  };
 }
 
 export function newUserDocument(at: string): UserDocument {

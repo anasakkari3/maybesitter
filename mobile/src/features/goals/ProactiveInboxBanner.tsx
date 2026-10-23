@@ -22,21 +22,25 @@ export function ProactiveInboxBanner() {
   const { t, actions } = useApp();
   const p = useReferencePalette();
   const uid = useOptionalAuth()?.user?.uid ?? '';
-  const [items, setItems] = React.useState<IntelligenceSuggestion[]>([]);
+  // Held with the account it was read for, and drawn only for that account
+  // (M5B2A-R15-001): after a switch, the previous account's suggestion is gone
+  // at once, whatever the new account's own read answers.
+  const [held, setHeld] = React.useState<{ uid: string; items: IntelligenceSuggestion[] }>({ uid: '', items: [] });
+  const items = held.uid === uid ? held.items : [];
   React.useEffect(() => {
     // Nobody known yet (the session is still being read): nothing to ask for.
     if (!uid) return undefined;
     let alive = true;
     const controller = new AbortController();
     const show = (suggestions: IntelligenceSuggestion[]) => {
-      if (alive) setItems(suggestions.filter(item => item.status === 'pending'));
+      if (alive) setHeld({ uid, items: suggestions.filter(item => item.status === 'pending') });
     };
     void (async () => {
       // Asked as a visit only when the throttle allows; every other mount
       // reads what is already waiting, which never runs the model.
       if (await claimVisit(uid)) {
         try {
-          const answer = await generateIntelligenceSuggestions({ signal: controller.signal, visit: true });
+          const answer = await generateIntelligenceSuggestions({ signal: controller.signal, visit: true, asUid: uid });
           recordVisitAnswer(uid, answer.nextVisitAt);
           show(answer.suggestions);
         } catch (cause) {
@@ -44,7 +48,7 @@ export function ProactiveInboxBanner() {
         }
         return;
       }
-      try { show((await getIntelligenceInbox()).suggestions); }
+      try { show((await getIntelligenceInbox({ asUid: uid })).suggestions); }
       catch { /* Off, refused or offline: Today shows nothing here. */ }
     })();
     return () => { alive = false; controller.abort(); };

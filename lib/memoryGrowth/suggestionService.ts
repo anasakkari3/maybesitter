@@ -42,13 +42,14 @@ import type {
 } from '../../src/contracts/v1/memoryContracts';
 import { personalizationGrowthAllowed } from '../consents/personalizationConsentService';
 import type { PersonalizationConsentStore } from '../personalizationControls/consentStore';
-import { createStorageRuntimeMemoryStore } from '../runtimeMemory/runtimeMemoryStore';
+import { createStorageRuntimeMemoryStore, MemoryWriteRefusedError, runtimeMemoryRecordPath, runtimeMemoryRecordRetrievable } from '../runtimeMemory/runtimeMemoryStore';
 import { planSettingsOf, type PlanSettingsBearingUser } from '../services/dailyPlan/planSettings';
 import { listPlanEvents } from '../services/dailyPlan/planStore';
 import { listEventsOfTypeInRange } from '../services/mobile/eventLog';
 import { memoryToDto, type MemoryDto } from '../services/mobile/memoryService';
 import { normalizeTimezone } from '../services/mobile/time';
 import { getStorage, requireUserId, userDoc, type StorageAdapter } from '../storage';
+import type { StorageTransaction } from '../storage/storageAdapter';
 import { isMemoryGrowthRuleId, readDismissedFingerprint, recordDismissal } from './dismissals';
 import {
   R1_FOCUS_WINDOW,
@@ -355,9 +356,22 @@ export async function decideMemorySuggestion(
   if (!current) throw new MemorySuggestionStaleError();
 
   if (decision === 'dismiss') {
-    await recordDismissal(storageOf(options), uid, current.fingerprint, now);
+    // Refused while a purge runs (M5B2A-R30-001): the suggestion is stale then.
+    if (!(await recordDismissal(storageOf(options), uid, current.fingerprint, now))) throw new MemorySuggestionStaleError();
     return { decision: 'dismiss' };
   }
+  // The fence as this keep began (M5B2A-R30-001, R31-001). Personalization
+  // must be open — not purging, not mid-withdrawal — and the write below
+  // happens only if it is still open at this same epoch, in its own
+  // transaction, so neither a purge nor a withdrawal can slip in between.
+  const fenceBefore = await fenceOf(storageOf(options), uid);
+  if (fenceBefore.state === 'purging' || fenceBefore.state === 'withdrawing') throw new MemorySuggestionStaleError();
+  const guard = {
+    accepts: (user: unknown) => {
+      const fence = (user as { personalizationPurge?: { state?: unknown; epoch?: unknown } } | null)?.personalizationPurge ?? {};
+      return (fence.state === undefined || fence.state === 'active') && fence.epoch === fenceBefore.epoch;
+    },
+  };
 
   const store = memoryOf(options);
   const record = {
@@ -382,10 +396,22 @@ export async function decideMemorySuggestion(
   // from and the earlier claim stays in the chain a delete removes.
   const previous = (await activeRuleRecords(store, uid, now))
     .filter((existing) => existing.provenance?.originRef?.split(':')[0] === ruleId);
-  const saved = previous.length > 0
-    ? await store.supersede(previous[0]!.id, record, now)
-    : await store.put(record, now);
+  let saved: RuntimeMemoryRecord;
+  try {
+    saved = previous.length > 0
+      ? await store.supersede(previous[0]!.id, record, now, guard)
+      : await store.put(record, now, guard);
+  } catch (error) {
+    if (error instanceof MemoryWriteRefusedError) throw new MemorySuggestionStaleError();
+    throw error;
+  }
   return { decision: 'keep', memory: memoryToDto(saved) };
+}
+
+async function fenceOf(storage: StorageAdapter, uid: string): Promise<{ state: unknown; epoch: unknown }> {
+  const fence = ((await storage.get<{ personalizationPurge?: { state?: unknown; epoch?: unknown } }>(userDoc(uid)))
+    ?.personalizationPurge) ?? {};
+  return { state: fence.state, epoch: fence.epoch };
 }
 
 /** Active records a rule produced and the user kept unedited, newest first. */
@@ -421,6 +447,42 @@ export async function keptFocusWindow(
   for (let index = 0; index < records.length; index += 1) {
     const window = parseFocusWindowFingerprint(records[index]!.provenance?.originRef);
     if (window) return window;
+  }
+  return null;
+}
+
+/**
+ * Whether the kept focus rule `id` still stands, inside the caller's
+ * transaction, exactly as it was selected: active, fresh at `now`, still the
+ * unedited rule, and still naming `window` (M5B2A-R24-003). An edit, a delete
+ * or a replacement made after the selection makes this false.
+ */
+export async function keptFocusRecordStands(
+  tx: StorageTransaction,
+  uid: string,
+  id: string,
+  window: LocalWindow,
+  now: string,
+): Promise<boolean> {
+  const record = await tx.get<unknown>(runtimeMemoryRecordPath(uid, id));
+  if (!runtimeMemoryRecordRetrievable(record, uid, now)) return false;
+  if (record.source !== 'deterministic_rule' || record.provenance?.origin !== 'behaviour_rule') return false;
+  const named = parseFocusWindowFingerprint(record.provenance?.originRef);
+  return named !== null && JSON.stringify(named) === JSON.stringify(window);
+}
+
+/** The kept focus rule and its identity, for provenance-aware plan reads. */
+export async function keptFocusWindowRecord(
+  uid: string,
+  now: string,
+  options: MemoryGrowthOptions = {},
+): Promise<{ id: string; window: LocalWindow } | null> {
+  requireUserId(uid);
+  if (!(await consentGranted(uid, options))) return null;
+  const records = await activeRuleRecords(memoryOf(options), uid, now);
+  for (const record of records) {
+    const window = parseFocusWindowFingerprint(record.provenance?.originRef);
+    if (window) return { id: record.id, window };
   }
   return null;
 }

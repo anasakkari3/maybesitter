@@ -1,0 +1,64 @@
+{
+  "success": true,
+  "plan": {
+    "date": "2026-10-07",
+    "timezone": "Asia/Jerusalem",
+    "status": "proposed",
+    "generation": 1,
+    "inputDigest": "0000000000000000000000000000000000000000000000000000000000000000",
+    "generatedAt": "2026-08-09T09:00:00.000Z",
+    "acceptedAt": null,
+    "explanation": {
+      "text": "I placed 3 things between 10:00 and 11:30.",
+      "locale": "en",
+      "source": "template"
+    },
+    "scheduled": [
+      {
+        "itemId": "00000000-0000-4000-8000-000000000001",
+        "title": "Task write the summary",
+        "startsAt": "2026-08-09T09:00:00.000Z",
+        "endsAt": "2026-08-09T09:00:00.000Z",
+        "blockId": "block:commitment:0c0ffee6-0000-4000-8000-000000000004"
+      },
+      {
+        "itemId": "00000000-0000-4000-8000-000000000002",
+        "title": "Task call the bank",
+        "startsAt": "2026-08-09T09:00:00.000Z",
+        "endsAt": "2026-08-09T09:00:00.000Z",
+        "blockId": "block:commitment:0c0ffee6-0000-4000-8000-000000000005"
+      },
+      {
+        "itemId": "00000000-0000-4000-8000-000000000003",
+        "title": "Task book the train",
+        "startsAt": "2026-08-09T09:00:00.000Z",
+        "endsAt": "2026-08-09T09:00:00.000Z",
+        "blockId": "block:commitment:0c0ffee6-0000-4000-8000-000000000006"
+      }
+    ],
+    "unscheduled": [],
+    "edited": false,
+    "protections": [],
+    "fixed": [],
+    "inputsChanged": false,
+    "rebuildsLeft": 4,
+    "workingEndsAt": "2026-08-09T09:00:00.000Z",
+    "readinessApplied": {
+      "source": "none",
+      "energy": null,
+      "band": null,
+      "bufferMinutesAdded": 0,
+      "observedAt": null
+    },
+    "basisChanged": false,
+    "memoryBasis": {
+      "memoryId": "mem_00000000-0000-4000-8000-000000000004",
+      "window": {
+        "start": "09:00",
+        "end": "12:00"
+      }
+    },
+    "memoryBasisChanged": false
+  },
+  "proposal": null
+}

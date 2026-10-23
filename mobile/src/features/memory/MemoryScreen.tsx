@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { TextInput, View } from 'react-native';
+import { BackHandler, ScrollView, TextInput, View } from 'react-native';
 import { useApp } from '../../state/AppContext';
 import { isolateAuto } from '../../i18n/bidi';
 import { formatDate } from '../../i18n/format';
@@ -13,6 +13,7 @@ import {
   useDeleteAllMemory,
   useDeleteMemory,
   useMemory,
+  useMemoryPurging,
   useMemorySuggestion,
   usePatchMemory,
 } from '../../api/queries';
@@ -87,11 +88,19 @@ import {
 /** How long a deleted row can be brought back. */
 export const UNDO_WINDOW_MS = 5_000;
 
-export function MemoryScreen({ onBack }: { onBack: () => void }) {
+/** The screen's own scroller, for scrolling the focused row into view. */
+type ScrollHandle = ScrollView;
+
+export function MemoryScreen({ onBack, focusId = null }: {
+  onBack: () => void;
+  /** M5b-2a: the row «صحّحها» opened this on, highlighted with its edit field open (R2). */
+  focusId?: string | null;
+}) {
   const { t, tr, p, rtl, lang } = useApp();
   const timeZone = useTimeZone();
 
-  const memory = useMemory();
+  // Opened on a row: that row is checked against a list read since this mount.
+  const memory = useMemory({ fresh: focusId !== null });
   const patch = usePatchMemory();
   const remove = useDeleteMemory();
   const removeAll = useDeleteAllMemory();
@@ -124,6 +133,21 @@ export function MemoryScreen({ onBack }: { onBack: () => void }) {
 
   useEffect(() => flush, [flush]);
 
+  // Leaving sends a held delete *before* the screen changes (M5B2A-R4-003):
+  // the unmount cleanup alone runs after the screen underneath has already
+  // committed a frame, with the basis the delete is about to hide.
+  const leave = useCallback(() => {
+    flush();
+    onBack();
+  }, [flush, onBack]);
+
+  // Android's hardware and gesture Back leave the same way (M5B2A-R5-001).
+  // Registered after Root's, so it is asked first.
+  useEffect(() => {
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => { leave(); return true; });
+    return () => sub.remove();
+  }, [leave]);
+
   const scheduleDelete = useCallback((id: string) => {
     // One at a time: a second delete commits the first rather than replacing
     // it, so no row can be dropped from the screen and never from the server.
@@ -154,10 +178,49 @@ export function MemoryScreen({ onBack }: { onBack: () => void }) {
   // A 404 is the memory feature being off for this build. The screen still
   // renders its way back — a blank page with no exit is a worse answer than an
   // honest "nothing here".
-  const items = (memory.data?.items ?? []).filter(item => item.id !== undoable);
-  const suggestions = memory.data?.suggestions ?? [];
-  const adaptive = memory.data?.adaptive ?? null;
+  // While delete-all is on its way, nothing it is erasing is shown or offered
+  // (M5B2A-R29-003): the rows, their controls and delete-all itself go, and
+  // come back only from a fresh list — at once on a definite refusal, after
+  // the re-read when the outcome is unknown.
+  // And after an outcome nobody can be sure of, until a list read that *began*
+  // after it has answered (R30-002, R32-004: a read begun before it may land
+  // after it with the old rows); a definite refusal shows the list again at
+  // once. The suggestions and the adaptive card go too: Keep and Dismiss are
+  // writes the purge would race (R30-001). Seen from any screen (R32-003).
+  const purging = useMemoryPurging(memory.data);
+  const items = purging ? [] : (memory.data?.items ?? []).filter(item => item.id !== undoable);
+  const suggestions = purging ? [] : memory.data?.suggestions ?? [];
+  const adaptive = purging ? null : memory.data?.adaptive ?? null;
   const suggestionLanguage: 'ar' | 'he' | 'en' = lang === 'ar' || lang === 'he' ? lang : 'en';
+
+  // The focused row is scrolled into view once it has laid out (M5B2A-REV-005):
+  // a long list must not leave the marked row below the screen.
+  const scrollRef = useRef<ScrollHandle>(null);
+  const scrolledTo = useRef(false);
+  const revealRow = useCallback((row: View | null) => {
+    const scroll = scrollRef.current;
+    if (!row || !scroll || scrolledTo.current) return;
+    const inner = (scroll as unknown as { getInnerViewRef?: () => View | null }).getInnerViewRef?.();
+    if (!inner) return;
+    row.measureLayout(inner as never, (_x, y) => {
+      scrolledTo.current = true;
+      scroll.scrollTo({ y: Math.max(0, y - 24), animated: false });
+    }, () => undefined);
+  }, []);
+
+  // Opened from the plan's memory line: that row, once, with its edit field
+  // open. A row that is gone opens the screen as it always opens.
+  const [focusApplied, setFocusApplied] = useState(false);
+  // Only a list read since this mount decides (M5B2A-R6-003): a cached one may
+  // still hold a row another device deleted. A failed read opens unfocused.
+  const freshList = memory.isFetchedAfterMount && memory.isSuccess && !memory.isRefetchError;
+  const focusPresent = focusId !== null && freshList && items.some(item => item.id === focusId);
+  // Applied while rendering, once the list is known — derived state, not an
+  // effect that would draw the screen once unfocused first.
+  if (!focusApplied && focusId !== null && (freshList || (memory.isError && !memory.isFetching))) {
+    setFocusApplied(true);
+    if (focusPresent) setEditing(focusId);
+  }
 
   const groups = MEMORY_GROUP_ORDER
     .map(group => [group, items.filter(item => groupOf(item) === group)] as const)
@@ -166,8 +229,8 @@ export function MemoryScreen({ onBack }: { onBack: () => void }) {
   const failure = [patch.error, remove.error, removeAll.error, decide.error].find(error => error != null);
 
   return (
-    <Screen pinned={<SettingsHeader title={t.memoryScreenTitle} onBack={onBack} />}>
-      <ScreenScroll>
+    <Screen pinned={<SettingsHeader title={t.memoryScreenTitle} onBack={leave} />}>
+      <ScreenScroll scrollRef={scrollRef}>
 
         {failure ? (
           <Txt size={14} color={p.wm} testID="memory-screen-error">{userFacingMessage(failure, t)}</Txt>
@@ -204,6 +267,8 @@ export function MemoryScreen({ onBack }: { onBack: () => void }) {
             date={date}
             rtl={rtl}
             editing={editing}
+            focused={focusPresent ? focusId : null}
+            onFocusedLayout={revealRow}
             why={why}
             translateTargetOf={item => (translationOn ? translationTargetOf(item.content, lang, item.kind) : null)}
             translating={translating}
@@ -235,7 +300,10 @@ export function MemoryScreen({ onBack }: { onBack: () => void }) {
                     label={t.memoryDeleteAll}
                     testID="memory-screen-delete-all-confirm"
                     tone="warn"
-                    onPress={() => { setConfirmAll(false); flush(); removeAll.mutate(); }}
+                    // The held row is cancelled, not sent (M5B2A-R28-001): deleting
+                    // everything already takes it, and a single delete sent beside
+                    // the purge could land its dismissal after the purge said done.
+                    onPress={() => { setConfirmAll(false); undo(); removeAll.mutate(); }}
                   />
                   <Action label={t.cancel} onPress={() => setConfirmAll(false)} />
                 </View>
@@ -366,7 +434,7 @@ function SuggestionsCard({
 }
 
 function MemoryGroupCard({
-  group, rows, strings, date, rtl, editing, why, translateTargetOf, translating,
+  group, rows, strings, date, rtl, editing, focused, onFocusedLayout, why, translateTargetOf, translating,
   onTranslate, onCloseTranslate, onToggleWhy, onEdit, onCancelEdit, onSave, onDelete,
 }: {
   group: MemoryGroup;
@@ -375,6 +443,8 @@ function MemoryGroupCard({
   date: (iso: string) => string;
   rtl: boolean;
   editing: string | null;
+  focused: string | null;
+  onFocusedLayout: (row: View | null) => void;
   why: string | null;
   translateTargetOf: (item: MemoryItem) => TranslationTarget | null;
   translating: string | null;
@@ -407,6 +477,8 @@ function MemoryGroupCard({
           rtl={rtl}
           sourceOnRow={shared === null}
           editing={editing === item.id}
+          focused={focused === item.id}
+          onFocusedLayout={onFocusedLayout}
           showWhy={why === item.id}
           translateTarget={translateTargetOf(item)}
           translating={translating === item.id}
@@ -424,7 +496,7 @@ function MemoryGroupCard({
 }
 
 function MemoryDetailRow({
-  item, strings, date, rtl, sourceOnRow, editing, showWhy, translateTarget, translating,
+  item, strings, date, rtl, sourceOnRow, editing, focused, onFocusedLayout, showWhy, translateTarget, translating,
   onTranslate, onCloseTranslate, onToggleWhy, onEdit, onCancelEdit, onSave, onDelete,
 }: {
   item: MemoryItem;
@@ -434,6 +506,9 @@ function MemoryDetailRow({
   /** False when the group header already says where every row came from. */
   sourceOnRow: boolean;
   editing: boolean;
+  /** The row the plan's «صحّحها» named: marked, so the eye lands on it. */
+  focused: boolean;
+  onFocusedLayout: (row: View | null) => void;
   showWhy: boolean;
   translateTarget: TranslationTarget | null;
   translating: boolean;
@@ -448,10 +523,21 @@ function MemoryDetailRow({
   const { t, p } = useApp();
   const [draft, setDraft] = useState(item.content);
 
+  const mark = focused ? { testID: `memory-screen-focused-${item.id}`, backgroundColor: p.wms, borderStartWidth: 3, borderStartColor: p.wm } : null;
+  const rowRef = useRef<View>(null);
+  const onRowLayout = focused ? () => onFocusedLayout(rowRef.current) : undefined;
+
   if (editing) {
     return (
-      <View style={{ paddingHorizontal: 18, paddingVertical: 14, gap: 10, borderTopWidth: 1, borderTopColor: p.ln }}>
+      <View
+        ref={rowRef}
+        onLayout={onRowLayout}
+        testID={mark?.testID}
+        style={[{ paddingHorizontal: 18, paddingVertical: 14, gap: 10, borderTopWidth: 1, borderTopColor: p.ln },
+          mark ? { backgroundColor: mark.backgroundColor, borderStartWidth: mark.borderStartWidth, borderStartColor: mark.borderStartColor } : null]}
+      >
         <TextInput
+          autoFocus={focused}
           testID={`memory-screen-edit-input-${item.id}`}
           accessibilityLabel={t.memoryEdit}
           value={draft}
@@ -474,7 +560,13 @@ function MemoryDetailRow({
   }
 
   return (
-    <View style={{ paddingHorizontal: 18, paddingVertical: 14, gap: 8, borderTopWidth: 1, borderTopColor: p.ln }}>
+    <View
+      ref={rowRef}
+      onLayout={onRowLayout}
+      testID={mark?.testID}
+      style={[{ paddingHorizontal: 18, paddingVertical: 14, gap: 8, borderTopWidth: 1, borderTopColor: p.ln },
+        mark ? { backgroundColor: mark.backgroundColor, borderStartWidth: mark.borderStartWidth, borderStartColor: mark.borderStartColor } : null]}
+    >
       <Txt role="card" weight={500} dir="auto" testID={`memory-screen-item-${item.id}`}>
         {isolateAuto(memorySentence({ content: item.content, strings }))}
       </Txt>

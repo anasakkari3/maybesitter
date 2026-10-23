@@ -41,6 +41,8 @@ let mockRecommendationState: 'granted' | 'declined' = 'granted';
 // M5a's panel parts read through TanStack Query; this suite renders the panel
 // without a client, on a server whose M5a capability is off (today's panel).
 jest.mock('../../features/m5a/capabilities', () => ({ useM5aCapabilities: () => null, useFreshM5aCapability: () => async () => false, M5A_NOT_NOW: () => new Error('not now') }));
+// M5b-2a: the learned card reads the M5b capability; this panel renders without a QueryClient here.
+jest.mock('../../features/m5b/capabilities', () => ({ useM5bOn: () => null, useFreshM5bOn: () => async () => null }));
 jest.mock('../../features/m5a/emailScan', () => ({
   useEmailScanOverview: () => ({ data: undefined, refetch: async () => undefined }),
   EmailScanEntry: () => null,
@@ -285,7 +287,7 @@ it('A4 goals actions: analyze explains first, freezes a trimmed snapshot, and pr
   expect(screen.getAllByRole('button').filter(node => node.parent === confirm!.parent)).toHaveLength(2);
 
   await act(async () => { await fireEvent.press(confirm!); });
-  expect(mockAnalyze).toHaveBeenCalledWith('first version');
+  expect(mockAnalyze).toHaveBeenCalledWith('first version', { asUid: 'm1-goals-user' });
   expect(screen.getByTestId('intelligence-statement').props.editable).toBe(false);
   currentInbox = inbox([observation()], []);
   await act(async () => { resolveAnalyze({ success: true, observations: [observation()] }); });
@@ -301,7 +303,7 @@ it('A4 goals actions: analyze clears the field after success only while it still
   expect(confirm).not.toBeNull();
   await act(async () => { await fireEvent.press(confirm!); });
   await waitFor(() => expect(mockOnChanged).toHaveBeenCalledTimes(1));
-  expect(mockAnalyze).toHaveBeenCalledWith('unchanged');
+  expect(mockAnalyze).toHaveBeenCalledWith('unchanged', { asUid: 'm1-goals-user' });
   expect(screen.getByTestId('intelligence-statement').props.value).toBe('');
 });
 

@@ -163,7 +163,7 @@ describe('the row is always there, and says which of six things is true', () => 
   it('asks for the plan for the day the device is in', async () => {
     await shown();
     await planAnswered();
-    expect(planEndpoints.getPlan).toHaveBeenCalledWith(deviceDay());
+    expect(planEndpoints.getPlan).toHaveBeenCalledWith(deviceDay(), { asUid: 'today-plan-user' });
   });
 
   it('says it is still asking, and cannot be opened yet', async () => {

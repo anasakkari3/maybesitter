@@ -364,15 +364,30 @@ test('a grant whose store write fails is rolled back to declined and answered 50
     await seedHabit(uid);
     const storage = getStorage();
     const realSet = storage.set.bind(storage);
+    const realTransaction = storage.runTransaction.bind(storage);
     (storage as { set: unknown }).set = async (path: string, value: unknown) => {
       if (path.endsWith('/consents/personalization')) throw new Error('store unavailable');
       await realSet(path, value);
     };
+    // The enable is a guarded write inside a transaction (M5B2A-R21-001).
+    (storage as { runTransaction: unknown }).runTransaction = (fn: (tx: any) => Promise<unknown>) => realTransaction((tx: any) => fn(new Proxy(tx, {
+      get(target, key) {
+        const value = Reflect.get(target, key);
+        if (key === 'set') {
+          return (path: string, ...rest: unknown[]) => {
+            if (path.endsWith('/consents/personalization')) throw new Error('store unavailable');
+            return value.call(target, path, ...rest);
+          };
+        }
+        return typeof value === 'function' ? value.bind(target) : value;
+      },
+    })));
     let response: Response;
     try {
       response = await answer(uid, 'granted');
     } finally {
       (storage as { set: unknown }).set = realSet;
+      (storage as { runTransaction: unknown }).runTransaction = realTransaction;
     }
 
     assert.equal(response.status, 503);
