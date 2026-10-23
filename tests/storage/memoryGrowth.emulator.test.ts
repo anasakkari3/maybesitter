@@ -10,6 +10,7 @@
  * Ids are unique per run: the emulator's collections are shared with every
  * other emulator test in the same `emulators:exec`.
  */
+import { seedLiveAccount } from '../support/liveAccount.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createFirestoreStorage } from '../../lib/storage/firestoreAdapter.ts';
@@ -35,6 +36,7 @@ function uniqueUid(label: string): string {
 /** Jerusalem is UTC+3 in September: 06:15Z is 09:15 local. */
 async function seedHabit(storage: StorageAdapter, uid: string): Promise<void> {
   await storage.set(userDoc(uid), { uid, timezone: 'Asia/Jerusalem' });
+  await seedLiveAccount(uid, storage); // the trust record auth creates (#772)
   const utc: Array<[string, string]> = [
     ['2026-09-15', '06:15'], ['2026-09-14', '06:40'], ['2026-09-13', '07:00'], ['2026-09-11', '07:30'],
     ['2026-09-10', '08:00'], ['2026-09-08', '08:20'], ['2026-09-07', '08:45'],

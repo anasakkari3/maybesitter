@@ -17,6 +17,7 @@
  * Ids are unique per run: the emulator's collections are shared with every
  * other emulator test in the same `emulators:exec`.
  */
+import { seedLiveAccount } from '../support/liveAccount.ts';
 import { createPilotTrustState } from '../../lib/pilot/closedPilotControls.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -93,6 +94,7 @@ test('firestore: deleting one fact removes every document in its chain', async (
   const memory = createStorageRuntimeMemoryStore(undefined, storage);
   const options = { storage, memory };
   try {
+    await seedLiveAccount(uid, storage); // the trust record auth creates (#772)
     await saveRoutineProfile(uid, input(), FIRST, options);
     await saveRoutineProfile(uid, input({ sleepWindow: { start: '00:30', end: '08:30' } }), SECOND, options);
 
@@ -121,6 +123,8 @@ test('firestore: one account cannot resolve another account’s record by id', a
   const memory = createStorageRuntimeMemoryStore(undefined, storage);
   const options = { storage, memory };
   try {
+    await seedLiveAccount(owner, storage); // the trust record auth creates (#772)
+    await seedLiveAccount(stranger, storage);
     await saveRoutineProfile(owner, input(), FIRST, options);
     const theirs = (await memory.listAll(owner))[0]!;
 

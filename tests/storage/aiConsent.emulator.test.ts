@@ -7,6 +7,7 @@
  * made here, through independent Firestore handles — which is what "another
  * instance" means from this side of the seam.
  */
+import { createPilotTrustState } from '../../lib/pilot/closedPilotControls.ts';
 import { seedLiveAccount } from '../support/liveAccount.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -100,7 +101,8 @@ test('firestore: consent does not disturb the trust record sharing its document'
   const uid = uniqueUid();
   const storage = createFirestoreStorage();
   try {
-    await storage.set(userDoc(uid), { uid, trust: { version: 'v1', participantId: uid, updatedAt: '2026-09-01T00:00:00.000Z' } });
+    // A real trust record (#772: consent answers write behind the deletion fence).
+    await storage.set(userDoc(uid), { uid, trust: createPilotTrustState(uid, '2026-09-01T00:00:00.000Z') });
     await setAiConsent(uid, { state: 'granted', version: AI_CONSENT_VERSION }, { storage });
 
     const user = await createFirestoreStorage().get<{ trust?: unknown; consents?: unknown }>(userDoc(uid));
@@ -121,6 +123,7 @@ test('firestore: two consents on one document do not overwrite each other', asyn
   const uid = uniqueUid();
   const storage = createFirestoreStorage();
   try {
+    await seedLiveAccount(uid, storage); // consent answers write behind the deletion fence (#772)
     await setAiConsent(uid, { state: 'granted', version: AI_CONSENT_VERSION }, { storage });
     await setRecommendationConsent(uid, { state: 'granted', version: RECOMMENDATION_CONSENT_VERSION }, { storage });
 
