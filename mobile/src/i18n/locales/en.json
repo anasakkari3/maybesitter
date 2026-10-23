@@ -2135,6 +2135,11 @@
   "m5bPlanMemoryChanged": "Something remembered that the plan used has changed. Rebuild to apply it.",
   "m5bPlanMemoryChangedNoRebuild": "Something remembered that the plan used has changed. You've used today's rebuilds, so the current plan stays as it is.",
   "m5bLearnedWrongA11y": "Not right: {line}",
+  "m5bLearnedReaddedAfterDrop": "You added “{title}” again after letting it go",
+  "m5bLearnedReaddedAfterDone": "You added “{title}” again after finishing it",
+  "m5bLearnedGuess": "Guess",
+  "m5bLearnedRightA11y": "Yes, that's right: {line}",
+  "m5bLearnedRightDone": "Got it, I'll learn from that.",
   "m5bSuggestionBasis": "Based on: “{memory}”",
   "m5bSuggestionBasisFixA11y": "Correct: “{memory}”"
 }

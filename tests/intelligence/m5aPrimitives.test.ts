@@ -170,6 +170,7 @@ test('/added asks storage for the indexed page and batches the commitment join',
 
 test('legacy Gmail arbitration spends one semantic analysis and leaves one observation', async () => {
   const storage = createMemoryStorage();
+  await storage.set('users/alice', { trust: null });
   let calls = 0;
   const runtime: GoogleRuntime = {
     storage, env: { MAYBESITTER_ENV: 'staging' } as GoogleRuntime['env'], secrets: null, fetchImpl: fetch,

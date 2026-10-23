@@ -49,6 +49,7 @@ import { loadAutoAddSnapshot } from './autoAddSnapshot';
 import { addLocalDays, localDayKey, localMidnightOf } from '../services/mobile/time';
 import { calendarCoverageForEmail, waitForCalendarAndFetch } from './gmailCalendarJit';
 import { legacyMarkerIdFor, providerMarkerIdFor } from '../watchers/monitoringSettings';
+import { liveAccount } from './memoryBasis';
 
 export { legacyMarkerIdFor, providerMarkerIdFor } from '../watchers/monitoringSettings';
 
@@ -468,13 +469,18 @@ function classifyFailure(error: unknown): ScanFailure {
 async function failScan(uid: string, kind: M5aUnitKind, scanId: string, owner: string, failure: ScanFailure, storage: StorageAdapter, now: string): Promise<void> {
   await storage.runTransaction(async tx => {
     const path = scanDocumentPath(uid, kind);
-    const scan = await tx.get<M5aScanDocument>(path);
-    if (!scan || scan.scanId !== scanId || scan.leaseOwner !== owner) return;
+    const [account, scan] = await Promise.all([
+      tx.get(userDoc(uid)),
+      tx.get<M5aScanDocument>(path),
+    ]);
+    if (!liveAccount(account) || !scan || scan.scanId !== scanId || scan.leaseOwner !== owner) return;
     tx.set(path, { ...scan, status: 'failed', failure, failedAt: now, leaseOwner: null, leaseUntil: null, nextEligibleAt: now });
   });
 }
 
 async function releaseClaims(uid: string, owner: string, ids: readonly string[], storage: StorageAdapter): Promise<void> {
+  // A release only updates a marker that still exists and is owned by this
+  // caller. Once the deletion sweep removes it, this cannot recreate it.
   await storage.runTransaction(async tx => {
     const markers = await Promise.all(ids.map(id => tx.get<M5aMarker>(markerPath(uid, id))));
     markers.forEach((marker, index) => {
@@ -494,6 +500,8 @@ async function releaseMessageForRetry(
   markerIds: readonly string[],
   storage: StorageAdapter,
 ): Promise<void> {
+  // As above, every write is conditional on the caller-owned scan/marker
+  // still existing, so this retry release cannot recreate a swept row.
   await storage.runTransaction(async tx => {
     const [scan, ...markers] = await Promise.all([
       tx.get<M5aScanDocument>(scanDocumentPath(uid, kind)),
@@ -529,6 +537,8 @@ async function deferClaimForQuota(
 ): Promise<boolean> {
   const wait = quotaWait(outcome, runtime.now());
   if (!wait) return false;
+  // This is a claim release, not a new writer: every set below requires the
+  // caller-owned durable row to still exist.
   await runtime.storage.runTransaction(async tx => {
     const path = scanDocumentPath(uid, scan.kind);
     const [current, ...markers] = await Promise.all([
@@ -562,11 +572,13 @@ async function countFinishedMarker(
   storage: StorageAdapter,
 ): Promise<boolean> {
   return storage.runTransaction(async tx => {
-    const [current, daily, marker] = await Promise.all([
+    const [account, current, daily, marker] = await Promise.all([
+      tx.get(userDoc(uid)),
       tx.get<M5aScanDocument>(scanDocumentPath(uid, scan.kind)), tx.get<M5aScanDocument>(dailyScanPath(uid)),
       tx.get<M5aMarker>(markerPath(uid, markerId)),
     ]);
-    if (!current || current.scanId !== scan.scanId || current.leaseOwner !== owner || marker?.state !== 'done') return false;
+    if (!liveAccount(account) || !current || current.scanId !== scan.scanId
+      || current.leaseOwner !== owner || marker?.state !== 'done') return false;
     const receipt = transitionReceipt(marker, scan.scanId, 'read', [current.scanId, daily?.scanId].filter(Boolean) as string[]);
     const done = Array.from(new Set([...(current.page?.done ?? []), messageId]));
     tx.set(markerPath(uid, markerId), receipt.marker);
@@ -624,7 +636,7 @@ async function assertScanAuthorityWithReader(
   const parsed = parseM5aControls(controls);
   if (!scan || scan.scanId !== expected.scanId || scan.leaseOwner !== owner
     || !parsed?.email.enabled || parsed.email.epoch !== scan.emailEpoch
-    || user?.personalizationPurge?.state === 'purging'
+    || !liveAccount(user) || user?.personalizationPurge?.state === 'purging'
     || !isLiveConnection(connection) || connection.identity.providerAccountId !== scan.providerAccountId
     || (scan.kind !== 'manual' && (!monitor?.enabled || !monitor.m5
       || monitor.generation !== scan.monitorGeneration || monitor.m5.pauseEpoch !== scan.pauseEpoch
@@ -655,12 +667,14 @@ async function processMessage(
       && marker.origin.scanKind === claimedScan.kind;
   };
   const claimed = await storage.runTransaction(async tx => {
-    const [scan, providerMarker, legacyMarker] = await Promise.all([
+    const [account, scan, providerMarker, legacyMarker] = await Promise.all([
+      tx.get(userDoc(uid)),
       tx.get<M5aScanDocument>(scanDocumentPath(uid, claimedScan.kind)),
       tx.get<M5aMarker | Record<string, unknown>>(markerPath(uid, providerMarkerId)),
       tx.get<M5aMarker | Record<string, unknown>>(markerPath(uid, legacyMarkerId)),
     ]);
-    if (!scan || scan.scanId !== claimedScan.scanId || scan.leaseOwner !== owner) return { kind: 'lost' as const };
+    if (!liveAccount(account) || !scan || scan.scanId !== claimedScan.scanId
+      || scan.leaseOwner !== owner) return { kind: 'lost' as const };
     const now = runtime.now().toISOString();
     const resumableCoverage = waitingCoverage === 'fresh' || waitingCoverage === 'force_off';
     const providerDecision = (providerMarker as M5aMarker | null)?.state === 'waiting_for_calendar'
@@ -830,7 +844,7 @@ async function processMessage(
         || provider?.owner !== claimOwner || legacy?.owner !== claimOwner
         || !parsedControls?.email.enabled || parsedControls.email.epoch !== scan.emailEpoch
         || !isLiveConnection(connection) || connection.identity.providerAccountId !== scan.providerAccountId
-        || user?.personalizationPurge?.state === 'purging'
+        || !liveAccount(user) || user?.personalizationPurge?.state === 'purging'
         || (scan.kind !== 'manual' && (!monitor?.enabled || !monitor.m5 || monitor.generation !== scan.monitorGeneration
           || monitor.m5.pauseEpoch !== scan.pauseEpoch || Boolean(monitor.m5.pausedSince)))) throw new Error('scan_fence_changed');
 
@@ -950,6 +964,7 @@ export async function runM5aScanStep(
       tx.get<IntegrationConnectionRecord>(userSubDoc(uid, PROVIDER_CONNECTIONS, connectionIdFor('google'))),
       tx.get<DailyMonitor>(`${userCol(uid, INTELLIGENCE_MONITORS)}/gmail`),
     ]);
+    if (!liveAccount(user)) return null;
     if (!scan || (scan.status !== 'running' && scan.status !== 'failed')) return null;
     if (scan.leaseUntil && scan.leaseUntil > now.toISOString()) return null;
     const parsed = parseM5aControls(controls);
@@ -1080,7 +1095,7 @@ export async function createDueDailyScan(uid: string, runtime: GoogleRuntime): P
       tx.get<IntegrationConnectionRecord>(userSubDoc(uid, PROVIDER_CONNECTIONS, connectionIdFor('google'))),
     ]);
     const parsed = parseM5aControls(controls);
-    if (!monitor?.enabled || !monitor.m5 || !monitor.m5.nextSweepAt || monitor.m5.nextSweepAt > now
+    if (!liveAccount(user) || !monitor?.enabled || !monitor.m5 || !monitor.m5.nextSweepAt || monitor.m5.nextSweepAt > now
       || monitor.m5.pausedSince || !parsed?.email.enabled || !isLiveConnection(connection)
       || connection.identity.providerAccountId !== monitor.m5.providerAccountId) return false;
     if (daily && (daily.status === 'running' || daily.status === 'failed')) {
@@ -1129,6 +1144,7 @@ export async function advanceCompletedDaily(uid: string, runtime: GoogleRuntime)
       tx.get<Record<string, unknown>>(userDoc(uid)),
     ]);
     if (!scan || scan.kind !== 'daily' || scan.status !== 'complete' || !scan.day
+      || !liveAccount(user)
       || !monitor?.enabled || !monitor.m5 || monitor.generation !== scan.monitorGeneration
       || monitor.m5.pendingSweepDay !== scan.day) return;
     const timezone = validTimezone(user?.timezone) ?? validTimezone(monitor.m5.timezone);
@@ -1167,7 +1183,7 @@ export async function startOrResumeM5aScan(
     ]);
     const current = parseM5aControls(currentControls);
     if (!current?.email.enabled || current.email.epoch !== controls.email.epoch
-      || user?.personalizationPurge?.state === 'purging'
+      || !liveAccount(user) || user?.personalizationPurge?.state === 'purging'
       || !isLiveConnection(connection) || connection.identity.providerAccountId !== provider) {
       return { scan: existing, run: false, refused: true };
     }

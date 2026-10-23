@@ -2135,6 +2135,11 @@
   "m5bPlanMemoryChanged": "تغيّر شي بيتذكّره عنك وانبنت عليه الخطة. لتنطبق، ابنيها من جديد.",
   "m5bPlanMemoryChangedNoRebuild": "تغيّر شي بيتذكّره عنك وانبنت عليه الخطة. خلصت مرّات إعادة البنا لليوم، فالخطة الحالية بتضل على حالها.",
   "m5bLearnedWrongA11y": "مش صحيح: {line}",
+  "m5bLearnedReaddedAfterDrop": "رجعت ضفت «{title}» بعد ما أسقطته",
+  "m5bLearnedReaddedAfterDone": "رجعت ضفت «{title}» بعد ما خلّصته",
+  "m5bLearnedGuess": "تخمين",
+  "m5bLearnedRightA11y": "آه، هيك صح: {line}",
+  "m5bLearnedRightDone": "تمام، رح نتعلّم من هاي.",
   "m5bSuggestionBasis": "اعتمدنا على: «{memory}»",
   "m5bSuggestionBasisFixA11y": "صحّح: «{memory}»"
 }

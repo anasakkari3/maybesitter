@@ -290,7 +290,10 @@ export function CalendarScreen({ tabClearance = TAB_CLEARANCE }: { tabClearance?
   const allDay = visibleRows.filter(row => row.kind === 'busy' && row.block.allDay);
   const timed = visibleRows.filter(row => !untimed.includes(row as never) && !allDay.includes(row));
   // With many points at nearby hours, the proportional timeline makes narrow
-  // overlapping cards. The ordered agenda keeps every row readable.
+  // overlapping cards. The ordered agenda keeps every row readable. A day with
+  // fewer points that still overlap more at once than the width holds at the
+  // reader's text size falls back inside `DayTimeline` itself (#738), from
+  // its busiest moment rather than from this count.
   const crowdedDay = timed.filter(row => row.kind === 'commitment').length > 7;
   const loadOf = (key: string) => dayLoad(
     (byDay.get(key)?.length ?? 0)
