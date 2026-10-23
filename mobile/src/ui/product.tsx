@@ -6,7 +6,7 @@ import { Btn, Card, Txt } from './primitives';
 import { Screen, ScreenScroll } from './screen';
 import { BrandLockup } from './brand';
 import { BackButton } from './chrome';
-import { useLayoutMode } from '../theme/textScale';
+import { fillRow, useLayoutMode } from '../theme/textScale';
 import { ChevronIcon } from './icons';
 import { availabilityKey, type Availability } from '../features/product/capabilities';
 import { AvoidKeyboard } from './keyboard';
@@ -98,7 +98,7 @@ export function ProductSection({ title, body, why, icon, status, children }: { t
       {icon ? <ProductIcon name={icon} /> : null}
       {/* Stretched when stacked: a title row with a «why» arrow has no width
           of its own, and the title would collapse to nothing (AX sizes). */}
-      <View style={{ flex: stacked ? undefined : 1, alignSelf: stacked ? 'stretch' : undefined, gap: 6 }}>
+      <View style={{ ...(stacked ? { alignSelf: 'stretch' as const } : fillRow), gap: 6 }}>
         {why
           ? <Disclosure id={why.id} body={why.body} label={title}><Txt role="section">{title}</Txt></Disclosure>
           : <Txt role="section">{title}</Txt>}
@@ -115,7 +115,7 @@ export function ProductRow({ title, body, icon = 'spark', onPress, status, id }:
   const stacked = useLayoutMode() !== 'normal';
   const content = <>
     <ProductIcon name={icon} quiet={!onPress} />
-    <View style={{ flex: stacked ? undefined : 1, gap: 5, alignItems: 'flex-start' }}>
+    <View style={{ ...(stacked ? {} : fillRow), gap: 5, alignItems: 'flex-start' }}>
       <Txt role="card">{title}</Txt>
       {body ? <Txt role="supporting" color={p.mu}>{body}</Txt> : null}
       {status ? <AvailabilityBadge status={status} testID={`row-status-${status}`} /> : null}

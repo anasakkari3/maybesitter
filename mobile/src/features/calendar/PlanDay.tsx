@@ -5,7 +5,9 @@ import { useTimeZone } from '../../i18n/timezone';
 import { formatTime, formatTimeRange } from '../../i18n/format';
 import { fill, ltr } from '../../i18n/strings';
 import { isolateAuto } from '../../i18n/bidi';
-import { layoutModeFor, useLayoutMode, useTextScale } from '../../theme/textScale';
+// `fillRow` where a card's body turns from a row to a column when it shares
+// its lane: a `flex` basis would stick across that change (theme/textScale).
+import { fillRow, layoutModeFor, useLayoutMode, useTextScale } from '../../theme/textScale';
 import { LINE_HEIGHT, type Script } from '../../theme/fonts';
 import { Btn, Txt } from '../../ui/primitives';
 import { Tag, priorityTagKind } from '../../ui/chrome';
@@ -196,7 +198,7 @@ export function BusyCard({ row, height, reserve = 0, narrow = false }: {
         <Hatch color={p.hatch} radius={14} />
       </View>
       <View testID="calendar-busy-body" style={{ flexDirection: narrow ? 'column' : 'row', alignItems: narrow ? 'stretch' : 'center', gap: narrow ? 6 : 8, paddingVertical: 6, paddingHorizontal: 10, minHeight: Math.min(height ?? 52, 52) }}>
-        <View accessible accessibilityRole="text" accessibilityLabel={[t.legendBusy, range].filter(Boolean).join(', ')} style={{ ...(narrow ? {} : { flex: 1 }), flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+        <View accessible accessibilityRole="text" accessibilityLabel={[t.legendBusy, range].filter(Boolean).join(', ')} style={{ ...(narrow ? {} : fillRow), flexDirection: 'row', alignItems: 'center', gap: 8 }}>
           {narrow ? null : <ReferenceIcon name="calendar" size={18} color={p.tx} />}
           <View style={{ flex: 1, alignItems: 'flex-start' }}>
             <Txt size={14} weight={700} color={p.tx} lines={timeline ? TIMELINE_BLOCK_TITLE_LINES : undefined} testID="calendar-busy-label">{t.legendBusy}</Txt>
@@ -245,7 +247,7 @@ function WeeklyCard({ occurrence, height, reserve, narrow = false }: {
       <View testID={`${testID}-duration`} accessible={false} style={{ position: 'absolute', top: 0, start: 0, end: 0, height: Math.max(height, 1), borderRadius: 14, backgroundColor: p.sf2, borderStartWidth: 3, borderStartColor: p.lnStrong }} />
       <View testID={`${testID}-body`} style={{ flexDirection: narrow ? 'column' : 'row', alignItems: narrow ? 'flex-start' : 'center', gap: narrow ? 4 : 8, paddingVertical: 6, paddingHorizontal: 10, minHeight: Math.min(height, 52) }}>
         <Tag kind="fixed" label={t.wbFixedTag} />
-        <View style={{ ...(narrow ? { alignSelf: 'stretch' as const } : { flex: 1 }), alignItems: 'flex-start' }}>
+        <View style={{ ...(narrow ? { alignSelf: 'stretch' as const } : fillRow), alignItems: 'flex-start' }}>
           {/* Clamped to what its lane reserved (`weeklyBlockHeight`): the
               title is the person's own, up to 120 characters. */}
           <Txt size={14} weight={700} color={p.tx} lines={TIMELINE_BLOCK_TITLE_LINES} testID={`${testID}-title`}>{occurrence.title}</Txt>

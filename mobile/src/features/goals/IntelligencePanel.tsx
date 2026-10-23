@@ -19,15 +19,15 @@ import { fill, ltr } from '../../i18n/strings';
 import { formatDate, formatTime } from '../../i18n/format';
 import { deviceTimeZone, useTimeZone } from '../../i18n/timezone';
 import { useApp } from '../../state/AppContext';
-import { Btn, Pill, Txt } from '../../ui/primitives';
+import { Btn, Pill, RemeasureOnTextScale, Txt } from '../../ui/primitives';
 import { ReferenceIcon } from '../../ui/referenceIcons';
 import { useFreshM5bOn, useM5bOn } from '../m5b/capabilities';
 import { Disclosure } from '../../ui/Disclosure';
-import { useLayoutMode } from '../../theme/textScale';
+import { fillRow, useLayoutMode } from '../../theme/textScale';
 import { LiveRegion } from '../../ui/liveRegion';
 import { ProductSection } from '../../ui/product';
 import { QueryBoundary } from '../../api/ui/QueryBoundary';
-import { isolateAuto } from '../../i18n/bidi';
+import { isolateAuto, stripIsolates } from '../../i18n/bidi';
 import { useOptionalAuth } from '../../auth/AuthProvider';
 import type { Strings } from '../../i18n/strings';
 import { claimVisit, recordVisitAnswer, recordVisitFailure } from '../../lib/deviceSettings/visitThrottle';
@@ -130,7 +130,7 @@ function IntelligencePanelForAccount({ onChanged, autoGenerate = false, whenOff 
   // One row of three equal buttons at the ordinary sizes; at the larger text
   // sizes they wrap at their natural widths instead of squeezing the words.
   const actionStyle = useLayoutMode() === 'normal'
-    ? { flexGrow: 1, flexBasis: 0, minWidth: 0, paddingHorizontal: 8 }
+    ? { ...fillRow, minWidth: 0, paddingHorizontal: 8 }
     : { paddingHorizontal: 14 };
   const uid = useOptionalAuth()?.user?.uid ?? '';
   const consents = useConsents();
@@ -1021,10 +1021,15 @@ function LearnedOutcomes({ observations, open, onToggle, busy, status, onWrong, 
     >
       {/* A guess says so in words, on the proposal colour (amber marks
           proposals), before the line it qualifies. */}
-      {guess ? <View testID={`m5b-learned-guess-${item.id}`} style={{ backgroundColor: p.wms, borderRadius: 999, paddingHorizontal: 8, paddingVertical: 2 }}>
-        <Txt size={13} color={p.wm}>{t.m5bLearnedGuess}</Txt>
+      {guess ? <View testID={`m5b-learned-guess-${item.id}`} accessible accessibilityRole="text" accessibilityLabel={t.m5bLearnedGuess}
+        style={{ backgroundColor: p.wms, borderRadius: 999, paddingHorizontal: 8, paddingVertical: 2 }}>
+        <Txt size={13} color={p.wm} accessible={false}>{t.m5bLearnedGuess}</Txt>
       </View> : null}
-      <Txt role="supporting" style={{ flexShrink: 1 }}>{line}</Txt>
+      {/* The words in a wrapper that stays, saying them: the paragraph inside
+          is replaced on a text-size change (see the boundary below). */}
+      <View testID={`m5b-learned-line-${item.id}`} accessible accessibilityRole="text" accessibilityLabel={stripIsolates(line)} style={{ flexShrink: 1 }}>
+        <Txt role="supporting" accessible={false}>{line}</Txt>
+      </View>
       {/* The inline action the Memory rows use («ليش؟ · عدّل · امسح»), not a
           pill on its own line: five rows stayed shorter than the screen
           (design critique, SIM-M5B2A-01). Still a ≥44 target. */}
@@ -1038,7 +1043,13 @@ function LearnedOutcomes({ observations, open, onToggle, busy, status, onWrong, 
       {action(`m5b-learned-wrong-${item.id}`, fill(t.m5bLearnedWrongA11y, { line }), t.m5bLearnedWrong, () => onWrong(item.id))}
     </View>;
   };
-  return <View testID="m5b-learned-card" style={{ gap: 8, backgroundColor: p.sf2, borderRadius: 14, padding: 12 }}>
+  // Measured afresh after a live text-size change (simulator 2026-10-23):
+  // nothing here changes with the layout mode, so every paragraph kept the
+  // old size's measurement — slivers growing to AX5, a 305 pt title back at
+  // the default size. Under the boundary each `Txt` is replaced on a change;
+  // what a screen reader rests on stays: the header button, the answers, and
+  // the accessible wrappers that say the guess word, each line and the status.
+  return <RemeasureOnTextScale><View testID="m5b-learned-card" style={{ gap: 8, backgroundColor: p.sf2, borderRadius: 14, padding: 12 }}>
     {hasRows ? <Btn
       testID="m5b-learned"
       label={t.m5bLearnedTitle}
@@ -1049,14 +1060,16 @@ function LearnedOutcomes({ observations, open, onToggle, busy, status, onWrong, 
     >
       <Txt role="action" style={{ flexShrink: 1 }}>{t.m5bLearnedTitle}</Txt>
       <ReferenceIcon name={open ? 'chevron-up' : 'chevron-down'} size={18} color={p.mu} />
-    </Btn> : <View testID="m5b-learned-title" accessible accessibilityRole="header" style={{ minHeight: 44, justifyContent: 'center' }}>
-      <Txt role="action">{t.m5bLearnedTitle}</Txt>
+    </Btn> : <View testID="m5b-learned-title" accessible accessibilityRole="header" accessibilityLabel={t.m5bLearnedTitle} style={{ minHeight: 44, justifyContent: 'center' }}>
+      <Txt role="action" accessible={false}>{t.m5bLearnedTitle}</Txt>
     </View>}
-    {status ? <Txt role="supporting" testID="m5b-learned-status">{status}</Txt> : null}
+    {status ? <View testID="m5b-learned-status-said" accessible accessibilityRole="text" accessibilityLabel={status}>
+      <Txt role="supporting" testID="m5b-learned-status" accessible={false}>{status}</Txt>
+    </View> : null}
     {open && hasRows ? <>
       {guesses.map(item => row(item, true))}
       {learned.map(item => row(item, false))}
     </> : null}
-  </View>;
+  </View></RemeasureOnTextScale>;
 }
 
