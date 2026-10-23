@@ -42,6 +42,8 @@ import {
   userDoc,
 } from '../storage';
 import { newUserDocument, type UserDocument } from '../storage/userDocument';
+import { AccountUnavailableError } from '../account/accountLiveness';
+import { deletionTombstonePath } from '../account/deletionTombstone';
 
 type TrustUser = UserDocument<PilotTrustState>;
 
@@ -55,6 +57,15 @@ function auditDocId(event: PilotAuditEvent): string {
  * Transactional create-if-absent: two requests arriving together for a
  * participant nobody has seen before produce one record, not two, and never a
  * record that lost one of the two writes.
+ *
+ * ── A deleted account is never created again (#794) ──────────────
+ *
+ * The create path reads the deletion tombstone in the same transaction and
+ * throws `AccountUnavailableError` when there is one. Without it, a first
+ * request that Firebase Auth admitted just before a whole deletion ran would
+ * write a complete, live trust record behind the sweep. The tombstone is read
+ * only when there is no trust record to return, so an existing account pays
+ * nothing for it.
  */
 export async function getOrCreateTrust(participantId: string, at: string): Promise<PilotTrustState> {
   requirePilotParticipantId(participantId);
@@ -62,6 +73,8 @@ export async function getOrCreateTrust(participantId: string, at: string): Promi
   return getStorage().runTransaction(async (tx) => {
     const user = await tx.get<TrustUser>(userDoc(participantId));
     if (user?.trust) return requirePilotTrustState(user.trust);
+    const tombstone = deletionTombstonePath(participantId);
+    if (tombstone && await tx.get(tombstone)) throw new AccountUnavailableError();
     const created = createPilotTrustState(participantId, at);
     if (user) tx.merge<TrustUser>(userDoc(participantId), { trust: created, updatedAt: at });
     else tx.set<TrustUser>(userDoc(participantId), { ...newUserDocument(at), trust: created });

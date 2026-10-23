@@ -56,6 +56,8 @@ test('every top-level collection is either swept by deletion or declared to hold
     ...collectionConstants('lib/storage/paths.ts'),
     ...collectionConstants('lib/scheduler/storageSchedulerStore.ts'),
     ...collectionConstants('lib/account/accountDeletion.ts'),
+    // `accountDeletions` is declared here since it became the tombstone (#794).
+    ...collectionConstants('lib/account/deletionTombstone.ts'),
   ];
   assert.ok(found.length > USER_SCOPED_COLLECTIONS.length, 'no constants were parsed, so this would prove nothing');
 

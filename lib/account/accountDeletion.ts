@@ -29,13 +29,17 @@
  * Manager, which is what stops the hash from being a lookup table over every
  * uid that ever existed — and it is why the pepper is never logged.
  */
-import { createHmac, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import { getStorage, requireUserId, userDoc } from '../storage';
 import type { StorageAdapter } from '../storage/storageAdapter';
 import { deletionHooks, type DeletionHook } from './deletionHooks';
+import { ACCOUNT_DELETIONS, deletionJobPath, subjectHashFor } from './deletionTombstone';
 import { TOP_LEVEL_USER_COLLECTIONS } from './topLevelUserData';
 
-export const ACCOUNT_DELETIONS = 'accountDeletions';
+// The job record doubles as the deletion tombstone (#794), so its collection,
+// path and subject hash live with the tombstone, which the auth path imports
+// without pulling in the whole engine.
+export { ACCOUNT_DELETIONS, subjectHashFor };
 export const DELETION_RECEIPTS = 'deletionReceipts';
 
 /** In order. `receipt` is last and closes the job. */
@@ -111,20 +115,6 @@ export interface DeleteAccountOptions {
   auth?: DeletionAuthAdmin;
   /** Defaults to whatever is registered; tests pass their own. */
   hooks?: readonly DeletionHook[];
-}
-
-/** The pepper, or a clear failure. Never logged, never defaulted. */
-function requirePepper(): string {
-  const pepper = process.env.MAYBESITTER_DELETION_RECEIPT_PEPPER;
-  if (!pepper) {
-    throw new Error('MAYBESITTER_DELETION_RECEIPT_PEPPER is not set, so no deletion receipt can be proved');
-  }
-  return pepper;
-}
-
-/** The pseudonymous subject of a receipt. Stable for a uid, useless without the pepper. */
-export function subjectHashFor(uid: string, pepper = requirePepper()): string {
-  return createHmac('sha256', pepper).update(requireUserId(uid)).digest('hex');
 }
 
 /** Safe to log: enough to correlate, far too little to reverse. */
@@ -211,8 +201,13 @@ async function markDeleted(storage: StorageAdapter, uid: string, at: string): Pr
   });
 }
 
+/**
+ * The job record. It is also the tombstone `getOrCreateTrust` reads (#794):
+ * written first, never swept, and kept after the deletion is done, so nothing
+ * here may delete it before its TTL does.
+ */
 function jobPath(subjectHash: string): string {
-  return `${ACCOUNT_DELETIONS}/${subjectHash}`;
+  return deletionJobPath(subjectHash);
 }
 
 function receiptPath(receiptId: string): string {

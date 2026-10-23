@@ -12,8 +12,10 @@
 #                     24 hours - a capture-chat conversation, a day after its
 #                                last turn (2026-09-30)
 #   deletionReceipts  400 days - proof a deletion happened, naming nobody (#149)
-#   accountDeletions  30 days  - the deletion job, kept only so a repeat request
-#                                is idempotent; it holds no uid once done (#149)
+#   accountDeletions  30 days  - the deletion job, kept so a repeat request is
+#                                idempotent and as the tombstone that stops a
+#                                first request re-creating the account (#794);
+#                                it holds no uid once done (#149)
 #   hardReminders      2 days  - one Must reminder the server may have to back
 #                                up: ids and instants, no title (#198)
 #   commitmentActionReceipts
