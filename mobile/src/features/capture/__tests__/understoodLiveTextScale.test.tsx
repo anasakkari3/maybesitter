@@ -41,7 +41,8 @@ const proposal: CaptureProposal = {
   version: 'v1', proposalId: 'p1', status: 'proposed', revision: 2,
   items: [
     { itemId: 'bank', title: 'روح عالبنك', resolvedTime: null, needsClarification: true },
-    { itemId: 'sami', title: 'اتصل بسامي', resolvedTime: '2030-01-08T09:00:00.000Z', needsClarification: false },
+    { itemId: 'sami', title: 'اتصل بسامي', resolvedTime: '2030-01-08T09:00:00.000Z', needsClarification: false,
+      corrections: [{ id: 'c1', from: 'سامر', to: 'سامي' }] },
   ],
   seeds: [],
 };
@@ -93,7 +94,7 @@ async function mount(fontScale: number, which: CaptureProposal = proposal) {
   setFontScale(fontScale);
   await AsyncStorage.setItem(LANGUAGE_STORAGE_KEY, 'ar');
   await render(<AppProvider>
-    <UnderstoodMessage proposal={which} points={points} edits={{}} onOpen={jest.fn()} editable onEdit={jest.fn()} onRestore={jest.fn()} />
+    <UnderstoodMessage proposal={which} points={points} edits={{}} onOpen={jest.fn()} editable onEdit={jest.fn()} onRejectCorrection={jest.fn()} onRestore={jest.fn()} />
     <Txt testID="outside">فهمت منك:</Txt>
   </AppProvider>);
   await waitFor(() => expect(screen.queryByTestId('understood-edit-2')).not.toBeNull());
@@ -141,6 +142,49 @@ describe('the understood card re-measures after a live text-size change', () => 
     // Within one layout mode only the text is replaced.
     expect(screen.getByTestId('understood-line-2')).toBe(line);
     expect(screen.getByTestId('understood-edit-1')).toBe(edit1);
+  });
+
+  it('keeps every «عدّل» and line mounted across the change of layout, default → AX5 → default (Q740B-A11Y-001)', async () => {
+    await mount(1, withRemoved);
+    const ids = ['understood-edit-1', 'understood-edit-2', 'understood-line-1', 'understood-line-2', 'understood-restore-gym', 'understood-correction-reject-c1'];
+    const fresh = ids.map((id) => screen.getByTestId(id));
+    await act(async () => { setFontScale(AX5); });
+    // The layout did change: «عدّل» went under its line, after the spacer.
+    expect(pairDirection()).toBe('column');
+    expect(screen.queryByTestId('understood-edit-indent-2', { includeHiddenElements: true })).not.toBeNull();
+    ids.forEach((id, i) => expect(screen.getByTestId(id)).toBe(fresh[i]));
+    await act(async () => { setFontScale(1); });
+    expect(pairDirection()).toBe('row');
+    ids.forEach((id, i) => expect(screen.getByTestId(id)).toBe(fresh[i]));
+  });
+
+  it('says a removed point and a correction through wrappers that stay mounted, the drawn words replaced (Q740B-A11Y-002)', async () => {
+    await mount(1, withRemoved);
+    const ids = ['understood-removed-text-gym', 'understood-correction-text-c1'];
+    const wrappers = ids.map((id) => screen.getByTestId(id));
+    const labels = wrappers.map((node) => node.props.accessibilityLabel as string);
+    const drawn = wrappers.map((node) => within(node).getByText(/./));
+    expect(labels[0]).toContain('روح عالنادي');
+    expect(labels[1]).toContain('سامر');
+    for (const node of wrappers) {
+      expect(node.props.accessible).toBe(true);
+      expect(node.props.accessibilityRole).toBe('text');
+    }
+    // The drawn paragraph is not a second thing to focus.
+    for (const text of drawn) expect(text.props.accessible).toBe(false);
+
+    for (const scale of [AX5, 1]) {
+      await act(async () => { setFontScale(scale); });
+      ids.forEach((id, i) => {
+        const node = screen.getByTestId(id);
+        expect(node).toBe(wrappers[i]);
+        expect(node.props.accessibilityLabel).toBe(labels[i]);
+        const text = within(node).getByText(/./);
+        expect(text).not.toBe(drawn[i]);
+        expect(text.props.accessible).toBe(false);
+        drawn[i] = text;
+      });
+    }
   });
 
   it('re-measures within the accessibility sizes too (AX1 → AX5, same layout mode)', async () => {

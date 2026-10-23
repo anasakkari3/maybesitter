@@ -41,6 +41,14 @@ const RemeasureScaleContext = React.createContext<number | null>(null);
  * the buttons around them, which carry the accessible names and hold a
  * screen reader's focus, stay mounted. A rotation (same scale) replaces
  * nothing. Text outside a boundary is untouched.
+ *
+ * What a screen reader can focus must therefore not be a bare `Txt`: a
+ * paragraph is its own accessible element on iOS, and focus on it would go
+ * with it. Inside a boundary, words that stand alone (not inside a button)
+ * sit in an accessible `View` that carries them as its label, with the `Txt`
+ * itself `accessible={false}` — the wrapper stays, only the drawing changes.
+ * Controls must also keep one parent in every layout mode, or the layout
+ * change remounts them too.
  */
 export function RemeasureOnTextScale({ children }: { children: React.ReactNode }) {
   const scale = useTextScale();
@@ -63,7 +71,7 @@ export function textAlignment(align: Align, rtl: boolean, platform: string) {
 }
 
 export function Txt({
-  children, role = 'body', size = typography[role].size, weight = typography[role].weight, color, align = 'start', style, lines, lh, latin, selectable, testID, onTextLayout, dir, maxScale,
+  children, role = 'body', size = typography[role].size, weight = typography[role].weight, color, align = 'start', style, lines, lh, latin, selectable, testID, onTextLayout, dir, maxScale, accessible,
 }: {
   children: React.ReactNode;
   role?: TextRole;
@@ -93,6 +101,12 @@ export function Txt({
    * app is left-to-right and starts at the left, set in the Latin face.
    */
   dir?: 'auto' | undefined;
+  /**
+   * `false` for the visual copy of words a stable accessible wrapper already
+   * says — under a `RemeasureOnTextScale` the paragraph is replaced on a
+   * text-size change, and a screen reader's focus must not sit on it.
+   */
+  accessible?: boolean | undefined;
 }) {
   const { rtl: uiRtl, script, p } = useApp();
   const remeasureScale = React.useContext(RemeasureScaleContext);
@@ -121,6 +135,7 @@ export function Txt({
       key={remeasureScale === null ? undefined : `scale-${remeasureScale}`}
       numberOfLines={lines}
       selectable={selectable}
+      {...(accessible !== undefined ? { accessible } : {})}
       {...(maxScale !== undefined ? { maxFontSizeMultiplier: maxScale } : {})}
       testID={testID}
       onTextLayout={onTextLayout}
