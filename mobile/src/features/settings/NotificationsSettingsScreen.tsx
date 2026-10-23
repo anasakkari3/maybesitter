@@ -3,7 +3,7 @@ import { AppState, Linking, Platform, View } from 'react-native';
 import { AppDateTimePicker as DateTimePicker } from '../../ui/AppDateTimePicker';
 import { useApp } from '../../state/AppContext';
 import { Btn, Card, Pill, SaidWords, Txt } from '../../ui/primitives';
-import { LiveRegion } from '../../ui/liveRegion';
+import { LiveAnnouncement } from '../../ui/liveRegion';
 import { Screen, ScreenScroll } from '../../ui/screen';
 import {
   usePlanSettings,
@@ -336,30 +336,32 @@ export function NotificationsSettingsScreen({ onBack }: { onBack: () => void }) 
       <ScreenScroll>
         {/* What the phone allows, first (CL2b #18). */}
         {/* Mounted whatever the permission, so a refusal that lands after
-            «اسمح» is heard by TalkBack (review I1). */}
+            «اسمح» is heard by TalkBack (review I1). It says the line and draws
+            nothing: the card below replaces its words after a live text-size
+            change, and inside the region TalkBack read that as a new refusal
+            (Q-LIVE2-001). */}
+        <LiveAnnouncement text={permissionDenied ? t.notifDenied : null} testID="notifications-status-live" />
         {/* The card's words are measured afresh after a live text-size change:
             at AX5 they were slivers, and back at the default size the card
             stayed 795 pt tall (simulator 2026-10-24). Each paragraph sits in a
             view that says it and stays (SaidWords); the buttons hold their own
             boundary (Btn). */}
-        <LiveRegion testID="notifications-status-live">
-          {permissionDenied ? (
-            <Card pad={18} style={{ gap: 12 }} testID="notifications-status">
-              <SaidWords label={t.notifDenied} testID="notifications-denied-said">
-                <Txt size={15} color={p.wm} weight={600} lh={1.5} testID="notifications-denied" accessible={false}>{t.notifDenied}</Txt>
-              </SaidWords>
-              {/* The one place a no can be undone. */}
-              <Btn
-                label={t.notifOpenSettings}
-                testID="notifications-open-settings"
-                onPress={() => void Linking.openSettings()}
-                style={{ borderRadius: 16, minHeight: 52, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: p.ln }}
-              >
-                <Txt size={15} color={p.ac}>{t.notifOpenSettings}</Txt>
-              </Btn>
-            </Card>
-          ) : null}
-        </LiveRegion>
+        {permissionDenied ? (
+          <Card pad={18} style={{ gap: 12 }} testID="notifications-status">
+            <SaidWords label={t.notifDenied} testID="notifications-denied-said">
+              <Txt size={15} color={p.wm} weight={600} lh={1.5} testID="notifications-denied" accessible={false}>{t.notifDenied}</Txt>
+            </SaidWords>
+            {/* The one place a no can be undone. */}
+            <Btn
+              label={t.notifOpenSettings}
+              testID="notifications-open-settings"
+              onPress={() => void Linking.openSettings()}
+              style={{ borderRadius: 16, minHeight: 52, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: p.ln }}
+            >
+              <Txt size={15} color={p.ac}>{t.notifOpenSettings}</Txt>
+            </Btn>
+          </Card>
+        ) : null}
         {!permissionDenied && notificationStatus ? <Card pad={18} style={{ gap: 12 }} testID="notifications-status">
           {needsAsking ? (
             <View style={{ gap: 12 }} testID="notifications-not-asked">

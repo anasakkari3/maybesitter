@@ -585,7 +585,7 @@ describe('what the screen says without being asked', () => {
     Object.defineProperty(Platform, 'OS', { value: 'ios', configurable: true });
     try {
       await show();
-      expect(screen.queryByTestId('calendar-busy-count')).not.toBeNull();
+      await waitFor(() => expect(screen.queryByTestId('calendar-busy-count')).not.toBeNull());
       await fireEvent.press(screen.getByTestId('calendar-disconnect-details-why'));
       expect(String(screen.getByTestId('calendar-disconnect-details-why-body').props.children))
         .not.toContain(en.calendarDeclinedNote);

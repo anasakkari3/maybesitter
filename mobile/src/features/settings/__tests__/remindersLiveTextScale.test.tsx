@@ -123,6 +123,30 @@ describe('the reminders screen after a live text-size change', () => {
     );
   });
 
+  // Q-LIVE2-001: Android hears any subtree replacement in a live region as
+  // new content, so the card that replaces its words must sit outside it, and
+  // the region's one node must survive a text-size change untouched.
+  it('denied: the live region holds one childless node that a text-size change leaves alone, and the card sits outside it', async () => {
+    await show('denied', 'notifications-denied-said');
+    const region = screen.getByTestId('notifications-status-live');
+    expect(region.props.accessibilityLiveRegion).toBe('polite');
+    expect(within(region).queryByTestId('notifications-status')).toBeNull();
+    expect(within(region).queryByTestId('notifications-open-settings')).toBeNull();
+    const node = screen.getByTestId('notifications-status-live-said', { includeHiddenElements: true });
+    const label = node.props.accessibilityLabel;
+    expect(label).toBe(screen.getByTestId('notifications-denied').props.children);
+    expect(node.children).toHaveLength(0);
+    // iOS has no live regions: VoiceOver reads the card, not this node.
+    expect(node.props.accessibilityElementsHidden).toBe(true);
+    for (const scale of [AX5, 1, AX5]) {
+      await act(async () => { setFontScale(scale); });
+      expect(screen.getByTestId('notifications-status-live')).toBe(region);
+      expect(screen.getByTestId('notifications-status-live-said', { includeHiddenElements: true })).toBe(node);
+      expect(node.props.accessibilityLabel).toBe(label);
+      expect(node.children).toHaveLength(0);
+    }
+  });
+
   it('not asked yet: the line above «اسمح» is said by a view that stays, the button keeps its node', async () => {
     await show('undetermined', 'notifications-allow-body');
     expect(screen.getByTestId('notifications-allow-body').props.accessible).toBe(true);
