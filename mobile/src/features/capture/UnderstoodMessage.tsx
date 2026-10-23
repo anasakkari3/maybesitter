@@ -7,7 +7,7 @@ import { useApp } from '../../state/AppContext';
 import { useTimeZone } from '../../i18n/timezone';
 import { fill, type Strings } from '../../i18n/strings';
 import { isolateAuto, stripIsolates } from '../../i18n/bidi';
-import { Btn, Txt } from '../../ui/primitives';
+import { Btn, RemeasureOnTextScale, Txt } from '../../ui/primitives';
 import { useLayoutMode } from '../../theme/textScale';
 
 /** What a line of the summary opens: an item's card, a seed's row, or a habit's or goal's card (M3b). */
@@ -70,14 +70,23 @@ export function UnderstoodMessage(props: Parameters<typeof UnderstoodLines>[0] &
   const { onRestore, ...rest } = props;
   const removed = props.editable ? props.proposal.removedItems ?? [] : [];
   const lines = <UnderstoodLines {...rest} />;
-  if (removed.length === 0) return lines;
-  return <View style={{ alignSelf: 'stretch', gap: 6 }}>
+  // The card restacks at large text, so it re-renders on a live text-size
+  // change and its unchanged lines came back with the old size's measurement:
+  // its text is measured afresh at each scale (see RemeasureOnTextScale).
+  if (removed.length === 0) return <RemeasureOnTextScale>{lines}</RemeasureOnTextScale>;
+  return <RemeasureOnTextScale><View style={{ alignSelf: 'stretch', gap: 6 }}>
     {lines}
     {removed.map((entry) => {
       const id = entry.itemId ?? entry.seedItemId!;
       const target: UnderstoodTarget = entry.itemId ? { itemId: entry.itemId } : { seedItemId: entry.seedItemId! };
+      const said = fill(t.understoodRemoved, { text: isolateAuto(entry.text) });
       return <View key={`removed-${id}`} testID={`understood-removed-${id}`} style={stacked ? { alignItems: 'flex-start', gap: 2 } : { flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-        <Txt size={13} color={p.mu} style={stacked ? undefined : { flex: 1 }}>{fill(t.understoodRemoved, { text: isolateAuto(entry.text) })}</Txt>
+        {/* The words in a wrapper that stays mounted, with the words as its
+            name: the paragraph inside is replaced on a text-size change. */}
+        <View testID={`understood-removed-text-${id}`} accessible accessibilityRole="text" accessibilityLabel={stripIsolates(said)}
+          style={stacked ? undefined : { flex: 1 }}>
+          <Txt size={13} color={p.mu} accessible={false}>{said}</Txt>
+        </View>
         {onRestore ? <Btn testID={`understood-restore-${id}`} label={stripIsolates(fill(t.understoodRestoreLabel, { text: entry.text }))}
           onPress={() => onRestore(target)} disabled={props.busy} scaleTo={0.97}
           style={{ minHeight: 44, minWidth: 44, paddingHorizontal: 10, borderRadius: 12, alignItems: 'center', justifyContent: 'center' }}>
@@ -85,7 +94,7 @@ export function UnderstoodMessage(props: Parameters<typeof UnderstoodLines>[0] &
         </Btn> : null}
       </View>;
     })}
-  </View>;
+  </View></RemeasureOnTextScale>;
 }
 
 function UnderstoodLines({ proposal, points, edits, onOpen, editable = false, onEdit, onRejectCorrection, busy = false, editRef }: {
@@ -169,16 +178,23 @@ function UnderstoodLines({ proposal, points, edits, onOpen, editable = false, on
             an unseen copy of the line's own number badge, which grows with the
             text exactly as the badge does (a fixed indent fell short at AX5).
             The button's own padding stands in for the line's gap. */}
-        {edit && stacked && lines.length > 1 ? <View style={{ flexDirection: 'row', alignItems: 'flex-start' }}>
-          {badge(n, `understood-edit-indent-${n}`)}
+        {/* «عدّل» keeps this one parent in both layouts, so the change of
+            layout at large text never remounts it under a screen reader's
+            focus (only the spacer comes and goes, before it). */}
+        {edit ? <View style={stacked && lines.length > 1 ? { flexDirection: 'row', alignItems: 'flex-start' } : undefined}>
+          {stacked && lines.length > 1 ? badge(n, `understood-edit-indent-${n}`) : null}
           {edit}
-        </View> : edit}
+        </View> : null}
       </View>
     {editable && 'itemId' in line.target ? line.corrections.map((correction) => {
       const itemId = (line.target as { itemId: string }).itemId;
+      const heard = fill(t.understoodCorrection, { from: isolateAuto(correction.from), to: isolateAuto(correction.to) });
       return <View key={correction.id} testID={`understood-correction-${correction.id}`}
         style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 6, paddingStart: lines.length > 1 ? 36 : 0 }}>
-        <Txt size={13} color={p.mu} style={{ flexShrink: 1 }}>{fill(t.understoodCorrection, { from: isolateAuto(correction.from), to: isolateAuto(correction.to) })}</Txt>
+        <View testID={`understood-correction-text-${correction.id}`} accessible accessibilityRole="text" accessibilityLabel={stripIsolates(heard)}
+          style={{ flexShrink: 1 }}>
+          <Txt size={13} color={p.mu} accessible={false}>{heard}</Txt>
+        </View>
         {onRejectCorrection ? <Btn testID={`understood-correction-reject-${correction.id}`}
           label={stripIsolates(fill(t.understoodCorrectionRejectLabel, { from: correction.from, text: line.text }))}
           onPress={() => onRejectCorrection(itemId, correction.id)} disabled={busy} scaleTo={0.97}
