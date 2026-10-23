@@ -46,7 +46,7 @@ import {
   type WeeklyBlockSource,
 } from '../../src/contracts/v1/weeklyBlockContracts';
 import type { TimeInterval } from '../../src/contracts/v1/planningContracts';
-import { getStorage, type StorageAdapter } from '../storage';
+import { getStorage, type StorageAdapter, type StorageTransaction } from '../storage';
 import { WEEKLY_BLOCKS, userCol, userSubDoc } from '../storage/paths';
 import {
   deleteBusySource,
@@ -57,6 +57,7 @@ import {
 } from '../calendar/busyBlocks';
 import { expandWeeklySessionsToBusyBlocks } from '../calendar/manualBusy';
 import { localDayKey } from '../services/mobile/time';
+import { requireLiveAccount } from '../account/accountLiveness';
 
 const DAY_MS = 86_400_000;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
@@ -75,6 +76,25 @@ function storageOf(deps: WeeklyBlockDeps): StorageAdapter {
 
 function nowOf(deps: WeeklyBlockDeps): Date {
   return deps.now ?? new Date();
+}
+
+/**
+ * Writes a block document behind the account deletion fence (#772): the
+ * account is read in the same transaction and must be live, so a create or an
+ * edit in flight when the account was deleted cannot re-create the block.
+ */
+async function writeBlockDocument(storage: StorageAdapter, uid: string, doc: WeeklyBlockDocument): Promise<void> {
+  await storage.runTransaction(async (tx) => {
+    await requireLiveAccount(tx, uid);
+    tx.set(weeklyBlockPath(uid, doc.id), doc);
+  });
+}
+
+/** The fence, as `replaceBusyBlocks` runs a guard inside each of its commits. */
+function liveAccountGuard(uid: string): (tx: StorageTransaction) => Promise<void> {
+  return async (tx) => {
+    await requireLiveAccount(tx, uid);
+  };
 }
 
 /** The busy source a block's occurrences are filed under. */
@@ -199,11 +219,18 @@ export async function materializeWeeklyBlock(
 
   const earliest = kept.reduce((min, block) => Math.min(min, Date.parse(block.startAt)), Date.parse(expansion.window.startsAt));
   const window: TimeInterval = { startsAt: new Date(earliest).toISOString(), endsAt: expansion.window.endsAt };
-  const outcome = await replaceBusyBlocks(uid, sourceId, window, [...kept, ...upcoming], { storage, platform: null, now });
+  // Every commit `replaceBusyBlocks` makes re-reads the account (#772): busy
+  // time written after a deletion would re-create the account's calendar.
+  const outcome = await replaceBusyBlocks(uid, sourceId, window, [...kept, ...upcoming], {
+    storage, platform: null, now, transactionGuard: liveAccountGuard(uid),
+  });
 
   const renewAt = doc.status === 'active' ? new Date(nowMs + WEEKLY_BLOCK_RENEW_AFTER_DAYS * DAY_MS).toISOString() : null;
   await storage.runTransaction(async (tx) => {
-    const current = await tx.get<WeeklyBlockDocument>(weeklyBlockPath(uid, doc.id));
+    const [current] = await Promise.all([
+      tx.get<WeeklyBlockDocument>(weeklyBlockPath(uid, doc.id)),
+      requireLiveAccount(tx, uid), // the deletion fence (#772)
+    ]);
     // Deleted, or changed by a later request that will materialize itself.
     if (current === null || current.updatedAt !== doc.updatedAt) return;
     tx.set(weeklyBlockPath(uid, doc.id), withRenewAt(current, renewAt));
@@ -235,7 +262,7 @@ export async function createWeeklyBlock(
   const now = nowOf(deps);
   validateWeeklyBlockShape(input);
   const doc = weeklyBlockDocumentFrom(input, { id: deps.id ?? randomUUID(), source: deps.source ?? 'manual', now });
-  await storage.set(weeklyBlockPath(uid, doc.id), doc);
+  await writeBlockDocument(storage, uid, doc);
   await materializeWeeklyBlock(uid, doc, { storage, now });
   return { block: (await storage.get<WeeklyBlockDocument>(weeklyBlockPath(uid, doc.id))) ?? doc };
 }
@@ -275,7 +302,7 @@ export async function patchWeeklyBlock(
   if (!scheduleChanged) {
     // A new title changes no busy time: occurrences carry no title.
     const next = { ...merged, updatedAt: at } as WeeklyBlockDocument;
-    await storage.set(weeklyBlockPath(uid, blockId), next);
+    await writeBlockDocument(storage, uid, next);
     return next;
   }
 
@@ -283,7 +310,7 @@ export async function patchWeeklyBlock(
     ? firstOccurrenceDate(merged.weekdays, merged.timezone, now)
     : current.startsOn;
   const next = withRenewAt({ ...merged, startsOn, updatedAt: at }, merged.status === 'active' ? at : null);
-  await storage.set(weeklyBlockPath(uid, blockId), next);
+  await writeBlockDocument(storage, uid, next);
   await materializeWeeklyBlock(uid, next, { storage, now });
   return (await storage.get<WeeklyBlockDocument>(weeklyBlockPath(uid, blockId))) ?? next;
 }

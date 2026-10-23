@@ -96,7 +96,9 @@ async function proposeModel(text: string, now: Date, provider: (prompt: string) 
 
 function withMemoryStorage<T>(run: () => Promise<T>): Promise<T> {
   setStorageForTests(createMemoryStorage());
-  return run().finally(() => resetStorageForTests());
+  // #772: an in-process capture with no participant files its proposal under
+  // users/default, behind the account deletion fence.
+  return seedLiveAccount('default').then(run).finally(() => resetStorageForTests());
 }
 
 async function proposeRules(text: string, now: Date) {
@@ -287,6 +289,7 @@ async function answerDoctor(freeText: string, engine: 'rules' | { reread: object
   }
   const uid = 'pc-doctor';
   return withMemoryStorage(async () => {
+    await seedLiveAccount(uid); // #772: the proposal is written behind the account deletion fence
     const proposal = await proposeMobileCapture({ text, timezone: TZ, referenceTime: MON_10.toISOString() }, { participantId: uid });
     const item = proposal.items[0]!;
     assert.equal(item.clarification?.questionKey, 'ask_time');
@@ -382,6 +385,7 @@ async function answerAmPm(freeText: string, engine: 'rules' | 'model' = 'rules')
   }
   const uid = 'pc-ampm';
   return withMemoryStorage(async () => {
+    await seedLiveAccount(uid); // #772: the proposal is written behind the account deletion fence
     const proposal = await proposeMobileCapture({ text: BANK_AT_5, timezone: TZ, referenceTime: MON_10.toISOString() }, { participantId: uid });
     const item = proposal.items[0]!;
     assert.equal(item.clarification?.questionKey, 'ask_am_pm');
@@ -419,6 +423,7 @@ test('a task cleared to no time at confirm echoes no time — the echo is what w
   const uid = 'pc-echo';
   await withMemoryStorage(async () => {
     const text = 'لازم أشتري دوا من الصيدلية بكرا الساعة 5 المسا';
+    await seedLiveAccount(uid); // #772: the proposal is written behind the account deletion fence
     const proposal = await proposeMobileCapture({ text, timezone: TZ, referenceTime: MON_10.toISOString() }, { participantId: uid });
     const item = proposal.items[0]!;
     assert.equal(line(item), 'أشتري دوا من الصيدلية | 2026-09-29 17:00 | settled');
@@ -437,6 +442,7 @@ test('a task cleared to no time at confirm echoes no time — the echo is what w
   const later = new Date(Math.ceil((Date.now() + 2 * 86_400_000) / 3_600_000) * 3_600_000).toISOString();
   await withMemoryStorage(async () => {
     const text = 'لازم أشتري دوا من الصيدلية بكرا الساعة 5 المسا';
+    await seedLiveAccount(uid); // #772: the proposal is written behind the account deletion fence
     const proposal = await proposeMobileCapture({ text, timezone: TZ, referenceTime: MON_10.toISOString() }, { participantId: uid });
     const item = proposal.items[0]!;
     await seedLiveAccount(uid);
@@ -957,11 +963,14 @@ test('a repeated DST end clock chooses the earlier offset directly and through a
     '2026-10-24T22:30:00.000Z',
   );
 
-  const proposal = await withMemoryStorage(() => proposeMobileCapture({
-    text: 'Meeting tomorrow from 12:30am to 1:30am',
-    timezone: 'Asia/Jerusalem',
-    referenceTime: '2026-10-24T07:00:00.000Z',
-  }, { participantId: 'm2a-dst-range' }));
+  const proposal = await withMemoryStorage(async () => {
+    await seedLiveAccount('m2a-dst-range'); // #772: the proposal is written behind the account deletion fence
+    return proposeMobileCapture({
+      text: 'Meeting tomorrow from 12:30am to 1:30am',
+      timezone: 'Asia/Jerusalem',
+      referenceTime: '2026-10-24T07:00:00.000Z',
+    }, { participantId: 'm2a-dst-range' });
+  });
   assert.equal(proposal.items.length, 1, JSON.stringify(proposal.items));
   assert.equal(proposal.items[0]!.resolvedTime, '2026-10-24T21:30:00.000Z');
   assert.equal(proposal.items[0]!.endTime, '2026-10-24T22:30:00.000Z');

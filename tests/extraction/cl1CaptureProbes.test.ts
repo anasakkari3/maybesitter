@@ -11,6 +11,7 @@
  * Deterministic: no model is called, the reference time is fixed, and
  * storage is in memory.
  */
+import { seedLiveAccount } from '../support/liveAccount.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -48,6 +49,10 @@ const line = (item: Item) =>
 
 async function withStorage<T>(run: () => Promise<T>): Promise<T> {
   setStorageForTests(createMemoryStorage());
+  // #772: the in-process capture files its proposal under users/{scope} ('default'
+  // when no scope is sent), behind the deletion fence
+  await seedLiveAccount('default');
+  await seedLiveAccount('s');
   try {
     return await run();
   } finally {

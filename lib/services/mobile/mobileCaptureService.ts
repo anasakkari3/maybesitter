@@ -111,8 +111,10 @@ import {
   MEMORY,
   docIdForKey,
   requireUserId,
+  userIdForKey,
   userSubDoc,
 } from '../../storage';
+import { requireLiveAccount } from '../../account/accountLiveness';
 import { INTENT_SEED_SCHEMA_VERSION, type IntentSeed } from '../../../src/contracts/v1/intentContracts';
 import {
   MEMORY_RECORD_SCHEMA_VERSION,
@@ -770,7 +772,10 @@ export async function editCaptureKindsProposal(
   // overwritten by this edit.
   await getStorage().runTransaction(async (tx) => {
     const path = captureProposalPath(uid, edit.proposalId);
-    const currentDocument = await tx.get<StoredProposalDocument>(path);
+    const [currentDocument] = await Promise.all([
+      tx.get<StoredProposalDocument>(path),
+      requireLiveAccount(tx, uid), // the deletion fence (#772)
+    ]);
     if (!currentDocument) throw new CaptureKindsInvalidEditError();
     const current = captureProposalFromDocument(currentDocument);
     if (current.scopeId !== uid || current.confirmedResult !== undefined
@@ -1641,7 +1646,10 @@ export async function clarifyMobileCapture(input: MobileClarifyInput, context: M
       }
       const next = { ...candidate, contract: enrichedContract };
       await storage.runTransaction(async (tx) => {
-        const document = await tx.get<StoredProposalDocument>(proposalPath);
+        const [document] = await Promise.all([
+          tx.get<StoredProposalDocument>(proposalPath),
+          requireLiveAccount(tx, userIdForKey(scopeId)), // the deletion fence (#772)
+        ]);
         if (!document) throw new ClarifyError('proposal_not_found');
         const current = captureProposalFromDocument(document);
         if (current.scopeId !== scopeId) throw new ClarifyError('proposal_not_found');

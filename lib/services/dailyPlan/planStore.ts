@@ -26,6 +26,15 @@
  * "one plan document and one push" survives two concurrent ticks, a Cloud
  * Scheduler retry, and a recovered claim. This is `StorageSchedulerStore`'s
  * dedupe, applied to a different document.
+ *
+ * ── The account deletion fence (#772) ─────────────────────────────
+ *
+ * Every writer here reads `users/{uid}` in the transaction that writes and
+ * refuses (`AccountUnavailableError`) unless the account is live, before any
+ * write is queued. A morning tick, a replan or an accept that started before
+ * account deletion would otherwise re-create `plans/{date}` and its ledger
+ * under an account the person deleted. The read joins the transaction's other
+ * reads, so the fence costs one point read and no extra round trip.
  */
 import { getStorage, type StorageAdapter, type StorageTransaction } from '../../storage';
 import { sortableDocId, userCol, userSubDoc } from '../../storage/paths';
@@ -40,6 +49,7 @@ import type { ReadinessApplied } from '../../integrations/readiness/freshReadine
 import type { PlanPushPending } from './planPushRetry';
 import { createHash, randomUUID } from 'node:crypto';
 import { dayHorizon } from './buildDailyPlan';
+import { requireLiveAccount } from '../../account/accountLiveness';
 
 export type DailyPlanStatus = 'proposed' | 'accepted' | 'edited' | 'dismissed';
 export type ExplanationSource = 'model' | 'template';
@@ -584,6 +594,7 @@ export async function createIfAbsent(
     const [existing, guarded] = await Promise.all([
       tx.get<StoredDailyPlan>(path),
       guard ? tx.get(guard.path) : Promise.resolve(null),
+      requireLiveAccount(tx, uid), // the deletion fence (#772)
     ]);
     if (existing) return { created: false, stored: existing };
     if (guard && !guard.accepts(guarded)) throw new PlanWriteGuardRejected();
@@ -615,7 +626,10 @@ export async function mutateStoredPlan<T>(
 ): Promise<{ stored: StoredDailyPlan; result: T } | null> {
   const path = planPath(uid, date);
   return storageOf(storage).runTransaction(async (tx) => {
-    const current = await tx.get<StoredDailyPlan>(path);
+    const [current] = await Promise.all([
+      tx.get<StoredDailyPlan>(path),
+      requireLiveAccount(tx, uid), // the deletion fence (#772)
+    ]);
     if (!current) return null;
     const outcome = await mutate(current, tx);
     if (!outcome) return null;
@@ -658,6 +672,7 @@ export async function replaceStoredPlan(
     const [current, guarded] = await Promise.all([
       tx.get<StoredDailyPlan>(path),
       guard ? tx.get(guard.path) : Promise.resolve(null),
+      requireLiveAccount(tx, uid), // the deletion fence (#772)
     ]);
     if (!current || current.generation !== expectedGeneration) return null;
     if (guard && !guard.accepts(guarded)) throw new PlanWriteGuardRejected();
@@ -691,7 +706,10 @@ export async function replaceStoredPlanIfBaseMatches(
 ): Promise<StoredDailyPlan | null> {
   const path = planPath(uid, document.date);
   return storageOf(storage).runTransaction(async (tx) => {
-    const current = await tx.get<StoredDailyPlan>(path);
+    const [current] = await Promise.all([
+      tx.get<StoredDailyPlan>(path),
+      requireLiveAccount(tx, uid), // the deletion fence (#772)
+    ]);
     if (!current
       || current.generation !== expectedBase.generation
       || current.inputDigest !== expectedBase.inputDigest) return null;
@@ -747,7 +765,12 @@ export async function appendPlanEvent(
   storage?: StorageAdapter,
 ): Promise<PlanEvent> {
   const { path, record } = preparePlanEvent(uid, event);
-  await storageOf(storage).set<PlanEvent>(path, record);
+  // A transaction only for the deletion fence (#772): a ledger entry appended
+  // after the sweep would re-create the account's tree on its own.
+  await storageOf(storage).runTransaction(async (tx) => {
+    await requireLiveAccount(tx, uid);
+    tx.set<PlanEvent>(path, record);
+  });
   return record;
 }
 

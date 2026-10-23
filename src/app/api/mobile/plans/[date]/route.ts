@@ -1,3 +1,4 @@
+import { AccountUnavailableError, accountUnavailableResponse } from '../../../../../../lib/account/accountLiveness';
 import { mobileAuthErrorResponse, requireMobileUser } from '../../../../../../lib/auth/mobileAuth';
 import { mobileError } from '../../../../../../lib/services/mobile/response';
 import { isPlanDate } from '../../../../../../lib/services/dailyPlan/planSettings';
@@ -53,7 +54,15 @@ export async function GET(request: Request, { params }: { params: Promise<{ date
 
   const state = await loadDomainState(getStorage(), user.uid);
   const commitments = Object.values(state.commitments);
-  const current = await readCurrentPlan(user.uid, date, { commitments });
+  let current;
+  try {
+    current = await readCurrentPlan(user.uid, date, { commitments });
+  } catch (error) {
+    // The refresh of a stale plan is a write, and the account was deleted
+    // while it was on its way (#772).
+    if (error instanceof AccountUnavailableError) return accountUnavailableResponse();
+    throw error;
+  }
   if (!current) return mobileError('no plan for that date', 404);
   const { stored, inputsChanged, basisChanged } = current;
   const titles = await currentPlanTitles(user.uid, commitments, stored, getStorage());

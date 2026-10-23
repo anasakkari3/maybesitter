@@ -1,3 +1,4 @@
+import { AccountUnavailableError, accountUnavailableResponse } from '../../../../../../lib/account/accountLiveness';
 import { mobileAuthErrorResponse, requireMobileUser } from '../../../../../../lib/auth/mobileAuth';
 import { ClarifyError, ProposalChangedError } from '../../../../../../lib/services/captureBoundary';
 import { clarifyMobileCapture } from '../../../../../../lib/services/mobile/mobileCaptureService';
@@ -51,6 +52,8 @@ export async function POST(request: Request) {
         { status: error.failure === 'proposal_not_found' ? 404 : 400 },
       );
     }
+    // The account was deleted while this was on its way (#772).
+    if (error instanceof AccountUnavailableError) return accountUnavailableResponse();
     return mobileError(error instanceof Error ? error.message : 'Clarification failed');
   }
 }

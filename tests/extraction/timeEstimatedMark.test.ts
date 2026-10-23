@@ -17,6 +17,7 @@
  *
  * Rows that script a model answer say so.
  */
+import { seedLiveAccount } from '../support/liveAccount.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
@@ -116,6 +117,7 @@ test('D2 rules path: «اليوم المسا» keeps 18:00 and marks it as our g
 
 test('D2 rules path, through the mobile route service: the phone receives the mark', async () => {
   setStorageForTests(createMemoryStorage());
+  await seedLiveAccount('default'); // #772: the proposal is written behind the account deletion fence
   const proposal = await proposeMobileCapture({ text: OWNER, timezone: TZ, referenceTime: NOW.toISOString() })
     .finally(() => resetStorageForTests());
   const call = proposal.items.find((item) => item.title === 'أتصل بأمي')!;
@@ -597,6 +599,7 @@ test('FIX-R6-SPOKENHOUR control: the part of the day alone is still the product 
 
 test('FIX-R6-SPOKENHOUR rules path, through the mobile route service: «بكرا المسا ع سبعة» reaches the phone at 19:00 with no mark', async () => {
   setStorageForTests(createMemoryStorage());
+  await seedLiveAccount('default'); // #772: the proposal is written behind the account deletion fence
   const proposal = await proposeMobileCapture({ text: 'لازم أتصل بأمي بكرا المسا ع سبعة', timezone: TZ, referenceTime: jlm('15:00').toISOString() })
     .finally(() => resetStorageForTests());
   assert.deepEqual([proposal.items[0]!.title, proposal.items[0]!.resolvedTime, proposal.items[0]!.timeEstimated], ['أتصل بأمي', at(TOMORROW, '19:00'), false]);

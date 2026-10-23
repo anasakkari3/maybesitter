@@ -66,6 +66,7 @@ let uidCounter = 0;
 const nextUid = () => `fix-r8-${uidCounter += 1}`;
 
 async function rules(text: string, now: Date, uid = nextUid()) {
+  await seedLiveAccount(uid); // #772: the proposal is written behind the account deletion fence
   const proposal = await proposeMobileCapture({ text, timezone: TZ, referenceTime: now.toISOString() }, { participantId: uid });
   return { proposal, items: proposal.items as Item[], uid };
 }

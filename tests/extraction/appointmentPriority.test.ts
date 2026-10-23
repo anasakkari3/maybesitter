@@ -13,6 +13,7 @@
  * shows. Plain tasks, and arranging an appointment ("call the dentist", «احجز
  * موعد»), are not raised.
  */
+import { seedLiveAccount } from '../support/liveAccount.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { extract } from '../../src/extraction/ruleBasedExtractor.ts';
@@ -564,6 +565,7 @@ test('clarify model path (SCRIPTED Gemini): a typed hour re-read onto Thursday �
 async function throughRoute(text: string, answer: { optionId?: string; freeText?: string }, now = context.now) {
   setStorageForTests(createMemoryStorage());
   try {
+    await seedLiveAccount('typedday'); // #772: the proposal is written behind the account deletion fence
     const proposal = await proposeMobileCapture({ text, timezone: TZ, referenceTime: now.toISOString() }, { participantId: 'typedday' });
     const item = proposal.items[0] as { itemId: string; clarification: { questionId: string; questionKey: string; params: { date?: string } } };
     try {

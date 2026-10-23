@@ -1,3 +1,4 @@
+import { AccountUnavailableError, accountUnavailableResponse } from '../../../../../../../lib/account/accountLiveness';
 import { mobileAuthErrorResponse, requireMobileUser } from '../../../../../../../lib/auth/mobileAuth';
 import { mobileError } from '../../../../../../../lib/services/mobile/response';
 import { isPlanDate } from '../../../../../../../lib/services/dailyPlan/planSettings';
@@ -43,12 +44,18 @@ export async function POST(request: Request, { params }: { params: Promise<{ dat
   const stored = await readStoredPlan(user.uid, date);
   if (!stored) return mobileError('no plan for that date', 404);
 
-  await appendPlanEvent(user.uid, {
-    type: 'plan_opened',
-    date,
-    at: new Date().toISOString(),
-    generation: stored.generation,
-    inputDigest: stored.inputDigest,
-  });
+  try {
+    await appendPlanEvent(user.uid, {
+      type: 'plan_opened',
+      date,
+      at: new Date().toISOString(),
+      generation: stored.generation,
+      inputDigest: stored.inputDigest,
+    });
+  } catch (error) {
+    // The account was deleted while this was on its way (#772).
+    if (error instanceof AccountUnavailableError) return accountUnavailableResponse();
+    throw error;
+  }
   return Response.json({ success: true });
 }

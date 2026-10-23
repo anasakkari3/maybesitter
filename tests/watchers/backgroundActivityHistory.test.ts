@@ -9,6 +9,7 @@
  * - monitor blocked because provider permission expired.
  * No raw provider payloads.
  */
+import { seedLiveAccount } from '../support/liveAccount.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createMemoryStorage, type MemoryStorageAdapter } from '../../lib/storage/memoryAdapter.ts';
@@ -361,6 +362,7 @@ test('history strictly isolates accounts', async () => {
  * rows are the ones production writes.
  */
 async function seedAnsweredProposal(answer: 'accept' | 'reject'): Promise<string> {
+  await seedLiveAccount(ALICE, storage); // #772: the plan and its ledger are written behind the account deletion fence
   const store = createWatcherStore(ALICE, storage);
   const watcher = await store.create(
     {

@@ -57,6 +57,7 @@ import {
   userIdForKey,
   type StorageAdapter,
 } from '../../storage';
+import { requireLiveAccount } from '../../account/accountLiveness';
 
 export interface StoredCaptureProposal {
   contract: CaptureProposalContract;
@@ -320,11 +321,19 @@ export class StorageCaptureProposalStore implements CaptureProposalStore {
     return captureProposalPath(scopeId, proposalId);
   }
 
+  /**
+   * One transaction, for the account deletion fence (#772): the account the
+   * proposal is filed under is read and must be live before the write. A
+   * capture that was on its way when the account was deleted would otherwise
+   * re-create the person's words under it.
+   */
   async put(proposal: StoredCaptureProposal): Promise<void> {
-    await this.storage.set<StoredProposalDocument>(
-      this.path(proposal.scopeId, proposal.contract.proposalId),
-      captureProposalToDocument(proposal, new Date()),
-    );
+    const path = this.path(proposal.scopeId, proposal.contract.proposalId);
+    const document = captureProposalToDocument(proposal, new Date());
+    await this.storage.runTransaction(async (tx) => {
+      await requireLiveAccount(tx, userIdForKey(proposal.scopeId));
+      tx.set<StoredProposalDocument>(path, document);
+    });
   }
 
   /**

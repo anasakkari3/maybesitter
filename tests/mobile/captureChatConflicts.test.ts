@@ -276,6 +276,7 @@ test('a proposal on top of a weekly block («ثابت أسبوعي») names the 
   begin(model.provider);
   try {
     const uid = uidFor('ChatClashWeekly');
+    await seedLiveAccount(uid); // #772: weekly block writers re-read a live account
     await createWeeklyBlock(uid, { title: 'تدريب', weekdays: [6], start: '10:00', end: '16:00', timezone: TZ, confirmedAt: new Date().toISOString() });
     const body = await chat(uid, 'Dentist on Saturday at 11am', { locale: 'en' });
     const [dentist] = body.proposal!.items;
@@ -507,6 +508,7 @@ test('F4-003 (end to end): the reply names the clash measured from the item\'s o
   begin(model.provider);
   try {
     const uid = uidFor('F4ReminderBefore');
+    await seedLiveAccount(uid); // #772: weekly block writers re-read a live account
     await createWeeklyBlock(uid, { title: 'team offsite', weekdays: [5], start: '09:00', end: '17:00', timezone: TZ, confirmedAt: new Date().toISOString() });
     const seeded = await chat(uid, 'عندي موعد مع المحامي الجمعة الساعة 10 الصبح', { locale: 'ar' });
     assert.equal((await confirmAll(uid, seeded)).success, true);

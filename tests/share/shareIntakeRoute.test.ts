@@ -16,6 +16,7 @@
  * The log assertions capture `console.*` rather than grepping source, because
  * the failure they exist for is a *value* reaching a log line, not a spelling.
  */
+import { seedLiveAccount } from '../support/liveAccount.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
@@ -449,6 +450,7 @@ test('a share with nothing readable in it is refused, not reported as empty succ
 
 test('the bytes a share carried do not survive the call', async () => {
   const teardown = setup();
+  await seedLiveAccount(USER); // #772: the share's proposal is written behind the account deletion fence
   try {
     const bytes = new TextEncoder().encode('Call Dr Haddad on Tuesday at 10');
     const kept: Uint8Array[] = [];
@@ -479,6 +481,7 @@ test('the bytes a share carried do not survive the call', async () => {
 
 test('the bytes are zeroed even when the channel throws', async () => {
   const teardown = setup();
+  await seedLiveAccount(USER); // #772: the share's proposal is written behind the account deletion fence
   try {
     const bytes = new TextEncoder().encode('something private');
     registerSharePreprocessor({
@@ -501,6 +504,7 @@ test('the bytes are zeroed even when the channel throws', async () => {
 
 test('no shared text and no file name reaches a log or a trace', async () => {
   const teardown = setup();
+  await seedLiveAccount(USER); // #772: the share's proposal is written behind the account deletion fence
   try {
     const SECRET = 'Dr-Haddad-appointment-XYZZY';
     const FILENAME = 'WhatsApp Chat with Dana Levy XYZZYNAME.txt';
@@ -697,6 +701,7 @@ for (const refusal of REFUSALS) {
 
 test('the bytes are zeroed when the account is over its daily limit', async () => {
   const teardown = setup();
+  await seedLiveAccount(USER); // #772: the share's proposal is written behind the account deletion fence
   try {
     const bytes = new TextEncoder().encode('private appointment');
     await assert.rejects(
@@ -716,6 +721,7 @@ test('the bytes are zeroed when the account is over its daily limit', async () =
 
 test('a channel that reads nothing produces a proposal, not an error', async () => {
   const teardown = setup();
+  await seedLiveAccount(USER); // #772: the share's proposal is written behind the account deletion fence
   try {
     // #190's shape exactly: everything in the share was an instruction aimed at
     // the model, the channel dropped all of it, and the user must land on the
@@ -770,6 +776,7 @@ test('the route answers an empty read with 200 and the no-commitment shape', asy
 
 test('each item says which shared file it was read from', async () => {
   const teardown = setup();
+  await seedLiveAccount(USER); // #772: the share's proposal is written behind the account deletion fence
   try {
     const result = await proposeFromShare(
       {
@@ -804,6 +811,7 @@ test('each item says which shared file it was read from', async () => {
 
 test('evidence is dropped rather than guessed when it cannot be tied to items', async () => {
   const teardown = setup();
+  await seedLiveAccount(USER); // #772: the share's proposal is written behind the account deletion fence
   try {
     // A channel that declares three segments while its text has one. Whatever
     // the extractor returns, a positional map would be wrong — so there must be
@@ -840,6 +848,7 @@ test('evidence is dropped rather than guessed when it cannot be tied to items', 
 
 test('an over-long excerpt is truncated by the service, not trusted from the channel', async () => {
   const teardown = setup();
+  await seedLiveAccount(USER); // #772: the share's proposal is written behind the account deletion fence
   try {
     registerSharePreprocessor({
       id: 'verbose',
@@ -947,6 +956,7 @@ test('a channel cannot put a string into the trace through metrics', async () =>
 
 test('an account gets its daily allowance of shares and no more', async () => {
   const teardown = setup();
+  await seedLiveAccount(USER); // #772: the share's proposal is written behind the account deletion fence
   try {
     const input = { text: 'Call the dentist tomorrow at 3pm', files: [], timezone: 'Asia/Jerusalem' };
     for (let index = 0; index < 3; index += 1) {
@@ -964,6 +974,7 @@ test('an account gets its daily allowance of shares and no more', async () => {
 
 test('a refusal before the channel runs spends nothing', async () => {
   const teardown = setup();
+  await seedLiveAccount(USER); // #772: the share's proposal is written behind the account deletion fence
   try {
     await assert.rejects(
       () => proposeFromShare(
@@ -1132,6 +1143,7 @@ test('every text_too_long has one shape and names the bound it hit, whichever do
 
 test('a 100,000-character share is refused before a channel, the meter or the capture pipeline runs', async () => {
   const teardown = setup();
+  await seedLiveAccount(USER); // #772: the share's proposal is written behind the account deletion fence
   try {
     // Spies rather than a stopwatch: the claim is about order, and "nothing
     // after the check was called" is the order, on any machine.
@@ -1167,6 +1179,7 @@ test('a 100,000-character share is refused before a channel, the meter or the ca
 
 test('no path hands the capture pipeline a cut text', async () => {
   const teardown = setup();
+  await seedLiveAccount(USER); // #772: the share's proposal is written behind the account deletion fence
   try {
     const context = { uid: USER, reserve: async () => 'ok' as const };
 
@@ -1210,6 +1223,7 @@ test('no path hands the capture pipeline a cut text', async () => {
 
 test('each check measures the string its next stage reads', async () => {
   const teardown = setup();
+  await seedLiveAccount(USER); // #772: the share's proposal is written behind the account deletion fence
   try {
     const context = { uid: USER, reserve: async () => 'ok' as const };
 

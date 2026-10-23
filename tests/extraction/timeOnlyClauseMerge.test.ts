@@ -10,6 +10,7 @@
  * same segments (`splitCaptureClauses` feeds the rules and the model alike),
  * so both see one clause. Genuine multi-item captures still split.
  */
+import { seedLiveAccount } from '../support/liveAccount.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { splitCaptureClauses } from '../../src/extraction/clauseSplitter.ts';
@@ -61,6 +62,7 @@ test('rules path: each literal input is one item with its day', async () => {
   for (const { text, rules } of CASES) {
     setStorageForTests(createMemoryStorage());
     try {
+      await seedLiveAccount('default'); // #772: the proposal is written behind the account deletion fence
       const proposal = await proposeMobileCapture({ text, timezone: TZ, referenceTime: NOW.toISOString() });
       assert.deepEqual(proposal.items.map(line), rules, text);
     } finally {
@@ -142,6 +144,7 @@ test('P-I1: Sami keeps the day and hour he was said with, on the rules path', as
   for (const { text, sami } of WITH_A_TIME_OF_ITS_OWN) {
     setStorageForTests(createMemoryStorage());
     try {
+      await seedLiveAccount('default'); // #772: the proposal is written behind the account deletion fence
       const proposal = await proposeMobileCapture({ text, timezone: TZ, referenceTime: NOW.toISOString() });
       const item = proposal.items.find((candidate) => candidate.title === 'أتصل بسامي');
       assert.ok(item, `${text}: ${JSON.stringify(proposal.items.map((candidate) => candidate.title))}`);
@@ -158,6 +161,7 @@ test('P-I1: nor into the clause after it when that one has its own day — the b
   assert.deepEqual(splitCaptureClauses(text), ['بدي أتصل بسامي اليوم', 'وبكرا', 'واليوم لازم أروح عالبنك']);
   setStorageForTests(createMemoryStorage());
   try {
+    await seedLiveAccount('default'); // #772: the proposal is written behind the account deletion fence
     const proposal = await proposeMobileCapture({ text, timezone: TZ, referenceTime: NOW.toISOString() });
     const bank = proposal.items.find((item) => item.title === 'أروح عالبنك');
     assert.equal(bank?.resolvedDate, '2026-09-28', JSON.stringify(proposal.items.map(line)));

@@ -114,12 +114,15 @@ async function proposeModel(text: string, now: Date, provider: (prompt: string) 
 }
 
 async function proposeRules(text: string, now: Date) {
+  await seedLiveAccount('default'); // #772: the proposal is written behind the account deletion fence
   return proposeMobileCapture({ text, timezone: TZ, referenceTime: now.toISOString() });
 }
 
 function withMemoryStorage<T>(run: () => Promise<T>): Promise<T> {
   setStorageForTests(createMemoryStorage());
-  return run().finally(() => resetStorageForTests());
+  // #772: an in-process capture with no participant files its proposal under
+  // users/default, behind the account deletion fence.
+  return seedLiveAccount('default').then(run).finally(() => resetStorageForTests());
 }
 
 type Item = { title: string; resolvedDate?: string; resolvedTime: string | null; needsClarification: boolean; clarification?: { questionKey?: string } | null };
@@ -240,6 +243,7 @@ test('FY1 N1: a clause the model read as nothing, recovered by the rules at an h
 
 async function confirmedDoctorOnRules(): Promise<{ answered: { resolvedTime: string | null; resolvedDate?: string; allDayEvent?: boolean; needsClarification: boolean }; commitment: Commitment }> {
   const uid = 'fy1-doctor';
+  await seedLiveAccount(uid); // #772: the proposal is written behind the account deletion fence
   const proposal = await proposeMobileCapture({ text: DOCTOR, timezone: TZ, referenceTime: N1_NOW.toISOString() }, { participantId: uid });
   const item = proposal.items[0]!;
   assert.equal(item.resolvedDate, '2026-10-04');
@@ -320,6 +324,7 @@ test('FY1 N4: on the model path the answered doctor is the same all-day event', 
 test('FY1 N4: a task (not an appointment) answered «بدون وقت محدد» is unchanged — no day is invented as an event', async () => {
   const uid = 'fy1-task';
   const commitment = await withMemoryStorage(async () => {
+    await seedLiveAccount(uid); // #772: the proposal is written behind the account deletion fence
     const proposal = await proposeMobileCapture({ text: 'بدي أتصل بسامي يوم الأحد', timezone: TZ, referenceTime: N1_NOW.toISOString() }, { participantId: uid });
     const item = proposal.items[0]!;
     const updated = await clarifyMobileCapture({
@@ -494,6 +499,7 @@ test('FY1 fix I2: a model day is kept when the words put an offset on the month\
 async function answerN1Alone(freeText: string) {
   const uid = 'fy1-typed';
   return withMemoryStorage(async () => {
+    await seedLiveAccount(uid); // #772: the proposal is written behind the account deletion fence
     const proposal = await proposeMobileCapture({ text: N1_ALONE, timezone: TZ, referenceTime: N1_NOW.toISOString() }, { participantId: uid });
     const item = proposal.items[0]!;
     assert.equal(item.clarification?.questionKey, 'ask_time');
@@ -523,6 +529,7 @@ test('FY1 fix I3: a typed answer to the passed-hour question wins over the hour 
 test('FY1 fix I3: a typed answer that is itself already past is "not understood", never a generic failure', async () => {
   await assert.rejects(
     () => withMemoryStorage(async () => {
+      await seedLiveAccount('fy1-past-answer'); // #772: the proposal is written behind the account deletion fence
       const proposal = await proposeMobileCapture({ text: N1_ALONE, timezone: TZ, referenceTime: N1_NOW.toISOString() }, { participantId: 'fy1-past-answer' });
       const item = proposal.items[0]!;
       await clarifyMobileCapture({
@@ -537,6 +544,7 @@ test('FY1 fix I3: a typed answer that is itself already past is "not understood"
 async function answeredNoTime(text: string) {
   const uid = 'fy1-event';
   return withMemoryStorage(async () => {
+    await seedLiveAccount(uid); // #772: the proposal is written behind the account deletion fence
     const proposal = await proposeMobileCapture({ text, timezone: TZ, referenceTime: N1_NOW.toISOString() }, { participantId: uid });
     const item = proposal.items[0]!;
     assert.equal(item.clarification?.questionKey, 'ask_time', text);
@@ -603,6 +611,7 @@ async function notUnderstood(text: string, pick: (title: string) => boolean, fre
   const uid = 'fy1-not-understood';
   await assert.rejects(
     () => withMemoryStorage(async () => {
+      await seedLiveAccount(uid); // #772: the proposal is written behind the account deletion fence
       const proposal = await proposeMobileCapture({ text, timezone: TZ, referenceTime: N1_NOW.toISOString() }, { participantId: uid });
       const item = proposal.items.find((candidate) => pick(candidate.title) && candidate.clarification);
       assert.ok(item, `${text}: no question to answer`);
@@ -646,6 +655,7 @@ test('FY1 fix round 2: a typed bare hour from 1 to 6 with no part of the day is 
 test('FY1 fix round 2: a typed part of the day uses its button\'s hour in English and Hebrew too', async () => {
   const run = async (text: string, freeText: string) => withMemoryStorage(async () => {
     const uid = 'fy1-part';
+    await seedLiveAccount(uid); // #772: the proposal is written behind the account deletion fence
     const proposal = await proposeMobileCapture({ text, timezone: TZ, referenceTime: N1_NOW.toISOString() }, { participantId: uid });
     const item = proposal.items[0]!;
     assert.equal(item.clarification?.questionKey, 'ask_time', text);

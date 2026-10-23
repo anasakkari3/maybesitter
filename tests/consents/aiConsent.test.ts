@@ -50,6 +50,7 @@ import { AiConsentRequiredError, consentGatedProvider } from '../../lib/llm/cons
 import type { LlmProvider } from '../../src/extraction/llm/index.ts';
 import { getOrCreateTrust } from '../../lib/pilot/pilotTrustStore.ts';
 import { installFakeAuth, tokenFor, uidFor, type FakeAuthControls } from '../support/fakeAuth.ts';
+import { seedLiveAccount } from '../support/liveAccount.ts';
 import { proposeMobileCapture } from '../../lib/services/mobile/mobileCaptureService.ts';
 import { GET as consentsGet } from '../../src/app/api/mobile/consents/route.ts';
 import { GET as aiConsentGet, PUT as consentPut } from '../../src/app/api/mobile/consents/ai-processing/route.ts';
@@ -356,6 +357,7 @@ test('layer 1: a capture from an account that never answered asks for the model'
   begin();
   try {
     const uid = uidFor('NoConsentCapture');
+    await seedLiveAccount(uid); // #772: the capture proposal is written behind the deletion fence
     const proposal = await proposeMobileCapture(
       { text: 'Remind me to call Ahmad tomorrow at 7 PM', timezone: 'UTC' },
       { participantId: uid },
@@ -376,6 +378,7 @@ test('a client flag cannot choose the engine', async () => {
   begin();
   try {
     const uid = uidFor('ForgedFlag');
+    await seedLiveAccount(uid); // #772: the capture proposal is written behind the deletion fence
     const proposal = await proposeMobileCapture(
       {
         text: 'Remind me to call Ahmad tomorrow at 7 PM',
@@ -399,6 +402,7 @@ test('with consent, the capture path does ask for a model', async () => {
   begin();
   try {
     const uid = uidFor('ConsentedCapture');
+    await seedLiveAccount(uid); // #772: the capture proposal is written behind the deletion fence
     await setAiConsent(uid, { state: 'granted', version: AI_CONSENT_VERSION });
 
     const proposal = await proposeMobileCapture(

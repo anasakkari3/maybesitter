@@ -6,6 +6,7 @@
  * saw; that Keep saved a rule-derived record is a read of that record; that a
  * delete removed it is a read after the delete and an export.
  */
+import { seedLiveAccount } from '../support/liveAccount.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createMemoryStorage } from '../../lib/storage/memoryAdapter.ts';
@@ -659,6 +660,7 @@ function planDateDaysAgo(daysAgo: number): string {
  */
 async function seedPlanOpenHabit(uid: string, dominantHour = 8, otherHour = 21): Promise<void> {
   await getStorage().set(userDoc(uid), { uid, timezone: ZONE });
+  await seedLiveAccount(uid); // #772: the plan ledger is written behind the account deletion fence
   const dominantDays = [1, 2, 4, 6, 7];
   const otherDays = [3, 5];
   for (let index = 0; index < dominantDays.length; index += 1) {
@@ -714,6 +716,7 @@ test('a habit at the delivery hour is the delivery being read, not a habit', asy
       uid: OWNER, timezone: ZONE,
       planSettings: { enabled: true, deliveryLocalTime: '08:00', timezone: ZONE },
     });
+    await seedLiveAccount(OWNER); // #772: the plan ledger is written behind the account deletion fence
     for (let day = 1; day <= 7; day += 1) {
       await appendPlanEvent(OWNER, {
         type: 'plan_opened', date: planDateDaysAgo(day),

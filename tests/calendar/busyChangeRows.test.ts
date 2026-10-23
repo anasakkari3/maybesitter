@@ -45,6 +45,7 @@ import {
   type BusyBlock,
 } from '../../lib/calendar/busyBlocks.ts';
 import { acceptLectureSessionsAsBusyBlocks, manualBusySourceId } from '../../lib/calendar/manualBusy.ts';
+import { seedLiveAccount } from '../support/liveAccount.ts';
 import { createWeeklyBlock, deleteWeeklyBlock, materializeWeeklyBlock, patchWeeklyBlock } from '../../lib/weeklyBlocks/weeklyBlockService.ts';
 import { resolveChangedEntityFacts } from '../../lib/services/dailyPlan/changedEntityFacts.ts';
 import { DELETE as busyDelete, POST as busyPost } from '../../src/app/api/mobile/calendar/busy/route.ts';
@@ -478,6 +479,7 @@ test('writer: accepted lecture sessions (#191) announce their blocks once, a cha
 test('writer: weekly blocks announce their occurrences, a re-materialize as nothing, a pause and a delete as removals', async () => {
   const storage = createMemoryStorage();
   await liveAccount(storage);
+  await seedLiveAccount(UID, storage); // #772: weekly block writers read the trust record, not only the root
   const now = new Date('2026-09-01T09:00:00.000Z');
   const input = { title: 'تدريب', weekdays: [6], start: '10:00', end: '16:00', timezone: 'Asia/Jerusalem', confirmedAt: now.toISOString() };
   const { block: weekly } = await createWeeklyBlock(UID, input, { storage, now });

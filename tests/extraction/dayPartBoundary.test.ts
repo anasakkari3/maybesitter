@@ -29,6 +29,7 @@
  * When a word is ambiguous the answer is "no part of the day": a miss costs
  * the item one question, a false hit schedules an hour nobody said.
  */
+import { seedLiveAccount } from '../support/liveAccount.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createMemoryStorage } from '../../lib/storage/memoryAdapter.ts';
@@ -49,6 +50,8 @@ const NOW = new Date('2026-09-26T07:00:00.000Z');
 
 async function proposeRules(text: string) {
   setStorageForTests(createMemoryStorage());
+  // #772: the in-process capture files its proposal under users/default, behind the deletion fence
+  await seedLiveAccount('default');
   try {
     // No participant: no AI consent, so the capture is read by the rules.
     return await proposeMobileCapture({ text, timezone: TZ, referenceTime: NOW.toISOString() });

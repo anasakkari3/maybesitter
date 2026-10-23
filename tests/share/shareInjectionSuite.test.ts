@@ -63,6 +63,7 @@
  *
  * Each turns this suite red on its own.
  */
+import { seedLiveAccount } from '../support/liveAccount.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
@@ -472,6 +473,7 @@ async function runShare(entry: CorpusCase, mode: Mode) {
   const fixture = buildShareFixture(entry);
   const propose = proposeFor(mode);
   const honest = recordingHonestModel(entry.channel);
+  await seedLiveAccount(USER); // #772: the share's proposal is written behind the account deletion fence
   const result = await proposeFromShare(
     {
       text: fixture.text ?? undefined,
@@ -950,6 +952,7 @@ test('an ordinary school notice still becomes a commitment', async () => {
     ];
     const empty: string[] = [];
     for (const text of lines) {
+      await seedLiveAccount(USER); // #772: the proposal is written behind the account deletion fence
       const proposal = await proposeMobileCapture(
         { text, referenceTime: REFERENCE_TIME, timezone: ZONE },
         { participantId: USER },

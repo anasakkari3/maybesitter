@@ -12,6 +12,7 @@ import { mapExtractionToCommand } from '../../../src/extraction/mapExtractionToC
 import { localTimeSpecFor } from '../../../src/extraction/timeLexicon';
 import { thoughtCommitmentTitle } from '../../../src/extraction/thoughtCommitmentTitle';
 import { getStorage } from '../../storage';
+import { requireLiveAccount } from '../../account/accountLiveness';
 import { claimsSaved } from '../captureChat/chatReply';
 import { captureConversationPath, type CaptureChatTurn, type StoredCaptureConversation } from '../captureChat/conversationStore';
 import { applyEditToCommands } from './applyEdits';
@@ -431,6 +432,7 @@ export async function applyStructuredEdit(input: {
     const [proposalDoc, conversationDoc] = await Promise.all([
       tx.get<StoredProposalDocument>(proposalPath),
       tx.get<StoredCaptureConversation & { expiresAt?: Date }>(conversationPath),
+      requireLiveAccount(tx, input.uid), // the deletion fence (#772)
     ]);
     if (!conversationDoc) throw new StructuredEditConversationNotFoundError();
     if (!proposalDoc) throw new StructuredEditError();

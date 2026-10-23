@@ -22,6 +22,7 @@
  * מחר» created nothing. A greeting now creates nothing only when nothing but
  * greeting and small talk is left once it is taken out.
  */
+import { seedLiveAccount } from '../support/liveAccount.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createMemoryStorage } from '../../lib/storage/memoryAdapter.ts';
@@ -39,6 +40,8 @@ const AFTER_TOMORROW = '2026-09-28';
 
 async function proposeRules(text: string, at: Date = NOW) {
   setStorageForTests(createMemoryStorage());
+  // #772: the in-process capture files its proposal under users/default, behind the deletion fence
+  await seedLiveAccount('default');
   try {
     // No participant: no AI consent, so the capture is read by the rules.
     return await proposeMobileCapture({ text, timezone: TZ, referenceTime: at.toISOString() });

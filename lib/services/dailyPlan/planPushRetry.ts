@@ -67,7 +67,8 @@
  * a reason and nothing else — no uid, no date.
  */
 import type { StorageAdapter } from '../../storage';
-import { PLANS, PLAN_EVENTS, requireUserId, userCol } from '../../storage/paths';
+import { PLANS, PLAN_EVENTS, requireUserId, userCol, userDoc } from '../../storage/paths';
+import { liveAccount } from '../../account/accountLiveness';
 import type { UserLocale } from '../../storage/userDocument';
 import { wallClockAt } from '../../planning/shared/time';
 import { readQuietHours } from '../../push/quietHours';
@@ -223,8 +224,12 @@ export async function claimPlanPushRetry(
 ): Promise<PlanPushClaim> {
   const path = planPath(uid, date);
   return storage.runTransaction<PlanPushClaim>(async (tx) => {
-    const stored = await tx.get<StoredDailyPlan>(path);
+    const [stored, user] = await Promise.all([tx.get<StoredDailyPlan>(path), tx.get(userDoc(uid))]);
     if (!stored || stored.pushPending === undefined) return { kind: 'not_due' };
+    // The deletion fence (#772): an account being deleted gets no push and no
+    // rewritten marker. Not thrown: this is the sweep, and the account's tree,
+    // marker included, goes with the deletion.
+    if (!liveAccount(user)) return { kind: 'not_due' };
     const pending = readablePending(stored.pushPending);
     if (pending && Date.parse(pending.nextAttemptAt) > now.getTime()) return { kind: 'not_due' };
     // Every read before any write: Firestore refuses the other order.
@@ -299,9 +304,10 @@ export async function recordPlanPushOutcome(
 ): Promise<PlanPushRecord> {
   const path = planPath(uid, date);
   return storage.runTransaction<PlanPushRecord>(async (tx) => {
-    const stored = await tx.get<StoredDailyPlan>(path);
+    const [stored, user] = await Promise.all([tx.get<StoredDailyPlan>(path), tx.get(userDoc(uid))]);
     const pending = stored ? readablePending(stored.pushPending) : null;
-    if (!stored || !pending || pending.reason !== 'in_flight' || pending.attempts !== attempt) {
+    // A deleted account's marker is not rewritten (#772); see the claim.
+    if (!stored || !pending || pending.reason !== 'in_flight' || pending.attempts !== attempt || !liveAccount(user)) {
       return { kind: 'superseded' };
     }
     const clear = (record: PlanPushRecord): PlanPushRecord => {

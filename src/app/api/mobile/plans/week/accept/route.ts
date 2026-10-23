@@ -1,3 +1,4 @@
+import { AccountUnavailableError, accountUnavailableResponse } from '../../../../../../../lib/account/accountLiveness';
 import { mobileAuthErrorResponse, requireMobileUser } from '../../../../../../../lib/auth/mobileAuth';
 import { mobileError } from '../../../../../../../lib/services/mobile/response';
 import { isPlanDate } from '../../../../../../../lib/services/dailyPlan/planSettings';
@@ -83,6 +84,8 @@ export async function POST(request: Request) {
     if (error instanceof PlanDateOutOfRangeError) {
       return Response.json({ success: false, error: error.message, reason: error.reason }, { status: 400 });
     }
+    // The account was deleted while this acceptance was on its way (#772).
+    if (error instanceof AccountUnavailableError) return accountUnavailableResponse();
     throw error;
   }
 

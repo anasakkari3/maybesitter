@@ -1,3 +1,4 @@
+import { AccountUnavailableError, accountUnavailableResponse } from '../../../../../../../lib/account/accountLiveness';
 import { mobileAuthErrorResponse, requireMobileUser } from '../../../../../../../lib/auth/mobileAuth';
 import {
   SeedAlreadyResolvedError,
@@ -77,6 +78,8 @@ export async function POST(request: Request, context: RouteContext) {
     if (error instanceof SeedAlreadyResolvedError) {
       return Response.json({ success: false, error: error.message, reason: 'seed_resolved' }, { status: 409 });
     }
+    // The account was deleted while this was on its way (#772).
+    if (error instanceof AccountUnavailableError) return accountUnavailableResponse();
     return mobileError(error instanceof Error ? error.message : 'could not promote the seed', 500);
   }
 }

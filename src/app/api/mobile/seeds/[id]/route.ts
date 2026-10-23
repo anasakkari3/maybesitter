@@ -1,3 +1,4 @@
+import { AccountUnavailableError, accountUnavailableResponse } from '../../../../../../lib/account/accountLiveness';
 import { mobileAuthErrorResponse, requireMobileUser } from '../../../../../../lib/auth/mobileAuth';
 import {
   SeedNotFoundError,
@@ -58,6 +59,8 @@ export async function PATCH(request: Request, context: RouteContext) {
     if (error instanceof SeedValidationError) {
       return Response.json({ success: false, error: error.message, reason: 'invalid_seed' }, { status: 400 });
     }
+    // The account was deleted while this was on its way (#772).
+    if (error instanceof AccountUnavailableError) return accountUnavailableResponse();
     return mobileError(error instanceof Error ? error.message : 'could not update the seed', 500);
   }
 }

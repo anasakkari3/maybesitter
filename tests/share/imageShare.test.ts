@@ -28,6 +28,7 @@
  * also not the zone `emailShare.test.ts` pins, so the two suites cannot agree
  * because they share a mistake.
  */
+import { seedLiveAccount } from '../support/liveAccount.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
@@ -712,6 +713,7 @@ async function shareOf(
   files: readonly { bytes: Uint8Array; declaredType: string | null; fileName: string | null }[],
   generateStructured: ReturnType<typeof imageModelStub>['generate'],
 ): Promise<ShareResult> {
+  await seedLiveAccount(READER); // #772: the share's proposal is written behind the account deletion fence
   return await proposeFromShare(
     { files, timezone: ZONE, referenceTime: READING_AT.toISOString() },
     {
@@ -949,6 +951,7 @@ test('sharing a poster is the same as typing what it says', async () => {
     let compared = 0;
     for (const poster of POSTERS.slice(0, 3)) {
       const shared = await shareOf([uploadOf(poster)], imageModelStub().generate);
+      await seedLiveAccount(READER); // #772: the proposal is written behind the account deletion fence
       const typed = await proposeMobileCapture(
         { text: poster.expectedLine, referenceTime: READING_AT.toISOString(), timezone: ZONE },
         { participantId: READER },

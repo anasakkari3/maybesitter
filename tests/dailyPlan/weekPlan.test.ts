@@ -17,7 +17,7 @@ import test, { mock } from 'node:test';
 import assert from 'node:assert/strict';
 import { createMemoryStorage } from '../../lib/storage/memoryAdapter.ts';
 import { resetStorageForTests, setStorageForTests } from '../../lib/storage/index.ts';
-import type { StorageAdapter } from '../../lib/storage/storageAdapter.ts';
+import type { StorageAdapter, StorageTransaction } from '../../lib/storage/storageAdapter.ts';
 import { PLANNING_STATE_CHANGES, PLANS, docIdForKey, userDoc, userSubDoc } from '../../lib/storage/paths.ts';
 import { installFakeAuth, tokenFor, uidFor, type FakeAuthControls } from '../support/fakeAuth.ts';
 import { loadDomainState, persistParticipantState } from '../../lib/services/mobile/participantState.ts';
@@ -749,13 +749,37 @@ test('POST week/accept answers 409 week_changed with the fresh week when the car
 
 /** Deletes the day's plan the moment it is stored: an account deletion racing the save. */
 function deletingThePlanOnceStored(storage: StorageAdapter, date: string): StorageAdapter {
+  const isProposed = (value: unknown): boolean => {
+    const record = value as { type?: unknown; date?: unknown } | null;
+    return record?.type === 'plan_proposed' && record.date === date;
+  };
   return new Proxy(storage, {
     get(target, property, receiver) {
       if (property === 'set') {
         return async (path: string, value: unknown) => {
           await target.set(path, value as Record<string, unknown>);
-          const record = value as { type?: unknown; date?: unknown } | null;
-          if (record?.type === 'plan_proposed' && record.date === date) await target.delete(userSubDoc(USER, PLANS, date));
+          if (isProposed(value)) await target.delete(userSubDoc(USER, PLANS, date));
+        };
+      }
+      // The ledger entry is appended in a transaction since #772 (the account
+      // deletion fence reads the account in it): the plan goes once that
+      // transaction has committed the `plan_proposed` entry.
+      if (property === 'runTransaction') {
+        return async <R,>(fn: (tx: StorageTransaction) => Promise<R>): Promise<R> => {
+          let proposed = false;
+          const result = await target.runTransaction((tx) => fn(new Proxy(tx, {
+            get(inner, key, innerReceiver) {
+              const value = Reflect.get(inner, key, innerReceiver);
+              if (typeof value !== 'function') return value;
+              if (key !== 'set') return value.bind(inner);
+              return (path: string, data: unknown) => {
+                if (isProposed(data)) proposed = true;
+                return value.call(inner, path, data);
+              };
+            },
+          })));
+          if (proposed) await target.delete(userSubDoc(USER, PLANS, date));
+          return result;
         };
       }
       const member = Reflect.get(target, property, receiver);

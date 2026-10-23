@@ -28,6 +28,7 @@
  *
  * Nothing here changes backend behaviour. It only reads it.
  */
+import { seedLiveAccount } from '../support/liveAccount.ts';
 import { MAX_IMPORT_LENGTH } from '../../src/profile/aiContextImportContracts.ts';
 import { instantFromLocal } from '../../src/extraction/timeLexicon.ts';
 import { compareByCodePoint } from '../../lib/planning/shared/compare.ts';
@@ -744,6 +745,7 @@ async function seedPlanOpenHabit(uid: string): Promise<void> {
     return `${part('year')}-${part('month')}-${part('day')}`;
   };
   await getStorage().set(userDoc(uid), { uid, timezone: 'Asia/Jerusalem' });
+  await seedLiveAccount(uid); // #772: the plan ledger is written behind the account deletion fence
   const opens: Array<[number, number, number]> = [
     [1, 8, 12], [2, 8, 26], [3, 21, 5], [4, 8, 4], [5, 21, 40], [6, 8, 29], [7, 8, 0],
   ];
@@ -3595,6 +3597,7 @@ test('exports a fixture for every /api/mobile call the React Native client makes
       // day 16:30–18:00. The item carries what it lands on (`conflicts`), and
       // the reply — the model's does not name it — says it in one sentence.
       const chatDay = new Date(Date.parse(REFERENCE_TIME) + 86_400_000).toISOString().slice(0, 10);
+      await seedLiveAccount(CHAT_CONFLICT_USER); // #772: weekly block writers re-read a live account
       await createWeeklyBlock(CHAT_CONFLICT_USER, {
         title: 'Gym',
         weekdays: [new Date(`${chatDay}T12:00:00.000Z`).getUTCDay()],
