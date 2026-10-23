@@ -12,11 +12,11 @@ import React from 'react';
 import { useWindowDimensions } from 'react-native';
 import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
 import { render, screen, waitFor, within } from '@testing-library/react-native';
-import { DayTimeline, timelineLaneWidth, timelineSpans, type PlanRow } from '../../features/calendar/PlanDay';
-import { HOUR_HEIGHT, lanesFit, maxLanes, placeSpans } from '../../features/calendar/dayTimeline';
-import { toViewModel } from '../../features/commitments/model';
-import { CalendarScreen } from '../../screens/CalendarScreen';
-import { NOW, Providers, TODAY, ZONE, commitment, flatStyle, instant, prepareM6, teardown, type M6Harness } from './harness';
+import { DayTimeline, timelineLaneWidth, timelineSpans, type PlanRow } from '../PlanDay';
+import { HOUR_HEIGHT, lanesFit, maxLanes, placeSpans } from '../dayTimeline';
+import { toViewModel } from '../../commitments/model';
+import { CalendarScreen } from '../../../screens/CalendarScreen';
+import { NOW, Providers, TODAY, ZONE, commitment, flatStyle, instant, prepareM6, teardown, type M6Harness } from '../../../__acceptance__/m6/harness';
 
 jest.mock('expo-localization', () => ({
   getCalendars: jest.fn(() => [{ timeZone: 'Asia/Jerusalem' }]),
