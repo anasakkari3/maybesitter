@@ -164,9 +164,10 @@ export type ScheduleBlockPlacedBy = 'planner' | 'user';
  * `earliestStartAt` / `latestEndAt` are the item's own bounds (its
  * `earliestStartAt` and `deadlineAt`), kept on the block so that a reader can
  * see what room the placement was chosen inside without re-deriving the
- * request. `preferredWindows` is empty in v1 — preferences are constraint-level
- * (the working windows), not item-level — and exists because #521's domain
- * names it; the first adapter that fills it must not need a schema change.
+ * request. Commitment blocks leave `preferredWindows` empty because their
+ * preferences are constraint-level (the working windows). Habit occurrence
+ * blocks fill it from their definition through the adapter, without changing
+ * the solver vocabulary or this persisted schema.
  */
 export interface ScheduleBlockPlacement {
   readonly earliestStartAt: Instant | null;

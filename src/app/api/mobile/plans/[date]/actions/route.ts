@@ -16,7 +16,7 @@ import {
   setBlockProtection,
 } from '../../../../../../../lib/services/dailyPlan/planActions';
 import { assemblePlanResponse, pendingProposalToDto } from '../../../../../../../lib/services/dailyPlan/planDto';
-import { titlesOf } from '../../../../../../../lib/services/dailyPlan/dailyPlanService';
+import { currentPlanTitles } from '../../../../../../../lib/services/dailyPlan/dailyPlanService';
 import { loadDomainState } from '../../../../../../../lib/services/mobile/participantState';
 import { getStorage } from '../../../../../../../lib/storage';
 import { PlanWriteGuardRejected, type StoredDailyPlan } from '../../../../../../../lib/services/dailyPlan/planStore';
@@ -126,7 +126,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ dat
   if (!stored) return mobileError('no plan for that date', 404);
   const state = await loadDomainState(getStorage(), user.uid);
   const commitments = Object.values(state.commitments);
-  const titles = titlesOf(commitments);
+  const titles = await currentPlanTitles(user.uid, commitments, stored, getStorage());
   // The time taken now, read only when there is a live offer to check against
   // it (#611 guards): an offer that would land on it is withheld.
   const now = new Date();

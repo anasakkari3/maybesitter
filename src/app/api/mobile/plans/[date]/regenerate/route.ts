@@ -6,7 +6,7 @@ import {
 } from '../../../../../../../lib/services/dailyPlan/planSettings';
 import { regeneratePlan } from '../../../../../../../lib/services/dailyPlan/planActions';
 import { assemblePlanResponse } from '../../../../../../../lib/services/dailyPlan/planDto';
-import { titlesOf } from '../../../../../../../lib/services/dailyPlan/dailyPlanService';
+import { currentPlanTitles } from '../../../../../../../lib/services/dailyPlan/dailyPlanService';
 import { loadDomainState } from '../../../../../../../lib/services/mobile/participantState';
 import { getStorage } from '../../../../../../../lib/storage';
 
@@ -44,5 +44,6 @@ export async function POST(request: Request, { params }: { params: Promise<{ dat
 
   const state = await loadDomainState(getStorage(), user.uid);
   const commitments = Object.values(state.commitments);
-  return Response.json({ success: true, plan: await assemblePlanResponse(user.uid, outcome.stored, new Date(), titlesOf(commitments), { commitments }) });
+  const titles = await currentPlanTitles(user.uid, commitments, outcome.stored, getStorage());
+  return Response.json({ success: true, plan: await assemblePlanResponse(user.uid, outcome.stored, new Date(), titles, { commitments }) });
 }
