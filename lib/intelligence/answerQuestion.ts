@@ -29,6 +29,7 @@ export async function answerIntelligenceQuestion(
     if (!(await readdCitationsAllowedInTransaction(tx, uid, cited, readdClientSupported))) return SUGGESTION_UNAVAILABLE;
     if (current.status === 'pending') {
       const availability = await pendingSuggestionAvailability(tx, uid, current, now);
+      if (!availability.available && availability.accountUnavailable) return availability;
       if (cited.some(isDismissedBehaviourOutcome)) {
         tx.set(path, { ...current, status: 'dismissed', decidedAt: now });
         return availability.available ? null : availability;

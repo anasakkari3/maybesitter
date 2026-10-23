@@ -1,4 +1,5 @@
 import {
+  ExportReservationError,
   ExportTooLargeError,
   ExportUnavailableError,
   MAX_EXPORTS_PER_DAY,
@@ -57,14 +58,28 @@ export async function GET(request: Request): Promise<Response> {
     return Response.json(exported, { headers: { 'Cache-Control': 'no-store' } });
   } catch (error) {
     if (error instanceof ExportTooLargeError) {
-      await commitAccountExport(user.uid, reservation, new Date().toISOString(), storage).catch(() => undefined);
+      try {
+        await commitAccountExport(user.uid, reservation, new Date().toISOString(), storage);
+      } catch (settlementError) {
+        await releaseAccountExport(reservation, storage).catch(() => undefined);
+        if (settlementError instanceof ExportReservationError) {
+          return Response.json(
+            { success: false, error: 'could not export the account', reason: 'export_retryable' },
+            { status: 503, headers: { 'Cache-Control': 'no-store' } },
+          );
+        }
+        return Response.json(
+          { success: false, error: 'could not export the account', reason: 'export_failed' },
+          { status: 500, headers: { 'Cache-Control': 'no-store' } },
+        );
+      }
       return Response.json(
         { success: false, error: 'export too large', reason: 'export_too_large' },
         { status: 413, headers: { 'Cache-Control': 'no-store' } },
       );
     }
     await releaseAccountExport(reservation, storage).catch(() => undefined);
-    if (error instanceof ExportUnavailableError) {
+    if (error instanceof ExportUnavailableError || error instanceof ExportReservationError) {
       return Response.json(
         { success: false, error: 'could not export the account', reason: 'export_retryable' },
         { status: 503, headers: { 'Cache-Control': 'no-store' } },

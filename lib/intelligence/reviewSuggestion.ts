@@ -62,6 +62,7 @@ export async function reviewSuggestion(
         pendingSuggestionAvailability(tx, uid, latest, now),
         Promise.all(latest.observationIds.map(observationId => tx.get<StoredObservation>(observationPath(uid, observationId)))),
       ]);
+      if (!availability.available && availability.accountUnavailable) return availability;
       if (!(await readdCitationsAllowedInTransaction(tx, uid, cited, readdClientSupported))) return SUGGESTION_UNAVAILABLE;
       if (!availability.available && !cited.some(isDismissedBehaviourOutcome)) return availability;
       const next: IntelligenceSuggestion = { ...latest, status: 'dismissed', decidedAt: now };
@@ -85,6 +86,9 @@ export async function reviewSuggestion(
       pendingSuggestionAvailability(tx, uid, latest, now),
       Promise.all(latest.observationIds.map(observationId => tx.get<StoredObservation>(observationPath(uid, observationId)))),
     ]);
+    if (!availability.available && availability.accountUnavailable) {
+      return { done: true as const, unavailable: availability };
+    }
     if (!(await readdCitationsAllowedInTransaction(tx, uid, cited, readdClientSupported))) {
       return { done: true as const, unavailable: SUGGESTION_UNAVAILABLE };
     }

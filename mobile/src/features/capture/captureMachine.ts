@@ -480,6 +480,19 @@ export function chatSaves(state: CaptureState): number {
 }
 
 /**
+ * Whether an edit holds a field the confirm would send — the same rule as
+ * `toServerEdits`: a defined title or priority, any `localDateTime` (the empty
+ * string is "No time", a real change), and a place reminder that is not
+ * `null`. A `null` place only cancels one picked earlier in this review.
+ */
+function carriesServerEdit(edit: CaptureItemEdit): boolean {
+  return edit.title !== undefined
+    || edit.priority !== undefined
+    || edit.localDateTime !== undefined
+    || !!edit.locationTrigger;
+}
+
+/**
  * Whether the user has answered a flagged item's question themselves (#492).
  *
  * The mirror of the server's rule in `commandsFor()`: a title *and* a time,
@@ -947,7 +960,7 @@ function carriedAcrossEdit(state: CaptureState, next: CaptureProposal, folded?: 
     const rest: CaptureItemEdit = { ...staged };
     if (folded.title) delete rest.title;
     if (folded.time) delete rest.localDateTime;
-    if (Object.keys(rest).length > 0) edits[item.itemId] = rest;
+    if (carriesServerEdit(rest)) edits[item.itemId] = rest;
   }
   return { ...carried, edits };
 }
@@ -1169,14 +1182,16 @@ export function captureReducer(state: CaptureState, event: CaptureEvent): Captur
     case 'editItem': {
       if (!state.proposal?.items.some((item) => item.itemId === event.itemId)) return state;
       const title = event.edit.title?.slice(0, MAX_TITLE_LENGTH);
-      const edits = {
-        ...state.edits,
-        [event.itemId]: {
-          ...(event.replace ? {} : state.edits[event.itemId]),
-          ...event.edit,
-          ...(title !== undefined ? { title } : {}),
-        },
+      const merged: CaptureItemEdit = {
+        ...(event.replace ? {} : state.edits[event.itemId]),
+        ...event.edit,
+        ...(title !== undefined ? { title } : {}),
       };
+      const edits = { ...state.edits, [event.itemId]: merged };
+      // An edit put back to the proposal leaves nothing the server would act
+      // on; keeping `{}` would read as unsaved work and make Back warn
+      // (M4B-R7-001).
+      if (!carriesServerEdit(merged)) delete edits[event.itemId];
       const before = confirmableItems(state.proposal, state.edits);
       const after = confirmableItems(state.proposal, edits);
       // An item completed by hand joins the selection as soon as it is

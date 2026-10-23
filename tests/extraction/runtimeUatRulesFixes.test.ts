@@ -21,6 +21,10 @@ import assert from 'node:assert/strict';
 import { createEmptyDomainState } from '../../src/domain/stateMachine.ts';
 import { MemoryCaptureProposalStore, proposeCapture } from '../../lib/services/captureBoundary/index.ts';
 import { splitCaptureClauses } from '../../src/extraction/clauseSplitter.ts';
+import { decideExtractionDisposition } from '../../src/extraction/extractionPolicy.ts';
+import { extractAndMap } from '../../src/extraction/extractionService.ts';
+import { endOfRange } from '../../src/extraction/mapExtractionToCommand.ts';
+import { extract } from '../../src/extraction/ruleBasedExtractor.ts';
 import { localTimeSpecFor } from '../../src/extraction/timeLexicon.ts';
 import { weeklyBlockOfferFor } from '../../lib/weeklyBlocks/offer.ts';
 
@@ -126,4 +130,67 @@ test('3: what is still ours stays marked — a bare part of the day, and the mon
   assert.equal(evening.dateEstimated, false);
   const monthEnd = (await rules('لازم أحضّر تقرير آخر الشهر')).items[0]!;
   assert.equal(monthEnd.dateEstimated, true, 'the month’s end read as its last day stopped being marked');
+});
+
+/* ── Q-S2. Named month dates and «غدا» lunch ─────────────────────── */
+
+const qContext = { now: new Date('2026-10-07T08:00:00.000Z'), timezone: TZ };
+const NAMED_DATES: ReadonlyArray<{ text: string; date: string; time: string; title: string }> = [
+  { text: 'flight to Amman on December 20 at 6 AM', date: '2026-12-20', time: '06:00', title: 'flight to Amman' },
+  { text: 'فحص سنوي عند الدكتور يوم 3 نوفمبر الساعة 9 الصبح', date: '2026-11-03', time: '09:00', title: 'فحص سنوي عند الدكتور' },
+  { text: 'مقابلة شغل يوم 22 أكتوبر الساعة 11 الصبح', date: '2026-10-22', time: '11:00', title: 'مقابلة شغل' },
+  { text: 'renew passport on October 20 at 10 AM', date: '2026-10-20', time: '10:00', title: 'renew passport' },
+  { text: 'سفر 20 ديسمبر الساعة 6 الصبح', date: '2026-12-20', time: '06:00', title: 'سفر' },
+  { text: 'مراجعة 3 نوفمبر الساعة 9 الصبح', date: '2026-11-03', time: '09:00', title: 'مراجعة' },
+  { text: 'call Maya Dec 20 at 6 PM', date: '2026-12-20', time: '18:00', title: 'call Maya' },
+  { text: 'call Maya Oct 22 at 11 AM', date: '2026-10-22', time: '11:00', title: 'call Maya' },
+  { text: 'call Maya 20 December at 6 PM', date: '2026-12-20', time: '18:00', title: 'call Maya' },
+  { text: 'בדיקת רופא ב-3 בנובמבר בשעה 9:00', date: '2026-11-03', time: '09:00', title: 'בדיקת רופא' },
+];
+
+for (const expected of NAMED_DATES) {
+  test(`Q-S2: named month date resolves and leaves the title — ${expected.text}`, () => {
+    const result = extract(expected.text, qContext);
+    assert.equal(result.localTimeSpec?.date, expected.date);
+    assert.equal(result.localTimeSpec?.time, expected.time);
+    assert.equal(result.title, expected.title);
+  });
+}
+
+test('Q-S2: a named month date that already passed rolls to its next occurrence', () => {
+  const result = extract('submit report on October 3 at 4 PM', qContext);
+  assert.equal(result.localTimeSpec?.date, '2027-10-03');
+  assert.equal(result.localTimeSpec?.time, '16:00');
+  assert.equal(result.title, 'submit report');
+});
+
+test('Q-S2: an impossible named month date keeps its hour but asks for the day', () => {
+  const result = extract('book venue on November 31 at 9 AM', qContext);
+  assert.equal(result.localTimeSpec, null);
+  assert.equal(result.dueAt, null);
+  assert.equal(result.remindAt, null);
+  assert.equal(result.undatedTime, '09:00');
+  assert.equal(result.title, 'book venue');
+  assert.ok(result.missingFields.includes('time'));
+  assert.ok(result.ambiguityFlags.includes('vague_time'));
+  assert.equal(decideExtractionDisposition(result), 'needs_clarification');
+});
+
+test('Q-S2: «غدا مع» is lunch when the clause explicitly says today', async () => {
+  const mapped = await extractAndMap('غدا مع سارة اليوم من 1 لـ 2 الظهر', qContext, {
+    llmProvider: async () => {
+      throw new Error('rules-only test');
+    },
+  });
+  assert.equal(mapped.engine, 'rule-based');
+  assert.equal(mapped.result.localTimeSpec?.date, '2026-10-07');
+  assert.equal(mapped.result.localTimeSpec?.time, '13:00');
+  assert.equal(mapped.result.title, 'غدا مع سارة');
+  assert.equal(mapped.result.rangeMinutes, 60);
+  assert.equal(endOfRange(mapped.result), '2026-10-07T11:00:00.000Z');
+});
+
+test('Q-S2: bare «غدا» with no other day still means tomorrow', () => {
+  const result = extract('غدا الساعة 5', qContext);
+  assert.equal(result.localTimeSpec?.date, '2026-10-08');
 });
