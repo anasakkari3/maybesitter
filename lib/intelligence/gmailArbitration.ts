@@ -9,6 +9,7 @@ import {
   INTELLIGENCE_SOURCE_MARKERS,
   PROVIDER_CONNECTIONS,
   userCol,
+  userDoc,
   userSubDoc,
 } from '../storage';
 import { analyzeSourceStaged } from './analyzeSource';
@@ -21,6 +22,7 @@ import {
 import { observationId, type StoredObservation } from './observationStore';
 import { isMonitoringPaused } from '../watchers/monitoringSettings';
 import type { StorageAdapter, StorageTransaction } from '../storage/storageAdapter';
+import { liveAccount } from './memoryBasis';
 
 const CLAIM_MS = 120_000;
 
@@ -111,10 +113,12 @@ export async function analyzeArbitratedGmailMessage(
   const path = markerPath(uid, legacyId);
   const owner = randomUUID();
   const claimed = await storage.runTransaction(async tx => {
-    const [marker, messageAllowed] = await Promise.all([
+    const [account, marker, messageAllowed] = await Promise.all([
+      tx.get(userDoc(uid)),
       tx.get<M5aMarker | Record<string, unknown>>(path),
       monitorGuard ? assertMonitorGuard(uid, monitorGuard, storage, tx, true) : Promise.resolve(true),
     ]);
+    if (!liveAccount(account)) return { kind: 'blocked' as const };
     if (!messageAllowed) return { kind: 'skipped' as const };
     const decision = markerDecision(marker, 'base', runtime.now().toISOString(), providerAccountId);
     if (decision === 'skip') return { kind: 'skipped' as const };
@@ -142,12 +146,13 @@ export async function analyzeArbitratedGmailMessage(
       ? await analyzeSourceStaged(uid, 'gmail', content, runtime.shareModel ? { generate: runtime.shareModel } : {})
       : [];
     const committed = await storage.runTransaction(async tx => {
-      const [marker, _guard, ...existing] = await Promise.all([
+      const [account, marker, _guard, ...existing] = await Promise.all([
+        tx.get(userDoc(uid)),
         tx.get<M5aMarker>(path),
         monitorGuard ? assertMonitorGuard(uid, monitorGuard, storage, tx) : Promise.resolve(),
         ...semantic.map(item => tx.get<StoredObservation>(observationPath(uid, observationId('gmail', message.id, item)))),
       ]);
-      if (marker?.state !== 'claimed' || marker.owner !== owner) return null;
+      if (!liveAccount(account) || marker?.state !== 'claimed' || marker.owner !== owner) return null;
       const observations: StoredObservation[] = [];
       semantic.forEach((item, index) => {
         const id = observationId('gmail', message.id, item);
@@ -180,6 +185,9 @@ export async function analyzeArbitratedGmailMessage(
     });
     return committed ? { kind: 'processed', observations: committed } : { kind: 'blocked', observations: [] };
   } catch (error) {
+    // This release can run after deletion: it only updates the exact marker
+    // while the caller still owns it, so a completed sweep leaves no document
+    // that this transaction can recreate.
     await storage.runTransaction(async tx => {
       const marker = await tx.get<M5aMarker>(path);
       if (marker?.state === 'claimed' && marker.owner === owner) tx.set(path, {
