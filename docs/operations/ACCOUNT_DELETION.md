@@ -19,7 +19,7 @@ What is kept, and why:
 - **The receipt** (`deletionReceipts/{receiptId}`, 400 days). It contains no uid, email, name or content — the subject is `HMAC-SHA256(pepper, uid)`. It exists so "prove you deleted me" has an answer.
 - **The job record** (`accountDeletions/{subjectHash}`, 30 days), which makes a repeat request idempotent. Its `uid` field is removed the moment the deletion completes.
   It is also the deletion tombstone (#794): a uid's first request reads it before creating `users/{uid}`, and refuses with `403 deleted` when it exists, so a request that Firebase Auth admitted just before a deletion cannot re-create the account after the sweep. It is written before anything is destroyed and is never swept. Its 30-day TTL is far longer than the one-hour life of the ID token that race needs. Deleting it by hand reopens that race for a token still in flight.
-  Its id depends on the pepper, so a pepper rotation must keep the old one mounted as `MAYBESITTER_DELETION_RECEIPT_PEPPER_PREVIOUS` for at least those 30 days (`GCP_BOOTSTRAP.md`, "Rotating the deletion-receipt pepper"). A process that creates trust against shared Firestore without any pepper refuses (503) instead of guessing that nobody was deleted.
+  Its id depends on the pepper, so **the pepper must not be rotated** until rotation is made safe (#798; `GCP_BOOTSTRAP.md`, "Rotating the deletion-receipt pepper"). A process that creates trust against shared Firestore without any pepper refuses (503) instead of guessing that nobody was deleted.
 - Firestore point-in-time recovery covers the last 7 days. Say **within 30 days** publicly, to leave margin.
 - Crashlytics reports are not linked to the account and roll off in 90 days.
 
