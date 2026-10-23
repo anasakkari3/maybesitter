@@ -422,11 +422,29 @@ test('#743: "… at 5pm and pay the bill by the end of the month" is two items, 
 });
 
 test('#743: a deadline belongs to the conjunct it is said in, not to one before it', () => {
-  // Read up to the next join: the rent's month end never becomes the milk's.
+  // Read in the conjunct beside the join: the rent's month end never becomes the milk's.
   assert.deepEqual(
     splitCaptureClauses('Call mom tomorrow at 5pm and buy milk and pay rent by the end of the month'),
     ['Call mom tomorrow at 5pm and buy milk', 'pay rent by the end of the month'],
   );
+  // The mirror (Q743-R2-003): the left side is read in its last conjunct.
+  assert.deepEqual(
+    splitCaptureClauses('buy milk and pay rent by the end of the month and call mom tomorrow at 5pm'),
+    ['buy milk and pay rent by the end of the month', 'call mom tomorrow at 5pm'],
+  );
+});
+
+test('#743: a noun\'s own words do not hide a deadline; a clause opened by whether / «إذا» / «אם» does', () => {
+  // Q743-R2-001: "about sales" belongs to the report; the month end is still its due.
+  assert.deepEqual(
+    splitCaptureClauses('Call mom tomorrow at 5pm and finish the report about sales by the end of the month'),
+    ['Call mom tomorrow at 5pm', 'finish the report about sales by the end of the month'],
+  );
+  for (const text of [
+    'Call mom tomorrow at 5pm and ask whether the rent is due by the end of the month',
+    'اتصل بامي بكرا الساعة 5 واسألها إذا الإيجار لآخر الشهر',
+    'להתקשר לאמא מחר ב-5 ולשאול אותה אם שכר הדירה עד סוף החודש',
+  ]) assert.equal(splitCaptureClauses(text).length, 1, text);
 });
 
 test('FX3 I-1: which month-end mentions are a deadline — the rule, both directions', () => {

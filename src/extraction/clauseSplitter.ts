@@ -670,36 +670,44 @@ const MAX_CONJUNCTION_SPLITS = 8;
  * end of the month" was one item at 17:00, the bill's own deadline lost, and
  * so was the same capture in the other order.
  *
- * A deadline counts only where it governs the conjunct's own action: read up
- * to the next join, and not after a word that makes it the action's subject
- * matter — "ask whether the rent is due by the end of the month", "call the
- * landlord about the rent due by …", «اسأل إذا الإيجار لآخر الشهر» are one
- * action each (Codex inspection Q743-002). The month's end only where the
- * shared reader takes it as a deadline: "the end of the month party" names a
- * party.
+ * A deadline counts only where it governs the conjunct's own action:
+ * - read in the conjunct beside the join only — the first one after it, the
+ *   last one before it — so a date never jumps to a neighbour (Q743-002,
+ *   Q743-R2-003);
+ * - and only in the main clause, before a word that opens a clause of its
+ *   own — "ask whether the rent is due by the end of the month", «اسأل إذا
+ *   الإيجار لآخر الشهر», «לשאול אם …» — where the date is what is asked about
+ *   (Q743-002). A noun's own words ("the report about sales by …") are not
+ *   such a clause (Q743-R2-001).
+ * The month's end only where the shared reader takes it as a deadline: "the
+ * end of the month party" names a party.
+ *
+ * Known limit: a Hebrew clause opened by an attached «ש־» on a plain noun
+ * («ששכר הדירה …») is not recognised; only «שאם / שעל / שזה» are.
  */
-function statesItsOwnDue(clause: string): boolean {
+function statesItsOwnDue(clause: string, side: 'after' | 'before' = 'after'): boolean {
   if (statesATime(clause)) return true;
-  const own = clause.split(NEXT_JOIN)[0] ?? clause;
-  if (!(namesDayOfMonth(own) || readPeriodEndDeadline(own) === 'month')) return false;
-  return !SUBJECT_MATTER_MARKER.test(own);
+  const conjuncts = clause.split(NEXT_JOIN);
+  const beside = (side === 'after' ? conjuncts[0] : conjuncts[conjuncts.length - 1]) ?? clause;
+  const main = beside.split(OPENS_A_CLAUSE)[0] ?? beside;
+  return namesDayOfMonth(main) || readPeriodEndDeadline(main) === 'month';
 }
 
 const NEXT_JOIN = new RegExp(`\\s+and\\s+|\\s*,\\s+|\\s+[وו](?=[\\p{L}])`, 'iu');
 
-/** Words after which a date is what the action is about, not when it is due. */
-const SUBJECT_MATTER_MARKER = new RegExp(
+/** A word that opens a clause of its own: a date after it is its subject matter. */
+const OPENS_A_CLAUSE = new RegExp(
   [
-    "\\b(?:whether|if|about|that|which|what|when|why|who|whose|how)\\b",
-    `${B}(?:إذا|اذا|إنو|انو|إنه|انه|عن|ليش|لما|اللي|شو|إيمتى|ايمتى|امتى|متى)${A}`,
-    `${B}(?:אם|על|למה|מתי|מה|האם)${A}`,
+    "\\b(?:whether|if)\\b",
+    `${B}(?:إذا|اذا|إنو|انو|إنه|انه|إنها|انها|لو)${A}`,
+    `${B}(?:אם|האם|שאם|שעל|שזה)${A}`,
   ].join('|'),
   'iu',
 );
 
 /** A whole commitment with a due of its own, either side of an "and". */
 function isWholeTimedCommitment(clause: string): boolean {
-  return statesItsOwnDue(clause) && !isTimeOnlyClause(clause) && hasActionEvidence(clause);
+  return statesItsOwnDue(clause, 'before') && !isTimeOnlyClause(clause) && hasActionEvidence(clause);
 }
 
 function splitTimedConjuncts(segment: string): string[] {
