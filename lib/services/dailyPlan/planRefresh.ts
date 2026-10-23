@@ -82,7 +82,7 @@ import type { FixedEvent, PlanningConstraints, PlanningItem } from '../../../src
 import { toEpochMs } from '../../planning/shared/time';
 import type { Commitment } from '../../../src/domain/stateMachine';
 import { loadDomainState } from '../mobile/participantState';
-import { buildDailyPlanInput, dailyPlanScheduleSources, pinnedEventsOnDay, type BusyBlockReader } from './buildDailyPlan';
+import { buildDailyPlanInput, pinnedEventsOnDay, type BusyBlockReader } from './buildDailyPlan';
 import { composeDailyPlanRequest, personalizationPurgeMatches } from './dailyPlanService';
 import {
   NO_EDITS,
@@ -347,7 +347,16 @@ export async function refreshStalePlan(
   // saved week day left untouched keeps its own work, and a day built around
   // saved week days keeps leaving their work off.
   const assignment = storedWeekAssignment(stored, today);
-  const { constraints, config, basisSnapshot, focusFromMemory, personalizationPurgeEpoch, memoryUse } = await composeDailyPlanRequest({
+  const {
+    constraints,
+    config,
+    scheduleSources,
+    preferredWindows,
+    basisSnapshot,
+    focusFromMemory,
+    personalizationPurgeEpoch,
+    memoryUse,
+  } = await composeDailyPlanRequest({
     uid,
     date: stored.date,
     timezone: stored.timezone,
@@ -377,7 +386,8 @@ export async function refreshStalePlan(
         constraints,
         plan,
         generation,
-        sources: dailyPlanScheduleSources(constraints),
+        sources: scheduleSources,
+        preferredWindows,
         previous: current.blocks ?? null,
       }),
       replaces: { generation: current.generation, inputDigest: current.inputDigest },

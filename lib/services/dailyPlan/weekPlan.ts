@@ -67,7 +67,8 @@ import { getStorage, type StorageAdapter } from '../../storage';
 import { userDoc } from '../../storage/paths';
 import { schedulePlan } from '../../planning/scheduler';
 import { toEpochMs } from '../../planning/shared/time';
-import type { Plan, PlanningConstraints } from '../../../src/contracts/v1/planningContracts';
+import type { Plan, PlanningConstraints, TimeInterval } from '../../../src/contracts/v1/planningContracts';
+import type { ScheduleBlockSources } from '../../planning/scheduler/blocks';
 import { deadlineOfTimeSpec, type Commitment } from '../../../src/domain/stateMachine';
 import { buildDailyPlanInput, dayHorizon, fixedStartOf, isAllDayEvent, isPlannable, pinnedEventsOnDay, type DayAssignment } from './buildDailyPlan';
 import {
@@ -77,6 +78,7 @@ import {
   preloadDailyPlanRequest,
   storeWeekDayPlan,
   titlesOf,
+  withCurrentHabitTitles,
   type DailyPlanDeps,
 } from './dailyPlanService';
 import { PlanEditRejected, acceptPlan, effectiveSchedule } from './planActions';
@@ -218,6 +220,8 @@ interface ProposedDay {
   readonly constraints: PlanningConstraints;
   readonly plan: Plan;
   readonly config: DailyPlanRequest['config'];
+  readonly scheduleSources: ScheduleBlockSources;
+  readonly preferredWindows: ReadonlyMap<string, readonly TimeInterval[]>;
   readonly readinessApplied?: ReadinessApplied;
   readonly focusFromMemory?: boolean;
   readonly personalizationPurgeEpoch?: number;
@@ -245,6 +249,8 @@ export interface WeekLayout {
   /** Floating work that belongs to a day of this week and is placed on none. */
   readonly waiting: readonly string[];
   readonly commitments: readonly Commitment[];
+  /** Titles for every current planner source, including habit occurrences. */
+  readonly titles: ReadonlyMap<string, string>;
   /**
    * Where the week puts each piece of work it holds on one day: the floating
    * work it placed, and the commitments pinned to a time still ahead, on the
@@ -327,13 +333,20 @@ export async function composeWeek(
   const today = localDateOf(nowIso, timezone);
   const dates = planDatesFrom(today, PLAN_PROPOSAL_DAYS);
 
-  const preloaded = await preloadDailyPlanRequest(uid, nowIso, user, storage);
+  const preloaded = await preloadDailyPlanRequest(uid, nowIso, user, storage, {
+    fromLocalDate: dates[0]!,
+    toLocalDate: dates[dates.length - 1]!,
+  });
   const commitments = preloaded.commitments;
+  let itemTitles = titlesOf(commitments);
   const byId = new Map(commitments.map((commitment) => [commitment.id, commitment]));
   const storedByDate = new Map<string, StoredDailyPlan>();
   for (const date of dates) {
     const stored = await readStoredPlan(uid, date, storage);
-    if (stored) storedByDate.set(date, stored);
+    if (stored) {
+      storedByDate.set(date, stored);
+      itemTitles = withCurrentHabitTitles(itemTitles, preloaded.habitDefinitions, stored);
+    }
   }
   const rules = new Map(dates.map((date) => [date, dailyRuleFor(uid, date, timezone, commitments, nowIso)]));
   // A commitment pinned to a time today or later happens at that time: it is a
@@ -384,7 +397,7 @@ export async function composeWeek(
   for (const date of proposalDates) {
     const rule = rules.get(date)!;
     const candidates = new Set([...unplaced, ...forcedOn(date)]);
-    requests.set(date, await composeDailyPlanRequest({
+    const request = await composeDailyPlanRequest({
       uid,
       date,
       timezone,
@@ -393,14 +406,25 @@ export async function composeWeek(
       previousBlocks: null,
       applyReadiness: false,
       assignment: { include: Array.from(candidates), exclude: rule.filter((itemId) => !candidates.has(itemId)) },
-    }, { storage, preloaded, ...(deps.busyBlocks ? { busyBlocks: deps.busyBlocks } : {}) }));
+    }, { storage, preloaded, ...(deps.busyBlocks ? { busyBlocks: deps.busyBlocks } : {}) });
+    requests.set(date, request);
+    for (const [itemId, title] of Array.from(request.titles)) itemTitles.set(itemId, title);
   }
   /** The planner's placements on `date` when asked about `itemIds` alone. */
   const solveOver = (date: string, itemIds: ReadonlySet<string>) => {
     const request = requests.get(date)!;
-    return schedulePlan({ ...request.constraints, items: request.constraints.items.filter((item) => itemIds.has(item.itemId)) }, request.config);
+    return schedulePlan({
+      ...request.constraints,
+      // A dated habit is already work on this day, not one of the week view's
+      // candidate commitments. Keep it in every fit check so the week cannot
+      // promise a step in time the final daily solve gives to the habit.
+      items: request.constraints.items.filter((item) =>
+        itemIds.has(item.itemId)
+        || request.scheduleSources.items.get(item.itemId)?.kind === 'habit_occurrence'),
+    }, request.config);
   };
-  const fits = (itemId: string, date: string): boolean => solveOver(date, new Set([itemId])).scheduled.length > 0;
+  const fits = (itemId: string, date: string): boolean =>
+    solveOver(date, new Set([itemId])).scheduled.some((item) => item.itemId === itemId);
 
   const stepOn = new Map<string, string>();
   const alsoDueOn = new Map<string, string[]>();
@@ -469,8 +493,12 @@ export async function composeWeek(
     const forced = forcedOn(date);
     const step = stepOn.get(date);
     const final = [...(step !== undefined ? [step] : []), ...(alsoDueOn.get(date) ?? []), ...forced];
-    const finalSet = new Set(final);
     const request = requests.get(date)!;
+    const habitItemIds = request.constraints.items
+      .filter((item) => request.scheduleSources.items.get(item.itemId)?.kind === 'habit_occurrence')
+      .map((item) => item.itemId);
+    const visible = Array.from(new Set([...final, ...habitItemIds]));
+    const finalSet = new Set(visible);
     // The request an acceptance composes (`assignment` below) holds exactly
     // these items; every other part of it is this request's.
     const constraints: PlanningConstraints = {
@@ -490,11 +518,13 @@ export async function composeWeek(
       constraints,
       plan,
       config: request.config,
+      scheduleSources: request.scheduleSources,
+      preferredWindows: request.preferredWindows,
       ...(request.basisSnapshot ? { readinessApplied: request.basisSnapshot.readinessApplied } : {}),
       ...(request.focusFromMemory === undefined ? {} : { focusFromMemory: request.focusFromMemory }),
       ...(request.personalizationPurgeEpoch === undefined ? {} : { personalizationPurgeEpoch: request.personalizationPurgeEpoch }),
       ...(request.memoryUse ? { memoryUse: request.memoryUse } : {}),
-      assignment: { include: final, exclude: rule.filter((itemId) => !finalSet.has(itemId)) },
+      assignment: { include: visible, exclude: rule.filter((itemId) => !finalSet.has(itemId)) },
       reasons,
     });
   }
@@ -508,6 +538,7 @@ export async function composeWeek(
     decisions: { moves: Array.from(movedTo).map(([itemId, date]) => ({ itemId, date })), drops },
     waiting,
     commitments,
+    titles: itemTitles,
     placedOn,
   };
 }
@@ -587,7 +618,7 @@ export function weekDayLayoutDigest(date: string, plan: Plan, constraints?: Plan
 }
 
 export function weekToDto(layout: WeekLayout): WeekDto {
-  const titles = titlesOf(layout.commitments);
+  const titles = layout.titles;
   const byId = new Map(layout.commitments.map((commitment) => [commitment.id, commitment]));
   const title = (itemId: string): string | null => titles.get(itemId) ?? null;
   // Read from the commitments, not the plan: a plan never holds them (N13).
@@ -735,6 +766,8 @@ export async function acceptWeekDay(
     constraints: day.constraints,
     config: day.config,
     plan: day.plan,
+    scheduleSources: day.scheduleSources,
+    preferredWindows: day.preferredWindows,
     readinessApplied: day.readinessApplied!,
     commitments: layout.commitments,
     timezone: layout.timezone,
