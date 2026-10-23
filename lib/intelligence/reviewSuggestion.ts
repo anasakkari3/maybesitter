@@ -1,10 +1,15 @@
 import type { Command } from '../../src/domain/stateMachine';
 import { getStorage, type StorageAdapter } from '../storage';
-import { createStorageRuntimeMemoryStore } from '../runtimeMemory/runtimeMemoryStore';
+import { createStorageRuntimeMemoryStore, personalizationWriteGuard } from '../runtimeMemory/runtimeMemoryStore';
 import { commitCommandsWithClaim } from '../services/mobile/participantState';
 import { isDismissedBehaviourOutcome, suggestionPath, type IntelligenceSuggestion } from './proposalEngine';
 import { slotStillFitsSchedule } from './schedulePreview';
 import { listObservations, observationPath } from './observationStore';
+import {
+  pendingSuggestionAvailability,
+  SuggestionUnavailableError,
+  type SuggestionActionAvailability,
+} from './memoryBasis';
 
 export type SuggestionDecision = 'accept' | 'dismiss';
 
@@ -46,14 +51,22 @@ export async function reviewSuggestion(
   if (editedTitle !== null && (decision !== 'accept' || (current.kind !== 'action' && current.kind !== 'goal')
     || editedTitle.length < 4 || editedTitle.length > 100)) throw new InvalidSuggestionEditError();
   if (decision === 'dismiss') {
-    return storage.runTransaction(async tx => {
+    const dismissed = await storage.runTransaction(async tx => {
       const latest = await tx.get<IntelligenceSuggestion>(path);
       if (!latest) return null;
       if (latest.status !== 'pending') return latest;
+      const [availability, cited] = await Promise.all([
+        pendingSuggestionAvailability(tx, uid, latest, now),
+        Promise.all(latest.observationIds.map(observationId => tx.get(observationPath(uid, observationId)))),
+      ]);
+      if (!availability.available
+        && (availability.accountUnavailable || !cited.some(isDismissedBehaviourOutcome))) return availability;
       const next: IntelligenceSuggestion = { ...latest, status: 'dismissed', decidedAt: now };
       tx.set(path, next);
-      return next;
+      return availability.available ? next : availability;
     });
+    if (dismissed && 'available' in dismissed) throw new SuggestionUnavailableError();
+    return dismissed;
   }
   // A suggestion that cites an outcome the person has dismissed is dismissed
   // before any check that could fail and leave it pending — a stale slot, for
@@ -65,12 +78,25 @@ export async function reviewSuggestion(
     // An accept already under way ('accepting') claimed its outcomes before
     // they were dismissed, and its retry finishes that claim below.
     if (latest.status !== 'pending') return { done: false as const };
-    const cited = await Promise.all(latest.observationIds.map(observationId => tx.get(observationPath(uid, observationId))));
-    if (!cited.some(isDismissedBehaviourOutcome)) return { done: false as const };
+    const [availability, cited] = await Promise.all([
+      pendingSuggestionAvailability(tx, uid, latest, now),
+      Promise.all(latest.observationIds.map(observationId => tx.get(observationPath(uid, observationId)))),
+    ]);
+    if (!availability.available && availability.accountUnavailable) {
+      return { done: true as const, unavailable: availability };
+    }
+    if (!cited.some(isDismissedBehaviourOutcome)) {
+      return availability.available
+        ? { done: false as const }
+        : { done: true as const, unavailable: availability };
+    }
     const next: IntelligenceSuggestion = { ...latest, status: 'dismissed', decidedAt: now };
     tx.set(path, next);
-    return { done: true as const, value: next };
+    return availability.available
+      ? { done: true as const, value: next }
+      : { done: true as const, unavailable: availability };
   });
+  if ('unavailable' in settled) throw new SuggestionUnavailableError();
   if (settled.done) return settled.value;
   const observations = await listObservations(uid, storage);
   const autoAdded = new Set(observations.filter(item => item.autoAddId).map(item => item.id));
@@ -93,8 +119,10 @@ export async function reviewSuggestion(
       acceptedSlot = slot;
     }
     const commitmentId = `int_${id}`;
-    await commitCommandsWithClaim<IntelligenceSuggestion>(uid, path, (claim, context) => {
+    const committed = await commitCommandsWithClaim<IntelligenceSuggestion, SuggestionActionAvailability>(uid, path, async (claim, context) => {
       if (!claim || claim.status !== 'pending' || claim.kind !== 'action') return null;
+      const availability = await pendingSuggestionAvailability(context.tx, uid, claim, now);
+      if (!availability.available) return { outcome: availability };
       if (context.guards.some(isDismissedBehaviourOutcome)) {
         return { commands: [], patch: { status: 'dismissed', decidedAt: now } };
       }
@@ -109,6 +137,7 @@ export async function reviewSuggestion(
       ];
       return { commands, patch: { status: 'accepted', title: editedTitle ?? claim.title, decidedAt: now, linkedEntityId: commitmentId } };
     }, current.observationIds.map(observationId => observationPath(uid, observationId)));
+    if (committed.outcome && !committed.outcome.available) throw new SuggestionUnavailableError();
     return storage.get<IntelligenceSuggestion>(path);
   }
 
@@ -117,6 +146,8 @@ export async function reviewSuggestion(
       const latest = await tx.get<IntelligenceSuggestion>(path);
       if (!latest || (latest.status !== 'pending' && latest.status !== 'accepting')) return null;
       if (latest.status === 'pending') {
+        const availability = await pendingSuggestionAvailability(tx, uid, latest, now);
+        if (!availability.available) return availability;
         const cited = await Promise.all(latest.observationIds.map(observationId =>
           tx.get(observationPath(uid, observationId))));
         if (cited.some(isDismissedBehaviourOutcome)) {
@@ -130,13 +161,16 @@ export async function reviewSuggestion(
       if (latest.status === 'pending') tx.set(path, next);
       return next;
     });
+    if (claimed && 'available' in claimed) throw new SuggestionUnavailableError();
     if (!claimed) return storage.get<IntelligenceSuggestion>(path);
+    // Fenced against a delete-all or a withdrawal (M5B2A-R34-001).
+    const guard = await personalizationWriteGuard(storage, uid);
     const memory = await createStorageRuntimeMemoryStore(undefined, storage).putIdempotent({
       scopeId: uid, kind: 'goal', content: claimed.title, language: languageOf(claimed.title),
       source: 'model_inferred', confidence: claimed.confidence, observedAt: now,
       evidenceIds: claimed.observationIds,
       provenance: { origin: 'proactive_suggestion', originRef: id, confirmedByUserAt: now },
-    }, now, `proactive:${id}`);
+    }, now, `proactive:${id}`, guard);
     return storage.runTransaction(async tx => {
       const latest = await tx.get<IntelligenceSuggestion>(path);
       if (!latest) return null;
@@ -147,10 +181,12 @@ export async function reviewSuggestion(
   }
 
   // A warning is acknowledged, not turned into an obligation.
-  return storage.runTransaction(async tx => {
+  const acknowledged = await storage.runTransaction(async tx => {
     const latest = await tx.get<IntelligenceSuggestion>(path);
     if (!latest) return null;
     if (latest.status !== 'pending') return latest;
+    const availability = await pendingSuggestionAvailability(tx, uid, latest, now);
+    if (!availability.available) return availability;
     const cited = await Promise.all(latest.observationIds.map(observationId =>
       tx.get(observationPath(uid, observationId))));
     if (cited.some(isDismissedBehaviourOutcome)) {
@@ -162,4 +198,6 @@ export async function reviewSuggestion(
     tx.set(path, next);
     return next;
   });
+  if (acknowledged && 'available' in acknowledged) throw new SuggestionUnavailableError();
+  return acknowledged;
 }

@@ -5,12 +5,14 @@ import { intelligenceDisabledResponse } from '../../../../../../lib/intelligence
 import { learnOutcomesWithin } from '../../../../../../lib/intelligence/outcomeLearning';
 import {
   hideDismissedOutcomeSuggestions, intelligenceRunPath, nextVisitAt, proposeFromObservations, reuseRunForVisit,
-  type IntelligenceRun, type IntelligenceSuggestion,
+  suggestionToDto, type IntelligenceRun, type IntelligenceSuggestion,
 } from '../../../../../../lib/intelligence/proposalEngine';
 import { listObservations } from '../../../../../../lib/intelligence/observationStore';
 import { previewSuggestionSchedule } from '../../../../../../lib/intelligence/schedulePreview';
 import { readJsonBody } from '../../../../../../lib/net/requestBody';
 import { getStorage } from '../../../../../../lib/storage';
+import { m5bBasisMode } from '../../../../../../lib/release/m5bCapabilities';
+import { readActiveMemorySnapshot, suggestionMatchesMode, suggestionProjection } from '../../../../../../lib/intelligence/memoryBasis';
 
 export const dynamic = 'force-dynamic';
 
@@ -45,12 +47,17 @@ export async function POST(request: Request) {
     // after the run committed (M5B2A-R20-004): an outcome dismissed in between
     // never comes back as a suggestion on Today's banner.
     suggestions = hideDismissedOutcomeSuggestions(suggestions, await listObservations(user.uid));
+    const mode = m5bBasisMode();
+    const snapshot = mode === 'on_basis' ? await readActiveMemorySnapshot(user.uid, now, getStorage()) : undefined;
+    suggestions = suggestions.filter(suggestion => suggestionMatchesMode(suggestion, mode, snapshot));
     let schedule: Awaited<ReturnType<typeof previewSuggestionSchedule>> = [];
     try { schedule = await previewSuggestionSchedule(user.uid, suggestions, new Date().toISOString()); }
     catch { /* A failed preview never turns a suggestion into a false promise. */ }
     // When a visit could next start a run, so the phone does not ask before.
     const run = visit ? await getStorage().get<IntelligenceRun>(intelligenceRunPath(user.uid)) : null;
-    return Response.json({ success: true, suggestions, schedule, ...(visit ? { nextVisitAt: nextVisitAt(run, now) } : {}) });
+    const dto = suggestions.map(suggestion => suggestionToDto(suggestion, suggestionProjection(suggestion, mode, snapshot)));
+    return Response.json({ success: true, suggestions: dto, schedule, ...(visit ? { nextVisitAt: nextVisitAt(run, now) } : {}),
+      ...(mode === 'off' ? {} : { basisMode: mode }) });
   } catch {
     return Response.json({ success: false, error: 'could not prepare suggestions' }, { status: 500 });
   }

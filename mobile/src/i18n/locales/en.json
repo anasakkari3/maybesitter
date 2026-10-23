@@ -2134,5 +2134,7 @@
   "m5bBasisFix": "Correct it",
   "m5bPlanMemoryChanged": "Something remembered that the plan used has changed. Rebuild to apply it.",
   "m5bPlanMemoryChangedNoRebuild": "Something remembered that the plan used has changed. You've used today's rebuilds, so the current plan stays as it is.",
-  "m5bLearnedWrongA11y": "Not right: {line}"
+  "m5bLearnedWrongA11y": "Not right: {line}",
+  "m5bSuggestionBasis": "Based on: “{memory}”",
+  "m5bSuggestionBasisFixA11y": "Correct: “{memory}”"
 }

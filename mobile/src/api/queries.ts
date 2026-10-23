@@ -1,5 +1,5 @@
-import { useCallback, useRef, useSyncExternalStore } from 'react';
-import { keepPreviousData, useInfiniteQuery, useMutation, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
+import { useCallback, useEffect, useMemo, useRef, useSyncExternalStore } from 'react';
+import { keepPreviousData, useInfiniteQuery, useMutation, useMutationState, useQuery, useQueryClient, type MutationState, type QueryClient } from '@tanstack/react-query';
 import type { CaptureConfirmation } from './schemas/capture';
 import * as Crypto from 'expo-crypto';
 import { useTimeZone } from '../i18n/timezone';
@@ -103,7 +103,7 @@ import { applyEditLocally } from '../features/plan/optimisticEdit';
 import type { DailyPlan } from './schemas/plan';
 import type { NextStepDecisionKind, NextStepRecommendation } from './schemas/nextStep';
 import type { PilotIncidentInput, TrustAction, TrustResponse } from './schemas/trust';
-import type { MemorySuggestion } from './schemas/profile';
+import type { MemoryItem, MemorySuggestion } from './schemas/profile';
 import type { AlphaFeedbackCategory } from './schemas/feedback';
 import type { AnalyticsProperties, ClientReportableEvent } from './schemas/analytics';
 import {
@@ -267,14 +267,22 @@ function invalidateCommitments(client: QueryClient, uid: string, id?: string): v
  * plan read those, so they are told — accepting on «يتابع لك» used to leave
  * them showing the day before the tap.
  */
-export function useIntelligenceDecided(): () => void {
+/**
+ * What a proactive action changed (M5b-2b-1, APP-READ-006): `memory: false`
+ * for one that writes no memory — a suggestion dismissed, a warning
+ * acknowledged — so the memory revision is not bumped and no holder reads
+ * its inbox again for it. Absent means it may have (the safe default).
+ */
+export type IntelligenceChange = { memory?: boolean };
+
+export function useIntelligenceDecided(): (change?: IntelligenceChange) => void {
   const client = useQueryClient();
   const uid = useUid();
-  return useCallback(() => {
+  return useCallback((change?: IntelligenceChange) => {
     invalidateCommitments(client, uid);
-    void client.invalidateQueries({ queryKey: queryKeys.memory(uid) });
     void client.invalidateQueries({ queryKey: ['user', uid, 'goalExecution'] });
-    void client.invalidateQueries({ queryKey: queryKeys.memory(uid) });
+    // An accepted goal or an answer is memory now.
+    if (change?.memory !== false) settleMemoryWrite(client, uid);
   }, [client, uid]);
 }
 
@@ -455,7 +463,8 @@ export function useInvalidateAfterPlanConfirm(): () => void {
     void client.invalidateQueries({ queryKey: queryKeys.habits(uid) });
     void client.invalidateQueries({ queryKey: ['user', uid, 'goalPlan'] });
     void client.invalidateQueries({ queryKey: ['user', uid, 'goalExecution'] });
-    void client.invalidateQueries({ queryKey: queryKeys.memory(uid) });
+    // A confirmed plan's goal is memory.
+    settleMemoryWrite(client, uid);
   }, [client, uid]);
 }
 
@@ -877,7 +886,8 @@ export function invalidateAfterCapture(client: QueryClient, uid: string, confirm
     void client.invalidateQueries({ queryKey: ['user', uid, 'goalExecution'] });
   }
   if ((confirmation.goalsPersisted?.length ?? 0) > 0) {
-    void client.invalidateQueries({ queryKey: queryKeys.memory(uid) });
+    // A kept goal is a memory record.
+    settleMemoryWrite(client, uid);
     void client.invalidateQueries({ queryKey: ['user', uid, 'goalExecution'] });
     void client.invalidateQueries({ queryKey: ['user', uid, 'goalPlan'] });
   }
@@ -1212,7 +1222,7 @@ function dropCorrection(client: QueryClient, uid: string, correction: BasisCorre
  * a 404 or 409 says the record changed under the write (M5B2A-R7-002), so the
  * cached basis may name a memory that is gone.
  */
-function writeRefused(error: unknown): boolean {
+export function writeRefused(error: unknown): boolean {
   return error instanceof ValidationError
     || error instanceof UnauthorizedError
     || error instanceof RecentLoginRequiredError
@@ -1235,6 +1245,7 @@ function settleCorrection(client: QueryClient, uid: string, correction: BasisCor
     return;
   }
   correction.succeededAt = nextPlanSequence();
+  recordCorrected(client, uid, correction.target, correction.succeededAt);
   basisChanged();
   void client.invalidateQueries({ queryKey: ['user', uid, 'plan'] });
   setTimeout(() => pruneCorrections(client, uid), 0);
@@ -1253,6 +1264,7 @@ function basisChanged(): void {
  */
 export function resetBasisCorrections(client: QueryClient): void {
   basisCorrections.delete(client);
+  correctedByClient.delete(client);
   // …and the previous account's plan requests: one still on its way ends on
   // the set it began in (M5B2A-R3-004).
   plansInFlightByClient.delete(client);
@@ -1283,6 +1295,107 @@ function pruneCorrections(client: QueryClient, uid: string): void {
   list.splice(0, list.length, ...kept);
   if (kept.length === 0) basisCorrections.get(client)?.delete(uid);
   basisChanged();
+}
+
+/**
+ * When each memory (or `all`) was last corrected, per client and account
+ * (M5b-2b-1, R3). Corrections are pruned once no cached *plan* began before
+ * them; a suggestion read is not a plan, so its basis line asks this instead:
+ * a line read before a correction succeeded stays hidden.
+ */
+const correctedByClient = new WeakMap<QueryClient, Map<string, Map<string, number>>>();
+
+function recordCorrected(client: QueryClient, uid: string, target: string, at: number): void {
+  let byUid = correctedByClient.get(client);
+  if (!byUid) {
+    byUid = new Map();
+    correctedByClient.set(client, byUid);
+  }
+  let byTarget = byUid.get(uid);
+  if (!byTarget) {
+    byTarget = new Map();
+    byUid.set(uid, byTarget);
+  }
+  byTarget.set(target, at);
+}
+
+/**
+ * A number for a suggestion read, taken when it starts, on the same clock as
+ * the corrections (M5b-2b-1): `useSuggestionBasisHidden` compares it with them.
+ */
+export function beginBasisRead(): number {
+  return nextPlanSequence();
+}
+
+/** Whether a basis line naming `memoryId`, read at `readStartedAt`, must stay hidden. */
+function suggestionBasisHidden(client: QueryClient, uid: string, memoryId: string, readStartedAt: number): boolean {
+  const pending = (peekCorrections(client, uid) ?? []).some((correction) => (correction.target === 'all' || correction.target === memoryId)
+    && (correction.succeededAt === null || readStartedAt < correction.succeededAt));
+  if (pending) return true;
+  const corrected = correctedByClient.get(client)?.get(uid);
+  if (!corrected) return false;
+  return readStartedAt < (corrected.get(memoryId) ?? 0) || readStartedAt < (corrected.get('all') ?? 0);
+}
+
+/**
+ * M5b-2a's correction overlay, for a suggestion's basis line (M5b-2b-1, R3):
+ * hidden from the moment a correction of that memory (or of every memory) is
+ * called, and for any read that began before it succeeded. Re-rendered on
+ * every correction change, as `usePlan`'s basis is.
+ */
+export function useSuggestionBasisHidden(): (memoryId: string, readStartedAt: number) => boolean {
+  const client = useQueryClient();
+  const uid = useUid();
+  const version = useBasisVersion();
+  return useCallback(
+    (memoryId: string, readStartedAt: number) => suggestionBasisHidden(client, uid, memoryId, readStartedAt),
+    // The rule depends on the corrections, which live outside React.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [client, uid, version],
+  );
+}
+
+/**
+ * The memory revision (M5b-2b-1, R6-002): a tiny account-scoped counter,
+ * bumped after every memory write that succeeded or may have, so every
+ * mounted holder of intelligence suggestions reads its inbox again.
+ */
+const memoryRevisions = new Map<string, number>();
+const revisionListeners = new Set<() => void>();
+
+export function bumpMemoryRevision(uid: string): void {
+  if (uid === 'signed-out' || uid === '') return;
+  memoryRevisions.set(uid, (memoryRevisions.get(uid) ?? 0) + 1);
+  for (const listener of revisionListeners) listener();
+}
+
+/**
+ * Every app operation that can create, supersede or delete memory settles
+ * through here (M5b-2b-1, APP-REV-005): the memory list is read again and the
+ * revision bumped, so every holder of intelligence suggestions rereads. On a
+ * success, and on any failure that does not prove the server refused the
+ * write before touching a record (`writeRefused`): a timeout or a 5xx may
+ * have committed first.
+ */
+export function settleMemoryWrite(client: QueryClient, uid: string, error: unknown = null): void {
+  if (error !== null && writeRefused(error)) return;
+  void client.invalidateQueries({ queryKey: queryKeys.memory(uid) });
+  bumpMemoryRevision(uid);
+}
+
+/** The revision now, outside a render. */
+export function memoryRevisionOf(uid: string): number {
+  return memoryRevisions.get(uid) ?? 0;
+}
+
+export function useMemoryRevision(uid: string): number {
+  return useSyncExternalStore(
+    (listener) => {
+      revisionListeners.add(listener);
+      return () => { revisionListeners.delete(listener); };
+    },
+    () => memoryRevisions.get(uid) ?? 0,
+  );
 }
 
 /** For tests: how many corrections this client holds for `uid`. */
@@ -1915,9 +2028,11 @@ export function useSetPersonalizationConsent() {
       // Only a plan answer that began after the withdrawal names a basis again.
       if (write.correction) settleCorrection(client, uid, write.correction, null);
     },
-    onSettled: () => {
+    onSettled: (_saved, error) => {
       void client.invalidateQueries({ queryKey: queryKeys.consents(uid) });
       void client.invalidateQueries({ queryKey: queryKeys.memory(uid) });
+      // A withdrawal changes which suggestions may stand (M5b-2b-1, R6-002).
+      if (error === null || !writeRefused(error)) bumpMemoryRevision(uid);
     },
   });
   // A withdrawal hides every cached plan's memory basis from the tap
@@ -2088,7 +2203,7 @@ export function useProfile(options: { enabled?: boolean } = {}) {
   const uid = useUid();
   return useQuery({
     queryKey: queryKeys.profile(uid),
-    queryFn: getProfile,
+    queryFn: ({ signal }) => getProfile({ ...asAccount(uid), signal }),
     enabled: options.enabled ?? true,
   });
 }
@@ -2097,14 +2212,66 @@ export function usePutRoutine() {
   const client = useQueryClient();
   const uid = useUid();
   return useMutation({
-    mutationFn: (profile: RoutineProfilePayload) => putRoutine(profile),
+    mutationFn: (profile: RoutineProfilePayload) => putRoutine(profile, asAccount(uid)),
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: queryKeys.profile(uid) });
-      // Saving the survey supersedes the facts derived from it.
-      void client.invalidateQueries({ queryKey: queryKeys.memory(uid) });
       void client.invalidateQueries({ queryKey: ['user', uid, 'nextStep'] });
     },
+    // Saving the survey supersedes the facts derived from it — and a save
+    // that timed out may have done so too.
+    onSettled: (_saved, error) => settleMemoryWrite(client, uid, error),
   });
+}
+
+/* ── M5B2A-R32-003/004: delete-all, as every memory surface sees it ── */
+
+/**
+ * Memory list answers and memory writes share one counter, taken when a list
+ * request *starts* and when a write is *called*. A list answer's number says
+ * whether its request began after a write — what `dataUpdatedAt`, the moment
+ * the answer arrived, cannot: a read begun before delete-all may land after it
+ * was sent, with the rows it was erasing (M5B2A-R32-004).
+ */
+let memorySequence = 0;
+/** The request-start number of each memory list answer, by the answer object itself. */
+const memoryListStarts = new WeakMap<object, number>();
+
+function nextMemorySequence(): number {
+  memorySequence += 1;
+  return memorySequence;
+}
+
+async function numberedMemoryList<T>(read: () => Promise<T>): Promise<T> {
+  const startedAt = nextMemorySequence();
+  const list = await read();
+  if (list && typeof list === 'object') memoryListStarts.set(list as object, startedAt);
+  return list;
+}
+
+/** Delete-all's mutation key, so every surface can see one on its way, wherever it was pressed (M5B2A-R32-003). */
+const memoryPurgeKey = (uid: string) => [...queryKeys.memory(uid), 'deleteAll'] as const;
+
+/**
+ * Whether the memory on screen is one delete-all may be erasing. True while a
+ * delete-all is on its way, from any screen (M5B2A-R32-003); and after one
+ * whose outcome nobody can be sure of, until a list read that *began after it
+ * was called* has answered (M5B2A-R30-002, R32-004). A definite refusal is
+ * not purging: nothing was erased. `list` is the memory query's data.
+ */
+export function useMemoryPurging(list: unknown): boolean {
+  const uid = useUid();
+  const purges = useMutationState({
+    filters: { mutationKey: memoryPurgeKey(uid) },
+    select: (mutation) => mutation.state as MutationState<unknown, Error, MemoryWrite<void>, unknown>,
+  });
+  if (purges.some(state => state.status === 'pending')) return true;
+  let last: MutationState<unknown, Error, MemoryWrite<void>, unknown> | undefined;
+  for (const state of purges) {
+    if (!last || (state.variables?.calledAt ?? 0) >= (last.variables?.calledAt ?? 0)) last = state;
+  }
+  if (!last || last.status !== 'error' || writeRefused(last.error)) return false;
+  const listStartedAt = list && typeof list === 'object' ? memoryListStarts.get(list) ?? 0 : 0;
+  return listStartedAt <= (last.variables?.calledAt ?? Number.POSITIVE_INFINITY);
 }
 
 /** `fresh`: asked again whenever the screen mounts, even over a fresh cache (M5B2A-R6-003). */
@@ -2112,7 +2279,10 @@ export function useMemory(options: { fresh?: boolean } = {}) {
   const uid = useUid();
   return useQuery({
     queryKey: queryKeys.memory(uid),
-    queryFn: ({ signal }) => listMemory({ ...asAccount(uid), signal }),
+    queryFn: ({ signal }) => numberedMemoryList(() => listMemory({ ...asAccount(uid), signal })),
+    // A new answer is a new object, so its start number is never lost to a
+    // kept, structurally equal older one (M5B2A-R32-004).
+    structuralSharing: false,
     enabled: uid !== 'signed-out',
     ...(options.fresh ? { refetchOnMount: 'always' as const } : {}),
   });
@@ -2135,7 +2305,8 @@ export function useMemoryOpen(memoryId: string | null | undefined, enabled: bool
   const on = enabled && memoryId != null && uid !== 'signed-out';
   const query = useQuery({
     queryKey: queryKeys.memory(uid),
-    queryFn: ({ signal }) => listMemory({ ...asAccount(uid), signal }),
+    queryFn: ({ signal }) => numberedMemoryList(() => listMemory({ ...asAccount(uid), signal })),
+    structuralSharing: false,
     enabled: on,
     refetchOnMount: 'always',
     refetchOnWindowFocus: 'always',
@@ -2146,6 +2317,63 @@ export function useMemoryOpen(memoryId: string | null | undefined, enabled: bool
     && query.isFetchedAfterMount
     && !query.isRefetchError
     && query.data.items.some((item) => item.id === memoryId);
+}
+
+function isMemoryListKey(key: readonly unknown[], uid: string): boolean {
+  return key.length === 3 && key[0] === 'user' && key[1] === uid && key[2] === 'memory';
+}
+
+/**
+ * The memory list a suggestion's basis line quotes (M5b-2b-1, R3): the same
+ * query, rule and rechecks as `useMemoryOpen` — only an answer fetched since
+ * this screen mounted counts, asked again on focus and every minute — as a
+ * map by id, or null while that answer is not in hand; `settled` once it
+ * answered or failed since mount.
+ *
+ * `onSettled` hears every settlement of that list after the first one this
+ * holder saw (R7-003, R8-001, R10-002): a success with a changed or unchanged
+ * id set, an unavailability or an error. It is given the number taken when
+ * that fetch started (`beginBasisRead`'s clock), so a holder whose own read
+ * began later can tell it already has something fresher.
+ */
+export function useFreshMemoryItems(
+  enabled: boolean,
+  onSettled?: (fetchStartedAt: number) => void,
+): { items: ReadonlyMap<string, MemoryItem> | null; settled: boolean } {
+  const client = useQueryClient();
+  const uid = useUid();
+  const on = enabled && uid !== 'signed-out';
+  const query = useQuery({
+    queryKey: queryKeys.memory(uid),
+    queryFn: ({ signal }) => listMemory({ ...asAccount(uid), signal }),
+    enabled: on,
+    refetchOnMount: 'always',
+    refetchOnWindowFocus: 'always',
+    refetchInterval: on ? MEMORY_OPEN_RECHECK_MS : false,
+  });
+  const listener = useRef(onSettled);
+  useEffect(() => { listener.current = onSettled; });
+  useEffect(() => {
+    if (!on) return undefined;
+    let seen = 0;
+    let fetchStartedAt = 0;
+    return client.getQueryCache().subscribe((event) => {
+      if (event.type !== 'updated' || !isMemoryListKey(event.query.queryKey, uid)) return;
+      if (event.action.type === 'fetch') {
+        fetchStartedAt = beginBasisRead();
+        return;
+      }
+      if (event.action.type !== 'success' && event.action.type !== 'error') return;
+      seen += 1;
+      // The first answer is the one this holder mounted with.
+      if (seen === 1) return;
+      listener.current?.(fetchStartedAt);
+    });
+  }, [client, uid, on]);
+  const data = on && query.status === 'success' && query.isFetchedAfterMount && !query.isRefetchError ? query.data : null;
+  const items = useMemo(() => (data ? new Map(data.items.map((item) => [item.id, item] as const)) : null), [data]);
+  // Answered or failed since mount: a holder may draw what waited on it.
+  return { items, settled: on && query.isFetchedAfterMount };
 }
 
 /**
@@ -2174,6 +2402,8 @@ export function useMemorySummary(language: 'ar' | 'en' | 'he', enabled: boolean)
 interface MemoryWrite<TInput> {
   readonly input: TInput;
   readonly correction: BasisCorrection | null;
+  /** The memory counter when the write was called: list reads numbered above it began after it (M5B2A-R32-004). */
+  readonly calledAt: number;
 }
 
 type MemoryMutateOptions<TData, TInput> = {
@@ -2186,15 +2416,23 @@ function useMemoryMutation<TInput, TData = unknown>(
   mutationFn: (input: TInput) => Promise<TData>,
   /** The memory a plan's basis may name that this changes, or `all`; null for none (M5b-2a). */
   basisTarget: (input: TInput) => string | null = () => null,
+  /** Also on every outcome, refused or not (a memory suggestion: M5B2A-R30-005). */
+  onAnySettled?: () => void,
+  /** Lets other surfaces watch this write (delete-all: M5B2A-R32-003). */
+  mutationKey?: readonly unknown[],
 ) {
   const client = useQueryClient();
   const uid = useUid();
   const base = useMutation({
+    ...(mutationKey ? { mutationKey } : {}),
     mutationFn: (write: MemoryWrite<TInput>) => mutationFn(write.input),
     onError: (error, write) => {
       if (write.correction) settleCorrection(client, uid, write.correction, error);
       // A write that may have landed leaves the list unknown too.
-      if (!writeRefused(error)) void client.invalidateQueries({ queryKey: queryKeys.memory(uid) });
+      if (!writeRefused(error)) {
+        void client.invalidateQueries({ queryKey: queryKeys.memory(uid) });
+        bumpMemoryRevision(uid);
+      }
     },
     onSuccess: (_data, write) => {
       if (write.correction) settleCorrection(client, uid, write.correction, null);
@@ -2204,14 +2442,18 @@ function useMemoryMutation<TInput, TData = unknown>(
       // And the trust screen, whose "what it knows" counts include memory —
       // the same reason Keep/Dismiss invalidate it (UC-3.16, #202).
       void client.invalidateQueries({ queryKey: queryKeys.trust(uid) });
+      // Last, after the list's refetch has started: a suggestion read begun
+      // now is fresher than that refetch, so the two signals cost one read.
+      bumpMemoryRevision(uid);
     },
+    onSettled: () => { onAnySettled?.(); },
   });
   // Hidden from the moment the correction is *called* (M5B2A-020), not from
   // `onMutate`, which runs a microtask later: a screen that navigates right
   // after the call must not commit one frame of the old basis (M5B2A-R4-003).
   const begin = (input: TInput): MemoryWrite<TInput> => {
     const target = basisTarget(input);
-    return { input, correction: target === null ? null : addCorrection(client, uid, target) };
+    return { input, correction: target === null ? null : addCorrection(client, uid, target), calledAt: nextMemorySequence() };
   };
   const relay = (options?: MemoryMutateOptions<TData, TInput>) => {
     if (!options) return undefined;
@@ -2233,8 +2475,9 @@ function useMemoryMutation<TInput, TData = unknown>(
 }
 
 export function useCreateMemory() {
+  const uid = useUid();
   return useMemoryMutation((input: { kind: 'fact' | 'preference' | 'goal'; content: string; language: 'ar' | 'he' | 'en' | 'mixed' }) =>
-    createMemory(input));
+    createMemory(input, asAccount(uid)));
 }
 
 export function usePatchMemory() {
@@ -2249,8 +2492,26 @@ export function useDeleteMemory() {
 }
 
 export function useDeleteAllMemory() {
+  const client = useQueryClient();
   const uid = useUid();
-  return useMemoryMutation((_: void) => deleteAllMemory(asAccount(uid)), () => 'all');
+  const base = useMemoryMutation((_: void) => deleteAllMemory(asAccount(uid)), () => 'all', undefined, memoryPurgeKey(uid));
+  // A delete-all that succeeded empties the list at once (M5B2A-R30-002): the
+  // re-read may be slow, paused or fail, and the erased rows must not come
+  // back from the old cache meanwhile.
+  const emptied = (options?: MemoryMutateOptions<unknown, void>): MemoryMutateOptions<unknown, void> => ({
+    ...options,
+    onSuccess: (data, input) => {
+      client.setQueryData(queryKeys.memory(uid), (old: unknown) => (old && typeof old === 'object'
+        ? { ...(old as Record<string, unknown>), items: [], suggestions: [], adaptive: null }
+        : old));
+      options?.onSuccess?.(data, input);
+    },
+  });
+  return {
+    ...base,
+    mutate: (input: void, options?: MemoryMutateOptions<unknown, void>) => base.mutate(input, emptied(options)),
+    mutateAsync: (input: void, options?: MemoryMutateOptions<unknown, void>) => base.mutateAsync(input, emptied(options)),
+  };
 }
 
 /**
@@ -2261,31 +2522,23 @@ export function useDeleteAllMemory() {
 export function useMemorySuggestion() {
   const client = useQueryClient();
   const uid = useUid();
-  return useMutation({
-    mutationFn: (input: { suggestion: MemorySuggestion; decision: 'keep' | 'dismiss'; language: 'ar' | 'he' | 'en' }) =>
+  // Through `useMemoryMutation`, so keeping a focus window — which replaces the
+  // one plans were arranged around (M5b-2a) — hides every basis line from the
+  // moment the call is made, not a microtask later in `onMutate` (M5B2A-R29-002).
+  // Both outcomes re-read the list (a 409 means the suggestion is gone).
+  return useMemoryMutation(
+    (input: { suggestion: MemorySuggestion; decision: 'keep' | 'dismiss'; language: 'ar' | 'he' | 'en' }) =>
       (input.decision === 'keep'
         ? keepMemorySuggestion(input.suggestion, input.language, asAccount(uid))
         : dismissMemorySuggestion(input.suggestion, asAccount(uid))),
-    // Keeping a focus window replaces the one plans were arranged around (M5b-2a).
-    onMutate: (input) => {
-      if (input.decision !== 'keep' || !input.suggestion.fingerprint.startsWith('R1_focus_window')) return { correction: null as BasisCorrection | null };
-      return { correction: addCorrection(client, uid, 'all') };
-    },
-    onError: (error, _input, context) => {
-      const correction = context?.correction;
-      if (correction) settleCorrection(client, uid, correction, error);
-    },
-    onSuccess: (_data, _input, context) => {
-      const correction = context?.correction;
-      if (correction) settleCorrection(client, uid, correction, null);
-    },
-    onSettled: () => {
-      // Settled, not success: a 409 means the suggestion is gone on the
-      // server, and the list has to be re-read to stop offering it.
+    (input) => (input.decision === 'keep' && input.suggestion.fingerprint.startsWith('R1_focus_window') ? 'all' : null),
+    // Refused or not: a 403 (consent withdrawn elsewhere) or a 409 (the
+    // suggestion is gone) means the list on screen is stale (R30-005).
+    () => {
       void client.invalidateQueries({ queryKey: queryKeys.memory(uid) });
       void client.invalidateQueries({ queryKey: queryKeys.trust(uid) });
     },
-  });
+  );
 }
 
 /**
@@ -2315,8 +2568,9 @@ export function useCommitmentSearch(foldedQuery: string, rawQuery: string, enabl
 }
 
 export function useDescribeProfile() {
+  const uid = useUid();
   return useMutation({
-    mutationFn: (text: string) => describeProfile(text, apiLocale()),
+    mutationFn: (text: string) => describeProfile(text, apiLocale(), asAccount(uid)),
   });
 }
 
@@ -2325,9 +2579,10 @@ export function useDescribeProfile() {
  * against a daily cap of three, and the user can press the button again.
  */
 export function useImportAiContext() {
+  const uid = useUid();
   return useMutation({
     mutationFn: (input: { text: string; assistant: ImportAssistant }) =>
-      importAiContext(input.text, input.assistant, apiLocale()),
+      importAiContext(input.text, input.assistant, apiLocale(), asAccount(uid)),
     retry: false,
   });
 }
@@ -2339,13 +2594,15 @@ export function useConfirmAiContextImport() {
     mutationFn: (input: {
       proposalId: string;
       accepted: { index: number; content?: string; resolve?: 'replace' | 'keep_both' }[];
-    }) => confirmAiContextImport(input.proposalId, input.accepted),
+    }) => confirmAiContextImport(input.proposalId, input.accepted, asAccount(uid)),
     onSuccess: () => {
-      // Two things went stale: the kept rows are memory now, and the Settings
-      // row that says when context was last brought over lives on the profile.
-      void client.invalidateQueries({ queryKey: queryKeys.memory(uid) });
+      // The Settings row that says when context was last brought over lives
+      // on the profile.
       void client.invalidateQueries({ queryKey: queryKeys.profile(uid) });
     },
+    // The kept rows are memory now (some may replace older ones), even when
+    // the answer was lost after the commit.
+    onSettled: (_result, error) => settleMemoryWrite(client, uid, error),
   });
 }
 
@@ -2354,12 +2611,10 @@ export function useConfirmProfileSuggestions() {
   const uid = useUid();
   return useMutation({
     mutationFn: (input: { proposalId: string; accepted: { index: number; content?: string }[] }) =>
-      confirmProfileSuggestions(input.proposalId, input.accepted),
-    onSuccess: () => {
-      // The confirmed facts are memory now, so the "what it knows" screen is
-      // out of date the moment this returns.
-      void client.invalidateQueries({ queryKey: queryKeys.memory(uid) });
-    },
+      confirmProfileSuggestions(input.proposalId, input.accepted, asAccount(uid)),
+    // The confirmed facts are memory now, so the "what it knows" screen is
+    // out of date the moment this returns — or times out after the commit.
+    onSettled: (_result, error) => settleMemoryWrite(client, uid, error),
   });
 }
 
@@ -2397,11 +2652,13 @@ export function useSaveReminderSettings() {
   const uid = useUid();
   return useMutation({
     mutationFn: (patch: ReminderSettingsPatch) => putReminderSettings(patch),
-    onSettled: (_result, _error, patch) => {
+    onSettled: (_result, error, patch) => {
       void client.invalidateQueries({ queryKey: queryKeys.reminderSettings(uid) });
       if (patch.quietHours !== undefined) {
         void client.invalidateQueries({ queryKey: queryKeys.profile(uid) });
-        void client.invalidateQueries({ queryKey: queryKeys.memory(uid) });
+        // Quiet hours are kept as a routine fact in memory.
+        if (error === null || !writeRefused(error)) settleMemoryWrite(client, uid);
+        else void client.invalidateQueries({ queryKey: queryKeys.memory(uid) });
         // The next step is gated on the same window.
         void client.invalidateQueries({ queryKey: ['user', uid, 'nextStep'] });
       }
@@ -2548,8 +2805,9 @@ function useSeedMutation<TInput, TResult>(mutationFn: (input: TInput) => Promise
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: queryKeys.seeds(uid) });
       void client.invalidateQueries({ queryKey: ['user', uid, 'commitments'] });
-      void client.invalidateQueries({ queryKey: queryKeys.memory(uid) });
     },
+    // A seed promoted to a goal is a memory record.
+    onSettled: (_result, error) => settleMemoryWrite(client, uid, error),
   });
 }
 

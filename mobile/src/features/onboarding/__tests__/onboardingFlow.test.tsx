@@ -657,7 +657,7 @@ describe('the guided setup', () => {
     await press(en.obSetupRead);
     await waitFor(() => expect(screen.queryByTestId('onboarding-about-review')).not.toBeNull());
     await press(en.obAboutSaveNone);
-    await waitFor(() => expect(profileEndpoints.confirmProfileSuggestions).toHaveBeenCalledWith('pp-1', []));
+    await waitFor(() => expect(profileEndpoints.confirmProfileSuggestions).toHaveBeenCalledWith('pp-1', [], { asUid: 'onboarding-user' }));
     await waitFor(() => expect(screen.queryByTestId('onboarding-notifications')).not.toBeNull());
   });
 });

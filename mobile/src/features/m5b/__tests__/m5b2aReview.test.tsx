@@ -2,7 +2,10 @@ import React, { Profiler, useEffect, useRef, useState } from 'react';
 import { BackHandler, Pressable, View } from 'react-native';
 import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react-native';
-import { basisCorrectionCountForTests, basisStateHeldForTests, queryKeys, resetBasisCorrections, useMemorySuggestion, usePlanAction, useSetPersonalizationConsent } from '../../../api/queries';
+import {
+  basisCorrectionCountForTests, basisStateHeldForTests, queryKeys, resetBasisCorrections, useConfirmAiContextImport, useConfirmProfileSuggestions,
+  useCreateMemory, useDescribeProfile, useImportAiContext, useMemorySuggestion, usePlanAction, usePutRoutine, useSetPersonalizationConsent,
+} from '../../../api/queries';
 import personalizationRecorded from '../../../api/__fixtures__/consents.personalizationRecorded.json';
 import { ACCOUNT_A, ACCOUNT_B } from '../../../__acceptance__/m5b/harness';
 import {
@@ -10,6 +13,7 @@ import {
   planEnvelope, planWithBasis, prepare, showPanel, teardown, type M5bHarness, type RouteHandler, type RouteReply,
 } from '../../../__acceptance__/m5b2a/harness';
 import { PlanScreen } from '../../../screens/PlanScreen';
+import { IntelligencePanel } from '../../goals/IntelligencePanel';
 import { Root } from '../../../Root';
 import { useApp } from '../../../state/AppContext';
 
@@ -199,6 +203,54 @@ describe('M5b-2a inspection fixes', () => {
     await fireEvent.press(within(card).getByText("Yes, that's right"));
     await act(async () => { await jest.advanceTimersByTimeAsync(100); });
     expect(screen.queryByTestId('m5b-learned-status')).toBeNull();
+  });
+
+  it('R29-002: keeping a focus-window suggestion hides the basis from the call itself, not a microtask later', async () => {
+    harness = await prepare('en', initialState(), planOnly(planWithBasis()));
+    const counted: number[] = [];
+    function Keep() {
+      const decide = useMemorySuggestion();
+      return <Pressable testID="r29-keep" onPress={() => {
+        decide.mutate({ suggestion: { ruleId: 'R1', fingerprint: 'R1_focus_window:09:00-12:00' } as never, decision: 'keep', language: 'en' });
+        counted.push(basisCorrectionCountForTests(harness!.client, ACCOUNT_A.uid));
+      }} />;
+    }
+    await render(<Providers harness={harness}><Keep /></Providers>);
+    await act(async () => { await jest.advanceTimersByTimeAsync(100); });
+    await fireEvent.press(screen.getByTestId('r29-keep'));
+    expect(counted).toEqual([1]);
+  });
+
+  it('R28-004: the visit\'s older inbox read, answering after the dismissal\'s own read, never brings the dismissed outcome back', async () => {
+    let reads = 0;
+    const late = deferred<void>();
+    const fresh = {
+      id: 'proposal-new', kind: 'action', title: 'Find a Pilates class', reason: 'You want more Pilates time',
+      observationIds: ['o1'], confidence: 0.8, durationMinutes: 30,
+      status: 'pending', decidedAt: null, linkedEntityId: null, generatedAt: NOW.toISOString(),
+    };
+    const base = panelHandler({ observations: [outcome('o1')] });
+    harness = await prepare('en', initialState(), (request) => {
+      if (request.method === 'POST' && request.path === '/api/mobile/intelligence/generate') {
+        return { status: 200, body: { success: true, suggestions: [fresh], schedule: [] } };
+      }
+      if (request.method === 'GET' && request.path === '/api/mobile/intelligence') {
+        reads += 1;
+        // The visit's read is taken now, before «مش صحيح», and answers last.
+        if (reads === 2) { const stale = base(request); return late.promise.then(() => stale); }
+      }
+      return base(request);
+    });
+    await render(<Providers harness={harness}><IntelligencePanel onChanged={() => undefined} autoGenerate /></Providers>);
+    await act(async () => { await jest.advanceTimersByTimeAsync(500); });
+    await waitFor(() => expect(reads).toBe(2));
+    await fireEvent.press(screen.getByTestId('m5b-learned'));
+    await fireEvent.press(screen.getByTestId('m5b-learned-wrong-o1'));
+    await waitFor(() => expect(reads).toBeGreaterThan(2));
+    await act(async () => { await jest.advanceTimersByTimeAsync(100); });
+    expect(screen.queryByTestId('m5b-learned-wrong-o1')).toBeNull();
+    await act(async () => { late.resolve(); await jest.advanceTimersByTimeAsync(100); });
+    expect(screen.queryByTestId('m5b-learned-wrong-o1')).toBeNull();
   });
 
   it('R4-002: a dismissal takes the previous action\'s failed-refresh line out of the region', async () => {
@@ -567,6 +619,59 @@ describe('M5b-2a inspection fixes', () => {
     jest.spyOn(repository, 'currentUser').mockReturnValue(ACCOUNT_B);
     await act(async () => { token.resolve(await realToken(false)); await jest.advanceTimersByTimeAsync(100); });
     expect(harness.server.matching(method, new RegExp(`^${path}$`))).toHaveLength(0);
+  });
+
+  // R32-001: the same for the memory and profile writes outside the plan's basis.
+  // A's own words — a fact, a self-description, an imported profile, a kept
+  // suggestion — must never be stored in B's account.
+  function ProfileWrites() {
+    const create = useCreateMemory();
+    const describe = useDescribeProfile();
+    const importContext = useImportAiContext();
+    const confirmDescribe = useConfirmProfileSuggestions();
+    const confirmImport = useConfirmAiContextImport();
+    const routine = usePutRoutine();
+    return <View>
+      <Pressable testID="p-create" onPress={() => create.mutate({ kind: 'fact', content: 'A typed this', language: 'en' })} />
+      <Pressable testID="p-describe" onPress={() => describe.mutate('I am account A and I work nights')} />
+      <Pressable testID="p-import" onPress={() => importContext.mutate({ text: 'A profile another assistant wrote about A', assistant: 'chatgpt' })} />
+      <Pressable testID="p-confirm-describe" onPress={() => confirmDescribe.mutate({ proposalId: 'pp-1', accepted: [{ index: 0, content: 'A edited this' }] })} />
+      <Pressable testID="p-confirm-import" onPress={() => confirmImport.mutate({ proposalId: 'ip-1', accepted: [{ index: 0 }] })} />
+      <Pressable testID="p-routine" onPress={() => routine.mutate({} as never)} />
+    </View>;
+  }
+  const profileBound: [string, string, string, string][] = [
+    ['memory create', 'p-create', 'POST', '/api/mobile/memory'],
+    ['self-description read', 'p-describe', 'POST', '/api/mobile/profile/describe'],
+    ['AI-context import', 'p-import', 'POST', '/api/mobile/profile/import'],
+    ['self-description confirmation', 'p-confirm-describe', 'POST', '/api/mobile/profile/describe/confirm'],
+    ['import confirmation', 'p-confirm-import', 'POST', '/api/mobile/profile/import/confirm'],
+    ['routine save', 'p-routine', 'PUT', '/api/mobile/profile/routine'],
+  ];
+  it.each(profileBound)('R32-001: a %s started for account A is not sent once account B is signed in', async (_label, testID, method, path) => {
+    harness = await prepare('en', initialState(), planOnly(planWithBasis()));
+    await render(<Providers harness={harness}><ProfileWrites /></Providers>);
+    await act(async () => { await jest.advanceTimersByTimeAsync(100); });
+    const token = deferred<string | null>();
+    const repository = harness.repository as unknown as { getIdToken: (force?: boolean) => Promise<string | null>; currentUser: () => unknown };
+    const realToken = repository.getIdToken.bind(repository);
+    jest.spyOn(repository, 'getIdToken').mockImplementationOnce(() => token.promise);
+    await fireEvent.press(screen.getByTestId(testID));
+    // B signs in while A's token is still being fetched.
+    jest.spyOn(repository, 'currentUser').mockReturnValue(ACCOUNT_B);
+    await act(async () => { token.resolve(await realToken(false)); await jest.advanceTimersByTimeAsync(100); });
+    expect(harness.server.matching(method, new RegExp(`^${path}$`))).toHaveLength(0);
+  });
+
+  it('R32-001: with no account switch, the same writes do reach the server (the test above can fail)', async () => {
+    harness = await prepare('en', initialState(), planOnly(planWithBasis()));
+    await render(<Providers harness={harness}><ProfileWrites /></Providers>);
+    await act(async () => { await jest.advanceTimersByTimeAsync(100); });
+    for (const [, testID] of profileBound) await fireEvent.press(screen.getByTestId(testID));
+    await act(async () => { await jest.advanceTimersByTimeAsync(100); });
+    for (const [, , method, path] of profileBound) {
+      expect(harness.server.matching(method, new RegExp(`^${path}$`))).toHaveLength(1);
+    }
   });
 
   it('R8-001: an outcome dismissal started for account A is not sent once account B is signed in', async () => {

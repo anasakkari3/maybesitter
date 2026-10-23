@@ -80,7 +80,7 @@ import { readBusyBlocksForPlanning } from '../../calendar/busyBlocks';
 import { buildDailyPlanInput, dayHorizon } from './buildDailyPlan';
 import { loadDomainState } from '../mobile/participantState';
 import type { Commitment } from '../../../src/domain/stateMachine';
-import { composeDailyPlan, composedPlanPurgeEpoch, memoryFocusForPlan, personalizationPurgeMatches, type DailyPlanDeps } from './dailyPlanService';
+import { composeDailyPlan, composedPlanPurgeEpoch, memoryFocusForAccept, memoryFocusStands, personalizationPurgeMatches, routineOwnsFocus, type DailyPlanDeps } from './dailyPlanService';
 import { planUsedWindow } from './planMemoryBasis';
 import { resolveMemoryLearning } from '../../release/m5bCapabilities';
 
@@ -269,7 +269,7 @@ export async function acceptPlan(uid: string, date: string, options: PlanActionO
   // Its epoch was taken before the read, and is checked again inside.
   const before = await readStoredPlan(uid, date, options.storage);
   const authorized = !options.strictMemoryEpoch && before && (before.memoryUse || before.focusFromMemory === true)
-    ? await memoryFocusForPlan(uid, at, { ...(options.storage ? { storage: options.storage } : {}) })
+    ? await memoryFocusForAccept(uid, at, options.storage ?? getStorage())
     : null;
   const outcome = await mutateStoredPlan<null>(uid, date, async (current, tx) => {
     empty = false;
@@ -291,9 +291,14 @@ export async function acceptPlan(uid: string, date: string, options: PlanActionO
     if (memoryEpoch !== undefined) {
       const user = await tx.get(userDoc(uid));
       if (!personalizationPurgeMatches(user, memoryEpoch)) {
+        // The routine taking focus time since (R24-002), or the kept record
+        // edited, deleted or replaced since it was read (R24-003), is checked
+        // here, in the same transaction as the acceptance.
         const stillAuthorized = authorized !== null
           && personalizationPurgeMatches(user, authorized.purgeEpoch)
-          && planUsedWindow(current, authorized.window);
+          && !routineOwnsFocus(user)
+          && planUsedWindow(current, authorized.window)
+          && await memoryFocusStands(tx, uid, authorized, at);
         if (!stillAuthorized) {
           fenced = true;
           return null;

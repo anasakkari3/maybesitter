@@ -229,7 +229,11 @@ describe('M5b-2a R2 numbered-response display overlay', () => {
     expect(screen.queryByTestId('m5b-plan-memory-basis')).toBeNull();
   });
 
-  it('M5B2A-020 delete-all flushes a pending undo delete and the deleted basis never reappears', async () => {
+  // GA-M5B2A-AMEND-6 (Claude, M5B2A-R28-001): delete-all *cancels* a pending
+  // undo delete instead of flushing it. The all-scope deletion takes that row,
+  // and a single delete sent beside the purge could land its dismissal after the
+  // purge reported done. Only the delete-all request goes out.
+  it('M5B2A-020 delete-all takes over a pending undo delete and the deleted basis never reappears', async () => {
     const one = deferred<RouteReply>();
     const all = deferred<RouteReply>();
     // GA-M5B2A-AMEND-3 (Claude): once memory is deleted, the server's plan
@@ -259,10 +263,13 @@ describe('M5b-2a R2 numbered-response display overlay', () => {
     expect(screen.queryByTestId('m5b-plan-memory-basis')).not.toBeNull();
     await fireEvent.press(screen.getByTestId('memory-screen-delete-all'));
     await fireEvent.press(screen.getByTestId('memory-screen-delete-all-confirm'));
-    await waitFor(() => expect(harness!.server.matching('DELETE', /\/api\/mobile\/memory/)).toHaveLength(2));
+    await waitFor(() => expect(harness!.server.matching('DELETE', /\/api\/mobile\/memory$/)).toHaveLength(1));
+    expect(harness.server.matching('DELETE', new RegExp(`/memory/${BASIS_ID}$`))).toHaveLength(0);
     expect(screen.queryByTestId('m5b-plan-memory-basis')).toBeNull();
-    await act(async () => { one.resolve({ status: 200, body: { success: true, deleted: 1 } }); all.resolve({ status: 200, body: { success: true, deleted: 2 } }); });
+    await act(async () => { all.resolve({ status: 200, body: { success: true, deleted: 2 } }); await jest.advanceTimersByTimeAsync(30_000); });
+    expect(harness.server.matching('DELETE', new RegExp(`/memory/${BASIS_ID}$`))).toHaveLength(0);
     expect(screen.queryByTestId('m5b-plan-memory-basis')).toBeNull();
+    void one;
   });
 
   const overlapCases: [string, 'patch' | 'delete'][] = [

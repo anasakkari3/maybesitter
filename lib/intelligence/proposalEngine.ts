@@ -11,6 +11,19 @@ import { loadDomainState } from '../services/mobile/participantState';
 import { readPlanSettings } from '../services/dailyPlan/dailyPlanService';
 import { normalizeTimezone } from '../services/mobile/time';
 import type { StorageTransaction } from '../storage/storageAdapter';
+import { m5bBasisMode, type M5bBasisMode } from '../release/m5bCapabilities';
+import {
+  basisEligible,
+  citationPath,
+  filterMemoryObservations,
+  memoriesStillEligible,
+  readActiveMemorySnapshot,
+  requireLiveAccount,
+  suggestionMatchesMode,
+  suggestionProjection,
+  type MemorySnapshot,
+  type StoredMemoryBasis,
+} from './memoryBasis';
 
 export type SuggestionKind = 'goal' | 'action' | 'question' | 'warning';
 export type SuggestionStatus = 'pending' | 'accepting' | 'accepted' | 'dismissed';
@@ -32,6 +45,10 @@ export interface IntelligenceSuggestion {
   /** Hash of the one answer claimed for a question; no raw answer here. */
   answerDigest?: string;
   generatedAt: string;
+  /** Internal provenance; removed from every suggestion DTO. */
+  mode?: 'on_basis' | 'on_nobasis';
+  /** Internal ids-only basis; projected live, never returned as stored. */
+  memoryBasis?: StoredMemoryBasis;
 }
 
 export interface IntelligenceRun {
@@ -46,6 +63,8 @@ export interface IntelligenceRun {
   /** UTC day and count of runs a screen visit started that day. */
   visitDay?: string;
   visitRuns?: number;
+  /** Absent is the byte-compatible legacy/off provenance. */
+  mode?: 'on_basis' | 'on_nobasis';
 }
 
 export function isDismissedBehaviourOutcome(value: unknown): value is StoredObservation {
@@ -129,6 +148,8 @@ export function intelligenceRunPath(uid: string): string {
  */
 export async function reuseRunForVisit(uid: string, now: string, storage: StorageAdapter = getStorage()): Promise<IntelligenceSuggestion[] | null> {
   const current = await storage.get<IntelligenceRun>(intelligenceRunPath(uid));
+  const mode = m5bBasisMode();
+  if ((mode === 'off' && current?.mode !== undefined) || (mode !== 'off' && current?.mode !== mode)) return null;
   if (!visitBlockedByRun(current, now)) return null;
   return current?.status === 'complete' ? readRun(uid, current, storage) : [];
 }
@@ -145,6 +166,18 @@ const SCHEMA = {
   }, required: ['kind', 'title', 'reason', 'observationIds', 'confidence', 'durationMinutes'] } } },
   required: ['suggestions'],
 } as const;
+
+function schemaForMode(mode: M5bBasisMode): unknown {
+  if (mode !== 'on_basis') return SCHEMA;
+  const item = SCHEMA.properties.suggestions.items;
+  return {
+    ...SCHEMA,
+    properties: { suggestions: { ...SCHEMA.properties.suggestions, items: {
+      ...item,
+      properties: { ...item.properties, memoryRefs: { type: 'array', items: { type: 'string' } } },
+    } } },
+  };
+}
 
 /**
  * The register every suggestion is written in. "Levantine" alone was not
@@ -237,7 +270,12 @@ function requestReason(evidence: string, source: StoredObservation['source']): s
     : 'You mentioned this request. Review it before adding it.';
 }
 
-export function validateSuggestions(raw: unknown, observations: readonly StoredObservation[], now: string): IntelligenceSuggestion[] {
+export function validateSuggestions(
+  raw: unknown,
+  observations: readonly StoredObservation[],
+  now: string,
+  citation: { aliasToMemoryId?: ReadonlyMap<string, string>; epoch?: number; mode?: M5bBasisMode } = {},
+): IntelligenceSuggestion[] {
   const rows = (raw as { suggestions?: unknown } | null)?.suggestions;
   if (!Array.isArray(rows)) return [];
   const available = new Map(observations.map(observation => [observation.id, observation]));
@@ -265,10 +303,22 @@ export function validateSuggestions(raw: unknown, observations: readonly StoredO
     if (seen.has(key)) continue;
     seen.add(key);
     const id = createHash('sha256').update(key).digest('hex');
+    const direct = Array.isArray(row.memoryRefs)
+      ? Array.from(new Set(row.memoryRefs.filter((alias): alias is string => typeof alias === 'string')
+        .map(alias => citation.aliasToMemoryId?.get(alias)).filter((memoryId): memoryId is string => Boolean(memoryId)))).slice(0, 3)
+      : [];
+    const observed = observationIds.map(observationId => available.get(observationId))
+      .filter((observation): observation is StoredObservation => observation?.source === 'memory')
+      .map(observation => observation.sourceRef);
+    const memoryIds = Array.from(new Set([...direct, ...observed]));
+    if (citation.mode === 'on_basis' && memoryIds.length > 3) continue;
     result.push({
       id, kind: row.kind, title, reason,
       observationIds, confidence: row.confidence, durationMinutes: row.durationMinutes as number,
       status: 'pending', position: result.length, decidedAt: null, linkedEntityId: null, generatedAt: now,
+      ...(citation.mode && citation.mode !== 'off' ? { mode: citation.mode } : {}),
+      ...(citation.mode === 'on_basis' && memoryIds.length > 0
+        ? { memoryBasis: { memoryIds, epoch: citation.epoch ?? 0 } } : {}),
     });
   }
   return result;
@@ -388,6 +438,33 @@ export async function listSuggestions(uid: string, storage: StorageAdapter = get
     || (a.position ?? 999) - (b.position ?? 999) || a.id.localeCompare(b.id));
 }
 
+export function suggestionToDto(
+  stored: IntelligenceSuggestion,
+  projection?: Array<{ memoryId: string }>,
+): Omit<IntelligenceSuggestion, 'mode' | 'memoryBasis'> & { memoryBasis?: Array<{ memoryId: string }> } {
+  const { mode: _mode, memoryBasis: _storedBasis, ...dto } = stored;
+  return projection && stored.status === 'pending' ? { ...dto, memoryBasis: projection } : dto;
+}
+
+/** Retire a stale card even when its provenance is no longer actionable. */
+export async function dismissSuggestionWithDismissedOutcome(
+  uid: string,
+  id: string,
+  now: string,
+  storage: StorageAdapter = getStorage(),
+): Promise<boolean> {
+  return storage.runTransaction(async tx => {
+    const path = suggestionPath(uid, id);
+    const suggestion = await tx.get<IntelligenceSuggestion>(path);
+    if (!suggestion || suggestion.status !== 'pending') return false;
+    const observations = await Promise.all(suggestion.observationIds.map(observationId =>
+      tx.get<StoredObservation>(observationPath(uid, observationId))));
+    if (!observations.some(isDismissedBehaviourOutcome)) return false;
+    tx.set(path, { ...suggestion, status: 'dismissed', decidedAt: now });
+    return true;
+  });
+}
+
 /**
  * An instant as the person's own wall clock: «2026-10-04 10:00». The model is
  * never handed a UTC instant to convert. It did not, and told someone in
@@ -418,15 +495,23 @@ export async function proposeFromObservations<TransactionGuardState = undefined>
     transactionGuard?: (tx: StorageTransaction) => Promise<TransactionGuardState>;
     /** Caller-owned completion fields written atomically with the proposal set. */
     transactionComplete?: (tx: StorageTransaction, guardState: TransactionGuardState) => Promise<void>;
+    /** Internal: the single memory-free retry keeps the reservation it owns. */
+    _memoryFreeRetry?: { claimId: string };
   } = {},
 ): Promise<IntelligenceSuggestion[]> {
   const storage = options.storage ?? getStorage();
+  const mode = m5bBasisMode();
   const runPath = intelligenceRunPath(uid);
-  if (options.visit) {
+  if (options.visit && !options._memoryFreeRetry) {
     const reused = await reuseRunForVisit(uid, now, storage);
     if (reused) return reused;
   }
-  await syncCanonicalObservations(uid, now, storage);
+  const memorySnapshot = mode === 'on_basis'
+    ? options._memoryFreeRetry
+      ? { available: false, epoch: 0, records: new Map() } satisfies MemorySnapshot
+      : await readActiveMemorySnapshot(uid, now, storage)
+    : undefined;
+  await syncCanonicalObservations(uid, now, storage, memorySnapshot);
   const availableObservations = (await listObservations(uid, storage))
     // A self-reply auto-add is already canonical work. Feeding its supporting
     // observation back into proposals would offer the same obligation twice.
@@ -436,12 +521,25 @@ export async function proposeFromObservations<TransactionGuardState = undefined>
     .map(item => item.linkedMemoryId));
   // A confirmed statement and the canonical memory created from it are one
   // piece of evidence. Showing both made the source line repeat verbatim.
-  const observations = availableObservations
+  const observations = filterMemoryObservations(availableObservations, mode, memorySnapshot)
     .filter(item => !(item.source === 'memory' && linkedGoalMemories.has(item.sourceRef)))
     .slice(0, 30);
-  if (observations.length === 0) return [];
+  if (observations.length === 0) {
+    if (!options._memoryFreeRetry) return [];
+    await storage.runTransaction(async tx => {
+      const current = await tx.get<IntelligenceRun>(runPath);
+      if (current?.claimId !== options._memoryFreeRetry!.claimId) return false;
+      await requireLiveAccount(tx, uid);
+      tx.set(runPath, { ...current, status: 'complete', suggestionIds: [] });
+      return true;
+    });
+    return [];
+  }
   const [memory, state, planSettings] = await Promise.all([
-    listMemory(uid, now, { storage }), loadDomainState(storage, uid), readPlanSettings(uid, { storage }),
+    mode === 'on_nobasis' ? Promise.resolve([]) : mode === 'on_basis'
+      ? Promise.resolve(memorySnapshot?.available ? Array.from(memorySnapshot.records.values()) : [])
+      : listMemory(uid, now, { storage }),
+    loadDomainState(storage, uid), readPlanSettings(uid, { storage }),
   ]);
   const zone = normalizeTimezone(planSettings.timezone);
   const knownWork = Object.values(state.commitments).filter(item => item.status === 'active' || item.status === 'deferred' || item.status === 'completed');
@@ -451,12 +549,28 @@ export async function proposeFromObservations<TransactionGuardState = undefined>
   }));
   const priorDecisions = (await listSuggestions(uid, storage))
     .filter(item => item.status === 'accepted' || item.status === 'dismissed')
+    .filter(item => {
+      if (mode === 'off') return item.mode === undefined;
+      if (item.mode !== mode) return false;
+      if (mode === 'on_nobasis') return item.memoryBasis === undefined;
+      return !item.memoryBasis || Boolean(memorySnapshot && basisEligible(item.memoryBasis, memorySnapshot));
+    })
     .slice(0, 20)
     .map(item => ({ kind: item.kind, title: item.title, decision: item.status, decidedAt: localWallClock(item.decidedAt, zone) }));
+  const memoryRows = memory.slice(0, 30);
+  const aliasToMemoryId = new Map<string, string>();
+  const projectedMemory = memoryRows.map((item, index) => {
+    const alias = `m${index + 1}`;
+    if (mode === 'on_basis') aliasToMemoryId.set(alias, item.id);
+    return {
+      ...(mode === 'on_basis' ? { alias } : {}),
+      kind: item.kind, content: item.content, confidence: item.confidence,
+    };
+  });
   const content = {
     timezone: zone,
     observations: context, priorDecisions,
-    memory: memory.slice(0, 30).map(item => ({ kind: item.kind, content: item.content, confidence: item.confidence })),
+    memory: projectedMemory,
     confirmedWork: knownWork.slice(0, 40).map(item => ({
       title: item.title, status: item.status,
       at: localWallClock(item.timeSpec.dueAt, zone, item.timeSpec.allDay),
@@ -468,10 +582,17 @@ export async function proposeFromObservations<TransactionGuardState = undefined>
   const modelContext = { currentTime, ...content };
   const digest = createHash('sha256').update(JSON.stringify(modelContext)).digest('hex');
   const contentDigest = createHash('sha256').update(JSON.stringify(content)).digest('hex');
-  const claimId = randomUUID();
+  const claimId = options._memoryFreeRetry?.claimId ?? randomUUID();
   const today = now.slice(0, 10);
   const claimed = await storage.runTransaction(async tx => {
     const current = await tx.get<IntelligenceRun>(runPath);
+    if (options._memoryFreeRetry) {
+      if (current?.claimId !== claimId) return false;
+      await requireLiveAccount(tx, uid);
+      tx.set(runPath, { ...current, digest, contentDigest, status: 'running', generatedAt: now,
+        reservedUntil: new Date(Date.parse(now) + 30_000).toISOString(), suggestionIds: [], mode: 'on_basis' });
+      return true;
+    }
     const age = current ? Date.parse(now) - Date.parse(current.generatedAt) : Infinity;
     if (current?.status === 'running' && Date.parse(current.reservedUntil) > Date.parse(now)) return false;
     if (options.visit) {
@@ -483,10 +604,12 @@ export async function proposeFromObservations<TransactionGuardState = undefined>
       if (current?.digest === digest && current.status === 'complete' && age >= 0 && age < cooldown) return false;
     }
     const sameDay = current?.visitDay === today;
+    await requireLiveAccount(tx, uid);
     tx.set(runPath, { digest, contentDigest, claimId, status: 'running', generatedAt: now,
       reservedUntil: new Date(Date.parse(now) + 30_000).toISOString(), suggestionIds: [],
       visitDay: today,
       visitRuns: (sameDay ? current?.visitRuns ?? 0 : 0) + (options.visit ? 1 : 0),
+      ...(mode === 'off' ? {} : { mode }),
     } satisfies IntelligenceRun);
     return true;
   });
@@ -504,12 +627,14 @@ export async function proposeFromObservations<TransactionGuardState = undefined>
     const response = await generate({
       system: SYSTEM,
       parts: [wrapUntrustedShared(JSON.stringify(modelContext))],
-      responseSchema: toVertexSchema(SCHEMA),
+      responseSchema: toVertexSchema(schemaForMode(mode) as typeof SCHEMA),
       maxOutputTokens: 2_200,
       timeoutMs: 8_000,
       retry: false,
     });
-    suggestions = groundCommitmentReasons(validateSuggestions(JSON.parse(response.text), observations, now), observations, knownWork, zone);
+    suggestions = groundCommitmentReasons(validateSuggestions(JSON.parse(response.text), observations, now, {
+      aliasToMemoryId, epoch: memorySnapshot?.epoch, mode,
+    }), observations, knownWork, zone);
     let usedSecondPass = false;
     if (observations.some(item => item.kind === 'event')
       && !suggestions.some(item => item.kind === 'action'
@@ -519,13 +644,15 @@ export async function proposeFromObservations<TransactionGuardState = undefined>
         const preparation = await generate({
           system: EVENT_PREPARATION_SYSTEM,
           parts: [wrapUntrustedShared(JSON.stringify(modelContext))],
-          responseSchema: toVertexSchema(SCHEMA),
+          responseSchema: toVertexSchema(schemaForMode(mode) as typeof SCHEMA),
           maxOutputTokens: 600,
           timeoutMs: 8_000,
           retry: false,
         });
         const eventIds = new Set(observations.filter(item => item.kind === 'event').map(item => item.id));
-        const extra = groundCommitmentReasons(validateSuggestions(JSON.parse(preparation.text), observations, now), observations, knownWork, zone)
+        const extra = groundCommitmentReasons(validateSuggestions(JSON.parse(preparation.text), observations, now, {
+          aliasToMemoryId, epoch: memorySnapshot?.epoch, mode,
+        }), observations, knownWork, zone)
           .find(item => item.kind === 'action' && item.observationIds.some(id => eventIds.has(id))
             && !suggestions.some(existing => existing.id === item.id));
         if (extra) {
@@ -552,12 +679,14 @@ export async function proposeFromObservations<TransactionGuardState = undefined>
         const steps = await generate({
           system: GOAL_STEPS_SYSTEM,
           parts: [wrapUntrustedShared(JSON.stringify(modelContext))],
-          responseSchema: toVertexSchema(SCHEMA),
+          responseSchema: toVertexSchema(schemaForMode(mode) as typeof SCHEMA),
           maxOutputTokens: 900,
           timeoutMs: 8_000,
           retry: false,
         });
-        const moves = groundCommitmentReasons(validateSuggestions(JSON.parse(steps.text), observations, now), observations, knownWork, zone)
+        const moves = groundCommitmentReasons(validateSuggestions(JSON.parse(steps.text), observations, now, {
+          aliasToMemoryId, epoch: memorySnapshot?.epoch, mode,
+        }), observations, knownWork, zone)
           .filter(item => (item.kind === 'action' || item.kind === 'question')
             && item.observationIds.some(id => confirmedGoalIds.has(id))
             && (item.kind !== 'action' || !existingTitles.has(item.title.trim().toLowerCase())));
@@ -584,6 +713,23 @@ export async function proposeFromObservations<TransactionGuardState = undefined>
     if (options.throwOnGenerateFailure) throw error;
     suggestions = [];
   }
+  if (mode !== 'off') {
+    const byObservation = new Map(observations.filter(item => item.source === 'memory').map(item => [item.id, item.sourceRef]));
+    suggestions = suggestions.flatMap(item => {
+      const memoryIds = Array.from(new Set([
+        ...(item.memoryBasis?.memoryIds ?? []),
+        ...item.observationIds.map(id => byObservation.get(id)).filter((id): id is string => Boolean(id)),
+      ]));
+      if (mode === 'on_basis' && memoryIds.length > 3) return [];
+      const { memoryBasis: _oldBasis, ...withoutBasis } = item;
+      return [{ ...withoutBasis, mode, ...(mode === 'on_basis' && memoryIds.length > 0
+        ? { memoryBasis: { memoryIds, epoch: memorySnapshot?.epoch ?? 0 } } : {}) }];
+    });
+  }
+  const suppliedMemoryIds = mode === 'on_basis' ? Array.from(new Set([
+    ...memoryRows.map(item => item.id),
+    ...observations.filter(item => item.source === 'memory').map(item => item.sourceRef),
+  ])) : [];
   const committed = await storage.runTransaction(async tx => {
     const citedIds = Array.from(new Set(suggestions.flatMap(suggestion => suggestion.observationIds)));
     const [current, existingById, cited] = await Promise.all([
@@ -594,20 +740,77 @@ export async function proposeFromObservations<TransactionGuardState = undefined>
       ] as const)).then(entries => new Map(entries)),
       Promise.all(citedIds.map(id => tx.get<StoredObservation>(observationPath(uid, id)))),
     ]);
-    if (current?.claimId !== claimId) return false;
+    if (current?.claimId !== claimId) return 'claim_lost' as const;
+    if (mode === 'on_basis' && suppliedMemoryIds.length > 0
+      && !(await memoriesStillEligible(tx, uid, new Date().toISOString(), memorySnapshot?.epoch ?? 0, suppliedMemoryIds))) {
+      return 'memory_invalid' as const;
+    }
+    await requireLiveAccount(tx, uid);
     const guardState = options.transactionGuard
       ? await options.transactionGuard(tx)
       : undefined as TransactionGuardState;
     const dismissedIds = new Set(cited.filter(isDismissedBehaviourOutcome).map(item => item.id));
     suggestions = suggestions.filter(suggestion => !suggestion.observationIds.some(id => dismissedIds.has(id)));
-    suggestions.forEach((suggestion) => {
-      if (!existingById.get(suggestion.id)) tx.create(suggestionPath(uid, suggestion.id), suggestion);
-    });
+    const existingEligibility = new Map<string, boolean>();
+    const eligibilityCheckedAt = new Date().toISOString();
+    await Promise.all(suggestions.map(async suggestion => {
+      const existing = existingById.get(suggestion.id);
+      if (!existing || existing.status !== 'pending') return;
+      let eligible = mode === 'off'
+        && existing.mode === undefined
+        && existing.memoryBasis === undefined;
+      if (mode === 'on_basis' && existing.mode === 'on_basis') {
+        eligible = !existing.memoryBasis || await memoriesStillEligible(
+          tx, uid, eligibilityCheckedAt, existing.memoryBasis.epoch, existing.memoryBasis.memoryIds,
+        );
+      } else if (mode === 'on_nobasis') {
+        eligible = existing.mode === 'on_nobasis' && !existing.memoryBasis;
+      }
+      existingEligibility.set(suggestion.id, eligible);
+    }));
+    const kept: IntelligenceSuggestion[] = [];
+    for (const suggestion of suggestions) {
+      const existing = existingById.get(suggestion.id);
+      if (!existing) {
+        tx.create(suggestionPath(uid, suggestion.id), suggestion);
+        for (const memoryId of suggestion.memoryBasis?.memoryIds ?? []) {
+          tx.create(citationPath(uid, memoryId, suggestion.id), { memoryId, suggestionId: suggestion.id });
+        }
+        kept.push(suggestion);
+        continue;
+      }
+      if (existing.status !== 'pending') {
+        // Off mode keeps the pre-M5b behaviour byte-for-byte: an existing
+        // decided identity remains part of the completed run and response.
+        // Enabled modes drop it because only pending rows may take the
+        // cross-mode replacement path (R18-001).
+        if (mode === 'off') kept.push(existing);
+        continue;
+      }
+      if (existingEligibility.get(suggestion.id)) {
+        kept.push(existing);
+        continue;
+      }
+      for (const memoryId of existing.memoryBasis?.memoryIds ?? []) tx.delete(citationPath(uid, memoryId, existing.id));
+      tx.set(suggestionPath(uid, suggestion.id), suggestion);
+      for (const memoryId of suggestion.memoryBasis?.memoryIds ?? []) {
+        tx.set(citationPath(uid, memoryId, suggestion.id), { memoryId, suggestionId: suggestion.id });
+      }
+      kept.push(suggestion);
+    }
+    suggestions = kept;
     tx.set(runPath, { ...current, status: 'complete', suggestionIds: suggestions.map(item => item.id) });
     if (options.transactionComplete) await options.transactionComplete(tx, guardState);
-    return true;
+    return 'committed' as const;
   });
-  if (!committed && options.transactionComplete) throw new Error('proposal_claim_lost');
+  if (committed === 'memory_invalid') {
+    if (options.transactionComplete || options._memoryFreeRetry) throw new Error('proposal_memory_invalid');
+    return proposeFromObservations(uid, now, { ...options, _memoryFreeRetry: { claimId } });
+  }
+  if (committed !== 'committed') {
+    if (options.transactionComplete) throw new Error('proposal_claim_lost');
+    return [];
+  }
   // Read back with the observations as they are now (M5B2A-R20-004): an
   // outcome dismissed after the commit never comes back as a suggestion.
   const [found, current] = await Promise.all([

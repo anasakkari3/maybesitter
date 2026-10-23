@@ -13,6 +13,7 @@ import {
   useDeleteAllMemory,
   useDeleteMemory,
   useMemory,
+  useMemoryPurging,
   useMemorySuggestion,
   usePatchMemory,
 } from '../../api/queries';
@@ -177,9 +178,19 @@ export function MemoryScreen({ onBack, focusId = null }: {
   // A 404 is the memory feature being off for this build. The screen still
   // renders its way back — a blank page with no exit is a worse answer than an
   // honest "nothing here".
-  const items = (memory.data?.items ?? []).filter(item => item.id !== undoable);
-  const suggestions = memory.data?.suggestions ?? [];
-  const adaptive = memory.data?.adaptive ?? null;
+  // While delete-all is on its way, nothing it is erasing is shown or offered
+  // (M5B2A-R29-003): the rows, their controls and delete-all itself go, and
+  // come back only from a fresh list — at once on a definite refusal, after
+  // the re-read when the outcome is unknown.
+  // And after an outcome nobody can be sure of, until a list read that *began*
+  // after it has answered (R30-002, R32-004: a read begun before it may land
+  // after it with the old rows); a definite refusal shows the list again at
+  // once. The suggestions and the adaptive card go too: Keep and Dismiss are
+  // writes the purge would race (R30-001). Seen from any screen (R32-003).
+  const purging = useMemoryPurging(memory.data);
+  const items = purging ? [] : (memory.data?.items ?? []).filter(item => item.id !== undoable);
+  const suggestions = purging ? [] : memory.data?.suggestions ?? [];
+  const adaptive = purging ? null : memory.data?.adaptive ?? null;
   const suggestionLanguage: 'ar' | 'he' | 'en' = lang === 'ar' || lang === 'he' ? lang : 'en';
 
   // The focused row is scrolled into view once it has laid out (M5B2A-REV-005):
@@ -289,7 +300,10 @@ export function MemoryScreen({ onBack, focusId = null }: {
                     label={t.memoryDeleteAll}
                     testID="memory-screen-delete-all-confirm"
                     tone="warn"
-                    onPress={() => { setConfirmAll(false); flush(); removeAll.mutate(); }}
+                    // The held row is cancelled, not sent (M5B2A-R28-001): deleting
+                    // everything already takes it, and a single delete sent beside
+                    // the purge could land its dismissal after the purge said done.
+                    onPress={() => { setConfirmAll(false); undo(); removeAll.mutate(); }}
                   />
                   <Action label={t.cancel} onPress={() => setConfirmAll(false)} />
                 </View>

@@ -1,7 +1,8 @@
 import { createHash } from 'node:crypto';
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { createMemoryStorage, resetStorageForTests, setStorageForTests } from '../../lib/storage/index.ts';
+import { createMemoryStorage as createRawMemoryStorage, resetStorageForTests, setStorageForTests } from '../../lib/storage/index.ts';
+import { userDoc } from '../../lib/storage/paths.ts';
 import { analyzeSource } from '../../lib/intelligence/analyzeSource.ts';
 import { observationId, observationPath, putObservations, reviewObservation } from '../../lib/intelligence/observationStore.ts';
 import {
@@ -19,6 +20,12 @@ import { createStorageRuntimeMemoryStore } from '../../lib/runtimeMemory/runtime
 import { intelligenceEnabled } from '../../lib/intelligence/gate.ts';
 
 const NOW = '2026-09-30T10:00:00.000Z';
+
+function createMemoryStorage() {
+  const storage = createRawMemoryStorage();
+  void storage.set(userDoc('alice'), { trust: null });
+  return storage;
+}
 
 test('staging gate stays closed in production, even if the feature flag is on', () => {
   // Released to production by the owner on 2026-10-01; the kill switch still

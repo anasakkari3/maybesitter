@@ -966,7 +966,27 @@ describe('the edit sheet replaces the earlier edit (M4B-R5-001)', () => {
     expect(raised.edits.a).toEqual({ priority: 'high' });
     // Reopened, priority restored to normal: the sheet sends no field for it.
     const restored = captureReducer(raised, { type: 'editItem', itemId: 'a', edit: {}, replace: true });
-    expect(restored.edits.a).toEqual({});
+    // Nothing left for the server, so no entry — and Back closes without the
+    // discard warning (M4B-R7-001).
+    expect(restored.edits).not.toHaveProperty('a');
+    expect(wantsDiscardConfirmation(raised)).toBe(true);
+    expect(wantsDiscardConfirmation(restored)).toBe(false);
+  });
+
+  it('an edit that only removes a place picked in this review leaves no entry (M4B-R7-001)', () => {
+    const state = analyzed(proposal());
+    const placed = captureReducer(state, { type: 'editItem', itemId: 'a', edit: { locationTrigger: { kind: 'arrive', placeId: 'p1', label: 'Home' } } });
+    expect(placed.edits.a?.locationTrigger).toBeTruthy();
+    const unplaced = captureReducer(placed, { type: 'editItem', itemId: 'a', edit: { locationTrigger: null } });
+    expect(unplaced.edits).not.toHaveProperty('a');
+    expect(wantsDiscardConfirmation(unplaced)).toBe(false);
+  });
+
+  it('"No time" is still a real edit and keeps its entry (M4B-R7-001)', () => {
+    const state = analyzed(proposal());
+    const noTime = captureReducer(state, { type: 'editItem', itemId: 'a', edit: { localDateTime: '' }, replace: true });
+    expect(noTime.edits.a).toEqual({ localDateTime: '' });
+    expect(wantsDiscardConfirmation(noTime)).toBe(true);
   });
 
   it('a partial edit without replace still merges (the no-time answer path)', () => {

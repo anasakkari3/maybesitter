@@ -42,7 +42,7 @@ import { validateProfileSuggestions } from '../../../src/profile/profileSuggesti
 import { languageOf, stripUndefined } from '../../../src/profile/memoryWriteHelpers';
 import { detectPromptInjection } from '../../../src/extraction/ollamaExtractor';
 import { captureLlmProvider } from '../../llm/captureProvider';
-import { createStorageRuntimeMemoryStore } from '../../runtimeMemory/runtimeMemoryStore';
+import { createStorageRuntimeMemoryStore, personalizationWriteGuard } from '../../runtimeMemory/runtimeMemoryStore';
 import { createPilotAuditEvent } from '../../pilot/closedPilotControls';
 import { appendAudit } from '../../pilot/pilotTrustStore';
 import {
@@ -234,6 +234,8 @@ export async function confirmProfileSuggestions(
   if (!Number.isFinite(age) || age > PROFILE_PROPOSAL_TTL_MS) throw new ProposalNotFoundError();
 
   const memory = options.memory ?? createStorageRuntimeMemoryStore(undefined, options.storage);
+  // Fenced against a delete-all or a withdrawal that starts while this confirms (M5B2A-R34-001).
+  const guard = await personalizationWriteGuard(storage, uid);
   const isoAt = at.toISOString();
   const kinds: Record<string, number> = {};
   let saved = 0;
@@ -266,7 +268,7 @@ export async function confirmProfileSuggestions(
         confirmedByUserAt: isoAt,
       },
     };
-    await memory.put(stripUndefined(input), isoAt);
+    await memory.put(stripUndefined(input), isoAt, guard);
     saved += 1;
     kinds[suggestion.kind] = (kinds[suggestion.kind] ?? 0) + 1;
   }

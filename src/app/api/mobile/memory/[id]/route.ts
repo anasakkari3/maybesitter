@@ -7,6 +7,7 @@ import {
   patchMemory,
 } from '../../../../../../lib/services/mobile/memoryService';
 import { moduleDisabledResponse } from '../../../../../../lib/services/mobile/moduleGate';
+import { MemoryWriteRefusedError } from '../../../../../../lib/runtimeMemory/runtimeMemoryStore';
 import { mobileError } from '../../../../../../lib/services/mobile/response';
 import { RequestBodyTooLargeError, readJsonBody, requestBodyTooLargeResponse } from '../../../../../../lib/net/requestBody';
 import { resolveModuleRuntime } from '../../../../../../src/contracts/v1/runtimeControls';
@@ -50,6 +51,11 @@ export async function PATCH(request: Request, context: RouteContext) {
     const updated = await patchMemory(user.uid, id, body?.content, new Date().toISOString());
     return Response.json({ success: true, memory: updated });
   } catch (error) {
+    // A delete-all or a consent change holds the personalization fence
+    // (M5B2A-R32-003): nothing was written; asking again works.
+    if (error instanceof MemoryWriteRefusedError) {
+      return Response.json({ success: false, error: 'personalization is changing', reason: 'personalization_busy' }, { status: 503 });
+    }
     if (error instanceof MemoryNotFoundError) return notFound();
     if (error instanceof MemorySupersedeConflictError) {
       return Response.json(

@@ -1,12 +1,19 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { createMemoryStorage } from '../../lib/storage/index.ts';
+import { createMemoryStorage as createRawMemoryStorage } from '../../lib/storage/index.ts';
+import { userDoc } from '../../lib/storage/paths.ts';
 import { runGmailMonitorTick, readGmailMonitor, type GmailMonitor } from '../../lib/intelligence/gmailMonitor.ts';
 import { scanGmailIntelligence } from '../../lib/intelligence/googleGmailIntelligence.ts';
 import type { GmailTransport } from '../../lib/integrations/gmail/production/gmailTransport.ts';
 import type { GoogleRuntime } from '../../lib/integrations/google/googleRuntime.ts';
 
 const FIRST = '2026-09-30T10:00:00.000Z';
+
+function createMemoryStorage() {
+  const storage = createRawMemoryStorage();
+  void storage.set(userDoc('alice'), { trust: null });
+  return storage;
+}
 
 test('manual intelligence scan reads every page in the seven-day window and resumes a failed page', async () => {
   const storage = createMemoryStorage();

@@ -25,6 +25,8 @@ import {
   PROVIDER_CREDENTIALS,
   PROVIDER_OAUTH_STATES,
   GOOGLE_PICKER_TICKETS,
+  EXPORT_LEASES,
+  MEMORY_CITATIONS,
   USER_SCOPED_COLLECTIONS,
   userDoc,
   userSubDoc,
@@ -90,7 +92,9 @@ test('every excluded collection is one deletion knows, and says why it is left o
     assert.ok(deletionKnows.has(name), `${name} is excluded from an export it was never part of`);
     assert.ok(reason.length > 20, `${name} has no stated reason for being left out`);
   }
-  assert.deepEqual(Object.keys(EXPORT_EXCLUDED_COLLECTIONS).sort(), [GOOGLE_PICKER_TICKETS, PROVIDER_CREDENTIALS, PROVIDER_OAUTH_STATES].sort());
+  assert.deepEqual(Object.keys(EXPORT_EXCLUDED_COLLECTIONS).sort(), [
+    EXPORT_LEASES, GOOGLE_PICKER_TICKETS, MEMORY_CITATIONS, PROVIDER_CREDENTIALS, PROVIDER_OAUTH_STATES,
+  ].sort());
 });
 
 test('no secret travels: tokens, PKCE verifiers, KMS envelopes and FCM tokens are all removed', async () => {
@@ -195,6 +199,7 @@ test('another account\'s records never appear, even in the uid-carrying top-leve
 
 test('an account over the document cap is refused, not truncated', async () => {
   const storage = createMemoryStorage();
+  await storage.set(userDoc(OWNER), { uid: OWNER });
   for (let index = 0; index < 5; index += 1) {
     await storage.set(userSubDoc(OWNER, COMMITMENTS, `c${index}`), { title: `item ${index}` });
   }
@@ -207,6 +212,7 @@ test('an account over the document cap is refused, not truncated', async () => {
 
 test('an account over the size cap is refused, not truncated', async () => {
   const storage = createMemoryStorage();
+  await storage.set(userDoc(OWNER), { uid: OWNER });
   await storage.set(userSubDoc(OWNER, COMMITMENTS, 'big'), { title: 'x'.repeat(2_000) });
   await assert.rejects(buildAccountExport(OWNER, { storage, maxChars: 1_000 }), (error: unknown) =>
     error instanceof ExportTooLargeError && error.limit === 'size');

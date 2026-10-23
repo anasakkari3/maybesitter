@@ -40,6 +40,11 @@ export interface UserDocument<TTrust = unknown> {
     /** The withdrawal holding a `withdrawing` fence, and when it took it (server clock). */
     withdrawalOwner?: string | null;
     withdrawalLeaseAt?: string | null;
+    /** The purge holding a `purging` fence, and its lease (server clock), renewed as it works. */
+    purgeOwner?: string | null;
+    purgeLeaseAt?: string | null;
+    /** A dead withdrawal this purge must still complete; carried across purge takeovers. */
+    withdrawalPending?: boolean | null;
   };
 }
 

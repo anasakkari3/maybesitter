@@ -99,6 +99,7 @@ import {
   type LocalWindow,
 } from '../../memoryGrowth/rules';
 import { languageOf } from '../../../src/profile/memoryWriteHelpers';
+import { cleanupMemoryDependents } from '../../intelligence/memoryBasis';
 
 /** The kinds a person may file something under by hand. */
 export const MANUAL_MEMORY_KINDS: readonly RuntimeMemoryKind[] = ['fact', 'preference', 'goal'];
@@ -491,6 +492,19 @@ function manualMemoryInput(uid: string, input: CreateManualMemoryInput, at: stri
   };
 }
 
+/**
+ * Every memory writer here is refused, in its own transaction, while a
+ * personalization purge or a consent withdrawal holds the fence
+ * (M5B2A-R32-003): a row written then could land after the purge's sweep or
+ * its remainder count and survive a delete-all that answered success.
+ */
+const PERSONALIZATION_OPEN = {
+  accepts: (user: unknown) => {
+    const state = (user as { personalizationPurge?: { state?: unknown } } | null)?.personalizationPurge?.state;
+    return state !== 'purging' && state !== 'withdrawing';
+  },
+};
+
 export async function createManualMemory(
   uid: string,
   input: CreateManualMemoryInput,
@@ -498,7 +512,7 @@ export async function createManualMemory(
   options: MemoryServiceOptions = {},
 ): Promise<MemoryDto> {
   requireUserId(uid);
-  return memoryToDto(await storeOf(options).put(manualMemoryInput(uid, input, at), at));
+  return memoryToDto(await storeOf(options).put(manualMemoryInput(uid, input, at), at, PERSONALIZATION_OPEN));
 }
 
 /** A manual record with a stable id for a caller-owned idempotency key. */
@@ -511,7 +525,7 @@ export async function createManualMemoryIdempotent(
 ): Promise<MemoryDto> {
   requireUserId(uid);
   const memory = createStorageRuntimeMemoryStore(undefined, options.storage);
-  return memoryToDto(await memory.putIdempotent(manualMemoryInput(uid, input, at), at, idempotencyKey));
+  return memoryToDto(await memory.putIdempotent(manualMemoryInput(uid, input, at), at, idempotencyKey, PERSONALIZATION_OPEN));
 }
 
 /**
@@ -577,7 +591,8 @@ export async function patchMemory(
     ...replacement,
     provenance: stripUndefined(replacement.provenance!),
   };
-  const replaced = await store.supersede(prior.id, cleaned, at);
+  const replaced = await store.supersede(prior.id, cleaned, at, PERSONALIZATION_OPEN);
+  await cleanupMemoryDependents(uid, [prior.id], options.storage ?? getStorage());
   // The goal now says something else under a new id. Steps a model wrote for
   // the old wording could never be read again, and must not linger in the
   // export as a paraphrase of words the user took back (CL3).
@@ -603,6 +618,8 @@ export async function deleteMemory(
     const { markGoalLineageDeleting } = await import('./goalPlanService');
     await markGoalLineageDeleting(uid, record.id, options.storage ?? getStorage());
   }
+  const chainBeforeDelete = await discoverChain(store, uid, record);
+  await cleanupMemoryDependents(uid, chainBeforeDelete.map(entry => entry.id), options.storage ?? getStorage());
   const { removed, ruleFingerprints, ids } = await deleteChain(store, uid, record);
   // Steps proposed for this goal go with it, at every id its chain ever had
   // (CL3). They are a model's paraphrase of the sentence being deleted.
@@ -648,52 +665,56 @@ export async function deleteAllMemory(
   // return value is the thing under suspicion here.
   const held = (await memory.listAll(uid)).length;
 
-  // Before the purge, and outside it: `deletePersonalizationScope` empties
-  // collections and cannot see the user document's profile map, so the "last
-  // brought over" date would survive a delete-everything and go on naming a
-  // day this account imported memories that no longer exist.
-  await clearAiContextImportReceipt(uid, { ...(options.storage ? { storage: options.storage } : {}) });
-
-  const receipt = await deletePersonalizationScope({
+  await deletePersonalizationScope({
     scopeId: uid,
     now: at,
     feedbackEvents,
     runtimeMemory: memory,
+    // `deletePersonalizationScope` empties collections and cannot see the user
+    // document's profile map, so the "last brought over" date would survive a
+    // delete-everything and go on naming a day this account imported memories
+    // that no longer exist. Cleared once the purge holds the fence, so a purge
+    // refused behind a withdrawal erases nothing (M5B2A-R28-002).
+    onFenced: () => clearAiContextImportReceipt(uid, { ...(options.storage ? { storage: options.storage } : {}) }),
+    // Checked while the purge still holds the fence (M5B2A-R32-003): a row
+    // written after the sweep is refused by every memory writer, or counted
+    // here — never one that survives a 200.
+    beforeReopen: async (receipt) => {
+      // The baseline is not an event, so it is not in the receipt's event count;
+      // it is pre-event-log history of the same person and has to go with them.
+      const baseline = await feedbackEvents.readBaseline(uid);
+      // Every derived remainder the receipt carries, not only the event count. The
+      // behaviour counters are the one that matters most here: they are the direct
+      // input to the shipped classifier, and a deletion that left them reported a
+      // number while the label it derives came back byte-identical (#202).
+      // `remainingFootballFollowsCount` (football fixtures MVP, Task 7) joins them
+      // for the same reason: this guard exists to catch the day the sweep does
+      // not run, and a guard that cannot see one of the collections deletion.ts
+      // now clears is blind exactly where that collection was just added.
+      const remainingRows = receipt.remainingFeedbackEventCount
+        + receipt.remainingBehaviorFeedbackCount
+        + receipt.remainingProfileProposalCount
+        + receipt.remainingMemoryDismissalCount
+        + receipt.remainingFootballFollowsCount
+        + receipt.remainingGoalStepProposalCount
+        // An AI import saved across the purge is a proposal that could later be
+        // confirmed into memory (M5B2A-R33-001).
+        + receipt.remainingAiContextImportCount
+        + (baseline === null ? 0 : 1);
+      if (receipt.remainingRuntimeMemoryRecordCount > 0 || remainingRows > 0) {
+        throw new MemoryDeletionIncompleteError(receipt.remainingRuntimeMemoryRecordCount, remainingRows);
+      }
+
+      // No row can be written between the remainder read above and the fence
+      // reopening: the purge still holds it, and every memory writer refuses
+      // while it does (M5B2A-R32-003, formerly a named-but-open window here).
+      await appendMemoryDeletion(uid, at, held, 'memory_deleted_all');
+    },
     // The adapter this call was handed, not the process default: otherwise a
     // caller that injects storage has its derived collections purged from a
     // different store than the one its memory lives in.
     ...(options.storage ? { storage: options.storage } : {}),
   });
-
-  // The baseline is not an event, so it is not in the receipt's event count;
-  // it is pre-event-log history of the same person and has to go with them.
-  const baseline = await feedbackEvents.readBaseline(uid);
-  // Every derived remainder the receipt carries, not only the event count. The
-  // behaviour counters are the one that matters most here: they are the direct
-  // input to the shipped classifier, and a deletion that left them reported a
-  // number while the label it derives came back byte-identical (#202).
-  // `remainingFootballFollowsCount` (football fixtures MVP, Task 7) joins them
-  // for the same reason: this guard exists to catch the day the sweep does
-  // not run, and a guard that cannot see one of the collections deletion.ts
-  // now clears is blind exactly where that collection was just added.
-  const remainingRows = receipt.remainingFeedbackEventCount
-    + receipt.remainingBehaviorFeedbackCount
-    + receipt.remainingProfileProposalCount
-    + receipt.remainingMemoryDismissalCount
-    + receipt.remainingFootballFollowsCount
-    + receipt.remainingGoalStepProposalCount
-    + (baseline === null ? 0 : 1);
-  if (receipt.remainingRuntimeMemoryRecordCount > 0 || remainingRows > 0) {
-    throw new MemoryDeletionIncompleteError(receipt.remainingRuntimeMemoryRecordCount, remainingRows);
-  }
-
-  // A row written between the remainder read above and this line survives with
-  // a 200. The window is a few milliseconds of one request and closing it would
-  // need a tombstone that refuses writes for the scope — machinery with its own
-  // failure modes, for a race only the user themselves can lose, and only by
-  // acting in two places at once. Named rather than fixed, so the next person
-  // to consider a tombstone knows this was weighed.
-  await appendMemoryDeletion(uid, at, held, 'memory_deleted_all');
   return held;
 }
 
@@ -718,25 +739,7 @@ async function deleteChain(
   uid: string,
   record: RuntimeMemoryRecord,
 ): Promise<{ removed: number; ruleFingerprints: string[]; ids: string[] }> {
-  const seen = new Set<string>();
-  const queue: RuntimeMemoryRecord[] = [record];
-  const chain: RuntimeMemoryRecord[] = [];
-
-  while (queue.length > 0) {
-    const current = queue.pop()!;
-    if (seen.has(current.id)) continue;
-    seen.add(current.id);
-    // A link that somehow points out of the scope is followed no further. It
-    // cannot happen through `supersede`, which refuses to cross scopes, and if
-    // it ever did this must not become a way to delete somebody else's record.
-    if (current.scopeId !== uid) continue;
-    chain.push(current);
-    for (const neighbour of [current.supersedesId, current.supersededById]) {
-      if (!neighbour || seen.has(neighbour)) continue;
-      const next = await store.get(neighbour);
-      if (next) queue.push(next);
-    }
-  }
+  const chain = await discoverChain(store, uid, record);
 
   let removed = 0;
   const ruleFingerprints: string[] = [];
@@ -767,6 +770,34 @@ async function deleteChain(
     Boolean(entry.supersedesId && deletedIds.has(entry.supersedesId)) && !deletedIds.has(entry.id));
   if (survivors.length > 0) throw new Error('memory chain deletion did not converge after 5 passes');
   return { removed, ruleFingerprints, ids };
+}
+
+async function discoverChain(
+  store: RuntimeMemoryStore,
+  uid: string,
+  record: RuntimeMemoryRecord,
+): Promise<RuntimeMemoryRecord[]> {
+  const seen = new Set<string>();
+  const queue: RuntimeMemoryRecord[] = [record];
+  const chain: RuntimeMemoryRecord[] = [];
+
+  while (queue.length > 0) {
+    const current = queue.pop()!;
+    if (seen.has(current.id)) continue;
+    seen.add(current.id);
+    // A link that somehow points out of the scope is followed no further. It
+    // cannot happen through `supersede`, which refuses to cross scopes, and if
+    // it ever did this must not become a way to delete somebody else's record.
+    if (current.scopeId !== uid) continue;
+    chain.push(current);
+    for (const neighbour of [current.supersedesId, current.supersededById]) {
+      if (!neighbour || seen.has(neighbour)) continue;
+      const next = await store.get(neighbour);
+      if (next) queue.push(next);
+    }
+  }
+
+  return chain;
 }
 
 /**

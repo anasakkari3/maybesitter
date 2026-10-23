@@ -159,7 +159,7 @@ describe('audit #6: «مرتبط بهدف …» on the card, kept or removed, li
     expect(confirm.mock.calls[0]![0]).toMatchObject({ proposalId: 'p-react', itemIds: ['tue', 'thu'], goalLinkItemIds: ['thu'] });
     // The saved line says what it counts toward.
     await waitFor(() => expect(screen.queryByTestId('chat-saved-1')).not.toBeNull());
-    expect(stripIsolates(screen.getByTestId('chat-saved-1').props.accessibilityLabel as string))
+    expect(stripIsolates(screen.getByTestId('chat-saved-1-words').props.accessibilityLabel as string))
       .toContain(en.chatSavedGoal.replace('{goals}', '"Learn React"'));
   });
 
@@ -225,7 +225,7 @@ describe('audit #1: the warnings after a save are one message', () => {
     await waitFor(() => expect(screen.queryByTestId('review-confirm')).not.toBeNull());
     await fireEvent.press(screen.getByTestId('review-confirm'));
     await waitFor(() => expect(screen.queryByTestId('chat-saved-1')).not.toBeNull());
-    const said = stripIsolates(screen.getByTestId('chat-saved-1').props.accessibilityLabel as string);
+    const said = stripIsolates(screen.getByTestId('chat-saved-1-words').props.accessibilityLabel as string);
     expect(said.split(en.savedCollisionMany.split('{list}')[0]!)).toHaveLength(2);
     expect(said).not.toContain(en.savedCollision.split('{title}')[0]!);
     // No refocus: the page is never asked to focus the field after the save.

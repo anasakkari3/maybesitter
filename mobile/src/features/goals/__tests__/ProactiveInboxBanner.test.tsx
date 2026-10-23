@@ -26,6 +26,22 @@ jest.mock('../../../api/endpoints/intelligence', () => ({
   generateIntelligenceSuggestions: (...args: unknown[]) => mockGenerate(...args),
   getIntelligenceInbox: (...args: unknown[]) => mockInbox(...args),
 }));
+// M5b-2b-1: the suggestion basis machinery reads the M5b capability and the
+// memory list through the query layer, which these tests render without; it
+// stands in here as M5b known off, where the holder behaves exactly as before.
+jest.mock('../../m5b/suggestionBasis', () => {
+  // Stable identities, as the real hooks keep: a holder's reads depend on them.
+  const stamping = {
+    stamp: () => ({ startedAt: 0, now: false, lastKnown: false }),
+    classify: (envelope: { basisMode?: string }) => ({ mode: envelope.basisMode ?? null, capAtFetch: false, offAtFetch: true, startedAt: 0 }),
+  };
+  const signals = { capNow: false, freshItems: null, listSettled: false, basisHidden: () => false, absorbRevision: () => undefined };
+  return {
+    useBasisStamp: () => stamping,
+    useSuggestionBasisSignals: () => signals,
+    basisClassVisible: (cls: unknown) => cls !== null,
+  };
+});
 
 const suggestion = (id: string, title: string, status = 'pending') => ({
   id, kind: 'action', title, reason: 'Your exam is tomorrow', observationIds: ['obs-1'], confidence: 0.8,

@@ -2,6 +2,8 @@ import { mobileAuthErrorResponse, requireMobileUser } from '../../../../../../..
 import { intelligenceDisabledResponse } from '../../../../../../../../lib/intelligence/gate';
 import { answerIntelligenceQuestion } from '../../../../../../../../lib/intelligence/answerQuestion';
 import { RequestBodyTooLargeError, readJsonBody, requestBodyTooLargeResponse } from '../../../../../../../../lib/net/requestBody';
+import { SuggestionUnavailableError } from '../../../../../../../../lib/intelligence/memoryBasis';
+import { suggestionToDto } from '../../../../../../../../lib/intelligence/proposalEngine';
 
 export const dynamic = 'force-dynamic';
 
@@ -21,11 +23,15 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     return Response.json({ success: false, reason: 'invalid_answer' }, { status: 400 });
   }
   const { id } = await context.params;
+  const answeredAt = new Date().toISOString();
   try {
-    const suggestion = await answerIntelligenceQuestion(user.uid, id, answer, new Date().toISOString());
-    if (!suggestion) return Response.json({ success: false, reason: 'not_found' }, { status: 404 });
-    return Response.json({ success: true, suggestion });
-  } catch {
+    const suggestion = await answerIntelligenceQuestion(user.uid, id, answer, answeredAt);
+    if (!suggestion) return Response.json({ success: false, reason: 'suggestion_unavailable' }, { status: 404 });
+    return Response.json({ success: true, suggestion: suggestionToDto(suggestion) });
+  } catch (error) {
+    if (error instanceof SuggestionUnavailableError) {
+      return Response.json({ success: false, reason: error.result.reason }, { status: 404 });
+    }
     return Response.json({ success: false, error: 'could not save answer' }, { status: 500 });
   }
 }
