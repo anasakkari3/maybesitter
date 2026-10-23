@@ -3,6 +3,7 @@ import { CaptureConfirmRefusedError, confirmMobileCapture } from '../../../../..
 import { ProposalChangedError } from '../../../../../../lib/services/captureBoundary';
 import { mobileError } from '../../../../../../lib/services/mobile/response';
 import { RequestBodyTooLargeError, readJsonBody, requestBodyTooLargeResponse } from '../../../../../../lib/net/requestBody';
+import { learnOutcomesWithin } from '../../../../../../lib/intelligence/outcomeLearning';
 
 export const dynamic = 'force-dynamic';
 
@@ -37,6 +38,7 @@ export async function POST(request: Request) {
       }
       return Response.json(result, { status: result.failureCode === 'proposal_not_found' ? 404 : 400 });
     }
+    await learnOutcomesWithin(user.uid);
     return Response.json(result);
   } catch (error) {
     if (error instanceof CaptureConfirmRefusedError) {

@@ -1,0 +1,74 @@
+{
+  "success": true,
+  "observations": [
+    {
+      "kind": "outcome",
+      "evidence": "Re-added",
+      "confidence": 0.6,
+      "id": "0000000000000000000000000000000000000000000000000000000000000000",
+      "source": "behavior",
+      "sourceRef": "readd:0c0ffee6-0000-4000-8000-000000000008",
+      "review": "pending",
+      "reviewedAt": null,
+      "observedAt": "2026-08-09T09:00:00.000Z",
+      "linkedMemoryId": null,
+      "matchedOutcomeId": "0000000000000000000000000000000000000000000000000000000000000000",
+      "readd": {
+        "after": "dropped",
+        "title": "Call the dentist"
+      }
+    },
+    {
+      "kind": "outcome",
+      "evidence": "Re-added",
+      "confidence": 0.6,
+      "id": "0000000000000000000000000000000000000000000000000000000000000000",
+      "source": "behavior",
+      "sourceRef": "readd:0c0ffee6-0000-4000-8000-000000000010",
+      "review": "pending",
+      "reviewedAt": null,
+      "observedAt": "2026-08-09T09:00:00.000Z",
+      "linkedMemoryId": null,
+      "matchedOutcomeId": "0000000000000000000000000000000000000000000000000000000000000000",
+      "readd": {
+        "after": "completed",
+        "title": "Water the plants"
+      }
+    },
+    {
+      "kind": "outcome",
+      "evidence": "Completed: Water the plants",
+      "confidence": 1,
+      "id": "0000000000000000000000000000000000000000000000000000000000000000",
+      "source": "behavior",
+      "sourceRef": "00000000-0000-4000-8000-000000000001",
+      "observedAt": "2026-08-09T09:00:00.000Z",
+      "review": "confirmed",
+      "reviewedAt": "2026-08-09T09:00:00.000Z",
+      "linkedMemoryId": null,
+      "outcome": {
+        "signal": "completed",
+        "title": "Water the plants"
+      }
+    },
+    {
+      "kind": "outcome",
+      "evidence": "Dropped: Call the dentist",
+      "confidence": 1,
+      "id": "0000000000000000000000000000000000000000000000000000000000000000",
+      "source": "behavior",
+      "sourceRef": "00000000-0000-4000-8000-000000000002",
+      "observedAt": "2026-08-09T09:00:00.000Z",
+      "review": "confirmed",
+      "reviewedAt": "2026-08-09T09:00:00.000Z",
+      "linkedMemoryId": null,
+      "outcome": {
+        "signal": "dropped",
+        "title": "Call the dentist"
+      }
+    }
+  ],
+  "suggestions": [],
+  "schedule": [],
+  "basisMode": "on_basis"
+}

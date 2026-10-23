@@ -281,6 +281,13 @@ import {
   outcomeObservation as addM5b2aOutcome,
   threeTasks as addM5b2aTasks,
 } from '../acceptance/m5b2a/support.ts';
+import {
+  begin as beginM5b2b2,
+  callWith as callM5b2b2,
+  droppedThenReadded as addM5b2b2Readd,
+  end as endM5b2b2,
+  scan as scanM5b2b2,
+} from '../acceptance/m5b2b2/support.ts';
 
 const BASE = 'http://127.0.0.1:4321';
 const REFERENCE_TIME = '2026-08-09T08:00:00.000Z';
@@ -3768,6 +3775,20 @@ test('exports the M5b-2a fixtures from the real handlers', async () => {
     await recordM4b('intelligence.outcomes', 200, await callM5b2a(uid, 'intelligence', 'GET'));
   } finally {
     endM5b2a();
+  }
+});
+
+test('exports the M5b-2b-2 re-add fixture from the real intelligence inbox handler', async () => {
+  const uid = await beginM5b2b2();
+  try {
+    await addM5b2b2Readd(uid, 'Call the dentist');
+    await addM5b2b2Readd(uid, 'Water the plants', { verb: 'completed' });
+    await scanM5b2b2(uid);
+    await recordM4b('intelligence.readd', 200, await callM5b2b2(uid, 'intelligence', 'GET', {
+      headers: { 'X-MaybeSitter-Client-Features': 'readd' },
+    }));
+  } finally {
+    endM5b2b2();
   }
 });
 

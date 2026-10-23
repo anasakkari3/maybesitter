@@ -94,6 +94,8 @@ import { toEpochMs } from '../../planning/shared/time';
 import type { PlanningConfig, PlanningConstraints, TimeInterval } from '../../../src/contracts/v1/planningContracts';
 import type { ScheduleBlock } from '../../../src/contracts/v1/scheduleBlockContracts';
 import type { Commitment } from '../../../src/domain/stateMachine';
+import { personalizationPurgeMatches, purgeOf } from '../../personalization/purgeFence';
+export { personalizationPurgeMatches, purgeOf } from '../../personalization/purgeFence';
 import {
   buildDailyPlanInput,
   dailyPlanScheduleSources,
@@ -526,21 +528,6 @@ export interface PlanMemoryFocus {
   readonly memoryId: string | null;
   readonly purgeEpoch: number;
   readonly tracked: boolean;
-}
-
-function purgeOf(user: unknown): { state: string; epoch: number } {
-  const purge = (user as { personalizationPurge?: { state?: unknown; epoch?: unknown } } | null)?.personalizationPurge;
-  return {
-    state: typeof purge?.state === 'string' ? purge.state : 'active',
-    epoch: typeof purge?.epoch === 'number' && Number.isFinite(purge.epoch) ? purge.epoch : 0,
-  };
-}
-
-export function personalizationPurgeMatches(user: unknown, epoch: number): boolean {
-  const purge = purgeOf(user);
-  // Only an explicitly active fence: a purge, or a consent withdrawal between
-  // its phases (M5B2A-R7-001), refuses every write that read memory.
-  return purge.state === 'active' && purge.epoch === epoch;
 }
 
 /** Resolves the only memory input used by planning, together with its purge fence. */

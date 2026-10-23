@@ -24,6 +24,11 @@ import {
   type MemorySnapshot,
   type StoredMemoryBasis,
 } from './memoryBasis';
+import {
+  READD_PROMPT_LINE,
+  readdCitationsAllowedInTransaction,
+  resolveReaddPolicy,
+} from './readd';
 
 export type SuggestionKind = 'goal' | 'action' | 'question' | 'warning';
 export type SuggestionStatus = 'pending' | 'accepting' | 'accepted' | 'dismissed';
@@ -489,6 +494,8 @@ export async function proposeFromObservations<TransactionGuardState = undefined>
     storage?: StorageAdapter;
     generate?: ShareStructuredGenerator;
     visit?: boolean;
+    /** The requesting app declared that it can render and review re-adds. */
+    readdClientSupported?: boolean;
     /** Scheduler turns must remain due when generation fails. */
     throwOnGenerateFailure?: boolean;
     /** Re-read caller authority in the same transaction as every proposal. */
@@ -504,7 +511,11 @@ export async function proposeFromObservations<TransactionGuardState = undefined>
   const runPath = intelligenceRunPath(uid);
   if (options.visit && !options._memoryFreeRetry) {
     const reused = await reuseRunForVisit(uid, now, storage);
-    if (reused) return reused;
+    if (reused) {
+      const current = await listObservations(uid, storage);
+      const policy = await resolveReaddPolicy(uid, current, options.readdClientSupported === true, storage);
+      return reused.filter(policy.allowsSuggestion);
+    }
   }
   const memorySnapshot = mode === 'on_basis'
     ? options._memoryFreeRetry
@@ -512,7 +523,11 @@ export async function proposeFromObservations<TransactionGuardState = undefined>
       : await readActiveMemorySnapshot(uid, now, storage)
     : undefined;
   await syncCanonicalObservations(uid, now, storage, memorySnapshot);
-  const availableObservations = (await listObservations(uid, storage))
+  const allObservations = await listObservations(uid, storage);
+  const readdPolicy = await resolveReaddPolicy(
+    uid, allObservations, options.readdClientSupported === true, storage,
+  );
+  const availableObservations = allObservations
     // A self-reply auto-add is already canonical work. Feeding its supporting
     // observation back into proposals would offer the same obligation twice.
     .filter(item => item.review !== 'dismissed' && !item.autoAddId);
@@ -521,9 +536,10 @@ export async function proposeFromObservations<TransactionGuardState = undefined>
     .map(item => item.linkedMemoryId));
   // A confirmed statement and the canonical memory created from it are one
   // piece of evidence. Showing both made the source line repeat verbatim.
-  const observations = filterMemoryObservations(availableObservations, mode, memorySnapshot)
-    .filter(item => !(item.source === 'memory' && linkedGoalMemories.has(item.sourceRef)))
-    .slice(0, 30);
+  const observations = readdPolicy.modelObservations(
+    filterMemoryObservations(availableObservations, mode, memorySnapshot)
+      .filter(item => !(item.source === 'memory' && linkedGoalMemories.has(item.sourceRef))),
+  ).slice(0, 30);
   if (observations.length === 0) {
     if (!options._memoryFreeRetry) return [];
     await storage.runTransaction(async tx => {
@@ -549,6 +565,7 @@ export async function proposeFromObservations<TransactionGuardState = undefined>
   }));
   const priorDecisions = (await listSuggestions(uid, storage))
     .filter(item => item.status === 'accepted' || item.status === 'dismissed')
+    .filter(readdPolicy.allowsSuggestion)
     .filter(item => {
       if (mode === 'off') return item.mode === undefined;
       if (item.mode !== mode) return false;
@@ -580,6 +597,8 @@ export async function proposeFromObservations<TransactionGuardState = undefined>
   // The clock, to the hour, in the same wall-clock terms as everything else.
   const currentTime = `${localWallClock(now, zone)!.slice(0, 13)}:00`;
   const modelContext = { currentTime, ...content };
+  const modelSystem = observations.some(item => readdPolicy.projections.has(item.id))
+    ? `${SYSTEM}\n${READD_PROMPT_LINE}` : SYSTEM;
   const digest = createHash('sha256').update(JSON.stringify(modelContext)).digest('hex');
   const contentDigest = createHash('sha256').update(JSON.stringify(content)).digest('hex');
   const claimId = options._memoryFreeRetry?.claimId ?? randomUUID();
@@ -625,7 +644,7 @@ export async function proposeFromObservations<TransactionGuardState = undefined>
   let suggestions: IntelligenceSuggestion[];
   try {
     const response = await generate({
-      system: SYSTEM,
+      system: modelSystem,
       parts: [wrapUntrustedShared(JSON.stringify(modelContext))],
       responseSchema: toVertexSchema(schemaForMode(mode) as typeof SCHEMA),
       maxOutputTokens: 2_200,
@@ -751,6 +770,14 @@ export async function proposeFromObservations<TransactionGuardState = undefined>
       : undefined as TransactionGuardState;
     const dismissedIds = new Set(cited.filter(isDismissedBehaviourOutcome).map(item => item.id));
     suggestions = suggestions.filter(suggestion => !suggestion.observationIds.some(id => dismissedIds.has(id)));
+    const citedById = new Map(cited.filter((item): item is StoredObservation => item !== null).map(item => [item.id, item]));
+    const readdEligible = await Promise.all(suggestions.map(suggestion => readdCitationsAllowedInTransaction(
+      tx,
+      uid,
+      suggestion.observationIds.map(id => citedById.get(id) ?? null),
+      options.readdClientSupported === true,
+    )));
+    suggestions = suggestions.filter((_suggestion, index) => readdEligible[index]);
     const existingEligibility = new Map<string, boolean>();
     const eligibilityCheckedAt = new Date().toISOString();
     await Promise.all(suggestions.map(async suggestion => {
@@ -818,7 +845,8 @@ export async function proposeFromObservations<TransactionGuardState = undefined>
       (await storage.get<IntelligenceSuggestion>(suggestionPath(uid, suggestion.id))) ?? suggestion)),
     listObservations(uid, storage),
   ]);
-  return hideDismissedOutcomeSuggestions(found, current);
+  const currentPolicy = await resolveReaddPolicy(uid, current, options.readdClientSupported === true, storage);
+  return hideDismissedOutcomeSuggestions(found, current).filter(currentPolicy.allowsSuggestion);
 }
 
 async function readRun(uid: string, run: IntelligenceRun, storage: StorageAdapter): Promise<IntelligenceSuggestion[]> {

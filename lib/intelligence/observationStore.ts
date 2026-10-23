@@ -1,10 +1,11 @@
 import { createHash } from 'node:crypto';
-import { getStorage, INTELLIGENCE_OBSERVATIONS, requireUserId, userCol, type StorageAdapter } from '../storage';
+import { getStorage, INTELLIGENCE_OBSERVATIONS, requireUserId, userCol, userDoc, type StorageAdapter } from '../storage';
 import { createStorageRuntimeMemoryStore, personalizationWriteGuard } from '../runtimeMemory/runtimeMemoryStore';
 import type { SemanticObservation } from './semantic';
 import { resolveMemoryLearning } from '../release/m5bCapabilities';
-import { requireLiveAccount } from './memoryBasis';
+import { liveAccount, requireLiveAccount } from './memoryBasis';
 import { runtimeMemoryRecordPath, runtimeMemoryRecordRetrievable } from '../runtimeMemory/runtimeMemoryStore';
+import { personalizationPurgeMatches } from '../personalization/purgeFence';
 
 export type ObservationSource = 'manual' | 'gmail' | 'calendar' | 'drive' | 'share' | 'behavior' | 'memory' | 'commitment';
 export type ObservationReview = 'pending' | 'confirmed' | 'dismissed';
@@ -21,6 +22,8 @@ export interface StoredObservation extends SemanticObservation {
   linkedMemoryId: string | null;
   /** Present only when the observation was confirmed by the self-reply write. */
   autoAddId?: string;
+  /** Present only on a content-free re-add marker. */
+  matchedOutcomeId?: string;
 }
 
 /**
@@ -95,6 +98,52 @@ export async function putObservations(
   return out;
 }
 
+/**
+ * Writes the one content-free marker for a re-added commitment. The account
+ * fence, the exact matched outcome and create-if-absent decision are one
+ * transaction so a purge, dismissal or concurrent scan cannot leave a stale
+ * marker behind.
+ */
+export async function putReaddMarkerInTransaction(
+  uid: string,
+  commitmentId: string,
+  confirmedAt: string,
+  matchedOutcomeId: string,
+  personalizationEpoch: number,
+  storage: StorageAdapter = getStorage(),
+): Promise<StoredObservation | null> {
+  requireUserId(uid);
+  if (!commitmentId || !Number.isFinite(Date.parse(confirmedAt))) throw new Error('invalid re-add marker');
+  const sourceRef = `readd:${commitmentId}`;
+  const item = { kind: 'outcome' as const, evidence: 'Re-added', confidence: 0.6 };
+  const id = observationId('behavior', sourceRef, item);
+  return storage.runTransaction(async tx => {
+    const [account, matched, existing] = await Promise.all([
+      tx.get(userDoc(uid)),
+      tx.get<StoredObservation>(observationPath(uid, matchedOutcomeId)),
+      tx.get<StoredObservation>(observationPath(uid, id)),
+    ]);
+    // A new writer re-reads the account deletion fence too (M5B2B2-CR-001).
+    if (!liveAccount(account) || !personalizationPurgeMatches(account, personalizationEpoch)) return null;
+    if (!matched || matched.review !== 'confirmed' || matched.source !== 'behavior'
+      || matched.kind !== 'outcome' || matched.sourceRef.startsWith('readd:')) return null;
+    if (existing) return existing;
+    const marker: StoredObservation = {
+      ...item,
+      id,
+      source: 'behavior',
+      sourceRef,
+      review: 'pending',
+      reviewedAt: null,
+      observedAt: confirmedAt,
+      linkedMemoryId: null,
+      matchedOutcomeId,
+    };
+    tx.create(observationPath(uid, id), marker);
+    return marker;
+  });
+}
+
 export async function listObservations(uid: string, storage: StorageAdapter = getStorage()): Promise<StoredObservation[]> {
   requireUserId(uid);
   const rows = await storage.list<StoredObservation>(userCol(uid, INTELLIGENCE_OBSERVATIONS));
@@ -107,11 +156,13 @@ export async function reviewObservation(
   review: Exclude<ObservationReview, 'pending'>,
   at: string,
   storage: StorageAdapter = getStorage(),
+  allowReaddReview = false,
 ): Promise<StoredObservation | null> {
   if (!Number.isFinite(Date.parse(at))) throw new Error('invalid review time');
   const reviewed = await storage.runTransaction(async tx => {
     const current = await tx.get<StoredObservation>(observationPath(uid, id));
     if (!current) return null;
+    if (current.sourceRef.startsWith('readd:') && (!resolveMemoryLearning() || !allowReaddReview)) return null;
     if (review === 'dismissed' && current.review === 'confirmed'
       && current.source === 'behavior' && current.kind === 'outcome'
       && resolveMemoryLearning()) {
