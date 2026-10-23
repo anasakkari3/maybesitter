@@ -27,6 +27,7 @@ export async function answerIntelligenceQuestion(
         pendingSuggestionAvailability(tx, uid, current, now),
         Promise.all(current.observationIds.map(observationId => tx.get(observationPath(uid, observationId)))),
       ]);
+      if (!availability.available && availability.accountUnavailable) return availability;
       if (cited.some(isDismissedBehaviourOutcome)) {
         tx.set(path, { ...current, status: 'dismissed', decidedAt: now });
         return availability.available ? null : availability;

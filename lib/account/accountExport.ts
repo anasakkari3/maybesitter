@@ -185,6 +185,13 @@ export class ExportUnavailableError extends Error {
   }
 }
 
+export class ExportReservationError extends Error {
+  constructor(readonly reason: 'export_lease_lost' | 'export_lease_expired' | 'export_rate_limited') {
+    super(reason);
+    this.name = 'ExportReservationError';
+  }
+}
+
 export interface ExportLease {
   path: string;
   owner: string;
@@ -231,9 +238,11 @@ export async function commitAccountExport(
     await requireLiveAccount(tx, uid);
     const held = await tx.get<{ owner?: string; leaseExpiresAt?: string }>(lease.path);
     const count = await tx.get<{ calls?: number }>(exportCountPath(uid, lease.day));
-    if (held?.owner !== lease.owner) throw new Error('export_lease_lost');
-    if (!(Date.parse(held.leaseExpiresAt ?? '') > Date.parse(at))) throw new Error('export_lease_expired');
-    if ((count?.calls ?? 0) >= MAX_EXPORTS_PER_DAY) throw new Error('export_rate_limited');
+    if (held?.owner !== lease.owner) throw new ExportReservationError('export_lease_lost');
+    if (!(Date.parse(held.leaseExpiresAt ?? '') > Date.parse(at))) {
+      throw new ExportReservationError('export_lease_expired');
+    }
+    if ((count?.calls ?? 0) >= MAX_EXPORTS_PER_DAY) throw new ExportReservationError('export_rate_limited');
     tx.set(exportCountPath(uid, lease.day), { calls: (count?.calls ?? 0) + 1, date: lease.day, updatedAt: at });
     tx.delete(lease.path);
   });
