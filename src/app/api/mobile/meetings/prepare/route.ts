@@ -106,6 +106,7 @@ export async function POST(request: Request) {
     const result = await prepareMeeting(user.uid, input, { now });
     return Response.json({ success: true, ...result });
   } catch (error) {
+    if (error instanceof AccountUnavailableError) return accountUnavailableResponse();
     if (error instanceof MeetingPrepInputError) return refused(error);
     if (error instanceof CaptureInputTooLargeError) return tooLong(error);
     // The account was deleted while this was on its way (#772).

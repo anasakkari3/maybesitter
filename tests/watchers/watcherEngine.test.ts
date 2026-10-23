@@ -70,6 +70,7 @@ import {
 } from '../../src/contracts/v1/readinessContracts.ts';
 import { saveNormalizedReadinessSnapshot } from '../../lib/userState/userStateService.ts';
 import type { IntegrationConnectionRecord } from '../../src/contracts/v1/integrationConnectionContracts.ts';
+import { seedLiveAccount } from '../support/liveAccount.ts';
 
 const ALICE = 'AliceWatcherUserxxxxxxxxxxxxx'.slice(0, 28);
 const BOB = 'BobWatcherUserxxxxxxxxxxxxxxx'.slice(0, 28);
@@ -201,10 +202,14 @@ function connection(uid: string, connectionId: string, state: IntegrationConnect
 
 let storage: MemoryStorageAdapter;
 
-function begin(): void {
+async function begin(): Promise<void> {
   storage = createMemoryStorage();
   setStorageForTests(storage);
   flightVendorState.clear();
+  // Live accounts, as authentication leaves them: the writers these tests
+  // drive directly re-read the account deletion fence (#772).
+  await seedLiveAccount(ALICE);
+  await seedLiveAccount(BOB);
 }
 
 function end(): void {
@@ -260,9 +265,10 @@ function readinessSource(connectionId: string | null) {
 /* ── The acceptance criteria ──────────────────────────────────────── */
 
 test('one engine serves a synthetic flight, a football fixture and a readiness reading', async () => {
-  begin();
+  await begin();
   try {
     await storage.set(userDoc(ALICE), { uid: ALICE, createdAt: T0.toISOString() });
+    await seedLiveAccount(ALICE, storage); // the trust record this overwrite dropped (#772)
     await storage.set(fixtureDoc('football_data', 'match-4711'), fixture('2026-09-21T19:00:00.000Z'));
     flightVendorState.set(flightSource.subjectRef, {
       estimated_out: '2026-09-20T14:40:00.000Z',
@@ -350,7 +356,7 @@ test('one engine serves a synthetic flight, a football fixture and a readiness r
 });
 
 test('a provider payload cannot reach a watcher contract, a history row or an effect', async () => {
-  begin();
+  await begin();
   try {
     flightVendorState.set(flightSource.subjectRef, {
       estimated_out: '2026-09-20T14:40:00.000Z',
@@ -395,7 +401,7 @@ test('a provider payload cannot reach a watcher contract, a history row or an ef
 });
 
 test('the same source signal delivered twice fires once', async () => {
-  begin();
+  await begin();
   try {
     flightVendorState.set(flightSource.subjectRef, {
       estimated_out: '2026-09-20T14:40:00.000Z', dep_delayed: 0, raw_vendor_body: '{}',
@@ -434,7 +440,7 @@ test('the same source signal delivered twice fires once', async () => {
 });
 
 test('a disabled watcher performs zero effects, including when it is disabled mid-sweep', async () => {
-  begin();
+  await begin();
   try {
     flightVendorState.set(flightSource.subjectRef, {
       estimated_out: '2026-09-20T14:40:00.000Z', dep_delayed: 0, raw_vendor_body: '{}',
@@ -487,9 +493,10 @@ test('a disabled watcher performs zero effects, including when it is disabled mi
 });
 
 test('account-level background monitoring pause suppresses effects without suppressing observation, resumes without replay, and composes with per-watcher pause', async () => {
-  begin();
+  await begin();
   try {
     await storage.set(userDoc(ALICE), { uid: ALICE, createdAt: T0.toISOString() });
+    await seedLiveAccount(ALICE, storage); // the trust record this overwrite dropped (#772)
     const flightSource: WatcherSourceRef = { provider: 'aviation', connectionId: null, signalKind: FLIGHT_SIGNAL_KIND, subjectRef: 'flt_global_pause_test' };
     flightVendorState.set(flightSource.subjectRef, {
       estimated_out: '2026-09-20T14:10:00.000Z', dep_delayed: 0, raw_vendor_body: '{}',
@@ -575,6 +582,7 @@ test('account-level background monitoring pause suppresses effects without suppr
     // Verification 4: Composition with per-watcher pause
     // Add Bob with enabled: false (per-watcher disabled), while Alice is still globally paused
     await storage.set(userDoc(BOB), { uid: BOB, createdAt: T0.toISOString() });
+    await seedLiveAccount(BOB, storage); // the trust record this overwrite dropped (#772)
     const bobWatcher = await add(BOB, {
       enabled: false, source: flightSource, condition: { kind: 'digest_changed' }, effect: 'notify', createdBy: 'user',
     });
@@ -592,9 +600,10 @@ test('account-level background monitoring pause suppresses effects without suppr
 });
 
 test('disconnecting the provider blocks the watcher, and reconnecting resumes without replaying', async () => {
-  begin();
+  await begin();
   try {
     await storage.set(userDoc(ALICE), { uid: ALICE, createdAt: T0.toISOString() });
+    await seedLiveAccount(ALICE, storage); // the trust record this overwrite dropped (#772)
     await saveNormalizedReadinessSnapshot(ALICE, readiness(ALICE, 0.82, '2026-09-20T08:30:00.000Z'), {
       storage, now: T0.toISOString(),
     });
@@ -670,7 +679,7 @@ test('disconnecting the provider blocks the watcher, and reconnecting resumes wi
 });
 
 test('a commitment effect is a proposal and nothing canonical, and a replan effect only enters the pipeline', async () => {
-  begin();
+  await begin();
   try {
     flightVendorState.set(flightSource.subjectRef, {
       estimated_out: '2026-09-20T14:40:00.000Z', dep_delayed: 0, raw_vendor_body: '{}',
@@ -721,7 +730,7 @@ test('a commitment effect is a proposal and nothing canonical, and a replan effe
 });
 
 test('one account cannot see, or be affected by, another account watching the same subject', async () => {
-  begin();
+  await begin();
   try {
     flightVendorState.set(flightSource.subjectRef, {
       estimated_out: '2026-09-20T14:40:00.000Z', dep_delayed: 0, raw_vendor_body: '{}',
@@ -760,7 +769,7 @@ test('one account cannot see, or be affected by, another account watching the sa
 });
 
 test('re-running an identical sweep changes nothing', async () => {
-  begin();
+  await begin();
   try {
     flightVendorState.set(flightSource.subjectRef, {
       estimated_out: '2026-09-20T14:40:00.000Z', dep_delayed: 0, raw_vendor_body: '{}',
@@ -792,7 +801,7 @@ test('re-running an identical sweep changes nothing', async () => {
 });
 
 test('an unregistered signal kind blocks its watcher rather than failing the sweep', async () => {
-  begin();
+  await begin();
   try {
     flightVendorState.set(flightSource.subjectRef, {
       estimated_out: '2026-09-20T14:40:00.000Z', dep_delayed: 0, raw_vendor_body: '{}',

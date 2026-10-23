@@ -54,9 +54,10 @@ const SENTINEL = 'ZZQXMEETINGNOTESENTINELQZZ';
 const ARABIC_NOTE = 'اجتماع مع المدير عن ميزانية الربع الجاي.\nبدي أراجع أرقام المصاريف وأطبع التقرير.\nبعد الاجتماع لازم أبعت الملخص لسامي.';
 
 async function begin(): Promise<void> {
-  setStorageForTests(createMemoryStorage());
-  // #772: the prep's proposal is written behind the account deletion fence.
-  await seedLiveAccount(UID);
+  const storage = createMemoryStorage();
+  setStorageForTests(storage);
+  // The proposal is written behind the account deletion fence (#772).
+  await seedLiveAccount(UID, storage);
 }
 
 function end(): void {

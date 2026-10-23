@@ -18,6 +18,7 @@ import {
 } from '../../lib/services/mobile/routineProfileService.ts';
 import type { RoutineProfileInput } from '../../src/contracts/v1/routineContracts.ts';
 import type { RuntimeMemoryRecord } from '../../src/contracts/v1/memoryContracts.ts';
+import { seedLiveAccount } from '../support/liveAccount.ts';
 
 const UID = 'RoutineProfileUser';
 const FIRST = '2026-09-13T09:00:00.000Z';
@@ -36,8 +37,11 @@ function input(overrides: Partial<RoutineProfileInput> = {}): RoutineProfileInpu
   };
 }
 
-function begin(): void {
+async function begin(): Promise<void> {
   setStorageForTests(createMemoryStorage());
+  // Live accounts, as authentication leaves them: the writers these tests
+  // drive directly re-read the account deletion fence (#772).
+  await seedLiveAccount(UID);
 }
 
 function end(): void {
@@ -53,7 +57,7 @@ async function activeContents(): Promise<string[]> {
 }
 
 test('a first save stores the profile and one fact per answer', async () => {
-  begin();
+  await begin();
   try {
     const result = await saveRoutineProfile(UID, input(), FIRST);
     assert.equal(result.facts.created, 4);
@@ -74,7 +78,7 @@ test('a first save stores the profile and one fact per answer', async () => {
 });
 
 test('re-saving an unchanged survey changes nothing and creates no duplicates', async () => {
-  begin();
+  await begin();
   try {
     await saveRoutineProfile(UID, input(), FIRST);
     const before = (await allRecords()).map((r) => r.id).sort();
@@ -88,7 +92,7 @@ test('re-saving an unchanged survey changes nothing and creates no duplicates', 
 });
 
 test('a changed answer supersedes the old one and keeps it inspectable', async () => {
-  begin();
+  await begin();
   try {
     await saveRoutineProfile(UID, input(), FIRST);
     const result = await saveRoutineProfile(UID, input({ sleepWindow: { start: '00:30', end: '08:30' } }), SECOND);
@@ -111,7 +115,7 @@ test('a changed answer supersedes the old one and keeps it inspectable', async (
 });
 
 test('a removed answer is revoked, not left active and not silently deleted', async () => {
-  begin();
+  await begin();
   try {
     await saveRoutineProfile(UID, input(), FIRST);
     const result = await saveRoutineProfile(UID, input({ quietHours: null }), SECOND);
@@ -126,7 +130,7 @@ test('a removed answer is revoked, not left active and not silently deleted', as
 });
 
 test('adding a second focus window leaves the first one alone', async () => {
-  begin();
+  await begin();
   try {
     await saveRoutineProfile(UID, input(), FIRST);
     const firstFocus = (await allRecords()).find((r) => r.content === 'focus_window:09:00-17:00')!;
@@ -148,7 +152,7 @@ test('adding a second focus window leaves the first one alone', async () => {
 });
 
 test('skipping the survey records the skip and retires the answers already given', async () => {
-  begin();
+  await begin();
   try {
     await saveRoutineProfile(UID, input(), FIRST);
     const result = await saveRoutineProfile(UID, input({ surveySkipped: true }), SECOND);
@@ -162,9 +166,10 @@ test('skipping the survey records the skip and retires the answers already given
 });
 
 test('one account’s survey never touches another account’s facts', async () => {
-  begin();
+  await begin();
   try {
     const other = 'RoutineProfileStranger';
+    await seedLiveAccount(other); // its survey writes behind the deletion fence too (#772)
     await saveRoutineProfile(UID, input(), FIRST);
     await saveRoutineProfile(other, input({ sleepWindow: { start: '21:00', end: '05:00' } }), FIRST);
 
@@ -179,7 +184,7 @@ test('one account’s survey never touches another account’s facts', async () 
 });
 
 test('a profile never written reads as absent rather than as an empty one', async () => {
-  begin();
+  await begin();
   try {
     assert.equal(await readRoutineProfile('NeverAnswered'), null);
   } finally {
@@ -188,13 +193,14 @@ test('a profile never written reads as absent rather than as an empty one', asyn
 });
 
 test('M5B2A-R34-001: routine facts are never written while a purge or a withdrawal holds the personalization fence', async () => {
-  begin();
+  await begin();
   try {
     const { getStorage } = await import('../../lib/storage/index.ts');
     const { userDoc } = await import('../../lib/storage/paths.ts');
     const { MemoryWriteRefusedError } = await import('../../lib/runtimeMemory/runtimeMemoryStore.ts');
     for (const state of ['purging', 'withdrawing'] as const) {
       await getStorage().set(userDoc(UID), { uid: UID, personalizationPurge: { state, epoch: 4 } });
+      await seedLiveAccount(UID); // the trust record this overwrite dropped (#772)
       await assert.rejects(saveRoutineProfile(UID, input(), FIRST), MemoryWriteRefusedError);
       assert.equal((await allRecords()).length, 0, `a routine fact was written while ${state}`);
     }
@@ -204,11 +210,12 @@ test('M5B2A-R34-001: routine facts are never written while a purge or a withdraw
 });
 
 test('M5B2A-R34-001: a routine save that a purge overtakes mid-way writes nothing after it', async () => {
-  begin();
+  await begin();
   try {
     const { getStorage } = await import('../../lib/storage/index.ts');
     const { userDoc } = await import('../../lib/storage/paths.ts');
     await getStorage().set(userDoc(UID), { uid: UID, personalizationPurge: { state: 'active', epoch: 4 } });
+    await seedLiveAccount(UID); // the trust record this overwrite dropped (#772)
     const real = getStorage();
     let moved = false;
     const storage = new Proxy(real, {
@@ -217,7 +224,12 @@ test('M5B2A-R34-001: a routine save that a purge overtakes mid-way writes nothin
           return async (...args: unknown[]) => {
             // A delete-all runs to completion after the save decided to write facts
             // (it reads the existing ones) and before it writes them.
-            if (!moved) { moved = true; await target.set(userDoc(UID), { uid: UID, personalizationPurge: { state: 'active', epoch: 5 } }); }
+            if (!moved) {
+              moved = true;
+              // The account stays live (#772): only the personalization fence moves.
+              const live = (await target.get<Record<string, unknown>>(userDoc(UID))) ?? {};
+              await target.set(userDoc(UID), { ...live, uid: UID, personalizationPurge: { state: 'active', epoch: 5 } });
+            }
             return (target.list as (...a: unknown[]) => unknown)(...args);
           };
         }

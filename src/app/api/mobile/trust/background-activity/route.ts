@@ -1,3 +1,4 @@
+import { AccountUnavailableError, accountUnavailableResponse } from '../../../../../../lib/account/accountLiveness';
 import { mobileAuthErrorResponse, requireMobileUser } from '../../../../../../lib/auth/mobileAuth';
 import { mobileError } from '../../../../../../lib/services/mobile/response';
 import { listBackgroundActivity } from '../../../../../../lib/watchers/backgroundMonitors';
@@ -82,6 +83,7 @@ export async function PATCH(request: Request) {
     const activity = await listBackgroundActivity(user.uid, new Date().toISOString());
     return Response.json({ success: true, ...activity });
   } catch (error) {
+    if (error instanceof AccountUnavailableError) return accountUnavailableResponse();
     console.error('[trust] updating background monitoring status failed', error);
     return mobileError('could not update background monitoring', 500);
   }

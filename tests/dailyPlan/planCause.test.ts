@@ -415,7 +415,7 @@ test('a plan stored before this field existed is read without crashing and claim
   begin();
   try {
     await storage.set(userDoc(UID), { timezone: TZ, locale: 'en' });
-    await seedLiveAccount(UID, storage); // #772: the trust record authentication writes
+    await seedLiveAccount(UID, storage); // the trust record this fixture's overwrite dropped (#772)
     // Written with no `causeChangeIds` key at all — the pre-#527 shape.
     await seedGeneration1([{ itemId: 'com-1', interval: SLOT, reservedInterval: SLOT }]);
     // And a firing exists, so "nothing came back" cannot be an empty account.

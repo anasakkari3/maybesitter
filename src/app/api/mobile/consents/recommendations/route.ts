@@ -1,3 +1,4 @@
+import { AccountUnavailableError, accountUnavailableResponse } from '../../../../../../lib/account/accountLiveness';
 import { mobileAuthErrorResponse, requireMobileUser } from '../../../../../../lib/auth/mobileAuth';
 import { UnsupportedConsentVersionError } from '../../../../../../lib/consents/consentService';
 import { setRecommendationConsent } from '../../../../../../lib/consents/recommendationConsentService';
@@ -57,6 +58,7 @@ export async function PUT(request: Request) {
     });
     return Response.json({ success: true, recommendations: record });
   } catch (error) {
+    if (error instanceof AccountUnavailableError) return accountUnavailableResponse();
     if (error instanceof UnsupportedConsentVersionError) {
       return Response.json(
         { success: false, error: 'unsupported consent version', reason: 'unsupported_version' },

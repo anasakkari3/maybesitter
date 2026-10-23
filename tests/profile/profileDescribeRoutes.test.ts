@@ -26,6 +26,7 @@ import {
 } from '../../lib/services/mobile/profileDescribeService.ts';
 import { POST as describePost } from '../../src/app/api/mobile/profile/describe/route.ts';
 import { POST as confirmPost } from '../../src/app/api/mobile/profile/describe/confirm/route.ts';
+import { seedLiveAccount } from '../support/liveAccount.ts';
 
 const BASE = 'http://127.0.0.1:4321';
 const UID = uidFor('DescribeUser');
@@ -36,11 +37,15 @@ const SENTINEL = 'ZZQXSENTINELPHRASEQZZ';
 let auth: FakeAuthControls | null = null;
 let previousFlag: string | undefined;
 
-function begin(flag = 'true'): void {
+async function begin(flag = 'true'): Promise<void> {
   auth = installFakeAuth();
   setStorageForTests(createMemoryStorage());
   previousFlag = process.env.MAYBESITTER_FEATURE_MEMORY;
   process.env.MAYBESITTER_FEATURE_MEMORY = flag;
+  // Live accounts, as authentication leaves them: the writers these tests
+  // drive directly re-read the account deletion fence (#772).
+  await seedLiveAccount(UID);
+  await seedLiveAccount(uidFor('DescribeStranger'));
 }
 
 function end(): void {
@@ -99,7 +104,7 @@ async function everythingWritten(): Promise<string> {
 // ── The raw text is never stored ─────────────────────────────────
 
 test('the description itself is written nowhere', async () => {
-  begin();
+  await begin();
   try {
     await grant();
     const model = stubModel(THESIS);
@@ -116,7 +121,7 @@ test('the description itself is written nowhere', async () => {
 });
 
 test('the response echoes suggestions, not the description', async () => {
-  begin();
+  await begin();
   try {
     await grant();
     const proposal = await describeProfile(UID, SENTINEL, AT, { complete: stubModel(THESIS).complete });
@@ -130,7 +135,7 @@ test('the response echoes suggestions, not the description', async () => {
 // ── Nothing is written until confirm ─────────────────────────────
 
 test('describing writes no memory at all', async () => {
-  begin();
+  await begin();
   try {
     await grant();
     await describeProfile(UID, 'I am a nursing student', AT, { complete: stubModel(THESIS).complete });
@@ -142,7 +147,7 @@ test('describing writes no memory at all', async () => {
 });
 
 test('confirm writes only the ticked suggestions', async () => {
-  begin();
+  await begin();
   try {
     await grant();
     const proposal = await describeProfile(UID, 'text', AT, { complete: stubModel(THESIS).complete });
@@ -157,7 +162,7 @@ test('confirm writes only the ticked suggestions', async () => {
 });
 
 test('an unticked suggestion is discarded with the proposal', async () => {
-  begin();
+  await begin();
   try {
     await grant();
     const proposal = await describeProfile(UID, 'text', AT, { complete: stubModel(THESIS).complete });
@@ -174,7 +179,7 @@ test('an unticked suggestion is discarded with the proposal', async () => {
 });
 
 test('an expired proposal is refused rather than written', async () => {
-  begin();
+  await begin();
   try {
     await grant();
     const proposal = await describeProfile(UID, 'text', AT, { complete: stubModel(THESIS).complete });
@@ -192,7 +197,7 @@ test('an expired proposal is refused rather than written', async () => {
 // ── Provenance ───────────────────────────────────────────────────
 
 test('an unedited suggestion is stored as the model’s, confirmed by the user', async () => {
-  begin();
+  await begin();
   try {
     await grant();
     const proposal = await describeProfile(UID, 'text', AT, { complete: stubModel(THESIS).complete });
@@ -211,7 +216,7 @@ test('an unedited suggestion is stored as the model’s, confirmed by the user',
 });
 
 test('an edited suggestion becomes the user’s own words', async () => {
-  begin();
+  await begin();
   try {
     await grant();
     const proposal = await describeProfile(UID, 'text', AT, { complete: stubModel(THESIS).complete });
@@ -231,7 +236,7 @@ test('an edited suggestion becomes the user’s own words', async () => {
 });
 
 test('the language is read from the script, not from a locale', async () => {
-  begin();
+  await begin();
   try {
     await grant();
     const arabic = { suggestions: [{ kind: 'goal', category: 'learning', content: 'يخلّص الأطروحة', targetDate: null, confidence: 0.9 }] };
@@ -247,7 +252,7 @@ test('the language is read from the script, not from a locale', async () => {
 
 test('AI is always on: an account that never answered is not refused for consent, and nothing is saved', async () => {
   // Before 2026-09-30 this was a 403 `consent_required`.
-  begin();
+  await begin();
   try {
     const response = await describePost(request('/api/mobile/profile/describe', { text: 'I am a nursing student' }));
     assert.notEqual(response.status, 403);
@@ -260,7 +265,7 @@ test('AI is always on: an account that never answered is not refused for consent
 });
 
 test('an injection attempt costs nothing and suggests nothing', async () => {
-  begin();
+  await begin();
   try {
     await grant();
     const model = stubModel(THESIS);
@@ -278,7 +283,7 @@ test('an injection attempt costs nothing and suggests nothing', async () => {
 });
 
 test('a sensitive suggestion the model returned anyway never reaches the user', async () => {
-  begin();
+  await begin();
   try {
     await grant();
     const withHealth = {
@@ -298,7 +303,7 @@ test('a sensitive suggestion the model returned anyway never reaches the user', 
 // ── The routes ───────────────────────────────────────────────────
 
 test('the endpoints refuse an unauthenticated caller', async () => {
-  begin();
+  await begin();
   try {
     const anonymous = (path: string) => new Request(`${BASE}${path}`, {
       method: 'POST', headers: new Headers({ 'content-type': 'application/json' }), body: '{}',
@@ -311,7 +316,7 @@ test('the endpoints refuse an unauthenticated caller', async () => {
 });
 
 test('with the memory feature off both endpoints are a 404', async () => {
-  begin('false');
+  await begin('false');
   try {
     await grant();
     assert.equal((await describePost(request('/api/mobile/profile/describe', { text: 'x' }))).status, 404);
@@ -322,7 +327,7 @@ test('with the memory feature off both endpoints are a 404', async () => {
 });
 
 test('a description over the limit is refused before any model call', async () => {
-  begin();
+  await begin();
   try {
     await grant();
     const response = await describePost(request('/api/mobile/profile/describe', { text: 'x'.repeat(1001) }));
@@ -334,7 +339,7 @@ test('a description over the limit is refused before any model call', async () =
 });
 
 test('one account cannot confirm another account’s proposal', async () => {
-  begin();
+  await begin();
   try {
     await grant();
     const proposal = await describeProfile(UID, 'text', AT, { complete: stubModel(THESIS).complete });
@@ -350,7 +355,7 @@ test('one account cannot confirm another account’s proposal', async () => {
 });
 
 test('the audit line carries counts, never the facts', async () => {
-  begin();
+  await begin();
   try {
     await grant();
     const proposal = await describeProfile(UID, 'text', AT, { complete: stubModel(THESIS).complete });

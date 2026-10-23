@@ -1,3 +1,4 @@
+import { AccountUnavailableError, accountUnavailableResponse } from '../../../../../../../lib/account/accountLiveness';
 import { mobileAuthErrorResponse, requireMobileUser } from '../../../../../../../lib/auth/mobileAuth';
 import {
   MemorySuggestionConsentError,
@@ -60,6 +61,7 @@ export async function POST(request: Request, context: RouteContext) {
     }
     return Response.json({ success: true, decision: 'dismiss' });
   } catch (error) {
+    if (error instanceof AccountUnavailableError) return accountUnavailableResponse();
     if (error instanceof UnknownMemoryRuleError) {
       return Response.json({ success: false, error: error.message, reason: 'memory_rule_not_found' }, { status: 404 });
     }

@@ -43,6 +43,7 @@ import { userSubDoc, PROVIDER_CONNECTIONS } from '../../lib/storage/paths.ts';
 import type { IntegrationConnectionRecord } from '../../src/contracts/v1/integrationConnectionContracts.ts';
 import type { BackgroundMonitorView } from '../../src/contracts/v1/backgroundMonitorContracts.ts';
 import type { NewWatcherInput } from '../../lib/watchers/watcherStore.ts';
+import { seedLiveAccount } from '../support/liveAccount.ts';
 
 const BASE = 'https://api.maybesitter.test';
 const ALICE = uidFor('MonitorAlice');
@@ -52,10 +53,14 @@ const NOW = '2026-09-20T09:00:00.000Z';
 let storage: MemoryStorageAdapter;
 let auth: FakeAuthControls | null = null;
 
-function begin(): void {
+async function begin(): Promise<void> {
   storage = createMemoryStorage();
   setStorageForTests(storage);
   auth = installFakeAuth();
+  // Live accounts, as authentication leaves them: the writers these tests
+  // drive directly re-read the account deletion fence (#772).
+  await seedLiveAccount(ALICE);
+  await seedLiveAccount(BOB);
 }
 
 function end(): void {
@@ -178,7 +183,7 @@ async function monitors(uid: string): Promise<BackgroundMonitorView[]> {
 /* ── One row per watcher, in each state the user can be in ───────── */
 
 test('an active watcher is listed as active, with the next check it will actually make', async () => {
-  begin();
+  await begin();
   try {
     await setConnection(ALICE, 'cnx_whoop_1', 'connected');
     const watcher = await addWatcher(ALICE);
@@ -208,7 +213,7 @@ test('an active watcher is listed as active, with the next check it will actuall
 });
 
 test('a watcher the user turned off is paused, offers no pause, and promises no next check', async () => {
-  begin();
+  await begin();
   try {
     await setConnection(ALICE, 'cnx_whoop_1', 'connected');
     await addWatcher(ALICE, { enabled: false });
@@ -224,7 +229,7 @@ test('a watcher the user turned off is paused, offers no pause, and promises no 
 });
 
 test('a lapsed grant is needs_reauth, and a narrowed one is the same answer', async () => {
-  begin();
+  await begin();
   try {
     // Both are grants that exist and cannot be used, and the user fixes both
     // the same way, which is why the engine groups them and why this does.
@@ -241,7 +246,7 @@ test('a lapsed grant is needs_reauth, and a narrowed one is the same answer', as
 });
 
 test('a connection that is gone, revoked or never made is a permission block, not an error', async () => {
-  begin();
+  await begin();
   try {
     await addWatcher(ALICE);
     // No record at all: there is nothing to read through, which from the
@@ -260,7 +265,7 @@ test('a connection that is gone, revoked or never made is a permission block, no
 });
 
 test('a provider in error, and a signal nothing observes, are both reported as error', async () => {
-  begin();
+  await begin();
   try {
     await setConnection(ALICE, 'cnx_whoop_1', 'error');
     await addWatcher(ALICE);
@@ -284,7 +289,7 @@ test('a provider in error, and a signal nothing observes, are both reported as e
 });
 
 test('a watcher needing no connection is active without one', async () => {
-  begin();
+  await begin();
   try {
     await addWatcher(ALICE, {
       source: { provider: 'maybesitter', connectionId: null, signalKind: 'readiness', subjectRef: 'self' },
@@ -298,7 +303,7 @@ test('a watcher needing no connection is active without one', async () => {
 });
 
 test('an account watching nothing gets an empty list, not an error and not a null', async () => {
-  begin();
+  await begin();
   try {
     const response = await backgroundActivity(request(ALICE));
     assert.equal(response.status, 200);
@@ -316,7 +321,7 @@ test('an account watching nothing gets an empty list, not an error and not a nul
 /* ── The live answer, not the last sweep's ───────────────────────── */
 
 test('revoking a connection changes the answer before any sweep runs', async () => {
-  begin();
+  await begin();
   try {
     await setConnection(ALICE, 'cnx_whoop_1', 'connected');
     const watcher = await addWatcher(ALICE);
@@ -336,7 +341,7 @@ test('revoking a connection changes the answer before any sweep runs', async () 
 });
 
 test('a connected record that still asks for re-auth is not reported as fine', async () => {
-  begin();
+  await begin();
   try {
     await setConnection(ALICE, 'cnx_whoop_1', 'connected', { reauthRequired: true });
     await addWatcher(ALICE);
@@ -350,7 +355,7 @@ test('a connected record that still asks for re-auth is not reported as fine', a
 /* ── Nothing of the provider's crosses the boundary ──────────────── */
 
 test('no provider token, scope, cursor, account name or error code appears anywhere in the response', async () => {
-  begin();
+  await begin();
   try {
     // Every status the projection can produce, in one response, so the
     // assertion covers the blocked and errored paths too — those are the ones
@@ -400,7 +405,7 @@ test('no provider token, scope, cursor, account name or error code appears anywh
 /* ── Whose monitors these are ────────────────────────────────────── */
 
 test('one account never sees another\'s monitors, and an unauthenticated read sees none', async () => {
-  begin();
+  await begin();
   try {
     await setConnection(BOB, 'cnx_whoop_1', 'connected');
     await addWatcher(BOB);
@@ -457,7 +462,7 @@ test('the status function reads disabled, then the connection, then the observer
 /* ── Account-level monitoring pause controls (#527) ──────────────── */
 
 test('listBackgroundActivity exposes the global paused state', async () => {
-  begin();
+  await begin();
   try {
     await setConnection(ALICE, 'cnx_whoop_1', 'connected');
     await addWatcher(ALICE);
@@ -483,7 +488,7 @@ test('listBackgroundActivity exposes the global paused state', async () => {
 });
 
 test('PATCH /api/mobile/trust/background-activity pauses and resumes global monitoring', async () => {
-  begin();
+  await begin();
   try {
     await setConnection(ALICE, 'cnx_whoop_1', 'connected');
     await addWatcher(ALICE);
@@ -535,7 +540,7 @@ test('PATCH /api/mobile/trust/background-activity pauses and resumes global moni
 });
 
 test('GET and PATCH /api/mobile/settings/monitoring manage account monitoring settings', async () => {
-  begin();
+  await begin();
   try {
     // Unauthenticated fails
     const unauthGet = await monitoringSettingsGet(settingsRequest(undefined, 'GET'));
@@ -598,7 +603,7 @@ test('GET and PATCH /api/mobile/settings/monitoring manage account monitoring se
 });
 
 test('no provider secrets leak in background activity PATCH or monitoring settings responses', async () => {
-  begin();
+  await begin();
   try {
     await setConnection(ALICE, 'cnx_whoop_1', 'connected');
     await addWatcher(ALICE, { source: { provider: 'whoop', connectionId: 'cnx_whoop_1', signalKind: 'readiness', subjectRef: 'self' } });

@@ -49,10 +49,14 @@ const SECRETS = Object.freeze({
 let storage: MemoryStorageAdapter;
 let auth: FakeAuthControls | null = null;
 
-function begin(): void {
+async function begin(): Promise<void> {
   storage = createMemoryStorage();
   setStorageForTests(storage);
   auth = installFakeAuth();
+  // Live accounts, as authentication leaves them: the writers these tests
+  // drive directly re-read the account deletion fence (#772).
+  await seedLiveAccount(ALICE);
+  await seedLiveAccount(BOB);
 }
 
 function end(): void {
@@ -104,7 +108,7 @@ function makeConnection(
 }
 
 test('background activity history exposes event-backed row types (condition changed, notification sent, plan reconsidered)', async () => {
-  begin();
+  await begin();
   try {
     const store = createWatcherStore(ALICE, storage);
 
@@ -236,7 +240,7 @@ test('background activity history exposes event-backed row types (condition chan
 });
 
 test('history route enforces auth, bounds limit, and filters by watcherId and kind', async () => {
-  begin();
+  await begin();
   try {
     const anon = await backgroundActivityHistoryGet(req('/api/mobile/trust/background-activity/history'));
     assert.equal(anon.status, 401);
@@ -261,7 +265,7 @@ test('history route enforces auth, bounds limit, and filters by watcherId and ki
 });
 
 test('no raw provider payload or secret appears anywhere in history response', async () => {
-  begin();
+  await begin();
   try {
     const store = createWatcherStore(ALICE, storage);
 
@@ -296,7 +300,7 @@ test('no raw provider payload or secret appears anywhere in history response', a
 });
 
 test('history strictly isolates accounts', async () => {
-  begin();
+  await begin();
   try {
     const aliceStore = createWatcherStore(ALICE, storage);
     const bobStore = createWatcherStore(BOB, storage);
@@ -455,7 +459,7 @@ async function seedAnsweredProposal(answer: 'accept' | 'reject'): Promise<string
 }
 
 test('accepting a proposed change reads as one proposed and one applied replan, not a third row (#587)', async () => {
-  begin();
+  await begin();
   try {
     const watcherId = await seedAnsweredProposal('accept');
     const types = (await storage.list<{ type: string }>(userCol(ALICE, PLAN_EVENTS))).map((row) => row.data.type).sort();
@@ -472,7 +476,7 @@ test('accepting a proposed change reads as one proposed and one applied replan, 
 });
 
 test('declining a proposed change leaves only the proposed replan (#587)', async () => {
-  begin();
+  await begin();
   try {
     await seedAnsweredProposal('reject');
     const history = await listBackgroundActivityHistory(ALICE, { kind: 'plan_reconsidered' }, { storage });

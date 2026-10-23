@@ -25,6 +25,7 @@ import { runCalendarMaintenanceStep } from '../../lib/intelligence/gmailCalendar
 import { GOOGLE_BUSY_SOURCE_ID, type GoogleBusyTarget } from '../../lib/integrations/google/googleCalendarBusy';
 import { GOOGLE_FEATURE_SCOPES } from '../../lib/integrations/google/googleConfig';
 import { connectionIdFor } from '../../lib/integrations/providers/production/storedConnectionStore';
+import { seedLiveAccount } from '../support/liveAccount.ts';
 
 const NOW = '2026-10-19T10:00:00.000Z';
 
@@ -202,6 +203,7 @@ test('B3 pause transitions coalesce intervals and preserve every paused instant 
   await storage.set('users/alice/intelligenceMonitors/gmail', { enabled: true, generation: 'g', cursor: '1', pageToken: null,
     m5: { v: 1, providerAccountId: 'acct', enabledAt: NOW, timezone: 'UTC', at: NOW,
       pauseEpoch: 0, pausedSince: null, excluded: [] } });
+  await seedLiveAccount('alice', storage); // the settings write re-reads the deletion fence (#772)
   await saveMonitoringSettings('alice', true, NOW, { storage });
   await saveMonitoringSettings('alice', true, '2026-10-19T10:00:01.000Z', { storage });
   await saveMonitoringSettings('alice', false, '2026-10-19T10:00:02.000Z', { storage });

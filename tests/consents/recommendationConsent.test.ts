@@ -37,6 +37,7 @@ import { listAuditEvents } from '../../lib/pilot/pilotTrustStore.ts';
 import { GET as consentsGet } from '../../src/app/api/mobile/consents/route.ts';
 import { PUT as recommendationsPut } from '../../src/app/api/mobile/consents/recommendations/route.ts';
 import { PUT as aiPut } from '../../src/app/api/mobile/consents/ai-processing/route.ts';
+import { seedLiveAccount } from '../support/liveAccount.ts';
 
 const baseUrl = 'http://127.0.0.1:4321';
 let auth: FakeAuthControls | null = null;
@@ -70,6 +71,7 @@ test('a fresh account has not agreed to recommendations', async () => {
   begin();
   try {
     const uid = uidFor('RecNeverAsked');
+    await seedLiveAccount(uid); // consent answers write behind the deletion fence (#772)
     assert.equal(await getRecommendationConsent(uid), 'declined');
     assert.equal(await readRecommendationConsent(uid), null);
 
@@ -87,6 +89,7 @@ test('granting AI processing does not grant recommendations', async () => {
   begin();
   try {
     const uid = uidFor('AiOnly');
+    await seedLiveAccount(uid); // consent answers write behind the deletion fence (#772)
     await setAiConsent(uid, { state: 'granted', version: AI_CONSENT_VERSION });
 
     assert.equal(await getAiConsent(uid), 'granted');
@@ -103,6 +106,7 @@ test('the recommendation answer and AI processing are separate questions', async
   begin();
   try {
     const uid = uidFor('RecOnly');
+    await seedLiveAccount(uid); // consent answers write behind the deletion fence (#772)
     await setRecommendationConsent(uid, { state: 'declined', version: RECOMMENDATION_CONSENT_VERSION });
 
     assert.equal(await getRecommendationConsent(uid), 'declined');
@@ -119,6 +123,7 @@ test('answering one question leaves the other answer intact', async () => {
   begin();
   try {
     const uid = uidFor('BothAnswers');
+    await seedLiveAccount(uid); // consent answers write behind the deletion fence (#772)
     await setAiConsent(uid, { state: 'granted', version: AI_CONSENT_VERSION, locale: 'ar' });
     await setRecommendationConsent(uid, { state: 'declined', version: RECOMMENDATION_CONSENT_VERSION });
     // The write merges into the consent map rather than replacing it.
@@ -138,6 +143,7 @@ test('an unknown recommendation version is refused, never silently upgraded', as
   begin();
   try {
     const uid = uidFor('RecBadVersion');
+    await seedLiveAccount(uid); // consent answers write behind the deletion fence (#772)
     await assert.rejects(
       () => setRecommendationConsent(uid, { state: 'granted', version: 'rec-consent-v99' }),
       UnsupportedConsentVersionError,
@@ -158,6 +164,7 @@ test('a record from a version this server no longer knows reads as declined', as
   begin();
   try {
     const uid = uidFor('RecStaleVersion');
+    await seedLiveAccount(uid); // consent answers write behind the deletion fence (#772)
     await setRecommendationConsent(uid, { state: 'granted', version: RECOMMENDATION_CONSENT_VERSION });
 
     const { getStorage } = await import('../../lib/storage/index.ts');
@@ -193,6 +200,7 @@ test('the endpoint records the caller\'s own consent and refuses a bad body', as
   begin();
   try {
     const uid = uidFor('RecEndpoint');
+    await seedLiveAccount(uid); // consent answers write behind the deletion fence (#772)
     const ok = await recommendationsPut(request(uid, '/api/mobile/consents/recommendations', {
       state: 'granted', version: RECOMMENDATION_CONSENT_VERSION, locale: 'he', platform: 'android',
       // Ignored: the account is the token's.
@@ -220,6 +228,7 @@ test('revocation takes effect on the very next call, with no cache in between', 
   begin();
   try {
     const uid = uidFor('RecRevokes');
+    await seedLiveAccount(uid); // consent answers write behind the deletion fence (#772)
     await setRecommendationConsent(uid, { state: 'granted', version: RECOMMENDATION_CONSENT_VERSION });
     assert.equal(await getRecommendationConsent(uid), 'granted');
     await setRecommendationConsent(uid, { state: 'declined', version: RECOMMENDATION_CONSENT_VERSION });
@@ -233,6 +242,7 @@ test('each recommendation change appends exactly one audit event, naming which c
   begin();
   try {
     const uid = uidFor('RecAudited');
+    await seedLiveAccount(uid); // consent answers write behind the deletion fence (#772)
     await setRecommendationConsent(uid, { state: 'granted', version: RECOMMENDATION_CONSENT_VERSION });
     await setRecommendationConsent(uid, { state: 'declined', version: RECOMMENDATION_CONSENT_VERSION });
     await setAiConsent(uid, { state: 'granted', version: AI_CONSENT_VERSION });
@@ -266,6 +276,7 @@ test('GET /consents answers both questions and keeps #161\'s field', async () =>
   begin();
   try {
     const uid = uidFor('RecView');
+    await seedLiveAccount(uid); // consent answers write behind the deletion fence (#772)
     await setAiConsent(uid, { state: 'granted', version: AI_CONSENT_VERSION });
     await setRecommendationConsent(uid, { state: 'granted', version: RECOMMENDATION_CONSENT_VERSION });
 

@@ -673,6 +673,7 @@ async function seedFocusHabit(uid: string): Promise<void> {
     throw new Error('no instant');
   };
   await getStorage().set(userDoc(uid), { uid, timezone: 'Asia/Jerusalem' });
+  await seedLiveAccount(uid); // the trust record this fixture's overwrite dropped (#772)
   const times: Array<[number, number, number]> = [
     [1, 9, 15], [2, 9, 40], [3, 10, 0], [5, 10, 30], [6, 11, 0], [8, 11, 20], [9, 11, 45],
     [4, 19, 5], [7, 20, 5], [10, 21, 5],
@@ -699,6 +700,7 @@ async function seedFocusHabit(uid: string): Promise<void> {
 async function seedDeferHabit(uid: string): Promise<void> {
   const nowMs = Date.now();
   await getStorage().set(userDoc(uid), { uid, timezone: 'Asia/Jerusalem' });
+  await seedLiveAccount(uid); // the trust record this fixture's overwrite dropped (#772)
   const durations = [60, 60, 180, 60, 180, 60];
   for (let index = 0; index < durations.length; index += 1) {
     const at = new Date(nowMs - (index + 1) * 86_400_000);
@@ -745,7 +747,7 @@ async function seedPlanOpenHabit(uid: string): Promise<void> {
     return `${part('year')}-${part('month')}-${part('day')}`;
   };
   await getStorage().set(userDoc(uid), { uid, timezone: 'Asia/Jerusalem' });
-  await seedLiveAccount(uid); // #772: the plan ledger is written behind the account deletion fence
+  await seedLiveAccount(uid); // the trust record this fixture's overwrite dropped (#772)
   const opens: Array<[number, number, number]> = [
     [1, 8, 12], [2, 8, 26], [3, 21, 5], [4, 8, 4], [5, 21, 40], [6, 8, 29], [7, 8, 0],
   ];

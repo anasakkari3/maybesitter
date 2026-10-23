@@ -10,6 +10,7 @@
  * dismissal when a kept suggestion is deleted without importing the service
  * that imports it.
  */
+import { assertLiveAccount } from '../account/accountLiveness';
 import { userDoc } from '../storage/paths';
 import { MEMORY_DISMISSALS, requireUserId, userSubDoc, type StorageAdapter, type StorageReader } from '../storage';
 import { MEMORY_GROWTH_RULE_IDS, type MemoryGrowthRuleId } from './rules';
@@ -56,6 +57,9 @@ export async function recordDismissal(
   if (!ruleId) return true;
   return storage.runTransaction(async (tx) => {
     const user = await tx.get<{ personalizationPurge?: { state?: unknown } }>(userDoc(requireUserId(uid)));
+    // The account deletion fence (#772), on the same user read the purge fence
+    // already makes: a dismissal after the account was deleted is refused.
+    assertLiveAccount(user);
     if (user?.personalizationPurge?.state === 'purging') return false;
     tx.set<StoredMemoryDismissal>(userSubDoc(uid, MEMORY_DISMISSALS, ruleId), { ruleId, fingerprint, dismissedAt: at });
     return true;

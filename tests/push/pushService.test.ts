@@ -12,6 +12,7 @@
  *     quiet morning must delay the day's plan rather than cancel it;
  *   - a dead token is proved gone from storage, not merely reported.
  */
+import { seedLiveAccount } from '../support/liveAccount.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
@@ -107,6 +108,8 @@ async function withDevice(
   installationId: string,
   pushPermission: PushPermission = 'granted',
 ): Promise<DeviceRecord> {
+  // The registration writes behind the account deletion fence (#772).
+  await seedLiveAccount(UID, storage);
   return upsertDevice(UID, {
     installationId,
     fcmToken: `token-${installationId.replace(/-/g, '')}`,

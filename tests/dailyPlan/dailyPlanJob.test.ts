@@ -532,6 +532,10 @@ async function seedUnreadable(storage: StorageAdapter, uid: string): Promise<voi
     // code can turn it into settings.
     planSettings: { enabled: true, deliveryLocalTime: '07:30', timezone: 'Mars/Olympus', nextRunAt: '2026-09-01T04:30:00.000Z' },
   });
+  // A live account whose settings are unreadable: the claim re-reads the
+  // account deletion fence first (#772), and a root without a trust record is
+  // no live account at all.
+  await seedLiveAccount(uid, storage);
 }
 
 test('an account whose settings cannot be read is disarmed and counted, not returned for ever', async () => {

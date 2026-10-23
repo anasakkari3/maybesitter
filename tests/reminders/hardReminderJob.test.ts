@@ -358,6 +358,7 @@ test('moving the start re-arms at the new instant and the stale receipt does not
 
 async function quietAroundFireAt(): Promise<void> {
   // UTC 07:00–09:00 contains fireAt (07:50Z).
+  await seedLiveAccount(USER); // the survey write re-reads the deletion fence (#772)
   await saveRoutineProfile(USER, {
     timezone: 'UTC',
     sleepWindow: null,

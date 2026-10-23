@@ -24,7 +24,17 @@
  * older version of the words reads as declined (`consentService`), so is off;
  * an account that has agreed to AI processing or to next-step suggestions and
  * never been asked this is off. Nothing here is inferred from another answer.
+ *
+ * ── The account deletion fence (#772) ────────────────────────────
+ *
+ * Every transaction here that writes under the account re-reads `users/{uid}`
+ * — the read the personalization fence already makes — and refuses
+ * (`AccountUnavailableError`) unless the account is live, before it looks at
+ * the fence: so does every guarded store write (`liveFence` wraps each
+ * `accepts`). It only ever adds a refusal; what the personalization fence
+ * accepts or refuses for a live account is unchanged.
  */
+import { AccountUnavailableError, assertLiveAccount } from '../account/accountLiveness';
 import {
   PERSONALIZATION_CONSENT,
   PERSONALIZATION_CONSENT_VERSION,
@@ -134,6 +144,7 @@ export function liveWithdrawalOwnsFence(fence: unknown, nowMs: number): boolean 
 async function beginPersonalizationWithdrawal(storage: StorageAdapter, uid: string, at: string): Promise<WithdrawalLease | null> {
   return storage.runTransaction(async (tx) => {
     const user = await tx.get<Record<string, unknown>>(userDoc(uid));
+    assertLiveAccount(user);
     const prior = user?.personalizationPurge as FenceDocument | undefined;
     if (prior?.state === 'purging') return null;
     // One owner of the fence at a time (M5B2A-R17-001): another withdrawal
@@ -168,6 +179,7 @@ async function finishPersonalizationWithdrawal(
 ): Promise<void> {
   await storage.runTransaction(async (tx) => {
     const user = await tx.get<Record<string, unknown>>(userDoc(uid));
+    assertLiveAccount(user);
     const current = user?.personalizationPurge as FenceDocument | undefined;
     if (current?.state !== 'withdrawing') return;
     // This withdrawal's own lease, exactly. Another owner's fence is recovered
@@ -192,6 +204,7 @@ function fenceEpoch(user: unknown): number {
 async function abandonWithdrawalLease(storage: StorageAdapter, uid: string, lease: WithdrawalLease): Promise<void> {
   await storage.runTransaction(async (tx) => {
     const user = await tx.get<Record<string, unknown>>(userDoc(uid));
+    assertLiveAccount(user);
     const current = user?.personalizationPurge as FenceDocument | undefined;
     if (current?.state !== 'withdrawing' || current.epoch !== lease.epoch || current.withdrawalOwner !== lease.owner) return;
     tx.merge(userDoc(uid), { personalizationPurge: { ...current, withdrawalLeaseAt: new Date(0).toISOString() } });
@@ -210,6 +223,19 @@ function fenceActive(fence: FenceDocument | undefined): boolean {
 }
 
 /**
+ * A store write's guard over the user document, behind the account deletion
+ * fence (#772): the user document the guard reads in the write's own
+ * transaction must be a live account's, or the write throws
+ * `AccountUnavailableError` before `accepts` is even asked.
+ */
+function liveFence(accepts: (value: unknown) => boolean): (value: unknown) => boolean {
+  return (value) => {
+    assertLiveAccount(value);
+    return accepts(value);
+  };
+}
+
+/**
  * The epoch of an active fence, read in a transaction that also supersedes a
  * withdrawal whose lease ran out. A live withdrawal or a purge is waited for,
  * as a withdrawal waits; one that lasts refuses the grant before anything is
@@ -223,6 +249,7 @@ async function captureGrantVersion(
   for (let attempt = 1; ; attempt += 1) {
     const version = await storage.runTransaction(async (tx) => {
       const user = await tx.get<Record<string, unknown>>(userDoc(uid));
+      assertLiveAccount(user);
       const fence = user?.personalizationPurge as FenceDocument | undefined;
       if (fenceActive(fence)) return fenceEpoch(user);
       if (fence!.state === 'withdrawing' && leaseExpired(fence!)) {
@@ -269,10 +296,10 @@ export async function setPersonalizationConsent(
       else {
         const written = await store.writeGuarded(uid, 'enabled', record.changedAt, {
           path: userDoc(uid),
-          accepts: (value) => {
+          accepts: liveFence((value) => {
             const fence = (value as { personalizationPurge?: FenceDocument } | null)?.personalizationPurge;
             return fenceActive(fence) && fenceEpoch(value) === version;
-          },
+          }),
         });
         if (written === null) throw new Error('a withdrawal took the fence after this grant was decided');
       }
@@ -284,6 +311,8 @@ export async function setPersonalizationConsent(
       // newer grant that succeeded since keeps its answer.
       await setConsentIf(PERSONALIZATION_CONSENT, uid, { ...input, state: 'declined', at }, token, { storage })
         .catch(() => undefined);
+      // A deleted account is answered as one, not as a consent that failed.
+      if (error instanceof AccountUnavailableError) throw error;
       throw new PersonalizationConsentNotRecordedError(error);
     }
     return record;
@@ -360,10 +389,10 @@ async function withdrawFenced(
     // newer grant off. A store that cannot guard writes as before.
     const written = !store.writeGuarded ? await store.write(uid, 'disabled', at) : await store.writeGuarded(uid, 'disabled', at, {
       path: userDoc(uid),
-      accepts: (value) => {
+      accepts: liveFence((value) => {
         const fence = (value as { personalizationPurge?: FenceDocument } | null)?.personalizationPurge;
         return fence?.state === 'withdrawing' && fence.epoch === held.epoch && fence.withdrawalOwner === held.owner;
-      },
+      }),
     });
     if (written === null) throw new PersonalizationWithdrawalSupersededError();
     if (whileClosed) await whileClosed(held);
@@ -395,7 +424,10 @@ export async function completeAbandonedWithdrawal(
 ): Promise<void> {
   const storage = options.storage ?? getStorage();
   const store = storeOf({ ...options, storage });
-  await store.write(uid, 'disabled', at);
+  // Behind the account deletion fence (#772) where the store can guard: a
+  // purge finishing after the account was deleted re-creates nothing.
+  if (store.writeGuarded) await store.writeGuarded(uid, 'disabled', at, { path: userDoc(uid), accepts: liveFence(() => true) });
+  else await store.write(uid, 'disabled', at);
   await setConsent(PERSONALIZATION_CONSENT, uid, { state: 'declined', version: PERSONALIZATION_CONSENT_VERSION, at: new Date(at) }, { storage });
   // Verified, not assumed (R34-003): the purge clears its pending marker only after this returns.
   const [effective, answer] = await Promise.all([store.read(uid), getConsent(PERSONALIZATION_CONSENT, uid, { storage })]);
@@ -418,8 +450,8 @@ export async function enablePersonalizationFenced(
   if (!store.writeGuarded) return store.write(uid, 'enabled', at);
   const written = await store.writeGuarded(uid, 'enabled', at, {
     path: userDoc(uid),
-    accepts: (value) => fenceActive((value as { personalizationPurge?: FenceDocument } | null)?.personalizationPurge)
-      && fenceEpoch(value) === version,
+    accepts: liveFence((value) => fenceActive((value as { personalizationPurge?: FenceDocument } | null)?.personalizationPurge)
+      && fenceEpoch(value) === version),
   });
   if (written === null) throw new PersonalizationWithdrawalBusyError();
   return written;

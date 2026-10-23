@@ -107,6 +107,7 @@ test('AI is always on: a user who has never been asked reads as granted, at the 
   begin();
   try {
     const uid = uidFor('NeverAsked');
+    await seedLiveAccount(uid); // consent answers write behind the deletion fence (#772)
     assert.equal(await getAiConsent(uid), 'granted');
     const record = await readAiConsent(uid);
     assert.equal(record?.state, 'granted');
@@ -127,6 +128,7 @@ test('granting is recorded; declining is refused and changes nothing', async () 
   begin();
   try {
     const uid = uidFor('ChangesMind');
+    await seedLiveAccount(uid); // consent answers write behind the deletion fence (#772)
     await setAiConsent(uid, { state: 'granted', version: AI_CONSENT_VERSION, locale: 'ar', platform: 'ios' });
     assert.equal(await getAiConsent(uid), 'granted');
     const granted = await readAiConsent(uid);
@@ -149,6 +151,7 @@ test('a declined record stored before the policy reads as granted', async () => 
   begin();
   try {
     const uid = uidFor('DeclinedBefore');
+    await seedLiveAccount(uid); // consent answers write behind the deletion fence (#772)
     const storage = createMemoryStorage();
     setStorageForTests(storage);
     await storage.set(userDoc(uid), {
@@ -164,6 +167,7 @@ test('an unknown version is refused, never silently upgraded', async () => {
   begin();
   try {
     const uid = uidFor('UnknownVersion');
+    await seedLiveAccount(uid); // consent answers write behind the deletion fence (#772)
     await assert.rejects(
       () => setAiConsent(uid, { state: 'granted', version: 'ai-consent-v2' }),
       (error: unknown) => error instanceof UnsupportedConsentVersionError,
@@ -180,6 +184,7 @@ test('a record left over from a version this server no longer knows reads as gra
   begin();
   try {
     const uid = uidFor('StaleVersion');
+    await seedLiveAccount(uid); // consent answers write behind the deletion fence (#772)
     const storage = createMemoryStorage();
     setStorageForTests(storage);
     await storage.set(userDoc(uid), {
@@ -197,6 +202,7 @@ test('a recorded grant appends exactly one audit event, and a refused decline no
   begin();
   try {
     const uid = uidFor('AuditTrail');
+    await seedLiveAccount(uid); // consent answers write behind the deletion fence (#772)
     const storage = createMemoryStorage();
     setStorageForTests(storage);
     await getOrCreateTrust(uid, new Date().toISOString());
@@ -262,6 +268,7 @@ test('the endpoint records the caller\'s own consent and refuses a bad body', as
   begin();
   try {
     const uid = uidFor('ApiCaller');
+    await seedLiveAccount(uid); // consent answers write behind the deletion fence (#772)
     const ok = await consentPut(request(uid, { state: 'granted', version: AI_CONSENT_VERSION, locale: 'he' }, 'PUT'));
     assert.equal(ok.status, 200);
     assert.equal(await getAiConsent(uid), 'granted');
@@ -305,6 +312,7 @@ test('layer 2: the gated provider reaches the model for an account that never an
   begin();
   try {
     const uid = uidFor('GateAlwaysOn');
+    await seedLiveAccount(uid); // consent answers write behind the deletion fence (#772)
     const inner = spyProvider();
     const gated = consentGatedProvider(uid, { provider: inner });
     const requestBody = { system: '', user: 'x', responseSchema: {}, purpose: 'capture_extraction' as const, uid };
@@ -322,6 +330,7 @@ test('the gate itself still refuses whatever reads as declined', async () => {
   begin();
   try {
     const uid = uidFor('GateRefuses');
+    await seedLiveAccount(uid); // consent answers write behind the deletion fence (#772)
     const inner = spyProvider();
     const gated = consentGatedProvider(uid, { provider: inner, consent: async () => 'declined' });
     const requestBody = { system: '', user: 'x', responseSchema: {}, purpose: 'capture_extraction' as const, uid };
@@ -340,6 +349,7 @@ test('declining cannot switch the model off between two calls', async () => {
   begin();
   try {
     const uid = uidFor('Revoker');
+    await seedLiveAccount(uid); // consent answers write behind the deletion fence (#772)
     const inner = spyProvider();
     const gated = consentGatedProvider(uid, { provider: inner });
     const requestBody = { system: '', user: 'x', responseSchema: {}, purpose: 'capture_extraction' as const, uid };
@@ -357,7 +367,7 @@ test('layer 1: a capture from an account that never answered asks for the model'
   begin();
   try {
     const uid = uidFor('NoConsentCapture');
-    await seedLiveAccount(uid); // #772: the capture proposal is written behind the deletion fence
+    await seedLiveAccount(uid); // consent answers write behind the deletion fence (#772)
     const proposal = await proposeMobileCapture(
       { text: 'Remind me to call Ahmad tomorrow at 7 PM', timezone: 'UTC' },
       { participantId: uid },
@@ -378,7 +388,7 @@ test('a client flag cannot choose the engine', async () => {
   begin();
   try {
     const uid = uidFor('ForgedFlag');
-    await seedLiveAccount(uid); // #772: the capture proposal is written behind the deletion fence
+    await seedLiveAccount(uid); // consent answers write behind the deletion fence (#772)
     const proposal = await proposeMobileCapture(
       {
         text: 'Remind me to call Ahmad tomorrow at 7 PM',
@@ -402,7 +412,7 @@ test('with consent, the capture path does ask for a model', async () => {
   begin();
   try {
     const uid = uidFor('ConsentedCapture');
-    await seedLiveAccount(uid); // #772: the capture proposal is written behind the deletion fence
+    await seedLiveAccount(uid); // consent answers write behind the deletion fence (#772)
     await setAiConsent(uid, { state: 'granted', version: AI_CONSENT_VERSION });
 
     const proposal = await proposeMobileCapture(

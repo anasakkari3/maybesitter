@@ -42,11 +42,15 @@ const NOW_MS = Date.now();
 let auth: FakeAuthControls | null = null;
 let previousFlag: string | undefined;
 
-function begin(storage: StorageAdapter = createMemoryStorage()): StorageAdapter {
+async function begin(storage: StorageAdapter = createMemoryStorage()): Promise<StorageAdapter> {
   auth = installFakeAuth();
   setStorageForTests(storage);
   previousFlag = process.env.MAYBESITTER_FEATURE_MEMORY;
   process.env.MAYBESITTER_FEATURE_MEMORY = 'true';
+  // Both accounts live, as authentication leaves them: the consent and
+  // dismissal writers re-read the account deletion fence (#772).
+  await seedLiveAccount(OWNER, storage);
+  await seedLiveAccount(STRANGER, storage);
   return storage;
 }
 
@@ -104,6 +108,7 @@ async function seedCompletion(uid: string, id: string, at: string, commitmentId 
 /** Ten distinct things finished: seven between 09:00 and 12:00 local. */
 async function seedMorningHabit(uid: string, hourShift = 0): Promise<void> {
   await getStorage().set(userDoc(uid), { uid, timezone: ZONE });
+  await seedLiveAccount(uid); // the trust record this fixture's overwrite dropped (#772)
   const morning: Array<[number, number, number]> = [
     [1, 9, 15], [2, 9, 40], [3, 10, 0], [5, 10, 30], [6, 11, 0], [8, 11, 20], [9, 11, 45],
   ];
@@ -199,6 +204,7 @@ async function dismissRule(uid: string, ruleId: string, fingerprint: string): Pr
  */
 async function seedDeferHabit(uid: string, minutes = 60): Promise<void> {
   await getStorage().set(userDoc(uid), { uid, timezone: ZONE });
+  await seedLiveAccount(uid); // the trust record this fixture's overwrite dropped (#772)
   const dominantDays = [1, 2, 4, 6];
   const otherDays = [3, 5];
   const seed = async (id: string, daysAgo: number, durationMinutes: number) => {
@@ -222,7 +228,7 @@ async function seedDeferHabit(uid: string, minutes = 60): Promise<void> {
 // ── Suggested on read, never saved by reading ────────────────────
 
 test('the issue’s fixture yields the R1 suggestion, with counts and no evidence ids', async () => {
-  begin();
+  await begin();
   try {
     await seedMorningHabit(OWNER);
     await enableConsent(OWNER);
@@ -243,7 +249,7 @@ test('the issue’s fixture yields the R1 suggestion, with counts and no evidenc
 
 test('reading suggestions writes nothing anywhere', async () => {
   const { storage, writes } = countingWrites(createMemoryStorage());
-  begin(storage);
+  await begin(storage);
   try {
     await seedMorningHabit(OWNER);
     await warmUpAuth(OWNER);
@@ -261,7 +267,7 @@ test('reading suggestions writes nothing anywhere', async () => {
 });
 
 test('with personalization consent off there are no suggestions, and Keep is refused', async () => {
-  begin();
+  await begin();
   try {
     await seedMorningHabit(OWNER);
     // Never asked.
@@ -286,10 +292,11 @@ test('with personalization consent off there are no suggestions, and Keep is ref
 });
 
 test('one account’s completions never become another account’s suggestion', async () => {
-  begin();
+  await begin();
   try {
     await seedMorningHabit(STRANGER);
     await getStorage().set(userDoc(OWNER), { uid: OWNER, timezone: ZONE });
+    await seedLiveAccount(OWNER); // the trust record this fixture's overwrite dropped (#772)
     await enableConsent(OWNER);
     await enableConsent(STRANGER);
     assert.equal((await suggestionsFor(STRANGER)).length, 1);
@@ -302,7 +309,7 @@ test('one account’s completions never become another account’s suggestion', 
 // ── Keep ──────────────────────────────────────────────────────────
 
 test('M5B2A-R30-001: Keep and Dismiss write nothing while a personalization purge holds the fence', async () => {
-  begin();
+  await begin();
   try {
     await seedMorningHabit(OWNER);
     await enableConsent(OWNER);
@@ -342,7 +349,7 @@ test('M5B2A-R31-001: Keep writes nothing during a withdrawal, nor when the fence
       return typeof value === 'function' ? value.bind(target) : value;
     },
   }) as StorageAdapter;
-  begin(storage);
+  await begin(storage);
   try {
     await seedMorningHabit(OWNER);
     await enableConsent(OWNER);
@@ -365,7 +372,7 @@ test('M5B2A-R31-001: Keep writes nothing during a withdrawal, nor when the fence
 });
 
 test('Keep stores a rule-derived preference, and it lists instead of being suggested', async () => {
-  begin();
+  await begin();
   try {
     await seedMorningHabit(OWNER);
     await enableConsent(OWNER);
@@ -403,7 +410,7 @@ test('Keep stores a rule-derived preference, and it lists instead of being sugge
 
 test('Keep recomputes: a fingerprint the server no longer suggests is refused and nothing is written', async () => {
   const { storage, writes } = countingWrites(createMemoryStorage());
-  begin(storage);
+  await begin(storage);
   try {
     await seedMorningHabit(OWNER);
     await warmUpAuth(OWNER);
@@ -421,7 +428,7 @@ test('Keep recomputes: a fingerprint the server no longer suggests is refused an
 });
 
 test('the body cannot choose what is stored: content, confidence and source come from the rule', async () => {
-  begin();
+  await begin();
   try {
     await seedMorningHabit(OWNER);
     await enableConsent(OWNER);
@@ -451,7 +458,7 @@ test('the body cannot choose what is stored: content, confidence and source come
 });
 
 test('a malformed decision is refused, an unknown rule is a 404, and nobody unauthenticated gets in', async () => {
-  begin();
+  await begin();
   try {
     await seedMorningHabit(OWNER);
     await enableConsent(OWNER);
@@ -481,7 +488,7 @@ test('a malformed decision is refused, an unknown rule is a 404, and nobody unau
 // ── Dismiss ───────────────────────────────────────────────────────
 
 test('Dismiss stops the same fingerprint reappearing, and a different one still can', async () => {
-  begin();
+  await begin();
   try {
     await seedMorningHabit(OWNER);
     await enableConsent(OWNER);
@@ -505,7 +512,7 @@ test('Dismiss stops the same fingerprint reappearing, and a different one still 
 });
 
 test('one account’s dismissal does not silence another’s suggestion', async () => {
-  begin();
+  await begin();
   try {
     await seedMorningHabit(OWNER);
     await seedMorningHabit(STRANGER);
@@ -523,7 +530,7 @@ test('one account’s dismissal does not silence another’s suggestion', async 
 
 test('six defers with four of one hour yield the R2 suggestion, and reading it writes nothing', async () => {
   const { storage, writes } = countingWrites(createMemoryStorage());
-  begin(storage);
+  await begin(storage);
   try {
     await seedDeferHabit(OWNER);
     await warmUpAuth(OWNER);
@@ -551,7 +558,7 @@ test('six defers with four of one hour yield the R2 suggestion, and reading it w
 });
 
 test('the two rules can both have something to say on one read', async () => {
-  begin();
+  await begin();
   try {
     await seedMorningHabit(OWNER);
     await seedDeferHabit(OWNER);
@@ -564,7 +571,7 @@ test('the two rules can both have something to say on one read', async () => {
 });
 
 test('Keep stores the R2 sentence from the rule, and it lists with the defer pattern instead of being suggested', async () => {
-  begin();
+  await begin();
   try {
     await seedDeferHabit(OWNER);
     await enableConsent(OWNER);
@@ -598,7 +605,7 @@ test('Keep stores the R2 sentence from the rule, and it lists with the defer pat
 });
 
 test('dismissing R2 stops the same duration reappearing, and a changed duration still can', async () => {
-  begin();
+  await begin();
   try {
     await seedDeferHabit(OWNER);
     await enableConsent(OWNER);
@@ -624,7 +631,7 @@ test('dismissing R2 stops the same duration reappearing, and a changed duration 
 });
 
 test('with personalization consent off there is no R2 suggestion, and its Keep is refused', async () => {
-  begin();
+  await begin();
   try {
     await seedDeferHabit(OWNER);
     assert.deepEqual(await suggestionsFor(OWNER), []);
@@ -660,7 +667,7 @@ function planDateDaysAgo(daysAgo: number): string {
  */
 async function seedPlanOpenHabit(uid: string, dominantHour = 8, otherHour = 21): Promise<void> {
   await getStorage().set(userDoc(uid), { uid, timezone: ZONE });
-  await seedLiveAccount(uid); // #772: the plan ledger is written behind the account deletion fence
+  await seedLiveAccount(uid); // the trust record this fixture's overwrite dropped (#772)
   const dominantDays = [1, 2, 4, 6, 7];
   const otherDays = [3, 5];
   for (let index = 0; index < dominantDays.length; index += 1) {
@@ -681,7 +688,7 @@ async function seedPlanOpenHabit(uid: string, dominantHour = 8, otherHour = 21):
 
 test('seven plan days with five opened around eight yield the R3 suggestion, and reading it writes nothing', async () => {
   const { storage, writes } = countingWrites(createMemoryStorage());
-  begin(storage);
+  await begin(storage);
   try {
     await seedPlanOpenHabit(OWNER);
     await warmUpAuth(OWNER);
@@ -709,14 +716,14 @@ test('seven plan days with five opened around eight yield the R3 suggestion, and
 });
 
 test('a habit at the delivery hour is the delivery being read, not a habit', async () => {
-  begin();
+  await begin();
   try {
     // Delivery at 08:00, and every open within five minutes of it.
     await getStorage().set(userDoc(OWNER), {
       uid: OWNER, timezone: ZONE,
       planSettings: { enabled: true, deliveryLocalTime: '08:00', timezone: ZONE },
     });
-    await seedLiveAccount(OWNER); // #772: the plan ledger is written behind the account deletion fence
+    await seedLiveAccount(OWNER); // the trust record this fixture's overwrite dropped (#772)
     for (let day = 1; day <= 7; day += 1) {
       await appendPlanEvent(OWNER, {
         type: 'plan_opened', date: planDateDaysAgo(day),
@@ -731,7 +738,7 @@ test('a habit at the delivery hour is the delivery being read, not a habit', asy
 });
 
 test('Keep stores the R3 sentence from the rule, and it lists with the plan-time pattern instead of being suggested', async () => {
-  begin();
+  await begin();
   try {
     await seedPlanOpenHabit(OWNER);
     await enableConsent(OWNER);
@@ -764,7 +771,7 @@ test('Keep stores the R3 sentence from the rule, and it lists with the plan-time
 });
 
 test('dismissing R3 stops the same time reappearing, and a changed time still can', async () => {
-  begin();
+  await begin();
   try {
     await seedPlanOpenHabit(OWNER);
     await enableConsent(OWNER);
@@ -792,7 +799,7 @@ test('dismissing R3 stops the same time reappearing, and a changed time still ca
 // ── Edit and delete, against storage ─────────────────────────────
 
 test('editing a kept suggestion makes it the user’s sentence and the old record stops listing', async () => {
-  begin();
+  await begin();
   try {
     await seedMorningHabit(OWNER);
     await enableConsent(OWNER);
@@ -817,7 +824,7 @@ test('editing a kept suggestion makes it the user’s sentence and the old recor
 });
 
 test('deleting a kept suggestion removes it from storage and from export, and does not re-suggest it', async () => {
-  begin();
+  await begin();
   try {
     await seedMorningHabit(OWNER);
     await enableConsent(OWNER);
@@ -843,7 +850,7 @@ test('deleting a kept suggestion removes it from storage and from export, and do
 });
 
 test('a user-typed fact deleted by id is gone from storage and from export too', async () => {
-  begin();
+  await begin();
   try {
     const store = createStorageRuntimeMemoryStore();
     const record = await store.put({
@@ -861,7 +868,7 @@ test('a user-typed fact deleted by id is gone from storage and from export too',
 });
 
 test('a record written before provenance existed still lists, with no pattern', async () => {
-  begin();
+  await begin();
   try {
     const at = new Date(NOW_MS - 86_400_000).toISOString();
     await getStorage().set(userSubDoc(OWNER, MEMORY, 'mem_legacy'), {
@@ -880,7 +887,7 @@ test('a record written before provenance existed still lists, with no pattern', 
 });
 
 test('"delete everything" leaves zero memory, zero dismissals and zero personalization rows', async () => {
-  begin();
+  await begin();
   try {
     await seedMorningHabit(OWNER);
     await enableConsent(OWNER);
@@ -940,7 +947,7 @@ async function seedBusyLog(uid: string): Promise<number> {
 }
 
 test('a heavy account with more other activity than the read bound still gets its suggestion (#443)', async () => {
-  begin();
+  await begin();
   try {
     await seedMorningHabit(OWNER);
     const bulk = await seedBusyLog(OWNER);
@@ -955,7 +962,7 @@ test('a heavy account with more other activity than the read bound still gets it
 });
 
 test('the suggestion read asks storage only for the event types the rules count, and reads nothing else (#443)', async () => {
-  const storage = begin();
+  const storage = await begin();
   try {
     await seedMorningHabit(OWNER);
     await seedBusyLog(OWNER);
@@ -981,9 +988,10 @@ test('the suggestion read asks storage only for the event types the rules count,
 });
 
 test('more completions than the read bound yield no focus window rather than a skewed one, and do not hide R2', async () => {
-  begin();
+  await begin();
   try {
     await getStorage().set(userDoc(OWNER), { uid: OWNER, timezone: ZONE });
+    await seedLiveAccount(OWNER); // the trust record this fixture's overwrite dropped (#772)
     // Every one of these finished at 09:30. Read whole or truncated, they would
     // make a focus window — so the only thing that can keep R1 quiet here is
     // the bound being filled.
@@ -1001,7 +1009,7 @@ test('more completions than the read bound yield no focus window rather than a s
 });
 
 test('more defers than the read bound yield no R2 rather than a skewed one, and do not hide R1', async () => {
-  begin();
+  await begin();
   try {
     await seedMorningHabit(OWNER);
     // Every one of these is a one-hour "Later", so read whole or truncated
@@ -1022,7 +1030,7 @@ test('more defers than the read bound yield no R2 rather than a skewed one, and 
 });
 
 test('a dismissal left behind is a failed deletion, not a 200', async () => {
-  begin();
+  await begin();
   try {
     await getStorage().set(userSubDoc(OWNER, MEMORY_DISMISSALS, 'R1_focus_window'), {
       ruleId: 'R1_focus_window', fingerprint: 'R1_focus_window:09:00-12:00', dismissedAt: new Date(NOW_MS).toISOString(),
@@ -1048,7 +1056,7 @@ test('a dismissal left behind is a failed deletion, not a 200', async () => {
 });
 
 test('delete-all purges dismissals from the storage it was handed, not the process default', async () => {
-  begin();
+  await begin();
   try {
     const injected = createMemoryStorage();
     await injected.set(userSubDoc(OWNER, MEMORY_DISMISSALS, 'R1_focus_window'), {
@@ -1080,7 +1088,7 @@ async function seedAvoidantCounters(uid: string): Promise<void> {
 }
 
 test('an account with no recorded behaviour gets the unset state, not a label from nothing', async () => {
-  begin();
+  await begin();
   try {
     const body = await json(await memoryGet(request(OWNER, '/api/mobile/memory')));
     assert.deepEqual(body.adaptive, { classification: null, effect: null });
@@ -1090,7 +1098,7 @@ test('an account with no recorded behaviour gets the unset state, not a label fr
 });
 
 test('the classification is read from the account’s own counters, with the #199 effect', async () => {
-  begin();
+  await begin();
   try {
     await seedAvoidantCounters(OWNER);
     const body = await json(await memoryGet(request(OWNER, '/api/mobile/memory')));
@@ -1109,7 +1117,7 @@ test('the classification is read from the account’s own counters, with the #19
 
 test('reading the adaptive view writes nothing', async () => {
   const { storage, writes } = countingWrites(createMemoryStorage());
-  begin(storage);
+  await begin(storage);
   try {
     await seedAvoidantCounters(OWNER);
     await warmUpAuth(OWNER);
@@ -1128,7 +1136,7 @@ test('reading the adaptive view writes nothing', async () => {
 });
 
 test('a counters store that fails costs the adaptive field, never the list', async () => {
-  begin();
+  await begin();
   try {
     const storage = getStorage();
     const real = storage.get.bind(storage);

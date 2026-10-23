@@ -1,3 +1,4 @@
+import { AccountUnavailableError, accountUnavailableResponse } from '../../../../../lib/account/accountLiveness';
 import { mobileAuthErrorResponse, requireMobileUser } from '../../../../../lib/auth/mobileAuth';
 import { mobileError } from '../../../../../lib/services/mobile/response';
 import { RequestBodyTooLargeError, readJsonBody, requestBodyTooLargeResponse } from '../../../../../lib/net/requestBody';
@@ -91,6 +92,7 @@ export async function PUT(request: Request): Promise<Response> {
     });
     return Response.json({ success: true, result });
   } catch (error) {
+    if (error instanceof AccountUnavailableError) return accountUnavailableResponse();
     if (error instanceof TypeError) {
       return Response.json({ success: false, error: error.message, reason: 'invalid_check_in' }, { status: 400 });
     }
@@ -125,6 +127,7 @@ export async function POST(request: Request): Promise<Response> {
     } as unknown as ReadinessSnapshot);
     return Response.json({ success: true, result });
   } catch (error) {
+    if (error instanceof AccountUnavailableError) return accountUnavailableResponse();
     if (error instanceof TypeError) {
       return Response.json({ success: false, error: error.message, reason: 'invalid_snapshot' }, { status: 400 });
     }

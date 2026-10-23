@@ -44,6 +44,7 @@ import {
 import { createPilotAuditEvent } from '../../pilot/closedPilotControls';
 import { appendAudit } from '../../pilot/pilotTrustStore';
 import { createStorageRuntimeMemoryStore, personalizationWriteGuard } from '../../runtimeMemory/runtimeMemoryStore';
+import { assertLiveAccount } from '../../account/accountLiveness';
 import { getStorage, requireUserId, userDoc, type StorageAdapter } from '../../storage';
 import type { RuntimeMemoryStore } from '../../../src/contracts/v1/memoryContracts';
 
@@ -127,6 +128,9 @@ export async function saveRoutineProfile(
 
   await storage.runTransaction(async (tx) => {
     const current = await tx.get<ProfileBearingUser>(userDoc(uid));
+    // The account deletion fence (#772): a merge into a swept account would
+    // re-create its user document.
+    assertLiveAccount(current);
     tx.merge<ProfileBearingUser>(userDoc(uid), {
       profile: { ...(current?.profile ?? {}), routine: profile },
     });

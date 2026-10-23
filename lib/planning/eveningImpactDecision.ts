@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { CaptureProposalContract, EveningImpactContract } from '../../src/contracts/v1/captureContracts';
 import type { Command } from '../../src/domain/stateMachine';
 import { CAPTURE_PROPOSALS, getStorage, userCol, type StorageAdapter } from '../storage';
+import { requireLiveAccount } from '../account/accountLiveness';
 import {
   captureProposalFromDocument,
   type StoredProposalDocument,
@@ -55,6 +56,8 @@ export async function answerEveningImpact(
   const path = `${userCol(uid, CAPTURE_PROPOSALS)}/${input.proposalId}`;
   const prepId = randomUUID(); const prepCommitmentId = randomUUID(); const prepReminderId = randomUUID();
   return storage.runTransaction(async (tx) => {
+    // The account deletion fence (#772): the answer rewrites the proposal.
+    await requireLiveAccount(tx, uid);
     const document = await tx.get<StoredProposalDocument>(path);
     if (!document || document.scopeId !== uid) return { kind: 'not_found' as const };
     const stored = captureProposalFromDocument(document);

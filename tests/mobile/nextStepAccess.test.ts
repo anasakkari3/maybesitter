@@ -26,6 +26,7 @@ import { setRecommendationConsent } from '../../lib/consents/recommendationConse
 import { saveRoutineProfile } from '../../lib/services/mobile/routineProfileService.ts';
 import { applyTrustAction } from '../../lib/pilot/pilotTrustStore.ts';
 import { RECOMMENDATION_CONSENT_VERSION } from '../../src/contracts/v1/consentContracts.ts';
+import { seedLiveAccount } from '../support/liveAccount.ts';
 
 /**
  * The decision alone. `resolveNextStepAccess` also returns the trust record it
@@ -41,7 +42,7 @@ const AT = new Date('2026-09-13T09:00:00.000Z');
 
 let previous: Record<string, string | undefined> = {};
 
-function begin(flags: Record<string, string> = {}): void {
+async function begin(flags: Record<string, string> = {}): Promise<void> {
   setStorageForTests(createMemoryStorage());
   previous = {
     MAYBESITTER_FEATURE_RECOMMENDATION: process.env.MAYBESITTER_FEATURE_RECOMMENDATION,
@@ -50,6 +51,9 @@ function begin(flags: Record<string, string> = {}): void {
   process.env.MAYBESITTER_FEATURE_RECOMMENDATION = 'true';
   process.env.MAYBESITTER_KILL_SWITCH_RECOMMENDATION = 'false';
   for (const [key, value] of Object.entries(flags)) process.env[key] = value;
+  // Live accounts, as authentication leaves them: the writers these tests
+  // drive directly re-read the account deletion fence (#772).
+  await seedLiveAccount(UID);
 }
 
 function end(): void {
@@ -77,7 +81,7 @@ const ROUTINE = {
 // ── The consent that is read ─────────────────────────────────────
 
 test('a fresh account has not agreed, so there is no card', async () => {
-  begin();
+  await begin();
   try {
     assert.deepEqual(decisionOf(await resolveNextStepAccess(UID, AT)), { allowed: false, reason: 'consent_required' });
   } finally {
@@ -86,7 +90,7 @@ test('a fresh account has not agreed, so there is no card', async () => {
 });
 
 test('the launch consent is what opens it — not the closed pilot flag', async () => {
-  begin();
+  await begin();
   try {
     // The pilot flag stays false, which is its default for everybody. If this
     // gate read it, the feature would be invisible to every consenting user.
@@ -98,7 +102,7 @@ test('the launch consent is what opens it — not the closed pilot flag', async 
 });
 
 test('the pilot flag alone opens nothing', async () => {
-  begin();
+  await begin();
   try {
     await applyTrustAction(UID, { type: 'set_recommendation_consent', granted: true, at: AT.toISOString() });
     // Consented to the *pilot*, never to the launch question. No card.
@@ -109,7 +113,7 @@ test('the pilot flag alone opens nothing', async () => {
 });
 
 test('withdrawing it closes the card again', async () => {
-  begin();
+  await begin();
   try {
     await grant();
     await setRecommendationConsent(UID, { state: 'declined', version: RECOMMENDATION_CONSENT_VERSION });
@@ -122,7 +126,7 @@ test('withdrawing it closes the card again', async () => {
 // ── The gates, in order ──────────────────────────────────────────
 
 test('the feature flag and the kill switch each close it', async () => {
-  begin({ MAYBESITTER_FEATURE_RECOMMENDATION: 'false' });
+  await begin({ MAYBESITTER_FEATURE_RECOMMENDATION: 'false' });
   try {
     await grant();
     assert.equal((await resolveNextStepAccess(UID, AT)).reason, 'feature_disabled');
@@ -130,7 +134,7 @@ test('the feature flag and the kill switch each close it', async () => {
     end();
   }
 
-  begin({ MAYBESITTER_KILL_SWITCH_RECOMMENDATION: 'true' });
+  await begin({ MAYBESITTER_KILL_SWITCH_RECOMMENDATION: 'true' });
   try {
     await grant();
     assert.equal((await resolveNextStepAccess(UID, AT)).reason, 'kill_switch_active');
@@ -142,7 +146,7 @@ test('the feature flag and the kill switch each close it', async () => {
 test('a revoked or deleted account is refused before any flag is consulted', async () => {
   // The two states where the user told us to stop. No flag speaks over that,
   // so the kill switch being *off* must not turn a revocation into access.
-  begin();
+  await begin();
   try {
     await grant();
     await applyTrustAction(UID, { type: 'revoke', at: AT.toISOString() });
@@ -153,7 +157,7 @@ test('a revoked or deleted account is refused before any flag is consulted', asy
 });
 
 test('quiet mode closes it, whatever the schedule says', async () => {
-  begin();
+  await begin();
   try {
     await grant();
     await applyTrustAction(UID, { type: 'set_quiet_mode', enabled: true, at: AT.toISOString() });
@@ -166,7 +170,7 @@ test('quiet mode closes it, whatever the schedule says', async () => {
 // ── Quiet hours ──────────────────────────────────────────────────
 
 test('no card inside the user’s own quiet window', async () => {
-  begin();
+  await begin();
   try {
     await grant();
     await saveRoutineProfile(UID, ROUTINE, '2026-09-13T09:00:00.000Z');
@@ -179,7 +183,7 @@ test('no card inside the user’s own quiet window', async () => {
 });
 
 test('a card again once the window ends', async () => {
-  begin();
+  await begin();
   try {
     await grant();
     await saveRoutineProfile(UID, ROUTINE, '2026-09-13T09:00:00.000Z');
@@ -191,7 +195,7 @@ test('a card again once the window ends', async () => {
 });
 
 test('the window is read in the user’s zone, not the server’s', async () => {
-  begin();
+  await begin();
   try {
     await grant();
     await saveRoutineProfile(UID, { ...ROUTINE, timezone: 'America/New_York' }, '2026-09-13T09:00:00.000Z');
@@ -206,7 +210,7 @@ test('the window is read in the user’s zone, not the server’s', async () => 
 });
 
 test('an account with no routine has no quiet hours', async () => {
-  begin();
+  await begin();
   try {
     await grant();
     assert.equal((await resolveNextStepAccess(UID, new Date('2026-09-13T20:00:00.000Z'))).allowed, true);

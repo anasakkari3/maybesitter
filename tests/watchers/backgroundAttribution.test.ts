@@ -58,6 +58,7 @@ import {
   projectAttribution,
 } from '../../lib/watchers/backgroundAttribution.ts';
 import { GET as attributionGet } from '../../src/app/api/mobile/trust/background-activity/attribution/route.ts';
+import { seedLiveAccount } from '../support/liveAccount.ts';
 
 const baseUrl = 'http://127.0.0.1:4321';
 const USER = uidFor('AttributionUser');
@@ -131,11 +132,15 @@ async function fireOnce(effect: WatcherEffect, uid = USER): Promise<string> {
   return created.definition.watcherId;
 }
 
-function begin(): void {
+async function begin(): Promise<void> {
   storage = createMemoryStorage();
   setStorageForTests(storage);
   auth = installFakeAuth();
   digest = 'digest-one';
+  // Live accounts, as authentication leaves them: the writers these tests
+  // drive directly re-read the account deletion fence (#772).
+  await seedLiveAccount(USER);
+  await seedLiveAccount(OTHER);
 }
 
 function end(): void {
@@ -147,7 +152,7 @@ function end(): void {
 /* ── The chain ────────────────────────────────────────────────────── */
 
 test('a firing is projected as monitor, condition, policy and resulting action', async () => {
-  begin();
+  await begin();
   try {
     const watcherId = await fireOnce('notify');
     const view = await listBackgroundAttribution(USER, {}, { storage });
@@ -172,7 +177,7 @@ test('a firing is projected as monitor, condition, policy and resulting action',
 });
 
 test('the capability comes from the policy table, not from the stored firing', async () => {
-  begin();
+  await begin();
   try {
     await fireOnce('propose_commitment');
     const [action] = (await listBackgroundAttribution(USER, {}, { storage })).actions;
@@ -186,7 +191,7 @@ test('the capability comes from the policy table, not from the stored firing', a
 });
 
 test('update_context is attributable even though it produces no artifact', async () => {
-  begin();
+  await begin();
   try {
     await fireOnce('update_context');
     const [action] = (await listBackgroundAttribution(USER, {}, { storage })).actions;
@@ -205,7 +210,7 @@ test('update_context is attributable even though it produces no artifact', async
 /* ── "Every automatic replan can answer which monitor caused it" ──── */
 
 test('a replan state change leads back to the monitor that caused it', async () => {
-  begin();
+  await begin();
   try {
     const watcherId = await fireOnce('replan_if_impacted');
 
@@ -235,7 +240,7 @@ test('a replan state change leads back to the monitor that caused it', async () 
 });
 
 test('a ref nothing claims comes back absent, not as a null row', async () => {
-  begin();
+  await begin();
   try {
     await fireOnce('replan_if_impacted');
     assert.deepEqual(await attributionsForArtifacts(USER, ['watcher:nothing'], { storage }), []);
@@ -246,7 +251,7 @@ test('a ref nothing claims comes back absent, not as a null row', async () => {
 });
 
 test("one account's refs never resolve against another's firings", async () => {
-  begin();
+  await begin();
   try {
     await fireOnce('replan_if_impacted', OTHER);
     const changes = await storage.list<PlanningStateChange>(userCol(OTHER, PLANNING_STATE_CHANGES));
@@ -266,7 +271,7 @@ test("one account's refs never resolve against another's firings", async () => {
 /* ── "No orphan autonomous work" ──────────────────────────────────── */
 
 test('an artifact no firing claims is counted as an orphan', async () => {
-  begin();
+  await begin();
   try {
     await fireOnce('notify');
     assert.equal(await countOrphanBackgroundActions(USER, { storage }), 0);
@@ -293,7 +298,7 @@ test('an artifact no firing claims is counted as an orphan', async () => {
 });
 
 test("a state change the user's own act produced is not autonomous work", async () => {
-  begin();
+  await begin();
   try {
     await fireOnce('notify');
     // A commitment edit writes a state change with a non-watcher source. It is
@@ -319,7 +324,7 @@ test("a state change the user's own act produced is not autonomous work", async 
 });
 
 test('the orphan count is not limited to the page of actions returned', async () => {
-  begin();
+  await begin();
   try {
     await fireOnce('notify');
     await storage.set(userSubDoc(USER, WATCHER_NOTIFICATIONS, 'wtn_orphan'), {
@@ -347,7 +352,7 @@ test('the orphan count is not limited to the page of actions returned', async ()
 /* ── The route ────────────────────────────────────────────────────── */
 
 test('the route refuses an unauthenticated caller', async () => {
-  begin();
+  await begin();
   try {
     const anonymous = new Request(`${baseUrl}/api/mobile/trust/background-activity/attribution`);
     assert.equal((await attributionGet(anonymous)).status, 401);
@@ -357,7 +362,7 @@ test('the route refuses an unauthenticated caller', async () => {
 });
 
 test('the route answers the feed, and the ref question, from one path', async () => {
-  begin();
+  await begin();
   try {
     const watcherId = await fireOnce('replan_if_impacted');
     const changes = await storage.list<PlanningStateChange>(userCol(USER, PLANNING_STATE_CHANGES));
@@ -383,7 +388,7 @@ test('the route answers the feed, and the ref question, from one path', async ()
 });
 
 test('the route bounds what it can be asked for', async () => {
-  begin();
+  await begin();
   try {
     await fireOnce('notify');
     for (const bad of ['0', '-1', '1.5', '201', 'all']) {
@@ -399,7 +404,7 @@ test('the route bounds what it can be asked for', async () => {
 });
 
 test('one account never sees another account\'s background actions', async () => {
-  begin();
+  await begin();
   try {
     await fireOnce('notify', OTHER);
     const mine = await json(await attributionGet(req('/api/mobile/trust/background-activity/attribution')));
@@ -416,7 +421,7 @@ test('one account never sees another account\'s background actions', async () =>
 /* ── "No raw token/provider payload appears" ──────────────────────── */
 
 test('no provenance pointer, subject or provider payload appears anywhere in the response', async () => {
-  begin();
+  await begin();
   try {
     await fireOnce('notify');
     const response = await attributionGet(req('/api/mobile/trust/background-activity/attribution'));

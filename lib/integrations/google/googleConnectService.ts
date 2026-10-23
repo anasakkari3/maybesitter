@@ -46,6 +46,7 @@
  * pressing Back in Google's consent screen.
  */
 import { randomUUID } from 'node:crypto';
+import { AccountUnavailableError } from '../../account/accountLiveness';
 import {
   beginProviderOAuth,
   completeProviderOAuth,
@@ -345,6 +346,8 @@ export async function beginGoogleConnect(
       returnUrl: GOOGLE_APP_RETURN_URL,
     });
   } catch (error) {
+    // The account was deleted under this request (#772): answered as such.
+    if (error instanceof AccountUnavailableError) throw error;
     throw asConnectError(error);
   }
 }
@@ -431,6 +434,13 @@ export async function completeGoogleConnect(
       // Another person's authorization, never the connected one's: `loadIdentity`
       // refused it before anything was stored.
       await clientFor(config, runtime).revoke(issued).catch(() => undefined);
+    }
+    if (error instanceof AccountUnavailableError) {
+      // The account was deleted while Google was asking (#772). Nothing was
+      // stored, so nobody here could ever withdraw the grant just issued;
+      // revoke it, best effort, as account deletion itself would have.
+      if (issued) await clientFor(config, runtime).revoke(issued).catch(() => undefined);
+      throw error;
     }
     throw asConnectError(error);
   } finally {

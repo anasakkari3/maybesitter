@@ -1,4 +1,5 @@
 import { createHash, randomBytes } from 'node:crypto';
+import { AccountUnavailableError } from '../../account/accountLiveness';
 import type {
   ContextProviderKind,
   IntegrationCapability,
@@ -213,7 +214,9 @@ export async function completeProviderOAuth(
       provider: input.provider,
       tokenSet,
     });
-  } catch {
+  } catch (error) {
+    // A deleted account is answered as one (#772); the vault stored nothing.
+    if (error instanceof AccountUnavailableError) throw error;
     throw new ProviderOAuthError('credential_store_failed');
   }
 
@@ -230,8 +233,11 @@ export async function completeProviderOAuth(
       sync: { cursor: null, checkpointAt: null },
       provenance: { source: 'oauth', connectedBy: 'user', recordedAt: input.now },
     }, input.now);
-  } catch {
+  } catch (error) {
     await vault.delete(credentialRef).catch(() => undefined);
+    // The account was deleted between the two writes (#772): the credential
+    // just stored is gone again, and the caller is told why.
+    if (error instanceof AccountUnavailableError) throw error;
     throw new ProviderOAuthError('connection_store_failed');
   }
 }

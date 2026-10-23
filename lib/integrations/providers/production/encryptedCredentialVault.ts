@@ -44,6 +44,7 @@ import {
 } from '../../../security/fieldEncryption';
 import { PROVIDER_CREDENTIALS, docIdForKey, userSubDoc } from '../../../storage/paths';
 import type { StorageAdapter } from '../../../storage/storageAdapter';
+import { requireLiveAccount } from '../../../account/accountLiveness';
 import type { ProviderCredentialVault, ProviderOAuthTokenSet } from '../providerRuntime';
 import type {
   ContextProviderKind,
@@ -122,7 +123,14 @@ export class EncryptedProviderCredentialVault implements ProviderCredentialVault
       token,
       updatedAt: this.now().toISOString(),
     };
-    await this.storage.set(this.path(keyId), document);
+    // The account deletion fence (#772), in the transaction that stores the
+    // secret: under a deleted account nothing is written at all, so a refusal
+    // can never leave half a credential behind. The KMS round trip above stays
+    // outside, so the transaction body is pure and safe to retry.
+    await this.storage.runTransaction(async (tx) => {
+      await requireLiveAccount(tx, this.uid);
+      tx.set(this.path(keyId), document);
+    });
     return Object.freeze({
       vault: ENCRYPTED_VAULT_NAME,
       keyId,

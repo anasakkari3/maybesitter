@@ -27,6 +27,7 @@
  * documents. Deriving the path from the ref itself makes that class of bug
  * impossible to construct rather than merely wrong to construct.
  */
+import { requireLiveAccount } from '../account/accountLiveness';
 import { getStorage, type StorageAdapter } from '../storage';
 import { EXTERNAL_TASK_REFS, docIdForKey, userCol, userSubDoc } from '../storage/paths';
 import type { ExternalTaskReference } from '../../src/contracts/v1/externalTaskContracts';
@@ -73,7 +74,8 @@ export async function getRef<T extends ExternalTaskReference = ExternalTaskRefer
 /**
  * Writes (creates or replaces) the ref for `ref.taskRefId`.
  *
- * A plain `set`, not a transaction: the caller (`projectFixtures.ts`) already
+ * No read-modify-write transaction (the one it opens only re-reads the
+ * account deletion fence): the caller (`projectFixtures.ts`) already
  * reads the current ref, decides what the next one should be, and writes it
  * back inside the same single-fixture step it applied the matching domain
  * command in -- there is no concurrent writer of one user's own ref that a
@@ -85,7 +87,14 @@ export async function putRef<T extends ExternalTaskReference>(
   ref: T,
   deps: ExternalTaskRefStoreDeps = {},
 ): Promise<void> {
-  await storageOf(deps).set(refDocPath(uid, ref.taskRefId), ref);
+  // A transaction only for the account deletion fence (#772): the ref is
+  // written only while `users/{uid}` is a live account, so a projection run
+  // that loaded this user before the account was deleted cannot re-create a
+  // ref under it.
+  await storageOf(deps).runTransaction(async (tx) => {
+    await requireLiveAccount(tx, uid);
+    tx.set(refDocPath(uid, ref.taskRefId), ref);
+  });
 }
 
 /**
@@ -142,6 +151,7 @@ export async function putRefCarryingForwardDetachment<T extends ExternalTaskRefe
   const storage = storageOf(deps);
   const path = refDocPath(uid, ref.taskRefId);
   await storage.runTransaction(async (tx) => {
+    await requireLiveAccount(tx, uid); // the account deletion fence (#772), as `putRef`
     const current = await tx.get<T>(path);
     const next = current?.detachedAt
       ? { ...ref, detachedAt: current.detachedAt, linkState: current.linkState }

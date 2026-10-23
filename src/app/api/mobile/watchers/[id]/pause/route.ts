@@ -1,3 +1,4 @@
+import { AccountUnavailableError, accountUnavailableResponse } from '../../../../../../../lib/account/accountLiveness';
 import { mobileAuthErrorResponse, requireMobileUser } from '../../../../../../../lib/auth/mobileAuth';
 import { mobileError } from '../../../../../../../lib/services/mobile/response';
 import { RequestBodyTooLargeError, readBoundedText, requestBodyTooLargeResponse } from '../../../../../../../lib/net/requestBody';
@@ -84,6 +85,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     if (!updated) return mobileError('no such watcher', 404);
     return Response.json({ success: true, watcher: presentWatcher(updated) });
   } catch (error) {
+    if (error instanceof AccountUnavailableError) return accountUnavailableResponse();
     if (error instanceof PackWatcherLockedError) return mobileError(error.message, 409);
     if (error instanceof WatcherValidationError) return watcherValidationResponse(error);
     console.error('[watchers] pausing a watcher failed', error);

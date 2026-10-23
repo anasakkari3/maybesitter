@@ -1,3 +1,4 @@
+import { AccountUnavailableError, accountUnavailableResponse } from '../../../../../lib/account/accountLiveness';
 import { MemoryWriteRefusedError } from '../../../../../lib/runtimeMemory/runtimeMemoryStore';
 import { PersonalizationWithdrawalBusyError } from '../../../../../lib/consents/personalizationConsentService';
 import { mobileAuthErrorResponse, requireMobileUser } from '../../../../../lib/auth/mobileAuth';
@@ -133,6 +134,7 @@ export async function DELETE(request: Request) {
     const deleted = await deleteAllMemory(user.uid, new Date().toISOString());
     return Response.json({ success: true, deleted });
   } catch (error) {
+    if (error instanceof AccountUnavailableError) return accountUnavailableResponse();
     // A withdrawal still owned the personalization fence for longer than the
     // purge waits (M5B2A-R26-001): nothing was erased; asking again works.
     if (error instanceof PersonalizationWithdrawalBusyError) {

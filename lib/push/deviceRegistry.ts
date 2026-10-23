@@ -31,6 +31,7 @@
  * different retention policy and a different audience.
  */
 import { isValidTimezone } from '../../src/contracts/v1/routineContracts';
+import { requireLiveAccount } from '../account/accountLiveness';
 import {
   DEVICES,
   getStorage,
@@ -186,7 +187,13 @@ export async function upsertDevice(
   // No `requireUserId` here: `devicePath` below runs it, and a second call
   // could only ever be a guard that cannot fail.
   const record: DeviceRecord = { ...registration, updatedAt: at, lastSeenAt: at };
-  await storageOf(options).set(devicePath(uid, registration.installationId), record);
+  const path = devicePath(uid, registration.installationId);
+  // The account deletion fence (#772): a push token registered after the
+  // account was deleted would re-create a device row the sender then reads.
+  await storageOf(options).runTransaction(async (tx) => {
+    await requireLiveAccount(tx, uid);
+    tx.set(path, record);
+  });
   return record;
 }
 
