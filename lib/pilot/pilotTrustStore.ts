@@ -42,6 +42,9 @@ import {
   userDoc,
 } from '../storage';
 import { newUserDocument, type UserDocument } from '../storage/userDocument';
+import { AccountUnavailableError } from '../account/accountLiveness';
+import { deletionTombstonePaths, storageMayHoldSharedTombstones } from '../account/deletionTombstone';
+import type { StorageTransaction } from '../storage/storageAdapter';
 
 type TrustUser = UserDocument<PilotTrustState>;
 
@@ -50,11 +53,52 @@ function auditDocId(event: PilotAuditEvent): string {
 }
 
 /**
+ * The one way a trust record comes into being where there was none (#794).
+ *
+ * Both creators go through here — `getOrCreateTrust` on a uid's first request,
+ * and `applyTrustAction` when the root is gone or has no trust record — so
+ * there is one guarded create and not two that can drift. Before writing, it
+ * reads every deletion tombstone path for the uid in the caller's transaction
+ * and throws `AccountUnavailableError` if any exists: a deletion that swept the
+ * root between an earlier check and this write must not get a fresh, live
+ * trust record written behind it.
+ *
+ * `user` is the root as the transaction read it: merged into when present (it
+ * may carry locale or timezone), created whole when absent.
+ */
+async function createTrustRecord(
+  tx: StorageTransaction,
+  participantId: string,
+  user: TrustUser | null,
+  trust: PilotTrustState,
+  at: string,
+  extra: Partial<TrustUser> = {},
+): Promise<void> {
+  const tombstones = deletionTombstonePaths(participantId, {
+    sharedStorage: storageMayHoldSharedTombstones(),
+  });
+  for (const path of tombstones) {
+    if (await tx.get(path)) throw new AccountUnavailableError();
+  }
+  if (user) tx.merge<TrustUser>(userDoc(participantId), { trust, updatedAt: at, ...extra });
+  else tx.set<TrustUser>(userDoc(participantId), { ...newUserDocument(at), trust, ...extra });
+}
+
+/**
  * The participant's trust record, created on first sight.
  *
  * Transactional create-if-absent: two requests arriving together for a
  * participant nobody has seen before produce one record, not two, and never a
  * record that lost one of the two writes.
+ *
+ * ── A deleted account is never created again (#794) ──────────────
+ *
+ * The create path (`createTrustRecord`) reads the deletion tombstone in the
+ * same transaction and throws `AccountUnavailableError` when there is one. Without it, a first
+ * request that Firebase Auth admitted just before a whole deletion ran would
+ * write a complete, live trust record behind the sweep. The tombstone is read
+ * only when there is no trust record to return, so an existing account pays
+ * nothing for it.
  */
 export async function getOrCreateTrust(participantId: string, at: string): Promise<PilotTrustState> {
   requirePilotParticipantId(participantId);
@@ -63,8 +107,7 @@ export async function getOrCreateTrust(participantId: string, at: string): Promi
     const user = await tx.get<TrustUser>(userDoc(participantId));
     if (user?.trust) return requirePilotTrustState(user.trust);
     const created = createPilotTrustState(participantId, at);
-    if (user) tx.merge<TrustUser>(userDoc(participantId), { trust: created, updatedAt: at });
-    else tx.set<TrustUser>(userDoc(participantId), { ...newUserDocument(at), trust: created });
+    await createTrustRecord(tx, participantId, user, created, at);
     return created;
   });
 }
@@ -119,16 +162,13 @@ export async function applyTrustAction(
     const updated = applyPilotTrustAction(current, action);
     const calendarChanged = updated.calendarConsent !== current.calendarConsent;
     const calendarEpoch = (user?.calendarEpoch ?? 0) + (calendarChanged ? 1 : 0);
-    if (user) tx.merge<TrustUser>(userDoc(participantId), {
-      trust: updated,
-      updatedAt: action.at,
-      ...(calendarChanged ? { calendarEpoch } : {}),
-    });
-    else tx.set<TrustUser>(userDoc(participantId), {
-      ...newUserDocument(action.at),
-      trust: updated,
-      ...(calendarChanged ? { calendarEpoch } : {}),
-    });
+    const epoch = calendarChanged ? { calendarEpoch } : {};
+    // No trust record to apply to means this write would create one: the root
+    // is absent or trust-less, which is also what a deletion that swept in
+    // after the caller's access check leaves (Q794-001). That goes through the
+    // guarded create, never a bare write.
+    if (user?.trust) tx.merge<TrustUser>(userDoc(participantId), { trust: updated, updatedAt: action.at, ...epoch });
+    else await createTrustRecord(tx, participantId, user, updated, action.at, epoch);
     return updated;
   });
 }

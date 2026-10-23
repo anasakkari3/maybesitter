@@ -51,6 +51,9 @@ export const TOP_LEVEL_COLLECTIONS_WITHOUT_USER_DATA: readonly string[] = [
   'llmUsage',
   // Written by the deletion engine itself, keyed by the peppered subject hash.
   // Removing them as part of a deletion would erase the proof that it happened.
+  // `accountDeletions` is also the deletion tombstone (#794,
+  // lib/account/deletionTombstone.ts): kept after the deletion on purpose, so
+  // a first request admitted just before it cannot re-create the account.
   'accountDeletions',
   'deletionReceipts',
   // A football match (football fixtures MVP, Task 5): a shared row about a

@@ -140,16 +140,31 @@ added by UC-1.0d #143) also prunes expired traces and clarifications. Two
 stores have no TTL at all — runtime memory and alpha feedback — and are
 retained **only** by that nightly prune, so until it runs they keep everything.
 
-## Rotating the deletion-receipt pepper
+## Rotating the deletion-receipt pepper: not supported yet
 
-The pepper is only used to derive deletion receipts, so rotating it invalidates
-old receipts but loses no user data:
+**Do not rotate the deletion-receipt pepper.** Safe rotation is tracked in #798.
 
-```bash
-openssl rand -hex 32 | gcloud secrets versions add maybesitter-deletion-receipt-pepper --data-file=-
-gcloud run services update maybesitter-api --region europe-west1 \
-  --update-secrets MAYBESITTER_DELETION_RECEIPT_PEPPER=maybesitter-deletion-receipt-pepper:latest
-```
+The pepper derives the subject hash of deletion receipts **and** the id of each
+deletion job record, which is also the deletion tombstone (#794): a uid's first
+request looks for `accountDeletions/{HMAC(pepper, uid)}` before it creates
+`users/{uid}`. Rotating the pepper hides every tombstone written under the old
+one and reopens the race #794 closed, for ID tokens still in flight.
+
+`MAYBESITTER_DELETION_RECEIPT_PEPPER_PREVIOUS` (read in the same transaction
+when set) is only one part of a safe rotation. It does not cover these gaps
+(Codex inspection of #794, round 2):
+
+- **Deletion jobs are not rotation-aware.** A job started under the old pepper
+  is resumed under the new one as a different job, so the old record stays
+  `in_progress` and keeps its uid.
+- **Old readers miss new writers.** During the cutover, a revision that knows
+  only the old pepper misses tombstones written by a revision on the new one.
+- **Deploys drop the previous key.** `infra/cloudrun/flags.sh` deploys with
+  `--set-secrets`, which replaces the whole mounted set, and staging deploys on
+  every merge, so `PREVIOUS` would be dropped silently.
+
+The pepper is an HMAC key that hides uids in kept records. It grants no
+access, so leaving it unrotated costs little.
 
 Cloud Run pins `:latest` at deploy time, so the service has to be updated for a
 new version to take effect.
