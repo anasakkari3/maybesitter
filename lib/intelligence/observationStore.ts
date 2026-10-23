@@ -3,7 +3,7 @@ import { getStorage, INTELLIGENCE_OBSERVATIONS, requireUserId, userCol, userDoc,
 import { createStorageRuntimeMemoryStore, personalizationWriteGuard } from '../runtimeMemory/runtimeMemoryStore';
 import type { SemanticObservation } from './semantic';
 import { resolveMemoryLearning } from '../release/m5bCapabilities';
-import { liveAccount, requireLiveAccount } from './memoryBasis';
+import { liveAccount } from './memoryBasis';
 import { runtimeMemoryRecordPath, runtimeMemoryRecordRetrievable } from '../runtimeMemory/runtimeMemoryStore';
 import { personalizationPurgeMatches } from '../personalization/purgeFence';
 
@@ -67,7 +67,8 @@ export async function putObservations(
   for (const item of items.slice(0, 12)) {
     const id = observationId(source, sourceRef, item);
     const guarded = await storage.runTransaction(async tx => {
-      const account = await requireLiveAccount(tx, uid) as { personalizationPurge?: { state?: unknown; epoch?: unknown } };
+      const account = await tx.get<{ personalizationPurge?: { state?: unknown; epoch?: unknown } }>(userDoc(uid));
+      if (!liveAccount(account)) return null;
       const monitor = monitorGuard
         ? await tx.get<{ enabled: boolean; generation: string }>(monitorGuard.path)
         : null;
@@ -75,7 +76,7 @@ export async function putObservations(
       const existing = await tx.get<StoredObservation>(observationPath(uid, id));
       if (existing) return existing;
       if (writeGuard?.personalizationEpoch !== undefined) {
-        const fence = account.personalizationPurge;
+        const fence = account?.personalizationPurge;
         const state = typeof fence?.state === 'string' ? fence.state : 'active';
         const epoch = typeof fence?.epoch === 'number' ? fence.epoch : 0;
         if (state !== 'active' || epoch !== writeGuard.personalizationEpoch) return null;
@@ -160,8 +161,11 @@ export async function reviewObservation(
 ): Promise<StoredObservation | null> {
   if (!Number.isFinite(Date.parse(at))) throw new Error('invalid review time');
   const reviewed = await storage.runTransaction(async tx => {
-    const current = await tx.get<StoredObservation>(observationPath(uid, id));
-    if (!current) return null;
+    const [account, current] = await Promise.all([
+      tx.get(userDoc(uid)),
+      tx.get<StoredObservation>(observationPath(uid, id)),
+    ]);
+    if (!liveAccount(account) || !current) return null;
     if (current.sourceRef.startsWith('readd:') && (!resolveMemoryLearning() || !allowReaddReview)) return null;
     if (review === 'dismissed' && current.review === 'confirmed'
       && current.source === 'behavior' && current.kind === 'outcome'
@@ -192,8 +196,11 @@ export async function reviewObservation(
     provenance: { origin: 'proactive_suggestion', originRef: reviewed.id, confirmedByUserAt: reviewed.reviewedAt ?? at },
   }, reviewed.reviewedAt ?? at, `observation-goal:${reviewed.id}`, guard);
   return storage.runTransaction(async tx => {
-    const current = await tx.get<StoredObservation>(observationPath(uid, id));
-    if (!current) return null;
+    const [account, current] = await Promise.all([
+      tx.get(userDoc(uid)),
+      tx.get<StoredObservation>(observationPath(uid, id)),
+    ]);
+    if (!liveAccount(account) || !current) return null;
     if (current.review !== 'confirmed' || current.linkedMemoryId) return current;
     const next = { ...current, linkedMemoryId: memory.id };
     tx.set(observationPath(uid, id), next);

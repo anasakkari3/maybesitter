@@ -11,6 +11,7 @@ import {
 } from '../storage';
 import { commitmentDocPath, loadDomainState, writeDomainDiff } from '../services/mobile/participantState';
 import type { StoredObservation } from './observationStore';
+import { liveAccount } from './memoryBasis';
 
 export interface AutoAddRecord {
   readonly autoAddId: string;
@@ -158,6 +159,7 @@ export async function removeAutoAdd(
         ? tx.getMany<StoredObservation>(observationPaths)
         : Promise.all(observationPaths.map((path) => tx.get<StoredObservation>(path))),
     ]);
+    if (!liveAccount(user)) return 'missing';
     if (!record) return 'missing';
     const commitment = state.commitments[record.commitmentId];
     if (!commitment) return 'missing';
