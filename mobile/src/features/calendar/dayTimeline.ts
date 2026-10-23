@@ -54,6 +54,12 @@ export interface TimelineSpan {
   end: number | null;
   /** The least height its label needs, in points. */
   minVisual: number;
+  /**
+   * The least height its label needs when it shares its moment and is drawn
+   * as a column in a narrow lane (the chip moves under the title). Defaults
+   * to `minVisual`.
+   */
+  narrowVisual?: number;
 }
 
 /** The hours to draw: the default window, widened to whatever the day holds. */
@@ -92,13 +98,34 @@ export interface PlacedSpan {
  * whose last entry has ended (visually) by its top; a run of entries that
  * overlap one another shares one lane count, so each is as wide as the
  * busiest moment of its run allows and no wider.
+ *
+ * An entry that ends up sharing its moment is drawn as a column, which is
+ * taller than its one-lane label (`narrowVisual`). Its room is then reserved
+ * at that height and the lanes laid out again, until nothing new becomes
+ * narrow — the set only grows, so this ends.
  */
 export function placeSpans(spans: readonly TimelineSpan[], fromHour: number): PlacedSpan[] {
+  const narrow = new Set<string>();
+  for (;;) {
+    const placed = placeOnce(spans, fromHour, narrow);
+    let grew = false;
+    for (const entry of placed) {
+      if (entry.lanes > 1 && !narrow.has(entry.key)) {
+        narrow.add(entry.key);
+        grew = true;
+      }
+    }
+    if (!grew) return placed;
+  }
+}
+
+function placeOnce(spans: readonly TimelineSpan[], fromHour: number, narrow: ReadonlySet<string>): PlacedSpan[] {
   const sized = spans
     .map((span) => {
       const top = yOf(span.start, fromHour);
       const height = span.end === null ? 0 : Math.max(0, yOf(span.end, fromHour) - top);
-      return { key: span.key, top, height, visual: Math.max(height, span.minVisual) };
+      const label = narrow.has(span.key) ? Math.max(span.minVisual, span.narrowVisual ?? span.minVisual) : span.minVisual;
+      return { key: span.key, top, height, visual: Math.max(height, label) };
     })
     .sort((a, b) => a.top - b.top || b.visual - a.visual);
 
@@ -130,6 +157,40 @@ export function placeSpans(spans: readonly TimelineSpan[], fromHour: number): Pl
   }
   closeRun();
   return placed;
+}
+
+/**
+ * ── A lane never gets narrower than its words (#738) ─────────────
+ *
+ * Five things at 10:00 split the width five ways, and a 56-point lane breaks
+ * «المحامي» into «المحا/مي», «10:00» into «10:0/0», and the importance chip
+ * letter by letter — and the card then grows to hold the broken text until a
+ * one-hour item looks like a day. So a lane has a floor: room for a long
+ * Arabic word in the title face, a time range held whole and the chip, at the
+ * reader's text size. When the busiest moment of the day needs more lanes
+ * than fit at that floor, the day is not drawn on hours at all; it is the
+ * same rows as the ordered list the large text sizes already use.
+ */
+
+/** What a lane keeps for itself around its card's text: the gap to the next lane (4), the card's border (2) and padding (20). */
+export const LANE_CHROME = 26;
+/** The narrowest a card's text may be at text size 1, in points. */
+export const MIN_LANE_TEXT = 112;
+
+/** The narrowest a lane may be at `scale`, in points. Text grows with the scale; the chrome does not. */
+export function minLaneWidth(scale: number): number {
+  return LANE_CHROME + MIN_LANE_TEXT * scale;
+}
+
+/** The most lanes any moment of the day needs side by side. */
+export function maxLanes(placed: readonly PlacedSpan[]): number {
+  return placed.reduce((most, entry) => Math.max(most, entry.lanes), 0);
+}
+
+/** Whether the day's busiest moment fits `width` points of lanes without a lane under the floor. */
+export function lanesFit(placed: readonly PlacedSpan[], width: number, scale: number): boolean {
+  const lanes = maxLanes(placed);
+  return lanes === 0 || width / lanes >= minLaneWidth(scale);
 }
 
 export type DayLoad = 'light' | 'normal' | 'full';

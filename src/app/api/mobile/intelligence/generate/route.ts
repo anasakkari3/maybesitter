@@ -13,6 +13,7 @@ import { readJsonBody } from '../../../../../../lib/net/requestBody';
 import { getStorage } from '../../../../../../lib/storage';
 import { m5bBasisMode } from '../../../../../../lib/release/m5bCapabilities';
 import { readActiveMemorySnapshot, suggestionMatchesMode, suggestionProjection } from '../../../../../../lib/intelligence/memoryBasis';
+import { clientSupportsReadd, resolveReaddPolicy } from '../../../../../../lib/intelligence/readd';
 
 export const dynamic = 'force-dynamic';
 
@@ -36,17 +37,21 @@ export async function POST(request: Request) {
   catch { visit = false; }
   try {
     const now = new Date().toISOString();
+    const readdSupported = clientSupportsReadd(request);
     // A visit the policy refuses is answered from the latest run with one
     // read: no outcome scan, no sync, no context, no model.
     let suggestions: IntelligenceSuggestion[] | null = visit ? await reuseRunForVisit(user.uid, now) : null;
     if (!suggestions) {
       await learnOutcomesWithin(user.uid);
-      suggestions = await proposeFromObservations(user.uid, now, { visit });
+      suggestions = await proposeFromObservations(user.uid, now, { visit, readdClientSupported: readdSupported });
     }
     // Answered through the same dismissed-outcome filter as the inbox, read
     // after the run committed (M5B2A-R20-004): an outcome dismissed in between
     // never comes back as a suggestion on Today's banner.
-    suggestions = hideDismissedOutcomeSuggestions(suggestions, await listObservations(user.uid));
+    const observations = await listObservations(user.uid);
+    suggestions = hideDismissedOutcomeSuggestions(suggestions, observations);
+    const readdPolicy = await resolveReaddPolicy(user.uid, observations, readdSupported);
+    suggestions = suggestions.filter(readdPolicy.allowsSuggestion);
     const mode = m5bBasisMode();
     const snapshot = mode === 'on_basis' ? await readActiveMemorySnapshot(user.uid, now, getStorage()) : undefined;
     suggestions = suggestions.filter(suggestion => suggestionMatchesMode(suggestion, mode, snapshot));

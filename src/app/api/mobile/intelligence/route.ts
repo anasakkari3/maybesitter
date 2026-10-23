@@ -15,6 +15,7 @@ import { resolveMemoryLearning } from '../../../../../lib/release/m5bCapabilitie
 import { m5bBasisMode } from '../../../../../lib/release/m5bCapabilities';
 import { cleanupMemoryResidues, filterMemoryObservations, readActiveMemorySnapshot, suggestionMatchesMode, suggestionProjection } from '../../../../../lib/intelligence/memoryBasis';
 import { getStorage } from '../../../../../lib/storage';
+import { clientSupportsReadd, resolveReaddPolicy } from '../../../../../lib/intelligence/readd';
 
 export const dynamic = 'force-dynamic';
 
@@ -30,10 +31,12 @@ export async function GET(request: Request) {
     const [observations, consent] = await Promise.all([
       listObservations(user.uid), getRecommendationConsent(user.uid),
     ]);
+    const readdPolicy = await resolveReaddPolicy(user.uid, observations, clientSupportsReadd(request));
     // Keep the person's evidence review available after a revocation, but
     // never display an old recommendation under an off switch.
     const storedSuggestions = consent === 'granted'
-      ? hideDismissedOutcomeSuggestions(hideSavedGoalProposals(await listSuggestions(user.uid), observations), observations) : [];
+      ? hideDismissedOutcomeSuggestions(hideSavedGoalProposals(await listSuggestions(user.uid), observations), observations)
+        .filter(readdPolicy.allowsSuggestion) : [];
     const mode = m5bBasisMode();
     const now = new Date().toISOString();
     const snapshot = mode === 'on_basis' ? await readActiveMemorySnapshot(user.uid, now, getStorage()) : undefined;
@@ -43,7 +46,7 @@ export async function GET(request: Request) {
     try { schedule = await previewSuggestionSchedule(user.uid, visibleStored, now); }
     catch { /* A failed preview must not hide the evidence or suggestions. */ }
     const visibleObservations = filterMemoryObservations(observations, mode, snapshot);
-    const projectedObservations = resolveMemoryLearning() ? visibleObservations.map(observation => {
+    const outcomeProjected = resolveMemoryLearning() ? visibleObservations.map(observation => {
       if (observation.source !== 'behavior' || observation.kind !== 'outcome') return observation;
       // A title may span lines (M5B2A-REV-007).
       const match = /^(Completed|Postponed|Dropped): ([\s\S]+)$/.exec(observation.evidence);
@@ -51,6 +54,7 @@ export async function GET(request: Request) {
       const signal = match[1] === 'Completed' ? 'completed' : match[1] === 'Postponed' ? 'postponed' : 'dropped';
       return { ...observation, outcome: { signal, title: match[2] } };
     }) : visibleObservations;
+    const projectedObservations = readdPolicy.inboxObservations(outcomeProjected);
     if (mode === 'on_basis' && snapshot?.available) void cleanupMemoryResidues(user.uid, now, getStorage(), snapshot).catch(() => undefined);
     return Response.json({ success: true, observations: projectedObservations, suggestions, schedule,
       ...(mode === 'off' ? {} : { basisMode: mode }) });

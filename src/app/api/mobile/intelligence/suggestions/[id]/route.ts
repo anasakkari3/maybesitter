@@ -5,6 +5,7 @@ import { AutoAddedSuggestionError, InvalidSuggestionEditError, QuestionAnswerReq
 import { RequestBodyTooLargeError, readJsonBody, requestBodyTooLargeResponse } from '../../../../../../../lib/net/requestBody';
 import { SuggestionUnavailableError } from '../../../../../../../lib/intelligence/memoryBasis';
 import { suggestionToDto } from '../../../../../../../lib/intelligence/proposalEngine';
+import { clientSupportsReadd } from '../../../../../../../lib/intelligence/readd';
 
 export const dynamic = 'force-dynamic';
 
@@ -40,7 +41,8 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   const decisionAt = new Date().toISOString();
   try {
     const suggestion = await reviewSuggestion(user.uid, id, decision, decisionAt, undefined,
-      { ...(title === undefined ? {} : { title }), ...(slot === undefined ? {} : { slot: slot as { startsAt: string; endsAt: string } }) });
+      { ...(title === undefined ? {} : { title }), ...(slot === undefined ? {} : { slot: slot as { startsAt: string; endsAt: string } }) },
+      clientSupportsReadd(request));
     if (!suggestion) return Response.json({ success: false, reason: 'suggestion_unavailable' }, { status: 404 });
     return Response.json({ success: true, suggestion: suggestionToDto(suggestion) });
   } catch (error) {

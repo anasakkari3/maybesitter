@@ -4,8 +4,10 @@ import { loadDomainState } from '../services/mobile/participantState';
 import { putObservations, type StoredObservation } from './observationStore';
 import { personalizationGrowthAllowed } from '../consents/personalizationConsentService';
 import { intelligenceEnabled } from './gate';
+import { COMMITMENT_OUTCOME_EVENT_TYPES, learnReadds } from './readd';
+import { resolveMemoryLearning } from '../release/m5bCapabilities';
 
-const OUTCOME_TYPES = new Set(['commitment_completed', 'commitment_postponed', 'commitment_dropped']);
+const OUTCOME_TYPES = new Set<string>(Object.values(COMMITMENT_OUTCOME_EVENT_TYPES));
 
 /**
  * Records only what an action proves: completed, postponed or dropped.
@@ -64,7 +66,11 @@ export async function learnOutcomesWhenEnabled(
   storage: StorageAdapter = getStorage(),
 ): Promise<StoredObservation[]> {
   if (!intelligenceEnabled()) return [];
-  try { return await learnFromCommitmentEvents(uid, storage); }
+  try {
+    const learned = await learnFromCommitmentEvents(uid, storage);
+    if (resolveMemoryLearning()) await learnReadds(uid, storage);
+    return learned;
+  }
   catch { return []; }
 }
 

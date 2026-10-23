@@ -572,6 +572,8 @@ const CASES: Array<[string, z.ZodType]> = [
   ['intelligence.observationReviewed', intelligenceObservationReviewSchema],
   // M5b-2a (R1): behaviour outcomes with their parsed signal and title.
   ['intelligence.outcomes', intelligenceInboxSchema],
+  // M5b-2b-2 (R2): re-add markers with their live projection.
+  ['intelligence.readd', intelligenceInboxSchema],
   ['google.gmailScanPartial', shareProposalSchema],
   ['google.gmailScanPartialEmpty', shareProposalSchema],
   ['google.gmailScanBudget', shareProposalSchema],
