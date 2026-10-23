@@ -22,6 +22,7 @@ import { LLMUnavailableError } from '../../src/extraction/llm/llmProvider.ts';
 import { statedObligation } from '../../src/extraction/priorityLexicon.ts';
 import { lastDayOfMonth, localTimeSpecFor, readPeriodEndDeadline } from '../../src/extraction/timeLexicon.ts';
 import { extract } from '../../src/extraction/ruleBasedExtractor.ts';
+import { splitCaptureClauses } from '../../src/extraction/clauseSplitter.ts';
 import { validateExtractionResult } from '../../src/extraction/schemaValidator.ts';
 import {
   answerClarification,
@@ -372,7 +373,6 @@ test('FX3 I-1: the month-end phrase that nothing read stays in the title, and a 
     ['Finish the month-end close tomorrow at 9am', 'proposed', 'Finish the month-end close | 2026-09-27 09:00 |  | normal~'],
     ['Tomorrow at 5pm call the landlord about the rent due by the end of the month', 'proposed', 'call the landlord about the rent due by the end of the month | 2026-09-27 17:00 |  | normal~'],
     ['להכין את דוח סוף החודש מחר ב-10', 'proposed', 'להכין את דוח סוף החודש | 2026-09-27 10:00 |  | normal~'],
-    ['לשלם חשבון חשמל עד סוף החודש ולהתקשר לאמא מחר ב-5', 'needs_clarification', 'לשלם חשבון חשמל עד סוף החודש ולהתקשר לאמא | 2026-09-27 - | ask_am_pm | normal~'],
   ];
   const drift: string[] = [];
   for (const [text, status, line] of rows) {
@@ -394,6 +394,11 @@ test('#743: "… at 5pm and pay the bill by the end of the month" is two items, 
       ['أتصل بأمي | 2026-09-27 - | ask_am_pm | normal~', 'أدفع الفاتورة | 2026-09-30 - |  | normal~']],
     ['להתקשר לאמא מחר ב-5 ולשלם חשבון חשמל עד סוף החודש', 'needs_clarification',
       ['להתקשר לאמא | 2026-09-27 - | ask_am_pm | normal~', 'לשלם חשבון חשמל | 2026-09-30 - |  | normal~']],
+    // The other order (Codex inspection Q743-001): the deadline side first.
+    ['Pay the bill by the end of the month and call mom tomorrow at 5pm', 'proposed',
+      ['Pay the bill | 2026-09-30 - |  | normal~', 'call mom | 2026-09-27 17:00 |  | normal~']],
+    ['לשלם חשבון חשמל עד סוף החודש ולהתקשר לאמא מחר ב-5', 'needs_clarification',
+      ['לשלם חשבון חשמל | 2026-09-30 - |  | normal~', 'להתקשר לאמא | 2026-09-27 - | ask_am_pm | normal~']],
   ];
   const drift: string[] = [];
   for (const [text, status, lines] of two) {
@@ -407,10 +412,21 @@ test('#743: "… at 5pm and pay the bill by the end of the month" is two items, 
   for (const text of [
     'Call mom tomorrow at 5pm and tell her about the end of the month party',
     'بدي أتصل بأمي بكرا الساعة 5 وأحكيلها عن حفلة آخر الشهر',
+    // A date that is what the action asks about, not when it is due (Q743-002).
+    'Call mom tomorrow at 5pm and ask whether the rent is due by the end of the month',
+    'بدي أتصل بأمي بكرا الساعة 5 وأسألها إذا الإيجار لآخر الشهر',
   ]) {
     const actual = await probeLine(text);
     assert.equal(actual.items.length, 1, `${text}: ${actual.items.join(' ;; ')}`);
   }
+});
+
+test('#743: a deadline belongs to the conjunct it is said in, not to one before it', () => {
+  // Read up to the next join: the rent's month end never becomes the milk's.
+  assert.deepEqual(
+    splitCaptureClauses('Call mom tomorrow at 5pm and buy milk and pay rent by the end of the month'),
+    ['Call mom tomorrow at 5pm and buy milk', 'pay rent by the end of the month'],
+  );
 });
 
 test('FX3 I-1: which month-end mentions are a deadline — the rule, both directions', () => {

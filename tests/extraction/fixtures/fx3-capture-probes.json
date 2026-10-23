@@ -791,7 +791,8 @@
    "expected": {
     "status": "needs_clarification",
     "items": [
-     "לשלם חשבון חשמל עד סוף החודש ולהתקשר לאמא | 2026-09-27 - | ask_am_pm | normal~"
+     "לשלם חשבון חשמל | 2026-09-30 - |  | normal~",
+     "להתקשר לאמא | 2026-09-27 - | ask_am_pm | normal~"
     ]
    }
   },

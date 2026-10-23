@@ -664,20 +664,42 @@ const OPENS_WITH_APPOINTMENT_NOUN = new RegExp(`^(?:the\\s+|my\\s+|a\\s+|an\\s+)
 const MAX_CONJUNCTION_SPLITS = 8;
 
 /**
- * The clause after an "and" states when it is due on its own: a day or a
- * clock, or a deadline that is neither — "by the end of the month", «لآخر
- * الشهر», «עד סוף החודש», «يوم 3» (#743). Only for the clause after the join:
- * "Call mom tomorrow at 5pm and pay the bill by the end of the month" was one
- * item at 17:00, the bill's own deadline lost.
+ * A conjunct states when it is due on its own: a day or a clock, or a
+ * deadline that is neither — "by the end of the month", «لآخر الشهر», «עד סוף
+ * החודש», «يوم 3» (#743). "Call mom tomorrow at 5pm and pay the bill by the
+ * end of the month" was one item at 17:00, the bill's own deadline lost, and
+ * so was the same capture in the other order.
+ *
+ * A deadline counts only where it governs the conjunct's own action: read up
+ * to the next join, and not after a word that makes it the action's subject
+ * matter — "ask whether the rent is due by the end of the month", "call the
+ * landlord about the rent due by …", «اسأل إذا الإيجار لآخر الشهر» are one
+ * action each (Codex inspection Q743-002). The month's end only where the
+ * shared reader takes it as a deadline: "the end of the month party" names a
+ * party.
  */
 function statesItsOwnDue(clause: string): boolean {
-  // The month's end only where the shared reader takes it as a deadline:
-  // "tell her about the end of the month party" names a party, not a due date.
-  return statesATime(clause) || namesDayOfMonth(clause) || readPeriodEndDeadline(clause) === 'month';
+  if (statesATime(clause)) return true;
+  const own = clause.split(NEXT_JOIN)[0] ?? clause;
+  if (!(namesDayOfMonth(own) || readPeriodEndDeadline(own) === 'month')) return false;
+  return !SUBJECT_MATTER_MARKER.test(own);
 }
 
+const NEXT_JOIN = new RegExp(`\\s+and\\s+|\\s*,\\s+|\\s+[وו](?=[\\p{L}])`, 'iu');
+
+/** Words after which a date is what the action is about, not when it is due. */
+const SUBJECT_MATTER_MARKER = new RegExp(
+  [
+    "\\b(?:whether|if|about|that|which|what|when|why|who|whose|how)\\b",
+    `${B}(?:إذا|اذا|إنو|انو|إنه|انه|عن|ليش|لما|اللي|شو|إيمتى|ايمتى|امتى|متى)${A}`,
+    `${B}(?:אם|על|למה|מתי|מה|האם)${A}`,
+  ].join('|'),
+  'iu',
+);
+
+/** A whole commitment with a due of its own, either side of an "and". */
 function isWholeTimedCommitment(clause: string): boolean {
-  return statesATime(clause) && !isTimeOnlyClause(clause) && hasActionEvidence(clause);
+  return statesItsOwnDue(clause) && !isTimeOnlyClause(clause) && hasActionEvidence(clause);
 }
 
 function splitTimedConjuncts(segment: string): string[] {
