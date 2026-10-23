@@ -889,3 +889,35 @@ describe('the feed schemas refuse a URL', () => {
     }
   });
 });
+
+// #802: `asked` only decides what the reply's bubble stops showing. One that
+// is not the end of its reply is dropped; the answer still parses, so the
+// chat never fails to load over it.
+describe('capture chat asked', () => {
+  const fixture = JSON.parse(readFileSync(join(__dirname, '..', '__fixtures__', 'capture.chatQuestion.json'), 'utf8'));
+  const last = fixture.turns.length - 1;
+
+  it('keeps an asked that ends its reply, on the answer and the turn', () => {
+    const parsed = captureChatSchema.parse(fixture);
+    expect(parsed.asked).toEqual(fixture.asked);
+    expect(parsed.turns[last]?.asked).toEqual(fixture.asked);
+  });
+
+  it('drops an asked that does not end its reply, or is malformed, and still parses', () => {
+    const wrong = { itemId: fixture.asked.itemId, text: 'not the end of the reply' };
+    const turns = fixture.turns.map((turn: object, index: number) => (index === last ? { ...turn, asked: wrong } : turn));
+    const parsed = captureChatSchema.parse({ ...fixture, asked: { itemId: '', text: 7 }, turns });
+    expect(parsed.asked).toBeUndefined();
+    expect(parsed.turns[last]).not.toHaveProperty('asked');
+    expect(parsed.reply).toBe(fixture.reply);
+  });
+
+  it('keeps null as nothing asked, and an older answer without it parses unchanged', () => {
+    expect(captureChatSchema.parse({ ...fixture, asked: null }).asked).toBeNull();
+    const { asked: _asked, ...older } = fixture;
+    const olderTurns = older.turns.map(({ asked: _a, ...turn }: { asked?: unknown }) => turn);
+    const parsed = captureChatSchema.parse({ ...older, turns: olderTurns });
+    expect(parsed).not.toHaveProperty('asked');
+    expect(parsed.turns[last]).not.toHaveProperty('asked');
+  });
+});

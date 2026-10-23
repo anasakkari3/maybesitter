@@ -55,7 +55,7 @@ import { Tag } from '../ui/chrome';
 import { ProcessingDots, useReducedMotion } from '../ui/motion';
 import { Screen } from '../ui/screen';
 import { AvoidKeyboard } from '../ui/keyboard';
-import { useAnnounceOnIos } from '../ui/announce';
+import { useAnnounce, useAnnounceOnIos } from '../ui/announce';
 import { focusForAccessibility } from '../ui/accessibilityFocus';
 import type { UserFacingKey } from '../api/ui/userFacingMessage';
 import { ReviewScreen } from './ReviewScreen';
@@ -359,8 +359,7 @@ export function CaptureScreen({ entryQuestion }: { entryQuestion?: { entry: Capt
   const replyCopy = { soFar: t.chatUnderstoodSoFar, list: t.chatUnderstoodCheckList };
   const assistantEntry = (turn: Pick<CaptureChatTurn, 'text' | 'asked'>, proposal = state.proposal): ChatHistoryEntry => {
     const shown = presentChatReply(turn, proposal, replyCopy);
-    return { role: 'assistant', text: shown.text, announcementText: shown.announcementText,
-      ...(shown.question ? { question: shown.question } : {}) };
+    return { role: 'assistant', text: shown.text, ...(shown.question ? { question: shown.question } : {}) };
   };
   const earlier: ChatHistoryEntry[] = state.earlier.map(entry => {
     if (entry.kind === 'saved') return { role: 'assistant', id: `chat-saved-${++savedLines}`, tone: 'saved', text: savedNoteText(entry, t, lang, timezone), tail: t.chatSavedNext };
@@ -371,8 +370,10 @@ export function CaptureScreen({ entryQuestion }: { entryQuestion?: { entry: Capt
   const newest: { role: string; text: string; tail?: string } | undefined = state.turns.length > 0 ? state.turns[state.turns.length - 1] : earlier[earlier.length - 1];
   // Not while the entry question has the page: the chat is not showing, and
   // its last reply would be spoken over the question. It is said once the
-  // person goes on with that chat.
-  useAnnounceOnIos(!entryQuestion && newest?.role === 'assistant' ? (newest.tail ? `${newest.text}\n\n${newest.tail}` : newest.text) : null);
+  // person goes on with that chat. Both platforms: the reply is in no live
+  // region (#802). Its full words as they arrived — the turn's own text, which
+  // dropping an answered question never changes.
+  useAnnounce(!entryQuestion && newest?.role === 'assistant' ? (newest.tail ? `${newest.text}\n\n${newest.tail}` : newest.text) : null);
   const [disclosureOpen, setDisclosureOpen] = useState(true);
   const [undoing, setUndoing] = useState(false);
   const undoLast = () => {

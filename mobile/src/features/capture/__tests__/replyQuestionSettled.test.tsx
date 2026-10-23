@@ -1,7 +1,8 @@
 /**
  * #802: `/capture/clarify` updates the proposal without adding a chat turn.
- * The assistant turn therefore keeps its arrival words for announcement, but
- * only its structured trailing question is retired once that item is settled.
+ * The assistant turn keeps its arrival words — announced once, on both
+ * platforms — and only its structured trailing question is retired once that
+ * item is settled, outside the live region.
  */
 import { AccessibilityInfo, Platform } from 'react-native';
 import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
@@ -108,26 +109,26 @@ describe('#802: only the settled question segment retires', () => {
     expect(screen.getByTestId('chat-turn-assistant-3-words').props.accessibilityLabel).toBe(ACKNOWLEDGEMENT);
   });
 
-  it('leaves the live-region subtree unchanged when the question retires, while a new reply is announced in full', async () => {
-    const announce = jest.spyOn(AccessibilityInfo, 'announceForAccessibility').mockImplementation(() => undefined);
-    announce.mockClear();
-    await twoMessages();
-    const live = screen.getByTestId('chat-live', { includeHiddenElements: true });
-    const announcement = within(live).getByTestId('chat-turn-assistant-3-announcement', { includeHiddenElements: true });
-    const childCount = live.children.length;
-    expect(announcement.props.accessibilityLabel).toBe(SECOND_REPLY);
-    if (Platform.OS === 'ios') expect(announcement.props.accessibilityElementsHidden).toBe(true);
-    expect(within(live).queryByTestId('chat-turn-assistant-3-words')).toBeNull();
-    expect(announce.mock.calls.filter(([said]) => said === SECOND_REPLY)).toHaveLength(1);
+  for (const os of ['ios', 'android'] as const) {
+    it(`${os}: the reply is announced once in full, nothing of it is in the live region, and retiring the question announces nothing`, async () => {
+      jest.replaceProperty(Platform, 'OS', os);
+      const announce = jest.spyOn(AccessibilityInfo, 'announceForAccessibility').mockImplementation(() => undefined);
+      announce.mockClear();
+      await twoMessages();
+      const live = screen.getByTestId('chat-live', { includeHiddenElements: true });
+      expect(within(live).queryAllByText(/./, { includeHiddenElements: true })).toHaveLength(0);
+      expect(within(live).queryByTestId('chat-turn-assistant-3-words', { includeHiddenElements: true })).toBeNull();
+      const childCount = live.children.length;
+      expect(announce.mock.calls.filter(([said]) => said === SECOND_REPLY)).toHaveLength(1);
+      const calls = announce.mock.calls.length;
 
-    await act(async () => { await fireEvent.press(screen.getByTestId('clarify-option-bank-morning')); });
-    await waitFor(() => expect(screen.queryByTestId('chat-turn-assistant-3-question')).toBeNull());
-    expect(screen.getByTestId('chat-live', { includeHiddenElements: true })).toBe(live);
-    expect(within(live).getByTestId('chat-turn-assistant-3-announcement', { includeHiddenElements: true })).toBe(announcement);
-    expect(live.children).toHaveLength(childCount);
-    expect(announcement.props.accessibilityLabel).toBe(SECOND_REPLY);
-    expect(announce.mock.calls.filter(([said]) => said === SECOND_REPLY)).toHaveLength(1);
-  });
+      await act(async () => { await fireEvent.press(screen.getByTestId('clarify-option-bank-morning')); });
+      await waitFor(() => expect(screen.queryByTestId('chat-turn-assistant-3-question')).toBeNull());
+      expect(screen.getByTestId('chat-live', { includeHiddenElements: true })).toBe(live);
+      expect(live.children).toHaveLength(childCount);
+      expect(announce.mock.calls.length).toBe(calls);
+    });
+  }
 });
 
 describe('presentChatReply guards', () => {

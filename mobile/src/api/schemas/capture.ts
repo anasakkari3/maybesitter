@@ -530,15 +530,22 @@ export const captureChatAskedSchema = z.object({
   text: z.string().min(1),
 });
 
+export type CaptureChatAsked = z.infer<typeof captureChatAskedSchema>;
+type ChatTurnShape = { role: 'user' | 'assistant'; text: string; asked?: CaptureChatAsked | null | undefined };
+
 export const captureChatTurnSchema = z.object({
   role: z.enum(['user', 'assistant']),
   text: z.string(),
-  // Optional for conversations persisted before #802.
-  asked: captureChatAskedSchema.nullable().optional(),
-}).superRefine((turn, ctx) => {
-  if (turn.asked && (turn.role !== 'assistant' || !turn.text.endsWith(turn.asked.text))) {
-    ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'asked must be an assistant reply suffix', path: ['asked'] });
-  }
+  // Optional for conversations persisted before #802. An `asked` that is not
+  // the end of an assistant reply is dropped, never a refusal of the answer:
+  // it only decides what the bubble stops showing, and a chat that would not
+  // load over it is worse than a question shown once too long.
+  asked: z.unknown().optional(),
+}).transform(({ asked, ...turn }): ChatTurnShape => {
+  const parsed = captureChatAskedSchema.safeParse(asked);
+  return parsed.success && turn.role === 'assistant' && turn.text.endsWith(parsed.data.text)
+    ? { ...turn, asked: parsed.data }
+    : asked === null ? { ...turn, asked: null } : turn;
 });
 
 export type CaptureChatTurn = z.infer<typeof captureChatTurnSchema>;
@@ -561,20 +568,18 @@ export type CaptureChatTurn = z.infer<typeof captureChatTurnSchema>;
 export const captureChatSchema = z.object({
   conversationId: z.string(),
   reply: z.string(),
-  // Optional for an older server; null when the reply asks nothing.
-  asked: captureChatAskedSchema.nullable().optional(),
+  // Optional for an older server; null when the reply asks nothing. The app
+  // reads the assistant turn's own `asked`; this mirror is dropped when it is
+  // not the end of `reply`, never a refusal (see the turn above).
+  asked: z.unknown().optional(),
   engine: z.enum(['model', 'rules']),
   proposal: captureProposalResponseSchema.nullable(),
   turns: z.array(captureChatTurnSchema),
-}).superRefine((answer, ctx) => {
-  if (answer.asked && !answer.reply.endsWith(answer.asked.text)) {
-    ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'asked must be a reply suffix', path: ['asked'] });
-  }
-  const latest = answer.turns.at(-1);
-  if (answer.asked !== undefined && latest?.role === 'assistant'
-    && JSON.stringify(answer.asked) !== JSON.stringify(latest.asked ?? null)) {
-    ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'answer and assistant turn asked must match', path: ['asked'] });
-  }
+}).transform(({ asked, ...answer }): typeof answer & { asked?: CaptureChatAsked | null | undefined } => {
+  const parsed = captureChatAskedSchema.safeParse(asked);
+  return parsed.success && answer.reply.endsWith(parsed.data.text)
+    ? { ...answer, asked: parsed.data }
+    : asked === null ? { ...answer, asked: null } : answer;
 });
 
 export type CaptureChatAnswer = z.infer<typeof captureChatSchema>;

@@ -40,8 +40,6 @@ export interface ChatHistoryEntry extends ChatMessage {
   role: 'user' | 'assistant'; id?: string;
   /** The visible trailing question, kept separate so settling it unmounts only this segment. */
   question?: string;
-  /** Full words announced when the reply arrived; stable while the visible question retires. */
-  announcementText?: string;
   /** A save the chat reports: drawn with the confirmed (green) edge and check. */
   tone?: 'saved';
   /** Controls inside the bubble, under its words (Undo, Done after a save). */
@@ -328,14 +326,10 @@ export function SayItChatPage({
   // kept the typing bubble's «بنفهمها…»), and set in the face its alphabet
   // needs, as the person's own message is — an English reply in the Arabic
   // page is not Naskh's Latin.
-  type Said = ChatMessage & Pick<ChatHistoryEntry, 'tone' | 'actions' | 'tail' | 'body' | 'question' | 'announcementText'>;
+  type Said = ChatMessage & Pick<ChatHistoryEntry, 'tone' | 'actions' | 'tail' | 'body' | 'question'>;
   /** What the reply says, as a screen reader hears it: its words, then its next line. */
   const visibleWords = (value: Said) => [value.text, value.question].filter(Boolean).join(' ');
   const spoken = (value: Said) => value.tail ? `${visibleWords(value)}\n\n${value.tail}` : visibleWords(value);
-  const announced = (value: Said) => {
-    const words = value.announcementText ?? visibleWords(value);
-    return value.tail ? `${words}\n\n${value.tail}` : words;
-  };
   const bubbleStyle = (value: Said) => [styles.assistantBubble,
     { backgroundColor: p.sf, borderColor: value.tone === 'saved' ? p.success : p.ln }, expanded && styles.expandedBubble];
   /**
@@ -426,18 +420,14 @@ export function SayItChatPage({
         <View style={typing ? styles.flexShrink : reply ? [styles.assistantColumn, expanded && styles.expandedColumn] : null}>
           <View style={typing ? [styles.assistantBubble, styles.typingBubble, { backgroundColor: p.sf, borderColor: p.ln }]
             : reply ? bubbleStyle(reply) : null}>
-            {/* Always mounted: TalkBack hears the immutable arrival words here.
-                Visible/navigable words are siblings below, so retiring only a
-                question cannot mutate this subtree. VoiceOver has no live
-                regions, so this duplicate node is hidden from iOS traversal. */}
-            <LiveRegion testID="chat-live" style={reply ? styles.announcementRegion : undefined}>
-              {/* Keyed apart, so the reply is a view of its own and never the
-                  typing bubble's native view with its label left on it. */}
-              {typing ? <View key="typing" testID="chat-typing" accessible accessibilityLabel={typingLabel}>{typing}</View>
-                : reply ? <View key={`reply-${newestReply}`} testID={`${replyID}-announcement`} accessible accessibilityLabel={announced(reply)}
-                  accessibilityElementsHidden={Platform.OS === 'ios'}
-                  importantForAccessibility={Platform.OS === 'ios' ? 'no-hide-descendants' : 'auto'} />
-                  : null}
+            {/* Always mounted: TalkBack hears the typing bubble while a
+                message is on its way (the census in liveRegion.test). The
+                reply's words are not in it: their question is dropped once
+                answered, and a change inside the region was read again over
+                the move to the next question (#780, #802). The reply's
+                arrival is announced by the screen (useAnnounce). */}
+            <LiveRegion testID="chat-live">
+              {typing ? <View key="typing" testID="chat-typing" accessible accessibilityLabel={typingLabel}>{typing}</View> : null}
             </LiveRegion>
             {reply ? <View testID={`${replyID}-words`} accessible accessibilityRole="text" accessibilityLabel={spoken(reply)}
               style={reply.tone === 'saved' ? styles.savedRow : null}>{replyWords(reply, replyID)}</View> : null}
@@ -732,7 +722,6 @@ const styles = StyleSheet.create({
   // would stick here (see fillRow in theme/textScale).
   expandedColumn: { flexGrow: 1, width: 0, maxWidth: '100%' },
   assistantBubble: { flexShrink: 1, borderRadius: 16, borderTopStartRadius: 4, borderWidth: 1, paddingHorizontal: 16, paddingVertical: 12, gap: 6 },
-  announcementRegion: { position: 'absolute', width: 0, height: 0, overflow: 'hidden' },
   tailBubble: { alignSelf: 'flex-start' },
   expandedBubble: { alignSelf: 'stretch' },
   words: { gap: 6 },
