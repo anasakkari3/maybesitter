@@ -42,11 +42,18 @@ export interface BasisObservationLike {
 
 export type SuggestionActionAvailability =
   | { available: true }
-  | { available: false; reason: 'suggestion_unavailable' };
+  | { available: false; reason: 'suggestion_unavailable'; accountUnavailable?: false }
+  | { available: false; reason: 'suggestion_unavailable'; accountUnavailable: true };
 
 export const SUGGESTION_UNAVAILABLE = {
   available: false,
   reason: 'suggestion_unavailable',
+} as const satisfies SuggestionActionAvailability;
+
+const SUGGESTION_ACCOUNT_UNAVAILABLE = {
+  available: false,
+  reason: 'suggestion_unavailable',
+  accountUnavailable: true,
 } as const satisfies SuggestionActionAvailability;
 
 export class SuggestionUnavailableError extends Error {
@@ -55,6 +62,13 @@ export class SuggestionUnavailableError extends Error {
   constructor() {
     super('suggestion_unavailable');
     this.name = 'SuggestionUnavailableError';
+  }
+}
+
+export class AccountUnavailableError extends Error {
+  constructor() {
+    super('account_unavailable');
+    this.name = 'AccountUnavailableError';
   }
 }
 
@@ -72,7 +86,7 @@ export function liveAccount(user: unknown): boolean {
 
 export async function requireLiveAccount(tx: StorageTransaction, uid: string): Promise<unknown> {
   const user = await tx.get(userDoc(uid));
-  if (!liveAccount(user)) throw new Error('account_unavailable');
+  if (!liveAccount(user)) throw new AccountUnavailableError();
   return user;
 }
 
@@ -316,39 +330,27 @@ export async function pendingSuggestionAvailability(
 ): Promise<SuggestionActionAvailability> {
   const mode = m5bBasisMode();
   if (suggestion.status !== 'pending') return SUGGESTION_UNAVAILABLE;
+  try {
+    await requireLiveAccount(tx, uid);
+  } catch {
+    return SUGGESTION_ACCOUNT_UNAVAILABLE;
+  }
   if (mode === 'off') {
     if (suggestion.mode !== undefined || suggestion.memoryBasis !== undefined) return SUGGESTION_UNAVAILABLE;
-    try {
-      await requireLiveAccount(tx, uid);
-      return { available: true };
-    } catch {
-      return SUGGESTION_UNAVAILABLE;
-    }
+    return { available: true };
   }
   if (suggestion.mode !== mode) return SUGGESTION_UNAVAILABLE;
   if (mode === 'on_nobasis') {
     if (suggestion.memoryBasis !== undefined) return SUGGESTION_UNAVAILABLE;
-    try {
-      await requireLiveAccount(tx, uid);
-      return { available: true };
-    } catch {
-      return SUGGESTION_UNAVAILABLE;
-    }
+    return { available: true };
   }
-  if (!suggestion.memoryBasis) {
-    try {
-      await requireLiveAccount(tx, uid);
-      return { available: true };
-    } catch {
-      return SUGGESTION_UNAVAILABLE;
-    }
-  }
+  if (!suggestion.memoryBasis) return { available: true };
   try {
     return await memoriesStillEligible(
       tx, uid, now, suggestion.memoryBasis.epoch, suggestion.memoryBasis.memoryIds,
     ) ? { available: true } : SUGGESTION_UNAVAILABLE;
-  } catch {
-    return SUGGESTION_UNAVAILABLE;
+  } catch (error) {
+    return error instanceof AccountUnavailableError ? SUGGESTION_ACCOUNT_UNAVAILABLE : SUGGESTION_UNAVAILABLE;
   }
 }
 

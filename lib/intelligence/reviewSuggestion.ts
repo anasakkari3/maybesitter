@@ -59,7 +59,8 @@ export async function reviewSuggestion(
         pendingSuggestionAvailability(tx, uid, latest, now),
         Promise.all(latest.observationIds.map(observationId => tx.get(observationPath(uid, observationId)))),
       ]);
-      if (!availability.available && !cited.some(isDismissedBehaviourOutcome)) return availability;
+      if (!availability.available
+        && (availability.accountUnavailable || !cited.some(isDismissedBehaviourOutcome))) return availability;
       const next: IntelligenceSuggestion = { ...latest, status: 'dismissed', decidedAt: now };
       tx.set(path, next);
       return availability.available ? next : availability;
@@ -81,6 +82,9 @@ export async function reviewSuggestion(
       pendingSuggestionAvailability(tx, uid, latest, now),
       Promise.all(latest.observationIds.map(observationId => tx.get(observationPath(uid, observationId)))),
     ]);
+    if (!availability.available && availability.accountUnavailable) {
+      return { done: true as const, unavailable: availability };
+    }
     if (!cited.some(isDismissedBehaviourOutcome)) {
       return availability.available
         ? { done: false as const }
