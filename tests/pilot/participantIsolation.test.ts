@@ -8,6 +8,7 @@ import {
 import { createMemoryStorage } from '../../lib/storage/memoryAdapter.ts';
 import { resetStorageForTests, setStorageForTests } from '../../lib/storage/index.ts';
 import type { Command } from '../../src/domain/stateMachine.ts';
+import { seedLiveAccount } from '../support/liveAccount.ts';
 
 const NOW = '2026-08-09T08:00:00.000Z';
 
@@ -53,6 +54,8 @@ async function createActive(participantId: string, id: string): Promise<void> {
 test('participant state adapter isolates A and B without command-service reconfiguration', async () => {
   const cleanup = setup();
   try {
+    await seedLiveAccount('p-100');
+    await seedLiveAccount('p-101');
     await createActive('p-100', 'a-only');
     await createActive('p-101', 'b-only');
 
@@ -70,6 +73,7 @@ test('participant state adapter isolates A and B without command-service reconfi
 test('same-participant concurrent writes are preserved by transactional storage', async () => {
   const cleanup = setup();
   try {
+    await seedLiveAccount('p-200');
     await Promise.all(
       Array.from({ length: 12 }, (_, index) => createActive('p-200', `task-${index}`)),
     );
@@ -84,6 +88,8 @@ test('same-participant concurrent writes are preserved by transactional storage'
 test('participant-local deletion removes only the requested participant state', async () => {
   const cleanup = setup();
   try {
+    await seedLiveAccount('p-300');
+    await seedLiveAccount('p-301');
     await createActive('p-300', 'delete-me');
     await createActive('p-301', 'keep-me');
 

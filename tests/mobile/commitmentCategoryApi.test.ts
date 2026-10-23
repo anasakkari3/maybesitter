@@ -17,6 +17,7 @@ import assert from 'node:assert/strict';
 import { createMemoryStorage } from '../../lib/storage/memoryAdapter.ts';
 import { resetStorageForTests, setStorageForTests } from '../../lib/storage/index.ts';
 import { installFakeAuth, tokenFor, uidFor, type FakeAuthControls } from '../support/fakeAuth.ts';
+import { seedLiveAccount } from '../support/liveAccount.ts';
 import { GET as todayGet } from '../../src/app/api/mobile/commitments/today/route.ts';
 import { PATCH as commitmentPatch } from '../../src/app/api/mobile/commitments/[id]/route.ts';
 import { getCommitment } from '../../lib/services/mobile/commitmentService.ts';
@@ -43,6 +44,7 @@ function setup(): () => void {
  * cannot carry a shape the real path never produces.
  */
 async function seed(category: 'work' | 'family' | null = null): Promise<{ id: string }> {
+  await seedLiveAccount(USER);
   const id = 'cmt_category_api';
   const commands: Command[] = [
     {

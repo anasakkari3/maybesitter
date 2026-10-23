@@ -18,6 +18,7 @@ import { upsertDevice } from '../../lib/push/deviceRegistry.ts';
 import type { FcmMessage, MessagingClient } from '../../lib/push/pushService.ts';
 import { hardReminderPath, HARD_LEAD_MS, type HardReminderEntry } from '../../lib/services/reminders/hardReminderIndex.ts';
 import { runHardReminderTick } from '../../lib/services/reminders/hardReminderJob.ts';
+import { seedLiveAccount } from '../support/liveAccount.ts';
 
 const USER = 'hardTapUser';
 const PHONE = '11111111-1111-4111-8111-111111111111';
@@ -41,6 +42,7 @@ function mustCommitment(id: string): Commitment {
 
 async function world(id = 'c1'): Promise<void> {
   setStorageForTests(createMemoryStorage());
+  await seedLiveAccount(USER);
   await saveReminderSettings(USER, { hardEnabled: true, escalationCeiling: 'hard' }, NOW.toISOString());
   await upsertDevice(USER, {
     installationId: PHONE, fcmToken: `token-${PHONE}-abcdefghijklmnopqrstuvwxyz`, platform: 'android',

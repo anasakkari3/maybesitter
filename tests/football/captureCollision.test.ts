@@ -27,6 +27,7 @@ import {
   type Fixture,
   type FixtureCore,
 } from '../../src/contracts/v1/fixtureContracts.ts';
+import { seedLiveAccount } from '../support/liveAccount.ts';
 
 const USER = uidFor('CollisionUser');
 const PROJECTED_AT = '2026-10-01T09:00:00.000Z';
@@ -44,6 +45,7 @@ let auth: FakeAuthControls | null = null;
 
 test.beforeEach(async () => {
   setStorageForTests(createMemoryStorage());
+  await seedLiveAccount(USER);
   auth = installFakeAuth();
   // Barcelona v Real Madrid, 19:00-21:00 UTC on 25 October, projected the
   // way the follow route and the nightly job project it.

@@ -51,6 +51,10 @@ import {
   userSubDoc,
   type StorageAdapter,
 } from '../../storage';
+import { requireLiveAccount } from '../../account/accountLiveness';
+
+/** Writes per transaction, under Firestore's 500 with room to spare. */
+const PUT_CHUNK = 400;
 
 /** The two states these routes can put an occurrence into. Never `recovered`. */
 export type HabitOccurrenceOutcome = 'completed' | 'skipped';
@@ -161,8 +165,17 @@ export class StorageHabitOccurrenceStore implements HabitOccurrenceStore {
   }
 
   async putMany(scopeId: string, occurrences: readonly HabitOccurrence[]): Promise<void> {
-    for (const occurrence of occurrences) {
-      await this.storage.set<HabitOccurrence>(this.path(scopeId, occurrence.occurrenceId), occurrence);
+    // Each chunk re-reads the account's deletion fence (#772) in the
+    // transaction that writes it, so a horizon materialized while the account
+    // is being deleted stops at the fence instead of re-creating rows.
+    for (let start = 0; start < occurrences.length; start += PUT_CHUNK) {
+      const chunk = occurrences.slice(start, start + PUT_CHUNK);
+      await this.storage.runTransaction(async (tx) => {
+        await requireLiveAccount(tx, scopeId);
+        for (const occurrence of chunk) {
+          tx.set<HabitOccurrence>(this.path(scopeId, occurrence.occurrenceId), occurrence);
+        }
+      });
     }
   }
 
@@ -183,7 +196,10 @@ export class StorageHabitOccurrenceStore implements HabitOccurrenceStore {
   ): Promise<OccurrenceTransition> {
     const path = this.path(scopeId, occurrenceId);
     return this.storage.runTransaction<OccurrenceTransition>(async (tx) => {
-      const existing = await tx.get<HabitOccurrence>(path);
+      const [existing] = await Promise.all([
+        tx.get<HabitOccurrence>(path),
+        requireLiveAccount(tx, scopeId), // the deletion fence (#772)
+      ]);
       // The habit in the path must be the occurrence's own. See the header.
       if (!existing || !isHabitOccurrence(existing) || existing.habitId !== habitId) {
         return { kind: 'not_found' };

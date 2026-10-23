@@ -12,6 +12,7 @@ import {
 import { confirmMobileCapture, proposeMobileCapture } from '../../lib/services/mobile/mobileCaptureService.ts';
 import { getCommitment, listUpcomingRanked } from '../../lib/services/mobile/commitmentService.ts';
 import { listRecentNextStepDecisions } from '../../lib/services/mobile/nextStepDecisionLog.ts';
+import { seedLiveAccount } from '../support/liveAccount.ts';
 
 /**
  * What a decision on the next step actually does (UC-2.9, #170).
@@ -42,6 +43,7 @@ function setup() {
 }
 
 async function withCommitment(text: string): Promise<string> {
+  await seedLiveAccount(UID); // #772: the user document a live account has
   await setRecommendationConsent(UID, { state: 'granted', version: RECOMMENDATION_CONSENT_VERSION });
   const proposal = await proposeMobileCapture(
     { text, timezone: 'UTC', referenceTime: new Date().toISOString() },

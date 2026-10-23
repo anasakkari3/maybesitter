@@ -52,6 +52,7 @@ import { DEFAULT_MEMORY_TTL_MS, USER_STATED_MEMORY_TTL_MS } from '../../src/cont
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { seedLiveAccount } from '../support/liveAccount.ts';
 
 const baseUrl = 'http://127.0.0.1:4321';
 const OWNER = uidFor('ProvenanceOwner');
@@ -440,6 +441,7 @@ test('behaviour counters left behind are a failed deletion, not a 200', async ()
 test('delete-all clears which clubs the user follows (football fixtures MVP, Task 7)', async () => {
   begin();
   try {
+    await seedLiveAccount(OWNER); // #772: a follow is saved only under a live account
     await setFollowedClubs(OWNER, ['barcelona'], NOW);
     assert.equal((await getStorage().list(userCol(OWNER, FOOTBALL_FOLLOWS))).length, 1, 'the fixture did not seed the follow');
 
@@ -459,6 +461,7 @@ test('delete-all clears which clubs the user follows (football fixtures MVP, Tas
 test('a followed club left behind is a failed deletion, not a 200 (football fixtures MVP, Task 7)', async () => {
   begin();
   try {
+    await seedLiveAccount(OWNER); // #772: a follow is saved only under a live account
     await setFollowedClubs(OWNER, ['barcelona'], NOW);
 
     // A storage that swallows the one delete, leaving the follow exactly where

@@ -1,4 +1,5 @@
 import { mobileAuthErrorResponse, requireMobileUser } from '../../../../../../lib/auth/mobileAuth';
+import { AccountUnavailableError, accountUnavailableResponse } from '../../../../../../lib/account/accountLiveness';
 import { mobileError } from '../../../../../../lib/services/mobile/response';
 import { parseHabitPatchInput } from '../../../../../../src/contracts/v1/habitContracts';
 import {
@@ -80,6 +81,7 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
       occurrences: updated.materialization.occurrences.map(presentOccurrence),
     });
   } catch (error) {
+    if (error instanceof AccountUnavailableError) return accountUnavailableResponse();
     if (error instanceof HabitValidationError) return habitValidationResponse(error);
     console.error('[habits] patching a habit failed', error);
     return mobileError('could not update the habit', 500);

@@ -14,6 +14,7 @@ import { createMemoryStorage } from '../../lib/storage/memoryAdapter.ts';
 import { resetStorageForTests, setStorageForTests } from '../../lib/storage/index.ts';
 import { installFakeAuth, tokenFor, uidFor, type FakeAuthControls } from '../support/fakeAuth.ts';
 import { persistParticipantState } from '../../lib/services/mobile/participantState.ts';
+import { seedLiveAccount } from '../support/liveAccount.ts';
 import { createEmptyDomainState } from '../../src/domain/stateMachine.ts';
 import type { Commitment, Priority } from '../../src/domain/stateMachine.ts';
 import { GET as todayGet } from '../../src/app/api/mobile/commitments/today/route.ts';
@@ -57,6 +58,7 @@ function commitment(id: string, dueAt: string | null, p = priority('normal', 'de
 }
 
 async function seed(commitments: Commitment[]): Promise<void> {
+  await seedLiveAccount(UID);
   const state = createEmptyDomainState();
   for (const item of commitments) state.commitments[item.id] = item;
   await persistParticipantState(UID, state);

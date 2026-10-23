@@ -34,6 +34,7 @@ import {
   type ReadinessSnapshot,
 } from '../../../src/contracts/v1/readinessContracts.ts';
 import type { LlmProvider, LlmResponse, LlmStructuredRequest, LlmRequest } from '../../../src/extraction/llm/index.ts';
+import { seedLiveAccount } from '../../support/liveAccount.ts';
 import {
   REFERENCE,
   TZ,
@@ -107,6 +108,9 @@ export async function begin(switches: M5bSwitches = {}, account: { timezone?: st
   setM5bSwitches(switches);
   resetMobilePilotDecisionReplaysForTests();
   await setAccount(uid, { timezone: account.timezone ?? TZ, locale: account.locale ?? 'en' });
+  // The trust record authentication writes on a uid's first request: every
+  // user-content writer refuses a root without one (#772, Q772-001).
+  await seedLiveAccount(uid, currentStorage());
   return uid;
 }
 

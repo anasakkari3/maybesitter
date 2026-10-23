@@ -16,6 +16,7 @@
  * instants and what is persisted are asserted.
  */
 import assert from 'node:assert/strict';
+import { seedLiveAccount } from '../../support/liveAccount.ts';
 import { applyParticipantCommands, readParticipantState } from '../../../lib/services/mobile/participantState.ts';
 import { replaceBusyBlocks } from '../../../lib/calendar/busyBlocks.ts';
 import { createWeeklyBlock } from '../../../lib/weeklyBlocks/weeklyBlockService.ts';
@@ -141,6 +142,7 @@ function nextId(prefix: string): string {
 export async function addCommitment(uid: string, title: string, timeSpec: Record<string, unknown>, extra: Record<string, unknown> = {}): Promise<string> {
   const id = nextId('0c0ffee5');
   const now = NOW();
+  await seedLiveAccount(uid); // #772: the user document a live account has before its first domain write
   await applyParticipantCommands(uid, [
     { type: 'CreateDraft', now, commitment: { id, kind: 'task', title, timeSpec: { timezone: TZ, ...timeSpec }, ...extra } } as any,
     { type: 'ConfirmCommitment', commitmentId: id, now } as any,
@@ -230,6 +232,7 @@ export function otherClubFixture(id: string, kickoffUtc: string): Fixture {
 }
 
 export async function follow(uid: string, clubs: string[] = ['barcelona']): Promise<void> {
+  await seedLiveAccount(uid); // #772: the projection writes commitments for this uid
   await setFollowedClubs(uid, clubs, NOW());
 }
 

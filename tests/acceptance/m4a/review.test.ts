@@ -156,6 +156,7 @@ test('RB-5 PLAN R002 fallback: not_free with no fresh slot returns the day-part 
  */
 
 import { applyParticipantCommands } from '../../../lib/services/mobile/participantState.ts';
+import { seedLiveAccount } from '../../support/liveAccount.ts';
 import {
   TODAY as M3A_TODAY,
   TZ as M3A_TZ,
@@ -200,6 +201,7 @@ async function eveningEvents(): Promise<Array<{ startsAt: string; endsAt: string
       { type: 'ConfirmCommitment', commitmentId: id, now },
     );
   }
+  await seedLiveAccount(M3A_USER); // #772: the user document a live account has before its first domain write
   await applyParticipantCommands(M3A_USER, commands);
   return busy;
 }

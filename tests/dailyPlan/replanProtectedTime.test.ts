@@ -47,6 +47,7 @@ import {
   READINESS_SCHEMA_VERSION,
   type ReadinessSnapshot,
 } from '../../src/contracts/v1/readinessContracts.ts';
+import { seedLiveAccount } from '../support/liveAccount.ts';
 
 const TZ = 'Asia/Jerusalem';
 const DATE = '2026-09-15';
@@ -130,6 +131,7 @@ async function seedAccount(
   uid: string,
   options: { readiness?: ReadinessSnapshot } = {},
 ): Promise<StoredDailyPlan> {
+  await seedLiveAccount(uid, storage);
   await persistParticipantState(uid, seedState());
   const user = await storage.get<Record<string, unknown>>(userDoc(uid));
   await storage.set(userDoc(uid), { ...(user ?? {}), timezone: TZ, locale: 'en' });
@@ -380,6 +382,7 @@ test('readiness is read at the replan\'s clock, not carried over from the mornin
     // Last night the person said they were full of energy. At the morning
     // build that statement is 11 hours old — still current — and outranks the
     // low wearable reading, so the morning plan has no recovery gap.
+    await seedLiveAccount(uid, storage);
     await persistParticipantState(uid, seedState());
     assert.equal(await saveNormalizedReadinessSnapshot(uid, lowReadiness(uid), {
       storage, now: MORNING.toISOString(),

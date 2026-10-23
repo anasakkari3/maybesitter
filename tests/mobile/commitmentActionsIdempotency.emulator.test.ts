@@ -15,6 +15,7 @@ import { applyParticipantCommandOnce, applyParticipantCommands } from '../../lib
 import { saveReminderSettings } from '../../lib/services/mobile/reminderSettingsService.ts';
 import { hardReminderPath, type HardReminderEntry } from '../../lib/services/reminders/hardReminderIndex.ts';
 import { COMMITMENT_ACTION_RECEIPTS, EVENTS, userCol } from '../../lib/storage/paths.ts';
+import { seedLiveAccount } from '../support/liveAccount.ts';
 
 function uniqueUid(prefix: string): string {
   return `${prefix}_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
@@ -26,6 +27,8 @@ test('firestore: two racing deliveries of one clientActionId write one domain ev
   const storage = createFirestoreStorage();
   setStorageForTests(storage);
   try {
+    // #772: the live root, with the trust record authentication writes, before any direct domain write.
+    await seedLiveAccount(uid, storage);
     const now = new Date().toISOString();
     await applyParticipantCommands(uid, [
       {

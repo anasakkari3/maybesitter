@@ -12,6 +12,7 @@ import type { StorageAdapter, StorageReader, StorageTransaction } from '../stora
 import type { RuntimeMemoryRecord } from '../../src/contracts/v1/memoryContracts';
 import type { M5bBasisMode } from '../release/m5bCapabilities';
 import { m5bBasisMode } from '../release/m5bCapabilities';
+import { AccountUnavailableError, liveAccount, requireLiveAccount } from '../account/accountLiveness';
 
 export const MEMORY_CITATIONS = 'memoryCitations';
 export const EXPORT_LEASES = 'exportLeases';
@@ -65,13 +66,6 @@ export class SuggestionUnavailableError extends Error {
   }
 }
 
-export class AccountUnavailableError extends Error {
-  constructor() {
-    super('account_unavailable');
-    this.name = 'AccountUnavailableError';
-  }
-}
-
 function fenceOf(user: unknown): { state: string; epoch: number } {
   const fence = (user as { personalizationPurge?: { state?: unknown; epoch?: unknown } } | null)?.personalizationPurge;
   return {
@@ -80,15 +74,8 @@ function fenceOf(user: unknown): { state: string; epoch: number } {
   };
 }
 
-export function liveAccount(user: unknown): boolean {
-  return user !== null && !(user as { trust?: { deletedAt?: unknown } } | null)?.trust?.deletedAt;
-}
-
-export async function requireLiveAccount(tx: StorageTransaction, uid: string): Promise<unknown> {
-  const user = await tx.get(userDoc(uid));
-  if (!liveAccount(user)) throw new AccountUnavailableError();
-  return user;
-}
+// One definition of "live", shared with the domain-state fence (#772).
+export { AccountUnavailableError, liveAccount, requireLiveAccount };
 
 /** One fenced, active-and-fresh memory view for a complete operation. */
 export async function readActiveMemorySnapshot(

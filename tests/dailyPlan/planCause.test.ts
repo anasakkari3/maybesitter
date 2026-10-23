@@ -62,6 +62,7 @@ import {
 } from '../../src/contracts/v1/planningContracts.ts';
 import { DAILY_PLAN_CONFIG, dailyPlanScheduleSources } from '../../lib/services/dailyPlan/buildDailyPlan.ts';
 import { reconcileScheduleBlocks } from '../../lib/planning/scheduler/index.ts';
+import { seedLiveAccount } from '../support/liveAccount.ts';
 
 const UID = 'user_plan_cause_1';
 const OTHER = 'user_plan_cause_2';
@@ -219,6 +220,7 @@ async function runAutomaticReplan(bitingChangeIds: readonly string[]) {
 /** The account a plan and a monitored day need. */
 async function seedAccount(): Promise<void> {
   await storage.set(userDoc(UID), { timezone: TZ, locale: 'en' });
+  await seedLiveAccount(UID, storage); // #772: the trust record authentication writes
   const domain: DomainState = {
     ...createEmptyDomainState(),
     commitments: { 'com-1': sampleCommitment('com-1') },

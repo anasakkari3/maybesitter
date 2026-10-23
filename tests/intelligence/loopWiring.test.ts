@@ -36,6 +36,7 @@ import { POST as generatePost } from '../../src/app/api/mobile/intelligence/gene
 import { POST as decisionPost } from '../../src/app/api/mobile/intelligence/suggestions/[id]/route.ts';
 import { POST as actionPost } from '../../src/app/api/mobile/commitments/[id]/actions/route.ts';
 import { DELETE as commitmentDelete, PATCH as commitmentPatch } from '../../src/app/api/mobile/commitments/[id]/route.ts';
+import { createPilotTrustState } from '../../lib/pilot/closedPilotControls.ts';
 
 const BASE = 'http://127.0.0.1:4321';
 const UID = uidFor('LoopWiringUser');
@@ -43,7 +44,7 @@ const ENV_KEYS = ['MAYBESITTER_ENV', 'MAYBESITTER_FEATURE_PROACTIVE_LOOP', 'MAYB
 
 function createMemoryStorage() {
   const storage = createRawMemoryStorage();
-  void storage.set(userDoc(UID), { trust: null });
+  void storage.set(userDoc(UID), { trust: createPilotTrustState(UID, '2026-09-30T10:00:00.000Z') });
   return storage;
 }
 
@@ -447,7 +448,7 @@ test('the outcome scan reads already-recorded outcomes only as far back as the e
 test('the model is given local wall-clock times: a 10:00 exam in Jerusalem is never "7 in the morning"', async () => {
   const h = begin();
   try {
-    await h.storage.set(`users/${UID}`, { timezone: 'Asia/Jerusalem' });
+    await h.storage.set(`users/${UID}`, { timezone: 'Asia/Jerusalem', trust: createPilotTrustState(UID, '2026-09-30T10:00:00.000Z') });
     await applyParticipantCommands(UID, [
       { type: 'CreateDraft', now: '2026-10-03T09:00:00.000Z', commitment: {
         id: ID_DONE, kind: 'task', title: 'امتحان رياضيات',

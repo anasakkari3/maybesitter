@@ -18,6 +18,7 @@ import assert from 'node:assert/strict';
 import { createMemoryStorage } from '../../lib/storage/memoryAdapter.ts';
 import { getStorage, resetStorageForTests, setStorageForTests } from '../../lib/storage/index.ts';
 import { installFakeAuth, tokenFor, uidFor, type FakeAuthControls } from '../support/fakeAuth.ts';
+import { seedLiveAccount } from '../support/liveAccount.ts';
 import { applyParticipantCommands } from '../../lib/services/mobile/participantState.ts';
 import { COMMITMENT_ACTION_RECEIPTS, EVENTS, userCol } from '../../lib/storage/paths.ts';
 import { listEvents } from '../../lib/services/mobile/eventLog.ts';
@@ -56,6 +57,7 @@ function post(uid: string, commitmentId: string, body: Record<string, unknown>) 
 }
 
 async function seed(uid: string, id: string): Promise<void> {
+  await seedLiveAccount(uid);
   const now = new Date().toISOString();
   await applyParticipantCommands(uid, [
     {

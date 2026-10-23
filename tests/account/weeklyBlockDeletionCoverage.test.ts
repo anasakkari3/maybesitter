@@ -20,6 +20,7 @@ import { resetDeletionHooksForTests } from '../../lib/account/deletionHooks.ts';
 import { buildAccountExport } from '../../lib/account/accountExport.ts';
 import { readBusyBlocksForPlanning } from '../../lib/calendar/busyBlocks.ts';
 import { createWeeklyBlock } from '../../lib/weeklyBlocks/weeklyBlockService.ts';
+import { seedLiveAccount } from '../support/liveAccount.ts';
 
 const PEPPER = 'test-pepper-not-the-real-one';
 const TARGET = 'user_with_weekly_blocks_deleted';
@@ -35,6 +36,7 @@ const auth: DeletionAuthAdmin = { async revokeRefreshTokens() {}, async deleteUs
 
 async function seed(uid: string): Promise<void> {
   await storage.set(userDoc(uid), { uid });
+  await seedLiveAccount(uid, storage);
   await createWeeklyBlock(uid, INPUT, { storage, now: NOW });
 }
 

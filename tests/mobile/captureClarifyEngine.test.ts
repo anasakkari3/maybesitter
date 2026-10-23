@@ -6,6 +6,7 @@ import { resetStorageForTests, setStorageForTests } from '../../lib/storage/inde
 import { proposeMobileCapture, clarifyMobileCapture, confirmMobileCapture } from '../../lib/services/mobile/mobileCaptureService.ts';
 import { setAiConsent } from '../../lib/consents/aiConsentService.ts';
 import { AI_CONSENT_VERSION } from '../../src/contracts/v1/consentContracts.ts';
+import { seedLiveAccount } from '../support/liveAccount.ts';
 import { resetProviderForTests } from '../../src/extraction/llm/index.ts';
 import {
   MemoryCaptureProposalStore,
@@ -315,6 +316,7 @@ async function clarifyWithStubbedModel(consent: 'granted' | 'unanswered'): Promi
   const previous = { provider: process.env.MAYBESITTER_LLM_PROVIDER, location: process.env.MAYBESITTER_VERTEX_LOCATION };
   const uid = `engine-${consent}`;
   try {
+    await seedLiveAccount(uid);
     // The capture is read by the rules (no consent yet), so any model call
     // counted below is the clarification's.
     const proposal = await proposeMobileCapture({ text: 'Remind me to call Dana', timezone: ZONE, referenceTime: NOW.toISOString() }, { participantId: uid });

@@ -48,6 +48,7 @@ import {
   proposeCapture,
   TransactionalCapturePersistenceAdapter,
 } from '../../lib/services/captureBoundary/index.ts';
+import { seedLiveAccount } from '../support/liveAccount.ts';
 
 const TZ = 'Asia/Amman';
 const USER = uidFor('WeekDueUser');
@@ -132,6 +133,7 @@ async function withUat(fn: (storage: StorageAdapter) => Promise<void>, seeds: re
   const storage = createMemoryStorage();
   setStorageForTests(storage);
   try {
+    await seedLiveAccount(USER, storage);
     await persistParticipantState(USER, seededState(seeds));
     const user = await storage.get<Record<string, unknown>>(userDoc(USER));
     await storage.set(userDoc(USER), { ...(user ?? {}), timezone: TZ, locale: 'ar' });
@@ -636,6 +638,7 @@ async function round6Week(now: Date): Promise<WeekDto> {
   const storage = createMemoryStorage();
   setStorageForTests(storage);
   try {
+    await seedLiveAccount(R6_USER, storage);
     await persistParticipantState(R6_USER, seededState(ROUND6.map((seed) => seed)));
     const user = await storage.get<Record<string, unknown>>(userDoc(R6_USER));
     await storage.set(userDoc(R6_USER), { ...(user ?? {}), timezone: R6_TZ, locale: 'ar', profile: { routine: R6_ROUTINE } });
