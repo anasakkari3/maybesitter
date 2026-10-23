@@ -185,6 +185,9 @@ export function BusyCard({ row, height, reserve = 0, narrow = false }: {
   const { block, prep } = row;
   const range = block.allDay ? null : formatTimeRange(new Date(block.startAt), new Date(block.endAt), { locale: lang, timeZone });
   const start = ltr(formatTime(new Date(block.startAt), { locale: lang, timeZone }));
+  // On the hours the label is clamped to what its lane reserved
+  // (`busyBlockHeight`); in the ordered list it is not.
+  const timeline = height !== undefined;
   return (
     <View testID="calendar-busy-row" style={{ ...(height !== undefined ? { height: Math.max(height, reserve, 44) } : { minHeight: 52 }) }}>
       {/* The duration, drawn on its own: the label and the action may need
@@ -196,8 +199,8 @@ export function BusyCard({ row, height, reserve = 0, narrow = false }: {
         <View accessible accessibilityRole="text" accessibilityLabel={[t.legendBusy, range].filter(Boolean).join(', ')} style={{ ...(narrow ? {} : { flex: 1 }), flexDirection: 'row', alignItems: 'center', gap: 8 }}>
           {narrow ? null : <ReferenceIcon name="calendar" size={18} color={p.tx} />}
           <View style={{ flex: 1, alignItems: 'flex-start' }}>
-            <Txt size={14} weight={700} color={p.tx}>{t.legendBusy}</Txt>
-            {range ? <Txt size={13} color={p.mu} latin>{range}</Txt> : null}
+            <Txt size={14} weight={700} color={p.tx} lines={timeline ? TIMELINE_BLOCK_TITLE_LINES : undefined} testID="calendar-busy-label">{t.legendBusy}</Txt>
+            {range ? <Txt size={13} color={p.mu} latin lines={timeline ? 1 : undefined} testID="calendar-busy-range">{range}</Txt> : null}
           </View>
         </View>
         {prep ? (
@@ -243,8 +246,10 @@ function WeeklyCard({ occurrence, height, reserve, narrow = false }: {
       <View testID={`${testID}-body`} style={{ flexDirection: narrow ? 'column' : 'row', alignItems: narrow ? 'flex-start' : 'center', gap: narrow ? 4 : 8, paddingVertical: 6, paddingHorizontal: 10, minHeight: Math.min(height, 52) }}>
         <Tag kind="fixed" label={t.wbFixedTag} />
         <View style={{ ...(narrow ? { alignSelf: 'stretch' as const } : { flex: 1 }), alignItems: 'flex-start' }}>
-          <Txt size={14} weight={700} color={p.tx}>{occurrence.title}</Txt>
-          <Txt size={13} color={p.mu} latin testID={`${testID}-time`}>{formatTimeRange(start, end, options)}</Txt>
+          {/* Clamped to what its lane reserved (`weeklyBlockHeight`): the
+              title is the person's own, up to 120 characters. */}
+          <Txt size={14} weight={700} color={p.tx} lines={TIMELINE_BLOCK_TITLE_LINES} testID={`${testID}-title`}>{occurrence.title}</Txt>
+          <Txt size={13} color={p.mu} latin lines={1} testID={`${testID}-time`}>{formatTimeRange(start, end, options)}</Txt>
         </View>
       </View>
     </Btn>
@@ -376,10 +381,18 @@ export function timelineSpans(rows: readonly Exclude<PlanRow, { kind: 'gap' }>[]
       key: row.key,
       start: minuteOfDay(startAt, day, timeZone),
       end: minuteOfDay(endAt, day, timeZone),
-      minVisual: 58 * scale,
-      // As a column: «مشغول (من التقويم)» may wrap once and «حضّرني» sits
-      // under it; a weekly block's «ثابت» takes a line above its title.
-      narrowVisual: (row.kind === 'busy' ? 80 + (row.prep ? 52 : 0) : 88) * scale,
+      // The tallest its label can draw beside nothing and as a column in a
+      // shared lane (Q788B-R2-001): a bound from the card's own styles, its
+      // texts clamped, as a commitment's is.
+      ...(row.kind === 'busy'
+        ? {
+          minVisual: busyBlockHeight({ narrow: false, range: !row.block.allDay, prep: row.prep !== null, scale, script }),
+          narrowVisual: busyBlockHeight({ narrow: true, range: !row.block.allDay, prep: row.prep !== null, scale, script }),
+        }
+        : {
+          minVisual: weeklyBlockHeight({ narrow: false, scale, script }),
+          narrowVisual: weeklyBlockHeight({ narrow: true, scale, script }),
+        }),
     };
   });
 }
@@ -398,6 +411,9 @@ export const TIMELINE_CONFLICT_LINES = 2;
 function lineBox(size: number, script: Script, scale: number): number {
   return Math.round(size * LINE_HEIGHT[script]) * scale;
 }
+
+/** The least a timeline entry's target is, whatever its text: its frame never draws under it, so its room is never reserved under it. */
+const TARGET = 44;
 
 /**
  * The tallest a commitment card on the timeline can draw, in points: fixed
@@ -423,10 +439,64 @@ export function timelineCardHeight({ ranged, narrow, due, conflict, scale, scrip
   const icon = compact || narrow ? 0 : ranged ? 40 : 28;
   const time = lineBox(13, 'latin', scale) + (due ? TIMELINE_DUE_LINES * lineBox(13, script, scale) : 0);
   const column = TIMELINE_TITLE_LINES * lineBox(15, script, scale) + 2 + time;
-  const chip = compact ? 4 + lineBox(11, script, scale) : 8 + lineBox(13, script, scale);
+  const chip = tagHeight(compact, script, scale);
   const row = narrow ? column + 6 + chip : Math.max(icon, column, chip);
   const overlap = conflict ? 6 + 8 + TIMELINE_CONFLICT_LINES * lineBox(13, script, scale) : 0;
-  return Math.ceil(2 + (ranged ? 24 : 16) + row + overlap);
+  return Math.max(TARGET, Math.ceil(2 + (ranged ? 24 : 16) + row + overlap));
+}
+
+/**
+ * Line limits for a block's label on the hours. The weekly title is the
+ * person's own words (up to 120 characters) and «مشغول (من التقويم)» may wrap
+ * in a narrow lane: both stop at two lines with an ellipsis at a word; the
+ * time range is one unbreakable unit the lane floor keeps whole. Each card's
+ * accessibility label still says all of it, and the ordered list's rows are
+ * not clamped.
+ */
+export const TIMELINE_BLOCK_TITLE_LINES = 2;
+
+/** A `Tag`'s height: padding 2 × 4 around 13 pt, or 2 × 2 around 11 pt in the compact layout. */
+function tagHeight(compact: boolean, script: Script, scale: number): number {
+  return compact ? 4 + lineBox(11, script, scale) : 8 + lineBox(13, script, scale);
+}
+
+/**
+ * The tallest a busy block's label can draw on the timeline (`BusyCard`).
+ *
+ *   fixed   body padding 2 × 6 · the 18-pt icon beside nothing · the gap
+ *           before «حضّرني» in a column 6 · «حضّرني»: border 2 × 1 and
+ *           padding 2 × 8, never under its 44-pt target · the entry's 44
+ *   scaled  «مشغول (من التقويم)» 14 pt × TIMELINE_BLOCK_TITLE_LINES · the
+ *           range 13 pt Latin (none all day) · «حضّرني»'s word 13 pt
+ *
+ * Beside nothing the label and the action share a row (the taller sets it);
+ * in a shared lane the action goes under the label.
+ */
+export function busyBlockHeight({ narrow, range, prep, scale, script }: {
+  narrow: boolean; range: boolean; prep: boolean; scale: number; script: Script;
+}): number {
+  const column = TIMELINE_BLOCK_TITLE_LINES * lineBox(14, script, scale) + (range ? lineBox(13, 'latin', scale) : 0);
+  const label = narrow ? column : Math.max(18, column);
+  const action = prep ? Math.max(TARGET, 2 + 16 + lineBox(13, script, scale)) : 0;
+  const body = narrow ? label + (prep ? 6 + action : 0) : Math.max(label, action);
+  return Math.max(TARGET, Math.ceil(12 + body));
+}
+
+/**
+ * The tallest a weekly block's label can draw on the timeline (`WeeklyCard`).
+ *
+ *   fixed   body padding 2 × 6 · the gap under «ثابت» in a column 4 · the
+ *           chip's padding (`tagHeight`) · the entry's 44
+ *   scaled  «ثابت» 13 pt, or 11 pt compact · the title 14 pt ×
+ *           TIMELINE_BLOCK_TITLE_LINES · the range 13 pt Latin
+ *
+ * Beside nothing the chip and the text share a row; in a shared lane the chip
+ * goes above the text.
+ */
+export function weeklyBlockHeight({ narrow, scale, script }: { narrow: boolean; scale: number; script: Script }): number {
+  const tag = tagHeight(layoutModeFor(scale) !== 'normal', script, scale);
+  const text = TIMELINE_BLOCK_TITLE_LINES * lineBox(14, script, scale) + lineBox(13, 'latin', scale);
+  return Math.max(TARGET, Math.ceil(12 + (narrow ? tag + 4 + text : Math.max(tag, text))));
 }
 
 /** The same rows as a list in time order, for the large text sizes. */

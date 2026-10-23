@@ -12,7 +12,7 @@ import React from 'react';
 import { StyleSheet, useWindowDimensions } from 'react-native';
 import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
 import { render, screen, waitFor, within } from '@testing-library/react-native';
-import { DayAgenda, DayTimeline, UntimedSection, timelineCardHeight, timelineLaneWidth, timelineSpans, type PlanRow } from '../PlanDay';
+import { BusyCard, DayAgenda, DayTimeline, UntimedSection, busyBlockHeight, timelineCardHeight, timelineLaneWidth, timelineSpans, weeklyBlockHeight, type PlanRow } from '../PlanDay';
 import { HOUR_HEIGHT, lanesFit, maxLanes, minLaneWidth, placeSpans } from '../dayTimeline';
 import { LINE_HEIGHT } from '../../../theme/fonts';
 import { layoutModeFor } from '../../../theme/textScale';
@@ -92,6 +92,31 @@ function expectSafeList() {
 /** The importance word a person reads on screen (the chip's text), not only what a screen reader hears. */
 function importanceWord(importance: CommitmentView['importance']): string {
   return importance === 'must' ? ar.todayGroupMust : importance === 'should' ? ar.todayGroupShould : ar.todayGroupNice;
+}
+
+/**
+ * The tallest a block's label can draw on the timeline, from `BusyCard`'s and
+ * `WeeklyCard`'s own styles, apart from the code under test: body padding
+ * 2 × 6, the 18-pt busy icon beside nothing, the column gaps (6 before
+ * «حضّرني», 4 under «ثابت»), «حضّرني»'s border and padding and 44-pt target,
+ * the chip's padding (2 × 4, or 2 × 2 compact) and the entry's 44 stay as
+ * they are; RN scales each text's line box (`Txt`: round(size × ratio)).
+ * Label and title at two lines, the range at one.
+ */
+type ScriptName = keyof typeof LINE_HEIGHT;
+const lineAt = (fontScale: number) => (size: number, script: ScriptName) => Math.round(size * LINE_HEIGHT[script]) * fontScale;
+function tallestWeekly({ narrow, fontScale = 1, script = 'arabic' }: { narrow: boolean; fontScale?: number; script?: ScriptName }): number {
+  const line = lineAt(fontScale);
+  const tag = layoutModeFor(fontScale) !== 'normal' ? 4 + line(11, script) : 8 + line(13, script);
+  const text = 2 * line(14, script) + line(13, 'latin');
+  return Math.max(44, Math.ceil(12 + (narrow ? tag + 4 + text : Math.max(tag, text))));
+}
+function tallestBusy({ narrow, prep, range = true, fontScale = 1, script = 'arabic' }: { narrow: boolean; prep: boolean; range?: boolean; fontScale?: number; script?: ScriptName }): number {
+  const line = lineAt(fontScale);
+  const column = 2 * line(14, script) + (range ? line(13, 'latin') : 0);
+  const label = narrow ? column : Math.max(18, column);
+  const action = prep ? Math.max(44, 2 + 16 + line(13, script)) : 0;
+  return Math.max(44, Math.ceil(12 + (narrow ? label + (prep ? 6 + action : 0) : Math.max(label, action))));
 }
 
 /** Q738-002: every commitment in the fallback list still says its importance in words. */
@@ -237,11 +262,11 @@ describe('Q738-001 a block\'s duration is drawn apart from its label and its tar
     expect(flatStyle(screen.getByTestId('calendar-weekly-short-body')).flexDirection).toBe('column');
     // The duration: five minutes of a 56-pt hour.
     expect(Number(flatStyle(screen.getByTestId('calendar-weekly-short-duration')).height)).toBeCloseTo((5 * HOUR_HEIGHT) / 60, 5);
-    // The button and its frame: the stacked label's reserved room (88 pt), never under 44.
+    // The button and its frame: the stacked label's reserved room (its tallest, Q788B-R2-001), never under 44.
     const button = Number(flatStyle(screen.getByTestId('calendar-weekly-short')).height);
     const frame = Number(flatStyle(screen.getByTestId('m6-timeline-block-weekly-short')).height);
-    expect(button).toBe(88);
-    expect(frame).toBe(88);
+    expect(button).toBe(tallestWeekly({ narrow: true }));
+    expect(frame).toBe(tallestWeekly({ narrow: true }));
     expect(button).toBeGreaterThanOrEqual(44);
   });
 
@@ -255,11 +280,11 @@ describe('Q738-001 a block\'s duration is drawn apart from its label and its tar
     expect(screen.queryByTestId('calendar-timeline')).not.toBeNull();
     expect(flatStyle(screen.getByTestId('calendar-busy-body')).flexDirection).toBe('column');
     expect(Number(flatStyle(screen.getByTestId('calendar-busy-duration')).height)).toBe(HOUR_HEIGHT);
-    // 80 for the stacked text and 52 for the action under it.
+    // The stacked text at its clamp and the action under it (Q788B-R2-001).
     const card = Number(flatStyle(screen.getByTestId('calendar-busy-row')).height);
     const frame = Number(flatStyle(screen.getByTestId('m6-timeline-block-busy-prep')).height);
-    expect(card).toBe(132);
-    expect(frame).toBe(132);
+    expect(card).toBe(tallestBusy({ narrow: true, prep: true }));
+    expect(frame).toBe(tallestBusy({ narrow: true, prep: true }));
     expect(Number(flatStyle(screen.getByTestId('calendar-busy-prepare')).minHeight)).toBeGreaterThanOrEqual(44);
     expect(within(screen.getByTestId('calendar-busy-row')).queryByTestId('calendar-busy-prepare')).not.toBeNull();
   });
@@ -314,7 +339,7 @@ describe('Q788b-A a timeline card never covers the next entry in its lane', () =
     const icon = compact || narrow ? 0 : isRanged ? 40 : 28;
     const row = narrow ? column + 6 + chip : Math.max(icon, column, chip);
     const overlap = conflict ? 6 + 8 + 2 * line(13, LINE_HEIGHT[script]) : 0;
-    return Math.ceil(2 + (isRanged ? 24 : 16) + row + overlap);
+    return Math.max(44, Math.ceil(2 + (isRanged ? 24 : 16) + row + overlap));
   }
 
   /** `HH:MM`, `minutes` after `from`. */
@@ -473,5 +498,103 @@ describe('Q788b-B the dense row gives the title its whole row at large text', ()
     expect(within(titleRow).queryByTestId('m6-calendar-title-bill')).not.toBeNull();
     expect(within(titleRow).getByTestId('calendar-time-bill').props.children).toBe(ar.noTimeYet);
     expect(within(screen.getByTestId('calendar-meta-bill')).queryByTestId('calendar-time-bill')).toBeNull();
+  });
+});
+
+/**
+ * Q788B-R2-001: busy and weekly blocks kept whole-card guesses (58, 80 + 52,
+ * 88, each × the text size) though their padding, gaps, chip padding and
+ * 44-pt targets do not scale, and the weekly title — the person's own words,
+ * up to 120 characters — was not clamped at all. Their labels are now clamped
+ * on the hours and reserved exactly: safe, and no taller than they can draw.
+ */
+describe('Q788B-R2-001 busy and weekly blocks reserve exactly what their clamped labels can draw', () => {
+  const SCRIPT = { ar: 'arabic', en: 'latin', he: 'hebrew' } as const;
+  // 120 characters of the person's own words, the contract's longest (WEEKLY_BLOCK_TITLE_MAX).
+  const LONG_TITLES = {
+    ar: 'دوام في المكتب الرئيسي مع اجتماعات الفريق ومراجعة المشاريع الأسبوعية وتحضير التقارير للمدير والعملاء الجدد قبل نهاية الأسبوع',
+    en: 'Office hours at the main branch with team meetings, weekly project reviews and reports for the manager and new clients ok',
+    he: 'שעות עבודה במשרד הראשי עם פגישות צוות, סקירת פרויקטים שבועית והכנת דוחות למנהל וללקוחות החדשים לפני סוף השבוע הזה ממש',
+  } as const;
+  const title120 = (lang: 'ar' | 'en' | 'he') => LONG_TITLES[lang].padEnd(120, '.').slice(0, 120);
+  // Two lanes of exactly the floor at size 1.
+  const MIN_WIDTH = 2 * minLaneWidth(1) + 390 - timelineLaneWidth(390);
+
+  const weekly = (lang: 'ar' | 'en' | 'he'): PlanRow => ({
+    kind: 'weekly', key: 'weekly-long', at: Date.parse(instant(TODAY, '10:00')),
+    occurrence: { occurrenceId: 'long-1', weeklyBlockId: 'long', title: title120(lang), startAt: instant(TODAY, '10:00'), endAt: instant(TODAY, '10:30') },
+  });
+  const busyWithPrep: PlanRow = {
+    kind: 'busy', key: 'busy-prep', at: Date.parse(instant(TODAY, '14:00')),
+    block: { nativeId: 'evt-prep', startAt: instant(TODAY, '14:00'), endAt: instant(TODAY, '14:30'), allDay: false },
+    prep: { startAt: instant(TODAY, '14:00'), endAt: instant(TODAY, '14:30') },
+  };
+  const heightOf = (testID: string) => Number(flatStyle(screen.getByTestId(testID)).height);
+  const widthOf = (testID: string) => String(flatStyle(screen.getByTestId(testID)).width);
+
+  it('the 120-character limit the fixtures use is the contract\'s', () => {
+    for (const lang of ['ar', 'en', 'he'] as const) expect(title120(lang)).toHaveLength(120);
+  });
+
+  describe.each<['ar' | 'en' | 'he']>([['ar'], ['en'], ['he']])('%s', (lang) => {
+    it.each<[number, number]>([[1, MIN_WIDTH], [0.8, MIN_WIDTH]])('a 120-character weekly title in a shared lane at text size %s: clamped, said in full, reserved exactly', async (fontScale, width) => {
+      atScale(fontScale, width);
+      harness = await prepareM6(lang);
+      await render(<Providers harness={harness}><DayTimeline rows={[weekly(lang), commitmentRow(LAWYER)]} day={TODAY} nowIso={null} /></Providers>);
+      expect(screen.queryByTestId('calendar-timeline')).not.toBeNull();
+      expect(widthOf('m6-timeline-block-weekly-long')).toBe('50%');
+      expect(screen.getByTestId('calendar-weekly-long-title').props.numberOfLines).toBe(2);
+      expect(screen.getByTestId('calendar-weekly-long-time').props.numberOfLines).toBe(1);
+      expect(String(screen.getByTestId('calendar-weekly-long').props.accessibilityLabel)).toContain(title120(lang));
+      const tallest = tallestWeekly({ narrow: true, fontScale, script: SCRIPT[lang] });
+      expect(heightOf('m6-timeline-block-weekly-long')).toBe(tallest);
+      expect(heightOf('calendar-weekly-long')).toBe(tallest);
+    });
+
+    it.each<[number, number]>([[1, MIN_WIDTH], [0.8, MIN_WIDTH]])('busy time with «حضّرني» in a shared lane at text size %s: the label clamped, said in full, reserved exactly', async (fontScale, width) => {
+      atScale(fontScale, width);
+      harness = await prepareM6(lang);
+      await render(<Providers harness={harness}><DayTimeline rows={[busyWithPrep, commitmentRow(ranged('later', 'x', '14:10', null))]} day={TODAY} nowIso={null} /></Providers>);
+      expect(screen.queryByTestId('calendar-timeline')).not.toBeNull();
+      expect(widthOf('m6-timeline-block-busy-prep')).toBe('50%');
+      expect(screen.getByTestId('calendar-busy-label').props.numberOfLines).toBe(2);
+      expect(screen.getByTestId('calendar-busy-range').props.numberOfLines).toBe(1);
+      const label = String(screen.getByTestId('calendar-busy-body').props.children[0].props.accessibilityLabel);
+      expect(label).toContain(String(screen.getByTestId('calendar-busy-label').props.children));
+      expect(label).toContain(String(screen.getByTestId('calendar-busy-range').props.children));
+      expect(Number(flatStyle(screen.getByTestId('calendar-busy-prepare')).minHeight)).toBeGreaterThanOrEqual(44);
+      const tallest = tallestBusy({ narrow: true, prep: true, fontScale, script: SCRIPT[lang] });
+      expect(heightOf('m6-timeline-block-busy-prep')).toBe(tallest);
+      expect(heightOf('calendar-busy-row')).toBe(tallest);
+    });
+  });
+
+  it('at text size 0.8 a one-line weekly label already needs 75.2 pt; the reserve is never under it (the old 88 × 0.8 = 70.4 was)', () => {
+    expect(weeklyBlockHeight({ narrow: true, scale: 0.8, script: 'arabic' })).toBeGreaterThanOrEqual(75.2);
+  });
+
+  it('pure: every case equals the bound from the styles — beside nothing and in a lane, all day or not, normal and compact chip, all three scripts, never under 44', () => {
+    for (const script of ['arabic', 'latin', 'hebrew'] as const) {
+      for (const fontScale of [0.3, 0.8, 1, 1.35, 3.12]) {
+        for (const narrow of [false, true]) {
+          expect(weeklyBlockHeight({ narrow, scale: fontScale, script })).toBe(tallestWeekly({ narrow, fontScale, script }));
+          for (const prep of [false, true]) {
+            for (const range of [false, true]) {
+              expect(busyBlockHeight({ narrow, range, prep, scale: fontScale, script })).toBe(tallestBusy({ narrow, prep, range, fontScale, script }));
+            }
+          }
+        }
+      }
+    }
+    expect(weeklyBlockHeight({ narrow: false, scale: 0.3, script: 'latin' })).toBe(44);
+    expect(busyBlockHeight({ narrow: false, range: false, prep: false, scale: 0.3, script: 'latin' })).toBe(44);
+  });
+
+  it('the ordered list does not clamp the busy label', async () => {
+    harness = await prepareM6('ar');
+    const row = busyWithPrep as Extract<PlanRow, { kind: 'busy' }>;
+    await render(<Providers harness={harness}><BusyCard row={row} /></Providers>);
+    expect(screen.getByTestId('calendar-busy-label').props.numberOfLines ?? 0).toBe(0);
+    expect(screen.getByTestId('calendar-busy-range').props.numberOfLines ?? 0).toBe(0);
   });
 });
