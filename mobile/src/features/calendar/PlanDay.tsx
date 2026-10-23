@@ -5,7 +5,8 @@ import { useTimeZone } from '../../i18n/timezone';
 import { formatTime, formatTimeRange } from '../../i18n/format';
 import { fill, ltr } from '../../i18n/strings';
 import { isolateAuto } from '../../i18n/bidi';
-import { useLayoutMode, useTextScale } from '../../theme/textScale';
+import { layoutModeFor, useLayoutMode, useTextScale } from '../../theme/textScale';
+import { LINE_HEIGHT, type Script } from '../../theme/fonts';
 import { Btn, Txt } from '../../ui/primitives';
 import { Tag, priorityTagKind } from '../../ui/chrome';
 import { Hatch } from '../../ui/icons';
@@ -118,16 +119,19 @@ export function CommitmentCard({ row, marker = false, narrow = false, agenda = f
         ) : null}
         {agenda ? (
           <View style={{ flex: 1, gap: 2, alignItems: 'stretch' }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+            <View testID={`calendar-title-row-${item.id}`} style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
               <Txt size={15} weight={700} color={p.tx} lines={2} style={{ flex: 1 }} testID={`m6-calendar-title-${item.id}`}>{isolateAuto(item.title)}</Txt>
-              <Txt size={13} color={p.mu} latin={time !== null && !offDay} lines={1} testID={`calendar-time-${item.id}`}>{time ?? t.noTimeYet}</Txt>
+              {stacked ? null : <Txt size={13} color={p.mu} latin={time !== null && !offDay} lines={1} testID={`calendar-time-${item.id}`}>{time ?? t.noTimeYet}</Txt>}
             </View>
             {/* The second line says the importance in words beside the due
                 (#788): the coloured start border alone failed colour-blind
                 readers and the rule that every state has a text label. One
-                line, wrapping only when the text is large. */}
+                line, wrapping only when the text is large. At the large sizes
+                the time joins it too: beside the title, «بدون وقت» left the
+                title so little room that «فاتورة» broke inside itself. */}
             <View testID={`calendar-meta-${item.id}`} style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', columnGap: 8, rowGap: 2 }}>
               <Tag kind={priorityTagKind(item.importance)} label={importanceWord(item.importance, t)} testID={`calendar-importance-${item.id}`} />
+              {stacked ? <Txt size={13} color={p.mu} latin={time !== null && !offDay} style={{ flexShrink: 1 }} testID={`calendar-time-${item.id}`}>{time ?? t.noTimeYet}</Txt> : null}
               {/* Never clamped (Q788-001): «موعدها بكرا · 15:00» outgrows an
                   AX5 row; it wraps under the chip instead of being cut. */}
               {due ? <Txt size={13} color={p.mu} style={{ flexShrink: 1 }} testID={`calendar-due-${item.id}`}>{due}</Txt> : null}
@@ -135,10 +139,13 @@ export function CommitmentCard({ row, marker = false, narrow = false, agenda = f
           </View>
         ) : (
           <View style={{ flex: 1, gap: 2, alignItems: 'flex-start' }}>
-            <Txt size={15} weight={700} color={p.tx} testID={`m6-calendar-title-${item.id}`}>{isolateAuto(item.title)}</Txt>
+            {/* On the hours every text is clamped to the lines its lane
+                reserved (`timelineCardHeight`), so the card never runs into
+                the next entry in its lane. The button's label says all of it. */}
+            <Txt size={15} weight={700} color={p.tx} lines={TIMELINE_TITLE_LINES} testID={`m6-calendar-title-${item.id}`}>{isolateAuto(item.title)}</Txt>
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', columnGap: 8 }}>
               <Txt size={13} color={p.mu} latin={time !== null && !offDay} testID={`calendar-time-${item.id}`}>{time ?? t.noTimeYet}</Txt>
-              {due ? <Txt size={13} color={p.mu} testID={`calendar-due-${item.id}`}>{due}</Txt> : null}
+              {due ? <Txt size={13} color={p.mu} lines={TIMELINE_DUE_LINES} testID={`calendar-due-${item.id}`}>{due}</Txt> : null}
             </View>
           </View>
         )}
@@ -151,7 +158,8 @@ export function CommitmentCard({ row, marker = false, narrow = false, agenda = f
       {overlap ? (
         <View testID={`calendar-conflict-${item.id}`} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'stretch', borderRadius: 10, backgroundColor: p.wms, paddingVertical: 4, paddingHorizontal: 8 }}>
           <View accessible={false} style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: p.wm }} />
-          <Txt size={13} weight={600} color={p.wm} style={{ flexShrink: 1 }}>{overlap}</Txt>
+          {/* Clamped on the hours only; the ordered list shows all of it. */}
+          <Txt size={13} weight={600} color={p.wm} lines={agenda ? undefined : TIMELINE_CONFLICT_LINES} style={{ flexShrink: 1 }} testID={`calendar-conflict-text-${item.id}`}>{overlap}</Txt>
         </View>
       ) : null}
     </Btn>
@@ -177,6 +185,9 @@ export function BusyCard({ row, height, reserve = 0, narrow = false }: {
   const { block, prep } = row;
   const range = block.allDay ? null : formatTimeRange(new Date(block.startAt), new Date(block.endAt), { locale: lang, timeZone });
   const start = ltr(formatTime(new Date(block.startAt), { locale: lang, timeZone }));
+  // On the hours the label is clamped to what its lane reserved
+  // (`busyBlockHeight`); in the ordered list it is not.
+  const timeline = height !== undefined;
   return (
     <View testID="calendar-busy-row" style={{ ...(height !== undefined ? { height: Math.max(height, reserve, 44) } : { minHeight: 52 }) }}>
       {/* The duration, drawn on its own: the label and the action may need
@@ -188,8 +199,8 @@ export function BusyCard({ row, height, reserve = 0, narrow = false }: {
         <View accessible accessibilityRole="text" accessibilityLabel={[t.legendBusy, range].filter(Boolean).join(', ')} style={{ ...(narrow ? {} : { flex: 1 }), flexDirection: 'row', alignItems: 'center', gap: 8 }}>
           {narrow ? null : <ReferenceIcon name="calendar" size={18} color={p.tx} />}
           <View style={{ flex: 1, alignItems: 'flex-start' }}>
-            <Txt size={14} weight={700} color={p.tx}>{t.legendBusy}</Txt>
-            {range ? <Txt size={13} color={p.mu} latin>{range}</Txt> : null}
+            <Txt size={14} weight={700} color={p.tx} lines={timeline ? TIMELINE_BLOCK_TITLE_LINES : undefined} testID="calendar-busy-label">{t.legendBusy}</Txt>
+            {range ? <Txt size={13} color={p.mu} latin lines={timeline ? 1 : undefined} testID="calendar-busy-range">{range}</Txt> : null}
           </View>
         </View>
         {prep ? (
@@ -235,8 +246,10 @@ function WeeklyCard({ occurrence, height, reserve, narrow = false }: {
       <View testID={`${testID}-body`} style={{ flexDirection: narrow ? 'column' : 'row', alignItems: narrow ? 'flex-start' : 'center', gap: narrow ? 4 : 8, paddingVertical: 6, paddingHorizontal: 10, minHeight: Math.min(height, 52) }}>
         <Tag kind="fixed" label={t.wbFixedTag} />
         <View style={{ ...(narrow ? { alignSelf: 'stretch' as const } : { flex: 1 }), alignItems: 'flex-start' }}>
-          <Txt size={14} weight={700} color={p.tx}>{occurrence.title}</Txt>
-          <Txt size={13} color={p.mu} latin testID={`${testID}-time`}>{formatTimeRange(start, end, options)}</Txt>
+          {/* Clamped to what its lane reserved (`weeklyBlockHeight`): the
+              title is the person's own, up to 120 characters. */}
+          <Txt size={14} weight={700} color={p.tx} lines={TIMELINE_BLOCK_TITLE_LINES} testID={`${testID}-title`}>{occurrence.title}</Txt>
+          <Txt size={13} color={p.mu} latin lines={1} testID={`${testID}-time`}>{formatTimeRange(start, end, options)}</Txt>
         </View>
       </View>
     </Btn>
@@ -250,7 +263,7 @@ function WeeklyCard({ occurrence, height, reserve, narrow = false }: {
  * at the reader's text size (`lanesFit`), it draws `DayAgenda` instead (#738).
  */
 export function DayTimeline({ rows: allRows, day, nowIso }: { rows: readonly PlanRow[]; day: string; nowIso: string | null }) {
-  const { p } = useApp();
+  const { p, script } = useApp();
   const timeZone = useTimeZone();
   const scale = useTextScale();
   const { width } = useWindowDimensions();
@@ -263,7 +276,7 @@ export function DayTimeline({ rows: allRows, day, nowIso }: { rows: readonly Pla
     start: minuteOfDay(new Date(row.gap.start).toISOString(), day, timeZone),
     end: minuteOfDay(new Date(row.gap.end).toISOString(), day, timeZone),
   }));
-  const spans = timelineSpans(rows, day, timeZone, scale);
+  const spans = timelineSpans(rows, day, timeZone, scale, script);
   const { from, to } = hourWindow([...spans, ...gapSpans.map(({ row, start, end }) => ({ key: row.key, start, end, minVisual: 0 }))]);
   const placed = placeSpans(spans, from);
   // More lanes at once than fit at their floor: the same rows as the ordered
@@ -311,7 +324,8 @@ export function DayTimeline({ rows: allRows, day, nowIso }: { rows: readonly Pla
             if (row.kind === 'commitment') {
               const look = importanceLook(row.item.importance, p);
               return (
-                <View key={entry.key} style={frame}>
+                // Its frame is the room the lanes kept, as a block's is.
+                <View key={entry.key} style={{ ...frame, height: Math.max(entry.visual, 44) }} testID={`m6-timeline-block-${entry.key}`}>
                   <View accessible={false} style={{ position: 'absolute', top: -4, start: -4, width: 8, height: 8, borderRadius: 4, backgroundColor: look.fg, zIndex: 3 }} />
                   <CommitmentCard row={row} marker={entry.height === 0} narrow={entry.lanes > 1} minHeight={entry.height} />
                 </View>
@@ -338,12 +352,14 @@ export function DayTimeline({ rows: allRows, day, nowIso }: { rows: readonly Pla
  * the room its label needs — beside nothing, and as a column in a shared lane.
  * Pure, so the lane floor can be checked without a renderer.
  */
-export function timelineSpans(rows: readonly Exclude<PlanRow, { kind: 'gap' }>[], day: string, timeZone: string, scale: number): TimelineSpan[] {
+export function timelineSpans(rows: readonly Exclude<PlanRow, { kind: 'gap' }>[], day: string, timeZone: string, scale: number, script: Script = 'arabic'): TimelineSpan[] {
   return rows.map((row): TimelineSpan => {
     if (row.kind === 'commitment') {
       const start = minuteOfDay(row.clock!, day, timeZone);
       const until = rangeEndOf(row);
-      const end = until ? minuteOfDay(until, day, timeZone) : null;
+      const endMinute = until ? minuteOfDay(until, day, timeZone) : null;
+      const end = endMinute !== null && endMinute > start ? endMinute : null;
+      const card = { ranged: end !== null, due: row.due !== null, conflict: row.conflict !== null, scale, script };
       return {
         key: row.key,
         start,
@@ -351,13 +367,12 @@ export function timelineSpans(rows: readonly Exclude<PlanRow, { kind: 'gap' }>[]
         // drawn as long as it lasts (#738): a 09:00–17:00 offsite as one hour
         // made the 10:00 lawyer look free beside it. One with no end stays a
         // marker — inventing a length would be worse.
-        end: end !== null && end > start ? end : null,
-        // Padding, a title line and a time line in the Arabic face's line box;
-        // a due aside and an overlap line each add one more.
-        minVisual: (70 + (row.due ? 22 : 0) + (row.conflict ? 36 : 0)) * scale,
-        // As a column the chip takes a line under the title, and the overlap
-        // line may wrap once.
-        narrowVisual: (98 + (row.due ? 22 : 0) + (row.conflict ? 56 : 0)) * scale,
+        end,
+        // The tallest the card can draw, beside nothing and as a column in a
+        // shared lane (Q788B-001/002/003): every text on it is clamped, so
+        // this is a bound, not an estimate.
+        minVisual: timelineCardHeight({ ...card, narrow: false }),
+        narrowVisual: timelineCardHeight({ ...card, narrow: true }),
       };
     }
     const startAt = row.kind === 'busy' ? row.block.startAt : row.occurrence.startAt;
@@ -366,12 +381,122 @@ export function timelineSpans(rows: readonly Exclude<PlanRow, { kind: 'gap' }>[]
       key: row.key,
       start: minuteOfDay(startAt, day, timeZone),
       end: minuteOfDay(endAt, day, timeZone),
-      minVisual: 58 * scale,
-      // As a column: «مشغول (من التقويم)» may wrap once and «حضّرني» sits
-      // under it; a weekly block's «ثابت» takes a line above its title.
-      narrowVisual: (row.kind === 'busy' ? 80 + (row.prep ? 52 : 0) : 88) * scale,
+      // The tallest its label can draw beside nothing and as a column in a
+      // shared lane (Q788B-R2-001): a bound from the card's own styles, its
+      // texts clamped, as a commitment's is.
+      ...(row.kind === 'busy'
+        ? {
+          minVisual: busyBlockHeight({ narrow: false, range: !row.block.allDay, prep: row.prep !== null, scale, script }),
+          narrowVisual: busyBlockHeight({ narrow: true, range: !row.block.allDay, prep: row.prep !== null, scale, script }),
+        }
+        : {
+          minVisual: weeklyBlockHeight({ narrow: false, scale, script }),
+          narrowVisual: weeklyBlockHeight({ narrow: true, scale, script }),
+        }),
     };
   });
+}
+
+/**
+ * Line limits for a commitment card on the hours. Past them a text ends in an
+ * ellipsis at a word; the button's accessibility label still says all of it,
+ * and the ordered list (`DayAgenda`) never clamps the due or the overlap
+ * (Q788-001), so nothing is lost — only bounded where space is.
+ */
+export const TIMELINE_TITLE_LINES = 2;
+export const TIMELINE_DUE_LINES = 2;
+export const TIMELINE_CONFLICT_LINES = 2;
+
+/** A `Txt`'s line box at text size `scale`: its rounded base line height, which React Native scales with the text. */
+function lineBox(size: number, script: Script, scale: number): number {
+  return Math.round(size * LINE_HEIGHT[script]) * scale;
+}
+
+/** The least a timeline entry's target is, whatever its text: its frame never draws under it, so its room is never reserved under it. */
+const TARGET = 44;
+
+/**
+ * The tallest a commitment card on the timeline can draw, in points: fixed
+ * chrome that does not grow with the text, plus text line boxes that do.
+ *
+ *   fixed   border 2 · padding 2 × 8 (marker) or 2 × 12 (ranged) · the gap
+ *           under the title 2 · the gap before the chip or the overlap 6 ·
+ *           the icon tile 28 (marker) or 40 (ranged), beside nothing at the
+ *           normal layout · the chip's padding 2 × 4, or 2 × 2 compact · the
+ *           overlap box's padding 2 × 4
+ *   scaled  title 15 pt × TIMELINE_TITLE_LINES · time 13 pt Latin · due
+ *           13 pt × TIMELINE_DUE_LINES on its own line under the time · chip
+ *           13 pt, or 11 pt compact · overlap 13 pt × TIMELINE_CONFLICT_LINES
+ *
+ * Beside nothing, the icon, the text column and the chip share one row, so
+ * the row is the tallest of the three; in a shared lane the chip moves under
+ * the column. The script picks the line box (Arabic's is the tallest).
+ */
+export function timelineCardHeight({ ranged, narrow, due, conflict, scale, script }: {
+  ranged: boolean; narrow: boolean; due: boolean; conflict: boolean; scale: number; script: Script;
+}): number {
+  const compact = layoutModeFor(scale) !== 'normal';
+  const icon = compact || narrow ? 0 : ranged ? 40 : 28;
+  const time = lineBox(13, 'latin', scale) + (due ? TIMELINE_DUE_LINES * lineBox(13, script, scale) : 0);
+  const column = TIMELINE_TITLE_LINES * lineBox(15, script, scale) + 2 + time;
+  const chip = tagHeight(compact, script, scale);
+  const row = narrow ? column + 6 + chip : Math.max(icon, column, chip);
+  const overlap = conflict ? 6 + 8 + TIMELINE_CONFLICT_LINES * lineBox(13, script, scale) : 0;
+  return Math.max(TARGET, Math.ceil(2 + (ranged ? 24 : 16) + row + overlap));
+}
+
+/**
+ * Line limits for a block's label on the hours. The weekly title is the
+ * person's own words (up to 120 characters) and «مشغول (من التقويم)» may wrap
+ * in a narrow lane: both stop at two lines with an ellipsis at a word; the
+ * time range is one unbreakable unit the lane floor keeps whole. Each card's
+ * accessibility label still says all of it, and the ordered list's rows are
+ * not clamped.
+ */
+export const TIMELINE_BLOCK_TITLE_LINES = 2;
+
+/** A `Tag`'s height: padding 2 × 4 around 13 pt, or 2 × 2 around 11 pt in the compact layout. */
+function tagHeight(compact: boolean, script: Script, scale: number): number {
+  return compact ? 4 + lineBox(11, script, scale) : 8 + lineBox(13, script, scale);
+}
+
+/**
+ * The tallest a busy block's label can draw on the timeline (`BusyCard`).
+ *
+ *   fixed   body padding 2 × 6 · the 18-pt icon beside nothing · the gap
+ *           before «حضّرني» in a column 6 · «حضّرني»: border 2 × 1 and
+ *           padding 2 × 8, never under its 44-pt target · the entry's 44
+ *   scaled  «مشغول (من التقويم)» 14 pt × TIMELINE_BLOCK_TITLE_LINES · the
+ *           range 13 pt Latin (none all day) · «حضّرني»'s word 13 pt
+ *
+ * Beside nothing the label and the action share a row (the taller sets it);
+ * in a shared lane the action goes under the label.
+ */
+export function busyBlockHeight({ narrow, range, prep, scale, script }: {
+  narrow: boolean; range: boolean; prep: boolean; scale: number; script: Script;
+}): number {
+  const column = TIMELINE_BLOCK_TITLE_LINES * lineBox(14, script, scale) + (range ? lineBox(13, 'latin', scale) : 0);
+  const label = narrow ? column : Math.max(18, column);
+  const action = prep ? Math.max(TARGET, 2 + 16 + lineBox(13, script, scale)) : 0;
+  const body = narrow ? label + (prep ? 6 + action : 0) : Math.max(label, action);
+  return Math.max(TARGET, Math.ceil(12 + body));
+}
+
+/**
+ * The tallest a weekly block's label can draw on the timeline (`WeeklyCard`).
+ *
+ *   fixed   body padding 2 × 6 · the gap under «ثابت» in a column 4 · the
+ *           chip's padding (`tagHeight`) · the entry's 44
+ *   scaled  «ثابت» 13 pt, or 11 pt compact · the title 14 pt ×
+ *           TIMELINE_BLOCK_TITLE_LINES · the range 13 pt Latin
+ *
+ * Beside nothing the chip and the text share a row; in a shared lane the chip
+ * goes above the text.
+ */
+export function weeklyBlockHeight({ narrow, scale, script }: { narrow: boolean; scale: number; script: Script }): number {
+  const tag = tagHeight(layoutModeFor(scale) !== 'normal', script, scale);
+  const text = TIMELINE_BLOCK_TITLE_LINES * lineBox(14, script, scale) + lineBox(13, 'latin', scale);
+  return Math.max(TARGET, Math.ceil(12 + (narrow ? tag + 4 + text : Math.max(tag, text))));
 }
 
 /** The same rows as a list in time order, for the large text sizes. */
