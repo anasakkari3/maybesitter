@@ -112,7 +112,7 @@ test('G2 an enrolled live monitor commits through the provider-scoped M5a unit a
       { kind: 'request', evidence: 'Please send the form', confidence: 0.9 },
     ] }), model: 'fake', latencyMs: 1, promptTokens: 1, outputTokens: 1 }),
   };
-  await storage.set(`users/${uid}`, { monitoringSettings: { paused: false, updatedAt: NOW } });
+  await storage.set(`users/${uid}`, { monitoringSettings: { paused: false, updatedAt: NOW }, trust: createPilotTrustState(uid, NOW) });
   await storage.set('system/m5aControls', { email: { epoch: 9, enabled: true }, calendar: { epoch: 1, enabled: true } });
   await storage.set(userSubDoc(uid, PROVIDER_CONNECTIONS, connectionIdFor('google')), {
     identity: { provider: 'google', providerAccountId: 'acct' }, state: 'connected', credentialRef: 'vault',
@@ -167,7 +167,7 @@ test('G3 a 450-add/450-remove JIT target resumes after lease takeover and certif
   };
   const old = Array.from({ length: 450 }, (_, index) => block('old', index));
   const next = Array.from({ length: 450 }, (_, index) => block('new', index + 1_000));
-  await storage.set(`users/${uid}`, { trust: { calendarConsent: true }, calendarEpoch: 1 });
+  await storage.set(`users/${uid}`, { trust: { ...createPilotTrustState(uid, NOW), calendarConsent: true }, calendarEpoch: 1 });
   await storage.set('system/m5aControls', { email: { epoch: 4, enabled: false }, calendar: { epoch: 2, enabled: true } });
   await storage.set(userSubDoc(uid, PROVIDER_CONNECTIONS, connectionIdFor('google')), {
     identity: { provider: 'google', providerAccountId: 'account' }, state: 'connected', credentialRef: 'vault',
@@ -212,7 +212,7 @@ test('G4 registered stale devices wait for one hour account-wide, then force aut
   let now = new Date(NOW);
   const runtime: GoogleRuntime = { storage, env: {} as GoogleRuntime['env'], secrets: null, fetchImpl: fetch, now: () => new Date(now) };
   const sourceIds = ['device:phone', 'device:tablet'];
-  await storage.set(`users/${uid}`, { trust: { calendarConsent: true } });
+  await storage.set(`users/${uid}`, { trust: { ...createPilotTrustState(uid, NOW), calendarConsent: true } });
   await storage.set('system/m5aControls', { email: { epoch: 1, enabled: true }, calendar: { epoch: 1, enabled: true } });
   await storage.set(userSubDoc(uid, CALENDAR_CHOICE, 'state'), { v: 1, generation: 3, state: 'active' });
   for (const sourceId of sourceIds) {
@@ -243,7 +243,7 @@ test('G4 ICS freshness uses lastVerifiedAt, including the timestamp a conditiona
   let now = new Date(NOW);
   const runtime: GoogleRuntime = { storage, env: {} as GoogleRuntime['env'], secrets: null,
     fetchImpl: fetch, now: () => new Date(now) };
-  await storage.set(`users/${uid}`, { trust: { calendarConsent: true } });
+  await storage.set(`users/${uid}`, { trust: { ...createPilotTrustState(uid, NOW), calendarConsent: true } });
   await storage.set('system/m5aControls', { email: { epoch: 1, enabled: true }, calendar: { epoch: 1, enabled: true } });
   await storage.set(userSubDoc(uid, CALENDAR_SOURCES, docIdForKey(sourceId)), {
     sourceId, kind: 'ics', platform: null, lastSyncedAt: NOW,
@@ -293,7 +293,7 @@ test('G5 the matching live generation takes its wait straight back to a fenced c
   const legacyId = legacyMarkerIdFor(messageId);
   const wait: M5aMarker = { v: 2, state: 'waiting_for_calendar', providerAccountId: 'acct', emailEpoch: 5,
     messageId, origin: { kind: 'monitor', generation: 'g1', pauseEpoch: 2 }, requestedAt: NOW, nextEligibleAt: NOW };
-  await storage.set(`users/${uid}`, { monitoringSettings: { paused: false, updatedAt: NOW }, trust: { calendarConsent: false } });
+  await storage.set(`users/${uid}`, { monitoringSettings: { paused: false, updatedAt: NOW }, trust: { ...createPilotTrustState(uid, NOW), calendarConsent: false } });
   await storage.set('system/m5aControls', { email: { epoch: 5, enabled: true }, calendar: { epoch: 1, enabled: true } });
   await storage.set(userSubDoc(uid, PROVIDER_CONNECTIONS, connectionIdFor('google')), {
     identity: { provider: 'google', providerAccountId: 'acct' }, state: 'connected', credentialRef: 'vault',
@@ -339,7 +339,7 @@ test('G6 paused intervals end exactly while the sweep end keeps its one-second G
 test('G6 resume clears the live cursor, so paused mail is baselined without messages.get', async () => {
   const storage = createMemoryStorage();
   const uid = 'pause_resume_baseline';
-  await storage.set(`users/${uid}`, { monitoringSettings: { paused: false, updatedAt: NOW } });
+  await storage.set(`users/${uid}`, { monitoringSettings: { paused: false, updatedAt: NOW }, trust: createPilotTrustState(uid, NOW) });
   await storage.set('system/m5aControls', { email: { epoch: 9, enabled: true }, calendar: { epoch: 1, enabled: true } });
   await storage.set(userSubDoc(uid, PROVIDER_CONNECTIONS, connectionIdFor('google')), {
     identity: { provider: 'google', providerAccountId: 'acct' }, state: 'connected', credentialRef: 'vault',
@@ -372,7 +372,7 @@ test('G6 resume clears the live cursor, so paused mail is baselined without mess
 test('G6 live pause races fence both the id checkpoint and the message result before any model call', async () => {
   const setup = async (uid: string) => {
     const storage = createMemoryStorage();
-    await storage.set(`users/${uid}`, { monitoringSettings: { paused: false, updatedAt: NOW } });
+    await storage.set(`users/${uid}`, { monitoringSettings: { paused: false, updatedAt: NOW }, trust: createPilotTrustState(uid, NOW) });
     await storage.set('system/m5aControls', { email: { epoch: 9, enabled: true }, calendar: { epoch: 1, enabled: true } });
     await storage.set(userSubDoc(uid, PROVIDER_CONNECTIONS, connectionIdFor('google')), {
       identity: { provider: 'google', providerAccountId: 'acct' }, state: 'connected', credentialRef: 'vault',
@@ -451,7 +451,7 @@ test('G6 live and sweep pause races after analysis, extraction, and immediately 
         from: null, subject: null,
         text: qualifying ? `${own}\n\nOn Sun, Oct 18, Alex wrote:\nPlease send it.` : 'Please send the report',
         sentByAccount: qualifying, isReply: qualifying, bodyFormat: 'text/plain' as const };
-      await storage.set(`users/${uid}`, { monitoringSettings: { paused: false, updatedAt: NOW }, trust: { calendarConsent: true } });
+      await storage.set(`users/${uid}`, { monitoringSettings: { paused: false, updatedAt: NOW }, trust: { ...createPilotTrustState(uid, NOW), calendarConsent: true } });
       await storage.set('system/m5aControls', { email: { epoch: 9, enabled: true }, calendar: { epoch: 1, enabled: true } });
       await storage.set(userSubDoc(uid, PROVIDER_CONNECTIONS, connectionIdFor('google')), {
         identity: { provider: 'google', providerAccountId: 'acct' }, state: 'connected', credentialRef: 'vault',
@@ -513,7 +513,7 @@ test('G6 a sweep paused during listing stores no message ids and performs no mes
   const uid = 'pause_daily_listing';
   const storage = createMemoryStorage();
   const scanPath = `users/${uid}/${INTELLIGENCE_GMAIL_SCANS}/dailyV2`;
-  await storage.set(`users/${uid}`, { monitoringSettings: { paused: false, updatedAt: NOW } });
+  await storage.set(`users/${uid}`, { monitoringSettings: { paused: false, updatedAt: NOW }, trust: createPilotTrustState(uid, NOW) });
   await storage.set('system/m5aControls', { email: { epoch: 9, enabled: true }, calendar: { epoch: 1, enabled: true } });
   await storage.set(userSubDoc(uid, PROVIDER_CONNECTIONS, connectionIdFor('google')), {
     identity: { provider: 'google', providerAccountId: 'acct' }, state: 'connected', credentialRef: 'vault',
@@ -553,7 +553,7 @@ test('H2 a killed enrolled monitor uses guarded legacy analysis and a mid-model 
   const run = async (pauseDuringModel: boolean) => {
     const uid = pauseDuringModel ? 'rollback-pause' : 'rollback-legacy';
     const storage = createMemoryStorage({ enforceFirestoreReadOrder: true });
-    await storage.set(`users/${uid}`, { monitoringSettings: { paused: false, updatedAt: NOW } });
+    await storage.set(`users/${uid}`, { monitoringSettings: { paused: false, updatedAt: NOW }, trust: createPilotTrustState(uid, NOW) });
     await storage.set('system/m5aControls', { email: { epoch: 12, enabled: false }, calendar: { epoch: 1, enabled: true } });
     await storage.set(userSubDoc(uid, PROVIDER_CONNECTIONS, connectionIdFor('google')), {
       identity: { provider: 'google', providerAccountId: 'acct' }, state: 'connected', credentialRef: 'vault',
@@ -605,7 +605,7 @@ test('H2 a killed enrolled monitor uses guarded legacy analysis and a mid-model 
 test('R3 a killed enrolled monitor skips excluded history without sticking its cursor', async () => {
   const uid = 'rollback-excluded';
   const storage = createMemoryStorage({ enforceFirestoreReadOrder: true });
-  await storage.set(`users/${uid}`, { monitoringSettings: { paused: false, updatedAt: NOW } });
+  await storage.set(`users/${uid}`, { monitoringSettings: { paused: false, updatedAt: NOW }, trust: createPilotTrustState(uid, NOW) });
   await storage.set('system/m5aControls', { email: { epoch: 12, enabled: false }, calendar: { epoch: 1, enabled: true } });
   await storage.set(userSubDoc(uid, PROVIDER_CONNECTIONS, connectionIdFor('google')), {
     identity: { provider: 'google', providerAccountId: 'acct' }, state: 'connected', credentialRef: 'vault',
@@ -652,7 +652,7 @@ test('L1 a live quota wait moves the monitor poll and is not reclaimed before ne
   const storage = createMemoryStorage();
   const uid = 'live-next-eligible';
   const resumesAt = '2026-10-20T00:00:00.000Z';
-  await storage.set(`users/${uid}`, { monitoringSettings: { paused: false, updatedAt: NOW } });
+  await storage.set(`users/${uid}`, { monitoringSettings: { paused: false, updatedAt: NOW }, trust: createPilotTrustState(uid, NOW) });
   await storage.set('system/m5aControls', { email: { epoch: 4, enabled: true }, calendar: { epoch: 1, enabled: true } });
   await storage.set(userSubDoc(uid, PROVIDER_CONNECTIONS, connectionIdFor('google')), {
     identity: { provider: 'google', providerAccountId: 'acct' }, state: 'connected', credentialRef: 'vault',
@@ -810,7 +810,7 @@ test('M2 production live lanes drain a per-user 45-call wait after reset without
   const uid = 'production-capacity';
   const ids = Array.from({ length: 47 }, (_, index) => `mail-${index}`);
   let now = new Date('2026-10-19T00:00:00.000Z');
-  await storage.set(`users/${uid}`, { monitoringSettings: { paused: false, updatedAt: now.toISOString() } });
+  await storage.set(`users/${uid}`, { monitoringSettings: { paused: false, updatedAt: now.toISOString() }, trust: createPilotTrustState(uid, now.toISOString()) });
   await storage.set('system/m5aControls', { email: { epoch: 5, enabled: true }, calendar: { epoch: 1, enabled: true } });
   await storage.set(userSubDoc(uid, PROVIDER_CONNECTIONS, connectionIdFor('google')), {
     identity: { provider: 'google', providerAccountId: 'acct' }, state: 'connected', credentialRef: 'vault',
@@ -988,7 +988,7 @@ test('G9 a production-shaped qualifying unit reserves and settles both adapter s
     storage, env: { MAYBESITTER_ENV: 'staging' } as GoogleRuntime['env'], secrets: null, fetchImpl: fetch,
     now: () => new Date(NOW), shareProvider, captureProvider,
   };
-  await storage.set(`users/${uid}`, { trust: { calendarConsent: true } });
+  await storage.set(`users/${uid}`, { trust: { ...createPilotTrustState(uid, NOW), calendarConsent: true } });
   await storage.set('system/m5aControls', { email: { epoch: 3, enabled: true }, calendar: { epoch: 1, enabled: true } });
   await storage.set(userSubDoc(uid, PROVIDER_CONNECTIONS, connectionIdFor('google')), {
     identity: { provider: 'google', providerAccountId: 'acct' }, state: 'connected', credentialRef: 'vault',
@@ -1027,7 +1027,7 @@ test('G9 a two-call quota boundary defers the whole unit and moves its schedule 
     storage, env: { MAYBESITTER_ENV: 'staging' } as GoogleRuntime['env'], secrets: null, fetchImpl: fetch,
     now: () => new Date(NOW), shareProvider: provider, captureProvider: provider,
   };
-  await storage.set(`users/${uid}`, { trust: { calendarConsent: true } });
+  await storage.set(`users/${uid}`, { trust: { ...createPilotTrustState(uid, NOW), calendarConsent: true } });
   await storage.set('system/m5aControls', { email: { epoch: 3, enabled: true }, calendar: { epoch: 1, enabled: true } });
   await storage.set(userSubDoc(uid, PROVIDER_CONNECTIONS, connectionIdFor('google')), {
     identity: { provider: 'google', providerAccountId: 'acct' }, state: 'connected', credentialRef: 'vault',

@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createMemoryStorage } from '../../lib/storage/memoryAdapter.ts';
+import { createPilotTrustState } from '../../lib/pilot/closedPilotControls.ts';
 import { INTELLIGENCE_OBSERVATIONS, userCol, userDoc } from '../../lib/storage/index.ts';
 import { observationId, putReaddMarkerInTransaction } from '../../lib/intelligence/observationStore.ts';
 
@@ -25,14 +26,14 @@ async function seeded(user: Record<string, unknown> | null) {
 const markerPath = () => `${userCol(UID, INTELLIGENCE_OBSERVATIONS)}/${observationId('behavior', 'readd:c-2', { kind: 'outcome', evidence: 'Re-added', confidence: 0.6 })}`;
 
 test('M5B2B2-CR-001 a live account gets its marker (control)', async () => {
-  const storage = await seeded({ personalizationPurge: { state: 'active', epoch: 0 } });
+  const storage = await seeded({ personalizationPurge: { state: 'active', epoch: 0 }, trust: createPilotTrustState(UID, AT) });
   const marker = await putReaddMarkerInTransaction(UID, 'c-2', AT, OUTCOME, 0, storage);
   assert.ok(marker, 'control: the marker was not written for a live account');
   assert.ok(await storage.get(markerPath()));
 });
 
 for (const [name, user] of [
-  ['after markDeleted', { personalizationPurge: { state: 'active', epoch: 0 }, trust: { deletedAt: AT } }],
+  ['after markDeleted', { personalizationPurge: { state: 'active', epoch: 0 }, trust: { ...createPilotTrustState(UID, AT), deletedAt: AT } }],
   ['after the user document is gone', null],
 ] as const) {
   test(`M5B2B2-CR-001 the re-add marker transaction writes nothing ${name}`, async () => {
@@ -70,7 +71,7 @@ async function questionCitingMarker(user: Record<string, unknown> | null) {
 }
 
 for (const [name, user] of [
-  ['after markDeleted', { personalizationPurge: { state: 'active', epoch: 0 }, trust: { deletedAt: AT } }],
+  ['after markDeleted', { personalizationPurge: { state: 'active', epoch: 0 }, trust: { ...createPilotTrustState(UID, AT), deletedAt: AT } }],
   ['after the user document is gone', null],
 ] as const) {
   test(`M5B2B2-MERGE-001 a re-add-backed question ${name} answers the typed account result first and writes nothing`, async (t) => {
