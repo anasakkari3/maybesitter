@@ -2,6 +2,7 @@ import { mobileAuthErrorResponse, requireMobileUser } from '../../../../../../..
 import { intelligenceDisabledResponse } from '../../../../../../../lib/intelligence/gate';
 import { reviewObservation } from '../../../../../../../lib/intelligence/observationStore';
 import { RequestBodyTooLargeError, readJsonBody, requestBodyTooLargeResponse } from '../../../../../../../lib/net/requestBody';
+import { clientSupportsReadd } from '../../../../../../../lib/intelligence/readd';
 
 export const dynamic = 'force-dynamic';
 
@@ -22,7 +23,8 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   }
   const { id } = await context.params;
   try {
-    const observation = await reviewObservation(user.uid, id, review, new Date().toISOString());
+    const observation = await reviewObservation(user.uid, id, review, new Date().toISOString(), undefined,
+      clientSupportsReadd(request));
     if (!observation) return Response.json({ success: false, reason: 'not_found' }, { status: 404 });
     return Response.json({ success: true, observation });
   } catch {

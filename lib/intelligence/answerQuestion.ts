@@ -2,9 +2,10 @@ import { getStorage, type StorageAdapter } from '../storage';
 import { analyzeSource } from './analyzeSource';
 import { suggestionPath, type IntelligenceSuggestion } from './proposalEngine';
 import { createHash } from 'node:crypto';
-import { observationPath } from './observationStore';
+import { observationPath, type StoredObservation } from './observationStore';
 import { isDismissedBehaviourOutcome } from './proposalEngine';
-import { pendingSuggestionAvailability, SuggestionUnavailableError } from './memoryBasis';
+import { pendingSuggestionAvailability, SUGGESTION_UNAVAILABLE, SuggestionUnavailableError } from './memoryBasis';
+import { readdCitationsAllowedInTransaction } from './readd';
 
 /** A question's answer becomes evidence for the next cycle, not an obligation. */
 export async function answerIntelligenceQuestion(
@@ -13,6 +14,7 @@ export async function answerIntelligenceQuestion(
   answer: string,
   now: string,
   storage: StorageAdapter = getStorage(),
+  readdClientSupported = false,
 ): Promise<IntelligenceSuggestion | null> {
   const text = answer.trim();
   if (text.length < 2 || text.length > 500) throw new Error('invalid_answer');
@@ -22,11 +24,11 @@ export async function answerIntelligenceQuestion(
     const current = await tx.get<IntelligenceSuggestion>(path);
     if (!current || current.kind !== 'question' || current.status === 'dismissed') return null;
     if (current.status === 'accepting' && current.answerDigest !== digest) return null;
+    const cited = await Promise.all(current.observationIds.map(observationId =>
+      tx.get<StoredObservation>(observationPath(uid, observationId))));
+    if (!(await readdCitationsAllowedInTransaction(tx, uid, cited, readdClientSupported))) return SUGGESTION_UNAVAILABLE;
     if (current.status === 'pending') {
-      const [availability, cited] = await Promise.all([
-        pendingSuggestionAvailability(tx, uid, current, now),
-        Promise.all(current.observationIds.map(observationId => tx.get(observationPath(uid, observationId)))),
-      ]);
+      const availability = await pendingSuggestionAvailability(tx, uid, current, now);
       if (cited.some(isDismissedBehaviourOutcome)) {
         tx.set(path, { ...current, status: 'dismissed', decidedAt: now });
         return availability.available ? null : availability;

@@ -4,12 +4,14 @@ import { createStorageRuntimeMemoryStore, personalizationWriteGuard } from '../r
 import { commitCommandsWithClaim } from '../services/mobile/participantState';
 import { isDismissedBehaviourOutcome, suggestionPath, type IntelligenceSuggestion } from './proposalEngine';
 import { slotStillFitsSchedule } from './schedulePreview';
-import { listObservations, observationPath } from './observationStore';
+import { listObservations, observationPath, type StoredObservation } from './observationStore';
 import {
   pendingSuggestionAvailability,
+  SUGGESTION_UNAVAILABLE,
   SuggestionUnavailableError,
   type SuggestionActionAvailability,
 } from './memoryBasis';
+import { readdCitationsAllowedInTransaction } from './readd';
 
 export type SuggestionDecision = 'accept' | 'dismiss';
 
@@ -42,6 +44,7 @@ export async function reviewSuggestion(
   now: string,
   storage: StorageAdapter = getStorage(),
   edits: { title?: string; slot?: { startsAt: string; endsAt: string } } = {},
+  readdClientSupported = false,
 ): Promise<IntelligenceSuggestion | null> {
   const path = suggestionPath(uid, id);
   const current = await storage.get<IntelligenceSuggestion>(path);
@@ -57,8 +60,9 @@ export async function reviewSuggestion(
       if (latest.status !== 'pending') return latest;
       const [availability, cited] = await Promise.all([
         pendingSuggestionAvailability(tx, uid, latest, now),
-        Promise.all(latest.observationIds.map(observationId => tx.get(observationPath(uid, observationId)))),
+        Promise.all(latest.observationIds.map(observationId => tx.get<StoredObservation>(observationPath(uid, observationId)))),
       ]);
+      if (!(await readdCitationsAllowedInTransaction(tx, uid, cited, readdClientSupported))) return SUGGESTION_UNAVAILABLE;
       if (!availability.available && !cited.some(isDismissedBehaviourOutcome)) return availability;
       const next: IntelligenceSuggestion = { ...latest, status: 'dismissed', decidedAt: now };
       tx.set(path, next);
@@ -79,8 +83,11 @@ export async function reviewSuggestion(
     if (latest.status !== 'pending') return { done: false as const };
     const [availability, cited] = await Promise.all([
       pendingSuggestionAvailability(tx, uid, latest, now),
-      Promise.all(latest.observationIds.map(observationId => tx.get(observationPath(uid, observationId)))),
+      Promise.all(latest.observationIds.map(observationId => tx.get<StoredObservation>(observationPath(uid, observationId)))),
     ]);
+    if (!(await readdCitationsAllowedInTransaction(tx, uid, cited, readdClientSupported))) {
+      return { done: true as const, unavailable: SUGGESTION_UNAVAILABLE };
+    }
     if (!cited.some(isDismissedBehaviourOutcome)) {
       return availability.available
         ? { done: false as const }
@@ -119,6 +126,9 @@ export async function reviewSuggestion(
       if (!claim || claim.status !== 'pending' || claim.kind !== 'action') return null;
       const availability = await pendingSuggestionAvailability(context.tx, uid, claim, now);
       if (!availability.available) return { outcome: availability };
+      if (!(await readdCitationsAllowedInTransaction(
+        context.tx, uid, context.guards as Array<StoredObservation | null>, readdClientSupported,
+      ))) return { outcome: SUGGESTION_UNAVAILABLE };
       if (context.guards.some(isDismissedBehaviourOutcome)) {
         return { commands: [], patch: { status: 'dismissed', decidedAt: now } };
       }
@@ -141,11 +151,12 @@ export async function reviewSuggestion(
     const claimed = await storage.runTransaction(async tx => {
       const latest = await tx.get<IntelligenceSuggestion>(path);
       if (!latest || (latest.status !== 'pending' && latest.status !== 'accepting')) return null;
+      const cited = await Promise.all(latest.observationIds.map(observationId =>
+        tx.get<StoredObservation>(observationPath(uid, observationId))));
+      if (!(await readdCitationsAllowedInTransaction(tx, uid, cited, readdClientSupported))) return SUGGESTION_UNAVAILABLE;
       if (latest.status === 'pending') {
         const availability = await pendingSuggestionAvailability(tx, uid, latest, now);
         if (!availability.available) return availability;
-        const cited = await Promise.all(latest.observationIds.map(observationId =>
-          tx.get(observationPath(uid, observationId))));
         if (cited.some(isDismissedBehaviourOutcome)) {
           const dismissed: IntelligenceSuggestion = { ...latest, status: 'dismissed', decidedAt: now };
           tx.set(path, dismissed);
@@ -184,7 +195,8 @@ export async function reviewSuggestion(
     const availability = await pendingSuggestionAvailability(tx, uid, latest, now);
     if (!availability.available) return availability;
     const cited = await Promise.all(latest.observationIds.map(observationId =>
-      tx.get(observationPath(uid, observationId))));
+      tx.get<StoredObservation>(observationPath(uid, observationId))));
+    if (!(await readdCitationsAllowedInTransaction(tx, uid, cited, readdClientSupported))) return SUGGESTION_UNAVAILABLE;
     if (cited.some(isDismissedBehaviourOutcome)) {
       const dismissed: IntelligenceSuggestion = { ...latest, status: 'dismissed', decidedAt: now };
       tx.set(path, dismissed);

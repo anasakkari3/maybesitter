@@ -4,6 +4,7 @@ import { answerIntelligenceQuestion } from '../../../../../../../../lib/intellig
 import { RequestBodyTooLargeError, readJsonBody, requestBodyTooLargeResponse } from '../../../../../../../../lib/net/requestBody';
 import { SuggestionUnavailableError } from '../../../../../../../../lib/intelligence/memoryBasis';
 import { suggestionToDto } from '../../../../../../../../lib/intelligence/proposalEngine';
+import { clientSupportsReadd } from '../../../../../../../../lib/intelligence/readd';
 
 export const dynamic = 'force-dynamic';
 
@@ -25,7 +26,8 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   const { id } = await context.params;
   const answeredAt = new Date().toISOString();
   try {
-    const suggestion = await answerIntelligenceQuestion(user.uid, id, answer, answeredAt);
+    const suggestion = await answerIntelligenceQuestion(user.uid, id, answer, answeredAt, undefined,
+      clientSupportsReadd(request));
     if (!suggestion) return Response.json({ success: false, reason: 'suggestion_unavailable' }, { status: 404 });
     return Response.json({ success: true, suggestion: suggestionToDto(suggestion) });
   } catch (error) {

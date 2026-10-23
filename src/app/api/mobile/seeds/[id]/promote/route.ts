@@ -8,6 +8,7 @@ import {
 import { moduleDisabledResponse } from '../../../../../../../lib/services/mobile/moduleGate';
 import { mobileError } from '../../../../../../../lib/services/mobile/response';
 import { RequestBodyTooLargeError, readJsonBody, requestBodyTooLargeResponse } from '../../../../../../../lib/net/requestBody';
+import { learnOutcomesWithin } from '../../../../../../../lib/intelligence/outcomeLearning';
 
 export const dynamic = 'force-dynamic';
 
@@ -62,6 +63,7 @@ export async function POST(request: Request, context: RouteContext) {
   const { id } = await context.params;
   try {
     const { seed, replayed } = await promoteSeed(user.uid, id, body?.target, new Date().toISOString());
+    if (body?.target === 'commitment') await learnOutcomesWithin(user.uid);
     return Response.json({ success: true, replayed, seed });
   } catch (error) {
     if (error instanceof SeedNotFoundError) {
