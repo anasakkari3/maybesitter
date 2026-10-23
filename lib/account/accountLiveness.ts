@@ -6,12 +6,24 @@
  * way to a write, and a write that lands afterwards re-creates documents under
  * an account the person deleted. Every user-content writer therefore reads the
  * user document inside its own transaction and refuses when this answers false:
- * a document that is gone (swept) or one that carries `trust.deletedAt`.
+ * a document that is gone (swept), one without a valid trust record, or one
+ * whose trust record carries `deletedAt`.
  *
  * A missing document is not "a new user". Authentication creates the trust
- * record on a uid's first request (`lib/auth/mobileAuth.ts`), so every
- * legitimate write finds the document already there.
+ * record on a uid's first request and re-reads it on every request
+ * (`requireMobileUser` -> `getOrCreateTrust`, which validates it with
+ * `requirePilotTrustState`), so every legitimate write finds the document
+ * already there, trust record included.
+ *
+ * ── Why the trust record is required, not just the document (Q772-001) ──
+ * Some writers re-create `users/{uid}` without a trust record: a merge into a
+ * missing document, or `newUserDocument` (`trust: null`). After a sweep, such
+ * a write left a root that carried no `deletedAt` and so looked live, and the
+ * next domain write in the same request was accepted under an account the
+ * person had deleted. A root no authentication could have produced is not a
+ * live account.
  */
+import { requirePilotTrustState } from '../pilot/closedPilotControls';
 import { userDoc } from '../storage/paths';
 import type { StorageReader } from '../storage/storageAdapter';
 
@@ -24,8 +36,14 @@ export class AccountUnavailableError extends Error {
 }
 
 export function liveAccount(user: unknown): boolean {
-  return user !== null && user !== undefined
-    && !(user as { trust?: { deletedAt?: unknown } | null }).trust?.deletedAt;
+  if (!user || typeof user !== 'object') return false;
+  let trust;
+  try {
+    trust = requirePilotTrustState((user as { trust?: unknown }).trust);
+  } catch {
+    return false;
+  }
+  return trust.deletedAt === null;
 }
 
 /** Throws `AccountUnavailableError` unless `user` is a live account's document. */

@@ -58,6 +58,7 @@ import { loadDomainState } from '../../lib/services/mobile/participantState.ts';
 import { userCol } from '../../lib/storage/paths.ts';
 import { CAPTURE_PROPOSALS } from '../../lib/storage/paths.ts';
 import { confirmMobileCapture, proposeMobileCapture } from '../../lib/services/mobile/mobileCaptureService.ts';
+import { seedLiveAccount } from '../support/liveAccount.ts';
 
 /** A fresh uid per run, so a rerun never reads the last one's documents. */
 function uniqueUid(prefix: string): string {
@@ -114,8 +115,11 @@ function whyItFailed(which: string, result: { failureCode?: string; failureCause
 
 test('firestore: two confirms of one proposal persist one set of commitments', async () => {
   const uid = uniqueUid('confirm_race');
-  setStorageForTests(createFirestoreStorage());
+  const storage = createFirestoreStorage();
+  setStorageForTests(storage);
   try {
+    // #772: the live root, with the trust record authentication writes, before any direct domain write.
+    await seedLiveAccount(uid, storage);
     const proposal = await proposeMobileCapture(
       { text: 'Call the pharmacy tomorrow at 10', timezone: 'UTC' },
       { participantId: uid },
@@ -158,8 +162,11 @@ test('firestore: two confirms of one proposal persist one set of commitments', a
 
 test('firestore: a later confirm replays the first result rather than persisting again', async () => {
   const uid = uniqueUid('confirm_replay');
-  setStorageForTests(createFirestoreStorage());
+  const storage = createFirestoreStorage();
+  setStorageForTests(storage);
   try {
+    // #772: the live root, with the trust record authentication writes, before any direct domain write.
+    await seedLiveAccount(uid, storage);
     const proposal = await proposeMobileCapture(
       { text: 'Email the landlord tomorrow at 11', timezone: 'UTC' },
       { participantId: uid },

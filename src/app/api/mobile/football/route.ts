@@ -1,4 +1,5 @@
 import { mobileAuthErrorResponse, requireMobileUser } from '../../../../../lib/auth/mobileAuth';
+import { AccountUnavailableError, accountUnavailableResponse } from '../../../../../lib/account/accountLiveness';
 import { mobileError } from '../../../../../lib/services/mobile/response';
 import { listClubs, type ClubLanguage } from '../../../../../lib/football/clubs';
 import { setUserLocale } from '../../../../../lib/storage/userLocale';
@@ -130,6 +131,9 @@ export async function PUT(request: Request) {
     // caller's mistake (400); anything else is the server failing to write,
     // said as such and without the storage error's own text.
     if (error instanceof UnknownClubError) return mobileError(error.message, 400);
+    // The account was deleted after this request authenticated (#772): the
+    // follow was refused inside its own transaction, nothing was written.
+    if (error instanceof AccountUnavailableError) return accountUnavailableResponse();
     console.error('[football] saving followed clubs failed', error instanceof Error ? error.message : 'unknown error');
     return Response.json(
       { success: false, error: 'followed clubs could not be saved', reason: 'follow_not_saved' },
@@ -145,11 +149,22 @@ export async function PUT(request: Request) {
   // nightly job (`runFootballSyncJob`), so a failure reports the saved follow
   // with `fixturesDeferred: true` rather than denying it. Each step runs on
   // its own so one failing does not skip the others.
+  //
+  // Except one: a step refused because the account was deleted mid-request
+  // (#772, Q772-001). That is not a deferral the nightly job will repeat --
+  // the account is gone -- so the remaining steps are skipped and the request
+  // is answered the way a deleted account is answered at sign-in.
   let fixturesDeferred = false;
+  let accountUnavailable = false;
   const bestEffort = async (step: string, run: () => Promise<unknown>): Promise<void> => {
+    if (accountUnavailable) return;
     try {
       await run();
     } catch (error) {
+      if (error instanceof AccountUnavailableError) {
+        accountUnavailable = true;
+        return;
+      }
       fixturesDeferred = true;
       console.error(`[football] ${step} after a saved follow failed`, error instanceof Error ? error.message : 'unknown error');
     }
@@ -167,6 +182,7 @@ export async function PUT(request: Request) {
   await bestEffort('listing fixtures', async () => {
     fixtures = await listActiveFixtureCommitments(user.uid);
   });
+  if (accountUnavailable) return accountUnavailableResponse();
   const held = resolveExternalClashHold() ? await listHeldFixtures(user.uid) : null;
   return Response.json({
     success: true, providerConfigured: configured, clubs: listClubs(), followedClubIds, fixtures,

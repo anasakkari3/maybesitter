@@ -86,7 +86,12 @@ function providerReturning(byTeam: Record<string, unknown[]>, calls: string[] = 
   };
 }
 
-test.beforeEach(() => setStorageForTests(createMemoryStorage()));
+// The followers below are live accounts (#772): authentication created their
+// documents, with trust records, before any follow was saved.
+test.beforeEach(async () => {
+  setStorageForTests(createMemoryStorage());
+  for (const uid of ['u1', 'u2', 'u3']) await seedLiveAccount(uid);
+});
 test.afterEach(() => resetStorageForTests());
 
 // ---------------------------------------------------------------------------

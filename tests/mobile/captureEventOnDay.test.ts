@@ -211,6 +211,7 @@ for (const [zone, now] of [
     await withMemoryStorage(async () => {
       const storage = getStorage();
       await storage.set(userDoc(uid), { uid, timezone: zone, locale: 'ar' });
+      await seedLiveAccount(uid, storage); // #772: the trust record authentication writes
       const proposal = await proposeMobileCapture({ text: 'سجّل موعد أسنان يوم الجمعة', timezone: zone, referenceTime: now.toISOString() }, { participantId: uid });
       const item = proposal.items[0]!;
       assert.equal(item.clarification?.questionKey, 'ask_time');

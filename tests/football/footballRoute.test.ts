@@ -32,6 +32,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createMemoryStorage } from '../../lib/storage/memoryAdapter.ts';
 import { getStorage, resetStorageForTests, setStorageForTests } from '../../lib/storage/index.ts';
+import type { StorageTransaction } from '../../lib/storage/storageAdapter.ts';
 import { installFakeAuth, tokenFor, uidFor, type FakeAuthControls } from '../support/fakeAuth.ts';
 import { upsertFixtures } from '../../lib/football/fixtureStore.ts';
 import { listRefs } from '../../lib/football/externalTaskRefStore.ts';
@@ -395,6 +396,36 @@ function failingStorage(method: 'list' | 'set' | 'get', pathPart: string, messag
   }));
 }
 
+/**
+ * Storage whose transactions throw when they write a path containing
+ * `pathPart`. The follow is saved in a transaction since #772 (it reads the
+ * account's liveness first), so a failing write is a failing transaction.
+ */
+function failingTransactionWrite(pathPart: string, message: string): void {
+  const real = getStorage();
+  setStorageForTests(new Proxy(real, {
+    get(target, prop, receiver) {
+      const value = Reflect.get(target, prop, receiver);
+      if (prop === 'runTransaction') {
+        return (fn: (tx: StorageTransaction) => Promise<unknown>) => real.runTransaction((tx) => fn(new Proxy(tx, {
+          get(txTarget, txProp, txReceiver) {
+            const txValue = Reflect.get(txTarget, txProp, txReceiver);
+            if (typeof txValue !== 'function') return txValue;
+            if (txProp === 'set' || txProp === 'merge' || txProp === 'create') {
+              return (path: string, ...rest: unknown[]) => {
+                if (String(path).includes(pathPart)) throw new Error(message);
+                return (txValue as (...args: unknown[]) => unknown).call(txTarget, path, ...rest);
+              };
+            }
+            return (txValue as (...args: unknown[]) => unknown).bind(txTarget);
+          },
+        })));
+      }
+      return typeof value === 'function' ? value.bind(target) : value;
+    },
+  }));
+}
+
 const INDEX_ERROR = '9 FAILED_PRECONDITION: The query requires an index. You can create it here: https://console.firebase.google.com/…';
 
 test('a follow whose projection fails is still reported saved, with the matches deferred', async () => {
@@ -446,7 +477,7 @@ test('a follow that projects cleanly carries no deferred flag', async () => {
 test('a follow that cannot be written is a 503 with a reason, not a 400 blaming the club list', async () => {
   const teardown = setup();
   try {
-    failingStorage('set', 'footballFollows', 'storage unavailable');
+    failingTransactionWrite('footballFollows', 'storage unavailable');
     const res = await PUT(authedRequest('PUT', { clubIds: ['barcelona'] }));
     assert.equal(res.status, 503);
     const body = await json(res);

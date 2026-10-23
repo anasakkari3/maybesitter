@@ -31,6 +31,7 @@ import { putObservations } from '../../lib/intelligence/observationStore';
 import { proposeFromObservations } from '../../lib/intelligence/proposalEngine';
 import { loadAutoAddSnapshot } from '../../lib/intelligence/autoAddSnapshot';
 import { saveMonitoringSettings } from '../../lib/watchers/monitoringSettings';
+import { createPilotTrustState } from '../../lib/pilot/closedPilotControls.ts';
 
 const NOW = '2026-10-19T10:00:00.000Z';
 
@@ -689,7 +690,7 @@ test('L1 a live quota wait moves the monitor poll and is not reclaimed before ne
 
 test('G7 proposal rows and caller completion are one guarded all-or-nothing transaction', async () => {
   const storage = createMemoryStorage();
-  await storage.set('users/proposal-atomic', { trust: null });
+  await storage.set('users/proposal-atomic', { trust: createPilotTrustState('proposal-atomic', NOW) });
   const [observation] = await putObservations('proposal-atomic', 'manual', 'note', NOW, [{
     kind: 'request', evidence: 'Please send the form', confidence: 0.9,
   }], storage);
@@ -707,7 +708,7 @@ test('G7 proposal rows and caller completion are one guarded all-or-nothing tran
 test('H1 proposal scheduler reads every authority guard before writing proposal completion', async () => {
   const storage = createMemoryStorage({ enforceFirestoreReadOrder: true });
   const uid = 'proposal-read-order';
-  await storage.set(`users/${uid}`, { monitoringSettings: { paused: false, updatedAt: NOW } });
+  await storage.set(`users/${uid}`, { monitoringSettings: { paused: false, updatedAt: NOW }, trust: createPilotTrustState(uid, NOW) });
   const [observation] = await putObservations(uid, 'manual', 'note', NOW, [{
     kind: 'request', evidence: 'Please send the form', confidence: 0.9,
   }], storage);

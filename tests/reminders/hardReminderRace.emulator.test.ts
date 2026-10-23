@@ -18,6 +18,7 @@ import { upsertDevice } from '../../lib/push/deviceRegistry.ts';
 import type { FcmMessage, MessagingClient } from '../../lib/push/pushService.ts';
 import { hardReminderPath, HARD_LEAD_MS, type HardReminderEntry } from '../../lib/services/reminders/hardReminderIndex.ts';
 import { runHardReminderTick } from '../../lib/services/reminders/hardReminderJob.ts';
+import { seedLiveAccount } from '../support/liveAccount.ts';
 
 test('firestore: four job instances at once send one Must-reminder backup', async () => {
   const uid = `hardrace_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
@@ -26,6 +27,8 @@ test('firestore: four job instances at once send one Must-reminder backup', asyn
   try {
     const now = new Date();
     const start = now.getTime() + HARD_LEAD_MS;
+    // #772: the live root, with the trust record authentication writes, before any direct domain write.
+    await seedLiveAccount(uid, writer);
     await saveReminderSettings(uid, { hardEnabled: true, escalationCeiling: 'hard' }, now.toISOString(), { storage: writer });
     await upsertDevice(uid, {
       installationId: '11111111-1111-4111-8111-111111111111',

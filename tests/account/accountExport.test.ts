@@ -45,13 +45,19 @@ import {
 } from '../../lib/account/accountExport.ts';
 import { installFakeAuth, tokenFor, uidFor, type FakeAuthControls } from '../support/fakeAuth.ts';
 import { GET as exportGet } from '../../src/app/api/mobile/account/export/route.ts';
+import { createPilotTrustState } from '../../lib/pilot/closedPilotControls.ts';
+
+/** The trust record authentication writes: an export reads only a live account (#772). */
+function liveTrust(uid: string) {
+  return createPilotTrustState(uid, '2026-09-01T00:00:00.000Z');
+}
 
 const OWNER = 'user_exporting_one';
 const OTHER = 'user_bystander_one';
 
 /** One document in every place deletion would look, carrying its owner. */
 async function seedEverywhere(storage: StorageAdapter, uid: string): Promise<void> {
-  await storage.set(userDoc(uid), { uid, timezone: 'Asia/Jerusalem' });
+  await storage.set(userDoc(uid), { uid, timezone: 'Asia/Jerusalem', trust: liveTrust(uid) });
   for (const collection of USER_SCOPED_COLLECTIONS) {
     await storage.set(userSubDoc(uid, collection, 'seed'), { owner: uid, collection });
   }
@@ -99,7 +105,7 @@ test('every excluded collection is one deletion knows, and says why it is left o
 
 test('no secret travels: tokens, PKCE verifiers, KMS envelopes and FCM tokens are all removed', async () => {
   const storage = createMemoryStorage();
-  await storage.set(userDoc(OWNER), { uid: OWNER, trust: { version: 'v1' } });
+  await storage.set(userDoc(OWNER), { uid: OWNER, trust: liveTrust(OWNER) });
   await storage.set(userSubDoc(OWNER, PROVIDER_CREDENTIALS, 'cred'), {
     accessToken: 'SECRET-ACCESS-TOKEN', refreshToken: 'SECRET-REFRESH-TOKEN',
   });
@@ -161,7 +167,7 @@ test('only plain records are walked: class instances and cycles are dropped, not
 
 test('operator fields are dropped from the records that carry them, and nothing else is', async () => {
   const storage = createMemoryStorage();
-  await storage.set(userDoc(OWNER), { uid: OWNER });
+  await storage.set(userDoc(OWNER), { uid: OWNER, trust: liveTrust(OWNER) });
   await storage.set(`${JOBS}/job_1`, {
     id: 'job_1', uid: OWNER, jobType: 'daily_plan', status: 'failed',
     lastError: 'INTERNAL: stack at runner', claimedBy: 'instance-7f3a', dedupeKey: 'dk_abc',
@@ -199,7 +205,7 @@ test('another account\'s records never appear, even in the uid-carrying top-leve
 
 test('an account over the document cap is refused, not truncated', async () => {
   const storage = createMemoryStorage();
-  await storage.set(userDoc(OWNER), { uid: OWNER });
+  await storage.set(userDoc(OWNER), { uid: OWNER, trust: liveTrust(OWNER) });
   for (let index = 0; index < 5; index += 1) {
     await storage.set(userSubDoc(OWNER, COMMITMENTS, `c${index}`), { title: `item ${index}` });
   }
@@ -212,7 +218,7 @@ test('an account over the document cap is refused, not truncated', async () => {
 
 test('an account over the size cap is refused, not truncated', async () => {
   const storage = createMemoryStorage();
-  await storage.set(userDoc(OWNER), { uid: OWNER });
+  await storage.set(userDoc(OWNER), { uid: OWNER, trust: liveTrust(OWNER) });
   await storage.set(userSubDoc(OWNER, COMMITMENTS, 'big'), { title: 'x'.repeat(2_000) });
   await assert.rejects(buildAccountExport(OWNER, { storage, maxChars: 1_000 }), (error: unknown) =>
     error instanceof ExportTooLargeError && error.limit === 'size');

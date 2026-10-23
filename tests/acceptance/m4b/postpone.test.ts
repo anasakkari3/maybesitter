@@ -7,7 +7,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mock } from 'node:test';
-import { applyParticipantCommands } from '../../../lib/services/mobile/participantState.ts';
+import { applyParticipantCommands, commitmentActionReceiptPath } from '../../../lib/services/mobile/participantState.ts';
+import { setStorageForTests } from '../../../lib/storage/index.ts';
 import { userDoc } from '../../../lib/storage/paths.ts';
 import { seedLiveAccount } from '../../support/liveAccount.ts';
 import {
@@ -366,3 +367,127 @@ test('REVIEW SIM-B1: a timed item is never offered its own current time or an ea
       `a "postpone" to the item's own time or earlier: ${show(slot)}`);
   }
 });
+
+/* ── #772 Q772-002: the deletion fence comes first ─────────────────── */
+//
+// `writeDomainDiff` fences a postpone that changes something, but the action
+// receipt is written either way. An exact no-op with a fresh clientActionId on
+// a deleted account used to skip the fence and write the receipt. The fence now
+// runs right after the transaction reads `users/{uid}`, before validation, a
+// replay or a no-op. The deletion step is staged after authentication, at the
+// request's first storage write, as in tests/account/domainWriteFence772.test.ts.
+
+type DeletionStep = 'markDeleted' | 'swept';
+
+/** Commits the deletion step at the request's next storage write (after auth's reads). */
+function armDeletion(uid: string, step: DeletionStep): { fired(): boolean } {
+  const base = currentStorage();
+  let pending = true;
+  let didFire = false;
+  const writes = new Set(['set', 'delete', 'runTransaction']);
+  setStorageForTests(new Proxy(base, {
+    get(target, property) {
+      const value = Reflect.get(target, property, target);
+      if (typeof value !== 'function') return value;
+      if (typeof property === 'string' && writes.has(property)) {
+        return async (...args: unknown[]) => {
+          if (pending) {
+            pending = false;
+            didFire = true;
+            const user = (await base.get<Record<string, any>>(userDoc(uid))) ?? {};
+            const now = new Date().toISOString();
+            await base.set(userDoc(uid), { ...user, trust: { ...(user.trust ?? {}), deletedAt: now, updatedAt: now } });
+            if (step === 'swept') await base.deleteTree(userDoc(uid));
+          }
+          return (value as (...a: unknown[]) => unknown).apply(target, args);
+        };
+      }
+      return (value as (...a: unknown[]) => unknown).bind(target);
+    },
+  }) as any);
+  return { fired: () => didFire };
+}
+
+async function accountTree(uid: string): Promise<Record<string, unknown>> {
+  const base = currentStorage();
+  const paths = base.pathsForTests().filter((path) => path === userDoc(uid) || path.startsWith(`${userDoc(uid)}/`)).sort();
+  const out: Record<string, unknown> = {};
+  for (const path of paths) out[path] = await base.get(path);
+  return out;
+}
+
+/** What must be left: swept, nothing; markDeleted, the tree as it was but for the trust mark. */
+async function assertUntouched(uid: string, step: DeletionStep, before: Record<string, unknown>, fired: boolean, what: string): Promise<void> {
+  assert.ok(fired, `${what}: the deletion step never ran, so the race was not staged`);
+  const now = await accountTree(uid);
+  if (step === 'swept') {
+    assert.deepEqual(Object.keys(now), [], `${what}: documents re-created under a swept account`);
+    return;
+  }
+  const user = now[userDoc(uid)] as Record<string, any>;
+  assert.ok(user?.trust?.deletedAt, `${what}: the deletion mark is gone`);
+  const want = { ...before, [userDoc(uid)]: { ...(before[userDoc(uid)] as object), trust: user.trust } };
+  assert.deepEqual(now, want, `${what}: something was written under a deleted account`);
+}
+
+/** A deadline already postponed to a slot, and a fresh token for that same slot: an exact no-op. */
+async function postponedDeadlineWithNoopSlot(uid: string): Promise<{ id: string; slot: any }> {
+  const id = await addTimedDeadline(uid, 'سلّم التقرير', at(dateAfter(3), '17:00'));
+  const first = (await slotsFor(uid, id)).slots[0];
+  const picked = await pick(uid, id, first);
+  assert.equal(picked.status, 200, show(picked.body));
+  // A deadline without an end is not moved, so its own slot is offered again.
+  const again = (await slotsFor(uid, id)).slots.find((slot: any) => slot.startsAt === first.startsAt);
+  assert.ok(again, 'fixture: the postponed slot must be offered again for the no-op');
+  return { id, slot: again };
+}
+
+test('#772 Q772-002 control: an exact no-op slot postpone with a fresh clientActionId is a receipted no-op on a live account', async () => {
+  const uid = begin();
+  const { id, slot } = await postponedDeadlineWithNoopSlot(uid);
+  const key = '7a1e0000-0000-4000-8000-000000772c00';
+  const picked = await pick(uid, id, slot, { clientActionId: key });
+  assert.equal(picked.status, 200, show(picked.body));
+  const receipt = await currentStorage().get<any>(commitmentActionReceiptPath(uid, key));
+  assert.equal(receipt?.result, 'noop', 'the fixture is not an exact no-op, so the race cases below would prove nothing');
+});
+
+for (const step of ['markDeleted', 'swept'] as const) {
+  test(`#772 Q772-002: a slot postpone in flight when the account is ${step} writes nothing and answers 403 deleted`, async () => {
+    const uid = begin();
+    const id = await addEvent(uid, 'ورشة', at(TOMORROW, '10:00'), at(TOMORROW, '11:00'));
+    const { slots } = await slotsFor(uid, id);
+    const before = await accountTree(uid);
+    const race = armDeletion(uid, step);
+    const picked = await pick(uid, id, slots[0], { clientActionId: '7a1e0000-0000-4000-8000-000000772c01' });
+    assert.equal(picked.status, 403, show(picked.body));
+    assert.equal(picked.body.reason, 'deleted');
+    await assertUntouched(uid, step, before, race.fired(), 'changing postpone');
+  });
+
+  test(`#772 Q772-002: an exact no-op slot postpone with a fresh clientActionId when the account is ${step} writes no receipt and answers 403 deleted`, async () => {
+    const uid = begin();
+    const { id, slot } = await postponedDeadlineWithNoopSlot(uid);
+    const before = await accountTree(uid);
+    const race = armDeletion(uid, step);
+    const picked = await pick(uid, id, slot, { clientActionId: '7a1e0000-0000-4000-8000-000000772c02' });
+    assert.equal(picked.status, 403, show(picked.body));
+    assert.equal(picked.body.reason, 'deleted');
+    await assertUntouched(uid, step, before, race.fired(), 'no-op postpone');
+  });
+
+  test(`#772 Q772-002: a slot postpone replay when the account is ${step} is refused before the replay, 403 deleted`, async () => {
+    const uid = begin();
+    const id = await addEvent(uid, 'ورشة', at(TOMORROW, '10:00'), at(TOMORROW, '11:00'));
+    const { slots } = await slotsFor(uid, id);
+    const key = '7a1e0000-0000-4000-8000-000000772c03';
+    const first = await pick(uid, id, slots[0], { clientActionId: key });
+    assert.equal(first.status, 200, show(first.body));
+    const before = await accountTree(uid);
+    const race = armDeletion(uid, step);
+    const retry = await pick(uid, id, slots[0], { clientActionId: key });
+    assert.equal(retry.status, 403, show(retry.body));
+    assert.equal(retry.body.reason, 'deleted');
+    await assertUntouched(uid, step, before, race.fired(), 'replay');
+  });
+}
