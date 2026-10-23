@@ -168,7 +168,11 @@ export interface ChatSavedNote {
  * their turns and what each saved. Memory only, like everything here, and
  * shown above the conversation that is going on now.
  */
-export type ChatEarlierEntry = { kind: 'turn'; role: CaptureChatTurn['role']; text: string } | ChatSavedNote;
+export type ChatEarlierEntry = {
+  kind: 'turn'; role: CaptureChatTurn['role']; text: string;
+  /** Optional for turns kept before #802. */
+  asked?: CaptureChatTurn['asked'];
+} | ChatSavedNote;
 
 /**
  * An edit the user made in review, before anything was saved.
@@ -542,6 +546,48 @@ const ACTIONABLE_PROPOSAL_STATUSES: ReadonlySet<CaptureProposal['status']> = new
   'proposed',
   'needs_clarification',
 ]);
+
+const REPLY_QUESTION_KEYS = new Set(['ask_time', 'ask_day', 'ask_am_pm', 'ask_action']);
+
+function carriesReplyQuestion(item: CaptureProposal['items'][number]): boolean {
+  return item.needsClarification && Boolean(item.clarification?.questionKey
+    && REPLY_QUESTION_KEYS.has(item.clarification.questionKey));
+}
+
+/** The item named by this structured question is gone, or no longer asks a supported clarification. */
+export function replyQuestionSettled(
+  turn: Pick<CaptureChatTurn, 'text' | 'asked'>,
+  proposal: CaptureProposal | null,
+): boolean {
+  if (!turn.asked || !turn.text.endsWith(turn.asked.text)) return false;
+  const item = proposal?.items.find((candidate) => candidate.itemId === turn.asked!.itemId);
+  return !item || !carriesReplyQuestion(item);
+}
+
+export interface PresentedChatReply {
+  /** Visible non-question words, or the settled fallback when the question was the whole reply. */
+  text: string;
+  /** Visible question segment while it is still unanswered. */
+  question?: string;
+  /** The full words said on arrival. Never changes when the visible question retires. */
+  announcementText: string;
+}
+
+/** Split only a server-declared suffix; older turns without `asked` stay byte-for-byte unchanged. */
+export function presentChatReply(
+  turn: Pick<CaptureChatTurn, 'text' | 'asked'>,
+  proposal: CaptureProposal | null,
+  settledCopy: { soFar: string; list: string },
+): PresentedChatReply {
+  const asked = turn.asked;
+  if (!asked || !turn.text.endsWith(asked.text)) return { text: turn.text, announcementText: turn.text };
+  const lead = turn.text.slice(0, -asked.text.length).trim();
+  if (!replyQuestionSettled(turn, proposal)) {
+    return { text: lead, question: asked.text, announcementText: turn.text };
+  }
+  const anotherWaits = proposal?.items.some(carriesReplyQuestion) ?? false;
+  return { text: lead || (anotherWaits ? settledCopy.soFar : settledCopy.list), announcementText: turn.text };
+}
 
 export function confirmableItems(
   proposal: CaptureProposal | null,
@@ -1284,7 +1330,10 @@ export function captureReducer(state: CaptureState, event: CaptureEvent): Captur
         status: state.text.trim() ? 'editing' : 'idle',
         earlier: [
           ...state.earlier,
-          ...state.turns.map((turn): ChatEarlierEntry => ({ kind: 'turn', role: turn.role, text: turn.text })),
+          ...state.turns.map((turn): ChatEarlierEntry => ({
+            kind: 'turn', role: turn.role, text: turn.text,
+            ...(turn.asked === undefined ? {} : { asked: turn.asked }),
+          })),
           {
             kind: 'saved', persisted: saved.persisted, failed: saved.failed, collisions: saved.collisions, weeklySaved: saved.weeklySaved,
             failedTitles: saved.failed.map((item) => state.proposal?.items.find((candidate) => candidate.itemId === item.itemId)?.title ?? '')

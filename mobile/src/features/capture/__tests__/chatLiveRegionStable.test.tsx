@@ -5,9 +5,9 @@
  * away — so while they sat inside the region, TalkBack could read the reply
  * again, over the move to the time question (#752).
  *
- * The region now holds only what is said: the typing bubble, or the reply's
- * words as one element. The summary and the controls sit beside it, in the
- * same bubble. This test takes the region's subtree — every node's type,
+ * The region now holds only an announcement node with the full arrival words.
+ * The visible/navigable reply, summary and controls sit beside it in the same
+ * bubble. This test takes the region's subtree — every node's type,
  * test id, accessibility props, style and text — before and after the press,
  * and asks that nothing in it changed.
  */
@@ -91,14 +91,16 @@ describe('#780: «هيك صح» leaves the chat’s live region untouched', () =
     await waitFor(() => expect(screen.queryByTestId('understood-confirm')).not.toBeNull());
 
     // The region says the reply, as one element, and nothing else.
-    const live = within(screen.getByTestId('chat-live'));
-    expect(live.getByTestId('chat-turn-assistant-1-words').props.accessibilityLabel).toBe(REPLY);
+    const live = within(screen.getByTestId('chat-live', { includeHiddenElements: true }));
+    expect(live.getByTestId('chat-turn-assistant-1-announcement', { includeHiddenElements: true }).props.accessibilityLabel).toBe(REPLY);
+    expect(live.queryByTestId('chat-turn-assistant-1-words')).toBeNull();
     expect(live.queryByTestId('understood-confirm')).toBeNull();
     expect(live.queryByTestId('understood-line-1')).toBeNull();
     expect(live.queryByTestId('chat-turn-assistant-1-body')).toBeNull();
     expect(live.queryByTestId('chat-turn-assistant-1-actions')).toBeNull();
     // …while the summary and «هيك صح» are still in the reply's bubble.
     const message = within(screen.getByTestId('chat-turn-assistant-1'));
+    expect(message.queryByTestId('chat-turn-assistant-1-words')).not.toBeNull();
     expect(message.queryByTestId('chat-turn-assistant-1-body')).not.toBeNull();
     expect(message.queryByTestId('understood-confirm')).not.toBeNull();
 

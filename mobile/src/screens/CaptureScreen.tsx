@@ -3,7 +3,7 @@ import { AccessibilityInfo, BackHandler, Keyboard, Platform, View } from 'react-
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useApp } from '../state/AppContext';
 import { useCaptureFlow } from '../features/capture/CaptureProvider';
-import { MAX_CAPTURE_LENGTH, chatSaves, confirmableGoals, confirmableHabits, confirmableItems, confirmableThoughts, goalLinkKept, pointSelected, selectedCount, showsUnderstood, summaryPoints, wantsDiscardConfirmation, weeklyChoice, weeklyLockedByEdit, type CaptureItemEdit, type ChatSavedNote } from '../features/capture/captureMachine';
+import { MAX_CAPTURE_LENGTH, chatSaves, confirmableGoals, confirmableHabits, confirmableItems, confirmableThoughts, goalLinkKept, pointSelected, presentChatReply, selectedCount, showsUnderstood, summaryPoints, wantsDiscardConfirmation, weeklyChoice, weeklyLockedByEdit, type CaptureItemEdit, type ChatSavedNote } from '../features/capture/captureMachine';
 import { GoalProposalCard, HabitProposalCard, SeedCommitAction, ThoughtProposalCard } from '../features/capture/ProposalPointCards';
 import { tFor } from '../i18n';
 import { LiveRegion } from '../ui/liveRegion';
@@ -13,7 +13,7 @@ import { familyIdOf, familyIdOfLine, type PointTarget } from '../features/captur
 import { SummaryEditSheet } from '../features/capture/SummaryEditSheet';
 import { useCaptureKinds } from '../features/capture/useCaptureKinds';
 import { instantForLocalDateTime } from '../features/capture/localInstant';
-import { usableUnderstood, type CaptureEntry } from '../api/schemas/capture';
+import { usableUnderstood, type CaptureChatTurn, type CaptureEntry } from '../api/schemas/capture';
 import { noCommitmentLine } from '../features/capture/noCommitment';
 import { COMPOSER_EXAMPLE_KEYS, exampleText } from '../features/capture/examples';
 import { ClipboardImportSheet } from '../features/capture/ClipboardImportSheet';
@@ -356,9 +356,18 @@ export function CaptureScreen({ entryQuestion }: { entryQuestion?: { entry: Capt
   // person here, owner request 2026-09-30), then this conversation.
   const saves = chatSaves(state);
   let savedLines = 0;
-  const earlier: ChatHistoryEntry[] = state.earlier.map(entry => entry.kind === 'turn'
-    ? { role: entry.role, text: entry.text, ...(entry.role === 'user' ? { delivered: true } : {}) }
-    : { role: 'assistant', id: `chat-saved-${++savedLines}`, tone: 'saved', text: savedNoteText(entry, t, lang, timezone), tail: t.chatSavedNext });
+  const replyCopy = { soFar: t.chatUnderstoodSoFar, list: t.chatUnderstoodCheckList };
+  const assistantEntry = (turn: Pick<CaptureChatTurn, 'text' | 'asked'>, proposal = state.proposal): ChatHistoryEntry => {
+    const shown = presentChatReply(turn, proposal, replyCopy);
+    return { role: 'assistant', text: shown.text, announcementText: shown.announcementText,
+      ...(shown.question ? { question: shown.question } : {}) };
+  };
+  const earlier: ChatHistoryEntry[] = state.earlier.map(entry => {
+    if (entry.kind === 'saved') return { role: 'assistant', id: `chat-saved-${++savedLines}`, tone: 'saved', text: savedNoteText(entry, t, lang, timezone), tail: t.chatSavedNext };
+    return entry.role === 'user'
+      ? { role: 'user', text: entry.text, delivered: true }
+      : assistantEntry(entry, null);
+  });
   const newest: { role: string; text: string; tail?: string } | undefined = state.turns.length > 0 ? state.turns[state.turns.length - 1] : earlier[earlier.length - 1];
   // Not while the entry question has the page: the chat is not showing, and
   // its last reply would be spoken over the question. It is said once the
@@ -680,7 +689,7 @@ export function CaptureScreen({ entryQuestion }: { entryQuestion?: { entry: Capt
   const lastMine = state.turns.map(turn => turn.role).lastIndexOf('user');
   const history: ChatHistoryEntry[] = [...earlier, ...state.turns.map((turn, index): ChatHistoryEntry => turn.role === 'user'
     ? { role: 'user', text: turn.text, delivered: true, ...(index === lastMine && sentTime && state.status !== 'analyzing' ? { time: sentTime } : {}) }
-    : { role: 'assistant', text: turn.text })];
+    : assistantEntry(turn))];
   // Which sheet is showing, in the order the chain above picks it: the page
   // starts each one at its top (M2B-A-R5-REVIEW-002).
   const overlayKey = bodyOverride == null ? null

@@ -1,6 +1,7 @@
 {
   "conversationId": "00000000-0000-4000-8000-000000000001",
   "reply": "Okay, 6pm instead. Check it and confirm if it looks right.",
+  "asked": null,
   "engine": "model",
   "proposal": {
     "version": "v1",

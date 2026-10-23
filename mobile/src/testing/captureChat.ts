@@ -30,6 +30,8 @@ export interface ChatServerOptions {
   keepSeedsOnly?: boolean;
   /** The reply for a message (`call` counts from 0); the rules' template when absent. */
   reply?: (message: string, proposal: CaptureProposal | null, call: number) => string;
+  /** Structured trailing question metadata for screen tests that exercise #802. */
+  asked?: (message: string, proposal: CaptureProposal | null, call: number) => CaptureChatAnswer['asked'];
   engine?: 'model' | 'rules';
 }
 
@@ -48,8 +50,11 @@ export function chatServer(
     const offers = raw && (raw.items.length > 0 || (options.keepSeedsOnly === true && (raw.seeds?.length ?? 0) > 0));
     const proposal = raw && raw.status !== 'rejected' && offers ? raw : null;
     const reply = options.reply?.(input.message, proposal, call) ?? (proposal ? CHAT_RULES_REPLY : CHAT_NOTHING_REPLY);
-    const turns: CaptureChatTurn[] = [...before, { role: 'user', text: input.message }, { role: 'assistant', text: reply }];
+    const asked = options.asked?.(input.message, proposal, call) ?? null;
+    const turns: CaptureChatTurn[] = [...before, { role: 'user', text: input.message }, {
+      role: 'assistant', text: reply, ...(asked ? { asked } : {}),
+    }];
     conversations.set(conversationId, turns);
-    return { conversationId, reply, engine: options.engine ?? 'rules', proposal, turns };
+    return { conversationId, reply, asked, engine: options.engine ?? 'rules', proposal, turns };
   };
 }

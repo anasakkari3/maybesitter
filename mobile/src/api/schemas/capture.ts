@@ -525,16 +525,28 @@ export type CaptureConfirmation = z.infer<typeof captureConfirmationSchema>;
  * One line of the capture chat «احكيها» (owner decision 2026-09-30): the
  * person's message or the assistant's reply, as the server kept it.
  */
+export const captureChatAskedSchema = z.object({
+  itemId: z.string().min(1),
+  text: z.string().min(1),
+});
+
 export const captureChatTurnSchema = z.object({
   role: z.enum(['user', 'assistant']),
   text: z.string(),
+  // Optional for conversations persisted before #802.
+  asked: captureChatAskedSchema.nullable().optional(),
+}).superRefine((turn, ctx) => {
+  if (turn.asked && (turn.role !== 'assistant' || !turn.text.endsWith(turn.asked.text))) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'asked must be an assistant reply suffix', path: ['asked'] });
+  }
 });
 
 export type CaptureChatTurn = z.infer<typeof captureChatTurnSchema>;
 
 /**
  * Mirrors `capture.chatProposal.json`, `capture.chatUpdated.json`,
- * `capture.chatConflict.json` and `capture.chatRules.json` —
+ * `capture.chatConflict.json`, `capture.chatRules.json` and
+ * `capture.chatQuestion.json` —
  * `POST /api/mobile/capture/chat`.
  *
  * `proposal` is exactly what `POST /api/mobile/capture` returns, and its
@@ -549,9 +561,20 @@ export type CaptureChatTurn = z.infer<typeof captureChatTurnSchema>;
 export const captureChatSchema = z.object({
   conversationId: z.string(),
   reply: z.string(),
+  // Optional for an older server; null when the reply asks nothing.
+  asked: captureChatAskedSchema.nullable().optional(),
   engine: z.enum(['model', 'rules']),
   proposal: captureProposalResponseSchema.nullable(),
   turns: z.array(captureChatTurnSchema),
+}).superRefine((answer, ctx) => {
+  if (answer.asked && !answer.reply.endsWith(answer.asked.text)) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'asked must be a reply suffix', path: ['asked'] });
+  }
+  const latest = answer.turns.at(-1);
+  if (answer.asked !== undefined && latest?.role === 'assistant'
+    && JSON.stringify(answer.asked) !== JSON.stringify(latest.asked ?? null)) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'answer and assistant turn asked must match', path: ['asked'] });
+  }
 });
 
 export type CaptureChatAnswer = z.infer<typeof captureChatSchema>;

@@ -179,8 +179,14 @@ const TIME_UNCLEAR: Readonly<Record<ChatLanguage, { lead: string; question: stri
   he: { lead: 'השעה לא הייתה ברורה.', question: 'באיזו שעה זה צריך להיות?' },
 };
 
-type ProposalItemLike = Pick<CaptureProposalContract['items'][number], 'title'> & Partial<Pick<CaptureProposalContract['items'][number], 'needsClarification' | 'resolvedDate' | 'clarification' | 'resolvedTime' | 'timeEstimated'>>;
+type ProposalItemLike = Pick<CaptureProposalContract['items'][number], 'title'> & Partial<Pick<CaptureProposalContract['items'][number], 'itemId' | 'needsClarification' | 'resolvedDate' | 'clarification' | 'resolvedTime' | 'timeEstimated'>>;
 type ProposalLike = { items: readonly ProposalItemLike[]; seeds?: readonly unknown[]; noCommitmentReason?: CaptureProposalContract['noCommitmentReason'] };
+
+/** The exact question suffix a reply asks about one proposal item. */
+export interface CaptureChatAsked {
+  itemId: string;
+  text: string;
+}
 
 /** The first item still asking for its day or time, if any. */
 function itemAskingForTime(proposal: ProposalLike | null): ProposalItemLike | null {
@@ -308,6 +314,72 @@ function asksForMissing(text: string, item: ProposalItemLike): boolean {
   }
 }
 
+/**
+ * A clean model-authored question suffix. Every trailing sentence must be a
+ * question for the missing field: otherwise retiring the suffix could also
+ * remove a different question the model asked.
+ */
+function modelQuestionSuffix(text: string, item: ProposalItemLike): string | null {
+  const sentences = sentencesOf(text);
+  let first = sentences.length;
+  while (first > 0 && isQuestion(sentences[first - 1]!)) first -= 1;
+  if (first === sentences.length) return null;
+  const suffixSentences = sentences.slice(first);
+  if (!suffixSentences.every((sentence) => asksForMissing(sentence, item))) return null;
+  const firstSentence = suffixSentences[0]!;
+  const start = text.lastIndexOf(firstSentence);
+  if (start < 0) return null;
+  const suffix = text.slice(start);
+  return suffix.trim().length > 0 && text.endsWith(suffix) ? suffix : null;
+}
+
+/** The question suffix in a final reply, if it asks about the proposal's next item. */
+export function askedInChatReply(reply: string, language: ChatLanguage, proposal: ProposalLike | null): CaptureChatAsked | null {
+  const asking = itemAskingForTime(proposal);
+  if (!asking?.itemId) return null;
+  const generated = missingQuestion(language, asking);
+  const text = reply.endsWith(generated) ? generated : modelQuestionSuffix(reply, asking);
+  return text ? { itemId: asking.itemId, text } : null;
+}
+
+/**
+ * Make the missing-field question an exact suffix without replacing the
+ * acknowledgement before it. A model question that cannot be split cleanly
+ * is replaced by the deterministic question; non-question sentences stay.
+ */
+function withAskedSuffix(
+  reply: string,
+  language: ChatLanguage,
+  proposal: ProposalLike | null,
+  appendWhenMissing: boolean,
+): { reply: string; asked: CaptureChatAsked | null } {
+  const asking = itemAskingForTime(proposal);
+  if (!asking) return { reply, asked: null };
+  const generated = missingQuestion(language, asking);
+  const suffix = reply.endsWith(generated) ? generated : modelQuestionSuffix(reply, asking);
+  if (suffix) return { reply, asked: asking.itemId ? { itemId: asking.itemId, text: suffix } : null };
+  if (!appendWhenMissing && !asksForMissing(reply, asking)) return { reply, asked: null };
+  const lead = sentencesOf(reply).filter((sentence) => !isQuestion(sentence)).join(' ').trim();
+  const opening = lead || TEMPLATES[language].understood;
+  const ended = /[.!?؟。…]$/.test(opening) ? opening : `${opening}.`;
+  const question = generated;
+  const normalized = `${ended} ${question}`;
+  return { reply: normalized, asked: asking.itemId ? { itemId: asking.itemId, text: question } : null };
+}
+
+/**
+ * Re-check the final shown reply after conflict/shape notes have been added.
+ * If a valid question was moved away from the end, put the deterministic
+ * equivalent back at the suffix so `reply.endsWith(asked.text)` still holds.
+ */
+export function finalChatReplyQuestion(
+  reply: string,
+  language: ChatLanguage,
+  proposal: ProposalLike | null,
+): { reply: string; asked: CaptureChatAsked | null } {
+  return withAskedSuffix(reply, language, proposal, false);
+}
+
 /** "It is at 09:00 for now", for an item the proposal settled on the hour of a part of the day. */
 const SETTLED_NOTE: Readonly<Record<ChatLanguage, string>> = {
   ar: '«{title}» عالساعة {time}، وإذا بدك ساعة تانية احكيلي.',
@@ -351,25 +423,25 @@ function alignedWithProposal(text: string, context: TemplateContext): string {
  * with the proposal (`alignedWithProposal`); with the missing question added
  * when that is all it lacks; the template otherwise.
  */
-export function safeChatReply(reply: unknown, context: TemplateContext): { reply: string; replaced: boolean } {
+export function safeChatReply(reply: unknown, context: TemplateContext): { reply: string; replaced: boolean; asked: CaptureChatAsked | null } {
   const checked = checkModelReply(reply, context);
   const usable = checked.ok || checked.rejection === 'does_not_ask';
-  if (!usable || typeof reply !== 'string') return { reply: templateReply(context), replaced: true };
+  if (!usable || typeof reply !== 'string') {
+    const safe = withAskedSuffix(templateReply(context), context.language, context.proposal, false);
+    return { ...safe, replaced: true };
+  }
   const aligned = alignedWithProposal(reply.trim(), context).trim();
   let text = context.grounds ? groundedReply(aligned, context.grounds).trim() : aligned;
-  if (!text) return { reply: templateReply(context), replaced: true };
+  if (!text) {
+    const safe = withAskedSuffix(templateReply(context), context.language, context.proposal, false);
+    return { ...safe, replaced: true };
+  }
   const asking = itemAskingForTime(context.proposal);
-  if (asking && !asksForMissing(text, asking)) {
-    // Keep a grounded acknowledgement, but discard an unrelated question.
-    text = sentencesOf(text).filter((sentence) => !isQuestion(sentence)).join(' ').trim();
-    const opening = text || TEMPLATES[context.language].understood;
-    const ended = /[.!?؟。…]$/.test(opening) ? opening : `${opening}.`;
-    return { reply: `${ended} ${missingQuestion(context.language, asking)}`, replaced: checked.ok === false };
+  if (asking && asksForMissing(text, asking) && isQuestion(sentencesOf(text)[0] ?? '')) {
+    text = `${TEMPLATES[context.language].understood} ${text}`;
   }
-  if (asking && isQuestion(sentencesOf(text)[0] ?? '')) {
-    return { reply: `${TEMPLATES[context.language].understood} ${text}`, replaced: false };
-  }
-  return { reply: text, replaced: false };
+  const safe = withAskedSuffix(text, context.language, context.proposal, true);
+  return { ...safe, replaced: checked.ok === false };
 }
 
 /* ── the reply after the proposal's shape (audit 2026-10-03 #1, #6) ── */

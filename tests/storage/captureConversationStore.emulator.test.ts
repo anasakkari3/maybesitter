@@ -29,7 +29,11 @@ test('firestore: a conversation round-trips with its turns, and only under its o
       conversationId,
       turns: [
         { role: 'user', text: 'ذكرني بكرا الساعة 5 المسا أحكي مع الدكتور' },
-        { role: 'assistant', text: 'هيك فهمت. شوف القائمة وإذا كلها تمام أكّدها.' },
+        {
+          role: 'assistant',
+          text: 'هيك فهمت لحد هلّق. أي ساعة بدك «روح عالبنك»؟',
+          asked: { itemId: 'bank-item', text: 'أي ساعة بدك «روح عالبنك»؟' },
+        },
       ],
       proposalId: null,
       createdAt: '2026-09-30T07:00:00.000Z',
@@ -40,6 +44,7 @@ test('firestore: a conversation round-trips with its turns, and only under its o
     assert.ok(back, 'the conversation was not stored');
     assert.deepEqual(back.turns.map((turn) => turn.role), ['user', 'assistant']);
     assert.equal(back.turns[0]!.text, 'ذكرني بكرا الساعة 5 المسا أحكي مع الدكتور');
+    assert.deepEqual(back.turns[1]!.asked, { itemId: 'bank-item', text: 'أي ساعة بدك «روح عالبنك»؟' });
     assert.equal(back.proposalId, null);
 
     // The TTL policy reads a timestamp; a string would never delete anything.

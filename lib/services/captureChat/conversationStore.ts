@@ -23,10 +23,13 @@ import type { CaptureEntry } from '../../../src/contracts/v1/captureContracts';
 import { CAPTURE_PROPOSAL_RETENTION_MS } from '../captureBoundary/proposalStore';
 import { CAPTURE_CONVERSATIONS, getStorage, userSubDoc, type StorageAdapter } from '../../storage';
 import { requireLiveAccount } from '../../account/accountLiveness';
+import type { CaptureChatAsked } from './chatReply';
 
 export interface CaptureChatTurn {
   role: 'user' | 'assistant';
   text: string;
+  /** Exact trailing question metadata on assistant turns; absent on older turns. */
+  asked?: CaptureChatAsked | null;
   /** False only for a server-synthesised display turn; never user evidence. */
   evidence?: false;
 }
@@ -78,6 +81,16 @@ function isTurn(value: unknown): value is CaptureChatTurn {
   return Boolean(turn) && (turn!.role === 'user' || turn!.role === 'assistant') && typeof turn!.text === 'string';
 }
 
+function askedOf(turn: CaptureChatTurn): CaptureChatAsked | null | undefined {
+  if (turn.role !== 'assistant') return undefined;
+  if (turn.asked === null) return null;
+  const asked = turn.asked as CaptureChatAsked | undefined;
+  return asked && typeof asked.itemId === 'string' && typeof asked.text === 'string'
+    && asked.itemId.length > 0 && asked.text.length > 0 && turn.text.endsWith(asked.text)
+    ? { itemId: asked.itemId, text: asked.text }
+    : undefined;
+}
+
 export class CaptureConversationStore {
   constructor(private readonly injected?: StorageAdapter) {}
 
@@ -92,11 +105,15 @@ export class CaptureConversationStore {
     if (!document || document.conversationId !== conversationId) return null;
     return {
       conversationId: document.conversationId,
-      turns: Array.isArray(document.turns) ? document.turns.filter(isTurn).map((turn) => ({
-        role: turn.role,
-        text: turn.text,
-        ...(turn.evidence === false ? { evidence: false as const } : {}),
-      })) : [],
+      turns: Array.isArray(document.turns) ? document.turns.filter(isTurn).map((turn) => {
+        const asked = askedOf(turn);
+        return {
+          role: turn.role,
+          text: turn.text,
+          ...(asked === undefined ? {} : { asked }),
+          ...(turn.evidence === false ? { evidence: false as const } : {}),
+        };
+      }) : [],
       proposalId: typeof document.proposalId === 'string' ? document.proposalId : null,
       ...(document.entry === 'goal' || document.entry === 'habit' || document.entry === 'thought' || document.entry === null
         ? { entry: document.entry }
@@ -135,11 +152,15 @@ export class CaptureConversationStore {
     const path = captureConversationPath(uid, conversation.conversationId);
     const document: ConversationDocument = {
       conversationId: conversation.conversationId,
-      turns: conversation.turns.map((turn) => ({
-        role: turn.role,
-        text: turn.text,
-        ...(turn.evidence === false ? { evidence: false as const } : {}),
-      })),
+      turns: conversation.turns.map((turn) => {
+        const asked = askedOf(turn);
+        return {
+          role: turn.role,
+          text: turn.text,
+          ...(asked === undefined ? {} : { asked }),
+          ...(turn.evidence === false ? { evidence: false as const } : {}),
+        };
+      }),
       proposalId: conversation.proposalId,
       ...(conversation.entry === undefined ? {} : { entry: conversation.entry }),
       createdAt: conversation.createdAt,

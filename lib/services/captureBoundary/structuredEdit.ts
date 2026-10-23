@@ -517,7 +517,7 @@ export async function applyStructuredEdit(input: {
     };
     mutated.contract = withPublicRemovedItems(mutated.contract, mutated);
     if (input.beforeWrite) mutated.contract = await input.beforeWrite(mutated.contract, mutated);
-    const answer = { conversationId: input.conversation.conversationId, reply: words.reply, engine: input.engine, proposal: mutated.contract, turns };
+    const answer = { conversationId: input.conversation.conversationId, reply: words.reply, asked: null, engine: input.engine, proposal: mutated.contract, turns };
     mutated.editReceipt = { fingerprint: fp, resultingRevision: currentRevision + 1, answer };
     mutated.seedKeepReceipt = stored.seedKeepReceipt;
     mutated.legacyConfirmRevision = undefined;
