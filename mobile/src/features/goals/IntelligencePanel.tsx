@@ -1007,6 +1007,12 @@ function LearnedOutcomes({ observations, open, onToggle, busy, onWrong, onRight 
           pill on its own line: five rows stayed shorter than the screen
           (design critique, SIM-M5B2A-01). Still a ≥44 target. */}
       {guess ? action(`m5b-learned-right-${item.id}`, fill(t.m5bLearnedRightA11y, { line }), t.xIntelligenceConfirm, () => onRight(item.id)) : null}
+      {/* Two answers in one colour read as one phrase («آه، هيك صح مش صحيح»):
+          a muted dot sets them apart, as between the Memory row's actions.
+          Decorative, so a screen reader skips it (design critique 2026-10-23). */}
+      {guess ? <View testID={`m5b-learned-sep-${item.id}`} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
+        <Txt size={14} color={p.mu}>·</Txt>
+      </View> : null}
       {action(`m5b-learned-wrong-${item.id}`, fill(t.m5bLearnedWrongA11y, { line }), t.m5bLearnedWrong, () => onWrong(item.id))}
     </View>;
   };
