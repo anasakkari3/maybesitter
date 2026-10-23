@@ -21,6 +21,7 @@ import { getMobileNextStep, recordMobileNextStepDecision } from '../../lib/servi
 import { confirmMobileCapture, proposeMobileCapture } from '../../lib/services/mobile/mobileCaptureService.ts';
 import { getCommitment } from '../../lib/services/mobile/commitmentService.ts';
 import { listRecentNextStepDecisions } from '../../lib/services/mobile/nextStepDecisionLog.ts';
+import { seedLiveAccount } from '../support/liveAccount.ts';
 
 const UID = 'PrepDecisionsUser';
 const TZ = 'Asia/Jerusalem';
@@ -39,6 +40,7 @@ async function withAccount(run: (examId: string) => Promise<void>): Promise<void
   process.env.MAYBESITTER_FEATURE_RECOMMENDATION = 'true';
   process.env.MAYBESITTER_KILL_SWITCH_RECOMMENDATION = 'false';
   try {
+    await seedLiveAccount(UID); // #772: the user document a live account has
     await setRecommendationConsent(UID, { state: 'granted', version: RECOMMENDATION_CONSENT_VERSION });
     const proposal = await proposeMobileCapture({ text: 'عندي امتحان رياضيات بكرا الساعة 10', timezone: TZ, referenceTime: AT_EXAM.toISOString() }, { participantId: UID });
     const confirmed = await confirmMobileCapture({ proposalId: proposal.proposalId, itemIds: proposal.items.map((item) => item.itemId) }, { participantId: UID });

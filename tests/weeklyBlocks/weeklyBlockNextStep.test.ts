@@ -17,6 +17,7 @@ import { getMobileNextStep } from '../../lib/services/mobile/pilotService.ts';
 import { persistParticipantState } from '../../lib/services/mobile/participantState.ts';
 import { applyCommand as applyDomainCommand, createEmptyDomainState } from '../../src/domain/stateMachine.ts';
 import { createWeeklyBlock, patchWeeklyBlock } from '../../lib/weeklyBlocks/weeklyBlockService.ts';
+import { seedLiveAccount } from '../support/liveAccount.ts';
 
 const UID = 'WeeklyBlockNextStepUser';
 const ZONE = 'Asia/Jerusalem';
@@ -48,6 +49,7 @@ function windowAroundNow(): { start: string; end: string } | null {
 }
 
 async function accountWithWork(): Promise<void> {
+  await seedLiveAccount(UID);
   await setRecommendationConsent(UID, { state: 'granted', version: RECOMMENDATION_CONSENT_VERSION });
   const at = new Date(Date.now() - 86_400_000).toISOString();
   let state = createEmptyDomainState();
