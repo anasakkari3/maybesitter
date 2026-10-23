@@ -1,9 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { AppState, Linking, Platform, View } from 'react-native';
+import { AccessibilityInfo, AppState, Linking, Platform, View } from 'react-native';
 import { AppDateTimePicker as DateTimePicker } from '../../ui/AppDateTimePicker';
 import { useApp } from '../../state/AppContext';
-import { Btn, Card, Pill, Txt } from '../../ui/primitives';
-import { LiveRegion } from '../../ui/liveRegion';
+import { Btn, Card, Pill, SaidWords, Txt } from '../../ui/primitives';
 import { Screen, ScreenScroll } from '../../ui/screen';
 import {
   usePlanSettings,
@@ -330,33 +329,56 @@ export function NotificationsSettingsScreen({ onBack }: { onBack: () => void }) 
     );
   };
 
+  /*
+   * A refusal that lands after «اسمح» is said once, when it lands (review I1).
+   * Not by a live region: the card replaces its words after a live text-size
+   * change, and TalkBack read that subtree change inside a region as a new
+   * refusal (Q-LIVE2-001); a hidden node in a region was a second swipe stop
+   * that read it twice (Q-LIVE2-002). So the card is the line's one element,
+   * and the move from a known answer to «لا» is announced — never on opening a
+   * screen already denied, never on a re-render.
+   */
+  const heardPermission = useRef<NotificationPermission | null>(null);
+  useEffect(() => {
+    const before = heardPermission.current;
+    heardPermission.current = osPermission;
+    if (before !== null && before !== 'denied' && osPermission === 'denied') {
+      AccessibilityInfo.announceForAccessibility(t.notifDenied);
+    }
+  }, [osPermission, t.notifDenied]);
+
   const notificationStatus = permissionDenied || needsAsking || osPermission === null || osPermission === 'undetermined';
   return (
     <Screen pinned={<SettingsHeader title={t.notifTitle} onBack={onBack} />}>
       <ScreenScroll>
         {/* What the phone allows, first (CL2b #18). */}
-        {/* Mounted whatever the permission, so a refusal that lands after
-            «اسمح» is heard by TalkBack (review I1). */}
-        <LiveRegion testID="notifications-status-live">
-          {permissionDenied ? (
-            <Card pad={18} style={{ gap: 12 }} testID="notifications-status">
-              <Txt size={15} color={p.wm} weight={600} lh={1.5} testID="notifications-denied">{t.notifDenied}</Txt>
-              {/* The one place a no can be undone. */}
-              <Btn
-                label={t.notifOpenSettings}
-                testID="notifications-open-settings"
-                onPress={() => void Linking.openSettings()}
-                style={{ borderRadius: 16, minHeight: 52, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: p.ln }}
-              >
-                <Txt size={15} color={p.ac}>{t.notifOpenSettings}</Txt>
-              </Btn>
-            </Card>
-          ) : null}
-        </LiveRegion>
+        {/* The card's words are measured afresh after a live text-size change:
+            at AX5 they were slivers, and back at the default size the card
+            stayed 795 pt tall (simulator 2026-10-24). Each paragraph sits in a
+            view that says it and stays (SaidWords); the buttons hold their own
+            boundary (Btn). */}
+        {permissionDenied ? (
+          <Card pad={18} style={{ gap: 12 }} testID="notifications-status">
+            <SaidWords label={t.notifDenied} testID="notifications-denied-said">
+              <Txt size={15} color={p.wm} weight={600} lh={1.5} testID="notifications-denied" accessible={false}>{t.notifDenied}</Txt>
+            </SaidWords>
+            {/* The one place a no can be undone. */}
+            <Btn
+              label={t.notifOpenSettings}
+              testID="notifications-open-settings"
+              onPress={() => void Linking.openSettings()}
+              style={{ borderRadius: 16, minHeight: 52, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: p.ln }}
+            >
+              <Txt size={15} color={p.ac}>{t.notifOpenSettings}</Txt>
+            </Btn>
+          </Card>
+        ) : null}
         {!permissionDenied && notificationStatus ? <Card pad={18} style={{ gap: 12 }} testID="notifications-status">
           {needsAsking ? (
             <View style={{ gap: 12 }} testID="notifications-not-asked">
-              <Txt size={15} color={p.mu} lh={1.5}>{t.notifAllowBody}</Txt>
+              <SaidWords label={t.notifAllowBody} testID="notifications-allow-body">
+                <Txt size={15} color={p.mu} lh={1.5} accessible={false}>{t.notifAllowBody}</Txt>
+              </SaidWords>
               <Btn
                 label={t.notifAllowAction}
                 testID="notifications-allow"
@@ -369,9 +391,11 @@ export function NotificationsSettingsScreen({ onBack }: { onBack: () => void }) 
           ) : (
             // Before the first read lands nothing is known, so nothing is
             // claimed — not even for a frame (CL2b round 2).
-            <Txt size={15} color={p.mu} lh={1.5}>
-              {osPermission === null ? t.notifIntroChecking : t.notifIntroAsk}
-            </Txt>
+            <SaidWords label={osPermission === null ? t.notifIntroChecking : t.notifIntroAsk} testID="notifications-intro">
+              <Txt size={15} color={p.mu} lh={1.5} accessible={false}>
+                {osPermission === null ? t.notifIntroChecking : t.notifIntroAsk}
+              </Txt>
+            </SaidWords>
           )}
         </Card> : null}
 

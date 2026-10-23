@@ -110,8 +110,8 @@ describe('email verification banner', () => {
     await renderBanner(createFakeAuthRepository({ initialUser: UNVERIFIED }));
     // The banner renders above every screen at the root, so the inset is its
     // own container's padding, not a screen's (#495).
-    const banner = screen.getByText(en.authVerifyBanner).parent;
-    expect(banner?.props.style).toMatchObject({ paddingTop: METRICS.insets.top + 12 });
+    const banner = screen.getByTestId('verify-email-banner');
+    expect(banner.props.style).toMatchObject({ paddingTop: METRICS.insets.top + 12 });
   });
 
   it('stays out of the way once the address is verified', async () => {
@@ -223,7 +223,13 @@ describe('the banner takes a bounded share of the screen at every text size', ()
     await renderBanner(createFakeAuthRepository({ initialUser: UNVERIFIED }), 1);
     const text = screen.getByText(en.authVerifyBanner);
     expect(text.props.numberOfLines).toBeUndefined();
-    expect(StyleSheet.flatten(text.parent?.props.style)).toMatchObject({ flexDirection: 'row', paddingTop: METRICS.insets.top + 12 });
+    expect(StyleSheet.flatten(screen.getByTestId('verify-email-banner').props.style)).toMatchObject({ flexDirection: 'row', paddingTop: METRICS.insets.top + 12 });
+    // The sentence sits in the view that says it (it is replaced on a live
+    // text-size change; the view stays), and that view takes the row's room.
+    const said = screen.getByTestId('m6-verify-sentence-said');
+    expect(said.props.accessibilityLabel).toBe(en.authVerifyBanner);
+    expect(StyleSheet.flatten(said.props.style)).toMatchObject({ flex: 1 });
+    expect(text.props.accessible).toBe(false);
     // The sentence is plain text there, not a toggle.
     expect(screen.queryByRole('button', { name: en.authVerifyBanner })).toBeNull();
   });

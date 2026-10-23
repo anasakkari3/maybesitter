@@ -1,10 +1,10 @@
 import React from 'react';
 import {
   AccessibilityInfo, ActivityIndicator, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View,
-  type TextStyle,
+  type TextStyle, type ViewStyle,
 } from 'react-native';
 import Svg, { Circle, Path, Rect } from 'react-native-svg';
-import { RemeasureOnTextScale, RemeasuredText, textAlignment } from '../../ui/primitives';
+import { RemeasureOnTextScale, RemeasuredText, SaidWords, textAlignment } from '../../ui/primitives';
 import { Rings } from '../../ui/motion';
 import { focusForAccessibility } from '../../ui/accessibilityFocus';
 import { LiveRegion } from '../../ui/liveRegion';
@@ -297,6 +297,17 @@ export function SayItChatPage({
     ...textStyle(12, 'regular', true), fontFamily: fonts.latin ?? fonts.regular,
     lineHeight: 16, writingDirection: 'ltr',
   };
+  /**
+   * A message's time. Measured afresh after a live text-size change: back at
+   * the default size after AX5 the outgoing «01:31» kept its AX5 width and
+   * pushed ✓✓ onto a line of its own (simulator 2026-10-24). The view says
+   * the time and stays; only the drawn paragraph is replaced (SaidWords).
+   */
+  const stamp = (time: string, testID: string, style?: ViewStyle) => (
+    <SaidWords label={time} testID={testID} style={style}>
+      <RemeasuredText accessible={false} testID={`${testID}-text`} style={timestampStyle}>{time}</RemeasuredText>
+    </SaidWords>
+  );
   const header = (
     <View testID="chat-header" style={[styles.header, { paddingTop: safeTop + 6, borderBottomColor: p.ln, backgroundColor: p.bg }]}>
       <View style={styles.headerRow}>
@@ -405,7 +416,7 @@ export function SayItChatPage({
           {replyTail(value, testID, false, value.actions != null || value.body != null)}
         </View>
       </View>
-      {value.time ? <Text style={[timestampStyle, styles.incomingTime]}>{value.time}</Text> : null}
+      {value.time ? stamp(value.time, `${testID}-time`, styles.incomingTime) : null}
     </View>
   );
 
@@ -445,7 +456,7 @@ export function SayItChatPage({
           {reply ? replyTail(reply, replyID, true) : null}
         </View>
       </View>
-      {reply?.time ? <Text style={[timestampStyle, styles.incomingTime]}>{reply.time}</Text> : null}
+      {reply?.time ? stamp(reply.time, `${replyID}-time`, styles.incomingTime) : null}
     </View>
   );
 
@@ -456,7 +467,7 @@ export function SayItChatPage({
         <Text testID={textTestID} style={contentStyle(value.text, 15)}>{value.text}</Text>
       </View>
       {value.time || value.delivered ? <View style={styles.outgoingTime}>
-        {value.time ? <Text style={timestampStyle}>{value.time}</Text> : null}
+        {value.time ? stamp(value.time, `${testID}-time`) : null}
         {value.delivered ? <ChatIcon name="checks" size={14} color={p.ac} /> : null}
       </View> : null}
     </View>

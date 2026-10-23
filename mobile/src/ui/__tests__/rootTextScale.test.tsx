@@ -4,7 +4,9 @@
  *
  * Only the surfaces where the stale measurement was seen hold a
  * `RemeasureOnTextScale`: «هيك فهمت», the learned card, the Watching header's
- * line, the «احكيها» reply's words and the tab bar's labels. The app root
+ * line, the «احكيها» reply's words and the tab bar's labels — and, since the
+ * simulator pass of 2026-10-24, every `Btn` (around the words inside it) and
+ * every `SaidWords` (the stable view that says standalone words). The app root
  * (`DirectionRoot`) holds none, so a standalone paragraph elsewhere — where a
  * screen reader may rest — and selectable text keep their nodes. Inside a
  * boundary, selectable text is never keyed either, and controls, wrappers and
@@ -25,7 +27,7 @@ import { AppProvider } from '../../state/AppContext';
 import { LANGUAGE_STORAGE_KEY } from '../../i18n/language';
 import { TabBar } from '../../screens/TabBar';
 import { DirectionRoot } from '../DirectionRoot';
-import { Btn, RemeasureOnTextScale, Txt } from '../primitives';
+import { Btn, RemeasureOnTextScale, SaidWords, Txt } from '../primitives';
 
 jest.mock('react-native/Libraries/Utilities/useWindowDimensions', () =>
   jest.requireActual('react-native/Libraries/Utilities/useWindowDimensions'),
@@ -95,12 +97,47 @@ describe('outside the proven surfaces', () => {
   it('the app root replaces nothing: a standalone paragraph and selectable text keep their nodes', async () => {
     await mount(<Probe />);
     const kept = await typeAndCapture();
-    const text = ['probe-button-text', 'probe-paragraph', 'probe-selectable', 'probe-wrapped'].map((id) => screen.getByTestId(id));
+    const text = ['probe-paragraph', 'probe-selectable', 'probe-wrapped'].map((id) => screen.getByTestId(id));
+    let inButton = screen.getByTestId('probe-button-text');
     for (const scale of [AX5, 1, 1.12]) {
       await act(async () => { setFontScale(scale); });
       KEPT.forEach((id, i) => expect(screen.getByTestId(id)).toBe(kept[i]));
-      ['probe-button-text', 'probe-paragraph', 'probe-selectable', 'probe-wrapped']
+      ['probe-paragraph', 'probe-selectable', 'probe-wrapped']
         .forEach((id, i) => expect(screen.getByTestId(id)).toBe(text[i]));
+      // A button holds its own boundary (simulator 2026-10-24): its words are
+      // new, the button — what a screen reader is on — is the same one.
+      expect(screen.getByTestId('probe-button-text')).not.toBe(inButton);
+      inButton = screen.getByTestId('probe-button-text');
+    }
+  });
+
+  it('a button never replaces selectable words inside it', async () => {
+    await mount(<Btn testID="probe-button" label="probe" onPress={() => undefined}>
+      <Txt testID="probe-button-selectable" selectable>receipt-7f3a</Txt>
+    </Btn>);
+    const button = screen.getByTestId('probe-button');
+    const selectable = screen.getByTestId('probe-button-selectable');
+    for (const scale of [AX5, 1]) {
+      await act(async () => { setFontScale(scale); });
+      expect(screen.getByTestId('probe-button')).toBe(button);
+      expect(screen.getByTestId('probe-button-selectable')).toBe(selectable);
+    }
+  });
+});
+
+describe('SaidWords', () => {
+  it('the view that says the words stays; the drawn paragraph inside is new after each change', async () => {
+    await mount(<SaidWords label="كلام" testID="probe-said" role="header"><Txt testID="probe-said-text" accessible={false}>كلام</Txt></SaidWords>);
+    const said = screen.getByTestId('probe-said');
+    expect(said.props.accessible).toBe(true);
+    expect(said.props.accessibilityRole).toBe('header');
+    expect(said.props.accessibilityLabel).toBe('كلام');
+    let text = screen.getByTestId('probe-said-text');
+    for (const scale of [AX5, 1]) {
+      await act(async () => { setFontScale(scale); });
+      expect(screen.getByTestId('probe-said')).toBe(said);
+      expect(screen.getByTestId('probe-said-text')).not.toBe(text);
+      text = screen.getByTestId('probe-said-text');
     }
   });
 });

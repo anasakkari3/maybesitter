@@ -3,7 +3,7 @@ import { AppState, ScrollView, View, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useApp } from '../state/AppContext';
 import { useAuth } from './AuthProvider';
-import { Btn, Pill, Txt } from '../ui/primitives';
+import { Btn, Pill, SaidWords, Txt } from '../ui/primitives';
 import { useSoftKeyboardShown } from '../ui/keyboard';
 import { layoutModeFor } from '../theme/textScale';
 import { ScreenTopInsetConsumedContext } from '../ui/screen';
@@ -54,6 +54,16 @@ export function VerifyEmailBanner({ children }: React.PropsWithChildren) {
   // and the banner had swallowed every failure without a word).
   const [failed, setFailed] = useState(false);
   const [expanded, setExpanded] = useState(false);
+  // A live change of the text size folds it again, so the banner shows the
+  // variant a fresh open at the new size shows — the short words at a large
+  // size, the whole sentence at the default — instead of the one it was left
+  // in (simulator 2026-10-24, shot 52). Adjusted during render, from the
+  // scale of the previous one, so no frame draws the stale variant.
+  const [scaleSeen, setScaleSeen] = useState(fontScale);
+  if (scaleSeen !== fontScale) {
+    setScaleSeen(fontScale);
+    setExpanded(false);
+  }
 
   const needsVerification = user !== null && user.email !== null && !user.emailVerified;
 
@@ -127,9 +137,13 @@ export function VerifyEmailBanner({ children }: React.PropsWithChildren) {
             gap: 12,
           }}
         >
-          <Txt size={TEXT_SIZE} color={p.wm} style={{ flex: 1 }} testID="m6-verify-sentence">
-            {message}
-          </Txt>
+          {/* Measured afresh after a live text-size change; the view says the
+              sentence and stays (SaidWords). */}
+          <SaidWords label={message} testID="m6-verify-sentence-said" style={{ flex: 1 }}>
+            <Txt size={TEXT_SIZE} color={p.wm} testID="m6-verify-sentence" accessible={false}>
+              {message}
+            </Txt>
+          </SaidWords>
           {resendButton}
         </View>
       );
