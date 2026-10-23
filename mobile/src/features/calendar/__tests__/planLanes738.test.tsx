@@ -14,6 +14,8 @@ import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals
 import { render, screen, waitFor, within } from '@testing-library/react-native';
 import { DayAgenda, DayTimeline, UntimedSection, timelineLaneWidth, timelineSpans, type PlanRow } from '../PlanDay';
 import { HOUR_HEIGHT, lanesFit, maxLanes, placeSpans } from '../dayTimeline';
+import { LINE_HEIGHT } from '../../../theme/fonts';
+import { layoutModeFor } from '../../../theme/textScale';
 import { toViewModel, type CommitmentView } from '../../commitments/model';
 import ar from '../../../i18n/locales/ar.json';
 import { CalendarScreen } from '../../../screens/CalendarScreen';
@@ -30,7 +32,7 @@ jest.mock('react-native/Libraries/Utilities/useWindowDimensions', () => ({
 }));
 
 const dimensions = useWindowDimensions as unknown as jest.Mock<() => { width: number; height: number; scale: number; fontScale: number }>;
-const atScale = (fontScale: number) => dimensions.mockReturnValue({ width: 390, height: 844, scale: 3, fontScale });
+const atScale = (fontScale: number, width = 390) => dimensions.mockReturnValue({ width, height: 844, scale: 3, fontScale });
 
 let harness: M6Harness | undefined;
 
@@ -270,5 +272,106 @@ describe('Q738-001 a block\'s duration is drawn apart from its label and its tar
     await showTimeline([busy]);
     expect(Number(flatStyle(screen.getByTestId('calendar-busy-duration')).height)).toBe(3 * HOUR_HEIGHT);
     expect(Number(flatStyle(screen.getByTestId('calendar-busy-row')).height)).toBe(3 * HOUR_HEIGHT);
+  });
+});
+
+/**
+ * Q788b-A (simulator pass 2026-10-23, screenshot 21): on Sunday the 25th,
+ * «اتصال مع المحاسبة» at 10:00 wrapped to two lines in its shared lane and
+ * drew 126 pt, but only 98 had been kept for it, so it covered the top of the
+ * 12:00 «صلاة الظهر» block under it. The room kept for a shared-lane card is
+ * now the most it can draw, with its title clamped to two lines.
+ */
+describe('Q788b-A a shared-lane card never covers the next block in its lane', () => {
+  // A title that wraps in any lane the floor allows: «اتصال مع المحاسبة بخصوص الضرائب السنوية».
+  const WRAPPING = ranged('accountant', 'اتصال مع المحاسبة بخصوص الضرائب السنوية', '10:00', null);
+  const LONG_RANGE = ranged('conference', 'مؤتمر المبادرين بالجامعة', '09:00', '19:00', 'high');
+  const weeklyAt = (from: string, to: string): PlanRow => ({
+    kind: 'weekly', key: 'weekly-prayer', at: Date.parse(instant(TODAY, from)),
+    occurrence: { occurrenceId: 'prayer-1', weeklyBlockId: 'prayer', title: 'صلاة الظهر', startAt: instant(TODAY, from), endAt: instant(TODAY, to) },
+  });
+
+  /**
+   * The tallest the card can draw at `fontScale`, worked out apart from the
+   * code under test: the border, padding and gaps stay; RN scales each text's
+   * line box (15-pt title × 2 lines, 13-pt Latin time, the chip's word).
+   */
+  function tallestCard(fontScale: number): number {
+    const compact = layoutModeFor(fontScale) !== 'normal';
+    const line = (size: number, ratio: number) => Math.round(size * ratio) * fontScale;
+    const title = 2 * line(15, LINE_HEIGHT.arabic);
+    const time = line(13, LINE_HEIGHT.latin);
+    const chip = (compact ? 4 : 8) + line(compact ? 11 : 13, LINE_HEIGHT.arabic);
+    return 2 + 16 + title + 2 + time + 6 + chip;
+  }
+
+  function frameOf(testID: string) {
+    const style = flatStyle(screen.getByTestId(testID));
+    return { top: Number(style.top), height: Number(style.height), start: String(style.start), width: String(style.width) };
+  }
+
+  it.each<[string, number, number, string]>([
+    ['default size on a phone', 1, 390, '12:30'],
+    ['AX5 on a wide window', 3.12, 900, '17:30'],
+  ])('%s: the two-line title above a short block in its lane keeps its whole height', async (_label, fontScale, width, blockAt) => {
+    atScale(fontScale, width);
+    const [h, m] = blockAt.split(':').map(Number) as [number, number];
+    const blockEnd = `${String(h).padStart(2, '0')}:${String(m + 20).padStart(2, '0')}`;
+    await showTimeline([commitmentRow(LONG_RANGE), commitmentRow(WRAPPING), weeklyAt(blockAt, blockEnd)]);
+    expect(screen.queryByTestId('calendar-timeline')).not.toBeNull();
+
+    const card = frameOf('m6-timeline-block-c-accountant');
+    const block = frameOf('m6-timeline-block-weekly-prayer');
+    // The scenario: the card and the short block share a lane, beside the long range.
+    expect(card.start).toBe(block.start);
+    expect(card.width).toBe('50%');
+    expect(card.top).toBeLessThan(block.top);
+    // The title stops at two lines, so the card can never draw past what was kept…
+    expect(screen.getByTestId('m6-calendar-title-accountant').props.numberOfLines).toBe(2);
+    // …and what was kept holds the tallest card, so it ends before the block starts.
+    expect(card.height).toBeGreaterThanOrEqual(tallestCard(fontScale));
+    expect(card.top + card.height).toBeLessThanOrEqual(block.top);
+  });
+
+  it('the screenshot\'s day (the block 2 h under the card): the block cannot share the card\'s lane, and three lanes do not fit a phone, so it is the list', async () => {
+    await showTimeline([commitmentRow(LONG_RANGE), commitmentRow(WRAPPING), weeklyAt('12:00', '12:20')]);
+    expect(screen.queryByTestId('calendar-timeline')).toBeNull();
+    const list = screen.getByTestId('calendar-agenda-list');
+    for (const id of ['calendar-item-conference', 'calendar-item-accountant', 'calendar-weekly-prayer']) expect(within(list).queryByTestId(id)).not.toBeNull();
+  });
+});
+
+/**
+ * Q788b-B (simulator pass 2026-10-23, screenshot 08): at AX5 the dense row's
+ * «بدون وقت» sat beside the title and squeezed it until «فاتورة» broke inside
+ * itself. At the large text sizes the time moves onto the second line, beside
+ * the importance chip, and the title has the row to itself.
+ */
+describe('Q788b-B the dense row gives the title its whole row at large text', () => {
+  // «فاتورة الكهربا» with no hour: the untimed list says «بدون وقت».
+  const BILL = commitment('bill', { title: 'فاتورة الكهربا', timeSpec: { kind: 'unscheduled', dueAt: null, endAt: null, remindAt: null, allDay: false, timezone: ZONE } });
+  const billRow = (): Extract<PlanRow, { kind: 'commitment' }> => ({
+    kind: 'commitment', key: 'c-bill', at: Number.POSITIVE_INFINITY, item: toViewModel(BILL, NOW.toISOString()), clock: null, offDay: false, due: null, conflict: null,
+  });
+
+  it('at AX5 the title and the time are not in one row: the time sits on the second line', async () => {
+    atScale(3.12);
+    harness = await prepareM6('ar');
+    await render(<Providers harness={harness}><UntimedSection rows={[billRow()]} title="t" /></Providers>);
+    const titleRow = screen.getByTestId('calendar-title-row-bill');
+    expect(within(titleRow).queryByTestId('m6-calendar-title-bill')).not.toBeNull();
+    expect(within(titleRow).queryByTestId('calendar-time-bill')).toBeNull();
+    const time = within(screen.getByTestId('calendar-meta-bill')).getByTestId('calendar-time-bill');
+    expect(time.props.children).toBe(ar.noTimeYet);
+  });
+
+  it('at the default size the time stays beside the title', async () => {
+    harness = await prepareM6('ar');
+    await render(<Providers harness={harness}><UntimedSection rows={[billRow()]} title="t" /></Providers>);
+    const titleRow = screen.getByTestId('calendar-title-row-bill');
+    expect(flatStyle(titleRow).flexDirection).toBe('row');
+    expect(within(titleRow).queryByTestId('m6-calendar-title-bill')).not.toBeNull();
+    expect(within(titleRow).getByTestId('calendar-time-bill').props.children).toBe(ar.noTimeYet);
+    expect(within(screen.getByTestId('calendar-meta-bill')).queryByTestId('calendar-time-bill')).toBeNull();
   });
 });

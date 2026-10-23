@@ -118,16 +118,19 @@ export function CommitmentCard({ row, marker = false, narrow = false, agenda = f
         ) : null}
         {agenda ? (
           <View style={{ flex: 1, gap: 2, alignItems: 'stretch' }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+            <View testID={`calendar-title-row-${item.id}`} style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
               <Txt size={15} weight={700} color={p.tx} lines={2} style={{ flex: 1 }} testID={`m6-calendar-title-${item.id}`}>{isolateAuto(item.title)}</Txt>
-              <Txt size={13} color={p.mu} latin={time !== null && !offDay} lines={1} testID={`calendar-time-${item.id}`}>{time ?? t.noTimeYet}</Txt>
+              {stacked ? null : <Txt size={13} color={p.mu} latin={time !== null && !offDay} lines={1} testID={`calendar-time-${item.id}`}>{time ?? t.noTimeYet}</Txt>}
             </View>
             {/* The second line says the importance in words beside the due
                 (#788): the coloured start border alone failed colour-blind
                 readers and the rule that every state has a text label. One
-                line, wrapping only when the text is large. */}
+                line, wrapping only when the text is large. At the large sizes
+                the time joins it too: beside the title, «بدون وقت» left the
+                title so little room that «فاتورة» broke inside itself. */}
             <View testID={`calendar-meta-${item.id}`} style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', columnGap: 8, rowGap: 2 }}>
               <Tag kind={priorityTagKind(item.importance)} label={importanceWord(item.importance, t)} testID={`calendar-importance-${item.id}`} />
+              {stacked ? <Txt size={13} color={p.mu} latin={time !== null && !offDay} style={{ flexShrink: 1 }} testID={`calendar-time-${item.id}`}>{time ?? t.noTimeYet}</Txt> : null}
               {/* Never clamped (Q788-001): «موعدها بكرا · 15:00» outgrows an
                   AX5 row; it wraps under the chip instead of being cut. */}
               {due ? <Txt size={13} color={p.mu} style={{ flexShrink: 1 }} testID={`calendar-due-${item.id}`}>{due}</Txt> : null}
@@ -135,7 +138,10 @@ export function CommitmentCard({ row, marker = false, narrow = false, agenda = f
           </View>
         ) : (
           <View style={{ flex: 1, gap: 2, alignItems: 'flex-start' }}>
-            <Txt size={15} weight={700} color={p.tx} testID={`m6-calendar-title-${item.id}`}>{isolateAuto(item.title)}</Txt>
+            {/* Sharing its moment, the title is clamped to the lines its lane
+                reserved (`narrowCardHeight`), so the card never runs into the
+                next block in its lane. */}
+            <Txt size={15} weight={700} color={p.tx} lines={narrow ? NARROW_TITLE_LINES : undefined} testID={`m6-calendar-title-${item.id}`}>{isolateAuto(item.title)}</Txt>
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', columnGap: 8 }}>
               <Txt size={13} color={p.mu} latin={time !== null && !offDay} testID={`calendar-time-${item.id}`}>{time ?? t.noTimeYet}</Txt>
               {due ? <Txt size={13} color={p.mu} testID={`calendar-due-${item.id}`}>{due}</Txt> : null}
@@ -311,7 +317,8 @@ export function DayTimeline({ rows: allRows, day, nowIso }: { rows: readonly Pla
             if (row.kind === 'commitment') {
               const look = importanceLook(row.item.importance, p);
               return (
-                <View key={entry.key} style={frame}>
+                // Its frame is the room the lanes kept, as a block's is.
+                <View key={entry.key} style={{ ...frame, height: Math.max(entry.visual, 44) }} testID={`m6-timeline-block-${entry.key}`}>
                   <View accessible={false} style={{ position: 'absolute', top: -4, start: -4, width: 8, height: 8, borderRadius: 4, backgroundColor: look.fg, zIndex: 3 }} />
                   <CommitmentCard row={row} marker={entry.height === 0} narrow={entry.lanes > 1} minHeight={entry.height} />
                 </View>
@@ -355,9 +362,13 @@ export function timelineSpans(rows: readonly Exclude<PlanRow, { kind: 'gap' }>[]
         // Padding, a title line and a time line in the Arabic face's line box;
         // a due aside and an overlap line each add one more.
         minVisual: (70 + (row.due ? 22 : 0) + (row.conflict ? 36 : 0)) * scale,
-        // As a column the chip takes a line under the title, and the overlap
-        // line may wrap once.
-        narrowVisual: (98 + (row.due ? 22 : 0) + (row.conflict ? 56 : 0)) * scale,
+        // As a column the chip takes a line under the title, the title may
+        // wrap to its clamp, and the overlap line may wrap once. Reserved for
+        // the most the card can draw, not for a one-line title: a two-line
+        // «اتصال مع المحاسبة» is 126 pt, and the 98 kept for it let it cover
+        // the block under it in its lane. Never shrunk below text size 1 —
+        // the border, padding and gaps do not shrink with the text.
+        narrowVisual: (narrowCardHeight(end !== null && end > start) + (row.due ? 22 : 0) + (row.conflict ? 58 : 0)) * Math.max(1, scale),
       };
     }
     const startAt = row.kind === 'busy' ? row.block.startAt : row.occurrence.startAt;
@@ -372,6 +383,19 @@ export function timelineSpans(rows: readonly Exclude<PlanRow, { kind: 'gap' }>[]
       narrowVisual: (row.kind === 'busy' ? 80 + (row.prep ? 52 : 0) : 88) * scale,
     };
   });
+}
+
+/** The most lines a commitment's title takes on the timeline when it shares its moment; past that it ends in an ellipsis at a word. */
+export const NARROW_TITLE_LINES = 2;
+
+/**
+ * The tallest a commitment card in a shared lane can be at text size 1, with
+ * no due and no overlap: border (2), padding (2 × 8, or 2 × 12 for a ranged
+ * card), the title at its clamp (2 × 26: 15 pt in the Arabic line box), the
+ * gap (2) and the time (18: 13 pt Latin), the gap (6) and the chip (30).
+ */
+function narrowCardHeight(ranged: boolean): number {
+  return 2 + (ranged ? 24 : 16) + NARROW_TITLE_LINES * 26 + 2 + 18 + 6 + 30;
 }
 
 /** The same rows as a list in time order, for the large text sizes. */
