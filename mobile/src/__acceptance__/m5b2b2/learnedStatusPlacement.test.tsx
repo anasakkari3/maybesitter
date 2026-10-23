@@ -5,9 +5,9 @@
  * AX5. A screen reader heard it; a sighted person never saw it.
  *
  * Now there is one copy of the line, inside the learned card, under the
- * header and above the rows. VoiceOver is told once (`announceForAccessibility`);
- * TalkBack hears the same node, which sits in the card's own polite live
- * region, mounted with the card before any tap can fill it (M5-LS-001).
+ * header and above the rows (M5-LS-001). It is in no live region — the panel
+ * keeps exactly one, `intelligence-status` (M1 A5, M5-LS-003) — and it is
+ * said once with `announceForAccessibility`, on iOS and Android alike.
  * With no row left, the title is a plain header, not a disclosure (M5-LS-002).
  */
 import { AccessibilityInfo, Platform } from 'react-native';
@@ -82,28 +82,32 @@ function nodesSaying(text: string): Node[] {
     || (node.type === 'Text' && node.children.some(child => child === text)));
 }
 
-/** The card's live region is there, polite and empty, before the tap that fills it. */
-function expectEmptyCardRegion() {
-  const live = within(screen.getByTestId('m5b-learned-card')).getByTestId('m5b-learned-live');
-  expect(live.props.accessibilityLiveRegion).toBe('polite');
-  expect(within(live).queryByTestId('m5b-learned-status')).toBeNull();
+/** Every polite live region on screen, as goalsPanel.test's A5 counts them. */
+function politeRegions(): Node[] {
+  return findAll(screen.container, node => node.props.accessibilityLiveRegion === 'polite');
+}
+
+/** The panel has its one live region, and it is the panel's own (M1 A5). */
+function expectOneRegion() {
+  const regions = politeRegions();
+  expect(regions).toHaveLength(1);
+  expect(regions[0]!.props.testID).toBe('intelligence-status');
 }
 
 function expectOneLineInCard() {
   const card = screen.getByTestId('m5b-learned-card');
-  const live = within(card).getByTestId('m5b-learned-live');
-  expect(live.props.accessibilityLiveRegion).toBe('polite');
-  const line = within(live).getByTestId('m5b-learned-status');
+  const line = within(card).getByTestId('m5b-learned-status');
   const text = line.props.children as string;
   expect(typeof text).toBe('string');
   expect(text.length).toBeGreaterThan(0);
   // One node in the whole tree says it: nothing to see twice or swipe past twice.
   expect(nodesSaying(text)).toHaveLength(1);
   expect(within(screen.getByTestId('intelligence-status')).queryByText(text)).toBeNull();
+  expectOneRegion();
   // Under the header and above every row: where the person tapped.
   const order = cardOrder();
   expect(['m5b-learned', 'm5b-learned-title']).toContain(order[0]);
-  expect(order[1]).toBe('m5b-learned-live');
+  expect(order[1]).toBe('m5b-learned-status');
   return text;
 }
 
@@ -120,18 +124,18 @@ describe('SIM-M5B2A-02 the learned result line sits in the learned card', () => 
     await openPanel(panelState({
       observations: [readdMarker('guess'), outcome('kept', 'completed', '2030-03-27T08:00:00.000Z')],
     }));
-    expectEmptyCardRegion();
+    expectOneRegion();
     const reads = harness!.server.matching('GET', /^\/api\/mobile\/intelligence$/).length;
 
     await fireEvent.press(screen.getByTestId(readdTestIds.right('guess')));
     await waitFor(() => expect(harness!.server.matching('GET', /^\/api\/mobile\/intelligence$/).length).toBeGreaterThan(reads));
 
-    expectOneLineInCard();
+    const text = expectOneLineInCard();
     // The confirmed guess is still on the card, now with only «wrong».
     expect(screen.getByTestId(readdTestIds.row('guess'))).toBeTruthy();
     expect(screen.queryByTestId(readdTestIds.right('guess'))).toBeNull();
-    expect(screen.getByTestId('intelligence-status').props.accessibilityLiveRegion).toBe('polite');
     expect(announce).toHaveBeenCalledTimes(1);
+    expect(announce).toHaveBeenCalledWith(text);
   });
 
   it('after «wrong» on a tapped outcome, the one line is in the card above the rows that stay, and VoiceOver hears it once', async () => {
@@ -141,37 +145,34 @@ describe('SIM-M5B2A-02 the learned result line sits in the learned card', () => 
     await fireEvent.press(screen.getByTestId('m5b-learned-wrong-gone'));
     await waitFor(() => expect(screen.queryByTestId('m5b-learned-row-gone')).toBeNull());
 
-    expectOneLineInCard();
+    const text = expectOneLineInCard();
     expect(cardOrder().slice(2)).toEqual(['m5b-learned-row-stays']);
     expect(announce).toHaveBeenCalledTimes(1);
+    expect(announce).toHaveBeenCalledWith(text);
   });
 
-  it('on Android the one line is spoken from the card\'s polite live region, mounted before the tap, with no copy elsewhere', async () => {
+  it('on Android the one line is announced once, explicitly, and the panel keeps its one live region', async () => {
     Object.defineProperty(Platform, 'OS', { value: 'android', configurable: true });
     const announce = countAnnouncements();
     await openPanel(TWO_OUTCOMES());
-    expectEmptyCardRegion();
-    const regionBefore = within(screen.getByTestId('m5b-learned-card')).getByTestId('m5b-learned-live');
+    expectOneRegion();
 
     await fireEvent.press(screen.getByTestId('m5b-learned-wrong-gone'));
     await waitFor(() => expect(screen.queryByTestId('m5b-learned-row-gone')).toBeNull());
 
-    expectOneLineInCard();
-    // The same region instance took the line: it was not mounted with it.
-    expect(within(screen.getByTestId('m5b-learned-card')).getByTestId('m5b-learned-live')).toBe(regionBefore);
-    expect(announce).not.toHaveBeenCalled();
+    const text = expectOneLineInCard();
+    expect(announce).toHaveBeenCalledTimes(1);
+    expect(announce).toHaveBeenCalledWith(text);
   });
 
   it('after the last row goes, the title is a plain header: no disclosure, no toggle, no chevron', async () => {
     const announce = countAnnouncements();
     await openPanel(panelState({ observations: [outcome('only', 'completed', '2030-03-27T08:00:00.000Z')] }));
-    const regionBefore = within(screen.getByTestId('m5b-learned-card')).getByTestId('m5b-learned-live');
 
     await fireEvent.press(screen.getByTestId('m5b-learned-wrong-only'));
     await waitFor(() => expect(screen.queryByTestId('m5b-learned-row-only')).toBeNull());
 
     expectOneLineInCard();
-    expect(within(screen.getByTestId('m5b-learned-card')).getByTestId('m5b-learned-live')).toBe(regionBefore);
     expect(screen.queryByTestId('m5b-learned')).toBeNull();
     const title = screen.getByTestId('m5b-learned-title');
     expect(title.props.accessibilityRole).toBe('header');
@@ -181,7 +182,7 @@ describe('SIM-M5B2A-02 the learned result line sits in the learned card', () => 
     expect(findAll(card, node => typeof node.props.onPress === 'function')).toHaveLength(0);
     expect(findAll(card, node => node.props.accessibilityRole === 'button')).toHaveLength(0);
     expect(findAll(card, node => /^chevron-/.test(String(node.props.name ?? '')))).toHaveLength(0);
-    expect(cardOrder()).toEqual(['m5b-learned-title', 'm5b-learned-live']);
+    expect(cardOrder()).toEqual(['m5b-learned-title', 'm5b-learned-status']);
     expect(announce).toHaveBeenCalledTimes(1);
   });
 
@@ -195,7 +196,7 @@ describe('SIM-M5B2A-02 the learned result line sits in the learned card', () => 
     await fireEvent.press(screen.getByTestId('m5b-learned'));
 
     expect(screen.queryByTestId(readdTestIds.row('guess'))).toBeNull();
-    expect(cardOrder()).toEqual(['m5b-learned', 'm5b-learned-live']);
+    expect(cardOrder()).toEqual(['m5b-learned', 'm5b-learned-status']);
     expect(screen.getByTestId('m5b-learned').props.accessibilityState).toEqual(expect.objectContaining({ expanded: false }));
   });
 });

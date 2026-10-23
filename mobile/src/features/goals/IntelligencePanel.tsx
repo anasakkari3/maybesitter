@@ -201,9 +201,9 @@ function IntelligencePanelForAccount({ onChanged, autoGenerate = false, whenOff 
   // What a review on the learned card did. It is drawn once, inside the card
   // under its header, where the person tapped (SIM-M5B2A-02): the panel's
   // status area sits 400 pt below the row at the default size and 2000 pt at
-  // AX5. That one line is also what TalkBack hears — it sits in the card's
-  // own live region, mounted with the card, before any tap there can fill
-  // it — and VoiceOver is told once from `reviewOutcome`. The card stays
+  // AX5. It is said once, from `reviewOutcome`, on both platforms; it is in
+  // no live region, because the panel keeps exactly one (M1 A5) and the line
+  // the person sees must not be drawn a second time in it. The card stays
   // while it holds this line, even when its last row left.
   const [learnedStatus, setLearnedStatus] = React.useState<string | null>(null);
   // What a successful action will say once the inbox can be read again: a
@@ -461,7 +461,9 @@ function IntelligencePanelForAccount({ onChanged, autoGenerate = false, whenOff 
       setInbox(current => (current ? applyReviewedOutcome(current, answer.observation) : current));
       const done = review === 'confirmed' ? t.m5bLearnedRightDone : t.m5bLearnedWrongDone;
       setLearnedStatus(done);
-      if (Platform.OS === 'ios') AccessibilityInfo.announceForAccessibility(done);
+      // Said explicitly on Android too (M5-LS-003): the line is drawn in the
+      // card, outside the panel's one live region, so no region speaks it.
+      AccessibilityInfo.announceForAccessibility(done);
       onChanged();
       signals.absorbRevision();
       try { await refresh(); } catch { setRefreshFailed(true); }
@@ -963,8 +965,8 @@ function applyReviewedOutcome(current: IntelligenceInbox, moved: IntelligenceObs
  * `status` is what the last review here did (SIM-M5B2A-02). It sits under the
  * header, above the rows, so it shows where the person tapped; the rows
  * keep their order and only step down by one line. It is the one copy of the
- * line: seen here, and heard here on Android, from a live region that is
- * mounted with the card and never behind the line's own condition. The card
+ * line, and in no live region: the panel announces it once when it is set
+ * (M5-LS-003), so the panel keeps its one region (M1 A5). The card
  * stays for it after its last row left, until the next action clears it;
  * with no row left, its title is a plain header, not a disclosure that
  * would open nothing.
@@ -1044,9 +1046,7 @@ function LearnedOutcomes({ observations, open, onToggle, busy, status, onWrong, 
     </Btn> : <View testID="m5b-learned-title" accessible accessibilityRole="header" style={{ minHeight: 44, justifyContent: 'center' }}>
       <Txt role="action">{t.m5bLearnedTitle}</Txt>
     </View>}
-    <LiveRegion testID="m5b-learned-live">
-      {status ? <Txt role="supporting" testID="m5b-learned-status">{status}</Txt> : null}
-    </LiveRegion>
+    {status ? <Txt role="supporting" testID="m5b-learned-status">{status}</Txt> : null}
     {open && hasRows ? <>
       {guesses.map(item => row(item, true))}
       {learned.map(item => row(item, false))}
