@@ -26,8 +26,12 @@ import type { CalendarBusyUpload } from './calendar';
  * The source secret travels only in `X-MaybeSitter-Source-Secret`, never in a
  * query or a body, and nothing here logs it.
  */
-type Bound = { asUid?: string };
-const bound = (options: Bound) => (options.asUid !== undefined ? { asUid: options.asUid } : {});
+type Bound = { asUid?: string; signal?: AbortSignal };
+const bound = (options: Bound) => ({
+  ...(options.asUid !== undefined ? { asUid: options.asUid } : {}),
+  // A cancelled query aborts its request instead of letting it land later.
+  ...(options.signal ? { signal: options.signal } : {}),
+});
 
 export const SOURCE_SECRET_HEADER = 'X-MaybeSitter-Source-Secret';
 const secretHeader = (secret: string) => ({ headers: { [SOURCE_SECRET_HEADER]: secret } });

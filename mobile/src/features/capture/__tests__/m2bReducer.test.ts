@@ -3,7 +3,7 @@
  * own transition, and the choices that follow an id across it.
  */
 import { describe, expect, it } from '@jest/globals';
-import { captureReducer, confirmPayload, initialCaptureState, type CaptureState } from '../captureMachine';
+import { captureReducer, confirmPayload, initialCaptureState, wantsDiscardConfirmation, type CaptureState } from '../captureMachine';
 import type { CaptureChatAnswer, CaptureProposal } from '../../../api/schemas/capture';
 
 const proposal = (over: Partial<CaptureProposal> = {}): CaptureProposal => ({
@@ -52,6 +52,15 @@ describe('a structured edit', () => {
     const edited = captureReducer(staged, { type: 'editAnswered', folded: { itemId: 'i1', title: true, time: true }, answer: answer(proposal({ revision: 4, items: [{ ...proposal().items[0]!, title: 'Call Dana and Rami', resolvedTime: '2030-01-09T10:00:00.000Z' }] })) });
     expect(edited.edits.i1).toEqual({ priority: 'high' });
     expect(confirmPayload(edited)).toEqual(expect.objectContaining({ revision: 4 }));
+  });
+  it('a folded title leaves no edit behind when only a cancelled place remains (FU-S-001)', () => {
+    const titled = captureReducer(shown(), { type: 'editItem', itemId: 'i1', edit: { title: 'Call Dana and Rami' } });
+    const placed = captureReducer(titled, { type: 'editItem', itemId: 'i1', edit: { locationTrigger: { kind: 'arrive', placeId: 'p1', label: 'Home' } as never } });
+    const unplaced = captureReducer(placed, { type: 'editItem', itemId: 'i1', edit: { locationTrigger: null } });
+    expect(unplaced.edits.i1).toEqual({ title: 'Call Dana and Rami', locationTrigger: null });
+    const edited = captureReducer(unplaced, { type: 'editAnswered', folded: { itemId: 'i1', title: true, time: false }, answer: answer(proposal({ revision: 4, items: [{ ...proposal().items[0]!, title: 'Call Dana and Rami' }] })) });
+    expect(edited.edits).toEqual({});
+    expect(wantsDiscardConfirmation(edited)).toBe(false);
   });
   it('an item that became a seed takes its staged choices with it', () => {
     const staged = captureReducer(shown(), { type: 'editItem', itemId: 'i1', edit: { priority: 'high' } });

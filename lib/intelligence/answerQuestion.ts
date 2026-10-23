@@ -24,11 +24,16 @@ export async function answerIntelligenceQuestion(
     const current = await tx.get<IntelligenceSuggestion>(path);
     if (!current || current.kind !== 'question' || current.status === 'dismissed') return null;
     if (current.status === 'accepting' && current.answerDigest !== digest) return null;
+    // The account fence first and authoritative, then the re-add guard, then
+    // the dismissed-outcome handling; every read before the first write.
+    const availability = current.status === 'pending'
+      ? await pendingSuggestionAvailability(tx, uid, current, now)
+      : null;
+    if (availability && !availability.available && availability.accountUnavailable) return availability;
     const cited = await Promise.all(current.observationIds.map(observationId =>
       tx.get<StoredObservation>(observationPath(uid, observationId))));
     if (!(await readdCitationsAllowedInTransaction(tx, uid, cited, readdClientSupported))) return SUGGESTION_UNAVAILABLE;
-    if (current.status === 'pending') {
-      const availability = await pendingSuggestionAvailability(tx, uid, current, now);
+    if (availability) {
       if (cited.some(isDismissedBehaviourOutcome)) {
         tx.set(path, { ...current, status: 'dismissed', decidedAt: now });
         return availability.available ? null : availability;

@@ -14,6 +14,13 @@ export const observationSchema = z.object({
   outcome: z.object({ signal: z.enum(['completed', 'postponed', 'dropped']), title: z.string() }).optional(),
   /** M5b-2b-2: a re-add the server guessed, projected live from the commitment and the earlier outcome. Absent off and on an older server. */
   readd: z.object({ after: z.enum(['dropped', 'completed']), title: z.string() }).optional(),
+  /**
+   * M5b-2b-2 (REV-004): the id of the earlier outcome a re-add marker is
+   * bound to — an id, never content. Dismissing that outcome hides the marker
+   * and what cites it at once (owner decision 4). Absent on any other row and
+   * on an older server.
+   */
+  matchedOutcomeId: z.string().optional(),
 });
 
 export const suggestionSchema = z.object({

@@ -1383,14 +1383,13 @@ for (const record of LIVE_R11.records) test(`live r11: ${record.name}`, async ()
         assert.ok(final.proposal.seeds?.some((seed) => /أ?سافر|السفر/.test(seed.summary)), JSON.stringify(final.proposal));
         break;
       case 'R9-1 en thought + timed add':
-        // The recorded first turn fell back to the unchanged rules extractor,
-        // which merged the call and thought. The later model answer tries to
-        // split it using citations from that older turn, so v9 must roll the
-        // answer back atomically. Changing that first-turn extraction is
-        // explicitly outside this work order.
-        settled(liveItem(final, /Call mom.*travel/i), TOMORROW, '17:00', record.name);
+        // The recorded first turn fell back to rules. It now splits the timed
+        // call from the untimed thought (#736). The later recorded answer still
+        // cites that older turn, so its attempted duplicate split and bread add
+        // are rolled back atomically while the corrected first turn survives.
+        settled(liveItem(final, /Call mom/i), TOMORROW, '17:00', record.name);
         assert.equal(final.proposal.items.some((item) => /bread/i.test(item.title)), false);
-        assert.equal(final.proposal.seeds?.length ?? 0, 0);
+        assert.ok(final.proposal.seeds?.some((seed) => /travel(?:ing)? next summer/i.test(seed.summary)), JSON.stringify(final.proposal));
         assert.match(final.reply, /couldn.t apply|edit it on the card/i);
         break;
       case 'R10-1 en move + untimed add':

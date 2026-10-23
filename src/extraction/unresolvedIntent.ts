@@ -53,6 +53,7 @@
  */
 import type { SeedKind } from '../contracts/v1/intentContracts';
 import { SEED_SUMMARY_MAX_CHARACTERS } from '../contracts/v1/intentContracts';
+import { opensWithAction } from './requestEvidence';
 
 /**
  * The speaker is waiting on somebody or something else.
@@ -100,6 +101,18 @@ const POSSIBLE_GOAL = new RegExp([
  * narrowing that matters is upstream: this detector only ever sees a segment
  * the extractor already declined to read as a commitment.
  */
+/**
+ * A phrase in scripts where `\b` does not mark a useful word edge. The phrase
+ * may be surrounded only by the start/end of the sentence, whitespace or
+ * punctuation — never by another letter in a longer Arabic or Hebrew word.
+ */
+function scriptPhrase(source: string, joined = ''): string {
+  return `(?<![^\\s\\p{P}])(?:${joined})?(?:${source})(?![^\\s\\p{P}])`;
+}
+
+const ARABIC_JOINER = 'و[\\u064B-\\u065F\\u0670]*';
+const HEBREW_JOINER = 'ו[\\u0591-\\u05C7]*';
+
 const CONSIDERATION_PHRASES: readonly { detect: string; leading: string }[] = [
   {
     detect: /\bmaybe i(?:'ll|'m| will| might| should| can| could)?\b/.source,
@@ -119,15 +132,15 @@ const CONSIDERATION_PHRASES: readonly { detect: string; leading: string }[] = [
     leading: /\bi(?:'m| am) not sure(?: yet)?(?: if| whether)?\b|\bnot sure (?:yet )?(?:if|whether) i\b/.source,
   },
   {
-    detect: /يمكن|ممكن|ربما|بفكر|بفكّر|عم أفكر|عم بفكر|مفكر|مفكّر|ناوي|ناوية|بدي أفكر/.source,
-    leading: /يمكن|ممكن|ربما|بفكر|بفكّر|عم أفكر|عم بفكر|مفكر|مفكّر|مفكرة|مفكّرة|ناوي|ناوية|بدي أفكر|مش متأكد(?:ة)?(?: إذا)?|يا ريت/.source,
+    detect: scriptPhrase(/يمكن|ممكن|ربما|بفكر|بفكّر|عم أفكر|عم بفكر|مفكر|مفكّر|ناوي|ناوية|بدي أفكر/.source, ARABIC_JOINER),
+    leading: scriptPhrase(/يمكن|ممكن|ربما|بفكر|بفكّر|عم أفكر|عم بفكر|مفكر|مفكّر|مفكرة|مفكّرة|ناوي|ناوية|بدي أفكر|مش متأكد(?:ة)?(?: إذا)?|يا ريت/.source, ARABIC_JOINER),
   },
   {
-    detect: /אולי|אני חושב על|אני חושבת על|אני שוקל|אני שוקלת|צריך לחשוב על/.source,
-    leading: /אולי|אני חושב על|אני חושבת על|(?:אני\s+)?חושב(?:ת)?(?=\s+ל)|אני שוקל|אני שוקלת|צריך לחשוב על|לא בטוח(?:ה)?(?:\s+אם)?/.source,
+    detect: scriptPhrase(/אולי|אני חושב על|אני חושבת על|אני שוקל|אני שוקלת|צריך לחשוב על/.source, HEBREW_JOINER),
+    leading: scriptPhrase(/אולי|אני חושב על|אני חושבת על|(?:אני\s+)?חושב(?:ת)?(?=\s+ל)|אני שוקל|אני שוקלת|צריך לחשוב על|לא בטוח(?:ה)?(?:\s+אם)?/.source, HEBREW_JOINER),
   },
 ];
-const CONSIDERATION = new RegExp(CONSIDERATION_PHRASES.map(({ detect }) => detect).join('|'), 'i');
+const CONSIDERATION = new RegExp(CONSIDERATION_PHRASES.map(({ detect }) => detect).join('|'), 'iu');
 const LEADING_CONSIDERATION = new RegExp(
   `^(?:${CONSIDERATION_PHRASES.map(({ leading }) => leading).join('|')})(?=$|[\\s\\p{P}])`,
   'iu',
@@ -229,9 +242,29 @@ function plainApostrophes(text: string): string {
   return text.replace(/[\u2018\u2019]/g, "'");
 }
 
+/**
+ * An elided first-person English thought: "maybe travel next summer".
+ *
+ * A bare "maybe" is not enough — "Maybe it runs late" is a remark about the
+ * point before it. The words after it must open one of the same closed-list
+ * actions the capture boundary already recognises. This keeps the detector's
+ * first-person relevance rule while accepting the ordinary note-taking form
+ * where English drops "I will".
+ */
+function opensWithBareMaybeAction(text: string): boolean {
+  const clause = text.trimStart().replace(/^and\s+/i, '');
+  const match = /^maybe(?=$|[\s,.:;!?"'()\-\u2013\u2014])/i.exec(clause);
+  if (!match) return false;
+  const rest = clause.slice(match[0].length).replace(/^[\s,:;.!?\-\u2013\u2014]+/, '');
+  // "travel" is deliberately local to the thought detector. Treating every
+  // bare "travel …" as an errand would broaden ordinary commitment parsing.
+  return opensWithAction(rest) || /^travel\b/i.test(rest);
+}
+
 export function opensWithUnresolvedIntent(text: unknown): boolean {
   const clause = typeof text === 'string' ? plainApostrophes(text.trimStart()) : '';
   if (!clause) return false;
+  if (opensWithBareMaybeAction(clause)) return true;
   return [WAITING_FOR, POSSIBLE_GOAL, CONSIDERATION, IDEA].some((pattern) => {
     const match = new RegExp(pattern.source, pattern.flags.replace('g', '')).exec(clause);
     return match !== null && match.index === 0;
@@ -247,6 +280,9 @@ export function opensWithUnresolvedIntent(text: unknown): boolean {
 export function afterUnresolvedIntentMarker(text: unknown): string | null {
   const clause = typeof text === 'string' ? plainApostrophes(text.trimStart()) : '';
   if (!clause) return null;
+  if (opensWithBareMaybeAction(clause)) {
+    return clause.replace(/^(?:and\s+)?maybe(?=$|[\s,.:;!?"'()\-\u2013\u2014])/i, '');
+  }
   for (const pattern of [WAITING_FOR, POSSIBLE_GOAL, CONSIDERATION, IDEA]) {
     const match = new RegExp(pattern.source, pattern.flags.replace('g', '')).exec(clause);
     if (match !== null && match.index === 0) return clause.slice(match[0].length);
@@ -266,7 +302,7 @@ export function detectUnresolvedIntent(rawSegment: unknown): UnresolvedIntentRea
 
   if (WAITING_FOR.test(segment)) return { kind: 'waiting_for' };
   if (POSSIBLE_GOAL.test(segment)) return { kind: 'possible_goal' };
-  if (CONSIDERATION.test(segment)) return { kind: 'consideration' };
+  if (CONSIDERATION.test(segment) || opensWithBareMaybeAction(segment)) return { kind: 'consideration' };
   if (IDEA.test(segment)) return { kind: 'idea' };
   return null;
 }

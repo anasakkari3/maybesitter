@@ -226,7 +226,8 @@ describe('chat page details (UAT 2026-09-30)', () => {
     const reply = 'Dentist on Friday at 4 PM. Confirm below.';
     await view.rerender(<SayItChatPage {...baseProps} rtl fonts={faces} history={[user, { role: 'assistant', text: reply }]} />);
     expect(screen.queryByTestId('chat-typing')).toBeNull();
-    expect(screen.getByTestId('chat-turn-assistant-1').props.accessibilityLabel).toBe(reply);
+    // The newest reply is said by its words' element, inside the live region (#780).
+    expect(screen.getByTestId('chat-turn-assistant-1-words').props.accessibilityLabel).toBe(reply);
     expect(screen.queryAllByLabelText(typingLabel)).toHaveLength(0);
 
     // The next message: the older reply moves up and keeps its own words; the new one has its own.
@@ -236,7 +237,7 @@ describe('chat page details (UAT 2026-09-30)', () => {
     await view.rerender(<SayItChatPage {...baseProps} rtl fonts={faces}
       history={[user, { role: 'assistant', text: reply }, { role: 'user', text: 'make it 5' }, { role: 'assistant', text: next }]} />);
     expect(screen.getByTestId('chat-turn-assistant-1').props.accessibilityLabel).toBe(reply);
-    expect(screen.getByTestId('chat-turn-assistant-3').props.accessibilityLabel).toBe(next);
+    expect(screen.getByTestId('chat-turn-assistant-3-words').props.accessibilityLabel).toBe(next);
     expect(screen.queryAllByLabelText(typingLabel)).toHaveLength(0);
   });
 
@@ -261,10 +262,15 @@ describe('chat page details (UAT 2026-09-30)', () => {
     const saved = screen.getByTestId('chat-saved-1');
     expect(within(saved).getByTestId('chat-saved-1-text-0').props.children).toBe('Saved ✓ "Dentist"');
     // The invitation continues the line's paragraphs, so the line still reads whole.
-    expect(within(saved).getByTestId('chat-saved-1-text-1').props.children).toBe('Anything else? Tell me.');
-    expect(saved.props.accessibilityLabel).toBe('Saved ✓ "Dentist"\n\nAnything else? Tell me.');
-    // Controls inside: the line is not one opaque element, or they could not be reached.
-    expect(saved.props.accessible).toBe(false);
+    // Its bubble is hidden from a screen reader: the words' element already says it.
+    expect(within(saved).getByTestId('chat-saved-1-text-1', { includeHiddenElements: true }).props.children).toBe('Anything else? Tell me.');
+    const words = within(saved).getByTestId('chat-saved-1-words');
+    expect(words.props.accessible).toBe(true);
+    expect(words.props.accessibilityLabel).toBe('Saved ✓ "Dentist"\n\nAnything else? Tell me.');
+    // Controls inside the bubble but beside the words: the line is not one
+    // opaque element, or they could not be reached.
+    expect(saved.props.accessible).not.toBe(true);
+    expect(within(words).queryByRole('button')).toBeNull();
     await fireEvent.press(within(saved).getByRole('button', { name: 'Undo' }));
     expect(undo).toHaveBeenCalledTimes(1);
   });
