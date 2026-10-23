@@ -105,6 +105,16 @@
  * keeping it would leave a behavioural fact behind a button that says
  * "everything".
  *
+ * `memoryCitations` is also purged. It is a reverse index of which memory
+ * records shaped which suggestions, so it is derived from the same memory and
+ * proposals this operation removes. Keeping it would leave those relationships
+ * behind after both ends were gone.
+ *
+ * `exportLeases` stays. Its short-lived rows coordinate retryable account
+ * exports; they contain no personalization claim and deleting one here could
+ * let a concurrent export run twice. Account deletion still removes the whole
+ * user tree.
+ *
  * Every one of these decisions is enumerated against `USER_SCOPED_COLLECTIONS`
  * in `tests/personalization/deletionScopeCoverage.test.ts`, so the next store
  * added is classified deliberately instead of missed in silence.
@@ -164,6 +174,7 @@ import {
   INTELLIGENCE_GMAIL_SCANS,
   INTELLIGENCE_SOURCE_MARKERS,
   INTELLIGENCE_AUTO_ADDS,
+  MEMORY_CITATIONS,
   MEMORY_DISMISSALS,
   PROFILE_PROPOSALS,
   userCol,
@@ -401,6 +412,8 @@ export async function deletePersonalizationScope(
     await owned(() => clearUserCollection(storage, input.scopeId, INTELLIGENCE_GMAIL_SCANS));
     await owned(() => clearUserCollection(storage, input.scopeId, INTELLIGENCE_SOURCE_MARKERS));
     await owned(() => clearUserCollection(storage, input.scopeId, INTELLIGENCE_AUTO_ADDS));
+    // The reverse index of which memory shaped which suggestion (M5b-2b-1): memory-derived, so it goes.
+    await owned(() => clearUserCollection(storage, input.scopeId, MEMORY_CITATIONS));
     // With the follows gone, the matches they projected stop holding time: an
     // unfollow drop, never a dismissal, so following again brings them back.
     // The commitments themselves are kept as dropped history, like any other

@@ -7,7 +7,11 @@ import {
   answerIntelligenceQuestion,
   getGmailIntelligenceMonitor, setGmailIntelligenceMonitor,
 } from '../../api/endpoints/intelligence';
-import type { IntelligenceInbox, IntelligenceObservation } from '../../api/schemas/intelligence';
+import type { IntelligenceInbox, IntelligenceObservation, IntelligenceSuggestion } from '../../api/schemas/intelligence';
+import type { MemoryItem } from '../../api/schemas/profile';
+import { SuggestionUnavailableError } from '../../api/errors';
+import type { IntelligenceChange } from '../../api/queries';
+import { basisClassVisible, useBasisStamp, useSuggestionBasisSignals, type BasisClass } from '../m5b/suggestionBasis';
 import type { z } from 'zod';
 import { intelligenceGmailMonitorSchema } from '../../api/schemas/intelligence';
 import { forbiddenReason, userFacingMessage } from '../../api/ui/userFacingMessage';
@@ -94,7 +98,8 @@ const UNDERSTOOD_KEY = {
  * (never their own saved records), then the ways to tell it more.
  */
 type IntelligencePanelProps = {
-  onChanged: () => void;
+  /** After a successful action; `{ memory: false }` when it wrote no memory (APP-READ-006). */
+  onChanged: (change?: IntelligenceChange) => void;
   autoGenerate?: boolean;
   /** Embedded mode: shown when the loop is off, and a failed read offers Retry. */
   whenOff?: React.ReactNode;
@@ -228,22 +233,31 @@ function IntelligencePanelForAccount({ onChanged, autoGenerate = false, whenOff 
   // render does not read the inbox a second time.
   const readUid = React.useRef(uid);
   React.useEffect(() => { readUid.current = uid; });
+  // M5b-2b-1 (R13-001): each answer is held with the mode it was filtered
+  // under and the capability it was read under, and drawn only while that
+  // classification allows.
+  const { stamp, classify } = useBasisStamp();
+  const [basis, setBasis] = React.useState<BasisClass | null>(null);
+  const lastReadStart = React.useRef(0);
   const read = React.useCallback(async () => {
     const asOf = readUid.current ? { asUid: readUid.current } : {};
+    const at = stamp();
+    lastReadStart.current = Math.max(lastReadStart.current, at.startedAt);
     // The Gmail switch is one row of the panel; its failure must not take
     // the evidence and suggestions with it.
     const [next, monitor] = await Promise.all([getIntelligenceInbox(asOf), getGmailIntelligenceMonitor(asOf).catch(() => null)]);
-    return { next, monitor };
-  }, []);
+    return { next, monitor, cls: classify(next, at) };
+  }, [stamp, classify]);
   // Only the newest read is applied (M5B2A-R28-004): a background read that
   // started before «مش صحيح» and answers after the dismissal's own read would
   // otherwise put the dismissed outcome, and what cites it, back on screen.
   const readSeq = React.useRef(0);
   const refresh = React.useCallback(async () => {
     const seq = ++readSeq.current;
-    const { next, monitor } = await read();
+    const { next, monitor, cls } = await read();
     if (seq !== readSeq.current) return next;
     setInbox(next);
+    setBasis(cls);
     setGmailMonitor(monitor);
     setPhase('ready');
     return next;
@@ -252,9 +266,9 @@ function IntelligencePanelForAccount({ onChanged, autoGenerate = false, whenOff 
     void (async () => {
       const seq = ++readSeq.current;
       try {
-        const { next, monitor } = await read();
+        const { next, monitor, cls } = await read();
         if (!alive() || seq !== readSeq.current) return;
-        setInbox(next); setGmailMonitor(monitor); setPhase('ready');
+        setInbox(next); setBasis(cls); setGmailMonitor(monitor); setPhase('ready');
       } catch (cause) {
         // A failure only counts for the newest read, as an answer does (R29-004).
         if (!alive() || seq !== readSeq.current) return;
@@ -269,32 +283,96 @@ function IntelligencePanelForAccount({ onChanged, autoGenerate = false, whenOff 
     load(() => alive);
     return () => { alive = false; };
   }, [load]);
+  // What is held when a read that had to check it failed (M5b-2b-1): the
+  // suggestions and their schedule go, and so does the classification, so
+  // nothing — not even «no ideas» — is claimed until an inbox answers again
+  // (R9-001, APP-003). The failed-refresh line offers the retry.
+  const failClosed = React.useCallback(() => {
+    setInbox(current => (current ? { ...current, suggestions: [], schedule: [] } : current));
+    setBasis(null);
+    setRefreshFailed(true);
+  }, []);
+  // A read asked for by a signal, not a tap (M5b-2b-1: a memory write, the
+  // memory list settling, a capability transition). Only the newest read
+  // lands; if it fails, the suggestions it would have checked are cleared
+  // rather than left standing unverified.
+  const signalReread = React.useCallback(() => {
+    void (async () => {
+      const seq = ++readSeq.current;
+      try {
+        const { next, monitor, cls } = await read();
+        if (!scanMounted.current || seq !== readSeq.current) return;
+        setInbox(next); setBasis(cls); setGmailMonitor(monitor); setRefreshFailed(false);
+      } catch {
+        if (!scanMounted.current || seq !== readSeq.current) return;
+        failClosed();
+      }
+    })();
+  }, [read, failClosed]);
+  const m5bReady = phase === 'ready' && inbox !== null;
+  const holding = inbox?.suggestions.some(item => item.status === 'pending') === true;
+  const signals = useSuggestionBasisSignals({
+    held: basis,
+    ready: m5bReady,
+    holding,
+    // Watched only while pending suggestions filtered under on_basis are
+    // held (APP-004): the basis line quotes only a list fetched since mount,
+    // and a mode or fence change can change what may stand while the list
+    // stays the same (R10-002). An empty holder polls nothing; memory writes
+    // and capability transitions still reach it.
+    watchList: m5bOn === true && basis?.mode === 'on_basis' && holding,
+    lastReadStart: () => lastReadStart.current,
+    reread: signalReread,
+  });
+
   // The visit, once per mount, after the inbox is on screen and the account
   // is known; never on a loop that answered off.
   const visited = React.useRef(false);
-  const shown = React.useRef<IntelligenceInbox | null>(null);
-  React.useEffect(() => { shown.current = inbox; }, [inbox]);
+  const shown = React.useRef<{ inbox: IntelligenceInbox | null; basis: BasisClass | null }>({ inbox: null, basis: null });
+  React.useEffect(() => { shown.current = { inbox, basis }; }, [inbox, basis]);
   React.useEffect(() => {
     if (!autoGenerate || !uid || !recommendationsEnabled || phase !== 'ready' || visited.current) return undefined;
     visited.current = true;
     let alive = true;
     void (async () => {
       if (!(await claimVisit(uid))) return;
+      let answer;
       try {
-        const answer = await generateIntelligenceSuggestions({ visit: true, ...bound });
-        recordVisitAnswer(uid, answer.nextVisitAt);
-        const known = new Set((shown.current?.suggestions ?? []).map(item => item.id));
-        if (alive && answer.suggestions.some(item => item.status === 'pending' && !known.has(item.id))) await refresh();
+        answer = await generateIntelligenceSuggestions({ visit: true, ...bound });
       } catch (cause) {
         recordVisitFailure(uid, forbiddenReason(cause) !== null);
+        return;
+      }
+      // The visit answered: that is what the throttle keeps, whatever the
+      // read after it does (APP-VISIT-006).
+      recordVisitAnswer(uid, answer.nextVisitAt);
+      // Read again when the visit's answer differs from what is held in
+      // anything drawn (M5b-2b-1, APP-001): a suggestion keeps its id when
+      // its basis or mode changes, or when a row of another mode replaces
+      // it, so a new id is not the only sign that what is held went stale.
+      // A visit that changed nothing still costs no second read.
+      const held = shown.current;
+      if (!alive || (held.inbox && visitSignature(answer.suggestions, answer.schedule, answer.basisMode ?? null)
+        === visitSignature(held.inbox.suggestions, held.inbox.schedule, held.basis?.mode ?? null))) return;
+      const before = readSeq.current;
+      try {
+        await refresh();
+      } catch {
+        // What is held is known stale and could not be read again: it goes,
+        // unless a newer read has already taken its place.
+        if (alive && readSeq.current === before + 1) failClosed();
       }
     })();
     return () => { alive = false; };
-  }, [autoGenerate, uid, recommendationsEnabled, phase, refresh, bound]);
+  }, [autoGenerate, uid, recommendationsEnabled, phase, refresh, bound, failClosed]);
   // A decision on a card. The mutation decides success; a failed re-read of
   // the inbox afterwards is its own state, retried by re-reading only — never
   // by sending the decision again.
-  const run = async (action: () => Promise<unknown>) => {
+  // `memory: false` for an action that writes no memory (a dismissal, a
+  // warning acknowledged, the monitor switch): the host bumps no memory
+  // revision for it (APP-READ-006).
+  const run = async (action: () => Promise<unknown>, options: { suggestionId?: string; memory?: boolean } = {}) => {
+    const { suggestionId, memory = true } = options;
     if (inFlight.current) return;
     inFlight.current = true;
     setBusy(true);
@@ -308,11 +386,31 @@ function IntelligencePanelForAccount({ onChanged, autoGenerate = false, whenOff 
       try {
         await action();
       } catch (cause) {
+        // M5b-2b-1 (R4-003): the suggestion can no longer be acted on (the
+        // memory mode changed, or a memory that shaped it went). Not an error
+        // to show or say: the inbox is read again and the card leaves.
+        // The card and its schedule leave at once (APP-002); the read after
+        // it can only replace them, and if it fails, nothing held is left
+        // standing unverified.
+        if (cause instanceof SuggestionUnavailableError) {
+          if (suggestionId !== undefined) {
+            setInbox(current => (current ? {
+              ...current,
+              suggestions: current.suggestions.filter(item => item.id !== suggestionId),
+              schedule: current.schedule.filter(item => item.suggestionId !== suggestionId),
+            } : current));
+          }
+          try { await refresh(); } catch { failClosed(); }
+          return;
+        }
         setError(cause);
         try { await refresh(); } catch { /* Keep the original action error visible. */ }
         return;
       }
-      onChanged();
+      onChanged({ memory });
+      // The host's memory revision bump is this panel's own: the read below
+      // is the one read after the action (APP-READ-006).
+      signals.absorbRevision();
       try { await refresh(); } catch { setRefreshFailed(true); }
     } finally {
       inFlight.current = false;
@@ -361,6 +459,7 @@ function IntelligencePanelForAccount({ onChanged, autoGenerate = false, whenOff 
       setLearnedStatus(t.m5bLearnedWrongDone);
       if (Platform.OS === 'ios') AccessibilityInfo.announceForAccessibility(t.m5bLearnedWrongDone);
       onChanged();
+      signals.absorbRevision();
       try { await refresh(); } catch { setRefreshFailed(true); }
     } finally {
       inFlight.current = false;
@@ -429,6 +528,7 @@ function IntelligencePanelForAccount({ onChanged, autoGenerate = false, whenOff 
         return;
       }
       onChanged();
+      signals.absorbRevision();
       let next: IntelligenceInbox | null = null;
       let refreshed = true;
       try { next = await refresh(); } catch { setRefreshFailed(true); refreshed = false; }
@@ -529,14 +629,14 @@ function IntelligencePanelForAccount({ onChanged, autoGenerate = false, whenOff 
     await run(async () => {
       if (await freshCapability('emailSources') !== true) throw M5A_NOT_NOW();
       return setGmailIntelligenceMonitor(true, { timezone: deviceTimeZone() }, bound);
-    });
+    }, { memory: false });
   };
   // The monitor switch chooses between the M5a enrolment (its information
   // first) and the legacy toggle; the choice is made on a fresh answer
   // (M5A-R10-001), and an unknown answer takes neither.
   const pressMonitor = async () => {
     if (gmailMonitor?.enabled) {
-      void run(() => setGmailIntelligenceMonitor(false, undefined, bound));
+      void run(() => setGmailIntelligenceMonitor(false, undefined, bound), { memory: false });
       return;
     }
     const m5 = await freshCapability('emailSources');
@@ -545,7 +645,7 @@ function IntelligencePanelForAccount({ onChanged, autoGenerate = false, whenOff 
       return;
     }
     if (m5) setMonitorInfo(true);
-    else void run(() => setGmailIntelligenceMonitor(true, undefined, bound));
+    else void run(() => setGmailIntelligenceMonitor(true, undefined, bound), { memory: false });
   };
   // A daily sweep held for want of a time zone: an enabled monitor sends the
   // phone's again, once per visit (M5A-R35-004).
@@ -565,12 +665,24 @@ function IntelligencePanelForAccount({ onChanged, autoGenerate = false, whenOff 
   }
   if (phase !== 'ready' || !inbox) return null;
   const evidence = new Map(inbox.observations.map(item => [item.id, item.evidence]));
-  const schedule = new Map(inbox.schedule.map(item => [item.suggestionId, item]));
+  // M5b-2b-1 (R13-001): a response whose classification does not allow it
+  // now draws no suggestion and no schedule row — and no «no ideas» line
+  // either, which would not be true of what is held.
+  // A card that cites a memory waits for the memory list fetched since mount
+  // (answered or failed), so its basis line arrives with it, not after it.
+  // Only that card waits (APP-UI-004): a citationless one beside it, and its
+  // schedule row, are drawn at once.
+  const suggestionsShown = basisClassVisible(basis, signals.capNow);
+  const waitingForList = basis?.mode === 'on_basis' && signals.capNow === true && !signals.listSettled;
+  const classifiedPending = suggestionsShown ? inbox.suggestions.filter(item => item.status === 'pending') : [];
+  const pending = classifiedPending.filter(item => !(waitingForList && (item.memoryBasis?.length ?? 0) > 0));
+  const drawn = new Set(pending.map(item => item.id));
+  const schedule = new Map(inbox.schedule.filter(item => drawn.has(item.suggestionId)).map(item => [item.suggestionId, item]));
   return <><ProductSection title={t.xIntelligenceTitle} why={{ id: 'intelligence-panel', body: t.xIntelligenceBody }} icon="goal">
-    {error && announced === null ? <Txt role="supporting" color={p.wm}>{userFacingMessage(error, t)}</Txt> : null}
-    {recommendationsEnabled && inbox.suggestions.filter(item => item.status === 'pending').length === 0
+    {error && announced === null ? <Txt role="supporting" color={p.wm} testID="m5b-suggestion-action-error">{userFacingMessage(error, t)}</Txt> : null}
+    {recommendationsEnabled && suggestionsShown && classifiedPending.length === 0
       ? <Txt role="supporting">{t.xIntelligenceNoIdeas}</Txt> : null}
-    {recommendationsEnabled && inbox.suggestions.filter(item => item.status === 'pending').map(item => <View key={item.id} testID={`intelligence-suggestion-${item.id}`}>
+    {recommendationsEnabled && pending.map(item => <View key={item.id} testID={`intelligence-suggestion-${item.id}`}>
       <Txt role="body">{isolateAuto(item.title)}</Txt>
       <Txt role="supporting">{isolateAuto(item.reason)}</Txt>
       {(item.kind === 'action' || item.kind === 'goal') ? <TextInput
@@ -584,12 +696,12 @@ function IntelligencePanelForAccount({ onChanged, autoGenerate = false, whenOff 
         style={{ color: p.tx, backgroundColor: p.bg, padding: 12, borderRadius: 12, fontSize: 16, textAlign: rtl ? 'right' : 'left' }}
       /> : null}
       <Txt role="supporting">{fill(t.xIntelligenceEvidence, { evidence: item.observationIds.map(id => evidence.get(id) ?? '').filter(Boolean).map(isolateAuto).join(' · ') })}</Txt>
-      {item.kind === 'action' && schedule.get(item.id)?.slot ? <Txt role="supporting">{fill(t.xIntelligenceSlot, {
+      {item.kind === 'action' && schedule.get(item.id)?.slot ? <Txt role="supporting" testID={`m5b-suggestion-schedule-${item.id}`}>{fill(t.xIntelligenceSlot, {
         date: formatDate(new Date(schedule.get(item.id)!.slot!.startsAt), 'short', { locale: lang, timeZone: zone }),
         time: ltr(formatTime(new Date(schedule.get(item.id)!.slot!.startsAt), { locale: lang, timeZone: zone })),
       })}</Txt> : null}
       {item.kind === 'action' && schedule.get(item.id) && !schedule.get(item.id)?.slot
-        ? <Txt role="supporting">{t.xIntelligenceNoSlot}</Txt> : null}
+        ? <Txt role="supporting" testID={`m5b-suggestion-schedule-${item.id}`}>{t.xIntelligenceNoSlot}</Txt> : null}
       {item.kind === 'question' ? <TextInput
         testID={`intelligence-answer-${item.id}`}
         accessibilityLabel={item.title}
@@ -607,10 +719,22 @@ function IntelligencePanelForAccount({ onChanged, autoGenerate = false, whenOff 
           onPress={() => void run(() => item.kind === 'question'
             ? answerIntelligenceQuestion(item.id, (answers[item.id] ?? '').trim(), bound)
             : decideIntelligenceSuggestion(item.id, 'accept', (editedTitles[item.id] ?? '').trim() || undefined,
-              item.kind === 'action' ? schedule.get(item.id)?.slot ?? undefined : undefined, bound))} />
-        <Pill label={t.xIntelligenceDismiss} kind="outline" disabled={busy} onPress={() => void run(() => decideIntelligenceSuggestion(item.id, 'dismiss', undefined, undefined, bound))} />
+              item.kind === 'action' ? schedule.get(item.id)?.slot ?? undefined : undefined, bound),
+            // A warning acknowledged writes nothing; an accepted goal or
+            // action, or an answer, may write memory or a commitment.
+            { suggestionId: item.id, memory: item.kind !== 'warning' })} />
+        <Pill label={t.xIntelligenceDismiss} kind="outline" disabled={busy} onPress={() => void run(() => decideIntelligenceSuggestion(item.id, 'dismiss', undefined, undefined, bound), { suggestionId: item.id, memory: false })} />
       </View>
       {item.kind !== 'question' ? <Txt role="supporting" color={p.mu}>{t.suggestionNote}</Txt> : null}
+      {/* M5b-2b-1 (R3): which remembered fact shaped it, and the way to
+          correct that fact. After the decision row, so the card's own
+          actions keep their place. */}
+      {m5bOn === true && basis ? <SuggestionBasis
+        suggestion={item}
+        items={signals.freshItems}
+        hidden={memoryId => signals.basisHidden(memoryId, basis.startedAt)}
+        onFix={memoryId => actions.openMemoryFocused(memoryId)}
+      /> : null}
     </View>)}
     {inbox.observations.filter(item => item.review === 'pending' && !SELF_CONFIRMED_SOURCES.has(item.source)).slice(0, MAX_CONFIRM_CARDS).map(item => <View key={item.id} testID={`intelligence-observation-${item.id}`}>
       <Txt role="supporting">{fill(t[UNDERSTOOD_KEY[item.kind]], { evidence: isolateAuto(item.evidence) })}</Txt>
@@ -714,6 +838,67 @@ function IntelligencePanelForAccount({ onChanged, autoGenerate = false, whenOff 
   {/* What was added from the person's own replies sits beside the panel, not inside it (R3.5). */}
   <AddedCard />
   </>;
+}
+
+/**
+ * What a set of suggestions draws, for comparing a visit's answer with what
+ * is held (APP-001): the mode, and each pending suggestion's id, cited
+ * memories and schedule slot.
+ */
+function visitSignature(
+  suggestions: readonly IntelligenceSuggestion[],
+  schedule: IntelligenceInbox['schedule'],
+  mode: BasisClass['mode'],
+): string {
+  const slots = new Map(schedule.map(row => [row.suggestionId, row.slot ? [row.slot.startsAt, row.slot.endsAt] : 'none']));
+  const pending = suggestions
+    .filter(item => item.status === 'pending')
+    .map(item => [item.id, (item.memoryBasis ?? []).map(entry => entry.memoryId).sort(), slots.get(item.id) ?? null] as const)
+    .sort((a, b) => a[0].localeCompare(b[0]));
+  return JSON.stringify([mode, pending]);
+}
+
+/** At most this many basis lines on a card, as the wire allows. */
+const BASIS_LIMIT = 3;
+
+/**
+ * «اعتمدنا على: «…»» · «صحّحها» (M5b-2b-1, R3): one line per memory the
+ * suggestion cites, quoting that memory's own words from a list fetched since
+ * mount. A cited memory missing from that list (deleted, superseded, the
+ * module killed), or one being corrected right now, draws no line. The
+ * correction is the inline action the learned rows use, a ≥44 target whose
+ * accessible name says which memory it corrects (REV-005).
+ */
+function SuggestionBasis({ suggestion, items, hidden, onFix }: {
+  suggestion: IntelligenceSuggestion;
+  items: ReadonlyMap<string, MemoryItem> | null;
+  hidden: (memoryId: string) => boolean;
+  onFix: (memoryId: string) => void;
+}) {
+  const { t, p } = useApp();
+  if (!items || !suggestion.memoryBasis || suggestion.memoryBasis.length === 0) return null;
+  const lines = suggestion.memoryBasis.slice(0, BASIS_LIMIT).flatMap(({ memoryId }) => {
+    const memory = items.get(memoryId);
+    return memory && !hidden(memoryId) ? [{ memoryId, quote: isolateAuto(memory.content) }] : [];
+  });
+  if (lines.length === 0) return null;
+  return <View style={{ gap: 4 }}>
+    {lines.map(({ memoryId, quote }) => <View key={memoryId} style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', columnGap: 8 }}>
+      <Txt role="supporting" color={p.mu} style={{ flexShrink: 1 }} testID={`m5b-suggestion-basis-${suggestion.id}-${memoryId}`}>
+        {fill(t.m5bSuggestionBasis, { memory: quote })}
+      </Txt>
+      <Btn
+        testID={`m5b-suggestion-basis-fix-${suggestion.id}-${memoryId}`}
+        label={fill(t.m5bSuggestionBasisFixA11y, { memory: quote })}
+        onPress={() => onFix(memoryId)}
+        scaleTo={0.97}
+        hitSlop={8}
+        style={{ minHeight: 44, justifyContent: 'center', paddingVertical: 6 }}
+      >
+        <Txt size={14} color={p.acd}>{t.m5bBasisFix}</Txt>
+      </Btn>
+    </View>)}
+  </View>;
 }
 
 /** The newest tapped outcomes the person can still say «مش صحيح» to. */

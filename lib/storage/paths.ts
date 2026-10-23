@@ -76,6 +76,10 @@ export const INTELLIGENCE_GMAIL_SCANS = 'intelligenceGmailScans';
 export const INTELLIGENCE_SOURCE_MARKERS = 'intelligenceSourceMarkers';
 /** Commitments created from a qualifying sent self-reply (M5a). */
 export const INTELLIGENCE_AUTO_ADDS = 'intelligenceAutoAdds';
+/** Content-free reverse index from a memory id to suggestions it shaped. */
+export const MEMORY_CITATIONS = 'memoryCitations';
+/** Short-lived coordination leases for retryable account exports. */
+export const EXPORT_LEASES = 'exportLeases';
 export const FEEDBACK_EVENTS = 'feedbackEvents';
 export const FEEDBACK_BASELINES = 'feedbackBaselines';
 export const CONSENTS = 'consents';
@@ -594,6 +598,8 @@ export const USER_SCOPED_COLLECTIONS = [
   INTELLIGENCE_GMAIL_SCANS,
   INTELLIGENCE_SOURCE_MARKERS,
   INTELLIGENCE_AUTO_ADDS,
+  MEMORY_CITATIONS,
+  EXPORT_LEASES,
   FEEDBACK_EVENTS,
   FEEDBACK_BASELINES,
   CONSENTS,

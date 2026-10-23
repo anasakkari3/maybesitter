@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { createMemoryStorage, resetStorageForTests, setStorageForTests } from '../../lib/storage/index.ts';
+import { createMemoryStorage, resetStorageForTests, setStorageForTests, userDoc } from '../../lib/storage/index.ts';
 import { putObservations } from '../../lib/intelligence/observationStore.ts';
 import { previewSuggestionSchedule } from '../../lib/intelligence/schedulePreview.ts';
 import { suggestionPath, type IntelligenceSuggestion } from '../../lib/intelligence/proposalEngine.ts';
@@ -10,6 +10,7 @@ import { loadDomainState } from '../../lib/services/mobile/participantState.ts';
 test('a proposed action is never previewed in time already gone', async () => {
   const storage = createMemoryStorage();
   const now = '2026-09-30T10:00:00.000Z';
+  await storage.set(userDoc('alice'), { trust: null });
   const [exam] = await putObservations('alice', 'manual', 'exam', now,
     [{ kind: 'event', evidence: 'Exam tomorrow', confidence: 1 }], storage);
   const action: IntelligenceSuggestion = {
@@ -27,6 +28,7 @@ test('accepting the shown slot pins the task; a changed slot is refused', async 
   setStorageForTests(storage);
   try {
     const now = '2026-09-30T10:00:00.000Z';
+    await storage.set(userDoc('alice'), { trust: null });
     const [exam] = await putObservations('alice', 'manual', 'exam', now,
       [{ kind: 'event', evidence: 'Exam tomorrow', confidence: 1 }], storage);
     const action: IntelligenceSuggestion = {

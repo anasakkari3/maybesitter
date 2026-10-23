@@ -1,5 +1,5 @@
 import { useCallback } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { getM5bCapabilities } from '../../api/endpoints/m5b';
 import { FeatureUnavailableError } from '../../api/errors';
 import type { M5bCapabilities } from '../../api/schemas/m5b';
@@ -26,8 +26,15 @@ async function probe(uid: string): Promise<M5bCapabilities> {
 
 export const m5bCapabilitiesKey = (uid: string) => ['user', uid, 'm5bCapabilities'] as const;
 
-/** True / false when known; null while unknown. */
-export function useM5bOn(): boolean | null {
+/**
+ * The probe's two readings (M5b-2b-1, R13-001): `now` is useM5bOn's answer —
+ * true / false when known, null while unknown, and null again after a failed
+ * refetch (fail closed, M5B-A-002); `lastKnown` is the latest answer the
+ * server did give, kept through a failed refetch, or undefined if none yet.
+ * Asked again on every focus, not only once stale: a mode switch on the
+ * server reaches a screen that is brought back (R12-001).
+ */
+export function useM5bCapabilityState(): { now: boolean | null; lastKnown: boolean | undefined } {
   const uid = useUid();
   const query = useQuery({
     queryKey: m5bCapabilitiesKey(uid),
@@ -35,12 +42,32 @@ export function useM5bOn(): boolean | null {
     enabled: uid !== 'signed-out',
     staleTime: FIVE_MINUTES,
     refetchInterval: FIVE_MINUTES,
-    refetchOnWindowFocus: true,
+    refetchOnWindowFocus: 'always',
     retry: false,
   });
   // Fail closed on a failed refetch (M5B-A-002, as M4b): an earlier `true`
   // is not an answer about now, and unknown draws nothing new.
-  return query.status === 'success' && !query.isRefetchError ? query.data.memoryLearning : null;
+  return {
+    now: query.status === 'success' && !query.isRefetchError ? query.data.memoryLearning : null,
+    lastKnown: query.data?.memoryLearning,
+  };
+}
+
+/** True / false when known; null while unknown. */
+export function useM5bOn(): boolean | null {
+  return useM5bCapabilityState().now;
+}
+
+/**
+ * The same two readings, from the cache at the moment of the call — for a
+ * read that stamps what was known when it started and when it answered.
+ */
+export function m5bCapabilitySnapshot(client: QueryClient, uid: string): { now: boolean | null; lastKnown: boolean | undefined } {
+  const state = client.getQueryState<M5bCapabilities>(m5bCapabilitiesKey(uid));
+  return {
+    now: state?.status === 'success' && state.data !== undefined ? state.data.memoryLearning : null,
+    lastKnown: state?.data?.memoryLearning,
+  };
 }
 
 /** How long a tap waits for a fresh answer before it refuses. */

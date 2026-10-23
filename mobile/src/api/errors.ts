@@ -114,6 +114,16 @@ export class FeatureUnavailableError extends NotFoundError {}
 export class ConversationNotFoundError extends NotFoundError {}
 
 /**
+ * 404 `suggestion_unavailable` from an intelligence suggestion's decision or
+ * answer (M5b-2b-1, R4-003): the suggestion is no longer one this account may
+ * act on — the memory mode changed, or a memory that shaped it was deleted or
+ * corrected. Not the person's mistake and nothing to retry: the panel reads
+ * the inbox again and the card leaves without an error. Still a
+ * `NotFoundError`, so anything reading it as one says what it always said.
+ */
+export class SuggestionUnavailableError extends NotFoundError {}
+
+/**
  * A capture confirm the server refused, with the reason it gave (#252).
  *
  * The route answers 404 or 400 with the confirmation body, whose `failureCode`

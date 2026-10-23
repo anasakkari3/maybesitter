@@ -43,6 +43,7 @@ import {
   INTELLIGENCE_SOURCE_MARKERS,
   INTELLIGENCE_AUTO_ADDS,
   MEMORY,
+  MEMORY_CITATIONS,
   MEMORY_DISMISSALS,
   PROFILE_PROPOSALS,
   USER_SCOPED_COLLECTIONS,
@@ -86,6 +87,7 @@ const PURGED: ReadonlySet<string> = new Set([
   INTELLIGENCE_GMAIL_SCANS,
   INTELLIGENCE_SOURCE_MARKERS,
   INTELLIGENCE_AUTO_ADDS,
+  MEMORY_CITATIONS,
 ]);
 
 /**
@@ -191,6 +193,10 @@ const KEPT_BECAUSE: Record<string, string> = {
   captureProposals: 'the user’s own words awaiting confirmation',
   captureConversations: 'the user’s own capture-chat messages and the assistant’s replies, kept only while the conversation can still be continued',
   usage: 'what the account spent, needed for billing and abuse limits',
+  exportLeases:
+    'short-lived, content-free coordination for retryable account exports; it is not a belief about '
+    + 'the person, and clearing an active lease here could let the same export run twice. Account '
+    + 'deletion removes it with the rest of the user tree.',
   plans: 'the user’s own day, built from their own commitments and rebuilt each morning; erasing it loses today, not a belief about them',
   planEvents: 'what the user did to their own plan — a type, a date, a generation and a digest, with no titles and no explanation text',
   deviceCalendarLinks:

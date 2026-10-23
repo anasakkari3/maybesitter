@@ -24,6 +24,7 @@ import {
   NetworkError,
   NotFoundError,
   ConversationNotFoundError,
+  SuggestionUnavailableError,
   FeatureUnavailableError,
   CaptureConfirmRefusedError,
   CAPTURE_CONFIRM_CONFLICT_REASONS,
@@ -494,6 +495,11 @@ function errorForStatus(status: number, body: unknown, path?: string): Error {
       // The capture chat's conversation is gone (expired, or not this
       // account's). The flow starts a new one with the same message, once.
       if (reason === 'conversation_not_found') return new ConversationNotFoundError(message);
+      // An intelligence suggestion that can no longer be acted on (M5b-2b-1,
+      // R4-003). Scoped to the suggestion routes: any other 404 stays ordinary.
+      if (reason === 'suggestion_unavailable' && path !== undefined && path.startsWith('/api/mobile/intelligence/suggestions/')) {
+        return new SuggestionUnavailableError(message);
+      }
       return new NotFoundError(message);
     case 409:
       return conflictFor(body);

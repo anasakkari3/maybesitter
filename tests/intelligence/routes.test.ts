@@ -6,6 +6,17 @@ import { GET as inboxGet, POST as statementPost } from '../../src/app/api/mobile
 import { POST as observationPost } from '../../src/app/api/mobile/intelligence/observations/[id]/route.ts';
 import { createStorageRuntimeMemoryStore } from '../../lib/runtimeMemory/runtimeMemoryStore.ts';
 import { GET as monitorGet, POST as monitorPost } from '../../src/app/api/mobile/intelligence/sources/gmail/monitor/route.ts';
+import {
+  begin as beginBasisHarness,
+  end as endBasisHarness,
+  generate as generateSuggestions,
+  inbox as readInbox,
+  NOW,
+  seedSuggestion,
+  setMode,
+  writeRun,
+  type Mode,
+} from '../acceptance/m5b2b1/support.ts';
 
 const ALICE = uidFor('IntelligenceAlice');
 const BOB = uidFor('IntelligenceBob');
@@ -77,3 +88,72 @@ test('staging route keeps each observation under the authenticated account and r
     auth.restore();
   }
 });
+
+async function writeReusableRun(
+  uid: string,
+  suggestionIds: string[],
+  mode: Mode,
+): Promise<void> {
+  const now = NOW();
+  await writeRun(uid, {
+    digest: `route-parity-${mode}`,
+    contentDigest: `route-parity-${mode}`,
+    claimId: `route-parity-${mode}`,
+    status: 'complete',
+    generatedAt: now,
+    reservedUntil: now,
+    suggestionIds,
+    visitDay: now.slice(0, 10),
+    visitRuns: 1,
+    ...(mode === 'off' ? {} : { mode }),
+  });
+}
+
+test('off mode keeps pending, accepted and dismissed suggestions in the inbox and generate response', async () => {
+  const uid = await beginBasisHarness();
+  try {
+    const pending = await seedSuggestion(uid, 'action', [], {}, { title: 'Pending legacy suggestion' });
+    const accepted = await seedSuggestion(uid, 'action', [], {}, {
+      title: 'Accepted legacy suggestion', status: 'accepted', decidedAt: NOW(), linkedEntityId: 'int_accepted',
+    });
+    const dismissed = await seedSuggestion(uid, 'warning', [], {}, {
+      title: 'Dismissed legacy suggestion', status: 'dismissed', decidedAt: NOW(),
+    });
+    const expected = [pending, accepted, dismissed];
+    setMode('off');
+    await writeReusableRun(uid, expected.map(row => row.id), 'off');
+
+    const inbox = await readInbox(uid);
+    const generated = await generateSuggestions(uid, true);
+    for (const response of [inbox, generated]) {
+      assert.deepEqual(response.suggestions, expected);
+      assert.deepEqual(response.suggestions.map((row: any) => row.status), ['pending', 'accepted', 'dismissed']);
+    }
+  } finally {
+    endBasisHarness();
+  }
+});
+
+for (const mode of ['on_basis', 'on_nobasis'] as const) {
+  test(`${mode} keeps a decided suggestion but exposes no internal mode or memoryBasis`, async () => {
+    const uid = await beginBasisHarness();
+    try {
+      setMode(mode);
+      const decided = await seedSuggestion(uid, 'action', [], { mode }, {
+        title: `Accepted ${mode} suggestion`, status: 'accepted', decidedAt: NOW(), linkedEntityId: `int_${mode}`,
+      });
+      await writeReusableRun(uid, [decided.id], mode);
+
+      const inbox = await readInbox(uid);
+      const generated = await generateSuggestions(uid, true);
+      for (const response of [inbox, generated]) {
+        const row = response.suggestions.find((item: any) => item.id === decided.id);
+        assert.equal(row?.status, 'accepted');
+        assert.equal('mode' in row, false);
+        assert.equal('memoryBasis' in row, false);
+      }
+    } finally {
+      endBasisHarness();
+    }
+  });
+}
