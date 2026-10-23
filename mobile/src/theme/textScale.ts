@@ -59,3 +59,47 @@ export function useTextScale(): number {
 export function useLayoutMode(): LayoutMode {
   return layoutModeFor(useWindowDimensions().fontScale);
 }
+
+/**
+ * `flex: 1` for a node whose style — or whose parent's direction — changes
+ * with the layout mode.
+ *
+ * Never `flex: N` (or any `flexBasis`) there. Yoga keeps the flex basis it
+ * computed for a node (`layout.computedFlexBasis`), and recomputes a basis
+ * that comes from `flex`/`flexBasis` only while that cache is empty
+ * (`computeFlexBasisForChild`, CalculateLayout.cpp). Plain Yoga empties it
+ * whenever a style changes (`Node::markDirtyAndPropagate`); Fabric does not —
+ * a clone copies the Yoga node with its layout, and new props only
+ * `setDirty(true)` it (`YogaLayoutableShadowNode::updateYogaProps`, RN 0.86).
+ * So a node that comes back to `flex: 1` from a mode where its basis came from
+ * a width or from measuring keeps that old basis: after a live change from AX5
+ * back to the default size each tab item kept its AX5 third of the bar (about
+ * 125 pt) and «احكيها» and «يتابع لك» went off the screen, while a fresh open
+ * at the default size was fine (simulator 2026-10-23).
+ *
+ * Two other branches of the same function set the basis on every layout,
+ * whatever the cache holds: a definite `width` (in a row; `height` in a
+ * column), and measuring the content when there is no basis and no size.
+ *
+ *   fillRow          exactly what `flex: 1` resolves to in RN's Yoga, in a row
+ *                    whose width is known: grow 1, shrink 0 (Fabric does not
+ *                    use web defaults, `Node::resolveFlexShrink`) and a zero
+ *                    basis — from `width: 0`, which `maxOrDefined(width,
+ *                    padding + border)` turns into the same number `flexBasis:
+ *                    0` gives. Equal shares when every item has it; the room
+ *                    the siblings leave when one has it. Only in a row: in a
+ *                    column the `width` would be the cross size, so a stacked
+ *                    style must not carry it.
+ *   growFromContent  grow 1, shrink 0, basis measured from the content on
+ *                    every layout. Where `flex: 1` resolves from content
+ *                    anyway: an item of a horizontal scroll (the row's width
+ *                    is unknown while Yoga measures it, so `flex: 1` measures
+ *                    — and keeps that measurement as its basis), or a child
+ *                    whose main axis is a column of unknown height. Each use
+ *                    says why it is not `fillRow`.
+ *
+ * Plain `flex: 1` stays fine where neither it nor its parent's direction ever
+ * changes.
+ */
+export const fillRow = { flexGrow: 1, flexShrink: 0, width: 0 } as const;
+export const growFromContent = { flexGrow: 1, flexShrink: 0 } as const;

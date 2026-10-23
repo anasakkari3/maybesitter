@@ -13,7 +13,7 @@ import { WiderView, type WiderCell } from '../features/calendar/WiderView';
 import { consumeCalendarWider, onCalendarWiderRequest } from '../features/calendar/widerIntent';
 import { LiveRegion } from '../ui/liveRegion';
 import { useAnnounceOnIos } from '../ui/announce';
-import { useLayoutMode } from '../theme/textScale';
+import { fillRow, growFromContent, useLayoutMode } from '../theme/textScale';
 import { useApp } from '../state/AppContext';
 import { useTimeZone } from '../i18n/timezone';
 import { CIVIL_ZONE, civilDate, dayKey, formatDate, formatDayRange, formatRelativeDay, formatTimeRange } from '../i18n/format';
@@ -389,7 +389,10 @@ export function CalendarScreen({ tabClearance = TAB_CLEARANCE }: { tabClearance?
             {/* Stacked, the strip scrolls: Android fades only an edge that has
                 more days behind it, so the row says it moves (u54) without
                 dimming the day that sits at an edge. React Native's fade does
-                not follow the scroll by itself, so this does. */}
+                not follow the scroll by itself, so this does. Each RTL wrapper
+                grows from its content (`growFromContent`, what `flex: 1`
+                resolves to in a horizontal scroll) and never with a `flex`
+                basis, which the stacked strip would leave behind. */}
             <DirectionalScrollRow testID="calendar-week-strip" showsHorizontalScrollIndicator={stacked}
               fadingEdgeLength={stacked ? stripFade : 0} scrollEventThrottle={32}
               onLayout={(event) => { const viewport = event.nativeEvent.layout.width; setStrip((was) => was.viewport === viewport ? was : { ...was, viewport }); }}
@@ -401,7 +404,7 @@ export function CalendarScreen({ tabClearance = TAB_CLEARANCE }: { tabClearance?
                   setStrip({ offset: contentOffset.x, content: contentSize.width, viewport: layoutMeasurement.width });
                 }
               } : undefined}
-              contentContainerStyle={{ flexGrow: 1, gap: 6, paddingBottom: stacked ? 12 : 0 }} itemStyle={stacked ? undefined : { flex: 1 }}>
+              contentContainerStyle={{ flexGrow: 1, gap: 6, paddingBottom: stacked ? 12 : 0 }} itemStyle={stacked ? undefined : growFromContent}>
               {keys.map((key) => {
                 const load = loadOf(key);
                 return (
@@ -580,7 +583,7 @@ function ProposalCard({ proposal, zone, onReview, onLater }: {
       ))}
       <View style={{ flexDirection: stacked ? 'column' : 'row', gap: 10, marginTop: 2 }}>
         <Btn testID="calendar-patch" label={`${t.xPatch}. ${t.xPatchBody}`} onPress={onReview} scaleTo={0.97}
-          style={{ flex: stacked ? undefined : 1, minHeight: 48, borderRadius: 999, backgroundColor: p.ac, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 18 }}>
+          style={{ ...(stacked ? {} : fillRow), minHeight: 48, borderRadius: 999, backgroundColor: p.ac, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 18 }}>
           <Txt size={15} weight={700} color={p.onAccent} align="center">{t.xPatch}</Txt>
         </Btn>
         <Btn testID="calendar-proposal-later" label={t.notNow} onPress={onLater} scaleTo={0.97}
@@ -646,7 +649,11 @@ function DayCell({
       accessibilityState={{ selected }}
       scaleTo={0.94}
       style={{
-        ...(stacked ? { width: 88 } : { flex: 1 }), minWidth: 44, minHeight: stacked ? 60 : 64,
+        // `growFromContent`, not `flex: 1`: a stacked `width: 88` left an 88 pt
+        // basis behind for `flex: 1` to keep (theme/textScale). Not `fillRow`:
+        // the cell sits in a horizontal scroll (or, under RTL, in its wrapper's
+        // column), where `flex: 1` measures its content anyway.
+        ...(stacked ? { width: 88 } : growFromContent), minWidth: 44, minHeight: stacked ? 60 : 64,
         alignItems: 'center', gap: 1, paddingTop: stacked ? 6 : 8, paddingBottom: stacked ? 5 : 7, paddingHorizontal: 2, borderRadius: 16,
         backgroundColor: selected ? p.sf2 : p.sf, borderWidth: 1, borderColor: selected ? p.heroEdge : 'transparent',
       }}

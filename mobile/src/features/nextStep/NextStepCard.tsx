@@ -1,6 +1,6 @@
 import React, { useRef, useState } from 'react';
 import { TextInput, View } from 'react-native';
-import { useLayoutMode } from '../../theme/textScale';
+import { growFromContent, useLayoutMode } from '../../theme/textScale';
 import { useApp } from '../../state/AppContext';
 import { useNextStep, useNextStepDecision } from '../../api/queries';
 import { useM5bOn } from '../m5b/capabilities';
@@ -272,7 +272,9 @@ function Ready({
   };
 
   const button = (kind: 'primary' | 'secondary' | 'tertiary') => ({
-    ...(stacked ? {} : kind === 'primary' ? { flex: 1 } : {}),
+    // `growFromContent`, not `flex: 1` (theme/textScale): the primary sits in
+    // a column of unknown height, where `flex: 1` measures its content anyway.
+    ...(stacked ? {} : kind === 'primary' ? growFromContent : {}),
     minHeight: 48, paddingVertical: 10, paddingHorizontal: kind === 'primary' ? 14 : 16, borderRadius: 999,
     flexDirection: 'row' as const, alignItems: 'center' as const, justifyContent: 'center' as const, gap: 6,
     backgroundColor: busy ? p.dis : kind === 'primary' ? p.ac : p.sf2,
@@ -374,7 +376,7 @@ function Ready({
               full width; the answers share the row under it. */}
           {offers('accept') ? (
             <Btn testID="next-step-accept" label={ACTION_LABEL(strings).accept} disabled={busy} onPress={() => run('accept')}
-              style={{ ...button('primary'), flex: undefined, alignSelf: 'stretch' }}>
+              style={{ ...button('primary'), flexGrow: undefined, flexShrink: undefined, alignSelf: 'stretch' }}>
               <ReferenceIcon name="play" size={16} color={busy ? p.disTx : p.onAccent} />
               <Txt size={15} weight={600} color={busy ? p.disTx : p.onAccent} align="center" style={{ flexShrink: 1 }}>{ACTION_LABEL(strings).accept}</Txt>
             </Btn>

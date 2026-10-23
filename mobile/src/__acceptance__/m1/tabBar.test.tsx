@@ -69,7 +69,11 @@ it('A2 bottom bar: capture is the first of five equal items and still opens text
 
   const items = barItems();
   expect(items.map(item => item.props.testID)).toEqual(TAB_IDS);
-  expect(items.map(item => StyleSheet.flatten(item.props.style)?.flex)).toEqual([1, 1, 1, 1, 1]);
+  // Equal shares — `flex: 1` as `fillRow` (grow 1, shrink 0, zero width), never a `flex` basis (theme/textScale).
+  expect(items.map(item => StyleSheet.flatten(item.props.style)?.flexGrow)).toEqual([1, 1, 1, 1, 1]);
+  expect(items.map(item => StyleSheet.flatten(item.props.style)?.flexShrink)).toEqual([0, 0, 0, 0, 0]);
+  expect(items.map(item => StyleSheet.flatten(item.props.style)?.width)).toEqual([0, 0, 0, 0, 0]);
+  expect(items.map(item => StyleSheet.flatten(item.props.style)?.flex)).toEqual([undefined, undefined, undefined, undefined, undefined]);
 });
 
 it('A2 bottom bar: capture exposes the localized Say it name but paints only the app mark', async () => {

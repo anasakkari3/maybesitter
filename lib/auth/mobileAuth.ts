@@ -25,6 +25,7 @@
  * place to leak them from and a second place to forget to delete them.
  */
 import { requireUserId } from '../storage/paths';
+import { AccountUnavailableError } from '../account/accountLiveness';
 import { accountExists } from './accountDirectory';
 import { getOrCreateTrust, readTrust } from '../pilot/pilotTrustStore';
 import { getTokenVerifier, TokenVerificationError, type TokenVerificationCode } from './tokenVerifier';
@@ -166,9 +167,15 @@ async function readOrCreateTrust(uid: string) {
   }
   if (!live) throw new MobileAuthError('this account was deleted', 403, 'deleted');
 
+  // Auth said yes a moment ago, but a whole deletion can finish between that
+  // answer and this create (#794). The create reads the deletion tombstone in
+  // its own transaction and refuses, and that refusal is the same 403 as above.
   try {
     return await getOrCreateTrust(uid, new Date().toISOString());
-  } catch {
+  } catch (error) {
+    if (error instanceof AccountUnavailableError) {
+      throw new MobileAuthError('this account was deleted', 403, 'deleted');
+    }
     throw new MobileAuthError('the account record could not be read', 503, 'auth_unavailable');
   }
 }

@@ -8,7 +8,7 @@ import { useTimeZone } from '../../i18n/timezone';
 import { fill, type Strings } from '../../i18n/strings';
 import { isolateAuto, stripIsolates } from '../../i18n/bidi';
 import { Btn, RemeasureOnTextScale, Txt } from '../../ui/primitives';
-import { useLayoutMode } from '../../theme/textScale';
+import { fillRow, useLayoutMode } from '../../theme/textScale';
 
 /** What a line of the summary opens: an item's card, a seed's row, or a habit's or goal's card (M3b). */
 export type UnderstoodTarget = { itemId: string } | { seedItemId: string } | { habitItemId: string } | { goalItemId: string };
@@ -84,7 +84,7 @@ export function UnderstoodMessage(props: Parameters<typeof UnderstoodLines>[0] &
         {/* The words in a wrapper that stays mounted, with the words as its
             name: the paragraph inside is replaced on a text-size change. */}
         <View testID={`understood-removed-text-${id}`} accessible accessibilityRole="text" accessibilityLabel={stripIsolates(said)}
-          style={stacked ? undefined : { flex: 1 }}>
+          style={stacked ? undefined : fillRow}>
           <Txt size={13} color={p.mu} accessible={false}>{said}</Txt>
         </View>
         {onRestore ? <Btn testID={`understood-restore-${id}`} label={stripIsolates(fill(t.understoodRestoreLabel, { text: entry.text }))}
@@ -173,7 +173,10 @@ function UnderstoodLines({ proposal, points, edits, onOpen, editable = false, on
     </Pressable> : null;
     return <View key={line.key} style={{ alignSelf: 'stretch', gap: 2 }}>
       <View style={stacked ? { alignItems: 'flex-start', gap: 2 } : { flexDirection: 'row', alignItems: 'flex-start', gap: 4 }}>
-        <View style={stacked ? { alignSelf: 'stretch' } : { flex: 1 }}>{lineElement}</View>
+        {/* `fillRow`, not `flex: 1`: back from the stacked layout a `flex: 1`
+            line kept the basis it was measured at there — its AX5 height —
+            and pushed «عدّل» to the bubble's edge (see fillRow). */}
+        <View style={stacked ? { alignSelf: 'stretch' } : fillRow}>{lineElement}</View>
         {/* Under a numbered line, «عدّل» starts where the line's words do: after
             an unseen copy of the line's own number badge, which grows with the
             text exactly as the badge does (a fixed indent fell short at AX5).

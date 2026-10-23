@@ -68,8 +68,9 @@ export class MobilePilotError extends Error {
 }
 
 export function mobilePilotErrorResponse(error: unknown): Response {
-  // A write the account deletion fence refused (#772): the same 403 a deleted
-  // account gets at sign-in, not a 400 for a message nobody matches.
+  // A write the account deletion fence refused (#772), or a trust record the
+  // store refused to create behind a deletion (#794): the same 403 `deleted`
+  // the auth guard answers, not a 400.
   if (error instanceof AccountUnavailableError) return accountUnavailableResponse();
   if (error instanceof MobilePilotError) {
     return Response.json(

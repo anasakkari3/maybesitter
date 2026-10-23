@@ -5,10 +5,10 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useApp } from '../state/AppContext';
 import type { Tab as NavTab } from '../state/navigation';
 import { barShadow, type Palette } from '../theme/tokens';
-import { Btn, Txt } from '../ui/primitives';
+import { Btn, RemeasureOnTextScale, Txt } from '../ui/primitives';
 import { ReferenceIcon } from '../ui/referenceIcons';
 import { BrandMark } from '../ui/brand';
-import { useLayoutMode } from '../theme/textScale';
+import { fillRow, useLayoutMode } from '../theme/textScale';
 
 /**
  * The bottom bar: «احكيها» · Today · Plan · My things · Watching.
@@ -33,8 +33,12 @@ export function TabBar({ onClearanceChange }: { onClearanceChange?: (height: num
   const enlarged = mode !== 'normal';
   const twoRows = mode === 'xl';
   // Every item the same width in both rows: a third of the bar, never grown,
-  // with the second row's two centred (inspection M1A-R4-004).
-  const slot = twoRows ? { width: '32%' as const, minWidth: 0 } : { flex: 1, minWidth: 0 };
+  // with the second row's two centred (inspection M1A-R4-004). In one row,
+  // a fifth each — as `fillRow`, never `flex: 1`: coming back from the two
+  // rows, a `flex: 1` item kept its cached basis of a third (Yoga on Fabric,
+  // see `fillRow`), and five thirds pushed «احكيها» and «يتابع لك» off the
+  // screen after a live change from AX5 to the default size.
+  const slot = twoRows ? { width: '32%' as const, minWidth: 0 } : { ...fillRow, minWidth: 0 };
 
   const tabs: { screen: NavTab; label: string; testID: string; icon: string }[] = [
     { screen: 'today', label: t.tabToday, testID: 'tab-today', icon: 'today' },
@@ -61,6 +65,11 @@ export function TabBar({ onClearanceChange }: { onClearanceChange?: (height: num
             labels are never capped (IMPLEMENTATION_SPEC). So the bar becomes
             two rows, three and two, each slot wide enough for its word. */}
         <View testID="tab-bar-row" style={{ backgroundColor: p.sfBar, paddingTop: 6, paddingBottom: Math.max(insets.bottom, 8), paddingHorizontal: 6, flexDirection: 'row', flexWrap: twoRows ? 'wrap' : 'nowrap', justifyContent: 'center', alignItems: 'stretch', gap: 2 }}>
+          {/* The labels are measured afresh after a live text-size change: within
+              one layout mode (AX1 → AX5) nothing else about a label changes, so
+              it kept the old size's measurement. Only the words are replaced;
+              each button, which carries the name, stays (RemeasureOnTextScale). */}
+          <RemeasureOnTextScale>
           <Btn
             testID="tab-capture"
             label={t.tabCapture}
@@ -76,6 +85,7 @@ export function TabBar({ onClearanceChange }: { onClearanceChange?: (height: num
             <TabItem key={tab.screen} {...tab} p={p} on={s.screen === tab.screen} enlarged={enlarged} slot={slot}
               onPress={() => actions.switchTab(tab.screen)} />
           ))}
+          </RemeasureOnTextScale>
         </View>
       </View>
     </View>

@@ -604,8 +604,10 @@ exports[`right to left matches the Arabic layout it was reviewed in 1`] = `
                   <View
                     style={
                       {
-                        "flex": 1,
+                        "flexGrow": 1,
+                        "flexShrink": 0,
                         "gap": 4,
+                        "width": 0,
                       }
                     }
                   >
@@ -792,8 +794,10 @@ exports[`right to left matches the Arabic layout it was reviewed in 1`] = `
                   <View
                     style={
                       {
-                        "flex": 1,
+                        "flexGrow": 1,
+                        "flexShrink": 0,
                         "gap": 4,
+                        "width": 0,
                       }
                     }
                   >
@@ -980,8 +984,10 @@ exports[`right to left matches the Arabic layout it was reviewed in 1`] = `
                   <View
                     style={
                       {
-                        "flex": 1,
+                        "flexGrow": 1,
+                        "flexShrink": 0,
                         "gap": 4,
+                        "width": 0,
                       }
                     }
                   >
@@ -1337,7 +1343,9 @@ exports[`right to left matches the Arabic layout it was reviewed in 1`] = `
                 <View
                   style={
                     {
-                      "flex": 1,
+                      "flexGrow": 1,
+                      "flexShrink": 0,
+                      "width": 0,
                     }
                   }
                 >
@@ -1415,7 +1423,9 @@ exports[`right to left matches the Arabic layout it was reviewed in 1`] = `
                 <View
                   style={
                     {
-                      "flex": 1,
+                      "flexGrow": 1,
+                      "flexShrink": 0,
+                      "width": 0,
                     }
                   }
                 >

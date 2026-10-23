@@ -4,7 +4,7 @@ import { useApp } from '../../state/AppContext';
 import { useTimeZone } from '../../i18n/timezone';
 import { formatTime, formatTimeRange } from '../../i18n/format';
 import { fill } from '../../i18n/strings';
-import { useLayoutMode } from '../../theme/textScale';
+import { fillRow, useLayoutMode } from '../../theme/textScale';
 import { Btn, Txt } from '../../ui/primitives';
 import { Tag } from '../../ui/chrome';
 import type { WeeklyBlockOccurrence } from '../../api/schemas/weeklyBlocks';
@@ -42,7 +42,7 @@ export function WeeklyOccurrenceRow({ occurrence, testID }: { occurrence: Weekly
       }}
     >
       <Tag kind="fixed" label={t.wbFixedTag} />
-      <View style={stacked ? { gap: 2 } : { flex: 1 }}>
+      <View style={stacked ? { gap: 2 } : fillRow}>
         <Txt size={15}>{occurrence.title}</Txt>
       </View>
       <Txt size={13} color={p.mu} latin testID={testID ? `${testID}-time` : undefined}>{formatTimeRange(start, end, options)}</Txt>
