@@ -142,11 +142,15 @@ describe('M5b-2a R1 learned outcomes', () => {
     await waitFor(() => expect(screen.queryByTestId('m5b-learned-row-last')).toBeNull());
 
     // SIM-M5B2A-02: the card stays for its result line, with no row left; the
-    // line is drawn in the card, where the person tapped. The panel's one live
-    // region (GA-M5B2A-AMEND-5) is still mounted, and VoiceOver hears it once.
+    // line is drawn in the card, where the person tapped, inside the card's
+    // own polite live region, and VoiceOver hears it once. With nothing left
+    // to open, the disclosure is gone and the title is a plain header.
     expect(screen.queryAllByTestId(/^m5b-learned-(row|readd)-/)).toHaveLength(0);
-    expect(within(screen.getByTestId('m5b-learned-card')).getByTestId('m5b-learned-status')).toBeTruthy();
-    expect(textOf(screen.getByTestId('m5b-learned-status').props.children).length).toBeGreaterThan(0);
+    expect(screen.queryByTestId('m5b-learned')).toBeNull();
+    expect(screen.getByTestId('m5b-learned-title').props.accessibilityRole).toBe('header');
+    const live = within(screen.getByTestId('m5b-learned-card')).getByTestId('m5b-learned-live');
+    expect(live.props.accessibilityLiveRegion).toBe('polite');
+    expect(textOf(within(live).getByTestId('m5b-learned-status').props.children).length).toBeGreaterThan(0);
     expect(screen.getByTestId('intelligence-status').props.accessibilityLiveRegion).toBe('polite');
     expect(announce).toHaveBeenCalledTimes(1);
     expect(harness!.server.matching('GET', /^\/api\/mobile\/intelligence$/).length).toBeGreaterThan(readsBefore);
