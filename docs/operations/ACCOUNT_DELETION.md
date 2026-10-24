@@ -19,7 +19,7 @@ What is kept, and why:
 - **The receipt** (`deletionReceipts/{receiptId}`, 400 days). It contains no uid, email, name or content — the subject is `HMAC-SHA256(pepper, uid)`. It exists so "prove you deleted me" has an answer.
 - **The job record** (`accountDeletions/{subjectHash}`, 30 days), which makes a repeat request idempotent. Its `uid` field is removed the moment the deletion completes.
   It is also the deletion tombstone (#794): a uid's first request reads it before creating `users/{uid}`, and refuses with `403 deleted` when it exists, so a request that Firebase Auth admitted just before a deletion cannot re-create the account after the sweep. It is written before anything is destroyed and is never swept. Its 30-day TTL is far longer than the one-hour life of the ID token that race needs. Deleting it by hand reopens that race for a token still in flight.
-  Its id depends on the pepper, so **the pepper must not be rotated** until rotation is made safe (#798; `GCP_BOOTSTRAP.md`, "Rotating the deletion-receipt pepper"). A process that creates trust against shared Firestore without any pepper refuses (503) instead of guessing that nobody was deleted.
+  Its id depends on the pepper, so the pepper is rotated **only** by the two-phase runbook in `GCP_BOOTSTRAP.md`, "Rotating the deletion-receipt pepper" (#798): a request checks the job under every configured key before starting one, and the sweep finishes a job at the path it is stored at. A process that creates trust against shared Firestore without any pepper refuses (503) instead of guessing that nobody was deleted.
 - Firestore point-in-time recovery covers the last 7 days. Say **within 30 days** publicly, to leave margin.
 - Crashlytics reports are not linked to the account and roll off in 90 days.
 
@@ -27,16 +27,41 @@ What is kept, and why:
 
 1. **Check the sender.** The request must come from the address the account signs in with. An Apple private-relay address is fine — it is the address on the account.
 2. **Find the uid.** Firebase console → Authentication, or `getAuth().getUserByEmail(...)`. Take the uid from there, never from the text of the ticket: the only identifier that can be trusted is the one the directory returns.
-3. **Run the script** against the right environment:
+3. **Run the script** against the right environment. The block reads the pepper versions and the writer selector from the service itself, then fetches each version by number. So the shell holds exactly the keys the service holds, in every phase of a pepper rotation (#798, `GCP_BOOTSTRAP.md`). Never fetch the pepper by `latest`: once a rotation has created a new version, `latest` is a key that no live revision may read yet. A deletion under that key writes a tombstone that the service cannot see.
 
    ```sh
-   MAYBESITTER_STORAGE_BACKEND=firestore \
-   MAYBESITTER_FIRESTORE_DATABASE_ID=staging \
-   MAYBESITTER_DELETION_RECEIPT_PEPPER="$(gcloud secrets versions access latest --secret=maybesitter-deletion-receipt-pepper)" \
-     node --loader ./scripts/ts-resolver.mjs scripts/delete-account.ts <uid>
+   (
+     set -euo pipefail
+     SVC=maybesitter-api-staging; DB=staging   # production: SVC=maybesitter-api; DB='(default)'
+     DELETE_UID='<uid>'
+     # The secret version the service mounts for a pepper variable: only ever
+     # secretKeyRef.key, so a pepper set by mistake as a plain value is never read
+     # (or printed) here. val() reads the one plain setting, the writer selector.
+     ref() {
+       gcloud run services describe "$SVC" --region=europe-west1 --format=json \
+         | jq -r --arg n "$1" '.spec.template.spec.containers[0].env[] | select(.name == $n) | .valueFrom.secretKeyRef.key // empty'
+     }
+     val() {
+       gcloud run services describe "$SVC" --region=europe-west1 --format=json \
+         | jq -r --arg n "$1" '.spec.template.spec.containers[0].env[] | select(.name == $n) | .value // empty'
+     }
+     key() { gcloud secrets versions access "$1" --secret=maybesitter-deletion-receipt-pepper; }
+     CUR="$(ref MAYBESITTER_DELETION_RECEIPT_PEPPER)"
+     PREV="$(ref MAYBESITTER_DELETION_RECEIPT_PEPPER_PREVIOUS)"
+     WRITE="$(val MAYBESITTER_DELETION_RECEIPT_PEPPER_WRITE)"
+     [ -n "$CUR" ] || { echo "the service mounts no pepper" >&2; exit 1; }
+     echo "pepper version ${CUR}, previous ${PREV:-none}, write ${WRITE:-current}"
+     export MAYBESITTER_STORAGE_BACKEND=firestore MAYBESITTER_FIRESTORE_DATABASE_ID="$DB"
+     export MAYBESITTER_DELETION_RECEIPT_PEPPER_WRITE="${WRITE:-current}"
+     MAYBESITTER_DELETION_RECEIPT_PEPPER="$(key "$CUR")"; export MAYBESITTER_DELETION_RECEIPT_PEPPER
+     if [ -n "$PREV" ]; then
+       MAYBESITTER_DELETION_RECEIPT_PEPPER_PREVIOUS="$(key "$PREV")"; export MAYBESITTER_DELETION_RECEIPT_PEPPER_PREVIOUS
+     fi
+     node --loader ./scripts/ts-resolver.mjs scripts/delete-account.ts "$DELETE_UID"
+   )
    ```
 
-   For production, drop `MAYBESITTER_FIRESTORE_DATABASE_ID` so it uses `(default)`, and be certain which project is configured first.
+   The subshell keeps the pepper out of your shell afterwards, and `set -e` stops the block before the script runs if any lookup fails. `CUR` is `latest` only while the service itself maps `latest`, which the runbook allows only before a rotation begins (its step 0 pins a number before step 1 creates a version). Be certain which project is configured first.
 
    Never echo the pepper, never paste it into a ticket, and never store it outside Secret Manager.
 

@@ -160,7 +160,22 @@ gcloud artifacts repositories set-cleanup-policies maybesitter \
 ## Service settings
 
 They live in `infra/cloudrun/flags.sh` so the workflow and a manual deploy
-cannot drift:
+cannot drift. A manual deploy captures the flags first, exactly as the
+workflow does:
+
+```bash
+FLAGS="$(bash infra/cloudrun/flags.sh staging)"   # stops here if flags.sh refuses
+read -ra FLAG_WORDS <<<"${FLAGS}"
+gcloud run deploy maybesitter-api-staging --image <digest> --no-traffic --tag sha-<7> "${FLAG_WORDS[@]}"
+```
+
+Never write `gcloud run deploy … $(bash infra/cloudrun/flags.sh staging)`.
+Even under `set -e`, a failing `$(…)` inside another command's arguments is
+ignored. When `flags.sh` refuses (for example over a malformed
+`pepper-rotation.env`), `gcloud` deploys with no flags at all, and the new
+revision silently inherits the old env and secrets.
+
+The settings:
 
 - `--service-account=maybesitter-run@…`, `--allow-unauthenticated` — the app
   authenticates every request itself (UC-1.0e #144), so Cloud Run's IAM check
@@ -227,14 +242,23 @@ gcloud secrets add-iam-policy-binding <name> \
 Then add it to `infra/cloudrun/flags.sh` as `--set-secrets NAME=<name>:latest`.
 Grant the accessor role on that one secret, never project-wide.
 
-Both services mount the same three secrets (the runtime SA has
-`secretAccessor` on each, checked 2026-09-29):
+Both services mount the same four secrets (the runtime SA has
+`secretAccessor` on each, checked 2026-09-29), plus the pepper's previous
+version while a rotation is active:
 
 | Env var | Secret | Used by |
 | --- | --- | --- |
-| `MAYBESITTER_DELETION_RECEIPT_PEPPER` | `maybesitter-deletion-receipt-pepper` | deletion receipts |
+| `MAYBESITTER_DELETION_RECEIPT_PEPPER` | `maybesitter-deletion-receipt-pepper` | deletion receipts and the deletion tombstone (#794) |
+| `MAYBESITTER_DELETION_RECEIPT_PEPPER_PREVIOUS` | `maybesitter-deletion-receipt-pepper` (the old version) | mounted only while a rotation is active (#798) |
 | `MAYBESITTER_LLM_UID_SALT` | `maybesitter-llm-uid-salt` | the uid hash in model log lines (`lib/llm/llmLog.ts`) |
 | `FOOTBALL_DATA_API_KEY` | `maybesitter-football-data-api-key` | football fixtures (football-data.org) |
+| `MAYBESITTER_POSTPONE_SLOT_HMAC_KEY` | `maybesitter-postpone-slot-hmac-key` | signs short-lived postpone offers |
+
+The pepper's versions, the `PREVIOUS` mapping and the plain env value
+`MAYBESITTER_DELETION_RECEIPT_PEPPER_WRITE` come from
+`infra/cloudrun/pepper-rotation.env`. Every deploy therefore carries the
+rotation state that is committed. Rotate only by `GCP_BOOTSTRAP.md`,
+"Rotating the deletion-receipt pepper".
 
 The football credential was first synced on staging (2026-09-28); production
 mounts it by the owner decision of 2026-09-29. `--set-secrets` replaces the
