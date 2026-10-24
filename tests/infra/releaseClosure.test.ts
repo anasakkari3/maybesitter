@@ -44,10 +44,12 @@ if [ "$1 $2 $3" = "run services describe" ]; then
   if [[ "$*" == *"value(status.url)"* ]]; then
     printf '%s\n' 'https://staging.example.invalid'
   else
+    deployer=',{"name":"MAYBESITTER_DEPLOYER_SA_EMAIL","value":"maybesitter-deployer@maybesitter-app.iam.gserviceaccount.com"}'
+    if [ "\${RELEASE_CLOSURE_OMIT_ENV:-}" = "MAYBESITTER_DEPLOYER_SA_EMAIL" ]; then deployer=''; fi
     cat <<JSON
 {"spec":{"template":{"spec":{"containers":[{"env":[
   {"name":"MAYBESITTER_SCHEDULER_SA_EMAIL","value":"maybesitter-scheduler@maybesitter-app.iam.gserviceaccount.com"},
-  {"name":"MAYBESITTER_INTERNAL_AUDIENCE","value":"https://staging.example.invalid"}
+  {"name":"MAYBESITTER_INTERNAL_AUDIENCE","value":"https://staging.example.invalid"}$deployer
 ]}]}}}}
 JSON
   fi
@@ -127,6 +129,19 @@ test('Scheduler check proves OIDC, targets, schedules, retries and timeouts with
     for (const name of expectedJobs) assert.match(invoked, new RegExp(`scheduler jobs describe ${name}-staging`));
     assert.match(invoked, /scheduler jobs describe intelligence-gmail-staging/);
     assert.match(invoked, /scheduler jobs describe intelligence-gmail-sweep-staging/);
+  });
+});
+
+test('Scheduler check fails when the M5a controls caller is missing from the service (#810)', () => {
+  withMockGcloud((env, calls) => {
+    const result = spawnSync('bash', [scheduler, '--check', 'staging'], {
+      env: { ...env, RELEASE_CLOSURE_OMIT_ENV: 'MAYBESITTER_DEPLOYER_SA_EMAIL' },
+      encoding: 'utf8',
+    });
+    assert.equal(result.status, 1, `${result.stdout}\n${result.stderr}`);
+    assert.match(result.stderr, /FAIL maybesitter-api-staging MAYBESITTER_DEPLOYER_SA_EMAIL is missing/);
+    assert.match(result.stderr, /scheduler check: 1 check\(s\) failed for staging/);
+    assert.doesNotMatch(readFileSync(calls, 'utf8'), /run services update/);
   });
 });
 
