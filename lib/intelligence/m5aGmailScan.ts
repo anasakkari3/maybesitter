@@ -851,16 +851,20 @@ async function processMessage(
   let minuteEndedBeforeDispatch = false;
   // Called only after every free gate passed, immediately before the paid call.
   const markDispatched = async (): Promise<void> => {
-    modelDispatched = true;
     // A conditional update of this caller's own live claim, never a new writer.
-    await storage.runTransaction(async tx => {
+    const owned = await storage.runTransaction(async tx => {
       const [provider, legacy] = await Promise.all([
         tx.get<M5aMarker>(markerPath(uid, providerMarkerId)), tx.get<M5aMarker>(markerPath(uid, legacyMarkerId)),
       ]);
-      if (provider?.state !== 'claimed' || provider.owner !== claimOwner || legacy?.owner !== claimOwner) return;
+      if (provider?.state !== 'claimed' || provider.owner !== claimOwner || legacy?.owner !== claimOwner) return false;
       tx.set(markerPath(uid, providerMarkerId), { ...provider, dispatchOwner: claimOwner });
       tx.set(markerPath(uid, legacyMarkerId), { ...legacy, dispatchOwner: claimOwner });
+      return true;
     });
+    // Another unit took this message over (an expired lease): the paid call
+    // must not go out uncounted under a claim this caller no longer holds.
+    if (!owned) throw new LLMUnavailableError('claim_lost');
+    modelDispatched = true;
   };
   try {
     if (claimed.analysisAttempts >= M5A_MAX_ANALYSIS_ATTEMPTS) {
@@ -1146,7 +1150,10 @@ async function processMessage(
     if (permit) await finalizeQuotaPermit(permit, { storage, now: runtime.now() });
   } catch (error) {
     if (permit) await finalizeQuotaPermit(permit, { storage, now: runtime.now() });
-    if (minuteEndedBeforeDispatch && !modelDispatched
+    // The minute can also end between the wrapper's check and the adapter's
+    // slot start; either way nothing was sent, so it is a deferral (#815).
+    const minuteEnded = minuteEndedBeforeDispatch || Boolean(permit && utcMinute(runtime.now()) !== permit.minute);
+    if (minuteEnded && !modelDispatched
       && await deferClaimForQuota(uid, claimedScan, owner, claimOwner, markerIds, 'minute_boundary', runtime)) return;
     if (modelDispatched) {
       const recorded = await recordFailedAnalysis(

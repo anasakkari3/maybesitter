@@ -207,10 +207,11 @@ export function shareLlmProvider(uid: string, options: ShareProviderOptions = {}
       });
       throw new LLMUnavailableError(reason);
     }
-    if (options.quotaPermit?.onStarted) await options.quotaPermit.onStarted();
-
     const startedAt = Date.now();
     try {
+      // Inside the try: a hook refusal is an LLMUnavailableError with the usual
+      // `llm_call` line, and it stops the call before anything is sent.
+      if (options.quotaPermit?.onStarted) await options.quotaPermit.onStarted();
       const response = await provider.generateStructured({
         system: request.system,
         parts: request.parts,

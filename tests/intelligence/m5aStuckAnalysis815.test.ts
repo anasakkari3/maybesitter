@@ -473,3 +473,66 @@ test('#815 F2 taking over a claim that died after dispatch counts its attempt; o
   assert.equal(marker?.outcome, 'analyzed');
   assert.equal(marker?.analysisAttempts, 2, 'a takeover without a dispatch counted an attempt');
 });
+
+/** Runs `fn` once, right after the transaction that reserves the message's quota permit. */
+function afterPermitReserved(h: Harness, uid: string, fn: () => Promise<void>): () => boolean {
+  const original = h.storage.runTransaction.bind(h.storage);
+  let fired = false;
+  (h.storage as { runTransaction: typeof original }).runTransaction = (async (body: Parameters<typeof original>[0]) => {
+    const result = await original(body);
+    if (!fired && ((await h.storage.get<{ m5aCalls?: number }>(`users/${uid}/usage/2026-10-19`))?.m5aCalls ?? 0) > 0) {
+      fired = true;
+      await fn();
+    }
+    return result;
+  }) as typeof original;
+  return () => fired;
+}
+
+test('#815 R1 a claim stolen between claim and dispatch never sends the paid call and counts nothing', async () => {
+  const uid = 'stuck-claim-stolen';
+  const h = await harness(uid, ['mail'], () => 'ok');
+  // Another unit (a live or daily scan sharing the marker id) takes the message
+  // over after this unit claimed it and reserved its permit, before dispatch.
+  const fired = afterPermitReserved(h, uid, async () => {
+    const marker = await h.marker('mail');
+    await h.storage.set(markerPath(uid, 'mail'), { ...marker, owner: 'other-unit', leaseUntil: at(10) });
+  });
+  await h.step();
+  assert.ok(fired());
+  assert.equal(h.calls.model, 0, 'the paid call went out under a lost claim');
+  const marker = await h.marker('mail');
+  assert.equal(marker?.owner, 'other-unit', 'the lost claim overwrote the new owner');
+  assert.equal(marker?.analysisAttempts, undefined, 'a lost claim counted an attempt');
+  assert.equal(marker?.dispatchOwner, undefined);
+  assert.notEqual((await h.scan()).status, 'complete');
+});
+
+test('#815 R2 a minute that ends between the wrapper check and the adapter slot start defers without counting', async () => {
+  const uid = 'stuck-slot-minute';
+  const h = await harness(uid, ['mail'], () => 'ok');
+  // After the permit is reserved, the wrapper's own minute check sees the old
+  // minute; the adapter's slot start, the next clock read, sees the new one.
+  const mutable = h.runtime as { now: () => Date };
+  const base = mutable.now;
+  let reads = -1;
+  afterPermitReserved(h, uid, async () => { reads = 0; });
+  mutable.now = () => {
+    if (reads >= 0 && reads < 2) { reads += 1; if (reads === 2) h.setClock(at(1)); }
+    return base();
+  };
+  await h.step();
+  let scan = await h.scan();
+  assert.equal(reads, 2, 'the clock did not move between the two checks');
+  assert.equal(h.calls.model, 0);
+  assert.equal((await h.marker('mail'))?.analysisAttempts, undefined, 'a refused slot start counted an attempt');
+  assert.equal(scan.status, 'running', 'a slot-start minute boundary failed the scan');
+  assert.equal(scan.nextEligibleAt, at(2));
+
+  h.setClock(at(2));
+  await h.step();
+  scan = await h.scan();
+  assert.equal(h.calls.model, 1);
+  assert.equal(scan.status, 'complete');
+  assert.equal((await h.marker('mail'))?.outcome, 'analyzed');
+});
