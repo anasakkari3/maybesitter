@@ -638,7 +638,8 @@ function FailureCard({ flow, onRecover, hostRecoveries }: {
   const act = (recovery: PlanRecovery) => {
     switch (recovery) {
       case 'retry': case 'when_online': return flow.retry();
-      case 'template': return flow.generate('template');
+      // After a failed regenerate the old draft is still active (#807).
+      case 'template': return flow.template();
       case 'new_plan': return flow.regenerate();
       // The current plan or times already came back with the refusal and are
       // on screen; without them, read the plan again.

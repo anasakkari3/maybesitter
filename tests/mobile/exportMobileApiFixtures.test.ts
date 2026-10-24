@@ -1382,6 +1382,15 @@ test('exports a fixture for every /api/mobile call the React Native client makes
       }),
       { params: Promise.resolve({ goalId: regenerateGoal.id }) },
     ));
+    // «خطة بسيطة» after that failure (#807): the old draft is still active, so
+    // the simple plan replaces it through regenerate, not generate.
+    const regeneratedTemplate = await record('goalPlan.regeneratedTemplate', 200, await goalPlanRegeneratePost(
+      request(`/api/mobile/goals/${regenerateGoal.id}/plan/regenerate`, {
+        body: { currentPlanId: regenerateBody.plan.planId, revision: regenerateBody.plan.revision, idempotencyKey: 'fixture-regenerate-template', source: 'template' }, uid: GOAL_USER,
+      }),
+      { params: Promise.resolve({ goalId: regenerateGoal.id }) },
+    ));
+    assert.equal((regeneratedTemplate.plan as { source?: string }).source, 'template');
 
     // ── the one clarification (#165) ───────────────────────────────
     // A capture with an action and no time: the extractor cannot resolve it,

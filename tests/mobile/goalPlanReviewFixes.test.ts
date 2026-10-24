@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   GOAL_PLAN_CLAIMS,
   GOAL_PLAN_OUTCOMES,
+  GOAL_PLANS,
   GOAL_STATEMENT_PREVIEWS,
   HABITS,
   MEMORY,
@@ -233,6 +234,48 @@ test('B-7 concurrent regenerate presses share one leased model call and one repl
     assert.equal(second.status, 200, JSON.stringify(second.body));
     assert.equal(first.body.plan.planId, second.body.plan.planId);
     assert.equal(h.modelCalls.length - callsBefore, 1);
+  }, h);
+});
+
+test('#807 after a failed regenerate, a regenerate with source template supersedes the draft with a template plan', async () => {
+  const h = await setup();
+  await within(async () => {
+    const plan = await draftOf(h.goalId);
+    h.answer(new Error('vertex is down'));
+    const failed = await call('goals/[goalId]/plan/regenerate', 'POST', { goalId: h.goalId },
+      { currentPlanId: plan.planId, revision: plan.revision, idempotencyKey: key('regen-807-fail') });
+    assert.equal(failed.status, 503, JSON.stringify(failed.body));
+    assert.equal(failed.body.reason, 'model_unavailable');
+    // The failed regenerate left the old draft in place, so generate cannot
+    // make the template: it answers stale with the old draft (the defect).
+    const viaGenerate = await call('goals/[goalId]/plan/generate', 'POST', { goalId: h.goalId },
+      { idempotencyKey: key('gen-807'), source: 'template' });
+    assert.equal(viaGenerate.status, 409, JSON.stringify(viaGenerate.body));
+    assert.equal(viaGenerate.body.plan.planId, plan.planId);
+
+    const calls = h.modelCalls.length;
+    const template = await call('goals/[goalId]/plan/regenerate', 'POST', { goalId: h.goalId },
+      { currentPlanId: plan.planId, revision: plan.revision, idempotencyKey: key('regen-807-template'), source: 'template' });
+    assert.equal(template.status, 200, JSON.stringify(template.body));
+    assert.equal(template.body.plan.source, 'template');
+    assert.notEqual(template.body.plan.planId, plan.planId);
+    assert.ok(template.body.plan.steps.length >= 1);
+    assert.ok((template.body.plan.steps as Array<{ origin?: string }>).every((step) => step.origin === undefined || step.origin === 'template'));
+    assert.equal(h.modelCalls.length, calls, 'the template regenerate called the model');
+
+    const old = await h.storage.get<{ status: string }>(userSubDoc(USER, GOAL_PLANS, plan.planId));
+    assert.equal(old?.status, 'superseded');
+    const read = await readGoalPlan(USER, h.goalId);
+    assert.equal(read.draft?.planId, template.body.plan.planId);
+    assert.equal(read.draft?.source, 'template');
+
+    // Older clients send no source: regenerate still asks the model.
+    h.answer(weeksPlan());
+    const modelAgain = await call('goals/[goalId]/plan/regenerate', 'POST', { goalId: h.goalId },
+      { currentPlanId: template.body.plan.planId, revision: template.body.plan.revision, idempotencyKey: key('regen-807-model') });
+    assert.equal(modelAgain.status, 200, JSON.stringify(modelAgain.body));
+    assert.equal(modelAgain.body.plan.source, 'model');
+    assert.equal(h.modelCalls.length, calls + 1);
   }, h);
 });
 
