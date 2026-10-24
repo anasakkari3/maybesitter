@@ -36,6 +36,7 @@ import {
   M5A_USER_DAILY_CALL_CAP,
   M5A_USER_DAILY_TOKEN_CAP,
   callsToday,
+  commitUsage,
   finalizeQuotaPermit,
   reserveCall,
   reserveQuotaPermit,
@@ -180,6 +181,41 @@ test('an M5a burst does not block a general call in the same minute', async () =
   const day = await store.get<UsageDay>('users/user_cost_guard/usage/2026-09-12');
   assert.equal(day?.minuteCalls, 1);
   assert.equal(day?.m5aMinuteCalls, M5A_USER_MINUTE_CALL_CAP);
+});
+
+test('settling M5a calls keeps the M5a minute count: the 31st reserve in a minute is refused', async () => {
+  const store = storage();
+  const now = new Date('2026-09-12T10:00:00.000Z');
+  for (let call = 0; call < M5A_USER_MINUTE_CALL_CAP; call += 1) {
+    const reservation = await reserveQuotaPermit(UID, 'semantic_observation', {
+      owner: `settled-${call}`, calls: 1, tokenBudget: 10,
+    }, { storage: store, now });
+    assert.equal(reservation.outcome, 'ok');
+    assert.equal(await startQuotaPermitSlot(reservation.permit!, 0, { storage: store, now }), true);
+    await settleQuotaPermitSlot(reservation.permit!, 0, { promptTokens: 3, outputTokens: 2 }, { storage: store, now });
+  }
+  assert.equal((await reserveQuotaPermit(UID, 'semantic_observation', {
+    owner: 'settled-over', calls: 1, tokenBudget: 10,
+  }, { storage: store, now })).outcome, 'user_minute_cap', 'a settle erased the M5a minute count');
+});
+
+test('a general commitUsage between M5a permits keeps the M5a minute count', async () => {
+  const store = storage();
+  const now = new Date('2026-09-12T10:00:00.000Z');
+  for (let call = 0; call < M5A_USER_MINUTE_CALL_CAP - 1; call += 1) {
+    assert.equal((await reserveQuotaPermit(UID, 'semantic_observation', {
+      owner: `before-${call}`, calls: 1, tokenBudget: 1,
+    }, { storage: store, now })).outcome, 'ok');
+  }
+  await commitUsage(UID, { promptTokens: 40, outputTokens: 10 }, { storage: store, now });
+  const day = await store.get<UsageDay>('users/user_cost_guard/usage/2026-09-12');
+  assert.equal(day?.m5aMinuteCalls, M5A_USER_MINUTE_CALL_CAP - 1, 'a general commit erased the M5a minute count');
+  assert.equal((await reserveQuotaPermit(UID, 'semantic_observation', {
+    owner: 'last', calls: 1, tokenBudget: 1,
+  }, { storage: store, now })).outcome, 'ok');
+  assert.equal((await reserveQuotaPermit(UID, 'semantic_observation', {
+    owner: 'over', calls: 1, tokenBudget: 1,
+  }, { storage: store, now })).outcome, 'user_minute_cap');
 });
 
 test('a full general minute does not block an M5a permit in the same minute', async () => {

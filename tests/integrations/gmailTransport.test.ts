@@ -299,29 +299,42 @@ test('a message is assembled from the get, not from the history stub', async () 
   assert.equal(item?.text, BODY_TEXT_PLAIN);
 });
 
-test('bulk metadata signals are classified before any model-facing adapter', async (t) => {
-  const cases = [
-    { name: 'promotions label', labelIds: ['CATEGORY_PROMOTIONS'] },
-    { name: 'social label', labelIds: ['CATEGORY_SOCIAL'] },
-    { name: 'forums label', labelIds: ['CATEGORY_FORUMS'] },
-    { name: 'List-Unsubscribe header', header: { name: 'List-Unsubscribe', value: '<mailto:leave@example.org>' } },
-    { name: 'List-Id header', header: { name: 'List-Id', value: 'news.example.org' } },
-    { name: 'bulk precedence', header: { name: 'Precedence', value: 'bulk' } },
-    { name: 'list precedence', header: { name: 'Precedence', value: 'list' } },
-    { name: 'junk precedence', header: { name: 'Precedence', value: 'junk' } },
-  ] as const;
+test('bulk metadata signals are classified before any model-facing adapter (GMAIL_BULK_RULE 2)', async (t) => {
+  const unsubscribe = { name: 'List-Unsubscribe', value: '<mailto:leave@example.org>' };
+  const listId = { name: 'List-Id', value: 'news.example.org' };
+  const cases: ReadonlyArray<{ name: string; labelIds?: readonly string[]; headers?: ReadonlyArray<{ name: string; value: string }>; bulk: boolean }> = [
+    // Bulk on their own, whatever else Gmail says.
+    { name: 'promotions label', labelIds: ['CATEGORY_PROMOTIONS'], bulk: true },
+    { name: 'social label', labelIds: ['CATEGORY_SOCIAL'], bulk: true },
+    { name: 'promotions + IMPORTANT is still bulk', labelIds: ['CATEGORY_PROMOTIONS', 'IMPORTANT'], bulk: true },
+    { name: 'social + STARRED is still bulk', labelIds: ['CATEGORY_SOCIAL', 'STARRED'], bulk: true },
+    // Bulk only without a keep label.
+    { name: 'forums label alone', labelIds: ['CATEGORY_FORUMS'], bulk: true },
+    { name: 'List-Unsubscribe alone', headers: [unsubscribe], bulk: true },
+    { name: 'List-Id alone', headers: [listId], bulk: true },
+    { name: 'lower-case list-id header name', headers: [{ name: 'list-id', value: 'news.example.org' }], bulk: true },
+    { name: 'bulk precedence', headers: [{ name: 'Precedence', value: 'bulk' }], bulk: true },
+    { name: 'mixed-case Bulk precedence', headers: [{ name: 'Precedence', value: 'Bulk' }], bulk: true },
+    { name: 'list precedence', headers: [{ name: 'Precedence', value: 'list' }], bulk: true },
+    { name: 'junk precedence', headers: [{ name: 'Precedence', value: 'junk' }], bulk: true },
+    // Transactional mail from list-style mailers, and family/school groups, is kept.
+    { name: 'List-Unsubscribe + Updates is kept', labelIds: ['INBOX', 'CATEGORY_UPDATES'], headers: [unsubscribe], bulk: false },
+    { name: 'List-Id + Personal is kept', labelIds: ['INBOX', 'CATEGORY_PERSONAL'], headers: [listId], bulk: false },
+    { name: 'List-Id + Forums + IMPORTANT is kept', labelIds: ['INBOX', 'CATEGORY_FORUMS', 'IMPORTANT'], headers: [listId], bulk: false },
+    { name: 'bulk precedence + STARRED is kept', labelIds: ['INBOX', 'STARRED'], headers: [{ name: 'Precedence', value: 'bulk' }], bulk: false },
+  ];
   for (const entry of cases) await t.test(entry.name, async () => {
     const body = {
       ...MESSAGE_FULL.body,
-      labelIds: 'labelIds' in entry ? [...entry.labelIds] : ['INBOX'],
+      labelIds: entry.labelIds ? [...entry.labelIds] : ['INBOX'],
       payload: {
         ...MESSAGE_FULL.body.payload!,
-        headers: [...(MESSAGE_FULL.body.payload?.headers ?? []), ...('header' in entry ? [entry.header] : [])],
+        headers: [...(MESSAGE_FULL.body.payload?.headers ?? []), ...(entry.headers ?? [])],
       },
     };
     const { fetchImpl } = scriptedFetch({ messagesGet: ok(body) });
     const message = await createGmailTransport(transportDeps(fetchImpl)).getMessageById(MSG_ID_1);
-    assert.equal(message?.isBulk, true);
+    assert.equal(message?.isBulk, entry.bulk);
   });
 });
 

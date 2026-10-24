@@ -6,7 +6,7 @@ import { extractWithOllama } from '../../src/extraction/ollamaExtractor';
 import { LLMUnavailableError } from '../../src/extraction/llm';
 import type { IntegrationConnectionRecord } from '../../src/contracts/v1/integrationConnectionContracts';
 import { createGmailTransport, type GmailTransport } from '../integrations/gmail/production/gmailTransport';
-import { GmailProviderError } from '../integrations/gmail/adapter';
+import { GMAIL_BULK_RULE, GmailProviderError } from '../integrations/gmail/adapter';
 import { googleAccessToken, requireReadableFeature } from '../integrations/google/googleConnectService';
 import type { GoogleRuntime } from '../integrations/google/googleRuntime';
 import { connectionIdFor } from '../integrations/providers/production/storedConnectionStore';
@@ -77,6 +77,8 @@ export interface M5aMarker {
   readonly preexisting?: boolean;
   readonly processedAt?: string;
   readonly outcome?: 'analyzed' | 'trimmed' | 'empty' | 'bulk';
+  /** The `GMAIL_BULK_RULE` that skipped a bulk message; absent means rule 1. */
+  readonly bulkRule?: number;
   readonly observationIds?: readonly string[];
   readonly autoAddId?: string | null;
   readonly receipts?: Readonly<Record<string, Receipt>>;
@@ -174,7 +176,12 @@ export function markerDecision(
   if (current.state === 'released' || current.state === 'unavailable') {
     return reader === 'm5a' ? 'claim' : reader === 'base' ? 'process' : 'none';
   }
-  if (current.state === 'done') return reader === 'm5a' ? 'count' : reader === 'base' ? 'skip' : 'none';
+  if (current.state === 'done') {
+    // A bulk skip made by an older, broader rule is re-examined, and analysed
+    // if the current rule keeps the message. Its receipts stay on the marker.
+    if (reader === 'm5a' && current.outcome === 'bulk' && (current.bulkRule ?? 1) < GMAIL_BULK_RULE) return 'claim';
+    return reader === 'm5a' ? 'count' : reader === 'base' ? 'skip' : 'none';
+  }
   if (current.state === 'waiting_for_calendar') return reader === 'cleanup' ? 'release' : 'block';
   if (current.state === 'claimed') {
     if ((current.leaseUntil ?? '') > now) return 'block';
@@ -797,7 +804,8 @@ async function processMessage(
           || provider?.owner !== claimOwner || legacy?.owner !== claimOwner) return;
         const marker: M5aMarker = {
           ...provider, state: 'done', owner: undefined, leaseUntil: undefined,
-          processedAt: runtime.now().toISOString(), outcome: 'bulk', observationIds: [], autoAddId: null,
+          processedAt: runtime.now().toISOString(), outcome: 'bulk', bulkRule: GMAIL_BULK_RULE,
+          observationIds: [], autoAddId: null,
         };
         const receipt = transitionReceipt(marker, scan.scanId, 'read',
           [scan.scanId, daily?.scanId].filter(Boolean) as string[]);

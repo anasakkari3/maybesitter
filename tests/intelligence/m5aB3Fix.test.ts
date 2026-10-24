@@ -1264,3 +1264,94 @@ test('bulk mail is durably skipped before quota, model analysis, observations, a
   assert.equal(shareCalls, 4, 'a later scan sent a finished message to the model');
   assert.equal((await storage.get<any>(`users/${uid}/usage/2026-10-19`)).m5aCalls, 4);
 });
+
+test('a bulk skip made by an older rule is re-examined, and analysed when the current rule keeps it', async () => {
+  const storage = createMemoryStorage();
+  const uid = 'bulk-rule';
+  let shareCalls = 0;
+  const shareProvider: LlmProvider = {
+    name: 'gemini',
+    generateJson: async () => { throw new Error('wrong provider verb'); },
+    generateStructured: async () => {
+      shareCalls += 1;
+      return { text: JSON.stringify({ observations: [] }), model: 'fake-share', latencyMs: 1, promptTokens: 1, outputTokens: 1 };
+    },
+  };
+  const runtime: GoogleRuntime = {
+    storage, env: { MAYBESITTER_ENV: 'staging' } as GoogleRuntime['env'], secrets: null, fetchImpl: fetch,
+    now: () => new Date(NOW), shareProvider,
+  };
+  await storage.set(`users/${uid}`, { trust: { ...createPilotTrustState(uid, NOW), calendarConsent: true } });
+  await storage.set('system/m5aControls', { email: { epoch: 3, enabled: true }, calendar: { epoch: 1, enabled: true } });
+  await storage.set(userSubDoc(uid, PROVIDER_CONNECTIONS, connectionIdFor('google')), {
+    identity: { provider: 'google', providerAccountId: 'acct' }, state: 'connected', credentialRef: 'vault',
+    capabilities: ['mail_read'], grantedScopes: [GOOGLE_FEATURE_SCOPES.gmail],
+  });
+  const ids = ['news-0', 'news-1', 'flight-0', 'flight-1', 'personal-0'];
+  const scanDoc = (scanId: string) => ({
+    scanId, kind: 'manual', status: 'running', origin: 'manual', providerAccountId: 'acct', emailEpoch: 3,
+    query: 'after:1 before:9999999999', from: '2026-10-19T00:00:00.000Z', until: '2026-10-20T00:00:00.000Z',
+    timezone: 'UTC', startedAt: NOW, finishedAt: null, failedAt: null, failure: null,
+    pageToken: null, page: null, leaseOwner: null, leaseUntil: null, queued: null, nextEligibleAt: NOW, waiting: null,
+    messagesRead: 0, messagesSkippedBulk: 0, messagesUnavailable: 0, messagesTrimmed: 0,
+    observationsFound: 0, addedFromEmail: 0,
+  });
+  // Rule 1 skipped the flight notices too (List-Unsubscribe); rule 2 keeps them (Updates).
+  let bulkIds = new Set(['news-0', 'news-1', 'flight-0', 'flight-1']);
+  const fetched: string[] = [];
+  const transport = {
+    listRecentMessageIds: async () => ({ ids, nextPageToken: null }),
+    getMessageById: async (id: string) => {
+      fetched.push(id);
+      return {
+        id, threadId: null, historyId: '101', receivedAt: '2026-10-19T09:00:00.000Z',
+        from: null, subject: null, text: 'Your flight on Friday now leaves at 10:40.',
+        sentByAccount: false, isReply: false, isBulk: bulkIds.has(id), bodyFormat: 'text/plain' as const,
+      };
+    },
+  } as unknown as GmailTransport;
+  const scanPath = `users/${uid}/${INTELLIGENCE_GMAIL_SCANS}/manualV2`;
+  const runScan = async (scanId: string) => {
+    await storage.set(scanPath, scanDoc(scanId));
+    for (let step = 0; step <= ids.length; step += 1) {
+      await runM5aScanStep(uid, 'manual', runtime, transport, async () => undefined);
+    }
+    return storage.get<any>(scanPath);
+  };
+
+  let scan = await runScan('rule-1-scan');
+  assert.equal(scan.messagesSkippedBulk, 4);
+  assert.equal(shareCalls, 1);
+  // Turn the rule-2 markers this build wrote back into rule-1 markers.
+  const markers = await storage.list<M5aMarker>(userCol(uid, INTELLIGENCE_SOURCE_MARKERS));
+  for (const row of markers) {
+    if (row.data.outcome !== 'bulk') continue;
+    const { bulkRule: _rule, ...ruleOne } = row.data;
+    await storage.set(`${userCol(uid, INTELLIGENCE_SOURCE_MARKERS)}/${row.id}`, ruleOne);
+  }
+
+  bulkIds = new Set(['news-0', 'news-1']);
+  fetched.length = 0;
+  scan = await runScan('rule-2-scan');
+  assert.equal(scan.status, 'complete');
+  assert.deepEqual([...fetched].sort(), ['flight-0', 'flight-1', 'news-0', 'news-1'],
+    'only the old-rule bulk skips are re-examined');
+  assert.equal(shareCalls, 3, 'the kept flight notices were not analysed');
+  assert.equal(scan.messagesRead, 5);
+  assert.equal(scan.messagesSkippedBulk, 2, 'a re-examined message was counted twice or not at all');
+  const flight = await storage.get<M5aMarker>(
+    `${userCol(uid, INTELLIGENCE_SOURCE_MARKERS)}/${providerMarkerIdFor(uid, 'acct', 'flight-0')}`);
+  assert.equal(flight?.outcome, 'analyzed');
+  const news = await storage.get<M5aMarker>(
+    `${userCol(uid, INTELLIGENCE_SOURCE_MARKERS)}/${providerMarkerIdFor(uid, 'acct', 'news-0')}`);
+  assert.equal(news?.outcome, 'bulk');
+  assert.equal(news?.bulkRule, 2);
+
+  // Current-rule skips are counted from their markers alone.
+  fetched.length = 0;
+  scan = await runScan('rule-2-again');
+  assert.deepEqual(fetched, []);
+  assert.equal(shareCalls, 3);
+  assert.equal(scan.messagesRead, 5);
+  assert.equal(scan.messagesSkippedBulk, 2);
+});

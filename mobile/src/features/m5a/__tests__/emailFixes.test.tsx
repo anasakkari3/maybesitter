@@ -68,8 +68,8 @@ describe('email status says what happened', () => {
     ['ar', 2, 'تخطيت إيميلين جماعيين — نشرات وإعلانات وتنبيهات وظائف.'],
     ['ar', 3, 'تخطيت 3 إيميلات جماعية — نشرات وإعلانات وتنبيهات وظائف.'],
     ['ar', 11, 'تخطيت 11 إيميل جماعي — نشرات وإعلانات وتنبيهات وظائف.'],
-    ['en', 1, 'Skipped 1 bulk e-mail — newsletters, ads and job alerts.'],
-    ['en', 2, 'Skipped 2 bulk e-mails — newsletters, ads and job alerts.'],
+    ['en', 1, 'Skipped 1 bulk email — newsletters, ads and job alerts.'],
+    ['en', 2, 'Skipped 2 bulk emails — newsletters, ads and job alerts.'],
     ['he', 1, 'דילגתי על מייל המוני אחד — ניוזלטרים, פרסומות והתראות משרות.'],
     ['he', 2, 'דילגתי על שני מיילים המוניים — ניוזלטרים, פרסומות והתראות משרות.'],
     ['he', 3, 'דילגתי על 3 מיילים המוניים — ניוזלטרים, פרסומות והתראות משרות.'],
@@ -84,7 +84,7 @@ describe('email status says what happened', () => {
     harness = await prepare('en', initialState({ scanManual: completeScan({ messagesSkippedBulk: 0 }) }));
     await showIntelligence(harness);
     await waitFor(() => expect(screen.queryByTestId('email-scan-status')).not.toBeNull());
-    expect(screen.getByTestId('email-scan-status')).not.toHaveTextContent(/bulk e-mail/);
+    expect(screen.getByTestId('email-scan-status')).not.toHaveTextContent(/bulk email/);
   });
 
   it('REV-012: each added row shows when the commitment is', async () => {

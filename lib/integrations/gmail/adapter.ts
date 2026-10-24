@@ -25,6 +25,15 @@ export const GMAIL_SCOPES = Object.freeze({
   send: 'https://www.googleapis.com/auth/gmail.send',
 } as const);
 
+/**
+ * The version of the transport's bulk-mail rule. A message skipped as bulk
+ * records the rule that skipped it, so a later, narrower rule re-examines
+ * skips made by an older one instead of keeping them forever.
+ *   1 — any bulk label or list header (2026-10-24, first build).
+ *   2 — headers and Forums need the absence of a keep label (inspection of #821).
+ */
+export const GMAIL_BULK_RULE = 2;
+
 export interface GmailMessagePayload {
   readonly id: string;
   readonly threadId: string | null;
@@ -37,7 +46,10 @@ export interface GmailMessagePayload {
   readonly sentByAccount?: boolean;
   /** Reply-ness comes only from the message's own RFC reply headers. */
   readonly isReply?: boolean;
-  /** Deterministic metadata-only classification; SENT messages are always false. */
+  /**
+   * Deterministic metadata-only classification under `GMAIL_BULK_RULE`; SENT
+   * messages are always false.
+   */
   readonly isBulk?: boolean;
   /** The representation selected by the parser. HTML is never quote-certified. */
   readonly bodyFormat?: 'text/plain' | 'text/html';

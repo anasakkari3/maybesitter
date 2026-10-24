@@ -545,13 +545,26 @@ export function createGmailTransport(deps: GmailTransportDeps): GmailTransport {
       : [];
     const sentByAccount = labels.includes('SENT');
     const precedence = headerValue(headers, 'Precedence')?.trim().toLowerCase() ?? null;
+    // GMAIL_BULK_RULE 2. Promotions and Social are bulk on their own. List
+    // headers, Precedence and Forums are not: airlines and banks send flight
+    // changes and payment notices through mailers that add List-Unsubscribe,
+    // and family or school groups carry List-Id. Those count as bulk only when
+    // Gmail gave the message none of the labels that say it matters.
+    const keptByLabel = labels.includes('CATEGORY_UPDATES')
+      || labels.includes('CATEGORY_PERSONAL')
+      || labels.includes('IMPORTANT')
+      || labels.includes('STARRED');
     const isBulk = !sentByAccount && (
-      labels.some(label => label === 'CATEGORY_PROMOTIONS' || label === 'CATEGORY_SOCIAL' || label === 'CATEGORY_FORUMS')
-      || headerValue(headers, 'List-Unsubscribe') !== null
-      || headerValue(headers, 'List-Id') !== null
-      || precedence === 'bulk'
-      || precedence === 'list'
-      || precedence === 'junk'
+      labels.includes('CATEGORY_PROMOTIONS')
+      || labels.includes('CATEGORY_SOCIAL')
+      || (!keptByLabel && (
+        labels.includes('CATEGORY_FORUMS')
+        || headerValue(headers, 'List-Unsubscribe') !== null
+        || headerValue(headers, 'List-Id') !== null
+        || precedence === 'bulk'
+        || precedence === 'list'
+        || precedence === 'junk'
+      ))
     );
     return Object.freeze({
       id: message.id,
