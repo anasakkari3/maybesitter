@@ -60,10 +60,12 @@ test('fair rounds: under a tight deadline every account gets a step before any g
   const uids = ['u1', 'u2', 'u3', 'u4', 'u5', 'u6'];
   const steps: string[] = [];
   const deadline = Date.now() + 200;
-  await runFairRoundsForTests(uids, 2, 0, deadline, 25,
+  const served = await runFairRoundsForTests(uids, 2, 0, deadline, 25,
     async (uid) => { steps.push(uid); await new Promise((resolve) => setTimeout(resolve, 15)); return true; },
     async () => true);
   const firstSix = steps.slice(0, 6);
   assert.deepEqual([...firstSix].sort(), uids, `the first round served ${firstSix.join(',')}`);
   assert.ok(steps.length > 6, 'a second round ran while the deadline allowed');
+  // Inspection GMAIL-811-R2-003: the count is accounts, as every job class reports.
+  assert.equal(served, 6);
 });

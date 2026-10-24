@@ -187,12 +187,13 @@ async function runFairRounds<T extends LaneCandidate>(
   again: (candidate: T) => Promise<boolean>,
 ): Promise<number> {
   let due = candidates;
-  let processed = 0;
+  // Accounts served, as every other job class counts — not steps.
+  const accounts = new Set<string>();
   for (let round = 0; round < rounds && due.length > 0; round += 1) {
     const served: T[] = [];
-    processed += await runCandidateLanes(due, lanes, reserveMs, deadlineMs, async (candidate) => {
+    await runCandidateLanes(due, lanes, reserveMs, deadlineMs, async (candidate) => {
       const ran = await step(candidate);
-      if (ran) served.push(candidate);
+      if (ran) { served.push(candidate); accounts.add(candidate.uid); }
       return ran;
     });
     if (served.length === 0) break;
@@ -200,7 +201,7 @@ async function runFairRounds<T extends LaneCandidate>(
     for (const candidate of served) if (await again(candidate)) next.push(candidate);
     due = next;
   }
-  return processed;
+  return accounts.size;
 }
 
 export function runFairRoundsForTests(
@@ -404,11 +405,14 @@ async function runScanClass(
       // Still running, due, and not held by a step's lease: worth another round.
       const scan = await runtime.storage.get<M5aScanDocument>(scanDoc(candidate.uid));
       const now = runtime.now().toISOString();
-      return scan !== null && scan.status === 'running' && scan.nextEligibleAt <= now
-        && !(scan.leaseUntil && scan.leaseUntil > now);
+      if (!scan || scan.status !== 'running' || scan.nextEligibleAt > now || (scan.leaseUntil && scan.leaseUntil > now)) return false;
+      // The next round reserves from the scan as it is now: once a page is
+      // listed, a step may be a qualifying reply's (inspection GMAIL-811-R2-001).
+      candidate.row = { ...candidate.row, data: scan };
+      return true;
     });
-  // Daily advancement has one owner per tick: after the rounds, not per step.
-  if (kind === 'daily') for (const candidate of candidates) await advanceCompletedDaily(candidate.uid, runtime);
+  // Daily advancement stays with runM5aScanStep, which advances on its own
+  // completion (inspection GMAIL-811-R2-002).
   return processed;
 }
 
