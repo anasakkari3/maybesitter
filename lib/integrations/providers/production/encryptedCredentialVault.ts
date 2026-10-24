@@ -34,6 +34,7 @@
  * line or a returned reference. `IntegrationCredentialReference` is by
  * contract "never a token or secret value", and `keyId` is a document id.
  */
+import { createHash } from 'node:crypto';
 import {
   decryptField,
   encryptField,
@@ -78,6 +79,28 @@ export function credentialPurpose(provider: ContextProviderKind, keyId: string):
  */
 export function credentialKeyId(provider: ContextProviderKind): string {
   return docIdForKey(`provider-oauth:${provider}`);
+}
+
+/**
+ * Which stored credential a reference came from (#800), by object identity.
+ *
+ * A refused OAuth completion that cannot delete the credential it just stored
+ * records that deletion for later, and the later delete must take *that*
+ * credential and no other: the document is keyed per provider, so by then it
+ * may hold a newer one. The fingerprint is kept beside the reference rather
+ * than in it, because the reference is a persisted contract
+ * (`IntegrationCredentialReference`) that holds no such field.
+ */
+const storedFingerprints = new WeakMap<IntegrationCredentialReference, string>();
+
+/** A digest of the wrapped data key: unique per stored value, not a secret, not reversible. */
+export function credentialFingerprint(token: EncryptedField): string {
+  return createHash('sha256').update(token.wrappedDek).digest('base64url');
+}
+
+/** The fingerprint of the credential `storeOAuthTokenSet` returned this reference for, if it did. */
+export function storedCredentialFingerprint(reference: IntegrationCredentialReference): string | null {
+  return storedFingerprints.get(reference) ?? null;
 }
 
 /** What is written. The secret half is entirely inside `token`. */
@@ -131,13 +154,15 @@ export class EncryptedProviderCredentialVault implements ProviderCredentialVault
       await requireLiveAccount(tx, this.uid);
       tx.set(this.path(keyId), document);
     });
-    return Object.freeze({
+    const reference: IntegrationCredentialReference = Object.freeze({
       vault: ENCRYPTED_VAULT_NAME,
       keyId,
       // The KMS key version the DEK was wrapped under, so a rotation is
       // visible in the record without the record holding key material.
       version: token.kmsKeyVersion ?? null,
     });
+    storedFingerprints.set(reference, credentialFingerprint(token));
+    return reference;
   }
 
   async loadOAuthTokenSet(

@@ -32,6 +32,7 @@ import {
   ProviderOAuthError,
   beginProviderOAuth,
   completeProviderOAuth,
+  MemoryProviderOAuthCleanupObligations,
   disconnectProviderOAuth,
   type ProviderOAuthClient,
 } from '../../lib/integrations/providers/providerOAuthLifecycle.ts';
@@ -821,7 +822,7 @@ test('provider OAuth completion stores credentials only in the vault and rejects
     state: begin.state,
     code: 'authorization-code',
     now: '2026-09-17T08:01:00.000Z',
-  });
+  }, new MemoryProviderOAuthCleanupObligations());
 
   assert.equal(record.identity.provider, 'google');
   assert.equal(record.state, 'connected');
@@ -839,7 +840,7 @@ test('provider OAuth completion stores credentials only in the vault and rejects
       state: begin.state,
       code: 'authorization-code',
       now: '2026-09-17T08:02:00.000Z',
-    }),
+    }, new MemoryProviderOAuthCleanupObligations()),
     (error) => error instanceof ProviderOAuthError && error.code === 'invalid_or_replayed_state',
   );
 });
@@ -857,7 +858,7 @@ test('provider OAuth callback refuses mismatched or expired state without replay
       state: begin.state,
       code: 'authorization-code',
       now: '2026-09-17T08:01:00.000Z',
-    }),
+    }, new MemoryProviderOAuthCleanupObligations()),
     (error) => error instanceof ProviderOAuthError && error.code === 'state_scope_mismatch',
   );
   await assert.rejects(
@@ -867,7 +868,7 @@ test('provider OAuth callback refuses mismatched or expired state without replay
       state: begin.state,
       code: 'authorization-code',
       now: '2026-09-17T08:01:01.000Z',
-    }),
+    }, new MemoryProviderOAuthCleanupObligations()),
     (error) => error instanceof ProviderOAuthError && error.code === 'invalid_or_replayed_state',
   );
 
@@ -890,7 +891,7 @@ test('provider OAuth callback refuses mismatched or expired state without replay
       state: expired.state,
       code: 'authorization-code',
       now: '2026-09-17T08:00:01.000Z',
-    }),
+    }, new MemoryProviderOAuthCleanupObligations()),
     (error) => error instanceof ProviderOAuthError && error.code === 'invalid_or_replayed_state',
   );
 });
@@ -913,7 +914,7 @@ test('provider OAuth completion compensates if the connection registry write fai
       state: begin.state,
       code: 'authorization-code',
       now: '2026-09-17T08:01:00.000Z',
-    }),
+    }, new MemoryProviderOAuthCleanupObligations()),
     (error) => error instanceof ProviderOAuthError && error.code === 'connection_store_failed',
   );
   assert.deepEqual(vault.deleted, ['user-a:google']);
@@ -933,7 +934,7 @@ test('provider OAuth disconnect revokes before deleting credentials and preserve
     state: begin.state,
     code: 'authorization-code',
     now: '2026-09-17T08:01:00.000Z',
-  });
+  }, new MemoryProviderOAuthCleanupObligations());
 
   const revoked = await disconnectProviderOAuth(vault, connections, client, {
     scopeId: 'user-a',
@@ -963,7 +964,7 @@ test('provider OAuth disconnect revokes before deleting credentials and preserve
     state: retryBegin.state,
     code: 'authorization-code',
     now: '2026-09-17T08:01:00.000Z',
-  });
+  }, new MemoryProviderOAuthCleanupObligations());
 
   await assert.rejects(
     disconnectProviderOAuth(retryVault, retryConnections, oauthClient({

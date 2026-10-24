@@ -197,6 +197,15 @@ export interface GoogleOAuthClientDeps {
    * happens while nothing has been persisted.
    */
   readonly requireAccountId?: string;
+  /**
+   * Told the account's `sub` as soon as `loadIdentity` has read it, before the
+   * `requireAccountId` check (#800). A refused grant for another account must
+   * still be revoked, and if that revoke has to be retried later, the retry
+   * must know which Google account it would revoke: Google revokes the whole
+   * authorization for that account, so a later connection of the same account
+   * would die with it. Never put on an error, never logged.
+   */
+  readonly observeAccountId?: (sub: string) => void;
 }
 
 /** The token-endpoint success body (G1). */
@@ -399,6 +408,7 @@ export function createGoogleOAuthClient(deps: GoogleOAuthClientDeps): ProviderOA
       // Fails closed: an identity with no subject must never compare equal to
       // anything, least of all to "no account required".
       if (!sub) throw new GoogleAccountMismatchError();
+      deps.observeAccountId?.(sub);
       if (deps.requireAccountId !== undefined && deps.requireAccountId !== sub) {
         // Refused *before* `completeProviderOAuth` reaches the vault or the
         // connection store, which is what makes a mismatch store nothing.

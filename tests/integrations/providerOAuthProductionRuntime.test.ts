@@ -29,6 +29,7 @@ import { refreshProviderAccessToken } from '../../lib/integrations/providers/pro
 import {
   beginProviderOAuth,
   completeProviderOAuth,
+  MemoryProviderOAuthCleanupObligations,
   disconnectProviderOAuth,
   type ProviderOAuthClient,
   type ProviderOAuthState,
@@ -103,7 +104,7 @@ async function connect(uid = UID_A, storage = createMemoryStorage(), options = c
     state: begun.state,
     code: 'auth-code',
     now: NOW,
-  });
+  }, new MemoryProviderOAuthCleanupObligations());
   return { storage, stateStore, vault, connections, record, begun, options };
 }
 
@@ -179,9 +180,9 @@ test('a replayed state is rejected: the second callback fails', async () => {
     now: NOW,
   });
   const input = { scopeId: UID_A, provider: 'google' as const, state: begun.state, code: 'c', now: NOW };
-  await completeProviderOAuth(stateStore, vault, connections, client(), input);
+  await completeProviderOAuth(stateStore, vault, connections, client(), input, new MemoryProviderOAuthCleanupObligations());
   await assert.rejects(
-    () => completeProviderOAuth(stateStore, vault, connections, client(), input),
+    () => completeProviderOAuth(stateStore, vault, connections, client(), input, new MemoryProviderOAuthCleanupObligations()),
     /invalid_or_replayed_state/,
   );
 });
@@ -250,7 +251,7 @@ test('a malformed callback is rejected before anything is stored', async () => {
         code: 'c',
         now: NOW,
         ...bad,
-      } as never),
+      } as never, new MemoryProviderOAuthCleanupObligations()),
     );
   }
 });
@@ -412,7 +413,7 @@ test('reconnecting replaces the grant instead of orphaning one', async () => {
     state: begun.state,
     code: 'code-2',
     now: NOW,
-  });
+  }, new MemoryProviderOAuthCleanupObligations());
   assert.equal(again.connectionId, record.connectionId);
   assert.equal(again.connectionId, connectionIdFor('google'));
   const all = await connections.list({ scopeId: UID_A });
