@@ -20,6 +20,7 @@ export const dynamic = 'force-dynamic';
 
 const DAILY_LIMIT_CLIENT_FEATURE = 'gmail-scan-daily-limit';
 const BULK_CLIENT_FEATURE = 'gmail-scan-bulk';
+const UNANALYSED_CLIENT_FEATURE = 'gmail-scan-unanalysed';
 
 function supportsFeature(request: Request, wanted: string): boolean {
   return (request.headers.get('X-MaybeSitter-Client-Features') ?? '')
@@ -51,7 +52,8 @@ export async function GET(request: Request): Promise<Response> {
   ]);
   const dailyLimit = supportsFeature(request, DAILY_LIMIT_CLIENT_FEATURE);
   const bulk = supportsFeature(request, BULK_CLIENT_FEATURE);
-  return Response.json({ success: true, manual: publicScanStatus(scan, dailyLimit, bulk), queuedManual: publicQueued(scan), daily: publicDailyStatus(daily, dailyLimit, bulk) });
+  const unanalysed = supportsFeature(request, UNANALYSED_CLIENT_FEATURE);
+  return Response.json({ success: true, manual: publicScanStatus(scan, dailyLimit, bulk, unanalysed), queuedManual: publicQueued(scan), daily: publicDailyStatus(daily, dailyLimit, bulk, unanalysed) });
 }
 
 export async function POST(request: Request) {
@@ -88,9 +90,10 @@ export async function POST(request: Request) {
       const daily = await readM5aDailyScan(user.uid, googleRuntime().storage);
       const dailyLimit = supportsFeature(request, DAILY_LIMIT_CLIENT_FEATURE);
       const bulk = supportsFeature(request, BULK_CLIENT_FEATURE);
+      const unanalysed = supportsFeature(request, UNANALYSED_CLIENT_FEATURE);
       return Response.json({
-        success: true, messagesRead: 0, observations: [], scan: publicScanStatus(scan, dailyLimit, bulk),
-        manual: publicScanStatus(scan, dailyLimit, bulk), queuedManual: publicQueued(scan), daily: publicDailyStatus(daily, dailyLimit, bulk),
+        success: true, messagesRead: 0, observations: [], scan: publicScanStatus(scan, dailyLimit, bulk, unanalysed),
+        manual: publicScanStatus(scan, dailyLimit, bulk, unanalysed), queuedManual: publicQueued(scan), daily: publicDailyStatus(daily, dailyLimit, bulk, unanalysed),
       });
     } catch (error) {
       if (error instanceof Error && error.message === 'm5_unavailable') {

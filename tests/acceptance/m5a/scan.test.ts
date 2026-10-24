@@ -8,7 +8,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   NOW, TZ, begin, beginGoogle, call, connectGoogle, currentStorage, end, plusDays, plusMinutes, runScanToEnd,
-  scanNew, scanResume, scanStatus, semanticModel, show,
+  scanNew, scanResume, scanStatus, semanticModel, show, tick,
 } from './support.ts';
 
 test.afterEach(() => end());
@@ -83,12 +83,13 @@ test('R2.2 / G-1: the status is a strict union with scanId, origin, window, star
   const status = await runScanToEnd(uid);
   const manual = status.manual;
   assert.equal(manual.status, 'complete');
-  for (const field of ['scanId', 'origin', 'from', 'until', 'startedAt', 'finishedAt', 'messagesRead', 'messagesUnavailable', 'messagesTrimmed', 'messagesSkippedBulk', 'observationsFound', 'addedFromEmail']) {
+  for (const field of ['scanId', 'origin', 'from', 'until', 'startedAt', 'finishedAt', 'messagesRead', 'messagesUnavailable', 'messagesTrimmed', 'messagesSkippedBulk', 'messagesUnanalysed', 'observationsFound', 'addedFromEmail']) {
     assert.ok(field in manual, `ScanStatus lacks ${field}`);
   }
   assert.equal(manual.origin, 'manual');
   assert.equal(manual.observationsFound, 2);
   assert.equal(manual.messagesSkippedBulk, 1);
+  assert.equal(manual.messagesUnanalysed, 0);
   assert.equal(manual.addedFromEmail, 0);
 });
 
@@ -136,6 +137,28 @@ test('R2.2: a Gmail failure records failed + failure, and resume continues the s
   assert.equal(done.manual.messagesRead, 8);
   const windows = new Set(google.listQueries.filter((entry) => entry.q?.includes('after:')).map((entry) => entry.q));
   assert.equal(windows.size, 1, 'resume changed the frozen window');
+});
+
+test('#815 F3: during the backoff a sweep tick does nothing, while the person\'s resume tap retries now', async () => {
+  const { uid, google } = await setup(3);
+  assert.equal((await scanNew(uid)).status, 200);
+  const scanId = (await scanStatus(uid)).body.manual.scanId;
+  google.gmailStatus = 500;
+  await scanResume(uid, scanId);
+  const failed = (await scanStatus(uid)).body.manual;
+  assert.equal(failed.status, 'failed', show(failed));
+  assert.equal(failed.failure, 'source_unavailable');
+  const stored = await currentStorage().get<any>(`users/${uid}/intelligenceGmailScans/manualV2`);
+  assert.ok(Date.parse(stored.nextEligibleAt) > Date.now(), 'the failed scan did not back off');
+  google.gmailStatus = null;
+  const gets = google.gets.length;
+  await tick('sweep');
+  assert.equal(google.gets.length, gets, 'the unattended sweep stepped inside the backoff');
+  assert.equal((await scanStatus(uid)).body.manual.status, 'failed');
+  const resumed = await scanResume(uid, scanId);
+  assert.ok(resumed.status < 500, show(resumed.body));
+  assert.ok(google.gets.length > gets, 'the resume tap waited out the backoff');
+  assert.notEqual((await scanStatus(uid)).body.manual.status, 'failed');
 });
 
 test('M5A-R40-001: a stale resume (wrong expectedScanId) returns the current status and starts nothing', async () => {

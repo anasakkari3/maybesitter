@@ -82,6 +82,7 @@ export const busyRefusalSchema = z.object({
 const counts = {
   messagesRead: z.number().int().nonnegative(),
   messagesSkippedBulk: z.number().int().nonnegative().optional(),
+  messagesUnanalysed: z.number().int().nonnegative().optional(),
   messagesUnavailable: z.number().int().nonnegative(),
   messagesTrimmed: z.number().int().nonnegative(),
   observationsFound: z.number().int().nonnegative(),

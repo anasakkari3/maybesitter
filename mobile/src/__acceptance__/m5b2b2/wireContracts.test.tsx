@@ -31,7 +31,7 @@ jest.mock('expo-localization', () => ({
 }));
 
 const CLIENT_FEATURE_HEADER = 'X-MaybeSitter-Client-Features';
-const CLIENT_FEATURE_VALUE = 'readd,gmail-scan-daily-limit,gmail-scan-bulk';
+const CLIENT_FEATURE_VALUE = 'readd,gmail-scan-daily-limit,gmail-scan-bulk,gmail-scan-unanalysed';
 
 let harness: M5bHarness | undefined;
 

@@ -15,6 +15,7 @@
     "observationsFound": 0,
     "addedFromEmail": 0,
     "messagesSkippedBulk": 0,
+    "messagesUnanalysed": 0,
     "finishedAt": "2026-08-09T09:00:00.000Z"
   },
   "manual": {
@@ -30,6 +31,7 @@
     "observationsFound": 0,
     "addedFromEmail": 0,
     "messagesSkippedBulk": 0,
+    "messagesUnanalysed": 0,
     "finishedAt": "2026-08-09T09:00:00.000Z"
   },
   "queuedManual": null,

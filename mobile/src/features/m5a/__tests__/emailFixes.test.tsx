@@ -80,6 +80,30 @@ describe('email status says what happened', () => {
     expect(screen.getByTestId('email-scan-status')).toHaveTextContent(exactTextPattern(expected));
   });
 
+  it.each<['ar' | 'en' | 'he', number, string]>([
+    ['ar', 1, 'إيميل واحد ما قدرت أفهمه، كمّلت بعده'],
+    ['ar', 2, 'إيميلين ما قدرت أفهمهم، كمّلت بعدهم'],
+    ['ar', 3, '3 إيميلات ما قدرت أفهمهم، كمّلت بعدهم'],
+    ['ar', 11, '11 إيميل ما قدرت أفهمهم، كمّلت بعدهم'],
+    ['en', 1, "1 email I couldn't understand — I carried on past it"],
+    ['en', 2, "2 emails I couldn't understand — I carried on past them"],
+    ['he', 1, 'מייל אחד שלא הצלחתי להבין — המשכתי הלאה'],
+    ['he', 2, 'שני מיילים שלא הצלחתי להבין — המשכתי הלאה'],
+    ['he', 3, '3 מיילים שלא הצלחתי להבין — המשכתי הלאה'],
+  ])('#815 shows the unanalysed line in %s for %i', async (language, count, expected) => {
+    harness = await prepare(language, initialState({ scanManual: completeScan({ messagesUnanalysed: count }) }));
+    await showIntelligence(harness);
+    await waitFor(() => expect(screen.queryByTestId('email-scan-status')).not.toBeNull());
+    expect(screen.getByTestId('email-scan-status')).toHaveTextContent(exactTextPattern(expected));
+  });
+
+  it('#815 omits the unanalysed line when every email was understood', async () => {
+    harness = await prepare('en', initialState({ scanManual: completeScan({ messagesUnanalysed: 0 }) }));
+    await showIntelligence(harness);
+    await waitFor(() => expect(screen.queryByTestId('email-scan-status')).not.toBeNull());
+    expect(screen.getByTestId('email-scan-status')).not.toHaveTextContent(/couldn't understand/);
+  });
+
   it('omits the bulk-skip line when nothing was skipped', async () => {
     harness = await prepare('en', initialState({ scanManual: completeScan({ messagesSkippedBulk: 0 }) }));
     await showIntelligence(harness);

@@ -13,6 +13,7 @@
     "observationsFound": 1,
     "addedFromEmail": 0,
     "messagesSkippedBulk": 1,
+    "messagesUnanalysed": 1,
     "failedAt": "2026-08-09T08:00:00.000Z",
     "failure": "source_unavailable"
   },
