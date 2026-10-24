@@ -3927,7 +3927,7 @@ test('exports the M5a fixtures from the real handlers', async () => {
     await recordM4b('calendar.register.too-many-phones', 409, await register(uid, 'phone-21'));
   });
 
-  const scanFeatureHeaders = { 'X-MaybeSitter-Client-Features': 'gmail-scan-daily-limit,gmail-scan-bulk' };
+  const scanFeatureHeaders = { 'X-MaybeSitter-Client-Features': 'gmail-scan-daily-limit,gmail-scan-bulk,gmail-scan-unanalysed' };
   const scanRequest = (uid: string) => callM5a(uid, 'intelligence/sources/gmail/scan', 'GET', { headers: scanFeatureHeaders });
   const baseScan = (status: 'running' | 'complete' | 'failed', patch: Record<string, unknown> = {}) => ({
     scanId: 'fixture-scan', kind: 'manual', status, origin: 'manual', providerAccountId: 'fixture@example.com', emailEpoch: 0,
@@ -3935,7 +3935,7 @@ test('exports the M5a fixtures from the real handlers', async () => {
     startedAt: REFERENCE_TIME, finishedAt: status === 'complete' ? REFERENCE_TIME : null,
     failedAt: status === 'failed' ? REFERENCE_TIME : null, failure: status === 'failed' ? 'source_unavailable' : null,
     pageToken: null, page: null, leaseOwner: null, leaseUntil: null, queued: null, nextEligibleAt: REFERENCE_TIME,
-    messagesRead: 2, messagesSkippedBulk: 1, messagesUnavailable: 1, messagesTrimmed: 0, observationsFound: 1, addedFromEmail: 0,
+    messagesRead: 2, messagesSkippedBulk: 1, messagesUnanalysed: 1, messagesUnavailable: 1, messagesTrimmed: 0, observationsFound: 1, addedFromEmail: 0,
     ...patch,
   });
 
@@ -3954,6 +3954,8 @@ test('exports the M5a fixtures from the real handlers', async () => {
       'a strict-enum older app received the new failure without announcing support');
     assert.equal('messagesSkippedBulk' in (legacyDailyLimit.body.manual as Record<string, unknown>), false,
       'a strict older app received the bulk counter without announcing support');
+    assert.equal('messagesUnanalysed' in (legacyDailyLimit.body.manual as Record<string, unknown>), false,
+      'a strict older app received the unanalysed counter without announcing support');
     await recordM4b('intelligence.scan.failed.daily_limit', 200, await scanRequest(uid));
     await m5aStorage().set(scanPath(uid), baseScan('running', { queued: {
       scanId: 'queued-fixture', origin: 'backfill', from: '2026-10-12T10:00:00.000Z', until: REFERENCE_TIME,

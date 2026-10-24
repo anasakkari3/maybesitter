@@ -83,12 +83,13 @@ test('R2.2 / G-1: the status is a strict union with scanId, origin, window, star
   const status = await runScanToEnd(uid);
   const manual = status.manual;
   assert.equal(manual.status, 'complete');
-  for (const field of ['scanId', 'origin', 'from', 'until', 'startedAt', 'finishedAt', 'messagesRead', 'messagesUnavailable', 'messagesTrimmed', 'messagesSkippedBulk', 'observationsFound', 'addedFromEmail']) {
+  for (const field of ['scanId', 'origin', 'from', 'until', 'startedAt', 'finishedAt', 'messagesRead', 'messagesUnavailable', 'messagesTrimmed', 'messagesSkippedBulk', 'messagesUnanalysed', 'observationsFound', 'addedFromEmail']) {
     assert.ok(field in manual, `ScanStatus lacks ${field}`);
   }
   assert.equal(manual.origin, 'manual');
   assert.equal(manual.observationsFound, 2);
   assert.equal(manual.messagesSkippedBulk, 1);
+  assert.equal(manual.messagesUnanalysed, 0);
   assert.equal(manual.addedFromEmail, 0);
 });
 

@@ -21,6 +21,7 @@ import {
   retryAfterSecondsFor,
   settleQuotaPermitSlot,
   startQuotaPermitSlot,
+  utcMinute,
   type QuotaPermit,
   type QuotaPermitOutcome,
 } from '../llm/usageGuard';
@@ -62,6 +63,19 @@ const WEEK_MS = 7 * 24 * 60 * 60_000;
  */
 export const M5A_PERMIT_TOKENS = Object.freeze({ oneCall: 9_000, twoCalls: 11_500, captureSlot: 2_500 });
 const LEASE_MS = 120_000;
+/**
+ * A message whose analysis fails this many times after a real model dispatch is
+ * recorded as read but not analysed, so one bad message can neither stall a
+ * scan nor buy a paid model call every minute forever (#815).
+ */
+export const M5A_MAX_ANALYSIS_ATTEMPTS = 3;
+/** Failed-scan retry backoff: 2, 4, 8, 16 minutes, then every 30 (#815). */
+export const M5A_RETRY_BACKOFF_MINUTES = Object.freeze({ base: 2, cap: 30 });
+
+export function m5aRetryBackoffMs(consecutiveFailures: number): number {
+  const exponent = Math.max(1, Math.floor(consecutiveFailures));
+  return Math.min(M5A_RETRY_BACKOFF_MINUTES.base ** exponent, M5A_RETRY_BACKOFF_MINUTES.cap) * 60_000;
+}
 
 export type ScanFailure = 'reconnect_needed' | 'source_unavailable' | 'analysis_unavailable' | 'monitoring_off' | 'daily_limit';
 export type Receipt = 'read' | 'unavailable';
@@ -76,9 +90,11 @@ export interface M5aMarker {
   readonly providerMarkerId?: string;
   readonly preexisting?: boolean;
   readonly processedAt?: string;
-  readonly outcome?: 'analyzed' | 'trimmed' | 'empty' | 'bulk';
+  readonly outcome?: 'analyzed' | 'trimmed' | 'empty' | 'bulk' | 'unanalysed';
   /** The `GMAIL_BULK_RULE` that skipped a bulk message; absent means rule 1. */
   readonly bulkRule?: number;
+  /** Failed analyses after a real model dispatch; never quota or minute deferrals (#815). */
+  readonly analysisAttempts?: number;
   readonly observationIds?: readonly string[];
   readonly autoAddId?: string | null;
   readonly receipts?: Readonly<Record<string, Receipt>>;
@@ -103,6 +119,8 @@ export interface ScanCounts {
   messagesRead: number;
   /** Optional while persisted scans created by older builds still exist. */
   messagesSkippedBulk?: number;
+  /** Read, but analysis failed M5A_MAX_ANALYSIS_ATTEMPTS times (#815). Optional for older rows. */
+  messagesUnanalysed?: number;
   messagesUnavailable: number;
   messagesTrimmed: number;
   observationsFound: number;
@@ -142,6 +160,8 @@ export interface M5aScanDocument extends ScanCounts {
   queued: QueuedScan | null;
   nextEligibleAt: string;
   waiting?: { reason: 'daily_ai_limit' | 'rate_limit'; resumesAt: string } | null;
+  /** Consecutive analysis/source failures; sets the retry backoff and clears on progress (#815). */
+  consecutiveFailures?: number;
   day?: string;
   monitorGeneration?: string;
   pauseEpoch?: number;
@@ -241,7 +261,7 @@ function observationPath(uid: string, id: string): string {
 }
 
 const emptyCounts = (): ScanCounts => ({
-  messagesRead: 0, messagesSkippedBulk: 0, messagesUnavailable: 0, messagesTrimmed: 0,
+  messagesRead: 0, messagesSkippedBulk: 0, messagesUnanalysed: 0, messagesUnavailable: 0, messagesTrimmed: 0,
   observationsFound: 0, addedFromEmail: 0,
 });
 
@@ -316,6 +336,7 @@ export function publicScanStatus(
   scan: M5aScanDocument | null,
   supportsDailyLimit = false,
   supportsBulk = false,
+  supportsUnanalysed = false,
 ): Record<string, unknown> | null {
   if (!scan) return null;
   const common = {
@@ -324,6 +345,7 @@ export function publicScanStatus(
     messagesTrimmed: scan.messagesTrimmed, observationsFound: scan.observationsFound,
     addedFromEmail: scan.addedFromEmail,
     ...(supportsBulk ? { messagesSkippedBulk: scan.messagesSkippedBulk ?? 0 } : {}),
+    ...(supportsUnanalysed ? { messagesUnanalysed: scan.messagesUnanalysed ?? 0 } : {}),
   };
   if (scan.status === 'complete') return { ...common, finishedAt: scan.finishedAt };
   if (scan.status === 'failed') return {
@@ -344,12 +366,13 @@ export function publicDailyStatus(
   scan: (M5aScanDocument & { day?: string; heldAt?: string; reason?: string }) | null,
   supportsDailyLimit = false,
   supportsBulk = false,
+  supportsUnanalysed = false,
 ): Record<string, unknown> | null {
   if (!scan) return null;
   if (scan.status === ('held' as M5aScanDocument['status']) && scan.reason === 'no_timezone') {
     return { status: 'held', reason: 'no_timezone', heldAt: scan.heldAt };
   }
-  const common = publicScanStatus(scan, supportsDailyLimit, supportsBulk);
+  const common = publicScanStatus(scan, supportsDailyLimit, supportsBulk, supportsUnanalysed);
   if (!common || !scan.day) return null;
   const { origin: _origin, ...withoutOrigin } = common;
   return { ...withoutOrigin, day: scan.day };
@@ -499,9 +522,9 @@ function classifyFailure(error: unknown): ScanFailure {
 
 async function failScan(uid: string, kind: M5aUnitKind, scanId: string, owner: string, failure: ScanFailure, storage: StorageAdapter, now: string): Promise<void> {
   const failedAt = new Date(now);
-  const nextEligibleAt = failure === 'daily_limit'
-    ? new Date(Date.UTC(failedAt.getUTCFullYear(), failedAt.getUTCMonth(), failedAt.getUTCDate() + 1)).toISOString()
-    : now;
+  // Retryable failures back off instead of buying a step every minute (#815);
+  // a daily budget waits for the next UTC day, as before.
+  const backsOff = failure === 'analysis_unavailable' || failure === 'source_unavailable';
   await storage.runTransaction(async tx => {
     const path = scanDocumentPath(uid, kind);
     const [account, scan] = await Promise.all([
@@ -509,8 +532,12 @@ async function failScan(uid: string, kind: M5aUnitKind, scanId: string, owner: s
       tx.get<M5aScanDocument>(path),
     ]);
     if (!liveAccount(account) || !scan || scan.scanId !== scanId || scan.leaseOwner !== owner) return;
+    const consecutiveFailures = (scan.consecutiveFailures ?? 0) + 1;
+    const nextEligibleAt = failure === 'daily_limit'
+      ? new Date(Date.UTC(failedAt.getUTCFullYear(), failedAt.getUTCMonth(), failedAt.getUTCDate() + 1)).toISOString()
+      : backsOff ? new Date(failedAt.getTime() + m5aRetryBackoffMs(consecutiveFailures)).toISOString() : now;
     tx.set(path, { ...scan, status: 'failed', failure, failedAt: now, waiting: null,
-      leaseOwner: null, leaseUntil: null, nextEligibleAt });
+      leaseOwner: null, leaseUntil: null, nextEligibleAt, ...(backsOff ? { consecutiveFailures } : {}) });
   });
 }
 
@@ -551,6 +578,49 @@ async function releaseMessageForRetry(
     if (scan?.scanId === scanId && scan.leaseOwner === scanOwner) tx.set(scanDocumentPath(uid, kind), {
       ...scan, leaseOwner: null, leaseUntil: null, nextEligibleAt: new Date().toISOString(),
     });
+  });
+}
+
+/**
+ * Counts one failed analysis on the message's markers, inside the same fence
+ * as every other marker write. Below the cap the claim is released for a later
+ * retry; at the cap the message is finished as read but not analysed and the
+ * page advances, so the scan can complete (#815).
+ */
+async function recordFailedAnalysis(
+  uid: string, claimedScan: M5aScanDocument, owner: string, claimOwner: string,
+  messageId: string, providerMarkerId: string, legacyMarkerId: string, runtime: GoogleRuntime,
+): Promise<'unanalysed' | 'counted' | 'none'> {
+  return runtime.storage.runTransaction(async tx => {
+    try { await assertScanAuthorityWithReader(uid, claimedScan, owner, tx); } catch { return 'none' as const; }
+    const [scan, daily, provider, legacy] = await Promise.all([
+      tx.get<M5aScanDocument>(scanDocumentPath(uid, claimedScan.kind)), tx.get<M5aScanDocument>(dailyScanPath(uid)),
+      tx.get<M5aMarker>(markerPath(uid, providerMarkerId)), tx.get<M5aMarker>(markerPath(uid, legacyMarkerId)),
+    ]);
+    if (!scan || scan.scanId !== claimedScan.scanId || scan.leaseOwner !== owner
+      || provider?.owner !== claimOwner || legacy?.owner !== claimOwner) return 'none' as const;
+    const analysisAttempts = Math.max(provider.analysisAttempts ?? 0, legacy.analysisAttempts ?? 0) + 1;
+    if (analysisAttempts < M5A_MAX_ANALYSIS_ATTEMPTS) {
+      tx.set(markerPath(uid, providerMarkerId), { ...provider, state: 'released', owner: undefined, leaseUntil: undefined, analysisAttempts });
+      tx.set(markerPath(uid, legacyMarkerId), { ...legacy, state: 'released', owner: undefined, leaseUntil: undefined, analysisAttempts });
+      return 'counted' as const;
+    }
+    const marker: M5aMarker = {
+      ...provider, state: 'done', owner: undefined, leaseUntil: undefined, analysisAttempts,
+      processedAt: runtime.now().toISOString(), outcome: 'unanalysed', observationIds: [], autoAddId: null,
+    };
+    const receipt = transitionReceipt(marker, scan.scanId, 'read', [scan.scanId, daily?.scanId].filter(Boolean) as string[]);
+    const done = Array.from(new Set([...(scan.page?.done ?? []), messageId]));
+    tx.set(markerPath(uid, providerMarkerId), receipt.marker);
+    tx.set(markerPath(uid, legacyMarkerId), { ...receipt.marker, providerMarkerId, providerAccountId: scan.providerAccountId });
+    tx.set(scanDocumentPath(uid, claimedScan.kind), advancePage({
+      ...scan,
+      messagesRead: scan.messagesRead + receipt.readDelta,
+      messagesUnanalysed: (scan.messagesUnanalysed ?? 0) + receipt.readDelta,
+      messagesUnavailable: scan.messagesUnavailable + receipt.unavailableDelta,
+      page: scan.page ? { ...scan.page, done } : null,
+    }));
+    return 'unanalysed' as const;
   });
 }
 
@@ -626,6 +696,7 @@ async function countFinishedMarker(
       ...current,
       messagesRead: current.messagesRead + receipt.readDelta,
       messagesSkippedBulk: (current.messagesSkippedBulk ?? 0) + (receipt.readDelta && marker.outcome === 'bulk' ? 1 : 0),
+      messagesUnanalysed: (current.messagesUnanalysed ?? 0) + (receipt.readDelta && marker.outcome === 'unanalysed' ? 1 : 0),
       messagesUnavailable: current.messagesUnavailable + receipt.unavailableDelta,
       observationsFound: current.observationsFound + (receipt.readDelta ? marker.observationIds?.length ?? 0 : 0),
       addedFromEmail: current.addedFromEmail + (receipt.readDelta && marker.autoAddId ? 1 : 0),
@@ -635,7 +706,9 @@ async function countFinishedMarker(
   });
 }
 
-function advancePage(scan: M5aScanDocument): M5aScanDocument {
+function advancePage(progressed: M5aScanDocument): M5aScanDocument {
+  // Any progress ends a failure streak, so the next failure backs off from 2 minutes again.
+  const { consecutiveFailures: _streak, ...scan } = progressed;
   if (!scan.page || scan.page.done.length < scan.page.ids.length) return { ...scan, leaseOwner: null, leaseUntil: null, nextEligibleAt: scan.startedAt };
   if (scan.page.nextPageToken !== null) return {
     ...scan, pageToken: scan.page.nextPageToken, page: null, leaseOwner: null, leaseUntil: null,
@@ -746,6 +819,10 @@ async function processMessage(
   }
 
   let permit: QuotaPermit | undefined;
+  // Only a real model dispatch can count as an analysis attempt (#815). A
+  // permit whose minute ended before dispatch is a deferral, not a failure.
+  let modelDispatched = false;
+  let minuteEndedBeforeDispatch = false;
   try {
     await assertScanAuthority(uid, claimedScan, owner, runtime);
     const message = await transport.getMessageById(messageId);
@@ -872,6 +949,11 @@ async function processMessage(
     const generate: ShareStructuredGenerator | undefined = generateWithPermit
       ? async request => {
         await assertScanAuthority(uid, claimedScan, owner, runtime);
+        if (permit && utcMinute(runtime.now()) !== permit.minute) {
+          minuteEndedBeforeDispatch = true;
+          throw new LLMUnavailableError('usage_guard_unavailable');
+        }
+        modelDispatched = true;
         return generateWithPermit(request);
       }
       : undefined;
@@ -1014,6 +1096,14 @@ async function processMessage(
     if (permit) await finalizeQuotaPermit(permit, { storage, now: runtime.now() });
   } catch (error) {
     if (permit) await finalizeQuotaPermit(permit, { storage, now: runtime.now() });
+    if (minuteEndedBeforeDispatch && !modelDispatched
+      && await deferClaimForQuota(uid, claimedScan, owner, claimOwner, markerIds, 'minute_boundary', runtime)) return;
+    if (modelDispatched) {
+      const recorded = await recordFailedAnalysis(
+        uid, claimedScan, owner, claimOwner, messageId, providerMarkerId, legacyMarkerId, runtime,
+      );
+      if (recorded === 'unanalysed') return;
+    }
     await releaseClaims(uid, claimOwner, markerIds, storage);
     throw error;
   }
@@ -1262,6 +1352,14 @@ export async function startOrResumeM5aScan(
     }
     if (input.intent === 'resume') {
       if (!existing || input.expectedScanId !== existing.scanId || existing.providerAccountId !== provider) return { scan: existing, run: false, refused: false };
+      // The person's own «كمّل» tap retries now; only the unattended sweep waits
+      // out the backoff. The attempt cap still bounds model calls per message.
+      if (existing.status === 'failed' && existing.nextEligibleAt > now.toISOString()
+        && (existing.failure === 'analysis_unavailable' || existing.failure === 'source_unavailable')) {
+        const retry = { ...existing, nextEligibleAt: now.toISOString() };
+        tx.set(scanPath(uid), retry);
+        return { scan: retry, run: true, refused: false };
+      }
       return { scan: existing, run: existing.status === 'running' || existing.status === 'failed', refused: false };
     }
     const queue = newQueued(now, origin, timezone, provider, controls.email.epoch);

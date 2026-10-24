@@ -182,6 +182,7 @@ function ScanText({ scan }: { scan: ScanStatus }) {
   }
   if (scan.messagesUnavailable > 0) lines.push(tr('m5ScanUnavailable', { n: scan.messagesUnavailable }));
   if (scan.messagesTrimmed > 0) lines.push(tr('m5ScanTrimmed', { n: scan.messagesTrimmed }));
+  if ((scan.messagesUnanalysed ?? 0) > 0) lines.push(tr('m5ScanUnanalysed', { n: scan.messagesUnanalysed ?? 0 }));
   if ((scan.messagesSkippedBulk ?? 0) > 0) lines.push(tr('m5ScanSkippedBulk', { n: scan.messagesSkippedBulk ?? 0 }));
   return (
     <Txt role="supporting" color={p.mu} lh={1.6} testID="email-scan-lines">

@@ -318,7 +318,7 @@ export async function grantCalendarConsent(uid: string): Promise<void> {
 /* ── M5a scan helpers ───────────────────────────────────────────────── */
 
 const SCAN_FEATURE_HEADERS = {
-  'X-MaybeSitter-Client-Features': 'gmail-scan-daily-limit,gmail-scan-bulk',
+  'X-MaybeSitter-Client-Features': 'gmail-scan-daily-limit,gmail-scan-bulk,gmail-scan-unanalysed',
 };
 
 export function scanNew(uid: string, extra: Record<string, unknown> = {}): Promise<Raw> {

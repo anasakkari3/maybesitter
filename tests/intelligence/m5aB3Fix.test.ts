@@ -1158,7 +1158,9 @@ test('G9 a provider error remains analysis_unavailable, not a daily limit', asyn
   const scan = await storage.get<any>(`users/${uid}/${INTELLIGENCE_GMAIL_SCANS}/manualV2`);
   assert.equal(scan.status, 'failed');
   assert.equal(scan.failure, 'analysis_unavailable');
-  assert.equal(scan.nextEligibleAt, NOW);
+  // #815: the sweep backs off instead of retrying (and paying) every minute.
+  assert.equal(scan.nextEligibleAt, '2026-10-19T10:02:00.000Z');
+  assert.equal(scan.consecutiveFailures, 1);
 });
 
 test('bulk mail is durably skipped before quota, model analysis, observations, and auto-add', async () => {
