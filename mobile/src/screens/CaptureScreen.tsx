@@ -372,11 +372,12 @@ export function CaptureScreen({ entryQuestion }: { entryQuestion?: { entry: Capt
   // its last reply would be spoken over the question. It is said once the
   // person goes on with that chat. Both platforms: the reply is in no live
   // region (#802). Its full words as they arrived — the turn's own text, which
-  // dropping an answered question never changes — keyed on the turn that came
-  // (the state's own object, new with each answer), not on the words.
-  const arrived = state.turns.length > 0 ? state.turns[state.turns.length - 1] : state.earlier[state.earlier.length - 1];
-  const sayReply = !entryQuestion && newest?.role === 'assistant';
-  useAnnounceArrival(sayReply ? arrived ?? null : null, sayReply ? (newest.tail ? `${newest.text}\n\n${newest.tail}` : newest.text) : null);
+  // dropping an answered question never changes — when the state says
+  // something new arrived, not when its words or objects change.
+  const replyShown = newest?.role === 'assistant';
+  useAnnounceArrival(replyShown ? state.replyArrival : null,
+    replyShown ? (newest.tail ? `${newest.text}\n\n${newest.tail}` : newest.text) : null,
+    Boolean(entryQuestion));
   const [disclosureOpen, setDisclosureOpen] = useState(true);
   const [undoing, setUndoing] = useState(false);
   const undoLast = () => {

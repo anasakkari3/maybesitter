@@ -27,20 +27,22 @@ export function useAnnounceOnIos(text: string | null): void {
  * (Q-LIVE2-002). So the reply's words are the one element, and its arrival
  * is told here.
  *
- * Keyed on the arrival, not the words (Q802-REV-001): `arrival` is the
- * object that came — a new one for each reply, even with the same words —
- * and what is already there when the screen mounts is not new, so reopening
- * a kept conversation says nothing. Null (nothing to say, or not now) keeps
- * the last one heard, so an arrival held back while something else has the
- * page is said once that page goes.
+ * Keyed on the arrival, not the words or their objects (Q802-REV-001,
+ * Q802-R2-002): `arrival` is a count the state moves only when something new
+ * was said. What is there when the screen mounts is already heard — even
+ * while `paused` (Q802-R2-001) — so reopening a kept conversation says
+ * nothing. While `paused` (another page has the screen) nothing is said, and
+ * an arrival in the meantime is said once the pause ends.
  */
-export function useAnnounceArrival(arrival: object | null, text: string | null): void {
-  const heard = useRef<object | null | undefined>(undefined);
+export function useAnnounceArrival(arrival: number | null, text: string | null, paused = false): void {
+  const heard = useRef<number | null | undefined>(undefined);
   useEffect(() => {
-    const mounting = heard.current === undefined;
-    if (mounting) heard.current = arrival;
-    if (arrival === null || arrival === heard.current) return;
+    if (heard.current === undefined) {
+      heard.current = arrival;
+      return;
+    }
+    if (paused || arrival === null || arrival === heard.current) return;
     heard.current = arrival;
     if (text) AccessibilityInfo.announceForAccessibility(text);
-  }, [arrival, text]);
+  }, [arrival, text, paused]);
 }

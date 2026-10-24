@@ -291,6 +291,14 @@ export interface CaptureState {
    */
   earlier: ChatEarlierEntry[];
   /**
+   * Counts what the chat newly said: a reply, a saved line, an undone save
+   * (#802). The screen announces the reply when this moves, not when its
+   * words or objects do — a stale 409 brings the same turns as new objects,
+   * and two replies can share their words (Q802-REV-001, Q802-R2-002). Never
+   * reset: a fresh conversation goes on counting.
+   */
+  replyArrival: number;
+  /**
    * The proposal whose cards the person opened from «هيك فهمت» (audit
    * 2026-10-06 #5/#6), by id. A chat answer that carries `understood` shows
    * that summary first; «هيك صح» or a tap on one of its lines opens the cards,
@@ -466,6 +474,7 @@ export function initialCaptureState(
     conversationId: null,
     turns: [],
     earlier: [],
+    replyArrival: 0,
     reviewOf: null,
     spoken: false,
     alternatives: [],
@@ -1011,10 +1020,21 @@ function carriedAcrossEdit(state: CaptureState, next: CaptureProposal, folded?: 
   return { ...carried, edits };
 }
 
+/** The same conversation, turn for turn: a 409 that brought it back said nothing new. */
+function sameTurns(before: readonly CaptureChatTurn[], after: readonly CaptureChatTurn[]): boolean {
+  return before.length === after.length
+    && before.every((turn, index) => turn.role === after[index]!.role && turn.text === after[index]!.text);
+}
+
+/** The arrival count after `turns` replace the state's own. */
+function arrivalAfter(state: CaptureState, turns: readonly CaptureChatTurn[]): number {
+  return sameTurns(state.turns, turns) ? state.replyArrival : state.replyArrival + 1;
+}
+
 export function captureReducer(state: CaptureState, event: CaptureEvent): CaptureState {
   switch (event.type) {
     case 'open': {
-      const opened = { ...initialCaptureState(event.source ?? state.source, event.inputMode ?? state.inputMode), entry: event.entry ?? null };
+      const opened = { ...initialCaptureState(event.source ?? state.source, event.inputMode ?? state.inputMode), entry: event.entry ?? null, replyArrival: state.replyArrival };
       return event.meeting ? { ...opened, meeting: event.meeting } : opened;
     }
 
@@ -1111,6 +1131,7 @@ export function captureReducer(state: CaptureState, event: CaptureEvent): Captur
         alternatives: [],
         conversationId: answer.conversationId,
         turns: answer.turns,
+        replyArrival: arrivalAfter(state, answer.turns),
         errorReason: null,
         messageKey: null,
       };
@@ -1129,7 +1150,7 @@ export function captureReducer(state: CaptureState, event: CaptureEvent): Captur
       // chips stay exactly as they were (M2b).
       const { answer } = event;
       const proposal = chatProposalShown(answer.proposal);
-      const conversation = { ...state, conversationId: answer.conversationId, turns: answer.turns, errorReason: null, messageKey: null };
+      const conversation = { ...state, conversationId: answer.conversationId, turns: answer.turns, replyArrival: arrivalAfter(state, answer.turns), errorReason: null, messageKey: null };
       if (!proposal) {
         return { ...conversation, status: state.text.trim() ? 'editing' : 'idle', proposal: null, original: null, selected: [], edits: {}, onceOnly: [], goalUnlinked: [], reviewOf: null, refusedEdit: null };
       }
@@ -1345,6 +1366,7 @@ export function captureReducer(state: CaptureState, event: CaptureEvent): Captur
           },
         ],
         turns: [],
+        replyArrival: state.replyArrival + 1,
         conversationId: null,
         proposal: null, original: null, selected: [], edits: {}, onceOnly: [], goalUnlinked: [], errorReason: null, messageKey: null,
         reviewOf: null, deselectedPoints: [],
@@ -1357,7 +1379,7 @@ export function captureReducer(state: CaptureState, event: CaptureEvent): Captur
       if (at < 0) return state;
       const earlier = [...state.earlier];
       earlier[at] = { ...(earlier[at] as ChatSavedNote), undone: { stillSaved: event.stillSaved } };
-      return { ...state, earlier };
+      return { ...state, earlier, replyArrival: state.replyArrival + 1 };
     }
 
     case 'confirmFailed':
@@ -1398,7 +1420,7 @@ export function captureReducer(state: CaptureState, event: CaptureEvent): Captur
       return state.refusedEdit ? { ...state, refusedEdit: null } : state;
 
     case 'reset':
-      return initialCaptureState(state.source, state.inputMode);
+      return { ...initialCaptureState(state.source, state.inputMode), replyArrival: state.replyArrival };
 
     default:
       return state;
