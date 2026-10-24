@@ -32,13 +32,31 @@ test('the prompt keeps promotions and a closing "let me know" out of what is add
 
 // Staging, 2026-10-24: a long e-mail's answer was cut at 1,024 output tokens
 // mid-JSON, so the scan stopped and every resume failed on the same message.
-test('the source read leaves room for its answer and asks for at most 12 observations', async () => {
-  const { SEMANTIC_MAX_OUTPUT_TOKENS, analyzeSourceStaged } = await import('../../lib/intelligence/analyzeSource.ts');
-  assert.ok(SEMANTIC_MAX_OUTPUT_TOKENS >= 2_048);
+test('both source reads ask for exactly 2,048 output tokens, and the prompt for at most 12 observations', async () => {
+  const { SEMANTIC_MAX_OUTPUT_TOKENS, analyzeSource, analyzeSourceStaged } = await import('../../lib/intelligence/analyzeSource.ts');
+  const { createMemoryStorage } = await import('../../lib/storage/memoryAdapter.ts');
+  assert.equal(SEMANTIC_MAX_OUTPUT_TOKENS, 2_048);
   assert.match(semanticPrompt(), /at most 12 observations/);
-  let requested: number | undefined;
-  await analyzeSourceStaged('uid-1', 'gmail', 'Please review the report by Friday.', {
-    generate: async (request: { maxOutputTokens?: number }) => { requested = request.maxOutputTokens; return { text: '{"observations":[]}' } as never; },
-  } as never);
-  assert.equal(requested, SEMANTIC_MAX_OUTPUT_TOKENS);
+  const asked: number[] = [];
+  const generate = async (request: { maxOutputTokens?: number }) => { asked.push(request.maxOutputTokens ?? 0); return { text: '{"observations":[]}' } as never; };
+  await analyzeSourceStaged('uid-1', 'gmail', 'Please review the report by Friday.', { generate } as never);
+  await analyzeSource('uid-1', 'manual', 'ref-1', 'Please review the report by Friday.', '2026-10-24T10:00:00.000Z',
+    { generate, fallbackForManual: false, storage: createMemoryStorage() } as never).catch(() => undefined);
+  assert.deepEqual(asked, [2_048, 2_048]);
+});
+
+test('an answer cut mid-JSON keeps the whole observations before the cut, and nothing invented', async () => {
+  const { parseObservationsAnswer } = await import('../../lib/intelligence/analyzeSource.ts');
+  const source = 'Please send the report by Friday. The meeting moved to Monday at 10.';
+  const cut = '{"observations":[{"kind":"request","evidence":"Please send the report by Friday","confidence":0.9},{"kind":"event","evidence":"The meeting moved to Monday at 10","confidence":0.8},{"kind":"goal","evidence":"Learn Spa';
+  const kept = validateSemanticObservations(parseObservationsAnswer(cut), source);
+  assert.deepEqual(kept.map((item) => item.kind), ['request', 'event']);
+  assert.throws(() => parseObservationsAnswer('{"observations":[{"kind":"goal","evid'), /source_answer_unreadable/);
+});
+
+test('one message\'s permit reserves the worst case: 12,000 input characters and the 2,048-token answer', async () => {
+  const { M5A_PERMIT_TOKENS } = await import('../../lib/intelligence/m5aGmailScan.ts');
+  const { SEMANTIC_MAX_OUTPUT_TOKENS } = await import('../../lib/intelligence/analyzeSource.ts');
+  assert.ok(M5A_PERMIT_TOKENS.oneCall >= 6_000 + SEMANTIC_MAX_OUTPUT_TOKENS);
+  assert.ok(M5A_PERMIT_TOKENS.twoCalls > M5A_PERMIT_TOKENS.oneCall);
 });

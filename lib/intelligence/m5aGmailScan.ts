@@ -54,6 +54,13 @@ import { liveAccount } from './memoryBasis';
 export { legacyMarkerIdFor, providerMarkerIdFor } from '../watchers/monitoringSettings';
 
 const WEEK_MS = 7 * 24 * 60 * 60_000;
+/**
+ * What one message's permit reserves. The read is up to 12,000 characters
+ * (about 6,000 tokens at the densest) plus SEMANTIC_MAX_OUTPUT_TOKENS (2,048);
+ * a self-reply's second call adds a capture call's share. Sized to the worst
+ * case so usage settled after the call cannot pass the daily cap (#814).
+ */
+export const M5A_PERMIT_TOKENS = Object.freeze({ oneCall: 9_000, twoCalls: 11_500 });
 const LEASE_MS = 120_000;
 
 export type ScanFailure = 'reconnect_needed' | 'source_unavailable' | 'analysis_unavailable' | 'monitoring_off' | 'daily_limit';
@@ -793,7 +800,7 @@ async function processMessage(
     if (prepared.text && !runtime.shareModel) {
       const calls = candidateSignals && !forceAutoAddOff ? 2 : 1;
       const reservation = await reserveQuotaPermit(uid, 'semantic_observation', {
-        owner: claimOwner, calls, tokenBudget: calls === 2 ? 7_000 : 4_500,
+        owner: claimOwner, calls, tokenBudget: calls === 2 ? M5A_PERMIT_TOKENS.twoCalls : M5A_PERMIT_TOKENS.oneCall,
       }, { storage, now: runtime.now() });
       if (reservation.outcome !== 'ok' || !reservation.permit) {
         if (await deferClaimForQuota(uid, claimedScan, owner, claimOwner, markerIds, reservation.outcome, runtime)) return;
