@@ -23,7 +23,8 @@ import { applyCommand, createEmptyDomainState, type Command, type DomainEvent, t
 import { toVertexSchema } from '../../../src/extraction/llm';
 import { mapExtractionToCommand } from '../../../src/extraction/mapExtractionToCommand';
 import type { ExtractionResult } from '../../../src/extraction/extractionTypes';
-import { namesADate, goalStepLanguageOf, templateGoalSteps } from '../../goalGraph/goalStepPlan';
+import { namesADate, goalStepLanguageOf, scriptFits, templateGoalSteps, type GoalStepLanguage } from '../../goalGraph/goalStepPlan';
+import { LANGUAGE_NAMES, LEVANTINE_EXAMPLES } from './goalStepModel';
 import { goalNodeLinkIdFor } from '../../goalGraph/linkStore';
 import { shareLlmProvider } from '../../llm/shareProvider';
 import { wrapUntrustedShared } from '../share/shareTypes';
@@ -263,12 +264,19 @@ function namesUnstatedPerson(title: string, goalText: string): boolean {
   return false;
 }
 
-function validateModelPlan(raw: unknown, goalText: string): { horizon: 'days' | 'weeks'; steps: InternalStep[] } | null {
+/**
+ * The model's plan, kept to what may be shown. A step in another language than
+ * the goal's is dropped, and an explanation in one is left out (live Gemini,
+ * 2026-10-24: every step of an Arabic goal came back in English). `wrongLanguage`
+ * says the plan fell short only because of that — the template, not "rephrase".
+ */
+function validateModelPlan(raw: unknown, goalText: string, language: GoalStepLanguage): { horizon: 'days' | 'weeks'; steps: InternalStep[] } | { wrongLanguage: true } | null {
   if (!raw || typeof raw !== 'object') return null;
   const value = raw as Record<string, unknown>;
   if ((value.horizon !== 'days' && value.horizon !== 'weeks') || !Array.isArray(value.steps)) return null;
   const horizon = value.horizon;
   const accepted: InternalStep[] = [];
+  let droppedForLanguage = 0;
   for (const candidate of value.steps.slice(0, INITIAL_MODEL_MAX_STEPS)) {
     if (!candidate || typeof candidate !== 'object') continue;
     const item = candidate as Record<string, unknown>;
@@ -281,9 +289,12 @@ function validateModelPlan(raw: unknown, goalText: string): { horizon: 'days' | 
       || (durationMinutes as number) < 5 || (durationMinutes as number) > 480) continue;
     const rhythm = kind === 'habit' ? validateRhythm(item.rhythm) : undefined;
     if (kind === 'habit' && !rhythm) continue;
-    const buildsOn = item.buildsOn === null || typeof item.buildsOn === 'string' ? item.buildsOn as string | null : null;
-    const expectedOutcome = item.expectedOutcome === null || typeof item.expectedOutcome === 'string'
-      ? item.expectedOutcome as string | null : null;
+    // Counted only for a step that would otherwise be kept: the 503 says the
+    // plan fell short for its language alone (inspection GP-LANGUAGE-006).
+    if (!scriptFits(title, language)) { droppedForLanguage += 1; continue; }
+    const inLanguage = (text: unknown): string | null => (typeof text === 'string' && scriptFits(text, language) ? text : null);
+    const buildsOn = inLanguage(item.buildsOn);
+    const expectedOutcome = inLanguage(item.expectedOutcome);
     const spans = Array.isArray(item.sourceSpans) ? item.sourceSpans.flatMap((span): GoalPlanSourceSpan[] => {
       if (!span || typeof span !== 'object') return [];
       const s = span as Record<string, unknown>;
@@ -298,7 +309,7 @@ function validateModelPlan(raw: unknown, goalText: string): { horizon: 'days' | 
       expectedOutcome, origin: 'model', sourceSpans: spans, inferred: item.inferred === true,
     });
   }
-  if (accepted.length < 3) return null;
+  if (accepted.length < 3) return accepted.length + droppedForLanguage >= 3 ? { wrongLanguage: true } : null;
   return { horizon, steps: normalizeSteps(accepted, accepted) };
 }
 
@@ -316,15 +327,27 @@ const MODEL_SCHEMA = {
   },
 } as const;
 
-async function modelPlan(uid: string, goalText: string): Promise<{ horizon: 'days' | 'weeks'; steps: InternalStep[] }> {
+/** The instructions, in the goal's own language (the model answered an Arabic goal in English when none was named). */
+export function goalPlanSystemPrompt(language: GoalStepLanguage): string {
+  return [
+    'Turn the goal into 3 to 10 ordered concrete steps. Use relative day/week phases only. Never invent a calendar date or person. Return the requested JSON shape.',
+    `Write every title, expectedOutcome and buildsOn in ${LANGUAGE_NAMES[language]}.`,
+    ...(language === 'ar' ? [LEVANTINE_EXAMPLES] : []),
+  ].join('\n');
+}
+
+async function modelPlan(uid: string, goalText: string, language: GoalStepLanguage): Promise<{ horizon: 'days' | 'weeks'; steps: InternalStep[] }> {
   try {
     const response = await shareLlmProvider(uid, { purpose: 'goal_decomposition' })({
-      system: 'Turn the goal into 3 to 10 ordered concrete steps. Use relative day/week phases only. Never invent a calendar date or person. Return the requested JSON shape.',
+      system: goalPlanSystemPrompt(language),
       parts: [wrapUntrustedShared(goalText)], responseSchema: toVertexSchema(MODEL_SCHEMA), maxOutputTokens: 2_048, retry: false,
     });
-    const validated = validateModelPlan(JSON.parse(response.text), goalText);
+    const validated = validateModelPlan(JSON.parse(response.text), goalText, language);
+    // Steps in another language are the model's failure, not the goal's: the
+    // template is offered, never "say it differently".
+    if (validated && 'wrongLanguage' in validated) apiError(503, 'model_unavailable', { recovery: 'template' });
     if (!validated) apiError(422, 'no_steps');
-    return validated!;
+    return validated as { horizon: 'days' | 'weeks'; steps: InternalStep[] };
   } catch (error) {
     if (error instanceof GoalPlanApiError) throw error;
     const reason = (error as { reason?: unknown })?.reason;
@@ -412,7 +435,7 @@ export async function generateGoalPlan(uid: string, goalId: string, input: { ide
   let source: GoalPlanSource;
   try {
     if (input.source === 'template') { generated = templatePlan(goal.content, goal.language); source = 'template'; }
-    else { generated = await modelPlan(uid, goal.content); source = 'model'; }
+    else { generated = await modelPlan(uid, goal.content, goalStepLanguageOf(goal.content, goal.language)); source = 'model'; }
   } catch (error) {
     await storage.runTransaction(async (tx) => {
       await fence(tx, uid);
@@ -1171,7 +1194,7 @@ export async function regenerateGoalPlan(uid: string, goalId: string, input: { c
   }
   let generated: { horizon: 'days' | 'weeks'; steps: InternalStep[] };
   try {
-    generated = await modelPlan(uid, claim.plan.summary.goalText);
+    generated = await modelPlan(uid, claim.plan.summary.goalText, goalStepLanguageOf(claim.plan.summary.goalText, claim.plan.language));
   } catch (error) {
     await storage.runTransaction(async (tx) => {
       await fence(tx, uid);
