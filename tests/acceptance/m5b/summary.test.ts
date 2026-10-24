@@ -12,9 +12,11 @@
  * its rejecting case, so deleting a rule turns its case red, and an
  * over-strict build turns the control red.
  *
- * Refs follow PLAN R1.1: the newest 40 active rows in `listMemory` order,
- * `r1` the newest. `addRows` creates rows one minute apart, so the last row
- * given is `r1`.
+ * Refs follow PLAN R1.1 in `listMemory` order, `r1` the newest — but only
+ * the newest 15 prose rows, not 40: every supplied row must be cited within 8
+ * sentences of 220 characters, which cannot hold 40 (#806 part 2; the owner's
+ * live finding of 2026-10-24 supersedes the plan's 40). `addRows` creates
+ * rows one minute apart, so the last row given is `r1`.
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -120,18 +122,22 @@ test('R1.1 alias mapping: refs are r1… in listMemory order (newest first), eac
   assert.deepEqual(answer.body.summary.sentences.map((sentence: any) => sentence.memoryIds[0]), listed.map((row) => row.id));
 });
 
-test('R1.1 more than 40 rows: only the newest 40 are sent (r1…r40), coveredCount 40, totalCount 41', async () => {
+// The bound was 40 (PLAN R1.1). #806 part 2: 40 rows cannot all be cited in
+// 8 sentences of 220 characters, so the summary was always unavailable past
+// about 15 rows. The bound is now 15; coveredCount/totalCount keep the rest honest.
+test('R1.1 more than 15 rows: only the newest 15 are sent (r1…r15), coveredCount 15, totalCount 41', async () => {
   const rows = Array.from({ length: 41 }, (_, index) => ({ content: `Remembered thing number ${index}` }));
   const { listed, model, answer } = await expectReady(rows, (l) => [
-    { text: 'Remembered thing number 40.', refs: l.slice(0, 20).map((row) => row.ref) },
-    { text: 'Remembered thing number 1.', refs: l.slice(20, 40).map((row) => row.ref) },
+    { text: 'Remembered thing number 40.', refs: l.slice(0, 8).map((row) => row.ref) },
+    { text: 'Remembered thing number 26.', refs: l.slice(8, 15).map((row) => row.ref) },
   ]);
-  assert.equal(answer.body.summary.coveredCount, 40);
+  assert.equal(answer.body.summary.coveredCount, 15);
   assert.equal(answer.body.summary.totalCount, 41);
   const prompt = promptOf(model.calls[0]!.request);
-  assert.match(prompt, /\br40\b/);
-  assert.doesNotMatch(prompt, /\br41\b/, 'a 41st row was sent');
-  assert.ok(!prompt.includes(listed[40]!.content), 'the oldest row was sent');
+  assert.match(prompt, /\br15\b/);
+  assert.doesNotMatch(prompt, /\br16\b/, 'a 16th row was sent');
+  assert.ok(!prompt.includes(`"${listed[15]!.content}"`), 'the 16th newest row was sent');
+  assert.ok(!prompt.includes(`"${listed[40]!.content}"`), 'the oldest row was sent');
 });
 
 test('R1.1 / Wire: a bad language answers 400 and calls nothing', async () => {

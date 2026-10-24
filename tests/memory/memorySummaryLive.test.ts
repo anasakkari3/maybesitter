@@ -178,3 +178,79 @@ test('friends, neighbours, schools and the Hebrew article pass; a zero-length wi
   assert.equal(isCanonicalRoutineFact('quiet_hours:22:30-07:00'), true);
   assert.equal(isCanonicalRoutineFact('quiet_hours:12:00-12:00'), false);
 });
+
+// #806 part 2: every supplied row must be cited in at most 8 sentences of at
+// most 220 characters, so past about 15 rows no valid answer existed and a
+// person with many memories always got `unavailable`. Only the newest 15 are
+// sent; coveredCount says 15 and totalCount every row, so the phone shows the rest.
+const BOUND = 15;
+const things = (count: number) => Array.from({ length: count }, (_, index) => ({ content: `Remembered thing number ${index}` }));
+const refsIn = (prompt: string) => Array.from(prompt.matchAll(/"ref":"(r\d+)"/g), (match) => match[1]!);
+const range = (count: number) => Array.from({ length: count }, (_, index) => `r${index + 1}`);
+
+test('30 prose rows: only the newest 15 are sent (r1…r15), and an answer citing them is ready with coveredCount 15, totalCount 30', async () => {
+  const { MEMORY_SUMMARY_MAX_ROWS } = await import('../../lib/services/mobile/memorySummary.ts');
+  assert.equal(MEMORY_SUMMARY_MAX_ROWS, BOUND);
+  const uid = await begin();
+  const listed = await addRows(uid, things(30));
+  const model = scriptedModel(() => ({ sentences: [
+    { text: 'You keep a list of things you remember.', refs: range(8) },
+    { text: 'You remember a few more things too.', refs: range(BOUND).slice(8) },
+  ] }));
+  await useSummaryModel(model);
+  const answer = await summary(uid, 'en');
+  const prompt = promptOf(model.calls[0]!.request);
+  assert.deepEqual(refsIn(prompt), range(BOUND));
+  for (const row of listed.slice(0, BOUND)) assert.ok(prompt.includes(`"${row.content}"`), `newest row «${row.content}» was not sent`);
+  for (const row of listed.slice(BOUND)) assert.ok(!prompt.includes(`"${row.content}"`), `older row «${row.content}» was sent`);
+  assert.equal(answer.body.summary?.status, 'ready', show(answer.body));
+  assert.equal(answer.body.summary.coveredCount, BOUND);
+  assert.equal(answer.body.summary.totalCount, 30);
+  assert.deepEqual(answer.body.summary.sentences.flatMap((sentence: any) => sentence.memoryIds), listed.slice(0, BOUND).map((row) => row.id));
+});
+
+// Inspection of #817: the row bound alone let 15 rows of 200 characters
+// through, 3,000 characters to say back in 1,760.
+test('15 rows of 200 characters: only the newest 7 are sent (1,400 characters), coveredCount 7, totalCount 15', async () => {
+  const { MEMORY_SUMMARY_MAX_ROW_CHARS } = await import('../../lib/services/mobile/memorySummary.ts');
+  assert.equal(MEMORY_SUMMARY_MAX_ROW_CHARS, 1_400);
+  const uid = await begin();
+  const long = Array.from({ length: 15 }, (_, index) => ({ content: `Long note ${String(index).padStart(2, '0')} `.padEnd(200, 'x') }));
+  const listed = await addRows(uid, long);
+  const model = scriptedModel(() => ({ sentences: [{ text: 'You keep a list of things you remember.', refs: range(7) }] }));
+  await useSummaryModel(model);
+  const answer = await summary(uid, 'en');
+  const prompt = promptOf(model.calls[0]!.request);
+  assert.deepEqual(refsIn(prompt), range(7));
+  for (const row of listed.slice(0, 7)) assert.ok(prompt.includes(`"${row.content}"`), 'a newest long row was not sent');
+  assert.equal(answer.body.summary?.status, 'ready', show(answer.body));
+  assert.equal(answer.body.summary.coveredCount, 7);
+  assert.equal(answer.body.summary.totalCount, 15);
+});
+
+test('10 prose rows: all 10 are sent, coveredCount 10, totalCount 10', async () => {
+  const uid = await begin();
+  await addRows(uid, things(10));
+  const model = scriptedModel(() => ({ sentences: [{ text: 'You keep a list of things you remember.', refs: range(10) }] }));
+  await useSummaryModel(model);
+  const answer = await summary(uid, 'en');
+  assert.deepEqual(refsIn(promptOf(model.calls[0]!.request)), range(10));
+  assert.equal(answer.body.summary?.status, 'ready', show(answer.body));
+  assert.equal(answer.body.summary.coveredCount, 10);
+  assert.equal(answer.body.summary.totalCount, 10);
+});
+
+test('the routine survey rows are dropped before the bound: 20 prose rows beside them send 15 prose rows, none of the survey\'s', async () => {
+  const uid = await begin();
+  await surveyRows(uid);
+  await addRows(uid, things(20));
+  const model = scriptedModel(() => ({ sentences: [{ text: 'You keep a list of things you remember.', refs: range(BOUND) }] }));
+  await useSummaryModel(model);
+  const answer = await summary(uid, 'en');
+  const prompt = promptOf(model.calls[0]!.request);
+  assert.deepEqual(refsIn(prompt), range(BOUND));
+  assert.ok(!prompt.includes('quiet_hours'), prompt);
+  assert.equal(answer.body.summary?.status, 'ready', show(answer.body));
+  assert.equal(answer.body.summary.coveredCount, BOUND);
+  assert.ok(answer.body.summary.totalCount > 20, show(answer.body));
+});

@@ -1,9 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
-import { screen, waitFor } from '@testing-library/react-native';
+import { act, fireEvent, screen, waitFor } from '@testing-library/react-native';
 import {
   ACCOUNT_B,
   GOAL_ID,
   PLAN,
+  PLAN_ID,
   SUMMARY_ID,
   TIMES,
   changeText,
@@ -299,6 +300,163 @@ describe('M3a A6 typed failures and live state', () => {
     );
     expect(screen.queryByTestId('goal-plan-open')).toBeNull();
     expect(screen.queryByTestId('goal-generate')).toBeNull();
+  });
+});
+
+describe('#807 the simple-plan recovery follows the request that failed', () => {
+  const bodyOf = (request: { body?: unknown }): Record<string, unknown> =>
+    typeof request.body === 'object' && request.body !== null ? (request.body as Record<string, unknown>) : {};
+  const unavailable: RouteReply = {
+    status: 503,
+    body: { success: false, error: 'model_unavailable', reason: 'model_unavailable', recovery: 'template' },
+  };
+  /** Opens the draft and has an edit refused with too_many_edits, whose recovery is "new plan" (the regenerate). */
+  const openDraftAndFailAnEdit = async (): Promise<void> => {
+    await openGoal(harness);
+    await screen.findByTestId('goal-plan-open');
+    await press('goal-plan-open');
+    await waitFor(() => expect(screen.queryByTestId('plan-step-step-1')).not.toBeNull());
+    await press('plan-edit');
+    await press('plan-move-down-step-1');
+    await waitFor(() => expect(screen.queryByTestId('plan-failure')).not.toBeNull());
+    // Out of edit mode, so approve is on screen beside the failure.
+    await press('plan-edit-done');
+    expect(screen.getByTestId('plan-approve')).toBeTruthy();
+  };
+
+  it('after a failed regenerate, the template action regenerates with the template and supersedes the draft', async () => {
+    const templatePlan = { ...PLAN, planId: 'plan-template', revision: 1, source: 'template' };
+    harness.server.handler = (request) => {
+      if (request.method === 'PATCH') {
+        return { status: 422, body: { success: false, error: 'too_many_edits', reason: 'too_many_edits', plan: PLAN } };
+      }
+      if (request.method === 'POST' && request.path.endsWith(`/goals/${GOAL_ID}/plan/regenerate`)) {
+        return bodyOf(request).source === 'template'
+          ? { status: 200, body: { success: true, plan: templatePlan } }
+          : unavailable;
+      }
+      // What generate answers while the old draft is active (the defect): stale, with that draft.
+      if (request.method === 'POST' && request.path.endsWith(`/goals/${GOAL_ID}/plan/generate`)) {
+        return { status: 409, body: { success: false, error: 'stale', reason: 'stale', plan: PLAN } };
+      }
+      return defaultReply(request);
+    };
+    await openGoal(harness);
+    await screen.findByTestId('goal-plan-open');
+    await press('goal-plan-open');
+    await waitFor(() => expect(screen.queryByTestId('plan-step-step-1')).not.toBeNull());
+    // too_many_edits offers a new plan: that is the regenerate.
+    await press('plan-edit');
+    await press('plan-move-down-step-1');
+    await waitFor(() => expect(screen.queryByTestId('plan-failure')).not.toBeNull());
+    await press('plan-failure-action');
+    await waitFor(() => expect(harness.server.matching('POST', /\/plan\/regenerate$/)).toHaveLength(1));
+    await waitFor(() => expect(screen.queryByText(en.xPlanActionTemplate)).not.toBeNull());
+
+    await press('plan-failure-action');
+
+    await waitFor(() => expect(harness.server.matching('POST', /\/plan\/regenerate$/)).toHaveLength(2));
+    expect(harness.server.matching('POST', /\/plan\/regenerate$/)[1]?.body).toEqual({
+      currentPlanId: PLAN_ID,
+      revision: PLAN.revision,
+      idempotencyKey: expect.any(String),
+      source: 'template',
+    });
+    expect(harness.server.matching('POST', /\/plan\/generate$/)).toHaveLength(0);
+    await waitFor(() => expect(screen.queryByTestId('plan-failure')).toBeNull());
+  });
+
+  it('a later failure that did not come from a regenerate never replaces the draft through regenerate', async () => {
+    harness.server.handler = (request) => {
+      if (request.method === 'PATCH') {
+        return { status: 422, body: { success: false, error: 'too_many_edits', reason: 'too_many_edits', plan: PLAN } };
+      }
+      if (request.method === 'POST' && request.path.endsWith(`/goals/${GOAL_ID}/plan/regenerate`)) return unavailable;
+      if (request.method === 'POST' && request.path.endsWith('/approve')) {
+        return { status: 503, body: { success: false, error: 'service_unavailable' } };
+      }
+      return defaultReply(request);
+    };
+    await openDraftAndFailAnEdit();
+    // A regenerate fails first, so the flow did remember a regenerate ...
+    await press('plan-failure-action');
+    await waitFor(() => expect(harness.server.matching('POST', /\/plan\/regenerate$/)).toHaveLength(1));
+    await waitFor(() => expect(screen.queryByText(en.xPlanActionTemplate)).not.toBeNull());
+    // ... and then approve fails: that is the failure the template answers now.
+    await press('plan-approve');
+    await waitFor(() => expect(harness.server.matching('POST', /\/approve$/)).toHaveLength(1));
+    await waitFor(() => expect(screen.queryByTestId('plan-failure-action-2')).not.toBeNull());
+    expect(screen.getByTestId('plan-failure-action-2')).toBeTruthy();
+    expect(screen.queryByText(en.xPlanActionTemplate)).not.toBeNull();
+
+    await press('plan-failure-action-2');
+
+    await waitFor(() => expect(harness.server.matching('POST', /\/plan\/generate$/)).toHaveLength(1));
+    expect(harness.server.matching('POST', /\/plan\/generate$/)[0]?.body).toEqual({
+      idempotencyKey: expect.any(String),
+      source: 'template',
+    });
+    expect(harness.server.matching('POST', /\/plan\/regenerate$/)).toHaveLength(1);
+  });
+
+  it('a second press in the same frame that never started does not change what the template repeats', async () => {
+    const templatePlan = { ...PLAN, planId: 'plan-template', revision: 1, source: 'template' };
+    harness.server.handler = (request) => {
+      if (request.method === 'PATCH') {
+        return { status: 422, body: { success: false, error: 'too_many_edits', reason: 'too_many_edits', plan: PLAN } };
+      }
+      if (request.method === 'POST' && request.path.endsWith(`/goals/${GOAL_ID}/plan/regenerate`)) {
+        return bodyOf(request).source === 'template'
+          ? { status: 200, body: { success: true, plan: templatePlan } }
+          : unavailable;
+      }
+      return defaultReply(request);
+    };
+    await openDraftAndFailAnEdit();
+    // "new plan" and approve in one frame: the regenerate starts, approve bails.
+    await act(async () => {
+      await fireEvent.press(screen.getByTestId('plan-failure-action'));
+      await fireEvent.press(screen.getByTestId('plan-approve'));
+    });
+    await waitFor(() => expect(harness.server.matching('POST', /\/plan\/regenerate$/)).toHaveLength(1));
+    await waitFor(() => expect(screen.queryByText(en.xPlanActionTemplate)).not.toBeNull());
+    expect(harness.server.matching('POST', /\/approve$/)).toHaveLength(0);
+
+    await press('plan-failure-action');
+
+    await waitFor(() => expect(harness.server.matching('POST', /\/plan\/regenerate$/)).toHaveLength(2));
+    expect(harness.server.matching('POST', /\/plan\/regenerate$/)[1]?.body).toEqual(expect.objectContaining({ source: 'template' }));
+    expect(harness.server.matching('POST', /\/plan\/generate$/)).toHaveLength(0);
+    expect(harness.server.matching('POST', /\/approve$/)).toHaveLength(0);
+  });
+
+  it('after a failed first generate, the template action still generates with the template', async () => {
+    harness.server.handler = (request) => {
+      if (request.method === 'GET' && request.path.endsWith(`/goals/${GOAL_ID}/plan`)) {
+        return { status: 200, body: { success: true, draft: null, confirmed: null, linkedWork: [] } };
+      }
+      if (request.method === 'POST' && request.path.endsWith(`/goals/${GOAL_ID}/plan/generate`)) {
+        return bodyOf(request).source === 'template'
+          ? { status: 200, body: { success: true, plan: { ...PLAN, source: 'template' } } }
+          : unavailable;
+      }
+      return defaultReply(request);
+    };
+    await openGoal(harness);
+    await screen.findByTestId('goal-plan-open');
+    await press('goal-plan-open');
+    await waitFor(() => expect(screen.queryByTestId('plan-failure')).not.toBeNull());
+    await waitFor(() => expect(screen.queryByText(en.xPlanActionTemplate)).not.toBeNull());
+
+    await press('plan-failure-action');
+
+    await waitFor(() => expect(harness.server.matching('POST', /\/plan\/generate$/)).toHaveLength(2));
+    expect(harness.server.matching('POST', /\/plan\/generate$/)[1]?.body).toEqual({
+      idempotencyKey: expect.any(String),
+      source: 'template',
+    });
+    expect(harness.server.matching('POST', /\/plan\/regenerate$/)).toHaveLength(0);
+    await waitFor(() => expect(screen.queryByTestId('plan-step-step-1')).not.toBeNull());
   });
 });
 

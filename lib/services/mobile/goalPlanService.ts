@@ -1158,7 +1158,13 @@ export async function confirmGoalPlan(uid: string, goalId: string, planId: strin
   return { saved: result.outcome.saved, stayed: result.outcome.stayed, receipt: { outcomeId: result.outcome.outcomeId, replayed: result.replayed } };
 }
 
-export async function regenerateGoalPlan(uid: string, goalId: string, input: { currentPlanId: string; revision: number; idempotencyKey: string }, storage = getStorage()): Promise<GoalPlan> {
+/**
+ * Replaces the active draft with a new one. `source: 'template'` (#807) makes
+ * the replacement from the template instead of the model: after a failed
+ * regenerate the old draft is still active, so generate would only answer
+ * stale with it; the template recovery supersedes it here instead.
+ */
+export async function regenerateGoalPlan(uid: string, goalId: string, input: { currentPlanId: string; revision: number; idempotencyKey: string; source?: 'template' }, storage = getStorage()): Promise<GoalPlan> {
   const now = new Date(); const nowIso = now.toISOString();
   const claim = await storage.runTransaction(async (tx) => {
     await fence(tx, uid);
@@ -1193,8 +1199,11 @@ export async function regenerateGoalPlan(uid: string, goalId: string, input: { c
     apiError(409, 'stale');
   }
   let generated: { horizon: 'days' | 'weeks'; steps: InternalStep[] };
+  const source: GoalPlanSource = input.source === 'template' ? 'template' : 'model';
   try {
-    generated = await modelPlan(uid, claim.plan.summary.goalText, goalStepLanguageOf(claim.plan.summary.goalText, claim.plan.language));
+    generated = source === 'template'
+      ? templatePlan(claim.plan.summary.goalText, claim.plan.language)
+      : await modelPlan(uid, claim.plan.summary.goalText, goalStepLanguageOf(claim.plan.summary.goalText, claim.plan.language));
   } catch (error) {
     await storage.runTransaction(async (tx) => {
       await fence(tx, uid);
@@ -1215,7 +1224,7 @@ export async function regenerateGoalPlan(uid: string, goalId: string, input: { c
     if (!currentClaim || currentClaim.claimId !== claim.claimId || currentClaim.state !== 'claimed') return null;
     if (!plan || lineage.activeDraftPlanId !== input.currentPlanId || plan.status === 'superseded'
       || plan.status === 'confirmed' || plan.revision !== input.revision) return null;
-    const replacement: StoredGoalPlan = { ...plan, planId: newId, revision: 1, status: 'draft', source: 'model', steps: generated.steps,
+    const replacement: StoredGoalPlan = { ...plan, planId: newId, revision: 1, status: 'draft', source, steps: generated.steps,
       horizon: generated.horizon, removed: [], editCount: 0, pendingLaterSteps: [], anchor: undefined, pendingWeekStartsAt: undefined, createdAt: nowIso, updatedAt: nowIso };
     tx.set(planPath(uid, plan.planId), { ...plan, status: 'superseded', updatedAt: nowIso });
     tx.set(planPath(uid, newId), replacement);

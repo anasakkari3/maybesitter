@@ -9,6 +9,40 @@ import { listMemory } from './memoryService';
 export const MEMORY_SUMMARY_ROUTE_BUDGET_MS = 10_000;
 export const MEMORY_SUMMARY_ATTEMPT_TIMEOUT_MS = 8_000;
 const MINIMUM_ATTEMPT_BUDGET_MS = 2_000;
+export const MEMORY_SUMMARY_MAX_SENTENCES = 8;
+export const MEMORY_SUMMARY_MAX_SENTENCE_CHARS = 220;
+/**
+ * How many rows are sent: the newest 15 prose rows (`listMemory` is newest
+ * first). Every supplied row must be cited, and the answer is at most 8
+ * sentences of at most 220 characters, 1760 characters in all. A row said
+ * back in plain words, translated and with its digits copied, takes about
+ * 100 characters, so a sentence carries about two rows and 8 sentences about
+ * 16; 15 leaves a little room. With 40 rows sent no valid answer could exist,
+ * and anyone with many memories always got `unavailable` (#806 part 2, live
+ * Gemini 2026-10-24). The rest is not hidden: `coveredCount` is the rows
+ * sent, `totalCount` every row, and the phone says «وفي كمان # إشي» (m5bSummaryMore).
+ */
+export const MEMORY_SUMMARY_MAX_ROWS = 15;
+/**
+ * The same limit in characters. A row can hold 200 characters, so 15 long rows
+ * are 3,000 characters to say back in 1,760 (8 x 220), more once Arabic is
+ * translated into English. The newest rows are sent while their text stays
+ * within this, and always at least the newest one (inspection of #817).
+ */
+export const MEMORY_SUMMARY_MAX_ROW_CHARS = 1_400;
+
+/** The newest rows that fit both limits, in order; never skips a row to fit a later one. */
+function newestThatFit<T extends { readonly content: string }>(rows: readonly T[]): T[] {
+  const kept: T[] = [];
+  let chars = 0;
+  for (const row of rows) {
+    if (kept.length === MEMORY_SUMMARY_MAX_ROWS) break;
+    if (kept.length > 0 && chars + row.content.length > MEMORY_SUMMARY_MAX_ROW_CHARS) break;
+    kept.push(row);
+    chars += row.content.length;
+  }
+  return kept;
+}
 
 export type MemorySummaryLanguage = 'ar' | 'en' | 'he';
 export interface MemorySummaryInputRow { readonly ref: string; readonly id: string; readonly kind: string; readonly text: string }
@@ -189,7 +223,7 @@ function languageValid(text: string, language: MemorySummaryLanguage, cited: rea
 }
 
 function sentenceValid(sentence: MemorySummarySentence, supplied: readonly MemorySummaryInputRow[], language: MemorySummaryLanguage): boolean {
-  if (typeof sentence.text !== 'string' || sentence.text.length < 1 || sentence.text.length > 220) return false;
+  if (typeof sentence.text !== 'string' || sentence.text.length < 1 || sentence.text.length > MEMORY_SUMMARY_MAX_SENTENCE_CHARS) return false;
   if (!Array.isArray(sentence.refs) || sentence.refs.length === 0 || sentence.refs.some((ref) => !supplied.some((row) => row.ref === ref))) return false;
   const cited = supplied.filter((row) => sentence.refs.includes(row.ref));
   const allowedNumbers = new Set(cited.flatMap((row) => numericTokens(row.text)));
@@ -216,7 +250,7 @@ function sentenceValid(sentence: MemorySummarySentence, supplied: readonly Memor
 export function validateMemorySummary(value: unknown, supplied: readonly MemorySummaryInputRow[], language: MemorySummaryLanguage): MemorySummarySentence[] | null {
   if (!value || typeof value !== 'object' || !Array.isArray((value as { sentences?: unknown }).sentences)) return null;
   const sentences = (value as { sentences: unknown[] }).sentences;
-  if (sentences.length < 1 || sentences.length > 8) return null;
+  if (sentences.length < 1 || sentences.length > MEMORY_SUMMARY_MAX_SENTENCES) return null;
   const parsed: MemorySummarySentence[] = [];
   for (const candidate of sentences) {
     if (!candidate || typeof candidate !== 'object') return null;
@@ -295,7 +329,7 @@ export async function buildMemorySummary(input: { uid: string; language: MemoryS
   // words, is theirs to have summarized (inspection MS-ROUTINE-004/008).
   const prose = listed.filter((row) => !(row.provenance?.origin === 'routine_survey' && isCanonicalRoutineFact(row.content)));
   if (prose.length === 0) return { status: 'empty' };
-  const rows: MemorySummaryInputRow[] = prose.slice(0, 40).map((row, index) => ({ ref: `r${index + 1}`, id: row.id, kind: row.kind, text: row.content }));
+  const rows: MemorySummaryInputRow[] = newestThatFit(prose).map((row, index) => ({ ref: `r${index + 1}`, id: row.id, kind: row.kind, text: row.content }));
   const remaining = MEMORY_SUMMARY_ROUTE_BUDGET_MS - (Date.now() - input.startedAt);
   if (remaining < MINIMUM_ATTEMPT_BUDGET_MS || input.signal.aborted) return { status: 'unavailable' };
   const reservation = await reserveCall(input.uid, 'memory_summary', { storage: getStorage() });
