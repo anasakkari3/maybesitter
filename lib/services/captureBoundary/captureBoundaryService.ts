@@ -137,6 +137,8 @@ export interface ProposeCaptureOptions {
     previousMatchIndices?: readonly (number | null)[];
     /** Validated citation span for each delta item, in the same order. */
     operationSources?: readonly string[];
+    /** First-turn citation plus message words cited by no operation. */
+    operationEvidenceSources?: readonly string[];
     /** Exact clocks selected by chat answers to a pending AM/PM question. */
     answeredAmPmClocks?: readonly (string | null)[];
   };
@@ -886,10 +888,13 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
    * refuses anything longer, so no parser here reads more than a capture's.
    */
   const chat = options.chat;
+  const operationEvidenceSources = chat?.operationEvidenceSources ?? chat?.operationSources;
   const chatEvidence = chat
-    ? chat.operationSources?.join('\n') ?? chatEvidenceFrom(chat.userTurns)
+    ? operationEvidenceSources?.join('\n') ?? chatEvidenceFrom(chat.userTurns)
     : '';
-  if (chat && chatEvidence.length > CAPTURE_INPUT_MAX_CHARACTERS) throw new CaptureInputTooLargeError();
+  // Shared first-turn evidence is repeated once per operation. Bound the
+  // person's actual turns, not that derived representation.
+  if (chat && chatEvidenceFrom(chat.userTurns).length > CAPTURE_INPUT_MAX_CHARACTERS) throw new CaptureInputTooLargeError();
   const chatPrevious = chat?.previous ?? [];
   // Ref operations already identify the item. The extraction boundary checks
   // the supplied fields, but never rewrites an item's identity from title or
@@ -902,8 +907,11 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
   const chatItemEvidences = chat
     ? chatItemEvidence(chat.userTurns, chatItems, chatPrevious, options.timezone, chat.evidenceStartIndices, chat.previousMatchIndices, chat.operationSources)
     : [];
+  const chatFactEvidences = chat
+    ? chatItemEvidence(chat.userTurns, chatItems, chatPrevious, options.timezone, chat.evidenceStartIndices, chat.previousMatchIndices, operationEvidenceSources)
+    : [];
   const chatChangedFieldEvidences = chat
-    ? chatItemEvidence(chat.userTurns, chatItems, chatPrevious, options.timezone, chat.changedFieldEvidenceStartIndices, chat.previousMatchIndices, chat.operationSources)
+    ? chatItemEvidence(chat.userTurns, chatItems, chatPrevious, options.timezone, chat.changedFieldEvidenceStartIndices, chat.previousMatchIndices, operationEvidenceSources)
     : [];
   const chatAligned = alignToPrevious(chatItems, chatPrevious, chat?.previousMatchIndices);
   // The days and hours each other model item holds, and the goal-like items'
@@ -944,7 +952,7 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
       // point was about. The pronoun is evidence for its kind, not a new name.
       return before && detectUnresolvedIntent(newest)
         ? [before.title, newest].filter(Boolean).join('\n')
-        : clause.text;
+        : chatFactEvidences[index]?.clause.text ?? clause.text;
     }
     if (before.kind === 'possible_goal' && readRecurrence(newest)) return before.title;
     return [before.title, newest].filter(Boolean).join('\n');
@@ -1094,8 +1102,9 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
         // The person's segment verbatim: a seed's summary is its capture
         // evidence (intentContracts.ts, seedService), so even a joining «و»
         // stays (Codex inspection F3-007). The summary line shows it as stored.
-        seeds.push({ seedItemId, kind: intent.kind, summary: segment });
-        sourceOrdinals.seeds[seedItemId] = sourceOrdinal(raw, segment, chatItems[index], index);
+        const ownSegment = clauses[index]?.text ?? segment;
+        seeds.push({ seedItemId, kind: intent.kind, summary: ownSegment });
+        sourceOrdinals.seeds[seedItemId] = sourceOrdinal(raw, ownSegment, chatItems[index], index);
         const operationIndex = chatOperationIndex(chatItems[index]);
         if (operationIndex !== null) chatOperationIndices.seeds[seedItemId] = operationIndex;
         if (chatItemEvidences[index]?.touchedNow) latestChatTouchedIds.add(seedItemId);
@@ -1137,13 +1146,19 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
       // والثاني … عال٦» — two hours, one per item — is not one to ask about.
       const statedEarlyClock = extracted.engine !== 'rule-based'
         ? chat?.operationSources
-          ? statedBareOperationClock(segment)
+          // Later-turn citation operations answer or edit an existing card,
+          // so any bare 1–11 clock must ask AM/PM. A validated first turn keeps
+          // the first turn's own rule, read over the whole message: one bare
+          // early hour («الساعة 5») is asked, never guessed (live r11 L3);
+          // two hours, one per point («الاول الساعة 4 والتاني الساعة 6»), are
+          // not one to ask about.
+          ? chatPrevious.length > 0 ? statedBareOperationClock(segment) : statedBareEarlyClock(chatEvidenceFrom(chat.userTurns))
           : statedBareEarlyClock(chat ? chatEvidence : segment)
         : null;
       if (statedEarlyClock) {
         extracted = { ...extracted, result: withStatedBareEarlyClock(extracted.result, statedEarlyClock, options.timezone) };
       }
-      extracted = { ...extracted, result: withConjunctOwnDay(extracted.result, clauses[index]!, options.timezone) };
+      extracted = { ...extracted, result: withConjunctOwnDay(extracted.result, chatFactEvidences[index]?.clause ?? clauses[index]!, options.timezone) };
       /*
        * The capture chat. An item whose object failed validation fell back to
        * the rules on the whole conversation — a reading of every turn at
@@ -1157,7 +1172,7 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
       let before: ChatPreviousItem | undefined;
       if (chat) {
         if (extracted.engine === 'rule-based' && !/^(?:prompt_injection|semantic_safety)/.test(extracted.fallbackReason ?? '')) continue;
-        const evidence = chatItemEvidences[index]!;
+        const evidence = chatFactEvidences[index]!;
         /*
          * An item the newest message is not about keeps the day and hour it
          * had (chat UAT round 2, real Gemini: «لا خلّي التانية الساعة 7» came
@@ -1429,7 +1444,7 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
        * list never undoes a later edit of one of its days.
        */
       const occurrenceWords = chat
-        ? chatItemEvidences[index]!.turns.filter((line) => raw.includes(line.trim())).join('\n')
+        ? chatFactEvidences[index]!.turns.join('\n')
         : segment;
       // A ref-targeted update already identifies which stored point owns a
       // nameless recurring answer such as "Every Tuesday and Thursday at
@@ -1610,8 +1625,8 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
     }
   };
 
-  if (chat?.operationSources) {
-    chat.operationSources.forEach((source, operationIndex) => {
+  if (operationEvidenceSources) {
+    operationEvidenceSources.forEach((source, operationIndex) => {
       const targetIds = new Set(items.flatMap((item) =>
         Math.floor(chatOperationIndices.items[item.itemId] ?? -1) === operationIndex ? [item.itemId] : []));
       clearMissingTimes(targetIds, countTimeExpressions(source));

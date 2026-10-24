@@ -359,7 +359,15 @@ function withAskedSuffix(
   const suffix = reply.endsWith(generated) ? generated : modelQuestionSuffix(reply, asking);
   if (suffix) return { reply, asked: asking.itemId ? { itemId: asking.itemId, text: suffix } : null };
   if (!appendWhenMissing && !asksForMissing(reply, asking)) return { reply, asked: null };
-  const lead = sentencesOf(reply).filter((sentence) => !isQuestion(sentence)).join(' ').trim();
+  // A generated question may have a question sentence followed by a plain
+  // explanatory sentence (Arabic's «احكيلي اليوم والساعة.»). When a later
+  // shape note moves that question away from the suffix, retire every part of
+  // the old generated question before appending it again as one unit.
+  const generatedSentences = new Set(sentencesOf(generated));
+  const lead = sentencesOf(reply)
+    .filter((sentence) => !isQuestion(sentence) && !generatedSentences.has(sentence))
+    .join(' ')
+    .trim();
   const opening = lead || TEMPLATES[language].understood;
   const ended = /[.!?؟。…]$/.test(opening) ? opening : `${opening}.`;
   const question = generated;
@@ -405,7 +413,22 @@ function alignedWithProposal(text: string, context: TemplateContext): string {
   const sentences = sentencesOf(text);
   if (asking) {
     const others = (context.proposal?.items ?? []).filter((item) => item !== asking).map((item) => item.title);
-    return sentences.filter((sentence) => isQuestion(sentence) || !(statesClock(sentence) && namesOnlyItem(sentence, asking.title, others))).join(' ');
+    const kept = sentences.filter((sentence) => isQuestion(sentence) || !(statesClock(sentence) && namesOnlyItem(sentence, asking.title, others)));
+    if (kept.length === sentences.length || kept.length === 0) return kept.join(' ');
+    // If the removed sentence owned the connection to the next one, do not
+    // expose that connection as the start of the reply. Arabic/Hebrew attach
+    // their equivalent of “and” to the next word; removing one letter would
+    // require guessing whether it is grammatical or lexical, so use the safe
+    // template instead in that case.
+    const first = kept[0]!;
+    if ((context.language === 'ar' && /^و/.test(first))
+      || (context.language === 'he' && /^ו(?!גם(?:\s|$))/.test(first))) return '';
+    const withoutDanglingJoiner = first.replace(context.language === 'ar'
+      ? /^(?:كمان|أيضاً|ايضاً)[،,]?\s*/
+      : context.language === 'he'
+        ? /^וגם\s*/
+        : /^(?:(?:also|and)\b[,.]?\s*)/i, '');
+    return [withoutDanglingJoiner, ...kept.slice(1)].filter(Boolean).join(' ');
   }
   const kept = sentences.filter((sentence) => !(isQuestion(sentence) && TIME_QUESTION.test(sentence)));
   if (kept.length === sentences.length) return text;

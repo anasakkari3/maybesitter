@@ -229,6 +229,8 @@ export interface ValidatedChatCitations {
   added: unknown[];
   /** One source for each update, followed by one for each added operation. */
   deltaSources: string[];
+  /** Each delta's citation plus message words cited by no operation. */
+  deltaEvidence: string[];
   /** A stated clock was repeated or did not match the model. */
   timeDisagrees?: true;
 }
@@ -290,13 +292,14 @@ function sourceOccurrences(message: string, source: string): Set<number>[] {
 }
 
 /** Whether citations can be placed without overlap, except between updates. */
-function citationsCanCoexist(
+function coexistingCitationPlacements(
   operations: readonly CitationOperation[],
   candidates: readonly Set<number>[][],
   index = 0,
   used = new Map<number, CitationOperation['kind'][]>(),
-): boolean {
-  if (index >= candidates.length) return true;
+  selected: readonly Set<number>[] = [],
+): Set<number>[] | null {
+  if (index >= candidates.length) return [...selected];
   const operation = operations[index]!;
   for (const occurrence of candidates[index]!) {
     const conflicts = Array.from(occurrence).some((word) => {
@@ -306,9 +309,19 @@ function citationsCanCoexist(
     if (conflicts) continue;
     const next = new Map(Array.from(used, ([word, owners]) => [word, [...owners]]));
     for (const word of Array.from(occurrence)) next.set(word, [...(next.get(word) ?? []), operation.kind]);
-    if (citationsCanCoexist(operations, candidates, index + 1, next)) return true;
+    const placements = coexistingCitationPlacements(operations, candidates, index + 1, next, [...selected, occurrence]);
+    if (placements) return placements;
   }
-  return false;
+  return null;
+}
+
+/** The exact citation plus folded message words which no validated citation owns. */
+function citationEvidence(message: string, source: string, occupied: ReadonlySet<number>): string {
+  const shared = Array.from(message.matchAll(CITATION_WORDS))
+    .filter((_, index) => !occupied.has(index))
+    .map((match) => match[0])
+    .join(' ');
+  return [source, shared].filter(Boolean).join('\n');
 }
 
 /** True only when every possible placement makes the two citations overlap. */
@@ -558,16 +571,26 @@ export function validateChatCitations(
     sources.set(operation.key, operation.source);
     candidates.push(occurrences);
   }
-  if (!citationsCanCoexist(operations, candidates)) return null;
+  const placements = coexistingCitationPlacements(operations, candidates);
+  if (!placements) return null;
   if (operationsSwapNamedPoints(operations)) return null;
   const timeDisagrees = !operationFactsAgree(operations, context.timezone);
   if (!timeDisagrees
     && !sharedUpdateFactsAreUniform(operations, candidates, context.now, context.timezone, context.amPmAskedRefs ?? new Set())) return null;
+  const occupied = new Set(placements.flatMap((placement) => Array.from(placement)));
+  const evidenceByKey = new Map(operations.map((operation) => [
+    operation.key,
+    citationEvidence(message, sources.get(operation.key)!, occupied),
+  ]));
   return {
     added: added.map((entry) => entry.fields),
     deltaSources: [
       ...updates.map((operation) => sources.get(operation.ref) ?? newestMessage),
       ...added.map((_, index) => sources.get(`added:${index}`) ?? newestMessage),
+    ],
+    deltaEvidence: [
+      ...updates.map((operation) => evidenceByKey.get(operation.ref) ?? sources.get(operation.ref) ?? newestMessage),
+      ...added.map((_, index) => evidenceByKey.get(`added:${index}`) ?? sources.get(`added:${index}`) ?? newestMessage),
     ],
     ...(timeDisagrees ? { timeDisagrees: true as const } : {}),
   };
