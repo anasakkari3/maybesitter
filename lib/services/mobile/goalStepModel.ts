@@ -74,7 +74,7 @@ export interface GoalStepPlanOutcome {
 /** The planner the goal graph service calls. Injected by tests. */
 export type GoalStepModel = (request: GoalStepPlanRequest) => Promise<GoalStepPlanOutcome>;
 
-const LANGUAGE_NAMES: Readonly<Record<GoalStepLanguage, string>> = {
+export const LANGUAGE_NAMES: Readonly<Record<GoalStepLanguage, string>> = {
   ar: 'spoken Levantine Arabic (the everyday Syrian, Lebanese, Palestinian and Jordanian register, not formal Modern Standard Arabic), in Arabic script',
   he: 'everyday Hebrew, in Hebrew script, using the infinitive form for each step (for example "לכתוב", "לבחור")',
   en: 'plain English',
@@ -93,7 +93,7 @@ const LANGUAGE_NAMES: Readonly<Record<GoalStepLanguage, string>> = {
  * marker caught. The written to-do verbs and adjective endings are now named
  * with what a speaker says instead, and `hasFormalArabic` catches them.
  */
-const LEVANTINE_EXAMPLES = [
+export const LEVANTINE_EXAMPLES = [
   'Arabic register: write each step the way a friend from Amman, Beirut or Damascus would say it out loud, not the way a textbook or a manual would write it.',
   'Prefer everyday verbs such as «حطّ», «ابعت», «شوف», «جرّب», «خلّص», «اسأل», «فرجي», «جيب», «رتّب», and spoken words such as «اللي», «شي», «هلّق», «بدّك», «لحالك».',
   'Examples of the register, for different goals:',
