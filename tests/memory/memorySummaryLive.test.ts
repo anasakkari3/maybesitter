@@ -59,3 +59,16 @@ test('the prompt names the asked language, says to translate, and never "the lan
   assert.ok(!prompts.en!.includes('عندك not لديك'));
   assert.ok(!prompts.he!.includes('عندك not لديك'));
 });
+
+// #806 part 1: «الاثنين» (Monday) read as «اثنين» (two); the Hebrew days after
+// «יום» are the ordinals. A weekday only where a cited row names that day.
+test('a weekday that reads as a number passes where the cited row names that day, and is still a number where none does', async () => {
+  const { validateMemorySummary } = await import('../../lib/services/mobile/memorySummary.ts');
+  const gym = { ref: 'r1', id: 'a', kind: 'fact', text: 'I go to the gym on Mondays and Wednesdays at 19:00' };
+  const kids = { ref: 'r1', id: 'b', kind: 'fact', text: 'عندي ولدين بالمدرسة' };
+  const one = (text: string, row: typeof gym, language: 'ar' | 'he') => validateMemorySummary({ sentences: [{ text, refs: ['r1'] }] }, [row], language);
+  assert.notEqual(one('بتروح عالجيم أيام الاثنين والأربعاء الساعة 19:00.', gym, 'ar'), null);
+  assert.notEqual(one('אתה הולך לחדר כושר ביום שני וביום רביעי ב-19:00.', gym, 'he'), null);
+  assert.equal(one('عندك الاثنين بالمدرسة.', kids, 'ar'), null);
+  assert.equal(one('יש לך שני ילדים בבית ספר.', kids, 'he'), null);
+});

@@ -69,6 +69,40 @@ function isNumberWord(word: string): boolean {
     .some((candidate) => MEMORY_SUMMARY_NUMBER_WORDS.has(candidate));
 }
 
+/**
+ * Weekday names that read as number words: Arabic «الاثنين» (Monday) is
+ * «اثنين» (two) once «ال» is stripped, and the Hebrew days after «יום» are the
+ * ordinals (יום שני, Monday). A summary of "I go to the gym on Mondays" in
+ * Arabic was refused as an invented number (#806). Such a word is a weekday
+ * only where a cited row names that same day, in any of the three languages —
+ * otherwise it is still read as a number («الاثنين» is also "the two").
+ */
+const WEEKDAY_NAMES: Readonly<Record<string, readonly string[]>> = {
+  sunday: ['sunday', 'sundays', 'الاحد', 'יום ראשון'],
+  monday: ['monday', 'mondays', 'الاثنين', 'الاتنين', 'יום שני'],
+  tuesday: ['tuesday', 'tuesdays', 'الثلاثاء', 'التلات', 'יום שלישי'],
+  wednesday: ['wednesday', 'wednesdays', 'الاربعاء', 'الاربعا', 'יום רביעי'],
+  thursday: ['thursday', 'thursdays', 'الخميس', 'יום חמישי'],
+  friday: ['friday', 'fridays', 'الجمعه', 'יום שישי'],
+};
+const ARABIC_WEEKDAY_WORD = /^[وف]?(?:لل|[بلك]?ال)(اثنين|اتنين)$/;
+const HEBREW_DAY_WORDS = new Set(['יום', 'ביום', 'בימי', 'ימי', 'מיום', 'ליום', 'וביום', 'כל']);
+const HEBREW_ORDINAL_DAY: Readonly<Record<string, string>> = { ראשון: 'sunday', שני: 'monday', שלישי: 'tuesday', רביעי: 'wednesday', חמישי: 'thursday', שישי: 'friday' };
+
+function weekdayOf(word: string, previous: string | undefined): string | null {
+  if (ARABIC_WEEKDAY_WORD.test(word)) return 'monday';
+  if (previous !== undefined && HEBREW_DAY_WORDS.has(previous)) return HEBREW_ORDINAL_DAY[word] ?? null;
+  return null;
+}
+
+function citedNamesDay(day: string, cited: readonly MemorySummaryInputRow[]): boolean {
+  const names = WEEKDAY_NAMES[day] ?? [];
+  return cited.some((row) => {
+    const text = words(row.text).join(' ');
+    return names.some((name) => ` ${text} `.includes(` ${name} `) || text.split(' ').some((word) => word.endsWith(name) && name.startsWith('ال')));
+  });
+}
+
 function copiedWord(word: string, cited: readonly MemorySummaryInputRow[]): boolean {
   return cited.some((row) => words(row.text).includes(word));
 }
@@ -117,8 +151,13 @@ function sentenceValid(sentence: MemorySummarySentence, supplied: readonly Memor
   const withoutAsciiNumbers = sentence.text.replace(NUMBER, '');
   if (ANY_NUMBER.test(withoutAsciiNumbers)) return false;
 
-  for (const word of words(sentence.text)) {
-    if (isNumberWord(word) && !copiedWord(word, cited)) return false;
+  const sentenceWords = words(sentence.text);
+  for (let index = 0; index < sentenceWords.length; index += 1) {
+    const word = sentenceWords[index]!;
+    if (!isNumberWord(word) || copiedWord(word, cited)) continue;
+    const day = weekdayOf(word, sentenceWords[index - 1]);
+    if (day !== null && citedNamesDay(day, cited)) continue;
+    return false;
   }
   const citedRaw = cited.flatMap((row) => rawLetterTokens(row.text));
   for (const token of rawLetterTokens(sentence.text)) {
