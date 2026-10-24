@@ -69,6 +69,7 @@ export type RouteHandler = (request: RecordedRequest) => RouteReply | Promise<Ro
 interface ScanCounts {
   messagesRead: number;
   messagesSkippedBulk?: number;
+  messagesUnanalysed?: number;
   messagesUnavailable: number;
   messagesTrimmed: number;
   observationsFound: number;
