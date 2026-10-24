@@ -1,6 +1,7 @@
 {
   "conversationId": "00000000-0000-4000-8000-000000000001",
   "reply": "فهمت عليك. إذا بدك، منقدر نحولها لخطوة واضحة بعدين.",
+  "asked": null,
   "engine": "rules",
   "proposal": {
     "version": "v1",

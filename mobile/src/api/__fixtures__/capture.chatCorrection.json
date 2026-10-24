@@ -1,6 +1,7 @@
 {
   "conversationId": "00000000-0000-4000-8000-000000000001",
   "reply": "فهمت: اطلع عالسوق بكرا الساعة 5 المسا. أكّد من تحت.",
+  "asked": null,
   "engine": "model",
   "proposal": {
     "version": "v1",

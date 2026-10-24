@@ -171,9 +171,10 @@ type Proposal = {
 type ChatBody = {
   conversationId: string;
   reply: string;
+  asked?: { itemId: string; text: string } | null;
   engine: 'model' | 'rules';
   proposal: Proposal | null;
-  turns: Array<{ role: string; text: string }>;
+  turns: Array<{ role: string; text: string; asked?: { itemId: string; text: string } | null }>;
 };
 
 async function chat(uid: string, message: string, conversationId?: string, referenceTime = new Date().toISOString()): Promise<ChatBody> {
@@ -1304,6 +1305,9 @@ test('a good reply that does not ask is kept, and only the missing hour is asked
     assert.equal(question.questionKey, 'ask_time');
     assert.ok(question.options.some((option) => option.optionId === 'morning' || option.optionId === 'evening'), JSON.stringify(question));
     assert.equal(body.reply, 'Got it: call the dentist tomorrow. Confirm below. What time is "Call the dentist"?');
+    assert.deepEqual(body.asked, { itemId: only.itemId, text: 'What time is "Call the dentist"?' });
+    assert.ok(body.reply.endsWith(body.asked!.text));
+    assert.deepEqual(body.turns.at(-1)?.asked, body.asked);
     assert.doesNotMatch(body.reply, /day and the time/);
   } finally {
     end();
@@ -1330,6 +1334,8 @@ test('a partly applied edit uses the truthful template, with the other item\u201
     assert.equal(second.proposal!.items[0]!.resolvedTime, instant(friday, '17:00'));
     assert.equal(second.proposal!.items[1]!.resolvedDate, sunday);
     assert.equal(second.reply, 'Okay, the dentist is now at 5 PM. What time is "Call Sara"?');
+    assert.equal(second.reply.startsWith('Okay, the dentist is now at 5 PM.'), true, 'the acknowledgement was replaced');
+    assert.deepEqual(second.asked, { itemId: second.proposal!.items[1]!.itemId, text: 'What time is "Call Sara"?' });
   } finally {
     end();
   }
@@ -1374,6 +1380,26 @@ test('the missing question names what is missing: the day, the hour, the half of
   // An unusable reply is still replaced whole, never appended to.
   assert.equal(safeChatReply('I added it to your calendar.', { language: 'en', proposal: asking }).reply, `Here's what I understood so far. Which day is "Call Sara"?`);
   assert.equal(safeChatReply('See https://example.com', { language: 'en', proposal: asking }).reply, `Here's what I understood so far. Which day is "Call Sara"?`);
+});
+
+test('a model question is exposed as a clean suffix, or normalized without losing its acknowledgement', () => {
+  const asking = { items: [{ itemId: 'sara', title: 'Call Sara', needsClarification: true,
+    clarification: { questionKey: 'ask_time', params: { date: TOMORROW } } }] } as never;
+  const clean = safeChatReply('Okay, I changed the dentist to 6. What time works for Call Sara?', { language: 'en', proposal: asking });
+  assert.equal(clean.reply, 'Okay, I changed the dentist to 6. What time works for Call Sara?');
+  assert.deepEqual(clean.asked, { itemId: 'sara', text: 'What time works for Call Sara?' });
+  assert.ok(clean.reply.endsWith(clean.asked!.text));
+
+  const normalized = safeChatReply('Okay, I changed the dentist to 6. What time works for Call Sara? I kept the rest.', { language: 'en', proposal: asking });
+  assert.equal(normalized.reply, 'Okay, I changed the dentist to 6. I kept the rest. What time is "Call Sara"?');
+  assert.deepEqual(normalized.asked, { itemId: 'sara', text: 'What time is "Call Sara"?' });
+  assert.ok(normalized.reply.endsWith(normalized.asked!.text));
+});
+
+test('asked is null when the reply asks nothing', () => {
+  const settled = { items: [{ itemId: 'sara', title: 'Call Sara', needsClarification: false }] } as never;
+  const answer = safeChatReply('Okay, I changed the dentist to 6.', { language: 'en', proposal: settled });
+  assert.equal(answer.asked, null);
 });
 
 /* ── 5. off-topic ───────────────────────────────────────────────── */
@@ -1993,6 +2019,54 @@ test('the existing clarify route answers a chat proposal’s question', async ()
       timezone: TZ,
     }));
     assert.equal(answered.status, 200);
+  } finally {
+    end();
+  }
+});
+
+type ClarifyItem = Omit<Item, 'clarification'> & { clarification: {
+  questionId: string;
+  options: Array<{ optionId: string; value: { localTime?: string } }>;
+} };
+
+async function clarifyTime(uid: string, proposal: Proposal, entry: Item): Promise<Proposal> {
+  const asked = entry as unknown as ClarifyItem;
+  const option = asked.clarification.options.find((candidate) => candidate.value.localTime) ?? asked.clarification.options[0]!;
+  const response = await clarifyPost(post('/api/mobile/capture/clarify', uid, {
+    proposalId: proposal.proposalId, itemId: entry.itemId, questionId: asked.clarification.questionId,
+    optionId: option.optionId, timezone: TZ,
+  }));
+  const body = await response.json();
+  assert.equal(response.status, 200, JSON.stringify(body));
+  return body as Proposal;
+}
+
+test('rules path: asked identifies the correct item in both orders, and persisted turns round-trip it', async () => {
+  begin({ llmProviderFor: () => null });
+  try {
+    const uid = uidFor('ChatAskedAfter');
+    const first = await chat(uid, 'بدي روح عالبنك بكرا');
+    const bank = first.proposal!.items[0]!;
+    assert.deepEqual(first.asked, { itemId: bank.itemId, text: 'أي ساعة بدك «روح عالبنك»؟' });
+    assert.ok(first.reply.endsWith(first.asked!.text));
+    assert.deepEqual(first.turns.at(-1)?.asked, first.asked);
+
+    const second = await chat(uid, 'لازم اتصل بسامي بعد بكرا', first.conversationId);
+    assert.deepEqual(second.proposal!.items.map((entry) => [entry.title, entry.needsClarification]), [['روح عالبنك', true], ['اتصل بسامي', true]]);
+    assert.deepEqual(second.asked, { itemId: bank.itemId, text: 'أي ساعة بدك «روح عالبنك»؟' });
+    assert.deepEqual(second.turns[1]!.asked, first.asked, 'the memory store dropped asked from the earlier assistant turn');
+    assert.deepEqual(second.turns.at(-1)?.asked, second.asked);
+    const bankDone = await clarifyTime(uid, second.proposal!, second.proposal!.items[0]!);
+    const bothDone = await clarifyTime(uid, bankDone, bankDone.items[1]!);
+    assert.deepEqual(bothDone.items.map((entry) => entry.needsClarification), [false, false]);
+
+    const other = uidFor('ChatAskedBefore');
+    const opening = await chat(other, 'بدي روح عالبنك بكرا');
+    await clarifyTime(other, opening.proposal!, opening.proposal!.items[0]!);
+    const next = await chat(other, 'لازم اتصل بسامي بعد بكرا', opening.conversationId);
+    const sami = next.proposal!.items[1]!;
+    assert.deepEqual(next.asked, { itemId: sami.itemId, text: 'أي ساعة بدك «اتصل بسامي»؟' });
+    assert.ok(next.reply.endsWith(next.asked!.text));
   } finally {
     end();
   }

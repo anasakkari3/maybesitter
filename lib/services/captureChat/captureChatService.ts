@@ -65,7 +65,7 @@ import { buildChatPrompt, oneUnambiguousClockIn, parseChatModelAnswer, validateC
 import { conflictForPrompt, readPersonSchedule, scheduleForPrompt, withItemConflicts, withProposalClashes, type PersonSchedule } from './chatConflicts';
 import { clashKey, withConflictsNamed } from './chatWhy';
 import { candidateIntervalOf, type CollisionCandidate } from '../timeCollision';
-import { detectChatLanguage, safeChatReply, templateReply, withShapeNoted, withWeeklyOffer, type ChatLanguage } from './chatReply';
+import { detectChatLanguage, finalChatReplyQuestion, safeChatReply, templateReply, withShapeNoted, withWeeklyOffer, type CaptureChatAsked, type ChatLanguage } from './chatReply';
 import {
   CaptureConversationStore,
   conversationExpired,
@@ -206,6 +206,8 @@ export type CaptureChatProposal = Awaited<ReturnType<typeof proposeMobileChatTur
 export interface CaptureChatResponse {
   conversationId: string;
   reply: string;
+  /** The exact trailing missing-field question, and the item it asks about. */
+  asked?: CaptureChatAsked | null;
   engine: 'model' | 'rules';
   proposal: CaptureChatProposal | null;
   turns: CaptureChatTurn[];
@@ -400,7 +402,7 @@ export async function chatMobileCapture(
           : locale === 'he' ? 'עודכן. אפשר לבדוק את הרשימה ולאשר למטה.' : 'تمام، عدّلتها. راجع القائمة وأكّد من تحت.';
         const kept = boundedTurns([...conversation.turns, { role: 'assistant' as const, text: reply }]);
         await conversations.put(uid, { ...conversation, turns: kept, proposalId: kindsEdited.proposalId, updatedAt: new Date(clock()).toISOString() });
-        return { conversationId: conversation.conversationId, reply, engine: current.proposal.provenance.requestedEngine === 'model' ? 'model' : 'rules', proposal: kindsEdited, turns: kept };
+        return { conversationId: conversation.conversationId, reply, asked: null, engine: current.proposal.provenance.requestedEngine === 'model' ? 'model' : 'rules', proposal: kindsEdited, turns: kept };
       }
       const outcome = await applyStructuredEdit({
         uid,
@@ -420,13 +422,19 @@ export async function chatMobileCapture(
         const answer: CaptureChatResponse = {
           conversationId: conversation.conversationId,
           reply: currentTurns.at(-1)?.role === 'assistant' ? currentTurns.at(-1)!.text : '',
+          asked: currentTurns.at(-1)?.role === 'assistant' ? currentTurns.at(-1)!.asked ?? null : null,
           engine: outcome.proposal.provenance.requestedEngine === 'model' ? 'model' : 'rules',
           proposal: outcome.proposal,
           turns: currentTurns,
         };
         throw new CaptureChatProposalChangedError(answer, outcome.confirmed ? 'confirmed' : 'open');
       }
-      const answer = outcome.answer as CaptureChatResponse;
+      const rawAnswer = outcome.answer as CaptureChatResponse;
+      const latest = rawAnswer.turns.at(-1);
+      const answer: CaptureChatResponse = {
+        ...rawAnswer,
+        asked: latest?.role === 'assistant' ? latest.asked ?? null : null,
+      };
       if (answer.proposal) {
         const schedule = await readPersonSchedule(uid, now);
         answer.proposal = await withConflicts(answer.proposal, schedule);
@@ -496,14 +504,24 @@ export async function chatMobileCapture(
     const receiptProposal = !liveProposal && conversation.messageReceipt.proposalId
       ? await readMobileChatProposal(conversation.messageReceipt.proposalId, uid, { includeConfirmed: true })
       : null;
+    const staleReply = templateReply({
+      language: replayLanguage,
+      proposal: liveProposal,
+      alreadySaved: receiptProposal?.confirmed === true,
+    });
+    const final = finalChatReplyQuestion(staleReply, replayLanguage, liveProposal);
+    const replayTurns = [...replay.turns];
+    const assistantAt = replayTurns.map((turn) => turn.role).lastIndexOf('assistant');
+    if (assistantAt >= 0) {
+      const { asked: _oldAsked, ...assistant } = replayTurns[assistantAt]!;
+      replayTurns[assistantAt] = { ...assistant, text: final.reply, ...(final.asked ? { asked: final.asked } : {}) };
+    }
     return {
       ...replay,
-      reply: templateReply({
-        language: replayLanguage,
-        proposal: liveProposal,
-        alreadySaved: receiptProposal?.confirmed === true,
-      }),
+      reply: final.reply,
+      asked: final.asked,
       proposal: liveProposal,
+      turns: replayTurns,
     };
   }
 
@@ -554,7 +572,7 @@ export async function chatMobileCapture(
         addedPointIds: addedPointIds(current, proposal),
       }) as CaptureChatProposal;
     }
-    const reply = options.refused || !proposal
+    const decoratedReply = options.refused || !proposal
       ? replyText
       : withWeeklyOffer(
         withConflictsNamed(replyText, withCollisionStarts(proposal), { language, now, timezone, alreadyShown }),
@@ -563,9 +581,12 @@ export async function chatMobileCapture(
         current,
         options.weeklyEvidence,
       );
-    const kept = boundedTurns([...turns, { role: 'assistant', text: reply }]);
+    const final = finalChatReplyQuestion(decoratedReply, language, proposal);
+    const reply = final.reply;
+    const asked = final.asked;
+    const kept = boundedTurns([...turns, { role: 'assistant', text: reply, ...(asked ? { asked } : {}) }]);
     const updatedAt = new Date(clock()).toISOString();
-    const answer = { conversationId: conversation.conversationId, reply, engine, proposal, turns: kept };
+    const answer = { conversationId: conversation.conversationId, reply, asked, engine, proposal, turns: kept };
     const receiptProposal = proposal ? await readMobileChatProposal(proposal.proposalId, uid) : null;
     await conversations.put(uid, {
       ...conversation,

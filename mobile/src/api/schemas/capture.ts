@@ -525,16 +525,35 @@ export type CaptureConfirmation = z.infer<typeof captureConfirmationSchema>;
  * One line of the capture chat «احكيها» (owner decision 2026-09-30): the
  * person's message or the assistant's reply, as the server kept it.
  */
+export const captureChatAskedSchema = z.object({
+  itemId: z.string().min(1),
+  text: z.string().min(1),
+});
+
+export type CaptureChatAsked = z.infer<typeof captureChatAskedSchema>;
+type ChatTurnShape = { role: 'user' | 'assistant'; text: string; asked?: CaptureChatAsked | null | undefined };
+
 export const captureChatTurnSchema = z.object({
   role: z.enum(['user', 'assistant']),
   text: z.string(),
+  // Optional for conversations persisted before #802. An `asked` that is not
+  // the end of an assistant reply is dropped, never a refusal of the answer:
+  // it only decides what the bubble stops showing, and a chat that would not
+  // load over it is worse than a question shown once too long.
+  asked: z.unknown().optional(),
+}).transform(({ asked, ...turn }): ChatTurnShape => {
+  const parsed = captureChatAskedSchema.safeParse(asked);
+  return parsed.success && turn.role === 'assistant' && turn.text.endsWith(parsed.data.text)
+    ? { ...turn, asked: parsed.data }
+    : asked === null ? { ...turn, asked: null } : turn;
 });
 
 export type CaptureChatTurn = z.infer<typeof captureChatTurnSchema>;
 
 /**
  * Mirrors `capture.chatProposal.json`, `capture.chatUpdated.json`,
- * `capture.chatConflict.json` and `capture.chatRules.json` —
+ * `capture.chatConflict.json`, `capture.chatRules.json` and
+ * `capture.chatQuestion.json` —
  * `POST /api/mobile/capture/chat`.
  *
  * `proposal` is exactly what `POST /api/mobile/capture` returns, and its
@@ -549,9 +568,32 @@ export type CaptureChatTurn = z.infer<typeof captureChatTurnSchema>;
 export const captureChatSchema = z.object({
   conversationId: z.string(),
   reply: z.string(),
+  // Optional for an older server; null when the reply asks nothing. The app
+  // reads the assistant turn's own `asked`; this mirror is dropped when it is
+  // not the end of `reply`, never a refusal (see the turn above).
+  asked: z.unknown().optional(),
   engine: z.enum(['model', 'rules']),
   proposal: captureProposalResponseSchema.nullable(),
   turns: z.array(captureChatTurnSchema),
+}).transform(({ asked, ...answer }): typeof answer & { asked?: CaptureChatAsked | null | undefined } => {
+  const parsed = captureChatAskedSchema.safeParse(asked);
+  const mirror = parsed.success && answer.reply.endsWith(parsed.data.text) ? parsed.data
+    : asked === null ? null : undefined;
+  // One unit (Q802-REV-002): the screen reads the newest assistant turn's
+  // `asked`, so when the answer carries a mirror that says otherwise — another
+  // item for the same words, or null against a question — neither is trusted
+  // and both go. An answer without a mirror (an older server) keeps the turn's.
+  const lastAt = answer.turns.length - 1;
+  const latest = answer.turns[lastAt];
+  if (latest?.role !== 'assistant' || asked === undefined) {
+    return mirror === undefined ? answer : { ...answer, asked: mirror };
+  }
+  const own = latest.asked ?? null;
+  const agree = mirror !== undefined && (own === null ? mirror === null
+    : mirror !== null && own.itemId === mirror.itemId && own.text === mirror.text);
+  if (agree) return { ...answer, asked: mirror };
+  const { asked: _dropped, ...bare } = latest;
+  return { ...answer, turns: answer.turns.map((turn, index) => (index === lastAt ? bare : turn)) };
 });
 
 export type CaptureChatAnswer = z.infer<typeof captureChatSchema>;

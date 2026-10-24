@@ -1697,6 +1697,12 @@ test('exports a fixture for every /api/mobile call the React Native client makes
     })));
     assert.equal(chatRules.engine, 'rules');
     assert.equal((chatRules.proposal as { items: unknown[] }).items.length, 1);
+    const chatQuestion = await record('capture.chatQuestion', 200, await chatPost(request('/api/mobile/capture/chat', {
+      body: { message: 'بدي روح عالبنك بكرا', timezone: 'Asia/Jerusalem', referenceTime: REFERENCE_TIME },
+      uid: uidFor('ChatQuestionFixture'),
+    })));
+    assert.ok(chatQuestion.asked && typeof chatQuestion.asked === 'object', 'capture.chatQuestion has no structured question');
+    assert.ok(String(chatQuestion.reply).endsWith(String((chatQuestion.asked as { text: string }).text)));
     const understoodMany = await record('capture.chatUnderstoodMany', 200, await chatPost(request('/api/mobile/capture/chat', {
       body: {
         message: 'لازم اتصل بأمي بكرا الساعة 5 المسا، وعم بفكر أسافر الصيف الجاي، وبدي أدفع فاتورة الكهربا يوم الخميس الساعة 10 الصبح، وحابب أنزل بالوزن، ومستني رد من المدير على الإجازة',

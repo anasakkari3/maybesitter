@@ -38,6 +38,8 @@ export interface ChatMessage { text: string; time?: string; delivered?: boolean 
  */
 export interface ChatHistoryEntry extends ChatMessage {
   role: 'user' | 'assistant'; id?: string;
+  /** The visible trailing question, kept separate so settling it unmounts only this segment. */
+  question?: string;
   /** A save the chat reports: drawn with the confirmed (green) edge and check. */
   tone?: 'saved';
   /** Controls inside the bubble, under its words (Undo, Done after a save). */
@@ -338,9 +340,10 @@ export function SayItChatPage({
   // kept the typing bubble's «بنفهمها…»), and set in the face its alphabet
   // needs, as the person's own message is — an English reply in the Arabic
   // page is not Naskh's Latin.
-  type Said = ChatMessage & Pick<ChatHistoryEntry, 'tone' | 'actions' | 'tail' | 'body'>;
+  type Said = ChatMessage & Pick<ChatHistoryEntry, 'tone' | 'actions' | 'tail' | 'body' | 'question'>;
   /** What the reply says, as a screen reader hears it: its words, then its next line. */
-  const spoken = (value: Said) => value.tail ? `${value.text}\n\n${value.tail}` : value.text;
+  const visibleWords = (value: Said) => [value.text, value.question].filter(Boolean).join(' ');
+  const spoken = (value: Said) => value.tail ? `${visibleWords(value)}\n\n${value.tail}` : visibleWords(value);
   const bubbleStyle = (value: Said) => [styles.assistantBubble,
     { backgroundColor: p.sf, borderColor: value.tone === 'saved' ? p.success : p.ln }, expanded && styles.expandedBubble];
   /**
@@ -371,12 +374,14 @@ export function SayItChatPage({
         <ChatIcon name="checkCircle" size={SAVED_ICON} color={p.success} />
       </View> : null}
       <View style={styles.words}
-        {...(ownElement ? { accessible: true, accessibilityRole: 'text' as const, accessibilityLabel: value.text, testID: `${testID}-said` } : {})}>
+        {...(ownElement ? { accessible: true, accessibilityRole: 'text' as const, accessibilityLabel: visibleWords(value), testID: `${testID}-said` } : {})}>
         <RemeasureOnTextScale>
-          {value.text.split(/\n\n+/).map((paragraph, index) => (
+          {value.text ? value.text.split(/\n\n+/).map((paragraph, index) => (
             <RemeasuredText key={index} testID={`${testID}-text-${index}`}
               style={contentStyle(paragraph, 15, saved && index === 0 ? 'semibold' : 'regular')}>{paragraph}</RemeasuredText>
-          ))}
+          )) : null}
+          {value.question ? <RemeasuredText testID={`${testID}-question`}
+            style={contentStyle(value.question, 15)}>{value.question}</RemeasuredText> : null}
         </RemeasureOnTextScale>
       </View>
     </>;
@@ -440,17 +445,17 @@ export function SayItChatPage({
         <View style={typing ? styles.flexShrink : reply ? [styles.assistantColumn, expanded && styles.expandedColumn] : null}>
           <View style={typing ? [styles.assistantBubble, styles.typingBubble, { backgroundColor: p.sf, borderColor: p.ln }]
             : reply ? bubbleStyle(reply) : null}>
-            {/* Always mounted: TalkBack hears what changes inside it — the
-                typing bubble while a message is on its way, then the reply's
-                words that replace it (the census in liveRegion.test). */}
+            {/* Always mounted: TalkBack hears the typing bubble while a
+                message is on its way (the census in liveRegion.test). The
+                reply's words are not in it: their question is dropped once
+                answered, and a change inside the region was read again over
+                the move to the next question (#780, #802). The reply's
+                arrival is announced by the screen (useAnnounce). */}
             <LiveRegion testID="chat-live">
-              {/* Keyed apart, so the reply is a view of its own and never the
-                  typing bubble's native view with its label left on it. */}
-              {typing ? <View key="typing" testID="chat-typing" accessible accessibilityLabel={typingLabel}>{typing}</View>
-                : reply ? <View key={`reply-${newestReply}`} testID={`${replyID}-words`} accessible accessibilityLabel={spoken(reply)}
-                  style={reply.tone === 'saved' ? styles.savedLine : null}>{replyWords(reply, replyID)}</View>
-                  : null}
+              {typing ? <View key="typing" testID="chat-typing" accessible accessibilityLabel={typingLabel}>{typing}</View> : null}
             </LiveRegion>
+            {reply ? <View testID={`${replyID}-words`} accessible accessibilityRole="text" accessibilityLabel={spoken(reply)}
+              style={reply.tone === 'saved' ? styles.savedLine : null}>{replyWords(reply, replyID)}</View> : null}
             {reply ? replyExtras(reply, replyID) : null}
           </View>
           {reply ? replyTail(reply, replyID, true) : null}

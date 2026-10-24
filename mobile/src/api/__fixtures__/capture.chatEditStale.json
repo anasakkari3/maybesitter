@@ -3,6 +3,7 @@
   "answer": {
     "conversationId": "00000000-0000-4000-8000-000000000001",
     "reply": "تمام، عدّلتها. راجع القائمة وأكّد من تحت.",
+    "asked": null,
     "engine": "rules",
     "proposal": {
       "version": "v1",

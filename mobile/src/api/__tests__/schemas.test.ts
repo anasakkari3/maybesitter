@@ -183,7 +183,7 @@ function fixture(name: string): unknown {
   return JSON.parse(readFileSync(join(FIXTURES, `${name}.json`), 'utf8'));
 }
 
-const CASES: Array<[string, z.ZodType]> = [
+const CASES: [string, z.ZodType][] = [
   // The one plan path (M3a), generated from the real handlers by Task B.
   // Free times on a capture (M4a R002), and the answer when one stopped being free.
   ['capture.freeSlots', captureProposalSchema],
@@ -277,6 +277,7 @@ const CASES: Array<[string, z.ZodType]> = [
   // The goal link kept at confirm (audit 2026-10-03 #6).
   ['capture.chatGoalLinkConfirmation', captureConfirmationSchema],
   ['capture.chatRules', captureChatSchema],
+  ['capture.chatQuestion', captureChatSchema],
   ['capture.chatUnderstoodMany', captureChatSchema],
   ['capture.chatConsideration', captureChatSchema],
   ['capture.chatGoalStatement', captureChatSchema],
@@ -886,5 +887,57 @@ describe('the feed schemas refuse a URL', () => {
       expect(icsFeedCreatedSchema.safeParse({ ...created, feed: { ...created.feed, [key]: 'x' } }).success).toBe(false);
       expect(icsFeedCreatedSchema.safeParse({ ...created, [key]: 'x' }).success).toBe(false);
     }
+  });
+});
+
+// #802: `asked` only decides what the reply's bubble stops showing. One that
+// is not the end of its reply is dropped; the answer still parses, so the
+// chat never fails to load over it.
+describe('capture chat asked', () => {
+  const fixture = JSON.parse(readFileSync(join(__dirname, '..', '__fixtures__', 'capture.chatQuestion.json'), 'utf8'));
+  const last = fixture.turns.length - 1;
+
+  it('keeps an asked that ends its reply, on the answer and the turn', () => {
+    const parsed = captureChatSchema.parse(fixture);
+    expect(parsed.asked).toEqual(fixture.asked);
+    expect(parsed.turns[last]?.asked).toEqual(fixture.asked);
+  });
+
+  it('drops an asked that does not end its reply, or is malformed, and still parses', () => {
+    const wrong = { itemId: fixture.asked.itemId, text: 'not the end of the reply' };
+    const turns = fixture.turns.map((turn: object, index: number) => (index === last ? { ...turn, asked: wrong } : turn));
+    const parsed = captureChatSchema.parse({ ...fixture, asked: { itemId: '', text: 7 }, turns });
+    expect(parsed.asked).toBeUndefined();
+    expect(parsed.turns[last]).not.toHaveProperty('asked');
+    expect(parsed.reply).toBe(fixture.reply);
+  });
+
+  // Q802-REV-002: the answer and its newest assistant turn are one unit.
+  it('drops both when the mirror names another item for the same words, or null against a question', () => {
+    const otherItem = captureChatSchema.parse({ ...fixture, asked: { ...fixture.asked, itemId: 'another-item' } });
+    expect(otherItem).not.toHaveProperty('asked');
+    expect(otherItem.turns[last]).not.toHaveProperty('asked');
+    const nullMirror = captureChatSchema.parse({ ...fixture, asked: null });
+    expect(nullMirror).not.toHaveProperty('asked');
+    expect(nullMirror.turns[last]).not.toHaveProperty('asked');
+    const turns = fixture.turns.map((turn: object, index: number) => (index === last ? { ...turn, asked: null } : turn));
+    const questionMirror = captureChatSchema.parse({ ...fixture, turns });
+    expect(questionMirror).not.toHaveProperty('asked');
+    expect(questionMirror.turns[last]).not.toHaveProperty('asked');
+  });
+
+  it('an answer without a mirror keeps the turn\'s own asked', () => {
+    const { asked: _asked, ...noMirror } = fixture;
+    expect(captureChatSchema.parse(noMirror).turns[last]?.asked).toEqual(fixture.asked);
+  });
+
+  it('keeps null as nothing asked, and an older answer without it parses unchanged', () => {
+    const turnsNull = fixture.turns.map((turn: object, index: number) => (index === last ? { ...turn, asked: null } : turn));
+    expect(captureChatSchema.parse({ ...fixture, asked: null, turns: turnsNull }).asked).toBeNull();
+    const { asked: _asked, ...older } = fixture;
+    const olderTurns = older.turns.map(({ asked: _a, ...turn }: { asked?: unknown }) => turn);
+    const parsed = captureChatSchema.parse({ ...older, turns: olderTurns });
+    expect(parsed).not.toHaveProperty('asked');
+    expect(parsed.turns[last]).not.toHaveProperty('asked');
   });
 });

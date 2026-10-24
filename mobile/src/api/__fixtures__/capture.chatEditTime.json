@@ -1,6 +1,7 @@
 {
   "conversationId": "00000000-0000-4000-8000-000000000001",
   "reply": "Updated. Review the list and confirm below.",
+  "asked": null,
   "engine": "rules",
   "proposal": {
     "version": "v1",
@@ -16,7 +17,7 @@
         "priority": "high",
         "priorityEstimated": true,
         "clarification": null,
-        "resolvedDate": "2026-10-26",
+        "resolvedDate": "2026-10-27",
         "dateEstimated": false,
         "endTime": "2026-08-09T13:00:00.000Z"
       }

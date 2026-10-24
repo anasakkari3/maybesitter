@@ -84,14 +84,16 @@ function expectFits(line: ReturnType<typeof screen.getByTestId>, id: string) {
 describe('the saved line inside the chat column', () => {
   for (const rtl of [true, false]) {
     describe(rtl ? 'Arabic (RTL)' : 'English (LTR)', () => {
-      it('the newest reply: the live slot\'s words view is the line, and the check sits in its start padding', async () => {
+      it('the newest reply: its words view is the line, and the check sits in its start padding', async () => {
         await render(<SayItChatPage {...baseProps} rtl={rtl} history={[
           { role: 'user', text: 'لازم اتصل بسامي بعد بكرا' },
           { role: 'assistant', id: 'chat-saved-1', tone: 'saved', text: SAVED, tail: NEXT, actions: back },
         ]} />);
         const live = screen.getByTestId('chat-live');
-        const words = within(live).getByTestId('chat-saved-1-words');
-        // #780: the region still holds only the words; the controls sit beside it.
+        const words = within(screen.getByTestId('chat-saved-1')).getByTestId('chat-saved-1-words');
+        // #780/#802: nothing of the reply is in the live region — its arrival
+        // is announced by the screen; the words are one element in the bubble.
+        expect(within(live).queryByTestId('chat-saved-1-words')).toBeNull();
         expect(words.props.accessible).toBe(true);
         expect(words.props.accessibilityLabel).toBe(`${SAVED}\n\n${NEXT}`);
         expect(within(live).queryByRole('button')).toBeNull();

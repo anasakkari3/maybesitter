@@ -168,7 +168,11 @@ export interface ChatSavedNote {
  * their turns and what each saved. Memory only, like everything here, and
  * shown above the conversation that is going on now.
  */
-export type ChatEarlierEntry = { kind: 'turn'; role: CaptureChatTurn['role']; text: string } | ChatSavedNote;
+export type ChatEarlierEntry = {
+  kind: 'turn'; role: CaptureChatTurn['role']; text: string;
+  /** Optional for turns kept before #802. */
+  asked?: CaptureChatTurn['asked'];
+} | ChatSavedNote;
 
 /**
  * An edit the user made in review, before anything was saved.
@@ -286,6 +290,14 @@ export interface CaptureState {
    * message starts a new one.
    */
   earlier: ChatEarlierEntry[];
+  /**
+   * Counts what the chat newly said: a reply, a saved line, an undone save
+   * (#802). The screen announces the reply when this moves, not when its
+   * words or objects do — a stale 409 brings the same turns as new objects,
+   * and two replies can share their words (Q802-REV-001, Q802-R2-002). Never
+   * reset: a fresh conversation goes on counting.
+   */
+  replyArrival: number;
   /**
    * The proposal whose cards the person opened from «هيك فهمت» (audit
    * 2026-10-06 #5/#6), by id. A chat answer that carries `understood` shows
@@ -462,6 +474,7 @@ export function initialCaptureState(
     conversationId: null,
     turns: [],
     earlier: [],
+    replyArrival: 0,
     reviewOf: null,
     spoken: false,
     alternatives: [],
@@ -542,6 +555,48 @@ const ACTIONABLE_PROPOSAL_STATUSES: ReadonlySet<CaptureProposal['status']> = new
   'proposed',
   'needs_clarification',
 ]);
+
+const REPLY_QUESTION_KEYS = new Set(['ask_time', 'ask_day', 'ask_am_pm', 'ask_action']);
+
+function carriesReplyQuestion(item: CaptureProposal['items'][number]): boolean {
+  return item.needsClarification && Boolean(item.clarification?.questionKey
+    && REPLY_QUESTION_KEYS.has(item.clarification.questionKey));
+}
+
+/** The item named by this structured question is gone, or no longer asks a supported clarification. */
+export function replyQuestionSettled(
+  turn: Pick<CaptureChatTurn, 'text' | 'asked'>,
+  proposal: CaptureProposal | null,
+): boolean {
+  if (!turn.asked || !turn.text.endsWith(turn.asked.text)) return false;
+  const item = proposal?.items.find((candidate) => candidate.itemId === turn.asked!.itemId);
+  return !item || !carriesReplyQuestion(item);
+}
+
+export interface PresentedChatReply {
+  /** Visible non-question words, or the settled fallback when the question was the whole reply. */
+  text: string;
+  /** Visible question segment while it is still unanswered. */
+  question?: string;
+  /** The full words said on arrival. Never changes when the visible question retires. */
+  announcementText: string;
+}
+
+/** Split only a server-declared suffix; older turns without `asked` stay byte-for-byte unchanged. */
+export function presentChatReply(
+  turn: Pick<CaptureChatTurn, 'text' | 'asked'>,
+  proposal: CaptureProposal | null,
+  settledCopy: { soFar: string; list: string },
+): PresentedChatReply {
+  const asked = turn.asked;
+  if (!asked || !turn.text.endsWith(asked.text)) return { text: turn.text, announcementText: turn.text };
+  const lead = turn.text.slice(0, -asked.text.length).trim();
+  if (!replyQuestionSettled(turn, proposal)) {
+    return { text: lead, question: asked.text, announcementText: turn.text };
+  }
+  const anotherWaits = proposal?.items.some(carriesReplyQuestion) ?? false;
+  return { text: lead || (anotherWaits ? settledCopy.soFar : settledCopy.list), announcementText: turn.text };
+}
 
 export function confirmableItems(
   proposal: CaptureProposal | null,
@@ -965,10 +1020,27 @@ function carriedAcrossEdit(state: CaptureState, next: CaptureProposal, folded?: 
   return { ...carried, edits };
 }
 
+/** The same conversation, turn for turn: a 409 that brought it back said nothing new. */
+function sameTurns(state: CaptureState, conversationId: string, after: readonly CaptureChatTurn[]): boolean {
+  const before = state.turns;
+  return state.conversationId === conversationId && before.length === after.length
+    && before.every((turn, index) => turn.role === after[index]!.role && turn.text === after[index]!.text);
+}
+
+/**
+ * The arrival count after an edit's answer. An edit sends no message, so its
+ * answer may be a stale 409 bringing the same conversation back — nothing
+ * new. A sent message always gets a new reply, even one that leaves a full,
+ * bounded window looking the same (Q802-R3-001): `chatAnswered` always moves.
+ */
+function arrivalAfterEdit(state: CaptureState, answer: CaptureChatAnswer): number {
+  return sameTurns(state, answer.conversationId, answer.turns) ? state.replyArrival : state.replyArrival + 1;
+}
+
 export function captureReducer(state: CaptureState, event: CaptureEvent): CaptureState {
   switch (event.type) {
     case 'open': {
-      const opened = { ...initialCaptureState(event.source ?? state.source, event.inputMode ?? state.inputMode), entry: event.entry ?? null };
+      const opened = { ...initialCaptureState(event.source ?? state.source, event.inputMode ?? state.inputMode), entry: event.entry ?? null, replyArrival: state.replyArrival };
       return event.meeting ? { ...opened, meeting: event.meeting } : opened;
     }
 
@@ -1065,6 +1137,7 @@ export function captureReducer(state: CaptureState, event: CaptureEvent): Captur
         alternatives: [],
         conversationId: answer.conversationId,
         turns: answer.turns,
+        replyArrival: state.replyArrival + 1,
         errorReason: null,
         messageKey: null,
       };
@@ -1083,7 +1156,7 @@ export function captureReducer(state: CaptureState, event: CaptureEvent): Captur
       // chips stay exactly as they were (M2b).
       const { answer } = event;
       const proposal = chatProposalShown(answer.proposal);
-      const conversation = { ...state, conversationId: answer.conversationId, turns: answer.turns, errorReason: null, messageKey: null };
+      const conversation = { ...state, conversationId: answer.conversationId, turns: answer.turns, replyArrival: arrivalAfterEdit(state, answer), errorReason: null, messageKey: null };
       if (!proposal) {
         return { ...conversation, status: state.text.trim() ? 'editing' : 'idle', proposal: null, original: null, selected: [], edits: {}, onceOnly: [], goalUnlinked: [], reviewOf: null, refusedEdit: null };
       }
@@ -1284,7 +1357,10 @@ export function captureReducer(state: CaptureState, event: CaptureEvent): Captur
         status: state.text.trim() ? 'editing' : 'idle',
         earlier: [
           ...state.earlier,
-          ...state.turns.map((turn): ChatEarlierEntry => ({ kind: 'turn', role: turn.role, text: turn.text })),
+          ...state.turns.map((turn): ChatEarlierEntry => ({
+            kind: 'turn', role: turn.role, text: turn.text,
+            ...(turn.asked === undefined ? {} : { asked: turn.asked }),
+          })),
           {
             kind: 'saved', persisted: saved.persisted, failed: saved.failed, collisions: saved.collisions, weeklySaved: saved.weeklySaved,
             failedTitles: saved.failed.map((item) => state.proposal?.items.find((candidate) => candidate.itemId === item.itemId)?.title ?? '')
@@ -1296,6 +1372,7 @@ export function captureReducer(state: CaptureState, event: CaptureEvent): Captur
           },
         ],
         turns: [],
+        replyArrival: state.replyArrival + 1,
         conversationId: null,
         proposal: null, original: null, selected: [], edits: {}, onceOnly: [], goalUnlinked: [], errorReason: null, messageKey: null,
         reviewOf: null, deselectedPoints: [],
@@ -1308,7 +1385,11 @@ export function captureReducer(state: CaptureState, event: CaptureEvent): Captur
       if (at < 0) return state;
       const earlier = [...state.earlier];
       earlier[at] = { ...(earlier[at] as ChatSavedNote), undone: { stillSaved: event.stillSaved } };
-      return { ...state, earlier };
+      // Said only when the saved line is what the chat shows last: the screen
+      // announces its newest message, and a later reply is not the undo's
+      // outcome (Q802-R3-002).
+      const showing = state.turns.length === 0 && at === earlier.length - 1;
+      return { ...state, earlier, replyArrival: showing ? state.replyArrival + 1 : state.replyArrival };
     }
 
     case 'confirmFailed':
@@ -1349,7 +1430,7 @@ export function captureReducer(state: CaptureState, event: CaptureEvent): Captur
       return state.refusedEdit ? { ...state, refusedEdit: null } : state;
 
     case 'reset':
-      return initialCaptureState(state.source, state.inputMode);
+      return { ...initialCaptureState(state.source, state.inputMode), replyArrival: state.replyArrival };
 
     default:
       return state;

@@ -1730,6 +1730,8 @@
   "chatSavedGoal": "صار ينحسب على هدفك {goals}.",
   "chatSaved": "انحفظت ✓ {titles}",
   "chatSavedNext": "في إشي تاني؟ احكيلي.",
+  "chatUnderstoodSoFar": "هيك فهمت لحد هلّق.",
+  "chatUnderstoodCheckList": "هيك فهمت. شوف القائمة وإذا كلها تمام أكّدها.",
   "chatDone": "ارجع لليوم",
   "chatProposedN": "الالتزامات المقترحة ({n})",
   "chatSaveN": "{n, plural, zero{ما في إشي لتحفظه} one{احفظ وحدة} two{احفظ الاتنين} few{احفظ الكل (#)} many{احفظ الكل (#)} other{احفظ الكل (#)}}",
