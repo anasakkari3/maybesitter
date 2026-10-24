@@ -209,6 +209,7 @@ const CASES: [string, z.ZodType][] = [
   ['goalPlan.refusedInvalidEdit', goalPlanRefusalSchema],
   ['goalPlan.refusedStatementEvent', goalPlanRefusalSchema],
   ['goalPlan.regenerateModelUnavailable', goalPlanRefusalSchema],
+  ['goalPlan.regeneratedTemplate', goalPlanResponseSchema],
   ['capture.proposal', captureProposalSchema],
   // Both are the same shape: the clarify endpoint answers with the whole
   // updated proposal, not an acknowledgement (#165).

@@ -24,8 +24,69 @@ durable control until the M5a revision has served **100 %** of traffic for at
 least **10 minutes**. This drains every pre-M5a writer before selection and
 Google certificates can be trusted.
 
-Set `MAYBESITTER_INTERNAL_AUDIENCE` to the service URL and authenticate as the
-`maybesitter-deployer` identity. On first deployment run
+### Prerequisites on each service (#810)
+
+Production needs all of these before M5a is enabled there; staging has them
+since 2026-10-24. `infra/scheduler.sh --check <staging|production>` reports
+each one missing.
+
+1. **`MAYBESITTER_DEPLOYER_SA_EMAIL=maybesitter-deployer@<project>.iam.gserviceaccount.com`**
+   on the service. `/api/internal/m5a-controls` accepts that caller and no
+   other; without the variable, init, enable **and kill** answer 503
+   `not_configured`. `infra/cloudrun/flags.sh` sets it on both services, so
+   any deploy from this revision on carries it. A service last deployed before
+   then needs a redeploy. The check prints
+   `FAIL <service> MAYBESITTER_DEPLOYER_SA_EMAIL is missing`.
+2. **`MAYBESITTER_INTERNAL_AUDIENCE`** (the service URL), which
+   `infra/scheduler.sh` sets. The route checks the token's audience against
+   it, just as the scheduled jobs do.
+3. **The Cloud Scheduler job `intelligence-gmail-sweep-<staging|prod>`**,
+   which `infra/scheduler.sh` creates. It continues Gmail scans page by page.
+   Without it, a manual M5a scan lists its first page and never advances (its
+   count stays at 0). Staging lacked it until it was created on 2026-10-24. Applying
+   `infra/scheduler.sh` is idempotent, but it creates recurring-cost jobs, so
+   it needs the owner's approval (see [Scheduled work](#scheduled-work)).
+
+### Running the control scripts as the deployer
+
+Only GitHub's Workload Identity Federation can impersonate
+`maybesitter-deployer` by default, so an operator who runs the scripts by hand
+needs a **temporary** grant, removed as soon as the step is done:
+
+```bash
+DEPLOYER=maybesitter-deployer@maybesitter-app.iam.gserviceaccount.com
+gcloud iam service-accounts add-iam-policy-binding "$DEPLOYER" \
+  --project=maybesitter-app \
+  --member="user:<operator e-mail>" --role=roles/iam.serviceAccountTokenCreator
+
+export MAYBESITTER_INTERNAL_AUDIENCE="$(gcloud run services describe <service> \
+  --region=europe-west1 --project=maybesitter-app --format='value(status.url)')"
+# --include-email: the route needs the token's email and email_verified
+# claims, and an impersonated token has neither without it.
+export M5A_CONTROLS_ID_TOKEN="$(gcloud auth print-identity-token \
+  --impersonate-service-account="$DEPLOYER" \
+  --audiences="$MAYBESITTER_INTERNAL_AUDIENCE" --include-email)"
+# … run the script(s) below. The token lasts about an hour …
+
+gcloud iam service-accounts remove-iam-policy-binding "$DEPLOYER" \
+  --project=maybesitter-app \
+  --member="user:<operator e-mail>" --role=roles/iam.serviceAccountTokenCreator
+unset M5A_CONTROLS_ID_TOKEN
+```
+
+Removing the binding stops new tokens, not the ones already minted: the ID
+token (and the deployer access token gcloud cached while impersonating) stays
+valid until it expires, about an hour. Don't paste it anywhere or keep it in a
+file.
+
+Never leave the binding in place: whoever holds it can deploy both services.
+For an incident kill, grant it, run the kill, and remove it in the same
+session.
+
+### Activation
+
+With `MAYBESITTER_INTERNAL_AUDIENCE` and the deployer token from the previous
+section in the environment, on first deployment run
 `node --loader ./scripts/ts-resolver.mjs scripts/m5a-controls-init.ts`; this is
 create-only and provisions both controls disabled at epoch zero. After the
 traffic precondition, enable one capability with
@@ -146,6 +207,9 @@ cannot drift:
   `https://maybesitter-app.web.app`, `https://maybesitter-app.firebaseapp.com`,
   the exact origins the early-access form may post from. `www` redirects to
   the apex at Hosting, so it is not listed.
+- `MAYBESITTER_DEPLOYER_SA_EMAIL` (`maybesitter-deployer@<project>…`) on both
+  services: the only caller `/api/internal/m5a-controls` accepts (#810). See
+  [M5a](#m5a-durable-activation-and-kill-procedure).
 - The env list is passed as `--update-env-vars=^;^A=1;B=2;…` (gcloud's custom
   delimiter, `gcloud topic escaping`), because `MAYBESITTER_SITE_ORIGINS` is
   itself comma-separated. Add a variable with `;`, never `,`.
@@ -196,8 +260,10 @@ signature, `aud` pinned to the service's own URL, and the caller's email.
 | `ics-feed-refresh-{staging,prod}` | `*/30 * * * *` UTC | `/api/internal/calendar/ics/refresh` |
 | `football-sync-daily-{staging,prod}` | `0 1 * * *` Asia/Jerusalem | `/api/internal/jobs/football-sync` |
 | `maintenance-daily-{staging,prod}` | `17 3 * * *` Asia/Jerusalem | `/api/internal/jobs/maintenance` |
+| `intelligence-gmail-{staging,prod}` | `* * * * *` UTC | `/api/internal/jobs/intelligence-gmail` |
+| `intelligence-gmail-sweep-{staging,prod}` | `* * * * *` UTC | `/api/internal/jobs/intelligence-gmail-sweep` |
 
-`infra/scheduler.sh <staging|production>` creates all eight jobs idempotently, and
+`infra/scheduler.sh <staging|production>` creates all ten jobs idempotently, and
 sets the two variables the routes need:
 
 | Variable | Value | Why it is set there and not in `flags.sh` |
@@ -211,8 +277,13 @@ retries can skip that next cadence. The two daily jobs retry up to three times
 inside 15 minutes, with 30–300 second backoff, because otherwise one transient
 5xx would defer the work for a full day.
 
+The M5a controls route takes a third, `MAYBESITTER_DEPLOYER_SA_EMAIL`, which
+is static and therefore set by `infra/cloudrun/flags.sh` (see
+[M5a](#m5a-durable-activation-and-kill-procedure)). `tests/infra/internalRouteEnv.test.ts`
+fails when an internal route reads a variable that neither script sets.
+
 Before applying anything, the read-only check verifies the Cloud Run identity
-variables plus every job's enabled state, schedule, target, method, OIDC caller,
+variables (including `MAYBESITTER_DEPLOYER_SA_EMAIL`) plus every job's enabled state, schedule, target, method, OIDC caller,
 audience, deadline and retry policy:
 
 ```bash
