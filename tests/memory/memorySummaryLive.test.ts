@@ -10,26 +10,37 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { addRows, begin, end, promptOf, scriptedModel, show, summary, useSummaryModel } from '../acceptance/m5b/support.ts';
+import { saveRoutineProfile } from '../../lib/services/mobile/routineProfileService.ts';
+
+/** The routine survey's own rows, written the way onboarding writes them. */
+async function surveyRows(uid: string): Promise<void> {
+  await saveRoutineProfile(uid, {
+    timezone: 'Asia/Jerusalem', sleepWindow: { start: '23:30', end: '07:30' }, focusWindows: [],
+    fixedCommitmentWindows: [], preferredReminderIntensity: 'softAwareness',
+    quietHours: { start: '22:30', end: '07:30' }, surveySkipped: false,
+  }, new Date().toISOString());
+}
 
 test.afterEach(() => end());
 
 test('routine survey rows are not sent: one prose row cited is a ready summary, the routine row still counted', async () => {
   const uid = await begin();
-  await addRows(uid, [{ content: 'Likes tea in the morning.' }, { content: 'quiet_hours:22:30-07:00', language: 'mixed', kind: 'preference' }]);
+  await surveyRows(uid);
+  await addRows(uid, [{ content: 'Likes tea in the morning.' }]);
   const model = scriptedModel(() => ({ sentences: [{ text: 'You like tea in the morning.', refs: ['r1'] }] }));
   await useSummaryModel(model);
   const answer = await summary(uid, 'en');
   assert.equal(answer.status, 200, show(answer.body));
   assert.equal(answer.body.summary?.status, 'ready', show(answer.body));
   assert.equal(answer.body.summary.coveredCount, 1);
-  assert.equal(answer.body.summary.totalCount, 2);
+  assert.ok(answer.body.summary.totalCount > 1);
   assert.equal(model.calls.length, 1);
   assert.ok(!promptOf(model.calls[0]!.request).includes('quiet_hours'));
 });
 
 test('only routine survey rows: empty, and no model call', async () => {
   const uid = await begin();
-  await addRows(uid, [{ content: 'quiet_hours:22:30-07:00', language: 'mixed', kind: 'preference' }, { content: 'sleep_window:23:30-07:00', language: 'mixed', kind: 'preference' }]);
+  await surveyRows(uid);
   const model = scriptedModel(() => ({ sentences: [] }));
   await useSummaryModel(model);
   const answer = await summary(uid, 'en');
@@ -93,4 +104,36 @@ test('the prompt asks for "you", never "the user"', async () => {
   await useSummaryModel(model);
   await summary(uid, 'en');
   assert.match(promptOf(model.calls[0]!.request), /Speak to the person directly, as "you"/);
+});
+
+// Inspection MS-ROUTINE-004: a note the person typed is theirs to have
+// summarized, even when it starts like a survey row.
+test('a manual note that starts like a survey row is still summarized', async () => {
+  const uid = await begin();
+  await addRows(uid, [{ content: 'quiet_hours:I cannot take calls overnight' }]);
+  const model = scriptedModel(() => ({ sentences: [{ text: 'You cannot take calls overnight.', refs: ['r1'] }] }));
+  await useSummaryModel(model);
+  const answer = await summary(uid, 'en');
+  assert.equal(answer.body.summary?.status, 'ready', show(answer.body));
+  assert.ok(promptOf(model.calls[0]!.request).includes('I cannot take calls overnight'));
+});
+
+// Inspection MS-DUAL-001: the -ين ending alone is no dual.
+test('"two" needs a listed dual noun in a cited row: a plural or a name ending in -ين does not count', async () => {
+  const { validateMemorySummary } = await import('../../lib/services/mobile/memorySummary.ts');
+  const one = (text: string, row: string) => validateMemorySummary({ sentences: [{ text, refs: ['r1'] }] }, [{ ref: 'r1', id: 'x', kind: 'fact', text: row }], 'en');
+  assert.equal(one('You work with two engineers.', 'بشتغل مع مهندسين'), null);
+  assert.equal(one('You have two friends in Palestine.', 'عندي صحاب بفلسطين'), null);
+  assert.notEqual(one('You have two daughters.', 'عندي بنتين'), null);
+});
+
+// Inspection MS-WEEKDAY-002: «الاثنين» is Monday only after a day word.
+test('«الاثنين» is a weekday only after a day word, even beside a row that names Monday', async () => {
+  const { validateMemorySummary } = await import('../../lib/services/mobile/memorySummary.ts');
+  const gym = { ref: 'r1', id: 'a', kind: 'fact', text: 'I go to the gym on Mondays' };
+  const kids = { ref: 'r2', id: 'b', kind: 'fact', text: 'عندي ولاد بالمدرسة' };
+  const both = (text: string, language: 'ar' | 'he') => validateMemorySummary({ sentences: [{ text, refs: ['r1', 'r2'] }] }, [gym, kids], language);
+  assert.equal(both('عندك الاثنين بالمدرسة وبتروح عالنادي.', 'ar'), null);
+  assert.notEqual(both('بتروح عالنادي أيام الاثنين، وعندك ولاد بالمدرسة.', 'ar'), null);
+  assert.equal(both('כל שני פרקים אתה הולך לחדר כושר ויש לך ילדים בבית הספר.', 'he'), null);
 });

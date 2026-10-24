@@ -86,11 +86,13 @@ const WEEKDAY_NAMES: Readonly<Record<string, readonly string[]>> = {
   friday: ['friday', 'fridays', 'الجمعه', 'יום שישי'],
 };
 const ARABIC_WEEKDAY_WORD = /^[وف]?(?:لل|[بلك]?ال)(اثنين|اتنين)$/;
-const HEBREW_DAY_WORDS = new Set(['יום', 'ביום', 'בימי', 'ימי', 'מיום', 'ליום', 'וביום', 'כל']);
+/** The word before a weekday that makes it one: «يوم/أيام/نهار الاثنين», «ביום שני» — never «كل»/«כל» alone (inspection MS-WEEKDAY-002). */
+const ARABIC_DAY_WORDS = new Set(['يوم', 'ايام', 'نهار', 'بيوم', 'ليوم', 'ويوم', 'وايام', 'بايام', 'كليوم']);
+const HEBREW_DAY_WORDS = new Set(['יום', 'ביום', 'בימי', 'ימי', 'מיום', 'ליום', 'וביום']);
 const HEBREW_ORDINAL_DAY: Readonly<Record<string, string>> = { ראשון: 'sunday', שני: 'monday', שלישי: 'tuesday', רביעי: 'wednesday', חמישי: 'thursday', שישי: 'friday' };
 
 function weekdayOf(word: string, previous: string | undefined): string | null {
-  if (ARABIC_WEEKDAY_WORD.test(word)) return 'monday';
+  if (ARABIC_WEEKDAY_WORD.test(word)) return previous !== undefined && ARABIC_DAY_WORDS.has(previous) ? 'monday' : null;
   if (previous !== undefined && HEBREW_DAY_WORDS.has(previous)) return HEBREW_ORDINAL_DAY[word] ?? null;
   return null;
 }
@@ -107,15 +109,20 @@ function citedNamesDay(day: string, cited: readonly MemorySummaryInputRow[]): bo
  * "Two" translating an Arabic dual: «عندي ولدين» is "two children" in English
  * or Hebrew, and the number word is the translation, not an invention (live
  * Gemini, 2026-10-24). Only the word for two, only in an English or Hebrew
- * sentence, and only where a cited row has an Arabic word with the dual
- * ending (-ين / -تين on a stem of three letters or more).
+ * sentence, and only where a cited row has one of these dual nouns — a fixed
+ * list, never a guess from the -ين ending, which masculine plurals
+ * («مهندسين») and plain words («فلسطين») share (inspection MS-DUAL-001).
  */
 const TWO_WORDS = new Set(['two', 'both', 'שני', 'שתי', 'שניים', 'שתיים', 'שניהם', 'שתיהן']);
-const ARABIC_DUAL = /^[\u0621-\u064A]{3,}(?:تين|ين)$/;
+const ARABIC_DUAL_NOUNS = new Set([
+  'ولدين', 'بنتين', 'ابنين', 'طفلين', 'اولادين', 'اختين', 'اخين', 'اخوين', 'خيين',
+  'سيارتين', 'قطتين', 'بستين', 'كلبين', 'بيتين', 'شقتين', 'وظيفتين', 'شغلتين',
+  'كتابين', 'لغتين', 'جامعتين', 'مدرستين', 'جارين', 'صاحبين', 'رفيقين',
+]);
 
 function translatesArabicDual(word: string, cited: readonly MemorySummaryInputRow[], language: MemorySummaryLanguage): boolean {
   if (language === 'ar' || !TWO_WORDS.has(word)) return false;
-  return cited.some((row) => words(row.text).some((token) => ArabicReadings(token).some((reading) => ARABIC_DUAL.test(reading))));
+  return cited.some((row) => words(row.text).some((token) => ArabicReadings(token).some((reading) => ARABIC_DUAL_NOUNS.has(reading))));
 }
 
 function copiedWord(word: string, cited: readonly MemorySummaryInputRow[]): boolean {
@@ -259,7 +266,10 @@ export async function buildMemorySummary(input: { uid: string; language: MemoryS
   // The routine survey's rows are machine strings («quiet_hours:22:30-07:00»)
   // the phone draws as its own lines; no sentence can cite them, so with them
   // in, "every row cited" could never hold (live Gemini, 2026-10-24).
-  const prose = listed.filter((row) => routineFactKeyOf(row.content) === null);
+  // Only the survey's own rows, by provenance as well as by their machine
+  // grammar: a person may type a note that starts the same way, and it is
+  // theirs to have summarized (inspection MS-ROUTINE-004).
+  const prose = listed.filter((row) => !(row.provenance?.origin === 'routine_survey' && routineFactKeyOf(row.content) !== null));
   if (prose.length === 0) return { status: 'empty' };
   const rows: MemorySummaryInputRow[] = prose.slice(0, 40).map((row, index) => ({ ref: `r${index + 1}`, id: row.id, kind: row.kind, text: row.content }));
   const remaining = MEMORY_SUMMARY_ROUTE_BUDGET_MS - (Date.now() - input.startedAt);

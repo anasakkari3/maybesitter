@@ -421,3 +421,14 @@ test('L-3 a step in another language is dropped and an explanation in one left o
     assert.equal(written.expectedOutcome ?? null, null);
   }, h);
 });
+
+test('L-4 an English step that is invalid anyway does not make a short plan "wrong language": 422, not 503', async () => {
+  const h = await setup();
+  await within(async () => {
+    const plan = weeksPlan();
+    plan.steps = [plan.steps[0]!, plan.steps[1]!, { ...plan.steps[2]!, title: 'Weigh yourself', durationMinutes: 2 }];
+    h.answer(plan);
+    const answer = await generate(h.goalId);
+    assert.equal(answer.status, 422, JSON.stringify(answer.body));
+  }, h);
+});

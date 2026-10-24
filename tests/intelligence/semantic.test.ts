@@ -22,7 +22,10 @@ test('fallback preserves a goal or request without inventing a task', () => {
 // "Let me know" as a second request beside the real ask.
 test('the prompt keeps promotions and a closing "let me know" out of what is addressed to the person', () => {
   const prompt = semanticPrompt();
-  assert.match(prompt, /Marketing, newsletters, promotions/);
+  assert.match(prompt, /Unsolicited marketing — newsletters, promotions/);
   assert.match(prompt, /not addressed to the person/);
+  // Inspection SEM-AUTOMATED-005: a flight change or a failed payment is not marketing.
+  assert.match(prompt, /Transactional, service, security, scheduling and account notices about the person/);
+  assert.ok(!/automated notices are not addressed/.test(prompt));
   assert.match(prompt, /One ask is one request/);
 });

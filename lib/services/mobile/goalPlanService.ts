@@ -285,11 +285,13 @@ function validateModelPlan(raw: unknown, goalText: string, language: GoalStepLan
     const kind = item.kind;
     const durationMinutes = item.durationMinutes;
     if (!title || Array.from(title).length > 120 || namesADate(title) || namesUnstatedPerson(title, goalText)) continue;
-    if (!scriptFits(title, language)) { droppedForLanguage += 1; continue; }
     if ((kind !== 'commitment' && kind !== 'habit') || !phase || !Number.isInteger(durationMinutes)
       || (durationMinutes as number) < 5 || (durationMinutes as number) > 480) continue;
     const rhythm = kind === 'habit' ? validateRhythm(item.rhythm) : undefined;
     if (kind === 'habit' && !rhythm) continue;
+    // Counted only for a step that would otherwise be kept: the 503 says the
+    // plan fell short for its language alone (inspection GP-LANGUAGE-006).
+    if (!scriptFits(title, language)) { droppedForLanguage += 1; continue; }
     const inLanguage = (text: unknown): string | null => (typeof text === 'string' && scriptFits(text, language) ? text : null);
     const buildsOn = inLanguage(item.buildsOn);
     const expectedOutcome = inLanguage(item.expectedOutcome);
