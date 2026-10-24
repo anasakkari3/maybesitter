@@ -234,13 +234,19 @@ export async function revokeGoogleGrantForCleanup(
   await clientFor(config, runtime).revoke(tokenSet);
 }
 
-function clientFor(config: GoogleOAuthConfig, runtime: GoogleRuntime, requireAccountId?: string) {
+function clientFor(
+  config: GoogleOAuthConfig,
+  runtime: GoogleRuntime,
+  requireAccountId?: string,
+  observeAccountId?: (sub: string) => void,
+) {
   return createGoogleOAuthClient({
     clientId: config.clientId,
     clientSecret: config.clientSecret,
     fetchImpl: runtime.fetchImpl,
     now: runtime.now,
     ...(requireAccountId === undefined ? {} : { requireAccountId }),
+    ...(observeAccountId === undefined ? {} : { observeAccountId }),
   });
 }
 
@@ -429,10 +435,14 @@ export async function completeGoogleConnect(
   // The token set this exchange produced, held only for as long as this call
   // runs, so a grant for the wrong account can be withdrawn (see above).
   let issued: ProviderOAuthTokenSet | null = null;
+  // The Google account that grant belongs to, read before the pin check, so a
+  // revocation recorded for later can be cancelled by a connect of that same
+  // account (#800). Never logged.
+  let issuedAccountId: string | null = null;
   try {
     const existing = await currentConnection(uid, runtime);
     const pinned = isLive(existing) ? existing.identity.providerAccountId ?? undefined : undefined;
-    const client = clientFor(config, runtime, pinned);
+    const client = clientFor(config, runtime, pinned, (sub) => { issuedAccountId = sub; });
     const capturing: ProviderOAuthClient = {
       ...client,
       async exchangeAuthorizationCode(request) {
@@ -441,13 +451,21 @@ export async function completeGoogleConnect(
       },
     };
 
-    await completeProviderOAuth(states, vault, connections, capturing, {
+    const connected = await completeProviderOAuth(states, vault, connections, capturing, {
       scopeId: uid,
       provider: GOOGLE_PROVIDER,
       state: input.state,
       code: input.code,
       now: runtime.now().toISOString(),
     }, cleanup);
+    // This Google account now has a live connection. A revocation still owed
+    // for it — from a refused completion, by this account or any other — would
+    // withdraw the whole authorization this connection holds (Google revokes
+    // per account and client), so it is cancelled. Failing to cancel it fails
+    // the connect: reporting success here would hand the nightly retry a live
+    // connection to kill (#800).
+    const accountId = connected.identity.providerAccountId;
+    if (accountId) await cleanup.clearGrantRevocations(GOOGLE_PROVIDER, accountId);
     return await getGoogleStatus(uid, runtime);
   } catch (error) {
     // The refusal the completion answered, even when its own credential
@@ -462,7 +480,7 @@ export async function completeGoogleConnect(
     // retries it until it lands, rather than dropped (#800).
     if (issued && (refusal instanceof GoogleAccountMismatchError || refusal instanceof AccountUnavailableError)) {
       try {
-        await revokeOrRecordGrant(clientFor(config, runtime), issued, cleanup);
+        await revokeOrRecordGrant(clientFor(config, runtime), issued, cleanup, issuedAccountId);
       } catch (cleanupError) {
         // Neither revoked nor recorded: answered as a failure, never as done.
         throw asConnectError(cleanupError);
@@ -472,6 +490,7 @@ export async function completeGoogleConnect(
     throw asConnectError(error);
   } finally {
     issued = null;
+    issuedAccountId = null;
   }
 }
 

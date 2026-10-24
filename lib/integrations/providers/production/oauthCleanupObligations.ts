@@ -29,13 +29,28 @@
  *
  * ── What is kept, and how ────────────────────────────────────────
  *
- * Only what the retry needs. A credential deletion needs the account and the
- * vault reference; a revocation needs the tokens the provider's revoke call
- * takes. Both are sealed with `encryptField` — the same KMS envelope the vault
- * uses for refresh tokens — with the AAD bound to the obligation's random id
- * and its kind, so the plaintext document names nobody and holds no secret:
- * a kind, a provider, timestamps and an attempt count. Nothing here is ever
- * logged, and no error raised here carries a token or a uid.
+ * Only what the retry needs. A credential deletion needs the account, the
+ * vault reference and the fingerprint of the exact credential it owes; a
+ * revocation needs the tokens the provider's revoke call takes. Both are
+ * sealed with `encryptField` — the same KMS envelope the vault uses for
+ * refresh tokens — with the AAD bound to the obligation's random id and its
+ * kind. The plaintext document holds a kind, a provider, timestamps, an
+ * attempt count and, for a revocation, `accountKey`: the deletion pepper's
+ * HMAC of the provider account id (`pepperedSubjectHashes`), which names
+ * nobody without the pepper. Nothing here is ever logged, and no error raised
+ * here carries a token, a uid or an account id.
+ *
+ * ── Why a revocation carries the account key ─────────────────────
+ *
+ * Google revokes the whole authorization for one Google account and this
+ * client, not one token (`googleConnectService.ts`, "Nothing is revoked on a
+ * re-consent"). A revocation still owed for account G2 would, once retried,
+ * also kill any connection to G2 made since — the person who picked G2 by
+ * mistake, disconnected G1 and connected G2 as told, or another MaybeSitter
+ * account connecting G2. So a successful connect of an account clears every
+ * revocation pending for it (`clearGrantRevocations`), whichever uid connects:
+ * the grant that obligation meant to withdraw is, from then on, a grant a
+ * connection holds, and disconnect and account deletion can reach it.
  */
 import { randomUUID } from 'node:crypto';
 import {
@@ -62,7 +77,8 @@ import type {
 } from '../../../../src/contracts/v1/integrationConnectionContracts';
 import type { ProviderOAuthCleanupObligations } from '../providerOAuthLifecycle';
 import type { ProviderOAuthTokenSet } from '../providerRuntime';
-import { ENCRYPTED_VAULT_NAME } from './encryptedCredentialVault';
+import { credentialFingerprint, ENCRYPTED_VAULT_NAME, storedCredentialFingerprint } from './encryptedCredentialVault';
+import { pepperedSubjectHashes, storageMayHoldSharedTombstones } from '../../../account/deletionTombstone';
 import { connectionIdFor } from './storedConnectionStore';
 
 export type OAuthCleanupKind = 'credential_delete' | 'grant_revoke';
@@ -73,6 +89,13 @@ export interface OAuthCleanupObligationDocument {
   readonly kind: OAuthCleanupKind;
   readonly provider: ContextProviderKind;
   readonly sealed: EncryptedField;
+  /**
+   * `grant_revoke` only: the pepper's HMAC of the provider account the grant
+   * belongs to, or null when it is not known (no account id was read, or no
+   * pepper exists on unshared storage). Lets a connect of that account clear
+   * the obligation.
+   */
+  readonly accountKey?: string | null;
   readonly createdAt: string;
   /** The last write: the recording, or the last failed retry. Retries go oldest first. */
   readonly updatedAt: string;
@@ -83,6 +106,8 @@ export interface OAuthCleanupObligationDocument {
 interface CredentialDeletePayload {
   readonly uid: string;
   readonly credentialRef: IntegrationCredentialReference;
+  /** `credentialFingerprint` of the exact credential owed; only that one is deleted. */
+  readonly fingerprint: string;
 }
 
 /** Only the two token strings a revoke call can use; no scopes, no expiry. */
@@ -93,6 +118,17 @@ interface GrantRevokePayload {
 
 export function oauthCleanupObligationPath(id: string): string {
   return `${OAUTH_CLEANUP_OBLIGATIONS}/${requireDocId(id)}`;
+}
+
+/**
+ * Every key a provider account can be filed under: one per configured pepper,
+ * current first. Empty where unshared storage has no pepper. The subject is
+ * namespaced per provider, so it can never equal a uid's subject hash.
+ */
+export function providerAccountKeys(provider: ContextProviderKind, providerAccountId: string): string[] {
+  const subject = `${provider}_${providerAccountId}`;
+  if (!/^[A-Za-z0-9_-]{1,128}$/.test(subject)) return [];
+  return pepperedSubjectHashes(subject, { sharedStorage: storageMayHoldSharedTombstones() });
 }
 
 /** The AAD purpose: one per kind and provider; the subject half is the obligation id. */
@@ -119,6 +155,11 @@ export class StoredOAuthCleanupObligations implements ProviderOAuthCleanupObliga
     readonly provider: ContextProviderKind;
     readonly credentialRef: IntegrationCredentialReference;
   }): Promise<void> {
+    // Bound to the exact credential the vault stored for this reference. A
+    // reference this process's vault did not hand out cannot be bound, so it
+    // is refused rather than recorded as "whatever is there later".
+    const fingerprint = storedCredentialFingerprint(input.credentialRef);
+    if (!fingerprint) throw new Error('oauth cleanup cannot identify the credential it would delete');
     const payload: CredentialDeletePayload = {
       uid: input.scopeId,
       credentialRef: {
@@ -126,22 +167,52 @@ export class StoredOAuthCleanupObligations implements ProviderOAuthCleanupObliga
         keyId: input.credentialRef.keyId,
         version: input.credentialRef.version,
       },
+      fingerprint,
     };
-    await this.record('credential_delete', input.provider, payload);
+    await this.record('credential_delete', input.provider, payload, null);
   }
 
   async recordGrantRevocation(input: {
     readonly provider: ContextProviderKind;
     readonly tokenSet: ProviderOAuthTokenSet;
+    readonly providerAccountId?: string | null;
   }): Promise<void> {
     const payload: GrantRevokePayload = {
       accessToken: input.tokenSet.accessToken,
       refreshToken: input.tokenSet.refreshToken,
     };
-    await this.record('grant_revoke', input.provider, payload);
+    const accountKey = input.providerAccountId ? providerAccountKeys(input.provider, input.providerAccountId)[0] ?? null : null;
+    await this.record('grant_revoke', input.provider, payload, accountKey);
   }
 
-  private async record(kind: OAuthCleanupKind, provider: ContextProviderKind, payload: object): Promise<void> {
+  /**
+   * A connection of this provider account was just stored: every revocation
+   * still owed for it is dropped, because revoking now would withdraw the
+   * authorization that connection holds. Returns how many were cleared; throws
+   * when the clear could not be done, so the caller does not report a
+   * connection a nightly retry would then kill.
+   */
+  async clearGrantRevocations(provider: ContextProviderKind, providerAccountId: string): Promise<number> {
+    const keys = providerAccountKeys(provider, providerAccountId);
+    if (keys.length === 0) return 0;
+    const owed = await this.storage.list<OAuthCleanupObligationDocument>(OAUTH_CLEANUP_OBLIGATIONS, {
+      where: [['accountKey', 'in', keys]],
+    });
+    let cleared = 0;
+    for (const { id, data } of owed) {
+      if (data.kind !== 'grant_revoke' || data.provider !== provider) continue;
+      await this.storage.delete(oauthCleanupObligationPath(id));
+      cleared += 1;
+    }
+    return cleared;
+  }
+
+  private async record(
+    kind: OAuthCleanupKind,
+    provider: ContextProviderKind,
+    payload: object,
+    accountKey: string | null,
+  ): Promise<void> {
     const id = randomUUID();
     const sealed = await encryptField(id, sealPurpose(kind, provider), JSON.stringify(payload), this.encryption);
     const at = this.now().toISOString();
@@ -150,6 +221,7 @@ export class StoredOAuthCleanupObligations implements ProviderOAuthCleanupObliga
       kind,
       provider,
       sealed,
+      ...(kind === 'grant_revoke' ? { accountKey } : {}),
       createdAt: at,
       updatedAt: at,
       attempts: 0,
@@ -210,6 +282,12 @@ export async function retryOAuthCleanupObligations(options: RetryOAuthCleanupOpt
         await deleteCredential(storage, path, data, JSON.parse(plaintext) as CredentialDeletePayload);
       } else if (data.kind === 'grant_revoke') {
         const handle = JSON.parse(plaintext) as GrantRevokePayload;
+        // A connect of this account may have cleared it since it was listed;
+        // revoking then would withdraw the grant that connection holds.
+        if (!(await storage.get(path))) {
+          cleared += 1;
+          continue;
+        }
         await options.revoke(data.provider, {
           accessToken: handle.accessToken,
           refreshToken: handle.refreshToken,
@@ -250,12 +328,13 @@ export async function retryOAuthCleanupObligations(options: RetryOAuthCleanupOpt
  * obligation with it, in one transaction.
  *
  * The vault keys a credential per provider, so by the time this runs the same
- * document may hold a *newer* credential: the person connected again, and that
- * connection is live. Deleting it would break a working connection. So the
- * credential is left alone when a live connection record points at it, or when
- * it was written after the obligation was — either way it now belongs to a
- * record that disconnect and account deletion can reach. A swept account has
- * neither, and nothing left to delete.
+ * document may hold a *different* credential: the person connected again, or a
+ * concurrent completion stored its own. So only the exact credential the
+ * obligation was recorded for is deleted — the one whose wrapped key matches
+ * the recorded fingerprint — and even that one is left alone when a live
+ * connection record points at it (a connection write that landed but answered
+ * with an error): it then belongs to a record that disconnect and account
+ * deletion can reach. A swept account has nothing left to delete.
  */
 async function deleteCredential(
   storage: StorageAdapter,
@@ -271,14 +350,14 @@ async function deleteCredential(
   const connectionPath = userSubDoc(payload.uid, PROVIDER_CONNECTIONS, connectionIdFor(obligation.provider));
   await storage.runTransaction(async (tx) => {
     const connection = await tx.get<IntegrationConnectionRecord>(connectionPath);
-    const stored = await tx.get<{ readonly updatedAt?: unknown }>(credentialPath);
+    const stored = await tx.get<{ readonly token?: unknown }>(credentialPath);
     const owned = connection !== null
       && connection.state !== 'revoked'
       && connection.state !== 'not_connected'
       && connection.credentialRef?.vault === ref.vault
       && connection.credentialRef?.keyId === ref.keyId;
-    const newer = typeof stored?.updatedAt === 'string' && stored.updatedAt > obligation.createdAt;
-    if (stored && !owned && !newer) tx.delete(credentialPath);
+    const same = stored !== null && isEncryptedField(stored.token) && credentialFingerprint(stored.token) === payload.fingerprint;
+    if (same && !owned) tx.delete(credentialPath);
     tx.delete(obligationPath);
   });
 }

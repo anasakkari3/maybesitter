@@ -50,6 +50,8 @@ import type { ProviderCredentialVault, ProviderOAuthTokenSet } from '../../lib/i
 import {
   beginGoogleConnect,
   completeGoogleConnect,
+  disconnectGoogle,
+  googleAccessToken,
   GoogleConnectError,
 } from '../../lib/integrations/google/googleConnectService.ts';
 import { googleRuntime, resetGoogleRuntimeForTests, setGoogleRuntimeForTests } from '../../lib/integrations/google/googleRuntime.ts';
@@ -238,26 +240,112 @@ test('a credential deletion that cannot be recorded either is answered as a fail
   );
 });
 
-test('the retry never deletes a credential a later connection now holds', async () => {
+/* ── the credential guard: only the exact credential, and never a live one ── */
+
+/** Stores a credential through the real vault and records its deletion as owed, as a refused completion would. */
+async function owedCredential(storage: StorageAdapter, options: FieldEncryptionOptions) {
+  const vault = new EncryptedProviderCredentialVault(UID, storage, options, () => new Date(T0));
+  const credentialRef = await vault.storeOAuthTokenSet({ scopeId: UID, provider: 'google', tokenSet: TOKENS });
+  await new StoredOAuthCleanupObligations(storage, options, () => new Date(T0))
+    .recordCredentialDeletion({ scopeId: UID, provider: 'google', credentialRef });
+  return { vault, credentialRef };
+}
+
+async function upsertConnection(storage: StorageAdapter, credentialRef: Awaited<ReturnType<typeof owedCredential>>['credentialRef']) {
+  const connections = new StoredIntegrationConnectionStore(UID, storage);
+  return connections.upsert({
+    scopeId: UID,
+    identity: { provider: 'google', providerAccountId: 'acct-1', displayName: null } as never,
+    state: 'connected',
+    capabilities: ['calendar_busy'],
+    grantedScopes: TOKENS.grantedScopes,
+    connectedAt: T0,
+    expiresAt: null,
+    credentialRef,
+    sync: { cursor: null, checkpointAt: null },
+    provenance: { source: 'oauth', connectedBy: 'user', recordedAt: T0 },
+  }, T0);
+}
+
+async function retryOnce(storage: StorageAdapter, options: FieldEncryptionOptions) {
+  return retryOAuthCleanupObligations({ storage, encryption: options, revoke: async () => undefined });
+}
+
+test('guard, live connection alone: the owed credential itself is kept when a live connection points at it', async () => {
   const storage = createMemoryStorage();
   const options = crypto();
   await seedLiveAccount(UID, storage);
-  // A refused completion owed this deletion at T0 …
-  await new StoredOAuthCleanupObligations(storage, options, () => new Date(T0)).recordCredentialDeletion({
-    scopeId: UID,
-    provider: 'google',
-    credentialRef: { vault: 'firestore-envelope-v1', keyId: credentialKeyId('google'), version: null },
-  });
-  // … and the person connected again before the job ran: same vault key, live record.
-  const unused = new StoredOAuthCleanupObligations(storage, options, () => new Date(T1));
-  const record = await complete(storage, { crypto: options, cleanup: unused, deleteMidway: false, now: T1 });
-  assert.equal(record.state, 'connected');
+  // The connection write landed but answered with an error: same credential, live record.
+  const { credentialRef } = await owedCredential(storage, options);
+  await upsertConnection(storage, credentialRef);
 
-  assert.deepEqual(await retryOAuthCleanupObligations({ storage, encryption: options, revoke: async () => undefined }), {
-    attempted: 1, cleared: 1, failed: 0,
-  });
-  assert.notEqual(await storage.get(credentialPath()), null, 'the retry deleted the live connection\'s credential');
+  assert.deepEqual(await retryOnce(storage, options), { attempted: 1, cleared: 1, failed: 0 });
+  assert.notEqual(await storage.get(credentialPath()), null, 'the retry deleted the credential a live connection holds');
   assert.deepEqual(await obligations(storage), []);
+});
+
+test('guard, exact credential alone: a different credential in the same vault document is kept, with no connection at all', async () => {
+  const storage = createMemoryStorage();
+  const options = crypto();
+  await seedLiveAccount(UID, storage);
+  const { vault } = await owedCredential(storage, options);
+  // A concurrent completion stored its own credential in the same per-provider
+  // document, with a clock no later than the obligation's: no timestamp can
+  // tell the two apart, only the fingerprint can.
+  await vault.storeOAuthTokenSet({ scopeId: UID, provider: 'google', tokenSet: { ...TOKENS, accessToken: 'ya29.SECRET-OTHER' } });
+
+  assert.deepEqual(await retryOnce(storage, options), { attempted: 1, cleared: 1, failed: 0 });
+  assert.notEqual(await storage.get(credentialPath()), null, 'the retry deleted a credential it was never owed');
+  assert.deepEqual(await obligations(storage), []);
+});
+
+for (const state of ['revoked', 'not_connected'] as const) {
+  test(`guard, ${state} connection: the owed credential is deleted, since that record no longer holds it`, async () => {
+    const storage = createMemoryStorage();
+    const options = crypto();
+    await seedLiveAccount(UID, storage);
+    const { credentialRef } = await owedCredential(storage, options);
+    const record = await upsertConnection(storage, credentialRef);
+    await new StoredIntegrationConnectionStore(UID, storage).markState(record.connectionId, state, T1);
+
+    assert.deepEqual(await retryOnce(storage, options), { attempted: 1, cleared: 1, failed: 0 });
+    assert.equal(await storage.get(credentialPath()), null, `a ${state} connection kept the owed credential alive`);
+    assert.deepEqual(await obligations(storage), []);
+  });
+}
+
+test('a credential deletion is never recorded for a reference the vault did not hand out', async () => {
+  const storage = createMemoryStorage();
+  await assert.rejects(
+    new StoredOAuthCleanupObligations(storage, crypto()).recordCredentialDeletion({
+      scopeId: UID,
+      provider: 'google',
+      credentialRef: { vault: 'firestore-envelope-v1', keyId: credentialKeyId('google'), version: null },
+    }),
+  );
+  assert.deepEqual(await obligations(storage), []);
+});
+
+/* ── the queue ───────────────────────────────────────────────────── */
+
+test('more obligations than one run takes: the least recently tried go first', async () => {
+  const storage = createMemoryStorage();
+  const options = crypto();
+  // Recorded out of order, so insertion order cannot pass for age order.
+  for (const [at, token] of [['2026-10-24T09:02:00.000Z', 'newest'], [T0, 'oldest'], ['2026-10-24T09:01:00.000Z', 'middle']] as const) {
+    await new StoredOAuthCleanupObligations(storage, options, () => new Date(at))
+      .recordGrantRevocation({ provider: 'google', tokenSet: { ...TOKENS, accessToken: token, refreshToken: null } });
+  }
+  const revoked: string[] = [];
+  const totals = await retryOAuthCleanupObligations({
+    storage,
+    encryption: options,
+    limit: 2,
+    revoke: async (_provider, tokenSet) => { revoked.push(tokenSet.accessToken); },
+  });
+  assert.deepEqual(totals, { attempted: 2, cleared: 2, failed: 0 });
+  assert.deepEqual(revoked, ['oldest', 'middle']);
+  assert.equal((await obligations(storage)).length, 1);
 });
 
 /* ── the Google grant ────────────────────────────────────────────── */
@@ -404,3 +492,104 @@ test('a failed revoke of another Google account\'s grant (account mismatch) is r
     done();
   }
 });
+
+/* ── a pending revocation never kills a later connection of the same account ── */
+
+const PEPPER_VAR = 'MAYBESITTER_DELETION_RECEIPT_PEPPER';
+const G1 = { sub: '1000000000001', email: 'person@example.com' };
+const G2 = { sub: '2000000000002', email: 'someone.else@example.com' };
+
+/** The account key is the deletion pepper's HMAC; production always has the pepper. */
+async function withPepper(run: () => Promise<void>): Promise<void> {
+  const before = process.env[PEPPER_VAR];
+  process.env[PEPPER_VAR] = 'oauth-cleanup-800-test-pepper';
+  try {
+    await run();
+  } finally {
+    if (before === undefined) delete process.env[PEPPER_VAR];
+    else process.env[PEPPER_VAR] = before;
+  }
+}
+
+async function connectAs(google: FakeGoogle, uid: string, account: { sub: string; email: string }, feature: 'calendar' | 'gmail' = 'calendar') {
+  google.account = account;
+  const begun = await beginGoogleConnect(uid, feature, googleRuntime());
+  return completeGoogleConnect(uid, google.consent(begun.authorizationUrl), googleRuntime());
+}
+
+test('the probe: a mismatch revoke owed for G2 is cancelled when the person disconnects G1 and connects G2, and G2 survives the nightly run', () => withPepper(async () => {
+  const { storage, google, done } = setupGoogle();
+  try {
+    await seedLiveAccount(UID, storage);
+    // 1. U connects G1.
+    await connectAs(google, UID, G1);
+    // 2. U picks G2 by mistake: refused, and Google refuses the revoke.
+    google.revokeStatus = 503;
+    await assert.rejects(
+      connectAs(google, UID, G2, 'gmail'),
+      (error) => error instanceof GoogleConnectError && error.reason === 'google_account_mismatch',
+    );
+    const owed = await obligations(storage);
+    assert.equal(owed.length, 1, 'the failed revoke was not recorded');
+    assert.match(String(owed[0]!.data.accountKey), /^[0-9a-f]{64}$/, 'the obligation carries no account key');
+    assert.ok(!JSON.stringify(owed[0]!.data).includes(G2.sub), 'the Google account id is stored in plaintext');
+    // 3. As the refusal says: disconnect G1, connect G2.
+    google.revokeStatus = 200;
+    assert.deepEqual(await disconnectGoogle(UID, googleRuntime()), { disconnected: true });
+    const status = await connectAs(google, UID, G2);
+    assert.equal(status.status, 'connected');
+    assert.deepEqual(await obligations(storage), [], 'connecting G2 left its pending revocation in place');
+    // 4. The nightly run: nothing to revoke, and G2 still refreshes.
+    assert.deepEqual(await maintenanceStep(storage, T1), { name: 'oauth_cleanups_retried', ok: true, count: 0 });
+    google.expireAccessTokens();
+    assert.ok(await googleAccessToken(UID, 'calendar', googleRuntime(), { forceRefresh: true }), 'the G2 connection no longer refreshes');
+    assert.equal(google.liveGrants(), 1);
+  } finally {
+    done();
+  }
+}));
+
+test('a revocation owed for a deleted account is cancelled when another MaybeSitter account connects that Google account', () => withPepper(async () => {
+  const { storage, google, done } = setupGoogle();
+  const OTHER_UID = 'cleanup800Other';
+  try {
+    await seedLiveAccount(UID, storage);
+    google.account = G1;
+    const begun = await beginGoogleConnect(UID, 'calendar', googleRuntime());
+    const granted = google.consent(begun.authorizationUrl);
+    await markDeleted(storage, UID);
+    google.revokeStatus = 503;
+    await assert.rejects(completeGoogleConnect(UID, granted, googleRuntime()), AccountUnavailableError);
+    assert.equal((await obligations(storage)).length, 1, 'the failed revoke was not recorded');
+
+    google.revokeStatus = 200;
+    await seedLiveAccount(OTHER_UID, storage);
+    assert.equal((await connectAs(google, OTHER_UID, G1)).status, 'connected');
+    assert.deepEqual(await obligations(storage), [], 'the other account\'s connect left the pending revocation in place');
+
+    assert.deepEqual(await maintenanceStep(storage, T1), { name: 'oauth_cleanups_retried', ok: true, count: 0 });
+    google.expireAccessTokens();
+    assert.ok(await googleAccessToken(OTHER_UID, 'calendar', googleRuntime(), { forceRefresh: true }));
+    assert.equal(google.liveGrants(), 1);
+  } finally {
+    done();
+  }
+}));
+
+test('a connect of a different Google account leaves the pending revocation for the other one in place', () => withPepper(async () => {
+  const { storage, google, done } = setupGoogle();
+  try {
+    await seedLiveAccount(UID, storage);
+    await connectAs(google, UID, G1);
+    google.revokeStatus = 503;
+    await assert.rejects(connectAs(google, UID, G2, 'gmail'), GoogleConnectError);
+    google.revokeStatus = 200;
+    // Adding a feature on G1 again is a connect, of G1: G2's revocation stays owed.
+    assert.equal((await connectAs(google, UID, G1, 'gmail')).status, 'connected');
+    assert.equal((await obligations(storage)).length, 1, 'a connect of G1 cancelled the revocation owed for G2');
+    assert.deepEqual(await maintenanceStep(storage, T1), { name: 'oauth_cleanups_retried', ok: true, count: 1 });
+    assert.equal(google.liveGrants(), 1, 'G2 revoked, G1 kept');
+  } finally {
+    done();
+  }
+}));

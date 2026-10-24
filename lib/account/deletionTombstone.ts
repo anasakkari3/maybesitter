@@ -112,7 +112,25 @@ export function deletionTombstonePaths(
   uid: string,
   options: { readonly sharedStorage: boolean; readonly env?: NodeJS.ProcessEnv },
 ): string[] {
-  requireUserId(uid);
+  return pepperedSubjectHashes(uid, options).map(deletionJobPath);
+}
+
+/**
+ * `subjectHashFor` under every configured pepper: the current one first, then
+ * the previous one while a rotation is within the tombstone TTL. Empty only
+ * where `storageMayHoldSharedTombstones` says no other process can have
+ * written under a pepper and this process has none; against shared storage a
+ * missing pepper is refused.
+ *
+ * Also the pseudonymous key an OAuth cleanup obligation (#800) carries for the
+ * provider account it would revoke, so a later connect of that account can
+ * find and clear it without anything storing the account id in plaintext.
+ */
+export function pepperedSubjectHashes(
+  subject: string,
+  options: { readonly sharedStorage: boolean; readonly env?: NodeJS.ProcessEnv },
+): string[] {
+  requireUserId(subject);
   const env = options.env ?? process.env;
   const current = env[PEPPER_ENV_VAR];
   if (!current) {
@@ -124,5 +142,5 @@ export function deletionTombstonePaths(
   const peppers = [current];
   const previous = env[PREVIOUS_PEPPER_ENV_VAR];
   if (previous && previous !== current) peppers.push(previous);
-  return peppers.map((pepper) => deletionJobPath(subjectHashFor(uid, pepper)));
+  return peppers.map((pepper) => subjectHashFor(subject, pepper));
 }

@@ -117,16 +117,23 @@ export interface ProviderOAuthCleanupObligations {
     readonly provider: ContextProviderKind;
     readonly credentialRef: IntegrationCredentialReference;
   }): Promise<void>;
+  /**
+   * `providerAccountId` is the provider's account the grant belongs to, when
+   * known. Some providers (Google) revoke the whole authorization for an
+   * account, so a later connection of that same account must cancel the
+   * pending revocation instead of being killed by it.
+   */
   recordGrantRevocation(input: {
     readonly provider: ContextProviderKind;
     readonly tokenSet: ProviderOAuthTokenSet;
+    readonly providerAccountId?: string | null;
   }): Promise<void>;
 }
 
 /** Test double: keeps what it was asked to record in memory. Never production. */
 export class MemoryProviderOAuthCleanupObligations implements ProviderOAuthCleanupObligations {
   readonly credentialDeletions: Array<{ scopeId: string; provider: ContextProviderKind; credentialRef: IntegrationCredentialReference }> = [];
-  readonly grantRevocations: Array<{ provider: ContextProviderKind; tokenSet: ProviderOAuthTokenSet }> = [];
+  readonly grantRevocations: Array<{ provider: ContextProviderKind; tokenSet: ProviderOAuthTokenSet; providerAccountId?: string | null }> = [];
 
   async recordCredentialDeletion(input: {
     readonly scopeId: string;
@@ -139,6 +146,7 @@ export class MemoryProviderOAuthCleanupObligations implements ProviderOAuthClean
   async recordGrantRevocation(input: {
     readonly provider: ContextProviderKind;
     readonly tokenSet: ProviderOAuthTokenSet;
+    readonly providerAccountId?: string | null;
   }): Promise<void> {
     this.grantRevocations.push({ ...input });
   }
@@ -166,12 +174,13 @@ export async function revokeOrRecordGrant(
   client: ProviderOAuthClient,
   tokenSet: ProviderOAuthTokenSet,
   cleanup: ProviderOAuthCleanupObligations,
+  providerAccountId: string | null = null,
 ): Promise<'revoked' | 'recorded'> {
   try {
     await client.revoke(tokenSet);
     return 'revoked';
   } catch {
-    await cleanup.recordGrantRevocation({ provider: client.provider, tokenSet });
+    await cleanup.recordGrantRevocation({ provider: client.provider, tokenSet, providerAccountId });
     return 'recorded';
   }
 }
