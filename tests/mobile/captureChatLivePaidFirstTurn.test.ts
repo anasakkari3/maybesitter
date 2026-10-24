@@ -93,6 +93,14 @@ const SHARED_REMAINDER_CASES: LiveRecord[] = [
     }),
   },
   {
+    name: 'S4 en model question about another point (live r4)',
+    input: {
+      locale: 'en', message: "Call mom and I'm thinking about traveling",
+      referenceTime: '2026-10-24T07:00:00.000Z', timezone: 'Asia/Jerusalem',
+    },
+    rawText: "{\"reply\":\"I have \\\"Call mom\\\" for you. What day and time would you like to travel?\",\"action\":\"propose\",\"locked\":[],\"open\":[],\"added\":[{\"kind\":\"commitment\",\"type\":\"task\",\"action\":\"Call\",\"title\":\"Call mom\",\"person\":\"mom\",\"dueAt\":null,\"remindAt\":null,\"localTimeSpec\":null,\"priority\":{\"level\":\"normal\",\"source\":\"default\",\"pressureAllowed\":false,\"pressureImplied\":false},\"flexibility\":\"movable\",\"category\":\"family\",\"categoryConfidence\":1,\"confidence\":{\"overall\":0.8,\"type\":1,\"action\":0.8,\"time\":0.5,\"priority\":1},\"missingFields\":[\"time\"],\"ambiguityFlags\":[\"vague_time\"],\"explicitReminderRequest\":false,\"explicitPressureRequest\":false,\"appTitle\":\"Call mom\",\"source\":\"Call mom\"},{\"kind\":\"consideration\",\"type\":\"informational_context\",\"action\":null,\"title\":\"traveling\",\"person\":null,\"dueAt\":null,\"remindAt\":null,\"localTimeSpec\":null,\"priority\":{\"level\":\"normal\",\"source\":\"default\",\"pressureAllowed\":false,\"pressureImplied\":false},\"flexibility\":\"movable\",\"category\":null,\"categoryConfidence\":0,\"confidence\":{\"overall\":0.8,\"type\":1,\"action\":0.8,\"time\":0.5,\"priority\":1},\"missingFields\":[],\"ambiguityFlags\":[],\"explicitReminderRequest\":false,\"explicitPressureRequest\":false,\"appTitle\":\"traveling\",\"source\":\"I'm thinking about traveling\"}]}",
+  },
+  {
     name: 'S2 ar shared day',
     input: {
       locale: 'ar', message: 'بكرا لازم اتصل بأمي الساعة 5 وادفع الفاتورة',
@@ -298,6 +306,15 @@ test('live paid first turns keep each cited point inside its own evidence span, 
             { title: 'Call mom', time: '17:00', asking: false },
             { title: 'Pay the bill', time: '17:00', asking: false },
           ], `S3 kinds=${kinds}: a shared stated time reaches both citations`);
+        }
+
+        if (id === 'S4') {
+          // Live r4: Gemini asked "What day and time would you like to travel?"
+          // beside "Call mom"; the question names the other point, so the
+          // item's own question replaces it.
+          assert.ok(!/travel\?$/.test(answer.reply), answer.reply);
+          assert.match(answer.reply, /"Call mom"\?/);
+          assert.ok(answer.asked && /Call mom/.test(answer.asked.text), JSON.stringify(answer.asked));
         }
 
         if (id === 'S2') {
