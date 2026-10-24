@@ -161,6 +161,10 @@ export function useGoalPlanFlow(): PlanFlow {
       // before either returns, so the second does nothing (the M1 rule).
       if (inFlight.current) return;
       inFlight.current = true;
+      // Kept only once the request really starts: a press that bailed above
+      // must not become what «جرّب كمان مرة» or «خطة بسيطة» repeat (#807).
+      lastAction.current = attempt;
+      lastPlanRequest.current = planRequest;
       const token = {};
       activeRequest.current = token;
       setState(current => ({ ...current, busy: true, error: null, live: { phase: 'started', step } }));
@@ -180,8 +184,6 @@ export function useGoalPlanFlow(): PlanFlow {
         setState(current => ({ ...current, error, ...adopted, busy: false, live: { phase: 'failed' } }));
       });
     };
-    lastAction.current = attempt;
-    lastPlanRequest.current = planRequest;
     attempt();
   }, []);
 
