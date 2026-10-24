@@ -103,6 +103,21 @@ function citedNamesDay(day: string, cited: readonly MemorySummaryInputRow[]): bo
   });
 }
 
+/**
+ * "Two" translating an Arabic dual: «عندي ولدين» is "two children" in English
+ * or Hebrew, and the number word is the translation, not an invention (live
+ * Gemini, 2026-10-24). Only the word for two, only in an English or Hebrew
+ * sentence, and only where a cited row has an Arabic word with the dual
+ * ending (-ين / -تين on a stem of three letters or more).
+ */
+const TWO_WORDS = new Set(['two', 'both', 'שני', 'שתי', 'שניים', 'שתיים', 'שניהם', 'שתיהן']);
+const ARABIC_DUAL = /^[\u0621-\u064A]{3,}(?:تين|ين)$/;
+
+function translatesArabicDual(word: string, cited: readonly MemorySummaryInputRow[], language: MemorySummaryLanguage): boolean {
+  if (language === 'ar' || !TWO_WORDS.has(word)) return false;
+  return cited.some((row) => words(row.text).some((token) => ArabicReadings(token).some((reading) => ARABIC_DUAL.test(reading))));
+}
+
 function copiedWord(word: string, cited: readonly MemorySummaryInputRow[]): boolean {
   return cited.some((row) => words(row.text).includes(word));
 }
@@ -157,6 +172,7 @@ function sentenceValid(sentence: MemorySummarySentence, supplied: readonly Memor
     if (!isNumberWord(word) || copiedWord(word, cited)) continue;
     const day = weekdayOf(word, sentenceWords[index - 1]);
     if (day !== null && citedNamesDay(day, cited)) continue;
+    if (translatesArabicDual(word, cited, language)) continue;
     return false;
   }
   const citedRaw = cited.flatMap((row) => rawLetterTokens(row.text));
@@ -223,6 +239,7 @@ export function memorySummaryPrompt(rows: readonly MemorySummaryInputRow[], lang
     `Write every sentence in ${WRITTEN_IN[language]}, even for a row written in another language: translate it.`,
     ...(language === 'ar' ? [LANGUAGE_RULE.replace('Write in the language of the observations. ', '')] : []),
     'Put refs only in the refs array; never write r1 or (r1) in a sentence. Say only what a row says; add no guess or advice.',
+    'Speak to the person directly, as "you" (Arabic: «بتحب», «عندك», «بتشتغل»; Hebrew: «אתה»/«את»); never "the user", "he", "she" or "I".',
     'BEGIN_UNTRUSTED_MEMORY_ROWS',
     JSON.stringify(rows.map(({ ref, kind, text }) => ({ ref, kind, text }))),
     'END_UNTRUSTED_MEMORY_ROWS',

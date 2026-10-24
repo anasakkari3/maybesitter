@@ -65,10 +65,32 @@ test('the prompt names the asked language, says to translate, and never "the lan
 test('a weekday that reads as a number passes where the cited row names that day, and is still a number where none does', async () => {
   const { validateMemorySummary } = await import('../../lib/services/mobile/memorySummary.ts');
   const gym = { ref: 'r1', id: 'a', kind: 'fact', text: 'I go to the gym on Mondays and Wednesdays at 19:00' };
-  const kids = { ref: 'r1', id: 'b', kind: 'fact', text: 'عندي ولدين بالمدرسة' };
+  const kids = { ref: 'r1', id: 'b', kind: 'fact', text: 'عندي ولاد بالمدرسة' };
   const one = (text: string, row: typeof gym, language: 'ar' | 'he') => validateMemorySummary({ sentences: [{ text, refs: ['r1'] }] }, [row], language);
   assert.notEqual(one('بتروح عالجيم أيام الاثنين والأربعاء الساعة 19:00.', gym, 'ar'), null);
   assert.notEqual(one('אתה הולך לחדר כושר ביום שני וביום רביעי ב-19:00.', gym, 'he'), null);
   assert.equal(one('عندك الاثنين بالمدرسة.', kids, 'ar'), null);
   assert.equal(one('יש לך שני ילדים בבית ספר.', kids, 'he'), null);
+});
+
+// Live Gemini, 2026-10-24: "two children" translating «عندي ولدين» (a dual) was
+// refused as an invented number, so the English summary never showed.
+test('"two" translating an Arabic dual passes in English and Hebrew; an invented "two" still fails', async () => {
+  const { validateMemorySummary } = await import('../../lib/services/mobile/memorySummary.ts');
+  const kids = { ref: 'r1', id: 'b', kind: 'fact', text: 'عندي ولدين بالمدرسة' };
+  const work = { ref: 'r1', id: 'c', kind: 'fact', text: 'بشتغل بشركة صغيرة' };
+  const one = (text: string, row: typeof kids, language: 'en' | 'he' | 'ar') => validateMemorySummary({ sentences: [{ text, refs: ['r1'] }] }, [row], language);
+  assert.notEqual(one('You have two children in school.', kids, 'en'), null);
+  assert.notEqual(one('יש לך שני ילדים בבית הספר.', kids, 'he'), null);
+  assert.equal(one('You work at two small companies.', work, 'en'), null);
+  assert.equal(one('You have three children in school.', kids, 'en'), null);
+});
+
+test('the prompt asks for "you", never "the user"', async () => {
+  const uid = await begin();
+  await addRows(uid, [{ content: 'Likes tea.' }]);
+  const model = scriptedModel(() => ({ sentences: [] }));
+  await useSummaryModel(model);
+  await summary(uid, 'en');
+  assert.match(promptOf(model.calls[0]!.request), /Speak to the person directly, as "you"/);
 });
