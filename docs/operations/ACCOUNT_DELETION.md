@@ -34,15 +34,21 @@ What is kept, and why:
      set -euo pipefail
      SVC=maybesitter-api-staging; DB=staging   # production: SVC=maybesitter-api; DB='(default)'
      DELETE_UID='<uid>'
-     # The version (or value) the service maps for one variable. Never a secret value.
+     # The secret version the service mounts for a pepper variable: only ever
+     # secretKeyRef.key, so a pepper set by mistake as a plain value is never read
+     # (or printed) here. val() reads the one plain setting, the writer selector.
      ref() {
        gcloud run services describe "$SVC" --region=europe-west1 --format=json \
-         | jq -r --arg n "$1" '.spec.template.spec.containers[0].env[] | select(.name == $n) | .valueFrom.secretKeyRef.key // .value'
+         | jq -r --arg n "$1" '.spec.template.spec.containers[0].env[] | select(.name == $n) | .valueFrom.secretKeyRef.key // empty'
+     }
+     val() {
+       gcloud run services describe "$SVC" --region=europe-west1 --format=json \
+         | jq -r --arg n "$1" '.spec.template.spec.containers[0].env[] | select(.name == $n) | .value // empty'
      }
      key() { gcloud secrets versions access "$1" --secret=maybesitter-deletion-receipt-pepper; }
      CUR="$(ref MAYBESITTER_DELETION_RECEIPT_PEPPER)"
      PREV="$(ref MAYBESITTER_DELETION_RECEIPT_PEPPER_PREVIOUS)"
-     WRITE="$(ref MAYBESITTER_DELETION_RECEIPT_PEPPER_WRITE)"
+     WRITE="$(val MAYBESITTER_DELETION_RECEIPT_PEPPER_WRITE)"
      [ -n "$CUR" ] || { echo "the service mounts no pepper" >&2; exit 1; }
      echo "pepper version ${CUR}, previous ${PREV:-none}, write ${WRITE:-current}"
      export MAYBESITTER_STORAGE_BACKEND=firestore MAYBESITTER_FIRESTORE_DATABASE_ID="$DB"

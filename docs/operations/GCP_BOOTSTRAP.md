@@ -399,7 +399,7 @@ dates.
 |---|---|---|---|
 | phase 1 | steady on N | `steady`, `current_version=N`, `previous_version=` empty | phase 1 wrote only key N, so nothing under N+1 exists |
 | phase 2 | phase 1 | `readers` (versions unchanged) | both phases read both keys |
-| phase 2 | steady on N | **never directly** | go to phase 1 first, then follow step 4's three checks with T2 replaced by the rollback time, since records written under N+1 must age out |
+| phase 2 | steady on N | **never directly** | go to phase 1 first. Then remove every tag on a phase-2 revision (they write N+1), wait 10 minutes, record the rollback time, and run step 4's checks 1 and 2 against it instead of T2, since records written under N+1 must age out. Keep version N+1 disabled, never destroyed, for 400 days: phase 2 wrote receipts under it |
 | steady on N+1 | earlier | a new rotation (N+1 to N+2) | the old version is not reused |
 
 Every rollback is a commit to `pepper-rotation.env` and a deploy. **Never

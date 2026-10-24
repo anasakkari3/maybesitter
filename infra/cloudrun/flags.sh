@@ -350,8 +350,8 @@ esac
 # The env list is `;`-delimited (gcloud's `^;^` form, `gcloud topic escaping`)
 # because MAYBESITTER_SITE_ORIGINS is itself a comma-separated list: with the
 # default `,` delimiter gcloud would split it into bogus KEY=VALUE pairs. The
-# whole flag stays one word with no spaces, since the workflow expands this
-# script's output unquoted.
+# whole flag stays one word with no spaces, since the workflow splits this
+# script's output on whitespace (`read -ra`, #798).
 # M5a activation precondition: the M5a revision must already serve 100 % of
 # traffic for at least 10 minutes, then durable controls are enabled explicitly.
 printf '%s ' \

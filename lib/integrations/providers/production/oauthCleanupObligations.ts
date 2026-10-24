@@ -154,7 +154,8 @@ export function oauthCleanupObligationPath(id: string): string {
 
 /**
  * Every key a provider account can be filed under: one per configured pepper,
- * current first. Empty where unshared storage has no pepper. The subject is
+ * the writer's key first (`MAYBESITTER_DELETION_RECEIPT_PEPPER_WRITE`, #798), so
+ * in phase 1 of a rotation the old key leads. Empty where unshared storage has no pepper. The subject is
  * namespaced per provider, so it can never equal a uid's subject hash.
  */
 export function providerAccountKeys(provider: ContextProviderKind, providerAccountId: string): string[] {
