@@ -209,6 +209,25 @@ test('30 prose rows: only the newest 15 are sent (r1…r15), and an answer citin
   assert.deepEqual(answer.body.summary.sentences.flatMap((sentence: any) => sentence.memoryIds), listed.slice(0, BOUND).map((row) => row.id));
 });
 
+// Inspection of #817: the row bound alone let 15 rows of 200 characters
+// through, 3,000 characters to say back in 1,760.
+test('15 rows of 200 characters: only the newest 7 are sent (1,400 characters), coveredCount 7, totalCount 15', async () => {
+  const { MEMORY_SUMMARY_MAX_ROW_CHARS } = await import('../../lib/services/mobile/memorySummary.ts');
+  assert.equal(MEMORY_SUMMARY_MAX_ROW_CHARS, 1_400);
+  const uid = await begin();
+  const long = Array.from({ length: 15 }, (_, index) => ({ content: `Long note ${String(index).padStart(2, '0')} `.padEnd(200, 'x') }));
+  const listed = await addRows(uid, long);
+  const model = scriptedModel(() => ({ sentences: [{ text: 'You keep a list of things you remember.', refs: range(7) }] }));
+  await useSummaryModel(model);
+  const answer = await summary(uid, 'en');
+  const prompt = promptOf(model.calls[0]!.request);
+  assert.deepEqual(refsIn(prompt), range(7));
+  for (const row of listed.slice(0, 7)) assert.ok(prompt.includes(`"${row.content}"`), 'a newest long row was not sent');
+  assert.equal(answer.body.summary?.status, 'ready', show(answer.body));
+  assert.equal(answer.body.summary.coveredCount, 7);
+  assert.equal(answer.body.summary.totalCount, 15);
+});
+
 test('10 prose rows: all 10 are sent, coveredCount 10, totalCount 10', async () => {
   const uid = await begin();
   await addRows(uid, things(10));

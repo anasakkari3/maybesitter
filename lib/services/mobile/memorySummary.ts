@@ -23,6 +23,26 @@ export const MEMORY_SUMMARY_MAX_SENTENCE_CHARS = 220;
  * sent, `totalCount` every row, and the phone says «وفي كمان # إشي» (m5bSummaryMore).
  */
 export const MEMORY_SUMMARY_MAX_ROWS = 15;
+/**
+ * The same limit in characters. A row can hold 200 characters, so 15 long rows
+ * are 3,000 characters to say back in 1,760 (8 x 220), more once Arabic is
+ * translated into English. The newest rows are sent while their text stays
+ * within this, and always at least the newest one (inspection of #817).
+ */
+export const MEMORY_SUMMARY_MAX_ROW_CHARS = 1_400;
+
+/** The newest rows that fit both limits, in order; never skips a row to fit a later one. */
+function newestThatFit<T extends { readonly content: string }>(rows: readonly T[]): T[] {
+  const kept: T[] = [];
+  let chars = 0;
+  for (const row of rows) {
+    if (kept.length === MEMORY_SUMMARY_MAX_ROWS) break;
+    if (kept.length > 0 && chars + row.content.length > MEMORY_SUMMARY_MAX_ROW_CHARS) break;
+    kept.push(row);
+    chars += row.content.length;
+  }
+  return kept;
+}
 
 export type MemorySummaryLanguage = 'ar' | 'en' | 'he';
 export interface MemorySummaryInputRow { readonly ref: string; readonly id: string; readonly kind: string; readonly text: string }
@@ -309,7 +329,7 @@ export async function buildMemorySummary(input: { uid: string; language: MemoryS
   // words, is theirs to have summarized (inspection MS-ROUTINE-004/008).
   const prose = listed.filter((row) => !(row.provenance?.origin === 'routine_survey' && isCanonicalRoutineFact(row.content)));
   if (prose.length === 0) return { status: 'empty' };
-  const rows: MemorySummaryInputRow[] = prose.slice(0, MEMORY_SUMMARY_MAX_ROWS).map((row, index) => ({ ref: `r${index + 1}`, id: row.id, kind: row.kind, text: row.content }));
+  const rows: MemorySummaryInputRow[] = newestThatFit(prose).map((row, index) => ({ ref: `r${index + 1}`, id: row.id, kind: row.kind, text: row.content }));
   const remaining = MEMORY_SUMMARY_ROUTE_BUDGET_MS - (Date.now() - input.startedAt);
   if (remaining < MINIMUM_ATTEMPT_BUDGET_MS || input.signal.aborted) return { status: 'unavailable' };
   const reservation = await reserveCall(input.uid, 'memory_summary', { storage: getStorage() });
