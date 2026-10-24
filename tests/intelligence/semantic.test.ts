@@ -81,3 +81,23 @@ test('a two-call permit reserves the semantic read its full share, and settles e
   // The semantic slot's own 9,000 is released, the capture slot's 2,500 still held.
   assert.equal((await storage.get<{ m5aReservedTokens?: number }>(dayPath))?.m5aReservedTokens, 2_500);
 });
+
+// Staging, the owner's real mailbox (2026-10-24): job alerts became one
+// opportunity per listed job and the jobs' requirements became the person's
+// constraints; unsubscribe/do-not-reply lines and a bare date came back too.
+test('the prompt keeps job-ad requirements, per-listing opportunities and boilerplate out', () => {
+  const prompt = semanticPrompt();
+  assert.match(prompt, /requirements in a job advert/);
+  assert.match(prompt, /at most one opportunity/);
+  assert.match(prompt, /unsubscribe and do-not-reply lines/);
+  assert.match(prompt, /routine account notice/);
+});
+
+test('evidence with no words — a bare date or number — is dropped', () => {
+  const source = 'Updated 24/10/2026. Please confirm the meeting on Monday.';
+  const kept = validateSemanticObservations({ observations: [
+    { kind: 'event', evidence: '24/10/2026', confidence: 0.9 },
+    { kind: 'request', evidence: 'Please confirm the meeting on Monday', confidence: 0.9 },
+  ] }, source);
+  assert.deepEqual(kept.map((item) => item.kind), ['request']);
+});
