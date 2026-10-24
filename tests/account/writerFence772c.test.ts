@@ -80,6 +80,7 @@ import {
 import {
   beginProviderOAuth,
   completeProviderOAuth,
+  MemoryProviderOAuthCleanupObligations,
   type ProviderOAuthClient,
 } from '../../lib/integrations/providers/providerOAuthLifecycle.ts';
 import type { ProviderOAuthTokenSet } from '../../lib/integrations/providers/providerRuntime.ts';
@@ -490,7 +491,7 @@ for (const step of STEPS) {
       };
       await assert.rejects(completeProviderOAuth(states, vault, connections, client, {
         scopeId: uid, provider: 'google', state: begun.state, code: 'code-1', now: NOW,
-      }), AccountUnavailableError);
+      }, new MemoryProviderOAuthCleanupObligations()), AccountUnavailableError);
       assert.equal(credentialStored, true, 'the race was not staged: the credential was never stored');
       const after = await snapshot(storage, uid);
       // The state was spent, the credential taken back, no connection stored.

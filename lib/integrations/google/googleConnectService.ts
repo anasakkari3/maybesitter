@@ -51,13 +51,16 @@ import {
   beginProviderOAuth,
   completeProviderOAuth,
   disconnectProviderOAuth,
+  ProviderOAuthCleanupError,
   ProviderOAuthError,
+  revokeOrRecordGrant,
   type ProviderOAuthClient,
 } from '../providers/providerOAuthLifecycle';
 import type { ProviderOAuthTokenSet } from '../providers/providerRuntime';
 import { StoredProviderOAuthStateStore } from '../providers/production/storedOAuthStateStore';
 import { StoredIntegrationConnectionStore, connectionIdFor } from '../providers/production/storedConnectionStore';
 import { EncryptedProviderCredentialVault } from '../providers/production/encryptedCredentialVault';
+import { StoredOAuthCleanupObligations } from '../providers/production/oauthCleanupObligations';
 import {
   loadProviderAccessToken,
   ProviderAccessTokenError,
@@ -212,7 +215,23 @@ function stores(uid: string, runtime: GoogleRuntime) {
     states: new StoredProviderOAuthStateStore(uid, runtime.storage, runtime.encryption),
     connections: new StoredIntegrationConnectionStore(uid, runtime.storage),
     vault: new EncryptedProviderCredentialVault(uid, runtime.storage, runtime.encryption, runtime.now),
+    // Outside the account's tree (#800): what a refused completion could not
+    // clean up has to outlive the deletion that refused it.
+    cleanup: new StoredOAuthCleanupObligations(runtime.storage, runtime.encryption, runtime.now),
   };
+}
+
+/**
+ * Revokes a Google grant an OAuth cleanup obligation still owes (#800), for the
+ * maintenance job. Throws when Google is not configured or refuses, so the
+ * obligation is kept for the next run.
+ */
+export async function revokeGoogleGrantForCleanup(
+  tokenSet: ProviderOAuthTokenSet,
+  runtime: GoogleRuntime,
+): Promise<void> {
+  const config = await requireConfig(runtime);
+  await clientFor(config, runtime).revoke(tokenSet);
 }
 
 function clientFor(config: GoogleOAuthConfig, runtime: GoogleRuntime, requireAccountId?: string) {
@@ -397,7 +416,8 @@ export interface CompleteGoogleConnectInput {
  * Google's account chooser. But the *other* account did consent, and Google
  * issued it a grant nobody now holds — one the person could never withdraw
  * from this app. That grant is a different authorization (different user), so
- * revoking it cannot touch the connected one, and it is revoked, best effort.
+ * revoking it cannot touch the connected one, and it is revoked — or, when
+ * Google refuses, recorded for the cleanup job to revoke later (#800).
  */
 export async function completeGoogleConnect(
   uid: string,
@@ -405,7 +425,7 @@ export async function completeGoogleConnect(
   runtime: GoogleRuntime,
 ): Promise<GoogleStatus> {
   const config = await requireConfig(runtime);
-  const { states, connections, vault } = stores(uid, runtime);
+  const { states, connections, vault, cleanup } = stores(uid, runtime);
   // The token set this exchange produced, held only for as long as this call
   // runs, so a grant for the wrong account can be withdrawn (see above).
   let issued: ProviderOAuthTokenSet | null = null;
@@ -427,21 +447,28 @@ export async function completeGoogleConnect(
       state: input.state,
       code: input.code,
       now: runtime.now().toISOString(),
-    });
+    }, cleanup);
     return await getGoogleStatus(uid, runtime);
   } catch (error) {
-    if (error instanceof GoogleAccountMismatchError && issued) {
-      // Another person's authorization, never the connected one's: `loadIdentity`
-      // refused it before anything was stored.
-      await clientFor(config, runtime).revoke(issued).catch(() => undefined);
+    // The refusal the completion answered, even when its own credential
+    // cleanup could not be recorded either (#800).
+    const refusal = error instanceof ProviderOAuthCleanupError ? error.refusal : error;
+    // Another person's authorization, never the connected one's: `loadIdentity`
+    // refused it before anything was stored. Or the account was deleted while
+    // Google was asking (#772): nothing was stored, and account deletion's own
+    // revocation found no connection to revoke. Either way nobody here could
+    // ever withdraw the grant just issued, so it is revoked now — and when
+    // Google refuses, the revocation is recorded for the cleanup job, which
+    // retries it until it lands, rather than dropped (#800).
+    if (issued && (refusal instanceof GoogleAccountMismatchError || refusal instanceof AccountUnavailableError)) {
+      try {
+        await revokeOrRecordGrant(clientFor(config, runtime), issued, cleanup);
+      } catch (cleanupError) {
+        // Neither revoked nor recorded: answered as a failure, never as done.
+        throw asConnectError(cleanupError);
+      }
     }
-    if (error instanceof AccountUnavailableError) {
-      // The account was deleted while Google was asking (#772). Nothing was
-      // stored, so nobody here could ever withdraw the grant just issued;
-      // revoke it, best effort, as account deletion itself would have.
-      if (issued) await clientFor(config, runtime).revoke(issued).catch(() => undefined);
-      throw error;
-    }
+    if (error instanceof AccountUnavailableError) throw error;
     throw asConnectError(error);
   } finally {
     issued = null;

@@ -711,6 +711,22 @@ export const EARLY_ACCESS_REGISTRATIONS = 'earlyAccessRegistrations';
  */
 export const EARLY_ACCESS_RATE_LIMITS = 'earlyAccessRateLimits';
 
+/**
+ * OAuth cleanup an OAuth completion owed and could not finish (#800): a stored
+ * credential it could not delete, or a provider grant it could not revoke,
+ * after the completion was refused (account deleted mid-flow, connection write
+ * failed, wrong account picked). Nothing else points at those, so the nightly
+ * maintenance job retries each one until it lands
+ * (`lib/integrations/providers/production/oauthCleanupObligations.ts`).
+ *
+ * Top-level, not under a uid, because it has to outlive the account deletion
+ * that sweeps the tree. Keyed by a random id; the only identifying or secret
+ * material (the uid of a credential to delete, the token a revocation needs)
+ * is sealed with the same KMS envelope the vault uses, and each document is
+ * deleted the moment its cleanup succeeds.
+ */
+export const OAUTH_CLEANUP_OBLIGATIONS = 'oauthCleanupObligations';
+
 export const USERS = 'users';
 
 export function requireUserId(id: unknown): string {

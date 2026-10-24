@@ -70,6 +70,14 @@ export const TOP_LEVEL_COLLECTIONS_WITHOUT_USER_DATA: readonly string[] = [
   // holding a count and a reset time. It is keyed by a fixed name, never by
   // an IP or an email, so there is nothing in it about anybody.
   'earlyAccessRateLimits',
+  // OAuth cleanup a refused completion still owes (#800): a credential to
+  // delete or a grant to revoke, retried nightly until it lands. It must not be
+  // swept by account deletion — the deletion is often why the obligation
+  // exists, and sweeping it would leave the live grant nobody can withdraw.
+  // No plaintext uid or token: both are sealed with the vault's KMS envelope
+  // under the obligation's random id, and the document is deleted as soon as
+  // the cleanup succeeds.
+  'oauthCleanupObligations',
 ] as const;
 
 export interface TopLevelPreAccountCollection {

@@ -63,6 +63,12 @@ gcloud firestore documents list accountDeletions --database=staging   # or query
 
 The steps say what is left. Re-running the script for the same uid resumes the job rather than starting a second one — every step checks before it acts, and the receipt is written once.
 
+## A Google connect that raced the deletion (#800)
+
+A Google connect can finish while its account is being deleted. The connect is then refused, and it takes back what it already holds: the stored credential, and the grant Google just issued. Account deletion's own revocation cannot see that grant, because no connection record was ever written. If either cleanup call fails, the obligation goes into `oauthCleanupObligations/{random id}`, outside the account's tree, so the deletion sweep cannot remove it. The same happens when another Google account was picked or the connection write failed. The nightly maintenance step `oauth_cleanups_retried` retries each obligation and deletes it once the cleanup lands. While one is still owed, the step reports `ok: false`. Nothing about the account or the token is logged.
+
+The document holds a kind (`credential_delete` or `grant_revoke`), a provider, timestamps and an attempt count. The uid and tokens are sealed with the vault's KMS key. It has no TTL on purpose: if it expired, the cleanup would be dropped. **Do not delete one by hand** unless the grant is known to be revoked, for example after the person removed MaybeSitter at myaccount.google.com.
+
 ## What an operator must not do
 
 - Do not delete documents by hand to "help it along". The engine's job record is what makes the deletion resumable and the receipt truthful; a manual delete leaves it inconsistent with both.
