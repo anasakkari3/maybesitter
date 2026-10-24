@@ -176,6 +176,8 @@ export interface QuotaPermitRecord {
   readonly minute: string;
   readonly tokenBudget: number;
   readonly tokenBudgetPerSlot: number;
+  /** Each slot's own reservation, when the calls differ in size (#814); absent on older permits. */
+  readonly slotBudgets?: readonly number[];
   readonly slots: ReadonlyArray<{
     readonly state: QuotaPermitSlotState;
     readonly promptTokens?: number;
@@ -266,7 +268,7 @@ function nextUtcMinute(now: Date): Date {
 export async function reserveQuotaPermit(
   uid: string,
   purpose: LlmPurpose,
-  input: { owner: string; calls: 1 | 2; tokenBudget: number; minimumRuntimeMs?: number },
+  input: { owner: string; calls: 1 | 2; tokenBudget: number; slotBudgets?: readonly number[]; minimumRuntimeMs?: number },
   options: ReserveOptions = {},
 ): Promise<QuotaPermitReservation> {
   const storage = options.storage ?? getStorage();
@@ -282,6 +284,11 @@ export async function reserveQuotaPermit(
   const at = now.toISOString();
   const tokenBudget = Math.max(1, Math.trunc(input.tokenBudget));
   const tokenBudgetPerSlot = Math.ceil(tokenBudget / input.calls);
+  // A semantic read and a capture call are not the same size: each slot holds
+  // its own share, so settling the first never under-reserves it (#814).
+  const slotBudgets = input.slotBudgets && input.slotBudgets.length === input.calls
+    && input.slotBudgets.reduce((sum, value) => sum + value, 0) === tokenBudget
+    ? [...input.slotBudgets] : undefined;
   const globalCap = options.globalCap ?? capFrom(process.env.MAYBESITTER_LLM_GLOBAL_DAILY_CALL_CAP, DEFAULT_GLOBAL_DAILY_CAP);
   const minuteCap = options.minuteCap ?? capFrom(process.env.MAYBESITTER_LLM_MINUTE_CALL_CAP, DEFAULT_USER_MINUTE_CAP);
   try {
@@ -314,6 +321,7 @@ export async function reserveQuotaPermit(
       });
       tx.create<QuotaPermitRecord>(path, {
         v: 1, permitId, uid, purpose, owner: input.owner, day, minute, tokenBudget, tokenBudgetPerSlot,
+        ...(slotBudgets ? { slotBudgets } : {}),
         slots: Array.from({ length: input.calls }, () => ({ state: 'reserved' as const })),
         finalizedAt: null, createdAt: at, expireAt: expireAtFor(now),
       });
@@ -372,7 +380,7 @@ export async function settleQuotaPermitSlot(
       inputTokens: usage?.inputTokens ?? 0, outputTokens: usage?.outputTokens ?? 0,
       reservedTokens: usage?.reservedTokens ?? 0,
       m5aCalls: usage?.m5aCalls ?? 0,
-      m5aReservedTokens: Math.max(0, (usage?.m5aReservedTokens ?? 0) - record.tokenBudgetPerSlot),
+      m5aReservedTokens: Math.max(0, (usage?.m5aReservedTokens ?? 0) - (record.slotBudgets?.[slot] ?? record.tokenBudgetPerSlot)),
       m5aInputTokens: (usage?.m5aInputTokens ?? 0) + promptTokens,
       m5aOutputTokens: (usage?.m5aOutputTokens ?? 0) + outputTokens,
       ...(usage?.minute ? { minute: usage.minute, minuteCalls: usage.minuteCalls ?? 0 } : {}),
@@ -393,7 +401,8 @@ export async function finalizeQuotaPermit(
     const record = await tx.get<QuotaPermitRecord>(path);
     if (!record || record.owner !== permit.owner || record.finalizedAt) return;
     const unused = record.slots.filter(slot => slot.state === 'reserved').length;
-    const releasableTokens = record.slots.reduce((sum, slot) => sum + (slot.state === 'reserved' ? record.tokenBudgetPerSlot : 0), 0);
+    const releasableTokens = record.slots.reduce((sum, slot, index) => sum
+      + (slot.state === 'reserved' ? record.slotBudgets?.[index] ?? record.tokenBudgetPerSlot : 0), 0);
     const [usage, global] = await Promise.all([
       tx.get<UsageDay>(userDayPath(permit.uid, permit.day)), tx.get<UsageDay>(globalDayPath(permit.day)),
     ]);

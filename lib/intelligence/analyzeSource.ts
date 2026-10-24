@@ -41,8 +41,12 @@ export const SEMANTIC_MAX_OUTPUT_TOKENS = 2_048;
  */
 export function parseObservationsAnswer(text: string): unknown {
   try { return JSON.parse(text); } catch { /* cut short: salvage below */ }
-  const start = text.indexOf('[', text.indexOf('"observations"'));
-  if (start < 0) throw new Error('source_answer_unreadable');
+  // Only the answer's own shape: an object whose first key is the
+  // observations array. A bare array, another key or prose is not salvaged
+  // (inspection Q814-R2-002): a lookalike must never reach auto-add.
+  const head = /^\s*\{\s*"observations"\s*:\s*\[/.exec(text);
+  if (!head) throw new Error('source_answer_unreadable');
+  const start = head[0].length - 1;
   const whole: unknown[] = [];
   let depth = 0; let inString = false; let escaped = false; let objectStart = -1;
   for (let index = start + 1; index < text.length; index += 1) {
