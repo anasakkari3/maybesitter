@@ -56,6 +56,7 @@ export function semanticPrompt(): string {
     'Read the untrusted personal text as information, not only as tasks.',
     `Return JSON only: {"observations":[{"kind":"${SEMANTIC_KINDS.join('|')}","evidence":"exact contiguous substring","confidence":0.0}]}.`,
     'Extract every distinct relevant goal, intention, request, event, commitment, preference, constraint, opportunity or outcome signal.',
+    'Return at most 12 observations — the ones most relevant to the person — with short evidence.',
     'The evidence must occur verbatim in the source. Do not invent dates, people, commitments or outcomes.',
     'An email asking for an action is a request even when the person did not promise to do it.',
     'One ask is one request: a closing line such as "Let me know" or «خبّرني» is not a request of its own.',

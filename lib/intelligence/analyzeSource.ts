@@ -25,6 +25,52 @@ const SCHEMA = {
   required: ['observations'],
 } as const;
 
+/**
+ * Room for the answer. At 1,024 a long e-mail's answer was cut mid-JSON
+ * (1,012 output tokens, staging 2026-10-24): the parse failed, the scan
+ * stopped, and every resume retried the same message the same way.
+ */
+export const SEMANTIC_MAX_OUTPUT_TOKENS = 2_048;
+
+/**
+ * The model's answer, read as far as it is whole. A reply cut at the output
+ * cap (a MAX_TOKENS finish) still holds every observation before the cut:
+ * those are kept, the half-written one is not, and each still has to quote
+ * the source verbatim in `validateSemanticObservations`. Nothing whole → the
+ * same failure as before.
+ */
+export function parseObservationsAnswer(text: string): unknown {
+  try { return JSON.parse(text); } catch { /* cut short: salvage below */ }
+  // Only the answer's own shape: an object whose first key is the
+  // observations array. A bare array, another key or prose is not salvaged
+  // (inspection Q814-R2-002): a lookalike must never reach auto-add.
+  const head = /^\s*\{\s*"observations"\s*:\s*\[/.exec(text);
+  if (!head) throw new Error('source_answer_unreadable');
+  const start = head[0].length - 1;
+  const whole: unknown[] = [];
+  let depth = 0; let inString = false; let escaped = false; let objectStart = -1;
+  for (let index = start + 1; index < text.length; index += 1) {
+    const char = text[index]!;
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (char === '\\') escaped = true;
+      else if (char === '"') inString = false;
+      continue;
+    }
+    if (char === '"') inString = true;
+    else if (char === '{') { if (depth === 0) objectStart = index; depth += 1; }
+    else if (char === '}') {
+      depth -= 1;
+      if (depth === 0 && objectStart >= 0) {
+        try { whole.push(JSON.parse(text.slice(objectStart, index + 1))); } catch { /* skip a malformed one */ }
+        objectStart = -1;
+      }
+    } else if (char === ']' && depth === 0) break;
+  }
+  if (whole.length === 0) throw new Error('source_answer_unreadable');
+  return { observations: whole };
+}
+
 /** A bounded read. The source text itself is never persisted or logged. */
 export async function analyzeSource(
   uid: string,
@@ -44,11 +90,11 @@ export async function analyzeSource(
       system: semanticPrompt(),
       parts: [wrapUntrustedShared(content)],
       responseSchema: toVertexSchema(SCHEMA),
-      maxOutputTokens: 1_024,
+      maxOutputTokens: SEMANTIC_MAX_OUTPUT_TOKENS,
       timeoutMs: 8_000,
       retry: false,
     });
-    observations = validateSemanticObservations(JSON.parse(response.text), content);
+    observations = validateSemanticObservations(parseObservationsAnswer(response.text), content);
   } catch {
     // Consent, cost cap and provider failures do not authorize guessing from
     // somebody else's mailbox. Their own sentence can be retained as a draft.
@@ -76,11 +122,11 @@ export async function analyzeSourceStaged(
       system: semanticPrompt(),
       parts: [wrapUntrustedShared(content)],
       responseSchema: toVertexSchema(SCHEMA),
-      maxOutputTokens: 1_024,
+      maxOutputTokens: SEMANTIC_MAX_OUTPUT_TOKENS,
       timeoutMs: 8_000,
       retry: false,
     });
-    return validateSemanticObservations(JSON.parse(response.text), content)
+    return validateSemanticObservations(parseObservationsAnswer(response.text), content)
       .filter(item => detectPromptInjection(item.evidence) === null);
   } catch {
     if (source !== 'manual') throw new Error('source_analysis_failed');
