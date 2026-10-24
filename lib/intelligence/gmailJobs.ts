@@ -35,6 +35,8 @@ export const GMAIL_JOB_CLASSES = Object.freeze({
 export const GMAIL_JOB_LIMITS = Object.freeze({
   tickMs: 40_000, cleanupMs: 3_000, cleanupMarkers: 20, leaseMs: 120_000,
   lanes: Object.freeze({ live: 8, proposals: 2, continuation: 4, sweep: 3, calendar_maintenance: 1 }),
+  /** Messages one account's scan may read in one tick, while the tick has room for another. */
+  scanStepsPerTick: 25,
   reservesMs: Object.freeze({ listing: 13_000, ordinary: 22_000, qualifyingReply: 34_000, calendarApply: 3_000 }),
 });
 
@@ -344,9 +346,19 @@ async function runScanClass(
     candidate => candidate.row.data.page ? GMAIL_JOB_LIMITS.reservesMs.qualifyingReply : GMAIL_JOB_LIMITS.reservesMs.listing,
     deadlineMs,
     candidate => withAccountLease(candidate.uid, 'sweep', jobClass, runtime, async () => {
-      await runM5aScanStep(candidate.uid, kind, runtime, overrides.transport?.(candidate.uid),
-        overrides.ensureReadable ? () => overrides.ensureReadable!(candidate.uid) : undefined);
-      if (kind === 'daily') await advanceCompletedDaily(candidate.uid, runtime);
+      // A step reads one message. One step a tick read one e-mail a minute, so
+      // a 7-day scan of an ordinary mailbox took hours (staging, 2026-10-24).
+      // The account keeps stepping while its scan is running and due, and the
+      // tick still has a qualifying reply's reserve left, up to a fixed cap.
+      const path = `${userCol(candidate.uid, INTELLIGENCE_GMAIL_SCANS)}/${kind === 'daily' ? 'dailyV2' : 'manualV2'}`;
+      for (let step = 0; step < GMAIL_JOB_LIMITS.scanStepsPerTick; step += 1) {
+        await runM5aScanStep(candidate.uid, kind, runtime, overrides.transport?.(candidate.uid),
+          overrides.ensureReadable ? () => overrides.ensureReadable!(candidate.uid) : undefined);
+        if (kind === 'daily') await advanceCompletedDaily(candidate.uid, runtime);
+        if (Date.now() + GMAIL_JOB_LIMITS.reservesMs.qualifyingReply > deadlineMs) break;
+        const scan = await runtime.storage.get<M5aScanDocument>(path);
+        if (!scan || scan.status !== 'running' || scan.nextEligibleAt > runtime.now().toISOString()) break;
+      }
       return true;
     }));
 }
