@@ -140,34 +140,291 @@ added by UC-1.0d #143) also prunes expired traces and clarifications. Two
 stores have no TTL at all — runtime memory and alpha feedback — and are
 retained **only** by that nightly prune, so until it runs they keep everything.
 
-## Rotating the deletion-receipt pepper: not supported yet
+## Rotating the deletion-receipt pepper
 
-**Do not rotate the deletion-receipt pepper.** Safe rotation is tracked in #798.
+Rotation is supported only by the steps below (#798). Read all of them first.
+Each step that creates a secret version, changes traffic or removes a tag
+**changes cloud state and is an owner action**. Every other step is a commit,
+a deploy, or a read-only check.
 
-The pepper derives the subject hash of deletion receipts **and** the id of each
-deletion job record, which is also the deletion tombstone (#794): a uid's first
-request looks for `accountDeletions/{HMAC(pepper, uid)}` before it creates
-`users/{uid}`. Rotating the pepper hides every tombstone written under the old
-one and reopens the race #794 closed, for ID tokens still in flight.
+### What the pepper does, and why rotation is two deploys
 
-`MAYBESITTER_DELETION_RECEIPT_PEPPER_PREVIOUS` (read in the same transaction
-when set) is only one part of a safe rotation. It does not cover these gaps
-(Codex inspection of #794, round 2):
+`maybesitter-deletion-receipt-pepper` (one Secret Manager secret, mounted on
+both services) is an HMAC key. It has three uses:
 
-- **Deletion jobs are not rotation-aware.** A job started under the old pepper
-  is resumed under the new one as a different job, so the old record stays
-  `in_progress` and keeps its uid.
-- **Old readers miss new writers.** During the cutover, a revision that knows
-  only the old pepper misses tombstones written by a revision on the new one.
-- **Deploys drop the previous key.** `infra/cloudrun/flags.sh` deploys with
-  `--set-secrets`, which replaces the whole mounted set, and staging deploys on
-  every merge, so `PREVIOUS` would be dropped silently.
+1. the subject hash on deletion receipts (`deletionReceipts/*`, kept 400 days);
+2. the id of each deletion job, `accountDeletions/{HMAC(pepper, uid)}`, which
+   is also the **deletion tombstone**. A uid's first request reads it before
+   it creates `users/{uid}`, and so blocks the #794 race;
+3. the `accountKey` on a Google grant-revoke obligation in
+   `oauthCleanupObligations/*` (#800, `HMAC(pepper, 'google_<sub>')`). It
+   serves one optimisation: a successful connect of that Google account
+   clears its pending revocations by `accountKey`, under the current and the
+   previous pepper. It is not what protects the new connection. Before every
+   revoke, the nightly retry asks whether any live account holds a live
+   connection to that Google account (check 1 in
+   `lib/integrations/providers/production/oauthCleanupObligations.ts`), and
+   drops the obligation if one does. That check is a collection-group query
+   on the sealed Google `sub`. It needs no pepper and no `accountKey`, so a
+   rotation cannot weaken it.
 
-The pepper is an HMAC key that hides uids in kept records. It grants no
-access, so leaving it unrotated costs little.
+Uses 1 and 2 must be found under either key while a rotation is active. Use 3
+should be, but missing it costs only the optimisation. The app reads up to two
+keys:
 
-Cloud Run pins `:latest` at deploy time, so the service has to be updated for a
-new version to take effect.
+| Variable | Source | Meaning |
+|---|---|---|
+| `MAYBESITTER_DELETION_RECEIPT_PEPPER` | secret, pinned version | the newest key |
+| `MAYBESITTER_DELETION_RECEIPT_PEPPER_PREVIOUS` | secret, pinned version | the old key, during a rotation only |
+| `MAYBESITTER_DELETION_RECEIPT_PEPPER_WRITE` | plain env | which key **new** records use: `current` (default) or `previous` |
+
+Readers always check every configured key: tombstones, job lookup before a
+new job is minted, and obligation clearing. Writers use the selected key: new
+deletion jobs, and an obligation's `accountKey`. The obligation recorder takes
+the first entry of `providerAccountKeys` (`pepperedSubjectHashes`), and that
+list puts the writer's key first. A stalled job is resumed at the path where it is stored, so a
+job begun under the old key is finished under the old key, and finishing it
+needs no pepper at all.
+
+**The invariant:** the key any live revision writes is a key that every live
+revision reads. A deploy serves the old and the new revision together, for at
+least the 60 s request timeout, and longer through a revision tag. So no single
+deploy can move both what a revision reads and what it writes:
+
+| Phase | `pepper-rotation.env` | Reads | Writes |
+|---|---|---|---|
+| steady (before) | `steady`, `current_version=N` | N | N |
+| 1, readers | `readers`, `current=N+1`, `previous=N` | N+1, N | N |
+| 2, writer | `writer`, `current=N+1`, `previous=N` | N+1, N | N+1 |
+| steady (after) | `steady`, `current_version=N+1` | N+1 | N+1 |
+
+Each adjacent pair satisfies the invariant. Skipping phase 1 would not: a
+steady-N revision would miss tombstones that a phase-2 revision wrote.
+`tests/account/pepperRotation798.test.ts` replays every adjacent pair against
+the real engine, using the env that `flags.sh` emits for each phase.
+
+Why a writer selector rather than swapping PEPPER and PREVIOUS: a swap is also
+safe, but it makes `PREVIOUS` name the *newer* key during phase 1. With the
+selector, `PEPPER` always names the newest key and only one value moves per
+phase. Rolling back phase 2 is then the same one-value change.
+
+### How deploys carry it
+
+`infra/cloudrun/flags.sh` reads the committed
+`infra/cloudrun/pepper-rotation.env` on every deploy. The file sets the phase
+and versions **per service**. Each service has its own Firestore database, and
+production deploys only by hand. From the file, `flags.sh` emits:
+
+- the pinned `PEPPER` mapping;
+- the `PREVIOUS` mapping in phases `readers` and `writer`;
+- `WRITE` in every phase, `current` included. `--update-env-vars` merges, so
+  a `previous` left on the service would otherwise survive the return to
+  steady.
+
+`flags.sh` refuses a malformed file: a missing or duplicate key, `latest`
+during a rotation, the same version twice, or `previous_version` while steady.
+A deploy then fails instead of guessing. `--set-secrets` replaces the whole
+mounted set, which is why a `PREVIOUS` added by hand would be dropped by the
+next merge to main. Never add one by hand.
+
+A production deploy runs a commit that staging has already built. So each
+production step below is: merge the commit to `main` (staging redeploys with
+its own state unchanged), then dispatch the production deploy of that commit.
+Roll staging through each phase before production.
+
+### Step 0: pin the version in use (commit + deploy)
+
+`latest` names whichever version is newest, so a new version must never
+appear while a service still maps `latest`. Find the version both services
+run now (read-only):
+
+```bash
+gcloud secrets versions list maybesitter-deletion-receipt-pepper --project=maybesitter-app
+```
+
+If exactly one version is `enabled`, that is N. If there are several, stop:
+work out which one each live revision resolved before going on. Set
+`staging_current_version=N` and `production_current_version=N` (phases stay
+`steady`). Merge, deploy staging, dispatch production, and verify that each
+service's latest revision mounts version N:
+
+```bash
+for svc in maybesitter-api-staging maybesitter-api; do
+  gcloud run services describe "$svc" --region=europe-west1 --format=json \
+    | jq -r '.spec.template.spec.containers[0].env[]
+             | select(.name|startswith("MAYBESITTER_DELETION_RECEIPT_PEPPER"))
+             | "\(.name) \(.valueFrom.secretKeyRef.key // .value)"'
+done
+```
+
+The output shows only names and version numbers, never the secret value.
+Expect `MAYBESITTER_DELETION_RECEIPT_PEPPER N` and
+`MAYBESITTER_DELETION_RECEIPT_PEPPER_WRITE current`.
+
+**Revision tags.** Every deploy leaves its revision reachable through a
+`sha-*` tag URL, even at 0% traffic. A revision that still maps `latest`
+would read N+1 alone as soon as step 1 creates it. Before step 1, list the
+tags (read-only):
+
+```bash
+gcloud run services describe <svc> --region=europe-west1 --format=json | jq '.status.traffic'
+```
+
+Then remove (owner action) every tag that points at a revision from before
+this step:
+
+```bash
+gcloud run services update-traffic <svc> --region=europe-west1 --remove-tags=sha-xxxxxxx
+```
+
+The same check and removal come back before phase 2 and before step 4. Each
+time, the target is every tag older than the phase just deployed.
+
+### Step 1: create the new version (owner action)
+
+```bash
+openssl rand -base64 48 | tr -d '\n' \
+  | gcloud secrets versions add maybesitter-deletion-receipt-pepper \
+      --project=maybesitter-app --data-file=-
+```
+
+Note the new version number, N+1. Never echo, paste or store the value
+anywhere else. Both services are pinned to N, so nothing changes yet. From
+here on `latest` is N+1, which no live revision reads. So nothing may fetch
+the pepper by `latest` any more. The operator recipe in
+`ACCOUNT_DELETION.md` reads the version from the service itself, for this
+reason.
+
+### Step 2: phase 1, readers (per service: commit + deploy)
+
+Set `<service>_phase=readers`, `<service>_current_version=N+1` and
+`<service>_previous_version=N`. Merge and deploy. Verify with the loop above.
+Expect:
+
+- `PEPPER N+1`
+- `PEPPER_PREVIOUS N`
+- `PEPPER_WRITE previous`
+
+Also check that the new revision serves 100% of traffic and that
+`/api/health/ready` answers `"ready":true`.
+
+**Operator shells.** From now until step 4, an operator running
+`scripts/delete-account.ts` against this service must carry the same three
+values that the service mounts. The recipe in `ACCOUNT_DELETION.md` reads
+them from the service, so it follows every phase on its own.
+
+### Wait before phase 2
+
+Each condition must hold for the service you are about to switch:
+
+1. The phase-1 revision serves 100% of traffic, and at least **10 minutes**
+   have passed since it took traffic. The request timeout is 60 s; the
+   margin covers retries and the scheduler.
+2. **No pre-phase-1 revision can be reached.** Remove (owner action) every
+   tag that points at a revision older than phase 1, as in step 0.
+3. No operator shell or one-off job still runs with the steady-state env.
+
+### Step 3: phase 2, writer (per service: commit + deploy)
+
+Set `<service>_phase=writer` and leave the versions as they are. Merge and
+deploy. Verify that `PEPPER_WRITE current` appears and that `PEPPER_PREVIOUS N`
+**is still mounted**.
+
+Phase-1 revisions still write key N, and their `sha-*` tags keep them
+reachable after phase 2 takes traffic. Remove (owner action) every tag that
+points at a revision older than phase 2, as in step 0. Then wait 10 minutes,
+with the phase-2 revision serving 100% of traffic. Record that moment as
+**T2** for this service, in UTC ISO form (for example
+`2026-11-02T09:30:00.000Z`). From T2, no reachable revision writes key N, so
+every new record written under key N is dated before T2. A job already begun
+under key N can still be finished after T2; step 4's check 2 waits for those.
+
+### Step 4: back to steady on N+1 (per service: commit + deploy)
+
+`PREVIOUS` may be dropped only once nothing written under key N can still
+matter. All checks are read-only. Checks 0 to 2 must pass; item 3 is a note,
+not a gate. Run the queries against the service's own database: `staging` for
+staging, `(default)` for production.
+
+0. **No revision older than phase 2 can be reached**: the step 3 tag removal
+   held, and the `.status.traffic` listing shows no tag on such a revision.
+1. At least **31 days after T2**: a finished job is kept 30 days, plus a day
+   for TTL lag.
+2. **No deletion job from before T2 remains**, done or not. This covers a job
+   that is in progress or stuck under key N; a repeat request would no longer
+   find it.
+3. *Note, not a gate:* OAuth cleanup obligations from before T2 carry a
+   key-N `accountKey`. Once `PREVIOUS` is gone, a later connect of that
+   Google account no longer clears them early. Nothing else changes. The
+   nightly retry still runs check 1 before every revoke and drops the
+   obligation if a live connection holds that authorization. So a leftover
+   loses only the optimisation, never the protection. The second query below
+   counts them, if you want to know.
+
+For check 2, the first query must print `0`. Each query selects only
+`status` or `kind`, so no uid or key is printed:
+
+```bash
+DB=staging   # or '(default)'
+T2=2026-11-02T09:30:00.000Z
+q() {
+  curl -fsS -X POST -H "Authorization: Bearer $(gcloud auth print-access-token)" \
+    -H 'Content-Type: application/json' \
+    "https://firestore.googleapis.com/v1/projects/maybesitter-app/databases/${DB}/documents:runQuery" \
+    -d "{\"structuredQuery\":{\"from\":[{\"collectionId\":\"$1\"}],\"where\":{\"fieldFilter\":{\"field\":{\"fieldPath\":\"$2\"},\"op\":\"LESS_THAN\",\"value\":{\"stringValue\":\"${T2}\"}}},\"select\":{\"fields\":[{\"fieldPath\":\"$3\"}]},\"limit\":20}}" \
+    | jq '[.[] | select(.document)] | length'
+}
+q accountDeletions startedAt status          # check 2: must be 0
+q oauthCleanupObligations createdAt kind     # note 3: informational
+```
+
+Then set `<service>_phase=steady`, `<service>_current_version=N+1` and
+`<service>_previous_version=` (empty). Merge and deploy. Verify that the
+output shows `PEPPER N+1` and `PEPPER_WRITE current`, and **no**
+`PEPPER_PREVIOUS`.
+
+### Afterwards: the old version
+
+Receipts written under key N are kept for 400 days. Answering "prove you
+deleted me" for one of them needs key N. A key-N job finished after T2 still
+writes a key-N receipt. Step 4's check 2 is what proves that no such job
+remains. So the last key-N receipt predates the step-4 deploy of its service.
+Once both services are steady on N+1, the owner may **disable** version N. Do
+not **destroy** it until 400 days after the later of the two step-4 deploy
+dates.
+
+### Rollback
+
+| From | To | How | Why it is safe |
+|---|---|---|---|
+| phase 1 | steady on N | `steady`, `current_version=N`, `previous_version=` empty | phase 1 wrote only key N, so nothing under N+1 exists |
+| phase 2 | phase 1 | `readers` (versions unchanged) | both phases read both keys |
+| phase 2 | steady on N | **never directly** | go to phase 1 first. Then remove every tag on a phase-2 revision (they write N+1), wait 10 minutes, record the rollback time, and run step 4's checks 1 and 2 against it instead of T2, since records written under N+1 must age out. Keep version N+1 disabled, never destroyed, for 400 days: phase 2 wrote receipts under it |
+| steady on N+1 | earlier | a new rotation (N+1 to N+2) | the old version is not reused |
+
+Every rollback is a commit to `pepper-rotation.env` and a deploy. **Never
+roll back by moving traffic**, whether with `gcloud run services
+update-traffic --to-revisions=…` or the console's "manage traffic", to a
+revision more than one phase away. A steady-N revision given traffic during
+phase 2 is exactly the old-reader / new-writer gap.
+
+If a phase deploy fails its smoke test, the previous revision keeps serving.
+Revert the commit to `pepper-rotation.env` before the next merge, or the next
+staging deploy retries it.
+
+### What the tests pin
+
+- `tests/account/pepperRotation798.test.ts`:
+  - an old-key job is finished at its stored path;
+  - a repeat request finds the old-key job or tombstone and mints no second
+    job;
+  - an old-key tombstone blocks a first request in phases 1 and 2;
+  - the writer selector is honoured;
+  - the revision pairs replayed from `flags.sh` output.
+- `tests/infra/pepperRotation798.test.ts`:
+  - `flags.sh` keeps `PREVIOUS` while a rotation is active and omits it
+    otherwise;
+  - `flags.sh` refuses a malformed state.
 
 ## What this repository must never contain
 

@@ -358,8 +358,12 @@ test('switching the env list to a custom delimiter dropped none of the existing 
   // M5b-1: one flag and its kill switch, pinned off in production.
   assert.equal(production.get('MAYBESITTER_FEATURE_MEMORY_LEARNING'), 'false');
   assert.equal(staging.get('MAYBESITTER_FEATURE_MEMORY_LEARNING'), 'true');
-  assert.equal(production.size, 47);
-  assert.equal(staging.size, 46);
+  // #798: the pepper writer selector is always written out, `current` while no
+  // rotation is active (tests/infra/pepperRotation798.test.ts covers the rest).
+  assert.equal(production.get('MAYBESITTER_DELETION_RECEIPT_PEPPER_WRITE'), 'current');
+  assert.equal(staging.get('MAYBESITTER_DELETION_RECEIPT_PEPPER_WRITE'), 'current');
+  assert.equal(production.size, 48);
+  assert.equal(staging.size, 47);
 });
 
 // ── Same-digest production promotion ────────────────────────────────────
