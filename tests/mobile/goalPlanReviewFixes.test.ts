@@ -23,6 +23,7 @@ import {
   confirm,
   draftOf,
   edit,
+  generate,
   key,
   overlaps,
   rows,
@@ -363,5 +364,60 @@ test('later-week times return the confirmed public plan that names their steps',
     assert.deepEqual(answer.body.plan.steps, plan.steps);
     assert.equal(answer.body.plan.lineageId, undefined);
     assert.equal(answer.body.times.steps[0].stepId, later.stepId);
+  }, h);
+});
+
+/* ── Live Gemini, 2026-10-24: an Arabic goal got every step in English ── */
+
+/** The recorded answer's shape: right plan, wrong language. */
+function englishPlan(): ReturnType<typeof weeksPlan> {
+  const plan = weeksPlan();
+  return { ...plan, steps: plan.steps.map((step, index) => ({
+    ...step, title: ['Track current eating habits', 'Reduce sugary drinks', 'Walk 30 minutes daily'][index]!,
+    expectedOutcome: 'Lower calorie intake', buildsOn: null,
+  })) };
+}
+
+test('L-1 an Arabic goal asks the model for spoken Levantine Arabic, on generate and on regenerate', async () => {
+  const h = await setup();
+  await within(async () => {
+    const plan = await draftOf(h.goalId);
+    assert.match(JSON.stringify(h.modelCalls.at(-1)), /spoken Levantine Arabic/);
+    const regenerated = await call('goals/[goalId]/plan/regenerate', 'POST', { goalId: h.goalId },
+      { currentPlanId: plan.planId, revision: plan.revision, idempotencyKey: key('regen-lang') });
+    assert.equal(regenerated.status, 200, JSON.stringify(regenerated.body));
+    assert.match(JSON.stringify(h.modelCalls.at(-1)), /spoken Levantine Arabic/);
+  }, h);
+});
+
+test('L-2 steps all in another language are the model\'s failure: 503 with the template offered, nothing stored', async () => {
+  const h = await setup();
+  await within(async () => {
+    h.answer(englishPlan());
+    const answer = await generate(h.goalId);
+    assert.equal(answer.status, 503, JSON.stringify(answer.body));
+    assert.equal(answer.body.reason ?? answer.body.error, 'model_unavailable');
+    assert.equal(answer.body.recovery, 'template');
+    const read = await readGoalPlan(USER, h.goalId).catch(() => null);
+    assert.ok(!JSON.stringify(read ?? {}).includes('Track current eating habits'));
+  }, h);
+});
+
+test('L-3 a step in another language is dropped and an explanation in one left out, the rest kept', async () => {
+  const h = await setup();
+  await within(async () => {
+    const mixed = weeksPlan();
+    mixed.steps.push(
+      { ...mixed.steps[0]!, title: 'Buy running shoes', phase: { unit: 'week', index: 3 } },
+      { ...mixed.steps[2]!, title: 'اكتب شو أكلت كل يوم', expectedOutcome: 'Know what you eat', phase: { unit: 'week', index: 3 } },
+    );
+    h.answer(mixed);
+    const plan = await draftOf(h.goalId);
+    const titles = plan.steps.map((step) => step.title);
+    assert.ok(!titles.includes('Buy running shoes'), titles.join(' | '));
+    assert.equal(plan.steps.length, 4);
+    const written = plan.steps.find((step) => step.title === 'اكتب شو أكلت كل يوم') as { expectedOutcome?: unknown } | undefined;
+    assert.ok(written);
+    assert.equal(written.expectedOutcome ?? null, null);
   }, h);
 });

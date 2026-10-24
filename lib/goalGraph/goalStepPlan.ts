@@ -297,7 +297,8 @@ export function hasFormalArabic(title: string): boolean {
   return ARABIC_FORMAL_MARKERS.some((pattern) => pattern.test(title));
 }
 
-function scriptFits(title: string, language: GoalStepLanguage): boolean {
+/** The words are mostly in the language's own script (a product name in another one is fine). */
+export function scriptFits(title: string, language: GoalStepLanguage): boolean {
   const arabic = countOf(title, ARABIC_LETTER);
   const hebrew = countOf(title, HEBREW_LETTER);
   const latin = countOf(title, LATIN_LETTER);
