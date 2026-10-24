@@ -118,7 +118,13 @@ test('confirmed as weekly: one block, its busy time, and no one-off commitment',
   assert.deepEqual(confirmed.weeklyBlocks[0]!.block.deviceEvent?.weekdays, [6]);
 
   const occurrences = await listBusyBlocksOfSource(uid, weeklyBusySourceId(block.id), { storage });
-  assert.equal(occurrences.length, 8);
+  // Eight Saturdays from now — seven when today is Saturday and today's
+  // 10:00–16:00 has already ended (the test runs on the real clock; it went
+  // red every Saturday after 16:00 in Asia/Jerusalem).
+  const nowLocal = new Intl.DateTimeFormat('en-US', { timeZone: TZ, weekday: 'short', hour: '2-digit', hourCycle: 'h23' }).formatToParts(new Date());
+  const todayPassed = nowLocal.find((part) => part.type === 'weekday')?.value === 'Sat'
+    && Number(nowLocal.find((part) => part.type === 'hour')?.value) >= 16;
+  assert.equal(occurrences.length, todayPassed ? 7 : 8);
   for (const occurrence of occurrences) {
     const local = new Intl.DateTimeFormat('en-US', { timeZone: TZ, weekday: 'short', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(new Date(occurrence.startAt));
     assert.equal(local, 'Sat 10:00');
