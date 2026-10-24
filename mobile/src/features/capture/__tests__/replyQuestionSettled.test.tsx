@@ -131,6 +131,39 @@ describe('#802: only the settled question segment retires', () => {
   }
 });
 
+// Q802-REV-001: the reply's arrival is announced, not its words.
+describe('#802: the reply is announced when it arrives', () => {
+  const SAME = 'Tell me more about it.';
+
+  it('two replies with the same words are each announced', async () => {
+    const announce = jest.spyOn(AccessibilityInfo, 'announceForAccessibility').mockImplementation(() => undefined);
+    announce.mockClear();
+    jest.spyOn(captureEndpoints, 'chatCapture').mockImplementation(chatServer(() => null, { reply: () => SAME }) as never);
+    await openCapture(harness);
+    await say('hello');
+    await waitFor(() => expect(announce.mock.calls.filter(([said]) => said === SAME)).toHaveLength(1));
+    await say('hello again');
+    await waitFor(() => expect(screen.queryByTestId('chat-turn-assistant-3-words')).not.toBeNull());
+    await waitFor(() => expect(announce.mock.calls.filter(([said]) => said === SAME)).toHaveLength(2));
+  });
+
+  it('closing and reopening a kept conversation says nothing again', async () => {
+    const announce = jest.spyOn(AccessibilityInfo, 'announceForAccessibility').mockImplementation(() => undefined);
+    announce.mockClear();
+    jest.spyOn(captureEndpoints, 'chatCapture').mockImplementation(chatServer(() => null, { reply: () => SAME }) as never);
+    await openCapture(harness);
+    await say('hello');
+    await waitFor(() => expect(announce.mock.calls.filter(([said]) => said === SAME)).toHaveLength(1));
+    const back = screen.queryByTestId('capture-cancel') ?? screen.getByTestId('review-back');
+    await act(async () => { await fireEvent.press(back); });
+    await waitFor(() => expect(screen.queryByTestId('say-it-chat-page')).toBeNull());
+    await act(async () => { await fireEvent.press(screen.getByTestId('tab-capture')); });
+    await waitFor(() => expect(screen.queryByTestId('chat-turn-assistant-1-words')).not.toBeNull());
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
+    expect(announce.mock.calls.filter(([said]) => said === SAME)).toHaveLength(1);
+  });
+});
+
 describe('presentChatReply guards', () => {
   const turn = { role: 'assistant' as const, text: SECOND_REPLY, asked: { itemId: 'bank', text: QUESTION } };
   const copy = { soFar: ar.chatUnderstoodSoFar, list: ar.chatUnderstoodCheckList };

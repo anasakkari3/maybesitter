@@ -577,9 +577,23 @@ export const captureChatSchema = z.object({
   turns: z.array(captureChatTurnSchema),
 }).transform(({ asked, ...answer }): typeof answer & { asked?: CaptureChatAsked | null | undefined } => {
   const parsed = captureChatAskedSchema.safeParse(asked);
-  return parsed.success && answer.reply.endsWith(parsed.data.text)
-    ? { ...answer, asked: parsed.data }
-    : asked === null ? { ...answer, asked: null } : answer;
+  const mirror = parsed.success && answer.reply.endsWith(parsed.data.text) ? parsed.data
+    : asked === null ? null : undefined;
+  // One unit (Q802-REV-002): the screen reads the newest assistant turn's
+  // `asked`, so when the answer carries a mirror that says otherwise — another
+  // item for the same words, or null against a question — neither is trusted
+  // and both go. An answer without a mirror (an older server) keeps the turn's.
+  const lastAt = answer.turns.length - 1;
+  const latest = answer.turns[lastAt];
+  if (latest?.role !== 'assistant' || asked === undefined) {
+    return mirror === undefined ? answer : { ...answer, asked: mirror };
+  }
+  const own = latest.asked ?? null;
+  const agree = mirror !== undefined && (own === null ? mirror === null
+    : mirror !== null && own.itemId === mirror.itemId && own.text === mirror.text);
+  if (agree) return { ...answer, asked: mirror };
+  const { asked: _dropped, ...bare } = latest;
+  return { ...answer, turns: answer.turns.map((turn, index) => (index === lastAt ? bare : turn)) };
 });
 
 export type CaptureChatAnswer = z.infer<typeof captureChatSchema>;

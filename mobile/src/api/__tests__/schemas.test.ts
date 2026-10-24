@@ -912,8 +912,28 @@ describe('capture chat asked', () => {
     expect(parsed.reply).toBe(fixture.reply);
   });
 
+  // Q802-REV-002: the answer and its newest assistant turn are one unit.
+  it('drops both when the mirror names another item for the same words, or null against a question', () => {
+    const otherItem = captureChatSchema.parse({ ...fixture, asked: { ...fixture.asked, itemId: 'another-item' } });
+    expect(otherItem).not.toHaveProperty('asked');
+    expect(otherItem.turns[last]).not.toHaveProperty('asked');
+    const nullMirror = captureChatSchema.parse({ ...fixture, asked: null });
+    expect(nullMirror).not.toHaveProperty('asked');
+    expect(nullMirror.turns[last]).not.toHaveProperty('asked');
+    const turns = fixture.turns.map((turn: object, index: number) => (index === last ? { ...turn, asked: null } : turn));
+    const questionMirror = captureChatSchema.parse({ ...fixture, turns });
+    expect(questionMirror).not.toHaveProperty('asked');
+    expect(questionMirror.turns[last]).not.toHaveProperty('asked');
+  });
+
+  it('an answer without a mirror keeps the turn\'s own asked', () => {
+    const { asked: _asked, ...noMirror } = fixture;
+    expect(captureChatSchema.parse(noMirror).turns[last]?.asked).toEqual(fixture.asked);
+  });
+
   it('keeps null as nothing asked, and an older answer without it parses unchanged', () => {
-    expect(captureChatSchema.parse({ ...fixture, asked: null }).asked).toBeNull();
+    const turnsNull = fixture.turns.map((turn: object, index: number) => (index === last ? { ...turn, asked: null } : turn));
+    expect(captureChatSchema.parse({ ...fixture, asked: null, turns: turnsNull }).asked).toBeNull();
     const { asked: _asked, ...older } = fixture;
     const olderTurns = older.turns.map(({ asked: _a, ...turn }: { asked?: unknown }) => turn);
     const parsed = captureChatSchema.parse({ ...older, turns: olderTurns });
