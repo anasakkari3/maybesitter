@@ -90,7 +90,11 @@ test('the prompt keeps job-ad requirements, per-listing opportunities and boiler
   assert.match(prompt, /requirements in a job advert/);
   assert.match(prompt, /at most one opportunity/);
   assert.match(prompt, /unsubscribe and do-not-reply lines/);
-  assert.match(prompt, /routine account notice/);
+  // Inspection SEM-816-001/002: the subject is content, and no rule drops a
+  // notice for being routine (an interview confirmation, a sign-in alert).
+  assert.match(prompt, /A subject line is content/);
+  assert.ok(!/routine account notice/.test(prompt));
+  assert.match(prompt, /Transactional, service, security, scheduling and account notices/);
 });
 
 test('evidence with no words — a bare date or number — is dropped', () => {
@@ -100,4 +104,11 @@ test('evidence with no words — a bare date or number — is dropped', () => {
     { kind: 'request', evidence: 'Please confirm the meeting on Monday', confidence: 0.9 },
   ] }, source);
   assert.deepEqual(kept.map((item) => item.kind), ['request']);
+  // Words with a time, and Arabic and Hebrew evidence, stay.
+  const mixed = 'Call at 10:00 tomorrow. تسليم المشروع الخميس 23:59. הפגישה ב-10 ביום שני.';
+  assert.deepEqual(validateSemanticObservations({ observations: [
+    { kind: 'request', evidence: 'Call at 10:00 tomorrow', confidence: 0.9 },
+    { kind: 'event', evidence: 'تسليم المشروع الخميس 23:59', confidence: 0.9 },
+    { kind: 'event', evidence: 'הפגישה ב-10 ביום שני', confidence: 0.9 },
+  ] }, mixed).length, 3);
 });
