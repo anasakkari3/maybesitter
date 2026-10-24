@@ -1108,7 +1108,11 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
         // The person's segment verbatim: a seed's summary is its capture
         // evidence (intentContracts.ts, seedService), so even a joining «و»
         // stays (Codex inspection F3-007). The summary line shows it as stored.
-        const ownSegment = clauses[index]?.text ?? segment;
+        // A cited first turn's seed is its own words; a later turn keeps the
+        // segment it always had (an updated thought keeps «أسافر…», #809 regression).
+        const ownSegment = chat?.operationEvidenceSources && chatPrevious.length === 0
+          ? clauses[index]?.text ?? segment
+          : segment;
         seeds.push({ seedItemId, kind: intent.kind, summary: ownSegment });
         sourceOrdinals.seeds[seedItemId] = sourceOrdinal(raw, ownSegment, chatItems[index], index);
         const operationIndex = chatOperationIndex(chatItems[index]);

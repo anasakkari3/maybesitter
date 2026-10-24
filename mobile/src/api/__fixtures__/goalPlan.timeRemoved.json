@@ -6,7 +6,7 @@
     "planId": "00000000-0000-4000-8000-000000000002",
     "planRevision": 2,
     "anchor": {
-      "localDate": "2026-10-07",
+      "localDate": "2026-10-24",
       "timezone": "Asia/Jerusalem"
     },
     "steps": [
@@ -22,9 +22,9 @@
         "kind": "habit",
         "weekly": {
           "weekdays": [
+            6,
             0,
-            1,
-            2
+            1
           ],
           "start": "08:00",
           "end": "08:30"
@@ -32,27 +32,27 @@
         "alternatives": [
           {
             "weekdays": [
+              6,
               0,
-              1,
-              2
+              1
             ],
             "start": "08:15",
             "end": "08:45"
           },
           {
             "weekdays": [
+              6,
               0,
-              1,
-              2
+              1
             ],
             "start": "08:30",
             "end": "09:00"
           },
           {
             "weekdays": [
+              6,
               0,
-              1,
-              2
+              1
             ],
             "start": "08:45",
             "end": "09:15"

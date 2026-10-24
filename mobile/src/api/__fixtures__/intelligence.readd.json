@@ -37,7 +37,7 @@
     },
     {
       "kind": "outcome",
-      "evidence": "Completed: Water the plants",
+      "evidence": "Dropped: Call the dentist",
       "confidence": 1,
       "id": "0000000000000000000000000000000000000000000000000000000000000000",
       "source": "behavior",
@@ -47,13 +47,13 @@
       "reviewedAt": "2026-08-09T09:00:00.000Z",
       "linkedMemoryId": null,
       "outcome": {
-        "signal": "completed",
-        "title": "Water the plants"
+        "signal": "dropped",
+        "title": "Call the dentist"
       }
     },
     {
       "kind": "outcome",
-      "evidence": "Dropped: Call the dentist",
+      "evidence": "Completed: Water the plants",
       "confidence": 1,
       "id": "0000000000000000000000000000000000000000000000000000000000000000",
       "source": "behavior",
@@ -63,8 +63,8 @@
       "reviewedAt": "2026-08-09T09:00:00.000Z",
       "linkedMemoryId": null,
       "outcome": {
-        "signal": "dropped",
-        "title": "Call the dentist"
+        "signal": "completed",
+        "title": "Water the plants"
       }
     }
   ],
