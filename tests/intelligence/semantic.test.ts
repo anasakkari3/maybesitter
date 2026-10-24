@@ -81,3 +81,34 @@ test('a two-call permit reserves the semantic read its full share, and settles e
   // The semantic slot's own 9,000 is released, the capture slot's 2,500 still held.
   assert.equal((await storage.get<{ m5aReservedTokens?: number }>(dayPath))?.m5aReservedTokens, 2_500);
 });
+
+// Staging, the owner's real mailbox (2026-10-24): job alerts became one
+// opportunity per listed job and the jobs' requirements became the person's
+// constraints; unsubscribe/do-not-reply lines and a bare date came back too.
+test('the prompt keeps job-ad requirements, per-listing opportunities and boilerplate out', () => {
+  const prompt = semanticPrompt();
+  assert.match(prompt, /requirements in a job advert/);
+  assert.match(prompt, /at most one opportunity/);
+  assert.match(prompt, /unsubscribe and do-not-reply lines/);
+  // Inspection SEM-816-001/002: the subject is content, and no rule drops a
+  // notice for being routine (an interview confirmation, a sign-in alert).
+  assert.match(prompt, /A subject line is content/);
+  assert.ok(!/routine account notice/.test(prompt));
+  assert.match(prompt, /Transactional, service, security, scheduling and account notices/);
+});
+
+test('evidence with no words — a bare date or number — is dropped', () => {
+  const source = 'Updated 24/10/2026. Please confirm the meeting on Monday.';
+  const kept = validateSemanticObservations({ observations: [
+    { kind: 'event', evidence: '24/10/2026', confidence: 0.9 },
+    { kind: 'request', evidence: 'Please confirm the meeting on Monday', confidence: 0.9 },
+  ] }, source);
+  assert.deepEqual(kept.map((item) => item.kind), ['request']);
+  // Words with a time, and Arabic and Hebrew evidence, stay.
+  const mixed = 'Call at 10:00 tomorrow. تسليم المشروع الخميس 23:59. הפגישה ב-10 ביום שני.';
+  assert.deepEqual(validateSemanticObservations({ observations: [
+    { kind: 'request', evidence: 'Call at 10:00 tomorrow', confidence: 0.9 },
+    { kind: 'event', evidence: 'تسليم المشروع الخميس 23:59', confidence: 0.9 },
+    { kind: 'event', evidence: 'הפגישה ב-10 ביום שני', confidence: 0.9 },
+  ] }, mixed).length, 3);
+});
