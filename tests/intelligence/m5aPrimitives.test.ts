@@ -24,6 +24,7 @@ import { cleanupCalendarWaits, distinctAccountUids, GMAIL_JOB_LIMITS } from '../
 import { runCalendarMaintenanceStep } from '../../lib/intelligence/gmailCalendarJit';
 import { GOOGLE_BUSY_SOURCE_ID, type GoogleBusyTarget } from '../../lib/integrations/google/googleCalendarBusy';
 import { GOOGLE_FEATURE_SCOPES } from '../../lib/integrations/google/googleConfig';
+import { GMAIL_BULK_RULE } from '../../lib/integrations/gmail/adapter';
 import { connectionIdFor } from '../../lib/integrations/providers/production/storedConnectionStore';
 import { seedLiveAccount } from '../support/liveAccount.ts';
 
@@ -64,6 +65,14 @@ test('markerDecision implements takeover and rollback-reader guards', () => {
   assert.equal(markerDecision({ v: 2, state: 'released' }, 'base', NOW, 'acct-a'), 'process');
   assert.equal(markerDecision({ v: 2, state: 'waiting_for_calendar' }, 'cleanup', NOW), 'release');
   assert.equal(markerDecision({ v: 2, state: 'done' }, 'm5a', NOW), 'count');
+  // A bulk skip from the older rule is re-examined by the M5a reader only; the
+  // rollback reader must never claim it, or it would analyse bulk mail
+  // unfiltered (inspection of #821 follow-up).
+  const oldBulk: M5aMarker = { v: 2, state: 'done', outcome: 'bulk' };
+  assert.equal(markerDecision(oldBulk, 'm5a', NOW), 'claim');
+  assert.equal(markerDecision(oldBulk, 'base', NOW, 'acct-a'), 'skip');
+  assert.equal(markerDecision(oldBulk, 'cleanup', NOW), 'none');
+  assert.equal(markerDecision({ ...oldBulk, bulkRule: GMAIL_BULK_RULE }, 'm5a', NOW), 'count');
 });
 
 test('transitionReceipt counts once and moves unavailable to read exactly once', () => {
