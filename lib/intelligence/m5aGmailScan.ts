@@ -6,7 +6,7 @@ import { extractWithOllama } from '../../src/extraction/ollamaExtractor';
 import { LLMUnavailableError } from '../../src/extraction/llm';
 import type { IntegrationConnectionRecord } from '../../src/contracts/v1/integrationConnectionContracts';
 import { createGmailTransport, type GmailTransport } from '../integrations/gmail/production/gmailTransport';
-import { GmailProviderError } from '../integrations/gmail/adapter';
+import { GMAIL_BULK_RULE, GmailProviderError } from '../integrations/gmail/adapter';
 import { googleAccessToken, requireReadableFeature } from '../integrations/google/googleConnectService';
 import type { GoogleRuntime } from '../integrations/google/googleRuntime';
 import { connectionIdFor } from '../integrations/providers/production/storedConnectionStore';
@@ -76,7 +76,9 @@ export interface M5aMarker {
   readonly providerMarkerId?: string;
   readonly preexisting?: boolean;
   readonly processedAt?: string;
-  readonly outcome?: 'analyzed' | 'trimmed' | 'empty';
+  readonly outcome?: 'analyzed' | 'trimmed' | 'empty' | 'bulk';
+  /** The `GMAIL_BULK_RULE` that skipped a bulk message; absent means rule 1. */
+  readonly bulkRule?: number;
   readonly observationIds?: readonly string[];
   readonly autoAddId?: string | null;
   readonly receipts?: Readonly<Record<string, Receipt>>;
@@ -99,6 +101,8 @@ export interface M5aMarker {
 
 export interface ScanCounts {
   messagesRead: number;
+  /** Optional while persisted scans created by older builds still exist. */
+  messagesSkippedBulk?: number;
   messagesUnavailable: number;
   messagesTrimmed: number;
   observationsFound: number;
@@ -172,7 +176,12 @@ export function markerDecision(
   if (current.state === 'released' || current.state === 'unavailable') {
     return reader === 'm5a' ? 'claim' : reader === 'base' ? 'process' : 'none';
   }
-  if (current.state === 'done') return reader === 'm5a' ? 'count' : reader === 'base' ? 'skip' : 'none';
+  if (current.state === 'done') {
+    // A bulk skip made by an older, broader rule is re-examined, and analysed
+    // if the current rule keeps the message. Its receipts stay on the marker.
+    if (reader === 'm5a' && current.outcome === 'bulk' && (current.bulkRule ?? 1) < GMAIL_BULK_RULE) return 'claim';
+    return reader === 'm5a' ? 'count' : reader === 'base' ? 'skip' : 'none';
+  }
   if (current.state === 'waiting_for_calendar') return reader === 'cleanup' ? 'release' : 'block';
   if (current.state === 'claimed') {
     if ((current.leaseUntil ?? '') > now) return 'block';
@@ -232,7 +241,7 @@ function observationPath(uid: string, id: string): string {
 }
 
 const emptyCounts = (): ScanCounts => ({
-  messagesRead: 0, messagesUnavailable: 0, messagesTrimmed: 0,
+  messagesRead: 0, messagesSkippedBulk: 0, messagesUnavailable: 0, messagesTrimmed: 0,
   observationsFound: 0, addedFromEmail: 0,
 });
 
@@ -303,13 +312,18 @@ export function gmailQueryOutsideIntervals(
   return clauses.length === 1 ? clauses[0]! : clauses.map(clause => `(${clause})`).join(' OR ');
 }
 
-export function publicScanStatus(scan: M5aScanDocument | null, supportsDailyLimit = false): Record<string, unknown> | null {
+export function publicScanStatus(
+  scan: M5aScanDocument | null,
+  supportsDailyLimit = false,
+  supportsBulk = false,
+): Record<string, unknown> | null {
   if (!scan) return null;
   const common = {
     scanId: scan.scanId, status: scan.status, origin: scan.origin, from: scan.from, until: scan.until,
     startedAt: scan.startedAt, messagesRead: scan.messagesRead, messagesUnavailable: scan.messagesUnavailable,
     messagesTrimmed: scan.messagesTrimmed, observationsFound: scan.observationsFound,
     addedFromEmail: scan.addedFromEmail,
+    ...(supportsBulk ? { messagesSkippedBulk: scan.messagesSkippedBulk ?? 0 } : {}),
   };
   if (scan.status === 'complete') return { ...common, finishedAt: scan.finishedAt };
   if (scan.status === 'failed') return {
@@ -329,12 +343,13 @@ export function publicQueued(scan: M5aScanDocument | null): Record<string, unkno
 export function publicDailyStatus(
   scan: (M5aScanDocument & { day?: string; heldAt?: string; reason?: string }) | null,
   supportsDailyLimit = false,
+  supportsBulk = false,
 ): Record<string, unknown> | null {
   if (!scan) return null;
   if (scan.status === ('held' as M5aScanDocument['status']) && scan.reason === 'no_timezone') {
     return { status: 'held', reason: 'no_timezone', heldAt: scan.heldAt };
   }
-  const common = publicScanStatus(scan, supportsDailyLimit);
+  const common = publicScanStatus(scan, supportsDailyLimit, supportsBulk);
   if (!common || !scan.day) return null;
   const { origin: _origin, ...withoutOrigin } = common;
   return { ...withoutOrigin, day: scan.day };
@@ -610,6 +625,7 @@ async function countFinishedMarker(
     tx.set(scanDocumentPath(uid, scan.kind), advancePage({
       ...current,
       messagesRead: current.messagesRead + receipt.readDelta,
+      messagesSkippedBulk: (current.messagesSkippedBulk ?? 0) + (receipt.readDelta && marker.outcome === 'bulk' ? 1 : 0),
       messagesUnavailable: current.messagesUnavailable + receipt.unavailableDelta,
       observationsFound: current.observationsFound + (receipt.readDelta ? marker.observationIds?.length ?? 0 : 0),
       addedFromEmail: current.addedFromEmail + (receipt.readDelta && marker.autoAddId ? 1 : 0),
@@ -773,6 +789,36 @@ async function processMessage(
         tx.set(markerPath(uid, providerMarkerId), marker);
         tx.set(markerPath(uid, legacyMarkerId), { ...marker, providerMarkerId });
         tx.set(scanDocumentPath(uid, claimedScan.kind), advancePage({ ...scan, page: scan.page ? { ...scan.page, done } : null }));
+      });
+      return;
+    }
+    if (message.isBulk) {
+      await storage.runTransaction(async tx => {
+        await assertScanAuthorityWithReader(uid, claimedScan, owner, tx);
+        const [scan, daily, provider, legacy] = await Promise.all([
+          tx.get<M5aScanDocument>(scanDocumentPath(uid, claimedScan.kind)),
+          tx.get<M5aScanDocument>(dailyScanPath(uid)),
+          tx.get<M5aMarker>(markerPath(uid, providerMarkerId)), tx.get<M5aMarker>(markerPath(uid, legacyMarkerId)),
+        ]);
+        if (!scan || scan.scanId !== claimedScan.scanId || scan.leaseOwner !== owner
+          || provider?.owner !== claimOwner || legacy?.owner !== claimOwner) return;
+        const marker: M5aMarker = {
+          ...provider, state: 'done', owner: undefined, leaseUntil: undefined,
+          processedAt: runtime.now().toISOString(), outcome: 'bulk', bulkRule: GMAIL_BULK_RULE,
+          observationIds: [], autoAddId: null,
+        };
+        const receipt = transitionReceipt(marker, scan.scanId, 'read',
+          [scan.scanId, daily?.scanId].filter(Boolean) as string[]);
+        const done = Array.from(new Set([...(scan.page?.done ?? []), messageId]));
+        tx.set(markerPath(uid, providerMarkerId), receipt.marker);
+        tx.set(markerPath(uid, legacyMarkerId), { ...receipt.marker, providerMarkerId, providerAccountId: scan.providerAccountId });
+        tx.set(scanDocumentPath(uid, claimedScan.kind), advancePage({
+          ...scan,
+          messagesRead: scan.messagesRead + receipt.readDelta,
+          messagesSkippedBulk: (scan.messagesSkippedBulk ?? 0) + receipt.readDelta,
+          messagesUnavailable: scan.messagesUnavailable + receipt.unavailableDelta,
+          page: scan.page ? { ...scan.page, done } : null,
+        }));
       });
       return;
     }

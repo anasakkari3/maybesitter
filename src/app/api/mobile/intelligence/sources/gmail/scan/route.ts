@@ -19,11 +19,12 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 const DAILY_LIMIT_CLIENT_FEATURE = 'gmail-scan-daily-limit';
+const BULK_CLIENT_FEATURE = 'gmail-scan-bulk';
 
-function supportsDailyLimit(request: Request): boolean {
+function supportsFeature(request: Request, wanted: string): boolean {
   return (request.headers.get('X-MaybeSitter-Client-Features') ?? '')
     .split(',')
-    .some(feature => feature.trim().toLowerCase() === DAILY_LIMIT_CLIENT_FEATURE);
+    .some(feature => feature.trim().toLowerCase() === wanted);
 }
 
 async function authenticated(request: Request) {
@@ -48,8 +49,9 @@ export async function GET(request: Request): Promise<Response> {
     readM5aScan(auth.user.uid, googleRuntime().storage),
     readM5aDailyScan(auth.user.uid, googleRuntime().storage),
   ]);
-  const dailyLimit = supportsDailyLimit(request);
-  return Response.json({ success: true, manual: publicScanStatus(scan, dailyLimit), queuedManual: publicQueued(scan), daily: publicDailyStatus(daily, dailyLimit) });
+  const dailyLimit = supportsFeature(request, DAILY_LIMIT_CLIENT_FEATURE);
+  const bulk = supportsFeature(request, BULK_CLIENT_FEATURE);
+  return Response.json({ success: true, manual: publicScanStatus(scan, dailyLimit, bulk), queuedManual: publicQueued(scan), daily: publicDailyStatus(daily, dailyLimit, bulk) });
 }
 
 export async function POST(request: Request) {
@@ -84,10 +86,11 @@ export async function POST(request: Request) {
         ...(typeof body.timezone === 'string' ? { timezone: body.timezone } : {}),
       }, googleRuntime());
       const daily = await readM5aDailyScan(user.uid, googleRuntime().storage);
-      const dailyLimit = supportsDailyLimit(request);
+      const dailyLimit = supportsFeature(request, DAILY_LIMIT_CLIENT_FEATURE);
+      const bulk = supportsFeature(request, BULK_CLIENT_FEATURE);
       return Response.json({
-        success: true, messagesRead: 0, observations: [], scan: publicScanStatus(scan, dailyLimit),
-        manual: publicScanStatus(scan, dailyLimit), queuedManual: publicQueued(scan), daily: publicDailyStatus(daily, dailyLimit),
+        success: true, messagesRead: 0, observations: [], scan: publicScanStatus(scan, dailyLimit, bulk),
+        manual: publicScanStatus(scan, dailyLimit, bulk), queuedManual: publicQueued(scan), daily: publicDailyStatus(daily, dailyLimit, bulk),
       });
     } catch (error) {
       if (error instanceof Error && error.message === 'm5_unavailable') {

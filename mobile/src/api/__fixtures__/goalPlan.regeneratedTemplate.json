@@ -1,0 +1,63 @@
+{
+  "success": true,
+  "plan": {
+    "planId": "00000000-0000-4000-8000-000000000001",
+    "goalId": "mem_00000000-0000-4000-8000-000000000002",
+    "revision": 1,
+    "status": "draft",
+    "source": "template",
+    "horizon": "weeks",
+    "language": "en",
+    "summary": {
+      "goalText": "I want a stronger routine"
+    },
+    "steps": [
+      {
+        "stepId": "00000000-0000-4000-8000-000000000003",
+        "order": 1,
+        "phase": {
+          "unit": "week",
+          "index": 1
+        },
+        "title": "Write down what done looks like for “I want a stronger routine”",
+        "kind": "commitment",
+        "durationMinutes": 20,
+        "buildsOn": null,
+        "expectedOutcome": null,
+        "origin": "template"
+      },
+      {
+        "stepId": "00000000-0000-4000-8000-000000000004",
+        "order": 2,
+        "phase": {
+          "unit": "week",
+          "index": 2
+        },
+        "title": "Pick one small first step for “I want a stronger routine” and give it 15 minutes",
+        "kind": "commitment",
+        "durationMinutes": 15,
+        "buildsOn": null,
+        "expectedOutcome": null,
+        "origin": "template"
+      },
+      {
+        "stepId": "00000000-0000-4000-8000-000000000005",
+        "order": 3,
+        "phase": {
+          "unit": "week",
+          "index": 3
+        },
+        "title": "Give “I want a stronger routine” a little time a few times a week",
+        "kind": "habit",
+        "durationMinutes": 30,
+        "rhythm": {
+          "timesPerWeek": 3
+        },
+        "buildsOn": null,
+        "expectedOutcome": null,
+        "origin": "template"
+      }
+    ],
+    "removedSteps": []
+  }
+}

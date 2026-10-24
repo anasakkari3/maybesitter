@@ -11,6 +11,9 @@ TARGET="${1:?usage: flags.sh staging|production}"
 PROJECT_ID="${PROJECT_ID:-maybesitter-app}"
 REGION="${REGION:-europe-west1}"
 RUN_SA="maybesitter-run@${PROJECT_ID}.iam.gserviceaccount.com"
+# The only caller /api/internal/m5a-controls accepts (#810). See the "M5a
+# controls caller" comment block below.
+DEPLOYER_SA="maybesitter-deployer@${PROJECT_ID}.iam.gserviceaccount.com"
 # The key that seals per-user secrets (Google refresh tokens, ICS feed URLs).
 # Both services share it and the runtime SA already has
 # cryptoKeyEncrypterDecrypter on it (infra/bootstrap.sh). Staging only had it
@@ -193,6 +196,25 @@ esac
 # fetches the URL through `safeFetch` (https only, no private addresses) and no
 # model reads a feed, so this is not a spending decision.
 #
+# ── M5a controls caller (#810) ──────────────────────────────────────────────
+#
+# `/api/internal/m5a-controls` (scripts/m5a-controls-init.ts, m5a-enable.ts and
+# m5a-kill.ts) accepts one caller: the `maybesitter-deployer` service account,
+# read from `MAYBESITTER_DEPLOYER_SA_EMAIL`. Nothing set it, so all three
+# answered 503 `not_configured` on every environment and the incident kill in
+# docs/operations/DEPLOY.md could not work; staging only had it by hand.
+#
+# It is here rather than in infra/scheduler.sh because, unlike the scheduler
+# audience, it is static: the account name and the project id are both
+# committed, so every deploy carries it and the two services cannot drift.
+# `infra/scheduler.sh --check` reports it missing. The route also needs
+# MAYBESITTER_INTERNAL_AUDIENCE, which scheduler.sh sets.
+#
+# Both environments, although M5a is off in production: the kill has to work
+# wherever the controls exist, and the variable grants nothing by itself --
+# only GitHub's Workload Identity can act as the deployer, unless a human is
+# given a temporary token-creator role on it (see DEPLOY.md).
+#
 # ── Secrets ─────────────────────────────────────────────────────────────────
 #
 # Both services mount the same four Secret Manager secrets; the runtime SA
@@ -246,6 +268,6 @@ printf '%s ' \
   "--min-instances=0" \
   "--max-instances=${max_instances}" \
   "--startup-probe=httpGet.path=/api/health/ready,periodSeconds=5,failureThreshold=6" \
-  "--update-env-vars=^;^MAYBESITTER_ENV=${env_name};MAYBESITTER_FEATURE_CAPTURE_KINDS=${capture_kinds};MAYBESITTER_KILL_SWITCH_CAPTURE_KINDS=false;MAYBESITTER_FEATURE_FREE_SLOTS=${free_slots};MAYBESITTER_KILL_SWITCH_FREE_SLOTS=false;MAYBESITTER_FEATURE_EXTERNAL_CLASH_HOLD=${m4b_features};MAYBESITTER_KILL_SWITCH_EXTERNAL_CLASH_HOLD=false;MAYBESITTER_FEATURE_EVENING_IMPACT=${m4b_features};MAYBESITTER_KILL_SWITCH_EVENING_IMPACT=false;MAYBESITTER_FEATURE_SMART_POSTPONE=${m4b_features};MAYBESITTER_KILL_SWITCH_SMART_POSTPONE=false;MAYBESITTER_FEATURE_PROACTIVE_LOOP=${proactive_loop};MAYBESITTER_KILL_SWITCH_PROACTIVE_LOOP=false;MAYBESITTER_FEATURE_CALENDAR_CHOICE=${m5a_features};MAYBESITTER_KILL_SWITCH_CALENDAR_CHOICE=false;MAYBESITTER_FEATURE_EMAIL_SOURCES=${m5a_features};MAYBESITTER_KILL_SWITCH_EMAIL_SOURCES=false;MAYBESITTER_FEATURE_MEMORY_LEARNING=${m5b_features};MAYBESITTER_KILL_SWITCH_MEMORY_LEARNING=false;MAYBESITTER_FEATURE_SEARCH_HISTORY=${m6_features};MAYBESITTER_KILL_SWITCH_SEARCH_HISTORY=false;MAYBESITTER_FEATURE_MEMORY_TRANSLATION=${memory_translation};MAYBESITTER_KILL_SWITCH_MEMORY_TRANSLATION=false;MAYBESITTER_STORAGE_BACKEND=firestore;MAYBESITTER_FIRESTORE_DATABASE_ID=${database_id};GOOGLE_CLOUD_PROJECT=${PROJECT_ID};MAYBESITTER_LLM_PROVIDER=${llm_provider};MAYBESITTER_LLM_MODEL=gemini-2.5-flash;MAYBESITTER_VERTEX_LOCATION=${REGION};MAYBESITTER_GCP_PROJECT=${PROJECT_ID};MAYBESITTER_LLM_TIMEOUT_MS=8000;MAYBESITTER_LLM_MAX_RETRIES=1;MAYBESITTER_AI_DISABLED=${ai_disabled};MAYBESITTER_LLM_DAILY_CALL_CAP=60;MAYBESITTER_LLM_DAILY_TOKEN_CAP=150000;MAYBESITTER_LLM_MINUTE_CALL_CAP=8;MAYBESITTER_LLM_GLOBAL_DAILY_CALL_CAP=${global_daily_call_cap};MAYBESITTER_FEATURE_RECOMMENDATION=true;MAYBESITTER_KILL_SWITCH_RECOMMENDATION=false;MAYBESITTER_NEXT_STEP_ARM=personalized;MAYBESITTER_FEATURE_MEMORY=${memory_feature};MAYBESITTER_KILL_SWITCH_MEMORY=${memory_kill_switch};MAYBESITTER_KMS_KEY_NAME=${KMS_KEY_NAME};ICS_FEEDS_ENABLED=${ics_feeds};SHARE_INTAKE_ENABLED=true${site_origins}" \
+  "--update-env-vars=^;^MAYBESITTER_ENV=${env_name};MAYBESITTER_FEATURE_CAPTURE_KINDS=${capture_kinds};MAYBESITTER_KILL_SWITCH_CAPTURE_KINDS=false;MAYBESITTER_FEATURE_FREE_SLOTS=${free_slots};MAYBESITTER_KILL_SWITCH_FREE_SLOTS=false;MAYBESITTER_FEATURE_EXTERNAL_CLASH_HOLD=${m4b_features};MAYBESITTER_KILL_SWITCH_EXTERNAL_CLASH_HOLD=false;MAYBESITTER_FEATURE_EVENING_IMPACT=${m4b_features};MAYBESITTER_KILL_SWITCH_EVENING_IMPACT=false;MAYBESITTER_FEATURE_SMART_POSTPONE=${m4b_features};MAYBESITTER_KILL_SWITCH_SMART_POSTPONE=false;MAYBESITTER_FEATURE_PROACTIVE_LOOP=${proactive_loop};MAYBESITTER_KILL_SWITCH_PROACTIVE_LOOP=false;MAYBESITTER_FEATURE_CALENDAR_CHOICE=${m5a_features};MAYBESITTER_KILL_SWITCH_CALENDAR_CHOICE=false;MAYBESITTER_FEATURE_EMAIL_SOURCES=${m5a_features};MAYBESITTER_KILL_SWITCH_EMAIL_SOURCES=false;MAYBESITTER_FEATURE_MEMORY_LEARNING=${m5b_features};MAYBESITTER_KILL_SWITCH_MEMORY_LEARNING=false;MAYBESITTER_FEATURE_SEARCH_HISTORY=${m6_features};MAYBESITTER_KILL_SWITCH_SEARCH_HISTORY=false;MAYBESITTER_FEATURE_MEMORY_TRANSLATION=${memory_translation};MAYBESITTER_KILL_SWITCH_MEMORY_TRANSLATION=false;MAYBESITTER_STORAGE_BACKEND=firestore;MAYBESITTER_FIRESTORE_DATABASE_ID=${database_id};GOOGLE_CLOUD_PROJECT=${PROJECT_ID};MAYBESITTER_LLM_PROVIDER=${llm_provider};MAYBESITTER_LLM_MODEL=gemini-2.5-flash;MAYBESITTER_VERTEX_LOCATION=${REGION};MAYBESITTER_GCP_PROJECT=${PROJECT_ID};MAYBESITTER_LLM_TIMEOUT_MS=8000;MAYBESITTER_LLM_MAX_RETRIES=1;MAYBESITTER_AI_DISABLED=${ai_disabled};MAYBESITTER_LLM_DAILY_CALL_CAP=60;MAYBESITTER_LLM_DAILY_TOKEN_CAP=150000;MAYBESITTER_LLM_MINUTE_CALL_CAP=8;MAYBESITTER_LLM_GLOBAL_DAILY_CALL_CAP=${global_daily_call_cap};MAYBESITTER_FEATURE_RECOMMENDATION=true;MAYBESITTER_KILL_SWITCH_RECOMMENDATION=false;MAYBESITTER_NEXT_STEP_ARM=personalized;MAYBESITTER_FEATURE_MEMORY=${memory_feature};MAYBESITTER_KILL_SWITCH_MEMORY=${memory_kill_switch};MAYBESITTER_KMS_KEY_NAME=${KMS_KEY_NAME};ICS_FEEDS_ENABLED=${ics_feeds};SHARE_INTAKE_ENABLED=true;MAYBESITTER_DEPLOYER_SA_EMAIL=${DEPLOYER_SA}${site_origins}" \
   "--set-secrets=MAYBESITTER_DELETION_RECEIPT_PEPPER=maybesitter-deletion-receipt-pepper:latest,MAYBESITTER_LLM_UID_SALT=maybesitter-llm-uid-salt:latest,FOOTBALL_DATA_API_KEY=maybesitter-football-data-api-key:latest,MAYBESITTER_POSTPONE_SLOT_HMAC_KEY=maybesitter-postpone-slot-hmac-key:latest"
 printf '\n'
