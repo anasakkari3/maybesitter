@@ -313,6 +313,48 @@ test('with one changing operation, a cited hour that disagrees with the model ro
   }
 });
 
+test('a cited first-turn PM clock never accepts the model\u2019s contradictory AM clock', async () => {
+  const message = 'Call mom tomorrow at 5 PM and pay rent';
+  const model = scripted({
+    reply: 'Call mom and pay rent tomorrow at 5 AM.', action: 'propose', locked: [], open: [],
+    added: [
+      { ...item('Call mom', TOMORROW, '05:00'), source: 'Call mom tomorrow at 5 PM' },
+      { ...item('Pay rent', TOMORROW, '05:00'), source: 'pay rent' },
+    ],
+  });
+  begin({ llmProviderFor: () => model.provider });
+  try {
+    const body = await chat(uidFor('FirstTurnCitationClockDisagrees'), message);
+    assert.deepEqual(body.proposal!.items.map((entry) => localClock(entry.resolvedTime)), ['17:00', '17:00']);
+  } finally {
+    end();
+  }
+});
+
+test('a cited first turn asks AM or PM only for the operation whose own clock is bare', async () => {
+  const message = 'Tomorrow call mom at 5 and pay rent at 9 PM';
+  const model = scripted({
+    reply: 'Two items.', action: 'propose', locked: [], open: [],
+    added: [
+      { ...item('Call mom', TOMORROW, '17:00'), source: 'call mom at 5' },
+      { ...item('Pay rent', TOMORROW, '21:00'), source: 'pay rent at 9 PM' },
+    ],
+  });
+  begin({ llmProviderFor: () => model.provider });
+  try {
+    const body = await chat(uidFor('FirstTurnMixedBareAndMarkedClocks'), message);
+    const call = body.proposal!.items.find((entry) => /call mom/i.test(entry.title))!;
+    const rent = body.proposal!.items.find((entry) => /pay rent/i.test(entry.title))!;
+    assert.equal(call.resolvedDate, TOMORROW);
+    assert.equal(call.resolvedTime, null);
+    assert.equal((call.clarification as { questionKey?: string } | null)?.questionKey, 'ask_am_pm');
+    assert.equal(localClock(rent.resolvedTime), '21:00');
+    assert.equal(rent.needsClarification, false);
+  } finally {
+    end();
+  }
+});
+
 test('beside another item, a model hour for one item is replaced by the hour the person said for it', async () => {
   // The person said 5pm for the dentist and 6pm for the gym; the model put
   // the dentist at 7pm. Each item is read against its own words, so the
@@ -848,6 +890,28 @@ test('the recurrence exemption belongs only to the operation that sets the recur
     } finally {
       end();
     }
+  }
+});
+
+test('a case-folded later-turn recurrence citation does not fan one card into several days', async () => {
+  const message = 'Every Tuesday and Thursday at 7 PM';
+  const tuesday = weekday('Tuesday');
+  const model = scripted(
+    answer('First.', 'propose', [item('Call mom', TOMORROW, '17:00')]),
+    answer('Done.', 'update', [item('Call mom', tuesday, '19:00', {
+      recurrenceHint: { weekdays: [2, 4], start: '19:00' },
+    })], [message.toLowerCase()]),
+  );
+  begin({ llmProviderFor: () => model.provider });
+  try {
+    const uid = uidFor('CaseFoldedLaterRecurrenceCitation');
+    const first = await chat(uid, 'Call mom tomorrow at 5 PM');
+    const changed = await chat(uid, message, first.conversationId);
+    assert.equal(changed.proposal!.items.length, 1);
+    assert.equal(changed.proposal!.items[0]!.resolvedDate, tuesday);
+    assert.equal(localClock(changed.proposal!.items[0]!.resolvedTime), '19:00');
+  } finally {
+    end();
   }
 });
 

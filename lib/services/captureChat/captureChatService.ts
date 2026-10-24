@@ -726,7 +726,22 @@ export async function chatMobileCapture(
     const open = answer.open.map((operation) => noOpRefs.has(operation.ref)
       ? { ref: operation.ref, op: 'keep' as const }
       : operation);
-    const cited = current ? validateChatCitations({ ...answer, open }, message, { now, timezone, amPmAskedRefs }) : null;
+    const everyFirstTurnAddIsCited = !current && answer.added.length > 0
+      && answer.added.every((entry) => entry !== null
+        && typeof entry === 'object'
+        && !Array.isArray(entry)
+        && typeof (entry as Record<string, unknown>).source === 'string');
+    // A first turn with a citation on every added point gets the same evidence
+    // boundary as later-turn deltas: each point is parsed only from the words
+    // it cites.  An uncited or invalid first turn deliberately keeps the
+    // historical whole-message path below.
+    let cited = current || everyFirstTurnAddIsCited
+      ? validateChatCitations({ ...answer, open }, message, { now, timezone, amPmAskedRefs })
+      : null;
+    // A contradictory citation on the first turn is not a safe evidence
+    // boundary. Fall back to the established whole-message path, whose clock
+    // readers reconcile the person's stated time before proposing the item.
+    if (!current && cited?.timeDisagrees) cited = null;
     if (current && !cited) {
       return finish(templateReply({ language, proposal: current, editFailed: true }), 'model', current, turns, { conflictsKnown: true });
     }
@@ -822,6 +837,7 @@ export async function chatMobileCapture(
               ? cited.deltaSources.map(() => evidenceTurns.at(-1)!)
               : cited.deltaSources.map((source, index) => index < modelUpdates.length
                 && amPmAskedRefs.has(modelUpdates[index]!.ref) ? withoutNegatedDayPart(source) : source),
+            ...(!current ? { operationEvidenceSources: cited.deltaEvidence } : {}),
             ...(answeredAmPmClocks.some(Boolean) ? { answeredAmPmClocks } : {}),
           } : {}),
           items: evidence ? deltaItems : [],

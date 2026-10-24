@@ -319,13 +319,18 @@ function asksForMissing(text: string, item: ProposalItemLike): boolean {
  * question for the missing field: otherwise retiring the suffix could also
  * remove a different question the model asked.
  */
-function modelQuestionSuffix(text: string, item: ProposalItemLike): string | null {
+function modelQuestionSuffix(text: string, item: ProposalItemLike, proposal: ProposalLike | null): string | null {
   const sentences = sentencesOf(text);
   let first = sentences.length;
   while (first > 0 && isQuestion(sentences[first - 1]!)) first -= 1;
   if (first === sentences.length) return null;
   const suffixSentences = sentences.slice(first);
   if (!suffixSentences.every((sentence) => asksForMissing(sentence, item))) return null;
+  // A question that names another point is about that one: "What day and
+  // time would you like to travel?" beside "Call mom" (live Gemini,
+  // 2026-10-24). It is replaced by the item's own question.
+  const others = otherPointNames(proposal, item);
+  if (suffixSentences.some((sentence) => namesAnotherPoint(sentence, item.title, others))) return null;
   const firstSentence = suffixSentences[0]!;
   const start = text.lastIndexOf(firstSentence);
   if (start < 0) return null;
@@ -333,12 +338,28 @@ function modelQuestionSuffix(text: string, item: ProposalItemLike): string | nul
   return suffix.trim().length > 0 && text.endsWith(suffix) ? suffix : null;
 }
 
+/** The other items' titles and the seeds' words: what a question about this item must not name. */
+function otherPointNames(proposal: ProposalLike | null, item: ProposalItemLike): string[] {
+  const titles = (proposal?.items ?? []).filter((other) => other !== item).map((other) => other.title);
+  const seeds = (proposal?.seeds ?? []).flatMap((seed) => {
+    const summary = (seed as { summary?: unknown } | null)?.summary;
+    return typeof summary === 'string' ? [summary] : [];
+  });
+  return [...titles, ...seeds];
+}
+
+/** The sentence says a word only another point has, and none only this item has. */
+function namesAnotherPoint(sentence: string, title: string, others: readonly string[]): boolean {
+  if (others.length === 0) return false;
+  return others.some((other) => namesOnlyItem(sentence, other, [title, ...others.filter((rest) => rest !== other)]));
+}
+
 /** The question suffix in a final reply, if it asks about the proposal's next item. */
 export function askedInChatReply(reply: string, language: ChatLanguage, proposal: ProposalLike | null): CaptureChatAsked | null {
   const asking = itemAskingForTime(proposal);
   if (!asking?.itemId) return null;
   const generated = missingQuestion(language, asking);
-  const text = reply.endsWith(generated) ? generated : modelQuestionSuffix(reply, asking);
+  const text = reply.endsWith(generated) ? generated : modelQuestionSuffix(reply, asking, proposal);
   return text ? { itemId: asking.itemId, text } : null;
 }
 
@@ -356,10 +377,18 @@ function withAskedSuffix(
   const asking = itemAskingForTime(proposal);
   if (!asking) return { reply, asked: null };
   const generated = missingQuestion(language, asking);
-  const suffix = reply.endsWith(generated) ? generated : modelQuestionSuffix(reply, asking);
+  const suffix = reply.endsWith(generated) ? generated : modelQuestionSuffix(reply, asking, proposal);
   if (suffix) return { reply, asked: asking.itemId ? { itemId: asking.itemId, text: suffix } : null };
   if (!appendWhenMissing && !asksForMissing(reply, asking)) return { reply, asked: null };
-  const lead = sentencesOf(reply).filter((sentence) => !isQuestion(sentence)).join(' ').trim();
+  // A generated question may have a question sentence followed by a plain
+  // explanatory sentence (Arabic's «احكيلي اليوم والساعة.»). When a later
+  // shape note moves that question away from the suffix, retire every part of
+  // the old generated question before appending it again as one unit.
+  const generatedSentences = new Set(sentencesOf(generated));
+  const lead = sentencesOf(reply)
+    .filter((sentence) => !isQuestion(sentence) && !generatedSentences.has(sentence))
+    .join(' ')
+    .trim();
   const opening = lead || TEMPLATES[language].understood;
   const ended = /[.!?؟。…]$/.test(opening) ? opening : `${opening}.`;
   const question = generated;
@@ -405,7 +434,22 @@ function alignedWithProposal(text: string, context: TemplateContext): string {
   const sentences = sentencesOf(text);
   if (asking) {
     const others = (context.proposal?.items ?? []).filter((item) => item !== asking).map((item) => item.title);
-    return sentences.filter((sentence) => isQuestion(sentence) || !(statesClock(sentence) && namesOnlyItem(sentence, asking.title, others))).join(' ');
+    const kept = sentences.filter((sentence) => isQuestion(sentence) || !(statesClock(sentence) && namesOnlyItem(sentence, asking.title, others)));
+    if (kept.length === sentences.length || kept.length === 0) return kept.join(' ');
+    // If the removed sentence owned the connection to the next one, do not
+    // expose that connection as the start of the reply. Arabic/Hebrew attach
+    // their equivalent of “and” to the next word; removing one letter would
+    // require guessing whether it is grammatical or lexical, so use the safe
+    // template instead in that case.
+    const first = kept[0]!;
+    if ((context.language === 'ar' && /^و/.test(first))
+      || (context.language === 'he' && /^ו(?!גם(?:\s|$))/.test(first))) return '';
+    const withoutDanglingJoiner = first.replace(context.language === 'ar'
+      ? /^(?:كمان|أيضاً|ايضاً)[،,]?\s*/
+      : context.language === 'he'
+        ? /^וגם\s*/
+        : /^(?:(?:also|and)\b[,.]?\s*)/i, '');
+    return [withoutDanglingJoiner, ...kept.slice(1)].filter(Boolean).join(' ');
   }
   const kept = sentences.filter((sentence) => !(isQuestion(sentence) && TIME_QUESTION.test(sentence)));
   if (kept.length === sentences.length) return text;

@@ -1455,6 +1455,8 @@ export async function proposeMobileChatTurn(
     previousMatchIndices?: readonly (number | null)[];
     /** Validated citation span for each model delta item, in the same order. */
     operationSources?: readonly string[];
+    /** First-turn citation plus message words cited by no operation. */
+    operationEvidenceSources?: readonly string[];
     /** Exact clocks selected by chat answers to a pending AM/PM question. */
     answeredAmPmClocks?: readonly (string | null)[];
     /** Current proposal whose server refs form this new proposal's base. */
@@ -1493,6 +1495,7 @@ export async function proposeMobileChatTurn(
         ? { changedFieldEvidenceStartIndices: input.changedFieldEvidenceStartIndices }
         : {}),
       ...(input.operationSources ? { operationSources: input.operationSources } : {}),
+      ...(input.operationEvidenceSources ? { operationEvidenceSources: input.operationEvidenceSources } : {}),
       ...(input.answeredAmPmClocks ? { answeredAmPmClocks: input.answeredAmPmClocks } : {}),
     } } : {}),
     titleWithoutLeadIn: true,
