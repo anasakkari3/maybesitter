@@ -93,7 +93,7 @@ export const scanWaitSchema = z.object({
 }).strict();
 export type ScanWait = z.infer<typeof scanWaitSchema>;
 
-export const scanFailureSchema = z.enum(['reconnect_needed', 'source_unavailable', 'analysis_unavailable', 'monitoring_off']);
+export const scanFailureSchema = z.enum(['reconnect_needed', 'source_unavailable', 'analysis_unavailable', 'monitoring_off', 'daily_limit']);
 export type ScanFailure = z.infer<typeof scanFailureSchema>;
 
 const window = {

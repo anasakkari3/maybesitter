@@ -983,6 +983,7 @@
             "answer": {
               "conversationId": "00000000-0000-4000-8000-000000000069",
               "reply": "فهمت عليك. إذا بدك، منقدر نحولها لخطوة واضحة بعدين.",
+              "asked": null,
               "engine": "rules",
               "proposal": {
                 "version": "v1",
@@ -1111,6 +1112,7 @@
             "answer": {
               "conversationId": "00000000-0000-4000-8000-000000000087",
               "reply": "شو بدك تعمل وإيمتى؟ احكيلي وأنا بجهزلك ياها لتأكدها.",
+              "asked": null,
               "engine": "rules",
               "proposal": {
                 "version": "v1",

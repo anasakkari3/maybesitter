@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
 import { cleanup, screen, waitFor } from '@testing-library/react-native';
+import { strings } from '../../i18n/strings';
 import {
   NOW,
   addedItem,
@@ -120,6 +121,23 @@ describe('R2.2 shared email status line', () => {
     await showIntelligence(harness);
     await waitFor(() => expect(screen.queryByTestId('email-scan-status')).not.toBeNull());
     expect(screen.queryByTestId(testID)).not.toBeNull();
+  });
+
+  it.each([
+    { language: 'ar' as const },
+    { language: 'en' as const },
+    { language: 'he' as const },
+  ])('daily_limit is honest in $language, keeps the read count, and offers no futile resume', async ({ language }) => {
+    harness = await prepare(language, initialState({ scanManual: failedScan('daily_limit') }));
+    await showIntelligence(harness);
+    await waitFor(() => expect(screen.queryByTestId('email-scan-status')).not.toBeNull());
+
+    const status = screen.getByTestId('email-scan-status');
+    const copy = strings[language].m5ScanFailedDailyLimit;
+    expect(status).toHaveTextContent(new RegExp(copy.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+    expect(status).toHaveTextContent(/3/);
+    expect(screen.queryByTestId('email-scan-resume')).toBeNull();
+    expect(screen.queryByTestId('email-scan-reconnect')).toBeNull();
   });
 
   it.each([

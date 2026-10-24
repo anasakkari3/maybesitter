@@ -227,13 +227,15 @@ test('B3 quota permit reserves the whole unit and releases only its never-starte
   const reserved = await reserveQuotaPermit('alice', 'semantic_observation', { owner: 'unit-1', calls: 2, tokenBudget: 1_000 }, { storage, now });
   assert.equal(reserved.outcome, 'ok');
   const permit = reserved.permit!;
-  assert.equal((await callsToday('alice', { storage, now })).user, 2);
+  assert.equal((await callsToday('alice', { storage, now })).user, 0);
   assert.equal(await startQuotaPermitSlot(permit, 0, { storage, now }), true);
   await settleQuotaPermitSlot(permit, 0, { promptTokens: 10, outputTokens: 5 }, { storage, now });
   await finalizeQuotaPermit(permit, { storage, now });
-  assert.deepEqual(await callsToday('alice', { storage, now }), { user: 1, global: 1, tokens: 15, minuteCalls: 2 });
+  assert.deepEqual(await callsToday('alice', { storage, now }), { user: 0, global: 1, tokens: 0, minuteCalls: 2 });
   await storage.set('users/bob/usage/2026-10-19', { calls: 0, date: '2026-10-19', updatedAt: NOW,
-    inputTokens: 149_500, outputTokens: 0, reservedTokens: 0, minute: NOW.slice(0, 16), minuteCalls: 0 });
+    inputTokens: 149_500, outputTokens: 0, reservedTokens: 0,
+    m5aInputTokens: 1_499_500, m5aOutputTokens: 0, m5aReservedTokens: 0,
+    minute: NOW.slice(0, 16), minuteCalls: 0 });
   assert.equal((await reserveQuotaPermit('bob', 'semantic_observation', { owner: 'unit-2', calls: 2, tokenBudget: 1_000 }, { storage, now })).outcome, 'user_token_cap');
 });
 

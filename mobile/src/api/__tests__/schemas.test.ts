@@ -500,6 +500,7 @@ const CASES: [string, z.ZodType][] = [
   ['intelligence.scan.failed.source_unavailable', emailScanOverviewSchema],
   ['intelligence.scan.failed.analysis_unavailable', emailScanOverviewSchema],
   ['intelligence.scan.failed.monitoring_off', emailScanOverviewSchema],
+  ['intelligence.scan.failed.daily_limit', emailScanOverviewSchema],
   ['intelligence.scan.post.new', emailScanPostSchema],
   ['intelligence.scan.post.resume', emailScanPostSchema],
   ['intelligence.scan.post.stale-resume', emailScanPostSchema],

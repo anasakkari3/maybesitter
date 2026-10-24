@@ -2061,6 +2061,7 @@
   "m5ScanFailedReconnect": "Stopped partway: Google needs reconnecting",
   "m5ScanFailedSource": "Stopped partway: Gmail didn't answer",
   "m5ScanFailedAnalysis": "Stopped partway: I couldn't read the emails right now",
+  "m5ScanFailedDailyLimit": "Reached today's reading limit. I'll pick up where I stopped tomorrow.",
   "m5ScanFailedOff": "Stopped partway: email checking is switched off right now",
   "m5ScanFailedCount": "I read {n} before stopping",
   "m5ScanResume": "Continue where I stopped",

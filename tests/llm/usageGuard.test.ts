@@ -31,9 +31,16 @@ import { MODULE_CONTRACT_VERSION } from '../../src/contracts/v1/moduleContracts.
 import {
   DEFAULT_GLOBAL_DAILY_CAP,
   DEFAULT_USER_DAILY_CAP,
+  M5A_USER_DAILY_CALL_CAP,
+  M5A_USER_DAILY_TOKEN_CAP,
   callsToday,
+  finalizeQuotaPermit,
   reserveCall,
+  reserveQuotaPermit,
+  settleQuotaPermitSlot,
+  startQuotaPermitSlot,
   utcDay,
+  type UsageDay,
 } from '../../lib/llm/usageGuard.ts';
 import { buildLlmObservabilityEnvelope } from '../../lib/llm/observability.ts';
 
@@ -101,6 +108,91 @@ test('the call over the user daily cap is refused, and it is the 61st', async ()
   const over = minutesLater(userCap);
   assert.equal(await reserveCall(UID, 'capture_extraction', { storage: store, now: over }), 'user_cap');
   assert.equal((await callsToday(UID, { storage: store, now: over })).user, userCap, 'a refused call was still counted');
+});
+
+test('M5a allows exactly 300 calls on its independent daily ledger', async () => {
+  const store = storage();
+  const now = new Date('2026-09-12T10:00:00.000Z');
+  for (let call = 0; call < M5A_USER_DAILY_CALL_CAP; call += 1) {
+    const reservation = await reserveQuotaPermit(UID, 'semantic_observation', {
+      owner: `mail-${call}`, calls: 1, tokenBudget: 1,
+    }, { storage: store, now, minuteCap: M5A_USER_DAILY_CALL_CAP + 1 });
+    assert.equal(reservation.outcome, 'ok', `M5a call ${call + 1} was refused before its cap`);
+  }
+  assert.equal((await reserveQuotaPermit(UID, 'semantic_observation', {
+    owner: 'mail-over-cap', calls: 1, tokenBudget: 1,
+  }, { storage: store, now, minuteCap: M5A_USER_DAILY_CALL_CAP + 1 })).outcome, 'user_cap');
+
+  const day = await store.get<UsageDay>('users/user_cost_guard/usage/2026-09-12');
+  assert.equal(day?.m5aCalls, 300);
+  assert.equal(day?.calls, 0, 'M5a consumed the general call ledger');
+  assert.equal(day?.inputTokens, 0, 'M5a consumed the general input-token ledger');
+  assert.equal(day?.outputTokens, 0, 'M5a consumed the general output-token ledger');
+});
+
+test('a general call still succeeds after 200 M5a calls and preserves both ledgers', async () => {
+  const store = storage();
+  const start = new Date('2026-09-12T10:00:00.000Z');
+  for (let call = 0; call < 200; call += 1) {
+    const now = new Date(start.getTime() + call * 60_000);
+    assert.equal((await reserveQuotaPermit(UID, 'semantic_observation', {
+      owner: `scan-${call}`, calls: 1, tokenBudget: 1,
+    }, { storage: store, now })).outcome, 'ok');
+  }
+  const afterScans = new Date(start.getTime() + 200 * 60_000);
+  assert.equal(await reserveCall(UID, 'capture_extraction', { storage: store, now: afterScans }), 'ok');
+  assert.deepEqual(await callsToday(UID, { storage: store, now: afterScans }), {
+    user: 1, global: 201, tokens: 0, minuteCalls: 1,
+  });
+  assert.equal((await store.get<UsageDay>('users/user_cost_guard/usage/2026-09-12'))?.m5aCalls, 200);
+});
+
+test('M5a settle and finalize move only M5a counters and release unused slots', async () => {
+  const store = storage();
+  const now = new Date('2026-09-12T10:00:00.000Z');
+  await store.set('users/user_cost_guard/usage/2026-09-12', {
+    calls: 4, date: '2026-09-12', updatedAt: now.toISOString(),
+    inputTokens: 100, outputTokens: 50, reservedTokens: 33,
+    m5aCalls: 0, m5aReservedTokens: 0, m5aInputTokens: 3, m5aOutputTokens: 2,
+  } satisfies UsageDay);
+  const reserved = await reserveQuotaPermit(UID, 'semantic_observation', {
+    owner: 'two-slot-mail', calls: 2, tokenBudget: 1_000,
+  }, { storage: store, now });
+  assert.equal(reserved.outcome, 'ok');
+  assert.equal(await startQuotaPermitSlot(reserved.permit!, 0, { storage: store, now }), true);
+  await settleQuotaPermitSlot(reserved.permit!, 0, { promptTokens: 10, outputTokens: 5 }, { storage: store, now });
+  await finalizeQuotaPermit(reserved.permit!, { storage: store, now });
+
+  const day = await store.get<UsageDay>('users/user_cost_guard/usage/2026-09-12');
+  assert.deepEqual({
+    calls: day?.calls, inputTokens: day?.inputTokens, outputTokens: day?.outputTokens, reservedTokens: day?.reservedTokens,
+    m5aCalls: day?.m5aCalls, m5aReservedTokens: day?.m5aReservedTokens,
+    m5aInputTokens: day?.m5aInputTokens, m5aOutputTokens: day?.m5aOutputTokens,
+  }, {
+    calls: 4, inputTokens: 100, outputTokens: 50, reservedTokens: 33,
+    m5aCalls: 1, m5aReservedTokens: 0, m5aInputTokens: 13, m5aOutputTokens: 7,
+  });
+  assert.deepEqual(await callsToday(UID, { storage: store, now }), {
+    user: 4, global: 1, tokens: 150, minuteCalls: 2,
+  });
+});
+
+test('M5a tokens use only the M5a cap while global calls remain shared', async () => {
+  const store = storage();
+  const now = new Date('2026-09-12T10:00:00.000Z');
+  await store.set('users/user_cost_guard/usage/2026-09-12', {
+    calls: 0, date: '2026-09-12', updatedAt: now.toISOString(),
+    inputTokens: M5A_USER_DAILY_TOKEN_CAP, outputTokens: M5A_USER_DAILY_TOKEN_CAP,
+    m5aCalls: 0, m5aReservedTokens: 0, m5aInputTokens: M5A_USER_DAILY_TOKEN_CAP - 1_000, m5aOutputTokens: 0,
+  } satisfies UsageDay);
+  assert.equal((await reserveQuotaPermit(UID, 'semantic_observation', {
+    owner: 'fits-m5a-only', calls: 2, tokenBudget: 1_000,
+  }, { storage: store, now, globalCap: 2 })).outcome, 'ok', 'general tokens incorrectly capped M5a');
+  assert.equal((await reserveQuotaPermit(UID, 'semantic_observation', {
+    owner: 'over-m5a-tokens', calls: 1, tokenBudget: 1,
+  }, { storage: store, now, minuteCap: 10 })).outcome, 'user_token_cap');
+  assert.equal(await reserveCall(OTHER, 'capture_extraction', { storage: store, now, globalCap: 2 }), 'global_cap',
+    'M5a calls did not consume the shared global brake');
 });
 
 test('one account over its cap does not stop another account', async () => {

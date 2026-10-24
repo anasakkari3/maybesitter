@@ -24,6 +24,7 @@ import { shareLlmProvider } from '../../lib/llm/shareProvider';
 import {
   callsToday, finalizeQuotaPermit, reserveQuotaPermit,
   settleQuotaPermitSlot, startQuotaPermitSlot,
+  DEFAULT_USER_MINUTE_CAP,
   M5A_GLOBAL_DAILY_CALL_CAP, M5A_USER_DAILY_CALL_CAP,
 } from '../../lib/llm/usageGuard';
 import type { LlmProvider } from '../../src/extraction/llm/llmProvider';
@@ -743,7 +744,7 @@ test('H1 proposal scheduler reads every authority guard before writing proposal 
   assert.equal((await storage.get<any>(`users/${uid}/intelligenceRuns/latest`))?.status, 'complete');
 });
 
-test('G8 24-hour clock with the real 45/2000 guard drains daily waits after UTC reset without duplicates', async () => {
+test('G8 24-hour clock with the real 300/2000 guard drains daily waits after UTC reset without duplicates', async () => {
   const storage = createMemoryStorage();
   const accounts = Array.from({ length: 50 }, (_, index) => `capacity-${index}`);
   type CapacityUnit = { id: string; uid: string; kind: 'live' | 'continuation' | 'proposal'; calls: 1 | 2; arrival: number };
@@ -805,7 +806,7 @@ test('G8 24-hour clock with the real 45/2000 guard drains daily waits after UTC 
   assert.ok(proposalSteps > 0 && continuationSteps > 0, 'proposal and continuation lanes were not charged');
 });
 
-test('M2 production live lanes drain a per-user 45-call wait after reset without duplicate effects', async () => {
+test('M2 production live lanes drain work after a seeded 45-call daily remainder without duplicate effects', async () => {
   const storage = createMemoryStorage({ enforceFirestoreReadOrder: true });
   const uid = 'production-capacity';
   const ids = Array.from({ length: 47 }, (_, index) => `mail-${index}`);
@@ -815,6 +816,11 @@ test('M2 production live lanes drain a per-user 45-call wait after reset without
   await storage.set(userSubDoc(uid, PROVIDER_CONNECTIONS, connectionIdFor('google')), {
     identity: { provider: 'google', providerAccountId: 'acct' }, state: 'connected', credentialRef: 'vault',
     capabilities: ['mail_read'], grantedScopes: [GOOGLE_FEATURE_SCOPES.gmail],
+  });
+  await storage.set(`users/${uid}/usage/2026-10-19`, {
+    calls: 0, m5aCalls: M5A_USER_DAILY_CALL_CAP - 45, date: '2026-10-19', updatedAt: now.toISOString(),
+    inputTokens: 0, outputTokens: 0, reservedTokens: 0,
+    m5aInputTokens: 0, m5aOutputTokens: 0, m5aReservedTokens: 0,
   });
   await storage.set(`users/${uid}/intelligenceMonitors/gmail`, {
     enabled: true, generation: 'g1', cursor: '100', pageToken: null, nextPollAt: now.toISOString(),
@@ -880,21 +886,23 @@ test('M2 production live lanes drain a per-user 45-call wait after reset without
     runtime, transport: () => transport(), ensureReadable: async () => undefined,
   });
 
-  let waiting: any = null;
-  for (let minute = 0; minute < 180 && !waiting; minute++) {
+  let stopped: any = null;
+  for (let minute = 0; minute < 180 && !stopped; minute++) {
     await Promise.all([tick(), tick()]);
-    waiting = (await storage.get<any>(`users/${uid}/${INTELLIGENCE_GMAIL_SCANS}/liveV2`))?.waiting;
+    const scan = await storage.get<any>(`users/${uid}/${INTELLIGENCE_GMAIL_SCANS}/liveV2`);
+    if (scan?.failure === 'daily_limit') stopped = scan;
     now = new Date(now.getTime() + 60_000);
   }
-  assert.deepEqual(waiting, { reason: 'daily_ai_limit', resumesAt: '2026-10-20T00:00:00.000Z' });
-  assert.equal((await storage.get<any>(`users/${uid}/intelligenceMonitors/gmail`))?.nextPollAt, waiting.resumesAt);
+  assert.equal(stopped?.status, 'failed');
+  assert.equal(stopped?.nextEligibleAt, '2026-10-20T00:00:00.000Z');
+  assert.equal((await storage.get<any>(`users/${uid}/intelligenceMonitors/gmail`))?.nextPollAt, stopped.nextEligibleAt);
   const attemptsAtWait = Array.from(attempts.values()).reduce((sum, count) => sum + count, 0);
   now = new Date('2026-10-19T23:59:00.000Z');
   await Promise.all([tick(), tick()]);
   assert.equal(Array.from(attempts.values()).reduce((sum, count) => sum + count, 0), attemptsAtWait,
     'a daily wait must not be retried before its reset');
 
-  now = new Date(waiting.resumesAt);
+  now = new Date(stopped.nextEligibleAt);
   for (let minute = 0; minute < 20; minute++) {
     await Promise.all([tick(), tick()]);
     const scan = await storage.get<any>(`users/${uid}/${INTELLIGENCE_GMAIL_SCANS}/liveV2`);
@@ -932,17 +940,17 @@ test('G9 fake providers behind both real adapters consume a whole permit and rel
   await captureLlmProvider('adapter-user', { provider, consent: async () => 'granted',
     quotaPermit: { permit, slot: 1, storage }, now: () => now })('prompt');
   await finalizeQuotaPermit(permit, { storage, now });
-  assert.deepEqual(await callsToday('adapter-user', { storage, now }), { user: 2, global: 2, tokens: 26, minuteCalls: 2 });
+  assert.deepEqual(await callsToday('adapter-user', { storage, now }), { user: 0, global: 2, tokens: 0, minuteCalls: 2 });
 
   const unused = await reserveQuotaPermit('unused-user', 'semantic_observation',
     { owner: 'ordinary-unit', calls: 2, tokenBudget: 1_000 }, { storage, now });
   await shareLlmProvider('unused-user', { provider, consent: async () => 'granted',
     quotaPermit: { permit: unused.permit!, slot: 0, storage }, now: () => now })({ system: 'system', parts: [{ kind: 'text', text: 'mail' }], responseSchema: {} });
   await finalizeQuotaPermit(unused.permit!, { storage, now });
-  assert.equal((await callsToday('unused-user', { storage, now })).user, 1);
+  assert.equal((await callsToday('unused-user', { storage, now })).user, 0);
 
-  await storage.set('users/capped/usage/2026-10-19', { calls: M5A_USER_DAILY_CALL_CAP - 1, m5aCalls: M5A_USER_DAILY_CALL_CAP - 1,
-    date: '2026-10-19', updatedAt: NOW, inputTokens: 0, outputTokens: 0, reservedTokens: 0,
+  await storage.set('users/capped/usage/2026-10-19', { calls: 0, m5aCalls: M5A_USER_DAILY_CALL_CAP - 1,
+    date: '2026-10-19', updatedAt: NOW, inputTokens: 0, outputTokens: 0, reservedTokens: 0, m5aReservedTokens: 0,
     minute: NOW.slice(0, 16), minuteCalls: 0 });
   assert.equal((await reserveQuotaPermit('capped', 'semantic_observation',
     { owner: 'two-pass', calls: 2, tokenBudget: 100 }, { storage, now })).outcome, 'user_cap');
@@ -1010,22 +1018,23 @@ test('G9 a production-shaped qualifying unit reserves and settles both adapter s
   assert.equal(shareCalls, 1);
   assert.equal(captureCalls, 1);
   assert.deepEqual(await callsToday(uid, { storage, now: new Date(NOW) }), {
-    user: 2, global: 2, tokens: 42, minuteCalls: 2,
+    user: 0, global: 2, tokens: 0, minuteCalls: 2,
   });
 });
 
-test('G9 a two-call quota boundary defers the whole unit and moves its schedule before either adapter runs', async () => {
+test('G9 a daily-cap refusal fails until the next UTC day, is not re-claimed early, and then resumes', async () => {
   const storage = createMemoryStorage();
   const uid = 'permit-refused-unit';
   let providerCalls = 0;
   const provider: LlmProvider = {
     name: 'gemini',
-    generateJson: async () => { providerCalls++; throw new Error('must not dispatch'); },
-    generateStructured: async () => { providerCalls++; throw new Error('must not dispatch'); },
+    generateJson: async () => { providerCalls++; return { text: '{}', model: 'fake', latencyMs: 1, promptTokens: 1, outputTokens: 1 }; },
+    generateStructured: async () => { providerCalls++; return { text: '{"observations":[]}', model: 'fake', latencyMs: 1, promptTokens: 1, outputTokens: 1 }; },
   };
+  let clock = NOW;
   const runtime: GoogleRuntime = {
     storage, env: { MAYBESITTER_ENV: 'staging' } as GoogleRuntime['env'], secrets: null, fetchImpl: fetch,
-    now: () => new Date(NOW), shareProvider: provider, captureProvider: provider,
+    now: () => new Date(clock), shareProvider: provider, captureProvider: provider,
   };
   await storage.set(`users/${uid}`, { trust: { ...createPilotTrustState(uid, NOW), calendarConsent: true } });
   await storage.set('system/m5aControls', { email: { epoch: 3, enabled: true }, calendar: { epoch: 1, enabled: true } });
@@ -1034,8 +1043,8 @@ test('G9 a two-call quota boundary defers the whole unit and moves its schedule 
     capabilities: ['mail_read'], grantedScopes: [GOOGLE_FEATURE_SCOPES.gmail],
   });
   await storage.set(`users/${uid}/usage/2026-10-19`, {
-    calls: M5A_USER_DAILY_CALL_CAP - 1, m5aCalls: M5A_USER_DAILY_CALL_CAP - 1,
-    date: '2026-10-19', updatedAt: NOW, inputTokens: 0, outputTokens: 0, reservedTokens: 0,
+    calls: 0, m5aCalls: M5A_USER_DAILY_CALL_CAP - 1,
+    date: '2026-10-19', updatedAt: NOW, inputTokens: 0, outputTokens: 0, reservedTokens: 0, m5aReservedTokens: 0,
     minute: NOW.slice(0, 16), minuteCalls: 0,
   });
   await storage.set(`users/${uid}/${INTELLIGENCE_GMAIL_SCANS}/manualV2`, {
@@ -1053,8 +1062,101 @@ test('G9 a two-call quota boundary defers the whole unit and moves its schedule 
     getMessageById: async () => message,
   } as unknown as GmailTransport, async () => undefined);
   assert.equal(providerCalls, 0);
-  const scan = await storage.get<any>(`users/${uid}/${INTELLIGENCE_GMAIL_SCANS}/manualV2`);
-  assert.deepEqual(scan.waiting, { reason: 'daily_ai_limit', resumesAt: '2026-10-20T00:00:00.000Z' });
-  assert.equal(scan.nextEligibleAt, scan.waiting.resumesAt);
+  let scan = await storage.get<any>(`users/${uid}/${INTELLIGENCE_GMAIL_SCANS}/manualV2`);
+  assert.equal(scan.status, 'failed');
+  assert.equal(scan.failure, 'daily_limit');
+  assert.equal(scan.nextEligibleAt, '2026-10-20T00:00:00.000Z');
   assert.deepEqual(scan.page.done, []);
+
+  clock = '2026-10-19T23:59:59.999Z';
+  await runM5aScanStep(uid, 'manual', runtime, {
+    getMessageById: async () => message,
+  } as unknown as GmailTransport, async () => undefined);
+  assert.equal(providerCalls, 0, 'the failed scan was re-claimed before its nextEligibleAt');
+  assert.equal((await storage.get<any>(`users/${uid}/${INTELLIGENCE_GMAIL_SCANS}/manualV2`))?.status, 'failed');
+
+  clock = '2026-10-20T00:00:00.000Z';
+  await runM5aScanStep(uid, 'manual', runtime, {
+    getMessageById: async () => message,
+  } as unknown as GmailTransport, async () => undefined);
+  scan = await storage.get<any>(`users/${uid}/${INTELLIGENCE_GMAIL_SCANS}/manualV2`);
+  assert.ok(providerCalls > 0, 'the next UTC day did not resume model work');
+  assert.equal(scan.status, 'complete');
+  assert.equal(scan.messagesRead, 1);
+});
+
+test('G9 a minute-cap refusal still defers the scan without calling the provider', async () => {
+  const storage = createMemoryStorage();
+  const uid = 'permit-minute-refused';
+  let providerCalls = 0;
+  const provider: LlmProvider = {
+    name: 'gemini',
+    generateJson: async () => { providerCalls++; throw new Error('must not dispatch'); },
+    generateStructured: async () => { providerCalls++; throw new Error('must not dispatch'); },
+  };
+  const runtime: GoogleRuntime = {
+    storage, env: { MAYBESITTER_ENV: 'staging' } as GoogleRuntime['env'], secrets: null, fetchImpl: fetch,
+    now: () => new Date(NOW), shareProvider: provider, captureProvider: provider,
+  };
+  await storage.set(`users/${uid}`, { trust: { ...createPilotTrustState(uid, NOW), calendarConsent: true } });
+  await storage.set('system/m5aControls', { email: { epoch: 3, enabled: true }, calendar: { epoch: 1, enabled: true } });
+  await storage.set(userSubDoc(uid, PROVIDER_CONNECTIONS, connectionIdFor('google')), {
+    identity: { provider: 'google', providerAccountId: 'acct' }, state: 'connected', credentialRef: 'vault',
+    capabilities: ['mail_read'], grantedScopes: [GOOGLE_FEATURE_SCOPES.gmail],
+  });
+  await storage.set(`users/${uid}/usage/2026-10-19`, {
+    calls: 0, m5aCalls: 0, date: '2026-10-19', updatedAt: NOW,
+    inputTokens: 0, outputTokens: 0, reservedTokens: 0, m5aReservedTokens: 0,
+    minute: NOW.slice(0, 16), minuteCalls: DEFAULT_USER_MINUTE_CAP,
+  });
+  await storage.set(`users/${uid}/${INTELLIGENCE_GMAIL_SCANS}/manualV2`, {
+    scanId: 'scan', kind: 'manual', status: 'running', origin: 'manual', providerAccountId: 'acct', emailEpoch: 3,
+    query: 'after:1 before:9999999999', from: '2026-10-19T00:00:00.000Z', until: '2026-10-20T00:00:00.000Z',
+    timezone: 'UTC', startedAt: NOW, finishedAt: null, failedAt: null, failure: null,
+    pageToken: null, page: { ids: ['mail'], nextPageToken: null, done: [] }, leaseOwner: null, leaseUntil: null,
+    queued: null, nextEligibleAt: NOW, waiting: null, messagesRead: 0, messagesUnavailable: 0,
+    messagesTrimmed: 0, observationsFound: 0, addedFromEmail: 0,
+  });
+  await runM5aScanStep(uid, 'manual', runtime, {
+    getMessageById: async () => ({ id: 'mail', threadId: null, historyId: '101', receivedAt: '2026-10-19T09:00:00.000Z',
+      from: null, subject: null, text: 'Please sign the report.', sentByAccount: false, isReply: false, bodyFormat: 'text/plain' as const }),
+  } as unknown as GmailTransport, async () => undefined);
+
+  const scan = await storage.get<any>(`users/${uid}/${INTELLIGENCE_GMAIL_SCANS}/manualV2`);
+  assert.equal(providerCalls, 0);
+  assert.equal(scan.status, 'running');
+  assert.deepEqual(scan.waiting, { reason: 'rate_limit', resumesAt: '2026-10-19T10:01:00.000Z' });
+  assert.equal(scan.nextEligibleAt, scan.waiting.resumesAt);
+});
+
+test('G9 a provider error remains analysis_unavailable, not a daily limit', async () => {
+  const storage = createMemoryStorage();
+  const uid = 'provider-analysis-failure';
+  const runtime: GoogleRuntime = {
+    storage, env: { MAYBESITTER_ENV: 'staging' } as GoogleRuntime['env'], secrets: null, fetchImpl: fetch,
+    now: () => new Date(NOW), shareModel: async () => { throw new Error('provider_failed'); },
+  };
+  await storage.set(`users/${uid}`, { trust: { ...createPilotTrustState(uid, NOW), calendarConsent: true } });
+  await storage.set('system/m5aControls', { email: { epoch: 3, enabled: true }, calendar: { epoch: 1, enabled: true } });
+  await storage.set(userSubDoc(uid, PROVIDER_CONNECTIONS, connectionIdFor('google')), {
+    identity: { provider: 'google', providerAccountId: 'acct' }, state: 'connected', credentialRef: 'vault',
+    capabilities: ['mail_read'], grantedScopes: [GOOGLE_FEATURE_SCOPES.gmail],
+  });
+  await storage.set(`users/${uid}/${INTELLIGENCE_GMAIL_SCANS}/manualV2`, {
+    scanId: 'scan', kind: 'manual', status: 'running', origin: 'manual', providerAccountId: 'acct', emailEpoch: 3,
+    query: 'after:1 before:9999999999', from: '2026-10-19T00:00:00.000Z', until: '2026-10-20T00:00:00.000Z',
+    timezone: 'UTC', startedAt: NOW, finishedAt: null, failedAt: null, failure: null,
+    pageToken: null, page: { ids: ['mail'], nextPageToken: null, done: [] }, leaseOwner: null, leaseUntil: null,
+    queued: null, nextEligibleAt: NOW, waiting: null, messagesRead: 0, messagesUnavailable: 0,
+    messagesTrimmed: 0, observationsFound: 0, addedFromEmail: 0,
+  });
+  await runM5aScanStep(uid, 'manual', runtime, {
+    getMessageById: async () => ({ id: 'mail', threadId: null, historyId: '101', receivedAt: '2026-10-19T09:00:00.000Z',
+      from: null, subject: null, text: 'Please sign the report.', sentByAccount: false, isReply: false, bodyFormat: 'text/plain' as const }),
+  } as unknown as GmailTransport, async () => undefined);
+
+  const scan = await storage.get<any>(`users/${uid}/${INTELLIGENCE_GMAIL_SCANS}/manualV2`);
+  assert.equal(scan.status, 'failed');
+  assert.equal(scan.failure, 'analysis_unavailable');
+  assert.equal(scan.nextEligibleAt, NOW);
 });

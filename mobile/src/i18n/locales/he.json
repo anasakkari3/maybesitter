@@ -2064,6 +2064,7 @@
   "m5ScanFailedReconnect": "נעצרתי באמצע: צריך לחבר מחדש את Google",
   "m5ScanFailedSource": "נעצרתי באמצע: Gmail לא ענה",
   "m5ScanFailedAnalysis": "נעצרתי באמצע: לא הצלחתי לקרוא את המיילים כרגע",
+  "m5ScanFailedDailyLimit": "הגעתי למגבלת הקריאה של היום. אמשיך מאיפה שעצרתי מחר.",
   "m5ScanFailedOff": "נעצרתי באמצע: בדיקת המייל כבויה כרגע",
   "m5ScanFailedCount": "קראתי {n} לפני שעצרתי",
   "m5ScanResume": "המשך מאיפה שעצרתי",
