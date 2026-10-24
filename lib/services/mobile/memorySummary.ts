@@ -1,5 +1,5 @@
 import { LANGUAGE_RULE } from '../../intelligence/proposalEngine';
-import { routineFactKeyOf } from '../../memory/routineFacts';
+import { isCanonicalRoutineFact } from '../../memory/routineFacts';
 import { consentGatedProvider } from '../../llm/consentGatedProvider';
 import { aiDisabled, commitUsage, reserveCall } from '../../llm/usageGuard';
 import { getStorage } from '../../storage';
@@ -108,21 +108,37 @@ function citedNamesDay(day: string, cited: readonly MemorySummaryInputRow[]): bo
 /**
  * "Two" translating an Arabic dual: «عندي ولدين» is "two children" in English
  * or Hebrew, and the number word is the translation, not an invention (live
- * Gemini, 2026-10-24). Only the word for two, only in an English or Hebrew
- * sentence, and only where a cited row has one of these dual nouns — a fixed
- * list, never a guess from the -ين ending, which masculine plurals
- * («مهندسين») and plain words («فلسطين») share (inspection MS-DUAL-001).
+ * Gemini, 2026-10-24). Bound to the noun it translates (inspection
+ * MS-DUAL-001/007): the word for two passes only directly before a
+ * translation of a listed dual noun that a cited row holds — «ولدين» lets
+ * "two children" through, never "two companies" beside it.
  */
-const TWO_WORDS = new Set(['two', 'both', 'שני', 'שתי', 'שניים', 'שתיים', 'שניהם', 'שתיהן']);
-const ARABIC_DUAL_NOUNS = new Set([
-  'ولدين', 'بنتين', 'ابنين', 'طفلين', 'اولادين', 'اختين', 'اخين', 'اخوين', 'خيين',
-  'سيارتين', 'قطتين', 'بستين', 'كلبين', 'بيتين', 'شقتين', 'وظيفتين', 'شغلتين',
-  'كتابين', 'لغتين', 'جامعتين', 'مدرستين', 'جارين', 'صاحبين', 'رفيقين',
-]);
+const DUAL_TRANSLATIONS: Readonly<Record<string, readonly string[]>> = {
+  ولدين: ['children', 'kids', 'sons', 'boys', 'ילדים', 'בנים'],
+  اولادين: ['children', 'kids', 'ילדים'],
+  طفلين: ['children', 'kids', 'babies', 'ילדים', 'תינוקות'],
+  ابنين: ['sons', 'children', 'בנים'],
+  بنتين: ['daughters', 'girls', 'בנות'],
+  اختين: ['sisters', 'אחיות'],
+  اخين: ['brothers', 'אחים'],
+  اخوين: ['brothers', 'אחים'],
+  سيارتين: ['cars', 'מכוניות'],
+  قطتين: ['cats', 'חתולים', 'חתולות'],
+  بستين: ['cats', 'חתולים'],
+  كلبين: ['dogs', 'כלבים'],
+  بيتين: ['houses', 'homes', 'בתים'],
+  شقتين: ['apartments', 'flats', 'דירות'],
+  وظيفتين: ['jobs', 'עבודות'],
+  شغلتين: ['jobs', 'things', 'עבודות'],
+  كتابين: ['books', 'ספרים'],
+  لغتين: ['languages', 'שפות'],
+};
+const TWO_WORDS = new Set(['two', 'שני', 'שתי']);
 
-function translatesArabicDual(word: string, cited: readonly MemorySummaryInputRow[], language: MemorySummaryLanguage): boolean {
-  if (language === 'ar' || !TWO_WORDS.has(word)) return false;
-  return cited.some((row) => words(row.text).some((token) => ArabicReadings(token).some((reading) => ARABIC_DUAL_NOUNS.has(reading))));
+function translatesArabicDual(word: string, next: string | undefined, cited: readonly MemorySummaryInputRow[], language: MemorySummaryLanguage): boolean {
+  if (language === 'ar' || !TWO_WORDS.has(word) || next === undefined) return false;
+  return cited.some((row) => words(row.text).some((token) => ArabicReadings(token)
+    .some((reading) => DUAL_TRANSLATIONS[reading]?.includes(next) === true)));
 }
 
 function copiedWord(word: string, cited: readonly MemorySummaryInputRow[]): boolean {
@@ -179,7 +195,7 @@ function sentenceValid(sentence: MemorySummarySentence, supplied: readonly Memor
     if (!isNumberWord(word) || copiedWord(word, cited)) continue;
     const day = weekdayOf(word, sentenceWords[index - 1]);
     if (day !== null && citedNamesDay(day, cited)) continue;
-    if (translatesArabicDual(word, cited, language)) continue;
+    if (translatesArabicDual(word, sentenceWords[index + 1], cited, language)) continue;
     return false;
   }
   const citedRaw = cited.flatMap((row) => rawLetterTokens(row.text));
@@ -266,10 +282,10 @@ export async function buildMemorySummary(input: { uid: string; language: MemoryS
   // The routine survey's rows are machine strings («quiet_hours:22:30-07:00»)
   // the phone draws as its own lines; no sentence can cite them, so with them
   // in, "every row cited" could never hold (live Gemini, 2026-10-24).
-  // Only the survey's own rows, by provenance as well as by their machine
-  // grammar: a person may type a note that starts the same way, and it is
-  // theirs to have summarized (inspection MS-ROUTINE-004).
-  const prose = listed.filter((row) => !(row.provenance?.origin === 'routine_survey' && routineFactKeyOf(row.content) !== null));
+  // Only the survey's own rows, by provenance and by their exact machine
+  // encoding: a note the person typed, or a survey row they edited into
+  // words, is theirs to have summarized (inspection MS-ROUTINE-004/008).
+  const prose = listed.filter((row) => !(row.provenance?.origin === 'routine_survey' && isCanonicalRoutineFact(row.content)));
   if (prose.length === 0) return { status: 'empty' };
   const rows: MemorySummaryInputRow[] = prose.slice(0, 40).map((row, index) => ({ ref: `r${index + 1}`, id: row.id, kind: row.kind, text: row.content }));
   const remaining = MEMORY_SUMMARY_ROUTE_BUDGET_MS - (Date.now() - input.startedAt);

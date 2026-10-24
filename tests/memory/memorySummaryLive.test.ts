@@ -127,6 +127,34 @@ test('"two" needs a listed dual noun in a cited row: a plural or a name ending i
   assert.notEqual(one('You have two daughters.', 'عندي بنتين'), null);
 });
 
+// Inspection MS-DUAL-007: the dual unlocks only its own noun.
+test('a dual in the row unlocks "two" only before its own noun, never an invented count beside it', async () => {
+  const { validateMemorySummary } = await import('../../lib/services/mobile/memorySummary.ts');
+  const row = [{ ref: 'r1', id: 'x', kind: 'fact', text: 'عندي ولدين وبشتغل بشركة صغيرة' }];
+  const one = (text: string, language: 'en' | 'he') => validateMemorySummary({ sentences: [{ text, refs: ['r1'] }] }, row, language);
+  assert.notEqual(one('You have two children and work at a small company.', 'en'), null);
+  assert.equal(one('You have children and work at two companies.', 'en'), null);
+  assert.notEqual(one('יש לך שני ילדים ואתה עובד בחברה קטנה.', 'he'), null);
+  assert.equal(one('יש לך ילדים ואתה עובד בשתי חברות.', 'he'), null);
+});
+
+// Inspection MS-ROUTINE-008: a survey row the person edited into words is theirs.
+test('a survey row edited into prose is summarized; the untouched machine rows are not', async () => {
+  const uid = await begin();
+  await surveyRows(uid);
+  const { listMemory, patchMemory } = await import('../../lib/services/mobile/memoryService.ts');
+  const listed = await listMemory(uid, new Date().toISOString());
+  const quiet = listed.find((row) => row.content.startsWith('quiet_hours:'))!;
+  await patchMemory(uid, quiet.id, 'quiet_hours:I cannot take calls overnight', new Date().toISOString());
+  const model = scriptedModel(() => ({ sentences: [{ text: 'You cannot take calls overnight.', refs: ['r1'] }] }));
+  await useSummaryModel(model);
+  const answer = await summary(uid, 'en');
+  const prompt = promptOf(model.calls[0]!.request);
+  assert.ok(prompt.includes('I cannot take calls overnight'), prompt);
+  assert.ok(!prompt.includes('sleep_window:'), prompt);
+  assert.equal(answer.body.summary?.status, 'ready', show(answer.body));
+});
+
 // Inspection MS-WEEKDAY-002: «الاثنين» is Monday only after a day word.
 test('«الاثنين» is a weekday only after a day word, even beside a row that names Monday', async () => {
   const { validateMemorySummary } = await import('../../lib/services/mobile/memorySummary.ts');

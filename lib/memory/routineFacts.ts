@@ -32,6 +32,7 @@
  * stated, and it would show up on the memory screen as though it were one.
  */
 import {
+  REMINDER_INTENSITIES,
   ROUTINE_SURVEY_VERSION,
   type RoutineTimeWindow,
   type UserRoutineProfile,
@@ -70,6 +71,23 @@ export function routineFactKeyOf(content: string): RoutineFactKey | null {
   if (separator < 1) return null;
   const key = content.slice(0, separator);
   return (ROUTINE_FACT_KEYS as readonly string[]).includes(key) ? key as RoutineFactKey : null;
+}
+
+const WINDOW_VALUE = /^(?:[01]\d|2[0-3]):[0-5]\d-(?:[01]\d|2[0-3]):[0-5]\d$/;
+
+/**
+ * True only for the survey's exact machine encoding — a known key and the
+ * value the survey writes (a clock window, or a reminder level). A row the
+ * person edited into prose («quiet_hours:I cannot take calls overnight»)
+ * keeps the key but is theirs again.
+ */
+export function isCanonicalRoutineFact(content: string): boolean {
+  const key = routineFactKeyOf(content);
+  if (key === null) return false;
+  const value = content.slice(key.length + 1);
+  return key === 'reminder_intensity'
+    ? (REMINDER_INTENSITIES as readonly string[]).includes(value)
+    : WINDOW_VALUE.test(value);
 }
 
 function windowValue(window: RoutineTimeWindow): string {
