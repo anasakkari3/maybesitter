@@ -7,6 +7,12 @@
  * m5a-controls-init, m5a-enable and m5a-kill answered 503 `not_configured` on
  * every environment. Nobody could see it without calling the deployed route.
  *
+ * The scan sees direct reads in the route files (`process.env.X`,
+ * `process.env['X']`) and the shared OIDC check's `*_ENV_VAR` constants. It
+ * does not follow `lib/` helpers a route imports, so the second test keeps the
+ * route files themselves to direct reads: a destructured or aliased
+ * `process.env` there would hide a variable from the scan.
+ *
  * A variable counts as set when `infra/cloudrun/flags.sh` puts it on the
  * service for *both* environments (the internal routes run in both), or when
  * `infra/scheduler.sh` sets it with `--update-env-vars`. Static checks only,
@@ -102,4 +108,13 @@ test('both services name maybesitter-deployer as the M5a controls caller, and sc
     assert.match(read(file), definition, `${file} defines a different deployer account`);
   }
   assert.match(read('infra/scheduler.sh'), /select\(\.name == "MAYBESITTER_DEPLOYER_SA_EMAIL"\)/, 'scheduler.sh --check no longer reads the deployer variable');
+});
+
+test('internal route files read process.env only directly, so the scan above sees every read', () => {
+  const indirect = sourceFiles(internalRoot).flatMap((path) => {
+    const source = readFileSync(path, 'utf8');
+    const forms = [/process\.env\?\./, /process\.env\s*\[\s*[^'"\s]/, /=\s*process\.env\s*(?:[;,)\n]|$)/m, /\}\s*=\s*process\.env\b/];
+    return forms.some((form) => form.test(source)) ? [relative(repoRoot, path)] : [];
+  });
+  assert.deepEqual(indirect, [], 'an internal route destructures, aliases or computes a process.env read; read each variable as process.env.NAME so the infra check can see it');
 });

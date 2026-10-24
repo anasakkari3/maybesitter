@@ -43,7 +43,7 @@ each one missing.
 3. **The Cloud Scheduler job `intelligence-gmail-sweep-<staging|prod>`**,
    which `infra/scheduler.sh` creates. It continues Gmail scans page by page.
    Without it, a manual M5a scan lists its first page and never advances (its
-   count stays at 0). It was missing on staging on 2026-10-24. Applying
+   count stays at 0). Staging lacked it until it was created on 2026-10-24. Applying
    `infra/scheduler.sh` is idempotent, but it creates recurring-cost jobs, so
    it needs the owner's approval (see [Scheduled work](#scheduled-work)).
 
@@ -71,7 +71,13 @@ export M5A_CONTROLS_ID_TOKEN="$(gcloud auth print-identity-token \
 gcloud iam service-accounts remove-iam-policy-binding "$DEPLOYER" \
   --project=maybesitter-app \
   --member="user:<operator e-mail>" --role=roles/iam.serviceAccountTokenCreator
+unset M5A_CONTROLS_ID_TOKEN
 ```
+
+Removing the binding stops new tokens, not the ones already minted: the ID
+token (and the deployer access token gcloud cached while impersonating) stays
+valid until it expires, about an hour. Don't paste it anywhere or keep it in a
+file.
 
 Never leave the binding in place: whoever holds it can deploy both services.
 For an incident kill, grant it, run the kill, and remove it in the same
