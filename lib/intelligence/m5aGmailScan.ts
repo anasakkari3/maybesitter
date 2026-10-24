@@ -95,6 +95,12 @@ export interface M5aMarker {
   readonly bulkRule?: number;
   /** Failed analyses after a real model dispatch; never quota or minute deferrals (#815). */
   readonly analysisAttempts?: number;
+  /**
+   * The claim owner that passed every free gate and dispatched the paid model
+   * call. A takeover of an expired claim whose owner had dispatched counts that
+   * lost attempt; a claim that died before dispatch counts nothing (#815).
+   */
+  readonly dispatchOwner?: string;
   readonly observationIds?: readonly string[];
   readonly autoAddId?: string | null;
   readonly receipts?: Readonly<Record<string, Receipt>>;
@@ -582,31 +588,38 @@ async function releaseMessageForRetry(
 }
 
 /**
- * Counts one failed analysis on the message's markers, inside the same fence
- * as every other marker write. Below the cap the claim is released for a later
- * retry; at the cap the message is finished as read but not analysed and the
- * page advances, so the scan can complete (#815).
+ * Counts one failed analysis on the message's markers whenever this caller
+ * still owns them, even when the scan fence has moved: an attempt that was
+ * paid for is never forgotten. Below the cap, or without the scan fence, the
+ * claim is released for a later retry. At the cap, with the fence, the message
+ * is finished as read but not analysed and the page advances, so the scan can
+ * complete (#815). `increment: false` finishes a message whose attempts were
+ * already spent, without another model call.
  */
 async function recordFailedAnalysis(
   uid: string, claimedScan: M5aScanDocument, owner: string, claimOwner: string,
   messageId: string, providerMarkerId: string, legacyMarkerId: string, runtime: GoogleRuntime,
-): Promise<'unanalysed' | 'counted' | 'none'> {
+  increment = true,
+): Promise<'unanalysed' | 'counted' | 'released' | 'none'> {
   return runtime.storage.runTransaction(async tx => {
-    try { await assertScanAuthorityWithReader(uid, claimedScan, owner, tx); } catch { return 'none' as const; }
     const [scan, daily, provider, legacy] = await Promise.all([
       tx.get<M5aScanDocument>(scanDocumentPath(uid, claimedScan.kind)), tx.get<M5aScanDocument>(dailyScanPath(uid)),
       tx.get<M5aMarker>(markerPath(uid, providerMarkerId)), tx.get<M5aMarker>(markerPath(uid, legacyMarkerId)),
     ]);
-    if (!scan || scan.scanId !== claimedScan.scanId || scan.leaseOwner !== owner
-      || provider?.owner !== claimOwner || legacy?.owner !== claimOwner) return 'none' as const;
-    const analysisAttempts = Math.max(provider.analysisAttempts ?? 0, legacy.analysisAttempts ?? 0) + 1;
-    if (analysisAttempts < M5A_MAX_ANALYSIS_ATTEMPTS) {
-      tx.set(markerPath(uid, providerMarkerId), { ...provider, state: 'released', owner: undefined, leaseUntil: undefined, analysisAttempts });
-      tx.set(markerPath(uid, legacyMarkerId), { ...legacy, state: 'released', owner: undefined, leaseUntil: undefined, analysisAttempts });
-      return 'counted' as const;
+    let fenced = true;
+    try { await assertScanAuthorityWithReader(uid, claimedScan, owner, tx); } catch { fenced = false; }
+    if (provider?.state !== 'claimed' || provider.owner !== claimOwner || legacy?.owner !== claimOwner) return 'none' as const;
+    fenced = fenced && Boolean(scan) && scan!.scanId === claimedScan.scanId && scan!.leaseOwner === owner;
+    const { dispatchOwner: _providerDispatch, ...ownProvider } = provider;
+    const { dispatchOwner: _legacyDispatch, ...ownLegacy } = legacy;
+    const analysisAttempts = Math.max(provider.analysisAttempts ?? 0, legacy.analysisAttempts ?? 0) + (increment ? 1 : 0);
+    if (analysisAttempts < M5A_MAX_ANALYSIS_ATTEMPTS || !fenced || !scan) {
+      tx.set(markerPath(uid, providerMarkerId), { ...ownProvider, state: 'released', owner: undefined, leaseUntil: undefined, analysisAttempts });
+      tx.set(markerPath(uid, legacyMarkerId), { ...ownLegacy, state: 'released', owner: undefined, leaseUntil: undefined, analysisAttempts });
+      return fenced ? 'counted' as const : 'released' as const;
     }
     const marker: M5aMarker = {
-      ...provider, state: 'done', owner: undefined, leaseUntil: undefined, analysisAttempts,
+      ...ownProvider, state: 'done', owner: undefined, leaseUntil: undefined, analysisAttempts,
       processedAt: runtime.now().toISOString(), outcome: 'unanalysed', observationIds: [], autoAddId: null,
     };
     const receipt = transitionReceipt(marker, scan.scanId, 'read', [scan.scanId, daily?.scanId].filter(Boolean) as string[]);
@@ -804,13 +817,26 @@ async function processMessage(
     if (providerDecision === 'block' || legacyDecision === 'block') return { kind: 'blocked' as const };
     const preexisting = Boolean(legacyMarker && !((legacyMarker as M5aMarker).v === 2 && ['claimed', 'released', 'unavailable'].includes((legacyMarker as M5aMarker).state)));
     const leaseUntil = new Date(runtime.now().getTime() + LEASE_MS).toISOString();
-    const providerClaim: M5aMarker = { ...(providerMarker as M5aMarker ?? {}), v: 2, state: 'claimed', owner: claimOwner, leaseUntil,
-      providerAccountId: claimedScan.providerAccountId, preexisting };
-    const legacyClaim: M5aMarker = { ...(legacyMarker as M5aMarker ?? {}), v: 2, state: 'claimed', owner: claimOwner, leaseUntil,
-      providerAccountId: claimedScan.providerAccountId, providerMarkerId, preexisting };
+    // A previous owner that dispatched the model and then died never counted
+    // its attempt; taking over its expired claim counts it now (#815).
+    const diedAfterDispatch = (marker: M5aMarker | Record<string, unknown> | null): boolean => {
+      const current = marker as M5aMarker | null;
+      return current?.v === 2 && current.state === 'claimed' && Boolean(current.dispatchOwner) && current.dispatchOwner === current.owner;
+    };
+    const analysisAttempts = Math.max((providerMarker as M5aMarker | null)?.analysisAttempts ?? 0,
+      (legacyMarker as M5aMarker | null)?.analysisAttempts ?? 0)
+      + ((providerDecision === 'takeover' && diedAfterDispatch(providerMarker))
+        || (legacyDecision === 'takeover' && diedAfterDispatch(legacyMarker)) ? 1 : 0);
+    const { dispatchOwner: _providerDispatch, ...previousProvider } = (providerMarker as M5aMarker | null) ?? {} as M5aMarker;
+    const { dispatchOwner: _legacyDispatch, ...previousLegacy } = (legacyMarker as M5aMarker | null) ?? {} as M5aMarker;
+    const attempts = analysisAttempts > 0 ? { analysisAttempts } : {};
+    const providerClaim: M5aMarker = { ...previousProvider, v: 2, state: 'claimed', owner: claimOwner, leaseUntil,
+      providerAccountId: claimedScan.providerAccountId, preexisting, ...attempts };
+    const legacyClaim: M5aMarker = { ...previousLegacy, v: 2, state: 'claimed', owner: claimOwner, leaseUntil,
+      providerAccountId: claimedScan.providerAccountId, providerMarkerId, preexisting, ...attempts };
     tx.set(markerPath(uid, providerMarkerId), providerClaim);
     tx.set(markerPath(uid, legacyMarkerId), legacyClaim);
-    return { kind: 'claimed' as const, preexisting, forceAutoAddOff: waitingCoverage === 'force_off' };
+    return { kind: 'claimed' as const, preexisting, forceAutoAddOff: waitingCoverage === 'force_off', analysisAttempts };
   });
   if (claimed.kind === 'lost' || claimed.kind === 'blocked') return;
   if (claimed.kind === 'done') {
@@ -823,7 +849,28 @@ async function processMessage(
   // permit whose minute ended before dispatch is a deferral, not a failure.
   let modelDispatched = false;
   let minuteEndedBeforeDispatch = false;
+  // Called only after every free gate passed, immediately before the paid call.
+  const markDispatched = async (): Promise<void> => {
+    modelDispatched = true;
+    // A conditional update of this caller's own live claim, never a new writer.
+    await storage.runTransaction(async tx => {
+      const [provider, legacy] = await Promise.all([
+        tx.get<M5aMarker>(markerPath(uid, providerMarkerId)), tx.get<M5aMarker>(markerPath(uid, legacyMarkerId)),
+      ]);
+      if (provider?.state !== 'claimed' || provider.owner !== claimOwner || legacy?.owner !== claimOwner) return;
+      tx.set(markerPath(uid, providerMarkerId), { ...provider, dispatchOwner: claimOwner });
+      tx.set(markerPath(uid, legacyMarkerId), { ...legacy, dispatchOwner: claimOwner });
+    });
+  };
   try {
+    if (claimed.analysisAttempts >= M5A_MAX_ANALYSIS_ATTEMPTS) {
+      // Every allowed attempt was already paid for (a takeover counted the last
+      // one, or a fence move kept the claim from finishing): finish it unanalysed
+      // without another model call.
+      if (await recordFailedAnalysis(uid, claimedScan, owner, claimOwner, messageId,
+        providerMarkerId, legacyMarkerId, runtime, false) === 'unanalysed') return;
+      throw new Error('scan_fence_changed');
+    }
     await assertScanAuthority(uid, claimedScan, owner, runtime);
     const message = await transport.getMessageById(messageId);
     if (!message) {
@@ -937,12 +984,13 @@ async function processMessage(
       ? runtime.shareModel
         ? async request => {
           if (!await startQuotaPermitSlot(permit!, 0, { storage, now: runtime.now() })) throw new LLMUnavailableError('usage_guard_unavailable');
+          await markDispatched();
           const response = await runtime.shareModel!(request);
           await settleQuotaPermitSlot(permit!, 0, response, { storage, now: runtime.now() });
           return response;
         }
         : shareLlmProvider(uid, {
-          purpose: 'semantic_observation', quotaPermit: { permit, slot: 0, storage }, now: runtime.now,
+          purpose: 'semantic_observation', quotaPermit: { permit, slot: 0, storage, onStarted: markDispatched }, now: runtime.now,
           ...(runtime.shareProvider ? { provider: runtime.shareProvider } : {}),
         })
       : runtime.shareModel;
@@ -953,7 +1001,9 @@ async function processMessage(
           minuteEndedBeforeDispatch = true;
           throw new LLMUnavailableError('usage_guard_unavailable');
         }
-        modelDispatched = true;
+        // The bare test seam has no free gates after this point; a permit's
+        // adapter marks the dispatch itself once its gates pass.
+        if (!permit) await markDispatched();
         return generateWithPermit(request);
       }
       : undefined;

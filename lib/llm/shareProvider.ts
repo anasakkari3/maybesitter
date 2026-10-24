@@ -114,7 +114,17 @@ export interface ShareProviderOptions {
   log?: typeof logLlmCall;
   commit?: typeof commitUsage;
   now?: () => Date;
-  quotaPermit?: { permit: QuotaPermit; slot: number; storage?: ReserveOptions['storage'] };
+  quotaPermit?: {
+    permit: QuotaPermit;
+    slot: number;
+    storage?: ReserveOptions['storage'];
+    /**
+     * Runs once the permit slot has started and every free gate (kill switch,
+     * provider, consent, slot) has passed, immediately before the paid call.
+     * M5a counts an analysis attempt only from here (#815).
+     */
+    onStarted?: () => Promise<void>;
+  };
 }
 
 function sizeOf(parts: readonly LlmPart[]): { characters: number; bytes: number } {
@@ -197,6 +207,7 @@ export function shareLlmProvider(uid: string, options: ShareProviderOptions = {}
       });
       throw new LLMUnavailableError(reason);
     }
+    if (options.quotaPermit?.onStarted) await options.quotaPermit.onStarted();
 
     const startedAt = Date.now();
     try {

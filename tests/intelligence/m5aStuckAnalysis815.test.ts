@@ -9,7 +9,10 @@
  * - a daily-cap refusal or a permit whose minute ended before dispatch is a
  *   deferral, never an attempt;
  * - a transient failure that succeeds on a later attempt is analysed normally;
- * - a resume or a later scan counts the finished marker without the model.
+ * - a resume or a later scan counts the finished marker without the model;
+ * - a free refusal before the paid call (kill switch, no provider) is never an
+ *   attempt; an attempt is counted even when the scan fence moved, and a
+ *   takeover of a claim that died after dispatch counts its lost attempt.
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -47,6 +50,8 @@ interface Harness {
   scan(): Promise<M5aScanDocument>;
   marker(messageId: string): Promise<M5aMarker | null>;
   calls: { model: number; byMessage: Record<string, number>; fetches: number };
+  /** Runs inside the paid call, before it answers. */
+  hooks: { during?: (messageId: string) => Promise<void> };
 }
 
 /** The production-shaped path: a real quota permit and the real share adapter around a fake provider. */
@@ -59,6 +64,7 @@ async function harness(
   const storage = createMemoryStorage();
   let clock = NOW;
   const calls = { model: 0, byMessage: {} as Record<string, number>, fetches: 0 };
+  const hooks: Harness['hooks'] = {};
   const messageOf = (request: LlmStructuredRequest): string => {
     const text = JSON.stringify(request);
     return ids.find(id => text.includes(`body-of-${id}.`)) ?? 'unknown';
@@ -70,6 +76,7 @@ async function harness(
       const id = messageOf(request);
       calls.model += 1;
       calls.byMessage[id] = (calls.byMessage[id] ?? 0) + 1;
+      await hooks.during?.(id);
       if (answer(id, calls.byMessage[id]!) === 'fail') throw new Error('model answer cut off');
       return { text: JSON.stringify({ observations: [{ kind: 'commitment', evidence: `Please sign body-of-${id}.`, confidence: 0.95 }] }),
         model: 'fake-share', latencyMs: 1, promptTokens: 1, outputTokens: 1 };
@@ -103,7 +110,7 @@ async function harness(
     },
   } as unknown as GmailTransport;
   return {
-    storage, runtime, transport, calls,
+    storage, runtime, transport, calls, hooks,
     setClock: value => { clock = value; },
     step: () => runM5aScanStep(uid, 'manual', runtime, transport, async () => undefined),
     scan: async () => (await storage.get<M5aScanDocument>(scanPath(uid)))!,
@@ -333,4 +340,136 @@ test('#815 a resume and a later scan count the unanalysed marker without fetchin
   assert.equal(scan.messagesUnanalysed, 1, 'a later scan did not count the unanalysed marker');
   assert.equal(h.calls.model, model, 'a finished message reached the model again');
   assert.equal(h.calls.fetches, fetches, 'a finished message was fetched again');
+});
+
+/** Steps through `ticks` failed ticks, each at the scan's own nextEligibleAt, returning the gaps in minutes. */
+async function failingTicks(h: Harness, ticks: number): Promise<number[]> {
+  const gaps: number[] = [];
+  for (let tick = 0; tick < ticks; tick += 1) {
+    const before = await h.scan();
+    h.setClock(before.nextEligibleAt);
+    await h.step();
+    const after = await h.scan();
+    assert.equal(after.status, 'failed');
+    gaps.push((Date.parse(after.nextEligibleAt) - Date.parse(before.nextEligibleAt)) / MINUTE);
+  }
+  return gaps;
+}
+
+test('#815 F1 with the AI kill switch on, a refused call is never an attempt, and the mail is analysed once it is off', async () => {
+  const uid = 'stuck-kill-switch';
+  const h = await harness(uid, ['mail'], () => 'ok');
+  const previous = process.env.MAYBESITTER_AI_DISABLED;
+  process.env.MAYBESITTER_AI_DISABLED = 'true';
+  try {
+    const gaps = await failingTicks(h, 5);
+    const scan = await h.scan();
+    assert.equal(h.calls.model, 0);
+    assert.equal(scan.failure, 'analysis_unavailable');
+    assert.deepEqual(gaps, [2, 4, 8, 16, 30], 'the refused scan did not back off');
+    assert.equal(scan.messagesUnanalysed, 0);
+    const marker = await h.marker('mail');
+    assert.equal(marker?.analysisAttempts, undefined, 'a kill-switch refusal counted as an attempt');
+    assert.notEqual(marker?.outcome, 'unanalysed');
+  } finally {
+    if (previous === undefined) delete process.env.MAYBESITTER_AI_DISABLED; else process.env.MAYBESITTER_AI_DISABLED = previous;
+  }
+  h.setClock((await h.scan()).nextEligibleAt);
+  await h.step();
+  const scan = await h.scan();
+  assert.equal(h.calls.model, 1);
+  assert.equal(scan.status, 'complete');
+  assert.equal(scan.messagesUnanalysed, 0);
+  assert.equal((await h.marker('mail'))?.outcome, 'analyzed');
+});
+
+test('#815 F1 a provider that refuses before sending (provider_none) is never an attempt', async () => {
+  const uid = 'stuck-provider-none';
+  const h = await harness(uid, ['mail'], () => 'ok');
+  const mutable = h.runtime as { shareProvider?: LlmProvider };
+  const real = mutable.shareProvider;
+  mutable.shareProvider = {
+    name: 'none',
+    generateJson: async () => { throw new Error('must not dispatch'); },
+    generateStructured: async () => { throw new Error('must not dispatch'); },
+  } as LlmProvider;
+  await failingTicks(h, 4);
+  assert.equal(h.calls.model, 0);
+  assert.equal((await h.marker('mail'))?.analysisAttempts, undefined, 'a provider_none refusal counted as an attempt');
+  mutable.shareProvider = real;
+  h.setClock((await h.scan()).nextEligibleAt);
+  await h.step();
+  assert.equal((await h.scan()).status, 'complete');
+  assert.equal((await h.marker('mail'))?.outcome, 'analyzed');
+});
+
+test('#815 F2 the claim records the dispatch only after the free gates, right before the paid call', async () => {
+  const uid = 'stuck-dispatch-mark';
+  const h = await harness(uid, ['mail'], () => 'ok');
+  let seen: M5aMarker | null = null;
+  h.hooks.during = async () => { seen = await h.marker('mail'); };
+  await h.step();
+  assert.equal(seen!.state, 'claimed');
+  assert.ok(seen!.dispatchOwner, 'the paid call started without recording its dispatch');
+  assert.equal(seen!.dispatchOwner, seen!.owner);
+  assert.equal((await h.scan()).status, 'complete');
+});
+
+test('#815 F2 an attempt is counted even when the scan fence moved during the paid call; the cap still holds', async () => {
+  const uid = 'stuck-fence-moved';
+  const h = await harness(uid, ['mail'], () => 'fail');
+  // Two attempts were already spent by earlier ticks.
+  await h.storage.set(markerPath(uid, 'mail'), { v: 2, state: 'released', providerAccountId: 'acct', analysisAttempts: 2 });
+  let moved = false;
+  h.hooks.during = async () => {
+    if (moved) return;
+    moved = true;
+    await h.storage.set('system/m5aControls', { email: { epoch: 4, enabled: true }, calendar: { epoch: 1, enabled: true } });
+  };
+  await h.step();
+  assert.equal(h.calls.model, 1);
+  const marker = await h.marker('mail');
+  assert.equal(marker?.state, 'released', 'a fence-moved failure finished the message without the fence');
+  assert.equal(marker?.analysisAttempts, 3, 'a paid attempt was forgotten because the fence moved');
+
+  // The switch comes back; the spent message is finished without a fourth call.
+  await h.storage.set('system/m5aControls', { email: { epoch: 3, enabled: true }, calendar: { epoch: 1, enabled: true } });
+  h.setClock((await h.scan()).nextEligibleAt);
+  await h.step();
+  const scan = await h.scan();
+  assert.equal(h.calls.model, 1, 'the cap was exceeded after a fence move');
+  assert.equal(scan.status, 'complete');
+  assert.equal(scan.messagesUnanalysed, 1);
+  assert.equal((await h.marker('mail'))?.outcome, 'unanalysed');
+});
+
+test('#815 F2 taking over a claim that died after dispatch counts its attempt; one that died before dispatch does not', async () => {
+  const expired = '2026-10-19T09:55:00.000Z';
+  // Died after dispatch, with two attempts already counted: the takeover counts
+  // the third and finishes the message without another call.
+  const dead = await harness('stuck-takeover-dispatched', ['mail'], () => 'ok');
+  await dead.storage.set(markerPath('stuck-takeover-dispatched', 'mail'), {
+    v: 2, state: 'claimed', owner: 'dead-claim', leaseUntil: expired, providerAccountId: 'acct',
+    dispatchOwner: 'dead-claim', analysisAttempts: 2,
+  });
+  await dead.step();
+  let scan = await dead.scan();
+  assert.equal(dead.calls.model, 0, 'a takeover past the cap bought another call');
+  assert.equal(scan.status, 'complete');
+  assert.equal(scan.messagesUnanalysed, 1);
+  assert.equal((await dead.marker('mail'))?.analysisAttempts, 3);
+
+  // Died before dispatch: the takeover counts nothing and the mail is analysed.
+  const early = await harness('stuck-takeover-early', ['mail'], () => 'ok');
+  await early.storage.set(markerPath('stuck-takeover-early', 'mail'), {
+    v: 2, state: 'claimed', owner: 'dead-claim', leaseUntil: expired, providerAccountId: 'acct', analysisAttempts: 2,
+  });
+  await early.step();
+  scan = await early.scan();
+  assert.equal(early.calls.model, 1);
+  assert.equal(scan.status, 'complete');
+  assert.equal(scan.messagesUnanalysed, 0);
+  const marker = await early.marker('mail');
+  assert.equal(marker?.outcome, 'analyzed');
+  assert.equal(marker?.analysisAttempts, 2, 'a takeover without a dispatch counted an attempt');
 });
