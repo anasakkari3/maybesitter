@@ -37,12 +37,19 @@ import {
   type DeletionReceipt,
 } from '../../lib/account/accountDeletion.ts';
 import { resetDeletionHooksForTests } from '../../lib/account/deletionHooks.ts';
-import { deletionJobLocations, deletionPepperWrite, deletionTombstonePaths } from '../../lib/account/deletionTombstone.ts';
+import { deletionJobLocations, deletionPepperWrite, deletionTombstonePaths, pepperedSubjectHashes } from '../../lib/account/deletionTombstone.ts';
+import {
+  StoredOAuthCleanupObligations,
+  providerAccountKeys,
+  type OAuthCleanupObligationDocument,
+} from '../../lib/integrations/providers/production/oauthCleanupObligations.ts';
+import { createInMemoryKms } from '../../lib/security/inMemoryKms.ts';
+import { KMS_KEY_ENV_VAR, type FieldEncryptionOptions } from '../../lib/security/fieldEncryption.ts';
 import { AccountUnavailableError } from '../../lib/account/accountLiveness.ts';
 import { getOrCreateTrust } from '../../lib/pilot/pilotTrustStore.ts';
 import { createMemoryStorage, type MemoryStorageAdapter } from '../../lib/storage/memoryAdapter.ts';
 import { resetStorageForTests, setStorageForTests } from '../../lib/storage/index.ts';
-import { userDoc } from '../../lib/storage/paths.ts';
+import { OAUTH_CLEANUP_OBLIGATIONS, userDoc } from '../../lib/storage/paths.ts';
 
 const OLD = 'pepper-798-old-key-not-real';
 const NEW = 'pepper-798-new-key-not-real';
@@ -302,6 +309,49 @@ test('readers list the writer\'s key first, and never refuse over the writer sel
     assert.deepEqual(paths(), [newPath(), oldPath()]);
     usePeppers({ [PEPPER]: NEW, [WRITE]: 'previous' });
     assert.deepEqual(paths(), [newPath()]);
+  } finally {
+    end();
+  }
+});
+
+// ── The OAuth cleanup obligation key (#800) ─────────────────────────────
+
+/** A Google `sub`: digits, as Google issues them. */
+const GOOGLE_SUB = '109876543210987654321';
+const KMS_KEY = 'projects/p/locations/l/keyRings/r/cryptoKeys/user-secrets';
+const kms = (): FieldEncryptionOptions => ({
+  env: { [KMS_KEY_ENV_VAR]: KMS_KEY } as unknown as NodeJS.ProcessEnv,
+  kms: createInMemoryKms({ keyName: KMS_KEY }),
+});
+
+test('an obligation\'s accountKey follows the writer selector, so a pre-phase-1 revision can still clear it', async () => {
+  const subject = `google_${GOOGLE_SUB}`;
+  const { storage, end } = begin(PHASE_1);
+  try {
+    // The key list #800's recorder takes the first entry of.
+    assert.deepEqual(providerAccountKeys('google', GOOGLE_SUB), [subjectHashFor(subject, OLD), subjectHashFor(subject, NEW)]);
+    assert.deepEqual(pepperedSubjectHashes(subject, { sharedStorage: true }), [subjectHashFor(subject, OLD), subjectHashFor(subject, NEW)]);
+
+    // Recorded on a phase-1 revision (no live connection holds that account,
+    // so it stays) ...
+    const encryption = kms();
+    await new StoredOAuthCleanupObligations(storage, encryption, () => new Date('2026-10-24T09:00:00.000Z'))
+      .recordGrantRevocation({
+        provider: 'google',
+        tokenSet: { accessToken: 'ya29.NOT-REAL', refreshToken: null, accessTokenExpiresAt: null, refreshTokenExpiresAt: null, grantedScopes: [] },
+        providerAccountId: GOOGLE_SUB,
+      });
+    const owed = await storage.list<OAuthCleanupObligationDocument>(OAUTH_CLEANUP_OBLIGATIONS);
+    assert.equal(owed.length, 1);
+    assert.equal(owed[0]!.data.accountKey, subjectHashFor(subject, OLD), 'phase 1 filed the obligation under the new key');
+
+    // ... and cleared by a connect on a revision that knows only the old key.
+    usePeppers(PHASE_0);
+    const cleared = await new StoredOAuthCleanupObligations(storage, encryption).clearGrantRevocations('google', GOOGLE_SUB);
+    assert.equal(cleared, 1, 'a steady-state revision could not clear what phase 1 recorded');
+
+    usePeppers(PHASE_2);
+    assert.deepEqual(providerAccountKeys('google', GOOGLE_SUB), [subjectHashFor(subject, NEW), subjectHashFor(subject, OLD)]);
   } finally {
     end();
   }

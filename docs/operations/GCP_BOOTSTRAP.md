@@ -157,12 +157,20 @@ both services) is an HMAC key. It has three uses:
    is also the **deletion tombstone**. A uid's first request reads it before
    it creates `users/{uid}`, and so blocks the #794 race;
 3. the `accountKey` on a Google grant-revoke obligation in
-   `oauthCleanupObligations/*` (#800, `HMAC(pepper, 'google_<sub>')`). A later
-   connect of that Google account clears matching obligations, so a stale
-   revoke cannot kill the new connection.
+   `oauthCleanupObligations/*` (#800, `HMAC(pepper, 'google_<sub>')`). It
+   serves one optimisation: a successful connect of that Google account
+   clears its pending revocations by `accountKey`, under the current and the
+   previous pepper. It is not what protects the new connection. Before every
+   revoke, the nightly retry asks whether any live account holds a live
+   connection to that Google account (check 1 in
+   `lib/integrations/providers/production/oauthCleanupObligations.ts`), and
+   drops the obligation if one does. That check is a collection-group query
+   on the sealed Google `sub`. It needs no pepper and no `accountKey`, so a
+   rotation cannot weaken it.
 
-All three must be found under either key while a rotation is active. The app
-reads up to two keys:
+Uses 1 and 2 must be found under either key while a rotation is active. Use 3
+should be, but missing it costs only the optimisation. The app reads up to two
+keys:
 
 | Variable | Source | Meaning |
 |---|---|---|
@@ -172,8 +180,9 @@ reads up to two keys:
 
 Readers always check every configured key: tombstones, job lookup before a
 new job is minted, and obligation clearing. Writers use the selected key: new
-deletion jobs, and the first entry of the key list, which the obligation
-recorder takes. A stalled job is resumed at the path where it is stored, so a
+deletion jobs, and an obligation's `accountKey`. The obligation recorder takes
+the first entry of `providerAccountKeys` (`pepperedSubjectHashes`), and that
+list puts the writer's key first. A stalled job is resumed at the path where it is stored, so a
 job begun under the old key is finished under the old key, and finishing it
 needs no pepper at all.
 
@@ -333,8 +342,9 @@ under key N can still be finished after T2; step 4's check 2 waits for those.
 ### Step 4: back to steady on N+1 (per service: commit + deploy)
 
 `PREVIOUS` may be dropped only once nothing written under key N can still
-matter. All four checks are read-only. Run checks 2 and 3 against the
-service's own database: `staging` for staging, `(default)` for production.
+matter. All checks are read-only. Checks 0 to 2 must pass; item 3 is a note,
+not a gate. Run the queries against the service's own database: `staging` for
+staging, `(default)` for production.
 
 0. **No revision older than phase 2 can be reached**: the step 3 tag removal
    held, and the `.status.traffic` listing shows no tag on such a revision.
@@ -343,14 +353,16 @@ service's own database: `staging` for staging, `(default)` for production.
 2. **No deletion job from before T2 remains**, done or not. This covers a job
    that is in progress or stuck under key N; a repeat request would no longer
    find it.
-3. **No OAuth cleanup obligation from before T2 remains.** Its `accountKey` is
-   under key N. Once `PREVIOUS` is gone, a later connect of that Google
-   account cannot clear it, and its retry could revoke that new connection.
-   Obligations have no TTL. If one keeps failing, resolve it by hand under the
-   #800 runbook before going on. Do not drop `PREVIOUS` while one remains.
+3. *Note, not a gate:* OAuth cleanup obligations from before T2 carry a
+   key-N `accountKey`. Once `PREVIOUS` is gone, a later connect of that
+   Google account no longer clears them early. Nothing else changes. The
+   nightly retry still runs check 1 before every revoke and drops the
+   obligation if a live connection holds that authorization. So a leftover
+   loses only the optimisation, never the protection. The second query below
+   counts them, if you want to know.
 
-For checks 2 and 3, each query must print `0`. It selects only `status` or
-`kind`, so no uid or key is printed:
+For check 2, the first query must print `0`. Each query selects only
+`status` or `kind`, so no uid or key is printed:
 
 ```bash
 DB=staging   # or '(default)'
@@ -362,8 +374,8 @@ q() {
     -d "{\"structuredQuery\":{\"from\":[{\"collectionId\":\"$1\"}],\"where\":{\"fieldFilter\":{\"field\":{\"fieldPath\":\"$2\"},\"op\":\"LESS_THAN\",\"value\":{\"stringValue\":\"${T2}\"}}},\"select\":{\"fields\":[{\"fieldPath\":\"$3\"}]},\"limit\":20}}" \
     | jq '[.[] | select(.document)] | length'
 }
-q accountDeletions startedAt status
-q oauthCleanupObligations createdAt kind
+q accountDeletions startedAt status          # check 2: must be 0
+q oauthCleanupObligations createdAt kind     # note 3: informational
 ```
 
 Then set `<service>_phase=steady`, `<service>_current_version=N+1` and
