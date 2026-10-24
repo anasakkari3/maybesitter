@@ -33,7 +33,13 @@ import { randomUUID } from 'node:crypto';
 import { getStorage, requireUserId, userDoc } from '../storage';
 import type { StorageAdapter } from '../storage/storageAdapter';
 import { deletionHooks, type DeletionHook } from './deletionHooks';
-import { ACCOUNT_DELETIONS, deletionJobPath, subjectHashFor } from './deletionTombstone';
+import {
+  ACCOUNT_DELETIONS,
+  deletionJobLocations,
+  storedDeletionJobLocation,
+  subjectHashFor,
+  type DeletionJobLocation,
+} from './deletionTombstone';
 import { TOP_LEVEL_USER_COLLECTIONS } from './topLevelUserData';
 
 // The job record doubles as the deletion tombstone (#794), so its collection,
@@ -201,15 +207,6 @@ async function markDeleted(storage: StorageAdapter, uid: string, at: string): Pr
   });
 }
 
-/**
- * The job record. It is also the tombstone `getOrCreateTrust` reads (#794):
- * written first, never swept, and kept after the deletion is done, so nothing
- * here may delete it before its TTL does.
- */
-function jobPath(subjectHash: string): string {
-  return deletionJobPath(subjectHash);
-}
-
 function receiptPath(receiptId: string): string {
   return `${DELETION_RECEIPTS}/${receiptId}`;
 }
@@ -222,23 +219,56 @@ function receiptPath(receiptId: string): string {
  */
 export async function deleteAccount(uid: string, options: DeleteAccountOptions): Promise<DeletionReceipt> {
   requireUserId(uid);
+  // Every key's path, the writer's first (#798): a job or tombstone the other
+  // key wrote is found here, so a repeat request during or after a pepper
+  // rotation finishes that job instead of minting a second one.
+  return runDeletion(uid, options, deletionJobLocations(uid));
+}
+
+/**
+ * The deletion itself, against the job at one of `locations`.
+ *
+ * The job record is also the tombstone `getOrCreateTrust` reads (#794):
+ * written first, never swept, and kept after the deletion is done, so nothing
+ * here may delete it before its TTL does.
+ *
+ * The claim reads every location in one transaction and uses, in order: a job
+ * that is not done yet (it has work left, wherever it is), else a done one (its
+ * receipt is the answer), else creates the job at the first location. The
+ * subject hash is always the one the chosen path is named by, so a job begun
+ * under the old key keeps its old-key receipt and never needs the old pepper to
+ * be finished.
+ */
+async function runDeletion(
+  uid: string,
+  options: DeleteAccountOptions,
+  locations: readonly DeletionJobLocation[],
+): Promise<DeletionReceipt> {
+  if (locations.length === 0) throw new Error('a deletion needs somewhere to keep its job record');
   const storage = options.storage ?? getStorage();
   const now = options.now ?? new Date();
   const at = now.toISOString();
-  const subjectHash = subjectHashFor(uid);
-  const path = jobPath(subjectHash);
 
   // Claim the job. Two instances arriving together both get a record; the steps
   // below are idempotent, so the second finds the first one's work done.
-  const claimed = await storage.runTransaction(async (tx) => {
-    const existing = await tx.get<DeletionJobRecord>(path);
-    if (existing?.status === 'done') return existing;
+  const { location, claimed } = await storage.runTransaction(async (tx) => {
+    // Every read before any write, as a Firestore transaction requires.
+    const found: Array<{ location: DeletionJobLocation; job: DeletionJobRecord | null }> = [];
+    for (const candidate of locations) {
+      found.push({ location: candidate, job: await tx.get<DeletionJobRecord>(candidate.path) });
+    }
+    const chosen =
+      found.find((entry) => entry.job && entry.job.status !== 'done') ??
+      found.find((entry) => entry.job) ??
+      found[0]!;
+    const existing = chosen.job;
+    if (existing?.status === 'done') return { location: chosen.location, claimed: existing };
     const job: DeletionJobRecord = existing
       ? { ...existing, uid, status: 'in_progress', attempts: existing.attempts + 1, updatedAt: at }
       : {
           version: 'v1',
           uid,
-          subjectHash,
+          subjectHash: chosen.location.subjectHash,
           status: 'in_progress',
           steps: {},
           initiatedBy: options.initiatedBy,
@@ -247,9 +277,10 @@ export async function deleteAccount(uid: string, options: DeleteAccountOptions):
           attempts: 1,
           docsDeleted: 0,
         };
-    tx.set<DeletionJobRecord>(path, job);
-    return job;
+    tx.set<DeletionJobRecord>(chosen.location.path, job);
+    return { location: chosen.location, claimed: job };
   });
+  const { path, subjectHash } = location;
 
   // Already finished. Hand back the receipt that was written then, rather than
   // deleting an account twice and minting a second proof for one event.
@@ -376,27 +407,37 @@ export async function resumeStalledDeletions(options: {
 
   let resumed = 0;
   let stuck = 0;
-  for (const { data: job } of candidates) {
+  for (const { id, data: job } of candidates) {
     if (job.updatedAt > cutoff) continue;
     if (!job.uid) continue; // Nothing to finish: a done job keeps no uid.
+    // The job is finished where it is stored (#798). Re-deriving its path from
+    // `job.uid` with today's pepper would, after a rotation, start a second job
+    // under the new key and leave this one in progress, holding its raw uid.
+    let location: DeletionJobLocation;
+    try {
+      location = storedDeletionJobLocation(id);
+    } catch {
+      console.error('[account/delete] deletion_job_unrecognised: a job id is not a subject hash');
+      continue;
+    }
     if (job.attempts >= MAX_DELETION_ATTEMPTS) {
       stuck += 1;
       console.error(
-        `[account/delete] deletion_stuck subject=${subjectTag(job.subjectHash)} attempts=${job.attempts} steps=${JSON.stringify(job.steps)}`,
+        `[account/delete] deletion_stuck subject=${subjectTag(location.subjectHash)} attempts=${job.attempts} steps=${JSON.stringify(job.steps)}`,
       );
-      await storage.set<DeletionJobRecord>(jobPath(job.subjectHash), { ...job, status: 'stuck' });
+      await storage.set<DeletionJobRecord>(location.path, { ...job, status: 'stuck' });
       continue;
     }
     try {
-      await deleteAccount(job.uid, {
+      await runDeletion(job.uid, {
         initiatedBy: job.initiatedBy,
         now,
         storage,
         ...(options.auth ? { auth: options.auth } : {}),
-      });
+      }, [location]);
       resumed += 1;
     } catch (error) {
-      console.error(`[account/delete] resume failed for ${subjectTag(job.subjectHash)}`, error);
+      console.error(`[account/delete] resume failed for ${subjectTag(location.subjectHash)}`, error);
     }
   }
   return { resumed, stuck };

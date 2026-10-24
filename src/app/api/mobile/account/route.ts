@@ -1,4 +1,4 @@
-import { deleteAccount, subjectHashFor, subjectTag } from '../../../../../lib/account/accountDeletion';
+import { deleteAccount, subjectTag } from '../../../../../lib/account/accountDeletion';
 import { mobileAuthErrorResponse, requireMobileUser } from '../../../../../lib/auth/mobileAuth';
 import { RequestBodyTooLargeError, readJsonBody, requestBodyTooLargeResponse } from '../../../../../lib/net/requestBody';
 // Registers the Google revocation with the deletion engine: deleting the
@@ -58,7 +58,7 @@ export async function DELETE(request: Request) {
   // naming someone to delete would be the worst possible thing to trust.
   const receipt = await deleteAccount(user.uid, { initiatedBy: 'user' });
   // Only these two. A log line that named the account would outlive it.
-  console.info(`[account/delete] receipt=${receipt.receiptId} subject=${subjectTag(subjectHashFor(user.uid))}`);
+  console.info(`[account/delete] receipt=${receipt.receiptId} subject=${subjectTag(receipt.subjectHash)}`);
 
   return Response.json({
     success: true,

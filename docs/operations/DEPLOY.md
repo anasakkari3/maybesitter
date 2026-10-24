@@ -232,7 +232,14 @@ Both services mount the same three secrets (the runtime SA has
 
 | Env var | Secret | Used by |
 | --- | --- | --- |
-| `MAYBESITTER_DELETION_RECEIPT_PEPPER` | `maybesitter-deletion-receipt-pepper` | deletion receipts |
+| `MAYBESITTER_DELETION_RECEIPT_PEPPER` | `maybesitter-deletion-receipt-pepper` | deletion receipts and the deletion tombstone (#794) |
+| `MAYBESITTER_DELETION_RECEIPT_PEPPER_PREVIOUS` | `maybesitter-deletion-receipt-pepper` (the old version) | mounted only while a rotation is active (#798) |
+
+The pepper's versions, the `PREVIOUS` mapping and the plain env value
+`MAYBESITTER_DELETION_RECEIPT_PEPPER_WRITE` come from
+`infra/cloudrun/pepper-rotation.env`, so every deploy carries the rotation
+state that is committed. Rotate only by `GCP_BOOTSTRAP.md`, "Rotating the
+deletion-receipt pepper".
 | `MAYBESITTER_LLM_UID_SALT` | `maybesitter-llm-uid-salt` | the uid hash in model log lines (`lib/llm/llmLog.ts`) |
 | `FOOTBALL_DATA_API_KEY` | `maybesitter-football-data-api-key` | football fixtures (football-data.org) |
 

@@ -116,6 +116,99 @@ case "${TARGET}" in
     ;;
 esac
 
+# ── Deletion-receipt pepper rotation (#798) ─────────────────────────────────
+#
+# The pepper names the account-deletion tombstone (#794), so a rotation is two
+# deploys per service, driven by the committed state in pepper-rotation.env
+# (runbook: docs/operations/GCP_BOOTSTRAP.md, "Rotating the deletion-receipt
+# pepper"):
+#
+#   steady   PEPPER=<current>                      WRITE=current
+#   readers  PEPPER=<new>, PREVIOUS=<old>          WRITE=previous   (phase 1)
+#   writer   PEPPER=<new>, PREVIOUS=<old>          WRITE=current    (phase 2)
+#
+# Why it lives in a file and not in the workflow: --set-secrets replaces the
+# whole mounted set, and staging deploys on every merge, so a PREVIOUS mapping
+# added by hand would be dropped by the next unrelated deploy. A committed file
+# is read by every deploy, the workflow's and a human's alike, and is the same
+# input the tests run against (MAYBESITTER_PEPPER_ROTATION_FILE points them at
+# fixtures).
+#
+# WRITE is always emitted, `current` included. --update-env-vars merges, so a
+# `previous` left on the service by an earlier phase would otherwise survive
+# the return to steady.
+ROTATION_FILE="${MAYBESITTER_PEPPER_ROTATION_FILE:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/pepper-rotation.env}"
+ROTATION_KEYS="staging_phase staging_current_version staging_previous_version production_phase production_current_version production_previous_version"
+
+rotation_fail() {
+  echo "pepper-rotation.env: $1 (${ROTATION_FILE})" >&2
+  exit 2
+}
+
+[ -r "${ROTATION_FILE}" ] || rotation_fail "cannot read the rotation state file"
+rotation_seen=" "
+while IFS= read -r line || [ -n "${line}" ]; do
+  case "${line}" in ''|'#'*) continue ;; esac
+  case "${line}" in *=*) ;; *) rotation_fail "\"${line}\" is not KEY=VALUE" ;; esac
+  key="${line%%=*}"
+  value="${line#*=}"
+  case " ${ROTATION_KEYS} " in *" ${key} "*) ;; *) rotation_fail "unknown key ${key}" ;; esac
+  case "${rotation_seen}" in *" ${key} "*) rotation_fail "${key} is set twice" ;; esac
+  case "${value}" in *[!A-Za-z0-9]*) rotation_fail "${key} has a value with characters other than letters and digits" ;; esac
+  rotation_seen="${rotation_seen}${key} "
+  printf -v "rot_${key}" '%s' "${value}"
+done < "${ROTATION_FILE}"
+
+for key in ${ROTATION_KEYS}; do
+  case "${rotation_seen}" in *" ${key} "*) ;; *) rotation_fail "${key} is missing" ;; esac
+done
+
+# Every service's state is checked, not only the target's: a broken line for
+# production must fail the staging deploy and the tests, not wait for the
+# production dispatch.
+is_version() { case "$1" in ''|*[!0-9]*|0*) return 1 ;; *) return 0 ;; esac; }
+for service in staging production; do
+  phase_var="rot_${service}_phase"
+  current_var="rot_${service}_current_version"
+  previous_var="rot_${service}_previous_version"
+  phase="${!phase_var}"
+  current="${!current_var}"
+  previous="${!previous_var}"
+  case "${phase}" in
+    steady)
+      [ "${current}" = "latest" ] || is_version "${current}" || rotation_fail "${service}_current_version must be latest or a version number"
+      [ -z "${previous}" ] || rotation_fail "${service}_previous_version must be empty while ${service} is steady"
+      ;;
+    readers|writer)
+      is_version "${current}" || rotation_fail "${service}_current_version must be a pinned version number during a rotation"
+      is_version "${previous}" || rotation_fail "${service}_previous_version must be a pinned version number during a rotation"
+      [ "${current}" != "${previous}" ] || rotation_fail "${service} rotates from version ${previous} to itself"
+      ;;
+    *)
+      rotation_fail "${service}_phase must be steady, readers or writer"
+      ;;
+  esac
+done
+
+phase_var="rot_${TARGET}_phase"
+current_var="rot_${TARGET}_current_version"
+previous_var="rot_${TARGET}_previous_version"
+PEPPER_SECRET="maybesitter-deletion-receipt-pepper"
+pepper_secrets="MAYBESITTER_DELETION_RECEIPT_PEPPER=${PEPPER_SECRET}:${!current_var}"
+case "${!phase_var}" in
+  steady)
+    pepper_write="current"
+    ;;
+  readers)
+    pepper_write="previous"
+    pepper_secrets="${pepper_secrets},MAYBESITTER_DELETION_RECEIPT_PEPPER_PREVIOUS=${PEPPER_SECRET}:${!previous_var}"
+    ;;
+  writer)
+    pepper_write="current"
+    pepper_secrets="${pepper_secrets},MAYBESITTER_DELETION_RECEIPT_PEPPER_PREVIOUS=${PEPPER_SECRET}:${!previous_var}"
+    ;;
+esac
+
 # ── Cost guardrails (UC-4.5 #181) ───────────────────────────────────────────
 #
 # The Cloud Run bounds this issue asks for were already here from UC-1.0d
@@ -221,9 +314,12 @@ esac
 # has secretAccessor on each (checked 2026-09-29):
 #   MAYBESITTER_DELETION_RECEIPT_PEPPER  deletion receipts, and the id of the
 #                                        deletion tombstone first-time trust
-#                                        creation reads (#794). Do not rotate
-#                                        it: rotation is not safe yet (#798,
-#                                        GCP_BOOTSTRAP.md);
+#                                        creation reads (#794). Its version, and
+#                                        MAYBESITTER_DELETION_RECEIPT_PEPPER_PREVIOUS
+#                                        while a rotation is active, come from
+#                                        pepper-rotation.env (#798) -- never
+#                                        rotate it outside the GCP_BOOTSTRAP.md
+#                                        runbook;
 #   MAYBESITTER_LLM_UID_SALT             salts the uid hash in model log lines
 #                                        (lib/llm/llmLog.ts);
 #   FOOTBALL_DATA_API_KEY                football fixtures (football-data.org).
@@ -268,6 +364,6 @@ printf '%s ' \
   "--min-instances=0" \
   "--max-instances=${max_instances}" \
   "--startup-probe=httpGet.path=/api/health/ready,periodSeconds=5,failureThreshold=6" \
-  "--update-env-vars=^;^MAYBESITTER_ENV=${env_name};MAYBESITTER_FEATURE_CAPTURE_KINDS=${capture_kinds};MAYBESITTER_KILL_SWITCH_CAPTURE_KINDS=false;MAYBESITTER_FEATURE_FREE_SLOTS=${free_slots};MAYBESITTER_KILL_SWITCH_FREE_SLOTS=false;MAYBESITTER_FEATURE_EXTERNAL_CLASH_HOLD=${m4b_features};MAYBESITTER_KILL_SWITCH_EXTERNAL_CLASH_HOLD=false;MAYBESITTER_FEATURE_EVENING_IMPACT=${m4b_features};MAYBESITTER_KILL_SWITCH_EVENING_IMPACT=false;MAYBESITTER_FEATURE_SMART_POSTPONE=${m4b_features};MAYBESITTER_KILL_SWITCH_SMART_POSTPONE=false;MAYBESITTER_FEATURE_PROACTIVE_LOOP=${proactive_loop};MAYBESITTER_KILL_SWITCH_PROACTIVE_LOOP=false;MAYBESITTER_FEATURE_CALENDAR_CHOICE=${m5a_features};MAYBESITTER_KILL_SWITCH_CALENDAR_CHOICE=false;MAYBESITTER_FEATURE_EMAIL_SOURCES=${m5a_features};MAYBESITTER_KILL_SWITCH_EMAIL_SOURCES=false;MAYBESITTER_FEATURE_MEMORY_LEARNING=${m5b_features};MAYBESITTER_KILL_SWITCH_MEMORY_LEARNING=false;MAYBESITTER_FEATURE_SEARCH_HISTORY=${m6_features};MAYBESITTER_KILL_SWITCH_SEARCH_HISTORY=false;MAYBESITTER_FEATURE_MEMORY_TRANSLATION=${memory_translation};MAYBESITTER_KILL_SWITCH_MEMORY_TRANSLATION=false;MAYBESITTER_STORAGE_BACKEND=firestore;MAYBESITTER_FIRESTORE_DATABASE_ID=${database_id};GOOGLE_CLOUD_PROJECT=${PROJECT_ID};MAYBESITTER_LLM_PROVIDER=${llm_provider};MAYBESITTER_LLM_MODEL=gemini-2.5-flash;MAYBESITTER_VERTEX_LOCATION=${REGION};MAYBESITTER_GCP_PROJECT=${PROJECT_ID};MAYBESITTER_LLM_TIMEOUT_MS=8000;MAYBESITTER_LLM_MAX_RETRIES=1;MAYBESITTER_AI_DISABLED=${ai_disabled};MAYBESITTER_LLM_DAILY_CALL_CAP=60;MAYBESITTER_LLM_DAILY_TOKEN_CAP=150000;MAYBESITTER_LLM_MINUTE_CALL_CAP=8;MAYBESITTER_LLM_GLOBAL_DAILY_CALL_CAP=${global_daily_call_cap};MAYBESITTER_FEATURE_RECOMMENDATION=true;MAYBESITTER_KILL_SWITCH_RECOMMENDATION=false;MAYBESITTER_NEXT_STEP_ARM=personalized;MAYBESITTER_FEATURE_MEMORY=${memory_feature};MAYBESITTER_KILL_SWITCH_MEMORY=${memory_kill_switch};MAYBESITTER_KMS_KEY_NAME=${KMS_KEY_NAME};ICS_FEEDS_ENABLED=${ics_feeds};SHARE_INTAKE_ENABLED=true;MAYBESITTER_DEPLOYER_SA_EMAIL=${DEPLOYER_SA}${site_origins}" \
-  "--set-secrets=MAYBESITTER_DELETION_RECEIPT_PEPPER=maybesitter-deletion-receipt-pepper:latest,MAYBESITTER_LLM_UID_SALT=maybesitter-llm-uid-salt:latest,FOOTBALL_DATA_API_KEY=maybesitter-football-data-api-key:latest,MAYBESITTER_POSTPONE_SLOT_HMAC_KEY=maybesitter-postpone-slot-hmac-key:latest"
+  "--update-env-vars=^;^MAYBESITTER_ENV=${env_name};MAYBESITTER_FEATURE_CAPTURE_KINDS=${capture_kinds};MAYBESITTER_KILL_SWITCH_CAPTURE_KINDS=false;MAYBESITTER_FEATURE_FREE_SLOTS=${free_slots};MAYBESITTER_KILL_SWITCH_FREE_SLOTS=false;MAYBESITTER_FEATURE_EXTERNAL_CLASH_HOLD=${m4b_features};MAYBESITTER_KILL_SWITCH_EXTERNAL_CLASH_HOLD=false;MAYBESITTER_FEATURE_EVENING_IMPACT=${m4b_features};MAYBESITTER_KILL_SWITCH_EVENING_IMPACT=false;MAYBESITTER_FEATURE_SMART_POSTPONE=${m4b_features};MAYBESITTER_KILL_SWITCH_SMART_POSTPONE=false;MAYBESITTER_FEATURE_PROACTIVE_LOOP=${proactive_loop};MAYBESITTER_KILL_SWITCH_PROACTIVE_LOOP=false;MAYBESITTER_FEATURE_CALENDAR_CHOICE=${m5a_features};MAYBESITTER_KILL_SWITCH_CALENDAR_CHOICE=false;MAYBESITTER_FEATURE_EMAIL_SOURCES=${m5a_features};MAYBESITTER_KILL_SWITCH_EMAIL_SOURCES=false;MAYBESITTER_FEATURE_MEMORY_LEARNING=${m5b_features};MAYBESITTER_KILL_SWITCH_MEMORY_LEARNING=false;MAYBESITTER_FEATURE_SEARCH_HISTORY=${m6_features};MAYBESITTER_KILL_SWITCH_SEARCH_HISTORY=false;MAYBESITTER_FEATURE_MEMORY_TRANSLATION=${memory_translation};MAYBESITTER_KILL_SWITCH_MEMORY_TRANSLATION=false;MAYBESITTER_STORAGE_BACKEND=firestore;MAYBESITTER_FIRESTORE_DATABASE_ID=${database_id};GOOGLE_CLOUD_PROJECT=${PROJECT_ID};MAYBESITTER_LLM_PROVIDER=${llm_provider};MAYBESITTER_LLM_MODEL=gemini-2.5-flash;MAYBESITTER_VERTEX_LOCATION=${REGION};MAYBESITTER_GCP_PROJECT=${PROJECT_ID};MAYBESITTER_LLM_TIMEOUT_MS=8000;MAYBESITTER_LLM_MAX_RETRIES=1;MAYBESITTER_AI_DISABLED=${ai_disabled};MAYBESITTER_LLM_DAILY_CALL_CAP=60;MAYBESITTER_LLM_DAILY_TOKEN_CAP=150000;MAYBESITTER_LLM_MINUTE_CALL_CAP=8;MAYBESITTER_LLM_GLOBAL_DAILY_CALL_CAP=${global_daily_call_cap};MAYBESITTER_FEATURE_RECOMMENDATION=true;MAYBESITTER_KILL_SWITCH_RECOMMENDATION=false;MAYBESITTER_NEXT_STEP_ARM=personalized;MAYBESITTER_FEATURE_MEMORY=${memory_feature};MAYBESITTER_KILL_SWITCH_MEMORY=${memory_kill_switch};MAYBESITTER_KMS_KEY_NAME=${KMS_KEY_NAME};ICS_FEEDS_ENABLED=${ics_feeds};SHARE_INTAKE_ENABLED=true;MAYBESITTER_DEPLOYER_SA_EMAIL=${DEPLOYER_SA};MAYBESITTER_DELETION_RECEIPT_PEPPER_WRITE=${pepper_write}${site_origins}" \
+  "--set-secrets=${pepper_secrets},MAYBESITTER_LLM_UID_SALT=maybesitter-llm-uid-salt:latest,FOOTBALL_DATA_API_KEY=maybesitter-football-data-api-key:latest,MAYBESITTER_POSTPONE_SLOT_HMAC_KEY=maybesitter-postpone-slot-hmac-key:latest"
 printf '\n'
