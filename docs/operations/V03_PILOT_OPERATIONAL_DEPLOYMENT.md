@@ -249,6 +249,10 @@ account spent today" and no way to tell which was right.
 | calls across everyone per day | 3 000 (production: 500) | `MAYBESITTER_LLM_GLOBAL_DAILY_CALL_CAP` | everybody at once |
 | characters in one call | 20 000 | — | a paste that costs a day of ordinary use |
 
+The M5a email scan has its own fixed per-user minute cap of 30 calls
+(`M5A_USER_MINUTE_CALL_CAP`, on its own `m5aMinute` counter). `MAYBESITTER_LLM_MINUTE_CALL_CAP`
+does not cover it, and the monitor's proposal step (`lib/intelligence/gmailJobs.ts`) draws from it too.
+
 Calls are **reserved before** the model is asked; tokens are **committed after**
 it answers, because the true count is only known then. Both counters live on one
 document per user per UTC day, `users/<uid>/usage/<YYYY-MM-DD>`, with the global

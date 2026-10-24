@@ -147,7 +147,7 @@ export const CALENDAR_CHOICE_HEADER = 'X-MaybeSitter-Calendar-Choice';
  * so it goes on every request, the reads and the claims alike.
  */
 export const CLIENT_FEATURES_HEADER = 'X-MaybeSitter-Client-Features';
-export const CLIENT_FEATURES = 'readd,gmail-scan-daily-limit';
+export const CLIENT_FEATURES = 'readd,gmail-scan-daily-limit,gmail-scan-bulk,gmail-scan-unanalysed';
 
 function url(path: string, query: RequestOptions<unknown>['query']): string {
   const base = (apiBaseUrl() ?? '').replace(/\/+$/, '');

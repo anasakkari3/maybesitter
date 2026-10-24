@@ -2058,6 +2058,8 @@
   "m5ScanAdded": "{n, plural, one{# added from your own reply} other{# added from your own replies}}",
   "m5ScanUnavailable": "{n, plural, one{# email was deleted or changed before I got to it} other{# emails were deleted or changed before I got to them}}",
   "m5ScanTrimmed": "{n, plural, one{# very long email — I read only the start} other{# very long emails — I read only the start}}",
+  "m5ScanSkippedBulk": "Skipped {n, plural, one{# bulk email} other{# bulk emails}} — newsletters, ads and job alerts.",
+  "m5ScanUnanalysed": "{n, plural, one{# email I couldn't understand — I carried on past it} other{# emails I couldn't understand — I carried on past them}}",
   "m5ScanFailedReconnect": "Stopped partway: Google needs reconnecting",
   "m5ScanFailedSource": "Stopped partway: Gmail didn't answer",
   "m5ScanFailedAnalysis": "Stopped partway: I couldn't read the emails right now",

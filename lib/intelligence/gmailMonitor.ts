@@ -343,7 +343,7 @@ export async function runGmailMonitorTick(
               startedAt: at, finishedAt: null, failedAt: null, failure: null,
               pageToken: null, page: { ids: [...idOnly.ids], nextPageToken: null, done: [] },
               leaseOwner: null, leaseUntil: null, queued: null, nextEligibleAt: at,
-              messagesRead: 0, messagesUnavailable: 0, messagesTrimmed: 0,
+              messagesRead: 0, messagesSkippedBulk: 0, messagesUnanalysed: 0, messagesUnavailable: 0, messagesTrimmed: 0,
               observationsFound: 0, addedFromEmail: 0,
               monitorGeneration: acquired.generation, pauseEpoch: acquired.m5!.pauseEpoch,
               excluded: [...acquired.m5!.excluded], liveHistoryId: idOnly.historyId,

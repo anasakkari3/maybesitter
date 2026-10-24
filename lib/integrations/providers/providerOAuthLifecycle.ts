@@ -95,6 +95,96 @@ export interface ProviderOAuthClient {
   refreshAccessToken?(tokenSet: ProviderOAuthTokenSet): Promise<ProviderOAuthTokenSet>;
 }
 
+/**
+ * Cleanup an OAuth completion owes but could not finish (#800).
+ *
+ * A completion refused after the provider issued a grant — the account was
+ * deleted mid-flow (#772), the connection write failed, another account was
+ * picked — has to take back what it already holds: the credential it stored
+ * and, for some providers, the grant itself. When that cleanup call fails
+ * there is no connection record through which a disconnect or account
+ * deletion could ever retry it, so the obligation is written down here,
+ * outside the account's tree, and a scheduled job retries it until it lands
+ * (`retryOAuthCleanupObligations`).
+ *
+ * Each method resolves only once the obligation is durably recorded, and
+ * throws otherwise: a cleanup is never treated as done because its error was
+ * swallowed.
+ */
+export interface ProviderOAuthCleanupObligations {
+  recordCredentialDeletion(input: {
+    readonly scopeId: string;
+    readonly provider: ContextProviderKind;
+    readonly credentialRef: IntegrationCredentialReference;
+  }): Promise<void>;
+  /**
+   * `providerAccountId` is the provider's account the grant belongs to, when
+   * known. Some providers (Google) revoke the whole authorization for an
+   * account, so a later connection of that same account must cancel the
+   * pending revocation instead of being killed by it.
+   */
+  recordGrantRevocation(input: {
+    readonly provider: ContextProviderKind;
+    readonly tokenSet: ProviderOAuthTokenSet;
+    readonly providerAccountId?: string | null;
+  }): Promise<void>;
+}
+
+/** Test double: keeps what it was asked to record in memory. Never production. */
+export class MemoryProviderOAuthCleanupObligations implements ProviderOAuthCleanupObligations {
+  readonly credentialDeletions: Array<{ scopeId: string; provider: ContextProviderKind; credentialRef: IntegrationCredentialReference }> = [];
+  readonly grantRevocations: Array<{ provider: ContextProviderKind; tokenSet: ProviderOAuthTokenSet; providerAccountId?: string | null }> = [];
+
+  async recordCredentialDeletion(input: {
+    readonly scopeId: string;
+    readonly provider: ContextProviderKind;
+    readonly credentialRef: IntegrationCredentialReference;
+  }): Promise<void> {
+    this.credentialDeletions.push({ ...input });
+  }
+
+  async recordGrantRevocation(input: {
+    readonly provider: ContextProviderKind;
+    readonly tokenSet: ProviderOAuthTokenSet;
+    readonly providerAccountId?: string | null;
+  }): Promise<void> {
+    this.grantRevocations.push({ ...input });
+  }
+}
+
+/**
+ * The cleanup could not be done and could not be recorded either (#800).
+ *
+ * Carries the refusal the completion was answering, so a caller that owes
+ * more cleanup for that refusal (the Google grant on a deleted account) still
+ * sees which one it was. Says nothing about the token or the account.
+ */
+export class ProviderOAuthCleanupError extends Error {
+  constructor(readonly refusal: unknown) {
+    super('oauth_cleanup_unrecorded');
+    this.name = 'ProviderOAuthCleanupError';
+  }
+}
+
+/**
+ * Revokes a grant nobody will hold, or records that it still has to be
+ * revoked (#800). Throws only when it can do neither.
+ */
+export async function revokeOrRecordGrant(
+  client: ProviderOAuthClient,
+  tokenSet: ProviderOAuthTokenSet,
+  cleanup: ProviderOAuthCleanupObligations,
+  providerAccountId: string | null = null,
+): Promise<'revoked' | 'recorded'> {
+  try {
+    await client.revoke(tokenSet);
+    return 'revoked';
+  } catch {
+    await cleanup.recordGrantRevocation({ provider: client.provider, tokenSet, providerAccountId });
+    return 'recorded';
+  }
+}
+
 export interface BeginProviderOAuthInput {
   readonly scopeId: string;
   readonly provider: ContextProviderKind;
@@ -181,6 +271,7 @@ export async function completeProviderOAuth(
   connections: IntegrationConnectionStore,
   client: ProviderOAuthClient,
   input: CompleteProviderOAuthInput,
+  cleanup: ProviderOAuthCleanupObligations,
 ): Promise<IntegrationConnectionRecord> {
   if (!input.scopeId.trim() || !input.state.trim() || !input.code.trim() || !Number.isFinite(Date.parse(input.now))) {
     throw new ProviderOAuthError('invalid_request');
@@ -234,11 +325,21 @@ export async function completeProviderOAuth(
       provenance: { source: 'oauth', connectedBy: 'user', recordedAt: input.now },
     }, input.now);
   } catch (error) {
-    await vault.delete(credentialRef).catch(() => undefined);
-    // The account was deleted between the two writes (#772): the credential
-    // just stored is gone again, and the caller is told why.
-    if (error instanceof AccountUnavailableError) throw error;
-    throw new ProviderOAuthError('connection_store_failed');
+    // The account was deleted between the two writes (#772), or the write
+    // failed: the credential just stored has no record pointing at it, so it
+    // is taken back now — or, if that fails, recorded for the cleanup job
+    // (#800), since nothing else could ever find it again.
+    const refusal = error instanceof AccountUnavailableError ? error : new ProviderOAuthError('connection_store_failed');
+    try {
+      await vault.delete(credentialRef);
+    } catch {
+      try {
+        await cleanup.recordCredentialDeletion({ scopeId: input.scopeId, provider: input.provider, credentialRef });
+      } catch {
+        throw new ProviderOAuthCleanupError(refusal);
+      }
+    }
+    throw refusal;
   }
 }
 

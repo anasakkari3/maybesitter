@@ -23,6 +23,9 @@ import { resumeStalledDeletions } from '../account/accountDeletion';
 // without this import a resumed deletion would skip the Google revocation and
 // leave a live grant behind the deleted account (CL6a).
 import '../integrations/google/googleDeletionHook';
+import { retryOAuthCleanupObligations } from '../integrations/providers/production/oauthCleanupObligations';
+import { revokeGoogleGrantForCleanup } from '../integrations/google/googleConnectService';
+import { googleRuntime } from '../integrations/google/googleRuntime';
 import { runDailyPlanTick, type DailyPlanTickTotals } from '../services/dailyPlan/dailyPlanService';
 import { runHardReminderTick, type HardReminderTickTotals } from '../services/reminders/hardReminderJob';
 import { applyParticipantCommand } from '../services/mobile/participantState';
@@ -169,10 +172,30 @@ export async function runMaintenance(options: MaintenanceOptions = {}): Promise<
       if (totals.failed > 0) throw new Error(`${totals.failed} weekly block renewal(s) failed`);
       return totals.renewed;
     }],
-    // A deletion whose instance went away must still finish. It is last because
-    // it is the only step that can fail for a reason outside this service
-    // (#149).
+    // A deletion whose instance went away must still finish. It comes after
+    // the local sweeps because it can fail for a reason outside this service
+    // (#149), as can the OAuth cleanup retry after it.
     ['deletions_resumed', async () => (await resumeStalledDeletions({ now, ...withStorage })).resumed],
+    // #800: a credential or a provider grant a refused OAuth completion could
+    // not clean up — often because the account was being deleted — is retried
+    // here until it lands. One still owed fails the step, so Scheduler records
+    // it and retries; nothing about the account or the token is logged.
+    ['oauth_cleanups_retried', async () => {
+      // The Google chain's runtime sealed these (its KMS options) and owns the
+      // revoke call; in production both are the defaults.
+      const google = googleRuntime();
+      const totals = await retryOAuthCleanupObligations({
+        now,
+        ...withStorage,
+        ...(google.encryption ? { encryption: google.encryption } : {}),
+        revoke: async (provider, tokenSet) => {
+          if (provider !== 'google') throw new Error(`no revoker for provider ${provider}`);
+          await revokeGoogleGrantForCleanup(tokenSet, google);
+        },
+      });
+      if (totals.failed > 0) throw new Error(`${totals.failed} OAuth cleanup obligation(s) are still owed`);
+      return totals.cleared;
+    }],
   ];
 
   const results: MaintenanceStep[] = [];

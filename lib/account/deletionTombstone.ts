@@ -134,7 +134,28 @@ export function deletionTombstonePaths(
   uid: string,
   options: { readonly sharedStorage: boolean; readonly env?: NodeJS.ProcessEnv },
 ): string[] {
-  requireUserId(uid);
+  return pepperedSubjectHashes(uid, options).map(deletionJobPath);
+}
+
+/**
+ * `subjectHashFor` under every configured pepper (the current one, and the
+ * previous one while a rotation is within the tombstone TTL), the key new
+ * records are written under first (#798): `MAYBESITTER_DELETION_RECEIPT_PEPPER_WRITE`
+ * decides which, so a writer that takes the first entry writes the key every
+ * live revision reads during either phase of a rotation. Empty only
+ * where `storageMayHoldSharedTombstones` says no other process can have
+ * written under a pepper and this process has none; against shared storage a
+ * missing pepper is refused.
+ *
+ * Also the pseudonymous key an OAuth cleanup obligation (#800) carries for the
+ * provider account it would revoke, so a later connect of that account can
+ * find and clear it without anything storing the account id in plaintext.
+ */
+export function pepperedSubjectHashes(
+  subject: string,
+  options: { readonly sharedStorage: boolean; readonly env?: NodeJS.ProcessEnv },
+): string[] {
+  requireUserId(subject);
   const env = options.env ?? process.env;
   const current = env[PEPPER_ENV_VAR];
   if (!current) {
@@ -143,7 +164,7 @@ export function deletionTombstonePaths(
     }
     return [];
   }
-  return orderedPeppers(current, env, { strict: false }).map((pepper) => deletionJobPath(subjectHashFor(uid, pepper)));
+  return orderedPeppers(current, env, { strict: false }).map((pepper) => subjectHashFor(subject, pepper));
 }
 
 export type DeletionPepperWrite = 'current' | 'previous';

@@ -114,7 +114,17 @@ export interface ShareProviderOptions {
   log?: typeof logLlmCall;
   commit?: typeof commitUsage;
   now?: () => Date;
-  quotaPermit?: { permit: QuotaPermit; slot: number; storage?: ReserveOptions['storage'] };
+  quotaPermit?: {
+    permit: QuotaPermit;
+    slot: number;
+    storage?: ReserveOptions['storage'];
+    /**
+     * Runs once the permit slot has started and every free gate (kill switch,
+     * provider, consent, slot) has passed, immediately before the paid call.
+     * M5a counts an analysis attempt only from here (#815).
+     */
+    onStarted?: () => Promise<void>;
+  };
 }
 
 function sizeOf(parts: readonly LlmPart[]): { characters: number; bytes: number } {
@@ -197,9 +207,11 @@ export function shareLlmProvider(uid: string, options: ShareProviderOptions = {}
       });
       throw new LLMUnavailableError(reason);
     }
-
     const startedAt = Date.now();
     try {
+      // Inside the try: a hook refusal is an LLMUnavailableError with the usual
+      // `llm_call` line, and it stops the call before anything is sent.
+      if (options.quotaPermit?.onStarted) await options.quotaPermit.onStarted();
       const response = await provider.generateStructured({
         system: request.system,
         parts: request.parts,

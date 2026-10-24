@@ -24,6 +24,10 @@ jest.mock('expo-localization', () => ({
 
 let harness: M5aHarness | undefined;
 
+function exactTextPattern(value: string): RegExp {
+  return new RegExp(value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+}
+
 beforeEach(() => {
   jest.useFakeTimers();
   jest.setSystemTime(NOW);
@@ -57,6 +61,54 @@ describe('email status says what happened', () => {
     await waitFor(() => expect(screen.queryByTestId('email-scan-status')).not.toBeNull());
     expect(screen.getByTestId('email-scan-status')).toHaveTextContent(/Started /);
     expect(screen.getByTestId('email-scan-status')).toHaveTextContent(/\b2 added from your own replies/);
+  });
+
+  it.each<['ar' | 'en' | 'he', number, string]>([
+    ['ar', 1, 'تخطيت إيميل جماعي واحد — نشرات وإعلانات وتنبيهات وظائف.'],
+    ['ar', 2, 'تخطيت إيميلين جماعيين — نشرات وإعلانات وتنبيهات وظائف.'],
+    ['ar', 3, 'تخطيت 3 إيميلات جماعية — نشرات وإعلانات وتنبيهات وظائف.'],
+    ['ar', 11, 'تخطيت 11 إيميل جماعي — نشرات وإعلانات وتنبيهات وظائف.'],
+    ['en', 1, 'Skipped 1 bulk email — newsletters, ads and job alerts.'],
+    ['en', 2, 'Skipped 2 bulk emails — newsletters, ads and job alerts.'],
+    ['he', 1, 'דילגתי על מייל המוני אחד — ניוזלטרים, פרסומות והתראות משרות.'],
+    ['he', 2, 'דילגתי על שני מיילים המוניים — ניוזלטרים, פרסומות והתראות משרות.'],
+    ['he', 3, 'דילגתי על 3 מיילים המוניים — ניוזלטרים, פרסומות והתראות משרות.'],
+  ])('shows the bulk-skip line in %s for %i', async (language, count, expected) => {
+    harness = await prepare(language, initialState({ scanManual: completeScan({ messagesSkippedBulk: count }) }));
+    await showIntelligence(harness);
+    await waitFor(() => expect(screen.queryByTestId('email-scan-status')).not.toBeNull());
+    expect(screen.getByTestId('email-scan-status')).toHaveTextContent(exactTextPattern(expected));
+  });
+
+  it.each<['ar' | 'en' | 'he', number, string]>([
+    ['ar', 1, 'إيميل واحد ما قدرت أفهمه، كمّلت بعده'],
+    ['ar', 2, 'إيميلين ما قدرت أفهمهم، كمّلت بعدهم'],
+    ['ar', 3, '3 إيميلات ما قدرت أفهمهم، كمّلت بعدهم'],
+    ['ar', 11, '11 إيميل ما قدرت أفهمهم، كمّلت بعدهم'],
+    ['en', 1, "1 email I couldn't understand — I carried on past it"],
+    ['en', 2, "2 emails I couldn't understand — I carried on past them"],
+    ['he', 1, 'מייל אחד שלא הצלחתי להבין — המשכתי הלאה'],
+    ['he', 2, 'שני מיילים שלא הצלחתי להבין — המשכתי הלאה'],
+    ['he', 3, '3 מיילים שלא הצלחתי להבין — המשכתי הלאה'],
+  ])('#815 shows the unanalysed line in %s for %i', async (language, count, expected) => {
+    harness = await prepare(language, initialState({ scanManual: completeScan({ messagesUnanalysed: count }) }));
+    await showIntelligence(harness);
+    await waitFor(() => expect(screen.queryByTestId('email-scan-status')).not.toBeNull());
+    expect(screen.getByTestId('email-scan-status')).toHaveTextContent(exactTextPattern(expected));
+  });
+
+  it('#815 omits the unanalysed line when every email was understood', async () => {
+    harness = await prepare('en', initialState({ scanManual: completeScan({ messagesUnanalysed: 0 }) }));
+    await showIntelligence(harness);
+    await waitFor(() => expect(screen.queryByTestId('email-scan-status')).not.toBeNull());
+    expect(screen.getByTestId('email-scan-status')).not.toHaveTextContent(/couldn't understand/);
+  });
+
+  it('omits the bulk-skip line when nothing was skipped', async () => {
+    harness = await prepare('en', initialState({ scanManual: completeScan({ messagesSkippedBulk: 0 }) }));
+    await showIntelligence(harness);
+    await waitFor(() => expect(screen.queryByTestId('email-scan-status')).not.toBeNull());
+    expect(screen.getByTestId('email-scan-status')).not.toHaveTextContent(/bulk email/);
   });
 
   it('REV-012: each added row shows when the commitment is', async () => {

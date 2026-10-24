@@ -52,6 +52,8 @@ export const DEFAULT_USER_DAILY_TOKEN_CAP = 150_000;
  * loop, which can spend the whole day's budget in under a minute.
  */
 export const DEFAULT_USER_MINUTE_CAP = 8;
+/** M5a's independent per-user calls per minute (owner decision 2026-10-24). */
+export const M5A_USER_MINUTE_CALL_CAP = 30;
 /** M5a's independent per-user daily call budget (owner decision 2026-10-24). */
 export const M5A_USER_DAILY_CALL_CAP = 300;
 /** M5a's independent per-user daily token budget (300 ordinary scan calls, rounded). */
@@ -160,6 +162,9 @@ export interface UsageDay {
    */
   minute?: string;
   minuteCalls?: number;
+  /** M5a's independent minute window and reservation count. */
+  m5aMinute?: string;
+  m5aMinuteCalls?: number;
   /** When Firestore's TTL policy may delete this document. */
   expireAt?: string;
 }
@@ -262,8 +267,8 @@ function nextUtcMinute(now: Date): Date {
 /**
  * Reserves a complete M5a unit before its first model call. Its per-user calls
  * and tokens live in a separate ledger, so a mailbox scan cannot consume the
- * person's capture/chat budget. The shared minute counter still stops loops,
- * and the global counters remain the project's spend brake.
+ * person's capture/chat budget. Its own minute counter stops scan loops, and
+ * the global counters remain the project's spend brake.
  */
 export async function reserveQuotaPermit(
   uid: string,
@@ -290,13 +295,13 @@ export async function reserveQuotaPermit(
     && input.slotBudgets.reduce((sum, value) => sum + value, 0) === tokenBudget
     ? [...input.slotBudgets] : undefined;
   const globalCap = options.globalCap ?? capFrom(process.env.MAYBESITTER_LLM_GLOBAL_DAILY_CALL_CAP, DEFAULT_GLOBAL_DAILY_CAP);
-  const minuteCap = options.minuteCap ?? capFrom(process.env.MAYBESITTER_LLM_MINUTE_CALL_CAP, DEFAULT_USER_MINUTE_CAP);
+  const minuteCap = options.minuteCap ?? M5A_USER_MINUTE_CALL_CAP;
   try {
     const outcome = await storage.runTransaction(async tx => {
       const [userDay, globalDay] = await Promise.all([
         tx.get<UsageDay>(userPath), tx.get<UsageDay>(globalPath),
       ]);
-      const minuteCalls = userDay?.minute === minute ? userDay.minuteCalls ?? 0 : 0;
+      const minuteCalls = userDay?.m5aMinute === minute ? userDay.m5aMinuteCalls ?? 0 : 0;
       const userCalls = userDay?.calls ?? 0;
       const globalCalls = globalDay?.calls ?? 0;
       const userM5a = userDay?.m5aCalls ?? 0;
@@ -313,7 +318,8 @@ export async function reserveQuotaPermit(
         reservedTokens: userDay?.reservedTokens ?? 0,
         m5aCalls: userM5a + input.calls, m5aReservedTokens: heldTokens + tokenBudget,
         m5aInputTokens: userDay?.m5aInputTokens ?? 0, m5aOutputTokens: userDay?.m5aOutputTokens ?? 0,
-        minute, minuteCalls: minuteCalls + input.calls, expireAt: expireAtFor(now),
+        ...(userDay?.minute ? { minute: userDay.minute, minuteCalls: userDay.minuteCalls ?? 0 } : {}),
+        m5aMinute: minute, m5aMinuteCalls: minuteCalls + input.calls, expireAt: expireAtFor(now),
       });
       tx.set<UsageDay>(globalPath, {
         calls: globalCalls + input.calls, date: day, updatedAt: at,
@@ -384,6 +390,7 @@ export async function settleQuotaPermitSlot(
       m5aInputTokens: (usage?.m5aInputTokens ?? 0) + promptTokens,
       m5aOutputTokens: (usage?.m5aOutputTokens ?? 0) + outputTokens,
       ...(usage?.minute ? { minute: usage.minute, minuteCalls: usage.minuteCalls ?? 0 } : {}),
+      ...(usage?.m5aMinute ? { m5aMinute: usage.m5aMinute, m5aMinuteCalls: usage.m5aMinuteCalls ?? 0 } : {}),
       expireAt: expireAtFor(now),
     });
   });
@@ -481,6 +488,7 @@ export async function reserveCall(
         m5aReservedTokens: userDay?.m5aReservedTokens ?? 0,
         m5aInputTokens: userDay?.m5aInputTokens ?? 0,
         m5aOutputTokens: userDay?.m5aOutputTokens ?? 0,
+        ...(userDay?.m5aMinute ? { m5aMinute: userDay.m5aMinute, m5aMinuteCalls: userDay.m5aMinuteCalls ?? 0 } : {}),
         minute,
         minuteCalls: minuteCalls + 1,
         expireAt: expireAtFor(now),
@@ -548,6 +556,7 @@ export async function commitUsage(
         m5aInputTokens: current?.m5aInputTokens ?? 0,
         m5aOutputTokens: current?.m5aOutputTokens ?? 0,
         ...(current?.minute ? { minute: current.minute, minuteCalls: current.minuteCalls ?? 0 } : {}),
+        ...(current?.m5aMinute ? { m5aMinute: current.m5aMinute, m5aMinuteCalls: current.m5aMinuteCalls ?? 0 } : {}),
         expireAt: expireAtFor(now),
       });
     });

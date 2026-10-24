@@ -286,6 +286,8 @@ test('maintenance: every sweep runs, and it reports each one', async () => {
     'weekly_blocks_renewed',
     // UC-1.5 (#149): a deletion whose instance went away is finished here.
     'deletions_resumed',
+    // #800: an OAuth cleanup a refused completion still owes is retried here.
+    'oauth_cleanups_retried',
   ]);
 });
 
@@ -335,6 +337,7 @@ test('maintenance: one unreachable store does not stop the other sweeps, and the
       clarifications_pruned: true,
       weekly_blocks_renewed: true,
       deletions_resumed: true,
+      oauth_cleanups_retried: true,
     });
   } finally {
     console.error = errorLog;

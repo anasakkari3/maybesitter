@@ -49,6 +49,27 @@ describe('count messages on an engine without Intl.PluralRules (Hermes)', () => 
     expect(tFor('he')('confirmN', { n: 2 })).toBe('אישור שתי התחייבויות');
   });
 
+  it('keeps every Arabic bulk-mail plural category', () => {
+    const t = tFor('ar');
+    expect(t('m5ScanSkippedBulk', { n: 0 })).toContain('ولا إيميل جماعي');
+    expect(t('m5ScanSkippedBulk', { n: 1 })).toContain('إيميل جماعي واحد');
+    expect(t('m5ScanSkippedBulk', { n: 2 })).toContain('إيميلين جماعيين');
+    expect(t('m5ScanSkippedBulk', { n: 3 })).toContain('3 إيميلات جماعية');
+    expect(t('m5ScanSkippedBulk', { n: 11 })).toContain('11 إيميل جماعي');
+    expect(t('m5ScanSkippedBulk', { n: 100 })).toContain('100 إيميل جماعي');
+  });
+
+  it('#815 keeps every Arabic unanalysed-mail plural category, spoken «# إيميل»', () => {
+    const t = tFor('ar');
+    expect(t('m5ScanUnanalysed', { n: 0 })).toBe('فهمت كل الإيميلات');
+    expect(t('m5ScanUnanalysed', { n: 1 })).toBe('إيميل واحد ما قدرت أفهمه، كمّلت بعده');
+    expect(t('m5ScanUnanalysed', { n: 2 })).toBe('إيميلين ما قدرت أفهمهم، كمّلت بعدهم');
+    expect(t('m5ScanUnanalysed', { n: 3 })).toBe('3 إيميلات ما قدرت أفهمهم، كمّلت بعدهم');
+    expect(t('m5ScanUnanalysed', { n: 11 })).toBe('11 إيميل ما قدرت أفهمهم، كمّلت بعدهم');
+    expect(t('m5ScanUnanalysed', { n: 100 })).toBe('100 إيميل ما قدرت أفهمهم، كمّلت بعدهم');
+    for (const n of [0, 1, 2, 3, 11, 100]) expect(t('m5ScanUnanalysed', { n })).not.toContain('إيميلًا');
+  });
+
   it('never leaks the ICU syntax', () => {
     for (const locale of ['en', 'ar', 'he'] as const) {
       const t = tFor(locale);

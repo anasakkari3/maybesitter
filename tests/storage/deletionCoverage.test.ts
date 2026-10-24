@@ -52,6 +52,10 @@ const NOT_USER_SCOPED = new Set([
   // pre-account personal data deleted on request, the window as holding none.
   'EARLY_ACCESS_REGISTRATIONS',
   'EARLY_ACCESS_RATE_LIMITS',
+  // OAuth cleanup a refused completion still owes (#800): it must outlive the
+  // account deletion that sweeps the tree, so it lives beside it. Declared in
+  // `TOP_LEVEL_COLLECTIONS_WITHOUT_USER_DATA`: the uid and tokens are sealed.
+  'OAUTH_CLEANUP_OBLIGATIONS',
 ]);
 
 test('deleteTree(users/U) leaves nothing of U in any user collection, and nothing of V is lost', async () => {
