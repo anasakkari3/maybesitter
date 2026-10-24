@@ -132,13 +132,21 @@ const DUAL_TRANSLATIONS: Readonly<Record<string, readonly string[]>> = {
   شغلتين: ['jobs', 'things', 'עבודות'],
   كتابين: ['books', 'ספרים'],
   لغتين: ['languages', 'שפות'],
+  خيين: ['brothers', 'אחים'],
+  صاحبين: ['friends', 'חברים'],
+  رفيقين: ['friends', 'חברים'],
+  جارين: ['neighbors', 'neighbours', 'שכנים'],
+  مدرستين: ['schools', 'בתי'],
+  جامعتين: ['universities', 'אוניברסיטאות'],
 };
 const TWO_WORDS = new Set(['two', 'שני', 'שתי']);
 
 function translatesArabicDual(word: string, next: string | undefined, cited: readonly MemorySummaryInputRow[], language: MemorySummaryLanguage): boolean {
   if (language === 'ar' || !TWO_WORDS.has(word) || next === undefined) return false;
+  // «שני הילדים»: the noun after the number may carry the article.
+  const nouns = HebrewReadings(next);
   return cited.some((row) => words(row.text).some((token) => ArabicReadings(token)
-    .some((reading) => DUAL_TRANSLATIONS[reading]?.includes(next) === true)));
+    .some((reading) => nouns.some((noun) => DUAL_TRANSLATIONS[reading]?.includes(noun) === true))));
 }
 
 function copiedWord(word: string, cited: readonly MemorySummaryInputRow[]): boolean {

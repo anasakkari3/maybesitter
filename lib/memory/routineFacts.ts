@@ -85,9 +85,9 @@ export function isCanonicalRoutineFact(content: string): boolean {
   const key = routineFactKeyOf(content);
   if (key === null) return false;
   const value = content.slice(key.length + 1);
-  return key === 'reminder_intensity'
-    ? (REMINDER_INTENSITIES as readonly string[]).includes(value)
-    : WINDOW_VALUE.test(value);
+  if (key === 'reminder_intensity') return (REMINDER_INTENSITIES as readonly string[]).includes(value);
+  // The survey never writes a window that starts where it ends (parseWindow).
+  return WINDOW_VALUE.test(value) && value.slice(0, 5) !== value.slice(6);
 }
 
 function windowValue(window: RoutineTimeWindow): string {

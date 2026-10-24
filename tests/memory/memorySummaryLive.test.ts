@@ -165,3 +165,16 @@ test('«الاثنين» is a weekday only after a day word, even beside a row t
   assert.notEqual(both('بتروح عالنادي أيام الاثنين، وعندك ولاد بالمدرسة.', 'ar'), null);
   assert.equal(both('כל שני פרקים אתה הולך לחדר כושר ויש לך ילדים בבית הספר.', 'he'), null);
 });
+
+// Inspection round 3: the duals kept from the first list, the Hebrew article,
+// and a window no survey writes.
+test('friends, neighbours, schools and the Hebrew article pass; a zero-length window is not a survey row', async () => {
+  const { validateMemorySummary } = await import('../../lib/services/mobile/memorySummary.ts');
+  const { isCanonicalRoutineFact } = await import('../../lib/memory/routineFacts.ts');
+  const one = (text: string, row: string, language: 'en' | 'he') => validateMemorySummary({ sentences: [{ text, refs: ['r1'] }] }, [{ ref: 'r1', id: 'x', kind: 'fact', text: row }], language);
+  assert.notEqual(one('You have two friends at university.', 'عندي صاحبين بالجامعة', 'en'), null);
+  assert.notEqual(one('You have two neighbors who help you.', 'عندي جارين بساعدوني', 'en'), null);
+  assert.notEqual(one('שני הילדים שלך בבית הספר.', 'عندي ولدين بالمدرسة', 'he'), null);
+  assert.equal(isCanonicalRoutineFact('quiet_hours:22:30-07:00'), true);
+  assert.equal(isCanonicalRoutineFact('quiet_hours:12:00-12:00'), false);
+});
