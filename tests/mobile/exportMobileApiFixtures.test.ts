@@ -244,8 +244,6 @@ import {
   currentStorage as m5aStorage,
   end as endM5a,
   grantCalendarConsent as grantM5aCalendarConsent,
-  scanNew as scanM5aNew,
-  scanResume as scanM5aResume,
   semanticModel as m5aSemanticModel,
   setM5aSwitches,
 } from '../acceptance/m5a/support.ts';
@@ -3938,49 +3936,57 @@ test('exports the M5a fixtures from the real handlers', async () => {
     await recordM4b('calendar.register.too-many-phones', 409, await register(uid, 'phone-21'));
   });
 
+  const scanFeatureHeaders = { 'X-MaybeSitter-Client-Features': 'gmail-scan-daily-limit,gmail-scan-bulk' };
+  const scanRequest = (uid: string) => callM5a(uid, 'intelligence/sources/gmail/scan', 'GET', { headers: scanFeatureHeaders });
   const baseScan = (status: 'running' | 'complete' | 'failed', patch: Record<string, unknown> = {}) => ({
     scanId: 'fixture-scan', kind: 'manual', status, origin: 'manual', providerAccountId: 'fixture@example.com', emailEpoch: 0,
     query: 'after:1 before:2', from: '2026-10-12T10:00:00.000Z', until: REFERENCE_TIME, timezone: 'Asia/Jerusalem',
     startedAt: REFERENCE_TIME, finishedAt: status === 'complete' ? REFERENCE_TIME : null,
     failedAt: status === 'failed' ? REFERENCE_TIME : null, failure: status === 'failed' ? 'source_unavailable' : null,
     pageToken: null, page: null, leaseOwner: null, leaseUntil: null, queued: null, nextEligibleAt: REFERENCE_TIME,
-    messagesRead: 2, messagesUnavailable: 1, messagesTrimmed: 0, observationsFound: 1, addedFromEmail: 0,
+    messagesRead: 2, messagesSkippedBulk: 1, messagesUnavailable: 1, messagesTrimmed: 0, observationsFound: 1, addedFromEmail: 0,
     ...patch,
   });
 
   await scenario(async (uid) => {
     for (const status of ['running', 'complete'] as const) {
       await m5aStorage().set(scanPath(uid), baseScan(status));
-      await recordM4b(`intelligence.scan.${status}`, 200, await callM5a(uid, 'intelligence/sources/gmail/scan', 'GET'));
+      await recordM4b(`intelligence.scan.${status}`, 200, await scanRequest(uid));
     }
     for (const failure of ['reconnect_needed', 'source_unavailable', 'analysis_unavailable', 'monitoring_off']) {
       await m5aStorage().set(scanPath(uid), baseScan('failed', { failure }));
-      await recordM4b(`intelligence.scan.failed.${failure}`, 200, await callM5a(uid, 'intelligence/sources/gmail/scan', 'GET'));
+      await recordM4b(`intelligence.scan.failed.${failure}`, 200, await scanRequest(uid));
     }
     await m5aStorage().set(scanPath(uid), baseScan('failed', { failure: 'daily_limit' }));
     const legacyDailyLimit = await callM5a(uid, 'intelligence/sources/gmail/scan', 'GET');
     assert.equal((legacyDailyLimit.body.manual as { failure: string }).failure, 'analysis_unavailable',
       'a strict-enum older app received the new failure without announcing support');
-    await recordM4b('intelligence.scan.failed.daily_limit', 200, await callM5a(uid, 'intelligence/sources/gmail/scan', 'GET', {
-      headers: { 'X-MaybeSitter-Client-Features': 'gmail-scan-daily-limit' },
-    }));
+    assert.equal('messagesSkippedBulk' in (legacyDailyLimit.body.manual as Record<string, unknown>), false,
+      'a strict older app received the bulk counter without announcing support');
+    await recordM4b('intelligence.scan.failed.daily_limit', 200, await scanRequest(uid));
     await m5aStorage().set(scanPath(uid), baseScan('running', { queued: {
       scanId: 'queued-fixture', origin: 'backfill', from: '2026-10-12T10:00:00.000Z', until: REFERENCE_TIME,
       acceptedAt: REFERENCE_TIME, timezone: 'Asia/Jerusalem', providerAccountId: 'fixture@example.com', emailEpoch: 0,
     } }));
-    await recordM4b('intelligence.scan.queued', 200, await callM5a(uid, 'intelligence/sources/gmail/scan', 'GET'));
+    await recordM4b('intelligence.scan.queued', 200, await scanRequest(uid));
     await m5aStorage().set(scanPath(uid, 'dailyV2'), { ...baseScan('running'), status: 'held', day: '2026-10-18', heldAt: REFERENCE_TIME, reason: 'no_timezone' });
-    await recordM4b('intelligence.scan.daily-held', 200, await callM5a(uid, 'intelligence/sources/gmail/scan', 'GET'));
+    await recordM4b('intelligence.scan.daily-held', 200, await scanRequest(uid));
   });
 
   await scenario(async (uid) => {
     beginM5aGoogle(m5aSemanticModel(() => []));
     await connectM5aGoogle(uid, 'gmail');
-    const created = await recordM4b('intelligence.scan.post.new', 200, await scanM5aNew(uid));
+    const created = await recordM4b('intelligence.scan.post.new', 200, await callM5a(uid, 'intelligence/sources/gmail/scan', 'POST', {
+      headers: scanFeatureHeaders, body: { m5: true, intent: 'new', timezone: 'Asia/Jerusalem' },
+    }));
     const scanId = (created.scan as { scanId: string }).scanId;
     await m5aStorage().set(scanPath(uid), baseScan('failed', { scanId }));
-    await recordM4b('intelligence.scan.post.resume', 200, await scanM5aResume(uid, scanId));
-    await recordM4b('intelligence.scan.post.stale-resume', 200, await scanM5aResume(uid, 'stale-fixture-scan'));
+    await recordM4b('intelligence.scan.post.resume', 200, await callM5a(uid, 'intelligence/sources/gmail/scan', 'POST', {
+      headers: scanFeatureHeaders, body: { m5: true, intent: 'resume', expectedScanId: scanId, timezone: 'Asia/Jerusalem' },
+    }));
+    await recordM4b('intelligence.scan.post.stale-resume', 200, await callM5a(uid, 'intelligence/sources/gmail/scan', 'POST', {
+      headers: scanFeatureHeaders, body: { m5: true, intent: 'resume', expectedScanId: 'stale-fixture-scan', timezone: 'Asia/Jerusalem' },
+    }));
     await recordM4b('intelligence.monitor.get', 200, await callM5a(uid, 'intelligence/sources/gmail/monitor', 'GET'));
     await recordM4b('intelligence.monitor.post', 200, await callM5a(uid, 'intelligence/sources/gmail/monitor', 'POST', {
       body: { enabled: true, enrollM5: true, timezone: 'Asia/Jerusalem' },

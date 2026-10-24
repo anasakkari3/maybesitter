@@ -63,10 +63,12 @@ test('M5A-R6-001: an M5a scan writes manualV2 and never touches latest', async (
 });
 
 test('R2.1 / M5A-R36-006: every message of the frozen 7-day window is read, all categories, across 100-id pages, no cap', async () => {
-  const { uid, google } = await setup(250);
+  const { uid, google, model } = await setup(250);
   const status = await runScanToEnd(uid, 300);
   assert.equal(status.manual?.status, 'complete', show(status));
   assert.equal(status.manual.messagesRead, 250);
+  assert.equal(status.manual.messagesSkippedBulk, 84);
+  assert.equal(model.calls(), 166, 'bulk messages reached the semantic model');
   assert.equal(new Set(google.gets).size, 250, 'not every message was fetched');
   const lists = google.listQueries.filter((entry) => entry.q?.includes('after:'));
   assert.ok(lists.length >= 3, 'expected at least three listing pages');
@@ -81,11 +83,12 @@ test('R2.2 / G-1: the status is a strict union with scanId, origin, window, star
   const status = await runScanToEnd(uid);
   const manual = status.manual;
   assert.equal(manual.status, 'complete');
-  for (const field of ['scanId', 'origin', 'from', 'until', 'startedAt', 'finishedAt', 'messagesRead', 'messagesUnavailable', 'messagesTrimmed', 'observationsFound', 'addedFromEmail']) {
+  for (const field of ['scanId', 'origin', 'from', 'until', 'startedAt', 'finishedAt', 'messagesRead', 'messagesUnavailable', 'messagesTrimmed', 'messagesSkippedBulk', 'observationsFound', 'addedFromEmail']) {
     assert.ok(field in manual, `ScanStatus lacks ${field}`);
   }
   assert.equal(manual.origin, 'manual');
-  assert.equal(manual.observationsFound, 3);
+  assert.equal(manual.observationsFound, 2);
+  assert.equal(manual.messagesSkippedBulk, 1);
   assert.equal(manual.addedFromEmail, 0);
 });
 
