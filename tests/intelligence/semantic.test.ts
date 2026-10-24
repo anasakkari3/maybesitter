@@ -29,3 +29,16 @@ test('the prompt keeps promotions and a closing "let me know" out of what is add
   assert.ok(!/automated notices are not addressed/.test(prompt));
   assert.match(prompt, /One ask is one request/);
 });
+
+// Staging, 2026-10-24: a long e-mail's answer was cut at 1,024 output tokens
+// mid-JSON, so the scan stopped and every resume failed on the same message.
+test('the source read leaves room for its answer and asks for at most 12 observations', async () => {
+  const { SEMANTIC_MAX_OUTPUT_TOKENS, analyzeSourceStaged } = await import('../../lib/intelligence/analyzeSource.ts');
+  assert.ok(SEMANTIC_MAX_OUTPUT_TOKENS >= 2_048);
+  assert.match(semanticPrompt(), /at most 12 observations/);
+  let requested: number | undefined;
+  await analyzeSourceStaged('uid-1', 'gmail', 'Please review the report by Friday.', {
+    generate: async (request: { maxOutputTokens?: number }) => { requested = request.maxOutputTokens; return { text: '{"observations":[]}' } as never; },
+  } as never);
+  assert.equal(requested, SEMANTIC_MAX_OUTPUT_TOKENS);
+});

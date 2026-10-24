@@ -25,6 +25,13 @@ const SCHEMA = {
   required: ['observations'],
 } as const;
 
+/**
+ * Room for the answer. At 1,024 a long e-mail's answer was cut mid-JSON
+ * (1,012 output tokens, staging 2026-10-24): the parse failed, the scan
+ * stopped, and every resume retried the same message the same way.
+ */
+export const SEMANTIC_MAX_OUTPUT_TOKENS = 2_048;
+
 /** A bounded read. The source text itself is never persisted or logged. */
 export async function analyzeSource(
   uid: string,
@@ -44,7 +51,7 @@ export async function analyzeSource(
       system: semanticPrompt(),
       parts: [wrapUntrustedShared(content)],
       responseSchema: toVertexSchema(SCHEMA),
-      maxOutputTokens: 1_024,
+      maxOutputTokens: SEMANTIC_MAX_OUTPUT_TOKENS,
       timeoutMs: 8_000,
       retry: false,
     });
@@ -76,7 +83,7 @@ export async function analyzeSourceStaged(
       system: semanticPrompt(),
       parts: [wrapUntrustedShared(content)],
       responseSchema: toVertexSchema(SCHEMA),
-      maxOutputTokens: 1_024,
+      maxOutputTokens: SEMANTIC_MAX_OUTPUT_TOKENS,
       timeoutMs: 8_000,
       retry: false,
     });
