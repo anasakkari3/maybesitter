@@ -49,6 +49,16 @@ describe('count messages on an engine without Intl.PluralRules (Hermes)', () => 
     expect(tFor('he')('confirmN', { n: 2 })).toBe('אישור שתי התחייבויות');
   });
 
+  it('keeps every Arabic bulk-mail plural category', () => {
+    const t = tFor('ar');
+    expect(t('m5ScanSkippedBulk', { n: 0 })).toContain('ولا إيميل جماعي');
+    expect(t('m5ScanSkippedBulk', { n: 1 })).toContain('إيميل جماعي واحد');
+    expect(t('m5ScanSkippedBulk', { n: 2 })).toContain('إيميلين جماعيين');
+    expect(t('m5ScanSkippedBulk', { n: 3 })).toContain('3 إيميلات جماعية');
+    expect(t('m5ScanSkippedBulk', { n: 11 })).toContain('11 إيميل جماعي');
+    expect(t('m5ScanSkippedBulk', { n: 100 })).toContain('100 إيميل جماعي');
+  });
+
   it('never leaks the ICU syntax', () => {
     for (const locale of ['en', 'ar', 'he'] as const) {
       const t = tFor(locale);

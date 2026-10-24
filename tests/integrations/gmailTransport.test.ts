@@ -299,6 +299,64 @@ test('a message is assembled from the get, not from the history stub', async () 
   assert.equal(item?.text, BODY_TEXT_PLAIN);
 });
 
+test('bulk metadata signals are classified before any model-facing adapter', async (t) => {
+  const cases = [
+    { name: 'promotions label', labelIds: ['CATEGORY_PROMOTIONS'] },
+    { name: 'social label', labelIds: ['CATEGORY_SOCIAL'] },
+    { name: 'forums label', labelIds: ['CATEGORY_FORUMS'] },
+    { name: 'List-Unsubscribe header', header: { name: 'List-Unsubscribe', value: '<mailto:leave@example.org>' } },
+    { name: 'List-Id header', header: { name: 'List-Id', value: 'news.example.org' } },
+    { name: 'bulk precedence', header: { name: 'Precedence', value: 'bulk' } },
+    { name: 'list precedence', header: { name: 'Precedence', value: 'list' } },
+    { name: 'junk precedence', header: { name: 'Precedence', value: 'junk' } },
+  ] as const;
+  for (const entry of cases) await t.test(entry.name, async () => {
+    const body = {
+      ...MESSAGE_FULL.body,
+      labelIds: 'labelIds' in entry ? [...entry.labelIds] : ['INBOX'],
+      payload: {
+        ...MESSAGE_FULL.body.payload!,
+        headers: [...(MESSAGE_FULL.body.payload?.headers ?? []), ...('header' in entry ? [entry.header] : [])],
+      },
+    };
+    const { fetchImpl } = scriptedFetch({ messagesGet: ok(body) });
+    const message = await createGmailTransport(transportDeps(fetchImpl)).getMessageById(MSG_ID_1);
+    assert.equal(message?.isBulk, true);
+  });
+});
+
+test('Updates and a no-reply sender are not bulk without a bulk metadata signal', async () => {
+  const body = {
+    ...MESSAGE_FULL.body,
+    labelIds: ['INBOX', 'CATEGORY_UPDATES'],
+    payload: {
+      ...MESSAGE_FULL.body.payload!,
+      headers: [
+        ...(MESSAGE_FULL.body.payload?.headers ?? []).filter(header => header.name.toLowerCase() !== 'from'),
+        { name: 'From', value: 'no-reply@example.org' },
+      ],
+    },
+  };
+  const { fetchImpl } = scriptedFetch({ messagesGet: ok(body) });
+  const message = await createGmailTransport(transportDeps(fetchImpl)).getMessageById(MSG_ID_1);
+  assert.equal(message?.isBulk, false);
+});
+
+test('SENT wins over every bulk signal', async () => {
+  const body = {
+    ...MESSAGE_FULL.body,
+    labelIds: ['SENT', 'CATEGORY_PROMOTIONS'],
+    payload: {
+      ...MESSAGE_FULL.body.payload!,
+      headers: [...(MESSAGE_FULL.body.payload?.headers ?? []), { name: 'List-Id', value: 'news.example.org' }],
+    },
+  };
+  const { fetchImpl } = scriptedFetch({ messagesGet: ok(body) });
+  const message = await createGmailTransport(transportDeps(fetchImpl)).getMessageById(MSG_ID_1);
+  assert.equal(message?.sentByAccount, true);
+  assert.equal(message?.isBulk, false);
+});
+
 test('text/plain wins over text/html, and attachment bytes are never fetched', async () => {
   const { result, calls } = await sync(TWO_PAGE_SCRIPT);
   const withAttachment = result.items.find((entry) => entry.externalId === MSG_ID_2);

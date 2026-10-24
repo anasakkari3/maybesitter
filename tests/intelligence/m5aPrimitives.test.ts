@@ -231,7 +231,7 @@ test('B3 quota permit reserves the whole unit and releases only its never-starte
   assert.equal(await startQuotaPermitSlot(permit, 0, { storage, now }), true);
   await settleQuotaPermitSlot(permit, 0, { promptTokens: 10, outputTokens: 5 }, { storage, now });
   await finalizeQuotaPermit(permit, { storage, now });
-  assert.deepEqual(await callsToday('alice', { storage, now }), { user: 0, global: 1, tokens: 0, minuteCalls: 2 });
+  assert.deepEqual(await callsToday('alice', { storage, now }), { user: 0, global: 1, tokens: 0, minuteCalls: 0 });
   await storage.set('users/bob/usage/2026-10-19', { calls: 0, date: '2026-10-19', updatedAt: NOW,
     inputTokens: 149_500, outputTokens: 0, reservedTokens: 0,
     m5aInputTokens: 1_499_500, m5aOutputTokens: 0, m5aReservedTokens: 0,

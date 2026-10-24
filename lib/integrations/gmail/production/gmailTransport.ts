@@ -543,6 +543,16 @@ export function createGmailTransport(deps: GmailTransportDeps): GmailTransport {
     const labels = Array.isArray(message.labelIds)
       ? message.labelIds.filter((label): label is string => typeof label === 'string')
       : [];
+    const sentByAccount = labels.includes('SENT');
+    const precedence = headerValue(headers, 'Precedence')?.trim().toLowerCase() ?? null;
+    const isBulk = !sentByAccount && (
+      labels.some(label => label === 'CATEGORY_PROMOTIONS' || label === 'CATEGORY_SOCIAL' || label === 'CATEGORY_FORUMS')
+      || headerValue(headers, 'List-Unsubscribe') !== null
+      || headerValue(headers, 'List-Id') !== null
+      || precedence === 'bulk'
+      || precedence === 'list'
+      || precedence === 'junk'
+    );
     return Object.freeze({
       id: message.id,
       threadId: nonEmptyString(message.threadId) ? message.threadId : null,
@@ -551,8 +561,9 @@ export function createGmailTransport(deps: GmailTransportDeps): GmailTransport {
       from: headerValue(headers, 'From'),
       subject: headerValue(headers, 'Subject'),
       text: clampBytes(selected.text, maxTextBytes),
-      sentByAccount: labels.includes('SENT'),
+      sentByAccount,
       isReply: nonEmptyString(headerValue(headers, 'In-Reply-To')) || nonEmptyString(headerValue(headers, 'References')),
+      isBulk,
       bodyFormat: selected.bodyFormat,
     });
   }

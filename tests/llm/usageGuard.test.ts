@@ -31,6 +31,8 @@ import { MODULE_CONTRACT_VERSION } from '../../src/contracts/v1/moduleContracts.
 import {
   DEFAULT_GLOBAL_DAILY_CAP,
   DEFAULT_USER_DAILY_CAP,
+  DEFAULT_USER_MINUTE_CAP,
+  M5A_USER_MINUTE_CALL_CAP,
   M5A_USER_DAILY_CALL_CAP,
   M5A_USER_DAILY_TOKEN_CAP,
   callsToday,
@@ -147,6 +149,55 @@ test('a general call still succeeds after 200 M5a calls and preserves both ledge
   assert.equal((await store.get<UsageDay>('users/user_cost_guard/usage/2026-09-12'))?.m5aCalls, 200);
 });
 
+test('M5a admits 30 calls in one minute, refuses the 31st, and does not touch the general minute counter', async () => {
+  const store = storage();
+  const now = new Date('2026-09-12T10:00:00.000Z');
+  for (let call = 0; call < M5A_USER_MINUTE_CALL_CAP; call += 1) {
+    const reservation = await reserveQuotaPermit(UID, 'semantic_observation', {
+      owner: `minute-${call}`, calls: 1, tokenBudget: 1,
+    }, { storage: store, now });
+    assert.equal(reservation.outcome, 'ok', `M5a call ${call + 1} was refused before the minute cap`);
+  }
+  assert.equal((await reserveQuotaPermit(UID, 'semantic_observation', {
+    owner: 'minute-over', calls: 1, tokenBudget: 1,
+  }, { storage: store, now })).outcome, 'user_minute_cap');
+
+  const day = await store.get<UsageDay>('users/user_cost_guard/usage/2026-09-12');
+  assert.equal(day?.m5aMinute, '2026-09-12T10:00');
+  assert.equal(day?.m5aMinuteCalls, M5A_USER_MINUTE_CALL_CAP);
+  assert.equal(day?.minuteCalls ?? 0, 0, 'M5a changed the general minute counter');
+});
+
+test('an M5a burst does not block a general call in the same minute', async () => {
+  const store = storage();
+  const now = new Date('2026-09-12T10:00:00.000Z');
+  for (let call = 0; call < M5A_USER_MINUTE_CALL_CAP; call += 1) {
+    assert.equal((await reserveQuotaPermit(UID, 'semantic_observation', {
+      owner: `burst-${call}`, calls: 1, tokenBudget: 1,
+    }, { storage: store, now })).outcome, 'ok');
+  }
+  assert.equal(await reserveCall(UID, 'capture_extraction', { storage: store, now }), 'ok');
+  const day = await store.get<UsageDay>('users/user_cost_guard/usage/2026-09-12');
+  assert.equal(day?.minuteCalls, 1);
+  assert.equal(day?.m5aMinuteCalls, M5A_USER_MINUTE_CALL_CAP);
+});
+
+test('a full general minute does not block an M5a permit in the same minute', async () => {
+  const store = storage();
+  const now = new Date('2026-09-12T10:00:00.000Z');
+  for (let call = 0; call < DEFAULT_USER_MINUTE_CAP; call += 1) {
+    assert.equal(await reserveCall(UID, 'capture_extraction', { storage: store, now }), 'ok');
+  }
+  assert.equal(await reserveCall(UID, 'capture_extraction', { storage: store, now }), 'user_minute_cap');
+  const reservation = await reserveQuotaPermit(UID, 'semantic_observation', {
+    owner: 'after-general-burst', calls: 2, tokenBudget: 2,
+  }, { storage: store, now });
+  assert.equal(reservation.outcome, 'ok', 'the general minute counter refused an M5a permit');
+  const day = await store.get<UsageDay>('users/user_cost_guard/usage/2026-09-12');
+  assert.equal(day?.minuteCalls, DEFAULT_USER_MINUTE_CAP, 'an M5a permit moved the general minute counter');
+  assert.equal(day?.m5aMinuteCalls, 2);
+});
+
 test('M5a settle and finalize move only M5a counters and release unused slots', async () => {
   const store = storage();
   const now = new Date('2026-09-12T10:00:00.000Z');
@@ -173,7 +224,7 @@ test('M5a settle and finalize move only M5a counters and release unused slots', 
     m5aCalls: 1, m5aReservedTokens: 0, m5aInputTokens: 13, m5aOutputTokens: 7,
   });
   assert.deepEqual(await callsToday(UID, { storage: store, now }), {
-    user: 4, global: 1, tokens: 150, minuteCalls: 2,
+    user: 4, global: 1, tokens: 150, minuteCalls: 0,
   });
 });
 

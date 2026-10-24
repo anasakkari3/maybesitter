@@ -37,6 +37,8 @@ export interface GmailMessagePayload {
   readonly sentByAccount?: boolean;
   /** Reply-ness comes only from the message's own RFC reply headers. */
   readonly isReply?: boolean;
+  /** Deterministic metadata-only classification; SENT messages are always false. */
+  readonly isBulk?: boolean;
   /** The representation selected by the parser. HTML is never quote-certified. */
   readonly bodyFormat?: 'text/plain' | 'text/html';
 }

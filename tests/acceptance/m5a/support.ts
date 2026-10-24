@@ -317,16 +317,26 @@ export async function grantCalendarConsent(uid: string): Promise<void> {
 
 /* ── M5a scan helpers ───────────────────────────────────────────────── */
 
+const SCAN_FEATURE_HEADERS = {
+  'X-MaybeSitter-Client-Features': 'gmail-scan-daily-limit,gmail-scan-bulk',
+};
+
 export function scanNew(uid: string, extra: Record<string, unknown> = {}): Promise<Raw> {
-  return call(uid, 'intelligence/sources/gmail/scan', 'POST', { body: { m5: true, intent: 'new', timezone: TZ, ...extra } });
+  return callWith(uid, 'intelligence/sources/gmail/scan', 'POST', {
+    headers: SCAN_FEATURE_HEADERS,
+    body: { m5: true, intent: 'new', timezone: TZ, ...extra },
+  });
 }
 
 export function scanResume(uid: string, expectedScanId: string): Promise<Raw> {
-  return call(uid, 'intelligence/sources/gmail/scan', 'POST', { body: { m5: true, intent: 'resume', expectedScanId, timezone: TZ } });
+  return callWith(uid, 'intelligence/sources/gmail/scan', 'POST', {
+    headers: SCAN_FEATURE_HEADERS,
+    body: { m5: true, intent: 'resume', expectedScanId, timezone: TZ },
+  });
 }
 
 export function scanStatus(uid: string): Promise<Raw> {
-  return call(uid, 'intelligence/sources/gmail/scan', 'GET');
+  return callWith(uid, 'intelligence/sources/gmail/scan', 'GET', { headers: SCAN_FEATURE_HEADERS });
 }
 
 /** POSTs `resume` until the manual scan is terminal (bounded). Returns the last status body. */

@@ -12,6 +12,7 @@
     "messagesTrimmed": 0,
     "observationsFound": 1,
     "addedFromEmail": 0,
+    "messagesSkippedBulk": 1,
     "waiting": null
   },
   "queuedManual": {
