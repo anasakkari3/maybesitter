@@ -175,6 +175,89 @@ test('the names flags.sh mounts are the names the deletion code reads', () => {
   for (const name of [PEPPER, PREVIOUS, WRITE]) {
     assert.match(source, new RegExp(`= '${name}';`), `lib/account/deletionTombstone.ts no longer reads ${name}`);
   }
-  // And the workflow runs flags.sh from the repository checkout, where the committed state is.
-  assert.match(read('.github/workflows/deploy.yml'), /\$\(bash infra\/cloudrun\/flags\.sh "\$\{TARGET\}"\)/);
+  // And the workflow runs flags.sh from the repository checkout, where the
+  // committed state is, as an assignment of its own (see the test below).
+  assert.match(read('.github/workflows/deploy.yml'), /^\s*FLAGS="\$\(bash infra\/cloudrun\/flags\.sh "\$\{TARGET\}"\)"$/m);
+});
+
+test('no runbook fetches the pepper by `latest`, which a rotation makes a key no live revision reads', () => {
+  for (const file of ['docs/operations/ACCOUNT_DELETION.md', 'docs/operations/GCP_BOOTSTRAP.md', 'docs/operations/DEPLOY.md', 'scripts/delete-account.ts']) {
+    const fetches = read(file).split('\n').filter((line) => /versions access\s+latest\b[^\n]*deletion-receipt-pepper|deletion-receipt-pepper[^\n]*versions access\s+latest\b/.test(line));
+    assert.deepEqual(fetches, [], `${file} fetches the deletion pepper by latest`);
+  }
+  // The operator recipe reads the versions the service mounts instead.
+  assert.match(read('docs/operations/ACCOUNT_DELETION.md'), /ref MAYBESITTER_DELETION_RECEIPT_PEPPER_PREVIOUS/);
+});
+
+/** The workflow's deploy step, as the shell script GitHub would run. */
+function deployStepScript(): string {
+  const workflow = read('.github/workflows/deploy.yml');
+  const start = workflow.indexOf('- name: Deploy (behind a tag once the service exists)');
+  assert.notEqual(start, -1, 'the deploy step was renamed; point this test at it');
+  const step = workflow.slice(start, workflow.indexOf('- name:', workflow.indexOf('\n', start)));
+  const body = step.slice(step.indexOf('run: |\n') + 'run: |\n'.length);
+  return body
+    .split('\n')
+    .map((line) => line.replace(/^ {10}/, ''))
+    .join('\n')
+    // The only expression in the step is the image digest.
+    .replace(/\$\{\{[^}]*\}\}/g, 'europe-west1-docker.pkg.dev/p/r/api@sha256:' + 'a'.repeat(64));
+}
+
+test('the deploy step fails, and deploys nothing, when flags.sh refuses the rotation state', () => {
+  // Under `bash -e` (GitHub's default `run` shell) a failing $(...) inside
+  // another command's arguments is ignored: `gcloud run deploy` would run with
+  // no flags, the revision would inherit the old env and secrets, and the job
+  // would go green. The step must capture flags.sh on its own first.
+  const script = deployStepScript();
+  const dir = mkdtempSync(join(tmpdir(), 'deploy-step-798-'));
+  try {
+    const log = join(dir, 'calls.log');
+    // `services describe` says the service exists; `run deploy` records each argument on its own line.
+    writeFileSync(join(dir, 'gcloud'), [
+      '#!/usr/bin/env bash',
+      'if [ "$1 $2" = "run deploy" ]; then printf \'%s\\n\' "$@" >>"${CALL_LOG}"; fi',
+      'exit 0',
+    ].join('\n'));
+    spawnSync('chmod', ['755', join(dir, 'gcloud')]);
+
+    const runStep = (state: string, shellFlags: string[]) => {
+      rmSync(log, { force: true });
+      const rotation = join(dir, 'pepper-rotation.env');
+      writeFileSync(rotation, state);
+      const result = spawnSync('bash', [...shellFlags, '-c', script], {
+        cwd: repoRoot,
+        encoding: 'utf8',
+        env: {
+          PATH: `${dir}:${process.env.PATH}`,
+          TARGET: 'staging',
+          REGION: 'europe-west1',
+          GITHUB_SHA: 'c0ffee0123456789',
+          GITHUB_OUTPUT: join(dir, 'github-output'),
+          CALL_LOG: log,
+          MAYBESITTER_PEPPER_ROTATION_FILE: rotation,
+        } as unknown as NodeJS.ProcessEnv,
+      });
+      let args: string[] = [];
+      try { args = readFileSync(log, 'utf8').trim().split('\n'); } catch { /* never called */ }
+      return { status: result.status, args };
+    };
+
+    for (const shellFlags of [['-e'], ['--noprofile', '--norc', '-eo', 'pipefail']]) {
+      const refused = runStep(render({ ...STEADY, staging_phase: 'readers' }), shellFlags);
+      assert.notEqual(refused.status, 0, `the deploy step went green on a refused rotation state (bash ${shellFlags.join(' ')})`);
+      assert.deepEqual(refused.args, [], `gcloud run deploy ran without flags (bash ${shellFlags.join(' ')})`);
+
+      // And a valid state reaches gcloud as separate words, exactly what flags.sh printed.
+      const rotating = { ...STEADY, staging_phase: 'readers', staging_current_version: '3', staging_previous_version: '2' } satisfies State;
+      const ok = runStep(render(rotating), shellFlags);
+      assert.equal(ok.status, 0, `the deploy step failed on a valid state (bash ${shellFlags.join(' ')})`);
+      const printed = flags('staging', rotating).trim().split(/\s+/);
+      assert.deepEqual(ok.args.slice(ok.args.length - printed.length), printed, 'gcloud did not receive the flags as flags.sh printed them');
+      assert.ok(ok.args.includes('--no-traffic'), 'the existing-service path lost its traffic flags');
+      assert.equal(secretsOf(ok.args.find((arg) => arg.startsWith('--set-secrets='))!).get(PREVIOUS), `${SECRET}:2`);
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

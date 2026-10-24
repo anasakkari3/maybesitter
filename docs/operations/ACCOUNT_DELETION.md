@@ -27,18 +27,35 @@ What is kept, and why:
 
 1. **Check the sender.** The request must come from the address the account signs in with. An Apple private-relay address is fine — it is the address on the account.
 2. **Find the uid.** Firebase console → Authentication, or `getAuth().getUserByEmail(...)`. Take the uid from there, never from the text of the ticket: the only identifier that can be trusted is the one the directory returns.
-3. **Run the script** against the right environment:
+3. **Run the script** against the right environment. The block reads the pepper versions and the writer selector from the service itself, then fetches each version by number. So the shell holds exactly the keys the service holds, in every phase of a pepper rotation (#798, `GCP_BOOTSTRAP.md`). Never fetch the pepper by `latest`: once a rotation has created a new version, `latest` is a key that no live revision may read yet. A deletion under that key writes a tombstone that the service cannot see.
 
    ```sh
-   MAYBESITTER_STORAGE_BACKEND=firestore \
-   MAYBESITTER_FIRESTORE_DATABASE_ID=staging \
-   MAYBESITTER_DELETION_RECEIPT_PEPPER="$(gcloud secrets versions access latest --secret=maybesitter-deletion-receipt-pepper)" \
-     node --loader ./scripts/ts-resolver.mjs scripts/delete-account.ts <uid>
+   (
+     set -euo pipefail
+     SVC=maybesitter-api-staging; DB=staging   # production: SVC=maybesitter-api; DB='(default)'
+     DELETE_UID='<uid>'
+     # The version (or value) the service maps for one variable. Never a secret value.
+     ref() {
+       gcloud run services describe "$SVC" --region=europe-west1 --format=json \
+         | jq -r --arg n "$1" '.spec.template.spec.containers[0].env[] | select(.name == $n) | .valueFrom.secretKeyRef.key // .value'
+     }
+     key() { gcloud secrets versions access "$1" --secret=maybesitter-deletion-receipt-pepper; }
+     CUR="$(ref MAYBESITTER_DELETION_RECEIPT_PEPPER)"
+     PREV="$(ref MAYBESITTER_DELETION_RECEIPT_PEPPER_PREVIOUS)"
+     WRITE="$(ref MAYBESITTER_DELETION_RECEIPT_PEPPER_WRITE)"
+     [ -n "$CUR" ] || { echo "the service mounts no pepper" >&2; exit 1; }
+     echo "pepper version ${CUR}, previous ${PREV:-none}, write ${WRITE:-current}"
+     export MAYBESITTER_STORAGE_BACKEND=firestore MAYBESITTER_FIRESTORE_DATABASE_ID="$DB"
+     export MAYBESITTER_DELETION_RECEIPT_PEPPER_WRITE="${WRITE:-current}"
+     MAYBESITTER_DELETION_RECEIPT_PEPPER="$(key "$CUR")"; export MAYBESITTER_DELETION_RECEIPT_PEPPER
+     if [ -n "$PREV" ]; then
+       MAYBESITTER_DELETION_RECEIPT_PEPPER_PREVIOUS="$(key "$PREV")"; export MAYBESITTER_DELETION_RECEIPT_PEPPER_PREVIOUS
+     fi
+     node --loader ./scripts/ts-resolver.mjs scripts/delete-account.ts "$DELETE_UID"
+   )
    ```
 
-   For production, drop `MAYBESITTER_FIRESTORE_DATABASE_ID` so it uses `(default)`, and be certain which project is configured first.
-
-   **While a pepper rotation is active** for that service (`infra/cloudrun/pepper-rotation.env` is not `steady`), the shell must carry the same three values the service does, or it can mint a second job for one account: `MAYBESITTER_DELETION_RECEIPT_PEPPER` from the pinned `<service>_current_version`, `MAYBESITTER_DELETION_RECEIPT_PEPPER_PREVIOUS` from `<service>_previous_version`, and `MAYBESITTER_DELETION_RECEIPT_PEPPER_WRITE` (`previous` in phase `readers`, `current` in phase `writer`). Use `gcloud secrets versions access <version>`, never `latest`, during a rotation.
+   The subshell keeps the pepper out of your shell afterwards, and `set -e` stops the block before the script runs if any lookup fails. `CUR` is `latest` only while the service itself maps `latest`, which the runbook allows only before a rotation begins (its step 0 pins a number before step 1 creates a version). Be certain which project is configured first.
 
    Never echo the pepper, never paste it into a ticket, and never store it outside Secret Manager.
 

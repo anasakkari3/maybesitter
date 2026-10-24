@@ -252,6 +252,25 @@ The output shows only names and version numbers, never the secret value.
 Expect `MAYBESITTER_DELETION_RECEIPT_PEPPER N` and
 `MAYBESITTER_DELETION_RECEIPT_PEPPER_WRITE current`.
 
+**Revision tags.** Every deploy leaves its revision reachable through a
+`sha-*` tag URL, even at 0% traffic. A revision that still maps `latest`
+would read N+1 alone as soon as step 1 creates it. Before step 1, list the
+tags (read-only):
+
+```bash
+gcloud run services describe <svc> --region=europe-west1 --format=json | jq '.status.traffic'
+```
+
+Then remove (owner action) every tag that points at a revision from before
+this step:
+
+```bash
+gcloud run services update-traffic <svc> --region=europe-west1 --remove-tags=sha-xxxxxxx
+```
+
+The same check and removal come back before phase 2 and before step 4. Each
+time, the target is every tag older than the phase just deployed.
+
 ### Step 1: create the new version (owner action)
 
 ```bash
@@ -261,7 +280,11 @@ openssl rand -base64 48 | tr -d '\n' \
 ```
 
 Note the new version number, N+1. Never echo, paste or store the value
-anywhere else. Both services are pinned to N, so nothing changes yet.
+anywhere else. Both services are pinned to N, so nothing changes yet. From
+here on `latest` is N+1, which no live revision reads. So nothing may fetch
+the pepper by `latest` any more. The operator recipe in
+`ACCOUNT_DELETION.md` reads the version from the service itself, for this
+reason.
 
 ### Step 2: phase 1, readers (per service: commit + deploy)
 
@@ -277,9 +300,9 @@ Also check that the new revision serves 100% of traffic and that
 `/api/health/ready` answers `"ready":true`.
 
 **Operator shells.** From now until step 4, an operator running
-`scripts/delete-account.ts` against this service must set the same three
-values (see `ACCOUNT_DELETION.md`). Fetch each secret by its version number,
-never by `latest`.
+`scripts/delete-account.ts` against this service must carry the same three
+values that the service mounts. The recipe in `ACCOUNT_DELETION.md` reads
+them from the service, so it follows every phase on its own.
 
 ### Wait before phase 2
 
@@ -288,13 +311,8 @@ Each condition must hold for the service you are about to switch:
 1. The phase-1 revision serves 100% of traffic, and at least **10 minutes**
    have passed since it took traffic. The request timeout is 60 s; the
    margin covers retries and the scheduler.
-2. **No pre-phase-1 revision can be reached.** Old revisions keep their
-   `sha-*` tags, and a tag URL still serves requests at 0% traffic. List
-   them read-only with
-   `gcloud run services describe <svc> --region=europe-west1 --format=json | jq '.status.traffic'`.
-   Then remove every tag that points at a revision older than phase 1 (owner
-   action):
-   `gcloud run services update-traffic <svc> --region=europe-west1 --remove-tags=sha-xxxxxxx`.
+2. **No pre-phase-1 revision can be reached.** Remove (owner action) every
+   tag that points at a revision older than phase 1, as in step 0.
 3. No operator shell or one-off job still runs with the steady-state env.
 
 ### Step 3: phase 2, writer (per service: commit + deploy)
@@ -303,17 +321,23 @@ Set `<service>_phase=writer` and leave the versions as they are. Merge and
 deploy. Verify that `PEPPER_WRITE current` appears and that `PEPPER_PREVIOUS N`
 **is still mounted**.
 
-Wait 10 minutes after the phase-2 revision takes 100% of traffic, then record
-that moment as **T2** for this service, in UTC ISO form (for example
-`2026-11-02T09:30:00.000Z`). Every record written under key N is dated before
-T2.
+Phase-1 revisions still write key N, and their `sha-*` tags keep them
+reachable after phase 2 takes traffic. Remove (owner action) every tag that
+points at a revision older than phase 2, as in step 0. Then wait 10 minutes,
+with the phase-2 revision serving 100% of traffic. Record that moment as
+**T2** for this service, in UTC ISO form (for example
+`2026-11-02T09:30:00.000Z`). From T2, no reachable revision writes key N, so
+every new record written under key N is dated before T2. A job already begun
+under key N can still be finished after T2; step 4's check 2 waits for those.
 
 ### Step 4: back to steady on N+1 (per service: commit + deploy)
 
 `PREVIOUS` may be dropped only once nothing written under key N can still
-matter. All three checks are read-only. Run them against the service's own
-database: `staging` for staging, `(default)` for production.
+matter. All four checks are read-only. Run checks 2 and 3 against the
+service's own database: `staging` for staging, `(default)` for production.
 
+0. **No revision older than phase 2 can be reached**: the step 3 tag removal
+   held, and the `.status.traffic` listing shows no tag on such a revision.
 1. At least **31 days after T2**: a finished job is kept 30 days, plus a day
    for TTL lag.
 2. **No deletion job from before T2 remains**, done or not. This covers a job
@@ -350,9 +374,12 @@ output shows `PEPPER N+1` and `PEPPER_WRITE current`, and **no**
 ### Afterwards: the old version
 
 Receipts written under key N are kept for 400 days. Answering "prove you
-deleted me" for one of them needs key N. Once both services are steady on N+1,
-the owner may **disable** version N. Do not **destroy** it until 400 days after
-the later of the two T2 dates.
+deleted me" for one of them needs key N. A key-N job finished after T2 still
+writes a key-N receipt. Step 4's check 2 is what proves that no such job
+remains. So the last key-N receipt predates the step-4 deploy of its service.
+Once both services are steady on N+1, the owner may **disable** version N. Do
+not **destroy** it until 400 days after the later of the two step-4 deploy
+dates.
 
 ### Rollback
 
@@ -362,6 +389,12 @@ the later of the two T2 dates.
 | phase 2 | phase 1 | `readers` (versions unchanged) | both phases read both keys |
 | phase 2 | steady on N | **never directly** | go to phase 1 first, then follow step 4's three checks with T2 replaced by the rollback time, since records written under N+1 must age out |
 | steady on N+1 | earlier | a new rotation (N+1 to N+2) | the old version is not reused |
+
+Every rollback is a commit to `pepper-rotation.env` and a deploy. **Never
+roll back by moving traffic**, whether with `gcloud run services
+update-traffic --to-revisions=…` or the console's "manage traffic", to a
+revision more than one phase away. A steady-N revision given traffic during
+phase 2 is exactly the old-reader / new-writer gap.
 
 If a phase deploy fails its smoke test, the previous revision keeps serving.
 Revert the commit to `pepper-rotation.env` before the next merge, or the next

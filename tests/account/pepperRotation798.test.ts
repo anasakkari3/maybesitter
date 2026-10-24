@@ -203,6 +203,34 @@ for (const [name, env] of [['phase 1', PHASE_1], ['phase 2', PHASE_2]] as const)
   });
 }
 
+test('an unfinished job under one key wins over a done job under the other', async () => {
+  // Two records for one uid (a second job minted before #798, say): the done
+  // one's receipt must not hide the one still holding the raw uid.
+  const { storage, end } = begin(PHASE_0);
+  try {
+    await interruptedOldKeyJob(storage);
+    const newHash = subjectHashFor(UID, NEW);
+    await storage.set(`${DELETION_RECEIPTS}/receipt-under-new-key`, { version: 'v1', receiptId: 'receipt-under-new-key', subjectHash: newHash });
+    await storage.set<DeletionJobRecord>(newPath(), {
+      version: 'v1', subjectHash: newHash, status: 'done', steps: {}, initiatedBy: 'user',
+      startedAt: '2026-10-01T00:00:00.000Z', updatedAt: '2026-10-01T00:00:00.000Z', attempts: 1, docsDeleted: 0,
+      receiptId: 'receipt-under-new-key',
+    });
+
+    usePeppers(PHASE_2); // the writer's (new-key) path is checked first
+    const auth = fakeAuth();
+    const receipt = await deleteAccount(UID, { initiatedBy: 'user', storage, auth });
+
+    assert.equal(receipt.subjectHash, subjectHashFor(UID, OLD), 'the done job\'s receipt was returned and the unfinished one left');
+    assert.deepEqual(auth.deleted, [UID]);
+    const old = await storage.get<DeletionJobRecord>(oldPath());
+    assert.equal(old?.status, 'done');
+    assert.equal(old?.uid, undefined, 'the unfinished job still holds the raw uid');
+  } finally {
+    end();
+  }
+});
+
 test('a phase-1 job (old key) found again in phase 3 would be missed: why PREVIOUS stays for the TTL', async () => {
   // Not a behaviour to keep, a boundary to know: once PREVIOUS is dropped, only
   // the sweep (stored path) can still reach an old-key job. The runbook drops it

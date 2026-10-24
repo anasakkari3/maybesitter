@@ -175,12 +175,18 @@ jobs:
           # The image is deployed by digest, so production runs the exact bytes
           # staging ran: `build` set it on a staging run, `resolve` on a
           # production run — exactly one of the two runs, per the `if:` above.
-          # flags.sh prints one flag per word, hence unquoted.
+          # flags.sh runs as its own assignment: under `bash -e` a failing
+          # $(...) inside another command's arguments does not stop the step,
+          # so a refused pepper-rotation.env (#798) would deploy with no flags
+          # and the revision would inherit the old settings. It prints one
+          # flag per word, so splitting on whitespace is exact.
+          FLAGS="$(bash infra/cloudrun/flags.sh "${TARGET}")"
+          read -ra FLAG_WORDS <<<"${FLAGS}"
           gcloud run deploy "${SERVICE}" \
             --image "${{ steps.build.outputs.image_digest || steps.resolve.outputs.image_digest }}" \
             --region "${REGION}" \
             ${TRAFFIC_FLAGS[@]+"${TRAFFIC_FLAGS[@]}"} \
-            $(bash infra/cloudrun/flags.sh "${TARGET}")
+            "${FLAG_WORDS[@]}"
 
       - name: Smoke test the new revision
         run: |

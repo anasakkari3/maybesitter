@@ -4,7 +4,11 @@
 # The deploy workflow and a human running a manual deploy read the settings
 # from here, so the two cannot drift.
 #
-# Usage:  gcloud run deploy <service> --image … $(infra/cloudrun/flags.sh staging)
+# Usage (capture first, so a refusal stops the deploy; under `set -e` a failing
+# $(...) inside another command's arguments is ignored):
+#   FLAGS="$(bash infra/cloudrun/flags.sh staging)"
+#   read -ra FLAG_WORDS <<<"${FLAGS}"
+#   gcloud run deploy <service> --image … "${FLAG_WORDS[@]}"
 set -euo pipefail
 
 TARGET="${1:?usage: flags.sh staging|production}"
