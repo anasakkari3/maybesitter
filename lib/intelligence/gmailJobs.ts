@@ -169,6 +169,53 @@ async function runCandidateLanes<T extends LaneCandidate>(
   return processed;
 }
 
+/**
+ * Scan work in fair rounds (#811). A scan step reads one message, so one step
+ * per account a tick read one e-mail a minute (staging, 2026-10-24). Each
+ * round gives every still-due account one step, through the same lanes and
+ * reserve; the next round takes only the accounts `again` keeps. No account
+ * takes a second step before every due account has had its first, and none
+ * takes more than `rounds`.
+ */
+async function runFairRounds<T extends LaneCandidate>(
+  candidates: readonly T[],
+  lanes: number,
+  reserveMs: (candidate: T) => number,
+  deadlineMs: number,
+  rounds: number,
+  step: (candidate: T) => Promise<boolean>,
+  again: (candidate: T) => Promise<boolean>,
+): Promise<number> {
+  let due = candidates;
+  let processed = 0;
+  for (let round = 0; round < rounds && due.length > 0; round += 1) {
+    const served: T[] = [];
+    processed += await runCandidateLanes(due, lanes, reserveMs, deadlineMs, async (candidate) => {
+      const ran = await step(candidate);
+      if (ran) served.push(candidate);
+      return ran;
+    });
+    if (served.length === 0) break;
+    const next: T[] = [];
+    for (const candidate of served) if (await again(candidate)) next.push(candidate);
+    due = next;
+  }
+  return processed;
+}
+
+export function runFairRoundsForTests(
+  candidates: readonly string[],
+  lanes: number,
+  reserveMs: number,
+  deadlineMs: number,
+  rounds: number,
+  step: (uid: string) => Promise<boolean>,
+  again: (uid: string) => Promise<boolean>,
+): Promise<number> {
+  return runFairRounds(candidates.map(uid => ({ uid })), lanes, () => reserveMs, deadlineMs, rounds,
+    candidate => step(candidate.uid), candidate => again(candidate.uid));
+}
+
 export function runReservedLanesForTests(
   candidates: readonly string[],
   lanes: number,
@@ -342,25 +389,27 @@ async function runScanClass(
     return uid ? [{ uid, row }] : [];
   });
   const jobClass: GmailClass = kind === 'daily' ? 'sweep' : 'continuation';
-  return runCandidateLanes(candidates, lanes,
+  const scanDoc = (uid: string) => `${userCol(uid, INTELLIGENCE_GMAIL_SCANS)}/${kind === 'daily' ? 'dailyV2' : 'manualV2'}`;
+  const processed = await runFairRounds(candidates, lanes,
     candidate => candidate.row.data.page ? GMAIL_JOB_LIMITS.reservesMs.qualifyingReply : GMAIL_JOB_LIMITS.reservesMs.listing,
-    deadlineMs,
+    deadlineMs, GMAIL_JOB_LIMITS.scanStepsPerTick,
     candidate => withAccountLease(candidate.uid, 'sweep', jobClass, runtime, async () => {
-      // A step reads one message. One step a tick read one e-mail a minute, so
-      // a 7-day scan of an ordinary mailbox took hours (staging, 2026-10-24).
-      // The account keeps stepping while its scan is running and due, and the
-      // tick still has a qualifying reply's reserve left, up to a fixed cap.
-      const path = `${userCol(candidate.uid, INTELLIGENCE_GMAIL_SCANS)}/${kind === 'daily' ? 'dailyV2' : 'manualV2'}`;
-      for (let step = 0; step < GMAIL_JOB_LIMITS.scanStepsPerTick; step += 1) {
-        await runM5aScanStep(candidate.uid, kind, runtime, overrides.transport?.(candidate.uid),
-          overrides.ensureReadable ? () => overrides.ensureReadable!(candidate.uid) : undefined);
-        if (kind === 'daily') await advanceCompletedDaily(candidate.uid, runtime);
-        if (Date.now() + GMAIL_JOB_LIMITS.reservesMs.qualifyingReply > deadlineMs) break;
-        const scan = await runtime.storage.get<M5aScanDocument>(path);
-        if (!scan || scan.status !== 'running' || scan.nextEligibleAt > runtime.now().toISOString()) break;
-      }
+      // One step, which reads one message; the rounds below give each due
+      // account another while the tick has room (#811).
+      await runM5aScanStep(candidate.uid, kind, runtime, overrides.transport?.(candidate.uid),
+        overrides.ensureReadable ? () => overrides.ensureReadable!(candidate.uid) : undefined);
       return true;
-    }));
+    }),
+    async candidate => {
+      // Still running, due, and not held by a step's lease: worth another round.
+      const scan = await runtime.storage.get<M5aScanDocument>(scanDoc(candidate.uid));
+      const now = runtime.now().toISOString();
+      return scan !== null && scan.status === 'running' && scan.nextEligibleAt <= now
+        && !(scan.leaseUntil && scan.leaseUntil > now);
+    });
+  // Daily advancement has one owner per tick: after the rounds, not per step.
+  if (kind === 'daily') for (const candidate of candidates) await advanceCompletedDaily(candidate.uid, runtime);
+  return processed;
 }
 
 async function bootstrapSweeps(runtime: GoogleRuntime, deadlineMs: number): Promise<number> {

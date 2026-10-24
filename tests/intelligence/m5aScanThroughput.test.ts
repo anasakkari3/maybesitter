@@ -50,5 +50,20 @@ test('the per-tick steps stop at the cap', async () => {
   await tick('sweep');
   const scan = await currentStorage().get<{ page: { done: string[] } | null }>(`users/${uid}/intelligenceGmailScans/manualV2`);
   const read = scan?.page?.done.length ?? 0;
-  assert.ok(read > 1 && read < 60, `read ${read}: the tick must stop at its cap, not drain the page`);
+  // 25 steps a tick (the page was listed when the scan started): at most 25 messages.
+  assert.ok(read >= 10 && read <= 25, `read ${read}: the tick must stop at its cap of 25 steps`);
+});
+
+// Inspection GMAIL-811-001: rounds, never one account's run-to-cap first.
+test('fair rounds: under a tight deadline every account gets a step before any gets a second', async () => {
+  const { runFairRoundsForTests } = await import('../../lib/intelligence/gmailJobs.ts');
+  const uids = ['u1', 'u2', 'u3', 'u4', 'u5', 'u6'];
+  const steps: string[] = [];
+  const deadline = Date.now() + 200;
+  await runFairRoundsForTests(uids, 2, 0, deadline, 25,
+    async (uid) => { steps.push(uid); await new Promise((resolve) => setTimeout(resolve, 15)); return true; },
+    async () => true);
+  const firstSix = steps.slice(0, 6);
+  assert.deepEqual([...firstSix].sort(), uids, `the first round served ${firstSix.join(',')}`);
+  assert.ok(steps.length > 6, 'a second round ran while the deadline allowed');
 });
