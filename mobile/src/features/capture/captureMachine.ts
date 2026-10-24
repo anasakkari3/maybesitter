@@ -1021,14 +1021,20 @@ function carriedAcrossEdit(state: CaptureState, next: CaptureProposal, folded?: 
 }
 
 /** The same conversation, turn for turn: a 409 that brought it back said nothing new. */
-function sameTurns(before: readonly CaptureChatTurn[], after: readonly CaptureChatTurn[]): boolean {
-  return before.length === after.length
+function sameTurns(state: CaptureState, conversationId: string, after: readonly CaptureChatTurn[]): boolean {
+  const before = state.turns;
+  return state.conversationId === conversationId && before.length === after.length
     && before.every((turn, index) => turn.role === after[index]!.role && turn.text === after[index]!.text);
 }
 
-/** The arrival count after `turns` replace the state's own. */
-function arrivalAfter(state: CaptureState, turns: readonly CaptureChatTurn[]): number {
-  return sameTurns(state.turns, turns) ? state.replyArrival : state.replyArrival + 1;
+/**
+ * The arrival count after an edit's answer. An edit sends no message, so its
+ * answer may be a stale 409 bringing the same conversation back — nothing
+ * new. A sent message always gets a new reply, even one that leaves a full,
+ * bounded window looking the same (Q802-R3-001): `chatAnswered` always moves.
+ */
+function arrivalAfterEdit(state: CaptureState, answer: CaptureChatAnswer): number {
+  return sameTurns(state, answer.conversationId, answer.turns) ? state.replyArrival : state.replyArrival + 1;
 }
 
 export function captureReducer(state: CaptureState, event: CaptureEvent): CaptureState {
@@ -1131,7 +1137,7 @@ export function captureReducer(state: CaptureState, event: CaptureEvent): Captur
         alternatives: [],
         conversationId: answer.conversationId,
         turns: answer.turns,
-        replyArrival: arrivalAfter(state, answer.turns),
+        replyArrival: state.replyArrival + 1,
         errorReason: null,
         messageKey: null,
       };
@@ -1150,7 +1156,7 @@ export function captureReducer(state: CaptureState, event: CaptureEvent): Captur
       // chips stay exactly as they were (M2b).
       const { answer } = event;
       const proposal = chatProposalShown(answer.proposal);
-      const conversation = { ...state, conversationId: answer.conversationId, turns: answer.turns, replyArrival: arrivalAfter(state, answer.turns), errorReason: null, messageKey: null };
+      const conversation = { ...state, conversationId: answer.conversationId, turns: answer.turns, replyArrival: arrivalAfterEdit(state, answer), errorReason: null, messageKey: null };
       if (!proposal) {
         return { ...conversation, status: state.text.trim() ? 'editing' : 'idle', proposal: null, original: null, selected: [], edits: {}, onceOnly: [], goalUnlinked: [], reviewOf: null, refusedEdit: null };
       }
@@ -1379,7 +1385,11 @@ export function captureReducer(state: CaptureState, event: CaptureEvent): Captur
       if (at < 0) return state;
       const earlier = [...state.earlier];
       earlier[at] = { ...(earlier[at] as ChatSavedNote), undone: { stillSaved: event.stillSaved } };
-      return { ...state, earlier, replyArrival: state.replyArrival + 1 };
+      // Said only when the saved line is what the chat shows last: the screen
+      // announces its newest message, and a later reply is not the undo's
+      // outcome (Q802-R3-002).
+      const showing = state.turns.length === 0 && at === earlier.length - 1;
+      return { ...state, earlier, replyArrival: showing ? state.replyArrival + 1 : state.replyArrival };
     }
 
     case 'confirmFailed':

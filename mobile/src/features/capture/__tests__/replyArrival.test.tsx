@@ -72,6 +72,19 @@ describe('replyArrival in the reducer', () => {
     expect(two.replyArrival).toBe(2);
   });
 
+  it('moves for a sent message even when the bounded window comes back the same (Q802-R3-001)', () => {
+    const window = Array.from({ length: 6 }, () => [turn('user', 'again'), turn('assistant', 'Tell me more.')]).flat();
+    const full = run(initialCaptureState(), { type: 'textChanged', text: 'again' }, { type: 'chatStarted' }, { type: 'chatAnswered', answer: answer(window) });
+    const same = run(full, { type: 'textChanged', text: 'again' }, { type: 'chatStarted' }, { type: 'chatAnswered', answer: answer(window.map((t) => ({ ...t }))) });
+    expect(same.replyArrival).toBe(full.replyArrival + 1);
+  });
+
+  it('moves for an edit answer in another conversation with the same words', () => {
+    const one = answered();
+    const elsewhere = captureReducer(one, { type: 'editAnswered', answer: { ...answer(first.map((t) => ({ ...t }))), conversationId: 'c2' } });
+    expect(elsewhere.replyArrival).toBe(2);
+  });
+
   it('stays when an answer brings the same turns back as new objects — a stale 409 (Q802-R2-002)', () => {
     const one = answered();
     const replayed = captureReducer(one, { type: 'editAnswered', answer: answer(first.map((t) => ({ ...t }))) });
@@ -83,6 +96,14 @@ describe('replyArrival in the reducer', () => {
     const one = answered();
     const edited = captureReducer(one, { type: 'editAnswered', answer: answer([...first, turn('assistant', 'Changed it.')]) });
     expect(edited.replyArrival).toBe(2);
+  });
+
+  it('an undo moves it only when the saved line is the newest message (Q802-R3-002)', () => {
+    const saved: CaptureState = { ...answered(), turns: [], conversationId: null,
+      earlier: [{ kind: 'saved', persisted: [], failed: [], collisions: [], weeklySaved: [], failedTitles: [] }] } as CaptureState;
+    expect(captureReducer(saved, { type: 'undoRecorded', stillSaved: [] } as never).replyArrival).toBe(saved.replyArrival + 1);
+    const later = { ...saved, turns: [turn('user', 'thanks'), turn('assistant', 'Any time.')], conversationId: 'c3' } as CaptureState;
+    expect(captureReducer(later, { type: 'undoRecorded', stillSaved: [] } as never).replyArrival).toBe(later.replyArrival);
   });
 
   it('is never reset, so a fresh conversation\'s first reply is new', () => {
