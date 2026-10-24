@@ -22,6 +22,7 @@ import { resetStorageForTests, setStorageForTests } from '../../lib/storage/inde
 import type { StorageAdapter } from '../../lib/storage/storageAdapter.ts';
 import {
   OAUTH_CLEANUP_OBLIGATIONS,
+  PROVIDER_CONNECTIONS,
   PROVIDER_CREDENTIALS,
   userDoc,
   userSubDoc,
@@ -33,7 +34,7 @@ import {
   credentialKeyId,
 } from '../../lib/integrations/providers/production/encryptedCredentialVault.ts';
 import { StoredProviderOAuthStateStore } from '../../lib/integrations/providers/production/storedOAuthStateStore.ts';
-import { StoredIntegrationConnectionStore } from '../../lib/integrations/providers/production/storedConnectionStore.ts';
+import { StoredIntegrationConnectionStore, connectionIdFor } from '../../lib/integrations/providers/production/storedConnectionStore.ts';
 import {
   StoredOAuthCleanupObligations,
   retryOAuthCleanupObligations,
@@ -766,3 +767,115 @@ for (const state of ['revoked', 'not_connected'] as const) {
     assert.equal(revokes, 1, `a ${state} connection was taken for a live holder at retry`);
   });
 }
+
+/* ── who counts as a live holder ─────────────────────────────────── */
+
+/**
+ * Writes one connection record for G2 straight into an account's tree, so the
+ * holder's provider, state and credential can each be set on their own.
+ */
+async function seedHolder(storage: StorageAdapter, uid: string, holder: {
+  readonly provider: 'google' | 'microsoft';
+  readonly state: 'connected' | 'needs_reauth';
+  readonly credential: boolean;
+}): Promise<void> {
+  await seedLiveAccount(uid, storage);
+  await storage.set(userSubDoc(uid, PROVIDER_CONNECTIONS, connectionIdFor(holder.provider)), {
+    connectionId: connectionIdFor(holder.provider),
+    scopeId: uid,
+    identity: { provider: holder.provider, providerAccountId: G2.sub, displayName: null },
+    state: holder.state,
+    capabilities: ['calendar_busy'],
+    grantedScopes: TOKENS.grantedScopes,
+    ...(holder.credential ? { credentialRef: { vault: 'firestore-envelope-v1', keyId: credentialKeyId(holder.provider), version: null } } : {}),
+  });
+}
+
+/** Records a revocation owed for G2 next to `holder`, runs the retry, and says what happened. */
+async function revocationBeside(holder: Parameters<typeof seedHolder>[2]): Promise<{ keptAtRecord: boolean; revokes: number; left: number }> {
+  const storage = createMemoryStorage();
+  const options = crypto();
+  await seedHolder(storage, 'cleanup800Holder', holder);
+  await new StoredOAuthCleanupObligations(storage, options, () => new Date(T0))
+    .recordGrantRevocation({ provider: 'google', tokenSet: TOKENS, providerAccountId: G2.sub });
+  const keptAtRecord = (await obligations(storage)).length === 1;
+  let revokes = 0;
+  await retryOAuthCleanupObligations({ storage, encryption: options, revoke: async () => { revokes += 1; } });
+  return { keptAtRecord, revokes, left: (await obligations(storage)).length };
+}
+
+test('a holder with no credential does not stop the revocation: its disconnect has nothing to revoke with', async () => {
+  assert.deepEqual(await revocationBeside({ provider: 'google', state: 'connected', credential: false }), {
+    keptAtRecord: true, revokes: 1, left: 0,
+  });
+});
+
+test('PROBE-C: a holder of another provider with the same account id does not stop a Google revocation', async () => {
+  assert.deepEqual(await revocationBeside({ provider: 'microsoft', state: 'connected', credential: true }), {
+    keptAtRecord: true, revokes: 1, left: 0,
+  });
+});
+
+test('a needs_reauth holder with a credential is a live holder: the revocation is dropped, not revoked', async () => {
+  assert.deepEqual(await revocationBeside({ provider: 'google', state: 'needs_reauth', credential: true }), {
+    keptAtRecord: false, revokes: 0, left: 0,
+  });
+});
+
+test('PROBE-B: a holder query Firestore refuses keeps the obligation unrevoked and fails the step', async () => {
+  const { storage, google, done } = setupGoogle();
+  try {
+    await new StoredOAuthCleanupObligations(storage, googleRuntime().encryption, () => new Date(T0))
+      .recordGrantRevocation({ provider: 'google', tokenSet: TOKENS, providerAccountId: G2.sub });
+    assert.equal((await obligations(storage)).length, 1);
+    const refusing = new Proxy(storage, {
+      get(target, property) {
+        const value = Reflect.get(target, property, target);
+        if (property === 'listGroup') {
+          return async (collectionId: string, options?: unknown) => {
+            if (collectionId === PROVIDER_CONNECTIONS) {
+              throw Object.assign(new Error('9 FAILED_PRECONDITION: The query requires an index'), { code: 9 });
+            }
+            return target.listGroup(collectionId, options as never);
+          };
+        }
+        return typeof value === 'function' ? value.bind(target) : value;
+      },
+    }) as StorageAdapter;
+    assert.deepEqual(await maintenanceStep(refusing, T1), { name: 'oauth_cleanups_retried', ok: false });
+    assert.equal(google.revokeCalls(), 0, 'a revoke went out although nobody could say who holds the grant');
+    const kept = await obligations(storage);
+    assert.equal(kept.length, 1, 'the obligation was dropped on a failed query');
+    assert.equal(kept[0]!.data.attempts, 1);
+  } finally {
+    done();
+  }
+});
+
+test('PROBE-E: a connection owned by an account being deleted does not cancel the revocation, and the grant is revoked after the sweep', async () => {
+  const { storage, google, done } = setupGoogle();
+  try {
+    await seedLiveAccount(UID, storage);
+    await connectAs(google, UID, G1);
+    // A re-consent of G1 is under way when the account's deletion starts.
+    google.account = G1;
+    const begun = await beginGoogleConnect(UID, 'gmail', googleRuntime());
+    const granted = google.consent(begun.authorizationUrl);
+    await markDeleted(storage, UID);
+    google.revokeStatus = 503;
+    await assert.rejects(completeGoogleConnect(UID, granted, googleRuntime()), AccountUnavailableError);
+    assert.equal((await obligations(storage)).length, 1, 'the account\'s own doomed record cancelled the revocation');
+
+    // The deletion hook's revoke fails in the same outage, and the tree goes.
+    await assert.rejects(disconnectGoogle(UID, googleRuntime(), { accountDeletion: true }));
+    await storage.deleteTree(userDoc(UID));
+    assert.equal(google.liveGrants(), 1);
+
+    google.revokeStatus = 200;
+    assert.deepEqual(await maintenanceStep(storage, T1), { name: 'oauth_cleanups_retried', ok: true, count: 1 });
+    assert.equal(google.liveGrants(), 0, 'the grant outlived the deleted account');
+    assert.deepEqual(await obligations(storage), []);
+  } finally {
+    done();
+  }
+});

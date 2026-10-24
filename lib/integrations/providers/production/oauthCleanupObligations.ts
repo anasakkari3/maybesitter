@@ -49,13 +49,17 @@
  * also kill any connection to G2 made since — the person who picked G2 by
  * mistake, disconnected G1 and connected G2 as told, or another MaybeSitter
  * account connecting G2. Three checks keep that from happening, and only the
- * last one is load-bearing:
+ * first one is load-bearing:
  *
- *   1. Before every revoke, the retry asks whether any account holds a live
- *      connection to that provider account (`liveConnectionHolds`, a
+ *   1. Before every revoke, the retry asks whether any live account holds a
+ *      live connection to that provider account (`liveConnectionHolds`, a
  *      collection-group query on the sealed account id). If one does, the
  *      obligation is dropped without revoking: that holder's own disconnect
- *      or account deletion revokes the same authorization.
+ *      or account deletion revokes the same authorization. A holder whose
+ *      account is already deleted or being deleted does not count — its
+ *      deletion may have failed that very revocation and swept the record —
+ *      and neither does a record without a credential, whose disconnect has
+ *      nothing to revoke with.
  *   2. Right after an obligation is written, the same question is asked, and
  *      the obligation is deleted if the answer is yes.
  *   3. A successful connect clears what is pending for its account by
@@ -68,6 +72,12 @@
  * such sequences racing, at least one read sees the other's write, and the
  * obligation is dropped on one side or the other. Check 1 needs no pepper and
  * no `accountKey`, so a pepper rotation cannot weaken it.
+ *
+ * One window is left, and it is narrow: check 1, the re-read, and the revoke
+ * are three steps, not one transaction (a provider call cannot be inside one).
+ * A connect of exactly that provider account that lands between the check and
+ * the revoke, during the nightly run, can still be withdrawn; its connection
+ * then asks for a reconnect.
  */
 import { randomUUID } from 'node:crypto';
 import {
@@ -82,9 +92,12 @@ import {
   OAUTH_CLEANUP_OBLIGATIONS,
   PROVIDER_CONNECTIONS,
   PROVIDER_CREDENTIALS,
+  USERS,
   requireDocId,
+  userDoc,
   userSubDoc,
 } from '../../../storage/paths';
+import { liveAccount } from '../../../account/accountLiveness';
 import { getStorage } from '../../../storage';
 import type { StorageAdapter } from '../../../storage/storageAdapter';
 import type {
@@ -158,10 +171,18 @@ export function providerAccountKeys(provider: ContextProviderKind, providerAccou
 }
 
 /**
- * Whether any MaybeSitter account holds a live connection to this provider
- * account. Such a connection holds the very authorization a pending
+ * Whether any live MaybeSitter account holds a live connection to this
+ * provider account. Such a connection holds the very authorization a pending
  * revocation would withdraw, and its own disconnect or account deletion will
  * revoke it, so a revocation for it is dropped instead of retried.
+ *
+ * "Live connection" is the codebase's own notion (`isLive` in
+ * `googleConnectService.ts`): not `revoked`, not `not_connected`, and holding
+ * a credential — a record without one revokes nothing when disconnected. And
+ * the holder's account must be live (`liveAccount`): an account marked deleted
+ * is mid-deletion, its revocation hook may fail and its tree is then swept,
+ * so its record will never revoke anything. A failed query throws; the caller
+ * keeps the obligation.
  */
 export async function liveConnectionHolds(
   storage: StorageAdapter,
@@ -171,9 +192,18 @@ export async function liveConnectionHolds(
   const rows = await storage.listGroup<IntegrationConnectionRecord>(PROVIDER_CONNECTIONS, {
     where: [['identity.providerAccountId', '==', providerAccountId]],
   });
-  return rows.some(({ data }) => data.identity?.provider === provider
-    && data.state !== 'revoked'
-    && data.state !== 'not_connected');
+  for (const { path, data } of rows) {
+    const live = data.identity?.provider === provider
+      && data.state !== 'revoked'
+      && data.state !== 'not_connected'
+      && Boolean(data.credentialRef);
+    if (!live) continue;
+    // `users/{uid}/providerConnections/{id}`: the owner is in the path.
+    const [root, uid] = path.split('/');
+    if (root !== USERS || !uid) continue;
+    if (liveAccount(await storage.get(userDoc(uid)))) return true;
+  }
+  return false;
 }
 
 /** The AAD purpose: one per kind and provider; the subject half is the obligation id. */
