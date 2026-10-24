@@ -56,7 +56,7 @@ export { legacyMarkerIdFor, providerMarkerIdFor } from '../watchers/monitoringSe
 const WEEK_MS = 7 * 24 * 60 * 60_000;
 const LEASE_MS = 120_000;
 
-export type ScanFailure = 'reconnect_needed' | 'source_unavailable' | 'analysis_unavailable' | 'monitoring_off';
+export type ScanFailure = 'reconnect_needed' | 'source_unavailable' | 'analysis_unavailable' | 'monitoring_off' | 'daily_limit';
 export type Receipt = 'read' | 'unavailable';
 export type M5aUnitKind = 'manual' | 'daily' | 'live';
 
@@ -296,7 +296,7 @@ export function gmailQueryOutsideIntervals(
   return clauses.length === 1 ? clauses[0]! : clauses.map(clause => `(${clause})`).join(' OR ');
 }
 
-export function publicScanStatus(scan: M5aScanDocument | null): Record<string, unknown> | null {
+export function publicScanStatus(scan: M5aScanDocument | null, supportsDailyLimit = false): Record<string, unknown> | null {
   if (!scan) return null;
   const common = {
     scanId: scan.scanId, status: scan.status, origin: scan.origin, from: scan.from, until: scan.until,
@@ -305,7 +305,12 @@ export function publicScanStatus(scan: M5aScanDocument | null): Record<string, u
     addedFromEmail: scan.addedFromEmail,
   };
   if (scan.status === 'complete') return { ...common, finishedAt: scan.finishedAt };
-  if (scan.status === 'failed') return { ...common, failedAt: scan.failedAt, failure: scan.failure };
+  if (scan.status === 'failed') return {
+    ...common,
+    failedAt: scan.failedAt,
+    // Pre-budget builds use a strict enum and cannot parse the new value.
+    failure: scan.failure === 'daily_limit' && !supportsDailyLimit ? 'analysis_unavailable' : scan.failure,
+  };
   return { ...common, waiting: scan.waiting ?? null };
 }
 
@@ -314,12 +319,15 @@ export function publicQueued(scan: M5aScanDocument | null): Record<string, unkno
   return queue ? { scanId: queue.scanId, origin: queue.origin, from: queue.from, until: queue.until, acceptedAt: queue.acceptedAt } : null;
 }
 
-export function publicDailyStatus(scan: (M5aScanDocument & { day?: string; heldAt?: string; reason?: string }) | null): Record<string, unknown> | null {
+export function publicDailyStatus(
+  scan: (M5aScanDocument & { day?: string; heldAt?: string; reason?: string }) | null,
+  supportsDailyLimit = false,
+): Record<string, unknown> | null {
   if (!scan) return null;
   if (scan.status === ('held' as M5aScanDocument['status']) && scan.reason === 'no_timezone') {
     return { status: 'held', reason: 'no_timezone', heldAt: scan.heldAt };
   }
-  const common = publicScanStatus(scan);
+  const common = publicScanStatus(scan, supportsDailyLimit);
   if (!common || !scan.day) return null;
   const { origin: _origin, ...withoutOrigin } = common;
   return { ...withoutOrigin, day: scan.day };
@@ -460,6 +468,7 @@ async function autoAddCandidate(
 }
 
 function classifyFailure(error: unknown): ScanFailure {
+  if (error instanceof Error && error.message === 'daily_limit') return 'daily_limit';
   if (error instanceof Error && (error.message === 'source_analysis_failed' || error.message === 'analysis_unavailable')) return 'analysis_unavailable';
   if (error instanceof Error && error.message === 'reconnect_needed') return 'reconnect_needed';
   if (error instanceof GmailProviderError && (error.status === 401 || error.status === 403)) return 'reconnect_needed';
@@ -467,6 +476,10 @@ function classifyFailure(error: unknown): ScanFailure {
 }
 
 async function failScan(uid: string, kind: M5aUnitKind, scanId: string, owner: string, failure: ScanFailure, storage: StorageAdapter, now: string): Promise<void> {
+  const failedAt = new Date(now);
+  const nextEligibleAt = failure === 'daily_limit'
+    ? new Date(Date.UTC(failedAt.getUTCFullYear(), failedAt.getUTCMonth(), failedAt.getUTCDate() + 1)).toISOString()
+    : now;
   await storage.runTransaction(async tx => {
     const path = scanDocumentPath(uid, kind);
     const [account, scan] = await Promise.all([
@@ -474,7 +487,8 @@ async function failScan(uid: string, kind: M5aUnitKind, scanId: string, owner: s
       tx.get<M5aScanDocument>(path),
     ]);
     if (!liveAccount(account) || !scan || scan.scanId !== scanId || scan.leaseOwner !== owner) return;
-    tx.set(path, { ...scan, status: 'failed', failure, failedAt: now, leaseOwner: null, leaseUntil: null, nextEligibleAt: now });
+    tx.set(path, { ...scan, status: 'failed', failure, failedAt: now, waiting: null,
+      leaseOwner: null, leaseUntil: null, nextEligibleAt });
   });
 }
 
@@ -535,6 +549,10 @@ async function deferClaimForQuota(
   uid: string, scan: M5aScanDocument, scanOwner: string, claimOwner: string,
   markerIds: readonly string[], outcome: QuotaPermitOutcome, runtime: GoogleRuntime,
 ): Promise<boolean> {
+  // Daily budgets are a truthful terminal-for-today status. The failed-scan
+  // sweep resumes them after UTC midnight; only short minute waits stay in the
+  // running/deferred state.
+  if (outcome !== 'minute_boundary' && quotaScopeFor(outcome) !== 'user_minute') return false;
   const wait = quotaWait(outcome, runtime.now());
   if (!wait) return false;
   // This is a claim release, not a new writer: every set below requires the
@@ -779,7 +797,8 @@ async function processMessage(
       }, { storage, now: runtime.now() });
       if (reservation.outcome !== 'ok' || !reservation.permit) {
         if (await deferClaimForQuota(uid, claimedScan, owner, claimOwner, markerIds, reservation.outcome, runtime)) return;
-        throw new Error('analysis_unavailable');
+        const scope = reservation.outcome === 'minute_boundary' ? null : quotaScopeFor(reservation.outcome);
+        throw new Error(scope === 'user_daily' || scope === 'global_daily' ? 'daily_limit' : 'analysis_unavailable');
       }
       permit = reservation.permit;
     }
@@ -965,7 +984,7 @@ export async function runM5aScanStep(
       tx.get<DailyMonitor>(`${userCol(uid, INTELLIGENCE_MONITORS)}/gmail`),
     ]);
     if (!liveAccount(user)) return null;
-    if (!scan || (scan.status !== 'running' && scan.status !== 'failed')) return null;
+    if (!scan || (scan.status !== 'running' && scan.status !== 'failed') || scan.nextEligibleAt > now.toISOString()) return null;
     if (scan.leaseUntil && scan.leaseUntil > now.toISOString()) return null;
     const parsed = parseM5aControls(controls);
     if (!parsed?.email.enabled || parsed.email.epoch !== scan.emailEpoch || user?.personalizationPurge?.state === 'purging') {

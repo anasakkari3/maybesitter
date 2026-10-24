@@ -158,6 +158,7 @@ function useDates() {
 
 function failureText(t: Strings, failure: ScanFailure): string {
   if (failure === 'reconnect_needed') return t.m5ScanFailedReconnect;
+  if (failure === 'daily_limit') return t.m5ScanFailedDailyLimit;
   if (failure === 'analysis_unavailable') return t.m5ScanFailedAnalysis;
   if (failure === 'monitoring_off') return t.m5ScanFailedOff;
   return t.m5ScanFailedSource;
@@ -213,6 +214,7 @@ function Recovery({ scan, onReconnect }: { scan: ScanStatus & { status: 'failed'
       void client.invalidateQueries({ queryKey: emailScanKey(uid) });
     }
   }, [client, freshCapability, scan.scanId, uid]);
+  if (scan.failure === 'daily_limit') return null;
   return scan.failure === 'reconnect_needed'
     ? <Pill testID="email-scan-reconnect" label={t.m5ScanReconnect} kind="accent" size={14} pad={12} onPress={onReconnect} />
     : <Pill testID="email-scan-resume" label={t.m5ScanResume} kind="accent" size={14} pad={12} disabled={busy} onPress={() => void resume()} />;

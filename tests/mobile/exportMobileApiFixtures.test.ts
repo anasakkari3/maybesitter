@@ -3948,6 +3948,13 @@ test('exports the M5a fixtures from the real handlers', async () => {
       await m5aStorage().set(scanPath(uid), baseScan('failed', { failure }));
       await recordM4b(`intelligence.scan.failed.${failure}`, 200, await callM5a(uid, 'intelligence/sources/gmail/scan', 'GET'));
     }
+    await m5aStorage().set(scanPath(uid), baseScan('failed', { failure: 'daily_limit' }));
+    const legacyDailyLimit = await callM5a(uid, 'intelligence/sources/gmail/scan', 'GET');
+    assert.equal((legacyDailyLimit.body.manual as { failure: string }).failure, 'analysis_unavailable',
+      'a strict-enum older app received the new failure without announcing support');
+    await recordM4b('intelligence.scan.failed.daily_limit', 200, await callM5a(uid, 'intelligence/sources/gmail/scan', 'GET', {
+      headers: { 'X-MaybeSitter-Client-Features': 'gmail-scan-daily-limit' },
+    }));
     await m5aStorage().set(scanPath(uid), baseScan('running', { queued: {
       scanId: 'queued-fixture', origin: 'backfill', from: '2026-10-12T10:00:00.000Z', until: REFERENCE_TIME,
       acceptedAt: REFERENCE_TIME, timezone: 'Asia/Jerusalem', providerAccountId: 'fixture@example.com', emailEpoch: 0,

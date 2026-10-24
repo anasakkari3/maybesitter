@@ -97,7 +97,7 @@ interface FailedScan extends ScanWindow {
   status: 'failed';
   origin: 'manual' | 'backfill';
   failedAt: string;
-  failure: 'reconnect_needed' | 'source_unavailable' | 'analysis_unavailable' | 'monitoring_off';
+  failure: 'reconnect_needed' | 'source_unavailable' | 'analysis_unavailable' | 'monitoring_off' | 'daily_limit';
 }
 
 export type ScanStatus = RunningScan | CompleteScan | FailedScan | null;
@@ -376,7 +376,7 @@ export function completeScan(overrides: Partial<CompleteScan> = {}): CompleteSca
   };
 }
 
-export function failedScan(failure: 'reconnect_needed' | 'source_unavailable' | 'analysis_unavailable' | 'monitoring_off') {
+export function failedScan(failure: 'reconnect_needed' | 'source_unavailable' | 'analysis_unavailable' | 'monitoring_off' | 'daily_limit') {
   return {
     scanId: 'scan-manual-1', status: 'failed' as const, origin: 'manual' as const,
     from: '2030-03-22T09:00:00.000Z', until: NOW.toISOString(),

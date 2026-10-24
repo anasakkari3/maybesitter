@@ -18,6 +18,14 @@ import { resolveM5aCapabilities } from '../../../../../../../../lib/release/m5aC
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
+const DAILY_LIMIT_CLIENT_FEATURE = 'gmail-scan-daily-limit';
+
+function supportsDailyLimit(request: Request): boolean {
+  return (request.headers.get('X-MaybeSitter-Client-Features') ?? '')
+    .split(',')
+    .some(feature => feature.trim().toLowerCase() === DAILY_LIMIT_CLIENT_FEATURE);
+}
+
 async function authenticated(request: Request) {
   const disabled = intelligenceDisabledResponse();
   if (disabled) return { response: disabled } as const;
@@ -40,7 +48,8 @@ export async function GET(request: Request): Promise<Response> {
     readM5aScan(auth.user.uid, googleRuntime().storage),
     readM5aDailyScan(auth.user.uid, googleRuntime().storage),
   ]);
-  return Response.json({ success: true, manual: publicScanStatus(scan), queuedManual: publicQueued(scan), daily: publicDailyStatus(daily) });
+  const dailyLimit = supportsDailyLimit(request);
+  return Response.json({ success: true, manual: publicScanStatus(scan, dailyLimit), queuedManual: publicQueued(scan), daily: publicDailyStatus(daily, dailyLimit) });
 }
 
 export async function POST(request: Request) {
@@ -75,9 +84,10 @@ export async function POST(request: Request) {
         ...(typeof body.timezone === 'string' ? { timezone: body.timezone } : {}),
       }, googleRuntime());
       const daily = await readM5aDailyScan(user.uid, googleRuntime().storage);
+      const dailyLimit = supportsDailyLimit(request);
       return Response.json({
-        success: true, messagesRead: 0, observations: [], scan: publicScanStatus(scan),
-        manual: publicScanStatus(scan), queuedManual: publicQueued(scan), daily: publicDailyStatus(daily),
+        success: true, messagesRead: 0, observations: [], scan: publicScanStatus(scan, dailyLimit),
+        manual: publicScanStatus(scan, dailyLimit), queuedManual: publicQueued(scan), daily: publicDailyStatus(daily, dailyLimit),
       });
     } catch (error) {
       if (error instanceof Error && error.message === 'm5_unavailable') {

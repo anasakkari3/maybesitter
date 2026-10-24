@@ -52,8 +52,10 @@ export const DEFAULT_USER_DAILY_TOKEN_CAP = 150_000;
  * loop, which can spend the whole day's budget in under a minute.
  */
 export const DEFAULT_USER_MINUTE_CAP = 8;
-/** M5a deliberately leaves capacity for capture, chat and the rest of the product. */
-export const M5A_USER_DAILY_CALL_CAP = 45;
+/** M5a's independent per-user daily call budget (owner decision 2026-10-24). */
+export const M5A_USER_DAILY_CALL_CAP = 300;
+/** M5a's independent per-user daily token budget (300 ordinary scan calls, rounded). */
+export const M5A_USER_DAILY_TOKEN_CAP = 1_500_000;
 /** The corresponding global share of the existing 3,000-call brake. */
 export const M5A_GLOBAL_DAILY_CALL_CAP = 2_000;
 /**
@@ -140,6 +142,10 @@ export interface UsageDay {
   outputTokens?: number;
   /** Calls/tokens reserved by whole M5a work units, reconciled by their permits. */
   m5aCalls?: number;
+  m5aReservedTokens?: number;
+  m5aInputTokens?: number;
+  m5aOutputTokens?: number;
+  /** Legacy shared reservation field, retained for old documents and general usage. */
   reservedTokens?: number;
   /**
    * The minute window the counter below belongs to, `YYYY-MM-DDTHH:MM`.
@@ -252,9 +258,10 @@ function nextUtcMinute(now: Date): Date {
 }
 
 /**
- * Reserves a complete M5a unit before its first model call. The regular usage
- * counters remain the source of truth, so other product calls consume the same
- * 60/3,000 budgets while the M5a-specific fields enforce the smaller shares.
+ * Reserves a complete M5a unit before its first model call. Its per-user calls
+ * and tokens live in a separate ledger, so a mailbox scan cannot consume the
+ * person's capture/chat budget. The shared minute counter still stops loops,
+ * and the global counters remain the project's spend brake.
  */
 export async function reserveQuotaPermit(
   uid: string,
@@ -275,9 +282,7 @@ export async function reserveQuotaPermit(
   const at = now.toISOString();
   const tokenBudget = Math.max(1, Math.trunc(input.tokenBudget));
   const tokenBudgetPerSlot = Math.ceil(tokenBudget / input.calls);
-  const userCap = options.userCap ?? capFrom(process.env.MAYBESITTER_LLM_DAILY_CALL_CAP, DEFAULT_USER_DAILY_CAP);
   const globalCap = options.globalCap ?? capFrom(process.env.MAYBESITTER_LLM_GLOBAL_DAILY_CALL_CAP, DEFAULT_GLOBAL_DAILY_CAP);
-  const tokenCap = options.tokenCap ?? capFrom(process.env.MAYBESITTER_LLM_DAILY_TOKEN_CAP, DEFAULT_USER_DAILY_TOKEN_CAP);
   const minuteCap = options.minuteCap ?? capFrom(process.env.MAYBESITTER_LLM_MINUTE_CALL_CAP, DEFAULT_USER_MINUTE_CAP);
   try {
     const outcome = await storage.runTransaction(async tx => {
@@ -289,16 +294,18 @@ export async function reserveQuotaPermit(
       const globalCalls = globalDay?.calls ?? 0;
       const userM5a = userDay?.m5aCalls ?? 0;
       const globalM5a = globalDay?.m5aCalls ?? 0;
-      const heldTokens = userDay?.reservedTokens ?? 0;
-      const spentTokens = (userDay?.inputTokens ?? 0) + (userDay?.outputTokens ?? 0);
+      const heldTokens = userDay?.m5aReservedTokens ?? 0;
+      const spentTokens = (userDay?.m5aInputTokens ?? 0) + (userDay?.m5aOutputTokens ?? 0);
       if (minuteCalls + input.calls > minuteCap) return 'user_minute_cap' as const;
-      if (userCalls + input.calls > userCap || userM5a + input.calls > M5A_USER_DAILY_CALL_CAP) return 'user_cap' as const;
-      if (spentTokens + heldTokens + tokenBudget > tokenCap) return 'user_token_cap' as const;
+      if (userM5a + input.calls > M5A_USER_DAILY_CALL_CAP) return 'user_cap' as const;
+      if (spentTokens + heldTokens + tokenBudget > M5A_USER_DAILY_TOKEN_CAP) return 'user_token_cap' as const;
       if (globalCalls + input.calls > globalCap || globalM5a + input.calls > M5A_GLOBAL_DAILY_CALL_CAP) return 'global_cap' as const;
       tx.set<UsageDay>(userPath, {
-        calls: userCalls + input.calls, date: day, updatedAt: at,
+        calls: userCalls, date: day, updatedAt: at,
         inputTokens: userDay?.inputTokens ?? 0, outputTokens: userDay?.outputTokens ?? 0,
-        m5aCalls: userM5a + input.calls, reservedTokens: heldTokens + tokenBudget,
+        reservedTokens: userDay?.reservedTokens ?? 0,
+        m5aCalls: userM5a + input.calls, m5aReservedTokens: heldTokens + tokenBudget,
+        m5aInputTokens: userDay?.m5aInputTokens ?? 0, m5aOutputTokens: userDay?.m5aOutputTokens ?? 0,
         minute, minuteCalls: minuteCalls + input.calls, expireAt: expireAtFor(now),
       });
       tx.set<UsageDay>(globalPath, {
@@ -362,10 +369,12 @@ export async function settleQuotaPermitSlot(
     tx.set(path, { ...record, slots });
     tx.set<UsageDay>(userPath, {
       calls: usage?.calls ?? 0, date: permit.day, updatedAt: now.toISOString(),
-      inputTokens: (usage?.inputTokens ?? 0) + promptTokens,
-      outputTokens: (usage?.outputTokens ?? 0) + outputTokens,
+      inputTokens: usage?.inputTokens ?? 0, outputTokens: usage?.outputTokens ?? 0,
+      reservedTokens: usage?.reservedTokens ?? 0,
       m5aCalls: usage?.m5aCalls ?? 0,
-      reservedTokens: Math.max(0, (usage?.reservedTokens ?? 0) - record.tokenBudgetPerSlot),
+      m5aReservedTokens: Math.max(0, (usage?.m5aReservedTokens ?? 0) - record.tokenBudgetPerSlot),
+      m5aInputTokens: (usage?.m5aInputTokens ?? 0) + promptTokens,
+      m5aOutputTokens: (usage?.m5aOutputTokens ?? 0) + outputTokens,
       ...(usage?.minute ? { minute: usage.minute, minuteCalls: usage.minuteCalls ?? 0 } : {}),
       expireAt: expireAtFor(now),
     });
@@ -389,8 +398,8 @@ export async function finalizeQuotaPermit(
       tx.get<UsageDay>(userDayPath(permit.uid, permit.day)), tx.get<UsageDay>(globalDayPath(permit.day)),
     ]);
     if (usage) tx.set<UsageDay>(userDayPath(permit.uid, permit.day), {
-      ...usage, calls: Math.max(0, usage.calls - unused), m5aCalls: Math.max(0, (usage.m5aCalls ?? 0) - unused),
-      reservedTokens: Math.max(0, (usage.reservedTokens ?? 0) - releasableTokens), updatedAt: now.toISOString(),
+      ...usage, m5aCalls: Math.max(0, (usage.m5aCalls ?? 0) - unused),
+      m5aReservedTokens: Math.max(0, (usage.m5aReservedTokens ?? 0) - releasableTokens), updatedAt: now.toISOString(),
     });
     if (global) tx.set<UsageDay>(globalDayPath(permit.day), {
       ...global, calls: Math.max(0, global.calls - unused), m5aCalls: Math.max(0, (global.m5aCalls ?? 0) - unused), updatedAt: now.toISOString(),
@@ -458,6 +467,11 @@ export async function reserveCall(
         // call answers, and a reservation must not erase what today has spent.
         inputTokens: userDay?.inputTokens ?? 0,
         outputTokens: userDay?.outputTokens ?? 0,
+        reservedTokens: userDay?.reservedTokens ?? 0,
+        m5aCalls: userDay?.m5aCalls ?? 0,
+        m5aReservedTokens: userDay?.m5aReservedTokens ?? 0,
+        m5aInputTokens: userDay?.m5aInputTokens ?? 0,
+        m5aOutputTokens: userDay?.m5aOutputTokens ?? 0,
         minute,
         minuteCalls: minuteCalls + 1,
         expireAt: expireAtFor(now),
@@ -466,6 +480,7 @@ export async function reserveCall(
         calls: globalCalls + 1,
         date: day,
         updatedAt: at,
+        m5aCalls: globalDay?.m5aCalls ?? 0,
         expireAt: expireAtFor(now),
       });
       return 'ok';
@@ -518,6 +533,11 @@ export async function commitUsage(
         updatedAt: now.toISOString(),
         inputTokens: (current?.inputTokens ?? 0) + promptTokens,
         outputTokens: (current?.outputTokens ?? 0) + outputTokens,
+        reservedTokens: current?.reservedTokens ?? 0,
+        m5aCalls: current?.m5aCalls ?? 0,
+        m5aReservedTokens: current?.m5aReservedTokens ?? 0,
+        m5aInputTokens: current?.m5aInputTokens ?? 0,
+        m5aOutputTokens: current?.m5aOutputTokens ?? 0,
         ...(current?.minute ? { minute: current.minute, minuteCalls: current.minuteCalls ?? 0 } : {}),
         expireAt: expireAtFor(now),
       });
