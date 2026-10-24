@@ -28,6 +28,9 @@ TARGET="${1:?usage: scheduler.sh [--check] staging|production}"
 PROJECT_ID="${PROJECT_ID:-maybesitter-app}"
 REGION="${REGION:-europe-west1}"
 SCHEDULER_SA="maybesitter-scheduler@${PROJECT_ID}.iam.gserviceaccount.com"
+# The caller /api/internal/m5a-controls accepts (#810). infra/cloudrun/flags.sh
+# sets it on every deploy; this script only checks it.
+DEPLOYER_SA="maybesitter-deployer@${PROJECT_ID}.iam.gserviceaccount.com"
 
 case "${TARGET}" in
   staging)    SERVICE="maybesitter-api-staging"; SUFFIX="staging" ;;
@@ -77,6 +80,16 @@ if [ "${MODE}" = "check" ]; then
   LIVE_AUDIENCE="$(jq -r '[.spec.template.spec.containers[0].env[]? | select(.name == "MAYBESITTER_INTERNAL_AUDIENCE") | .value][0] // ""' <<<"${SERVICE_JSON}")"
   check_equal "${SERVICE} scheduler caller" "${LIVE_SCHEDULER_SA}" "${SCHEDULER_SA}"
   check_equal "${SERVICE} scheduler audience" "${LIVE_AUDIENCE}" "${BASE_URL}"
+  # The M5a controls route authorizes with the same audience and this caller.
+  # Without it, m5a-controls-init/enable/kill answer 503 `not_configured`, and
+  # the incident kill in DEPLOY.md cannot run.
+  LIVE_DEPLOYER_SA="$(jq -r '[.spec.template.spec.containers[0].env[]? | select(.name == "MAYBESITTER_DEPLOYER_SA_EMAIL") | .value][0] // ""' <<<"${SERVICE_JSON}")"
+  if [ -z "${LIVE_DEPLOYER_SA}" ]; then
+    printf 'FAIL %s MAYBESITTER_DEPLOYER_SA_EMAIL is missing (M5a controls answer 503; redeploy with infra/cloudrun/flags.sh)\n' "${SERVICE}" >&2
+    CHECK_FAILURES=$((CHECK_FAILURES + 1))
+  else
+    check_equal "${SERVICE} M5a controls caller" "${LIVE_DEPLOYER_SA}" "${DEPLOYER_SA}"
+  fi
 else
   LIVE_SCHEDULER_SETTINGS="$(gcloud run services describe "${SERVICE}" \
     --region "${REGION}" --project "${PROJECT_ID}" --format=json \
