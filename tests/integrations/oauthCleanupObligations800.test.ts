@@ -593,3 +593,176 @@ test('a connect of a different Google account leaves the pending revocation for 
     done();
   }
 }));
+
+/* ── the retry itself refuses to revoke a grant a live connection holds ── */
+
+/** `storage`, except that listing the obligations collection fails, as a Firestore outage during the clear would. */
+function obligationListFails(storage: MemoryStorageAdapter): StorageAdapter {
+  return new Proxy(storage, {
+    get(target, property) {
+      const value = Reflect.get(target, property, target);
+      if (property === 'list') {
+        return async (collection: string, options?: unknown) => {
+          if (collection === OAUTH_CLEANUP_OBLIGATIONS) throw new Error('firestore is unreachable');
+          return target.list(collection, options as never);
+        };
+      }
+      return typeof value === 'function' ? value.bind(target) : value;
+    },
+  }) as StorageAdapter;
+}
+
+test('the inspector\'s probe: the clear on connect fails, the connect still succeeds, and the nightly run drops the revocation instead of killing G2', () => withPepper(async () => {
+  const { storage, google, done } = setupGoogle();
+  try {
+    await seedLiveAccount(UID, storage);
+    await connectAs(google, UID, G1);
+    google.revokeStatus = 503;
+    await assert.rejects(connectAs(google, UID, G2, 'gmail'), GoogleConnectError);
+    assert.equal((await obligations(storage)).length, 1);
+    google.revokeStatus = 200;
+    await disconnectGoogle(UID, googleRuntime());
+
+    // Connect G2 while the clear's read of the obligations fails.
+    google.account = G2;
+    const begun = await beginGoogleConnect(UID, 'calendar', googleRuntime());
+    const status = await completeGoogleConnect(UID, google.consent(begun.authorizationUrl), {
+      ...googleRuntime(),
+      storage: obligationListFails(storage),
+    });
+    assert.equal(status.status, 'connected', 'a failed clear failed a connect that was already stored');
+    assert.equal((await obligations(storage)).length, 1, 'the failure was not injected: the clear ran');
+
+    // The nightly run finds G2 held by a live connection: dropped, not revoked.
+    assert.deepEqual(await maintenanceStep(storage, T1), { name: 'oauth_cleanups_retried', ok: true, count: 1 });
+    assert.deepEqual(await obligations(storage), []);
+    google.expireAccessTokens();
+    assert.ok(await googleAccessToken(UID, 'calendar', googleRuntime(), { forceRefresh: true }), 'the nightly run killed the live G2 connection');
+    assert.equal(google.liveGrants(), 1);
+  } finally {
+    done();
+  }
+}));
+
+test('the clear on connect also finds a revocation filed under the previous pepper', () => withPepper(async () => {
+  const { storage, google, done } = setupGoogle();
+  const before = process.env.MAYBESITTER_DELETION_RECEIPT_PEPPER_PREVIOUS;
+  try {
+    await seedLiveAccount(UID, storage);
+    await connectAs(google, UID, G1);
+    google.revokeStatus = 503;
+    await assert.rejects(connectAs(google, UID, G2, 'gmail'), GoogleConnectError);
+    google.revokeStatus = 200;
+    const [owed] = await obligations(storage);
+    // The pepper rotates: the obligation's key is now the previous pepper's.
+    process.env.MAYBESITTER_DELETION_RECEIPT_PEPPER_PREVIOUS = process.env[PEPPER_VAR];
+    process.env[PEPPER_VAR] = 'oauth-cleanup-800-rotated-pepper';
+    await disconnectGoogle(UID, googleRuntime());
+    assert.equal((await connectAs(google, UID, G2)).status, 'connected');
+    assert.ok(owed, 'nothing was recorded');
+    assert.deepEqual(await obligations(storage), [], 'the clear looked only under the current pepper');
+  } finally {
+    if (before === undefined) delete process.env.MAYBESITTER_DELETION_RECEIPT_PEPPER_PREVIOUS;
+    else process.env.MAYBESITTER_DELETION_RECEIPT_PEPPER_PREVIOUS = before;
+    done();
+  }
+}));
+
+test('a revocation recorded for an account another MaybeSitter account already holds live is dropped as soon as it is written', async () => {
+  const { storage, google, done } = setupGoogle();
+  const OTHER_UID = 'cleanup800Holder';
+  try {
+    // No pepper here: the check after recording is by account id, not by key.
+    await seedLiveAccount(OTHER_UID, storage);
+    assert.equal((await connectAs(google, OTHER_UID, G2)).status, 'connected');
+    await seedLiveAccount(UID, storage);
+    await connectAs(google, UID, G1);
+    google.revokeStatus = 503;
+    await assert.rejects(connectAs(google, UID, G2, 'gmail'), GoogleConnectError);
+    assert.deepEqual(await obligations(storage), [], 'a revocation of a grant a live connection holds was kept');
+  } finally {
+    done();
+  }
+});
+
+test('the retry re-reads an obligation before revoking, so one cleared after the list was read is not revoked', async () => {
+  const base = createMemoryStorage();
+  const options = crypto();
+  await new StoredOAuthCleanupObligations(base, options, () => new Date(T0))
+    .recordGrantRevocation({ provider: 'google', tokenSet: TOKENS });
+  // A connect's clear lands between the run's list and its revoke.
+  const clearedAfterList = new Proxy(base, {
+    get(target, property) {
+      const value = Reflect.get(target, property, target);
+      if (property === 'list') {
+        return async (collection: string, listOptions?: unknown) => {
+          const rows = await target.list(collection, listOptions as never);
+          if (collection === OAUTH_CLEANUP_OBLIGATIONS) for (const row of rows) await target.delete(`${collection}/${row.id}`);
+          return rows;
+        };
+      }
+      return typeof value === 'function' ? value.bind(target) : value;
+    },
+  }) as StorageAdapter;
+  let revokes = 0;
+  const totals = await retryOAuthCleanupObligations({
+    storage: clearedAfterList,
+    encryption: options,
+    revoke: async () => { revokes += 1; },
+  });
+  assert.equal(revokes, 0, 'a cleared obligation was revoked anyway');
+  assert.deepEqual(totals, { attempted: 1, cleared: 1, failed: 0 });
+});
+
+test('with no pepper on shared storage, a failed revoke is still recorded, with no account key', async () => {
+  const storage = createMemoryStorage();
+  const saved = { backend: process.env.MAYBESITTER_STORAGE_BACKEND, pepper: process.env[PEPPER_VAR], emulator: process.env.FIRESTORE_EMULATOR_HOST };
+  process.env.MAYBESITTER_STORAGE_BACKEND = 'firestore';
+  delete process.env[PEPPER_VAR];
+  delete process.env.FIRESTORE_EMULATOR_HOST;
+  try {
+    await new StoredOAuthCleanupObligations(storage, crypto(), () => new Date(T0))
+      .recordGrantRevocation({ provider: 'google', tokenSet: TOKENS, providerAccountId: G2.sub });
+  } finally {
+    for (const [key, value] of [['MAYBESITTER_STORAGE_BACKEND', saved.backend], [PEPPER_VAR, saved.pepper], ['FIRESTORE_EMULATOR_HOST', saved.emulator]] as const) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
+  const owed = await obligations(storage);
+  assert.equal(owed.length, 1);
+  assert.equal(owed[0]!.data.accountKey, null);
+});
+
+for (const state of ['revoked', 'not_connected'] as const) {
+  test(`a ${state} connection to the same Google account does not stop the revocation`, async () => {
+    const storage = createMemoryStorage();
+    const options = crypto();
+    await seedLiveAccount('cleanup800Former', storage);
+    const vault = new EncryptedProviderCredentialVault('cleanup800Former', storage, options);
+    const credentialRef = await vault.storeOAuthTokenSet({ scopeId: 'cleanup800Former', provider: 'google', tokenSet: TOKENS });
+    const connections = new StoredIntegrationConnectionStore('cleanup800Former', storage);
+    const record = await connections.upsert({
+      scopeId: 'cleanup800Former',
+      identity: { provider: 'google', providerAccountId: G2.sub, displayName: null } as never,
+      state: 'connected',
+      capabilities: ['calendar_busy'],
+      grantedScopes: TOKENS.grantedScopes,
+      connectedAt: T0,
+      expiresAt: null,
+      credentialRef,
+      sync: { cursor: null, checkpointAt: null },
+      provenance: { source: 'oauth', connectedBy: 'user', recordedAt: T0 },
+    }, T0);
+    await connections.markState(record.connectionId, state, T0);
+
+    await new StoredOAuthCleanupObligations(storage, options, () => new Date(T0))
+      .recordGrantRevocation({ provider: 'google', tokenSet: TOKENS, providerAccountId: G2.sub });
+    assert.equal((await obligations(storage)).length, 1, `a ${state} connection was taken for a live holder when recording`);
+    let revokes = 0;
+    assert.deepEqual(await retryOAuthCleanupObligations({ storage, encryption: options, revoke: async () => { revokes += 1; } }), {
+      attempted: 1, cleared: 1, failed: 0,
+    });
+    assert.equal(revokes, 1, `a ${state} connection was taken for a live holder at retry`);
+  });
+}

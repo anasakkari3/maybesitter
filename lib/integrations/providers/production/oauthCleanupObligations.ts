@@ -31,26 +31,43 @@
  *
  * Only what the retry needs. A credential deletion needs the account, the
  * vault reference and the fingerprint of the exact credential it owes; a
- * revocation needs the tokens the provider's revoke call takes. Both are
- * sealed with `encryptField` — the same KMS envelope the vault uses for
- * refresh tokens — with the AAD bound to the obligation's random id and its
- * kind. The plaintext document holds a kind, a provider, timestamps, an
- * attempt count and, for a revocation, `accountKey`: the deletion pepper's
- * HMAC of the provider account id (`pepperedSubjectHashes`), which names
- * nobody without the pepper. Nothing here is ever logged, and no error raised
- * here carries a token, a uid or an account id.
+ * revocation needs the tokens the provider's revoke call takes and the
+ * provider account they belong to. Both are sealed with `encryptField` — the
+ * same KMS envelope the vault uses for refresh tokens — with the AAD bound to
+ * the obligation's random id and its kind. The plaintext document holds a
+ * kind, a provider, timestamps, an attempt count and, for a revocation,
+ * `accountKey`: the deletion pepper's HMAC of the provider account id
+ * (`pepperedSubjectHashes`), which names nobody without the pepper. Nothing
+ * here is ever logged, and no error raised here carries a token, a uid or an
+ * account id.
  *
- * ── Why a revocation carries the account key ─────────────────────
+ * ── A revocation never takes back a grant a connection holds ─────
  *
  * Google revokes the whole authorization for one Google account and this
  * client, not one token (`googleConnectService.ts`, "Nothing is revoked on a
  * re-consent"). A revocation still owed for account G2 would, once retried,
  * also kill any connection to G2 made since — the person who picked G2 by
  * mistake, disconnected G1 and connected G2 as told, or another MaybeSitter
- * account connecting G2. So a successful connect of an account clears every
- * revocation pending for it (`clearGrantRevocations`), whichever uid connects:
- * the grant that obligation meant to withdraw is, from then on, a grant a
- * connection holds, and disconnect and account deletion can reach it.
+ * account connecting G2. Three checks keep that from happening, and only the
+ * last one is load-bearing:
+ *
+ *   1. Before every revoke, the retry asks whether any account holds a live
+ *      connection to that provider account (`liveConnectionHolds`, a
+ *      collection-group query on the sealed account id). If one does, the
+ *      obligation is dropped without revoking: that holder's own disconnect
+ *      or account deletion revokes the same authorization.
+ *   2. Right after an obligation is written, the same question is asked, and
+ *      the obligation is deleted if the answer is yes.
+ *   3. A successful connect clears what is pending for its account by
+ *      `accountKey` (`clearGrantRevocations`). An optimisation only: its
+ *      failure does not fail the connect, because check 1 still holds.
+ *
+ * Checks 2 and 3 are each write-then-read: the recorder writes the
+ * obligation, then reads connections; the connect writes the connection,
+ * then reads obligations. Firestore reads are strongly consistent, so of two
+ * such sequences racing, at least one read sees the other's write, and the
+ * obligation is dropped on one side or the other. Check 1 needs no pepper and
+ * no `accountKey`, so a pepper rotation cannot weaken it.
  */
 import { randomUUID } from 'node:crypto';
 import {
@@ -110,10 +127,12 @@ interface CredentialDeletePayload {
   readonly fingerprint: string;
 }
 
-/** Only the two token strings a revoke call can use; no scopes, no expiry. */
+/** Only the two token strings a revoke call can use, and whose account they are; no scopes, no expiry. */
 interface GrantRevokePayload {
   readonly accessToken: string;
   readonly refreshToken: string | null;
+  /** The provider account (Google `sub`), when known; checked against live connections before revoking. */
+  readonly providerAccountId?: string | null;
 }
 
 export function oauthCleanupObligationPath(id: string): string {
@@ -128,7 +147,33 @@ export function oauthCleanupObligationPath(id: string): string {
 export function providerAccountKeys(provider: ContextProviderKind, providerAccountId: string): string[] {
   const subject = `${provider}_${providerAccountId}`;
   if (!/^[A-Za-z0-9_-]{1,128}$/.test(subject)) return [];
-  return pepperedSubjectHashes(subject, { sharedStorage: storageMayHoldSharedTombstones() });
+  try {
+    return pepperedSubjectHashes(subject, { sharedStorage: storageMayHoldSharedTombstones() });
+  } catch {
+    // Shared storage with no pepper. The key only serves the clear-on-connect
+    // optimisation; the retry's live-connection check needs none, and a
+    // revocation that already failed must still be recorded.
+    return [];
+  }
+}
+
+/**
+ * Whether any MaybeSitter account holds a live connection to this provider
+ * account. Such a connection holds the very authorization a pending
+ * revocation would withdraw, and its own disconnect or account deletion will
+ * revoke it, so a revocation for it is dropped instead of retried.
+ */
+export async function liveConnectionHolds(
+  storage: StorageAdapter,
+  provider: ContextProviderKind,
+  providerAccountId: string,
+): Promise<boolean> {
+  const rows = await storage.listGroup<IntegrationConnectionRecord>(PROVIDER_CONNECTIONS, {
+    where: [['identity.providerAccountId', '==', providerAccountId]],
+  });
+  return rows.some(({ data }) => data.identity?.provider === provider
+    && data.state !== 'revoked'
+    && data.state !== 'not_connected');
 }
 
 /** The AAD purpose: one per kind and provider; the subject half is the obligation id. */
@@ -177,20 +222,31 @@ export class StoredOAuthCleanupObligations implements ProviderOAuthCleanupObliga
     readonly tokenSet: ProviderOAuthTokenSet;
     readonly providerAccountId?: string | null;
   }): Promise<void> {
+    const providerAccountId = input.providerAccountId || null;
     const payload: GrantRevokePayload = {
       accessToken: input.tokenSet.accessToken,
       refreshToken: input.tokenSet.refreshToken,
+      providerAccountId,
     };
-    const accountKey = input.providerAccountId ? providerAccountKeys(input.provider, input.providerAccountId)[0] ?? null : null;
-    await this.record('grant_revoke', input.provider, payload, accountKey);
+    const accountKey = providerAccountId ? providerAccountKeys(input.provider, providerAccountId)[0] ?? null : null;
+    const path = await this.record('grant_revoke', input.provider, payload, accountKey);
+    if (!providerAccountId) return;
+    // Check 2 (module header): written first, then read. A connect of this
+    // account that wrote its record before this read is seen here; one that
+    // writes after this obligation landed sees it in its own clear.
+    try {
+      if (await liveConnectionHolds(this.storage, input.provider, providerAccountId)) await this.storage.delete(path);
+    } catch {
+      // The obligation stays; the retry asks the same question before revoking.
+    }
   }
 
   /**
    * A connection of this provider account was just stored: every revocation
    * still owed for it is dropped, because revoking now would withdraw the
-   * authorization that connection holds. Returns how many were cleared; throws
-   * when the clear could not be done, so the caller does not report a
-   * connection a nightly retry would then kill.
+   * authorization that connection holds. Returns how many were cleared. An
+   * optimisation (check 3 in the module header): a caller may ignore its
+   * failure, because the retry checks for a live connection before revoking.
    */
   async clearGrantRevocations(provider: ContextProviderKind, providerAccountId: string): Promise<number> {
     const keys = providerAccountKeys(provider, providerAccountId);
@@ -212,7 +268,7 @@ export class StoredOAuthCleanupObligations implements ProviderOAuthCleanupObliga
     provider: ContextProviderKind,
     payload: object,
     accountKey: string | null,
-  ): Promise<void> {
+  ): Promise<string> {
     const id = randomUUID();
     const sealed = await encryptField(id, sealPurpose(kind, provider), JSON.stringify(payload), this.encryption);
     const at = this.now().toISOString();
@@ -226,7 +282,9 @@ export class StoredOAuthCleanupObligations implements ProviderOAuthCleanupObliga
       updatedAt: at,
       attempts: 0,
     };
-    await this.storage.set(oauthCleanupObligationPath(id), document);
+    const path = oauthCleanupObligationPath(id);
+    await this.storage.set(path, document);
+    return path;
   }
 }
 
@@ -282,6 +340,13 @@ export async function retryOAuthCleanupObligations(options: RetryOAuthCleanupOpt
         await deleteCredential(storage, path, data, JSON.parse(plaintext) as CredentialDeletePayload);
       } else if (data.kind === 'grant_revoke') {
         const handle = JSON.parse(plaintext) as GrantRevokePayload;
+        // Check 1 (module header): a live connection holds this authorization
+        // now, and revoking would withdraw it. Dropped, not revoked.
+        if (handle.providerAccountId && await liveConnectionHolds(storage, data.provider, handle.providerAccountId)) {
+          await storage.delete(path);
+          cleared += 1;
+          continue;
+        }
         // A connect of this account may have cleared it since it was listed;
         // revoking then would withdraw the grant that connection holds.
         if (!(await storage.get(path))) {

@@ -461,11 +461,18 @@ export async function completeGoogleConnect(
     // This Google account now has a live connection. A revocation still owed
     // for it — from a refused completion, by this account or any other — would
     // withdraw the whole authorization this connection holds (Google revokes
-    // per account and client), so it is cancelled. Failing to cancel it fails
-    // the connect: reporting success here would hand the nightly retry a live
-    // connection to kill (#800).
+    // per account and client), so it is cancelled here (#800). Only an
+    // optimisation: the connection is already stored, so a failed clear must
+    // not fail the connect, and the cleanup job will not revoke anyway while a
+    // live connection holds the account (`liveConnectionHolds`).
     const accountId = connected.identity.providerAccountId;
-    if (accountId) await cleanup.clearGrantRevocations(GOOGLE_PROVIDER, accountId);
+    if (accountId) {
+      try {
+        await cleanup.clearGrantRevocations(GOOGLE_PROVIDER, accountId);
+      } catch {
+        // Left for the cleanup job, which drops it without revoking.
+      }
+    }
     return await getGoogleStatus(uid, runtime);
   } catch (error) {
     // The refusal the completion answered, even when its own credential
