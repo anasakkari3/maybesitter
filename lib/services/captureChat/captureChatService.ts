@@ -735,9 +735,13 @@ export async function chatMobileCapture(
     // boundary as later-turn deltas: each point is parsed only from the words
     // it cites.  An uncited or invalid first turn deliberately keeps the
     // historical whole-message path below.
-    const cited = current || everyFirstTurnAddIsCited
+    let cited = current || everyFirstTurnAddIsCited
       ? validateChatCitations({ ...answer, open }, message, { now, timezone, amPmAskedRefs })
       : null;
+    // A contradictory citation on the first turn is not a safe evidence
+    // boundary. Fall back to the established whole-message path, whose clock
+    // readers reconcile the person's stated time before proposing the item.
+    if (!current && cited?.timeDisagrees) cited = null;
     if (current && !cited) {
       return finish(templateReply({ language, proposal: current, editFailed: true }), 'model', current, turns, { conflictsKnown: true });
     }

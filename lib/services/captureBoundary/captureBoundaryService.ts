@@ -913,6 +913,12 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
   const chatChangedFieldEvidences = chat
     ? chatItemEvidence(chat.userTurns, chatItems, chatPrevious, options.timezone, chat.changedFieldEvidenceStartIndices, chat.previousMatchIndices, operationEvidenceSources)
     : [];
+  const firstTurnHasSeveralBareEarlyClocks = Boolean(
+    chat?.operationEvidenceSources
+    && chatPrevious.length === 0
+    && countTimeExpressions(chatEvidenceFrom(chat.userTurns)) >= 2
+    && isBareEarlyHourAnswer(chatEvidenceFrom(chat.userTurns)),
+  );
   const chatAligned = alignToPrevious(chatItems, chatPrevious, chat?.previousMatchIndices);
   // The days and hours each other model item holds, and the goal-like items'
   // titles (`occurrenceDatesFor`).
@@ -1141,18 +1147,17 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
       }
       // A model reading of a bare early hour takes the number the person said
       // (UAT round 6, D1), so it is asked as the rules reading is below.
-      // In the chat, asked of the whole conversation, as it always was: one
-      // bare early hour said anywhere is asked صبح or مسا; «الاول … عال ٤
-      // والثاني … عال٦» — two hours, one per item — is not one to ask about.
+      // In a validated cited first turn, ask from this operation's citation
+      // plus shared remainder. A marker in another point cannot answer it.
+      // The established multi-clock exception remains message-wide:
+      // «الاول … عال ٤ والثاني … عال٦» asks nothing.
       const statedEarlyClock = extracted.engine !== 'rule-based'
         ? chat?.operationSources
           // Later-turn citation operations answer or edit an existing card,
-          // so any bare 1–11 clock must ask AM/PM. A validated first turn keeps
-          // the first turn's own rule, read over the whole message: one bare
-          // early hour («الساعة 5») is asked, never guessed (live r11 L3);
-          // two hours, one per point («الاول الساعة 4 والتاني الساعة 6»), are
-          // not one to ask about.
-          ? chatPrevious.length > 0 ? statedBareOperationClock(segment) : statedBareEarlyClock(chatEvidenceFrom(chat.userTurns))
+          // so any bare 1–11 clock must ask AM/PM.
+          ? chatPrevious.length > 0
+            ? statedBareOperationClock(segment)
+            : firstTurnHasSeveralBareEarlyClocks ? null : statedBareEarlyClock(segment)
           : statedBareEarlyClock(chat ? chatEvidence : segment)
         : null;
       if (statedEarlyClock) {
@@ -1444,7 +1449,9 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
        * list never undoes a later edit of one of its days.
        */
       const occurrenceWords = chat
-        ? chatFactEvidences[index]!.turns.join('\n')
+        ? chat.operationEvidenceSources && chatPrevious.length === 0
+          ? chatFactEvidences[index]!.turns.join('\n')
+          : chatItemEvidences[index]!.turns.filter((line) => raw.includes(line.trim())).join('\n')
         : segment;
       // A ref-targeted update already identifies which stored point owns a
       // nameless recurring answer such as "Every Tuesday and Thursday at
