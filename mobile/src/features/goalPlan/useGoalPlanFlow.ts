@@ -92,7 +92,13 @@ export interface PlanFlow {
   setSummaryText(text: string): void;
   acceptSummary(): void;
   generate(source?: 'template'): void;
-  regenerate(): void;
+  regenerate(source?: 'template'): void;
+  /**
+   * «خطة بسيطة» (#807): the simple plan, made by the request that failed. After
+   * a failed regenerate the old draft is still active, so generate would only
+   * answer stale with it; the template then replaces the draft instead.
+   */
+  template(): void;
   edit(op: GoalPlanEditOp): void;
   approve(): void;
   choose(stepId: string, choice: GoalPlanTimesChoice): void;
@@ -118,6 +124,8 @@ export function useGoalPlanFlow(): PlanFlow {
   React.useLayoutEffect(() => { stateRef.current = state; }, [state]);
   const uidRef = React.useRef(uid);
   const lastAction = React.useRef<(() => void) | null>(null);
+  // Which plan request `lastAction` is, so the simple plan is made the same way.
+  const lastPlanRequest = React.useRef<'generate' | 'regenerate' | null>(null);
   const inFlight = React.useRef(false);
   // The one request whose answer may land. A new account, or a reset, clears
   // it, so a late answer neither draws nor frees the guard of the next one.
@@ -140,13 +148,14 @@ export function useGoalPlanFlow(): PlanFlow {
     generateKey.current = null;
     acceptKey.current = null;
     lastAction.current = null;
+    lastPlanRequest.current = null;
     setState(IDLE);
   }, [uid]);
 
   const update = React.useCallback((next: Partial<PlanFlowState>) => setState(current => ({ ...current, ...next })), []);
 
   /** Runs one request with the live line, drops it if the account changed, and keeps it for «جرّب كمان مرة». */
-  const run = React.useCallback(<T,>(step: LiveStep, request: () => Promise<T>, onDone: (value: T) => Partial<PlanFlowState>, onRefused?: (error: GoalPlanRefusedError) => Partial<PlanFlowState>) => {
+  const run = React.useCallback(<T,>(step: LiveStep, request: () => Promise<T>, onDone: (value: T) => Partial<PlanFlowState>, onRefused?: (error: GoalPlanRefusedError) => Partial<PlanFlowState>, planRequest: 'generate' | 'regenerate' | null = null) => {
     const attempt = () => {
       // Two presses in one frame both see `busy === false`; this ref is set
       // before either returns, so the second does nothing (the M1 rule).
@@ -172,6 +181,7 @@ export function useGoalPlanFlow(): PlanFlow {
       });
     };
     lastAction.current = attempt;
+    lastPlanRequest.current = planRequest;
     attempt();
   }, []);
 
@@ -183,7 +193,7 @@ export function useGoalPlanFlow(): PlanFlow {
     run('plan', () => generateGoalPlan(goalId, key, source), plan => {
       generateKey.current = null;
       return { stage: { kind: 'plan', plan } };
-    }, refused => refused.reason === 'stale' && refused.detail.plan ? { stage: { kind: 'plan', plan: refused.detail.plan } } : {});
+    }, refused => refused.reason === 'stale' && refused.detail.plan ? { stage: { kind: 'plan', plan: refused.detail.plan } } : {}, 'generate');
   }, [run]);
 
   const openGoal = React.useCallback((goalId: string, draft: GoalPlan | null) => {
@@ -229,13 +239,20 @@ export function useGoalPlanFlow(): PlanFlow {
     });
   }, [generate, invalidate, run]);
 
-  const regenerate = React.useCallback(() => {
+  const regenerate = React.useCallback((source?: 'template') => {
     const { goalId, stage } = stateRef.current;
     const plan = stage.kind === 'plan' ? stage.plan : stage.kind === 'times' || stage.kind === 'confirm' ? stage.plan : null;
-    if (!goalId || !plan) return generate();
+    if (!goalId || !plan) return generate(source);
     const key = Crypto.randomUUID();
-    run('plan', () => regenerateGoalPlan(goalId, plan, key), next => ({ stage: { kind: 'plan', plan: next } }));
+    run('plan', () => regenerateGoalPlan(goalId, plan, key, source), next => ({ stage: { kind: 'plan', plan: next } }), undefined, 'regenerate');
   }, [generate, run]);
+
+  // Only a failed regenerate goes back through regenerate; anything else keeps
+  // the first-plan path it always had.
+  const template = React.useCallback(() => {
+    if (lastPlanRequest.current === 'regenerate') return regenerate('template');
+    return generate('template');
+  }, [generate, regenerate]);
 
   const edit = React.useCallback((op: GoalPlanEditOp) => {
     const { goalId, stage } = stateRef.current;
@@ -320,6 +337,7 @@ export function useGoalPlanFlow(): PlanFlow {
   const dismissError = React.useCallback(() => update({ error: null }), [update]);
   const reset = React.useCallback(() => {
     lastAction.current = null;
+    lastPlanRequest.current = null;
     activeRequest.current = null;
     inFlight.current = false;
     generateKey.current = null;
@@ -327,7 +345,7 @@ export function useGoalPlanFlow(): PlanFlow {
   }, []);
 
   return {
-    state, openGoal, fromStatement, setSummaryText, acceptSummary, generate, regenerate, edit, approve, choose, batch,
+    state, openGoal, fromStatement, setSummaryText, acceptSummary, generate, regenerate, template, edit, approve, choose, batch,
     toConfirm, backToTimes, confirm, laterWeek, showLatest, retry, dismissError, reset,
   };
 }

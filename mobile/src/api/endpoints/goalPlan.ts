@@ -56,9 +56,10 @@ export async function generateGoalPlan(goalId: string, idempotencyKey: string, s
   return response.plan;
 }
 
-export async function regenerateGoalPlan(goalId: string, current: { planId: string; revision: number }, idempotencyKey: string): Promise<GoalPlan> {
+/** `source: 'template'` (#807) replaces the draft with the simple plan instead of asking the model. */
+export async function regenerateGoalPlan(goalId: string, current: { planId: string; revision: number }, idempotencyKey: string, source?: 'template'): Promise<GoalPlan> {
   const response = await apiRequest('POST', `${goal(goalId)}/plan/regenerate`, {
-    body: { currentPlanId: current.planId, revision: current.revision, idempotencyKey },
+    body: { currentPlanId: current.planId, revision: current.revision, idempotencyKey, ...(source ? { source } : {}) },
     schema: goalPlanResponseSchema,
   });
   return response.plan;

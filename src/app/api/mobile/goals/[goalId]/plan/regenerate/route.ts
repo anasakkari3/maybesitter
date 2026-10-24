@@ -15,6 +15,8 @@ export async function POST(request: Request, { params }: { params: Promise<{ goa
     const { goalId } = await params;
     const plan = await regenerateGoalPlan(user.uid, goalId, {
       currentPlanId: String(body.currentPlanId ?? ''), revision: Number(body.revision), idempotencyKey: String(body.idempotencyKey ?? ''),
+      // Additive (#807): a body without `source` still asks the model.
+      ...(body.source === 'template' ? { source: 'template' as const } : {}),
     });
     return Response.json({ success: true, plan });
   } catch (error) { return goalPlanRouteError(error); }
