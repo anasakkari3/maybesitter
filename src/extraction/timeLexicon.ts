@@ -387,6 +387,23 @@ export function normalizeClockText(value: string): string {
   return normalizeClockFractions(normalizeSpokenHours(normalizeArabicDigits(value)));
 }
 
+/*
+ * The spoken clock word opens a word, it never ends one (FIX-AYN-CLOCK).
+ * «على الساعة» contracts to «عالساعة», so «ع» is read as a clock word — and
+ * with nothing in front of the match it was also read at the end of the word
+ * before «الساعة», which lost that letter to the time: «عندي اجتماع بكرا
+ * الساعة 17:00» was stored as «عندي اجتما», and so were «المشروع»,
+ * «الموضوع», «الأسبوع» and «الربع». «على» did the same inside «الأعلى».
+ * A word in between hid it, which is why the commonest phrasing broke and
+ * «عندي اجتماع مهم …» did not.
+ *
+ * Only an Arabic letter blocks it, and the proclitics «و»/«ف» may still come
+ * first, as they may before a part of the day («وبالمسا»): «وعالساعة 5» is
+ * one clock word with its connector. Not `[^\s,.،]`, which would also refuse
+ * a bracket or an exclamation mark before «عالساعة».
+ */
+const AR_SPOKEN_CLOCK_LEAD = '(?<![\\u0600-\\u06FF])[وف]?';
+
 /**
  * A clock whose hour is marked by the part of the day right after it: «5
  * المسا», «5 العصر», «8 بالليل», «ב-5 בערב», "5 in the evening". The hour is
@@ -395,7 +412,7 @@ export function normalizeClockText(value: string): string {
  * المسا» would lose «المسا» first and leave «5 لازم أتصل بأمي» (closure UAT
  * round 6).
  */
-const AR_CLOCK_WORD = '(?:(?:(?:على|عند|ع)\\s*)?(?:الساعة|الساعه)|عند|على|(?<![\\u0600-\\u06FF])عال)';
+const AR_CLOCK_WORD = `(?:(?:${AR_SPOKEN_CLOCK_LEAD}(?:على|عند|ع)\\s*)?(?:الساعة|الساعه)|${AR_SPOKEN_CLOCK_LEAD}(?:عند|على)|(?<![\\u0600-\\u06FF])عال)`;
 const AR_CLOCK_WITH_PERIOD = `(?:${AR_CLOCK_WORD}|(?<![\\u0600-\\u06FF])(?:ع|حوالي|حوالى))?\\s*[0-9٠-٩۰-۹]{1,2}(?::[0-9٠-٩۰-۹]{2})?\\s*${AR_DAY_PART_AFTER_HOUR}(?=$|[\\s,.،])`;
 const HE_CLOCK_WITH_PERIOD = /(?:בשעה|שעה|בסביבות(?:\s+ה?שעה)?|סביב(?:\s+ה?שעה)?|לקראת(?:\s+ה?שעה)?|עד(?:\s+ה?שעה)?|[בס]-?)?\s*[0-9]{1,2}(?::[0-9]{2})?\s*(?:בבוקר|בוקר|בצהריים|בצהרים|צהריים|אחרי הצהריים|אחר הצהריים|אחרי הצהרים|אחר הצהרים|אחה["״]צ|בערב|ערב|בלילה|לילה)(?=$|[\s,.،])/.source;
 const EN_CLOCK_WITH_PERIOD = /\b(?:(?:at|by|around|about)\s+)?\d{1,2}(?::\d{2})?\s+(?:in\s+the\s+(?:morning|afternoon|evening)|at\s+night|tonight)\b/.source;
