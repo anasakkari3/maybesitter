@@ -30,7 +30,17 @@ import {
 import { seedLiveAccount } from '../support/liveAccount.ts';
 
 const USER = uidFor('CollisionUser');
-const PROJECTED_AT = '2026-10-01T09:00:00.000Z';
+
+// The scenario was written for a match on 25 October 2026, and the confirm
+// checks edits against the server's clock, so a pinned date stops working once
+// it passes (#702). Every date here moves forward by whole weeks (weekdays
+// unchanged) so that the match day is always at least a week ahead.
+const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+const WEEKS_AHEAD = Math.max(0, Math.ceil((Date.now() + WEEK_MS - Date.parse('2026-10-25T00:00:00.000Z')) / WEEK_MS));
+function at(iso: string): string {
+  return new Date(Date.parse(iso) + WEEKS_AHEAD * WEEK_MS).toISOString();
+}
+const PROJECTED_AT = at('2026-10-01T09:00:00.000Z');
 
 function fixture(id: string, kickoffUtc: string): Fixture {
   const core: FixtureCore = {
@@ -47,10 +57,11 @@ test.beforeEach(async () => {
   setStorageForTests(createMemoryStorage());
   await seedLiveAccount(USER);
   auth = installFakeAuth();
-  // Barcelona v Real Madrid, 19:00-21:00 UTC on 25 October, projected the
+  // Barcelona v Real Madrid, 19:00-21:00 UTC on 25 October (moved forward by
+  // WEEKS_AHEAD), projected the
   // way the follow route and the nightly job project it.
   await setFollowedClubs(USER, ['barcelona'], PROJECTED_AT);
-  await upsertFixtures([fixture('1', '2026-10-25T19:00:00.000Z')]);
+  await upsertFixtures([fixture('1', at('2026-10-25T19:00:00.000Z'))]);
   await projectFixturesForUser(USER, PROJECTED_AT);
 });
 
@@ -62,7 +73,7 @@ test.afterEach(() => {
 
 test('a captured commitment that lands on a projected match is warned about, naming the match', async () => {
   const proposal = await proposeMobileCapture(
-    { text: 'Call the dentist tomorrow at 8pm', timezone: 'UTC', referenceTime: '2026-10-24T09:00:00.000Z' },
+    { text: 'Call the dentist tomorrow at 8pm', timezone: 'UTC', referenceTime: at('2026-10-24T09:00:00.000Z') },
     { participantId: USER },
   );
   assert.equal(proposal.status, 'proposed');
@@ -78,17 +89,17 @@ test('a captured commitment that lands on a projected match is warned about, nam
   const state = await readParticipantState(USER);
   const captured = state.commitments[result.persisted[0]!.commitmentId]!;
   assert.equal(captured.timeSpec.kind, 'scheduled_event');
-  assert.equal(captured.timeSpec.dueAt, '2026-10-25T20:00:00.000Z');
+  assert.equal(captured.timeSpec.dueAt, at('2026-10-25T20:00:00.000Z'));
 
   assert.equal(result.collisions.length, 1);
   assert.equal(result.collisions[0]!.title, 'FC Barcelona – Real Madrid CF');
-  assert.equal(result.collisions[0]!.startsAt, '2026-10-25T19:00:00.000Z');
-  assert.equal(result.collisions[0]!.endsAt, '2026-10-25T21:00:00.000Z');
+  assert.equal(result.collisions[0]!.startsAt, at('2026-10-25T19:00:00.000Z'));
+  assert.equal(result.collisions[0]!.endsAt, at('2026-10-25T21:00:00.000Z'));
 });
 
 test('a captured commitment clear of the match gets no warning', async () => {
   const proposal = await proposeMobileCapture(
-    { text: 'Call the dentist tomorrow at 9am', timezone: 'UTC', referenceTime: '2026-10-24T08:00:00.000Z' },
+    { text: 'Call the dentist tomorrow at 9am', timezone: 'UTC', referenceTime: at('2026-10-24T08:00:00.000Z') },
     { participantId: USER },
   );
   const result = await confirmMobileCapture(
@@ -101,7 +112,7 @@ test('a captured commitment clear of the match gets no warning', async () => {
 
 test('moving a commitment onto the match through the edit route returns the warning', async () => {
   const proposal = await proposeMobileCapture(
-    { text: 'Call the dentist tomorrow at 9am', timezone: 'UTC', referenceTime: '2026-10-24T08:00:00.000Z' },
+    { text: 'Call the dentist tomorrow at 9am', timezone: 'UTC', referenceTime: at('2026-10-24T08:00:00.000Z') },
     { participantId: USER },
   );
   const confirmed = await confirmMobileCapture(
@@ -113,7 +124,7 @@ test('moving a commitment onto the match through the edit route returns the warn
   const response = await PATCH(new Request(`http://127.0.0.1:4321/api/mobile/commitments/${id}`, {
     method: 'PATCH',
     headers: { authorization: `Bearer ${tokenFor(USER)}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ dueDate: '2026-10-25T19:30:00.000Z', reminderTime: null }),
+    body: JSON.stringify({ dueDate: at('2026-10-25T19:30:00.000Z'), reminderTime: null }),
   }), { params: Promise.resolve({ id }) });
   assert.equal(response.status, 200);
   const body = await response.json() as { collisions?: { title: string }[] };
@@ -129,7 +140,7 @@ test('moving a commitment onto the match through the edit route returns the warn
 test('two captured deadlines at the same time do not warn about each other', async () => {
   const capture = async (text: string) => {
     const proposal = await proposeMobileCapture(
-      { text, timezone: 'UTC', referenceTime: '2026-10-29T08:00:00.000Z' },
+      { text, timezone: 'UTC', referenceTime: at('2026-10-29T08:00:00.000Z') },
       { participantId: USER },
     );
     return confirmMobileCapture(
@@ -142,7 +153,7 @@ test('two captured deadlines at the same time do not warn about each other', asy
   assert.equal(first.success && second.success, true);
   const state = await readParticipantState(USER);
   const dues = [first, second].map((r) => state.commitments[r.persisted[0]!.commitmentId]!.timeSpec);
-  assert.deepEqual(dues.map((t) => [t.kind, t.dueAt]), [['due_by', '2026-10-30T17:00:00.000Z'], ['due_by', '2026-10-30T17:00:00.000Z']]);
+  assert.deepEqual(dues.map((t) => [t.kind, t.dueAt]), [['due_by', at('2026-10-30T17:00:00.000Z')], ['due_by', at('2026-10-30T17:00:00.000Z')]]);
   assert.deepEqual(second.collisions, []);
 });
 
@@ -158,7 +169,7 @@ test('two captured deadlines at the same time do not warn about each other', asy
  */
 test('a commitment completed by hand in review is reported and warned about like any other', async () => {
   const proposal = await proposeMobileCapture(
-    { text: 'Call the dentist', timezone: 'UTC', referenceTime: '2026-10-24T09:00:00.000Z' },
+    { text: 'Call the dentist', timezone: 'UTC', referenceTime: at('2026-10-24T09:00:00.000Z') },
     { participantId: USER },
   );
   const item = proposal.items.find((candidate) => candidate.needsClarification);
@@ -168,7 +179,7 @@ test('a commitment completed by hand in review is reported and warned about like
     {
       proposalId: proposal.proposalId,
       itemIds: [item.itemId],
-      edits: [{ itemId: item.itemId, title: 'Call the dentist', resolvedTime: '2026-10-25T20:00:00.000Z' }],
+      edits: [{ itemId: item.itemId, title: 'Call the dentist', resolvedTime: at('2026-10-25T20:00:00.000Z') }],
     },
     { participantId: USER },
   );

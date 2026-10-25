@@ -53,6 +53,16 @@ import { seedLiveAccount } from '../support/liveAccount.ts';
 const BASE = 'http://127.0.0.1:4321';
 const USER = uidFor('FootballUser');
 
+// The scenarios use a match on 25 October 2026; once kickoff passes, the
+// projection treats it as over and the assertions fail whatever the diff
+// (#702). Every date here moves forward by whole weeks (weekdays unchanged) so
+// that the match day is always at least a week ahead.
+const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+const WEEKS_AHEAD = Math.max(0, Math.ceil((Date.now() + WEEK_MS - Date.parse('2026-10-25T00:00:00.000Z')) / WEEK_MS));
+function at(iso: string): string {
+  return new Date(Date.parse(iso) + WEEKS_AHEAD * WEEK_MS).toISOString();
+}
+
 let auth: FakeAuthControls | null = null;
 
 function setup(): () => void {
@@ -111,7 +121,7 @@ function fixture(id: string, kickoffUtc: string, over: Partial<FixtureCore> = {}
 
 /** A commitment nobody's follow list ever touched -- a user typed this. */
 async function userTypedCommitment(uid: string, id: string): Promise<string> {
-  const now = '2026-10-01T09:00:00.000Z';
+  const now = at('2026-10-01T09:00:00.000Z');
   await seedLiveAccount(uid);
   await applyParticipantCommand(uid, {
     type: 'CreateDraft', now, commitment: { id, kind: 'task', title: 'Pick up the kids' },
@@ -172,7 +182,7 @@ test('each club carries a name in every supported language', async () => {
 test('saving a follow projects immediately -- the first match needs no nightly job', async () => {
   const teardown = setup();
   try {
-    await upsertFixtures([fixture('1', '2026-10-25T19:00:00.000Z')]);
+    await upsertFixtures([fixture('1', at('2026-10-25T19:00:00.000Z'))]);
     const body = await json(await PUT(authedRequest('PUT', { clubIds: ['barcelona'] })));
     const fixtures = body.fixtures as { commitmentId: string; homeTeamName: string; awayTeamName: string; kickoffUtc: string; collisions: unknown[] }[];
     assert.equal(fixtures.length, 1);
@@ -181,7 +191,7 @@ test('saving a follow projects immediately -- the first match needs no nightly j
     // curated names in its own language (final review M2).
     assert.equal((fixtures[0] as { homeTeamId?: string }).homeTeamId, '81');
     assert.equal((fixtures[0] as { awayTeamId?: string }).awayTeamId, '86');
-    assert.equal(fixtures[0]!.kickoffUtc, '2026-10-25T19:00:00.000Z');
+    assert.equal(fixtures[0]!.kickoffUtc, at('2026-10-25T19:00:00.000Z'));
     assert.deepEqual(fixtures[0]!.collisions, []);
 
     // And GET reads the same projected list back without projecting again.
@@ -195,7 +205,7 @@ test('saving a follow projects immediately -- the first match needs no nightly j
 test('a projected match says so when something else already landed on top of it', async () => {
   const teardown = setup();
   try {
-    const now = '2026-09-16T09:00:00.000Z';
+    const now = at('2026-09-16T09:00:00.000Z');
     // A commitment the user made themselves, half an hour into the match's
     // two-hour block.
     await seedLiveAccount(USER);
@@ -203,13 +213,13 @@ test('a projected match says so when something else already landed on top of it'
       type: 'CreateDraft', now,
       commitment: {
         id: 'dinner', kind: 'task', title: 'Dinner with the in-laws',
-        timeSpec: { kind: 'scheduled_event', dueAt: '2026-10-25T19:30:00.000Z', endAt: null, remindAt: null, allDay: false, timezone: 'UTC' },
+        timeSpec: { kind: 'scheduled_event', dueAt: at('2026-10-25T19:30:00.000Z'), endAt: null, remindAt: null, allDay: false, timezone: 'UTC' },
       },
       draftStatus: 'pending_confirmation',
     });
     await applyParticipantCommand(USER, { type: 'ConfirmCommitment', commitmentId: 'dinner', now });
 
-    await upsertFixtures([fixture('1', '2026-10-25T19:00:00.000Z')]);
+    await upsertFixtures([fixture('1', at('2026-10-25T19:00:00.000Z'))]);
     const body = await json(await PUT(authedRequest('PUT', { clubIds: ['barcelona'] })));
     const [projected] = body.fixtures as { collisions: { commitmentId: string; title: string }[] }[];
     assert.equal(projected!.collisions.length, 1);
@@ -223,7 +233,7 @@ test('a projected match says so when something else already landed on top of it'
 test('dismissing is remembered, not just applied', async () => {
   const teardown = setup();
   try {
-    await upsertFixtures([fixture('1', '2026-10-25T19:00:00.000Z')]);
+    await upsertFixtures([fixture('1', at('2026-10-25T19:00:00.000Z'))]);
     const put = await json(await PUT(authedRequest('PUT', { clubIds: ['barcelona'] })));
     const [projected] = put.fixtures as { commitmentId: string }[];
     assert.ok(projected, 'the follow should have projected a fixture');
@@ -270,7 +280,7 @@ test('an unknown commitment id is a 404, not a 500', async () => {
 test('a follow saved from a Hebrew app titles its matches in Hebrew', async () => {
   const teardown = setup();
   try {
-    await upsertFixtures([fixture('1', '2026-10-25T19:00:00.000Z')]);
+    await upsertFixtures([fixture('1', at('2026-10-25T19:00:00.000Z'))]);
     const response = await PUT(authedRequest('PUT', { clubIds: ['barcelona'], locale: 'he' }));
     assert.equal(response.status, 200);
     const state = await readParticipantState(USER);
@@ -300,7 +310,7 @@ test('an unsupported locale on a follow is a 400', async () => {
 test('a match the user deleted through the ordinary delete route stays deleted when the fixture changes', async () => {
   const teardown = setup();
   try {
-    await upsertFixtures([fixture('1', '2026-10-25T19:00:00.000Z')]);
+    await upsertFixtures([fixture('1', at('2026-10-25T19:00:00.000Z'))]);
     const body = await json(await PUT(authedRequest('PUT', { clubIds: ['barcelona'] })));
     const [projected] = body.fixtures as { commitmentId: string }[];
 
@@ -312,8 +322,8 @@ test('a match the user deleted through the ordinary delete route stays deleted w
 
     // The provider corrects the kickoff: a new content hash, the exact input
     // that reaches the recreate branch.
-    await upsertFixtures([fixture('1', '2026-10-25T20:00:00.000Z')]);
-    const tally = await projectFixturesForUser(USER, '2026-10-01T09:00:00.000Z');
+    await upsertFixtures([fixture('1', at('2026-10-25T20:00:00.000Z'))]);
+    const tally = await projectFixturesForUser(USER, at('2026-10-01T09:00:00.000Z'));
     assert.equal(tally.created, 0);
 
     const state = await readParticipantState(USER);
@@ -328,7 +338,7 @@ test('a match the user deleted through the ordinary delete route stays deleted w
 test('a dismiss that fails for any reason other than "no such fixture" is a 500, not a 404', async () => {
   const teardown = setup();
   try {
-    await upsertFixtures([fixture('1', '2026-10-25T19:00:00.000Z')]);
+    await upsertFixtures([fixture('1', at('2026-10-25T19:00:00.000Z'))]);
     const body = await json(await PUT(authedRequest('PUT', { clubIds: ['barcelona'] })));
     const [projected] = body.fixtures as { commitmentId: string }[];
 
@@ -356,14 +366,14 @@ test('a dismiss that fails for any reason other than "no such fixture" is a 500,
 test('a follow saved from an Arabic app keeps Arabic titles through the nightly projection, with no device registered', async () => {
   const teardown = setup();
   try {
-    await upsertFixtures([fixture('1', '2026-10-25T19:00:00.000Z')]);
+    await upsertFixtures([fixture('1', at('2026-10-25T19:00:00.000Z'))]);
     assert.equal((await PUT(authedRequest('PUT', { clubIds: ['barcelona'], locale: 'ar' }))).status, 200);
 
     // The nightly job's call: no language passed. A corrected kickoff forces
     // the update path, which rewrites the title.
-    await upsertFixtures([fixture('1', '2026-10-25T20:00:00.000Z')]);
-    await projectFixturesForUser(USER, '2026-10-01T09:00:00.000Z');
-    await projectFixturesForUser(USER, '2026-10-02T09:00:00.000Z');
+    await upsertFixtures([fixture('1', at('2026-10-25T20:00:00.000Z'))]);
+    await projectFixturesForUser(USER, at('2026-10-01T09:00:00.000Z'));
+    await projectFixturesForUser(USER, at('2026-10-02T09:00:00.000Z'));
 
     const state = await readParticipantState(USER);
     assert.deepEqual(Object.values(state.commitments).map((c) => c.title), ['برشلونة – ريال مدريد']);
@@ -432,7 +442,7 @@ const INDEX_ERROR = '9 FAILED_PRECONDITION: The query requires an index. You can
 test('a follow whose projection fails is still reported saved, with the matches deferred', async () => {
   const teardown = setup();
   try {
-    await upsertFixtures([fixture('1', '2026-10-25T19:00:00.000Z')]);
+    await upsertFixtures([fixture('1', at('2026-10-25T19:00:00.000Z'))]);
     failingStorage('list', 'fixtures', INDEX_ERROR);
     const res = await PUT(authedRequest('PUT', { clubIds: ['barcelona'] }));
     assert.equal(res.status, 200);
