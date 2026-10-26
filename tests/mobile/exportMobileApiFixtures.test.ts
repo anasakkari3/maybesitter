@@ -290,6 +290,14 @@ import {
 
 const BASE = 'http://127.0.0.1:4321';
 const REFERENCE_TIME = '2026-08-09T08:00:00.000Z';
+/**
+ * The clock the goal-plan and chat-edit fixtures are recorded at. Those routes
+ * read the server clock (`new Date()`) rather than a `referenceTime`, so a
+ * day-of-week or a calendar date in their output follows the day the export
+ * runs. Pinning them to the Saturday the committed fixtures were recorded on
+ * keeps every date and weekday fixed, so only real changes move the files.
+ */
+const FIXTURE_NOW = '2026-10-24T12:00:00.000Z';
 
 /**
  * The due date the PATCH fixture is recorded with (#352).
@@ -448,7 +456,9 @@ function pinMeetingPrep(live: Record<string, unknown>, stable: Record<string, un
   };
 }
 
-const FIXTURES = join(
+// The reproducibility test points this at a scratch directory so it can export
+// twice without touching the tracked files.
+const FIXTURES = process.env.MAYBESITTER_FIXTURE_DIR ?? join(
   dirname(fileURLToPath(import.meta.url)),
   '..',
   '..',
@@ -457,6 +467,7 @@ const FIXTURES = join(
   'api',
   '__fixtures__',
 );
+mkdirSync(FIXTURES, { recursive: true });
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const PREFIXED_ID = /^(next-step|fbk|incident|flag)[-_][0-9a-f]+$/i;
@@ -468,6 +479,11 @@ const MEMORY_ID = /^mem_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]
  */
 const WATCHER_ID = /^wtc_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const STABLE_WATCHER_ID = /^wtc_00000000-0000-4000-8000-\d{12}$/;
+/**
+ * `device:<uuid>` — a calendar source id minted per registration with
+ * `randomUUID()` (lib/calendar/calendarChoice.ts). Keeps its prefix and shape.
+ */
+const DEVICE_SOURCE_ID = /^device:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/;
 const STABLE_INSTANT = '2026-08-09T09:00:00.000Z';
 /**
@@ -629,6 +645,7 @@ function stabilise(value: unknown, counters: Map<string, number>, stableUuids = 
   if (DIGEST.test(value)) return STABLE_DIGEST;
   if (MEMORY_ID.test(value)) return `mem_${stableUuid(value.slice(4))}`;
   if (WATCHER_ID.test(value) && !STABLE_WATCHER_ID.test(value)) return `wtc_${stableUuid(value.slice(4))}`;
+  if (DEVICE_SOURCE_ID.test(value)) return `device:${stableUuid(value.slice('device:'.length))}`;
   if (UUID.test(value)) return stableUuid(value);
   const prefixed = PREFIXED_ID.exec(value);
   if (prefixed) return `${prefixed[1]}${value.includes('_') ? '_' : '-'}${'0'.repeat(16)}`;
@@ -1232,6 +1249,11 @@ test('exports a fixture for every /api/mobile call the React Native client makes
       { params: Promise.resolve({ goalId: goal.id, nodeId: linkedNodeId }) },
     ));
 
+    // Goal-plan routes read the server clock (`new Date()`) to pick the
+    // weekdays a habit can land on, and they take no referenceTime. Pin the
+    // clock to the fixture reference so the chosen weekdays do not depend on
+    // the day the export happens to run.
+    mock.timers.enable({ apis: ['Date'], now: Date.parse(FIXTURE_NOW) });
     // ── editable Goal plan → proposed times → canonical work (M3a) ──
     // M4a's batch route has its own account so the established upcoming and
     // account-export fixtures below remain byte-for-byte stable.
@@ -1390,6 +1412,7 @@ test('exports a fixture for every /api/mobile call the React Native client makes
     ));
     assert.equal((regeneratedTemplate.plan as { source?: string }).source, 'template');
 
+    mock.timers.reset();
     // ── the one clarification (#165) ───────────────────────────────
     // A capture with an action and no time: the extractor cannot resolve it,
     // so the proposal carries a question and the app has a real shape to
@@ -1788,10 +1811,14 @@ test('exports a fixture for every /api/mobile call the React Native client makes
     const rangeProposal = range.proposal as { proposalId: string; revision: number; items: Array<{ itemId: string; resolvedTime: string; endTime?: string }> };
     const rangeItem = rangeProposal.items.find((item) => item.endTime)!;
     const rangeDuration = Date.parse(rangeItem.endTime!) - Date.parse(rangeItem.resolvedTime);
+    // The edit's due instant is three days after the pinned clock, so it stays
+    // in the future and its calendar date is the same on every run.
+    const chatEditDue = new Date(Date.parse(FIXTURE_NOW) + 72 * 3_600_000).toISOString();
+    mock.timers.enable({ apis: ['Date'], now: Date.parse(FIXTURE_NOW) });
     const movedRange = await record('capture.chatEditTime', 200, await chatPost(request('/api/mobile/capture/chat', {
       body: {
         conversationId: range.conversationId,
-        edit: { proposalId: rangeProposal.proposalId, revision: rangeProposal.revision, target: { itemId: rangeItem.itemId }, change: { time: { at: PATCHED_DUE_DATE, timeZone: 'Asia/Jerusalem' } } },
+        edit: { proposalId: rangeProposal.proposalId, revision: rangeProposal.revision, target: { itemId: rangeItem.itemId }, change: { time: { at: chatEditDue, timeZone: 'Asia/Jerusalem' } } },
         timezone: 'Asia/Jerusalem', referenceTime: REFERENCE_TIME, locale: 'en',
       }, uid: CHAT_USER,
     })), (body) => body, (live, stable) => {
@@ -1799,6 +1826,7 @@ test('exports a fixture for every /api/mobile call the React Native client makes
       const proposal = pinned.proposal as { items: Array<Record<string, unknown>> };
       return { ...pinned, proposal: { ...(pinned.proposal as Record<string, unknown>), items: proposal.items.map((item) => item.endTime ? { ...item, endTime: new Date(Date.parse(item.resolvedTime as string) + rangeDuration).toISOString() } : item) } };
     });
+    mock.timers.reset();
     assert.ok((movedRange.proposal as { items: Array<{ endTime?: string }> }).items.some((item) => item.endTime));
 
     const wordsProposal = chatRules.proposal as { proposalId: string; revision: number; items: Array<{ itemId: string }> };
@@ -3799,8 +3827,16 @@ test('exports the M5b-2a fixtures from the real handlers', async () => {
 test('exports the M5b-2b-2 re-add fixture from the real intelligence inbox handler', async () => {
   const uid = await beginM5b2b2();
   try {
-    await addM5b2b2Readd(uid, 'Call the dentist');
+    // Re-adds observed in one scan share an observedAt, and the inbox then
+    // orders them by their random commitment id. Observe each at its own
+    // instant so the order is set by time. The begin helpers have already
+    // pinned the clock, so move it rather than enabling it again.
+    const readdFirst = Date.parse(FIXTURE_NOW);
+    mock.timers.setTime(readdFirst);
     await addM5b2b2Readd(uid, 'Water the plants', { verb: 'completed' });
+    await scanM5b2b2(uid);
+    mock.timers.setTime(readdFirst + 60_000);
+    await addM5b2b2Readd(uid, 'Call the dentist');
     await scanM5b2b2(uid);
     await recordM4b('intelligence.readd', 200, await callM5b2b2(uid, 'intelligence', 'GET', {
       headers: { 'X-MaybeSitter-Client-Features': 'readd' },
