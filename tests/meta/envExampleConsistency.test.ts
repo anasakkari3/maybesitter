@@ -49,8 +49,11 @@ const documented = readFileSync(join(ROOT, '.env.example'), 'utf8')
 // A variable the code reads by name: `env.NAME`, `process.env.NAME`, or a quoted literal.
 function literalReads(text: string): Set<string> {
   const names = new Set<string>();
-  for (const match of text.matchAll(/(?:process\.env\.|\benv\.|['"`])([A-Z][A-Z0-9_]*[A-Z0-9])\b/g)) {
+  const pattern = /(?:process\.env\.|\benv\.|['"`])([A-Z][A-Z0-9_]*[A-Z0-9])\b/g;
+  let match = pattern.exec(text);
+  while (match) {
     names.add(match[1]!);
+    match = pattern.exec(text);
   }
   return names;
 }
@@ -80,7 +83,7 @@ test('every documented variable is read by the code', () => {
 
 test('every MAYBESITTER_ variable the code reads is documented', () => {
   const documentedSet = new Set(documented);
-  const undocumented = [...literalReads(sources)]
+  const undocumented = Array.from(literalReads(sources))
     .filter((name) => name.startsWith('MAYBESITTER_'))
     .filter((name) => !documentedSet.has(name) && !dynamic.has(name) && !NOT_DOCUMENTED.has(name))
     .sort();
