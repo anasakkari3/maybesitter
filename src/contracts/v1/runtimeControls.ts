@@ -70,7 +70,8 @@ export interface RuntimeControlSnapshot {
 
 export type RuntimeControlEnv = Record<string, string | undefined>;
 
-function envToken(module: IntelligenceModuleName): string {
+/** The name a module's flags use in the environment: `goalPlan` is `GOAL_PLAN`. */
+export function envToken(module: IntelligenceModuleName): string {
   return module.replace(/([a-z])([A-Z])/g, '$1_$2').toUpperCase();
 }
 
