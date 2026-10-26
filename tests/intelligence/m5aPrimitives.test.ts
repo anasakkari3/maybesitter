@@ -5,6 +5,7 @@ import type { Commitment } from '../../src/domain/stateMachine';
 import { COMMITMENT_BASELINE_FIELD_CLASSIFICATION, commitmentBaselineFingerprint } from '../../lib/intelligence/autoAdds';
 import {
   markerDecision,
+  modelBodyFor,
   singleAgreementSentence,
   transitionReceipt,
   type M5aMarker,
@@ -43,6 +44,29 @@ test('ownTextOf recognises reply headers and fails closed on ambiguous quotes', 
   assert.deepEqual(ownTextOf('Sure.\n> quoted without a recognised header'), {
     own: '', boundary: 'unknown',
   });
+});
+
+test('modelBodyFor drops a reply quote but keeps forwards, bare From lines and quote-only mail', () => {
+  // Reply: the owner's own sentence stays, the quoted history goes.
+  assert.equal(modelBodyFor('Sure, I will send it tomorrow.\n\nOn Sun, Maya wrote:\nOld text'), 'Sure, I will send it tomorrow.');
+  assert.equal(modelBodyFor('أكيد، ببعتها بكرا.\n\nفي الأحد كتب سامر:\nالنص القديم'), 'أكيد، ببعتها بكرا.');
+  // Forward: the forwarded body may be the only copy, so it is never cut.
+  const forward = 'FYI see below\n\n---------- Forwarded message ---------\nFrom: Client\nPlease send the invoice by Friday';
+  assert.equal(modelBodyFor(forward), forward);
+  // A bare From line is not a reply boundary.
+  const bareFrom = 'Hi team\nFrom: the budget sheet\nPlease send it by Friday';
+  assert.equal(modelBodyFor(bareFrom), bareFrom);
+  // Nothing above the quote: send the whole text rather than an empty body.
+  const quoteOnly = 'On Sun, Maya wrote:\nPlease send it by Friday';
+  assert.equal(modelBodyFor(quoteOnly), quoteOnly);
+  assert.equal(modelBodyFor('Plain mail with no quote'), 'Plain mail with no quote');
+});
+
+test('modelBodyFor leaves HTML bodies whole: a reply header inside markup is not a line boundary', () => {
+  // The transport hands HTML-only mail over as markup. The header sits behind
+  // tags, so no line starts with it, and the body goes to the model unchanged.
+  const html = '<div>Sure, I will send it tomorrow.</div><div>On Sun, Maya wrote:</div><blockquote>Old text</blockquote>';
+  assert.equal(modelBodyFor(html), html);
 });
 
 test('singleAgreementSentence rejects a second action and a second date anchor', () => {

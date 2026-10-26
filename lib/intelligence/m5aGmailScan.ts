@@ -392,6 +392,33 @@ function transportFor(uid: string, runtime: GoogleRuntime): GmailTransport {
   });
 }
 
+/**
+ * Reply headers only. The bare `From:` line of ownTextOf is not one of them:
+ * a message that quotes another mail's header is not thereby a reply, and a
+ * forwarded body is never cut (its text may be the only copy the user has).
+ */
+const REPLY_QUOTE_HEADERS = [/^On .+ wrote:\s*$/im, /^في .+ كتب .+:\s*$/im, /^בתאריך .+ נכתב:\s*$/im];
+const FORWARD_MARK = /Forwarded message|-{3,}\s*Original Message|إعادة توجيه|הודעה שהועברה/i;
+
+/**
+ * The part of a message the model reads: the text above a reply's quoted
+ * history. The earlier message is a separate mail the scan reads on its own,
+ * and the product already creates items only from the owner's own text
+ * (ownTextOf), so the quote adds cost and no candidates. Anything unclear is
+ * sent whole.
+ */
+export function modelBodyFor(text: string): string {
+  if (FORWARD_MARK.test(text)) return text;
+  let first = -1;
+  for (const pattern of REPLY_QUOTE_HEADERS) {
+    const match = pattern.exec(text);
+    if (match && (first < 0 || match.index < first)) first = match.index;
+  }
+  if (first < 0) return text;
+  const own = text.slice(0, first).trim();
+  return own ? own : text;
+}
+
 function trimForAnalysis(text: string): { text: string; trimmed: boolean } {
   if (text.length <= 12_000) return { text, trimmed: false };
   const first = text.slice(0, 12_000);
@@ -950,7 +977,7 @@ async function processMessage(
       });
       return;
     }
-    const raw = [message.subject ?? '', message.text].filter(Boolean).join('\n');
+    const raw = [message.subject ?? '', modelBodyFor(message.text)].filter(Boolean).join('\n');
     const prepared = trimForAnalysis(raw);
     const userAtExtraction = await storage.get<Record<string, unknown>>(userDoc(uid));
     const capturedTimezone = effectiveTimezone(userAtExtraction, claimedScan);
