@@ -9,6 +9,12 @@ module.exports = defineConfig([
     ignores: ['dist/*', '.expo/*', 'node_modules/*'],
   },
   {
+    // This file is CommonJS and reads its own directory, a Node global that the
+    // flat preset's module scope does not define. Declared for this file only.
+    files: ['eslint.config.js'],
+    languageOptions: { sourceType: 'commonjs', globals: { __dirname: 'readonly' } },
+  },
+  {
     // `jest.setup.js` runs inside Jest and is nothing but `jest.mock` calls,
     // but no config block covered it, so every one of them read as an
     // undefined global. Twelve errors for the one identifier the file exists
