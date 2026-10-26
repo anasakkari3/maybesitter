@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, readdirSync, readFileSync, rmSync } from 'node:fs';
+import { mkdirSync, readdirSync, readFileSync, rmdirSync, rmSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -75,5 +75,11 @@ test('two exports write identical bytes, and those bytes are the tracked fixture
     }
   } finally {
     rmSync(scratch, { recursive: true, force: true });
+    // Leave no empty directory behind once the last of several runs is done.
+    try {
+      rmdirSync(join(ROOT, 'node_modules', '.cache', 'fixture-reproducibility'));
+    } catch {
+      // Another run may still be using the parent.
+    }
   }
 });
