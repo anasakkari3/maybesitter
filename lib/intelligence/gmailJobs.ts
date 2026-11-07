@@ -493,7 +493,13 @@ export function gmailTickScope(env: Readonly<Record<string, string | undefined>>
   };
 }
 
-export async function runGmailJobTickForTests(
+/**
+ * One scheduled Gmail tick: the production entry point of both scheduler routes
+ * (`/api/internal/jobs/intelligence-gmail` runs `live`,
+ * `/api/internal/jobs/intelligence-gmail-sweep` runs `sweep`). Tests inject a
+ * runtime and transports through `options`.
+ */
+export async function runGmailJobTick(
   route: JobRoute,
   options: { now?: Date; runtime?: GoogleRuntime } & GmailJobOverrides = {},
 ): Promise<{ success: true; route: JobRoute; classes: readonly string[]; processed: number; cleaned: number }> {
@@ -506,9 +512,12 @@ export async function runGmailJobTickForTests(
     Math.min(tickDeadline, tickStartedAt + GMAIL_JOB_LIMITS.cleanupMs));
   let processed = 0;
   if (route === 'live') {
-    // The monitor runs whatever M5a says: its own gate is inside it.
+    // The monitor runs whatever M5a says, but only under its own gate. The
+    // gate is checked here too, not only inside the monitor: an account lease
+    // is written before the monitor runs, so a tick with the loop off or
+    // killed would otherwise write to Firestore every minute.
     const [monitored, proposed] = await Promise.all([
-      runLive(runtime, tickDeadline, options),
+      scope.monitor ? runLive(runtime, tickDeadline, options) : Promise.resolve(0),
       scope.emailSources ? runProposals(runtime, tickDeadline, options) : Promise.resolve(0),
     ]);
     processed += monitored + proposed;

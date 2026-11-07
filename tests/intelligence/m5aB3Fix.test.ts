@@ -12,7 +12,7 @@ import { GOOGLE_FEATURE_SCOPES } from '../../lib/integrations/google/googleConfi
 import { connectionIdFor } from '../../lib/integrations/providers/production/storedConnectionStore';
 import { calendarCoverageForEmail, runCalendarMaintenanceStep } from '../../lib/intelligence/gmailCalendarJit';
 import {
-  cleanupCalendarWaits, runAccountLeasedLanesForTests, runGmailJobTickForTests, runReservedLanesForTests,
+  cleanupCalendarWaits, runAccountLeasedLanesForTests, runGmailJobTick, runReservedLanesForTests,
 } from '../../lib/intelligence/gmailJobs';
 import {
   gmailQueryOutsideIntervals, legacyMarkerIdFor, providerMarkerIdFor, runM5aScanStep, type M5aMarker,
@@ -738,7 +738,7 @@ test('H1 proposal scheduler reads every authority guard before writing proposal 
     env: { MAYBESITTER_ENV: 'staging', MAYBESITTER_FEATURE_EMAIL_SOURCES: 'true' } as GoogleRuntime['env'], secrets: null, fetchImpl: fetch,
     now: () => new Date(NOW), shareProvider: provider,
   };
-  await runGmailJobTickForTests('live', { runtime, ensureReadable: async () => undefined });
+  await runGmailJobTick('live', { runtime, ensureReadable: async () => undefined });
   const monitor = await storage.get<any>(`users/${uid}/intelligenceMonitors/gmail`);
   assert.equal(monitor.proposalsDoneVersion, 1);
   assert.equal(monitor.proposalsPending, false);
@@ -883,7 +883,7 @@ test('M2 production live lanes drain work after a seeded 45-call daily remainder
     }),
     listRecentMessageIds: async () => { throw new Error('live work must not use mailbox search'); },
   } as unknown as GmailTransport);
-  const tick = () => runGmailJobTickForTests('live', {
+  const tick = () => runGmailJobTick('live', {
     runtime, transport: () => transport(), ensureReadable: async () => undefined,
   });
 

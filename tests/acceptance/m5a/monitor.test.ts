@@ -4,7 +4,7 @@
  * M5A-R24-*, M5A-R25-001/003, M5A-R2-005, M5A-R3-004, M5A-R5-004).
  *
  * The scheduler is driven through the gate's named seam
- * `runGmailJobTickForTests(route)` (support `tick`).
+ * `runGmailJobTick(route)` (support `tick`).
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';

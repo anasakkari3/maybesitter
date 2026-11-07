@@ -6,7 +6,7 @@ import {
 } from '../../lib/storage';
 import type { StorageAdapter, StorageTransaction } from '../../lib/storage/storageAdapter';
 import type { GoogleRuntime } from '../../lib/integrations/google/googleRuntime';
-import { cleanupCalendarWaits, gmailTickScope, runGmailJobTickForTests } from '../../lib/intelligence/gmailJobs';
+import { cleanupCalendarWaits, gmailTickScope, runGmailJobTick } from '../../lib/intelligence/gmailJobs';
 import type { M5aMarker } from '../../lib/intelligence/m5aGmailScan';
 
 // The gate for the scheduled M5a work, one case per combination that matters:
@@ -240,7 +240,7 @@ test('sweep tick with email off creates no scan and writes nothing, even with a 
       pauseEpoch: 0, pausedSince: null, excluded: [], nextSweepAt: PAST },
   });
   const { storage, writes } = countingStorage(inner);
-  const result = await runGmailJobTickForTests('sweep', { runtime: runtimeWith(storage, STAGING) });
+  const result = await runGmailJobTick('sweep', { runtime: runtimeWith(storage, STAGING) });
   assert.equal(result.processed, 0);
   assert.deepEqual(writes, []);
 });
@@ -255,7 +255,7 @@ test('sweep tick with the kill switch set creates no scan, even when the email f
       pauseEpoch: 0, pausedSince: null, excluded: [], nextSweepAt: PAST },
   });
   const { storage, writes } = countingStorage(inner);
-  const result = await runGmailJobTickForTests('sweep', {
+  const result = await runGmailJobTick('sweep', {
     runtime: runtimeWith(storage, { ...EMAIL_ON, MAYBESITTER_KILL_SWITCH_EMAIL_SOURCES: 'true' }),
   });
   assert.equal(result.processed, 0);
@@ -269,7 +269,7 @@ test('an env-only change does not release an authorized wait: the controls still
   await seedManualScan(inner, uid, 'running');
   await controls(inner, { email: { enabled: true, epoch: 1 }, calendar: { enabled: false, epoch: 0 } });
   // The environment says off; the document still authorizes. Nothing is released.
-  await runGmailJobTickForTests('sweep', { runtime: runtimeWith(inner, STAGING) });
+  await runGmailJobTick('sweep', { runtime: runtimeWith(inner, STAGING) });
   assert.equal(await markerState(inner, path), 'waiting_for_calendar');
 });
 
@@ -277,6 +277,53 @@ test('calendar maintenance does not run when its env capability is off, even if 
   const inner = createMemoryStorage();
   await controls(inner, { email: { enabled: false, epoch: 0 }, calendar: { enabled: true, epoch: 1 } });
   const { storage, writes } = countingStorage(inner);
-  await runGmailJobTickForTests('sweep', { runtime: runtimeWith(storage, STAGING) });
+  await runGmailJobTick('sweep', { runtime: runtimeWith(storage, STAGING) });
   assert.deepEqual(writes, []);
 });
+
+// ── The live tick: no writes and no provider call when every switch is off ──
+
+async function seedDueMonitors(storage: StorageAdapter): Promise<void> {
+  // One enrolled (M5a) monitor with proposals pending, one legacy monitor.
+  await storage.set(`${userCol('u-live-m5', INTELLIGENCE_MONITORS)}/gmail`, {
+    enabled: true, generation: 'g1', nextPollAt: PAST, proposalsPending: true, proposalNextEligibleAt: PAST,
+    m5: { v: 1, providerAccountId: 'acct', enabledAt: PAST, timezone: 'UTC', at: PAST,
+      pauseEpoch: 0, pausedSince: null, excluded: [], nextSweepAt: PAST },
+  });
+  await storage.set(`${userCol('u-live-legacy', INTELLIGENCE_MONITORS)}/gmail`, {
+    enabled: true, generation: 'g1', nextPollAt: PAST,
+  });
+}
+
+for (const [name, env] of [
+  ['nothing set', {}],
+  ['staging, every flag on but every kill switch set', {
+    ...ALL_ON,
+    MAYBESITTER_KILL_SWITCH_PROACTIVE_LOOP: 'true',
+    MAYBESITTER_KILL_SWITCH_EMAIL_SOURCES: 'true',
+    MAYBESITTER_KILL_SWITCH_CALENDAR_CHOICE: 'true',
+  }],
+  ['staging, no flag on', STAGING],
+] as Array<[string, Record<string, string>]>) {
+  for (const route of ['live', 'sweep'] as const) {
+    test(`${route} tick with ${name}: no Firestore write and no provider call, even with due monitors and enabled controls`, async () => {
+      const inner = createMemoryStorage();
+      await controls(inner, { email: { enabled: true, epoch: 1 }, calendar: { enabled: true, epoch: 1 } });
+      await seedDueMonitors(inner);
+      const { storage, writes } = countingStorage(inner);
+      const calls: string[] = [];
+      const runtime = {
+        ...runtimeWith(storage, env),
+        fetchImpl: (async (input: unknown) => { calls.push(`fetch ${String(input)}`); throw new Error('no network'); }) as typeof fetch,
+      } as GoogleRuntime;
+      const result = await runGmailJobTick(route, {
+        runtime,
+        transport: (uid: string) => { calls.push(`transport ${uid}`); throw new Error('no provider'); },
+        ensureReadable: async (uid: string) => { calls.push(`readable ${uid}`); },
+      });
+      assert.equal(result.processed, 0);
+      assert.deepEqual(writes, []);
+      assert.deepEqual(calls, []);
+    });
+  }
+}

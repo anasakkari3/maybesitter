@@ -356,7 +356,7 @@ export async function runScanToEnd(uid: string, limit = 40): Promise<any> {
 /* ── the named seams (the gate's, for Task B to export) ─────────────── */
 
 /**
- * `runGmailJobTickForTests(route: 'live' | 'sweep', options?: { now?: Date })`
+ * `runGmailJobTick(route: 'live' | 'sweep', options?: { now?: Date })`
  * from `lib/intelligence/gmailJobs.ts`: one tick of the named job route's
  * classes, exactly as the internal job route runs it (PLAN R4.2 route
  * ownership), without the scheduler OIDC wrapper.
@@ -368,8 +368,8 @@ export async function tick(route: 'live' | 'sweep', now?: string): Promise<any> 
   } catch (error) {
     assert.fail(`lib/intelligence/gmailJobs.ts not built (${(error as Error).message.split('\n')[0]})`);
   }
-  const seam = module.runGmailJobTickForTests;
-  assert.equal(typeof seam, 'function', 'runGmailJobTickForTests is not exported (the gate\'s named seam)');
+  const seam = module.runGmailJobTick;
+  assert.equal(typeof seam, 'function', 'runGmailJobTick is not exported (the gate\'s named seam)');
   return (seam as any)(route, now ? { now: new Date(now) } : {});
 }
 
