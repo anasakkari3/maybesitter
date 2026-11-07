@@ -63,7 +63,7 @@ test('production with the Auth emulator host: the admin app is not created', wit
 test('production with the Auth emulator host: an unsigned emulator token is refused before it is decoded', withEnv({
   MAYBESITTER_ENV: 'production', FIREBASE_AUTH_EMULATOR_HOST: '127.0.0.1:1', GOOGLE_CLOUD_PROJECT: 'demo-guard',
 }, async () => {
-  await assert.rejects(new FirebaseTokenVerifier().verify(unsignedEmulatorToken('demo-guard'), {}), EmulatorInProductionError);
+  await assert.rejects(new FirebaseTokenVerifier().verify(unsignedEmulatorToken('demo-guard'), { forceRevocationCheck: false }), EmulatorInProductionError);
 }));
 
 test('production with the Firestore emulator host: storage refuses before any client exists', withEnv({
