@@ -120,6 +120,44 @@ case "${TARGET}" in
     ;;
 esac
 
+# ── Isolated staging project (infra/staging-project, deploy-staging.yml) ────
+#
+# Staging now deploys into its own GCP project, where the identities have other
+# names and the hosted model is not enabled. deploy-staging.yml passes these;
+# nothing else does. Unset, the output is exactly what it was before.
+#
+#   MAYBESITTER_FLAGS_RUN_SA       --service-account (staging-run@<project>)
+#   MAYBESITTER_FLAGS_DEPLOYER_SA  MAYBESITTER_DEPLOYER_SA_EMAIL (staging-deploy-app@<project>)
+#   MAYBESITTER_FLAGS_AI_DISABLED  true|false; the staging project has no Vertex AI
+#
+# Production refuses all three: nothing in a caller's environment may redirect
+# the production service's identity or switch its model off. Staging refuses
+# them on the production project, where they would mix the two stacks.
+flags_overrides="${MAYBESITTER_FLAGS_RUN_SA:-}${MAYBESITTER_FLAGS_DEPLOYER_SA:-}${MAYBESITTER_FLAGS_AI_DISABLED:-}"
+if [ -n "${flags_overrides}" ]; then
+  if [ "${TARGET}" != "staging" ]; then
+    echo "refusing: MAYBESITTER_FLAGS_* overrides are for the isolated staging project only, never ${TARGET}" >&2
+    exit 2
+  fi
+  if [ "${PROJECT_ID}" = "maybesitter-app" ]; then
+    echo "refusing: MAYBESITTER_FLAGS_* overrides are for the isolated staging project, not maybesitter-app" >&2
+    exit 2
+  fi
+  for override in "${MAYBESITTER_FLAGS_RUN_SA:-}" "${MAYBESITTER_FLAGS_DEPLOYER_SA:-}"; do
+    case "${override}" in
+      '' | *"@${PROJECT_ID}.iam.gserviceaccount.com") ;;
+      *) echo "refusing: ${override} is not a service account of ${PROJECT_ID}" >&2; exit 2 ;;
+    esac
+  done
+  case "${MAYBESITTER_FLAGS_AI_DISABLED:-}" in
+    '' | true | false) ;;
+    *) echo "refusing: MAYBESITTER_FLAGS_AI_DISABLED must be true or false" >&2; exit 2 ;;
+  esac
+  RUN_SA="${MAYBESITTER_FLAGS_RUN_SA:-${RUN_SA}}"
+  DEPLOYER_SA="${MAYBESITTER_FLAGS_DEPLOYER_SA:-${DEPLOYER_SA}}"
+  ai_disabled="${MAYBESITTER_FLAGS_AI_DISABLED:-${ai_disabled}}"
+fi
+
 # ── Deletion-receipt pepper rotation (#798) ─────────────────────────────────
 #
 # The pepper names the account-deletion tombstone (#794), so a rotation is two
