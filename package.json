@@ -1,10 +1,40 @@
 {
-  "name": "maybesitter",
-  "version": "0.1.0",
-  "private": true,
+  "dependencies": {
+    "@google-cloud/kms": "^6.1.0",
+    "@google/genai": "^2.22.0",
+    "@grpc/grpc-js": "1.14.5",
+    "firebase-admin": "^14.4.0",
+    "google-auth-library": "^10.9.1",
+    "ical.js": "^2.2.1",
+    "ipaddr.js": "^2.5.0",
+    "next": "15.5.29",
+    "react": "^18",
+    "react-dom": "^18"
+  },
+  "devDependencies": {
+    "@firebase/rules-unit-testing": "^5.0.2",
+    "@types/node": "^24",
+    "@types/react": "^18",
+    "@types/react-dom": "^18",
+    "autoprefixer": "^10",
+    "firebase": "^12.19.0",
+    "postcss": "8.5.28",
+    "tailwindcss": "^3",
+    "typescript": "^5"
+  },
   "engines": {
     "node": ">=24.0.0"
   },
+  "name": "maybesitter",
+  "overrides": {
+    "@firebase/firestore": {
+      "@grpc/grpc-js": "1.14.5"
+    },
+    "postcss": "8.5.28",
+    "sharp": "^0.35.5",
+    "uuid": "^11.1.1"
+  },
+  "private": true,
   "scripts": {
     "dev": "next dev",
     "build": "next build",
@@ -49,31 +79,5 @@
     "profile:eval": "node --no-warnings --loader ./scripts/ts-resolver.mjs scripts/run-profile-eval.ts",
     "verify:live-providers": "node --no-warnings --loader ./scripts/ts-resolver.mjs scripts/verify-live-providers.ts"
   },
-  "dependencies": {
-    "@google-cloud/kms": "^6.1.0",
-    "@google/genai": "^2.22.0",
-    "firebase-admin": "^14.4.0",
-    "google-auth-library": "^10.9.1",
-    "ical.js": "^2.2.1",
-    "ipaddr.js": "^2.5.0",
-    "next": "15.5.29",
-    "react": "^18",
-    "react-dom": "^18"
-  },
-  "devDependencies": {
-    "@firebase/rules-unit-testing": "^5.0.2",
-    "@types/node": "^24",
-    "@types/react": "^18",
-    "@types/react-dom": "^18",
-    "autoprefixer": "^10",
-    "firebase": "^12.19.0",
-    "postcss": "8.5.28",
-    "tailwindcss": "^3",
-    "typescript": "^5"
-  },
-  "overrides": {
-    "postcss": "8.5.28",
-    "sharp": "^0.35.4",
-    "uuid": "^11.1.1"
-  }
+  "version": "0.1.0"
 }
