@@ -4088,7 +4088,7 @@ test('exports the Google connection fixtures', async () => {
   const storage = getStorage();
   const runtime = (configured: boolean, now?: () => Date) => setGoogleRuntimeForTests({
     storage,
-    env: configured
+    env: (configured
       ? {
         // The Gmail scope is granted only where M5a or the monitor is on.
         MAYBESITTER_ENV: 'staging',
@@ -4099,7 +4099,7 @@ test('exports the Google connection fixtures', async () => {
         GOOGLE_PICKER_API_KEY: FAKE_PICKER_KEY,
         MAYBESITTER_KMS_KEY_NAME: kms.keyName,
       }
-      : { MAYBESITTER_KMS_KEY_NAME: kms.keyName },
+      : { MAYBESITTER_KMS_KEY_NAME: kms.keyName }) as unknown as ReturnType<typeof googleRuntime>['env'],
     secrets: null,
     fetchImpl: google.fetch as typeof fetch,
     encryption: { kms, env: { MAYBESITTER_KMS_KEY_NAME: kms.keyName } as unknown as NodeJS.ProcessEnv },
