@@ -733,8 +733,9 @@ test('H1 proposal scheduler reads every authority guard before writing proposal 
       observationIds: [observation!.id], confidence: 0.9, durationMinutes: 10,
     }] }), model: 'fake', latencyMs: 1, promptTokens: 1, outputTokens: 1 }),
   };
+  // The env capability is part of the gate: this is the enabled path.
   const runtime: GoogleRuntime = { storage,
-    env: { MAYBESITTER_ENV: 'staging' } as GoogleRuntime['env'], secrets: null, fetchImpl: fetch,
+    env: { MAYBESITTER_ENV: 'staging', MAYBESITTER_FEATURE_EMAIL_SOURCES: 'true' } as GoogleRuntime['env'], secrets: null, fetchImpl: fetch,
     now: () => new Date(NOW), shareProvider: provider,
   };
   await runGmailJobTickForTests('live', { runtime, ensureReadable: async () => undefined });

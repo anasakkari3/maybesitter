@@ -7,7 +7,8 @@ import {
   INTELLIGENCE_SOURCE_MARKERS, PROVIDER_CONNECTIONS, userCol, userSubDoc, type StorageAdapter,
 } from '../storage';
 import type { BusySourceReplacementFence } from '../calendar/busyBlocks';
-import { parseM5aControls, M5A_CONTROLS_PATH } from '../release/m5aControls';
+import { parseM5aControls, M5A_CONTROLS_PATH, m5aEnvironmentCapability } from '../release/m5aControls';
+import { intelligenceEnabled } from './gate';
 import {
   finalizeQuotaPermit, quotaScopeFor, reserveQuotaPermit, retryAfterSecondsFor,
   settleQuotaPermitSlot, startQuotaPermitSlot,
@@ -107,7 +108,26 @@ function markerAuthorized(
     && monitor.m5.providerAccountId === marker.providerAccountId);
 }
 
+/**
+ * Releases waits that no longer have authority, and never creates work.
+ *
+ * Runs on every tick, whatever the environment says, because a wait can outlive
+ * the switch that admitted it. What it releases is decided by the controls
+ * document, not by the environment flags:
+ *  - a valid document with the email capability enabled at the marker's epoch:
+ *    the wait is authorized and kept;
+ *  - a valid document where the capability is disabled, or the epoch has moved
+ *    on: the wait is released. That is the documented fence of a kill
+ *    (`scripts/m5a-kill.ts` advances the epoch before the revision flag
+ *    changes), and it is kept as the behavior it has always had. Whether a
+ *    re-enable should instead revive such waits is an owner decision;
+ *  - a controls document that is missing or unreadable: nothing is released.
+ *    Absence is not a fence, and a transient read must not destroy a wait.
+ * A change to the environment flags alone changes nothing here, because the
+ * controls document still authorizes the wait.
+ */
 export async function cleanupCalendarWaits(storage: StorageAdapter, now: Date, deadlineMs = Date.now() + GMAIL_JOB_LIMITS.cleanupMs): Promise<number> {
+  if (parseM5aControls(await storage.get(M5A_CONTROLS_PATH)) === null) return 0;
   const rows = await storage.listGroup<M5aMarker>(INTELLIGENCE_SOURCE_MARKERS, {
     where: [['state', '==', 'waiting_for_calendar'], ['nextEligibleAt', '<=', now.toISOString()]],
     orderBy: { field: 'nextEligibleAt', direction: 'asc' }, limit: GMAIL_JOB_LIMITS.cleanupMarkers,
@@ -130,6 +150,9 @@ export async function cleanupCalendarWaits(storage: StorageAdapter, now: Date, d
           ? tx.get<GmailMonitor>(`${userCol(uid, INTELLIGENCE_MONITORS)}/gmail`) : Promise.resolve(null),
         tx.get(M5A_CONTROLS_PATH),
       ]);
+      // The document can vanish between the pre-check and this read: then it
+      // says nothing, so the wait is kept, as in the pre-check.
+      if (parseM5aControls(controls) === null) return;
       if (markerAuthorized(current, scan, monitor, controls)) return;
       tx.set(row.path, { ...current, state: 'released', owner: undefined, leaseUntil: undefined,
         nextEligibleAt: undefined, requestedAt: undefined, origin: undefined });
@@ -445,6 +468,31 @@ async function runCalendarMaintenance(runtime: GoogleRuntime, deadlineMs: number
     candidate => runCalendarMaintenanceStep(candidate.uid, runtime));
 }
 
+/**
+ * What one tick may start, decided from the environment (the M5a gate).
+ *
+ * Three switches, each with its own kill switch, and none implies another:
+ *  - `monitor`: the proactive loop, `intelligenceEnabled`. Released to production
+ *    on 2026-10-01, so M5a's flags must not stop it. `runGmailMonitorTick` checks
+ *    it itself.
+ *  - `emailSources`: M5a Gmail scans, sweeps and proposals.
+ *  - `calendarChoice`: M5a calendar maintenance.
+ * The two M5a values are environment capabilities only. Each step still reads
+ * the controls document before it acts, so both must hold. Cleanup is not in
+ * this table: it creates no work (see `cleanupCalendarWaits`).
+ */
+export function gmailTickScope(env: Readonly<Record<string, string | undefined>>): {
+  readonly monitor: boolean;
+  readonly emailSources: boolean;
+  readonly calendarChoice: boolean;
+} {
+  return {
+    monitor: intelligenceEnabled(env),
+    emailSources: m5aEnvironmentCapability('email', env),
+    calendarChoice: m5aEnvironmentCapability('calendar', env),
+  };
+}
+
 export async function runGmailJobTickForTests(
   route: JobRoute,
   options: { now?: Date; runtime?: GoogleRuntime } & GmailJobOverrides = {},
@@ -453,20 +501,27 @@ export async function runGmailJobTickForTests(
   const tickDeadline = tickStartedAt + GMAIL_JOB_LIMITS.tickMs;
   const base = options.runtime ?? googleRuntime();
   const runtime = options.now ? { ...base, now: () => new Date(options.now!) } : base;
+  const scope = gmailTickScope(runtime.env as Record<string, string | undefined>);
   const cleaned = await cleanupCalendarWaits(runtime.storage, runtime.now(),
     Math.min(tickDeadline, tickStartedAt + GMAIL_JOB_LIMITS.cleanupMs));
   let processed = 0;
   if (route === 'live') {
-    const results = await Promise.all([runLive(runtime, tickDeadline, options), runProposals(runtime, tickDeadline, options)]);
-    processed += results[0] + results[1];
-  } else {
+    // The monitor runs whatever M5a says: its own gate is inside it.
+    const [monitored, proposed] = await Promise.all([
+      runLive(runtime, tickDeadline, options),
+      scope.emailSources ? runProposals(runtime, tickDeadline, options) : Promise.resolve(0),
+    ]);
+    processed += monitored + proposed;
+  } else if (scope.emailSources) {
     processed += await bootstrapSweeps(runtime, tickDeadline);
     const results = await Promise.all([
       runScanClass('manual', GMAIL_JOB_LIMITS.lanes.continuation, runtime, tickDeadline, options),
       runScanClass('daily', GMAIL_JOB_LIMITS.lanes.sweep, runtime, tickDeadline, options),
-      runCalendarMaintenance(runtime, tickDeadline),
+      scope.calendarChoice ? runCalendarMaintenance(runtime, tickDeadline) : Promise.resolve(0),
     ]);
     processed += results[0] + results[1] + results[2];
+  } else if (scope.calendarChoice) {
+    processed += await runCalendarMaintenance(runtime, tickDeadline);
   }
   return { success: true, route, classes: GMAIL_JOB_CLASSES[route], processed, cleaned };
 }
