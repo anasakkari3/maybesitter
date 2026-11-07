@@ -17,6 +17,35 @@ Issue: UC-1.0d (#143). Bootstrap and identities come from UC-1.0a (#140).
 Both run in `europe-west1`. Firebase Auth is shared between them, so **staging
 is for test accounts only**.
 
+### Isolation status (2026-11-08)
+
+The legacy staging service above shares the project, the runtime identity, the
+secrets and the deployer (`maybesitter-deployer`, project-level `run.admin`,
+`datastore.indexAdmin`, `firebaserules.admin`) with production. A staging run
+can therefore change production. Two controls are in place now:
+
+- The GitHub `staging` environment requires the owner's approval and accepts
+  `main` only (set 2026-11-07). A push to `main` creates a staging deployment
+  that waits for that approval instead of running.
+- `deploy.yml` itself is unchanged. A production-only version (push trigger and
+  staging target removed) is on branch `recovery/staging-isolation-cicd`; it is
+  not merged because production promotion still resolves its image from the
+  legacy staging service, so merging it would stop any new commit reaching
+  production until promotion is re-pointed. Owner decision.
+
+The target is a separate staging project (Phase 5.8, Option A):
+
+- `infra/staging-project/bootstrap.sh` creates it. It prints its plan unless
+  given `--apply`, links billing only with `--billing-account`, and refuses
+  `maybesitter-app`. `verify-isolation.sh` checks the CAN/CANNOT IAM matrix
+  read-only. Runbook and cost estimate: `infra/staging-project/README.md`.
+- `.github/workflows/deploy-staging.yml` (app) and `infra-staging.yml`
+  (indexes and rules) are manual-only, bound to the `staging` environment,
+  read every GCP value from `STAGING_*` environment variables, and fail closed
+  on production's project id or number before authenticating.
+- **Not provisioned.** The owner declined billing for a new project on
+  2026-11-07, so none of this has run against real cloud resources.
+
 ## M5a durable activation and kill procedure
 
 M5a is production-pinned-off. In local/test/staging, do not enable either
