@@ -1278,3 +1278,59 @@ test('every Google route refuses a caller with no token', async () => {
     done();
   }
 });
+
+/* ── a Gmail connect begun before the Gmail capability was switched off ── */
+
+function switchGmailOff(): void {
+  const current = googleRuntime();
+  const env = { ...(current.env as Record<string, string | undefined>) };
+  delete env.MAYBESITTER_FEATURE_EMAIL_SOURCES;
+  setGoogleRuntimeForTests({ ...current, env: env as typeof current.env });
+}
+
+test('a Gmail connect begun before the capability went off is refused at completion: no code exchange, nothing stored', async () => {
+  const done = setup();
+  try {
+    const begun = await begin('gmail');
+    const granted = google.consent(begun.authorizationUrl);
+    switchGmailOff();
+    const callsBefore = google.calls.length;
+
+    const response = await callbackPost(request('/api/mobile/integrations/google/callback', { body: granted }));
+    assert.equal(response.status, 403);
+    assert.equal((await body(response)).reason, 'google_feature_unavailable');
+    assert.equal(google.calls.length, callsBefore, 'the code was never exchanged, so no token was issued to us');
+    assert.deepEqual(await listed(USER, PROVIDER_CONNECTIONS), []);
+    assert.deepEqual(await listed(USER, PROVIDER_CREDENTIALS), []);
+    assert.deepEqual(await listed(USER, PROVIDER_OAUTH_STATES), [], 'the state is spent, so it cannot be replayed later');
+  } finally {
+    done();
+  }
+});
+
+test('with Gmail off, a calendar connect still completes, and a reauth that carries a Gmail scope the account already held still completes', async () => {
+  const done = setup();
+  try {
+    await consentToCalendar();
+    await connect('calendar');
+    await connect('gmail');
+    switchGmailOff();
+    // Calendar alone: not touched by the Gmail rule.
+    const again = await connect('calendar');
+    assert.equal(again.status, 200);
+    // A needs_reauth connection that held Gmail asks for it again (begin's
+    // rule); completion must not refuse what begin was allowed to ask for.
+    google.expireGrants();
+    setGoogleRuntimeForTests({ ...googleRuntime(), now: () => new Date(Date.now() + 2 * 3_600_000) });
+    await calendarPost(request('/api/mobile/integrations/google/calendar', { method: 'POST' }));
+    assert.equal((await status()).status, 'needs_reauth');
+    google.refreshDead = false;
+    const begun = await begin('calendar');
+    assert.ok(new URL(begun.authorizationUrl).searchParams.get('scope')!.split(' ').includes(GMAIL));
+    const json = await body(await callbackPost(request('/api/mobile/integrations/google/callback',
+      { body: google.consent(begun.authorizationUrl) })));
+    assert.equal(json.google.status, 'connected');
+  } finally {
+    done();
+  }
+});

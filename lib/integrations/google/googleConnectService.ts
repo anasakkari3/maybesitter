@@ -55,6 +55,7 @@ import {
   ProviderOAuthError,
   revokeOrRecordGrant,
   type ProviderOAuthClient,
+  type ProviderOAuthStateStore,
 } from '../providers/providerOAuthLifecycle';
 import type { ProviderOAuthTokenSet } from '../providers/providerRuntime';
 import { StoredProviderOAuthStateStore } from '../providers/production/storedOAuthStateStore';
@@ -463,6 +464,24 @@ export async function completeGoogleConnect(
     const existing = await currentConnection(uid, runtime);
     const pinned = isLive(existing) ? existing.identity.providerAccountId ?? undefined : undefined;
     const client = clientFor(config, runtime, pinned, (sub) => { issuedAccountId = sub; });
+    // The Gmail gate again, at completion: a state begun while Gmail was
+    // allowed can come back after it was switched off. Checked on the consumed
+    // state, before the code is exchanged, so no token is issued to us and the
+    // state stays spent. A reauth that carries a Gmail scope the live
+    // connection already holds is what begin allows, so it is not refused.
+    const admitted: ProviderOAuthStateStore = gmailConnectAllowed(runtime.env as Readonly<Record<string, string | undefined>>)
+      || (isLive(existing) && featuresGranted(existing.grantedScopes).gmail)
+      ? states
+      : {
+        create: (value) => states.create(value),
+        async consume(state, now) {
+          const value = await states.consume(state, now);
+          if (value?.requestedScopes.includes(GOOGLE_FEATURE_SCOPES.gmail)) {
+            throw new GoogleConnectError('google_feature_unavailable');
+          }
+          return value;
+        },
+      };
     const capturing: ProviderOAuthClient = {
       ...client,
       async exchangeAuthorizationCode(request) {
@@ -471,7 +490,7 @@ export async function completeGoogleConnect(
       },
     };
 
-    const connected = await completeProviderOAuth(states, vault, connections, capturing, {
+    const connected = await completeProviderOAuth(admitted, vault, connections, capturing, {
       scopeId: uid,
       provider: GOOGLE_PROVIDER,
       state: input.state,
