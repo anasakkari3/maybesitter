@@ -19,6 +19,28 @@ import { getApps, initializeApp, type App } from 'firebase-admin/app';
 
 let cached: App | null = null;
 
+/** A production revision configured to talk to the Firebase emulators. */
+export class EmulatorInProductionError extends Error {
+  constructor() {
+    super('firebase emulator host set in production');
+    this.name = 'EmulatorInProductionError';
+  }
+}
+
+/**
+ * Production never talks to an emulator. With an emulator host set, the SDK
+ * accepts unsigned Auth-emulator ID tokens and reads and writes an emulator
+ * database, so a misconfigured production revision would fail open. The admin
+ * app is the one init point for token verification and Firestore, so refusing
+ * here fails both closed: auth answers 503 `auth_unavailable`, storage throws,
+ * and the readiness probe reports storage unavailable. Any other environment,
+ * including the emulator suite (no `MAYBESITTER_ENV`), is unaffected.
+ */
+export function assertNoEmulatorInProduction(env: Record<string, string | undefined> = process.env): void {
+  if ((env.MAYBESITTER_ENV ?? '').trim().toLowerCase() !== 'production') return;
+  if (env.FIREBASE_AUTH_EMULATOR_HOST || env.FIRESTORE_EMULATOR_HOST) throw new EmulatorInProductionError();
+}
+
 /** The project id ADC-based initialisation should bind to, if one is configured. */
 export function resolveProjectId(env: NodeJS.ProcessEnv = process.env): string | undefined {
   return env.GOOGLE_CLOUD_PROJECT || env.GCLOUD_PROJECT || env.FIREBASE_PROJECT_ID || undefined;
@@ -31,6 +53,7 @@ export function resolveProjectId(env: NodeJS.ProcessEnv = process.env): string |
  * its own way (a Cloud Function, a test harness) does not end up with two.
  */
 export function getAdminApp(): App {
+  assertNoEmulatorInProduction();
   if (cached) return cached;
   const existing = getApps();
   cached = existing.length > 0
