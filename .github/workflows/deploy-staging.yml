@@ -1,0 +1,224 @@
+# Deploy the backend to the ISOLATED staging project (Phase 5.8, Option A).
+#
+# Staging has its own GCP project and identities (infra/staging-project). The
+# identity this job obtains, staging-deploy-app, holds run.developer on the one
+# staging service, artifactregistry.writer on the staging repository,
+# serviceAccountUser on staging-run, and read-only index access. It has no
+# grant in maybesitter-app, so nothing this job does can reach production.
+#
+# Firestore indexes and rules are NOT deployed here: that needs project-level
+# admin roles, which live with a separate identity in infra-staging.yml. This
+# job only checks that the indexes are READY and refuses to deploy otherwise.
+#
+# Order: preflight (no cloud call) -> authenticate -> confirm the identity and
+# project -> build and push -> indexes READY -> revision with no traffic behind
+# a tag -> smoke test the tag -> move traffic. A failure before the last step
+# leaves traffic on the previous revision; the failure step prints how to roll
+# back.
+#
+# Every value comes from variables on the GitHub environment `staging`
+# (bootstrap.sh prints them). If any is missing the job fails before it
+# authenticates.
+
+name: Deploy staging
+
+on:
+  # Manual only until the staging project exists and verify-isolation.sh has
+  # passed. To deploy on every merge afterwards, add:
+  #   push:
+  #     branches: [main]
+  # and keep `environment: staging` protected (required reviewer, branch
+  # policy): the WIF condition trusts that environment, not a branch.
+  workflow_dispatch:
+
+# Nothing at the top level; the job asks for exactly what it needs.
+permissions: {}
+
+concurrency:
+  group: deploy-staging-project
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy to staging (isolated project)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    environment: staging
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      PROJECT_ID: ${{ vars.STAGING_GCP_PROJECT_ID }}
+      PROJECT_NUMBER: ${{ vars.STAGING_GCP_PROJECT_NUMBER }}
+      REGION: ${{ vars.STAGING_REGION }}
+      WIF_PROVIDER: ${{ vars.STAGING_WIF_PROVIDER }}
+      DEPLOYER_SA: ${{ vars.STAGING_DEPLOYER_SA }}
+      RUNTIME_SA: ${{ vars.STAGING_RUNTIME_SA }}
+      SERVICE: maybesitter-api-staging
+      DATABASE: staging
+      REPOSITORY: maybesitter
+      IMAGE: api
+      # No prompt may answer for us (e.g. "enable this API?").
+      CLOUDSDK_CORE_DISABLE_PROMPTS: '1'
+
+    steps:
+      - name: Preflight (fail closed before any credential exists)
+        run: |
+          fail() { echo "::error::$1"; exit 1; }
+          for name in PROJECT_ID PROJECT_NUMBER REGION WIF_PROVIDER DEPLOYER_SA RUNTIME_SA; do
+            [ -n "${!name}" ] || fail "${name} is empty: set the STAGING_* variables on the GitHub environment 'staging' (infra/staging-project/README.md)"
+          done
+          [ "${PROJECT_ID}" != "maybesitter-app" ] || fail "STAGING_GCP_PROJECT_ID is the production project"
+          [ "${PROJECT_NUMBER}" != "955684917741" ] || fail "STAGING_GCP_PROJECT_NUMBER is the production project's"
+          case "${PROJECT_NUMBER}" in *[!0-9]*) fail "STAGING_GCP_PROJECT_NUMBER is not a number" ;; esac
+          case "${WIF_PROVIDER}" in
+            "projects/${PROJECT_NUMBER}/locations/global/workloadIdentityPools/"*/providers/*) ;;
+            *) fail "STAGING_WIF_PROVIDER is not a provider of project ${PROJECT_NUMBER}" ;;
+          esac
+          for sa in "${DEPLOYER_SA}" "${RUNTIME_SA}"; do
+            case "${sa}" in
+              *"@${PROJECT_ID}.iam.gserviceaccount.com") ;;
+              *) fail "${sa} is not a service account of ${PROJECT_ID}" ;;
+            esac
+          done
+          [ "${DEPLOYER_SA}" != "${RUNTIME_SA}" ] || fail "the deployer and runtime identities must differ"
+          echo "preflight ok: ${PROJECT_ID} (${PROJECT_NUMBER}), ${REGION}, as ${DEPLOYER_SA}"
+
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # Keyless. The provider accepts only this repository id, the `staging`
+      # environment, and this workflow file (infra/staging-project/common.sh).
+      - name: Authenticate to Google Cloud (staging project)
+        uses: google-github-actions/auth@71f986410dfbc7added4569d411d040a91dc6935 # v2.1.8
+        with:
+          workload_identity_provider: ${{ vars.STAGING_WIF_PROVIDER }}
+          service_account: ${{ vars.STAGING_DEPLOYER_SA }}
+          project_id: ${{ vars.STAGING_GCP_PROJECT_ID }}
+
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@77e7a554d41e2ee56fc945c52dfd3f33d12def9a # v2.1.4
+
+      - name: Confirm the identity and the project
+        id: before
+        run: |
+          ACTIVE="$(gcloud auth list --filter=status:ACTIVE --format='value(account)')"
+          [ "${ACTIVE}" = "${DEPLOYER_SA}" ] || { echo "::error::authenticated as '${ACTIVE}', expected ${DEPLOYER_SA}"; exit 1; }
+          # A Cloud Run service's namespace is its project NUMBER, so this
+          # proves the service is in the staging project, not merely named so.
+          gcloud run services describe "${SERVICE}" --region "${REGION}" --project "${PROJECT_ID}" --format=json >/tmp/before.json \
+            || { echo "::error::${SERVICE} not found in ${PROJECT_ID}. Run infra/staging-project/bootstrap.sh --apply first."; exit 1; }
+          NAMESPACE="$(jq -r '.metadata.namespace' /tmp/before.json)"
+          [ "${NAMESPACE}" = "${PROJECT_NUMBER}" ] || { echo "::error::service namespace ${NAMESPACE} is not ${PROJECT_NUMBER}"; exit 1; }
+          [ "${NAMESPACE}" != "955684917741" ] || { echo "::error::that is the production project"; exit 1; }
+          PREVIOUS="$(jq -r '.status.traffic[]? | select(.percent == 100) | .revisionName // empty' /tmp/before.json)"
+          echo "previous=${PREVIOUS}" >>"${GITHUB_OUTPUT}"
+          echo "serving before this run: ${PREVIOUS:-<none at 100%>}"
+
+      - name: Build and push the image (staging registry)
+        id: build
+        run: |
+          gcloud auth configure-docker "${REGION}-docker.pkg.dev" --quiet
+          IMAGE_URI="${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPOSITORY}/${IMAGE}:${GITHUB_SHA}"
+          docker build --build-arg "GIT_SHA=${GITHUB_SHA}" -t "${IMAGE_URI}" .
+          docker push "${IMAGE_URI}"
+          DIGEST="$(gcloud artifacts docker images describe "${IMAGE_URI}" --project "${PROJECT_ID}" --format='value(image_summary.digest)')"
+          [ -n "${DIGEST}" ] || { echo "::error::no digest for ${IMAGE_URI}"; exit 1; }
+          echo "image_digest=${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPOSITORY}/${IMAGE}@${DIGEST}" >>"${GITHUB_OUTPUT}"
+
+      - name: Require every declared Firestore index to be READY (read-only)
+        # Never creates an index. If any is missing or still building, run
+        # infra-staging.yml first. One short poll, then refuse.
+        timeout-minutes: 5
+        run: |
+          node scripts/firestore-index-ready.mjs validate firestore.indexes.json
+          node scripts/firestore-index-ready.mjs wait "${DATABASE}" 2 \
+            || { echo "::error::indexes on ${DATABASE} are not all READY. Dispatch infra-staging.yml, then re-run."; exit 1; }
+
+      - name: Deploy a revision with no traffic, behind a tag
+        id: deploy
+        env:
+          IMAGE_DIGEST: ${{ steps.build.outputs.image_digest }}
+          # infra/cloudrun/flags.sh honours these for staging on a non-production
+          # project only. The staging project has no Vertex AI, so the model is off.
+          MAYBESITTER_FLAGS_RUN_SA: ${{ vars.STAGING_RUNTIME_SA }}
+          MAYBESITTER_FLAGS_DEPLOYER_SA: ${{ vars.STAGING_DEPLOYER_SA }}
+          MAYBESITTER_FLAGS_AI_DISABLED: 'true'
+        run: |
+          TAG="sha-${GITHUB_SHA::7}"
+          # Its own assignment, so a refusal from flags.sh stops the step.
+          FLAGS="$(bash infra/cloudrun/flags.sh staging)"
+          read -ra FLAG_WORDS <<<"${FLAGS}"
+          # The service is already public (bootstrap.sh set allUsers once). This
+          # identity has no run.services.setIamPolicy, by design, so the flag is
+          # left out rather than half-applied.
+          DEPLOY_WORDS=()
+          for word in "${FLAG_WORDS[@]}"; do
+            [ "${word}" = "--allow-unauthenticated" ] || DEPLOY_WORDS+=("${word}")
+          done
+          printf '%s\n' "${DEPLOY_WORDS[@]}" | grep -qx -- "--service-account=${RUNTIME_SA}" \
+            || { echo "::error::flags.sh did not set --service-account=${RUNTIME_SA}"; exit 1; }
+          if printf '%s\n' "${DEPLOY_WORDS[@]}" | grep -q 'maybesitter-app'; then
+            echo "::error::the staging flags name maybesitter-app"; exit 1
+          fi
+          gcloud run deploy "${SERVICE}" \
+            --image "${IMAGE_DIGEST}" \
+            --project "${PROJECT_ID}" \
+            --no-traffic --tag "${TAG}" \
+            "${DEPLOY_WORDS[@]}"
+          echo "tag=${TAG}" >>"${GITHUB_OUTPUT}"
+
+      - name: Smoke test the tagged revision
+        id: smoke
+        env:
+          TAG: ${{ steps.deploy.outputs.tag }}
+        run: |
+          gcloud run services describe "${SERVICE}" --region "${REGION}" --project "${PROJECT_ID}" --format=json >/tmp/service.json
+          TAG_URL="$(jq -r --arg tag "${TAG}" '.status.traffic[]? | select(.tag == $tag) | .url // empty' /tmp/service.json)"
+          REVISION="$(jq -r --arg tag "${TAG}" '.status.traffic[]? | select(.tag == $tag) | .revisionName // empty' /tmp/service.json)"
+          if [ -z "${TAG_URL}" ] || [ -z "${REVISION}" ]; then
+            echo "::error::no URL or revision for tag ${TAG}"; exit 1
+          fi
+          echo "revision=${REVISION}" >>"${GITHUB_OUTPUT}"
+          ready=0
+          for _ in $(seq 1 30); do
+            body="$(curl -fsS "${TAG_URL}/api/health/ready" || true)"
+            case "${body}" in *'"ready":true'*) ready=1; break ;; esac
+            sleep 5
+          done
+          [ "${ready}" = 1 ] || { echo "::error::${TAG_URL}/api/health/ready never reported ready"; exit 1; }
+          curl -fsS "${TAG_URL}/api/health" | tee /tmp/health.json
+          echo
+          grep -q "${GITHUB_SHA}" /tmp/health.json || { echo "::error::/api/health does not report ${GITHUB_SHA}"; exit 1; }
+          # An unauthenticated mobile call must be refused by the app (401),
+          # not served (2xx) and not blocked by Cloud Run IAM (403).
+          STATUS="$(curl -sS -o /tmp/unauth.json -w '%{http_code}' "${TAG_URL}/api/mobile/commitments/today")"
+          [ "${STATUS}" = "401" ] || { echo "::error::unauthenticated /api/mobile/commitments/today answered ${STATUS}, expected 401"; cat /tmp/unauth.json; exit 1; }
+          echo "smoke ok on ${REVISION}"
+
+      - name: Send traffic to the tested revision
+        env:
+          REVISION: ${{ steps.smoke.outputs.revision }}
+        run: |
+          # The exact revision that was smoke-tested, not "latest".
+          gcloud run services update-traffic "${SERVICE}" --region "${REGION}" --project "${PROJECT_ID}" \
+            --to-revisions "${REVISION}=100"
+          URL="$(gcloud run services describe "${SERVICE}" --region "${REGION}" --project "${PROJECT_ID}" --format='value(status.url)')"
+          curl -fsS "${URL}/api/health" | grep -q "${GITHUB_SHA}" \
+            || { echo "::error::the live URL does not report ${GITHUB_SHA}"; exit 1; }
+          echo "staging now serves ${REVISION}"
+
+      - name: On failure, say where traffic is and how to roll back
+        if: failure()
+        env:
+          PREVIOUS: ${{ steps.before.outputs.previous }}
+        run: |
+          echo "Traffic is moved only by the last step. Current traffic:"
+          gcloud run services describe "${SERVICE}" --region "${REGION}" --project "${PROJECT_ID}" \
+            --format='table(status.traffic[].revisionName,status.traffic[].percent,status.traffic[].tag)' || true
+          if [ -n "${PREVIOUS}" ]; then
+            echo "To put everything back on the revision that served before this run:"
+            echo "  gcloud run services update-traffic ${SERVICE} --region ${REGION} --project ${PROJECT_ID} --to-revisions ${PREVIOUS}=100"
+          else
+            echo "No revision was serving 100% before this run; nothing to roll back to."
+          fi

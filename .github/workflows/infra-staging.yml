@@ -1,0 +1,103 @@
+# Deploy Firestore indexes and rules to the ISOLATED staging project.
+#
+# This is the privileged half of staging (Phase 5.8 §3): index and rules
+# administration exist only at project level, so they live with their own
+# identity, staging-deploy-infra, which cannot deploy the service, cannot act
+# as the runtime identity and has no grant in maybesitter-app. Its Workload
+# Identity pool accepts only this workflow file (infra/staging-project), so
+# deploy-staging.yml cannot obtain it, and this workflow cannot obtain the app
+# deployer.
+#
+# Run it before deploy-staging.yml whenever firestore.indexes.json or
+# firestore.rules change. It waits until every declared index is READY.
+
+name: Staging infrastructure (Firestore)
+
+on:
+  # Manual only, behind the protected `staging` environment.
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: infra-staging-project
+  cancel-in-progress: false
+
+jobs:
+  firestore:
+    name: Firestore indexes and rules (isolated staging project)
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    environment: staging
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      PROJECT_ID: ${{ vars.STAGING_GCP_PROJECT_ID }}
+      PROJECT_NUMBER: ${{ vars.STAGING_GCP_PROJECT_NUMBER }}
+      WIF_PROVIDER: ${{ vars.STAGING_WIF_INFRA_PROVIDER }}
+      INFRA_SA: ${{ vars.STAGING_INFRA_SA }}
+      DEPLOYER_SA: ${{ vars.STAGING_DEPLOYER_SA }}
+      DATABASE: staging
+      # Names exactly one database, in whatever project --project names.
+      FIREBASE_CONFIG: firebase.staging-project.json
+      CLOUDSDK_CORE_DISABLE_PROMPTS: '1'
+
+    steps:
+      - name: Preflight (fail closed before any credential exists)
+        run: |
+          fail() { echo "::error::$1"; exit 1; }
+          for name in PROJECT_ID PROJECT_NUMBER WIF_PROVIDER INFRA_SA; do
+            [ -n "${!name}" ] || fail "${name} is empty: set the STAGING_* variables on the GitHub environment 'staging' (infra/staging-project/README.md)"
+          done
+          [ "${PROJECT_ID}" != "maybesitter-app" ] || fail "STAGING_GCP_PROJECT_ID is the production project"
+          [ "${PROJECT_NUMBER}" != "955684917741" ] || fail "STAGING_GCP_PROJECT_NUMBER is the production project's"
+          case "${PROJECT_NUMBER}" in *[!0-9]*) fail "STAGING_GCP_PROJECT_NUMBER is not a number" ;; esac
+          case "${WIF_PROVIDER}" in
+            "projects/${PROJECT_NUMBER}/locations/global/workloadIdentityPools/"*/providers/*) ;;
+            *) fail "STAGING_WIF_INFRA_PROVIDER is not a provider of project ${PROJECT_NUMBER}" ;;
+          esac
+          case "${INFRA_SA}" in
+            *"@${PROJECT_ID}.iam.gserviceaccount.com") ;;
+            *) fail "${INFRA_SA} is not a service account of ${PROJECT_ID}" ;;
+          esac
+          [ "${INFRA_SA}" != "${DEPLOYER_SA}" ] || fail "STAGING_INFRA_SA must not be the app deployer"
+          echo "preflight ok: ${PROJECT_ID} (${PROJECT_NUMBER}) as ${INFRA_SA}"
+
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Validate the index file and the config (no cloud call)
+        run: |
+          node scripts/firestore-index-ready.mjs validate firestore.indexes.json
+          # The config must name exactly the staging database.
+          NAMED="$(jq -r '[.firestore[].database] | join(",")' "${FIREBASE_CONFIG}")"
+          [ "${NAMED}" = "${DATABASE}" ] || { echo "::error::${FIREBASE_CONFIG} names '${NAMED}', expected '${DATABASE}'"; exit 1; }
+
+      - name: Authenticate to Google Cloud (staging project, infra identity)
+        uses: google-github-actions/auth@71f986410dfbc7added4569d411d040a91dc6935 # v2.1.8
+        with:
+          workload_identity_provider: ${{ vars.STAGING_WIF_INFRA_PROVIDER }}
+          service_account: ${{ vars.STAGING_INFRA_SA }}
+          project_id: ${{ vars.STAGING_GCP_PROJECT_ID }}
+
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@77e7a554d41e2ee56fc945c52dfd3f33d12def9a # v2.1.4
+
+      - name: Confirm the identity and the project
+        run: |
+          ACTIVE="$(gcloud auth list --filter=status:ACTIVE --format='value(account)')"
+          [ "${ACTIVE}" = "${INFRA_SA}" ] || { echo "::error::authenticated as '${ACTIVE}', expected ${INFRA_SA}"; exit 1; }
+          # Read-only, and only possible in the staging project: this identity
+          # has no grant anywhere else.
+          gcloud firestore indexes composite list --database="${DATABASE}" --project "${PROJECT_ID}" --limit=1 --format='value(name)' >/dev/null
+
+      - name: Deploy Firestore rules and indexes (staging database only)
+        run: |
+          # --non-interactive: nobody can answer a prompt. NOT --force: that
+          # would delete field overrides (TTL policies) the file does not list.
+          npx --yes firebase-tools@14 deploy --only firestore --config "${FIREBASE_CONFIG}" --non-interactive --project "${PROJECT_ID}"
+
+      - name: Wait until every declared index is READY
+        timeout-minutes: 60
+        run: node scripts/firestore-index-ready.mjs wait "${DATABASE}" 55

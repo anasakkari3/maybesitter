@@ -69,19 +69,24 @@ test('a public service is deployed by an identity that may make it public', () =
   assert.doesNotMatch(bootstrap, /add_role "\$\{DEPLOYER_SA\}" roles\/run\.developer/);
 });
 
-test('a merge to main deploys staging', () => {
-  // UC-1.0d (#143) asks for this, and it only became safe to add once real
-  // manual runs had succeeded.
-  assert.match(workflow, /^on:\n\s*push:\n\s*branches: \[main\]/m, 'staging does not deploy on a merge to main');
+test('a merge to main no longer deploys with the production deployer identity', () => {
+  // UC-1.0d (#143) added a push-to-main staging deploy, but it authenticated
+  // as the same deployer production uses, which can change production
+  // (Phase 5.7/5.8). It was removed on purpose; the isolated staging project
+  // deploys from deploy-staging.yml with its own identity.
+  assert.doesNotMatch(workflow, /^\s*push:/m, 'deploy.yml deploys on a push again');
+  assert.match(read('.github/workflows/deploy-staging.yml'), /service_account: \$\{\{ vars\.STAGING_DEPLOYER_SA \}\}/);
 });
 
-test('the deploy target is resolved once, and an unknown one is refused rather than sent to production', () => {
-  // A push carries no inputs. The old selection was
+test('the deploy target is fixed, and an unknown one is refused rather than sent to production', () => {
+  // The old selection was
   //   SERVICE="maybesitter-api"; [ "${{ inputs.target }}" = "staging" ] && SERVICE=…
-  // which reaches production whenever the target is not exactly "staging" —
-  // an empty string included. Adding the push trigger without this would have
-  // pointed every merge at production.
-  assert.match(workflow, /TARGET: \$\{\{ inputs\.target \|\| 'staging' \}\}/, 'the target is not resolved to a default');
+  // which reached production whenever the target was not exactly "staging" —
+  // an empty string included. deploy.yml is production-only now, so the
+  // target is a constant; every step still chooses by an explicit case that
+  // refuses anything else, staging included.
+  assert.match(workflow, /^      TARGET: production$/m, 'the target is not fixed to production');
+  assert.doesNotMatch(workflow, /^\s*staging\) /m, 'deploy.yml can still select a staging service or database');
   assert.match(workflow, /case "\$\{TARGET\}" in/, 'the service is not chosen by an explicit case');
   assert.match(workflow, /\*\) echo "refusing to deploy: unknown target/, 'an unknown target is not refused');
 
@@ -368,12 +373,6 @@ test('switching the env list to a custom delimiter dropped none of the existing 
 
 // ── Same-digest production promotion ────────────────────────────────────
 
-const buildStep = () => {
-  const start = workflow.indexOf('Build and push the image');
-  const end = workflow.indexOf('- name:', workflow.indexOf('\n', start));
-  return workflow.slice(start, end);
-};
-
 const resolveStep = () => {
   const start = workflow.indexOf('Resolve the staging image');
   const end = workflow.indexOf('Smoke test the new revision');
@@ -391,7 +390,9 @@ test('production does not rebuild the image', () => {
   // staging already pushed and smoke-tested — Docker layer timestamps and
   // base-image resolution are not pinned bit-for-bit — so rebuilding on
   // promote can silently deploy bytes staging never ran.
-  assert.match(buildStep(), /if:\s*env\.TARGET == 'staging'/, 'the build step is not gated to staging');
+  // deploy.yml is production-only, so it has no build step at all.
+  assert.doesNotMatch(workflow, /docker build/, 'deploy.yml builds an image');
+  assert.equal(workflow.indexOf('Build and push the image'), -1, 'deploy.yml has a build step again');
 
   assert.notEqual(workflow.indexOf('Resolve the staging image'), -1, 'there is no production digest-resolution step');
   assert.match(resolveStep(), /if:\s*env\.TARGET == 'production'/, 'the resolve step is not gated to production');
@@ -426,10 +427,12 @@ test('production verifies staging is actually serving the digest it promotes, no
   assert.match(resolveStep(), /"\$\{STAGING_IMAGE\}"\s*!=\s*"\$\{IMAGE_DIGEST\}"/, 'production does not compare against the resolved digest');
 });
 
-test('the deploy step sources its image from whichever of build or resolve ran', () => {
+test('the deploy step deploys the digest the resolve step found', () => {
+  // It used to read `steps.build… || steps.resolve…`; `build` ran only for
+  // staging, so on a production run this is the same value.
   assert.match(
     deployStep(),
-    /steps\.build\.outputs\.image_digest \|\| steps\.resolve\.outputs\.image_digest/,
+    /--image "\$\{\{ steps\.resolve\.outputs\.image_digest \}\}"/,
     'the deploy step cannot get an image on a production run',
   );
 });
