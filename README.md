@@ -12,36 +12,25 @@ Maybesitter is a local-first commitment assistant for people whose day gets nois
 
 It is built around a simple idea: the problem is not always forgetting. Sometimes every task feels equally urgent, and the hard part is deciding what deserves attention now.
 
-This repo is currently a **single-user local MVP**. It is useful and test-covered, but it is not a full cloud SaaS product yet.
+## What this repository is (2026-11)
 
-## What works now
+- **`mobile/`** — the only product client: React Native · Expo SDK 57,
+  Arabic-first (RTL) with English mirrored. See `mobile/AGENTS.md`.
+- **Backend** — Next.js 15 App Router on Node 24, deployed to Cloud Run
+  (`europe-west1`) with Firebase Auth and Firestore. The app talks only to
+  `/api/mobile/**`; scheduled work arrives from Cloud Scheduler on
+  `/api/internal/**` with Google OIDC. Domain and application services live in
+  `lib/**` and `src/domain/**`; versioned contracts in `src/contracts/v1/`.
+- **Legacy web UI** — the Next.js pages are frozen. Do not add features there.
 
-- Capture commitments through the dashboard assistant
-- Add, edit, complete, acknowledge, postpone, cancel, and delete items
-- Sort active items into **Must / Should / Nice** priority buckets
-- Ask clarification questions when a reminder is missing key details
-- Avoid creating reminders from informational no-op messages
-- Show a daily agenda and a compact daily calendar
-- Surface calm pressure nudges for overdue or repeatedly ignored commitments
-- Track commitment state with a deterministic domain state machine
-- Persist app data locally on the server
-- Export local data as JSON
-- Expose a read-only iCalendar feed at `/api/calendar.ics`
-- Run a local reminder worker for scheduled reminder processing
-- Use browser notifications when the app has permission and the worker/app are running
+Rules for contributors and agents: [`AGENTS.md`](AGENTS.md). Deployment:
+[`docs/operations/DEPLOY.md`](docs/operations/DEPLOY.md). Where every document
+belongs and which one is authoritative: [`docs/README.md`](docs/README.md).
 
-## What is not production-ready yet
-
-- Real login/signup accounts
-- Multi-user cloud sync
-- Payments or premium subscriptions
-- Recurring tasks as a user-facing feature
-- True two-way calendar sync
-- Reliable mobile push notifications
-- Public production analytics/insights pages
-- A hosted multi-instance deployment story
-
-The landing page mentions some future capabilities. Treat those as roadmap, not shipped functionality.
+Feature exposure is controlled per environment by `infra/cloudrun/flags.sh`
+and runtime kill switches; staged features (Stage B, M5a, M5b, M6) stay off in
+production until their release gate. A feature listed in a document is not
+shipped unless its flag is on for that environment.
 
 ## Assistant response engine
 
@@ -73,13 +62,12 @@ The engine is designed to keep user-visible responses conversational while prese
 
 ## Tech stack
 
-- Next.js 14 App Router
-- React 18
-- TypeScript
-- Tailwind CSS
-- Node test runner
-- File-backed local persistence
-- Optional local LLM extraction path with rule-based fallback
+- Backend: Next.js 15.5 App Router, TypeScript, Node 24 (Docker image
+  `node:24-bookworm-slim`, pinned by digest), Firebase Admin (Auth, Firestore),
+  Google Cloud (Cloud Run, Scheduler, Secret Manager, KMS, Vertex AI)
+- Mobile: React Native 0.86, Expo SDK 57, React 19.2
+- Tests: Node built-in test runner (explicit file list in `package.json`),
+  Firebase emulator suite, Jest in `mobile/`
 
 ## Getting started
 
