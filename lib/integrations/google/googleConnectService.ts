@@ -75,6 +75,8 @@ import {
 } from './googleOAuthClient';
 import { deleteBusySource, type BusySourceReplacementFence } from '../../calendar/busyBlocks';
 import { getAiConsent } from '../../consents/aiConsentService';
+import { intelligenceEnabled } from '../../intelligence/gate';
+import { m5aEnvironmentCapability } from '../../release/m5aControls';
 import {
   featuresGranted,
   GOOGLE_APP_RETURN_URL,
@@ -130,6 +132,7 @@ export const GOOGLE_REFUSAL_STATUS = Object.freeze({
   google_not_connected: 409,
   google_reauth_required: 409,
   google_feature_not_granted: 409,
+  google_feature_unavailable: 403,
   google_account_mismatch: 409,
   google_permission_not_granted: 409,
   google_access_denied: 400,
@@ -332,11 +335,28 @@ export interface BeginGoogleConnectResult {
  *
  * The `state` is not returned as its own field: it is already in the URL.
  */
+/**
+ * Whether this environment may grant the Gmail scope at all.
+ *
+ * Two features read Gmail, and each has its own gate: the proactive monitor
+ * (`intelligenceEnabled`, released to production on 2026-10-01) and the M5a
+ * scans (the email capability). The scope is shared, so a grant is allowed when
+ * either is available here. Neither is enough alone to be the gate: M5a's flags
+ * must not switch off the released monitor. Refused before any config, state or
+ * store is touched, so a disabled environment writes nothing.
+ */
+export function gmailConnectAllowed(env: Readonly<Record<string, string | undefined>>): boolean {
+  return intelligenceEnabled(env) || m5aEnvironmentCapability('email', env);
+}
+
 export async function beginGoogleConnect(
   uid: string,
   feature: GoogleFeature,
   runtime: GoogleRuntime,
 ): Promise<BeginGoogleConnectResult> {
+  if (feature === 'gmail' && !gmailConnectAllowed(runtime.env as Readonly<Record<string, string | undefined>>)) {
+    throw new GoogleConnectError('google_feature_unavailable');
+  }
   const config = await requireConfig(runtime);
   try {
     const existing = await currentConnection(uid, runtime);

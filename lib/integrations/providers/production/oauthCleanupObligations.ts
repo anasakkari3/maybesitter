@@ -140,9 +140,16 @@ interface CredentialDeletePayload {
   readonly fingerprint: string;
 }
 
-/** Only the two token strings a revoke call can use, and whose account they are; no scopes, no expiry. */
+/**
+ * The one token a revoke call needs, and whose account it is; no scopes, no
+ * expiry. Google's revoke takes the refresh token when there is one, which
+ * revokes the whole grant, so a record written now holds only that. An access
+ * token is kept only when there is no refresh token to take. A record written
+ * before this held both; the retry revokes with whichever is present, and the
+ * refresh token still wins, so those keep working unchanged.
+ */
 interface GrantRevokePayload {
-  readonly accessToken: string;
+  readonly accessToken: string | null;
   readonly refreshToken: string | null;
   /** The provider account (Google `sub`), when known; checked against live connections before revoking. */
   readonly providerAccountId?: string | null;
@@ -254,9 +261,12 @@ export class StoredOAuthCleanupObligations implements ProviderOAuthCleanupObliga
     readonly providerAccountId?: string | null;
   }): Promise<void> {
     const providerAccountId = input.providerAccountId || null;
+    // Only the token the revoke takes is kept (see `GrantRevokePayload`). The
+    // access token would be a second copy of a secret that the retry never uses
+    // while a refresh token exists.
     const payload: GrantRevokePayload = {
-      accessToken: input.tokenSet.accessToken,
-      refreshToken: input.tokenSet.refreshToken,
+      accessToken: input.tokenSet.refreshToken ? null : input.tokenSet.accessToken,
+      refreshToken: input.tokenSet.refreshToken || null,
       providerAccountId,
     };
     const accountKey = providerAccountId ? providerAccountKeys(input.provider, providerAccountId)[0] ?? null : null;
@@ -371,6 +381,8 @@ export async function retryOAuthCleanupObligations(options: RetryOAuthCleanupOpt
         await deleteCredential(storage, path, data, JSON.parse(plaintext) as CredentialDeletePayload);
       } else if (data.kind === 'grant_revoke') {
         const handle = JSON.parse(plaintext) as GrantRevokePayload;
+        // Nothing to revoke with is not a success: the obligation stays owed.
+        if (!handle.accessToken && !handle.refreshToken) throw new Error('oauth cleanup obligation holds no token to revoke');
         // Check 1 (module header): a live connection holds this authorization
         // now, and revoking would withdraw it. Dropped, not revoked.
         if (handle.providerAccountId && await liveConnectionHolds(storage, data.provider, handle.providerAccountId)) {
@@ -385,7 +397,7 @@ export async function retryOAuthCleanupObligations(options: RetryOAuthCleanupOpt
           continue;
         }
         await options.revoke(data.provider, {
-          accessToken: handle.accessToken,
+          accessToken: handle.accessToken ?? '',
           refreshToken: handle.refreshToken,
           accessTokenExpiresAt: null,
           refreshTokenExpiresAt: null,

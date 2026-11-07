@@ -102,6 +102,9 @@ function setup(options: { configured?: boolean; picker?: boolean; shareModel?: S
   const configured = options.configured ?? true;
   const env = configured
     ? {
+      // The Gmail scope is granted only where M5a or the monitor is on.
+      MAYBESITTER_ENV: 'staging',
+      MAYBESITTER_FEATURE_EMAIL_SOURCES: 'true',
       GOOGLE_OAUTH_CLIENT_ID: FAKE_CLIENT_ID,
       GOOGLE_OAUTH_CLIENT_SECRET: FAKE_CLIENT_SECRET,
       GOOGLE_OAUTH_REDIRECT_URI: FAKE_REDIRECT,

@@ -55,7 +55,7 @@ import {
   googleAccessToken,
   GoogleConnectError,
 } from '../../lib/integrations/google/googleConnectService.ts';
-import { googleRuntime, resetGoogleRuntimeForTests, setGoogleRuntimeForTests } from '../../lib/integrations/google/googleRuntime.ts';
+import { googleRuntime, resetGoogleRuntimeForTests, setGoogleRuntimeForTests, type GoogleRuntime } from '../../lib/integrations/google/googleRuntime.ts';
 import { runMaintenance } from '../../lib/jobs/internalJobs.ts';
 import { FAKE_CLIENT_ID, FAKE_CLIENT_SECRET, FAKE_REDIRECT, FakeGoogle } from '../support/fakeGoogle.ts';
 
@@ -358,12 +358,15 @@ function setupGoogle(): { storage: MemoryStorageAdapter; google: FakeGoogle; don
   const kms = createInMemoryKms();
   setGoogleRuntimeForTests({
     storage,
+    // The gate reads the M5a flags as well as the Google config.
     env: {
+      MAYBESITTER_ENV: 'staging',
+      MAYBESITTER_FEATURE_EMAIL_SOURCES: 'true',
       GOOGLE_OAUTH_CLIENT_ID: FAKE_CLIENT_ID,
       GOOGLE_OAUTH_CLIENT_SECRET: FAKE_CLIENT_SECRET,
       GOOGLE_OAUTH_REDIRECT_URI: FAKE_REDIRECT,
       MAYBESITTER_KMS_KEY_NAME: kms.keyName,
-    },
+    } as unknown as GoogleRuntime['env'],
     secrets: null,
     fetchImpl: google.fetch as typeof fetch,
     encryption: { kms, env: { MAYBESITTER_KMS_KEY_NAME: kms.keyName } as unknown as NodeJS.ProcessEnv },
