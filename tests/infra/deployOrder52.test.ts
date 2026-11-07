@@ -46,16 +46,55 @@ test('each environment deploys only its own Firestore database', () => {
   // firebase.json keeps both, for manual use; the workflow never reads it.
   const both = (JSON.parse(read('firebase.json')).firestore as Array<{ database: string }>).map(entry => entry.database).sort();
   assert.deepEqual(both, ['(default)', 'staging']);
+  // Production deploys its database from deploy.yml; the isolated staging
+  // project deploys its own from infra-staging.yml. Neither reads firebase.json.
   const workflow = read('.github/workflows/deploy.yml');
   assert.doesNotMatch(workflow, /--config firebase\.json/);
-  assert.match(workflow, /firebase\.staging\.json/);
   assert.match(workflow, /firebase\.production\.json/);
+  assert.doesNotMatch(workflow, /FIREBASE_CONFIG="firebase\.staging\.json"/, 'deploy.yml deploys the legacy staging database again');
+  const infra = read('.github/workflows/infra-staging.yml');
+  assert.doesNotMatch(infra, /--config firebase\.json/);
+  assert.match(infra, /FIREBASE_CONFIG: firebase\.staging-project\.json/);
+  const isolated = JSON.parse(read('firebase.staging-project.json')).firestore as Array<{ database: string }>;
+  assert.deepEqual(isolated.map(entry => entry.database), ['staging']);
 });
 
-test('the deploy workflow keeps its triggers: a push to main and a manual dispatch, nothing new', () => {
+test('the production deploy workflow is manual only, and deploys nothing on a push', () => {
+  // The push-to-main staging deploy used the production deployer identity;
+  // it was removed on purpose (Phase 5.8). Staging is deploy-staging.yml.
   const workflow = read('.github/workflows/deploy.yml');
-  assert.match(workflow, /^on:\n\s*push:\n\s*branches: \[main\]\n\s*workflow_dispatch:/m);
+  assert.match(workflow, /^on:\n(?:\s*#[^\n]*\n)*\s*workflow_dispatch:/m);
+  assert.doesNotMatch(workflow, /^\s*push:/m);
   assert.doesNotMatch(workflow, /^\s*pull_request/m);
+  assert.match(workflow, /^\s*environment: production$/m);
+});
+
+test('the staging workflows are manual, environment-bound, and ask for no more than they need', () => {
+  for (const file of ['.github/workflows/deploy-staging.yml', '.github/workflows/infra-staging.yml']) {
+    const workflow = read(file);
+    const triggers = (/^on:\n((?:[ \t]+[^\n]*\n|\n)*)/m.exec(workflow)?.[1] ?? '')
+      .split('\n').map(line => line.trim()).filter(line => line !== '' && !line.startsWith('#'));
+    assert.deepEqual(triggers, ['workflow_dispatch:'], `${file} has a trigger other than workflow_dispatch`);
+    assert.doesNotMatch(workflow, /^\s*(push|pull_request|pull_request_target|schedule|workflow_run):/m, `${file} has an automatic trigger`);
+    assert.match(workflow, /^permissions: \{\}$/m, `${file} grants top-level token permissions`);
+    assert.match(workflow, /^    environment: staging$/m, `${file} is not bound to the staging environment`);
+    assert.match(workflow, /^    permissions:\n      contents: read\n      id-token: write\n    env:/m, `${file} asks for other permissions`);
+    // Fail closed on production identifiers before authenticating.
+    const preflight = workflow.indexOf('- name: Preflight');
+    const auth = workflow.indexOf('uses: google-github-actions/auth@');
+    assert.ok(preflight !== -1 && preflight < auth, `${file} authenticates before its preflight`);
+    assert.match(workflow, /"\$\{PROJECT_ID\}" != "maybesitter-app"/);
+    assert.match(workflow, /"\$\{PROJECT_NUMBER\}" != "955684917741"/);
+    // Every gcloud and firebase call names the project (continuation lines joined).
+    // A call inside $(...) counts too: everything from the command to the end
+    // of its logical line must name the project.
+    const logical = workflow.replace(/\\\n\s*/g, ' ').split('\n').map(line => line.trim()).filter(line => !line.startsWith('#'));
+    const calls = logical.flatMap(line => Array.from(line.matchAll(/\b(?:gcloud|npx --yes firebase-tools(?:@\S+)?) .*/g), match => match[0]))
+      .filter(call => !/^gcloud auth (list|configure-docker)\b/.test(call));
+    assert.ok(calls.length >= 2, `${file}: no cloud calls found`);
+    for (const call of calls) assert.match(call, /--project\b/, `${file}: "${call}" has no explicit --project`);
+    assert.doesNotMatch(workflow, /vars\.GCP_DEPLOYER_SA|vars\.GCP_WIF_PROVIDER/, `${file} uses the production identity`);
+  }
 });
 
 test('the index gate validates a well-formed file and names every shape error', () => {

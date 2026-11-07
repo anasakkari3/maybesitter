@@ -189,10 +189,13 @@ test('no runbook fetches the pepper by `latest`, which a rotation makes a key no
   assert.match(read('docs/operations/ACCOUNT_DELETION.md'), /ref MAYBESITTER_DELETION_RECEIPT_PEPPER_PREVIOUS/);
 });
 
-/** The workflow's deploy step, as the shell script GitHub would run. */
-function deployStepScript(): string {
-  const workflow = read('.github/workflows/deploy.yml');
-  const start = workflow.indexOf('- name: Deploy (behind a tag once the service exists)');
+/** A workflow's deploy step, as the shell script GitHub would run. */
+function deployStepScript(
+  file = '.github/workflows/deploy.yml',
+  name = '- name: Deploy (behind a tag once the service exists)',
+): string {
+  const workflow = read(file);
+  const start = workflow.indexOf(name);
   assert.notEqual(start, -1, 'the deploy step was renamed; point this test at it');
   const step = workflow.slice(start, workflow.indexOf('- name:', workflow.indexOf('\n', start)));
   const body = step.slice(step.indexOf('run: |\n') + 'run: |\n'.length);
@@ -204,60 +207,131 @@ function deployStepScript(): string {
     .replace(/\$\{\{[^}]*\}\}/g, 'europe-west1-docker.pkg.dev/p/r/api@sha256:' + 'a'.repeat(64));
 }
 
+/**
+ * Runs a deploy step against a fake gcloud that records `run deploy`'s
+ * arguments, once per rotation state, under both of GitHub's bash flag sets.
+ */
+function stepRunner(script: string, env: Record<string, string>) {
+  const dir = mkdtempSync(join(tmpdir(), 'deploy-step-798-'));
+  const log = join(dir, 'calls.log');
+  // `services describe` says the service exists; `run deploy` records each argument on its own line.
+  writeFileSync(join(dir, 'gcloud'), [
+    '#!/usr/bin/env bash',
+    'if [ "$1 $2" = "run deploy" ]; then printf \'%s\\n\' "$@" >>"${CALL_LOG}"; fi',
+    'exit 0',
+  ].join('\n'));
+  spawnSync('chmod', ['755', join(dir, 'gcloud')]);
+  const runStep = (state: string, shellFlags: string[], extra: Record<string, string> = {}) => {
+    rmSync(log, { force: true });
+    const rotation = join(dir, 'pepper-rotation.env');
+    writeFileSync(rotation, state);
+    const result = spawnSync('bash', [...shellFlags, '-c', script], {
+      cwd: repoRoot,
+      encoding: 'utf8',
+      env: {
+        PATH: `${dir}:${process.env.PATH}`,
+        REGION: 'europe-west1',
+        GITHUB_SHA: 'c0ffee0123456789',
+        GITHUB_OUTPUT: join(dir, 'github-output'),
+        CALL_LOG: log,
+        MAYBESITTER_PEPPER_ROTATION_FILE: rotation,
+        ...env,
+        ...extra,
+      } as unknown as NodeJS.ProcessEnv,
+    });
+    let args: string[] = [];
+    try { args = readFileSync(log, 'utf8').trim().split('\n'); } catch { /* never called */ }
+    return { status: result.status, args, stderr: result.stderr };
+  };
+  return { runStep, cleanup: () => rmSync(dir, { recursive: true, force: true }) };
+}
+
+test('the isolated staging deploy step fails on a refused rotation state, and otherwise passes flags.sh through minus --allow-unauthenticated', () => {
+  // deploy-staging.yml runs the same flags.sh, with the staging project's
+  // identities. Its deployer has no run.services.setIamPolicy, so it drops
+  // --allow-unauthenticated (the service is made public once, by bootstrap)
+  // and passes every other word exactly as printed.
+  const script = deployStepScript('.github/workflows/deploy-staging.yml', '- name: Deploy a revision with no traffic, behind a tag');
+  const project = 'maybesitter-staging-test';
+  const runtime = `staging-run@${project}.iam.gserviceaccount.com`;
+  const deployer = `staging-deploy-app@${project}.iam.gserviceaccount.com`;
+  const overrides = {
+    MAYBESITTER_FLAGS_RUN_SA: runtime,
+    MAYBESITTER_FLAGS_DEPLOYER_SA: deployer,
+    MAYBESITTER_FLAGS_AI_DISABLED: 'true',
+  };
+  const { runStep, cleanup } = stepRunner(script, {
+    PROJECT_ID: project,
+    SERVICE: 'maybesitter-api-staging',
+    RUNTIME_SA: runtime,
+    IMAGE_DIGEST: 'europe-west1-docker.pkg.dev/p/r/api@sha256:' + 'a'.repeat(64),
+    ...overrides,
+  });
+  try {
+    for (const shellFlags of [['-e'], ['--noprofile', '--norc', '-eo', 'pipefail']]) {
+      const refused = runStep(render({ ...STEADY, staging_phase: 'readers' }), shellFlags);
+      assert.notEqual(refused.status, 0, `the staging deploy step went green on a refused rotation state (bash ${shellFlags.join(' ')})`);
+      assert.deepEqual(refused.args, [], `gcloud run deploy ran without flags (bash ${shellFlags.join(' ')})`);
+
+      const rotating = { ...STEADY, staging_phase: 'readers', staging_current_version: '3', staging_previous_version: '2' } satisfies State;
+      const ok = runStep(render(rotating), shellFlags);
+      assert.equal(ok.status, 0, `the staging deploy step failed on a valid state (bash ${shellFlags.join(' ')}): ${ok.stderr}`);
+      const fixture = stateFile(render(rotating));
+      let printed: string[];
+      try {
+        const result = spawnSync('bash', [join(repoRoot, 'infra/cloudrun/flags.sh'), 'staging'], {
+          encoding: 'utf8',
+          env: { ...process.env, PROJECT_ID: project, MAYBESITTER_PEPPER_ROTATION_FILE: fixture.path, ...overrides },
+        });
+        assert.equal(result.status, 0, result.stderr);
+        printed = result.stdout.trim().split(/\s+/);
+      } finally {
+        fixture.cleanup();
+      }
+      const expected = printed.filter((word) => word !== '--allow-unauthenticated');
+      assert.ok(printed.includes('--allow-unauthenticated'), 'flags.sh no longer prints --allow-unauthenticated; revisit this filter');
+      assert.deepEqual(ok.args.slice(ok.args.length - expected.length), expected, 'gcloud did not receive the flags as flags.sh printed them');
+      assert.ok(!ok.args.includes('--allow-unauthenticated'));
+      assert.ok(ok.args.includes(`--service-account=${runtime}`));
+      assert.ok(ok.args.includes('--no-traffic') && ok.args.includes('--project') && ok.args.includes(project));
+      assert.equal(ok.args.some((arg) => arg.includes('maybesitter-app')), false, 'a staging deploy argument names the production project');
+      assert.equal(secretsOf(ok.args.find((arg) => arg.startsWith('--set-secrets='))!).get(PREVIOUS), `${SECRET}:2`);
+    }
+  } finally {
+    cleanup();
+  }
+});
+
 test('the deploy step fails, and deploys nothing, when flags.sh refuses the rotation state', () => {
   // Under `bash -e` (GitHub's default `run` shell) a failing $(...) inside
   // another command's arguments is ignored: `gcloud run deploy` would run with
   // no flags, the revision would inherit the old env and secrets, and the job
   // would go green. The step must capture flags.sh on its own first.
+  // deploy.yml is production-only now, so this exercises the production path.
   const script = deployStepScript();
-  const dir = mkdtempSync(join(tmpdir(), 'deploy-step-798-'));
+  const { runStep, cleanup } = stepRunner(script, { TARGET: 'production' });
   try {
-    const log = join(dir, 'calls.log');
-    // `services describe` says the service exists; `run deploy` records each argument on its own line.
-    writeFileSync(join(dir, 'gcloud'), [
-      '#!/usr/bin/env bash',
-      'if [ "$1 $2" = "run deploy" ]; then printf \'%s\\n\' "$@" >>"${CALL_LOG}"; fi',
-      'exit 0',
-    ].join('\n'));
-    spawnSync('chmod', ['755', join(dir, 'gcloud')]);
-
-    const runStep = (state: string, shellFlags: string[]) => {
-      rmSync(log, { force: true });
-      const rotation = join(dir, 'pepper-rotation.env');
-      writeFileSync(rotation, state);
-      const result = spawnSync('bash', [...shellFlags, '-c', script], {
-        cwd: repoRoot,
-        encoding: 'utf8',
-        env: {
-          PATH: `${dir}:${process.env.PATH}`,
-          TARGET: 'staging',
-          REGION: 'europe-west1',
-          GITHUB_SHA: 'c0ffee0123456789',
-          GITHUB_OUTPUT: join(dir, 'github-output'),
-          CALL_LOG: log,
-          MAYBESITTER_PEPPER_ROTATION_FILE: rotation,
-        } as unknown as NodeJS.ProcessEnv,
-      });
-      let args: string[] = [];
-      try { args = readFileSync(log, 'utf8').trim().split('\n'); } catch { /* never called */ }
-      return { status: result.status, args };
-    };
-
     for (const shellFlags of [['-e'], ['--noprofile', '--norc', '-eo', 'pipefail']]) {
-      const refused = runStep(render({ ...STEADY, staging_phase: 'readers' }), shellFlags);
+      const refused = runStep(render({ ...STEADY, production_phase: 'readers' }), shellFlags);
       assert.notEqual(refused.status, 0, `the deploy step went green on a refused rotation state (bash ${shellFlags.join(' ')})`);
       assert.deepEqual(refused.args, [], `gcloud run deploy ran without flags (bash ${shellFlags.join(' ')})`);
 
       // And a valid state reaches gcloud as separate words, exactly what flags.sh printed.
-      const rotating = { ...STEADY, staging_phase: 'readers', staging_current_version: '3', staging_previous_version: '2' } satisfies State;
+      const rotating = { ...STEADY, production_phase: 'readers', production_current_version: '3', production_previous_version: '2' } satisfies State;
       const ok = runStep(render(rotating), shellFlags);
-      assert.equal(ok.status, 0, `the deploy step failed on a valid state (bash ${shellFlags.join(' ')})`);
-      const printed = flags('staging', rotating).trim().split(/\s+/);
+      assert.equal(ok.status, 0, `the deploy step failed on a valid state (bash ${shellFlags.join(' ')}): ${ok.stderr}`);
+      const printed = flags('production', rotating).trim().split(/\s+/);
       assert.deepEqual(ok.args.slice(ok.args.length - printed.length), printed, 'gcloud did not receive the flags as flags.sh printed them');
       assert.ok(ok.args.includes('--no-traffic'), 'the existing-service path lost its traffic flags');
+      assert.equal(ok.args[2], 'maybesitter-api', 'deploy.yml deployed a service other than production');
       assert.equal(secretsOf(ok.args.find((arg) => arg.startsWith('--set-secrets='))!).get(PREVIOUS), `${SECRET}:2`);
     }
+
+    // deploy.yml no longer deploys staging: the target is refused before gcloud runs.
+    const staging = runStep(render(STEADY), ['-e'], { TARGET: 'staging' });
+    assert.notEqual(staging.status, 0, 'deploy.yml accepted TARGET=staging');
+    assert.deepEqual(staging.args, []);
   } finally {
-    rmSync(dir, { recursive: true, force: true });
+    cleanup();
   }
 });

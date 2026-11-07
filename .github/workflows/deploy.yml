@@ -1,33 +1,46 @@
-# Staging deploys on every merge to main; production is dispatched by hand and
-# waits for the owner's approval on its protected environment.
+# Production only. It is dispatched by hand and waits for the owner's approval
+# on its protected environment.
+#
+# Staging no longer deploys from here. It used to deploy on every push to main
+# with the same deployer identity production uses, which holds project-level
+# run.admin, datastore.indexAdmin and firebaserules.admin in maybesitter-app,
+# so a staging run could change production (Phase 5.7/5.8). Staging now has its
+# own project and identities: deploy-staging.yml and infra-staging.yml. The old
+# shared-project staging service (maybesitter-api-staging in maybesitter-app)
+# is legacy and is no longer deployed by any workflow.
 #
 # Order inside the job, and why: the Firestore indexes of this environment's
 # database are deployed and reported READY before a new revision exists, and
 # the revision is staged behind a tag until its smoke test passes. Live traffic
 # moves last. Index builds take time, so the gate waits; it does not assume a
-# deploy is finished when the CLI returns. Each environment deploys only its own
-# database (firebase.staging.json, firebase.production.json): firebase.json
-# lists both, and deploying it on a staging push would change production.
+# deploy is finished when the CLI returns. This workflow deploys only
+# production's database (firebase.production.json): firebase.json lists both
+# databases of maybesitter-app, and deploying it would also change the legacy
+# staging one.
 #
-# The push trigger is here only because real manual runs have now succeeded,
-# which is what the UNVERIFIED note that used to head this file was waiting for.
-# Those runs are also what found the three first-deploy failures pinned in
+# Real runs found the three first-deploy failures pinned in
 # tests/infra/firstDeploy.test.ts.
+#
+# Promotion still reads the legacy staging service: production deploys only a
+# digest that maybesitter-api-staging in maybesitter-app is serving (see the
+# resolve step). That check is unchanged on purpose, so this commit does not
+# change what production may deploy. Until promotion is re-pointed at the
+# isolated staging project, a new commit cannot reach production through this
+# workflow; that is an owner decision, recorded in docs/operations/DEPLOY.md.
 
 name: Deploy
 
 on:
-  push:
-    branches: [main]
+  # Manual only. The `target` input stays so existing dispatch commands
+  # (`-f target=production`) keep working; production is its only option.
   workflow_dispatch:
     inputs:
       target:
-        description: Which environment to deploy
+        description: Which environment to deploy (production only; staging is deploy-staging.yml)
         required: true
-        default: staging
+        default: production
         type: choice
         options:
-          - staging
           - production
 
 permissions:
@@ -41,22 +54,21 @@ env:
   IMAGE: api
 
 concurrency:
-  group: deploy-${{ inputs.target || 'staging' }}
+  group: deploy-production
   cancel-in-progress: false
 
 jobs:
   deploy:
-    name: Deploy to ${{ inputs.target || 'staging' }}
+    name: Deploy to production
     runs-on: ubuntu-latest
     timeout-minutes: 120
     # `production` is a protected GitHub environment: the owner is a required
     # reviewer, so a production deploy waits for an explicit approval.
-    environment: ${{ inputs.target || 'staging' }}
-    # A push carries no inputs, so the target is resolved once, here, and every
-    # step reads it from the environment. Nothing further down may infer which
-    # service to touch from an empty string.
+    environment: production
+    # Fixed, not read from the input: every step reads TARGET, and nothing
+    # further down may infer which service to touch from an input value.
     env:
-      TARGET: ${{ inputs.target || 'staging' }}
+      TARGET: production
 
     steps:
       - name: Check out repository
@@ -75,19 +87,6 @@ jobs:
 
       - name: Configure Docker for Artifact Registry
         run: gcloud auth configure-docker "${REGION}-docker.pkg.dev" --quiet
-
-      - name: Build and push the image
-        id: build
-        # Staging only. Production never builds its own image — see the next
-        # step — so this cannot run on a production dispatch even by mistake.
-        if: env.TARGET == 'staging'
-        run: |
-          IMAGE_URI="${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPOSITORY}/${IMAGE}:${GITHUB_SHA}"
-          docker build --build-arg "GIT_SHA=${GITHUB_SHA}" -t "${IMAGE_URI}" .
-          docker push "${IMAGE_URI}"
-          DIGEST="$(gcloud artifacts docker images describe "${IMAGE_URI}" --format='value(image_summary.digest)')"
-          echo "image_uri=${IMAGE_URI}" >>"${GITHUB_OUTPUT}"
-          echo "image_digest=${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPOSITORY}/${IMAGE}@${DIGEST}" >>"${GITHUB_OUTPUT}"
 
       - name: Resolve the staging image for production (same-digest promotion)
         id: resolve
@@ -165,7 +164,6 @@ jobs:
           # list, which is how the TTL policies from infra/firestore-ttl.sh would
           # silently disappear. The per-environment config names one database.
           case "${TARGET}" in
-            staging) DATABASE="staging"; FIREBASE_CONFIG="firebase.staging.json" ;;
             production) DATABASE="(default)"; FIREBASE_CONFIG="firebase.production.json" ;;
             *) echo "refusing to deploy: unknown target '${TARGET}'"; exit 1 ;;
           esac
@@ -190,7 +188,6 @@ jobs:
           # produces. A deploy workflow must not reach production by falling
           # through a test.
           case "${TARGET}" in
-            staging) SERVICE="maybesitter-api-staging" ;;
             production) SERVICE="maybesitter-api" ;;
             *) echo "refusing to deploy: unknown target '${TARGET}'"; exit 1 ;;
           esac
@@ -205,8 +202,9 @@ jobs:
             TRAFFIC_FLAGS=(--no-traffic --tag "sha-${GITHUB_SHA::7}")
           fi
           # The image is deployed by digest, so production runs the exact bytes
-          # staging ran: `build` set it on a staging run, `resolve` on a
-          # production run — exactly one of the two runs, per the `if:` above.
+          # staging ran: `resolve` set it. (This used to read
+          # `steps.build… || steps.resolve…`; `build` ran only for staging, so
+          # on a production run the value was always the resolved digest.)
           # flags.sh runs as its own assignment: under `bash -e` a failing
           # $(...) inside another command's arguments does not stop the step,
           # so a refused pepper-rotation.env (#798) would deploy with no flags
@@ -215,7 +213,7 @@ jobs:
           FLAGS="$(bash infra/cloudrun/flags.sh "${TARGET}")"
           read -ra FLAG_WORDS <<<"${FLAGS}"
           gcloud run deploy "${SERVICE}" \
-            --image "${{ steps.build.outputs.image_digest || steps.resolve.outputs.image_digest }}" \
+            --image "${{ steps.resolve.outputs.image_digest }}" \
             --region "${REGION}" \
             ${TRAFFIC_FLAGS[@]+"${TRAFFIC_FLAGS[@]}"} \
             "${FLAG_WORDS[@]}"
