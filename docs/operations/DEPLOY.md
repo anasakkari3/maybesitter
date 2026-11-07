@@ -2,20 +2,67 @@
 
 Issue: UC-1.0d (#143). Bootstrap and identities come from UC-1.0a (#140).
 
-> **Status (2026-09-25):** merges to `main` deploy staging through keyless
-> Workload Identity Federation. Production remains an explicit manual dispatch
-> through the protected `production` environment and requires the owner's
-> review. Do not infer production readiness from a successful staging run.
+> **Status (2026-11-07):**
+> - **Production is unchanged**: `deploy.yml`, manual dispatch only, through
+>   the protected `production` environment (owner review), same identity and
+>   steps as before.
+> - **Staging is now an isolated GCP project** (Phase 5.8, Option A), deployed
+>   by `deploy-staging.yml` (app) and `infra-staging.yml` (Firestore indexes and
+>   rules), each with its own identity and Workload Identity pool, and no grant
+>   in `maybesitter-app`. **It is not provisioned yet**: the owner declined
+>   billing on 2026-11-07. Runbook: `infra/staging-project/README.md`.
+> - **The old shared-project staging service** (`maybesitter-api-staging` in
+>   `maybesitter-app`, database `staging`) **is legacy and no longer deployed**
+>   by any workflow. Its push-to-`main` deploy was removed on purpose: it ran
+>   as the production deployer, which can change production.
+>
+> Do not infer production readiness from a successful staging run.
 
 ## Environments
 
-| | Service | Firestore database | Traffic |
-|---|---|---|---|
-| Staging | `maybesitter-api-staging` | `staging` | every merge to `main`, or manual dispatch |
-| Production | `maybesitter-api` | `(default)` | manual dispatch, GitHub environment `production` requires the owner's approval |
+| | Project | Service | Firestore database | Deployed by |
+|---|---|---|---|---|
+| Production | `maybesitter-app` | `maybesitter-api` | `(default)` | `deploy.yml`, manual dispatch, GitHub environment `production` requires the owner's approval |
+| Staging (isolated) | own project (`STAGING_GCP_PROJECT_ID`) | `maybesitter-api-staging` | `staging` | `deploy-staging.yml` / `infra-staging.yml`, manual dispatch, GitHub environment `staging` |
+| Staging (legacy) | `maybesitter-app` | `maybesitter-api-staging` | `staging` | nothing (frozen at its last revision) |
 
-Both run in `europe-west1`. Firebase Auth is shared between them, so **staging
-is for test accounts only**.
+All run in `europe-west1`. The legacy staging service shares Firebase Auth,
+secrets and the runtime identity with production; the isolated project shares
+none of them. Staging is for test accounts only.
+
+### Staging in its own project
+
+- **Identities** (`infra/staging-project/bootstrap.sh`): `staging-deploy-app`
+  (run.developer on the staging service only, Artifact Registry writer on the
+  staging repo, actAs `staging-run` only, read-only index access),
+  `staging-deploy-infra` (Firestore index and rules admin in the staging
+  project), `staging-run` (runtime), `staging-scheduler`. Secrets are new
+  values; nothing is copied from production.
+- **Trust**: each workflow has its own Workload Identity pool. A token is
+  accepted only for repository id `1205137389`, environment `staging`, and that
+  workflow file (`job_workflow_ref`).
+- **`deploy-staging.yml`**: preflight refuses empty `STAGING_*` variables and
+  production's project id/number; builds and pushes to the staging registry;
+  refuses to deploy unless every declared index is READY (it never creates
+  one); deploys `--no-traffic --tag sha-<7>` as `staging-run`; smoke-tests the
+  tag (`/api/health/ready`, `/api/health` reports the commit,
+  unauthenticated `/api/mobile/commitments/today` answers 401); then moves 100%
+  to that exact revision. On failure traffic stays where it was and the log
+  prints the rollback command. The model is off there
+  (`MAYBESITTER_AI_DISABLED=true`).
+- **`infra-staging.yml`**: deploys rules and indexes with
+  `firebase.staging-project.json` and waits until every index is READY.
+- **Before the first deploy**: run `infra/staging-project/verify-isolation.sh`
+  (read-only CAN/CANNOT gate); it must exit 0.
+
+### Promotion gap (owner decision needed)
+
+Production still promotes only a digest that the **legacy** staging service is
+serving (`Resolve the staging image` step, unchanged on purpose). Since nothing
+deploys legacy staging any more, a new commit cannot reach production through
+`deploy.yml` until promotion is re-pointed, for example at a digest the
+isolated staging project ran (that needs a read grant from the staging
+registry to the production deployer, or a copy step). Not done here.
 
 ## M5a durable activation and kill procedure
 
@@ -107,17 +154,19 @@ an epoch and never give the deployer direct Firestore access.
 
 ## How a deploy works
 
+This section describes production (`deploy.yml`). Staging is above.
+
 1. GitHub Actions authenticates through Workload Identity Federation. There is
    no service-account key anywhere: the pool is pinned to this repository on
    `refs/heads/main`.
-2. **Staging** builds the image from the repository `Dockerfile` and pushes it
-   to Artifact Registry as `…/maybesitter/api:<sha>`.
-3. It deploys **without traffic**, behind the revision tag `sha-<short>`.
+2. Firestore rules and indexes for `(default)` are deployed from
+   `firestore.rules` and `firestore.indexes.json`
+   (`firebase.production.json`), and the job waits until they are READY.
+3. It deploys the promoted digest **without traffic**, behind the revision tag
+   `sha-<short>`.
 4. The tagged revision is probed: `/api/health/ready` must return `ready:true`,
-   and `/api/health` must report the same commit that was built.
+   and `/api/health` must report the commit.
 5. Only then does traffic move to the new revision.
-6. Firestore rules and indexes are deployed from `firestore.rules` and
-   `firestore.indexes.json`.
 
 **Production never builds.** A rebuild from the same commit is not guaranteed
 to reproduce the same image digest — Docker layer timestamps and base-image
