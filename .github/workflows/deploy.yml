@@ -1,6 +1,14 @@
 # Staging deploys on every merge to main; production is dispatched by hand and
 # waits for the owner's approval on its protected environment.
 #
+# Order inside the job, and why: the Firestore indexes of this environment's
+# database are deployed and reported READY before a new revision exists, and
+# the revision is staged behind a tag until its smoke test passes. Live traffic
+# moves last. Index builds take time, so the gate waits; it does not assume a
+# deploy is finished when the CLI returns. Each environment deploys only its own
+# database (firebase.staging.json, firebase.production.json): firebase.json
+# lists both, and deploying it on a staging push would change production.
+#
 # The push trigger is here only because real manual runs have now succeeded,
 # which is what the UNVERIFIED note that used to head this file was waiting for.
 # Those runs are also what found the three first-deploy failures pinned in
@@ -40,7 +48,7 @@ jobs:
   deploy:
     name: Deploy to ${{ inputs.target || 'staging' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 120
     # `production` is a protected GitHub environment: the owner is a required
     # reviewer, so a production deploy waits for an explicit approval.
     environment: ${{ inputs.target || 'staging' }}
@@ -149,6 +157,30 @@ jobs:
             gcloud artifacts docker tags add "${IMAGE_DIGEST}" "${TAG_URI}"
           fi
 
+      - name: Validate and deploy Firestore rules and indexes (this environment's database only)
+        id: firestore
+        run: |
+          # --non-interactive: no one to answer a prompt in CI. NOT --force: that
+          # would delete field overrides the project has and this file does not
+          # list, which is how the TTL policies from infra/firestore-ttl.sh would
+          # silently disappear. The per-environment config names one database.
+          case "${TARGET}" in
+            staging) DATABASE="staging"; FIREBASE_CONFIG="firebase.staging.json" ;;
+            production) DATABASE="(default)"; FIREBASE_CONFIG="firebase.production.json" ;;
+            *) echo "refusing to deploy: unknown target '${TARGET}'"; exit 1 ;;
+          esac
+          echo "database=${DATABASE}" >>"${GITHUB_OUTPUT}"
+          node scripts/firestore-index-ready.mjs validate firestore.indexes.json
+          npx --yes firebase-tools@14 deploy --only firestore --config "${FIREBASE_CONFIG}" --non-interactive --project "${PROJECT_ID}"
+
+      - name: Wait until the new indexes are READY
+        # Accepted is not built: a query that needs a CREATING index fails until
+        # the build finishes, so no revision that uses them may take traffic first.
+        env:
+          DATABASE: ${{ steps.firestore.outputs.database }}
+        timeout-minutes: 60
+        run: node scripts/firestore-index-ready.mjs wait "${DATABASE}" 55
+
       - name: Deploy (behind a tag once the service exists)
         id: deploy
         run: |
@@ -213,10 +245,3 @@ jobs:
         run: |
           gcloud run services update-traffic "${{ steps.deploy.outputs.service }}" \
             --region "${REGION}" --to-latest
-
-      - name: Deploy Firestore rules and indexes
-        run: # --non-interactive: in CI there is no one to answer a prompt. NOT --force:
-          # that would delete field overrides the project has and this file does
-          # not list — which is how the TTL policies from infra/firestore-ttl.sh
-          # would silently disappear.
-          npx --yes firebase-tools@14 deploy --only firestore --non-interactive --project "${PROJECT_ID}"

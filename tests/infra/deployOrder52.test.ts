@@ -1,0 +1,113 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import {
+  collectionGroupOf, compareIndexes, indexKey, validateIndexFile,
+} from '../../scripts/firestore-index-ready.mjs';
+
+// Phase 5.2: the deploy workflow must not move live traffic before the Firestore
+// indexes it needs are READY, and each environment must deploy only its own
+// database. The workflow is checked as text, like the other infra tests, because
+// root tests cannot import the mobile toolchain that a YAML parser would live in.
+
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
+const read = (path: string): string => readFileSync(join(ROOT, path), 'utf8');
+
+test('the Firestore indexes are deployed and READY before a revision is deployed, and traffic moves last', () => {
+  const workflow = read('.github/workflows/deploy.yml');
+  const at = (name: string): number => {
+    const index = workflow.indexOf(name);
+    assert.notEqual(index, -1, `step "${name}" is missing`);
+    return index;
+  };
+  const deployFirestore = at('- name: Validate and deploy Firestore rules and indexes');
+  const waitReady = at('- name: Wait until the new indexes are READY');
+  const deployRevision = at('- name: Deploy (behind a tag once the service exists)');
+  const smoke = at('- name: Smoke test the new revision');
+  const traffic = at('- name: Send traffic to the new revision');
+  assert.ok(deployFirestore < waitReady, 'indexes are not deployed before they are awaited');
+  assert.ok(waitReady < deployRevision, 'a revision is deployed before the indexes are READY');
+  assert.ok(deployRevision < smoke && smoke < traffic, 'traffic can move before the smoke test');
+  assert.equal(workflow.match(/- name: Deploy Firestore rules and indexes/g), null, 'the old trailing Firestore step is back');
+});
+
+test('no executable line in the deploy workflow passes --force to the Firebase deploy', () => {
+  const executable = read('.github/workflows/deploy.yml').split('\n').filter(line => !line.trim().startsWith('#'));
+  assert.deepEqual(executable.filter(line => /--force\b/.test(line)), []);
+});
+
+test('each environment deploys only its own Firestore database', () => {
+  const staging = JSON.parse(read('firebase.staging.json')).firestore as Array<{ database: string }>;
+  const production = JSON.parse(read('firebase.production.json')).firestore as Array<{ database: string }>;
+  assert.deepEqual(staging.map(entry => entry.database), ['staging']);
+  assert.deepEqual(production.map(entry => entry.database), ['(default)']);
+  // firebase.json keeps both, for manual use; the workflow never reads it.
+  const both = (JSON.parse(read('firebase.json')).firestore as Array<{ database: string }>).map(entry => entry.database).sort();
+  assert.deepEqual(both, ['(default)', 'staging']);
+  const workflow = read('.github/workflows/deploy.yml');
+  assert.doesNotMatch(workflow, /--config firebase\.json/);
+  assert.match(workflow, /firebase\.staging\.json/);
+  assert.match(workflow, /firebase\.production\.json/);
+});
+
+test('the deploy workflow keeps its triggers: a push to main and a manual dispatch, nothing new', () => {
+  const workflow = read('.github/workflows/deploy.yml');
+  assert.match(workflow, /^on:\n\s*push:\n\s*branches: \[main\]\n\s*workflow_dispatch:/m);
+  assert.doesNotMatch(workflow, /^\s*pull_request/m);
+});
+
+test('the index gate validates a well-formed file and names every shape error', () => {
+  assert.deepEqual(validateIndexFile({ indexes: [{
+    collectionGroup: 'busyBlocks', queryScope: 'COLLECTION',
+    fields: [{ fieldPath: 'sourceId', order: 'ASCENDING' }, { fieldPath: 'startAt', arrayConfig: 'CONTAINS' }],
+  }] }), []);
+  assert.deepEqual(validateIndexFile({}), ['the file has no "indexes" array']);
+  const bad = validateIndexFile({ indexes: [
+    { collectionGroup: '', queryScope: 'DOCUMENT', fields: [{ fieldPath: 'a', order: 'ASCENDING', arrayConfig: 'CONTAINS' }] },
+    { collectionGroup: 'x', queryScope: 'COLLECTION', fields: [] },
+  ] });
+  assert.ok(bad.some(error => error.includes('no collectionGroup')));
+  assert.ok(bad.some(error => error.includes('queryScope must be')));
+  assert.ok(bad.some(error => error.includes('exactly one of order or arrayConfig')));
+  assert.ok(bad.some(error => error.includes('no fields')));
+});
+
+test('an index is matched by scope, collection group and field order, and the __name__ field is ignored', () => {
+  const declared = [{ collectionGroup: 'g', queryScope: 'COLLECTION_GROUP', fields: [
+    { fieldPath: 'a', order: 'ASCENDING' }, { fieldPath: 'b', order: 'DESCENDING' },
+  ] }];
+  const remote = (fields: Array<{ fieldPath: string; order?: string; arrayConfig?: string }>, state: string) => ({
+    name: 'projects/p/databases/staging/collectionGroups/g/indexes/abc', queryScope: 'COLLECTION_GROUP', fields, state,
+  });
+  // Same fields, Firestore adds __name__: READY, nothing missing.
+  assert.equal(compareIndexes(declared, [remote([
+    { fieldPath: 'a', order: 'ASCENDING' }, { fieldPath: 'b', order: 'DESCENDING' }, { fieldPath: '__name__', order: 'DESCENDING' },
+  ], 'READY')]).ready, true);
+  // Still building: not READY, even though it is accepted.
+  const creating = compareIndexes(declared, [remote([{ fieldPath: 'a', order: 'ASCENDING' }, { fieldPath: 'b', order: 'DESCENDING' }], 'CREATING')]);
+  assert.equal(creating.ready, false);
+  assert.equal(creating.creating.length, 1);
+  // Field order is part of the identity.
+  const reordered = compareIndexes(declared, [remote([{ fieldPath: 'b', order: 'DESCENDING' }, { fieldPath: 'a', order: 'ASCENDING' }], 'READY')]);
+  assert.equal(reordered.ready, false);
+  assert.equal(reordered.missing.length, 1);
+});
+
+test('an index the database has and the file does not is reported, never counted as missing', () => {
+  const declared = [{ collectionGroup: 'g', queryScope: 'COLLECTION', fields: [{ fieldPath: 'a', order: 'ASCENDING' }] }];
+  const result = compareIndexes(declared, [
+    { name: 'projects/p/databases/d/collectionGroups/g/indexes/1', queryScope: 'COLLECTION', fields: [{ fieldPath: 'a', order: 'ASCENDING' }], state: 'READY' },
+    { name: 'projects/p/databases/d/collectionGroups/old/indexes/2', queryScope: 'COLLECTION', fields: [{ fieldPath: 'z', order: 'ASCENDING' }], state: 'READY' },
+  ]);
+  assert.equal(result.ready, true);
+  assert.equal(result.extra.length, 1);
+});
+
+test('the collection group is read from the index resource name, and the key is stable', () => {
+  assert.equal(collectionGroupOf('projects/p/databases/staging/collectionGroups/intelligenceMonitors/indexes/x'), 'intelligenceMonitors');
+  assert.equal(collectionGroupOf('not-a-name'), '');
+  assert.equal(indexKey({ queryScope: 'COLLECTION', collectionGroup: 'c', fields: [{ fieldPath: 'a', order: 'ASCENDING' }] }),
+    'COLLECTION|c|a:ASCENDING');
+});
