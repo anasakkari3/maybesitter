@@ -2,38 +2,60 @@
 
 Issue: UC-1.0d (#143). Bootstrap and identities come from UC-1.0a (#140).
 
-> **Status (2026-09-25):** merges to `main` deploy staging through keyless
-> Workload Identity Federation. Production remains an explicit manual dispatch
-> through the protected `production` environment and requires the owner's
-> review. Do not infer production readiness from a successful staging run.
+> **Status (2026-11-08):** integration and deployment are separate. A push or
+> merge to `main` runs CI only and deploys nothing. Production is an explicit
+> manual dispatch of `deploy.yml` through the protected `production`
+> environment. The legacy staging service is no longer deployed by any
+> workflow, and the isolated staging project is not provisioned yet.
 
 ## Environments
 
-| | Service | Firestore database | Traffic |
+| | Service | Firestore database | How it changes |
 |---|---|---|---|
-| Staging | `maybesitter-api-staging` | `staging` | every merge to `main`, or manual dispatch |
-| Production | `maybesitter-api` | `(default)` | manual dispatch, GitHub environment `production` requires the owner's approval |
+| Production | `maybesitter-api` (`maybesitter-app`) | `(default)` | manual dispatch of `deploy.yml`; GitHub environment `production` requires the owner's approval and accepts `main` only |
+| Legacy staging | `maybesitter-api-staging` (`maybesitter-app`) | `staging` | **not deployed by any workflow** since 2026-11-08 |
+| Isolated staging | `maybesitter-api-staging` in its own project | `staging` | manual dispatch of `deploy-staging.yml`; **not provisioned** |
 
-Both run in `europe-west1`. Firebase Auth is shared between them, so **staging
-is for test accounts only**.
+Production and legacy staging run in `europe-west1` in the same project and
+share Firebase Auth, so **legacy staging is for test accounts only**.
 
-### Isolation status (2026-11-08)
+### Integration is not deployment (2026-11-08)
 
-The legacy staging service above shares the project, the runtime identity, the
-secrets and the deployer (`maybesitter-deployer`, project-level `run.admin`,
-`datastore.indexAdmin`, `firebaserules.admin`) with production. A staging run
-can therefore change production. Two controls are in place now:
+What runs after a push or merge to `main`: `ci.yml` only. It has
+`contents: read`, no `id-token`, no secrets, no environment and no deploy
+command. `dependency-review.yml` runs on pull requests only.
 
-- The GitHub `staging` environment requires the owner's approval and accepts
-  `main` only (set 2026-11-07). A push to `main` creates a staging deployment
-  that waits for that approval instead of running.
-- `deploy.yml` itself is unchanged. A production-only version (push trigger and
-  staging target removed) is on branch `recovery/staging-isolation-cicd`; it is
-  not merged because production promotion still resolves its image from the
-  legacy staging service, so merging it would stop any new commit reaching
-  production until promotion is re-pointed. Owner decision.
+Every workflow that can mint a cloud credential or deploys (`deploy.yml`,
+`deploy-staging.yml`, `infra-staging.yml`) has `workflow_dispatch` as its only
+trigger. `tests/infra/deploymentIsolation.test.ts` enforces this for every file
+in `.github/workflows/`, including future ones:
+- no push, pull-request, schedule, `workflow_run`, `workflow_call` or
+  `repository_dispatch` trigger on a credential-bearing workflow;
+- no `pull_request_target` anywhere;
+- no reusable-workflow calls;
+- only `deploy.yml` may name the production deployer.
 
-The target is a separate staging project (Phase 5.8, Option A):
+Mutations that turn it red: restoring the old `deploy.yml`, adding `id-token`
+to `ci.yml`, adding a deploying workflow on push, pointing a staging workflow
+at the production deployer, adding `workflow_run`, and an inline `on: [push]`
+with `id-token`.
+
+Further layers, none of them relied on alone:
+- the GitHub `production` and `staging` environments require the owner's
+  approval and accept `main` only;
+- the production Workload Identity provider accepts only
+  `refs/heads/main` of this repository.
+
+**Residual risk (owner action, production IAM):**
+- The production Workload Identity provider does not check the GitHub
+  environment. Any workflow file *on `main`* that requests `id-token: write`
+  could obtain the production deployer. The workflow test above blocks that
+  in review and CI. The IAM-level fix is to add
+  `assertion.environment=='production'` to the provider condition.
+- The deployer itself still holds project-level `run.admin`,
+  `datastore.indexAdmin` and `firebaserules.admin`.
+
+### Isolated staging (Phase 5.8, Option A)
 
 - `infra/staging-project/bootstrap.sh` creates it. It prints its plan unless
   given `--apply`, links billing only with `--billing-account`, and refuses
@@ -139,7 +161,7 @@ an epoch and never give the deployer direct Firestore access.
 1. GitHub Actions authenticates through Workload Identity Federation. There is
    no service-account key anywhere: the pool is pinned to this repository on
    `refs/heads/main`.
-2. **Staging** builds the image from the repository `Dockerfile` and pushes it
+2. **Staging** (`deploy-staging.yml`, isolated project) builds the image from the repository `Dockerfile` and pushes it
    to Artifact Registry as `…/maybesitter/api:<sha>`.
 3. It deploys **without traffic**, behind the revision tag `sha-<short>`.
 4. The tagged revision is probed: `/api/health/ready` must return `ready:true`,
@@ -164,6 +186,14 @@ deploy bytes staging never ran or smoke-tested. Instead, a production run:
 
 So a production dispatch always deploys the bytes staging is currently
 running for that commit — never a fresh build, and never an untested digest.
+
+**Promotion gap (since 2026-11-08).** The checks above read the *legacy*
+staging service and the `maybesitter-app` registry, and nothing deploys legacy
+staging any more. So a production dispatch of any commit newer than the one
+legacy staging serves (`sha-b8f2c61`) stops at "deploy staging for this commit
+first". That is deliberate: production cannot receive an image that no staging
+ran. Re-pointing promotion at the isolated staging project's registry (a
+cross-project read grant or a copy step) is a separate owner decision.
 
 ## Rollback
 
