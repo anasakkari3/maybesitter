@@ -3883,6 +3883,31 @@ test('exports the M6a-1 fixtures from the real handlers', async () => {
   }
 });
 
+test('exports the feature add-on fixtures from the real handlers', async () => {
+  const uid = await beginM6();
+  const previous = process.env.MAYBESITTER_ADDON_GATE_MODE;
+  const [warn, error] = [console.warn, console.error];
+  try {
+    delete process.env.MAYBESITTER_ADDON_GATE_MODE;
+    await recordM4b('capabilities.features.off', 200, await callM6(uid, 'capabilities/features', 'GET'));
+    process.env.MAYBESITTER_ADDON_GATE_MODE = 'enforce';
+    // The gate logs a content-free line for each refusal it decides.
+    console.warn = () => {};
+    console.error = () => {};
+    await recordM4b('capabilities.features.enforce', 200, await callM6(uid, 'capabilities/features', 'GET'));
+    await recordM4b('capabilities.features.switched', 200, await callM6(uid, 'capabilities/features/[id]', 'PUT', {
+      params: { id: 'football' },
+      body: { enabled: false },
+    }));
+  } finally {
+    console.warn = warn;
+    console.error = error;
+    if (previous === undefined) delete process.env.MAYBESITTER_ADDON_GATE_MODE;
+    else process.env.MAYBESITTER_ADDON_GATE_MODE = previous;
+    endM6();
+  }
+});
+
 test('exports the M5a fixtures from the real handlers', async () => {
   const scenario = async (run: (uid: string) => Promise<void>) => {
     const uid = await beginM5a();

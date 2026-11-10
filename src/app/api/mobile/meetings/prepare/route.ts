@@ -30,6 +30,7 @@
  */
 import { AccountUnavailableError, accountUnavailableResponse } from '../../../../../../lib/account/accountLiveness';
 import { mobileAuthErrorResponse, requireMobileUser } from '../../../../../../lib/auth/mobileAuth';
+import { featureLockedResponse } from '../../../../../../lib/features/featureRoute';
 import { reserveDailyAction, retryAfterSecondsFor } from '../../../../../../lib/llm/usageGuard';
 import { CaptureInputTooLargeError } from '../../../../../../lib/services/captureBoundary/captureBoundaryService';
 import {
@@ -65,6 +66,8 @@ export async function POST(request: Request) {
   } catch (error) {
     return mobileAuthErrorResponse(error);
   }
+  const locked = await featureLockedResponse(user.uid, 'meeting_prep');
+  if (locked) return locked;
 
   let body: unknown;
   try {

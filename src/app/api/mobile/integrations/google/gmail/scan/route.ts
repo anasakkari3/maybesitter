@@ -1,4 +1,5 @@
 import { mobileAuthErrorResponse, requireMobileUser } from '../../../../../../../../lib/auth/mobileAuth';
+import { featureLockedResponse } from '../../../../../../../../lib/features/featureRoute';
 import { recordTraceStage, stage } from '../../../../../../../../lib/alphaTrace/traceRecorder';
 import { shareTraceSessionId } from '../../../../../../../../lib/services/share/shareIntakeService';
 import { scanRecentGmail } from '../../../../../../../../lib/integrations/google/googleGmailScan';
@@ -25,6 +26,8 @@ export async function POST(request: Request) {
   } catch (error) {
     return mobileAuthErrorResponse(error);
   }
+  const locked = await featureLockedResponse(user.uid, 'gmail_reading');
+  if (locked) return locked;
 
   let body: unknown;
   try {

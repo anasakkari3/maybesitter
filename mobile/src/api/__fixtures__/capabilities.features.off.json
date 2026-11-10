@@ -1,0 +1,70 @@
+{
+  "success": true,
+  "mode": "off",
+  "features": [
+    {
+      "id": "assistant",
+      "tier": "core",
+      "enabled": true,
+      "reason": "gate_off",
+      "userCanDisable": false,
+      "usedPercent": null
+    },
+    {
+      "id": "gmail_reading",
+      "tier": "addon",
+      "enabled": true,
+      "reason": "gate_off",
+      "userCanDisable": true,
+      "usedPercent": null
+    },
+    {
+      "id": "meeting_prep",
+      "tier": "addon",
+      "enabled": true,
+      "reason": "gate_off",
+      "userCanDisable": true,
+      "usedPercent": null
+    },
+    {
+      "id": "goal_plans",
+      "tier": "addon",
+      "enabled": true,
+      "reason": "gate_off",
+      "userCanDisable": true,
+      "usedPercent": null
+    },
+    {
+      "id": "memory_learning",
+      "tier": "addon",
+      "enabled": true,
+      "reason": "gate_off",
+      "userCanDisable": true,
+      "usedPercent": null
+    },
+    {
+      "id": "memory_translation",
+      "tier": "addon",
+      "enabled": true,
+      "reason": "gate_off",
+      "userCanDisable": true,
+      "usedPercent": null
+    },
+    {
+      "id": "search_history",
+      "tier": "addon",
+      "enabled": true,
+      "reason": "gate_off",
+      "userCanDisable": true,
+      "usedPercent": null
+    },
+    {
+      "id": "football",
+      "tier": "addon",
+      "enabled": true,
+      "reason": "gate_off",
+      "userCanDisable": true,
+      "usedPercent": null
+    }
+  ]
+}

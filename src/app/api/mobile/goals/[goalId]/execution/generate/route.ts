@@ -1,5 +1,6 @@
 import { AccountUnavailableError, accountUnavailableResponse } from '../../../../../../../../lib/account/accountLiveness';
 import { mobileAuthErrorResponse, requireMobileUser } from '../../../../../../../../lib/auth/mobileAuth';
+import { featureLockedResponse } from '../../../../../../../../lib/features/featureRoute';
 import { mobileError } from '../../../../../../../../lib/services/mobile/response';
 import {
   GoalGraphGenerationError,
@@ -35,6 +36,8 @@ export async function POST(request: Request, context: RouteContext) {
   } catch (error) {
     return mobileAuthErrorResponse(error);
   }
+  const locked = await featureLockedResponse(user.uid, 'goal_plans');
+  if (locked) return locked;
 
   const { goalId } = await context.params;
   try {

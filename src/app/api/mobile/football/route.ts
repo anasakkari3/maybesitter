@@ -1,4 +1,5 @@
 import { mobileAuthErrorResponse, requireMobileUser } from '../../../../../lib/auth/mobileAuth';
+import { featureLockedResponse } from '../../../../../lib/features/featureRoute';
 import { AccountUnavailableError, accountUnavailableResponse } from '../../../../../lib/account/accountLiveness';
 import { mobileError } from '../../../../../lib/services/mobile/response';
 import { listClubs, type ClubLanguage } from '../../../../../lib/football/clubs';
@@ -36,6 +37,8 @@ export async function GET(request: Request) {
   } catch (error) {
     return mobileAuthErrorResponse(error);
   }
+  const locked = await featureLockedResponse(user.uid, 'football');
+  if (locked) return locked;
 
   const [followedClubIds, fixtures] = await Promise.all([
     getFollowedClubs(user.uid),
@@ -85,6 +88,8 @@ export async function PUT(request: Request) {
   } catch (error) {
     return mobileAuthErrorResponse(error);
   }
+  const locked = await featureLockedResponse(user.uid, 'football');
+  if (locked) return locked;
 
   let body: { clubIds?: unknown; locale?: unknown };
   try {

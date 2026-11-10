@@ -237,7 +237,8 @@ test('every mobile route file exists and is enumerated', () => {
   // search routes.
   // M6a-2 adds the translation proposal and its separately versioned
   // capability probe. Both are account-scoped before either reports state.
-  assert.equal(files.length, 133, `found:\n${files.join('\n')}`);
+  // Add-ons (2026-11-10) add the feature list and the per-feature switch.
+  assert.equal(files.length, 135, `found:\n${files.join('\n')}`);
 });
 
 test('every mobile route handler runs an authentication guard before anything else', () => {
