@@ -80,9 +80,16 @@ test('a paid-only add-on answers the 404 an installed app already hides on', asy
   const uid = await begin();
   try {
     gate('enforce');
+    // The module's own release flag answers first; the add-on decides once it is on.
+    process.env.MAYBESITTER_FEATURE_MEMORY_TRANSLATION = 'true';
+    process.env.MAYBESITTER_KILL_SWITCH_MEMORY_TRANSLATION = 'false';
     const translation = await quietly(() => call(uid, 'memory/[id]/translation', 'POST', { params: { id: 'm1' }, body: { language: 'en' } }));
     assert.deepEqual([translation.status, translation.body.reason, translation.body.feature], [404, 'feature_unavailable', 'memory_translation']);
-  } finally { gate(null); end(); }
+  } finally {
+    delete process.env.MAYBESITTER_FEATURE_MEMORY_TRANSLATION;
+    delete process.env.MAYBESITTER_KILL_SWITCH_MEMORY_TRANSLATION;
+    gate(null); end();
+  }
 });
 
 test('Gmail monitoring: switching on asks the add-on, switching off never does', async () => {

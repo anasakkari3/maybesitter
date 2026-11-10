@@ -66,6 +66,36 @@ function parse(body: unknown, fallbackModel: string): JevScore | null {
   return { probability, inputTokens, model };
 }
 
+/** A decision answer is a few hundred bytes; anything past this is not one. */
+const MAX_RESPONSE_BYTES = 64 * 1024;
+
+async function readBounded(response: Response, limit: number): Promise<string> {
+  const reader = response.body?.getReader();
+  if (!reader) return '';
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    size += value.byteLength;
+    if (size > limit) {
+      await reader.cancel().catch(() => {});
+      throw new Error('response_too_large');
+    }
+    chunks.push(value);
+  }
+  return new TextDecoder().decode(Buffer.concat(chunks));
+}
+
+/** JSON, or a Streamable-HTTP MCP answer sent as server-sent events (the last `data:` line). */
+function parseBody(text: string): unknown {
+  const trimmed = text.trim();
+  if (trimmed.startsWith('{')) return JSON.parse(trimmed);
+  const data = trimmed.split(/\r?\n/).filter(line => line.startsWith('data:')).map(line => line.slice(5).trim());
+  if (data.length === 0) throw new Error('not_json');
+  return JSON.parse(data[data.length - 1]!);
+}
+
 export async function scoreWithJev(input: { state: string }, deps: JevDeps = {}): Promise<JevScore | null> {
   const env = deps.env ?? process.env;
   const key = (env.MAYBESITTER_JEV_API_KEY ?? '').trim();
@@ -101,10 +131,13 @@ export async function scoreWithJev(input: { state: string }, deps: JevDeps = {})
     } catch {
       return unavailable(controller.signal.aborted ? 'timeout' : 'network');
     }
-    if (!response.ok) return unavailable('http');
+    if (!response.ok) {
+      await response.body?.cancel().catch(() => {});
+      return unavailable('http');
+    }
     let body: unknown;
     try {
-      body = await response.json();
+      body = parseBody(await readBounded(response, MAX_RESPONSE_BYTES));
     } catch {
       return unavailable(controller.signal.aborted ? 'timeout' : 'malformed');
     }
@@ -113,7 +146,10 @@ export async function scoreWithJev(input: { state: string }, deps: JevDeps = {})
       if (!result || result.isError === true) return unavailable('http');
       body = { data: result.structuredContent };
     }
-    return parse(body, model) ?? unavailable('malformed');
+    const parsed = parse(body, model);
+    if (!parsed) return unavailable('malformed');
+    // No usage reported: estimate from the state, so the spend is never counted as zero.
+    return parsed.inputTokens > 0 ? parsed : { ...parsed, inputTokens: Math.ceil(input.state.length / 3) };
   } finally {
     clearTimeout(timer);
   }

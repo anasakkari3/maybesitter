@@ -150,6 +150,11 @@ export async function scoreEmailRelevance(uid: string, input: TriageInput, deps:
       return { probability: scored.probability, scorer: 'jev' };
     }
 
+    // The Gemini fallback runs only while the monthly budget is enforced: its
+    // own daily action counter sits outside the global call brake, so the
+    // per-feature hold is what bounds it. Without enforcement, no Jev score
+    // means a full read, which the existing caps already bound (review P1-4).
+    if (gateMode(deps.env) !== 'enforce' && !deps.gemini) return null;
     const reserveAction = deps.reserveAction ?? reserveDailyAction;
     const gemini = deps.gemini ?? shareLlmProvider(uid, {
       purpose: 'email_triage',

@@ -454,8 +454,14 @@ export async function runWatcherTick(
     console.error('[internal/jobs/watchers] football poll failed', error);
     football = { enabled: true, error: 'football_poll_failed' };
   }
+  // One decision per person per tick, however many fixture watchers they have.
+  const footballOff = new Map<string, Promise<boolean>>();
   const sweep = await (options.sweep ?? (() => runWatcherSweep({
-    skip: async ({ scopeId, signalKind }) => signalKind === 'fixture' && await footballSwitchedOff(scopeId),
+    skip: async ({ scopeId, signalKind }) => {
+      if (signalKind !== 'fixture') return false;
+      if (!footballOff.has(scopeId)) footballOff.set(scopeId, footballSwitchedOff(scopeId));
+      return footballOff.get(scopeId)!;
+    },
   })))();
   return { ...sweep, football };
 }

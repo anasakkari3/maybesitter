@@ -23,6 +23,7 @@ import {
 } from '../../lib/features/featureGate.ts';
 import { recordFeatureSpend } from '../../lib/features/spendLedger.ts';
 import { centsToNanoUsd } from '../../lib/features/pricing.ts';
+import { seedLiveAccount } from '../support/liveAccount.ts';
 
 const NOW = new Date('2026-11-10T21:00:00.000Z');
 const ENFORCE = { MAYBESITTER_ADDON_GATE_MODE: 'enforce' };
@@ -82,6 +83,7 @@ test('a purchase raises the budget; an expired one does not, even if still marke
 
 test('the person can switch an add-on off and back on, never a core feature', async () => {
   const storage = createMemoryStorage();
+  await seedLiveAccount('u1', storage);
   await setFeaturePreference('u1', 'football', false, { storage, now: NOW });
   const { value: off } = await quiet(() => decideFeature('u1', 'football', { storage, env: ENFORCE, now: NOW }));
   assert.deepEqual([off.allowed, off.reason], [false, 'user_off']);
@@ -91,6 +93,11 @@ test('the person can switch an add-on off and back on, never a core feature', as
   // A core id smuggled into the stored document is ignored, not obeyed.
   await storage.set('users/u1/features/preferences', { v: 1, disabled: ['assistant'], updatedAt: NOW.toISOString() });
   assert.equal((await readAccountFeatureState('u1', { storage, now: NOW })).disabled.size, 0);
+  // A stored id the catalog no longer knows is ignored, not fatal (review P2-10).
+  await storage.set('users/u1/features/preferences', { v: 1, disabled: ['retired_feature', 'football'], updatedAt: NOW.toISOString() });
+  assert.deepEqual(Array.from((await readAccountFeatureState('u1', { storage, now: NOW })).disabled), ['football']);
+  // A deleted account cannot have its switches recreated (review P2-11).
+  await assert.rejects(setFeaturePreference('gone', 'football', false, { storage, now: NOW }), /account_unavailable/);
 });
 
 test('a feature stops at its own budget; others keep going', async () => {

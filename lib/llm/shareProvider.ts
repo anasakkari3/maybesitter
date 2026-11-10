@@ -206,7 +206,8 @@ export function shareLlmProvider(uid: string, options: ShareProviderOptions = {}
         latencyMs: 0,
         promptTokens: 0,
         outputTokens: 0,
-        outcome: 'cost_cap',
+        // Only a spent budget is a cost cap; a locked feature or an unreadable gate is not.
+        outcome: featureCheck.refusal.startsWith('cost_cap:') ? 'cost_cap' : 'unavailable',
         fallbackReason: featureCheck.refusal,
       });
       throw new LLMUnavailableError(featureCheck.refusal);

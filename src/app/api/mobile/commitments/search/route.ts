@@ -25,8 +25,6 @@ export async function POST(request: Request): Promise<Response> {
   } catch (error) {
     return mobileAuthErrorResponse(error);
   }
-  const locked = await featureLockedResponse(user.uid, 'search_history');
-  if (locked) return locked;
 
   // Gate before body parsing and, critically, before any account storage read.
   if (!resolveSearchHistory()) {
@@ -35,6 +33,8 @@ export async function POST(request: Request): Promise<Response> {
       { status: 404 },
     );
   }
+  const locked = await featureLockedResponse(user.uid, 'search_history');
+  if (locked) return locked;
 
   let body: { q?: unknown; limit?: unknown };
   try {

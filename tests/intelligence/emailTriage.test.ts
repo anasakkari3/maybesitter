@@ -43,6 +43,8 @@ import { createPilotTrustState } from '../../lib/pilot/closedPilotControls.ts';
 
 const NOW = '2026-11-10T10:00:00.000Z';
 const KEY = 'jev-secret-key-123';
+/** The Gemini fallback runs only while the monthly budget is enforced (review P1-4). */
+const ENFORCED = { MAYBESITTER_ADDON_GATE_MODE: 'enforce' };
 const ENV_KEYS = [
   'MAYBESITTER_EMAIL_TRIAGE_MODE', 'MAYBESITTER_EMAIL_TRIAGE_THRESHOLD', 'MAYBESITTER_EMAIL_TRIAGE_AUDIT_RATE',
   'MAYBESITTER_ADDON_GATE_MODE', 'MAYBESITTER_AI_DISABLED', 'MAYBESITTER_JEV_API_KEY',
@@ -118,7 +120,7 @@ test('Jev: reads the jevai.org { code, message, data } wrapping and the direct o
     { probability: 0.07, inputTokens: 33, model: 'typesafe-ai/jev' });
   const bare = recordingFetch(() => jsonResponse({ answers: { relevant: { noul: 1 } } }));
   assert.deepEqual(await scoreWithJev({ state: 's' }, { fetchImpl: bare.fetchImpl, env: { MAYBESITTER_JEV_API_KEY: KEY } }),
-    { probability: 1, inputTokens: 0, model: DEFAULT_JEV_MODEL }, 'missing usage counts zero tokens');
+    { probability: 1, inputTokens: 1, model: DEFAULT_JEV_MODEL }, 'missing usage is estimated from the state, never zero');
 });
 
 test('Jev: the jevai.org MCP endpoint is called as tools/call jev_decide and read from structuredContent', async () => {
@@ -138,6 +140,17 @@ test('Jev: the jevai.org MCP endpoint is called as tools/call jev_decide and rea
   const { result, lines } = await captureWarnings(() => scoreWithJev({ state: 's' }, { fetchImpl: refused.fetchImpl, env }));
   assert.equal(result, null);
   assert.deepEqual(lines, ['[llm/jev] unavailable: http']);
+});
+
+test('Jev: an SSE answer is read from its last data line; an oversized answer is a missing score', async () => {
+  const env = { MAYBESITTER_JEV_API_KEY: KEY, MAYBESITTER_JEV_URL: 'https://www.jevai.org/api/mcp' };
+  const sse = recordingFetch(() => new Response(
+    `event: message\ndata: ${JSON.stringify({ jsonrpc: '2.0', id: 1, result: { structuredContent: direct(0.3, 9) } })}\n\n`,
+    { status: 200, headers: { 'Content-Type': 'text/event-stream' } }));
+  assert.deepEqual(await scoreWithJev({ state: 's' }, { fetchImpl: sse.fetchImpl, env }), { probability: 0.3, inputTokens: 9, model: 'typesafe-ai/jev' });
+  const huge = recordingFetch(() => jsonResponse({ data: direct(0.3), pad: 'x'.repeat(70 * 1024) }));
+  const { result } = await captureWarnings(() => scoreWithJev({ state: 's' }, { fetchImpl: huge.fetchImpl, env: { MAYBESITTER_JEV_API_KEY: KEY } }));
+  assert.equal(result, null);
 });
 
 test('Jev: no key means no request at all', async () => {
@@ -280,7 +293,7 @@ test('scoring: the Gemini fallback spends the email-triage daily action, not the
     },
   };
   const now = () => new Date(NOW);
-  const score = await scoreEmailRelevance('u-reserve', INPUT, { storage, now, env: {}, jev: async () => null, provider });
+  const score = await scoreEmailRelevance('u-reserve', INPUT, { storage, now, env: ENFORCED, jev: async () => null, provider });
   assert.deepEqual(score, { probability: 0.6, scorer: 'gemini_header' });
   assert.equal(seen.length, 1);
   assert.equal(seen[0]!.purpose, 'email_triage');
@@ -289,6 +302,20 @@ test('scoring: the Gemini fallback spends the email-triage daily action, not the
   assert.equal(general.user, 0, 'no general daily call was reserved');
   assert.equal(general.minuteCalls, 0, 'no general minute call was reserved');
   assert.equal(general.tokens, 0, 'no tokens counted against the general daily token cap');
+});
+
+test('scoring: without an enforced budget there is no Gemini fallback, so no Jev score means a full read', async () => {
+  let asked = 0;
+  const provider: LlmProvider = {
+    name: 'gemini',
+    generateJson: async () => { throw new Error('wrong verb'); },
+    generateStructured: async () => { asked++; return { text: '{"relevant_probability":0.01}', model: 'gemini-2.5-flash', latencyMs: 1, promptTokens: 1, outputTokens: 1 }; },
+  };
+  for (const env of [{}, { MAYBESITTER_ADDON_GATE_MODE: 'shadow' }]) {
+    const score = await scoreEmailRelevance('u-off', INPUT, { storage: createMemoryStorage(), now: () => new Date(NOW), env, jev: async () => null, provider });
+    assert.equal(score, null);
+  }
+  assert.equal(asked, 0);
 });
 
 test('scoring: a spent email-triage counter refuses the fallback, and the answer is null', async () => {
@@ -301,7 +328,7 @@ test('scoring: a spent email-triage counter refuses the fallback, and the answer
     generateStructured: async () => { calls += 1; return { text: '{"relevant_probability":0.6}', model: 'g', latencyMs: 1, promptTokens: 1, outputTokens: 1 }; },
   };
   const score = await scoreEmailRelevance('u-capped', INPUT, {
-    storage, now: () => new Date(NOW), env: {}, jev: async () => null, provider,
+    storage, now: () => new Date(NOW), env: ENFORCED, jev: async () => null, provider,
     reserveAction: async (_uid, action) => { assert.equal(action, EMAIL_TRIAGE_ACTION); return 'user_cap'; },
   });
   assert.equal(score, null);
@@ -341,8 +368,22 @@ test('config: the audit sample is deterministic and close to its rate', () => {
 
 test('markers: a triaged marker from an older rule is re-claimed; the current rule is counted', () => {
   const at = NOW;
-  const base = { v: 2, state: 'done', outcome: 'triaged' } as const;
-  assert.equal(markerDecision({ ...base, triageRule: TRIAGE_RULE }, 'm5a', at), 'count');
+  const base = { v: 2, state: 'done', outcome: 'triaged', triageScore: 0.05 } as const;
+  const previous = { mode: process.env.MAYBESITTER_EMAIL_TRIAGE_MODE, threshold: process.env.MAYBESITTER_EMAIL_TRIAGE_THRESHOLD };
+  process.env.MAYBESITTER_EMAIL_TRIAGE_MODE = 'enforce';
+  try {
+    assert.equal(markerDecision({ ...base, triageRule: TRIAGE_RULE }, 'm5a', at), 'count');
+    // Relaxing triage re-reads what it skipped (review P2-8).
+    process.env.MAYBESITTER_EMAIL_TRIAGE_THRESHOLD = '0.04';
+    assert.equal(markerDecision({ ...base, triageRule: TRIAGE_RULE }, 'm5a', at), 'claim', 'threshold lowered past the score');
+    delete process.env.MAYBESITTER_EMAIL_TRIAGE_THRESHOLD;
+    process.env.MAYBESITTER_EMAIL_TRIAGE_MODE = 'shadow';
+    assert.equal(markerDecision({ ...base, triageRule: TRIAGE_RULE }, 'm5a', at), 'claim', 'triage no longer enforced');
+    process.env.MAYBESITTER_EMAIL_TRIAGE_MODE = 'enforce';
+  } finally {
+    if (previous.mode === undefined) delete process.env.MAYBESITTER_EMAIL_TRIAGE_MODE; else process.env.MAYBESITTER_EMAIL_TRIAGE_MODE = previous.mode;
+    if (previous.threshold === undefined) delete process.env.MAYBESITTER_EMAIL_TRIAGE_THRESHOLD; else process.env.MAYBESITTER_EMAIL_TRIAGE_THRESHOLD = previous.threshold;
+  }
   assert.equal(markerDecision({ ...base, triageRule: TRIAGE_RULE - 1 }, 'm5a', at), 'claim');
   assert.equal(markerDecision({ ...base }, 'm5a', at), 'claim', 'a rule-less triage marker is re-examined');
   assert.equal(markerDecision({ ...base, triageRule: TRIAGE_RULE - 1 }, 'base', at), 'skip');
@@ -533,7 +574,12 @@ test('scan: a triaged marker from the current rule is counted on a later scan wi
     triageRule: TRIAGE_RULE, triageScore: 0.05, observationIds: [], autoAddId: null, receipts: {} };
   await h.storage.set(markerPath('scan-count', 'm1'), done);
   await h.storage.set(legacyPath('scan-count', 'm1'), done);
-  await h.step();
+  // Counted only while triage is still enforced at that threshold (review P2-8).
+  const previous = process.env.MAYBESITTER_EMAIL_TRIAGE_MODE;
+  process.env.MAYBESITTER_EMAIL_TRIAGE_MODE = 'enforce';
+  try { await h.step(); } finally {
+    if (previous === undefined) delete process.env.MAYBESITTER_EMAIL_TRIAGE_MODE; else process.env.MAYBESITTER_EMAIL_TRIAGE_MODE = previous;
+  }
   assert.equal(h.calls.scorer, 0);
   assert.equal(h.calls.model, 0);
   const scan = await h.scan();

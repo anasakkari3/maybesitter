@@ -221,8 +221,12 @@ export function markerDecision(
     // A bulk skip made by an older, broader rule is re-examined, and analysed
     // if the current rule keeps the message. Its receipts stay on the marker.
     if (reader === 'm5a' && current.outcome === 'bulk' && (current.bulkRule ?? 1) < GMAIL_BULK_RULE) return 'claim';
-    // The same for a triage skip made by an older triage rule.
-    if (reader === 'm5a' && current.outcome === 'triaged' && (current.triageRule ?? 0) < TRIAGE_RULE) return 'claim';
+    // A triage skip is only as good as the setting that made it: an older
+    // rule, triage no longer enforced, or a threshold lowered past the stored
+    // score re-reads the mail, so turning triage down never leaves a skipped
+    // commitment unread for good (review P2-8).
+    if (reader === 'm5a' && current.outcome === 'triaged' && ((current.triageRule ?? 0) < TRIAGE_RULE
+      || triageMode() !== 'enforce' || (current.triageScore ?? 0) >= triageThreshold())) return 'claim';
     return reader === 'm5a' ? 'count' : reader === 'base' ? 'skip' : 'none';
   }
   if (current.state === 'waiting_for_calendar') return reader === 'cleanup' ? 'release' : 'block';
@@ -1328,6 +1332,16 @@ export async function runM5aScanStep(
     return next;
   });
   if (!claimed) return;
+  // The Gmail add-on decides before any token refresh or mail fetch (review
+  // P2-7): switched off or not bought reads as monitoring off, a spent month
+  // as the spent-day state, and neither touches Gmail.
+  const feature = await decideFeature(uid, 'gmail_reading', { now, storage });
+  if (refuses(feature)) {
+    const failure: ScanFailure = feature.reason === 'gate_unavailable' ? 'analysis_unavailable'
+      : feature.reason === 'budget_spent' || feature.reason === 'free_cap_spent' ? 'daily_limit' : 'monitoring_off';
+    await failScan(uid, kind, claimed.scanId, owner, failure, storage, now.toISOString());
+    return;
+  }
   try {
     await assertScanAuthority(uid, claimed, owner, runtime);
     await ensureReadable();

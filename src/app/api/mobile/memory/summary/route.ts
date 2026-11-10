@@ -11,11 +11,11 @@ export async function GET(request: Request): Promise<Response> {
   let user;
   try { user = await requireMobileUser(request); }
   catch (error) { return mobileAuthErrorResponse(error); }
-  const locked = await featureLockedResponse(user.uid, 'memory_learning');
-  if (locked) return locked;
   if (!resolveMemoryLearning()) return Response.json({ success: false, error: 'm5b_unavailable' }, { status: 404 });
   const disabled = moduleDisabledResponse('memory');
   if (disabled) return disabled;
+  const locked = await featureLockedResponse(user.uid, 'memory_learning');
+  if (locked) return locked;
   const language = new URL(request.url).searchParams.get('language');
   if (language !== 'ar' && language !== 'en' && language !== 'he') {
     return Response.json({ success: false, error: 'language must be ar, en, or he' }, { status: 400 });

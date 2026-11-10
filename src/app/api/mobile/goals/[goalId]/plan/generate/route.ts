@@ -9,10 +9,10 @@ export const dynamic = 'force-dynamic';
 export async function POST(request: Request, { params }: { params: Promise<{ goalId: string }> }) {
   let user;
   try { user = await requireMobileUser(request); } catch (error) { return mobileAuthErrorResponse(error); }
-  const locked = await featureLockedResponse(user.uid, 'goal_plans');
-  if (locked) return locked;
   const disabled = moduleDisabledResponse('goalPlan');
   if (disabled) return disabled;
+  const locked = await featureLockedResponse(user.uid, 'goal_plans');
+  if (locked) return locked;
   try {
     const body = await readGoalPlanBody(request);
     const { goalId } = await params;

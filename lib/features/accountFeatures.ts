@@ -14,7 +14,8 @@
  */
 import { FEATURES, getStorage, userCol, type StorageAdapter } from '../storage';
 import type { EntitlementProjection } from '../integrations/revenuecat/entitlements';
-import { featureManifest, GRANT_IDS, type FeatureId, type GrantId } from './catalog';
+import { requireLiveAccount } from '../account/accountLiveness';
+import { featureManifest, GRANT_IDS, isFeatureId, type FeatureId, type GrantId } from './catalog';
 
 export interface StoredEntitlements {
   readonly v: 1;
@@ -75,7 +76,9 @@ export async function readAccountFeatureState(uid: string, options: Options = {}
   ]);
   return {
     grants: activeGrants(entitlements?.projection, now),
-    disabled: new Set((preferences?.disabled ?? []).filter(id => featureManifest(id).userCanDisable)),
+    // An id the catalog no longer has is ignored, never fatal: one renamed
+    // feature must not close every other one (review P2-10).
+    disabled: new Set((preferences?.disabled ?? []).filter(id => isFeatureId(id) && featureManifest(id).userCanDisable)),
   };
 }
 
@@ -101,6 +104,9 @@ export async function setFeaturePreference(
   const now = options.now ?? new Date();
   const path = preferencesPath(uid);
   return storage.runTransaction(async tx => {
+    // The deletion fence every user-content writer keeps (#772): a switch in
+    // flight while the account is deleted must not recreate the document.
+    await requireLiveAccount(tx, uid);
     const current = await tx.get<StoredFeaturePreferences>(path);
     const disabled = new Set(current?.disabled ?? []);
     if (enabled) disabled.delete(feature); else disabled.add(feature);

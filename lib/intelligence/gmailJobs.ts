@@ -302,7 +302,11 @@ async function proposalStep(uid: string, runtime: GoogleRuntime, overrides: Gmai
     // the person's plan has spent waits for the next one without spending.
     const feature = await decideFeature(uid, 'gmail_reading', { now: runtime.now(), storage: runtime.storage });
     if (refuses(feature)) {
-      await defer(feature.reason === 'gate_unavailable' ? 5 * 60_000 : msUntilNextMonth(runtime.now()));
+      // Only a spent budget waits for the month; switched off or not bought
+      // is looked at again within the hour, so switching it back on or a
+      // purchase is picked up without a month's wait (review P1-6).
+      const spent = feature.reason === 'budget_spent' || feature.reason === 'free_cap_spent';
+      await defer(spent ? msUntilNextMonth(runtime.now()) : feature.reason === 'gate_unavailable' ? 5 * 60_000 : 60 * 60_000);
       return false;
     }
     const reservation = await reserveQuotaPermit(uid, 'semantic_observation', {

@@ -1,4 +1,5 @@
 import { mobileAuthErrorResponse, requireMobileUser } from '../../../../../../../lib/auth/mobileAuth';
+import { AccountUnavailableError, accountUnavailableResponse } from '../../../../../../../lib/account/accountLiveness';
 import { setFeaturePreference } from '../../../../../../../lib/features/accountFeatures';
 import { featureManifest, isFeatureId } from '../../../../../../../lib/features/catalog';
 import { featureCapabilities } from '../../../../../../../lib/features/featureCapabilities';
@@ -36,6 +37,11 @@ export async function PUT(request: Request, context: RouteContext): Promise<Resp
   if (typeof enabled !== 'boolean') {
     return Response.json({ success: false, error: 'invalid body', reason: 'invalid_body' }, { status: 400 });
   }
-  await setFeaturePreference(user.uid, id, enabled);
+  try {
+    await setFeaturePreference(user.uid, id, enabled);
+  } catch (error) {
+    if (error instanceof AccountUnavailableError) return accountUnavailableResponse();
+    return Response.json({ success: false, error: 'service unavailable', reason: 'feature_gate_unavailable' }, { status: 503 });
+  }
   return Response.json(await featureCapabilities(user.uid));
 }

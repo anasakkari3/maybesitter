@@ -48,12 +48,12 @@ export async function POST(request: Request, context: RouteContext): Promise<Res
   let user;
   try { user = await requireMobileUser(request); }
   catch (error) { return mobileAuthErrorResponse(error); }
-  const locked = await featureLockedResponse(user.uid, 'memory_translation');
-  if (locked) return locked;
 
   if (!resolveMemoryTranslation()) return featureUnavailable();
   const disabled = moduleDisabledResponse('memory');
   if (disabled) return disabled;
+  const locked = await featureLockedResponse(user.uid, 'memory_translation');
+  if (locked) return locked;
 
   let raw: unknown;
   try { raw = await readJsonBody(request, { limitBytes: 1024 }); }
