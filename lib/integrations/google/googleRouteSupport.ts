@@ -17,7 +17,7 @@ import { DriveImportInputError } from './googleDrive';
 import { LLMUnavailableError } from '../../../src/extraction/llm';
 import { retryAfterSecondsFor, type QuotaScope } from '../../llm/usageGuard';
 
-const QUOTA_SCOPES: ReadonlySet<string> = new Set<QuotaScope>(['user_daily', 'user_minute', 'global_daily']);
+const QUOTA_SCOPES: ReadonlySet<string> = new Set<QuotaScope>(['user_daily', 'user_minute', 'global_daily', 'user_monthly']);
 
 /**
  * The model's own quota, when a read cannot go on without it (CL6a review I2).

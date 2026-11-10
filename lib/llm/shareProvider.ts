@@ -32,6 +32,7 @@ import {
 import { getAiConsent } from '../consents/aiConsentService';
 import { AiConsentRequiredError, consentGatedProvider } from './consentGatedProvider';
 import { logLlmCall, uidHash } from './llmLog';
+import { chargeProviderFeature, checkProviderFeature, type ProviderFeatureHooks } from '../features/providerGate';
 import {
   aiDisabled,
   commitUsage,
@@ -106,6 +107,8 @@ export type ShareStructuredGenerator = (request: {
 }) => Promise<ShareStructuredResponse>;
 
 export interface ShareProviderOptions {
+  /** Which feature's monthly budget pays for this call (lib/features). */
+  features?: ProviderFeatureHooks;
   provider?: LlmProvider;
   consent?: typeof getAiConsent;
   purpose?: LlmPurpose;
@@ -175,6 +178,33 @@ export function shareLlmProvider(uid: string, options: ShareProviderOptions = {}
     const readConsent = options.consent ?? getAiConsent;
     if ((await readConsent(uid)) !== 'granted') throw new AiConsentRequiredError();
 
+    // The feature's own monthly budget, before the daily reservation: a call
+    // the person's plan does not pay for must not take a slot of today's caps.
+    const featureCheck = await checkProviderFeature(uid, purpose, options.features ?? {}, clock());
+    if (featureCheck.refusal) {
+      console.warn(JSON.stringify({
+        event: 'ai_feature_refused',
+        feature: featureCheck.feature,
+        reason: featureCheck.decision.reason,
+        purpose,
+        uidHash: uidHash(uid),
+      }));
+      log({
+        event: 'llm_call',
+        purpose,
+        provider: provider.name,
+        model: process.env.MAYBESITTER_LLM_MODEL ?? '',
+        location: process.env.MAYBESITTER_VERTEX_LOCATION ?? '',
+        uidHash: uidHash(uid),
+        latencyMs: 0,
+        promptTokens: 0,
+        outputTokens: 0,
+        outcome: 'cost_cap',
+        fallbackReason: featureCheck.refusal,
+      });
+      throw new LLMUnavailableError(featureCheck.refusal);
+    }
+
     const reservation = options.quotaPermit
       ? await startQuotaPermitSlot(options.quotaPermit.permit, options.quotaPermit.slot, {
         now: clock(), ...(options.quotaPermit.storage ? { storage: options.quotaPermit.storage } : {}),
@@ -230,6 +260,7 @@ export function shareLlmProvider(uid: string, options: ShareProviderOptions = {}
       } else {
         await commit(uid, { promptTokens: response.promptTokens, outputTokens: response.outputTokens });
       }
+      await chargeProviderFeature(uid, featureCheck, response, options.features ?? {}, clock());
       log({
         event: 'llm_call',
         purpose,

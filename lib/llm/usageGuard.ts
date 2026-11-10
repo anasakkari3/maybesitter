@@ -87,6 +87,8 @@ export type ReservationOutcome =
   | 'user_token_cap'
   | 'user_minute_cap'
   | 'global_cap'
+  /** The feature's own monthly budget is spent (lib/features, 2026-11-10). */
+  | 'feature_budget'
   | 'unavailable';
 
 /**
@@ -97,7 +99,7 @@ export type ReservationOutcome =
  * so. `global_daily` is the one that is nobody's fault, and the copy for it says
  * so.
  */
-export type QuotaScope = 'user_daily' | 'user_minute' | 'global_daily';
+export type QuotaScope = 'user_daily' | 'user_minute' | 'global_daily' | 'user_monthly';
 
 export function quotaScopeFor(outcome: ReservationOutcome): QuotaScope | null {
   switch (outcome) {
@@ -108,6 +110,8 @@ export function quotaScopeFor(outcome: ReservationOutcome): QuotaScope | null {
       return 'user_minute';
     case 'global_cap':
       return 'global_daily';
+    case 'feature_budget':
+      return 'user_monthly';
     default:
       return null;
   }
@@ -122,6 +126,10 @@ export function quotaScopeFor(outcome: ReservationOutcome): QuotaScope | null {
  */
 export function retryAfterSecondsFor(scope: QuotaScope, now: Date): number {
   if (scope === 'user_minute') return 60 - now.getUTCSeconds();
+  if (scope === 'user_monthly') {
+    const nextMonth = Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1);
+    return Math.max(1, Math.ceil((nextMonth - now.getTime()) / 1_000));
+  }
   const nextMidnight = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1);
   return Math.max(1, Math.ceil((nextMidnight - now.getTime()) / 1_000));
 }

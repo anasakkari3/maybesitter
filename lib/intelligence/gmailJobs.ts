@@ -1,3 +1,5 @@
+import { decideFeature, refuses } from '../features/featureGate';
+import { featureHooksFor, msUntilNextMonth } from '../features/providerGate';
 import { randomUUID } from 'node:crypto';
 import { LLMUnavailableError } from '../../src/extraction/llm';
 import { requireReadableFeature } from '../integrations/google/googleConnectService';
@@ -296,6 +298,13 @@ async function proposalStep(uid: string, runtime: GoogleRuntime, overrides: Gmai
     if (await isMonitoringPaused(uid, runtime.storage)
       || await connectedGmailAccount(uid, runtime) !== monitor.m5.providerAccountId) { await defer(5 * 60_000); return false; }
     await (overrides.ensureReadable?.(uid) ?? requireReadableFeature(uid, 'gmail', runtime));
+    // The Gmail add-on's monthly budget, before a permit is reserved: a month
+    // the person's plan has spent waits for the next one without spending.
+    const feature = await decideFeature(uid, 'gmail_reading', { now: runtime.now(), storage: runtime.storage });
+    if (refuses(feature)) {
+      await defer(feature.reason === 'gate_unavailable' ? 5 * 60_000 : msUntilNextMonth(runtime.now()));
+      return false;
+    }
     const reservation = await reserveQuotaPermit(uid, 'semantic_observation', {
       owner: `proposal:${monitor.generation}:${claimedVersion}`, calls: 2, tokenBudget: 10_000,
     }, { storage: runtime.storage, now: runtime.now() });
@@ -327,6 +336,7 @@ async function proposalStep(uid: string, runtime: GoogleRuntime, overrides: Gmai
         const use = slot++;
         return shareLlmProvider(uid, {
           purpose: 'semantic_observation', quotaPermit: { permit, slot: use, storage: runtime.storage }, now: runtime.now,
+          features: featureHooksFor('gmail_reading', runtime.storage),
           ...(runtime.shareProvider ? { provider: runtime.shareProvider } : {}),
         })(request);
       };

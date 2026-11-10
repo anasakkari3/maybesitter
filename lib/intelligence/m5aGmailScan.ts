@@ -1,3 +1,5 @@
+import { decideFeature, refuses } from '../features/featureGate';
+import { featureHooksFor } from '../features/providerGate';
 import { createHash, randomUUID } from 'node:crypto';
 import { applyCommand, type Command, type DomainEvent } from '../../src/domain/stateMachine';
 import { mapExtractionToCommand } from '../../src/extraction/mapExtractionToCommand';
@@ -519,6 +521,9 @@ async function autoAddCandidate(
     : captureLlmProvider(uid, {
       purpose: 'capture_extraction',
       now: runtime.now,
+      // Turning the person's own emailed agreement into an item is part of
+      // reading their mail: the Gmail add-on pays for it, not the assistant.
+      features: featureHooksFor('gmail_reading', runtime.storage),
       ...(runtime.captureProvider ? { provider: runtime.captureProvider } : {}),
       ...(permit ? { quotaPermit: { permit, slot: 1, storage: runtime.storage } } : {}),
     });
@@ -999,6 +1004,11 @@ async function processMessage(
     // this branch, so end-to-end quota tests exercise the same adapter and
     // whole-unit permit path as production without consuming real model calls.
     if (prepared.text && !runtime.shareModel) {
+      // The Gmail add-on's monthly budget, before the permit (lib/features). A
+      // spent month ends the scan the way a spent day does; resuming it costs
+      // nothing, because this check runs before any model call.
+      const feature = await decideFeature(uid, 'gmail_reading', { now: runtime.now(), storage });
+      if (refuses(feature)) throw new Error(feature.reason === 'gate_unavailable' ? 'analysis_unavailable' : 'daily_limit');
       const calls = candidateSignals && !forceAutoAddOff ? 2 : 1;
       const reservation = await reserveQuotaPermit(uid, 'semantic_observation', {
         owner: claimOwner, calls, tokenBudget: calls === 2 ? M5A_PERMIT_TOKENS.twoCalls : M5A_PERMIT_TOKENS.oneCall,
@@ -1022,6 +1032,7 @@ async function processMessage(
         }
         : shareLlmProvider(uid, {
           purpose: 'semantic_observation', quotaPermit: { permit, slot: 0, storage, onStarted: markDispatched }, now: runtime.now,
+          features: featureHooksFor('gmail_reading', storage),
           ...(runtime.shareProvider ? { provider: runtime.shareProvider } : {}),
         })
       : runtime.shareModel;
