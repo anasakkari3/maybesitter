@@ -18,7 +18,9 @@ The owner wants the subscription to become a bundle of per-feature subscriptions
    - `GET /api/mobile/capabilities/features` (+ `PUT …/[id]` for the person's switch), which the app reads to show or hide surfaces.
 4. **Rollout mode** — `MAYBESITTER_ADDON_GATE_MODE`: `off` (default; reads and writes nothing, the product behaves exactly as before), `shadow` (decide and log `shadow_deny`, never obey), `enforce`. Staging is `shadow`, production `off`.
 5. **Money** — integer nano-dollars (1¢ = 10⁷ n$). List prices in `lib/features/pricing.ts`: Gemini 2.5 Flash $0.30/M in, $2.50/M out; Jev $0.042/M in, output free. GCP Billing stays the source of truth.
-6. **A spent budget** refuses as `cost_cap:user_monthly` (new `QuotaScope 'user_monthly'`, waits until the next UTC month). Capture falls back to rules; M5a ends the scan as a spent day does, and resuming costs nothing because the check runs before any model call. An unreadable gate refuses under `enforce` only (same rule as `usageGuard`).
+6. **Holds, not read-then-charge** — under `enforce` a call holds its worst-case cost (all allowed output tokens, the prompt at two characters a token) in `users/{uid}/usage/spend-YYYY-MM` inside the transaction that checks the budget, then settles to the real cost or releases on failure; holds expire after 15 minutes. Every path that spends on the model holds: both providers and the services that call the gated provider directly (memory summary, memory translation, plan narration). `tests/features/featureSpendCoverage.test.ts` fails on a new direct spender.
+7. **The free ceiling holds for everyone** over the features they use on a free allowance; a purchase raises only its own feature. `tests/features/catalog.test.ts` checks each purchase's added budget against its net after 18% VAT and a 30% store fee.
+8. **A spent budget** refuses as `cost_cap:user_monthly` (new `QuotaScope 'user_monthly'`, waits until the next UTC month). Capture falls back to rules; M5a ends the scan as a spent day does, and resuming costs nothing because the check runs before any model call. An unreadable gate refuses under `enforce` only (same rule as `usageGuard`).
 
 ### Budgets (monthly, cents)
 
@@ -56,4 +58,9 @@ The core never imports an add-on.
 ## Not done yet
 
 - The store purchase flow: RevenueCat SDK in the app, products, and a webhook that writes the projection. iOS needs the Apple Developer account, which has not been bought. Until then `scripts/dev-grant-features.mjs` grants entitlements on the local emulator only.
-- Showing `user_monthly` as its own scan status. M5a reports a spent month as the existing daily-limit state.
+- Showing `user_monthly` as its own scan status. M5a reports a spent month as the existing daily-limit state (checked once a day, before any Gmail call), and a switched-off add-on as `monitoring_off`.
+- The Gemini triage fallback runs only while budgets are enforced; with the gate off or in shadow, no Jev score means a full read.
+
+## Review
+
+An independent review on 2026-11-10 found one P0 (three model paths outside the gate), five P1 and six P2 issues; all were fixed on the branch before merge (commits `4cc94528`, `f8556de5`).
