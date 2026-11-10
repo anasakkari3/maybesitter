@@ -54,6 +54,14 @@ describe('plan failures', () => {
     expect(planFailureOf(new NetworkError('offline'), strings.en)!.reason).toBe('offline');
     expect(planFailureOf(new QuotaExceededError('user_daily', 60, 'cap'), strings.en)!.recoveries).toEqual([]);
   });
+
+  it.each(LANGS)('%s: a spent month says the month, not tomorrow', (lang) => {
+    const t = strings[lang];
+    const monthly = new QuotaExceededError('user_monthly', 86_400, 'cap');
+    expect(planFailureOf(monthly, t)!.message).toBe(t.aiQuotaUserMonthly);
+    expect(planBuildFailureOf(monthly, t)).toBe(t.aiQuotaUserMonthly);
+    expect(planFailureOf(new QuotaExceededError('user_daily', 60, 'cap'), t)!.message).toBe(t.xPlanFailDailyCap);
+  });
 });
 
 describe('the day plan build («اعمل خطة اليوم»)', () => {
