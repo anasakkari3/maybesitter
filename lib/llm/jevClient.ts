@@ -76,16 +76,26 @@ export async function scoreWithJev(input: { state: string }, deps: JevDeps = {})
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), deps.timeoutMs ?? DEFAULT_JEV_TIMEOUT_MS);
   try {
+    const decision = {
+      model,
+      state: input.state,
+      questions: { relevant: { type: 'noul', instructions: RELEVANCE_INSTRUCTIONS } },
+    };
+    // jevai.org also serves the same decision as an MCP tool (`jev_decide`)
+    // at `/api/mcp`; its `structuredContent` is the REST `data` object.
+    const mcp = /\/api\/mcp\/?$/.test(url);
     let response: Response;
     try {
       response = await fetchImpl(url, {
         method: 'POST',
-        headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          model,
-          state: input.state,
-          questions: { relevant: { type: 'noul', instructions: RELEVANCE_INSTRUCTIONS } },
-        }),
+        headers: {
+          Authorization: `Bearer ${key}`,
+          'Content-Type': 'application/json',
+          ...(mcp ? { Accept: 'application/json, text/event-stream' } : {}),
+        },
+        body: JSON.stringify(mcp
+          ? { jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'jev_decide', arguments: decision } }
+          : decision),
         signal: controller.signal,
       });
     } catch {
@@ -97,6 +107,11 @@ export async function scoreWithJev(input: { state: string }, deps: JevDeps = {})
       body = await response.json();
     } catch {
       return unavailable(controller.signal.aborted ? 'timeout' : 'malformed');
+    }
+    if (mcp) {
+      const result = record(record(body)?.result);
+      if (!result || result.isError === true) return unavailable('http');
+      body = { data: result.structuredContent };
     }
     return parse(body, model) ?? unavailable('malformed');
   } finally {

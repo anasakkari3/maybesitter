@@ -121,6 +121,25 @@ test('Jev: reads the jevai.org { code, message, data } wrapping and the direct o
     { probability: 1, inputTokens: 0, model: DEFAULT_JEV_MODEL }, 'missing usage counts zero tokens');
 });
 
+test('Jev: the jevai.org MCP endpoint is called as tools/call jev_decide and read from structuredContent', async () => {
+  const env = { MAYBESITTER_JEV_API_KEY: KEY, MAYBESITTER_JEV_URL: 'https://www.jevai.org/api/mcp' };
+  const ok = recordingFetch(() => jsonResponse({ jsonrpc: '2.0', id: 1, result: {
+    content: [{ type: 'text', text: '{}' }], structuredContent: direct(0.2, 50),
+  } }));
+  assert.deepEqual(await scoreWithJev({ state: 's' }, { fetchImpl: ok.fetchImpl, env }),
+    { probability: 0.2, inputTokens: 50, model: 'typesafe-ai/jev' });
+  const sent = JSON.parse(String(ok.calls[0]!.init.body));
+  assert.deepEqual([sent.jsonrpc, sent.method, sent.params.name, sent.params.arguments.state], ['2.0', 'tools/call', 'jev_decide', 's']);
+  assert.equal((ok.calls[0]!.init.headers as Record<string, string>).Accept, 'application/json, text/event-stream');
+  // What the owner's key answered on 2026-11-10: an MCP tool error is a missing score.
+  const refused = recordingFetch(() => jsonResponse({ jsonrpc: '2.0', id: 1, result: {
+    content: [{ type: 'text', text: 'The request credentials or model access were rejected.' }], isError: true,
+  } }));
+  const { result, lines } = await captureWarnings(() => scoreWithJev({ state: 's' }, { fetchImpl: refused.fetchImpl, env }));
+  assert.equal(result, null);
+  assert.deepEqual(lines, ['[llm/jev] unavailable: http']);
+});
+
 test('Jev: no key means no request at all', async () => {
   const { calls, fetchImpl } = recordingFetch(() => jsonResponse(direct(0.5)));
   assert.equal(await scoreWithJev({ state: 's' }, { fetchImpl, env: {} }), null);
