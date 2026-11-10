@@ -50,6 +50,15 @@ import { projectFixturesForUser } from '../football/projectFixtures';
 import { pollFollowedClubs, syncFollowedClubs, type PollReport, type SyncReport } from '../football/syncFixtures';
 import type { FixtureProvider } from '../../src/contracts/v1/fixtureContracts';
 import { runWatcherSweep, type WatcherSweepTotals } from '../watchers/watcherEngine';
+import { decideFeature, refuses } from '../features/featureGate';
+
+/**
+ * Whether the person switched football off (lib/features). Nothing is read in
+ * the gate's `off` mode, so the jobs behave as before until it is enabled.
+ */
+async function footballSwitchedOff(uid: string, storage?: StorageAdapter): Promise<boolean> {
+  return refuses(await decideFeature(uid, 'football', storage ? { storage } : {}));
+}
 import { runContinuousReplanTick, type ContinuousReplanTickTotals } from '../services/dailyPlan/continuousReplanService';
 
 /** `runDueJobs` claims this many per round; a full round means more may be due. */
@@ -345,6 +354,7 @@ export async function runFootballSyncJob(options: FootballSyncJobOptions = {}): 
   };
   const uids = await listFollowedUserIds({ storage: options.storage });
   for (const uid of uids) {
+    if (await footballSwitchedOff(uid, options.storage)) continue;
     try {
       const tally = await projectFixturesForUser(uid, now);
       projection.users += 1;
@@ -402,6 +412,7 @@ export async function runFootballPollJob(options: FootballPollJobOptions = {}): 
     for (const uid of await listFollowedUserIds({ storage: options.storage })) {
       const follows = await getFollowedClubs(uid, { storage: options.storage });
       if (!follows.some((clubId) => refreshed.has(clubId))) continue;
+      if (await footballSwitchedOff(uid, options.storage)) continue;
       try {
         // One follow, one watcher, for follows saved before football was a
         // watcher too: the first fetch of their club gives them theirs.
@@ -443,7 +454,9 @@ export async function runWatcherTick(
     console.error('[internal/jobs/watchers] football poll failed', error);
     football = { enabled: true, error: 'football_poll_failed' };
   }
-  const sweep = await (options.sweep ?? (() => runWatcherSweep()))();
+  const sweep = await (options.sweep ?? (() => runWatcherSweep({
+    skip: async ({ scopeId, signalKind }) => signalKind === 'fixture' && await footballSwitchedOff(scopeId),
+  })))();
   return { ...sweep, football };
 }
 

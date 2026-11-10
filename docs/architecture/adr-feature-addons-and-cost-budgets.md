@@ -13,7 +13,7 @@ The owner wants the subscription to become a bundle of per-feature subscriptions
 2. **One decision** — `lib/features/featureGate.ts` combines the stored entitlement projection, the person's own switches (`users/{uid}/features/{entitlements,preferences}`) and this month's spend (`users/{uid}/usage/spend-YYYY-MM`) into one `FeatureDecision`. Nothing else reads those documents to decide.
 3. **Four enforcement points** ask it:
    - the model providers (`captureProvider`, `shareProvider`), before the daily reservation, and charge the feature after the call answers (`lib/features/providerGate.ts`);
-   - the Gmail jobs and the M5a scan, before a permit is reserved;
+   - the Gmail jobs and the M5a scan, before a permit is reserved; the football projection and the fixture watchers in the per-minute sweep pass over a person who switched football off (the shared club poll still runs while anyone follows the club);
    - the add-on routes, which answer the existing 404 `feature_unavailable` (`lib/features/featureRoute.ts`) so installed apps already hide them;
    - `GET /api/mobile/capabilities/features` (+ `PUT …/[id]` for the person's switch), which the app reads to show or hide surfaces.
 4. **Rollout mode** — `MAYBESITTER_ADDON_GATE_MODE`: `off` (default; reads and writes nothing, the product behaves exactly as before), `shadow` (decide and log `shadow_deny`, never obey), `enforce`. Staging is `shadow`, production `off`.
@@ -56,5 +56,4 @@ The core never imports an add-on.
 ## Not done yet
 
 - The store purchase flow: RevenueCat SDK in the app, products, and a webhook that writes the projection. iOS needs the Apple Developer account, which has not been bought. Until then `scripts/dev-grant-features.mjs` grants entitlements on the local emulator only.
-- Per-user filtering of the football poll and the watcher sweep for a switched-off football add-on. The routes and the UI respect the switch; the background poll does not yet.
 - Showing `user_monthly` as its own scan status. M5a reports a spent month as the existing daily-limit state.
