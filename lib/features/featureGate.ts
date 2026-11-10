@@ -33,7 +33,15 @@ import {
   type FeatureTier,
 } from './catalog';
 import { centsToNanoUsd, nanoUsdToCents } from './pricing';
-import { readMonthSpend, type MonthSpend } from './spendLedger';
+import {
+  emptyMonth,
+  heldSpend,
+  heldSpendOver,
+  readMonthSpend,
+  reserveFeatureSpend,
+  type MonthSpend,
+  type SpendHold,
+} from './spendLedger';
 
 /** Any string map: `process.env` or a test's own object. */
 export type EnvLike = Readonly<Record<string, string | undefined>>;
@@ -84,17 +92,32 @@ export function freeMonthlyCents(env: EnvLike = process.env): number {
   return Number.isFinite(parsed) && parsed >= 0 ? Math.min(parsed, 50) : DEFAULT_FREE_MONTHLY_CENTS;
 }
 
+/** The features whose budget, for someone holding `grants`, is the free allowance. */
+export function freeSourcedFeatures(grants: AccountFeatureState['grants']): FeatureId[] {
+  return FEATURE_CATALOG.filter(manifest => {
+    const budget = monthlyBudgetCents(manifest.id, grants);
+    return manifest.purposes.length > 0 && budget !== null && budget === manifest.freeMonthlyCents;
+  }).map(manifest => manifest.id);
+}
+
+/**
+ * The free ceiling holds for everyone, paying or not, over the features they
+ * use on a free allowance: buying one add-on raises that add-on's budget and
+ * nothing else, so a purchase can never unlock more free spend elsewhere.
+ */
 function decide(
   featureId: FeatureId,
   mode: Exclude<GateMode, 'off'>,
   state: AccountFeatureState,
   month: MonthSpend,
   freeCapCents: number,
+  now: Date,
 ): FeatureDecision {
   const manifest = featureManifest(featureId);
-  const spentNano = month.features[featureId] ?? 0;
+  const spentNano = heldSpend(month, featureId, now);
   const budget = monthlyBudgetCents(featureId, state.grants);
-  const fromFree = budget !== null && budget === manifest.freeMonthlyCents;
+  const freeFeatures = freeSourcedFeatures(state.grants);
+  const fromFree = freeFeatures.includes(featureId) || (budget !== null && budget === manifest.freeMonthlyCents);
   const remainingNanoUsd = budget === null ? 0 : Math.max(0, centsToNanoUsd(budget) - spentNano);
   const base = {
     featureId, tier: manifest.tier, mode, enforced: mode === 'enforce',
@@ -105,7 +128,7 @@ function decide(
   if (state.disabled.has(featureId)) reason = 'user_off';
   else if (budget === null) reason = 'not_entitled';
   else if (spends && remainingNanoUsd === 0) reason = 'budget_spent';
-  else if (spends && state.grants.size === 0 && month.totalNanoUsd >= centsToNanoUsd(freeCapCents)) reason = 'free_cap_spent';
+  else if (spends && fromFree && heldSpendOver(month, freeFeatures, now) >= centsToNanoUsd(freeCapCents)) reason = 'free_cap_spent';
   else reason = fromFree ? 'free_allowance' : 'entitled';
   const decision = { ...base, reason, allowed: reason === 'free_allowance' || reason === 'entitled' };
   if (mode === 'shadow' && !decision.allowed) {
@@ -140,7 +163,7 @@ export async function listFeatureDecisions(uid: string, options: GateOptions = {
       readAccountFeatureState(uid, options), readMonthSpend(uid, options),
     ]);
     const cap = freeMonthlyCents(options.env);
-    return FEATURE_CATALOG.map(manifest => decide(manifest.id, mode, state, month, cap));
+    return FEATURE_CATALOG.map(manifest => decide(manifest.id, mode, state, month, cap, options.now ?? new Date()));
   } catch (error) {
     return FEATURE_CATALOG.map(manifest => unavailable(manifest.id, mode, error));
   }
@@ -153,7 +176,7 @@ export async function decideFeature(uid: string, featureId: FeatureId, options: 
     const [state, month] = await Promise.all([
       readAccountFeatureState(uid, options), readMonthSpend(uid, options),
     ]);
-    return decide(featureId, mode, state, month, freeMonthlyCents(options.env));
+    return decide(featureId, mode, state, month, freeMonthlyCents(options.env), options.now ?? new Date());
   } catch (error) {
     return unavailable(featureId, mode, error);
   }
@@ -172,4 +195,48 @@ export async function decideFeatureForPurpose(
 /** Whether a caller must refuse: denied and enforced. */
 export function refuses(decision: FeatureDecision): boolean {
   return decision.enforced && !decision.allowed;
+}
+
+/**
+ * The decision, and under `enforce` a hold of `estimateNanoUsd` taken in the
+ * same transaction that checks the budget. Under `shadow` nothing is held (the
+ * caller charges the real cost afterwards); under `off` nothing is read.
+ */
+export async function holdFeatureSpend(
+  uid: string,
+  featureId: FeatureId,
+  estimateNanoUsd: number,
+  options: GateOptions = {},
+): Promise<{ decision: FeatureDecision; hold: SpendHold | null }> {
+  const mode = gateMode(options.env);
+  if (mode !== 'enforce') return { decision: await decideFeature(uid, featureId, options), hold: null };
+  const now = options.now ?? new Date();
+  let state: AccountFeatureState;
+  try {
+    state = await readAccountFeatureState(uid, options);
+  } catch (error) {
+    return { decision: unavailable(featureId, mode, error), hold: null };
+  }
+  const freeCap = freeMonthlyCents(options.env);
+  const manifest = featureManifest(featureId);
+  const budget = monthlyBudgetCents(featureId, state.grants);
+  // Access is decided from the state alone; only money needs the ledger.
+  if (state.disabled.has(featureId) || budget === null || manifest.purposes.length === 0) {
+    return { decision: decide(featureId, mode, state, emptyMonth(now), freeCap, now), hold: null };
+  }
+  const freeFeatures = freeSourcedFeatures(state.grants);
+  const fromFree = freeFeatures.includes(featureId);
+  const held = await reserveFeatureSpend(uid, featureId, estimateNanoUsd, {
+    budgetNanoUsd: centsToNanoUsd(budget),
+    freeCap: fromFree ? { nanoUsd: centsToNanoUsd(freeCap), features: freeFeatures } : null,
+  }, options);
+  if (held.outcome === 'unavailable') return { decision: unavailable(featureId, mode, new Error('hold')), hold: null };
+  const reason: FeatureDecisionReason = held.outcome === 'ok' ? (fromFree ? 'free_allowance' : 'entitled') : held.outcome;
+  return {
+    decision: {
+      featureId, tier: manifest.tier, mode, enforced: true, reason, allowed: held.outcome === 'ok',
+      monthlyBudgetCents: budget, spentCents: 0, remainingNanoUsd: held.outcome === 'ok' ? 1 : 0,
+    },
+    hold: held.outcome === 'ok' ? held.hold : null,
+  };
 }

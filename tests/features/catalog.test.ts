@@ -50,13 +50,20 @@ test('the free budgets fit under the 40¢ free ceiling', () => {
   assert.ok(free <= 40, `free budgets sum to ${free}¢`);
 });
 
-test('no purchase can cost more than it nets after a 30% store fee', () => {
-  const netCents: Record<GrantId, number> = {
-    base: 210, gmail_light: 210, gmail_full: 350, meeting_prep: 70, goal_plans: 70, memory_plus: 70,
+test('no purchase adds more spend than it nets after 18% VAT and a 30% store fee', () => {
+  // What a purchase changes is its own features' budgets: the free allowances
+  // are spent by a free user anyway, and the free ceiling holds over them for
+  // paying users too (featureGate.ts), so a purchase unlocks nothing else.
+  const priceCents: Record<GrantId, number> = {
+    base: 300, gmail_light: 300, gmail_full: 500, meeting_prep: 100, goal_plans: 100, memory_plus: 100,
   };
   for (const grant of GRANT_IDS) {
-    const budget = FEATURE_CATALOG.reduce((sum, manifest) => sum + (manifest.grants[grant] ?? 0), 0);
-    assert.ok(budget < netCents[grant], `${grant}: ${budget}¢ budget vs ${netCents[grant]}¢ net`);
+    const net = (priceCents[grant] / 1.18) * 0.7;
+    const added = FEATURE_CATALOG.reduce((sum, manifest) => {
+      const cents = manifest.grants[grant];
+      return cents === undefined ? sum : sum + cents - (manifest.freeMonthlyCents ?? 0);
+    }, 0);
+    assert.ok(added <= net, `${grant}: adds ${added}¢ of budget vs ${net.toFixed(0)}¢ net`);
   }
 });
 

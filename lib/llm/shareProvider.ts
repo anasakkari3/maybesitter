@@ -32,7 +32,13 @@ import {
 import { getAiConsent } from '../consents/aiConsentService';
 import { AiConsentRequiredError, consentGatedProvider } from './consentGatedProvider';
 import { logLlmCall, uidHash } from './llmLog';
-import { chargeProviderFeature, checkProviderFeature, type ProviderFeatureHooks } from '../features/providerGate';
+import {
+  chargeProviderFeature,
+  checkProviderFeature,
+  releaseProviderFeature,
+  worstCaseCallNanoUsd,
+  type ProviderFeatureHooks,
+} from '../features/providerGate';
 import {
   aiDisabled,
   commitUsage,
@@ -180,7 +186,8 @@ export function shareLlmProvider(uid: string, options: ShareProviderOptions = {}
 
     // The feature's own monthly budget, before the daily reservation: a call
     // the person's plan does not pay for must not take a slot of today's caps.
-    const featureCheck = await checkProviderFeature(uid, purpose, options.features ?? {}, clock());
+    const featureCheck = await checkProviderFeature(uid, purpose, options.features ?? {}, clock(),
+      worstCaseCallNanoUsd(characters + request.system.length, request.maxOutputTokens ?? 2048));
     if (featureCheck.refusal) {
       console.warn(JSON.stringify({
         event: 'ai_feature_refused',
@@ -235,8 +242,11 @@ export function shareLlmProvider(uid: string, options: ShareProviderOptions = {}
         outcome: 'cost_cap',
         fallbackReason: reason,
       });
+      await releaseProviderFeature(uid, featureCheck, options.features ?? {}, clock());
       throw new LLMUnavailableError(reason);
     }
+    // Set once the call is charged, so a failure after it never releases the settled hold.
+    let charged = false;
     const startedAt = Date.now();
     try {
       // Inside the try: a hook refusal is an LLMUnavailableError with the usual
@@ -261,6 +271,7 @@ export function shareLlmProvider(uid: string, options: ShareProviderOptions = {}
         await commit(uid, { promptTokens: response.promptTokens, outputTokens: response.outputTokens });
       }
       await chargeProviderFeature(uid, featureCheck, response, options.features ?? {}, clock());
+      charged = true;
       log({
         event: 'llm_call',
         purpose,
@@ -279,6 +290,7 @@ export function shareLlmProvider(uid: string, options: ShareProviderOptions = {}
       // because a provider error body can quote the request — and here the
       // request is somebody's screenshot.
       const reason = error instanceof LLMUnavailableError ? error.reason : 'provider_error';
+      if (!charged) await releaseProviderFeature(uid, featureCheck, options.features ?? {}, clock());
       log({
         event: 'llm_call',
         purpose,

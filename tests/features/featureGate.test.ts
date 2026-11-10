@@ -111,7 +111,14 @@ test('the free ceiling stops every spending feature for someone who bought nothi
   assert.deepEqual([goal.allowed, goal.reason], [false, 'free_cap_spent']);
   // A feature that spends nothing on the model is not stopped by money.
   assert.equal((await decideFeature('u1', 'football', { storage, env, now: NOW })).allowed, true);
-  // Someone who paid for anything is held by per-feature budgets, not the free ceiling.
+  // A purchase raises its own feature only: the free ceiling still holds over
+  // the features this person uses on a free allowance (review P1-2).
+  await saveEntitlementProjection('u1', projection(['memory_plus']), { storage, now: NOW });
+  const { value: stillCapped } = await quiet(() => decideFeature('u1', 'goal_plans', { storage, env, now: NOW }));
+  assert.deepEqual([stillCapped.allowed, stillCapped.reason], [false, 'free_cap_spent']);
+  // ...and the purchased feature runs on its own budget, outside the ceiling.
+  assert.equal((await decideFeature('u1', 'memory_learning', { storage, env, now: NOW })).reason, 'entitled');
+  // Buying the assistant moves its 17¢ out of the free pool, which frees the rest.
   await saveEntitlementProjection('u1', projection(['base']), { storage, now: NOW });
   assert.equal((await decideFeature('u1', 'goal_plans', { storage, env, now: NOW })).allowed, true);
 });

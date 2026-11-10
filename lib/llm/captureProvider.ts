@@ -33,7 +33,13 @@ import { AiConsentRequiredError, consentGatedProvider } from './consentGatedProv
 import { PROFILE_EXTRACTION_SCHEMA } from '../../src/profile/profilePrompt';
 import { GEMINI_BATCH_EXTRACTION_SCHEMA, GEMINI_CHAT_SCHEMA, GEMINI_EXTRACTION_SCHEMA } from '../../src/extraction/ollamaExtractionSchema';
 import { logLlmCall, uidHash } from './llmLog';
-import { chargeProviderFeature, checkProviderFeature, type ProviderFeatureHooks } from '../features/providerGate';
+import {
+  chargeProviderFeature,
+  checkProviderFeature,
+  releaseProviderFeature,
+  worstCaseCallNanoUsd,
+  type ProviderFeatureHooks,
+} from '../features/providerGate';
 import {
   aiDisabled,
   commitUsage,
@@ -164,7 +170,8 @@ export function captureLlmProvider(uid: string, options: CaptureProviderOptions 
 
     // The feature's own monthly budget, before the daily reservation: a call
     // the person's plan does not pay for must not take a slot of today's caps.
-    const featureCheck = await checkProviderFeature(uid, purpose, options.features ?? {}, clock());
+    const featureCheck = await checkProviderFeature(uid, purpose, options.features ?? {}, clock(),
+      worstCaseCallNanoUsd(prompt.length, purpose === 'capture_chat' ? CHAT_MAX_OUTPUT_TOKENS : 2048));
     if (featureCheck.refusal) {
       console.warn(JSON.stringify({
         event: 'ai_feature_refused',
@@ -226,6 +233,7 @@ export function captureLlmProvider(uid: string, options: CaptureProviderOptions 
         outcome: 'cost_cap',
         fallbackReason: reason,
       });
+      await releaseProviderFeature(uid, featureCheck, options.features ?? {}, clock());
       throw new LLMUnavailableError(reason);
     }
 
@@ -256,9 +264,12 @@ export function captureLlmProvider(uid: string, options: CaptureProviderOptions 
           outcome: 'unavailable',
           fallbackReason: 'capture_time_budget',
         });
+        await releaseProviderFeature(uid, featureCheck, options.features ?? {}, clock());
         throw new LLMUnavailableError('capture_time_budget');
       }
     }
+    // Set once the call is charged, so a failure after it never releases the settled hold.
+    let charged = false;
     const startedAt = Date.now();
     try {
       // A batch is every clause of one capture in one call (CL1 review, I4).
@@ -316,6 +327,7 @@ export function captureLlmProvider(uid: string, options: CaptureProviderOptions 
         await commit(uid, { promptTokens: response.promptTokens, outputTokens: response.outputTokens });
       }
       await chargeProviderFeature(uid, featureCheck, response, options.features ?? {}, clock());
+      charged = true;
       log({
         event: 'llm_call',
         purpose,
@@ -333,6 +345,7 @@ export function captureLlmProvider(uid: string, options: CaptureProviderOptions 
       // `reason` only. The provider already refused to carry its own message
       // for exactly this reason.
       const reason = error instanceof LLMUnavailableError ? error.reason : 'provider_error';
+      if (!charged) await releaseProviderFeature(uid, featureCheck, options.features ?? {}, clock());
       log({
         event: 'llm_call',
         purpose,

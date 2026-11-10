@@ -29,6 +29,14 @@
  * deterministic template. The model can only ever *improve* the sentence; it
  * can never be the reason a user has no explanation.
  */
+import {
+  chargeProviderFeature,
+  checkProviderFeature,
+  featureHooksFor,
+  releaseProviderFeature,
+  worstCaseCallNanoUsd,
+  type ProviderFeatureCheck,
+} from '../../features/providerGate';
 import type { Plan } from '../../../src/contracts/v1/planningContracts';
 import { LLMUnavailableError, type LlmProvider } from '../../../src/extraction/llm';
 import { getAiConsent } from '../../consents/aiConsentService';
@@ -186,6 +194,9 @@ export async function explainPlan(
   const log = deps.log ?? logLlmCall;
   const clock = deps.now ?? Date.now;
   const startedAt = clock();
+  const featureHooks = featureHooksFor('assistant', deps.storage);
+  // Held until the call is charged; anything that ends the call first gives it back.
+  let featureCheck: ProviderFeatureCheck | null = null;
 
   try {
     // Consent before cost. The gate inside `generateJson` would refuse this
@@ -197,8 +208,15 @@ export async function explainPlan(
       return templateOutcome(facts, 'consent_required');
     }
 
+    const user = explanationPrompt(plan, titles, timezone, facts.locale);
+    // The assistant's monthly budget (lib/features), before the daily slot.
+    featureCheck = await checkProviderFeature(uid, PURPOSE, featureHooks, new Date(clock()),
+      worstCaseCallNanoUsd(SYSTEM_PROMPT.length + user.length, 1024));
+    if (featureCheck.refusal) return templateOutcome(facts, featureCheck.refusal);
     const reservation = await (deps.reserve ?? reserveCall)(uid, PURPOSE, deps.storage ? { storage: deps.storage } : {});
     if (reservation !== 'ok') {
+      await releaseProviderFeature(uid, featureCheck, featureHooks, new Date(clock()));
+      featureCheck = null;
       const scope = quotaScopeFor(reservation);
       return templateOutcome(facts, scope ? `cost_cap:${scope}` : 'usage_guard_unavailable');
     }
@@ -206,7 +224,7 @@ export async function explainPlan(
     const response = await withTimeout(
       provider.generateJson({
         system: SYSTEM_PROMPT,
-        user: explanationPrompt(plan, titles, timezone, facts.locale),
+        user,
         responseSchema: PLAN_EXPLANATION_SCHEMA,
         purpose: PURPOSE,
         uid,
@@ -217,6 +235,8 @@ export async function explainPlan(
       promptTokens: response.promptTokens,
       outputTokens: response.outputTokens,
     });
+    await chargeProviderFeature(uid, featureCheck, response, featureHooks, new Date(clock()));
+    featureCheck = null;
     log({
       event: 'llm_call',
       purpose: PURPOSE,
@@ -240,6 +260,7 @@ export async function explainPlan(
     // reason `consent_required` — the account said no, and the template is what
     // it gets, with no second code path.
     const reason = error instanceof LLMUnavailableError ? error.reason : 'provider_error';
+    if (featureCheck) await releaseProviderFeature(uid, featureCheck, featureHooks, new Date(clock()));
     log({
       event: 'llm_call',
       purpose: PURPOSE,

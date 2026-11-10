@@ -1,25 +1,38 @@
 /**
- * The gate as the model providers use it: one check before a call is reserved,
- * one charge after it answers.
+ * The gate as the model paths use it: hold before a call, settle after it.
  *
- * Kept out of `captureProvider.ts` and `shareProvider.ts` so both apply the
- * same rule in the same order, and so neither reads the catalog, the ledger or
- * an entitlement itself.
+ * Kept out of the providers so every path that spends on the model —
+ * `captureProvider.ts`, `shareProvider.ts`, and the services that call the
+ * gated provider directly (memory summary, memory translation, plan
+ * narration) — applies the same rule in the same order, and none of them
+ * reads the catalog, the ledger or an entitlement itself.
  *
- * In `off` mode the check reads nothing and the charge writes nothing: the
- * providers behave exactly as they did before add-ons existed.
+ *   off      nothing is read and nothing is written: the paths behave exactly
+ *            as they did before add-ons existed;
+ *   shadow   the decision is logged, never obeyed; the real cost is recorded;
+ *   enforce  the worst-case cost is held in the ledger in the same
+ *            transaction that checks the budget, then settled to the real
+ *            cost, or released if the call never answered.
  */
 import type { LlmPurpose } from '../../src/extraction/llm/llmProvider';
-import { featureForPurpose, type FeatureId } from './catalog';
-import { decideFeature, refuses, type FeatureDecision } from './featureGate';
-import { costNanoUsd, pricedModelFor } from './pricing';
-import { nextMonthStart, recordFeatureSpend } from './spendLedger';
 import type { StorageAdapter } from '../storage';
+import { featureForPurpose, type FeatureId } from './catalog';
+import { holdFeatureSpend, refuses, type FeatureDecision } from './featureGate';
+import { costNanoUsd, pricedModelFor } from './pricing';
+import {
+  nextMonthStart,
+  recordFeatureSpend,
+  releaseFeatureSpend,
+  settleFeatureSpend,
+  type SpendHold,
+} from './spendLedger';
 
 export interface ProviderFeatureHooks {
   /** The feature this call is charged to, when the purpose alone does not say (Gmail reads). */
   readonly feature?: FeatureId;
-  readonly gate?: typeof decideFeature;
+  readonly hold?: typeof holdFeatureSpend;
+  readonly settle?: typeof settleFeatureSpend;
+  readonly release?: typeof releaseFeatureSpend;
   readonly recordSpend?: typeof recordFeatureSpend;
 }
 
@@ -32,7 +45,9 @@ export function featureHooksFor(feature: FeatureId, storage?: StorageAdapter): P
   if (!storage) return { feature };
   return {
     feature,
-    gate: (uid, id, options = {}) => decideFeature(uid, id, { ...options, storage }),
+    hold: (uid, id, estimate, options = {}) => holdFeatureSpend(uid, id, estimate, { ...options, storage }),
+    settle: (uid, hold, nanoUsd, options = {}) => settleFeatureSpend(uid, hold, nanoUsd, { ...options, storage }),
+    release: (uid, hold, options = {}) => releaseFeatureSpend(uid, hold, { ...options, storage }),
     recordSpend: (uid, id, nanoUsd, options = {}) => recordFeatureSpend(uid, id, nanoUsd, { ...options, storage }),
   };
 }
@@ -42,9 +57,22 @@ export function msUntilNextMonth(now: Date): number {
   return Math.max(60_000, nextMonthStart(now).getTime() - now.getTime());
 }
 
+/**
+ * The most one Gemini call can cost: every output token the call allows, and
+ * the prompt at two characters a token (Arabic runs denser than English, and
+ * over-holding is the safe direction — the hold is settled to the real cost).
+ */
+export function worstCaseCallNanoUsd(promptCharacters: number, maxOutputTokens: number): number {
+  return costNanoUsd('gemini-2.5-flash', {
+    promptTokens: Math.ceil(Math.max(0, promptCharacters) / 2),
+    outputTokens: Math.max(0, maxOutputTokens),
+  });
+}
+
 export interface ProviderFeatureCheck {
   readonly feature: FeatureId;
   readonly decision: FeatureDecision;
+  readonly hold: SpendHold | null;
   /** The `LLMUnavailableError` reason to throw, or `null` to go ahead. */
   readonly refusal: string | null;
 }
@@ -73,13 +101,14 @@ export async function checkProviderFeature(
   purpose: LlmPurpose,
   hooks: ProviderFeatureHooks,
   now: Date,
+  worstCaseNanoUsd: number,
 ): Promise<ProviderFeatureCheck> {
   const feature = hooks.feature ?? featureForPurpose(purpose);
-  const decision = await (hooks.gate ?? decideFeature)(uid, feature, { now });
-  return { feature, decision, refusal: refusalFor(decision) };
+  const { decision, hold } = await (hooks.hold ?? holdFeatureSpend)(uid, feature, worstCaseNanoUsd, { now });
+  return { feature, decision, hold, refusal: refusalFor(decision) };
 }
 
-/** Records what an answered call cost. Nothing in `off` mode. */
+/** Records what an answered call cost: settles the hold, or records under shadow. Nothing in `off`. */
 export async function chargeProviderFeature(
   uid: string,
   check: ProviderFeatureCheck,
@@ -89,5 +118,16 @@ export async function chargeProviderFeature(
 ): Promise<void> {
   if (check.decision.mode === 'off') return;
   const nanoUsd = costNanoUsd(pricedModelFor(response.model), response);
-  await (hooks.recordSpend ?? recordFeatureSpend)(uid, check.feature, nanoUsd, { now });
+  if (check.hold) await (hooks.settle ?? settleFeatureSpend)(uid, check.hold, nanoUsd, { now });
+  else await (hooks.recordSpend ?? recordFeatureSpend)(uid, check.feature, nanoUsd, { now });
+}
+
+/** Gives back a hold whose call was refused later or never answered. */
+export async function releaseProviderFeature(
+  uid: string,
+  check: ProviderFeatureCheck,
+  hooks: ProviderFeatureHooks,
+  now: Date,
+): Promise<void> {
+  if (check.hold) await (hooks.release ?? releaseFeatureSpend)(uid, check.hold, { now });
 }

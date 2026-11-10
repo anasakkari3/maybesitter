@@ -41,9 +41,12 @@ function counters() {
 
 function fixedGate(decision: Partial<FeatureDecision>, spend: Array<[FeatureId, number]>): ProviderFeatureHooks {
   return {
-    gate: async (_uid, featureId) => ({
-      featureId, tier: 'core', mode: 'enforce', allowed: true, enforced: true, reason: 'free_allowance',
-      monthlyBudgetCents: 18, spentCents: 0, remainingNanoUsd: 1, ...decision,
+    hold: async (_uid, featureId) => ({
+      decision: {
+        featureId, tier: 'core', mode: 'enforce', allowed: true, enforced: true, reason: 'free_allowance',
+        monthlyBudgetCents: 18, spentCents: 0, remainingNanoUsd: 1, ...decision,
+      },
+      hold: null,
     }),
     recordSpend: async (_uid, featureId, nanoUsd) => { spend.push([featureId, nanoUsd]); },
   };
@@ -135,4 +138,49 @@ test('the monthly scope waits until the next UTC month', () => {
   assert.equal(retryAfterSecondsFor('user_monthly', new Date('2026-11-30T23:59:00.000Z')), 60);
   assert.equal(msUntilNextMonth(new Date('2026-11-30T23:59:30.000Z')), 60_000);
   assert.equal(msUntilNextMonth(new Date('2026-11-01T00:00:00.000Z')), 30 * 86_400_000);
+});
+
+test('holds stop concurrent calls at the budget, settle to the real cost, and release on failure', async () => {
+  const storage = createMemoryStorage();
+  const previous = process.env.MAYBESITTER_ADDON_GATE_MODE;
+  process.env.MAYBESITTER_ADDON_GATE_MODE = 'enforce';
+  try {
+    let release!: () => void;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    let reached = 0;
+    const slow: LlmProvider = {
+      name: 'gemini',
+      generateJson: async () => { throw new Error('unused'); },
+      generateStructured: async () => {
+        reached++;
+        await gate;
+        return { text: '{}', model: 'gemini-2.5-flash', latencyMs: 1, promptTokens: 1000, outputTokens: 100 };
+      },
+    };
+    const { base } = counters();
+    const features = featureHooksFor('meeting_prep', storage);
+    // Free meeting prep is 2¢; each call holds its worst case (2,048 output
+    // tokens ≈ 0.51¢), so only three fit at once however many are sent.
+    const calls = Array.from({ length: 5 }, () => quietly(() => share({
+      ...base, provider: slow, purpose: 'meeting_prep', features, maxOutputTokens: undefined,
+    } as never).then(() => 'ok', (error: Error) => (error as LLMUnavailableError).reason)));
+    await new Promise(resolve => setTimeout(resolve, 20));
+    assert.equal(reached, 3);
+    release();
+    const outcomes = await Promise.all(calls);
+    assert.deepEqual(outcomes.filter(o => o === 'ok').length, 3);
+    assert.deepEqual(outcomes.filter(o => o === 'cost_cap:user_monthly').length, 2);
+    const month = await readMonthSpend('u1', { storage, now: NOW });
+    assert.equal(month.features.meeting_prep, 3 * 550_000, 'settled to the real cost, not the hold');
+    assert.deepEqual(month.holds, {}, 'no hold left behind');
+
+    // A call that fails after its hold gives the hold back.
+    const failing: LlmProvider = { ...slow, generateStructured: async () => { throw new Error('boom'); } };
+    await quietly(() => assert.rejects(share({ ...base, provider: failing, purpose: 'goal_decomposition',
+      features: featureHooksFor('goal_plans', storage) })));
+    const after = await readMonthSpend('u1', { storage, now: NOW });
+    assert.deepEqual([after.holds, after.features.goal_plans], [{}, undefined]);
+  } finally {
+    if (previous === undefined) delete process.env.MAYBESITTER_ADDON_GATE_MODE; else process.env.MAYBESITTER_ADDON_GATE_MODE = previous;
+  }
 });

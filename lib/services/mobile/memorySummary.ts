@@ -1,3 +1,9 @@
+import {
+  chargeProviderFeature,
+  checkProviderFeature,
+  releaseProviderFeature,
+  worstCaseCallNanoUsd,
+} from '../../features/providerGate';
 import { LANGUAGE_RULE } from '../../intelligence/proposalEngine';
 import { isCanonicalRoutineFact } from '../../memory/routineFacts';
 import { consentGatedProvider } from '../../llm/consentGatedProvider';
@@ -332,18 +338,29 @@ export async function buildMemorySummary(input: { uid: string; language: MemoryS
   const rows: MemorySummaryInputRow[] = newestThatFit(prose).map((row, index) => ({ ref: `r${index + 1}`, id: row.id, kind: row.kind, text: row.content }));
   const remaining = MEMORY_SUMMARY_ROUTE_BUDGET_MS - (Date.now() - input.startedAt);
   if (remaining < MINIMUM_ATTEMPT_BUDGET_MS || input.signal.aborted) return { status: 'unavailable' };
+  const prompt = memorySummaryPrompt(rows, input.language);
+  // The memory add-on's monthly budget (lib/features), before the daily slot.
+  const feature = await checkProviderFeature(input.uid, 'memory_summary', {}, new Date(),
+    worstCaseCallNanoUsd(prompt.length, 2048));
+  if (feature.refusal) return { status: 'unavailable' };
   const reservation = await reserveCall(input.uid, 'memory_summary', { storage: getStorage() });
-  if (reservation !== 'ok') return { status: 'unavailable' };
+  if (reservation !== 'ok') {
+    await releaseProviderFeature(input.uid, feature, {}, new Date());
+    return { status: 'unavailable' };
+  }
   const timeoutMs = Math.min(MEMORY_SUMMARY_ATTEMPT_TIMEOUT_MS, remaining);
   const attemptTimer = setTimeout(input.abort, timeoutMs);
+  let charged = false;
   try {
     const response = await provider.generateStructured({
       system: 'Summarize only the supplied rows. Return JSON matching the schema.',
-      parts: [{ kind: 'text', text: memorySummaryPrompt(rows, input.language) }],
+      parts: [{ kind: 'text', text: prompt }],
       responseSchema: RESPONSE_SCHEMA,
       purpose: 'memory_summary', uid: input.uid, retry: false, timeoutMs, signal: input.signal,
     });
     await commitUsage(input.uid, { promptTokens: response.promptTokens, outputTokens: response.outputTokens }, { storage: getStorage() });
+    await chargeProviderFeature(input.uid, feature, response, {}, new Date());
+    charged = true;
     const sentences = validateMemorySummary(parseJson(response.text), rows, input.language);
     if (!sentences) return { status: 'unavailable' };
     const ids = new Map(rows.map((row) => [row.ref, row.id]));
@@ -354,6 +371,7 @@ export async function buildMemorySummary(input: { uid: string; language: MemoryS
     };
   } catch (error) {
     void error;
+    if (!charged) await releaseProviderFeature(input.uid, feature, {}, new Date());
     return { status: 'unavailable' };
   } finally {
     clearTimeout(attemptTimer);
