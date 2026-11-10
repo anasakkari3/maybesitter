@@ -66,6 +66,8 @@ const FEATURE_FOR_PURPOSE: Readonly<Record<LlmPurpose, CostFeatureKind>> = Objec
   capture_chat: 'capture',
   memory_summary: 'other',
   memory_translate: 'other',
+  // Deciding whether a mail is worth a full read is part of reading it.
+  email_triage: 'email_sync',
 });
 
 function statusFor(outcome: LlmOutcome): CostOperationStatus {

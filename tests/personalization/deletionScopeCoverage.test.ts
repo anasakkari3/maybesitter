@@ -193,6 +193,9 @@ const KEPT_BECAUSE: Record<string, string> = {
   captureProposals: 'the user’s own words awaiting confirmation',
   captureConversations: 'the user’s own capture-chat messages and the assistant’s replies, kept only while the conversation can still be continued',
   usage: 'what the account spent, needed for billing and abuse limits',
+  features:
+    'what the person bought and which add-ons they switched off themselves — needed to keep serving '
+    + 'what they paid for, and nothing in it is inferred about them',
   exportLeases:
     'short-lived, content-free coordination for retryable account exports; it is not a belief about '
     + 'the person, and clearing an active lease here could let the same export run twice. Account '

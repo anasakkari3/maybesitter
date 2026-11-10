@@ -146,6 +146,13 @@ export const MEMORY_DISMISSALS = 'memoryDismissals';
 /** One document per UTC day: how many model calls this account has spent (#160). */
 export const USAGE = 'usage';
 /**
+ * What the person bought and which add-ons they switched off (owner direction,
+ * 2026-11-10): `entitlements` holds the store projection written by the server,
+ * `preferences` the person's own on/off choices. Written only through the API;
+ * the rules deny every client write, so nobody can grant themselves a purchase.
+ */
+export const FEATURES = 'features';
+/**
  * One document per local day: the plan the morning job built (UC-3.10a, #194).
  *
  * A proposal about time, keyed by the user's own calendar date. It is inside
@@ -617,6 +624,7 @@ export const USER_SCOPED_COLLECTIONS = [
   AI_CONTEXT_IMPORTS,
   MEMORY_DISMISSALS,
   USAGE,
+  FEATURES,
   PLANS,
   PLAN_EVENTS,
   STATS,
