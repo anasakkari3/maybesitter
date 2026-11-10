@@ -367,8 +367,15 @@ test('switching the env list to a custom delimiter dropped none of the existing 
   // rotation is active (tests/infra/pepperRotation798.test.ts covers the rest).
   assert.equal(production.get('MAYBESITTER_DELETION_RECEIPT_PEPPER_WRITE'), 'current');
   assert.equal(staging.get('MAYBESITTER_DELETION_RECEIPT_PEPPER_WRITE'), 'current');
-  assert.equal(production.size, 48);
-  assert.equal(staging.size, 47);
+  // Feature add-ons and email triage (2026-11-10): pinned off in production;
+  // staging decides in shadow and keeps triage off.
+  assert.equal(production.get('MAYBESITTER_ADDON_GATE_MODE'), 'off');
+  assert.equal(production.get('MAYBESITTER_EMAIL_TRIAGE_MODE'), 'off');
+  assert.equal(staging.get('MAYBESITTER_ADDON_GATE_MODE'), 'shadow');
+  assert.equal(staging.get('MAYBESITTER_EMAIL_TRIAGE_MODE'), 'off');
+  assert.equal(production.get('MAYBESITTER_JEV_API_KEY'), undefined, 'the Jev key is a secret, never a plain variable');
+  assert.equal(production.size, 55);
+  assert.equal(staging.size, 54);
 });
 
 // ── Same-digest production promotion ────────────────────────────────────
