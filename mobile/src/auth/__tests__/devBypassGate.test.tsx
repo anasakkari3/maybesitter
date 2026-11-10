@@ -51,6 +51,12 @@ function TokenProbe() {
   return <Text testID="probe">{`${devBypass ? 'bypass' : 'firebase'}:${token ?? 'none'}`}</Text>;
 }
 
+/** The uid the API client checks an account-bound request against. */
+function RepositoryProbe() {
+  const { repository, user } = useAuth();
+  return <Text testID="repo">{`${repository.currentUser()?.uid ?? 'none'}=${user?.uid ?? 'none'}`}</Text>;
+}
+
 async function renderWithBundle(isDevBundle: boolean) {
   // The repository never resolves, so anything signed-in on screen can only
   // have come from the override.
@@ -61,6 +67,7 @@ async function renderWithBundle(isDevBundle: boolean) {
           <AuthGate>
             <Text>THE APP</Text>
             <TokenProbe />
+            <RepositoryProbe />
           </AuthGate>
         </AuthProvider>
       </AppProvider>
@@ -74,6 +81,10 @@ describe('dev bypass through the gate', () => {
     await renderWithBundle(true);
     expect(screen.getByText('THE APP')).toBeTruthy();
     expect(screen.getByTestId('probe')).toHaveTextContent('bypass:local-dev-token');
+    // Account-bound requests (`asUid`) see the bypass user as the current one.
+    const [current, signedIn] = String(screen.getByTestId('repo').props.children).split('=');
+    expect(current).not.toBe('none');
+    expect(current).toBe(signedIn);
   });
 
   it('is inert in a release bundle with the same environment', async () => {

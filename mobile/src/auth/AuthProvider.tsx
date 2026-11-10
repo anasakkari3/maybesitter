@@ -64,6 +64,16 @@ export function AuthProvider({ children, repository, isDevBundle = __DEV__ }: Au
     [isDevBundle],
   );
 
+  // The repository the API client checks a request's account against
+  // (`apiRequest`'s `asUid`). Under the dev bypass the SDK has no signed-in
+  // user, so every account-bound request failed as "the account changed";
+  // the bypass user is the current user there. Never in a build that cannot
+  // honour the bypass: `bypassToken` is null outside its four conditions.
+  const apiRepository = useMemo<AuthRepository>(
+    () => (bypassToken ? { ...repo, currentUser: () => DEV_BYPASS_USER } : repo),
+    [repo, bypassToken],
+  );
+
   const [user, setUser] = useState<AuthUser | null>(bypassToken ? DEV_BYPASS_USER : null);
   const [resolved, setResolved] = useState(bypassToken !== null);
   const [lastSignOutReason, setLastSignOutReason] = useState<SignOutReason | null>(null);
@@ -136,9 +146,9 @@ export function AuthProvider({ children, repository, isDevBundle = __DEV__ }: Au
         pendingLink.current = null;
         return url;
       },
-      repository: repo,
+      repository: apiRepository,
     }),
-    [status, user, lastSignOutReason, signOut, bypassToken, repo],
+    [status, user, lastSignOutReason, signOut, bypassToken, repo, apiRepository],
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
