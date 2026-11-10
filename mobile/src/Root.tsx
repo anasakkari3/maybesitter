@@ -34,6 +34,7 @@ import { FinancialContextScreen } from './features/settings/FinancialContextScre
 import { NotificationsSettingsScreen } from './features/settings/NotificationsSettingsScreen';
 import { CalendarSettingsScreen } from './features/settings/CalendarSettingsScreen';
 import { FootballSettingsScreen } from './features/settings/FootballSettingsScreen';
+import { FeaturesSettingsScreen } from './features/settings/FeaturesSettingsScreen';
 import { CategorySettingsScreen } from './features/settings/CategorySettingsScreen';
 import { DeviceCalendarSyncHost } from './features/calendar/useDeviceCalendarSync';
 import { BusyCalendarHost } from './features/calendar/useBusyCalendar';
@@ -245,6 +246,9 @@ export function Root() {
           )}
           {s.screen === 'footballSettings' && (
             <FootballSettingsScreen key="footballSettings" onBack={() => latest.current.back()} />
+          )}
+          {s.screen === 'featuresSettings' && (
+            <FeaturesSettingsScreen key="featuresSettings" onBack={() => latest.current.back()} />
           )}
           {s.screen === 'categorySettings' && (
             <CategorySettingsScreen key="categorySettings" onBack={() => latest.current.back()} />

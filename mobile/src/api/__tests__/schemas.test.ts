@@ -105,6 +105,7 @@ import { reminderSettingsResponseSchema, hardReceiptsResponseSchema } from '../s
 import { readinessResponseSchema, readinessSavedSchema } from '../schemas/readiness';
 import { m5bCapabilitiesSchema, memorySummaryResponseSchema } from '../schemas/m5b';
 import { commitmentSearchSchema, m6CapabilitiesSchema, m6bCapabilitiesSchema, memoryTranslationSchema } from '../schemas/m6';
+import { featureCapabilitiesSchema } from '../schemas/features';
 import { watcherChangedSchema, watcherListSchema } from '../schemas/watchers';
 import {
   financialConnectionSchema,
@@ -474,6 +475,10 @@ const CASES: [string, z.ZodType][] = [
   // M5a, generated from the real handlers by Task B (PLAN-M5a §Wire).
   ['capabilities.m5a.on', m5aCapabilitiesSchema],
   ['capabilities.m5a.off', m5aCapabilitiesSchema],
+  // Core and add-on features: the gate off, enforcing, and the answer to a switch.
+  ['capabilities.features.off', featureCapabilitiesSchema],
+  ['capabilities.features.enforce', featureCapabilitiesSchema],
+  ['capabilities.features.switched', featureCapabilitiesSchema],
   ['calendar.choice.post.active', calendarChoiceEnrolSchema],
   ['calendar.choice.post.purging', calendarChoiceEnrolSchema],
   ['calendar.choice.enrolled', calendarChoiceProbeSchema],

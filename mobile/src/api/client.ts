@@ -533,14 +533,14 @@ function errorForStatus(status: number, body: unknown, path?: string): Error {
 /**
  * A 429 from the model quota, or a plain one if the body says nothing (#181).
  *
- * The scope is trusted only when it is one of the three the contract names; an
+ * The scope is trusted only when it is one of the four the contract names; an
  * unrecognised value falls back to `user_daily`, which is the answer that asks
  * the user to wait rather than blaming the service for something it may not
  * have done.
  */
 function quotaFor(body: unknown, message: string): ApiError {
   const refusalBody = body as { scope?: unknown; retryAfterSeconds?: unknown } | null;
-  const scopes: QuotaScope[] = ['user_daily', 'user_minute', 'global_daily'];
+  const scopes: QuotaScope[] = ['user_daily', 'user_minute', 'global_daily', 'user_monthly'];
   const scope = scopes.find(candidate => candidate === refusalBody?.scope) ?? 'user_daily';
   const retryAfter = typeof refusalBody?.retryAfterSeconds === 'number' && refusalBody.retryAfterSeconds > 0
     ? Math.ceil(refusalBody.retryAfterSeconds)
