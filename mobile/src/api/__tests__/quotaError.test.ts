@@ -74,6 +74,7 @@ const REFUSALS: [string, number, Record<string, unknown>, UserFacingKey][] = [
   ['the account is out for today', 429, { reason: 'quota_exceeded', scope: 'user_daily', retryAfterSeconds: 3600 }, 'aiQuotaUserDaily'],
   ['too many in one minute', 429, { reason: 'quota_exceeded', scope: 'user_minute', retryAfterSeconds: 30 }, 'aiQuotaTryLater'],
   ['everyone is out for today', 429, { reason: 'quota_exceeded', scope: 'global_daily', retryAfterSeconds: 7200 }, 'aiServiceUnavailable'],
+  ['the feature is out for this month', 429, { reason: 'quota_exceeded', scope: 'user_monthly', retryAfterSeconds: 86400 }, 'aiQuotaUserMonthly'],
   ['the text is too long', 413, { reason: 'input_too_large', maxCharacters: 20000 }, 'aiInputTooLong'],
 ];
 
@@ -89,10 +90,18 @@ describe('a refused AI call becomes a typed error', () => {
     expect(error.retryAfterSeconds).toBe(30);
   });
 
+  it('trusts the monthly scope, and still reads an unknown one as the daily limit', async () => {
+    const monthly = await refusal(429, { scope: 'user_monthly', retryAfterSeconds: 86400 }) as QuotaExceededError;
+    expect(monthly.scope).toBe('user_monthly');
+    expect(monthly.retryAfterSeconds).toBe(86400);
+    const unknown = await refusal(429, { scope: 'user_yearly', retryAfterSeconds: 60 }) as QuotaExceededError;
+    expect(unknown.scope).toBe('user_daily');
+  });
+
   it('is never retried automatically', () => {
     // The one 4xx that would succeed later, which is exactly why nothing may
     // retry it for the user: that is the loop the quota exists to stop.
-    for (const scope of ['user_daily', 'user_minute', 'global_daily'] as QuotaScope[]) {
+    for (const scope of ['user_daily', 'user_minute', 'global_daily', 'user_monthly'] as QuotaScope[]) {
       expect(isRetryable(new QuotaExceededError(scope, 60))).toBe(false);
     }
     expect(isRetryable(new InputTooLargeError(20_000))).toBe(false);

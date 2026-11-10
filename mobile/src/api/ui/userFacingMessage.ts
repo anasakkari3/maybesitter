@@ -179,9 +179,11 @@ export function userFacingMessageKey(error: unknown): UserFacingKey {
   if (error instanceof CurrencyRequiredError) return 'financialCurrencyRequired';
   // Before the generic branches. A spent quota is not a server fault and not a
   // bad request; it is a limit that will clear, and which one decides the words
-  // (#181). `global_daily` is nobody's fault and says so.
+  // (#181). `global_daily` is nobody's fault and says so. `user_monthly` is
+  // one feature's allowance for the month, back at the start of the next.
   if (error instanceof QuotaExceededError) {
     if (error.scope === 'global_daily') return 'aiServiceUnavailable';
+    if (error.scope === 'user_monthly') return 'aiQuotaUserMonthly';
     return error.scope === 'user_minute' ? 'aiQuotaTryLater' : 'aiQuotaUserDaily';
   }
   // Before `InputTooLargeError`, whose copy counts characters. A share is

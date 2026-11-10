@@ -85,6 +85,8 @@ import intelligenceGenerated from './__fixtures__/intelligence.generated.json';
 import intelligenceGmailMonitor from './__fixtures__/intelligence.gmailMonitor.json';
 import intelligenceGmailMonitorSet from './__fixtures__/intelligence.gmailMonitorSet.json';
 import intelligenceGmailScanComplete from './__fixtures__/intelligence.gmailScanComplete.json';
+import capabilitiesFeaturesEnforce from './__fixtures__/capabilities.features.enforce.json';
+import capabilitiesFeaturesSwitched from './__fixtures__/capabilities.features.switched.json';
 import intelligenceInbox from './__fixtures__/intelligence.inbox.json';
 import intelligenceObservationReviewed from './__fixtures__/intelligence.observationReviewed.json';
 
@@ -203,6 +205,12 @@ const ROUTES: [string, RegExp, MockResponse][] = [
   ['GET', /^\/api\/mobile\/intelligence\/sources\/gmail\/monitor$/, { status: 200, body: intelligenceGmailMonitor }],
   ['POST', /^\/api\/mobile\/intelligence\/sources\/gmail\/monitor$/, { status: 200, body: intelligenceGmailMonitorSet }],
   ['POST', /^\/api\/mobile\/intelligence\/sources\/gmail\/scan$/, { status: 200, body: intelligenceGmailScanComplete }],
+  // Core and add-on features. The enforcing fixture, not the `off` one: in
+  // `off` mode Settings shows no Features entry, and mock mode exists to work
+  // on the screen. A switch answers the switched fixture (football turned
+  // off) whichever feature was tapped — nothing accumulates here.
+  ['GET', /^\/api\/mobile\/capabilities\/features$/, { status: 200, body: capabilitiesFeaturesEnforce }],
+  ['PUT', /^\/api\/mobile\/capabilities\/features\/[^/]+$/, { status: 200, body: capabilitiesFeaturesSwitched }],
 ];
 
 /** True when this build is serving fixtures. Always false in a release. */

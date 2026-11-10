@@ -68,13 +68,14 @@ export function BackArrowButton({ label, onPress, testID = 'header-back' }: { la
   );
 }
 
-export type SettingsGlyphName = 'calendar' | 'bell' | 'link' | 'shield' | 'sliders';
+export type SettingsGlyphName = 'calendar' | 'bell' | 'link' | 'shield' | 'sliders' | 'grid';
 const glyphs: Record<SettingsGlyphName, string> = {
   calendar: 'M5 5h14v15H5ZM8 2v6M16 2v6M5 10h14',
   bell: 'M6 16V11a6 6 0 0 1 12 0v5l2 2H4ZM10 21h4',
   link: 'M9 8l3-3a5 5 0 0 1 7 7l-3 3M15 16l-3 3a5 5 0 0 1-7-7l3-3M8 16l8-8',
   shield: 'M12 3l8 3v6c0 4-4 7-8 9-4-2-8-5-8-9V6Z',
   sliders: 'M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0M14 4v4M8 10v4M16 16v4',
+  grid: 'M4 4h7v7H4ZM13 4h7v7h-7ZM4 13h7v7H4ZM13 13h7v7h-7Z',
 };
 
 /** A destination on the Settings hub (Stitch): round tinted icon, title, what is inside. */

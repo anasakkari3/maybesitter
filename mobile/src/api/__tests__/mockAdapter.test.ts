@@ -9,6 +9,7 @@ import { getTrust } from '../endpoints/trust';
 import { reviewIntelligenceObservation, setGmailIntelligenceMonitor } from '../endpoints/intelligence';
 import { getBackgroundActivity, getBackgroundActivityHistory, setBackgroundActivityPaused } from '../endpoints/backgroundActivity';
 import { getReminderSettings, putReminderSettings } from '../endpoints/reminders';
+import { getFeatures, setFeatureEnabled } from '../endpoints/features';
 import { commitmentListSchema } from '../schemas/common';
 import { ServerError } from '../errors';
 import { releaseConfigProblems } from '../../config/releaseGuard';
@@ -174,5 +175,24 @@ describe('the intelligence panel mutations (M1)', () => {
     const reviewed = await reviewIntelligenceObservation('any-id', 'confirmed');
     expect(reviewed.observation.review).toBe('confirmed');
     expect(fetchCalls).toBe(0);
+  });
+});
+
+describe('the Features screen (core and add-ons)', () => {
+  it('serves the enforcing list and the switched answer from fixtures, never the network', async () => {
+    setMode('mock');
+    const features = await getFeatures();
+    // Not `off`: in mock mode the Settings entry and the screen are visible.
+    expect(features.mode).toBe('enforce');
+    expect(features.features.map(feature => feature.id)).toContain('assistant');
+    const switched = await setFeatureEnabled('football', false);
+    expect(switched.features.find(feature => feature.id === 'football')?.reason).toBe('user_off');
+    expect(fetchCalls).toBe(0);
+  });
+
+  it('does not serve the switch for a GET, nor the list for a PUT', () => {
+    setMode('mock');
+    expect(mockResponseFor('GET', '/api/mobile/capabilities/features/football')?.status).toBe(501);
+    expect(mockResponseFor('PUT', '/api/mobile/capabilities/features')?.status).toBe(501);
   });
 });

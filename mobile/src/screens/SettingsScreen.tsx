@@ -12,6 +12,7 @@ import { useNotificationPermission } from '../notifications/useNotificationPermi
 import { ReferenceIcon } from '../ui/referenceIcons';
 import { ChevronIcon } from '../ui/icons';
 import { scriptOfText } from '../theme/fonts';
+import { useFeaturesEntryShown } from '../features/settings/featureSettings';
 
 /**
  * The Settings hub (Stitch `06-settings`): who is signed in, five clear
@@ -34,6 +35,9 @@ export function SettingsScreen() {
   const auth = useOptionalAuth();
   const user = auth?.user ?? null;
   const [confirmSignOut, setConfirmSignOut] = useState(false);
+  // Only while the server's gate is not `off`: there is nothing to choose then,
+  // and Settings looks exactly as it did before the add-ons existed.
+  const featuresShown = useFeaturesEntryShown();
   const categories: readonly {
     screen: 'settingsDay' | 'settingsAlerts' | 'settingsConnections' | 'settingsPrivacy' | 'settingsApp';
     label: string; sub: string; glyph: SettingsGlyphName; tint: string; id: string;
@@ -81,6 +85,16 @@ export function SettingsScreen() {
               : {})}
           />
         ))}
+        {featuresShown ? (
+          <SettingsHubRow
+            label={t.featuresTitle}
+            sub={t.featuresHubSub}
+            glyph="grid"
+            tint={p.acd}
+            testID="settings-features"
+            onPress={() => actions.go('featuresSettings')}
+          />
+        ) : null}
       </View>
 
       {user ? (
