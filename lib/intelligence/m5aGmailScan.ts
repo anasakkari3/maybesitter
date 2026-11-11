@@ -45,7 +45,7 @@ import {
 import { M5A_CONTROLS_PATH, parseM5aControls } from '../release/m5aControls';
 import { analyzeSourceStaged } from './analyzeSource';
 import {
-  TRIAGE_RULE, isAuditSample, scoreBucket, scoreEmailRelevance, triageAuditRate, triageMode, triageThreshold,
+  TRIAGE_RULE, isAuditSample, isConversationReply, scoreBucket, scoreEmailRelevance, triageAuditRate, triageMode, triageThreshold,
   type TriageScore,
 } from './emailTriage';
 import { autoAddPath, commitmentBaselineFingerprint, type AutoAddRecord } from './autoAdds';
@@ -1038,12 +1038,13 @@ async function processMessage(
     const candidateSignals = preModelCandidateSignals(message, capturedTimezone?.value ?? null);
     // Triage (lib/intelligence/emailTriage.ts): from the headers and the first
     // lines, is this mail worth the full read? Never the person's own sent mail
-    // or a dated self-reply candidate: those feed the email auto-add. Any
-    // missing score reads the mail fully.
+    // or a dated self-reply candidate: those feed the email auto-add. Never a
+    // reply or forward (rule 2). Any missing score reads the mail fully.
     const triage = triageMode();
     let featureDecision: FeatureDecision | null = null;
     let auditSample: TriageScore | null = null;
-    if (triage !== 'off' && prepared.text && !runtime.shareModel && !message.sentByAccount && !candidateSignals) {
+    if (triage !== 'off' && prepared.text && !runtime.shareModel && !message.sentByAccount && !candidateSignals
+      && !isConversationReply(message.subject)) {
       // The monthly budget first: a spent month must not buy even a triage score.
       featureDecision = await decideFeature(uid, 'gmail_reading', { now: runtime.now(), storage });
       if (refuses(featureDecision)) throw new Error(featureDecision.reason === 'gate_unavailable' ? 'analysis_unavailable' : 'daily_limit');

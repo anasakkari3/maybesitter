@@ -35,7 +35,18 @@ export type TriageMode = 'off' | 'shadow' | 'enforce';
 export type TriageScorer = 'jev' | 'gemini_header';
 
 /** Versioned like `GMAIL_BULK_RULE`: a triaged marker from an older rule is re-examined. */
-export const TRIAGE_RULE = 1;
+export const TRIAGE_RULE = 2;
+
+// Rule 2 (2026-11-11): a reply or forward is always read. On the owner's
+// labelled inbox a lecturer's bare "Re:" scored 0.2 against a 0.15 threshold:
+// kept, but by one notch of a coarse score. A conversation someone is having
+// with the person is the mail least worth risking, and the check is free.
+const CONVERSATION_PREFIX = /^\s*(?:re|fwd?|aw|wg|sv|vs|tr|השב|תשובה|הועבר|رد|الرد|تحويل|إعادة توجيه)\s*(?:\[\d{1,3}\])?\s*[:：]/i;
+
+/** A subject that marks a reply or a forward, in English, Hebrew, Arabic and the common client variants. */
+export function isConversationReply(subject: string | null | undefined): boolean {
+  return CONVERSATION_PREFIX.test((subject ?? '').slice(0, 64));
+}
 export const DEFAULT_TRIAGE_THRESHOLD = 0.15;
 /** A misconfiguration may lower the bar, never make triage aggressive. */
 export const MAX_TRIAGE_THRESHOLD = 0.5;
@@ -45,6 +56,8 @@ export const EMAIL_TRIAGE_ACTION = 'email-triage';
 export const EMAIL_TRIAGE_DAILY_CAP = 600;
 export const JEV_BODY_CHARS = 4_000;
 export const HEADER_BODY_CHARS = 600;
+/** Room for `{"relevant_probability": 0.05}` with margin; see the call below. */
+export const TRIAGE_MAX_OUTPUT_TOKENS = 64;
 
 export function triageMode(env: EnvLike = process.env): TriageMode {
   const raw = (env.MAYBESITTER_EMAIL_TRIAGE_MODE ?? '').trim().toLowerCase();
@@ -172,7 +185,10 @@ export async function scoreEmailRelevance(uid: string, input: TriageInput, deps:
       system: HEADER_SYSTEM,
       parts: [wrapUntrustedShared(headerBlock(input, HEADER_BODY_CHARS))],
       responseSchema: toVertexSchema(HEADER_SCHEMA),
-      maxOutputTokens: 16,
+      // 64, not 16: at 16 Vertex cut the answer at `{"relevant_` on every
+      // one of 199 real mails (live eval, 2026-11-11), so nothing was ever
+      // skipped. The answer is about 10 tokens; 64 costs at most 0.016¢.
+      maxOutputTokens: TRIAGE_MAX_OUTPUT_TOKENS,
       timeoutMs: 3_000,
       retry: false,
     });

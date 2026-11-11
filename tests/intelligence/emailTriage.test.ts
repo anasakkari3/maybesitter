@@ -32,7 +32,7 @@ import {
   DEFAULT_JEV_MODEL, RELEVANCE_INSTRUCTIONS, scoreWithJev,
 } from '../../lib/llm/jevClient';
 import {
-  EMAIL_TRIAGE_ACTION, TRIAGE_RULE, isAuditSample, scoreBucket, scoreEmailRelevance,
+  EMAIL_TRIAGE_ACTION, TRIAGE_RULE, isAuditSample, isConversationReply, scoreBucket, scoreEmailRelevance,
   triageAuditRate, triageMode, triageThreshold, type TriageInput, type TriageScore,
 } from '../../lib/intelligence/emailTriage';
 import { actionsToday, callsToday } from '../../lib/llm/usageGuard';
@@ -255,7 +255,8 @@ test('scoring: when Jev cannot answer, Gemini reads From, Subject and only the f
   assert.ok(text.includes('a'.repeat(600)));
   assert.ok(!text.includes('TAIL-NEVER-SENT'), 'nothing past 600 characters reaches the model');
   assert.ok(!request.system.includes(INPUT.subject!), 'the mail is never in the instructions');
-  assert.equal(request.maxOutputTokens, 16);
+  // The live eval saw 16 cut every answer mid-key; never ask for less than 64.
+  assert.ok((request.maxOutputTokens ?? 0) >= 64, `asked for ${request.maxOutputTokens}`);
   assert.equal(request.timeoutMs, 3_000);
   assert.equal(request.retry, false);
   assert.deepEqual((request.responseSchema as { required?: string[] }).required, ['relevant_probability']);
@@ -401,7 +402,7 @@ const markerPath = (uid: string, messageId: string) =>
 const legacyPath = (uid: string, messageId: string) =>
   `users/${uid}/${INTELLIGENCE_SOURCE_MARKERS}/${legacyMarkerIdFor(messageId)}`;
 
-interface Mail { id: string; sentByAccount?: boolean; isReply?: boolean; text?: string }
+interface Mail { id: string; sentByAccount?: boolean; isReply?: boolean; text?: string; subject?: string }
 
 async function scanHarness(uid: string, mails: readonly Mail[], score: TriageScore | null | ((input: TriageInput) => TriageScore | null)) {
   const storage = createMemoryStorage();
@@ -447,7 +448,7 @@ async function scanHarness(uid: string, mails: readonly Mail[], score: TriageSco
     getMessageById: async (id: string) => {
       const mail = mails.find(candidate => candidate.id === id)!;
       return { id, threadId: null, historyId: '101', receivedAt: '2026-11-10T09:00:00.000Z',
-        from: mail.sentByAccount ? 'me@example.com' : 'Clinic <desk@clinic.example>', subject: `Subject ${id}`,
+        from: mail.sentByAccount ? 'me@example.com' : 'Clinic <desk@clinic.example>', subject: mail.subject ?? `Subject ${id}`,
         text: mail.text ?? `Please sign body-of-${id}.`, sentByAccount: Boolean(mail.sentByAccount), isReply: Boolean(mail.isReply),
         isBulk: false, bodyFormat: 'text/plain' as const };
     },
@@ -542,6 +543,28 @@ test('scan, enforce: the person\'s own sent mail and self-replies are never scor
   assert.equal(h.calls.model >= 2, true);
   assert.notEqual((await h.marker('sent'))?.outcome, 'triaged');
   assert.notEqual((await h.marker('reply'))?.outcome, 'triaged');
+});
+
+test('rule 2: replies and forwards are recognised in English, Hebrew and Arabic; ordinary subjects are not', () => {
+  for (const subject of ['Re: project', 'RE:project', 'Fwd: invoice', 'FW: x', 'Re[2]: thread', 'AW: Termin', 'השב: פגישה', 'תשובה: שאלה', 'رد: الموعد', 'إعادة توجيه: ملف', '  re : spaced']) {
+    assert.equal(isConversationReply(subject), true, subject);
+  }
+  for (const subject of ['Reminder: pay', 'Registration open', 'Return policy', 'Free webinar', 'رداء', '', null, undefined]) {
+    assert.equal(isConversationReply(subject), false, String(subject));
+  }
+});
+
+test('scan, enforce: a reply or forward is never scored and is always read fully (rule 2)', async () => {
+  process.env.MAYBESITTER_EMAIL_TRIAGE_MODE = 'enforce';
+  process.env.MAYBESITTER_EMAIL_TRIAGE_AUDIT_RATE = '0';
+  const h = await scanHarness('scan-conversation', [{ id: 're', subject: 'Re:' }, { id: 'fwd', subject: 'Fwd: files' }, { id: 'plain' }], LOW);
+  await h.step();
+  await h.step();
+  await h.step();
+  assert.equal(h.calls.scorer, 1, 'only the ordinary mail is scored');
+  assert.notEqual((await h.marker('re'))?.outcome, 'triaged');
+  assert.notEqual((await h.marker('fwd'))?.outcome, 'triaged');
+  assert.equal((await h.marker('plain'))?.outcome, 'triaged');
 });
 
 test('scan, enforce + audit sample: a low score is still read fully, and a miss is logged without content', async () => {

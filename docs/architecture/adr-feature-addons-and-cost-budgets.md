@@ -41,9 +41,29 @@ Free budgets sum to 40¢; an account with no purchase is also held by the accoun
 Owner idea, 2026-11-10: skim like a person. Stage 1 is the existing free bulk filter. Stage 2 scores From + Subject + the first lines for relevance and skips the full read below a threshold. Stage 3 is the full Gemini read. Stage 4 is the existing post-read filter (verbatim evidence, own text, single agreement sentence). See `lib/intelligence/emailTriage.ts`.
 
 - Scorer order: TypeSafe Jev (`MAYBESITTER_JEV_URL`, no default: off until an endpoint with a signed DPA is configured; `MAYBESITTER_JEV_MODEL`, secret `MAYBESITTER_JEV_API_KEY`), then a Gemini header-only call (`purpose: 'email_triage'`, its own 600/day action cap so it never eats the capture caps), then a full read. It fails open on quality.
-- Self-replies and dated candidates are never triaged out. A deterministic audit sample of skipped mail is read anyway, and a miss is logged content-free.
+- Self-replies, dated candidates and (rule 2) any reply or forward (`isConversationReply`) are never triaged out. A deterministic audit sample of skipped mail is read anyway, and a miss is logged content-free.
 - `MAYBESITTER_EMAIL_TRIAGE_MODE` is `off` in both environments. The threshold defaults to 0.15 and is clamped to at most 0.5.
 - **Before any real user:** Jev runs in the United States. It needs a DPA with SCCs, an update to the processor disclosure, and a before/after run on an owner-labelled mail set showing zero lost commitments. On 2026-11-10 the owner's jevai.org key authenticated (`tools/list` worked) but `tools/call` answered "credentials or model access were rejected", and REST `/api/v1/decisions` returned 502. No live decision has been observed yet. On 2026-11-11 every jevai.org tool still answered the same rejection, and a read of the site showed it is a community hub with no named operator, terms or privacy policy, not TypeSafe's own API. Mail text never goes there: the default endpoint was removed and the deploy flags leave `MAYBESITTER_JEV_URL` empty. Jev comes back only through TypeSafe directly or a gateway with a DPA (Vercel, Cloudflare, OpenRouter list it).
+
+### Golden-set run, 2026-11-11 (Gemini header scorer)
+
+`scripts/run-email-triage-eval.ts`, run on 199 inbox mails from the owner's last 60 days (Promotions and Social tabs excluded) at the owner's order. Claude labelled them, not the owner: 9 hold a commitment, 19 are borderline, 171 hold nothing. The set and the per-mail report live outside the repository in `~/.config/maybesitter/golden-mail/` (0600). The scorer saw From, Subject and Gmail's snippet (about 150 characters), which is less than the 600 characters the scan sends, so the recall below is a lower bound.
+
+- **The first run found a defect.** All 199 calls were billed (1.54¢), and none was scored. `maxOutputTokens: 16` cut every answer at `{"relevant_`, so the fallback could never skip a mail. It is now 64 (`TRIAGE_MAX_OUTPUT_TOKENS`, and a test pins ≥ 64).
+- Second run cost 1.89¢ for 199 calls (≈ 0.0095¢ a mail):
+
+  | Threshold | Mail skipped | Commitments missed | Borderline missed |
+  |---|---|---|---|
+  | 0.10 | 5% | 0 | 0 |
+  | **0.15 (default)** | **85%** | **0** | 3 |
+  | 0.30 | 85% | 1 | 3 |
+
+  The three borderline mails missed at 0.15 are a CI failure notice, a shared course folder and a recruiter's thank-you.
+- The one commitment missed at 0.30 was a lecturer's reply with the subject "Re:". It scored 0.2, one coarse step above the default. Rule 2 now reads every reply and forward. With that rule applied, none of the 9 commitments is skipped at any threshold up to 0.5.
+- Limits:
+  - Nine positives is a small sample.
+  - The free bulk rule would already remove many of these job alerts before triage, so the saving on top of it is smaller than 85%.
+  - Before enforce, re-run on full 600-character bodies and on the owner's own labels.
 
 ## Adding a feature
 
