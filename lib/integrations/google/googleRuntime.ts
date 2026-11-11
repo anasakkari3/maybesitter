@@ -18,6 +18,7 @@ import type { FieldEncryptionOptions } from '../../security/fieldEncryption';
 import type { ShareStructuredGenerator } from '../../llm/shareProvider';
 import type { LLMProviderFunction } from '../../../src/extraction/ollamaExtractor';
 import type { LlmProvider } from '../../../src/extraction/llm/llmProvider';
+import type { EmailTriageFn } from '../../intelligence/emailTriage';
 import { secretManagerReader, type GoogleConfigEnv, type GoogleSecretReader } from './googleConfig';
 
 export interface GoogleRuntime {
@@ -44,6 +45,12 @@ export interface GoogleRuntime {
    */
   readonly shareProvider?: LlmProvider;
   readonly captureProvider?: LlmProvider;
+  /**
+   * Test seam for the Gmail triage scorer (`lib/intelligence/emailTriage.ts`).
+   * Absent in production, where the scan scores with Jev and the Gemini header
+   * fallback; a test puts a counting fake here so nothing reaches the network.
+   */
+  readonly emailTriage?: EmailTriageFn;
 }
 
 let overrides: Partial<GoogleRuntime> | null = null;
@@ -64,6 +71,7 @@ export function googleRuntime(): GoogleRuntime {
     ...(overrides?.captureModel ? { captureModel: overrides.captureModel } : {}),
     ...(overrides?.shareProvider ? { shareProvider: overrides.shareProvider } : {}),
     ...(overrides?.captureProvider ? { captureProvider: overrides.captureProvider } : {}),
+    ...(overrides?.emailTriage ? { emailTriage: overrides.emailTriage } : {}),
   };
 }
 

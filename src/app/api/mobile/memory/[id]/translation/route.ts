@@ -1,4 +1,5 @@
 import { mobileAuthErrorResponse, requireMobileUser } from '../../../../../../../lib/auth/mobileAuth';
+import { featureLockedResponse } from '../../../../../../../lib/features/featureRoute';
 import { resolveMemoryTranslation } from '../../../../../../../lib/release/m6Capabilities';
 import {
   MEMORY_TRANSLATION_ROUTE_BUDGET_MS,
@@ -51,6 +52,8 @@ export async function POST(request: Request, context: RouteContext): Promise<Res
   if (!resolveMemoryTranslation()) return featureUnavailable();
   const disabled = moduleDisabledResponse('memory');
   if (disabled) return disabled;
+  const locked = await featureLockedResponse(user.uid, 'memory_translation');
+  if (locked) return locked;
 
   let raw: unknown;
   try { raw = await readJsonBody(request, { limitBytes: 1024 }); }

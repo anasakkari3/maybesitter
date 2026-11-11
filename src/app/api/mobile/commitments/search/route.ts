@@ -1,4 +1,5 @@
 import { mobileAuthErrorResponse, requireMobileUser } from '../../../../../../lib/auth/mobileAuth';
+import { featureLockedResponse } from '../../../../../../lib/features/featureRoute';
 import { resolveSearchHistory } from '../../../../../../lib/release/m6Capabilities';
 import { searchCommitments } from '../../../../../../lib/services/mobile/commitmentSearchService';
 import { commitmentToMobileDto } from '../../../../../../lib/services/mobile/response';
@@ -32,6 +33,8 @@ export async function POST(request: Request): Promise<Response> {
       { status: 404 },
     );
   }
+  const locked = await featureLockedResponse(user.uid, 'search_history');
+  if (locked) return locked;
 
   let body: { q?: unknown; limit?: unknown };
   try {

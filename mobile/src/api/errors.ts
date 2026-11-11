@@ -339,11 +339,13 @@ export class DeviceCalendarLinkConflictError extends ConflictError {
  *
  * `scope` decides which line the user is shown. `global_daily` is nobody's
  * fault, and its copy says so rather than implying they did something.
+ * `user_monthly` is one feature's monthly allowance: it refills on the 1st of
+ * the next month (UTC), and `retryAfterSeconds` counts down to it.
  *
  * Whatever the user typed is kept by the composer regardless: losing somebody's
  * words because a counter was full would be the worst possible response.
  */
-export type QuotaScope = 'user_daily' | 'user_minute' | 'global_daily';
+export type QuotaScope = 'user_daily' | 'user_minute' | 'global_daily' | 'user_monthly';
 
 export class QuotaExceededError extends ApiError {
   constructor(

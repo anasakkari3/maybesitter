@@ -1,3 +1,5 @@
+import { decideFeature, refuses, type FeatureDecision } from '../features/featureGate';
+import { featureHooksFor } from '../features/providerGate';
 import { createHash, randomUUID } from 'node:crypto';
 import { applyCommand, type Command, type DomainEvent } from '../../src/domain/stateMachine';
 import { mapExtractionToCommand } from '../../src/extraction/mapExtractionToCommand';
@@ -42,6 +44,10 @@ import {
 } from '../storage';
 import { M5A_CONTROLS_PATH, parseM5aControls } from '../release/m5aControls';
 import { analyzeSourceStaged } from './analyzeSource';
+import {
+  TRIAGE_RULE, isAuditSample, isConversationReply, scoreBucket, scoreEmailRelevance, triageAuditRate, triageMode, triageThreshold,
+  type TriageScore,
+} from './emailTriage';
 import { autoAddPath, commitmentBaselineFingerprint, type AutoAddRecord } from './autoAdds';
 import { observationId, type StoredObservation } from './observationStore';
 import { ownTextOf } from './ownText';
@@ -90,9 +96,13 @@ export interface M5aMarker {
   readonly providerMarkerId?: string;
   readonly preexisting?: boolean;
   readonly processedAt?: string;
-  readonly outcome?: 'analyzed' | 'trimmed' | 'empty' | 'bulk' | 'unanalysed';
+  readonly outcome?: 'analyzed' | 'trimmed' | 'empty' | 'bulk' | 'unanalysed' | 'triaged';
   /** The `GMAIL_BULK_RULE` that skipped a bulk message; absent means rule 1. */
   readonly bulkRule?: number;
+  /** The `TRIAGE_RULE` that finished a mail without the full read (lib/intelligence/emailTriage.ts). */
+  readonly triageRule?: number;
+  /** The relevance score that triaged it, rounded to 3 decimals. */
+  readonly triageScore?: number;
   /** Failed analyses after a real model dispatch; never quota or minute deferrals (#815). */
   readonly analysisAttempts?: number;
   /**
@@ -125,6 +135,11 @@ export interface ScanCounts {
   messagesRead: number;
   /** Optional while persisted scans created by older builds still exist. */
   messagesSkippedBulk?: number;
+  /**
+   * Finished on a low triage score, without the full model read. Internal: not
+   * part of the mobile scan projection. Absent until the first triaged mail.
+   */
+  messagesSkippedTriage?: number;
   /** Read, but analysis failed M5A_MAX_ANALYSIS_ATTEMPTS times (#815). Optional for older rows. */
   messagesUnanalysed?: number;
   messagesUnavailable: number;
@@ -206,6 +221,12 @@ export function markerDecision(
     // A bulk skip made by an older, broader rule is re-examined, and analysed
     // if the current rule keeps the message. Its receipts stay on the marker.
     if (reader === 'm5a' && current.outcome === 'bulk' && (current.bulkRule ?? 1) < GMAIL_BULK_RULE) return 'claim';
+    // A triage skip is only as good as the setting that made it: an older
+    // rule, triage no longer enforced, or a threshold lowered past the stored
+    // score re-reads the mail, so turning triage down never leaves a skipped
+    // commitment unread for good (review P2-8).
+    if (reader === 'm5a' && current.outcome === 'triaged' && ((current.triageRule ?? 0) < TRIAGE_RULE
+      || triageMode() !== 'enforce' || (current.triageScore ?? 0) >= triageThreshold())) return 'claim';
     return reader === 'm5a' ? 'count' : reader === 'base' ? 'skip' : 'none';
   }
   if (current.state === 'waiting_for_calendar') return reader === 'cleanup' ? 'release' : 'block';
@@ -519,6 +540,9 @@ async function autoAddCandidate(
     : captureLlmProvider(uid, {
       purpose: 'capture_extraction',
       now: runtime.now,
+      // Turning the person's own emailed agreement into an item is part of
+      // reading their mail: the Gmail add-on pays for it, not the assistant.
+      features: featureHooksFor('gmail_reading', runtime.storage),
       ...(runtime.captureProvider ? { provider: runtime.captureProvider } : {}),
       ...(permit ? { quotaPermit: { permit, slot: 1, storage: runtime.storage } } : {}),
     });
@@ -736,6 +760,8 @@ async function countFinishedMarker(
       ...current,
       messagesRead: current.messagesRead + receipt.readDelta,
       messagesSkippedBulk: (current.messagesSkippedBulk ?? 0) + (receipt.readDelta && marker.outcome === 'bulk' ? 1 : 0),
+      ...(receipt.readDelta && marker.outcome === 'triaged'
+        ? { messagesSkippedTriage: (current.messagesSkippedTriage ?? 0) + 1 } : {}),
       messagesUnanalysed: (current.messagesUnanalysed ?? 0) + (receipt.readDelta && marker.outcome === 'unanalysed' ? 1 : 0),
       messagesUnavailable: current.messagesUnavailable + receipt.unavailableDelta,
       observationsFound: current.observationsFound + (receipt.readDelta ? marker.observationIds?.length ?? 0 : 0),
@@ -977,11 +1003,70 @@ async function processMessage(
       });
       return;
     }
+    // Finished as read without the full model call, exactly as a bulk skip is.
+    const finishTriaged = (probability: number) => storage.runTransaction(async tx => {
+      await assertScanAuthorityWithReader(uid, claimedScan, owner, tx);
+      const [scan, daily, provider, legacy] = await Promise.all([
+        tx.get<M5aScanDocument>(scanDocumentPath(uid, claimedScan.kind)),
+        tx.get<M5aScanDocument>(dailyScanPath(uid)),
+        tx.get<M5aMarker>(markerPath(uid, providerMarkerId)), tx.get<M5aMarker>(markerPath(uid, legacyMarkerId)),
+      ]);
+      if (!scan || scan.scanId !== claimedScan.scanId || scan.leaseOwner !== owner
+        || provider?.owner !== claimOwner || legacy?.owner !== claimOwner) return;
+      const marker: M5aMarker = {
+        ...provider, state: 'done', owner: undefined, leaseUntil: undefined,
+        processedAt: runtime.now().toISOString(), outcome: 'triaged', triageRule: TRIAGE_RULE,
+        triageScore: Math.round(probability * 1000) / 1000, observationIds: [], autoAddId: null,
+      };
+      const receipt = transitionReceipt(marker, scan.scanId, 'read',
+        [scan.scanId, daily?.scanId].filter(Boolean) as string[]);
+      const done = Array.from(new Set([...(scan.page?.done ?? []), messageId]));
+      tx.set(markerPath(uid, providerMarkerId), receipt.marker);
+      tx.set(markerPath(uid, legacyMarkerId), { ...receipt.marker, providerMarkerId, providerAccountId: scan.providerAccountId });
+      tx.set(scanDocumentPath(uid, claimedScan.kind), advancePage({
+        ...scan,
+        messagesRead: scan.messagesRead + receipt.readDelta,
+        ...(receipt.readDelta ? { messagesSkippedTriage: (scan.messagesSkippedTriage ?? 0) + receipt.readDelta } : {}),
+        messagesUnavailable: scan.messagesUnavailable + receipt.unavailableDelta,
+        page: scan.page ? { ...scan.page, done } : null,
+      }));
+    });
     const raw = [message.subject ?? '', modelBodyFor(message.text)].filter(Boolean).join('\n');
     const prepared = trimForAnalysis(raw);
     const userAtExtraction = await storage.get<Record<string, unknown>>(userDoc(uid));
     const capturedTimezone = effectiveTimezone(userAtExtraction, claimedScan);
     const candidateSignals = preModelCandidateSignals(message, capturedTimezone?.value ?? null);
+    // Triage (lib/intelligence/emailTriage.ts): from the headers and the first
+    // lines, is this mail worth the full read? Never the person's own sent mail
+    // or a dated self-reply candidate: those feed the email auto-add. Never a
+    // reply or forward (rule 2). Any missing score reads the mail fully.
+    const triage = triageMode();
+    let featureDecision: FeatureDecision | null = null;
+    let auditSample: TriageScore | null = null;
+    if (triage !== 'off' && prepared.text && !runtime.shareModel && !message.sentByAccount && !candidateSignals
+      && !isConversationReply(message.subject)) {
+      // The monthly budget first: a spent month must not buy even a triage score.
+      featureDecision = await decideFeature(uid, 'gmail_reading', { now: runtime.now(), storage });
+      if (refuses(featureDecision)) throw new Error(featureDecision.reason === 'gate_unavailable' ? 'analysis_unavailable' : 'daily_limit');
+      await assertScanAuthority(uid, claimedScan, owner, runtime);
+      const input = { from: message.from ?? null, subject: message.subject ?? null, body: modelBodyFor(message.text) };
+      // A scorer failure of any kind is a missing score, never a failed scan.
+      const score = await Promise.resolve().then(() => runtime.emailTriage
+        ? runtime.emailTriage(uid, input)
+        : scoreEmailRelevance(uid, input, {
+          storage, now: runtime.now, ...(runtime.shareProvider ? { provider: runtime.shareProvider } : {}),
+        })).catch(() => null);
+      if (triage === 'shadow') {
+        if (score) console.warn(JSON.stringify({ event: 'email_triage_shadow', scorer: score.scorer, bucket: scoreBucket(score.probability) }));
+      } else if (score && score.probability < triageThreshold()) {
+        if (isAuditSample(messageId, triageAuditRate())) {
+          auditSample = score;
+        } else {
+          await finishTriaged(score.probability);
+          return;
+        }
+      }
+    }
     let forceAutoAddOff = claimed.forceAutoAddOff;
     if (candidateSignals) {
       const coverage = await calendarCoverageForEmail(uid, runtime);
@@ -999,6 +1084,11 @@ async function processMessage(
     // this branch, so end-to-end quota tests exercise the same adapter and
     // whole-unit permit path as production without consuming real model calls.
     if (prepared.text && !runtime.shareModel) {
+      // The Gmail add-on's monthly budget, before the permit (lib/features). A
+      // spent month ends the scan the way a spent day does; resuming it costs
+      // nothing, because this check runs before any model call.
+      const feature = featureDecision ?? await decideFeature(uid, 'gmail_reading', { now: runtime.now(), storage });
+      if (refuses(feature)) throw new Error(feature.reason === 'gate_unavailable' ? 'analysis_unavailable' : 'daily_limit');
       const calls = candidateSignals && !forceAutoAddOff ? 2 : 1;
       const reservation = await reserveQuotaPermit(uid, 'semantic_observation', {
         owner: claimOwner, calls, tokenBudget: calls === 2 ? M5A_PERMIT_TOKENS.twoCalls : M5A_PERMIT_TOKENS.oneCall,
@@ -1022,6 +1112,7 @@ async function processMessage(
         }
         : shareLlmProvider(uid, {
           purpose: 'semantic_observation', quotaPermit: { permit, slot: 0, storage, onStarted: markDispatched }, now: runtime.now,
+          features: featureHooksFor('gmail_reading', storage),
           ...(runtime.shareProvider ? { provider: runtime.shareProvider } : {}),
         })
       : runtime.shareModel;
@@ -1039,6 +1130,10 @@ async function processMessage(
       }
       : undefined;
     const observations = prepared.text ? await analyzeSourceStaged(uid, 'gmail', prepared.text, generate ? { generate } : {}) : [];
+    if (auditSample && observations.length > 0) {
+      // A mail triage would have skipped held something: content-free, so misses are measurable.
+      console.warn(JSON.stringify({ event: 'email_triage_audit_miss', scorer: auditSample.scorer, bucket: scoreBucket(auditSample.probability) }));
+    }
     const candidate = forceAutoAddOff ? null : await autoAddCandidate(
       uid, message, observations, capturedTimezone, runtime, permit,
       () => assertScanAuthority(uid, claimedScan, owner, runtime),
@@ -1238,6 +1333,16 @@ export async function runM5aScanStep(
     return next;
   });
   if (!claimed) return;
+  // The Gmail add-on decides before any token refresh or mail fetch (review
+  // P2-7): switched off or not bought reads as monitoring off, a spent month
+  // as the spent-day state, and neither touches Gmail.
+  const feature = await decideFeature(uid, 'gmail_reading', { now, storage });
+  if (refuses(feature)) {
+    const failure: ScanFailure = feature.reason === 'gate_unavailable' ? 'analysis_unavailable'
+      : feature.reason === 'budget_spent' || feature.reason === 'free_cap_spent' ? 'daily_limit' : 'monitoring_off';
+    await failScan(uid, kind, claimed.scanId, owner, failure, storage, now.toISOString());
+    return;
+  }
   try {
     await assertScanAuthority(uid, claimed, owner, runtime);
     await ensureReadable();

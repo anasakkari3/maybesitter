@@ -92,7 +92,7 @@ const TASKS: ReadonlySet<Screen> = new Set<Screen>(['capture', 'share', 'deleteA
 const SETTINGS_LEAVES: ReadonlySet<Screen> = new Set<Screen>([
   'myMaybeSitter', 'integrations', 'googleIntegration', 'personalization', 'backgroundActivity',
   'trust', 'knows', 'memory', 'aiImport', 'feedbackHistory', 'activity', 'routineSettings', 'weeklyBlocks', 'readinessSettings',
-  'notificationsSettings', 'calendarSettings', 'calendarFeeds', 'footballSettings', 'categorySettings',
+  'notificationsSettings', 'calendarSettings', 'calendarFeeds', 'footballSettings', 'featuresSettings', 'categorySettings',
   'widgetSettings', 'places', 'about', 'langAppearance', 'account', 'sources',
 ]);
 

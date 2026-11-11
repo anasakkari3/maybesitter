@@ -1,3 +1,9 @@
+import {
+  chargeProviderFeature,
+  checkProviderFeature,
+  releaseProviderFeature,
+  worstCaseCallNanoUsd,
+} from '../../features/providerGate';
 import { LANGUAGE_RULE } from '../../intelligence/proposalEngine';
 import { consentGatedProvider } from '../../llm/consentGatedProvider';
 import { logLlmCall, uidHash } from '../../llm/llmLog';
@@ -280,8 +286,17 @@ export async function proposeMemoryTranslation(input: {
   const remaining = MEMORY_TRANSLATION_ROUTE_BUDGET_MS - (Date.now() - input.startedAt);
   if (remaining < MINIMUM_ATTEMPT_BUDGET_MS || input.signal.aborted) return { status: 'unavailable' };
   const usageNow = new Date(input.now);
+  const prompt = promptFor(memory.content, from, input.locale);
+  // The translation add-on's monthly budget (lib/features), before the daily slot.
+  const feature = await checkProviderFeature(input.uid, 'memory_translate', {}, usageNow,
+    worstCaseCallNanoUsd(prompt.length, 2048));
+  if (feature.refusal) return { status: 'unavailable' };
   const reservation = await reserveCall(input.uid, 'memory_translate', { storage: getStorage(), now: usageNow });
-  if (reservation !== 'ok') return { status: 'unavailable' };
+  if (reservation !== 'ok') {
+    await releaseProviderFeature(input.uid, feature, {}, usageNow);
+    return { status: 'unavailable' };
+  }
+  let charged = false;
 
   const timeoutMs = Math.min(MEMORY_TRANSLATION_ATTEMPT_TIMEOUT_MS, remaining);
   const attemptTimer = setTimeout(input.abort, timeoutMs);
@@ -289,7 +304,7 @@ export async function proposeMemoryTranslation(input: {
   try {
     const response = await provider.generateStructured({
       system: 'Propose one faithful translation. Return only JSON matching the schema.',
-      parts: [{ kind: 'text', text: promptFor(memory.content, from, input.locale) }],
+      parts: [{ kind: 'text', text: prompt }],
       responseSchema: RESPONSE_SCHEMA,
       purpose: 'memory_translate',
       uid: input.uid,
@@ -301,6 +316,8 @@ export async function proposeMemoryTranslation(input: {
       promptTokens: response.promptTokens,
       outputTokens: response.outputTokens,
     }, { storage: getStorage(), now: usageNow });
+    await chargeProviderFeature(input.uid, feature, response, {}, usageNow);
+    charged = true;
     const text = strictText(parseJson(response.text));
     const valid = text !== null && validMemoryTranslation(memory.content, text, input.locale);
     logLlmCall({
@@ -318,6 +335,7 @@ export async function proposeMemoryTranslation(input: {
     if (!valid || text === null) return { status: 'unavailable' };
     return { status: 'ready', text, from, to: input.locale, memoryId: memory.id };
   } catch (error) {
+    if (!charged) await releaseProviderFeature(input.uid, feature, {}, usageNow);
     logLlmCall({
       event: 'llm_call',
       purpose: 'memory_translate',

@@ -58,7 +58,10 @@ export function planFailureOf(error: unknown, t: Strings): PlanFailure | null {
   if (error instanceof NetworkError || error instanceof TimeoutError) {
     return { reason: 'offline', message: t.xPlanFailOffline, recoveries: ['when_online'] };
   }
-  if (error instanceof QuotaExceededError) return { reason: 'daily_cap_reached', message: t.xPlanFailDailyCap, recoveries: [] };
+  if (error instanceof QuotaExceededError) {
+    // A spent month is not "come back tomorrow" (lib/features, user_monthly).
+    return { reason: 'daily_cap_reached', message: error.scope === 'user_monthly' ? t.aiQuotaUserMonthly : t.xPlanFailDailyCap, recoveries: [] };
+  }
   if (error instanceof ServiceUnavailableError) {
     return { reason: 'model_unavailable', message: t.xPlanFailModelUnavailable, recoveries: ['retry', 'template'] };
   }
@@ -110,7 +113,7 @@ function refusal(error: GoalPlanRefusedError, t: Strings): PlanFailure {
 export function planBuildFailureOf(error: unknown, t: Strings): string | null {
   if (!error) return null;
   if (error instanceof NetworkError || error instanceof TimeoutError) return t.xPlanBuildOffline;
-  if (error instanceof QuotaExceededError) return t.xPlanBuildDailyCap;
+  if (error instanceof QuotaExceededError) return error.scope === 'user_monthly' ? t.aiQuotaUserMonthly : t.xPlanBuildDailyCap;
   // Any other typed refusal (a date out of range is a 400) keeps the words it
   // already has; only the build's own reason, or an untyped error carrying
   // one, is read here.

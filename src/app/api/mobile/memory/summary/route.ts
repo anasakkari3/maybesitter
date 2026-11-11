@@ -1,4 +1,5 @@
 import { mobileAuthErrorResponse, requireMobileUser } from '../../../../../../lib/auth/mobileAuth';
+import { featureLockedResponse } from '../../../../../../lib/features/featureRoute';
 import { resolveMemoryLearning } from '../../../../../../lib/release/m5bCapabilities';
 import { MEMORY_SUMMARY_ROUTE_BUDGET_MS, buildMemorySummary, type MemorySummaryLanguage } from '../../../../../../lib/services/mobile/memorySummary';
 import { moduleDisabledResponse } from '../../../../../../lib/services/mobile/moduleGate';
@@ -13,6 +14,8 @@ export async function GET(request: Request): Promise<Response> {
   if (!resolveMemoryLearning()) return Response.json({ success: false, error: 'm5b_unavailable' }, { status: 404 });
   const disabled = moduleDisabledResponse('memory');
   if (disabled) return disabled;
+  const locked = await featureLockedResponse(user.uid, 'memory_learning');
+  if (locked) return locked;
   const language = new URL(request.url).searchParams.get('language');
   if (language !== 'ar' && language !== 'en' && language !== 'he') {
     return Response.json({ success: false, error: 'language must be ar, en, or he' }, { status: 400 });

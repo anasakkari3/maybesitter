@@ -36,6 +36,7 @@ const ALLOWED: readonly RegExp[] = [
   /^String\(conflict\.(providerValue|manualValue)\)$/, // a number from the ledger
   /^`\$\{length\} \/ \$\{cap\}`$/, // SetupChatStep's answer counter: two numbers, "50 / 150"
   /^localTime$/, // freeSlotWords (M4a): an `HH:MM` checked against /^([01]\d|2[0-3]):[0-5]\d$/ first
+  /^`\$\{clamped\}%`$/, // FeaturesSettingsScreen's usage meter: a whole number 0–100 and "%"
 ];
 
 function sourceFiles(dir: string): string[] {

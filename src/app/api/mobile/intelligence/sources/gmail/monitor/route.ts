@@ -1,4 +1,5 @@
 import { mobileAuthErrorResponse, requireMobileUser } from '../../../../../../../../lib/auth/mobileAuth';
+import { featureLockedResponse } from '../../../../../../../../lib/features/featureRoute';
 import { getAiConsent } from '../../../../../../../../lib/consents/aiConsentService';
 import { googleFailureResponse } from '../../../../../../../../lib/integrations/google/googleRouteSupport';
 import { googleRuntime } from '../../../../../../../../lib/integrations/google/googleRuntime';
@@ -33,6 +34,12 @@ export async function POST(request: Request) {
   }
   const enabled = (body as { enabled?: unknown } | null)?.enabled;
   if (typeof enabled !== 'boolean') return Response.json({ success: false, reason: 'invalid_body' }, { status: 400 });
+  // Switching monitoring on starts recurring paid reads: the Gmail add-on
+  // decides it. Switching it off is always allowed.
+  if (enabled) {
+    const locked = await featureLockedResponse(user.uid, 'gmail_reading');
+    if (locked) return locked;
+  }
   if (enabled && await getAiConsent(user.uid) !== 'granted') {
     return Response.json({ success: false, reason: 'consent_required' }, { status: 403 });
   }

@@ -95,6 +95,13 @@ export interface WatcherSweepOptions {
   now?: Date;
   limit?: number;
   registry?: WatcherSignalRegistry;
+  /**
+   * A watcher whose owner switched its feature off is passed over this tick:
+   * not evaluated, not fired, its state untouched, so switching the feature
+   * back on resumes it where it was. The caller decides (lib/jobs); this
+   * module never reads a feature decision itself.
+   */
+  skip?: (watcher: { readonly scopeId: string; readonly signalKind: string }) => Promise<boolean>;
 }
 
 function emptyTotals(): WatcherSweepTotals {
@@ -478,6 +485,8 @@ export async function runWatcherSweep(options: WatcherSweepOptions = {}): Promis
 
   for (const row of rows) {
     try {
+      const { scopeId, source } = row.stored.definition;
+      if (options.skip && await options.skip({ scopeId, signalKind: source.signalKind })) continue;
       for (const counter of await evaluateOne(row.stored, now, storage, registry)) {
         totals[counter] += 1;
       }

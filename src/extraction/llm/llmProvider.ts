@@ -40,7 +40,9 @@ export type LlmPurpose =
   /** A transient, cited paragraph over the person's visible memory rows (M5b-1). */
   | 'memory_summary'
   /** A transient proposal translating one selected memory row (M6a-2). */
-  | 'memory_translate';
+  | 'memory_translate'
+  /** Is one email worth a full read? From, Subject and the first lines only (2026-11-10). */
+  | 'email_triage';
 
 export type LlmProviderName = 'gemini' | 'ollama' | 'none';
 

@@ -85,7 +85,10 @@ export async function analyzeSource(
   if (!content || content.length > 12_000) throw new Error('source_text_invalid');
   let observations: SemanticObservation[] = [];
   try {
-    const generate = options.generate ?? shareLlmProvider(uid, { purpose: 'semantic_observation' });
+    const generate = options.generate ?? shareLlmProvider(uid, {
+      purpose: 'semantic_observation',
+      ...(source === 'gmail' ? { features: { feature: 'gmail_reading' as const } } : {}),
+    });
     const response = await generate({
       system: semanticPrompt(),
       parts: [wrapUntrustedShared(content)],
@@ -117,7 +120,10 @@ export async function analyzeSourceStaged(
   const content = text.trim();
   if (!content || content.length > 12_000) throw new Error('source_text_invalid');
   try {
-    const generate = options.generate ?? shareLlmProvider(uid, { purpose: 'semantic_observation' });
+    const generate = options.generate ?? shareLlmProvider(uid, {
+      purpose: 'semantic_observation',
+      ...(source === 'gmail' ? { features: { feature: 'gmail_reading' as const } } : {}),
+    });
     const response = await generate({
       system: semanticPrompt(),
       parts: [wrapUntrustedShared(content)],

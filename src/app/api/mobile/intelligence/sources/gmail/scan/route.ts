@@ -1,4 +1,5 @@
 import { mobileAuthErrorResponse, requireMobileUser } from '../../../../../../../../lib/auth/mobileAuth';
+import { featureLockedResponse } from '../../../../../../../../lib/features/featureRoute';
 import { getAiConsent } from '../../../../../../../../lib/consents/aiConsentService';
 import { googleFailureResponse } from '../../../../../../../../lib/integrations/google/googleRouteSupport';
 import { googleRuntime } from '../../../../../../../../lib/integrations/google/googleRuntime';
@@ -61,6 +62,8 @@ export async function POST(request: Request) {
   if (disabled) return disabled;
   let user;
   try { user = await requireMobileUser(request); } catch (error) { return mobileAuthErrorResponse(error); }
+  const locked = await featureLockedResponse(user.uid, 'gmail_reading');
+  if (locked) return locked;
   let body: Record<string, unknown> = {};
   if (request.headers.get('content-type')?.includes('application/json')) {
     try { body = await readJsonBody<Record<string, unknown>>(request); }

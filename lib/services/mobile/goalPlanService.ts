@@ -1,3 +1,4 @@
+import { retryAfterSecondsFor } from '../../llm/usageGuard';
 import { createHash, randomUUID } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 import {
@@ -351,6 +352,11 @@ async function modelPlan(uid: string, goalText: string, language: GoalStepLangua
   } catch (error) {
     if (error instanceof GoalPlanApiError) throw error;
     const reason = (error as { reason?: unknown })?.reason;
+    // A spent month says so, with the monthly scope the app's quota parser
+    // trusts; every other cap keeps the daily answer it always had.
+    if (reason === 'cost_cap:user_monthly') {
+      apiError(429, 'monthly_cap_reached', { scope: 'user_monthly', retryAfterSeconds: retryAfterSecondsFor('user_monthly', new Date()) });
+    }
     if (typeof reason === 'string' && reason.startsWith('cost_cap:')) apiError(429, 'daily_cap_reached');
     apiError(503, 'model_unavailable', { recovery: 'template' });
   }

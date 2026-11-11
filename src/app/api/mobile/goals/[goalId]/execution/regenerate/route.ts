@@ -1,5 +1,6 @@
 import { AccountUnavailableError, accountUnavailableResponse } from '../../../../../../../../lib/account/accountLiveness';
 import { mobileAuthErrorResponse, requireMobileUser } from '../../../../../../../../lib/auth/mobileAuth';
+import { featureLockedResponse } from '../../../../../../../../lib/features/featureRoute';
 import { mobileError } from '../../../../../../../../lib/services/mobile/response';
 import { RequestBodyTooLargeError, readBoundedText, requestBodyTooLargeResponse } from '../../../../../../../../lib/net/requestBody';
 import {
@@ -45,6 +46,8 @@ export async function POST(request: Request, context: RouteContext) {
   } catch (error) {
     return mobileAuthErrorResponse(error);
   }
+  const locked = await featureLockedResponse(user.uid, 'goal_plans');
+  if (locked) return locked;
 
   // A body is optional here: regenerating from the first reading is the
   // common case and a client should not have to send `{}` to ask for it.

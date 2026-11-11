@@ -117,6 +117,10 @@ export type Screen =
   // Settings → Football (football fixtures MVP, Task 11). Pick clubs, see
   // the matches following them just projected, dismiss the ones you don't want.
   | 'footballSettings'
+  // Settings → Features («الميزات»): the core and the add-ons, the person's
+  // switch for each add-on, and this month's allowance. Offered only while the
+  // server's gate is not `off`.
+  | 'featuresSettings'
   // Settings → Calendar → Calendar links (UC-3.4, #188). Subscribed ICS
   // feeds and the deadlines they propose.
   | 'calendarFeeds'
