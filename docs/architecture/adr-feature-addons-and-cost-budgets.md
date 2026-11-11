@@ -17,7 +17,7 @@ The owner wants the subscription to become a bundle of per-feature subscriptions
    - the add-on routes, which answer the existing 404 `feature_unavailable` (`lib/features/featureRoute.ts`) so installed apps already hide them;
    - `GET /api/mobile/capabilities/features` (+ `PUT …/[id]` for the person's switch), which the app reads to show or hide surfaces.
 4. **Rollout mode** — `MAYBESITTER_ADDON_GATE_MODE`: `off` (default; reads and writes nothing, the product behaves exactly as before), `shadow` (decide and log `shadow_deny`, never obey), `enforce`. Staging is `shadow`, production `off`.
-5. **Money** — integer nano-dollars (1¢ = 10⁷ n$). List prices in `lib/features/pricing.ts`: Gemini 2.5 Flash $0.30/M in, $2.50/M out; Jev $0.042/M in, output free. GCP Billing stays the source of truth.
+5. **Money** — integer nano-dollars (1¢ = 10⁷ n$). List prices in `lib/features/pricing.ts`: Gemini 2.5 Flash $0.30/M in, $2.50/M out. GCP Billing stays the source of truth.
 6. **Holds, not read-then-charge** — under `enforce` a call holds its worst-case cost (all allowed output tokens, the prompt at two characters a token) in `users/{uid}/usage/spend-YYYY-MM` inside the transaction that checks the budget, then settles to the real cost or releases on failure; holds expire after 15 minutes. Every path that spends on the model holds: both providers and the services that call the gated provider directly (memory summary, memory translation, plan narration). `tests/features/featureSpendCoverage.test.ts` fails on a new direct spender.
 7. **The free ceiling holds for everyone** over the features they use on a free allowance; a purchase raises only its own feature. `tests/features/catalog.test.ts` checks each purchase's added budget against its net after 18% VAT and a 30% store fee.
 8. **A spent budget** refuses as `cost_cap:user_monthly` (new `QuotaScope 'user_monthly'`, waits until the next UTC month). Capture falls back to rules; M5a ends the scan as a spent day does, and resuming costs nothing because the check runs before any model call. An unreadable gate refuses under `enforce` only (same rule as `usageGuard`).
@@ -40,10 +40,10 @@ Free budgets sum to 40¢; an account with no purchase is also held by the accoun
 
 Owner idea, 2026-11-10: skim like a person. Stage 1 is the existing free bulk filter. Stage 2 scores From + Subject + the first lines for relevance and skips the full read below a threshold. Stage 3 is the full Gemini read. Stage 4 is the existing post-read filter (verbatim evidence, own text, single agreement sentence). See `lib/intelligence/emailTriage.ts`.
 
-- Scorer order: TypeSafe Jev (`MAYBESITTER_JEV_URL`, no default: off until an endpoint with a signed DPA is configured; `MAYBESITTER_JEV_MODEL`, secret `MAYBESITTER_JEV_API_KEY`), then a Gemini header-only call (`purpose: 'email_triage'`, its own 600/day action cap so it never eats the capture caps), then a full read. It fails open on quality.
+- Scorer: one Gemini call over From, Subject and the first 600 characters (`purpose: 'email_triage'`, its own 600/day action cap so it never eats the capture caps), only while budgets are enforced; no score means a full read. It fails open on quality.
 - Self-replies, dated candidates and (rule 2) any reply or forward (`isConversationReply`) are never triaged out. A deterministic audit sample of skipped mail is read anyway, and a miss is logged content-free.
 - `MAYBESITTER_EMAIL_TRIAGE_MODE` is `off` in both environments. The threshold defaults to 0.15 and is clamped to at most 0.5.
-- **Before any real user:** Jev runs in the United States. It needs a DPA with SCCs, an update to the processor disclosure, and a before/after run on an owner-labelled mail set showing zero lost commitments. On 2026-11-10 the owner's jevai.org key authenticated (`tools/list` worked) but `tools/call` answered "credentials or model access were rejected", and REST `/api/v1/decisions` returned 502. No live decision has been observed yet. On 2026-11-11 every jevai.org tool still answered the same rejection, and a read of the site showed it is a community hub with no named operator, terms or privacy policy, not TypeSafe's own API. Mail text never goes there: the default endpoint was removed and the deploy flags leave `MAYBESITTER_JEV_URL` empty. Jev comes back only through TypeSafe directly or a gateway with a DPA (Vercel, Cloudflare, OpenRouter list it).
+- **Jev was dropped (owner, 2026-11-11).** Its weights are closed and it is served only from the United States (TypeSafe, or gateways at the same price). jevai.org is a community site with no operator, terms or privacy policy, and it rejected every call. Its open twin Jeff (Qwen3.5-0.8B, English only, no commitment adapter) would beat Gemini only above roughly 230k mails a month, on a Cloud Run GPU batch job with a fixed floor. The client, its flags and its price were removed; Gemini is the only scorer.
 
 ### Golden-set run, 2026-11-11 (Gemini header scorer)
 
@@ -79,7 +79,7 @@ The core never imports an add-on.
 
 - The store purchase flow: RevenueCat SDK in the app, products, and a webhook that writes the projection. iOS needs the Apple Developer account, which has not been bought. Until then `scripts/dev-grant-features.mjs` grants entitlements on the local emulator only.
 - Showing `user_monthly` as its own scan status. M5a reports a spent month as the existing daily-limit state (checked once a day, before any Gmail call), and a switched-off add-on as `monitoring_off`.
-- The Gemini triage fallback runs only while budgets are enforced; with the gate off or in shadow, no Jev score means a full read.
+- The Gemini triage scorer runs only while budgets are enforced; with the gate off or in shadow, the mail is read fully.
 
 ## Review
 

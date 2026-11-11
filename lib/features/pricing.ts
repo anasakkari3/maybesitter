@@ -11,12 +11,11 @@
  * `catalog.ts` are re-read against it.
  *   - gemini-2.5-flash on Vertex: $0.30 / 1M input, $2.50 / 1M output
  *     (`thinkingBudget: 0`, so there are no thinking tokens to bill).
- *   - TypeSafe Jev: $0.042 / 1M input, output free.
  */
 
 export const NANO_USD_PER_CENT = 10_000_000;
 
-export type PricedModel = 'gemini-2.5-flash' | 'jev';
+export type PricedModel = 'gemini-2.5-flash';
 
 interface Price {
   readonly inputNanoUsdPerToken: number;
@@ -25,7 +24,6 @@ interface Price {
 
 const PRICES: Readonly<Record<PricedModel, Price>> = Object.freeze({
   'gemini-2.5-flash': { inputNanoUsdPerToken: 300, outputNanoUsdPerToken: 2_500 },
-  jev: { inputNanoUsdPerToken: 42, outputNanoUsdPerToken: 0 },
 });
 
 /**
@@ -33,8 +31,8 @@ const PRICES: Readonly<Record<PricedModel, Price>> = Object.freeze({
  * 2.5 Flash: it is the only one the product calls, and pricing an unknown id
  * at zero would let spend through uncounted, the wrong direction to be wrong in.
  */
-export function pricedModelFor(modelId: string | null | undefined): PricedModel {
-  return (modelId ?? '').toLowerCase().startsWith('jev') ? 'jev' : 'gemini-2.5-flash';
+export function pricedModelFor(_modelId: string | null | undefined): PricedModel {
+  return 'gemini-2.5-flash';
 }
 
 function tokens(value: number | undefined): number {

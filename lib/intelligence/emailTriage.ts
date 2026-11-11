@@ -1,7 +1,9 @@
 /**
  * Gmail triage: decide from From, Subject and the first lines whether a mail
  * is worth a full Gemini read (owner direction, 2026-11-10). A full read costs
- * about 0.21¢ a mail; a Jev score costs a small fraction of that.
+ * about 0.21¢ a mail; a Gemini score over the headers and the first 600
+ * characters costs about 0.01¢ (live eval, 2026-11-11). Jev was dropped by
+ * the owner on 2026-11-11: its weights are closed and it runs only in the US.
  *
  * The scan (`m5aGmailScan.ts`) asks only about mail that could not feed an
  * email auto-add: never the person's own sent mail, never a dated self-reply
@@ -19,10 +21,7 @@
 import { createHash } from 'node:crypto';
 import { toVertexSchema } from '../../src/extraction/llm';
 import { gateMode } from '../features/featureGate';
-import { costNanoUsd } from '../features/pricing';
 import { featureHooksFor } from '../features/providerGate';
-import { recordFeatureSpend } from '../features/spendLedger';
-import { scoreWithJev } from '../llm/jevClient';
 import { shareLlmProvider, type ShareStructuredGenerator } from '../llm/shareProvider';
 import { aiDisabled, reserveDailyAction, type ReservationOutcome } from '../llm/usageGuard';
 import { wrapUntrustedShared } from '../services/share/shareTypes';
@@ -32,7 +31,7 @@ import type { LlmProvider } from '../../src/extraction/llm/llmProvider';
 type EnvLike = Readonly<Record<string, string | undefined>>;
 
 export type TriageMode = 'off' | 'shadow' | 'enforce';
-export type TriageScorer = 'jev' | 'gemini_header';
+export type TriageScorer = 'gemini_header';
 
 /** Versioned like `GMAIL_BULK_RULE`: a triaged marker from an older rule is re-examined. */
 export const TRIAGE_RULE = 2;
@@ -54,7 +53,6 @@ export const DEFAULT_TRIAGE_AUDIT_RATE = 0.05;
 /** Its own daily counter, so triage never spends the person's general capture caps. */
 export const EMAIL_TRIAGE_ACTION = 'email-triage';
 export const EMAIL_TRIAGE_DAILY_CAP = 600;
-export const JEV_BODY_CHARS = 4_000;
 export const HEADER_BODY_CHARS = 600;
 /** Room for `{"relevant_probability": 0.05}` with margin; see the call below. */
 export const TRIAGE_MAX_OUTPUT_TOKENS = 64;
@@ -103,14 +101,12 @@ export interface TriageScore {
 export interface TriageDeps {
   readonly storage?: StorageAdapter;
   readonly now?: () => Date;
-  readonly jev?: typeof scoreWithJev;
-  /** The Gemini header fallback; production builds the gated, metered one. */
+  /** The Gemini header scorer; production builds the gated, metered one. */
   readonly gemini?: ShareStructuredGenerator;
   readonly env?: EnvLike;
   /** The triage daily counter; defaults to `reserveDailyAction`. */
   readonly reserveAction?: typeof reserveDailyAction;
-  readonly fetchImpl?: typeof fetch;
-  /** The provider behind the default Gemini fallback (the scan's `shareProvider` seam). */
+  /** The provider behind the default Gemini scorer (the scan's `shareProvider` seam). */
   readonly provider?: LlmProvider;
 }
 
@@ -141,32 +137,18 @@ function mapActionOutcome(outcome: 'ok' | 'user_cap' | 'unavailable'): Reservati
 }
 
 /**
- * Jev first; when it cannot answer, one small Gemini call over the headers and
- * the first 600 characters; when neither answers, `null`. Never throws.
+ * One small Gemini call over the headers and the first 600 characters; when it
+ * cannot answer, `null`. Never throws.
  */
 export async function scoreEmailRelevance(uid: string, input: TriageInput, deps: TriageDeps = {}): Promise<TriageScore | null> {
   try {
-    // The kill switch covers every model, Jev included.
     if (aiDisabled()) return null;
     const now = deps.now ?? (() => new Date());
-    const jev = deps.jev ?? scoreWithJev;
-    const scored = await jev({ state: headerBlock(input, JEV_BODY_CHARS) }, {
-      ...(deps.env ? { env: deps.env } : {}),
-      ...(deps.fetchImpl ? { fetchImpl: deps.fetchImpl } : {}),
-    }).catch(() => null);
-    if (scored && validProbability(scored.probability) !== null) {
-      if (gateMode(deps.env) !== 'off') {
-        await recordFeatureSpend(uid, 'gmail_reading', costNanoUsd('jev', { promptTokens: scored.inputTokens }), {
-          now: now(), ...(deps.storage ? { storage: deps.storage } : {}),
-        });
-      }
-      return { probability: scored.probability, scorer: 'jev' };
-    }
 
-    // The Gemini fallback runs only while the monthly budget is enforced: its
-    // own daily action counter sits outside the global call brake, so the
-    // per-feature hold is what bounds it. Without enforcement, no Jev score
-    // means a full read, which the existing caps already bound (review P1-4).
+    // The scorer runs only while the monthly budget is enforced: its own daily
+    // action counter sits outside the global call brake, so the per-feature
+    // hold is what bounds it. Without enforcement there is no score, and the
+    // mail is read fully, which the existing caps already bound (review P1-4).
     if (gateMode(deps.env) !== 'enforce' && !deps.gemini) return null;
     const reserveAction = deps.reserveAction ?? reserveDailyAction;
     const gemini = deps.gemini ?? shareLlmProvider(uid, {

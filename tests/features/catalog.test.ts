@@ -84,9 +84,7 @@ test('unknown ids are refused rather than guessed', () => {
 
 test('prices are integer nano-dollars per token', () => {
   assert.equal(costNanoUsd('gemini-2.5-flash', { promptTokens: 1000, outputTokens: 100 }), 550_000);
-  assert.equal(costNanoUsd('jev', { promptTokens: 1000, outputTokens: 50 }), 42_000);
   assert.equal(costNanoUsd('gemini-2.5-flash', { promptTokens: -5, outputTokens: Number.NaN }), 0);
-  assert.equal(pricedModelFor('jev-1.13.0'), 'jev');
   assert.equal(pricedModelFor('gemini-2.0-flash'), 'gemini-2.5-flash');
   assert.equal(pricedModelFor(undefined), 'gemini-2.5-flash');
   assert.equal(centsToNanoUsd(1), 10_000_000);
