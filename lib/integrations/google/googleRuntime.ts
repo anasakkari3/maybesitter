@@ -47,8 +47,8 @@ export interface GoogleRuntime {
   readonly captureProvider?: LlmProvider;
   /**
    * Test seam for the Gmail triage scorer (`lib/intelligence/emailTriage.ts`).
-   * Absent in production, where the scan scores with Jev and the Gemini header
-   * fallback; a test puts a counting fake here so nothing reaches the network.
+   * Absent in production, where the scan scores with the Gemini header scorer;
+   * a test puts a counting fake here so nothing reaches the network.
    */
   readonly emailTriage?: EmailTriageFn;
 }

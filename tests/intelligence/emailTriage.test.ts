@@ -2,11 +2,9 @@
  * Gmail triage (owner direction, 2026-11-10): decide from From, Subject and the
  * first lines whether a mail is worth the full (~0.21¢) Gemini read.
  *
- * - `scoreWithJev`: the request shape, both response wrappings, and every path
- *   that must answer `null` (and never log the key or the mail);
- * - `scoreEmailRelevance`: Jev first, the Gemini header fallback on its own
- *   daily counter (never the general capture caps), spend only when the add-on
- *   gate is on, `null` when both fail;
+ * - `scoreEmailRelevance`: the Gemini header scorer on its own daily counter
+ *   (never the general capture caps), only while budgets are enforced, `null`
+ *   on any failure;
  * - the config clamps and the deterministic audit sample;
  * - through the real `runM5aScanStep`: off is unchanged, enforce skips only a
  *   low score outside the audit sample, shadow always reads, the person's own
@@ -29,27 +27,20 @@ import {
   type M5aMarker, type M5aScanDocument,
 } from '../../lib/intelligence/m5aGmailScan';
 import {
-  DEFAULT_JEV_MODEL, RELEVANCE_INSTRUCTIONS, scoreWithJev,
-} from '../../lib/llm/jevClient';
-import {
   EMAIL_TRIAGE_ACTION, TRIAGE_RULE, isAuditSample, isConversationReply, scoreBucket, scoreEmailRelevance,
   triageAuditRate, triageMode, triageThreshold, type TriageInput, type TriageScore,
 } from '../../lib/intelligence/emailTriage';
 import { actionsToday, callsToday } from '../../lib/llm/usageGuard';
-import { readMonthSpend } from '../../lib/features/spendLedger';
 import type { LlmProvider, LlmStructuredRequest } from '../../src/extraction/llm/llmProvider';
 import type { ShareStructuredGenerator } from '../../lib/llm/shareProvider';
 import { createPilotTrustState } from '../../lib/pilot/closedPilotControls.ts';
 
 const NOW = '2026-11-10T10:00:00.000Z';
-const KEY = 'jev-secret-key-123';
-const JEV_URL = 'https://jev.example/v1/decisions';
-const KEYED = { MAYBESITTER_JEV_API_KEY: KEY, MAYBESITTER_JEV_URL: JEV_URL };
-/** The Gemini fallback runs only while the monthly budget is enforced (review P1-4). */
+/** The Gemini scorer runs only while the monthly budget is enforced (review P1-4). */
 const ENFORCED = { MAYBESITTER_ADDON_GATE_MODE: 'enforce' };
 const ENV_KEYS = [
   'MAYBESITTER_EMAIL_TRIAGE_MODE', 'MAYBESITTER_EMAIL_TRIAGE_THRESHOLD', 'MAYBESITTER_EMAIL_TRIAGE_AUDIT_RATE',
-  'MAYBESITTER_ADDON_GATE_MODE', 'MAYBESITTER_AI_DISABLED', 'MAYBESITTER_JEV_API_KEY',
+  'MAYBESITTER_ADDON_GATE_MODE', 'MAYBESITTER_AI_DISABLED',
 ] as const;
 const savedEnv = Object.fromEntries(ENV_KEYS.map(key => [key, process.env[key]]));
 
@@ -72,137 +63,6 @@ async function captureWarnings<T>(run: () => Promise<T>): Promise<{ result: T; l
   try { return { result: await run(), lines }; } finally { console.warn = original; }
 }
 
-function jsonResponse(body: unknown, status = 200): Response {
-  return new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
-}
-
-function recordingFetch(answer: () => Response | Promise<Response>) {
-  const calls: Array<{ url: string; init: RequestInit }> = [];
-  const fetchImpl = (async (url: RequestInfo | URL, init: RequestInit = {}) => {
-    calls.push({ url: String(url), init });
-    return answer();
-  }) as typeof fetch;
-  return { calls, fetchImpl };
-}
-
-const direct = (noul: unknown, tokens: unknown = 120) => ({ model: 'typesafe-ai/jev', answers: { relevant: { noul } }, usage: { input_tokens: tokens } });
-
-/* ─────────────────────────────── scoreWithJev ─────────────────────────────── */
-
-test('Jev: POSTs the model, the state and one noul question with a bearer key to the configured URL', async () => {
-  const { calls, fetchImpl } = recordingFetch(() => jsonResponse(direct(0.42)));
-  const score = await scoreWithJev({ state: 'From: a\nSubject: b\n\nbody' }, { fetchImpl, env: KEYED });
-  assert.deepEqual(score, { probability: 0.42, inputTokens: 120, model: 'typesafe-ai/jev' });
-  assert.equal(calls.length, 1);
-  assert.equal(calls[0]!.url, JEV_URL);
-  assert.equal(calls[0]!.init.method, 'POST');
-  const headers = calls[0]!.init.headers as Record<string, string>;
-  assert.equal(headers.Authorization, `Bearer ${KEY}`);
-  assert.equal(headers['Content-Type'], 'application/json');
-  assert.deepEqual(JSON.parse(String(calls[0]!.init.body)), {
-    model: DEFAULT_JEV_MODEL,
-    state: 'From: a\nSubject: b\n\nbody',
-    questions: { relevant: { type: 'noul', instructions: RELEVANCE_INSTRUCTIONS } },
-  });
-  assert.ok(calls[0]!.init.signal, 'the request carries an abort signal');
-});
-
-test('Jev: the URL and model come from the environment on every call', async () => {
-  const { calls, fetchImpl } = recordingFetch(() => jsonResponse(direct(0.1)));
-  await scoreWithJev({ state: 's' }, { fetchImpl, env: {
-    MAYBESITTER_JEV_API_KEY: KEY, MAYBESITTER_JEV_URL: 'https://api.typesafe.ai/v1/systemone', MAYBESITTER_JEV_MODEL: 'jev-2',
-  } });
-  assert.equal(calls[0]!.url, 'https://api.typesafe.ai/v1/systemone');
-  assert.equal(JSON.parse(String(calls[0]!.init.body)).model, 'jev-2');
-});
-
-test('Jev: reads the jevai.org { code, message, data } wrapping and the direct one', async () => {
-  const wrapped = recordingFetch(() => jsonResponse({ code: 0, message: 'ok', data: direct(0.07, 33) }));
-  assert.deepEqual(await scoreWithJev({ state: 's' }, { fetchImpl: wrapped.fetchImpl, env: KEYED }),
-    { probability: 0.07, inputTokens: 33, model: 'typesafe-ai/jev' });
-  const bare = recordingFetch(() => jsonResponse({ answers: { relevant: { noul: 1 } } }));
-  assert.deepEqual(await scoreWithJev({ state: 's' }, { fetchImpl: bare.fetchImpl, env: KEYED }),
-    { probability: 1, inputTokens: 1, model: DEFAULT_JEV_MODEL }, 'missing usage is estimated from the state, never zero');
-});
-
-test('Jev: the jevai.org MCP endpoint is called as tools/call jev_decide and read from structuredContent', async () => {
-  const env = { MAYBESITTER_JEV_API_KEY: KEY, MAYBESITTER_JEV_URL: 'https://www.jevai.org/api/mcp' };
-  const ok = recordingFetch(() => jsonResponse({ jsonrpc: '2.0', id: 1, result: {
-    content: [{ type: 'text', text: '{}' }], structuredContent: direct(0.2, 50),
-  } }));
-  assert.deepEqual(await scoreWithJev({ state: 's' }, { fetchImpl: ok.fetchImpl, env }),
-    { probability: 0.2, inputTokens: 50, model: 'typesafe-ai/jev' });
-  const sent = JSON.parse(String(ok.calls[0]!.init.body));
-  assert.deepEqual([sent.jsonrpc, sent.method, sent.params.name, sent.params.arguments.state], ['2.0', 'tools/call', 'jev_decide', 's']);
-  assert.equal((ok.calls[0]!.init.headers as Record<string, string>).Accept, 'application/json, text/event-stream');
-  // What the owner's key answered on 2026-11-10: an MCP tool error is a missing score.
-  const refused = recordingFetch(() => jsonResponse({ jsonrpc: '2.0', id: 1, result: {
-    content: [{ type: 'text', text: 'The request credentials or model access were rejected.' }], isError: true,
-  } }));
-  const { result, lines } = await captureWarnings(() => scoreWithJev({ state: 's' }, { fetchImpl: refused.fetchImpl, env }));
-  assert.equal(result, null);
-  assert.deepEqual(lines, ['[llm/jev] unavailable: http']);
-});
-
-test('Jev: an SSE answer is read from its last data line; an oversized answer is a missing score', async () => {
-  const env = { MAYBESITTER_JEV_API_KEY: KEY, MAYBESITTER_JEV_URL: 'https://www.jevai.org/api/mcp' };
-  const sse = recordingFetch(() => new Response(
-    `event: message\ndata: ${JSON.stringify({ jsonrpc: '2.0', id: 1, result: { structuredContent: direct(0.3, 9) } })}\n\n`,
-    { status: 200, headers: { 'Content-Type': 'text/event-stream' } }));
-  assert.deepEqual(await scoreWithJev({ state: 's' }, { fetchImpl: sse.fetchImpl, env }), { probability: 0.3, inputTokens: 9, model: 'typesafe-ai/jev' });
-  const huge = recordingFetch(() => jsonResponse({ data: direct(0.3), pad: 'x'.repeat(70 * 1024) }));
-  const { result } = await captureWarnings(() => scoreWithJev({ state: 's' }, { fetchImpl: huge.fetchImpl, env: KEYED }));
-  assert.equal(result, null);
-});
-
-test('Jev: no key or no URL means no request at all; there is no default endpoint', async () => {
-  const { calls, fetchImpl } = recordingFetch(() => jsonResponse(direct(0.5)));
-  assert.equal(await scoreWithJev({ state: 's' }, { fetchImpl, env: {} }), null);
-  assert.equal(await scoreWithJev({ state: 's' }, { fetchImpl, env: { MAYBESITTER_JEV_API_KEY: KEY } }), null);
-  assert.equal(await scoreWithJev({ state: 's' }, { fetchImpl, env: { MAYBESITTER_JEV_URL: JEV_URL } }), null);
-  assert.equal(await scoreWithJev({ state: 's' }, { fetchImpl, env: { MAYBESITTER_JEV_API_KEY: '  ' } }), null);
-  assert.equal(calls.length, 0);
-});
-
-test('Jev: every failure answers null, and no line carries the key or the mail', async () => {
-  const env = KEYED;
-  const state = 'From: boss@example.com\nSubject: SECRET-SUBJECT\n\nprivate body';
-  const fakeOk = (value: unknown) => (async () => ({ ok: true, status: 200, json: async () => value }) as unknown as Response) as typeof fetch;
-  const cases: Array<[string, typeof fetch]> = [
-    ['non-2xx', recordingFetch(() => jsonResponse(direct(0.1), 503)).fetchImpl],
-    ['401', recordingFetch(() => jsonResponse({ error: 'bad key' }, 401)).fetchImpl],
-    ['bad JSON', recordingFetch(() => new Response('not json{', { status: 200 })).fetchImpl],
-    ['missing probability', recordingFetch(() => jsonResponse({ answers: {} })).fetchImpl],
-    ['string probability', recordingFetch(() => jsonResponse(direct('0.3'))).fetchImpl],
-    ['NaN probability', fakeOk(direct(Number.NaN))],
-    ['probability 1.5', recordingFetch(() => jsonResponse(direct(1.5))).fetchImpl],
-    ['negative probability', recordingFetch(() => jsonResponse(direct(-0.1))).fetchImpl],
-    ['null body', recordingFetch(() => jsonResponse(null)).fetchImpl],
-    ['network error', (async () => { throw new TypeError('fetch failed'); }) as typeof fetch],
-  ];
-  for (const [name, fetchImpl] of cases) {
-    const { result, lines } = await captureWarnings(() => scoreWithJev({ state }, { fetchImpl, env }));
-    assert.equal(result, null, name);
-    for (const line of lines) {
-      assert.ok(!line.includes(KEY) && !line.includes('SECRET-SUBJECT') && !line.includes('private body'), `${name} logged content: ${line}`);
-      assert.match(line, /^\[llm\/jev\] unavailable: [a-z]+$/, `${name}: ${line}`);
-    }
-  }
-});
-
-test('Jev: a slow answer times out to null', async () => {
-  const hanging = ((_url: RequestInfo | URL, init: RequestInit = {}) => new Promise<Response>((_resolve, reject) => {
-    init.signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')));
-  })) as typeof fetch;
-  const started = Date.now();
-  const { result, lines } = await captureWarnings(() => scoreWithJev({ state: 's' }, {
-    fetchImpl: hanging, env: KEYED, timeoutMs: 20,
-  }));
-  assert.equal(result, null);
-  assert.ok(Date.now() - started < 2_000);
-  assert.deepEqual(lines, ['[llm/jev] unavailable: timeout']);
-});
-
 /* ─────────────────────────── scoreEmailRelevance ──────────────────────────── */
 
 const INPUT: TriageInput = { from: 'School <office@school.example>', subject: 'Parents evening', body: 'x'.repeat(5_000) };
@@ -216,36 +76,10 @@ function geminiFake(answer: (request: Parameters<ShareStructuredGenerator>[0]) =
   return { requests, generate };
 }
 
-test('scoring: Jev first, with From, Subject and the first 4000 characters of the body', async () => {
-  const states: string[] = [];
-  const gemini = geminiFake(() => '{"relevant_probability":0.9}');
-  const score = await scoreEmailRelevance('u-jev', INPUT, {
-    storage: createMemoryStorage(), now: () => new Date(NOW), env: {},
-    jev: async input => { states.push(input.state); return { probability: 0.03, inputTokens: 900, model: 'jev' }; },
-    gemini: gemini.generate,
-  });
-  assert.deepEqual(score, { probability: 0.03, scorer: 'jev' });
-  assert.equal(gemini.requests.length, 0, 'Gemini is not asked when Jev answered');
-  assert.equal(states[0], `From: ${INPUT.from}\nSubject: ${INPUT.subject}\n\n${'x'.repeat(4_000)}`);
-});
-
-test('scoring: Jev spend is recorded on gmail_reading only when the add-on gate is on', async () => {
-  const jev = async () => ({ probability: 0.5, inputTokens: 1_000, model: 'jev' });
-  const off = createMemoryStorage();
-  await scoreEmailRelevance('u-spend', INPUT, { storage: off, now: () => new Date(NOW), env: {}, jev });
-  assert.deepEqual((await readMonthSpend('u-spend', { storage: off, now: new Date(NOW) })).features, {});
-  for (const mode of ['shadow', 'enforce']) {
-    const on = createMemoryStorage();
-    await scoreEmailRelevance('u-spend', INPUT, { storage: on, now: () => new Date(NOW), env: { MAYBESITTER_ADDON_GATE_MODE: mode }, jev });
-    const month = await readMonthSpend('u-spend', { storage: on, now: new Date(NOW) });
-    assert.equal(month.features.gmail_reading, 42_000, `${mode}: 1000 tokens at 42 n$`);
-  }
-});
-
-test('scoring: when Jev cannot answer, Gemini reads From, Subject and only the first 600 characters', async () => {
+test('scoring: Gemini reads From, Subject and only the first 600 characters', async () => {
   const gemini = geminiFake(() => '{"relevant_probability":0.08}');
   const score = await scoreEmailRelevance('u-fallback', { ...INPUT, body: `${'a'.repeat(600)}TAIL-NEVER-SENT` }, {
-    storage: createMemoryStorage(), now: () => new Date(NOW), env: {}, jev: async () => null, gemini: gemini.generate,
+    storage: createMemoryStorage(), now: () => new Date(NOW), env: {}, gemini: gemini.generate,
   });
   assert.deepEqual(score, { probability: 0.08, scorer: 'gemini_header' });
   assert.equal(gemini.requests.length, 1);
@@ -262,30 +96,26 @@ test('scoring: when Jev cannot answer, Gemini reads From, Subject and only the f
   assert.deepEqual((request.responseSchema as { required?: string[] }).required, ['relevant_probability']);
 });
 
-test('scoring: null when both scorers fail, never a throw', async () => {
-  const base = { storage: createMemoryStorage(), now: () => new Date(NOW), env: {}, jev: async () => null };
+test('scoring: null when the scorer fails, never a throw', async () => {
+  const base = { storage: createMemoryStorage(), now: () => new Date(NOW), env: {} };
   for (const answer of ['not json', '{"relevant_probability":1.5}', '{"relevant_probability":"high"}', '{}']) {
     assert.equal(await scoreEmailRelevance('u-none', INPUT, { ...base, gemini: geminiFake(() => answer).generate }), null, answer);
   }
   assert.equal(await scoreEmailRelevance('u-none', INPUT, {
     ...base, gemini: async () => { throw new Error('vertex down'); },
   }), null);
-  assert.equal(await scoreEmailRelevance('u-none', INPUT, {
-    ...base, jev: async () => { throw new Error('jev exploded'); }, gemini: async () => { throw new Error('vertex down'); },
-  }), null);
 });
 
-test('scoring: the kill switch stops Jev too', async () => {
+test('scoring: the kill switch stops the scorer', async () => {
   process.env.MAYBESITTER_AI_DISABLED = 'true';
-  let asked = 0;
+  const gemini = geminiFake(() => '{"relevant_probability":0.1}');
   assert.equal(await scoreEmailRelevance('u-kill', INPUT, {
-    storage: createMemoryStorage(), now: () => new Date(NOW), env: {},
-    jev: async () => { asked += 1; return { probability: 0.1, inputTokens: 1, model: 'jev' }; },
+    storage: createMemoryStorage(), now: () => new Date(NOW), env: ENFORCED, gemini: gemini.generate,
   }), null);
-  assert.equal(asked, 0);
+  assert.equal(gemini.requests.length, 0);
 });
 
-test('scoring: the Gemini fallback spends the email-triage daily action, not the general caps or token budget', async () => {
+test('scoring: the Gemini scorer spends the email-triage daily action, not the general caps or token budget', async () => {
   const storage = createMemoryStorage();
   setStorageForTests(storage);
   const seen: LlmStructuredRequest[] = [];
@@ -298,7 +128,7 @@ test('scoring: the Gemini fallback spends the email-triage daily action, not the
     },
   };
   const now = () => new Date(NOW);
-  const score = await scoreEmailRelevance('u-reserve', INPUT, { storage, now, env: ENFORCED, jev: async () => null, provider });
+  const score = await scoreEmailRelevance('u-reserve', INPUT, { storage, now, env: ENFORCED, provider });
   assert.deepEqual(score, { probability: 0.6, scorer: 'gemini_header' });
   assert.equal(seen.length, 1);
   assert.equal(seen[0]!.purpose, 'email_triage');
@@ -309,7 +139,7 @@ test('scoring: the Gemini fallback spends the email-triage daily action, not the
   assert.equal(general.tokens, 0, 'no tokens counted against the general daily token cap');
 });
 
-test('scoring: without an enforced budget there is no Gemini fallback, so no Jev score means a full read', async () => {
+test('scoring: without an enforced budget there is no score, so the mail is read fully', async () => {
   let asked = 0;
   const provider: LlmProvider = {
     name: 'gemini',
@@ -317,13 +147,13 @@ test('scoring: without an enforced budget there is no Gemini fallback, so no Jev
     generateStructured: async () => { asked++; return { text: '{"relevant_probability":0.01}', model: 'gemini-2.5-flash', latencyMs: 1, promptTokens: 1, outputTokens: 1 }; },
   };
   for (const env of [{}, { MAYBESITTER_ADDON_GATE_MODE: 'shadow' }]) {
-    const score = await scoreEmailRelevance('u-off', INPUT, { storage: createMemoryStorage(), now: () => new Date(NOW), env, jev: async () => null, provider });
+    const score = await scoreEmailRelevance('u-off', INPUT, { storage: createMemoryStorage(), now: () => new Date(NOW), env, provider });
     assert.equal(score, null);
   }
   assert.equal(asked, 0);
 });
 
-test('scoring: a spent email-triage counter refuses the fallback, and the answer is null', async () => {
+test('scoring: a spent email-triage counter refuses the scorer, and the answer is null', async () => {
   const storage = createMemoryStorage();
   setStorageForTests(storage);
   let calls = 0;
@@ -333,7 +163,7 @@ test('scoring: a spent email-triage counter refuses the fallback, and the answer
     generateStructured: async () => { calls += 1; return { text: '{"relevant_probability":0.6}', model: 'g', latencyMs: 1, promptTokens: 1, outputTokens: 1 }; },
   };
   const score = await scoreEmailRelevance('u-capped', INPUT, {
-    storage, now: () => new Date(NOW), env: ENFORCED, jev: async () => null, provider,
+    storage, now: () => new Date(NOW), env: ENFORCED, provider,
     reserveAction: async (_uid, action) => { assert.equal(action, EMAIL_TRIAGE_ACTION); return 'user_cap'; },
   });
   assert.equal(score, null);
@@ -461,8 +291,8 @@ async function scanHarness(uid: string, mails: readonly Mail[], score: TriageSco
   };
 }
 
-const LOW: TriageScore = { probability: 0.04321, scorer: 'jev' };
-const HIGH: TriageScore = { probability: 0.9, scorer: 'jev' };
+const LOW: TriageScore = { probability: 0.04321, scorer: 'gemini_header' };
+const HIGH: TriageScore = { probability: 0.9, scorer: 'gemini_header' };
 
 test('scan, off (default): the scorer is never asked and the mail is read as before', async () => {
   const h = await scanHarness('scan-off', [{ id: 'm1' }], LOW);
@@ -576,7 +406,7 @@ test('scan, enforce + audit sample: a low score is still read fully, and a miss 
   assert.equal((await h.marker('m1'))?.outcome, 'analyzed');
   const misses = lines.filter(line => line.includes('email_triage_audit_miss'));
   assert.equal(misses.length, 1);
-  assert.deepEqual(JSON.parse(misses[0]!), { event: 'email_triage_audit_miss', scorer: 'jev', bucket: 0 });
+  assert.deepEqual(JSON.parse(misses[0]!), { event: 'email_triage_audit_miss', scorer: 'gemini_header', bucket: 0 });
 });
 
 test('scan, shadow: every mail is read fully and one content-free line records the bucket', async () => {
@@ -589,8 +419,8 @@ test('scan, shadow: every mail is read fully and one content-free line records t
   assert.equal((await h.marker('m1'))?.outcome, 'analyzed');
   const shadow = lines.filter(line => line.includes('email_triage_shadow')).map(line => JSON.parse(line));
   assert.deepEqual(shadow, [
-    { event: 'email_triage_shadow', scorer: 'jev', bucket: 0 },
-    { event: 'email_triage_shadow', scorer: 'jev', bucket: 0.9 },
+    { event: 'email_triage_shadow', scorer: 'gemini_header', bucket: 0 },
+    { event: 'email_triage_shadow', scorer: 'gemini_header', bucket: 0.9 },
   ]);
   assert.equal('messagesSkippedTriage' in (await h.scan()), false);
 });
