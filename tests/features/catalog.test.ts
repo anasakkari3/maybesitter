@@ -55,7 +55,7 @@ test('no purchase adds more spend than it nets after 18% VAT and a 30% store fee
   // are spent by a free user anyway, and the free ceiling holds over them for
   // paying users too (featureGate.ts), so a purchase unlocks nothing else.
   const priceCents: Record<GrantId, number> = {
-    base: 300, gmail_light: 300, gmail_full: 500, meeting_prep: 100, goal_plans: 100, memory_plus: 100,
+    base: 300, gmail_light: 400, gmail_full: 500, meeting_prep: 100, goal_plans: 100, memory_plus: 100,
   };
   for (const grant of GRANT_IDS) {
     const net = (priceCents[grant] / 1.18) * 0.7;

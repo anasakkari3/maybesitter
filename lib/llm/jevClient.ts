@@ -9,15 +9,18 @@
  * quality, never on cost of a missed commitment).
  *
  * Config is read on every call, like the kill switches:
- *   - `MAYBESITTER_JEV_API_KEY` (secret). Empty: no request is made at all.
- *   - `MAYBESITTER_JEV_URL`, default the jevai.org decisions endpoint.
+ *   - `MAYBESITTER_JEV_API_KEY` (secret) and `MAYBESITTER_JEV_URL`. Either one
+ *     empty: no request is made at all. There is no default endpoint on
+ *     purpose: mail text may only go to an operator with a signed DPA, so the
+ *     endpoint is a deliberate per-environment choice (owner review,
+ *     2026-11-11: jevai.org is a community site with no terms or privacy
+ *     policy, not TypeSafe's own API).
  *   - `MAYBESITTER_JEV_MODEL`, default `typesafe-ai/jev`.
  *
  * Never logged: the key, the request body (it carries mail text) and the
  * response body. A failure leaves one content-free line naming its kind.
  */
 
-export const DEFAULT_JEV_URL = 'https://www.jevai.org/api/v1/decisions';
 export const DEFAULT_JEV_MODEL = 'typesafe-ai/jev';
 export const DEFAULT_JEV_TIMEOUT_MS = 3_000;
 
@@ -99,8 +102,8 @@ function parseBody(text: string): unknown {
 export async function scoreWithJev(input: { state: string }, deps: JevDeps = {}): Promise<JevScore | null> {
   const env = deps.env ?? process.env;
   const key = (env.MAYBESITTER_JEV_API_KEY ?? '').trim();
-  if (!key) return null;
-  const url = (env.MAYBESITTER_JEV_URL ?? '').trim() || DEFAULT_JEV_URL;
+  const url = (env.MAYBESITTER_JEV_URL ?? '').trim();
+  if (!key || !url) return null;
   const model = (env.MAYBESITTER_JEV_MODEL ?? '').trim() || DEFAULT_JEV_MODEL;
   const fetchImpl = deps.fetchImpl ?? ((resource, init) => fetch(resource, init));
   const controller = new AbortController();

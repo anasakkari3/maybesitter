@@ -29,7 +29,7 @@ import {
   type M5aMarker, type M5aScanDocument,
 } from '../../lib/intelligence/m5aGmailScan';
 import {
-  DEFAULT_JEV_MODEL, DEFAULT_JEV_URL, RELEVANCE_INSTRUCTIONS, scoreWithJev,
+  DEFAULT_JEV_MODEL, RELEVANCE_INSTRUCTIONS, scoreWithJev,
 } from '../../lib/llm/jevClient';
 import {
   EMAIL_TRIAGE_ACTION, TRIAGE_RULE, isAuditSample, scoreBucket, scoreEmailRelevance,
@@ -43,6 +43,8 @@ import { createPilotTrustState } from '../../lib/pilot/closedPilotControls.ts';
 
 const NOW = '2026-11-10T10:00:00.000Z';
 const KEY = 'jev-secret-key-123';
+const JEV_URL = 'https://jev.example/v1/decisions';
+const KEYED = { MAYBESITTER_JEV_API_KEY: KEY, MAYBESITTER_JEV_URL: JEV_URL };
 /** The Gemini fallback runs only while the monthly budget is enforced (review P1-4). */
 const ENFORCED = { MAYBESITTER_ADDON_GATE_MODE: 'enforce' };
 const ENV_KEYS = [
@@ -87,12 +89,12 @@ const direct = (noul: unknown, tokens: unknown = 120) => ({ model: 'typesafe-ai/
 
 /* ─────────────────────────────── scoreWithJev ─────────────────────────────── */
 
-test('Jev: POSTs the model, the state and one noul question with a bearer key to the default URL', async () => {
+test('Jev: POSTs the model, the state and one noul question with a bearer key to the configured URL', async () => {
   const { calls, fetchImpl } = recordingFetch(() => jsonResponse(direct(0.42)));
-  const score = await scoreWithJev({ state: 'From: a\nSubject: b\n\nbody' }, { fetchImpl, env: { MAYBESITTER_JEV_API_KEY: KEY } });
+  const score = await scoreWithJev({ state: 'From: a\nSubject: b\n\nbody' }, { fetchImpl, env: KEYED });
   assert.deepEqual(score, { probability: 0.42, inputTokens: 120, model: 'typesafe-ai/jev' });
   assert.equal(calls.length, 1);
-  assert.equal(calls[0]!.url, DEFAULT_JEV_URL);
+  assert.equal(calls[0]!.url, JEV_URL);
   assert.equal(calls[0]!.init.method, 'POST');
   const headers = calls[0]!.init.headers as Record<string, string>;
   assert.equal(headers.Authorization, `Bearer ${KEY}`);
@@ -116,10 +118,10 @@ test('Jev: the URL and model come from the environment on every call', async () 
 
 test('Jev: reads the jevai.org { code, message, data } wrapping and the direct one', async () => {
   const wrapped = recordingFetch(() => jsonResponse({ code: 0, message: 'ok', data: direct(0.07, 33) }));
-  assert.deepEqual(await scoreWithJev({ state: 's' }, { fetchImpl: wrapped.fetchImpl, env: { MAYBESITTER_JEV_API_KEY: KEY } }),
+  assert.deepEqual(await scoreWithJev({ state: 's' }, { fetchImpl: wrapped.fetchImpl, env: KEYED }),
     { probability: 0.07, inputTokens: 33, model: 'typesafe-ai/jev' });
   const bare = recordingFetch(() => jsonResponse({ answers: { relevant: { noul: 1 } } }));
-  assert.deepEqual(await scoreWithJev({ state: 's' }, { fetchImpl: bare.fetchImpl, env: { MAYBESITTER_JEV_API_KEY: KEY } }),
+  assert.deepEqual(await scoreWithJev({ state: 's' }, { fetchImpl: bare.fetchImpl, env: KEYED }),
     { probability: 1, inputTokens: 1, model: DEFAULT_JEV_MODEL }, 'missing usage is estimated from the state, never zero');
 });
 
@@ -149,19 +151,21 @@ test('Jev: an SSE answer is read from its last data line; an oversized answer is
     { status: 200, headers: { 'Content-Type': 'text/event-stream' } }));
   assert.deepEqual(await scoreWithJev({ state: 's' }, { fetchImpl: sse.fetchImpl, env }), { probability: 0.3, inputTokens: 9, model: 'typesafe-ai/jev' });
   const huge = recordingFetch(() => jsonResponse({ data: direct(0.3), pad: 'x'.repeat(70 * 1024) }));
-  const { result } = await captureWarnings(() => scoreWithJev({ state: 's' }, { fetchImpl: huge.fetchImpl, env: { MAYBESITTER_JEV_API_KEY: KEY } }));
+  const { result } = await captureWarnings(() => scoreWithJev({ state: 's' }, { fetchImpl: huge.fetchImpl, env: KEYED }));
   assert.equal(result, null);
 });
 
-test('Jev: no key means no request at all', async () => {
+test('Jev: no key or no URL means no request at all; there is no default endpoint', async () => {
   const { calls, fetchImpl } = recordingFetch(() => jsonResponse(direct(0.5)));
   assert.equal(await scoreWithJev({ state: 's' }, { fetchImpl, env: {} }), null);
+  assert.equal(await scoreWithJev({ state: 's' }, { fetchImpl, env: { MAYBESITTER_JEV_API_KEY: KEY } }), null);
+  assert.equal(await scoreWithJev({ state: 's' }, { fetchImpl, env: { MAYBESITTER_JEV_URL: JEV_URL } }), null);
   assert.equal(await scoreWithJev({ state: 's' }, { fetchImpl, env: { MAYBESITTER_JEV_API_KEY: '  ' } }), null);
   assert.equal(calls.length, 0);
 });
 
 test('Jev: every failure answers null, and no line carries the key or the mail', async () => {
-  const env = { MAYBESITTER_JEV_API_KEY: KEY };
+  const env = KEYED;
   const state = 'From: boss@example.com\nSubject: SECRET-SUBJECT\n\nprivate body';
   const fakeOk = (value: unknown) => (async () => ({ ok: true, status: 200, json: async () => value }) as unknown as Response) as typeof fetch;
   const cases: Array<[string, typeof fetch]> = [
@@ -192,7 +196,7 @@ test('Jev: a slow answer times out to null', async () => {
   })) as typeof fetch;
   const started = Date.now();
   const { result, lines } = await captureWarnings(() => scoreWithJev({ state: 's' }, {
-    fetchImpl: hanging, env: { MAYBESITTER_JEV_API_KEY: KEY }, timeoutMs: 20,
+    fetchImpl: hanging, env: KEYED, timeoutMs: 20,
   }));
   assert.equal(result, null);
   assert.ok(Date.now() - started < 2_000);

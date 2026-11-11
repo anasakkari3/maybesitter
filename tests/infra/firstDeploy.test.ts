@@ -374,6 +374,10 @@ test('switching the env list to a custom delimiter dropped none of the existing 
   assert.equal(staging.get('MAYBESITTER_ADDON_GATE_MODE'), 'shadow');
   assert.equal(staging.get('MAYBESITTER_EMAIL_TRIAGE_MODE'), 'off');
   assert.equal(production.get('MAYBESITTER_JEV_API_KEY'), undefined, 'the Jev key is a secret, never a plain variable');
+  // No Jev endpoint anywhere until one with a signed DPA is chosen and the
+  // privacy policy names it (docs/product/gmail-triage-disclosure-draft.md).
+  assert.equal(production.get('MAYBESITTER_JEV_URL'), '');
+  assert.equal(staging.get('MAYBESITTER_JEV_URL'), '');
   assert.equal(production.size, 55);
   assert.equal(staging.size, 54);
 });

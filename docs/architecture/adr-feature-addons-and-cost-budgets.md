@@ -34,16 +34,16 @@ The owner wants the subscription to become a bundle of per-feature subscriptions
 | memory_translation | add-on | — | memory_plus 20 |
 | search_history, football | add-on | free, no model | — |
 
-Free budgets sum to 40¢; an account with no purchase is also held by the account-wide free ceiling `MAYBESITTER_FREE_MONTHLY_CENTS` (default 40, clamped to the owner's 50¢). Every grant's budget is below what its price nets after a 30% store fee (`tests/features/catalog.test.ts` enforces it): base ₪10 ≈ $3, gmail_light $3, gmail_full $5, the $1 add-ons.
+Free budgets sum to 40¢; an account with no purchase is also held by the account-wide free ceiling `MAYBESITTER_FREE_MONTHLY_CENTS` (default 40, clamped to the owner's 50¢). Every grant's budget is below what its price nets after a 30% store fee (`tests/features/catalog.test.ts` enforces it): base ₪10 ≈ $3, gmail_light $4, gmail_full $5 (owner direction: Gmail is $4–5, never $2), the $1 add-ons.
 
 ### Email triage (Gmail cost cut)
 
 Owner idea, 2026-11-10: skim like a person. Stage 1 is the existing free bulk filter. Stage 2 scores From + Subject + the first lines for relevance and skips the full read below a threshold. Stage 3 is the full Gemini read. Stage 4 is the existing post-read filter (verbatim evidence, own text, single agreement sentence). See `lib/intelligence/emailTriage.ts`.
 
-- Scorer order: TypeSafe Jev through jevai.org (`MAYBESITTER_JEV_URL`, `MAYBESITTER_JEV_MODEL`, secret `MAYBESITTER_JEV_API_KEY`), then a Gemini header-only call (`purpose: 'email_triage'`, its own 600/day action cap so it never eats the capture caps), then a full read. It fails open on quality.
+- Scorer order: TypeSafe Jev (`MAYBESITTER_JEV_URL`, no default: off until an endpoint with a signed DPA is configured; `MAYBESITTER_JEV_MODEL`, secret `MAYBESITTER_JEV_API_KEY`), then a Gemini header-only call (`purpose: 'email_triage'`, its own 600/day action cap so it never eats the capture caps), then a full read. It fails open on quality.
 - Self-replies and dated candidates are never triaged out. A deterministic audit sample of skipped mail is read anyway, and a miss is logged content-free.
 - `MAYBESITTER_EMAIL_TRIAGE_MODE` is `off` in both environments. The threshold defaults to 0.15 and is clamped to at most 0.5.
-- **Before any real user:** Jev runs in the United States. It needs a DPA with SCCs, an update to the processor disclosure, and a before/after run on an owner-labelled mail set showing zero lost commitments. On 2026-11-10 the owner's jevai.org key authenticated (`tools/list` worked) but `tools/call` answered "credentials or model access were rejected", and REST `/api/v1/decisions` returned 502. No live decision has been observed yet.
+- **Before any real user:** Jev runs in the United States. It needs a DPA with SCCs, an update to the processor disclosure, and a before/after run on an owner-labelled mail set showing zero lost commitments. On 2026-11-10 the owner's jevai.org key authenticated (`tools/list` worked) but `tools/call` answered "credentials or model access were rejected", and REST `/api/v1/decisions` returned 502. No live decision has been observed yet. On 2026-11-11 every jevai.org tool still answered the same rejection, and a read of the site showed it is a community hub with no named operator, terms or privacy policy, not TypeSafe's own API. Mail text never goes there: the default endpoint was removed and the deploy flags leave `MAYBESITTER_JEV_URL` empty. Jev comes back only through TypeSafe directly or a gateway with a DPA (Vercel, Cloudflare, OpenRouter list it).
 
 ## Adding a feature
 
