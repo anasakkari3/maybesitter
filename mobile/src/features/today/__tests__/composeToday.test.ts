@@ -464,3 +464,51 @@ describe('an all-day appointment ends with its own day, in its own zone (E1 revi
     expect(at('2026-11-12T22:30:00.000Z').openTotal).toBe(0);
   });
 });
+
+/*
+ * Lane E1 review round 2, item 1: the plan row counts what the cached plan
+ * holds. An appointment pinned in it that is over — or that the fresh Today
+ * list no longer holds — is not counted, by the same clock as the groups.
+ */
+describe('the plan row does not count an appointment that is over (E1 review 2)', () => {
+  const NOW = new Date('2026-11-12T08:30:00.000Z');
+  const meeting: CommitmentView = {
+    ...item('meeting', 'must'), title: 'اجتماع مع سامي', shownAt: '2026-11-12T07:00:00.000Z', timeKind: 'scheduled_event',
+    dueAt: '2026-11-12T07:00:00.000Z', endAt: '2026-11-12T08:00:00.000Z', allDay: false,
+  };
+  const medicine: CommitmentView = {
+    ...item('medicine', 'must'), title: 'أشتري دوا', shownAt: '2026-11-12T07:00:00.000Z', timeKind: 'scheduled_event',
+    dueAt: '2026-11-12T07:00:00.000Z', endAt: null, allDay: false,
+  };
+  const slot = (itemId: string, startsAt: string, endsAt: string) => ({ itemId, title: itemId, startsAt, endsAt, blockId: null });
+  const accepted = (fixed: ReturnType<typeof slot>[]): DailyPlan => ({ ...aPlan('accepted', 0), fixed });
+
+  it('an accepted plan whose only row is the meeting that ended places nothing, and the day is empty', () => {
+    const m = composeToday({
+      groups: groups({ must: [meeting] }), next: next(), upcoming: [], now: NOW,
+      plan: plan({ plan: accepted([slot('meeting', '2026-11-12T07:00:00.000Z', '2026-11-12T08:00:00.000Z')]) }),
+    });
+    expect(m.openTotal).toBe(0);
+    expect(m.plan).toEqual({ kind: 'accepted', placed: 0 });
+    expect(m.isEmpty).toBe(true);
+  });
+
+  it('a task pinned to an hour still counts after its slot', () => {
+    const m = composeToday({
+      groups: groups({ must: [medicine] }), next: next(), upcoming: [], now: NOW,
+      plan: plan({ plan: accepted([slot('medicine', '2026-11-12T07:00:00.000Z', '2026-11-12T07:30:00.000Z')]) }),
+    });
+    expect(m.plan).toEqual({ kind: 'accepted', placed: 1 });
+  });
+});
+
+describe('the category chip never makes a recommendation stale (E1 review 2)', () => {
+  it('a step the chip filtered out of the groups, but the fresh lists hold, is still the card', () => {
+    const work = item('work', 'must');
+    const m = composeToday({
+      groups: groups({ should: [item('family')] }), next: next({ recommendation: rec('work') }), plan: plan(), upcoming: [],
+      records: [work, item('family')],
+    });
+    expect(m.primary).toMatchObject({ kind: 'next' });
+  });
+});

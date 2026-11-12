@@ -271,8 +271,16 @@ describe('buildSnapshot — an appointment that is over (lane E1)', () => {
 describe('buildSnapshot — a stale next step (E1 review, item 3)', () => {
   it('does not write a next step that the fresh Today list no longer holds', () => {
     // Today refetched without the ended meeting; the cached recommendation still names it.
-    const snapshot = buildSnapshot(input({ nextStep: { commitmentId: 'meeting', title: 'اجتماع مع سامي' } }));
+    const snapshot = buildSnapshot(input({ upcoming: [], nextStep: { commitmentId: 'meeting', title: 'اجتماع مع سامي' } }));
     expect(snapshot.items.map((entry) => entry.id)).not.toContain('meeting');
     expect(snapshot.items.some((entry) => entry.isNextStep)).toBe(false);
+  });
+});
+
+describe('buildSnapshot — a next step later in the week (E1 review 2)', () => {
+  it('writes a recommendation for something on Upcoming, which Today does not hold', () => {
+    const tomorrow = commitment({ id: 'tomorrow', title: 'Prepare tomorrow', timeSpec: at('2026-09-14T09:00:00.000Z') });
+    const snapshot = buildSnapshot(input({ today: [commitment({ id: 'report' })], upcoming: [tomorrow], nextStep: { commitmentId: 'tomorrow', title: 'Prepare tomorrow' } }));
+    expect(snapshot.items.map((entry) => [entry.id, entry.isNextStep])).toEqual([['tomorrow', true], ['report', false]]);
   });
 });

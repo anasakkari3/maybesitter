@@ -226,6 +226,14 @@ describe('the widget snapshot in the running app', () => {
     expect(writes()).toHaveLength(0);
   });
 
+  it('writes a next step for something later in the week, which only Upcoming holds (E1 review 2)', async () => {
+    jest.spyOn(commitmentEndpoints, 'listToday').mockResolvedValue({ items: [commitment('c-today', SECRET_TODAY)] } as never);
+    jest.spyOn(commitmentEndpoints, 'listUpcoming').mockResolvedValue({ items: [commitment('c-next', SECRET_NEXT)] } as never);
+    await openApp();
+    await settled();
+    expect(lastWrite().items[0]).toMatchObject({ id: 'c-next', isNextStep: true });
+  });
+
   it('previews exactly what the widget will draw', async () => {
     await openApp();
     await settled();

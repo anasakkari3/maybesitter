@@ -106,6 +106,12 @@ export type WidgetSnapshot = {
 export type SnapshotInput = {
   /** Today's commitments as the list endpoint returned them. */
   today: readonly Commitment[];
+  /**
+   * Upcoming as the list endpoint returned it, or undefined while it has not
+   * answered. A next step for something later in the week is on it; a step on
+   * neither list is a stale recommendation and is not written (lane E1).
+   */
+  upcoming?: readonly Commitment[];
   /** `recommendation.primaryStep`, or null when there is none. */
   nextStep: { commitmentId: string; title: string } | null;
   /** The user's "Show titles on the home screen widget" answer. */
@@ -182,7 +188,9 @@ export function buildSnapshot(input: SnapshotInput): WidgetSnapshot {
   const step = input.nextStep;
   // A next step the fresh Today list no longer holds, or holds as over, is a
   // cached recommendation gone stale (lane E1): it is not written.
-  const stepListed = step ? input.today.find((c) => c.id === step.commitmentId) : undefined;
+  const stepListed = step
+    ? input.today.find((c) => c.id === step.commitmentId) ?? input.upcoming?.find((c) => c.id === step.commitmentId)
+    : undefined;
   if (step && LINKABLE_ID.test(step.commitmentId) && stepListed && !over(stepListed)) {
     const inToday = open.find((c) => c.id === step.commitmentId) ?? null;
     items.push(itemFor(inToday, step.commitmentId, step.title, true));

@@ -14,7 +14,7 @@ import React from 'react';
 import { View } from 'react-native';
 import { useApp } from '../../state/AppContext';
 import { useAuth } from '../../auth/AuthProvider';
-import { useNextStep, useToday } from '../../api/queries';
+import { useNextStep, useToday, useUpcoming } from '../../api/queries';
 import { formatTime } from '../../i18n/format';
 import { ltr } from '../../i18n/strings';
 import { useTimeZone } from '../../i18n/timezone';
@@ -32,12 +32,14 @@ export function WidgetSettingsScreen({ onBack }: { onBack: () => void }) {
   const { allowed, setAllowed } = useWidgetTitlesAllowed(uid);
   const timeZone = useTimeZone();
   const today = useToday();
+  const upcoming = useUpcoming();
   const nextStep = useNextStep();
 
   const now = new Date();
   const preview = today.isSuccess
     ? buildSnapshot({
       today: today.data.items,
+      ...(upcoming.data ? { upcoming: upcoming.data.items } : {}),
       nextStep: nextStep.isSuccess ? nextStep.data.recommendation.primaryStep ?? null : null,
       titlesAllowed: allowed,
       surface: 'widget',

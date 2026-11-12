@@ -169,6 +169,13 @@ export function TodayScreen({ tabClearance = TAB_CLEARANCE }: { tabClearance?: n
     return () => clearTimeout(timer);
   }, [nextEnd]);
   const listsLoaded = today.data !== undefined && (upcoming.data !== undefined || upcoming.isError);
+  // What the fresh lists hold before the category chip filters the groups: a
+  // recommendation or a plan row is judged against these (lane E1).
+  const records = useMemo(
+    () => [...(today.data?.items ?? []).map((c) => toViewModel(c, now)), ...upcomingViews],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [today.data, upcomingViews],
+  );
 
   const model = useMemo(() => composeToday({
     groups,
@@ -187,7 +194,8 @@ export function TodayScreen({ tabClearance = TAB_CLEARANCE }: { tabClearance?: n
     upcoming: upcomingViews,
     now: new Date(clockMs),
     listsLoaded,
-  }), [groups, recommendationsAllowed, next.data, next.isPending, next.isError, next.error, plan.data, plan.isPending, plan.isError, upcomingViews, clockMs, listsLoaded]);
+    records,
+  }), [groups, recommendationsAllowed, next.data, next.isPending, next.isError, next.error, plan.data, plan.isPending, plan.isError, upcomingViews, clockMs, listsLoaded, records]);
 
   const byId = useMemo(() => {
     const all = [...groups.must, ...groups.should, ...groups.nice, ...groups.finished];
@@ -195,7 +203,8 @@ export function TodayScreen({ tabClearance = TAB_CLEARANCE }: { tabClearance?: n
   }, [groups]);
 
   const visibleRecords = showBar ? filterByCategory(today.data?.items ?? [], chip) : today.data?.items ?? [];
-  const preview = planPreview(plan.data, visibleRecords, new Date());
+  // The same clock Today is composed for (lane E1), or later: never earlier.
+  const preview = planPreview(plan.data, visibleRecords, new Date(Math.max(clockMs, Date.now())));
   const previewIds = new Set(preview.map(item => item.id));
   const progress = dayProgress(visibleRecords, dayKey(new Date(), timezone), timezone);
   const futureRecords = showBar ? filterByCategory(upcoming.data?.items ?? [], chip) : upcoming.data?.items ?? [];
