@@ -280,7 +280,7 @@ describe('an all-day appointment is never the step (N18)', () => {
   } as unknown as Commitment;
 
   it('the literal case: the appointment alone is context, not the card, and the day is not empty', () => {
-    const m = composeToday({ groups: groupForToday([doctor], NOW), next: next(), plan: plan(), upcoming: [] });
+    const m = composeToday({ groups: groupForToday([doctor], NOW), next: next(), plan: plan(), upcoming: [], now: new Date(NOW) });
     expect(m.primary).toEqual({ kind: 'none' });
     expect(m.groups.must.map((c) => c.id)).toEqual(['doctor']);
     expect(m.openTotal).toBe(1);
@@ -288,14 +288,14 @@ describe('an all-day appointment is never the step (N18)', () => {
   });
 
   it('with lunch at 14:00 on the day, lunch is the step and the appointment stays in its group', () => {
-    const m = composeToday({ groups: groupForToday([doctor, lunch], NOW), next: next(), plan: plan(), upcoming: [] });
+    const m = composeToday({ groups: groupForToday([doctor, lunch], NOW), next: next(), plan: plan(), upcoming: [], now: new Date(NOW) });
     expect(m.primary).toMatchObject({ kind: 'fallback', item: { id: 'lunch' } });
     expect(m.groups.must.map((c) => c.id)).toEqual(['doctor']);
   });
 
   it('an all-day *task* — a thing to do by the end of the day — is still a step', () => {
     const bill = { ...doctor, id: 'bill', timeSpec: { ...doctor.timeSpec, kind: 'due_by' } } as Commitment;
-    const m = composeToday({ groups: groupForToday([bill], NOW), next: next(), plan: plan(), upcoming: [] });
+    const m = composeToday({ groups: groupForToday([bill], NOW), next: next(), plan: plan(), upcoming: [], now: new Date(NOW) });
     expect(m.primary).toMatchObject({ kind: 'fallback', item: { id: 'bill' } });
   });
 });
@@ -341,5 +341,43 @@ describe('a preparation step on the card', () => {
     const m = composeToday({ groups: groups({ must: [item('exam', 'must')] }), next: next({ recommendation: prep }), plan: plan(), upcoming: [] });
     expect(m.primary).toMatchObject({ kind: 'next' });
     expect(m.groups.must.map((c) => c.id)).toEqual(['exam']);
+  });
+});
+
+/*
+ * An appointment that is over is not the thing to do now (lane E1, owner
+ * decision 2026-11-12). The server's lists and next step drop it, but Today
+ * composes from the list and the recommendation it fetched earlier: at 10:30
+ * the 09:00–10:00 meeting fetched at 09:30 is still in the cache. The card
+ * must not offer it, by fallback or by a stale recommendation.
+ */
+describe('an appointment that is over (lane E1)', () => {
+  // 2026-11-12 15:00 Jerusalem.
+  const NOW = new Date('2026-11-12T13:00:00.000Z');
+  const event = (id: string, title: string, dueAt: string, endAt: string | null, importance: CommitmentView['importance'] = 'must'): CommitmentView => ({
+    ...item(id, importance), title, shownAt: dueAt, timeKind: 'scheduled_event', dueAt, endAt, allDay: false,
+  });
+  const meeting = event('meeting', 'اجتماع مع سامي', '2026-11-12T07:00:00.000Z', '2026-11-12T08:00:00.000Z');
+
+  it('the fallback card skips this morning\'s meeting and offers the first thing still to do', () => {
+    const m = composeToday({ groups: groups({ must: [meeting], should: [item('report')] }), next: next(), plan: plan(), upcoming: [], now: NOW });
+    expect(m.primary).toMatchObject({ kind: 'fallback', item: { id: 'report' } });
+  });
+
+  it('a cached recommendation for a meeting that has since ended gives way to the fallback', () => {
+    const m = composeToday({ groups: groups({ must: [meeting], should: [item('report')] }), next: next({ recommendation: rec('meeting') }), plan: plan(), upcoming: [], now: NOW });
+    expect(m.primary).toMatchObject({ kind: 'fallback', item: { id: 'report' } });
+  });
+
+  it('a meeting still running, or later today, is not "over"', () => {
+    const during = new Date('2026-11-12T07:30:00.000Z');
+    const m = composeToday({ groups: groups({ must: [meeting] }), next: next({ recommendation: rec('meeting') }), plan: plan(), upcoming: [], now: during });
+    expect(m.primary).toMatchObject({ kind: 'next' });
+  });
+
+  it('a task given an hour (a scheduled_event with no end and no event noun) is still offered (#383)', () => {
+    const medicine = event('medicine', 'أشتري دوا', '2026-11-12T08:00:00.000Z', null);
+    const m = composeToday({ groups: groups({ must: [medicine] }), next: next(), plan: plan(), upcoming: [], now: NOW });
+    expect(m.primary).toMatchObject({ kind: 'fallback', item: { id: 'medicine' } });
   });
 });

@@ -2,6 +2,7 @@ import type { CommitmentView, TodayGroups } from '../commitments/model';
 import type { NextStepRecommendation } from '../../api/schemas/nextStep';
 import type { DailyPlan } from '../../api/schemas/plan';
 import { planRows } from '../plan/lateDay';
+import { hasEventEnded } from '../commitments/eventEnded';
 
 /**
  * One answer to "what matters now" (Round 2, Phase C).
@@ -151,7 +152,11 @@ export function composeToday(input: {
   // ── primary ──
   let primary: Primary;
   const rec = next.recommendation;
-  const ready = !!rec && rec.state === 'ready' && !!rec.primaryStep && !next.silenced;
+  // A recommendation fetched while the meeting was on, read after it ended
+  // (lane E1): the server would no longer offer it, so neither does the card.
+  const recItem = rec?.primaryStep ? byId.get(rec.primaryStep.commitmentId) : undefined;
+  const recOver = !!recItem && hasEventEnded(recItem, nowMs);
+  const ready = !!rec && rec.state === 'ready' && !!rec.primaryStep && !next.silenced && !recOver;
   if (open.length === 0 && groups.finished.length > 0) {
     // Everything the day had is resolved. Said once, calmly, whatever the
     // recommendation route thinks — it may still name a thing from tomorrow.
@@ -178,7 +183,9 @@ export function composeToday(input: {
     // Nor is an event at an hour still more than its last hour away — the
     // exam tomorrow at 10:00, the night out at 21:00 (audit 2026-10-03 #2):
     // the server holds them back the same way (`nextStepPreparation.ts`).
-    const top = open.find((c) => !c.allDayEvent && !eventNotYetClose(c, nowMs)) ?? null;
+    // Nor is an appointment that is already over (lane E1): the list it is
+    // composed from may have been fetched before the meeting ended.
+    const top = open.find((c) => !c.allDayEvent && !eventNotYetClose(c, nowMs) && !hasEventEnded(c, nowMs)) ?? null;
     primary = top ? { kind: 'fallback', item: top } : { kind: 'none' };
   }
 

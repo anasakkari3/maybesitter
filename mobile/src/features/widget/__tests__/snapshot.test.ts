@@ -239,3 +239,29 @@ describe('displayStateOf', () => {
     expect(displayStateOf({ contract: 'something else' } as never, NOW)).toBe('loading');
   });
 });
+
+/*
+ * The widget is written from the list the app fetched, and stays on the home
+ * screen for half an hour (`SNAPSHOT_TTL_MS`). An appointment that is over
+ * leaves it like every other active surface (lane E1).
+ */
+describe('buildSnapshot — an appointment that is over (lane E1)', () => {
+  const LATER = new Date('2026-11-12T13:00:00.000Z'); // 15:00 Jerusalem
+  const event = (id: string, title: string, dueAt: string, endAt: string | null, allDay = false) =>
+    commitment({ id, title, priority: level('high'), timeSpec: { kind: 'scheduled_event', dueAt, endAt, remindAt: null, allDay, timezone: 'Asia/Jerusalem' } });
+  const meeting = event('meeting', 'اجتماع مع سامي', '2026-11-12T07:00:00.000Z', '2026-11-12T08:00:00.000Z');
+  const doctor = event('doctor', 'موعد دكتور', '2026-11-10T22:00:00.000Z', null, true);
+  const evening = event('evening', 'عشا مع العيلة', '2026-11-12T16:00:00.000Z', '2026-11-12T17:00:00.000Z');
+  const medicine = event('medicine', 'أشتري دوا', '2026-11-12T08:00:00.000Z', null);
+
+  it('leaves out this morning\'s meeting and yesterday\'s all-day appointment, keeps tonight\'s and a task given an hour', () => {
+    const snapshot = buildSnapshot(input({ now: LATER, nextStep: null, today: [meeting, doctor, evening, medicine] }));
+    expect(snapshot.items.map((entry) => entry.id).sort()).toEqual(['evening', 'medicine']);
+  });
+
+  it('does not write a next step that is a meeting already over', () => {
+    const snapshot = buildSnapshot(input({ now: LATER, nextStep: { commitmentId: 'meeting', title: 'اجتماع مع سامي' }, today: [meeting, evening] }));
+    expect(snapshot.items.map((entry) => entry.id)).toEqual(['evening']);
+    expect(snapshot.items.some((entry) => entry.isNextStep)).toBe(false);
+  });
+});
