@@ -1,5 +1,7 @@
 # QA audit plan: code first, then the simulator, then a comparison report
 
+> **Superseded on 2026-11-12 by `2026-11-12-qa-audit-plan-v2.md`.** v1 read expected behaviour from the code and so could not catch behaviour that is wrong by design.
+
 Date: 2026-11-12. Audited commit: `main` = **`de7fcb84`**, served by legacy staging revision `maybesitter-api-staging-00676-qew`.
 
 Inventories:
