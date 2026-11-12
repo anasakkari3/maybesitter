@@ -98,8 +98,10 @@ beforeEach(async () => {
   client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
   repository = createFakeAuthRepository({ initialUser: USER });
   setAuthRepository(repository);
+  // The next step is on Today's list too: a step the list no longer holds is
+  // a stale recommendation and is not written (lane E1 review).
   jest.spyOn(commitmentEndpoints, 'listToday')
-    .mockResolvedValue({ items: [commitment('c-today', SECRET_TODAY)] } as never);
+    .mockResolvedValue({ items: [commitment('c-next', SECRET_NEXT), commitment('c-today', SECRET_TODAY)] } as never);
   jest.spyOn(commitmentEndpoints, 'listUpcoming').mockResolvedValue({ items: [] } as never);
   jest.spyOn(nextStepEndpoints, 'getNextStep').mockResolvedValue({
     ...nextStepFixture,

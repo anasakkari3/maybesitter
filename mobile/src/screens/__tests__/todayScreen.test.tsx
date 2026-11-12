@@ -810,3 +810,42 @@ describe('Stitch Today', () => {
     expect(screen.queryByTestId('today-conflict')).toBeNull();
   });
 });
+
+/*
+ * Lane E1 review round 1, item 2: an appointment that ends while Today is open
+ * leaves it then, without a refetch and without a polling loop — the screen
+ * schedules one recompute at the next end.
+ */
+describe('an appointment that ends while Today is open', () => {
+  it('leaves the screen at its end', async () => {
+    jest.useFakeTimers({ now: new Date('2026-11-12T07:59:30.000Z') });
+    try {
+      mockDeviceZone = 'UTC';
+      const listToday = jest.spyOn(commitmentEndpoints, 'listToday').mockResolvedValue({ items: [
+        withPriority('meeting', 'high', {
+          title: 'Team meeting',
+          timeSpec: { kind: 'scheduled_event', dueAt: '2026-11-12T07:00:00.000Z', endAt: '2026-11-12T08:00:00.000Z', remindAt: null, allDay: false, timezone: 'UTC' },
+        }),
+        withPriority('report', 'high', { title: 'Write the report' }),
+      ] } as never);
+      await render(
+        <SafeAreaProvider initialMetrics={METRICS}>
+          <AppProvider>
+            <AuthProvider repository={repository} isDevBundle={false}>
+              <QueryClientProvider client={client}><TodayScreen /></QueryClientProvider>
+            </AuthProvider>
+          </AppProvider>
+        </SafeAreaProvider>,
+      );
+      await waitFor(() => expect(screen.queryByTestId('today-item-meeting')).not.toBeNull());
+      const fetches = listToday.mock.calls.length;
+      await act(async () => { jest.advanceTimersByTime(45_000); });
+      await waitFor(() => expect(screen.queryByTestId('today-item-meeting')).toBeNull());
+      expect(screen.queryByTestId('today-item-report')).not.toBeNull();
+      // Recomputed from what the screen already held: nothing was asked again.
+      expect(listToday.mock.calls.length).toBe(fetches);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+});

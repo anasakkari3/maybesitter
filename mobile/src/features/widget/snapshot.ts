@@ -180,8 +180,10 @@ export function buildSnapshot(input: SnapshotInput): WidgetSnapshot {
 
   const items: WidgetItem[] = [];
   const step = input.nextStep;
+  // A next step the fresh Today list no longer holds, or holds as over, is a
+  // cached recommendation gone stale (lane E1): it is not written.
   const stepListed = step ? input.today.find((c) => c.id === step.commitmentId) : undefined;
-  if (step && LINKABLE_ID.test(step.commitmentId) && !(stepListed && over(stepListed))) {
+  if (step && LINKABLE_ID.test(step.commitmentId) && stepListed && !over(stepListed)) {
     const inToday = open.find((c) => c.id === step.commitmentId) ?? null;
     items.push(itemFor(inToday, step.commitmentId, step.title, true));
   }

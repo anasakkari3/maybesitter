@@ -143,20 +143,40 @@ export function composeToday(input: {
   laterLimit?: number;
   /** The moment Today is drawn for; the phone's clock when absent. */
   now?: Date;
+  /**
+   * Today's and the week's lists have answered, so a recommendation neither
+   * holds is stale (lane E1). False while they load: nothing to judge by.
+   */
+  listsLoaded?: boolean;
 }): TodayModel {
-  const { groups, next, plan, upcoming, laterLimit = 3 } = input;
+  const { next, plan, laterLimit = 3 } = input;
   const nowMs = (input.now ?? new Date()).getTime();
+  // An appointment that is over is not on Today (lane E1). The server's lists
+  // already leave it out, but these were fetched earlier and are drawn now: at
+  // 10:30 the 09:00–10:00 meeting fetched at 09:30 is still here. It leaves
+  // the groups, the counts and Later, not only the card. Finished items stay.
+  const live = (c: CommitmentView): boolean => !hasEventEnded(c, nowMs);
+  const groups: TodayGroups = {
+    must: input.groups.must.filter(live),
+    should: input.groups.should.filter(live),
+    nice: input.groups.nice.filter(live),
+    finished: input.groups.finished,
+  };
+  const upcoming = input.upcoming.filter(live);
   const open = openItems(groups);
   const byId = new Map(open.map((c) => [c.id, c]));
 
   // ── primary ──
   let primary: Primary;
   const rec = next.recommendation;
-  // A recommendation fetched while the meeting was on, read after it ended
-  // (lane E1): the server would no longer offer it, so neither does the card.
-  const recItem = rec?.primaryStep ? byId.get(rec.primaryStep.commitmentId) : undefined;
-  const recOver = !!recItem && hasEventEnded(recItem, nowMs);
-  const ready = !!rec && rec.state === 'ready' && !!rec.primaryStep && !next.silenced && !recOver;
+  // A recommendation is stale when the fresh lists no longer hold what it
+  // names — the meeting that ended and left Today on the last refetch, while
+  // the cached recommendation still names it (lane E1). The list's own top
+  // item is the card instead.
+  const recId = rec?.primaryStep?.commitmentId;
+  const recStale = recId !== undefined && (input.listsLoaded ?? true)
+    && !byId.has(recId) && !upcoming.some((c) => c.id === recId);
+  const ready = !!rec && rec.state === 'ready' && !!rec.primaryStep && !next.silenced && !recStale;
   if (open.length === 0 && groups.finished.length > 0) {
     // Everything the day had is resolved. Said once, calmly, whatever the
     // recommendation route thinks — it may still name a thing from tomorrow.
@@ -183,9 +203,7 @@ export function composeToday(input: {
     // Nor is an event at an hour still more than its last hour away — the
     // exam tomorrow at 10:00, the night out at 21:00 (audit 2026-10-03 #2):
     // the server holds them back the same way (`nextStepPreparation.ts`).
-    // Nor is an appointment that is already over (lane E1): the list it is
-    // composed from may have been fetched before the meeting ended.
-    const top = open.find((c) => !c.allDayEvent && !eventNotYetClose(c, nowMs) && !hasEventEnded(c, nowMs)) ?? null;
+    const top = open.find((c) => !c.allDayEvent && !eventNotYetClose(c, nowMs)) ?? null;
     primary = top ? { kind: 'fallback', item: top } : { kind: 'none' };
   }
 

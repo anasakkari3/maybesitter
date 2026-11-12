@@ -28,7 +28,9 @@ import type { CommitmentView } from './model';
 /** The server's `ASSUMED_EVENT_MINUTES`. */
 const ASSUMED_EVENT_MS = 60 * 60_000;
 
-type EventFields = Pick<CommitmentView, 'title' | 'timeKind' | 'dueAt' | 'remindAt' | 'endAt' | 'allDay' | 'postponedUntil'>;
+type EventFields = Pick<CommitmentView, 'title' | 'timeKind' | 'dueAt' | 'remindAt' | 'endAt' | 'allDay' | 'postponedUntil' | 'timeZone'>;
+
+const HOUR_MS = 60 * 60_000;
 
 function parsed(value: string | null | undefined): number | null {
   if (!value) return null;
@@ -42,8 +44,8 @@ export function isEventView(view: EventFields): boolean {
 }
 
 /**
- * `timeZone` is the zone an all-day day was named in (`timeSpec.timezone`);
- * only an all-day event reads it.
+ * `timeZone` is the zone an all-day day was named in (`timeSpec.timezone`,
+ * carried on the view as `timeZone`); only an all-day event reads it.
  */
 export function hasEventEnded(view: EventFields, now: Date | number, timeZone?: string | null): boolean {
   if (!isEventView(view)) return false;
@@ -54,15 +56,54 @@ export function hasEventEnded(view: EventFields, now: Date | number, timeZone?: 
 
   if (view.allDay === true) {
     const ownEnd = parsed(view.endAt);
-    const zone = resolveTimeZone(timeZone);
+    const zone = resolveTimeZone(timeZone ?? view.timeZone);
     const dayOver = ownEnd !== null && ownEnd > start
       ? ownEnd <= nowMs
       : dayKey(new Date(start), zone) < dayKey(new Date(nowMs), zone);
     return dayOver && (postponed === null || postponed + ASSUMED_EVENT_MS <= nowMs);
   }
 
+  return timedEndMs(view, start, postponed) <= nowMs;
+}
+
+function timedEndMs(view: EventFields, start: number, postponed: number | null): number {
   const ownEnd = parsed(view.endAt);
   const end = ownEnd !== null && ownEnd > start ? ownEnd : start + ASSUMED_EVENT_MS;
-  const finalEnd = postponed === null ? end : Math.max(end, postponed + (end - start));
-  return finalEnd <= nowMs;
+  return postponed === null ? end : Math.max(end, postponed + (end - start));
+}
+
+/** The instant an event is over, for scheduling; `null` for a task or an unreadable time. */
+function eventEndMs(view: EventFields): number | null {
+  if (!isEventView(view)) return null;
+  const start = parsed(view.dueAt ?? view.remindAt);
+  if (start === null) return null;
+  const postponed = parsed(view.postponedUntil);
+  if (view.allDay !== true) return timedEndMs(view, start, postponed);
+  const ownEnd = parsed(view.endAt);
+  let end: number | null = ownEnd !== null && ownEnd > start ? ownEnd : null;
+  if (end === null) {
+    // The midnight that closes its day: an all-day `dueAt` is a local
+    // midnight, so the next one is a whole number of hours on (23, 24 or 25).
+    const zone = resolveTimeZone(view.timeZone);
+    const startKey = dayKey(new Date(start), zone);
+    for (let hours = 1; hours <= 48 && end === null; hours += 1) {
+      if (dayKey(new Date(start + hours * HOUR_MS), zone) > startKey) end = start + hours * HOUR_MS;
+    }
+    if (end === null) return null;
+  }
+  return postponed === null ? end : Math.max(end, postponed + ASSUMED_EVENT_MS);
+}
+
+/**
+ * The soonest instant after `nowMs` at which one of these appointments ends,
+ * or `null` when none is still to end. Today schedules one recompute there,
+ * so a meeting that ends while the screen is open leaves it then — no polling.
+ */
+export function nextEventEndAfter(views: readonly EventFields[], nowMs: number): number | null {
+  let soonest: number | null = null;
+  for (const view of views) {
+    const end = eventEndMs(view);
+    if (end !== null && end > nowMs && (soonest === null || end < soonest)) soonest = end;
+  }
+  return soonest;
 }

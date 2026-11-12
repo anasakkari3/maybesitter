@@ -100,7 +100,9 @@ describe('buildSnapshot — the privacy default', () => {
   });
 
   it('redacts the next step, whose title arrives separately from the list', () => {
-    const snapshot = buildSnapshot(input({ today: [], nextStep: { commitmentId: 'x1', title: 'موعد الدكتور' } }));
+    // The step is on Today's list (a step the list no longer holds is stale and
+    // not written, lane E1 review); its title arrives with the recommendation.
+    const snapshot = buildSnapshot(input({ today: [commitment({ id: 'x1', title: 'x1' })], nextStep: { commitmentId: 'x1', title: 'موعد الدكتور' } }));
     expect(snapshot.items).toHaveLength(1);
     expect(JSON.stringify(snapshot)).not.toContain('موعد الدكتور');
   });
@@ -262,6 +264,15 @@ describe('buildSnapshot — an appointment that is over (lane E1)', () => {
   it('does not write a next step that is a meeting already over', () => {
     const snapshot = buildSnapshot(input({ now: LATER, nextStep: { commitmentId: 'meeting', title: 'اجتماع مع سامي' }, today: [meeting, evening] }));
     expect(snapshot.items.map((entry) => entry.id)).toEqual(['evening']);
+    expect(snapshot.items.some((entry) => entry.isNextStep)).toBe(false);
+  });
+});
+
+describe('buildSnapshot — a stale next step (E1 review, item 3)', () => {
+  it('does not write a next step that the fresh Today list no longer holds', () => {
+    // Today refetched without the ended meeting; the cached recommendation still names it.
+    const snapshot = buildSnapshot(input({ nextStep: { commitmentId: 'meeting', title: 'اجتماع مع سامي' } }));
+    expect(snapshot.items.map((entry) => entry.id)).not.toContain('meeting');
     expect(snapshot.items.some((entry) => entry.isNextStep)).toBe(false);
   });
 });

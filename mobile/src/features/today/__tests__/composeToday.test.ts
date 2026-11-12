@@ -6,6 +6,7 @@
  */
 import { describe, expect, it } from '@jest/globals';
 import { composeToday, type NextStepInput, type PlanInput } from '../composeToday';
+import { nextEventEndAfter } from '../../commitments/eventEnded';
 import { groupForToday, type CommitmentView, type TodayGroups } from '../../commitments/model';
 import type { Commitment } from '../../../api/schemas/common';
 import type { NextStepRecommendation } from '../../../api/schemas/nextStep';
@@ -66,7 +67,8 @@ describe('exactly one primary', () => {
   });
 
   it('a recommendation for something not on the day is still the primary, and the list is whole', () => {
-    const m = composeToday({ groups: groups({ must: [item('a', 'must')] }), next: next({ recommendation: rec('elsewhere') }), plan: plan(), upcoming: [] });
+    // Later in the week. A step on *no* list is stale (lane E1 review), below.
+    const m = composeToday({ groups: groups({ must: [item('a', 'must')] }), next: next({ recommendation: rec('elsewhere') }), plan: plan(), upcoming: [item('elsewhere')] });
     expect(m.primary).toMatchObject({ kind: 'next', item: null });
     expect(m.groups.must).toHaveLength(1);
   });
@@ -178,7 +180,7 @@ describe('the day is empty only when every source has answered with nothing', ()
   });
 
   it('is not empty when the server recommended a step for something off the day', () => {
-    const m = composeToday({ groups: empty, next: next({ recommendation: rec('elsewhere') }), plan: plan(), upcoming: [] });
+    const m = composeToday({ groups: empty, next: next({ recommendation: rec('elsewhere') }), plan: plan(), upcoming: [item('elsewhere')] });
     expect(m.primary).toMatchObject({ kind: 'next' });
     expect(m.isEmpty).toBe(false);
   });
@@ -379,5 +381,86 @@ describe('an appointment that is over (lane E1)', () => {
     const medicine = event('medicine', 'أشتري دوا', '2026-11-12T08:00:00.000Z', null);
     const m = composeToday({ groups: groups({ must: [medicine] }), next: next(), plan: plan(), upcoming: [], now: NOW });
     expect(m.primary).toMatchObject({ kind: 'fallback', item: { id: 'medicine' } });
+  });
+});
+
+/*
+ * Lane E1 review round 1, items 2 and 3: an appointment that is over leaves
+ * the whole of Today as the phone draws it — groups, counts and Later, not
+ * only the card — and a recommendation the fresh lists no longer hold is
+ * stale, not the card.
+ */
+describe('an appointment that is over leaves all of Today (E1 review)', () => {
+  const NOW = new Date('2026-11-12T13:00:00.000Z');
+  const event = (id: string, dueAt: string, endAt: string): CommitmentView => ({
+    ...item(id, 'must'), title: 'اجتماع مع سامي', shownAt: dueAt, timeKind: 'scheduled_event', dueAt, endAt, allDay: false,
+  });
+  const meeting = event('meeting', '2026-11-12T07:00:00.000Z', '2026-11-12T08:00:00.000Z');
+
+  it('leaves the groups and the open count', () => {
+    const m = composeToday({ groups: groups({ must: [meeting, item('call', 'must')], should: [item('report')] }), next: next(), plan: plan(), upcoming: [], now: NOW });
+    expect(m.primary).toMatchObject({ kind: 'fallback', item: { id: 'call' } });
+    expect([...m.groups.must, ...m.groups.should, ...m.groups.nice].map((c) => c.id)).toEqual(['report']);
+    expect(m.openTotal).toBe(2);
+    expect(m.openInGroups).toBe(1);
+  });
+
+  it('a day whose only open item is an appointment that is over is empty', () => {
+    const m = composeToday({ groups: groups({ must: [meeting] }), next: next(), plan: plan(), upcoming: [], now: NOW });
+    expect(m.openTotal).toBe(0);
+    expect(m.isEmpty).toBe(true);
+  });
+
+  it('leaves Later, which was fetched before it ended', () => {
+    const m = composeToday({ groups: groups({ should: [item('report')] }), next: next(), plan: plan(), upcoming: [meeting, item('tomorrow')], now: NOW });
+    expect(m.later.map((c) => c.id)).toEqual(['tomorrow']);
+  });
+
+  it('a cached recommendation for a commitment no fresh list holds is stale: the list\'s top item is the card', () => {
+    const m = composeToday({ groups: groups({ should: [item('report')] }), next: next({ recommendation: rec('meeting') }), plan: plan(), upcoming: [], now: NOW });
+    expect(m.primary).toMatchObject({ kind: 'fallback', item: { id: 'report' } });
+  });
+
+  it('a recommendation for something later in the week is still the card', () => {
+    const m = composeToday({ groups: groups({ should: [item('report')] }), next: next({ recommendation: rec('tomorrow') }), plan: plan(), upcoming: [item('tomorrow')], now: NOW });
+    expect(m.primary).toMatchObject({ kind: 'next' });
+  });
+
+  it('before the lists have answered, the recommendation is not judged stale', () => {
+    const m = composeToday({ groups: groups({}), next: next({ recommendation: rec('report') }), plan: plan(), upcoming: [], now: NOW, listsLoaded: false });
+    expect(m.primary).toMatchObject({ kind: 'next' });
+  });
+});
+
+describe('nextEventEndAfter (E1 review: Today recomputes when an appointment ends)', () => {
+  it('is the soonest end still ahead among the appointments, and null when there is none', () => {
+    const at = Date.parse('2026-11-12T07:30:00.000Z');
+    const views: CommitmentView[] = [
+      { ...item('m1'), title: 'اجتماع', timeKind: 'scheduled_event', dueAt: '2026-11-12T07:00:00.000Z', endAt: '2026-11-12T08:00:00.000Z', allDay: false },
+      { ...item('m2'), title: 'اجتماع', timeKind: 'scheduled_event', dueAt: '2026-11-12T06:00:00.000Z', endAt: '2026-11-12T07:00:00.000Z', allDay: false },
+      { ...item('m3'), title: 'اجتماع', timeKind: 'scheduled_event', dueAt: '2026-11-12T16:00:00.000Z', endAt: '2026-11-12T17:00:00.000Z', allDay: false },
+      { ...item('task'), title: 'أشتري دوا', timeKind: 'scheduled_event', dueAt: '2026-11-12T07:10:00.000Z', endAt: null, allDay: false },
+    ];
+    expect(nextEventEndAfter(views, at)).toBe(Date.parse('2026-11-12T08:00:00.000Z'));
+    expect(nextEventEndAfter(views, Date.parse('2026-11-12T18:00:00.000Z'))).toBeNull();
+  });
+});
+
+describe('an all-day appointment ends with its own day, in its own zone (E1 review)', () => {
+  const doctor = {
+    id: 'doctor', kind: 'task', title: 'موعد دكتور', description: null, person: null, status: 'active',
+    priority: { level: 'high', source: 'user_explicit', pressureAllowed: false, pressureLevel: 'none' },
+    category: null, categorySource: 'inferred',
+    // 2026-11-12 in Jerusalem: its local midnight is 22:00Z the evening before.
+    timeSpec: { kind: 'scheduled_event', dueAt: '2026-11-11T22:00:00.000Z', endAt: null, remindAt: null, allDay: true, timezone: 'Asia/Jerusalem' },
+    currentAckState: 'not_seen', postponedUntil: null,
+    createdAt: '2026-11-01T08:00:00.000Z', updatedAt: '2026-11-01T08:00:00.000Z', confirmedAt: '2026-11-01T08:00:00.000Z',
+    completedAt: null, droppedAt: null,
+  } as unknown as Commitment;
+
+  it('is still on Today at 23:30 Jerusalem, and gone at 00:30', () => {
+    const at = (iso: string) => composeToday({ groups: groupForToday([doctor], iso), next: next(), plan: plan(), upcoming: [], now: new Date(iso) });
+    expect(at('2026-11-12T21:30:00.000Z').openTotal).toBe(1);
+    expect(at('2026-11-12T22:30:00.000Z').openTotal).toBe(0);
   });
 });

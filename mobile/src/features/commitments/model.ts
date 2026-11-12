@@ -75,6 +75,12 @@ export interface CommitmentView {
   timedEvent?: boolean;
   /** Separate from the due time: postponing pauses resurfacing, not the deadline. */
   postponedUntil?: string | null;
+  /**
+   * The zone the commitment's day was named in (`timeSpec.timezone`), so an
+   * all-day appointment is over when *its* day ends (lane E1). Optional so a
+   * view built by hand reads as UTC.
+   */
+  timeZone?: string;
   /** Past its shown time, and still active. Not a status — see the header. */
   isPast: boolean;
   /** The user chose this importance; it was not read off their words. */
@@ -134,6 +140,7 @@ export function toViewModel(commitment: Commitment, now: string): CommitmentView
     // «Send the meeting notes at 3pm» is a task with an hour (review of #2).
     timedEvent: !allDay && commitment.timeSpec.kind === 'scheduled_event' && !!commitment.timeSpec.dueAt && namesEvent(commitment.title),
     postponedUntil: commitment.currentAckState === 'postponed' ? commitment.postponedUntil : null,
+    timeZone: commitment.timeSpec.timezone,
     isPast,
     importanceIsStated: commitment.priority.source === 'user_explicit',
     rank: commitment.rank,

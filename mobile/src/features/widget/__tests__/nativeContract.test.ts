@@ -32,7 +32,15 @@ describe('the widget extension', () => {
 
   it('decodes only fields the snapshot actually carries', () => {
     const snapshot = buildSnapshot({
-      today: [],
+      // The step is on Today's list, or it is not written (lane E1 review).
+      today: [{
+        id: 'c1', kind: 'task', title: 'x', description: null, person: null, status: 'active',
+        priority: { level: 'normal', source: 'default', pressureAllowed: false, pressureLevel: 'none' },
+        category: null, categorySource: 'inferred',
+        timeSpec: { kind: 'due_by', dueAt: '2026-09-13T12:00:00.000Z', endAt: null, remindAt: null, allDay: false, timezone: 'UTC' },
+        currentAckState: 'not_seen', postponedUntil: null, createdAt: '2026-09-01T09:00:00.000Z', updatedAt: '2026-09-01T09:00:00.000Z',
+        confirmedAt: '2026-09-01T09:00:00.000Z', completedAt: null, droppedAt: null,
+      } as unknown as Parameters<typeof buildSnapshot>[0]['today'][number]],
       nextStep: { commitmentId: 'c1', title: 'x' },
       titlesAllowed: false,
       surface: 'widget',
