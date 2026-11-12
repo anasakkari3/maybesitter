@@ -2,8 +2,10 @@
  * `hasEventEnded`: the one answer to "is this appointment over?" (spec Part 1,
  * "Rules for the build", lane E1).
  *
- *   - an event is a `scheduled_event` — timed or all-day; a football fixture
- *     and a calendar-feed session are both written as one;
+ *   - an event is a `scheduled_event` that is an appointment: all-day, or a
+ *     span with an end (a meeting, a lecture, a football fixture), or titled
+ *     as an event (`namesEvent`). A task given an hour — capture writes «أشتري
+ *     دوا الساعة 5» as a `scheduled_event` too (CL1) — is not one;
  *   - it has ended at `endAt` when it has one; otherwise an hour after `dueAt`
  *     when it has an hour; otherwise, for a day with no hour, when that day ends
  *     in the zone it was named in;
@@ -23,8 +25,12 @@ const NOW = new Date('2026-11-12T13:00:00.000Z');
 
 type Spec = Partial<Commitment['timeSpec']> & Pick<Commitment['timeSpec'], 'kind' | 'dueAt'>;
 
-function item(timeSpec: Spec, postponedUntil: string | null = null): Pick<Commitment, 'timeSpec' | 'postponedUntil'> {
-  return { timeSpec: { endAt: null, remindAt: null, allDay: false, timezone: TZ, ...timeSpec }, postponedUntil };
+function item(
+  timeSpec: Spec,
+  postponedUntil: string | null = null,
+  title = 'اجتماع مع سامي',
+): Pick<Commitment, 'timeSpec' | 'postponedUntil' | 'title'> {
+  return { title, timeSpec: { endAt: null, remindAt: null, allDay: false, timezone: TZ, ...timeSpec }, postponedUntil };
 }
 
 test('a lecture three weeks ago has ended at its own end', () => {
@@ -54,7 +60,7 @@ test('this morning\'s 09:00–10:00 meeting is over at 10:00, and not a millisec
 });
 
 test('a timed event with no end is over an hour after it starts', () => {
-  const noEnd = item({ kind: 'scheduled_event', dueAt: '2026-11-12T11:30:00.000Z' });
+  const noEnd = item({ kind: 'scheduled_event', dueAt: '2026-11-12T11:30:00.000Z' }, null, 'موعد دكتور');
   assert.equal(eventEndsAt(noEnd), '2026-11-12T12:30:00.000Z');
   assert.equal(hasEventEnded(noEnd, NOW), true);
   assert.equal(hasEventEnded(noEnd, new Date('2026-11-12T12:29:00.000Z')), false);
@@ -77,8 +83,12 @@ test('a task due yesterday is not an event, so it never "ends" (#383 keeps it)',
   assert.equal(hasEventEnded(item({ kind: 'unscheduled', dueAt: null }), NOW), false);
 });
 
-test('a fixture-shaped event (UTC, kickoff plus two hours) ends at its end', () => {
-  const match = item({ kind: 'scheduled_event', dueAt: '2026-11-11T19:00:00.000Z', endAt: '2026-11-11T21:00:00.000Z', timezone: 'UTC' });
+test('a fixture-shaped event (UTC, kickoff plus two hours) ends at its end, whatever its title', () => {
+  const match = item(
+    { kind: 'scheduled_event', dueAt: '2026-11-11T19:00:00.000Z', endAt: '2026-11-11T21:00:00.000Z', timezone: 'UTC' },
+    null,
+    'FC Barcelona – Real Madrid CF',
+  );
   assert.equal(hasEventEnded(match, NOW), true);
   assert.equal(hasEventEnded(match, new Date('2026-11-11T20:59:00.000Z')), false);
 });
@@ -92,6 +102,19 @@ test('an event the person put off with «لسّا» is not over before the time 
   // It keeps its own length from there: a one-hour meeting at 16:00 local is over at 17:00.
   assert.equal(eventEndsAt(meeting), '2026-11-12T15:00:00.000Z');
   assert.equal(hasEventEnded(meeting, new Date('2026-11-12T15:00:00.000Z')), true);
+});
+
+test('a task given an hour is not an event, though capture stores it as a scheduled_event (CL1)', () => {
+  // «أشتري دوا الساعة 5» and "call Alice at 9am": a time to do it at, no end,
+  // no event noun. #383 keeps it on Today until the person acts on it.
+  for (const title of ['أشتري دوا', 'call Alice', 'أحضّر الغداء']) {
+    const task = item({ kind: 'scheduled_event', dueAt: '2026-11-11T15:00:00.000Z' }, null, title);
+    assert.equal(isEventCommitment(task), false, title);
+    assert.equal(hasEventEnded(task, NOW), false, title);
+  }
+  // The same hour with an end, or an event noun, is an appointment.
+  assert.equal(hasEventEnded(item({ kind: 'scheduled_event', dueAt: '2026-11-11T15:00:00.000Z', endAt: '2026-11-11T16:00:00.000Z' }, null, 'أحضّر الغداء'), NOW), true);
+  assert.equal(hasEventEnded(item({ kind: 'scheduled_event', dueAt: '2026-11-11T15:00:00.000Z' }, null, 'موعد دكتور'), NOW), true);
 });
 
 test('a string clock is read the same as a Date', () => {

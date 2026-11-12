@@ -18,20 +18,29 @@
  *
  * ── What counts as an event ──────────────────────────────────────
  *
- * `timeSpec.kind === 'scheduled_event'`, timed or all-day. That one kind covers
- * every producer the spec names:
+ * A `scheduled_event` that is an appointment rather than a task given an hour:
  *
- *   - capture writes it for "at" a time (CL1) and for an appointment on a day
- *     with no hour (FY1 N4: an all-day `scheduled_event`);
- *   - every football fixture is created as one (`timeSpecFor` in
- *     `lib/football/projectFixtures.ts`), and an edit keeps the kind;
- *   - a calendar feed's sessions never become commitments at all — they are
- *     busy time (`lib/calendar/icsFeeds.ts`); what a feed does turn into a
- *     commitment is a *deadline*, written as `due_by`, which is a task.
+ *   - all-day — an appointment on a day with no hour (FY1 N4: «موعد دكتور يوم
+ *     الأحد»), which is never a step anywhere (N18);
+ *   - with an end — a span on the clock: the meeting 09:00–10:00, the lecture
+ *     10–12, a calendar event, and every football fixture (`timeSpecFor` in
+ *     `lib/football/projectFixtures.ts` writes kickoff to kickoff + 2 h);
+ *   - or titled as an event (`namesEvent`, the one test the next step and the
+ *     phone's Today card already share): «اجتماع مع سامي الساعة 12», «موعد
+ *     دكتور الساعة 9».
  *
- * A `due_by` is never an event, however late, and neither is an all-day
- * deadline or a prep window (`isTimedWindow`, whose end is a deadline): they
- * keep #383 and roll into Today until the person acts on them.
+ * `scheduled_event` alone is not enough, and that is deliberate. Capture
+ * writes it for any stated clock time with no limit word (CL1,
+ * `timeAnchorOf`): «أشتري دوا الساعة 5», "call Alice at 9am". Those are tasks
+ * the person means to do *then* — `nextStepPreparation.ts` says so in as many
+ * words — and a task keeps #383: it rolls into Today until the person acts on
+ * it, whatever its hour.
+ *
+ * A calendar feed's sessions never become commitments (they are busy time,
+ * `lib/calendar/icsFeeds.ts`); what a feed turns into a commitment is a
+ * *deadline*, a `due_by`. A `due_by` is never an event, however late — nor is
+ * an all-day deadline or a prep window (`isTimedWindow`, whose end is a
+ * deadline).
  *
  * ── When it ends ─────────────────────────────────────────────────
  *
@@ -54,6 +63,7 @@
  * imports this.
  */
 import type { Commitment } from '../../../src/domain/stateMachine';
+import { namesEvent } from '../../../src/extraction/lexicon/eventTitles';
 import { addLocalDays } from '../mobile/time';
 
 /** How long an event with a start and no end is taken to last. */
@@ -61,11 +71,13 @@ export const ASSUMED_EVENT_MINUTES = 60;
 
 const MINUTE_MS = 60_000;
 
-type EventShape = Pick<Commitment, 'timeSpec'> & { readonly postponedUntil?: string | null };
+type EventShape = Pick<Commitment, 'timeSpec' | 'title'> & { readonly postponedUntil?: string | null };
 
 /** An appointment or meeting: something that happens at a time, not work to be done by one. */
-export function isEventCommitment(commitment: Pick<Commitment, 'timeSpec'>): boolean {
-  return commitment.timeSpec.kind === 'scheduled_event';
+export function isEventCommitment(commitment: Pick<Commitment, 'timeSpec' | 'title'>): boolean {
+  const { timeSpec } = commitment;
+  if (timeSpec.kind !== 'scheduled_event') return false;
+  return timeSpec.allDay || !!timeSpec.endAt || namesEvent(commitment.title ?? '');
 }
 
 function parsed(value: string | null | undefined): number | null {

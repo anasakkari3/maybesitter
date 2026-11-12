@@ -240,15 +240,16 @@ test('M1: an all-day DEADLINE keeps its chips — «اليوم» at 10:05, «خ�
 });
 
 /*
- * M4: what happens to an event once it has passed. A timed event
- * (`scheduled_event` with an hour) is not taken off Today when its hour or
- * its day goes: #383 rolls every live commitment whose day is behind today
- * onto Today, and it stays there, active, until the person acts on it — the
- * product has no "overdue" and nothing auto-completes. The past all-day
- * appointment follows that exact rule: wherever the passed timed event is,
- * it is too, and it is still active.
+ * M4: what happens to an event once it has passed. Until 2026-11-12 a timed
+ * event stayed on Today for ever: #383 rolled every live commitment whose day
+ * was behind today onto Today. The owner reversed that for appointments (spec
+ * Part 1, lane E1): an appointment that is over leaves Today and Upcoming on
+ * its own — a timed one at its end (here an hour after its start), an all-day
+ * one when its day ends — and #383 is kept for tasks. Neither is completed:
+ * leaving the lists changes no status (E2 is where the person says what came
+ * of it).
  */
-test('M4: a past all-day appointment is placed exactly as a passed timed event is — and neither is completed', async () => {
+test('M4: a passed appointment leaves the lists at its end, an all-day one when its day ends — and neither is completed', async () => {
   await withMemoryStorage(async () => {
     await captureNoHour('عندي موعد دكتور اليوم');
     await captureNoHour('عندي اجتماع مع سامي اليوم الساعة 12 الظهر');
@@ -261,12 +262,14 @@ test('M4: a past all-day appointment is placed exactly as a passed timed event i
       const upcoming = (await listUpcomingRanked({ participantId: UID, now: at, timezone: TZ })).items.some((c) => c.id === id);
       return today ? 'today' : upcoming ? 'upcoming' : 'gone';
     };
-    // Monday 22:30 (the meeting's hour gone), Tuesday, and a week on.
-    for (const at of [MONDAY_LATE, TOMORROW, new Date('2026-10-05T07:05:00.000Z')]) {
-      assert.equal(await placement(doctor.id, at), await placement(meeting.id, at), at.toISOString());
+    // Monday 10:05: both are today's.
+    assert.deepEqual([await placement(doctor.id, NOW), await placement(meeting.id, NOW)], ['today', 'today']);
+    // Monday 22:30: the meeting's hour is gone, the doctor's day is not.
+    assert.deepEqual([await placement(doctor.id, MONDAY_LATE), await placement(meeting.id, MONDAY_LATE)], ['today', 'gone']);
+    // Tuesday, and a week on: both are over.
+    for (const at of [TOMORROW, new Date('2026-10-05T07:05:00.000Z')]) {
+      assert.deepEqual([await placement(doctor.id, at), await placement(meeting.id, at)], ['gone', 'gone'], at.toISOString());
     }
-    // The rule itself: the passed timed event is still on Today the next day.
-    assert.equal(await placement(meeting.id, TOMORROW), 'today');
     const after = await getParticipantStateSnapshot(UID);
     assert.deepEqual([after.commitments[doctor.id]!.status, after.commitments[meeting.id]!.status], ['active', 'active']);
   });

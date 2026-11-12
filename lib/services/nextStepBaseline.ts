@@ -8,6 +8,7 @@ import { evidenceLabels as labelsFor } from './nextStepEvidence';
 import { proposeNextStep } from './nextStepReviewService';
 import { compareByCodePoint } from '../planning/shared/compare';
 import { latenessDeadline } from './mobile/time';
+import { hasEventEnded } from './commitments/eventEnded';
 
 export interface BaselineCandidate {
   commitmentId: string;
@@ -167,7 +168,17 @@ export function selectBaselineNextStep(
   return { recommendation, scores, selectedCommitmentId: selected?.commitmentId || null };
 }
 
-export function candidatesFromDomainState(state: DomainState): BaselineCandidate[] {
+/**
+ * The commitments the next step may consider, as candidates.
+ *
+ * `now`, when given, also removes every appointment that is already over
+ * (lane E1, `hasEventEnded`). Without it a timed event's start read as a
+ * deadline gone: the lecture three weeks ago was "overdue", which outranks
+ * everything, so it was the top next step every day after. The live path
+ * (`selectNextStepForArmFromState`) always passes its clock; a caller that
+ * omits it gets the candidate set this function always built.
+ */
+export function candidatesFromDomainState(state: DomainState, now?: Date): BaselineCandidate[] {
   return Object.values(state.commitments)
     // An appointment on a day with no hour (FY1 N4) is not a step (final UAT,
     // N18). It happens on its day; ranked, its midnight read as a deadline
@@ -175,6 +186,8 @@ export function candidatesFromDomainState(state: DomainState): BaselineCandidate
     // «الوقت راح», above lunch at 14:00. After its day it is simply past — an
     // event, never an overdue task. Other screens still show it on its day.
     .filter((commitment) => !isAllDayEventSpec(commitment.timeSpec))
+    // An event that is over is not a step at all — not an overdue one.
+    .filter((commitment) => now === undefined || !hasEventEnded(commitment, now))
     .map((commitment) => ({
       commitmentId: commitment.id,
       title: commitment.title,

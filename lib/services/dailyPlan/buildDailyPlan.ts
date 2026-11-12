@@ -58,6 +58,7 @@ import type { ScheduleBlockSources } from '../../planning/scheduler/blocks';
 import type { ScheduleBlockSource } from '../../../src/contracts/v1/scheduleBlockContracts';
 import { instantFromResolution, intervalsOverlap, resolveLocalTime, toEpochMs, toInstant, weekdayAt } from '../../planning/shared/time';
 import { DEFAULT_FIXED_EVENT_MINUTES, fixedEndFor } from '../timeCollision';
+import { hasEventEnded, isEventCommitment } from '../commitments/eventEnded';
 
 // Re-exported so existing callers (and `tests/dailyPlan/fixedEventDuration.test.ts`)
 // keep importing it from here. The value itself now lives in `../timeCollision`,
@@ -444,7 +445,13 @@ export function buildDailyPlanInput(args: DailyPlanInputArgs): DailyPlanInput {
   const { startsAt, endsAt } = dayHorizon(args.date, args.timezone);
   const weekday = weekdayAt(toEpochMs(startsAt), args.timezone) as Weekday;
 
-  const plannable = args.commitments.filter((commitment) => isPlannable(commitment) && !isAllDayEvent(commitment));
+  // An appointment that is over at the moment the plan is built is in no plan
+  // (lane E1): not a fixed row, and above all not yesterday's "work" rolled
+  // into today. `builtAt` is the clock, so a stored plan rebuilt from its own
+  // `generatedAt` answers exactly as it did when it was made.
+  const plannable = args.commitments.filter((commitment) => isPlannable(commitment)
+    && !isAllDayEvent(commitment)
+    && !hasEventEnded(commitment, args.builtAt));
   const earliestStartAt = earliestPlaceableStart(args.builtAt, startsAt, endsAt);
 
   const fromBusy: FixedEvent[] = args.busyBlocks.map((block) => ({
@@ -481,8 +488,15 @@ export function buildDailyPlanInput(args: DailyPlanInputArgs): DailyPlanInput {
   const onThisDay = (commitment: Commitment): boolean => include.has(commitment.id)
     || (belongsToDay(commitment, endsAt) && !exclude.has(commitment.id));
 
+  // #383 rolls a *task* whose time has gone into the day. An event whose
+  // start is behind the day is never floated in its place (lane E1): tonight's
+  // meeting is not a thirty-minute task in tomorrow's plan. Over, it was
+  // removed above; still running, it belongs to the day it started on.
+  const rolledEvent = (commitment: Commitment): boolean => isEventCommitment(commitment)
+    && fixedStartOf(commitment) !== null && pinnedStartOf(commitment) === null;
+
   const items: PlanningItem[] = plannable
-    .filter((commitment) => pinnedStartOf(commitment) === null && onThisDay(commitment))
+    .filter((commitment) => pinnedStartOf(commitment) === null && !rolledEvent(commitment) && onThisDay(commitment))
     .map((commitment) => ({
       itemId: commitment.id,
       title: commitment.title,
