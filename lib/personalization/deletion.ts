@@ -174,6 +174,7 @@ import {
   INTELLIGENCE_GMAIL_SCANS,
   INTELLIGENCE_SOURCE_MARKERS,
   INTELLIGENCE_AUTO_ADDS,
+  GMAIL_SENDER_STATS,
   MEMORY_CITATIONS,
   MEMORY_DISMISSALS,
   PROFILE_PROPOSALS,
@@ -412,6 +413,7 @@ export async function deletePersonalizationScope(
     await owned(() => clearUserCollection(storage, input.scopeId, INTELLIGENCE_GMAIL_SCANS));
     await owned(() => clearUserCollection(storage, input.scopeId, INTELLIGENCE_SOURCE_MARKERS));
     await owned(() => clearUserCollection(storage, input.scopeId, INTELLIGENCE_AUTO_ADDS));
+    await owned(() => clearUserCollection(storage, input.scopeId, GMAIL_SENDER_STATS));
     // The reverse index of which memory shaped which suggestion (M5b-2b-1): memory-derived, so it goes.
     await owned(() => clearUserCollection(storage, input.scopeId, MEMORY_CITATIONS));
     // With the follows gone, the matches they projected stop holding time: an

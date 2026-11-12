@@ -373,8 +373,10 @@ test('switching the env list to a custom delimiter dropped none of the existing 
   assert.equal(production.get('MAYBESITTER_EMAIL_TRIAGE_MODE'), 'off');
   assert.equal(staging.get('MAYBESITTER_ADDON_GATE_MODE'), 'shadow');
   assert.equal(staging.get('MAYBESITTER_EMAIL_TRIAGE_MODE'), 'off');
-  assert.equal(production.size, 53);
-  assert.equal(staging.size, 52);
+  assert.equal(production.get('MAYBESITTER_GMAIL_SENDER_FILTER'), 'off');
+  assert.equal(staging.get('MAYBESITTER_GMAIL_SENDER_FILTER'), 'off');
+  assert.equal(production.size, 54);
+  assert.equal(staging.size, 53);
 });
 
 // ── Same-digest production promotion ────────────────────────────────────

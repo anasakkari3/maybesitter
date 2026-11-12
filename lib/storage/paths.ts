@@ -76,6 +76,8 @@ export const INTELLIGENCE_GMAIL_SCANS = 'intelligenceGmailScans';
 export const INTELLIGENCE_SOURCE_MARKERS = 'intelligenceSourceMarkers';
 /** Commitments created from a qualifying sent self-reply (M5a). */
 export const INTELLIGENCE_AUTO_ADDS = 'intelligenceAutoAdds';
+/** Per-account, HMAC-keyed empty-mail counts for the Gmail stage-zero filter. */
+export const GMAIL_SENDER_STATS = 'gmailSenderStats';
 /** Content-free reverse index from a memory id to suggestions it shaped. */
 export const MEMORY_CITATIONS = 'memoryCitations';
 /** Short-lived coordination leases for retryable account exports. */
@@ -605,6 +607,7 @@ export const USER_SCOPED_COLLECTIONS = [
   INTELLIGENCE_GMAIL_SCANS,
   INTELLIGENCE_SOURCE_MARKERS,
   INTELLIGENCE_AUTO_ADDS,
+  GMAIL_SENDER_STATS,
   MEMORY_CITATIONS,
   EXPORT_LEASES,
   FEEDBACK_EVENTS,
