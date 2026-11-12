@@ -2,7 +2,8 @@
 
 Date: 2026-11-12. The plans:
 - `docs/plans/2026-11-12-qa-audit-plan.md`: the audit. It produces a report and changes no code.
-- `docs/plans/2026-11-12-development-plan.md`: the build work.
+- `docs/plans/2026-11-12-release-readiness-plan.md`: release plumbing (builds, purchases, store kit, switching on built features).
+- `docs/plans/2026-11-12-product-development-plan.md`: new product work for one month, lanes P1–P9 (one lane per feature, builder and reviewer on different models, staffed like Team 2 below).
 
 **The audit runs first.** Development lanes that touch product code wait until the owner has read the audit report, apart from lanes the owner releases earlier.
 

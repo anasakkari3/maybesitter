@@ -1,4 +1,4 @@
-# Development plan: from now until the store accounts are funded
+# Release-readiness plan: from now until the store accounts are funded
 
 Date: 2026-11-12. Baseline: `main` = `de7fcb84`.
 - Legacy staging (`maybesitter-api-staging`) serves `de7fcb84` at 100% (revision `00676-qew`).
