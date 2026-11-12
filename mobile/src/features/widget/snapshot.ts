@@ -191,7 +191,10 @@ export function buildSnapshot(input: SnapshotInput): WidgetSnapshot {
   const stepListed = step
     ? input.today.find((c) => c.id === step.commitmentId) ?? input.upcoming?.find((c) => c.id === step.commitmentId)
     : undefined;
-  if (step && LINKABLE_ID.test(step.commitmentId) && stepListed && !over(stepListed)) {
+  // …and only while it is still to do: a meeting already marked done is not
+  // the next step either (lane E1 review 3).
+  if (step && LINKABLE_ID.test(step.commitmentId) && stepListed
+    && toViewModel(stepListed, nowIso).status === 'active' && !over(stepListed)) {
     const inToday = open.find((c) => c.id === step.commitmentId) ?? null;
     items.push(itemFor(inToday, step.commitmentId, step.title, true));
   }

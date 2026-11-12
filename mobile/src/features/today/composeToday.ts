@@ -182,9 +182,12 @@ export function composeToday(input: {
   // item is the card instead.
   const listsLoaded = input.listsLoaded ?? true;
   const records = input.records ?? [...openItems(input.groups), ...input.groups.finished, ...input.upcoming];
-  const held = new Set(records.filter((c) => c.status !== 'active' || live(c)).map((c) => c.id));
+  // Still to do: active and not over. A recommendation for anything else —
+  // a meeting already marked done, one that ended, one no list holds — is
+  // stale (lane E1 review 3).
+  const actionable = new Set(records.filter((c) => c.status === 'active' && live(c)).map((c) => c.id));
   const recId = rec?.primaryStep?.commitmentId;
-  const recStale = recId !== undefined && listsLoaded && !held.has(recId);
+  const recStale = recId !== undefined && listsLoaded && !actionable.has(recId);
   const ready = !!rec && rec.state === 'ready' && !!rec.primaryStep && !next.silenced && !recStale;
   if (open.length === 0 && groups.finished.length > 0) {
     // Everything the day had is resolved. Said once, calmly, whatever the
@@ -227,13 +230,16 @@ export function composeToday(input: {
   const openInGroups = openItems(rest).length;
 
   // ── plan ──
-  // The plan was fetched earlier too. A row pinned to an appointment that is
-  // over is not counted, by the same clock as the groups (lane E1). A task
-  // pinned to an hour stays, and so does a row for a commitment the lists do
-  // not hold: the plan is re-read from the server, which judges it at read time.
+  // The plan was fetched earlier too, and Today and Plan refetch on their own.
+  // A row pinned to an appointment that is over is not counted, by the same
+  // clock as the groups (lane E1); nor, once the lists have answered, is a row
+  // for a commitment they no longer hold. While they load, a pinned row counts
+  // as it always has. A task pinned to an hour stays after its slot.
   const over = new Set(records.filter((c) => c.status === 'active' && !live(c)).map((c) => c.id));
+  const known = new Set(records.map((c) => c.id));
   const shownRows = (day: DailyPlan) => planRows(day)
-    .filter((row) => row.kind !== 'fixed' || !over.has(row.item.itemId));
+    .filter((row) => row.kind !== 'fixed'
+      || (!over.has(row.item.itemId) && (!listsLoaded || known.has(row.item.itemId))));
   let planRow: PlanRow;
   if (plan.isPending && plan.plan === undefined) planRow = { kind: 'loading' };
   else if (plan.isError) planRow = { kind: 'error' };

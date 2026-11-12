@@ -126,15 +126,19 @@ describe('the plan row is honest', () => {
    */
   it('counts what is pinned to a time, not only what the planner placed', () => {
     const dinner = { itemId: 'dinner', title: 'dinner', startsAt: '2026-09-22T17:00:00.000Z', endsAt: '2026-09-22T17:30:00.000Z', blockId: null };
-    const accepted = composeToday({ groups: groups({}), next: next(), plan: plan({ plan: { ...aPlan('accepted', 0), fixed: [dinner] } }), upcoming: [] });
+    // The lists hold the dinner (the chip shows another category, so the
+    // groups are empty): a pinned row the answered lists do not hold is not
+    // counted (lane E1 review 3).
+    const records = [item('dinner')];
+    const accepted = composeToday({ records, groups: groups({}), next: next(), plan: plan({ plan: { ...aPlan('accepted', 0), fixed: [dinner] } }), upcoming: [] });
     expect(accepted.plan).toEqual({ kind: 'accepted', placed: 1 });
     expect(accepted.isEmpty).toBe(false);
     // A proposal that places nothing is not a ready plan (audit 2026-10-03 #4),
     // but the dinner pinned on the day still keeps the day from reading as empty.
-    const proposed = composeToday({ groups: groups({}), next: next(), plan: plan({ plan: { ...aPlan('proposed', 0), fixed: [dinner] } }), upcoming: [] });
+    const proposed = composeToday({ records, groups: groups({}), next: next(), plan: plan({ plan: { ...aPlan('proposed', 0), fixed: [dinner] } }), upcoming: [] });
     expect(proposed.plan).toEqual({ kind: 'empty', pinned: 1 });
     expect(proposed.isEmpty).toBe(false);
-    const both = composeToday({ groups: groups({}), next: next(), plan: plan({ plan: { ...aPlan('accepted', 2), fixed: [dinner] } }), upcoming: [] });
+    const both = composeToday({ records, groups: groups({}), next: next(), plan: plan({ plan: { ...aPlan('accepted', 2), fixed: [dinner] } }), upcoming: [] });
     expect(both.plan).toEqual({ kind: 'accepted', placed: 3 });
   });
 
@@ -510,5 +514,38 @@ describe('the category chip never makes a recommendation stale (E1 review 2)', (
       records: [work, item('family')],
     });
     expect(m.primary).toMatchObject({ kind: 'next' });
+  });
+});
+
+/*
+ * Lane E1 review round 3. A recommendation is valid only if what it names is
+ * still active and not over; and once the lists have answered, a cached plan
+ * row they no longer hold is not counted.
+ */
+describe('a settled or vanished commitment keeps nothing alive (E1 review 3)', () => {
+  const NOW = new Date('2026-11-12T08:30:00.000Z');
+
+  it('a cached recommendation for a meeting already marked done gives way to the fallback', () => {
+    const done = { ...item('meeting', 'must', 'done'), title: 'اجتماع مع سامي' };
+    const report = item('report', 'must');
+    const m = composeToday({
+      groups: groups({ must: [report], finished: [done] }), next: next({ recommendation: rec('meeting') }), plan: plan(), upcoming: [],
+      now: NOW, records: [report, done],
+    });
+    expect(m.primary).toMatchObject({ kind: 'fallback', item: { id: 'report' } });
+  });
+
+  const meetingRow = { itemId: 'meeting', title: 'meeting', startsAt: '2026-11-12T07:00:00.000Z', endsAt: '2026-11-12T08:00:00.000Z', blockId: null };
+  const cached = (): DailyPlan => ({ ...aPlan('accepted', 0), fixed: [meetingRow] });
+
+  it('once the lists have answered, a cached plan row they no longer hold is not counted, and the day is empty', () => {
+    const m = composeToday({ groups: groups({}), next: next(), plan: plan({ plan: cached() }), upcoming: [], now: NOW, records: [], listsLoaded: true });
+    expect(m.plan).toEqual({ kind: 'accepted', placed: 0 });
+    expect(m.isEmpty).toBe(true);
+  });
+
+  it('while the lists are still loading, the pinned row counts as before', () => {
+    const m = composeToday({ groups: groups({}), next: next(), plan: plan({ plan: cached() }), upcoming: [], now: NOW, records: [], listsLoaded: false });
+    expect(m.plan).toEqual({ kind: 'accepted', placed: 1 });
   });
 });

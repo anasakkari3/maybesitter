@@ -284,3 +284,12 @@ describe('buildSnapshot — a next step later in the week (E1 review 2)', () => 
     expect(snapshot.items.map((entry) => [entry.id, entry.isNextStep])).toEqual([['tomorrow', true], ['report', false]]);
   });
 });
+
+describe('buildSnapshot — a next step already done (E1 review 3)', () => {
+  it('does not write a cached step for a meeting marked done; the open item leads', () => {
+    const done = commitment({ id: 'meeting', title: 'Team meeting', status: 'completed', priority: level('high') });
+    const report = commitment({ id: 'report', title: 'Write the report', priority: level('high') });
+    const snapshot = buildSnapshot(input({ today: [done, report], upcoming: [], nextStep: { commitmentId: 'meeting', title: 'Team meeting' } }));
+    expect(snapshot.items.map((entry) => [entry.id, entry.isNextStep])).toEqual([['report', false]]);
+  });
+});
