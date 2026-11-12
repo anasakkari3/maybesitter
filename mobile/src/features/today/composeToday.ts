@@ -2,6 +2,7 @@ import type { CommitmentView, TodayGroups } from '../commitments/model';
 import type { NextStepRecommendation } from '../../api/schemas/nextStep';
 import type { DailyPlan } from '../../api/schemas/plan';
 import { planRows } from '../plan/lateDay';
+import { hasEventEnded } from '../commitments/eventEnded';
 
 /**
  * One answer to "what matters now" (Round 2, Phase C).
@@ -142,16 +143,52 @@ export function composeToday(input: {
   laterLimit?: number;
   /** The moment Today is drawn for; the phone's clock when absent. */
   now?: Date;
+  /**
+   * Today's and the week's lists have answered, so a recommendation neither
+   * holds is stale (lane E1). False while they load: nothing to judge by.
+   */
+  listsLoaded?: boolean;
+  /**
+   * Every commitment the fresh lists hold — Today's and Upcoming — *before*
+   * the category chip filters the groups. A recommendation or a plan row is
+   * judged against these, so a chip never makes either look stale. Defaults to
+   * the groups and Upcoming as given.
+   */
+  records?: readonly CommitmentView[];
 }): TodayModel {
-  const { groups, next, plan, upcoming, laterLimit = 3 } = input;
+  const { next, plan, laterLimit = 3 } = input;
   const nowMs = (input.now ?? new Date()).getTime();
+  // An appointment that is over is not on Today (lane E1). The server's lists
+  // already leave it out, but these were fetched earlier and are drawn now: at
+  // 10:30 the 09:00–10:00 meeting fetched at 09:30 is still here. It leaves
+  // the groups, the counts and Later, not only the card. Finished items stay.
+  const live = (c: CommitmentView): boolean => !hasEventEnded(c, nowMs);
+  const groups: TodayGroups = {
+    must: input.groups.must.filter(live),
+    should: input.groups.should.filter(live),
+    nice: input.groups.nice.filter(live),
+    finished: input.groups.finished,
+  };
+  const upcoming = input.upcoming.filter(live);
   const open = openItems(groups);
   const byId = new Map(open.map((c) => [c.id, c]));
 
   // ── primary ──
   let primary: Primary;
   const rec = next.recommendation;
-  const ready = !!rec && rec.state === 'ready' && !!rec.primaryStep && !next.silenced;
+  // A recommendation is stale when the fresh lists no longer hold what it
+  // names — the meeting that ended and left Today on the last refetch, while
+  // the cached recommendation still names it (lane E1). The list's own top
+  // item is the card instead.
+  const listsLoaded = input.listsLoaded ?? true;
+  const records = input.records ?? [...openItems(input.groups), ...input.groups.finished, ...input.upcoming];
+  // Still to do: active and not over. A recommendation for anything else —
+  // a meeting already marked done, one that ended, one no list holds — is
+  // stale (lane E1 review 3).
+  const actionable = new Set(records.filter((c) => c.status === 'active' && live(c)).map((c) => c.id));
+  const recId = rec?.primaryStep?.commitmentId;
+  const recStale = recId !== undefined && listsLoaded && !actionable.has(recId);
+  const ready = !!rec && rec.state === 'ready' && !!rec.primaryStep && !next.silenced && !recStale;
   if (open.length === 0 && groups.finished.length > 0) {
     // Everything the day had is resolved. Said once, calmly, whatever the
     // recommendation route thinks — it may still name a thing from tomorrow.
@@ -193,6 +230,16 @@ export function composeToday(input: {
   const openInGroups = openItems(rest).length;
 
   // ── plan ──
+  // The plan was fetched earlier too, and Today and Plan refetch on their own.
+  // A row pinned to an appointment that is over is not counted, by the same
+  // clock as the groups (lane E1); nor, once the lists have answered, is a row
+  // for a commitment they no longer hold. While they load, a pinned row counts
+  // as it always has. A task pinned to an hour stays after its slot.
+  const over = new Set(records.filter((c) => c.status === 'active' && !live(c)).map((c) => c.id));
+  const known = new Set(records.map((c) => c.id));
+  const shownRows = (day: DailyPlan) => planRows(day)
+    .filter((row) => row.kind !== 'fixed'
+      || (!over.has(row.item.itemId) && (!listsLoaded || known.has(row.item.itemId))));
   let planRow: PlanRow;
   if (plan.isPending && plan.plan === undefined) planRow = { kind: 'loading' };
   else if (plan.isError) planRow = { kind: 'error' };
@@ -202,11 +249,11 @@ export function composeToday(input: {
   // to a time (`fixed`), as the plan screen draws them. Counting `scheduled`
   // alone said «ما في إشي إله وقت اليوم» over an accepted plan whose one row
   // was dinner at 20:00 (UAT round 6, N-h).
-  else if (plan.plan.status === 'accepted') planRow = { kind: 'accepted', placed: planRows(plan.plan).length };
+  else if (plan.plan.status === 'accepted') planRow = { kind: 'accepted', placed: shownRows(plan.plan).length };
   // Nothing placed is nothing to accept (the server refuses it, `empty_plan`):
   // said as an empty day, never as «خطة اليوم جاهزة».
-  else if (plan.plan.scheduled.length === 0) planRow = { kind: 'empty', pinned: planRows(plan.plan).length };
-  else planRow = { kind: 'proposed', placed: planRows(plan.plan).length };
+  else if (plan.plan.scheduled.length === 0) planRow = { kind: 'empty', pinned: shownRows(plan.plan).length };
+  else planRow = { kind: 'proposed', placed: shownRows(plan.plan).length };
 
   // ── later ──
   const todayIds = new Set([...open, ...groups.finished].map((c) => c.id));

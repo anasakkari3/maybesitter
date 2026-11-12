@@ -100,7 +100,9 @@ describe('buildSnapshot — the privacy default', () => {
   });
 
   it('redacts the next step, whose title arrives separately from the list', () => {
-    const snapshot = buildSnapshot(input({ today: [], nextStep: { commitmentId: 'x1', title: 'موعد الدكتور' } }));
+    // The step is on Today's list (a step the list no longer holds is stale and
+    // not written, lane E1 review); its title arrives with the recommendation.
+    const snapshot = buildSnapshot(input({ today: [commitment({ id: 'x1', title: 'x1' })], nextStep: { commitmentId: 'x1', title: 'موعد الدكتور' } }));
     expect(snapshot.items).toHaveLength(1);
     expect(JSON.stringify(snapshot)).not.toContain('موعد الدكتور');
   });
@@ -237,5 +239,57 @@ describe('displayStateOf', () => {
 
   it('treats an unreadable snapshot as no snapshot', () => {
     expect(displayStateOf({ contract: 'something else' } as never, NOW)).toBe('loading');
+  });
+});
+
+/*
+ * The widget is written from the list the app fetched, and stays on the home
+ * screen for half an hour (`SNAPSHOT_TTL_MS`). An appointment that is over
+ * leaves it like every other active surface (lane E1).
+ */
+describe('buildSnapshot — an appointment that is over (lane E1)', () => {
+  const LATER = new Date('2026-11-12T13:00:00.000Z'); // 15:00 Jerusalem
+  const event = (id: string, title: string, dueAt: string, endAt: string | null, allDay = false) =>
+    commitment({ id, title, priority: level('high'), timeSpec: { kind: 'scheduled_event', dueAt, endAt, remindAt: null, allDay, timezone: 'Asia/Jerusalem' } });
+  const meeting = event('meeting', 'اجتماع مع سامي', '2026-11-12T07:00:00.000Z', '2026-11-12T08:00:00.000Z');
+  const doctor = event('doctor', 'موعد دكتور', '2026-11-10T22:00:00.000Z', null, true);
+  const evening = event('evening', 'عشا مع العيلة', '2026-11-12T16:00:00.000Z', '2026-11-12T17:00:00.000Z');
+  const medicine = event('medicine', 'أشتري دوا', '2026-11-12T08:00:00.000Z', null);
+
+  it('leaves out this morning\'s meeting and yesterday\'s all-day appointment, keeps tonight\'s and a task given an hour', () => {
+    const snapshot = buildSnapshot(input({ now: LATER, nextStep: null, today: [meeting, doctor, evening, medicine] }));
+    expect(snapshot.items.map((entry) => entry.id).sort()).toEqual(['evening', 'medicine']);
+  });
+
+  it('does not write a next step that is a meeting already over', () => {
+    const snapshot = buildSnapshot(input({ now: LATER, nextStep: { commitmentId: 'meeting', title: 'اجتماع مع سامي' }, today: [meeting, evening] }));
+    expect(snapshot.items.map((entry) => entry.id)).toEqual(['evening']);
+    expect(snapshot.items.some((entry) => entry.isNextStep)).toBe(false);
+  });
+});
+
+describe('buildSnapshot — a stale next step (E1 review, item 3)', () => {
+  it('does not write a next step that the fresh Today list no longer holds', () => {
+    // Today refetched without the ended meeting; the cached recommendation still names it.
+    const snapshot = buildSnapshot(input({ upcoming: [], nextStep: { commitmentId: 'meeting', title: 'اجتماع مع سامي' } }));
+    expect(snapshot.items.map((entry) => entry.id)).not.toContain('meeting');
+    expect(snapshot.items.some((entry) => entry.isNextStep)).toBe(false);
+  });
+});
+
+describe('buildSnapshot — a next step later in the week (E1 review 2)', () => {
+  it('writes a recommendation for something on Upcoming, which Today does not hold', () => {
+    const tomorrow = commitment({ id: 'tomorrow', title: 'Prepare tomorrow', timeSpec: at('2026-09-14T09:00:00.000Z') });
+    const snapshot = buildSnapshot(input({ today: [commitment({ id: 'report' })], upcoming: [tomorrow], nextStep: { commitmentId: 'tomorrow', title: 'Prepare tomorrow' } }));
+    expect(snapshot.items.map((entry) => [entry.id, entry.isNextStep])).toEqual([['tomorrow', true], ['report', false]]);
+  });
+});
+
+describe('buildSnapshot — a next step already done (E1 review 3)', () => {
+  it('does not write a cached step for a meeting marked done; the open item leads', () => {
+    const done = commitment({ id: 'meeting', title: 'Team meeting', status: 'completed', priority: level('high') });
+    const report = commitment({ id: 'report', title: 'Write the report', priority: level('high') });
+    const snapshot = buildSnapshot(input({ today: [done, report], upcoming: [], nextStep: { commitmentId: 'meeting', title: 'Team meeting' } }));
+    expect(snapshot.items.map((entry) => [entry.id, entry.isNextStep])).toEqual([['report', false]]);
   });
 });

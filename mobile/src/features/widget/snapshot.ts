@@ -33,6 +33,7 @@
 import type { Commitment } from '../../api/schemas/common';
 import { isRtl, type Locale } from '../../i18n/locale';
 import { toViewModel, type Importance } from '../commitments/model';
+import { hasEventEnded } from '../commitments/eventEnded';
 
 /** Thirty minutes, as the Flutter publisher had it. After that the widget says "stale". */
 export const SNAPSHOT_TTL_MS = 30 * 60 * 1000;
@@ -105,6 +106,12 @@ export type WidgetSnapshot = {
 export type SnapshotInput = {
   /** Today's commitments as the list endpoint returned them. */
   today: readonly Commitment[];
+  /**
+   * Upcoming as the list endpoint returned it, or undefined while it has not
+   * answered. A next step for something later in the week is on it; a step on
+   * neither list is a stale recommendation and is not written (lane E1).
+   */
+  upcoming?: readonly Commitment[];
   /** `recommendation.primaryStep`, or null when there is none. */
   nextStep: { commitmentId: string; title: string } | null;
   /** The user's "Show titles on the home screen widget" answer. */
@@ -153,7 +160,10 @@ export function buildSnapshot(input: SnapshotInput): WidgetSnapshot {
   // in, *and* this surface is one the opt-in covers.
   const showTitles = input.titlesAllowed && OPT_IN_SURFACES.includes(surface);
 
-  const open = input.today.filter((c) => toViewModel(c, nowIso).status === 'active' && LINKABLE_ID.test(c.id));
+  // An appointment that is over is not open (lane E1). The list was fetched
+  // earlier and the snapshot stays on the home screen for half an hour.
+  const over = (c: Commitment): boolean => hasEventEnded(toViewModel(c, nowIso), now, c.timeSpec.timezone);
+  const open = input.today.filter((c) => toViewModel(c, nowIso).status === 'active' && LINKABLE_ID.test(c.id) && !over(c));
   const sorted = [...open].sort((a, b) => compareOpen(a, b, nowIso));
 
   const itemFor = (commitment: Commitment | null, id: string, realTitle: string, isNextStep: boolean): WidgetItem => {
@@ -176,7 +186,15 @@ export function buildSnapshot(input: SnapshotInput): WidgetSnapshot {
 
   const items: WidgetItem[] = [];
   const step = input.nextStep;
-  if (step && LINKABLE_ID.test(step.commitmentId)) {
+  // A next step the fresh Today list no longer holds, or holds as over, is a
+  // cached recommendation gone stale (lane E1): it is not written.
+  const stepListed = step
+    ? input.today.find((c) => c.id === step.commitmentId) ?? input.upcoming?.find((c) => c.id === step.commitmentId)
+    : undefined;
+  // …and only while it is still to do: a meeting already marked done is not
+  // the next step either (lane E1 review 3).
+  if (step && LINKABLE_ID.test(step.commitmentId) && stepListed
+    && toViewModel(stepListed, nowIso).status === 'active' && !over(stepListed)) {
     const inToday = open.find((c) => c.id === step.commitmentId) ?? null;
     items.push(itemFor(inToday, step.commitmentId, step.title, true));
   }

@@ -175,6 +175,7 @@ function fixedRowsOf(
   stored: StoredDailyPlan,
   titles: ReadonlyMap<string, string>,
   commitments: readonly Commitment[] | undefined,
+  readAt: Date | string | undefined,
 ): PlanItemDto[] {
   const fixedBlockBySource = new Map((stored.blocks ?? [])
     .filter((block) => block.mobility === 'fixed')
@@ -191,7 +192,10 @@ function fixedRowsOf(
       busyBlocks: [],
       profile: null,
       focusHint: null,
-      builtAt: stored.generatedAt,
+      // "Over" is judged when the plan is *read* (lane E1): built at 08:00, a
+      // 09:00–10:00 meeting is still a row at 09:30 and gone at 10:30. The
+      // clock reaches nothing else here — only the pinned rows are read back.
+      builtAt: readAt === undefined ? stored.generatedAt : new Date(readAt).toISOString(),
     }).constraints.fixedEvents;
   const byId = new Map((commitments ?? []).map((commitment) => [commitment.id, commitment]));
   return pinnedEventsOnDay(events, stored.constraints.horizon)
@@ -219,6 +223,12 @@ export interface PlanDtoOptions {
    */
   readonly commitments?: readonly Commitment[];
   readonly basisChanged?: boolean;
+  /**
+   * When the plan is being read. With `commitments`, a pinned appointment
+   * already over at this instant is not a fixed row (lane E1). Absent, the
+   * plan's own `generatedAt` is used, as before.
+   */
+  readonly now?: Date | string;
 }
 
 export function planToDto(
@@ -272,7 +282,7 @@ export function planToDto(
         maxShiftMinutes: protection.maxShiftMinutes,
       }];
     }),
-    fixed: fixedRowsOf(stored, titles, options.commitments),
+    fixed: fixedRowsOf(stored, titles, options.commitments, options.now),
     inputsChanged: options.inputsChanged ?? false,
     rebuildsLeft: rebuildsLeftOf(stored),
     workingEndsAt: workingEndsAtOf(stored),
@@ -290,7 +300,7 @@ export async function assemblePlanResponse(
   titles: ReadonlyMap<string, string>,
   options: PlanDtoOptions & { readonly storage?: StorageAdapter } = {},
 ): Promise<DailyPlanDto> {
-  const dto = planToDto(stored, titles, options);
+  const dto = planToDto(stored, titles, { ...options, now: options.now ?? now });
   // The basis is an optional disclosure read after the plan was decided — on a
   // mutation route, after it was written. A failed read omits it rather than
   // failing a route whose outcome already happened (M5B2A-R6-002): the app

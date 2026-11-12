@@ -304,13 +304,15 @@ test('accepting a day stores exactly the proposed plan for that date, accepted, 
       proposed.items.map((item) => [item.itemId, item.startsAt, item.endsAt]),
       'the stored plan is not the plan the person was shown',
     );
-    // What the daily rule put on Saturday when the week was planned — the
-    // Thursday dentist included, as Saturday alone would read it (#383) — and
-    // where the week held each of them instead.
-    assert.deepEqual(stored!.weekPlan?.considered.slice().sort(), ['cmt_a', 'cmt_b', 'cmt_c', 'cmt_dentist', 'cmt_rent']);
+    // What the daily rule put on Saturday when the week was planned, and where
+    // the week held each of them instead. The Thursday dentist is not among
+    // them: #383 rolls a *task* whose day has gone into a later day, never an
+    // appointment (lane E1) — Saturday alone does not read Thursday's dentist
+    // as Saturday's work.
+    assert.deepEqual(stored!.weekPlan?.considered.slice().sort(), ['cmt_a', 'cmt_b', 'cmt_c', 'cmt_rent']);
     assert.deepEqual(
       stored!.weekPlan?.heldElsewhere.map((held) => [held.itemId, held.date]).sort(),
-      [...UNDATED.map((itemId) => [itemId, WEEK[stepsOn(before, WEEK[0]!).includes(itemId) ? 0 : stepsOn(before, WEEK[1]!).includes(itemId) ? 1 : 2]]), ['cmt_dentist', '2026-09-17']].sort(),
+      UNDATED.map((itemId) => [itemId, WEEK[stepsOn(before, WEEK[0]!).includes(itemId) ? 0 : stepsOn(before, WEEK[1]!).includes(itemId) ? 1 : 2]]).sort(),
     );
     assert.equal(stored!.weekPlan?.announced, false);
     assert.deepEqual(

@@ -98,8 +98,10 @@ beforeEach(async () => {
   client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
   repository = createFakeAuthRepository({ initialUser: USER });
   setAuthRepository(repository);
+  // The next step is on Today's list too: a step the list no longer holds is
+  // a stale recommendation and is not written (lane E1 review).
   jest.spyOn(commitmentEndpoints, 'listToday')
-    .mockResolvedValue({ items: [commitment('c-today', SECRET_TODAY)] } as never);
+    .mockResolvedValue({ items: [commitment('c-next', SECRET_NEXT), commitment('c-today', SECRET_TODAY)] } as never);
   jest.spyOn(commitmentEndpoints, 'listUpcoming').mockResolvedValue({ items: [] } as never);
   jest.spyOn(nextStepEndpoints, 'getNextStep').mockResolvedValue({
     ...nextStepFixture,
@@ -222,6 +224,14 @@ describe('the widget snapshot in the running app', () => {
     await openApp();
     await waitFor(() => expect(calls.some((call) => call.op === 'clear')).toBe(true));
     expect(writes()).toHaveLength(0);
+  });
+
+  it('writes a next step for something later in the week, which only Upcoming holds (E1 review 2)', async () => {
+    jest.spyOn(commitmentEndpoints, 'listToday').mockResolvedValue({ items: [commitment('c-today', SECRET_TODAY)] } as never);
+    jest.spyOn(commitmentEndpoints, 'listUpcoming').mockResolvedValue({ items: [commitment('c-next', SECRET_NEXT)] } as never);
+    await openApp();
+    await settled();
+    expect(lastWrite().items[0]).toMatchObject({ id: 'c-next', isNextStep: true });
   });
 
   it('previews exactly what the widget will draw', async () => {

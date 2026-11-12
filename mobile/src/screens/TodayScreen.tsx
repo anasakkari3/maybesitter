@@ -30,6 +30,7 @@ import type { DeviceBusyBlock } from '../features/calendar/busyBlocks';
 import { TodayPlanRow } from '../features/plan/TodayPlanRow';
 import { drawnAt, drawnClockAt, drawnWhenLine, dueAsideText, laterWhen, placeView, savedPlacements } from '../features/plan/savedPlacement';
 import { composeToday, type Primary } from '../features/today/composeToday';
+import { nextEventEndAfter } from '../features/commitments/eventEnded';
 import { Btn, SaidWords, Txt } from '../ui/primitives';
 import { AvatarButton, SectionLabel, Tag, TextLink, priorityTagKind } from '../ui/chrome';
 import { CheckIcon } from '../ui/icons';
@@ -152,6 +153,30 @@ export function TodayScreen({ tabClearance = TAB_CLEARANCE }: { tabClearance?: n
     [upcoming.data, placements],
   );
 
+  // The moment Today is composed for. It moves on by itself only at the next
+  // instant an appointment on screen ends (lane E1): one timer set for then,
+  // never a polling loop, so a meeting that ends while Today is open leaves
+  // it at its end without waiting for a refetch.
+  const [clockMs, setClockMs] = useState(() => Date.now());
+  const nextEnd = useMemo(
+    () => nextEventEndAfter([...groups.must, ...groups.should, ...groups.nice, ...upcomingViews], clockMs),
+    [groups, upcomingViews, clockMs],
+  );
+  useEffect(() => {
+    if (nextEnd === null) return undefined;
+    const wait = Math.min(Math.max(0, nextEnd - Date.now()) + EVENT_END_MARGIN_MS, MAX_TIMER_MS);
+    const timer = setTimeout(() => setClockMs(Date.now()), wait);
+    return () => clearTimeout(timer);
+  }, [nextEnd]);
+  const listsLoaded = today.data !== undefined && (upcoming.data !== undefined || upcoming.isError);
+  // What the fresh lists hold before the category chip filters the groups: a
+  // recommendation or a plan row is judged against these (lane E1).
+  const records = useMemo(
+    () => [...(today.data?.items ?? []).map((c) => toViewModel(c, now)), ...upcomingViews],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [today.data, upcomingViews],
+  );
+
   const model = useMemo(() => composeToday({
     groups,
     next: {
@@ -167,7 +192,10 @@ export function TodayScreen({ tabClearance = TAB_CLEARANCE }: { tabClearance?: n
     },
     plan: { plan: plan.data, isPending: plan.isPending, isError: plan.isError },
     upcoming: upcomingViews,
-  }), [groups, recommendationsAllowed, next.data, next.isPending, next.isError, next.error, plan.data, plan.isPending, plan.isError, upcomingViews]);
+    now: new Date(clockMs),
+    listsLoaded,
+    records,
+  }), [groups, recommendationsAllowed, next.data, next.isPending, next.isError, next.error, plan.data, plan.isPending, plan.isError, upcomingViews, clockMs, listsLoaded, records]);
 
   const byId = useMemo(() => {
     const all = [...groups.must, ...groups.should, ...groups.nice, ...groups.finished];
@@ -175,7 +203,8 @@ export function TodayScreen({ tabClearance = TAB_CLEARANCE }: { tabClearance?: n
   }, [groups]);
 
   const visibleRecords = showBar ? filterByCategory(today.data?.items ?? [], chip) : today.data?.items ?? [];
-  const preview = planPreview(plan.data, visibleRecords, new Date());
+  // The same clock Today is composed for (lane E1), or later: never earlier.
+  const preview = planPreview(plan.data, visibleRecords, new Date(Math.max(clockMs, Date.now())));
   const previewIds = new Set(preview.map(item => item.id));
   const progress = dayProgress(visibleRecords, dayKey(new Date(), timezone), timezone);
   const futureRecords = showBar ? filterByCategory(upcoming.data?.items ?? [], chip) : upcoming.data?.items ?? [];
@@ -362,6 +391,8 @@ const GROUP_TITLE = {
 const QUIET_END_MARGIN_MS = 2_000;
 /** How long before the one retry, when the ask at the end fails. */
 const QUIET_END_RETRY_MS = 30_000;
+/** A beat after an appointment's end, so the recompute is already past it. */
+const EVENT_END_MARGIN_MS = 1_000;
 /** setTimeout's ceiling (about 24.8 days). */
 const MAX_TIMER_MS = 2_147_483_647;
 

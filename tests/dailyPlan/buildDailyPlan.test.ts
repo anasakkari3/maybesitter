@@ -260,11 +260,14 @@ test('a backlog is not reported as DEADLINE_BEYOND_HORIZON every morning', () =>
   assert.equal(plan.scheduled.length, 7);
 });
 
-test('a commitment pinned to an instant that has passed rolls forward instead of vanishing', () => {
+test('a task pinned to an instant that has passed rolls forward instead of vanishing', () => {
+  // A time to do it at, not an appointment: capture stores «اتصل بالبنك الساعة
+  // 11» as a `scheduled_event` with no end and no event noun (CL1), and #383
+  // rolls it forward like any task.
   const input = buildDailyPlanInput(args({
     commitments: [commitment({
-      id: 'c_missed_event',
-      title: 'Yesterday\'s dentist',
+      id: 'c_missed_call',
+      title: 'Call the bank',
       timeSpec: { kind: 'scheduled_event', dueAt: YESTERDAY, endAt: null, remindAt: YESTERDAY, allDay: false, timezone: TZ },
     })],
   }));
@@ -273,9 +276,21 @@ test('a commitment pinned to an instant that has passed rolls forward instead of
     [],
     'a blocking fixed event was written outside the horizon, where it blocks nothing and hides the item',
   );
-  assert.deepEqual(input.constraints.items.map((item) => item.itemId), ['c_missed_event']);
+  assert.deepEqual(input.constraints.items.map((item) => item.itemId), ['c_missed_call']);
   assert.equal(input.constraints.items[0]!.deadlineAt, DAY_ENDS);
   assert.equal(schedulePlan(input.constraints, input.config).scheduled.length, 1);
+});
+
+test('an appointment that has passed is in no plan: not a fixed row, and not rolled forward as work (lane E1)', () => {
+  const input = buildDailyPlanInput(args({
+    commitments: [commitment({
+      id: 'c_missed_event',
+      title: 'Yesterday\'s dentist',
+      timeSpec: { kind: 'scheduled_event', dueAt: YESTERDAY, endAt: null, remindAt: YESTERDAY, allDay: false, timezone: TZ },
+    })],
+  }));
+  assert.deepEqual(input.constraints.fixedEvents, []);
+  assert.deepEqual(input.constraints.items, []);
 });
 
 test('a postponement into a day that has passed also rolls forward', () => {

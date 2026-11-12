@@ -46,7 +46,7 @@ import {
 import { createFootballDataProvider } from '../football/footballDataProvider';
 import { getFollowedClubs, listFollowedUserIds } from '../football/followedClubs';
 import { footballProviderConfigured, reconcileFootballWatchers } from '../football/footballWatchers';
-import { projectFixturesForUser } from '../football/projectFixtures';
+import { completeEndedFixturesForEveryone, projectFixturesForUser } from '../football/projectFixtures';
 import { pollFollowedClubs, syncFollowedClubs, type PollReport, type SyncReport } from '../football/syncFixtures';
 import type { FixtureProvider } from '../../src/contracts/v1/fixtureContracts';
 import { runWatcherSweep, type WatcherSweepTotals } from '../watchers/watcherEngine';
@@ -184,6 +184,15 @@ export async function runMaintenance(options: MaintenanceOptions = {}): Promise<
     // A deletion whose instance went away must still finish. It comes after
     // the local sweeps because it can fail for a reason outside this service
     // (#149), as can the OAuth cleanup retry after it.
+    // A played match is closed for every account (lane E1), including one
+    // that switched football off — the nightly football sync skips those, and
+    // runs at all only with a provider key. A failed account fails the step,
+    // so Scheduler retries; the others are closed regardless.
+    ['ended_fixtures_completed', async () => {
+      const totals = await completeEndedFixturesForEveryone(now.toISOString(), withStorage);
+      if (totals.failed > 0) throw new Error(`${totals.failed} account(s) could not close their ended fixtures`);
+      return totals.completed;
+    }],
     ['deletions_resumed', async () => (await resumeStalledDeletions({ now, ...withStorage })).resumed],
     // #800: a credential or a provider grant a refused OAuth completion could
     // not clean up — often because the account was being deleted — is retried

@@ -110,3 +110,23 @@ describe('one evidenced deadline', () => {
     expect(importantDeadline([item('first')], [], zone)).toBeNull();
   });
 });
+
+/*
+ * Lane E1 review round 2, item 1: the plan card's preview is drawn from the
+ * plan fetched earlier. A 09:00–10:00 meeting in an accepted plan fetched at
+ * 09:30 is over at 10:30, and leaves the preview then. A *task* pinned to an
+ * hour stays on the plan after its slot, as it always has.
+ */
+describe('an appointment that is over leaves the preview (E1 review 2)', () => {
+  const meetingSlot = { itemId: 'meeting', title: 'meeting', startsAt: '2026-09-23T07:00:00Z', endsAt: '2026-09-23T08:00:00Z', blockId: null };
+  const medicineSlot = { itemId: 'medicine', title: 'medicine', startsAt: '2026-09-23T07:00:00Z', endsAt: '2026-09-23T07:30:00Z', blockId: null };
+  const p: DailyPlan = { ...plan(), scheduled: [], fixed: [meetingSlot, medicineSlot] };
+  const meeting = item('meeting', { title: 'اجتماع مع سامي', timeSpec: { ...seed.timeSpec, kind: 'scheduled_event', dueAt: '2026-09-23T07:00:00.000Z', endAt: '2026-09-23T08:00:00.000Z', allDay: false } });
+  const medicine = item('medicine', { title: 'أشتري دوا', timeSpec: { ...seed.timeSpec, kind: 'scheduled_event', dueAt: '2026-09-23T07:00:00.000Z', endAt: null, allDay: false } });
+
+  it('is on the preview while it runs and gone once it has ended; a task given an hour stays', () => {
+    const ids = (now: string) => planPreview(p, [meeting, medicine], new Date(now)).map((row) => row.id);
+    expect(ids('2026-09-23T07:30:00Z')).toEqual(['meeting', 'medicine']);
+    expect(ids('2026-09-23T08:30:00Z')).toEqual(['medicine']);
+  });
+});

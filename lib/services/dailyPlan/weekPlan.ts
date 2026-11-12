@@ -257,6 +257,8 @@ export interface WeekLayout {
    * local date of that time.
    */
   readonly placedOn: ReadonlyMap<string, string>;
+  /** When the week was composed: a stored day's pinned rows are read at this instant (lane E1). */
+  readonly now?: string;
 }
 
 /** The floating work the daily rule puts on `date`: `buildDailyPlanInput`'s own filter. */
@@ -540,6 +542,7 @@ export async function composeWeek(
     commitments,
     titles: itemTitles,
     placedOn,
+    now: nowIso,
   };
 }
 
@@ -630,7 +633,7 @@ export function weekToDto(layout: WeekLayout): WeekDto {
     timezone: layout.timezone,
     days: layout.days.map((day): WeekDayDto => {
       if (day.kind === 'stored') {
-        const dto = planToDto(day.stored, titles, { commitments: layout.commitments });
+        const dto = planToDto(day.stored, titles, { commitments: layout.commitments, ...(layout.now ? { now: layout.now } : {}) });
         return {
           date: day.date,
           state: day.stored.status === 'accepted' ? 'accepted' : 'planned',

@@ -27,6 +27,7 @@ import {
   pastTimeMessage,
   reminderLeadNoLongerFitsMessage,
 } from '../commitments/timeRules';
+import { hasEventEnded } from '../commitments/eventEnded';
 import {
   addLocalDays,
   isDateOnly,
@@ -324,10 +325,18 @@ type ListPlacement = 'today' | 'upcoming' | null;
  * This is not a "missed" or "overdue" state. It is yesterday's work, on today's
  * list, until the user acts on it.
  */
-function placeInList(commitment: Commitment, today: string, timezone: string): ListPlacement {
+function placeInList(commitment: Commitment, today: string, timezone: string, now: Date): ListPlacement {
   // Dropped on purpose or archived: the user closed it, and closing it is a
   // first-class outcome in this product rather than a gap in the lists.
   if (!isVisibleInLists(commitment)) return null;
+  // An appointment that is over is not work anybody still owes (owner
+  // decision 2026-11-12, lane E1): #383's roll-forward is for tasks, and it
+  // kept a lecture from three weeks ago on Today for ever. It leaves both
+  // lists without its status changing — it is still in history, and lane E2's
+  // «ما اتصرّفت فيها» reads the same `hasEventEnded`. A *finished* event is
+  // the exception: it is on the day it happened, in the Finished group, like
+  // any settled commitment.
+  if (commitment.status !== 'completed' && hasEventEnded(commitment, now)) return null;
   const day = dayOf(commitment, timezone);
 
   if (isLive(commitment)) {
@@ -351,7 +360,7 @@ export async function listTodayRanked(options: CommitmentQueryOptions = {}): Pro
   const today = localDayKey(now, timezone);
   const state = await stateFor(options);
   const items = Object.values(state.commitments)
-    .filter((commitment) => placeInList(commitment, today, timezone) === 'today');
+    .filter((commitment) => placeInList(commitment, today, timezone, now) === 'today');
   return {
     ...orderForLists(items, Object.values(state.reminders), now),
     calendarEligibleIds: calendarEligibleIdsOf(state),
@@ -368,7 +377,7 @@ export async function listUpcomingRanked(options: CommitmentQueryOptions = {}): 
   const today = localDayKey(now, timezone);
   const state = await stateFor(options);
   const items = Object.values(state.commitments)
-    .filter((commitment) => placeInList(commitment, today, timezone) === 'upcoming');
+    .filter((commitment) => placeInList(commitment, today, timezone, now) === 'upcoming');
   return {
     ...orderForLists(items, Object.values(state.reminders), now),
     calendarEligibleIds: calendarEligibleIdsOf(state),
