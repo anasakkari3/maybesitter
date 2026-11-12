@@ -988,7 +988,7 @@ export async function completeEndedFixturesForEveryone(
   const rows = await storage.listGroup<FixtureExternalTaskRef>(EXTERNAL_TASK_REFS);
   const byUser = new Map<string, FixtureExternalTaskRef[]>();
   for (const row of rows) {
-    if (row.data.detachedAt || !row.data.linkedCommitmentId) continue;
+    if (!isFootballFixtureRef(row.data) || row.data.detachedAt || !row.data.linkedCommitmentId) continue;
     // `users/{uid}/externalTaskRefs/{id}`: segment 1 is the uid.
     const uid = row.path.split('/')[1];
     if (!uid) continue;

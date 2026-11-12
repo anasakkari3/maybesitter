@@ -26,7 +26,7 @@ import { getStorage, resetStorageForTests, setStorageForTests } from '../../lib/
 import { userSubDoc, ICS_FEED_ITEMS } from '../../lib/storage/paths.ts';
 import { upsertFixtures } from '../../lib/football/fixtureStore.ts';
 import { setFollowedClubs } from '../../lib/football/followedClubs.ts';
-import { listHeldFixtures, projectFixturesForUser } from '../../lib/football/projectFixtures.ts';
+import { completeEndedFixturesForEveryone, listHeldFixtures, projectFixturesForUser } from '../../lib/football/projectFixtures.ts';
 import { refDocPath } from '../../lib/football/externalTaskRefStore.ts';
 import { listHeldIcsItems } from '../../lib/calendar/icsFeeds.ts';
 import { setFeaturePreference } from '../../lib/features/accountFeatures.ts';
@@ -124,6 +124,13 @@ test('E1 football: the sweep touches only football refs — a Todoist-linked tas
   });
   const step = (await runMaintenance({ now: NOW })).steps.find((entry) => entry.name === 'ended_fixtures_completed');
   assert.deepEqual(step, { name: 'ended_fixtures_completed', ok: true, count: 0 });
+  assert.equal((await readParticipantState('u-todo')).commitments.call?.status, 'active');
+  // Nor is a Todoist-only account counted as holding a fixture (review round 2).
+  assert.deepEqual(await completeEndedFixturesForEveryone(NOW.toISOString()), { users: 0, completed: 0, failed: 0 });
+  // And the nightly sync's own closure, which lists the account's refs itself,
+  // leaves it alone too.
+  await setFollowedClubs('u-todo', ['barcelona'], BEFORE);
+  assert.equal((await projectFixturesForUser('u-todo', NOW.toISOString())).completed, 0);
   assert.equal((await readParticipantState('u-todo')).commitments.call?.status, 'active');
 });
 
