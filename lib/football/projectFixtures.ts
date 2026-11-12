@@ -229,6 +229,20 @@ const MS_PER_DAY = 24 * 60 * 60 * 1000;
  */
 const FOOTBALL_FEED_CONNECTION_ID = 'football-fixtures-feed';
 
+/** The one fixture provider (`PROVIDER_NAME` in `footballDataProvider.ts`); every fixture ref names it. */
+const FOOTBALL_FIXTURE_PROVIDER = 'football-data';
+
+/**
+ * Whether a ref in the shared `externalTaskRefs` collection is one of this
+ * module's fixtures. The collection is the external-task contract for every
+ * provider (#417), so the closure must not take a Todoist task for a match
+ * (lane E1 review, item 5). `buildRef` writes `identity.provider` from the
+ * fixture, and the only fixture provider is `football-data`.
+ */
+function isFootballFixtureRef(ref: Pick<ExternalTaskReference, 'identity'> | null | undefined): boolean {
+  return ref?.identity?.provider === FOOTBALL_FIXTURE_PROVIDER;
+}
+
 /**
  * The language a projection run titles its commitments in -- see the module
  * header's "The title names the match" section for the order and why.
@@ -921,7 +935,7 @@ async function completeEndedFixtures(
   knownRefs?: readonly FixtureExternalTaskRef[],
 ): Promise<number> {
   const refs = (knownRefs ?? await listRefs<FixtureExternalTaskRef>(uid, { storage }))
-    .filter((ref) => !ref.detachedAt && ref.linkedCommitmentId);
+    .filter((ref) => isFootballFixtureRef(ref) && !ref.detachedAt && ref.linkedCommitmentId);
   if (refs.length === 0) return 0;
   const state = await loadDomainState(storage, uid);
   let completed = 0;
@@ -1289,8 +1303,11 @@ export interface HeldFixture {
  */
 export async function listHeldFixtures(uid: string, now: Date = new Date()): Promise<{ held: HeldFixture[]; waitingForCoverage: number }> {
   const refs = await listRefs<FixtureExternalTaskRef>(uid);
-  const waitingForCoverage = refs.filter((ref) => !ref.detachedAt && ref.held?.reason === 'unknown').length;
   const nowMs = now.getTime();
+  // A match waiting for coverage stops waiting once it has kicked off, the
+  // same as a clash hold (lane E1 review, item 6).
+  const waitingForCoverage = refs.filter((ref) => !ref.detachedAt && ref.held?.reason === 'unknown'
+    && Date.parse(ref.held.kickoffUtc) > nowMs).length;
   const held = refs.filter((ref) => !ref.detachedAt && ref.held?.reason === 'clash'
     && Date.parse(ref.held.kickoffUtc) > nowMs).map((ref) => ({
     fixtureId: ref.taskRefId,

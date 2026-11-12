@@ -31,7 +31,7 @@ import { refDocPath } from '../../lib/football/externalTaskRefStore.ts';
 import { listHeldIcsItems } from '../../lib/calendar/icsFeeds.ts';
 import { setFeaturePreference } from '../../lib/features/accountFeatures.ts';
 import { runMaintenance } from '../../lib/jobs/internalJobs.ts';
-import { readParticipantState } from '../../lib/services/mobile/participantState.ts';
+import { persistParticipantState, readParticipantState } from '../../lib/services/mobile/participantState.ts';
 import { listEvents } from '../../lib/services/mobile/eventLog.ts';
 import { fixtureContentHash, FIXTURE_CONTRACT_VERSION, FIXTURE_SCHEMA_VERSION, type Fixture, type FixtureCore } from '../../src/contracts/v1/fixtureContracts.ts';
 import { seedLiveAccount } from '../support/liveAccount.ts';
@@ -98,14 +98,43 @@ test('E1 football: maintenance leaves a match still being played, and is idempot
   assert.equal((await runMaintenance({ now: after })).steps.find((entry) => entry.name === 'ended_fixtures_completed')?.count, 0);
 });
 
+test('E1 football: the sweep touches only football refs — a Todoist-linked task is never completed (review item 5)', async () => {
+  // The shared `externalTaskRefs` collection is the contract for every task
+  // provider (#417). A `todoist:42` ref linked to an ordinary task whose time
+  // has passed must not be read as a match that ended.
+  await seedLiveAccount('u-todo');
+  const state = await readParticipantState('u-todo');
+  state.commitments.call = {
+    id: 'call', kind: 'task', title: 'Call Alice', description: null, person: null, status: 'active',
+    priority: { level: 'normal', source: 'default', pressureAllowed: false, pressureLevel: 'none' },
+    category: null, categorySource: 'inferred',
+    timeSpec: { kind: 'due_by', dueAt: '2026-11-11T07:00:00.000Z', endAt: null, remindAt: null, allDay: false, timezone: 'Asia/Jerusalem' },
+    currentAckState: 'not_seen', postponedUntil: null,
+    createdAt: BEFORE, updatedAt: BEFORE, confirmedAt: BEFORE, completedAt: null, droppedAt: null,
+  } as never;
+  await persistParticipantState('u-todo', state);
+  await getStorage().set(refDocPath('u-todo', 'todoist:42'), {
+    scopeId: 'u-todo', taskRefId: 'todoist:42',
+    identity: {
+      provider: 'todoist',
+      providerIdentity: { provider: 'todoist', providerAccountId: 'acct', providerSpaceId: null, displayName: null },
+      connectionId: 'conn-todoist-1', externalId: '42', externalUrl: null,
+    },
+    linkState: 'linked', linkedCommitmentId: 'call', detachedAt: null, updatedAt: BEFORE,
+  });
+  const step = (await runMaintenance({ now: NOW })).steps.find((entry) => entry.name === 'ended_fixtures_completed');
+  assert.deepEqual(step, { name: 'ended_fixtures_completed', ok: true, count: 0 });
+  assert.equal((await readParticipantState('u-todo')).commitments.call?.status, 'active');
+});
+
 /* ── Held items ──────────────────────────────────────────────────── */
 
-function heldRef(uid: string, id: string, kickoffUtc: string) {
+function heldRef(uid: string, id: string, kickoffUtc: string, reason: 'clash' | 'unknown' = 'clash') {
   const endUtc = new Date(Date.parse(kickoffUtc) + 2 * 60 * 60_000).toISOString();
   return {
     uid, taskRefId: `football-data:${id}`, linkState: 'candidate', linkedCommitmentId: null,
     homeTeamName: 'FC Barcelona', awayTeamName: 'Real Madrid CF', kickoffUtc,
-    held: { reason: 'clash', clashes: [], kickoffUtc, endUtc, contentHash: 'h', moved: false, at: BEFORE },
+    held: { reason, clashes: [], kickoffUtc, endUtc, contentHash: 'h', moved: false, at: BEFORE },
   };
 }
 
@@ -132,4 +161,15 @@ test('E1 held items: a held calendar item whose start has passed is no longer of
   await storage.set(userSubDoc('u-ics', ICS_FEED_ITEMS, 'later'), row('later', '2026-11-13T08:00:00.000Z'));
   const items = await listHeldIcsItems('u-ics', { now: () => NOW });
   assert.deepEqual(items.map((item) => item.title), ['later']);
+});
+
+test('E1 held items: a match held for unknown coverage stops waiting once it has kicked off (review item 6)', async () => {
+  await seedLiveAccount('u-unknown');
+  const storage = getStorage();
+  await storage.set(refDocPath('u-unknown', 'football-data:u-past'), heldRef('u-unknown', 'u-past', KICKOFF, 'unknown'));
+  await storage.set(refDocPath('u-unknown', 'football-data:u-now'), heldRef('u-unknown', 'u-now', NOW.toISOString(), 'unknown'));
+  await storage.set(refDocPath('u-unknown', 'football-data:u-next'), heldRef('u-unknown', 'u-next', '2026-11-14T19:00:00.000Z', 'unknown'));
+  const { held, waitingForCoverage } = await listHeldFixtures('u-unknown', NOW);
+  assert.deepEqual(held, []);
+  assert.equal(waitingForCoverage, 1);
 });
