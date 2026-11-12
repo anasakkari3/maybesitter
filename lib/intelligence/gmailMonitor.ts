@@ -11,6 +11,8 @@ import { analyzeArbitratedGmailMessage, connectedGmailAccount, legacyGmailArbitr
 import { addLocalDays, localDayKey, localMidnightOf } from '../services/mobile/time';
 import { M5A_CONTROLS_PATH, parseM5aControls } from '../release/m5aControls';
 import { legacyMarkerIdFor, providerMarkerIdFor, runM5aScanStep, type M5aMarker, type M5aScanDocument } from './m5aGmailScan';
+import { createGmailSenderStatsStore, gmailSenderFilterEnabled } from './gmailSenderFilter';
+import { liveAccount } from './memoryBasis';
 
 export interface GmailMonitor {
   enabled: boolean;
@@ -400,6 +402,43 @@ export async function runGmailMonitorTick(
           await assertEnrolledMonitorAuthority(uid, acquired, claim, runtime);
         }
         const existingMarker = await runtime.storage.get<Record<string, unknown>>(markerPath(uid, message.id));
+        const senderStats = gmailSenderFilterEnabled(runtime.env as Record<string, string | undefined>)
+          ? createGmailSenderStatsStore(runtime.storage) : null;
+        const senderEvaluation = senderStats && !existingMarker ? await senderStats.evaluate(uid, message) : null;
+        if (senderStats && senderEvaluation?.decision.action === 'skip') {
+          const marker: M5aMarker = {
+            v: 2,
+            state: 'done',
+            processedAt: runtime.now().toISOString(),
+            outcome: 'skipped_sender',
+            observationIds: [],
+            autoAddId: null,
+            ...(providerAccountId ? {
+              providerAccountId,
+              providerMarkerId: providerMarkerIdFor(uid, providerAccountId, message.id),
+            } : {}),
+          };
+          const marked = await runtime.storage.runTransaction(async tx => {
+            const [account, current, existing] = await Promise.all([
+              tx.get(userDoc(uid)),
+              tx.get<GmailMonitor>(monitorPath(uid)),
+              tx.get<M5aMarker | Record<string, unknown>>(markerPath(uid, message.id)),
+            ]);
+            if (!liveAccount(account) || existing || !current?.enabled || current.generation !== acquired.generation
+              || acquired.m5 && (current.lease?.owner !== claim || current.m5?.pauseEpoch !== acquired.m5.pauseEpoch
+                || Boolean(current.m5?.pausedSince))) return false;
+            tx.set(markerPath(uid, message.id), marker);
+            if (providerAccountId) tx.set(
+              `${userCol(uid, INTELLIGENCE_SOURCE_MARKERS)}/${providerMarkerIdFor(uid, providerAccountId, message.id)}`,
+              marker,
+            );
+            return true;
+          });
+          if (!marked) throw new Error('monitor_disabled');
+          await senderStats.recordSkipped(uid, message, runtime.now().toISOString());
+          processed++;
+          continue;
+        }
         const useArbitration = arbitrate || existingMarker?.v === 2;
         if (useArbitration) {
           providerAccountId ??= await connectedGmailAccount(uid, runtime);
@@ -416,6 +455,10 @@ export async function runGmailMonitorTick(
           if (result.kind === 'processed') {
             newObservations += result.observations.length;
             analyzed++;
+            if (senderStats && senderEvaluation) await senderStats.recordFullRead(
+              uid, message, result.observations.length > 0, runtime.now().toISOString(),
+              { audited: senderEvaluation.decision.audited },
+            );
           }
           processed++;
           continue;
@@ -431,6 +474,13 @@ export async function runGmailMonitorTick(
               : { storage: runtime.storage, monitorGuard: { path: monitorPath(uid), generation: acquired.generation } });
           newObservations += found.length;
           analyzed++;
+          if (senderStats && senderEvaluation) await senderStats.recordFullRead(
+            uid, message, found.length > 0, runtime.now().toISOString(),
+            { audited: senderEvaluation.decision.audited },
+          );
+        } else if (senderStats && senderEvaluation) {
+          await senderStats.recordFullRead(uid, message, false, runtime.now().toISOString(),
+            { audited: senderEvaluation.decision.audited });
         }
         await runtime.storage.set(markerPath(uid, message.id), { processedAt: now });
         processed++;

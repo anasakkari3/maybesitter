@@ -57,6 +57,11 @@ import { addLocalDays, localDayKey, localMidnightOf } from '../services/mobile/t
 import { calendarCoverageForEmail, waitForCalendarAndFetch } from './gmailCalendarJit';
 import { legacyMarkerIdFor, providerMarkerIdFor } from '../watchers/monitoringSettings';
 import { liveAccount } from './memoryBasis';
+import {
+  createGmailSenderStatsStore,
+  gmailSenderFilterEnabled,
+  type EvaluatedSenderFilter,
+} from './gmailSenderFilter';
 
 export { legacyMarkerIdFor, providerMarkerIdFor } from '../watchers/monitoringSettings';
 
@@ -96,7 +101,7 @@ export interface M5aMarker {
   readonly providerMarkerId?: string;
   readonly preexisting?: boolean;
   readonly processedAt?: string;
-  readonly outcome?: 'analyzed' | 'trimmed' | 'empty' | 'bulk' | 'unanalysed' | 'triaged';
+  readonly outcome?: 'analyzed' | 'trimmed' | 'empty' | 'bulk' | 'unanalysed' | 'triaged' | 'skipped_sender';
   /** The `GMAIL_BULK_RULE` that skipped a bulk message; absent means rule 1. */
   readonly bulkRule?: number;
   /** The `TRIAGE_RULE` that finished a mail without the full read (lib/intelligence/emailTriage.ts). */
@@ -902,6 +907,7 @@ async function processMessage(
   // permit whose minute ended before dispatch is a deferral, not a failure.
   let modelDispatched = false;
   let minuteEndedBeforeDispatch = false;
+  let senderFilterEvaluation: EvaluatedSenderFilter | null = null;
   // Called only after every free gate passed, immediately before the paid call.
   const markDispatched = async (): Promise<void> => {
     // A conditional update of this caller's own live claim, never a new writer.
@@ -972,6 +978,40 @@ async function processMessage(
         tx.set(scanDocumentPath(uid, claimedScan.kind), advancePage({ ...scan, page: scan.page ? { ...scan.page, done } : null }));
       });
       return;
+    }
+    if (gmailSenderFilterEnabled(runtime.env as Record<string, string | undefined>)) {
+      const senderStats = createGmailSenderStatsStore(storage);
+      senderFilterEvaluation = await senderStats.evaluate(uid, message);
+      if (senderFilterEvaluation.decision.action === 'skip') {
+        const skipped = await storage.runTransaction(async tx => {
+          await assertScanAuthorityWithReader(uid, claimedScan, owner, tx);
+          const [scan, daily, provider, legacy] = await Promise.all([
+            tx.get<M5aScanDocument>(scanDocumentPath(uid, claimedScan.kind)),
+            tx.get<M5aScanDocument>(dailyScanPath(uid)),
+            tx.get<M5aMarker>(markerPath(uid, providerMarkerId)), tx.get<M5aMarker>(markerPath(uid, legacyMarkerId)),
+          ]);
+          if (!scan || scan.scanId !== claimedScan.scanId || scan.leaseOwner !== owner
+            || provider?.owner !== claimOwner || legacy?.owner !== claimOwner) return false;
+          const marker: M5aMarker = {
+            ...provider, state: 'done', owner: undefined, leaseUntil: undefined,
+            processedAt: runtime.now().toISOString(), outcome: 'skipped_sender', observationIds: [], autoAddId: null,
+          };
+          const receipt = transitionReceipt(marker, scan.scanId, 'read',
+            [scan.scanId, daily?.scanId].filter(Boolean) as string[]);
+          const done = Array.from(new Set([...(scan.page?.done ?? []), messageId]));
+          tx.set(markerPath(uid, providerMarkerId), receipt.marker);
+          tx.set(markerPath(uid, legacyMarkerId), { ...receipt.marker, providerMarkerId, providerAccountId: scan.providerAccountId });
+          tx.set(scanDocumentPath(uid, claimedScan.kind), advancePage({
+            ...scan,
+            messagesRead: scan.messagesRead + receipt.readDelta,
+            messagesUnavailable: scan.messagesUnavailable + receipt.unavailableDelta,
+            page: scan.page ? { ...scan.page, done } : null,
+          }));
+          return true;
+        });
+        if (skipped) await senderStats.recordSkipped(uid, message, runtime.now().toISOString());
+        return;
+      }
     }
     if (message.isBulk) {
       await storage.runTransaction(async tx => {
@@ -1269,6 +1309,13 @@ async function processMessage(
       return true;
     });
     if (!committed) await releaseMessageForRetry(uid, claimedScan.kind, claimedScan.scanId, owner, claimOwner, markerIds, storage);
+    else if (senderFilterEvaluation) await createGmailSenderStatsStore(storage).recordFullRead(
+      uid,
+      message,
+      observations.length > 0,
+      at,
+      { audited: senderFilterEvaluation.decision.audited },
+    );
     if (permit) await finalizeQuotaPermit(permit, { storage, now: runtime.now() });
   } catch (error) {
     if (permit) await finalizeQuotaPermit(permit, { storage, now: runtime.now() });
