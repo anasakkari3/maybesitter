@@ -40,16 +40,24 @@ Rolling unfinished work into today was the owner's decision of 2026-09-15 (#383)
 - **Football:** close ended fixtures for every user, including those with football switched off. Close them on the per-minute watcher or the maintenance pass, not only in the nightly sync. Held fixtures whose kickoff has passed disappear (audit finding CA11.1).
 - **Cost:** the follow-up question rides the capture chat call that is already being made. There is no extra model call.
 
-### Open question for the owner
+### Owner answers of 2026-11-13
 
-Item 4: what does «واحد على خمسة → واحد على أربعة» change? For example, smaller pieces (a fifth of the task each time → a quarter), more frequent sessions, or something else. Until the owner answers, item 4 waits. Items 1–3 and the football fix are built now.
+- **Event or task (lane E1).** The model decides at capture whether an item is an event (appointment, meeting, lecture) or a task, and stores it on the commitment. The title heuristic (`namesEvent`) is only the fallback when the model was not used, and the stored kind always wins over it. Before the switch, an eval on a labelled set decides the threshold; it costs about 10–20¢ and is approved.
+- **Item 4 (lane E4).** «واحد على خمسة → واحد على أربعة» was an example, not a formula. The rule is: **when a piece of work is missed, the app proposes a real, workable new plan for it**, not just a new date. A proposal must:
+  - place the work in actual free time, after reading busy time, the plan and the deadline if one exists;
+  - change the approach when the old one failed. It may use smaller pieces, more or fewer sessions, a different time of day, or an earlier start before a deadline. Each change is chosen from the miss history, for example a second miss in the same slot means a different slot;
+  - say in one line what changed and why;
+  - be proposal-only, so nothing changes until the person accepts;
+  - offer undo for at least 24 hours after acceptance.
+
+  The proposal is computed deterministically from the free-slot and plan engines. A model may word it, but it never chooses the slots.
 
 ### Delivery order
 
 1. **Lane E1:** ended events leave every active surface (server lists, next step, plan, week plan; mobile Today composer, card fallback, widget snapshot), plus the football closure for everyone. Tests use the dates from the root-cause scratch test: a lecture 3 weeks ago, yesterday's all-day doctor appointment, and this morning's 09–10 meeting.
 2. **Lane E2:** the «ما اتصرّفت فيها» place. Server projection, an API route, and a screen reachable from Today.
 3. **Lane E3:** the capture follow-up question, using the no-pressure rules above.
-4. **Lane E4:** rescheduling with a pacing change, after the owner answers the open question.
+4. **Lane E4:** a real rescheduling proposal for missed work, following the owner's answer of 2026-11-13 above.
 
 ## Part 2. Gmail sender filter (owner idea, stricter variant chosen)
 
