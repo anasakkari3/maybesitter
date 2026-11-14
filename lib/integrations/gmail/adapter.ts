@@ -51,6 +51,10 @@ export interface GmailMessagePayload {
    * messages are always false.
    */
   readonly isBulk?: boolean;
+  /** STARRED is a provider label and always bypasses the sender filter. */
+  readonly starred?: boolean;
+  /** Normalized recipient addresses on sent mail, used only to remember correspondents. */
+  readonly recipients?: readonly string[];
   /** The representation selected by the parser. HTML is never quote-certified. */
   readonly bodyFormat?: 'text/plain' | 'text/html';
 }

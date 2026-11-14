@@ -17,6 +17,7 @@ function purgeInput(scopeId: string, storage: ReturnType<typeof createMemoryStor
 
 const NEW_COLLECTIONS = {
   INTELLIGENCE_AUTO_ADDS: 'intelligenceAutoAdds',
+  GMAIL_SENDER_STATS: 'gmailSenderStats',
   CALENDAR_CHOICE: 'calendarChoice',
   BUSY_SOURCE_FENCES: 'busySourceFences',
   REGISTERED_DEVICE_SOURCES: 'registeredDeviceSources',
@@ -25,7 +26,7 @@ const NEW_COLLECTIONS = {
 } as const;
 
 /** PURGED by personalization deletion vs KEPT (content-free), per the plan. */
-const PURGED = ['intelligenceAutoAdds'];
+const PURGED = ['intelligenceAutoAdds', 'gmailSenderStats'];
 const KEPT = ['calendarChoice', 'busySourceFences', 'registeredDeviceSources', 'retiredDeviceSources', 'deviceStaleState'];
 
 test('R3.4 / R1.1b: each new collection has its named constant and is in USER_SCOPED_COLLECTIONS', async () => {

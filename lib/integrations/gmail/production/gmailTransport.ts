@@ -310,6 +310,21 @@ function headerValue(headers: unknown, name: string): string | null {
   return null;
 }
 
+function headerAddresses(headers: unknown, names: readonly string[]): readonly string[] {
+  const out = new Set<string>();
+  for (const name of names) {
+    const value = headerValue(headers, name);
+    if (!value) continue;
+    const address = /[A-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi;
+    let match = address.exec(value);
+    while (match) {
+      out.add(match[0]!.toLowerCase());
+      match = address.exec(value);
+    }
+  }
+  return Object.freeze(Array.from(out));
+}
+
 /**
  * Picks the text of a message, preferring `text/plain` over `text/html`.
  *
@@ -577,6 +592,8 @@ export function createGmailTransport(deps: GmailTransportDeps): GmailTransport {
       sentByAccount,
       isReply: nonEmptyString(headerValue(headers, 'In-Reply-To')) || nonEmptyString(headerValue(headers, 'References')),
       isBulk,
+      starred: labels.includes('STARRED'),
+      recipients: sentByAccount ? headerAddresses(headers, ['To', 'Cc']) : [],
       bodyFormat: selected.bodyFormat,
     });
   }

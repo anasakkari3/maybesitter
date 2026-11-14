@@ -370,6 +370,26 @@ test('SENT wins over every bulk signal', async () => {
   assert.equal(message?.isBulk, false);
 });
 
+test('STARRED and sent reply recipients are exposed as filter-safe metadata', async () => {
+  const body = {
+    ...MESSAGE_FULL.body,
+    labelIds: ['SENT', 'STARRED'],
+    payload: {
+      ...MESSAGE_FULL.body.payload!,
+      headers: [
+        ...(MESSAGE_FULL.body.payload?.headers ?? []).filter(header => header.name.toLowerCase() !== 'to'),
+        { name: 'To', value: 'Friend <friend@example.org>, second@example.net' },
+        { name: 'In-Reply-To', value: '<prior@example.org>' },
+      ],
+    },
+  };
+  const { fetchImpl } = scriptedFetch({ messagesGet: ok(body) });
+  const message = await createGmailTransport(transportDeps(fetchImpl)).getMessageById(MSG_ID_1);
+  assert.equal(message?.starred, true);
+  assert.equal(message?.isReply, true);
+  assert.deepEqual(message?.recipients, ['friend@example.org', 'second@example.net']);
+});
+
 test('text/plain wins over text/html, and attachment bytes are never fetched', async () => {
   const { result, calls } = await sync(TWO_PAGE_SCRIPT);
   const withAttachment = result.items.find((entry) => entry.externalId === MSG_ID_2);
