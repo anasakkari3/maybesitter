@@ -92,7 +92,7 @@ test('with an app language, the prompt asks for appTitle beside the own-words ti
   assert.match(rules, /"appTitle":"string\|null"/);
   // The own-words rule is unchanged: title is never translated.
   assert.match(rules, /Never translate the title\./);
-  assert.match(rules, /PROMPT VERSION: capture-v6/);
+  assert.match(rules, /PROMPT VERSION: capture-v7/);
   assert.match(buildPrompt('x', { ...CONTEXT, titleLanguage: 'he' }), /APP LANGUAGE: Hebrew\./);
   assert.match(buildBatchPrompt(['a', 'b'], { ...CONTEXT, titleLanguage: 'en' }), /APP LANGUAGE: English\./);
 });

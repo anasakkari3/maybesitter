@@ -784,8 +784,8 @@ export async function answerClarification(
   // drafted like any other answered item — as is an appointment answered the
   // same way, an all-day event on its day (FY1 N4). Both are `allDay`.
   const answeredCommands = noTime && !answered.allDay
-    ? settleDrafts(applyEditToCommands(mapExtractionToCommand(answered, options.now.toISOString()), { resolvedTime: null }))
-    : settleDrafts(mapExtractionToCommand(answered, options.now.toISOString()));
+    ? settleDrafts(applyEditToCommands(mapExtractionToCommand(answered, options.now.toISOString(), undefined, { capture: true }), { resolvedTime: null }))
+    : settleDrafts(mapExtractionToCommand(answered, options.now.toISOString(), undefined, { capture: true }));
 
   // Never resolved with nothing to persist. An item marked answered with zero
   // commands is a Confirm the server then refuses with `invalid_selection`;

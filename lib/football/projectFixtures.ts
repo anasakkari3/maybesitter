@@ -197,7 +197,7 @@ import { readActivityStats, recordActivityEvents, type ActivityStats } from '../
 import { findCollisions, type CollisionWarning } from '../services/timeCollision';
 import { candidateClashes, readFreeSlotSchedule, runScheduleDecisionHook, type Clash } from '../planning/freeSlots';
 import { resolveExternalClashHold } from '../release/m4bCapabilities';
-import { EXTERNAL_TASK_ACTION_RECEIPTS, getStorage, userDoc, userSubDoc, type StorageAdapter, type StorageTransaction } from '../storage';
+import { EXTERNAL_TASK_ACTION_RECEIPTS, EXTERNAL_TASK_REFS, getStorage, userDoc, userSubDoc, type StorageAdapter, type StorageTransaction } from '../storage';
 import type { UserDocument } from '../storage/userDocument';
 import { getFollowedClubs } from './followedClubs';
 import { clubById, fixtureTitle, type ClubLanguage } from './clubs';
@@ -228,6 +228,20 @@ const MS_PER_DAY = 24 * 60 * 60 * 1000;
  * would ever revoke or reconnect.
  */
 const FOOTBALL_FEED_CONNECTION_ID = 'football-fixtures-feed';
+
+/** The one fixture provider (`PROVIDER_NAME` in `footballDataProvider.ts`); every fixture ref names it. */
+const FOOTBALL_FIXTURE_PROVIDER = 'football-data';
+
+/**
+ * Whether a ref in the shared `externalTaskRefs` collection is one of this
+ * module's fixtures. The collection is the external-task contract for every
+ * provider (#417), so the closure must not take a Todoist task for a match
+ * (lane E1 review, item 5). `buildRef` writes `identity.provider` from the
+ * fixture, and the only fixture provider is `football-data`.
+ */
+function isFootballFixtureRef(ref: Pick<ExternalTaskReference, 'identity'> | null | undefined): boolean {
+  return ref?.identity?.provider === FOOTBALL_FIXTURE_PROVIDER;
+}
 
 /**
  * The language a projection run titles its commitments in -- see the module
@@ -914,11 +928,16 @@ const LIVE_STATUSES: ReadonlySet<Commitment['status']> = new Set<Commitment['sta
  * commitment's own `endAt` (kickoff plus `FIXTURE_BLOCK_MINUTES`); a match is
  * over once that instant is not after `now`.
  */
-async function completeEndedFixtures(uid: string, now: string): Promise<number> {
-  const refs = (await listRefs<FixtureExternalTaskRef>(uid))
-    .filter((ref) => !ref.detachedAt && ref.linkedCommitmentId);
+async function completeEndedFixtures(
+  uid: string,
+  now: string,
+  storage: StorageAdapter = getStorage(),
+  knownRefs?: readonly FixtureExternalTaskRef[],
+): Promise<number> {
+  const refs = (knownRefs ?? await listRefs<FixtureExternalTaskRef>(uid, { storage }))
+    .filter((ref) => isFootballFixtureRef(ref) && !ref.detachedAt && ref.linkedCommitmentId);
   if (refs.length === 0) return 0;
-  const state = await readParticipantState(uid);
+  const state = await loadDomainState(storage, uid);
   let completed = 0;
   for (const ref of refs) {
     const commitment = state.commitments[ref.linkedCommitmentId!];
@@ -927,11 +946,64 @@ async function completeEndedFixtures(uid: string, now: string): Promise<number> 
     if (!dueAt) continue;
     const end = endAt ?? new Date(Date.parse(dueAt) + FIXTURE_BLOCK_MINUTES * 60_000).toISOString();
     if (Date.parse(end) > Date.parse(now)) continue;
-    if (await completeCommitmentForFixtureGuarded(getStorage(), uid, ref.taskRefId, ref.linkedCommitmentId!, now)) {
+    if (await completeCommitmentForFixtureGuarded(storage, uid, ref.taskRefId, ref.linkedCommitmentId!, now)) {
       completed += 1;
     }
   }
   return completed;
+}
+
+/** What `completeEndedFixturesForEveryone` did, across the install. */
+export interface EndedFixtureClosureTotals {
+  /** Accounts holding at least one live link to a fixture, each looked at once. */
+  users: number;
+  completed: number;
+  /** Accounts whose closure threw; the others still ran. */
+  failed: number;
+}
+
+/**
+ * Closes every ended fixture commitment in the install, for every account,
+ * whatever its football switch says (spec Part 1, "Football", lane E1).
+ *
+ * `completeEndedFixtures` used to run only inside the nightly football sync,
+ * and that job skips anyone who switched football off (`footballSwitchedOff`
+ * in `lib/jobs/internalJobs.ts`) — and does nothing at all without a provider
+ * key. Switching football off therefore froze every match already saved as
+ * live, for ever. The lists stopped *showing* an ended match on their own
+ * (`hasEventEnded`); this is what makes its status honest too.
+ *
+ * One collection-group read of the refs finds the accounts that hold a live
+ * link; nothing is fetched from a provider and no follow list is consulted.
+ * Each account is closed on its own, so one bad ref or a transient storage
+ * error is counted in `failed` and every other account still runs. The
+ * closure is the same guarded, credit-free completion the sync uses: a final
+ * whistle is not the person doing a thing.
+ */
+export async function completeEndedFixturesForEveryone(
+  now: string,
+  deps: { storage?: StorageAdapter } = {},
+): Promise<EndedFixtureClosureTotals> {
+  const storage = deps.storage ?? getStorage();
+  const rows = await storage.listGroup<FixtureExternalTaskRef>(EXTERNAL_TASK_REFS);
+  const byUser = new Map<string, FixtureExternalTaskRef[]>();
+  for (const row of rows) {
+    if (!isFootballFixtureRef(row.data) || row.data.detachedAt || !row.data.linkedCommitmentId) continue;
+    // `users/{uid}/externalTaskRefs/{id}`: segment 1 is the uid.
+    const uid = row.path.split('/')[1];
+    if (!uid) continue;
+    byUser.set(uid, [...(byUser.get(uid) ?? []), row.data]);
+  }
+  const totals: EndedFixtureClosureTotals = { users: 0, completed: 0, failed: 0 };
+  for (const [uid, refs] of Array.from(byUser)) {
+    totals.users += 1;
+    try {
+      totals.completed += await completeEndedFixtures(uid, now, storage, refs);
+    } catch {
+      totals.failed += 1;
+    }
+  }
+  return totals;
 }
 
 /**
@@ -1222,10 +1294,22 @@ export interface HeldFixture {
   clashes: readonly Clash[];
 }
 
-export async function listHeldFixtures(uid: string): Promise<{ held: HeldFixture[]; waitingForCoverage: number }> {
+/**
+ * The matches held back for a clash, still waiting for the person's answer.
+ *
+ * A held match whose kickoff is at or before `now` is not offered (audit
+ * CA11.1, lane E1): "this clashes — add it anyway?" is moot once the match
+ * has started, and the ref itself is left as it is.
+ */
+export async function listHeldFixtures(uid: string, now: Date = new Date()): Promise<{ held: HeldFixture[]; waitingForCoverage: number }> {
   const refs = await listRefs<FixtureExternalTaskRef>(uid);
-  const waitingForCoverage = refs.filter((ref) => !ref.detachedAt && ref.held?.reason === 'unknown').length;
-  const held = refs.filter((ref) => !ref.detachedAt && ref.held?.reason === 'clash').map((ref) => ({
+  const nowMs = now.getTime();
+  // A match waiting for coverage stops waiting once it has kicked off, the
+  // same as a clash hold (lane E1 review, item 6).
+  const waitingForCoverage = refs.filter((ref) => !ref.detachedAt && ref.held?.reason === 'unknown'
+    && Date.parse(ref.held.kickoffUtc) > nowMs).length;
+  const held = refs.filter((ref) => !ref.detachedAt && ref.held?.reason === 'clash'
+    && Date.parse(ref.held.kickoffUtc) > nowMs).map((ref) => ({
     fixtureId: ref.taskRefId,
     heldVersion: heldVersionOf(ref.held!),
     homeTeamName: ref.homeTeamName,

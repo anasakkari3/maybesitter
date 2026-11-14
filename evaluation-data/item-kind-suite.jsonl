@@ -1,0 +1,60 @@
+{"id":"ar-01","lang":"ar","text":"اجتماع مع سامي بكرا الساعة 12","label":"event","note":"event noun"}
+{"id":"ar-02","lang":"ar","text":"عندي محاضرة بكرا الساعة 10","label":"event","note":"event noun"}
+{"id":"ar-03","lang":"ar","text":"موعد دكتور الأسنان الخميس الساعة 4 العصر","label":"event","note":"event noun"}
+{"id":"ar-04","lang":"ar","text":"محمد عند الحلاق بكرا الساعة 5 المسا","label":"event","note":"no event noun"}
+{"id":"ar-05","lang":"ar","text":"عرس ابن عمي الجمعة الساعة 8 المسا","label":"event","note":"no listed noun"}
+{"id":"ar-06","lang":"ar","text":"طيارتي بكرا الساعة 6 الصبح","label":"event","note":"flight"}
+{"id":"ar-07","lang":"ar","text":"مباراة برشلونة السبت الساعة 10 بالليل","label":"event","note":"match"}
+{"id":"ar-08","lang":"ar","text":"امتحان رياضيات الأحد الساعة 9 الصبح","label":"event","note":"exam"}
+{"id":"ar-09","lang":"ar","text":"درس السواقة الاثنين الساعة 3 العصر","label":"event","note":"lesson"}
+{"id":"ar-10","lang":"ar","text":"مقابلة شغل بكرا الساعة 11 الصبح","label":"event","note":"interview"}
+{"id":"ar-11","lang":"ar","text":"رايحين على العشا عند أهل مرتي الجمعة الساعة 7 المسا","label":"event","note":"visit, no noun"}
+{"id":"ar-12","lang":"ar","text":"حفلة عيد ميلاد لينا السبت الساعة 6 المسا","label":"event","note":"party"}
+{"id":"ar-13","lang":"ar","text":"جلسة علاج طبيعي الثلاثا الساعة 2 الظهر","label":"event","note":"session"}
+{"id":"ar-14","lang":"ar","text":"اجتماع أولياء الأمور بالمدرسة الأربعا الساعة 4 العصر","label":"event","note":"meeting"}
+{"id":"ar-15","lang":"ar","text":"صلاة الجمعة بالجامع الساعة 12 الظهر","label":"event","note":"attend"}
+{"id":"ar-16","lang":"ar","text":"لازم أكون بالبنك بكرا الساعة 9 عشان أوقّع على القرض","label":"event","note":"appointment phrased as must"}
+{"id":"ar-17","lang":"ar","text":"أشتري دوا الساعة 5 المسا","label":"task","note":"errand at hour"}
+{"id":"ar-18","lang":"ar","text":"أتصل بماما بكرا الساعة 8 المسا","label":"task","note":"call"}
+{"id":"ar-19","lang":"ar","text":"أبعت ملاحظات الاجتماع لسامي الساعة 3 العصر","label":"task","note":"event noun in task"}
+{"id":"ar-20","lang":"ar","text":"أحضّر للاجتماع بكرا الساعة 2 الظهر","label":"task","note":"prep for event"}
+{"id":"ar-21","lang":"ar","text":"أحجز موعد عند الدكتور بكرا الساعة 10 الصبح","label":"task","note":"booking an appointment"}
+{"id":"ar-22","lang":"ar","text":"أدرس للامتحان الليلة الساعة 8","label":"task","note":"study"}
+{"id":"ar-23","lang":"ar","text":"أدفع فاتورة الكهربا الخميس الساعة 1 الظهر","label":"task","note":"bill"}
+{"id":"ar-24","lang":"ar","text":"أنضّف المطبخ اليوم الساعة 4 العصر","label":"task","note":"chore"}
+{"id":"ar-25","lang":"ar","text":"أكتب التقرير بكرا من 10 لـ 12 الصبح","label":"task","note":"work block with range"}
+{"id":"ar-26","lang":"ar","text":"أجيب الولاد من المدرسة الساعة 2 الظهر","label":"task","note":"pickup"}
+{"id":"ar-27","lang":"ar","text":"أعزم صحابي على حفلة السبت، أبعتلهم الساعة 9 الليلة","label":"task","note":"party noun but task"}
+{"id":"ar-28","lang":"ar","text":"أرد على إيميل المدير الساعة 11 الصبح","label":"task","note":"email"}
+{"id":"ar-29","lang":"ar","text":"أعبّي بنزين بكرا الساعة 7 الصبح","label":"task","note":"errand"}
+{"id":"ar-30","lang":"ar","text":"أطبخ الغدا اليوم الساعة 1 الظهر","label":"task","note":"cook"}
+{"id":"ar-31","lang":"ar","text":"أمشي نص ساعة الساعة 6 الصبح","label":"task","note":"exercise self"}
+{"id":"ar-32","lang":"ar","text":"أجهّز عرض التقديم للمقابلة الأربعا الساعة 5 المسا","label":"task","note":"prep, interview noun"}
+{"id":"ar-33","lang":"ar","text":"أذكّر سامي بالاجتماع بكرا الساعة 9 الصبح","label":"task","note":"reminder to someone"}
+{"id":"ar-34","lang":"ar","text":"أشتري هدية للعرس الخميس الساعة 6 المسا","label":"task","note":"wedding noun but task"}
+{"id":"ar-35","lang":"ar","text":"أصلّح السيارة عند الميكانيكي بكرا الساعة 8 الصبح","label":"event","note":"drop-off appointment"}
+{"id":"ar-36","lang":"ar","text":"أوقّع العقد مع المحامي الثلاثا الساعة 10 الصبح","label":"event","note":"meeting with lawyer"}
+{"id":"en-01","lang":"en","text":"meeting with the design team tomorrow at 3pm","label":"event","note":"event noun"}
+{"id":"en-02","lang":"en","text":"dentist on Thursday at 4pm","label":"event","note":"no explicit noun"}
+{"id":"en-03","lang":"en","text":"flight to Berlin Friday at 7am","label":"event","note":"flight"}
+{"id":"en-04","lang":"en","text":"yoga class Monday at 6pm","label":"event","note":"class"}
+{"id":"en-05","lang":"en","text":"coffee with Dana tomorrow at 10am","label":"event","note":"social, no noun"}
+{"id":"en-06","lang":"en","text":"parent-teacher conference Wednesday at 5pm","label":"event","note":"conference"}
+{"id":"en-07","lang":"en","text":"haircut Saturday at 11am","label":"event","note":"appointment"}
+{"id":"en-08","lang":"en","text":"call Alice at 9am","label":"task","note":"call"}
+{"id":"en-09","lang":"en","text":"send the meeting notes at 3pm","label":"task","note":"event noun in task"}
+{"id":"en-10","lang":"en","text":"book a table for Saturday dinner tomorrow at noon","label":"task","note":"booking"}
+{"id":"en-11","lang":"en","text":"finish the slides for the conference tonight at 8","label":"task","note":"prep"}
+{"id":"en-12","lang":"en","text":"pay rent on Friday at 10am","label":"task","note":"bill"}
+{"id":"en-13","lang":"en","text":"work on the proposal tomorrow from 9 to 11am","label":"task","note":"work block range"}
+{"id":"en-14","lang":"en","text":"pick up groceries at 6pm","label":"task","note":"errand"}
+{"id":"he-01","lang":"he","text":"פגישה עם רונית מחר בשעה 14:00","label":"event","note":"meeting"}
+{"id":"he-02","lang":"he","text":"תור לרופא ביום חמישי בשעה 9","label":"event","note":"appointment"}
+{"id":"he-03","lang":"he","text":"הרצאה בטכניון ביום שני בשעה 10","label":"event","note":"lecture"}
+{"id":"he-04","lang":"he","text":"חתונה של אחי ביום שישי בשעה 19:00","label":"event","note":"wedding"}
+{"id":"he-05","lang":"he","text":"משחק כדורגל של הבן בשבת בשעה 11","label":"event","note":"match"}
+{"id":"he-06","lang":"he","text":"להתקשר לאמא מחר בשעה 20:00","label":"task","note":"call"}
+{"id":"he-07","lang":"he","text":"לשלוח את הסיכום של הפגישה בשעה 15:00","label":"task","note":"event noun in task"}
+{"id":"he-08","lang":"he","text":"לקנות תרופות היום בשעה 17:00","label":"task","note":"errand"}
+{"id":"he-09","lang":"he","text":"ללמוד למבחן הערב בשעה 21:00","label":"task","note":"study"}
+{"id":"he-10","lang":"he","text":"לקבוע תור לרופא מחר בשעה 9","label":"task","note":"booking"}

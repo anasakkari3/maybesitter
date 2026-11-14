@@ -33,6 +33,8 @@ const ALLOWED_FIELDS = [
   'flexibility',
   'category',
   'categoryConfidence',
+  'itemKind',
+  'itemKindConfidence',
   'confidence',
   'missingFields',
   'ambiguityFlags',
@@ -80,6 +82,8 @@ function requestedShape(context: ExtractionContext): Record<string, unknown> {
     flexibility: 'movable|soft',
     category: categoriesOf(context).length === 0 ? null : `${categoriesOf(context).join('|')}|null`,
     categoryConfidence: 0,
+    itemKind: 'event|task|null',
+    itemKindConfidence: 0,
     confidence: {
       overall: 0,
       type: 0,
@@ -491,6 +495,9 @@ export function detectPromptInjection(rawText: string): string | null {
 /**
  * The prompt's own version, so a report can say which wording produced it.
  *
+ * v7 (lane E1, owner decision 2026-11-13) asks whether the item is an event
+ * the person attends or a task they do (`itemKind`), and how sure it is.
+ *
  * v6 (owner request 2026-09-30) asks, when the app's language is known, for
  * `appTitle` — the title in that language — beside `title`, which stays in the
  * person's own words. Without a language the wording is v5's.
@@ -512,7 +519,7 @@ export function detectPromptInjection(rawText: string): string | null {
  * rule, and title constraints. It is a version string, not a feature flag:
  * there is one prompt, and this names it.
  */
-export const PROMPT_VERSION = 'capture-v6';
+export const PROMPT_VERSION = 'capture-v7';
 
 /**
  * Titles the review screen can show without editing.
@@ -674,6 +681,20 @@ function categoryRules(context: ExtractionContext): readonly string[] {
   ];
 }
 
+/**
+ * Event or task (owner decision 2026-11-13, spec lane E1). An event is over
+ * once it ends and leaves every active surface; a task rolls into Today until
+ * the person acts on it (#383). The title alone cannot tell «محمد عند الحلاق
+ * الساعة 4» from «أشتري دوا الساعة 5», so the model is asked. Below
+ * `ITEM_KIND_MIN_CONFIDENCE` the answer is not stored and the title heuristic
+ * decides, as it did before.
+ */
+const ITEM_KIND_RULES: readonly string[] = [
+  'itemKind is event when the person attends or takes part in something that happens at a time: a meeting, lecture, class, exam, appointment, visit, match, party, flight. It is task when it is work the person does, even at a set hour: buy, call, send, write, pay, study, clean. Use null only when kind is not commitment.',
+  'itemKindConfidence is how sure you are about itemKind only, from 0 to 1.',
+  'Examples: «اجتماع مع سامي الساعة 12» -> event. «عندي محاضرة بكرا الساعة 10» -> event. «محمد عند الحلاق الساعة 4» -> event. «أشتري دوا الساعة 5» -> task. "call Alice at 9am" -> task. «أدرس للامتحان الساعة 8» -> task. «امتحان رياضيات الأحد» -> event.',
+];
+
 /** Everything the model is told before the untrusted data, single or batch. */
 function instructionLines(context: ExtractionContext): string[] {
   return [
@@ -714,6 +735,7 @@ function extractionRuleLines(context: ExtractionContext): string[] {
     ...appTitleRules(context),
     ...DIALECT_RULES,
     ...categoryRules(context),
+    ...ITEM_KIND_RULES,
     'EXAMPLES (abbreviated; always return every required key):',
     ...FEW_SHOTS,
     `Reference datetime: ${context.now.toISOString()}`,

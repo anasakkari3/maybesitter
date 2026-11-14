@@ -286,8 +286,8 @@ export function selectNextStepForArm(
   return { arm, recommendation, scores: baseline.scores, selectedCommitmentId: selected.commitmentId, adjustments, fallbackReason };
 }
 
-export function armCandidatesFromDomainState(state: DomainState): ArmCandidate[] {
-  return candidatesFromDomainState(state).map((candidate) => ({
+export function armCandidatesFromDomainState(state: DomainState, now?: Date): ArmCandidate[] {
+  return candidatesFromDomainState(state, now).map((candidate) => ({
     ...candidate,
     kind: state.commitments[candidate.commitmentId].kind,
   }));
@@ -300,7 +300,9 @@ export function selectNextStepForArmFromState(
 ): ArmSelection {
   return selectNextStepForArm(
     arm,
-    armCandidatesFromDomainState(state),
+    // The clock goes in so an appointment that is over is not a candidate
+    // (lane E1): ranked, its start read as an overdue deadline.
+    armCandidatesFromDomainState(state, context.now),
     context,
     arm === 'personalized' ? buildBehaviorProfile(state, context.timezone) : undefined,
   );

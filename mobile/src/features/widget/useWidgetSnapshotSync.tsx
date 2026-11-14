@@ -35,7 +35,7 @@ import { useEffect, useRef, useState } from 'react';
 import { AppState } from 'react-native';
 import { useAuth } from '../../auth/AuthProvider';
 import { onBeforeSignOut } from '../../auth/beforeSignOut';
-import { useNextStep, useToday } from '../../api/queries';
+import { useNextStep, useToday, useUpcoming } from '../../api/queries';
 import { formatTime } from '../../i18n/format';
 import { useTimeZone } from '../../i18n/timezone';
 import { useApp } from '../../state/AppContext';
@@ -85,6 +85,7 @@ export function useWidgetSnapshotSync(options: { bridge?: WidgetBridge; now?: ()
   const { t, lang } = useApp();
   const timeZone = useTimeZone();
   const today = useToday();
+  const upcoming = useUpcoming();
   const nextStep = useNextStep();
   const { allowed, resolved } = useWidgetTitlesAllowed(uid);
   const [defaultBridge] = useState(createNativeWidgetBridge);
@@ -95,6 +96,7 @@ export function useWidgetSnapshotSync(options: { bridge?: WidgetBridge; now?: ()
   // `data`, not `isSuccess`: a failed refetch keeps the last list, and that list
   // is exactly what a toggle-off has to be able to redact.
   const todayItems = today.data?.items;
+  const upcomingItems = upcoming.data?.items;
   const primaryStep = nextStep.data?.recommendation.primaryStep ?? null;
 
   useEffect(() => {
@@ -108,6 +110,7 @@ export function useWidgetSnapshotSync(options: { bridge?: WidgetBridge; now?: ()
     }
     const snapshot = buildSnapshot({
       today: todayItems,
+      ...(upcomingItems ? { upcoming: upcomingItems } : {}),
       nextStep: primaryStep,
       titlesAllowed: allowed,
       surface: 'widget',
@@ -117,7 +120,7 @@ export function useWidgetSnapshotSync(options: { bridge?: WidgetBridge; now?: ()
       formatTime: (date) => formatTime(date, { locale: lang, timeZone }),
     });
     void bridge.write(JSON.stringify(snapshot));
-  }, [uid, todayItems, primaryStep, allowed, resolved, lang, t, timeZone, bridge, backgrounded]);
+  }, [uid, todayItems, upcomingItems, primaryStep, allowed, resolved, lang, t, timeZone, bridge, backgrounded]);
 
   useEffect(() => {
     const subscription = AppState.addEventListener('change', (next) => {

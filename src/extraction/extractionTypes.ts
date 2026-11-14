@@ -143,6 +143,19 @@ export interface ExtractionResult {
   category: CommitmentCategory | null;
   /** How sure the model was, clamped to [0, 1]. Always 0 when `category` is null. */
   categoryConfidence: number;
+  /**
+   * Event or task, as the model read it (owner decision 2026-11-13, spec lane
+   * E1): an appointment the person attends — a meeting, a lecture, a doctor's
+   * visit — or work they do. Raw, like `category`: `mapExtractionToCommand`
+   * stores it only above `ITEM_KIND_MIN_CONFIDENCE`.
+   *
+   * Optional: absent or null means the model was not asked or did not say,
+   * which every producer that predates it meant. The title heuristic
+   * (`namesEvent`) then answers.
+   */
+  itemKind?: 'event' | 'task' | null;
+  /** How sure the model was about `itemKind`, clamped to [0, 1]. 0 when it is null. */
+  itemKindConfidence?: number;
   confidence: {
     overall: number;
     type: number;

@@ -17,6 +17,44 @@ function reminderTypeFromExtraction(result: ExtractionResult): ReminderType {
   return result.priority.level === 'high' ? 'due_soon' : 'check_in';
 }
 
+/**
+ * How sure the model must be before its event-or-task answer is stored (lane
+ * E1). Below it the title heuristic decides, as it always has. Set by the
+ * labelled eval (`scripts/run-item-kind-eval.ts`, report in
+ * `evaluation-reports/item-kind-eval.json`): on 60 captures in Arabic,
+ * English and Hebrew, gemini-2.5-flash was right on 93% against the title
+ * heuristic's 77%, and read no task as an event (2026-11-14, $0.08). The
+ * model only ever said 0.8, 0.9 or 1.0, so every floor up to 0.8 kept the
+ * same answers: 0.8 is its lowest observed confidence, not a measured cut.
+ * Its four misses were events read as tasks — two of them at 1.0 — which stay
+ * on Today as before lane E1. A floor of 0.9 for "event" alone would have
+ * added four such misses for no task saved; raise it if a larger suite shows
+ * a task read as an event.
+ */
+export const ITEM_KIND_MIN_CONFIDENCE = 0.8;
+
+/** The model's event-or-task answer, when it is sure enough to keep. */
+export function storedItemKind(result: ExtractionResult): 'event' | 'task' | null {
+  if (result.itemKind !== 'event' && result.itemKind !== 'task') return null;
+  return (result.itemKindConfidence ?? 0) >= ITEM_KIND_MIN_CONFIDENCE ? result.itemKind : null;
+}
+
+/**
+ * What capture stores (owner decision 2026-11-14, round-4 review of #841):
+ * the model's sure answer, or `unsure` when there is none — rules fallback,
+ * quota, an error, a low confidence. Without it the title heuristic decided,
+ * and hid tasks: «أذاكر من 3 لـ 5» has an end, "Exam prep" names an exam.
+ * Other paths store only a sure answer, so what they make keeps the heuristic.
+ */
+function itemKindFor(result: ExtractionResult, capture: boolean): 'event' | 'task' | 'unsure' | null {
+  return storedItemKind(result) ?? (capture ? 'unsure' : null);
+}
+
+export interface MapExtractionOptions {
+  /** Capture made this item, so an unsure model answer is stored as `unsure`. */
+  capture?: boolean;
+}
+
 /** `dueAt` plus the range the words gave, for a timed event; otherwise null. */
 export function endOfRange(result: ExtractionResult): string | null {
   const local = result.localTimeSpec;
@@ -40,6 +78,7 @@ export function mapExtractionToCommand(
   result: ExtractionResult,
   now: string = new Date().toISOString(),
   categoryPreferences: CommitmentCategoryPreferences = DEFAULT_CATEGORY_PREFERENCES,
+  options: MapExtractionOptions = {},
 ): Command[] {
   const disposition = decideExtractionDisposition(result);
   if (disposition === 'store_note') {
@@ -48,6 +87,7 @@ export function mapExtractionToCommand(
 
   const commitmentId = randomUUID();
   const title = result.title || result.action || result.rawText;
+  const itemKind = itemKindFor(result, options.capture === true);
   const commitment = {
     id: commitmentId,
     kind: kindFromExtraction(result),
@@ -81,6 +121,9 @@ export function mapExtractionToCommand(
       // no time to resolve there is no zone to record either, and 'UTC' is the
       // only honest label for a commitment that names no instant.
       timezone: result.localTimeSpec?.timezone || 'UTC',
+      // Event or task, when the model was sure (lane E1): it wins over the
+      // title heuristic wherever the product asks. `unsure` from capture.
+      ...(itemKind ? { itemKind } : {}),
     },
   };
 

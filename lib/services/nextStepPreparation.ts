@@ -35,7 +35,7 @@
  */
 import type { Commitment, DomainState } from '../../src/domain/stateMachine';
 import type { NextStepEvidenceContract, NextStepLocale } from '../../src/contracts/v1/nextStepContracts';
-import { mentionsPreparedEvent, namesEvent, namesPreparedEvent, withoutAttendance, wordsOf } from '../../src/extraction/lexicon/eventTitles';
+import { mentionsPreparedEvent, namesEvent, namesPreparedEvent, readsAsEvent, withoutAttendance, wordsOf } from '../../src/extraction/lexicon/eventTitles';
 
 export { mentionsPreparedEvent, namesEvent, namesPreparedEvent, wordsOf };
 
@@ -64,11 +64,12 @@ function startOf(commitment: Commitment): number | null {
  * A `scheduled_event` with an hour somebody chose, whose title names an event
  * (`namesEvent`): «امتحان رياضيات», «سهرة مع الصحاب», «موعد دكتور». A task
  * given an hour — «أحضّر الغداء الساعة 2», "send the report at 3pm" — is a
- * `scheduled_event` too, and stays an ordinary candidate.
+ * `scheduled_event` too, and stays an ordinary candidate. What capture's model
+ * said the item is (`timeSpec.itemKind`, lane E1) wins over the title.
  */
 export function isTimedFixedEvent(commitment: Commitment): boolean {
   return commitment.timeSpec.kind === 'scheduled_event' && !commitment.timeSpec.allDay && startOf(commitment) !== null
-    && namesEvent(commitment.title);
+    && readsAsEvent(commitment.timeSpec.itemKind, commitment.title);
 }
 
 /** Rule 1: a timed event more than `FIXED_EVENT_LEAD_MS` away is not a step yet. */

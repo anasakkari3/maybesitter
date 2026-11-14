@@ -385,9 +385,16 @@ export async function listIcsDeadlines(uid: string, deps: IcsFeedDeps = {}): Pro
     .map(deadlineView);
 }
 
+/**
+ * Pending items held back for a clash. One whose time is at or before now is
+ * not offered (audit CA11.1, lane E1): the question is moot once it has
+ * started, and the row itself is left as it is.
+ */
 export async function listHeldIcsItems(uid: string, deps: IcsFeedDeps = {}): Promise<Array<{ id: string; title: string; startsAt: string }>> {
   requireUserId(uid);
-  return (await readItems(uid, deps)).filter((row) => row.state === 'pending' && row.held?.reason === 'clash')
+  const nowMs = nowOf(deps).getTime();
+  return (await readItems(uid, deps)).filter((row) => row.state === 'pending' && row.held?.reason === 'clash'
+    && Date.parse(row.dueAt) > nowMs)
     .map((row) => ({ id: `${row.feedId}:${row.itemKey}`, title: row.title, startsAt: row.dueAt }))
     .sort((a, b) => a.startsAt.localeCompare(b.startsAt));
 }

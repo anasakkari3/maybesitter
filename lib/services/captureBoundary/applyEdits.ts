@@ -186,6 +186,12 @@ type CreateDraft = Extract<Command, { type: 'CreateDraft' }>;
  * drops any `ConfirmCommitment` that followed -- confirming a commitment with
  * nothing to remind anyone about is how a reminder silently never fires.
  */
+function asUnsure<T extends { itemKind?: unknown }>(timeSpec: T): T & { itemKind: 'unsure' };
+function asUnsure<T extends { itemKind?: unknown }>(timeSpec: T | undefined): (T & { itemKind: 'unsure' }) | undefined;
+function asUnsure<T extends { itemKind?: unknown }>(timeSpec: T | undefined): (T & { itemKind: 'unsure' }) | undefined {
+  return timeSpec ? { ...timeSpec, itemKind: 'unsure' as const } : timeSpec;
+}
+
 export function applyEditToCommands(commands: readonly Command[], edit: NormalisedEdit): Command[] {
   if (
     edit.title === undefined && edit.resolvedTime === undefined && edit.priority === undefined
@@ -199,10 +205,15 @@ export function applyEditToCommands(commands: readonly Command[], edit: Normalis
     const draft = command as CreateDraft;
     const commitment = draft.commitment;
 
+    // A new title is new words: the model's event-or-task answer was about
+    // the old ones (lane E1 review), so it goes. It is still an item capture
+    // made, so it is `unsure`: never hidden on a guess from the title (2026-11-14).
+    const retitled = edit.title !== undefined && edit.title !== commitment.title && !!commitment.timeSpec?.itemKind;
+    const keptSpec = retitled ? asUnsure(commitment.timeSpec) : commitment.timeSpec;
     const timeSpec = edit.resolvedTime === undefined
-      ? commitment.timeSpec
+      ? keptSpec
       : {
-        ...commitment.timeSpec,
+        ...keptSpec,
         // A new time for an «الساعة 5» item is still a time to be at (CL1, D2):
         // moving it must not quietly turn it into a deadline.
         kind: edit.resolvedTime === null

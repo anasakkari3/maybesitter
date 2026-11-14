@@ -180,6 +180,19 @@ export function namesEvent(title: string): boolean {
   return headedBy(title, EVENT_HEADS);
 }
 
+/**
+ * Event or task, with the model's stored answer first (lane E1, owner decision
+ * 2026-11-13): `itemKind` is what capture's model said the item is, and the
+ * title heuristic answers otherwise. `unsure` — capture asked and had no sure
+ * answer — reads the title too: it only stops the hiding (`isEventCommitment`),
+ * so an exam captured while the model was down still gets its prep step.
+ */
+export function readsAsEvent(itemKind: 'event' | 'task' | 'unsure' | null | undefined, title: string | null | undefined): boolean {
+  if (itemKind === 'event') return true;
+  if (itemKind === 'task') return false;
+  return namesEvent(title ?? '');
+}
+
 /** An event to prepare for: an exam, an interview, a presentation heads the title. */
 export function namesPreparedEvent(title: string): boolean {
   return headedBy(title, PREPARED_HEADS);

@@ -3,6 +3,7 @@ import type { DailyPlan } from '../../api/schemas/plan';
 import { dayKey } from '../../i18n/format';
 import { toViewModel } from '../commitments/model';
 import { planRows } from '../plan/lateDay';
+import { hasEventEnded } from '../commitments/eventEnded';
 
 export interface PlanPreviewItem {
   id: string;
@@ -33,6 +34,9 @@ export function planPreview(plan: DailyPlan | null | undefined, records: readonl
       seen.add(item.id);
       const status = toViewModel(item, plan.generatedAt).status;
       if (status === 'dropped') return [];
+      // An appointment that is over leaves the preview (lane E1); a task
+      // pinned to an hour stays on the plan after its slot.
+      if (now !== undefined && status === 'active' && hasEventEnded(toViewModel(item, now.toISOString()), now)) return [];
       const ended = now !== undefined && Date.parse(slot.endsAt) <= now.getTime();
       const state = status === 'done' ? 'done'
         : plan.status !== 'accepted' ? 'proposed'
