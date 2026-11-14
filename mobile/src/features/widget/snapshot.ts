@@ -193,8 +193,13 @@ export function buildSnapshot(input: SnapshotInput): WidgetSnapshot {
     : undefined;
   // …and only while it is still to do: a meeting already marked done is not
   // the next step either (lane E1 review 3).
-  if (step && LINKABLE_ID.test(step.commitmentId) && stepListed
-    && toViewModel(stepListed, nowIso).status === 'active' && !over(stepListed)) {
+  // "Not listed" means gone only once both lists have answered: while
+  // Upcoming is unknown (an error, or still loading) a step for later in the
+  // week is written as it was before lane E1 (review 4).
+  const listedOrUnknown = stepListed
+    ? toViewModel(stepListed, nowIso).status === 'active' && !over(stepListed)
+    : input.upcoming === undefined;
+  if (step && LINKABLE_ID.test(step.commitmentId) && listedOrUnknown) {
     const inToday = open.find((c) => c.id === step.commitmentId) ?? null;
     items.push(itemFor(inToday, step.commitmentId, step.title, true));
   }
