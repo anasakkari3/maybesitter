@@ -293,3 +293,11 @@ describe('buildSnapshot — a next step already done (E1 review 3)', () => {
     expect(snapshot.items.map((entry) => [entry.id, entry.isNextStep])).toEqual([['report', false]]);
   });
 });
+
+describe('buildSnapshot — Upcoming has not answered (E1 review 4)', () => {
+  it('writes a next step Today does not hold while Upcoming is unknown, as before lane E1', () => {
+    // Upcoming errored or is still loading: "not found" is not "gone".
+    const snapshot = buildSnapshot(input({ today: [commitment({ id: 'report' })], nextStep: { commitmentId: 'tomorrow', title: 'Prepare tomorrow' } }));
+    expect(snapshot.items.map((entry) => [entry.id, entry.isNextStep])).toEqual([['tomorrow', true], ['report', false]]);
+  });
+});
