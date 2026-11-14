@@ -23,8 +23,13 @@ function reminderTypeFromExtraction(result: ExtractionResult): ReminderType {
  * labelled eval (`scripts/run-item-kind-eval.ts`, report in
  * `evaluation-reports/item-kind-eval.json`): on 60 captures in Arabic,
  * English and Hebrew, gemini-2.5-flash was right on 93% against the title
- * heuristic's 77%, read no task as an event, and 0.8 was the highest floor
- * with the fewest mistakes (2026-11-14, $0.08).
+ * heuristic's 77%, and read no task as an event (2026-11-14, $0.08). The
+ * model only ever said 0.8, 0.9 or 1.0, so every floor up to 0.8 kept the
+ * same answers: 0.8 is its lowest observed confidence, not a measured cut.
+ * Its four misses were events read as tasks — two of them at 1.0 — which stay
+ * on Today as before lane E1. A floor of 0.9 for "event" alone would have
+ * added four such misses for no task saved; raise it if a larger suite shows
+ * a task read as an event.
  */
 export const ITEM_KIND_MIN_CONFIDENCE = 0.8;
 

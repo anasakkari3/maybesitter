@@ -226,6 +226,9 @@ test('a title edited on the review card drops the stored kind too', () => {
   const [edited] = applyEditToCommands([draft], { title: 'أشتري دوا للبيت' });
   assert.ok(edited && edited.type === 'CreateDraft');
   assert.equal('itemKind' in (edited.commitment.timeSpec ?? {}), false);
+  const [sameTitle] = applyEditToCommands([draft], { title: draft.commitment.title });
+  assert.ok(sameTitle && sameTitle.type === 'CreateDraft');
+  assert.equal(sameTitle.commitment.timeSpec?.itemKind, 'event');
   const [kept] = applyEditToCommands([draft], { priority: 'high' });
   assert.ok(kept && kept.type === 'CreateDraft');
   assert.equal(kept.commitment.timeSpec?.itemKind, 'event');

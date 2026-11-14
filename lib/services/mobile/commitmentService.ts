@@ -672,6 +672,17 @@ function stringField(value: unknown, field: string): string | undefined {
   return value;
 }
 
+/**
+ * A new title that drops the model's event-or-task answer (lane E1 review):
+ * that answer was about the old words. «اجتماع مع سامي» read as an event and
+ * retitled «أبعت ملخص الاجتماع لسامي» would otherwise leave Today an hour
+ * after its time, and a task read as an event is the mistake that loses work.
+ * `normalizeStoredTimeSpec` drops the `undefined`, and the title answers.
+ */
+function retitled(current: Commitment, input: PatchCommitmentInput): boolean {
+  return !!current.timeSpec.itemKind && typeof input.title === 'string' && input.title !== current.title;
+}
+
 export async function patchCommitment(
   id: string,
   input: PatchCommitmentInput,
@@ -690,7 +701,9 @@ export async function patchCommitment(
     // would put the key there (#415).
     ...categoryPatchFrom(input.category),
     ...locationTriggerPatchFrom(input.locationTrigger),
-    timeSpec: patchTimeSpec(current.timeSpec, input, now),
+    timeSpec: retitled(current, input)
+      ? { ...(patchTimeSpec(current.timeSpec, input, now) ?? {}), itemKind: undefined }
+      : patchTimeSpec(current.timeSpec, input, now),
   };
 
   const command: Command = {
