@@ -79,7 +79,8 @@ function at(timeSpec: Partial<TimeSpec>, title: string): Pick<Commitment, 'timeS
 
 test('the schema asks the model whether the item is an event or a task, and how sure it is', () => {
   const property = OLLAMA_EXTRACTION_SCHEMA.properties.itemKind;
-  assert.deepEqual([...property.enum], ['event', 'task', null]);
+  assert.deepEqual([...property.enum], ['event', 'task']);
+  assert.deepEqual([...property.type], ['string', 'null']);
   assert.equal(OLLAMA_EXTRACTION_SCHEMA.properties.itemKindConfidence.type, 'number');
   assert.ok((OLLAMA_EXTRACTION_SCHEMA.required as readonly string[]).includes('itemKind'));
 });

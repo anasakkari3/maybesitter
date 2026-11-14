@@ -54,6 +54,14 @@ export const timeSpecSchema = z.object({
   /** `dueAt` is a day's local midnight in `timezone`, and nobody chose the hour. */
   allDay: z.boolean(),
   timezone: z.string(),
+  /**
+   * Event or task, as capture's model read it (lane E1). Optional: only a
+   * commitment the model was sure about carries it, and the title heuristic
+   * answers for the rest. It wins over the title wherever the app asks. A
+   * kind this build does not know reads as none, never as an unparseable
+   * commitment: one such row would blank Today.
+   */
+  itemKind: z.enum(['event', 'task']).optional().catch(undefined),
 });
 
 /**

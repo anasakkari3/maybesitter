@@ -87,6 +87,13 @@ export interface TimeSpec {
   timezone: string;
   /** Plan-step windows keep their duration when their start moves. Legacy windows keep their deadline. */
   windowRule?: 'shift';
+  /**
+   * Event or task, as the model read it at capture (lane E1, owner decision
+   * 2026-11-13). Wins over the title heuristic wherever the product asks
+   * whether a `scheduled_event` is an appointment (`readsAsEvent`). Absent
+   * means nobody said, which every commitment stored before it meant.
+   */
+  itemKind?: 'event' | 'task';
 }
 
 /**
@@ -491,6 +498,7 @@ export function normalizeStoredTimeSpec(timeSpec?: Partial<TimeSpec>): TimeSpec 
     allDay: timeSpec?.allDay === true,
     timezone: timeSpec?.timezone || 'UTC',
     ...(timeSpec?.windowRule === 'shift' ? { windowRule: 'shift' as const } : {}),
+    ...(timeSpec?.itemKind === 'event' || timeSpec?.itemKind === 'task' ? { itemKind: timeSpec.itemKind } : {}),
   };
 }
 

@@ -17,6 +17,20 @@ function reminderTypeFromExtraction(result: ExtractionResult): ReminderType {
   return result.priority.level === 'high' ? 'due_soon' : 'check_in';
 }
 
+/**
+ * How sure the model must be before its event-or-task answer is stored (lane
+ * E1). Below it the title heuristic decides, as it always has. Set by the
+ * labelled eval (`scripts/run-item-kind-eval.ts`, report in
+ * `evaluation-reports/item-kind-eval.json`).
+ */
+export const ITEM_KIND_MIN_CONFIDENCE = 0.7;
+
+/** The model's event-or-task answer, when it is sure enough to keep. */
+export function storedItemKind(result: ExtractionResult): 'event' | 'task' | null {
+  if (result.itemKind !== 'event' && result.itemKind !== 'task') return null;
+  return (result.itemKindConfidence ?? 0) >= ITEM_KIND_MIN_CONFIDENCE ? result.itemKind : null;
+}
+
 /** `dueAt` plus the range the words gave, for a timed event; otherwise null. */
 export function endOfRange(result: ExtractionResult): string | null {
   const local = result.localTimeSpec;
@@ -81,6 +95,9 @@ export function mapExtractionToCommand(
       // no time to resolve there is no zone to record either, and 'UTC' is the
       // only honest label for a commitment that names no instant.
       timezone: result.localTimeSpec?.timezone || 'UTC',
+      // Event or task, when the model was sure (lane E1): it wins over the
+      // title heuristic wherever the product asks.
+      ...(storedItemKind(result) ? { itemKind: storedItemKind(result)! } : {}),
     },
   };
 

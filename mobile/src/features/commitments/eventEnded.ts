@@ -20,7 +20,7 @@
  *     an all-day one, when its day has ended in the zone it was named in;
  *   - put off («لسّا»), not before the time it was put off to.
  */
-import { namesEvent } from '../../../../src/extraction/lexicon/eventTitles';
+import { readsAsEvent } from '../../../../src/extraction/lexicon/eventTitles';
 import { dayKey } from '../../i18n/format';
 import { resolveTimeZone } from '../../i18n/timezone';
 import type { CommitmentView } from './model';
@@ -28,7 +28,7 @@ import type { CommitmentView } from './model';
 /** The server's `ASSUMED_EVENT_MINUTES`. */
 const ASSUMED_EVENT_MS = 60 * 60_000;
 
-type EventFields = Pick<CommitmentView, 'title' | 'timeKind' | 'dueAt' | 'remindAt' | 'endAt' | 'allDay' | 'postponedUntil' | 'timeZone'>;
+type EventFields = Pick<CommitmentView, 'title' | 'timeKind' | 'itemKind' | 'dueAt' | 'remindAt' | 'endAt' | 'allDay' | 'postponedUntil' | 'timeZone'>;
 
 const HOUR_MS = 60 * 60_000;
 
@@ -40,7 +40,11 @@ function parsed(value: string | null | undefined): number | null {
 
 export function isEventView(view: EventFields): boolean {
   if (view.timeKind !== 'scheduled_event') return false;
-  return view.allDay === true || !!view.endAt || namesEvent(view.title);
+  if (view.allDay === true) return true;
+  // The server's rule (`lib/services/commitments/eventEnded.ts`): what
+  // capture's model said wins over the end and the title (lane E1).
+  if (view.itemKind) return view.itemKind === 'event';
+  return !!view.endAt || readsAsEvent(undefined, view.title);
 }
 
 /**

@@ -535,6 +535,13 @@ export function validateExtractionResult(
   const category = isCommitmentCategory(raw['category']) ? raw['category'] : null;
   const categoryConfidence = category === null ? 0 : clamp(raw['categoryConfidence']);
 
+  // ── event or task (lane E1) ───────────────────────────────────────────
+  // Shape only, like the category: the floor is applied when the commitment
+  // is built (`mapExtractionToCommand`). An invented kind takes its
+  // confidence with it.
+  const itemKind = raw['itemKind'] === 'event' || raw['itemKind'] === 'task' ? raw['itemKind'] : null;
+  const itemKindConfidence = itemKind === null ? 0 : clamp(raw['itemKindConfidence']);
+
   // ── time ──────────────────────────────────────────────────────────────
   // Deterministic, and after everything else: the model's instant is an input
   // here, not the answer (#162).
@@ -922,6 +929,7 @@ export function validateExtractionResult(
     flexibility,
     category,
     categoryConfidence,
+    ...(itemKind ? { itemKind, itemKindConfidence } : {}),
     confidence,
     missingFields,
     ambiguityFlags,

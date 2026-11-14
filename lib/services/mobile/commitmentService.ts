@@ -521,6 +521,8 @@ function patchTimeSpec(current: TimeSpec, input: PatchCommitmentInput, now: Date
     allDay,
     timezone: current.timezone,
     ...(current.windowRule === 'shift' ? { windowRule: 'shift' as const } : {}),
+    // What the item is does not change when it moves (lane E1).
+    ...(current.itemKind ? { itemKind: current.itemKind } : {}),
   } as Partial<TimeSpec>;
 }
 

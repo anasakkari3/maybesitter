@@ -73,6 +73,18 @@ export const OLLAMA_EXTRACTION_SCHEMA = {
       maximum: 1,
       description: 'How sure the category is. The app drops anything it is not sure enough about.',
     },
+    itemKind: {
+      type: ['string', 'null'],
+      enum: ['event', 'task'],
+      description:
+        'event when the person attends something at a time (a meeting, lecture, class, appointment, match, party); task when it is work they do, even at a set hour; null when there is no commitment.',
+    },
+    itemKindConfidence: {
+      type: 'number',
+      minimum: 0,
+      maximum: 1,
+      description: 'How sure itemKind is, from 0 to 1. 0 when itemKind is null.',
+    },
     confidence: {
       type: 'object',
       additionalProperties: false,
@@ -121,6 +133,8 @@ export const OLLAMA_EXTRACTION_SCHEMA = {
     'flexibility',
     'category',
     'categoryConfidence',
+    'itemKind',
+    'itemKindConfidence',
     'confidence',
     'missingFields',
     'ambiguityFlags',

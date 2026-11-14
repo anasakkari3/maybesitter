@@ -29,6 +29,11 @@
  *     phone's Today card already share): «اجتماع مع سامي الساعة 12», «موعد
  *     دكتور الساعة 9».
  *
+ * What capture's model said the item is (`timeSpec.itemKind`, owner decision
+ * 2026-11-13) wins over the end and the title: an all-day item stays an event
+ * (`isAllDayEventSpec` says so to every surface), and with no stored kind the
+ * end and the title answer as above.
+ *
  * `scheduled_event` alone is not enough, and that is deliberate. Capture
  * writes it for any stated clock time with no limit word (CL1,
  * `timeAnchorOf`): «أشتري دوا الساعة 5», "call Alice at 9am". Those are tasks
@@ -63,7 +68,7 @@
  * imports this.
  */
 import type { Commitment } from '../../../src/domain/stateMachine';
-import { namesEvent } from '../../../src/extraction/lexicon/eventTitles';
+import { readsAsEvent } from '../../../src/extraction/lexicon/eventTitles';
 import { addLocalDays } from '../mobile/time';
 
 /** How long an event with a start and no end is taken to last. */
@@ -77,7 +82,11 @@ type EventShape = Pick<Commitment, 'timeSpec' | 'title'> & { readonly postponedU
 export function isEventCommitment(commitment: Pick<Commitment, 'timeSpec' | 'title'>): boolean {
   const { timeSpec } = commitment;
   if (timeSpec.kind !== 'scheduled_event') return false;
-  return timeSpec.allDay || !!timeSpec.endAt || namesEvent(commitment.title ?? '');
+  if (timeSpec.allDay) return true;
+  // The model's answer wins over the end and the title (lane E1): «أشتغل على
+  // التقرير من 10 لـ 12» is a work block with an end, not a meeting.
+  if (timeSpec.itemKind) return timeSpec.itemKind === 'event';
+  return !!timeSpec.endAt || readsAsEvent(undefined, commitment.title);
 }
 
 function parsed(value: string | null | undefined): number | null {
