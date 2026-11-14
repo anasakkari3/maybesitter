@@ -87,6 +87,7 @@ export function mapExtractionToCommand(
 
   const commitmentId = randomUUID();
   const title = result.title || result.action || result.rawText;
+  const itemKind = itemKindFor(result, options.capture === true);
   const commitment = {
     id: commitmentId,
     kind: kindFromExtraction(result),
@@ -122,7 +123,7 @@ export function mapExtractionToCommand(
       timezone: result.localTimeSpec?.timezone || 'UTC',
       // Event or task, when the model was sure (lane E1): it wins over the
       // title heuristic wherever the product asks. `unsure` from capture.
-      ...(itemKindFor(result, options.capture === true) ? { itemKind: itemKindFor(result, options.capture === true)! } : {}),
+      ...(itemKind ? { itemKind } : {}),
     },
   };
 
