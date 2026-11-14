@@ -12,15 +12,17 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import type { Commitment, TimeSpec } from '../../src/domain/stateMachine.ts';
-import { normalizeStoredTimeSpec } from '../../src/domain/stateMachine.ts';
+import type { Command, Commitment, TimeSpec } from '../../src/domain/stateMachine.ts';
+import { createEmptyDomainState, normalizeStoredTimeSpec } from '../../src/domain/stateMachine.ts';
+import { applyCommand, configureCommandService } from '../../lib/services/commandService.ts';
+import { applyEditToCommands } from '../../lib/services/captureBoundary/applyEdits.ts';
 import { validateExtractionResult } from '../../src/extraction/schemaValidator.ts';
 import { mapExtractionToCommand, ITEM_KIND_MIN_CONFIDENCE } from '../../src/extraction/mapExtractionToCommand.ts';
 import { OLLAMA_EXTRACTION_SCHEMA } from '../../src/extraction/ollamaExtractionSchema.ts';
 import { readsAsEvent } from '../../src/extraction/lexicon/eventTitles.ts';
 import { hasEventEnded, isEventCommitment } from '../../lib/services/commitments/eventEnded.ts';
 import { isTimedFixedEvent } from '../../lib/services/nextStepPreparation.ts';
-import { patchTimeSpecForTest } from '../../lib/services/mobile/commitmentService.ts';
+import { patchCommitment, patchTimeSpecForTest } from '../../lib/services/mobile/commitmentService.ts';
 
 const TZ = 'Asia/Jerusalem';
 const NOW = new Date('2026-11-12T13:00:00.000Z');
@@ -177,4 +179,54 @@ test('the next step reads the stored kind too', () => {
   assert.equal(isTimedFixedEvent(asCommitment({ itemKind: 'task' }, 'اجتماع مع سامي')), false);
   assert.equal(isTimedFixedEvent(asCommitment({ itemKind: 'event' }, 'محمد عند الحلاق')), true);
   assert.equal(isTimedFixedEvent(asCommitment({}, 'اجتماع مع سامي')), true);
+});
+
+// ── a new title is new words: the model's answer was about the old ones ──
+//
+// Review of the classification (2026-11-14): «اجتماع مع سامي» read as an event,
+// retitled «أبعت ملخص الاجتماع لسامي», would still leave Today an hour after
+// its time. A task read as an event is the one mistake that loses work, so a
+// retitle drops the stored kind and the title heuristic answers again.
+
+const RETITLE_ID = 'cmt_item_kind_retitle';
+
+function seedEvent(): void {
+  configureCommandService({ initialState: createEmptyDomainState(), schedulerStore: null });
+  applyCommand({
+    type: 'CreateDraft',
+    now: '2026-11-10T08:00:00.000Z',
+    commitment: {
+      id: RETITLE_ID,
+      kind: 'task',
+      title: 'اجتماع مع سامي',
+      priority: { level: 'normal', source: 'default', pressureAllowed: false, pressureLevel: 'none' },
+      timeSpec: { kind: 'scheduled_event', dueAt: '2026-11-13T10:00:00.000Z', remindAt: null, timezone: TZ, itemKind: 'event' },
+    },
+    draftStatus: 'pending_confirmation',
+  } as Command);
+  applyCommand({ type: 'ConfirmCommitment', commitmentId: RETITLE_ID, now: '2026-11-10T08:01:00.000Z' } as Command);
+}
+
+test('a retitled commitment drops the stored kind, and the new title answers', async () => {
+  seedEvent();
+  const patched = await patchCommitment(RETITLE_ID, { title: 'أبعت ملخص الاجتماع لسامي' }, NOW);
+  assert.equal('itemKind' in patched.timeSpec, false);
+  assert.equal(isEventCommitment(patched), false);
+});
+
+test('a patch that keeps the title keeps the stored kind', async () => {
+  seedEvent();
+  const same = await patchCommitment(RETITLE_ID, { title: 'اجتماع مع سامي', dueDate: '2026-11-14T10:00:00.000Z' }, NOW);
+  assert.equal(same.timeSpec.itemKind, 'event');
+});
+
+test('a title edited on the review card drops the stored kind too', () => {
+  const [draft] = mapExtractionToCommand(modelSaid({ itemKind: 'event', itemKindConfidence: 0.95 }), context.now.toISOString());
+  assert.ok(draft && draft.type === 'CreateDraft');
+  const [edited] = applyEditToCommands([draft], { title: 'أشتري دوا للبيت' });
+  assert.ok(edited && edited.type === 'CreateDraft');
+  assert.equal('itemKind' in (edited.commitment.timeSpec ?? {}), false);
+  const [kept] = applyEditToCommands([draft], { priority: 'high' });
+  assert.ok(kept && kept.type === 'CreateDraft');
+  assert.equal(kept.commitment.timeSpec?.itemKind, 'event');
 });
