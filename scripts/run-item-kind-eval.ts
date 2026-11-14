@@ -16,8 +16,9 @@
  * error wins (the higher floor on a tie). Floor 1.01 — the model never
  * decides — is the baseline the report compares against.
  *
- * The suite is synthetic: no user's words. The calls go straight to Vertex,
- * not through a user's consent, quota or ledger, and stop at `--cap-usd`.
+ * The suite is synthetic: no user's words. The calls go through the consent
+ * gate as a synthetic identity, never a user's consent, quota or ledger, and
+ * stop at `--cap-usd`. Needs MAYBESITTER_LLM_PROVIDER=gemini.
  *
  *   node --loader ./scripts/ts-resolver.mjs scripts/run-item-kind-eval.ts \
  *     [--limit N] [--cap-usd 0.20] [--report evaluation-reports/item-kind-eval.json]
@@ -27,7 +28,8 @@ import { buildPrompt } from '../src/extraction/ollamaExtractor';
 import { GEMINI_EXTRACTION_SCHEMA } from '../src/extraction/ollamaExtractionSchema';
 import { validateExtractionResult } from '../src/extraction/schemaValidator';
 import { namesEvent } from '../src/extraction/lexicon/eventTitles';
-import { createGeminiProvider } from '../src/extraction/llm/geminiProvider';
+import { configuredProviderName } from '../src/extraction/llm';
+import { consentGatedProvider } from '../lib/llm/consentGatedProvider';
 import { splitPrompt } from '../lib/llm/captureProvider';
 
 /** Vertex list price for gemini-2.5-flash, USD per million tokens (thinking is off). */
@@ -51,7 +53,14 @@ async function main(): Promise<void> {
   const cases: Case[] = readFileSync('evaluation-data/item-kind-suite.jsonl', 'utf8')
     .split('\n').filter((line) => line.trim()).map((line) => JSON.parse(line) as Case).slice(0, limit);
 
-  const provider = createGeminiProvider();
+  if (configuredProviderName() !== 'gemini') {
+    throw new Error('The eval needs MAYBESITTER_LLM_PROVIDER=gemini and configured Vertex credentials.');
+  }
+  // Through the consent gate like every caller (tests/llm/providerBoundary),
+  // with consent granted only to this synthetic identity: no user's consent
+  // is read or manufactured.
+  const uid = 'item-kind-eval';
+  const provider = consentGatedProvider(uid, { consent: async (asked) => (asked === uid ? 'granted' as const : 'declined' as const) });
   const now = new Date('2026-11-14T08:00:00.000Z');
   const context = { now, timezone: 'Asia/Jerusalem' };
   let spentUsd = 0;
@@ -68,7 +77,7 @@ async function main(): Promise<void> {
     const { system, user } = splitPrompt(buildPrompt(item.text, context));
     try {
       const response = await provider.generateJson({
-        system, user, responseSchema: GEMINI_EXTRACTION_SCHEMA, purpose: 'capture_extraction', uid: 'item-kind-eval',
+        system, user, responseSchema: GEMINI_EXTRACTION_SCHEMA, purpose: 'capture_extraction', uid,
       });
       promptTokens += response.promptTokens;
       outputTokens += response.outputTokens;
