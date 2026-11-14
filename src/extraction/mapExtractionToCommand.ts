@@ -21,9 +21,12 @@ function reminderTypeFromExtraction(result: ExtractionResult): ReminderType {
  * How sure the model must be before its event-or-task answer is stored (lane
  * E1). Below it the title heuristic decides, as it always has. Set by the
  * labelled eval (`scripts/run-item-kind-eval.ts`, report in
- * `evaluation-reports/item-kind-eval.json`).
+ * `evaluation-reports/item-kind-eval.json`): on 60 captures in Arabic,
+ * English and Hebrew, gemini-2.5-flash was right on 93% against the title
+ * heuristic's 77%, read no task as an event, and 0.8 was the highest floor
+ * with the fewest mistakes (2026-11-14, $0.08).
  */
-export const ITEM_KIND_MIN_CONFIDENCE = 0.7;
+export const ITEM_KIND_MIN_CONFIDENCE = 0.8;
 
 /** The model's event-or-task answer, when it is sure enough to keep. */
 export function storedItemKind(result: ExtractionResult): 'event' | 'task' | null {

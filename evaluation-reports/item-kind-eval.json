@@ -1,0 +1,514 @@
+{
+  "createdAt": "2026-11-14T17:13:43.860Z",
+  "model": "gemini-2.5-flash",
+  "cases": 60,
+  "errors": 0,
+  "spentUsd": 0.0844,
+  "promptTokens": 189035,
+  "outputTokens": 11059,
+  "taskAsEventWeight": 3,
+  "modelAccuracy": 0.933,
+  "fallbackAccuracy": 0.767,
+  "floors": [
+    {
+      "floor": 0.5,
+      "byModel": 60,
+      "taskAsEvent": 0,
+      "eventAsTask": 4,
+      "weighted": 4
+    },
+    {
+      "floor": 0.55,
+      "byModel": 60,
+      "taskAsEvent": 0,
+      "eventAsTask": 4,
+      "weighted": 4
+    },
+    {
+      "floor": 0.6,
+      "byModel": 60,
+      "taskAsEvent": 0,
+      "eventAsTask": 4,
+      "weighted": 4
+    },
+    {
+      "floor": 0.65,
+      "byModel": 60,
+      "taskAsEvent": 0,
+      "eventAsTask": 4,
+      "weighted": 4
+    },
+    {
+      "floor": 0.7,
+      "byModel": 60,
+      "taskAsEvent": 0,
+      "eventAsTask": 4,
+      "weighted": 4
+    },
+    {
+      "floor": 0.75,
+      "byModel": 60,
+      "taskAsEvent": 0,
+      "eventAsTask": 4,
+      "weighted": 4
+    },
+    {
+      "floor": 0.8,
+      "byModel": 60,
+      "taskAsEvent": 0,
+      "eventAsTask": 4,
+      "weighted": 4
+    },
+    {
+      "floor": 0.85,
+      "byModel": 54,
+      "taskAsEvent": 0,
+      "eventAsTask": 8,
+      "weighted": 8
+    },
+    {
+      "floor": 0.9,
+      "byModel": 54,
+      "taskAsEvent": 0,
+      "eventAsTask": 8,
+      "weighted": 8
+    },
+    {
+      "floor": 0.95,
+      "byModel": 51,
+      "taskAsEvent": 0,
+      "eventAsTask": 9,
+      "weighted": 9
+    },
+    {
+      "floor": 1.01,
+      "byModel": 0,
+      "taskAsEvent": 0,
+      "eventAsTask": 14,
+      "weighted": 14
+    }
+  ],
+  "chosenFloor": 0.8,
+  "reads": [
+    {
+      "id": "ar-01",
+      "label": "event",
+      "itemKind": "event",
+      "confidence": 1,
+      "fallback": "event"
+    },
+    {
+      "id": "ar-02",
+      "label": "event",
+      "itemKind": "event",
+      "confidence": 1,
+      "fallback": "task"
+    },
+    {
+      "id": "ar-03",
+      "label": "event",
+      "itemKind": "event",
+      "confidence": 1,
+      "fallback": "event"
+    },
+    {
+      "id": "ar-04",
+      "label": "event",
+      "itemKind": "event",
+      "confidence": 1,
+      "fallback": "task"
+    },
+    {
+      "id": "ar-05",
+      "label": "event",
+      "itemKind": "event",
+      "confidence": 1,
+      "fallback": "event"
+    },
+    {
+      "id": "ar-06",
+      "label": "event",
+      "itemKind": "event",
+      "confidence": 1,
+      "fallback": "event"
+    },
+    {
+      "id": "ar-07",
+      "label": "event",
+      "itemKind": "event",
+      "confidence": 1,
+      "fallback": "event"
+    },
+    {
+      "id": "ar-08",
+      "label": "event",
+      "itemKind": "event",
+      "confidence": 1,
+      "fallback": "event"
+    },
+    {
+      "id": "ar-09",
+      "label": "event",
+      "itemKind": "task",
+      "confidence": 0.8,
+      "fallback": "task"
+    },
+    {
+      "id": "ar-10",
+      "label": "event",
+      "itemKind": "event",
+      "confidence": 1,
+      "fallback": "event"
+    },
+    {
+      "id": "ar-11",
+      "label": "event",
+      "itemKind": "event",
+      "confidence": 0.8,
+      "fallback": "task"
+    },
+    {
+      "id": "ar-12",
+      "label": "event",
+      "itemKind": "event",
+      "confidence": 0.9,
+      "fallback": "event"
+    },
+    {
+      "id": "ar-13",
+      "label": "event",
+      "itemKind": "event",
+      "confidence": 1,
+      "fallback": "event"
+    },
+    {
+      "id": "ar-14",
+      "label": "event",
+      "itemKind": "event",
+      "confidence": 1,
+      "fallback": "event"
+    },
+    {
+      "id": "ar-15",
+      "label": "event",
+      "itemKind": "event",
+      "confidence": 0.8,
+      "fallback": "task"
+    },
+    {
+      "id": "ar-16",
+      "label": "event",
+      "itemKind": "event",
+      "confidence": 0.8,
+      "fallback": "task"
+    },
+    {
+      "id": "ar-17",
+      "label": "task",
+      "itemKind": "task",
+      "confidence": 1,
+      "fallback": "task"
+    },
+    {
+      "id": "ar-18",
+      "label": "task",
+      "itemKind": "task",
+      "confidence": 1,
+      "fallback": "task"
+    },
+    {
+      "id": "ar-19",
+      "label": "task",
+      "itemKind": "task",
+      "confidence": 1,
+      "fallback": "task"
+    },
+    {
+      "id": "ar-20",
+      "label": "task",
+      "itemKind": "task",
+      "confidence": 1,
+      "fallback": "task"
+    },
+    {
+      "id": "ar-21",
+      "label": "task",
+      "itemKind": "task",
+      "confidence": 0.9,
+      "fallback": "task"
+    },
+    {
+      "id": "ar-22",
+      "label": "task",
+      "itemKind": "task",
+      "confidence": 1,
+      "fallback": "task"
+    },
+    {
+      "id": "ar-23",
+      "label": "task",
+      "itemKind": "task",
+      "confidence": 1,
+      "fallback": "task"
+    },
+    {
+      "id": "ar-24",
+      "label": "task",
+      "itemKind": "task",
+      "confidence": 1,
+      "fallback": "task"
+    },
+    {
+      "id": "ar-25",
+      "label": "task",
+      "itemKind": "task",
+      "confidence": 1,
+      "fallback": "task"
+    },
+    {
+      "id": "ar-26",
+      "label": "task",
+      "itemKind": "task",
+      "confidence": 1,
+      "fallback": "task"
+    },
+    {
+      "id": "ar-27",
+      "label": "task",
+      "itemKind": "task",
+      "confidence": 1,
+      "fallback": "task"
+    },
+    {
+      "id": "ar-28",
+      "label": "task",
+      "itemKind": "task",
+      "confidence": 1,
+      "fallback": "task"
+    },
+    {
+      "id": "ar-29",
+      "label": "task",
+      "itemKind": "task",
+      "confidence": 1,
+      "fallback": "task"
+    },
+    {
+      "id": "ar-30",
+      "label": "task",
+      "itemKind": "task",
+      "confidence": 1,
+      "fallback": "task"
+    },
+    {
+      "id": "ar-31",
+      "label": "task",
+      "itemKind": "task",
+      "confidence": 1,
+      "fallback": "task"
+    },
+    {
+      "id": "ar-32",
+      "label": "task",
+      "itemKind": "task",
+      "confidence": 1,
+      "fallback": "task"
+    },
+    {
+      "id": "ar-33",
+      "label": "task",
+      "itemKind": "task",
+      "confidence": 1,
+      "fallback": "task"
+    },
+    {
+      "id": "ar-34",
+      "label": "task",
+      "itemKind": "task",
+      "confidence": 1,
+      "fallback": "task"
+    },
+    {
+      "id": "ar-35",
+      "label": "event",
+      "itemKind": "task",
+      "confidence": 1,
+      "fallback": "task"
+    },
+    {
+      "id": "ar-36",
+      "label": "event",
+      "itemKind": "task",
+      "confidence": 1,
+      "fallback": "task"
+    },
+    {
+      "id": "en-01",
+      "label": "event",
+      "itemKind": "event",
+      "confidence": 1,
+      "fallback": "event"
+    },
+    {
+      "id": "en-02",
+      "label": "event",
+      "itemKind": "event",
+      "confidence": 1,
+      "fallback": "event"
+    },
+    {
+      "id": "en-03",
+      "label": "event",
+      "itemKind": "event",
+      "confidence": 1,
+      "fallback": "event"
+    },
+    {
+      "id": "en-04",
+      "label": "event",
+      "itemKind": "event",
+      "confidence": 1,
+      "fallback": "task"
+    },
+    {
+      "id": "en-05",
+      "label": "event",
+      "itemKind": "event",
+      "confidence": 0.8,
+      "fallback": "task"
+    },
+    {
+      "id": "en-06",
+      "label": "event",
+      "itemKind": "event",
+      "confidence": 1,
+      "fallback": "task"
+    },
+    {
+      "id": "en-07",
+      "label": "event",
+      "itemKind": "task",
+      "confidence": 0.8,
+      "fallback": "task"
+    },
+    {
+      "id": "en-08",
+      "label": "task",
+      "itemKind": "task",
+      "confidence": 1,
+      "fallback": "task"
+    },
+    {
+      "id": "en-09",
+      "label": "task",
+      "itemKind": "task",
+      "confidence": 1,
+      "fallback": "task"
+    },
+    {
+      "id": "en-10",
+      "label": "task",
+      "itemKind": "task",
+      "confidence": 1,
+      "fallback": "task"
+    },
+    {
+      "id": "en-11",
+      "label": "task",
+      "itemKind": "task",
+      "confidence": 1,
+      "fallback": "task"
+    },
+    {
+      "id": "en-12",
+      "label": "task",
+      "itemKind": "task",
+      "confidence": 1,
+      "fallback": "task"
+    },
+    {
+      "id": "en-13",
+      "label": "task",
+      "itemKind": "task",
+      "confidence": 1,
+      "fallback": "task"
+    },
+    {
+      "id": "en-14",
+      "label": "task",
+      "itemKind": "task",
+      "confidence": 1,
+      "fallback": "task"
+    },
+    {
+      "id": "he-01",
+      "label": "event",
+      "itemKind": "event",
+      "confidence": 1,
+      "fallback": "event"
+    },
+    {
+      "id": "he-02",
+      "label": "event",
+      "itemKind": "event",
+      "confidence": 1,
+      "fallback": "event"
+    },
+    {
+      "id": "he-03",
+      "label": "event",
+      "itemKind": "event",
+      "confidence": 1,
+      "fallback": "task"
+    },
+    {
+      "id": "he-04",
+      "label": "event",
+      "itemKind": "event",
+      "confidence": 1,
+      "fallback": "event"
+    },
+    {
+      "id": "he-05",
+      "label": "event",
+      "itemKind": "event",
+      "confidence": 0.9,
+      "fallback": "task"
+    },
+    {
+      "id": "he-06",
+      "label": "task",
+      "itemKind": "task",
+      "confidence": 1,
+      "fallback": "task"
+    },
+    {
+      "id": "he-07",
+      "label": "task",
+      "itemKind": "task",
+      "confidence": 1,
+      "fallback": "task"
+    },
+    {
+      "id": "he-08",
+      "label": "task",
+      "itemKind": "task",
+      "confidence": 1,
+      "fallback": "task"
+    },
+    {
+      "id": "he-09",
+      "label": "task",
+      "itemKind": "task",
+      "confidence": 1,
+      "fallback": "task"
+    },
+    {
+      "id": "he-10",
+      "label": "task",
+      "itemKind": "task",
+      "confidence": 1,
+      "fallback": "task"
+    }
+  ]
+}
