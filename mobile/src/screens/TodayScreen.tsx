@@ -170,11 +170,12 @@ export function TodayScreen({ tabClearance = TAB_CLEARANCE }: { tabClearance?: n
   }, [nextEnd]);
   const listsLoaded = today.data !== undefined && (upcoming.data !== undefined || upcoming.isError);
   // What the fresh lists hold before the category chip filters the groups: a
-  // recommendation or a plan row is judged against these (lane E1).
+  // recommendation or a plan row is judged against these (lane E1). Unlike the
+  // groups, nothing here is drawn as a row, so it follows the clock: leaving
+  // `now` out stops the React Compiler from compiling this screen.
   const records = useMemo(
     () => [...(today.data?.items ?? []).map((c) => toViewModel(c, now)), ...upcomingViews],
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [today.data, upcomingViews],
+    [today.data, upcomingViews, now],
   );
 
   const model = useMemo(() => composeToday({
@@ -204,7 +205,7 @@ export function TodayScreen({ tabClearance = TAB_CLEARANCE }: { tabClearance?: n
 
   const visibleRecords = showBar ? filterByCategory(today.data?.items ?? [], chip) : today.data?.items ?? [];
   // The same clock Today is composed for (lane E1), or later: never earlier.
-  const preview = planPreview(plan.data, visibleRecords, new Date(Math.max(clockMs, Date.now())));
+  const preview = planPreview(plan.data, visibleRecords, new Date(Math.max(clockMs, Date.parse(now))));
   const previewIds = new Set(preview.map(item => item.id));
   const progress = dayProgress(visibleRecords, dayKey(new Date(), timezone), timezone);
   const futureRecords = showBar ? filterByCategory(upcoming.data?.items ?? [], chip) : upcoming.data?.items ?? [];
