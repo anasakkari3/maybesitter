@@ -1563,7 +1563,7 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
             ? { recurrenceHint: recurrenceHintOf(reading, options.timezone, resolvedTime !== null) }
             : {}),
         });
-        commandsByItemId.set(itemId, needsClarification ? [] : mapExtractionToCommand(reading, options.now.toISOString(), categoryPreferences));
+        commandsByItemId.set(itemId, needsClarification ? [] : mapExtractionToCommand(reading, options.now.toISOString(), categoryPreferences, { capture: true }));
         resultsByItemId.set(itemId, reading);
         sourceOrdinals.items[itemId] = sourceOrdinal(raw, segment, chatItems[index], index) + readings.indexOf(reading) / 100_000;
         const operationIndex = chatOperationIndex(chatItems[index]);
@@ -2025,6 +2025,8 @@ export async function confirmCapture(
     const completed = mapExtractionToCommand(
       manuallyCompleted(edit.title, edit.resolvedTime, edit.priority ?? item?.priority ?? 'normal'),
       now.toISOString(),
+      undefined,
+      { capture: true },
     );
     // A place reminder chosen for it in review travels with it (closure CL4).
     return edit.locationTrigger ? applyEditToCommands(completed, { locationTrigger: edit.locationTrigger }) : completed;

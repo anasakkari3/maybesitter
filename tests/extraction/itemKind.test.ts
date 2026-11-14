@@ -29,6 +29,7 @@ import { createMemoryStorage } from '../../lib/storage/memoryAdapter.ts';
 import { resetStorageForTests, setStorageForTests } from '../../lib/storage/index.ts';
 import { proposeMobileCapture, clarifyMobileCapture } from '../../lib/services/mobile/mobileCaptureService.ts';
 import { createStorageCaptureProposalStore } from '../../lib/services/captureBoundary/proposalStore.ts';
+import { buildStructuredCommitmentArtifacts } from '../../lib/services/captureBoundary/structuredEdit.ts';
 import { seedLiveAccount } from '../support/liveAccount.ts';
 
 const TZ = 'Asia/Jerusalem';
@@ -300,22 +301,28 @@ test('unsure survives the read path', () => {
   assert.equal(spec.itemKind, 'unsure');
 });
 
-test('an unsure item is never an event, whatever its title or end', () => {
-  assert.equal(readsAsEvent('unsure', 'اجتماع مع سامي'), false);
+test('an unsure item never leaves Today, whatever its title or end', () => {
   const prep = at({ itemKind: 'unsure' }, 'Exam prep');
   assert.equal(isEventCommitment(prep), false);
   assert.equal(hasEventEnded(prep, NOW), false);
   const block = at({ itemKind: 'unsure', endAt: '2026-11-12T09:00:00.000Z' }, 'أذاكر');
   assert.equal(isEventCommitment(block), false);
   assert.equal(hasEventEnded(block, NOW), false);
-  const asCommitment = at({ itemKind: 'unsure' }, 'اجتماع مع سامي') as unknown as Commitment;
-  assert.equal(isTimedFixedEvent(asCommitment), false);
+  assert.equal(isEventCommitment(at({ itemKind: 'unsure' }, 'اجتماع مع سامي')), false);
   // All-day stays an event, as for a stored task.
   assert.equal(isEventCommitment(at({ allDay: true, itemKind: 'unsure' }, 'Exam prep')), true);
 });
 
 test('outside capture, an unclassified reading still stores no kind', () => {
   assert.equal('itemKind' in storedSpec(modelSaid({})), false);
+});
+
+test('an unsure item still reads its title for the prep step, as before lane E1', () => {
+  // Only the hiding is withheld: an exam captured while the model was down
+  // still gets «what to do before it».
+  assert.equal(readsAsEvent('unsure', 'اجتماع مع سامي'), true);
+  assert.equal(readsAsEvent('unsure', 'أشتري دوا'), false);
+  assert.equal(isTimedFixedEvent(at({ itemKind: 'unsure' }, 'اجتماع مع سامي') as unknown as Commitment), true);
 });
 
 test('capture: a model reading with no kind stores unsure', async () => {
@@ -390,25 +397,41 @@ test('capture: an item finished by hand at confirm stores unsure', async () => {
   assert.equal(commitment?.timeSpec.itemKind, 'unsure');
 });
 
-test('capture: an answered question stores unsure when the model never classified it', async () => {
-  setStorageForTests(createMemoryStorage());
-  try {
-    const UID = 'ItemKindClarifyUser';
-    const ZONE = 'Asia/Jerusalem';
-    const AT = '2026-09-13T06:00:00.000Z';
-    await seedLiveAccount(UID);
-    const proposal = await proposeMobileCapture({ text: 'Remind me to call Dana', timezone: ZONE, referenceTime: AT }, { participantId: UID });
-    const item = proposal.items.find((candidate) => candidate.needsClarification && candidate.clarification);
-    assert.ok(item);
-    const question = item.clarification!;
-    const option = question.options.find((candidate) => candidate.value.localTime) ?? question.options[0]!;
-    await clarifyMobileCapture(
-      { proposalId: proposal.proposalId, itemId: item.itemId, questionId: question.questionId, optionId: option.optionId, timezone: ZONE, referenceTime: AT },
-      { participantId: UID },
-    );
-    const stored = await createStorageCaptureProposalStore().get(proposal.proposalId);
-    assert.equal(draftSpec(stored?.commandsByItemId.get(item.itemId)).itemKind, 'unsure');
-  } finally {
-    resetStorageForTests();
-  }
+for (const [answer, pick] of [
+  ['an hour', (value: { localTime?: string | null }) => !!value.localTime],
+  ['no specific time', (value: { localTime?: string | null; localDate?: string | null }) => !value.localTime && !value.localDate],
+] as const) {
+  test(`capture: a question answered with ${answer} stores unsure when the model never classified it`, async () => {
+    setStorageForTests(createMemoryStorage());
+    try {
+      const UID = 'ItemKindClarifyUser';
+      const ZONE = 'Asia/Jerusalem';
+      const AT = '2026-09-13T06:00:00.000Z';
+      await seedLiveAccount(UID);
+      const proposal = await proposeMobileCapture({ text: 'Remind me to call Dana', timezone: ZONE, referenceTime: AT }, { participantId: UID });
+      const item = proposal.items.find((candidate) => candidate.needsClarification && candidate.clarification);
+      assert.ok(item);
+      const question = item.clarification!;
+      const option = question.options.find((candidate) => pick(candidate.value));
+      assert.ok(option, `expected a "${answer}" option`);
+      await clarifyMobileCapture(
+        { proposalId: proposal.proposalId, itemId: item.itemId, questionId: question.questionId, optionId: option.optionId, timezone: ZONE, referenceTime: AT },
+        { participantId: UID },
+      );
+      const stored = await createStorageCaptureProposalStore().get(proposal.proposalId);
+      assert.equal(draftSpec(stored?.commandsByItemId.get(item.itemId)).itemKind, 'unsure');
+    } finally {
+      resetStorageForTests();
+    }
+  });
+}
+
+test('capture: a point promoted to a commitment on the review screen stores unsure', () => {
+  const { commands } = buildStructuredCommitmentArtifacts(
+    { commandsByItemId: new Map() } as never,
+    'item-1',
+    'Exam prep',
+    { at: '2026-11-20T15:00:00.000Z', zone: TZ },
+  );
+  assert.equal(draftSpec(commands).itemKind, 'unsure');
 });

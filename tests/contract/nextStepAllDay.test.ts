@@ -23,7 +23,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { clarifyMobileCapture, confirmMobileCapture, proposeMobileCapture } from '../../lib/services/mobile/mobileCaptureService.ts';
-import { getParticipantStateSnapshot } from '../../lib/services/mobile/participantState.ts';
+import { getParticipantStateSnapshot, persistParticipantState } from '../../lib/services/mobile/participantState.ts';
 import { createMemoryStorage } from '../../lib/storage/memoryAdapter.ts';
 import { resetStorageForTests, setStorageForTests } from '../../lib/storage/index.ts';
 import { seedLiveAccount } from '../support/liveAccount.ts';
@@ -248,6 +248,11 @@ test('M1: an all-day DEADLINE keeps its chips — «اليوم» at 10:05, «خ�
  * one when its day ends — and #383 is kept for tasks. Neither is completed:
  * leaving the lists changes no status (E2 is where the person says what came
  * of it).
+ *
+ * A timed one leaves only when capture's model called it an event: captured
+ * with no sure answer — the rules engine here — it is `unsure`, and stays like
+ * a task (owner decision 2026-11-14, round-4 review of #841). The test sees
+ * both: first as captured, then as the model would have stored it.
  */
 test('M4: a passed appointment leaves the lists at its end, an all-day one when its day ends — and neither is completed', async () => {
   await withMemoryStorage(async () => {
@@ -256,12 +261,20 @@ test('M4: a passed appointment leaves the lists at its end, an all-day one when 
     const state = await getParticipantStateSnapshot(UID);
     const doctor = byTitle(state, 'موعد دكتور');
     const meeting = byTitle(state, 'اجتماع');
-    assert.deepEqual([meeting.timeSpec.kind, meeting.timeSpec.allDay], ['scheduled_event', false]);
+    assert.deepEqual([meeting.timeSpec.kind, meeting.timeSpec.allDay, meeting.timeSpec.itemKind], ['scheduled_event', false, 'unsure']);
     const placement = async (id: string, at: Date) => {
       const today = (await listTodayRanked({ participantId: UID, now: at, timezone: TZ })).items.some((c) => c.id === id);
       const upcoming = (await listUpcomingRanked({ participantId: UID, now: at, timezone: TZ })).items.some((c) => c.id === id);
       return today ? 'today' : upcoming ? 'upcoming' : 'gone';
     };
+    // Unsure: its hour passing hides nothing, and Tuesday still has it (#383).
+    assert.equal(await placement(meeting.id, MONDAY_LATE), 'today');
+    assert.equal(await placement(meeting.id, TOMORROW), 'today');
+    // As the model stores it.
+    await persistParticipantState(UID, {
+      ...state,
+      commitments: { ...state.commitments, [meeting.id]: { ...meeting, timeSpec: { ...meeting.timeSpec, itemKind: 'event' } } },
+    });
     // Monday 10:05: both are today's.
     assert.deepEqual([await placement(doctor.id, NOW), await placement(meeting.id, NOW)], ['today', 'today']);
     // Monday 22:30: the meeting's hour is gone, the doctor's day is not.

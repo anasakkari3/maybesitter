@@ -677,7 +677,8 @@ function stringField(value: unknown, field: string): string | undefined {
  * that answer was about the old words. «اجتماع مع سامي» read as an event and
  * retitled «أبعت ملخص الاجتماع لسامي» would otherwise leave Today an hour
  * after its time, and a task read as an event is the mistake that loses work.
- * `normalizeStoredTimeSpec` drops the `undefined`, and the title answers.
+ * The item becomes `unsure`: capture made it, so it never leaves Today on a
+ * guess from the title (owner decision 2026-11-14).
  */
 function retitled(current: Commitment, input: PatchCommitmentInput): boolean {
   return !!current.timeSpec.itemKind && typeof input.title === 'string' && input.title !== current.title;
@@ -702,7 +703,7 @@ export async function patchCommitment(
     ...categoryPatchFrom(input.category),
     ...locationTriggerPatchFrom(input.locationTrigger),
     timeSpec: retitled(current, input)
-      ? { ...(patchTimeSpec(current.timeSpec, input, now) ?? {}), itemKind: undefined }
+      ? { ...(patchTimeSpec(current.timeSpec, input, now) ?? {}), itemKind: 'unsure' as const }
       : patchTimeSpec(current.timeSpec, input, now),
   };
 

@@ -39,6 +39,22 @@ export function storedItemKind(result: ExtractionResult): 'event' | 'task' | nul
   return (result.itemKindConfidence ?? 0) >= ITEM_KIND_MIN_CONFIDENCE ? result.itemKind : null;
 }
 
+/**
+ * What capture stores (owner decision 2026-11-14, round-4 review of #841):
+ * the model's sure answer, or `unsure` when there is none — rules fallback,
+ * quota, an error, a low confidence. Without it the title heuristic decided,
+ * and hid tasks: «أذاكر من 3 لـ 5» has an end, "Exam prep" names an exam.
+ * Other paths store only a sure answer, so what they make keeps the heuristic.
+ */
+function itemKindFor(result: ExtractionResult, capture: boolean): 'event' | 'task' | 'unsure' | null {
+  return storedItemKind(result) ?? (capture ? 'unsure' : null);
+}
+
+export interface MapExtractionOptions {
+  /** Capture made this item, so an unsure model answer is stored as `unsure`. */
+  capture?: boolean;
+}
+
 /** `dueAt` plus the range the words gave, for a timed event; otherwise null. */
 export function endOfRange(result: ExtractionResult): string | null {
   const local = result.localTimeSpec;
@@ -62,6 +78,7 @@ export function mapExtractionToCommand(
   result: ExtractionResult,
   now: string = new Date().toISOString(),
   categoryPreferences: CommitmentCategoryPreferences = DEFAULT_CATEGORY_PREFERENCES,
+  options: MapExtractionOptions = {},
 ): Command[] {
   const disposition = decideExtractionDisposition(result);
   if (disposition === 'store_note') {
@@ -104,8 +121,8 @@ export function mapExtractionToCommand(
       // only honest label for a commitment that names no instant.
       timezone: result.localTimeSpec?.timezone || 'UTC',
       // Event or task, when the model was sure (lane E1): it wins over the
-      // title heuristic wherever the product asks.
-      ...(storedItemKind(result) ? { itemKind: storedItemKind(result)! } : {}),
+      // title heuristic wherever the product asks. `unsure` from capture.
+      ...(itemKindFor(result, options.capture === true) ? { itemKind: itemKindFor(result, options.capture === true)! } : {}),
     },
   };
 

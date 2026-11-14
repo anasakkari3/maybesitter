@@ -154,7 +154,7 @@ function itemCommands(stored: StoredCaptureProposal, itemId: string, result: Ext
   let commands = stored.commandsByItemId.get(itemId) ?? [];
   const normal = { title, ...(at !== undefined ? { resolvedTime: at } : {}) };
   if (commands.length > 0) commands = applyEditToCommands(commands, normal);
-  else commands = pending(mapExtractionToCommand(result));
+  else commands = pending(mapExtractionToCommand(result, undefined, undefined, { capture: true }));
   if (zone) {
     commands = commands.map((command) => command.type === 'CreateDraft'
       ? { ...command, commitment: { ...command.commitment, timeSpec: { ...command.commitment.timeSpec, timezone: zone } } }

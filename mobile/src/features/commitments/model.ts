@@ -49,8 +49,8 @@ export interface CommitmentView {
    * Optional so a view built by hand occupies nothing.
    */
   timeKind?: string;
-  /** What capture's model said the item is (`TimeSpec.itemKind`, lane E1); absent when nobody said. */
-  itemKind?: 'event' | 'task';
+  /** What capture's model said the item is (`TimeSpec.itemKind`, lane E1): `unsure` never leaves Today; absent when nobody was asked. */
+  itemKind?: 'event' | 'task' | 'unsure';
   dueAt?: string | null;
   remindAt?: string | null;
   endAt?: string | null;

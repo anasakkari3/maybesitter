@@ -55,13 +55,14 @@ export const timeSpecSchema = z.object({
   allDay: z.boolean(),
   timezone: z.string(),
   /**
-   * Event or task, as capture's model read it (lane E1). Optional: only a
-   * commitment the model was sure about carries it, and the title heuristic
-   * answers for the rest. It wins over the title wherever the app asks. A
+   * Event or task, as capture's model read it (lane E1). `unsure` is an item
+   * capture made without a sure answer, and never leaves Today (2026-11-14).
+   * Absent on what nothing classified, where the title heuristic answers.
+   * It wins over the title wherever the app asks. A
    * kind this build does not know reads as none, never as an unparseable
    * commitment: one such row would blank Today.
    */
-  itemKind: z.enum(['event', 'task']).optional().catch(undefined),
+  itemKind: z.enum(['event', 'task', 'unsure']).optional().catch(undefined),
 });
 
 /**

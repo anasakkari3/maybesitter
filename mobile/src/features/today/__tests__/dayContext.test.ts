@@ -121,7 +121,9 @@ describe('an appointment that is over leaves the preview (E1 review 2)', () => {
   const meetingSlot = { itemId: 'meeting', title: 'meeting', startsAt: '2026-09-23T07:00:00Z', endsAt: '2026-09-23T08:00:00Z', blockId: null };
   const medicineSlot = { itemId: 'medicine', title: 'medicine', startsAt: '2026-09-23T07:00:00Z', endsAt: '2026-09-23T07:30:00Z', blockId: null };
   const p: DailyPlan = { ...plan(), scheduled: [], fixed: [meetingSlot, medicineSlot] };
-  const meeting = item('meeting', { title: 'اجتماع مع سامي', timeSpec: { ...seed.timeSpec, kind: 'scheduled_event', dueAt: '2026-09-23T07:00:00.000Z', endAt: '2026-09-23T08:00:00.000Z', allDay: false } });
+  // No stored kind, as before capture-v7: the end and the title answer. The
+  // fixture is a capture, so it carries `unsure`, which never leaves.
+  const meeting = item('meeting', { title: 'اجتماع مع سامي', timeSpec: { ...seed.timeSpec, kind: 'scheduled_event', dueAt: '2026-09-23T07:00:00.000Z', endAt: '2026-09-23T08:00:00.000Z', allDay: false, itemKind: undefined } });
   const medicine = item('medicine', { title: 'أشتري دوا', timeSpec: { ...seed.timeSpec, kind: 'scheduled_event', dueAt: '2026-09-23T07:00:00.000Z', endAt: null, allDay: false } });
 
   it('is on the preview while it runs and gone once it has ended; a task given an hour stays', () => {

@@ -31,8 +31,11 @@
  *
  * What capture's model said the item is (`timeSpec.itemKind`, owner decision
  * 2026-11-13) wins over the end and the title: an all-day item stays an event
- * (`isAllDayEventSpec` says so to every surface), and with no stored kind the
- * end and the title answer as above.
+ * (`isAllDayEventSpec` says so to every surface), `unsure` is never an event
+ * here — it never leaves Today on a guess (owner decision 2026-11-14) — and
+ * with no stored kind — a commitment from
+ * before capture-v7, or one another path made — the end and the title answer
+ * as above.
  *
  * `scheduled_event` alone is not enough, and that is deliberate. Capture
  * writes it for any stated clock time with no limit word (CL1,

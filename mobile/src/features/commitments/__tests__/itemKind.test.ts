@@ -77,13 +77,14 @@ describe('itemKind', () => {
 
   // Owner decision 2026-11-14 (option 2): an item capture made without a sure
   // answer from the model is `unsure`, and is never hidden as a past event.
-  it('an unsure item survives the schema and is never an event, whatever its title or end', () => {
+  it('an unsure item survives the schema and never leaves Today, whatever its title or end', () => {
     const meeting = commitmentSchema.parse(commitment('اجتماع مع سامي', { itemKind: 'unsure' }));
     expect(meeting.timeSpec.itemKind).toBe('unsure');
     const v = view(meeting);
     expect(isEventView(v)).toBe(false);
     expect(hasEventEnded(v, NOW)).toBe(false);
-    expect(v.timedEvent).toBe(false);
+    // Only the hiding is withheld: the title still reads as a timed event.
+    expect(v.timedEvent).toBe(true);
     const block = view(commitment('أذاكر', { endAt: '2026-11-12T09:00:00.000Z', itemKind: 'unsure' }));
     expect(isEventView(block)).toBe(false);
   });

@@ -90,10 +90,15 @@ export interface TimeSpec {
   /**
    * Event or task, as the model read it at capture (lane E1, owner decision
    * 2026-11-13). Wins over the title heuristic wherever the product asks
-   * whether a `scheduled_event` is an appointment (`readsAsEvent`). Absent
-   * means nobody said, which every commitment stored before it meant.
+   * whether a `scheduled_event` is an appointment (`readsAsEvent`).
+   * `unsure` is an item capture made without a sure answer from the model
+   * (rules fallback, quota, low confidence) or retitled since: never hidden as
+   * a past event, though its title still asks for a prep step (owner decision
+   * 2026-11-14). Absent means
+   * nobody was asked — every commitment stored before capture-v7, and those
+   * other paths make (Gmail, fixtures) — and the title heuristic answers.
    */
-  itemKind?: 'event' | 'task';
+  itemKind?: 'event' | 'task' | 'unsure';
 }
 
 /**
@@ -498,7 +503,9 @@ export function normalizeStoredTimeSpec(timeSpec?: Partial<TimeSpec>): TimeSpec 
     allDay: timeSpec?.allDay === true,
     timezone: timeSpec?.timezone || 'UTC',
     ...(timeSpec?.windowRule === 'shift' ? { windowRule: 'shift' as const } : {}),
-    ...(timeSpec?.itemKind === 'event' || timeSpec?.itemKind === 'task' ? { itemKind: timeSpec.itemKind } : {}),
+    ...(timeSpec?.itemKind === 'event' || timeSpec?.itemKind === 'task' || timeSpec?.itemKind === 'unsure'
+      ? { itemKind: timeSpec.itemKind }
+      : {}),
   };
 }
 

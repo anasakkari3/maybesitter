@@ -186,12 +186,10 @@ type CreateDraft = Extract<Command, { type: 'CreateDraft' }>;
  * drops any `ConfirmCommitment` that followed -- confirming a commitment with
  * nothing to remind anyone about is how a reminder silently never fires.
  */
-function withoutItemKind<T extends { itemKind?: unknown }>(timeSpec: T): Omit<T, 'itemKind'>;
-function withoutItemKind<T extends { itemKind?: unknown }>(timeSpec: T | undefined): Omit<T, 'itemKind'> | undefined;
-function withoutItemKind<T extends { itemKind?: unknown }>(timeSpec: T | undefined): Omit<T, 'itemKind'> | undefined {
-  if (!timeSpec) return timeSpec;
-  const { itemKind: _dropped, ...rest } = timeSpec;
-  return rest;
+function asUnsure<T extends { itemKind?: unknown }>(timeSpec: T): T & { itemKind: 'unsure' };
+function asUnsure<T extends { itemKind?: unknown }>(timeSpec: T | undefined): (T & { itemKind: 'unsure' }) | undefined;
+function asUnsure<T extends { itemKind?: unknown }>(timeSpec: T | undefined): (T & { itemKind: 'unsure' }) | undefined {
+  return timeSpec ? { ...timeSpec, itemKind: 'unsure' as const } : timeSpec;
 }
 
 export function applyEditToCommands(commands: readonly Command[], edit: NormalisedEdit): Command[] {
@@ -208,9 +206,10 @@ export function applyEditToCommands(commands: readonly Command[], edit: Normalis
     const commitment = draft.commitment;
 
     // A new title is new words: the model's event-or-task answer was about
-    // the old ones (lane E1 review), so it goes and the title answers.
+    // the old ones (lane E1 review), so it goes. It is still an item capture
+    // made, so it is `unsure`: never hidden on a guess from the title (2026-11-14).
     const retitled = edit.title !== undefined && edit.title !== commitment.title && !!commitment.timeSpec?.itemKind;
-    const keptSpec = retitled ? withoutItemKind(commitment.timeSpec) : commitment.timeSpec;
+    const keptSpec = retitled ? asUnsure(commitment.timeSpec) : commitment.timeSpec;
     const timeSpec = edit.resolvedTime === undefined
       ? keptSpec
       : {
