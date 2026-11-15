@@ -29,7 +29,7 @@ import { busyAt } from '../features/calendar/conflicts';
 import type { DeviceBusyBlock } from '../features/calendar/busyBlocks';
 import { TodayPlanRow } from '../features/plan/TodayPlanRow';
 import { drawnAt, drawnClockAt, drawnWhenLine, dueAsideText, laterWhen, placeView, savedPlacements } from '../features/plan/savedPlacement';
-import { composeToday, type Primary } from '../features/today/composeToday';
+import { composeToday, isPostponedAway, type Primary } from '../features/today/composeToday';
 import { nextEventEndAfter } from '../features/commitments/eventEnded';
 import { Btn, SaidWords, Txt } from '../ui/primitives';
 import { AvatarButton, SectionLabel, Tag, TextLink, priorityTagKind } from '../ui/chrome';
@@ -746,6 +746,7 @@ function Row({ item, timezone, lang, busy, football }: {
   const line = drawnWhenLine(item, lang, timezone);
   const when = line?.text ?? t.noTimeYet;
   const aside = dueAsideText(item, t.plannedDueAside, lang, timezone);
+  const returnWhen = postponedReturnLine(item, t, lang, timezone, Date.now());
   const ink = importanceInk(item.importance, p);
 
   return (
@@ -756,7 +757,7 @@ function Row({ item, timezone, lang, busy, football }: {
         onAccessibilityAction={(event) => {
           rowActions.find((action) => action.name === event.nativeEvent.actionName)?.run();
         }}
-        label={`${rowAccessibilityLabel(item, t, line?.text ?? null)}${aside ? `, ${aside}` : ''}${football ? `, ${t.todayFootballMark}` : ''}`}
+        label={`${rowAccessibilityLabel(item, t, line?.text ?? null)}${aside ? `, ${aside}` : ''}${returnWhen ? `, ${returnWhen}` : ''}${football ? `, ${t.todayFootballMark}` : ''}`}
         onPress={() => actions.openDetail(item.id)}
         scaleTo={0.98}
         style={{
@@ -794,6 +795,7 @@ function Row({ item, timezone, lang, busy, football }: {
             <Tag kind={priorityTagKind(item.importance)} label={importanceLabel(item, t)} />
           </View>
           {aside ? <Txt size={13} color={p.mu} testID={`today-due-${item.id}`}>{aside}</Txt> : null}
+          {returnWhen ? <Txt size={13} color={p.mu} testID={`today-postponed-${item.id}`}>{returnWhen}</Txt> : null}
           {/* What else is happening then (UC-3.2, #186): a muted note, never a
               warning, never something that stops the row being opened. */}
           <BusyConflictChip blocks={drawn ? busyAt(drawn, busy) : []} testID={`today-busy-${item.id}`} />
@@ -801,6 +803,17 @@ function Row({ item, timezone, lang, busy, football }: {
       </Btn>
     </SwipeableRow>
   );
+}
+
+/**
+ * «بترجع اليوم · 12:00» for an item postponed to a later instant (CA2.1), or
+ * null once that instant has come: then it is simply back. The row keeps its
+ * deadline, so this is what tells the person their «مش هلّق» took.
+ */
+function postponedReturnLine(item: CommitmentView, t: ReturnType<typeof useApp>['t'], lang: Lang, timezone: string, nowMs: number): string | null {
+  if (!item.postponedUntil || !isPostponedAway(item, nowMs)) return null;
+  const back = new Date(item.postponedUntil);
+  return `${t.postponeReturn} ${formatRelativeDay(back, { locale: lang, timeZone: timezone })} · ${ltr(formatTime(back, { locale: lang, timeZone: timezone }))}`;
 }
 
 function LaterRow({ item, first, timezone, lang }: { item: CommitmentView; first: boolean; timezone: string; lang: Lang }) {
