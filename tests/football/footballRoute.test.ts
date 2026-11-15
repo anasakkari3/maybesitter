@@ -256,6 +256,35 @@ test('dismissing is remembered, not just applied', async () => {
   }
 });
 
+// ── QA audit CXA11.3: a stale «مش هاي» rewrote a completed match as dropped ──
+// The football screen still lists a match the person has since completed
+// elsewhere (Today, a notification). The stale dismiss must not turn that
+// completed outcome into `dropped`, and must not detach the ref either: the
+// match is over and done, there is nothing to dismiss.
+test('a stale dismiss on a match already completed elsewhere leaves it completed', async () => {
+  const teardown = setup();
+  try {
+    await upsertFixtures([fixture('1', at('2026-10-25T19:00:00.000Z'))]);
+    const put = await json(await PUT(authedRequest('PUT', { clubIds: ['barcelona'] })));
+    const [projected] = put.fixtures as { commitmentId: string }[];
+    assert.ok(projected, 'the follow should have projected a fixture');
+
+    await applyParticipantCommand(USER, { type: 'Complete', commitmentId: projected.commitmentId, now: new Date().toISOString() });
+
+    const res = await DELETE(dismissRequest(), dismissParams(projected.commitmentId));
+    assert.equal(res.status, 409);
+    const body = await json(res);
+    assert.equal(body.success, false);
+
+    const state = await readParticipantState(USER);
+    assert.equal(state.commitments[projected.commitmentId]!.status, 'completed');
+    const refs = await listRefs(USER);
+    assert.equal(refs[0]!.detachedAt ?? null, null, 'a refused dismiss must not detach the ref');
+  } finally {
+    teardown();
+  }
+});
+
 test('a user-typed commitment cannot be dismissed through this route', async () => {
   const teardown = setup();
   try {
