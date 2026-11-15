@@ -1494,7 +1494,7 @@
   "xHabitTodaySkipA11y": "לא היום: {title}",
   "xHabitTodayAnyDay": "זה לא אחד הימים שלו, אבל אם עשית את זה היום זה נספר לשבוע.",
   "xHabitWeekCount": "{completed} מתוך {target} השבוע",
-  "xHabitWeekDone": "הושלם לשבוע הזה",
+  "xHabitWeekDone": "השלמת את המכסה של השבוע",
   "xDeleteHabitBody": "הפעולה תמחק את ההרגל ואת כל המופעים שלו לצמיתות.",
   "xCommitments": "התחייבויות",
   "xSearch": "חיפוש התחייבויות",

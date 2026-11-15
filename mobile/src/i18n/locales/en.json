@@ -1491,7 +1491,7 @@
   "xHabitTodaySkipA11y": "Not today: {title}",
   "xHabitTodayAnyDay": "Not one of its days, but if you do it today it counts for the week.",
   "xHabitWeekCount": "{completed} of {target} this week",
-  "xHabitWeekDone": "Done for this week",
+  "xHabitWeekDone": "You've hit your count for this week",
   "xDeleteHabitBody": "This removes the habit and all of its occurrences for good.",
   "xCommitments": "Commitments",
   "xSearch": "Search commitments",

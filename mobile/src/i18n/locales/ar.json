@@ -1491,7 +1491,7 @@
   "xHabitTodaySkipA11y": "مش اليوم: {title}",
   "xHabitTodayAnyDay": "مش من أيامها، بس إذا عملتها اليوم بتنحسبلك من الأسبوع.",
   "xHabitWeekCount": "{completed} من {target} هالأسبوع",
-  "xHabitWeekDone": "خلصت لهالأسبوع",
+  "xHabitWeekDone": "خلّصت عدّك لهالأسبوع",
   "xDeleteHabitBody": "هاد بيمسح العادة وكل مرّاتها للأبد.",
   "xCommitments": "الالتزامات",
   "xSearch": "دوّر بالتزاماتك",

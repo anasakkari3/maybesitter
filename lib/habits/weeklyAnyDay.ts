@@ -45,7 +45,19 @@ export type AnyDayPlan =
    * deterministic id), `consume` the asked-for row it takes, or null when no
    * open one is left this week.
    */
-  | { readonly kind: 'any_day'; readonly tally: WeekTally; readonly row: HabitOccurrence; readonly consume: HabitOccurrence | null };
+  | {
+    readonly kind: 'any_day';
+    readonly tally: WeekTally;
+    readonly row: HabitOccurrence;
+    readonly consume: HabitOccurrence | null;
+    /**
+     * Every id in the week a completion could be stored at, for the write to
+     * re-count inside its transaction: the rows this read saw, plus the next
+     * free ordinal on each day — where another device's off-day row would land,
+     * since it is minted by this same rule from the same or an older read.
+     */
+    readonly weekIds: readonly string[];
+  };
 
 /** `[Monday, Sunday]` of the week holding `localDate`. */
 export function weekOf(localDate: string): { fromLocalDate: string; toLocalDate: string } {
@@ -110,5 +122,12 @@ export function planAnyDay(habit: HabitDefinition, stored: readonly HabitOccurre
     durationMinutes: habit.durationMinutes,
     recoveredFromOccurrenceId: consume?.occurrenceId ?? null,
   });
-  return { kind: 'any_day', tally, row, consume };
+  const week = weekOf(today);
+  const weekIds = new Set(rows.map((entry) => entry.occurrenceId));
+  for (let offset = 0; offset < 7; offset += 1) {
+    const date = addDays(week.fromLocalDate, offset);
+    const used = rows.filter((entry) => entry.localDate === date).map((entry) => entry.ordinal);
+    weekIds.add(occurrenceIdFor(habit.habitId, date, used.length === 0 ? 0 : Math.max(...used) + 1));
+  }
+  return { kind: 'any_day', tally, row, consume, weekIds: Array.from(weekIds).sort() };
 }

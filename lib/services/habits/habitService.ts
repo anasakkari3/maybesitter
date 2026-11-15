@@ -330,7 +330,7 @@ async function completeOnAnyDay(
   if (habit === null) return null;
   const plan = planAnyDay(habit, await services.occurrences.listForHabit(scopeId, habitId), todayLocalDate);
   if (plan.kind !== 'any_day' || plan.row.occurrenceId !== occurrenceId) return null;
-  return services.occurrences.completeAnyDay(scopeId, plan.row, plan.consume);
+  return services.occurrences.completeAnyDay(scopeId, plan.row, plan.consume, { ids: plan.weekIds, target: plan.tally.target });
 }
 
 export interface TodaysHabits {

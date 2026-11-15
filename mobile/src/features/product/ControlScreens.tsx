@@ -269,17 +269,24 @@ function HabitTodayRow({ habit, occurrence, anyDay }: { habit: Habit; occurrence
   </View>;
 }
 
-/** A weekly-count habit's week: «1 من 3 هالأسبوع», or «خلصت لهالأسبوع» once met. */
+/**
+ * A weekly-count habit's week: «1 من 3 هالأسبوع», or «خلّصت عدّك لهالأسبوع»
+ * once met. Inside a live region that stays mounted while the card is, so the
+ * count changing after a «تمّت» is announced (LiveRegion's own rule: mount the
+ * region once, change only what it says).
+ */
 function HabitWeekLine({ week, habitId }: { week: HabitWeek | undefined; habitId: string }) {
   const { t, p, lang } = useApp();
-  if (!week || week.target === 0) return null;
-  const done = week.completed >= week.target;
-  return <Txt testID={`habit-week-${habitId}`} role="supporting" color={done ? p.success : p.mu}>
-    {done ? t.xHabitWeekDone : fill(t.xHabitWeekCount, {
-      completed: formatNumber(week.completed, { locale: lang }),
-      target: formatNumber(week.target, { locale: lang }),
-    })}
-  </Txt>;
+  const shown = week !== undefined && week.target > 0;
+  const done = shown && week.completed >= week.target;
+  return <LiveRegion testID={`habit-week-live-${habitId}`}>
+    {shown ? <Txt testID={`habit-week-${habitId}`} role="supporting" color={done ? p.success : p.mu}>
+      {done ? t.xHabitWeekDone : fill(t.xHabitWeekCount, {
+        completed: formatNumber(week.completed, { locale: lang }),
+        target: formatNumber(week.target, { locale: lang }),
+      })}
+    </Txt> : null}
+  </LiveRegion>;
 }
 
 export function HabitDetailScreen() {
