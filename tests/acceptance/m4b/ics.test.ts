@@ -270,12 +270,13 @@ test('CA10.1: a timed deadline 40 days out is accepted by hand once the person h
   const feedId = await subscribe(w, false);
   let [row] = await rows(w);
   let result = await decide(w, feedId, row.itemKey, { action: 'accept', expectedDecisionVersion: row.decisionVersion });
-  if (result.status === 409) {
-    // First tap: the row did not say "unknown" yet; the person is shown it.
-    assert.equal(result.body.row?.held?.reason, 'unknown', show(result.body));
-    row = result.body.row;
-    result = await decide(w, feedId, row.itemKey, { action: 'accept', expectedDecisionVersion: row.decisionVersion });
-  }
+  // First tap: the row did not say "unknown" yet, so it is not saved blind;
+  // the person is shown «قرّر إنت».
+  assert.equal(result.status, 409, `saved over a clash check nobody saw was unknown: ${show(result.body)}`);
+  assert.equal(result.body.row?.held?.reason, 'unknown', show(result.body));
+  assert.equal((await activeTitled(w, 'Thesis due')).length, 0);
+  row = result.body.row;
+  result = await decide(w, feedId, row.itemKey, { action: 'accept', expectedDecisionVersion: row.decisionVersion });
   assert.equal(result.status, 200, `the person decided on an unknown clash and was refused again: ${show(result.body)}`);
   assert.equal((await activeTitled(w, 'Thesis due')).length, 1);
 });

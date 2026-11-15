@@ -633,7 +633,12 @@ async function acceptItem(
       if (!autoAccepted) {
         const shown = JSON.stringify(claim.held?.clashes ?? []);
         const current = JSON.stringify(held?.clashes ?? []);
-        if (decision.state === 'unknown' || shown !== current) {
+        // CA10.1: "unknown" bounces the tap once, so the person sees «قرّر
+        // إنت». A row that already said unknown when they tapped is their
+        // decision -- bouncing it again made a deadline past the busy window
+        // impossible to accept.
+        const unknownUnseen = decision.state === 'unknown' && claim.held?.reason !== 'unknown';
+        if (unknownUnseen || shown !== current) {
           const next = { ...claim, ...(held ? { held } : {}), ...(!held ? { held: undefined } : {}), updatedAt: now.toISOString() };
           changed = next;
           return { commands: [], patch: { held: held as any, updatedAt: now.toISOString() } };
