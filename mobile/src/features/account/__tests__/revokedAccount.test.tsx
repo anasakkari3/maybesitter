@@ -159,6 +159,20 @@ describe('a revoked account (C12.1)', () => {
     expect(repository.signOutReasons).toEqual([]);
   });
 
+  it('announces an export failure assertively, as an alert', async () => {
+    jest.spyOn(dataExportFile, 'shareExportFile').mockRejectedValue(new Error('share failed') as never);
+    await mount();
+    await firstRequestRefused();
+    await waitFor(() => expect(screen.getByTestId('revoked-account')).toBeTruthy());
+    await act(async () => {
+      await fireEvent.press(screen.getByLabelText(en.revokedAccountExport));
+    });
+    await waitFor(() => expect(screen.getByText(en.exportDataFailed)).toBeTruthy());
+    const region = screen.getByTestId('revoked-export-status');
+    expect(region.props.accessibilityLiveRegion).toBe('assertive');
+    expect(region.props.accessibilityRole).toBe('alert');
+  });
+
   it('deletes through the deletion flow and its confirmation, then shows the receipt', async () => {
     await mount();
     await firstRequestRefused();

@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { ScrollView, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useApp } from '../state/AppContext';
 import { useAuth } from '../auth/AuthProvider';
 import { exportPhaseCopy, useExportMyData } from '../features/account/useExportMyData';
@@ -26,12 +27,26 @@ export function RevokedAccountScreen() {
   const { signOut } = useAuth();
   const { phase, start } = useExportMyData();
   const [deleting, setDeleting] = useState(false);
+  // No header or tab bar here to hold the edges, so the insets go in the
+  // padding: large Dynamic Type never runs under the status bar or the
+  // home indicator.
+  const insets = useSafeAreaInsets();
+  const failed = phase === 'failed' || phase === 'tooLarge' || phase === 'rateLimited';
 
   if (deleting) return <DeleteAccountScreen onBack={() => setDeleting(false)} />;
 
   return (
     <View testID="revoked-account" style={{ flex: 1, backgroundColor: p.bg }}>
-      <ScrollView contentContainerStyle={{ padding: 24, gap: 16, flexGrow: 1, justifyContent: 'center' }}>
+      <ScrollView
+        contentContainerStyle={{
+          padding: 24,
+          paddingTop: 24 + insets.top,
+          paddingBottom: 24 + insets.bottom,
+          gap: 16,
+          flexGrow: 1,
+          justifyContent: 'center',
+        }}
+      >
         <Txt role="page" size={22} weight={700} lh={1.5}>{t.revokedAccountLine}</Txt>
 
         <View style={{ gap: 8, marginTop: 8 }}>
@@ -43,9 +58,14 @@ export function RevokedAccountScreen() {
             disabled={phase === 'preparing'}
             onPress={() => void start()}
           />
-          {/* The export's progress and failures, said as words and announced. */}
-          <LiveRegion>
-            {phase === 'idle' ? null : <Txt size={14} color={p.mu}>{exportPhaseCopy(phase, t)}</Txt>}
+          {/* The export's progress and failures, said as words and announced:
+              progress politely, a failure as an alert in the failure colour. */}
+          <LiveRegion testID="revoked-export-status" assertive={failed} alert={failed}>
+            {phase === 'idle' ? null : (
+              <Txt size={14} weight={failed ? 600 : undefined} color={failed ? p.acd : p.mu}>
+                {exportPhaseCopy(phase, t)}
+              </Txt>
+            )}
           </LiveRegion>
         </View>
 
