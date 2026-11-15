@@ -74,11 +74,16 @@ export function probeRange(today: string, timeZone: string): { from: string; to:
   };
 }
 
+/** Every range of the server busy read, for one account: what a write of manual busy invalidates (NA4.1). */
+export function serverBusyKeyPrefix(uid: string) {
+  return ['user', uid, 'calendar', 'serverBusy'] as const;
+}
+
 /** The server's ICS and manual busy time, which is also the free-time probe. */
 export function useServerBusy(range: { from: string; to: string }) {
   const uid = useUid();
   const query = useQuery({
-    queryKey: ['user', uid, 'calendar', 'serverBusy', range.from, range.to] as const,
+    queryKey: [...serverBusyKeyPrefix(uid), range.from, range.to] as const,
     queryFn: () => getServerBusy(range.from, range.to),
     enabled: uid !== 'signed-out',
     retry: false,
