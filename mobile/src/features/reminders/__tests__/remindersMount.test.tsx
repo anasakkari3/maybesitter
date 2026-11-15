@@ -706,6 +706,25 @@ describe('a sign-out Firebase starts by itself (C13.14)', () => {
     expect(deviceEndpoints.forgetDevice).not.toHaveBeenCalled();
   });
 
+  it('stops wiping once B has signed in part-way through A s sign-out', async () => {
+    const dismissAll = jest.spyOn(notifications, 'dismissAllNotificationsAsync');
+    const view = await mountGated();
+    await waitFor(() => expect(commitmentEndpoints.listToday).toHaveBeenCalled());
+    // B arrives while A's wipe is at its first step.
+    jest.spyOn(notifications, 'cancelAllScheduledNotificationsAsync').mockImplementation(async () => {
+      repository.emit(OTHER);
+      return null as never;
+    });
+    dismissAll.mockClear();
+
+    await act(async () => {
+      view.getByTestId('sign-out').props.onPress();
+    });
+    await waitFor(() => expect(repository.signOutReasons).toEqual(['user']));
+
+    expect(dismissAll).not.toHaveBeenCalled();
+  });
+
   it('runs the tasks once, not twice, for a sign-out the app asked for', async () => {
     const view = await mountGated();
     await waitFor(() => expect(deviceEndpoints.registerDevice).toHaveBeenCalledTimes(1));
