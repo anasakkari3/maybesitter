@@ -664,6 +664,8 @@
   "evidenceFitsFocusTime": "بوقت حاططه للتركيز",
   "todayWhyLead": "ليش أول: {reasons}",
   "captureCounter": "{n} / 2000",
+  "captureTooLong": "هاد أطول من اللي بنقدر نقرأه مرّة وحدة. قصّره شوي وبعدين ابعته.",
+  "captureClipboardTooLong": "النص أطول من اللي بنقدر نقرأه. رح يجي كلّه عالخانة، بس قصّره قبل ما تبعته.",
   "captureDiscardTitle": "بدك تتجاهلها؟",
   "captureDiscardBody": "اللي كتبته موجود هون بس. إذا سكّرت بينمحي.",
   "captureDiscardConfirm": "تجاهلها",

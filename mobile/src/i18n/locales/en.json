@@ -664,6 +664,8 @@
   "evidenceFitsFocusTime": "in a time you set aside to focus",
   "todayWhyLead": "Why first: {reasons}",
   "captureCounter": "{n} / 2000",
+  "captureTooLong": "That’s longer than we can read in one go. Shorten it a little, then send it.",
+  "captureClipboardTooLong": "This is longer than we can read. It all goes into the field, but shorten it before you send it.",
   "captureDiscardTitle": "Throw this away?",
   "captureDiscardBody": "What you typed is only here. Closing forgets it.",
   "captureDiscardConfirm": "Throw it away",

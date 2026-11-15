@@ -667,6 +667,8 @@
   "evidenceFitsFocusTime": "בזמן שהקצית לריכוז",
   "todayWhyLead": "למה ראשון: {reasons}",
   "captureCounter": "{n} / 2000",
+  "captureTooLong": "זה ארוך מדי לקריאה אחת. קצר אותו קצת ואז שלח.",
+  "captureClipboardTooLong": "הטקסט ארוך מדי לקריאה. הכול ייכנס לשדה, אבל קצר אותו לפני שתשלח.",
   "captureDiscardTitle": "לזרוק את זה?",
   "captureDiscardBody": "מה שכתבת קיים רק כאן. סגירה תשכח אותו.",
   "captureDiscardConfirm": "לזרוק",

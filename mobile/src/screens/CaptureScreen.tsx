@@ -349,6 +349,8 @@ export function CaptureScreen({ entryQuestion }: { entryQuestion?: { entry: Capt
     && questionText(item.clarification.questionKey, item.clarification.params, strings) !== null);
   const asking = waiting[0];
   const inputLength = composerText.length;
+  const tooLong = inputLength > MAX_CAPTURE_LENGTH;
+  useAnnounceOnIos(tooLong ? t.captureTooLong : null);
   const conflictBlocks = useConflictBusyBlocks(useBusyBlocks());
   // The newest reply, told to VoiceOver when it lands (TalkBack hears the
   // bubble's live region).
@@ -683,8 +685,13 @@ export function CaptureScreen({ entryQuestion }: { entryQuestion?: { entry: Capt
     ? <Txt size={13} color={p.mu} testID="capture-confirmed-elsewhere">{t.captureConfirmedElsewhere}</Txt> : null;
   const afterChat = cardsOpen ? reviewExtras : reviewing ? null : confirmedElsewhereLine && !savedActions ? confirmedElsewhereLine : savedActions && !savedIsNewest
     ? <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }} testID="chat-saved-actions">{savedActions}</View> : null;
-  const counter = inputLength > MAX_CAPTURE_LENGTH - 200
-    ? <Txt size={12} latin color={inputLength > MAX_CAPTURE_LENGTH ? p.wm : p.mu} testID="capture-counter">{fill(t.captureCounter, { n: inputLength })}</Txt> : null;
+  // Past the limit the text is kept whole and Send is off (CA3.6); the line
+  // says why, in a region that is always mounted so TalkBack hears it arrive.
+  const counter = <>
+    {inputLength > MAX_CAPTURE_LENGTH - 200
+      ? <Txt size={12} latin color={inputLength > MAX_CAPTURE_LENGTH ? p.wm : p.mu} testID="capture-counter">{fill(t.captureCounter, { n: inputLength })}</Txt> : null}
+    <LiveRegion>{tooLong ? <Txt size={13} color={p.wm} testID="capture-too-long">{t.captureTooLong}</Txt> : null}</LiveRegion>
+  </>;
   const language = voiceStatus !== 'unavailable' ? <VoiceLanguageChip value={speechLang}
     onChange={next => { setSpeechLang(next); void saveSpeechLanguage(next); }}
     renderControl={({ label, accessibilityLabel, onPress }) => <ChatLanguage colors={p} label={label} accessibilityLabel={accessibilityLabel}
