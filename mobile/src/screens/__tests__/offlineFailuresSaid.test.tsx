@@ -157,10 +157,10 @@ describe('the edit sheet, offline', () => {
 });
 
 describe('drop and delete, offline', () => {
-  it.each([
+  it.each<[string, string, string]>([
     ['drop', 'details-drop', 'confirm-drop'],
     ['delete', 'details-delete', 'confirm-delete'],
-  ] as const)('%s keeps the dialog open and says it did not go through', async (_intent, open, confirm) => {
+  ])('%s keeps the dialog open and says it did not go through', async (_intent, open, confirm) => {
     jest.spyOn(commitmentEndpoints, 'actOnCommitment').mockRejectedValue(new NetworkError('offline') as never);
     jest.spyOn(commitmentEndpoints, 'deleteCommitment').mockRejectedValue(new NetworkError('offline') as never);
     await show(<><OpenDetails /><DetailsScreen /><SheetHost /></>);

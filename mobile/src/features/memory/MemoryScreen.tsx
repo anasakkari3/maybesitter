@@ -24,6 +24,7 @@ import { useMemoryTranslationOn } from '../m6/capabilities';
 import { MemoryTranslationPanel, TranslateAction, translationTargetOf, type TranslationTarget } from '../m6/MemoryTranslation';
 import { EmptyState, Notice } from '../../ui/chrome';
 import { memorySentence } from './memoryDisplay';
+import { KeptMemoryEdit } from './KeptMemoryEdit';
 import {
   ADAPTIVE_CLASS_STRING,
   CONFIDENCE_STRING,
@@ -250,7 +251,9 @@ export function MemoryScreen({ onBack, focusId = null }: {
         ) : null}
 
         {kept && !purging ? (
-          <KeptEdit
+          <KeptMemoryEdit
+            testPrefix="memory-screen"
+            card
             initial={kept.content}
             saving={create.isPending}
             onSave={content => create.mutate(
@@ -659,39 +662,6 @@ function MemoryDetailRow({
         </View>
       ) : null}
     </View>
-  );
-}
-
-/**
- * The words of an edit whose row went while it was on its way (CA8.2): another
- * device replaced or deleted the row, so there is nothing left to patch. The
- * words are not thrown away; they stay here to save as a new memory, or go.
- */
-function KeptEdit({ initial, saving, onSave, onCancel }: {
-  initial: string;
-  saving: boolean;
-  onSave: (content: string) => void;
-  onCancel: () => void;
-}) {
-  const { t, p, rtl } = useApp();
-  const [draft, setDraft] = useState(initial);
-  return (
-    <Card pad={18} style={{ gap: 10 }} testID="memory-screen-kept">
-      <Txt size={14} color={p.mu} lh={1.5}>{t.memoryEditKept}</Txt>
-      <TextInput
-        testID="memory-screen-kept-input"
-        accessibilityLabel={t.memoryEdit}
-        value={draft}
-        onChangeText={setDraft}
-        maxLength={200}
-        multiline
-        style={{ color: p.tx, fontSize: 15, minHeight: 44, textAlign: rtl ? 'right' : 'left' }}
-      />
-      <View style={{ flexDirection: 'row', gap: 14 }}>
-        <Action label={t.memorySave} testID="memory-screen-kept-save" disabled={draft.trim() === '' || saving} onPress={() => onSave(draft.trim())} />
-        <Action label={t.cancel} testID="memory-screen-kept-cancel" onPress={onCancel} />
-      </View>
-    </Card>
   );
 }
 

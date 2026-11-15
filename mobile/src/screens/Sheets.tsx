@@ -552,9 +552,12 @@ function EditSheet() {
     patch.mutate({ id: commitment.id, patch: body }, { onSuccess: actions.closeSheet });
   }, [actions, commitment, instant, level, patch, timeChanged, trimmed]);
 
+  const saveFailedLine = patch.error && !patch.isPending ? userFacingMessage(patch.error, t) : null;
+  useAnnounceOnIos(saveFailedLine);
   if (!commitment) return null;
 
   const changed = titleChanged || levelChanged || timeChanged;
+  const saveFailed = saveFailedLine;
   const problem = trimmed.length === 0 ? t.editItemEmpty : pastTime ? t.editItemPast : null;
 
   return (
@@ -661,6 +664,9 @@ function EditSheet() {
       ) : null}
 
       {problem ? <Txt size={13} color={p.wm} testID="edit-problem">{problem}</Txt> : null}
+      {/* A save that did not go through is said, and the sheet keeps what
+          was typed (A3 review): offline it fails at once and is never sent later. */}
+      <LiveRegion>{saveFailed ? <Txt size={13} color={p.wm} testID="edit-error">{saveFailed}</Txt> : null}</LiveRegion>
 
       <View style={{ flexDirection: 'row', gap: 8 }}>
         <Pill testID="edit-close" label={t.editItemCancel} onPress={actions.closeSheet} kind="soft" size={15} weight={500} pad={12} style={{ flex: 1 }} />
@@ -701,6 +707,10 @@ function ConfirmSheet({ intent }: { intent: 'drop' | 'delete' }) {
   const remove = useDeleteCommitment();
   const id = query.data?.id;
   const pending = act.isPending || remove.isPending;
+  // Said, and the dialog stays (A3 review): offline the press fails at once.
+  const failure = intent === 'drop' ? act.error : remove.error;
+  const failed = failure && !pending ? userFacingMessage(failure, t) : null;
+  useAnnounceOnIos(failed);
 
   const after = (message: string) => { actions.closeSheet(); actions.back(); actions.toast(message); };
   const confirm = () => {
@@ -723,6 +733,7 @@ function ConfirmSheet({ intent }: { intent: 'drop' | 'delete' }) {
       />
       <Txt role="supporting" color={p.mu} lh={1.5}>{intent === 'drop' ? t.confirmDropBody : t.confirmDeleteBody}</Txt>
       {intent === 'delete' && query.data?.title ? <Txt role="card" color={p.tx}>{query.data.title}</Txt> : null}
+      <LiveRegion>{failed ? <Txt size={13} color={p.wm} testID="confirm-error">{failed}</Txt> : null}</LiveRegion>
       <ActionRow>
         <Pill testID={keepId.testID} label={t.confirmKeep} onPress={actions.closeSheet} kind="outline" size={15} pad={12} />
         <Pill testID={confirmId.testID} label={intent === 'drop' ? t.dropIt : t.detailsDelete} onPress={confirm} disabled={pending} kind="warmSolid" size={15} pad={12} />

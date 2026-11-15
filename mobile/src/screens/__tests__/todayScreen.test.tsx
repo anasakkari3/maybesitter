@@ -916,9 +916,10 @@ describe('Today actions with no signal say they did not go through', () => {
     await waitFor(() => expect(screen.queryByTestId(control)).not.toBeNull());
     onlineManager.setOnline(false);
     await fireEvent.press(screen.getByTestId(control));
-    await waitFor(() => expect(act).toHaveBeenCalledTimes(1));
+    // Not now first asks, for at most 1.5 s, whether smart postpone is on.
+    await waitFor(() => expect(act).toHaveBeenCalledTimes(1), { timeout: 4_000 });
     await waitFor(() => expect(screen.queryByTestId('probe-toast')).not.toBeNull());
     expect(screen.getByTestId('probe-toast').props.children).toBe(en.errorsNetwork);
     onlineManager.setOnline(true);
-  });
+  }, 10_000);
 });

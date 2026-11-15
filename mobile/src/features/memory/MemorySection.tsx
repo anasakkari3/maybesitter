@@ -20,6 +20,7 @@ import { useMemoryTranslationOn } from '../m6/capabilities';
 import { MemoryTranslationPanel, TranslateAction, translationTargetOf, type TranslationTarget } from '../m6/MemoryTranslation';
 import type { MemoryItem } from '../../api/schemas/profile';
 import { CHIP_STRING, memorySentence, provenanceChip } from './memoryDisplay';
+import { KeptMemoryEdit } from './KeptMemoryEdit';
 
 /**
  * Everything MaybeSitter remembers, and the controls to change it
@@ -79,7 +80,10 @@ export function MemorySection({ onOpen }: { onOpen?: (() => void) | undefined } 
   // CA8.2: the last write that failed, said on the card; and an edit that
   // failed, held until its row is known to be still there (or gone).
   const [failed, setFailed] = useState<unknown>(null);
-  const [keptEdit, setKeptEdit] = useState<{ id: string; content: string } | null>(null);
+  const [keptEdit, setKeptEdit] = useState<{ id: string; content: string; kind: MemoryItem['kind'] } | null>(null);
+  // The words of an edit whose row went: beside the add field, never in it,
+  // so a new fact being typed is not overwritten (A3 review).
+  const [kept, setKept] = useState<{ content: string; kind: MemoryItem['kind'] } | null>(null);
   const failedText = failed == null ? null : userFacingMessage(failed, t);
   useAnnounceOnIos(failedText);
   // M6a-2: the row whose translation panel is open. Unknown or off offers none.
@@ -102,12 +106,11 @@ export function MemorySection({ onOpen }: { onOpen?: (() => void) | undefined } 
   const items = purging ? [] : memory.data.items;
   // An edit refused because its row changed elsewhere (another device
   // replaced or deleted it): once the re-read has no such row, the typed
-  // words move to the add field, to save again or let go — never lost (CA8.2).
+  // words are kept on the card, to save again or let go — never lost (CA8.2).
   if (keptEdit && !purging && !items.some(item => item.id === keptEdit.id)) {
     setKeptEdit(null);
     setEditing(current => (current === keptEdit.id ? null : current));
-    setDraft(keptEdit.content);
-    setAdding(true);
+    setKept({ content: keptEdit.content, kind: keptEdit.kind });
   }
   const strings = t as unknown as Record<string, string>;
   // Only a current answer is a paragraph (M5B-A-001): a refetch that failed,
@@ -175,7 +178,7 @@ export function MemorySection({ onOpen }: { onOpen?: (() => void) | undefined } 
             setKeptEdit(null);
             patch.mutate({ id: item.id, content: next }, {
               onSuccess: () => setEditing(current => (current === item.id ? null : current)),
-              onError: (error) => { setFailed(error); setKeptEdit({ id: item.id, content: next }); },
+              onError: (error) => { setFailed(error); setKeptEdit({ id: item.id, content: next, kind: item.kind }); },
             });
           }}
           onAskDelete={() => { setTranslating(null); setConfirming(item.id); }}
@@ -185,6 +188,22 @@ export function MemorySection({ onOpen }: { onOpen?: (() => void) | undefined } 
       ))}
 
       {summaryOn ? <SummaryDisclosure onShown={setDisclosed} /> : null}
+
+      {kept && !purging ? (
+        <KeptMemoryEdit
+          testPrefix="memory"
+          initial={kept.content}
+          saving={create.isPending}
+          onSave={content => {
+            setFailed(null);
+            create.mutate(
+              { kind: kept.kind === 'preference' ? 'preference' : 'fact', content, language: 'mixed' },
+              { onSuccess: () => setKept(null), onError: setFailed },
+            );
+          }}
+          onCancel={() => setKept(null)}
+        />
+      ) : null}
 
       {purging ? null : adding ? (
         <View style={{ paddingHorizontal: 18, paddingVertical: 12, gap: 10, borderTopWidth: 1, borderTopColor: p.ln }}>

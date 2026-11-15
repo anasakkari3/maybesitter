@@ -13,6 +13,7 @@ import { useCaptureKinds } from '../capture/useCaptureKinds';
 import type { Seed } from '../../api/schemas/seeds';
 import { SettingsHeader } from '../settings/SettingsChrome';
 import { hasRevisit, liveSeeds, seedKindLabel, seedStatusLabel } from './seedDisplay';
+import { markErrorShown } from '../../api/ui/userFacingMessage';
 
 /**
  * "Considering / Waiting" — the things the person has not decided on (#519).
@@ -106,7 +107,7 @@ function SeedCard({ seed, strings, lang }: { seed: Seed; strings: Record<string,
 
   const run = (work: () => Promise<unknown>) => {
     setFailed(false);
-    void work().catch(() => setFailed(true));
+    void work().catch((error: unknown) => { markErrorShown(error); setFailed(true); });
   };
 
   return (

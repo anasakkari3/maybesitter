@@ -11,6 +11,7 @@ import { useRoutineSync } from '../routine/useRoutineSync';
 import { EMPTY_ANSWERS, toRoutinePayload, type RoutineAnswers } from '../routine/routineProfile';
 import { EMPTY_CACHE, loadRoutineCache, saveRoutineCache } from '../../lib/deviceSettings/routineCache';
 import { SettingsHeader } from './SettingsChrome';
+import { markErrorShown } from '../../api/ui/userFacingMessage';
 
 /**
  * The routine survey, reached from Settings (UC-2.R4 #174, questions from
@@ -58,7 +59,8 @@ export function RoutineSettingsScreen({ onBack }: { onBack: () => void }) {
       await putRoutine.mutateAsync(payload);
       pendingSync = false;
       setFailed(false);
-    } catch {
+    } catch (error) {
+      markErrorShown(error);
       setFailed(true);
     }
     const cache = accountId ? await loadRoutineCache(accountId) : null;

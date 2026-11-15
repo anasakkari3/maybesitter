@@ -23,7 +23,14 @@ import { isRetryable } from './errors';
  * press went silent, was lost if the app died, and otherwise was sent later
  * without the person — a capture confirm created a commitment a minute after
  * they had left the flow. With `'always'` the request is tried at once; with
- * no signal it fails at once, the screen says so, and nothing is held.
+ * no signal it fails at once and nothing is held. The failure is said: by the
+ * screen, or, when the screen does not, by `MutationFailureToasts` (Root).
+ *
+ * The cost is deliberate, under the same no-replay rule: a fire-and-forget
+ * write nobody pressed — analytics (`useRecordAnalytics`, sent from
+ * CaptureProvider and OnboardingFlow), the native readiness snapshot — is
+ * simply dropped when offline. Those carry `meta: { quietFailure: true }`, so
+ * their loss is not announced either.
  *
  * ── Retries ──────────────────────────────────────────────────────
  *

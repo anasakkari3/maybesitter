@@ -7,6 +7,9 @@ import { useM5bOn } from '../m5b/capabilities';
 import { TodayEnergy } from '../m5b/energy';
 import { QueryBoundary } from '../../api/ui/QueryBoundary';
 import { ConflictError } from '../../api/errors';
+import { userFacingMessage } from '../../api/ui/userFacingMessage';
+import { LiveRegion } from '../../ui/liveRegion';
+import { useAnnounceOnIos } from '../../ui/announce';
 import { family } from '../../theme/fonts';
 import { Btn, Pill, SaidWords, Txt } from '../../ui/primitives';
 import { Tag, TextLink, priorityTagKind } from '../../ui/chrome';
@@ -87,6 +90,10 @@ export function NextStepCard({ lookup }: {
   const [more, setMore] = useState(false);
   const [stale, setStale] = useState(false);
   const [startedProposal, setStartedProposal] = useState<string | null>(null);
+  // A decision that did not go through, said on the card (A3 review).
+  const [failed, setFailed] = useState<unknown>(null);
+  const failedLine = failed == null ? null : userFacingMessage(failed, t);
+  useAnnounceOnIos(failedLine);
   const inFlight = useRef(false);
 
   const recommendation = query.data?.recommendation;
@@ -101,12 +108,22 @@ export function NextStepCard({ lookup }: {
     if (!recommendation || inFlight.current) return;
     inFlight.current = true;
     setStale(false);
+    setFailed(null);
+    const close = () => { setEditing(false); setDeferring(false); setMore(false); };
     decide.mutate(
       { decision, proposal: recommendation, ...extra },
       {
-        onSuccess: () => { if (decision === 'accept') setStartedProposal(recommendation.proposalId); },
-        onError: (error) => { if (error instanceof ConflictError) setStale(true); },
-        onSettled: () => { inFlight.current = false; setEditing(false); setDeferring(false); setMore(false); },
+        onSuccess: () => { if (decision === 'accept') setStartedProposal(recommendation.proposalId); close(); },
+        // A stale proposal is replaced by the refetched one, so its editor
+        // goes. Any other failure (no signal) keeps the editor and the typed
+        // words, and says why (A3 review).
+        onError: (error) => {
+          if (error instanceof ConflictError) { setStale(true); close(); return; }
+          setFailed(error);
+          // The defer sheet covers the card: it closes so the line is seen.
+          if (decision === 'defer') setDeferring(false);
+        },
+        onSettled: () => { inFlight.current = false; },
       },
     );
   };
@@ -160,6 +177,7 @@ export function NextStepCard({ lookup }: {
               </View>
             </>
           )}
+          <LiveRegion>{failedLine ? <Txt size={13} color={p.wm} testID="next-step-failed">{failedLine}</Txt> : null}</LiveRegion>
         </View>
         {m5bOn === true && query.data?.energy ? <TodayEnergy energy={query.data.energy} /> : null}
         </>
