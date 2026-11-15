@@ -126,19 +126,33 @@ test('a deleted account is still refused by export and deletion', async () => {
 });
 
 test('only the export and deletion routes admit a revoked account', async () => {
-  // The opt-in is a string in a route file, so this walks them all: a third
-  // route reaching for it is a revoked account let back into the product.
+  // Any mention of the identifier counts — `allowRevoked: true`, the shorthand
+  // `{ allowRevoked }`, a variable, a wrapper that forwards it — because each
+  // is a way for a third caller to let a revoked account back into the
+  // product. Only the guard that defines it and the two data-rights routes
+  // may name it.
   const { readdirSync, readFileSync, statSync } = await import('node:fs');
-  const { join, relative } = await import('node:path');
-  const root = join(process.cwd(), 'src', 'app', 'api', 'mobile');
+  const { join, relative, sep } = await import('node:path');
+  const repo = process.cwd();
+  const allowed = new Set([
+    'lib/auth/mobileAuth.ts',
+    'src/app/api/mobile/account/route.ts',
+    'src/app/api/mobile/account/export/route.ts',
+  ]);
   const found: string[] = [];
   const walk = (dir: string) => {
     for (const entry of readdirSync(dir)) {
+      if (entry === 'node_modules' || entry.startsWith('.')) continue;
       const path = join(dir, entry);
       if (statSync(path).isDirectory()) walk(path);
-      else if (/allowRevoked\s*:\s*true/.test(readFileSync(path, 'utf8'))) found.push(relative(root, path));
+      else if (/\.(?:[cm]?[jt]sx?)$/.test(entry) && /\ballowRevoked\b/.test(readFileSync(path, 'utf8'))) {
+        found.push(relative(repo, path).split(sep).join('/'));
+      }
     }
   };
-  walk(root);
-  assert.deepEqual(found.sort(), ['account/export/route.ts', 'account/route.ts']);
+  walk(join(repo, 'src'));
+  walk(join(repo, 'lib'));
+  assert.deepEqual(found.filter(file => !allowed.has(file)), [], 'allowRevoked is named outside its allow-list');
+  // And the two routes really do use it: the rights tests above fail without.
+  for (const file of allowed) assert.ok(found.includes(file), `${file} no longer names allowRevoked`);
 });
