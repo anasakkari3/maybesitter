@@ -2,9 +2,33 @@
  * The add-on routes and `/api/mobile/capabilities/features` (owner direction,
  * 2026-11-10), in-process as a signed-in user.
  */
-import test from 'node:test';
+import test, { afterEach, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { begin, call, currentStorage, end } from '../acceptance/m5b/support.ts';
+
+/**
+ * The switches behind the add-ons that `begin()` does not set. Every test
+ * starts with all of them on, so the list holds the whole catalog unless a
+ * test switches a module off on purpose.
+ */
+const MODULE_ENV = {
+  MAYBESITTER_FEATURE_SEARCH_HISTORY: 'true',
+  MAYBESITTER_KILL_SWITCH_SEARCH_HISTORY: 'false',
+  MAYBESITTER_FEATURE_MEMORY_TRANSLATION: 'true',
+  MAYBESITTER_KILL_SWITCH_MEMORY_TRANSLATION: 'false',
+  FOOTBALL_DATA_API_KEY: 'feature-routes-test-key',
+} as const;
+let savedModuleEnv: Record<string, string | undefined> = {};
+beforeEach(() => {
+  savedModuleEnv = Object.fromEntries(Object.keys(MODULE_ENV).map(key => [key, process.env[key]]));
+  Object.assign(process.env, MODULE_ENV);
+});
+afterEach(() => {
+  for (const [key, value] of Object.entries(savedModuleEnv)) {
+    if (value === undefined) delete process.env[key];
+    else process.env[key] = value;
+  }
+});
 
 function gate(mode: 'enforce' | 'shadow' | null): void {
   if (mode === null) delete process.env.MAYBESITTER_ADDON_GATE_MODE;
@@ -138,5 +162,63 @@ test('C12.2: under shadow, an add-on the person switched off is off: its route a
     // Switched back on, it works again.
     await quietly(() => call(uid, 'capabilities/features/[id]', 'PUT', { params: { id: 'football' }, body: { enabled: true } }));
     assert.equal((await call(uid, 'football', 'GET')).status, 200);
+  } finally { gate(null); end(); }
+});
+
+/** The production block of infra/cloudrun/flags.sh, as far as the add-ons read it. */
+function productionModules(): void {
+  process.env.MAYBESITTER_ENV = 'production';
+  process.env.MAYBESITTER_FEATURE_MEMORY = 'true';
+  process.env.MAYBESITTER_KILL_SWITCH_MEMORY = 'false';
+  process.env.MAYBESITTER_FEATURE_PROACTIVE_LOOP = 'true';
+  process.env.MAYBESITTER_KILL_SWITCH_PROACTIVE_LOOP = 'false';
+  process.env.MAYBESITTER_FEATURE_MEMORY_LEARNING = 'false';
+  process.env.MAYBESITTER_FEATURE_SEARCH_HISTORY = 'false';
+  process.env.MAYBESITTER_FEATURE_MEMORY_TRANSLATION = 'false';
+}
+
+const ids = (body: { features: Array<{ id: string }> }) => body.features.map(item => item.id).sort();
+
+test('the list holds only features this deployment can run: production hides memory learning, translation and search', async () => {
+  const uid = await begin();
+  const proactive = [process.env.MAYBESITTER_FEATURE_PROACTIVE_LOOP, process.env.MAYBESITTER_KILL_SWITCH_PROACTIVE_LOOP];
+  try {
+    gate('shadow');
+    // Staging: every module on, the whole catalog.
+    const staging = await quietly(() => call(uid, 'capabilities/features', 'GET'));
+    assert.deepEqual(ids(staging.body), [
+      'assistant', 'football', 'gmail_reading', 'goal_plans', 'meeting_prep',
+      'memory_learning', 'memory_translation', 'search_history',
+    ]);
+
+    productionModules();
+    const production = await quietly(() => call(uid, 'capabilities/features', 'GET'));
+    assert.equal(production.body.mode, 'shadow');
+    assert.deepEqual(ids(production.body), ['assistant', 'football', 'gmail_reading', 'goal_plans', 'meeting_prep'],
+      'production lists a feature whose module is off');
+    // The answer to a switch is the same filtered list.
+    const switched = await quietly(() => call(uid, 'capabilities/features/[id]', 'PUT', { params: { id: 'football' }, body: { enabled: false } }));
+    assert.deepEqual(ids(switched.body), ['assistant', 'football', 'gmail_reading', 'goal_plans', 'meeting_prep']);
+  } finally {
+    if (proactive[0] === undefined) delete process.env.MAYBESITTER_FEATURE_PROACTIVE_LOOP; else process.env.MAYBESITTER_FEATURE_PROACTIVE_LOOP = proactive[0];
+    if (proactive[1] === undefined) delete process.env.MAYBESITTER_KILL_SWITCH_PROACTIVE_LOOP; else process.env.MAYBESITTER_KILL_SWITCH_PROACTIVE_LOOP = proactive[1];
+    gate(null); end();
+  }
+});
+
+test('a kill switch or a missing provider key takes a feature out of the list, in every gate mode', async () => {
+  const uid = await begin();
+  try {
+    for (const mode of [null, 'shadow', 'enforce'] as const) {
+      gate(mode);
+      process.env.MAYBESITTER_KILL_SWITCH_SEARCH_HISTORY = 'true';
+      process.env.MAYBESITTER_KILL_SWITCH_MEMORY = 'true';
+      delete process.env.FOOTBALL_DATA_API_KEY;
+      const listed = await quietly(() => call(uid, 'capabilities/features', 'GET'));
+      assert.deepEqual(ids(listed.body), ['assistant', 'gmail_reading', 'goal_plans', 'meeting_prep'], `mode ${mode}`);
+      process.env.MAYBESITTER_KILL_SWITCH_SEARCH_HISTORY = 'false';
+      process.env.MAYBESITTER_KILL_SWITCH_MEMORY = 'false';
+      process.env.FOOTBALL_DATA_API_KEY = 'feature-routes-test-key';
+    }
   } finally { gate(null); end(); }
 });
