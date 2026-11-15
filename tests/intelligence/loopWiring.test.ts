@@ -34,6 +34,7 @@ import type { ShareStructuredGenerator } from '../../lib/llm/shareProvider.ts';
 import { GET as inboxGet, POST as statementPost } from '../../src/app/api/mobile/intelligence/route.ts';
 import { POST as generatePost } from '../../src/app/api/mobile/intelligence/generate/route.ts';
 import { POST as decisionPost } from '../../src/app/api/mobile/intelligence/suggestions/[id]/route.ts';
+import { POST as answerPost } from '../../src/app/api/mobile/intelligence/suggestions/[id]/answer/route.ts';
 import { POST as actionPost } from '../../src/app/api/mobile/commitments/[id]/actions/route.ts';
 import { DELETE as commitmentDelete, PATCH as commitmentPatch } from '../../src/app/api/mobile/commitments/[id]/route.ts';
 import { createPilotTrustState } from '../../lib/pilot/closedPilotControls.ts';
@@ -323,6 +324,35 @@ test('CXA7.2: a malformed generate body is refused before any model call, never 
     assert.equal((await generatePost(req('/api/mobile/intelligence/generate', 'POST', {}))).status, 200);
     assert.equal(h.calls.length, 2);
     assert.equal((await generatePost(req('/api/mobile/intelligence/generate', 'POST'))).status, 200);
+  } finally { h.restore(); }
+});
+
+test('CXA7.3: answering a question with recommendations declined is refused: no analysis, no observation, the question still pending', async () => {
+  const h = begin(call => ({ suggestions: [{
+    kind: 'question', title: 'When could you call the clinic?', reason: 'The call has no time yet',
+    observationIds: [call.context.observations[0]!.id], confidence: 0.7, durationMinutes: 0,
+  }] }));
+  try {
+    await setRecommendations(h.storage, 'granted');
+    await seedCommitment(ID_DONE, 'Call the clinic');
+    const generated = await generatePost(req('/api/mobile/intelligence/generate', 'POST', {}));
+    assert.equal(generated.status, 200);
+    const question = ((await generated.json()) as { suggestions: Array<{ id: string; kind: string }> }).suggestions.find(item => item.kind === 'question');
+    assert.ok(question, 'no question to answer');
+    const observationsBefore = (await h.storage.list(`users/${UID}/intelligenceObservations`)).length;
+
+    // Revoked on another device; the stale screen still shows the question.
+    await setRecommendations(h.storage, 'declined');
+    const answered = await answerPost(req(`/api/mobile/intelligence/suggestions/${question.id}/answer`, 'POST', { answer: 'Tuesday evening' }), params(question.id));
+    assert.equal(answered.status, 403, 'the answer ran with recommendations declined');
+    assert.equal(((await answered.json()) as { reason: string }).reason, 'consent_required');
+    assert.equal((await h.storage.list(`users/${UID}/intelligenceObservations`)).length, observationsBefore, 'an observation was written');
+    const stored = await h.storage.get<{ status: string }>(`users/${UID}/intelligenceProposals/${question.id}`);
+    assert.equal(stored?.status, 'pending', 'the refused answer claimed the question');
+
+    // Granted again, the same answer is taken.
+    await setRecommendations(h.storage, 'granted');
+    assert.equal((await answerPost(req(`/api/mobile/intelligence/suggestions/${question.id}/answer`, 'POST', { answer: 'Tuesday evening' }), params(question.id))).status, 200);
   } finally { h.restore(); }
 });
 
