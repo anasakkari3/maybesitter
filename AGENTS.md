@@ -106,6 +106,15 @@ auto-add decision, under calendar consent, and never periodically. Both
 approvals remain behind default-off flags and kill switches, staging-only and
 pinned off in production; release still waits for Market Evidence Gate #61.
 
+**Owner go (2026-11-15): the feature add-on gate reads in shadow in production.**
+`MAYBESITTER_ADDON_GATE_MODE` is `shadow` on both services
+(`infra/cloudrun/flags.sh`). A feature the person switched off (`user_off`) is
+obeyed; every other refusal — not bought, budget or free allowance spent — is
+only logged. `enforce` stays Stage B under the rules above until the owner
+releases it. The «الميزات» list (`/api/mobile/capabilities/features`) holds only
+features whose deployment switches are on, so production shows none of the
+release-locked modules (memory learning, memory translation, search history).
+
 The sprint dates on those milestones are historical planning assumptions, not
 approved execution commitments.
 

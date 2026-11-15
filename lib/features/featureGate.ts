@@ -9,7 +9,7 @@
  * ── Rollout mode ─────────────────────────────────────────────────
  *
  * `MAYBESITTER_ADDON_GATE_MODE`, read on every call like the kill switches:
- *   - `off` (default, and production until the owner releases it): nothing is
+ *   - `off` (the default when unset): nothing is
  *     read and everything is allowed — the product behaves exactly as before.
  *   - `shadow`: the decision is computed and a denial is logged, never obeyed
  *     — except the person's own switch (`user_off`), which is obeyed: they can
