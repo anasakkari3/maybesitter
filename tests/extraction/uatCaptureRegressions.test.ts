@@ -386,9 +386,14 @@ test('R1: beside a clause with a good time, the passed one is kept too; the mult
   const { contract } = await propose('ذكرني أتصل بأمي بكرا الساعة 6 المسا، وبدي أشتري خبز اليوم الساعة 9 الصبح');
   assert.notEqual(contract.status, 'rejected');
   assert.deepEqual(contract.items.map((item) => item.title), ['أتصل بأمي', 'أشتري خبز']);
-  // Two clock times stated, one resolved: `countTimeExpressions`'s valve asks
-  // about everything, exactly as it does for any capture that lost a time.
-  assert.ok(contract.items.every((item) => item.needsClarification));
+  // The valve reads each clause against its own items (QA audit NAPI-A8.2):
+  // the bread's passed 9 is asked, with a question; the call keeps the 18:00
+  // its own clause stated (before, one passed hour sent both back).
+  const [call, bread] = contract.items;
+  assert.equal(bread!.needsClarification, true);
+  assert.ok(bread!.clarification);
+  assert.equal(call!.needsClarification, false);
+  assert.ok(call!.resolvedTime);
 });
 
 test('R1 (superseded by FY1 N1): alone, a passed hour is asked about for a new time, never refused', async () => {
@@ -451,8 +456,13 @@ test('R2 C1: the reviewer’s split probes, clause by clause', async () => {
     [UAT_SIX, 6],
     ['بدي أروح عالسوق وأشتري خبز', 1],
     ['لازم أخلص التقرير وأبعته لسامي', 1],
-    ['call Dana and email Sam', 1],
-    ['אני צריך להתקשר לדנה ולשלוח מייל לסאם', 1],
+    // Two errands, each a verb onto an object, are two items since lane B3
+    // (QA audit NA3.4, NAPI-A8.1: the second was lost); one verb onto two
+    // people is still one.
+    ['call Dana and email Sam', 2],
+    ['call Dana and Sam', 1],
+    ['אני צריך להתקשר לדנה ולשלוח מייל לסאם', 2],
+    ['אני צריך להתקשר לדנה ולסאם', 1],
     ['ذكرني الساعة 7.30 المسا أتصل بأمي', 1],
     ['موعد مع د. أحمد بكرا الساعة 5', 1],
     ['appointment with Dr. Haddad tomorrow at 5 p.m. please', 1],
@@ -1057,9 +1067,9 @@ test('R4 N1: on the model path the restated time reaches the model with its appo
 
 // N2 — a batch answer is paired to its clauses by the index it echoes.
 
-const SHIFT = 'call Dana and email Sam; dentist on Tuesday at 9am; pay rent by Friday at 5pm';
+const SHIFT = 'call Dana and Sam; dentist on Tuesday at 9am; pay rent by Friday at 5pm';
 const SHIFT_SINGLES: Record<string, unknown> = {
-  'call Dana and email Sam': taskFor('call Dana and email Sam'),
+  'call Dana and Sam': taskFor('call Dana and Sam'),
   'dentist on Tuesday at 9am': timedTask('dentist', '2026-09-29', '09:00'),
   'pay rent by Friday at 5pm': timedTask('pay rent', '2026-10-02', '17:00'),
 };
@@ -1075,7 +1085,7 @@ test('R4 N2: the reviewer’s mis-split — two objects for clause 0 — is re-a
   );
   const { contract, drafts } = await proposeScripted(SHIFT, model);
   assert.deepEqual(model.log.map((call) => call.shape), ['batch', 'single', 'single', 'single']);
-  assert.deepEqual(drafts.map((draft) => draft.title), ['call Dana and email Sam', 'dentist', 'pay rent'], 'pay rent is not lost');
+  assert.deepEqual(drafts.map((draft) => draft.title), ['call Dana and Sam', 'dentist', 'pay rent'], 'pay rent is not lost');
   assert.deepEqual(drafts.map((draft) => draft.rawText), SHIFT.split('; '), 'each item is validated against its own clause');
   assert.equal(drafts[0]!.resolvedDate, null, 'no clause borrows the dentist’s Tuesday');
   assert.equal(drafts[0]!.priority, 'normal');
@@ -1139,7 +1149,7 @@ test('R4 N2: an aligned batch is accepted as it is — one call, no re-ask', asy
   );
   const { drafts } = await proposeScripted(SHIFT, model);
   assert.deepEqual(model.log.map((call) => call.shape), ['batch']);
-  assert.deepEqual(drafts.map((draft) => draft.title), ['call Dana and email Sam', 'dentist', 'pay rent']);
+  assert.deepEqual(drafts.map((draft) => draft.title), ['call Dana and Sam', 'dentist', 'pay rent']);
 });
 
 test('R4 N2: a batch with no echoed index (the round-2 recording) or a wrong count is re-asked, within the call budget', async () => {
@@ -1743,7 +1753,7 @@ test('R6 M-a: a batch numbered as a counter over a mis-split is caught by its cl
   const { drafts } = await proposeScripted(SHIFT, model);
   assert.deepEqual(model.log.map((call) => call.shape), ['batch', 'single', 'single', 'single']);
   assert.deepEqual(drafts.map((draft) => [draft.title, draft.rawText]), [
-    ['call Dana and email Sam', 'call Dana and email Sam'],
+    ['call Dana and Sam', 'call Dana and Sam'],
     ['dentist', 'dentist on Tuesday at 9am'],
     ['pay rent', 'pay rent by Friday at 5pm'],
   ]);
@@ -2040,12 +2050,12 @@ test('R7 I-2: the swap signatures are still re-asked — an hour that belongs to
   );
   const first = await proposeScripted(SHIFT, misSplit);
   assert.deepEqual(misSplit.log.map((call) => call.shape), ['batch', 'single', 'single', 'single']);
-  assert.deepEqual(first.drafts.map((draft) => draft.title), ['call Dana and email Sam', 'dentist', 'pay rent']);
+  assert.deepEqual(first.drafts.map((draft) => draft.title), ['call Dana and Sam', 'dentist', 'pay rent']);
   // The residual (re-review 3, m-1): the displaced object has no time and lands
   // on a clause with no clock; its own clause's hour shows up on a sibling.
-  const T2 = 'call Dana and email Sam; dentist on Tuesday at 9am; pay rent by Friday';
+  const T2 = 'call Dana and Sam; dentist on Tuesday at 9am; pay rent by Friday';
   const singles: Record<string, unknown> = {
-    'call Dana and email Sam': taskFor('call Dana and email Sam'),
+    'call Dana and Sam': taskFor('call Dana and Sam'),
     'dentist on Tuesday at 9am': timedTask('dentist', '2026-09-29', '09:00'),
     'pay rent by Friday': timedTask('pay rent', '2026-10-02', null),
   };
@@ -2056,14 +2066,14 @@ test('R7 I-2: the swap signatures are still re-asked — an hour that belongs to
   const second = await proposeScripted(T2, residual);
   assert.deepEqual(residual.log.map((call) => call.shape), ['batch', 'single', 'single', 'single']);
   assert.deepEqual(second.drafts.map((draft) => [draft.title, draft.rawText]), [
-    ['call Dana and email Sam', 'call Dana and email Sam'],
+    ['call Dana and Sam', 'call Dana and Sam'],
     ['dentist', 'dentist on Tuesday at 9am'],
     ['pay rent', 'pay rent by Friday'],
   ]);
   // The missing-hour signature on its own: the displaced dentist lands on a
   // clause that states the same hour, so only the hourless "email Sam" on the
   // dentist's clause — with a sibling carrying its 9 — gives the swap away.
-  const T3 = 'call Dana and email Sam; dentist on Tuesday at 9am; pay rent by Friday at 9am';
+  const T3 = 'call Dana and Sam; dentist on Tuesday at 9am; pay rent by Friday at 9am';
   const singles3: Record<string, unknown> = { ...singles, 'pay rent by Friday at 9am': timedTask('pay rent', '2026-10-02', '09:00') };
   const missingHour = scriptedModel(
     () => ({ items: [{ clauseIndex: 0, ...taskFor('call Dana') }, { clauseIndex: 1, ...taskFor('email Sam') }, { clauseIndex: 2, ...timedTask('dentist', '2026-09-29', '09:00') }] }),
@@ -2072,7 +2082,7 @@ test('R7 I-2: the swap signatures are still re-asked — an hour that belongs to
   const third = await proposeScripted(T3, missingHour);
   assert.deepEqual(missingHour.log.map((call) => call.shape), ['batch', 'single', 'single', 'single']);
   assert.deepEqual(third.drafts.map((draft) => [draft.title, draft.rawText]), [
-    ['call Dana and email Sam', 'call Dana and email Sam'],
+    ['call Dana and Sam', 'call Dana and Sam'],
     ['dentist', 'dentist on Tuesday at 9am'],
     ['pay rent', 'pay rent by Friday at 9am'],
   ]);
@@ -2180,10 +2190,12 @@ test('R7 I-3: a bare early hour today whose morning has passed reaches the am/pm
   assert.equal(timeSpec.dueAt, '2026-09-26T14:00:00.000Z');
   // Beside another clause the same question is asked, and the other clause is untouched.
   const { contract } = await propose('ذكرني أتصل بأمي الساعة 5، وأشتري خبز بكرا');
-  // (The bread keeps its «و»: a bare «و» fused to a verb is never stripped from a title — «وصّل» is a verb of its own. Pre-existing, cosmetic.)
+  // The bread loses its joining «و» since lane B3 (QA audit CA3.1): «أشتري»
+  // carries its person prefix, and no word starts so but the verb. A bare or
+  // doubled verb — «وصّل», «ورد» — still keeps it.
   assert.deepEqual(contract.items.map((item) => [item.title, item.clarification?.questionKey ?? null, item.resolvedDate ?? null]), [
     ['أتصل بأمي', 'ask_am_pm', '2026-09-26'],
-    ['وأشتري خبز', 'ask_time', '2026-09-27'],
+    ['أشتري خبز', 'ask_time', '2026-09-27'],
   ]);
   // A passed hour that is not a bare early one is asked for a new time, alone
   // (FY1 N1; it was refused alone until then) as beside others (rounds 1 and 3).

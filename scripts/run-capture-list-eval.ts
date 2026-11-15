@@ -30,6 +30,16 @@
  *     [--report evaluation-reports/capture-list-eval-<engine>.json]
  */
 import { readFileSync, writeFileSync } from 'node:fs';
+// Every environment value below is read when a call is made, not when a
+// module loads, so these imports may come first.
+import { configuredProviderName } from '../src/extraction/llm';
+import { proposeMobileCapture } from '../lib/services/mobile/mobileCaptureService';
+import { proposeFromShare } from '../lib/services/share/shareIntakeService';
+import { splitCaptureClauses } from '../src/extraction/clauseSplitter';
+import { localTimeSpecFor } from '../src/extraction/timeLexicon';
+import { getStorage, userDoc } from '../lib/storage/index';
+import { newUserDocument } from '../lib/storage/userDocument';
+import { createPilotTrustState } from '../lib/pilot/closedPilotControls';
 
 const INPUT_USD_PER_M = 0.3;
 const OUTPUT_USD_PER_M = 2.5;
@@ -62,21 +72,6 @@ if (engine === 'rules') process.env.MAYBESITTER_LLM_PROVIDER = 'none';
 process.env.MAYBESITTER_LLM_MINUTE_CALL_CAP = String(MINUTE_CAP);
 process.env.MAYBESITTER_LLM_DAILY_CALL_CAP = '2000';
 process.env.MAYBESITTER_LLM_DAILY_TOKEN_CAP = '20000000';
-
-const { configuredProviderName } = await import('../src/extraction/llm');
-const { proposeMobileCapture } = await import('../lib/services/mobile/mobileCaptureService');
-const { proposeFromShare } = await import('../lib/services/share/shareIntakeService');
-const { splitCaptureClauses } = await import('../src/extraction/clauseSplitter');
-const { localTimeSpecFor } = await import('../src/extraction/timeLexicon');
-const { getStorage, userDoc } = await import('../lib/storage/index');
-const { newUserDocument } = await import('../lib/storage/userDocument');
-const { createPilotTrustState } = await import('../lib/pilot/closedPilotControls');
-
-// The synthetic account's `users/{uid}` document, as authentication writes it
-// on a first request (tests/support/liveAccount.ts): in memory, never stored.
-await getStorage().runTransaction(async (tx) => {
-  tx.set(userDoc(UID), { ...newUserDocument('2020-01-01T00:00:00.000Z'), trust: createPilotTrustState(UID, '2020-01-01T00:00:00.000Z') });
-});
 
 if (engine === 'model' && configuredProviderName() !== 'gemini') {
   throw new Error('--engine model needs MAYBESITTER_LLM_PROVIDER=gemini and configured Vertex credentials.');
@@ -127,7 +122,7 @@ async function paceFor(bound: number): Promise<void> {
 }
 
 const local = (iso: string | null | undefined) => iso ? localTimeSpecFor(new Date(iso), TIMEZONE) : null;
-const LEADING_JOINER = /^(?:و|and\s|ו(?=[א-ת]{2,}\s))/iu;
+const LEADING_JOINER = new RegExp('^(?:\u0648|and\\s|\u05D5(?=[\u05D0-\u05EA]{2,}\\s))', 'iu');
 
 function score(entry: Case, proposal: Record<string, unknown>) {
   const items = (Array.isArray(proposal.items) ? proposal.items : []) as Item[];
@@ -162,6 +157,8 @@ function score(entry: Case, proposal: Record<string, unknown>) {
   return {
     id: entry.id, category: entry.category, finding: entry.finding, lang: entry.lang, path: entry.path,
     status: String(proposal.status ?? ''), expectedCount, gotCount: items.length, matched,
+    // The day each item landed on (dates only, never a title).
+    gotDates: items.map((item) => local(item.resolvedTime)?.date ?? item.resolvedDate ?? null),
     timeOk, timeTotal, dateOk, dateTotal, leadingJoiners: joiners, needsClarificationWithoutQuestion: noQuestion,
     expectedQuestionMissing: questionMissing, forbiddenHits, ignoredSegments: ignored, ignoredOk,
     executedEngine: provenance?.executedEngine ?? null, fallbackUsed: provenance?.fallbackUsed ?? null,
@@ -208,6 +205,11 @@ function summarize(rows: Scored[], key: 'finding' | 'category') {
 }
 
 async function main(): Promise<void> {
+  // The synthetic account's `users/{uid}` document, as authentication writes
+  // it on a first request (tests/support/liveAccount.ts): in memory only.
+  await getStorage().runTransaction(async (tx) => {
+    tx.set(userDoc(UID), { ...newUserDocument('2020-01-01T00:00:00.000Z'), trust: createPilotTrustState(UID, '2020-01-01T00:00:00.000Z') });
+  });
   const only = arg('--only')?.split(',');
   const limit = Number(arg('--limit') ?? Infinity);
   const capUsd = Number(arg('--cap-usd') ?? 0.4);
@@ -253,4 +255,4 @@ async function main(): Promise<void> {
   process.stdout.write(`${JSON.stringify({ ...report, rows: undefined }, null, 2)}\n`);
 }
 
-await main();
+void main();
