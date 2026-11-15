@@ -14,11 +14,13 @@ import {
   NOW,
   completeBusy,
   commitment,
+  googleConnected,
   instant,
   prepareCalendar,
   press,
   renderCalendar,
   teardown,
+  trust,
   type M4aHarness,
 } from './harness';
 
@@ -95,5 +97,19 @@ describe('CA4.4 server busy time on the Plan tab', () => {
     await renderCalendar(harness);
 
     expect(screen.queryByTestId(`calendar-busy-bar-${DAY}`)).not.toBeNull();
+  });
+
+  it('an interval Google already draws is drawn once, not twice', async () => {
+    harness = await lectureDay();
+    harness.scenario.trust = trust(true);
+    harness.scenario.googleStatus = googleConnected;
+    harness.scenario.googleBusy = {
+      ...(harness.scenario.googleBusy as object),
+      blocks: [{ blockId: 'g-1', sourceId: 'google:primary', sourceKind: 'google', startAt: instant(DAY, '08:00'), endAt: instant(DAY, '20:00'), allDay: false }],
+    };
+    await renderCalendar(harness);
+    await press(`calendar-day-${DAY}`);
+
+    expect(screen.queryAllByTestId('calendar-busy-row')).toHaveLength(1);
   });
 });
