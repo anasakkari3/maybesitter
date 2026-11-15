@@ -210,7 +210,7 @@ describe('a revoked account (C12.1)', () => {
     expect(revokedAccount()).toBeNull();
   });
 
-  it('never shows A s revoked screen to B, not even for one render', async () => {
+  it("never shows A's revoked screen to B, not even for one render", async () => {
     await mount();
     await firstRequestRefused();
     await waitFor(() => expect(screen.getByTestId('revoked-account')).toBeTruthy());
@@ -226,7 +226,7 @@ describe('a revoked account (C12.1)', () => {
 });
 
 describe('holding an account as revoked is bound to that account (C12.1)', () => {
-  it('never holds B for a 403 that was A s, nor cleans B s handset for it', async () => {
+  it("never holds B for a 403 that was A's, nor cleans B's handset for it", async () => {
     const cleanup = jest.fn(async () => {});
     onBeforeSignOut(cleanup);
     repository.emit(B);
@@ -241,6 +241,15 @@ describe('holding an account as revoked is bound to that account (C12.1)', () =>
     });
     await holdRevoked();
     expect(revokedAccount()).toBeNull();
+  });
+
+  it('runs the cleanup once for many 403s at the same moment', async () => {
+    // A cleanup that takes a moment, as the real one (FCM, the OS) does.
+    const cleanup = jest.fn(() => new Promise<void>(resolve => setTimeout(resolve, 0)));
+    onBeforeSignOut(cleanup);
+    await Promise.all([holdRevoked(), holdRevoked(A.uid), holdRevoked()]);
+    expect(cleanup).toHaveBeenCalledTimes(1);
+    expect(revokedAccount()).toBe(A.uid);
   });
 
   it('holds the signed-in account otherwise', async () => {
