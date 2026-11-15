@@ -910,7 +910,7 @@ function SuggestionBasis({ suggestion, items, hidden, onFix }: {
 const LEARNED_LIMIT = 5;
 /** The newest re-add guesses still waiting for an answer (M5b-2b-2 R3). */
 const READD_PENDING_LIMIT = 3;
-const LEARNED_KEY = { completed: 'm5bLearnedCompleted', postponed: 'm5bLearnedPostponed', dropped: 'm5bLearnedDropped' } as const;
+const LEARNED_KEY = { completed: 'm5bLearnedCompleted', postponed: 'm5bLearnedPostponed', dropped: 'm5bLearnedDropped', deleted: 'm5bLearnedDeleted' } as const;
 const READD_KEY = { dropped: 'm5bLearnedReaddedAfterDrop', completed: 'm5bLearnedReaddedAfterDone' } as const;
 
 const newestFirst = (a: IntelligenceObservation, b: IntelligenceObservation) =>

@@ -43,9 +43,9 @@ export interface ActivityPage {
 
 async function commitmentsById(uid: string): Promise<Map<string, Commitment>> {
   const rows = await getStorage().list<Commitment>(userCol(uid, COMMITMENTS));
-  // A deleted commitment (`archived`, CA2.3) has no name to show: its entries
-  // read as «a removed item», the header's case for a commitment that is gone.
-  return new Map(rows.filter((row) => row.data.status !== 'archived').map((row) => [row.data.id, row.data]));
+  // A deleted commitment (`archived`, CA2.3) keeps its name here: it left the
+  // plan and the lists, and stays in the person's history (owner decision).
+  return new Map(rows.map((row) => [row.data.id, row.data]));
 }
 
 /** A ledger row planActivity allows to become activity. */

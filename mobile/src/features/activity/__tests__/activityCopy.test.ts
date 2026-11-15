@@ -19,6 +19,7 @@ import en from '../../../i18n/locales/en.json';
 import he from '../../../i18n/locales/he.json';
 import { tFor } from '../../../i18n/index';
 import { activityKindLabel } from '../ActivityScreen';
+import { strings } from '../../../i18n/strings';
 
 const KEYS = [
   'activityTitle', 'activityWeekTitle', 'activityWeekDone', 'activityWeekPlanned', 'activityWeekKept',
@@ -161,7 +162,7 @@ describe('the activity copy', () => {
 describe('a deletion in history (CA2.3 owner decision)', () => {
   it('is named in all three languages, and never as a drop', () => {
     for (const lang of ['ar', 'en', 'he'] as const) {
-      const t = tFor(lang);
+      const t = strings[lang];
       expect(activityKindLabel('deleted', t)).toBe(BUNDLES[lang]!.activityKindDeleted);
       expect(activityKindLabel('deleted', t)).not.toBe(activityKindLabel('dropped', t));
     }

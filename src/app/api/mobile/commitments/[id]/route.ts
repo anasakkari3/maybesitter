@@ -19,6 +19,7 @@ import { commitmentToMobileDto, mobileError } from '../../../../../../lib/servic
 import { getDeviceCalendarLink } from '../../../../../../lib/services/calendar/deviceCalendarLinks';
 import { RequestBodyTooLargeError, readJsonBody, requestBodyTooLargeResponse } from '../../../../../../lib/net/requestBody';
 import { addedFromByCommitment } from '../../../../../../lib/intelligence/autoAdds';
+import { learnOutcomesWithin } from '../../../../../../lib/intelligence/outcomeLearning';
 
 export const dynamic = 'force-dynamic';
 
@@ -112,12 +113,15 @@ export async function DELETE(
     // «احذفها» is a deletion, not a drop (CA2.3): the Delete command takes it
     // out of every list, search and history entry, and a completed item is
     // never rewritten as dropped. A drop on purpose is the actions route's
-    // `cancel`. Nothing here is an outcome to learn from — the person removed
-    // the item, they did not decide about the work.
+    // `cancel`. It leaves every plan and list but is remembered (owner
+    // decision 2026-11-15): history keeps it as «انحذفت», and the loop learns
+    // it as its own outcome, "Deleted" (gated, consent-checked, never fails
+    // the delete).
     const commitment = await deleteCommitment(id, new Date(), {
       participantId: user.uid,
       expectedValidator: ifMatchFrom(request),
     });
+    await learnOutcomesWithin(user.uid);
     // `softDeleted`: the record is kept server-side, hidden from every
     // screen, so `deleted` does not claim an erasure that did not happen.
     return Response.json({
