@@ -7,7 +7,9 @@ import { onlineManager } from '@tanstack/react-query';
 import { AppProvider } from '../../../state/AppContext';
 import { AuthProvider } from '../../../auth/AuthProvider';
 import { createFakeAuthRepository, type FakeAuthRepository } from '../../../auth/fakeAuthRepository';
-import { resetAuthForTests, revokedAccount, setAuthRepository } from '../../../api/auth';
+import { holdRevoked, resetAuthForTests, revokedAccount, setAuthRepository } from '../../../api/auth';
+import { onBeforeSignOut, resetBeforeSignOutForTests } from '../../../auth/beforeSignOut';
+import * as revokedScreen from '../../../screens/RevokedAccountScreen';
 import { apiRequest } from '../../../api/client';
 import { createAppQueryClient } from '../../../api/queryClient';
 import { ApiProvider } from '../../../api/ui/ApiProvider';
@@ -117,6 +119,7 @@ beforeEach(() => {
 
 afterEach(() => {
   resetAuthForTests();
+  resetBeforeSignOutForTests();
   jest.restoreAllMocks();
 });
 
@@ -205,5 +208,43 @@ describe('a revoked account (C12.1)', () => {
     await waitFor(() => expect(screen.getByTestId('the-app')).toBeTruthy());
     expect(screen.queryByTestId('revoked-account')).toBeNull();
     expect(revokedAccount()).toBeNull();
+  });
+
+  it('never shows A s revoked screen to B, not even for one render', async () => {
+    await mount();
+    await firstRequestRefused();
+    await waitFor(() => expect(screen.getByTestId('revoked-account')).toBeTruthy());
+    const rendered = jest.spyOn(revokedScreen, 'RevokedAccountScreen');
+
+    await act(async () => {
+      repository.emit(B);
+    });
+
+    expect(rendered).not.toHaveBeenCalled();
+    expect(screen.getByTestId('the-app')).toBeTruthy();
+  });
+});
+
+describe('holding an account as revoked is bound to that account (C12.1)', () => {
+  it('never holds B for a 403 that was A s, nor cleans B s handset for it', async () => {
+    const cleanup = jest.fn(async () => {});
+    onBeforeSignOut(cleanup);
+    repository.emit(B);
+    await holdRevoked(A.uid);
+    expect(revokedAccount()).toBeNull();
+    expect(cleanup).not.toHaveBeenCalled();
+  });
+
+  it('never holds an account that changed while the cleanup ran', async () => {
+    onBeforeSignOut(async () => {
+      repository.emit(B);
+    });
+    await holdRevoked();
+    expect(revokedAccount()).toBeNull();
+  });
+
+  it('holds the signed-in account otherwise', async () => {
+    await holdRevoked();
+    expect(revokedAccount()).toBe(A.uid);
   });
 });
