@@ -18,6 +18,7 @@ import * as dataExportFile from '../../../lib/dataExportFile';
 import type { AuthUser } from '../../../auth/types';
 import { z } from 'zod';
 import en from '../../../i18n/locales/en.json';
+import exported from '../../../api/__fixtures__/account.export.json';
 
 /**
  * A revoked account, in the app (C12.1, owner decision (a)).
@@ -45,13 +46,8 @@ const RECEIPT = {
     steps: { markDeleted: 'done', authUser: 'done', userTree: 'done', receipt: 'done' },
   },
 };
-const EXPORT = {
-  exportedAt: '2026-11-15T10:00:00.000Z',
-  schemaVersion: 1,
-  account: { uid: A.uid, profile: null },
-  collections: {},
-  excluded: {},
-};
+// The real route's response, as `exportMobileApiFixtures.test.ts` recorded it.
+const EXPORT = exported;
 
 let requests: { method: string; url: string }[] = [];
 let repository: FakeAuthRepository;
