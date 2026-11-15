@@ -18,10 +18,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createMemoryStorage, type MemoryStorageAdapter } from '../../lib/storage/memoryAdapter.ts';
 import { resetStorageForTests, setStorageForTests } from '../../lib/storage/index.ts';
-import { docIdForKey, PUSH_LOG, userCol, userSubDoc, WATCHER_EVENTS, WATCHER_NOTIFICATIONS } from '../../lib/storage/paths.ts';
+import { docIdForKey, PUSH_LOG, userCol, userDoc, userSubDoc, WATCHER_EVENTS, WATCHER_NOTIFICATIONS } from '../../lib/storage/paths.ts';
 import { runWatcherSweep } from '../../lib/watchers/watcherEngine.ts';
 import { saveRoutineProfile } from '../../lib/services/mobile/routineProfileService.ts';
-import { watcherAlertDedupeKey, WATCHER_ALERT_DAILY_CAP, WATCHER_ALERT_MIN_GAP_MS, WATCHER_ALERT_REDRIVE_MS } from '../../lib/push/watcherAlert.ts';
+import { deliverWatcherAlert, watcherAlertDedupeKey, WATCHER_ALERT_DAILY_CAP, WATCHER_ALERT_MIN_GAP_MS, WATCHER_ALERT_REDRIVE_MS } from '../../lib/push/watcherAlert.ts';
 import { createWatcherStore } from '../../lib/watchers/watcherStore.ts';
 import { runWatcherTick } from '../../lib/jobs/internalJobs.ts';
 import { upsertDevice } from '../../lib/push/deviceRegistry.ts';
@@ -340,6 +340,11 @@ test('re-drive leaves alone what is too old, and marks sent what already went ou
     const now = minutes(100);
     const redriveMinutes = WATCHER_ALERT_REDRIVE_MS / 60_000;
     await queuedAt(UID, 'wtn_old', minutes(100 - redriveMinutes - 1), 'wtc_old');
+    // Its watcher alerted a minute earlier, so it is inside its gap: only the
+    // lock, not a fresh send, can be what marks it.
+    await queuedAt(UID, 'wtn_recent', minutes(98), 'wtc_pushed');
+    assert.equal(await deliverWatcherAlert(UID, 'wtn_recent', minutes(98), { storage, messaging }), 'sent');
+    messaging.sent.length = 0;
     await queuedAt(UID, 'wtn_pushed', minutes(99), 'wtc_pushed');
     // Pushed before a crash that came before it could be marked: the lock exists.
     await storage.set(userSubDoc(UID, PUSH_LOG, docIdForKey(watcherAlertDedupeKey('wtn_pushed'))), {
@@ -407,6 +412,21 @@ test('one account\'s alerts reach only its own devices, and its bounds do not to
       `token-${BOB_DEVICE.replace(/-/g, '')}`,
     ]);
     assert.deepEqual((await storage.list(userCol(BOB, WATCHER_NOTIFICATIONS))).length, 1);
+  } finally {
+    resetStorageForTests();
+  }
+});
+
+test('a deleted account spends nothing: no push and no budget written under it', async () => {
+  await begin();
+  try {
+    await withDevice('ar');
+    await queuedAt(UID, 'wtn_gone', minutes(0), 'wtc_gone');
+    await storage.delete(userDoc(UID));
+    const messaging = fakeMessaging();
+    assert.equal(await deliverWatcherAlert(UID, 'wtn_gone', minutes(1), { storage, messaging }), 'gone');
+    assert.equal(messaging.sent.length, 0);
+    assert.deepEqual(await storage.list(userCol(UID, PUSH_LOG)), []);
   } finally {
     resetStorageForTests();
   }

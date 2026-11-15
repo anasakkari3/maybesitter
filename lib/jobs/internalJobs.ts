@@ -50,7 +50,7 @@ import { completeEndedFixturesForEveryone, projectFixturesForUser } from '../foo
 import { pollFollowedClubs, syncFollowedClubs, type PollReport, type SyncReport } from '../football/syncFixtures';
 import type { FixtureProvider } from '../../src/contracts/v1/fixtureContracts';
 import { runWatcherSweep, type WatcherFiring, type WatcherSweepTotals } from '../watchers/watcherEngine';
-import { deliverWatcherAlert } from '../push/watcherAlert';
+import { deliverWatcherAlert, redriveQueuedWatcherAlerts } from '../push/watcherAlert';
 import type { MessagingClient } from '../push/pushService';
 import { decideFeature, refuses } from '../features/featureGate';
 
@@ -448,6 +448,8 @@ export interface WatcherTickOptions {
   sweep?: () => Promise<WatcherSweepTotals>;
   /** The FCM client a `notify` firing is pushed through; a test's fake. */
   messaging?: MessagingClient;
+  /** The tick's clock, for the sweep and the pushes alike; a test's fixed instant. */
+  now?: () => Date;
 }
 
 /**
@@ -456,11 +458,14 @@ export interface WatcherTickOptions {
  * fails is logged by code only — never the watcher, the uid or a token — and
  * never undoes or fails the firing.
  */
-export function watcherFiringDelivery(options: { messaging?: MessagingClient } = {}) {
+export function watcherFiringDelivery(options: { messaging?: MessagingClient; now?: () => Date } = {}) {
   return async (firing: WatcherFiring): Promise<void> => {
     if (firing.effect !== 'notify' || firing.effectRef === null) return;
     try {
-      await deliverWatcherAlert(firing.scopeId, firing.effectRef, new Date(), options.messaging ? { messaging: options.messaging } : {});
+      await deliverWatcherAlert(
+        firing.scopeId, firing.effectRef, (options.now ?? (() => new Date()))(),
+        options.messaging ? { messaging: options.messaging } : {},
+      );
     } catch (error) {
       const code = error && typeof error === 'object' && typeof (error as { code?: unknown }).code === 'string'
         ? (error as { code: string }).code
@@ -487,10 +492,22 @@ export async function runWatcherTick(
     console.error('[internal/jobs/watchers] football poll failed', error);
     football = { enabled: true, error: 'football_poll_failed' };
   }
+  const clock = options.now ?? (() => new Date());
+  const messaging = options.messaging ? { messaging: options.messaging } : {};
+  // Pushes a previous tick queued but never sent — a crash between a firing's
+  // commit and its push, quiet hours that just ended — for 30 minutes after
+  // the firing (lib/push/watcherAlert.ts). Before the sweep, so this tick's
+  // fresh firings are not re-tried in the same minute they were attempted.
+  try {
+    await redriveQueuedWatcherAlerts(clock(), messaging);
+  } catch (error) {
+    console.error('[internal/jobs/watchers] watcher alert re-drive failed', error instanceof Error ? error.name : 'unknown');
+  }
   // One decision per person per tick, however many fixture watchers they have.
   const footballOff = new Map<string, Promise<boolean>>();
   const sweep = await (options.sweep ?? (() => runWatcherSweep({
-    onFired: watcherFiringDelivery(options.messaging ? { messaging: options.messaging } : {}),
+    now: clock(),
+    onFired: watcherFiringDelivery({ ...messaging, now: clock }),
     skip: async ({ scopeId, signalKind }) => {
       if (signalKind !== 'fixture') return false;
       if (!footballOff.has(scopeId)) footballOff.set(scopeId, footballSwitchedOff(scopeId));

@@ -350,7 +350,9 @@ async function commitFiring(
       ]);
       if (!current) return 'gone';
       if (existing) {
-        tx.set(watcherPath, absorbedRuntime(current, signal, now, false));
+        if (current.runtime.fireCount === stored.runtime.fireCount) {
+          tx.set(watcherPath, absorbedRuntime(current, signal, now, false));
+        }
         return 'duplicate';
       }
       if (!current.definition.enabled) return 'paused';
@@ -380,8 +382,12 @@ async function commitFiring(
     if (existing) {
       // This transition was already handled. Absorb what was observed, or the
       // stale baseline would make every later sweep re-read it as the same
-      // duplicate and the watcher would never fire again (QA CXA6.1).
-      tx.set(watcherPath, absorbedRuntime(current, signal, now, false));
+      // duplicate and the watcher would never fire again (QA CXA6.1) — but
+      // only if nothing fired since this sweep read the row: a slow sweep
+      // must not roll a newer baseline back to its stale observation.
+      if (current.runtime.fireCount === stored.runtime.fireCount) {
+        tx.set(watcherPath, absorbedRuntime(current, signal, now, false));
+      }
       return 'duplicate';
     }
     if (!current.definition.enabled) return 'paused';
