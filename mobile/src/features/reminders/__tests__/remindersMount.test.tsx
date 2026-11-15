@@ -584,17 +584,16 @@ describe('signing out leaves nothing of the account on the phone (C13.14)', () =
     async reason => {
       const cancelAll = jest.spyOn(notifications, 'cancelAllScheduledNotificationsAsync');
       const dismissAll = jest.spyOn(notifications, 'dismissAllNotificationsAsync');
-      let signOut: ((opts: { reason: typeof reason }) => Promise<void>) | undefined;
-      function Grab() {
-        signOut = useAuth().signOut as never;
-        return null;
+      function SignOutFor() {
+        const { signOut } = useAuth();
+        return <Text testID="sign-out-for" onPress={() => void signOut({ reason })}>out</Text>;
       }
-      await render(
+      const view = await render(
         <AppProvider>
           <AuthProvider repository={repository} isDevBundle={false}>
             <QueryClientProvider client={client}>
               <SignedInOnly><RemindersMount /></SignedInOnly>
-              <Grab />
+              <SignOutFor />
             </QueryClientProvider>
           </AuthProvider>
         </AppProvider>,
@@ -603,8 +602,9 @@ describe('signing out leaves nothing of the account on the phone (C13.14)', () =
       cancelAll.mockClear();
 
       await act(async () => {
-        await signOut?.({ reason });
+        view.getByTestId('sign-out-for').props.onPress();
       });
+      await waitFor(() => expect(repository.signOutReasons).toEqual([reason]));
 
       expect(cancelAll).toHaveBeenCalled();
       expect(dismissAll).toHaveBeenCalled();
@@ -655,7 +655,7 @@ describe('signing out leaves nothing of the account on the phone (C13.14)', () =
     await waitFor(() => expect(repository.signOutReasons).toEqual(['user']));
     // Away from A's commitment, as the sign-in screen would leave it.
     await act(async () => {
-      view.rerender(<></>);
+      await view.rerender(<></>);
     });
 
     // B signs in on the same phone, in the same process.
