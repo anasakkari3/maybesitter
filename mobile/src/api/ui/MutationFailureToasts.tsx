@@ -24,6 +24,20 @@ import { errorWasShown, markErrorShown, userFacingMessage } from './userFacingMe
  *
  * Only network-class failures: a refusal (a 4xx) is the screen's to word, and
  * the screens that refuse already do, in their own terms.
+ *
+ * ── Why a delay, and its one weakness ────────────────────────────
+ *
+ * The deterministic signal is the mark: every helper that turns an error into
+ * words (`userFacingMessageKey`, `toggleFailureKey`, the plan and weekly
+ * helpers…) marks it, and a surface that says a failure in a line it renders
+ * later marks it in its own `onError` (the edit, drop/delete and postpone
+ * sheets, the next-step card). TanStack runs a `mutate` call's callbacks before
+ * it notifies the cache, so those marks are already there when this sees the
+ * failure. The delay is for the rest: a `mutateAsync` caught in a promise
+ * continuation, or a screen that only words `mutation.error` while rendering.
+ * A screen of that last kind whose render lands later than the delay would be
+ * said twice — the trade-off kept here rather than silence. New surfaces should
+ * mark in `onError`.
  */
 export const UNHANDLED_FAILURE_DELAY_MS = 400;
 

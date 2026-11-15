@@ -8,7 +8,7 @@ import { isolateAuto } from '../i18n/bidi';
 import { useTimeZone } from '../i18n/timezone';
 import { formatDate, formatRelativeDay, formatTime } from '../i18n/format';
 import { useCommitment, useCommitmentAction, useDeleteCommitment, usePatchCommitment, useUid } from '../api/queries';
-import { userFacingMessage } from '../api/ui/userFacingMessage';
+import { markErrorShown, userFacingMessage } from '../api/ui/userFacingMessage';
 import { SlotRefusedError } from '../api/errors';
 import { getPostponeSlots } from '../api/endpoints/m4b';
 import type { PostponeSlot } from '../api/schemas/m4b';
@@ -162,7 +162,8 @@ function PostponeChoices({ commitmentId, knownTitle, onMoved }: {
 
   const send = (until: string) => {
     if (!commitmentId) return;
-    act.mutate({ id: commitmentId, action: 'postpone', postponedUntil: until }, { onSuccess: onMoved });
+    // The sheet says a failure itself (`problem` / `pickFailure`), marked at once.
+    act.mutate({ id: commitmentId, action: 'postpone', postponedUntil: until }, { onSuccess: onMoved, onError: markErrorShown });
   };
 
   // A picked free time (M4b R3.2): the only write, re-checked by the server.
@@ -173,7 +174,7 @@ function PostponeChoices({ commitmentId, knownTitle, onMoved }: {
     smart.clearProblem();
     act.mutate(
       { id: commitmentId, action: 'postpone', postponedUntil: slot.startsAt, slotToken: slot.slotToken },
-      { onSuccess: onMoved, onError: (error) => { if (error instanceof SlotRefusedError) smart.refused(error); } },
+      { onSuccess: onMoved, onError: (error) => { markErrorShown(error); if (error instanceof SlotRefusedError) smart.refused(error); } },
     );
   };
   const slotProblem = smart.problem === null ? null
@@ -183,7 +184,7 @@ function PostponeChoices({ commitmentId, knownTitle, onMoved }: {
   // Any other failure of a picked time (network, timeout, server) is said too
   // (M4B-A-R2-016); a slot refusal's own line wins.
   const pickFailure = !custom && slotProblem === null && act.error && !(act.error instanceof SlotRefusedError) ? userFacingMessage(act.error, t) : null;
-  useAnnounceOnIos(slotProblem ?? pickFailure);
+  useAnnounceOnIos(slotProblem ?? pickFailure ?? (custom ? problem : null));
 
   const choose = (preset: PostponePreset) => {
     // No past-instant guard here, and none is needed: every preset is `now`
@@ -320,7 +321,9 @@ function PostponeChoices({ commitmentId, knownTitle, onMoved }: {
             />
           ) : null}
 
-          {problem ? <Txt size={13} color={p.wm} testID="postpone-problem">{problem}</Txt> : null}
+          {/* In a live region and announced: the sheet is modal to VoiceOver,
+              so no toast outside it would be heard (A3 review). */}
+          <LiveRegion>{problem ? <Txt size={13} color={p.wm} testID="postpone-problem">{problem}</Txt> : null}</LiveRegion>
 
           <Pill
             testID="postpone-custom-confirm"
@@ -549,7 +552,9 @@ function EditSheet() {
     if (trimmed !== commitment.title) body.title = trimmed;
     if (level !== commitment.priority.level) body.priority = level;
     if (Object.keys(body).length === 0) return;
-    patch.mutate({ id: commitment.id, patch: body }, { onSuccess: actions.closeSheet });
+    // Marked as said at once (the line below says it), so the failure bridge
+    // never races this sheet's render (A3 review).
+    patch.mutate({ id: commitment.id, patch: body }, { onSuccess: actions.closeSheet, onError: markErrorShown });
   }, [actions, commitment, instant, level, patch, timeChanged, trimmed]);
 
   const saveFailedLine = patch.error && !patch.isPending ? userFacingMessage(patch.error, t) : null;
@@ -715,8 +720,8 @@ function ConfirmSheet({ intent }: { intent: 'drop' | 'delete' }) {
   const after = (message: string) => { actions.closeSheet(); actions.back(); actions.toast(message); };
   const confirm = () => {
     if (!id) return;
-    if (intent === 'drop') act.mutate({ id, action: 'cancel' }, { onSuccess: () => after(t.toastDrop) });
-    else remove.mutate(id, { onSuccess: () => after(t.toastDeleted) });
+    if (intent === 'drop') act.mutate({ id, action: 'cancel' }, { onSuccess: () => after(t.toastDrop), onError: markErrorShown });
+    else remove.mutate(id, { onSuccess: () => after(t.toastDeleted), onError: markErrorShown });
   };
 
   // Declared as literal test ids, so the Maestro guard can see what a flow

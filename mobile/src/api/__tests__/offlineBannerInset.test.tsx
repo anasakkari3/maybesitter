@@ -95,9 +95,9 @@ describe('the offline banner at the largest text size', () => {
     const line = screen.getByTestId('offline-banner-text');
     expect(line.props.numberOfLines).toBeUndefined();
     // The card stacks, so the sentence has the banner's whole width.
-    let at: { props: Record<string, unknown>; parent: unknown } | null = line as never;
+    type Node = { props: Record<string, unknown>; parent: Node | null };
     let stacked = false;
-    for (; at; at = at.parent as typeof at) {
+    for (let at: Node | null = line as unknown as Node; at; at = at.parent) {
       const style = StyleSheet.flatten(at.props.style as never) as { flexDirection?: string } | undefined;
       if (style?.flexDirection === 'column') { stacked = true; break; }
     }

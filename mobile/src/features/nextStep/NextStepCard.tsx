@@ -7,7 +7,7 @@ import { useM5bOn } from '../m5b/capabilities';
 import { TodayEnergy } from '../m5b/energy';
 import { QueryBoundary } from '../../api/ui/QueryBoundary';
 import { ConflictError } from '../../api/errors';
-import { userFacingMessage } from '../../api/ui/userFacingMessage';
+import { markErrorShown, userFacingMessage } from '../../api/ui/userFacingMessage';
 import { LiveRegion } from '../../ui/liveRegion';
 import { useAnnounceOnIos } from '../../ui/announce';
 import { family } from '../../theme/fonts';
@@ -119,6 +119,7 @@ export function NextStepCard({ lookup }: {
         // words, and says why (A3 review).
         onError: (error) => {
           if (error instanceof ConflictError) { setStale(true); close(); return; }
+          markErrorShown(error);
           setFailed(error);
           // The defer sheet covers the card: it closes so the line is seen.
           if (decision === 'defer') setDeferring(false);

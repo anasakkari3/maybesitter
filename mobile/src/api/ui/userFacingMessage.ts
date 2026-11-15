@@ -236,6 +236,8 @@ export function userFacingMessage(error: unknown, t: Strings): string {
  * with no reason — claims nothing about the server.
  */
 export function toggleFailureKey(error: unknown): UserFacingKey {
+  // Turning an error into words is saying it: the failure bridge stays quiet (A3 review).
+  markErrorShown(error);
   if (error instanceof NetworkError || error instanceof TimeoutError) return 'trustActionFailed';
   if (!(error instanceof ApiError)) return 'trustActionNotSaved';
   // Only lines that read under a switch pass through (FZ2 review M6). The

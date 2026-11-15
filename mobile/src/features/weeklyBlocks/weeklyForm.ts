@@ -7,7 +7,7 @@
  * more way to overwrite a change made on another phone.
  */
 import { WeeklyBlockRefusedError } from '../../api/errors';
-import { userFacingMessageKey, type UserFacingKey } from '../../api/ui/userFacingMessage';
+import { markErrorShown, userFacingMessageKey, type UserFacingKey } from '../../api/ui/userFacingMessage';
 import type { WeeklyBlockPatch } from '../../api/endpoints/weeklyBlocks';
 import type { WeeklyBlock } from '../../api/schemas/weeklyBlocks';
 
@@ -57,6 +57,8 @@ const CODE_KEYS: Record<string, UserFacingKey> = {
 
 /** The server's refusal in the person's words; anything else, the app's one table. */
 export function weeklyErrorKey(error: unknown): UserFacingKey {
+  // Turning an error into words is saying it: the failure bridge stays quiet (A3 review).
+  markErrorShown(error);
   if (error instanceof WeeklyBlockRefusedError) return CODE_KEYS[error.code] ?? 'errorsGeneric';
   return userFacingMessageKey(error);
 }

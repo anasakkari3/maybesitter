@@ -8,7 +8,7 @@ import { Btn, Card, Txt } from '../../ui/primitives';
 import { Screen, ScreenScroll } from '../../ui/screen';
 import { QueryBoundary } from '../../api/ui/QueryBoundary';
 import { NotFoundError } from '../../api/errors';
-import { userFacingMessage } from '../../api/ui/userFacingMessage';
+import { markErrorShown, userFacingMessage } from '../../api/ui/userFacingMessage';
 import {
   useCreateMemory,
   useDeleteAllMemory,
@@ -135,7 +135,7 @@ export function MemoryScreen({ onBack, focusId = null }: {
     if (!job) return;
     clearTimeout(job.timer);
     scheduled.current = null;
-    removeRef.current.mutate(job.id);
+    removeRef.current.mutate(job.id, { onError: markErrorShown });
   }, []);
 
   useEffect(() => flush, [flush]);
@@ -162,7 +162,7 @@ export function MemoryScreen({ onBack, focusId = null }: {
     const timer = setTimeout(() => {
       scheduled.current = null;
       setUndoable(null);
-      removeRef.current.mutate(id);
+      removeRef.current.mutate(id, { onError: markErrorShown });
     }, UNDO_WINDOW_MS);
     scheduled.current = { id, timer };
     setUndoable(id);
@@ -259,7 +259,7 @@ export function MemoryScreen({ onBack, focusId = null }: {
             onSave={content => create.mutate(
               // A routine fact or a goal is not re-made from a sentence: kept as a fact.
               { kind: kept.kind === 'preference' ? 'preference' : 'fact', content, language: 'mixed' },
-              { onSuccess: () => setKept(null) },
+              { onSuccess: () => setKept(null), onError: markErrorShown },
             )}
             onCancel={() => setKept(null)}
           />
@@ -278,8 +278,8 @@ export function MemoryScreen({ onBack, focusId = null }: {
             strings={strings}
             translateCount={(key, values) => tr(key, values)}
             busy={decide.isPending}
-            onKeep={suggestion => decide.mutate({ suggestion, decision: 'keep', language: suggestionLanguage })}
-            onDismiss={suggestion => decide.mutate({ suggestion, decision: 'dismiss', language: suggestionLanguage })}
+            onKeep={suggestion => decide.mutate({ suggestion, decision: 'keep', language: suggestionLanguage }, { onError: markErrorShown })}
+            onDismiss={suggestion => decide.mutate({ suggestion, decision: 'dismiss', language: suggestionLanguage }, { onError: markErrorShown })}
           />
         ) : null}
 
@@ -314,7 +314,7 @@ export function MemoryScreen({ onBack, focusId = null }: {
               setKeptEdit(null);
               patch.mutate({ id, content: next }, {
                 onSuccess: () => setEditing(current => (current === id ? null : current)),
-                onError: () => setKeptEdit({ id, content: next, kind }),
+                onError: (error) => { markErrorShown(error); setKeptEdit({ id, content: next, kind }); },
               });
             }}
             onDelete={id => { setWhy(null); setTranslating(null); scheduleDelete(id); }}
@@ -342,7 +342,7 @@ export function MemoryScreen({ onBack, focusId = null }: {
                     // The held row is cancelled, not sent (M5B2A-R28-001): deleting
                     // everything already takes it, and a single delete sent beside
                     // the purge could land its dismissal after the purge said done.
-                    onPress={() => { setConfirmAll(false); undo(); removeAll.mutate(); }}
+                    onPress={() => { setConfirmAll(false); undo(); removeAll.mutate(undefined, { onError: markErrorShown }); }}
                   />
                   <Action label={t.cancel} onPress={() => setConfirmAll(false)} />
                 </View>

@@ -28,7 +28,7 @@
   "watchingPauseAll": "Pause all watching",
   "openSettingsHint": "Settings and account",
   "todayTitle": "Your day",
-  "offline": "No internet. What you type stays here, but nothing you press is sent or saved until we’re back.",
+  "offline": "No internet. Nothing you press is sent until we’re back; what you type stays here.",
   "emptyTitle": "No commitments recorded for today.",
   "emptyBody": "Say the first commitment the way you think of it, and it lands in your day.",
   "sayIt": "Say it",

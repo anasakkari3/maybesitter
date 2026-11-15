@@ -5,7 +5,7 @@ import { isolateAuto, isolateLatinRuns } from '../../i18n/bidi';
 import { Btn, Card, Txt } from '../../ui/primitives';
 import { LiveRegion } from '../../ui/liveRegion';
 import { useAnnounceOnIos } from '../../ui/announce';
-import { userFacingMessage } from '../../api/ui/userFacingMessage';
+import { markErrorShown, userFacingMessage } from '../../api/ui/userFacingMessage';
 import {
   useCreateMemory,
   useDeleteAllMemory,
@@ -85,6 +85,8 @@ export function MemorySection({ onOpen }: { onOpen?: (() => void) | undefined } 
   // so a new fact being typed is not overwritten (A3 review).
   const [kept, setKept] = useState<{ content: string; kind: MemoryItem['kind'] } | null>(null);
   const failedText = failed == null ? null : userFacingMessage(failed, t);
+  // Marked as said at once: the line above says it (A3 review).
+  const fail = (error: unknown) => { markErrorShown(error); setFailed(error); };
   useAnnounceOnIos(failedText);
   // M6a-2: the row whose translation panel is open. Unknown or off offers none.
   const translationOn = useMemoryTranslationOn() === true;
@@ -178,12 +180,12 @@ export function MemorySection({ onOpen }: { onOpen?: (() => void) | undefined } 
             setKeptEdit(null);
             patch.mutate({ id: item.id, content: next }, {
               onSuccess: () => setEditing(current => (current === item.id ? null : current)),
-              onError: (error) => { setFailed(error); setKeptEdit({ id: item.id, content: next, kind: item.kind }); },
+              onError: (error) => { fail(error); setKeptEdit({ id: item.id, content: next, kind: item.kind }); },
             });
           }}
           onAskDelete={() => { setTranslating(null); setConfirming(item.id); }}
           onCancelDelete={() => setConfirming(null)}
-          onDelete={() => { setConfirming(null); setFailed(null); remove.mutate(item.id, { onError: setFailed }); }}
+          onDelete={() => { setConfirming(null); setFailed(null); remove.mutate(item.id, { onError: fail }); }}
         />
       ))}
 
@@ -198,7 +200,7 @@ export function MemorySection({ onOpen }: { onOpen?: (() => void) | undefined } 
             setFailed(null);
             create.mutate(
               { kind: kept.kind === 'preference' ? 'preference' : 'fact', content, language: 'mixed' },
-              { onSuccess: () => setKept(null), onError: setFailed },
+              { onSuccess: () => setKept(null), onError: fail },
             );
           }}
           onCancel={() => setKept(null)}
@@ -228,7 +230,7 @@ export function MemorySection({ onOpen }: { onOpen?: (() => void) | undefined } 
                 setFailed(null);
                 create.mutate({ kind: 'fact', content: draft.trim(), language: 'mixed' }, {
                   onSuccess: () => { setDraft(''); setAdding(false); },
-                  onError: setFailed,
+                  onError: fail,
                 });
               }}
             />
@@ -269,7 +271,7 @@ export function MemorySection({ onOpen }: { onOpen?: (() => void) | undefined } 
                   label={t.memoryDeleteAll}
                   testID="memory-delete-all-confirm"
                   tone="warn"
-                  onPress={() => { setConfirmAll(false); setFailed(null); removeAll.mutate(undefined, { onError: setFailed }); }}
+                  onPress={() => { setConfirmAll(false); setFailed(null); removeAll.mutate(undefined, { onError: fail }); }}
                 />
                 <SmallAction label={t.cancel} onPress={() => setConfirmAll(false)} />
               </View>

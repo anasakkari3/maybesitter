@@ -1,5 +1,6 @@
 import type { Strings } from '../../i18n/strings';
 import { PlanEditRefusedError } from '../../api/errors';
+import { markErrorShown } from '../../api/ui/userFacingMessage';
 
 /**
  * Why something is not on today's plan, in words (UC-3.10b, #195 step 2).
@@ -101,5 +102,6 @@ export function editRefusalKey(reason: PlanEditRefusedError['reason']): CopyKey 
  */
 export function editRefusalOf(error: unknown): { itemId: string | null; key: CopyKey } | null {
   if (!(error instanceof PlanEditRefusedError)) return null;
+  markErrorShown(error);
   return { itemId: error.itemId, key: editRefusalKey(error.reason) };
 }

@@ -904,22 +904,28 @@ describe('Today actions with no signal say they did not go through', () => {
     { ...withPriority('top', 'high'), rank: 0, reasonCodes: [] } as Commitment,
     { ...withPriority('m', 'high'), rank: 1, reasonCodes: [] } as Commitment,
   ];
+  const said: string[] = [];
   function ToastLine() {
     const { s } = useApp();
+    React.useEffect(() => { if (s.toast) said.push(s.toast.text); }, [s.toast]);
     return s.toast ? <Txt testID="probe-toast">{s.toast.text}</Txt> : null;
   }
 
   it.each(['today-swipe-m-complete', 'today-swipe-m-postpone', 'today-primary-complete'])('%s', async (control) => {
     client = createAppQueryClient();
-    const act = jest.spyOn(commitmentEndpoints, 'actOnCommitment').mockRejectedValue(new NetworkError('offline') as never);
+    said.length = 0;
+    const sent = jest.spyOn(commitmentEndpoints, 'actOnCommitment').mockRejectedValue(new NetworkError('offline') as never);
     await show(rows(), <><MutationFailureToasts /><ToastLine /></>);
     await waitFor(() => expect(screen.queryByTestId(control)).not.toBeNull());
     onlineManager.setOnline(false);
     await fireEvent.press(screen.getByTestId(control));
     // Not now first asks, for at most 1.5 s, whether smart postpone is on.
-    await waitFor(() => expect(act).toHaveBeenCalledTimes(1), { timeout: 4_000 });
+    await waitFor(() => expect(sent).toHaveBeenCalledTimes(1), { timeout: 4_000 });
     await waitFor(() => expect(screen.queryByTestId('probe-toast')).not.toBeNull());
     expect(screen.getByTestId('probe-toast').props.children).toBe(en.errorsNetwork);
+    // Said exactly once.
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 600)); });
+    expect(said).toEqual([en.errorsNetwork]);
     onlineManager.setOnline(true);
   }, 10_000);
 });
