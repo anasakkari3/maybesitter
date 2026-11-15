@@ -12,7 +12,7 @@
  * the status code and the body shape are the ones the React Native client (#195)
  * will actually receive.
  */
-import test from 'node:test';
+import test, { mock } from 'node:test';
 import assert from 'node:assert/strict';
 import { createMemoryStorage } from '../../lib/storage/memoryAdapter.ts';
 import { resetStorageForTests, setStorageForTests } from '../../lib/storage/index.ts';
@@ -325,6 +325,50 @@ test(`a plan can be rebuilt ${MAX_PLAN_REBUILDS_PER_DAY} times a day and then an
     assert.equal((await readStoredPlan(USER, DATE, storage))!.generation, MAX_PLAN_GENERATIONS_PER_DAY);
   });
 });
+
+/* ── A day that is over (CA4.7, CXA4.2) ──────────────────────────── */
+
+/** 00:30 on the 16th in Jerusalem: the 15th's plan is a finished day. */
+const NEXT_DAY = new Date('2026-09-15T21:30:00.000Z');
+/** 23:30 on the 15th in Jerusalem: still the plan's own day. */
+const LATE_SAME_DAY = new Date('2026-09-15T20:30:00.000Z');
+
+async function atClock<T>(at: Date, fn: () => Promise<T>): Promise<T> {
+  mock.timers.enable({ apis: ['Date'], now: at.getTime() });
+  try { return await fn(); } finally { mock.timers.reset(); }
+}
+
+test('CA4.7: a plan whose day is over is not rebuilt: 422 day_over, no compose, the document untouched', async () => {
+  await withHarness(async ({ storage }) => {
+    const before = await readStoredPlan(USER, DATE, storage);
+    const response = await atClock(NEXT_DAY, () => regeneratePost(request(`/api/mobile/plans/${DATE}/regenerate`, { body: {} }), params(DATE)));
+    assert.equal(response.status, 422, 'a finished day was rebuilt');
+    assert.equal((await response.json() as { reason: string }).reason, 'day_over');
+    assert.deepEqual(await readStoredPlan(USER, DATE, storage), before, 'the refused rebuild rewrote the plan');
+    assert.deepEqual((await listPlanEvents(USER, storage)).map((event) => event.type), ['plan_proposed']);
+    // The service refuses it too, so no caller can skip the route's check.
+    const outcome = await regeneratePlan(USER, DATE, { storage, now: () => NEXT_DAY });
+    assert.deepEqual(outcome, { ok: false, reason: 'day_over' });
+    // On its own day, up to its last hour, it is rebuilt as before.
+    assert.equal((await regeneratePlan(USER, DATE, { storage, now: () => LATE_SAME_DAY })).ok, true);
+  });
+});
+
+for (const action of ['accept', 'dismiss'] as const) {
+  test(`CXA4.2: ${action} on a plan whose day is over is refused with day_over and rewrites nothing`, async () => {
+    await withHarness(async ({ storage }) => {
+      const before = await readStoredPlan(USER, DATE, storage);
+      const response = await atClock(NEXT_DAY, () => actionsPost(request(`/api/mobile/plans/${DATE}/actions`, { body: { action } }), params(DATE)));
+      assert.equal(response.status, 422, `${action} rewrote a finished day`);
+      assert.equal((await response.json() as { reason: string }).reason, 'day_over');
+      assert.deepEqual(await readStoredPlan(USER, DATE, storage), before, 'the refused action rewrote the plan');
+      assert.deepEqual((await listPlanEvents(USER, storage)).map((event) => event.type), ['plan_proposed'], 'the refused action wrote history');
+      // On its own day it is answered as before.
+      const sameDay = await atClock(LATE_SAME_DAY, () => actionsPost(request(`/api/mobile/plans/${DATE}/actions`, { body: { action } }), params(DATE)));
+      assert.equal(sameDay.status, 200);
+    });
+  });
+}
 
 test('regenerating a date with no plan answers 404', async () => {
   await withHarness(async () => {
