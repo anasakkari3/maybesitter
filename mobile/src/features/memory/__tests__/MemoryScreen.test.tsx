@@ -831,8 +831,8 @@ describe('a failed save keeps the typed text (CA8.2)', () => {
 
     await waitFor(() => expect(screen.queryByTestId('memory-item-mem_elsewhere')).not.toBeNull());
     expect(screen.queryByTestId('memory-error')).not.toBeNull();
-    // Nothing the person wrote is gone: it waits in the field to be saved again.
-    expect(screen.getByTestId('memory-add-input').props.value).toBe(TYPED);
+    // Nothing the person wrote is gone: it waits to be saved again.
+    expect(screen.getByTestId('memory-kept-input').props.value).toBe(TYPED);
   });
 
   it('MemoryScreen: a failed edit keeps the edit open with the text, and says it failed', async () => {
@@ -863,5 +863,49 @@ describe('a failed save keeps the typed text (CA8.2)', () => {
     expect(screen.getByTestId('memory-screen-kept-input').props.value).toBe(TYPED);
     await fireEvent.press(screen.getByTestId('memory-screen-kept-save'));
     await waitFor(() => expect(create).toHaveBeenCalledWith(expect.objectContaining({ content: TYPED }), { asUid: 'memory-user' }));
+  });
+});
+
+describe('kept words never overwrite or cut what is typed (review of CA8.2)', () => {
+  it('MemorySection: a refused edit does not overwrite a new fact being typed in the add field', async () => {
+    jest.spyOn(profileEndpoints, 'patchMemory').mockImplementation(async () => {
+      listing([item({ id: 'mem_elsewhere', content: 'I cook on Thursdays' })]);
+      throw new NotFoundError('memory_not_found');
+    });
+    await show(<MemorySection />);
+    await waitFor(() => expect(screen.queryByTestId('memory-edit-mem_told')).not.toBeNull());
+    await fireEvent.press(screen.getByTestId('memory-add'));
+    await fireEvent.changeText(screen.getByTestId('memory-add-input'), 'A new fact in progress');
+    await fireEvent.press(screen.getByTestId('memory-edit-mem_told'));
+    await fireEvent.changeText(screen.getByTestId('memory-edit-input-mem_told'), 'I cook on Saturdays');
+    await fireEvent.press(screen.getByTestId('memory-save-mem_told'));
+
+    await waitFor(() => expect(screen.queryByTestId('memory-item-mem_elsewhere')).not.toBeNull());
+    expect(screen.getByTestId('memory-add-input').props.value).toBe('A new fact in progress');
+    // The edit's words are kept too, beside it, said as changed elsewhere.
+    expect(screen.getByTestId('memory-kept-input').props.value).toBe('I cook on Saturdays');
+    expect(screen.getByTestId('memory-kept-note').props.children).toBe(en.memoryEditKept);
+  });
+
+  it('MemoryScreen: kept words longer than a memory may be are not cut; Save waits and says why', async () => {
+    jest.spyOn(profileEndpoints, 'patchMemory').mockImplementation(async () => {
+      listing([item({ id: 'mem_elsewhere', content: 'I cook on Thursdays' })]);
+      throw new NotFoundError('memory_not_found');
+    });
+    const create = jest.spyOn(profileEndpoints, 'createMemory');
+    await show(<MemoryScreen onBack={() => {}} />);
+    await waitFor(() => expect(screen.queryByTestId('memory-screen-edit-mem_told')).not.toBeNull());
+    await fireEvent.press(screen.getByTestId('memory-screen-edit-mem_told'));
+    await fireEvent.changeText(screen.getByTestId('memory-screen-edit-input-mem_told'), 'short');
+    await fireEvent.press(screen.getByTestId('memory-screen-save-mem_told'));
+    await waitFor(() => expect(screen.queryByTestId('memory-screen-kept-input')).not.toBeNull());
+
+    const long = 'z'.repeat(230);
+    await fireEvent.changeText(screen.getByTestId('memory-screen-kept-input'), long);
+    expect(screen.getByTestId('memory-screen-kept-input').props.maxLength).toBeUndefined();
+    expect(screen.getByTestId('memory-screen-kept-input').props.value).toBe(long);
+    expect(screen.getByTestId('memory-screen-kept-too-long').props.children).toBe(en.memoryTooLong);
+    await fireEvent.press(screen.getByTestId('memory-screen-kept-save'));
+    expect(create).not.toHaveBeenCalled();
   });
 });

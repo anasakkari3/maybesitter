@@ -37,6 +37,9 @@ import * as footballEndpoints from '../../api/endpoints/football';
 import * as language from '../../i18n/language';
 import { fill, ltr } from '../../i18n/strings';
 import { Txt } from '../../ui/primitives';
+import { createAppQueryClient } from '../../api/queryClient';
+import { NetworkError } from '../../api/errors';
+import { MutationFailureToasts } from '../../api/ui/MutationFailureToasts';
 import quietHoursFixture from '../../api/__fixtures__/nextStep.quietHours.json';
 import profileFixture from '../../api/__fixtures__/profile.one.json';
 import consentsFixture from '../../api/__fixtures__/consents.answered.json';
@@ -120,13 +123,13 @@ afterEach(() => {
   jest.restoreAllMocks();
 });
 
-async function show(items: Commitment[]) {
+async function show(items: Commitment[], extra?: React.ReactNode) {
   jest.spyOn(commitmentEndpoints, 'listToday').mockResolvedValue({ items } as never);
   const view = await render(
     <SafeAreaProvider initialMetrics={METRICS}>
       <AppProvider>
         <AuthProvider repository={repository} isDevBundle={false}>
-          <QueryClientProvider client={client}><TodayScreen /></QueryClientProvider>
+          <QueryClientProvider client={client}><TodayScreen />{extra}</QueryClientProvider>
         </AuthProvider>
       </AppProvider>
     </SafeAreaProvider>,
@@ -888,5 +891,34 @@ describe('an appointment in the cached plan that ends while Today is open (E1 re
     } finally {
       jest.useRealTimers();
     }
+  });
+});
+
+/*
+ * Review of lane A3: with mutations never paused, Done and Not now pressed
+ * offline on Today failed at once — and nothing read the failure. The app's
+ * bridge (`MutationFailureToasts`, in Root) now says it.
+ */
+describe('Today actions with no signal say they did not go through', () => {
+  const rows = () => [
+    { ...withPriority('top', 'high'), rank: 0, reasonCodes: [] } as Commitment,
+    { ...withPriority('m', 'high'), rank: 1, reasonCodes: [] } as Commitment,
+  ];
+  function ToastLine() {
+    const { s } = useApp();
+    return s.toast ? <Txt testID="probe-toast">{s.toast.text}</Txt> : null;
+  }
+
+  it.each(['today-swipe-m-complete', 'today-swipe-m-postpone', 'today-primary-complete'])('%s', async (control) => {
+    client = createAppQueryClient();
+    const act = jest.spyOn(commitmentEndpoints, 'actOnCommitment').mockRejectedValue(new NetworkError('offline') as never);
+    await show(rows(), <><MutationFailureToasts /><ToastLine /></>);
+    await waitFor(() => expect(screen.queryByTestId(control)).not.toBeNull());
+    onlineManager.setOnline(false);
+    await fireEvent.press(screen.getByTestId(control));
+    await waitFor(() => expect(act).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(screen.queryByTestId('probe-toast')).not.toBeNull());
+    expect(screen.getByTestId('probe-toast').props.children).toBe(en.errorsNetwork);
+    onlineManager.setOnline(true);
   });
 });
