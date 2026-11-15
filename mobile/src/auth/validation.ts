@@ -9,7 +9,14 @@ import type en from '../i18n/locales/en.json';
 
 export type FieldErrorKey = Extract<keyof typeof en, `authField${string}`>;
 
-/** Firebase's own floor. Shown before submitting so it is never a surprise. */
+/**
+ * The app's floor for a *new* password. Stricter than Firebase's own, which is
+ * 6, so Firebase never refuses a password the form let through.
+ *
+ * It is a sign-up rule only (CA1.8). An account made in the console, by the
+ * Admin SDK or under Firebase's floor can hold a 6–7 character password that
+ * Firebase accepts; checking the floor on sign-in locked it out for good.
+ */
 export const MIN_PASSWORD_LENGTH = 8;
 
 /**
@@ -25,8 +32,10 @@ export function emailError(value: string): FieldErrorKey | null {
   return EMAIL.test(trimmed) ? null : 'authFieldEmailInvalid';
 }
 
-export function passwordError(value: string): FieldErrorKey | null {
+/** Sign-in asks only for a password; whether it is right is Firebase's answer. */
+export function passwordError(value: string, mode: 'signIn' | 'signUp'): FieldErrorKey | null {
   if (value === '') return 'authFieldPasswordRequired';
+  if (mode === 'signIn') return null;
   return value.length < MIN_PASSWORD_LENGTH ? 'authFieldPasswordShort' : null;
 }
 
