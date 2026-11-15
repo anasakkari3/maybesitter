@@ -15,6 +15,7 @@ const mockUnlink = jest.fn();
 let mockHabits: unknown[] = [];
 const mockDecide = jest.fn();
 let mockToday: unknown = null;
+let mockTodayPending = false;
 
 // M5a's email parts read through TanStack Query; these screens render here
 // without a client, on a server whose M5a capability is off (today's screens).
@@ -70,7 +71,7 @@ jest.mock('../../../api/queries', () => ({
   useCommitment: () => ({ data: null, isPending: false, error: null, refetch: jest.fn() }),
   useHabits: () => ({ data: mockHabits, isPending: false, error: null, refetch: jest.fn() }),
   useCreateHabit: () => ({ mutate: mockCreateHabit, isPending: false, error: null }),
-  useHabitsToday: () => ({ data: mockToday, isPending: false, error: null, refetch: jest.fn() }),
+  useHabitsToday: () => ({ data: mockToday, isPending: mockTodayPending, error: null, refetch: jest.fn() }),
   useDecideHabitOccurrence: () => ({ mutate: mockDecide, isPending: false, error: null, variables: undefined }),
   useSetHabitStatus: () => ({ mutate: jest.fn(), isPending: false, error: null }),
   useDeleteHabit: () => ({ mutate: jest.fn(), isPending: false, error: null }),
@@ -92,6 +93,7 @@ beforeEach(() => {
   jest.clearAllMocks();
   mockHabits = [];
   mockToday = null;
+  mockTodayPending = false;
   mockGenerate.mockImplementation((_input, options: any) => options.onSuccess({
     generation: 1,
     nodes: [
@@ -251,4 +253,12 @@ it('a habit with nothing due today shows no today row', async () => {
   mockToday = { localDate: '2026-11-15', occurrences: [] };
   await render(wrap(<HabitDetailScreen />));
   expect(screen.queryByTestId('habit-today-h1')).toBeNull();
+});
+
+it("holds the habit cards until today's occurrences are known, so a card never appears without its today row", async () => {
+  mockHabits = [walk];
+  mockTodayPending = true;
+  await render(wrap(<HabitDetailScreen />));
+  expect(screen.queryByTestId('habit-toggle-h1')).toBeNull();
+  expect(screen.getByTestId('query-loading')).toBeTruthy();
 });
