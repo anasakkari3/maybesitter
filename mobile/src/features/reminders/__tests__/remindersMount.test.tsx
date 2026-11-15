@@ -673,3 +673,48 @@ describe('signing out leaves nothing of the account on the phone (C13.14)', () =
     expect(viewB.getByTestId('sheet').props.children).toBe('|');
   });
 });
+
+/*
+ * ── A sign-out Firebase starts by itself (C13.14 review) ──────────
+ *
+ * A user disabled server-side, or a refresh token invalidated, reaches the app
+ * as a null user from `onAuthStateChanged` — through no `signOut` call, so no
+ * before-sign-out task ran, and the gate unmounted this tree before the sync's
+ * own cancel could see the null.
+ */
+describe('a sign-out Firebase starts by itself (C13.14)', () => {
+  it('still cancels, dismisses and forgets the last tap', async () => {
+    const cancelAll = jest.spyOn(notifications, 'cancelAllScheduledNotificationsAsync');
+    const dismissAll = jest.spyOn(notifications, 'dismissAllNotificationsAsync');
+    const clearLast = jest.spyOn(notifications, 'clearLastNotificationResponseAsync');
+    await mountGated();
+    await waitFor(() => expect(commitmentEndpoints.listToday).toHaveBeenCalled());
+    await waitFor(() => expect(notifications.getLastNotificationResponseAsync).toHaveBeenCalled());
+    cancelAll.mockClear();
+    dismissAll.mockClear();
+    clearLast.mockClear();
+
+    await act(async () => {
+      repository.emit(null);
+    });
+
+    await waitFor(() => expect(cancelAll).toHaveBeenCalled());
+    await waitFor(() => expect(dismissAll).toHaveBeenCalled());
+    await waitFor(() => expect(clearLast).toHaveBeenCalled());
+    // The credential is gone, so the server row is left to reap itself.
+    expect(deviceEndpoints.forgetDevice).not.toHaveBeenCalled();
+  });
+
+  it('runs the tasks once, not twice, for a sign-out the app asked for', async () => {
+    const view = await mountGated();
+    await waitFor(() => expect(deviceEndpoints.registerDevice).toHaveBeenCalledTimes(1));
+    await act(async () => {
+      view.getByTestId('sign-out').props.onPress();
+    });
+    await waitFor(() => expect(repository.signOutReasons).toEqual(['user']));
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 0));
+    });
+    expect(messaging.deleteToken).toHaveBeenCalledTimes(1);
+  });
+});
