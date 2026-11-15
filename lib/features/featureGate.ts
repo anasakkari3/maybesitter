@@ -11,7 +11,10 @@
  * `MAYBESITTER_ADDON_GATE_MODE`, read on every call like the kill switches:
  *   - `off` (default, and production until the owner releases it): nothing is
  *     read and everything is allowed — the product behaves exactly as before.
- *   - `shadow`: the decision is computed and a denial is logged, never obeyed.
+ *   - `shadow`: the decision is computed and a denial is logged, never obeyed
+ *     — except the person's own switch (`user_off`), which is obeyed: they can
+ *     see the switch under shadow, and a switch that does nothing while the
+ *     feature keeps spending is worse than no switch (C12.2, CXA12.1).
  *   - `enforce`: callers obey it.
  * A decision carries `enforced`; callers check that, never the mode string.
  *
@@ -63,7 +66,7 @@ export interface FeatureDecision {
   readonly tier: FeatureTier;
   readonly mode: GateMode;
   readonly allowed: boolean;
-  /** True only when callers must obey `allowed` (`enforce` mode). */
+  /** True when callers must obey `allowed`: `enforce` mode, and the person's own `user_off` in any mode that reads it. */
   readonly enforced: boolean;
   readonly reason: FeatureDecisionReason;
   /** `null` when the feature needs a purchase this person does not have. */
@@ -130,8 +133,13 @@ function decide(
   else if (spends && remainingNanoUsd === 0) reason = 'budget_spent';
   else if (spends && fromFree && heldSpendOver(month, freeFeatures, now) >= centsToNanoUsd(freeCapCents)) reason = 'free_cap_spent';
   else reason = fromFree ? 'free_allowance' : 'entitled';
-  const decision = { ...base, reason, allowed: reason === 'free_allowance' || reason === 'entitled' };
-  if (mode === 'shadow' && !decision.allowed) {
+  // The person's own "off" is obeyed under shadow too (C12.2, CXA12.1): only
+  // the rollout's own denials (not bought, budget spent) are shadowed.
+  const decision = {
+    ...base, reason, allowed: reason === 'free_allowance' || reason === 'entitled',
+    enforced: base.enforced || reason === 'user_off',
+  };
+  if (mode === 'shadow' && !decision.allowed && !decision.enforced) {
     console.warn(`[features/gate] shadow_deny feature=${featureId} reason=${reason}`);
   }
   return decision;
