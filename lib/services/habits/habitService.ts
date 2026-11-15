@@ -277,8 +277,9 @@ export async function applyOccurrenceOutcome(
  * Writes today's cadence row when it is missing, and says whether it did.
  *
  * The same merge `resyncHabitOccurrences` runs, over one day: `created` holds
- * the row only when the cadence asks for today and nothing is stored at its id,
- * so a stored row — decided or not — is never rewritten.
+ * the row only when the cadence asks for today and nothing was stored at its
+ * id when listed. The write itself is create-if-absent, so a stored row —
+ * decided or not, by this device or another — is never rewritten.
  */
 async function mintTodaysDemand(
   services: HabitServices,
@@ -293,7 +294,12 @@ async function mintTodaysDemand(
   const { created } = materializeHabitOccurrences(habit, { fromLocalDate: todayLocalDate, toLocalDate: todayLocalDate }, stored);
   const row = created.find((occurrence) => occurrence.occurrenceId === occurrenceId);
   if (!row) return false;
-  await services.occurrences.putMany(scopeId, [row]);
+  // Create-if-absent, in one transaction: the list above may already be stale
+  // — another device can mint and decide this row between that read and this
+  // write — and a blind put would reset its decision to pending (review
+  // MAJOR). Either way the row now exists and the caller's transition decides
+  // against what is really stored: applied, unchanged, or a 409.
+  await services.occurrences.createIfAbsent(scopeId, row);
   return true;
 }
 

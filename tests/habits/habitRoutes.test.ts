@@ -738,23 +738,15 @@ test('two devices deciding a row that is not stored yet: the second never overwr
     const gate = new Promise<void>((resolve) => { release = resolve; });
     let reading!: () => void;
     const bRead = new Promise<void>((resolve) => { reading = resolve; });
-    const deviceB = {
-      habits: real.habits,
-      occurrences: {
-        listForHabit: async (scopeId: string, id: string) => {
-          const stale = await real.occurrences.listForHabit(scopeId, id);
-          reading();
-          await gate;
-          return stale;
-        },
-        transition: real.occurrences.transition.bind(real.occurrences),
-        putMany: real.occurrences.putMany.bind(real.occurrences),
-        get: real.occurrences.get.bind(real.occurrences),
-        listInRange: real.occurrences.listInRange.bind(real.occurrences),
-        removeMany: real.occurrences.removeMany.bind(real.occurrences),
-        deleteForHabit: real.occurrences.deleteForHabit.bind(real.occurrences),
-      },
+    // Every store method is the real one; only B's read of the rows is held.
+    const occurrencesB = Object.create(real.occurrences);
+    occurrencesB.listForHabit = async (scopeId: string, id: string) => {
+      const stale = await real.occurrences.listForHabit(scopeId, id);
+      reading();
+      await gate;
+      return stale;
     };
+    const deviceB = { habits: real.habits, occurrences: occurrencesB };
     const b = applyOccurrenceOutcome(deviceB as any, USER, habitId, occurrenceId, 'skipped', today);
     await bRead;
     const a = await applyOccurrenceOutcome(real, USER, habitId, occurrenceId, 'completed', today);

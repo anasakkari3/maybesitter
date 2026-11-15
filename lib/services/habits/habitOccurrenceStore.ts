@@ -109,6 +109,12 @@ export interface HabitOccurrenceStore {
   get(scopeId: string, occurrenceId: string): Promise<HabitOccurrence | null>;
   /** Idempotent: the id is the document id. */
   putMany(scopeId: string, occurrences: readonly HabitOccurrence[]): Promise<void>;
+  /**
+   * Writes the row only when nothing is stored at its id, in one transaction.
+   * True when this call wrote it. Never replaces a stored row, so a row
+   * another device already decided keeps its decision.
+   */
+  createIfAbsent(scopeId: string, occurrence: HabitOccurrence): Promise<boolean>;
   removeMany(scopeId: string, occurrenceIds: readonly string[]): Promise<number>;
   transition(
     scopeId: string,
@@ -177,6 +183,19 @@ export class StorageHabitOccurrenceStore implements HabitOccurrenceStore {
         }
       });
     }
+  }
+
+  async createIfAbsent(scopeId: string, occurrence: HabitOccurrence): Promise<boolean> {
+    const path = this.path(scopeId, occurrence.occurrenceId);
+    return this.storage.runTransaction<boolean>(async (tx) => {
+      const [existing] = await Promise.all([
+        tx.get<HabitOccurrence>(path),
+        requireLiveAccount(tx, scopeId), // the deletion fence (#772)
+      ]);
+      if (existing) return false;
+      tx.set<HabitOccurrence>(path, occurrence);
+      return true;
+    });
   }
 
   async removeMany(scopeId: string, occurrenceIds: readonly string[]): Promise<number> {
