@@ -96,6 +96,13 @@ export async function signOutForbidden(reason: 'revoked' | 'deleted', asUid?: st
  */
 let revokedUid: string | null = null;
 const revokedListeners = new Set<() => void>();
+/**
+ * The hold in progress, per uid. The app loads several screens at once, so a
+ * revoked account answers N requests with N 403s in the same moment; each
+ * shares this one run of the cleanup, the way `refreshIdToken` shares one
+ * refresh.
+ */
+const inFlightHolds = new Map<string, Promise<void>>();
 
 function setRevoked(next: string | null): void {
   if (revokedUid === next) return;
@@ -133,9 +140,17 @@ export async function holdRevoked(asUid?: string): Promise<void> {
   if (!stillSignedInAs(asUid)) return;
   const uid = asUid ?? repository?.currentUser()?.uid ?? null;
   if (!uid || revokedUid === uid) return;
-  await runBeforeSignOut('revoked');
-  if (repository?.currentUser()?.uid !== uid) return;
-  setRevoked(uid);
+  const running = inFlightHolds.get(uid);
+  if (running) return running;
+  const hold = (async () => {
+    await runBeforeSignOut('revoked');
+    if (repository?.currentUser()?.uid !== uid) return;
+    setRevoked(uid);
+  })().finally(() => {
+    inFlightHolds.delete(uid);
+  });
+  inFlightHolds.set(uid, hold);
+  return hold;
 }
 
 /**
@@ -153,4 +168,5 @@ export function resetAuthForTests(): void {
   inFlightRefresh = null;
   revokedUid = null;
   revokedListeners.clear();
+  inFlightHolds.clear();
 }
