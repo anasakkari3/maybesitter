@@ -158,10 +158,14 @@ export function TodayScreen({ tabClearance = TAB_CLEARANCE }: { tabClearance?: n
   // never a polling loop, so a meeting that ends while Today is open leaves
   // it at its end without waiting for a refetch.
   const [clockMs, setClockMs] = useState(() => Date.now());
-  const nextEnd = useMemo(
-    () => nextEventEndAfter([...groups.must, ...groups.should, ...groups.nice, ...upcomingViews], clockMs),
-    [groups, upcomingViews, clockMs],
-  );
+  // …and at the next instant a postponed item comes back (CA2.1): then it is
+  // the card again and its row stops saying «بترجع».
+  const nextEnd = useMemo(() => {
+    const open = [...groups.must, ...groups.should, ...groups.nice];
+    const ended = nextEventEndAfter([...open, ...upcomingViews], clockMs);
+    const back = nextPostponedReturnAfter(open, clockMs);
+    return ended === null ? back : back === null ? ended : Math.min(ended, back);
+  }, [groups, upcomingViews, clockMs]);
   useEffect(() => {
     if (nextEnd === null) return undefined;
     const wait = Math.min(Math.max(0, nextEnd - Date.now()) + EVENT_END_MARGIN_MS, MAX_TIMER_MS);
@@ -275,6 +279,7 @@ export function TodayScreen({ tabClearance = TAB_CLEARANCE }: { tabClearance?: n
 
   return (
     <OpenPostponeSheet.Provider value={setPostponeId}>
+    <TodayClock.Provider value={clockMs}>
     <Screen style={{ backgroundColor: p.bg }}>
       <ScreenScroll
         testID="today-scroll"
@@ -378,6 +383,7 @@ export function TodayScreen({ tabClearance = TAB_CLEARANCE }: { tabClearance?: n
       <ConflictSheet conflict={conflictOpen ? conflict : null} onClose={() => setConflictOpen(false)} />
       <PostponeSheetFor commitmentId={postponeId} title={postponeId ? byId.get(postponeId)?.title : undefined} onClose={() => setPostponeId(null)} />
     </Screen>
+    </TodayClock.Provider>
     </OpenPostponeSheet.Provider>
   );
 }
@@ -642,6 +648,20 @@ function importanceInk(importance: CommitmentView['importance'], p: ReturnType<t
 /** Opens Today's postpone sheet for a row (M4b R3.3). */
 const OpenPostponeSheet = React.createContext<(id: string) => void>(() => undefined);
 
+/** The instant Today is composed for (`clockMs`), so a row reads the same clock as the card. */
+const TodayClock = React.createContext<number>(0);
+
+/** The earliest postponed return still ahead of `nowMs`, or null (CA2.1). */
+function nextPostponedReturnAfter(items: readonly CommitmentView[], nowMs: number): number | null {
+  let next: number | null = null;
+  for (const item of items) {
+    if (!item.postponedUntil || !isPostponedAway(item, nowMs)) continue;
+    const back = Date.parse(item.postponedUntil);
+    if (next === null || back < next) next = back;
+  }
+  return next;
+}
+
 const DAY_GROUP_PREVIEW = 3;
 
 function Group({ kind, items, timezone, lang, busy, football }: {
@@ -746,7 +766,8 @@ function Row({ item, timezone, lang, busy, football }: {
   const line = drawnWhenLine(item, lang, timezone);
   const when = line?.text ?? t.noTimeYet;
   const aside = dueAsideText(item, t.plannedDueAside, lang, timezone);
-  const returnWhen = postponedReturnLine(item, t, lang, timezone, Date.now());
+  const clockMs = useContext(TodayClock);
+  const returnWhen = postponedReturnLine(item, t, lang, timezone, clockMs);
   const ink = importanceInk(item.importance, p);
 
   return (
