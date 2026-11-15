@@ -115,6 +115,15 @@ export interface HabitOccurrenceStore {
    * another device already decided keeps its decision.
    */
   createIfAbsent(scopeId: string, occurrence: HabitOccurrence): Promise<boolean>;
+  /**
+   * An off-day «done» on a weekly-count habit, in one transaction: writes
+   * `row` as completed only when nothing is stored at its id, and marks
+   * `consume` — the nearest open asked-for row it stands in for — `recovered`
+   * if it is still open (written from `consume` itself when it was never
+   * stored). A row already there answers `unchanged` when completed and
+   * `conflict` otherwise; nothing is overwritten.
+   */
+  completeAnyDay(scopeId: string, row: HabitOccurrence, consume: HabitOccurrence | null): Promise<OccurrenceTransition>;
   removeMany(scopeId: string, occurrenceIds: readonly string[]): Promise<number>;
   transition(
     scopeId: string,
@@ -195,6 +204,36 @@ export class StorageHabitOccurrenceStore implements HabitOccurrenceStore {
       if (existing) return false;
       tx.set<HabitOccurrence>(path, occurrence);
       return true;
+    });
+  }
+
+  async completeAnyDay(scopeId: string, row: HabitOccurrence, consume: HabitOccurrence | null): Promise<OccurrenceTransition> {
+    const rowPath = this.path(scopeId, row.occurrenceId);
+    const consumePath = consume ? this.path(scopeId, consume.occurrenceId) : null;
+    return this.storage.runTransaction<OccurrenceTransition>(async (tx) => {
+      // Every read before any write.
+      const [existing, consumed] = await Promise.all([
+        tx.get<HabitOccurrence>(rowPath),
+        consumePath ? tx.get<HabitOccurrence>(consumePath) : Promise.resolve(null),
+        requireLiveAccount(tx, scopeId), // the deletion fence (#772)
+      ]);
+      if (existing) {
+        if (!isHabitOccurrence(existing) || existing.habitId !== row.habitId) return { kind: 'not_found' };
+        return existing.state === 'completed'
+          ? { kind: 'unchanged', occurrence: existing }
+          : { kind: 'conflict', occurrence: existing };
+      }
+      let standsIn: string | null = null;
+      if (consume && consumePath) {
+        const current = consumed && isHabitOccurrence(consumed) ? consumed : null;
+        if (current === null || isOpenOccurrence(current)) {
+          tx.set<HabitOccurrence>(consumePath, { ...(current ?? consume), state: 'recovered' });
+          standsIn = consume.occurrenceId;
+        }
+      }
+      const completed: HabitOccurrence = { ...row, state: 'completed', recoveredFromOccurrenceId: standsIn };
+      tx.set<HabitOccurrence>(rowPath, completed);
+      return { kind: 'applied', occurrence: completed };
     });
   }
 

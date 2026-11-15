@@ -51,7 +51,14 @@ export async function GET(request: Request) {
     return Response.json({
       success: true,
       items: habits.map(presentHabit),
-      today: { localDate, occurrences: today.map(presentOccurrence) },
+      today: {
+        localDate,
+        occurrences: today.occurrences.map(presentOccurrence),
+        // Weekly-count habits (owner decision 2026-11-15): this week's count,
+        // and which of today's rows are off days («تمّت» only).
+        weeks: today.weeks,
+        anyDay: today.anyDay,
+      },
     });
   } catch (error) {
     console.error('[habits] listing habits failed', error);

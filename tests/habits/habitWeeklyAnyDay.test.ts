@@ -194,18 +194,18 @@ test('two devices pressing «done» on the same off day at once record one compl
     const gate = new Promise<void>((resolve) => { release = resolve; });
     let reading!: () => void;
     const bRead = new Promise<void>((resolve) => { reading = resolve; });
+    // Every read B makes sees the rows as they were before A pressed.
+    const snapshot = await services.occurrences.listForHabit(USER, habitId);
     const occurrencesB = Object.create(services.occurrences);
-    occurrencesB.listForHabit = async (scopeId: string, habit: string) => {
-      const stale = await services.occurrences.listForHabit(scopeId, habit);
+    occurrencesB.listForHabit = async () => {
       reading();
       await gate;
-      return stale;
+      return snapshot;
     };
-    occurrencesB.listInRange = async (scopeId: string, from: string, to: string) => {
-      const stale = await services.occurrences.listInRange(scopeId, from, to);
+    occurrencesB.listInRange = async (_scopeId: string, from: string, to: string) => {
       reading();
       await gate;
-      return stale;
+      return snapshot.filter((row) => row.localDate >= from && row.localDate <= to);
     };
     const b = applyOccurrenceOutcome({ habits: services.habits, occurrences: occurrencesB }, USER, habitId, id(habitId, TUE), 'completed', TUE);
     await bRead;
