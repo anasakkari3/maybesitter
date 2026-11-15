@@ -179,3 +179,38 @@ describe('the server s backup for a Must ring already on screen (#198)', () => {
     expect(presented).not.toHaveBeenCalled();
   });
 });
+
+/*
+ * QA audit NA13.1: on the dev build a local notification that arrived while
+ * the app was open was neither shown nor kept. The JavaScript half of that
+ * path is this handler; these cases pin that it asks for banner, list and
+ * sound for the local kinds that were lost, and answers without touching
+ * native code (expo-notifications drops the notification silently if the
+ * answer takes longer than 3 s). Whether the native half presents it on a
+ * release build is a device check, recorded in the lane report.
+ */
+describe('a local reminder that arrives while the app is open (NA13.1)', () => {
+  afterEach(() => {
+    resetNotificationSetupForTests();
+    jest.restoreAllMocks();
+  });
+
+  it('is shown, kept in the list and heard, at once', async () => {
+    const Notifications = jest.requireMock<typeof import('expo-notifications')>('expo-notifications');
+    let handler: { handleNotification: (n: unknown) => Promise<Record<string, boolean>> } | null = null;
+    jest.spyOn(Notifications, 'setNotificationHandler').mockImplementation(h => {
+      handler = h as never;
+    });
+    const presented = jest.spyOn(Notifications, 'getPresentedNotificationsAsync').mockResolvedValue([] as never);
+    await configureNotifications(names);
+    for (const data of [
+      { kind: 'place_reminder', commitmentId: 'c1' },
+      { commitmentId: 'c2' },
+      {},
+    ]) {
+      expect(await handler!.handleNotification({ request: { content: { data } } }))
+        .toEqual({ shouldShowBanner: true, shouldShowList: true, shouldPlaySound: true, shouldSetBadge: false });
+    }
+    expect(presented).not.toHaveBeenCalled();
+  });
+});
