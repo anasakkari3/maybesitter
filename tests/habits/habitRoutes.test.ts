@@ -31,7 +31,7 @@ import assert from 'node:assert/strict';
 import { installFakeAuth, tokenFor, uidFor, type FakeAuthControls } from '../support/fakeAuth.ts';
 import { createMemoryStorage } from '../../lib/storage/memoryAdapter.ts';
 import { resetStorageForTests, setStorageForTests } from '../../lib/storage/index.ts';
-import { createHabitServices } from '../../lib/services/habits/habitService.ts';
+import { applyOccurrenceOutcome, createHabitServices } from '../../lib/services/habits/habitService.ts';
 import { withVerifiedScope } from '../../lib/services/habits/habitApi.ts';
 import { GET as habitsGet, POST as habitsPost } from '../../src/app/api/mobile/habits/route.ts';
 import { DELETE as habitDelete, PATCH as habitPatch } from '../../src/app/api/mobile/habits/[id]/route.ts';
@@ -716,6 +716,55 @@ test("today stays markable after the stored horizon ran out (CA5.4)", async () =
       occurrenceParams(habitId, tomorrowId),
     );
     assert.equal(notToday.status, 404);
+  } finally {
+    restore();
+  }
+});
+
+test('two devices deciding a row that is not stored yet: the second never overwrites the first (CA5.4)', async () => {
+  const restore = setup();
+  try {
+    const created = await createHabit(DAILY);
+    const habitId = created.habit.habitId as string;
+    const today = todayIn(TZ);
+    const occurrenceId = `${habitId}.${today}.0`;
+    const real = createHabitServices();
+    await real.occurrences.removeMany(USER, [occurrenceId]);
+
+    // Device B's view of the stored rows is taken before device A writes
+    // anything, and handed back only after A has minted and completed the
+    // row: the interleaving two phones produce on a slow connection.
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    let reading!: () => void;
+    const bRead = new Promise<void>((resolve) => { reading = resolve; });
+    const deviceB = {
+      habits: real.habits,
+      occurrences: {
+        listForHabit: async (scopeId: string, id: string) => {
+          const stale = await real.occurrences.listForHabit(scopeId, id);
+          reading();
+          await gate;
+          return stale;
+        },
+        transition: real.occurrences.transition.bind(real.occurrences),
+        putMany: real.occurrences.putMany.bind(real.occurrences),
+        get: real.occurrences.get.bind(real.occurrences),
+        listInRange: real.occurrences.listInRange.bind(real.occurrences),
+        removeMany: real.occurrences.removeMany.bind(real.occurrences),
+        deleteForHabit: real.occurrences.deleteForHabit.bind(real.occurrences),
+      },
+    };
+    const b = applyOccurrenceOutcome(deviceB as any, USER, habitId, occurrenceId, 'skipped', today);
+    await bRead;
+    const a = await applyOccurrenceOutcome(real, USER, habitId, occurrenceId, 'completed', today);
+    assert.equal(a.transition.kind, 'applied');
+    release();
+    const second = await b;
+
+    assert.notEqual(second.transition.kind, 'applied', 'the later press silently replaced a decision already taken');
+    assert.equal(second.transition.kind, 'conflict');
+    assert.equal((await real.occurrences.get(USER, occurrenceId))?.state, 'completed', "device A's decision must stand");
   } finally {
     restore();
   }
