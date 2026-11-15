@@ -14,6 +14,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { replaceBusyBlocks } from '../../../lib/calendar/busyBlocks.ts';
+import { applyTrustAction } from '../../../lib/pilot/pilotTrustStore.ts';
 import { getStorage } from '../../../lib/storage/index.ts';
 import { ICS_FEEDS, userSubDoc } from '../../../lib/storage/paths.ts';
 import { TODAY, TOMORROW, TZ, at, begin, call, end, show } from './support.ts';
@@ -46,6 +47,10 @@ async function icsBlocks(uid: string, feedId: string, blocks: Array<[string, str
 }
 
 async function manualSessions(uid: string, sessions: Array<Record<string, unknown>>, proposalId = 'gate-m4a-manual') {
+  // Manual busy time is kept only under calendar consent (QA audit CA10.4).
+  const stamp = new Date().toISOString();
+  await applyTrustAction(uid, { type: 'record_first_value', at: stamp });
+  await applyTrustAction(uid, { type: 'set_calendar_consent', granted: true, at: stamp });
   return call(uid, 'calendar/manual', 'POST', { body: { proposalId, sessions, timezone: TZ } });
 }
 
@@ -202,9 +207,15 @@ test('M4A-R16-001 R17-001 thousands of expired carry-in rows never hide a live i
 test('M4A-R12-003 many empty manual sources keep the answer bounded (no sources entries for manual)', async () => {
   const uid = begin();
   try {
-    for (let index = 0; index < 60; index += 1) {
+    // The route admits ten sources per account (#749, QA audit CA10.4); the
+    // other fifty are what an account written before that limit can hold.
+    for (let index = 0; index < 10; index += 1) {
       const result = await manualSessions(uid, [], `gate-empty-${index}`);
       assert.equal(result.status, 200, show(result.body));
+    }
+    for (let index = 10; index < 60; index += 1) {
+      await replaceBusyBlocks(uid, `manual-gate-empty-${index}`, { startsAt: new Date().toISOString(), endsAt: new Date(Date.now() + 7 * 86_400_000).toISOString() },
+        [], { platform: null, now: new Date() });
     }
     const result = await busy(uid);
     assert.equal(result.status, 200, show(result.body));

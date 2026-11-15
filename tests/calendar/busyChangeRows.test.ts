@@ -504,6 +504,9 @@ test('writer: weekly blocks announce their occurrences, a re-materialize as noth
 test('writer: the manual busy route announces what it stores and what its delete removes', async () => {
   await withRoutes(async (storage) => {
     await storage.set(userDoc(USER), { timezone: 'Asia/Jerusalem' });
+    // Manual busy time is kept only under calendar consent (QA audit CA10.4).
+    await applyTrustAction(USER, { type: 'record_first_value', at: '2026-09-01T09:00:00.000Z' });
+    await applyTrustAction(USER, { type: 'set_calendar_consent', granted: true, at: '2026-09-01T09:00:00.000Z' });
     const proposalId = 'prop-route';
     const posted = await manualPost(new Request(`${BASE}/api/mobile/calendar/manual`, {
       method: 'POST',
@@ -547,6 +550,7 @@ const WRITERS: ReadonlyArray<readonly [file: string, inside: string, callee: str
   ['lib/calendar/icsFeeds.ts', 'applyClassification', 'replaceBusyBlocks', 'icsFeedLifecycle: #611 subscribe/refresh rows'],
   ['lib/calendar/icsFeeds.ts', 'removeFeedData', 'deleteBusySource', 'icsFeedLifecycle: #611 unsubscribe rows'],
   ['lib/calendar/manualBusy.ts', 'acceptLectureSessionsAsBusyBlocks', 'replaceBusyBlocks', 'writer: accepted lecture sessions (#191)'],
+  ['lib/calendar/manualBusy.ts', 'deleteManualBusySource', 'deleteBusySource', 'writer: the manual busy route'],
   ['lib/integrations/google/googleCalendarBusy.ts', 'applyGoogleBusyTarget', 'replaceBusyBlocks', 'B3 calendar maintenance keeps a fenced target on mismatch, then certifies and clears it'],
   ['lib/integrations/google/googleCalendarBusy.ts', 'syncGoogleCalendarBusy', 'replaceBusyBlocks', 'googleConnectRoutes: freebusy mapping (CL6a)'],
   ['lib/integrations/google/googleConnectService.ts', 'disconnectGoogle', 'deleteBusySource', 'googleConnectRoutes: disconnect (CL6a)'],
