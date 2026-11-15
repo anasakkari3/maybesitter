@@ -225,11 +225,12 @@ describe('drop and delete are not the same thing', () => {
       .mockResolvedValue({ success: true, id: ID, deleted: false, softDeleted: true, status: 'archived' } as never);
     await show();
     const get = commitmentEndpoints.getCommitment as unknown as jest.Mock;
-    const before = get.mock.calls.length;
-    // The server answers 404 for a deleted item from now on.
-    get.mockRejectedValue(new NotFoundError('gone'));
     await fireEvent.press(screen.getByTestId('details-delete'));
     await waitFor(() => expect(screen.queryByTestId('confirm-delete')).not.toBeNull());
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 50)); });
+    const before = get.mock.calls.length;
+    // The server answers 404 for a deleted item from now on.
+    get.mockRejectedValue(new NotFoundError('gone') as never);
     await fireEvent.press(screen.getByTestId('confirm-delete'));
     await waitFor(() => expect(screen.queryByTestId('confirm-delete')).toBeNull());
     await act(async () => { await new Promise((resolve) => setTimeout(resolve, 50)); });

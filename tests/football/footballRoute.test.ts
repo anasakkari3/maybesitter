@@ -327,7 +327,8 @@ test('a match the user deleted through the ordinary delete route stays deleted w
     assert.equal(tally.created, 0);
 
     const state = await readParticipantState(USER);
-    const live = Object.values(state.commitments).filter((c) => c.status !== 'dropped');
+    // DELETE is a deletion now (`archived`, CA2.3), not a drop; both are gone.
+    const live = Object.values(state.commitments).filter((c) => c.status !== 'dropped' && c.status !== 'archived');
     assert.deepEqual(live, [], 'nothing the user deleted came back');
   } finally {
     teardown();

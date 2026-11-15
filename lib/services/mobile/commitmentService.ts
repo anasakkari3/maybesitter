@@ -282,8 +282,9 @@ type ListPlacement = 'today' | 'upcoming' | null;
  *
  * "Not on a later day" applied to everything visible would turn #383's
  * vanishing bug into an accumulating one on the same screen. `completed` is
- * terminal — no command in `stateMachine.ts` reaches `archived`, so nothing
- * ever leaves it — and the list route has no cap, so Today would grow by one
+ * terminal for the lists — the only command that moves it on is the person's
+ * Delete (CA2.3), to `archived`, which no list shows — and the list route has
+ * no cap, so Today would grow by one
  * row for every commitment the user has ever finished, for ever, with the
  * Finished badge counting a lifetime instead of a day. Worse for the rest:
  * `model.ts` draws `missed` and anything it has no mapping for as a live card,

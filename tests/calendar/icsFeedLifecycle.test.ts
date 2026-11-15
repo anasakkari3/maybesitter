@@ -710,7 +710,7 @@ test('CA2.3: undoing an auto-accepted deadline the person already deleted succee
     const feedId = (await subscribe(h, { autoAcceptDeadlines: true })).body.feed.feedId as string;
     const essay = byTitle(await items(), 'Essay due');
     assert.equal(essay.state, 'accepted');
-    await applyParticipantCommands(USER, [{ type: 'Delete', commitmentId: essay.commitmentId, now: new Date().toISOString() }]);
+    await applyParticipantCommands(USER, [{ type: 'Delete', commitmentId: essay.commitmentId!, now: new Date().toISOString() }]);
     const undo = await decide(h, feedId, essay.itemKey, 'undo');
     assert.equal(undo.status, 200, JSON.stringify(undo.body));
     assert.equal((await commitments()).find((c) => c.id === essay.commitmentId)?.status, 'archived');

@@ -190,7 +190,9 @@ export async function deriveAdaptiveSignals(
   const trackableCommitments = commitments.filter((commitment) => (
     commitment.status !== 'draft' &&
     commitment.status !== 'needs_clarification' &&
-    commitment.status !== 'pending_confirmation'
+    commitment.status !== 'pending_confirmation' &&
+    // Deleted (CA2.3): the person removed it; it is not an unfinished thing.
+    commitment.status !== 'archived'
   ));
   const denominator = trackableCommitments.length;
   const completed = trackableCommitments.filter((commitment) => commitment.status === 'completed').length;

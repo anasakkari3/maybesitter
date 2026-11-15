@@ -649,7 +649,7 @@ function importanceInk(importance: CommitmentView['importance'], p: ReturnType<t
 const OpenPostponeSheet = React.createContext<(id: string) => void>(() => undefined);
 
 /** The instant Today is composed for (`clockMs`), so a row reads the same clock as the card. */
-const TodayClock = React.createContext<number>(0);
+const TodayClock = React.createContext<number | null>(null);
 
 /** The earliest postponed return still ahead of `nowMs`, or null (CA2.1). */
 function nextPostponedReturnAfter(items: readonly CommitmentView[], nowMs: number): number | null {
@@ -831,9 +831,15 @@ function Row({ item, timezone, lang, busy, football }: {
  * null once that instant has come: then it is simply back. The row keeps its
  * deadline, so this is what tells the person their «مش هلّق» took.
  */
-function postponedReturnLine(item: CommitmentView, t: ReturnType<typeof useApp>['t'], lang: Lang, timezone: string, nowMs: number): string | null {
-  if (!item.postponedUntil || !isPostponedAway(item, nowMs)) return null;
-  const back = new Date(item.postponedUntil);
+function postponedReturnLine(item: CommitmentView, t: ReturnType<typeof useApp>['t'], lang: Lang, timezone: string, nowMs: number | null): string | null {
+  // No clock (outside Today's provider): say nothing rather than guess.
+  if (nowMs === null || !item.postponedUntil || !isPostponedAway(item, nowMs)) return null;
+  return returnLineFor(item.postponedUntil, t, lang, timezone);
+}
+
+/** «بترجع <day> · <time>»: the one wording for a postponed return, on any row. */
+function returnLineFor(postponedUntil: string, t: ReturnType<typeof useApp>['t'], lang: Lang, timezone: string): string {
+  const back = new Date(postponedUntil);
   return `${t.postponeReturn} ${formatRelativeDay(back, { locale: lang, timeZone: timezone })} · ${ltr(formatTime(back, { locale: lang, timeZone: timezone }))}`;
 }
 
@@ -844,9 +850,7 @@ function LaterRow({ item, first, timezone, lang }: { item: CommitmentView; first
   const drawn = drawnAt(item);
   const when = laterWhen(item, lang, timezone, t.noTimeYet);
   const aside = dueAsideText(item, t.plannedDueAside, lang, timezone);
-  const returnWhen = item.postponedUntil
-    ? `${t.postponeReturn} ${formatRelativeDay(new Date(item.postponedUntil), { locale: lang, timeZone: timezone })} · ${ltr(formatTime(new Date(item.postponedUntil), { locale: lang, timeZone: timezone }))}`
-    : null;
+  const returnWhen = item.postponedUntil ? returnLineFor(item.postponedUntil, t, lang, timezone) : null;
   return (
     <Btn
       testID={`today-later-${item.id}`}

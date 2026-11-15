@@ -279,7 +279,8 @@ function isPressureEligible(candidate: PressureCandidate): boolean {
 }
 
 async function adaptiveSignalsFor(candidate: PressureCandidate, state: DomainState, options: PressureOptions): Promise<AdaptiveSignals> {
-  const commitmentCount = Math.max(1, Object.keys(state.commitments).length);
+  // A deleted commitment (`archived`, CA2.3) is not counted as unfinished.
+  const commitmentCount = Math.max(1, Object.values(state.commitments).filter((commitment) => commitment.status !== 'archived').length);
   const completedCount = Object.values(state.commitments).filter((commitment) => commitment.status === 'completed').length;
   const delayedCommitmentIds = new Set<string>();
   for (const commitment of Object.values(state.commitments)) {

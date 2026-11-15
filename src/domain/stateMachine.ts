@@ -902,7 +902,10 @@ export function applyCommand(state: DomainState, command: Command): StateTransit
 
     case 'Drop': {
       const commitment = requireCommitment(newState, command.commitmentId);
-      if (commitment.status === 'dropped') {
+      // Already gone: dropped, or deleted by the person (CA2.3). A system path
+      // that drops after a delete (a dismissed match, a feed undo, an auto-add
+      // removed) finds nothing to do and must not turn a deletion into a drop.
+      if (commitment.status === 'dropped' || commitment.status === 'archived') {
         break;
       }
       ensureCommitmentStatus(commitment, ['draft', 'needs_clarification', 'pending_confirmation', 'active', 'deferred', 'missed', 'completed'], command.type);

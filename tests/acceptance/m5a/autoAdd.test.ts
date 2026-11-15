@@ -185,7 +185,9 @@ test('CA2.3: removing an auto-add the person already deleted is idempotent, not 
   assert.equal(removed.status, 200, show(removed.body));
   const retry = await call(uid, 'intelligence/added/[autoAddId]', 'DELETE', { params: { autoAddId: item.autoAddId } });
   assert.equal(retry.status, 200, show(retry.body));
-  const stored = (await savedCommitments(uid)).find((c: any) => c.id === item.commitmentId);
+  // `savedCommitments` keeps only title and time, so the status is read from the state itself.
+  const { getParticipantStateSnapshot } = await import('../../../lib/services/mobile/participantState.ts');
+  const stored = (await getParticipantStateSnapshot(uid)).commitments[item.commitmentId];
   assert.equal(stored?.status, 'archived', 'a deleted auto-add was turned into a drop');
   assert.equal((await addedList(uid)).items.length, 0);
 });
