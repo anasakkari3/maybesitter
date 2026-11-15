@@ -271,16 +271,41 @@ describe('pasted text lands where typed text lands', () => {
     expect(screen.queryByTestId('chat-saved-undo')).not.toBeNull();
   });
 
-  it('truncates an over-long paste to what the field holds, and says so', async () => {
-    clipboard.mockResolvedValue('x'.repeat(MAX_CAPTURE_LENGTH + 400));
+  it('keeps the whole of an over-long paste, says it is too long, and does not send it (CA3.6)', async () => {
+    const chat = jest.spyOn(captureEndpoints, 'chatCapture').mockImplementation(chatServer(() => (proposal())) as never);
+    const long = `${'x'.repeat(MAX_CAPTURE_LENGTH + 100)}\nCall Dana Friday`;
+    clipboard.mockResolvedValue(long);
     await openComposer();
     await pressPaste();
+    // The sheet says so before anything is used: the preview is the whole text.
+    expect(screen.queryByTestId('capture-clipboard-too-long')).not.toBeNull();
+    expect(screen.getByTestId('capture-clipboard-too-long').props.children).toBe(en.captureClipboardTooLong);
     await fireEvent.press(screen.getByTestId('capture-clipboard-use'));
     await waitFor(() => expect(screen.queryByTestId('capture-input')).not.toBeNull());
 
-    expect(fieldText()).toHaveLength(MAX_CAPTURE_LENGTH);
-    // The counter appears, so the limit is visible rather than silent.
-    expect(screen.queryByTestId('capture-counter')).not.toBeNull();
+    // Nothing was cut: the last line is still in the field.
+    expect(fieldText()).toBe(long);
+    expect(fieldText().endsWith('Call Dana Friday')).toBe(true);
+    // The counter shows the real length, and a line says why Send is off.
+    expect(screen.getByTestId('capture-counter').props.children).toBe(`${long.length} / 2000`);
+    expect(screen.getByTestId('capture-too-long').props.children).toBe(en.captureTooLong);
+    await fireEvent.press(screen.getByTestId('capture-analyze'));
+    expect(chat).not.toHaveBeenCalled();
+  });
+
+  it('keeps an over-long typed or native-pasted text whole, and refuses it with the same line (CA3.6)', async () => {
+    const chat = jest.spyOn(captureEndpoints, 'chatCapture').mockImplementation(chatServer(() => (proposal())) as never);
+    await openComposer();
+    const long = `${'y'.repeat(MAX_CAPTURE_LENGTH)}z`;
+    await fireEvent.changeText(screen.getByTestId('capture-input'), long);
+    expect(fieldText()).toBe(long);
+    expect(screen.queryByTestId('capture-too-long')).not.toBeNull();
+    await fireEvent.press(screen.getByTestId('capture-analyze'));
+    expect(chat).not.toHaveBeenCalled();
+
+    // Shortened back to the limit, the line goes and the text can be sent.
+    await fireEvent.changeText(screen.getByTestId('capture-input'), long.slice(0, MAX_CAPTURE_LENGTH));
+    expect(screen.queryByTestId('capture-too-long')).toBeNull();
   });
 });
 

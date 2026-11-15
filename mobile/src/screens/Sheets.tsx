@@ -8,7 +8,7 @@ import { isolateAuto } from '../i18n/bidi';
 import { useTimeZone } from '../i18n/timezone';
 import { formatDate, formatRelativeDay, formatTime } from '../i18n/format';
 import { useCommitment, useCommitmentAction, useDeleteCommitment, usePatchCommitment, useUid } from '../api/queries';
-import { userFacingMessage } from '../api/ui/userFacingMessage';
+import { markErrorShown, userFacingMessage } from '../api/ui/userFacingMessage';
 import { SlotRefusedError } from '../api/errors';
 import { getPostponeSlots } from '../api/endpoints/m4b';
 import type { PostponeSlot } from '../api/schemas/m4b';
@@ -162,7 +162,8 @@ function PostponeChoices({ commitmentId, knownTitle, onMoved }: {
 
   const send = (until: string) => {
     if (!commitmentId) return;
-    act.mutate({ id: commitmentId, action: 'postpone', postponedUntil: until }, { onSuccess: onMoved });
+    // The sheet says a failure itself (`problem` / `pickFailure`), marked at once.
+    act.mutate({ id: commitmentId, action: 'postpone', postponedUntil: until }, { onSuccess: onMoved, onError: markErrorShown });
   };
 
   // A picked free time (M4b R3.2): the only write, re-checked by the server.
@@ -173,7 +174,7 @@ function PostponeChoices({ commitmentId, knownTitle, onMoved }: {
     smart.clearProblem();
     act.mutate(
       { id: commitmentId, action: 'postpone', postponedUntil: slot.startsAt, slotToken: slot.slotToken },
-      { onSuccess: onMoved, onError: (error) => { if (error instanceof SlotRefusedError) smart.refused(error); } },
+      { onSuccess: onMoved, onError: (error) => { markErrorShown(error); if (error instanceof SlotRefusedError) smart.refused(error); } },
     );
   };
   const slotProblem = smart.problem === null ? null
@@ -183,7 +184,7 @@ function PostponeChoices({ commitmentId, knownTitle, onMoved }: {
   // Any other failure of a picked time (network, timeout, server) is said too
   // (M4B-A-R2-016); a slot refusal's own line wins.
   const pickFailure = !custom && slotProblem === null && act.error && !(act.error instanceof SlotRefusedError) ? userFacingMessage(act.error, t) : null;
-  useAnnounceOnIos(slotProblem ?? pickFailure);
+  useAnnounceOnIos(slotProblem ?? pickFailure ?? (custom ? problem : null));
 
   const choose = (preset: PostponePreset) => {
     // No past-instant guard here, and none is needed: every preset is `now`
@@ -320,7 +321,9 @@ function PostponeChoices({ commitmentId, knownTitle, onMoved }: {
             />
           ) : null}
 
-          {problem ? <Txt size={13} color={p.wm} testID="postpone-problem">{problem}</Txt> : null}
+          {/* In a live region and announced: the sheet is modal to VoiceOver,
+              so no toast outside it would be heard (A3 review). */}
+          <LiveRegion>{problem ? <Txt size={13} color={p.wm} testID="postpone-problem">{problem}</Txt> : null}</LiveRegion>
 
           <Pill
             testID="postpone-custom-confirm"
@@ -500,6 +503,23 @@ function EditSheet() {
   const [title, setTitle] = useState(commitment?.title ?? '');
   const [level, setLevel] = useState<PriorityLevel>(commitment?.priority.level ?? 'normal');
   const [local, setLocal] = useState(originalLocal);
+  // What the form was last filled from (NA2.1). When the server's version
+  // moves under the open sheet — a refused stale save adopts the newer one, or
+  // the item arrives after the sheet mounted — a field the person has not
+  // touched follows it, and one they changed keeps their words. Without this
+  // the untouched old title read as a "change" and a second Save sent it back
+  // over the other device's edit.
+  const server = commitment
+    ? { id: commitment.id, title: commitment.title, level: commitment.priority.level, local: originalLocal }
+    : null;
+  const [base, setBase] = useState(server);
+  if (server && (base === null || base.id !== server.id || base.title !== server.title || base.level !== server.level || base.local !== server.local)) {
+    const fresh = base === null || base.id !== server.id;
+    setBase(server);
+    if (fresh || title === base.title) setTitle(server.title);
+    if (fresh || level === base.level) setLevel(server.level);
+    if (fresh || local === base.local) setLocal(server.local);
+  }
   const [picking, setPicking] = useState<'date' | 'time' | null>(null);
   const [pastTime, setPastTime] = useState(false);
 
@@ -532,12 +552,17 @@ function EditSheet() {
     if (trimmed !== commitment.title) body.title = trimmed;
     if (level !== commitment.priority.level) body.priority = level;
     if (Object.keys(body).length === 0) return;
-    patch.mutate({ id: commitment.id, patch: body }, { onSuccess: actions.closeSheet });
+    // Marked as said at once (the line below says it), so the failure bridge
+    // never races this sheet's render (A3 review).
+    patch.mutate({ id: commitment.id, patch: body }, { onSuccess: actions.closeSheet, onError: markErrorShown });
   }, [actions, commitment, instant, level, patch, timeChanged, trimmed]);
 
+  const saveFailedLine = patch.error && !patch.isPending ? userFacingMessage(patch.error, t) : null;
+  useAnnounceOnIos(saveFailedLine);
   if (!commitment) return null;
 
   const changed = titleChanged || levelChanged || timeChanged;
+  const saveFailed = saveFailedLine;
   const problem = trimmed.length === 0 ? t.editItemEmpty : pastTime ? t.editItemPast : null;
 
   return (
@@ -644,6 +669,9 @@ function EditSheet() {
       ) : null}
 
       {problem ? <Txt size={13} color={p.wm} testID="edit-problem">{problem}</Txt> : null}
+      {/* A save that did not go through is said, and the sheet keeps what
+          was typed (A3 review): offline it fails at once and is never sent later. */}
+      <LiveRegion>{saveFailed ? <Txt size={13} color={p.wm} testID="edit-error">{saveFailed}</Txt> : null}</LiveRegion>
 
       <View style={{ flexDirection: 'row', gap: 8 }}>
         <Pill testID="edit-close" label={t.editItemCancel} onPress={actions.closeSheet} kind="soft" size={15} weight={500} pad={12} style={{ flex: 1 }} />
@@ -684,12 +712,16 @@ function ConfirmSheet({ intent }: { intent: 'drop' | 'delete' }) {
   const remove = useDeleteCommitment();
   const id = query.data?.id;
   const pending = act.isPending || remove.isPending;
+  // Said, and the dialog stays (A3 review): offline the press fails at once.
+  const failure = intent === 'drop' ? act.error : remove.error;
+  const failed = failure && !pending ? userFacingMessage(failure, t) : null;
+  useAnnounceOnIos(failed);
 
   const after = (message: string) => { actions.closeSheet(); actions.back(); actions.toast(message); };
   const confirm = () => {
     if (!id) return;
-    if (intent === 'drop') act.mutate({ id, action: 'cancel' }, { onSuccess: () => after(t.toastDrop) });
-    else remove.mutate(id, { onSuccess: () => after(t.toastDeleted) });
+    if (intent === 'drop') act.mutate({ id, action: 'cancel' }, { onSuccess: () => after(t.toastDrop), onError: markErrorShown });
+    else remove.mutate(id, { onSuccess: () => after(t.toastDeleted), onError: markErrorShown });
   };
 
   // Declared as literal test ids, so the Maestro guard can see what a flow
@@ -706,6 +738,7 @@ function ConfirmSheet({ intent }: { intent: 'drop' | 'delete' }) {
       />
       <Txt role="supporting" color={p.mu} lh={1.5}>{intent === 'drop' ? t.confirmDropBody : t.confirmDeleteBody}</Txt>
       {intent === 'delete' && query.data?.title ? <Txt role="card" color={p.tx}>{query.data.title}</Txt> : null}
+      <LiveRegion>{failed ? <Txt size={13} color={p.wm} testID="confirm-error">{failed}</Txt> : null}</LiveRegion>
       <ActionRow>
         <Pill testID={keepId.testID} label={t.confirmKeep} onPress={actions.closeSheet} kind="outline" size={15} pad={12} />
         <Pill testID={confirmId.testID} label={intent === 'drop' ? t.dropIt : t.detailsDelete} onPress={confirm} disabled={pending} kind="warmSolid" size={15} pad={12} />

@@ -8,6 +8,7 @@ import { SettingsHeader } from './SettingsChrome';
 import { HealthDataCard } from '../readiness/HealthDataCard';
 import { useM5bOn } from '../m5b/capabilities';
 import { ReadinessEffect } from '../m5b/energy';
+import { markErrorShown } from '../../api/ui/userFacingMessage';
 
 const ENERGY = [1, 2, 3, 4, 5] as const;
 const BAND_COPY = {
@@ -45,7 +46,8 @@ export function ReadinessSettingsScreen({ onBack }: { onBack: () => void }) {
     setFailed(false);
     try {
       await save.mutateAsync({ energy, observedAt: new Date().toISOString() });
-    } catch {
+    } catch (error) {
+      markErrorShown(error);
       setFailed(true);
     }
   };

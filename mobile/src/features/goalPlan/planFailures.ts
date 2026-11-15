@@ -8,7 +8,7 @@ import {
   ServiceUnavailableError,
   TimeoutError,
 } from '../../api/errors';
-import { userFacingMessage } from '../../api/ui/userFacingMessage';
+import { markErrorShown, userFacingMessage } from '../../api/ui/userFacingMessage';
 import type { Strings } from '../../i18n/strings';
 
 /**
@@ -51,6 +51,8 @@ export function recoveryLabel(recovery: PlanRecovery, t: Strings): string {
 }
 
 export function planFailureOf(error: unknown, t: Strings): PlanFailure | null {
+  // Turning an error into words is saying it: the failure bridge stays quiet (A3 review).
+  markErrorShown(error);
   if (error === null || error === undefined) return null;
   // A switched-off module is not a failure to explain: the entries hide.
   if (error instanceof FeatureUnavailableError) return null;
@@ -111,6 +113,8 @@ function refusal(error: GoalPlanRefusedError, t: Strings): PlanFailure {
  * is never said as the generic server line.
  */
 export function planBuildFailureOf(error: unknown, t: Strings): string | null {
+  // Turning an error into words is saying it: the failure bridge stays quiet (A3 review).
+  markErrorShown(error);
   if (!error) return null;
   if (error instanceof NetworkError || error instanceof TimeoutError) return t.xPlanBuildOffline;
   if (error instanceof QuotaExceededError) return error.scope === 'user_monthly' ? t.aiQuotaUserMonthly : t.xPlanBuildDailyCap;

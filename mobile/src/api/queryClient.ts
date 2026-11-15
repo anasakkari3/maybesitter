@@ -17,6 +17,21 @@ import { isRetryable } from './errors';
  * There is no offline mutation queue either. A confirmation replayed hours
  * later, without the user present, is exactly what UC-1.R4 (#157) forbids.
  *
+ * That takes `networkMode: 'always'` on mutations (CX3.5, CXX3.1). TanStack's
+ * default, `'online'`, *pauses* a mutation started offline and resumes it by
+ * itself on reconnect or foreground: an in-memory queue in all but name. The
+ * press went silent, was lost if the app died, and otherwise was sent later
+ * without the person — a capture confirm created a commitment a minute after
+ * they had left the flow. With `'always'` the request is tried at once; with
+ * no signal it fails at once and nothing is held. The failure is said: by the
+ * screen, or, when the screen does not, by `MutationFailureToasts` (Root).
+ *
+ * The cost is deliberate, under the same no-replay rule: a fire-and-forget
+ * write nobody pressed — analytics (`useRecordAnalytics`, sent from
+ * CaptureProvider and OnboardingFlow), the native readiness snapshot — is
+ * simply dropped when offline. Those carry `meta: { quietFailure: true }`, so
+ * their loss is not announced either.
+ *
  * ── Retries ──────────────────────────────────────────────────────
  *
  * Queries retry twice, and only for failures another attempt can fix: no
@@ -40,6 +55,8 @@ export function createAppQueryClient(): QueryClient {
       },
       mutations: {
         retry: false,
+        // Never paused, so never resumed without the person (see above).
+        networkMode: 'always',
       },
     },
   });

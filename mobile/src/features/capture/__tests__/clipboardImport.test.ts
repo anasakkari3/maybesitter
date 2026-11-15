@@ -23,15 +23,14 @@ describe('reading the clipboard', () => {
     expect(result).toEqual({ kind: 'text', text: 'call Sami\nthen the clinic' });
   });
 
-  it('truncates to exactly what the composer will hold', async () => {
+  it('cuts nothing, and the composer holds exactly what the sheet showed (CA3.6)', async () => {
     const long = 'ب'.repeat(MAX_CAPTURE_LENGTH + 500);
     const result = await readClipboardText(async () => long);
     expect(result.kind).toBe('text');
     const pasted = result.kind === 'text' ? result.text : '';
-    expect(pasted).toHaveLength(MAX_CAPTURE_LENGTH);
-    // The point of truncating here rather than leaving it to the reducer: the
-    // sheet shows this string, and the user must be agreeing to what actually
-    // lands. If the two limits ever disagreed, this goes red.
+    expect(pasted).toBe(long);
+    // The sheet shows this string, and the person must be agreeing to what
+    // actually lands. If the composer ever cut it, this goes red.
     expect(captureReducer(initialCaptureState(), { type: 'textChanged', text: pasted }).text).toBe(pasted);
   });
 });

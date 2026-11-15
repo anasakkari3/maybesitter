@@ -68,7 +68,7 @@ export function useRoutineSync(): RoutineSyncState {
   // unowned copy is how they crossed accounts in the first place.
   const accountId = useAuth().user?.uid ?? null;
   const profile = useProfile();
-  const putRoutine = usePutRoutine();
+  const putRoutine = usePutRoutine({ background: true });
   const [cache, setCache] = useState<RoutineCache | null>(null);
   const [loading, setLoading] = useState(true);
   const [localSaveFailed, setLocalSaveFailed] = useState(false);

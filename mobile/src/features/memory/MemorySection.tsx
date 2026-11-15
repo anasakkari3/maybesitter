@@ -3,6 +3,9 @@ import { TextInput, View } from 'react-native';
 import { useApp } from '../../state/AppContext';
 import { isolateAuto, isolateLatinRuns } from '../../i18n/bidi';
 import { Btn, Card, Txt } from '../../ui/primitives';
+import { LiveRegion } from '../../ui/liveRegion';
+import { useAnnounceOnIos } from '../../ui/announce';
+import { markErrorShown, userFacingMessage } from '../../api/ui/userFacingMessage';
 import {
   useCreateMemory,
   useDeleteAllMemory,
@@ -17,6 +20,7 @@ import { useMemoryTranslationOn } from '../m6/capabilities';
 import { MemoryTranslationPanel, TranslateAction, translationTargetOf, type TranslationTarget } from '../m6/MemoryTranslation';
 import type { MemoryItem } from '../../api/schemas/profile';
 import { CHIP_STRING, memorySentence, provenanceChip } from './memoryDisplay';
+import { KeptMemoryEdit } from './KeptMemoryEdit';
 
 /**
  * Everything MaybeSitter remembers, and the controls to change it
@@ -73,6 +77,17 @@ export function MemorySection({ onOpen }: { onOpen?: (() => void) | undefined } 
   const [editing, setEditing] = useState<string | null>(null);
   const [confirming, setConfirming] = useState<string | null>(null);
   const [confirmAll, setConfirmAll] = useState(false);
+  // CA8.2: the last write that failed, said on the card; and an edit that
+  // failed, held until its row is known to be still there (or gone).
+  const [failed, setFailed] = useState<unknown>(null);
+  const [keptEdit, setKeptEdit] = useState<{ id: string; content: string; kind: MemoryItem['kind'] } | null>(null);
+  // The words of an edit whose row went: beside the add field, never in it,
+  // so a new fact being typed is not overwritten (A3 review).
+  const [kept, setKept] = useState<{ content: string; kind: MemoryItem['kind'] } | null>(null);
+  const failedText = failed == null ? null : userFacingMessage(failed, t);
+  // Marked as said at once: the line above says it (A3 review).
+  const fail = (error: unknown) => { markErrorShown(error); setFailed(error); };
+  useAnnounceOnIos(failedText);
   // M6a-2: the row whose translation panel is open. Unknown or off offers none.
   const translationOn = useMemoryTranslationOn() === true;
   const [translating, setTranslating] = useState<string | null>(null);
@@ -91,6 +106,14 @@ export function MemorySection({ onOpen }: { onOpen?: (() => void) | undefined } 
   if (memory.data === undefined) return null;
 
   const items = purging ? [] : memory.data.items;
+  // An edit refused because its row changed elsewhere (another device
+  // replaced or deleted it): once the re-read has no such row, the typed
+  // words are kept on the card, to save again or let go — never lost (CA8.2).
+  if (keptEdit && !purging && !items.some(item => item.id === keptEdit.id)) {
+    setKeptEdit(null);
+    setEditing(current => (current === keptEdit.id ? null : current));
+    setKept({ content: keptEdit.content, kind: keptEdit.kind });
+  }
   const strings = t as unknown as Record<string, string>;
   // Only a current answer is a paragraph (M5B-A-001): a refetch that failed,
   // or one still running after a memory change, never shows the old one.
@@ -104,6 +127,12 @@ export function MemorySection({ onOpen }: { onOpen?: (() => void) | undefined } 
       <View style={{ paddingHorizontal: 18, paddingTop: 16, paddingBottom: 8 }}>
         <Txt size={13} weight={600} color={p.mu}>{t.memoryTitle}</Txt>
       </View>
+
+      {/* A failed write is said, not swallowed (CA8.2). Always mounted, so
+          TalkBack hears the line arrive; VoiceOver hears useAnnounceOnIos. */}
+      <LiveRegion style={{ paddingHorizontal: 18, paddingBottom: 8 }}>
+        {failedText ? <Txt size={14} color={p.wm} testID="memory-error">{failedText}</Txt> : null}
+      </LiveRegion>
 
       {items.length === 0 && (!adding || purging) ? (
         <View style={{ paddingHorizontal: 18, paddingBottom: 14 }}>
@@ -141,19 +170,42 @@ export function MemorySection({ onOpen }: { onOpen?: (() => void) | undefined } 
           translating={translating === item.id}
           onTranslate={() => { setEditing(null); setConfirming(null); setTranslating(item.id); }}
           onCloseTranslate={() => setTranslating(null)}
-          onEdit={() => { setTranslating(null); setEditing(item.id); setDraft(item.content); }}
-          onCancelEdit={() => setEditing(null)}
+          onEdit={() => { setTranslating(null); setEditing(item.id); }}
+          onCancelEdit={() => { setEditing(null); setKeptEdit(null); }}
+          saving={patch.isPending}
           onSave={next => {
-            setEditing(null);
-            patch.mutate({ id: item.id, content: next });
+            // Closed only once the server took it: a failure keeps the field
+            // and the words in it (CA8.2).
+            setFailed(null);
+            setKeptEdit(null);
+            patch.mutate({ id: item.id, content: next }, {
+              onSuccess: () => setEditing(current => (current === item.id ? null : current)),
+              onError: (error) => { fail(error); setKeptEdit({ id: item.id, content: next, kind: item.kind }); },
+            });
           }}
           onAskDelete={() => { setTranslating(null); setConfirming(item.id); }}
           onCancelDelete={() => setConfirming(null)}
-          onDelete={() => { setConfirming(null); remove.mutate(item.id); }}
+          onDelete={() => { setConfirming(null); setFailed(null); remove.mutate(item.id, { onError: fail }); }}
         />
       ))}
 
       {summaryOn ? <SummaryDisclosure onShown={setDisclosed} /> : null}
+
+      {kept && !purging ? (
+        <KeptMemoryEdit
+          testPrefix="memory"
+          initial={kept.content}
+          saving={create.isPending}
+          onSave={content => {
+            setFailed(null);
+            create.mutate(
+              { kind: kept.kind === 'preference' ? 'preference' : 'fact', content, language: 'mixed' },
+              { onSuccess: () => setKept(null), onError: fail },
+            );
+          }}
+          onCancel={() => setKept(null)}
+        />
+      ) : null}
 
       {purging ? null : adding ? (
         <View style={{ paddingHorizontal: 18, paddingVertical: 12, gap: 10, borderTopWidth: 1, borderTopColor: p.ln }}>
@@ -172,11 +224,14 @@ export function MemorySection({ onOpen }: { onOpen?: (() => void) | undefined } 
             <SmallAction
               label={t.memorySave}
               testID="memory-add-save"
-              disabled={draft.trim() === ''}
+              disabled={draft.trim() === '' || create.isPending}
               onPress={() => {
-                create.mutate({ kind: 'fact', content: draft.trim(), language: 'mixed' });
-                setDraft('');
-                setAdding(false);
+                // Cleared only once the server took it (CA8.2).
+                setFailed(null);
+                create.mutate({ kind: 'fact', content: draft.trim(), language: 'mixed' }, {
+                  onSuccess: () => { setDraft(''); setAdding(false); },
+                  onError: fail,
+                });
               }}
             />
             <SmallAction label={t.cancel} onPress={() => { setDraft(''); setAdding(false); }} />
@@ -216,7 +271,7 @@ export function MemorySection({ onOpen }: { onOpen?: (() => void) | undefined } 
                   label={t.memoryDeleteAll}
                   testID="memory-delete-all-confirm"
                   tone="warn"
-                  onPress={() => { setConfirmAll(false); removeAll.mutate(); }}
+                  onPress={() => { setConfirmAll(false); setFailed(null); removeAll.mutate(undefined, { onError: fail }); }}
                 />
                 <SmallAction label={t.cancel} onPress={() => setConfirmAll(false)} />
               </View>
@@ -241,7 +296,7 @@ export function MemorySection({ onOpen }: { onOpen?: (() => void) | undefined } 
 
 function MemoryRow({
   item, strings, editing, confirming, m5bOn, translateTarget, translating,
-  onTranslate, onCloseTranslate, onEdit, onCancelEdit, onSave, onAskDelete, onCancelDelete, onDelete,
+  onTranslate, onCloseTranslate, onEdit, onCancelEdit, onSave, onAskDelete, onCancelDelete, onDelete, saving = false,
 }: {
   item: MemoryItem;
   /** M6a-2: the app's language when this fact reads in another one and translation is on. */
@@ -257,6 +312,8 @@ function MemoryRow({
   onEdit: () => void;
   onCancelEdit: () => void;
   onSave: (next: string) => void;
+  /** A save on its way: Save waits for its answer rather than sending twice. */
+  saving?: boolean;
   onAskDelete: () => void;
   onCancelDelete: () => void;
   onDelete: () => void;
@@ -282,7 +339,7 @@ function MemoryRow({
             <SmallAction
               label={t.memorySave}
               testID={`memory-save-${item.id}`}
-              disabled={draft.trim() === ''}
+              disabled={draft.trim() === '' || saving}
               onPress={() => onSave(draft.trim())}
             />
             <SmallAction label={t.cancel} onPress={onCancelEdit} />

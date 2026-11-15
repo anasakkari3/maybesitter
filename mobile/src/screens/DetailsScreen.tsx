@@ -7,6 +7,7 @@ import { useTimeZone } from '../i18n/timezone';
 import { formatRelativeDay, formatTime } from '../i18n/format';
 import { fill, ltr } from '../i18n/strings';
 import { isolateAuto } from '../i18n/bidi';
+import { userFacingMessage } from '../api/ui/userFacingMessage';
 import { useActivity, useCategoryPreferences, useCommitment, useCommitmentAction, useNextStep, useNextStepDecision, usePatchCommitment, useSavedWeek } from '../api/queries';
 import { safeCommitmentPatchEnabled } from '../config/env';
 import { QueryBoundary } from '../api/ui/QueryBoundary';
@@ -122,7 +123,12 @@ export function DetailsScreen() {
   const complete = () => {
     if (!view) return;
     // Back to the list, then the line at the bottom says it is done (Round 2).
-    act.mutate({ id: view.id, action: 'complete' }, { onSuccess: () => { actions.back(); actions.toast(t.toastDone); } });
+    act.mutate({ id: view.id, action: 'complete' }, {
+      onSuccess: () => { actions.back(); actions.toast(t.toastDone); },
+      // Said, never swallowed (CX3.5): with no signal the press fails now, and
+      // nothing is sent later without the person.
+      onError: (error) => actions.toast(userFacingMessage(error, t)),
+    });
   };
 
   const history = (activity.data?.pages ?? [])

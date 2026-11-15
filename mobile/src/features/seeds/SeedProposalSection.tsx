@@ -6,6 +6,7 @@ import { useKeepSeed } from '../../api/queries';
 import type { CaptureProposal, CaptureSeedProposal } from '../../api/schemas/capture';
 import { ProposalChangedError } from '../../api/errors';
 import { seedKindLabel } from './seedDisplay';
+import { markErrorShown } from '../../api/ui/userFacingMessage';
 
 /**
  * What the capture read as unresolved intent, offered in Review (#519).
@@ -112,6 +113,7 @@ export function SeedProposalSection({
                         onProposalChanged(error.current.proposal, error.current.state === 'confirmed');
                         return;
                       }
+                      markErrorShown(error);
                       setFailed((current) => [...current, seed.seedItemId]);
                     });
                 }}
