@@ -18,6 +18,7 @@ import ar from '../../../i18n/locales/ar.json';
 import en from '../../../i18n/locales/en.json';
 import he from '../../../i18n/locales/he.json';
 import { tFor } from '../../../i18n/index';
+import { activityKindLabel } from '../ActivityScreen';
 
 const KEYS = [
   'activityTitle', 'activityWeekTitle', 'activityWeekDone', 'activityWeekPlanned', 'activityWeekKept',
@@ -25,7 +26,7 @@ const KEYS = [
   'activityMomentFirstPlan', 'activityMomentDone10', 'activityMomentDone25', 'activityMomentDone50',
   'activityMomentDone100', 'activityHistoryTitle', 'activityEmpty', 'activityRemovedItem',
   'activityKindCaptured', 'activityKindConfirmed', 'activityKindCompleted', 'activityKindPostponed',
-  'activityKindDropped', 'activityKindPlanAccepted', 'activityKindPlanChangeAccepted', 'activityKindReminderAcknowledged',
+  'activityKindDropped', 'activityKindDeleted', 'activityKindPlanAccepted', 'activityKindPlanChangeAccepted', 'activityKindReminderAcknowledged',
   'activityPlanFor', 'activityMovedTo', 'activityUnavailable',
 ] as const;
 
@@ -153,6 +154,16 @@ describe('the activity copy', () => {
       expect(typeof bundle.activityKindReminderAcknowledged).toBe('string');
       expect(typeof bundle.activityMomentFirstPlan).toBe('string');
       expect(bundle.activityPlanFor).toContain('{date}');
+    }
+  });
+});
+
+describe('a deletion in history (CA2.3 owner decision)', () => {
+  it('is named in all three languages, and never as a drop', () => {
+    for (const lang of ['ar', 'en', 'he'] as const) {
+      const t = tFor(lang);
+      expect(activityKindLabel('deleted', t)).toBe(BUNDLES[lang]!.activityKindDeleted);
+      expect(activityKindLabel('deleted', t)).not.toBe(activityKindLabel('dropped', t));
     }
   });
 });

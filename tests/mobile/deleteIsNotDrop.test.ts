@@ -35,6 +35,7 @@ import { searchCommitments } from '../../lib/services/mobile/commitmentSearchSer
 import { getCommitment } from '../../lib/services/mobile/commitmentService.ts';
 import { applyParticipantCommands } from '../../lib/services/mobile/participantState.ts';
 import { listActivity } from '../../lib/services/activity/activityService.ts';
+import { buildAccountExport } from '../../lib/account/accountExport.ts';
 import { foldForSearch } from '../../src/text/foldForSearch.ts';
 import { applyCommand, type Command } from '../../src/domain/stateMachine.ts';
 import { readParticipantState } from '../../lib/services/mobile/participantState.ts';
@@ -134,7 +135,7 @@ test('CA2.3: deleting a completed item does not turn it into a drop', async () =
   }
 });
 
-test('CA2.3: a delete is never recorded as a drop in history, and the entries left lose the title', async () => {
+test('CA2.3: a delete stays in history as «deleted» with its title, never as a drop, and in the export', async () => {
   const teardown = setup();
   try {
     await seed('del-2', 'Private appointment');
@@ -142,7 +143,11 @@ test('CA2.3: a delete is never recorded as a drop in history, and the entries le
     const page = await listActivity({ uid: USER, limit: 50 });
     const mine = page.items.filter((item) => item.commitmentId === 'del-2');
     assert.equal(mine.some((item) => item.kind === 'dropped'), false, 'the delete shows as a drop in history');
-    for (const item of mine) assert.equal(item.commitmentTitle, null, 'history still names a deleted item');
+    assert.equal(mine.some((item) => item.kind === 'deleted'), true, 'the delete is not in history');
+    for (const item of mine) assert.equal(item.commitmentTitle, 'Private appointment', 'history lost the title of a deleted item');
+    const exported = await buildAccountExport(USER);
+    const rows = Object.values(exported.collections).flat() as Array<{ id: string; data: { status?: string } }>;
+    assert.equal(rows.some((row) => row.id === 'del-2' && row.data.status === 'archived'), true, 'the account export lost a deleted item');
   } finally {
     teardown();
   }

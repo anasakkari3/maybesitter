@@ -36,7 +36,7 @@ import { POST as generatePost } from '../../src/app/api/mobile/intelligence/gene
 import { POST as decisionPost } from '../../src/app/api/mobile/intelligence/suggestions/[id]/route.ts';
 import { POST as answerPost } from '../../src/app/api/mobile/intelligence/suggestions/[id]/answer/route.ts';
 import { POST as actionPost } from '../../src/app/api/mobile/commitments/[id]/actions/route.ts';
-import { PATCH as commitmentPatch } from '../../src/app/api/mobile/commitments/[id]/route.ts';
+import { DELETE as commitmentDelete, PATCH as commitmentPatch } from '../../src/app/api/mobile/commitments/[id]/route.ts';
 import { createPilotTrustState } from '../../lib/pilot/closedPilotControls.ts';
 
 const BASE = 'http://127.0.0.1:4321';
@@ -154,6 +154,18 @@ test('completed, postponed and dropped become outcome evidence as they happen, w
     // Postponing moves a thing; it is never written down as failing it.
     const moved = learned.find(item => item.evidence.includes('Renew the passport'))!;
     assert.doesNotMatch(moved.evidence, /fail|miss|didn.t|not done|abandon/i);
+  } finally { h.restore(); }
+});
+
+test('CA2.3 owner decision: a deletion is learned as its own outcome, not a drop', async () => {
+  const h = begin();
+  try {
+    await grantPersonalization(h.storage);
+    await seedCommitment(ID_DROPPED, 'Old gym plan');
+    assert.equal((await commitmentDelete(req(`/api/mobile/commitments/${ID_DROPPED}`, 'DELETE'), params(ID_DROPPED))).status, 200);
+    assert.equal(h.calls.length, 0);
+    const learned = await outcomes(h.storage);
+    assert.deepEqual(learned.map(item => item.evidence), ['Deleted: Old gym plan']);
   } finally { h.restore(); }
 });
 
