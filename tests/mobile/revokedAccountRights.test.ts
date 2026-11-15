@@ -154,5 +154,5 @@ test('only the export and deletion routes admit a revoked account', async () => 
   walk(join(repo, 'lib'));
   assert.deepEqual(found.filter(file => !allowed.has(file)), [], 'allowRevoked is named outside its allow-list');
   // And the two routes really do use it: the rights tests above fail without.
-  for (const file of allowed) assert.ok(found.includes(file), `${file} no longer names allowRevoked`);
+  for (const file of Array.from(allowed)) assert.ok(found.includes(file), `${file} no longer names allowRevoked`);
 });
