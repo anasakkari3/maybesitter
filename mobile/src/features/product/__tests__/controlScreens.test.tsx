@@ -233,16 +233,17 @@ it("marks today's occurrence done or not today from the habit's card", async () 
   expect(mockDecide).toHaveBeenLastCalledWith({ habitId: 'h1', occurrenceId: 'h1.2026-11-15.0', outcome: 'skipped' }, expect.any(Object));
 });
 
-it('a decided occurrence says what was decided and offers no second decision', async () => {
+it.each<[string, 'xHabitTodayDone' | 'xHabitTodaySkipped']>([
+  ['completed', 'xHabitTodayDone'],
+  ['skipped', 'xHabitTodaySkipped'],
+  ['recovered', 'xHabitTodaySkipped'],
+])('a %s occurrence says what was decided and offers no second decision', async (state, key) => {
   mockHabits = [walk];
-  for (const [state, copy] of [['completed', strings.en.xHabitTodayDone], ['skipped', strings.en.xHabitTodaySkipped], ['recovered', strings.en.xHabitTodaySkipped]] as const) {
-    mockToday = { localDate: '2026-11-15', occurrences: [todayRow(state)] };
-    await render(wrap(<HabitDetailScreen />));
-    expect(screen.getByTestId('habit-today-state-h1')).toHaveTextContent(copy);
-    expect(screen.queryByTestId('habit-today-done-h1')).toBeNull();
-    expect(screen.queryByTestId('habit-today-skip-h1')).toBeNull();
-    cleanup();
-  }
+  mockToday = { localDate: '2026-11-15', occurrences: [todayRow(state)] };
+  await render(wrap(<HabitDetailScreen />));
+  expect(screen.getByTestId('habit-today-state-h1')).toHaveTextContent(strings.en[key]);
+  expect(screen.queryByTestId('habit-today-done-h1')).toBeNull();
+  expect(screen.queryByTestId('habit-today-skip-h1')).toBeNull();
 });
 
 it('a habit with nothing due today shows no today row', async () => {

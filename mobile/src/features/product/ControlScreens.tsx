@@ -5,8 +5,10 @@ import { useApp } from '../../state/AppContext';
 import { useAuth } from '../../auth/AuthProvider';
 import {
   useCreateHabit,
+  useDecideHabitOccurrence,
   useDeleteHabit,
   useHabits,
+  useHabitsToday,
   usePlan,
   usePlanAction,
   useSetHabitStatus,
@@ -22,6 +24,9 @@ import { dayKey, formatTimeRange } from '../../i18n/format';
 import { useTimeZone } from '../../i18n/timezone';
 import { BrandMark } from '../../ui/brand';
 import { Pill, Txt } from '../../ui/primitives';
+import { LiveRegion } from '../../ui/liveRegion';
+import { fill } from '../../i18n/strings';
+import type { Habit, HabitOccurrence } from '../../api/schemas/habits';
 import { Dialog } from '../../ui/dialog';
 import { ProductActions, ProductPage, ProductSection, ProductRow } from '../../ui/product';
 import { capabilities as cap, shareCapability } from './capabilities';
@@ -230,6 +235,38 @@ export function PatchReviewScreen() {
   </ProductPage>;
 }
 
+/**
+ * Today's occurrence of one habit, decided here (CA5.4): «تمّت» or «مش اليوم».
+ * Both answers have the same weight. Once the server holds a decision the row
+ * says it in words and offers no second one — a reversal is a 409 by design.
+ */
+function HabitTodayRow({ habit, occurrence }: { habit: Habit; occurrence: HabitOccurrence }) {
+  const { t, tr, p } = useApp();
+  const decide = useDecideHabitOccurrence();
+  const [madeUp, setMadeUp] = React.useState(false);
+  const open = occurrence.state === 'pending' || occurrence.state === 'scheduled';
+  const busy = decide.isPending;
+  const title = isolateAuto(habit.title);
+  const press = (outcome: 'completed' | 'skipped') => decide.mutate(
+    { habitId: habit.habitId, occurrenceId: occurrence.occurrenceId, outcome },
+    { onSuccess: answer => setMadeUp(answer.recovery?.recovered === true) },
+  );
+  const decided = occurrence.state === 'completed' ? t.xHabitTodayDone
+    : occurrence.state === 'skipped' || occurrence.state === 'recovered' ? t.xHabitTodaySkipped : null;
+  return <View testID={`habit-today-${habit.habitId}`} style={{ gap: 8 }}>
+    <ProductRow title={t.today} body={tr('xMinutes', { count: occurrence.durationMinutes })} icon="check" />
+    {open ? <ProductActions>
+      <Pill testID={`habit-today-done-${habit.habitId}`} label={t.done} accessibilityLabel={fill(t.xHabitTodayDoneA11y, { title })} disabled={busy} onPress={() => press('completed')} />
+      <Pill testID={`habit-today-skip-${habit.habitId}`} label={t.planDismiss} accessibilityLabel={fill(t.xHabitTodaySkipA11y, { title })} kind="outline" disabled={busy} onPress={() => press('skipped')} />
+    </ProductActions> : null}
+    <LiveRegion testID={`habit-today-live-${habit.habitId}`}>
+      {decided ? <Txt testID={`habit-today-state-${habit.habitId}`} role="supporting" color={occurrence.state === 'completed' ? p.success : p.mu}>{decided}</Txt> : null}
+      {decided && madeUp ? <Txt role="supporting" color={p.mu}>{t.xHabitTodayMadeUp}</Txt> : null}
+      {decide.error ? <Txt role="supporting" color={p.wm}>{userFacingMessage(decide.error, t)}</Txt> : null}
+    </LiveRegion>
+  </View>;
+}
+
 export function HabitDetailScreen() {
   const { t, tr, p, rtl, lang, actions } = useApp();
   const query = useHabits();
@@ -242,6 +279,7 @@ export function HabitDetailScreen() {
   const chatHabits = !kinds.pending && kinds.entries.includes('habit');
   const status = useSetHabitStatus();
   const remove = useDeleteHabit();
+  const today = useHabitsToday();
   const [deleting, setDeleting] = React.useState<string | null>(null);
   const [adding, setAdding] = React.useState(false);
   const [title, setTitle] = React.useState('');
@@ -283,6 +321,8 @@ export function HabitDetailScreen() {
         <ProductRow title={t.xWindows} body={habit.preferredWindows.length > 0 ? habit.preferredWindows.map(window => `${window.start}–${window.end}`).join(' · ') : t.xNotSet} icon="watch" />
         <ProductRow title={t.xFlexibility} body={habit.flexibility === 'protected_flexible' ? t.xProtectedFlexible : t.xFlexible} icon="shield" />
         <ProductRow title={t.xRecovery} body={habit.recoveryPolicy === 'retry_same_day' ? t.xRetrySameDay : habit.recoveryPolicy === 'recover_within_period' ? t.xRecoverThisWeek : t.xLetItGo} icon="check" />
+        {(today.data?.occurrences ?? []).filter(occurrence => occurrence.habitId === habit.habitId).map(occurrence =>
+          <HabitTodayRow key={occurrence.occurrenceId} habit={habit} occurrence={occurrence} />)}
         {status.error || remove.error ? <Txt role="supporting" color={p.wm}>{userFacingMessage(status.error ?? remove.error, t)}</Txt> : null}
         <ProductActions>
           <Pill testID={`habit-toggle-${habit.habitId}`} label={habit.status === 'paused' ? t.xResume : t.xPause} kind="outline" disabled={status.isPending || habit.status === 'archived'} onPress={() => status.mutate({ id: habit.habitId, status: habit.status === 'paused' ? 'active' : 'paused' })} />

@@ -235,7 +235,15 @@ export async function applyOccurrenceOutcome(
   outcome: HabitOccurrenceOutcome,
   todayLocalDate: string,
 ): Promise<OccurrenceOutcomeResult> {
-  const transition = await services.occurrences.transition(scopeId, habitId, occurrenceId, outcome);
+  let transition = await services.occurrences.transition(scopeId, habitId, occurrenceId, outcome);
+  // Today's demand date, offered by the habits list but never stored because
+  // the horizon written at create or patch has run out (CA5.4). Minted here,
+  // at its deterministic id, and decided — exactly the row the planner already
+  // reads for today. Only today, and only a date the cadence asks for: any
+  // other id still answers not_found.
+  if (transition.kind === 'not_found' && await mintTodaysDemand(services, scopeId, habitId, occurrenceId, todayLocalDate)) {
+    transition = await services.occurrences.transition(scopeId, habitId, occurrenceId, outcome);
+  }
   if (transition.kind !== 'applied' || outcome !== 'skipped') {
     return { transition, recovery: null };
   }
@@ -263,6 +271,53 @@ export async function applyOccurrenceOutcome(
     entry.occurrenceId === recovery.replacement.occurrenceId || entry.occurrenceId === occurrenceId);
   await services.occurrences.putMany(scopeId, changed);
   return { transition, recovery };
+}
+
+/**
+ * Writes today's cadence row when it is missing, and says whether it did.
+ *
+ * The same merge `resyncHabitOccurrences` runs, over one day: `created` holds
+ * the row only when the cadence asks for today and nothing is stored at its id,
+ * so a stored row — decided or not — is never rewritten.
+ */
+async function mintTodaysDemand(
+  services: HabitServices,
+  scopeId: string,
+  habitId: string,
+  occurrenceId: string,
+  todayLocalDate: string,
+): Promise<boolean> {
+  const habit = await services.habits.get(scopeId, habitId);
+  if (habit === null) return false;
+  const stored = await services.occurrences.listForHabit(scopeId, habitId);
+  const { created } = materializeHabitOccurrences(habit, { fromLocalDate: todayLocalDate, toLocalDate: todayLocalDate }, stored);
+  const row = created.find((occurrence) => occurrence.occurrenceId === occurrenceId);
+  if (!row) return false;
+  await services.occurrences.putMany(scopeId, [row]);
+  return true;
+}
+
+/**
+ * Today's occurrences of every habit, as the habits list shows them (CA5.4).
+ *
+ * Stored rows for today, plus the cadence row the stored horizon no longer
+ * covers — the same merge the daily plan runs for its own date, so the list
+ * and the plan agree about what today asks for. Reading writes nothing: a
+ * missing row is minted only when the person decides it
+ * (`applyOccurrenceOutcome`).
+ */
+export async function todaysOccurrences(
+  services: HabitServices,
+  scopeId: string,
+  todayLocalDate: string,
+): Promise<readonly HabitOccurrence[]> {
+  const { definitions, occurrences } = await loadHabitDemand(services, scopeId, todayLocalDate, todayLocalDate);
+  const day = { fromLocalDate: todayLocalDate, toLocalDate: todayLocalDate };
+  return definitions.flatMap((definition) => materializeHabitOccurrences(
+    definition,
+    day,
+    occurrences.filter((occurrence) => occurrence.habitId === definition.habitId),
+  ).occurrences);
 }
 
 /**

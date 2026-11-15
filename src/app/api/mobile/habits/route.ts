@@ -14,6 +14,7 @@ import {
   createHabitServices,
   createHabitWithOccurrences,
   todayLocalDateFor,
+  todaysOccurrences,
 } from '../../../../../lib/services/habits/habitService';
 import { RequestBodyTooLargeError, readJsonBody, requestBodyTooLargeResponse } from '../../../../../lib/net/requestBody';
 
@@ -39,8 +40,19 @@ export async function GET(request: Request) {
   }
 
   try {
-    const habits = await createHabitServices().habits.list(user.uid);
-    return Response.json({ success: true, items: habits.map(presentHabit) });
+    const services = createHabitServices();
+    const localDate = todayLocalDateFor(new Date(), new URL(request.url).searchParams.get('timezone') ?? undefined);
+    const [habits, today] = await Promise.all([
+      services.habits.list(user.uid),
+      todaysOccurrences(services, user.uid, localDate),
+    ]);
+    // `today` is what the app marks «تمّت» / «مش اليوم» on (CA5.4): the
+    // occurrences due on the caller's local date, stored or still owed.
+    return Response.json({
+      success: true,
+      items: habits.map(presentHabit),
+      today: { localDate, occurrences: today.map(presentOccurrence) },
+    });
   } catch (error) {
     console.error('[habits] listing habits failed', error);
     return mobileError('could not read your habits', 500);

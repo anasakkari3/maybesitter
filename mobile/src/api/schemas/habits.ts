@@ -40,11 +40,28 @@ export const habitOccurrenceSchema = z.object({
   recoveredFromOccurrenceId: z.string().nullable(),
 });
 
-export const habitListSchema = z.object({ success: z.literal(true), items: z.array(habitSchema) });
+// `today` (CA5.4): the occurrences due on the caller's local date — what the
+// habit card marks done or not today. Optional: a server from before it
+// answers without one, which reads as nothing due.
+export const habitTodaySchema = z.object({ localDate: z.string(), occurrences: z.array(habitOccurrenceSchema) });
+export const habitListSchema = z.object({ success: z.literal(true), items: z.array(habitSchema), today: habitTodaySchema.optional() });
+export const habitOutcomeSchema = z.object({
+  success: z.literal(true),
+  occurrence: habitOccurrenceSchema,
+  changed: z.boolean(),
+  recovery: z.union([
+    z.object({ recovered: z.literal(true), replacement: habitOccurrenceSchema }),
+    z.object({ recovered: z.literal(false), reason: z.string() }),
+  ]).optional(),
+});
 export const habitChangedSchema = z.object({ success: z.literal(true), habit: habitSchema, occurrences: z.array(habitOccurrenceSchema) });
 export const habitDeletedSchema = z.object({ success: z.literal(true), habitId: z.string(), deleted: z.literal(true) });
 
 export type Habit = z.infer<typeof habitSchema>;
+export type HabitOccurrence = z.infer<typeof habitOccurrenceSchema>;
+export type HabitToday = z.infer<typeof habitTodaySchema>;
+export type HabitOutcome = z.infer<typeof habitOutcomeSchema>;
+export type HabitOccurrenceDecision = { habitId: string; occurrenceId: string; outcome: 'completed' | 'skipped' };
 export type NewHabitInput = {
   title: string;
   cadence: { kind: 'weekly_count'; count: number } | { kind: 'weekdays'; weekdays: readonly number[] };
