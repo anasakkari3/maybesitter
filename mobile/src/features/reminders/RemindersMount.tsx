@@ -161,7 +161,19 @@ export function RemindersMount(): null {
   // Registered before the device-row task, as a task of its own, so a failed
   // server call can never leave A's reminders pending or A's last tap waiting
   // for B (C13.14, CXA13.1). See `forgetDeviceNotifications.ts`.
-  useEffect(() => onBeforeSignOut(() => forgetDeviceNotifications()), []);
+  //
+  // Only while the session ending is this account's, or none: a task still
+  // running when B has signed in must not touch B's notifications.
+  const { repository } = useAuth();
+  useEffect(() => onBeforeSignOut(() => {
+    const owner = latest.current.accountId;
+    return forgetDeviceNotifications(undefined, {
+      onlyWhile: () => {
+        const uid = repository.currentUser()?.uid ?? null;
+        return uid === null || uid === owner;
+      },
+    });
+  }), [repository]);
 
   // The device row has to go while the token still works, so this runs before
   // `signOut` rather than after the uid changes. See `beforeSignOut.ts`.

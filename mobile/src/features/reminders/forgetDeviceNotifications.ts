@@ -27,15 +27,28 @@ import { notificationsModule } from '../../notifications/nativeModules';
 import { createExpoGateway, type NotificationGateway } from '../../notifications/gateway';
 import { cancelEveryReminder } from './softAwarenessEngine';
 
+export interface ForgetOptions {
+  /**
+   * Asked before each step: false once another account has signed in, so a
+   * wipe that is still running never cancels or dismisses B's notifications.
+   */
+  readonly onlyWhile?: () => boolean;
+}
+
 export async function forgetDeviceNotifications(
   gateway: NotificationGateway = createExpoGateway(),
+  options: ForgetOptions = {},
 ): Promise<void> {
+  const mayRun = options.onlyWhile ?? (() => true);
+  if (!mayRun()) return;
   await cancelEveryReminder(gateway).catch(() => undefined);
   const Notifications = notificationsModule();
   if (!Notifications) return;
+  if (!mayRun()) return;
   await Promise.resolve()
     .then(() => Notifications.dismissAllNotificationsAsync?.())
     .catch(() => undefined);
+  if (!mayRun()) return;
   await Promise.resolve()
     .then(() => Notifications.clearLastNotificationResponseAsync?.())
     .catch(() => undefined);
