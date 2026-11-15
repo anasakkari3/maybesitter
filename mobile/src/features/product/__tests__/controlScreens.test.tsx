@@ -295,3 +295,23 @@ it('a met week says it is done for the week and asks nothing more', async () => 
   expect(screen.getByTestId('habit-week-h1')).toHaveTextContent(strings.en.xHabitWeekDone);
   expect(screen.queryByTestId('habit-today-h1')).toBeNull();
 });
+
+function inLiveRegion(node: { props: Record<string, unknown>; parent: unknown } | null): boolean {
+  for (let at = node; at; at = at.parent as typeof node) {
+    if (at.props.accessibilityLiveRegion === 'polite' || at.props.accessibilityLiveRegion === 'assertive') return true;
+  }
+  return false;
+}
+
+it.each<[string, number]>([['counting', 1], ['met', 3]])("the week's count sits in a live region when %s, so a change is announced", async (_label, completed) => {
+  mockHabits = [gym];
+  mockToday = { localDate: '2026-11-18', occurrences: completed < 3 ? [todayRow('pending')] : [], weeks: [{ habitId: 'h1', completed, target: 3 }], anyDay: [] };
+  await render(wrap(<HabitDetailScreen />));
+  expect(inLiveRegion(screen.getByTestId('habit-week-h1') as never)).toBe(true);
+});
+
+it('a met week says the person finished their count, in all three languages', () => {
+  expect(strings.ar.xHabitWeekDone).toBe('خلّصت عدّك لهالأسبوع');
+  expect(strings.en.xHabitWeekDone).toBe("You've hit your count for this week");
+  expect(strings.he.xHabitWeekDone).toBe('השלמת את המכסה של השבוע');
+});

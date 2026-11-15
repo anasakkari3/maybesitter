@@ -51,10 +51,10 @@ async function setup(): Promise<() => void> {
 }
 
 /** Gym, three times a week (Mon/Wed/Sat), no make-ups: the tests are about counting, not recovery. */
-async function gym(): Promise<string> {
+async function gym(recoveryPolicy: 'skip' | 'recover_within_period' = 'skip'): Promise<string> {
   const { habit } = await createHabitWithOccurrences(
     services,
-    habitInput({ scopeId: USER, recoveryPolicy: 'skip' }),
+    habitInput({ scopeId: USER, recoveryPolicy }),
     '2026-11-16T06:00:00.000Z',
     MON,
   );
@@ -243,6 +243,87 @@ test("the daily plan agrees: the day an off-day «done» took is not planned, th
     };
     assert.deepEqual(await planned(WED), [], "Wednesday's hour goes back to the day");
     assert.deepEqual(await planned(SAT), [id(habitId, SAT)]);
+  } finally {
+    restore();
+  }
+});
+
+/** A device whose every read of the rows is the snapshot taken now, released by `go`. */
+async function staleDevice(habitId: string) {
+  const snapshot = await services.occurrences.listForHabit(USER, habitId);
+  let go!: () => void;
+  const gate = new Promise<void>((resolve) => { go = resolve; });
+  let reading!: () => void;
+  const read = new Promise<void>((resolve) => { reading = resolve; });
+  const occurrences = Object.create(services.occurrences);
+  occurrences.listForHabit = async () => { reading(); await gate; return snapshot; };
+  occurrences.listInRange = async (_scopeId: string, from: string, to: string) => {
+    reading();
+    await gate;
+    return snapshot.filter((row) => row.localDate >= from && row.localDate <= to);
+  };
+  return { services: { habits: services.habits, occurrences }, read, go };
+}
+
+async function completedThisWeek(habitId: string): Promise<number> {
+  return (await services.occurrences.listForHabit(USER, habitId))
+    .filter((row) => row.localDate >= MON && row.localDate <= SUN && row.state === 'completed').length;
+}
+
+test('the day an off-day «done» would take was decided meanwhile: a conflict, not a completion that takes nothing', async () => {
+  const restore = await setup();
+  try {
+    const habitId = await gym();
+    const b = await staleDevice(habitId);
+    const pressed = applyOccurrenceOutcome(b.services as any, USER, habitId, id(habitId, TUE), 'completed', TUE);
+    await b.read;
+    // Another device answers Wednesday before B's write lands.
+    assert.equal((await decide(habitId, id(habitId, WED), 'skipped', TUE)).kind, 'applied');
+    b.go();
+    assert.equal((await pressed).transition.kind, 'conflict');
+    assert.equal(await stateOf(id(habitId, TUE)), undefined, 'nothing was written');
+    assert.equal(await stateOf(id(habitId, WED)), 'skipped');
+  } finally {
+    restore();
+  }
+});
+
+test('two devices in two zones, each on its own off day, cannot push the week past its count', async () => {
+  const restore = await setup();
+  try {
+    const habitId = await gym();
+    await decide(habitId, id(habitId, MON), 'completed', MON);
+    await decide(habitId, id(habitId, WED), 'completed', WED);
+    await decide(habitId, id(habitId, SAT), 'skipped', WED); // nothing left to take
+    // One phone is already on Friday, the other still on Thursday; both read 2 of 3.
+    const b = await staleDevice(habitId);
+    const pressed = applyOccurrenceOutcome(b.services as any, USER, habitId, id(habitId, FRI), 'completed', FRI);
+    await b.read;
+    assert.equal((await decide(habitId, id(habitId, THU), 'completed', THU)).kind, 'applied');
+    b.go();
+    assert.equal((await pressed).transition.kind, 'conflict');
+    assert.equal(await completedThisWeek(habitId), 3, 'never four of three');
+  } finally {
+    restore();
+  }
+});
+
+test('with make-ups on: a skip that earned one, then an off-day «done», still totals no more than the count', async () => {
+  const restore = await setup();
+  try {
+    const habitId = await gym('recover_within_period');
+    const skip = await applyOccurrenceOutcome(services, USER, habitId, id(habitId, MON), 'skipped', MON);
+    assert.equal(skip.recovery?.kind, 'recovered', 'the fixture must earn a make-up');
+    // Every open day of the week is done, on its own day or not.
+    for (const date of [TUE, WED, THU, FRI, SAT, SUN]) {
+      const today = await todaysOccurrences(services, USER, date);
+      for (const row of today.occurrences.filter((entry) => entry.habitId === habitId && entry.state === 'pending')) {
+        await decide(habitId, row.occurrenceId, 'completed', date);
+      }
+    }
+    assert.equal(await completedThisWeek(habitId), 3);
+    const sunday = await todaysOccurrences(services, USER, SUN);
+    assert.deepEqual(sunday.weeks.find((week) => week.habitId === habitId), { habitId, completed: 3, target: 3 });
   } finally {
     restore();
   }
