@@ -365,8 +365,13 @@ async function readFeed(uid: string, feedId: string, deps: IcsFeedDeps): Promise
 
 export async function listIcsFeeds(uid: string, deps: IcsFeedDeps = {}): Promise<IcsFeedView[]> {
   requireUserId(uid);
-  const [feeds, items] = await Promise.all([readFeeds(uid, deps), readItems(uid, deps)]);
-  return feeds.map((feed) => feedView(feed, items));
+  const [feeds, items, user] = await Promise.all([
+    readFeeds(uid, deps), readItems(uid, deps), storageOf(deps).get<UserDocument>(userDoc(uid)),
+  ]);
+  // NAPI-A10.1: with consent off nothing is fetched or used, so the feed is
+  // paused from the moment the switch goes off, not from its next refresh.
+  const consented = accountRefusal(user, { requireConsent: true }) === null;
+  return feeds.map((feed) => feedView(consented || feed.status === 'error' ? feed : { ...feed, status: 'paused' }, items));
 }
 
 /**
