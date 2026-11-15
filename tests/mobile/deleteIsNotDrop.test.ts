@@ -36,7 +36,8 @@ import { getCommitment } from '../../lib/services/mobile/commitmentService.ts';
 import { applyParticipantCommands } from '../../lib/services/mobile/participantState.ts';
 import { listActivity } from '../../lib/services/activity/activityService.ts';
 import { foldForSearch } from '../../src/text/foldForSearch.ts';
-import type { Command } from '../../src/domain/stateMachine.ts';
+import { applyCommand, type Command } from '../../src/domain/stateMachine.ts';
+import { readParticipantState } from '../../lib/services/mobile/participantState.ts';
 
 const BASE = 'http://127.0.0.1:4321';
 const USER = uidFor('DeleteIsNotDropUser');
@@ -172,6 +173,21 @@ test('CA2.3: a deleted item can be deleted again without an error, and nothing e
     assert.equal((await commitmentDelete(request('/api/mobile/commitments/del-3', { method: 'DELETE' }), params('del-3'))).status, 200);
     const complete = await actionPost(request('/api/mobile/commitments/del-3/actions', { method: 'POST', body: { action: 'complete' } }), params('del-3'));
     assert.notEqual(complete.status, 200, 'a deleted item was completed');
+  } finally {
+    teardown();
+  }
+});
+
+test('CA2.3: a system Drop after a delete is a no-op that keeps the item deleted', async () => {
+  const teardown = setup();
+  try {
+    await seed('del-4', 'Deleted then dropped');
+    await commitmentDelete(request('/api/mobile/commitments/del-4', { method: 'DELETE' }), params('del-4'));
+    const state = await readParticipantState(USER);
+    const result = applyCommand(state, { type: 'Drop', commitmentId: 'del-4', now: new Date().toISOString() });
+    assert.equal(result.didChange, false);
+    assert.equal(result.newState.commitments['del-4']?.status, 'archived');
+    assert.equal(result.events.length, 0, 'a drop event was written for a deleted item');
   } finally {
     teardown();
   }

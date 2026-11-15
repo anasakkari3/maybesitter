@@ -28,7 +28,7 @@ import { installFakeAuth, tokenFor, uidFor, type FakeAuthControls } from '../sup
 import { createInMemoryKms, type InMemoryKms } from '../../lib/security/inMemoryKms.ts';
 import { decryptField, fieldPurpose, FieldEncryptionError, KMS_KEY_ENV_VAR, resetFieldEncryptionForTests } from '../../lib/security/fieldEncryption.ts';
 import { AUDIENCE_ENV_VAR, SCHEDULER_SA_ENV_VAR, type OidcPayload } from '../../lib/auth/schedulerOidc.ts';
-import { getParticipantStateSnapshot } from '../../lib/services/mobile/participantState.ts';
+import { applyParticipantCommands, getParticipantStateSnapshot } from '../../lib/services/mobile/participantState.ts';
 import { listActivity } from '../../lib/services/activity/activityService.ts';
 import { SafeFetchError, type SafeFetchOptions, type SafeFetchResult } from '../../lib/net/safeFetch.ts';
 import {
@@ -703,6 +703,20 @@ test('auto-accept on: each deadline becomes a commitment with an Activity entry,
 });
 
 /* ── Failures ──────────────────────────────────────────────────────── */
+
+test('CA2.3: undoing an auto-accepted deadline the person already deleted succeeds and keeps it deleted', async () => {
+  await withWorld(async (h) => {
+    h.bodies.set(FEED_URL, calendar([{ uid: 'essay', title: 'Essay due', dueInHours: 48 }]));
+    const feedId = (await subscribe(h, { autoAcceptDeadlines: true })).body.feed.feedId as string;
+    const essay = byTitle(await items(), 'Essay due');
+    assert.equal(essay.state, 'accepted');
+    await applyParticipantCommands(USER, [{ type: 'Delete', commitmentId: essay.commitmentId, now: new Date().toISOString() }]);
+    const undo = await decide(h, feedId, essay.itemKey, 'undo');
+    assert.equal(undo.status, 200, JSON.stringify(undo.body));
+    assert.equal((await commitments()).find((c) => c.id === essay.commitmentId)?.status, 'archived');
+    assert.equal(byTitle(await items(), 'Essay due').state, 'rejected');
+  });
+});
 
 test('failures back off, turn the feed to error after five, and a manual refresh is limited to one per five minutes', async () => {
   await withWorld(async (h) => {

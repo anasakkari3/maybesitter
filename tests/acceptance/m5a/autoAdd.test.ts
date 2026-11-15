@@ -176,6 +176,20 @@ test('R3.1 Remove: an unedited auto-add is dropped, never re-added, and a retry 
   assert.equal((await addedList(uid)).items.length, 0, 'the removed agreement was added again');
 });
 
+test('CA2.3: removing an auto-add the person already deleted is idempotent, not 409 edited', async () => {
+  const { uid } = await scenario({});
+  const [item] = (await addedList(uid)).items;
+  const deleted = await call(uid, 'commitments/[id]', 'DELETE', { params: { id: item.commitmentId } });
+  assert.equal(deleted.status, 200, show(deleted.body));
+  const removed = await call(uid, 'intelligence/added/[autoAddId]', 'DELETE', { params: { autoAddId: item.autoAddId } });
+  assert.equal(removed.status, 200, show(removed.body));
+  const retry = await call(uid, 'intelligence/added/[autoAddId]', 'DELETE', { params: { autoAddId: item.autoAddId } });
+  assert.equal(retry.status, 200, show(retry.body));
+  const stored = (await savedCommitments(uid)).find((c: any) => c.id === item.commitmentId);
+  assert.equal(stored?.status, 'archived', 'a deleted auto-add was turned into a drop');
+  assert.equal((await addedList(uid)).items.length, 0);
+});
+
 test('M5A-R9-009 / M5A-R19-003: an edited auto-add answers 409 edited and is listed not removable', async () => {
   const { uid } = await scenario({});
   const [item] = (await addedList(uid)).items;

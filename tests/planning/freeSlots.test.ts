@@ -119,6 +119,19 @@ test('rankPostponeSlots prefers a usual time and returns no more than two candid
   assert.ok(ranked.length <= 3);
 });
 
+test('CA2.3: a deleted (archived) item adds no load to its day when ranking postpone slots', () => {
+  const row = saved('move', 'Run', '2026-10-24T12:00:00.000Z', '2026-10-24T12:30:00.000Z');
+  const candidates = [
+    { startsAt: '2026-10-25T09:00:00.000Z', endsAt: '2026-10-25T09:30:00.000Z' },
+    { startsAt: '2026-10-26T09:00:00.000Z', endsAt: '2026-10-26T09:30:00.000Z' },
+  ];
+  const heavy = (status: Commitment['status']) => saved('heavy', 'Workshop', '2026-10-25T05:00:00.000Z', '2026-10-25T15:00:00.000Z', { status });
+  const rank = (rows: Commitment[]) => rankPostponeSlots(candidates, { commitment: row, schedule: schedule({ commitments: rows }), timezone: TZ, now: NOW });
+  // The load is real for a live item, so the comparison below can tell.
+  assert.notDeepEqual(rank([heavy('active')]), rank([]), 'day load does not reach the ranking; this case proves nothing');
+  assert.deepEqual(rank([heavy('archived')]), rank([]), 'a deleted item still weighs on its day');
+});
+
 test('the explicit capture and goalPlan policies differ outside planner working windows', async () => {
   const storage = createMemoryStorage();
   const profile = buildRoutineProfile({

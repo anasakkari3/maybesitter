@@ -798,6 +798,25 @@ describe('Stitch Today', () => {
     expect(screen.getByTestId('today-item-away').props.accessibilityLabel).toContain(en.postponeReturn);
   });
 
+  it('CA2.1: at its return time a postponed item comes back to the card without a refetch', async () => {
+    jest.useFakeTimers({ now: Date.now(), advanceTimers: true });
+    try {
+      const back = new Date(Date.now() + 10 * 60 * 1000).toISOString();
+      await show([
+        withPriority('away', 'high', { rank: 0, currentAckState: 'postponed', postponedUntil: back }),
+        withPriority('next', 'normal', { rank: 1 }),
+      ]);
+      expect(within(screen.getByTestId('today-primary')).queryByTestId('today-item-away')).toBeNull();
+      const fetches = (commitmentEndpoints.listToday as unknown as jest.Mock).mock.calls.length;
+      await act(async () => { jest.advanceTimersByTime(11 * 60 * 1000); });
+      await waitFor(() => expect(within(screen.getByTestId('today-primary')).queryByTestId('today-item-away')).not.toBeNull());
+      expect(screen.queryByTestId('today-postponed-away')).toBeNull();
+      expect((commitmentEndpoints.listToday as unknown as jest.Mock).mock.calls.length).toBe(fetches);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
   it('CA2.1: once its return time has passed, a postponed item is an ordinary row again', async () => {
     const past = new Date(Date.now() - 5 * 60 * 1000).toISOString();
     await show([withPriority('back', 'high', { rank: 0, currentAckState: 'postponed', postponedUntil: past })]);
