@@ -434,9 +434,7 @@ describe('the buttons on a reminder (#200)', () => {
       .mockResolvedValue(response(tapData, 'done'));
     const act_ = jest.spyOn(commitmentEndpoints, 'actOnCommitment').mockResolvedValue(actionResult);
     const cancel = jest.spyOn(notifications, 'cancelScheduledNotificationAsync');
-    // Not in the inert module mock: installed for this test only.
-    const clearLast = jest.fn(async () => undefined);
-    (notifications as unknown as Record<string, unknown>).clearLastNotificationResponseAsync = clearLast;
+    const clearLast = jest.spyOn(notifications, 'clearLastNotificationResponseAsync');
 
     await mount();
     await waitFor(() => expect(box.tap).toBeDefined());
@@ -459,7 +457,6 @@ describe('the buttons on a reminder (#200)', () => {
     }
     // Handled once; a later launch must not be offered the same press again.
     expect(clearLast).toHaveBeenCalledTimes(1);
-    delete (notifications as unknown as Record<string, unknown>).clearLastNotificationResponseAsync;
   });
 
   it('Later offline stays queued, and coming back to the app sends it once with the same id', async () => {
@@ -540,5 +537,139 @@ describe('the buttons on a reminder (#200)', () => {
     });
     expect(act_).not.toHaveBeenCalled();
     expect(screen.getByTestId('location').props.children).not.toMatch(/^details/);
+  });
+});
+
+/*
+ * ── Nothing of account A outlives A's session (C13.14, CXA13.1) ───
+ *
+ * On device, after a sign-out 17 of A's local reminders stayed pending and
+ * rang, and when B finished onboarding the cold-start handler opened A's
+ * commitment id for B. The cancel in `useReminderSync` never ran: it waits for
+ * the uid to turn null, and by then `Root` — and this mount with it — has been
+ * unmounted by the gate. The trees above kept the mount alive across the
+ * sign-out, which is why they looked covered.
+ *
+ * These mount it the way the app does: only while somebody is signed in.
+ */
+const OTHER: AuthUser = {
+  uid: 'other-user', email: 'b@b.c', emailVerified: true, displayName: null, providerIds: ['password'],
+};
+
+function SignedInOnly({ children }: { children: React.ReactNode }) {
+  const { user } = useAuth();
+  return user ? <>{children}</> : null;
+}
+
+async function mountGated() {
+  return render(
+    <AppProvider>
+      <AuthProvider repository={repository} isDevBundle={false}>
+        <QueryClientProvider client={client}>
+          <SignedInOnly>
+            <RemindersMount />
+          </SignedInOnly>
+          <SignOutButton />
+          <Location />
+          <SheetState />
+        </QueryClientProvider>
+      </AuthProvider>
+    </AppProvider>,
+  );
+}
+
+describe('signing out leaves nothing of the account on the phone (C13.14)', () => {
+  it.each(['user', 'deleted', 'session_expired'] as const)(
+    'cancels every pending reminder and dismisses the shown ones when the session ends (%s)',
+    async reason => {
+      const cancelAll = jest.spyOn(notifications, 'cancelAllScheduledNotificationsAsync');
+      const dismissAll = jest.spyOn(notifications, 'dismissAllNotificationsAsync');
+      let signOut: ((opts: { reason: typeof reason }) => Promise<void>) | undefined;
+      function Grab() {
+        signOut = useAuth().signOut as never;
+        return null;
+      }
+      await render(
+        <AppProvider>
+          <AuthProvider repository={repository} isDevBundle={false}>
+            <QueryClientProvider client={client}>
+              <SignedInOnly><RemindersMount /></SignedInOnly>
+              <Grab />
+            </QueryClientProvider>
+          </AuthProvider>
+        </AppProvider>,
+      );
+      await waitFor(() => expect(commitmentEndpoints.listToday).toHaveBeenCalled());
+      cancelAll.mockClear();
+
+      await act(async () => {
+        await signOut?.({ reason });
+      });
+
+      expect(cancelAll).toHaveBeenCalled();
+      expect(dismissAll).toHaveBeenCalled();
+    },
+  );
+
+  it('cancels them when a 403 revoked ends the session', async () => {
+    const cancelAll = jest.spyOn(notifications, 'cancelAllScheduledNotificationsAsync');
+    await mountGated();
+    await waitFor(() => expect(commitmentEndpoints.listToday).toHaveBeenCalled());
+    cancelAll.mockClear();
+
+    await act(async () => {
+      await signOutForbidden('revoked');
+    });
+
+    expect(cancelAll).toHaveBeenCalled();
+  });
+
+  it('does not open A s commitment for B from the tap A made before signing out (CXA13.1)', async () => {
+    // The native module keeps the last response for the process; the live
+    // listener handling a tap does not clear it.
+    let last: unknown = null;
+    let tapped: ((value: unknown) => void) | undefined;
+    jest.spyOn(notifications, 'addNotificationResponseReceivedListener')
+      .mockImplementation(handler => {
+        tapped = handler as unknown as (value: unknown) => void;
+        return { remove: () => {} } as never;
+      });
+    jest.spyOn(notifications, 'getLastNotificationResponseAsync').mockImplementation(async () => last as never);
+    jest.spyOn(notifications, 'clearLastNotificationResponseAsync').mockImplementation(async () => {
+      last = null;
+    });
+
+    const view = await mountGated();
+    await waitFor(() => expect(tapped).toBeDefined());
+    await waitFor(() => expect(notifications.getLastNotificationResponseAsync).toHaveBeenCalled());
+    const aTap = response({ commitmentId: commitment.id, stage: 'soft', notificationId: `${commitment.id}:soft` });
+    last = aTap;
+    await act(async () => {
+      tapped?.(aTap);
+    });
+    await waitFor(() => expect(view.getByTestId('sheet').props.children).toBe(`|${commitment.id}`));
+
+    await act(async () => {
+      view.getByTestId('sign-out').props.onPress();
+    });
+    await waitFor(() => expect(repository.signOutReasons).toEqual(['user']));
+    // Away from A's commitment, as the sign-in screen would leave it.
+    await act(async () => {
+      view.rerender(<></>);
+    });
+
+    // B signs in on the same phone, in the same process.
+    jest.spyOn(commitmentEndpoints, 'listToday').mockResolvedValue({ items: [] } as never);
+    (notifications.getLastNotificationResponseAsync as jest.Mock).mockClear();
+    const viewB = await mountGated();
+    await act(async () => {
+      repository.emit(OTHER);
+    });
+    await waitFor(() => expect(notifications.getLastNotificationResponseAsync).toHaveBeenCalled());
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 0));
+    });
+
+    expect(viewB.getByTestId('sheet').props.children).toBe('|');
   });
 });
