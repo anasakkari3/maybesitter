@@ -226,6 +226,78 @@ test('a removal takes the item out of what is shown without touching the plan', 
   });
 });
 
+/*
+ * CA4.1: the client sends one change per tap ({moves:[one]} or {removals:[one]}).
+ * Each edit is a delta on top of the edits already stored — never a
+ * replacement of them — so a second edit cannot put back what the first took
+ * off the day, nor undo the first move.
+ */
+async function postEdit(body: Record<string, unknown>): Promise<number> {
+  return (await actionsPost(
+    request(`/api/mobile/plans/${DATE}/actions`, { body: { action: 'edit', ...body } }),
+    params(DATE),
+  )).status;
+}
+
+test('CA4.1: removing A and then moving B keeps A off the day, in storage and in the response', async () => {
+  await withHarness(async ({ storage }) => {
+    const before = await readStoredPlan(USER, DATE, storage);
+    const [a, b] = before!.plan.scheduled;
+    assert.equal(await postEdit({ removals: [a!.itemId] }), 200);
+    assert.equal(await postEdit({ moves: [{ itemId: b!.itemId, startsAt: '2026-09-15T15:00:00.000Z' }] }), 200);
+
+    const after = await readStoredPlan(USER, DATE, storage);
+    assert.deepEqual(after!.edits.removals, [a!.itemId], 'the move erased the earlier removal');
+    const shown = effectiveSchedule(after!);
+    assert.equal(shown.some((item) => item.itemId === a!.itemId), false, 'the removed item came back on the plan');
+    assert.equal(shown.find((item) => item.itemId === b!.itemId)!.interval.startsAt, '2026-09-15T15:00:00.000Z');
+
+    const read = await planGet(request(`/api/mobile/plans/${DATE}`), params(DATE));
+    const body = await read.json() as { plan: { scheduled: Array<{ itemId: string }> } };
+    assert.equal(body.plan.scheduled.some((item) => item.itemId === a!.itemId), false, 'GET shows the removed item again');
+  });
+});
+
+test('CA4.1: two moves in a row keep both moves', async () => {
+  await withHarness(async ({ storage }) => {
+    const before = await readStoredPlan(USER, DATE, storage);
+    const [a, b] = before!.plan.scheduled;
+    assert.equal(await postEdit({ moves: [{ itemId: a!.itemId, startsAt: '2026-09-15T12:00:00.000Z' }] }), 200);
+    assert.equal(await postEdit({ moves: [{ itemId: b!.itemId, startsAt: '2026-09-15T15:00:00.000Z' }] }), 200);
+
+    const shown = effectiveSchedule((await readStoredPlan(USER, DATE, storage))!);
+    assert.equal(shown.find((item) => item.itemId === a!.itemId)!.interval.startsAt, '2026-09-15T12:00:00.000Z', 'the second move reverted the first');
+    assert.equal(shown.find((item) => item.itemId === b!.itemId)!.interval.startsAt, '2026-09-15T15:00:00.000Z');
+  });
+});
+
+test('CA4.1: a later edit of the same item replaces only that item\'s earlier edit', async () => {
+  await withHarness(async ({ storage }) => {
+    const before = await readStoredPlan(USER, DATE, storage);
+    const [a, b] = before!.plan.scheduled;
+    assert.equal(await postEdit({ moves: [{ itemId: a!.itemId, startsAt: '2026-09-15T12:00:00.000Z' }] }), 200);
+    assert.equal(await postEdit({ removals: [b!.itemId] }), 200);
+    // Removing a moved item drops its move; moving a removed item brings it back.
+    assert.equal(await postEdit({ removals: [a!.itemId] }), 200);
+    assert.equal(await postEdit({ moves: [{ itemId: b!.itemId, startsAt: '2026-09-15T15:00:00.000Z' }] }), 200);
+
+    const after = await readStoredPlan(USER, DATE, storage);
+    assert.deepEqual(after!.edits.removals, [a!.itemId]);
+    assert.deepEqual(after!.edits.moves.map((move) => move.itemId), [b!.itemId]);
+  });
+});
+
+test('CA4.1: a move onto the slot of an item moved earlier is refused against the merged schedule', async () => {
+  await withHarness(async ({ storage }) => {
+    const before = await readStoredPlan(USER, DATE, storage);
+    const [a, b] = before!.plan.scheduled;
+    assert.equal(await postEdit({ moves: [{ itemId: a!.itemId, startsAt: '2026-09-15T12:00:00.000Z' }] }), 200);
+    const withMove = await readStoredPlan(USER, DATE, storage);
+    assert.equal(await postEdit({ moves: [{ itemId: b!.itemId, startsAt: '2026-09-15T12:00:00.000Z' }] }), 422);
+    assert.deepEqual(await readStoredPlan(USER, DATE, storage), withMove);
+  });
+});
+
 const INVALID: Array<[string, (first: string) => unknown, string]> = [
   ['a move outside the day', (first) => ({ moves: [{ itemId: first, startsAt: '2026-09-20T09:00:00.000Z' }] }), 'outside_horizon'],
   ['a move outside the working hours', (first) => ({ moves: [{ itemId: first, startsAt: '2026-09-15T00:30:00.000Z' }] }), 'outside_working_window'],

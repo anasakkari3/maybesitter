@@ -193,7 +193,17 @@ export function validateEdit(stored: StoredDailyPlan, edit: { moves: readonly Pl
     return { itemId: move.itemId, startsAt: move.startsAt, endsAt };
   });
 
-  const next: PlanEdits = { moves, removals: [...edit.removals] };
+  // CA4.1: an edit is a delta on top of the edits already stored, never a
+  // replacement of them. The client sends one change per tap, so replacing
+  // the record put back on the day an item the person had removed, and a
+  // second move reverted the first. An item named by this edit takes this
+  // edit's answer: moving a removed item brings it back at the new time, and
+  // removing a moved item drops its move.
+  const touched = new Set([...moves.map((move) => move.itemId), ...edit.removals]);
+  const next: PlanEdits = {
+    moves: [...stored.edits.moves.filter((move) => !touched.has(move.itemId)), ...moves],
+    removals: [...stored.edits.removals.filter((itemId) => !touched.has(itemId)), ...edit.removals],
+  };
   const schedule = effectiveSchedule({ ...stored, edits: next });
 
   const horizon: TimeInterval = { startsAt: stored.constraints.horizon.startsAt, endsAt: stored.constraints.horizon.endsAt };

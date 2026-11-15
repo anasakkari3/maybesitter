@@ -321,6 +321,21 @@ describe('Syllabus grouped review (UC-3.7, #191)', () => {
     });
   });
 
+  it('NA4.1: adding lecture times marks the Plan tab server busy read stale, so the plan draws them', async () => {
+    // This harness's AuthProvider is not handed the repository, so the screen's
+    // queries are scoped to the 'signed-out' uid (see the other keys it reads).
+    const key = ['user', 'signed-out', 'calendar', 'serverBusy', 'from', 'to'] as const;
+    client.setQueryData(key, { success: true, blocks: [], complete: true, cutoff: null, unknownRanges: [], sources: [] });
+    await renderReview();
+    await waitFor(() => expect(screen.getByTestId('review-add-lecture-times')).toBeTruthy());
+    expect(client.getQueryState(key)?.isInvalidated).toBe(false);
+
+    await fireEvent.press(screen.getByTestId('review-add-lecture-times'));
+
+    await waitFor(() => expect(screen.getByTestId('review-lecture-times-added')).toBeTruthy());
+    expect(client.getQueryState(key)?.isInvalidated).toBe(true);
+  });
+
   it('renders localized copy in Arabic (ar) with RTL orientation', async () => {
     await AsyncStorage.setItem(LANGUAGE_STORAGE_KEY, 'ar');
     await renderReview();
