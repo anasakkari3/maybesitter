@@ -772,3 +772,96 @@ describe('how reminders adapt (#202)', () => {
     expect(screen.queryByTestId('memory-adaptive')).toBeNull();
   });
 });
+
+/*
+ * CA8.2 / CXA8.2: a failed save keeps what the person typed. The add field
+ * and the edit fields used to close and clear the moment Save was pressed,
+ * before the server answered, and the Knows card never said a write failed.
+ */
+describe('a failed save keeps the typed text (CA8.2)', () => {
+  const TYPED = 'My sister lives in Haifa and I visit every month';
+
+  it('MemorySection: a failed add keeps the field open with the text, and says it failed', async () => {
+    jest.spyOn(profileEndpoints, 'createMemory').mockRejectedValue(new NetworkError('offline') as never);
+    await show(<MemorySection />);
+    await waitFor(() => expect(screen.queryByTestId('memory-add')).not.toBeNull());
+    await fireEvent.press(screen.getByTestId('memory-add'));
+    await fireEvent.changeText(screen.getByTestId('memory-add-input'), TYPED);
+    await fireEvent.press(screen.getByTestId('memory-add-save'));
+
+    await waitFor(() => expect(screen.queryByTestId('memory-error')).not.toBeNull());
+    expect(screen.getByTestId('memory-error').props.children).toBe(en.errorsNetwork);
+    expect(screen.getByTestId('memory-add-input').props.value).toBe(TYPED);
+  });
+
+  it('MemorySection: a successful add still closes and clears the field', async () => {
+    jest.spyOn(profileEndpoints, 'createMemory').mockResolvedValue({ success: true, memory: item({ id: 'mem_new', content: TYPED }) } as never);
+    await show(<MemorySection />);
+    await waitFor(() => expect(screen.queryByTestId('memory-add')).not.toBeNull());
+    await fireEvent.press(screen.getByTestId('memory-add'));
+    await fireEvent.changeText(screen.getByTestId('memory-add-input'), TYPED);
+    await fireEvent.press(screen.getByTestId('memory-add-save'));
+    await waitFor(() => expect(screen.queryByTestId('memory-add-input')).toBeNull());
+    expect(screen.queryByTestId('memory-error')).toBeNull();
+  });
+
+  it('MemorySection: a failed edit keeps the edit open with the text, and says it failed', async () => {
+    jest.spyOn(profileEndpoints, 'patchMemory').mockRejectedValue(new NetworkError('offline') as never);
+    await show(<MemorySection />);
+    await waitFor(() => expect(screen.queryByTestId('memory-edit-mem_told')).not.toBeNull());
+    await fireEvent.press(screen.getByTestId('memory-edit-mem_told'));
+    await fireEvent.changeText(screen.getByTestId('memory-edit-input-mem_told'), TYPED);
+    await fireEvent.press(screen.getByTestId('memory-save-mem_told'));
+
+    await waitFor(() => expect(screen.queryByTestId('memory-error')).not.toBeNull());
+    expect(screen.getByTestId('memory-edit-input-mem_told').props.value).toBe(TYPED);
+  });
+
+  it('MemorySection: an edit refused because the row changed elsewhere keeps the text to save again', async () => {
+    jest.spyOn(profileEndpoints, 'patchMemory').mockImplementation(async () => {
+      // Another device replaced the row: the re-read has it under a new id.
+      listing([item({ id: 'mem_elsewhere', content: 'My sister lives in Akka' })]);
+      throw new NotFoundError('memory_not_found');
+    });
+    await show(<MemorySection />);
+    await waitFor(() => expect(screen.queryByTestId('memory-edit-mem_told')).not.toBeNull());
+    await fireEvent.press(screen.getByTestId('memory-edit-mem_told'));
+    await fireEvent.changeText(screen.getByTestId('memory-edit-input-mem_told'), TYPED);
+    await fireEvent.press(screen.getByTestId('memory-save-mem_told'));
+
+    await waitFor(() => expect(screen.queryByTestId('memory-item-mem_elsewhere')).not.toBeNull());
+    expect(screen.queryByTestId('memory-error')).not.toBeNull();
+    // Nothing the person wrote is gone: it waits in the field to be saved again.
+    expect(screen.getByTestId('memory-add-input').props.value).toBe(TYPED);
+  });
+
+  it('MemoryScreen: a failed edit keeps the edit open with the text, and says it failed', async () => {
+    jest.spyOn(profileEndpoints, 'patchMemory').mockRejectedValue(new NetworkError('offline') as never);
+    await show(<MemoryScreen onBack={() => {}} />);
+    await waitFor(() => expect(screen.queryByTestId('memory-screen-edit-mem_told')).not.toBeNull());
+    await fireEvent.press(screen.getByTestId('memory-screen-edit-mem_told'));
+    await fireEvent.changeText(screen.getByTestId('memory-screen-edit-input-mem_told'), TYPED);
+    await fireEvent.press(screen.getByTestId('memory-screen-save-mem_told'));
+
+    await waitFor(() => expect(screen.queryByTestId('memory-screen-error')).not.toBeNull());
+    expect(screen.getByTestId('memory-screen-edit-input-mem_told').props.value).toBe(TYPED);
+  });
+
+  it('MemoryScreen: an edit refused because the row changed elsewhere keeps the text to save again', async () => {
+    jest.spyOn(profileEndpoints, 'patchMemory').mockImplementation(async () => {
+      listing([item({ id: 'mem_elsewhere', content: 'I cook on Thursdays' })]);
+      throw new NotFoundError('memory_not_found');
+    });
+    const create = jest.spyOn(profileEndpoints, 'createMemory').mockResolvedValue({ success: true, memory: item({ id: 'mem_new', content: TYPED }) } as never);
+    await show(<MemoryScreen onBack={() => {}} />);
+    await waitFor(() => expect(screen.queryByTestId('memory-screen-edit-mem_told')).not.toBeNull());
+    await fireEvent.press(screen.getByTestId('memory-screen-edit-mem_told'));
+    await fireEvent.changeText(screen.getByTestId('memory-screen-edit-input-mem_told'), TYPED);
+    await fireEvent.press(screen.getByTestId('memory-screen-save-mem_told'));
+
+    await waitFor(() => expect(screen.queryByTestId('memory-screen-item-mem_elsewhere')).not.toBeNull());
+    expect(screen.getByTestId('memory-screen-kept-input').props.value).toBe(TYPED);
+    await fireEvent.press(screen.getByTestId('memory-screen-kept-save'));
+    await waitFor(() => expect(create).toHaveBeenCalledWith(expect.objectContaining({ content: TYPED }), { asUid: 'memory-user' }));
+  });
+});
