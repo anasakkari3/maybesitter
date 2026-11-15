@@ -70,26 +70,28 @@ describe('watcher proposals on the Watching tab (CA6.1)', () => {
   it('accepts with the title the person left in the field, once however fast the taps come', async () => {
     await show();
     await waitFor(() => expect(screen.queryByTestId(`watcher-proposal-accept-${ID}`)).not.toBeNull());
-    fireEvent.changeText(screen.getByTestId(`watcher-proposal-title-${ID}`), '  A walk after lunch ');
+    await fireEvent.changeText(screen.getByTestId(`watcher-proposal-title-${ID}`), '  A walk after lunch ');
     const accept = screen.getByTestId(`watcher-proposal-accept-${ID}`);
-    fireEvent.press(accept);
-    fireEvent.press(accept);
+    await fireEvent.press(accept);
+    await fireEvent.press(accept);
     await waitFor(() => expect(watcherEndpoints.decideWatcherProposal).toHaveBeenCalledTimes(1));
     expect(watcherEndpoints.decideWatcherProposal).toHaveBeenCalledWith(ID, { decision: 'accept', title: 'A walk after lunch' });
+    // Answered: the card goes, even while the re-read list still holds it.
+    await waitFor(() => expect(screen.queryByTestId(`watcher-proposal-${ID}`)).toBeNull());
   });
 
   it('dismisses without a title', async () => {
     await show();
     await waitFor(() => expect(screen.queryByTestId(`watcher-proposal-dismiss-${ID}`)).not.toBeNull());
-    fireEvent.press(screen.getByTestId(`watcher-proposal-dismiss-${ID}`));
+    await fireEvent.press(screen.getByTestId(`watcher-proposal-dismiss-${ID}`));
     await waitFor(() => expect(watcherEndpoints.decideWatcherProposal).toHaveBeenCalledWith(ID, { decision: 'dismiss' }));
   });
 
   it('cannot accept an empty title', async () => {
     await show();
     await waitFor(() => expect(screen.queryByTestId(`watcher-proposal-accept-${ID}`)).not.toBeNull());
-    fireEvent.changeText(screen.getByTestId(`watcher-proposal-title-${ID}`), '   ');
-    fireEvent.press(screen.getByTestId(`watcher-proposal-accept-${ID}`));
+    await fireEvent.changeText(screen.getByTestId(`watcher-proposal-title-${ID}`), '   ');
+    await fireEvent.press(screen.getByTestId(`watcher-proposal-accept-${ID}`));
     expect(watcherEndpoints.decideWatcherProposal).not.toHaveBeenCalled();
   });
 

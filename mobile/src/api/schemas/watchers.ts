@@ -28,5 +28,19 @@ export const monitoringSettingsResponseSchema = z.object({
   monitoringSettings: monitoringSettingsSchema,
   paused: z.boolean(),
 });
+/**
+ * A watcher's «اقترح التزام» (QA CA6.1). Mirrors presentWatcherProposal in
+ * lib/services/mobile/watcherProposalService.ts: ids and the watch kind, no content.
+ */
+export const watcherProposalSchema = z.object({
+  proposalId: z.string().regex(/^wpr_[0-9a-f]{64}$/),
+  signalKind: z.string(),
+  proposedAt: isoDateTime,
+  state: z.enum(['proposed', 'accepted', 'dismissed']),
+  commitmentId: z.string().nullable(),
+});
+export const watcherProposalListSchema = z.object({ success: z.literal(true), proposals: z.array(watcherProposalSchema) });
+export const watcherProposalDecidedSchema = z.object({ success: z.literal(true), proposal: watcherProposalSchema });
+export type WatcherProposal = z.infer<typeof watcherProposalSchema>;
 export type Watcher = z.infer<typeof watcherSchema>;
 export type WatcherEffect = Watcher['effect'];
