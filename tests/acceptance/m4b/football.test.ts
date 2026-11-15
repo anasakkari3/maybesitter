@@ -5,7 +5,7 @@
  * The real fixture store, follow list, projection and routes, memory storage,
  * the clock pinned to Wednesday 2026-10-07 10:00 Jerusalem.
  */
-import test from 'node:test';
+import test, { mock } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   FIXTURE_MINUTES,
@@ -346,6 +346,39 @@ test('M4B-R3-005: «ضيفه» over device busy time returns the null-title clas
   const added = await heldPost(uid, held.fixtureId, { action: 'add', expectedHeldVersion: held.heldVersion, clientActionId: '7a1e0000-0000-4000-8000-000000000003' });
   assert.equal(added.status, 200, show(added.body));
   assert.ok(added.body.fixture?.clashes?.some((c: any) => c.kind === 'calendar_busy' && c.title === null), show(added.body.fixture));
+});
+
+/* ── QA audit CA11.1: a held match outlives its kickoff and its follow ── */
+// Lane E1 stopped listing a held match after kickoff. What remained: the add
+// itself still saved a match that had already started (a stale row on the
+// screen), and unfollowing the club left its held matches listed, counted and
+// addable -- an «ضيفه» there made an active commitment the next settings save
+// silently dropped.
+
+test('CA11.1: after the club is unfollowed its held match is not offered, and «ضيفه» on the stale row saves nothing', async () => {
+  const uid = begin();
+  const held = await heldOverDinner(uid);
+  await follow(uid, []);
+  assert.deepEqual(await heldList(uid), [], 'an unfollowed club still has a held match on the list');
+  const counted = await call(uid, 'held-items', 'GET');
+  assert.equal(counted.status, 200, show(counted.body));
+  assert.equal(counted.body.count, 0, `held-items still counts it: ${show(counted.body)}`);
+  const added = await heldPost(uid, held.fixtureId, { action: 'add', expectedHeldVersion: held.heldVersion, clientActionId: '7a1e0000-0000-4000-8000-0000000000c1' });
+  assert.equal(added.status, 409, show(added.body));
+  assert.equal(added.body.error, 'held_changed');
+  assert.equal(added.body.held, null);
+  assert.equal(await fixtureCommitment(uid, '1'), null);
+});
+
+test('CA11.1: «ضيفه» on a held match whose kickoff has passed saves nothing', async () => {
+  const uid = begin();
+  const held = await heldOverDinner(uid);
+  mock.timers.setTime(Date.parse(SAT_21()) + 60_000);
+  const added = await heldPost(uid, held.fixtureId, { action: 'add', expectedHeldVersion: held.heldVersion, clientActionId: '7a1e0000-0000-4000-8000-0000000000c2' });
+  assert.equal(added.status, 409, show(added.body));
+  assert.equal(added.body.error, 'held_changed');
+  assert.equal(added.body.held, null);
+  assert.equal(await fixtureCommitment(uid, '1'), null);
 });
 
 test('M4B-R2-001: «ضيفه» on a hold whose time moved since it was read → 409 held_changed, nothing saved', async () => {
