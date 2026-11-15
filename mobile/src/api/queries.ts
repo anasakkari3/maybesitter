@@ -116,6 +116,7 @@ import {
   UnauthorizedError,
   ValidationError,
   InvalidTransitionError,
+  PlanEditRefusedError,
   PlanProposalRefusedError,
   StaleCommitmentError,
   WeekConflictError, WeekEmptyDayError,
@@ -1522,11 +1523,20 @@ export function usePlanAction(date: string) {
     onError: error => {
       // …and so does a 409: the plan itself changed under the button — for
       // one, it was shaped by memory since withdrawn (M5B2A-R11-002).
-      if (error instanceof PlanProposalRefusedError || error instanceof ConflictError) {
+      if (error instanceof PlanProposalRefusedError || error instanceof ConflictError || isDayOver(error)) {
         void client.invalidateQueries({ queryKey: queryKeys.plan(uid, date) });
       }
     },
   });
+}
+
+/**
+ * The server refusing a plan whose day is over (CA4.7, CXA4.2): the screen
+ * read it while the day was still on, so it is read again to show what the
+ * server holds now.
+ */
+function isDayOver(error: unknown): boolean {
+  return error instanceof PlanEditRefusedError && error.reason === 'day_over';
 }
 
 /**
@@ -1592,6 +1602,10 @@ export function useRegeneratePlan(date: string) {
   return useMutation({
     mutationFn: (_: void) => numberedPlan(client, uid, () => regeneratePlan(date, asAccount(uid))),
     onSuccess: plan => adoptPlan(client, uid, date, plan),
+    // A finished day is not rebuilt (CA4.7): read the plan again.
+    onError: error => {
+      if (isDayOver(error)) void client.invalidateQueries({ queryKey: queryKeys.plan(uid, date) });
+    },
   });
 }
 

@@ -95,7 +95,9 @@ export type PlanEditReason =
   | 'overlaps_scheduled_item'
   | 'empty_edit'
   /** Accepting a plan that places nothing (audit 2026-10-03 #4): there is nothing to accept. */
-  | 'empty_plan';
+  | 'empty_plan'
+  /** Accepting or dismissing a plan whose own day is over (CXA4.2): it is history, not a plan. */
+  | 'day_over';
 
 export class PlanEditRejected extends Error {
   constructor(readonly reason: PlanEditReason, readonly itemId: string | null, message: string) {
@@ -259,6 +261,22 @@ export function placesNothing(stored: StoredDailyPlan): boolean {
   return effectiveSchedule(stored).length === 0;
 }
 
+/**
+ * Whether the plan's own local day has ended (CA4.7, CXA4.2).
+ *
+ * The end is the instant a pending patch of it expires (`proposalExpiresAt`,
+ * local midnight after `date` in the plan's own zone), so "this day is over"
+ * has one answer for the offer and for the plan. A finished day is history:
+ * rebuilding it spends a compose (and its model explanation) on a day nobody
+ * can live again, and accepting or dismissing it rewrites the answer the
+ * person gave, or did not give, while it was still theirs.
+ */
+export function planDayIsOver(stored: Pick<StoredDailyPlan, 'date' | 'timezone'>, now: Date | string): boolean {
+  return proposalHasExpired(stored, now);
+}
+
+const DAY_OVER_MESSAGE = 'the day this plan is for is over';
+
 export async function acceptPlan(uid: string, date: string, options: PlanActionOptions = {}): Promise<StoredDailyPlan | null> {
   const at = clockOf(options).toISOString();
   let empty = false;
@@ -272,9 +290,15 @@ export async function acceptPlan(uid: string, date: string, options: PlanActionO
   const authorized = !options.strictMemoryEpoch && before && (before.memoryUse || before.focusFromMemory === true)
     ? await memoryFocusForAccept(uid, at, options.storage ?? getStorage())
     : null;
+  let over = false;
   const outcome = await mutateStoredPlan<null>(uid, date, async (current, tx) => {
     empty = false;
     fenced = false;
+    over = false;
+    if (planDayIsOver(current, at)) {
+      over = true;
+      return null;
+    }
     // Refused inside the transaction, against the document as it is now — and
     // recorded rather than thrown, as `editPlan` does: a thrown refusal would
     // be retried by the adapter. Nothing is written: no status, no ledger
@@ -319,6 +343,7 @@ export async function acceptPlan(uid: string, date: string, options: PlanActionO
       result: null,
     };
   }, options.storage);
+  if (over) throw new PlanEditRejected('day_over', null, DAY_OVER_MESSAGE);
   if (empty) throw new PlanEditRejected('empty_plan', null, 'the plan places nothing, so there is nothing to accept');
   if (fenced) throw new PlanWriteGuardRejected();
   if (!outcome) return null;
@@ -347,12 +372,20 @@ export async function acceptPlan(uid: string, date: string, options: PlanActionO
 
 export async function dismissPlan(uid: string, date: string, options: PlanActionOptions = {}): Promise<StoredDailyPlan | null> {
   const at = clockOf(options).toISOString();
-  const outcome = await mutateStoredPlan<null>(uid, date, (current) => ({
-    // Cleared with the dismissal: offering a patch of a day the person has
-    // just set aside is the orphan in its plainest form.
-    next: { ...current, status: 'dismissed', updatedAt: at, proposal: null },
-    result: null,
-  }), options.storage);
+  let over = false;
+  const outcome = await mutateStoredPlan<null>(uid, date, (current) => {
+    // Refused inside the transaction and recorded rather than thrown, as
+    // `acceptPlan` does (CXA4.2).
+    over = planDayIsOver(current, at);
+    if (over) return null;
+    return {
+      // Cleared with the dismissal: offering a patch of a day the person has
+      // just set aside is the orphan in its plainest form.
+      next: { ...current, status: 'dismissed', updatedAt: at, proposal: null },
+      result: null,
+    };
+  }, options.storage);
+  if (over) throw new PlanEditRejected('day_over', null, DAY_OVER_MESSAGE);
   if (!outcome) return null;
   await appendPlanEvent(uid, {
     type: 'plan_dismissed', date, at, generation: outcome.stored.generation, inputDigest: outcome.stored.inputDigest,
@@ -1247,7 +1280,7 @@ export function rebuildsLeftOf(stored: Pick<StoredDailyPlan, 'generation' | 'aut
 
 export type RegenerateOutcome =
   | { readonly ok: true; readonly stored: StoredDailyPlan }
-  | { readonly ok: false; readonly reason: 'not_found' | 'limit_reached' | 'raced' };
+  | { readonly ok: false; readonly reason: 'not_found' | 'limit_reached' | 'raced' | 'day_over' };
 
 /**
  * Rebuilds today's plan from what the commitments say now.
@@ -1273,6 +1306,8 @@ export async function regeneratePlan(
 ): Promise<RegenerateOutcome> {
   const current = await readStoredPlan(uid, date, deps.storage);
   if (!current) return { ok: false, reason: 'not_found' };
+  // Before anything is composed (CA4.7): a finished day is not rebuilt.
+  if (planDayIsOver(current, clockOf(deps))) return { ok: false, reason: 'day_over' };
   if (rebuildsLeftOf(current) === 0) return { ok: false, reason: 'limit_reached' };
 
   let composed = await composeDailyPlan(uid, date, { timezone: current.timezone }, current.generation + 1, deps, {

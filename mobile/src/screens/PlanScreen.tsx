@@ -292,6 +292,8 @@ function LoadedPlan({ plan, date, readOnly }: { plan: DailyPlan; date: string; r
   // The server refusing to accept a plan that places nothing (audit
   // 2026-10-03 #4) — reachable when the day emptied after this screen read it.
   const acceptRefusal = editRefusalOf(accept.error);
+  // A rebuild of a day that is over (CA4.7) has its own sentence too.
+  const rebuildRefusal = editRefusalOf(rebuild.error);
   // A 429 means another device spent the last rebuild between this screen's
   // read and this tap. The cap copy is the same either way.
   // The server's count when it sends one (L5): a generation its automatic
@@ -642,7 +644,9 @@ function LoadedPlan({ plan, date, readOnly }: { plan: DailyPlan; date: string; r
           <Txt size={13} color={p.mu} testID="plan-regenerate-left">{tr('planRegenerateLeft', { n: left })}</Txt>
         )}
         {/* A rebuild that failed for any other reason. */}
-        {rebuild.error && !capReached ? (
+        {rebuildRefusal ? (
+          <Txt size={13} color={p.wm} testID="plan-regenerate-refused">{t[rebuildRefusal.key] as string}</Txt>
+        ) : rebuild.error && !capReached ? (
           <Txt size={13} color={p.wm} testID="plan-regenerate-error">{userFacingMessage(rebuild.error, t)}</Txt>
         ) : null}
       </View>

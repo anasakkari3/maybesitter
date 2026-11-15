@@ -121,3 +121,22 @@ test('shadow: nothing is locked even when the decision says no', async () => {
     assert.equal(translation.reason, 'not_entitled');
   } finally { gate(null); end(); }
 });
+
+test('C12.2: under shadow, an add-on the person switched off is off: its route answers 404 and the list says so', async () => {
+  const uid = await begin();
+  try {
+    gate('shadow');
+    const off = await quietly(() => call(uid, 'capabilities/features/[id]', 'PUT', { params: { id: 'football' }, body: { enabled: false } }));
+    assert.equal(off.status, 200);
+    const football = off.body.features.find((item: { id: string }) => item.id === 'football');
+    assert.deepEqual([football.enabled, football.reason], [false, 'user_off'], 'the list says a switched-off add-on is on');
+    const locked = await quietly(() => call(uid, 'football', 'GET'));
+    assert.deepEqual([locked.status, locked.body.reason], [404, 'feature_unavailable'], 'a switched-off add-on kept working');
+    // Still shadow for what the person did not choose: not bought is logged, not refused.
+    const translation = off.body.features.find((item: { id: string }) => item.id === 'memory_translation');
+    assert.deepEqual([translation.enabled, translation.reason], [true, 'not_entitled']);
+    // Switched back on, it works again.
+    await quietly(() => call(uid, 'capabilities/features/[id]', 'PUT', { params: { id: 'football' }, body: { enabled: true } }));
+    assert.equal((await call(uid, 'football', 'GET')).status, 200);
+  } finally { gate(null); end(); }
+});

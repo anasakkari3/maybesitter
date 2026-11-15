@@ -27,7 +27,7 @@
  *  - a manual move re-anchors `preferredInterval` through `editPlan`, not just
  *    through the pure function that does the re-anchoring.
  */
-import test from 'node:test';
+import test, { mock } from 'node:test';
 import assert from 'node:assert/strict';
 import { createMemoryStorage } from '../../lib/storage/memoryAdapter.ts';
 import { resetStorageForTests, setStorageForTests } from '../../lib/storage/index.ts';
@@ -365,10 +365,12 @@ test('a protected placement survives a regeneration; an unprotected one is free 
     const { blockId, startsAt } = await firstScheduled();
     assert.equal((await protect(protectBody(blockId))).status, 200);
 
+    // On the plan's own day: a finished day is not rebuilt (CA4.7).
+    mock.timers.enable({ apis: ['Date'], now: MORNING.getTime() });
     const regenerated = await regeneratePost(
       request(`/api/mobile/plans/${DATE}/regenerate`, { method: 'POST' }),
       params(DATE),
-    );
+    ).finally(() => mock.timers.reset());
     assert.equal(regenerated.status, 200);
 
     const after = await readStoredPlan(USER, DATE);
