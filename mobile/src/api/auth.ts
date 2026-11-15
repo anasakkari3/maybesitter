@@ -86,6 +86,74 @@ export async function signOutForbidden(reason: 'revoked' | 'deleted', asUid?: st
 }
 
 /**
+ * The account a 403 `revoked` was answered for, or null (C12.1).
+ *
+ * A revoked account keeps two rights the server still serves — exporting and
+ * deleting its data — so a `revoked` no longer signs out. The account is held
+ * here instead, and `RevokedAccountGate` shows the revoked screen in place of
+ * the app for exactly this uid. Memory only: a cold start asks the server
+ * again, and the first 403 holds it again.
+ */
+let revokedUid: string | null = null;
+const revokedListeners = new Set<() => void>();
+/**
+ * The hold in progress, per uid. The app loads several screens at once, so a
+ * revoked account answers N requests with N 403s in the same moment; each
+ * shares this one run of the cleanup, the way `refreshIdToken` shares one
+ * refresh.
+ */
+const inFlightHolds = new Map<string, Promise<void>>();
+
+function setRevoked(next: string | null): void {
+  if (revokedUid === next) return;
+  revokedUid = next;
+  for (const listener of [...revokedListeners]) listener();
+}
+
+export function revokedAccount(): string | null {
+  return revokedUid;
+}
+
+/** For `useSyncExternalStore`. */
+export function onRevokedChange(listener: () => void): () => void {
+  revokedListeners.add(listener);
+  return () => {
+    revokedListeners.delete(listener);
+  };
+}
+
+/** Drops the hold: the revoked account signed out, or another one is in. */
+export function clearRevoked(): void {
+  setRevoked(null);
+}
+
+/**
+ * Holds the signed-in account as revoked, without signing it out.
+ *
+ * Bound like a sign-out: a late 403 for account A never holds B. The
+ * before-sign-out tasks run first, with `revoked`, while the app that
+ * registered them is still mounted: the revoked screen replaces it, and the
+ * handset cleanup (the FCM token, pending reminders, place regions, the
+ * widget) is owed to a revoked account as much as to one that signed out.
+ */
+export async function holdRevoked(asUid?: string): Promise<void> {
+  if (!stillSignedInAs(asUid)) return;
+  const uid = asUid ?? repository?.currentUser()?.uid ?? null;
+  if (!uid || revokedUid === uid) return;
+  const running = inFlightHolds.get(uid);
+  if (running) return running;
+  const hold = (async () => {
+    await runBeforeSignOut('revoked');
+    if (repository?.currentUser()?.uid !== uid) return;
+    setRevoked(uid);
+  })().finally(() => {
+    inFlightHolds.delete(uid);
+  });
+  inFlightHolds.set(uid, hold);
+  return hold;
+}
+
+/**
  * A sign-out on behalf of one account's request ends only that account's
  * session: when another account is signed in by now, it is not this
  * request's to end (M4a, M4A-R3-REV-002). Unbound sign-outs are unchanged.
@@ -98,4 +166,7 @@ function stillSignedInAs(asUid: string | undefined): boolean {
 export function resetAuthForTests(): void {
   repository = null;
   inFlightRefresh = null;
+  revokedUid = null;
+  revokedListeners.clear();
+  inFlightHolds.clear();
 }

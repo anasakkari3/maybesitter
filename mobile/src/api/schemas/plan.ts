@@ -264,6 +264,9 @@ export const planEditRejectedSchema = z.object({
     'empty_edit',
     // Accepting a plan that places nothing (audit 2026-10-03 #4).
     'empty_plan',
+    // Accepting, dismissing or rebuilding a plan whose day is over (CA4.7,
+    // CXA4.2). The regenerate route sends it too, with no `itemId`.
+    'day_over',
   ]),
   // Absent on the week's `empty_plan`, which is about a day, not an item.
   itemId: z.string().nullable().optional(),

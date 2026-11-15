@@ -24,8 +24,9 @@ export async function DELETE(request: Request) {
   try {
     // `forceRevocationCheck`: this path must not run on a session that was
     // revoked in the last minute, so it reads revocation state now rather than
-    // off the cache.
-    user = await requireMobileUser(request, { forceRevocationCheck: true });
+    // off the cache. `allowRevoked`: a revoked participant keeps the right to
+    // delete their account (C12.1).
+    user = await requireMobileUser(request, { forceRevocationCheck: true, allowRevoked: true });
   } catch (error) {
     return mobileAuthErrorResponse(error);
   }

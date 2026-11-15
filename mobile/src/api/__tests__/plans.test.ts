@@ -170,6 +170,21 @@ describe('acting on a plan', () => {
     }
   });
 
+  it('reads a finished day refused on accept, dismiss and regenerate as day_over (CA4.7, CXA4.2)', async () => {
+    for (const action of ['accept', 'dismiss'] as const) {
+      serve({ success: false, error: 'the day this plan is for is over', reason: 'day_over', itemId: null }, 422);
+      const error = await actOnPlan('2026-08-09', { action }).catch(e => e);
+      expect(error).toBeInstanceOf(PlanEditRefusedError);
+      expect((error as PlanEditRefusedError).reason).toBe('day_over');
+      expect((error as PlanEditRefusedError).itemId).toBeNull();
+    }
+    // The regenerate route's body has no itemId at all.
+    serve({ success: false, error: 'the day this plan is for is over', reason: 'day_over' }, 422);
+    const rebuilt = await regeneratePlan('2026-08-09').catch(e => e);
+    expect(rebuilt).toBeInstanceOf(PlanEditRefusedError);
+    expect((rebuilt as PlanEditRefusedError).reason).toBe('day_over');
+  });
+
   it('falls back to a plain refusal when a 422 body is not the shape it claims', async () => {
     // A refusal whose reason the client cannot read must not become a guess:
     // showing "that time is already taken" for a body that said nothing of the

@@ -24,6 +24,9 @@ import {
 import { recordFeatureSpend } from '../../lib/features/spendLedger.ts';
 import { centsToNanoUsd } from '../../lib/features/pricing.ts';
 import { seedLiveAccount } from '../support/liveAccount.ts';
+import { shareLlmProvider } from '../../lib/llm/shareProvider.ts';
+import { featureHooksFor } from '../../lib/features/providerGate.ts';
+import { LLMUnavailableError, type LlmProvider } from '../../src/extraction/llm/llmProvider.ts';
 
 const NOW = new Date('2026-11-10T21:00:00.000Z');
 const ENFORCE = { MAYBESITTER_ADDON_GATE_MODE: 'enforce' };
@@ -159,4 +162,38 @@ test('the list answers every feature from one read, and purposes route to their 
   assert.equal(list.value.find(item => item.featureId === 'assistant')?.tier, 'core');
   const gmailRead = await decideFeatureForPurpose('u1', 'semantic_observation', { source: 'gmail' }, { storage, env: ENFORCE, now: NOW });
   assert.equal(gmailRead.featureId, 'gmail_reading');
+});
+
+test('CXA12.1: under shadow, the person\u2019s own "off" is obeyed: the gate refuses it, and the model provider never runs its paid call', async () => {
+  const storage = createMemoryStorage();
+  await seedLiveAccount('u1', storage);
+  await setFeaturePreference('u1', 'memory_learning', false, { storage, now: NOW });
+  const { value } = await quiet(() => decideFeature('u1', 'memory_learning', { storage, env: SHADOW, now: NOW }));
+  assert.deepEqual([value.reason, value.allowed, refuses(value)], ['user_off', false, true], 'a switched-off feature is not refused under shadow');
+  // Every other shadow denial is still only logged.
+  const { value: translation } = await quiet(() => decideFeature('u1', 'memory_translation', { storage, env: SHADOW, now: NOW }));
+  assert.deepEqual([translation.reason, refuses(translation)], ['not_entitled', false]);
+
+  // The provider path, as the memory summary reaches it: no reservation, no model call.
+  const saved = process.env.MAYBESITTER_ADDON_GATE_MODE;
+  process.env.MAYBESITTER_ADDON_GATE_MODE = 'shadow';
+  const seen = { provider: 0, reserve: 0 };
+  const provider: LlmProvider = {
+    name: 'gemini',
+    generateJson: async () => { seen.provider++; return { text: '{}', model: 'gemini-2.5-flash', latencyMs: 1, promptTokens: 1, outputTokens: 1 }; },
+    generateStructured: async () => { seen.provider++; return { text: '{}', model: 'gemini-2.5-flash', latencyMs: 1, promptTokens: 1, outputTokens: 1 }; },
+  };
+  try {
+    await assert.rejects(
+      quiet(() => shareLlmProvider('u1', {
+        provider, purpose: 'memory_summary', consent: async () => 'granted' as const,
+        reserve: async () => { seen.reserve++; return 'ok' as const; }, commit: async () => {}, log: () => {}, now: () => NOW,
+        features: featureHooksFor('memory_learning', storage),
+      })({ system: 's', parts: [{ kind: 'text', text: 'hi' }], responseSchema: {} })),
+      (error: unknown) => error instanceof LLMUnavailableError && error.message.includes('feature_locked'),
+    );
+    assert.deepEqual(seen, { provider: 0, reserve: 0 }, 'a switched-off feature reached the model');
+  } finally {
+    if (saved === undefined) delete process.env.MAYBESITTER_ADDON_GATE_MODE; else process.env.MAYBESITTER_ADDON_GATE_MODE = saved;
+  }
 });

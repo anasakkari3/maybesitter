@@ -176,6 +176,12 @@ export async function explainPlan(
   // The kill switch first (#181): it must not cost a reservation to be off.
   if (aiDisabled()) return templateOutcome(facts, 'ai_disabled');
 
+  // A plan that places nothing has nothing to narrate (NX4.1): the template
+  // already says it — nothing fits, and how many stay on the list — and the
+  // model may only state those same counts. Paying for that sentence is what
+  // a brand-new, empty account did on its first build.
+  if (plan.scheduled.length === 0) return templateOutcome(facts, 'nothing_placed');
+
   // Then the language. `explanationRejections` refuses an answer in a locale it
   // has no lexicon for, so asking for one would be paying Gemini for a sentence
   // that is guaranteed to be thrown away — and `LOCALE_NAMES` has nothing to

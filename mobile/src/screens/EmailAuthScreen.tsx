@@ -84,7 +84,7 @@ export function EmailAuthScreen({ onBack, initialMode = 'signIn' }: { onBack: ()
       return;
     }
     if (mode !== 'reset') {
-      const passwordProblem = passwordError(password);
+      const passwordProblem = passwordError(password, mode);
       if (passwordProblem) {
         setErrorKey(passwordProblem);
         return;
@@ -193,7 +193,11 @@ export function EmailAuthScreen({ onBack, initialMode = 'signIn' }: { onBack: ()
                 editable={!inert}
                 style={inputStyle(passwordFlagged)}
               />
-              <Txt size={13} color={p.mu}>{fill(t.authPasswordHint, { n: MIN_PASSWORD_LENGTH })}</Txt>
+              {/* The floor is a sign-up rule (CA1.8): on sign-in it would tell an
+                  account with a shorter, valid password that it is wrong. */}
+              {mode === 'signUp' ? (
+                <Txt size={13} color={p.mu}>{fill(t.authPasswordHint, { n: MIN_PASSWORD_LENGTH })}</Txt>
+              ) : null}
             </View>
           ) : null}
 

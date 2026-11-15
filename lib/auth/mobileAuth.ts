@@ -43,6 +43,14 @@ export interface RequireMobileUserOptions {
    * where "at most a minute stale" is not good enough.
    */
   forceRevocationCheck?: boolean;
+  /**
+   * Admit an account whose participation was revoked (C12.1). Only for the two
+   * routes that serve the person's rights over their own data — export and
+   * deletion — because «وقّف المشاركة» stops the product, not those rights:
+   * refusing them left a revoked account undeletable except by an operator.
+   * A deleted account is refused either way.
+   */
+  allowRevoked?: boolean;
 }
 
 export class MobileAuthError extends Error {
@@ -129,7 +137,9 @@ export async function requireMobileUser(
   // revokes, because that is the more explanatory of the two for a support
   // conversation and for what UC-1.R4 (#157) renders.
   if (trust.deletedAt) throw new MobileAuthError('this account was deleted', 403, 'deleted');
-  if (trust.revokedAt) throw new MobileAuthError('this account was revoked', 403, 'revoked');
+  if (trust.revokedAt && options.allowRevoked !== true) {
+    throw new MobileAuthError('this account was revoked', 403, 'revoked');
+  }
 
   return { uid: verified.uid, authTime: verified.authTime };
 }
