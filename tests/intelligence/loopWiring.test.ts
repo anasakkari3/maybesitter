@@ -242,8 +242,24 @@ test('a postpone reaches the model as a postpone, and the model is told it is no
     const call = h.calls[0]!;
     assert.ok(call.context.observations.some(item => item.kind === 'outcome' && item.evidence === 'Postponed: Renew the passport'));
     assert.match(call.system, /Postponed means the person moved the item to a later time\. It is not a failure/);
-    // Beside it, the deletion guard (CA2.3): a deletion is not a verdict on the topic.
-    assert.match(call.system, /An outcome that says Deleted means the person removed the item/);
+    // No deletion among the evidence: the deletion guard is not sent, so the
+    // request is byte-for-byte what it was before deletions existed (pinned digests).
+    assert.doesNotMatch(call.system, /Deleted means/);
+  } finally { h.restore(); }
+});
+
+test('CA2.3: a deletion reaches the model with its guard, and only then', async () => {
+  const h = begin();
+  try {
+    await grantPersonalization(h.storage);
+    await setRecommendations(h.storage, 'granted');
+    await seedCommitment(ID_DROPPED, 'Old gym plan');
+    assert.equal((await commitmentDelete(req(`/api/mobile/commitments/${ID_DROPPED}`, 'DELETE'), params(ID_DROPPED))).status, 200);
+    assert.equal((await generatePost(req('/api/mobile/intelligence/generate', 'POST', {}))).status, 200);
+    assert.equal(h.calls.length, 1);
+    const call = h.calls[0]!;
+    assert.ok(call.context.observations.some(item => item.kind === 'outcome' && item.evidence === 'Deleted: Old gym plan'));
+    assert.match(call.system, /An outcome that says Deleted means the person removed the item, most often a capture mistake or a duplicate/);
     assert.match(call.system, /not a rejection of the topic and not evidence of low priority/);
     assert.match(call.system, /never infer dislike or avoidance from it/);
   } finally { h.restore(); }
