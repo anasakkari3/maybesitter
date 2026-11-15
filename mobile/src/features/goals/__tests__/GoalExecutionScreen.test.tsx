@@ -18,6 +18,7 @@ const mockUseGoalExecution = jest.fn<any>();
 let mockGenerateError: unknown = null;
 let mockPlanView: any;
 let mockUpcoming: any;
+let mockFeatures: any;
 
 const graph = (generation = 1, nodes: any[] = []) => ({
   version: 'v1', schema: 'goal-graph-v1', graphId: `graph-${generation}`, goalMemoryId: 'goal-1', scopeId: 'user-1',
@@ -65,6 +66,7 @@ jest.mock('../../m5a/emailScan', () => ({
   WaitLine: () => null,
 }));
 jest.mock('../../m5a/AddedCard', () => ({ AddedCard: () => null }));
+jest.mock('../../settings/featureSettings', () => ({ useFeatures: () => mockFeatures }));
 
 jest.mock('../../../api/queries', () => ({
   useConsents: () => ({ data: { recommendations: { state: 'granted' } } }),
@@ -110,6 +112,7 @@ beforeEach(async () => {
   mockGenerateError = null;
   mockPlanView = { data: { success: true, draft: null, confirmed: null, linkedWork: [] }, isSuccess: true, error: null, refetch: jest.fn() };
   mockUpcoming = { isPending: false, error: null, data: [] };
+  mockFeatures = { status: 'success', data: { success: true, mode: 'off', features: [] } };
   mockHabits = [];
   mockCommitment = undefined;
   execution = { data: { success: true, graph: graph(1, [proposal('g1.step.s1', 'Draft invitation')]), progress: baseProgress }, isPending: false, isFetching: false, error: null, refetch: mockRefetch };
@@ -219,6 +222,16 @@ describe('with the plan path off', () => {
     await fireEvent.press(screen.getByTestId('goal-confirm-selected'));
     expect(mockConfirm).toHaveBeenCalledWith({ generation: 1, selections: [{ nodeId: 'g1.step.s1', as: 'commitment' }] }, expect.any(Object));
     expect(screen.getByTestId('goal-notice-saved')).toBeTruthy();
+  });
+
+  it('offers no «suggest others» to someone whose goal_plans add-on is not on (it would only 404)', async () => {
+    mockFeatures = { status: 'success', data: { success: true, mode: 'enforce', features: [
+      { id: 'goal_plans', tier: 'addon', enabled: false, reason: 'not_entitled', userCanDisable: true, usedPercent: null },
+    ] } };
+    await openGoal();
+    expect(screen.getByTestId('goal-proposal-g1.step.s1')).toBeTruthy();
+    expect(screen.getByTestId('goal-confirm-selected')).toBeTruthy();
+    expect(screen.queryByTestId('goal-review-regenerate')).toBeNull();
   });
 
   it('asks for other steps only when the person presses for them', async () => {
