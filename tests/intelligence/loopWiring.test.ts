@@ -242,6 +242,10 @@ test('a postpone reaches the model as a postpone, and the model is told it is no
     const call = h.calls[0]!;
     assert.ok(call.context.observations.some(item => item.kind === 'outcome' && item.evidence === 'Postponed: Renew the passport'));
     assert.match(call.system, /Postponed means the person moved the item to a later time\. It is not a failure/);
+    // Beside it, the deletion guard (CA2.3): a deletion is not a verdict on the topic.
+    assert.match(call.system, /An outcome that says Deleted means the person removed the item/);
+    assert.match(call.system, /not a rejection of the topic and not evidence of low priority/);
+    assert.match(call.system, /never infer dislike or avoidance from it/);
   } finally { h.restore(); }
 });
 

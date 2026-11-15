@@ -168,3 +168,22 @@ describe('a deletion in history (CA2.3 owner decision)', () => {
     }
   });
 });
+
+describe('drop and delete copy (CA2.3 review)', () => {
+  const HISTORY: Record<string, string> = { ar: 'تاريخك', en: 'history', he: 'היסטוריה' };
+  const LEARNS: Record<string, string> = { ar: 'بنتعلّم', en: 'learns', he: 'לומדת' };
+  for (const lang of ['ar', 'en', 'he'] as const) {
+    it(`uses one word for history in both, and only the drop says it is learned from (${lang})`, () => {
+      const b = BUNDLES[lang]!;
+      for (const key of ['confirmDropBody', 'detailsDropSub', 'confirmDeleteBody', 'detailsDeleteSub']) {
+        expect(b[key]).toContain(HISTORY[lang]);
+      }
+      expect(b.confirmDropBody).toContain(LEARNS[lang]);
+      expect(b.detailsDropSub).toContain(LEARNS[lang]);
+      expect(b.confirmDeleteBody).not.toContain(LEARNS[lang]);
+    });
+  }
+  it('names a deletion in history the way the other entries are named: something I did', () => {
+    expect(BUNDLES.ar!.activityKindDeleted).toBe('حذفته');
+  });
+});
