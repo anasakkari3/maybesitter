@@ -20,6 +20,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { LANGUAGE_STORAGE_KEY } from '../../../i18n/language';
 import en from '../../../i18n/locales/en.json';
 import * as watcherEndpoints from '../../../api/endpoints/watchers';
+import { NotFoundError } from '../../../api/errors';
 import { WatcherProposalsCard } from '../WatcherProposals';
 
 const METRICS: Metrics = { frame: { x: 0, y: 0, width: 390, height: 844 }, insets: { top: 47, left: 0, right: 0, bottom: 34 } };
@@ -76,8 +77,28 @@ describe('watcher proposals on the Watching tab (CA6.1)', () => {
     await fireEvent.press(accept);
     await waitFor(() => expect(watcherEndpoints.decideWatcherProposal).toHaveBeenCalledTimes(1));
     expect(watcherEndpoints.decideWatcherProposal).toHaveBeenCalledWith(ID, { decision: 'accept', title: 'A walk after lunch' });
-    // Answered: the card goes, even while the re-read list still holds it.
-    await waitFor(() => expect(screen.queryByTestId(`watcher-proposal-${ID}`)).toBeNull());
+    // Answered: the controls go, even while the re-read list still holds it,
+    // and what happened is said where they were, for a screen reader too.
+    await waitFor(() => expect(screen.queryByTestId(`watcher-proposal-accept-${ID}`)).toBeNull());
+    expect(screen.getByTestId(`watcher-proposal-done-${ID}`).props.children).toBe(en.xProposalAdded);
+  });
+
+  it('says it is gone when the proposal no longer exists, and offers nothing more', async () => {
+    jest.spyOn(watcherEndpoints, 'decideWatcherProposal').mockRejectedValue(new NotFoundError('gone'));
+    await show();
+    await waitFor(() => expect(screen.queryByTestId(`watcher-proposal-accept-${ID}`)).not.toBeNull());
+    await fireEvent.press(screen.getByTestId(`watcher-proposal-accept-${ID}`));
+    await waitFor(() => expect(screen.queryByTestId(`watcher-proposal-done-${ID}`)).not.toBeNull());
+    expect(screen.getByTestId(`watcher-proposal-done-${ID}`).props.children).toBe(en.xProposalGone);
+    expect(screen.queryByTestId(`watcher-proposal-accept-${ID}`)).toBeNull();
+    expect(screen.queryByTestId(`watcher-proposal-dismiss-${ID}`)).toBeNull();
+  });
+
+  it('a football proposal starts from a title about the match, naming nothing private', async () => {
+    jest.spyOn(watcherEndpoints, 'listWatcherProposals').mockResolvedValue({ success: true, proposals: [{ ...OPEN, signalKind: 'football_team' }] } as never);
+    await show();
+    await waitFor(() => expect(screen.queryByTestId(`watcher-proposal-title-${ID}`)).not.toBeNull());
+    expect(screen.getByTestId(`watcher-proposal-title-${ID}`).props.value).toBe(en.xProposalTitleFootball);
   });
 
   it('dismisses without a title', async () => {
@@ -85,6 +106,8 @@ describe('watcher proposals on the Watching tab (CA6.1)', () => {
     await waitFor(() => expect(screen.queryByTestId(`watcher-proposal-dismiss-${ID}`)).not.toBeNull());
     await fireEvent.press(screen.getByTestId(`watcher-proposal-dismiss-${ID}`));
     await waitFor(() => expect(watcherEndpoints.decideWatcherProposal).toHaveBeenCalledWith(ID, { decision: 'dismiss' }));
+    await waitFor(() => expect(screen.queryByTestId(`watcher-proposal-done-${ID}`)).not.toBeNull());
+    expect(screen.getByTestId(`watcher-proposal-done-${ID}`).props.children).toBe(en.xProposalDismissed);
   });
 
   it('cannot accept an empty title', async () => {

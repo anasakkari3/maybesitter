@@ -20,7 +20,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createMemoryStorage, type MemoryStorageAdapter } from '../../lib/storage/memoryAdapter.ts';
 import { resetStorageForTests, setStorageForTests } from '../../lib/storage/index.ts';
-import { COMMITMENTS, userCol, userSubDoc, WATCHER_PROPOSALS } from '../../lib/storage/paths.ts';
+import { COMMITMENTS, userCol, userDoc, userSubDoc, WATCHER_PROPOSALS } from '../../lib/storage/paths.ts';
 import { installFakeAuth, tokenFor, uidFor, type FakeAuthControls } from '../support/fakeAuth.ts';
 import { seedLiveAccount } from '../support/liveAccount.ts';
 import { GET as listProposals } from '../../src/app/api/mobile/watchers/proposals/route.ts';
@@ -205,6 +205,36 @@ test('nothing is saved without an explicit accept and a real title', async () =>
     assert.equal((await decide(ALICE, OTHER, { decision: 'dismiss' })).status, 404);
     assert.deepEqual(await commitments(ALICE), []);
     assert.equal((await stored(ALICE, PROPOSAL))!.state, 'proposed');
+  } finally {
+    end();
+  }
+});
+
+test('a deleted account cannot accept: no commitment, and the proposal is untouched', async () => {
+  await begin();
+  try {
+    await propose(ALICE, PROPOSAL);
+    // Deleted as account deletion leaves it: the trust record says so.
+    const user = (await storage.get<{ trust: Record<string, unknown> }>(userDoc(ALICE)))!;
+    await storage.set(userDoc(ALICE), { ...user, trust: { ...user.trust, deletedAt: '2026-11-15T07:00:00.000Z' } });
+    const response = await decide(ALICE, PROPOSAL, { decision: 'accept', title: 'Take a short walk' });
+    assert.notEqual(response.status, 200);
+    assert.deepEqual(await commitments(ALICE), []);
+    assert.equal((await stored(ALICE, PROPOSAL))!.state, 'proposed');
+  } finally {
+    end();
+  }
+});
+
+test('control and direction-override characters never reach the commitment title', async () => {
+  await begin();
+  try {
+    await propose(ALICE, PROPOSAL);
+    const response = await decide(ALICE, PROPOSAL, { decision: 'accept', title: '‮klaw\u0007 a ⁦take⁩\u0000' });
+    assert.equal(response.status, 200);
+    assert.equal((await commitments(ALICE))[0]!.title, 'klaw a take');
+    await propose(ALICE, OTHER);
+    assert.equal((await decide(ALICE, OTHER, { decision: 'accept', title: '‮\u0007⁦' })).status, 400, 'a title of controls alone was accepted');
   } finally {
     end();
   }

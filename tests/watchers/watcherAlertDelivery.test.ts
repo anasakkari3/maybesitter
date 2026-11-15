@@ -21,7 +21,7 @@ import { resetStorageForTests, setStorageForTests } from '../../lib/storage/inde
 import { docIdForKey, PUSH_LOG, userCol, userDoc, userSubDoc, WATCHER_EVENTS, WATCHER_NOTIFICATIONS } from '../../lib/storage/paths.ts';
 import { runWatcherSweep } from '../../lib/watchers/watcherEngine.ts';
 import { saveRoutineProfile } from '../../lib/services/mobile/routineProfileService.ts';
-import { deliverWatcherAlert, watcherAlertDedupeKey, WATCHER_ALERT_DAILY_CAP, WATCHER_ALERT_MIN_GAP_MS, WATCHER_ALERT_REDRIVE_MS } from '../../lib/push/watcherAlert.ts';
+import { deliverWatcherAlert, redriveQueuedWatcherAlerts, watcherAlertDedupeKey, WATCHER_ALERT_DAILY_CAP, WATCHER_ALERT_MIN_GAP_MS, WATCHER_ALERT_REDRIVE_MS } from '../../lib/push/watcherAlert.ts';
 import { createWatcherStore } from '../../lib/watchers/watcherStore.ts';
 import { runWatcherTick } from '../../lib/jobs/internalJobs.ts';
 import { upsertDevice } from '../../lib/push/deviceRegistry.ts';
@@ -427,6 +427,93 @@ test('a deleted account spends nothing: no push and no budget written under it',
     assert.equal(await deliverWatcherAlert(UID, 'wtn_gone', minutes(1), { storage, messaging }), 'gone');
     assert.equal(messaging.sent.length, 0);
     assert.deepEqual(await storage.list(userCol(UID, PUSH_LOG)), []);
+  } finally {
+    resetStorageForTests();
+  }
+});
+
+/* ── Review round 3: a send that throws, quiet hours, terminal states ── */
+
+/** FCM answers with a transient failure — quota, auth, network — `failures` times. */
+function flakyMessaging(failures: number): MessagingClient & { sent: FcmMessage[] } {
+  const sent: FcmMessage[] = [];
+  let left = failures;
+  return {
+    sent,
+    async send(message: FcmMessage) {
+      if (left > 0) {
+        left -= 1;
+        throw Object.assign(new Error('quota'), { code: 'messaging/quota-exceeded' });
+      }
+      sent.push(message);
+      return `projects/x/messages/${sent.length}`;
+    },
+  };
+}
+
+test('a send that throws gives everything back: the next tick really sends, and only then is it sent', async () => {
+  await begin();
+  try {
+    await withDevice('ar');
+    await queuedAt(UID, 'wtn_flaky', minutes(0), 'wtc_flaky');
+    const messaging = flakyMessaging(1);
+    await assert.rejects(deliverWatcherAlert(UID, 'wtn_flaky', minutes(1), { storage, messaging }));
+    assert.equal(await stateOf(UID, 'wtn_flaky'), 'queued', 'a push FCM refused was recorded as sent');
+    assert.equal(messaging.sent.length, 0);
+
+    // The tick that follows sends it — the gap, the day count and the lock
+    // the failed attempt took do not stand in its way.
+    await tick(messaging, minutes(2));
+    assert.equal(messaging.sent.length, 1, 'the push lost to a transient FCM failure was never sent');
+    assert.equal(await stateOf(UID, 'wtn_flaky'), 'sent');
+  } finally {
+    resetStorageForTests();
+  }
+});
+
+test('re-drive checks quiet hours before it claims anything', async () => {
+  await begin();
+  try {
+    await withDevice('ar');
+    await saveRoutineProfile(UID, {
+      timezone: 'UTC', sleepWindow: null, focusWindows: [], fixedCommitmentWindows: [],
+      preferredReminderIntensity: 'softAwareness', quietHours: { start: '08:00', end: '10:00' }, surveySkipped: false,
+    }, BASE.toISOString(), { storage });
+    await queuedAt(UID, 'wtn_quiet', minutes(0), 'wtc_quiet');
+    assert.equal(await deliverWatcherAlert(UID, 'wtn_quiet', minutes(1), { storage, messaging: fakeMessaging() }), 'suppressed_quiet_hours');
+    assert.deepEqual(await storage.list(userCol(UID, PUSH_LOG)), [], 'quiet hours still claimed a budget');
+    assert.equal(await stateOf(UID, 'wtn_quiet'), 'queued');
+  } finally {
+    resetStorageForTests();
+  }
+});
+
+test('an alert held by the gap or the daily cap is settled as suppressed, not re-tried every minute', async () => {
+  await begin();
+  try {
+    await withDevice('ar');
+    const messaging = fakeMessaging();
+    await queuedAt(UID, 'wtn_first', minutes(0), 'wtc_same');
+    await queuedAt(UID, 'wtn_second', minutes(1), 'wtc_same');
+    await tick(messaging, minutes(2));
+    assert.equal(messaging.sent.length, 1);
+    assert.equal(await stateOf(UID, 'wtn_first'), 'sent');
+    assert.equal(await stateOf(UID, 'wtn_second'), 'suppressed');
+  } finally {
+    resetStorageForTests();
+  }
+});
+
+test('one re-drive round stops at its time budget', async () => {
+  await begin();
+  try {
+    await withDevice('ar');
+    for (let n = 0; n < 3; n += 1) await queuedAt(UID, `wtn_budget_${n}`, minutes(n), `wtc_budget_${n}`);
+    const messaging = fakeMessaging();
+    const report = await redriveQueuedWatcherAlerts(minutes(5), { storage, messaging, budgetMs: 0 });
+    assert.equal(report.sent, 0);
+    assert.equal(report.stoppedEarly, true);
+    assert.equal(messaging.sent.length, 0);
   } finally {
     resetStorageForTests();
   }
