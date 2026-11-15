@@ -687,9 +687,10 @@ describe('a sign-out Firebase starts by itself (C13.14)', () => {
     const cancelAll = jest.spyOn(notifications, 'cancelAllScheduledNotificationsAsync');
     const dismissAll = jest.spyOn(notifications, 'dismissAllNotificationsAsync');
     const clearLast = jest.spyOn(notifications, 'clearLastNotificationResponseAsync');
+    const getLast = jest.spyOn(notifications, 'getLastNotificationResponseAsync');
     await mountGated();
     await waitFor(() => expect(commitmentEndpoints.listToday).toHaveBeenCalled());
-    await waitFor(() => expect(notifications.getLastNotificationResponseAsync).toHaveBeenCalled());
+    await waitFor(() => expect(getLast).toHaveBeenCalled());
     cancelAll.mockClear();
     dismissAll.mockClear();
     clearLast.mockClear();
