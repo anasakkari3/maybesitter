@@ -30,6 +30,7 @@ import { toEngineSettings } from '../reminders/reminderInputs';
 import type { EscalationCeiling } from '../reminders/policy';
 import { SettingsHeader, SettingsRow } from './SettingsChrome';
 import { Disclosure } from '../../ui/Disclosure';
+import { markErrorShown } from '../../api/ui/userFacingMessage';
 
 /**
  * Everything this app may put on somebody's lock screen, in one place:
@@ -246,7 +247,9 @@ export function NotificationsSettingsScreen({ onBack }: { onBack: () => void }) 
       await save.mutateAsync({ softEnabled: next_ });
       setFailed(false);
       return true;
-    } catch {
+    } catch (error) {
+      // Said on this screen in its own words: the failure bridge stays quiet.
+      markErrorShown(error);
       setFailed(true);
       return false;
     }
@@ -269,7 +272,7 @@ export function NotificationsSettingsScreen({ onBack }: { onBack: () => void }) 
       return;
     }
     setExplainingHard(false);
-    save.mutate({ escalationCeiling: choice, hardEnabled: false }, { onError: () => setFailed(true) });
+    save.mutate({ escalationCeiling: choice, hardEnabled: false }, { onError: (error) => { markErrorShown(error); setFailed(true); } });
   };
 
   const confirmHard = async () => {
@@ -279,14 +282,16 @@ export function NotificationsSettingsScreen({ onBack }: { onBack: () => void }) 
     await askForPermission();
     try {
       await save.mutateAsync({ escalationCeiling: 'hard', hardEnabled: true });
-    } catch {
+    } catch (error) {
+      // Said on this screen in its own words: the failure bridge stays quiet.
+      markErrorShown(error);
       setFailed(true);
     }
   };
 
   const setLead = (minutes: number) => {
     setFailed(false);
-    save.mutate({ softLeadMinutes: minutes }, { onError: () => setFailed(true) });
+    save.mutate({ softLeadMinutes: minutes }, { onError: (error) => { markErrorShown(error); setFailed(true); } });
   };
 
   /*
@@ -325,7 +330,7 @@ export function NotificationsSettingsScreen({ onBack }: { onBack: () => void }) 
           ? { start: window.start, end: window.end, timezone: quietTimeZone() }
           : null,
       },
-      { onError: () => setFailed(true) },
+      { onError: (error) => { markErrorShown(error); setFailed(true); } },
     );
   };
 

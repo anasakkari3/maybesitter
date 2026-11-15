@@ -150,6 +150,9 @@ export type UserFacingKey = {
  * and the composer is the same lookup against its own `t`.
  */
 export function userFacingMessageKey(error: unknown): UserFacingKey {
+  // Whoever asks for the words is the one saying them (A3 review): the
+  // unhandled-failure bridge then stays quiet, so nothing is said twice.
+  markErrorShown(error);
   // The calendar feed routes (UC-3.4, #188). First, because their reasons are
   // carried at statuses the generic branches below would flatten: "not a
   // calendar" and "cannot be fetched" are both 422 and ask different things
@@ -233,6 +236,8 @@ export function userFacingMessage(error: unknown, t: Strings): string {
  * with no reason — claims nothing about the server.
  */
 export function toggleFailureKey(error: unknown): UserFacingKey {
+  // Turning an error into words is saying it: the failure bridge stays quiet (A3 review).
+  markErrorShown(error);
   if (error instanceof NetworkError || error instanceof TimeoutError) return 'trustActionFailed';
   if (!(error instanceof ApiError)) return 'trustActionNotSaved';
   // Only lines that read under a switch pass through (FZ2 review M6). The
@@ -252,3 +257,21 @@ const TOGGLE_KEYS: Partial<Record<UserFacingKey, UserFacingKey>> = {
   authSignedOutRevoked: 'authSignedOutRevoked',
   authSignedOutDeleted: 'authSignedOutDeleted',
 };
+
+/**
+ * Errors already put into words on a screen (A3 review).
+ *
+ * `userFacingMessageKey` marks every error it is asked about, and a screen
+ * that says a failure in its own words calls `markErrorShown`.
+ * `MutationFailureToasts` reads this to say only what nobody else did.
+ * A WeakSet, so nothing about the error outlives it.
+ */
+const shown = new WeakSet<object>();
+
+export function markErrorShown(error: unknown): void {
+  if (error !== null && typeof error === 'object') shown.add(error);
+}
+
+export function errorWasShown(error: unknown): boolean {
+  return error !== null && typeof error === 'object' && shown.has(error);
+}

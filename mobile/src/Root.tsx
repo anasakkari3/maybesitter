@@ -18,6 +18,7 @@ import { ShareProvider } from './features/share/ShareProvider';
 import { ShareScreen } from './screens/ShareScreen';
 import { SheetHost } from './screens/Sheets';
 import { ToastHost } from './ui/toast';
+import { MutationFailureToasts } from './api/ui/MutationFailureToasts';
 import { TabBar } from './screens/TabBar';
 import { CalendarDemoScreen } from './screens/CalendarDemoScreen';
 import { DeleteAccountScreen } from './screens/DeleteAccountScreen';
@@ -288,6 +289,8 @@ export function Root() {
           {s.showTabs && <TabBar onClearanceChange={setToastClearance} />}
           {/* Above the bar when it shows, so a toast never covers «احكيها» (its first item). */}
           <ToastHost clearance={s.showTabs ? toastClearance : undefined} />
+          {/* Says a press that failed offline when its screen did not (A3 review). */}
+          <MutationFailureToasts />
           <SheetHost key={s.sheet ?? 'none'} />
         </View>
       </ShareProvider>

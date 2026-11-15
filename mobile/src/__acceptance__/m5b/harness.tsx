@@ -1,3 +1,4 @@
+import { createAppQueryClient } from '../../api/queryClient';
 import React from 'react';
 import { expect, jest } from '@jest/globals';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
@@ -339,7 +340,7 @@ export async function prepare(
   await AsyncStorage.clear();
   await AsyncStorage.setItem(LANGUAGE_STORAGE_KEY, language);
   process.env.EXPO_PUBLIC_API_BASE_URL = 'http://localhost:3000';
-  const client = new QueryClient({ defaultOptions: { queries: { retry: 2, retryDelay: 1_000 }, mutations: { retry: false } } });
+  const client = new QueryClient({ defaultOptions: { queries: { retry: 2, retryDelay: 1_000 }, mutations: { retry: false, networkMode: createAppQueryClient().getDefaultOptions().mutations?.networkMode ?? 'online' } } });
   const repository = createFakeAuthRepository({ initialUser: ACCOUNT_A, idToken: 'm5b-token' });
   const server = new M5bServer(state, handler);
   server.install();

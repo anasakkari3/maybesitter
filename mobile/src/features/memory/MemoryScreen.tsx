@@ -8,8 +8,9 @@ import { Btn, Card, Txt } from '../../ui/primitives';
 import { Screen, ScreenScroll } from '../../ui/screen';
 import { QueryBoundary } from '../../api/ui/QueryBoundary';
 import { NotFoundError } from '../../api/errors';
-import { userFacingMessage } from '../../api/ui/userFacingMessage';
+import { markErrorShown, userFacingMessage } from '../../api/ui/userFacingMessage';
 import {
+  useCreateMemory,
   useDeleteAllMemory,
   useDeleteMemory,
   useMemory,
@@ -23,6 +24,7 @@ import { useMemoryTranslationOn } from '../m6/capabilities';
 import { MemoryTranslationPanel, TranslateAction, translationTargetOf, type TranslationTarget } from '../m6/MemoryTranslation';
 import { EmptyState, Notice } from '../../ui/chrome';
 import { memorySentence } from './memoryDisplay';
+import { KeptMemoryEdit } from './KeptMemoryEdit';
 import {
   ADAPTIVE_CLASS_STRING,
   CONFIDENCE_STRING,
@@ -102,6 +104,7 @@ export function MemoryScreen({ onBack, focusId = null }: {
   // Opened on a row: that row is checked against a list read since this mount.
   const memory = useMemory({ fresh: focusId !== null });
   const patch = usePatchMemory();
+  const create = useCreateMemory();
   const remove = useDeleteMemory();
   const removeAll = useDeleteAllMemory();
   const decide = useMemorySuggestion();
@@ -113,6 +116,10 @@ export function MemoryScreen({ onBack, focusId = null }: {
   const [translating, setTranslating] = useState<string | null>(null);
   const [undoable, setUndoable] = useState<string | null>(null);
   const [confirmAll, setConfirmAll] = useState(false);
+  // CA8.2: an edit that failed, held until its row is known to be there or
+  // gone; and the words of one whose row went, kept for the person to save again.
+  const [keptEdit, setKeptEdit] = useState<{ id: string; content: string; kind: MemoryItem['kind'] } | null>(null);
+  const [kept, setKept] = useState<{ content: string; kind: MemoryItem['kind'] } | null>(null);
 
   // Held in a ref, not in state: the pending delete has to survive the unmount
   // that state cannot, and nothing renders from it.
@@ -128,7 +135,7 @@ export function MemoryScreen({ onBack, focusId = null }: {
     if (!job) return;
     clearTimeout(job.timer);
     scheduled.current = null;
-    removeRef.current.mutate(job.id);
+    removeRef.current.mutate(job.id, { onError: markErrorShown });
   }, []);
 
   useEffect(() => flush, [flush]);
@@ -155,7 +162,7 @@ export function MemoryScreen({ onBack, focusId = null }: {
     const timer = setTimeout(() => {
       scheduled.current = null;
       setUndoable(null);
-      removeRef.current.mutate(id);
+      removeRef.current.mutate(id, { onError: markErrorShown });
     }, UNDO_WINDOW_MS);
     scheduled.current = { id, timer };
     setUndoable(id);
@@ -189,6 +196,13 @@ export function MemoryScreen({ onBack, focusId = null }: {
   // writes the purge would race (R30-001). Seen from any screen (R32-003).
   const purging = useMemoryPurging(memory.data);
   const items = purging ? [] : (memory.data?.items ?? []).filter(item => item.id !== undoable);
+  // The row of a refused edit is gone from the re-read (another device
+  // replaced or deleted it): the typed words stay on screen (CA8.2).
+  if (keptEdit && !purging && memory.data && !memory.data.items.some(item => item.id === keptEdit.id)) {
+    setKeptEdit(null);
+    setEditing(current => (current === keptEdit.id ? null : current));
+    setKept({ content: keptEdit.content, kind: keptEdit.kind });
+  }
   const suggestions = purging ? [] : memory.data?.suggestions ?? [];
   const adaptive = purging ? null : memory.data?.adaptive ?? null;
   const suggestionLanguage: 'ar' | 'he' | 'en' = lang === 'ar' || lang === 'he' ? lang : 'en';
@@ -226,7 +240,7 @@ export function MemoryScreen({ onBack, focusId = null }: {
     .map(group => [group, items.filter(item => groupOf(item) === group)] as const)
     .filter(([, rows]) => rows.length > 0);
 
-  const failure = [patch.error, remove.error, removeAll.error, decide.error].find(error => error != null);
+  const failure = [patch.error, create.error, remove.error, removeAll.error, decide.error].find(error => error != null);
 
   return (
     <Screen pinned={<SettingsHeader title={t.memoryScreenTitle} onBack={leave} />}>
@@ -234,6 +248,21 @@ export function MemoryScreen({ onBack, focusId = null }: {
 
         {failure ? (
           <Txt size={14} color={p.wm} testID="memory-screen-error">{userFacingMessage(failure, t)}</Txt>
+        ) : null}
+
+        {kept && !purging ? (
+          <KeptMemoryEdit
+            testPrefix="memory-screen"
+            card
+            initial={kept.content}
+            saving={create.isPending}
+            onSave={content => create.mutate(
+              // A routine fact or a goal is not re-made from a sentence: kept as a fact.
+              { kind: kept.kind === 'preference' ? 'preference' : 'fact', content, language: 'mixed' },
+              { onSuccess: () => setKept(null), onError: markErrorShown },
+            )}
+            onCancel={() => setKept(null)}
+          />
         ) : null}
 
         {undoable ? (
@@ -249,8 +278,8 @@ export function MemoryScreen({ onBack, focusId = null }: {
             strings={strings}
             translateCount={(key, values) => tr(key, values)}
             busy={decide.isPending}
-            onKeep={suggestion => decide.mutate({ suggestion, decision: 'keep', language: suggestionLanguage })}
-            onDismiss={suggestion => decide.mutate({ suggestion, decision: 'dismiss', language: suggestionLanguage })}
+            onKeep={suggestion => decide.mutate({ suggestion, decision: 'keep', language: suggestionLanguage }, { onError: markErrorShown })}
+            onDismiss={suggestion => decide.mutate({ suggestion, decision: 'dismiss', language: suggestionLanguage }, { onError: markErrorShown })}
           />
         ) : null}
 
@@ -276,8 +305,18 @@ export function MemoryScreen({ onBack, focusId = null }: {
             onCloseTranslate={() => setTranslating(null)}
             onToggleWhy={id => setWhy(current => (current === id ? null : id))}
             onEdit={id => { setTranslating(null); setEditing(id); }}
-            onCancelEdit={() => setEditing(null)}
-            onSave={(id, next) => { setEditing(null); patch.mutate({ id, content: next }); }}
+            onCancelEdit={() => { setEditing(null); setKeptEdit(null); }}
+            saving={patch.isPending}
+            onSave={(id, next) => {
+              // Closed only once the server took it: a failure keeps the
+              // field and the words in it (CA8.2).
+              const kind = items.find(item => item.id === id)?.kind ?? 'fact';
+              setKeptEdit(null);
+              patch.mutate({ id, content: next }, {
+                onSuccess: () => setEditing(current => (current === id ? null : current)),
+                onError: (error) => { markErrorShown(error); setKeptEdit({ id, content: next, kind }); },
+              });
+            }}
             onDelete={id => { setWhy(null); setTranslating(null); scheduleDelete(id); }}
           />
         ))}
@@ -303,7 +342,7 @@ export function MemoryScreen({ onBack, focusId = null }: {
                     // The held row is cancelled, not sent (M5B2A-R28-001): deleting
                     // everything already takes it, and a single delete sent beside
                     // the purge could land its dismissal after the purge said done.
-                    onPress={() => { setConfirmAll(false); undo(); removeAll.mutate(); }}
+                    onPress={() => { setConfirmAll(false); undo(); removeAll.mutate(undefined, { onError: markErrorShown }); }}
                   />
                   <Action label={t.cancel} onPress={() => setConfirmAll(false)} />
                 </View>
@@ -435,7 +474,7 @@ function SuggestionsCard({
 
 function MemoryGroupCard({
   group, rows, strings, date, rtl, editing, focused, onFocusedLayout, why, translateTargetOf, translating,
-  onTranslate, onCloseTranslate, onToggleWhy, onEdit, onCancelEdit, onSave, onDelete,
+  onTranslate, onCloseTranslate, onToggleWhy, onEdit, onCancelEdit, onSave, onDelete, saving = false,
 }: {
   group: MemoryGroup;
   rows: readonly MemoryItem[];
@@ -454,6 +493,8 @@ function MemoryGroupCard({
   onEdit: (id: string) => void;
   onCancelEdit: () => void;
   onSave: (id: string, next: string) => void;
+  /** An edit on its way: Save waits for its answer. */
+  saving?: boolean;
   onDelete: (id: string) => void;
 }) {
   const { p } = useApp();
@@ -488,6 +529,7 @@ function MemoryGroupCard({
           onEdit={() => onEdit(item.id)}
           onCancelEdit={onCancelEdit}
           onSave={next => onSave(item.id, next)}
+          saving={saving}
           onDelete={() => onDelete(item.id)}
         />
       ))}
@@ -497,7 +539,7 @@ function MemoryGroupCard({
 
 function MemoryDetailRow({
   item, strings, date, rtl, sourceOnRow, editing, focused, onFocusedLayout, showWhy, translateTarget, translating,
-  onTranslate, onCloseTranslate, onToggleWhy, onEdit, onCancelEdit, onSave, onDelete,
+  onTranslate, onCloseTranslate, onToggleWhy, onEdit, onCancelEdit, onSave, onDelete, saving = false,
 }: {
   item: MemoryItem;
   strings: Record<string, string>;
@@ -518,6 +560,7 @@ function MemoryDetailRow({
   onEdit: () => void;
   onCancelEdit: () => void;
   onSave: (next: string) => void;
+  saving?: boolean;
   onDelete: () => void;
 }) {
   const { t, p } = useApp();
@@ -550,7 +593,7 @@ function MemoryDetailRow({
           <Action
             label={t.memorySave}
             testID={`memory-screen-save-${item.id}`}
-            disabled={draft.trim() === ''}
+            disabled={draft.trim() === '' || saving}
             onPress={() => onSave(draft.trim())}
           />
           <Action label={t.cancel} onPress={onCancelEdit} />

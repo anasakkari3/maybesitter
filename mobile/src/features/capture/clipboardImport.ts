@@ -34,7 +34,6 @@
  * the user for the contents of their own pasteboard.
  */
 import * as Clipboard from 'expo-clipboard';
-import { MAX_CAPTURE_LENGTH } from './captureMachine';
 
 /** What a read produced. Never an error: see the note above. */
 export type ClipboardImport =
@@ -47,20 +46,19 @@ export type ClipboardReader = () => Promise<string | null>;
 /**
  * The pasted text as the composer will actually hold it.
  *
- * Truncated to the same limit `textChanged` truncates to, deliberately: the
- * review sheet shows this string, and if the reducer then cut it further the
- * user would have confirmed one thing and pasted another. Line endings are
+ * Capture cuts nothing (CA3.6): a paste past `MAX_CAPTURE_LENGTH` used to be
+ * cut to its first 2,000 characters, so the sheet previewed, and the composer
+ * sent, the beginning of something the person never chose to shorten. Now the
+ * whole text is shown and lands; the sheet and the composer say it is too long
+ * and the composer will not send it until it is shortened. Line endings are
  * normalised because a clipboard filled on a desktop carries CRLF, which the
  * field renders as a blank line per break.
  *
- * `maxLength` defaults to capture's limit so capture is unchanged. It exists
- * because the AI context import accepts twice as much: a machine-written profile
- * runs past 2,000 characters easily, and the first version of that screen cut
- * one in half without saying so — the user would have reviewed candidates drawn
- * from the first half of their life and had no way to tell.
+ * `maxLength` is for the AI context import, which asks for its own bound.
  */
-export function normalizeClipboardText(raw: string, maxLength: number = MAX_CAPTURE_LENGTH): string {
-  return raw.replace(/\r\n?/g, '\n').trim().slice(0, maxLength);
+export function normalizeClipboardText(raw: string, maxLength?: number): string {
+  const text = raw.replace(/\r\n?/g, '\n').trim();
+  return maxLength === undefined ? text : text.slice(0, maxLength);
 }
 
 /**

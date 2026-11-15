@@ -156,6 +156,14 @@ import type { Habit, NewHabitInput } from './schemas/habits';
  * scoping is a second line rather than the only one.
  */
 
+
+/**
+ * A write the person did not press: its failure is not said by
+ * `MutationFailureToasts` (A3 review). Everything else that fails for want of
+ * a connection is said, by its screen or by that bridge.
+ */
+const QUIET_FAILURE = { quietFailure: true } as const;
+
 export const queryKeys = {
   consents: (uid: string) => ['user', uid, 'consents'] as const,
   today: (uid: string, timezone: string) => ['user', uid, 'commitments', 'today', timezone] as const,
@@ -1846,6 +1854,8 @@ export function useSendNativeReadiness() {
   const client = useQueryClient();
   const uid = useUid();
   return useMutation({
+    // Sent by the app on its own, not by a press (A3 review).
+    meta: QUIET_FAILURE,
     mutationFn: (snapshot: { readonly sourceKinds: readonly string[] }) => postNativeReadiness(snapshot),
     onSettled: () => {
       void client.invalidateQueries({ queryKey: queryKeys.readiness(uid) });
@@ -1995,6 +2005,8 @@ export function useAlphaFlag() {
 
 export function useRecordAnalytics() {
   return useMutation({
+    // Fire-and-forget, never pressed by the person: dropped quietly offline.
+    meta: QUIET_FAILURE,
     mutationFn: (input: { eventName: ClientReportableEvent; properties?: AnalyticsProperties }) =>
       recordAnalyticsEvent(input.eventName, input.properties ?? {}),
   });
@@ -2222,10 +2234,12 @@ export function useProfile(options: { enabled?: boolean } = {}) {
   });
 }
 
-export function usePutRoutine() {
+export function usePutRoutine(options: { background?: boolean } = {}) {
   const client = useQueryClient();
   const uid = useUid();
   return useMutation({
+    // The background sync retries on reconnect itself; nobody pressed it (A3 review).
+    ...(options.background ? { meta: QUIET_FAILURE } : {}),
     mutationFn: (profile: RoutineProfilePayload) => putRoutine(profile, asAccount(uid)),
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: queryKeys.profile(uid) });

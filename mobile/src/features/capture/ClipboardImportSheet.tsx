@@ -3,6 +3,7 @@ import { ScrollView, View } from 'react-native';
 import { useApp } from '../../state/AppContext';
 import { Pill, Txt } from '../../ui/primitives';
 import type { ClipboardImport } from './clipboardImport';
+import { MAX_CAPTURE_LENGTH } from './captureMachine';
 
 /**
  * What was on the clipboard, shown before any of it is used (UC-2.R2 #172,
@@ -66,6 +67,12 @@ export function ClipboardImportSheet({
       >
         <Txt size={17} lh={1.5} style={{ writingDirection: ar ? 'rtl' : 'ltr' }}>{result.text}</Txt>
       </ScrollView>
+
+      {/* Whole, never cut (CA3.6): said here, before the person uses it, so
+          the composer refusing to send it is no surprise. */}
+      {result.text.length > MAX_CAPTURE_LENGTH ? (
+        <Txt size={13} color={p.wm} testID="capture-clipboard-too-long">{t.captureClipboardTooLong}</Txt>
+      ) : null}
 
       {replacing ? (
         <Txt size={12} color={p.wm} testID="capture-clipboard-replaces">{t.captureClipboardReplaces}</Txt>

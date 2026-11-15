@@ -7,7 +7,7 @@ import { useApp } from '../../state/AppContext';
 import { useAcceptWeekDay, useWeek } from '../../api/queries';
 import { ConflictError, QuotaExceededError, WeekConflictError, WeekEmptyDayError } from '../../api/errors';
 import { QueryBoundary } from '../../api/ui/QueryBoundary';
-import { userFacingMessage } from '../../api/ui/userFacingMessage';
+import { markErrorShown, userFacingMessage } from '../../api/ui/userFacingMessage';
 import type { WeekDecisions } from '../../api/endpoints/plans';
 import type { Week, WeekDay, WeekItem, WeekRow, WeekStepReason } from '../../api/schemas/plan';
 import { CIVIL_ZONE, civilDate, formatDate, formatRelativeDay, formatTime, formatTimeRange } from '../../i18n/format';
@@ -101,6 +101,8 @@ export function WeekScreen() {
 
 /** A save's failure, in the words that fit it. */
 function saveErrorText(error: unknown, t: ReturnType<typeof useApp>['t']): string {
+  // Turning an error into words is saying it: the failure bridge stays quiet (A3 review).
+  markErrorShown(error);
   if (error instanceof WeekConflictError && error.reason === 'week_changed') return t.weekChanged;
   if (error instanceof WeekEmptyDayError) return t.weekNothingToSave;
   if (error instanceof ConflictError) return t.weekAlreadyPlanned;

@@ -53,7 +53,8 @@ afterEach(async () => {
 });
 
 function noRetries(value: M5bHarness): void {
-  value.client.setDefaultOptions({ queries: { retry: false }, mutations: { retry: false } });
+  // The app's mutation network mode is kept (`'always'`, CX3.5).
+  value.client.setDefaultOptions({ queries: { retry: false }, mutations: { ...value.client.getDefaultOptions().mutations, retry: false } });
 }
 
 function planGet(request: { method: string; path: string }): RouteReply | undefined {
@@ -328,11 +329,12 @@ describe('M5b-2a R2 numbered-response display overlay', () => {
     expect(reads).toBe(before);
   });
 
-  it('M5B2A-023 a correction made offline hides the basis while it waits, and after it lands', async () => {
-    // GA-M5B2A-AMEND-4 (Claude): offline, TanStack holds a mutation until the
-    // connection returns, so no PATCH is sent while offline; the line is hidden
-    // from the tap, through the wait, and after the PATCH lands with a plan
-    // refetch that fails.
+  it('M5B2A-023 a correction made offline is tried at once, hides the basis, and is never re-sent on reconnect', async () => {
+    // The harness uses the app's mutation network mode, `'always'` (CX3.5,
+    // CXX3.1): a press offline is not held until the connection returns, so
+    // nothing is replayed later without the person. The line is hidden from
+    // the tap, through the write, and after it lands with a plan refetch that
+    // fails; reconnecting sends nothing more.
     let reads = 0;
     const handler: RouteHandler = request => {
       if (request.path === `/api/mobile/plans/${TODAY}` && request.method === 'GET') {
@@ -344,10 +346,12 @@ describe('M5b-2a R2 numbered-response display overlay', () => {
     await loaded(handler);
     onlineManager.setOnline(false);
     await fireEvent.press(screen.getByTestId('gate-patch'));
-    expect(harness!.server.matching('PATCH', /\/memory\/memory-focus$/)).toHaveLength(0);
+    expect(screen.queryByTestId('m5b-plan-memory-basis')).toBeNull();
+    await waitFor(() => expect(harness!.server.matching('PATCH', /\/memory\/memory-focus$/)).toHaveLength(1));
     expect(screen.queryByTestId('m5b-plan-memory-basis')).toBeNull();
     await act(async () => { onlineManager.setOnline(true); });
-    await waitFor(() => expect(harness!.server.matching('PATCH', /\/memory\/memory-focus$/)).toHaveLength(1));
+    await act(async () => { jest.advanceTimersByTime(1_000); });
+    expect(harness!.server.matching('PATCH', /\/memory\/memory-focus$/)).toHaveLength(1);
     expect(screen.queryByTestId('m5b-plan-memory-basis')).toBeNull();
   });
 });

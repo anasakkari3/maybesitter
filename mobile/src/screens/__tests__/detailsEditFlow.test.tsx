@@ -414,6 +414,63 @@ describe('the conflict story is unchanged', () => {
   });
 });
 
+/*
+ * NA2.1: after a refused (stale) save the sheet adopted the newer version but
+ * kept its old form values, so a second Save sent the old title as a change
+ * and silently undid the other device's edit.
+ */
+describe('a refused save never sends a stale value the person did not touch (NA2.1)', () => {
+  it('a second Save after a stale refusal sends only what the person changed', async () => {
+    const theirs = commitment({ title: 'Sign the contract with the company', updatedAt: '2026-09-05T09:00:00.000Z' });
+    const mine = commitment({
+      title: 'Sign the contract with the company',
+      priority: { level: 'low', source: 'user_explicit', pressureAllowed: false, pressureLevel: 'none' },
+    } as Partial<Commitment>);
+    const patch = jest.spyOn(commitmentEndpoints, 'patchCommitment')
+      .mockRejectedValueOnce(new StaleCommitmentError(theirs) as never)
+      .mockResolvedValueOnce({ data: mine, etag: 'W/"v10"' } as never);
+    await openEditSheet();
+    serverNowHolds(theirs, 'W/"v9"');
+
+    await fireEvent.press(screen.getByTestId('edit-priority-low'));
+    await fireEvent.press(screen.getByTestId('edit-save'));
+    await waitFor(() => expect(patch).toHaveBeenCalledTimes(1));
+    expect(sentPatch(patch)).toEqual({ priority: 'low' });
+
+    // The sheet now shows the other device's title, and keeps the person's choice.
+    await waitFor(() => expect(screen.getByTestId('edit-title').props.value).toBe('Sign the contract with the company'));
+    expect(screen.getByTestId('edit-priority-low').props.accessibilityState).toMatchObject({ checked: true });
+
+    await fireEvent.press(screen.getByTestId('edit-save'));
+    await waitFor(() => expect(patch).toHaveBeenCalledTimes(2));
+    // Only the importance: the old title is never sent back over theirs.
+    expect(patch.mock.calls[1]![1]).toEqual({ priority: 'low' });
+  });
+
+  it('a title the person did type survives the refusal and is what the second Save sends', async () => {
+    const theirs = commitment({
+      priority: { level: 'low', source: 'user_explicit', pressureAllowed: false, pressureLevel: 'none' },
+      updatedAt: '2026-09-05T09:00:00.000Z',
+    } as Partial<Commitment>);
+    const patch = jest.spyOn(commitmentEndpoints, 'patchCommitment')
+      .mockRejectedValueOnce(new StaleCommitmentError(theirs) as never)
+      .mockResolvedValueOnce({ data: commitment({ title: 'Hand it in on Monday' }), etag: 'W/"v10"' } as never);
+    await openEditSheet();
+    serverNowHolds(theirs, 'W/"v9"');
+
+    await fireEvent.changeText(screen.getByTestId('edit-title'), 'Hand it in on Monday');
+    await fireEvent.press(screen.getByTestId('edit-save'));
+    await waitFor(() => expect(patch).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(screen.getByTestId('edit-priority-low').props.accessibilityState).toMatchObject({ checked: true }));
+    expect(screen.getByTestId('edit-title').props.value).toBe('Hand it in on Monday');
+
+    await fireEvent.press(screen.getByTestId('edit-save'));
+    await waitFor(() => expect(patch).toHaveBeenCalledTimes(2));
+    // The importance the other device set is not reverted to the old one.
+    expect(patch.mock.calls[1]![1]).toEqual({ title: 'Hand it in on Monday' });
+  });
+});
+
 /**
  * What Details calls its rows, in Arabic (audit 2026-10-03, #10 and #14).
  *

@@ -378,10 +378,18 @@ describe('errors', () => {
 });
 
 describe('limits', () => {
-  it('truncates rather than refuses a long paste', () => {
-    const state = captureReducer(initialCaptureState(), { type: 'textChanged', text: 'x'.repeat(MAX_CAPTURE_LENGTH + 500) });
-    expect(state.text).toHaveLength(MAX_CAPTURE_LENGTH);
+  it('keeps all of a long paste, so nothing past the limit is silently lost (CA3.6)', () => {
+    const long = `${'x'.repeat(MAX_CAPTURE_LENGTH + 500)}\nCall Dana Friday`;
+    const state = captureReducer(initialCaptureState(), { type: 'textChanged', text: long });
+    expect(state.text).toBe(long);
     expect(state.status).toBe('editing');
+  });
+
+  it('keeps all of a long dictation and its alternatives (CA3.6)', () => {
+    const long = 'w'.repeat(MAX_CAPTURE_LENGTH + 10);
+    const state = captureReducer(initialCaptureState(), { type: 'dictationFinished', text: long, alternatives: [`${long}!`] });
+    expect(state.text).toBe(long);
+    expect(state.alternatives).toEqual([`${long}!`]);
   });
 
   it('caps an edited title at what the commitment validator accepts', () => {

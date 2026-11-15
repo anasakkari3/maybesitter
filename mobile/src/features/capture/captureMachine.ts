@@ -1071,9 +1071,9 @@ export function captureReducer(state: CaptureState, event: CaptureEvent): Captur
     case 'textChanged': {
       // The message in flight is not a draft; nothing types over it.
       if (state.status === 'analyzing' || state.status === 'confirming') return state;
-      // Truncated here rather than refused, so a long paste keeps its beginning
-      // instead of silently doing nothing.
-      const text = event.text.slice(0, MAX_CAPTURE_LENGTH);
+      // Kept whole, never cut (CA3.6): a paste past the limit silently lost its
+      // end. The composer refuses to send it and says why; the person shortens it.
+      const text = event.text;
       // Typing over a dictation keeps it spoken but drops the alternatives:
       // they were readings of words that are no longer there (M2b).
       const voice = { spoken: state.spoken && text.trim().length > 0, alternatives: [] as string[] };
@@ -1090,9 +1090,10 @@ export function captureReducer(state: CaptureState, event: CaptureEvent): Captur
     case 'dictationFinished':
     case 'alternativeChosen': {
       if (state.status === 'analyzing' || state.status === 'confirming') return state;
-      const text = event.text.slice(0, MAX_CAPTURE_LENGTH);
+      // Whole, as typed text is (CA3.6): the composer refuses what is too long.
+      const text = event.text;
       const alternatives = event.type === 'dictationFinished'
-        ? Array.from(new Set(event.alternatives.map((value) => value.slice(0, MAX_CAPTURE_LENGTH))))
+        ? Array.from(new Set(event.alternatives))
           .filter((value) => value.trim() && value !== text).slice(0, 3)
         : [];
       const voice = { spoken: text.trim().length > 0, alternatives };
@@ -1407,7 +1408,9 @@ export function captureReducer(state: CaptureState, event: CaptureEvent): Captur
       // starts a new one. With no conversation (a share's review, the
       // no-commitment "rephrase") the text is simply kept, as it always was.
       const said = state.turns.filter((turn) => turn.role === 'user').map((turn) => turn.text).join('\n');
-      const text = (said || state.text).slice(0, MAX_CAPTURE_LENGTH);
+      // Whole (CA3.6): a conversation longer than one send is refused by the
+      // composer, with the line saying so, rather than losing its end here.
+      const text = said || state.text;
       return {
         ...state,
         text,

@@ -27,6 +27,7 @@ import { LiveRegion } from '../../ui/liveRegion';
 import { Screen, ScreenScroll } from '../../ui/screen';
 import { SettingsHeader } from './SettingsChrome';
 import { useLayoutMode } from '../../theme/textScale';
+import { markErrorShown } from '../../api/ui/userFacingMessage';
 
 const BAND_COPY = {
   comfortable: 'financialBandComfortable',
@@ -264,7 +265,9 @@ export function FinancialContextScreen({ onBack }: { onBack: () => void }) {
       setBillAmount('');
       setBillCurrencyTyped(null);
       setBillDate('');
-    } catch {
+    } catch (error) {
+      // Said on this screen in its own words: the failure bridge stays quiet.
+      markErrorShown(error);
       setFailed(true);
     }
   };
@@ -282,7 +285,7 @@ export function FinancialContextScreen({ onBack }: { onBack: () => void }) {
           <Btn
             label={connected ? t.financialDisconnect : t.financialConnect}
             testID="financial-connect-toggle"
-            onPress={() => void (connected ? disconnect.mutateAsync() : connect.mutateAsync()).catch(() => setFailed(true))}
+            onPress={() => void (connected ? disconnect.mutateAsync() : connect.mutateAsync()).catch((error: unknown) => { markErrorShown(error); setFailed(true); })}
             disabled={connect.isPending || disconnect.isPending}
             style={{
               minHeight: 44, borderRadius: 14, alignItems: 'center', justifyContent: 'center',
@@ -414,7 +417,7 @@ export function FinancialContextScreen({ onBack }: { onBack: () => void }) {
             <Btn
               label={t.financialCorrectUndo}
               testID="financial-correction-undo"
-              onPress={() => void clearField.mutateAsync('cash_available').catch(() => setFailed(true))}
+              onPress={() => void clearField.mutateAsync('cash_available').catch((error: unknown) => { markErrorShown(error); setFailed(true); })}
               disabled={clearField.isPending}
               style={{ minHeight: 44, alignItems: 'center', justifyContent: 'center' }}
             >
@@ -450,7 +453,7 @@ export function FinancialContextScreen({ onBack }: { onBack: () => void }) {
                 </View>
                 <Txt size={14} weight={600}>{money(obligation.amount.minorUnits, obligation.amount.currency)}</Txt>
                 {obligation.amount.provenance.origin === 'manual' ? <Btn label={t.financialRemoveBill} testID={`financial-obligation-remove-${obligation.obligationId}`}
-                  disabled={removeObligation.isPending} onPress={() => void removeObligation.mutateAsync(obligation.obligationId).catch(() => setFailed(true))}
+                  disabled={removeObligation.isPending} onPress={() => void removeObligation.mutateAsync(obligation.obligationId).catch((error: unknown) => { markErrorShown(error); setFailed(true); })}
                   style={{ minHeight: 44, justifyContent: 'center' }}><Txt size={13} color={p.wm}>{t.financialRemoveBill}</Txt></Btn> : null}
               </View>
             ))}
