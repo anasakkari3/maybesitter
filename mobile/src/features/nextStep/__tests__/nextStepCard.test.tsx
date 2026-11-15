@@ -568,3 +568,39 @@ describe('a preparation step for an event', () => {
     expect(screen.queryByTestId('next-step-prepare')).toBeNull();
   });
 });
+
+/*
+ * CA2.2: the edit field held the first proposal's title. After «خلصتها» on
+ * card A the card showed B, and «غيّرها» opened with A's title already in the
+ * field; Save then renamed B to A's title on the server.
+ */
+describe('the edit field belongs to the card on screen (CA2.2)', () => {
+  it('opens on the new proposal’s title after the card moves on, and never sends the old one', async () => {
+    const decide = mockDecision();
+    await show();
+    await waitFor(() => expect(screen.queryByTestId('next-step-title')).not.toBeNull());
+    // Card A's editor was looked at once, so its draft exists.
+    await fireEvent.press(screen.getByTestId('next-step-more'));
+    await fireEvent.press(screen.getByTestId('next-step-edit'));
+    await waitFor(() => expect(screen.getByTestId('next-step-edit-input').props.value).toBe('Send the report to Sami'));
+    await fireEvent.press(screen.getByTestId('next-step-edit-save'));
+    await waitFor(() => expect(decide).toHaveBeenCalledTimes(1));
+
+    // The card moves on to B.
+    jest.spyOn(nextStepEndpoints, 'getNextStep').mockResolvedValue(response({
+      proposalId: 'p-2', primaryStep: { commitmentId: 'c-2', title: 'Write the quarterly report' },
+    }) as never);
+    await act(async () => { await client.refetchQueries(); });
+    await waitFor(() => expect(screen.getByTestId('next-step-title').props.children).toBe('Write the quarterly report'));
+
+    await fireEvent.press(screen.getByTestId('next-step-more'));
+    await fireEvent.press(screen.getByTestId('next-step-edit'));
+    await waitFor(() => expect(screen.queryByTestId('next-step-edit-input')).not.toBeNull());
+    expect(screen.getByTestId('next-step-edit-input').props.value).toBe('Write the quarterly report');
+    await fireEvent.press(screen.getByTestId('next-step-edit-save'));
+    await waitFor(() => expect(decide).toHaveBeenCalledTimes(2));
+    const sent = decide.mock.calls[1]![0] as { proposal: { proposalId: string }; editedTitle?: string };
+    expect(sent.proposal.proposalId).toBe('p-2');
+    expect(sent.editedTitle).toBe('Write the quarterly report');
+  });
+});
