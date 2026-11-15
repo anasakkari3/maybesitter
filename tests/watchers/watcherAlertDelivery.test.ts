@@ -18,7 +18,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createMemoryStorage, type MemoryStorageAdapter } from '../../lib/storage/memoryAdapter.ts';
 import { resetStorageForTests, setStorageForTests } from '../../lib/storage/index.ts';
-import { userCol, WATCHER_NOTIFICATIONS } from '../../lib/storage/paths.ts';
+import { docIdForKey, PUSH_LOG, userCol, userSubDoc, WATCHER_EVENTS, WATCHER_NOTIFICATIONS } from '../../lib/storage/paths.ts';
+import { runWatcherSweep } from '../../lib/watchers/watcherEngine.ts';
+import { saveRoutineProfile } from '../../lib/services/mobile/routineProfileService.ts';
+import { watcherAlertDedupeKey, WATCHER_ALERT_DAILY_CAP, WATCHER_ALERT_MIN_GAP_MS, WATCHER_ALERT_REDRIVE_MS } from '../../lib/push/watcherAlert.ts';
 import { createWatcherStore } from '../../lib/watchers/watcherStore.ts';
 import { runWatcherTick } from '../../lib/jobs/internalJobs.ts';
 import { upsertDevice } from '../../lib/push/deviceRegistry.ts';
@@ -98,8 +101,8 @@ async function readinessWatcher(effect: 'notify' | 'propose_commitment' | 'repla
   }, T0.toISOString());
 }
 
-async function tick(messaging: MessagingClient) {
-  return runWatcherTick({ football: async () => ({ enabled: false }), messaging });
+async function tick(messaging: MessagingClient, at?: Date) {
+  return runWatcherTick({ football: async () => ({ enabled: false }), messaging, ...(at ? { now: () => at } : {}) });
 }
 
 /** Primes on 0.82, then readiness drops to 0.21 and the next tick fires. */
@@ -128,7 +131,7 @@ test('a notify watcher that fires sends one content-free push to the phone (CA6.
     assert.equal(push!.data.kind, 'watcher_alert');
     // Identifiers only: nothing about the watcher, the signal or the reading.
     for (const key of Object.keys(push!.data)) {
-      assert.ok(['kind', 'dedupeKey', 'notificationId', 'tag'].includes(key), `unexpected data key ${key}`);
+      assert.ok(['kind', 'dedupeKey'].includes(key), `unexpected data key ${key}`);
     }
     assert.doesNotMatch(JSON.stringify(push), /readiness|0\.21|whoop|wtc_/i);
     assert.ok(!JSON.stringify(push).includes(UID), 'the account id went to Google and Apple');
@@ -186,6 +189,224 @@ test('with no device to reach the notification stays queued and the sweep still 
     assert.equal(messaging.sent.length, 0);
     const [queued] = await notifications();
     assert.equal(queued!.state, 'queued');
+  } finally {
+    resetStorageForTests();
+  }
+});
+
+/* ── Review round: bounds, re-drive, quiet hours, isolation ───────── */
+
+const BOB = 'watcherAlertBobxxxxxxxxxxxxx'.slice(0, 28);
+const BASE = new Date('2026-09-20T09:00:00.000Z');
+const minutes = (n: number) => new Date(BASE.getTime() + n * 60_000);
+
+async function checkIn(uid: string, score: number, at: Date): Promise<void> {
+  await saveNormalizedReadinessSnapshot(uid, { ...readiness(score, at.toISOString()), scopeId: uid }, { storage, now: at.toISOString() });
+}
+
+async function deviceFor(uid: string, installationId: string): Promise<void> {
+  await seedLiveAccount(uid, storage);
+  await upsertDevice(uid, {
+    installationId,
+    fcmToken: `token-${installationId.replace(/-/g, '')}`,
+    platform: 'android',
+    appVersion: '1.0.0',
+    locale: 'ar',
+    timezone: 'UTC',
+    pushPermission: 'granted',
+  }, BASE.toISOString(), { storage });
+}
+
+async function watcherFor(uid: string): Promise<string> {
+  const created = await createWatcherStore(uid, storage).create({
+    enabled: true,
+    source: { provider: 'maybesitter', connectionId: null, signalKind: 'readiness', subjectRef: 'self' },
+    condition: { kind: 'digest_changed' },
+    effect: 'notify',
+    createdBy: 'user',
+  }, BASE.toISOString());
+  return created.definition.watcherId;
+}
+
+/** A queued notification as the firing transaction writes it. */
+async function queuedAt(uid: string, id: string, at: Date, watcherId = 'wtc_seeded'): Promise<void> {
+  await storage.set(userSubDoc(uid, WATCHER_NOTIFICATIONS, id), {
+    schemaVersion: 'watcher-notification-v1',
+    notificationId: id,
+    watcherId,
+    scopeId: uid,
+    state: 'queued',
+    signalKind: 'readiness',
+    subjectRef: 'self',
+    reason: 'digest_changed',
+    queuedAt: at.toISOString(),
+    provenanceRef: 'userState/readiness',
+  });
+}
+
+async function stateOf(uid: string, id: string): Promise<string | undefined> {
+  return (await storage.get<WatcherNotification>(userSubDoc(uid, WATCHER_NOTIFICATIONS, id)))?.state;
+}
+
+test('rapid repeated firings of one watcher push exactly once inside the gap; every firing is still recorded', async () => {
+  await begin();
+  try {
+    await withDevice('ar');
+    await watcherFor(UID);
+    const messaging = fakeMessaging();
+    await checkIn(UID, 0.82, minutes(0));
+    await tick(messaging, minutes(0));
+    // Readiness jitters every minute for ten minutes.
+    for (let n = 1; n <= 10; n += 1) {
+      await checkIn(UID, n % 2 === 0 ? 0.82 : 0.21, minutes(n));
+      await tick(messaging, minutes(n));
+    }
+    const fired = (await storage.list(userCol(UID, WATCHER_EVENTS))).length;
+    assert.equal(fired, 10, 'a firing was dropped rather than only its push');
+    assert.equal(messaging.sent.length, 1, `${messaging.sent.length} pushes inside one ${WATCHER_ALERT_MIN_GAP_MS / 60_000}-minute gap`);
+  } finally {
+    resetStorageForTests();
+  }
+});
+
+test('after the gap the watcher pushes again, under the same collapse id so it replaces the last one', async () => {
+  await begin();
+  try {
+    await withDevice('ar');
+    await watcherFor(UID);
+    const messaging = fakeMessaging();
+    await checkIn(UID, 0.82, minutes(0));
+    await tick(messaging, minutes(0));
+    await checkIn(UID, 0.21, minutes(1));
+    await tick(messaging, minutes(1));
+    const later = 1 + WATCHER_ALERT_MIN_GAP_MS / 60_000 + 1;
+    await checkIn(UID, 0.82, minutes(later));
+    await tick(messaging, minutes(later));
+    assert.equal(messaging.sent.length, 2);
+    const [first, second] = messaging.sent;
+    assert.notEqual(first!.data.dedupeKey, second!.data.dedupeKey);
+    assert.equal(first!.apns.headers['apns-collapse-id'], second!.apns.headers['apns-collapse-id']);
+    assert.equal(first!.android.notification.tag, second!.android.notification.tag);
+    assert.notEqual(first!.apns.headers['apns-collapse-id'], first!.data.dedupeKey, 'the collapse id is per firing, not per watcher');
+  } finally {
+    resetStorageForTests();
+  }
+});
+
+test('one account gets at most the daily cap of watcher alerts, across watchers', async () => {
+  await begin();
+  try {
+    await withDevice('ar');
+    const messaging = fakeMessaging();
+    for (let n = 0; n < WATCHER_ALERT_DAILY_CAP + 3; n += 1) {
+      await queuedAt(UID, `wtn_cap_${n}`, minutes(n), `wtc_cap_${n}`);
+    }
+    await tick(messaging, minutes(WATCHER_ALERT_DAILY_CAP + 4));
+    assert.equal(messaging.sent.length, WATCHER_ALERT_DAILY_CAP);
+  } finally {
+    resetStorageForTests();
+  }
+});
+
+test('a firing whose push never ran (a crash after the commit) is pushed on the next tick', async () => {
+  await begin();
+  try {
+    await withDevice('ar');
+    await watcherFor(UID);
+    const messaging = fakeMessaging();
+    await checkIn(UID, 0.82, minutes(0));
+    await runWatcherSweep({ storage, now: minutes(0) });
+    await checkIn(UID, 0.21, minutes(1));
+    // The sweep commits the firing and the process dies before any push.
+    assert.equal((await runWatcherSweep({ storage, now: minutes(1) })).fired, 1);
+    const [queued] = await notifications();
+    assert.equal(queued!.state, 'queued');
+
+    await tick(messaging, minutes(2));
+    assert.equal(messaging.sent.length, 1, 'the lost push was never re-driven');
+    assert.equal(await stateOf(UID, queued!.notificationId), 'sent');
+    await tick(messaging, minutes(3));
+    assert.equal(messaging.sent.length, 1, 're-drive sent the same firing twice');
+  } finally {
+    resetStorageForTests();
+  }
+});
+
+test('re-drive leaves alone what is too old, and marks sent what already went out', async () => {
+  await begin();
+  try {
+    await withDevice('ar');
+    const messaging = fakeMessaging();
+    const now = minutes(100);
+    const redriveMinutes = WATCHER_ALERT_REDRIVE_MS / 60_000;
+    await queuedAt(UID, 'wtn_old', minutes(100 - redriveMinutes - 1), 'wtc_old');
+    await queuedAt(UID, 'wtn_pushed', minutes(99), 'wtc_pushed');
+    // Pushed before a crash that came before it could be marked: the lock exists.
+    await storage.set(userSubDoc(UID, PUSH_LOG, docIdForKey(watcherAlertDedupeKey('wtn_pushed'))), {
+      dedupeKey: watcherAlertDedupeKey('wtn_pushed'), kind: 'watcher_alert', createdAt: minutes(99).toISOString(), expiresAt: minutes(99 + 7 * 24 * 60).toISOString(),
+    });
+    await tick(messaging, now);
+    assert.equal(messaging.sent.length, 0);
+    assert.equal(await stateOf(UID, 'wtn_old'), 'queued', 'a stale alert was sent late');
+    assert.equal(await stateOf(UID, 'wtn_pushed'), 'sent');
+  } finally {
+    resetStorageForTests();
+  }
+});
+
+test('quiet hours hold an alert; it goes only if the window ends inside the re-drive time', async () => {
+  await begin();
+  try {
+    await withDevice('ar');
+    await saveRoutineProfile(UID, {
+      timezone: 'UTC',
+      sleepWindow: null,
+      focusWindows: [],
+      fixedCommitmentWindows: [],
+      preferredReminderIntensity: 'softAwareness',
+      quietHours: { start: '08:00', end: '09:20' },
+      surveySkipped: false,
+    }, BASE.toISOString(), { storage });
+    const messaging = fakeMessaging();
+    await queuedAt(UID, 'wtn_early', minutes(-50), 'wtc_early'); // 08:10
+    await queuedAt(UID, 'wtn_late', minutes(5), 'wtc_late'); //     09:05
+    await tick(messaging, minutes(6));
+    assert.equal(messaging.sent.length, 0, 'pushed inside quiet hours');
+    assert.equal(await stateOf(UID, 'wtn_late'), 'queued');
+    // 09:21: the window is over. 09:05 is inside the re-drive time; 08:10 is not.
+    await tick(messaging, minutes(21));
+    assert.equal(messaging.sent.length, 1);
+    assert.equal(await stateOf(UID, 'wtn_late'), 'sent');
+    assert.equal(await stateOf(UID, 'wtn_early'), 'queued');
+  } finally {
+    resetStorageForTests();
+  }
+});
+
+test('one account\'s alerts reach only its own devices, and its bounds do not touch another account', async () => {
+  await begin();
+  try {
+    const ALICE_DEVICE = '44444444-4444-4444-8444-444444444444';
+    const BOB_DEVICE = '55555555-5555-4555-8555-555555555555';
+    await deviceFor(UID, ALICE_DEVICE);
+    await deviceFor(BOB, BOB_DEVICE);
+    await watcherFor(UID);
+    await watcherFor(BOB);
+    const messaging = fakeMessaging();
+    await checkIn(UID, 0.82, minutes(0));
+    await checkIn(BOB, 0.82, minutes(0));
+    await tick(messaging, minutes(0));
+    await checkIn(UID, 0.21, minutes(1));
+    await tick(messaging, minutes(1));
+    assert.deepEqual(messaging.sent.map((m) => m.token), [`token-${ALICE_DEVICE.replace(/-/g, '')}`]);
+    // Alice is inside her gap; Bob is not held by it.
+    await checkIn(BOB, 0.21, minutes(2));
+    await tick(messaging, minutes(2));
+    assert.deepEqual(messaging.sent.map((m) => m.token), [
+      `token-${ALICE_DEVICE.replace(/-/g, '')}`,
+      `token-${BOB_DEVICE.replace(/-/g, '')}`,
+    ]);
+    assert.deepEqual((await storage.list(userCol(BOB, WATCHER_NOTIFICATIONS))).length, 1);
   } finally {
     resetStorageForTests();
   }

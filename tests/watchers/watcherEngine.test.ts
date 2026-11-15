@@ -49,7 +49,7 @@ import {
 } from '../../src/contracts/v1/watcherContracts.ts';
 import { createWatcherStore, type NewWatcherInput, type StoredWatcher } from '../../lib/watchers/watcherStore.ts';
 import { saveMonitoringSettings } from '../../lib/watchers/monitoringSettings.ts';
-import { runWatcherSweep, type WatcherSweepTotals } from '../../lib/watchers/watcherEngine.ts';
+import { runWatcherSweep, watcherEventIdFor, type WatcherSweepTotals } from '../../lib/watchers/watcherEngine.ts';
 import {
   createWatcherSignalRegistry,
   fixtureObserver,
@@ -913,6 +913,65 @@ test('a recognised redelivery still moves the baseline, so the watcher is not st
     const next = await sweep(T3);
     assert.equal(next.duplicates, 0, 'the same redelivery was refused again on the next sweep');
     assert.equal(next.fired, 0);
+  } finally {
+    end();
+  }
+});
+
+test('a slow sweep that meets a duplicate never rolls a newer baseline back (CXA6.1 review)', async () => {
+  // The sweep reads the row, then observes. If, in between, another sweep
+  // fired this same transition and the watcher then moved on, the slow sweep's
+  // duplicate must leave the newer baseline alone — absorbing its stale
+  // observation would make the next sweep fire on a change that already fired.
+  await begin();
+  try {
+    const subject = 'slow-sweep';
+    const source = { provider: 'aviation', connectionId: null, signalKind: 'slow_kind', subjectRef: subject } as const;
+    const signalFor = (digest: string, observedAt: string): WatcherSignal => ({
+      schemaVersion: WATCHER_SIGNAL_SCHEMA_VERSION,
+      signalId: `slow_kind:${subject}:${digest}`,
+      provider: 'aviation',
+      signalKind: 'slow_kind',
+      subjectRef: subject,
+      observedAt,
+      stateDigest: digest,
+      provenanceRef: `slow/${subject}`,
+      measures: [],
+    });
+    let current = 'A';
+    let onObserve: (() => Promise<void>) | null = null;
+    const slow: WatcherSignalObserver = {
+      supports: (s) => s.signalKind === 'slow_kind',
+      async observe(_s, context) {
+        if (onObserve) { const run = onObserve; onObserve = null; await run(); }
+        return signalFor(current, context.now);
+      },
+    };
+    const reg = createWatcherSignalRegistry([slow]);
+    const watcher = await add(ALICE, {
+      enabled: true, source, condition: { kind: 'digest_changed' }, effect: 'update_context', createdBy: 'user',
+    });
+    const path = `users/${ALICE}/watchers/${watcher.definition.watcherId}`;
+    await runWatcherSweep({ storage, now: T0, registry: reg }); // primes on A, fireCount 0
+
+    // The slow sweep reads fireCount 0 / baseline A and will observe B. While it
+    // observes, a faster sweep has already fired A → B (count 0) and then B → C.
+    current = 'B';
+    onObserve = async () => {
+      const row = (await createWatcherStore(ALICE, storage).get(watcher.definition.watcherId))!;
+      const eventId = watcherEventIdFor(watcher.definition.watcherId, signalFor('B', '').signalId, 0);
+      await storage.set(userSubDoc(ALICE, WATCHER_EVENTS, eventId), { eventId });
+      await storage.set(path, {
+        ...row,
+        runtime: { ...row.runtime, lastDigest: 'C', lastSignalId: `slow_kind:${subject}:C`, fireCount: 2 },
+      });
+    };
+    const totals = await runWatcherSweep({ storage, now: T1, registry: reg });
+    assert.equal(totals.duplicates, 1, JSON.stringify(totals));
+
+    const after = (await createWatcherStore(ALICE, storage).get(watcher.definition.watcherId))!;
+    assert.equal(after.runtime.lastDigest, 'C', 'the slow duplicate rolled the baseline back');
+    assert.equal(after.runtime.fireCount, 2);
   } finally {
     end();
   }
