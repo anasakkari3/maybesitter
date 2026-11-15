@@ -1304,12 +1304,13 @@ export interface HeldFixture {
 export async function listHeldFixtures(uid: string, now: Date = new Date()): Promise<{ held: HeldFixture[]; waitingForCoverage: number }> {
   const refs = await listRefs<FixtureExternalTaskRef>(uid);
   const nowMs = now.getTime();
+  const followed = await followedTeamIdsOf(uid);
   // A match waiting for coverage stops waiting once it has kicked off, the
   // same as a clash hold (lane E1 review, item 6).
   const waitingForCoverage = refs.filter((ref) => !ref.detachedAt && ref.held?.reason === 'unknown'
-    && Date.parse(ref.held.kickoffUtc) > nowMs).length;
+    && heldStillAskable(ref, followed, nowMs)).length;
   const held = refs.filter((ref) => !ref.detachedAt && ref.held?.reason === 'clash'
-    && Date.parse(ref.held.kickoffUtc) > nowMs).map((ref) => ({
+    && heldStillAskable(ref, followed, nowMs)).map((ref) => ({
     fixtureId: ref.taskRefId,
     heldVersion: heldVersionOf(ref.held!),
     homeTeamName: ref.homeTeamName,
@@ -1322,6 +1323,27 @@ export async function listHeldFixtures(uid: string, now: Date = new Date()): Pro
     clashes: ref.held!.clashes,
   })).sort((a, b) => a.kickoffUtc.localeCompare(b.kickoffUtc));
   return { held, waitingForCoverage };
+}
+
+async function followedTeamIdsOf(uid: string): Promise<ReadonlySet<string>> {
+  const ids = new Set<string>();
+  for (const clubId of await getFollowedClubs(uid)) {
+    const club = clubById(clubId);
+    if (club) ids.add(club.providerTeamId);
+  }
+  return ids;
+}
+
+/**
+ * Whether a held match is still a question worth asking (audit CA11.1): its
+ * kickoff is still ahead, and one of its two clubs is still followed. A ref
+ * written before refs carried team ids cannot be judged on the follow and is
+ * kept, as `releaseUnfollowedFixtures` keeps what it cannot resolve.
+ */
+function heldStillAskable(ref: FixtureExternalTaskRef, followedTeamIds: ReadonlySet<string>, nowMs: number): boolean {
+  if (!ref.held || Date.parse(ref.held.kickoffUtc) <= nowMs) return false;
+  if (!ref.homeTeamId || !ref.awayTeamId) return true;
+  return followedTeamIds.has(ref.homeTeamId) || followedTeamIds.has(ref.awayTeamId);
 }
 
 function heldFixtureOf(ref: FixtureExternalTaskRef | null): HeldFixture | null {
@@ -1350,6 +1372,7 @@ export async function decideHeldFixture(
   const receiptPath = userSubDoc(uid, EXTERNAL_TASK_ACTION_RECEIPTS, input.clientActionId);
   let replayed = false;
   let changed: HeldFixture | null | undefined;
+  const followed = input.action === 'add' ? await followedTeamIdsOf(uid) : null;
   await storage.runTransaction(async (tx) => {
     changed = undefined;
     const receipt = await tx.get<HeldActionReceipt>(receiptPath);
@@ -1362,6 +1385,9 @@ export async function decideHeldFixture(
     if (!ref) throw new HeldFixtureNotFoundError();
     const current = heldFixtureOf(ref);
     if (!current || current.heldVersion !== input.expectedHeldVersion) { changed = current; return; }
+    // CA11.1: a stale row -- the match has kicked off, or its club is no
+    // longer followed -- is gone, not addable.
+    if (followed && !heldStillAskable(ref, followed, Date.parse(now))) { changed = null; return; }
     if (input.action === 'dismiss') {
       tx.merge<FixtureExternalTaskRef>(path, { linkState: 'detached', detachedAt: now, held: null, updatedAt: now });
       tx.create<HeldActionReceipt>(receiptPath, { fixtureId, fingerprint, action: input.action, createdAt: now });
