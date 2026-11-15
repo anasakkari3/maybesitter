@@ -1664,6 +1664,10 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
         Math.floor(chatOperationIndices.items[item.itemId] ?? -1) === operationIndex ? [item.itemId] : []));
       clearMissingTimes(targetIds, countTimeExpressions(source));
     });
+  } else if (chat) {
+    // A chat item's segment is read from every turn; the valve reads the
+    // newest message, over the whole list, as it always has.
+    clearMissingTimes(new Set(items.map((item) => item.itemId)), countTimeExpressions(raw));
   } else {
     // Clause by clause (NAPI-A8.2): a time is lost where a clause names more
     // clock times than its own items hold. Read over the whole capture, one
