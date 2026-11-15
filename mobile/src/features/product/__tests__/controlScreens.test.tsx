@@ -13,6 +13,8 @@ const mockGenerate = jest.fn();
 const mockRegenerate = jest.fn();
 const mockUnlink = jest.fn();
 let mockHabits: unknown[] = [];
+const mockDecide = jest.fn();
+let mockToday: unknown = null;
 
 // M5a's email parts read through TanStack Query; these screens render here
 // without a client, on a server whose M5a capability is off (today's screens).
@@ -68,6 +70,8 @@ jest.mock('../../../api/queries', () => ({
   useCommitment: () => ({ data: null, isPending: false, error: null, refetch: jest.fn() }),
   useHabits: () => ({ data: mockHabits, isPending: false, error: null, refetch: jest.fn() }),
   useCreateHabit: () => ({ mutate: mockCreateHabit, isPending: false, error: null }),
+  useHabitsToday: () => ({ data: mockToday, isPending: false, error: null, refetch: jest.fn() }),
+  useDecideHabitOccurrence: () => ({ mutate: mockDecide, isPending: false, error: null, variables: undefined }),
   useSetHabitStatus: () => ({ mutate: jest.fn(), isPending: false, error: null }),
   useDeleteHabit: () => ({ mutate: jest.fn(), isPending: false, error: null }),
   usePlan: () => ({ data: null, isPending: false, error: null, refetch: jest.fn() }),
@@ -87,6 +91,7 @@ const wrap = (child: React.ReactNode) => (
 beforeEach(() => {
   jest.clearAllMocks();
   mockHabits = [];
+  mockToday = null;
   mockGenerate.mockImplementation((_input, options: any) => options.onSuccess({
     generation: 1,
     nodes: [
@@ -203,4 +208,46 @@ it('names a saved habit\'s duration, flexibility and recovery in words, not raw 
   expect(screen.getByText(strings.en.xRecoverThisWeek)).toBeTruthy();
   expect(screen.queryByText('protected_flexible')).toBeNull();
   expect(screen.queryByText('recover_within_period')).toBeNull();
+});
+
+/**
+ * CA5.4: today's occurrence of a habit can be marked done or not today from
+ * the habit's own card, and the decision reads back from the server.
+ */
+const walk = {
+  habitId: 'h1', title: 'Walk', cadence: { kind: 'weekdays', weekdays: [0, 1, 2, 3, 4, 5, 6] }, durationMinutes: 30,
+  preferredWindows: [], minimumOccurrences: 7, maximumOccurrences: 7, flexibility: 'flexible', recoveryPolicy: 'skip',
+  status: 'active', source: 'user_created',
+  confirmation: { confirmedByUserAt: '2026-11-01T09:00:00.000Z', sourceRef: null, acceptedSuggestedValues: true },
+  createdAt: '2026-11-01T09:00:00.000Z', updatedAt: '2026-11-01T09:00:00.000Z',
+};
+const todayRow = (state: string) => ({ occurrenceId: 'h1.2026-11-15.0', habitId: 'h1', localDate: '2026-11-15', ordinal: 0, state, durationMinutes: 30, recoveredFromOccurrenceId: null });
+
+it("marks today's occurrence done or not today from the habit's card", async () => {
+  mockHabits = [walk];
+  mockToday = { localDate: '2026-11-15', occurrences: [todayRow('pending')] };
+  await render(wrap(<HabitDetailScreen />));
+  await fireEvent.press(screen.getByTestId('habit-today-done-h1'));
+  expect(mockDecide).toHaveBeenLastCalledWith({ habitId: 'h1', occurrenceId: 'h1.2026-11-15.0', outcome: 'completed' }, expect.any(Object));
+  await fireEvent.press(screen.getByTestId('habit-today-skip-h1'));
+  expect(mockDecide).toHaveBeenLastCalledWith({ habitId: 'h1', occurrenceId: 'h1.2026-11-15.0', outcome: 'skipped' }, expect.any(Object));
+});
+
+it('a decided occurrence says what was decided and offers no second decision', async () => {
+  mockHabits = [walk];
+  for (const [state, copy] of [['completed', strings.en.xHabitTodayDone], ['skipped', strings.en.xHabitTodaySkipped], ['recovered', strings.en.xHabitTodaySkipped]] as const) {
+    mockToday = { localDate: '2026-11-15', occurrences: [todayRow(state)] };
+    await render(wrap(<HabitDetailScreen />));
+    expect(screen.getByTestId('habit-today-state-h1')).toHaveTextContent(copy);
+    expect(screen.queryByTestId('habit-today-done-h1')).toBeNull();
+    expect(screen.queryByTestId('habit-today-skip-h1')).toBeNull();
+    cleanup();
+  }
+});
+
+it('a habit with nothing due today shows no today row', async () => {
+  mockHabits = [walk];
+  mockToday = { localDate: '2026-11-15', occurrences: [] };
+  await render(wrap(<HabitDetailScreen />));
+  expect(screen.queryByTestId('habit-today-h1')).toBeNull();
 });

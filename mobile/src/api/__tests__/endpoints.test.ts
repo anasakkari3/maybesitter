@@ -17,7 +17,7 @@ import { nextStepResponseSchema } from '../schemas/nextStep';
 import { createReadinessWatcher, pauseWatcher } from '../endpoints/watchers';
 import watcherResponse from '../__fixtures__/watchers.created.json';
 import { createMemory, keepMemorySuggestion } from '../endpoints/profile';
-import { createHabit } from '../endpoints/habits';
+import { createHabit, decideHabitOccurrence, listHabitsToday } from '../endpoints/habits';
 
 /**
  * Each endpoint, against the fixture its own route produced.
@@ -179,6 +179,27 @@ describe('habits', () => {
     expect(habit.habitId).toBe(response.habit.habitId);
     expect(response.occurrences).toHaveLength(12);
     expect(requests[0]?.url).toContain('timezone=Asia%2FHebron');
+  });
+
+  // CA5.4: the list carries today's occurrences, and a decision reaches the route.
+  it("reads today's occurrences off the list and decides one by its own id", async () => {
+    const occurrence = { occurrenceId: 'h1.2026-11-15.0', habitId: 'h1', localDate: '2026-11-15', ordinal: 0, state: 'pending', durationMinutes: 30, recoveredFromOccurrenceId: null };
+    serve({ success: true, items: [], today: { localDate: '2026-11-15', occurrences: [occurrence] } });
+    const today = await listHabitsToday('Asia/Hebron');
+    expect(today).toEqual({ localDate: '2026-11-15', occurrences: [occurrence] });
+    expect(requests[0]?.method).toBe('GET');
+    expect(requests[0]?.url).toContain('/api/mobile/habits?timezone=Asia%2FHebron');
+
+    serve({ success: true, occurrence: { ...occurrence, state: 'skipped' }, changed: true, recovery: { recovered: false, reason: 'policy_skip' } });
+    const decided = await decideHabitOccurrence({ habitId: 'h1', occurrenceId: occurrence.occurrenceId, outcome: 'skipped' }, 'Asia/Hebron');
+    expect(decided.occurrence.state).toBe('skipped');
+    expect(requests[1]?.method).toBe('POST');
+    expect(requests[1]?.url).toContain('/api/mobile/habits/h1/occurrences/h1.2026-11-15.0/skip?timezone=Asia%2FHebron');
+  });
+
+  it('an older server with no today on the list reads as no occurrence, not a failure', async () => {
+    serve({ success: true, items: [] });
+    expect(await listHabitsToday('UTC')).toBeNull();
   });
 });
 
