@@ -125,6 +125,9 @@ export function NextStepCard({ lookup }: {
         >
           {recommendation.state === 'ready' && recommendation.primaryStep ? (
             <Ready
+              // One card per proposal (CA2.2): its edit draft is the title of
+              // the step on screen, never the one before it.
+              key={`${recommendation.proposalId}:${recommendation.primaryStep.commitmentId}`}
               recommendation={recommendation}
               item={lookup?.get(recommendation.primaryStep.commitmentId) ?? null}
               strings={strings}

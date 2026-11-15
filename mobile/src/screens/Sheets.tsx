@@ -500,6 +500,23 @@ function EditSheet() {
   const [title, setTitle] = useState(commitment?.title ?? '');
   const [level, setLevel] = useState<PriorityLevel>(commitment?.priority.level ?? 'normal');
   const [local, setLocal] = useState(originalLocal);
+  // What the form was last filled from (NA2.1). When the server's version
+  // moves under the open sheet — a refused stale save adopts the newer one, or
+  // the item arrives after the sheet mounted — a field the person has not
+  // touched follows it, and one they changed keeps their words. Without this
+  // the untouched old title read as a "change" and a second Save sent it back
+  // over the other device's edit.
+  const server = commitment
+    ? { id: commitment.id, title: commitment.title, level: commitment.priority.level, local: originalLocal }
+    : null;
+  const [base, setBase] = useState(server);
+  if (server && (base === null || base.id !== server.id || base.title !== server.title || base.level !== server.level || base.local !== server.local)) {
+    const fresh = base === null || base.id !== server.id;
+    setBase(server);
+    if (fresh || title === base.title) setTitle(server.title);
+    if (fresh || level === base.level) setLevel(server.level);
+    if (fresh || local === base.local) setLocal(server.local);
+  }
   const [picking, setPicking] = useState<'date' | 'time' | null>(null);
   const [pastTime, setPastTime] = useState(false);
 
