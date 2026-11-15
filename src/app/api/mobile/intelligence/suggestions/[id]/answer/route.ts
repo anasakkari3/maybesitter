@@ -1,4 +1,5 @@
 import { mobileAuthErrorResponse, requireMobileUser } from '../../../../../../../../lib/auth/mobileAuth';
+import { getRecommendationConsent } from '../../../../../../../../lib/consents/recommendationConsentService';
 import { intelligenceDisabledResponse } from '../../../../../../../../lib/intelligence/gate';
 import { answerIntelligenceQuestion } from '../../../../../../../../lib/intelligence/answerQuestion';
 import { RequestBodyTooLargeError, readJsonBody, requestBodyTooLargeResponse } from '../../../../../../../../lib/net/requestBody';
@@ -22,6 +23,12 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   const answer = (body as { answer?: unknown } | null)?.answer;
   if (typeof answer !== 'string' || answer.trim().length < 2 || answer.length > 500) {
     return Response.json({ success: false, reason: 'invalid_answer' }, { status: 400 });
+  }
+  // An answer is analysed by the model and becomes an observation, so it is
+  // held to the consent generating and accepting are (CXA7.3): revoked on
+  // another device, a stale screen's answer runs nothing.
+  if (await getRecommendationConsent(user.uid) !== 'granted') {
+    return Response.json({ success: false, reason: 'consent_required' }, { status: 403 });
   }
   const { id } = await context.params;
   const answeredAt = new Date().toISOString();
