@@ -40,6 +40,8 @@ const TZ = 'Asia/Jerusalem';
 const USER = uidFor('PlanUser');
 const DATE = '2026-09-15';
 const MORNING = new Date('2026-09-15T06:00:00.000Z');
+/** An hour after the morning build: the plan's own day, which the actions below need (CA4.7, CXA4.2). */
+const ON_THE_DAY = new Date('2026-09-15T07:00:00.000Z');
 
 function request(path: string, options: { method?: string; body?: unknown; uid?: string } = {}): Request {
   const headers = new Headers({ authorization: `Bearer ${tokenFor(options.uid ?? USER)}` });
@@ -150,7 +152,8 @@ test('one account cannot read another account\'s plan', async () => {
 
 test('accept records the answer and the moment', async () => {
   await withHarness(async ({ storage }) => {
-    const response = await actionsPost(request(`/api/mobile/plans/${DATE}/actions`, { body: { action: 'accept' } }), params(DATE));
+    // On the plan's own day: a finished day is not accepted (CXA4.2).
+    const response = await atClock(ON_THE_DAY, () => actionsPost(request(`/api/mobile/plans/${DATE}/actions`, { body: { action: 'accept' } }), params(DATE)));
     assert.equal(response.status, 200);
     const stored = await readStoredPlan(USER, DATE, storage);
     assert.equal(stored!.status, 'accepted');
@@ -166,7 +169,7 @@ test('accept records the answer and the moment', async () => {
 
 test('dismiss records the answer without accepting it', async () => {
   await withHarness(async ({ storage }) => {
-    assert.equal((await actionsPost(request(`/api/mobile/plans/${DATE}/actions`, { body: { action: 'dismiss' } }), params(DATE))).status, 200);
+    assert.equal((await atClock(ON_THE_DAY, () => actionsPost(request(`/api/mobile/plans/${DATE}/actions`, { body: { action: 'dismiss' } }), params(DATE)))).status, 200);
     const stored = await readStoredPlan(USER, DATE, storage);
     assert.equal(stored!.status, 'dismissed');
     assert.equal(stored!.acceptedAt, null);
@@ -293,7 +296,7 @@ test('a move onto a busy block is refused even though the hour is free', async (
 
 test('regenerate rebuilds the plan and increments the generation', async () => {
   await withHarness(async ({ storage }) => {
-    const response = await regeneratePost(request(`/api/mobile/plans/${DATE}/regenerate`, { body: {} }), params(DATE));
+    const response = await atClock(ON_THE_DAY, () => regeneratePost(request(`/api/mobile/plans/${DATE}/regenerate`, { body: {} }), params(DATE)));
     assert.equal(response.status, 200);
     const stored = await readStoredPlan(USER, DATE, storage);
     assert.equal(stored!.generation, 2);
@@ -308,9 +311,9 @@ test('regenerate rebuilds the plan and increments the generation', async () => {
 test(`a plan can be rebuilt ${MAX_PLAN_REBUILDS_PER_DAY} times a day and then answers 429`, async () => {
   await withHarness(async ({ storage }) => {
     for (let attempt = 1; attempt <= MAX_PLAN_REBUILDS_PER_DAY; attempt += 1) {
-      assert.equal((await regeneratePlan(USER, DATE, { storage })).ok, true, `rebuild ${attempt} was refused`);
+      assert.equal((await regeneratePlan(USER, DATE, { storage, now: () => ON_THE_DAY })).ok, true, `rebuild ${attempt} was refused`);
     }
-    const response = await regeneratePost(request(`/api/mobile/plans/${DATE}/regenerate`, { body: {} }), params(DATE));
+    const response = await atClock(ON_THE_DAY, () => regeneratePost(request(`/api/mobile/plans/${DATE}/regenerate`, { body: {} }), params(DATE)));
     assert.equal(response.status, 429);
     const body = await response.json() as { reason: string; error: string };
     assert.equal(body.reason, 'limit_reached');

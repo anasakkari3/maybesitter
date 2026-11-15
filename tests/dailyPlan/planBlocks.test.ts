@@ -303,7 +303,10 @@ test('a moved block keeps its identity and provenance through a later regenerati
     }), params(DATE));
     assert.equal(moved.status, 200);
 
-    const regenerated = await regeneratePost(request(`/api/mobile/plans/${DATE}/regenerate`, { method: 'POST' }), params(DATE));
+    // On the plan's own day: a finished day is not rebuilt (CA4.7).
+    mock.timers.enable({ apis: ['Date'], now: MORNING.getTime() });
+    const regenerated = await regeneratePost(request(`/api/mobile/plans/${DATE}/regenerate`, { method: 'POST' }), params(DATE))
+      .finally(() => mock.timers.reset());
     assert.equal(regenerated.status, 200);
 
     const after = await readStoredPlan(USER, DATE);
@@ -387,7 +390,11 @@ test('a regeneration is isolated: the other account\'s plan and blocks do not mo
       method: 'POST',
       body: { action: 'edit', moves: [{ itemId, startsAt: '2026-09-15T08:00:00.000Z' }] },
     }), params(DATE));
-    await regeneratePost(request(`/api/mobile/plans/${DATE}/regenerate`, { method: 'POST' }), params(DATE));
+    // On the plan's own day, so the rebuild really runs (CA4.7).
+    mock.timers.enable({ apis: ['Date'], now: MORNING.getTime() });
+    const mine = await regeneratePost(request(`/api/mobile/plans/${DATE}/regenerate`, { method: 'POST' }), params(DATE))
+      .finally(() => mock.timers.reset());
+    assert.equal(mine.status, 200);
 
     const theirsAfter = await readStoredPlan(other, DATE);
     assert.deepEqual(theirsAfter, theirsBefore, 'one account\'s plan edit reached another account');

@@ -2809,10 +2809,15 @@ test('exports a fixture for every /api/mobile call the React Native client makes
       'the plan fixture placed nothing, so the item schema it exists to pin is never exercised',
     );
 
+    // A finished day is not accepted or rebuilt (CA4.7, CXA4.2), and the
+    // handlers read the wall clock: pinned inside the plan's day, late enough
+    // that the acceptance is still this account's newest event.
+    const PLAN_DAY_AFTERNOON = Date.parse('2026-08-09T15:00:00.000Z');
+    mock.timers.enable({ apis: ['Date'], now: PLAN_DAY_AFTERNOON });
     await record('plan.accepted', 200, await planActionPost(
       request(`/api/mobile/plans/${PLAN_DATE}/actions`, { body: { action: 'accept' } }),
       dateParams(PLAN_DATE),
-    ));
+    )).finally(() => mock.timers.reset());
 
     // "The plan was put on screen" (#533): the acknowledgement carries nothing
     // back — the append to the plan ledger is the point of the call.
@@ -2824,10 +2829,13 @@ test('exports a fixture for every /api/mobile call the React Native client makes
     // The acceptance, read back through the history (#201). It lives in the
     // plan ledger, not the domain log, so this is the fixture that proves the
     // activity route reads both. A page of one: the acceptance is the newest
-    // thing this account did, and a full page also pins the non-null cursor
-    // the client echoes back.
+    // thing this account did on the plan's day, and a full page also pins the
+    // non-null cursor the client echoes back. The page starts just after the
+    // acceptance because the acceptance is pinned inside its plan's day
+    // (CXA4.2) while earlier flows here ran on the wall clock.
+    const afterAcceptance = encodeURIComponent(`${new Date(PLAN_DAY_AFTERNOON + 1).toISOString()}|~`);
     const withPlan = await record('activity.planAccepted', 200, await activityGet(
-      request('/api/mobile/activity?limit=1'),
+      request(`/api/mobile/activity?limit=1&cursor=${afterAcceptance}`),
     ));
     assert.deepEqual(
       (withPlan.items as Array<{ kind: string; detail?: unknown }>).map((item) => [item.kind, item.detail]),
@@ -2844,10 +2852,12 @@ test('exports a fixture for every /api/mobile call the React Native client makes
       dateParams(PLAN_DATE),
     ));
 
+    // At the morning the plan was built, so the rebuild has the same day ahead of it.
+    mock.timers.enable({ apis: ['Date'], now: Date.parse(REFERENCE_TIME) });
     await record('plan.regenerated', 200, await planRegeneratePost(
       request(`/api/mobile/plans/${PLAN_DATE}/regenerate`, { body: {} }),
       dateParams(PLAN_DATE),
-    ));
+    )).finally(() => mock.timers.reset());
 
     /*
      * A plan carrying an actual protection (#522).
