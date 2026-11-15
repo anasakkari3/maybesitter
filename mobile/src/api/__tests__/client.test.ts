@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals
 import { z } from 'zod';
 import { apiRequest } from '../client';
 import { patchMemory } from '../endpoints/profile';
-import { resetAuthForTests, setAuthRepository, signOutExpired, signOutForbidden } from '../auth';
+import { resetAuthForTests, revokedAccount, setAuthRepository, signOutExpired, signOutForbidden } from '../auth';
 import {
   AccountChangedError,
   ConflictError,
@@ -165,11 +165,19 @@ describe('a request bound to one account (M4a, M4A-R2-REV-002)', () => {
     expect(repository.signOutReasons).toEqual(['session_expired']);
   });
 
-  it('a bound request whose account is still signed in still signs out on its 403 revoked', async () => {
+  it('a bound request whose account is still signed in holds that account as revoked on its 403 revoked (C12.1)', async () => {
     respondWith({ status: 403, body: { success: false, error: 'forbidden', reason: 'revoked' } });
     await expect(apiRequest('POST', '/api/mobile/x', { schema: okSchema, body: {}, asUid: USER.uid }))
       .rejects.toBeInstanceOf(ForbiddenError);
-    expect(repository.signOutReasons).toEqual(['revoked']);
+    expect(repository.signOutReasons).toEqual([]);
+    expect(revokedAccount()).toBe(USER.uid);
+  });
+
+  it("never holds the next account as revoked over the first account's late 403 revoked (C12.1)", async () => {
+    respondSwitchingDuring(0, { status: 403, body: { success: false, error: 'forbidden', reason: 'revoked' } });
+    await expect(apiRequest('POST', '/api/mobile/x', { schema: okSchema, body: {}, asUid: USER.uid }))
+      .rejects.toBeInstanceOf(AccountChangedError);
+    expect(revokedAccount()).toBeNull();
   });
 
   it('is never sent when another account is already signed in', async () => {
@@ -234,10 +242,25 @@ describe('a 401', () => {
 });
 
 describe('a 403', () => {
-  it.each(['revoked', 'deleted'] as const)('signs out for %s, which re-authenticating cannot fix', async reason => {
-    respondWith({ status: 403, body: { success: false, error: 'no', reason } });
+  it('signs out for deleted, which re-authenticating cannot fix', async () => {
+    respondWith({ status: 403, body: { success: false, error: 'no', reason: 'deleted' } });
     await expect(apiRequest('GET', '/api/mobile/x', { schema: okSchema })).rejects.toBeInstanceOf(ForbiddenError);
-    expect(repository.signOutReasons).toEqual([reason]);
+    expect(repository.signOutReasons).toEqual(['deleted']);
+    expect(repository.forcedRefreshes).toBe(0);
+    expect(revokedAccount()).toBeNull();
+  });
+
+  /*
+   * C12.1: a revoked account keeps its right to export and delete its data,
+   * and the server now admits exactly those two routes. Signing out on the
+   * first 403 left no way to reach them, so the session is kept and the
+   * account is held as revoked: the app shows the revoked screen instead.
+   */
+  it('keeps the session for revoked, and holds the account as revoked', async () => {
+    respondWith({ status: 403, body: { success: false, error: 'no', reason: 'revoked' } });
+    await expect(apiRequest('GET', '/api/mobile/x', { schema: okSchema })).rejects.toBeInstanceOf(ForbiddenError);
+    expect(repository.signOutReasons).toEqual([]);
+    expect(revokedAccount()).toBe(USER.uid);
     expect(repository.forcedRefreshes).toBe(0);
   });
 

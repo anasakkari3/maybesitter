@@ -160,6 +160,8 @@ jest.mock('expo-notifications', () => ({
   cancelAllScheduledNotificationsAsync: async () => null,
   addNotificationResponseReceivedListener: () => ({ remove: () => {} }),
   getLastNotificationResponseAsync: async () => null,
+  clearLastNotificationResponseAsync: async () => {},
+  dismissAllNotificationsAsync: async () => {},
   getPresentedNotificationsAsync: async () => [],
   SchedulableTriggerInputTypes: { DATE: 'date' },
   // expo's own numbering, not Android's: DEFAULT is 5 and HIGH is 6 there, and

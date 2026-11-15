@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { Platform } from 'react-native';
 import { apiBaseUrl } from '../config/env';
-import { getAuthRepository, getIdToken, refreshIdToken, signOutExpired, signOutForbidden } from './auth';
+import { getAuthRepository, getIdToken, holdRevoked, refreshIdToken, signOutExpired, signOutForbidden } from './auth';
 import {
   AccountChangedError,
   IcsFeedRefusedError,
@@ -705,7 +705,9 @@ export async function apiUpload<T>(path: string, options: UploadOptions<T>): Pro
 
   if (response.status === 403) {
     const { reason } = refusal(response.body);
-    if (reason === 'revoked' || reason === 'deleted') await signOutForbidden(reason);
+    // `revoked` keeps the session for the revoked screen (C12.1); see `apiRequest`.
+    if (reason === 'revoked') await holdRevoked();
+    else if (reason === 'deleted') await signOutForbidden(reason);
     throw errorForStatus(403, response.body);
   }
 
@@ -799,9 +801,12 @@ export async function apiRequestTagged<T>(
 
   if (response.status === 403) {
     const { reason } = refusal(response.body);
-    // A revoked or deleted account cannot be recovered by retrying; the app
-    // has to return to sign-in with the reason the user will be shown.
-    if (reason === 'revoked' || reason === 'deleted') await signOutForbidden(reason, options.asUid);
+    // Neither can be recovered by retrying. A deleted account returns to
+    // sign-in with the reason the user will be shown. A revoked one keeps its
+    // session (C12.1): it may still export and delete its data, so the app is
+    // replaced by the revoked screen rather than signed out.
+    if (reason === 'revoked') await holdRevoked(options.asUid);
+    else if (reason === 'deleted') await signOutForbidden(reason, options.asUid);
     throw errorForStatus(403, response.body, path);
   }
 

@@ -83,7 +83,22 @@ export function AuthProvider({ children, repository, isDevBundle = __DEV__ }: Au
     // The override answers for the whole session; subscribing to Firebase as
     // well would let a stray SDK callback sign the developer back out.
     if (bypassToken) return;
+    let signedIn = false;
     const unsubscribe = repo.onChange(next => {
+      /*
+       * A sign-out Firebase started by itself — the user disabled server-side,
+       * a refresh token invalidated — arrives here as a null user with no
+       * reason recorded, because no `signOut` call made it. The before-sign-out
+       * tasks have not run, and once the gate swaps `Root` out nobody else
+       * will: the last account's reminders would stay pending and its last tap
+       * would wait for the next account (C13.14). Started before `setUser`, so
+       * the tasks begin while the tree that registered them is still mounted.
+       * `session_expired`: the credential is already gone.
+       */
+      if (!next && signedIn && repo.lastSignOutReason() === null) {
+        void runBeforeSignOut('session_expired');
+      }
+      signedIn = next !== null;
       setUser(next);
       setResolved(true);
       // Read from the repository rather than tracked here alone: the API

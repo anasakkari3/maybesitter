@@ -56,6 +56,7 @@ const MAY_READ_TOP_INSET: Record<string, string> = {
   'features/onboarding/OnboardingChrome.tsx': 'pre-sign-in chrome, its own frame',
   'screens/SignInScreen.tsx': 'pre-sign-in, full bleed',
   'screens/SavedScreen.tsx': 'a confirmation frame that owns the inset outside its receipt scroller',
+  'screens/RevokedAccountScreen.tsx': 'replaces the whole app for a revoked account (C12.1): full bleed, no header or shell above it, so it clears the status bar itself',
 };
 
 describe('the safe-area top has exactly one owner', () => {

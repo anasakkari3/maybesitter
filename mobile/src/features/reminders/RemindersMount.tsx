@@ -24,6 +24,7 @@ import { applyTap, decideResponse, isBodyTap } from './notificationResponses';
 import { flushFor, registerNotificationResponseTask, tapEffectsFor } from './tapEffects';
 import { startOf } from './reminderInputs';
 import { useReminderSync } from './useReminderSync';
+import { forgetDeviceNotifications } from './forgetDeviceNotifications';
 
 /**
  * Everything notifications need mounted, in one place (UC-3.11 #196, UC-3.0b #184).
@@ -156,6 +157,23 @@ export function RemindersMount(): null {
 
     return () => unsubscribe?.();
   }, [accountId]);
+
+  // Registered before the device-row task, as a task of its own, so a failed
+  // server call can never leave A's reminders pending or A's last tap waiting
+  // for B (C13.14, CXA13.1). See `forgetDeviceNotifications.ts`.
+  //
+  // Only while the session ending is this account's, or none: a task still
+  // running when B has signed in must not touch B's notifications.
+  const { repository } = useAuth();
+  useEffect(() => onBeforeSignOut(() => {
+    const owner = latest.current.accountId;
+    return forgetDeviceNotifications(undefined, {
+      onlyWhile: () => {
+        const uid = repository.currentUser()?.uid ?? null;
+        return uid === null || uid === owner;
+      },
+    });
+  }), [repository]);
 
   // The device row has to go while the token still works, so this runs before
   // `signOut` rather than after the uid changes. See `beforeSignOut.ts`.

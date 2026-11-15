@@ -17,17 +17,19 @@ const OUT_OF_FLOW: ViewStyle = { position: 'absolute', width: 0, height: 0, over
  * iOS has no live regions; pair it with `useAnnounceOnIos` where VoiceOver
  * must hear the line too.
  */
-export function LiveRegion({ children, style, testID, alert = false }: {
+export function LiveRegion({ children, style, testID, alert = false, assertive = false }: {
   children: React.ReactNode;
   style?: StyleProp<ViewStyle>;
   testID?: string;
   /** Also marks the region as an alert, for a refusal the person must not miss. */
   alert?: boolean;
+  /** Android interrupts to say it, for a failure rather than a progress line. */
+  assertive?: boolean;
 }) {
   const empty = children === null || children === undefined || children === false;
   return (
     <View
-      accessibilityLiveRegion="polite"
+      accessibilityLiveRegion={assertive ? 'assertive' : 'polite'}
       {...(alert ? { accessibilityRole: 'alert' as const } : {})}
       {...(testID ? { testID } : {})}
       style={empty ? OUT_OF_FLOW : style}
