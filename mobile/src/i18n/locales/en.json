@@ -548,6 +548,7 @@
   "memoryUndo": "Undo",
   "memoryDeletedNotice": "Removed.",
   "memoryDeleteAllAlso": "This also clears what was learned from what you confirmed.",
+  "memoryEditKept": "What you wrote is still here. Save it again if you want.",
   "memorySuggestionsTitle": "Noticed, not saved",
   "memorySuggestionsLede": "Nothing here is kept unless you keep it.",
   "memorySuggestionFocusWindow": "You often finish things between {start} and {end}.",

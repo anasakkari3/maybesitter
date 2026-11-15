@@ -548,6 +548,7 @@
   "memoryUndo": "رجّعه",
   "memoryDeletedNotice": "انمسح.",
   "memoryDeleteAllAlso": "هاد كمان بيمسح اللي اتعلّمناه من الأشياء اللي أكّدتها.",
+  "memoryEditKept": "اللي كتبته لسّا هون. احفظه من جديد إذا بدك.",
   "memorySuggestionsTitle": "لاحظه، وما انحفظ",
   "memorySuggestionsLede": "ما بينحفظ إشي من هون إلا إذا إنت حفظته.",
   "memorySuggestionFocusWindow": "غالباً بتخلّص أشغالك بين {start} و{end}.",

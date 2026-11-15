@@ -551,6 +551,7 @@
   "memoryUndo": "לבטל",
   "memoryDeletedNotice": "נמחק.",
   "memoryDeleteAllAlso": "זה מוחק גם את מה שנלמד ממה שאישרת.",
+  "memoryEditKept": "מה שכתבת עדיין כאן. אפשר לשמור שוב.",
   "memorySuggestionsTitle": "זוהה, לא נשמר",
   "memorySuggestionsLede": "שום דבר כאן לא נשמר אלא אם תשמור אותו.",
   "memorySuggestionFocusWindow": "לרוב דברים מסתיימים אצלך בין {start} ל-{end}.",
