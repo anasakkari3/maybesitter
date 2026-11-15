@@ -123,6 +123,27 @@ test('with consent granted, a valid answer is used verbatim', async () => {
   });
 });
 
+const EMPTY_PLAN = { ...PLAN, scheduled: [], unscheduled: [] } as unknown as Plan;
+const NOTHING_PLACED = { ...PLAN, scheduled: [] } as unknown as Plan;
+
+for (const [label, plan] of [['an empty plan (a brand-new account)', EMPTY_PLAN], ['a plan that places nothing', NOTHING_PLACED]] as const) {
+  test(`NX4.1: ${label} is explained by the template, with no model call and no reservation`, async () => {
+    await withStorage(async (storage) => {
+      const facts = explanationFactsFrom(plan, TITLES, TZ, 'en');
+      const provider = fakeProvider('{"text":"No items were placed. No items did not fit."}');
+      let reserved = 0;
+      const outcome = await explainPlan(UID, plan, TITLES, facts, TZ, {
+        storage, provider, ...NO_METERING, reserve: async () => { reserved += 1; return 'ok' as const; },
+      });
+      assert.equal(provider.calls.length, 0, 'a paid call narrated a plan with nothing in it');
+      assert.equal(reserved, 0, 'the empty plan spent a daily model slot');
+      assert.equal(outcome.explanation.source, 'template');
+      assert.equal(outcome.explanation.text, templateExplanation(facts));
+      assert.equal(outcome.fallbackReason, 'nothing_placed');
+    });
+  });
+}
+
 const REFUSED: Array<[string, string]> = [
   ['a time that is not in the plan', '{"text":"You have 1 thing at 16:45."}'],
   ['an invented title', '{"text":"I placed 1 thing: \\"Collect the parcel\\"."}'],

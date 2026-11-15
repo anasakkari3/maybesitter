@@ -35,6 +35,10 @@ export async function POST(request: Request, { params }: { params: Promise<{ dat
   }
   if (!outcome.ok) {
     if (outcome.reason === 'not_found') return mobileError('no plan for that date', 404);
+    // A finished day is history, not a plan to rebuild (CA4.7).
+    if (outcome.reason === 'day_over') {
+      return Response.json({ success: false, error: 'the day this plan is for is over', reason: 'day_over' }, { status: 422 });
+    }
     if (outcome.reason === 'limit_reached') {
       return Response.json(
         {

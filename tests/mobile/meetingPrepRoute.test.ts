@@ -20,13 +20,13 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { registerHooks } from 'node:module';
 import { createMemoryStorage } from '../../lib/storage/memoryAdapter.ts';
-import { resetStorageForTests, setStorageForTests } from '../../lib/storage/index.ts';
+import { CAPTURE_PROPOSALS, getStorage, resetStorageForTests, setStorageForTests, userCol } from '../../lib/storage/index.ts';
 import { installFakeAuth, tokenFor, uidFor, type FakeAuthControls } from '../support/fakeAuth.ts';
 import { setAiConsent } from '../../lib/consents/aiConsentService.ts';
 import { AI_CONSENT_VERSION } from '../../src/contracts/v1/consentContracts.ts';
 import { reserveDailyAction } from '../../lib/llm/usageGuard.ts';
 import { resetProviderForTests } from '../../src/extraction/llm/index.ts';
-import { MAX_MEETING_PREPS_PER_DAY } from '../../lib/services/mobile/meetingPrepService.ts';
+import { MAX_MEETING_PREPS_PER_DAY, MEETING_PREP_REPLAY_WINDOW_MS } from '../../lib/services/mobile/meetingPrepService.ts';
 import { POST as preparePost } from '../../src/app/api/mobile/meetings/prepare/route.ts';
 import { POST as confirmPost } from '../../src/app/api/mobile/capture/confirm/route.ts';
 import { PATCH as commitmentPatch } from '../../src/app/api/mobile/commitments/[id]/route.ts';
@@ -218,7 +218,8 @@ test('the daily cap answers 429 with the scope the client reads, and a refused r
     }
     const last = await preparePost(request({ notes: NOTE, ...block() }));
     assert.equal(last.status, 200, 'the twentieth prep of the day is still allowed');
-    const over = await preparePost(request({ notes: NOTE, ...block() }));
+    // A different block: the same request again would be a free replay (CXA2.9).
+    const over = await preparePost(request({ notes: NOTE, ...block(240) }));
     assert.equal(over.status, 429);
     const body = await json(over);
     assert.equal(body.reason, 'meeting_prep_rate_limited');
@@ -291,6 +292,111 @@ test('AI is always on: an account that never answered gets the model prep', asyn
     const body = await json(response);
     assert.equal(gemini.calls.length, 1, 'an always-on account\u2019s notes never reached the model');
     assert.deepEqual(body.proposal.provenance, { requestedEngine: 'model', executedEngine: 'gemini', fallbackUsed: false });
+  } finally {
+    gemini.restore();
+    end();
+  }
+});
+
+test('CXA2.9: a resubmitted prep (the same request after a lost response) replays the first answer: one model call, one stored proposal, one of the day\u2019s preps', async () => {
+  await begin();
+  const gemini = withGemini();
+  try {
+    const times = block();
+    const payload = { notes: NOTE, ...times, timezone: 'Asia/Jerusalem' };
+    const first = await preparePost(request(payload));
+    assert.equal(first.status, 200);
+    const firstBody = await json(first);
+    const again = await preparePost(request(payload));
+    assert.equal(again.status, 200);
+    const againBody = await json(again);
+    assert.equal(gemini.calls.length, 1, 'the retry ran the model a second time');
+    assert.equal(againBody.proposal.proposalId, firstBody.proposal.proposalId, 'the retry made a second proposal');
+    assert.deepEqual(againBody, firstBody, 'the retry did not answer what the first request answered');
+    const stored = await getStorage().list(userCol(UID, CAPTURE_PROPOSALS));
+    assert.equal(stored.length, 1, 'the retry stored an orphan proposal');
+    // Exactly one of the twenty was spent: nineteen more fit, the twenty-first does not.
+    for (let i = 0; i < MAX_MEETING_PREPS_PER_DAY - 1; i += 1) {
+      assert.equal(await reserveDailyAction(UID, 'meeting_prepare', MAX_MEETING_PREPS_PER_DAY), 'ok', `the retry spent a prep (${i})`);
+    }
+    // A replay still answers once the cap is reached: it costs nothing.
+    assert.equal((await preparePost(request(payload))).status, 200);
+    assert.equal(gemini.calls.length, 1);
+
+    // Different notes are a different request.
+    const other = await preparePost(request({ ...payload, notes: `${NOTE}\nوبدي أجهّز العرض كمان.` }));
+    assert.equal(other.status, 429, 'a new request past the cap was not refused');
+  } finally {
+    gemini.restore();
+    end();
+  }
+});
+
+/** How many of today's preps this account has spent: what is left, counted by spending it. */
+async function prepsSpent(uid: string): Promise<number> {
+  let left = 0;
+  while (left <= MAX_MEETING_PREPS_PER_DAY && await reserveDailyAction(uid, 'meeting_prepare', MAX_MEETING_PREPS_PER_DAY) === 'ok') left += 1;
+  return MAX_MEETING_PREPS_PER_DAY - left;
+}
+
+test('CXA2.9: a proposal older than the replay window is not replayed: a new prep is spent and the model runs again', async () => {
+  await begin();
+  const gemini = withGemini();
+  try {
+    const payload = { notes: NOTE, ...block(), timezone: 'Asia/Jerusalem' };
+    const first = await json(await preparePost(request(payload)));
+    const path = `${userCol(UID, CAPTURE_PROPOSALS)}/${first.proposal.proposalId}`;
+    const stored = await getStorage().get<Record<string, unknown>>(path);
+    // Made just past the window, by the server's clock.
+    await getStorage().set(path, { ...stored, proposedAt: new Date(Date.now() - MEETING_PREP_REPLAY_WINDOW_MS - 1_000).toISOString() });
+    const again = await preparePost(request(payload));
+    assert.equal(again.status, 200);
+    assert.notEqual((await json(again)).proposal.proposalId, first.proposal.proposalId, 'a proposal past the window was replayed');
+    assert.equal(gemini.calls.length, 2);
+    assert.equal(await prepsSpent(UID), 2, 'the request after the window spent no prep');
+  } finally {
+    gemini.restore();
+    end();
+  }
+});
+
+test('CXA2.9: the same request from another account never replays the first account\u2019s proposal', async () => {
+  await begin();
+  const OTHER = uidFor('MeetingPrepOtherUser');
+  await seedLiveAccount(OTHER);
+  const gemini = withGemini();
+  try {
+    const payload = { notes: NOTE, ...block(), timezone: 'Asia/Jerusalem' };
+    const mine = await json(await preparePost(request(payload)));
+    const theirs = await preparePost(request(payload, { uid: OTHER }));
+    assert.equal(theirs.status, 200);
+    const theirsBody = await json(theirs);
+    assert.notEqual(theirsBody.proposal.proposalId, mine.proposal.proposalId, 'another account got this account\u2019s proposal');
+    assert.equal(gemini.calls.length, 2);
+    assert.equal((await getStorage().list(userCol(OTHER, CAPTURE_PROPOSALS))).length, 1);
+    assert.equal(await prepsSpent(OTHER), 1);
+  } finally {
+    gemini.restore();
+    end();
+  }
+});
+
+test('CXA2.9: once the proposal is confirmed, the same notes are a new prep, not a replay', async () => {
+  await begin();
+  const gemini = withGemini();
+  try {
+    const payload = { notes: NOTE, ...block(), timezone: 'Asia/Jerusalem' };
+    const body = await json(await preparePost(request(payload)));
+    const confirmed = await confirmPost(new Request(`${BASE}/api/mobile/capture/confirm`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${tokenFor(UID)}` },
+      body: JSON.stringify({ proposalId: body.proposal.proposalId, itemIds: [body.prep.itemId] }),
+    }));
+    assert.equal(confirmed.status, 200);
+    const again = await preparePost(request(payload));
+    assert.equal(again.status, 200);
+    assert.notEqual((await json(again)).proposal.proposalId, body.proposal.proposalId, 'a confirmed proposal was handed out again');
+    assert.equal(gemini.calls.length, 2);
   } finally {
     gemini.restore();
     end();

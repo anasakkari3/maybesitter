@@ -36,9 +36,12 @@ import { CaptureInputTooLargeError } from '../../../../../../lib/services/captur
 import {
   MAX_MEETING_PREPS_PER_DAY,
   MeetingPrepInputError,
+  findMeetingPrepReplay,
+  meetingPrepRequestKey,
   prepareMeeting,
   validateMeetingPrepInput,
   type MeetingPrepInput,
+  type ValidMeetingPrepInput,
 } from '../../../../../../lib/services/mobile/meetingPrepService';
 import { mobileError } from '../../../../../../lib/services/mobile/response';
 import { RequestBodyTooLargeError, readJsonBody, requestBodyTooLargeResponse } from '../../../../../../lib/net/requestBody';
@@ -80,12 +83,25 @@ export async function POST(request: Request) {
   const input = body as MeetingPrepInput;
 
   const now = new Date();
+  let valid: ValidMeetingPrepInput;
   try {
-    validateMeetingPrepInput(input, now);
+    valid = validateMeetingPrepInput(input, now);
   } catch (error) {
     if (error instanceof MeetingPrepInputError) return refused(error);
     if (error instanceof CaptureInputTooLargeError) return tooLong(error);
     throw error;
+  }
+
+  // A resubmit of a request already answered (a lost response, CXA2.9) gets
+  // that answer back: no second prep spent, no second model call, no second
+  // proposal.
+  const requestKey = meetingPrepRequestKey(valid, (body as { idempotencyKey?: unknown }).idempotencyKey);
+  try {
+    const replay = await findMeetingPrepReplay(user.uid, requestKey, { now });
+    if (replay) return Response.json({ success: true, ...replay });
+  } catch (error) {
+    console.error(`[meetings/prepare] replay lookup failed: ${error instanceof Error ? error.name : 'unknown'}`);
+    return mobileError('could not prepare this meeting', 500);
   }
 
   // Fails closed: an unreadable counter refuses rather than waves it through.
@@ -106,7 +122,7 @@ export async function POST(request: Request) {
   }
 
   try {
-    const result = await prepareMeeting(user.uid, input, { now });
+    const result = await prepareMeeting(user.uid, input, { now, requestKey });
     return Response.json({ success: true, ...result });
   } catch (error) {
     if (error instanceof AccountUnavailableError) return accountUnavailableResponse();

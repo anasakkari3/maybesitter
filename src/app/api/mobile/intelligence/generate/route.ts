@@ -9,7 +9,7 @@ import {
 } from '../../../../../../lib/intelligence/proposalEngine';
 import { listObservations } from '../../../../../../lib/intelligence/observationStore';
 import { previewSuggestionSchedule } from '../../../../../../lib/intelligence/schedulePreview';
-import { readJsonBody } from '../../../../../../lib/net/requestBody';
+import { RequestBodyTooLargeError, readBoundedText, requestBodyTooLargeResponse } from '../../../../../../lib/net/requestBody';
 import { getStorage } from '../../../../../../lib/storage';
 import { m5bBasisMode } from '../../../../../../lib/release/m5bCapabilities';
 import { readActiveMemorySnapshot, suggestionMatchesMode, suggestionProjection } from '../../../../../../lib/intelligence/memoryBasis';
@@ -17,24 +17,51 @@ import { clientSupportsReadd, resolveReaddPolicy } from '../../../../../../lib/i
 
 export const dynamic = 'force-dynamic';
 
+/** The phone sends `{}` or `{ "trigger": "visit" }`; nothing legitimate is near this. */
+const GENERATE_BODY_LIMIT_BYTES = 4 * 1024;
+
+type GenerateTrigger = 'visit' | 'explicit';
+
+/**
+ * Which request this is, or null for a body that is neither (CXA7.2).
+ *
+ * `{ trigger: 'visit' }`: a screen opening (Today, «يتابع لك»), held to the
+ * visit policy (`VISIT_POLICY`). `{}` from the button, or no body at all from
+ * an older client, is an explicit request, under the digest rule only.
+ * Anything else — not JSON, not an object, a `trigger` that is not `visit` —
+ * used to fall through to "explicit" and so skipped the visit floor.
+ */
+function generateTriggerOf(text: string): GenerateTrigger | null {
+  if (text.trim() === '') return 'explicit';
+  const body: unknown = JSON.parse(text);
+  if (!body || typeof body !== 'object' || Array.isArray(body)) return null;
+  const { trigger } = body as { trigger?: unknown };
+  if (trigger === undefined) return 'explicit';
+  return trigger === 'visit' ? 'visit' : null;
+}
+
 export async function POST(request: Request) {
   const disabled = intelligenceDisabledResponse();
   if (disabled) return disabled;
   let user;
   try { user = await requireMobileUser(request); } catch (error) { return mobileAuthErrorResponse(error); }
+  // The body is read and judged before anything else is (CXA7.2): a body that
+  // is not one of the two the phone sends is refused, never read as an
+  // explicit request — which would skip the visit floor and reach the model.
+  let trigger: GenerateTrigger | null;
+  try { trigger = generateTriggerOf(await readBoundedText(request, { limitBytes: GENERATE_BODY_LIMIT_BYTES })); }
+  catch (error) {
+    if (error instanceof RequestBodyTooLargeError) return requestBodyTooLargeResponse(error);
+    return Response.json({ success: false, reason: 'invalid_body' }, { status: 400 });
+  }
+  if (!trigger) return Response.json({ success: false, reason: 'invalid_body' }, { status: 400 });
   if (await getAiConsent(user.uid) !== 'granted') {
     return Response.json({ success: false, reason: 'consent_required' }, { status: 403 });
   }
   if (await getRecommendationConsent(user.uid) !== 'granted') {
     return Response.json({ success: false, reason: 'consent_required' }, { status: 403 });
   }
-  // `{ trigger: 'visit' }`: a screen opening (Today, «يتابع لك»), held to the
-  // visit policy (`VISIT_POLICY`). Anything else — `{}` from the button, or a
-  // body an older client never sent — is an explicit request, under the
-  // digest rule only.
-  let visit = false;
-  try { visit = (await readJsonBody<{ trigger?: unknown } | null>(request))?.trigger === 'visit'; }
-  catch { visit = false; }
+  const visit = trigger === 'visit';
   try {
     const now = new Date().toISOString();
     const readdSupported = clientSupportsReadd(request);
