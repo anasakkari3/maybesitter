@@ -119,9 +119,12 @@ case "${TARGET}" in
     # hand. maybesitter.com is the live custom domain; www 301-redirects to it
     # at Hosting, so a form is never posted from www.
     site_origins=";MAYBESITTER_SITE_ORIGINS=https://maybesitter.com,https://maybesitter-app.web.app,https://maybesitter-app.firebaseapp.com"
-    # Pinned off in production: add-ons and triage are Stage B engineering
-    # (AGENTS.md §6) until the owner releases them.
-    addon_gate_mode="off"
+    # The add-on gate reads in shadow in production (owner's go, 2026-11-15):
+    # a feature the person switched off stops (wave A2, C12.2), while every
+    # other refusal — not bought, budget or free cap spent — is only logged.
+    # `enforce` stays Stage B (AGENTS.md §6) until the owner releases it.
+    # Triage is still pinned off.
+    addon_gate_mode="shadow"
     email_triage_mode="off"
     ;;
   *)

@@ -15,7 +15,7 @@ Read from the code, not run. Routes live in `src/app/api/**`.
    - Global cap: 3000 a day on staging, 500 in production.
    - Without consent or quota, routes fall back to rules.
 3. **Goal-plan routes answer 404 in both environments.** `MAYBESITTER_FEATURE_GOAL_PLAN` is set nowhere.
-4. **The add-on gate never refuses today.** `MAYBESITTER_ADDON_GATE_MODE` is `shadow` on staging and `off` in production, and `refuses()` is true only under `enforce`.
+4. **The add-on gate refuses only the person's own switch.** `MAYBESITTER_ADDON_GATE_MODE` is `shadow` on staging and, since the owner's go on 2026-11-15, in production. Under `shadow` a feature the person switched off (`user_off`) is refused; not bought and spent budgets are only logged. `GET /api/mobile/capabilities/features` lists only features whose deployment switches are on, so production omits memory learning, memory translation and search history.
 5. **Many flags are env-locked.** These allow only local, test and staging in code: `CAPTURE_KINDS`, `FREE_SLOTS`, `EXTERNAL_CLASH_HOLD`, `EVENING_IMPACT`, `SMART_POSTPONE` (m4b), `CALENDAR_CHOICE`, `EMAIL_SOURCES` (m5a), `MEMORY_LEARNING` (m5b), `SEARCH_HISTORY` (m6), `MEMORY_TRANSLATION` (m6b) and `goalPlan`.
 6. **Priority ordering is off.** `MAYBESITTER_FEATURE_PRIORITY` is unset, so Today uses plain ordering.
 
@@ -181,11 +181,10 @@ Production versus staging:
 
   | Flag | Production | Staging |
   |---|---|---|
-  | `ADDON_GATE_MODE` | off | shadow |
   | `LLM_GLOBAL_DAILY_CALL_CAP` | 500 | 3000 |
   | Maximum instances | 3 | 2 |
 
-- **Same in both:** `EMAIL_TRIAGE_MODE` off, `FREE_MONTHLY_CENTS` 40, model gemini-2.5-flash in europe-west1.
+- **Same in both:** `ADDON_GATE_MODE` shadow (production since 2026-11-15), `EMAIL_TRIAGE_MODE` off, `FREE_MONTHLY_CENTS` 40, model gemini-2.5-flash in europe-west1.
 
 ## Existing test tooling
 

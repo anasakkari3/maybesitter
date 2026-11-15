@@ -3896,6 +3896,15 @@ test('exports the M6a-1 fixtures from the real handlers', async () => {
 test('exports the feature add-on fixtures from the real handlers', async () => {
   const uid = await beginM6();
   const previous = process.env.MAYBESITTER_ADDON_GATE_MODE;
+  // The list holds only features this deployment can run; these fixtures show
+  // the whole catalog, as staging does (every module on, the match-data key set).
+  const moduleEnv = {
+    MAYBESITTER_FEATURE_MEMORY_TRANSLATION: 'true',
+    MAYBESITTER_KILL_SWITCH_MEMORY_TRANSLATION: 'false',
+    FOOTBALL_DATA_API_KEY: 'fixture-test-key',
+  } as const;
+  const previousModuleEnv = Object.fromEntries(Object.keys(moduleEnv).map(key => [key, process.env[key]]));
+  Object.assign(process.env, moduleEnv);
   const [warn, error] = [console.warn, console.error];
   try {
     delete process.env.MAYBESITTER_ADDON_GATE_MODE;
@@ -3914,6 +3923,10 @@ test('exports the feature add-on fixtures from the real handlers', async () => {
     console.error = error;
     if (previous === undefined) delete process.env.MAYBESITTER_ADDON_GATE_MODE;
     else process.env.MAYBESITTER_ADDON_GATE_MODE = previous;
+    for (const [key, value] of Object.entries(previousModuleEnv)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
     endM6();
   }
 });

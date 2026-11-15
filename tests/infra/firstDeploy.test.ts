@@ -367,9 +367,11 @@ test('switching the env list to a custom delimiter dropped none of the existing 
   // rotation is active (tests/infra/pepperRotation798.test.ts covers the rest).
   assert.equal(production.get('MAYBESITTER_DELETION_RECEIPT_PEPPER_WRITE'), 'current');
   assert.equal(staging.get('MAYBESITTER_DELETION_RECEIPT_PEPPER_WRITE'), 'current');
-  // Feature add-ons and email triage (2026-11-10): pinned off in production;
-  // staging decides in shadow and keeps triage off.
-  assert.equal(production.get('MAYBESITTER_ADDON_GATE_MODE'), 'off');
+  // Feature add-ons and email triage (2026-11-10): staging decides in shadow
+  // and keeps triage off. Production reads the gate in shadow since the
+  // owner's go on 2026-11-15, so a feature a person switched off stops there
+  // too (wave A2, C12.2); entitlement and budget refusals stay log-only.
+  assert.equal(production.get('MAYBESITTER_ADDON_GATE_MODE'), 'shadow');
   assert.equal(production.get('MAYBESITTER_EMAIL_TRIAGE_MODE'), 'off');
   assert.equal(staging.get('MAYBESITTER_ADDON_GATE_MODE'), 'shadow');
   assert.equal(staging.get('MAYBESITTER_EMAIL_TRIAGE_MODE'), 'off');

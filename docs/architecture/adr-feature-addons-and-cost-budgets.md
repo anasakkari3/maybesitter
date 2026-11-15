@@ -1,6 +1,6 @@
 # ADR: Feature add-ons and monthly cost budgets
 
-Status: accepted for engineering, 2026-11-10. Release-locked (default off, production pinned off) until the owner releases it.
+Status: accepted for engineering, 2026-11-10. Production reads the gate in shadow since the owner's go on 2026-11-15 (`user_off` obeyed, every other refusal log-only); `enforce` stays release-locked until the owner releases it.
 Owner direction: session of 2026-11-10. Implementation plan: `docs/superpowers/plans/2026-11-10-feature-addons.md`.
 
 ## Context
@@ -15,8 +15,8 @@ The owner wants the subscription to become a bundle of per-feature subscriptions
    - the model providers (`captureProvider`, `shareProvider`), before the daily reservation, and charge the feature after the call answers (`lib/features/providerGate.ts`);
    - the Gmail jobs and the M5a scan, before a permit is reserved; the football projection and the fixture watchers in the per-minute sweep pass over a person who switched football off (the shared club poll still runs while anyone follows the club);
    - the add-on routes, which answer the existing 404 `feature_unavailable` (`lib/features/featureRoute.ts`) so installed apps already hide them;
-   - `GET /api/mobile/capabilities/features` (+ `PUT …/[id]` for the person's switch), which the app reads to show or hide surfaces.
-4. **Rollout mode** — `MAYBESITTER_ADDON_GATE_MODE`: `off` (default; reads and writes nothing, the product behaves exactly as before), `shadow` (decide and log `shadow_deny`, never obey), `enforce`. Staging is `shadow`, production `off`.
+   - `GET /api/mobile/capabilities/features` (+ `PUT …/[id]` for the person's switch), which the app reads to show or hide surfaces. It lists only features whose deployment switches are on (`featureAvailable` in `lib/features/featureCapabilities.ts`): a release-locked module never appears as a switch that does nothing.
+4. **Rollout mode** — `MAYBESITTER_ADDON_GATE_MODE`: `off` (default; reads and writes nothing, the product behaves exactly as before), `shadow` (decide and log `shadow_deny`, never obey), `enforce`. Staging and production are both `shadow` (production since the owner's go on 2026-11-15). Under `shadow` the person's own switch (`user_off`) is obeyed; not bought, budget spent and free cap spent are only logged.
 5. **Money** — integer nano-dollars (1¢ = 10⁷ n$). List prices in `lib/features/pricing.ts`: Gemini 2.5 Flash $0.30/M in, $2.50/M out. GCP Billing stays the source of truth.
 6. **Holds, not read-then-charge** — under `enforce` a call holds its worst-case cost (all allowed output tokens, the prompt at two characters a token) in `users/{uid}/usage/spend-YYYY-MM` inside the transaction that checks the budget, then settles to the real cost or releases on failure; holds expire after 15 minutes. Every path that spends on the model holds: both providers and the services that call the gated provider directly (memory summary, memory translation, plan narration). `tests/features/featureSpendCoverage.test.ts` fails on a new direct spender.
 7. **The free ceiling holds for everyone** over the features they use on a free allowance; a purchase raises only its own feature. `tests/features/catalog.test.ts` checks each purchase's added budget against its net after 18% VAT and a 30% store fee.
