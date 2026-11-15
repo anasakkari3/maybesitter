@@ -66,14 +66,35 @@ describe('email sign-in', () => {
     expect(screen.getByText(en.authFieldEmailInvalid)).toBeTruthy();
   });
 
-  it('refuses a short password before any network call', async () => {
+  /*
+   * CA1.8: the length floor is a sign-up rule. Firebase's own floor is 6, and
+   * an account made in the console, by the Admin SDK or before the app's floor
+   * was 8 has a 6–7 character password Firebase accepts. Refusing it here, on
+   * sign-in, left that account unable ever to sign in by email (seen on device
+   * with a 7-character password, 3 of 3). Firebase decides whether it is right.
+   */
+  it('sends a password shorter than the sign-up floor to Firebase on sign-in', async () => {
     const repository = createFakeAuthRepository({ initialUser: null });
     await renderEmail(repository);
     await type(en.authEmailLabel, 'someone@example.com');
-    await type(en.authPasswordLabel, 'short');
+    await type(en.authPasswordLabel, 'seven77');
+    await press(en.authModeSignIn);
+    expect(repository.calls).toEqual([{ method: 'signInWithEmail', email: 'someone@example.com' }]);
+    expect(screen.queryByText(`Use at least ${MIN_PASSWORD_LENGTH} characters.`)).toBeNull();
+  });
+
+  it('does not show the sign-up floor as a hint on sign-in', async () => {
+    await renderEmail(createFakeAuthRepository({ initialUser: null }));
+    expect(screen.queryByText(`At least ${MIN_PASSWORD_LENGTH} characters`)).toBeNull();
+  });
+
+  it('still asks for a password on sign-in', async () => {
+    const repository = createFakeAuthRepository({ initialUser: null });
+    await renderEmail(repository);
+    await type(en.authEmailLabel, 'someone@example.com');
     await press(en.authModeSignIn);
     expect(repository.calls).toEqual([]);
-    expect(screen.getByText(`Use at least ${MIN_PASSWORD_LENGTH} characters.`)).toBeTruthy();
+    expect(screen.getByText(en.authFieldPasswordRequired)).toBeTruthy();
   });
 
   it.each([
@@ -116,6 +137,18 @@ describe('account creation', () => {
     await type(en.authPasswordLabel, VALID_PASSWORD);
     await press(en.authModeSignUp);
     expect(repository.calls).toEqual([{ method: 'createAccount', email: 'new@example.com' }]);
+  });
+
+  it('refuses a password under the floor before any network call, and says the floor', async () => {
+    const repository = createFakeAuthRepository({ initialUser: null });
+    await renderEmail(repository);
+    await press(en.authSwitchToSignUp);
+    expect(screen.getByText(`At least ${MIN_PASSWORD_LENGTH} characters`)).toBeTruthy();
+    await type(en.authEmailLabel, 'new@example.com');
+    await type(en.authPasswordLabel, 'seven77');
+    await press(en.authModeSignUp);
+    expect(repository.calls).toEqual([]);
+    expect(screen.getByText(`Use at least ${MIN_PASSWORD_LENGTH} characters.`)).toBeTruthy();
   });
 
   it('points a duplicate address at sign-in rather than confirming it exists', async () => {
