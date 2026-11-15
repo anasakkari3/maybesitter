@@ -197,6 +197,13 @@ describe('habits', () => {
     expect(requests[1]?.url).toContain('/api/mobile/habits/h1/occurrences/h1.2026-11-15.0/skip?timezone=Asia%2FHebron');
   });
 
+  it("carries the weekly counts and the off-day rows (owner decision 2026-11-15)", async () => {
+    serve({ success: true, items: [], today: { localDate: '2026-11-17', occurrences: [], weeks: [{ habitId: 'h1', completed: 1, target: 3 }], anyDay: ['h1.2026-11-17.0'] } });
+    const today = await listHabitsToday('UTC');
+    expect(today?.weeks).toEqual([{ habitId: 'h1', completed: 1, target: 3 }]);
+    expect(today?.anyDay).toEqual(['h1.2026-11-17.0']);
+  });
+
   it('an older server with no today on the list reads as no occurrence, not a failure', async () => {
     serve({ success: true, items: [] });
     expect(await listHabitsToday('UTC')).toBeNull();

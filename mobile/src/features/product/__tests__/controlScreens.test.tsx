@@ -262,3 +262,36 @@ it("holds the habit cards until today's occurrences are known, so a card never a
   expect(screen.queryByTestId('habit-toggle-h1')).toBeNull();
   expect(screen.getByTestId('query-loading')).toBeTruthy();
 });
+
+/**
+ * A weekly-count habit counts on any day it is done (owner decision
+ * 2026-11-15): an off day offers «done» only, the card says the week's
+ * count, and a met week says so and asks nothing more.
+ */
+const gym = { ...walk, habitId: 'h1', title: 'Gym', cadence: { kind: 'weekly_count', count: 3 }, minimumOccurrences: 3, maximumOccurrences: 3 };
+
+it('an off-day row offers done only, never not today', async () => {
+  mockHabits = [gym];
+  mockToday = { localDate: '2026-11-17', occurrences: [{ ...todayRow('pending'), occurrenceId: 'h1.2026-11-17.0', localDate: '2026-11-17' }], weeks: [{ habitId: 'h1', completed: 0, target: 3 }], anyDay: ['h1.2026-11-17.0'] };
+  await render(wrap(<HabitDetailScreen />));
+  await fireEvent.press(screen.getByTestId('habit-today-done-h1'));
+  expect(mockDecide).toHaveBeenLastCalledWith({ habitId: 'h1', occurrenceId: 'h1.2026-11-17.0', outcome: 'completed' }, expect.any(Object));
+  expect(screen.queryByTestId('habit-today-skip-h1')).toBeNull();
+  expect(screen.getByTestId('habit-today-anyday-h1')).toHaveTextContent(strings.en.xHabitTodayAnyDay);
+});
+
+it("says the week's count on a weekly habit", async () => {
+  mockHabits = [gym];
+  mockToday = { localDate: '2026-11-18', occurrences: [todayRow('pending')], weeks: [{ habitId: 'h1', completed: 1, target: 3 }], anyDay: [] };
+  await render(wrap(<HabitDetailScreen />));
+  expect(screen.getByTestId('habit-week-h1')).toHaveTextContent('1 of 3 this week');
+  expect(screen.getByTestId('habit-today-skip-h1')).toBeTruthy();
+});
+
+it('a met week says it is done for the week and asks nothing more', async () => {
+  mockHabits = [gym];
+  mockToday = { localDate: '2026-11-20', occurrences: [], weeks: [{ habitId: 'h1', completed: 3, target: 3 }], anyDay: [] };
+  await render(wrap(<HabitDetailScreen />));
+  expect(screen.getByTestId('habit-week-h1')).toHaveTextContent(strings.en.xHabitWeekDone);
+  expect(screen.queryByTestId('habit-today-h1')).toBeNull();
+});
