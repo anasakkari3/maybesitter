@@ -148,7 +148,7 @@ describe('a revoked account (C12.1)', () => {
     await waitFor(() => expect(screen.getByTestId('revoked-account')).toBeTruthy());
 
     await act(async () => {
-      fireEvent.press(screen.getByLabelText(en.revokedAccountExport));
+      await fireEvent.press(screen.getByLabelText(en.revokedAccountExport));
     });
 
     await waitFor(() => expect(share).toHaveBeenCalledTimes(1));
@@ -163,12 +163,12 @@ describe('a revoked account (C12.1)', () => {
     await waitFor(() => expect(screen.getByTestId('revoked-account')).toBeTruthy());
 
     await act(async () => {
-      fireEvent.press(screen.getByLabelText(en.revokedAccountDelete));
+      await fireEvent.press(screen.getByLabelText(en.revokedAccountDelete));
     });
     // The existing screen, with its own explanation and confirm.
     expect(screen.getByText(en.accountDeleteTitle)).toBeTruthy();
     await act(async () => {
-      fireEvent.press(screen.getByText(en.accountDeleteAction));
+      await fireEvent.press(screen.getByText(en.accountDeleteAction));
     });
     // Nothing is sent before the confirmation.
     expect(requests).toEqual([]);
@@ -182,12 +182,12 @@ describe('a revoked account (C12.1)', () => {
     expect(repository.signOutReasons).toEqual(['deleted']);
   });
 
-  it('signs out from «اطلع»', async () => {
+  it('signs out from the sign-out button', async () => {
     await mount();
     await firstRequestRefused();
     await waitFor(() => expect(screen.getByTestId('revoked-account')).toBeTruthy());
     await act(async () => {
-      fireEvent.press(screen.getByLabelText(en.revokedAccountSignOut));
+      await fireEvent.press(screen.getByLabelText(en.revokedAccountSignOut));
     });
     await waitFor(() => expect(repository.signOutReasons).toEqual(['revoked']));
     expect(revokedAccount()).toBeNull();

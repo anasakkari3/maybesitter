@@ -8,6 +8,7 @@ import { AppProvider } from './src/state/AppContext';
 import { ApiProvider } from './src/api/ui/ApiProvider';
 import { AccountDeletionProvider } from './src/features/account/AccountDeletionProvider';
 import { AccountDeletedGate } from './src/features/account/AccountDeletedGate';
+import { RevokedAccountGate } from './src/features/account/RevokedAccountGate';
 import { OnboardingGate } from './src/features/onboarding/OnboardingGate';
 import { LanguageGate } from './src/features/language/LanguageGate';
 import { AuthProvider } from './src/auth/AuthProvider';
@@ -88,9 +89,13 @@ function AppTree() {
                       {/* The sign-in gate, with UC-2.R1 (#171)'s onboarding composed
                           into the slot it has always had. A signed-in user who has
                           not been through the consent screen does not reach Root. */}
-                      <OnboardingGate>
-                        <Root />
-                      </OnboardingGate>
+                      <RevokedAccountGate>
+                        {/* A revoked account (C12.1) sees only its export,
+                            deletion and sign-out: nothing below mounts. */}
+                        <OnboardingGate>
+                          <Root />
+                        </OnboardingGate>
+                      </RevokedAccountGate>
                     </AccountDeletedGate>
                   </AccountDeletionProvider>
                 </ApiProvider>
