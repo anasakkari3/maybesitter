@@ -346,9 +346,9 @@ test('re-drive leaves alone what is too old, and marks sent what already went ou
     assert.equal(await deliverWatcherAlert(UID, 'wtn_recent', minutes(98), { storage, messaging }), 'sent');
     messaging.sent.length = 0;
     await queuedAt(UID, 'wtn_pushed', minutes(99), 'wtc_pushed');
-    // Pushed before a crash that came before it could be marked: the lock exists.
+    // Pushed before a crash that came before it could be marked: the lock says it was delivered.
     await storage.set(userSubDoc(UID, PUSH_LOG, docIdForKey(watcherAlertDedupeKey('wtn_pushed'))), {
-      dedupeKey: watcherAlertDedupeKey('wtn_pushed'), kind: 'watcher_alert', createdAt: minutes(99).toISOString(), expiresAt: minutes(99 + 7 * 24 * 60).toISOString(),
+      dedupeKey: watcherAlertDedupeKey('wtn_pushed'), kind: 'watcher_alert', createdAt: minutes(99).toISOString(), expiresAt: minutes(99 + 7 * 24 * 60).toISOString(), deliveredAt: minutes(99).toISOString(),
     });
     await tick(messaging, now);
     assert.equal(messaging.sent.length, 0);
@@ -514,6 +514,32 @@ test('one re-drive round stops at its time budget', async () => {
     assert.equal(report.sent, 0);
     assert.equal(report.stoppedEarly, true);
     assert.equal(messaging.sent.length, 0);
+  } finally {
+    resetStorageForTests();
+  }
+});
+
+test('a lock with no delivery stamp is never read as a push that went out', async () => {
+  await begin();
+  try {
+    await withDevice('ar');
+    const messaging = fakeMessaging();
+    const lockFor = async (id: string, at: Date) => storage.set(userSubDoc(UID, PUSH_LOG, docIdForKey(watcherAlertDedupeKey(id))), {
+      dedupeKey: watcherAlertDedupeKey(id), kind: 'watcher_alert', createdAt: at.toISOString(), expiresAt: minutes(7 * 24 * 60).toISOString(),
+    });
+    // A send still in flight on another worker: left alone, still queued.
+    await queuedAt(UID, 'wtn_inflight', minutes(9), 'wtc_inflight');
+    await lockFor('wtn_inflight', minutes(9));
+    assert.equal(await deliverWatcherAlert(UID, 'wtn_inflight', minutes(10), { storage, messaging }), 'in_flight');
+    assert.equal(await stateOf(UID, 'wtn_inflight'), 'queued');
+    // A worker that died mid-send five minutes ago: cleared, and sent now.
+    await queuedAt(UID, 'wtn_died', minutes(5), 'wtc_died');
+    await lockFor('wtn_died', minutes(5));
+    assert.equal(await deliverWatcherAlert(UID, 'wtn_died', minutes(10), { storage, messaging }), 'sent');
+    assert.equal(messaging.sent.length, 1);
+    // And the push that did go out stamped its lock.
+    const lock = await storage.get<{ deliveredAt?: string }>(userSubDoc(UID, PUSH_LOG, docIdForKey(watcherAlertDedupeKey('wtn_died'))));
+    assert.equal(lock?.deliveredAt, minutes(10).toISOString());
   } finally {
     resetStorageForTests();
   }

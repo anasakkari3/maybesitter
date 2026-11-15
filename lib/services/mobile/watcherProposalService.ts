@@ -68,6 +68,19 @@ export type WatcherProposalDecision =
   | { readonly decision: 'accept'; readonly title: string }
   | { readonly decision: 'dismiss' };
 
+/**
+ * Control characters and the bidi overrides and isolates (U+202A–U+202E,
+ * U+2066–U+2069, U+061C) are removed, as zero-width ones are: a title is shown
+ * beside other text on every screen and in the device calendar, and an
+ * override in it can reorder what the person reads around it. LRM and RLM
+ * stay — ordinary punctuation in mixed Arabic, Hebrew and English.
+ */
+const UNSAFE_TITLE_CHARS = /[\u0000-\u001f\u007f-\u009f\u200b-\u200d\u2060\ufeff\u061c\u202a-\u202e\u2066-\u2069]/g;
+
+export function cleanProposalTitle(raw: string): string {
+  return raw.normalize('NFC').replace(UNSAFE_TITLE_CHARS, '').replace(/\s+/g, ' ').trim();
+}
+
 /** Rejects rather than coerces: an unknown field, a missing title, a wrong decision. */
 export function parseWatcherProposalDecision(body: unknown): WatcherProposalDecision {
   if (!body || typeof body !== 'object' || Array.isArray(body)) throw new WatcherProposalRequestError('invalid_body');
@@ -80,7 +93,7 @@ export function parseWatcherProposalDecision(body: unknown): WatcherProposalDeci
     return { decision: 'dismiss' };
   }
   if (raw.decision !== 'accept') throw new WatcherProposalRequestError('invalid_decision');
-  const title = typeof raw.title === 'string' ? raw.title.trim() : '';
+  const title = typeof raw.title === 'string' ? cleanProposalTitle(raw.title) : '';
   if (title.length < MIN_PROPOSAL_TITLE || title.length > MAX_PROPOSAL_TITLE) {
     throw new WatcherProposalRequestError('invalid_title');
   }

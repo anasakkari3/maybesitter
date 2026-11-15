@@ -270,10 +270,11 @@ export interface WatcherNotification {
   readonly scopeId: string;
   /**
    * `queued` when the firing wrote it; `sent` once its push reached FCM for at
-   * least one device (`lib/push/watcherAlert.ts`, QA CA6.1). A push that was
-   * suppressed (quiet hours, no device, no access) leaves it `queued`.
+   * least one device (`lib/push/watcherAlert.ts`, QA CA6.1); `suppressed` when
+   * the per-watcher gap or the daily cap held it back for good. Quiet hours,
+   * no device or no access leave it `queued`, re-tried for 30 minutes.
    */
-  readonly state: 'queued' | 'sent';
+  readonly state: 'queued' | 'sent' | 'suppressed';
   readonly signalKind: string;
   readonly subjectRef: string;
   readonly reason: string;

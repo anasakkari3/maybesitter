@@ -359,6 +359,13 @@ export interface PushLogEntry {
   createdAt: string;
   /** Firestore TTL. `expiresAt` — `expireAt` is a field nothing deletes. */
   expiresAt: string;
+  /**
+   * When FCM first accepted this message for a device. Absent means the lock
+   * was taken and nothing was delivered yet — a send in flight, or one that
+   * threw — which a caller that retries (`lib/push/watcherAlert.ts`) must not
+   * mistake for a push that reached a phone.
+   */
+  deliveredAt?: string;
 }
 
 let cachedMessaging: MessagingClient | null = null;
@@ -516,9 +523,13 @@ export async function sendToUser(
   const messaging = options.messaging ?? (await defaultMessaging());
   let delivered = 0;
   let removed = 0;
+  const markDelivered = () => storage.runTransaction(async (tx) => {
+    tx.merge<PushLogEntry>(lockPath, { deliveredAt: now.toISOString() });
+  });
   for (const device of devices) {
     try {
       await messaging.send(buildFcmMessage(message, device));
+      if (delivered === 0) await markDelivered();
       delivered += 1;
     } catch (error) {
       const code = errorCodeOf(error);

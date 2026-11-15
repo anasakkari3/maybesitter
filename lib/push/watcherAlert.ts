@@ -37,21 +37,30 @@
  * in one transaction before the send, and are given back if the send is
  * suppressed — so quiet hours or a missing phone never spend the budget.
  *
- * ── Lost pushes, quiet hours, no device ──────────────────────────
+ * ── Lost pushes, failed sends, quiet hours, no device ────────────
  *
- * A notification stays `queued` until a push for it reaches FCM; then it is
- * `sent`. `redriveQueuedWatcherAlerts` re-tries queued notifications for
- * `WATCHER_ALERT_REDRIVE_MS` (30 minutes) after they were queued, which covers
- * a crash between the firing's commit and its push. The dedupe lock makes the
- * retry safe: a push that went out but was never marked is recognised by its
- * lock and marked `sent` without a second send.
+ * A notification stays `queued` until FCM accepted its push for at least one
+ * device; then it is `sent`. `redriveQueuedWatcherAlerts` re-tries queued
+ * notifications for `WATCHER_ALERT_REDRIVE_MS` (30 minutes) after they were
+ * queued, which covers a crash between the firing's commit and its push.
  *
- * The same window decides everything held back. An alert suppressed by quiet
- * hours, by a missing device or by the gap is re-tried while it is younger
- * than 30 minutes, and then left `queued` for good — never sent late. So an
- * alert held by quiet hours goes out only if the quiet window ends within 30
- * minutes of the firing; a stale "something changed" is noise, and the firing
- * stays visible in the app either way.
+ * The push lock (`pushLog`) is taken *before* the send, so a lock alone proves
+ * nothing. `sendToUser` stamps `deliveredAt` on it when the first device takes
+ * the message, and only that stamp is read as "already pushed": the retry
+ * then marks the notification `sent` without a second send. A lock with no
+ * stamp is a send in flight — left alone for two minutes — or one that threw,
+ * which is cleared so the next attempt can send. When `sendToUser` throws
+ * here (quota, auth, network), the budget is given back, the unstamped lock
+ * is cleared at once, and the error is re-thrown to the tick's log.
+ *
+ * Quiet hours are checked before anything is claimed: the alert stays
+ * `queued`, claims no budget, and goes out on a later tick only if the quiet
+ * window ends within 30 minutes of the firing. No device and no access also
+ * stay `queued` under the same window. After it they are left for good —
+ * never sent late; a stale "something changed" is noise, and the firing stays
+ * visible in the app either way. An alert held by the gap or the daily cap is
+ * settled at once as `suppressed`: it would not become sendable sooner by
+ * being re-read every minute.
  */
 import { createHash } from 'node:crypto';
 import {
@@ -66,13 +75,29 @@ import {
 import type { WatcherNotification } from '../../src/contracts/v1/watcherContracts';
 import { liveAccount } from '../account/accountLiveness';
 import { listPushableDevices, type DeviceLocale } from './deviceRegistry';
-import { PUSH_LOG_TTL_MS, sendToUser, type MessagingClient, type PushMessage, type PushResult } from './pushService';
+import { isInQuietHours, readQuietHours } from './quietHours';
+import {
+  PUSH_LOG_TTL_MS,
+  sendToUser,
+  type MessagingClient,
+  type PushLogEntry,
+  type PushMessage,
+  type PushResult,
+} from './pushService';
 
 export const WATCHER_ALERT_MIN_GAP_MS = 60 * 60_000;
 export const WATCHER_ALERT_DAILY_CAP = 6;
 export const WATCHER_ALERT_REDRIVE_MS = 30 * 60_000;
 /** The most queued notifications one tick re-drives. */
 export const WATCHER_ALERT_REDRIVE_BATCH = 50;
+/** How long one re-drive round may run; the scheduler gives the whole tick 60 s. */
+export const WATCHER_ALERT_REDRIVE_BUDGET_MS = 15_000;
+/**
+ * A lock with no `deliveredAt` older than this is a send that threw (or a
+ * worker that died mid-send), not one still in flight, and is cleared so the
+ * next attempt can send.
+ */
+export const WATCHER_ALERT_STALE_LOCK_MS = 2 * 60_000;
 
 export const WATCHER_ALERT_COPY: Readonly<Record<DeviceLocale, { title: string; body: string }>> = Object.freeze({
   ar: { title: 'في إشي بتتابعه تغيّر', body: 'افتح MaybeSitter تشوف شو صار.' },
@@ -129,7 +154,7 @@ export interface WatcherAlertOptions {
   messaging?: MessagingClient;
 }
 
-export type WatcherAlertOutcome = PushResult['status'] | 'throttled' | 'capped' | 'expired' | 'gone';
+export type WatcherAlertOutcome = PushResult['status'] | 'throttled' | 'capped' | 'expired' | 'gone' | 'in_flight';
 
 /**
  * Pushes one queued watcher notification, within the bounds above, and marks
@@ -148,18 +173,28 @@ export async function deliverWatcherAlert(
   if (!queued || queued.state !== 'queued') return null;
   if (now.getTime() - Date.parse(queued.queuedAt) > WATCHER_ALERT_REDRIVE_MS) return 'expired';
 
-  const markSent = () => storage.runTransaction(async (tx) => {
+  const settle = (state: 'sent' | 'suppressed') => storage.runTransaction(async (tx) => {
     const current = await tx.get<WatcherNotification>(path);
     if (!current || current.state !== 'queued') return;
-    tx.set(path, { ...current, state: 'sent' });
+    tx.set(path, { ...current, state });
   });
 
-  // Pushed already, and the process died before it could say so.
   const dedupeKey = watcherAlertDedupeKey(notificationId);
-  if (await storage.get(userSubDoc(uid, PUSH_LOG, docIdForKey(dedupeKey)))) {
-    await markSent();
+  const lockPath = userSubDoc(uid, PUSH_LOG, docIdForKey(dedupeKey));
+  const lock = await storage.get<PushLogEntry>(lockPath);
+  if (lock?.deliveredAt) {
+    // Pushed already, and the process died before it could say so.
+    await settle('sent');
     return 'duplicate';
   }
+  if (lock) {
+    // Taken and never delivered: still in flight, or a send that threw.
+    if (now.getTime() - Date.parse(lock.createdAt) < WATCHER_ALERT_STALE_LOCK_MS) return 'in_flight';
+    await storage.delete(lockPath);
+  }
+
+  // Quiet hours first, so a held alert claims nothing and stays queued.
+  if (isInQuietHours(await readQuietHours(uid, { storage }), now)) return 'suppressed_quiet_hours';
 
   const gapKey = `watcher-gap:${hash40(queued.watcherId)}`;
   const dayKey = `watcher-day:${now.toISOString().slice(0, 10)}`;
@@ -183,24 +218,16 @@ export async function deliverWatcherAlert(
     });
     return { status: 'claimed' as const, gap, day };
   });
+  if (claim.status === 'throttled' || claim.status === 'capped') {
+    // Settled, not queued: it will not be sendable any sooner on the next
+    // tick, and re-reading it every minute for half an hour is the noise the
+    // bounds exist to stop. The firing itself stays recorded.
+    await settle('suppressed');
+    return claim.status;
+  }
   if (claim.status !== 'claimed') return claim.status;
 
-  const devices = await listPushableDevices(uid, { storage });
-  // The newest device's language; Arabic when nobody has said.
-  const newest = [...devices].sort((left, right) => right.lastSeenAt.localeCompare(left.lastSeenAt))[0];
-  const message = watcherAlertMessage(uid, queued, newest?.locale ?? 'ar');
-  const result = await sendToUser(message, now, {
-    storage,
-    ...(options.messaging ? { messaging: options.messaging } : {}),
-  });
-
-  if (result.status === 'sent' || result.status === 'duplicate') {
-    await markSent();
-    return result.status;
-  }
-  // Suppressed — quiet hours, no device, no access: nothing reached a phone,
-  // so the budget is given back and the notification stays queued.
-  await storage.runTransaction(async (tx) => {
+  const release = () => storage.runTransaction(async (tx) => {
     const [gap, day] = await Promise.all([
       tx.get<WatcherAlertBudgetEntry>(gapPath),
       tx.get<WatcherAlertBudgetEntry>(dayPath),
@@ -211,6 +238,37 @@ export async function deliverWatcherAlert(
     }
     if (day && (day.count ?? 0) > 0) tx.set(dayPath, { ...day, count: (day.count ?? 1) - 1 });
   });
+
+  const devices = await listPushableDevices(uid, { storage });
+  // The newest device's language; Arabic when nobody has said.
+  const newest = [...devices].sort((left, right) => right.lastSeenAt.localeCompare(left.lastSeenAt))[0];
+  const message = watcherAlertMessage(uid, queued, newest?.locale ?? 'ar');
+  let result: PushResult;
+  try {
+    result = await sendToUser(message, now, {
+      storage,
+      ...(options.messaging ? { messaging: options.messaging } : {}),
+    });
+  } catch (error) {
+    // FCM refused for a reason that is not this phone's (quota, auth, the
+    // network). The push lock was taken before the send; unless a device
+    // already took the message, it is cleared with the budget, so the next
+    // tick sends rather than reading the lock as a delivery.
+    await release();
+    const taken = await storage.get<PushLogEntry>(lockPath);
+    if (taken && !taken.deliveredAt) await storage.delete(lockPath);
+    if (taken?.deliveredAt) await settle('sent');
+    throw error;
+  }
+
+  if (result.status === 'sent') {
+    await settle('sent');
+    return result.status;
+  }
+  // Nothing reached a phone from this attempt — no device, no access, or
+  // another worker holds the lock — so the budget is given back and the
+  // notification stays queued.
+  await release();
   return result.status;
 }
 
@@ -226,9 +284,11 @@ function ownerOf(path: string): string | null {
  */
 export async function redriveQueuedWatcherAlerts(
   now: Date,
-  options: WatcherAlertOptions & { limit?: number } = {},
-): Promise<{ scanned: number; sent: number; failed: number }> {
+  options: WatcherAlertOptions & { limit?: number; budgetMs?: number } = {},
+): Promise<{ scanned: number; sent: number; failed: number; stoppedEarly: boolean }> {
   const storage = options.storage ?? getStorage();
+  const started = Date.now();
+  const budgetMs = options.budgetMs ?? WATCHER_ALERT_REDRIVE_BUDGET_MS;
   const rows = await storage.listGroup<WatcherNotification>(WATCHER_NOTIFICATIONS, {
     where: [
       ['state', '==', 'queued'],
@@ -241,6 +301,8 @@ export async function redriveQueuedWatcherAlerts(
   let sent = 0;
   let failed = 0;
   for (const row of rows) {
+    // The rest wait for the next tick rather than push the job past its deadline.
+    if (Date.now() - started >= budgetMs) return { scanned: rows.length, sent, failed, stoppedEarly: true };
     const uid = ownerOf(row.path);
     if (!uid) continue;
     try {
@@ -249,5 +311,5 @@ export async function redriveQueuedWatcherAlerts(
       failed += 1;
     }
   }
-  return { scanned: rows.length, sent, failed };
+  return { scanned: rows.length, sent, failed, stoppedEarly: false };
 }
