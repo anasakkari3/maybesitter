@@ -205,6 +205,7 @@ const SYSTEM = [
   'Use priorDecisions to learn what this person accepted or dismissed. Do not repeat a dismissed idea with slightly different wording.',
   'Use confirmedWork, memory and recent outcomes to avoid duplicate tasks and choose what helps this person, while treating unconfirmed observations as tentative.',
   'An outcome that says Postponed means the person moved the item to a later time. It is not a failure, a missed task or a lack of commitment; never describe or treat it as one.',
+  'An outcome that says Deleted means the person removed the item, most often a capture mistake or a duplicate. It is not a rejection of the topic and not evidence of low priority; never infer dislike or avoidance from it.',
   'Treat pending observations as hypotheses. Never state an outcome, readiness, or personal preference as fact unless evidence supports it.',
   'Every time you are given (currentTime, observedAt, decidedAt, confirmedWork at/until) is already the person\'s local wall-clock time in timezone. Use those times exactly as written; never convert them and never shift them by an offset.',
   'Interpret relative time in an observation using its observedAt time, then compare it with currentTime. Do not suggest preparation for an event that has already passed.',
