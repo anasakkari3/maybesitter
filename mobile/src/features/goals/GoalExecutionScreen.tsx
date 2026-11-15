@@ -18,7 +18,8 @@ import { FeatureUnavailableError } from '../../api/errors';
 import type { GoalConfirmationSelection } from '../../api/endpoints/goals';
 import type { GoalGraph } from '../../api/schemas/goals';
 import { QueryBoundary } from '../../api/ui/QueryBoundary';
-import { forbiddenReason, userFacingMessage } from '../../api/ui/userFacingMessage';
+import { forbiddenReason, markErrorShown, userFacingMessage } from '../../api/ui/userFacingMessage';
+import { useFeatures } from '../settings/featureSettings';
 import { isolateAuto } from '../../i18n/bidi';
 import { formatNumber } from '../../i18n/format';
 import { fill } from '../../i18n/strings';
@@ -204,7 +205,7 @@ function GoalDetail({ goalId, title, onBack }: { goalId: string; title: string; 
         recoveryPolicy: 'skip',
       },
     });
-  const onConfirm = (graph: GoalGraph) => confirm.mutate({ generation: graph.generation, selections: confirmationSelections }, { onSuccess: result => {
+  const onConfirm = (graph: GoalGraph) => confirm.mutate({ generation: graph.generation, selections: confirmationSelections }, { onError: markErrorShown, onSuccess: result => {
     const stale = result.refused.some(item => item.code === 'unknown_node');
     setSelections({});
     setGeneration(result.graph.generation);
@@ -299,7 +300,7 @@ function GoalDetail({ goalId, title, onBack }: { goalId: string; title: string; 
           busy={confirm.isPending || regenerate.isPending}
           error={confirm.error}
           regenerateError={regenerate.error}
-          onRegenerate={() => regenerate.mutate(reviewGraph.generation, { onSuccess: beginReview })}
+          onRegenerate={() => regenerate.mutate(reviewGraph.generation, { onSuccess: beginReview, onError: markErrorShown })}
           onToggle={toggle}
           onChooseKind={chooseKind}
           onUpdateHabit={updateHabit}
@@ -373,6 +374,11 @@ function ProposalReview({ graph, proposals, checkpoints, selections, busy, error
   onConfirm: () => void;
 }) {
   const { t, tr, p, lang } = useApp();
+  // «اقترح غيرهم» is regenerate, behind the goal_plans add-on: for someone it
+  // is not on for, it could only answer 404, so it is not offered. `enabled`
+  // is false exactly when the route refuses; an unknown or `off` list keeps it.
+  const features = useFeatures();
+  const canSuggestOthers = features.data?.features.find(feature => feature.id === 'goal_plans')?.enabled !== false;
   return <ProductSection title={t.xGoalProposalTitle} body={t.xGoalProposalNotSaved} icon="spark">
     {proposals.length === 0 ? <Txt testID="goal-proposal-empty" role="supporting" color={p.mu}>{t.xGoalProposalEmpty}</Txt> : proposals.map(node => {
       const selected = selections[node.nodeId];
@@ -412,7 +418,7 @@ function ProposalReview({ graph, proposals, checkpoints, selections, busy, error
     </LiveRegion>
     <ProductActions>
       <Pill testID="goal-confirm-selected" label={t.xGoalConfirmSelected} disabled={busy || Object.keys(selections).length === 0} onPress={onConfirm} />
-      <Pill testID="goal-review-regenerate" label={t.xGoalSuggestOthers} kind="outline" disabled={busy} onPress={onRegenerate} />
+      {canSuggestOthers ? <Pill testID="goal-review-regenerate" label={t.xGoalSuggestOthers} kind="outline" disabled={busy} onPress={onRegenerate} /> : null}
     </ProductActions>
     <Txt role="metadata" color={p.mu}>{fill(t.xGoalGeneration, { count: formatNumber(graph.generation, { locale: lang }) })}</Txt>
   </ProductSection>;

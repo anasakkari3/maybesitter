@@ -15,7 +15,7 @@ import {
 } from '../../api/queries';
 import { PlanProposalRefusedError } from '../../api/errors';
 import { QueryBoundary } from '../../api/ui/QueryBoundary';
-import { userFacingMessage } from '../../api/ui/userFacingMessage';
+import { markErrorShown, userFacingMessage } from '../../api/ui/userFacingMessage';
 import { calendarReadEnabled, calendarWriteEnabled } from '../../config/env';
 import { sourcesSubKey, useSourcesAvailability } from '../settings/sourcesAvailability';
 import { LANGUAGE_ENDONYM } from '../../i18n/language';
@@ -249,7 +249,7 @@ function HabitTodayRow({ habit, occurrence }: { habit: Habit; occurrence: HabitO
   const title = isolateAuto(habit.title);
   const press = (outcome: 'completed' | 'skipped') => decide.mutate(
     { habitId: habit.habitId, occurrenceId: occurrence.occurrenceId, outcome },
-    { onSuccess: answer => setMadeUp(answer.recovery?.recovered === true) },
+    { onSuccess: answer => setMadeUp(answer.recovery?.recovered === true), onError: markErrorShown },
   );
   const decided = occurrence.state === 'completed' ? t.xHabitTodayDone
     : occurrence.state === 'skipped' || occurrence.state === 'recovered' ? t.xHabitTodaySkipped : null;
@@ -311,7 +311,10 @@ export function HabitDetailScreen() {
   /> : null}>
     {/* Above the list, as on the goals and thoughts pages: below a few habits it left the screen (M3b design review). */}
     {!kinds.pending && chatHabits ? <ChatEntryButton entry="habit" testID="habits-add" /> : null}
-    <QueryBoundary isPending={query.isPending} error={query.error} onRetry={() => void query.refetch()}>
+    {/* Today's occurrences load with the list, so no card is drawn without its
+        today row and then grows one. A failed today read does not hold the
+        list: the cards show, without a today row. */}
+    <QueryBoundary isPending={query.isPending || today.isPending} error={query.error} onRetry={() => void query.refetch()}>
       {items.length === 0 ? (chatHabits
         ? <ProductSection title={t.xHabitsEmptyTitle} body={t.xHabitsEmptyBody} icon="habit" />
         : <ProductSection title={t.xHabits} body={t.xNoOccurrences} icon="habit" />) : null}
