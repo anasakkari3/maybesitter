@@ -1253,7 +1253,7 @@ describe('a plan that places nothing', () => {
     expect(screen.getByTestId('plan-accept-refused').props.children).toBe(en.planEmptyRefused);
   });
 
-  it.each([['accept', 'plan-accept'], ['dismiss', 'plan-dismiss']] as const)(
+  it.each<[string, string]>([['accept', 'plan-accept'], ['dismiss', 'plan-dismiss']])(
     'a finished day refusing %s says the day is over and reads the plan again (CXA4.2)',
     async (_action, button) => {
       jest.spyOn(planEndpoints, 'actOnPlan').mockRejectedValue(new PlanEditRefusedError('day_over', null));
@@ -1261,7 +1261,7 @@ describe('a plan that places nothing', () => {
       const reads = (planEndpoints.getPlan as jest.Mock).mock.calls.length;
       await fireEvent.press(screen.getByTestId(button));
       await waitFor(() => expect(screen.getByTestId('plan-accept-refused')).toBeTruthy());
-      expect(screen.getByTestId('plan-accept-refused').props.children).toBe(en.planDayOver);
+      expect(screen.getByTestId('plan-accept-refused').props.children).toBe(en.planDayOverRefused);
       await waitFor(() => expect((planEndpoints.getPlan as jest.Mock).mock.calls.length).toBeGreaterThan(reads));
     },
   );
@@ -1272,7 +1272,7 @@ describe('a plan that places nothing', () => {
     const reads = (planEndpoints.getPlan as jest.Mock).mock.calls.length;
     await fireEvent.press(screen.getByTestId('plan-regenerate'));
     await waitFor(() => expect(screen.getByTestId('plan-regenerate-refused')).toBeTruthy());
-    expect(screen.getByTestId('plan-regenerate-refused').props.children).toBe(en.planDayOver);
+    expect(screen.getByTestId('plan-regenerate-refused').props.children).toBe(en.planDayOverRefused);
     expect(screen.queryByTestId('plan-regenerate-error')).toBeNull();
     await waitFor(() => expect((planEndpoints.getPlan as jest.Mock).mock.calls.length).toBeGreaterThan(reads));
   });
