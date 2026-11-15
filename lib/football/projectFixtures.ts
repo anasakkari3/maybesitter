@@ -1508,6 +1508,19 @@ export class FixtureNotLinkedError extends Error {
 }
 
 /**
+ * The commitment is already closed by the person (completed or archived), so
+ * "not this match" has nothing left to do -- a 409, and nothing is written.
+ */
+export class FixtureNotActiveError extends Error {
+  constructor(commitmentId: string) {
+    super(`commitment ${commitmentId} is already closed`);
+    this.name = 'FixtureNotActiveError';
+  }
+}
+
+const CLOSED_BY_PERSON: ReadonlySet<string> = new Set(['completed', 'archived']);
+
+/**
  * A user says "not this match." The ref is marked `detachedAt` forever
  * (never recreated by a later projection run -- see the module header) and
  * the commitment it made, if any, is dropped the same way a cancelled
@@ -1527,6 +1540,15 @@ export async function dismissFixtureCommitment(
   const ref = refs.find((candidate) => candidate.linkedCommitmentId === commitmentId);
   if (!ref) {
     throw new FixtureNotLinkedError(commitmentId);
+  }
+
+  // QA audit CXA11.3: a stale «مش هاي» (the screen still listed the match)
+  // must not rewrite an outcome the person already chose elsewhere. `Drop`
+  // accepts a completed commitment, so the check lives here, before the ref
+  // is touched: a completed or archived match is refused and left as it is.
+  const before = (await readParticipantState(uid)).commitments[commitmentId];
+  if (before && CLOSED_BY_PERSON.has(before.status)) {
+    throw new FixtureNotActiveError(commitmentId);
   }
 
   await putRef<FixtureExternalTaskRef>(uid, {

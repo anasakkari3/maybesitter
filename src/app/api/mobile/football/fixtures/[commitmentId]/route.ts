@@ -1,6 +1,6 @@
 import { mobileAuthErrorResponse, requireMobileUser } from '../../../../../../../lib/auth/mobileAuth';
 import { mobileError } from '../../../../../../../lib/services/mobile/response';
-import { dismissFixtureCommitment, FixtureNotLinkedError } from '../../../../../../../lib/football/projectFixtures';
+import { dismissFixtureCommitment, FixtureNotActiveError, FixtureNotLinkedError } from '../../../../../../../lib/football/projectFixtures';
 
 export const dynamic = 'force-dynamic';
 
@@ -43,6 +43,10 @@ export async function DELETE(
     // the app the match was never there.
     if (error instanceof FixtureNotLinkedError) {
       return mobileError('no football fixture links this commitment', 404);
+    }
+    // CXA11.3: completed (or archived) elsewhere -- the person's outcome stands.
+    if (error instanceof FixtureNotActiveError) {
+      return mobileError('fixture_not_active', 409);
     }
     console.error('[football/dismiss] dismissing a fixture commitment failed', error);
     return mobileError('could not dismiss this match', 500);
