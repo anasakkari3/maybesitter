@@ -1,0 +1,19 @@
+{
+  "success": true,
+  "proposals": [
+    {
+      "proposalId": "wpr_cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "signalKind": "readiness",
+      "proposedAt": "2026-08-09T09:00:00.000Z",
+      "state": "proposed",
+      "commitmentId": null
+    },
+    {
+      "proposalId": "wpr_dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "signalKind": "readiness",
+      "proposedAt": "2026-08-09T09:00:00.000Z",
+      "state": "proposed",
+      "commitmentId": null
+    }
+  ]
+}

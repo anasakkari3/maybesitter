@@ -241,12 +241,21 @@ export interface WatcherProposal {
   readonly proposalId: string;
   readonly watcherId: string;
   readonly scopeId: string;
-  readonly state: 'proposed';
+  /**
+   * `proposed` as the firing wrote it. The person decides it once, in the app
+   * (`lib/services/mobile/watcherProposalService.ts`): `accepted` with the
+   * commitment it became, or `dismissed`. A firing never writes the other two.
+   */
+  readonly state: 'proposed' | 'accepted' | 'dismissed';
   readonly signalKind: string;
   readonly subjectRef: string;
   readonly reason: string;
   readonly proposedAt: string;
   readonly provenanceRef: string;
+  /** Set by the decision, never by a firing. */
+  readonly decidedAt?: string;
+  /** The commitment an accept made. */
+  readonly commitmentId?: string;
 }
 
 /**
