@@ -863,7 +863,8 @@ test('a watcher fires again when its subject returns to a state it already fired
     assert.equal((await sweep(at(0))).fired, 0, 'the first observation fired instead of priming');
 
     const scores = [0.21, 0.82, 0.21, 0.82, 0.21];
-    for (const [index, score] of scores.entries()) {
+    for (let index = 0; index < scores.length; index += 1) {
+      const score = scores[index]!;
       const minute = (index + 1) * 10;
       await checkIn(score, minute);
       const totals = await sweep(at(minute + 1));

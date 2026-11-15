@@ -23,6 +23,8 @@
 export type NotificationRoute =
   | { readonly kind: 'plan'; readonly planDate: string }
   | { readonly kind: 'commitment'; readonly commitmentId: string }
+  /** A screen with nothing to name in it: a watcher alert opens Background activity (QA CA6.1). */
+  | { readonly kind: 'screen'; readonly screen: 'backgroundActivity' }
   | { readonly kind: 'today' };
 
 /** Wide enough for a uuid and for the domain's own `plan_fixture_0` shapes. */
@@ -77,6 +79,10 @@ export function routeFromNotification(data: unknown): NotificationRoute {
       return { kind: 'plan', planDate };
     }
   }
+
+  // A `notify` watcher fired (QA CA6.1). The push names nothing, so the tap
+  // opens where firings are listed with what caused them.
+  if (raw.kind === 'watcher_alert') return { kind: 'screen', screen: 'backgroundActivity' };
 
   return { kind: 'today' };
 }

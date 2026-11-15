@@ -107,6 +107,22 @@ export interface WatcherSweepOptions {
    * module never reads a feature decision itself.
    */
   skip?: (watcher: { readonly scopeId: string; readonly signalKind: string }) => Promise<boolean>;
+  /**
+   * Told after a firing has committed, with the artifact it wrote. Delivery —
+   * a push for `notify` — happens here, outside the firing transaction and
+   * outside this module (lib/jobs wires it), so the engine still has no path
+   * to anything but its own collections. It should not throw: a throw is
+   * recorded as this watcher's sweep failure, though the firing has stood.
+   */
+  onFired?: (firing: WatcherFiring) => Promise<void>;
+}
+
+export interface WatcherFiring {
+  readonly scopeId: string;
+  readonly watcherId: string;
+  readonly effect: StoredWatcher['definition']['effect'];
+  /** The artifact the firing wrote — `wtn_…` for `notify` — or null for `update_context`. */
+  readonly effectRef: string | null;
 }
 
 function emptyTotals(): WatcherSweepTotals {
@@ -272,6 +288,12 @@ function absorbedRuntime(stored: StoredWatcher, signal: WatcherSignal, now: stri
 
 type FireResult = 'fired' | 'policy_blocked' | 'duplicate' | 'gone' | 'paused' | 'blocked';
 
+interface FireOutcome {
+  readonly result: FireResult;
+  /** Set only for `fired`: the artifact the firing committed, if any. */
+  readonly firing: WatcherFiring | null;
+}
+
 /**
  * Records one firing and its effect artifact atomically.
  *
@@ -286,7 +308,7 @@ async function commitFiring(
   signal: WatcherSignal,
   now: string,
   storage: StorageAdapter,
-): Promise<FireResult> {
+): Promise<FireOutcome> {
   const { definition } = stored;
   const eventId = watcherEventIdFor(definition.watcherId, signal.signalId, stored.runtime.fireCount);
   const eventPath = userSubDoc(definition.scopeId, WATCHER_EVENTS, eventId);
@@ -321,7 +343,7 @@ async function commitFiring(
 
   if (decision.decision !== 'allowed') {
     const blocked = fireEvent(stored, signal, eventId, now, 'policy_blocked', decision.reason, decision.decision, null);
-    return storage.runTransaction(async (tx) => {
+    const result = await storage.runTransaction(async (tx): Promise<FireResult> => {
       const [existing, current] = await Promise.all([
         tx.get<WatcherFireEvent>(eventPath),
         tx.get<StoredWatcher>(watcherPath),
@@ -344,9 +366,12 @@ async function commitFiring(
       tx.set(watcherPath, absorbedRuntime(current, signal, now, false));
       return 'policy_blocked';
     });
+    return { result, firing: null };
   }
 
-  return storage.runTransaction(async (tx) => {
+  let firing: WatcherFiring | null = null;
+  const result = await storage.runTransaction(async (tx): Promise<FireResult> => {
+    firing = null;
     const [existing, current] = await Promise.all([
       tx.get<WatcherFireEvent>(eventPath),
       tx.get<StoredWatcher>(watcherPath),
@@ -376,8 +401,15 @@ async function commitFiring(
     tx.create(eventPath, event);
     tx.set(watcherPath, absorbedRuntime(current, signal, now, true));
     if (artifact) tx.create(artifact.path, artifact.value);
+    firing = {
+      scopeId: current.definition.scopeId,
+      watcherId: current.definition.watcherId,
+      effect: current.definition.effect,
+      effectRef: artifact?.ref ?? null,
+    };
     return 'fired';
   });
+  return { result, firing: result === 'fired' ? firing : null };
 }
 
 /** The counters one watcher's turn may increment. `remaining` and `failures` are the sweep's own. */
@@ -396,6 +428,7 @@ async function evaluateOne(
   now: string,
   storage: StorageAdapter,
   registry: WatcherSignalRegistry,
+  onFired?: WatcherSweepOptions['onFired'],
 ): Promise<readonly WatcherSweepCounter[]> {
   const { definition, runtime } = row;
   const connection = definition.source.connectionId === null
@@ -437,8 +470,12 @@ async function evaluateOne(
     return ['evaluated'];
   }
 
-  const result = await commitFiring(row, signal, now, storage);
-  if (result === 'fired') return ['evaluated', 'fired'];
+  const { result, firing } = await commitFiring(row, signal, now, storage);
+  if (result === 'fired') {
+    // After the commit: the firing is recorded whether or not delivery works.
+    if (firing && onFired) await onFired(firing);
+    return ['evaluated', 'fired'];
+  }
   if (result === 'policy_blocked') return ['evaluated', 'policyBlocked'];
   if (result === 'duplicate') return ['evaluated', 'duplicates'];
   if (result === 'paused') return ['evaluated', 'paused'];
@@ -514,7 +551,7 @@ export async function runWatcherSweep(options: WatcherSweepOptions = {}): Promis
     try {
       const { scopeId, source } = row.stored.definition;
       if (options.skip && await options.skip({ scopeId, signalKind: source.signalKind })) continue;
-      for (const counter of await evaluateOne(row.stored, now, storage, registry)) {
+      for (const counter of await evaluateOne(row.stored, now, storage, registry, options.onFired)) {
         totals[counter] += 1;
       }
     } catch (error) {

@@ -131,6 +131,7 @@ test('a notify watcher that fires sends one content-free push to the phone (CA6.
       assert.ok(['kind', 'dedupeKey', 'notificationId', 'tag'].includes(key), `unexpected data key ${key}`);
     }
     assert.doesNotMatch(JSON.stringify(push), /readiness|0\.21|whoop|wtc_/i);
+    assert.ok(!JSON.stringify(push).includes(UID), 'the account id went to Google and Apple');
     assert.ok(push!.notification.title.trim().length > 0);
     assert.ok(push!.notification.body.trim().length > 0);
 

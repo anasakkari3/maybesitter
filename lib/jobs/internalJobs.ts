@@ -49,7 +49,9 @@ import { footballProviderConfigured, reconcileFootballWatchers } from '../footba
 import { completeEndedFixturesForEveryone, projectFixturesForUser } from '../football/projectFixtures';
 import { pollFollowedClubs, syncFollowedClubs, type PollReport, type SyncReport } from '../football/syncFixtures';
 import type { FixtureProvider } from '../../src/contracts/v1/fixtureContracts';
-import { runWatcherSweep, type WatcherSweepTotals } from '../watchers/watcherEngine';
+import { runWatcherSweep, type WatcherFiring, type WatcherSweepTotals } from '../watchers/watcherEngine';
+import { deliverWatcherAlert } from '../push/watcherAlert';
+import type { MessagingClient } from '../push/pushService';
 import { decideFeature, refuses } from '../features/featureGate';
 
 /**
@@ -444,6 +446,28 @@ export async function runFootballPollJob(options: FootballPollJobOptions = {}): 
 export interface WatcherTickOptions {
   football?: () => Promise<FootballPollJobReport>;
   sweep?: () => Promise<WatcherSweepTotals>;
+  /** The FCM client a `notify` firing is pushed through; a test's fake. */
+  messaging?: MessagingClient;
+}
+
+/**
+ * What a committed firing is delivered as (QA CA6.1). Only `notify` reaches
+ * the phone: it is the effect the person chose to be told by. A delivery that
+ * fails is logged by code only — never the watcher, the uid or a token — and
+ * never undoes or fails the firing.
+ */
+export function watcherFiringDelivery(options: { messaging?: MessagingClient } = {}) {
+  return async (firing: WatcherFiring): Promise<void> => {
+    if (firing.effect !== 'notify' || firing.effectRef === null) return;
+    try {
+      await deliverWatcherAlert(firing.scopeId, firing.effectRef, new Date(), options.messaging ? { messaging: options.messaging } : {});
+    } catch (error) {
+      const code = error && typeof error === 'object' && typeof (error as { code?: unknown }).code === 'string'
+        ? (error as { code: string }).code
+        : 'unknown';
+      console.error('[internal/jobs/watchers] watcher alert push failed', code);
+    }
+  };
 }
 
 /**
@@ -466,6 +490,7 @@ export async function runWatcherTick(
   // One decision per person per tick, however many fixture watchers they have.
   const footballOff = new Map<string, Promise<boolean>>();
   const sweep = await (options.sweep ?? (() => runWatcherSweep({
+    onFired: watcherFiringDelivery(options.messaging ? { messaging: options.messaging } : {}),
     skip: async ({ scopeId, signalKind }) => {
       if (signalKind !== 'fixture') return false;
       if (!footballOff.has(scopeId)) footballOff.set(scopeId, footballSwitchedOff(scopeId));

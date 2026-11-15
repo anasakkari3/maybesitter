@@ -66,9 +66,10 @@ import { isInQuietHours, readQuietHours } from './quietHours';
 import { readPushAccess } from './pushAccess';
 import { liveAccount } from '../account/accountLiveness';
 
-export type PushKind = 'plan_ready' | 'hard_reminder';
+/** `watcher_alert`: a `notify` watcher fired (QA CA6.1; `lib/push/watcherAlert.ts`). */
+export type PushKind = 'plan_ready' | 'hard_reminder' | 'watcher_alert';
 
-export const PUSH_KINDS: readonly PushKind[] = ['plan_ready', 'hard_reminder'];
+export const PUSH_KINDS: readonly PushKind[] = ['plan_ready', 'hard_reminder', 'watcher_alert'];
 
 /**
  * Every key `data` may carry. Identifiers and nothing else.
@@ -102,6 +103,7 @@ export const PUSH_DATA_KEYS: readonly string[] = [
 export const CHANNEL_FOR: Readonly<Record<PushKind, string>> = Object.freeze({
   plan_ready: 'maybesitter_general',
   hard_reminder: 'maybesitter_hard',
+  watcher_alert: 'maybesitter_general',
 });
 
 /**
@@ -116,6 +118,9 @@ export const CATEGORY_FOR: Readonly<Record<PushKind, string>> = Object.freeze({
   // The Must reminder's own category, registered by the app in #197 and given
   // its buttons by #200 — the same id a locally scheduled Must reminder uses.
   hard_reminder: 'com.maybesitter.notification.category.hard',
+  // The plan's category, which carries no buttons: a watcher alert has
+  // nothing to answer from the banner, only somewhere to open.
+  watcher_alert: 'com.maybesitter.notification.category.plan',
 });
 
 /**
@@ -134,6 +139,7 @@ export const MAX_DEDUPE_KEY_LENGTH = 64;
 export const SOUND_FOR: Readonly<Record<PushKind, string>> = Object.freeze({
   plan_ready: 'default',
   hard_reminder: 'maybesitter_hard.wav',
+  watcher_alert: 'default',
 });
 const DEDUPE_KEY = /^[A-Za-z0-9][A-Za-z0-9:._-]*$/;
 
