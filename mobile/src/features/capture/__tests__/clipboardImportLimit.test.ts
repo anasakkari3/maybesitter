@@ -16,16 +16,17 @@ import { describe, expect, it } from '@jest/globals';
 import { normalizeClipboardText, readClipboardText } from '../clipboardImport';
 import { MAX_CAPTURE_LENGTH } from '../captureMachine';
 
-describe('the default limit is still capture-s', () => {
-  it('truncates to the capture length when nothing is asked for', () => {
-    expect(normalizeClipboardText('x'.repeat(5_000))).toHaveLength(MAX_CAPTURE_LENGTH);
+describe('capture asks for no limit, so nothing is cut (CA3.6)', () => {
+  it('keeps the whole text when nothing is asked for', () => {
+    expect(normalizeClipboardText('x'.repeat(5_000))).toHaveLength(5_000);
+    expect(5_000).toBeGreaterThan(MAX_CAPTURE_LENGTH);
   });
 
   it('reads through to the same default', async () => {
     const read = async () => 'x'.repeat(5_000);
     const result = await readClipboardText(read);
     expect(result.kind).toBe('text');
-    expect(result.kind === 'text' && result.text).toHaveLength(MAX_CAPTURE_LENGTH);
+    expect(result.kind === 'text' && result.text).toHaveLength(5_000);
   });
 });
 
