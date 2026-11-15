@@ -948,6 +948,10 @@ test('exports the M4b mobile fixtures from the real handlers', async () => {
       const feedId = '11111111-1111-4111-8111-111111111111';
       const itemKey = 'a'.repeat(64);
       const now = new Date().toISOString();
+      // A subscribed feed exists only under calendar consent; without it the
+      // listing reads paused (NAPI-A10.1).
+      await applyTrustAction(uid, { type: 'record_first_value', at: now });
+      await applyTrustAction(uid, { type: 'set_calendar_consent', granted: true, at: now });
       await getStorage().set(userSubDoc(uid, ICS_FEEDS, feedId), {
         feedId, label: 'Study calendar', encryptedUrl: {}, hostHash: 'fixture', autoAcceptDeadlines: true,
         status: 'ok', consecutiveFailures: 0, lastErrorCode: null, etag: null, lastModified: null,
