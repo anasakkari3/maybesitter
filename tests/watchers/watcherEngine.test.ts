@@ -840,3 +840,79 @@ test('the observer seam is a contract, not a closed list', () => {
   const source: WatcherSourceRef = flightSource;
   assert.equal(source.signalKind, 'flight');
 });
+
+/* ── CXA6.1: a state the watcher already fired on can fire again ──── */
+
+test('a watcher fires again when its subject returns to a state it already fired on (CXA6.1)', async () => {
+  // QA audit de7fcb8, CXA6.1: readiness 4 → 2 → 4 → 2 fired twice and then
+  // never again. The event id was keyed by the state digest alone, so the
+  // second arrival at "low" read as a redelivery of the first; and the
+  // duplicate branch returned before absorbing, so every later sweep repeated
+  // the same refusal. A recurrence is a new transition, not a redelivery.
+  await begin();
+  try {
+    const watcher = await add(ALICE, {
+      enabled: true, source: readinessSource(null), condition: { kind: 'digest_changed' }, effect: 'notify', createdBy: 'user',
+    });
+    const at = (minute: number) => new Date(T0.getTime() + minute * 60_000);
+    const checkIn = async (score: number, minute: number) => saveNormalizedReadinessSnapshot(
+      ALICE, readiness(ALICE, score, at(minute).toISOString()), { storage, now: at(minute).toISOString() },
+    );
+
+    await checkIn(0.82, 0);
+    assert.equal((await sweep(at(0))).fired, 0, 'the first observation fired instead of priming');
+
+    const scores = [0.21, 0.82, 0.21, 0.82, 0.21];
+    for (const [index, score] of scores.entries()) {
+      const minute = (index + 1) * 10;
+      await checkIn(score, minute);
+      const totals = await sweep(at(minute + 1));
+      assert.equal(totals.fired, 1, `change ${index + 1} (→ ${score}) did not fire: ${JSON.stringify(totals)}`);
+      assert.equal(totals.duplicates, 0, `change ${index + 1} was read as a redelivery`);
+    }
+
+    const after = (await createWatcherStore(ALICE, storage).get(watcher.definition.watcherId))!;
+    assert.equal(after.runtime.fireCount, scores.length);
+    assert.equal((await events(ALICE)).length, scores.length);
+    assert.equal((await docsIn(ALICE, WATCHER_NOTIFICATIONS)).length, scores.length);
+
+    // And a quiet sweep after the last change neither fires nor duplicates.
+    const quiet = await sweep(at(99));
+    assert.equal(quiet.fired, 0);
+    assert.equal(quiet.duplicates, 0);
+  } finally {
+    end();
+  }
+});
+
+test('a recognised redelivery still moves the baseline, so the watcher is not stuck on it (CXA6.1)', async () => {
+  await begin();
+  try {
+    flightVendorState.set(flightSource.subjectRef, {
+      estimated_out: '2026-09-20T14:40:00.000Z', dep_delayed: 0, raw_vendor_body: '{}',
+    });
+    const watcher = await add(ALICE, {
+      enabled: true, source: flightSource, condition: { kind: 'digest_changed' }, effect: 'notify', createdBy: 'user',
+    });
+    await sweep(T0);
+    const primed = (await createWatcherStore(ALICE, storage).get(watcher.definition.watcherId))!;
+    flightVendorState.set(flightSource.subjectRef, {
+      estimated_out: '2026-09-20T16:10:00.000Z', dep_delayed: 90, raw_vendor_body: '{}',
+    });
+    assert.equal((await sweep(T1)).fired, 1);
+
+    // An overlapping sweep that read the watcher before that firing committed:
+    // the same observation against the same pre-firing runtime.
+    const fired = (await createWatcherStore(ALICE, storage).get(watcher.definition.watcherId))!;
+    await storage.set(`users/${ALICE}/watchers/${watcher.definition.watcherId}`, { ...fired, runtime: primed.runtime });
+    assert.equal((await sweep(T2)).duplicates, 1);
+
+    const settled = (await createWatcherStore(ALICE, storage).get(watcher.definition.watcherId))!;
+    assert.equal(settled.runtime.lastDigest, fired.runtime.lastDigest, 'the duplicate branch left the stale baseline in place');
+    const next = await sweep(T3);
+    assert.equal(next.duplicates, 0, 'the same redelivery was refused again on the next sweep');
+    assert.equal(next.fired, 0);
+  } finally {
+    end();
+  }
+});
