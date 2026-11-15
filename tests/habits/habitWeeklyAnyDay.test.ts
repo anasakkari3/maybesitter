@@ -124,7 +124,8 @@ test('once the week is done nothing more is asked, and a fourth cannot be added'
     assert.deepEqual(friday.anyDay, []);
     assert.equal((await decide(habitId, id(habitId, FRI), 'completed', FRI)).kind, 'not_found');
     const saturday = await todaysOccurrences(services, USER, SAT);
-    assert.deepEqual(saturday.occurrences.filter((entry) => entry.habitId === habitId && entry.state === 'pending'), []);
+    // Saturday was taken by Thursday: not shown as a «not today» either.
+    assert.deepEqual(saturday.occurrences.filter((entry) => entry.habitId === habitId), []);
   } finally {
     restore();
   }
