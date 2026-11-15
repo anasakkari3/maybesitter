@@ -124,3 +124,21 @@ test('a deleted account is still refused by export and deletion', async () => {
     end();
   }
 });
+
+test('only the export and deletion routes admit a revoked account', async () => {
+  // The opt-in is a string in a route file, so this walks them all: a third
+  // route reaching for it is a revoked account let back into the product.
+  const { readdirSync, readFileSync, statSync } = await import('node:fs');
+  const { join, relative } = await import('node:path');
+  const root = join(process.cwd(), 'src', 'app', 'api', 'mobile');
+  const found: string[] = [];
+  const walk = (dir: string) => {
+    for (const entry of readdirSync(dir)) {
+      const path = join(dir, entry);
+      if (statSync(path).isDirectory()) walk(path);
+      else if (/allowRevoked\s*:\s*true/.test(readFileSync(path, 'utf8'))) found.push(relative(root, path));
+    }
+  };
+  walk(root);
+  assert.deepEqual(found.sort(), ['account/export/route.ts', 'account/route.ts']);
+});

@@ -27,7 +27,9 @@ export const dynamic = 'force-dynamic';
 export async function GET(request: Request): Promise<Response> {
   let user;
   try {
-    user = await requireMobileUser(request, { forceRevocationCheck: true });
+    // `allowRevoked`: a revoked participant keeps the right to a copy of
+    // their data (C12.1). Every other route still refuses them.
+    user = await requireMobileUser(request, { forceRevocationCheck: true, allowRevoked: true });
   } catch (error) {
     return mobileAuthErrorResponse(error);
   }
