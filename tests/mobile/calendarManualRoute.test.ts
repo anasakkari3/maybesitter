@@ -13,6 +13,7 @@ import {
 import {
   listBusyBlocks,
   readCalendarSource,
+  replaceBusyBlocks,
 } from '../../lib/calendar/busyBlocks.ts';
 
 const BASE = 'http://127.0.0.1:4321';
@@ -280,6 +281,21 @@ test('CXA10.3: the app can list what it added and remove it; the delete names th
     // The app's schema (manualCalendarDeletedSchema) requires sourceId.
     assert.equal(deletedBody.sourceId, 'manual-listed');
     assert.equal(deletedBody.deleted, 2 * 16);
+  } finally {
+    cleanup();
+  }
+});
+
+test('CA10.4 (#749): manual sources stored before the limit existed are counted', async () => {
+  const cleanup = setup();
+  try {
+    await withConsent();
+    const window = { startsAt: '2026-09-01T00:00:00.000Z', endsAt: '2026-12-01T00:00:00.000Z' };
+    for (let index = 0; index < 10; index += 1) {
+      await replaceBusyBlocks(USER, `manual-old${index}`, window, [], { storage, platform: null });
+    }
+    const refused = await manualPost(postManual(lectures('new-one')));
+    assert.equal(refused.status, 409);
   } finally {
     cleanup();
   }
