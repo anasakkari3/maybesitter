@@ -84,6 +84,8 @@ jest.mock('../../../api/queries', () => ({
     preferredWindows: [], flexibility: 'flexible', recoveryPolicy: 'skip',
   }]),
   useCreateHabit: mutation(),
+  useHabitsToday: query(null),
+  useDecideHabitOccurrence: mutation(),
   useSetHabitStatus: mutation(),
   useDeleteHabit: mutation(),
   usePlan: query(null),

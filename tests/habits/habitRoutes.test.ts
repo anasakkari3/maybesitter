@@ -31,7 +31,7 @@ import assert from 'node:assert/strict';
 import { installFakeAuth, tokenFor, uidFor, type FakeAuthControls } from '../support/fakeAuth.ts';
 import { createMemoryStorage } from '../../lib/storage/memoryAdapter.ts';
 import { resetStorageForTests, setStorageForTests } from '../../lib/storage/index.ts';
-import { createHabitServices } from '../../lib/services/habits/habitService.ts';
+import { applyOccurrenceOutcome, createHabitServices } from '../../lib/services/habits/habitService.ts';
 import { withVerifiedScope } from '../../lib/services/habits/habitApi.ts';
 import { GET as habitsGet, POST as habitsPost } from '../../src/app/api/mobile/habits/route.ts';
 import { DELETE as habitDelete, PATCH as habitPatch } from '../../src/app/api/mobile/habits/[id]/route.ts';
@@ -632,6 +632,131 @@ test('a retried skip does not mint a second replacement date', async () => {
       afterFirst.map((row) => row.occurrenceId).sort(),
       'a retried skip created a second make-up session',
     );
+  } finally {
+    restore();
+  }
+});
+
+/* ── Today's occurrences, as the app reads and decides them (CA5.4) ── */
+
+/** Every day of the week, so "today" always has a demand date. */
+const DAILY = { ...VALID, cadence: { kind: 'weekdays', weekdays: [0, 1, 2, 3, 4, 5, 6] }, minimumOccurrences: 7, maximumOccurrences: 7, recoveryPolicy: 'skip' };
+
+function todayIn(timezone: string): string {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: timezone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+}
+
+test("the habits list carries today's occurrences, and a decision on one reads back on the next list (CA5.4)", async () => {
+  const restore = setup();
+  try {
+    const created = await createHabit(DAILY);
+    const habitId = created.habit.habitId as string;
+    const today = todayIn(TZ);
+
+    const before = await json(await habitsGet(req('GET', `/api/mobile/habits?timezone=${TZ}`)));
+    assert.equal(before.today?.localDate, today, 'the list must say which day "today" is');
+    const mine = (before.today.occurrences as Array<Record<string, any>>).filter((row) => row.habitId === habitId);
+    assert.equal(mine.length, 1, "today's occurrence must be on the list the app reads");
+    assert.equal(mine[0].occurrenceId, `${habitId}.${today}.0`);
+    assert.equal(mine[0].state, 'pending');
+
+    const done = await completePost(
+      req('POST', `${occurrencePath(habitId, mine[0].occurrenceId, 'complete')}?timezone=${TZ}`),
+      occurrenceParams(habitId, mine[0].occurrenceId),
+    );
+    assert.equal(done.status, 200);
+
+    const after = await json(await habitsGet(req('GET', `/api/mobile/habits?timezone=${TZ}`)));
+    const row = (after.today.occurrences as Array<Record<string, any>>).find((entry) => entry.habitId === habitId);
+    assert.equal(row?.state, 'completed', 'the decision must persist and read back');
+  } finally {
+    restore();
+  }
+});
+
+test("another account's occurrences never appear on this account's today", async () => {
+  const restore = setup();
+  try {
+    await createHabit(DAILY, OTHER);
+    const listed = await json(await habitsGet(req('GET', `/api/mobile/habits?timezone=${TZ}`)));
+    assert.deepEqual(listed.today.occurrences, []);
+  } finally {
+    restore();
+  }
+});
+
+test("today stays markable after the stored horizon ran out (CA5.4)", async () => {
+  const restore = setup();
+  try {
+    const created = await createHabit(DAILY);
+    const habitId = created.habit.habitId as string;
+    const today = todayIn(TZ);
+    const occurrenceId = `${habitId}.${today}.0`;
+    // A habit created more than four weeks ago has no stored row for today:
+    // creation materialized 28 days and nothing rolls the horizon forward.
+    const services = createHabitServices();
+    await services.occurrences.removeMany(USER, [occurrenceId]);
+
+    const listed = await json(await habitsGet(req('GET', `/api/mobile/habits?timezone=${TZ}`)));
+    const row = (listed.today.occurrences as Array<Record<string, any>>).find((entry) => entry.habitId === habitId);
+    assert.equal(row?.occurrenceId, occurrenceId, 'the planner still asks for today, so the list must too');
+
+    const skipped = await skipPost(
+      req('POST', `${occurrencePath(habitId, occurrenceId, 'skip')}?timezone=${TZ}`),
+      occurrenceParams(habitId, occurrenceId),
+    );
+    assert.equal(skipped.status, 200, 'a demand date the list offered must be decidable');
+    assert.equal((await services.occurrences.get(USER, occurrenceId))?.state, 'skipped');
+
+    // Only today's real demand is minted on demand: a date the cadence never
+    // asked for, or a day other than today, stays a 404.
+    const tomorrowId = `${habitId}.2099-01-01.0`;
+    const notToday = await completePost(
+      req('POST', `${occurrencePath(habitId, tomorrowId, 'complete')}?timezone=${TZ}`),
+      occurrenceParams(habitId, tomorrowId),
+    );
+    assert.equal(notToday.status, 404);
+  } finally {
+    restore();
+  }
+});
+
+test('two devices deciding a row that is not stored yet: the second never overwrites the first (CA5.4)', async () => {
+  const restore = setup();
+  try {
+    const created = await createHabit(DAILY);
+    const habitId = created.habit.habitId as string;
+    const today = todayIn(TZ);
+    const occurrenceId = `${habitId}.${today}.0`;
+    const real = createHabitServices();
+    await real.occurrences.removeMany(USER, [occurrenceId]);
+
+    // Device B's view of the stored rows is taken before device A writes
+    // anything, and handed back only after A has minted and completed the
+    // row: the interleaving two phones produce on a slow connection.
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    let reading!: () => void;
+    const bRead = new Promise<void>((resolve) => { reading = resolve; });
+    // Every store method is the real one; only B's read of the rows is held.
+    const occurrencesB = Object.create(real.occurrences);
+    occurrencesB.listForHabit = async (scopeId: string, id: string) => {
+      const stale = await real.occurrences.listForHabit(scopeId, id);
+      reading();
+      await gate;
+      return stale;
+    };
+    const deviceB = { habits: real.habits, occurrences: occurrencesB };
+    const b = applyOccurrenceOutcome(deviceB as any, USER, habitId, occurrenceId, 'skipped', today);
+    await bRead;
+    const a = await applyOccurrenceOutcome(real, USER, habitId, occurrenceId, 'completed', today);
+    assert.equal(a.transition.kind, 'applied');
+    release();
+    const second = await b;
+
+    assert.notEqual(second.transition.kind, 'applied', 'the later press silently replaced a decision already taken');
+    assert.equal(second.transition.kind, 'conflict');
+    assert.equal((await real.occurrences.get(USER, occurrenceId))?.state, 'completed', "device A's decision must stand");
   } finally {
     restore();
   }

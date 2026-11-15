@@ -40,6 +40,7 @@ export {
   removeHabitWithOccurrences,
   resyncHabitOccurrences,
   todayLocalDateFor,
+  todaysOccurrences,
   type CreatedHabit,
   type HabitServices,
   type OccurrenceOutcomeResult,

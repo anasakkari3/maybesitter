@@ -29,5 +29,7 @@ export async function POST(
   } catch (error) {
     return mobileAuthErrorResponse(error);
   }
-  return respondToOccurrenceOutcome(user.uid, await context.params, 'skipped');
+  // The caller's zone decides which day is "today" for a row still owed (CA5.4).
+  const timezone = new URL(request.url).searchParams.get('timezone') ?? undefined;
+  return respondToOccurrenceOutcome(user.uid, await context.params, 'skipped', { timezone });
 }

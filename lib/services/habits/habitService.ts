@@ -53,6 +53,7 @@ import {
 import { addDays } from '../../habits/civilDate';
 import { materializeHabitOccurrences, type MaterializationResult } from '../../habits/materialize';
 import { recoverSkippedOccurrence, type HabitRecoveryOutcome } from '../../habits/recovery';
+import { coveredInAdvance, countsOnAnyDay, planAnyDay, weekOf, type WeekTally } from '../../habits/weeklyAnyDay';
 import { createStorageHabitStore } from '../../habits/habitStore';
 import {
   createStorageHabitOccurrenceStore,
@@ -235,7 +236,22 @@ export async function applyOccurrenceOutcome(
   outcome: HabitOccurrenceOutcome,
   todayLocalDate: string,
 ): Promise<OccurrenceOutcomeResult> {
-  const transition = await services.occurrences.transition(scopeId, habitId, occurrenceId, outcome);
+  let transition = await services.occurrences.transition(scopeId, habitId, occurrenceId, outcome);
+  // Today's demand date, offered by the habits list but never stored because
+  // the horizon written at create or patch has run out (CA5.4). Minted here,
+  // at its deterministic id, and decided — exactly the row the planner already
+  // reads for today. Only today, and only a date the cadence asks for: any
+  // other id still answers not_found.
+  if (transition.kind === 'not_found' && await mintTodaysDemand(services, scopeId, habitId, occurrenceId, todayLocalDate)) {
+    transition = await services.occurrences.transition(scopeId, habitId, occurrenceId, outcome);
+  } else if (transition.kind === 'not_found' && outcome === 'completed') {
+    // A weekly-count habit done on a day it did not ask for (owner decision
+    // 2026-11-15). «مش اليوم» has no such path: on an off day it means nothing.
+    // Not today's off-day row (any more): another device may have written it
+    // meanwhile, so the answer is read again rather than assumed absent.
+    transition = await completeOnAnyDay(services, scopeId, habitId, occurrenceId, todayLocalDate)
+      ?? await services.occurrences.transition(scopeId, habitId, occurrenceId, outcome);
+  }
   if (transition.kind !== 'applied' || outcome !== 'skipped') {
     return { transition, recovery: null };
   }
@@ -263,6 +279,114 @@ export async function applyOccurrenceOutcome(
     entry.occurrenceId === recovery.replacement.occurrenceId || entry.occurrenceId === occurrenceId);
   await services.occurrences.putMany(scopeId, changed);
   return { transition, recovery };
+}
+
+/**
+ * Writes today's cadence row when it is missing, and says whether it did.
+ *
+ * The same merge `resyncHabitOccurrences` runs, over one day: `created` holds
+ * the row only when the cadence asks for today and nothing was stored at its
+ * id when listed. The write itself is create-if-absent, so a stored row —
+ * decided or not, by this device or another — is never rewritten.
+ */
+async function mintTodaysDemand(
+  services: HabitServices,
+  scopeId: string,
+  habitId: string,
+  occurrenceId: string,
+  todayLocalDate: string,
+): Promise<boolean> {
+  const habit = await services.habits.get(scopeId, habitId);
+  if (habit === null) return false;
+  const stored = await services.occurrences.listForHabit(scopeId, habitId);
+  const { created } = materializeHabitOccurrences(habit, { fromLocalDate: todayLocalDate, toLocalDate: todayLocalDate }, stored);
+  const row = created.find((occurrence) => occurrence.occurrenceId === occurrenceId);
+  if (!row) return false;
+  // A weekly-count week already met asks for nothing more, even on its own days.
+  if (planAnyDay(habit, stored, todayLocalDate).kind === 'week_complete') return false;
+  // Create-if-absent, in one transaction: the list above may already be stale
+  // — another device can mint and decide this row between that read and this
+  // write — and a blind put would reset its decision to pending (review
+  // MAJOR). Either way the row now exists and the caller's transition decides
+  // against what is really stored: applied, unchanged, or a 409.
+  await services.occurrences.createIfAbsent(scopeId, row);
+  return true;
+}
+
+/**
+ * An off-day «done»: the row today's list offered, written completed, and the
+ * nearest open asked-for day after it taken — both in one transaction
+ * (`completeAnyDay`). Null when the id is not the off-day row the week offers
+ * today: another date, a met week, a paused habit, a day with its own row.
+ */
+async function completeOnAnyDay(
+  services: HabitServices,
+  scopeId: string,
+  habitId: string,
+  occurrenceId: string,
+  todayLocalDate: string,
+): Promise<OccurrenceTransition | null> {
+  const habit = await services.habits.get(scopeId, habitId);
+  if (habit === null) return null;
+  const plan = planAnyDay(habit, await services.occurrences.listForHabit(scopeId, habitId), todayLocalDate);
+  if (plan.kind !== 'any_day' || plan.row.occurrenceId !== occurrenceId) return null;
+  return services.occurrences.completeAnyDay(scopeId, plan.row, plan.consume, { ids: plan.weekIds, target: plan.tally.target });
+}
+
+export interface TodaysHabits {
+  /** What today asks of each habit, stored or still owed, as the list shows it. */
+  readonly occurrences: readonly HabitOccurrence[];
+  /** This week's count for every active weekly-count habit. */
+  readonly weeks: readonly WeekTally[];
+  /** Off-day rows among `occurrences`: «تمّت» only, never «مش اليوم». */
+  readonly anyDay: readonly string[];
+}
+
+/**
+ * Today's occurrences of every habit, as the habits list shows them (CA5.4).
+ *
+ * Stored rows for today, plus the cadence row the stored horizon no longer
+ * covers — the same merge the daily plan runs for its own date, so the list
+ * and the plan agree about what today asks for. Reading writes nothing: a
+ * missing row is minted only when the person decides it
+ * (`applyOccurrenceOutcome`).
+ */
+export async function todaysOccurrences(
+  services: HabitServices,
+  scopeId: string,
+  todayLocalDate: string,
+): Promise<TodaysHabits> {
+  // The whole week, because a weekly-count habit's today depends on it.
+  const week = weekOf(todayLocalDate);
+  const { definitions, occurrences } = await loadHabitDemand(services, scopeId, week.fromLocalDate, week.toLocalDate);
+  const day = { fromLocalDate: todayLocalDate, toLocalDate: todayLocalDate };
+  const today: HabitOccurrence[] = [];
+  const weeks: WeekTally[] = [];
+  const anyDay: string[] = [];
+  for (const definition of definitions) {
+    const mine = occurrences.filter((occurrence) => occurrence.habitId === definition.habitId);
+    const rows = materializeHabitOccurrences(definition, day, mine).occurrences
+      .filter((occurrence) => occurrence.localDate === todayLocalDate);
+    if (!countsOnAnyDay(definition)) {
+      today.push(...rows);
+      continue;
+    }
+    const plan = planAnyDay(definition, mine, todayLocalDate);
+    if (plan.kind === 'not_applicable') continue;
+    weeks.push(plan.tally);
+    // A day an earlier off-day «done» stood in for is not today's own row.
+    const own = rows.filter((occurrence) => !coveredInAdvance(occurrence, mine));
+    if (plan.kind === 'week_complete') {
+      // Met: today shows only what was decided, and asks for nothing.
+      today.push(...own.filter((occurrence) => occurrence.state !== 'pending' && occurrence.state !== 'scheduled'));
+    } else if (plan.kind === 'any_day') {
+      today.push(plan.row);
+      anyDay.push(plan.row.occurrenceId);
+    } else {
+      today.push(...own);
+    }
+  }
+  return { occurrences: today, weeks, anyDay };
 }
 
 /**
