@@ -13,7 +13,9 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { replaceBusyBlocks } from '../../../lib/calendar/busyBlocks.ts';
+import { readBusyBlocksForPlanning, replaceBusyBlocks } from '../../../lib/calendar/busyBlocks.ts';
+import { listIcsFeeds } from '../../../lib/calendar/icsFeeds.ts';
+import { candidateClashes, readFreeSlotSchedule } from '../../../lib/planning/freeSlots.ts';
 import { applyTrustAction } from '../../../lib/pilot/pilotTrustStore.ts';
 import { getStorage } from '../../../lib/storage/index.ts';
 import { ICS_FEEDS, userSubDoc } from '../../../lib/storage/paths.ts';
@@ -276,5 +278,74 @@ test('M4A-R18-002 flag-off parity of the manual route for well-formed input', as
     assert.equal(result.status, 200, show(result.body));
     assert.deepEqual(Object.keys(result.body).sort(), ['blocks', 'sourceId', 'success', 'windowEnd', 'windowStart']);
     assert.equal(result.body.blocks, 16, 'a weekly session still expands over 16 weeks');
+  } finally { end(); }
+});
+
+/* ── QA audit CA10.5 / NAPI-A10.1: a disconnect stops every calendar's use ── */
+// «افصل وامسح» deletes this phone's busy time and turns calendar consent off.
+// The ICS lectures, lecture times added by hand and other phones' busy time
+// stayed in the account and still shaped «الخطة», the daily plan and every
+// clash check, and the feed still read `ok`. With consent off none of them is
+// read; the person's own weekly blocks are not a calendar and stay.
+
+async function consent(uid: string, granted: boolean): Promise<void> {
+  const stamp = new Date().toISOString();
+  await applyTrustAction(uid, { type: 'record_first_value', at: stamp });
+  await applyTrustAction(uid, { type: 'set_calendar_consent', granted, at: stamp });
+}
+
+async function seedCalendars(uid: string): Promise<{ lecture: [string, string] }> {
+  const window = { startsAt: FROM, endsAt: TO };
+  const lecture: [string, string] = [at(TOMORROW, '10:00'), at(TOMORROW, '12:00')];
+  await icsFeed(uid, 'feed1', 'ok', new Date().toISOString());
+  await icsBlocks(uid, 'feed1', [[at(TOMORROW, '14:00'), at(TOMORROW, '15:00')]]);
+  await replaceBusyBlocks(uid, 'manual-lectures', window, [block('manual-lectures', 'manual', 'm1', ...lecture)], { platform: null, now: new Date() });
+  await replaceBusyBlocks(uid, 'device:other-phone', window, [block('device:other-phone', 'device', 'd1', at(TOMORROW, '17:00'), at(TOMORROW, '18:00'))], { platform: 'ios', now: new Date() });
+  await replaceBusyBlocks(uid, 'weekly-gym', window, [block('weekly-gym', 'weekly', 'w1', at(TOMORROW, '19:00'), at(TOMORROW, '20:00'))], { platform: null, now: new Date() });
+  return { lecture };
+}
+
+test('CA10.5: after consent is withdrawn the busy GET serves no calendar block and claims no feed', async () => {
+  const uid = begin();
+  try {
+    await consent(uid, true);
+    await seedCalendars(uid);
+    const before = await busy(uid);
+    assert.equal(before.status, 200, show(before.body));
+    assert.ok(before.body.blocks.length >= 2, show(before.body));
+
+    await consent(uid, false);
+    const after = await busy(uid);
+    assert.equal(after.status, 200, show(after.body));
+    assert.deepEqual(after.body.blocks, [], `a disconnected account still serves busy time: ${show(after.body.blocks)}`);
+    assert.deepEqual(after.body.sources, [], show(after.body.sources));
+  } finally { end(); }
+});
+
+test('CA10.5: after consent is withdrawn the daily plan and the clash check read only the weekly blocks', async () => {
+  const uid = begin();
+  try {
+    await consent(uid, true);
+    const { lecture } = await seedCalendars(uid);
+    const window = { startsAt: at(TOMORROW, '00:00'), endsAt: at(TOMORROW, '23:59') };
+    const candidate = { dueAt: lecture[0], endAt: lecture[1], kind: 'scheduled_event' as const };
+    assert.equal(candidateClashes(await readFreeSlotSchedule(uid, window), candidate).state, 'clash');
+
+    await consent(uid, false);
+    const planning = await readBusyBlocksForPlanning(uid, window);
+    assert.deepEqual(planning.map((row) => row.blockId).sort(), ['w1'], `the plan still avoids a disconnected calendar: ${show(planning)}`);
+    const decision = candidateClashes(await readFreeSlotSchedule(uid, window), candidate);
+    assert.equal(decision.state, 'free', `a disconnected calendar still decides clashes: ${show(decision)}`);
+  } finally { end(); }
+});
+
+test('NAPI-A10.1: a feed reads paused, not ok, while calendar consent is off', async () => {
+  const uid = begin();
+  try {
+    await consent(uid, true);
+    await icsFeed(uid, 'feed1', 'ok', new Date().toISOString());
+    assert.equal((await listIcsFeeds(uid))[0]!.status, 'ok');
+    await consent(uid, false);
+    assert.equal((await listIcsFeeds(uid))[0]!.status, 'paused');
   } finally { end(); }
 });
