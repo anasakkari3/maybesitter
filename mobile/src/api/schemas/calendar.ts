@@ -89,6 +89,19 @@ export const manualCalendarStoredSchema = z.object({
   windowEnd: z.string(),
 });
 
+/** Mirrors `GET /api/mobile/calendar/manual`: the lecture times added by hand, no labels (CXA10.3). */
+export const manualCalendarListSchema = z.object({
+  success: z.literal(true),
+  sources: z.array(z.object({
+    sourceId: z.string(),
+    proposalId: z.string(),
+    addedAt: z.string(),
+    windowStart: z.string(),
+    windowEnd: z.string(),
+  })),
+});
+export type ManualBusySource = z.infer<typeof manualCalendarListSchema>['sources'][number];
+
 export const manualCalendarDeletedSchema = z.object({
   success: z.literal(true),
   sourceId: z.string(),

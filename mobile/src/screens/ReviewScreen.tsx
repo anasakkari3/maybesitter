@@ -35,6 +35,7 @@ import { confirmableItems, wantsDiscardConfirmation, weeklyChoice, weeklyLockedB
 import { WeeklyChoice } from '../features/weeklyBlocks/WeeklyChoice';
 import { weeklyA11yLabel } from '../features/weeklyBlocks/weeklyText';
 import { postManualBusy } from '../api/endpoints/calendar';
+import { manualBusyFailureKey } from '../features/calendar/manualLectures';
 import { mailboxShortfall } from '../features/google/mailboxShortfall';
 import type { CaptureProposalItem } from '../api/schemas/capture';
 import type { UserFacingKey } from '../api/ui/userFacingMessage';
@@ -138,8 +139,8 @@ export function ReviewScreen({ onBackToChat }: { onBackToChat?: () => void } = {
         timezone,
       });
       setLecturesAdded(true);
-    } catch {
-      setLecturesError(t.syllabusLecturesFailed);
+    } catch (error: unknown) {
+      setLecturesError(t[manualBusyFailureKey(error)]);
     } finally {
       setAddingLectures(false);
     }

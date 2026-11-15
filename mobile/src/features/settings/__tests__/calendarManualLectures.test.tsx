@@ -55,7 +55,7 @@ beforeEach(() => {
   jest.spyOn(m5aEndpoints, 'getM5aCapabilities').mockResolvedValue({ success: true, calendarChoice: false, emailSources: false });
   jest.spyOn(commitmentEndpoints, 'listToday').mockResolvedValue({ items: [] });
   jest.spyOn(commitmentEndpoints, 'listUpcoming').mockResolvedValue({ items: [] });
-  jest.spyOn(calendarEndpoints, 'getCalendarSettings').mockResolvedValue({ success: true, calendarSettings: { writeTarget: 'off', updatedAt: null } });
+  jest.spyOn(calendarEndpoints, 'getCalendarSettings').mockResolvedValue({ calendarSettings: { writeTarget: 'off' } });
   jest.spyOn(deviceCalendar, 'getAccess').mockResolvedValue('granted');
   jest.spyOn(deviceCalendar, 'listWritableCalendars').mockResolvedValue([]);
 });
