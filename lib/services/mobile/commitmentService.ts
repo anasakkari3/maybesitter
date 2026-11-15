@@ -817,6 +817,27 @@ export async function dropCommitment(
   return commitment;
 }
 
+/**
+ * «احذفها» (CA2.3): the Delete command, not Drop. The commitment leaves every
+ * list, search and history entry and is never recorded as dropped on purpose.
+ */
+export async function deleteCommitment(
+  id: string,
+  now: Date = new Date(),
+  options: CommitmentMutationOptions = {},
+): Promise<Commitment> {
+  const command: Command = { type: 'Delete', commitmentId: id, now: now.toISOString() };
+  await applyCommitmentCommand(id, command, options, 'Could not delete commitment');
+  const commitment = await getCommitment(id, options);
+  if (!commitment) throw new Error('Commitment not found');
+  return commitment;
+}
+
+/** Deleted (`archived`): no screen reads it again, Details included. */
+export function isDeletedCommitment(commitment: Pick<Commitment, 'status'>): boolean {
+  return commitment.status === 'archived';
+}
+
 export type CommitmentActionName = 'complete' | 'postpone' | 'cancel' | 'aware';
 
 /** The notification's Later default (mobile `DEFAULT_DEFER_MS`), applied to a late-arriving tap. */

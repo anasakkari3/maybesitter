@@ -328,6 +328,19 @@ export type Drop = {
   now: string;
 };
 
+/**
+ * The person deleted it («احذفها», CA2.3). Not a drop: a drop is a decision
+ * kept in their history («أسقطه بوعي»), a deletion takes the commitment out of
+ * every list, search and history entry. It becomes `archived`, which every
+ * list, search, calendar and next-step reader already treats as gone, and a
+ * completed item keeps its `completedAt` rather than becoming a drop.
+ */
+export type Delete = {
+  type: 'Delete';
+  commitmentId: string;
+  now: string;
+};
+
 export type Deprioritize = {
   type: 'Deprioritize';
   commitmentId: string;
@@ -391,6 +404,7 @@ export type Command =
   | Complete
   | Postpone
   | Drop
+  | Delete
   | Deprioritize
   | UpdateCommitment
   | ReminderTriggered
@@ -902,6 +916,23 @@ export function applyCommand(state: DomainState, command: Command): StateTransit
       sideEffects.push({ type: 'cancel_reminders', commitmentId: commitment.id });
       sideEffects.push({ type: 'cancel_escalation', commitmentId: commitment.id });
       events.push(makeEvent('commitment_dropped', command.now, commitment.id));
+      didChange = true;
+      break;
+    }
+
+    case 'Delete': {
+      const commitment = requireCommitment(newState, command.commitmentId);
+      if (commitment.status === 'archived') {
+        break;
+      }
+      commitment.status = 'archived';
+      commitment.updatedAt = command.now;
+      commitment.postponedUntil = null;
+      cancelOpenReminders(newState, commitment.id, command.now);
+      ensureEscalationState(newState, commitment.id).status = 'stopped';
+      sideEffects.push({ type: 'cancel_reminders', commitmentId: commitment.id });
+      sideEffects.push({ type: 'cancel_escalation', commitmentId: commitment.id });
+      events.push(makeEvent('commitment_deleted', command.now, commitment.id));
       didChange = true;
       break;
     }

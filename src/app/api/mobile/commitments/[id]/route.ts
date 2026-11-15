@@ -2,9 +2,10 @@ import { mobileAuthErrorResponse, requireMobileUser } from '../../../../../../li
 import { AccountUnavailableError, accountUnavailableResponse } from '../../../../../../lib/account/accountLiveness';
 import {
   collisionsForExistingCommitment,
-  dropCommitment,
+  deleteCommitment,
   getCommitment,
   InvalidTransitionError,
+  isDeletedCommitment,
   patchCommitment,
 } from '../../../../../../lib/services/mobile/commitmentService';
 import { StaleCommitmentError } from '../../../../../../lib/services/mobile/participantState';
@@ -17,7 +18,6 @@ import {
 import { commitmentToMobileDto, mobileError } from '../../../../../../lib/services/mobile/response';
 import { getDeviceCalendarLink } from '../../../../../../lib/services/calendar/deviceCalendarLinks';
 import { RequestBodyTooLargeError, readJsonBody, requestBodyTooLargeResponse } from '../../../../../../lib/net/requestBody';
-import { learnOutcomesWithin } from '../../../../../../lib/intelligence/outcomeLearning';
 import { addedFromByCommitment } from '../../../../../../lib/intelligence/autoAdds';
 
 export const dynamic = 'force-dynamic';
@@ -37,7 +37,9 @@ export async function GET(
   // Another user's commitment is simply not in this user's tree, so it reads
   // as 404 rather than 403 — and a probe learns nothing from the difference.
   const commitment = await getCommitment(id, { participantId: user.uid });
-  if (!commitment) return mobileError('Commitment not found', 404);
+  // Deleted (CA2.3) reads as gone, the same 404 as an id that never existed:
+  // Details must not open it again with Delete offered a second time.
+  if (!commitment || isDeletedCommitment(commitment)) return mobileError('Commitment not found', 404);
   // The validator the client sends back as `If-Match` when it edits (#148).
   const link = await getDeviceCalendarLink(user.uid, id);
   const addedFrom = await addedFromByCommitment(user.uid, [commitment]);
@@ -107,13 +109,17 @@ export async function DELETE(
 
   const { id } = await params;
   try {
-    const commitment = await dropCommitment(id, new Date(), {
+    // «احذفها» is a deletion, not a drop (CA2.3): the Delete command takes it
+    // out of every list, search and history entry, and a completed item is
+    // never rewritten as dropped. A drop on purpose is the actions route's
+    // `cancel`. Nothing here is an outcome to learn from — the person removed
+    // the item, they did not decide about the work.
+    const commitment = await deleteCommitment(id, new Date(), {
       participantId: user.uid,
       expectedValidator: ifMatchFrom(request),
     });
-    // A drop is an outcome the proactive loop learns from, as the actions
-    // route's are (gated, consent-checked, never fails the drop).
-    await learnOutcomesWithin(user.uid);
+    // `softDeleted`: the record is kept server-side, hidden from every
+    // screen, so `deleted` does not claim an erasure that did not happen.
     return Response.json({
       success: true,
       id,

@@ -36,7 +36,7 @@ import { POST as generatePost } from '../../src/app/api/mobile/intelligence/gene
 import { POST as decisionPost } from '../../src/app/api/mobile/intelligence/suggestions/[id]/route.ts';
 import { POST as answerPost } from '../../src/app/api/mobile/intelligence/suggestions/[id]/answer/route.ts';
 import { POST as actionPost } from '../../src/app/api/mobile/commitments/[id]/actions/route.ts';
-import { DELETE as commitmentDelete, PATCH as commitmentPatch } from '../../src/app/api/mobile/commitments/[id]/route.ts';
+import { PATCH as commitmentPatch } from '../../src/app/api/mobile/commitments/[id]/route.ts';
 import { createPilotTrustState } from '../../lib/pilot/closedPilotControls.ts';
 
 const BASE = 'http://127.0.0.1:4321';
@@ -139,7 +139,9 @@ test('completed, postponed and dropped become outcome evidence as they happen, w
 
     assert.equal((await act(ID_DONE, 'complete')).status, 200);
     assert.equal((await act(ID_MOVED, 'postpone', { postponedUntil: later() })).status, 200);
-    assert.equal((await commitmentDelete(req(`/api/mobile/commitments/${ID_DROPPED}`, 'DELETE'), params(ID_DROPPED))).status, 200);
+    // A drop on purpose is the actions route's `cancel`. DELETE is a deletion,
+    // not a drop, and is not an outcome (CA2.3).
+    assert.equal((await act(ID_DROPPED, 'cancel')).status, 200);
 
     // Nobody opened the loop's screen and no model ran, yet the loop knows.
     assert.equal(h.calls.length, 0);

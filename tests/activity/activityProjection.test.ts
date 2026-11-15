@@ -45,6 +45,9 @@ const NOT_USER_FACING: Readonly<Record<string, string>> = {
   reminder_delivered: 'something the product did to the user',
   reminder_ignored: 'a judgement about a non-response — exactly the shape #201 forbids',
   escalation_delivered: 'pressure delivery; #201 names it as never user-visible',
+  // «احذفها» (CA2.3): a deletion leaves no entry. Unlike a drop it is not a
+  // decision kept in history, and its earlier entries lose the title.
+  commitment_deleted: 'a deletion removes the item from history; it is not an outcome to show',
 };
 
 /** Every `makeEvent('…')` the state machine can produce. */
