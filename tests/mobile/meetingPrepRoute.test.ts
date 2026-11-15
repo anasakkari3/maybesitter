@@ -218,7 +218,8 @@ test('the daily cap answers 429 with the scope the client reads, and a refused r
     }
     const last = await preparePost(request({ notes: NOTE, ...block() }));
     assert.equal(last.status, 200, 'the twentieth prep of the day is still allowed');
-    const over = await preparePost(request({ notes: NOTE, ...block() }));
+    // A different block: the same request again would be a free replay (CXA2.9).
+    const over = await preparePost(request({ notes: NOTE, ...block(240) }));
     assert.equal(over.status, 429);
     const body = await json(over);
     assert.equal(body.reason, 'meeting_prep_rate_limited');

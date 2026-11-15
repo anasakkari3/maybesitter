@@ -66,9 +66,10 @@ import {
   captureProposalPath,
   captureProposalToDocument,
   type StoredCaptureProposal,
+  type StoredProposalDocument,
 } from '../captureBoundary/proposalStore';
 import { requireLiveAccount } from '../../account/accountLiveness';
-import { getStorage, userDoc, type StorageAdapter } from '../../storage';
+import { CAPTURE_PROPOSALS, getStorage, userCol, userDoc, type StorageAdapter } from '../../storage';
 import { localDayKey, localMidnightOf, normalizeTimezone } from './time';
 import { hardSettingsOfUser, readReminderSettings } from './reminderSettingsService';
 import { dayPartHour, instantFromLocal } from '../../../src/extraction/timeLexicon';
@@ -366,6 +367,67 @@ export interface MeetingPrepOptions {
   softLeadMinutes?: number;
   /** The account's reminder settings, whole. Read from its settings when absent. */
   ringSettings?: PrepRingSettings;
+  /**
+   * The request's replay key (`meetingPrepRequestKey`), stamped on the stored
+   * proposal so a resubmit of the same request finds it (CXA2.9).
+   */
+  requestKey?: string;
+}
+
+/**
+ * How long a resubmit of the same request gets the first answer back instead
+ * of a new one (CXA2.9). A lost response is retried within seconds; well
+ * inside the confirm's thirty-minute staleness guard, so a replayed proposal
+ * can still be confirmed, and short enough that "now" has not moved the prep
+ * step.
+ */
+export const MEETING_PREP_REPLAY_WINDOW_MS = 10 * MINUTE;
+
+/** The replay record stored beside a meeting prep's proposal. Content-free: a hash and the summary already returned. */
+interface MeetingPrepReplayRecord {
+  readonly requestKey: string;
+  readonly prep: MeetingPrepSummary;
+}
+
+/**
+ * What makes two preps "the same request" (CXA2.9): the phone's own
+ * `idempotencyKey` when it sends one, and always the validated request itself.
+ * A hash, so the notes are not kept a second time.
+ */
+export function meetingPrepRequestKey(valid: ValidMeetingPrepInput, idempotencyKey?: unknown): string {
+  const key = typeof idempotencyKey === 'string' && /^[A-Za-z0-9_:-]{1,128}$/.test(idempotencyKey) ? idempotencyKey : '';
+  return createHash('sha256').update(JSON.stringify([
+    key, valid.notes, valid.start.toISOString(), valid.end?.toISOString() ?? null,
+    valid.timezone, valid.locale ?? null, valid.commitmentId ?? null,
+  ])).digest('hex');
+}
+
+/**
+ * The answer an earlier, identical request already paid for, when it is still
+ * the one to give: unconfirmed, still `proposed`, and inside the replay window
+ * (CXA2.9). The route asks this before it spends one of the day's preps.
+ */
+export async function findMeetingPrepReplay(
+  uid: string,
+  requestKey: string,
+  options: { now?: Date; storage?: StorageAdapter } = {},
+): Promise<MeetingPrepResult | null> {
+  const now = options.now ?? new Date();
+  const storage = options.storage ?? getStorage();
+  const rows = await storage.list<StoredProposalDocument & { meetingPrep?: MeetingPrepReplayRecord }>(
+    userCol(uid, CAPTURE_PROPOSALS),
+    { where: [['meetingPrep.requestKey', '==', requestKey]], limit: 10 },
+  );
+  let best: MeetingPrepResult | null = null;
+  let bestAt = -Infinity;
+  for (const { data } of rows) {
+    if (data.meetingPrep?.requestKey !== requestKey || data.scopeId !== uid) continue;
+    if (data.confirmedResult !== undefined || data.contract?.status !== 'proposed') continue;
+    const at = Date.parse(data.proposedAt ?? '');
+    if (!Number.isFinite(at) || now.getTime() - at > MEETING_PREP_REPLAY_WINDOW_MS || at > now.getTime() + MINUTE) continue;
+    if (at > bestAt) { best = { proposal: data.contract, prep: data.meetingPrep.prep }; bestAt = at; }
+  }
+  return best;
 }
 
 /** The notes, a segment per line, as the meeting pipeline expects them. */
@@ -782,8 +844,13 @@ async function readPrepRingSettings(uid: string, options: { storage?: StorageAda
  * preparation that finishes after the account was deleted (the model call can
  * take seconds) must not re-create a proposal under it.
  */
-async function putProposalWhileLive(uid: string, proposal: StoredCaptureProposal, storage: StorageAdapter): Promise<void> {
-  const document = captureProposalToDocument(proposal, new Date());
+async function putProposalWhileLive(
+  uid: string,
+  proposal: StoredCaptureProposal,
+  storage: StorageAdapter,
+  replay?: MeetingPrepReplayRecord,
+): Promise<void> {
+  const document = { ...captureProposalToDocument(proposal, new Date()), ...(replay ? { meetingPrep: replay } : {}) };
   await storage.runTransaction(async (tx) => {
     await requireLiveAccount(tx, uid);
     tx.set(captureProposalPath(uid, proposal.contract.proposalId), document);
@@ -925,22 +992,23 @@ export async function prepareMeeting(uid: string, input: MeetingPrepInput, optio
     // measures from here.
     proposedAt: new Date().toISOString(),
   };
-  if (options.store) await options.store.put(stored);
-  else await putProposalWhileLive(uid, stored, options.storage ?? getStorage());
-
-  return {
-    proposal: contract,
-    prep: {
-      itemId: items[0]!.itemId,
-      remindAt: ringAt,
-      silentBecause: ringAt ? null : silenceOf(settings, due.at, timing.dueAt, now),
-      dueAt: timing.dueAt.toISOString(),
-      leadMinutes: Math.round((valid.start.getTime() - due.at.getTime()) / MINUTE),
-      adjustment: due.adjustment,
-      startAt: valid.start.toISOString(),
-      endAt: valid.end?.toISOString() ?? null,
-      timing: sessions.kind,
-      sessions: items.slice(0, sessions.review ? 2 : 1).map((item) => ({ itemId: item.itemId, at: item.resolvedTime as string })),
-    },
+  const prep: MeetingPrepSummary = {
+    itemId: items[0]!.itemId,
+    remindAt: ringAt,
+    silentBecause: ringAt ? null : silenceOf(settings, due.at, timing.dueAt, now),
+    dueAt: timing.dueAt.toISOString(),
+    leadMinutes: Math.round((valid.start.getTime() - due.at.getTime()) / MINUTE),
+    adjustment: due.adjustment,
+    startAt: valid.start.toISOString(),
+    endAt: valid.end?.toISOString() ?? null,
+    timing: sessions.kind,
+    sessions: items.slice(0, sessions.review ? 2 : 1).map((item) => ({ itemId: item.itemId, at: item.resolvedTime as string })),
   };
+  if (options.store) await options.store.put(stored);
+  else {
+    await putProposalWhileLive(uid, stored, options.storage ?? getStorage(),
+      options.requestKey ? { requestKey: options.requestKey, prep } : undefined);
+  }
+
+  return { proposal: contract, prep };
 }
