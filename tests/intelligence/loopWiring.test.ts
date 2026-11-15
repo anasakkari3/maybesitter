@@ -285,6 +285,47 @@ test('switching recommendations off stops generation and hides old proposals wit
   } finally { h.restore(); }
 });
 
+function rawReq(path: string, raw: string): Request {
+  return new Request(`${BASE}${path}`, {
+    method: 'POST',
+    headers: { authorization: `Bearer ${tokenFor(UID)}`, 'content-type': 'application/json' },
+    body: raw,
+  });
+}
+
+test('CXA7.2: a malformed generate body is refused before any model call, never run as an explicit generation', async () => {
+  const h = begin(call => ({ suggestions: [{
+    kind: 'action', title: 'Prepare the call', reason: 'You planned a call',
+    observationIds: [call.context.observations[0]!.id], confidence: 0.8, durationMinutes: 30,
+  }] }));
+  try {
+    await setRecommendations(h.storage, 'granted');
+    await seedCommitment(ID_DONE, 'Call the clinic');
+    assert.equal((await generatePost(req('/api/mobile/intelligence/generate', 'POST', { trigger: 'visit' }))).status, 200);
+    assert.equal(h.calls.length, 1);
+    // Something changed, so an explicit request would read it at once.
+    await seedCommitment(ID_MOVED, 'Renew the passport');
+    const cases: Array<[string, string, number]> = [
+      ['truncated JSON', '{"trigger":"vis', 400],
+      ['not an object', '["visit"]', 400],
+      ['a bare string', '"visit"', 400],
+      ['JSON null', 'null', 400],
+      ['a trigger that is not one', '{"trigger":5}', 400],
+      ['an unknown trigger', '{"trigger":"button"}', 400],
+      ['an oversized body', JSON.stringify({ trigger: 'visit', pad: 'x'.repeat(300 * 1024) }), 413],
+    ];
+    for (const [name, raw, status] of cases) {
+      const response = await generatePost(rawReq('/api/mobile/intelligence/generate', raw));
+      assert.equal(response.status, status, `${name}: answered ${response.status}`);
+      assert.equal(h.calls.length, 1, `${name} reached the model`);
+    }
+    // What the phone sends still works: `{}` (the button, an older client) and no body at all.
+    assert.equal((await generatePost(req('/api/mobile/intelligence/generate', 'POST', {}))).status, 200);
+    assert.equal(h.calls.length, 2);
+    assert.equal((await generatePost(req('/api/mobile/intelligence/generate', 'POST'))).status, 200);
+  } finally { h.restore(); }
+});
+
 /** A fake model for the engine directly; `withSuggestion` answers one action on the first observation. */
 function countingModel(withSuggestion: boolean, seen: string[] = []) {
   const counter = { calls: 0 };
