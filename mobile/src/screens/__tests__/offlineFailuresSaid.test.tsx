@@ -30,6 +30,9 @@ import { NextStepCard } from '../../features/nextStep/NextStepCard';
 import { createAppQueryClient } from '../../api/queryClient';
 import { NetworkError } from '../../api/errors';
 import { MutationFailureToasts, UNHANDLED_FAILURE_DELAY_MS } from '../../api/ui/MutationFailureToasts';
+import { ServerToggle } from '../../features/settings/ServerToggle';
+import { MemorySection } from '../../features/memory/MemorySection';
+import * as profileEndpoints from '../../api/endpoints/profile';
 import type { Commitment } from '../../api/schemas/common';
 import en from '../../i18n/locales/en.json';
 import * as commitmentEndpoints from '../../api/endpoints/commitments';
@@ -88,6 +91,13 @@ async function show(node: React.ReactNode) {
       </AppProvider>
     </SafeAreaProvider>,
   );
+}
+
+function inLiveRegion(node: { props: Record<string, unknown>; parent: unknown } | null): boolean {
+  for (let at = node; at; at = at.parent as typeof node) {
+    if (at.props.accessibilityLiveRegion === 'polite' || at.props.accessibilityLiveRegion === 'assertive') return true;
+  }
+  return false;
 }
 
 /** Long enough for the bridge to have said whatever it was going to say. */
@@ -207,4 +217,149 @@ describe('the next-step editor, offline', () => {
     await settle();
     expect(toasts).toEqual([]);
   });
+});
+
+/*
+ * Re-review of lane A3: one message per offline press, on every surface the
+ * tests can reach. A server toggle said «ما وصل للسيرفر» under the switch and
+ * then, 400 ms later, the bridge's toast: `toggleFailureKey` answered network
+ * failures before the helper that marks an error as said.
+ */
+describe('exactly one message for each press that fails offline', () => {
+  const READY_NEXT_STEP = {
+    success: true, participantId: USER.uid,
+    recommendation: {
+      version: 'v1', proposalId: 'p-1', state: 'ready', locale: 'en',
+      primaryStep: { commitmentId: 'c-1', title: 'Send the report to Sami' },
+      explanation: { summary: 'x', evidenceLabels: [], evidenceCodes: [], sensitiveInferenceUsed: false },
+      availableActions: ['accept', 'edit', 'defer', 'dismiss', 'done'],
+      persistence: { occurred: false, confirmationRequired: true },
+    },
+  };
+
+  /** A server-backed switch whose write goes through the mutation cache, as TrustScreen's do. */
+  function ToggleHarness() {
+    const write = useMutation({ mutationFn: async (_next: boolean) => { throw new NetworkError('offline'); } });
+    return <ServerToggle title="Reminders" value={false} testID="probe-toggle"
+      onChange={async next => { await write.mutateAsync(next); return true; }} />;
+  }
+
+  type Surface = {
+    name: string;
+    setup: () => void;
+    node: () => React.ReactNode;
+    /** The control that opens the surface, pressed before going offline. */
+    open?: string[];
+    /** What the person does offline. */
+    press: () => Promise<void>;
+    /** The surface's own line, when it has one; null means the bridge's toast is the message. */
+    inline: string | null;
+  };
+
+  const details = () => <><OpenDetails /><DetailsScreen /><SheetHost /></>;
+  const surfaces: Surface[] = [
+    {
+      name: 'a server toggle',
+      setup: () => undefined,
+      node: () => <ToggleHarness />,
+      press: async () => { await fireEvent(screen.getByTestId('probe-toggle'), 'valueChange', true); },
+      inline: 'probe-toggle-failed',
+    },
+    {
+      name: 'the edit sheet',
+      setup: () => { jest.spyOn(commitmentEndpoints, 'patchCommitment').mockRejectedValue(new NetworkError('offline') as never); },
+      node: details,
+      open: ['details-edit'],
+      press: async () => {
+        await fireEvent.changeText(screen.getByTestId('edit-title'), 'Hand it in on Monday');
+        await fireEvent.press(screen.getByTestId('edit-save'));
+      },
+      inline: 'edit-error',
+    },
+    {
+      name: 'drop',
+      setup: () => { jest.spyOn(commitmentEndpoints, 'actOnCommitment').mockRejectedValue(new NetworkError('offline') as never); },
+      node: details,
+      open: ['details-drop'],
+      press: async () => { await fireEvent.press(screen.getByTestId('confirm-drop')); },
+      inline: 'confirm-error',
+    },
+    {
+      name: 'delete',
+      setup: () => { jest.spyOn(commitmentEndpoints, 'deleteCommitment').mockRejectedValue(new NetworkError('offline') as never); },
+      node: details,
+      open: ['details-delete'],
+      press: async () => { await fireEvent.press(screen.getByTestId('confirm-delete')); },
+      inline: 'confirm-error',
+    },
+    {
+      name: 'Done on Details',
+      setup: () => { jest.spyOn(commitmentEndpoints, 'actOnCommitment').mockRejectedValue(new NetworkError('offline') as never); },
+      node: details,
+      press: async () => { await fireEvent.press(screen.getByTestId('details-done')); },
+      inline: null,
+    },
+    {
+      name: 'a postpone preset',
+      setup: () => { jest.spyOn(commitmentEndpoints, 'actOnCommitment').mockRejectedValue(new NetworkError('offline') as never); },
+      node: details,
+      open: ['details-postpone'],
+      press: async () => {
+        await waitFor(() => expect(screen.queryByTestId('postpone-oneHour')).not.toBeNull(), { timeout: 4_000 });
+        await fireEvent.press(screen.getByTestId('postpone-oneHour'));
+      },
+      inline: 'postpone-pick-failure',
+    },
+    {
+      name: 'a postpone at a picked time',
+      setup: () => { jest.spyOn(commitmentEndpoints, 'actOnCommitment').mockRejectedValue(new NetworkError('offline') as never); },
+      node: details,
+      open: ['details-postpone', 'postpone-custom'],
+      press: async () => { await fireEvent.press(screen.getByTestId('postpone-custom-confirm')); },
+      inline: 'postpone-problem',
+    },
+    {
+      name: 'the next-step editor',
+      setup: () => {
+        jest.spyOn(nextStepEndpoints, 'getNextStep').mockResolvedValue(READY_NEXT_STEP as never);
+        jest.spyOn(nextStepEndpoints, 'recordNextStepDecision').mockRejectedValue(new NetworkError('offline') as never);
+      },
+      node: () => <NextStepCard />,
+      open: ['next-step-more', 'next-step-edit'],
+      press: async () => { await fireEvent.press(screen.getByTestId('next-step-edit-save')); },
+      inline: 'next-step-failed',
+    },
+    {
+      name: 'a memory add',
+      setup: () => {
+        jest.spyOn(profileEndpoints, 'listMemory').mockResolvedValue({ items: [], suggestions: [], adaptive: null } as never);
+        jest.spyOn(profileEndpoints, 'createMemory').mockRejectedValue(new NetworkError('offline') as never);
+      },
+      node: () => <MemorySection />,
+      open: ['memory-add'],
+      press: async () => {
+        await fireEvent.changeText(screen.getByTestId('memory-add-input'), 'I cook on Fridays');
+        await fireEvent.press(screen.getByTestId('memory-add-save'));
+      },
+      inline: 'memory-error',
+    },
+  ];
+
+  it.each(surfaces.map(surface => [surface.name, surface] as const))('%s', async (_name, surface) => {
+    surface.setup();
+    await show(surface.node());
+    for (const control of surface.open ?? []) {
+      await waitFor(() => expect(screen.queryByTestId(control)).not.toBeNull());
+      await fireEvent.press(screen.getByTestId(control));
+    }
+    await act(async () => { onlineManager.setOnline(false); });
+    await surface.press();
+    await settle();
+    await settle();
+
+    const line = surface.inline === null ? null : screen.queryByTestId(surface.inline);
+    expect({ inline: line ? 1 : 0, toasts: toasts.length }).toEqual(surface.inline === null ? { inline: 0, toasts: 1 } : { inline: 1, toasts: 0 });
+    // A sheet is modal to VoiceOver, so its own line must be in a live region.
+    if (line) expect(inLiveRegion(line)).toBe(true);
+  }, 15_000);
 });
