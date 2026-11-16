@@ -15,7 +15,8 @@
  */
 
 import { getStorage, type StorageAdapter } from '../storage';
-import { CALENDAR_CHOICE, CALENDAR_SOURCES, userCol, userSubDoc } from '../storage/paths';
+import { CALENDAR_CHOICE, CALENDAR_SOURCES, userCol, userDoc, userSubDoc } from '../storage/paths';
+import { assertLiveAccount } from '../account/accountLiveness';
 import {
   BusyUploadError,
   busyBlockId,
@@ -180,7 +181,7 @@ export async function acceptLectureSessionsAsBusyBlocks(
   const { sourceId, window, blocks } = expandLectureSessionsToBusyBlocks(proposalId, sessions, options);
 
   const storage = options.storage ?? getStorage();
-  const reserved = await reserveManualSource(storage, uid, sourceId);
+  await reserveManualSource(storage, uid, sourceId, options.now ?? new Date());
   let outcome: { written: number; removed: number };
   try {
     outcome = await replaceBusyBlocks(uid, sourceId, window, blocks, {
@@ -188,10 +189,9 @@ export async function acceptLectureSessionsAsBusyBlocks(
       platform: null,
       now: options.now,
     });
-  } catch (error) {
-    // A place taken for a source that was never written is given back.
-    if (reserved) await releaseManualSource(storage, uid, sourceId).catch(() => undefined);
-    throw error;
+  } finally {
+    // Written, it is counted as stored; not written, the place is given back.
+    await releaseManualSource(storage, uid, sourceId).catch(() => undefined);
   }
 
   return {
@@ -217,47 +217,55 @@ export class ManualBusyLimitError extends Error {
 }
 
 /**
- * The account's manual sources, one document, so a create at the limit is
- * decided in one transaction: two concurrent creates read the same manifest
- * and only one commits. It sits beside the M5a choice state, whose collection
- * account deletion already removes.
+ * The count is taken from what is stored, not kept beside it (review of wave
+ * B8): a counter drifted whenever a source went another way (`DELETE
+ * /calendar/busy`), a delete raced a re-accept, or a create died between its
+ * reservation and its write. The limit is "manual sources stored, plus creates
+ * in flight". In flight are the reservations in one manifest document, so two
+ * concurrent creates read and write the same document and only one commits;
+ * a reservation older than PENDING_TTL_MS whose source never appeared is a
+ * create that died, and holds nothing. The manifest is written only under a
+ * live account (#772): a deletion sweep is never followed by a new row.
  */
+const PENDING_TTL_MS = 5 * 60_000;
+
 interface ManualBusyManifest {
-  readonly sourceIds: readonly string[];
+  /** sourceId → when its create reserved the place. */
+  readonly pending: Readonly<Record<string, string>>;
 }
 
 function manifestPath(uid: string): string {
   return userSubDoc(uid, CALENDAR_CHOICE, 'manualBusy');
 }
 
-/**
- * Takes a place for `sourceId`, or confirms it already has one (re-accepting
- * the same proposal replaces it). Answers whether a new place was taken. A
- * manifest that does not exist yet is started from the sources stored, so an
- * account with manual time from before the limit is counted.
- */
-async function reserveManualSource(storage: StorageAdapter, uid: string, sourceId: string): Promise<boolean> {
-  return storage.runTransaction(async (tx) => {
-    const manifest = await tx.get<ManualBusyManifest>(manifestPath(uid));
-    const ids = manifest
-      ? [...manifest.sourceIds]
-      : (await tx.list<CalendarSource>(userCol(uid, CALENDAR_SOURCES), { where: [['kind', '==', 'manual']] }))
-        .map((row) => row.data.sourceId);
-    if (ids.includes(sourceId)) {
-      if (!manifest) tx.set<ManualBusyManifest>(manifestPath(uid), { sourceIds: ids });
-      return false;
+async function reserveManualSource(storage: StorageAdapter, uid: string, sourceId: string, now: Date): Promise<void> {
+  await storage.runTransaction(async (tx) => {
+    const [user, manifest, rows] = await Promise.all([
+      tx.get(userDoc(uid)),
+      tx.get<Partial<ManualBusyManifest>>(manifestPath(uid)),
+      tx.list<CalendarSource>(userCol(uid, CALENDAR_SOURCES), { where: [['kind', '==', 'manual']] }),
+    ]);
+    assertLiveAccount(user);
+    const stored = new Set(rows.map((row) => row.data.sourceId));
+    const nowMs = now.getTime();
+    const pending: Record<string, string> = {};
+    for (const [id, at] of Object.entries(manifest?.pending ?? {})) {
+      if (!stored.has(id) && nowMs - Date.parse(at) < PENDING_TTL_MS) pending[id] = at;
     }
-    if (ids.length >= MANUAL_SOURCE_LIMIT) throw new ManualBusyLimitError('manual_busy_limit');
-    tx.set<ManualBusyManifest>(manifestPath(uid), { sourceIds: [...ids, sourceId] });
-    return true;
+    const held = new Set([...Array.from(stored), ...Object.keys(pending)]);
+    if (!held.has(sourceId) && held.size >= MANUAL_SOURCE_LIMIT) throw new ManualBusyLimitError('manual_busy_limit');
+    if (!stored.has(sourceId)) pending[sourceId] = now.toISOString();
+    tx.set<ManualBusyManifest>(manifestPath(uid), { pending });
   });
 }
 
+/** The create is over, written or not: its reservation is no longer needed. */
 async function releaseManualSource(storage: StorageAdapter, uid: string, sourceId: string): Promise<void> {
   await storage.runTransaction(async (tx) => {
-    const manifest = await tx.get<ManualBusyManifest>(manifestPath(uid));
-    if (!manifest || !manifest.sourceIds.includes(sourceId)) return;
-    tx.set<ManualBusyManifest>(manifestPath(uid), { sourceIds: manifest.sourceIds.filter((id) => id !== sourceId) });
+    const manifest = await tx.get<Partial<ManualBusyManifest>>(manifestPath(uid));
+    if (!manifest?.pending || !(sourceId in manifest.pending)) return;
+    const { [sourceId]: _released, ...rest } = manifest.pending;
+    tx.set<ManualBusyManifest>(manifestPath(uid), { pending: rest });
   });
 }
 

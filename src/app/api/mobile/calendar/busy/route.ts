@@ -8,8 +8,10 @@ import {
   parseBusyUpload,
   readCalendarSource,
   replaceBusyBlocks,
+  sourceKindOf,
   type BusyBlock,
 } from '../../../../../../lib/calendar/busyBlocks';
+import { deleteManualBusySource } from '../../../../../../lib/calendar/manualBusy';
 import { RequestBodyTooLargeError, readJsonBody, requestBodyTooLargeResponse } from '../../../../../../lib/net/requestBody';
 import { resolveFreeSlots } from '../../../../../../lib/planning/freeSlots';
 import { icsFeedReadStatus } from '../../../../../../lib/calendar/icsFeedStatus';
@@ -360,7 +362,10 @@ export async function DELETE(request: Request) {
       await finishDeviceClear(user.uid, sourceId, request.headers.get(SOURCE_SECRET_HEADER) ?? '', opId, epoch);
       return Response.json({ success: true, deleted: 0 });
     }
-    const result = await deleteBusySource(user.uid, sourceId);
+    // A manual source goes the way /calendar/manual removes it (review of B8).
+    const result = sourceKindOf(sourceId) === 'manual'
+      ? await deleteManualBusySource(user.uid, sourceId)
+      : await deleteBusySource(user.uid, sourceId);
     return Response.json({ success: true, deleted: result.deleted });
   } catch (error) {
     if (error instanceof CalendarChoiceError) {

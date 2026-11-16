@@ -312,7 +312,9 @@ function instantOrThrow(value: unknown, field: string): Instant {
 const DASHED_SOURCE_KINDS: ReadonlySet<BusySourceKind> = new Set<BusySourceKind>(['manual', 'weekly']);
 
 /** Kinds no client upload may write or restate. */
-const SERVER_OWNED_SOURCE_KINDS: ReadonlySet<BusySourceKind> = new Set<BusySourceKind>(['weekly']);
+// `manual` too (review of QA wave B8): lecture times are written only by
+// `POST /calendar/manual`, under its consent check and per-account limit.
+const SERVER_OWNED_SOURCE_KINDS: ReadonlySet<BusySourceKind> = new Set<BusySourceKind>(['weekly', 'manual']);
 
 export function sourceKindOf(sourceId: unknown): BusySourceKind {
   if (typeof sourceId !== 'string' || sourceId.length > 200) {

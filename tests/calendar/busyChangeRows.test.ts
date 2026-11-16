@@ -456,7 +456,7 @@ const SESSION = { weekday: 2, start: '10:00', end: '12:00', label: 'Lecture' };
 
 test('writer: accepted lecture sessions (#191) announce their blocks once, a changed session as a move, and a re-accept as nothing', async () => {
   const storage = createMemoryStorage();
-  await liveAccount(storage);
+  await seedLiveAccount(UID, storage); // the manual-source count is written only under a live account (#772)
   const options = { storage, timezone: 'Asia/Jerusalem', referenceTime: '2026-09-01T09:00:00.000Z', now: new Date('2026-09-01T09:00:00.000Z') };
 
   const first = await acceptLectureSessionsAsBusyBlocks(UID, 'prop-1', [SESSION], options);
