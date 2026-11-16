@@ -13,6 +13,9 @@ const mockGenerate = jest.fn();
 const mockRegenerate = jest.fn();
 const mockUnlink = jest.fn();
 let mockHabits: unknown[] = [];
+const mockDecide = jest.fn();
+let mockToday: unknown = null;
+let mockTodayPending = false;
 
 // M5a's email parts read through TanStack Query; these screens render here
 // without a client, on a server whose M5a capability is off (today's screens).
@@ -68,6 +71,8 @@ jest.mock('../../../api/queries', () => ({
   useCommitment: () => ({ data: null, isPending: false, error: null, refetch: jest.fn() }),
   useHabits: () => ({ data: mockHabits, isPending: false, error: null, refetch: jest.fn() }),
   useCreateHabit: () => ({ mutate: mockCreateHabit, isPending: false, error: null }),
+  useHabitsToday: () => ({ data: mockToday, isPending: mockTodayPending, error: null, refetch: jest.fn() }),
+  useDecideHabitOccurrence: () => ({ mutate: mockDecide, isPending: false, error: null, variables: undefined }),
   useSetHabitStatus: () => ({ mutate: jest.fn(), isPending: false, error: null }),
   useDeleteHabit: () => ({ mutate: jest.fn(), isPending: false, error: null }),
   usePlan: () => ({ data: null, isPending: false, error: null, refetch: jest.fn() }),
@@ -87,6 +92,8 @@ const wrap = (child: React.ReactNode) => (
 beforeEach(() => {
   jest.clearAllMocks();
   mockHabits = [];
+  mockToday = null;
+  mockTodayPending = false;
   mockGenerate.mockImplementation((_input, options: any) => options.onSuccess({
     generation: 1,
     nodes: [
@@ -203,4 +210,108 @@ it('names a saved habit\'s duration, flexibility and recovery in words, not raw 
   expect(screen.getByText(strings.en.xRecoverThisWeek)).toBeTruthy();
   expect(screen.queryByText('protected_flexible')).toBeNull();
   expect(screen.queryByText('recover_within_period')).toBeNull();
+});
+
+/**
+ * CA5.4: today's occurrence of a habit can be marked done or not today from
+ * the habit's own card, and the decision reads back from the server.
+ */
+const walk = {
+  habitId: 'h1', title: 'Walk', cadence: { kind: 'weekdays', weekdays: [0, 1, 2, 3, 4, 5, 6] }, durationMinutes: 30,
+  preferredWindows: [], minimumOccurrences: 7, maximumOccurrences: 7, flexibility: 'flexible', recoveryPolicy: 'skip',
+  status: 'active', source: 'user_created',
+  confirmation: { confirmedByUserAt: '2026-11-01T09:00:00.000Z', sourceRef: null, acceptedSuggestedValues: true },
+  createdAt: '2026-11-01T09:00:00.000Z', updatedAt: '2026-11-01T09:00:00.000Z',
+};
+const todayRow = (state: string) => ({ occurrenceId: 'h1.2026-11-15.0', habitId: 'h1', localDate: '2026-11-15', ordinal: 0, state, durationMinutes: 30, recoveredFromOccurrenceId: null });
+
+it("marks today's occurrence done or not today from the habit's card", async () => {
+  mockHabits = [walk];
+  mockToday = { localDate: '2026-11-15', occurrences: [todayRow('pending')] };
+  await render(wrap(<HabitDetailScreen />));
+  await fireEvent.press(screen.getByTestId('habit-today-done-h1'));
+  expect(mockDecide).toHaveBeenLastCalledWith({ habitId: 'h1', occurrenceId: 'h1.2026-11-15.0', outcome: 'completed' }, expect.any(Object));
+  await fireEvent.press(screen.getByTestId('habit-today-skip-h1'));
+  expect(mockDecide).toHaveBeenLastCalledWith({ habitId: 'h1', occurrenceId: 'h1.2026-11-15.0', outcome: 'skipped' }, expect.any(Object));
+});
+
+it.each<[string, 'xHabitTodayDone' | 'xHabitTodaySkipped']>([
+  ['completed', 'xHabitTodayDone'],
+  ['skipped', 'xHabitTodaySkipped'],
+  ['recovered', 'xHabitTodaySkipped'],
+])('a %s occurrence says what was decided and offers no second decision', async (state, key) => {
+  mockHabits = [walk];
+  mockToday = { localDate: '2026-11-15', occurrences: [todayRow(state)] };
+  await render(wrap(<HabitDetailScreen />));
+  expect(screen.getByTestId('habit-today-state-h1')).toHaveTextContent(strings.en[key]);
+  expect(screen.queryByTestId('habit-today-done-h1')).toBeNull();
+  expect(screen.queryByTestId('habit-today-skip-h1')).toBeNull();
+});
+
+it('a habit with nothing due today shows no today row', async () => {
+  mockHabits = [walk];
+  mockToday = { localDate: '2026-11-15', occurrences: [] };
+  await render(wrap(<HabitDetailScreen />));
+  expect(screen.queryByTestId('habit-today-h1')).toBeNull();
+});
+
+it("holds the habit cards until today's occurrences are known, so a card never appears without its today row", async () => {
+  mockHabits = [walk];
+  mockTodayPending = true;
+  await render(wrap(<HabitDetailScreen />));
+  expect(screen.queryByTestId('habit-toggle-h1')).toBeNull();
+  expect(screen.getByTestId('query-loading')).toBeTruthy();
+});
+
+/**
+ * A weekly-count habit counts on any day it is done (owner decision
+ * 2026-11-15): an off day offers «done» only, the card says the week's
+ * count, and a met week says so and asks nothing more.
+ */
+const gym = { ...walk, habitId: 'h1', title: 'Gym', cadence: { kind: 'weekly_count', count: 3 }, minimumOccurrences: 3, maximumOccurrences: 3 };
+
+it('an off-day row offers done only, never not today', async () => {
+  mockHabits = [gym];
+  mockToday = { localDate: '2026-11-17', occurrences: [{ ...todayRow('pending'), occurrenceId: 'h1.2026-11-17.0', localDate: '2026-11-17' }], weeks: [{ habitId: 'h1', completed: 0, target: 3 }], anyDay: ['h1.2026-11-17.0'] };
+  await render(wrap(<HabitDetailScreen />));
+  await fireEvent.press(screen.getByTestId('habit-today-done-h1'));
+  expect(mockDecide).toHaveBeenLastCalledWith({ habitId: 'h1', occurrenceId: 'h1.2026-11-17.0', outcome: 'completed' }, expect.any(Object));
+  expect(screen.queryByTestId('habit-today-skip-h1')).toBeNull();
+  expect(screen.getByTestId('habit-today-anyday-h1')).toHaveTextContent(strings.en.xHabitTodayAnyDay);
+});
+
+it("says the week's count on a weekly habit", async () => {
+  mockHabits = [gym];
+  mockToday = { localDate: '2026-11-18', occurrences: [todayRow('pending')], weeks: [{ habitId: 'h1', completed: 1, target: 3 }], anyDay: [] };
+  await render(wrap(<HabitDetailScreen />));
+  expect(screen.getByTestId('habit-week-h1')).toHaveTextContent('1 of 3 this week');
+  expect(screen.getByTestId('habit-today-skip-h1')).toBeTruthy();
+});
+
+it('a met week says it is done for the week and asks nothing more', async () => {
+  mockHabits = [gym];
+  mockToday = { localDate: '2026-11-20', occurrences: [], weeks: [{ habitId: 'h1', completed: 3, target: 3 }], anyDay: [] };
+  await render(wrap(<HabitDetailScreen />));
+  expect(screen.getByTestId('habit-week-h1')).toHaveTextContent(strings.en.xHabitWeekDone);
+  expect(screen.queryByTestId('habit-today-h1')).toBeNull();
+});
+
+function inLiveRegion(node: { props: Record<string, unknown>; parent: unknown } | null): boolean {
+  for (let at = node; at; at = at.parent as typeof node) {
+    if (at.props.accessibilityLiveRegion === 'polite' || at.props.accessibilityLiveRegion === 'assertive') return true;
+  }
+  return false;
+}
+
+it.each<[string, number]>([['counting', 1], ['met', 3]])("the week's count sits in a live region when %s, so a change is announced", async (_label, completed) => {
+  mockHabits = [gym];
+  mockToday = { localDate: '2026-11-18', occurrences: completed < 3 ? [todayRow('pending')] : [], weeks: [{ habitId: 'h1', completed, target: 3 }], anyDay: [] };
+  await render(wrap(<HabitDetailScreen />));
+  expect(inLiveRegion(screen.getByTestId('habit-week-h1') as never)).toBe(true);
+});
+
+it('a met week says the person finished their count, in all three languages', () => {
+  expect(strings.ar.xHabitWeekDone).toBe('خلّصت عدّك لهالأسبوع');
+  expect(strings.en.xHabitWeekDone).toBe("You've hit your count for this week");
+  expect(strings.he.xHabitWeekDone).toBe('השלמת את המכסה של השבוע');
 });
