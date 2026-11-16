@@ -36,6 +36,7 @@ import ar from '../../../i18n/locales/ar.json';
 import { FootballSettingsScreen } from '../FootballSettingsScreen';
 import * as footballEndpoints from '../../../api/endpoints/football';
 import type { FootballSettingsResponse } from '../../../api/schemas/football';
+import { ConflictError } from '../../../api/errors';
 
 // Same mechanism as noCommitmentArabic.test.tsx / hebrewUi.test.tsx: pin the
 // device locale so `AppContext`'s 'system' default resolves to Arabic,
@@ -175,6 +176,29 @@ describe('dismissing a match', () => {
     await waitFor(() => expect(screen.queryByTestId(`football-dismiss-${FIXTURE.commitmentId}`)).not.toBeNull());
     await fireEvent.press(screen.getByTestId(`football-dismiss-${FIXTURE.commitmentId}`));
     await waitFor(() => expect(dismiss).toHaveBeenCalledWith(FIXTURE.commitmentId));
+  });
+
+  // Review of QA wave B9 (CXA11.3): a stale dismiss on a match completed
+  // elsewhere is refused with 409. It was an unhandled rejection that showed
+  // nothing; the screen now says the match is over or gone.
+  it('says so when the match is already over or gone (409), instead of failing silently', async () => {
+    jest.spyOn(footballEndpoints, 'getFootballSettings').mockResolvedValue(
+      settingsResponse({ followedClubIds: ['barcelona'], fixtures: [{ ...FIXTURE, collisions: [] }] }),
+    );
+    jest.spyOn(footballEndpoints, 'dismissFixture').mockRejectedValue(new ConflictError('fixture_not_active'));
+    const unhandled = jest.fn();
+    process.on('unhandledRejection', unhandled);
+    try {
+      await show();
+      await waitFor(() => expect(screen.queryByTestId(`football-dismiss-${FIXTURE.commitmentId}`)).not.toBeNull());
+      await fireEvent.press(screen.getByTestId(`football-dismiss-${FIXTURE.commitmentId}`));
+      const line = await screen.findByTestId('football-dismiss-failed');
+      expect([line.props.children].flat().join('')).toBe(ar.footballDismissGone);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(unhandled).not.toHaveBeenCalled();
+    } finally {
+      process.off('unhandledRejection', unhandled);
+    }
   });
 
   it('names what else is already on the calendar at that time', async () => {
