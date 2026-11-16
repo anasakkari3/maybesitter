@@ -2,7 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createMemoryStorage } from '../../lib/storage/memoryAdapter.ts';
 import { resetStorageForTests, setStorageForTests } from '../../lib/storage/index.ts';
-import { COMMITMENTS, userCol } from '../../lib/storage/paths.ts';
+import { CALENDAR_CHOICE, COMMITMENTS, userCol, userSubDoc } from '../../lib/storage/paths.ts';
+import { DELETE as busyDelete } from '../../src/app/api/mobile/calendar/busy/route.ts';
 import { installFakeAuth, tokenFor, uidFor, type FakeAuthControls } from '../support/fakeAuth.ts';
 import { applyTrustAction } from '../../lib/pilot/pilotTrustStore.ts';
 import * as manualRoute from '../../src/app/api/mobile/calendar/manual/route.ts';
@@ -296,6 +297,95 @@ test('CA10.4 (#749): manual sources stored before the limit existed are counted'
     }
     const refused = await manualPost(postManual(lectures('new-one')));
     assert.equal(refused.status, 409);
+  } finally {
+    cleanup();
+  }
+});
+
+/* ── Review of wave B8: the source count must not drift ───────────────── */
+
+const MANIFEST = (uid: string) => userSubDoc(uid, CALENDAR_CHOICE, 'manualBusy');
+
+async function fill(count: number, prefix = 'f'): Promise<void> {
+  for (let index = 0; index < count; index += 1) {
+    assert.equal((await manualPost(postManual(lectures(`${prefix}${index}`)))).status, 200, `source ${index}`);
+  }
+}
+
+test('review: a manual source removed through DELETE /calendar/busy frees its place', async () => {
+  const cleanup = setup();
+  try {
+    await withConsent();
+    await fill(10);
+    const removed = await busyDelete(new Request(`${BASE}/api/mobile/calendar/busy?sourceId=manual-f0`, {
+      method: 'DELETE', headers: { authorization: `Bearer ${tokenFor(USER)}` },
+    }));
+    assert.equal(removed.status, 200);
+    assert.equal(await readCalendarSource(USER, 'manual-f0', { storage }), null);
+    assert.equal((await manualPost(postManual(lectures('after')))).status, 200, 'the removed source still held a place');
+  } finally {
+    cleanup();
+  }
+});
+
+test('review: a place taken by a create that never wrote its source does not hold it for ever', async () => {
+  const cleanup = setup();
+  try {
+    await withConsent();
+    await fill(9);
+    // A create that reserved and then died before writing (crash, timeout).
+    const manifest = await storage.get<Record<string, unknown>>(MANIFEST(USER));
+    const ghostAt = new Date(Date.now() - 60 * 60_000).toISOString();
+    await storage.set(MANIFEST(USER), {
+      ...(manifest ?? {}),
+      sourceIds: [...((manifest?.sourceIds as string[] | undefined) ?? []), 'manual-ghost'],
+      pending: { ...((manifest?.pending as Record<string, string> | undefined) ?? {}), 'manual-ghost': ghostAt },
+    });
+    assert.equal((await manualPost(postManual(lectures('tenth')))).status, 200, 'a dead reservation kept a place');
+  } finally {
+    cleanup();
+  }
+});
+
+test('review: a source the count lost track of (delete racing a re-accept) is still counted', async () => {
+  const cleanup = setup();
+  try {
+    await withConsent();
+    await fill(10);
+    // The race's end state: the source is stored, the count no longer has it.
+    await storage.set(MANIFEST(USER), { sourceIds: Array.from({ length: 9 }, (_, index) => `manual-f${index}`), pending: {} });
+    assert.ok(await readCalendarSource(USER, 'manual-f9', { storage }));
+    assert.equal((await manualPost(postManual(lectures('eleventh')))).status, 409, 'an eleventh source got in');
+  } finally {
+    cleanup();
+  }
+});
+
+test('review: delete then create, many times, never drifts', async () => {
+  const cleanup = setup();
+  try {
+    await withConsent();
+    await fill(10);
+    for (let round = 0; round < 5; round += 1) {
+      const deleted = await manualDelete(new Request(`${BASE}/api/mobile/calendar/manual?proposalId=f${round}`, {
+        method: 'DELETE', headers: { authorization: `Bearer ${tokenFor(USER)}` },
+      }));
+      assert.equal(deleted.status, 200);
+      assert.equal((await manualPost(postManual(lectures(`r${round}`)))).status, 200, `round ${round}`);
+      assert.equal((await manualPost(postManual(lectures(`x${round}`)))).status, 409, `round ${round}: over the limit`);
+    }
+  } finally {
+    cleanup();
+  }
+});
+
+test('review: a revoked account cannot add lecture times', async () => {
+  const cleanup = setup();
+  try {
+    await withConsent();
+    await applyTrustAction(USER, { type: 'revoke', at: '2026-09-02T08:00:00.000Z' });
+    assert.equal((await manualPost(postManual(lectures('revoked')))).status, 403);
+    assert.equal(await readCalendarSource(USER, 'manual-revoked', { storage }), null);
   } finally {
     cleanup();
   }

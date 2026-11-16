@@ -353,3 +353,18 @@ test('a source id the server does not recognise is refused', async () => {
     teardown();
   }
 });
+
+/* ── Review of the QA wave B8 (CA10.4): manual sources belong to /calendar/manual ── */
+
+test('an upload cannot write a manual source: those are counted and written by /calendar/manual only', async () => {
+  const teardown = setup();
+  try {
+    await withConsent();
+    for (const sourceId of ['manual-sneaky', 'manual:sneaky']) {
+      const response = await busyPost(post({ ...upload([{ nativeId: 'a', from: 600, to: 660 }]), sourceId }));
+      assert.equal(response.status, 400, `${sourceId} was stored outside the manual quota`);
+    }
+  } finally {
+    teardown();
+  }
+});
