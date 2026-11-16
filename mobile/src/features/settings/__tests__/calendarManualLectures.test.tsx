@@ -25,7 +25,7 @@ import * as commitmentEndpoints from '../../../api/endpoints/commitments';
 import { deviceCalendar } from '../../calendar/deviceCalendar';
 import { resetWriterIdCache } from '../../../lib/deviceSettings/calendarDevice';
 import { resetCalendarSyncForTests } from '../../calendar/useDeviceCalendarSync';
-import { ConflictError, ForbiddenError, NetworkError } from '../../../api/errors';
+import { ConflictError, ForbiddenError, NetworkError, ValidationError } from '../../../api/errors';
 import { manualBusyFailureKey } from '../../calendar/manualLectures';
 
 const METRICS: Metrics = {
@@ -122,10 +122,27 @@ describe('lecture times added from a syllabus', () => {
   });
 });
 
+describe('review of wave B8: rows that can be told apart', () => {
+  it('numbers the rows and makes the title a header', async () => {
+    jest.spyOn(calendarEndpoints, 'listManualBusy').mockResolvedValue({
+      success: true,
+      sources: [SOURCE, { ...SOURCE, sourceId: 'manual-p2', proposalId: 'p2' }],
+    });
+    await show();
+    await waitFor(() => expect(screen.queryByTestId('calendar-lecture-times-manual-p2')).not.toBeNull());
+    const text = (id: string) => [screen.getByTestId(id).props.children].flat().join('');
+    expect(text('calendar-lecture-times-label-manual-p1')).toMatch(/^Set 1 · /);
+    expect(text('calendar-lecture-times-label-manual-p2')).toMatch(/^Set 2 · /);
+    expect(screen.getByTestId('calendar-lecture-times-title').props.accessibilityRole).toBe('header');
+    expect(screen.getByTestId('calendar-lecture-remove-manual-p2').props.accessibilityLabel).toContain('2');
+  });
+});
+
 describe('the review screen says why adding lecture times was refused', () => {
   it('maps consent-off, the limit and anything else to their own words', () => {
     expect(manualBusyFailureKey(new ForbiddenError('x', 'calendar_consent_required'))).toBe('syllabusLecturesNeedCalendar');
     expect(manualBusyFailureKey(new ConflictError('manual_busy_limit'))).toBe('syllabusLecturesLimit');
     expect(manualBusyFailureKey(new NetworkError('offline'))).toBe('syllabusLecturesFailed');
+    expect(manualBusyFailureKey(new ValidationError('x', 'too_many_sessions'))).toBe('syllabusLecturesTooMany');
   });
 });
