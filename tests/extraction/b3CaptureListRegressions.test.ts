@@ -184,3 +184,51 @@ for (const text of [
     assert.equal(splitCaptureClauses(text).length, 1, JSON.stringify(splitCaptureClauses(text)));
   });
 }
+
+/* ── NAPI-A8.2 on the model path: a wall clock with no instant ──────── */
+
+/**
+ * Gemini answers a timed clause with `localTimeSpec: {date, time}` and,
+ * about half the time, `dueAt: null, remindAt: null` (eval run, lane B3).
+ * The reconciler only corrected an instant the model gave, so such an item
+ * had an hour on its spec and no time to show: needs-clarification, and no
+ * question (the reading still had its hour). Every line of a timed list could
+ * go that way at once.
+ */
+const modelTask = (title: string, date: string, time: string) => ({
+  kind: 'commitment', type: 'task', action: title, title, person: null, dueAt: null, remindAt: null,
+  localTimeSpec: { date, time, timezone: TZ },
+  priority: { level: 'normal', source: 'default', pressureAllowed: false, pressureImplied: false },
+  flexibility: 'movable', category: null, categoryConfidence: 0, itemKind: 'task', itemKindConfidence: 1,
+  confidence: { overall: 0.8, type: 1, action: 0.8, time: 0.8, priority: 1 },
+  missingFields: [], ambiguityFlags: [], explicitReminderRequest: false, explicitPressureRequest: false,
+});
+
+test('NAPI-A8.2 (model path): a list whose model objects carry only a wall clock keeps every stated hour', async () => {
+  const lines: Array<[string, string, string]> = [
+    ['להתקשר לבנק ב-10:00', 'להתקשר לבנק', '10:00'],
+    ['לקנות לחם ב-12:00', 'לקנות לחם', '12:00'],
+    ['לאסוף את הילדים ב-16:00', 'לאסוף את הילדים', '16:00'],
+    ['להתקשר לאמא ב-20:00', 'להתקשר לאמא', '20:00'],
+  ];
+  const answers = new Map(lines.map(([clause, title, time]) => [clause, modelTask(title, TODAY, time)]));
+  const provider = async (prompt: string) => {
+    const payload = JSON.parse(/BEGIN_UNTRUSTED_USER_MESSAGE\n([\s\S]*)\nEND_UNTRUSTED_USER_MESSAGE/.exec(prompt)![1]!);
+    return Array.isArray(payload)
+      ? JSON.stringify({ items: payload.map((clause: string, clauseIndex: number) => ({ clauseIndex, ...answers.get(clause) })) })
+      : JSON.stringify(answers.get(payload));
+  };
+  const proposal = await proposeCapture(
+    lines.map(([clause]) => clause).join('\n'),
+    { now: NOW, timezone: TZ, scopeId: 'b3-model-wall-clock', requestedEngine: 'model' },
+    {
+      store: new MemoryCaptureProposalStore(),
+      llmProvider: provider,
+      llmEngine: 'gemini',
+      persistence: { snapshot: async () => createEmptyDomainState(), persistAtomically: async () => ({ state: createEmptyDomainState() }) },
+    } as never,
+  );
+  assert.equal(proposal.provenance.executedEngine, 'gemini');
+  assert.deepEqual(proposal.items.map((item) => when(item.resolvedTime)), lines.map(([, , time]) => `${TODAY} ${time}`));
+  assert.ok(proposal.items.every((item) => !item.needsClarification));
+});
