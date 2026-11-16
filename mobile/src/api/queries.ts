@@ -143,8 +143,8 @@ import {
 import type { GoalConfirmationSelection } from './endpoints/goals';
 import { getMemorySummary } from './endpoints/m5b';
 import type { GoalProgressPeriod } from './schemas/goals';
-import { createHabit, deleteHabit, listHabits, setHabitStatus } from './endpoints/habits';
-import type { Habit, NewHabitInput } from './schemas/habits';
+import { createHabit, decideHabitOccurrence, deleteHabit, listHabits, listHabitsToday, setHabitStatus } from './endpoints/habits';
+import type { Habit, HabitOccurrenceDecision, NewHabitInput } from './schemas/habits';
 
 /**
  * The hooks screens use, and the invalidation rules that keep them honest.
@@ -517,7 +517,7 @@ export function useHabits(enabled = true) {
   return useQuery({ queryKey: queryKeys.habits(uid), queryFn: listHabits, enabled: uid !== 'signed-out' && enabled });
 }
 
-function useHabitMutation<TInput>(mutationFn: (input: TInput) => Promise<unknown>) {
+function useHabitMutation<TInput, TData = unknown>(mutationFn: (input: TInput) => Promise<TData>) {
   const client = useQueryClient();
   const uid = useUid();
   return useMutation({
@@ -542,6 +542,26 @@ export function useCreateHabit() {
 
 export function useDeleteHabit() {
   return useHabitMutation((id: string) => deleteHabit(id));
+}
+
+/**
+ * Today's habit occurrences (CA5.4), under the habits key so every habit
+ * write refreshes them too. The zone is in the key: "today" is the caller's.
+ */
+export function useHabitsToday(enabled = true) {
+  const uid = useUid();
+  const timezone = useTimeZone();
+  return useQuery({
+    queryKey: [...queryKeys.habits(uid), 'today', timezone] as const,
+    queryFn: () => listHabitsToday(timezone),
+    enabled: uid !== 'signed-out' && enabled,
+  });
+}
+
+/** «تمّت» / «مش اليوم» on today's occurrence; the plan and goal progress read it too. */
+export function useDecideHabitOccurrence() {
+  const timezone = useTimeZone();
+  return useHabitMutation((decision: HabitOccurrenceDecision) => decideHabitOccurrence(decision, timezone));
 }
 
 /**

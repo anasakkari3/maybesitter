@@ -40,11 +40,38 @@ export const habitOccurrenceSchema = z.object({
   recoveredFromOccurrenceId: z.string().nullable(),
 });
 
-export const habitListSchema = z.object({ success: z.literal(true), items: z.array(habitSchema) });
+// `today` (CA5.4): the occurrences due on the caller's local date — what the
+// habit card marks done or not today. Optional: a server from before it
+// answers without one, which reads as nothing due.
+// `weeks` and `anyDay` (owner decision 2026-11-15): a weekly-count habit's
+// count this week, and which of today's rows are off days («تمّت» only).
+// Optional: a server from before them sends neither.
+export const habitWeekSchema = z.object({ habitId: z.string(), completed: z.number().int().nonnegative(), target: z.number().int().nonnegative() });
+export const habitTodaySchema = z.object({
+  localDate: z.string(),
+  occurrences: z.array(habitOccurrenceSchema),
+  weeks: z.array(habitWeekSchema).optional(),
+  anyDay: z.array(z.string()).optional(),
+});
+export const habitListSchema = z.object({ success: z.literal(true), items: z.array(habitSchema), today: habitTodaySchema.optional() });
+export const habitOutcomeSchema = z.object({
+  success: z.literal(true),
+  occurrence: habitOccurrenceSchema,
+  changed: z.boolean(),
+  recovery: z.union([
+    z.object({ recovered: z.literal(true), replacement: habitOccurrenceSchema }),
+    z.object({ recovered: z.literal(false), reason: z.string() }),
+  ]).optional(),
+});
 export const habitChangedSchema = z.object({ success: z.literal(true), habit: habitSchema, occurrences: z.array(habitOccurrenceSchema) });
 export const habitDeletedSchema = z.object({ success: z.literal(true), habitId: z.string(), deleted: z.literal(true) });
 
 export type Habit = z.infer<typeof habitSchema>;
+export type HabitOccurrence = z.infer<typeof habitOccurrenceSchema>;
+export type HabitToday = z.infer<typeof habitTodaySchema>;
+export type HabitWeek = z.infer<typeof habitWeekSchema>;
+export type HabitOutcome = z.infer<typeof habitOutcomeSchema>;
+export type HabitOccurrenceDecision = { habitId: string; occurrenceId: string; outcome: 'completed' | 'skipped' };
 export type NewHabitInput = {
   title: string;
   cadence: { kind: 'weekly_count'; count: number } | { kind: 'weekdays'; weekdays: readonly number[] };

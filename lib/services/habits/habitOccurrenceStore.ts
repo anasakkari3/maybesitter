@@ -109,6 +109,26 @@ export interface HabitOccurrenceStore {
   get(scopeId: string, occurrenceId: string): Promise<HabitOccurrence | null>;
   /** Idempotent: the id is the document id. */
   putMany(scopeId: string, occurrences: readonly HabitOccurrence[]): Promise<void>;
+  /**
+   * Writes the row only when nothing is stored at its id, in one transaction.
+   * True when this call wrote it. Never replaces a stored row, so a row
+   * another device already decided keeps its decision.
+   */
+  createIfAbsent(scopeId: string, occurrence: HabitOccurrence): Promise<boolean>;
+  /**
+   * An off-day «done» on a weekly-count habit, in one transaction: writes
+   * `row` as completed only when nothing is stored at its id, and marks
+   * `consume` — the nearest open asked-for row it stands in for — `recovered`
+   * if it is still open (written from `consume` itself when it was never
+   * stored). A row already there answers `unchanged` when completed and
+   * `conflict` otherwise; nothing is overwritten.
+   */
+  completeAnyDay(
+    scopeId: string,
+    row: HabitOccurrence,
+    consume: HabitOccurrence | null,
+    week: { readonly ids: readonly string[]; readonly target: number },
+  ): Promise<OccurrenceTransition>;
   removeMany(scopeId: string, occurrenceIds: readonly string[]): Promise<number>;
   transition(
     scopeId: string,
@@ -177,6 +197,58 @@ export class StorageHabitOccurrenceStore implements HabitOccurrenceStore {
         }
       });
     }
+  }
+
+  async createIfAbsent(scopeId: string, occurrence: HabitOccurrence): Promise<boolean> {
+    const path = this.path(scopeId, occurrence.occurrenceId);
+    return this.storage.runTransaction<boolean>(async (tx) => {
+      const [existing] = await Promise.all([
+        tx.get<HabitOccurrence>(path),
+        requireLiveAccount(tx, scopeId), // the deletion fence (#772)
+      ]);
+      if (existing) return false;
+      tx.set<HabitOccurrence>(path, occurrence);
+      return true;
+    });
+  }
+
+  async completeAnyDay(
+    scopeId: string,
+    row: HabitOccurrence,
+    consume: HabitOccurrence | null,
+    week: { readonly ids: readonly string[]; readonly target: number },
+  ): Promise<OccurrenceTransition> {
+    const rowPath = this.path(scopeId, row.occurrenceId);
+    const consumePath = consume ? this.path(scopeId, consume.occurrenceId) : null;
+    const weekIds = week.ids.filter((id) => id !== row.occurrenceId);
+    return this.storage.runTransaction<OccurrenceTransition>(async (tx) => {
+      // Every read before any write.
+      const [existing, consumed, weekRows] = await Promise.all([
+        tx.get<HabitOccurrence>(rowPath),
+        consumePath ? tx.get<HabitOccurrence>(consumePath) : Promise.resolve(null),
+        Promise.all(weekIds.map((id) => tx.get<HabitOccurrence>(this.path(scopeId, id)))),
+        requireLiveAccount(tx, scopeId), // the deletion fence (#772)
+      ]);
+      if (existing) {
+        if (!isHabitOccurrence(existing) || existing.habitId !== row.habitId) return { kind: 'not_found' };
+        return existing.state === 'completed'
+          ? { kind: 'unchanged', occurrence: existing }
+          : { kind: 'conflict', occurrence: existing };
+      }
+      // Re-counted here, not trusted from the read that planned this: two
+      // phones in two zones, each on its own off day, both read N-1 of N.
+      const completedNow = weekRows.filter((entry) => entry && isHabitOccurrence(entry)
+        && entry.habitId === row.habitId && entry.state === 'completed').length;
+      if (completedNow >= week.target) return { kind: 'conflict', occurrence: row };
+      const current = consumed && isHabitOccurrence(consumed) ? consumed : null;
+      // The day this was to take was decided meanwhile: what the person saw is
+      // no longer true, so nothing is written and they are told (review note).
+      if (consume && current !== null && !isOpenOccurrence(current)) return { kind: 'conflict', occurrence: current };
+      if (consume && consumePath) tx.set<HabitOccurrence>(consumePath, { ...(current ?? consume), state: 'recovered' });
+      const completed: HabitOccurrence = { ...row, state: 'completed', recoveredFromOccurrenceId: consume?.occurrenceId ?? null };
+      tx.set<HabitOccurrence>(rowPath, completed);
+      return { kind: 'applied', occurrence: completed };
+    });
   }
 
   async removeMany(scopeId: string, occurrenceIds: readonly string[]): Promise<number> {
