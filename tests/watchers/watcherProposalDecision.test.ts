@@ -239,3 +239,40 @@ test('control and direction-override characters never reach the commitment title
     end();
   }
 });
+
+test('titles in every script keep the characters that make them read right', async () => {
+  await begin();
+  try {
+    const keep = [
+      'مَرْحَبًا يا صَديقي',            // Arabic with tashkeel
+      'שָׁלוֹם עֲלֵיכֶם',               // Hebrew with niqqud
+      'פגישה 3 בצהריים',                // Hebrew with a Latin digit
+      'קפה עם Dana ב־10',               // Hebrew, Latin name, maqaf
+      'code 👩\u200d💻 time',          // an emoji ZWJ sequence
+      'می\u200cخواهم',                 // ZWNJ
+      'نسبة \u061c50%',                // ALM
+      'بكرا \u200fمع Sam\u200e',      // RLM / LRM
+    ];
+    for (const [index, title] of keep.entries()) {
+      const id = `wpr_${index.toString(16).padStart(64, '0')}`;
+      await propose(ALICE, id);
+      assert.equal((await decide(ALICE, id, { decision: 'accept', title })).status, 200, title);
+    }
+    const titles = (await commitments(ALICE)).map((row) => row.title).sort();
+    assert.deepEqual(titles, [...keep].map((t) => t.normalize('NFC')).sort());
+  } finally {
+    end();
+  }
+});
+
+test('invisible formatting and tag characters are removed from a title', async () => {
+  await begin();
+  try {
+    await propose(ALICE, PROPOSAL);
+    const title = 'soft\u00adhy\u2062phen \u206aold\u206f \u{E0041}tag\u{E007F}';
+    assert.equal((await decide(ALICE, PROPOSAL, { decision: 'accept', title })).status, 200);
+    assert.equal((await commitments(ALICE))[0]!.title, 'softhyphen old tag');
+  } finally {
+    end();
+  }
+});

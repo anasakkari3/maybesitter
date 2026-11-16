@@ -25,7 +25,7 @@ import { deliverWatcherAlert, redriveQueuedWatcherAlerts, watcherAlertDedupeKey,
 import { createWatcherStore } from '../../lib/watchers/watcherStore.ts';
 import { runWatcherTick } from '../../lib/jobs/internalJobs.ts';
 import { upsertDevice } from '../../lib/push/deviceRegistry.ts';
-import type { FcmMessage, MessagingClient } from '../../lib/push/pushService.ts';
+import { sendToUser, type FcmMessage, type MessagingClient } from '../../lib/push/pushService.ts';
 import type { WatcherNotification } from '../../src/contracts/v1/watcherContracts.ts';
 import {
   READINESS_CONTRACT_VERSION,
@@ -540,6 +540,111 @@ test('a lock with no delivery stamp is never read as a push that went out', asyn
     // And the push that did go out stamped its lock.
     const lock = await storage.get<{ deliveredAt?: string }>(userSubDoc(UID, PUSH_LOG, docIdForKey(watcherAlertDedupeKey('wtn_died'))));
     assert.equal(lock?.deliveredAt, minutes(10).toISOString());
+  } finally {
+    resetStorageForTests();
+  }
+});
+
+/* ── Review round 4: the delivery stamp is best-effort; partial delivery ── */
+
+const SECOND_DEVICE = '66666666-6666-4666-8666-666666666666';
+
+async function secondDevice(): Promise<void> {
+  await upsertDevice(UID, {
+    installationId: SECOND_DEVICE,
+    fcmToken: `token-${SECOND_DEVICE.replace(/-/g, '')}`,
+    platform: 'android',
+    appVersion: '1.0.0',
+    locale: 'ar',
+    timezone: 'UTC',
+    pushPermission: 'granted',
+  }, BASE.toISOString(), { storage });
+}
+
+/** The storage, except that every transaction writing `deliveredAt` throws. */
+function stampFails(inner: MemoryStorageAdapter): MemoryStorageAdapter {
+  return new Proxy(inner, {
+    get(target, property, receiver) {
+      if (property !== 'runTransaction') return Reflect.get(target, property, receiver);
+      return async (fn: Parameters<MemoryStorageAdapter['runTransaction']>[0]) => target.runTransaction(async (tx) => {
+        const guarded = new Proxy(tx, {
+          get(t, p, r) {
+            if (p === 'merge') {
+              return (path: string, value: Record<string, unknown>) => {
+                if ('deliveredAt' in value) throw new Error('stamp write failed');
+                return (t as unknown as { merge: (a: string, b: unknown) => void }).merge(path, value);
+              };
+            }
+            const v = Reflect.get(t, p, r);
+            return typeof v === 'function' ? v.bind(t) : v;
+          },
+        });
+        return fn(guarded);
+      });
+    },
+  });
+}
+
+test('a delivery stamp that cannot be written never fails a push that went out, for every kind', async () => {
+  for (const kind of ['plan_ready', 'hard_reminder', 'watcher_alert'] as const) {
+    await begin();
+    try {
+      await withDevice('ar');
+      await secondDevice();
+      const messaging = fakeMessaging();
+      const result = await sendToUser({
+        kind, uid: UID, dedupeKey: `${kind}:stamp`, data: { kind }, title: 'title', body: 'body',
+        urgency: 'normal', respectQuietHours: false,
+      }, minutes(0), { storage: stampFails(storage), messaging });
+      assert.equal(result.status, 'sent', `${kind}: a failed stamp failed the push`);
+      assert.equal(result.delivered, 2, `${kind}: the device after the stamp never got it`);
+      assert.equal(messaging.sent.length, 2);
+    } finally {
+      resetStorageForTests();
+    }
+  }
+});
+
+test('a watcher alert whose stamp failed is still sent once, and not again', async () => {
+  await begin();
+  try {
+    await withDevice('ar');
+    await queuedAt(UID, 'wtn_nostamp', minutes(0), 'wtc_nostamp');
+    const messaging = fakeMessaging();
+    assert.equal(await deliverWatcherAlert(UID, 'wtn_nostamp', minutes(1), { storage: stampFails(storage), messaging }), 'sent');
+    assert.equal(await stateOf(UID, 'wtn_nostamp'), 'sent');
+    await tick(messaging, minutes(5));
+    assert.equal(messaging.sent.length, 1, 'the push was sent again');
+  } finally {
+    resetStorageForTests();
+  }
+});
+
+test('one device takes the alert and another throws: it counts as sent and the budget stays spent', async () => {
+  await begin();
+  try {
+    await withDevice('ar');
+    await secondDevice();
+    await queuedAt(UID, 'wtn_partial', minutes(0), 'wtc_partial');
+    const sent: FcmMessage[] = [];
+    let calls = 0;
+    const messaging: MessagingClient = {
+      async send(message: FcmMessage) {
+        calls += 1;
+        if (calls === 2) throw Object.assign(new Error('quota'), { code: 'messaging/quota-exceeded' });
+        sent.push(message);
+        return 'ok';
+      },
+    };
+    await assert.rejects(deliverWatcherAlert(UID, 'wtn_partial', minutes(1), { storage, messaging }));
+    assert.equal(sent.length, 1);
+    assert.equal(await stateOf(UID, 'wtn_partial'), 'sent', 'a push a phone took is still queued');
+    const log = (await storage.list<{ dedupeKey: string; count?: number }>(userCol(UID, PUSH_LOG))).map((row) => row.data);
+    assert.ok(log.some((entry) => entry.dedupeKey.startsWith('watcher-gap:')), 'the gap was given back after a delivery');
+    assert.equal(log.find((entry) => entry.dedupeKey.startsWith('watcher-day:'))?.count, 1, 'the day count was given back after a delivery');
+    // A second firing of the same watcher inside the gap is held, not pushed.
+    await queuedAt(UID, 'wtn_partial_2', minutes(2), 'wtc_partial');
+    assert.equal(await deliverWatcherAlert(UID, 'wtn_partial_2', minutes(3), { storage, messaging: fakeMessaging() }), 'throttled');
   } finally {
     resetStorageForTests();
   }
