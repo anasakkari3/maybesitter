@@ -69,13 +69,21 @@ export type WatcherProposalDecision =
   | { readonly decision: 'dismiss' };
 
 /**
- * Control characters and the bidi overrides and isolates (U+202A–U+202E,
- * U+2066–U+2069, U+061C) are removed, as zero-width ones are: a title is shown
- * beside other text on every screen and in the device calendar, and an
- * override in it can reorder what the person reads around it. LRM and RLM
- * stay — ordinary punctuation in mixed Arabic, Hebrew and English.
+ * What a title loses: C0 and C1 controls, the bidi embeddings, overrides and
+ * isolates (U+202A–U+202E, U+2066–U+2069), the deprecated format controls
+ * (U+206A–U+206F), the invisible operators (U+2061–U+2064), the word joiner,
+ * zero-width space and BOM, the soft hyphen, and the tag characters
+ * (U+E0000–U+E007F, the surrogate pairs U+DB40 U+DC00–DC7F). A title is shown beside other text on every screen and
+ * in the device calendar, and an override in it can reorder what the person
+ * reads around it.
+ *
+ * What it keeps, because removing them breaks real writing: ZWJ (U+200D, emoji
+ * sequences and Indic/Arabic joining), ZWNJ (U+200C, Persian and Arabic
+ * spelling), ALM (U+061C), LRM and RLM (U+200E/F) — ordinary punctuation in
+ * mixed Arabic, Hebrew and English — and every combining mark (tashkeel,
+ * niqqud).
  */
-const UNSAFE_TITLE_CHARS = /[\u0000-\u001f\u007f-\u009f\u200b-\u200d\u2060\ufeff\u061c\u202a-\u202e\u2066-\u2069]/g;
+const UNSAFE_TITLE_CHARS = /[\u0000-\u001f\u007f-\u009f\u00ad\u200b\u2060-\u2064\u206a-\u206f\ufeff\u202a-\u202e\u2066-\u2069]|\uDB40[\uDC00-\uDC7F]/g;
 
 export function cleanProposalTitle(raw: string): string {
   return raw.normalize('NFC').replace(UNSAFE_TITLE_CHARS, '').replace(/\s+/g, ' ').trim();
@@ -115,9 +123,12 @@ export async function listOpenWatcherProposals(
     .map(presentWatcherProposal);
 }
 
-/** `wpr_<64 hex>` → `wpc_<40 hex>`: one proposal, one commitment, every retry. */
+/**
+ * `wpr_<64 hex>` → `wpc_<64 hex>`: one proposal, one commitment, every retry.
+ * The whole hash, so two proposals can never name the same commitment.
+ */
 export function commitmentIdForProposal(proposalId: string): string {
-  return `wpc_${proposalId.slice(4, 44)}`;
+  return `wpc_${proposalId.slice(4)}`;
 }
 
 /** The proposal as it stands after the answer, or null when there is none. */

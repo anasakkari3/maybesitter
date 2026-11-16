@@ -253,7 +253,8 @@ test('titles in every script keep the characters that make them read right', asy
       'نسبة \u061c50%',                // ALM
       'بكرا \u200fمع Sam\u200e',      // RLM / LRM
     ];
-    for (const [index, title] of keep.entries()) {
+    for (let index = 0; index < keep.length; index += 1) {
+      const title = keep[index]!;
       const id = `wpr_${index.toString(16).padStart(64, '0')}`;
       await propose(ALICE, id);
       assert.equal((await decide(ALICE, id, { decision: 'accept', title })).status, 200, title);

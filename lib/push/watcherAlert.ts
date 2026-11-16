@@ -50,8 +50,19 @@
  * then marks the notification `sent` without a second send. A lock with no
  * stamp is a send in flight — left alone for two minutes — or one that threw,
  * which is cleared so the next attempt can send. When `sendToUser` throws
- * here (quota, auth, network), the budget is given back, the unstamped lock
- * is cleared at once, and the error is re-thrown to the tick's log.
+ * here (quota, auth, network) after a device took the message, it counts as
+ * sent and keeps its budget; when none did, the budget is given back, the
+ * unstamped lock is cleared at once, and the error is re-thrown to the log.
+ *
+ * The stamp is written after FCM answered, and best-effort, so there is a
+ * small window this cannot close: a worker that dies — or whose stamp write
+ * fails — between a successful send and the stamp leaves an unstamped lock,
+ * and two minutes later a retry within the 30-minute window sends again.
+ * That is accepted: it needs a crash in a window of milliseconds, the
+ * per-watcher collapse id makes the second alert replace the first on the
+ * phone rather than stand beside it, and the alternative — never retrying
+ * an unstamped lock — loses every push FCM refused, which is the defect this
+ * module was written to stop.
  *
  * Quiet hours are checked before anything is claimed: the alert stays
  * `queued`, claims no budget, and goes out on a later tick only if the quiet
@@ -251,13 +262,17 @@ export async function deliverWatcherAlert(
     });
   } catch (error) {
     // FCM refused for a reason that is not this phone's (quota, auth, the
-    // network). The push lock was taken before the send; unless a device
-    // already took the message, it is cleared with the budget, so the next
-    // tick sends rather than reading the lock as a delivery.
-    await release();
+    // network). The lock is read first: if a device already took the message
+    // it is a delivery — the budget stays spent and the notification is sent.
+    // Otherwise the budget is given back and the unstamped lock cleared, so
+    // the next tick sends rather than reading the lock as a delivery.
     const taken = await storage.get<PushLogEntry>(lockPath);
-    if (taken && !taken.deliveredAt) await storage.delete(lockPath);
-    if (taken?.deliveredAt) await settle('sent');
+    if (taken?.deliveredAt) {
+      await settle('sent');
+    } else {
+      await release();
+      if (taken) await storage.delete(lockPath);
+    }
     throw error;
   }
 

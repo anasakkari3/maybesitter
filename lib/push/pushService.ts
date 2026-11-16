@@ -523,14 +523,25 @@ export async function sendToUser(
   const messaging = options.messaging ?? (await defaultMessaging());
   let delivered = 0;
   let removed = 0;
-  const markDelivered = () => storage.runTransaction(async (tx) => {
-    tx.merge<PushLogEntry>(lockPath, { deliveredAt: now.toISOString() });
-  });
+  // Best-effort. The stamp only tells a retrying caller that a phone already
+  // has this; failing to write it must never fail a push that went out, nor
+  // stop the devices after this one from getting it. Unstamped, the lock
+  // still blocks a resend under this key — what is lost is only the retrying
+  // caller's certainty (see `lib/push/watcherAlert.ts`).
+  const markDelivered = async () => {
+    try {
+      await storage.runTransaction(async (tx) => {
+        tx.merge<PushLogEntry>(lockPath, { deliveredAt: now.toISOString() });
+      });
+    } catch {
+      // Left unstamped; see above.
+    }
+  };
   for (const device of devices) {
     try {
       await messaging.send(buildFcmMessage(message, device));
-      if (delivered === 0) await markDelivered();
       delivered += 1;
+      if (delivered === 1) await markDelivered();
     } catch (error) {
       const code = errorCodeOf(error);
       if (code && DEAD_TOKEN_CODES.has(code)) {
