@@ -238,7 +238,10 @@ test('every mobile route file exists and is enumerated', () => {
   // M6a-2 adds the translation proposal and its separately versioned
   // capability probe. Both are account-scoped before either reports state.
   // Add-ons (2026-11-10) add the feature list and the per-feature switch.
-  assert.equal(files.length, 135, `found:\n${files.join('\n')}`);
+  // QA CA6.1 (2026-11-15) adds `GET /api/mobile/watchers/proposals` and
+  // `POST /api/mobile/watchers/proposals/{id}`; the POST makes a commitment,
+  // so it must never answer before the guard.
+  assert.equal(files.length, 137, `found:\n${files.join('\n')}`);
 });
 
 test('every mobile route handler runs an authentication guard before anything else', () => {

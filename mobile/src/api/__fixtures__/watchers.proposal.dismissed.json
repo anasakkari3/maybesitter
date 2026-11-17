@@ -1,0 +1,10 @@
+{
+  "success": true,
+  "proposal": {
+    "proposalId": "wpr_dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+    "signalKind": "readiness",
+    "proposedAt": "2026-08-09T09:00:00.000Z",
+    "state": "dismissed",
+    "commitmentId": null
+  }
+}
