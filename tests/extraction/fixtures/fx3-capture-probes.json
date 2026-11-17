@@ -1,5 +1,5 @@
 {
- "_about": "FX3 review probe set (obligation words → Must, the month's end as an all-day deadline), 109 rows: rules path through proposeMobileCapture (obligation + month end, 53; titles, un-split items, negation edges, 28) and the model path with a scripted Gemini answer (28). Asia/Jerusalem, reference 2026-09-26T07:00Z unless the row says. `expected` is the answer at the FX3 fix round; `atCb9982b7` is the answer before FX3 where it differs, every one an intended change (FX3-report.md). `atB1b87a9b` is the answer before UAT round 6 D1 (fix-r6-hour) where it differs: a model reading of a bare hour from one to six with no part of the day is asked صبح or مسا, as on the rules path, instead of settled at the model's half of the day.",
+ "_about": "FX3 review probe set (obligation words → Must, the month's end as an all-day deadline), 109 rows: rules path through proposeMobileCapture (obligation + month end, 53; titles, un-split items, negation edges, 28) and the model path with a scripted Gemini answer (28). Asia/Jerusalem, reference 2026-09-26T07:00Z unless the row says. `expected` is the answer at the FX3 fix round; `atCb9982b7` is the answer before FX3 where it differs, every one an intended change (FX3-report.md). `atB1b87a9b` is the answer before UAT round 6 D1 (fix-r6-hour) where it differs: a model reading of a bare hour from one to six with no part of the day is asked صبح or مسا, as on the rules path, instead of settled at the model's half of the day. `atDeae14f8` is the answer before lane B3 (QA audit NAPI-A8.2) where it differs: the multi-time valve reads each clause against its own items, so a clause that asks no longer sends its siblings back (status `proposed` when not every item asks), and «أدرس بكرا الساعة 8» keeps its 08:00.",
  "rules": [
   {
    "text": "لازم أروح عالبنك بكرا الساعة 5",
@@ -144,6 +144,13 @@
   {
    "text": "بدي أروح عالسوق بكرا الساعة 4، ولازم أدفع الفاتورة قبل آخر الشهر",
    "expected": {
+    "status": "proposed",
+    "items": [
+     "أروح عالسوق | 2026-09-27 - | ask_am_pm | normal~",
+     "أدفع الفاتورة | 2026-09-30 - |  | high"
+    ]
+   },
+   "atDeae14f8": {
     "status": "needs_clarification",
     "items": [
      "أروح عالسوق | 2026-09-27 - | ask_am_pm | normal~",
@@ -161,6 +168,13 @@
   {
    "text": "مش لازم أروح عالجيم بكرا الساعة 6، ولازم أدرس بكرا الساعة 8",
    "expected": {
+    "status": "proposed",
+    "items": [
+     "مش لازم أروح عالجيم | 2026-09-27 - | ask_am_pm | low~",
+     "أدرس | 2026-09-27 08:00 |  | high"
+    ]
+   },
+   "atDeae14f8": {
     "status": "needs_clarification",
     "items": [
      "مش لازم أروح عالجيم | 2026-09-27 - | ask_am_pm | low~",
@@ -547,6 +561,13 @@
   {
    "text": "להתקשר לאמא מחר ב-5 ולשלם חשבון חשמל עד סוף החודש",
    "expected": {
+    "status": "proposed",
+    "items": [
+     "להתקשר לאמא | 2026-09-27 - | ask_am_pm | normal~",
+     "לשלם חשבון חשמל | 2026-09-30 - |  | normal~"
+    ]
+   },
+   "atDeae14f8": {
     "status": "needs_clarification",
     "items": [
      "להתקשר לאמא | 2026-09-27 - | ask_am_pm | normal~",
@@ -789,6 +810,13 @@
   {
    "text": "לשלם חשבון חשמל עד סוף החודש ולהתקשר לאמא מחר ב-5",
    "expected": {
+    "status": "proposed",
+    "items": [
+     "לשלם חשבון חשמל | 2026-09-30 - |  | normal~",
+     "להתקשר לאמא | 2026-09-27 - | ask_am_pm | normal~"
+    ]
+   },
+   "atDeae14f8": {
     "status": "needs_clarification",
     "items": [
      "לשלם חשבון חשמל | 2026-09-30 - |  | normal~",
@@ -799,6 +827,13 @@
   {
    "text": "بدي أتصل بأمي بكرا الساعة 5 وأدفع الفاتورة قبل آخر الشهر",
    "expected": {
+    "status": "proposed",
+    "items": [
+     "أتصل بأمي | 2026-09-27 - | ask_am_pm | normal~",
+     "أدفع الفاتورة | 2026-09-30 - |  | normal~"
+    ]
+   },
+   "atDeae14f8": {
     "status": "needs_clarification",
     "items": [
      "أتصل بأمي | 2026-09-27 - | ask_am_pm | normal~",

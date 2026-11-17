@@ -43,7 +43,7 @@ import { shareLlmProvider, type ShareStructuredGenerator } from '../../llm/share
 import { getAiConsent } from '../../consents/aiConsentService';
 import { proposeMobileCapture } from '../mobile/mobileCaptureService';
 import { CAPTURE_INPUT_MAX_CHARACTERS, captureAppLocaleFrom, type CaptureAppLocale } from '../../../src/contracts/v1/captureContracts';
-import { CaptureInputTooLargeError } from '../captureBoundary/captureBoundaryService';
+import { CaptureInputTooLargeError, namesCaptureInjection } from '../captureBoundary/captureBoundaryService';
 import { normalizeTimezone, dateFromOptionalIso } from '../mobile/time';
 import { declarationConflicts, sniffMediaType } from './mediaType';
 import { resolveSharePreprocessor } from './shareRegistry';
@@ -702,6 +702,8 @@ async function proposeFromPrepared(
   }
 
   const propose = context.propose ?? proposeMobileCapture;
+  // A prompt-injection line is left out, never read, and counted (NA3.3).
+  const screened = withoutInjectedLines(text);
   /*
    * An empty read is a result, not an error — which is what `shareTypes.ts`
    * has always promised and what an earlier version of this function broke by
@@ -717,11 +719,11 @@ async function proposeFromPrepared(
    * `proposeMobileCapture` refuses empty text, so the no-commitment proposal
    * is made here rather than by asking it to accept one.
    */
-  const produced = text === ''
+  const produced = screened.text === ''
     ? emptyProposal()
     : await propose(
       {
-        text,
+        text: screened.text,
         referenceTime: origin.referenceTime.toISOString(),
         timezone: origin.timezone,
         ...(origin.locale ? { locale: origin.locale } : {}),
@@ -757,13 +759,57 @@ async function proposeFromPrepared(
       kind: origin.kind,
       fileCount: origin.fileCount,
       totalBytes: origin.totalBytes,
-      ignoredSegments: (prepared.ignoredSegments ?? 0) + allowed.drops.length + (next.drop ? 1 : 0),
+      ignoredSegments: (prepared.ignoredSegments ?? 0) + screened.dropped + allowed.drops.length + (next.drop ? 1 : 0),
       suggestedNextAction: next.action,
-      ...evidenceFor(proposal, text, prepared.evidence),
+      // With a line left out, the channel's excerpts no longer describe the
+      // text that was read (and may quote the attack): none is shown.
+      ...(screened.dropped > 0
+        ? { evidence: [], evidenceDropped: (prepared.evidence?.length ?? 0) > 0 }
+        : evidenceFor(proposal, text, prepared.evidence)),
       metrics: prepared.metrics ?? {},
       document: prepared.document ?? null,
     },
   };
+}
+
+/**
+ * A share without its prompt-injection lines (QA audit de7fcb84, NA3.3).
+ *
+ * The capture pipeline refuses a whole capture when any clause of it is an
+ * injection (CL1 round 4, N5), and a share is one capture: one line saying
+ * "ignore all previous instructions" beside a real task lost the task, and the
+ * person was told there was nothing to read. A share is someone else's text —
+ * a group chat, a forwarded mail — so the line that is an attack is left out
+ * here, before anything reads the share, and counted into `ignoredSegments`,
+ * which the review screen shows as "some parts were ignored". It never
+ * reaches a model or the capture pipeline.
+ *
+ * A line is left out when the boundary's screen names it
+ * (`namesCaptureInjection`), and two lines together when the screen names
+ * the pair but neither alone (an attack broken over a line). When the screen
+ * still names what is left — or names the whole share and no line or pair of
+ * it — the attack cannot be told apart from the rest, and nothing of the
+ * share is read (fail closed): the person gets the "nothing to save" answer
+ * with the lines counted, as a share that is only an attack always did.
+ * A share the screen does not name is passed through untouched.
+ */
+function withoutInjectedLines(text: string): { text: string; dropped: number } {
+  const lines = text.split('\n');
+  const filled = (index: number) => (lines[index] ?? '').trim() !== '';
+  const marked = lines.map((line, index) => filled(index) && namesCaptureInjection(line));
+  for (let index = 0; index + 1 < lines.length; index += 1) {
+    if (marked[index] || marked[index + 1] || !filled(index) || !filled(index + 1)) continue;
+    if (namesCaptureInjection(`${lines[index]}\n${lines[index + 1]}`)) {
+      marked[index] = true;
+      marked[index + 1] = true;
+    }
+  }
+  const nonBlank = lines.filter((_, index) => filled(index)).length;
+  const dropped = marked.filter(Boolean).length;
+  if (dropped === 0) return namesCaptureInjection(text) ? { text: '', dropped: nonBlank } : { text, dropped: 0 };
+  const kept = lines.filter((_, index) => !marked[index]).join('\n').replace(/\n{3,}/g, '\n\n').trim();
+  if (kept && namesCaptureInjection(kept)) return { text: '', dropped: nonBlank };
+  return { text: kept, dropped };
 }
 
 /**

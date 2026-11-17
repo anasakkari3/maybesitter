@@ -64,9 +64,10 @@ test('F3: the literal load-pass capture stores the titles «هيك فهمت» sh
     const proposal = body.proposal as Proposal;
     assert.ok(proposal, 'no proposal');
     const titles = proposal.items.map((item) => item.title);
-    // Before a verb the «و» stays (no lexicon tells «واتصل» from «ورد»), and
-    // the summary says it too; before a request it goes.
-    assert.ok(titles.includes('واتصل بالبنك'), `the bank's title changed: ${JSON.stringify(titles)}`);
+    // Before a verb with its person prefix the «و» goes too since lane B3
+    // (QA audit CA3.1); before a bare verb («ورد») it stays. The summary
+    // says what is stored either way.
+    assert.ok(titles.includes('اتصل بالبنك'), `the bank's title changed: ${JSON.stringify(titles)}`);
     assert.ok(titles.some((title) => title.startsWith('لازم') || title.startsWith('أشتري')), `the gift keeps its joiner: ${JSON.stringify(titles)}`);
     assertSummaryMatchesStored(proposal, 'load pass');
   } finally {
@@ -107,10 +108,14 @@ test('F3: only a clause that followed another is marked to lose its joiner', () 
 });
 
 test('F3: the joiner goes only when the very next word opens a point (F3-001)', () => {
-  // Before a verb: kept — «ورد» (roses) would read as «رد» (reply) (F3-009).
-  assert.equal(withoutClauseJoiner('واتصل بالبنك'), 'واتصل بالبنك');
-  assert.equal(withoutClauseJoiner('وأشتري خبز'), 'وأشتري خبز');
+  // Before a verb with its person prefix: dropped since lane B3 (QA audit
+  // CA3.1) — no word starts «اتصل», «أشتري», «روح» but the verb.
+  assert.equal(withoutClauseJoiner('واتصل بالبنك'), 'اتصل بالبنك');
+  assert.equal(withoutClauseJoiner('وأشتري خبز'), 'أشتري خبز');
+  assert.equal(withoutClauseJoiner('وروح عالبنك'), 'روح عالبنك');
+  // Before a bare verb: kept — «ورد» (roses) would read as «رد» (reply) (F3-009).
   assert.equal(withoutClauseJoiner('ورد لأمي'), 'ورد لأمي');
+  assert.equal(withoutClauseJoiner('وروحي'), 'وروحي');
   // Before a request or an intent: certain, so dropped.
   assert.equal(withoutClauseJoiner('وسجّل موعد دكتور'), 'سجّل موعد دكتور');
   assert.equal(withoutClauseJoiner('ولازم أشتري هدية'), 'لازم أشتري هدية');
