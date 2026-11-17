@@ -56,7 +56,9 @@ export async function POST(request: Request) {
   }
 
   const trust = await readTrust(user.uid);
-  if (trust?.calendarConsent !== true) {
+  // As `icsFeeds.accountRefusal`: a revoked or deleted account is refused even
+  // if a consent flag were somehow still set (review of wave B8).
+  if (trust?.calendarConsent !== true || trust.revokedAt || trust.deletedAt) {
     return Response.json(
       {
         success: false,
