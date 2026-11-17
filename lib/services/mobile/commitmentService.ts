@@ -282,8 +282,9 @@ type ListPlacement = 'today' | 'upcoming' | null;
  *
  * "Not on a later day" applied to everything visible would turn #383's
  * vanishing bug into an accumulating one on the same screen. `completed` is
- * terminal — no command in `stateMachine.ts` reaches `archived`, so nothing
- * ever leaves it — and the list route has no cap, so Today would grow by one
+ * terminal for the lists — the only command that moves it on is the person's
+ * Delete (CA2.3), to `archived`, which no list shows — and the list route has
+ * no cap, so Today would grow by one
  * row for every commitment the user has ever finished, for ever, with the
  * Finished badge counting a lifetime instead of a day. Worse for the rest:
  * `model.ts` draws `missed` and anything it has no mapping for as a live card,
@@ -815,6 +816,27 @@ export async function dropCommitment(
   const commitment = await getCommitment(id, options);
   if (!commitment) throw new Error('Commitment not found');
   return commitment;
+}
+
+/**
+ * «احذفها» (CA2.3): the Delete command, not Drop. The commitment leaves every
+ * list, search and history entry and is never recorded as dropped on purpose.
+ */
+export async function deleteCommitment(
+  id: string,
+  now: Date = new Date(),
+  options: CommitmentMutationOptions = {},
+): Promise<Commitment> {
+  const command: Command = { type: 'Delete', commitmentId: id, now: now.toISOString() };
+  await applyCommitmentCommand(id, command, options, 'Could not delete commitment');
+  const commitment = await getCommitment(id, options);
+  if (!commitment) throw new Error('Commitment not found');
+  return commitment;
+}
+
+/** Deleted (`archived`): no screen reads it again, Details included. */
+export function isDeletedCommitment(commitment: Pick<Commitment, 'status'>): boolean {
+  return commitment.status === 'archived';
 }
 
 export type CommitmentActionName = 'complete' | 'postpone' | 'cancel' | 'aware';

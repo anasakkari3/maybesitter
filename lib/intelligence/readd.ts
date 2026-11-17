@@ -28,6 +28,9 @@ export const COMMITMENT_OUTCOME_EVENT_TYPES = {
   completed: 'commitment_completed',
   postponed: 'commitment_postponed',
   dropped: 'commitment_dropped',
+  // «احذفها» (CA2.3, owner decision 2026-11-15): learned as its own outcome,
+  // never read as a drop, and never a re-add trigger (`eventAfter` ignores it).
+  deleted: 'commitment_deleted',
 } as const;
 
 export const READD_PROMPT_LINE = 'Re-added means the person added again something they dropped or finished; a hint it still matters, never proof.';

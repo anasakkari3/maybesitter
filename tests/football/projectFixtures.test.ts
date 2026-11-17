@@ -146,6 +146,17 @@ test('a dismissed match is never brought back', async () => {
   assert.equal((await commitments()).filter((c) => c.status !== 'dropped').length, 0);
 });
 
+test('CA2.3: dismissing a match the person already deleted is a no-op, not an error', async () => {
+  await upsertFixtures([fixture('1', '2026-10-25T19:00:00.000Z')]);
+  await projectFixturesForUser('u1', NOW);
+  const [created] = await commitments();
+  await applyParticipantCommands('u1', [{ type: 'Delete', commitmentId: created.id, now: NOW }]);
+  await dismissFixtureCommitment('u1', created.id, NOW);
+  assert.equal((await commitments()).find((c) => c.id === created.id)?.status, 'archived', 'a deleted match was turned into a drop');
+  const tally = await projectFixturesForUser('u1', NOW);
+  assert.equal(tally.created, 0, 'a deleted, dismissed match was brought back');
+});
+
 test('a dismissed match stays dismissed even when it moves', async () => {
   // The hash changes, so the "unchanged" shortcut does not apply and the
   // update path is reached. detachedAt has to be checked before it, not after.

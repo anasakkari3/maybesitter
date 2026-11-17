@@ -75,6 +75,7 @@ test('R1: on, the inbox gives each behaviour outcome its signal and title; an un
     const done = await outcomeObservation(uid, 'Completed: Call the dentist', EVENT(3));
     const later = await outcomeObservation(uid, 'Postponed: Renew the passport', EVENT(4));
     const dropped = await outcomeObservation(uid, 'Dropped: Clean the garage', EVENT(5));
+    const deleted = await outcomeObservation(uid, 'Deleted: Old gym plan', EVENT(8));
     const odd = await outcomeObservation(uid, 'Something else: x', EVENT(6));
     const pending = await observation(uid, 'manual', 'obligation', 'Call mum on Friday', 'manual-ref-1');
     const body = await inbox(uid);
@@ -82,6 +83,8 @@ test('R1: on, the inbox gives each behaviour outcome its signal and title; an un
     assert.deepEqual(byId.get(done.id).outcome, { signal: 'completed', title: 'Call the dentist' });
     assert.deepEqual(byId.get(later.id).outcome, { signal: 'postponed', title: 'Renew the passport' });
     assert.deepEqual(byId.get(dropped.id).outcome, { signal: 'dropped', title: 'Clean the garage' });
+    // A deletion is its own outcome (owner decision on CA2.3), never read as a drop.
+    assert.deepEqual(byId.get(deleted.id).outcome, { signal: 'deleted', title: 'Old gym plan' });
     assert.equal('outcome' in byId.get(odd.id), false);
     assert.equal('outcome' in byId.get(pending.id), false);
   } finally { end(); }

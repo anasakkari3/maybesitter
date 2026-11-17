@@ -1541,7 +1541,8 @@ export async function dismissFixtureCommitment(
   // Already gone (dropped by an earlier dismiss, or by a cancellation that
   // raced it) -- marking the ref detached above is still correct and is not
   // undone; there is simply nothing left for a Drop command to do.
-  if (commitment && commitment.status !== 'dropped') {
+  // Deleted by the person (`archived`, CA2.3) is gone the same way.
+  if (commitment && commitment.status !== 'dropped' && commitment.status !== 'archived') {
     await applyParticipantCommands(uid, [{ type: 'Drop', commitmentId, now }]);
   }
 }

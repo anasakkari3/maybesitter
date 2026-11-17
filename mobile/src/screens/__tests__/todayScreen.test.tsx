@@ -781,6 +781,49 @@ describe('Stitch Today', () => {
     expect(screen.queryByTestId('today-football-m')).toBeNull();
   });
 
+  it('CA2.1: a postponed item leaves the card until it comes back, and its row says when', async () => {
+    // Due this morning, postponed an hour: the server keeps `dueAt` and sets
+    // `postponedUntil` (QA audit de7fcb8, confirmed on device).
+    const back = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+    await show([
+      withPriority('away', 'high', { rank: 0, currentAckState: 'postponed', postponedUntil: back }),
+      withPriority('next', 'normal', { rank: 1 }),
+    ]);
+    const card = screen.getByTestId('today-primary');
+    expect(within(card).queryByTestId('today-item-away')).toBeNull();
+    expect(within(card).getByTestId('today-item-next')).toBeTruthy();
+    // Still on the day, in its group, saying when it is back.
+    expect(within(screen.getByTestId('today-group-must')).getByTestId('today-item-away')).toBeTruthy();
+    expect(screen.getByTestId('today-postponed-away').props.children).toContain(en.postponeReturn);
+    expect(screen.getByTestId('today-item-away').props.accessibilityLabel).toContain(en.postponeReturn);
+  });
+
+  it('CA2.1: at its return time a postponed item comes back to the card without a refetch', async () => {
+    jest.useFakeTimers({ now: Date.now(), advanceTimers: true });
+    try {
+      const back = new Date(Date.now() + 10 * 60 * 1000).toISOString();
+      await show([
+        withPriority('away', 'high', { rank: 0, currentAckState: 'postponed', postponedUntil: back }),
+        withPriority('next', 'normal', { rank: 1 }),
+      ]);
+      expect(within(screen.getByTestId('today-primary')).queryByTestId('today-item-away')).toBeNull();
+      const fetches = (commitmentEndpoints.listToday as unknown as jest.Mock).mock.calls.length;
+      await act(async () => { jest.advanceTimersByTime(11 * 60 * 1000); });
+      await waitFor(() => expect(within(screen.getByTestId('today-primary')).queryByTestId('today-item-away')).not.toBeNull());
+      expect(screen.queryByTestId('today-postponed-away')).toBeNull();
+      expect((commitmentEndpoints.listToday as unknown as jest.Mock).mock.calls.length).toBe(fetches);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('CA2.1: once its return time has passed, a postponed item is an ordinary row again', async () => {
+    const past = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+    await show([withPriority('back', 'high', { rank: 0, currentAckState: 'postponed', postponedUntil: past })]);
+    expect(within(screen.getByTestId('today-primary')).getByTestId('today-item-back')).toBeTruthy();
+    expect(screen.queryByTestId('today-postponed-back')).toBeNull();
+  });
+
   it('«مش هلّق» on the card asks when — it does not move anything by itself', async () => {
     const act = actOnStitch();
     await show([withPriority('top', 'high')]);

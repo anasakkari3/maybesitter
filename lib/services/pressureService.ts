@@ -278,8 +278,14 @@ function isPressureEligible(candidate: PressureCandidate): boolean {
   );
 }
 
-async function adaptiveSignalsFor(candidate: PressureCandidate, state: DomainState, options: PressureOptions): Promise<AdaptiveSignals> {
-  const commitmentCount = Math.max(1, Object.keys(state.commitments).length);
+/**
+ * What the account's own state says, before feedback is merged in. Exported
+ * so a test can hold the count it reads: a deleted commitment (`archived`,
+ * CA2.3) is not counted as unfinished.
+ */
+export function pressureStateSignals(state: DomainState, ignoredCount: number): AdaptiveSignals {
+  // A deleted commitment (`archived`, CA2.3) is not counted as unfinished.
+  const commitmentCount = Math.max(1, Object.values(state.commitments).filter((commitment) => commitment.status !== 'archived').length);
   const completedCount = Object.values(state.commitments).filter((commitment) => commitment.status === 'completed').length;
   const delayedCommitmentIds = new Set<string>();
   for (const commitment of Object.values(state.commitments)) {
@@ -288,13 +294,16 @@ async function adaptiveSignalsFor(candidate: PressureCandidate, state: DomainSta
   for (const reminder of Object.values(state.reminders)) {
     if (reminder.status === 'snoozed' || reminder.snoozedUntil) delayedCommitmentIds.add(reminder.commitmentId);
   }
-
-  const stateSignals: AdaptiveSignals = {
-    ignoredCommitmentsCount: candidate.ignoredCount,
+  return {
+    ignoredCommitmentsCount: ignoredCount,
     completionRate: completedCount > 0 ? completedCount / commitmentCount : 1,
     delayFrequency: delayedCommitmentIds.size / commitmentCount,
     clarificationFrequency: 0,
   };
+}
+
+async function adaptiveSignalsFor(candidate: PressureCandidate, state: DomainState, options: PressureOptions): Promise<AdaptiveSignals> {
+  const stateSignals = pressureStateSignals(state, candidate.ignoredCount);
 
   const shouldUseFeedback = Boolean(
     options.behaviorFeedbackStore ||

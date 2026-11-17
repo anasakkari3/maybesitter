@@ -1039,7 +1039,13 @@ export function useDeleteCommitment() {
   const uid = useUid();
   return useMutation({
     mutationFn: (id: string) => deleteCommitment(id, validatorFor(id)),
-    onSuccess: (_result, id) => invalidateCommitments(client, uid, id),
+    // The lists move; the item itself is gone and now answers 404 (CA2.3).
+    // Its query is marked stale but not refetched: refetching it while the
+    // Details screen is still on its way out flashed «gone» over it.
+    onSuccess: (_result, id) => {
+      invalidateCommitments(client, uid);
+      void client.invalidateQueries({ queryKey: queryKeys.commitment(uid, id), refetchType: 'none' });
+    },
     onError: (error, id) => adoptNewerCommitment(client, uid, id, error),
   });
 }

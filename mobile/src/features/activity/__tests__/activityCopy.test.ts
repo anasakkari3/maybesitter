@@ -18,6 +18,8 @@ import ar from '../../../i18n/locales/ar.json';
 import en from '../../../i18n/locales/en.json';
 import he from '../../../i18n/locales/he.json';
 import { tFor } from '../../../i18n/index';
+import { activityKindLabel } from '../ActivityScreen';
+import { strings } from '../../../i18n/strings';
 
 const KEYS = [
   'activityTitle', 'activityWeekTitle', 'activityWeekDone', 'activityWeekPlanned', 'activityWeekKept',
@@ -25,7 +27,7 @@ const KEYS = [
   'activityMomentFirstPlan', 'activityMomentDone10', 'activityMomentDone25', 'activityMomentDone50',
   'activityMomentDone100', 'activityHistoryTitle', 'activityEmpty', 'activityRemovedItem',
   'activityKindCaptured', 'activityKindConfirmed', 'activityKindCompleted', 'activityKindPostponed',
-  'activityKindDropped', 'activityKindPlanAccepted', 'activityKindPlanChangeAccepted', 'activityKindReminderAcknowledged',
+  'activityKindDropped', 'activityKindDeleted', 'activityKindPlanAccepted', 'activityKindPlanChangeAccepted', 'activityKindReminderAcknowledged',
   'activityPlanFor', 'activityMovedTo', 'activityUnavailable',
 ] as const;
 
@@ -154,5 +156,34 @@ describe('the activity copy', () => {
       expect(typeof bundle.activityMomentFirstPlan).toBe('string');
       expect(bundle.activityPlanFor).toContain('{date}');
     }
+  });
+});
+
+describe('a deletion in history (CA2.3 owner decision)', () => {
+  it('is named in all three languages, and never as a drop', () => {
+    for (const lang of ['ar', 'en', 'he'] as const) {
+      const t = strings[lang];
+      expect(activityKindLabel('deleted', t)).toBe(BUNDLES[lang]!.activityKindDeleted);
+      expect(activityKindLabel('deleted', t)).not.toBe(activityKindLabel('dropped', t));
+    }
+  });
+});
+
+describe('drop and delete copy (CA2.3 review)', () => {
+  const HISTORY: Record<string, string> = { ar: 'تاريخك', en: 'history', he: 'היסטוריה' };
+  const LEARNS: Record<string, string> = { ar: 'بنتعلّم', en: 'learns', he: 'לומדת' };
+  for (const lang of ['ar', 'en', 'he'] as const) {
+    it(`uses one word for history in both, and only the drop says it is learned from (${lang})`, () => {
+      const b = BUNDLES[lang]!;
+      for (const key of ['confirmDropBody', 'detailsDropSub', 'confirmDeleteBody', 'detailsDeleteSub']) {
+        expect(b[key]).toContain(HISTORY[lang]);
+      }
+      expect(b.confirmDropBody).toContain(LEARNS[lang]);
+      expect(b.detailsDropSub).toContain(LEARNS[lang]);
+      expect(b.confirmDeleteBody).not.toContain(LEARNS[lang]);
+    });
+  }
+  it('names a deletion in history the way the other entries are named: something I did', () => {
+    expect(BUNDLES.ar!.activityKindDeleted).toBe('حذفته');
   });
 });

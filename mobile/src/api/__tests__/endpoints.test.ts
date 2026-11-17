@@ -291,11 +291,11 @@ describe('commitments', () => {
     expect(result.data.commitment.status).toBe('completed');
   });
 
-  it('reports a delete as the soft drop it actually is', async () => {
+  it('reports a delete as a deletion hidden from every screen, never as a drop (CA2.3)', async () => {
     serve(fixture('commitments.deleted'));
     const result = await deleteCommitment('c1');
     expect(requests[0]!.method).toBe('DELETE');
-    expect(result).toMatchObject({ deleted: false, softDeleted: true, status: 'dropped' });
+    expect(result).toMatchObject({ deleted: false, softDeleted: true, status: 'archived' });
   });
 });
 
