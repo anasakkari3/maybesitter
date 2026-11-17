@@ -217,6 +217,19 @@ describe('pressing disconnect', () => {
     expect(String(screen.getByTestId('calendar-disconnect-result').props.children)).toBe(en.calendarDisconnectFailed);
   });
 
+  // Review 2 of B8: the account half can fail after the server already turned
+  // consent off. The switch is read again so the screen shows what the server
+  // holds, not what the phone assumed.
+  it('reads the switch again from the server when emptying the account failed part way', async () => {
+    jest.spyOn(calendarEndpoints, 'disconnectAccountCalendars').mockRejectedValue(new Error('offline') as never);
+    await show();
+    await waitFor(() => expect(trustEndpoints.getTrust).toHaveBeenCalled());
+    const before = (trustEndpoints.getTrust as jest.Mock).mock.calls.length;
+    await disconnectAndConfirm();
+    await waitFor(() => expect(screen.queryByTestId('calendar-disconnect-result')).not.toBeNull());
+    await waitFor(() => expect((trustEndpoints.getTrust as jest.Mock).mock.calls.length).toBeGreaterThan(before));
+  });
+
   it('warns before the tap that lecture times added by hand go too (CA10.5)', () => {
     expect(en.calendarDisconnectConfirmBody).toMatch(/lecture times/i);
   });
