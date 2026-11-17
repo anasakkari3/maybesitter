@@ -40,6 +40,7 @@ import { localTimeSpecFor } from '../src/extraction/timeLexicon';
 import { getStorage, userDoc } from '../lib/storage/index';
 import { newUserDocument } from '../lib/storage/userDocument';
 import { createPilotTrustState } from '../lib/pilot/closedPilotControls';
+import { meteringLost } from './captureListEvalMetering';
 
 const INPUT_USD_PER_M = 0.3;
 const OUTPUT_USD_PER_M = 2.5;
@@ -228,8 +229,20 @@ async function main(): Promise<void> {
       break;
     }
     await paceFor(bound);
+    const callsBefore = calls.length;
     rows.push(await run(entry));
     process.stderr.write(`${rows.length}/${cases.length} ${entry.id} ${rows.at(-1)!.pass ? 'pass' : 'FAIL'} spent=$${spent().toFixed(4)}\n`);
+    const last = rows.at(-1)!;
+    // The spend cap is only as good as the metering it reads (B3 review).
+    if (meteringLost({
+      engine: engine as 'rules' | 'model',
+      callsSeen: calls.length - callsBefore,
+      executedEngine: 'executedEngine' in last ? last.executedEngine : null,
+    })) {
+      stoppedBefore = `metering_lost_after:${entry.id}`;
+      process.stderr.write(`the model answered ${entry.id} but no llm_call line was seen: stopping, spend can no longer be read\n`);
+      break;
+    }
   }
 
   const made = calls.filter((call) => call.outcome !== 'cost_cap');
