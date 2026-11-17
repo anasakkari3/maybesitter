@@ -1,5 +1,5 @@
 {
-  "createdAt": "2026-11-15T13:43:36.204Z",
+  "createdAt": "2026-11-17T08:48:08.632Z",
   "engine": "rules",
   "referenceTime": "2026-11-12T06:00:00.000Z",
   "timezone": "Asia/Jerusalem",
@@ -39,7 +39,7 @@
       "exactCount": 8,
       "itemRecall": "16/16",
       "timeRecall": "16/16",
-      "dateAccuracy": "16/16",
+      "dateAccuracy": "15/15",
       "needsClarificationWithoutQuestion": 0,
       "errors": 0
     },
@@ -131,7 +131,7 @@
       "exactCount": 8,
       "itemRecall": "16/16",
       "timeRecall": "16/16",
-      "dateAccuracy": "16/16",
+      "dateAccuracy": "15/15",
       "needsClarificationWithoutQuestion": 0,
       "errors": 0
     },
@@ -207,6 +207,15 @@
       "expectedCount": 8,
       "gotCount": 7,
       "matched": 7,
+      "gotDates": [
+        "2026-11-12",
+        null,
+        null,
+        null,
+        null,
+        null,
+        null
+      ],
       "timeOk": 0,
       "timeTotal": 0,
       "dateOk": 0,
@@ -232,6 +241,12 @@
       "expectedCount": 4,
       "gotCount": 4,
       "matched": 4,
+      "gotDates": [
+        "2026-11-13",
+        null,
+        null,
+        null
+      ],
       "timeOk": 0,
       "timeTotal": 0,
       "dateOk": 0,
@@ -257,6 +272,12 @@
       "expectedCount": 4,
       "gotCount": 4,
       "matched": 4,
+      "gotDates": [
+        "2026-11-12",
+        null,
+        null,
+        null
+      ],
       "timeOk": 0,
       "timeTotal": 0,
       "dateOk": 0,
@@ -282,6 +303,11 @@
       "expectedCount": 3,
       "gotCount": 3,
       "matched": 3,
+      "gotDates": [
+        "2026-11-13",
+        null,
+        null
+      ],
       "timeOk": 0,
       "timeTotal": 0,
       "dateOk": 0,
@@ -307,6 +333,11 @@
       "expectedCount": 3,
       "gotCount": 3,
       "matched": 3,
+      "gotDates": [
+        "2026-11-12",
+        null,
+        null
+      ],
       "timeOk": 0,
       "timeTotal": 0,
       "dateOk": 0,
@@ -332,6 +363,11 @@
       "expectedCount": 3,
       "gotCount": 3,
       "matched": 3,
+      "gotDates": [
+        null,
+        null,
+        null
+      ],
       "timeOk": 0,
       "timeTotal": 0,
       "dateOk": 0,
@@ -357,6 +393,11 @@
       "expectedCount": 3,
       "gotCount": 3,
       "matched": 3,
+      "gotDates": [
+        null,
+        null,
+        null
+      ],
       "timeOk": 0,
       "timeTotal": 0,
       "dateOk": 0,
@@ -382,6 +423,12 @@
       "expectedCount": 4,
       "gotCount": 4,
       "matched": 4,
+      "gotDates": [
+        null,
+        null,
+        null,
+        null
+      ],
       "timeOk": 0,
       "timeTotal": 0,
       "dateOk": 0,
@@ -407,6 +454,11 @@
       "expectedCount": 3,
       "gotCount": 3,
       "matched": 3,
+      "gotDates": [
+        null,
+        null,
+        null
+      ],
       "timeOk": 0,
       "timeTotal": 0,
       "dateOk": 0,
@@ -432,6 +484,11 @@
       "expectedCount": 3,
       "gotCount": 3,
       "matched": 3,
+      "gotDates": [
+        null,
+        null,
+        null
+      ],
       "timeOk": 0,
       "timeTotal": 0,
       "dateOk": 0,
@@ -457,6 +514,11 @@
       "expectedCount": 3,
       "gotCount": 3,
       "matched": 3,
+      "gotDates": [
+        "2026-11-12",
+        null,
+        null
+      ],
       "timeOk": 0,
       "timeTotal": 0,
       "dateOk": 0,
@@ -482,6 +544,11 @@
       "expectedCount": 3,
       "gotCount": 3,
       "matched": 3,
+      "gotDates": [
+        null,
+        null,
+        null
+      ],
       "timeOk": 0,
       "timeTotal": 0,
       "dateOk": 0,
@@ -507,6 +574,10 @@
       "expectedCount": 2,
       "gotCount": 2,
       "matched": 2,
+      "gotDates": [
+        null,
+        null
+      ],
       "timeOk": 0,
       "timeTotal": 0,
       "dateOk": 0,
@@ -532,6 +603,11 @@
       "expectedCount": 3,
       "gotCount": 3,
       "matched": 3,
+      "gotDates": [
+        null,
+        null,
+        null
+      ],
       "timeOk": 0,
       "timeTotal": 0,
       "dateOk": 0,
@@ -557,6 +633,10 @@
       "expectedCount": 2,
       "gotCount": 2,
       "matched": 2,
+      "gotDates": [
+        null,
+        null
+      ],
       "timeOk": 0,
       "timeTotal": 0,
       "dateOk": 0,
@@ -582,6 +662,9 @@
       "expectedCount": 2,
       "gotCount": 1,
       "matched": 1,
+      "gotDates": [
+        null
+      ],
       "timeOk": 0,
       "timeTotal": 0,
       "dateOk": 0,
@@ -607,6 +690,10 @@
       "expectedCount": 2,
       "gotCount": 2,
       "matched": 2,
+      "gotDates": [
+        "2026-11-13",
+        "2026-11-13"
+      ],
       "timeOk": 2,
       "timeTotal": 2,
       "dateOk": 2,
@@ -632,6 +719,10 @@
       "expectedCount": 2,
       "gotCount": 2,
       "matched": 2,
+      "gotDates": [
+        "2026-11-13",
+        "2026-11-13"
+      ],
       "timeOk": 2,
       "timeTotal": 2,
       "dateOk": 2,
@@ -657,6 +748,10 @@
       "expectedCount": 2,
       "gotCount": 2,
       "matched": 2,
+      "gotDates": [
+        "2026-11-13",
+        "2026-11-13"
+      ],
       "timeOk": 2,
       "timeTotal": 2,
       "dateOk": 2,
@@ -682,6 +777,10 @@
       "expectedCount": 2,
       "gotCount": 2,
       "matched": 2,
+      "gotDates": [
+        "2026-11-13",
+        "2026-11-15"
+      ],
       "timeOk": 2,
       "timeTotal": 2,
       "dateOk": 2,
@@ -707,6 +806,10 @@
       "expectedCount": 2,
       "gotCount": 2,
       "matched": 2,
+      "gotDates": [
+        "2026-11-13",
+        "2026-11-13"
+      ],
       "timeOk": 2,
       "timeTotal": 2,
       "dateOk": 2,
@@ -732,6 +835,10 @@
       "expectedCount": 2,
       "gotCount": 2,
       "matched": 2,
+      "gotDates": [
+        "2026-11-13",
+        "2026-11-13"
+      ],
       "timeOk": 2,
       "timeTotal": 2,
       "dateOk": 2,
@@ -757,6 +864,10 @@
       "expectedCount": 2,
       "gotCount": 2,
       "matched": 2,
+      "gotDates": [
+        "2026-11-12",
+        "2026-11-12"
+      ],
       "timeOk": 2,
       "timeTotal": 2,
       "dateOk": 2,
@@ -782,10 +893,14 @@
       "expectedCount": 2,
       "gotCount": 2,
       "matched": 2,
+      "gotDates": [
+        "2026-11-15",
+        "2026-11-12"
+      ],
       "timeOk": 2,
       "timeTotal": 2,
-      "dateOk": 2,
-      "dateTotal": 2,
+      "dateOk": 1,
+      "dateTotal": 1,
       "leadingJoiners": 0,
       "needsClarificationWithoutQuestion": 0,
       "expectedQuestionMissing": 0,
@@ -807,6 +922,16 @@
       "expectedCount": 8,
       "gotCount": 8,
       "matched": 8,
+      "gotDates": [
+        "2026-11-12",
+        "2026-11-12",
+        "2026-11-12",
+        "2026-11-12",
+        "2026-11-12",
+        "2026-11-12",
+        "2026-11-12",
+        "2026-11-12"
+      ],
       "timeOk": 8,
       "timeTotal": 8,
       "dateOk": 8,
@@ -832,6 +957,12 @@
       "expectedCount": 4,
       "gotCount": 4,
       "matched": 4,
+      "gotDates": [
+        "2026-11-12",
+        "2026-11-12",
+        "2026-11-12",
+        "2026-11-12"
+      ],
       "timeOk": 4,
       "timeTotal": 4,
       "dateOk": 4,
@@ -857,6 +988,12 @@
       "expectedCount": 4,
       "gotCount": 4,
       "matched": 4,
+      "gotDates": [
+        "2026-11-12",
+        "2026-11-12",
+        "2026-11-12",
+        "2026-11-12"
+      ],
       "timeOk": 4,
       "timeTotal": 4,
       "dateOk": 4,
@@ -882,6 +1019,12 @@
       "expectedCount": 4,
       "gotCount": 4,
       "matched": 4,
+      "gotDates": [
+        "2026-11-12",
+        "2026-11-12",
+        "2026-11-12",
+        "2026-11-12"
+      ],
       "timeOk": 4,
       "timeTotal": 4,
       "dateOk": 4,
@@ -907,6 +1050,12 @@
       "expectedCount": 4,
       "gotCount": 4,
       "matched": 4,
+      "gotDates": [
+        "2026-11-12",
+        "2026-11-12",
+        "2026-11-12",
+        "2026-11-12"
+      ],
       "timeOk": 3,
       "timeTotal": 3,
       "dateOk": 3,
@@ -932,6 +1081,11 @@
       "expectedCount": 3,
       "gotCount": 3,
       "matched": 3,
+      "gotDates": [
+        "2026-11-13",
+        "2026-11-13",
+        "2026-11-13"
+      ],
       "timeOk": 3,
       "timeTotal": 3,
       "dateOk": 3,
@@ -957,6 +1111,12 @@
       "expectedCount": 4,
       "gotCount": 4,
       "matched": 4,
+      "gotDates": [
+        null,
+        null,
+        null,
+        null
+      ],
       "timeOk": 0,
       "timeTotal": 0,
       "dateOk": 0,
@@ -982,6 +1142,11 @@
       "expectedCount": 3,
       "gotCount": 3,
       "matched": 3,
+      "gotDates": [
+        null,
+        null,
+        null
+      ],
       "timeOk": 0,
       "timeTotal": 0,
       "dateOk": 0,
@@ -1007,6 +1172,11 @@
       "expectedCount": 3,
       "gotCount": 3,
       "matched": 3,
+      "gotDates": [
+        null,
+        null,
+        null
+      ],
       "timeOk": 0,
       "timeTotal": 0,
       "dateOk": 0,
@@ -1032,6 +1202,10 @@
       "expectedCount": 2,
       "gotCount": 2,
       "matched": 2,
+      "gotDates": [
+        null,
+        "2026-11-13"
+      ],
       "timeOk": 1,
       "timeTotal": 1,
       "dateOk": 1,
@@ -1057,6 +1231,10 @@
       "expectedCount": 2,
       "gotCount": 2,
       "matched": 2,
+      "gotDates": [
+        "2026-11-13",
+        "2026-11-15"
+      ],
       "timeOk": 2,
       "timeTotal": 2,
       "dateOk": 2,
@@ -1082,6 +1260,10 @@
       "expectedCount": 2,
       "gotCount": 2,
       "matched": 2,
+      "gotDates": [
+        "2026-11-13",
+        "2026-11-15"
+      ],
       "timeOk": 2,
       "timeTotal": 2,
       "dateOk": 2,
@@ -1107,6 +1289,10 @@
       "expectedCount": 2,
       "gotCount": 2,
       "matched": 2,
+      "gotDates": [
+        null,
+        "2026-11-13"
+      ],
       "timeOk": 1,
       "timeTotal": 1,
       "dateOk": 1,
@@ -1132,6 +1318,10 @@
       "expectedCount": 2,
       "gotCount": 2,
       "matched": 2,
+      "gotDates": [
+        "2026-11-15",
+        "2026-11-13"
+      ],
       "timeOk": 1,
       "timeTotal": 1,
       "dateOk": 2,
@@ -1157,6 +1347,10 @@
       "expectedCount": 2,
       "gotCount": 2,
       "matched": 2,
+      "gotDates": [
+        null,
+        "2026-11-13"
+      ],
       "timeOk": 1,
       "timeTotal": 1,
       "dateOk": 1,
@@ -1182,6 +1376,9 @@
       "expectedCount": 1,
       "gotCount": 1,
       "matched": 1,
+      "gotDates": [
+        "2026-11-13"
+      ],
       "timeOk": 1,
       "timeTotal": 1,
       "dateOk": 1,
@@ -1207,6 +1404,9 @@
       "expectedCount": 2,
       "gotCount": 1,
       "matched": 1,
+      "gotDates": [
+        "2026-11-15"
+      ],
       "timeOk": 0,
       "timeTotal": 0,
       "dateOk": 1,
@@ -1232,6 +1432,9 @@
       "expectedCount": 1,
       "gotCount": 1,
       "matched": 1,
+      "gotDates": [
+        "2026-11-13"
+      ],
       "timeOk": 1,
       "timeTotal": 1,
       "dateOk": 1,
@@ -1257,6 +1460,9 @@
       "expectedCount": 1,
       "gotCount": 1,
       "matched": 1,
+      "gotDates": [
+        "2026-11-13"
+      ],
       "timeOk": 1,
       "timeTotal": 1,
       "dateOk": 1,
@@ -1282,6 +1488,9 @@
       "expectedCount": 1,
       "gotCount": 1,
       "matched": 1,
+      "gotDates": [
+        "2026-11-13"
+      ],
       "timeOk": 1,
       "timeTotal": 1,
       "dateOk": 1,
@@ -1307,6 +1516,9 @@
       "expectedCount": 1,
       "gotCount": 1,
       "matched": 1,
+      "gotDates": [
+        "2026-11-13"
+      ],
       "timeOk": 1,
       "timeTotal": 1,
       "dateOk": 1,
@@ -1332,6 +1544,9 @@
       "expectedCount": 1,
       "gotCount": 1,
       "matched": 1,
+      "gotDates": [
+        "2026-11-13"
+      ],
       "timeOk": 1,
       "timeTotal": 1,
       "dateOk": 1,
@@ -1357,6 +1572,7 @@
       "expectedCount": 0,
       "gotCount": 0,
       "matched": 0,
+      "gotDates": [],
       "timeOk": 0,
       "timeTotal": 0,
       "dateOk": 0,
@@ -1382,6 +1598,10 @@
       "expectedCount": 2,
       "gotCount": 2,
       "matched": 2,
+      "gotDates": [
+        "2026-11-15",
+        "2026-11-16"
+      ],
       "timeOk": 1,
       "timeTotal": 1,
       "dateOk": 2,
@@ -1407,6 +1627,10 @@
       "expectedCount": 2,
       "gotCount": 2,
       "matched": 2,
+      "gotDates": [
+        "2026-11-15",
+        "2026-11-16"
+      ],
       "timeOk": 1,
       "timeTotal": 1,
       "dateOk": 2,
@@ -1432,6 +1656,9 @@
       "expectedCount": 1,
       "gotCount": 1,
       "matched": 1,
+      "gotDates": [
+        "2026-11-15"
+      ],
       "timeOk": 1,
       "timeTotal": 1,
       "dateOk": 1,
@@ -1457,6 +1684,9 @@
       "expectedCount": 1,
       "gotCount": 1,
       "matched": 1,
+      "gotDates": [
+        "2026-11-16"
+      ],
       "timeOk": 0,
       "timeTotal": 0,
       "dateOk": 1,
@@ -1482,6 +1712,9 @@
       "expectedCount": 1,
       "gotCount": 1,
       "matched": 1,
+      "gotDates": [
+        "2026-11-14"
+      ],
       "timeOk": 1,
       "timeTotal": 1,
       "dateOk": 1,
@@ -1507,6 +1740,9 @@
       "expectedCount": 1,
       "gotCount": 1,
       "matched": 1,
+      "gotDates": [
+        "2026-11-15"
+      ],
       "timeOk": 1,
       "timeTotal": 1,
       "dateOk": 1,
@@ -1532,6 +1768,9 @@
       "expectedCount": 1,
       "gotCount": 1,
       "matched": 1,
+      "gotDates": [
+        "2026-11-16"
+      ],
       "timeOk": 1,
       "timeTotal": 1,
       "dateOk": 1,
@@ -1557,6 +1796,9 @@
       "expectedCount": 1,
       "gotCount": 1,
       "matched": 1,
+      "gotDates": [
+        "2026-11-15"
+      ],
       "timeOk": 1,
       "timeTotal": 1,
       "dateOk": 1,
@@ -1582,6 +1824,9 @@
       "expectedCount": 1,
       "gotCount": 1,
       "matched": 1,
+      "gotDates": [
+        "2026-11-14"
+      ],
       "timeOk": 1,
       "timeTotal": 1,
       "dateOk": 1,
@@ -1607,6 +1852,9 @@
       "expectedCount": 1,
       "gotCount": 1,
       "matched": 1,
+      "gotDates": [
+        "2026-11-19"
+      ],
       "timeOk": 1,
       "timeTotal": 1,
       "dateOk": 1,
@@ -1632,6 +1880,9 @@
       "expectedCount": 1,
       "gotCount": 1,
       "matched": 1,
+      "gotDates": [
+        "2026-11-14"
+      ],
       "timeOk": 0,
       "timeTotal": 0,
       "dateOk": 1,
@@ -1657,6 +1908,9 @@
       "expectedCount": 1,
       "gotCount": 1,
       "matched": 1,
+      "gotDates": [
+        "2026-11-13"
+      ],
       "timeOk": 1,
       "timeTotal": 1,
       "dateOk": 1,
@@ -1682,6 +1936,9 @@
       "expectedCount": 1,
       "gotCount": 1,
       "matched": 1,
+      "gotDates": [
+        "2026-11-13"
+      ],
       "timeOk": 1,
       "timeTotal": 1,
       "dateOk": 1,
@@ -1707,6 +1964,9 @@
       "expectedCount": 1,
       "gotCount": 1,
       "matched": 1,
+      "gotDates": [
+        "2026-11-13"
+      ],
       "timeOk": 0,
       "timeTotal": 0,
       "dateOk": 1,
@@ -1732,6 +1992,9 @@
       "expectedCount": 1,
       "gotCount": 1,
       "matched": 1,
+      "gotDates": [
+        null
+      ],
       "timeOk": 0,
       "timeTotal": 0,
       "dateOk": 0,
@@ -1757,6 +2020,9 @@
       "expectedCount": 1,
       "gotCount": 1,
       "matched": 1,
+      "gotDates": [
+        "2026-11-13"
+      ],
       "timeOk": 1,
       "timeTotal": 1,
       "dateOk": 1,
@@ -1782,6 +2048,7 @@
       "expectedCount": 1,
       "gotCount": 0,
       "matched": 0,
+      "gotDates": [],
       "timeOk": 0,
       "timeTotal": 1,
       "dateOk": 0,
@@ -1807,6 +2074,9 @@
       "expectedCount": 1,
       "gotCount": 1,
       "matched": 1,
+      "gotDates": [
+        "2026-11-13"
+      ],
       "timeOk": 1,
       "timeTotal": 1,
       "dateOk": 1,
@@ -1832,6 +2102,9 @@
       "expectedCount": 1,
       "gotCount": 1,
       "matched": 1,
+      "gotDates": [
+        "2026-11-13"
+      ],
       "timeOk": 1,
       "timeTotal": 1,
       "dateOk": 1,
@@ -1857,6 +2130,9 @@
       "expectedCount": 1,
       "gotCount": 1,
       "matched": 1,
+      "gotDates": [
+        null
+      ],
       "timeOk": 0,
       "timeTotal": 0,
       "dateOk": 0,
@@ -1882,6 +2158,9 @@
       "expectedCount": 1,
       "gotCount": 1,
       "matched": 1,
+      "gotDates": [
+        "2026-11-12"
+      ],
       "timeOk": 1,
       "timeTotal": 1,
       "dateOk": 1,

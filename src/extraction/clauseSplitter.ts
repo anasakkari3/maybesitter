@@ -765,6 +765,21 @@ function afterListHead(conjunct: string): string {
   return colon >= 0 ? conjunct.slice(colon + 1).trim() : conjunct;
 }
 
+/**
+ * The conjunct before a join is more than a bare verb: an errand verb onto an
+ * object («أشتري خبز», "buy milk"), or words beyond a single one when no
+ * listed verb opens it. Read after a request word, a leading day or hour and
+ * a list's head — "I need to read", "Things: read" are as bare as "Read".
+ */
+function hasOwnObject(conjunct: string): boolean {
+  let core = afterListHead(afterLeadingTime(conjunct.replace(LEADING_CONNECTOR, '').trim()));
+  const request = SENTENCE_OPENER.exec(core);
+  if (request) core = core.slice(request[0].length).replace(/^\s*to\s+/i, '').trim();
+  const verb = SENTENCE_VERB_OPENER.exec(core) ?? GO_OPENER.exec(core);
+  if (verb) return followedByObject(core.slice(verb[0].length));
+  return core.split(/\s+/).filter(Boolean).length > 1;
+}
+
 /** Any day, hour or month's end in the words, as a due or not. */
 const MONTH_END_WORDS = new RegExp('end\\s+of\\s+(?:the\\s+|this\\s+)?month|month[\\s-]end|(?:آخر|اخر|أخر|نهاية)\\s+(?:الشهر|هالشهر)|סוף\\s+ה?חודש', 'iu');
 function mentionsTiming(clause: string): boolean {
@@ -817,6 +832,9 @@ function splitTimedConjuncts(segment: string): string[] {
       // "Go to the market and buy bread", «بدي أروح عالسوق وأشتري خبز»: the
       // trip and what is done there are one errand (CL1 review, C1).
       && !goesSomewhere(before)
+      // The verb before the join needs an object of its own (B3 review):
+      // "Read and reply to emails" is one errand, not «Read» and another.
+      && hasOwnObject(before)
       && [before, afterLeadingTime(before), afterListHead(before)].some((words) => hasActionEvidence(words));
     if (before && after && ((opens && isWholeTimedCommitment(before)) || listed)) {
       out.push(before);
@@ -953,7 +971,9 @@ const DAY_PHRASE = new RegExp(
   [
     ...RELATIVE_DAY_MENTION_SOURCES,
     ...WEEKDAY_MENTION_SOURCES,
-    '\\b(?:sunday|monday|tuesday|wednesday|thursday|friday|saturday)\\b',
+    // With its "next" / "this" / "coming": "next Sunday" carried as "Sunday"
+    // was a different day (B3 review).
+    '\\b(?:(?:next|this|coming|the\\s+coming|following|the\\s+following)\\s+)?(?:sunday|monday|tuesday|wednesday|thursday|friday|saturday)\\b',
   ].map((source) => `(?:${source})`).join('|'),
   'iu',
 );
@@ -976,7 +996,11 @@ function withDayCarried(clauses: readonly string[]): string[] {
     const carried = day;
     day = null;
     if (namesDay(clause) || readWeekdayReference(clause) || namesExplicitDate(clause)) {
-      if (statesClock(clause)) day = DAY_PHRASE.exec(clause)?.[0]?.replace(/^\u0648/, '').trim() || null;
+      // An appointment's day is its own (B3 review): "Dentist on Sunday at
+      // 5pm, call mom at 6pm" does not put the call on Sunday.
+      if (statesClock(clause) && !COMMITMENT_NOUN.test(clause)) {
+        day = DAY_PHRASE.exec(clause)?.[0]?.replace(/^\u0648/, '').trim() || null;
+      }
       return clause;
     }
     if (carried && statesClock(clause) && !isTimeOnlyClause(clause)) return `${clause} ${carried}`;
