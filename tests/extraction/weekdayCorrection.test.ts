@@ -42,7 +42,6 @@ for (const [label, text, title, modelDate, time, expected] of [
   ['ar «السبت الجاي» read as Sunday', 'السبت الجاي لازم أنظف السيارة', 'أنظف السيارة', '2026-11-15', null, '2026-11-14'],
   ['ar «الإثنين الجاي» read as Tuesday', 'الإثنين الجاي الساعة 9 الصبح امتحان السواقة', 'امتحان السواقة', '2026-11-17', '09:00', '2026-11-16'],
   ['ar «الخميس الجاي» on a Thursday, read as Friday', 'الخميس الجاي الساعة 8 المسا عزومة عند خالتي', 'عزومة عند خالتي', '2026-11-20', '20:00', '2026-11-19'],
-  ['ar «الجمعة الجاي» on the day before, read as Saturday', 'الجمعة الجاي لازم أتصل بخالي', 'أتصل بخالي', '2026-11-14', null, '2026-11-13'],
   ['he «ביום ראשון הבא» read as Monday', 'ביום ראשון הבא ב-10:00 תור לרופא', 'תור לרופא', '2026-11-23', '10:00', '2026-11-15'],
   ['en "next Monday" read as Tuesday', 'next Monday at 9am driving test', 'driving test', '2026-11-17', '09:00', '2026-11-16'],
 ] as const) {
@@ -55,6 +54,16 @@ for (const [label, text, title, modelDate, time, expected] of [
   });
 }
 
+test('NA2.3: «السبت الجاي» said the day before is tomorrow, as on the rules path', () => {
+  // Friday 13 November: the nearest Saturday that is not today is tomorrow.
+  // («الجمعة الجاي» is not used here: «الجمعة» is also "the week", and the
+  // lexicon reads «الجمعة الجاي» as next week, a date of its own.)
+  const friday = { now: new Date('2026-11-13T06:00:00.000Z'), timezone: TZ };
+  const result = validateExtractionResult(model('أتصل بخالي', '2026-11-15', null), 'السبت الجاي لازم أتصل بخالي', friday);
+  assert.equal(result.localTimeSpec?.date, '2026-11-14');
+  assert.equal(result.weekdayCorrected, true);
+});
+
 for (const [label, text, modelDate, time] of [
   ['the model date is already on the named weekday ("next Sunday" as the Sunday after)', 'next Sunday at 10am dentist appointment', '2026-11-22', '10:00'],
   ['no weekday in the words', 'tomorrow at 5pm call mom', '2026-11-14', '17:00'],
@@ -62,6 +71,7 @@ for (const [label, text, modelDate, time] of [
   ['a recurrence', 'every Saturday at 10am gym', '2026-11-15', '10:00'],
   ['a relative day beside the weekday', 'بكرا يوم السبت لازم أتصل', '2026-11-15', null],
   ['a calendar date beside the weekday', 'Saturday 21 November at 10am dentist', '2026-11-21', '10:00'],
+  ['«الاثنين» may be "the two"', 'اشتري الاثنين الساعة 5 المسا', '2026-11-12', '17:00'],
 ] as const) {
   test(`NA2.3: untouched when ${label}`, () => {
     const result = validateExtractionResult(model('item', modelDate, time), text, context);

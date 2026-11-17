@@ -46,7 +46,7 @@ import {
   unsettledRelativeDayPhrase,
 } from './timeLexicon';
 import { isCommitmentCategory } from '../contracts/v1/categoryContracts';
-import { modelDateIsWeekdayGuess, namesCalendarDate, namesExplicitDate, readWeekdayReference, resolveWeekdayDate } from './weekdayLexicon';
+import { modelDateIsWeekdayGuess, namesCalendarDate, namesExplicitDate, readRecurrence, readWeekdayMentions, readWeekdayReference, resolveWeekdayDate } from './weekdayLexicon';
 import { isFixedAppointment, statedObligation } from './priorityLexicon';
 import { stripCaptureCommand } from './captureCommand';
 
@@ -415,6 +415,44 @@ export function reconcileLocalTimeSpec(
   return { dueAt, remindAt, localTimeSpec, timeEvidence: evidence, flags };
 }
 
+/**
+ * The model's time moved onto the weekday the words name, or null when it is
+ * already on it or the words do not name exactly one (QA audit NA2.3).
+ *
+ * Only for words whose one statement of the day is a single weekday: not a
+ * second weekday ("Sunday school report due Monday"), a recurrence («كل
+ * سبت», handled by the stated shape), a calendar date, or a relative day
+ * («بكرا يوم السبت») — each of those tells a different story the model may
+ * have read rightly. The day is the rules' (`resolveWeekdayDate`: the
+ * nearest one that is not today, «الجاي» / "next" / «הבא» included, a week
+ * later only for "the one after"); every instant moves by the same number of
+ * days, keeping its hour on the person's clock.
+ */
+const ARABIC_MONDAY = new RegExp('[اإأ]ثنين', 'u');
+const SURELY_ARABIC_MONDAY = new RegExp('يوم\\s+(?:ال)?[اإأ]ثنين|[اإأ]ثنين\\s+(?:الجاي|الجاية|الجايه|القادم|القادمة)', 'u');
+
+function onNamedWeekday(time: ReconciledTime, rawText: string, now: Date, fallbackZone: string): ReconciledTime | null {
+  const date = time.localTimeSpec?.date;
+  if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return null;
+  const reference = readWeekdayReference(rawText);
+  if (!reference || readWeekdayMentions(rawText).length !== 1 || readRecurrence(rawText)) return null;
+  if (namesCalendarDate(rawText) || relativeDayOffset(rawText) !== null) return null;
+  // «الاثنين» is also "the two" («اشتري الاثنين الساعة 5»): only «يوم
+  // الاثنين» or «الاثنين الجاي» is surely Monday enough to move a date for.
+  if (ARABIC_MONDAY.test(rawText) && !SURELY_ARABIC_MONDAY.test(rawText)) return null;
+  if (new Date(`${date}T12:00:00Z`).getUTCDay() === reference.weekday) return null;
+  const zone = time.localTimeSpec?.timezone || fallbackZone;
+  const target = resolveWeekdayDate(rawText, now, zone)?.date;
+  if (!target || target === date) return null;
+  const days = Math.round((Date.parse(`${target}T12:00:00Z`) - Date.parse(`${date}T12:00:00Z`)) / 86_400_000);
+  const moved = (iso: string | null): string | null => {
+    if (!iso) return null;
+    const local = localTimeSpecFor(new Date(Date.parse(iso)), zone);
+    return local ? instantFromLocal(shiftLocalDate(local.date, days), local.time, zone)?.toISOString() ?? null : null;
+  };
+  return { ...time, dueAt: moved(time.dueAt), remindAt: moved(time.remindAt), localTimeSpec: { ...time.localTimeSpec!, date: target } };
+}
+
 /** A `YYYY-MM-DD` date `days` days on (or back). */
 function shiftLocalDate(date: string, days: number): string {
   const [year, month, day] = date.split('-').map(Number) as [number, number, number];
@@ -610,6 +648,17 @@ export function validateExtractionResult(
   // became a Sunday. The same tokenizer only *marks* a date that came from a
   // whole-word weekday and nothing else, so the review card can say it was
   // guessed and offer the week after.
+  //
+  // One narrow exception (QA audit NA2.3; owner decision 2026-11-17): a model
+  // date that does not fall on the weekday the words name is not a reading of
+  // the words at all. On Thursday 12 November Gemini dated «السبت الجاي» a
+  // Sunday, «الإثنين الجاي» a Tuesday, «ביום ראשון הבא» a Monday. Such a date
+  // is moved to the day the rules read (`onNamedWeekday`), at the same hour.
+  // A model date on the named weekday — a week later included — is still
+  // never moved, which is what L4 protects.
+  const named = context?.now ? onNamedWeekday(time, rawText, context.now, context.timezone || 'UTC') : null;
+  if (named) time = named;
+  const weekdayCorrected = named !== null;
   let dateInferred = modelDateIsWeekdayGuess(rawText, time.localTimeSpec?.date);
   // The model named no day at all for a sentence that names a weekday (CL1,
   // round 1). Gemini answered «سجّل موعد دكتور يوم الأحد» with
@@ -926,6 +975,7 @@ export function validateExtractionResult(
     localTimeSpec: time.localTimeSpec,
     timeEvidence: time.timeEvidence,
     dateInferred,
+    ...(weekdayCorrected ? { weekdayCorrected: true as const } : {}),
     // Read from the text, like the time itself: the model is not asked. The
     // month's end is always a limit (FX3).
     timeAnchor: allDay ? 'deadline' : timeAnchorOf(rawText),
