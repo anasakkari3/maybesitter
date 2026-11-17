@@ -212,3 +212,16 @@ test('adaptiveService: behavior feedback updates classification over time', asyn
     suggestionStyle: 'supportive',
   });
 });
+
+test('CA2.3: a deleted (archived) commitment is not trackable and does not lower the completion rate', async () => {
+  let state = createEmptyDomainState();
+  state = addActive(state, 'done');
+  state = applyCommand(state, { type: 'Complete', commitmentId: 'done', now }).newState;
+  state = addActive(state, 'gone');
+  state = applyCommand(state, { type: 'Delete', commitmentId: 'gone', now }).newState;
+  state = addActive(state, 'dropped');
+  state = applyCommand(state, { type: 'Drop', commitmentId: 'dropped', now }).newState;
+  const signals = await deriveAdaptiveSignals(state, {});
+  // done + dropped are trackable, as before; the deleted one is not.
+  assert.equal(signals.completionRate, 1 / 2);
+});

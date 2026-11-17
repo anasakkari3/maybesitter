@@ -241,6 +241,13 @@ export function planToDto(
   const blockByItemId = new Map((stored.blocks ?? [])
     .filter((block) => block.mobility !== 'fixed')
     .map((block) => [block.source.id, block.blockId] as const));
+  // Deleted by the person (`archived`, CA2.3): out of today's plan and the
+  // week, even a plan accepted before the deletion (owner decision
+  // 2026-11-15). Read from the commitments as they are now, when given.
+  const deleted = new Set((options.commitments ?? [])
+    .filter((commitment) => commitment.status === 'archived')
+    .map((commitment) => commitment.id));
+  const kept = (itemId: string): boolean => !deleted.has(itemId);
   return {
     date: stored.date,
     timezone: stored.timezone,
@@ -254,14 +261,14 @@ export function planToDto(
       locale: stored.explanation.locale,
       source: stored.explanation.source,
     },
-    scheduled: effectiveSchedule(stored).map((item) => ({
+    scheduled: effectiveSchedule(stored).filter((item) => kept(item.itemId)).map((item) => ({
       itemId: item.itemId,
       title: titles.get(item.itemId) ?? null,
       startsAt: item.interval.startsAt,
       endsAt: item.interval.endsAt,
       blockId: blockByItemId.get(item.itemId) ?? null,
     })),
-    unscheduled: stored.plan.unscheduled.map((item: UnscheduledItem) => ({
+    unscheduled: stored.plan.unscheduled.filter((item: UnscheduledItem) => kept(item.itemId)).map((item: UnscheduledItem) => ({
       itemId: item.itemId,
       title: titles.get(item.itemId) ?? null,
       reasonCode: item.reason.code,

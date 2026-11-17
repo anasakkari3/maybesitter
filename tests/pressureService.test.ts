@@ -16,6 +16,7 @@ import type { ResponsePlan, ResponseStrategy } from '../lib/services/responseEng
 import { realizeResponsePlan } from '../lib/services/responseEngine/realization.ts';
 import { validateResponsePlanAndMessage } from '../lib/services/responseEngine/validation.ts';
 import { applyCommand, createEmptyDomainState, type DomainState } from '../src/domain/stateMachine.ts';
+import { pressureStateSignals } from '../lib/services/pressureService.ts';
 
 const now = new Date('2026-04-08T08:00:00.000Z');
 const FORBIDDEN_PRESSURE_COPY = /guilt|fault|disappointed|shame|avoidant|inconsistent|Tracking|Drafted|Executed|20\d\d-\d\d-\d\d/i;
@@ -630,4 +631,16 @@ test('pressureService: acknowledged or postponed items do not get pressured', as
   const result = await getPressureMessageForAgenda([item('aware', { title: 'Send invoice' })], { now, deliveryStore }, state);
 
   assert.deepEqual(result, { message: '', tone: 'soft', intensity: 'low' });
+});
+
+test('CA2.3: a deleted commitment does not lower the completion rate pressure reads', () => {
+  const now = '2026-04-08T08:00:00.000Z';
+  let state = createEmptyDomainState();
+  for (const id of ['done', 'gone']) {
+    state = applyCommand(state, { type: 'CreateDraft', now, commitment: { id, kind: 'task', title: id, timeSpec: { kind: 'unscheduled', dueAt: null, remindAt: null, timezone: 'UTC' } }, draftStatus: 'pending_confirmation' }).newState;
+    state = applyCommand(state, { type: 'ConfirmCommitment', commitmentId: id, now, reminders: [] }).newState;
+  }
+  state = applyCommand(state, { type: 'Complete', commitmentId: 'done', now }).newState;
+  state = applyCommand(state, { type: 'Delete', commitmentId: 'gone', now }).newState;
+  assert.equal(pressureStateSignals(state, 0).completionRate, 1, 'a deleted item counted as unfinished');
 });

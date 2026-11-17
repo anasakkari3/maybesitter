@@ -178,6 +178,13 @@ export function selectBaselineNextStep(
  * (`selectNextStepForArmFromState`) always passes its clock; a caller that
  * omits it gets the candidate set this function always built.
  */
+/** Postponed, and its return time is still ahead of `now` (CA2.1). */
+function isPostponedAway(commitment: Commitment, now: Date): boolean {
+  if (commitment.currentAckState !== 'postponed' || !commitment.postponedUntil) return false;
+  const back = Date.parse(commitment.postponedUntil);
+  return Number.isFinite(back) && back > now.getTime();
+}
+
 export function candidatesFromDomainState(state: DomainState, now?: Date): BaselineCandidate[] {
   return Object.values(state.commitments)
     // An appointment on a day with no hour (FY1 N4) is not a step (final UAT,
@@ -188,6 +195,11 @@ export function candidatesFromDomainState(state: DomainState, now?: Date): Basel
     .filter((commitment) => !isAllDayEventSpec(commitment.timeSpec))
     // An event that is over is not a step at all — not an overdue one.
     .filter((commitment) => now === undefined || !hasEventEnded(commitment, now))
+    // Postponed to a later instant (CA2.1): «مش هلّق» keeps `dueAt` and sets
+    // `postponedUntil`, so read by its deadline alone the item was still the
+    // late, top step and came straight back after «تمام. أجّلناها.». It is a
+    // candidate again from its return time on.
+    .filter((commitment) => now === undefined || !isPostponedAway(commitment, now))
     .map((commitment) => ({
       commitmentId: commitment.id,
       title: commitment.title,

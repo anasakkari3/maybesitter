@@ -48,7 +48,9 @@ import { GET as planGet } from '../../src/app/api/mobile/plans/[date]/route.ts';
 import { POST as buildPost } from '../../src/app/api/mobile/plans/[date]/build/route.ts';
 import { POST as regeneratePost } from '../../src/app/api/mobile/plans/[date]/regenerate/route.ts';
 import { POST as actionPost } from '../../src/app/api/mobile/plans/[date]/actions/route.ts';
+import { GET as weekGet } from '../../src/app/api/mobile/plans/week/route.ts';
 import { acceptPlan } from '../../lib/services/dailyPlan/planActions.ts';
+import { planToDto } from '../../lib/services/dailyPlan/planDto.ts';
 import { refreshStalePlan } from '../../lib/services/dailyPlan/planRefresh.ts';
 import { diffPlans } from '../../lib/planning/scheduler/index.ts';
 import { runContinuousReplanTick } from '../../lib/services/dailyPlan/continuousReplanService.ts';
@@ -178,6 +180,7 @@ const DUE_TODAY = '2026-09-15T15:00:00.000Z';
 type LaterCommand =
   | { type: 'Complete' }
   | { type: 'Drop' }
+  | { type: 'Delete' }
   | { type: 'Postpone'; postponedUntil: string };
 
 /** One more domain command on a commitment the account holds. */
@@ -593,6 +596,72 @@ test('I4: an accepted plan shows a commitment timed later today, and drops a fin
     // And the solve the plan stands on is untouched.
     const stored = (await readStoredPlan(USER, DATE, storage))!;
     assert.ok(stored.constraints.fixedEvents.some((event) => event.sourceCommitmentId === 'cmt_dentist'));
+  });
+});
+
+test('CA2.3: a deleted commitment leaves today\'s plan, proposed or accepted', async () => {
+  for (const accepted of [false, true]) {
+    await withHarness(async ({ storage }) => {
+      await seedAccount(storage);
+      await captureAndConfirm(storage, 'cmt_keep', 'Keep this', { kind: 'due_by', dueAt: DUE_TODAY }, MORNING);
+      await captureAndConfirm(storage, 'cmt_gone', 'Delete this', { kind: 'due_by', dueAt: DUE_TODAY }, MORNING);
+      const built = await build();
+      assert.ok(built.body.plan.scheduled.some((row) => row.itemId === 'cmt_gone'), 'the setup is wrong: nothing to delete from the plan');
+      if (accepted) await accept();
+      setClock(LATER);
+      await applyTo(storage, 'cmt_gone', { type: 'Delete' }, LATER);
+
+      const read = await readPlan();
+      const shown = [...read.body.plan.scheduled, ...read.body.plan.fixed].map((row) => row.itemId);
+      assert.equal(shown.includes('cmt_gone'), false, `a deleted item is still in the ${accepted ? 'accepted' : 'proposed'} plan`);
+      assert.equal(shown.includes('cmt_keep'), true);
+      // The week schedule reads the same stored day.
+      const week = await (await weekGet(request('/api/mobile/plans/week'))).json() as { days?: Array<{ items: Array<{ itemId: string }>; fixed: Array<{ itemId: string }>; unplaced?: Array<{ itemId: string }> }> };
+      const inWeek = (week.days ?? []).flatMap((day) => [...day.items, ...day.fixed, ...(day.unplaced ?? [])]).map((row) => row.itemId);
+      assert.equal(inWeek.includes('cmt_gone'), false, 'a deleted item is still on the week schedule');
+    });
+  }
+});
+
+test('CA2.3: a deleted appointment leaves the accepted plan\'s fixed rows', async () => {
+  await withHarness(async ({ storage }) => {
+    await seedAccount(storage);
+    await captureAndConfirm(storage, 'cmt_keep', 'Keep this', { kind: 'due_by', dueAt: DUE_TODAY }, MORNING);
+    await captureAndConfirm(storage, 'cmt_meet', 'Dentist', { kind: 'scheduled_event', dueAt: '2026-09-15T14:00:00.000Z' }, MORNING);
+    await build();
+    await accept();
+    assert.ok((await readPlan()).body.plan.fixed.some((row) => row.itemId === 'cmt_meet'), 'the setup is wrong: no fixed row');
+    setClock(LATER);
+    await applyTo(storage, 'cmt_meet', { type: 'Delete' }, LATER);
+    const read = await readPlan();
+    assert.equal(read.body.plan.fixed.some((row) => row.itemId === 'cmt_meet'), false, 'a deleted appointment is still a fixed row');
+  });
+});
+
+test('CA2.3: a deleted item is not listed as unscheduled on a stored plan', async () => {
+  await withHarness(async ({ storage }) => {
+    await seedAccount(storage);
+    await captureAndConfirm(storage, 'cmt_keep', 'Keep this', { kind: 'due_by', dueAt: DUE_TODAY }, MORNING);
+    await captureAndConfirm(storage, 'cmt_gone', 'Delete this', { kind: 'due_by', dueAt: DUE_TODAY }, MORNING);
+    await build();
+    await accept();
+    await applyTo(storage, 'cmt_gone', { type: 'Delete' }, LATER);
+    const stored = (await readStoredPlan(USER, DATE, storage))!;
+    // The same day, with the deleted item left unplaced (no room): the shape a
+    // crowded day stores. Built directly so the filter is the only thing asked.
+    const crowded = {
+      ...stored,
+      plan: {
+        ...stored.plan,
+        scheduled: stored.plan.scheduled.filter((item) => item.itemId !== 'cmt_gone'),
+        unscheduled: [{ itemId: 'cmt_gone', reason: { code: 'DEADLINE_BEYOND_HORIZON' as const, itemId: 'cmt_gone', detail: '' } }],
+      },
+    };
+    const commitments = Object.values((await loadDomainState(storage, USER)).commitments);
+    const dto = planToDto(crowded, new Map(), { commitments, now: LATER });
+    assert.equal(dto.unscheduled.some((row) => row.itemId === 'cmt_gone'), false, 'a deleted item is listed as unscheduled');
+    // Without the current commitments nothing is known to be deleted: the stored day is shown as stored.
+    assert.equal(planToDto(crowded, new Map()).unscheduled.some((row) => row.itemId === 'cmt_gone'), true);
   });
 });
 

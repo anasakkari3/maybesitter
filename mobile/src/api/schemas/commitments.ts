@@ -30,9 +30,9 @@ export const commitmentActionResultSchema = z.object({
 });
 
 /**
- * Mirrors `commitments.deleted.json`. `deleted: false, softDeleted: true` is
- * the honest answer: DELETE drops the commitment, it does not erase it. The
- * field names say so rather than letting the verb imply otherwise.
+ * Mirrors `commitments.deleted.json`. DELETE hides the commitment from every
+ * screen (`status: 'archived'`, CA2.3) and is never a drop; `deleted: false,
+ * softDeleted: true` is the honest answer that the record is kept, not erased.
  */
 export const commitmentDeleteResultSchema = z.object({
   success: z.boolean(),

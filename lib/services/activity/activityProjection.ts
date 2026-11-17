@@ -57,6 +57,7 @@ export type ActivityKind =
   | 'completed'
   | 'postponed'
   | 'dropped'
+  | 'deleted'
   | 'plan_accepted'
   | 'plan_proposal_accepted'
   | 'reminder_acknowledged';
@@ -81,6 +82,8 @@ export const ACTIVITY_KIND_BY_EVENT_TYPE: Readonly<Record<string, ActivityKind>>
   commitment_completed: 'completed',
   commitment_postponed: 'postponed',
   commitment_dropped: 'dropped',
+  // «احذفها» (CA2.3): its own entry, «انحذفت», never shown as a drop.
+  commitment_deleted: 'deleted',
   // Read from the plan ledger (#194) — see the header.
   plan_accepted: 'plan_accepted',
   // Also from the plan ledger (#587) — see the header.
@@ -92,7 +95,7 @@ export const ACTIVITY_KIND_BY_EVENT_TYPE: Readonly<Record<string, ActivityKind>>
 /** The kinds an account can actually be shown today. */
 export const PRODUCED_ACTIVITY_KINDS: readonly ActivityKind[] = Object.freeze([
   'captured', 'confirmed', 'completed', 'postponed', 'dropped', 'plan_accepted', 'plan_proposal_accepted',
-  'reminder_acknowledged',
+  'reminder_acknowledged', 'deleted',
 ]);
 
 /** The kinds that are about a day's plan rather than a commitment. */

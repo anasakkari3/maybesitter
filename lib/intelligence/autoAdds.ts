@@ -164,6 +164,19 @@ export async function removeAutoAdd(
     const commitment = state.commitments[record.commitmentId];
     if (!commitment) return 'missing';
     if (record.removedAt !== null && commitment.status === 'dropped') return 'removed';
+    // Deleted by the person first (`archived`, CA2.3): already gone. The
+    // removal is recorded and its observations dismissed, but no Drop is
+    // written — a deletion is never turned into a drop, and it is not an edit.
+    if (commitment.status === 'archived') {
+      if (record.removedAt === null) {
+        tx.set(autoAddPath(uid, autoAddId), { ...record, removedAt: now });
+        for (let index = 0; index < observations.length; index += 1) {
+          const observation = observations[index];
+          if (observation) tx.set(observationPaths[index]!, { ...observation, review: 'dismissed', reviewedAt: now });
+        }
+      }
+      return 'removed';
+    }
     if (commitment.status !== 'active' || commitmentBaselineFingerprint(commitment) !== record.baseline) {
       throw new AutoAddEditedError();
     }

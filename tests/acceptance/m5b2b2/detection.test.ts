@@ -36,6 +36,18 @@ test('R1 detection: the same after a learned completion', async () => {
   assert.equal(marker.matchedOutcomeId, outcome.id, show(marker));
 });
 
+test('CA2.3 detection: adding again something the person deleted is not a re-add', async () => {
+  const uid = await begin();
+  const { applyParticipantCommands } = await import('../../../lib/services/mobile/participantState.ts');
+  const d = await confirmAt(uid, 'Call the dentist', daysAgo(3));
+  await applyParticipantCommands(uid, [{ type: 'Delete', commitmentId: d, now: daysAgo(2) } as any]);
+  const learned = await learn(uid);
+  assert.ok(learned.some((row) => row.evidence === 'Deleted: Call the dentist'), 'the setup is wrong: the deletion was not learned');
+  const c = await confirmAt(uid, 'Call the dentist', HOUR_AGO());
+  await scan(uid);
+  assert.deepEqual(await markersFor(uid, c), [], 'a deletion was read as a drop or a completion and became a re-add');
+});
+
 test('D19 detection: a re-add is not memory provenance, so on_nobasis writes markers as on_basis does', async () => {
   for (const mode of ['on_basis', 'on_nobasis'] as const) {
     const uid = await begin();

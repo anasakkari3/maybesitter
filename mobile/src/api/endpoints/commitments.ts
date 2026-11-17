@@ -103,9 +103,10 @@ export function actOnCommitment(
 }
 
 /**
- * Drops the commitment. `deleted: false, softDeleted: true` comes back: the
- * server keeps it, and the field names say so rather than letting the verb
- * imply an erasure that did not happen.
+ * Deletes the commitment («احذفها», CA2.3) — not a drop, which is the actions
+ * route's `cancel`. It leaves every list, search and Details (404 after), and
+ * comes back `status: 'archived'`. `deleted: false, softDeleted: true`: the
+ * server keeps the record hidden, and the field names do not claim an erasure.
  */
 export function deleteCommitment(id: string, ifMatch?: string) {
   return apiRequest('DELETE', `/api/mobile/commitments/${encodeURIComponent(id)}`, {

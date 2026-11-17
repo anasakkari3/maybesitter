@@ -23,7 +23,9 @@ import { ScreenIn } from '../ui/motion';
 import { instantForLocalDateTime } from '../features/capture/localInstant';
 import { prepRingAfterEdit } from '../features/meetings/prepRing';
 import { quietTimeZone, quietWindowOf, toEngineSettings } from '../features/reminders/reminderInputs';
-import { useProfile, useReminderSettings } from '../api/queries';
+import { useProfile, useReminderSettings, useUid } from '../api/queries';
+import { useQueryClient } from '@tanstack/react-query';
+import { serverBusyKeyPrefix } from '../features/calendar/usePlanFreeTime';
 import { SeedProposalSection } from '../features/seeds/SeedProposalSection';
 import { BusyConflictChip } from '../features/calendar/BusyConflictChip';
 import { useBusyBlocks } from '../features/calendar/useBusyCalendar';
@@ -125,6 +127,8 @@ export function ReviewScreen({ onBackToChat }: { onBackToChat?: () => void } = {
     return map;
   }, [share]);
 
+  const queryClient = useQueryClient();
+  const uid = useUid();
   const [addingLectures, setAddingLectures] = useState(false);
   const [lecturesAdded, setLecturesAdded] = useState(false);
   const [lecturesError, setLecturesError] = useState<ReturnType<typeof manualBusyFailureKey> | null>(null);
@@ -140,6 +144,9 @@ export function ReviewScreen({ onBackToChat }: { onBackToChat?: () => void } = {
         timezone,
       });
       setLecturesAdded(true);
+      // The Plan tab reads them through the server busy read; without this
+      // it went on drawing the day as free until its next poll (NA4.1).
+      void queryClient.invalidateQueries({ queryKey: serverBusyKeyPrefix(uid) });
     } catch (error: unknown) {
       setLecturesError(manualBusyFailureKey(error));
     } finally {

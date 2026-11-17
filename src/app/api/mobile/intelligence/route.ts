@@ -49,9 +49,10 @@ export async function GET(request: Request) {
     const outcomeProjected = resolveMemoryLearning() ? visibleObservations.map(observation => {
       if (observation.source !== 'behavior' || observation.kind !== 'outcome') return observation;
       // A title may span lines (M5B2A-REV-007).
-      const match = /^(Completed|Postponed|Dropped): ([\s\S]+)$/.exec(observation.evidence);
+      const match = /^(Completed|Postponed|Dropped|Deleted): ([\s\S]+)$/.exec(observation.evidence);
       if (!match) return observation;
-      const signal = match[1] === 'Completed' ? 'completed' : match[1] === 'Postponed' ? 'postponed' : 'dropped';
+      const signal = match[1] === 'Completed' ? 'completed' : match[1] === 'Postponed' ? 'postponed'
+        : match[1] === 'Deleted' ? 'deleted' : 'dropped';
       return { ...observation, outcome: { signal, title: match[2] } };
     }) : visibleObservations;
     const projectedObservations = readdPolicy.inboxObservations(outcomeProjected);

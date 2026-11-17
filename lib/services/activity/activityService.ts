@@ -43,6 +43,8 @@ export interface ActivityPage {
 
 async function commitmentsById(uid: string): Promise<Map<string, Commitment>> {
   const rows = await getStorage().list<Commitment>(userCol(uid, COMMITMENTS));
+  // A deleted commitment (`archived`, CA2.3) keeps its name here: it left the
+  // plan and the lists, and stays in the person's history (owner decision).
   return new Map(rows.map((row) => [row.data.id, row.data]));
 }
 
