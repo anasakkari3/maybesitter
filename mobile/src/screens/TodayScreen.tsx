@@ -29,7 +29,7 @@ import { busyAt } from '../features/calendar/conflicts';
 import type { DeviceBusyBlock } from '../features/calendar/busyBlocks';
 import { TodayPlanRow } from '../features/plan/TodayPlanRow';
 import { drawnAt, drawnClockAt, drawnWhenLine, dueAsideText, laterWhen, placeView, savedPlacements } from '../features/plan/savedPlacement';
-import { composeToday, type Primary } from '../features/today/composeToday';
+import { composeToday, isPostponedAway, type Primary } from '../features/today/composeToday';
 import { nextEventEndAfter } from '../features/commitments/eventEnded';
 import { Btn, SaidWords, Txt } from '../ui/primitives';
 import { AvatarButton, SectionLabel, Tag, TextLink, priorityTagKind } from '../ui/chrome';
@@ -158,10 +158,14 @@ export function TodayScreen({ tabClearance = TAB_CLEARANCE }: { tabClearance?: n
   // never a polling loop, so a meeting that ends while Today is open leaves
   // it at its end without waiting for a refetch.
   const [clockMs, setClockMs] = useState(() => Date.now());
-  const nextEnd = useMemo(
-    () => nextEventEndAfter([...groups.must, ...groups.should, ...groups.nice, ...upcomingViews], clockMs),
-    [groups, upcomingViews, clockMs],
-  );
+  // …and at the next instant a postponed item comes back (CA2.1): then it is
+  // the card again and its row stops saying «بترجع».
+  const nextEnd = useMemo(() => {
+    const open = [...groups.must, ...groups.should, ...groups.nice];
+    const ended = nextEventEndAfter([...open, ...upcomingViews], clockMs);
+    const back = nextPostponedReturnAfter(open, clockMs);
+    return ended === null ? back : back === null ? ended : Math.min(ended, back);
+  }, [groups, upcomingViews, clockMs]);
   useEffect(() => {
     if (nextEnd === null) return undefined;
     const wait = Math.min(Math.max(0, nextEnd - Date.now()) + EVENT_END_MARGIN_MS, MAX_TIMER_MS);
@@ -275,6 +279,7 @@ export function TodayScreen({ tabClearance = TAB_CLEARANCE }: { tabClearance?: n
 
   return (
     <OpenPostponeSheet.Provider value={setPostponeId}>
+    <TodayClock.Provider value={clockMs}>
     <Screen style={{ backgroundColor: p.bg }}>
       <ScreenScroll
         testID="today-scroll"
@@ -378,6 +383,7 @@ export function TodayScreen({ tabClearance = TAB_CLEARANCE }: { tabClearance?: n
       <ConflictSheet conflict={conflictOpen ? conflict : null} onClose={() => setConflictOpen(false)} />
       <PostponeSheetFor commitmentId={postponeId} title={postponeId ? byId.get(postponeId)?.title : undefined} onClose={() => setPostponeId(null)} />
     </Screen>
+    </TodayClock.Provider>
     </OpenPostponeSheet.Provider>
   );
 }
@@ -642,6 +648,20 @@ function importanceInk(importance: CommitmentView['importance'], p: ReturnType<t
 /** Opens Today's postpone sheet for a row (M4b R3.3). */
 const OpenPostponeSheet = React.createContext<(id: string) => void>(() => undefined);
 
+/** The instant Today is composed for (`clockMs`), so a row reads the same clock as the card. */
+const TodayClock = React.createContext<number | null>(null);
+
+/** The earliest postponed return still ahead of `nowMs`, or null (CA2.1). */
+function nextPostponedReturnAfter(items: readonly CommitmentView[], nowMs: number): number | null {
+  let next: number | null = null;
+  for (const item of items) {
+    if (!item.postponedUntil || !isPostponedAway(item, nowMs)) continue;
+    const back = Date.parse(item.postponedUntil);
+    if (next === null || back < next) next = back;
+  }
+  return next;
+}
+
 const DAY_GROUP_PREVIEW = 3;
 
 function Group({ kind, items, timezone, lang, busy, football }: {
@@ -746,6 +766,8 @@ function Row({ item, timezone, lang, busy, football }: {
   const line = drawnWhenLine(item, lang, timezone);
   const when = line?.text ?? t.noTimeYet;
   const aside = dueAsideText(item, t.plannedDueAside, lang, timezone);
+  const clockMs = useContext(TodayClock);
+  const returnWhen = postponedReturnLine(item, t, lang, timezone, clockMs);
   const ink = importanceInk(item.importance, p);
 
   return (
@@ -756,7 +778,7 @@ function Row({ item, timezone, lang, busy, football }: {
         onAccessibilityAction={(event) => {
           rowActions.find((action) => action.name === event.nativeEvent.actionName)?.run();
         }}
-        label={`${rowAccessibilityLabel(item, t, line?.text ?? null)}${aside ? `, ${aside}` : ''}${football ? `, ${t.todayFootballMark}` : ''}`}
+        label={`${rowAccessibilityLabel(item, t, line?.text ?? null)}${aside ? `, ${aside}` : ''}${returnWhen ? `, ${returnWhen}` : ''}${football ? `, ${t.todayFootballMark}` : ''}`}
         onPress={() => actions.openDetail(item.id)}
         scaleTo={0.98}
         style={{
@@ -794,6 +816,7 @@ function Row({ item, timezone, lang, busy, football }: {
             <Tag kind={priorityTagKind(item.importance)} label={importanceLabel(item, t)} />
           </View>
           {aside ? <Txt size={13} color={p.mu} testID={`today-due-${item.id}`}>{aside}</Txt> : null}
+          {returnWhen ? <Txt size={13} color={p.mu} testID={`today-postponed-${item.id}`}>{returnWhen}</Txt> : null}
           {/* What else is happening then (UC-3.2, #186): a muted note, never a
               warning, never something that stops the row being opened. */}
           <BusyConflictChip blocks={drawn ? busyAt(drawn, busy) : []} testID={`today-busy-${item.id}`} />
@@ -803,6 +826,23 @@ function Row({ item, timezone, lang, busy, football }: {
   );
 }
 
+/**
+ * «بترجع اليوم · 12:00» for an item postponed to a later instant (CA2.1), or
+ * null once that instant has come: then it is simply back. The row keeps its
+ * deadline, so this is what tells the person their «مش هلّق» took.
+ */
+function postponedReturnLine(item: CommitmentView, t: ReturnType<typeof useApp>['t'], lang: Lang, timezone: string, nowMs: number | null): string | null {
+  // No clock (outside Today's provider): say nothing rather than guess.
+  if (nowMs === null || !item.postponedUntil || !isPostponedAway(item, nowMs)) return null;
+  return returnLineFor(item.postponedUntil, t, lang, timezone);
+}
+
+/** «بترجع <day> · <time>»: the one wording for a postponed return, on any row. */
+function returnLineFor(postponedUntil: string, t: ReturnType<typeof useApp>['t'], lang: Lang, timezone: string): string {
+  const back = new Date(postponedUntil);
+  return `${t.postponeReturn} ${formatRelativeDay(back, { locale: lang, timeZone: timezone })} · ${ltr(formatTime(back, { locale: lang, timeZone: timezone }))}`;
+}
+
 function LaterRow({ item, first, timezone, lang }: { item: CommitmentView; first: boolean; timezone: string; lang: Lang }) {
   const { t, actions } = useApp();
   const p = useReferencePalette();
@@ -810,9 +850,7 @@ function LaterRow({ item, first, timezone, lang }: { item: CommitmentView; first
   const drawn = drawnAt(item);
   const when = laterWhen(item, lang, timezone, t.noTimeYet);
   const aside = dueAsideText(item, t.plannedDueAside, lang, timezone);
-  const returnWhen = item.postponedUntil
-    ? `${t.postponeReturn} ${formatRelativeDay(new Date(item.postponedUntil), { locale: lang, timeZone: timezone })} · ${ltr(formatTime(new Date(item.postponedUntil), { locale: lang, timeZone: timezone }))}`
-    : null;
+  const returnWhen = item.postponedUntil ? returnLineFor(item.postponedUntil, t, lang, timezone) : null;
   return (
     <Btn
       testID={`today-later-${item.id}`}

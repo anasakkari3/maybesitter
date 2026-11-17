@@ -103,7 +103,7 @@ test('pressure, classification and analytics events never become activity', () =
   assert.deepEqual(projectActivity(hostile, TITLES), []);
 });
 
-test('the eight kinds with a producer today are projected from their events', () => {
+test('the nine kinds with a producer today are projected from their events', () => {
   const items = projectActivity([
     record({ type: 'draft_created', id: 'e1', at: '2026-09-14T08:00:00.000Z' }),
     record({ type: 'commitment_activated', id: 'e2', at: '2026-09-14T08:01:00.000Z' }),
@@ -120,6 +120,8 @@ test('the eight kinds with a producer today are projected from their events', ()
     record({ type: 'plan_proposal_accepted', id: 'e8', at: '2026-09-14T08:05:30.000Z', aggregateId: '', payload: { planDate: '2026-09-14' } }),
     // A tap on a reminder notification (#200).
     record({ type: 'reminder_acknowledged', id: 'e7', at: '2026-09-14T08:06:00.000Z', payload: { commitmentId: 'c1' } }),
+    // «احذفها» (CA2.3): its own entry, with its title (owner decision).
+    record({ type: 'commitment_deleted', id: 'e9', at: '2026-09-14T08:07:00.000Z' }),
   ], TITLES);
 
   assert.deepEqual(items.map((item) => item.kind), [...PRODUCED_ACTIVITY_KINDS]);
@@ -174,7 +176,7 @@ test('a renamed commitment reads as its current name', () => {
 test('every mapped kind is one the ActivityKind union names', () => {
   const kinds: ActivityKind[] = [
     'captured', 'confirmed', 'completed', 'postponed', 'dropped', 'plan_accepted', 'plan_proposal_accepted',
-    'reminder_acknowledged',
+    'reminder_acknowledged', 'deleted',
   ];
   assert.deepEqual(Array.from(new Set(Object.values(ACTIVITY_KIND_BY_EVENT_TYPE))).sort(), [...kinds].sort());
 });

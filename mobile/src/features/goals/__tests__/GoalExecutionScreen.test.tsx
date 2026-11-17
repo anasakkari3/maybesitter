@@ -7,6 +7,7 @@ import { AppProvider } from '../../../state/AppContext';
 import { strings, type Lang } from '../../../i18n/strings';
 import { LANGUAGE_STORAGE_KEY } from '../../../i18n/language';
 import { GoalExecutionScreen } from '../GoalExecutionScreen';
+import { FeatureUnavailableError } from '../../../api/errors';
 
 const mockGenerate = jest.fn<any>();
 const mockConfirm = jest.fn<any>();
@@ -16,6 +17,8 @@ const mockRefetch = jest.fn<any>();
 const mockUseGoalExecution = jest.fn<any>();
 let mockGenerateError: unknown = null;
 let mockPlanView: any;
+let mockUpcoming: any;
+let mockFeatures: any;
 
 const graph = (generation = 1, nodes: any[] = []) => ({
   version: 'v1', schema: 'goal-graph-v1', graphId: `graph-${generation}`, goalMemoryId: 'goal-1', scopeId: 'user-1',
@@ -63,6 +66,7 @@ jest.mock('../../m5a/emailScan', () => ({
   WaitLine: () => null,
 }));
 jest.mock('../../m5a/AddedCard', () => ({ AddedCard: () => null }));
+jest.mock('../../settings/featureSettings', () => ({ useFeatures: () => mockFeatures }));
 
 jest.mock('../../../api/queries', () => ({
   useConsents: () => ({ data: { recommendations: { state: 'granted' } } }),
@@ -80,7 +84,7 @@ jest.mock('../../../api/queries', () => ({
   useHabits: () => ({ data: mockHabits, isPending: false, error: null, refetch: jest.fn() }),
   useCommitment: (id: string | null) => ({ data: id ? mockCommitment : undefined, isPending: false, error: null, refetch: jest.fn() }),
   useGoalPlan: () => mockPlanView,
-  useUpcomingPlans: () => ({ isPending: false, error: null, data: [] }),
+  useUpcomingPlans: () => mockUpcoming,
   useUid: () => 'user-1',
   useInvalidateAfterPlanConfirm: () => () => undefined,
 }));
@@ -107,6 +111,8 @@ beforeEach(async () => {
   await AsyncStorage.clear();
   mockGenerateError = null;
   mockPlanView = { data: { success: true, draft: null, confirmed: null, linkedWork: [] }, isSuccess: true, error: null, refetch: jest.fn() };
+  mockUpcoming = { isPending: false, error: null, data: [] };
+  mockFeatures = { status: 'success', data: { success: true, mode: 'off', features: [] } };
   mockHabits = [];
   mockCommitment = undefined;
   execution = { data: { success: true, graph: graph(1, [proposal('g1.step.s1', 'Draft invitation')]), progress: baseProgress }, isPending: false, isFetching: false, error: null, refetch: mockRefetch };
@@ -170,12 +176,70 @@ it('opens the one plan path instead of the old card-by-card review (M3a)', async
   });
   await openGoal();
   expect(screen.queryByTestId('goal-generate')).toBeNull();
+  // With the plan path on, its entry is the one way to steps: no second review.
+  expect(screen.queryByTestId('goal-proposal-g1.step.s1')).toBeNull();
   // Inside act, as the gate's `press` does: the generate answer lands in a
   // promise chain, and under a loaded suite an update outside act is late.
   await act(async () => { await fireEvent.press(screen.getByTestId('goal-plan-open')); });
   await waitFor(() => expect(screen.queryByTestId('plan-step-s1')).not.toBeNull(), { timeout: 5_000 });
   expect(mockGeneratePlan).toHaveBeenCalledWith('goal-1', expect.any(String), undefined);
   expect(mockGenerate).not.toHaveBeenCalled();
+});
+
+/**
+ * CXA7.1: with the plan path (M3a) off — it is pinned off outside staging —
+ * a new goal still shows the steps its execution graph proposes, and the
+ * person picks and confirms them through execution/confirm.
+ */
+describe('with the plan path off', () => {
+  beforeEach(() => {
+    mockPlanView = { data: undefined, isSuccess: false, isPending: false, error: new FeatureUnavailableError('not found'), refetch: jest.fn() };
+    mockUpcoming = { isPending: false, error: new FeatureUnavailableError('not found'), data: undefined };
+    execution = {
+      data: { success: true, graph: graph(1, [proposal('g1.step.s1', 'Draft invitation'), proposal('g1.step.s2', 'Invite participants')]), progress: baseProgress },
+      isPending: false, isFetching: false, error: null, refetch: mockRefetch,
+    };
+  });
+
+  it("shows a new goal's proposed steps on open, with no model call", async () => {
+    await openGoal();
+    expect(screen.getByTestId('goal-proposal-g1.step.s1')).toHaveTextContent(/Draft invitation/);
+    expect(screen.getByTestId('goal-proposal-g1.step.s2')).toHaveTextContent(/Invite participants/);
+    expect(screen.getByText(strings.en.xGoalProposalNotSaved)).toBeTruthy();
+    expect(mockGenerate).not.toHaveBeenCalled();
+    expect(mockRegenerate).not.toHaveBeenCalled();
+    expect(screen.queryByTestId('goal-plan-open')).toBeNull();
+  });
+
+  it('confirms only the steps the person picked, at the generation they saw', async () => {
+    mockConfirm.mockImplementation((_input: unknown, options: any) => options.onSuccess({
+      success: true, graph: graph(1, [{ nodeId: 'g1.step.s1', kind: 'linked_commitment', status: 'confirmed', commitmentId: 'c-1' }]),
+      created: [{}], replayed: [], refused: [],
+    }));
+    await openGoal();
+    expect(screen.getByTestId('goal-confirm-selected')).toBeDisabled();
+    await fireEvent.press(screen.getByTestId('goal-proposal-g1.step.s1'));
+    await fireEvent.press(screen.getByTestId('goal-confirm-selected'));
+    expect(mockConfirm).toHaveBeenCalledWith({ generation: 1, selections: [{ nodeId: 'g1.step.s1', as: 'commitment' }] }, expect.any(Object));
+    expect(screen.getByTestId('goal-notice-saved')).toBeTruthy();
+  });
+
+  it('offers no «suggest others» to someone whose goal_plans add-on is not on (it would only 404)', async () => {
+    mockFeatures = { status: 'success', data: { success: true, mode: 'enforce', features: [
+      { id: 'goal_plans', tier: 'addon', enabled: false, reason: 'not_entitled', userCanDisable: true, usedPercent: null },
+    ] } };
+    await openGoal();
+    expect(screen.getByTestId('goal-proposal-g1.step.s1')).toBeTruthy();
+    expect(screen.getByTestId('goal-confirm-selected')).toBeTruthy();
+    expect(screen.queryByTestId('goal-review-regenerate')).toBeNull();
+  });
+
+  it('asks for other steps only when the person presses for them', async () => {
+    await openGoal();
+    await fireEvent.press(screen.getByTestId('goal-review-regenerate'));
+    expect(mockRegenerate).toHaveBeenCalledWith(1, expect.any(Object));
+    await waitFor(() => expect(screen.queryByTestId('goal-proposal-g2.step.s2')).not.toBeNull());
+  });
 });
 
 it('a confirmed plan shows its progress and offers no regeneration (S1)', async () => {

@@ -46,6 +46,7 @@ const KIND_KEY: Record<string, keyof Strings> = {
   completed: 'activityKindCompleted',
   postponed: 'activityKindPostponed',
   dropped: 'activityKindDropped',
+  deleted: 'activityKindDeleted',
   // Read from #194's plan ledger by the server.
   plan_accepted: 'activityKindPlanAccepted',
   // A proposed change to the day, accepted (#587). Also from the plan ledger.

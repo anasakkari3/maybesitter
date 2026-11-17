@@ -298,10 +298,10 @@ export interface ScheduleBlockEdits {
 /**
  * Applies a user's plan edit to the blocks of the plan being edited.
  *
- * The edit is wholesale — the stored `edits` record is replaced, not appended
- * to — so this is a recomputation from the plan and the new edits, not a
- * delta applied to the blocks. For each flexible block whose item the plan
- * placed:
+ * `edits` is the whole stored edit record — `validateEdit` merges each new
+ * edit into the earlier ones (CA4.1) before it gets here — so this is a
+ * recomputation from the plan and that record, not a delta applied to the
+ * blocks. For each flexible block whose item the plan placed:
  *
  *  - **moved** → the new interval, `lastPlacedBy: 'user'`;
  *  - **removed** → `currentInterval: null`, `lastPlacedBy: 'user'` — the block

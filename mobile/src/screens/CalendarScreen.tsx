@@ -218,6 +218,27 @@ export function CalendarScreen({ tabClearance = TAB_CLEARANCE }: { tabClearance?
     savedWeek.isPending, savedWeek.isError, profile.isPending, profile.isError, weeklyState.isPending, weeklyState.isError,
     range, serverBusy]);
   const known = useMemo(() => knownTime(sources), [sources]);
+  // The server's own busy time — ICS lectures and manual busy (CA4.4,
+  // CA10.3, CXA10.1) — is the account's, not the phone's: it is drawn
+  // whether or not the phone calendar is connected, title-free like the
+  // phone's, and with no «حضّرني». Only while the probe answers 200, the same
+  // condition the free-time arithmetic reads it under, so the rows and the
+  // free view always describe the same blocks. An interval the phone or
+  // Google already draws is drawn once.
+  const serverBusyByDay = useMemo(() => {
+    const map = new Map<string, DeviceBusyBlock[]>();
+    if (!free) return map;
+    const drawn = new Set((calendarConnected ? busy : []).map((block) => `${Date.parse(block.startAt)}|${Date.parse(block.endAt)}|${block.allDay}`));
+    for (const block of serverBusy?.blocks ?? []) {
+      const same = `${Date.parse(block.startAt)}|${Date.parse(block.endAt)}|${block.allDay}`;
+      if (drawn.has(same)) continue;
+      drawn.add(same);
+      const key = dayKey(new Date(block.startAt), timezone);
+      map.set(key, [...(map.get(key) ?? []), { nativeId: `server:${block.blockId}`, startAt: block.startAt, endAt: block.endAt, allDay: block.allDay }]);
+    }
+    return map;
+  }, [free, calendarConnected, busy, serverBusy, timezone]);
+  const busyCountOn = (key: string): number => (calendarConnected ? (busyByDay.get(key)?.length ?? 0) : 0) + (serverBusyByDay.get(key)?.length ?? 0);
   // Everything that occupies time, from every source, on every day drawn.
   const occupied = useMemo(() => {
     const list: Interval[] = [];
@@ -249,6 +270,7 @@ export function CalendarScreen({ tabClearance = TAB_CLEARANCE }: { tabClearance?
 
   const selected = byDay.get(selectedKey) ?? [];
   const selectedBusy = calendarConnected ? (busyByDay.get(selectedKey) ?? []) : [];
+  const selectedServerBusy = serverBusyByDay.get(selectedKey) ?? [];
   // Context should add something beyond the selected day’s list.
   const weekInsight = importantDeadline([...(today.data?.items ?? []), ...(upcoming.data?.items ?? [])], keys.filter(key => key !== selectedKey), timezone);
   // «موعدها بكرا · 15:00» beside a step a saved day put elsewhere, as Today says it.
@@ -261,10 +283,11 @@ export function CalendarScreen({ tabClearance = TAB_CLEARANCE }: { tabClearance?
       // Work that rolled over from an earlier day keeps its own hour, which is
       // not an hour of this day: it is listed with its day, not drawn here.
       const offDay = clock !== null && dayKey(new Date(clock), timezone) !== selectedKey;
-      const conflict = clock && !offDay ? chipBlock(busyAt(clock, selectedBusy)) : null;
+      const conflict = clock && !offDay ? chipBlock(busyAt(clock, [...selectedBusy, ...selectedServerBusy])) : null;
       return { kind: 'commitment', key: `c-${item.id}`, at: clock ? Date.parse(clock) : Number.POSITIVE_INFINITY, item, clock, offDay, due: dueAsideFor(item), conflict };
     }),
     ...selectedBusy.map((block): PlanRow => ({ kind: 'busy', key: `busy-${block.nativeId}-${block.startAt}`, at: Date.parse(block.startAt), block, prep: busyBlockPrepTarget(block, now) })),
+    ...selectedServerBusy.map((block): PlanRow => ({ kind: 'busy', key: `busy-${block.nativeId}-${block.startAt}`, at: Date.parse(block.startAt), block, prep: null })),
     ...(weeklyByDay.get(selectedKey) ?? []).map((occurrence): PlanRow => ({ kind: 'weekly', key: `weekly-${occurrence.weeklyBlockId}-${occurrence.startAt}`, at: Date.parse(occurrence.startAt), occurrence })),
   ].sort((a, b) => a.at - b.at);
   // In «الكل», a free stretch of an hour or more is a quiet row between the
@@ -297,7 +320,7 @@ export function CalendarScreen({ tabClearance = TAB_CLEARANCE }: { tabClearance?
   const crowdedDay = timed.filter(row => row.kind === 'commitment').length > 7;
   const loadOf = (key: string) => dayLoad(
     (byDay.get(key)?.length ?? 0)
-    + (calendarConnected ? (busyByDay.get(key)?.length ?? 0) : 0)
+    + busyCountOn(key)
     + (weeklyByDay.get(key)?.length ?? 0),
   );
   const loadWord = (load: DayLoad) => load === 'light' ? t.loadLight : load === 'normal' ? t.loadNormal : t.loadFull;
@@ -410,7 +433,7 @@ export function CalendarScreen({ tabClearance = TAB_CLEARANCE }: { tabClearance?
                 return (
                   <DayCell key={key} dayKey={key} isToday={key === todayKey} selected={key === selectedKey}
                     items={byDay.get(key) ?? []}
-                    busy={(calendarConnected ? (busyByDay.get(key)?.length ?? 0) : 0) + (weeklyByDay.get(key)?.length ?? 0)}
+                    busy={busyCountOn(key) + (weeklyByDay.get(key)?.length ?? 0)}
                     load={load} loadLabel={calendarConnected ? loadWord(load) : null} complete={calendarConnected}
                     onPress={() => pick(key)} />
                 );
@@ -466,7 +489,7 @@ export function CalendarScreen({ tabClearance = TAB_CLEARANCE }: { tabClearance?
               {/* A must draws in the coral; keep its key beside the selected
                   day instead of spending a full row below the week strip. */}
               {!stacked && weekHasMust ? <CalendarLegend color={p.acd} label={t.todayGroupMust} testID="calendar-legend-must" /> : null}
-              {!stacked && (calendarConnected || weekly.length > 0) ? <CalendarLegend color={p.mu} label={t.calendarBusyLegend} /> : null}
+              {!stacked && (calendarConnected || weekly.length > 0 || serverBusyByDay.size > 0) ? <CalendarLegend color={p.mu} label={t.calendarBusyLegend} /> : null}
             </View>
             {/* Without a calendar the day's load is not known: no «خفيف» or
                 «مليان» claim on the selected day either (#741, F6). Free time

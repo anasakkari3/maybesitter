@@ -88,7 +88,7 @@ export function rankPostponeSlots(candidates: Array<{ startsAt: string; endsAt: 
     dayLoads.set(day, (dayLoads.get(day) ?? 0) + minutes);
   };
   for (const row of inputs.schedule.commitments) {
-    if (row.id === inputs.commitment.id || row.status === 'dropped' || row.status === 'completed' || row.timeSpec.allDay || !row.timeSpec.dueAt) continue;
+    if (row.id === inputs.commitment.id || row.status === 'dropped' || row.status === 'archived' || row.status === 'completed' || row.timeSpec.allDay || !row.timeSpec.dueAt) continue;
     const start = row.postponedUntil ?? row.timeSpec.dueAt;
     add(start, new Date(Date.parse(start) + clockLengthOf(row) * 60_000).toISOString());
   }

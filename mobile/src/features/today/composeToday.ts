@@ -121,6 +121,18 @@ function eventNotYetClose(item: CommitmentView, nowMs: number): boolean {
   return Number.isFinite(at) && at - nowMs > FIXED_EVENT_LEAD_MS;
 }
 
+/**
+ * Postponed to a later instant: away until then (CA2.1). «مش هلّق» keeps the
+ * deadline and sets `postponedUntil`, so read by its deadline the item was
+ * still the top step and came straight back after «تمام. أجّلناها.». It keeps
+ * its row, which says when it is back; it is not the card, or a step, before.
+ */
+export function isPostponedAway(item: Pick<CommitmentView, 'postponedUntil'>, nowMs: number): boolean {
+  if (!item.postponedUntil) return false;
+  const back = Date.parse(item.postponedUntil);
+  return Number.isFinite(back) && back > nowMs;
+}
+
 function openItems(groups: TodayGroups): CommitmentView[] {
   return OPEN_KEYS.flatMap((k) => groups[k]);
 }
@@ -185,7 +197,8 @@ export function composeToday(input: {
   // Still to do: active and not over. A recommendation for anything else —
   // a meeting already marked done, one that ended, one no list holds — is
   // stale (lane E1 review 3).
-  const actionable = new Set(records.filter((c) => c.status === 'active' && live(c)).map((c) => c.id));
+  // Postponed to later is not actionable yet either (CA2.1).
+  const actionable = new Set(records.filter((c) => c.status === 'active' && live(c) && !isPostponedAway(c, nowMs)).map((c) => c.id));
   const recId = rec?.primaryStep?.commitmentId;
   const recStale = recId !== undefined && listsLoaded && !actionable.has(recId);
   const ready = !!rec && rec.state === 'ready' && !!rec.primaryStep && !next.silenced && !recStale;
@@ -215,7 +228,8 @@ export function composeToday(input: {
     // Nor is an event at an hour still more than its last hour away — the
     // exam tomorrow at 10:00, the night out at 21:00 (audit 2026-10-03 #2):
     // the server holds them back the same way (`nextStepPreparation.ts`).
-    const top = open.find((c) => !c.allDayEvent && !eventNotYetClose(c, nowMs)) ?? null;
+    // Nor is something postponed until later (CA2.1): it is back at its time.
+    const top = open.find((c) => !c.allDayEvent && !eventNotYetClose(c, nowMs) && !isPostponedAway(c, nowMs)) ?? null;
     primary = top ? { kind: 'fallback', item: top } : { kind: 'none' };
   }
 

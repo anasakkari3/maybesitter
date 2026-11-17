@@ -1,11 +1,39 @@
 import { apiRequest } from '../client';
-import { habitChangedSchema, habitDeletedSchema, habitListSchema, type Habit, type NewHabitInput } from '../schemas/habits';
+import {
+  habitChangedSchema,
+  habitDeletedSchema,
+  habitListSchema,
+  habitOutcomeSchema,
+  type Habit,
+  type HabitOccurrenceDecision,
+  type HabitOutcome,
+  type HabitToday,
+  type NewHabitInput,
+} from '../schemas/habits';
 
 const path = (id?: string) => `/api/mobile/habits${id ? `/${encodeURIComponent(id)}` : ''}`;
 
 export async function listHabits(): Promise<readonly Habit[]> {
   const response = await apiRequest('GET', path(), { schema: habitListSchema });
   return response.items;
+}
+
+/** Today's occurrences, on the caller's local date (CA5.4); null from a server that sends none. */
+export async function listHabitsToday(timezone: string): Promise<HabitToday | null> {
+  const response = await apiRequest('GET', `${path()}?timezone=${encodeURIComponent(timezone)}`, { schema: habitListSchema });
+  return response.today ?? null;
+}
+
+/**
+ * «تمّت» or «مش اليوم» on one occurrence. A repeat answers 200 unchanged, so a
+ * retried press is safe; a reversal answers 409 and is shown, not retried.
+ */
+export function decideHabitOccurrence(decision: HabitOccurrenceDecision, timezone: string): Promise<HabitOutcome> {
+  const verb = decision.outcome === 'completed' ? 'complete' : 'skip';
+  return apiRequest('POST', `${path(decision.habitId)}/occurrences/${encodeURIComponent(decision.occurrenceId)}/${verb}?timezone=${encodeURIComponent(timezone)}`, {
+    body: {},
+    schema: habitOutcomeSchema,
+  });
 }
 
 export async function createHabit(input: NewHabitInput, timezone: string): Promise<Habit> {

@@ -23,6 +23,16 @@ describe('M5b-2a wire and copy-key contracts', () => {
     expect(observation.outcome).toEqual({ signal: 'dropped', title: 'Title wire' });
   });
 
+  it('CA2.3 owner decision: a deletion is its own learned outcome, with its own words', () => {
+    const parsed = intelligenceInboxSchema.parse(inbox([outcome('gone', 'deleted' as never)]));
+    expect((parsed.observations[0] as unknown as Record<string, unknown>).outcome).toEqual({ signal: 'deleted', title: 'Title gone' });
+    for (const language of ['ar', 'en', 'he'] as const) {
+      const locale = strings[language] as unknown as Record<string, string>;
+      expect(locale.m5bLearnedDeleted).toEqual(expect.stringContaining('{title}'));
+      expect(locale.m5bLearnedDeleted).not.toEqual(locale.m5bLearnedDropped);
+    }
+  });
+
   it('R2 preserves memoryBasis and memoryBasisChanged without exposing memory content', () => {
     const parsed = planResponseSchema.parse(planEnvelope(planWithBasis()));
     const plan = parsed.plan as unknown as Record<string, unknown>;

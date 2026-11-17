@@ -42,7 +42,7 @@ export const FUTURE = '2030-03-30';
 export const BASIS_ID = 'memory-focus';
 export const BASIS_WINDOW = { start: '09:00', end: '12:00' } as const;
 
-export type OutcomeSignal = 'completed' | 'postponed' | 'dropped';
+export type OutcomeSignal = 'completed' | 'postponed' | 'dropped' | 'deleted';
 
 export function outcome(
   id: string,
