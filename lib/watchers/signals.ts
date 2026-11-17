@@ -115,7 +115,7 @@ export const readinessObserver: WatcherSignalObserver = {
   sameStateAs(baseline, signal) {
     const band = READINESS_BANDS.find((candidate) => digestOf({ band: candidate }) === signal.stateDigest);
     if (band === undefined || baseline.lastDigest === null) return false;
-    const score = baseline.lastMeasures.find((measure) => measure.metric === READINESS_SCORE_METRIC)?.value ?? null;
+    const score = (baseline.lastMeasures ?? []).find((measure) => measure.metric === READINESS_SCORE_METRIC)?.value ?? null;
     return digestOf({ band, score }) === baseline.lastDigest;
   },
 };

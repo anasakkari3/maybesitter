@@ -479,7 +479,13 @@ async function evaluateOne(
   }
 
   if (!evaluateWatchCondition(definition.condition, signal, runtime)) {
-    if (runtime.lastDigest !== signal.stateDigest || runtime.lastSignalId !== signal.signalId) {
+    // Absorbed whenever anything a condition reads moved: the digest, the
+    // signal, or a measure. A threshold compares against `lastMeasures`, and a
+    // readiness score now moves inside one band without moving the digest —
+    // left stale, a recovery would never re-arm the next crossing.
+    if (runtime.lastDigest !== signal.stateDigest
+      || runtime.lastSignalId !== signal.signalId
+      || !sameMeasures(runtime.lastMeasures ?? [], signal.measures)) {
       await new StatusWriter(storage, definition.scopeId, definition.watcherId).absorb(signal, now);
     }
     return ['evaluated'];
@@ -497,6 +503,11 @@ async function evaluateOne(
   if (result === 'blocked') return ['evaluated', 'blocked'];
   // `gone`: the watcher was deleted between the sweep's read and the commit.
   return ['evaluated'];
+}
+
+function sameMeasures(left: WatcherSignal['measures'], right: WatcherSignal['measures']): boolean {
+  return left.length === right.length
+    && left.every((measure) => right.some((other) => other.metric === measure.metric && other.value === measure.value));
 }
 
 /** Small writer so the three runtime-write call sites stay readable. */
