@@ -1,6 +1,6 @@
 import { apiRequest } from '../client';
 import { ValidationError } from '../errors';
-import { monitoringSettingsResponseSchema, watcherChangedSchema, watcherDeletedSchema, watcherListSchema, type WatcherEffect } from '../schemas/watchers';
+import { monitoringSettingsResponseSchema, watcherChangedSchema, watcherDeletedSchema, watcherListSchema, watcherProposalDecidedSchema, watcherProposalListSchema, type WatcherEffect } from '../schemas/watchers';
 function path(id: string) {
   if (!/^wtc_[0-9a-fA-F-]{36}$/.test(id)) throw new ValidationError('invalid watcher identity');
   return `/api/mobile/watchers/${encodeURIComponent(id)}`;
@@ -43,4 +43,13 @@ export const getMonitoringSettings = async () => {
 export const putMonitoringSettings = async (paused: boolean) => {
   const response = await apiRequest('PATCH', '/api/mobile/settings/monitoring', { body: { paused }, schema: monitoringSettingsResponseSchema });
   return response.monitoringSettings;
+};
+
+/** A watcher's open «اقترح التزام» proposals (QA CA6.1). */
+export const listWatcherProposals = () => apiRequest('GET', '/api/mobile/watchers/proposals', { schema: watcherProposalListSchema });
+export type WatcherProposalAnswer = { decision: 'accept'; title: string } | { decision: 'dismiss' };
+/** Accept with the person's title, or dismiss. The server decides each proposal once. */
+export const decideWatcherProposal = (id: string, answer: WatcherProposalAnswer) => {
+  if (!/^wpr_[0-9a-f]{64}$/.test(id)) throw new ValidationError('invalid watcher proposal identity');
+  return apiRequest('POST', `/api/mobile/watchers/proposals/${encodeURIComponent(id)}`, { body: answer, schema: watcherProposalDecidedSchema });
 };

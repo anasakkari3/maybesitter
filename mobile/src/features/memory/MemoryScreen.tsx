@@ -19,6 +19,7 @@ import {
   usePatchMemory,
 } from '../../api/queries';
 import type { MemoryAdaptive, MemoryItem, MemorySuggestion } from '../../api/schemas/profile';
+import { memoryHoldsErasable } from './memoryErasable';
 import { SettingsHeader } from '../settings/SettingsChrome';
 import { useMemoryTranslationOn } from '../m6/capabilities';
 import { MemoryTranslationPanel, TranslateAction, translationTargetOf, type TranslationTarget } from '../m6/MemoryTranslation';
@@ -325,7 +326,8 @@ export function MemoryScreen({ onBack, focusId = null }: {
             the one thing this card offers is the truth about what it changes. */}
         {adaptive ? <AdaptiveCard adaptive={adaptive} strings={strings} /> : null}
 
-        {items.length > 0 ? (
+        {/* Offered whenever there is anything delete-all erases, rows or not (CXA8.4). */}
+        {memoryHoldsErasable({ items, suggestions, adaptive }) ? (
           <Card pad={18} style={{ gap: 10 }}>
             {confirmAll ? (
               <>

@@ -19,6 +19,7 @@ import { useM5bOn } from '../m5b/capabilities';
 import { useMemoryTranslationOn } from '../m6/capabilities';
 import { MemoryTranslationPanel, TranslateAction, translationTargetOf, type TranslationTarget } from '../m6/MemoryTranslation';
 import type { MemoryItem } from '../../api/schemas/profile';
+import { memoryHoldsErasable } from './memoryErasable';
 import { CHIP_STRING, memorySentence, provenanceChip } from './memoryDisplay';
 import { KeptMemoryEdit } from './KeptMemoryEdit';
 
@@ -261,7 +262,8 @@ export function MemorySection({ onOpen }: { onOpen?: (() => void) | undefined } 
         </Btn>
       ) : null}
 
-      {items.length > 0 ? (
+      {/* Offered whenever there is anything delete-all erases, rows or not (CXA8.4). */}
+      {!purging && memoryHoldsErasable(memory.data) ? (
         <View style={{ paddingHorizontal: 18, paddingVertical: 12, borderTopWidth: 1, borderTopColor: p.ln, gap: 8 }}>
           {confirmAll ? (
             <>

@@ -66,9 +66,10 @@ import { isInQuietHours, readQuietHours } from './quietHours';
 import { readPushAccess } from './pushAccess';
 import { liveAccount } from '../account/accountLiveness';
 
-export type PushKind = 'plan_ready' | 'hard_reminder';
+/** `watcher_alert`: a `notify` watcher fired (QA CA6.1; `lib/push/watcherAlert.ts`). */
+export type PushKind = 'plan_ready' | 'hard_reminder' | 'watcher_alert';
 
-export const PUSH_KINDS: readonly PushKind[] = ['plan_ready', 'hard_reminder'];
+export const PUSH_KINDS: readonly PushKind[] = ['plan_ready', 'hard_reminder', 'watcher_alert'];
 
 /**
  * Every key `data` may carry. Identifiers and nothing else.
@@ -102,6 +103,7 @@ export const PUSH_DATA_KEYS: readonly string[] = [
 export const CHANNEL_FOR: Readonly<Record<PushKind, string>> = Object.freeze({
   plan_ready: 'maybesitter_general',
   hard_reminder: 'maybesitter_hard',
+  watcher_alert: 'maybesitter_general',
 });
 
 /**
@@ -116,6 +118,9 @@ export const CATEGORY_FOR: Readonly<Record<PushKind, string>> = Object.freeze({
   // The Must reminder's own category, registered by the app in #197 and given
   // its buttons by #200 — the same id a locally scheduled Must reminder uses.
   hard_reminder: 'com.maybesitter.notification.category.hard',
+  // The plan's category, which carries no buttons: a watcher alert has
+  // nothing to answer from the banner, only somewhere to open.
+  watcher_alert: 'com.maybesitter.notification.category.plan',
 });
 
 /**
@@ -134,6 +139,7 @@ export const MAX_DEDUPE_KEY_LENGTH = 64;
 export const SOUND_FOR: Readonly<Record<PushKind, string>> = Object.freeze({
   plan_ready: 'default',
   hard_reminder: 'maybesitter_hard.wav',
+  watcher_alert: 'default',
 });
 const DEDUPE_KEY = /^[A-Za-z0-9][A-Za-z0-9:._-]*$/;
 
@@ -353,6 +359,13 @@ export interface PushLogEntry {
   createdAt: string;
   /** Firestore TTL. `expiresAt` — `expireAt` is a field nothing deletes. */
   expiresAt: string;
+  /**
+   * When FCM first accepted this message for a device. Absent means the lock
+   * was taken and nothing was delivered yet — a send in flight, or one that
+   * threw — which a caller that retries (`lib/push/watcherAlert.ts`) must not
+   * mistake for a push that reached a phone.
+   */
+  deliveredAt?: string;
 }
 
 let cachedMessaging: MessagingClient | null = null;
@@ -510,10 +523,25 @@ export async function sendToUser(
   const messaging = options.messaging ?? (await defaultMessaging());
   let delivered = 0;
   let removed = 0;
+  // Best-effort. The stamp only tells a retrying caller that a phone already
+  // has this; failing to write it must never fail a push that went out, nor
+  // stop the devices after this one from getting it. Unstamped, the lock
+  // still blocks a resend under this key — what is lost is only the retrying
+  // caller's certainty (see `lib/push/watcherAlert.ts`).
+  const markDelivered = async () => {
+    try {
+      await storage.runTransaction(async (tx) => {
+        tx.merge<PushLogEntry>(lockPath, { deliveredAt: now.toISOString() });
+      });
+    } catch {
+      // Left unstamped; see above.
+    }
+  };
   for (const device of devices) {
     try {
       await messaging.send(buildFcmMessage(message, device));
       delivered += 1;
+      if (delivered === 1) await markDelivered();
     } catch (error) {
       const code = errorCodeOf(error);
       if (code && DEAD_TOKEN_CODES.has(code)) {
