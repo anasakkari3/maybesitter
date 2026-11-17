@@ -46,6 +46,7 @@ import { useLayoutMode } from '../theme/textScale';
 import { firstConflict } from '../features/today/todayConflict';
 import { ConflictLine, ConflictSheet, useFootballCommitmentIds } from '../features/today/ConflictLine';
 import { PostponeSheetFor } from './Sheets';
+import { RescheduleCard } from '../features/reschedule/RescheduleCard';
 import { useFreshM4bCapability, useM4bCapabilities } from '../features/m4b/capabilities';
 
 /**
@@ -329,6 +330,9 @@ export function TodayScreen({ tabClearance = TAB_CLEARANCE }: { tabClearance?: n
               {conflict ? <ConflictLine conflict={conflict} onOpen={() => setConflictOpen(true)} /> : null}
 
               <PrimaryCard primary={model.primary} quietEndsAt={quietEndsAt} holding={holding} lookup={byId} strings={strings} timezone={timezone} lang={lang} busy={busy} onPostpone={setPostponeId} />
+
+              {/* Missed work's new plan (lane E4): a suggestion until «اقبل». */}
+              <RescheduleCard />
 
               <Txt size={13} color={p.mu} testID="today-count" style={{ paddingHorizontal: 4 }}>
                 {progress ? tr('todayProgressCompact', progress) : tr('todayCountOpen', { n: model.openTotal })}

@@ -225,6 +225,7 @@ import { GET as weeklyBlocksGet, POST as weeklyBlocksPost } from '../../src/app/
 import { DELETE as weeklyBlockDelete, PATCH as weeklyBlockPatch } from '../../src/app/api/mobile/weekly-blocks/[id]/route.ts';
 import { GET as weeklyOccurrencesGet } from '../../src/app/api/mobile/weekly-blocks/occurrences/route.ts';
 import {
+  addCommitment as addM4bCommitment,
   addDeviceBusy as addM4bDeviceBusy,
   addEvent as addM4bEvent,
   at as atM4b,
@@ -1099,6 +1100,53 @@ test('exports the M4b mobile fixtures from the real handlers', async () => {
   }
 });
 
+
+/** Lane E4: missed work's new plan, from the real handlers on the M4b harness (clock pinned). */
+test('exports the missed-work reschedule fixtures from the real handlers', async () => {
+  const keys = ['MAYBESITTER_FEATURE_MISSED_RESCHEDULE', 'MAYBESITTER_KILL_SWITCH_MISSED_RESCHEDULE'] as const;
+  const previous = keys.map((key) => process.env[key]);
+  const scenario = async (run: (uid: string, id: string) => Promise<void>) => {
+    const uid = beginM4b();
+    process.env.MAYBESITTER_FEATURE_MISSED_RESCHEDULE = 'true';
+    process.env.MAYBESITTER_KILL_SWITCH_MISSED_RESCHEDULE = 'false';
+    try {
+      await seedLiveAccount(uid);
+      const user = await getStorage().get<Record<string, unknown>>(userDoc(uid));
+      await getStorage().set(userDoc(uid), { ...user, timezone: 'Asia/Jerusalem' });
+      const id = await addM4bCommitment(uid, 'أدرس رياضيات', {
+        kind: 'scheduled_event', dueAt: atM4b('2026-10-06', '18:00'), endAt: atM4b('2026-10-06', '19:00'), allDay: false, itemKind: 'task',
+      });
+      await run(uid, id);
+    } finally { endM4b(); }
+  };
+  const decide = (uid: string, id: string, body: Record<string, unknown>) =>
+    callM4b(uid, 'reschedule/[commitmentId]', 'POST', { params: { commitmentId: id }, body });
+  try {
+    await scenario(async (uid, id) => {
+      const listed = await recordM4b('reschedule', 200, await callM4b(uid, 'reschedule', 'GET'));
+      const proposal = listed.proposal as { proposalId: string };
+      await recordM4b('reschedule.decision.accept', 200, await decide(uid, id, {
+        action: 'accept', proposalId: proposal.proposalId, clientActionId: '7e000000-0000-4000-8000-0000000000a1',
+      }));
+      await recordM4b('reschedule.accepted', 200, await callM4b(uid, 'reschedule', 'GET'));
+      await recordM4b('reschedule.decision.undo', 200, await decide(uid, id, { action: 'undo', clientActionId: '7e000000-0000-4000-8000-0000000000a2' }));
+      await recordM4b('reschedule.undo-unavailable', 409, await decide(uid, id, { action: 'undo', clientActionId: '7e000000-0000-4000-8000-0000000000a3' }));
+    });
+    await scenario(async (uid, id) => {
+      await recordM4b('reschedule.decision.dismiss', 200, await decide(uid, id, { action: 'dismiss', clientActionId: '7e000000-0000-4000-8000-0000000000a4' }));
+      await recordM4b('reschedule.empty', 200, await callM4b(uid, 'reschedule', 'GET'));
+    });
+    await scenario(async (uid, id) => {
+      const proposal = (await callM4b(uid, 'reschedule', 'GET')).body.proposal as { sessions: Array<{ startsAt: string; endsAt: string }>; proposalId: string };
+      await addM4bEvent(uid, 'عشا', proposal.sessions[0]!.startsAt, proposal.sessions[0]!.endsAt);
+      await recordM4b('reschedule.stale', 409, await decide(uid, id, {
+        action: 'accept', proposalId: proposal.proposalId, clientActionId: '7e000000-0000-4000-8000-0000000000a5',
+      }));
+    });
+  } finally {
+    keys.forEach((key, index) => { if (previous[index] === undefined) delete process.env[key]; else process.env[key] = previous[index]; });
+  }
+});
 
 /**
  * ── The Gemini fixture, without a Gemini bill (#338) ─────────────
