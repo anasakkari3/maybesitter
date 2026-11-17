@@ -36,6 +36,8 @@ import { createFakeAuthRepository } from '../../../auth/fakeAuthRepository';
 import { resetAuthForTests, setAuthRepository } from '../../../api/auth';
 import type { AuthUser } from '../../../auth/types';
 import en from '../../../i18n/locales/en.json';
+import ar from '../../../i18n/locales/ar.json';
+import he from '../../../i18n/locales/he.json';
 import { CalendarSettingsScreen } from '../CalendarSettingsScreen';
 import { BUSY_BLOCKS_KEY, LEGACY_BUSY_KEYS } from '../../../lib/deviceSettings/calendarBusy';
 import { seedDeviceBusyCache } from '../../../testing/deviceBusyCache';
@@ -232,6 +234,15 @@ describe('pressing disconnect', () => {
 
   it('warns before the tap that lecture times added by hand go too (CA10.5)', () => {
     expect(en.calendarDisconnectConfirmBody).toMatch(/lecture times/i);
+  });
+
+  // Review 2 of B8: say that the links stay (paused) and the weekly fixed time stays.
+  it('says calendar links stay but paused, and the weekly fixed time stays, in every language', () => {
+    expect(en.calendarDisconnectConfirmBody).toContain('Calendar links stay, but paused');
+    expect(en.calendarDisconnectConfirmBody).toContain(en.wbTitle.toLowerCase());
+    expect(ar.calendarDisconnectConfirmBody).toContain('روابط التقويم بتضل، بس موقوفة لحد ما ترجع تشغّله.');
+    expect(ar.calendarDisconnectConfirmBody).toContain(ar.wbTitle);
+    expect(he.calendarDisconnectConfirmBody).toContain('הקבוע השבועי');
   });
 
   it('says so, and says how many busy times the sync found', async () => {

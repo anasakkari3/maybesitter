@@ -194,6 +194,7 @@ describe('dismissing a match', () => {
       await fireEvent.press(screen.getByTestId(`football-dismiss-${FIXTURE.commitmentId}`));
       const line = await screen.findByTestId('football-dismiss-failed');
       expect([line.props.children].flat().join('')).toBe(ar.footballDismissGone);
+      expect(ar.footballDismissGone).toBe('هاي المباراة خلصت.');
       await new Promise((resolve) => setTimeout(resolve, 0));
       expect(unhandled).not.toHaveBeenCalled();
     } finally {
