@@ -103,6 +103,7 @@ beforeEach(async () => {
     return trustBody(serverConsent) as never;
   });
   jest.spyOn(calendarEndpoints, 'deleteCalendarBusy').mockResolvedValue({ success: true, deleted: 2 } as never);
+  jest.spyOn(calendarEndpoints, 'disconnectAccountCalendars').mockResolvedValue({ success: true, deleted: 0 } as never);
   jest.spyOn(calendarEndpoints, 'postCalendarBusy').mockResolvedValue({
     success: true,
     blocks: 0,

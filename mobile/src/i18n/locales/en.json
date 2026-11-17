@@ -901,7 +901,7 @@
   "calendarDisconnectDone": "Disconnected. The busy times are gone from this phone and from your account.",
   "calendarDisconnectFailed": "They were removed from this phone. Your account still has them — try again when you are back online.",
   "calendarDisconnectTitle": "Disconnect your calendar?",
-  "calendarDisconnectConfirmBody": "We stop reading your calendar and delete the busy times from this phone and your account. Your commitments and the events in your calendar stay as they are.",
+  "calendarDisconnectConfirmBody": "We stop reading your calendar and delete all busy times from this phone and your account, including the lecture times you added by hand. Calendar links pause until you turn it back on. Your commitments and the events in your calendar stay as they are.",
   "calendarDisconnectConfirm": "Disconnect and delete",
   "calendarDisconnectKeep": "Keep it",
   "calendarBusyCount": "{n, plural, =0 {No busy times found} one {# busy time found} other {# busy times found}}",

@@ -107,6 +107,7 @@ beforeEach(async () => {
     source: { sourceId: 'device:x', lastSyncedAt: new Date().toISOString(), windowStart: null, windowEnd: null },
   } as never);
   jest.spyOn(calendarEndpoints, 'deleteCalendarBusy').mockResolvedValue({ success: true, deleted: 0 } as never);
+  jest.spyOn(calendarEndpoints, 'disconnectAccountCalendars').mockResolvedValue({ success: true, deleted: 0 } as never);
   consent = true;
   jest.spyOn(trustEndpoints, 'getTrust').mockImplementation((async () => trustWith(consent)) as never);
   jest.spyOn(trustEndpoints, 'updateTrust').mockImplementation((async (action: { granted: boolean }) => {

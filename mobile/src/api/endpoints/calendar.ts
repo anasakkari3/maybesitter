@@ -112,6 +112,20 @@ export function deleteCalendarBusy(sourceId: string, options: { asUid?: string }
 }
 
 /**
+ * «افصل وامسح», the account half (QA audit CA10.5, owner option A): the
+ * server turns calendar consent off and deletes every calendar's busy time —
+ * every phone, Google, the feeds, lecture times added by hand. Feeds stay
+ * subscribed, paused.
+ */
+export function disconnectAccountCalendars(options: { asUid?: string } = {}) {
+  return apiRequest('DELETE', '/api/mobile/calendar/busy', {
+    query: { scope: 'account' },
+    schema: calendarBusyDeletedSchema,
+    ...(options.asUid !== undefined ? { asUid: options.asUid } : {}),
+  });
+}
+
+/**
  * Recurring lecture session busy input (UC-3.7, #191 Step 7).
  */
 export interface ManualBusySession {
