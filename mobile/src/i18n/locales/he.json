@@ -2220,5 +2220,20 @@
   "featureSearchHistoryName": "חיפוש בעבר",
   "featureSearchHistoryBody": "מוצא התחייבויות שסיימת או ויתרת עליהן.",
   "featureFootballName": "כדורגל",
-  "featureFootballBody": "מכניס את המשחקים של הקבוצה שלך לימים שלך."
+  "featureFootballBody": "מכניס את המשחקים של הקבוצה שלך לימים שלך.",
+  "rsTag": "הצעה",
+  "rsLineFirst": "זה התפספס, אז מצאנו לזה זמן פנוי חדש.",
+  "rsLineOtherTime": "התפספס יותר מפעם אחת ב{from}, אז ניסינו ב{to}.",
+  "rsLineOtherTimeSplit": "התפספס יותר מפעם אחת ב{from}, אז ניסינו ב{to}, בשני חלקים קטנים יותר.",
+  "rsLineSplit": "התפספס יותר מפעם אחת, אז חילקנו את זה לשני חלקים קטנים יותר.",
+  "rsLineEarlier": "המועד האחרון קרוב, אז מתחילים מוקדם יותר.",
+  "rsPartMorning": "בוקר",
+  "rsPartAfternoon": "צהריים",
+  "rsPartEvening": "ערב",
+  "rsAcceptedLine": "הועבר לזמן החדש.",
+  "rsUndo": "להחזיר",
+  "rsUndoHint": "אפשר להחזיר את זה למה שהיה במשך 24 שעות.",
+  "rsUndone": "הוחזר למה שהיה.",
+  "rsLineOtherTimeMixed": "התפספס יותר מפעם אחת, אז ננסה זמן אחר: {to}.",
+  "rsDecline": "לא, תודה"
 }

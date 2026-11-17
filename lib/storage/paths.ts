@@ -35,6 +35,14 @@ export const RECOMMENDATION_ACTIONS = 'recommendationActions';
  * field (30 days, `infra/firestore-ttl.sh`): an outbox gives up long before.
  */
 export const COMMITMENT_ACTION_RECEIPTS = 'commitmentActionReceipts';
+/**
+ * Missed work's new plans (lane E4), one document per commitment id: when each
+ * session was missed (instant, length, part of the day), the miss a proposal
+ * was dismissed for, and an accepted plan's undo record — the instants the
+ * work had before it, the sessions it was given and the ids of any piece it
+ * added. Ids and instants only; never a title.
+ */
+export const RESCHEDULE_PROPOSALS = 'rescheduleProposals';
 /** Idempotency receipts for decisions on held external items. */
 export const EXTERNAL_TASK_ACTION_RECEIPTS = 'externalTaskActionReceipts';
 /**
@@ -595,6 +603,7 @@ export const USER_SCOPED_COLLECTIONS = [
   EVENTS,
   RECOMMENDATION_ACTIONS,
   COMMITMENT_ACTION_RECEIPTS,
+  RESCHEDULE_PROPOSALS,
   EXTERNAL_TASK_ACTION_RECEIPTS,
   NEXT_STEP_DECISIONS,
   AUDIT_EVENTS,
