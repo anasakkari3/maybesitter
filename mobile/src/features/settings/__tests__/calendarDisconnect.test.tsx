@@ -193,6 +193,33 @@ describe('pressing disconnect', () => {
       .toHaveBeenCalledWith({ type: 'set_calendar_consent', granted: false }, { asUid: expect.any(String) }));
   });
 
+  // QA audit CA10.5, owner option A: the copy says the busy times are gone
+  // from the account, so the server empties every calendar's busy time,
+  // lecture times added by hand included, before the switch goes off.
+  it('empties the account too: every calendar, lecture times included (CA10.5)', async () => {
+    const purge = jest.spyOn(calendarEndpoints, 'disconnectAccountCalendars')
+      .mockResolvedValue({ success: true, deleted: 40 } as never);
+    await show();
+    await disconnectAndConfirm();
+    await waitFor(() => expect(purge).toHaveBeenCalledWith({ asUid: expect.any(String) }));
+    const order = (mock: unknown) => (mock as jest.Mock).mock.invocationCallOrder[0]!;
+    expect(order(calendarEndpoints.deleteCalendarBusy)).toBeLessThan(order(purge));
+    await waitFor(() => expect(screen.queryByTestId('calendar-disconnect-result')).not.toBeNull());
+    expect(String(screen.getByTestId('calendar-disconnect-result').props.children)).toBe(en.calendarDisconnectDone);
+  });
+
+  it('says the account half failed when the account could not be emptied (CA10.5)', async () => {
+    jest.spyOn(calendarEndpoints, 'disconnectAccountCalendars').mockRejectedValue(new Error('offline') as never);
+    await show();
+    await disconnectAndConfirm();
+    await waitFor(() => expect(screen.queryByTestId('calendar-disconnect-result')).not.toBeNull());
+    expect(String(screen.getByTestId('calendar-disconnect-result').props.children)).toBe(en.calendarDisconnectFailed);
+  });
+
+  it('warns before the tap that lecture times added by hand go too (CA10.5)', () => {
+    expect(en.calendarDisconnectConfirmBody).toMatch(/lecture times/i);
+  });
+
   it('says so, and says how many busy times the sync found', async () => {
     await show();
     await waitFor(() => expect(String(screen.getByTestId('calendar-busy-count').props.children)).toContain('1'));
