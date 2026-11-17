@@ -18,7 +18,8 @@ import { listIcsFeeds } from '../../../lib/calendar/icsFeeds.ts';
 import { candidateClashes, readFreeSlotSchedule } from '../../../lib/planning/freeSlots.ts';
 import { applyTrustAction } from '../../../lib/pilot/pilotTrustStore.ts';
 import { getStorage } from '../../../lib/storage/index.ts';
-import { ICS_FEEDS, userSubDoc } from '../../../lib/storage/paths.ts';
+import { CALENDAR_CHOICE, CALENDAR_SOURCES, ICS_FEEDS, docIdForKey, userCol, userDoc, userSubDoc } from '../../../lib/storage/paths.ts';
+import { seedLiveAccount } from '../../support/liveAccount.ts';
 import { TODAY, TOMORROW, TZ, at, begin, call, end, show } from './support.ts';
 
 const FROM = at(TODAY, '00:00');
@@ -281,12 +282,13 @@ test('M4A-R18-002 flag-off parity of the manual route for well-formed input', as
   } finally { end(); }
 });
 
-/* ── QA audit CA10.5 / NAPI-A10.1: a disconnect stops every calendar's use ── */
-// «افصل وامسح» deletes this phone's busy time and turns calendar consent off.
-// The ICS lectures, lecture times added by hand and other phones' busy time
-// stayed in the account and still shaped «الخطة», the daily plan and every
-// clash check, and the feed still read `ok`. With consent off none of them is
-// read; the person's own weekly blocks are not a calendar and stay.
+/* ── QA audit CA10.5 / NAPI-A10.1: «افصل وامسح» empties the account ── */
+// Owner decision (2026-11-16, option A): disconnecting deletes every
+// calendar's busy time from the account -- every phone, Google, the feeds,
+// lecture times added by hand (and their count) -- and turns consent off.
+// Feed subscriptions stay, paused, and fetch in full when consent returns.
+// Reads are NOT gated on consent (option B was declined): after the purge
+// there is simply nothing left to read.
 
 async function consent(uid: string, granted: boolean): Promise<void> {
   const stamp = new Date().toISOString();
@@ -301,32 +303,33 @@ async function seedCalendars(uid: string): Promise<{ lecture: [string, string] }
   await icsBlocks(uid, 'feed1', [[at(TOMORROW, '14:00'), at(TOMORROW, '15:00')]]);
   await replaceBusyBlocks(uid, 'manual-lectures', window, [block('manual-lectures', 'manual', 'm1', ...lecture)], { platform: null, now: new Date() });
   await replaceBusyBlocks(uid, 'device:other-phone', window, [block('device:other-phone', 'device', 'd1', at(TOMORROW, '17:00'), at(TOMORROW, '18:00'))], { platform: 'ios', now: new Date() });
+  await replaceBusyBlocks(uid, 'google:primary', window, [block('google:primary', 'google', 'g1', at(TOMORROW, '18:00'), at(TOMORROW, '18:30'))], { platform: null, now: new Date() });
   await replaceBusyBlocks(uid, 'weekly-gym', window, [block('weekly-gym', 'weekly', 'w1', at(TOMORROW, '19:00'), at(TOMORROW, '20:00'))], { platform: null, now: new Date() });
   return { lecture };
 }
 
-// Parked for the owner's decision (see the lane report): whether «افصل وامسح»
-// deletes every calendar's busy time from the account, as its copy says, or
-// stops using it under consent. Either way these hold afterwards; they are
-// `todo` until one is chosen, so the run stays green and the intent stays here.
-test('CA10.5: after consent is withdrawn the busy GET serves no calendar block and claims no feed', { todo: 'owner decision CA10.5' }, async () => {
+function disconnect(uid: string) {
+  return call(uid, 'calendar/busy', 'DELETE', { query: { scope: 'account' } });
+}
+
+test('CA10.5: after «افصل وامسح» the busy GET serves no calendar block', async () => {
   const uid = begin();
   try {
     await consent(uid, true);
     await seedCalendars(uid);
     const before = await busy(uid);
-    assert.equal(before.status, 200, show(before.body));
     assert.ok(before.body.blocks.length >= 2, show(before.body));
 
-    await consent(uid, false);
+    const done = await disconnect(uid);
+    assert.equal(done.status, 200, show(done.body));
     const after = await busy(uid);
     assert.equal(after.status, 200, show(after.body));
     assert.deepEqual(after.body.blocks, [], `a disconnected account still serves busy time: ${show(after.body.blocks)}`);
-    assert.deepEqual(after.body.sources, [], show(after.body.sources));
+    assert.ok(after.body.sources.every((source: any) => source.status !== 'ok'), show(after.body.sources));
   } finally { end(); }
 });
 
-test('CA10.5: after consent is withdrawn the daily plan and the clash check read only the weekly blocks', { todo: 'owner decision CA10.5' }, async () => {
+test('CA10.5: after «افصل وامسح» the daily plan reads only the weekly blocks and nothing clashes with a calendar', async () => {
   const uid = begin();
   try {
     await consent(uid, true);
@@ -335,11 +338,47 @@ test('CA10.5: after consent is withdrawn the daily plan and the clash check read
     const candidate = { dueAt: lecture[0], endAt: lecture[1], kind: 'scheduled_event' as const };
     assert.equal(candidateClashes(await readFreeSlotSchedule(uid, window), candidate).state, 'clash');
 
-    await consent(uid, false);
+    assert.equal((await disconnect(uid)).status, 200);
     const planning = await readBusyBlocksForPlanning(uid, window);
     assert.deepEqual(planning.map((row) => row.blockId).sort(), ['w1'], `the plan still avoids a disconnected calendar: ${show(planning)}`);
     const decision = candidateClashes(await readFreeSlotSchedule(uid, window), candidate);
-    assert.equal(decision.state, 'free', `a disconnected calendar still decides clashes: ${show(decision)}`);
+    assert.notEqual(decision.state, 'clash', `a disconnected calendar still decides clashes: ${show(decision)}`);
+  } finally { end(); }
+});
+
+test('CA10.5: the disconnect turns consent off, keeps the feed paused for a full fetch, resets the lecture count, and can run twice', async () => {
+  const uid = begin();
+  try {
+    await consent(uid, true);
+    await seedCalendars(uid);
+    assert.equal((await disconnect(uid)).status, 200);
+    assert.equal((await disconnect(uid)).status, 200, 'a second disconnect failed');
+
+    const user = await getStorage().get<any>(userDoc(uid));
+    assert.equal(user.trust.calendarConsent, false);
+    const feed = await getStorage().get<any>(userSubDoc(uid, ICS_FEEDS, 'feed1'));
+    assert.ok(feed, 'the subscription itself must stay');
+    assert.equal(feed.status, 'paused');
+    assert.equal(feed.etag, null);
+    assert.equal(feed.lastModified, null);
+    assert.equal(feed.lastFullFetchAt, null, 'the next fetch after consent returns must be a full one');
+    const sources = (await getStorage().list<any>(userCol(uid, CALENDAR_SOURCES))).map((row) => row.data.sourceId).sort();
+    assert.deepEqual(sources, ['weekly-gym'], show(sources));
+    assert.equal(await getStorage().get(userSubDoc(uid, CALENDAR_CHOICE, 'manualBusy')), null, 'the lecture count was not reset');
+  } finally { end(); }
+});
+
+test('CA10.5: the disconnect touches only its own account', async () => {
+  const uid = begin();
+  try {
+    const other = `${uid}-other`;
+    await seedLiveAccount(other);
+    await replaceBusyBlocks(other, 'manual-theirs', { startsAt: FROM, endsAt: TO },
+      [block('manual-theirs', 'manual', 't1', at(TOMORROW, '10:00'), at(TOMORROW, '11:00'))], { platform: null, now: new Date() });
+    await consent(uid, true);
+    await seedCalendars(uid);
+    assert.equal((await disconnect(uid)).status, 200);
+    assert.ok(await getStorage().get(userSubDoc(other, CALENDAR_SOURCES, docIdForKey('manual-theirs'))), "another account's busy time was deleted");
   } finally { end(); }
 });
 
