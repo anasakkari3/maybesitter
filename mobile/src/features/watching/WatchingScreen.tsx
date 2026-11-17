@@ -17,6 +17,7 @@ import { useIntelligenceDecided } from '../../api/queries';
 import { AvoidKeyboard } from '../../ui/keyboard';
 import { useM4bCapabilities } from '../m4b/capabilities';
 import { useHeldItems } from '../m4b/heldFixtures';
+import { WatcherProposalsCard } from './WatcherProposals';
 
 /**
  * «يتابع لك» (Stitch redesign, 2026-10-02): what the assistant noticed, what it
@@ -31,6 +32,8 @@ import { useHeldItems } from '../m4b/heldFixtures';
  *     (review of 2026-10-03: the hub used to only read, and its cards led to
  *     a panel production never showed). A decision refreshes Today, «أشيائي»
  *     and the plan. Edit fields stay above the keyboard (`AvoidKeyboard`).
+ *   Suggestions from watches  a watcher's «اقترح التزام», accept with the
+ *     person's title or not for me, once (`WatcherProposals.tsx`).
  *   Watches  the background monitors with their last check, each opening
  *     Background activity; «تابعلي هالإشي» opens the builder.
  *   «شو بيعرف» opens Knows; the pause switch is Background activity's own.
@@ -101,6 +104,9 @@ export function WatchingScreen({ tabClearance = TAB_CLEARANCE }: { tabClearance?
           onChanged={decided}
           whenOff={<Txt role="supporting" color={p.mu} testID="watching-nothing">{t.watchingNothing}</Txt>}
         />
+
+        {/* A watcher's «اقترح التزام», answered here (QA CA6.1). */}
+        <WatcherProposalsCard />
 
         <HubHeading title={t.watchingWatches} icon="eye" count={activity.data ? monitors.length : undefined} testID="watching-watches"
           end={<TextLink label={t.xWatch} testID="watching-add" onPress={() => actions.go('watchBuilder')} />} />

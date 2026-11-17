@@ -109,7 +109,7 @@ import { readinessResponseSchema, readinessSavedSchema } from '../schemas/readin
 import { m5bCapabilitiesSchema, memorySummaryResponseSchema } from '../schemas/m5b';
 import { commitmentSearchSchema, m6CapabilitiesSchema, m6bCapabilitiesSchema, memoryTranslationSchema } from '../schemas/m6';
 import { featureCapabilitiesSchema } from '../schemas/features';
-import { watcherChangedSchema, watcherListSchema } from '../schemas/watchers';
+import { watcherChangedSchema, watcherListSchema, watcherProposalDecidedSchema, watcherProposalListSchema } from '../schemas/watchers';
 import {
   financialConnectionSchema,
   financialContextResponseSchema,
@@ -474,6 +474,10 @@ const CASES: [string, z.ZodType][] = [
   ['watchers.paused', watcherChangedSchema],
   ['watchers.resumed', watcherChangedSchema],
   ['watchers.list', watcherListSchema],
+  // QA CA6.1: a watcher's «اقترح التزام», listed and decided.
+  ['watchers.proposals', watcherProposalListSchema],
+  ['watchers.proposal.accepted', watcherProposalDecidedSchema],
+  ['watchers.proposal.dismissed', watcherProposalDecidedSchema],
   // Closure CL7: football as a watcher source, gated on the server's key.
   ['watchers.football.created', watcherChangedSchema],
   ['football.settings', footballSettingsResponseSchema],

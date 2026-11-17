@@ -485,6 +485,48 @@ describe('an unknown delete-all outcome (M5B2A-R32-004)', () => {
   });
 });
 
+/*
+ * QA audit de7fcb8, CXA8.4: delete-all erases behaviour, suggestions and the
+ * adaptive profile as well as rows, but both memory surfaces offered it only
+ * when there were rows. An account with no rows and an open suggestion could
+ * not erase what DELETE /memory is there to erase from either one.
+ */
+describe('delete everything with no memory rows (CXA8.4)', () => {
+  const LEARNED = { classification: 'avoidant', effect: { maxPressureLevel: 'low', suggestionStyle: 'supportive' } } as MemoryAdaptive;
+
+  it('the memory screen offers delete-all for an open suggestion alone', async () => {
+    listing([], [SUGGESTION]);
+    await show(<MemoryScreen onBack={() => {}} />);
+    await waitFor(() => expect(screen.queryByTestId('memory-suggestions')).not.toBeNull());
+    expect(screen.queryByTestId('memory-screen-delete-all')).not.toBeNull();
+    await fireEvent.press(screen.getByTestId('memory-screen-delete-all'));
+    await fireEvent.press(screen.getByTestId('memory-screen-delete-all-confirm'));
+    await waitFor(() => expect(profileEndpoints.deleteAllMemory).toHaveBeenCalled());
+  });
+
+  it('the memory screen offers delete-all for a learned adaptive group alone', async () => {
+    listing([], [], LEARNED);
+    await show(<MemoryScreen onBack={() => {}} />);
+    await waitFor(() => expect(profileEndpoints.listMemory).toHaveBeenCalled());
+    await waitFor(() => expect(screen.queryByTestId('memory-screen-delete-all')).not.toBeNull());
+  });
+
+  it('the Knows card offers delete-all for an open suggestion alone', async () => {
+    listing([], [SUGGESTION]);
+    await show(<MemorySection />);
+    await waitFor(() => expect(screen.queryByTestId('memory-empty')).not.toBeNull());
+    expect(screen.queryByTestId('memory-delete-all')).not.toBeNull();
+  });
+
+  it('offers nothing to delete when there is nothing at all', async () => {
+    listing([], [], { classification: null, effect: null });
+    await show(<View><MemorySection /><MemoryScreen onBack={() => {}} /></View>);
+    await waitFor(() => expect(screen.queryByTestId('memory-empty')).not.toBeNull());
+    expect(screen.queryByTestId('memory-delete-all')).toBeNull();
+    expect(screen.queryByTestId('memory-screen-delete-all')).toBeNull();
+  });
+});
+
 describe('MemorySection while delete-all is on its way (M5B2A-R32-003)', () => {
   const ROWS = () => [item(), item({ id: 'mem_other', content: 'I swim on Mondays' })];
   function controlsOf(prefix = 'memory') {

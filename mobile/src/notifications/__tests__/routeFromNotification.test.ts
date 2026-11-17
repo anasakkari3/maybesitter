@@ -21,6 +21,11 @@ describe('routing a tap', () => {
       .toEqual({ kind: 'plan', planDate: '2026-09-15' });
   });
 
+  it('opens Background activity for a watcher alert (QA CA6.1)', () => {
+    expect(routeFromNotification({ kind: 'watcher_alert', dedupeKey: 'watcher:abc' }))
+      .toEqual({ kind: 'screen', screen: 'backgroundActivity' });
+  });
+
   it('refuses a planDate that is not a plain local date', () => {
     for (const planDate of [
       '2026-09-15T00:00:00Z',

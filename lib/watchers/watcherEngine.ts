@@ -9,10 +9,15 @@
  * the issue states hold in one place rather than per provider:
  *
  * ── Duplicate source signals fire once ─────────────────────────────
- * The fire event's document id is `docIdForKey(watcherId, signalId)` and it is
+ * The fire event's document id is `docIdForKey(watcherId, signalId, fireCount)`
+ * — the firing count the sweep read alongside the baseline — and it is
  * `create`d inside the same transaction that writes the effect artifact, so
  * the second delivery of one signal — overlapping ticks, a retried sweep —
- * is a recorded duplicate, not a second effect.
+ * is a recorded duplicate, not a second effect. The count is what tells a
+ * redelivery from a recurrence (QA CXA6.1): a subject that goes low, recovers
+ * and goes low again arrives at the same digest, but after another firing, so
+ * it is a new transition and fires. A duplicate still absorbs the observed
+ * state, so a refused redelivery is never re-evaluated every minute.
  *
  * ── Disabled and disconnected watchers do nothing ──────────────────
  * `enabled: false` and a non-connected source connection are re-checked inside
@@ -102,6 +107,22 @@ export interface WatcherSweepOptions {
    * module never reads a feature decision itself.
    */
   skip?: (watcher: { readonly scopeId: string; readonly signalKind: string }) => Promise<boolean>;
+  /**
+   * Told after a firing has committed, with the artifact it wrote. Delivery —
+   * a push for `notify` — happens here, outside the firing transaction and
+   * outside this module (lib/jobs wires it), so the engine still has no path
+   * to anything but its own collections. It should not throw: a throw is
+   * recorded as this watcher's sweep failure, though the firing has stood.
+   */
+  onFired?: (firing: WatcherFiring) => Promise<void>;
+}
+
+export interface WatcherFiring {
+  readonly scopeId: string;
+  readonly watcherId: string;
+  readonly effect: StoredWatcher['definition']['effect'];
+  /** The artifact the firing wrote — `wtn_…` for `notify` — or null for `update_context`. */
+  readonly effectRef: string | null;
 }
 
 function emptyTotals(): WatcherSweepTotals {
@@ -138,13 +159,20 @@ async function readConnection(
   return (await storage.get<IntegrationConnectionRecord>(userSubDoc(scopeId, PROVIDER_CONNECTIONS, connectionId))) ?? null;
 }
 
-export function watcherEventIdFor(watcherId: string, signalId: string): string {
-  return docIdForKey(`watcher-fire:${watcherId}:${signalId}`);
+/**
+ * One firing's identity: this watcher, this signal, after this many firings.
+ * `fireCount` is the count read with the baseline the transition is measured
+ * from, so two sweeps evaluating the same transition share one id and a
+ * later return to the same state does not (QA CXA6.1).
+ */
+export function watcherEventIdFor(watcherId: string, signalId: string, fireCount: number): string {
+  return docIdForKey(`watcher-fire:${watcherId}:${signalId}:${fireCount}`);
 }
 
 function fireEvent(
   stored: StoredWatcher,
   signal: WatcherSignal,
+  eventId: string,
   now: string,
   outcome: WatcherFireEvent['outcome'],
   reason: string,
@@ -155,7 +183,7 @@ function fireEvent(
   return {
     version: WATCHER_CONTRACT_VERSION,
     schemaVersion: WATCHER_EVENT_SCHEMA_VERSION,
-    eventId: watcherEventIdFor(definition.watcherId, signal.signalId),
+    eventId,
     watcherId: definition.watcherId,
     scopeId: definition.scopeId,
     signalId: signal.signalId,
@@ -260,6 +288,12 @@ function absorbedRuntime(stored: StoredWatcher, signal: WatcherSignal, now: stri
 
 type FireResult = 'fired' | 'policy_blocked' | 'duplicate' | 'gone' | 'paused' | 'blocked';
 
+interface FireOutcome {
+  readonly result: FireResult;
+  /** Set only for `fired`: the artifact the firing committed, if any. */
+  readonly firing: WatcherFiring | null;
+}
+
 /**
  * Records one firing and its effect artifact atomically.
  *
@@ -274,9 +308,9 @@ async function commitFiring(
   signal: WatcherSignal,
   now: string,
   storage: StorageAdapter,
-): Promise<FireResult> {
+): Promise<FireOutcome> {
   const { definition } = stored;
-  const eventId = watcherEventIdFor(definition.watcherId, signal.signalId);
+  const eventId = watcherEventIdFor(definition.watcherId, signal.signalId, stored.runtime.fireCount);
   const eventPath = userSubDoc(definition.scopeId, WATCHER_EVENTS, eventId);
   const watcherPath = userSubDoc(definition.scopeId, WATCHERS, definition.watcherId);
   const connectionPath = definition.source.connectionId === null
@@ -308,11 +342,19 @@ async function commitFiring(
     });
 
   if (decision.decision !== 'allowed') {
-    const blocked = fireEvent(stored, signal, now, 'policy_blocked', decision.reason, decision.decision, null);
-    return storage.runTransaction(async (tx) => {
-      if (await tx.get<WatcherFireEvent>(eventPath)) return 'duplicate';
-      const current = await tx.get<StoredWatcher>(watcherPath);
+    const blocked = fireEvent(stored, signal, eventId, now, 'policy_blocked', decision.reason, decision.decision, null);
+    const result = await storage.runTransaction(async (tx): Promise<FireResult> => {
+      const [existing, current] = await Promise.all([
+        tx.get<WatcherFireEvent>(eventPath),
+        tx.get<StoredWatcher>(watcherPath),
+      ]);
       if (!current) return 'gone';
+      if (existing) {
+        if (current.runtime.fireCount === stored.runtime.fireCount) {
+          tx.set(watcherPath, absorbedRuntime(current, signal, now, false));
+        }
+        return 'duplicate';
+      }
       if (!current.definition.enabled) return 'paused';
       if (await isMonitoringPaused(definition.scopeId, storage, tx)) {
         tx.set(watcherPath, absorbedRuntime(current, signal, now, false));
@@ -326,12 +368,28 @@ async function commitFiring(
       tx.set(watcherPath, absorbedRuntime(current, signal, now, false));
       return 'policy_blocked';
     });
+    return { result, firing: null };
   }
 
-  return storage.runTransaction(async (tx) => {
-    if (await tx.get<WatcherFireEvent>(eventPath)) return 'duplicate';
-    const current = await tx.get<StoredWatcher>(watcherPath);
+  let firing: WatcherFiring | null = null;
+  const result = await storage.runTransaction(async (tx): Promise<FireResult> => {
+    firing = null;
+    const [existing, current] = await Promise.all([
+      tx.get<WatcherFireEvent>(eventPath),
+      tx.get<StoredWatcher>(watcherPath),
+    ]);
     if (!current) return 'gone';
+    if (existing) {
+      // This transition was already handled. Absorb what was observed, or the
+      // stale baseline would make every later sweep re-read it as the same
+      // duplicate and the watcher would never fire again (QA CXA6.1) — but
+      // only if nothing fired since this sweep read the row: a slow sweep
+      // must not roll a newer baseline back to its stale observation.
+      if (current.runtime.fireCount === stored.runtime.fireCount) {
+        tx.set(watcherPath, absorbedRuntime(current, signal, now, false));
+      }
+      return 'duplicate';
+    }
     if (!current.definition.enabled) return 'paused';
     if (await isMonitoringPaused(definition.scopeId, storage, tx)) {
       tx.set(watcherPath, absorbedRuntime(current, signal, now, false));
@@ -343,14 +401,21 @@ async function commitFiring(
     }
     const artifact = effectArtifact(current, signal, now, eventId);
     const event = fireEvent(
-      current, signal, now, 'effected', watchConditionReason(current.definition.condition), decision.decision,
+      current, signal, eventId, now, 'effected', watchConditionReason(current.definition.condition), decision.decision,
       artifact?.ref ?? null,
     );
     tx.create(eventPath, event);
     tx.set(watcherPath, absorbedRuntime(current, signal, now, true));
     if (artifact) tx.create(artifact.path, artifact.value);
+    firing = {
+      scopeId: current.definition.scopeId,
+      watcherId: current.definition.watcherId,
+      effect: current.definition.effect,
+      effectRef: artifact?.ref ?? null,
+    };
     return 'fired';
   });
+  return { result, firing: result === 'fired' ? firing : null };
 }
 
 /** The counters one watcher's turn may increment. `remaining` and `failures` are the sweep's own. */
@@ -369,6 +434,7 @@ async function evaluateOne(
   now: string,
   storage: StorageAdapter,
   registry: WatcherSignalRegistry,
+  onFired?: WatcherSweepOptions['onFired'],
 ): Promise<readonly WatcherSweepCounter[]> {
   const { definition, runtime } = row;
   const connection = definition.source.connectionId === null
@@ -410,8 +476,12 @@ async function evaluateOne(
     return ['evaluated'];
   }
 
-  const result = await commitFiring(row, signal, now, storage);
-  if (result === 'fired') return ['evaluated', 'fired'];
+  const { result, firing } = await commitFiring(row, signal, now, storage);
+  if (result === 'fired') {
+    // After the commit: the firing is recorded whether or not delivery works.
+    if (firing && onFired) await onFired(firing);
+    return ['evaluated', 'fired'];
+  }
   if (result === 'policy_blocked') return ['evaluated', 'policyBlocked'];
   if (result === 'duplicate') return ['evaluated', 'duplicates'];
   if (result === 'paused') return ['evaluated', 'paused'];
@@ -487,7 +557,7 @@ export async function runWatcherSweep(options: WatcherSweepOptions = {}): Promis
     try {
       const { scopeId, source } = row.stored.definition;
       if (options.skip && await options.skip({ scopeId, signalKind: source.signalKind })) continue;
-      for (const counter of await evaluateOne(row.stored, now, storage, registry)) {
+      for (const counter of await evaluateOne(row.stored, now, storage, registry, options.onFired)) {
         totals[counter] += 1;
       }
     } catch (error) {

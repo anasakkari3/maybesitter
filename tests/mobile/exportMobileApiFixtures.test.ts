@@ -45,7 +45,7 @@ import { setRecommendationConsent } from '../../lib/consents/recommendationConse
 import { createStorageFeedbackEventStore } from '../../lib/feedback/feedbackEventStore.ts';
 import { createMemoryStorage } from '../../lib/storage/memoryAdapter.ts';
 import { getStorage, resetStorageForTests, setStorageForTests } from '../../lib/storage/index.ts';
-import { COMMITMENTS, EVENTS, docIdForKey, footballClubSyncStateDoc, userDoc, userSubDoc, WATCHER_EVENTS, WATCHERS, ICS_FEEDS, ICS_FEED_ITEMS } from '../../lib/storage/paths.ts';
+import { COMMITMENTS, EVENTS, docIdForKey, footballClubSyncStateDoc, userDoc, userSubDoc, WATCHER_EVENTS, WATCHER_PROPOSALS, WATCHERS, ICS_FEEDS, ICS_FEED_ITEMS } from '../../lib/storage/paths.ts';
 import { setPersonalizationConsent } from '../../lib/consents/personalizationConsentService.ts';
 import { POST as memorySuggestionPost } from '../../src/app/api/mobile/memory/suggestions/[ruleId]/route.ts';
 import { GET as financialContextGet } from '../../src/app/api/mobile/financial/context/route.ts';
@@ -219,6 +219,8 @@ import { GET as watchersGet, POST as watchersPost } from '../../src/app/api/mobi
 import { GET as footballGet } from '../../src/app/api/mobile/football/route.ts';
 import { GET as backgroundActivityGet } from '../../src/app/api/mobile/trust/background-activity/route.ts';
 import { POST as watcherPausePost } from '../../src/app/api/mobile/watchers/[id]/pause/route.ts';
+import { GET as watcherProposalsGet } from '../../src/app/api/mobile/watchers/proposals/route.ts';
+import { POST as watcherProposalDecide } from '../../src/app/api/mobile/watchers/proposals/[id]/route.ts';
 import { GET as weeklyBlocksGet, POST as weeklyBlocksPost } from '../../src/app/api/mobile/weekly-blocks/route.ts';
 import { DELETE as weeklyBlockDelete, PATCH as weeklyBlockPatch } from '../../src/app/api/mobile/weekly-blocks/[id]/route.ts';
 import { GET as weeklyOccurrencesGet } from '../../src/app/api/mobile/weekly-blocks/occurrences/route.ts';
@@ -3353,6 +3355,32 @@ test('exports a fixture for every /api/mobile call the React Native client makes
       params(watcherId),
     ));
     await record('watchers.list', 200, await watchersGet(request('/api/mobile/watchers', { uid: WATCHER_USER })));
+
+    // ── a watcher's «اقترح التزام», shown and decided (QA CA6.1) ───
+    // The document a `propose_commitment` firing writes, then the list the
+    // Watching tab reads and the two answers it can send.
+    const PROPOSAL_ID = `wpr_${'c'.repeat(64)}`;
+    const DISMISSED_ID = `wpr_${'d'.repeat(64)}`;
+    for (const proposalId of [PROPOSAL_ID, DISMISSED_ID]) {
+      await getStorage().set(userSubDoc(WATCHER_USER, WATCHER_PROPOSALS, proposalId), {
+        schemaVersion: 'watcher-proposal-v1', proposalId, watcherId, scopeId: WATCHER_USER, state: 'proposed',
+        signalKind: 'readiness', subjectRef: 'self', reason: 'digest_changed',
+        proposedAt: '2026-11-15T08:00:00.000Z', provenanceRef: 'userState/readiness',
+      });
+    }
+    const proposals = await record('watchers.proposals', 200, await watcherProposalsGet(
+      request('/api/mobile/watchers/proposals', { uid: WATCHER_USER }),
+    ));
+    assert.equal((proposals.proposals as unknown[]).length, 2);
+    const accepted = await record('watchers.proposal.accepted', 200, await watcherProposalDecide(
+      request(`/api/mobile/watchers/proposals/${PROPOSAL_ID}`, { body: { decision: 'accept', title: 'Take a short walk' }, uid: WATCHER_USER }),
+      params(PROPOSAL_ID),
+    ));
+    assert.equal((accepted.proposal as { state: string }).state, 'accepted');
+    await record('watchers.proposal.dismissed', 200, await watcherProposalDecide(
+      request(`/api/mobile/watchers/proposals/${DISMISSED_ID}`, { body: { decision: 'dismiss' }, uid: WATCHER_USER }),
+      params(DISMISSED_ID),
+    ));
 
     // ── football as a watcher source (closure CL7) ──────────────────
     // Recorded twice: the server with no match data key (the real state of

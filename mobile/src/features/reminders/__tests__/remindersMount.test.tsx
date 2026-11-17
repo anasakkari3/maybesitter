@@ -412,6 +412,23 @@ describe('tapping the morning plan push', () => {
   });
 });
 
+/*
+ * ── A watcher alert opens Background activity (QA CA6.1) ───────────
+ *
+ * A `notify` watcher's firing is pushed as `watcher_alert` with identifiers
+ * only. The tap lands where the firing is listed: Background activity.
+ */
+describe('tapping a watcher alert', () => {
+  it('opens Background activity when the tap launched the app', async () => {
+    jest.spyOn(notifications, 'getLastNotificationResponseAsync')
+      .mockResolvedValue(response({ kind: 'watcher_alert', dedupeKey: 'watcher:abc' }));
+
+    const view = await mount();
+
+    await waitFor(() => expect(view.getByTestId('location').props.children).toBe('backgroundActivity|'));
+  });
+});
+
 describe('the buttons on a reminder (#200)', () => {
   const tapData = { commitmentId: commitment.id, stage: 'soft', notificationId: `${commitment.id}:soft` };
   const actionResult = { value: { success: true, id: commitment.id, commitment }, etag: null } as never;

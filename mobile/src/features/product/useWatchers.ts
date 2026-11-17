@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useUid } from '../../api/queries';
-import { createFootballWatcher, createReadinessWatcher, deleteWatcher, getMonitoringSettings, listWatchers, pauseWatcher, putMonitoringSettings } from '../../api/endpoints/watchers';
+import { createFootballWatcher, createReadinessWatcher, decideWatcherProposal, deleteWatcher, getMonitoringSettings, listWatcherProposals, listWatchers, pauseWatcher, putMonitoringSettings, type WatcherProposalAnswer } from '../../api/endpoints/watchers';
 import {
   getBackgroundActivity,
   getBackgroundActivityHistory,
@@ -16,6 +16,27 @@ export const backgroundActivityHistoryKey = (
   filters?: { watcherId?: string | undefined; kind?: string | undefined },
 ) => ['user', uid, 'backgroundActivityHistory', filters] as const;
 export const backgroundAttributionKey = (uid: string) => ['user', uid, 'backgroundAttribution'] as const;
+export const watcherProposalsKey = (uid: string) => ['user', uid, 'watcherProposals'] as const;
+
+/** The open «اقترح التزام» proposals (QA CA6.1). */
+export function useWatcherProposals() {
+  const uid = useUid();
+  return useQuery({ queryKey: watcherProposalsKey(uid), queryFn: listWatcherProposals, enabled: uid !== 'signed-out' });
+}
+
+/** One answer per proposal. Never retried: an accept replayed without the person is a confirm nobody gave. */
+export function useDecideWatcherProposal() {
+  const uid = useUid();
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { id: string; answer: WatcherProposalAnswer }) => decideWatcherProposal(input.id, input.answer),
+    retry: false,
+    onSettled: () => {
+      void client.invalidateQueries({ queryKey: watcherProposalsKey(uid) });
+      void client.invalidateQueries({ queryKey: ['user', uid, 'commitments'] });
+    },
+  });
+}
 export function useWatchers() {
   const uid = useUid();
   return useQuery({ queryKey: watcherKey(uid), queryFn: listWatchers, enabled: uid !== 'signed-out' });

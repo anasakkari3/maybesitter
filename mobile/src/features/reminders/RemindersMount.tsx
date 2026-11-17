@@ -211,6 +211,8 @@ export function RemindersMount(): null {
     if (route.kind === 'commitment') latest.current.actions.arriveAtDetail(route.commitmentId);
     // `plan_ready` (#194) opens the day it names on the plan screen (#195).
     else if (route.kind === 'plan') latest.current.actions.arriveAtPlan(route.planDate);
+    // A watcher alert (QA CA6.1) opens Background activity.
+    else if (route.kind === 'screen') latest.current.actions.arriveAt(route.screen);
     else latest.current.actions.arriveAt('today');
   }, []);
 
