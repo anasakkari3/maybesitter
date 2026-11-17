@@ -105,3 +105,43 @@ test('NA2.3: the correction is logged content-free, with no words of the capture
     console.info = info;
   }
 });
+
+/* ── Review: a weekday name that is part of a name, and the clock change ── */
+
+for (const text of [
+  'Pay the Sunday school fee at 5pm',
+  'call Saturday Night Live at 5pm',
+  'Monday.com meeting at 5pm',
+]) {
+  test(`NA2.3 review: a weekday that is part of a name or a modifier is not a day — «${text}» keeps the model's date`, () => {
+    const result = validateExtractionResult(model('item', '2026-11-12', '17:00'), text, context);
+    assert.equal(result.localTimeSpec?.date, '2026-11-12');
+    assert.notEqual(result.weekdayCorrected, true);
+  });
+}
+
+test('NA2.3 review: a weekday said as a day is still corrected — "on Sunday at 5pm", "Sunday night at 9pm"', () => {
+  for (const [text, time] of [['Dentist on Sunday at 5pm', '17:00'], ['Call mom Sunday night at 9pm', '21:00'], ['Sunday at 5pm call mom', '17:00']] as const) {
+    const result = validateExtractionResult(model('item', '2026-11-16', time), text, context);
+    assert.equal(result.localTimeSpec?.date, '2026-11-15', text);
+    assert.equal(result.weekdayCorrected, true, text);
+  }
+});
+
+test('NA2.3 review: a correction across the clock change keeps the hour on the person\'s clock', () => {
+  // New York leaves daylight time on Sunday 1 November 2026; Jerusalem on
+  // Sunday 25 October 2026. The model's Saturday is before the change, the
+  // named Sunday after it: the same 09:00 is a different UTC hour.
+  for (const [zone, now, text, modelDate, expected] of [
+    ['America/New_York', '2026-10-29T14:00:00.000Z', 'Dentist on Sunday at 9am', '2026-10-31', '2026-11-01'],
+    ['Asia/Jerusalem', '2026-10-22T06:00:00.000Z', 'يوم الأحد الساعة 9 الصبح موعد دكتور', '2026-10-24', '2026-10-25'],
+  ] as const) {
+    const raw = { ...model('item', modelDate, '09:00'), dueAt: instantFromLocal(modelDate, '09:00', zone)!.toISOString(), localTimeSpec: { date: modelDate, time: '09:00', timezone: zone } };
+    const result = validateExtractionResult(raw, text, { now: new Date(now), timezone: zone });
+    assert.equal(result.localTimeSpec?.date, expected, zone);
+    assert.equal(result.localTimeSpec?.time, '09:00', zone);
+    assert.equal(result.dueAt, instantFromLocal(expected, '09:00', zone)!.toISOString(), zone);
+    const before = Date.parse(raw.dueAt);
+    assert.notEqual(Date.parse(result.dueAt!) - before, 86_400_000, `${zone}: moved by local days, not by 24 hours`);
+  }
+});
