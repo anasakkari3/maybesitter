@@ -138,3 +138,29 @@ test('two pieces go on two different days, the second in the first one\'s part o
   );
   assert.equal(pickSessions([wedMorning, wedEvening], approach, { timezone: TZ, deadlineAt: null }), null);
 });
+
+test('with a deadline, no session of a split plan ends after it', () => {
+  const deadlineAt = '2026-10-08T09:00:00.000Z'; // Thu 12:00
+  const approach = chooseApproach({
+    current: miss('2026-10-06T14:00:00.000Z', 90),
+    history: [miss('2026-10-05T06:00:00.000Z', 90)],
+    deadlineAt, now: NOW,
+  });
+  assert.equal(approach.sessions, 2);
+  const wed = slot('2026-10-07T08:00:00.000Z', 45);
+  const thuEarly = slot('2026-10-08T07:00:00.000Z', 45); // ends 10:45 local, before noon
+  const thuLate = slot('2026-10-08T08:30:00.000Z', 45); // ends 12:15 local, after the deadline
+  assert.deepEqual(pickSessions([wed, thuEarly, thuLate], approach, { timezone: TZ, deadlineAt }), [wed, thuEarly]);
+  assert.equal(pickSessions([wed, thuLate], approach, { timezone: TZ, deadlineAt }), null);
+});
+
+test('work with no stated length is never split; its time of day changes instead', () => {
+  const approach = chooseApproach({
+    current: miss('2026-10-06T14:00:00.000Z', 90),
+    history: [miss('2026-10-05T06:00:00.000Z', 90)],
+    deadlineAt: null, now: NOW, splittable: false,
+  });
+  assert.equal(approach.sessions, 1);
+  assert.equal(approach.minutesEach, 90);
+  assert.deepEqual(approach.changes, ['other_time_of_day']);
+});

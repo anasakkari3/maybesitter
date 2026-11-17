@@ -2230,5 +2230,7 @@
   "rsAcceptedLine": "Moved to its new time.",
   "rsUndo": "Put it back",
   "rsUndoHint": "You can put it back as it was for 24 hours.",
-  "rsUndone": "Back as it was."
+  "rsUndone": "Back as it was.",
+  "rsLineOtherTimeMixed": "Missed more than once, so we're trying a different time: the {to}.",
+  "rsDecline": "No, thanks"
 }

@@ -6,6 +6,7 @@
 import React from 'react';
 import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
 import { fireEvent, render } from '@testing-library/react-native';
+import { AccessibilityInfo, Platform } from 'react-native';
 import { AppProvider } from '../../../state/AppContext';
 import { strings } from '../../../i18n/strings';
 import { rescheduleListSchema, type RescheduleList } from '../../../api/schemas/reschedule';
@@ -60,9 +61,11 @@ describe('RescheduleCard', () => {
     });
   });
 
-  it('«مش هلّق» dismisses without a proposal id', async () => {
+  it('«لا، شكراً» declines without a proposal id', async () => {
     mockData = proposalList;
     const view = await render(<AppProvider><RescheduleCard /></AppProvider>);
+    expect(view.getByText(t.rsDecline)).toBeTruthy();
+    expect(view.queryByText(t.notNow)).toBeNull();
     await fireEvent.press(view.getByTestId('reschedule-dismiss'));
     expect(mockMutate.mock.calls[0]![0]).toEqual({ commitmentId: proposalList.proposal!.commitmentId, action: 'dismiss' });
   });
@@ -77,6 +80,30 @@ describe('RescheduleCard', () => {
   });
 });
 
+describe('RescheduleCard for a screen reader', () => {
+  it('reads the suggestion as one element, buttons apart', async () => {
+    mockData = proposalList;
+    const view = await render(<AppProvider><RescheduleCard /></AppProvider>);
+    const summary = view.getByTestId('reschedule-summary');
+    expect(summary.props.accessible).toBe(true);
+    const label = String(summary.props.accessibilityLabel);
+    for (const part of [t.rsTag, proposalList.proposal!.title, t.rsLineFirst, t.suggestionNote]) expect(label).toContain(part);
+  });
+
+  it('announces the success after «اقبل»', async () => {
+    const spy = jest.spyOn(AccessibilityInfo, 'announceForAccessibility').mockImplementation(() => {});
+    spy.mockClear();
+    mockData = proposalList;
+    const view = await render(<AppProvider><RescheduleCard /></AppProvider>);
+    await fireEvent.press(view.getByTestId('reschedule-accept'));
+    const options = mockMutate.mock.calls[0]![1] as { onSuccess: () => void };
+    options.onSuccess();
+    if (Platform.OS === 'ios') expect(spy).toHaveBeenCalledWith(t.rsAcceptedLine);
+    else expect(spy).not.toHaveBeenCalled();
+    spy.mockRestore();
+  });
+});
+
 describe('rescheduleLine', () => {
   const base = { fromDayPart: 'evening', toDayPart: 'morning' } as const;
   it.each(['ar', 'en', 'he'] as const)('words every reason in %s, and never says "overdue"', (lang) => {
@@ -87,9 +114,12 @@ describe('rescheduleLine', () => {
     const other = rescheduleLine({ ...base, reason: 'same_time_again', changes: ['other_time_of_day'] }, s);
     expect(other).toContain(s.rsPartEvening);
     expect(other).toContain(s.rsPartMorning);
+    const mixed = rescheduleLine({ ...base, reason: 'missed_again', changes: ['other_time_of_day'] }, s);
+    expect(mixed).toBe(s.rsLineOtherTimeMixed.replace('{to}', s.rsPartMorning));
+    expect(mixed).not.toContain(s.rsPartEvening);
     const both = rescheduleLine({ ...base, reason: 'same_time_again', changes: ['other_time_of_day', 'smaller_pieces'] }, s);
     expect(both).not.toBe(other);
-    for (const line of [other, both, s.rsLineFirst, s.rsLineSplit, s.rsLineEarlier]) {
+    for (const line of [other, mixed, both, s.rsLineFirst, s.rsLineSplit, s.rsLineEarlier]) {
       expect(line).not.toMatch(/متأخر|overdue|late|באיחור/i);
       expect(line).not.toMatch(/\{/);
     }

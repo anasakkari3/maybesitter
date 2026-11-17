@@ -1,5 +1,5 @@
 import React from 'react';
-import { View } from 'react-native';
+import { AccessibilityInfo, Platform, View } from 'react-native';
 import type { RescheduleProposal } from '../../api/schemas/reschedule';
 import { userFacingMessage } from '../../api/ui/userFacingMessage';
 import { formatRelativeDay, formatTimeRange } from '../../i18n/format';
@@ -42,53 +42,67 @@ export function RescheduleCard() {
 
 type Decide = ReturnType<typeof useDecideReschedule>;
 
+function sessionText(session: Session, lang: ReturnType<typeof useApp>['lang'], timeZone: string): string {
+  const day = formatRelativeDay(new Date(session.startsAt), { locale: lang, timeZone });
+  const range = formatTimeRange(new Date(session.startsAt), new Date(session.endsAt), { locale: lang, timeZone });
+  return `${isolateAuto(day)} · ${range}`;
+}
+
 function SessionLines({ sessions, testID }: { sessions: readonly Session[]; testID: string }) {
   const { lang, p } = useApp();
   const timeZone = useTimeZone();
   return (
     <View style={{ gap: 2 }}>
-      {sessions.map((session, index) => {
-        const day = formatRelativeDay(new Date(session.startsAt), { locale: lang, timeZone });
-        const range = formatTimeRange(new Date(session.startsAt), new Date(session.endsAt), { locale: lang, timeZone });
-        return (
-          <Txt key={session.startsAt} size={15} weight={600} color={p.tx} testID={`${testID}-${index}`}>
-            {`${isolateAuto(day)} · ${range}`}
-          </Txt>
-        );
-      })}
+      {sessions.map((session, index) => (
+        <Txt key={session.startsAt} size={15} weight={600} color={p.tx} testID={`${testID}-${index}`}>
+          {sessionText(session, lang, timeZone)}
+        </Txt>
+      ))}
     </View>
   );
 }
 
 function ProposalView({ proposal, decide }: { proposal: RescheduleProposal; decide: Decide }) {
-  const { t, actions } = useApp();
+  const { t, actions, lang } = useApp();
   const p = useReferencePalette();
   const line = rescheduleLine(proposal, t);
+  const timeZone = useTimeZone();
+  const summary = [t.rsTag, proposal.title, line, ...proposal.sessions.map((session) => sessionText(session, lang, timeZone)), t.suggestionNote].join('. ');
   const busy = decide.isPending;
   const act = (action: 'accept' | 'dismiss') => decide.mutate(
     { commitmentId: proposal.commitmentId, action, ...(action === 'accept' ? { proposalId: proposal.proposalId } : {}) },
     {
-      onSuccess: () => { if (action === 'accept') actions.toast(t.rsAcceptedLine); },
+      onSuccess: () => {
+        if (action !== 'accept') return;
+        actions.toast(t.rsAcceptedLine);
+        // The toast is a live region, which TalkBack hears; VoiceOver has
+        // none, so it is told here (the `useAnnounceOnIos` rule).
+        if (Platform.OS === 'ios') AccessibilityInfo.announceForAccessibility(t.rsAcceptedLine);
+      },
       onError: (error) => actions.toast(userFacingMessage(error, t)),
     },
   );
   return (
     <ReferenceCard pad={18} testID="reschedule-card">
-      <Tag kind="proposal" label={t.rsTag} testID="reschedule-tag" />
-      <Txt role="section" size={17} weight={700} color={p.tx} lines={2} testID="reschedule-title">{proposal.title}</Txt>
-      <Txt size={15} color={p.mu} lh={1.6} testID="reschedule-line">{line}</Txt>
-      <SessionLines sessions={proposal.sessions} testID="reschedule-session" />
-      <Txt size={13} color={p.mu} testID="reschedule-note">{t.suggestionNote}</Txt>
+      {/* One stop for a screen reader: what, why, when, and that it is only
+          a suggestion; the two buttons stay their own stops. */}
+      <View accessible accessibilityLabel={summary} testID="reschedule-summary" style={{ gap: 12 }}>
+        <Tag kind="proposal" label={t.rsTag} testID="reschedule-tag" accessible={false} />
+        <Txt role="section" size={17} weight={700} color={p.tx} lines={2} testID="reschedule-title">{proposal.title}</Txt>
+        <Txt size={15} color={p.mu} lh={1.6} testID="reschedule-line">{line}</Txt>
+        <SessionLines sessions={proposal.sessions} testID="reschedule-session" />
+        <Txt size={13} color={p.mu} testID="reschedule-note">{t.suggestionNote}</Txt>
+      </View>
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, borderTopWidth: 1, borderTopColor: p.ln, paddingTop: 10 }}>
         <Btn testID="reschedule-accept" label={t.accept} disabled={busy} accessibilityState={{ disabled: busy }}
           onPress={busy ? undefined : () => act('accept')}
           style={{ flexGrow: 1, flexBasis: 120, minHeight: 48, paddingVertical: 10, paddingHorizontal: 14, borderRadius: 999, backgroundColor: p.ac, alignItems: 'center', justifyContent: 'center' }}>
           <Txt size={15} weight={600} color={p.onAccent}>{t.accept}</Txt>
         </Btn>
-        <Btn testID="reschedule-dismiss" label={t.notNow} disabled={busy} accessibilityState={{ disabled: busy }}
+        <Btn testID="reschedule-dismiss" label={t.rsDecline} disabled={busy} accessibilityState={{ disabled: busy }}
           onPress={busy ? undefined : () => act('dismiss')}
           style={{ flexGrow: 1, flexBasis: 110, minHeight: 48, paddingVertical: 10, paddingHorizontal: 18, borderRadius: 999, borderWidth: 1, borderColor: p.ln, backgroundColor: p.sf2, alignItems: 'center', justifyContent: 'center' }}>
-          <Txt size={14} weight={500} color={p.mu}>{t.notNow}</Txt>
+          <Txt size={14} weight={500} color={p.mu}>{t.rsDecline}</Txt>
         </Btn>
       </View>
     </ReferenceCard>

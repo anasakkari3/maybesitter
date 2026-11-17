@@ -86,6 +86,8 @@ export function chooseApproach(input: {
   history: readonly MissRecord[];
   deadlineAt: string | null;
   now: string;
+  /** False for work whose length nobody stated: it changes time of day instead of being split. */
+  splittable?: boolean;
 }): RescheduleApproach {
   const all = withMiss(input.history, input.current);
   const missCount = all.length;
@@ -96,7 +98,7 @@ export function chooseApproach(input: {
   const deadlineNear = input.deadlineAt !== null
     && Date.parse(input.deadlineAt) - Date.parse(input.now) <= DEADLINE_NEAR_MS;
   const sameTimeAgain = (counts.get(input.current.dayPart) ?? 0) >= 2;
-  const split = missCount >= 2 && minutes >= SPLIT_FROM_MINUTES;
+  const split = (input.splittable ?? true) && missCount >= 2 && minutes >= SPLIT_FROM_MINUTES;
   // Every repeated miss changes something. Too short to split and never
   // missed twice in one part of the day: the time of day is what changes.
   const otherTime = sameTimeAgain || (missCount >= 2 && !split);

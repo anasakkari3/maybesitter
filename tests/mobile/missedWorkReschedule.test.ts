@@ -13,6 +13,7 @@ import {
   addCommitment,
   addEvent,
   addTimedDeadline,
+  postponeLegacy,
   at,
   begin,
   call,
@@ -262,21 +263,83 @@ test('a repeated miss splits long work into two smaller pieces; undo removes the
   });
 });
 
-test('work that gains an end stays work, not an appointment that leaves Today', async () => {
+test('a task with no stated end or kind keeps both when accepted, and is never cut into pieces', async () => {
   await scenario(async (uid) => {
     // An hour with no end and no stored kind: a task by its title (E1's fallback).
     const id = await addCommitment(uid, 'أدرس فيزيا', { kind: 'scheduled_event', dueAt: at(YESTERDAY, '18:00'), allDay: false });
+    const before = await commitment(uid, id);
+    assert.equal(before.timeSpec.itemKind, undefined);
     const first = (await list(uid)).body.proposal;
+    assert.equal(first.commitmentId, id);
     await decide(uid, id, { action: 'accept', proposalId: first.proposalId, clientActionId: IDS[0] });
-    assert.equal((await commitment(uid, id)).timeSpec.endAt, null, 'an unchanged length keeps no end');
+    const moved = await commitment(uid, id);
+    assert.equal(moved.timeSpec.endAt, null, 'no end is invented');
+    assert.equal(moved.timeSpec.itemKind, undefined, 'accepting never changes what the item is');
+    assert.equal(isEventCommitment(moved), false);
     mock.timers.setTime(Date.parse(at('2026-10-09', '07:00')));
     const second = (await list(uid)).body.proposal;
-    assert.equal(second.minutesEach, 15);
+    assert.equal(second.missCount, 2);
+    assert.equal(second.sessions.length, 1, 'a length nobody stated is not split');
+    assert.ok(second.changes.includes('other_time_of_day'));
+    assert.ok(!second.changes.includes('smaller_pieces'));
     await decide(uid, id, { action: 'accept', proposalId: second.proposalId, clientActionId: IDS[1] });
-    const moved = await commitment(uid, id);
-    assert.equal(moved.timeSpec.endAt, second.sessions[0].endsAt);
-    assert.equal(moved.timeSpec.itemKind, 'task');
-    assert.equal(isEventCommitment(moved), false);
+    const again = await commitment(uid, id);
+    assert.equal(again.timeSpec.itemKind, undefined);
+    assert.equal(again.timeSpec.endAt, null);
+  });
+});
+
+test('a goal-plan session is split into pieces of the same kind, with nothing added to what it is', async () => {
+  await scenario(async (uid) => {
+    const id = await addCommitment(uid, 'أتمرّن', {
+      kind: 'due_by', dueAt: at(YESTERDAY, '09:00'), endAt: at(YESTERDAY, '10:30'), remindAt: at(YESTERDAY, '09:00'), allDay: false, windowRule: 'shift',
+    });
+    const first = (await list(uid)).body.proposal;
+    assert.equal(first.commitmentId, id);
+    await decide(uid, id, { action: 'accept', proposalId: first.proposalId, clientActionId: IDS[0] });
+    mock.timers.setTime(Date.parse(at('2026-10-09', '07:00')));
+    const second = (await list(uid)).body.proposal;
+    assert.equal(second.sessions.length, 2);
+    await decide(uid, id, { action: 'accept', proposalId: second.proposalId, clientActionId: IDS[1] });
+    const active = (await allCommitments(uid)).filter((row) => row.status === 'active');
+    assert.equal(active.length, 2);
+    for (const row of active) {
+      assert.equal(row.timeSpec.kind, 'due_by');
+      assert.equal(row.timeSpec.windowRule, 'shift');
+      assert.equal(row.timeSpec.itemKind, undefined);
+    }
+  });
+});
+
+test('an item capture was unsure about is never treated as missed work', async () => {
+  await scenario(async (uid) => {
+    await addCommitment(uid, 'سامي', { kind: 'scheduled_event', dueAt: at(YESTERDAY, '18:00'), endAt: at(YESTERDAY, '19:00'), allDay: false, itemKind: 'unsure' });
+    await addCommitment(uid, 'أتصل', { kind: 'scheduled_event', dueAt: at(YESTERDAY, '12:00'), allDay: false, itemKind: 'unsure' });
+    assert.equal((await list(uid)).body.proposal, null);
+  });
+});
+
+test('undo restores a deliberate postpone exactly, and the proposal does not come straight back', async () => {
+  await scenario(async (uid) => {
+    // Tuesday noon: the session from 09:00 is put off to 18:00 on purpose («لسّا»).
+    mock.timers.setTime(Date.parse(at(YESTERDAY, '12:00')));
+    const id = await addStudy(uid, YESTERDAY, '09:00', '10:00');
+    await postponeLegacy(uid, id, at(YESTERDAY, '18:00'));
+    // Wednesday: it was missed at 18:00 too.
+    mock.timers.setTime(Date.parse(at(TODAY, '10:00')));
+    const before = await commitment(uid, id);
+    assert.equal(before.postponedUntil, at(YESTERDAY, '18:00'));
+    const proposal = (await list(uid)).body.proposal;
+    assert.equal(proposal.missedAt, at(YESTERDAY, '18:00'));
+    await decide(uid, id, { action: 'accept', proposalId: proposal.proposalId, clientActionId: IDS[0] });
+    const undone = await decide(uid, id, { action: 'undo', clientActionId: IDS[1] });
+    assert.equal(undone.status, 200, JSON.stringify(undone.body));
+    const back = await commitment(uid, id);
+    assert.equal(back.postponedUntil, before.postponedUntil);
+    assert.equal(back.currentAckState, before.currentAckState);
+    assert.deepEqual(back.timeSpec, before.timeSpec);
+    assert.equal(back.status, 'active');
+    assert.equal((await list(uid)).body.proposal, null);
   });
 });
 

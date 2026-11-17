@@ -99,7 +99,12 @@ interface AcceptedPlan {
   undoUntil: string;
   missedAt: string;
   /** The commitment's time before the plan, restored by undo. */
-  before: { dueAt: string | null; endAt: string | null; remindAt: string | null; itemKind: TimeSpec['itemKind'] | null };
+  before: {
+    dueAt: string | null; endAt: string | null; remindAt: string | null; itemKind: TimeSpec['itemKind'] | null;
+    /** A deliberate «لسّا» the work carried when it was missed; undo puts it back exactly. */
+    postponedUntil: string | null;
+    currentAckState: Commitment['currentAckState'];
+  };
   sessions: Interval[];
   /** A second piece the plan added, removed by undo. */
   createdIds: string[];
@@ -123,6 +128,9 @@ function recordPath(uid: string, commitmentId: string): string {
 function isWorkSession(row: Commitment): boolean {
   const spec = row.timeSpec;
   if (spec.allDay || !spec.dueAt) return false;
+  // Capture could not tell whether it is an appointment (lane E1, owner
+  // decision 2026-11-14): never rescheduled as missed work on a guess.
+  if (spec.itemKind === 'unsure') return false;
   if (spec.kind === 'scheduled_event') return !isEventCommitment(row);
   return spec.kind === 'due_by' && spec.windowRule === 'shift' && Boolean(spec.endAt);
 }
@@ -192,7 +200,20 @@ async function compute(
   const minutesBefore = clockLengthOf(row);
   const current: MissRecord = { startsAt: missedAt, durationMinutes: minutesBefore, dayPart: dayPartOf(missedAt, context.timezone) };
   const history = record?.misses ?? [];
-  const approach = chooseApproach({ current, history, deadlineAt: null, now: context.now.toISOString() });
+  // ── No deadline is read here, deliberately (review of 47f89af8) ──
+  // The engine bounds every session by a deadline and starts earlier when one
+  // is near (`chooseApproach`, `pickSessions`), but nothing in the data model
+  // ties the work rescheduled here to one: a `scheduled_event` task names no
+  // deadline, a goal-plan session's goal has none by design ("no invented
+  // deadlines", goalGraphContracts.ts), and no commitment has a parent. A
+  // plain `due_by` whose time passed *is* a missed deadline, which goes to
+  // «ما اتصرّفت فيها» (lane E2), not here. When such a link exists, it is
+  // passed as `deadlineAt` in both calls below.
+  const deadlineAt: string | null = null;
+  // A length nobody stated (no end: the 30-minute default) is never cut into
+  // pieces — and the end a piece would need would turn an item with no stored
+  // kind into an appointment (`isEventCommitment`).
+  const approach = chooseApproach({ current, history, deadlineAt, now: context.now.toISOString(), splittable: Boolean(row.timeSpec.endAt) });
   const schedule = { ...context.schedule, commitments: context.schedule.commitments.filter((other) => other.id !== row.id) };
   const free = await findFreeSlots({
     policy: 'capture', uid, timezone: context.timezone, now: context.now.toISOString(), dates: context.dates,
@@ -201,7 +222,7 @@ async function compute(
   });
   const checked = free.filter((slot) => candidateClashes(schedule, { dueAt: slot.startsAt, endAt: slot.endsAt, kind: 'scheduled_event' },
     { excludeCommitmentIds: [row.id] }).state === 'free');
-  const sessions = pickSessions(checked, approach, { timezone: context.timezone, deadlineAt: null });
+  const sessions = pickSessions(checked, approach, { timezone: context.timezone, deadlineAt });
   if (!sessions) return null;
   return {
     version: versionOf(row),
@@ -337,18 +358,13 @@ function applyAll(state: DomainState, commands: readonly Command[]): { state: Do
 function acceptCommands(row: Commitment, sessions: readonly Interval[], missedAt: string, now: string): { commands: Command[]; createdIds: string[] } {
   const spec = row.timeSpec;
   const first = sessions[0]!;
-  const lengthChanged = minutesOf(first) !== clockLengthOf(row);
-  // An end on a `scheduled_event` with no stored kind would read it as an
-  // appointment (`isEventCommitment`), and an appointment that is over
-  // leaves Today. Work given an end says it is work.
-  const needsEnd = Boolean(spec.endAt) || lengthChanged;
+  // What the item is (`itemKind`) is never changed, and no end is invented:
+  // only work with a stated end is ever split (see `compute`), so a session
+  // shorter than before always has an end to shorten.
   const commands: Command[] = [{
     type: 'Postpone', commitmentId: row.id, postponedUntil: first.startsAt, now,
-    moveInterval: { dueAt: first.startsAt, endAt: needsEnd ? first.endsAt : null, remindAt: spec.remindAt ? first.startsAt : null },
+    moveInterval: { dueAt: first.startsAt, endAt: spec.endAt ? first.endsAt : null, remindAt: spec.remindAt ? first.startsAt : null },
   }];
-  if (needsEnd && spec.kind === 'scheduled_event' && spec.itemKind !== 'task') {
-    commands.push({ type: 'UpdateCommitment', commitmentId: row.id, now, updates: { timeSpec: { itemKind: 'task' } } });
-  }
   const createdIds: string[] = [];
   sessions.slice(1).forEach((session, index) => {
     const id = pieceId(row.id, missedAt, index + 1);
@@ -361,7 +377,7 @@ function acceptCommands(row: Commitment, sessions: readonly Interval[], missedAt
         timeSpec: {
           kind: spec.kind, dueAt: session.startsAt, endAt: session.endsAt, remindAt: session.startsAt, allDay: false, timezone: spec.timezone,
           ...(spec.windowRule === 'shift' ? { windowRule: 'shift' as const } : {}),
-          ...(spec.kind === 'scheduled_event' ? { itemKind: 'task' as const } : {}),
+          ...(spec.itemKind ? { itemKind: spec.itemKind } : {}),
         },
       },
     }, { type: 'ConfirmCommitment', commitmentId: id, now });
@@ -426,7 +442,6 @@ async function decide(
       const plan = record.accepted;
       if (!plan || !undoable(record, state, now)) throw new UndoUnavailableError();
       const commands: Command[] = plan.createdIds.map((pieceIdValue) => ({ type: 'Delete', commitmentId: pieceIdValue, now: at }));
-      if (row.postponedUntil) commands.push({ type: 'MarkAware', commitmentId: id, now: at });
       commands.push({
         type: 'UpdateCommitment', commitmentId: id, now: at,
         updates: { timeSpec: {
@@ -436,7 +451,13 @@ async function decide(
           itemKind: plan.before.itemKind ?? undefined,
         } },
       });
-      transition = applyAll(state, commands);
+      const applied = applyAll(state, commands);
+      // No command can set a postpone that is already in the past (`Postpone`
+      // refuses one), so the deliberate «لسّا» the work had is put back from
+      // the snapshot, in the same diff as the commands' own changes.
+      const restored = applied.state.commitments[id]!;
+      applied.state.commitments[id] = { ...restored, postponedUntil: plan.before.postponedUntil, currentAckState: plan.before.currentAckState };
+      transition = applied;
       next = { ...record, dismissedMissAt: plan.missedAt, accepted: { ...plan, undoneAt: at }, updatedAt: at };
       result = { state: 'undone', replayed: false };
     } else {
@@ -465,7 +486,10 @@ async function decide(
           ...record, misses, updatedAt: at,
           accepted: {
             acceptedAt: at, undoUntil, missedAt: computed.proposal.missedAt,
-            before: { dueAt: row.timeSpec.dueAt, endAt: row.timeSpec.endAt, remindAt: row.timeSpec.remindAt, itemKind: row.timeSpec.itemKind ?? null },
+            before: {
+              dueAt: row.timeSpec.dueAt, endAt: row.timeSpec.endAt, remindAt: row.timeSpec.remindAt, itemKind: row.timeSpec.itemKind ?? null,
+              postponedUntil: row.postponedUntil, currentAckState: row.currentAckState,
+            },
             sessions, createdIds, undoneAt: null,
           },
         };
