@@ -1522,6 +1522,9 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
           ...(result.sourceTitle ? { sourceTitle: withoutRecurrenceTitle(result.sourceTitle) } : {}),
         };
       };
+      // The model's date was off the weekday the words name and was moved
+      // (QA audit NA2.3): counted, never with the words, the day or the uid.
+      if (extracted.result.weekdayCorrected) console.info(JSON.stringify({ event: 'capture_weekday_corrected' }));
       const readings = occurrences ? occurrences.map((date) => perDay(onDate(tidyResult, date, options.timezone))) : [tidyResult];
       // A copy the model stacked, whose list is this item's, that was still not spread.
       const couldPlace = chat && !occurrences && stackedModelItems.has(index)

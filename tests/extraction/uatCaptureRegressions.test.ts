@@ -1469,10 +1469,12 @@ test('R5 2: with the calendar lines Gemini dates "Interview on Tuesday" the Tues
   assert.equal(after.contract.items[0]!.resolvedDate, '2026-09-29');
   assert.equal(after.contract.items[0]!.dateEstimated, false, 'a weekday the person named is their day, not a guess (runtime UAT 2026-09-30)');
   assert.equal(after.contract.items[0]!.resolvedTime, '2026-09-29T12:00:00.000Z');
-  // The round-4 answer (no calendar lines) put it on Wednesday; the validator
-  // keeps the model's date as it is — it flags, it never moves (L4).
+  // The round-4 answer (no calendar lines) put it on Wednesday — a day that
+  // is not the Tuesday the words name. Since the owner's decision of
+  // 2026-11-17 (QA audit NA2.3) such a date is moved to the named weekday,
+  // the one exception to L4; a model date on the named weekday still never is.
   const before = await proposeScripted(clause, answering(round4));
-  assert.equal(before.contract.items[0]!.resolvedDate, '2026-09-30');
+  assert.equal(before.contract.items[0]!.resolvedDate, '2026-09-29');
 });
 
 // ── Round 6 (controller rulings on re-review 2: NEW-1, NEW-2, M-a, M-b, bare hour) ──

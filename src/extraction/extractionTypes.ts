@@ -85,6 +85,12 @@ export interface ExtractionResult {
    */
   dateInferred?: boolean;
   /**
+   * The model's date was moved onto the weekday the words name (QA audit
+   * NA2.3): it fell on another day of the week. Content-free; the capture
+   * boundary logs that it happened.
+   */
+  weekdayCorrected?: true;
+  /**
    * What the stated time is to the person (CL1, D2; `timeAnchorOf` in
    * `timeLexicon.ts`): `event` — a clock time to do it at («الساعة 5», "at
    * 5pm"), which becomes a `scheduled_event` the planner keeps where it is;
