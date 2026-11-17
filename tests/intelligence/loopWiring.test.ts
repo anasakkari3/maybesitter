@@ -139,7 +139,9 @@ test('completed, postponed and dropped become outcome evidence as they happen, w
 
     assert.equal((await act(ID_DONE, 'complete')).status, 200);
     assert.equal((await act(ID_MOVED, 'postpone', { postponedUntil: later() })).status, 200);
-    assert.equal((await commitmentDelete(req(`/api/mobile/commitments/${ID_DROPPED}`, 'DELETE'), params(ID_DROPPED))).status, 200);
+    // A drop on purpose is the actions route's `cancel`. DELETE is a deletion,
+    // not a drop, and is not an outcome (CA2.3).
+    assert.equal((await act(ID_DROPPED, 'cancel')).status, 200);
 
     // Nobody opened the loop's screen and no model ran, yet the loop knows.
     assert.equal(h.calls.length, 0);
@@ -152,6 +154,18 @@ test('completed, postponed and dropped become outcome evidence as they happen, w
     // Postponing moves a thing; it is never written down as failing it.
     const moved = learned.find(item => item.evidence.includes('Renew the passport'))!;
     assert.doesNotMatch(moved.evidence, /fail|miss|didn.t|not done|abandon/i);
+  } finally { h.restore(); }
+});
+
+test('CA2.3 owner decision: a deletion is learned as its own outcome, not a drop', async () => {
+  const h = begin();
+  try {
+    await grantPersonalization(h.storage);
+    await seedCommitment(ID_DROPPED, 'Old gym plan');
+    assert.equal((await commitmentDelete(req(`/api/mobile/commitments/${ID_DROPPED}`, 'DELETE'), params(ID_DROPPED))).status, 200);
+    assert.equal(h.calls.length, 0);
+    const learned = await outcomes(h.storage);
+    assert.deepEqual(learned.map(item => item.evidence), ['Deleted: Old gym plan']);
   } finally { h.restore(); }
 });
 
@@ -228,6 +242,26 @@ test('a postpone reaches the model as a postpone, and the model is told it is no
     const call = h.calls[0]!;
     assert.ok(call.context.observations.some(item => item.kind === 'outcome' && item.evidence === 'Postponed: Renew the passport'));
     assert.match(call.system, /Postponed means the person moved the item to a later time\. It is not a failure/);
+    // No deletion among the evidence: the deletion guard is not sent, so the
+    // request is byte-for-byte what it was before deletions existed (pinned digests).
+    assert.doesNotMatch(call.system, /Deleted means/);
+  } finally { h.restore(); }
+});
+
+test('CA2.3: a deletion reaches the model with its guard, and only then', async () => {
+  const h = begin();
+  try {
+    await grantPersonalization(h.storage);
+    await setRecommendations(h.storage, 'granted');
+    await seedCommitment(ID_DROPPED, 'Old gym plan');
+    assert.equal((await commitmentDelete(req(`/api/mobile/commitments/${ID_DROPPED}`, 'DELETE'), params(ID_DROPPED))).status, 200);
+    assert.equal((await generatePost(req('/api/mobile/intelligence/generate', 'POST', {}))).status, 200);
+    assert.equal(h.calls.length, 1);
+    const call = h.calls[0]!;
+    assert.ok(call.context.observations.some(item => item.kind === 'outcome' && item.evidence === 'Deleted: Old gym plan'));
+    assert.match(call.system, /An outcome that says Deleted means the person removed the item, most often a capture mistake or a duplicate/);
+    assert.match(call.system, /not a rejection of the topic and not evidence of low priority/);
+    assert.match(call.system, /never infer dislike or avoidance from it/);
   } finally { h.restore(); }
 });
 

@@ -23,6 +23,8 @@ export const ACTIVITY_KINDS = [
   'completed',
   'postponed',
   'dropped',
+  // «احذفها» (CA2.3): a deletion stays in history as its own entry.
+  'deleted',
   'plan_accepted',
   // A change the product proposed to the day, accepted (#587). From the plan
   // ledger too, and about a day rather than a commitment, like `plan_accepted`.

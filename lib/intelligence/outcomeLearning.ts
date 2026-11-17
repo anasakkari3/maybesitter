@@ -10,7 +10,8 @@ import { resolveMemoryLearning } from '../release/m5bCapabilities';
 const OUTCOME_TYPES = new Set<string>(Object.values(COMMITMENT_OUTCOME_EVENT_TYPES));
 
 /**
- * Records only what an action proves: completed, postponed or dropped.
+ * Records only what an action proves: completed, postponed, dropped or
+ * deleted (CA2.3: a deletion is remembered and learned, owner decision).
  * Postponing is not proof of failure, and an email is never proof of completion.
  *
  * One event is one observation, ever. The observation id hashes the evidence,
@@ -44,7 +45,8 @@ export async function learnFromCommitmentEvents(
     const commitment = state.commitments[event.aggregateId];
     if (!commitment) continue;
     const verb = event.type === 'commitment_completed' ? 'Completed'
-      : event.type === 'commitment_postponed' ? 'Postponed' : 'Dropped';
+      : event.type === 'commitment_postponed' ? 'Postponed'
+        : event.type === 'commitment_deleted' ? 'Deleted' : 'Dropped';
     const evidence = `${verb}: ${commitment.title}`.slice(0, 240);
     learned.push(...await putObservations(uid, 'behavior', event.id, event.at, [{
       kind: 'outcome', evidence, confidence: 1,

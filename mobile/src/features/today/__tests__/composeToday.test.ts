@@ -56,6 +56,46 @@ describe('which quiet it is (UAT round 3, N12)', () => {
   });
 });
 
+describe('a postponed item is away until it comes back (CA2.1)', () => {
+  const NOW = new Date('2026-11-12T09:00:00.000Z');
+  const away = (id: string, until: string, importance: CommitmentView['importance'] = 'must'): CommitmentView =>
+    ({ ...item(id, importance), postponedUntil: until });
+
+  it('the fallback card skips an item postponed to later, and the item keeps its row', () => {
+    const m = composeToday({
+      groups: groups({ must: [away('a', '2026-11-12T10:00:00.000Z')], should: [item('b')] }),
+      next: next(), plan: plan(), upcoming: [], now: NOW,
+    });
+    expect(m.primary).toMatchObject({ kind: 'fallback', item: { id: 'b' } });
+    expect(m.groups.must.map((c) => c.id)).toEqual(['a']);
+  });
+
+  it('at its return time it is the card again', () => {
+    const m = composeToday({
+      groups: groups({ must: [away('a', '2026-11-12T09:00:00.000Z')], should: [item('b')] }),
+      next: next(), plan: plan(), upcoming: [], now: NOW,
+    });
+    expect(m.primary).toMatchObject({ kind: 'fallback', item: { id: 'a' } });
+  });
+
+  it('a recommendation still naming the postponed item is stale, so the list answers', () => {
+    const m = composeToday({
+      groups: groups({ must: [away('a', '2026-11-12T10:00:00.000Z')], should: [item('b')] }),
+      next: next({ recommendation: rec('a') }), plan: plan(), upcoming: [], now: NOW,
+    });
+    expect(m.primary).toMatchObject({ kind: 'fallback', item: { id: 'b' } });
+  });
+
+  it('when everything open is postponed, there is no card and nothing is called done', () => {
+    const m = composeToday({
+      groups: groups({ must: [away('a', '2026-11-12T10:00:00.000Z')] }),
+      next: next(), plan: plan(), upcoming: [], now: NOW,
+    });
+    expect(m.primary).toEqual({ kind: 'none' });
+    expect(m.openTotal).toBe(1);
+  });
+});
+
 describe('exactly one primary', () => {
   it('the recommendation wins, and its item leaves the list', () => {
     const m = composeToday({ groups: groups({ must: [item('a', 'must')], should: [item('b')] }), next: next({ recommendation: rec('b') }), plan: plan(), upcoming: [] });
