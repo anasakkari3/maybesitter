@@ -2,7 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createMemoryStorage } from '../../lib/storage/memoryAdapter.ts';
 import { resetStorageForTests, setStorageForTests } from '../../lib/storage/index.ts';
-import { CALENDAR_CHOICE, COMMITMENTS, userCol, userSubDoc } from '../../lib/storage/paths.ts';
+import { BUSY_BLOCKS, CALENDAR_CHOICE, COMMITMENTS, userCol, userSubDoc } from '../../lib/storage/paths.ts';
+import { seedLiveAccount } from '../support/liveAccount.ts';
+import { beforeTransaction } from '../support/raceStorage.ts';
+import { disconnectAccountCalendars } from '../../lib/calendar/calendarDisconnect.ts';
 import { DELETE as busyDelete } from '../../src/app/api/mobile/calendar/busy/route.ts';
 import { installFakeAuth, tokenFor, uidFor, type FakeAuthControls } from '../support/fakeAuth.ts';
 import { applyTrustAction } from '../../lib/pilot/pilotTrustStore.ts';
@@ -386,6 +389,78 @@ test('review: a revoked account cannot add lecture times', async () => {
     await applyTrustAction(USER, { type: 'revoke', at: '2026-09-02T08:00:00.000Z' });
     assert.equal((await manualPost(postManual(lectures('revoked')))).status, 403);
     assert.equal(await readCalendarSource(USER, 'manual-revoked', { storage }), null);
+  } finally {
+    cleanup();
+  }
+});
+
+/* ── Second review of wave B8: a request in flight cannot outlive a disconnect ── */
+
+async function liveWithConsent(): Promise<void> {
+  await seedLiveAccount(USER);
+  await withConsent();
+}
+
+for (const [label, nth] of [['before the count is taken', 1], ['between the count and the write', 2]] as const) {
+  test(`review 2: lecture times in flight when «افصل وامسح» lands ${label} are refused and leave nothing`, async () => {
+    const cleanup = setup();
+    try {
+      await liveWithConsent();
+      const restore = beforeTransaction(nth, async () => { await disconnectAccountCalendars(USER); });
+      let res: Response;
+      try { res = await manualPost(postManual(lectures('in-flight'))); } finally { restore(); }
+      assert.equal(res.status, 403, `the write landed after the disconnect (${res.status})`);
+      assert.equal(await readCalendarSource(USER, 'manual-in-flight', { storage }), null);
+      assert.deepEqual(await storage.list(userCol(USER, BUSY_BLOCKS)), []);
+    } finally {
+      cleanup();
+    }
+  });
+}
+
+test('review 2: lecture times in flight across a disconnect and a reconnect are refused (consent epoch)', async () => {
+  const cleanup = setup();
+  try {
+    await liveWithConsent();
+    const restore = beforeTransaction(2, async () => {
+      await disconnectAccountCalendars(USER);
+      await applyTrustAction(USER, { type: 'set_calendar_consent', granted: true, at: new Date().toISOString() });
+    });
+    let res: Response;
+    try { res = await manualPost(postManual(lectures('reconnected'))); } finally { restore(); }
+    assert.equal(res.status, 403);
+    assert.deepEqual(await storage.list(userCol(USER, BUSY_BLOCKS)), []);
+  } finally {
+    cleanup();
+  }
+});
+
+test('review 2: an account deleted while lecture times are in flight is answered as deleted', async () => {
+  const cleanup = setup();
+  try {
+    await liveWithConsent();
+    const restore = beforeTransaction(1, async () => {
+      await applyTrustAction(USER, { type: 'delete', at: new Date().toISOString() });
+    });
+    let res: Response;
+    try { res = await manualPost(postManual(lectures('gone'))); } finally { restore(); }
+    assert.equal(res.status, 403);
+    assert.equal((await res.json() as { reason?: string }).reason, 'deleted');
+  } finally {
+    cleanup();
+  }
+});
+
+test('review 2: a reservation holds its place for five minutes, and not after', async () => {
+  const cleanup = setup();
+  try {
+    await withConsent();
+    await fill(9);
+    const at = (minutes: number) => new Date(Date.now() - minutes * 60_000).toISOString();
+    await storage.set(MANIFEST(USER), { pending: { 'manual-busy-elsewhere': at(4) } });
+    assert.equal((await manualPost(postManual(lectures('while-held')))).status, 409, 'a 4-minute-old reservation did not hold');
+    await storage.set(MANIFEST(USER), { pending: { 'manual-busy-elsewhere': at(6) } });
+    assert.equal((await manualPost(postManual(lectures('after-expiry')))).status, 200, 'a 6-minute-old reservation still held');
   } finally {
     cleanup();
   }

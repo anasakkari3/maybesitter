@@ -18,7 +18,7 @@ import { listIcsFeeds } from '../../../lib/calendar/icsFeeds.ts';
 import { candidateClashes, readFreeSlotSchedule } from '../../../lib/planning/freeSlots.ts';
 import { applyTrustAction } from '../../../lib/pilot/pilotTrustStore.ts';
 import { getStorage } from '../../../lib/storage/index.ts';
-import { CALENDAR_CHOICE, CALENDAR_SOURCES, ICS_FEEDS, docIdForKey, userCol, userDoc, userSubDoc } from '../../../lib/storage/paths.ts';
+import { AUDIT_EVENTS, CALENDAR_CHOICE, CALENDAR_SOURCES, ICS_FEEDS, REGISTERED_DEVICE_SOURCES, docIdForKey, userCol, userDoc, userSubDoc } from '../../../lib/storage/paths.ts';
 import { seedLiveAccount } from '../../support/liveAccount.ts';
 import { disconnectAccountCalendars } from '../../../lib/calendar/calendarDisconnect.ts';
 import { TODAY, TOMORROW, TZ, at, begin, call, end, show } from './support.ts';
@@ -385,6 +385,27 @@ test('CA10.5: the disconnect touches only its own account', async () => {
     await seedCalendars(uid);
     assert.equal((await disconnect(uid)).status, 200);
     assert.ok(await getStorage().get(userSubDoc(other, CALENDAR_SOURCES, docIdForKey('manual-theirs'))), "another account's busy time was deleted");
+  } finally { end(); }
+});
+
+test('review 2: other phones stay registered; blocks a source record never got are deleted too; the purge leaves a content-free audit line', async () => {
+  const uid = begin();
+  try {
+    await consent(uid, true);
+    await seedCalendars(uid);
+    const registration = userSubDoc(uid, REGISTERED_DEVICE_SOURCES, docIdForKey('device:other-phone'));
+    await getStorage().set(registration, { sourceId: 'device:other-phone', sourceInstallationId: 'inst-2', state: 'active' });
+    // An upload's first chunk landed, its source record never did.
+    await getStorage().set(userSubDoc(uid, 'busyBlocks', 'orphan-doc'),
+      block('device:half-written', 'device', 'orphan', at(TOMORROW, '21:00'), at(TOMORROW, '22:00')));
+    assert.equal((await disconnect(uid)).status, 200);
+    assert.ok(await getStorage().get(registration), 'another phone lost its registration');
+    const left = (await getStorage().list<any>(userCol(uid, 'busyBlocks'))).map((row) => row.data.sourceId);
+    assert.deepEqual(left.filter((id: string) => !id.startsWith('weekly-')), [], show(left));
+    const audit = (await getStorage().list<any>(userCol(uid, AUDIT_EVENTS))).map((row) => row.data)
+      .filter((event: any) => event.reasonCode === 'calendar_disconnect');
+    assert.equal(audit.length >= 1, true, 'no audit line for the purge');
+    assert.deepEqual(Object.keys(audit[0]).sort(), ['eventType', 'occurredAt', 'outcome', 'participantId', 'reasonCode', 'version']);
   } finally { end(); }
 });
 

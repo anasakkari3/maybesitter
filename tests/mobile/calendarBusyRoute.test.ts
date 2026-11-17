@@ -27,6 +27,9 @@ import { resetStorageForTests, setStorageForTests } from '../../lib/storage/inde
 import { userCol } from '../../lib/storage/paths.ts';
 import { applyTrustAction } from '../../lib/pilot/pilotTrustStore.ts';
 import { installFakeAuth, tokenFor, uidFor, type FakeAuthControls } from '../support/fakeAuth.ts';
+import { seedLiveAccount } from '../support/liveAccount.ts';
+import { beforeTransaction } from '../support/raceStorage.ts';
+import { disconnectAccountCalendars } from '../../lib/calendar/calendarDisconnect.ts';
 import {
   DELETE as busyDelete,
   POST as busyPost,
@@ -364,6 +367,24 @@ test('an upload cannot write a manual source: those are counted and written by /
       const response = await busyPost(post({ ...upload([{ nativeId: 'a', from: 600, to: 660 }]), sourceId }));
       assert.equal(response.status, 400, `${sourceId} was stored outside the manual quota`);
     }
+  } finally {
+    teardown();
+  }
+});
+
+/* ── Second review of wave B8: an upload in flight cannot outlive a disconnect ── */
+
+test('review 2: a phone upload in flight when «افصل وامسح» lands is refused and leaves nothing', async () => {
+  const teardown = setup();
+  try {
+    await seedLiveAccount(USER);
+    await withConsent();
+    const restore = beforeTransaction(1, async () => { await disconnectAccountCalendars(USER); });
+    let response: Response;
+    try { response = await busyPost(post(upload([{ nativeId: 'a', from: 600, to: 660 }]))); } finally { restore(); }
+    assert.equal(response.status, 403, `the upload landed after the disconnect (${response.status})`);
+    const { getStorage } = await import('../../lib/storage/index.ts');
+    assert.deepEqual(await getStorage().list(userCol(USER, 'busyBlocks')), []);
   } finally {
     teardown();
   }
