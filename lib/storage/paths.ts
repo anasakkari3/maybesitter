@@ -571,6 +571,19 @@ export const GOAL_STATEMENT_ACCEPTS = 'goalStatementAccepts';
  */
 export const WEEKLY_BLOCKS = 'weeklyBlocks';
 
+/**
+ * «ما اتصرّفت فيها» — the person's answers about the things nothing was done
+ * about (spec Part 1, design item 2, lane E2).
+ *
+ * `users/{uid}/unhandledMarks/{commitmentId}`: how many times capture asked
+ * about the item (lane E3 asks no more than twice) and, after «لا تسألني
+ * عنها», the instant it was dismissed *for* — the end or deadline it had then,
+ * so an item given a new time that passes again comes back. Never a status:
+ * the commitment itself is untouched and stays in history. It names the
+ * person's commitments, so it goes with the account and comes with an export.
+ */
+export const UNHANDLED_MARKS = 'unhandledMarks';
+
 export const USER_SCOPED_COLLECTIONS = [
   PROVIDER_CONNECTIONS,
   PROVIDER_CREDENTIALS,
@@ -590,6 +603,7 @@ export const USER_SCOPED_COLLECTIONS = [
   GOAL_STATEMENT_PREVIEWS,
   GOAL_STATEMENT_ACCEPTS,
   WEEKLY_BLOCKS,
+  UNHANDLED_MARKS,
   REMINDERS,
   ESCALATION_STATES,
   EVENTS,

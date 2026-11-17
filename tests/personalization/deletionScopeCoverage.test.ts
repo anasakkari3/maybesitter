@@ -222,6 +222,11 @@ const KEPT_BECAUSE: Record<string, string> = {
     + 'words, weekdays, a start and an end. A rule they set, not a belief about them: purging it '
     + 'here would silently stop reserving their Saturday shift. The block screen\'s delete removes '
     + 'it with every occurrence, and account deletion takes it with everything else.',
+  unhandledMarks:
+    'the person\u2019s own answers in «ما اتصرّفت فيها» (lane E2): «لا تسألني عنها» on one of their '
+    + 'commitments, and how many times capture asked about it. Nothing here is a belief about the '
+    + 'person: it is a decision they pressed, keyed by a commitment they keep. Purging it would put '
+    + 'back every question they asked never to see again. Account deletion takes it with the rest.',
   busyBlocks:
     'intervals mirrored from the user’s own calendar — a start, an end and an all-day flag, with '
     + 'no title, notes, location or attendee, because `toBusyBlocks` on the phone never let one '

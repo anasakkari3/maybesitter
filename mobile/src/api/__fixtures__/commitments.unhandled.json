@@ -1,0 +1,77 @@
+{
+  "items": [
+    {
+      "reason": "event_ended",
+      "since": "2026-08-09T09:00:00.000Z",
+      "askCount": 0,
+      "commitment": {
+        "id": "fixture-unhandled-meeting",
+        "kind": "task",
+        "title": "Meeting with Sami",
+        "description": null,
+        "person": null,
+        "status": "active",
+        "priority": {
+          "level": "normal",
+          "source": "default",
+          "pressureAllowed": false,
+          "pressureLevel": "none"
+        },
+        "category": null,
+        "categorySource": "inferred",
+        "timeSpec": {
+          "kind": "scheduled_event",
+          "dueAt": "2026-08-09T09:00:00.000Z",
+          "endAt": "2026-08-09T09:00:00.000Z",
+          "remindAt": null,
+          "allDay": false,
+          "timezone": "Asia/Jerusalem",
+          "itemKind": "event"
+        },
+        "currentAckState": "not_seen",
+        "postponedUntil": null,
+        "createdAt": "2026-08-09T09:00:00.000Z",
+        "updatedAt": "2026-08-09T09:00:00.000Z",
+        "confirmedAt": "2026-08-09T09:00:00.000Z",
+        "completedAt": null,
+        "droppedAt": null
+      }
+    },
+    {
+      "reason": "deadline_passed",
+      "since": "2026-08-09T09:00:00.000Z",
+      "askCount": 0,
+      "commitment": {
+        "id": "fixture-unhandled-deadline",
+        "kind": "task",
+        "title": "Hand in the report",
+        "description": null,
+        "person": null,
+        "status": "active",
+        "priority": {
+          "level": "normal",
+          "source": "default",
+          "pressureAllowed": false,
+          "pressureLevel": "none"
+        },
+        "category": null,
+        "categorySource": "inferred",
+        "timeSpec": {
+          "kind": "due_by",
+          "dueAt": "2026-08-09T09:00:00.000Z",
+          "endAt": null,
+          "remindAt": null,
+          "allDay": false,
+          "timezone": "Asia/Jerusalem"
+        },
+        "currentAckState": "not_seen",
+        "postponedUntil": null,
+        "createdAt": "2026-08-09T09:00:00.000Z",
+        "updatedAt": "2026-08-09T09:00:00.000Z",
+        "confirmedAt": "2026-08-09T09:00:00.000Z",
+        "completedAt": null,
+        "droppedAt": null
+      }
+    }
+  ]
+}
