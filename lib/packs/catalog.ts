@@ -14,9 +14,9 @@
  * The normalized observers already reduce a provider's state to one digest
  * over the facts a condition may be about: the fixture store's row is
  * content-hashed, so "the match moved" and "the digest moved" are the same
- * statement; the readiness observer digests band and score, so a WHOOP
- * payload that churned without moving either is NO_EFFECT rather than a
- * firing. A threshold condition is available (`WatchCondition`) and a pack
+ * statement; the readiness observer digests the band alone (owner decision
+ * 2026-11-16), so a WHOOP payload that churned the score inside one band is
+ * NO_EFFECT rather than a firing. A threshold condition is available (`WatchCondition`) and a pack
  * may use one, but none of these three needs to reach past the digest to say
  * what it watches.
  *
