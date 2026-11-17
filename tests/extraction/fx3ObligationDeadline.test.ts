@@ -390,18 +390,20 @@ test('FX3 I-1: the month-end phrase that nothing read stays in the title, and a 
 // the month's end. It was one item at the first one's hour, the bill's own
 // deadline lost; it is two now, the second due on the month's last day with no
 // hour asked. Still one item: the month's end that modifies a noun.
+// The status is `proposed`: the all-day bill needs nothing, and the valve no
+// longer sends it back with the call's bare hour (QA audit NAPI-A8.2).
 test('#743: "… at 5pm and pay the bill by the end of the month" is two items, the bill due at the month\'s end', async () => {
   const two: Array<[string, string, string[]]> = [
     ['Call mom tomorrow at 5pm and pay the bill by the end of the month', 'proposed',
       ['Call mom | 2026-09-27 17:00 |  | normal~', 'pay the bill | 2026-09-30 - |  | normal~']],
-    ['بدي أتصل بأمي بكرا الساعة 5 وأدفع الفاتورة قبل آخر الشهر', 'needs_clarification',
+    ['بدي أتصل بأمي بكرا الساعة 5 وأدفع الفاتورة قبل آخر الشهر', 'proposed',
       ['أتصل بأمي | 2026-09-27 - | ask_am_pm | normal~', 'أدفع الفاتورة | 2026-09-30 - |  | normal~']],
-    ['להתקשר לאמא מחר ב-5 ולשלם חשבון חשמל עד סוף החודש', 'needs_clarification',
+    ['להתקשר לאמא מחר ב-5 ולשלם חשבון חשמל עד סוף החודש', 'proposed',
       ['להתקשר לאמא | 2026-09-27 - | ask_am_pm | normal~', 'לשלם חשבון חשמל | 2026-09-30 - |  | normal~']],
     // The other order (Codex inspection Q743-001): the deadline side first.
     ['Pay the bill by the end of the month and call mom tomorrow at 5pm', 'proposed',
       ['Pay the bill | 2026-09-30 - |  | normal~', 'call mom | 2026-09-27 17:00 |  | normal~']],
-    ['לשלם חשבון חשמל עד סוף החודש ולהתקשר לאמא מחר ב-5', 'needs_clarification',
+    ['לשלם חשבון חשמל עד סוף החודש ולהתקשר לאמא מחר ב-5', 'proposed',
       ['לשלם חשבון חשמל | 2026-09-30 - |  | normal~', 'להתקשר לאמא | 2026-09-27 - | ask_am_pm | normal~']],
   ];
   const drift: string[] = [];
@@ -432,9 +434,11 @@ test('#743: a deadline belongs to the conjunct it is said in, not to one before 
     ['Call mom tomorrow at 5pm and buy milk', 'pay rent by the end of the month'],
   );
   // The mirror (Q743-R2-003): the left side is read in its last conjunct.
+  // The milk is an errand of its own since lane B3 (QA audit NA3.4: errands
+  // joined by "and" are one item each), and is still not given the rent's day.
   assert.deepEqual(
     splitCaptureClauses('buy milk and pay rent by the end of the month and call mom tomorrow at 5pm'),
-    ['buy milk and pay rent by the end of the month', 'call mom tomorrow at 5pm'],
+    ['buy milk', 'pay rent by the end of the month', 'call mom tomorrow at 5pm'],
   );
 });
 

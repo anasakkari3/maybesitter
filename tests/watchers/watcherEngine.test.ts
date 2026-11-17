@@ -976,3 +976,170 @@ test('a slow sweep that meets a duplicate never rolls a newer baseline back (CXA
     end();
   }
 });
+
+/* ── Readiness fires on a band change, not on score jitter (owner decision 2026-11-16) ── */
+
+const minute = (n: number) => new Date(T0.getTime() + n * 60_000);
+
+async function readinessAt(score: number, at: Date): Promise<void> {
+  await saveNormalizedReadinessSnapshot(ALICE, readiness(ALICE, score, at.toISOString()), { storage, now: at.toISOString() });
+}
+
+async function bandWatcher(): Promise<StoredWatcher> {
+  return add(ALICE, {
+    enabled: true, source: readinessSource(null), condition: { kind: 'digest_changed' }, effect: 'notify', createdBy: 'user',
+  });
+}
+
+test('a readiness score that moves inside its band does not fire', async () => {
+  await begin();
+  try {
+    await bandWatcher();
+    await readinessAt(0.82, minute(0));
+    await sweep(minute(1));
+    for (const [n, score] of [[2, 0.75], [4, 0.64], [6, 0.9]] as const) {
+      await readinessAt(score, minute(n));
+      const totals = await sweep(minute(n + 1));
+      assert.equal(totals.fired, 0, `steady ${score} fired as a change`);
+    }
+    assert.deepEqual(await events(ALICE), []);
+  } finally {
+    end();
+  }
+});
+
+test('a readiness band change fires', async () => {
+  await begin();
+  try {
+    await bandWatcher();
+    await readinessAt(0.82, minute(0));
+    await sweep(minute(1));
+    await readinessAt(0.21, minute(2));
+    assert.equal((await sweep(minute(3))).fired, 1);
+    await readinessAt(0.6, minute(4));
+    assert.equal((await sweep(minute(5))).fired, 1);
+  } finally {
+    end();
+  }
+});
+
+/** The baseline a watcher stored before band-only digests: sha256 of {band, score}. */
+function legacyDigest(band: string, score: number): string {
+  return createHash('sha256').update(JSON.stringify({ band, score })).digest('hex');
+}
+
+async function withLegacyBaseline(watcher: StoredWatcher, band: string, score: number): Promise<void> {
+  const digest = legacyDigest(band, score);
+  await storage.set(`users/${ALICE}/watchers/${watcher.definition.watcherId}`, {
+    ...watcher,
+    runtime: {
+      ...watcher.runtime,
+      status: 'active',
+      lastDigest: digest,
+      lastSignalId: `readiness:${ALICE}:${digest}`,
+      lastMeasures: [{ metric: 'readiness_score', value: score }],
+      lastObservedAt: minute(0).toISOString(),
+    },
+  });
+}
+
+test('a watcher primed before the change does not fire once on the new digest for the same band', async () => {
+  await begin();
+  try {
+    const watcher = await bandWatcher();
+    await withLegacyBaseline(watcher, 'steady', 0.82);
+    await readinessAt(0.82, minute(1));
+    assert.equal((await sweep(minute(2))).fired, 0, 'the digest format change fired as a readiness change');
+    await readinessAt(0.7, minute(3));
+    assert.equal((await sweep(minute(4))).fired, 0, 'score jitter after the upgrade fired');
+    await readinessAt(0.21, minute(5));
+    assert.equal((await sweep(minute(6))).fired, 1, 'a real band change after the upgrade did not fire');
+    assert.equal((await events(ALICE)).length, 1);
+  } finally {
+    end();
+  }
+});
+
+test('a watcher primed before the change still fires when the band really changed', async () => {
+  await begin();
+  try {
+    const watcher = await bandWatcher();
+    await withLegacyBaseline(watcher, 'low', 0.21);
+    await readinessAt(0.82, minute(1));
+    assert.equal((await sweep(minute(2))).fired, 1);
+  } finally {
+    end();
+  }
+});
+
+test('a readiness threshold condition still reads the score', async () => {
+  await begin();
+  try {
+    await add(ALICE, {
+      enabled: true, source: readinessSource(null),
+      condition: { kind: 'threshold', metric: 'readiness_score', operator: 'lt', value: 0.7 },
+      effect: 'notify', createdBy: 'user',
+    });
+    await readinessAt(0.82, minute(0));
+    await sweep(minute(1));
+    await readinessAt(0.65, minute(2)); // same band, under the threshold
+    assert.equal((await sweep(minute(3))).fired, 1, 'a score threshold inside one band stopped firing');
+  } finally {
+    end();
+  }
+});
+
+test('a threshold watcher primed before the change still fires when the score crosses inside one band', async () => {
+  await begin();
+  try {
+    const watcher = await add(ALICE, {
+      enabled: true, source: readinessSource(null),
+      condition: { kind: 'threshold', metric: 'readiness_score', operator: 'lt', value: 0.7 },
+      effect: 'notify', createdBy: 'user',
+    });
+    await withLegacyBaseline(watcher, 'steady', 0.82);
+    await readinessAt(0.65, minute(1));
+    assert.equal((await sweep(minute(2))).fired, 1, 'the upgrade swallowed a threshold crossing');
+  } finally {
+    end();
+  }
+});
+
+test('a score threshold re-arms when the score recovers inside one band, and fires on the next drop', async () => {
+  // Down to 0.65, back up to 0.80, down to 0.60 — all «steady». The recovery
+  // must reach the baseline, or the second drop is compared with 0.65 and lost.
+  await begin();
+  try {
+    await add(ALICE, {
+      enabled: true, source: readinessSource(null),
+      condition: { kind: 'threshold', metric: 'readiness_score', operator: 'lt', value: 0.7 },
+      effect: 'notify', createdBy: 'user',
+    });
+    await readinessAt(0.82, minute(0));
+    await sweep(minute(1));
+    let fired = 0;
+    for (const [n, score] of [[2, 0.65], [4, 0.8], [6, 0.6]] as const) {
+      await readinessAt(score, minute(n));
+      fired += (await sweep(minute(n + 1))).fired;
+    }
+    assert.equal(fired, 2, 'the second drop under the threshold did not fire');
+  } finally {
+    end();
+  }
+});
+
+test('a stored baseline with no measures field is read as no score, not a crash', () => {
+  const signal: WatcherSignal = {
+    schemaVersion: WATCHER_SIGNAL_SCHEMA_VERSION,
+    signalId: 'readiness:x:y',
+    provider: 'whoop',
+    signalKind: 'readiness',
+    subjectRef: 'self',
+    observedAt: minute(0).toISOString(),
+    stateDigest: createHash('sha256').update(JSON.stringify({ band: 'steady' })).digest('hex'),
+    provenanceRef: 'userState/readiness',
+    measures: [],
+  };
+  const legacy = { lastDigest: legacyDigest('steady', null as unknown as number) } as never;
+  assert.equal(readinessObserver.sameStateAs!(legacy, signal), true);
+});

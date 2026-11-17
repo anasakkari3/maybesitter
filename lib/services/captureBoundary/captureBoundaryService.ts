@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from 'crypto';
 import { extractWithFallback, recurrenceHintOf, type ExtractAndMapOptions, type ExtractWithFallbackResult } from '../../../src/extraction/extractionService';
+import { screenForInjection } from '../../../src/extraction/injectionBoundary';
 import { buildBatchPrompt } from '../../../src/extraction/ollamaExtractor';
 import { CAPTURE_BATCH_TIMEOUT_MS, CAPTURE_MIN_CALL_TIMEOUT_MS, LLMUnavailableError, RETRY_BACKOFF_MAX_MS } from '../../../src/extraction/llm/llmProvider';
 import { decideExtractionDisposition } from '../../../src/extraction/extractionPolicy';
@@ -313,6 +314,16 @@ function chatItemProvider(item: unknown): ProviderFunction {
 }
 
 const INJECTION = /(?:ignore|disregard|override).{0,40}(?:instruction|system|policy)|(?:system|developer)\s*:/i;
+
+/**
+ * Whether the capture boundary would refuse this text as a prompt injection:
+ * its own clause screen, or the extractor's (`screenForInjection`). For a
+ * caller that screens a share line by line before the pipeline reads any of
+ * it (QA audit NA3.3), so a line it lets through is never refused here.
+ */
+export function namesCaptureInjection(text: string): boolean {
+  return INJECTION.test(text) || screenForInjection(text) !== null;
+}
 
 /**
  * How many segments of one capture may reach the model.
@@ -865,8 +876,6 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
   // which kind of message this was (#166). First rather than last: the opening of
   // a message is what it is about.
   let noCommitmentReason: NoCommitmentReason | null = null;
-  // Clock times said in clauses that produced nothing (FY1 N1); see the valve.
-  let timesReadAsNothing = 0;
   // Items that are a reading spread onto another day of its list: the valve
   // counts each reading once.
   const spreadCopies = new Set<string>();
@@ -879,6 +888,8 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
   // Each item's own clause (in the chat, its evidence), for telling a bare
   // «تدرس» of one goal from a study session of something else. Never stored.
   const itemClause = new Map<string, string>();
+  // Each item's clause by its position, for the multi-time valve (NAPI-A8.2).
+  const itemClauseIndex = new Map<string, number>();
 
   /*
    * The capture chat (owner decision 2026-09-30): one clause per model item,
@@ -1409,11 +1420,9 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
       if (failure === 'no_commitment') {
         noCommitmentReason ??= noCommitmentReasonFrom(segment, extracted.result, extracted.fallbackReason);
         // Its clock times were read and found to be nothing to keep — «كان
-        // عندي اجتماع الساعة 3» (FY1 N1) — so the valve below does not count
-        // them as times a proposed item lost.
-        // A chat item's segment is read from every turn; the valve reads the
-        // newest message only, so nothing is subtracted for it.
-        if (!chat) timesReadAsNothing += countTimeExpressions(segment);
+        // عندي اجتماع الساعة 3» (FY1 N1) — and the valve below reads each
+        // clause's times against that clause's own items, so a clause with
+        // no item lends no time to another clause's.
         continue;
       }
       if (failure) {
@@ -1526,6 +1535,7 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
           if (reading === readings[0]) unspread.set(itemId, tidyResult);
         }
         itemClause.set(itemId, segment);
+        itemClauseIndex.set(itemId, index);
         // An all-day deadline has a day and no hour (FX3): `resolvedDate` below
         // says which day, and no instant is shown as if somebody chose it.
         const resolvedTime = needsClarification || reading.allDay ? null : reading.remindAt || reading.dueAt;
@@ -1631,7 +1641,19 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
     for (let i = 0; i < items.length; i++) {
       if (!targetIds.has(items[i]!.itemId) || items[i]!.needsClarification) continue;
       const { endTime: _endTime, ...item } = items[i]!;
-      items[i] = { ...item, resolvedTime: null, needsClarification: true, timeEstimated: false };
+      // The question to ask the hour with, from the reading without it
+      // (NAPI-A8.2): an item that needs clarification with no question has
+      // nothing to answer it with but the edit sheet. The stored reading is
+      // kept as read — the answer replaces its hour.
+      const reading = resultsByItemId.get(item.itemId);
+      const timeless = reading ? withoutPastTime(reading, options.now, options.timezone) : null;
+      items[i] = {
+        ...item,
+        resolvedTime: null,
+        needsClarification: true,
+        timeEstimated: false,
+        ...(timeless && !chat ? { clarification: buildClarification(timeless, { now: options.now, timezone: options.timezone }) } : {}),
+      };
       commandsByItemId.set(items[i]!.itemId, []);
     }
   };
@@ -1642,11 +1664,24 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
         Math.floor(chatOperationIndices.items[item.itemId] ?? -1) === operationIndex ? [item.itemId] : []));
       clearMissingTimes(targetIds, countTimeExpressions(source));
     });
+  } else if (chat) {
+    // A chat item's segment is read from every turn; the valve reads the
+    // newest message, over the whole list, as it always has.
+    clearMissingTimes(new Set(items.map((item) => item.itemId)), countTimeExpressions(raw));
   } else {
-    clearMissingTimes(
-      new Set(items.map((item) => item.itemId)),
-      Math.max(0, countTimeExpressions(raw) - timesReadAsNothing),
-    );
+    // Clause by clause (NAPI-A8.2): a time is lost where a clause names more
+    // clock times than its own items hold. Read over the whole capture, one
+    // passed hour, or two lines at the same hour, sent every item of an
+    // eight-line list back to be asked.
+    const byClause = new Map<number, Set<string>>();
+    for (const item of items) {
+      const at = itemClauseIndex.get(item.itemId);
+      if (at === undefined) continue;
+      byClause.set(at, (byClause.get(at) ?? new Set()).add(item.itemId));
+    }
+    for (const [at, targetIds] of Array.from(byClause.entries())) {
+      clearMissingTimes(targetIds, countTimeExpressions(segments[at] ?? ''));
+    }
   }
 
   /*

@@ -63,6 +63,7 @@
  */
 import { stripTimeExpressions } from './ruleBasedExtractor';
 import { namesDay, namesDayOfMonth, readPeriodEndDeadline, RELATIVE_DAY_MENTION_SOURCES, statesClock, timeOfDayEvidence } from './timeLexicon';
+import { namesExplicitDate, readWeekdayReference, WEEKDAY_MENTION_SOURCES } from './weekdayLexicon';
 import { LEADING_CONNECTOR, NOT_LETTERS, REQUEST_MARKER, opensWithAction } from './requestEvidence';
 import { afterUnresolvedIntentMarker, opensWithUnresolvedIntent } from './unresolvedIntent';
 
@@ -188,9 +189,10 @@ const POSSESSION_OPENER = new RegExp(
  * doubled imperative («جيب», «كلّم», «خلّص»). Hebrew is a list of forms, not
  * the ל-/ת- shape, which also catches «לובי», «תרופה», «תאריך».
  */
+const AR_PREFIXED_ERRAND = `(?:[أاإن]|ب(?!ردّ?${A}))(?:دفع|تصل|شتري|بعت|بعث|خلص|خلّص|جيب|حجز|رد|ردّ|كلم|كلّم|حكي|نظف|نضف|نظّف|نضّف|كتب|جدد|جدّد|صلح|صلّح|طبخ|غسل|رتب|رتّب|وصّل|سلم|سلّم|جهز|جهّز|حضّر|طبع|سأل|قدّم|لغي)${A}`;
 const SENTENCE_VERB_OPENER = new RegExp(
   '^(?:' + [
-    `(?:[أاإن]|ب(?!ردّ?${A}))(?:دفع|تصل|شتري|بعت|بعث|خلص|خلّص|جيب|حجز|رد|ردّ|كلم|كلّم|حكي|نظف|نضف|نظّف|نضّف|كتب|جدد|جدّد|صلح|صلّح|طبخ|غسل|رتب|رتّب|وصّل|سلم|سلّم|جهز|جهّز|حضّر|طبع|سأل|قدّم|لغي)${A}`,
+    AR_PREFIXED_ERRAND,
     `(?:جيب|كلّم|خلّص|ردّ|جهّز|حضّر|رتّب|نظّف|نضّف|صلّح|جدّد|سلّم|وصّل)${A}`,
     '(?:please\\s+)?(?:call|phone|ring|text|email|e-mail|message|reply|write|send|mail|buy|grab|pick\\s+up|pickup|order|pay|book|schedule|reschedule|cancel|renew|submit|finish|complete|prepare|fix|repair|clean|wash|cook|bring|take\\s+(?:out|back|down)|take|drop\\s+off|collect|print|apply|register|confirm|ask|tell|feed|install|pack|deliver|invite)\\b',
     `(?:לקנות|לשלם|להתקשר|לשלוח|להזמין|לקבוע|לסיים|להגיש|לאסוף|לכתוב|לענות|לחדש|לבטל|להביא|לנקות|לתקן|לבשל|לכבס|להדפיס|תתקשר|תתקשרי|תקנה|תקני|תשלם|תשלמי|תשלח|תשלחי|תזמין|תזמיני|תקבע|תקבעי|תאסוף|תאספי|תביא|תביאי|תכתוב|תכתבי|תענה|תעני|תבטל|תבטלי|תחדש|תחדשי|אתקשר|אקנה|אשלם|אשלח|אזמין|אקבע|אאסוף|אביא|אכתוב|אענה|אבטל)${A}`,
@@ -398,6 +400,42 @@ function intentNamesAnAction(text: string, previous: string): boolean {
   return followedByObject(words) && !restatesInItsOwnWords(words, previous);
 }
 
+/**
+ * The words after a leading day or hour — «بكرا الساعة 3 العصر», "Tomorrow at
+ * 3pm", «יום ראשון ב-10» — or the text itself when it does not open with one.
+ * The longest opening run of at most six words that is only a time, and never
+ * the whole text.
+ */
+function afterLeadingTime(text: string): string {
+  const words = text.trim().split(/\s+/).filter(Boolean);
+  let cut = 0;
+  for (let length = 1; length < Math.min(words.length, 7); length += 1) {
+    if (isTimeOnlyClause(words.slice(0, length).join(' '))) cut = length;
+  }
+  return cut > 0 ? words.slice(cut).join(' ') : text;
+}
+
+/**
+ * «روح», "go": a verb the sentence openers leave out, because after a full
+ * stop it restates the appointment before it ("Dentist on Sunday. Go at 5").
+ * Joined to an errand by «و» / "and" / a comma it is an errand of its own —
+ * «اتصل بماما وروح عالبنك», "call mom, and go to the bank" (QA audit CA3.1) —
+ * still only onto an object ("go there at 5" is not one).
+ */
+const GO_OPENER = new RegExp(`^(?:(?:[أان]|ب)?روح|روحي|go|ללכת|לנסוע)${A}`, 'iu');
+
+/**
+ * A conjunct that opens with an errand verb onto an object, after an optional
+ * «و» / "and" / «ו»: «وأدفع فاتورة الكهربا», "call the bank", «ולשלם את
+ * החשבון», "and go to the bank".
+ */
+function opensErrand(conjunct: string): boolean {
+  // A day or an hour before the verb is when, not what: "and on Sunday go…".
+  const text = afterLeadingTime(conjunct.replace(LEADING_CONNECTOR, '').trim());
+  const verb = SENTENCE_VERB_OPENER.exec(text) ?? GO_OPENER.exec(text);
+  return verb !== null && followedByObject(text.slice(verb[0].length));
+}
+
 /** Whether a sentence opens a clause of its own, after `previous`. */
 function opensCommitment(sentence: string, previous: string): boolean {
   const text = sentence.replace(LEADING_CONNECTOR, '').trim();
@@ -410,6 +448,14 @@ function opensCommitment(sentence: string, previous: string): boolean {
   // decided; only an unresolved-intent marker followed by an object goes first.
   if (opensWithIntentOfMyOwn(text) && intentNamesAnAction(text, previous)) return true;
   if (restatesTheHour(text, previous)) return false;
+  // A sentence that opens with its own day and hour (QA audit NA3.2):
+  // «… . بكرا الساعة 3 العصر لازم أشتري خبز», "… . Tomorrow at 3pm I have
+  // to pick up the car". The day and hour are when, not what: the words after
+  // them are judged as the sentence's opening. A sentence that is only a time
+  // still attaches («… . الساعة 5 المسا»), and so does one whose words after
+  // the time restate the appointment («… . بكرا الساعة 5 بدي أكون هناك»).
+  const untimed = afterLeadingTime(text);
+  if (untimed !== text) return opensCommitment(untimed, previous);
   // A thought, a wait, a someday or an idea is a point of its own (M6b BB-04):
   // «… بكرا من 4 لـ 8 المسا. عم بفكر أسافر الصيف الجاي» must not hand the
   // meeting a trip it was only thinking about. The same markers already let a
@@ -705,6 +751,41 @@ const OPENS_A_CLAUSE = new RegExp(
   'iu',
 );
 
+/** The conjunct is a trip: its first verb, after any request word and time, is «روح» / "go". */
+function goesSomewhere(conjunct: string): boolean {
+  let text = afterLeadingTime(conjunct.replace(LEADING_CONNECTOR, '').trim());
+  const opener = SENTENCE_OPENER.exec(text);
+  if (opener) text = afterLeadingTime(text.slice(opener[0].length).replace(/^\s*to\s+/i, '').trim());
+  return GO_OPENER.test(text);
+}
+
+/** The words after a list's head and its colon — "Things for tomorrow: call the plumber" — or the text. */
+function afterListHead(conjunct: string): string {
+  const colon = conjunct.lastIndexOf(':');
+  return colon >= 0 ? conjunct.slice(colon + 1).trim() : conjunct;
+}
+
+/**
+ * The conjunct before a join is more than a bare verb: an errand verb onto an
+ * object («أشتري خبز», "buy milk"), or words beyond a single one when no
+ * listed verb opens it. Read after a request word, a leading day or hour and
+ * a list's head — "I need to read", "Things: read" are as bare as "Read".
+ */
+function hasOwnObject(conjunct: string): boolean {
+  let core = afterListHead(afterLeadingTime(conjunct.replace(LEADING_CONNECTOR, '').trim()));
+  const request = SENTENCE_OPENER.exec(core);
+  if (request) core = core.slice(request[0].length).replace(/^\s*to\s+/i, '').trim();
+  const verb = SENTENCE_VERB_OPENER.exec(core) ?? GO_OPENER.exec(core);
+  if (verb) return followedByObject(core.slice(verb[0].length));
+  return core.split(/\s+/).filter(Boolean).length > 1;
+}
+
+/** Any day, hour or month's end in the words, as a due or not. */
+const MONTH_END_WORDS = new RegExp('end\\s+of\\s+(?:the\\s+|this\\s+)?month|month[\\s-]end|(?:آخر|اخر|أخر|نهاية)\\s+(?:الشهر|هالشهر)|סוף\\s+ה?חודש', 'iu');
+function mentionsTiming(clause: string): boolean {
+  return timeOfDayEvidence(clause) !== 'none' || namesDay(clause) || namesDayOfMonth(clause) || MONTH_END_WORDS.test(clause);
+}
+
 /** A whole commitment with a due of its own, either side of an "and". */
 function isWholeTimedCommitment(clause: string): boolean {
   return statesItsOwnDue(clause, 'before') && !isTimeOnlyClause(clause) && hasActionEvidence(clause);
@@ -728,11 +809,38 @@ function splitTimedConjuncts(segment: string): string[] {
     // validates both returned items against the whole sentence and the rules
     // extractor merges the thought into the timed commitment (#736).
     const opensThought = opensWithUnresolvedIntent(after.replace(LEADING_CONNECTOR, '').trim());
+    const errand = opensErrand(after);
     const opens = opensThought || statesItsOwnDue(after)
-      && (opensCommitment(after, before) || OPENS_WITH_APPOINTMENT_NOUN.test(after));
-    if (before && after && opens && isWholeTimedCommitment(before)) {
+      && (opensCommitment(after, before) || OPENS_WITH_APPOINTMENT_NOUN.test(after) || errand);
+    // A list of errands (QA audit NAPI-A8.1, NA3.4): "buy milk, call the
+    // bank", «أتصل بالبنك وأدفع فاتورة الكهربا», «להתקשר לבנק ולשלם…», timed
+    // or not. Split only where the words after the join open with an errand
+    // verb onto an object and the words before it already ask for or name
+    // something to do: «خبز وحليب», "Sam and Dana", "the new manager" are
+    // never a verb, and stay one item.
+    // Never onto a clause about a question («ask whether the rent is due by
+    // …», #743 Q743-002): its date is what is asked about, not its due.
+    // And only where its time words, if any, are its own due: "tell her about
+    // the end of the month party" names a party, and split off alone it
+    // would be dated by it (#743 Q743-002).
+    const listed = errand && !isTimeOnlyClause(before) && !OPENS_A_CLAUSE.test(after)
+      && (!mentionsTiming(after) || statesItsOwnDue(after))
+      // An untimed errand after a clock time shares it: "Call mom tomorrow at
+      // 5 PM and pay rent" is read with both at 17:00 (capture chat, cited
+      // first turn), and stays one clause as #743 left it.
+      && (mentionsTiming(after) || !statesClock(before))
+      // "Go to the market and buy bread", «بدي أروح عالسوق وأشتري خبز»: the
+      // trip and what is done there are one errand (CL1 review, C1).
+      && !goesSomewhere(before)
+      // The verb before the join needs an object of its own (B3 review):
+      // "Read and reply to emails" is one errand, not «Read» and another.
+      && hasOwnObject(before)
+      && [before, afterLeadingTime(before), afterListHead(before)].some((words) => hasActionEvidence(words));
+    if (before && after && ((opens && isWholeTimedCommitment(before)) || listed)) {
       out.push(before);
-      rest = after;
+      // The split itself proves the "and" was the joiner, as for a follower
+      // segment (`segmentsOf`).
+      rest = after.replace(/^and\s+/i, '');
       searchFrom = 0;
     } else {
       searchFrom = join.index + Math.max(1, join[0].length);
@@ -777,43 +885,126 @@ export function withoutClauseJoiner(clause: string): string {
   // away (F3-010); the words returned keep theirs.
   const folded = remainder.replace(MARKS, '');
   const request = LEADING_REQUEST.exec(folded);
-  const opensPoint = (request !== null && request.index === 0) || opensWithUnresolvedIntent(folded);
+  // An Arabic «و» goes before an errand verb that carries its person prefix
+  // too — «واتصل بالبنك», «وأدفع الفاتورة», «وروح عالبنك» (QA audit CA3.1):
+  // no word starts «اتصل», «أدفع» or «روح» but the verb. The bare and doubled
+  // forms stay out, as F3-001 / F3-009 decided: «ورد» (roses) is not «رد»,
+  // «وصّل» is a verb of its own, «وزارة» and «وردة» are words.
+  const errand = joined[0].startsWith('و') && JOINED_ARABIC_ERRAND.test(folded);
+  const opensPoint = (request !== null && request.index === 0) || opensWithUnresolvedIntent(folded) || errand;
   return opensPoint ? remainder : clause;
 }
+
+const JOINED_ARABIC_ERRAND = new RegExp(`^(?:${AR_PREFIXED_ERRAND}|(?:[أان]|ب)?روح${A})`, 'u');
 
 export function splitCaptureClauses(raw: string): string[] {
   return splitCaptureClauseDetails(raw).map((clause) => clause.text);
 }
 
+/** A sentence end or a line break: the hard cut no carried day crosses. */
+const LINE = '\u0001';
+
 function segmentsOf(raw: string): string[] {
-  const segments = sentencesOf(raw)
-    .join('|')
-    .replace(CLAUSE_OPENER, '|')
-    .replace(/[;\n]+/g, '|')
-    .replace(/\s+(and then|then|also)\s+/gi, (match, connector: string, offset: number, source: string) => {
-      // At the start of a capture, "And Then There Were None" is a title, not
-      // an empty clause followed by a sequencing word. A real connector still
-      // has content before it and keeps the existing split behaviour.
-      const before = source.slice(0, offset).trim();
-      return connector.toLowerCase() === 'then' && /^and$/i.test(before) ? match : '|';
-    })
-    // «وبعدين»/«وبعدها»/«وكمان» (and then / and after / and also), and Hebrew
-    // «ואז»/«וגם». Each is a whole word, so «وكمانك» is untouched.
-    .replace(/\s*(?:وبعدين|وبعدها|وكمان|ثم|بعدين)\s+/g, '|')
-    .replace(/\s*(?:ואז|וגם|אחר כך)\s+/g, '|')
-    .replace(/،+/g, '|')
-    .split('|')
-    .map((part) => part.trim())
-    .map((part) => part.replace(/^[\s,;،]+|[\s,;،]+$/g, '').replace(/^ثم(?![؀-ۿ])\s*/i, '').trim())
-    .filter(Boolean)
+  const parts = sentencesOf(raw)
+    .join(LINE)
+    .replace(/[;\n]+/g, LINE)
+    .split(LINE)
+    .flatMap((line, lineIndex) => line
+      .replace(CLAUSE_OPENER, '|')
+      .replace(/\s+(and then|then|also)\s+/gi, (match, connector: string, offset: number, source: string) => {
+        // At the start of a capture, "And Then There Were None" is a title, not
+        // an empty clause followed by a sequencing word. A real connector still
+        // has content before it and keeps the existing split behaviour.
+        const before = source.slice(0, offset).trim();
+        return connector.toLowerCase() === 'then' && /^and$/i.test(before) ? match : '|';
+      })
+      // «وبعدين»/«وبعدها»/«وكمان» (and then / and after / and also), and Hebrew
+      // «ואז»/«וגם». Each is a whole word, so «وكمانك» is untouched.
+      .replace(/\s*(?:وبعدين|وبعدها|وكمان|ثم|بعدين)\s+/g, '|')
+      .replace(/\s*(?:ואז|וגם|אחר כך)\s+/g, '|')
+      .replace(/،+/g, '|')
+      .split('|')
+      .map((part) => part.trim())
+      .map((part) => part.replace(/^[\s,;،]+|[\s,;،]+$/g, '').replace(/^ثم(?![؀-ۿ])\s*/i, '').trim())
+      .filter(Boolean)
+      .map((text) => ({ text, line: lineIndex })))
     // The first segment owns a leading "and" (a title or verbatim seed). On a
     // follower, the separator already proves it is the clause joiner, matching
     // the pre-#737 rules behaviour without stripping the capture's first word.
-    .map((part, index) => index === 0 ? part : part.replace(/^and\b\s*/i, '').trim())
-    // A Hebrew «ו» is attached, like an Arabic «و»: it is not cut here, where
-    // «ויזה» would lose its own letter (Codex inspection F3-004); a joining one
-    // goes where the follower's item or seed is made (`withoutClauseJoiner`).
-    .filter(Boolean)
-    .flatMap(splitTimedConjuncts);
+    // A follower's «و» goes here only before «يوم» and its weekday (QA audit
+    // CA3.1): «ويوم الأحد الساعة 11…» is no word of its own, and kept, the
+    // reading left «ويوم» in the title. Before anything else a Hebrew «ו» or
+    // an Arabic «و» is attached, and not cut here, where «ויזה» would lose its
+    // own letter (Codex inspection F3-004); a joining one goes where the
+    // follower's item or seed is made (`withoutClauseJoiner`).
+    .map((part, index) => index === 0 ? part : { ...part, text: withoutJoinerBeforeTime(part.text.replace(/^and\b\s*/i, '').trim()) })
+    .filter((part) => part.text);
+  const segments: string[] = [];
+  for (let start = 0; start < parts.length;) {
+    let end = start;
+    while (end < parts.length && parts[end]!.line === parts[start]!.line) end += 1;
+    segments.push(...withDayCarried(parts.slice(start, end).flatMap((part) => splitTimedConjuncts(part.text))));
+    start = end;
+  }
   return segments.length > 0 ? withTimeOnlyClausesMerged(segments) : [raw];
 }
+
+const JOINED_DAY_WORD = new RegExp('^ويوم\\s', 'u');
+
+/**
+ * A follower's «و» glued to «يوم» before a weekday: «ويوم الأحد الساعة 11…».
+ * The weekday readers take «يوم الأحد» whole only where no letter stands
+ * before it, so «ويوم» was left in the title. Other day words keep their
+ * «و» here («وبكرا», «واليوم»): the readers already lift it with them.
+ */
+function withoutJoinerBeforeTime(text: string): string {
+  if (!JOINED_DAY_WORD.test(text)) return text;
+  const rest = text.slice(1);
+  return afterLeadingTime(rest) !== rest ? rest : text;
+}
+
+/**
+ * The day words of a clause, as said: «بكرا», "tomorrow", «يوم الأحد», "Sunday",
+ * «מחר». The first one, or null.
+ */
+const DAY_PHRASE = new RegExp(
+  [
+    ...RELATIVE_DAY_MENTION_SOURCES,
+    ...WEEKDAY_MENTION_SOURCES,
+    // With its "next" / "this" / "coming": "next Sunday" carried as "Sunday"
+    // was a different day (B3 review).
+    '\\b(?:(?:next|this|coming|the\\s+coming|following|the\\s+following)\\s+)?(?:sunday|monday|tuesday|wednesday|thursday|friday|saturday)\\b',
+  ].map((source) => `(?:${source})`).join('|'),
+  'iu',
+);
+
+/**
+ * The day of a timed clause, carried to the clause right after it in the same
+ * line when that one states an hour and no day (QA audit CA3.1): «اتصل بماما
+ * بكرا الساعة 5 المسا، وروح عالبنك الساعة 10 الصبح» and "tomorrow at 5pm
+ * call mom, and go to the bank at 10am" are both tomorrow — read alone, the
+ * bank's hour fell on today. Only from a clause that gives both a day and an
+ * hour, and only to the next one: a list of separate points («…، وسجّل موعد
+ * دكتور يوم الأحد، وبدي أتصل بأمي الساعة 5») keeps each point's own words.
+ * A sentence end or a line break starts over, a clause naming any day of its
+ * own («ويوم الأحد…», "on the 5th") keeps it, and a clause with no hour is
+ * not given a day it did not say.
+ */
+function withDayCarried(clauses: readonly string[]): string[] {
+  let day: string | null = null;
+  return clauses.map((clause) => {
+    const carried = day;
+    day = null;
+    if (namesDay(clause) || readWeekdayReference(clause) || namesExplicitDate(clause)) {
+      // An appointment's day is its own (B3 review): "Dentist on Sunday at
+      // 5pm, call mom at 6pm" does not put the call on Sunday.
+      if (statesClock(clause) && !COMMITMENT_NOUN.test(clause)) {
+        day = DAY_PHRASE.exec(clause)?.[0]?.replace(/^\u0648/, '').trim() || null;
+      }
+      return clause;
+    }
+    if (carried && statesClock(clause) && !isTimeOnlyClause(clause)) return `${clause} ${carried}`;
+    return clause;
+  });
+}
+

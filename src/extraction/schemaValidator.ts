@@ -397,6 +397,11 @@ export function reconcileLocalTimeSpec(
       if (field === 'dueAt') dueAt = iso;
       else remindAt = iso;
     }
+    // A wall clock with no instant at all (QA audit NAPI-A8.2): Gemini answers
+    // a timed clause with `localTimeSpec` alone about half the time. The spec
+    // is the hour, so it is the instant too — when it is due. Left without
+    // one, the item had an hour and nothing to show: asked, with no question.
+    if (!dueAt && !remindAt) dueAt = iso;
     // The model's own zone label is replaced by the device's, so the spec and
     // the instant describe the same clock.
     localTimeSpec = { ...localTimeSpec!, timezone: zone };

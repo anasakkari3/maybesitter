@@ -39,24 +39,29 @@ test('counting is stable across calls', () => {
   assert.equal(countTimeExpressions(text), countTimeExpressions(text));
 });
 
-test('Arabic input naming two times that yields one commitment asks instead of claiming', async () => {
+test('Arabic input naming two times: no time is claimed that the words did not settle', async () => {
   const proposal = await propose('بكرة الساعة 9 عندي دكتور وبعدها الساعة 2 لازم أروح عالجامعة');
-  assert.ok(proposal.items.length > 0, 'expected at least one item');
-  assert.ok(
-    proposal.items.every((item) => item.needsClarification),
-    'a commitment was returned confidently while a named time went unaccounted for',
-  );
+  assert.equal(proposal.items.length, 2, 'each clause is its own item');
+  // The valve reads each clause against its own items (QA audit NAPI-A8.2):
+  // the doctor's 9 is accounted for and stays; the university's bare 2 is
+  // asked, with a question.
+  assert.equal(proposal.items[0]!.needsClarification, false);
+  assert.ok(proposal.items[0]!.resolvedTime);
+  assert.equal(proposal.items[1]!.needsClarification, true);
+  assert.ok(proposal.items[1]!.clarification);
 });
 
-test('English input naming three times that yields fewer asks instead of claiming', async () => {
+test('English input naming three times that yields fewer asks, clause by clause, instead of claiming', async () => {
   const proposal = await propose('Doctor at 9am, university at 2pm, then visit my uncle at 7pm');
-  const accounted = new Set(proposal.items.map((i) => i.resolvedTime).filter(Boolean)).size;
-  if (accounted < countTimeExpressions('Doctor at 9am, university at 2pm, then visit my uncle at 7pm')) {
-    assert.ok(
-      proposal.items.every((item) => item.needsClarification),
-      'times were dropped and the proposal still claimed confidence',
-    );
-  }
+  // "Doctor at 9am, university at 2pm" is one clause naming two times and
+  // read as one item: that item asks. "visit my uncle at 7pm" lost nothing
+  // and keeps its hour (NAPI-A8.2: one clause's loss is not the list's).
+  const merged = proposal.items.find((item) => /doctor/i.test(item.title))!;
+  const uncle = proposal.items.find((item) => /uncle/i.test(item.title))!;
+  assert.equal(merged.needsClarification, true, 'times were dropped and the item still claimed confidence');
+  assert.ok(merged.clarification, 'the item that asks has a question');
+  assert.equal(uncle.needsClarification, false);
+  assert.ok(uncle.resolvedTime);
 });
 
 test('input naming no clock time is left alone by the valve', async () => {
