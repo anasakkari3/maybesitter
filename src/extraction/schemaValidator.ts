@@ -428,6 +428,22 @@ export function reconcileLocalTimeSpec(
  * later only for "the one after"); every instant moves by the same number of
  * days, keeping its hour on the person's clock.
  */
+const EN_WEEKDAY_CASED = '(?:[Ss]un|[Mm]on|[Tt]ues|[Ww]ednes|[Tt]hurs|[Ff]ri|[Ss]atur)day';
+/**
+ * The weekday is followed by a capitalised word — a name: "Saturday Night
+ * Live" — or a domain ("Monday.com"). "Sunday at 5", "Sunday night" are
+ * lower case and still a day.
+ */
+const WEEKDAY_IN_A_NAME = new RegExp(
+  // "Sunday I have to…" is still a day: the pronoun is not a name.
+  `\\b${EN_WEEKDAY_CASED}(?:\\.[A-Za-z]|\\s+(?!I(?:'|’|\\b))[A-Z])`,
+);
+/** The weekday is followed by a noun it describes: "the Sunday school fee". */
+const WEEKDAY_AS_MODIFIER = new RegExp(
+  `\\b${EN_WEEKDAY_CASED}\\s+(?:school|service|services|paper|papers|times|league|mass|roast|special|club|market|brunch|lunch|dinner|class|classes)\\b`,
+  'i',
+);
+
 const ARABIC_MONDAY = new RegExp('[اإأ]ثنين', 'u');
 const SURELY_ARABIC_MONDAY = new RegExp('يوم\\s+(?:ال)?[اإأ]ثنين|[اإأ]ثنين\\s+(?:الجاي|الجاية|الجايه|القادم|القادمة)', 'u');
 
@@ -440,6 +456,9 @@ function onNamedWeekday(time: ReconciledTime, rawText: string, now: Date, fallba
   // «الاثنين» is also "the two" («اشتري الاثنين الساعة 5»): only «يوم
   // الاثنين» or «الاثنين الجاي» is surely Monday enough to move a date for.
   if (ARABIC_MONDAY.test(rawText) && !SURELY_ARABIC_MONDAY.test(rawText)) return null;
+  // An English weekday that is part of a name or a modifier is no day (B3
+  // review): "the Sunday school fee", "Saturday Night Live", "Monday.com".
+  if (WEEKDAY_IN_A_NAME.test(rawText) || WEEKDAY_AS_MODIFIER.test(rawText)) return null;
   if (new Date(`${date}T12:00:00Z`).getUTCDay() === reference.weekday) return null;
   const zone = time.localTimeSpec?.timezone || fallbackZone;
   const target = resolveWeekdayDate(rawText, now, zone)?.date;

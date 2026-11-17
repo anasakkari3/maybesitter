@@ -121,7 +121,7 @@ for (const text of [
 }
 
 test('NA2.3 review: a weekday said as a day is still corrected — "on Sunday at 5pm", "Sunday night at 9pm"', () => {
-  for (const [text, time] of [['Dentist on Sunday at 5pm', '17:00'], ['Call mom Sunday night at 9pm', '21:00'], ['Sunday at 5pm call mom', '17:00']] as const) {
+  for (const [text, time] of [['Dentist on Sunday at 5pm', '17:00'], ['Call mom Sunday night at 9pm', '21:00'], ['Sunday at 5pm call mom', '17:00'], ['Sunday I have to call mom at 5pm', '17:00']] as const) {
     const result = validateExtractionResult(model('item', '2026-11-16', time), text, context);
     assert.equal(result.localTimeSpec?.date, '2026-11-15', text);
     assert.equal(result.weekdayCorrected, true, text);
