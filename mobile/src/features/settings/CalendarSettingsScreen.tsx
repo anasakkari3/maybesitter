@@ -36,6 +36,9 @@ import { useIcsFeedsAvailable } from '../calendarFeeds/availability';
 import { useBusyBlocks, useBusyCalendar } from '../calendar/useBusyCalendar';
 import { SectionLabel } from '../../ui/chrome';
 import { Disclosure } from '../../ui/Disclosure';
+import { ManualLectureTimes } from './ManualLectureTimes';
+import { useRemoveManualBusy } from '../calendar/manualLectures';
+import type { ManualBusySource } from '../../api/schemas/calendar';
 
 /** The key a calendar with no account is grouped under. */
 export const OTHER_SOURCE = 'other';
@@ -156,6 +159,22 @@ export function CalendarSettingsScreen({ onBack, onFeeds }: { onBack: () => void
   const [disconnected, setDisconnected] = useState<null | 'done' | 'localOnly'>(null);
   const [disconnecting, setDisconnecting] = useState(false);
   const [confirmDisconnect, setConfirmDisconnect] = useState(false);
+  // Lecture times added from a syllabus (CXA10.3): the one asked about, and
+  // whether the last removal failed.
+  const [lectureToRemove, setLectureToRemove] = useState<ManualBusySource | null>(null);
+  const [lectureRemoveFailed, setLectureRemoveFailed] = useState(false);
+  const removeLecture = useRemoveManualBusy();
+  const confirmLectureRemoval = useCallback(async () => {
+    if (!lectureToRemove) return;
+    setLectureRemoveFailed(false);
+    try {
+      await removeLecture.mutateAsync(lectureToRemove.proposalId);
+    } catch {
+      setLectureRemoveFailed(true);
+    } finally {
+      setLectureToRemove(null);
+    }
+  }, [lectureToRemove, removeLecture]);
 
   const target = settings.data?.calendarSettings.writeTarget ?? 'off';
   const on = target === 'device';
@@ -384,6 +403,20 @@ export function CalendarSettingsScreen({ onBack, onFeeds }: { onBack: () => void
           onCancel={() => setConfirmDisconnect(false)}
           confirmTestID="calendar-disconnect-confirm"
           cancelTestID="calendar-disconnect-keep"
+        />
+      ) : lectureToRemove ? (
+        <Dialog
+          testID="calendar-lecture-remove-dialog"
+          title={t.manualBusyConfirmTitle}
+          body={t.manualBusyConfirmBody}
+          confirmLabel={t.manualBusyRemove}
+          cancelLabel={t.manualBusyKeep}
+          tone="ink"
+          busy={removeLecture.isPending}
+          onConfirm={() => void confirmLectureRemoval()}
+          onCancel={() => setLectureToRemove(null)}
+          confirmTestID="calendar-lecture-remove-confirm"
+          cancelTestID="calendar-lecture-remove-keep"
         />
       ) : null}
     >
@@ -614,6 +647,12 @@ export function CalendarSettingsScreen({ onBack, onFeeds }: { onBack: () => void
             <Txt size={13} color={p.mu} testID="calendar-removed-count">{t.calendarRemoveDone}</Txt>
           )}
         </Card>
+
+        <ManualLectureTimes
+          onAskRemove={(source) => { setLectureRemoveFailed(false); setLectureToRemove(source); }}
+          removing={removeLecture.isPending ? (lectureToRemove?.sourceId ?? '') : null}
+          failed={lectureRemoveFailed}
+        />
 
         {/* A university calendar link (UC-3.4, #188), secondary on purpose:
             the phone's own calendars are listed above with nothing to fill in.

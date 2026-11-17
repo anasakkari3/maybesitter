@@ -1304,12 +1304,13 @@ export interface HeldFixture {
 export async function listHeldFixtures(uid: string, now: Date = new Date()): Promise<{ held: HeldFixture[]; waitingForCoverage: number }> {
   const refs = await listRefs<FixtureExternalTaskRef>(uid);
   const nowMs = now.getTime();
+  const followed = await followedTeamIdsOf(uid);
   // A match waiting for coverage stops waiting once it has kicked off, the
   // same as a clash hold (lane E1 review, item 6).
   const waitingForCoverage = refs.filter((ref) => !ref.detachedAt && ref.held?.reason === 'unknown'
-    && Date.parse(ref.held.kickoffUtc) > nowMs).length;
+    && heldStillAskable(ref, followed, nowMs)).length;
   const held = refs.filter((ref) => !ref.detachedAt && ref.held?.reason === 'clash'
-    && Date.parse(ref.held.kickoffUtc) > nowMs).map((ref) => ({
+    && heldStillAskable(ref, followed, nowMs)).map((ref) => ({
     fixtureId: ref.taskRefId,
     heldVersion: heldVersionOf(ref.held!),
     homeTeamName: ref.homeTeamName,
@@ -1322,6 +1323,27 @@ export async function listHeldFixtures(uid: string, now: Date = new Date()): Pro
     clashes: ref.held!.clashes,
   })).sort((a, b) => a.kickoffUtc.localeCompare(b.kickoffUtc));
   return { held, waitingForCoverage };
+}
+
+async function followedTeamIdsOf(uid: string): Promise<ReadonlySet<string>> {
+  const ids = new Set<string>();
+  for (const clubId of await getFollowedClubs(uid)) {
+    const club = clubById(clubId);
+    if (club) ids.add(club.providerTeamId);
+  }
+  return ids;
+}
+
+/**
+ * Whether a held match is still a question worth asking (audit CA11.1): its
+ * kickoff is still ahead, and one of its two clubs is still followed. A ref
+ * written before refs carried team ids cannot be judged on the follow and is
+ * kept, as `releaseUnfollowedFixtures` keeps what it cannot resolve.
+ */
+function heldStillAskable(ref: FixtureExternalTaskRef, followedTeamIds: ReadonlySet<string>, nowMs: number): boolean {
+  if (!ref.held || Date.parse(ref.held.kickoffUtc) <= nowMs) return false;
+  if (!ref.homeTeamId || !ref.awayTeamId) return true;
+  return followedTeamIds.has(ref.homeTeamId) || followedTeamIds.has(ref.awayTeamId);
 }
 
 function heldFixtureOf(ref: FixtureExternalTaskRef | null): HeldFixture | null {
@@ -1350,6 +1372,7 @@ export async function decideHeldFixture(
   const receiptPath = userSubDoc(uid, EXTERNAL_TASK_ACTION_RECEIPTS, input.clientActionId);
   let replayed = false;
   let changed: HeldFixture | null | undefined;
+  const followed = input.action === 'add' ? await followedTeamIdsOf(uid) : null;
   await storage.runTransaction(async (tx) => {
     changed = undefined;
     const receipt = await tx.get<HeldActionReceipt>(receiptPath);
@@ -1362,6 +1385,9 @@ export async function decideHeldFixture(
     if (!ref) throw new HeldFixtureNotFoundError();
     const current = heldFixtureOf(ref);
     if (!current || current.heldVersion !== input.expectedHeldVersion) { changed = current; return; }
+    // CA11.1: a stale row -- the match has kicked off, or its club is no
+    // longer followed -- is gone, not addable.
+    if (followed && !heldStillAskable(ref, followed, Date.parse(now))) { changed = null; return; }
     if (input.action === 'dismiss') {
       tx.merge<FixtureExternalTaskRef>(path, { linkState: 'detached', detachedAt: now, held: null, updatedAt: now });
       tx.create<HeldActionReceipt>(receiptPath, { fixtureId, fingerprint, action: input.action, createdAt: now });
@@ -1508,6 +1534,21 @@ export class FixtureNotLinkedError extends Error {
 }
 
 /**
+ * The commitment was already completed by the person, so
+ * "not this match" has nothing left to do -- a 409, and nothing is written.
+ */
+export class FixtureNotActiveError extends Error {
+  constructor(commitmentId: string) {
+    super(`commitment ${commitmentId} is already closed`);
+    this.name = 'FixtureNotActiveError';
+  }
+}
+
+// Only `completed`: a match the person deleted (`archived`) is gone, and
+// dismissing it is a quiet no-op (CA2.3, #847).
+const CLOSED_BY_PERSON: ReadonlySet<string> = new Set(['completed']);
+
+/**
  * A user says "not this match." The ref is marked `detachedAt` forever
  * (never recreated by a later projection run -- see the module header) and
  * the commitment it made, if any, is dropped the same way a cancelled
@@ -1527,6 +1568,15 @@ export async function dismissFixtureCommitment(
   const ref = refs.find((candidate) => candidate.linkedCommitmentId === commitmentId);
   if (!ref) {
     throw new FixtureNotLinkedError(commitmentId);
+  }
+
+  // QA audit CXA11.3: a stale «مش هاي» (the screen still listed the match)
+  // must not rewrite an outcome the person already chose elsewhere. `Drop`
+  // accepts a completed commitment, so the check lives here, before the ref
+  // is touched: a completed match is refused and left as it is.
+  const before = (await readParticipantState(uid)).commitments[commitmentId];
+  if (before && CLOSED_BY_PERSON.has(before.status)) {
+    throw new FixtureNotActiveError(commitmentId);
   }
 
   await putRef<FixtureExternalTaskRef>(uid, {

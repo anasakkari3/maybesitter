@@ -28,6 +28,7 @@ import {
   manualBusySourceId,
 } from '../../lib/calendar/manualBusy.ts';
 import type { ShareRecurringSession } from '../../lib/services/share/shareTypes.ts';
+import { seedLiveAccount } from '../support/liveAccount.ts';
 
 const UID = 'user_syllabus_191';
 const PROPOSAL_ID = 'prop-syllabus-001';
@@ -83,6 +84,7 @@ test('expandLectureSessionsToBusyBlocks expands sessions across 16 weeks', () =>
 
 test('acceptLectureSessionsAsBusyBlocks stores busy blocks and never commitments', async () => {
   const storage = createMemoryStorage();
+  await seedLiveAccount(UID, storage); // the manual-source count is written only under a live account (#772)
 
   const outcome = await acceptLectureSessionsAsBusyBlocks(UID, PROPOSAL_ID, SAMPLE_SESSIONS, {
     timezone: TIMEZONE,
@@ -119,6 +121,7 @@ test('the manual writer rejects malformed clocks before persistence', async () =
     { weekday: 2, start: '11:00', end: '10:00', label: 'invalid' },
   ]) {
     const storage = createMemoryStorage();
+  await seedLiveAccount(UID, storage); // the manual-source count is written only under a live account (#772)
     await assert.rejects(
       acceptLectureSessionsAsBusyBlocks(UID, PROPOSAL_ID, [session], {
         timezone: TIMEZONE,
@@ -133,6 +136,7 @@ test('the manual writer rejects malformed clocks before persistence', async () =
 
 test('accepting updated lecture sessions replaces prior blocks cleanly', async () => {
   const storage = createMemoryStorage();
+  await seedLiveAccount(UID, storage); // the manual-source count is written only under a live account (#772)
 
   // First accept: 2 sessions = 32 blocks
   await acceptLectureSessionsAsBusyBlocks(UID, PROPOSAL_ID, SAMPLE_SESSIONS, {
@@ -165,6 +169,7 @@ test('accepting updated lecture sessions replaces prior blocks cleanly', async (
 
 test('deleteBusySource deletes all manual lecture blocks and calendar source', async () => {
   const storage = createMemoryStorage();
+  await seedLiveAccount(UID, storage); // the manual-source count is written only under a live account (#772)
 
   const outcome = await acceptLectureSessionsAsBusyBlocks(UID, PROPOSAL_ID, SAMPLE_SESSIONS, {
     timezone: TIMEZONE,
@@ -182,4 +187,13 @@ test('deleteBusySource deletes all manual lecture blocks and calendar source', a
 
   const blocksAfter = await listBusyBlocks(UID, outcome.window, { storage });
   assert.equal(blocksAfter.length, 0);
+});
+
+test('review of wave B8: no lecture times, and no count row, are written for an account that is not live (#772)', async () => {
+  const storage = createMemoryStorage();
+  await assert.rejects(acceptLectureSessionsAsBusyBlocks(UID, PROPOSAL_ID, SAMPLE_SESSIONS, {
+    timezone: TIMEZONE, referenceTime: REFERENCE_TIME, weeks: 16, storage, now: new Date(REFERENCE_TIME),
+  }), /account_unavailable/);
+  assert.equal(await readCalendarSource(UID, manualBusySourceId(PROPOSAL_ID), { storage }), null);
+  assert.deepEqual(await storage.list(`users/${UID}/calendarChoice`), []);
 });

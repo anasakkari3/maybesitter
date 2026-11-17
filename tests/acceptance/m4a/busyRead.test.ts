@@ -13,9 +13,14 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { replaceBusyBlocks } from '../../../lib/calendar/busyBlocks.ts';
+import { readBusyBlocksForPlanning, replaceBusyBlocks } from '../../../lib/calendar/busyBlocks.ts';
+import { listIcsFeeds } from '../../../lib/calendar/icsFeeds.ts';
+import { candidateClashes, readFreeSlotSchedule } from '../../../lib/planning/freeSlots.ts';
+import { applyTrustAction } from '../../../lib/pilot/pilotTrustStore.ts';
 import { getStorage } from '../../../lib/storage/index.ts';
-import { ICS_FEEDS, userSubDoc } from '../../../lib/storage/paths.ts';
+import { AUDIT_EVENTS, CALENDAR_CHOICE, CALENDAR_SOURCES, ICS_FEEDS, REGISTERED_DEVICE_SOURCES, docIdForKey, userCol, userDoc, userSubDoc } from '../../../lib/storage/paths.ts';
+import { seedLiveAccount } from '../../support/liveAccount.ts';
+import { disconnectAccountCalendars } from '../../../lib/calendar/calendarDisconnect.ts';
 import { TODAY, TOMORROW, TZ, at, begin, call, end, show } from './support.ts';
 
 const FROM = at(TODAY, '00:00');
@@ -46,6 +51,10 @@ async function icsBlocks(uid: string, feedId: string, blocks: Array<[string, str
 }
 
 async function manualSessions(uid: string, sessions: Array<Record<string, unknown>>, proposalId = 'gate-m4a-manual') {
+  // Manual busy time is kept only under calendar consent (QA audit CA10.4).
+  const stamp = new Date().toISOString();
+  await applyTrustAction(uid, { type: 'record_first_value', at: stamp });
+  await applyTrustAction(uid, { type: 'set_calendar_consent', granted: true, at: stamp });
   return call(uid, 'calendar/manual', 'POST', { body: { proposalId, sessions, timezone: TZ } });
 }
 
@@ -202,9 +211,15 @@ test('M4A-R16-001 R17-001 thousands of expired carry-in rows never hide a live i
 test('M4A-R12-003 many empty manual sources keep the answer bounded (no sources entries for manual)', async () => {
   const uid = begin();
   try {
-    for (let index = 0; index < 60; index += 1) {
+    // The route admits ten sources per account (#749, QA audit CA10.4); the
+    // other fifty are what an account written before that limit can hold.
+    for (let index = 0; index < 10; index += 1) {
       const result = await manualSessions(uid, [], `gate-empty-${index}`);
       assert.equal(result.status, 200, show(result.body));
+    }
+    for (let index = 10; index < 60; index += 1) {
+      await replaceBusyBlocks(uid, `manual-gate-empty-${index}`, { startsAt: new Date().toISOString(), endsAt: new Date(Date.now() + 7 * 86_400_000).toISOString() },
+        [], { platform: null, now: new Date() });
     }
     const result = await busy(uid);
     assert.equal(result.status, 200, show(result.body));
@@ -265,5 +280,151 @@ test('M4A-R18-002 flag-off parity of the manual route for well-formed input', as
     assert.equal(result.status, 200, show(result.body));
     assert.deepEqual(Object.keys(result.body).sort(), ['blocks', 'sourceId', 'success', 'windowEnd', 'windowStart']);
     assert.equal(result.body.blocks, 16, 'a weekly session still expands over 16 weeks');
+  } finally { end(); }
+});
+
+/* ── QA audit CA10.5 / NAPI-A10.1: «افصل وامسح» empties the account ── */
+// Owner decision (2026-11-16, option A): disconnecting deletes every
+// calendar's busy time from the account -- every phone, Google, the feeds,
+// lecture times added by hand (and their count) -- and turns consent off.
+// Feed subscriptions stay, paused, and fetch in full when consent returns.
+// Reads are NOT gated on consent (option B was declined): after the purge
+// there is simply nothing left to read.
+
+/** A real feed id: the feed store refuses anything else. */
+const FEED = '5eed0000-0000-4000-8000-000000000001';
+
+async function consent(uid: string, granted: boolean): Promise<void> {
+  const stamp = new Date().toISOString();
+  await applyTrustAction(uid, { type: 'record_first_value', at: stamp });
+  await applyTrustAction(uid, { type: 'set_calendar_consent', granted, at: stamp });
+}
+
+async function seedCalendars(uid: string): Promise<{ lecture: [string, string] }> {
+  const window = { startsAt: FROM, endsAt: TO };
+  const lecture: [string, string] = [at(TOMORROW, '10:00'), at(TOMORROW, '12:00')];
+  await icsFeed(uid, FEED, 'ok', new Date().toISOString());
+  await icsBlocks(uid, FEED, [[at(TOMORROW, '14:00'), at(TOMORROW, '15:00')]]);
+  await replaceBusyBlocks(uid, 'manual-lectures', window, [block('manual-lectures', 'manual', 'm1', ...lecture)], { platform: null, now: new Date() });
+  await replaceBusyBlocks(uid, 'device:other-phone', window, [block('device:other-phone', 'device', 'd1', at(TOMORROW, '17:00'), at(TOMORROW, '18:00'))], { platform: 'ios', now: new Date() });
+  await replaceBusyBlocks(uid, 'google:primary', window, [block('google:primary', 'google', 'g1', at(TOMORROW, '18:00'), at(TOMORROW, '18:30'))], { platform: null, now: new Date() });
+  await replaceBusyBlocks(uid, 'weekly-gym', window, [block('weekly-gym', 'weekly', 'w1', at(TOMORROW, '19:00'), at(TOMORROW, '20:00'))], { platform: null, now: new Date() });
+  return { lecture };
+}
+
+function disconnect(uid: string) {
+  return call(uid, 'calendar/busy', 'DELETE', { query: { scope: 'account' } });
+}
+
+test('CA10.5: after «افصل وامسح» the busy GET serves no calendar block', async () => {
+  const uid = begin();
+  try {
+    await consent(uid, true);
+    await seedCalendars(uid);
+    const before = await busy(uid);
+    assert.ok(before.body.blocks.length >= 2, show(before.body));
+
+    const done = await disconnect(uid);
+    assert.equal(done.status, 200, show(done.body));
+    const after = await busy(uid);
+    assert.equal(after.status, 200, show(after.body));
+    assert.deepEqual(after.body.blocks, [], `a disconnected account still serves busy time: ${show(after.body.blocks)}`);
+    assert.ok(after.body.sources.every((source: any) => source.status !== 'ok'), show(after.body.sources));
+  } finally { end(); }
+});
+
+test('CA10.5: after «افصل وامسح» the daily plan reads only the weekly blocks and nothing clashes with a calendar', async () => {
+  const uid = begin();
+  try {
+    await consent(uid, true);
+    const { lecture } = await seedCalendars(uid);
+    const window = { startsAt: at(TOMORROW, '00:00'), endsAt: at(TOMORROW, '23:59') };
+    const candidate = { dueAt: lecture[0], endAt: lecture[1], kind: 'scheduled_event' as const };
+    assert.equal(candidateClashes(await readFreeSlotSchedule(uid, window), candidate).state, 'clash');
+
+    assert.equal((await disconnect(uid)).status, 200);
+    const planning = await readBusyBlocksForPlanning(uid, window);
+    assert.deepEqual(planning.map((row) => row.blockId).sort(), ['w1'], `the plan still avoids a disconnected calendar: ${show(planning)}`);
+    const decision = candidateClashes(await readFreeSlotSchedule(uid, window), candidate);
+    assert.notEqual(decision.state, 'clash', `a disconnected calendar still decides clashes: ${show(decision)}`);
+  } finally { end(); }
+});
+
+test('CA10.5: the disconnect turns consent off, keeps the feed paused for a full fetch, resets the lecture count, and can run twice', async () => {
+  const uid = begin();
+  try {
+    await consent(uid, true);
+    await seedCalendars(uid);
+    // A lecture-time create in flight holds a place in the count.
+    await getStorage().set(userSubDoc(uid, CALENDAR_CHOICE, 'manualBusy'), { pending: { 'manual-in-flight': new Date().toISOString() } });
+    assert.equal((await disconnect(uid)).status, 200);
+    assert.equal((await disconnect(uid)).status, 200, 'a second disconnect failed');
+
+    const user = await getStorage().get<any>(userDoc(uid));
+    assert.equal(user.trust.calendarConsent, false);
+    const feed = await getStorage().get<any>(userSubDoc(uid, ICS_FEEDS, FEED));
+    assert.ok(feed, 'the subscription itself must stay');
+    assert.equal(feed.status, 'paused');
+    assert.equal(feed.etag, null);
+    assert.equal(feed.lastModified, null);
+    assert.equal(feed.lastFullFetchAt, null, 'the next fetch after consent returns must be a full one');
+    const sources = (await getStorage().list<any>(userCol(uid, CALENDAR_SOURCES))).map((row) => row.data.sourceId).sort();
+    assert.deepEqual(sources, ['weekly-gym'], show(sources));
+    assert.equal(await getStorage().get(userSubDoc(uid, CALENDAR_CHOICE, 'manualBusy')), null, 'the lecture count was not reset');
+  } finally { end(); }
+});
+
+test('CA10.5: the disconnect touches only its own account', async () => {
+  const uid = begin();
+  try {
+    const other = `${uid}-other`;
+    await seedLiveAccount(other);
+    await replaceBusyBlocks(other, 'manual-theirs', { startsAt: FROM, endsAt: TO },
+      [block('manual-theirs', 'manual', 't1', at(TOMORROW, '10:00'), at(TOMORROW, '11:00'))], { platform: null, now: new Date() });
+    await consent(uid, true);
+    await seedCalendars(uid);
+    assert.equal((await disconnect(uid)).status, 200);
+    assert.ok(await getStorage().get(userSubDoc(other, CALENDAR_SOURCES, docIdForKey('manual-theirs'))), "another account's busy time was deleted");
+  } finally { end(); }
+});
+
+test('review 2: other phones stay registered; blocks a source record never got are deleted too; the purge leaves a content-free audit line', async () => {
+  const uid = begin();
+  try {
+    await consent(uid, true);
+    await seedCalendars(uid);
+    const registration = userSubDoc(uid, REGISTERED_DEVICE_SOURCES, docIdForKey('device:other-phone'));
+    await getStorage().set(registration, { sourceId: 'device:other-phone', sourceInstallationId: 'inst-2', state: 'active' });
+    // An upload's first chunk landed, its source record never did.
+    await replaceBusyBlocks(uid, 'device:half-written', { startsAt: FROM, endsAt: TO },
+      [block('device:half-written', 'device', 'orphan', at(TOMORROW, '21:00'), at(TOMORROW, '22:00'))], { platform: 'ios', now: new Date() });
+    await getStorage().delete(userSubDoc(uid, CALENDAR_SOURCES, docIdForKey('device:half-written')));
+    assert.equal((await disconnect(uid)).status, 200);
+    assert.ok(await getStorage().get(registration), 'another phone lost its registration');
+    const left = (await getStorage().list<any>(userCol(uid, 'busyBlocks'))).map((row) => row.data.sourceId);
+    assert.deepEqual(left.filter((id: string) => !id.startsWith('weekly-')), [], show(left));
+    const audit = (await getStorage().list<any>(userCol(uid, AUDIT_EVENTS))).map((row) => row.data)
+      .filter((event: any) => event.reasonCode === 'calendar_disconnect');
+    assert.equal(audit.length >= 1, true, 'no audit line for the purge');
+    assert.deepEqual(Object.keys(audit[0]).sort(), ['eventType', 'occurredAt', 'outcome', 'participantId', 'reasonCode', 'version']);
+  } finally { end(); }
+});
+
+test('CA10.5: an account that is not live is refused, and nothing is written for it (#772)', async () => {
+  const uid = begin();
+  try {
+    await assert.rejects(disconnectAccountCalendars(`${uid}-gone`), /account_unavailable/);
+    assert.equal(await getStorage().get(userDoc(`${uid}-gone`)), null);
+  } finally { end(); }
+});
+
+test('NAPI-A10.1: a feed reads paused, not ok, while calendar consent is off', async () => {
+  const uid = begin();
+  try {
+    await consent(uid, true);
+    await icsFeed(uid, 'feed1', 'ok', new Date().toISOString());
+    assert.equal((await listIcsFeeds(uid))[0]!.status, 'ok');
+    await consent(uid, false);
+    assert.equal((await listIcsFeeds(uid))[0]!.status, 'paused');
   } finally { end(); }
 });

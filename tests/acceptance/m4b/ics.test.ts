@@ -257,6 +257,42 @@ test('M4B-R6-001: a new clash after render → 409 item_changed, nothing accepte
   assert.equal(result.body.error, 'item_changed');
 });
 
+/* ── QA audit CA10.1: a deadline past the busy window ───────────────── */
+// The feed's busy source covers about 28 days; deadlines run to 120. Beyond
+// the window the clash check is `unknown`, and the screen says «ما قدرت أتأكد
+// من تقويمك، قرّر إنت» -- but every «أضف الموعد» answered 409 item_changed, so
+// the person could never decide. Once they have seen "unknown", their tap is
+// the decision.
+
+test('CA10.1: a timed deadline 40 days out is accepted by hand once the person has seen it is unknown', async () => {
+  const w = await world();
+  w.body.value = calendar([{ uid: 'thesis', title: 'Thesis due', dueInHours: 40 * 24 }]);
+  const feedId = await subscribe(w, false);
+  let [row] = await rows(w);
+  let result = await decide(w, feedId, row.itemKey, { action: 'accept', expectedDecisionVersion: row.decisionVersion });
+  // First tap: the row did not say "unknown" yet, so it is not saved blind;
+  // the person is shown «قرّر إنت».
+  assert.equal(result.status, 409, `saved over a clash check nobody saw was unknown: ${show(result.body)}`);
+  assert.equal(result.body.row?.held?.reason, 'unknown', show(result.body));
+  assert.equal((await activeTitled(w, 'Thesis due')).length, 0);
+  row = result.body.row;
+  result = await decide(w, feedId, row.itemKey, { action: 'accept', expectedDecisionVersion: row.decisionVersion });
+  assert.equal(result.status, 200, `the person decided on an unknown clash and was refused again: ${show(result.body)}`);
+  assert.equal((await activeTitled(w, 'Thesis due')).length, 1);
+});
+
+test('CA10.1: an auto-accept parked as unknown is accepted on the first tap', async () => {
+  const w = await world();
+  w.body.value = calendar([{ uid: 'thesis', title: 'Thesis due', dueInHours: 40 * 24 }]);
+  const feedId = await subscribe(w, true);
+  assert.equal((await activeTitled(w, 'Thesis due')).length, 0, 'auto-accept must not save a deadline it could not check');
+  const [row] = await rows(w);
+  assert.equal(row.held?.reason, 'unknown', show(row));
+  const result = await decide(w, feedId, row.itemKey, { action: 'accept', expectedDecisionVersion: row.decisionVersion });
+  assert.equal(result.status, 200, show(result.body));
+  assert.equal((await activeTitled(w, 'Thesis due')).length, 1);
+});
+
 test('M4B-REV-008: a move from all-day to a timed 10:00 stores proposedAllDay and its clashes', async () => {
   const w = await world();
   w.body.value = calendar([{ uid: 'essay', title: 'Essay due', dueInHours: 48, allDay: '20261009' }]);

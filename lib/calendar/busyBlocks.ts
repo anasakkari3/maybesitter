@@ -312,7 +312,9 @@ function instantOrThrow(value: unknown, field: string): Instant {
 const DASHED_SOURCE_KINDS: ReadonlySet<BusySourceKind> = new Set<BusySourceKind>(['manual', 'weekly']);
 
 /** Kinds no client upload may write or restate. */
-const SERVER_OWNED_SOURCE_KINDS: ReadonlySet<BusySourceKind> = new Set<BusySourceKind>(['weekly']);
+// `manual` too (review of QA wave B8): lecture times are written only by
+// `POST /calendar/manual`, under its consent check and per-account limit.
+const SERVER_OWNED_SOURCE_KINDS: ReadonlySet<BusySourceKind> = new Set<BusySourceKind>(['weekly', 'manual']);
 
 export function sourceKindOf(sourceId: unknown): BusySourceKind {
   if (typeof sourceId !== 'string' || sourceId.length > 200) {
@@ -565,6 +567,16 @@ export async function readBusyBlocksById(
     else found.set(block.blockId, [block]);
   }
   return found;
+}
+
+/**
+ * Every source id that holds a block, whether or not its source record was
+ * written: an upload whose first chunk landed and whose metadata commit was
+ * refused leaves blocks with no record (review 2 of B8). The disconnect uses
+ * it so those are deleted too.
+ */
+export async function listBusyBlockSourceIds(uid: string, deps: BusyBlockDeps = {}): Promise<string[]> {
+  return Array.from(new Set((await allBlocks(uid, deps)).map((block) => block.sourceId))).sort();
 }
 
 export async function listBusyBlocks(

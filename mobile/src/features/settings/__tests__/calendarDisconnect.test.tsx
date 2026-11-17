@@ -36,6 +36,8 @@ import { createFakeAuthRepository } from '../../../auth/fakeAuthRepository';
 import { resetAuthForTests, setAuthRepository } from '../../../api/auth';
 import type { AuthUser } from '../../../auth/types';
 import en from '../../../i18n/locales/en.json';
+import ar from '../../../i18n/locales/ar.json';
+import he from '../../../i18n/locales/he.json';
 import { CalendarSettingsScreen } from '../CalendarSettingsScreen';
 import { BUSY_BLOCKS_KEY, LEGACY_BUSY_KEYS } from '../../../lib/deviceSettings/calendarBusy';
 import { seedDeviceBusyCache } from '../../../testing/deviceBusyCache';
@@ -103,6 +105,7 @@ beforeEach(async () => {
     return trustBody(serverConsent) as never;
   });
   jest.spyOn(calendarEndpoints, 'deleteCalendarBusy').mockResolvedValue({ success: true, deleted: 2 } as never);
+  jest.spyOn(calendarEndpoints, 'disconnectAccountCalendars').mockResolvedValue({ success: true, deleted: 0 } as never);
   jest.spyOn(calendarEndpoints, 'postCalendarBusy').mockResolvedValue({
     success: true,
     blocks: 0,
@@ -191,6 +194,55 @@ describe('pressing disconnect', () => {
     // cache also cleared the throttle.
     await waitFor(() => expect(trustEndpoints.updateTrust)
       .toHaveBeenCalledWith({ type: 'set_calendar_consent', granted: false }, { asUid: expect.any(String) }));
+  });
+
+  // QA audit CA10.5, owner option A: the copy says the busy times are gone
+  // from the account, so the server empties every calendar's busy time,
+  // lecture times added by hand included, before the switch goes off.
+  it('empties the account too: every calendar, lecture times included (CA10.5)', async () => {
+    const purge = jest.spyOn(calendarEndpoints, 'disconnectAccountCalendars')
+      .mockResolvedValue({ success: true, deleted: 40 } as never);
+    await show();
+    await disconnectAndConfirm();
+    await waitFor(() => expect(purge).toHaveBeenCalledWith({ asUid: expect.any(String) }));
+    const order = (mock: unknown) => (mock as jest.Mock).mock.invocationCallOrder[0]!;
+    expect(order(calendarEndpoints.deleteCalendarBusy)).toBeLessThan(order(purge));
+    await waitFor(() => expect(screen.queryByTestId('calendar-disconnect-result')).not.toBeNull());
+    expect(String(screen.getByTestId('calendar-disconnect-result').props.children)).toBe(en.calendarDisconnectDone);
+  });
+
+  it('says the account half failed when the account could not be emptied (CA10.5)', async () => {
+    jest.spyOn(calendarEndpoints, 'disconnectAccountCalendars').mockRejectedValue(new Error('offline') as never);
+    await show();
+    await disconnectAndConfirm();
+    await waitFor(() => expect(screen.queryByTestId('calendar-disconnect-result')).not.toBeNull());
+    expect(String(screen.getByTestId('calendar-disconnect-result').props.children)).toBe(en.calendarDisconnectFailed);
+  });
+
+  // Review 2 of B8: the account half can fail after the server already turned
+  // consent off. The switch is read again so the screen shows what the server
+  // holds, not what the phone assumed.
+  it('reads the switch again from the server when emptying the account failed part way', async () => {
+    jest.spyOn(calendarEndpoints, 'disconnectAccountCalendars').mockRejectedValue(new Error('offline') as never);
+    await show();
+    await waitFor(() => expect(trustEndpoints.getTrust).toHaveBeenCalled());
+    const before = (trustEndpoints.getTrust as jest.Mock).mock.calls.length;
+    await disconnectAndConfirm();
+    await waitFor(() => expect(screen.queryByTestId('calendar-disconnect-result')).not.toBeNull());
+    await waitFor(() => expect((trustEndpoints.getTrust as jest.Mock).mock.calls.length).toBeGreaterThan(before));
+  });
+
+  it('warns before the tap that lecture times added by hand go too (CA10.5)', () => {
+    expect(en.calendarDisconnectConfirmBody).toMatch(/lecture times/i);
+  });
+
+  // Review 2 of B8: say that the links stay (paused) and the weekly fixed time stays.
+  it('says calendar links stay but paused, and the weekly fixed time stays, in every language', () => {
+    expect(en.calendarDisconnectConfirmBody).toContain('Calendar links stay, but paused');
+    expect(en.calendarDisconnectConfirmBody).toContain(en.wbTitle.toLowerCase());
+    expect(ar.calendarDisconnectConfirmBody).toContain('روابط التقويم بتضل، بس موقوفة لحد ما ترجع تشغّله.');
+    expect(ar.calendarDisconnectConfirmBody).toContain(ar.wbTitle);
+    expect(he.calendarDisconnectConfirmBody).toContain('הקבוע השבועי');
   });
 
   it('says so, and says how many busy times the sync found', async () => {

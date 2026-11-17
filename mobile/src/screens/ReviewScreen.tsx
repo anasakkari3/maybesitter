@@ -17,6 +17,7 @@ import { TaskHeader } from '../ui/taskHeader';
 import { AvoidKeyboard } from '../ui/keyboard';
 import { useAnnounceOnIos } from '../ui/announce';
 import { Tag, TextLink, priorityTagKind } from '../ui/chrome';
+import { LiveRegion } from '../ui/liveRegion';
 import { CheckIcon } from '../ui/icons';
 import { ScreenIn } from '../ui/motion';
 import { instantForLocalDateTime } from '../features/capture/localInstant';
@@ -37,6 +38,7 @@ import { confirmableItems, wantsDiscardConfirmation, weeklyChoice, weeklyLockedB
 import { WeeklyChoice } from '../features/weeklyBlocks/WeeklyChoice';
 import { weeklyA11yLabel } from '../features/weeklyBlocks/weeklyText';
 import { postManualBusy } from '../api/endpoints/calendar';
+import { manualBusyFailureKey } from '../features/calendar/manualLectures';
 import { mailboxShortfall } from '../features/google/mailboxShortfall';
 import type { CaptureProposalItem } from '../api/schemas/capture';
 import type { UserFacingKey } from '../api/ui/userFacingMessage';
@@ -129,7 +131,7 @@ export function ReviewScreen({ onBackToChat }: { onBackToChat?: () => void } = {
   const uid = useUid();
   const [addingLectures, setAddingLectures] = useState(false);
   const [lecturesAdded, setLecturesAdded] = useState(false);
-  const [lecturesError, setLecturesError] = useState<string | null>(null);
+  const [lecturesError, setLecturesError] = useState<ReturnType<typeof manualBusyFailureKey> | null>(null);
 
   const handleAddLectures = async () => {
     if (!share?.document?.recurringSessions || !state.proposal) return;
@@ -145,8 +147,8 @@ export function ReviewScreen({ onBackToChat }: { onBackToChat?: () => void } = {
       // The Plan tab reads them through the server busy read; without this
       // it went on drawing the day as free until its next poll (NA4.1).
       void queryClient.invalidateQueries({ queryKey: serverBusyKeyPrefix(uid) });
-    } catch {
-      setLecturesError(t.syllabusLecturesFailed);
+    } catch (error: unknown) {
+      setLecturesError(manualBusyFailureKey(error));
     } finally {
       setAddingLectures(false);
     }
@@ -473,10 +475,20 @@ export function ReviewScreen({ onBackToChat }: { onBackToChat?: () => void } = {
                 <Txt size={14} weight={600} color={p.tx}>
                   {t.syllabusAddLecturesPrompt}
                 </Txt>
-                {lecturesError ? (
-                  <Txt size={12} color={p.wm}>
-                    {lecturesError}
-                  </Txt>
+                <LiveRegion testID="review-lecture-times-error-region" assertive>
+                  {lecturesError ? (
+                    <Txt size={13} color={p.wm} testID="review-lecture-times-error">
+                      {t[lecturesError]}
+                    </Txt>
+                  ) : null}
+                </LiveRegion>
+                {lecturesError === 'syllabusLecturesNeedCalendar' ? (
+                  <TextLink
+                    label={t.syllabusLecturesOpenCalendar}
+                    onPress={() => actions.go('calendarSettings')}
+                    testID="review-lecture-times-open-calendar"
+                    size={13}
+                  />
                 ) : null}
                 <Pill
                   testID="review-add-lecture-times"

@@ -14,12 +14,17 @@
  *  - Overwrite/replace semantics: re-accepting updates the blocks of that source cleanly.
  */
 
-import { type StorageAdapter } from '../storage';
+import { getStorage, type StorageAdapter } from '../storage';
+import { CALENDAR_CHOICE, CALENDAR_SOURCES, userCol, userDoc, userSubDoc } from '../storage/paths';
+import { assertLiveAccount } from '../account/accountLiveness';
+import { assertCalendarConsentUnchanged, calendarConsentGuard, type CalendarConsentStamp } from './calendarConsentFence';
 import {
   BusyUploadError,
   busyBlockId,
+  deleteBusySource,
   replaceBusyBlocks,
   type BusyBlock,
+  type CalendarSource,
 } from './busyBlocks';
 import {
   addLocalDays,
@@ -148,6 +153,12 @@ export function expandWeeklySessionsToBusyBlocks(
 export interface AcceptLectureSessionsOptions extends ExpandLectureSessionsOptions {
   readonly storage?: StorageAdapter;
   readonly now?: Date;
+  /**
+   * The calendar consent the request saw. Given, every write transaction
+   * re-checks it and refuses once consent was withdrawn or changed meanwhile
+   * (`calendarConsentFence.ts`, review 2 of wave B8).
+   */
+  readonly consent?: CalendarConsentStamp;
 }
 
 function validSessionClock(value: string): boolean {
@@ -173,13 +184,23 @@ export async function acceptLectureSessionsAsBusyBlocks(
   if (sessions.some((session) => !validSessionRange(session))) {
     throw new BusyUploadError('session times must be exact HH:MM values with end after start');
   }
+  if (sessions.length > MANUAL_SESSION_LIMIT) throw new ManualBusyLimitError('too_many_sessions');
   const { sourceId, window, blocks } = expandLectureSessionsToBusyBlocks(proposalId, sessions, options);
 
-  const outcome = await replaceBusyBlocks(uid, sourceId, window, blocks, {
-    storage: options.storage,
-    platform: null,
-    now: options.now,
-  });
+  const storage = options.storage ?? getStorage();
+  await reserveManualSource(storage, uid, sourceId, options.now ?? new Date(), options.consent);
+  let outcome: { written: number; removed: number };
+  try {
+    outcome = await replaceBusyBlocks(uid, sourceId, window, blocks, {
+      storage,
+      platform: null,
+      now: options.now,
+      ...(options.consent ? { transactionGuard: calendarConsentGuard(uid, options.consent) } : {}),
+    });
+  } finally {
+    // Written, it is counted as stored; not written, the place is given back.
+    await releaseManualSource(storage, uid, sourceId).catch(() => undefined);
+  }
 
   return {
     sourceId,
@@ -187,4 +208,119 @@ export async function acceptLectureSessionsAsBusyBlocks(
     removed: outcome.removed,
     window,
   };
+}
+
+/* ── Limits and removal (QA audit CA10.4 / CXA10.3, #749) ─────────────── */
+
+/** Sessions one acceptance may carry: a syllabus's week, with room to spare. */
+export const MANUAL_SESSION_LIMIT = 20;
+/** Manual sources one account may hold at once (each is 16 weeks of blocks). */
+export const MANUAL_SOURCE_LIMIT = 10;
+
+export class ManualBusyLimitError extends Error {
+  constructor(readonly reason: 'too_many_sessions' | 'manual_busy_limit') {
+    super(reason);
+    this.name = 'ManualBusyLimitError';
+  }
+}
+
+/**
+ * The count is taken from what is stored, not kept beside it (review of wave
+ * B8): a counter drifted whenever a source went another way (`DELETE
+ * /calendar/busy`), a delete raced a re-accept, or a create died between its
+ * reservation and its write. The limit is "manual sources stored, plus creates
+ * in flight". In flight are the reservations in one manifest document, so two
+ * concurrent creates read and write the same document and only one commits;
+ * a reservation older than PENDING_TTL_MS whose source never appeared is a
+ * create that died, and holds nothing. The manifest is written only under a
+ * live account (#772): a deletion sweep is never followed by a new row.
+ */
+const PENDING_TTL_MS = 5 * 60_000;
+
+interface ManualBusyManifest {
+  /** sourceId → when its create reserved the place. */
+  readonly pending: Readonly<Record<string, string>>;
+}
+
+function manifestPath(uid: string): string {
+  return userSubDoc(uid, CALENDAR_CHOICE, 'manualBusy');
+}
+
+async function reserveManualSource(
+  storage: StorageAdapter, uid: string, sourceId: string, now: Date, consent: CalendarConsentStamp | undefined,
+): Promise<void> {
+  await storage.runTransaction(async (tx) => {
+    const [user, manifest, rows] = await Promise.all([
+      tx.get(userDoc(uid)),
+      tx.get<Partial<ManualBusyManifest>>(manifestPath(uid)),
+      tx.list<CalendarSource>(userCol(uid, CALENDAR_SOURCES), { where: [['kind', '==', 'manual']] }),
+    ]);
+    assertLiveAccount(user);
+    if (consent) await assertCalendarConsentUnchanged(tx, uid, consent);
+    const stored = new Set(rows.map((row) => row.data.sourceId));
+    const nowMs = now.getTime();
+    const pending: Record<string, string> = {};
+    for (const [id, at] of Object.entries(manifest?.pending ?? {})) {
+      if (!stored.has(id) && nowMs - Date.parse(at) < PENDING_TTL_MS) pending[id] = at;
+    }
+    const held = new Set([...Array.from(stored), ...Object.keys(pending)]);
+    if (!held.has(sourceId) && held.size >= MANUAL_SOURCE_LIMIT) throw new ManualBusyLimitError('manual_busy_limit');
+    if (!stored.has(sourceId)) pending[sourceId] = now.toISOString();
+    tx.set<ManualBusyManifest>(manifestPath(uid), { pending });
+  });
+}
+
+/** The create is over, written or not: its reservation is no longer needed. */
+async function releaseManualSource(storage: StorageAdapter, uid: string, sourceId: string): Promise<void> {
+  await storage.runTransaction(async (tx) => {
+    const manifest = await tx.get<Partial<ManualBusyManifest>>(manifestPath(uid));
+    if (!manifest?.pending || !(sourceId in manifest.pending)) return;
+    const { [sourceId]: _released, ...rest } = manifest.pending;
+    tx.set<ManualBusyManifest>(manifestPath(uid), { pending: rest });
+  });
+}
+
+/** The count's in-flight reservations, cleared by a calendar disconnect (CA10.5). */
+export async function resetManualBusyCount(uid: string, storage: StorageAdapter = getStorage()): Promise<void> {
+  await storage.delete(manifestPath(uid));
+}
+
+/** Removes a manual source's blocks and record, and gives its place back. */
+export async function deleteManualBusySource(
+  uid: string,
+  sourceId: string,
+  deps: { readonly storage?: StorageAdapter; readonly now?: Date } = {},
+): Promise<{ deleted: number }> {
+  const storage = deps.storage ?? getStorage();
+  const result = await deleteBusySource(uid, sourceId, { storage, now: deps.now });
+  await releaseManualSource(storage, uid, sourceId);
+  return result;
+}
+
+export interface ManualBusySourceView {
+  readonly sourceId: string;
+  readonly proposalId: string;
+  readonly addedAt: string;
+  readonly windowStart: string;
+  readonly windowEnd: string;
+}
+
+/** What the person added by hand, for the app to show and remove. Oldest first. */
+export async function listManualBusySources(
+  uid: string,
+  deps: { readonly storage?: StorageAdapter } = {},
+): Promise<ManualBusySourceView[]> {
+  const storage = deps.storage ?? getStorage();
+  const rows = await storage.list<CalendarSource>(userCol(uid, CALENDAR_SOURCES), { where: [['kind', '==', 'manual']] });
+  return rows
+    .map((row) => row.data)
+    .filter((source) => source.sourceId.startsWith('manual-'))
+    .map((source) => ({
+      sourceId: source.sourceId,
+      proposalId: source.sourceId.slice('manual-'.length),
+      addedAt: source.lastSyncedAt,
+      windowStart: source.windowStart,
+      windowEnd: source.windowEnd,
+    }))
+    .sort((a, b) => a.addedAt.localeCompare(b.addedAt) || a.sourceId.localeCompare(b.sourceId));
 }

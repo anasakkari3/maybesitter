@@ -11,7 +11,7 @@ import { SettingsHeader } from './SettingsChrome';
 import { useDismissFixture, useFootballSettings, useSetFollowedClubs } from '../../api/queries';
 import type { FootballFixture } from '../../api/schemas/football';
 import type { Clash, HeldFixture } from '../../api/schemas/m4b';
-import { HeldChangedError } from '../../api/errors';
+import { ConflictError, HeldChangedError } from '../../api/errors';
 import { userFacingMessage } from '../../api/ui/userFacingMessage';
 import { dayKey } from '../../i18n/format';
 import { isolateAuto, stripIsolates } from '../../i18n/bidi';
@@ -85,9 +85,15 @@ export function FootballSettingsScreen({ onBack }: { onBack: () => void }) {
     setFollowed.mutateAsync({ clubId, locale: lang }).catch(() => {});
   }, [lang, setFollowed]);
 
+  // `mutate`, not `mutateAsync`: a refusal lands in `dismiss.error` and is
+  // said below the list, never as an unhandled rejection (review of B9).
   const dismissMatch = useCallback((commitmentId: string) => {
-    void dismiss.mutateAsync(commitmentId);
+    dismiss.mutate(commitmentId);
   }, [dismiss]);
+  // 409: the match was completed elsewhere, or is gone (CXA11.3).
+  const dismissFailure = dismiss.error instanceof ConflictError ? t.footballDismissGone
+    : dismiss.error ? userFacingMessage(dismiss.error, t) : null;
+  useAnnounceOnIos(dismissFailure);
 
   const clashLines = useCallback((key: string, kickoffUtc: string, clashes: readonly Clash[]) => {
     const subjectDay = dayKey(new Date(kickoffUtc), timezone);
@@ -243,6 +249,10 @@ export function FootballSettingsScreen({ onBack }: { onBack: () => void }) {
             ))}
           </Card>
         ) : null}
+
+        <LiveRegion>
+          {dismissFailure ? <Txt size={13} color={p.wm} testID="football-dismiss-failed">{dismissFailure}</Txt> : null}
+        </LiveRegion>
 
         {/* The provider's free tier requires this on screen, not only in a
             code comment -- see task-11-report.md's decision log. */}

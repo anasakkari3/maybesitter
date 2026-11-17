@@ -27,6 +27,8 @@ import { LANGUAGE_STORAGE_KEY } from '../../../i18n/language';
 import type { CaptureProposal } from '../../../api/schemas/capture';
 import type { ShareProposal } from '../../../api/schemas/share';
 import * as calendarEndpoints from '../../../api/endpoints/calendar';
+import { ForbiddenError, ValidationError } from '../../../api/errors';
+import en from '../../../i18n/locales/en.json';
 import * as commitmentEndpoints from '../../../api/endpoints/commitments';
 import * as trustEndpoints from '../../../api/endpoints/trust';
 import * as analyticsEndpoints from '../../../api/endpoints/analytics';
@@ -319,6 +321,28 @@ describe('Syllabus grouped review (UC-3.7, #191)', () => {
       expect(screen.getByTestId('review-lecture-times-added')).toBeTruthy();
       expect(screen.getByText('Lecture times added as busy time')).toBeTruthy();
     });
+  });
+
+  // Review of QA wave B8 (CA10.4): the two refusals of «ضيف المحاضرات».
+  it('when the calendar is off, says so in a live region and offers the way to Calendar settings', async () => {
+    jest.spyOn(calendarEndpoints, 'postManualBusy').mockRejectedValue(new ForbiddenError('x', 'calendar_consent_required'));
+    await renderReview();
+    await waitFor(() => expect(screen.getByTestId('review-add-lecture-times')).toBeTruthy());
+    await fireEvent.press(screen.getByTestId('review-add-lecture-times'));
+    const error = await screen.findByTestId('review-lecture-times-error');
+    expect(error.props.children).toBe(en.syllabusLecturesNeedCalendar);
+    expect(screen.getByTestId('review-lecture-times-error-region').props.accessibilityLiveRegion).toBeTruthy();
+    expect(screen.getByTestId('review-lecture-times-open-calendar')).toBeTruthy();
+  });
+
+  it('a syllabus with more than 20 lectures a week gets its own words, not "try again"', async () => {
+    jest.spyOn(calendarEndpoints, 'postManualBusy').mockRejectedValue(new ValidationError('x', 'too_many_sessions'));
+    await renderReview();
+    await waitFor(() => expect(screen.getByTestId('review-add-lecture-times')).toBeTruthy());
+    await fireEvent.press(screen.getByTestId('review-add-lecture-times'));
+    const error = await screen.findByTestId('review-lecture-times-error');
+    expect(error.props.children).toBe(en.syllabusLecturesTooMany);
+    expect(screen.queryByTestId('review-lecture-times-open-calendar')).toBeNull();
   });
 
   it('NA4.1: adding lecture times marks the Plan tab server busy read stale, so the plan draws them', async () => {

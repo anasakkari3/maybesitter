@@ -1,15 +1,18 @@
 import { AccountUnavailableError, accountUnavailableResponse } from '../../../../../../lib/account/accountLiveness';
 import { mobileAuthErrorResponse, requireMobileUser } from '../../../../../../lib/auth/mobileAuth';
 import { mobileError } from '../../../../../../lib/services/mobile/response';
-import { readTrust } from '../../../../../../lib/pilot/pilotTrustStore';
 import {
   BusyUploadError,
   deleteBusySource,
   parseBusyUpload,
   readCalendarSource,
   replaceBusyBlocks,
+  sourceKindOf,
   type BusyBlock,
 } from '../../../../../../lib/calendar/busyBlocks';
+import { deleteManualBusySource } from '../../../../../../lib/calendar/manualBusy';
+import { disconnectAccountCalendars } from '../../../../../../lib/calendar/calendarDisconnect';
+import { CalendarConsentChangedError, calendarConsentGuard, readCalendarConsentStamp } from '../../../../../../lib/calendar/calendarConsentFence';
 import { RequestBodyTooLargeError, readJsonBody, requestBodyTooLargeResponse } from '../../../../../../lib/net/requestBody';
 import { resolveFreeSlots } from '../../../../../../lib/planning/freeSlots';
 import { icsFeedReadStatus } from '../../../../../../lib/calendar/icsFeedStatus';
@@ -192,6 +195,17 @@ export async function GET(request: Request) {
  * platform. A route that quietly dropped the extra key would keep the
  * guarantee and lose the ability to ever notice it had nearly been broken.
  */
+function consentRequired(): Response {
+  return Response.json(
+    {
+      success: false,
+      error: 'calendar busy time is only stored once you turn the calendar on',
+      reason: 'calendar_consent_required',
+    },
+    { status: 403 },
+  );
+}
+
 export async function POST(request: Request) {
   let user;
   try {
@@ -200,17 +214,11 @@ export async function POST(request: Request) {
     return mobileAuthErrorResponse(error);
   }
 
-  const trust = await readTrust(user.uid);
-  if (trust?.calendarConsent !== true) {
-    return Response.json(
-      {
-        success: false,
-        error: 'calendar busy time is only stored once you turn the calendar on',
-        reason: 'calendar_consent_required',
-      },
-      { status: 403 },
-    );
-  }
+  // The consent this upload was sent under, re-checked inside every write
+  // transaction: one in flight when «افصل وامسح» lands is refused, never
+  // written after the purge (review 2 of QA wave B8, CA10.5).
+  const consent = await readCalendarConsentStamp(getStorage(), user.uid);
+  if (!consent) return consentRequired();
 
   let body: unknown;
   try {
@@ -277,12 +285,15 @@ export async function POST(request: Request) {
     await replaceBusyBlocks(user.uid, upload.sourceId, upload.window, blocks, {
       platform: upload.platform,
       now,
-      ...(choice ? {
-        transactionGuard: async (tx: import('../../../../../../lib/storage/storageAdapter').StorageTransaction) => {
+      transactionGuard: choice
+        ? async (tx: import('../../../../../../lib/storage/storageAdapter').StorageTransaction) => {
+          await calendarConsentGuard(user.uid, consent)(tx);
           await validateSelectionContinuationInTransaction(
             tx, user.uid, upload.sourceId, sourceSecret, 'upload', m5.opId as string, m5.epoch as number,
           );
-        },
+        }
+        : calendarConsentGuard(user.uid, consent),
+      ...(choice ? {
         finalizeSource: async (
           tx: import('../../../../../../lib/storage/storageAdapter').StorageTransaction,
           current: import('../../../../../../lib/calendar/busyBlocks').CalendarSource | null,
@@ -294,6 +305,7 @@ export async function POST(request: Request) {
     });
   } catch (error) {
     if (error instanceof AccountUnavailableError) return accountUnavailableResponse();
+    if (error instanceof CalendarConsentChangedError) return consentRequired();
     if (error instanceof CalendarChoiceError) {
       return Response.json({ success: false, error: error.code, ...(error.currentEpoch === undefined ? {} : { currentEpoch: error.currentEpoch }) }, { status: error.code === 'source_secret_invalid' ? 403 : 409 });
     }
@@ -337,6 +349,18 @@ export async function DELETE(request: Request) {
   }
 
   const url = new URL(request.url);
+  // «افصل وامسح» (QA audit CA10.5, owner option A): every calendar's busy
+  // time leaves the account and consent goes off. Like every DELETE here it
+  // needs no consent -- it is how consent is withdrawn.
+  if (url.searchParams.get('scope') === 'account') {
+    try {
+      const result = await disconnectAccountCalendars(user.uid);
+      return Response.json({ success: true, deleted: result.deleted });
+    } catch (error) {
+      if (error instanceof AccountUnavailableError) return accountUnavailableResponse();
+      throw error;
+    }
+  }
   const sourceId = url.searchParams.get('sourceId');
   if (sourceId === null || sourceId.trim() === '') {
     return mobileError('sourceId is required', 400);
@@ -360,7 +384,10 @@ export async function DELETE(request: Request) {
       await finishDeviceClear(user.uid, sourceId, request.headers.get(SOURCE_SECRET_HEADER) ?? '', opId, epoch);
       return Response.json({ success: true, deleted: 0 });
     }
-    const result = await deleteBusySource(user.uid, sourceId);
+    // A manual source goes the way /calendar/manual removes it (review of B8).
+    const result = sourceKindOf(sourceId) === 'manual'
+      ? await deleteManualBusySource(user.uid, sourceId)
+      : await deleteBusySource(user.uid, sourceId);
     return Response.json({ success: true, deleted: result.deleted });
   } catch (error) {
     if (error instanceof CalendarChoiceError) {

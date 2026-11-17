@@ -41,7 +41,7 @@ import * as Crypto from 'expo-crypto';
 import { useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { beginCalendarConsentOperation, calendarConsentEffective, queryKeys, useTrust, useTrustAction, useUid } from '../../api/queries';
 import { getAuthRepository } from '../../api/auth';
-import { deleteCalendarBusy, postCalendarBusy } from '../../api/endpoints/calendar';
+import { deleteCalendarBusy, disconnectAccountCalendars, postCalendarBusy } from '../../api/endpoints/calendar';
 import { calendarReadEnabled } from '../../config/env';
 import {
   loadBusySyncedAt,
@@ -414,10 +414,16 @@ export function useBusyCalendar(): BusyCalendarState {
       // word on the server rather than something the upload undoes.
       await activePass?.catch(() => undefined);
       await deleteThisPhonesBusy(current.uid);
+      // And the account: every calendar's busy time, lecture times added by
+      // hand included, and the switch (CA10.5). The copy promises it.
+      await disconnectAccountCalendars(current.uid === 'signed-out' ? {} : { asUid: current.uid });
     } catch {
-      // Nothing reached the switch, so it is still on: syncing resumes, as it
-      // always has when the account could not be reached.
+      // The switch may or may not have gone off: emptying the account turns it
+      // off first, and can fail after that (review 2 of B8). Syncing resumes
+      // only if the server still says on, so the switch is read again and the
+      // screen shows what the server holds.
       if (withdrawn === mark) withdrawn = null;
+      void client.refetchQueries({ queryKey: queryKeys.trust(current.uid) });
       return { local: true, server: false };
     }
     try {

@@ -365,8 +365,13 @@ async function readFeed(uid: string, feedId: string, deps: IcsFeedDeps): Promise
 
 export async function listIcsFeeds(uid: string, deps: IcsFeedDeps = {}): Promise<IcsFeedView[]> {
   requireUserId(uid);
-  const [feeds, items] = await Promise.all([readFeeds(uid, deps), readItems(uid, deps)]);
-  return feeds.map((feed) => feedView(feed, items));
+  const [feeds, items, user] = await Promise.all([
+    readFeeds(uid, deps), readItems(uid, deps), storageOf(deps).get<UserDocument>(userDoc(uid)),
+  ]);
+  // NAPI-A10.1: with consent off nothing is fetched or used, so the feed is
+  // paused from the moment the switch goes off, not from its next refresh.
+  const consented = accountRefusal(user, { requireConsent: true }) === null;
+  return feeds.map((feed) => feedView(consented || feed.status === 'error' ? feed : { ...feed, status: 'paused' }, items));
 }
 
 /**
@@ -517,6 +522,25 @@ async function commitFeedPatch(
 }
 
 /** Everything a feed wrote besides its own document. Idempotent. */
+/**
+ * «افصل وامسح» (QA audit CA10.5, owner option A): every feed's busy time is
+ * deleted and the subscription stays, paused. Its conditional-fetch state is
+ * dropped, so the first refresh after consent returns is a full fetch that
+ * restates the busy time -- a 304 would otherwise leave it empty. Runs with
+ * consent already off, so no refresh can restore the blocks meanwhile.
+ */
+export async function pauseIcsFeedsForDisconnect(uid: string, deps: IcsFeedDeps = {}): Promise<number> {
+  let deleted = 0;
+  for (const feed of await readFeeds(uid, deps)) {
+    deleted += (await deleteBusySource(uid, icsSourceId(feed.feedId))).deleted;
+    await commitFeedPatch(uid, feed.feedId, () => ({
+      status: 'paused', lastErrorCode: 'consent_required', busyBlocks: 0,
+      etag: null, lastModified: null, lastFullFetchAt: null,
+    }), { requireConsent: false }, deps);
+  }
+  return deleted;
+}
+
 async function removeFeedData(uid: string, feedId: string, deps: IcsFeedDeps): Promise<{ busyBlocks: number; items: IcsFeedItemDocument[] }> {
   const busy = await deleteBusySource(uid, icsSourceId(feedId));
   const items = (await readItems(uid, deps)).filter((item) => item.feedId === feedId);
@@ -633,7 +657,12 @@ async function acceptItem(
       if (!autoAccepted) {
         const shown = JSON.stringify(claim.held?.clashes ?? []);
         const current = JSON.stringify(held?.clashes ?? []);
-        if (decision.state === 'unknown' || shown !== current) {
+        // CA10.1: "unknown" bounces the tap once, so the person sees «قرّر
+        // إنت». A row that already said unknown when they tapped is their
+        // decision -- bouncing it again made a deadline past the busy window
+        // impossible to accept.
+        const unknownUnseen = decision.state === 'unknown' && claim.held?.reason !== 'unknown';
+        if (unknownUnseen || shown !== current) {
           const next = { ...claim, ...(held ? { held } : {}), ...(!held ? { held: undefined } : {}), updatedAt: now.toISOString() };
           changed = next;
           return { commands: [], patch: { held: held as any, updatedAt: now.toISOString() } };

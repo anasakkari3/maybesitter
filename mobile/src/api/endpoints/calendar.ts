@@ -6,6 +6,7 @@ import {
   deviceCalendarLinkRemovedSchema,
   deviceCalendarLinkResponseSchema,
   manualCalendarDeletedSchema,
+  manualCalendarListSchema,
   manualCalendarStoredSchema,
   serverBusyResponseSchema,
   type CalendarWriteTarget,
@@ -111,6 +112,20 @@ export function deleteCalendarBusy(sourceId: string, options: { asUid?: string }
 }
 
 /**
+ * «افصل وامسح», the account half (QA audit CA10.5, owner option A): the
+ * server turns calendar consent off and deletes every calendar's busy time —
+ * every phone, Google, the feeds, lecture times added by hand. Feeds stay
+ * subscribed, paused.
+ */
+export function disconnectAccountCalendars(options: { asUid?: string } = {}) {
+  return apiRequest('DELETE', '/api/mobile/calendar/busy', {
+    query: { scope: 'account' },
+    schema: calendarBusyDeletedSchema,
+    ...(options.asUid !== undefined ? { asUid: options.asUid } : {}),
+  });
+}
+
+/**
  * Recurring lecture session busy input (UC-3.7, #191 Step 7).
  */
 export interface ManualBusySession {
@@ -134,10 +149,19 @@ export function postManualBusy(input: PostManualBusyInput) {
   });
 }
 
-export function deleteManualBusy(proposalId: string) {
+/** The lecture times added by hand, for Settings → Calendar to list (CXA10.3). */
+export function listManualBusy(options: { asUid?: string } = {}) {
+  return apiRequest('GET', '/api/mobile/calendar/manual', {
+    schema: manualCalendarListSchema,
+    ...(options.asUid !== undefined ? { asUid: options.asUid } : {}),
+  });
+}
+
+export function deleteManualBusy(proposalId: string, options: { asUid?: string } = {}) {
   return apiRequest('DELETE', '/api/mobile/calendar/manual', {
     query: { proposalId },
     schema: manualCalendarDeletedSchema,
+    ...(options.asUid !== undefined ? { asUid: options.asUid } : {}),
   });
 }
 

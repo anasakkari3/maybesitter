@@ -94,6 +94,9 @@ import {
 } from '../schemas/plan';
 import {
   calendarBusyDeletedSchema,
+  manualCalendarDeletedSchema,
+  manualCalendarListSchema,
+  manualCalendarStoredSchema,
   calendarBusyStoredSchema,
   serverBusyResponseSchema,
   calendarSettingsResponseSchema,
@@ -411,6 +414,11 @@ const CASES: [string, z.ZodType][] = [
   ['calendar.busyRead', serverBusyResponseSchema],
   ['calendar.busyUnavailable', z.object({ success: z.literal(false), reason: z.literal('feature_unavailable') })],
   ['calendar.busyDeleted', calendarBusyDeletedSchema],
+  // Lecture times added by hand (review of QA wave B8): the list Settings →
+  // Calendar draws and the removal it sends.
+  ['calendar.manualStored', manualCalendarStoredSchema],
+  ['calendar.manualList', manualCalendarListSchema],
+  ['calendar.manualDeleted', manualCalendarDeletedSchema],
   ['errors.unauthorized', errorBodySchema],
   ['activity.list', activityPageSchema],
   ['activity.summary', weeklySummarySchema],

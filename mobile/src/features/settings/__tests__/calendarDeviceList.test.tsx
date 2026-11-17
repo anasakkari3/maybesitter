@@ -323,6 +323,7 @@ describe('when the phone refuses calendar access', () => {
 describe('connecting again after a disconnect', () => {
   it('takes the "disconnected" line away', async () => {
     jest.spyOn(calendarEndpoints, 'deleteCalendarBusy').mockResolvedValue({ success: true, deleted: 0 } as never);
+    jest.spyOn(calendarEndpoints, 'disconnectAccountCalendars').mockResolvedValue({ success: true, deleted: 0 } as never);
     await show();
     await waitFor(() => expect(screen.queryByTestId('calendar-device-g-work')).not.toBeNull());
     await fireEvent.press(screen.getByTestId('calendar-disconnect'));
@@ -337,6 +338,7 @@ describe('connecting again after a disconnect', () => {
 
   it('takes it away when reading comes back from somewhere else too', async () => {
     jest.spyOn(calendarEndpoints, 'deleteCalendarBusy').mockResolvedValue({ success: true, deleted: 0 } as never);
+    jest.spyOn(calendarEndpoints, 'disconnectAccountCalendars').mockResolvedValue({ success: true, deleted: 0 } as never);
     await show();
     await waitFor(() => expect(screen.queryByTestId('calendar-device-g-work')).not.toBeNull());
     await fireEvent.press(screen.getByTestId('calendar-disconnect'));
