@@ -1104,3 +1104,42 @@ test('a threshold watcher primed before the change still fires when the score cr
     end();
   }
 });
+
+test('a score threshold re-arms when the score recovers inside one band, and fires on the next drop', async () => {
+  // Down to 0.65, back up to 0.80, down to 0.60 — all «steady». The recovery
+  // must reach the baseline, or the second drop is compared with 0.65 and lost.
+  await begin();
+  try {
+    await add(ALICE, {
+      enabled: true, source: readinessSource(null),
+      condition: { kind: 'threshold', metric: 'readiness_score', operator: 'lt', value: 0.7 },
+      effect: 'notify', createdBy: 'user',
+    });
+    await readinessAt(0.82, minute(0));
+    await sweep(minute(1));
+    let fired = 0;
+    for (const [n, score] of [[2, 0.65], [4, 0.8], [6, 0.6]] as const) {
+      await readinessAt(score, minute(n));
+      fired += (await sweep(minute(n + 1))).fired;
+    }
+    assert.equal(fired, 2, 'the second drop under the threshold did not fire');
+  } finally {
+    end();
+  }
+});
+
+test('a stored baseline with no measures field is read as no score, not a crash', () => {
+  const signal: WatcherSignal = {
+    schemaVersion: WATCHER_SIGNAL_SCHEMA_VERSION,
+    signalId: 'readiness:x:y',
+    provider: 'whoop',
+    signalKind: 'readiness',
+    subjectRef: 'self',
+    observedAt: minute(0).toISOString(),
+    stateDigest: createHash('sha256').update(JSON.stringify({ band: 'steady' })).digest('hex'),
+    provenanceRef: 'userState/readiness',
+    measures: [],
+  };
+  const legacy = { lastDigest: legacyDigest('steady', null as unknown as number) } as never;
+  assert.equal(readinessObserver.sameStateAs!(legacy, signal), true);
+});
