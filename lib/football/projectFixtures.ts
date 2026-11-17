@@ -1534,7 +1534,7 @@ export class FixtureNotLinkedError extends Error {
 }
 
 /**
- * The commitment is already closed by the person (completed or archived), so
+ * The commitment was already completed by the person, so
  * "not this match" has nothing left to do -- a 409, and nothing is written.
  */
 export class FixtureNotActiveError extends Error {
@@ -1544,7 +1544,9 @@ export class FixtureNotActiveError extends Error {
   }
 }
 
-const CLOSED_BY_PERSON: ReadonlySet<string> = new Set(['completed', 'archived']);
+// Only `completed`: a match the person deleted (`archived`) is gone, and
+// dismissing it is a quiet no-op (CA2.3, #847).
+const CLOSED_BY_PERSON: ReadonlySet<string> = new Set(['completed']);
 
 /**
  * A user says "not this match." The ref is marked `detachedAt` forever
@@ -1571,7 +1573,7 @@ export async function dismissFixtureCommitment(
   // QA audit CXA11.3: a stale «مش هاي» (the screen still listed the match)
   // must not rewrite an outcome the person already chose elsewhere. `Drop`
   // accepts a completed commitment, so the check lives here, before the ref
-  // is touched: a completed or archived match is refused and left as it is.
+  // is touched: a completed match is refused and left as it is.
   const before = (await readParticipantState(uid)).commitments[commitmentId];
   if (before && CLOSED_BY_PERSON.has(before.status)) {
     throw new FixtureNotActiveError(commitmentId);

@@ -44,7 +44,7 @@ export async function DELETE(
     if (error instanceof FixtureNotLinkedError) {
       return mobileError('no football fixture links this commitment', 404);
     }
-    // CXA11.3: completed (or archived) elsewhere -- the person's outcome stands.
+    // CXA11.3: completed elsewhere -- the person's outcome stands.
     if (error instanceof FixtureNotActiveError) {
       return mobileError('fixture_not_active', 409);
     }
