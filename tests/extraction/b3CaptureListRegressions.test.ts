@@ -232,3 +232,51 @@ test('NAPI-A8.2 (model path): a list whose model objects carry only a wall clock
   assert.deepEqual(proposal.items.map((item) => when(item.resolvedTime)), lines.map(([, , time]) => `${TODAY} ${time}`));
   assert.ok(proposal.items.every((item) => !item.needsClarification));
 });
+
+/* ── Review round (lane B3): the carried day, the first verb's object, the cost ── */
+
+test('review: the carried day is the whole day phrase — "next", «الجاي», «הבא» go with it', () => {
+  assert.deepEqual(splitCaptureClauses('Call mom next Sunday at 5pm, buy gift at 7pm'),
+    ['Call mom next Sunday at 5pm', 'buy gift at 7pm next Sunday']);
+  assert.deepEqual(splitCaptureClauses('Call mom this Sunday at 5pm, buy gift at 7pm'),
+    ['Call mom this Sunday at 5pm', 'buy gift at 7pm this Sunday']);
+  assert.deepEqual(splitCaptureClauses('اتصل بماما الأحد الجاي الساعة 5 المسا، واشتري هدية الساعة 7 المسا'),
+    ['اتصل بماما الأحد الجاي الساعة 5 المسا', 'واشتري هدية الساعة 7 المسا الأحد الجاي']);
+  assert.deepEqual(splitCaptureClauses('להתקשר לאמא ביום ראשון הבא ב-17:00, ולקנות מתנה ב-19:00'),
+    ['להתקשר לאמא ביום ראשון הבא ב-17:00', 'ולקנות מתנה ב-19:00 ביום ראשון הבא']);
+});
+
+test('review: the day of an appointment is not carried to a separate errand after it', () => {
+  for (const [text, second] of [
+    ['Dentist on Sunday at 5pm, call mom at 6pm', 'call mom at 6pm'],
+    ['عندي موعد دكتور بكرا الساعة 5 المسا، واتصل بماما الساعة 6 المسا', 'واتصل بماما الساعة 6 المسا'],
+    ['תור לרופא מחר ב-17:00, ולהתקשר לאמא ב-18:00', 'ולהתקשר לאמא ב-18:00'],
+  ] as const) {
+    assert.equal(splitCaptureClauses(text)[1], second, text);
+  }
+});
+
+test('review: a first verb with no object of its own is not cut off — "Read and reply to emails" is one item', () => {
+  assert.deepEqual(splitCaptureClauses('Read and reply to emails'), ['Read and reply to emails']);
+  assert.deepEqual(splitCaptureClauses('Read and reply to emails tomorrow'), ['Read and reply to emails tomorrow']);
+  // A first verb with its object still splits.
+  assert.equal(splitCaptureClauses('read the contract and email Dana').length, 2);
+});
+
+test('review: a 2000-character chain of "and" is split in bounded time', () => {
+  // Every join is a candidate split (an errand verb onto an object after it),
+  // and every second one is not (a bare noun): the worst shape for the scan.
+  for (const [joiner, words] of [
+    [' and ', ['buy milk tomorrow at 5pm', 'call Sam', 'bread']],
+    [' و', ['أشتري خبز بكرا الساعة 5', 'أتصل بسامي', 'حليب']],
+    [', ', ['לקנות חלב מחר ב-17:00', 'להתקשר לסאם', 'לחם']],
+  ] as const) {
+    const chain = Array.from({ length: 400 }, (_, index) => words[index % 3]).join(joiner).slice(0, 2000);
+    assert.ok(chain.length > 1900, `${chain.length}`);
+    const started = performance.now();
+    const clauses = splitCaptureClauses(chain);
+    const elapsed = performance.now() - started;
+    assert.ok(clauses.length >= 1);
+    assert.ok(elapsed < 1000, `${joiner.trim() || 'comma'}: ${Math.round(elapsed)} ms`);
+  }
+});
