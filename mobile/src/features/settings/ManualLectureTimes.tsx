@@ -35,15 +35,19 @@ export function ManualLectureTimes({ onAskRemove, removing, failed }: {
   return (
     <Card pad={0} style={{ overflow: 'hidden' }} testID="calendar-lecture-times">
       <View style={{ paddingHorizontal: 18, paddingTop: 14, paddingBottom: 6 }}>
-        <Txt role="action">{t.manualBusyTitle}</Txt>
+        <Txt role="section" testID="calendar-lecture-times-title">{t.manualBusyTitle}</Txt>
       </View>
-      {rows.map((source) => (
+      {/* No course names are stored (they never leave the phone), so the
+          rows are told apart by number, in the order they were added. */}
+      {rows.map((source, index) => (
         <View key={source.sourceId} testID={`calendar-lecture-times-${source.sourceId}`}
           style={{ flexDirection: 'row', alignItems: 'center', gap: 12, minHeight: 52, paddingHorizontal: 18, borderTopWidth: 1, borderTopColor: p.ln }}>
-          <Txt role="supporting" style={{ flex: 1 }}>{fill(t.manualBusyRow, { date: day(source.addedAt), until: until(source) })}</Txt>
+          <Txt role="supporting" style={{ flex: 1 }} testID={`calendar-lecture-times-label-${source.sourceId}`}>
+            {fill(t.manualBusyRow, { n: String(index + 1), date: day(source.addedAt), until: until(source) })}
+          </Txt>
           <Btn
             testID={`calendar-lecture-remove-${source.sourceId}`}
-            label={fill(t.manualBusyRemoveA11y, { date: day(source.addedAt) })}
+            label={fill(t.manualBusyRemoveA11y, { n: String(index + 1), date: day(source.addedAt) })}
             disabled={removing !== null}
             onPress={() => onAskRemove(source)}
             style={{ minHeight: 44, minWidth: 44, paddingHorizontal: 14, alignItems: 'center', justifyContent: 'center', borderRadius: 14, borderWidth: 1, borderColor: p.ln }}

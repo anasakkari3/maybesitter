@@ -9,7 +9,7 @@
  */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { deleteManualBusy, listManualBusy } from '../../api/endpoints/calendar';
-import { ConflictError, ForbiddenError } from '../../api/errors';
+import { ConflictError, ForbiddenError, ValidationError } from '../../api/errors';
 import { useUid } from '../../api/queries';
 
 export function manualBusyKey(uid: string) {
@@ -39,8 +39,10 @@ export function useRemoveManualBusy() {
 }
 
 /** Why «أضف أوقات المحاضرات» was refused, in the person's words (CA10.4). */
-export function manualBusyFailureKey(error: unknown): 'syllabusLecturesNeedCalendar' | 'syllabusLecturesLimit' | 'syllabusLecturesFailed' {
+export function manualBusyFailureKey(error: unknown): 'syllabusLecturesNeedCalendar' | 'syllabusLecturesLimit' | 'syllabusLecturesTooMany' | 'syllabusLecturesFailed' {
   if (error instanceof ForbiddenError && error.reason === 'calendar_consent_required') return 'syllabusLecturesNeedCalendar';
+  // More sessions in one syllabus than one acceptance takes: trying again cannot help.
+  if (error instanceof ValidationError && error.reason === 'too_many_sessions') return 'syllabusLecturesTooMany';
   // The manual route's only 409 is the per-account limit.
   if (error instanceof ConflictError) return 'syllabusLecturesLimit';
   return 'syllabusLecturesFailed';
