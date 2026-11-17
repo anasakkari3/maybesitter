@@ -154,6 +154,11 @@ import {
   GET as calendarBusyGet,
   POST as calendarBusyPost,
 } from '../../src/app/api/mobile/calendar/busy/route.ts';
+import {
+  DELETE as calendarManualDelete,
+  GET as calendarManualGet,
+  POST as calendarManualPost,
+} from '../../src/app/api/mobile/calendar/manual/route.ts';
 import { busyBlockId, replaceBusyBlocks } from '../../lib/calendar/busyBlocks.ts';
 import {
   handleCreateFeed,
@@ -2151,6 +2156,24 @@ test('exports a fixture for every /api/mobile call the React Native client makes
     process.env.MAYBESITTER_FEATURE_FREE_SLOTS = 'true';
     await record('calendar.busyRead', 200, await calendarBusyGet(request(busyReadPath)));
     process.env.MAYBESITTER_FEATURE_FREE_SLOTS = 'false';
+
+    // Lecture times added by hand (review of QA wave B8): stored, listed for
+    // Settings → Calendar, and removed again, so the busy read above and every
+    // later fixture are unchanged.
+    await record('calendar.manualStored', 200, await calendarManualPost(
+      request('/api/mobile/calendar/manual', {
+        body: {
+          proposalId: 'fixture-syllabus',
+          timezone: 'Asia/Jerusalem',
+          referenceTime: '2026-08-09T09:00:00.000Z',
+          sessions: [{ weekday: 1, start: '10:00', end: '12:00', label: null }],
+        },
+      }),
+    ));
+    await record('calendar.manualList', 200, await calendarManualGet(request('/api/mobile/calendar/manual')));
+    await record('calendar.manualDeleted', 200, await calendarManualDelete(
+      request('/api/mobile/calendar/manual?proposalId=fixture-syllabus', { method: 'DELETE' }),
+    ));
 
     await record('calendar.busyDeleted', 200, await calendarBusyDelete(
       request(`/api/mobile/calendar/busy?sourceId=${encodeURIComponent(busySource)}`, { method: 'DELETE' }),

@@ -1,0 +1,12 @@
+{
+  "success": true,
+  "sources": [
+    {
+      "sourceId": "manual-fixture-syllabus",
+      "proposalId": "fixture-syllabus",
+      "addedAt": "2026-08-09T09:00:00.000Z",
+      "windowStart": "2026-08-09T09:00:00.000Z",
+      "windowEnd": "2026-08-09T09:00:00.000Z"
+    }
+  ]
+}
