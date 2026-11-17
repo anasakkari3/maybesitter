@@ -20,6 +20,7 @@ import { applyTrustAction } from '../../../lib/pilot/pilotTrustStore.ts';
 import { getStorage } from '../../../lib/storage/index.ts';
 import { CALENDAR_CHOICE, CALENDAR_SOURCES, ICS_FEEDS, docIdForKey, userCol, userDoc, userSubDoc } from '../../../lib/storage/paths.ts';
 import { seedLiveAccount } from '../../support/liveAccount.ts';
+import { disconnectAccountCalendars } from '../../../lib/calendar/calendarDisconnect.ts';
 import { TODAY, TOMORROW, TZ, at, begin, call, end, show } from './support.ts';
 
 const FROM = at(TODAY, '00:00');
@@ -290,6 +291,9 @@ test('M4A-R18-002 flag-off parity of the manual route for well-formed input', as
 // Reads are NOT gated on consent (option B was declined): after the purge
 // there is simply nothing left to read.
 
+/** A real feed id: the feed store refuses anything else. */
+const FEED = '5eed0000-0000-4000-8000-000000000001';
+
 async function consent(uid: string, granted: boolean): Promise<void> {
   const stamp = new Date().toISOString();
   await applyTrustAction(uid, { type: 'record_first_value', at: stamp });
@@ -299,8 +303,8 @@ async function consent(uid: string, granted: boolean): Promise<void> {
 async function seedCalendars(uid: string): Promise<{ lecture: [string, string] }> {
   const window = { startsAt: FROM, endsAt: TO };
   const lecture: [string, string] = [at(TOMORROW, '10:00'), at(TOMORROW, '12:00')];
-  await icsFeed(uid, 'feed1', 'ok', new Date().toISOString());
-  await icsBlocks(uid, 'feed1', [[at(TOMORROW, '14:00'), at(TOMORROW, '15:00')]]);
+  await icsFeed(uid, FEED, 'ok', new Date().toISOString());
+  await icsBlocks(uid, FEED, [[at(TOMORROW, '14:00'), at(TOMORROW, '15:00')]]);
   await replaceBusyBlocks(uid, 'manual-lectures', window, [block('manual-lectures', 'manual', 'm1', ...lecture)], { platform: null, now: new Date() });
   await replaceBusyBlocks(uid, 'device:other-phone', window, [block('device:other-phone', 'device', 'd1', at(TOMORROW, '17:00'), at(TOMORROW, '18:00'))], { platform: 'ios', now: new Date() });
   await replaceBusyBlocks(uid, 'google:primary', window, [block('google:primary', 'google', 'g1', at(TOMORROW, '18:00'), at(TOMORROW, '18:30'))], { platform: null, now: new Date() });
@@ -351,12 +355,14 @@ test('CA10.5: the disconnect turns consent off, keeps the feed paused for a full
   try {
     await consent(uid, true);
     await seedCalendars(uid);
+    // A lecture-time create in flight holds a place in the count.
+    await getStorage().set(userSubDoc(uid, CALENDAR_CHOICE, 'manualBusy'), { pending: { 'manual-in-flight': new Date().toISOString() } });
     assert.equal((await disconnect(uid)).status, 200);
     assert.equal((await disconnect(uid)).status, 200, 'a second disconnect failed');
 
     const user = await getStorage().get<any>(userDoc(uid));
     assert.equal(user.trust.calendarConsent, false);
-    const feed = await getStorage().get<any>(userSubDoc(uid, ICS_FEEDS, 'feed1'));
+    const feed = await getStorage().get<any>(userSubDoc(uid, ICS_FEEDS, FEED));
     assert.ok(feed, 'the subscription itself must stay');
     assert.equal(feed.status, 'paused');
     assert.equal(feed.etag, null);
@@ -379,6 +385,14 @@ test('CA10.5: the disconnect touches only its own account', async () => {
     await seedCalendars(uid);
     assert.equal((await disconnect(uid)).status, 200);
     assert.ok(await getStorage().get(userSubDoc(other, CALENDAR_SOURCES, docIdForKey('manual-theirs'))), "another account's busy time was deleted");
+  } finally { end(); }
+});
+
+test('CA10.5: an account that is not live is refused, and nothing is written for it (#772)', async () => {
+  const uid = begin();
+  try {
+    await assert.rejects(disconnectAccountCalendars(`${uid}-gone`), /account_unavailable/);
+    assert.equal(await getStorage().get(userDoc(`${uid}-gone`)), null);
   } finally { end(); }
 });
 

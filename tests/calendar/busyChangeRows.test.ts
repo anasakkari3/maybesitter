@@ -549,6 +549,8 @@ const WRITERS: ReadonlyArray<readonly [file: string, inside: string, callee: str
   ['lib/calendar/calendarChoice.ts', 'retireDeviceSource', 'deleteBusySource', 'M5a calendarChoice retirement'],
   ['lib/calendar/icsFeeds.ts', 'applyClassification', 'replaceBusyBlocks', 'icsFeedLifecycle: #611 subscribe/refresh rows'],
   ['lib/calendar/icsFeeds.ts', 'removeFeedData', 'deleteBusySource', 'icsFeedLifecycle: #611 unsubscribe rows'],
+  ['lib/calendar/icsFeeds.ts', 'pauseIcsFeedsForDisconnect', 'deleteBusySource', 'busyRead: CA10.5 «افصل وامسح» empties the account'],
+  ['lib/calendar/calendarDisconnect.ts', 'disconnectAccountCalendars', 'deleteBusySource', 'busyRead: CA10.5 «افصل وامسح» empties the account'],
   ['lib/calendar/manualBusy.ts', 'acceptLectureSessionsAsBusyBlocks', 'replaceBusyBlocks', 'writer: accepted lecture sessions (#191)'],
   ['lib/calendar/manualBusy.ts', 'deleteManualBusySource', 'deleteBusySource', 'writer: the manual busy route'],
   ['lib/integrations/google/googleCalendarBusy.ts', 'applyGoogleBusyTarget', 'replaceBusyBlocks', 'B3 calendar maintenance keeps a fenced target on mismatch, then certifies and clears it'],

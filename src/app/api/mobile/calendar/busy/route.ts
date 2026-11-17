@@ -12,6 +12,7 @@ import {
   type BusyBlock,
 } from '../../../../../../lib/calendar/busyBlocks';
 import { deleteManualBusySource } from '../../../../../../lib/calendar/manualBusy';
+import { disconnectAccountCalendars } from '../../../../../../lib/calendar/calendarDisconnect';
 import { RequestBodyTooLargeError, readJsonBody, requestBodyTooLargeResponse } from '../../../../../../lib/net/requestBody';
 import { resolveFreeSlots } from '../../../../../../lib/planning/freeSlots';
 import { icsFeedReadStatus } from '../../../../../../lib/calendar/icsFeedStatus';
@@ -339,6 +340,18 @@ export async function DELETE(request: Request) {
   }
 
   const url = new URL(request.url);
+  // «افصل وامسح» (QA audit CA10.5, owner option A): every calendar's busy
+  // time leaves the account and consent goes off. Like every DELETE here it
+  // needs no consent -- it is how consent is withdrawn.
+  if (url.searchParams.get('scope') === 'account') {
+    try {
+      const result = await disconnectAccountCalendars(user.uid);
+      return Response.json({ success: true, deleted: result.deleted });
+    } catch (error) {
+      if (error instanceof AccountUnavailableError) return accountUnavailableResponse();
+      throw error;
+    }
+  }
   const sourceId = url.searchParams.get('sourceId');
   if (sourceId === null || sourceId.trim() === '') {
     return mobileError('sourceId is required', 400);

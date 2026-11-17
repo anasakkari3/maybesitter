@@ -269,6 +269,11 @@ async function releaseManualSource(storage: StorageAdapter, uid: string, sourceI
   });
 }
 
+/** The count's in-flight reservations, cleared by a calendar disconnect (CA10.5). */
+export async function resetManualBusyCount(uid: string, storage: StorageAdapter = getStorage()): Promise<void> {
+  await storage.delete(manifestPath(uid));
+}
+
 /** Removes a manual source's blocks and record, and gives its place back. */
 export async function deleteManualBusySource(
   uid: string,

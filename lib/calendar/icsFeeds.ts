@@ -522,6 +522,25 @@ async function commitFeedPatch(
 }
 
 /** Everything a feed wrote besides its own document. Idempotent. */
+/**
+ * «افصل وامسح» (QA audit CA10.5, owner option A): every feed's busy time is
+ * deleted and the subscription stays, paused. Its conditional-fetch state is
+ * dropped, so the first refresh after consent returns is a full fetch that
+ * restates the busy time -- a 304 would otherwise leave it empty. Runs with
+ * consent already off, so no refresh can restore the blocks meanwhile.
+ */
+export async function pauseIcsFeedsForDisconnect(uid: string, deps: IcsFeedDeps = {}): Promise<number> {
+  let deleted = 0;
+  for (const feed of await readFeeds(uid, deps)) {
+    deleted += (await deleteBusySource(uid, icsSourceId(feed.feedId))).deleted;
+    await commitFeedPatch(uid, feed.feedId, () => ({
+      status: 'paused', lastErrorCode: 'consent_required', busyBlocks: 0,
+      etag: null, lastModified: null, lastFullFetchAt: null,
+    }), { requireConsent: false }, deps);
+  }
+  return deleted;
+}
+
 async function removeFeedData(uid: string, feedId: string, deps: IcsFeedDeps): Promise<{ busyBlocks: number; items: IcsFeedItemDocument[] }> {
   const busy = await deleteBusySource(uid, icsSourceId(feedId));
   const items = (await readItems(uid, deps)).filter((item) => item.feedId === feedId);
