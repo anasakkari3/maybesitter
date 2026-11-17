@@ -19,6 +19,7 @@
 import { createHash } from 'node:crypto';
 import {
   WATCHER_SIGNAL_SCHEMA_VERSION,
+  type WatcherRuntime,
   type WatcherSignal,
   type WatcherSourceRef,
 } from '../../src/contracts/v1/watcherContracts';
@@ -39,6 +40,13 @@ export interface WatcherSignalObserver {
     context: { scopeId: string; now: string },
     deps: { storage: StorageAdapter },
   ): Promise<WatcherSignal | null>;
+  /**
+   * Whether a stored baseline, written in an earlier digest format, names the
+   * same state as this signal. The engine asks only when the digests differ
+   * under `digest_changed`; a yes is absorbed, not fired, so changing what an
+   * observer digests never fires every existing watcher once on upgrade.
+   */
+  sameStateAs?(baseline: Pick<WatcherRuntime, 'lastDigest' | 'lastMeasures'>, signal: WatcherSignal): boolean;
 }
 
 export interface WatcherSignalRegistry {
@@ -64,13 +72,23 @@ function digestOf(value: unknown): string {
 export const READINESS_SIGNAL_KIND = 'readiness';
 /** The normalized measure a readiness threshold condition names. */
 export const READINESS_SCORE_METRIC = 'readiness_score';
+/** Every band a readiness snapshot can carry (`ReadinessBand`). */
+const READINESS_BANDS = ['unknown', 'low', 'steady', 'high'] as const;
 
 /**
  * Readiness as a watcher signal, composed from the same UserState projection
- * the product already reads (`composeCurrentUserState`). The digest covers the
- * band and the score — the two normalized facts a condition can be about — so
- * a provider payload that moved without moving either one is NO_EFFECT, not a
- * firing.
+ * the product already reads (`composeCurrentUserState`).
+ *
+ * The digest is the **band** alone (owner decision 2026-11-16). It covered
+ * band and score until then, and the score moves on every recompute, so a
+ * `digest_changed` watch fired on jitter — «منيح» 0.82 → 0.75 is no news. Now
+ * only a move between bands («منيح» → «تعبان») is a change. The score is still
+ * a measure, so a `threshold` condition on `readiness_score` reads it as before.
+ *
+ * Watchers primed before this hold a `{band, score}` baseline. `sameStateAs`
+ * recomputes that old digest from the current band and the stored score; a
+ * match means the band did not move, and the engine absorbs the new digest
+ * instead of firing once on the format change.
  */
 export const readinessObserver: WatcherSignalObserver = {
   supports: (source) => source.signalKind === READINESS_SIGNAL_KIND,
@@ -81,7 +99,7 @@ export const readinessObserver: WatcherSignalObserver = {
     );
     const snapshot = current.projection.readiness;
     if (!snapshot) return null;
-    const stateDigest = digestOf({ band: snapshot.band, score: snapshot.score });
+    const stateDigest = digestOf({ band: snapshot.band });
     return {
       schemaVersion: WATCHER_SIGNAL_SCHEMA_VERSION,
       signalId: `${READINESS_SIGNAL_KIND}:${context.scopeId}:${stateDigest}`,
@@ -93,6 +111,12 @@ export const readinessObserver: WatcherSignalObserver = {
       provenanceRef: 'userState/readiness',
       measures: snapshot.score === null ? [] : [{ metric: READINESS_SCORE_METRIC, value: snapshot.score }],
     };
+  },
+  sameStateAs(baseline, signal) {
+    const band = READINESS_BANDS.find((candidate) => digestOf({ band: candidate }) === signal.stateDigest);
+    if (band === undefined || baseline.lastDigest === null) return false;
+    const score = baseline.lastMeasures.find((measure) => measure.metric === READINESS_SCORE_METRIC)?.value ?? null;
+    return digestOf({ band, score }) === baseline.lastDigest;
   },
 };
 

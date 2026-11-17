@@ -1088,3 +1088,19 @@ test('a readiness threshold condition still reads the score', async () => {
     end();
   }
 });
+
+test('a threshold watcher primed before the change still fires when the score crosses inside one band', async () => {
+  await begin();
+  try {
+    const watcher = await add(ALICE, {
+      enabled: true, source: readinessSource(null),
+      condition: { kind: 'threshold', metric: 'readiness_score', operator: 'lt', value: 0.7 },
+      effect: 'notify', createdBy: 'user',
+    });
+    await withLegacyBaseline(watcher, 'steady', 0.82);
+    await readinessAt(0.65, minute(1));
+    assert.equal((await sweep(minute(2))).fired, 1, 'the upgrade swallowed a threshold crossing');
+  } finally {
+    end();
+  }
+});

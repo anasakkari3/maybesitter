@@ -469,6 +469,15 @@ async function evaluateOne(
   const signal = await observer!.observe(definition.source, { scopeId: definition.scopeId, now }, { storage });
   if (!signal) return ['noSignal'];
 
+  // A baseline from an earlier digest format that names this same state:
+  // absorbed, so an observer's digest change never fires every watcher once.
+  if (definition.condition.kind === 'digest_changed'
+    && runtime.lastDigest !== signal.stateDigest
+    && observer!.sameStateAs?.(runtime, signal)) {
+    await new StatusWriter(storage, definition.scopeId, definition.watcherId).absorb(signal, now);
+    return ['evaluated'];
+  }
+
   if (!evaluateWatchCondition(definition.condition, signal, runtime)) {
     if (runtime.lastDigest !== signal.stateDigest || runtime.lastSignalId !== signal.signalId) {
       await new StatusWriter(storage, definition.scopeId, definition.watcherId).absorb(signal, now);
