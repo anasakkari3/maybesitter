@@ -4,14 +4,20 @@
  * your account", so they are.
  *
  * In this order, each step safe to run again:
- *  1. Calendar consent goes off. Every busy writer refuses without it, and the
- *     consent epoch moves, so an upload already on its way is refused too and
- *     nothing written after this point can bring busy time back.
+ *  1. Calendar consent goes off, with a content-free audit line in the same
+ *     transaction. That moves the account's consent epoch. Every route that
+ *     writes calendar busy time (`POST /calendar/busy`, `POST /calendar/manual`)
+ *     re-checks consent and that epoch inside each of its write transactions
+ *     (`calendarConsentFence.ts`), so a request that read consent before this
+ *     step and writes after it is refused and writes nothing. A chunk that
+ *     committed before this step is deleted by step 2, which runs after it.
  *  2. Every calendar busy source of this account is deleted: every phone's,
  *     Google's, every feed's, and the lecture times added by hand, whose count
- *     is reset. The person's own weekly blocks are not a calendar and stay.
- *     Other phones keep their registration: their busy time is gone, and when
- *     consent comes back they simply upload again, with nothing to rejoin.
+ *     is reset -- found both by source record and by the blocks themselves,
+ *     so a half-written upload goes too. The person's own weekly blocks are
+ *     not a calendar and stay. Other phones keep their registration: their
+ *     busy time is gone, and when consent comes back they upload again, with
+ *     nothing to rejoin.
  *  3. Feed subscriptions stay, paused, with their conditional-fetch state
  *     dropped, so the first refresh after consent returns is a full fetch.
  *
@@ -20,10 +26,11 @@
  * live (#772).
  */
 import { requireLiveAccount } from '../account/accountLiveness';
+import { createPilotAuditEvent } from '../pilot/closedPilotControls';
 import { applyTrustAction } from '../pilot/pilotTrustStore';
 import { getStorage, type StorageAdapter } from '../storage';
 import { CALENDAR_SOURCES, userCol } from '../storage/paths';
-import { deleteBusySource, type CalendarSource } from './busyBlocks';
+import { deleteBusySource, listBusyBlockSourceIds, sourceKindOf, type CalendarSource } from './busyBlocks';
 import { pauseIcsFeedsForDisconnect } from './icsFeeds';
 import { deleteManualBusySource, resetManualBusyCount } from './manualBusy';
 
@@ -34,15 +41,25 @@ export async function disconnectAccountCalendars(
   const storage = deps.storage ?? getStorage();
   await requireLiveAccount(storage, uid);
   const now = deps.now ?? (() => new Date());
-  await applyTrustAction(uid, { type: 'set_calendar_consent', granted: false, at: now().toISOString() }, { stampAtApply: true, now });
+  const at = now().toISOString();
+  await applyTrustAction(uid, { type: 'set_calendar_consent', granted: false, at }, {
+    stampAtApply: true,
+    now,
+    audit: createPilotAuditEvent({
+      version: 'v1', eventType: 'consent_changed', participantId: uid, occurredAt: at,
+      outcome: 'recorded', reasonCode: 'calendar_disconnect',
+    }),
+  });
 
   let deleted = await pauseIcsFeedsForDisconnect(uid);
-  const sources = (await storage.list<CalendarSource>(userCol(uid, CALENDAR_SOURCES))).map((row) => row.data);
-  for (const source of sources) {
-    if (source.kind === 'weekly') continue;
-    const result = source.kind === 'manual'
-      ? await deleteManualBusySource(uid, source.sourceId, { storage })
-      : await deleteBusySource(uid, source.sourceId, { storage });
+  const recorded = (await storage.list<CalendarSource>(userCol(uid, CALENDAR_SOURCES))).map((row) => row.data.sourceId);
+  const holding = await listBusyBlockSourceIds(uid, { storage });
+  for (const sourceId of Array.from(new Set([...recorded, ...holding]))) {
+    const kind = sourceKindOf(sourceId);
+    if (kind === 'weekly') continue;
+    const result = kind === 'manual'
+      ? await deleteManualBusySource(uid, sourceId, { storage })
+      : await deleteBusySource(uid, sourceId, { storage });
     deleted += result.deleted;
   }
   await resetManualBusyCount(uid, storage);

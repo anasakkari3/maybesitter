@@ -569,6 +569,16 @@ export async function readBusyBlocksById(
   return found;
 }
 
+/**
+ * Every source id that holds a block, whether or not its source record was
+ * written: an upload whose first chunk landed and whose metadata commit was
+ * refused leaves blocks with no record (review 2 of B8). The disconnect uses
+ * it so those are deleted too.
+ */
+export async function listBusyBlockSourceIds(uid: string, deps: BusyBlockDeps = {}): Promise<string[]> {
+  return Array.from(new Set((await allBlocks(uid, deps)).map((block) => block.sourceId))).sort();
+}
+
 export async function listBusyBlocks(
   uid: string,
   window: TimeInterval,

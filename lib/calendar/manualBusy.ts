@@ -17,6 +17,7 @@
 import { getStorage, type StorageAdapter } from '../storage';
 import { CALENDAR_CHOICE, CALENDAR_SOURCES, userCol, userDoc, userSubDoc } from '../storage/paths';
 import { assertLiveAccount } from '../account/accountLiveness';
+import { assertCalendarConsentUnchanged, calendarConsentGuard, type CalendarConsentStamp } from './calendarConsentFence';
 import {
   BusyUploadError,
   busyBlockId,
@@ -152,6 +153,12 @@ export function expandWeeklySessionsToBusyBlocks(
 export interface AcceptLectureSessionsOptions extends ExpandLectureSessionsOptions {
   readonly storage?: StorageAdapter;
   readonly now?: Date;
+  /**
+   * The calendar consent the request saw. Given, every write transaction
+   * re-checks it and refuses once consent was withdrawn or changed meanwhile
+   * (`calendarConsentFence.ts`, review 2 of wave B8).
+   */
+  readonly consent?: CalendarConsentStamp;
 }
 
 function validSessionClock(value: string): boolean {
@@ -181,13 +188,14 @@ export async function acceptLectureSessionsAsBusyBlocks(
   const { sourceId, window, blocks } = expandLectureSessionsToBusyBlocks(proposalId, sessions, options);
 
   const storage = options.storage ?? getStorage();
-  await reserveManualSource(storage, uid, sourceId, options.now ?? new Date());
+  await reserveManualSource(storage, uid, sourceId, options.now ?? new Date(), options.consent);
   let outcome: { written: number; removed: number };
   try {
     outcome = await replaceBusyBlocks(uid, sourceId, window, blocks, {
       storage,
       platform: null,
       now: options.now,
+      ...(options.consent ? { transactionGuard: calendarConsentGuard(uid, options.consent) } : {}),
     });
   } finally {
     // Written, it is counted as stored; not written, the place is given back.
@@ -238,7 +246,9 @@ function manifestPath(uid: string): string {
   return userSubDoc(uid, CALENDAR_CHOICE, 'manualBusy');
 }
 
-async function reserveManualSource(storage: StorageAdapter, uid: string, sourceId: string, now: Date): Promise<void> {
+async function reserveManualSource(
+  storage: StorageAdapter, uid: string, sourceId: string, now: Date, consent: CalendarConsentStamp | undefined,
+): Promise<void> {
   await storage.runTransaction(async (tx) => {
     const [user, manifest, rows] = await Promise.all([
       tx.get(userDoc(uid)),
@@ -246,6 +256,7 @@ async function reserveManualSource(storage: StorageAdapter, uid: string, sourceI
       tx.list<CalendarSource>(userCol(uid, CALENDAR_SOURCES), { where: [['kind', '==', 'manual']] }),
     ]);
     assertLiveAccount(user);
+    if (consent) await assertCalendarConsentUnchanged(tx, uid, consent);
     const stored = new Set(rows.map((row) => row.data.sourceId));
     const nowMs = now.getTime();
     const pending: Record<string, string> = {};

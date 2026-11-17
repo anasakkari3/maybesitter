@@ -7,12 +7,25 @@ import {
   manualBusySourceId,
   ManualBusyLimitError,
 } from '../../../../../../lib/calendar/manualBusy';
-import { readTrust } from '../../../../../../lib/pilot/pilotTrustStore';
+import { AccountUnavailableError, accountUnavailableResponse } from '../../../../../../lib/account/accountLiveness';
+import { CalendarConsentChangedError, readCalendarConsentStamp } from '../../../../../../lib/calendar/calendarConsentFence';
+import { getStorage } from '../../../../../../lib/storage';
 import { deleteBusySource, BusyUploadError, sourceKindOf } from '../../../../../../lib/calendar/busyBlocks';
 import type { ShareRecurringSession } from '../../../../../../lib/services/share/shareTypes';
 import { RequestBodyTooLargeError, readJsonBody, requestBodyTooLargeResponse } from '../../../../../../lib/net/requestBody';
 
 export const dynamic = 'force-dynamic';
+
+function consentRequired(): Response {
+  return Response.json(
+    {
+      success: false,
+      error: 'calendar busy time is only stored once you turn the calendar on',
+      reason: 'calendar_consent_required',
+    },
+    { status: 403 },
+  );
+}
 
 const EXACT_TIME = /^([01]\d|2[0-3]):([0-5]\d)$/;
 
@@ -55,19 +68,10 @@ export async function POST(request: Request) {
     return mobileAuthErrorResponse(error);
   }
 
-  const trust = await readTrust(user.uid);
-  // As `icsFeeds.accountRefusal`: a revoked or deleted account is refused even
-  // if a consent flag were somehow still set (review of wave B8).
-  if (trust?.calendarConsent !== true || trust.revokedAt || trust.deletedAt) {
-    return Response.json(
-      {
-        success: false,
-        error: 'calendar busy time is only stored once you turn the calendar on',
-        reason: 'calendar_consent_required',
-      },
-      { status: 403 },
-    );
-  }
+  // As `icsFeeds.accountRefusal`: consent on, and the account neither revoked
+  // nor deleted. The stamp is re-checked inside every write (review 2 of B8).
+  const consent = await readCalendarConsentStamp(getStorage(), user.uid);
+  if (!consent) return consentRequired();
 
   let body: unknown;
   try {
@@ -121,6 +125,7 @@ export async function POST(request: Request) {
     const outcome = await acceptLectureSessionsAsBusyBlocks(user.uid, proposalId, sessions, {
       timezone: timezone ?? 'Asia/Jerusalem',
       referenceTime,
+      consent,
     });
 
     return Response.json({
@@ -131,6 +136,8 @@ export async function POST(request: Request) {
       windowEnd: outcome.window.endsAt,
     });
   } catch (error) {
+    if (error instanceof AccountUnavailableError) return accountUnavailableResponse();
+    if (error instanceof CalendarConsentChangedError) return consentRequired();
     if (error instanceof ManualBusyLimitError) {
       return Response.json(
         { success: false, reason: error.reason },

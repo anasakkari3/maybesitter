@@ -1,7 +1,6 @@
 import { AccountUnavailableError, accountUnavailableResponse } from '../../../../../../lib/account/accountLiveness';
 import { mobileAuthErrorResponse, requireMobileUser } from '../../../../../../lib/auth/mobileAuth';
 import { mobileError } from '../../../../../../lib/services/mobile/response';
-import { readTrust } from '../../../../../../lib/pilot/pilotTrustStore';
 import {
   BusyUploadError,
   deleteBusySource,
@@ -13,6 +12,7 @@ import {
 } from '../../../../../../lib/calendar/busyBlocks';
 import { deleteManualBusySource } from '../../../../../../lib/calendar/manualBusy';
 import { disconnectAccountCalendars } from '../../../../../../lib/calendar/calendarDisconnect';
+import { CalendarConsentChangedError, calendarConsentGuard, readCalendarConsentStamp } from '../../../../../../lib/calendar/calendarConsentFence';
 import { RequestBodyTooLargeError, readJsonBody, requestBodyTooLargeResponse } from '../../../../../../lib/net/requestBody';
 import { resolveFreeSlots } from '../../../../../../lib/planning/freeSlots';
 import { icsFeedReadStatus } from '../../../../../../lib/calendar/icsFeedStatus';
@@ -195,6 +195,17 @@ export async function GET(request: Request) {
  * platform. A route that quietly dropped the extra key would keep the
  * guarantee and lose the ability to ever notice it had nearly been broken.
  */
+function consentRequired(): Response {
+  return Response.json(
+    {
+      success: false,
+      error: 'calendar busy time is only stored once you turn the calendar on',
+      reason: 'calendar_consent_required',
+    },
+    { status: 403 },
+  );
+}
+
 export async function POST(request: Request) {
   let user;
   try {
@@ -203,17 +214,11 @@ export async function POST(request: Request) {
     return mobileAuthErrorResponse(error);
   }
 
-  const trust = await readTrust(user.uid);
-  if (trust?.calendarConsent !== true) {
-    return Response.json(
-      {
-        success: false,
-        error: 'calendar busy time is only stored once you turn the calendar on',
-        reason: 'calendar_consent_required',
-      },
-      { status: 403 },
-    );
-  }
+  // The consent this upload was sent under, re-checked inside every write
+  // transaction: one in flight when «افصل وامسح» lands is refused, never
+  // written after the purge (review 2 of QA wave B8, CA10.5).
+  const consent = await readCalendarConsentStamp(getStorage(), user.uid);
+  if (!consent) return consentRequired();
 
   let body: unknown;
   try {
@@ -280,12 +285,15 @@ export async function POST(request: Request) {
     await replaceBusyBlocks(user.uid, upload.sourceId, upload.window, blocks, {
       platform: upload.platform,
       now,
-      ...(choice ? {
-        transactionGuard: async (tx: import('../../../../../../lib/storage/storageAdapter').StorageTransaction) => {
+      transactionGuard: choice
+        ? async (tx: import('../../../../../../lib/storage/storageAdapter').StorageTransaction) => {
+          await calendarConsentGuard(user.uid, consent)(tx);
           await validateSelectionContinuationInTransaction(
             tx, user.uid, upload.sourceId, sourceSecret, 'upload', m5.opId as string, m5.epoch as number,
           );
-        },
+        }
+        : calendarConsentGuard(user.uid, consent),
+      ...(choice ? {
         finalizeSource: async (
           tx: import('../../../../../../lib/storage/storageAdapter').StorageTransaction,
           current: import('../../../../../../lib/calendar/busyBlocks').CalendarSource | null,
@@ -297,6 +305,7 @@ export async function POST(request: Request) {
     });
   } catch (error) {
     if (error instanceof AccountUnavailableError) return accountUnavailableResponse();
+    if (error instanceof CalendarConsentChangedError) return consentRequired();
     if (error instanceof CalendarChoiceError) {
       return Response.json({ success: false, error: error.code, ...(error.currentEpoch === undefined ? {} : { currentEpoch: error.currentEpoch }) }, { status: error.code === 'source_secret_invalid' ? 403 : 409 });
     }

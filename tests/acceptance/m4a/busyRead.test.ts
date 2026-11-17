@@ -396,8 +396,9 @@ test('review 2: other phones stay registered; blocks a source record never got a
     const registration = userSubDoc(uid, REGISTERED_DEVICE_SOURCES, docIdForKey('device:other-phone'));
     await getStorage().set(registration, { sourceId: 'device:other-phone', sourceInstallationId: 'inst-2', state: 'active' });
     // An upload's first chunk landed, its source record never did.
-    await getStorage().set(userSubDoc(uid, 'busyBlocks', 'orphan-doc'),
-      block('device:half-written', 'device', 'orphan', at(TOMORROW, '21:00'), at(TOMORROW, '22:00')));
+    await replaceBusyBlocks(uid, 'device:half-written', { startsAt: FROM, endsAt: TO },
+      [block('device:half-written', 'device', 'orphan', at(TOMORROW, '21:00'), at(TOMORROW, '22:00'))], { platform: 'ios', now: new Date() });
+    await getStorage().delete(userSubDoc(uid, CALENDAR_SOURCES, docIdForKey('device:half-written')));
     assert.equal((await disconnect(uid)).status, 200);
     assert.ok(await getStorage().get(registration), 'another phone lost its registration');
     const left = (await getStorage().list<any>(userCol(uid, 'busyBlocks'))).map((row) => row.data.sourceId);
