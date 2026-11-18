@@ -27,6 +27,7 @@ import { KnowsScreen } from './features/settings/KnowsScreen';
 import { AiImportScreen } from './features/aiImport/AiImportScreen';
 import { MemoryScreen } from './features/memory/MemoryScreen';
 import { SeedsScreen } from './features/seeds/SeedsScreen';
+import { UnhandledScreen } from './features/unhandled/UnhandledScreen';
 import { FeedbackHistoryScreen } from './features/settings/FeedbackHistoryScreen';
 import { ActivityScreen } from './features/activity/ActivityScreen';
 import { RoutineSettingsScreen } from './features/settings/RoutineSettingsScreen';
@@ -263,6 +264,7 @@ export function Root() {
           {s.screen === 'account' && <AccountScreen key="account" onBack={() => latest.current.back()} />}
           {s.screen === 'sources' && <SourcesScreen key="sources" onBack={() => latest.current.back()} />}
           {s.screen === 'seeds' && <SeedsScreen key="seeds" onBack={() => latest.current.back()} />}
+          {s.screen === 'unhandled' && <UnhandledScreen key="unhandled" onBack={() => latest.current.back()} />}
           {s.screen === 'details' && <DetailsScreen key="details" />}
           {/* Today's plan (UC-3.10b, #195). Keyed by its date so a second link
               for another day remounts rather than re-using the first day's

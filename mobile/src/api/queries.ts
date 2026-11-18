@@ -13,8 +13,10 @@ import type { UploadFile } from './client';
 import {
   actOnCommitment,
   deleteCommitment,
+  dismissUnhandled,
   getCommitment,
   listToday,
+  listUnhandled,
   listUpcoming,
   patchCommitment,
   type CommitmentAction,
@@ -169,6 +171,8 @@ export const queryKeys = {
   today: (uid: string, timezone: string) => ['user', uid, 'commitments', 'today', timezone] as const,
   upcoming: (uid: string, timezone: string) => ['user', uid, 'commitments', 'upcoming', timezone] as const,
   commitment: (uid: string, id: string) => ['user', uid, 'commitment', id] as const,
+  /** «ما اتصرّفت فيها» (lane E2). Under `commitments`, so every commitment change refreshes it. */
+  unhandled: (uid: string) => ['user', uid, 'commitments', 'unhandled'] as const,
   nextStep: (uid: string, locale: string) => ['user', uid, 'nextStep', locale] as const,
   trust: (uid: string) => ['user', uid, 'trust'] as const,
   feedbackHistory: (uid: string) => ['user', uid, 'feedbackHistory'] as const,
@@ -397,6 +401,33 @@ export function useUpcoming(options: { referenceTime?: string } = {}) {
     queryFn: () => listUpcoming(referenceTime ? { timezone, referenceTime } : { timezone }),
     enabled: uid !== 'signed-out',
     ...(referenceTime ? { placeholderData: keepSameAccountData(uid) } : {}),
+  });
+}
+
+/**
+ * «ما اتصرّفت فيها» (lane E2): what Today's quiet entry counts and the place's
+ * screen lists. Done, a new date and «أسقطه بوعي» are `useCommitmentAction`.
+ */
+export function useUnhandled() {
+  const uid = useUid();
+  return useQuery({
+    queryKey: queryKeys.unhandled(uid),
+    queryFn: () => listUnhandled(),
+    enabled: uid !== 'signed-out',
+  });
+}
+
+/**
+ * «لا تسألني عنها». Settled either way: a 409 means the item already left the
+ * place (done or moved on another device), so the list is refetched rather than
+ * the press reported as a failure.
+ */
+export function useDismissUnhandled() {
+  const client = useQueryClient();
+  const uid = useUid();
+  return useMutation({
+    mutationFn: (commitmentId: string) => dismissUnhandled(commitmentId),
+    onSettled: () => { void client.invalidateQueries({ queryKey: queryKeys.unhandled(uid) }); },
   });
 }
 

@@ -1,6 +1,12 @@
 import { apiRequest, apiRequestTagged, type TaggedResult } from '../client';
 import { commitmentListSchema, commitmentSchema, type Commitment, type CommitmentList, type LocationTrigger } from '../schemas/common';
-import { commitmentActionResultSchema, commitmentDeleteResultSchema } from '../schemas/commitments';
+import {
+  commitmentActionResultSchema,
+  commitmentDeleteResultSchema,
+  unhandledDismissResultSchema,
+  unhandledListSchema,
+  type UnhandledItem,
+} from '../schemas/commitments';
 import type { TimePatch } from '../../features/commitments/timePatch';
 
 export function listToday(input: { timezone: string; referenceTime?: string }): Promise<CommitmentList> {
@@ -112,5 +118,25 @@ export function deleteCommitment(id: string, ifMatch?: string) {
   return apiRequest('DELETE', `/api/mobile/commitments/${encodeURIComponent(id)}`, {
     schema: commitmentDeleteResultSchema,
     ...(ifMatch ? { ifMatch } : {}),
+  });
+}
+
+/**
+ * «ما اتصرّفت فيها» (lane E2): appointments that are over and deadlines that
+ * passed, still open, most recent first. Done, a new date and «أسقطه بوعي» go
+ * through `actOnCommitment`, the same commands as everywhere else.
+ */
+export function listUnhandled(input: { referenceTime?: string } = {}): Promise<{ items: UnhandledItem[] }> {
+  return apiRequest('GET', '/api/mobile/commitments/unhandled', {
+    query: { referenceTime: input.referenceTime },
+    schema: unhandledListSchema,
+  });
+}
+
+/** «لا تسألني عنها»: out of the place, status unchanged. A repeat is a replay, not an error. */
+export function dismissUnhandled(commitmentId: string) {
+  return apiRequest('POST', '/api/mobile/commitments/unhandled', {
+    body: { action: 'dismiss', commitmentId },
+    schema: unhandledDismissResultSchema,
   });
 }

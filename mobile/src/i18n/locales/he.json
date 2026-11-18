@@ -2220,5 +2220,14 @@
   "featureSearchHistoryName": "חיפוש בעבר",
   "featureSearchHistoryBody": "מוצא התחייבויות שסיימת או ויתרת עליהן.",
   "featureFootballName": "כדורגל",
-  "featureFootballBody": "מכניס את המשחקים של הקבוצה שלך לימים שלך."
+  "featureFootballBody": "מכניס את המשחקים של הקבוצה שלך לימים שלך.",
+  "unhandledEntry": "{n, plural, one{דבר אחד שלא טיפלת בו} two{שני דברים שלא טיפלת בהם} other{# דברים שלא טיפלת בהם}}",
+  "unhandledTitle": "דברים שלא טיפלת בהם",
+  "unhandledLede": "פגישות שהסתיימו ומועדי הגשה שעברו, בלי עדכון מה קרה איתם. בלי לחץ.",
+  "unhandledEventEnded": "הסתיים {when}",
+  "unhandledDeadlinePassed": "מועד ההגשה היה {when}",
+  "unhandledNewDate": "תאריך חדש",
+  "unhandledDontAsk": "אל תשאל אותי על זה",
+  "unhandledEmpty": "אין כאן כלום. לכל דבר יש תשובה.",
+  "toastUnhandledDismissed": "בסדר. לא נשאל על זה."
 }

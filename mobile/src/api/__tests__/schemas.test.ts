@@ -26,7 +26,10 @@ import {
   commitmentActionResultSchema,
   commitmentDeleteResultSchema,
   invalidTransitionSchema,
+  notUnhandledSchema,
   staleCommitmentSchema,
+  unhandledDismissResultSchema,
+  unhandledListSchema,
 } from '../schemas/commitments';
 import {
   captureChatRefusalSchema,
@@ -308,6 +311,11 @@ const CASES: [string, z.ZodType][] = [
   ['commitments.notFound', errorBodySchema],
   ['commitments.stale', staleCommitmentSchema],
   ['commitments.invalidTransition', invalidTransitionSchema],
+  // «ما اتصرّفت فيها» (lane E2): the list, «لا تسألني عنها», its replay, and the refusal.
+  ['commitments.unhandled', unhandledListSchema],
+  ['commitments.unhandledDismissed', unhandledDismissResultSchema],
+  ['commitments.unhandledReplayed', unhandledDismissResultSchema],
+  ['commitments.unhandledNotHere', notUnhandledSchema],
   // "Export my data" (#174 step 7): the envelope the share sheet is handed.
   ['account.export', accountExportSchema],
   // Health → energy: the POST the energy screen sends from HealthKit, and the
