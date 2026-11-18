@@ -80,6 +80,10 @@ interface CaptureContextValue {
   analyze(textOverride?: string): Promise<void>;
   /** Back from a failed send to the conversation, the message still in the field. */
   dismissFailure(): void;
+  /** Lane E3: «تخطّى» on the follow-up. Nothing is written. */
+  skipFollowUp(): void;
+  /** Lane E3: one item of the follow-up was answered. */
+  answerFollowUp(commitmentId: string): void;
   /** «ابدأ من جديد»: the conversation, its proposal and the draft go; a new one starts. */
   startOver(): void;
   /**
@@ -324,6 +328,8 @@ export function CaptureProvider({ children }: { children: React.ReactNode }) {
         // The field's own words came from dictation (M2b); a replacement text does not.
         textOverride === undefined && state.spoken,
         state.entry,
+        // Lane E3: one follow-up per capture session, across its conversations.
+        state.followUp !== null,
       );
       if (generation !== analysisGeneration.current) return;
       dispatch(outcome.ok
@@ -333,7 +339,7 @@ export function CaptureProvider({ children }: { children: React.ReactNode }) {
       if (generation === analysisGeneration.current) analysisPending.current = false;
       releaseWrite(token);
     }
-  }, [chat, state.text, state.status, state.conversationId, state.spoken, state.entry, acquireWrite, releaseWrite]);
+  }, [chat, state.text, state.status, state.conversationId, state.spoken, state.entry, state.followUp, acquireWrite, releaseWrite]);
 
   const dismissFailure = useCallback(() => dispatch({ type: 'dismissFailure' }), []);
   const startOver = useCallback(() => {
@@ -636,13 +642,15 @@ export function CaptureProvider({ children }: { children: React.ReactNode }) {
   }, [state.proposal, state.edits, state.conversationId, editPoint, acquireWrite, releaseWrite, uid]);
 
   const takeRefusedEdit = useCallback(() => dispatch({ type: 'refusedEditTaken' }), []);
+  const skipFollowUp = useCallback(() => dispatch({ type: 'followUpSkipped' }), []);
+  const answerFollowUp = useCallback((commitmentId: string) => dispatch({ type: 'followUpAnswered', commitmentId }), []);
   const acceptUnderstood = useCallback(() => dispatch({ type: 'understoodAccepted' }), []);
   const reopenUnderstood = useCallback(() => dispatch({ type: 'understoodReopened' }), []);
   const value = useMemo<CaptureContextValue>(() => ({
     state, open, changeEntry, setText, analyze, dismissFailure, startOver, adoptProposal, toggleItem, togglePoint, dropFamilies, selectAll, deselectAll, editItem, setWeekly, setGoalLink, clarify, answerReadiness, confirm, undo, backToComposer, acceptUnderstood, reopenUnderstood, close,
-    dictate, chooseAlternative, editPoint, adoptCurrent, dictationStarted, takeRefusedEdit, writing, guardWrite,
+    dictate, chooseAlternative, editPoint, adoptCurrent, dictationStarted, takeRefusedEdit, writing, guardWrite, skipFollowUp, answerFollowUp,
   }), [state, open, changeEntry, setText, analyze, dismissFailure, startOver, adoptProposal, toggleItem, togglePoint, dropFamilies, selectAll, deselectAll, editItem, setWeekly, setGoalLink, clarify, answerReadiness, confirm, undo, backToComposer, acceptUnderstood, reopenUnderstood, close,
-    dictate, chooseAlternative, editPoint, adoptCurrent, dictationStarted, takeRefusedEdit, writing, guardWrite]);
+    dictate, chooseAlternative, editPoint, adoptCurrent, dictationStarted, takeRefusedEdit, writing, guardWrite, skipFollowUp, answerFollowUp]);
 
   return <CaptureContext.Provider value={value}>{children}</CaptureContext.Provider>;
 }

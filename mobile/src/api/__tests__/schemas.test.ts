@@ -287,6 +287,7 @@ const CASES: [string, z.ZodType][] = [
   ['capture.chatGoalLinkConfirmation', captureConfirmationSchema],
   ['capture.chatRules', captureChatSchema],
   ['capture.chatQuestion', captureChatSchema],
+  ['capture.chatFollowUp', captureChatSchema],
   ['capture.chatUnderstoodMany', captureChatSchema],
   ['capture.chatConsideration', captureChatSchema],
   ['capture.chatGoalStatement', captureChatSchema],
@@ -924,6 +925,30 @@ describe('the feed schemas refuse a URL', () => {
       expect(icsFeedCreatedSchema.safeParse({ ...created, feed: { ...created.feed, [key]: 'x' } }).success).toBe(false);
       expect(icsFeedCreatedSchema.safeParse({ ...created, [key]: 'x' }).success).toBe(false);
     }
+  });
+});
+
+// Lane E3: the follow-up rides the answer; a malformed one goes, the answer stays.
+describe('capture chat follow-up', () => {
+  const fixture = JSON.parse(readFileSync(join(__dirname, '..', '__fixtures__', 'capture.chatFollowUp.json'), 'utf8'));
+
+  it('keeps a follow-up of one or two items', () => {
+    const parsed = captureChatSchema.parse(fixture);
+    expect(parsed.followUp?.items.map((item) => item.reason)).toEqual(['event_ended', 'deadline_passed']);
+  });
+
+  it('drops a follow-up that is malformed or asks about more than two, and still parses', () => {
+    const three = { items: [...fixture.followUp.items, { ...fixture.followUp.items[0], commitmentId: 'third' }] };
+    for (const followUp of [three, { items: [] }, { items: [{ commitmentId: 'x', reason: 'late' }] }, 'yes']) {
+      const parsed = captureChatSchema.parse({ ...fixture, followUp });
+      expect(parsed).not.toHaveProperty('followUp');
+      expect(parsed.reply).toBe(fixture.reply);
+    }
+  });
+
+  it('an answer without one has none', () => {
+    const { followUp: _gone, ...older } = fixture;
+    expect(captureChatSchema.parse(older)).not.toHaveProperty('followUp');
   });
 });
 

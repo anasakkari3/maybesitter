@@ -551,6 +551,23 @@ export const captureChatTurnSchema = z.object({
 export type CaptureChatTurn = z.infer<typeof captureChatTurnSchema>;
 
 /**
+ * Lane E3: the chat's gentle question about «ما اتصرّفت فيها»
+ * (`capture.chatFollowUp.json`). The server chose the items (at most two) and
+ * counted the ask; the phone words it. A malformed one is dropped, never a
+ * refusal of the answer it rides on.
+ */
+export const captureChatFollowUpSchema = z.object({
+  items: z.array(z.object({
+    commitmentId: z.string().min(1),
+    title: z.string(),
+    reason: z.enum(['event_ended', 'deadline_passed']),
+    since: z.string().datetime({ offset: true }),
+  })).min(1).max(2),
+});
+
+export type CaptureChatFollowUp = z.infer<typeof captureChatFollowUpSchema>;
+
+/**
  * Mirrors `capture.chatProposal.json`, `capture.chatUpdated.json`,
  * `capture.chatConflict.json`, `capture.chatRules.json` and
  * `capture.chatQuestion.json` —
@@ -575,7 +592,12 @@ export const captureChatSchema = z.object({
   engine: z.enum(['model', 'rules']),
   proposal: captureProposalResponseSchema.nullable(),
   turns: z.array(captureChatTurnSchema),
-}).transform(({ asked, ...answer }): typeof answer & { asked?: CaptureChatAsked | null | undefined } => {
+  followUp: z.unknown().optional(),
+}).transform(({ asked, followUp: rawFollowUp, ...rest }): typeof rest & {
+  asked?: CaptureChatAsked | null | undefined; followUp?: CaptureChatFollowUp;
+} => {
+  const followUp = captureChatFollowUpSchema.safeParse(rawFollowUp);
+  const answer = followUp.success ? { ...rest, followUp: followUp.data } : rest;
   const parsed = captureChatAskedSchema.safeParse(asked);
   const mirror = parsed.success && answer.reply.endsWith(parsed.data.text) ? parsed.data
     : asked === null ? null : undefined;
