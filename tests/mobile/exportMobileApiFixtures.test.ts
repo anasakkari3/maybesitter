@@ -2161,6 +2161,25 @@ test('exports a fixture for every /api/mobile call the React Native client makes
       body: { action: 'dismiss', commitmentId: 'fixture-unhandled-task' }, uid: UNHANDLED_USER,
     })));
 
+    // ── capture's gentle follow-up (lane E3) ──────────────────────
+    // The same two items under an account of its own, asked about once on a
+    // finished chat turn (the rules answer, no model) with the flag on.
+    const followUpUser = uidFor('FollowUpFixtureUser');
+    const previousFollowUp = process.env.MAYBESITTER_FEATURE_CAPTURE_FOLLOW_UP;
+    process.env.MAYBESITTER_FEATURE_CAPTURE_FOLLOW_UP = 'true';
+    try {
+      await seedLiveAccount(followUpUser);
+      await persistParticipantState(followUpUser, unhandledFixtureState());
+      const followUp = await record('capture.chatFollowUp', 200, await chatPost(request('/api/mobile/capture/chat', {
+        body: { message: 'مرحبا', timezone: 'Asia/Jerusalem', referenceTime: REFERENCE_TIME, locale: 'ar' },
+        uid: followUpUser,
+      })));
+      assert.equal(((followUp.followUp as { items: unknown[] } | undefined)?.items ?? []).length, 2, 'capture.chatFollowUp asks about both items');
+    } finally {
+      if (previousFollowUp === undefined) delete process.env.MAYBESITTER_FEATURE_CAPTURE_FOLLOW_UP;
+      else process.env.MAYBESITTER_FEATURE_CAPTURE_FOLLOW_UP = previousFollowUp;
+    }
+
     // ── the device calendar (UC-3.1, #185) ─────────────────────────
     // Recorded in the order the app performs them: claim the link, read the
     // commitment back with it attached, watch a second installation be refused,

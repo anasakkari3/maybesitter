@@ -381,8 +381,14 @@ test('switching the env list to a custom delimiter dropped none of the existing 
   // production, where the code refuses it anyway.
   assert.equal(production.get('MAYBESITTER_FEATURE_MISSED_RESCHEDULE'), 'false');
   assert.equal(staging.get('MAYBESITTER_FEATURE_MISSED_RESCHEDULE'), 'true');
-  assert.equal(production.size, 56);
-  assert.equal(staging.size, 55);
+  // Capture's gentle follow-up (lane E3): on in staging, off in production,
+  // where the code refuses it anyway; its kill switch is written out off.
+  assert.equal(production.get('MAYBESITTER_FEATURE_CAPTURE_FOLLOW_UP'), 'false');
+  assert.equal(staging.get('MAYBESITTER_FEATURE_CAPTURE_FOLLOW_UP'), 'true');
+  assert.equal(production.get('MAYBESITTER_KILL_SWITCH_CAPTURE_FOLLOW_UP'), 'false');
+  assert.equal(staging.get('MAYBESITTER_KILL_SWITCH_CAPTURE_FOLLOW_UP'), 'false');
+  assert.equal(production.size, 58);
+  assert.equal(staging.size, 57);
 });
 
 // ── Same-digest production promotion ────────────────────────────────────

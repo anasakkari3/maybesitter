@@ -1,0 +1,33 @@
+{
+  "conversationId": "00000000-0000-4000-8000-000000000001",
+  "reply": "أنا هون لأساعدك بالمهام والمواعيد تبعك. شو في عندك تعمله؟",
+  "asked": null,
+  "engine": "rules",
+  "proposal": null,
+  "turns": [
+    {
+      "role": "user",
+      "text": "مرحبا"
+    },
+    {
+      "role": "assistant",
+      "text": "أنا هون لأساعدك بالمهام والمواعيد تبعك. شو في عندك تعمله؟"
+    }
+  ],
+  "followUp": {
+    "items": [
+      {
+        "commitmentId": "fixture-unhandled-meeting",
+        "title": "Meeting with Sami",
+        "reason": "event_ended",
+        "since": "2026-08-09T09:00:00.000Z"
+      },
+      {
+        "commitmentId": "fixture-unhandled-deadline",
+        "title": "Hand in the report",
+        "reason": "deadline_passed",
+        "since": "2026-08-09T09:00:00.000Z"
+      }
+    ]
+  }
+}

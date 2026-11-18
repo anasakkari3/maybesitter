@@ -43,6 +43,8 @@ export interface StoredCaptureConversation {
   entry?: CaptureEntry | null;
   createdAt: string;
   updatedAt: string;
+  /** Lane E3: when this conversation asked its one follow-up; absent until it does. */
+  followUpAskedAt?: string;
   /** Exact last message response, so a transport retry within two minutes cannot apply its delta twice. */
   messageReceipt?: {
     fingerprint: string;
@@ -120,6 +122,7 @@ export class CaptureConversationStore {
         : {}),
       createdAt: String(document.createdAt ?? ''),
       updatedAt: String(document.updatedAt ?? ''),
+      ...(typeof document.followUpAskedAt === 'string' ? { followUpAskedAt: document.followUpAskedAt } : {}),
       ...(document.messageReceipt
         && typeof document.messageReceipt.fingerprint === 'string'
         && typeof document.messageReceipt.receivedAt === 'number'
@@ -165,6 +168,7 @@ export class CaptureConversationStore {
       ...(conversation.entry === undefined ? {} : { entry: conversation.entry }),
       createdAt: conversation.createdAt,
       updatedAt: conversation.updatedAt,
+      ...(conversation.followUpAskedAt === undefined ? {} : { followUpAskedAt: conversation.followUpAskedAt }),
       ...(conversation.messageReceipt === undefined ? {} : { messageReceipt: conversation.messageReceipt }),
       expiresAt: new Date(now.getTime() + CAPTURE_PROPOSAL_RETENTION_MS),
     };

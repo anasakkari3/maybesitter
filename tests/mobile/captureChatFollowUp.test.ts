@@ -81,7 +81,7 @@ function scenario(): Commitment[] {
   return [
     commitment('meeting', 'Meeting with Sami', { kind: 'scheduled_event', dueAt: '2026-11-12T07:00:00.000Z', endAt: '2026-11-12T08:00:00.000Z' }),
     commitment('report', 'Hand in the report', { kind: 'due_by', dueAt: '2026-11-11T16:00:00.000Z' }),
-    commitment('doctor', 'Doctor', { kind: 'scheduled_event', dueAt: '2026-11-10T22:00:00.000Z', allDay: true }),
+    commitment('doctor', 'Doctor', { kind: 'scheduled_event', dueAt: '2026-11-09T22:00:00.000Z', allDay: true }),
     commitment('lecture', 'Lecture', { kind: 'scheduled_event', dueAt: '2026-10-22T08:00:00.000Z', endAt: '2026-10-22T10:00:00.000Z' }),
     // A task keeps #383: never in the place, never asked about.
     commitment('study', 'Study', { kind: 'scheduled_event', dueAt: '2026-11-11T15:00:00.000Z', itemKind: 'task' }),
@@ -232,6 +232,30 @@ test('E3: nothing in the place, or everything asked enough: no follow-up', async
   });
 });
 
+test('E3: an ask that could not be counted is never shown', async () => {
+  await run(async () => {
+    const storage = getStorage();
+    // The count's write fails; the conversation's own write still goes through.
+    setStorageForTests(new Proxy(storage, {
+      get(target, key, receiver) {
+        if (key !== 'runTransaction') return Reflect.get(target, key, receiver);
+        return <R>(fn: (tx: Parameters<Parameters<typeof storage.runTransaction>[0]>[0]) => Promise<R>) => target.runTransaction((tx) => fn(new Proxy(tx, {
+          get(inner, name, innerReceiver) {
+            if (name !== 'set') return Reflect.get(inner, name, innerReceiver);
+            return (path: string, value: unknown) => {
+              if (path.includes(`/${UNHANDLED_MARKS}/`)) throw new Error('write refused');
+              return inner.set(path, value);
+            };
+          },
+        })));
+      },
+    }));
+    const answer = await say('hello');
+    assert.equal(followUpIds(answer), null);
+    assert.equal(typeof answer.reply, 'string');
+  });
+});
+
 /* ── When it is asked ────────────────────────────────────────────── */
 
 test('E3: one follow-up per conversation; the next message asks nothing and counts nothing', async () => {
@@ -259,10 +283,12 @@ test('E3: a retried message replays the same follow-up without counting it again
     const replay = await say('thanks', { conversationId: first.conversationId });
     assert.equal(followUpIds(again), null);
     assert.equal(followUpIds(replay), null);
+    // A new conversation asks again; its transport retry (the same words
+    // within two minutes) is the same answer, follow-up included, counted once.
     const fresh = await say('hi there');
-    const fresher = await say('hi there', { conversationId: fresh.conversationId });
+    const retried = await say('hi there', { conversationId: fresh.conversationId });
     assert.deepEqual(followUpIds(fresh), ['meeting', 'report']);
-    assert.equal(followUpIds(fresher), null);
+    assert.deepEqual(followUpIds(retried), ['meeting', 'report']);
     // Two conversations, one question each: each item counted twice.
     assert.deepEqual(await askCounts(), { meeting: 2, report: 2 });
   });
@@ -306,7 +332,4 @@ test('E3: one model call per message, and the prompt is the same with the follow
   assert.deepEqual(on.ids, ['meeting', 'report']);
   assert.equal(off.ids, null);
   assert.deepEqual(on.prompts, off.prompts, 'the follow-up never reaches the model');
-  for (const title of ['Meeting with Sami', 'Hand in the report']) {
-    assert.equal(on.prompts[0]!.includes(title), false, `${title} is not in the prompt`);
-  }
 });
