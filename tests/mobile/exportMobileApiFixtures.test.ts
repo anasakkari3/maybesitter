@@ -2162,7 +2162,7 @@ test('exports a fixture for every /api/mobile call the React Native client makes
     })));
 
     // ── capture's gentle follow-up (lane E3) ──────────────────────
-    // The same two items under an account of its own, asked about once on a
+    // The same place under an account of its own, its newest item asked about on a
     // finished chat turn (the rules answer, no model) with the flag on.
     const followUpUser = uidFor('FollowUpFixtureUser');
     const previousFollowUp = process.env.MAYBESITTER_FEATURE_CAPTURE_FOLLOW_UP;
@@ -2174,7 +2174,7 @@ test('exports a fixture for every /api/mobile call the React Native client makes
         body: { message: 'مرحبا', timezone: 'Asia/Jerusalem', referenceTime: REFERENCE_TIME, locale: 'ar' },
         uid: followUpUser,
       })));
-      assert.equal(((followUp.followUp as { items: unknown[] } | undefined)?.items ?? []).length, 2, 'capture.chatFollowUp asks about both items');
+      assert.equal(((followUp.followUp as { items: unknown[] } | undefined)?.items ?? []).length, 1, 'capture.chatFollowUp asks about one item');
     } finally {
       if (previousFollowUp === undefined) delete process.env.MAYBESITTER_FEATURE_CAPTURE_FOLLOW_UP;
       else process.env.MAYBESITTER_FEATURE_CAPTURE_FOLLOW_UP = previousFollowUp;

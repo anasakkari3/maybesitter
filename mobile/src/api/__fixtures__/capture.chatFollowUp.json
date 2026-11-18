@@ -21,12 +21,6 @@
         "title": "Meeting with Sami",
         "reason": "event_ended",
         "since": "2026-08-09T09:00:00.000Z"
-      },
-      {
-        "commitmentId": "fixture-unhandled-deadline",
-        "title": "Hand in the report",
-        "reason": "deadline_passed",
-        "since": "2026-08-09T09:00:00.000Z"
       }
     ]
   }

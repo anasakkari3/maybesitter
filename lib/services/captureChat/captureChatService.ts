@@ -61,7 +61,7 @@ import { isTimeOnlyText } from '../../../src/extraction/clauseSplitter';
 import { applyCaptureKindsToProposal, CaptureKindsInvalidEditError, clarifyMobileCapture, editCaptureKindsProposal, proposalCollisionCandidates, proposeMobileChatTurn, readMobileChatProposal } from '../mobile/mobileCaptureService';
 import { resolveCaptureKinds } from '../captureKinds/runtime';
 import { dateFromOptionalIso, normalizeTimezone } from '../mobile/time';
-import { followUpFor, resolveCaptureFollowUp, type CaptureChatFollowUp } from './chatFollowUp';
+import { countFollowUpAsked, followUpFor, resolveCaptureFollowUp, type CaptureChatFollowUp } from './chatFollowUp';
 import { buildChatPrompt, oneUnambiguousClockIn, parseChatModelAnswer, validateChatCitations, type ChatModelAnswer, type ChatPromptItem } from './chatPrompt';
 import { conflictForPrompt, readPersonSchedule, scheduleForPrompt, withItemConflicts, withProposalClashes, type PersonSchedule } from './chatConflicts';
 import { clashKey, withConflictsNamed } from './chatWhy';
@@ -605,7 +605,7 @@ export async function chatMobileCapture(
       && !conversation.followUpAskedAt
       && input.followUpShown !== true
       && resolveCaptureFollowUp()
-      ? await followUpFor(uid, { now })
+      ? await followUpFor(uid, { now, budgetLeftMs: CAPTURE_SERVER_BUDGET_MS - (clock() - requestStartedAt) })
       : null;
     const answer: CaptureChatResponse = {
       conversationId: conversation.conversationId, reply, asked, engine, proposal, turns: kept, ...(followUp ? { followUp } : {}),
@@ -626,6 +626,8 @@ export async function chatMobileCapture(
         lockedRefs: receiptProposal ? Array.from(receiptProposal.lockedRefs).sort() : [],
       },
     }, new Date(clock()));
+    // Counted only now, once the conversation that carries it is saved (`chatFollowUp`).
+    if (followUp) await countFollowUpAsked(uid, followUp, { now });
     return answer;
   };
 

@@ -112,6 +112,7 @@ async function begin(env: Record<string, string> = { [FLAG]: 'true' }): Promise<
 }
 
 function end(): void {
+  unproxied = null;
   resetStorageForTests();
   for (const [key, value] of Object.entries(saved)) {
     if (value === undefined) delete process.env[key];
@@ -149,6 +150,7 @@ async function say(
 /** The storage, with reads of the place's marks answered by `read` instead. */
 function marksReadAs(read: () => Promise<never>): void {
   const storage = getStorage();
+  unproxied = storage;
   setStorageForTests(new Proxy(storage, {
     get(target, key, receiver) {
       if (key !== 'list') return Reflect.get(target, key, receiver);
@@ -159,8 +161,11 @@ function marksReadAs(read: () => Promise<never>): void {
   }));
 }
 
+/** The storage before `marksReadAs` wrapped it, so the counts can still be read. */
+let unproxied: ReturnType<typeof getStorage> | null = null;
+
 async function askCounts(): Promise<Record<string, number>> {
-  const rows = await getStorage().list<{ commitmentId: string; askCount: number }>(userCol(UID, UNHANDLED_MARKS));
+  const rows = await (unproxied ?? getStorage()).list<{ commitmentId: string; askCount: number }>(userCol(UID, UNHANDLED_MARKS));
   return Object.fromEntries(rows.map(({ data }) => [data.commitmentId, data.askCount]).filter(([, n]) => (n as number) > 0));
 }
 
@@ -311,7 +316,8 @@ test('E3: a failed read of the place is no question, and the reply arrives', asy
   });
 });
 
-test('E3: a read of the place that does not answer in time is no question', async () => {
+// Its own time limit: without the read's bound this test would wait for ever.
+test('E3: a read of the place that does not answer in time is no question', { timeout: 5_000 }, async () => {
   await run(async () => {
     marksReadAs(() => new Promise<never>(() => undefined));
     const started = Date.now();
