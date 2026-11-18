@@ -138,7 +138,7 @@ describe('the follow-up in the chat', () => {
     expect(screen.getByTestId(`chat-follow-up-tell-${MEETING}`).props.accessibilityLabel).toBe(`${en.chatFollowUpTell}: Meeting with Sami`);
     expect(screen.getByTestId(`chat-follow-up-more-${MEETING}`).props.accessibilityLabel).toBe(`${en.chatFollowUpMore}: Meeting with Sami`);
     expect(screen.getByTestId(`chat-follow-up-more-${MEETING}`).props.accessibilityState).toMatchObject({ expanded: false });
-    for (const hidden of ['done', 'new-date', 'drop', 'dont-ask']) {
+    for (const hidden of ['done', 'nothing-came', 'new-date', 'drop', 'dont-ask']) {
       expect(screen.queryByTestId(`chat-follow-up-${hidden}-${MEETING}`)).toBeNull();
     }
     await fireEvent.press(screen.getByTestId(`chat-follow-up-more-${MEETING}`));
@@ -146,6 +146,7 @@ describe('the follow-up in the chat', () => {
     const expected: [string, string][] = [
       [`chat-follow-up-tell-${MEETING}`, en.chatFollowUpTell],
       [`chat-follow-up-more-${MEETING}`, en.chatFollowUpMore],
+      [`chat-follow-up-nothing-came-${MEETING}`, en.chatFollowUpNothingCame],
       [`chat-follow-up-new-date-${MEETING}`, en.unhandledNewDate],
       [`chat-follow-up-drop-${MEETING}`, en.dropIt],
       [`chat-follow-up-dont-ask-${MEETING}`, en.unhandledDontAsk],
@@ -168,6 +169,17 @@ describe('the follow-up in the chat', () => {
     expect((StyleSheet.flatten(skip.props.style) as { minHeight?: number }).minHeight).toBeGreaterThanOrEqual(44);
   });
 
+  it('«Nothing came of it, done» closes an appointment from the question itself', async () => {
+    chat.mockResolvedValueOnce(withFollowUp());
+    await openCapture();
+    await say('hello');
+    await waitFor(() => expect(screen.queryByTestId(`chat-follow-up-more-${MEETING}`)).not.toBeNull());
+    await fireEvent.press(screen.getByTestId(`chat-follow-up-more-${MEETING}`));
+    await fireEvent.press(screen.getByTestId(`chat-follow-up-nothing-came-${MEETING}`));
+    await waitFor(() => expect(commitmentEndpoints.actOnCommitment).toHaveBeenCalledWith(MEETING, 'complete', expect.anything()));
+    await waitFor(() => expect(screen.queryByTestId('chat-follow-up-actions')).toBeNull());
+  });
+
   it('a deadline is asked as one, and its primary answer is «Done»', async () => {
     chat.mockResolvedValueOnce(withDeadline());
     await openCapture();
@@ -177,6 +189,9 @@ describe('the follow-up in the chat', () => {
     const done = screen.getByTestId(`chat-follow-up-done-${REPORT}`);
     expect(done.props.accessibilityLabel).toBe(`${en.chatFollowUpDone}: Hand in the report`);
     expect(screen.queryByTestId(`chat-follow-up-tell-${REPORT}`)).toBeNull();
+    // Its «Done» is already the primary answer: not offered twice.
+    await fireEvent.press(screen.getByTestId(`chat-follow-up-more-${REPORT}`));
+    expect(screen.queryByTestId(`chat-follow-up-nothing-came-${REPORT}`)).toBeNull();
     await fireEvent.press(done);
     await waitFor(() => expect(commitmentEndpoints.actOnCommitment).toHaveBeenCalledWith(REPORT, 'complete', expect.anything()));
     await waitFor(() => expect(screen.queryByTestId('chat-follow-up-actions')).toBeNull());
@@ -313,6 +328,7 @@ describe('the words', () => {
     expect(ar.chatFollowUpEvent).toBe('«{title}» {when} — طلع منه إشي بدك تعمله؟');
     expect(ar.chatFollowUpDeadline).toBe('تسليم «{title}» كان {when} — تمّ؟');
     expect(ar.chatFollowUpDone).toBe('تمّ');
+    expect(ar.chatFollowUpNothingCame).toBe('ما طلع منه إشي، تمّت');
   });
 
   it.each([['en', en], ['ar', ar], ['he', he]] as [string, typeof en][])('%s: the question names the item and when, with no lateness word', (lang, copy) => {
@@ -321,7 +337,7 @@ describe('the words', () => {
     expect(meeting).toContain('Meeting with Sami');
     const report = stripIsolates(followUpText(withDeadline().followUp!, copy, lang, 'Asia/Jerusalem', NOW));
     expect(report).toContain('Hand in the report');
-    for (const key of ['chatFollowUpIntro', 'chatFollowUpEvent', 'chatFollowUpDeadline', 'chatFollowUpTell', 'chatFollowUpDone', 'chatFollowUpMore', 'chatFollowUpSkip', 'chatFollowUpSkipLabel'] as const) {
+    for (const key of ['chatFollowUpIntro', 'chatFollowUpEvent', 'chatFollowUpDeadline', 'chatFollowUpTell', 'chatFollowUpDone', 'chatFollowUpNothingCame', 'chatFollowUpMore', 'chatFollowUpSkip', 'chatFollowUpSkipLabel'] as const) {
       expect(copy[key]).not.toMatch(LATENESS);
     }
   });
