@@ -932,14 +932,14 @@ describe('the feed schemas refuse a URL', () => {
 describe('capture chat follow-up', () => {
   const fixture = JSON.parse(readFileSync(join(__dirname, '..', '__fixtures__', 'capture.chatFollowUp.json'), 'utf8'));
 
-  it('keeps a follow-up of one or two items', () => {
+  it('keeps a follow-up of one item', () => {
     const parsed = captureChatSchema.parse(fixture);
-    expect(parsed.followUp?.items.map((item) => item.reason)).toEqual(['event_ended', 'deadline_passed']);
+    expect(parsed.followUp?.items.map((item) => item.reason)).toEqual(['event_ended']);
   });
 
-  it('drops a follow-up that is malformed or asks about more than two, and still parses', () => {
-    const three = { items: [...fixture.followUp.items, { ...fixture.followUp.items[0], commitmentId: 'third' }] };
-    for (const followUp of [three, { items: [] }, { items: [{ commitmentId: 'x', reason: 'late' }] }, 'yes']) {
+  it('drops a follow-up that is malformed or asks about more than one, and still parses', () => {
+    const two = { items: [...fixture.followUp.items, { ...fixture.followUp.items[0], commitmentId: 'second' }] };
+    for (const followUp of [two, { items: [] }, { items: [{ commitmentId: 'x', reason: 'late' }] }, 'yes']) {
       const parsed = captureChatSchema.parse({ ...fixture, followUp });
       expect(parsed).not.toHaveProperty('followUp');
       expect(parsed.reply).toBe(fixture.reply);

@@ -5,8 +5,12 @@
  * What these hold:
  *   - the question sits after the reply, worded from the items: when, never
  *     how late, and no blame;
- *   - every answer is a 44-point target whose label names the item; done,
- *     «أسقطه بوعي» and «لا تسألني عنها» go through the place's own routes;
+ *   - one item, one primary answer (an appointment: «في إشي، رح احكيلك»; a
+ *     deadline: «تمّ»), and «خيارات تانية» for a new date, «أسقطه بوعي» and
+ *     «لا تسألني عنها»; «أسقطه بوعي» never looks like the primary answer, and
+ *     «لا تسألني عنها» and «تخطّى» are plain text;
+ *   - every answer is a 44-point target whose label names the item, and
+ *     they go through the place's own routes;
  *   - «تخطّى» writes nothing and the answers go;
  *   - one per capture session: the next message says `followUpShown`, and a
  *     second follow-up from the server is never shown;
@@ -49,6 +53,9 @@ const MEETING = 'fixture-unhandled-meeting';
 const REPORT = 'fixture-unhandled-deadline';
 
 const withFollowUp = (): CaptureChatAnswer => captureChatSchema.parse(followUpFixture);
+const REPORT_ITEM = { commitmentId: REPORT, title: 'Hand in the report', reason: 'deadline_passed', since: '2026-08-09T09:00:00.000Z' };
+const withDeadline = (): CaptureChatAnswer => captureChatSchema.parse({ ...followUpFixture, followUp: { items: [REPORT_ITEM] } });
+const backgroundOf = (testID: string): unknown => (StyleSheet.flatten(screen.getByTestId(testID).props.style) as { backgroundColor?: unknown }).backgroundColor;
 const plain = (conversationId: string, text: string, followUp = false): CaptureChatAnswer => {
   const { followUp: _gone, ...rest } = followUpFixture;
   return captureChatSchema.parse({
@@ -117,7 +124,7 @@ const allText = (testID: string): string => stripIsolates(within(screen.getByTes
 }).join('\n'));
 
 describe('the follow-up in the chat', () => {
-  it('asks after the reply, names each item and when, and every answer names its item at 44 points', async () => {
+  it('asks after the reply about one appointment, with one primary answer and the rest behind «Other options»', async () => {
     chat.mockResolvedValueOnce(withFollowUp());
     await openCapture();
     await say('hello');
@@ -125,30 +132,54 @@ describe('the follow-up in the chat', () => {
     const words = allText('chat-follow-up');
     expect(words).toContain(en.chatFollowUpIntro);
     expect(words).toContain('“Meeting with Sami”');
-    expect(words).toContain('did anything come out of it for you to do?');
-    expect(words).toContain('“Hand in the report” was due');
-    expect(words).not.toMatch(/late|overdue|missed|behind/i);
-    const expected: [string, string, string][] = [
-      [`chat-follow-up-tell-${MEETING}`, en.chatFollowUpTell, 'Meeting with Sami'],
-      [`chat-follow-up-done-${MEETING}`, en.done, 'Meeting with Sami'],
-      [`chat-follow-up-new-date-${MEETING}`, en.unhandledNewDate, 'Meeting with Sami'],
-      [`chat-follow-up-drop-${MEETING}`, en.dropIt, 'Meeting with Sami'],
-      [`chat-follow-up-dont-ask-${MEETING}`, en.unhandledDontAsk, 'Meeting with Sami'],
-      [`chat-follow-up-done-${REPORT}`, en.done, 'Hand in the report'],
-      [`chat-follow-up-dont-ask-${REPORT}`, en.unhandledDontAsk, 'Hand in the report'],
+    expect(words).toContain('did anything come out of it you want to do?');
+    expect(words).not.toMatch(/late|overdue|missed|behind|have to|must/i);
+    // The primary answer, and the way to the others; nothing else yet.
+    expect(screen.getByTestId(`chat-follow-up-tell-${MEETING}`).props.accessibilityLabel).toBe(`${en.chatFollowUpTell}: Meeting with Sami`);
+    expect(screen.getByTestId(`chat-follow-up-more-${MEETING}`).props.accessibilityLabel).toBe(`${en.chatFollowUpMore}: Meeting with Sami`);
+    expect(screen.getByTestId(`chat-follow-up-more-${MEETING}`).props.accessibilityState).toMatchObject({ expanded: false });
+    for (const hidden of ['done', 'new-date', 'drop', 'dont-ask']) {
+      expect(screen.queryByTestId(`chat-follow-up-${hidden}-${MEETING}`)).toBeNull();
+    }
+    await fireEvent.press(screen.getByTestId(`chat-follow-up-more-${MEETING}`));
+    expect(screen.getByTestId(`chat-follow-up-more-${MEETING}`).props.accessibilityState).toMatchObject({ expanded: true });
+    const expected: [string, string][] = [
+      [`chat-follow-up-tell-${MEETING}`, en.chatFollowUpTell],
+      [`chat-follow-up-more-${MEETING}`, en.chatFollowUpMore],
+      [`chat-follow-up-new-date-${MEETING}`, en.unhandledNewDate],
+      [`chat-follow-up-drop-${MEETING}`, en.dropIt],
+      [`chat-follow-up-dont-ask-${MEETING}`, en.unhandledDontAsk],
     ];
-    for (const [id, label, title] of expected) {
+    for (const [id, label] of expected) {
       const button = screen.getByTestId(id);
-      expect(button.props.accessibilityLabel).toBe(`${label}: ${title}`);
+      expect(button.props.accessibilityLabel).toBe(`${label}: Meeting with Sami`);
       const style = StyleSheet.flatten(button.props.style) as { minHeight?: number; minWidth?: number };
       expect(style.minHeight).toBeGreaterThanOrEqual(44);
       expect(style.minWidth).toBeGreaterThanOrEqual(44);
     }
-    // «Something came of it» is for an appointment; a deadline is done or not.
-    expect(screen.queryByTestId(`chat-follow-up-tell-${REPORT}`)).toBeNull();
+    // «Drop on purpose» never wears the primary answer's look; the quiet two are plain text.
+    expect(backgroundOf(`chat-follow-up-drop-${MEETING}`)).not.toEqual(backgroundOf(`chat-follow-up-tell-${MEETING}`));
+    expect(backgroundOf(`chat-follow-up-dont-ask-${MEETING}`)).toBeUndefined();
+    expect(backgroundOf('chat-follow-up-skip')).toBeUndefined();
+    // Done is a deadline's answer, not an appointment's.
+    expect(screen.queryByTestId(`chat-follow-up-done-${MEETING}`)).toBeNull();
     const skip = screen.getByTestId('chat-follow-up-skip');
     expect(skip.props.accessibilityLabel).toBe(en.chatFollowUpSkipLabel);
     expect((StyleSheet.flatten(skip.props.style) as { minHeight?: number }).minHeight).toBeGreaterThanOrEqual(44);
+  });
+
+  it('a deadline is asked as one, and its primary answer is «Done»', async () => {
+    chat.mockResolvedValueOnce(withDeadline());
+    await openCapture();
+    await say('hello');
+    await waitFor(() => expect(screen.queryByTestId('chat-follow-up')).not.toBeNull());
+    expect(allText('chat-follow-up')).toContain('The “Hand in the report” deadline was');
+    const done = screen.getByTestId(`chat-follow-up-done-${REPORT}`);
+    expect(done.props.accessibilityLabel).toBe(`${en.chatFollowUpDone}: Hand in the report`);
+    expect(screen.queryByTestId(`chat-follow-up-tell-${REPORT}`)).toBeNull();
+    await fireEvent.press(done);
+    await waitFor(() => expect(commitmentEndpoints.actOnCommitment).toHaveBeenCalledWith(REPORT, 'complete', expect.anything()));
+    await waitFor(() => expect(screen.queryByTestId('chat-follow-up-actions')).toBeNull());
   });
 
   it('a screen reader hears the question with the reply it came with', async () => {
@@ -161,7 +192,7 @@ describe('the follow-up in the chat', () => {
     const said = stripIsolates(String(announce.mock.calls.at(-1)![0]));
     expect(said.startsWith(followUpFixture.reply)).toBe(true);
     expect(said).toContain(en.chatFollowUpIntro);
-    expect(said).toContain('Hand in the report');
+    expect(said).toContain('Meeting with Sami');
   });
 
   it('«Skip» writes nothing: the answers go, the question stays as words', async () => {
@@ -176,41 +207,41 @@ describe('the follow-up in the chat', () => {
     expect(commitmentEndpoints.actOnCommitment).not.toHaveBeenCalled();
   });
 
-  it('«Don\'t ask me about it», done and drop go through the place\'s own routes, and that item\'s answers go', async () => {
+  it('«Don\'t ask me about it» goes through the place\'s own route, and the answers go', async () => {
     chat.mockResolvedValueOnce(withFollowUp());
     await openCapture();
     await say('hello');
-    await waitFor(() => expect(screen.queryByTestId(`chat-follow-up-dont-ask-${MEETING}`)).not.toBeNull());
+    await waitFor(() => expect(screen.queryByTestId(`chat-follow-up-more-${MEETING}`)).not.toBeNull());
+    await fireEvent.press(screen.getByTestId(`chat-follow-up-more-${MEETING}`));
     await fireEvent.press(screen.getByTestId(`chat-follow-up-dont-ask-${MEETING}`));
     await waitFor(() => expect(commitmentEndpoints.dismissUnhandled).toHaveBeenCalledWith(MEETING));
-    await waitFor(() => expect(screen.queryByTestId(`chat-follow-up-item-${MEETING}`)).toBeNull());
-    await fireEvent.press(screen.getByTestId(`chat-follow-up-done-${REPORT}`));
-    await waitFor(() => expect(commitmentEndpoints.actOnCommitment).toHaveBeenCalledWith(REPORT, 'complete', expect.anything()));
-    // Both answered: nothing is left to ask.
     await waitFor(() => expect(screen.queryByTestId('chat-follow-up-actions')).toBeNull());
+    expect(commitmentEndpoints.actOnCommitment).not.toHaveBeenCalled();
   });
 
   it('a second press in the same frame sends once', async () => {
     chat.mockResolvedValueOnce(withFollowUp());
     await openCapture();
     await say('hello');
-    await waitFor(() => expect(screen.queryByTestId(`chat-follow-up-drop-${MEETING}`)).not.toBeNull());
+    await waitFor(() => expect(screen.queryByTestId(`chat-follow-up-more-${MEETING}`)).not.toBeNull());
+    await fireEvent.press(screen.getByTestId(`chat-follow-up-more-${MEETING}`));
     let release: () => void = () => undefined;
     (commitmentEndpoints.actOnCommitment as jest.Mock).mockImplementation(() => new Promise((resolve) => {
       release = () => resolve({ data: { success: true, id: MEETING, commitment: {} }, etag: null });
     }));
     const drop = screen.getByTestId(`chat-follow-up-drop-${MEETING}`);
-    const done = screen.getByTestId(`chat-follow-up-done-${MEETING}`);
+    const dontAsk = screen.getByTestId(`chat-follow-up-dont-ask-${MEETING}`);
     // Inside one act: the re-render that disables the buttons has not happened.
     await act(async () => {
       void fireEvent.press(drop);
       void fireEvent.press(drop);
-      void fireEvent.press(done);
+      void fireEvent.press(dontAsk);
     });
     release();
     await waitFor(() => expect(screen.queryByTestId(`chat-follow-up-item-${MEETING}`)).toBeNull());
     expect(commitmentEndpoints.actOnCommitment).toHaveBeenCalledTimes(1);
     expect(commitmentEndpoints.actOnCommitment).toHaveBeenCalledWith(MEETING, 'cancel', expect.anything());
+    expect(commitmentEndpoints.dismissUnhandled).not.toHaveBeenCalled();
   });
 
   it('one per session: the next message says it was shown, and a second follow-up is never drawn', async () => {
@@ -250,10 +281,8 @@ describe('the follow-up in the reducer', () => {
     const state = answered();
     expect(captureReducer(state, { type: 'followUpSkipped' }).followUp?.open).toBe(false);
     expect(captureReducer(captureReducer(state, { type: 'textChanged', text: 'x' }), { type: 'chatStarted' }).followUp?.open).toBe(false);
-    const one = captureReducer(state, { type: 'followUpAnswered', commitmentId: MEETING });
-    expect(one.followUp).toMatchObject({ open: true, answered: [MEETING] });
-    expect(captureReducer(one, { type: 'followUpAnswered', commitmentId: 'someone-else' })).toBe(one);
-    expect(captureReducer(one, { type: 'followUpAnswered', commitmentId: REPORT }).followUp).toMatchObject({ open: false, answered: [MEETING, REPORT] });
+    expect(captureReducer(state, { type: 'followUpAnswered', commitmentId: 'someone-else' })).toBe(state);
+    expect(captureReducer(state, { type: 'followUpAnswered', commitmentId: MEETING }).followUp).toMatchObject({ open: false, answered: [MEETING] });
   });
 
   it('a plain answer starts none', () => {
@@ -278,14 +307,21 @@ describe('the request', () => {
 
 describe('the words', () => {
   const NOW = new Date('2026-08-10T09:00:00.000Z');
-  const LATENESS = /late|overdue|missed|behind|تأخ|متأخر|فات|פספס|באיחור|מאחר/i;
+  const LATENESS = /late|overdue|missed|behind|have to|must|تأخ|متأخر|فات|لازم|פספס|באיחור|מאחר|חייב/i;
+
+  it('the owner\'s wording: what you want to do, and a deadline named as a deadline', () => {
+    expect(ar.chatFollowUpEvent).toBe('«{title}» {when} — طلع منه إشي بدك تعمله؟');
+    expect(ar.chatFollowUpDeadline).toBe('تسليم «{title}» كان {when} — تمّ؟');
+    expect(ar.chatFollowUpDone).toBe('تمّ');
+  });
 
   it.each([['en', en], ['ar', ar], ['he', he]] as [string, typeof en][])('%s: the question names the item and when, with no lateness word', (lang, copy) => {
-    const text = stripIsolates(followUpText(withFollowUp().followUp!, copy, lang, 'Asia/Jerusalem', NOW));
-    expect(text.split('\n')).toHaveLength(3);
-    expect(text).toContain('Meeting with Sami');
-    expect(text).toContain('Hand in the report');
-    for (const key of ['chatFollowUpIntro', 'chatFollowUpEvent', 'chatFollowUpDeadline', 'chatFollowUpTell', 'chatFollowUpSkip', 'chatFollowUpSkipLabel'] as const) {
+    const meeting = stripIsolates(followUpText(withFollowUp().followUp!, copy, lang, 'Asia/Jerusalem', NOW));
+    expect(meeting.split('\n')).toHaveLength(2);
+    expect(meeting).toContain('Meeting with Sami');
+    const report = stripIsolates(followUpText(withDeadline().followUp!, copy, lang, 'Asia/Jerusalem', NOW));
+    expect(report).toContain('Hand in the report');
+    for (const key of ['chatFollowUpIntro', 'chatFollowUpEvent', 'chatFollowUpDeadline', 'chatFollowUpTell', 'chatFollowUpDone', 'chatFollowUpMore', 'chatFollowUpSkip', 'chatFollowUpSkipLabel'] as const) {
       expect(copy[key]).not.toMatch(LATENESS);
     }
   });
