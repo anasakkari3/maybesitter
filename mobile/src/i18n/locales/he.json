@@ -2234,6 +2234,7 @@
   "chatFollowUpDeadline": "ההגשה של „{title}” הייתה {when} — בוצע?",
   "chatFollowUpTell": "כן, אספר לך",
   "chatFollowUpDone": "בוצע",
+  "chatFollowUpNothingCame": "לא יצא מזה כלום, בוצע",
   "chatFollowUpMore": "אפשרויות נוספות",
   "chatFollowUpSkip": "דלג",
   "chatFollowUpSkipLabel": "לדלג על השאלה",

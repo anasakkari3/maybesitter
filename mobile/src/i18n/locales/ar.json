@@ -2231,6 +2231,7 @@
   "chatFollowUpDeadline": "تسليم «{title}» كان {when} — تمّ؟",
   "chatFollowUpTell": "في إشي، رح احكيلك",
   "chatFollowUpDone": "تمّ",
+  "chatFollowUpNothingCame": "ما طلع منه إشي، تمّت",
   "chatFollowUpMore": "خيارات تانية",
   "chatFollowUpSkip": "تخطّى",
   "chatFollowUpSkipLabel": "تخطّى هالسؤال",

@@ -2231,6 +2231,7 @@
   "chatFollowUpDeadline": "The “{title}” deadline was {when} — done?",
   "chatFollowUpTell": "Yes, I'll tell you",
   "chatFollowUpDone": "Done",
+  "chatFollowUpNothingCame": "Nothing came of it, done",
   "chatFollowUpMore": "Other options",
   "chatFollowUpSkip": "Skip",
   "chatFollowUpSkipLabel": "Skip this question",

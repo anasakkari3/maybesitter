@@ -25,7 +25,8 @@ import type { ChatFollowUpState } from './captureMachine';
  *   - one primary answer: an appointment's «في إشي، رح احكيلك», which puts the
  *     person back in the field — what they say becomes a normal proposal
  *     they confirm as usual — and a deadline's «تمّ»;
- *   - «خيارات تانية» opens the rest: a new date (the postpone sheet),
+ *   - «خيارات تانية» opens the rest: for an appointment «ما طلع منه إشي،
+ *     تمّت» (closes it, done), a new date (the postpone sheet),
  *     «أسقطه بوعي» (a quiet surface, never the primary answer's look) and
  *     «لا تسألني عنها» (plain text, the dismiss route);
  *   - «تخطّى», plain text, closes the question and writes nothing.
@@ -107,6 +108,10 @@ export function ChatFollowUpActions({ followUp, onSkip, onAnswered, onTell }: {
                 expanded={more} onPress={() => setMore((open) => !open)} />
             </View>
             {more ? <View testID={`chat-follow-up-options-${id}`} style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
+              {item.reason === 'event_ended'
+                ? <FollowUpAction kind="secondary" testID={`chat-follow-up-nothing-came-${id}`} label={t.chatFollowUpNothingCame} item={item.title} disabled={busy}
+                  onPress={() => run(id, () => act.mutateAsync({ id, action: 'complete' }), t.toastDone)} />
+                : null}
               <FollowUpAction kind="secondary" testID={`chat-follow-up-new-date-${id}`} label={t.unhandledNewDate} item={item.title} disabled={busy}
                 onPress={() => setPostponing({ id, title: item.title })} />
               <FollowUpAction kind="secondary" testID={`chat-follow-up-drop-${id}`} label={t.dropIt} item={item.title} disabled={busy}
