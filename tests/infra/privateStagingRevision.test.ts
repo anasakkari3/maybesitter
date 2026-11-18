@@ -1,16 +1,17 @@
 /**
  * infra/cloudrun/private-staging-revision.sh (Wave D, lane D3).
  *
- * A private staging revision is the same image staging serves, with the full
- * staging settings plus a few overrides, behind a `qa-*` tag and with no
- * traffic. These tests run the real script in --dry-run only, against a fake
- * `gcloud` on PATH that logs its arguments and answers the two reads with
- * canned JSON. No real gcloud is ever called.
+ * A private staging revision is the image staging serves, with the service
+ * template's settings plus a few overrides, behind a `qa-*` tag and with no
+ * traffic; a second no-traffic deploy then puts the template back exactly.
+ * These tests run the real script against a fake `gcloud` on PATH that logs
+ * its arguments, answers the reads with canned JSON and can fail or interrupt
+ * a deploy. No real gcloud is ever called.
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync, execFileSync } from 'node:child_process';
-import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync, existsSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -20,36 +21,90 @@ const script = join(repoRoot, 'infra/cloudrun/private-staging-revision.sh');
 const flagsScript = join(repoRoot, 'infra/cloudrun/flags.sh');
 
 const SERVICE = 'maybesitter-api-staging';
+const REGION_FLAG = '--region=europe-west1';
 const SERVING = `${SERVICE}-00042-xyz`;
-const DIGEST = `europe-west1-docker.pkg.dev/maybesitter-app/maybesitter/api@sha256:${'ab12'.repeat(16)}`;
-const TAGGED_IMAGE = 'europe-west1-docker.pkg.dev/maybesitter-app/maybesitter/api:latest';
+const REPO = 'europe-west1-docker.pkg.dev/maybesitter-app/maybesitter/api';
+const DIGEST = `${REPO}@sha256:${'ab12'.repeat(16)}`;
+const TEMPLATE_DIGEST = `${REPO}@sha256:${'cd34'.repeat(16)}`;
+const TAGGED_IMAGE = `${REPO}:latest`;
 const SERVICE_URL = 'https://maybesitter-api-staging-abc123-ew.a.run.app';
+const DEPLOYED_TAG_URL = 'https://qa-memoff---maybesitter-api-staging-deployed-ew.a.run.app';
 
 const FAKE_GCLOUD = `#!/usr/bin/env bash
 { printf '%s\\n' "$@"; printf -- '--END--\\n'; } >>"\${FAKE_GCLOUD_LOG}"
 case "$1 $2 $3" in
-  "run services describe") cat "\${FAKE_SERVICE_JSON}" ;;
+  "run services describe")
+    if [ -e "\${FAKE_STATE}/deployed" ] && [ -n "\${FAKE_SERVICE_JSON_AFTER:-}" ]; then cat "\${FAKE_SERVICE_JSON_AFTER}"; else cat "\${FAKE_SERVICE_JSON}"; fi ;;
   "run revisions describe") cat "\${FAKE_REVISION_JSON}" ;;
-  *) : ;;
 esac
+if [ "$1 $2" = "run deploy" ]; then
+  n=$(( $(cat "\${FAKE_STATE}/deploys" 2>/dev/null || echo 0) + 1 ))
+  echo "$n" >"\${FAKE_STATE}/deploys"
+  touch "\${FAKE_STATE}/deployed"
+  case " \${FAKE_FAIL_DEPLOYS:-} " in *" $n "*) echo "fake: deploy $n failed" >&2; exit 1 ;; esac
+  case " \${FAKE_TERM_DEPLOYS:-} " in *" $n "*) kill -TERM "$PPID" ;; esac
+fi
+exit 0
 `;
+
+type EnvVar = { name: string; value?: string; valueFrom?: unknown };
+
+function cleanEnv(): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = { ...process.env };
+  for (const name of Object.keys(env)) if (name.startsWith('MAYBESITTER_FLAGS_')) delete env[name];
+  delete env.PROJECT_ID;
+  delete env.REGION;
+  return env;
+}
+
+/** The KEY=VALUE pairs of a `--update-env-vars=^;^…` word, in order. */
+function envPairs(words: string[]): Array<[string, string]> {
+  const word = words.find((entry) => entry.startsWith('--update-env-vars='));
+  assert.ok(word, `no --update-env-vars word in ${words.join(' ')}`);
+  const body = word.slice('--update-env-vars='.length);
+  assert.ok(body.startsWith('^;^'), 'the env list lost its ^;^ delimiter');
+  return body.slice(3).split(';').map((pair) => {
+    const at = pair.indexOf('=');
+    return [pair.slice(0, at), pair.slice(at + 1)];
+  });
+}
+
+const flagsWords = (): string[] =>
+  execFileSync('bash', [flagsScript, 'staging'], { encoding: 'utf8', env: cleanEnv() }).trim().split(/\s+/);
+const stagingBase = (): Array<[string, string]> => envPairs(flagsWords());
+
+/** What the live template holds: flags.sh staging, what scheduler.sh adds, and a secret. */
+function defaultTemplateEnv(): EnvVar[] {
+  return [
+    ...stagingBase().map(([name, value]) => ({ name, value })),
+    { name: 'MAYBESITTER_SCHEDULER_SA_EMAIL', value: 'maybesitter-scheduler@maybesitter-app.iam.gserviceaccount.com' },
+    { name: 'MAYBESITTER_INTERNAL_AUDIENCE', value: SERVICE_URL },
+    { name: 'MAYBESITTER_LLM_UID_SALT', valueFrom: { secretKeyRef: { name: 'maybesitter-llm-uid-salt', key: 'latest' } } },
+  ];
+}
 
 interface Fixture {
   traffic?: Array<Record<string, unknown>>;
-  revisionEnv?: Array<{ name: string; value: string }>;
+  specTraffic?: Array<Record<string, unknown>>;
+  templateEnv?: EnvVar[];
+  templateImage?: string;
+  revisionEnv?: EnvVar[];
   imageDigest?: string;
 }
 
-function serviceJson(fixture: Fixture) {
+function serviceJson(fixture: Fixture, traffic?: Array<Record<string, unknown>>) {
   return {
     metadata: { name: SERVICE },
-    spec: { template: { spec: { containers: [{ image: TAGGED_IMAGE }] } } },
+    spec: {
+      template: { spec: { containers: [{ image: fixture.templateImage ?? TEMPLATE_DIGEST, env: fixture.templateEnv ?? defaultTemplateEnv() }] } },
+      traffic: fixture.specTraffic ?? [{ revisionName: SERVING, percent: 100 }],
+    },
     status: {
       url: SERVICE_URL,
-      traffic: fixture.traffic ?? [
+      traffic: traffic ?? fixture.traffic ?? [
         { revisionName: SERVING, percent: 100 },
-        { revisionName: `${SERVICE}-00042-xyz`, percent: 0, tag: 'sha-1234567', url: `https://sha-1234567---maybesitter-api-staging-abc123-ew.a.run.app` },
-        { revisionName: `${SERVICE}-00040-old`, percent: 0, tag: 'qa-old', url: `https://qa-old---maybesitter-api-staging-abc123-ew.a.run.app` },
+        { revisionName: SERVING, percent: 0, tag: 'sha-1234567', url: 'https://sha-1234567---maybesitter-api-staging-abc123-ew.a.run.app' },
+        { revisionName: `${SERVICE}-00040-old`, percent: 0, tag: 'qa-old', url: 'https://qa-old---maybesitter-api-staging-abc123-ew.a.run.app' },
       ],
     },
   };
@@ -61,10 +116,7 @@ function revisionJson(fixture: Fixture) {
     spec: {
       containers: [{
         image: TAGGED_IMAGE,
-        env: fixture.revisionEnv ?? [
-          { name: 'MAYBESITTER_ENV', value: 'staging' },
-          { name: 'MAYBESITTER_FIRESTORE_DATABASE_ID', value: 'staging' },
-        ],
+        env: fixture.revisionEnv ?? fixture.templateEnv ?? defaultTemplateEnv(),
       }],
     },
     status: { imageDigest: fixture.imageDigest ?? DIGEST },
@@ -81,28 +133,38 @@ interface Run {
   printed: string[][];
 }
 
-function run(args: string[], fixture: Fixture = {}): Run {
+interface RunOptions { failDeploys?: number[]; termDeploys?: number[] }
+
+function run(args: string[], fixture: Fixture = {}, options: RunOptions = {}): Run {
   const dir = mkdtempSync(join(tmpdir(), 'private-revision-'));
   try {
     const bin = join(dir, 'bin');
-    execFileSync('mkdir', ['-p', bin]);
+    const state = join(dir, 'state');
+    mkdirSync(bin);
+    mkdirSync(state);
     writeFileSync(join(bin, 'gcloud'), FAKE_GCLOUD);
     chmodSync(join(bin, 'gcloud'), 0o755);
     const log = join(dir, 'gcloud.log');
     writeFileSync(join(dir, 'service.json'), JSON.stringify(serviceJson(fixture)));
+    const after = serviceJson(fixture, [
+      ...(serviceJson(fixture).status.traffic),
+      { revisionName: `${SERVICE}-00043-qa`, percent: 0, tag: 'qa-memoff', url: DEPLOYED_TAG_URL },
+    ]);
+    writeFileSync(join(dir, 'service-after.json'), JSON.stringify(after));
     writeFileSync(join(dir, 'revision.json'), JSON.stringify(revisionJson(fixture)));
-    const env: NodeJS.ProcessEnv = { ...process.env };
-    for (const name of Object.keys(env)) if (name.startsWith('MAYBESITTER_FLAGS_')) delete env[name];
-    delete env.PROJECT_ID;
-    delete env.REGION;
     const result = spawnSync('bash', [script, ...args], {
       encoding: 'utf8',
+      timeout: 60_000,
       env: {
-        ...env,
+        ...cleanEnv(),
         PATH: `${bin}:${process.env.PATH ?? ''}`,
         FAKE_GCLOUD_LOG: log,
+        FAKE_STATE: state,
         FAKE_SERVICE_JSON: join(dir, 'service.json'),
+        FAKE_SERVICE_JSON_AFTER: join(dir, 'service-after.json'),
         FAKE_REVISION_JSON: join(dir, 'revision.json'),
+        FAKE_FAIL_DEPLOYS: (options.failDeploys ?? []).join(' '),
+        FAKE_TERM_DEPLOYS: (options.termDeploys ?? []).join(' '),
       },
     });
     const calls = existsSync(log)
@@ -118,32 +180,20 @@ function run(args: string[], fixture: Fixture = {}): Run {
   }
 }
 
-/** The KEY=VALUE pairs of a `--update-env-vars=^;^…` word, in order. */
-function envPairs(words: string[]): Array<[string, string]> {
-  const word = words.find((entry) => entry.startsWith('--update-env-vars='));
-  assert.ok(word, 'no --update-env-vars word');
-  const body = word.slice('--update-env-vars='.length);
-  assert.ok(body.startsWith('^;^'), 'the env list lost its ^;^ delimiter');
-  return body.slice(3).split(';').map((pair) => {
-    const at = pair.indexOf('=');
-    return [pair.slice(0, at), pair.slice(at + 1)];
-  });
-}
-
-function stagingBase(): Array<[string, string]> {
-  const env: NodeJS.ProcessEnv = { ...process.env };
-  for (const name of Object.keys(env)) if (name.startsWith('MAYBESITTER_FLAGS_')) delete env[name];
-  delete env.PROJECT_ID;
-  delete env.REGION;
-  const words = execFileSync('bash', [flagsScript, 'staging'], { encoding: 'utf8', env }).trim().split(/\s+/);
-  return envPairs(words);
-}
-
-const deploys = (r: Run) => r.printed.filter((words) => words[0] === 'gcloud' && words[1] === 'run' && words[2] === 'deploy');
+const isDeploy = (words: string[]) => words[0] === 'gcloud' && words[1] === 'run' && words[2] === 'deploy';
+const deploys = (r: Run) => r.printed.filter(isDeploy);
+/** Deploys the fake gcloud actually received (real mode); `gcloud` itself is not logged. */
+const deployCalls = (r: Run) => r.calls.filter((args) => args[0] === 'run' && args[1] === 'deploy');
 const MUTATING = /^(deploy|update|update-traffic|delete|set-iam-policy|add-iam-policy-binding|remove-iam-policy-binding|replace)$/;
 const mutatingCalls = (r: Run) => r.calls.filter((args) => args.some((arg) => MUTATING.test(arg)));
 
+function refused(r: Run, pattern: RegExp, what: string) {
+  assert.notEqual(r.status, 0, `${what} was not refused`);
+  assert.match(r.stderr, pattern, `${what}: unexpected message:\n${r.stderr}`);
+}
+
 const CREATE = ['--name', 'memoff', '--set', 'MAYBESITTER_FEATURE_MEMORY=false', '--set', 'MAYBESITTER_FEATURE_GOAL_PLAN=true', '--dry-run'];
+const CREATE_REAL = CREATE.filter((arg) => arg !== '--dry-run');
 
 test('a dry run deploys the serving revision by digest, behind a qa tag, with no traffic', () => {
   const r = run(CREATE);
@@ -156,12 +206,10 @@ test('a dry run deploys the serving revision by digest, behind a qa tag, with no
   assert.ok(privateDeploy.includes('--tag=qa-memoff'));
   assert.ok(privateDeploy.includes('--no-traffic'));
   assert.ok(!privateDeploy.includes('--allow-unauthenticated'), 'the private revision must not touch the service IAM policy');
-  // The serving revision was found from the traffic list, then read.
   assert.ok(r.calls.some((args) => args.slice(0, 3).join(' ') === 'run services describe' && args.includes(SERVICE)));
   assert.ok(r.calls.some((args) => args.slice(0, 3).join(' ') === 'run revisions describe' && args.includes(SERVING)));
-  assert.match(r.stdout, /https:\/\/qa-memoff---maybesitter-api-staging-abc123-ew\.a\.run\.app/, 'the tag URL is not printed');
   const lines = r.stdout.trim().split('\n');
-  assert.match(lines[lines.length - 1]!, /qa-memoff---/, 'the tag URL is not the last line');
+  assert.match(lines[lines.length - 1]!, /https:\/\/qa-memoff---maybesitter-api-staging-abc123-ew\.a\.run\.app/, 'the tag URL is not the last line');
 });
 
 test('a dry run calls gcloud for reads only', () => {
@@ -175,11 +223,23 @@ test('a dry run calls gcloud for reads only', () => {
   }
 });
 
-test('every deploy it prints carries --no-traffic, the template reset included', () => {
+test('every gcloud command, run or printed, names the region explicitly', () => {
+  for (const args of [CREATE, ['--remove', 'qa-old', '--dry-run'], ['--list'], CREATE_REAL]) {
+    const r = run(args);
+    assert.equal(r.status, 0, `${args.join(' ')}: ${r.stderr}`);
+    for (const call of r.calls) assert.ok(call.includes(REGION_FLAG), `a call without ${REGION_FLAG}: ${call.join(' ')}`);
+    for (const words of r.printed) assert.ok(words.includes(REGION_FLAG), `a printed command without ${REGION_FLAG}: ${words.join(' ')}`);
+  }
+  // The delete hint --remove prints, too.
+  const removed = run(['--remove', 'qa-old', '--dry-run']);
+  assert.match(removed.stdout, /gcloud run revisions delete \S+ --region=europe-west1 /);
+});
+
+test('every deploy carries --no-traffic, the template restore included', () => {
   const r = run(CREATE);
   assert.equal(r.status, 0, r.stderr);
   const all = deploys(r);
-  assert.equal(all.length, 2, `expected the private deploy and the template reset:\n${r.stdout}`);
+  assert.equal(all.length, 2, `expected the private deploy and the template restore:\n${r.stdout}`);
   for (const words of all) {
     assert.ok(words.includes('--no-traffic'), `a deploy without --no-traffic: ${words.join(' ')}`);
     assert.ok(!words.some((word) => /^--to-(latest|revisions|tags)/.test(word)), 'a deploy moves traffic');
@@ -187,50 +247,143 @@ test('every deploy it prints carries --no-traffic, the template reset included',
   assert.ok(!r.printed.some((words) => words.includes('update-traffic')), 'creating a revision must not call update-traffic');
 });
 
-test('the overrides are applied after the full staging settings', () => {
+test('the QA revision is the template settings with the overrides on top', () => {
   const r = run(CREATE);
   assert.equal(r.status, 0, r.stderr);
   const pairs = envPairs(deploys(r)[0]!);
   const keys = pairs.map(([key]) => key);
   assert.equal(new Set(keys).size, keys.length, 'a key appears twice in the env list');
   const env = new Map(pairs);
-  const base = stagingBase();
-  assert.equal(new Map(base).get('MAYBESITTER_FEATURE_MEMORY'), 'true', 'the base no longer turns MEMORY on; pick another override for this test');
-  for (const [key, value] of base) {
+  const template = defaultTemplateEnv().filter((entry) => entry.value !== undefined).map((entry) => [entry.name, entry.value!] as [string, string]);
+  assert.equal(new Map(template).get('MAYBESITTER_FEATURE_MEMORY'), 'true', 'the fixture no longer turns MEMORY on; pick another override for this test');
+  for (const [key, value] of template) {
     if (key === 'MAYBESITTER_FEATURE_MEMORY') continue;
-    assert.equal(env.get(key), value, `${key} differs from flags.sh staging`);
+    assert.equal(env.get(key), value, `${key} differs from the template`);
   }
-  assert.equal(env.get('MAYBESITTER_FEATURE_MEMORY'), 'false', 'the override did not replace the base value');
-  assert.equal(env.get('MAYBESITTER_FEATURE_GOAL_PLAN'), 'true', 'a key flags.sh does not set was not added');
-  // The base order is kept, and a new key comes after every base key.
-  assert.deepEqual(keys.slice(0, base.length), base.map(([key]) => key));
+  assert.equal(env.get('MAYBESITTER_FEATURE_MEMORY'), 'false', 'the override did not replace the template value');
+  assert.equal(env.get('MAYBESITTER_FEATURE_GOAL_PLAN'), 'true', 'a key the template does not set was not added');
+  assert.deepEqual(keys.slice(0, template.length), template.map(([key]) => key), 'the template order is not kept');
   assert.equal(keys[keys.length - 1], 'MAYBESITTER_FEATURE_GOAL_PLAN');
-  assert.equal(env.get('MAYBESITTER_FIRESTORE_DATABASE_ID'), 'staging');
-  assert.equal(env.get('MAYBESITTER_ENV'), 'staging');
-
-  // The other flags.sh words are carried over unchanged.
-  const flags = execFileSync('bash', [flagsScript, 'staging'], { encoding: 'utf8' }).trim().split(/\s+/);
-  for (const word of flags) {
-    if (word.startsWith('--update-env-vars=') || word === '--allow-unauthenticated') continue;
-    assert.ok(deploys(r)[0]!.includes(word), `the deploy lost ${word}`);
+  assert.ok(!env.has('MAYBESITTER_LLM_UID_SALT'), 'a secret-backed variable was copied as a plain value');
+  // Only the env changes: every other setting stays as the template has it.
+  const words = deploys(r)[0]!;
+  for (const word of flagsWords()) {
+    if (word.startsWith('--update-env-vars=') || word.startsWith('--region=')) continue;
+    assert.ok(!words.includes(word), `the deploy re-sets ${word}; it should keep the template's`);
   }
 });
 
-test('the template reset puts the staging settings back and removes added keys', () => {
-  const r = run(CREATE);
+test('the restore puts the template back exactly and removes added keys', () => {
+  const r = run(CREATE, { templateImage: TEMPLATE_DIGEST });
   assert.equal(r.status, 0, r.stderr);
-  const reset = deploys(r)[1]!;
-  assert.ok(reset.includes(`--image=${DIGEST}`));
-  assert.ok(!reset.some((word) => word.startsWith('--tag')), 'the reset revision must not be tagged');
-  assert.deepEqual(envPairs(reset), stagingBase(), 'the reset does not restore exactly the staging settings');
-  assert.ok(reset.includes('--remove-env-vars=MAYBESITTER_FEATURE_GOAL_PLAN'), 'a key the base does not set would leak into the next staging deploy');
+  const restore = deploys(r)[1]!;
+  assert.ok(restore.includes(`--image=${TEMPLATE_DIGEST}`), `the restore does not redeploy the template's image: ${restore.join(' ')}`);
+  assert.ok(!restore.some((word) => word.startsWith('--tag')), 'the restore revision must not be tagged');
+  const template = defaultTemplateEnv().filter((entry) => entry.value !== undefined).map((entry) => [entry.name, entry.value!]);
+  assert.deepEqual(envPairs(restore), template, 'the restore does not put back exactly the template env');
+  assert.ok(restore.includes('--remove-env-vars=MAYBESITTER_FEATURE_GOAL_PLAN'), 'a key the template does not have would leak into the next deploy');
 });
 
-test('without overrides that add keys, the reset removes nothing', () => {
+test('without overrides that add keys, the restore removes nothing', () => {
   const r = run(['--name', 'gate', '--set', 'MAYBESITTER_ADDON_GATE_MODE=enforce', '--dry-run']);
   assert.equal(r.status, 0, r.stderr);
   assert.equal(new Map(envPairs(deploys(r)[0]!)).get('MAYBESITTER_ADDON_GATE_MODE'), 'enforce');
   assert.ok(!deploys(r)[1]!.some((word) => word.startsWith('--remove-env-vars')));
+});
+
+test('a template that differs from flags.sh staging is used as is, with a warning', () => {
+  const templateEnv = defaultTemplateEnv().map((entry) =>
+    entry.name === 'MAYBESITTER_FEATURE_FREE_SLOTS' ? { ...entry, value: 'false' } : entry);
+  const r = run(CREATE, { templateEnv });
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stderr, /warning:.*template.*flags\.sh/i);
+  assert.match(r.stderr, /MAYBESITTER_FEATURE_FREE_SLOTS/);
+  assert.equal(new Map(envPairs(deploys(r)[0]!)).get('MAYBESITTER_FEATURE_FREE_SLOTS'), 'false');
+  assert.equal(new Map(envPairs(deploys(r)[1]!)).get('MAYBESITTER_FEATURE_FREE_SLOTS'), 'false');
+
+  const same = run(CREATE);
+  assert.doesNotMatch(same.stderr, /warning/i, 'a warning although the template matches flags.sh');
+});
+
+test('a template value the env list cannot carry is refused', () => {
+  const templateEnv = [...defaultTemplateEnv(), { name: 'MAYBESITTER_SITE_ORIGINS', value: 'a;b' }];
+  refused(run(CREATE, { templateEnv }), /refusing:.*MAYBESITTER_SITE_ORIGINS/, 'a template value with ;');
+});
+
+test('traffic that follows the latest revision is refused', () => {
+  refused(
+    run(CREATE, { specTraffic: [{ latestRevision: true, percent: 100 }], traffic: [{ revisionName: SERVING, percent: 100, latestRevision: true }] }),
+    /refusing:.*latest/i, 'latestRevision traffic',
+  );
+  refused(
+    run(CREATE, { specTraffic: [{ latestRevision: true, percent: 100 }] }),
+    /refusing:.*latest/i, 'latestRevision in the traffic spec only',
+  );
+});
+
+test('pinned traffic that does not add up to 100 is refused', () => {
+  refused(
+    run(CREATE, { traffic: [{ revisionName: SERVING, percent: 100 }, { revisionName: `${SERVICE}-00041-a`, percent: 10 }] }),
+    /refusing:.*100/, 'traffic summing to 110',
+  );
+  refused(
+    run(CREATE, { traffic: [{ revisionName: SERVING, percent: 50 }, { revisionName: `${SERVICE}-00041-a`, percent: 50 }] }),
+    /refusing:.*100/, 'a 50/50 split',
+  );
+  refused(run(CREATE, { traffic: [] }), /refusing:.*100/, 'no traffic at all');
+});
+
+test('a real run deploys twice, in order, and prints the tag URL it reads back', () => {
+  const r = run(CREATE_REAL);
+  assert.equal(r.status, 0, r.stderr);
+  assert.deepEqual(r.printed, [], 'a real run printed DRY-RUN lines');
+  const calls = deployCalls(r);
+  assert.equal(calls.length, 2, `expected 2 deploys, got:\n${r.calls.map((c) => c.join(' ')).join('\n')}`);
+  assert.ok(calls[0]!.includes('--tag=qa-memoff') && calls[0]!.includes(`--image=${DIGEST}`));
+  assert.ok(!calls[1]!.some((word) => word.startsWith('--tag')) && calls[1]!.includes(`--image=${TEMPLATE_DIGEST}`));
+  for (const call of calls) assert.ok(call.includes('--no-traffic'));
+  assert.ok(!r.calls.some((args) => args.includes('update-traffic')), 'a real run moved traffic');
+  // The URL comes from describing the service after the deploy, not from a guess.
+  const last = r.calls[r.calls.length - 1]!;
+  assert.equal(last.slice(0, 3).join(' '), 'run services describe', 'the tag URL was not read back');
+  const lines = r.stdout.trim().split('\n');
+  assert.equal(lines[lines.length - 1], `tag URL: ${DEPLOYED_TAG_URL}`);
+});
+
+test('when the restore deploy fails, it is retried once and the run exits 4', () => {
+  const r = run(CREATE_REAL, {}, { failDeploys: [2] });
+  assert.equal(r.status, 4, `${r.status}\n${r.stderr}`);
+  const calls = deployCalls(r);
+  assert.equal(calls.length, 3, 'the restore was not retried');
+  assert.deepEqual(calls[2], calls[1], 'the retry is not the same restore');
+  assert.match(r.stderr, /restored/i);
+  assert.match(r.stderr, /qa-memoff/);
+});
+
+test('when the retry fails too, it prints a ready restore command and exits 3', () => {
+  const r = run(CREATE_REAL, {}, { failDeploys: [2, 3] });
+  assert.equal(r.status, 3, `${r.status}\n${r.stderr}`);
+  assert.equal(deployCalls(r).length, 3, 'more than one retry, or none');
+  const line = r.stderr.split('\n').find((entry) => entry.trim().startsWith('gcloud run deploy'));
+  assert.ok(line, `no ready command:\n${r.stderr}`);
+  const words = line!.trim().split(/ +/).map((word) => word.replace(/\\(.)/g, '$1'));
+  assert.deepEqual(words.slice(1), deployCalls(r)[1], 'the printed command is not the restore');
+});
+
+test('an interrupt after the first deploy still restores the template', () => {
+  // TERM arrives while the restore deploy runs; the trap restores once more.
+  const r = run(CREATE_REAL, {}, { termDeploys: [2] });
+  assert.equal(r.status, 4, `${r.status}\n${r.stderr}`);
+  const calls = deployCalls(r);
+  assert.equal(calls.length, 3, 'the interrupt did not trigger exactly one restore');
+  assert.ok(!calls[calls.length - 1]!.some((word) => word.startsWith('--tag')), 'the last deploy is not the restore');
+  assert.match(r.stderr, /restored/i);
+});
+
+test('a failed first deploy changes nothing else', () => {
+  const r = run(CREATE_REAL, {}, { failDeploys: [1] });
+  assert.notEqual(r.status, 0);
+  assert.equal(deployCalls(r).length, 1, 'a restore ran although the template was never changed');
 });
 
 test('production is refused before any gcloud call', () => {
@@ -240,8 +393,7 @@ test('production is refused before any gcloud call', () => {
     ['--service', 'maybesitter-api', '--remove', 'qa-old', '--dry-run'],
   ]) {
     const r = run(args);
-    assert.notEqual(r.status, 0, `${args.join(' ')} was not refused`);
-    assert.match(r.stderr, /refus/i);
+    refused(r, /refusing: maybesitter-api is not maybesitter-api-staging/, args.join(' '));
     assert.deepEqual(r.calls, [], `${args.join(' ')} called gcloud before refusing`);
   }
 });
@@ -256,50 +408,54 @@ test('the default database, another environment or another project is refused', 
     'MAYBESITTER_INTERNAL_AUDIENCE=https://example.com',
   ]) {
     const r = run(['--name', 'x', '--set', override, '--dry-run']);
-    assert.notEqual(r.status, 0, `${override} was not refused`);
-    assert.match(r.stderr, /refus/i);
+    refused(r, /refusing: [A-Z_]+ is fixed to staging's value/, override);
     assert.deepEqual(r.calls, [], `${override}: gcloud was called before refusing`);
   }
 });
 
-test('a serving revision on the default database or in production is refused', () => {
-  for (const revisionEnv of [
-    [{ name: 'MAYBESITTER_ENV', value: 'staging' }, { name: 'MAYBESITTER_FIRESTORE_DATABASE_ID', value: '(default)' }],
-    [{ name: 'MAYBESITTER_ENV', value: 'production' }, { name: 'MAYBESITTER_FIRESTORE_DATABASE_ID', value: 'staging' }],
-    [{ name: 'MAYBESITTER_ENV', value: 'staging' }],
-  ]) {
-    const r = run(CREATE, { revisionEnv });
-    assert.notEqual(r.status, 0, `${JSON.stringify(revisionEnv)} was not refused`);
+test('a serving revision or template off the staging database or environment is refused', () => {
+  const env = (db: string | null, name: string) => [
+    { name: 'MAYBESITTER_ENV', value: name },
+    ...(db === null ? [] : [{ name: 'MAYBESITTER_FIRESTORE_DATABASE_ID', value: db }]),
+  ];
+  for (const [fixture, pattern] of [
+    [{ revisionEnv: env('(default)', 'staging') }, /refusing: the serving revision .* staging database/],
+    [{ revisionEnv: env('staging', 'production') }, /refusing: the serving revision .* MAYBESITTER_ENV=staging/],
+    [{ revisionEnv: env(null, 'staging') }, /refusing: the serving revision .* staging database/],
+    [{ templateEnv: env('(default)', 'staging'), revisionEnv: env('staging', 'staging') }, /refusing: the service template .* staging database/],
+  ] as Array<[Fixture, RegExp]>) {
+    const r = run(CREATE, fixture);
+    refused(r, pattern, JSON.stringify(fixture));
     assert.deepEqual(deploys(r), [], 'a deploy was printed for a non-staging revision');
   }
 });
 
-test('an image without a digest, or a split of traffic, is refused', () => {
-  const noDigest = run(CREATE, { imageDigest: '' });
-  assert.notEqual(noDigest.status, 0);
-  assert.match(noDigest.stderr, /digest/);
-  assert.deepEqual(deploys(noDigest), []);
-
-  const split = run(CREATE, { traffic: [{ revisionName: SERVING, percent: 50 }, { revisionName: `${SERVICE}-00041-a`, percent: 50 }] });
-  assert.notEqual(split.status, 0);
-  assert.deepEqual(deploys(split), []);
+test('an image without a digest is refused', () => {
+  const r = run(CREATE, { imageDigest: '' });
+  refused(r, /no image digest/, 'no digest');
+  assert.deepEqual(deploys(r), []);
 });
 
 test('bad names and bad overrides are refused', () => {
-  for (const args of [
-    ['--set', 'MAYBESITTER_FEATURE_MEMORY=false', '--dry-run'],
-    ['--name', 'Bad_Name', '--dry-run'],
-    ['--name', 'x'.repeat(30), '--dry-run'],
-    ['--name', 'x', '--set', 'lowercase=1', '--dry-run'],
-    ['--name', 'x', '--set', 'MAYBESITTER_FEATURE_MEMORY', '--dry-run'],
-    ['--name', 'x', '--set', 'MAYBESITTER_FEATURE_MEMORY=a;MAYBESITTER_ENV=production', '--dry-run'],
-    ['--name', 'x', '--set', 'MAYBESITTER_FEATURE_MEMORY=a b', '--dry-run'],
-    ['--name', 'x', '--bogus', '--dry-run'],
-  ]) {
+  for (const [args, pattern] of [
+    [['--set', 'MAYBESITTER_FEATURE_MEMORY=false', '--dry-run'], /refusing: --set only goes with --name/],
+    [['--name', 'Bad_Name', '--dry-run'], /refusing: --name Bad_Name/],
+    [['--name', 'x'.repeat(30), '--dry-run'], /refusing: --name x+/],
+    [['--name', 'x', '--set', 'lowercase=1', '--dry-run'], /refusing: .*upper-case/],
+    [['--name', 'x', '--set', 'MAYBESITTER_FEATURE_MEMORY', '--dry-run'], /refusing: .*KEY=VALUE/],
+    [['--name', 'x', '--set', 'MAYBESITTER_FEATURE_MEMORY=a;MAYBESITTER_ENV=production', '--dry-run'], /refusing: .*';' or whitespace/],
+    [['--name', 'x', '--set', 'MAYBESITTER_FEATURE_MEMORY=a b', '--dry-run'], /refusing: .*';' or whitespace/],
+    [['--name', 'x', '--set', 'MAYBESITTER_FEATURE_MEMORY=a', '--set', 'MAYBESITTER_FEATURE_MEMORY=b', '--dry-run'], /refusing: .*twice/],
+    [['--name', 'x', '--bogus', '--dry-run'], /unknown argument: --bogus/],
+  ] as Array<[string[], RegExp]>) {
     const r = run(args);
-    assert.notEqual(r.status, 0, `${args.join(' ')} was not refused`);
+    refused(r, pattern, args.join(' '));
     assert.deepEqual(deploys(r), []);
   }
+});
+
+test('an existing tag is refused', () => {
+  refused(run(['--name', 'old', '--dry-run']), /refusing: qa-old already exists/, 'an existing tag');
 });
 
 test('--remove drops only the tag and never touches traffic', () => {
@@ -314,13 +470,13 @@ test('--remove drops only the tag and never touches traffic', () => {
 });
 
 test('--remove refuses a tag that is not a qa tag, does not exist or serves traffic', () => {
-  for (const [args, fixture] of [
-    [['--remove', 'sha-1234567', '--dry-run'], {}],
-    [['--remove', 'qa-missing', '--dry-run'], {}],
-    [['--remove', 'qa-live', '--dry-run'], { traffic: [{ revisionName: SERVING, percent: 100, tag: 'qa-live', url: 'https://qa-live---x.a.run.app' }] }],
-  ] as Array<[string[], Fixture]>) {
+  for (const [args, fixture, pattern] of [
+    [['--remove', 'sha-1234567', '--dry-run'], {}, /refusing: --remove sha-1234567: only qa-\*/],
+    [['--remove', 'qa-missing', '--dry-run'], {}, /refusing: .* has no tag qa-missing/],
+    [['--remove', 'qa-live', '--dry-run'], { traffic: [{ revisionName: SERVING, percent: 100, tag: 'qa-live', url: 'https://qa-live---x.a.run.app' }] }, /refusing: qa-live carries 100% of the traffic/],
+  ] as Array<[string[], Fixture, RegExp]>) {
     const r = run(args, fixture);
-    assert.notEqual(r.status, 0, `${args.join(' ')} was not refused`);
+    refused(r, pattern, args.join(' '));
     assert.deepEqual(r.printed, [], `${args.join(' ')} printed a command`);
   }
 });
