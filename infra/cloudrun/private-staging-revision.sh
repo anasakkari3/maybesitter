@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # A private staging revision for QA (Wave D, lane D3).
 #
-# Deploys the image staging serves right now, with the full staging settings
-# from flags.sh plus a few overrides, as a new revision of
+# Deploys the image staging serves right now, with the service template's
+# settings plus a few overrides, as a new revision of
 # maybesitter-api-staging behind a `qa-<name>` tag and with NO traffic. Only
 # requests sent to the tag URL reach it; the staging URL, its traffic and the
 # Cloud Scheduler jobs (which call the service URL, never a tag: see
@@ -17,9 +17,9 @@
 #
 #   --name      the tag becomes qa-<name>: lowercase letters, digits and
 #               hyphens, at most 20 characters.
-#   --set       one environment override, applied after the staging settings
-#               (it replaces the staging value, or is added if flags.sh does
-#               not set the key). Repeatable; a key may appear once.
+#   --set       one environment override, applied over the template's env
+#               (it replaces the template value, or is added if the template
+#               does not set the key). Repeatable; a key may appear once.
 #   --remove    drops the tag. Traffic is never touched; the revision stays,
 #               untagged and with no traffic.
 #   --list      the qa-* tags on the service.
@@ -30,14 +30,20 @@
 #
 # PROJECT_ID and REGION are read as flags.sh reads them (defaults
 # maybesitter-app, europe-west1). MAYBESITTER_FLAGS_* are passed through to
-# flags.sh for the isolated staging project.
+# flags.sh, which is only compared against the template (a warning per
+# difference); the template, not flags.sh, is what gets deployed and restored.
+#
+# Refused: traffic that follows the latest revision (a deploy would move it),
+# and pinned traffic that does not add up to 100 %.
 #
 # What creating one does to the service, besides the tagged revision: a
 # deploy rewrites the service template, so the next deploy (CI, or
 # infra/scheduler.sh's `services update`) would start from the overrides. The
 # script therefore deploys a second revision right after, again with
-# --no-traffic and no tag, carrying the plain staging settings and removing
-# any key the overrides added. The template is then what CI would produce.
+# --no-traffic and no tag, with the template's original image and env exactly,
+# removing any key the overrides added. If that restore fails, or the run is
+# interrupted after the first deploy, it is tried once more: exit 4 when it
+# then succeeds, exit 3 with the ready command when it does not.
 #
 # The private revision shares the staging Firestore database, Firebase Auth
 # users and secrets. It can only be pointed at the staging database.
@@ -106,10 +112,10 @@ done
 # ── Refusals that need no network ───────────────────────────────────────────
 [ "${SERVICE}" = "${STAGING_SERVICE}" ] \
   || refuse "${SERVICE} is not ${STAGING_SERVICE}; a private revision is for staging only, never production"
-[ -n "${action}" ] || usage
 if [ "${action}" != create ] && [ "${#override_keys[@]}" -gt 0 ]; then
   refuse "--set only goes with --name"
 fi
+[ -n "${action}" ] || usage
 case "${action}" in
   create)
     [[ "${name}" =~ ^[a-z0-9]([a-z0-9-]{0,18}[a-z0-9])?$ ]] \
@@ -167,36 +173,76 @@ if [ "${action}" = remove ]; then
 fi
 
 # ── create ──────────────────────────────────────────────────────────────────
-# Its own assignment, so a refusal from flags.sh stops here (set -e).
-FLAGS="$(bash "${SCRIPT_DIR}/flags.sh" staging)"
-read -ra FLAG_WORDS <<<"${FLAGS}"
+service_json="$(describe_service)"
 
-env_body=""
-other_words=()
-for word in "${FLAG_WORDS[@]}"; do
-  case "${word}" in
-    --update-env-vars=^\;^*) env_body="${word#--update-env-vars=^;^}" ;;
-    --set-env-vars* | --clear-env-vars* | --env-vars-file* | --remove-env-vars* | --update-env-vars*)
-      fail "flags.sh emitted ${word%%=*} in a form this script does not merge" ;;
-    # The service is already public; a QA revision must not touch its IAM policy.
-    --allow-unauthenticated) ;;
-    --tag* | --no-traffic | --image*) fail "flags.sh emitted ${word%%=*}, which this script sets itself" ;;
-    *) other_words+=("${word}") ;;
-  esac
-done
-[ -n "${env_body}" ] || fail "flags.sh staging emitted no --update-env-vars=^;^ list"
+# Traffic must be pinned to named revisions adding up to 100 %. Traffic that
+# follows the latest revision would move to whatever this script deploys.
+if jq -e '[(.spec.traffic // [])[], (.status.traffic // [])[] | select(.latestRevision == true)] | length > 0' \
+  <<<"${service_json}" >/dev/null; then
+  refuse "${SERVICE}'s traffic follows the latest revision, so a deploy would move it. Pin it first: gcloud run services update-traffic ${SERVICE} --region=${REGION} --project=${PROJECT_ID} --to-revisions=<serving revision>=100"
+fi
+pinned_sum="$(jq '[.status.traffic[]? | select(.revisionName != null) | (.percent // 0)] | add // 0' <<<"${service_json}")"
+[ "${pinned_sum}" = 100 ] || refuse "${SERVICE}'s pinned traffic adds up to ${pinned_sum}%, not 100%"
+serving="$(jq -r '[.status.traffic[]? | select((.percent // 0) == 100) | .revisionName // empty] | first // empty' <<<"${service_json}")"
+[ -n "${serving}" ] || refuse "no single revision of ${SERVICE} holds 100% of the traffic (a rollout in progress?)"
+service_url="$(jq -r '.status.url // empty' <<<"${service_json}")"
+[ -n "${service_url}" ] || fail "${SERVICE} has no URL"
+if jq -e --arg tag "${TAG}" '[.status.traffic[]? | select(.tag == $tag)] | length > 0' <<<"${service_json}" >/dev/null; then
+  refuse "${TAG} already exists on ${SERVICE}; remove it first (--remove ${TAG}) or pick another name"
+fi
 
-# The staging settings, in order.
-IFS=';' read -ra BASE_PAIRS <<<"${env_body}"
+# The original template: its image and its plain env values, in order.
+# Secret-backed variables (valueFrom) are not env values and are left alone.
+template_image="$(jq -r '.spec.template.spec.containers[0].image // empty' <<<"${service_json}")"
+[ -n "${template_image}" ] || fail "${SERVICE}'s template has no image"
+bad_value="$(jq -r '[.spec.template.spec.containers[0].env[]? | select(.valueFrom == null)
+  | select((.value // "") | test("[;\\s]")) | .name] | first // empty' <<<"${service_json}")"
+[ -z "${bad_value}" ] || refuse "the template value of ${bad_value} contains ';' or whitespace, which the env list cannot carry"
 base_keys=()
 base_values=()
-for pair in "${BASE_PAIRS[@]}"; do
+while IFS= read -r pair; do
+  [ -n "${pair}" ] || continue
   base_keys+=("${pair%%=*}")
   base_values+=("${pair#*=}")
+done < <(jq -r '.spec.template.spec.containers[0].env[]? | select(.valueFrom == null) | "\(.name)=\(.value // "")"' <<<"${service_json}")
+[ "${#base_keys[@]}" -gt 0 ] || fail "${SERVICE}'s template has no env values"
+
+base_value_of() {
+  local k=0
+  while [ "${k}" -lt "${#base_keys[@]}" ]; do
+    if [ "${base_keys[$k]}" = "$1" ]; then printf '%s' "${base_values[$k]}"; return 0; fi
+    k=$((k + 1))
+  done
+  return 1
+}
+[ "$(base_value_of MAYBESITTER_ENV || true)" = staging ] \
+  || refuse "the service template is not MAYBESITTER_ENV=staging"
+[ "$(base_value_of MAYBESITTER_FIRESTORE_DATABASE_ID || true)" = staging ] \
+  || refuse "the service template is not on the staging database"
+
+# The template is used as it is. flags.sh staging is what CI would deploy; if
+# the two disagree, say so (the restore still puts back the template, not flags.sh).
+FLAGS="$(bash "${SCRIPT_DIR}/flags.sh" staging)"
+read -ra FLAG_WORDS <<<"${FLAGS}"
+for word in "${FLAG_WORDS[@]}"; do
+  case "${word}" in
+    --update-env-vars=^\;^*)
+      IFS=';' read -ra FLAG_PAIRS <<<"${word#--update-env-vars=^;^}"
+      for pair in "${FLAG_PAIRS[@]}"; do
+        key="${pair%%=*}"
+        want="${pair#*=}"
+        if ! have="$(base_value_of "${key}")"; then
+          echo "warning: the service template differs from flags.sh staging: ${key} is missing (flags.sh=${want})" >&2
+        elif [ "${have}" != "${want}" ]; then
+          echo "warning: the service template differs from flags.sh staging: ${key}=${have} (flags.sh=${want})" >&2
+        fi
+      done
+      ;;
+  esac
 done
 
-# The overrides, after them: a key flags.sh sets keeps its place and takes the
-# new value; any other key is added at the end.
+# The QA settings: the template's, then the overrides. A key the template has
+# keeps its place and takes the new value; any other key is added at the end.
 final_keys=("${base_keys[@]}")
 final_values=("${base_values[@]}")
 added_keys=()
@@ -222,11 +268,10 @@ done
 
 env_word() {
   # $1: name of the keys array, $2: name of the values array.
-  local out="" k n
+  local out="" k n key value
   eval "n=\${#$1[@]}"
   k=0
   while [ "${k}" -lt "${n}" ]; do
-    local key value
     eval "key=\${$1[$k]}; value=\${$2[$k]}"
     out="${out}${out:+;}${key}=${value}"
     k=$((k + 1))
@@ -234,31 +279,7 @@ env_word() {
   printf '%s' "--update-env-vars=^;^${out}"
 }
 
-value_of() {
-  # $1: key; reads final_keys/final_values.
-  local k=0
-  while [ "${k}" -lt "${#final_keys[@]}" ]; do
-    if [ "${final_keys[$k]}" = "$1" ]; then printf '%s' "${final_values[$k]}"; return 0; fi
-    k=$((k + 1))
-  done
-  return 1
-}
-
-# Belt and braces: the keys are refused above, and flags.sh staging sets them.
-[ "$(value_of MAYBESITTER_ENV || true)" = staging ] || refuse "the settings are not MAYBESITTER_ENV=staging"
-[ "$(value_of MAYBESITTER_FIRESTORE_DATABASE_ID || true)" = staging ] \
-  || refuse "the settings do not point at the staging database"
-
 # The image staging serves: the revision holding 100 % of the traffic, by digest.
-service_json="$(describe_service)"
-serving="$(jq -r '[.status.traffic[]? | select((.percent // 0) == 100) | .revisionName // empty] | first // empty' <<<"${service_json}")"
-[ -n "${serving}" ] || refuse "no single revision of ${SERVICE} holds 100% of the traffic (a rollout in progress?)"
-service_url="$(jq -r '.status.url // empty' <<<"${service_json}")"
-[ -n "${service_url}" ] || fail "${SERVICE} has no URL"
-if jq -e --arg tag "${TAG}" '[.status.traffic[]? | select(.tag == $tag)] | length > 0' <<<"${service_json}" >/dev/null; then
-  refuse "${TAG} already exists on ${SERVICE}; remove it first (--remove ${TAG}) or pick another name"
-fi
-
 revision_json="$(gcloud run revisions describe "${serving}" --region="${REGION}" --project="${PROJECT_ID}" --format=json)"
 digest="$(jq -r '.status.imageDigest // empty' <<<"${revision_json}")"
 if [ -z "${digest}" ]; then
@@ -275,9 +296,6 @@ live_env() {
 [ "$(live_env MAYBESITTER_FIRESTORE_DATABASE_ID)" = staging ] \
   || refuse "the serving revision ${serving} is not on the staging database"
 
-private_env="$(env_word final_keys final_values)"
-base_env="$(env_word base_keys base_values)"
-
 echo "service:   ${SERVICE} (${PROJECT_ID}, ${REGION})"
 echo "serving:   ${serving}"
 echo "image:     ${digest}"
@@ -288,29 +306,50 @@ while [ "${i}" -lt "${#override_keys[@]}" ]; do
   i=$((i + 1))
 done
 
-# 1. The private revision.
-run gcloud run deploy "${SERVICE}" \
-  --image="${digest}" \
-  --project="${PROJECT_ID}" \
-  --no-traffic \
-  --tag="${TAG}" \
-  ${other_words[@]+"${other_words[@]}"} \
-  "${private_env}"
+# Only the image, the tag and the env change; every other setting (identity,
+# resources, secrets, probes) stays as the template has it.
+private_cmd=(gcloud run deploy "${SERVICE}"
+  --image="${digest}" --region="${REGION}" --project="${PROJECT_ID}"
+  --no-traffic --tag="${TAG}"
+  "$(env_word final_keys final_values)")
 
-# 2. The template back to plain staging, so no override reaches the next
-#    deploy. No tag, no traffic.
-reset_words=()
+# The restore: the template's own image and env, exactly; keys the overrides
+# added are removed. No tag, no traffic.
+restore_cmd=(gcloud run deploy "${SERVICE}"
+  --image="${template_image}" --region="${REGION}" --project="${PROJECT_ID}"
+  --no-traffic
+  "$(env_word base_keys base_values)")
 if [ "${#added_keys[@]}" -gt 0 ]; then
-  added_csv="$(IFS=,; printf '%s' "${added_keys[*]}")"
-  reset_words+=("--remove-env-vars=${added_csv}")
+  restore_cmd+=("--remove-env-vars=$(IFS=,; printf '%s' "${added_keys[*]}")")
 fi
-run gcloud run deploy "${SERVICE}" \
-  --image="${digest}" \
-  --project="${PROJECT_ID}" \
-  --no-traffic \
-  ${other_words[@]+"${other_words[@]}"} \
-  "${base_env}" \
-  ${reset_words[@]+"${reset_words[@]}"}
+
+# Called when the restore failed or the run was interrupted after the private
+# deploy changed the template: one more restore, then a clear exit.
+#   exit 4: the template was restored; the private revision may exist.
+#   exit 3: the template still carries the overrides; the command is printed.
+on_abort() {
+  trap - ERR INT TERM
+  echo "private-staging-revision: interrupted or failed after deploying ${TAG}; restoring the service template once more" >&2
+  if run "${restore_cmd[@]}"; then
+    echo "private-staging-revision: template restored. ${TAG} may exist; check with --list, remove with --remove ${TAG}" >&2
+    exit 4
+  fi
+  echo "private-staging-revision: the restore failed. The service template still carries the QA overrides; run this before any other deploy:" >&2
+  printf '  ' >&2
+  printf '%q ' "${restore_cmd[@]}" >&2
+  printf '\n' >&2
+  exit 3
+}
+
+# 1. The private revision. If it fails, the template was not changed.
+run "${private_cmd[@]}"
+
+# 2. The restore, guarded: from here on any failure or interrupt restores.
+trap on_abort ERR INT TERM
+if ! run "${restore_cmd[@]}"; then
+  on_abort
+fi
+trap - ERR INT TERM
 
 if [ "${dry_run}" = 1 ]; then
   echo "tag URL (once deployed): https://${TAG}---${service_url#https://}"

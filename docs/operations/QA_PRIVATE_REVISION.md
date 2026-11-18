@@ -5,7 +5,7 @@ Script: `infra/cloudrun/private-staging-revision.sh` (tests: `tests/infra/privat
 Some QA rows can only be seen when the server runs with different settings: MEMORY off, GOAL_PLAN on, `MAYBESITTER_ADDON_GATE_MODE=enforce`, or the email sources off. Staging is shared, so its flags must not change. A **private revision** solves this. It is a new revision of `maybesitter-api-staging` with:
 
 - the **image staging serves now**, taken by digest from the revision that holds 100 % of the traffic;
-- the **full staging settings** from `infra/cloudrun/flags.sh staging`, then your overrides;
+- the **service template's current settings** (read with `gcloud run services describe`), then your overrides. Only the env changes; identity, resources, secrets and probes stay as the template has them;
 - a `qa-<name>` tag and **`--no-traffic`**. Only requests sent to the tag URL reach it.
 
 Running it for real deploys to Cloud Run, so it needs the owner's go, like any staging deploy. `--dry-run` and `--list` only read.
@@ -35,11 +35,21 @@ Point the API or the app at the tag URL. For curl, use `https://qa-<name>---…a
 - Overriding `MAYBESITTER_ENV`, `MAYBESITTER_FIRESTORE_DATABASE_ID`, `MAYBESITTER_STORAGE_BACKEND`, the project ids, the KMS key, the scheduler audience or account, the deployer account, or the deletion pepper.
 - A serving revision that is not `MAYBESITTER_ENV=staging` on the `staging` database.
 - An image with no digest.
-- A traffic split, while no single revision holds 100 %.
+- Traffic that follows the latest revision (`latestRevision: true`), because a deploy would move it. Pin it first with `update-traffic --to-revisions=<revision>=100`.
+- Pinned traffic that does not add up to 100 %, or a split where no single revision holds 100 %.
+- A template env value containing `;` or whitespace, which the `^;^` env list cannot carry.
 - A tag that already exists.
 - `--remove` on anything but an existing `qa-*` tag with 0 % traffic.
 
-**What it changes besides the tag.** A deploy rewrites the service template, and the next CI deploy or `infra/scheduler.sh` run starts from the template. So right after the private revision, the script deploys a second revision with `--no-traffic` and no tag. That revision carries the plain staging settings, and `--remove-env-vars` drops any key that your overrides added (for example `MAYBESITTER_FEATURE_GOAL_PLAN`, which flags.sh does not set). After that, the template is again what CI would produce. `--allow-unauthenticated` is left out, so the IAM policy is not touched.
+**What it changes besides the tag.** A deploy rewrites the service template, and the next CI deploy or `infra/scheduler.sh` run starts from the template. So right after the private revision, the script deploys a second revision with `--no-traffic` and no tag. This **restore** carries the template's original image and env exactly as they were read before the first deploy. `--remove-env-vars` drops any key that your overrides added (for example `MAYBESITTER_FEATURE_GOAL_PLAN`). Secret-backed variables are never copied or changed. `--allow-unauthenticated` is never passed, so the IAM policy is not touched. Every gcloud command carries an explicit `--region`.
+
+**The template, not flags.sh.** The QA revision and the restore both start from the live template, not from `flags.sh staging`. If the two differ (say, a deploy is pending, or someone set a value by hand), the script prints one `warning:` line per difference and still uses the template. Read those warnings: they mean the next CI deploy will change staging anyway.
+
+**If something fails between the two deploys.** After the first deploy succeeds, an `ERR`, `INT` or `TERM` trap is armed. If the restore fails, or the run is interrupted, the restore is tried once more:
+- **exit 4:** the template is restored. The `qa-` tag may exist; check with `--list`.
+- **exit 3:** the restore failed again. The template still carries the QA overrides, and the ready restore command is printed on stderr. Run it before any other deploy.
+
+If the first deploy itself fails, the template was not changed and the script stops.
 
 ### What the private revision shares with staging (read before testing)
 
