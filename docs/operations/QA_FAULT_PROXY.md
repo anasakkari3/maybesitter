@@ -39,6 +39,10 @@ node scripts/qa/faultProxy.mjs \
   --port 8787 --control-port 8788          # defaults; add --log-bodies to record bodies now
 ```
 
+On a shared machine, 8787 may already be in use. If the proxy exits with
+`EADDRINUSE`, pick free ports and pass the same `--control-port` to
+`faultProxyCtl.mjs`. Check a port first with `lsof -nP -iTCP:<port> -sTCP:LISTEN`.
+
 Stop it with Ctrl-C. To confirm nothing is left listening:
 `lsof -nP -iTCP:8787 -iTCP:8788 -sTCP:LISTEN` should print nothing.
 
