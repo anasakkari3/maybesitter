@@ -41,9 +41,11 @@
 # infra/scheduler.sh's `services update`) would start from the overrides. The
 # script therefore deploys a second revision right after, again with
 # --no-traffic and no tag, with the template's original image and env exactly,
-# removing any key the overrides added. If that restore fails, or the run is
-# interrupted after the first deploy, it is tried once more: exit 4 when it
-# then succeeds, exit 3 with the ready command when it does not.
+# removing any key the overrides added. If either deploy fails (a failed
+# deploy can still have written the template), or the run is interrupted from
+# the first deploy on, the restore is run once: exit 4 when it succeeds, exit 3
+# with the ready command when it does not. Overrides of secret-backed keys and
+# a template image without a digest are refused.
 #
 # The private revision shares the staging Firestore database, Firebase Auth
 # users and secrets. It can only be pointed at the staging database.
@@ -195,6 +197,10 @@ fi
 # Secret-backed variables (valueFrom) are not env values and are left alone.
 template_image="$(jq -r '.spec.template.spec.containers[0].image // empty' <<<"${service_json}")"
 [ -n "${template_image}" ] || fail "${SERVICE}'s template has no image"
+# The restore redeploys this image; a tag could have moved since, so only a
+# digest restores the template exactly.
+[[ "${template_image}" =~ ^[^@[:space:]]+@sha256:[0-9a-f]{64}$ ]] \
+  || refuse "the service template's image ${template_image} is not pinned by digest, so the restore could not put it back exactly"
 bad_value="$(jq -r '[.spec.template.spec.containers[0].env[]? | select(.valueFrom == null)
   | select((.value // "") | test("[;\\s]")) | .name] | first // empty' <<<"${service_json}")"
 [ -z "${bad_value}" ] || refuse "the template value of ${bad_value} contains ';' or whitespace, which the env list cannot carry"
@@ -239,6 +245,15 @@ for word in "${FLAG_WORDS[@]}"; do
       done
       ;;
   esac
+done
+
+# A secret stays a secret: an override would turn it into a plain env value
+# on the QA revision, and the restore could not put the secret mapping back.
+for key in ${override_keys[@]+"${override_keys[@]}"}; do
+  if jq -e --arg name "${key}" '[.spec.template.spec.containers[0].env[]? | select(.name == $name and .valueFrom != null)] | length > 0' \
+    <<<"${service_json}" >/dev/null; then
+    refuse "${key} is a secret (valueFrom) on the service template and cannot be overridden"
+  fi
 done
 
 # The QA settings: the template's, then the overrides. A key the template has
@@ -323,13 +338,15 @@ if [ "${#added_keys[@]}" -gt 0 ]; then
   restore_cmd+=("--remove-env-vars=$(IFS=,; printf '%s' "${added_keys[*]}")")
 fi
 
-# Called when the restore failed or the run was interrupted after the private
-# deploy changed the template: one more restore, then a clear exit.
+# Called when a deploy failed or the run was interrupted once the private
+# deploy had started. Cloud Run can write the template even when the deploy
+# then fails (a value that breaks the startup probe), so the template is
+# restored once, then the run exits clearly.
 #   exit 4: the template was restored; the private revision may exist.
 #   exit 3: the template still carries the overrides; the command is printed.
 on_abort() {
   trap - ERR INT TERM
-  echo "private-staging-revision: interrupted or failed after deploying ${TAG}; restoring the service template once more" >&2
+  echo "private-staging-revision: a deploy of ${TAG} failed or was interrupted; restoring the service template" >&2
   if run "${restore_cmd[@]}"; then
     echo "private-staging-revision: template restored. ${TAG} may exist; check with --list, remove with --remove ${TAG}" >&2
     exit 4
@@ -341,11 +358,15 @@ on_abort() {
   exit 3
 }
 
-# 1. The private revision. If it fails, the template was not changed.
-run "${private_cmd[@]}"
-
-# 2. The restore, guarded: from here on any failure or interrupt restores.
+# From the first deploy on, any failure or interrupt restores the template.
 trap on_abort ERR INT TERM
+
+# 1. The private revision. A failed deploy may still have changed the template.
+if ! run "${private_cmd[@]}"; then
+  on_abort
+fi
+
+# 2. The restore.
 if ! run "${restore_cmd[@]}"; then
   on_abort
 fi

@@ -37,7 +37,9 @@ Point the API or the app at the tag URL. For curl, use `https://qa-<name>---…a
 - An image with no digest.
 - Traffic that follows the latest revision (`latestRevision: true`), because a deploy would move it. Pin it first with `update-traffic --to-revisions=<revision>=100`.
 - Pinned traffic that does not add up to 100 %, or a split where no single revision holds 100 %.
-- A template env value containing `;` or whitespace, which the `^;^` env list cannot carry.
+- A template env value containing `;` or whitespace, which the `^;^` env list cannot carry. Commas, `=` and `^` are fine.
+- A `--set` for a key that is a secret (`valueFrom`) on the template.
+- A template image that is not pinned by digest, since the restore could not put it back exactly.
 - A tag that already exists.
 - `--remove` on anything but an existing `qa-*` tag with 0 % traffic.
 
@@ -45,11 +47,10 @@ Point the API or the app at the tag URL. For curl, use `https://qa-<name>---…a
 
 **The template, not flags.sh.** The QA revision and the restore both start from the live template, not from `flags.sh staging`. If the two differ (say, a deploy is pending, or someone set a value by hand), the script prints one `warning:` line per difference and still uses the template. Read those warnings: they mean the next CI deploy will change staging anyway.
 
-**If something fails between the two deploys.** After the first deploy succeeds, an `ERR`, `INT` or `TERM` trap is armed. If the restore fails, or the run is interrupted, the restore is tried once more:
+**If something fails.** The `ERR`, `INT` and `TERM` trap is armed before the first deploy, because Cloud Run can write the template even when that deploy then fails (for example, an override that breaks the startup probe). If either deploy fails, or the run is interrupted, the restore is run once:
 - **exit 4:** the template is restored. The `qa-` tag may exist; check with `--list`.
 - **exit 3:** the restore failed again. The template still carries the QA overrides, and the ready restore command is printed on stderr. Run it before any other deploy.
 
-If the first deploy itself fails, the template was not changed and the script stops.
 
 ### What the private revision shares with staging (read before testing)
 
