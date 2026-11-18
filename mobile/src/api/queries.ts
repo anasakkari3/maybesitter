@@ -412,9 +412,24 @@ export function useUnhandled() {
   const uid = useUid();
   return useQuery({
     queryKey: queryKeys.unhandled(uid),
-    queryFn: () => listUnhandled(),
+    // The phone's own "now", as Today sends it, so an appointment that ended
+    // a minute ago is in the place on the same clock that took it off Today.
+    queryFn: () => listUnhandled({ referenceTime: new Date().toISOString() }),
     enabled: uid !== 'signed-out',
+    // Time alone moves items in: back in the foreground, ask again.
+    refetchOnWindowFocus: 'always',
   });
+}
+
+/**
+ * Refetches the place. The screen calls it after every answer, whatever the
+ * outcome: an item answered or deleted on another device must not stay stuck
+ * in the list behind an error.
+ */
+export function useRefreshUnhandled(): () => void {
+  const client = useQueryClient();
+  const uid = useUid();
+  return () => { void client.invalidateQueries({ queryKey: queryKeys.unhandled(uid) }); };
 }
 
 /**

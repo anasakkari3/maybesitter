@@ -13,9 +13,9 @@
  */
 import React from 'react';
 import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import { SafeAreaProvider, type Metrics } from 'react-native-safe-area-context';
-import { QueryClient, QueryClientProvider, onlineManager } from '@tanstack/react-query';
+import { QueryClient, QueryClientProvider, focusManager, onlineManager } from '@tanstack/react-query';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Text } from 'react-native';
 import { AppProvider, useApp } from '../../../state/AppContext';
@@ -156,9 +156,16 @@ describe('the «ما اتصرّفت فيها» screen', () => {
     );
     await show(<UnhandledScreen onBack={() => {}} />);
     await waitFor(() => expect(screen.queryByTestId(`unhandled-dont-ask-${MEETING_ID}`)).not.toBeNull());
-    await fireEvent.press(screen.getByTestId(`unhandled-dont-ask-${MEETING_ID}`));
-    await fireEvent.press(screen.getByTestId(`unhandled-dont-ask-${MEETING_ID}`));
-    await fireEvent.press(screen.getByTestId(`unhandled-done-${MEETING_ID}`));
+    // Three taps inside one frame: nothing re-renders between them, so the
+    // buttons are still enabled for all three and only the synchronous guard
+    // can hold the second and the third.
+    const dontAsk = screen.getByTestId(`unhandled-dont-ask-${MEETING_ID}`);
+    const done = screen.getByTestId(`unhandled-done-${MEETING_ID}`);
+    await act(async () => {
+      void fireEvent.press(dontAsk);
+      void fireEvent.press(dontAsk);
+      void fireEvent.press(done);
+    });
     release();
     await waitFor(() => expect(text('probe-toast')).toBe(en.toastUnhandledDismissed));
     expect(commitmentEndpoints.dismissUnhandled).toHaveBeenCalledTimes(1);
@@ -184,7 +191,7 @@ describe('the «ما اتصرّفت فيها» screen', () => {
     expect(screen.getByTestId(`unhandled-${MEETING_ID}`)).toBeTruthy();
   });
 
-  it('every answer is a 44-point target with its words as its label', async () => {
+  it('every answer is a 44-point target whose label names the item it answers', async () => {
     await show(<UnhandledScreen onBack={() => {}} />);
     await waitFor(() => expect(screen.queryByTestId(`unhandled-done-${MEETING_ID}`)).not.toBeNull());
     const labels: Record<string, string> = {
@@ -192,11 +199,58 @@ describe('the «ما اتصرّفت فيها» screen', () => {
     };
     for (const [key, label] of Object.entries(labels)) {
       const button = screen.getByTestId(`unhandled-${key}-${MEETING_ID}`);
-      expect(button.props.accessibilityLabel).toBe(label);
+      // A screen reader moving from button to button hears which item each one answers.
+      expect(button.props.accessibilityLabel).toBe(`${label}: ${MEETING.commitment.title}`);
       expect(button.props.accessibilityRole).toBe('button');
       const style = [button.props.style].flat(Infinity).reduce((all: Record<string, unknown>, part) => ({ ...all, ...(part as object) }), {});
       expect(style.minHeight).toBeGreaterThanOrEqual(44);
     }
+  });
+
+  it('a failed done refreshes the list, so an item gone on another device does not stay stuck', async () => {
+    (commitmentEndpoints.actOnCommitment as jest.Mock).mockRejectedValue(new Error('gone') as never);
+    await show(<UnhandledScreen onBack={() => {}} />);
+    await waitFor(() => expect(screen.queryByTestId(`unhandled-done-${MEETING_ID}`)).not.toBeNull());
+    const before = (commitmentEndpoints.listUnhandled as jest.Mock).mock.calls.length;
+    await fireEvent.press(screen.getByTestId(`unhandled-done-${MEETING_ID}`));
+    await waitFor(() => expect((commitmentEndpoints.listUnhandled as jest.Mock).mock.calls.length).toBeGreaterThan(before));
+  });
+
+  it('a failed «أسقطه بوعي» refreshes the list too', async () => {
+    (commitmentEndpoints.actOnCommitment as jest.Mock).mockRejectedValue(new Error('gone') as never);
+    await show(<UnhandledScreen onBack={() => {}} />);
+    await waitFor(() => expect(screen.queryByTestId(`unhandled-drop-${MEETING_ID}`)).not.toBeNull());
+    const before = (commitmentEndpoints.listUnhandled as jest.Mock).mock.calls.length;
+    await fireEvent.press(screen.getByTestId(`unhandled-drop-${MEETING_ID}`));
+    await waitFor(() => expect((commitmentEndpoints.listUnhandled as jest.Mock).mock.calls.length).toBeGreaterThan(before));
+  });
+
+  it('a 409 that is not shown as an error still refreshes the list', async () => {
+    (commitmentEndpoints.actOnCommitment as jest.Mock).mockRejectedValue(new ConflictError('not_unhandled') as never);
+    await show(<UnhandledScreen onBack={() => {}} />);
+    await waitFor(() => expect(screen.queryByTestId(`unhandled-done-${MEETING_ID}`)).not.toBeNull());
+    const before = (commitmentEndpoints.listUnhandled as jest.Mock).mock.calls.length;
+    await fireEvent.press(screen.getByTestId(`unhandled-done-${MEETING_ID}`));
+    await waitFor(() => expect((commitmentEndpoints.listUnhandled as jest.Mock).mock.calls.length).toBeGreaterThan(before));
+    expect(screen.queryByTestId(`unhandled-failed-${MEETING_ID}`)).toBeNull();
+  });
+
+  it('asks with the phone\u2019s own clock, so the list and Today answer the same question', async () => {
+    await show(<UnhandledScreen onBack={() => {}} />);
+    await waitFor(() => expect(commitmentEndpoints.listUnhandled).toHaveBeenCalled());
+    const [input] = (commitmentEndpoints.listUnhandled as jest.Mock).mock.calls[0] as [{ referenceTime?: string }];
+    expect(typeof input?.referenceTime).toBe('string');
+    expect(Number.isFinite(Date.parse(input.referenceTime as string))).toBe(true);
+  });
+
+  it('refreshes when the app comes back to the foreground', async () => {
+    await show(<UnhandledScreen onBack={() => {}} />);
+    await waitFor(() => expect(screen.queryByTestId(`unhandled-${MEETING_ID}`)).not.toBeNull());
+    const before = (commitmentEndpoints.listUnhandled as jest.Mock).mock.calls.length;
+    focusManager.setFocused(false);
+    focusManager.setFocused(true);
+    await waitFor(() => expect((commitmentEndpoints.listUnhandled as jest.Mock).mock.calls.length).toBeGreaterThan(before));
+    focusManager.setFocused(undefined);
   });
 
   it('an empty place says so calmly', async () => {

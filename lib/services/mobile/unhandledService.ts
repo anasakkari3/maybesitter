@@ -156,11 +156,13 @@ export async function dismissUnhandled(
 ): Promise<{ replayed: boolean }> {
   requireUserId(uid);
   const now = options.now ?? new Date();
+  // A match is never listed, so it is never dismissed either (review, item 6).
+  const matches = await fixtureCommitmentIds(uid);
   return getStorage().runTransaction(async (tx) => {
     assertLiveAccount(await tx.get(userDoc(uid)));
     const stored = await tx.get<Commitment>(commitmentDocPath(uid, commitmentId));
     if (!stored || stored.id !== commitmentId || stored.status === 'archived') throw new Error('Commitment not found');
-    const anchor = unhandledAnchor(normalizeStoredCommitment(stored), now);
+    const anchor = matches.has(commitmentId) ? null : unhandledAnchor(normalizeStoredCommitment(stored), now);
     if (!anchor) throw new NotUnhandledError();
     const path = markPath(uid, commitmentId);
     const mark = (await tx.get<UnhandledMark>(path)) ?? emptyMark(commitmentId);

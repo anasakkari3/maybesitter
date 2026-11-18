@@ -34,6 +34,8 @@ import {
 } from '../../lib/services/mobile/unhandledService.ts';
 import { AccountUnavailableError } from '../../lib/account/accountLiveness.ts';
 import { refDocPath } from '../../lib/football/externalTaskRefStore.ts';
+import { deleteAccount } from '../../lib/account/accountDeletion.ts';
+import { buildAccountExport } from '../../lib/account/accountExport.ts';
 import { installFakeAuth, tokenFor, uidFor, type FakeAuthControls } from '../support/fakeAuth.ts';
 import { seedLiveAccount } from '../support/liveAccount.ts';
 import { GET as unhandledGet, POST as unhandledPost } from '../../src/app/api/mobile/commitments/unhandled/route.ts';
@@ -283,6 +285,45 @@ test('E2 dismiss: refused under an account being deleted (#772)', async () => {
     await assert.rejects(dismissUnhandled(UID, 'deadline', { now: NOW }), AccountUnavailableError);
     await assert.rejects(recordUnhandledAsked(UID, ['deadline'], { now: NOW }), AccountUnavailableError);
     assert.deepEqual(await getStorage().list(userCol(UID, UNHANDLED_MARKS)), []);
+  });
+});
+
+test('E2 dismiss: a football match is never in the place, so it cannot be dismissed from it either', async () => {
+  await withSeeded(async () => {
+    await assert.rejects(dismissUnhandled(UID, 'match', { now: NOW }), NotUnhandledError);
+    assert.deepEqual(await getStorage().list(userCol(UID, UNHANDLED_MARKS)), []);
+  });
+});
+
+/* ── The marks belong to the account ─────────────────────────────── */
+
+test('E2 marks: an export carries them, and account deletion removes them', async () => {
+  await withSeeded(async () => {
+    await recordUnhandledAsked(UID, ['lecture'], { now: NOW });
+    await dismissUnhandled(UID, 'deadline', { now: NOW });
+    await seedAccount(OTHER, [commitment('theirs', { kind: 'due_by', dueAt: '2026-11-11T16:00:00.000Z' })]);
+    await recordUnhandledAsked(OTHER, ['theirs'], { now: NOW });
+
+    const exported = await buildAccountExport(UID);
+    const marks = exported.collections[UNHANDLED_MARKS].map((doc) => doc.data.commitmentId).sort();
+    assert.deepEqual(marks, ['deadline', 'lecture']);
+
+    const previous = process.env.MAYBESITTER_DELETION_RECEIPT_PEPPER;
+    process.env.MAYBESITTER_DELETION_RECEIPT_PEPPER = 'test-pepper-not-the-real-one';
+    try {
+      await deleteAccount(UID, {
+        initiatedBy: 'user',
+        storage: getStorage(),
+        auth: { async revokeRefreshTokens() {}, async deleteUser() {} },
+        hooks: [],
+      });
+    } finally {
+      if (previous === undefined) delete process.env.MAYBESITTER_DELETION_RECEIPT_PEPPER;
+      else process.env.MAYBESITTER_DELETION_RECEIPT_PEPPER = previous;
+    }
+    assert.deepEqual(await getStorage().list(userCol(UID, UNHANDLED_MARKS)), []);
+    // Another account's answers are not touched.
+    assert.equal((await getStorage().list(userCol(OTHER, UNHANDLED_MARKS))).length, 1);
   });
 });
 

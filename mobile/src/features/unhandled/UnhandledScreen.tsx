@@ -9,7 +9,7 @@ import { Btn, Card, Txt } from '../../ui/primitives';
 import { Screen, ScreenScroll } from '../../ui/screen';
 import { HubRow } from '../../ui/hub';
 import { QueryBoundary } from '../../api/ui/QueryBoundary';
-import { useCommitmentAction, useDismissUnhandled, useUnhandled } from '../../api/queries';
+import { useCommitmentAction, useDismissUnhandled, useRefreshUnhandled, useUnhandled } from '../../api/queries';
 import { ConflictError } from '../../api/errors';
 import { markErrorShown } from '../../api/ui/userFacingMessage';
 import type { UnhandledItem } from '../../api/schemas/commitments';
@@ -91,6 +91,7 @@ function UnhandledCard({ item, onNewDate }: { item: UnhandledItem; onNewDate: ()
   const timeZone = useTimeZone();
   const act = useCommitmentAction();
   const dismiss = useDismissUnhandled();
+  const refresh = useRefreshUnhandled();
   const [failed, setFailed] = useState(false);
   const id = item.commitment.id;
   // Held synchronously: two taps inside one frame both see `isPending` false,
@@ -107,7 +108,11 @@ function UnhandledCard({ item, onNewDate }: { item: UnhandledItem; onNewDate: ()
       if (error instanceof ConflictError) return;
       markErrorShown(error);
       setFailed(true);
-    }).finally(() => { inFlight.current = false; });
+    }).finally(() => {
+      inFlight.current = false;
+      // Every outcome, the silent 409 included: what is in the place is the server's answer.
+      refresh();
+    });
   };
 
   return (
@@ -117,12 +122,12 @@ function UnhandledCard({ item, onNewDate }: { item: UnhandledItem; onNewDate: ()
         <Txt size={13} color={p.mu} testID={`unhandled-reason-${id}`}>{unhandledReasonLine(item, t, lang, timeZone)}</Txt>
         {failed ? <Txt size={13} color={p.wm} testID={`unhandled-failed-${id}`}>{t.errorsGeneric}</Txt> : null}
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-          <UnhandledAction testID={`unhandled-done-${id}`} label={t.done} disabled={busy}
+          <UnhandledAction testID={`unhandled-done-${id}`} item={item.commitment.title} label={t.done} disabled={busy}
             onPress={() => run(() => act.mutateAsync({ id, action: 'complete' }), t.toastDone)} />
-          <UnhandledAction testID={`unhandled-new-date-${id}`} label={t.unhandledNewDate} disabled={busy} onPress={onNewDate} />
-          <UnhandledAction testID={`unhandled-drop-${id}`} label={t.dropIt} disabled={busy}
+          <UnhandledAction testID={`unhandled-new-date-${id}`} item={item.commitment.title} label={t.unhandledNewDate} disabled={busy} onPress={onNewDate} />
+          <UnhandledAction testID={`unhandled-drop-${id}`} item={item.commitment.title} label={t.dropIt} disabled={busy}
             onPress={() => run(() => act.mutateAsync({ id, action: 'cancel' }), t.toastDrop)} />
-          <UnhandledAction testID={`unhandled-dont-ask-${id}`} label={t.unhandledDontAsk} disabled={busy}
+          <UnhandledAction testID={`unhandled-dont-ask-${id}`} item={item.commitment.title} label={t.unhandledDontAsk} disabled={busy}
             onPress={() => run(() => dismiss.mutateAsync(id), t.toastUnhandledDismissed)} />
         </View>
       </View>
@@ -130,8 +135,10 @@ function UnhandledCard({ item, onNewDate }: { item: UnhandledItem; onNewDate: ()
   );
 }
 
-function UnhandledAction({ label, onPress, disabled, testID }: {
+function UnhandledAction({ label, item, onPress, disabled, testID }: {
   label: string;
+  /** Named in the accessibility label, so a screen reader says which item this answers. */
+  item: string;
   onPress: () => void;
   disabled: boolean;
   testID: string;
@@ -140,7 +147,7 @@ function UnhandledAction({ label, onPress, disabled, testID }: {
   return (
     <Btn
       testID={testID}
-      label={label}
+      label={`${label}: ${item}`}
       onPress={disabled ? undefined : onPress}
       disabled={disabled}
       accessibilityState={{ disabled }}
