@@ -39,6 +39,8 @@ import {
 
 /** At most two items in the one question (spec, "No pressure"). */
 export const MAX_FOLLOW_UP_ITEMS = 2;
+/** How long the place may take to read before the turn answers without a question. */
+export const FOLLOW_UP_READ_TIMEOUT_MS = 500;
 
 export interface CaptureChatFollowUpItem {
   commitmentId: string;

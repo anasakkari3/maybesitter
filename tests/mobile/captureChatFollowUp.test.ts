@@ -8,9 +8,12 @@
  *
  *   - at most one follow-up per capture session: one per conversation on the
  *     server, and none once the phone says it already showed one;
- *   - at most `MAX_FOLLOW_UP_ITEMS` (2) items in it;
- *   - no item asked about more than `MAX_UNHANDLED_ASKS` (2) times, each ask
- *     counted only when the question is in the answer the person is sent;
+ *   - at most `MAX_FOLLOW_UP_ITEMS` (1) item in it;
+ *   - no item asked about more than `MAX_UNHANDLED_ASKS` (2) times; the ask is
+ *     counted only after the conversation that carries it was saved, and a
+ *     count that fails then still shows the question;
+ *   - the question never breaks the chat: a failed or slow read of the place,
+ *     or a budget nearly spent, is simply no question;
  *   - an item dismissed with «لا تسألني عنها» is never asked about;
  *   - asked only when the turn is finished: no open question, no item waiting
  *     for a day or an hour, not a refused message;
@@ -30,7 +33,10 @@ import { persistParticipantState } from '../../lib/services/mobile/participantSt
 import { createEmptyDomainState, type Commitment } from '../../src/domain/stateMachine.ts';
 import { dismissUnhandled, MAX_UNHANDLED_ASKS, recordUnhandledAsked } from '../../lib/services/mobile/unhandledService.ts';
 import { chatMobileCapture, type CaptureChatDependencies } from '../../lib/services/captureChat/captureChatService.ts';
+import { CaptureConversationStore } from '../../lib/services/captureChat/conversationStore.ts';
+import { CAPTURE_SERVER_BUDGET_MS } from '../../lib/services/captureBoundary/captureBoundaryService.ts';
 import {
+  FOLLOW_UP_READ_TIMEOUT_MS,
   MAX_FOLLOW_UP_ITEMS,
   pickFollowUpItems,
   resolveCaptureFollowUp,
@@ -127,12 +133,30 @@ const RULES: CaptureChatDependencies = { llmProviderFor: () => null, clock: () =
 
 type Answer = Awaited<ReturnType<typeof chatMobileCapture>>;
 
-async function say(message: string, extra: Record<string, unknown> = {}, dependencies: CaptureChatDependencies = RULES): Promise<Answer> {
+async function say(
+  message: string,
+  extra: Record<string, unknown> = {},
+  dependencies: CaptureChatDependencies = RULES,
+  requestStartedAt = NOW.getTime(),
+): Promise<Answer> {
   return chatMobileCapture(
     { message, timezone: TZ, referenceTime: NOW.toISOString(), locale: 'en', ...extra },
-    { participantId: UID, requestStartedAt: NOW.getTime() },
+    { participantId: UID, requestStartedAt },
     dependencies,
   );
+}
+
+/** The storage, with reads of the place's marks answered by `read` instead. */
+function marksReadAs(read: () => Promise<never>): void {
+  const storage = getStorage();
+  setStorageForTests(new Proxy(storage, {
+    get(target, key, receiver) {
+      if (key !== 'list') return Reflect.get(target, key, receiver);
+      return (path: string, ...rest: unknown[]) => path.endsWith(`/${UNHANDLED_MARKS}`)
+        ? read()
+        : (target.list as (...args: unknown[]) => unknown)(path, ...rest);
+    },
+  }));
 }
 
 async function askCounts(): Promise<Record<string, number>> {
@@ -173,19 +197,26 @@ test('E3 kill switch: no follow-up and nothing counted', async () => {
 
 /* ── What is asked ───────────────────────────────────────────────── */
 
-test('E3: a finished turn carries at most two items, the most recent first, and only those are counted', async () => {
+test('E3: a finished turn carries one item, the most recent, and only it is counted', async () => {
   await run(async () => {
     const answer = await say('hello');
-    assert.equal(MAX_FOLLOW_UP_ITEMS, 2);
-    assert.deepEqual(followUpIds(answer), ['meeting', 'report']);
+    assert.equal(MAX_FOLLOW_UP_ITEMS, 1);
+    assert.deepEqual(followUpIds(answer), ['meeting']);
     const followUp = (answer as unknown as { followUp: { items: Array<Record<string, unknown>> } }).followUp;
-    assert.deepEqual(followUp.items[0], {
+    assert.deepEqual(followUp.items, [{
       commitmentId: 'meeting', title: 'Meeting with Sami', reason: 'event_ended', since: '2026-11-12T08:00:00.000Z',
-    });
-    assert.deepEqual(followUp.items[1], {
+    }]);
+    assert.deepEqual(await askCounts(), { meeting: 1 });
+  });
+});
+
+test('E3: a deadline is asked about as a deadline', async () => {
+  await run(async () => {
+    await dismissUnhandled(UID, 'meeting', { now: NOW });
+    const followUp = (await say('hello') as unknown as { followUp: { items: Array<Record<string, unknown>> } }).followUp;
+    assert.deepEqual(followUp.items, [{
       commitmentId: 'report', title: 'Hand in the report', reason: 'deadline_passed', since: '2026-11-11T16:00:00.000Z',
-    });
-    assert.deepEqual(await askCounts(), { meeting: 1, report: 1 });
+    }]);
   });
 });
 
@@ -197,15 +228,15 @@ test('E3: no item is asked about more than twice', async () => {
     await recordUnhandledAsked(UID, ['report'], { now: NOW });
     const answer = await say('hello');
     // The meeting was asked twice: never again. The report once: one more time.
-    assert.deepEqual(followUpIds(answer), ['report', 'doctor']);
-    assert.deepEqual(await askCounts(), { meeting: 2, report: 2, doctor: 1 });
+    assert.deepEqual(followUpIds(answer), ['report']);
+    assert.deepEqual(await askCounts(), { meeting: 2, report: 2 });
   });
 });
 
 test('E3: an item dismissed with «لا تسألني عنها» is never asked about', async () => {
   await run(async () => {
     await dismissUnhandled(UID, 'meeting', { now: NOW });
-    assert.deepEqual(followUpIds(await say('hello')), ['report', 'doctor']);
+    assert.deepEqual(followUpIds(await say('hello')), ['report']);
     assert.equal((await askCounts()).meeting, undefined);
   });
 });
@@ -217,7 +248,7 @@ test('E3 pick: pure, bounded, and skips what was asked enough', () => {
   });
   assert.deepEqual(
     pickFollowUpItems([item('a', 2), item('b', 0), item('c', 1), item('d', 0)]).map((entry) => entry.commitment.id),
-    ['b', 'c'],
+    ['b'],
   );
   assert.deepEqual(pickFollowUpItems([item('a', 2), item('b', 3)]), []);
 });
@@ -232,7 +263,7 @@ test('E3: nothing in the place, or everything asked enough: no follow-up', async
   });
 });
 
-test('E3: an ask that could not be counted is never shown', async () => {
+test('E3: a count that fails after the conversation was saved still shows the question, once', async () => {
   await run(async () => {
     const storage = getStorage();
     // The count's write fails; the conversation's own write still goes through.
@@ -251,8 +282,52 @@ test('E3: an ask that could not be counted is never shown', async () => {
       },
     }));
     const answer = await say('hello');
-    assert.equal(followUpIds(answer), null);
+    // A short count beats a cap the person never saw a question for.
+    assert.deepEqual(followUpIds(answer), ['meeting']);
+    // The conversation was saved first, so it still asks no second one.
+    assert.equal(followUpIds(await say('thanks', { conversationId: answer.conversationId })), null);
+  });
+});
+
+test('E3: a conversation that could not be saved counts nothing', async () => {
+  await run(async () => {
+    class RefusingStore extends CaptureConversationStore {
+      override async put(): Promise<void> { throw new Error('write refused'); }
+    }
+    await assert.rejects(say('hello', {}, { ...RULES, conversations: new RefusingStore() }), /write refused/);
+    assert.deepEqual(await askCounts(), {});
+  });
+});
+
+/* ── It never breaks the chat ────────────────────────────────────── */
+
+test('E3: a failed read of the place is no question, and the reply arrives', async () => {
+  await run(async () => {
+    marksReadAs(async () => { throw new Error('read refused'); });
+    const answer = await say('hello');
     assert.equal(typeof answer.reply, 'string');
+    assert.ok(answer.reply.length > 0);
+    assert.equal(followUpIds(answer), null);
+  });
+});
+
+test('E3: a read of the place that does not answer in time is no question', async () => {
+  await run(async () => {
+    marksReadAs(() => new Promise<never>(() => undefined));
+    const started = Date.now();
+    const answer = await say('hello');
+    assert.ok(Date.now() - started < FOLLOW_UP_READ_TIMEOUT_MS + 1_000, 'the chat did not wait for the read');
+    assert.ok(answer.reply.length > 0);
+    assert.equal(followUpIds(answer), null);
+    assert.deepEqual(await askCounts(), {});
+  });
+});
+
+test('E3: a budget nearly spent skips the question', async () => {
+  await run(async () => {
+    const answer = await say('hello', {}, RULES, NOW.getTime() - (CAPTURE_SERVER_BUDGET_MS - 100));
+    assert.equal(followUpIds(answer), null);
+    assert.deepEqual(await askCounts(), {});
   });
 });
 
@@ -261,10 +336,10 @@ test('E3: an ask that could not be counted is never shown', async () => {
 test('E3: one follow-up per conversation; the next message asks nothing and counts nothing', async () => {
   await run(async () => {
     const first = await say('hello');
-    assert.deepEqual(followUpIds(first), ['meeting', 'report']);
+    assert.deepEqual(followUpIds(first), ['meeting']);
     const second = await say('thanks', { conversationId: first.conversationId });
     assert.equal(followUpIds(second), null);
-    assert.deepEqual(await askCounts(), { meeting: 1, report: 1 });
+    assert.deepEqual(await askCounts(), { meeting: 1 });
   });
 });
 
@@ -287,10 +362,10 @@ test('E3: a retried message replays the same follow-up without counting it again
     // within two minutes) is the same answer, follow-up included, counted once.
     const fresh = await say('hi there');
     const retried = await say('hi there', { conversationId: fresh.conversationId });
-    assert.deepEqual(followUpIds(fresh), ['meeting', 'report']);
-    assert.deepEqual(followUpIds(retried), ['meeting', 'report']);
-    // Two conversations, one question each: each item counted twice.
-    assert.deepEqual(await askCounts(), { meeting: 2, report: 2 });
+    assert.deepEqual(followUpIds(fresh), ['meeting']);
+    assert.deepEqual(followUpIds(retried), ['meeting']);
+    // Two conversations, one question each: the meeting counted twice.
+    assert.deepEqual(await askCounts(), { meeting: 2 });
   });
 });
 
@@ -329,7 +404,7 @@ test('E3: one model call per message, and the prompt is the same with the follow
   const on = await promptsWith({ [FLAG]: 'true' });
   const off = await promptsWith({});
   assert.equal(on.prompts.length, 1, 'exactly one model call');
-  assert.deepEqual(on.ids, ['meeting', 'report']);
+  assert.deepEqual(on.ids, ['meeting']);
   assert.equal(off.ids, null);
   assert.deepEqual(on.prompts, off.prompts, 'the follow-up never reaches the model');
 });
