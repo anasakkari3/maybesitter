@@ -243,7 +243,7 @@ test('every mobile route file exists and is enumerated', () => {
   // so it must never answer before the guard.
   // Lane E2 (2026-11-17) adds `GET`/`POST /api/mobile/commitments/unhandled`
   // («ما اتصرّفت فيها»): it lists and dismisses the account's own commitments.
-  assert.equal(files.length, 138, `found:\n${files.join('\n')}`);
+  assert.equal(files.length, 140, `found:\n${files.join('\n')}`);
 });
 
 test('every mobile route handler runs an authentication guard before anything else', () => {

@@ -2226,5 +2226,20 @@
   "unhandledNewDate": "New date",
   "unhandledDontAsk": "Don't ask me about it",
   "unhandledEmpty": "Nothing here. Everything has an answer.",
-  "toastUnhandledDismissed": "Okay. We won't ask about it."
+  "toastUnhandledDismissed": "Okay. We won't ask about it.",
+  "rsTag": "Suggestion",
+  "rsLineFirst": "You missed it, so we found it a new free time.",
+  "rsLineOtherTime": "Missed more than once in the {from}, so we tried the {to}.",
+  "rsLineOtherTimeSplit": "Missed more than once in the {from}, so we tried the {to}, in two smaller pieces.",
+  "rsLineSplit": "Missed more than once, so we split it into two smaller pieces.",
+  "rsLineEarlier": "Its deadline is close, so it starts earlier.",
+  "rsPartMorning": "morning",
+  "rsPartAfternoon": "afternoon",
+  "rsPartEvening": "evening",
+  "rsAcceptedLine": "Moved to its new time.",
+  "rsUndo": "Put it back",
+  "rsUndoHint": "You can put it back as it was for 24 hours.",
+  "rsUndone": "Back as it was.",
+  "rsLineOtherTimeMixed": "Missed more than once, so we're trying a different time: the {to}.",
+  "rsDecline": "No, thanks"
 }

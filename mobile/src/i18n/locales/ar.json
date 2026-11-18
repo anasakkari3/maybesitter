@@ -2226,5 +2226,20 @@
   "unhandledNewDate": "تاريخ جديد",
   "unhandledDontAsk": "لا تسألني عنها",
   "unhandledEmpty": "ما في إشي هون. كل إشي إلو جواب.",
-  "toastUnhandledDismissed": "تمام. ما رح نسألك عنها."
+  "toastUnhandledDismissed": "تمام. ما رح نسألك عنها.",
+  "rsTag": "اقتراح",
+  "rsLineFirst": "فاتتك، فلقينالها وقت فاضي جديد.",
+  "rsLineOtherTime": "فاتتك أكتر من مرّة {from}، فجرّبنا {to}.",
+  "rsLineOtherTimeSplit": "فاتتك أكتر من مرّة {from}، فجرّبنا {to} وبقطعتين أصغر.",
+  "rsLineSplit": "فاتتك أكتر من مرّة، فقسمناها لقطعتين أصغر.",
+  "rsLineEarlier": "موعدها النهائي قرّب، فبلّشنا فيها أبكر.",
+  "rsPartMorning": "الصبح",
+  "rsPartAfternoon": "بعد الضهر",
+  "rsPartEvening": "المسا",
+  "rsAcceptedLine": "انحطّت بوقتها الجديد.",
+  "rsUndo": "رجّعها",
+  "rsUndoHint": "بتقدر ترجّعها زي ما كانت ليوم كامل.",
+  "rsUndone": "رجّعناها زي ما كانت.",
+  "rsLineOtherTimeMixed": "فاتتك أكتر من مرّة، فجرّبنا وقت تاني: {to}.",
+  "rsDecline": "لا، شكراً"
 }

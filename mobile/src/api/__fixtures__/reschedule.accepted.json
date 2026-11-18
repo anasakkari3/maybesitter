@@ -1,0 +1,19 @@
+{
+  "success": true,
+  "proposal": null,
+  "accepted": [
+    {
+      "commitmentId": "00000000-0000-4000-8000-000000000001",
+      "title": "أدرس رياضيات",
+      "undoUntil": "2026-08-09T09:00:00.000Z",
+      "sessions": [
+        {
+          "startsAt": "2026-08-09T09:00:00.000Z",
+          "endsAt": "2026-08-09T09:00:00.000Z",
+          "localDate": "2026-10-07",
+          "localTime": "17:00"
+        }
+      ]
+    }
+  ]
+}

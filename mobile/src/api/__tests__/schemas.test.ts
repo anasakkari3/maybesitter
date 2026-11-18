@@ -18,6 +18,7 @@ import {
 import { describe, expect, it } from '@jest/globals';
 import { readdirSync, readFileSync } from 'fs';
 import { heldChangedSchema, heldItemsSchema, m4bCapabilitiesSchema, postponeSlotsSchema, slotRefusedSchema } from '../schemas/m4b';
+import { rescheduleDecisionSchema, rescheduleListSchema, rescheduleRefusedSchema } from '../schemas/reschedule';
 import { join } from 'path';
 import { z } from 'zod';
 import type { CalendarBusyUpload } from '../endpoints/calendar';
@@ -555,6 +556,15 @@ const CASES: [string, z.ZodType][] = [
   ['capture.impact.prep', captureProposalSchema],
   ['capture.impact.noslot', captureProposalSchema],
   ['postpone-slots', postponeSlotsSchema],
+  // Missed work's new plan (lane E4).
+  ['reschedule', rescheduleListSchema],
+  ['reschedule.accepted', rescheduleListSchema],
+  ['reschedule.empty', rescheduleListSchema],
+  ['reschedule.decision.accept', rescheduleDecisionSchema],
+  ['reschedule.decision.dismiss', rescheduleDecisionSchema],
+  ['reschedule.decision.undo', rescheduleDecisionSchema],
+  ['reschedule.stale', rescheduleRefusedSchema],
+  ['reschedule.undo-unavailable', rescheduleRefusedSchema],
   ['postpone-slots.incomplete', postponeSlotsSchema],
   ['commitment.postpone.slot-taken', slotRefusedSchema],
   ['commitment.postpone.slot-unverified', slotRefusedSchema],

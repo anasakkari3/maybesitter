@@ -1,0 +1,27 @@
+{
+  "success": false,
+  "error": "proposal_stale",
+  "proposal": {
+    "commitmentId": "00000000-0000-4000-8000-000000000001",
+    "title": "أدرس رياضيات",
+    "proposalId": "5GuvA614v3WH4OIeCfKWxVRnhPUNsnBl",
+    "missedAt": "2026-08-09T09:00:00.000Z",
+    "missCount": 1,
+    "reason": "first_miss",
+    "changes": [
+      "new_time"
+    ],
+    "fromDayPart": "evening",
+    "toDayPart": "evening",
+    "minutesBefore": 60,
+    "minutesEach": 60,
+    "sessions": [
+      {
+        "startsAt": "2026-08-09T09:00:00.000Z",
+        "endsAt": "2026-08-09T09:00:00.000Z",
+        "localDate": "2026-10-07",
+        "localTime": "18:00"
+      }
+    ]
+  }
+}

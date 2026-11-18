@@ -171,6 +171,10 @@ const KEPT_BECAUSE: Record<string, string> = {
   commitmentActionReceipts:
     'which notification taps were already applied (#200): ids and an action, kept so a replayed tap '
     + 'is not applied twice; not a claim about the person',
+  rescheduleProposals:
+    'the person’s own missed sessions and their answer to a new plan for them (lane E4): '
+    + 'instants and ids, kept so a second miss in the same slot is recognised and an accepted '
+    + 'plan can be undone; no title, no score, and account deletion takes the whole tree',
   externalTaskActionReceipts:
     'which add or dismiss decision was already applied to an external fixture: content-free '
     + 'idempotency state kept so a replay cannot add the fixture twice or reverse the decision',
