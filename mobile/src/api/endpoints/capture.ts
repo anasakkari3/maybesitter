@@ -127,6 +127,11 @@ export type CaptureChatInput = {
    * turn's entry for the whole conversation.
    */
   entry?: CaptureEntry;
+  /**
+   * Lane E3: this capture session already showed its one follow-up, so the
+   * server asks none. Sent with a message, and only when true.
+   */
+  followUpShown?: boolean;
 };
 
 export function chatCapture(input: CaptureChatInput & {
@@ -142,6 +147,7 @@ export function chatCapture(input: CaptureChatInput & {
       // not pick (M2b). `spoken` says they came from dictation.
       ...(input.edit ? { edit: input.edit } : {
         message: input.message ?? '', ...(input.spoken ? { spoken: true } : {}), ...(input.entry ? { entry: input.entry } : {}),
+        ...(input.followUpShown ? { followUpShown: true } : {}),
       }),
       timezone: input.timezone,
       referenceTime: input.referenceTime ?? new Date().toISOString(),

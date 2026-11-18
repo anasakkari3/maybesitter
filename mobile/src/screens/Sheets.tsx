@@ -112,12 +112,16 @@ function PostponeSheet() {
  * Today rather than the open details screen. Nothing to pop afterwards: the
  * sheet closes and the line at the bottom says it moved.
  */
-export function PostponeSheetFor({ commitmentId, title, onClose }: { commitmentId: string | null; title?: string | undefined; onClose: () => void }) {
+export function PostponeSheetFor({ commitmentId, title, onClose, onMoved }: {
+  commitmentId: string | null; title?: string | undefined; onClose: () => void;
+  /** After the move landed, before the sheet closes (lane E3: the question's item is answered). */
+  onMoved?: (() => void) | undefined;
+}) {
   const { t, actions } = useApp();
   return (
     <BottomSheet visible={commitmentId !== null} onClose={onClose} testID="postpone-sheet">
       <SheetHeader title={t.postponeTitle} icon="clock" onClose={onClose} closeTestID="postpone-sheet-close" />
-      <PostponeChoices commitmentId={commitmentId} knownTitle={title} onMoved={() => { onClose(); actions.toast(t.toastPostponed); }} />
+      <PostponeChoices commitmentId={commitmentId} knownTitle={title} onMoved={() => { onMoved?.(); onClose(); actions.toast(t.toastPostponed); }} />
     </BottomSheet>
   );
 }

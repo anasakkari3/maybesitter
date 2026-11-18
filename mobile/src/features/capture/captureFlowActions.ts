@@ -92,7 +92,7 @@ export function analyzeCapture(
 
 /** The chat call the flow makes (`POST /api/mobile/capture/chat`). */
 export interface ChatGateway {
-  chat(input: { conversationId: string | null; message: string; spoken?: boolean }): Promise<CaptureChatAnswer>;
+  chat(input: { conversationId: string | null; message: string; spoken?: boolean; followUpShown?: boolean }): Promise<CaptureChatAnswer>;
 }
 
 export type ChatOutcome =
@@ -118,9 +118,11 @@ export async function chatTurn(
   classify: (error: unknown) => AnalyzeFailure,
   spoken = false,
   entry: CaptureEntry | null = null,
+  followUpShown = false,
 ): Promise<ChatOutcome> {
   // `spoken` only when true, so a typed message is the request it always was.
-  const voice = spoken ? { spoken: true } : {};
+  // Lane E3's `followUpShown` likewise: the session showed its one follow-up.
+  const voice = { ...(spoken ? { spoken: true } : {}), ...(followUpShown ? { followUpShown: true } : {}) };
   // The entry starts a conversation (M3b): a first message carries it, and so
   // does the first message of a conversation started again after it expired.
   const opened = entry ? { entry } : {};

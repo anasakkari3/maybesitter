@@ -42,6 +42,7 @@ import { createSpeechCaptureService, SpeechEventBridge } from '../features/captu
 import { VoiceLanguageChip } from '../features/capture/voice/VoiceLanguageChip';
 import { speechLanguageForTag } from '../features/capture/voice/speechLocale';
 import { loadSpeechLanguage, saveSpeechLanguage, type SpeechLanguagePref } from '../lib/deviceSettings/speechLanguage';
+import { ChatFollowUpActions, followUpText } from '../features/capture/ChatFollowUp';
 import { SayItChatPage, ChatMicrophone, ChatLanguage, ChatIcon, type ChatHistoryEntry, type ChatScheduleGroup } from '../features/capture/SayItChatPage';
 import { WeeklyChoice } from '../features/weeklyBlocks/WeeklyChoice';
 import { weeklyA11yLabel, weeklyLine } from '../features/weeklyBlocks/weeklyText';
@@ -377,8 +378,15 @@ export function CaptureScreen({ entryQuestion }: { entryQuestion?: { entry: Capt
   // dropping an answered question never changes — when the state says
   // something new arrived, not when its words or objects change.
   const replyShown = newest?.role === 'assistant';
+  // Lane E3: the follow-up, worded here, sits after the reply it arrived with.
+  const followUp = state.followUp;
+  const followUpWords = followUp ? followUpText(followUp, t, lang, timezone) : null;
+  // It arrived with the newest reply: said with it, after it.
+  const followUpIsNew = followUp !== null && followUp.open && followUp.at === state.earlier.length + state.turns.length;
+  const [tellFocus, setTellFocus] = useState(0);
+  const replyWords = replyShown ? (newest.tail ? `${newest.text}\n\n${newest.tail}` : newest.text) : null;
   useAnnounceArrival(replyShown ? state.replyArrival : null,
-    replyShown ? (newest.tail ? `${newest.text}\n\n${newest.tail}` : newest.text) : null,
+    replyWords !== null && followUpIsNew && followUpWords ? `${replyWords}\n\n${followUpWords}` : replyWords,
     Boolean(entryQuestion));
   const [disclosureOpen, setDisclosureOpen] = useState(true);
   const [undoing, setUndoing] = useState(false);
@@ -728,6 +736,16 @@ export function CaptureScreen({ entryQuestion }: { entryQuestion?: { entry: Capt
       // Nothing to confirm when only removed points are left (contract v5).
       actions: understood.length > 0 ? <Pill testID="understood-confirm" label={t.understoodConfirm} onPress={() => openFromSummary(null)} size={15} pad={12} style={{ minWidth: 120 }} /> : undefined };
   }
+  // After the summary, so the reply's own business comes first (lane E3).
+  if (followUp && followUpWords) {
+    history.splice(Math.min(followUp.at, history.length), 0, {
+      role: 'assistant', id: 'chat-follow-up', text: followUpWords,
+      ...(followUp.open ? {
+        actions: <ChatFollowUpActions followUp={followUp} onSkip={flow.skipFollowUp} onAnswered={flow.answerFollowUp}
+          onTell={() => setTellFocus((n) => n + 1)} />,
+      } : {}),
+    });
+  }
   // The message on its way: in the conversation already, not yet delivered.
   if (state.status === 'analyzing' && state.text.trim()) {
     history.push({ role: 'user', text: state.text, ...(sentTime ? { time: sentTime } : {}) });
@@ -840,6 +858,7 @@ export function CaptureScreen({ entryQuestion }: { entryQuestion?: { entry: Capt
           : null}
         reviewing={cardsOpen} revealRow={cardsOpen ? revealRow : null} revealAnchor={(id) => seedAnchors.current.get(id) ?? null}
         reduceMotion={reducedMotion}
+        composerFocusKey={tellFocus}
         // While listening the panel above the field says so; the note line
         // keeps the other states (failed, no speech, denied → Settings).
         voiceNotice={<>{counter}{voiceStatus === 'listening' ? null : <VoiceNote status={voiceStatus} />}

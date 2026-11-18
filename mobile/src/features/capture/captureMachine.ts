@@ -24,7 +24,7 @@
  * criteria require this, and `captureMachine.test.ts` asserts the module graph
  * pulls in no storage.
  */
-import type { CaptureChatAnswer, CaptureChatTurn, CaptureProposal, CaptureConfirmation, CaptureEntry } from '../../api/schemas/capture';
+import type { CaptureChatAnswer, CaptureChatFollowUp, CaptureChatTurn, CaptureProposal, CaptureConfirmation, CaptureEntry } from '../../api/schemas/capture';
 import { goalsOf, habitsOf, usableUnderstood, type UnderstoodPoint } from '../../api/schemas/capture';
 import { familyIdOf, hasPoint, pointIdFor, pointsOf } from './pointIdentity';
 import type { UserFacingKey } from '../../api/ui/userFacingMessage';
@@ -299,6 +299,13 @@ export interface CaptureState {
    */
   replyArrival: number;
   /**
+   * Lane E3: the one gentle question this capture session asked about «ما
+   * اتصرّفت فيها», or null while it asked none. Once set it stays for the
+   * session — that is what keeps it to one (the next message says so to the
+   * server, `followUpShown`).
+   */
+  followUp: ChatFollowUpState | null;
+  /**
    * The proposal whose cards the person opened from «هيك فهمت» (audit
    * 2026-10-06 #5/#6), by id. A chat answer that carries `understood` shows
    * that summary first; «هيك صح» or a tap on one of its lines opens the cards,
@@ -399,6 +406,10 @@ export type CaptureEvent =
   | { type: 'chatAnswered'; answer: CaptureChatAnswer }
   /** Back from a failed send to the conversation, with the message still in the field. */
   | { type: 'dismissFailure' }
+  /** Lane E3: «تخطّى» — the question's answers go; nothing is written. */
+  | { type: 'followUpSkipped' }
+  /** Lane E3: one item of the question was answered. */
+  | { type: 'followUpAnswered'; commitmentId: string }
   /** The server's proposal after one question was answered (#165, #474). */
   | { type: 'clarified'; proposal: CaptureProposal }
   | { type: 'analyzeFailed'; kind: CaptureFailureKind; messageKey?: UserFacingKey; reason?: string }
@@ -449,6 +460,17 @@ export const MAX_TITLE_LENGTH = 120;
 /** How long Undo stays available, in milliseconds. */
 export const UNDO_WINDOW_MS = 5_000;
 
+/** Lane E3: the follow-up as the chat shows it. */
+export interface ChatFollowUpState {
+  items: CaptureChatFollowUp['items'];
+  /** Its place in the chat: after this many lines (`earlier` then `turns`), which only ever grow at the end. */
+  at: number;
+  /** Its answers still show; closed by «تخطّى», by every item answered, or by the next message. */
+  open: boolean;
+  /** Items already answered here (done, a new date, dropped, «لا تسألني عنها», or told in the chat). */
+  answered: string[];
+}
+
 export function initialCaptureState(
   source: CaptureSource = 'tab',
   inputMode: CaptureInputMode = 'text',
@@ -475,6 +497,7 @@ export function initialCaptureState(
     turns: [],
     earlier: [],
     replyArrival: 0,
+    followUp: null,
     reviewOf: null,
     spoken: false,
     alternatives: [],
@@ -1125,7 +1148,22 @@ export function captureReducer(state: CaptureState, event: CaptureEvent): Captur
       // The proposal and the conversation stay: a failed send goes back to
       // them, and the answer's own proposal replaces this one when it lands.
       // The chips go with the send: they were readings of this draft (M2b).
-      return { ...state, status: 'analyzing', errorReason: null, messageKey: null, alternatives: [], reviewNotice: null, confirmedElsewhere: false };
+      return {
+        ...state, status: 'analyzing', errorReason: null, messageKey: null, alternatives: [], reviewNotice: null, confirmedElsewhere: false,
+        // The next message is the person going on: the question's answers go with it.
+        followUp: state.followUp?.open ? { ...state.followUp, open: false } : state.followUp,
+      };
+
+    case 'followUpSkipped':
+      return state.followUp?.open ? { ...state, followUp: { ...state.followUp, open: false } } : state;
+
+    case 'followUpAnswered': {
+      const followUp = state.followUp;
+      if (!followUp?.open || followUp.answered.includes(event.commitmentId)
+        || !followUp.items.some((item) => item.commitmentId === event.commitmentId)) return state;
+      const answered = [...followUp.answered, event.commitmentId];
+      return { ...state, followUp: { ...followUp, answered, open: answered.length < followUp.items.length } };
+    }
 
     case 'chatAnswered': {
       const { answer } = event;
@@ -1141,6 +1179,10 @@ export function captureReducer(state: CaptureState, event: CaptureEvent): Captur
         replyArrival: state.replyArrival + 1,
         errorReason: null,
         messageKey: null,
+        // One per session: a second one from the server is never shown.
+        followUp: state.followUp ?? (answer.followUp
+          ? { items: answer.followUp.items, at: state.earlier.length + answer.turns.length, open: true, answered: [] }
+          : null),
       };
       if (!proposal) {
         return { ...conversation, status: 'idle', proposal: null, original: null, selected: [], edits: {}, onceOnly: [], goalUnlinked: [], reviewOf: null, refusedEdit: null };

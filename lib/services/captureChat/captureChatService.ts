@@ -61,6 +61,7 @@ import { isTimeOnlyText } from '../../../src/extraction/clauseSplitter';
 import { applyCaptureKindsToProposal, CaptureKindsInvalidEditError, clarifyMobileCapture, editCaptureKindsProposal, proposalCollisionCandidates, proposeMobileChatTurn, readMobileChatProposal } from '../mobile/mobileCaptureService';
 import { resolveCaptureKinds } from '../captureKinds/runtime';
 import { dateFromOptionalIso, normalizeTimezone } from '../mobile/time';
+import { countFollowUpAsked, followUpFor, resolveCaptureFollowUp, type CaptureChatFollowUp } from './chatFollowUp';
 import { buildChatPrompt, oneUnambiguousClockIn, parseChatModelAnswer, validateChatCitations, type ChatModelAnswer, type ChatPromptItem } from './chatPrompt';
 import { conflictForPrompt, readPersonSchedule, scheduleForPrompt, withItemConflicts, withProposalClashes, type PersonSchedule } from './chatConflicts';
 import { clashKey, withConflictsNamed } from './chatWhy';
@@ -199,6 +200,11 @@ export interface CaptureChatInput {
    */
   locale?: unknown;
   entry?: unknown;
+  /**
+   * Lane E3: the phone already showed a follow-up in this capture session (a
+   * save starts a new conversation, not a new session). Only `true` counts.
+   */
+  followUpShown?: unknown;
 }
 
 export type CaptureChatProposal = Awaited<ReturnType<typeof proposeMobileChatTurn>>;
@@ -211,6 +217,11 @@ export interface CaptureChatResponse {
   engine: 'model' | 'rules';
   proposal: CaptureChatProposal | null;
   turns: CaptureChatTurn[];
+  /**
+   * Lane E3: the gentle question about «ما اتصرّفت فيها», chosen in code
+   * (`chatFollowUp`). Present only on the one answer that asks it.
+   */
+  followUp?: CaptureChatFollowUp;
 }
 
 /** The edit lost its proposal revision; the route returns this answer verbatim in a 409. */
@@ -586,13 +597,26 @@ export async function chatMobileCapture(
     const asked = final.asked;
     const kept = boundedTurns([...turns, { role: 'assistant', text: reply, ...(asked ? { asked } : {}) }]);
     const updatedAt = new Date(clock()).toISOString();
-    const answer = { conversationId: conversation.conversationId, reply, asked, engine, proposal, turns: kept };
+    // Lane E3: only once the turn is finished — not a refusal, and no item
+    // waiting for a day or an hour (which is also every reply that asks one,
+    // `asked`) — and once per capture session.
+    const followUp = !options.refused
+      && !(proposal?.items.some((item) => item.needsClarification) ?? false)
+      && !conversation.followUpAskedAt
+      && input.followUpShown !== true
+      && resolveCaptureFollowUp()
+      ? await followUpFor(uid, { now, budgetLeftMs: CAPTURE_SERVER_BUDGET_MS - (clock() - requestStartedAt) })
+      : null;
+    const answer: CaptureChatResponse = {
+      conversationId: conversation.conversationId, reply, asked, engine, proposal, turns: kept, ...(followUp ? { followUp } : {}),
+    };
     const receiptProposal = proposal ? await readMobileChatProposal(proposal.proposalId, uid) : null;
     await conversations.put(uid, {
       ...conversation,
       turns: kept,
       proposalId: proposal?.proposalId ?? null,
       updatedAt,
+      ...(followUp ? { followUpAskedAt: now.toISOString() } : {}),
       messageReceipt: {
         fingerprint: messageFingerprint,
         receivedAt: clock(),
@@ -602,6 +626,8 @@ export async function chatMobileCapture(
         lockedRefs: receiptProposal ? Array.from(receiptProposal.lockedRefs).sort() : [],
       },
     }, new Date(clock()));
+    // Counted only now, once the conversation that carries it is saved (`chatFollowUp`).
+    if (followUp) await countFollowUpAsked(uid, followUp, { now });
     return answer;
   };
 

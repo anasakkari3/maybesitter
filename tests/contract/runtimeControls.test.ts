@@ -17,6 +17,7 @@ import {
 } from '../../lib/integrations/healthkit/adapter.ts';
 import type { PrivacySafeNativeReadinessLog } from '../../lib/integrations/readiness/nativeAdapterContracts.ts';
 import { buildWhoopReadinessSnapshot } from '../../lib/integrations/readiness/whoop.ts';
+import { resolveCaptureFollowUp } from '../../lib/services/captureChat/chatFollowUp.ts';
 import {
   WHOOP_OAUTH_SCOPES,
   buildWhoopConnectionInput,
@@ -167,6 +168,20 @@ test('environment controls are typed per module and invalid values fail closed t
   assert.equal(controls.featureFlags.recommendation, true);
   assert.equal(controls.killSwitches.recommendation, true);
   assert.equal(controls.featureFlags.capture, true);
+});
+
+test('capture follow-up (lane E3): its own switch, off unless exactly "true", and its kill switch wins', () => {
+  assert.equal(resolveCaptureFollowUp({}), false);
+  assert.equal(resolveCaptureFollowUp({ MAYBESITTER_FEATURE_CAPTURE_FOLLOW_UP: 'yes' }), false);
+  assert.equal(resolveCaptureFollowUp({ MAYBESITTER_FEATURE_CAPTURE_FOLLOW_UP: 'true' }), true);
+  assert.equal(resolveCaptureFollowUp({
+    MAYBESITTER_FEATURE_CAPTURE_FOLLOW_UP: 'true', MAYBESITTER_KILL_SWITCH_CAPTURE_FOLLOW_UP: 'true',
+  }), false);
+  // The capture module's own kill switch is the model's; it does not turn the question off.
+  assert.equal(resolveCaptureFollowUp({
+    MAYBESITTER_FEATURE_CAPTURE_FOLLOW_UP: 'true', MAYBESITTER_KILL_SWITCH_CAPTURE: 'true',
+  }), true);
+  assert.equal(resolveCaptureFollowUp({ MAYBESITTER_FEATURE_CAPTURE_FOLLOW_UP: 'true', MAYBESITTER_ENV: 'production' }), false);
 });
 
 test('a module kill switch selects rules-only fallback without disabling capture', () => {
