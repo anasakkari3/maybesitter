@@ -139,6 +139,9 @@ export type Screen =
   // ahead, because that is where somebody goes to look at what is coming and
   // notice what they have not decided yet.
   | 'seeds'
+  // «ما اتصرّفت فيها» (lane E2): ended appointments and passed deadlines,
+  // still open. Pushed from Today's quiet entry row.
+  | 'unhandled'
   // Today's plan (UC-3.10b, #195). Reached from the morning notification's
   // deep link and from Settings, and carrying its own date in `planDate`
   // rather than deriving one: the link names the day the plan is for, and a

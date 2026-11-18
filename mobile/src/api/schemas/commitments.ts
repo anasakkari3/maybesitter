@@ -41,3 +41,35 @@ export const commitmentDeleteResultSchema = z.object({
   softDeleted: z.boolean(),
   status: z.string(),
 });
+
+/**
+ * «ما اتصرّفت فيها» (lane E2): appointments that are over and deadlines that
+ * passed, still open. Mirrors `commitments.unhandled.json`. `since` is when it
+ * ended or when the deadline passed; `askCount` is how often capture asked.
+ */
+export const unhandledItemSchema = z.object({
+  reason: z.enum(['event_ended', 'deadline_passed']),
+  since: z.string(),
+  askCount: z.number().int().nonnegative(),
+  commitment: commitmentSchema,
+});
+
+export const unhandledListSchema = z.object({
+  items: z.array(unhandledItemSchema),
+});
+
+export type UnhandledItem = z.infer<typeof unhandledItemSchema>;
+
+/** «لا تسألني عنها». A repeat of the same press answers `replayed: true`. */
+export const unhandledDismissResultSchema = z.object({
+  success: z.literal(true),
+  id: z.string(),
+  dismissed: z.literal(true),
+  replayed: z.literal(true).optional(),
+});
+
+/** 409: the item is not in the place (settled, moved ahead, or a task). No `error` field. */
+export const notUnhandledSchema = z.object({
+  success: z.literal(false),
+  reason: z.literal('not_unhandled'),
+});

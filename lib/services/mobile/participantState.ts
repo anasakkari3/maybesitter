@@ -56,6 +56,7 @@ import {
   requireDocId,
   requireUserId,
   STATS,
+  UNHANDLED_MARKS,
   userCol,
   userDoc,
   type StorageReader,
@@ -143,6 +144,8 @@ const PARTICIPANT_COLLECTIONS = [
   // emptied.
   PLANS,
   PLAN_EVENTS,
+  // «ما اتصرّفت فيها»'s answers (lane E2). They name commitments that a wipe removes.
+  UNHANDLED_MARKS,
 ] as const;
 
 function cloneState(state: DomainState): DomainState {

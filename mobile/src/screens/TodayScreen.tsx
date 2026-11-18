@@ -46,6 +46,7 @@ import { useLayoutMode } from '../theme/textScale';
 import { firstConflict } from '../features/today/todayConflict';
 import { ConflictLine, ConflictSheet, useFootballCommitmentIds } from '../features/today/ConflictLine';
 import { PostponeSheetFor } from './Sheets';
+import { UnhandledEntry } from '../features/unhandled/UnhandledScreen';
 import { RescheduleCard } from '../features/reschedule/RescheduleCard';
 import { useFreshM4bCapability, useM4bCapabilities } from '../features/m4b/capabilities';
 
@@ -377,6 +378,9 @@ export function TodayScreen({ tabClearance = TAB_CLEARANCE }: { tabClearance?: n
             </>
           )}
         </QueryBoundary>
+
+        {/* «ما اتصرّفت فيها» (lane E2): one quiet row, only when there is something there. */}
+        <UnhandledEntry />
 
         {/* Your day's context, one quiet link at the end rather than in the header. */}
         <View style={{ alignItems: 'center' }}>

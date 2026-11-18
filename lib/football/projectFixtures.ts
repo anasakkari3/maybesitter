@@ -244,6 +244,19 @@ function isFootballFixtureRef(ref: Pick<ExternalTaskReference, 'identity'> | nul
 }
 
 /**
+ * Every commitment this projection made for a match, linked or since
+ * dismissed (lane E2). «ما اتصرّفت فيها» never asks what came of a match: a
+ * final whistle is not something the person did or owes, and the maintenance
+ * pass closes an ended one for every account (`completeEndedFixturesForEveryone`).
+ */
+export async function fixtureCommitmentIds(uid: string): Promise<ReadonlySet<string>> {
+  const refs = await listRefs<FixtureExternalTaskRef>(uid);
+  return new Set(refs
+    .filter((ref) => isFootballFixtureRef(ref) && ref.linkedCommitmentId)
+    .map((ref) => ref.linkedCommitmentId as string));
+}
+
+/**
  * The language a projection run titles its commitments in -- see the module
  * header's "The title names the match" section for the order and why.
  */

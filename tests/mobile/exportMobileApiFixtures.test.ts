@@ -79,6 +79,7 @@ import {
   PATCH as commitmentPatch,
 } from '../../src/app/api/mobile/commitments/[id]/route.ts';
 import { POST as actionPost } from '../../src/app/api/mobile/commitments/[id]/actions/route.ts';
+import { GET as unhandledGet, POST as unhandledPost } from '../../src/app/api/mobile/commitments/unhandled/route.ts';
 import { commitmentValidator } from '../../lib/services/mobile/commitmentValidator.ts';
 import { GET as activityGet } from '../../src/app/api/mobile/activity/route.ts';
 import { GET as activitySummaryGet } from '../../src/app/api/mobile/activity/summary/route.ts';
@@ -334,6 +335,38 @@ const WEEKLY_BLOCK_USER = uidFor('WeeklyBlockFixtureUser');
 const CHAT_USER = uidFor('ChatFixtureUser');
 /** Contract-v8 records use their own account so their new canonical rows do not move legacy fixtures. */
 const CAPTURE_KINDS_USER = uidFor('CaptureKindsFixtureUser');
+/** «ما اتصرّفت فيها» (lane E2): its own account, so no other fixture reads its items. */
+const UNHANDLED_USER = uidFor('UnhandledFixtureUser');
+
+/**
+ * An appointment that ended and a deadline that passed before `REFERENCE_TIME`,
+ * plus an undated task that is never in the place. Fixed instants, so the
+ * fixtures move only when the shape does.
+ */
+function unhandledFixtureState() {
+  const state = createEmptyDomainState();
+  const base = {
+    kind: 'task', description: null, person: null, status: 'active',
+    priority: { level: 'normal', source: 'default', pressureAllowed: false, pressureLevel: 'none' },
+    category: null, categorySource: 'inferred', currentAckState: 'not_seen', postponedUntil: null,
+    createdAt: '2026-08-01T08:00:00.000Z', updatedAt: '2026-08-01T08:00:00.000Z',
+    confirmedAt: '2026-08-01T08:00:00.000Z', completedAt: null, droppedAt: null,
+  } as const;
+  const timeSpec = { endAt: null, remindAt: null, allDay: false, timezone: 'Asia/Jerusalem' } as const;
+  state.commitments['fixture-unhandled-meeting'] = {
+    ...base, id: 'fixture-unhandled-meeting', title: 'Meeting with Sami',
+    timeSpec: { ...timeSpec, kind: 'scheduled_event', dueAt: '2026-08-08T07:00:00.000Z', endAt: '2026-08-08T08:00:00.000Z', itemKind: 'event' },
+  } as never;
+  state.commitments['fixture-unhandled-deadline'] = {
+    ...base, id: 'fixture-unhandled-deadline', title: 'Hand in the report',
+    timeSpec: { ...timeSpec, kind: 'due_by', dueAt: '2026-08-07T15:00:00.000Z' },
+  } as never;
+  state.commitments['fixture-unhandled-task'] = {
+    ...base, id: 'fixture-unhandled-task', title: 'Buy milk',
+    timeSpec: { ...timeSpec, kind: 'unscheduled', dueAt: null },
+  } as never;
+  return state;
+}
 /** A chat proposal that lands on a weekly block (owner request 2026-09-30), under its own account for the same reason. */
 const CHAT_CONFLICT_USER = uidFor('ChatConflictFixtureUser');
 /** M4a fixtures stay isolated from the existing goal and capture histories. */
@@ -2107,6 +2140,26 @@ test('exports a fixture for every /api/mobile call the React Native client makes
       request(`/api/mobile/commitments/${commitmentId}/actions`, { body: { action: 'complete' } }),
       params(commitmentId),
     ));
+
+    // ── «ما اتصرّفت فيها» (lane E2) ───────────────────────────────
+    // The list, «لا تسألني عنها» once and again (a replay), and the refusal for
+    // an item that is not in the place. Done, a new date and dropped on purpose
+    // are `commitments.action` above: the same route, the same commands.
+    await seedLiveAccount(UNHANDLED_USER);
+    await persistParticipantState(UNHANDLED_USER, unhandledFixtureState());
+    const unhandled = await record('commitments.unhandled', 200, await unhandledGet(
+      request(`/api/mobile/commitments/unhandled?referenceTime=${REFERENCE_TIME}`, { uid: UNHANDLED_USER }),
+    ));
+    assert.equal((unhandled.items as unknown[]).length, 2);
+    await record('commitments.unhandledDismissed', 200, await unhandledPost(request('/api/mobile/commitments/unhandled', {
+      body: { action: 'dismiss', commitmentId: 'fixture-unhandled-deadline' }, uid: UNHANDLED_USER,
+    })));
+    await record('commitments.unhandledReplayed', 200, await unhandledPost(request('/api/mobile/commitments/unhandled', {
+      body: { action: 'dismiss', commitmentId: 'fixture-unhandled-deadline' }, uid: UNHANDLED_USER,
+    })));
+    await record('commitments.unhandledNotHere', 409, await unhandledPost(request('/api/mobile/commitments/unhandled', {
+      body: { action: 'dismiss', commitmentId: 'fixture-unhandled-task' }, uid: UNHANDLED_USER,
+    })));
 
     // ── the device calendar (UC-3.1, #185) ─────────────────────────
     // Recorded in the order the app performs them: claim the link, read the
