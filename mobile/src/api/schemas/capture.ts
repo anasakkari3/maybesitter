@@ -552,7 +552,7 @@ export type CaptureChatTurn = z.infer<typeof captureChatTurnSchema>;
 
 /**
  * Lane E3: the chat's gentle question about «ما اتصرّفت فيها»
- * (`capture.chatFollowUp.json`). The server chose the items (at most two) and
+ * (`capture.chatFollowUp.json`). The server chose the item (one at most) and
  * counted the ask; the phone words it. A malformed one is dropped, never a
  * refusal of the answer it rides on.
  */
@@ -562,7 +562,7 @@ export const captureChatFollowUpSchema = z.object({
     title: z.string(),
     reason: z.enum(['event_ended', 'deadline_passed']),
     since: z.string().datetime({ offset: true }),
-  })).min(1).max(2),
+  })).min(1).max(1),
 });
 
 export type CaptureChatFollowUp = z.infer<typeof captureChatFollowUpSchema>;

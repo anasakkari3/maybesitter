@@ -15,17 +15,23 @@ import type { ChatFollowUpState } from './captureMachine';
  * The chat's gentle question about «ما اتصرّفت فيها» (owner decision
  * 2026-11-12, spec Part 1, design item 3, lane E3).
  *
- * The server chose the items (at most two, none asked twice before, none
- * dismissed) and counted the ask; the words are here, in the app's language.
- * It says when, never how late, and asks what came of it — no blame and no
- * lateness word (mobile/AGENTS.md: there is no "overdue").
+ * The server chose the item (one, not asked twice before, not dismissed)
+ * and counted the ask; the words are here, in the app's language. It says
+ * when, never how late, and asks what came of it — no blame and no lateness
+ * word (mobile/AGENTS.md: there is no "overdue").
  *
- * Every answer is the person's own, explicit tap, through what the place
- * itself uses: done and «أسقطه بوعي» are the commitment's actions, a new date
- * is the postpone sheet, «لا تسألني عنها» is the dismiss route. «في إشي، رح
- * احكيلك» puts the person back in the field: what they say becomes a normal
- * proposal they confirm as usual. «تخطّى» writes nothing. All answers have the
- * same weight; each target is at least 44 points and its label names the item.
+ * ── Few choices, one of them first (owner review 2026-11-19) ─────
+ *
+ *   - one primary answer: an appointment's «في إشي، رح احكيلك», which puts the
+ *     person back in the field — what they say becomes a normal proposal
+ *     they confirm as usual — and a deadline's «تمّ»;
+ *   - «خيارات تانية» opens the rest: a new date (the postpone sheet),
+ *     «أسقطه بوعي» (a quiet surface, never the primary answer's look) and
+ *     «لا تسألني عنها» (plain text, the dismiss route);
+ *   - «تخطّى», plain text, closes the question and writes nothing.
+ *
+ * Every answer is the person's own tap through what the place itself uses.
+ * Each target is at least 44 points and its label names the item.
  */
 
 type FollowUpCopy = {
@@ -62,6 +68,7 @@ export function ChatFollowUpActions({ followUp, onSkip, onAnswered, onTell }: {
   const dismiss = useDismissUnhandled();
   const refresh = useRefreshUnhandled();
   const [postponing, setPostponing] = useState<{ id: string; title: string } | null>(null);
+  const [more, setMore] = useState(false);
   const [failed, setFailed] = useState<string | null>(null);
   // Held synchronously: two taps in one frame both see `isPending` false.
   const inFlight = useRef(false);
@@ -84,27 +91,29 @@ export function ChatFollowUpActions({ followUp, onSkip, onAnswered, onTell }: {
 
   const open = followUp.items.filter((item) => !followUp.answered.includes(item.commitmentId));
   return (
-    <View testID="chat-follow-up-answers" style={{ gap: 12, alignSelf: 'stretch', alignItems: 'flex-start' }}>
+    <View testID="chat-follow-up-answers" style={{ gap: 8, alignSelf: 'stretch', alignItems: 'flex-start' }}>
       {open.map((item) => {
         const id = item.commitmentId;
         return (
-          <View key={id} testID={`chat-follow-up-item-${id}`} style={{ gap: 6, alignItems: 'flex-start' }}>
-            <Txt size={13} weight={600} testID={`chat-follow-up-title-${id}`}>{isolateAuto(item.title)}</Txt>
+          <View key={id} testID={`chat-follow-up-item-${id}`} style={{ gap: 8, alignItems: 'flex-start' }}>
             {failed === id ? <Txt size={13} color={p.wm} testID={`chat-follow-up-failed-${id}`}>{t.errorsGeneric}</Txt> : null}
-            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
               {item.reason === 'event_ended'
-                ? <FollowUpAction testID={`chat-follow-up-tell-${id}`} label={t.chatFollowUpTell} item={item.title} disabled={busy}
+                ? <FollowUpAction kind="primary" testID={`chat-follow-up-tell-${id}`} label={t.chatFollowUpTell} item={item.title} disabled={busy}
                   onPress={() => { onAnswered(id); onTell(); }} />
-                : null}
-              <FollowUpAction testID={`chat-follow-up-done-${id}`} label={t.done} item={item.title} disabled={busy}
-                onPress={() => run(id, () => act.mutateAsync({ id, action: 'complete' }), t.toastDone)} />
-              <FollowUpAction testID={`chat-follow-up-new-date-${id}`} label={t.unhandledNewDate} item={item.title} disabled={busy}
-                onPress={() => setPostponing({ id, title: item.title })} />
-              <FollowUpAction testID={`chat-follow-up-drop-${id}`} label={t.dropIt} item={item.title} disabled={busy}
-                onPress={() => run(id, () => act.mutateAsync({ id, action: 'cancel' }), t.toastDrop)} />
-              <FollowUpAction testID={`chat-follow-up-dont-ask-${id}`} label={t.unhandledDontAsk} item={item.title} disabled={busy}
-                onPress={() => run(id, () => dismiss.mutateAsync(id), t.toastUnhandledDismissed)} />
+                : <FollowUpAction kind="primary" testID={`chat-follow-up-done-${id}`} label={t.chatFollowUpDone} item={item.title} disabled={busy}
+                  onPress={() => run(id, () => act.mutateAsync({ id, action: 'complete' }), t.toastDone)} />}
+              <FollowUpAction kind="secondary" testID={`chat-follow-up-more-${id}`} label={t.chatFollowUpMore} item={item.title} disabled={busy}
+                expanded={more} onPress={() => setMore((open) => !open)} />
             </View>
+            {more ? <View testID={`chat-follow-up-options-${id}`} style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
+              <FollowUpAction kind="secondary" testID={`chat-follow-up-new-date-${id}`} label={t.unhandledNewDate} item={item.title} disabled={busy}
+                onPress={() => setPostponing({ id, title: item.title })} />
+              <FollowUpAction kind="secondary" testID={`chat-follow-up-drop-${id}`} label={t.dropIt} item={item.title} disabled={busy}
+                onPress={() => run(id, () => act.mutateAsync({ id, action: 'cancel' }), t.toastDrop)} />
+              <FollowUpAction kind="text" testID={`chat-follow-up-dont-ask-${id}`} label={t.unhandledDontAsk} item={item.title} disabled={busy}
+                onPress={() => run(id, () => dismiss.mutateAsync(id), t.toastUnhandledDismissed)} />
+            </View> : null}
           </View>
         );
       })}
@@ -123,30 +132,40 @@ export function ChatFollowUpActions({ followUp, onSkip, onAnswered, onTell }: {
   );
 }
 
-function FollowUpAction({ label, item, onPress, disabled, testID }: {
+/**
+ * `primary`: the accent, for the one answer the question expects. `secondary`:
+ * the quiet surface. `text`: no surface at all. Every one is 44 points.
+ */
+function FollowUpAction({ label, item, onPress, disabled, testID, kind, expanded }: {
   label: string;
   /** Named in the accessibility label, so a screen reader says which item this answers. */
   item: string;
   onPress: () => void;
   disabled: boolean;
   testID: string;
+  kind: 'primary' | 'secondary' | 'text';
+  /** «خيارات تانية»: whether the other answers are open. */
+  expanded?: boolean;
 }) {
   const { p } = useApp();
+  const surface = kind === 'primary' ? { backgroundColor: p.ac, borderRadius: 14, paddingHorizontal: 16 }
+    : kind === 'secondary' ? { backgroundColor: p.sf2, borderRadius: 14, paddingHorizontal: 14 }
+      : { paddingHorizontal: 4 };
   return (
     <Btn
       testID={testID}
       label={`${label}: ${item}`}
       onPress={disabled ? undefined : onPress}
       disabled={disabled}
-      accessibilityState={{ disabled }}
+      accessibilityState={{ disabled, ...(expanded === undefined ? {} : { expanded }) }}
       scaleTo={0.97}
       style={{
-        minHeight: 44, minWidth: 44, justifyContent: 'center',
-        backgroundColor: p.sf2, borderRadius: 14, paddingVertical: 10, paddingHorizontal: 14,
-        opacity: disabled ? 0.5 : 1, alignItems: 'flex-start',
+        minHeight: 44, minWidth: 44, justifyContent: 'center', paddingVertical: 10,
+        opacity: disabled ? 0.5 : 1, alignItems: 'flex-start', ...surface,
       }}
     >
-      <Txt size={13}>{label}</Txt>
+      <Txt size={13} weight={kind === 'primary' ? 600 : 400} color={kind === 'primary' ? p.onAccent : kind === 'text' ? p.mu : undefined}
+        style={kind === 'text' ? { textDecorationLine: 'underline', textDecorationColor: p.lnStrong } : undefined}>{label}</Txt>
     </Btn>
   );
 }
