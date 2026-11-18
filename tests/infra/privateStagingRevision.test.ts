@@ -380,10 +380,58 @@ test('an interrupt after the first deploy still restores the template', () => {
   assert.match(r.stderr, /restored/i);
 });
 
-test('a failed first deploy changes nothing else', () => {
+test('a failed first deploy is followed by one restore', () => {
+  // Cloud Run can write the template and still fail the deploy (a bad value
+  // that breaks the startup probe), so a failure here restores too.
   const r = run(CREATE_REAL, {}, { failDeploys: [1] });
-  assert.notEqual(r.status, 0);
-  assert.equal(deployCalls(r).length, 1, 'a restore ran although the template was never changed');
+  assert.equal(r.status, 4, `${r.status}\n${r.stderr}`);
+  const calls = deployCalls(r);
+  assert.equal(calls.length, 2, 'expected the failed deploy and exactly one restore');
+  assert.ok(calls[0]!.includes('--tag=qa-memoff'));
+  assert.ok(!calls[1]!.some((word) => word.startsWith('--tag')) && calls[1]!.includes(`--image=${TEMPLATE_DIGEST}`), 'the second deploy is not the restore');
+  assert.match(r.stderr, /restored/i);
+});
+
+test('an interrupt during the first deploy restores the template', () => {
+  const r = run(CREATE_REAL, {}, { termDeploys: [1] });
+  assert.equal(r.status, 4, `${r.status}\n${r.stderr}`);
+  const calls = deployCalls(r);
+  assert.equal(calls.length, 2, 'expected the interrupted deploy and exactly one restore');
+  assert.ok(!calls[1]!.some((word) => word.startsWith('--tag')), 'the second deploy is not the restore');
+});
+
+test('a failed first deploy and a failed restore print the ready command and exit 3', () => {
+  const r = run(CREATE_REAL, {}, { failDeploys: [1, 2] });
+  assert.equal(r.status, 3, `${r.status}\n${r.stderr}`);
+  assert.equal(deployCalls(r).length, 2);
+  assert.match(r.stderr, /^  gcloud run deploy /m);
+});
+
+test('an override of a secret-backed variable is refused', () => {
+  const r = run(['--name', 'x', '--set', 'MAYBESITTER_LLM_UID_SALT=plain', '--dry-run']);
+  refused(r, /refusing: MAYBESITTER_LLM_UID_SALT is a secret/, 'a secret override');
+  assert.deepEqual(deploys(r), []);
+});
+
+test('a template image without a digest is refused', () => {
+  const r = run(CREATE, { templateImage: TAGGED_IMAGE });
+  refused(r, /refusing: the service template's image .* is not pinned by digest/, 'a tagged template image');
+  assert.deepEqual(deploys(r), []);
+});
+
+test('template values with commas, equals signs and carets survive both deploys exactly', () => {
+  const tricky = { name: 'MAYBESITTER_SITE_ORIGINS', value: 'https://a.example,https://b.example' };
+  const equals = { name: 'MAYBESITTER_QA_NOTE', value: 'k=v=w' };
+  const caret = { name: 'MAYBESITTER_QA_CARET', value: '^x^,y' };
+  const templateEnv = [...defaultTemplateEnv(), tricky, equals, caret];
+  const r = run(CREATE, { templateEnv });
+  assert.equal(r.status, 0, r.stderr);
+  for (const words of deploys(r)) {
+    const env = new Map(envPairs(words));
+    assert.equal(env.get(tricky.name), tricky.value);
+    assert.equal(env.get(equals.name), equals.value);
+    assert.equal(env.get(caret.name), caret.value);
+  }
 });
 
 test('production is refused before any gcloud call', () => {
