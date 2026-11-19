@@ -82,6 +82,7 @@
     "profileProposals": [],
     "aiContextImports": [],
     "memoryDismissals": [],
+    "memorySummaries": [],
     "usage": [],
     "features": [],
     "plans": [],
