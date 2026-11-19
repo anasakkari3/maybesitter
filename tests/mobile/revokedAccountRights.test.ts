@@ -125,7 +125,7 @@ test('a deleted account is still refused by export and deletion', async () => {
   }
 });
 
-test('only the export and deletion routes admit a revoked account', async () => {
+test('only the export, deletion and resume routes admit a revoked account', async () => {
   // Any mention of the identifier counts — `allowRevoked: true`, the shorthand
   // `{ allowRevoked }`, a variable, a wrapper that forwards it — because each
   // is a way for a third caller to let a revoked account back into the
@@ -138,6 +138,8 @@ test('only the export and deletion routes admit a revoked account', async () => 
     'lib/auth/mobileAuth.ts',
     'src/app/api/mobile/account/route.ts',
     'src/app/api/mobile/account/export/route.ts',
+    // «رجّع حسابي»: the way back for an account locked before #873.
+    'src/app/api/mobile/account/resume/route.ts',
   ]);
   const found: string[] = [];
   const walk = (dir: string) => {
@@ -155,4 +157,135 @@ test('only the export and deletion routes admit a revoked account', async () => 
   assert.deepEqual(found.filter(file => !allowed.has(file)), [], 'allowRevoked is named outside its allow-list');
   // And the two routes really do use it: the rights tests above fail without.
   for (const file of Array.from(allowed)) assert.ok(found.includes(file), `${file} no longer names allowRevoked`);
+});
+
+/* ── «رجّع حسابي»: an account locked before #873 comes back (QA v3) ── */
+
+// Before #873, «وقّف» stamped `trust.revokedAt` and every route but export and
+// deletion answered 403 `revoked`. Accounts locked that way (qa-v3-d3-main,
+// maybe some in production) had no way back. `POST /api/mobile/account/resume`
+// clears the stamp for the caller's own account only: suggestions and learning
+// stay off until the person turns them on, and a deleted account never returns.
+
+async function resume(uid: string, init: RequestInit = {}): Promise<Response> {
+  const { POST } = await import('../../src/app/api/mobile/account/resume/route.ts');
+  return POST(authed(uid, '/api/mobile/account/resume', { method: 'POST', ...init }));
+}
+
+/** An account that agreed to both questions, then pressed the old «وقّف». */
+async function lockedAfterAgreeing(name: string): Promise<string> {
+  const { setRecommendationConsent, RECOMMENDATION_CONSENT_VERSION } = await import('../../lib/consents/recommendationConsentService.ts');
+  const { setPersonalizationConsent, PERSONALIZATION_CONSENT_VERSION } = await import('../../lib/consents/personalizationConsentService.ts');
+  const uid = uidFor(name);
+  const before = new Date(Date.now() - 2000);
+  await getOrCreateTrust(uid, before.toISOString());
+  await setRecommendationConsent(uid, { state: 'granted', version: RECOMMENDATION_CONSENT_VERSION, at: before });
+  await setPersonalizationConsent(uid, { state: 'granted', version: PERSONALIZATION_CONSENT_VERSION, at: before });
+  await applyTrustAction(uid, { type: 'revoke', at: new Date(Date.now() - 1000).toISOString() });
+  return uid;
+}
+
+test('a revoked account brings itself back, with suggestions and learning still off', async () => {
+  begin();
+  try {
+    const { getRecommendationConsent } = await import('../../lib/consents/recommendationConsentService.ts');
+    const { personalizationGrowthAllowed } = await import('../../lib/consents/personalizationConsentService.ts');
+    const { listAuditEvents, readTrust } = await import('../../lib/pilot/pilotTrustStore.ts');
+    const uid = await lockedAfterAgreeing('RevokedResume');
+    assert.equal((await profileGet(authed(uid, '/api/mobile/profile'))).status, 403);
+
+    const response = await resume(uid);
+    assert.equal(response.status, 200, 'a revoked account could not bring itself back');
+    assert.equal(auth!.lastForceRevocationCheck(), true);
+    const body = await response.json() as { success: boolean; trust: { revokedAt: string | null; recommendationConsent: boolean; analyticsConsent: boolean; calendarConsent: boolean } };
+    assert.equal(body.success, true);
+    assert.equal(body.trust.revokedAt, null);
+    assert.equal(body.trust.recommendationConsent, false);
+    assert.equal(body.trust.analyticsConsent, false);
+    assert.equal(body.trust.calendarConsent, false);
+    assert.equal((await readTrust(uid))?.revokedAt, null);
+
+    // The account answers again.
+    assert.equal((await profileGet(authed(uid, '/api/mobile/profile'))).status, 200);
+    // The yes given before the lock is not silently back.
+    assert.equal(await getRecommendationConsent(uid), 'declined');
+    assert.equal(await personalizationGrowthAllowed(uid), false);
+
+    // One audit line, codes only.
+    const lines = (await listAuditEvents(uid)).filter((event) => event.reasonCode === 'resume_account');
+    assert.equal(lines.length, 1);
+    assert.deepEqual(Object.keys(lines[0]!).sort(), ['eventType', 'occurredAt', 'outcome', 'participantId', 'reasonCode', 'version']);
+  } finally {
+    end();
+  }
+});
+
+test('resuming an account that is not revoked changes nothing and writes nothing', async () => {
+  begin();
+  try {
+    const { listAuditEvents, readTrust } = await import('../../lib/pilot/pilotTrustStore.ts');
+    const uid = uidFor('NotRevokedResume');
+    await getOrCreateTrust(uid, new Date(Date.now() - 1000).toISOString());
+    const before = await readTrust(uid);
+    const response = await resume(uid);
+    assert.equal(response.status, 200);
+    assert.deepEqual(await readTrust(uid), before);
+    assert.equal((await listAuditEvents(uid)).length, 0);
+  } finally {
+    end();
+  }
+});
+
+test('a deleted account is never brought back', async () => {
+  begin();
+  try {
+    const { readTrust } = await import('../../lib/pilot/pilotTrustStore.ts');
+    const uid = uidFor('DeletedResume');
+    await getOrCreateTrust(uid, new Date(Date.now() - 2000).toISOString());
+    await applyTrustAction(uid, { type: 'revoke', at: new Date(Date.now() - 1000).toISOString() });
+    await applyTrustAction(uid, { type: 'delete', at: new Date().toISOString() });
+    const response = await resume(uid);
+    assert.equal(response.status, 403);
+    assert.equal((await response.json() as { reason: string }).reason, 'deleted');
+    const after = await readTrust(uid);
+    assert.ok(after?.deletedAt);
+    assert.ok(after?.revokedAt, 'a deleted account had its revocation cleared');
+
+    // And one swept by the real deletion is not re-created by a resume.
+    const swept = await revoked('SweptResume');
+    const deleted = await accountDelete(authed(swept, '/api/mobile/account', {
+      method: 'DELETE',
+      body: JSON.stringify({ confirmation: 'delete-my-account' }),
+    }));
+    assert.equal(deleted.status, 200);
+    const again = await resume(swept);
+    assert.notEqual(again.status, 200);
+    assert.equal(await getStorage().get(userDoc(swept)), null, 'a resume re-created a deleted account');
+  } finally {
+    end();
+  }
+});
+
+test('a resume only ever reaches the caller\'s own account', async () => {
+  begin();
+  try {
+    const { readTrust } = await import('../../lib/pilot/pilotTrustStore.ts');
+    const mine = await revoked('ResumeMine');
+    const theirs = await revoked('ResumeTheirs');
+    const response = await resume(mine, {
+      body: JSON.stringify({ uid: theirs, participantId: theirs }),
+      headers: { 'Content-Type': 'application/json' },
+    });
+    assert.equal(response.status, 200);
+    assert.equal((await readTrust(mine))?.revokedAt, null);
+    assert.ok((await readTrust(theirs))?.revokedAt, 'another account was resumed');
+
+    // Without a token there is no account to resume.
+    const { POST } = await import('../../src/app/api/mobile/account/resume/route.ts');
+    const anonymous = await POST(new Request(`${baseUrl}/api/mobile/account/resume`, { method: 'POST' }));
+    assert.equal(anonymous.status, 401);
+    assert.ok((await readTrust(theirs))?.revokedAt);
+  } finally {
+    end();
+  }
 });
