@@ -31,6 +31,8 @@ import type { EscalationCeiling } from '../reminders/policy';
 import { SettingsHeader, SettingsRow } from './SettingsChrome';
 import { Disclosure } from '../../ui/Disclosure';
 import { markErrorShown } from '../../api/ui/userFacingMessage';
+import { LiveRegion } from '../../ui/liveRegion';
+import { useAnnounceOnIos } from '../../ui/announce';
 
 /**
  * Everything this app may put on somebody's lock screen, in one place:
@@ -127,6 +129,11 @@ export function NotificationsSettingsScreen({ onBack }: { onBack: () => void }) 
   const permissionRead = useRef(0);
   const [failed, setFailed] = useState(false);
   const [picking, setPicking] = useState(false);
+  // iOS draws the wheel inline and reports every stop: the stops are a draft,
+  // saved once when the person closes it (C12.9 a/b).
+  const [draftTime, setDraftTime] = useState<string | null>(null);
+  const [timeFailed, setTimeFailed] = useState(false);
+  useAnnounceOnIos(timeFailed ? t.notifSaveFailed : null);
   const [explainingHard, setExplainingHard] = useState(false);
   // Bumped when the app comes back to the foreground, so the exact-alarm note
   // re-reads a permission the user may just have granted in system settings.
@@ -196,6 +203,19 @@ export function NotificationsSettingsScreen({ onBack }: { onBack: () => void }) 
   const plan = planSettings.data ?? null;
   const zone = plan?.timezone ?? device;
   const deliveryLocalTime = plan?.deliveryLocalTime ?? null;
+  // The time is written alone (C12.9 d): re-sending the cached `enabled` would
+  // undo another device's switch. A failure is said, not swallowed (c).
+  const saveTime = (chosen: string) => {
+    if (chosen === deliveryLocalTime) return;
+    setTimeFailed(false);
+    savePlan.mutate({ deliveryLocalTime: chosen }, { onError: () => setTimeFailed(true) });
+  };
+  const openTimePicker = () => { setDraftTime(null); setPicking(true); };
+  const closeTimePicker = () => {
+    setPicking(false);
+    if (draftTime !== null) saveTime(draftTime);
+    setDraftTime(null);
+  };
 
   const next = plan?.nextRunAt
     // Only the time is left-to-right: the whole line in `ltr()` read
@@ -603,7 +623,7 @@ export function NotificationsSettingsScreen({ onBack }: { onBack: () => void }) 
             label={t.planMorningTime}
             value={deliveryLocalTime ? ltr(deliveryLocalTime) : t.planMorningOff}
             testID="plan-delivery-time"
-            onPress={plan === null ? undefined : () => setPicking(true)}
+            onPress={plan === null ? undefined : () => (picking ? closeTimePicker() : openTimePicker())}
           />
           {next ? (
             <View style={{ paddingHorizontal: 18, paddingBottom: 14 }}>
@@ -656,14 +676,24 @@ export function NotificationsSettingsScreen({ onBack }: { onBack: () => void }) 
             negativeButton={{ label: t.cancel, textColor: p.mu }}
             display="spinner"
             onChange={(event, value) => {
-              setPicking(Platform.OS === 'ios');
+              if (Platform.OS === 'ios') {
+                if (event.type !== 'dismissed' && value) setDraftTime(timeShown(value));
+                return;
+              }
+              setPicking(false);
               if (event.type === 'dismissed' || !value) return;
-              const chosen = timeShown(value);
-              if (chosen === deliveryLocalTime) return;
-              savePlan.mutate({ enabled: plan?.enabled === true, deliveryLocalTime: chosen });
+              saveTime(timeShown(value));
             }}
           />
         ) : null}
+        {picking && deliveryLocalTime && Platform.OS === 'ios' ? (
+          <View style={{ alignItems: 'flex-start' }}>
+            <Pill testID="plan-delivery-done" label={t.ok} kind="accent" onPress={closeTimePicker} />
+          </View>
+        ) : null}
+        <LiveRegion assertive>
+          {timeFailed ? <Txt size={13} color={p.wm} testID="plan-delivery-time-failed">{t.notifSaveFailed}</Txt> : null}
+        </LiveRegion>
 
         {failed ? (
           <Txt size={13} color={p.wm} testID="notifications-save-failed">{t.notifSaveFailed}</Txt>

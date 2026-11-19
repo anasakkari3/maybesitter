@@ -44,10 +44,13 @@ export async function PUT(request: Request) {
   // `null` is JSON; reading `.enabled` off it was a 500 rather than this 400.
   if (!body || typeof body !== 'object' || Array.isArray(body)) return mobileError('Invalid JSON request body');
 
-  // `enabled` may be left out only by a write that is about the replanning
-  // switch (#523) — which then leaves the morning delivery untouched. Every
-  // other PUT still has to say whether the morning plan is on.
-  const replanOnly = body.enabled === undefined && body.continuousReplanEnabled !== undefined;
+  // `enabled` may be left out by a write that is about the replanning switch
+  // (#523) or about the delivery time alone (C12.9 d) — either then leaves
+  // the morning switch as stored, so a phone never re-sends a cached `enabled`
+  // that another device has since changed. A PUT naming none of the three is
+  // still refused.
+  const replanOnly = body.enabled === undefined
+    && (body.continuousReplanEnabled !== undefined || body.deliveryLocalTime !== undefined);
   if (!replanOnly && typeof body.enabled !== 'boolean') return mobileError('enabled must be a boolean');
   if (body.deliveryLocalTime !== undefined && typeof body.deliveryLocalTime !== 'string') {
     return mobileError('deliveryLocalTime must be a string');
