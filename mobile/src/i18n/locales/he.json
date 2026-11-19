@@ -1928,7 +1928,7 @@
   "xPlanConfirmN": "{n, plural, one{שמור צעד אחד} two{שמור שני צעדים} other{שמור # צעדים}}",
   "xPlanBackToPlan": "חזרה לתוכנית",
   "xPlanSavedTitle": "התוכנית נשמרה",
-  "xPlanNothingSavedTitle": "עדיין לא נשמר כלום",
+  "xPlanNothingSavedTitle": "לא נשמר כלום כרגע",
   "xPlanSavedStepsN": "{n, plural, one{צעד אחד נמצא עכשיו בהיום או בימים הקרובים.} two{שני צעדים נמצאים עכשיו בהיום או בימים הקרובים.} other{# צעדים נמצאים עכשיו בהיום או בימים הקרובים.}}",
   "xPlanSavedHabitsN": "{n, plural, one{צעד אחד שחוזר נמצא עכשיו בהרגלים, תחת הדברים שלי.} two{שני צעדים שחוזרים נמצאים עכשיו בהרגלים, תחת הדברים שלי.} other{# צעדים שחוזרים נמצאים עכשיו בהרגלים, תחת הדברים שלי.}}",
   "xPlanStayedTitle": "נשארו הצעות",
