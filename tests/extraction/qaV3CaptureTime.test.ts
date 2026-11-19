@@ -493,3 +493,30 @@ for (const [label, provider] of [['rules', undefined], ['a model titled X', scri
     assert.equal(contract.items[0]!.clarification?.questionKey, 'ask_action');
   });
 }
+
+/* ── Second review round: the mutants that survived ───────────────────── */
+
+test('review #872 (R6): «الأسبوع الجاي: الاثنين» said on a Sunday is the Monday of the week after, not tomorrow', () => {
+  // Sunday 22 November, 10:00: next week is Sunday 29 to Saturday 5 December.
+  const sunday = { now: new Date('2026-11-22T08:00:00.000Z'), timezone: TZ };
+  const result = validateExtractionResult(modelTask('مقابلة شغل', '2026-12-01', '10:00'), MONDAY_TEXT, sunday);
+  assert.equal(result.localTimeSpec?.date, '2026-11-30');
+});
+
+for (const text of [
+  // N2: the obligation itself negated, then a not-done.
+  'ما كان لازم أدفع الفاتورة وما دفعتها',
+  // N4: the second person's obligation, whose past reads like the speaker's.
+  'كان لازم تتصل فيي وما اتصلت',
+  // N5: the not-done words are another sentence's.
+  'مبارح كان لازم أدفع الإيجار ودفعته. ما دفعت الكهربا لأنها مش عليّ',
+]) {
+  test(`review #872 (round 2): «${text}» is not a missed thing`, () => {
+    assert.equal(isMissedObligation(text), false);
+  });
+}
+
+test('review #872 (R4): a list head right before a digit is still a head — «بكرا:5 المسا»', async () => {
+  const { contract } = await propose('بكرا:5 المسا اتصل بأمي، الساعة 7 المسا اشتري خبز');
+  assert.deepEqual(contract.items.map((item) => item.resolvedDate), [TOMORROW, TOMORROW]);
+});
