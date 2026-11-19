@@ -366,3 +366,15 @@ test('round 4: an opening filler is still allowed («So I was supposed to…»)'
   assert.equal(isMissedObligation("So I was supposed to call the bank and I didn't"), true);
   assert.equal(isMissedObligation("Today I was supposed to call the bank and I didn't"), true);
 });
+
+for (const [text, label] of [
+  ['كان لازم أدفع الإيجار أسبوعياً وما دفعته', 'a weekly recurrence (W1)'],
+  ['كان لازم أطبع الأوراق وما طبخت', 'another verb sharing only the first two letters (W14)'],
+  ["I was supposed to call mom but it rained and I didn't", 'somebody else in between (W20)'],
+  ["I was supposed to pay the bill and I didn't call", 'another English verb not done (W21)'],
+  ['كان لازم أدفع الفاتورة، وما دفعت الإيجار لأنه مش علي', 'the not-done words in another clause (W32)'],
+] as const) {
+  test(`round 4 (coverage): «${text}» (${label}) is not a missed thing`, () => {
+    assert.equal(isMissedObligation(text), false);
+  });
+}
