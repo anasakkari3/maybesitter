@@ -127,7 +127,8 @@ describe('«وقّف مشاركتك» on the trust centre', () => {
     jest.spyOn(consentEndpoints, 'getConsents').mockRejectedValue(new Error('unreachable') as never);
     await show();
     await waitFor(() => expect(screen.queryByTestId('trust-revoke')).not.toBeNull());
-    expect(screen.getByTestId('trust-revoke').props.accessibilityState?.disabled).toBe(true);
+    // Still offered: pressing it reads again (trustReadFailure.test.tsx).
+    await waitFor(() => expect(screen.getByTestId('trust-revoke').props.accessibilityState?.disabled).not.toBe(true));
     expect(screen.queryByTestId('trust-resume')).toBeNull();
     expect(screen.queryByTestId('trust-revoked')).toBeNull();
   });

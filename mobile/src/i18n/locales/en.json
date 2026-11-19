@@ -394,6 +394,7 @@
   "trustResumed": "Suggestions and learning are back on.",
   "trustStopPartial": "Suggestions are off, but learning is still on. Try again.",
   "trustResumePartial": "Learning is back on, but suggestions are still off. Try again.",
+  "trustStopUnreadable": "We couldn't read your settings just now, so nothing was stopped. Try again.",
   "trustReportTitle": "Report a pilot issue",
   "trustReportBody": "Choose where it happened and what went wrong. This report sends only those choices, without your private content.",
   "trustReportOpen": "Report an issue",
