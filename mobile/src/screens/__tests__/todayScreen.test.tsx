@@ -38,7 +38,7 @@ import * as language from '../../i18n/language';
 import { fill, ltr } from '../../i18n/strings';
 import { Txt } from '../../ui/primitives';
 import { createAppQueryClient } from '../../api/queryClient';
-import { NetworkError, ServerError } from '../../api/errors';
+import { ForbiddenError, NetworkError, ServerError } from '../../api/errors';
 import { MutationFailureToasts } from '../../api/ui/MutationFailureToasts';
 import quietHoursFixture from '../../api/__fixtures__/nextStep.quietHours.json';
 import profileFixture from '../../api/__fixtures__/profile.one.json';
@@ -1097,6 +1097,16 @@ describe('a refresh that fails after the day loaded', () => {
     expect(screen.queryByTestId('today-item-kept')).not.toBeNull();
     expect(screen.queryByTestId('query-error')).toBeNull();
     expect(within(screen.getByTestId('today-refresh-failed')).getByText(en.errorsRetry)).toBeTruthy();
+  });
+
+  it('a refusal that is the account\'s own state still replaces the day, with no retry', async () => {
+    await show([item({ id: 'kept' })]);
+    await waitFor(() => expect(screen.queryByTestId('today-item-kept')).not.toBeNull());
+    jest.spyOn(commitmentEndpoints, 'listToday').mockRejectedValue(new ForbiddenError('no', 'revoked') as never);
+    await act(async () => { await client.refetchQueries(); });
+    await waitFor(() => expect(screen.queryByTestId('query-error')).not.toBeNull());
+    expect(screen.queryByTestId('today-refresh-failed')).toBeNull();
+    expect(screen.queryByTestId('today-item-kept')).toBeNull();
   });
 
   it('a first load that fails still says only the failure', async () => {
