@@ -49,6 +49,13 @@ import { resolveFreshReadiness } from '../../integrations/readiness/freshReadine
 import { storedReadinessContext } from '../../userState/userStateService';
 import { getStorage } from '../../storage';
 import { userDoc } from '../../storage/paths';
+import { RECOMMENDATION_CONSENT_VERSION, setRecommendationConsent } from '../../consents/recommendationConsentService';
+import {
+  PERSONALIZATION_CONSENT_VERSION,
+  PersonalizationConsentNotRecordedError,
+  PersonalizationWithdrawalBusyError,
+  setPersonalizationConsent,
+} from '../../consents/personalizationConsentService';
 
 type MobilePilotSource = Record<string, unknown>;
 
@@ -595,18 +602,68 @@ export async function getMobilePilotTrust(participantId: string) {
   };
 }
 
+/**
+ * «وقّف مشاركتك» — stop suggestions and learning (V3-F35-07).
+ *
+ * The card's words were always «MaybeSitter بيوقف يقترح ويوقف يتعلّم منك.
+ * بياناتك بتضل», but the `revoke` it sent stamped `trust.revokedAt`, and
+ * `requireMobileUser` then refused the account on every route: the app became
+ * «هالحساب موقوف» with no way back. Owner decision 2026-11-19: it must not
+ * lock the account, only stop suggestions and learning.
+ *
+ * So on this route `revoke` — which every installed build still sends —
+ * declines the two launch consents those words name, the switches the product
+ * already obeys: next-step and proactive suggestions read the recommendation
+ * consent, outcome learning and memory growth read the personalization one.
+ * Both are reversible from the same screen. The account stays live; deleting
+ * it and exporting it are the account routes, unchanged.
+ *
+ * Suggestions first, then learning: a failure between the two leaves the
+ * person with less switched on than before, never more. Each write is audited
+ * and fenced against a deleted account by the consent service itself.
+ * `trust.revokedAt` is no longer written by any mobile route; a record that
+ * already carries one (an account locked before this fix) keeps the revoked
+ * screen and its two data rights.
+ */
+async function stopSuggestionsAndLearning(participantId: string, at: string): Promise<void> {
+  const when = new Date(at);
+  await setRecommendationConsent(participantId, { state: 'declined', version: RECOMMENDATION_CONSENT_VERSION, at: when });
+  try {
+    await setPersonalizationConsent(participantId, { state: 'declined', version: PERSONALIZATION_CONSENT_VERSION, at: when });
+  } catch (error) {
+    if (error instanceof PersonalizationWithdrawalBusyError) {
+      throw new MobilePilotError('a deletion is still running', 503, 'purge_running');
+    }
+    if (error instanceof PersonalizationConsentNotRecordedError) {
+      throw new MobilePilotError('consent could not be recorded', 503, 'consent_not_recorded');
+    }
+    throw error;
+  }
+}
+
 export async function updateMobilePilotTrust(participantId: string, input: MobilePilotSource) {
   const at = new Date().toISOString();
   const access = await resolveUserAccess(participantId, at, false);
   if (!access.trust) throw new MobilePilotError('participant is not admitted to this pilot instance', 403, access.decision.reason);
   const action = trustAction(input.action, at);
+  if (action.type === 'revoke') {
+    await stopSuggestionsAndLearning(participantId, at);
+    return {
+      success: true,
+      participantId,
+      trust: access.trust,
+      exposure: access.decision,
+      whatKnows: buildWhatMaybeSitterKnows({
+        trust: access.trust,
+        confirmedCommitmentCount: await confirmedCommitmentCount(participantId),
+      }),
+    };
+  }
   // No `data_deleted` branch: `delete` is refused when the action is parsed
   // (#149), so it cannot reach here. Account deletion writes its own audit.
-  const eventType = action.type === 'set_quiet_mode'
-    ? 'quiet_mode_changed'
-    : action.type === 'revoke'
-      ? 'revoked'
-      : 'consent_changed';
+  // No `revoked` branch either: `revoke` is answered above and never stamps
+  // the trust record (V3-F35-07).
+  const eventType = action.type === 'set_quiet_mode' ? 'quiet_mode_changed' : 'consent_changed';
   // The change and its audit line in one transaction that requires a live
   // account (#772, Q772C-002): an append after the commit could re-create the
   // audit collection under an account deleted in between, and still answer

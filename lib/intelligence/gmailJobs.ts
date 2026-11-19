@@ -1,4 +1,5 @@
 import { decideFeature, refuses } from '../features/featureGate';
+import { getRecommendationConsent, recommendationGrantedIn } from '../consents/recommendationConsentService';
 import { featureHooksFor, msUntilNextMonth } from '../features/providerGate';
 import { randomUUID } from 'node:crypto';
 import { LLMUnavailableError } from '../../src/extraction/llm';
@@ -6,7 +7,7 @@ import { requireReadableFeature } from '../integrations/google/googleConnectServ
 import { googleRuntime, type GoogleRuntime } from '../integrations/google/googleRuntime';
 import {
   BUSY_SOURCE_FENCES, INTELLIGENCE_GMAIL_SCANS, INTELLIGENCE_MONITORS,
-  INTELLIGENCE_SOURCE_MARKERS, PROVIDER_CONNECTIONS, userCol, userSubDoc, type StorageAdapter,
+  INTELLIGENCE_SOURCE_MARKERS, PROVIDER_CONNECTIONS, userCol, userDoc, userSubDoc, type StorageAdapter,
 } from '../storage';
 import type { BusySourceReplacementFence } from '../calendar/busyBlocks';
 import { parseM5aControls, M5A_CONTROLS_PATH, m5aEnvironmentCapability } from '../release/m5aControls';
@@ -275,13 +276,17 @@ async function proposalStep(uid: string, runtime: GoogleRuntime, overrides: Gmai
   const emailEpoch = controlsAtClaim.email.epoch;
   const assertAuthority = async (tx?: StorageTransaction): Promise<GmailMonitor> => {
     const reader = tx ?? runtime.storage;
-    const [current, controls, connection, paused] = await Promise.all([
+    const [current, controls, connection, paused, user] = await Promise.all([
       reader.get<GmailMonitor>(path),
       reader.get<unknown>(M5A_CONTROLS_PATH),
       reader.get<IntegrationConnectionRecord>(userSubDoc(uid, PROVIDER_CONNECTIONS, connectionIdFor('google'))),
       isMonitoringPaused(uid, runtime.storage, tx),
+      reader.get<unknown>(userDoc(uid)),
     ]);
     const parsed = parseM5aControls(controls);
+    // «وقّف» while this step runs (review of #873): suggestions stopped is an
+    // authority change like a pause — no further model call, nothing stored.
+    if (!recommendationGrantedIn(user)) throw new Error('proposal_guard_changed');
     if (!current?.enabled || !current.proposalsPending || current.generation !== monitor.generation
       || current.m5?.providerAccountId !== monitor.m5!.providerAccountId || paused
       || !parsed?.email.enabled || parsed.email.epoch !== emailEpoch
@@ -297,6 +302,13 @@ async function proposalStep(uid: string, runtime: GoogleRuntime, overrides: Gmai
   try {
     if (await isMonitoringPaused(uid, runtime.storage)
       || await connectedGmailAccount(uid, runtime) !== monitor.m5.providerAccountId) { await defer(5 * 60_000); return false; }
+    // Suggestions are the person's to stop (V3-F35-07, review of #873). This
+    // step asks the model for suggestions from their mail, so it waits for the
+    // next-step suggestions consent the screens already hide suggestions
+    // under: no model call, no budget, no hidden rows that surface the moment
+    // suggestions come back on. Monitoring itself keeps its own switch; the
+    // pending work stays pending and is looked at again within the hour.
+    if (await getRecommendationConsent(uid, { storage: runtime.storage }) !== 'granted') { await defer(60 * 60_000); return false; }
     await (overrides.ensureReadable?.(uid) ?? requireReadableFeature(uid, 'gmail', runtime));
     // The Gmail add-on's monthly budget, before a permit is reserved: a month
     // the person's plan has spent waits for the next one without spending.
