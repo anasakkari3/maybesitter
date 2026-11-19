@@ -183,7 +183,11 @@ export class WatcherStore {
       orderBy: { field: 'firedAt', direction: 'desc' },
       limit,
     });
-    return rows.map((row) => row.data);
+    // Only this generation's: a watcher made again under its stable id does
+    // not inherit the firings of the one deleted before it (E3 review). Old
+    // firings are older, so they sit at the tail the limit cuts first.
+    const current = await this.get(watcherId);
+    return rows.map((row) => row.data).filter((event) => isCurrentGeneration(event, current));
   }
 
   async remove(watcherId: string): Promise<boolean> {
@@ -206,6 +210,16 @@ export class WatcherStore {
 export function stableWatcherId(uid: string, key: string): string {
   const hex = createHash('sha256').update(`${uid}\u0000${key}`).digest('hex');
   return `wtc_${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`;
+}
+
+/**
+ * Whether a firing belongs to the watcher now under its id. An event without
+ * `watcherCreatedAt` predates stable ids and so cannot belong to an earlier
+ * generation; one with it must match (E3 review).
+ */
+export function isCurrentGeneration(event: WatcherFireEvent, watcher: StoredWatcher | null | undefined): boolean {
+  if (!watcher || event.watcherCreatedAt === undefined) return true;
+  return event.watcherCreatedAt === watcher.definition.createdAt;
 }
 
 export function createWatcherStore(uid: string, storage?: StorageAdapter): WatcherStore {
