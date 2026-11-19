@@ -136,9 +136,20 @@ describe('the strip', () => {
   it('has no busy hatch and no legend for one', async () => {
     // No /api/mobile route returns calendar busy time. The legend would be
     // explaining a mark that never appears.
-    await show([], []);
+    await show([item('t', onDay(0))], []);
     expect(screen.queryByText(en.legendBusy)).toBeNull();
     expect(screen.queryByText(en.legendCommit)).not.toBeNull();
+  });
+
+  // V3-F16-04: an empty day's header read «اليوم • التزام» — a dot and the
+  // word, no number — which reads as "one commitment". The key is there only
+  // when the selected day has a commitment for it to name.
+  it('names the commitment dot only on a day that has a commitment', async () => {
+    await show([], [item('u', onDay(2))]);
+    expect(screen.queryByTestId('calendar-day-free')).not.toBeNull();
+    expect(screen.queryByText(en.legendCommit)).toBeNull();
+    await fireEvent.press(screen.getByTestId(`calendar-day-${shiftDayKey(TODAY_KEY, 2)}`));
+    await waitFor(() => expect(screen.queryByText(en.legendCommit)).not.toBeNull());
   });
 
   it('marks the days that have something on them', async () => {
@@ -424,7 +435,9 @@ describe('the legend names the must colour', () => {
 
   it('a week without one does not', async () => {
     await show([], [item('Call mom', onDay(2, 18))]);
-    await waitFor(() => expect(screen.queryByText(en.legendCommit)).not.toBeNull());
+    // The week has loaded: its one item has its bar (the «التزام» key is drawn
+    // only on a day with a commitment, V3-F16-04).
+    await waitFor(() => expect(screen.queryAllByTestId(`calendar-bar-${shiftDayKey(TODAY_KEY, 2)}`)).toHaveLength(1));
     expect(screen.queryByTestId('calendar-legend-must')).toBeNull();
   });
 });

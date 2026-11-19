@@ -2,7 +2,7 @@ import { dayProgress, importantDeadline, planPreview } from '../features/today/d
 import { DeadlineContext } from '../features/today/DeadlineContext';
 import { weekStripKeys } from '../features/commitments/weekStrip';
 import React, { useContext, useEffect, useMemo, useRef, useState } from 'react';
-import { RefreshControl, View } from 'react-native';
+import { AccessibilityInfo, RefreshControl, View } from 'react-native';
 import { useApp } from '../state/AppContext';
 import { isValidTimeZone, useTimeZone } from '../i18n/timezone';
 import { dayKey, formatDate, formatRelativeDay, formatTime } from '../i18n/format';
@@ -28,9 +28,10 @@ import { useConflictBusyBlocks } from '../features/google/useGoogle';
 import { busyAt } from '../features/calendar/conflicts';
 import type { DeviceBusyBlock } from '../features/calendar/busyBlocks';
 import { TodayPlanRow } from '../features/plan/TodayPlanRow';
-import { drawnAt, drawnClockAt, drawnWhenLine, dueAsideText, laterWhen, placeView, savedPlacements } from '../features/plan/savedPlacement';
+import { drawnAt, drawnClockAt, drawnWhenLine, dueAsideText, laterWhen, placeView, savedPlacements, withAcceptedPlan } from '../features/plan/savedPlacement';
 import { composeToday, isPostponedAway, nextRecomposeAt, type Primary } from '../features/today/composeToday';
-import { Btn, SaidWords, Txt } from '../ui/primitives';
+import { Btn, Pill, SaidWords, Txt } from '../ui/primitives';
+import { forbiddenReason, userFacingMessage } from '../api/ui/userFacingMessage';
 import { AvatarButton, SectionLabel, Tag, TextLink, priorityTagKind } from '../ui/chrome';
 import { CheckIcon } from '../ui/icons';
 import { isolateAuto } from '../i18n/bidi';
@@ -106,7 +107,8 @@ export function TodayScreen({ tabClearance = TAB_CLEARANCE }: { tabClearance?: n
   // Where the saved week days put things (FX1): a row shows that, and its own
   // due beside it, as the Calendar and Details do.
   const savedWeek = useSavedWeek();
-  const placements = useMemo(() => savedPlacements(savedWeek.data), [savedWeek.data]);
+  // …and where today's accepted plan put it (V3-F14-03).
+  const placements = useMemo(() => withAcceptedPlan(savedPlacements(savedWeek.data), plan.data), [savedWeek.data, plan.data]);
   // From the local cache (UC-3.2, #186). Today renders before any request has
   // finished, and a chip that arrived after the list would move rows about.
   // The phone's busy time and Google's (CL6a review I1).
@@ -264,6 +266,10 @@ export function TodayScreen({ tabClearance = TAB_CLEARANCE }: { tabClearance?: n
     return () => { gone = true; clearTimeout(timer); clearTimeout(retry); };
   }, [quietEndsAt, refetchNext]);
 
+  // A refusal that is the account's own state (revoked, deleted…) is not a
+  // failed refresh: QueryBoundary says it, in place of the day, as before.
+  const keptDay = today.data !== undefined && forbiddenReason(today.error) === null;
+
   const refresh = () => {
     setRefreshing(true);
     void Promise.all([today.refetch(), next.refetch(), plan.refetch(), upcoming.refetch(), savedWeek.refetch()]).finally(() => setRefreshing(false));
@@ -316,7 +322,11 @@ export function TodayScreen({ tabClearance = TAB_CLEARANCE }: { tabClearance?: n
 
         {showBar ? <CategoryBar chips={chips} selected={chip} onSelect={setChip} /> : null}
 
-        <QueryBoundary isPending={today.isPending} error={today.error} onRetry={() => void today.refetch()}>
+        {/* A refresh that fails after the day loaded keeps the day (V3-F08-02):
+            the failure is said above the rows, which stay. Only a first load
+            that fails is the failure alone. */}
+        {keptDay && today.error ? <RefreshFailed error={today.error} onRetry={() => void today.refetch()} /> : null}
+        <QueryBoundary isPending={today.isPending} error={keptDay ? null : today.error} onRetry={() => void today.refetch()}>
           {model.isEmpty ? (
             // No capture button here: the bar's own «احكيها» is the one way in,
             // and a second one competing with it was the audit's finding.
@@ -474,6 +484,25 @@ function EmptyDay() {
       </View>
       <Txt role="section" size={24} weight={700} align="center">{t.emptyTitle}</Txt>
       <Txt size={15} color={p.mu} align="center" lh={1.6} style={{ maxWidth: 320 }}>{t.emptyBody}</Txt>
+    </View>
+  );
+}
+
+/**
+ * The day could not be refreshed, and the last one loaded is still drawn
+ * below (V3-F08-02). Said to both screen readers when it appears, as
+ * QueryBoundary says a failure, with the same words and the same Retry.
+ */
+function RefreshFailed({ error, onRetry }: { error: unknown; onRetry: () => void }) {
+  const { t } = useApp();
+  const p = useReferencePalette();
+  const message = userFacingMessage(error, t);
+  useEffect(() => { AccessibilityInfo.announceForAccessibility(message); }, [message]);
+  return (
+    <View testID="today-refresh-failed" accessibilityRole="alert"
+      style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 10, padding: 14, borderRadius: 20, borderWidth: 1, borderColor: p.ln, backgroundColor: p.sf }}>
+      <Txt size={14} color={p.tx} style={{ flexShrink: 1, flexGrow: 1 }}>{message}</Txt>
+      <Pill label={t.errorsRetry} kind="outline" size={14} onPress={onRetry} />
     </View>
   );
 }

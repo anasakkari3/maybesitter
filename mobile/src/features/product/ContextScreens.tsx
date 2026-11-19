@@ -164,12 +164,14 @@ export function CommitmentsScreen() {
   const now = new Date().toISOString();
   const search$ = useCommitmentMatches(search, items);
   const needle = search$.needle.raw;
-  // Searching looks everywhere: the open/done filter and the hiding of
-  // dropped items are for browsing, and would hide exactly what a search for
-  // something finished or dropped is for (M6A-011). Matches keep their rank.
+  // Searching looks everywhere: the open/done filter is for browsing, and
+  // would hide exactly what a search for something finished or dropped is for
+  // (M6A-011). Matches keep their rank. Browsing, «الكل» is all of it: an item
+  // dropped on purpose is a settled item like a done one (V3-F08-01); the open
+  // and done filters name one status each, so neither holds it.
   const views = needle
     ? search$.commitments.map(item => toViewModel(item, now))
-    : items.map(item => toViewModel(item, now)).filter(item => item.status !== 'dropped' && (filter === 'all' || item.status === filter))
+    : items.map(item => toViewModel(item, now)).filter(item => filter === 'all' || item.status === filter)
       .sort((a,b) => (a.shownAt ?? '9999').localeCompare(b.shownAt ?? '9999') * (reverse ? -1 : 1));
   const settledLine = (id: string) => {
     const record = search$.commitments.find(item => item.id === id);

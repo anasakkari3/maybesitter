@@ -6,6 +6,7 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react-nativ
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { AppProvider } from '../../../state/AppContext';
 import { strings } from '../../../i18n/strings';
+import { formatClockRange } from '../../../i18n/format';
 import { GoalExecutionScreen, HabitDetailScreen } from '../ControlScreens';
 
 const mockConfirmGoal = jest.fn();
@@ -370,4 +371,25 @@ it('a met week says the person finished their count, in all three languages', ()
   expect(strings.ar.xHabitWeekDone).toBe('خلّصت عدّك لهالأسبوع');
   expect(strings.en.xHabitWeekDone).toBe("You've hit your count for this week");
   expect(strings.he.xHabitWeekDone).toBe('השלמת את המכסה של השבוע');
+});
+
+/**
+ * V3-F23-09: «الأوقات المفضّلة: 11:45–11:30». A window was joined as
+ * `${start}–${end}` with no isolate, so in an Arabic paragraph the two times
+ * swapped places around the dash. It is one left-to-right unit, the same as
+ * quiet hours (`formatClockRange`).
+ */
+it('a preferred window reads as one left-to-right range, start first', async () => {
+  mockHabits = [{ ...walk, preferredWindows: [{ start: '11:30', end: '11:45' }] }];
+  await render(wrap(<HabitDetailScreen />));
+  expect(screen.getByText(formatClockRange('11:30', '11:45'))).toBeTruthy();
+  expect(screen.queryByText('11:30–11:45')).toBeNull();
+});
+
+/** V3-F23-07: the list of habits was titled «تفاصيل العادة» (habit detail). */
+it('the habits list is titled with the name of the list, as the hub row that opens it', async () => {
+  mockHabits = [walk];
+  await render(wrap(<HabitDetailScreen />));
+  expect(screen.getByText(strings.en.thingsHabits)).toBeTruthy();
+  expect(screen.queryByText('Habit detail')).toBeNull();
 });

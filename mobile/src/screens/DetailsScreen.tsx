@@ -294,7 +294,8 @@ export function DetailsScreen() {
                   />
                 ) : null}
 
-                {!open ? <Txt size={13} color={p.mu} testID="details-closed-note">{t.detailsClosedNote}</Txt> : null}
+                {/* Dropped on purpose is its own ending, not «خلصت» (V3-F12-03). */}
+                {!open ? <Txt size={13} color={p.mu} testID="details-closed-note">{view?.status === 'dropped' ? t.detailsDroppedNote : t.detailsClosedNote}</Txt> : null}
 
                 {/* «ما عاد بدّك ياها؟»: two different answers, said differently.
                     A drop keeps it in the history; a deletion does not. Each is
