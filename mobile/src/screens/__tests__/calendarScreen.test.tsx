@@ -8,6 +8,7 @@
 import React from 'react';
 import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
 import { cleanup, render, screen, waitFor, fireEvent, act, within } from '@testing-library/react-native';
+import { resetLaterOffersForTests } from '../../features/plan/laterOffers';
 import { SafeAreaProvider, type Metrics } from 'react-native-safe-area-context';
 import { QueryClient, QueryClientProvider, onlineManager } from '@tanstack/react-query';
 import { StyleSheet, Text } from 'react-native';
@@ -95,6 +96,7 @@ beforeEach(() => {
 let savedWeek: SavedWeek;
 
 afterEach(() => {
+  resetLaterOffersForTests();
   client.clear();
   resetAuthForTests();
   jest.restoreAllMocks();
