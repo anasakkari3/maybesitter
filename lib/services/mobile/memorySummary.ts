@@ -85,9 +85,9 @@ function normalize(value: string): string {
 }
 
 /**
- * Arabic-Indic («٣») and Extended Arabic-Indic («۳») digits read as the Latin
- * digits they are (QA v3 V3-F26-01): «عندك ٣ محاضرات» says what «عندي 3
- * محاضرات» says. Any other numeral system is still refused below.
+ * Arabic-Indic («٣») and Extended Arabic-Indic («۳») digits as Latin ones, for
+ * the value a row holds when the person typed them (QA v3 V3-F26-01). A
+ * sentence that writes them is still refused (M5B-031).
  */
 function latinDigits(value: string): string {
   return value.replace(/[٠-٩]/g, (digit) => String(digit.charCodeAt(0) - 0x0660))
@@ -212,17 +212,23 @@ function tokenValue(token: string): string | null {
   return Number.isFinite(value) ? valueKey(value) : null;
 }
 
-/** Every number the cited rows hold, by value: their digits and their number words. */
-function citedValues(cited: readonly MemorySummaryInputRow[]): Set<string> {
-  const values = new Set<string>();
+/**
+ * Every number the cited rows hold, by value. `spelled` is what a sentence's
+ * digits may be checked against: the rows' number words and their
+ * Arabic-Indic digits, never their Latin digits — those are copied whole
+ * (R1.1: "9:00" against a cited "09:00" is refused). `all` adds the Latin
+ * digits, for a sentence's number words («تلات» for a row's 3).
+ */
+function citedValues(cited: readonly MemorySummaryInputRow[]): { spelled: Set<string>; all: Set<string> } {
+  const spelled = new Set<string>();
+  const all = new Set<string>();
+  const add = (set: Set<string>, token: string) => { const value = tokenValue(token); if (value !== null) set.add(value); };
   for (const row of cited) {
-    for (const token of numericTokens(latinDigits(row.text))) {
-      const value = tokenValue(token);
-      if (value !== null) values.add(value);
-    }
-    for (const word of words(row.text)) for (const value of wordValues(word, CARDINAL_VALUES)) values.add(value);
+    for (const token of numericTokens(row.text)) add(all, token);
+    for (const token of numericTokens(latinDigits(row.text.replace(/[0-9]/g, ' ')))) { add(spelled, token); add(all, token); }
+    for (const word of words(row.text)) for (const value of wordValues(word, CARDINAL_VALUES)) { spelled.add(value); all.add(value); }
   }
-  return values;
+  return { spelled, all };
 }
 
 function sentenceWordValues(word: string): string[] {
@@ -398,11 +404,13 @@ function sentenceValid(sentence: MemorySummarySentence, supplied: readonly Memor
   const cited = supplied.filter((row) => sentence.refs.includes(row.ref));
   // Numbers are compared by value with what the cited rows hold, never refused
   // for being numbers (QA v3 V3-F26-01): a value no cited row holds is invented.
-  const allowedNumbers = new Set(cited.flatMap((row) => numericTokens(latinDigits(row.text))));
+  // A sentence's own digits stay Latin (M5B-031: «١٢» is refused) and are
+  // copied whole from a row's digits (R1.1); they may also say a row's number
+  // word ("10" for «العاشرة»).
+  const allowedNumbers = new Set(cited.flatMap((row) => numericTokens(row.text)));
   const values = citedValues(cited);
-  const text = latinDigits(sentence.text);
-  if (numericTokens(text).some((token) => !allowedNumbers.has(token) && !values.has(tokenValue(token) ?? ''))) return false;
-  const withoutAsciiNumbers = text.replace(NUMBER, '');
+  if (numericTokens(sentence.text).some((token) => !allowedNumbers.has(token) && !values.spelled.has(tokenValue(token) ?? ''))) return false;
+  const withoutAsciiNumbers = sentence.text.replace(NUMBER, '');
   if (ANY_NUMBER.test(withoutAsciiNumbers)) return false;
 
   const sentenceWords = words(sentence.text);
@@ -412,7 +420,7 @@ function sentenceValid(sentence: MemorySummarySentence, supplied: readonly Memor
     const day = weekdayOf(word, sentenceWords[index - 1], sentenceWords[index + 1]);
     if (day !== null && citedNamesDay(day, cited)) continue;
     if (translatesArabicDual(word, sentenceWords[index + 1], cited, language)) continue;
-    if (sentenceWordValues(word).some((value) => values.has(value))) continue;
+    if (sentenceWordValues(word).some((value) => values.all.has(value))) continue;
     return false;
   }
   const citedRaw = cited.flatMap((row) => rawLetterTokens(row.text));

@@ -19,11 +19,16 @@ import { readMonthSpend } from '../../lib/features/spendLedger.ts';
 const one = (text: string, row: string, language: MemorySummaryLanguage = 'ar') =>
   validateMemorySummary({ sentences: [{ text, refs: ['r1'] }] }, [{ ref: 'r1', id: 'x', kind: 'fact', text: row }], language);
 
-test('a digit in the row may be said back as a word or an Arabic-Indic digit; another number is still refused', () => {
+test('a digit in the row may be said back as a word; another number is still refused', () => {
   const row = 'عندي 3 محاضرات بالأسبوع';
   assert.notEqual(one('عندك 3 محاضرات بالأسبوع.', row), null);
-  assert.notEqual(one('عندك ٣ محاضرات بالأسبوع.', row), null);
   assert.notEqual(one('عندك تلات محاضرات بالأسبوع.', row), null);
+  // M5B-031 and R1.1 stand: a sentence's digits are Latin and copied whole.
+  assert.equal(one('عندك ٣ محاضرات بالأسبوع.', row), null);
+  assert.equal(one('Focus from 9:00 on.', 'Focus 09:00-12:00', 'en'), null);
+  // The person typed Arabic-Indic digits: the sentence may say that number in Latin digits or in words.
+  assert.notEqual(one('عندك 3 محاضرات بالأسبوع.', 'عندي ٣ محاضرات بالأسبوع'), null);
+  assert.notEqual(one('عندك تلات محاضرات بالأسبوع.', 'عندي ٣ محاضرات بالأسبوع'), null);
   assert.notEqual(one('You have three lectures a week.', row, 'en'), null);
   assert.equal(one('عندك 4 محاضرات بالأسبوع.', row), null);
   assert.equal(one('عندك ٤ محاضرات بالأسبوع.', row), null);
