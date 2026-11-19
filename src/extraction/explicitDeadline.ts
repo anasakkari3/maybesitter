@@ -127,6 +127,34 @@ const HALF_OF_DAY = new Set([
   'בבוקר', 'בערב', 'בצהריים', 'בצהרים', 'בלילה',
 ]);
 
+/**
+ * A month after a number makes it a date: «قبل 15 آذار», «قبل ٣ تموز», "by 5
+ * May", «לפני ה-5 בדצמבר»; and «٣ الشهر», the 3rd of this month. Folded
+ * spellings, Levantine and Standard Arabic month names both (review
+ * 2026-11-19, round 2). Only after a number: «آب» and "may" alone are words.
+ */
+const MONTH_AFTER_NUMBER = new Set([
+  'الشهر',
+  'كانون', 'شباط', 'اذار', 'نيسان', 'ايار', 'حزيران', 'تموز', 'اب', 'ايلول', 'تشرين',
+  'يناير', 'فبراير', 'مارس', 'ابريل', 'مايو', 'ماي', 'يونيو', 'يوليو', 'اغسطس', 'سبتمبر', 'اكتوبر', 'نوفمبر', 'ديسمبر',
+  'may',
+  'ינואר', 'פברואר', 'מרץ', 'אפריל', 'מאי', 'יוני', 'יולי', 'אוגוסט', 'ספטמבר', 'אוקטובר', 'נובמבר', 'דצמבר',
+  'בינואר', 'בפברואר', 'במרץ', 'באפריל', 'במאי', 'ביוני', 'ביולי', 'באוגוסט', 'בספטמבר', 'באוקטובר', 'בנובמבר', 'בדצמבר',
+  'לינואר', 'לפברואר', 'למרץ', 'לאפריל', 'למאי', 'ליוני', 'ליולי', 'לאוגוסט', 'לספטמבר', 'לאוקטובר', 'לנובמבר', 'לדצמבר',
+]);
+
+/** A date written in digits: «5/12», «12.03», «2026-12-05». A part out of range («20.50») is an amount. */
+function numericDate(word: string): boolean {
+  const parts = word.split(/[/.-]/).map(Number);
+  if (parts.length === 3) {
+    const [a, b, c] = parts as [number, number, number];
+    return a > 999 ? b >= 1 && b <= 12 && c >= 1 && c <= 31 : a >= 1 && a <= 31 && b >= 1 && b <= 12;
+  }
+  const [a, b] = parts as [number, number];
+  // Day and month either way round: «5/12» and "12/5".
+  return a >= 1 && b >= 1 && ((a <= 31 && b <= 12) || (a <= 12 && b <= 31));
+}
+
 function fold(text: string): string {
   return text
     .toLowerCase()
@@ -138,23 +166,27 @@ function fold(text: string): string {
     .replace(/[۰-۹]/g, (digit) => String(digit.charCodeAt(0) - 0x06F0));
 }
 
-/** Words, with a clock «5:30» kept whole. */
+/** Words, with a clock «5:30» and a date «5/12», «12.03», «2026-12-05» kept whole. */
 function wordsOf(text: string): string[] {
-  return fold(text).match(/\d{1,2}:\d{2}|[0-9a-z\u0590-\u05FF\u0620-\u064A\u066E-\u06D3]+/g) ?? [];
+  return fold(text).match(/\d{1,4}[/.-]\d{1,2}(?:[/.-]\d{1,4})?(?![0-9]|[/.-]\d)|\d{1,2}:\d{2}|[0-9a-z\u0590-\u05FF\u0620-\u064A\u066E-\u06D3]+/g) ?? [];
 }
 
 /**
  * A number is a time only when nothing counts with it (review 2026-11-19):
  * «قبل 20 شيكل», "by 3 of them", «قبل 3 مرات» are amounts. So: a clock
- * («5:30», "5pm"), or a bare number at the end, before a half of the day, or
- * before a day or a month («قبل 5 المسا», "by 15 March").
+ * («5:30», "5pm", "5 o'clock"), a date in digits («5/12»), or a bare number or
+ * an ordinal ("the 5th") at the end, before a half of the day, a day or a
+ * month («قبل 5 المسا», «قبل 15 آذار», «٣ الشهر», "by 15 March").
  */
 function numberIsTime(words: readonly string[], at: number): boolean {
   const word = words[at]!;
   if (/^\d{1,2}:\d{2}$/.test(word) || /^\d{1,2}(?:am|pm)$/.test(word)) return true;
-  if (!/^\d+$/.test(word)) return false;
+  if (/[/.-]/.test(word)) return numericDate(word);
+  if (!/^\d+(?:st|nd|rd|th)?$/.test(word)) return false;
   const next = words[at + 1];
-  return next === undefined || HALF_OF_DAY.has(next) || TIME.has(next);
+  if (next === 'oclock' || (next === 'o' && words[at + 2] === 'clock')) return true;
+  if (next === 'of') return MONTH_AFTER_NUMBER.has(words[at + 2] ?? '') || TIME.has(words[at + 2] ?? '');
+  return next === undefined || HALF_OF_DAY.has(next) || TIME.has(next) || MONTH_AFTER_NUMBER.has(next);
 }
 
 /** Whether a time starts at word `at`. */
@@ -162,7 +194,8 @@ function timeAt(words: readonly string[], at: number): boolean {
   const word = words[at];
   if (word === undefined) return false;
   if (TIME.has(word)) return true;
-  if (HEBREW_NUMBER_DAYS.has(word)) return HEBREW_DAY_WORD.has(words[at - 1] ?? '');
+  // «עד שני בערב»: a half of the day after it makes it Monday too.
+  if (HEBREW_NUMBER_DAYS.has(word)) return HEBREW_DAY_WORD.has(words[at - 1] ?? '') || HALF_OF_DAY.has(words[at + 1] ?? '');
   if (/^\d/.test(word)) return numberIsTime(words, at);
   if (PERIOD_HEAD.has(word)) return PERIOD.has(words[at + 1] ?? '');
   return false;

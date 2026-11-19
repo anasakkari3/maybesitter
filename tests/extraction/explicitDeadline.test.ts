@@ -152,6 +152,10 @@ const DATE_LIMITS = [
   ...['בינואר', 'בפברואר', 'במרץ', 'באפריל', 'במאי', 'ביוני', 'ביולי', 'באוגוסט', 'בספטמבר', 'באוקטובר', 'בנובמבר', 'בדצמבר']
     .map((month) => `להגיש עד ה-10 ${month}`),
   "be there by 5 o'clock",
+  'be there by 5 oclock',
+  'Pay rent by the 1st of December',
+  'Pay rent by 5/12/2026',
+  'Pay rent by 12/25',
   'עד שני בערב',
 ];
 
@@ -160,7 +164,7 @@ for (const text of DATE_LIMITS) {
 }
 
 // The amounts the precision pass fixed stay amounts next to these dates.
-for (const text of ['before 20.50 shekels', 'by 3rd floor', 'قبل 3 شهور', 'before 13/40']) {
+for (const text of ['before 20.50 shekels', 'by 3rd floor', 'قبل 3 شهور', 'before 13/40', 'by 3 of them', 'by the 3rd of them', 'before 5 o', 'by 2026-13-05', 'by 1999-12-40', 'by 5/13/2026', 'before 1/2/3/4', 'قبل آب', 'by may be']) {
   test(`date, no limit: ${text}`, () => assert.equal(namesExplicitDeadline(text), false));
 }
 
