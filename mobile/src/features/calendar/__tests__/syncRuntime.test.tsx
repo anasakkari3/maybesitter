@@ -102,6 +102,8 @@ beforeEach(async () => {
     .mockResolvedValue({ calendarSettings: { writeTarget: 'device' } });
   jest.spyOn(calendarEndpoints, 'putDeviceCalendarLink').mockResolvedValue(undefined as never);
   jest.spyOn(deviceCalendar, 'getAccess').mockResolvedValue('granted');
+  // An empty calendar: no earlier copy of any commitment to adopt (V3-F18-04).
+  jest.spyOn(deviceCalendar as Required<typeof deviceCalendar>, 'findOwnEvents').mockResolvedValue([]);
 });
 
 afterEach(async () => {

@@ -314,9 +314,19 @@ export function useDeviceCalendarSync(
 
   const removeAll = useCallback(async () => {
     const current = latest.current;
+    const writerId = await resolveWriterId();
+    // Where the copies no link names are looked for (QA v3, V3-F18-04): the
+    // calendar picked on this phone, and every calendar one of its links names.
+    const chosen = await loadChosenCalendarId(current.uid);
+    const calendarIds = [
+      ...(chosen === null ? [] : [chosen]),
+      ...current.subjects.flatMap((subject) =>
+        subject.link && subject.link.writerId === writerId ? [subject.link.calendarId] : []),
+    ];
     const result = await removeAllWrittenEvents({
       subjects: current.subjects,
-      writerId: await resolveWriterId(),
+      writerId,
+      calendarIds,
       // Bound to the account it began for: a switch stops the removal (M5A-R21-001).
       ports: apiSyncPorts(current.uid, () => latest.current.uid === current.uid
         && getAuthRepository()?.currentUser()?.uid === current.uid),

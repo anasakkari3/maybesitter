@@ -254,3 +254,13 @@ describe('the events the app wrote, and only those', () => {
     expect(remove).toHaveBeenCalled();
   });
 });
+
+describe('a lookup that could not finish is not a deletion', () => {
+  it('does not answer "gone" when the calendar would not list', async () => {
+    // `false` detaches the link, for ever. A calendar that failed to answer
+    // has said nothing about whether the user deleted the event.
+    mockEventGet.mockRejectedValue(new Error('Event not found'));
+    mockCalendarGet.mockRejectedValue(new Error('the disk is on fire'));
+    await expect(deviceCalendar.eventExists('ITEM-1', 'cal-1')).rejects.toMatchObject({ reason: 'unavailable' });
+  });
+});
