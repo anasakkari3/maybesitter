@@ -63,6 +63,9 @@ export function importantDeadline(records: readonly Commitment[], keys: readonly
   return records.filter(item => toViewModel(item, item.updatedAt).status === 'active'
     && item.priority.level === 'high' && item.priority.source === 'user_explicit'
     && item.timeSpec.kind === 'due_by' && item.timeSpec.dueAt
+    // A «موعد تسليم» only when the person named a limit (V3-F08-04): «لازم
+    // أشتري خبز» is their Must on a day, not a deadline.
+    && item.timeSpec.deadline === 'explicit'
     && days.has(dayKey(new Date(item.timeSpec.dueAt), timezone)))
     .sort((a, b) => Date.parse(a.timeSpec.dueAt!) - Date.parse(b.timeSpec.dueAt!))[0] ?? null;
 }
