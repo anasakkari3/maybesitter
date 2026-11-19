@@ -8,8 +8,8 @@ import { endOfRange, mapExtractionToCommand } from '../../../src/extraction/mapE
 import { countTimeExpressions } from '../../../src/extraction/ruleBasedExtractor';
 import { classifyMessageKind } from '../../../src/extraction/messageKind';
 import { hasActionEvidence, hasRequestEvidence, splitCaptureClauseDetails, withoutClauseJoiner, type CaptureClause } from '../../../src/extraction/clauseSplitter';
-import { CLOCK_PATTERN_SOURCES, instantFromLocal, isBareEarlyHourAnswer, localTimeSpecFor, namesDay, normalizeClockText, readClockRange, statedClockHours, statesClock, timeOfDayEvidence } from '../../../src/extraction/timeLexicon';
-import { namesExplicitDate, readRecurrence, readWeekdayReference } from '../../../src/extraction/weekdayLexicon';
+import { CLOCK_PATTERN_SOURCES, instantFromLocal, isBareEarlyHourAnswer, localTimeSpecFor, namesDay, normalizeClockText, readClockRange, relativeDayOffset, statedClockHours, statesClock, timeOfDayEvidence } from '../../../src/extraction/timeLexicon';
+import { namesExplicitDate, readRecurrence, readWeekdayReference, resolveWeekdayDate } from '../../../src/extraction/weekdayLexicon';
 import type { ExtractionContext, ExtractionResult } from '../../../src/extraction/extractionTypes';
 import { resolveModuleRuntime, type AuditEventEnvelope, createAuditEvent, type RuntimeControlSnapshot } from '../../../src/contracts/v1/runtimeControls';
 import {
@@ -629,6 +629,40 @@ function withConjunctOwnDay(result: ExtractionResult, clause: CaptureClause, tim
 }
 
 /**
+ * A reading moved onto the day of the list it is a point of (QA v3,
+ * V3-F04-06): «بكرا:» is tomorrow, «اليوم:» today, «يوم الأحد:» the coming
+ * Sunday. The hour stays; a reading with no day gets the list's. For a
+ * weekday head, a reading already on that weekday is left alone (L4: "next
+ * Sunday" may be the Sunday after). The same reading when nothing moves.
+ */
+function onListDay(result: ExtractionResult, listDay: string, now: Date, timezone: string): ExtractionResult {
+  if (result.allDay) return result;
+  const today = localTimeSpecFor(now, timezone)?.date;
+  if (!today) return result;
+  const offset = relativeDayOffset(listDay);
+  const target = offset !== null
+    ? new Date(Date.parse(`${today}T12:00:00Z`) + offset * 86_400_000).toISOString().slice(0, 10)
+    : resolveWeekdayDate(listDay, now, timezone)?.date ?? null;
+  if (!target) return result;
+  const instant = result.remindAt ?? result.dueAt;
+  const date = result.localTimeSpec?.date ?? (instant ? localTimeSpecFor(new Date(Date.parse(instant)), timezone)?.date ?? null : null);
+  if (date === target) return result;
+  const weekdayOf = (day: string) => new Date(`${day}T12:00:00Z`).getUTCDay();
+  if (date && offset === null && weekdayOf(date) === weekdayOf(target)) return result;
+  const time = result.localTimeSpec?.time ?? (instant ? localTimeSpecFor(new Date(Date.parse(instant)), timezone)?.time ?? null : null) ?? result.undatedTime ?? null;
+  const placed = time ? instantFromLocal(target, time, timezone)?.toISOString() ?? null : null;
+  const { undatedTime: _undated, ...rest } = result;
+  return {
+    ...rest,
+    dueAt: placed && (result.dueAt || !result.remindAt) ? placed : null,
+    remindAt: placed && result.remindAt ? placed : null,
+    localTimeSpec: { date: target, time: placed ? time : null, timezone },
+    dateInferred: false,
+    ...(placed ? { missingFields: result.missingFields.filter((field) => field !== 'time') } : {}),
+  };
+}
+
+/**
  * Why this segment produced nothing, or why it is being refused (UC-2.6, #166).
  *
  * `no_commitment` is not a failure. It means the message asked for nothing, and
@@ -1179,6 +1213,17 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
         extracted = { ...extracted, result: withStatedBareEarlyClock(extracted.result, statedEarlyClock, options.timezone) };
       }
       extracted = { ...extracted, result: withConjunctOwnDay(extracted.result, chatFactEvidences[index]?.clause ?? clauses[index]!, options.timezone) };
+      // A point of a «بكرا:» / «اليوم:» list is on the list's day (QA v3,
+      // V3-F04-06), whatever day a model read: its hour is kept, and a moved
+      // reading is judged afresh for a passed hour below.
+      const listDay = chat ? undefined : clauses[index]?.listDay;
+      if (listDay) {
+        const onList = onListDay(extracted.result, listDay, options.now, options.timezone);
+        if (onList !== extracted.result) {
+          extracted = { ...extracted, result: onList };
+          passedHour = false;
+        }
+      }
       /*
        * The capture chat. An item whose object failed validation fell back to
        * the rules on the whole conversation — a reading of every turn at
@@ -1380,6 +1425,38 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
           failure = recoveredFailure;
           passedHour ||= recoveredPassedHour;
           standIn = true;
+        }
+      }
+      /*
+       * A model reading with no usable title, in a capture of one clause (QA
+       * v3, V3-F04-08). «بكرا الساعة 5» came back from Gemini, two runs in
+       * three, as a task titled nothing or one letter: `missing_title`, the
+       * capture `rejected`, and the route's bare 400 «Capture rejected» — an
+       * error screen for a normal short message. A missing title is not
+       * unsafe (an injection is reported before it, and still rejects), so
+       * the rules read the clause instead, as for a model "nothing" above:
+       * their reading is asked about («شو بدك تعمل؟» for «بكرا الساعة 5»), and
+       * when they find nothing either, nothing is made and the person is told
+       * so (`no_commitment`), never refused.
+       */
+      if (failure === 'missing_title' && !several && !chat && extracted.engine !== 'rule-based') {
+        let recovered: ExtractWithFallbackResult | null = null;
+        let recoveredPassedHour = false;
+        try {
+          recovered = await extractor(segment, context, { llmProvider: RULES_ONLY_PROVIDER, llmEngine: dependencies.llmEngine });
+        } catch (error) {
+          if (error instanceof PastCommitmentTimeError && error.extracted) {
+            recovered = error.extracted;
+            recoveredPassedHour = true;
+          }
+        }
+        const recoveredFailure = recovered ? semanticFailure(recovered.result, options.now) : 'no_commitment';
+        if (recovered && (recoveredFailure === null || recoveredFailure === 'past_time')) {
+          extracted = recovered;
+          failure = recoveredFailure;
+          passedHour ||= recoveredPassedHour;
+        } else {
+          failure = recoveredFailure === 'prompt_injection' ? recoveredFailure : 'no_commitment';
         }
       }
       /*

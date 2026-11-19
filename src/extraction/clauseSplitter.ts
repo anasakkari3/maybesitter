@@ -593,11 +593,11 @@ function statesATime(clause: string): boolean {
  * 5». With neither neighbour free the run stays a clause of its own, as it
  * always was.
  */
-function withTimeOnlyClausesMerged(segments: readonly string[]): string[] {
+function withTimeOnlyClausesMerged(segments: readonly SegmentPiece[]): SegmentPiece[] {
   if (segments.length < 2) return [...segments];
-  const timeOnly = segments.map(isTimeOnlyClause);
+  const timeOnly = segments.map((segment) => isTimeOnlyClause(segment.text));
   if (!timeOnly.includes(true)) return [...segments];
-  const merged: string[] = [];
+  const merged: SegmentPiece[] = [];
   let index = 0;
   while (index < segments.length) {
     if (!timeOnly[index]) {
@@ -607,17 +607,17 @@ function withTimeOnlyClausesMerged(segments: readonly string[]): string[] {
     }
     let end = index;
     while (end + 1 < segments.length && timeOnly[end + 1]) end += 1;
-    const run = segments.slice(index, end + 1).join(' ');
+    const run = segments.slice(index, end + 1).map((segment) => segment.text).join(' ');
     const previous = merged[merged.length - 1];
     const next = segments[end + 1];
-    if (previous !== undefined && !statesATime(previous)) {
-      merged[merged.length - 1] = `${previous} ${run}`;
+    if (previous !== undefined && !statesATime(previous.text)) {
+      merged[merged.length - 1] = { ...previous, text: `${previous.text} ${run}` };
       index = end + 1;
-    } else if (next !== undefined && !statesATime(next)) {
-      merged.push(`${run} ${next}`);
+    } else if (next !== undefined && !statesATime(next.text)) {
+      merged.push({ ...next, text: `${run} ${next.text}` });
       index = end + 2;
     } else {
-      merged.push(run);
+      merged.push({ text: run });
       index = end + 1;
     }
   }
@@ -661,6 +661,18 @@ export interface CaptureClause {
   unreadDayWord?: string;
   /** Said after another clause of the same message («…، واتصل بالبنك»). */
   follows?: true;
+  /**
+   * The day of the list head this clause is a point of («بكرا: …، …»), as
+   * said, when the clause names no day of its own (QA v3, V3-F04-06). The
+   * words carry it as well; the boundary holds a model reading to it.
+   */
+  listDay?: string;
+}
+
+/** A segment of a capture before its clauses are cut, with its list head's day. */
+interface SegmentPiece {
+  text: string;
+  listDay?: string;
 }
 
 function ellipticalConjuncts(segment: string): CaptureClause[] {
@@ -853,7 +865,7 @@ function splitTimedConjuncts(segment: string): string[] {
 /** The clauses of one capture, with how each was cut (`CaptureClause`). */
 export function splitCaptureClauseDetails(raw: string): CaptureClause[] {
   return segmentsOf(raw)
-    .flatMap((segment) => ellipticalConjuncts(segment))
+    .flatMap((segment) => ellipticalConjuncts(segment.text).map((clause) => (segment.listDay ? { ...clause, listDay: segment.listDay } : clause)))
     .map((clause, index) => index > 0 ? { ...clause, follows: true as const } : clause);
 }
 
@@ -904,7 +916,7 @@ export function splitCaptureClauses(raw: string): string[] {
 /** A sentence end or a line break: the hard cut no carried day crosses. */
 const LINE = '\u0001';
 
-function segmentsOf(raw: string): string[] {
+function segmentsOf(raw: string): SegmentPiece[] {
   const parts = sentencesOf(raw)
     .join(LINE)
     .replace(/[;\n]+/g, LINE)
@@ -939,14 +951,50 @@ function segmentsOf(raw: string): string[] {
     // follower's item or seed is made (`withoutClauseJoiner`).
     .map((part, index) => index === 0 ? part : { ...part, text: withoutJoinerBeforeTime(part.text.replace(/^and\b\s*/i, '').trim()) })
     .filter((part) => part.text);
-  const segments: string[] = [];
+  const segments: SegmentPiece[] = [];
+  // A list head alone on its line («بكرا:») is the day of the lines under it,
+  // until another head (QA v3, V3-F04-06).
+  let headOfLines: string | null = null;
   for (let start = 0; start < parts.length;) {
     let end = start;
     while (end < parts.length && parts[end]!.line === parts[start]!.line) end += 1;
-    segments.push(...withDayCarried(parts.slice(start, end).flatMap((part) => splitTimedConjuncts(part.text))));
+    const line = parts.slice(start, end);
+    const head = listHeadDay(line[0]!.text);
     start = end;
+    if (head && line.length === 1 && head.alone) {
+      headOfLines = head.day;
+      continue;
+    }
+    if (head) headOfLines = null;
+    segments.push(...withDayCarried(line.flatMap((part) => splitTimedConjuncts(part.text)), head?.day ?? headOfLines));
   }
-  return segments.length > 0 ? withTimeOnlyClausesMerged(segments) : [raw];
+  return segments.length > 0 ? withTimeOnlyClausesMerged(segments) : [{ text: raw }];
+}
+
+/*
+ * ══ A LIST HEAD'S DAY IS EVERY POINT'S DAY (QA v3, V3-F04-06) ══
+ *
+ * «بكرا: الساعة 8 الصبح موعد…، الساعة 10 قدم طلب المنحة، الساعة 12…، الساعة 2
+ * الظهر سلم الواجب…» put the first point on tomorrow and the rest on today
+ * (the carried day reaches only the next clause, and not past an
+ * appointment); «اليوم: … الساعة 1 الظهر ادفع الإيجار» was read by the model
+ * as tomorrow. A day said before a colon at the start of a line, with no
+ * clock of its own — «بكرا:», «اليوم:», «يوم الأحد:», "Tomorrow:", «מחר:» —
+ * is the day of every point on its list that names no day of its own.
+ *
+ * Read on the line's first forty characters, before its first colon; the
+ * head ends in no digit and no digit follows the colon, so «الساعة 10:30» and
+ * «بكرا 10:30» are clocks, not heads.
+ */
+const LIST_HEAD = new RegExp('^\\s*([^:：\\n]{0,39}[^:：\\n0-9٠-٩])\\s*[:：](?![0-9٠-٩])(.*)$', 'su');
+
+function listHeadDay(lineText: string): { day: string; alone: boolean } | null {
+  const head = LIST_HEAD.exec(lineText);
+  if (!head) return null;
+  const words = head[1]!;
+  if (statesClock(words)) return null;
+  const day = DAY_PHRASE.exec(words)?.[0]?.replace(/^\u0648/, '').trim();
+  return day ? { day, alone: head[2]!.trim().length === 0 } : null;
 }
 
 const JOINED_DAY_WORD = new RegExp('^ويوم\\s', 'u');
@@ -990,7 +1038,7 @@ const DAY_PHRASE = new RegExp(
  * own («ويوم الأحد…», "on the 5th") keeps it, and a clause with no hour is
  * not given a day it did not say.
  */
-function withDayCarried(clauses: readonly string[]): string[] {
+function withDayCarried(clauses: readonly string[], headDay: string | null = null): SegmentPiece[] {
   let day: string | null = null;
   return clauses.map((clause) => {
     const carried = day;
@@ -1001,10 +1049,12 @@ function withDayCarried(clauses: readonly string[]): string[] {
       if (statesClock(clause) && !COMMITMENT_NOUN.test(clause)) {
         day = DAY_PHRASE.exec(clause)?.[0]?.replace(/^\u0648/, '').trim() || null;
       }
-      return clause;
+      return { text: clause };
     }
-    if (carried && statesClock(clause) && !isTimeOnlyClause(clause)) return `${clause} ${carried}`;
-    return clause;
+    // The list head's day (V3-F04-06), on every point that names none.
+    if (headDay && !isTimeOnlyClause(clause)) return { text: `${clause} ${headDay}`, listDay: headDay };
+    if (carried && statesClock(clause) && !isTimeOnlyClause(clause)) return { text: `${clause} ${carried}` };
+    return { text: clause };
   });
 }
 

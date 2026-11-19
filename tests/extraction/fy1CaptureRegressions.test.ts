@@ -625,7 +625,10 @@ async function notUnderstood(text: string, pick: (title: string) => boolean, fre
   );
 }
 
-const NO_TIME_OF_DAY = ['بعد ساعة', 'بعد شوي', 'later', 'in an hour', 'now', 'אחר כך', 'بأي وقت'];
+// «بعد ساعة» and "in an hour" left this list in QA v3 (V3-F04-04): a span
+// counted from now is now plus that much, read without a re-read, so no
+// passed hour and no engine guess can stand in for it (asserted below).
+const NO_TIME_OF_DAY = ['بعد شوي', 'later', 'now', 'אחר כך', 'بأي وقت'];
 
 test('FY1 fix I4: an answer with no time of day is not understood — never the passed hour rolled to tomorrow', async () => {
   for (const freeText of NO_TIME_OF_DAY) {
@@ -637,6 +640,9 @@ test('FY1 fix I4: an answer with no time of day is not understood — never the 
   }
   // A day named alone keeps the person's own hour on it.
   assert.deepEqual(await answerN1Alone('بكرا'), ['أبعت الإيميل للمدير | 2026-09-28 15:00 | settled']);
+  // A span counted from now (QA v3, V3-F04-04): 18:08 plus one hour, today.
+  assert.deepEqual(await answerN1Alone('بعد ساعة'), ['أبعت الإيميل للمدير | 2026-09-27 19:08 | settled']);
+  assert.deepEqual(await answerN1Alone('in an hour'), ['أبعت الإيميل للمدير | 2026-09-27 19:08 | settled']);
 });
 
 test('FY1 fix round 2: a typed bare hour from 1 to 6 with no part of the day is not understood (CL1 R6 applied to answers)', async () => {

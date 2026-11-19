@@ -1,12 +1,12 @@
 import { LLMUnavailableError } from './llm/llmProvider';
 import { extractWithOllama, type LLMProviderFunction } from './ollamaExtractor';
 import { screenForInjection } from './injectionBoundary';
-import { extract as ruleBasedExtract } from './ruleBasedExtractor';
+import { extract as ruleBasedExtract, stripTimeExpressions } from './ruleBasedExtractor';
 import { decideExtractionDisposition } from './extractionPolicy';
 import { decideEscalation, type EscalationReason } from './escalationGate';
 import { ARBITRATION_UNAVAILABLE, type ArbiterFunction, type ArbitrationVerdict } from './arbiter';
 import { mapExtractionToCommand } from './mapExtractionToCommand';
-import { instantFromLocal, localTimeSpecFor, rangeEndInstant, rangeMinutesFrom, rangeStartTime, readClockRange, relativeDayOffset } from './timeLexicon';
+import { instantFromLocal, localTimeSpecFor, rangeEndInstant, rangeMinutesFrom, rangeStartTime, readClockRange, readRelativeOffsetMinutes, relativeDayOffset, statesClock, withoutRelativeOffset } from './timeLexicon';
 import { daysUntilWeekday, namesCalendarDate, namesExplicitDate, readRecurrence, readWeekdayMentions, readWeekdayReference, type StatedRecurrence } from './weekdayLexicon';
 import type { Command } from '../domain/stateMachine';
 import type { ExtractionContext, ExtractionDisposition, ExtractionResult, RecurrenceHint } from './extractionTypes';
@@ -59,6 +59,158 @@ function isPastNarration(rawText: string): boolean {
   if (!PAST_EVENT_NARRATION.test(rawText) || NOT_NARRATION.test(rawText)) return false;
   // A day ahead of today, said in the same clause, is a plan being told.
   return readWeekdayReference(rawText) === null && (relativeDayOffset(rawText) ?? 0) < 1;
+}
+
+/*
+ * ══ A THING THAT WAS TO BE DONE, AND WAS NOT (QA v3, V3-F04-03) ══
+ *
+ * «مبارح الساعة 9 الصبح كان لازم أبعت الواجب للدكتور وما بعتته» made
+ * nothing: the model answered «بقدر أساعدك بالمهام الجاية», the rules put it
+ * at 09:00 today. Owner decision (2026-11-19): it is a thing to do *now* — on
+ * today's list, ready to be done. Nothing calls it late or missed (mobile
+ * AGENTS.md: there is no "overdue"), its passed hour is not kept, and the
+ * person is asked when today, as for any task with no hour; nothing is saved
+ * until they confirm.
+ *
+ * What it is, and only that: an obligation told in the past («كان لازم»,
+ * «كان المفروض», "I was supposed to", «הייתי צריך») with the words saying it
+ * was not done («وما بعتته», "and didn't", «ולא»), or "I forgot to" /
+ * «نسيت أ…» / «ما لحقت» before a verb. «امبارح كان عندي اجتماع» told
+ * something that happened and stays no commitment. A day ahead named in the
+ * same words («…بدي أبعته بكرا») is the person's own plan and is read as said.
+ */
+const B = '(?<![\\p{L}\\p{M}])';
+const A = '(?![\\p{L}\\p{M}])';
+const PAST_OBLIGATION = new RegExp(
+  [
+    `${B}[وف]?(?:كان|كانت)\\s+(?:لازم|لازمني|بدي|بدّي|المفروض|مفروض|عليّ|علي)${A}`,
+    "\\b(?:was|were)\\s+supposed\\s+to\\b|\\bshould\\s+have\\b|\\b(?:had|needed|meant)\\s+to\\b",
+    `${B}ו?(?:הייתי|היה)\\s+(?:צריך|צריכה|אמור|אמורה)${A}`,
+  ].join('|'),
+  'iu',
+);
+const NOT_DONE = new RegExp(
+  [
+    `${B}[وف]?(?:ما|مش|لسا|لسّا|لسه|لسّه)${A}`,
+    "\\b(?:didn'?t|didn’t|did\\s+not|haven'?t|have\\s+not|hasn'?t|never)\\b",
+    `${B}ו?לא${A}`,
+  ].join('|'),
+  'iu',
+);
+const FORGOT_TO = new RegExp(
+  [
+    `${B}[وف]?(?:نسيت|ما\\s+لحقت|مالحقت)\\s+(?:(?:إني|اني|انو|إنو)\\s+)?[أاإن][\\p{L}\\p{M}]{2,}`,
+    "\\b(?:forgot|forget)\\s+to\\b|\\bdidn'?t\\s+get\\s+to\\b|\\bnever\\s+got\\s+(?:around\\s+)?to\\b",
+    `${B}ו?(?:שכחתי|לא\\s+הספקתי)${A}`,
+  ].join('|'),
+  'iu',
+);
+
+/** The words tell a thing that was to be done and was not, with no day ahead of their own. */
+export function isMissedObligation(rawText: string): boolean {
+  if (typeof rawText !== 'string' || !rawText.trim()) return false;
+  if (!(PAST_OBLIGATION.test(rawText) && NOT_DONE.test(rawText)) && !FORGOT_TO.test(rawText)) return false;
+  return (relativeDayOffset(rawText) ?? 0) < 1 && readWeekdayReference(rawText) === null
+    && !namesCalendarDate(rawText) && readRecurrence(rawText) === null;
+}
+
+/** The framing around the thing itself: the past day, "I was supposed to", and "and I didn't". */
+const MISSED_FRAMING = new RegExp(
+  [
+    `${B}[وب]?(?:مبارح|امبارح|إمبارح|أمس|امس|البارحة|البارحه)${A}`,
+    `${B}[وف]?(?:كان|كانت)\\s+(?:لازم|لازمني|بدي|بدّي|المفروض|مفروض|عليّ|علي)${A}(?:\\s+(?:إني|اني|انو|إنو))?`,
+    `${B}[وف]?(?:نسيت|ما\\s+لحقت|مالحقت)${A}(?:\\s+(?:إني|اني|انو|إنو))?`,
+    "\\b(?:yesterday|last\\s+night|earlier\\s+today)\\b",
+    "\\b(?:i\\s+)?(?:was|were)\\s+supposed\\s+to\\b|\\b(?:i\\s+)?should\\s+have\\b|\\b(?:i\\s+)?(?:had|needed|meant|forgot)\\s+to\\b|\\b(?:i\\s+)?(?:didn'?t\\s+get|never\\s+got(?:\\s+around)?)\\s+to\\b",
+    `${B}ו?(?:אתמול|הייתי\\s+(?:צריך|צריכה|אמור|אמורה)|שכחתי|לא\\s+הספקתי)${A}`,
+  ].join('|'),
+  'giu',
+);
+/** "…and I did not": from the not-done words to the end. */
+const NOT_DONE_TAIL = new RegExp(
+  [
+    `[\\s،,]+[وف]?(?:(?:بس|لكن)\\s+)?(?:(?:لسا|لسّا|لسه|لسّه)\\s+)?(?:ما|مش)${A}[\\s\\S]*$`,
+    "[\\s,]+(?:and|but)\\s+(?:i\\s+)?(?:didn'?t|didn’t|did\\s+not|haven'?t|have\\s+not|never)\\b[\\s\\S]*$",
+    `[\\s,]+(?:ו|אבל\\s+)?לא${A}[\\s\\S]*$`,
+  ].join('|'),
+  'iu',
+);
+
+function missedThingTitle(text: string | null): string | null {
+  if (!text) return text;
+  const title = text.replace(MISSED_FRAMING, ' ').replace(NOT_DONE_TAIL, '').replace(/\s+/g, ' ').replace(/^[\s,،.:;-]+|[\s,،.:;-]+$/g, '').trim();
+  return title.length >= 3 ? title : text;
+}
+
+/**
+ * The missed thing as a thing to do today: today, no hour (the one it had
+ * has gone), the framing out of its title, asked when. Never a passed time,
+ * never "late".
+ */
+function asThingToDoToday(result: ExtractionResult, rawText: string, context: ExtractionContext): ExtractionResult {
+  const timezone = context.timezone || result.localTimeSpec?.timezone || 'UTC';
+  const today = localTimeSpecFor(context.now, timezone)?.date;
+  if (!today) return result;
+  const named = missedThingTitle(result.title) ?? missedThingTitle(stripTimeExpressions(rawText));
+  const action = missedThingTitle(result.action) ?? named;
+  const { undatedTime: _undated, rangeMinutes: _range, recurrenceHint: _hint, ...rest } = result;
+  return {
+    ...rest,
+    type: result.type === 'follow_up' ? 'follow_up' : 'task',
+    title: named,
+    action,
+    dueAt: null,
+    remindAt: null,
+    allDay: false,
+    localTimeSpec: { date: today, time: null, timezone },
+    timeEvidence: 'day_only',
+    dateInferred: false,
+    missingFields: [...result.missingFields.filter((field) => field !== 'action' && field !== 'time'), 'time'],
+    ambiguityFlags: result.ambiguityFlags.filter((flag) => flag !== 'informational_without_action' && flag !== 'vague_action' && flag !== 'no_action_verb'),
+    confidence: { ...result.confidence, overall: Math.max(result.confidence.overall, 0.7), type: Math.max(result.confidence.type, 0.7), action: Math.max(result.confidence.action, 0.7) },
+  };
+}
+
+/** A span counted from now, on the person's clock, when the words state no clock or other day of their own. */
+export function statedRelativeTime(rawText: string, now: Date, timeZone: string): { instant: string; date: string; time: string } | null {
+  const minutes = readRelativeOffsetMinutes(rawText);
+  if (minutes === null) return null;
+  if (statesClock(rawText) || readRecurrence(rawText) || readWeekdayReference(rawText) || namesCalendarDate(rawText)) return null;
+  if ((relativeDayOffset(rawText) ?? 0) !== 0) return null;
+  const at = new Date(Math.floor((now.getTime() + minutes * 60_000) / 60_000) * 60_000);
+  const local = localTimeSpecFor(at, timeZone);
+  return local ? { instant: at.toISOString(), date: local.date, time: local.time } : null;
+}
+
+/**
+ * The span counted from now is the time, on either engine (V3-F04-04): the
+ * rules asked «إيمتى؟» and a model once put «بعد ساعتين» at 19:12 when it was
+ * 07:12. The span leaves the title.
+ */
+function onRelativeTime(result: ExtractionResult, rawText: string, context: ExtractionContext): ExtractionResult {
+  const timeZone = context.timezone || result.localTimeSpec?.timezone || 'UTC';
+  const stated = statedRelativeTime(rawText, context.now, timeZone);
+  if (!stated) return result;
+  const tidy = (text: string | null): string | null => {
+    if (!text) return text;
+    const without = withoutRelativeOffset(text);
+    return without.length >= 3 ? without : text;
+  };
+  const { undatedTime: _undated, ...rest } = result;
+  return {
+    ...rest,
+    title: tidy(result.title),
+    action: tidy(result.action),
+    dueAt: result.dueAt || !result.remindAt ? stated.instant : null,
+    remindAt: result.remindAt ? stated.instant : null,
+    allDay: false,
+    localTimeSpec: { date: stated.date, time: stated.time, timezone: timeZone },
+    timeEvidence: 'hhmm',
+    dateInferred: false,
+    missingFields: result.missingFields.filter((field) => field !== 'time'),
+    ambiguityFlags: result.ambiguityFlags.filter((flag) => flag !== 'vague_time'),
+    confidence: { ...result.confidence, time: Math.max(result.confidence.time, 0.9) },
+  };
 }
 
 export interface ExtractAndMapOptions {
@@ -233,7 +385,9 @@ export async function extractWithFallback(
   const past = /\b(yesterday|last night|last week|earlier)\b|مبارح|أمس|امبارح|אתמול|בשבוע שעבר/i.test(rawText)
     || isPastNarration(rawText);
   const request = /\b(remind|add|create|schedule|please|need to|must|tomorrow)\b|ذكرني|ضيف|أضف|لازم|بكرا|תזכיר|תוסיף|צריך|מחר/i.test(rawText);
-  if (past && !request) {
+  // A thing that was to be done and was not is still to do (V3-F04-03).
+  const missed = isMissedObligation(rawText);
+  if (past && !request && !missed) {
     return { result: safeNegativeResult(rawText, 'informational_context'), engine: 'rule-based', fallbackReason: 'semantic_safety:past_no_action' };
   }
   let result: ExtractionResult;
@@ -252,6 +406,15 @@ export async function extractWithFallback(
   }
   if (/תזכיר\s+לי/.test(rawText) && result.type === 'task') {
     result = { ...result, explicitReminderRequest: true };
+  }
+  if (missed) {
+    // A model "nothing here" is the defect itself: the rules read the words.
+    if (result.type !== 'task' && result.type !== 'follow_up') {
+      result = ruleBasedExtract(rawText, context);
+      engine = 'rule-based';
+      fallbackReason ??= 'semantic_safety:missed_obligation';
+    }
+    result = asThingToDoToday(result, rawText, context);
   }
   result = withStatedShape(result, rawText, context);
 
@@ -362,7 +525,7 @@ function withPhraseInTitle(result: ExtractionResult, phrases: readonly string[])
 function withStatedShape(result: ExtractionResult, rawText: string, context: ExtractionContext): ExtractionResult {
   if (result.type !== 'task' && result.type !== 'follow_up') return result;
   const timeZone = context.timezone || result.localTimeSpec?.timezone || 'UTC';
-  let shaped = result;
+  let shaped = onRelativeTime(result, rawText, context);
   let recurrence = readRecurrence(rawText);
   // An item whose own words put it on a day outside the list is not the
   // list's (audit 2026-10-03 review, round 2): "gym every Tuesday and Thursday
