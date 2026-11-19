@@ -27,6 +27,7 @@ import type { AuthUser } from '../../auth/types';
 import { LANGUAGE_STORAGE_KEY } from '../../i18n/language';
 import { PlacesScreen } from '../../features/places/PlacesScreen';
 import { resetPlacesStoreForTests } from '../../features/places/placesStore';
+import * as placesStore from '../../features/places/placesStore';
 import { placesStorageKey, PLACES_VERSION } from '../../lib/deviceSettings/placeReminders';
 
 const LAT = 'lati' + 'tude';
@@ -193,6 +194,7 @@ describe('B4 places: saving Home is confirmed as an event', () => {
     const saved = announced().at(-1)!;
     expect(screenText()).toContain(saved);
     await fireEvent.press(screen.getByTestId('places-home-remove'));
+    await fireEvent.press(screen.getByTestId('places-remove-confirm'));
     await waitFor(() => expect(screen.queryByTestId('places-home-remove')).toBeNull());
     expect(screenText()).not.toContain(saved);
   });
@@ -208,6 +210,40 @@ describe('B4 places: saving Home is confirmed as an event', () => {
     await waitFor(() => expect(screen.queryByTestId('places-problem')).not.toBeNull());
     expect(textOf(screen.getByTestId('places-problem'))).toBe(PLACE_LOCATE_FAILED);
     expect(screenText()).not.toContain(saved);
+  });
+});
+
+describe('C13.12 places: removing a place', () => {
+  it('C13.12: asks first, and keeps the place when the answer is keep', async () => {
+    await show();
+    await pinHome();
+    await fireEvent.press(screen.getByTestId('places-home-remove'));
+    expect(screen.queryByTestId('places-remove-dialog')).not.toBeNull();
+    expect(screen.queryByTestId('places-home-remove')).not.toBeNull();
+    await fireEvent.press(screen.getByTestId('places-remove-cancel'));
+    expect(screen.queryByTestId('places-remove-dialog')).toBeNull();
+    expect(screen.queryByTestId('places-home-remove')).not.toBeNull();
+  });
+
+  it('C13.12: once confirmed, removes it and says so, aloud too', async () => {
+    await show();
+    await pinHome();
+    announce.mockClear();
+    await fireEvent.press(screen.getByTestId('places-home-remove'));
+    await fireEvent.press(screen.getByTestId('places-remove-confirm'));
+    await waitFor(() => expect(screen.queryByTestId('places-home-remove')).toBeNull());
+    await waitFor(() => expect(screen.queryByTestId('places-removed')).not.toBeNull());
+    expect(announced().length).toBeGreaterThan(0);
+  });
+
+  it('C13.12: a removal that fails says so, and the place stays', async () => {
+    await show();
+    await pinHome();
+    jest.spyOn(placesStore, 'removePlace').mockRejectedValue(new Error('storage full'));
+    await fireEvent.press(screen.getByTestId('places-home-remove'));
+    await fireEvent.press(screen.getByTestId('places-remove-confirm'));
+    await waitFor(() => expect(screen.queryByTestId('places-problem')).not.toBeNull());
+    expect(screen.queryByTestId('places-home-remove')).not.toBeNull();
   });
 });
 
