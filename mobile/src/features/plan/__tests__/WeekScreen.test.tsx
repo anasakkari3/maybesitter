@@ -299,6 +299,20 @@ describe('the week', () => {
     expect(screen.queryByTestId(`week-free-${blank[0]!.date}`)).toBeNull();
   });
 
+  it('is not empty with only a no-room step, or only waiting work (CXA4.3)', async () => {
+    const blank = RECORDED.days.map(day => ({ ...day, state: 'proposed' as const, items: [], fixed: [], allDay: [], unplaced: [] }));
+    const one = [...blank];
+    one[0] = { ...blank[0]!, unplaced: [{ itemId: 'late-task', title: 'Send the email', reasonCode: 'NO_FEASIBLE_SLOT', blockId: null }] };
+    mockWeek = { ...RECORDED, days: one, drops: [], waiting: 0 };
+    await show();
+    expect(screen.queryByTestId('week-empty')).toBeNull();
+    await cleanup();
+    mockWeek = { ...RECORDED, days: blank, drops: [], waiting: 1 };
+    await show();
+    expect(screen.queryByTestId('week-empty')).toBeNull();
+    expect(screen.getByTestId('week-waiting')).toBeTruthy();
+  });
+
   it('says so when there is nothing to place this week', async () => {
     mockWeek = { ...RECORDED, days: RECORDED.days.map(day => ({ ...day, state: 'proposed' as const, items: [], fixed: [], allDay: [], unplaced: [] })), drops: [], waiting: 0 };
     await show();
