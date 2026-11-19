@@ -7,7 +7,7 @@ import { useApp } from '../state/AppContext';
 import { isValidTimeZone, useTimeZone } from '../i18n/timezone';
 import { dayKey, formatDate, formatRelativeDay, formatTime } from '../i18n/format';
 import { fill, ltr, type Lang } from '../i18n/strings';
-import { useCategoryPreferences, useCommitmentAction, useConsents, useNextStep, usePlan, useProfile, useSavedWeek, useToday, useUpcoming } from '../api/queries';
+import { useCategoryPreferences, useCommitmentAction, useConsents, useDeferredNextSteps, useNextStep, usePlan, useProfile, useSavedWeek, useToday, useUpcoming } from '../api/queries';
 import { quietHoursEndAt } from '../features/today/quietHoursEnd';
 import { QueryBoundary } from '../api/ui/QueryBoundary';
 import { ForbiddenError } from '../api/errors';
@@ -29,8 +29,7 @@ import { busyAt } from '../features/calendar/conflicts';
 import type { DeviceBusyBlock } from '../features/calendar/busyBlocks';
 import { TodayPlanRow } from '../features/plan/TodayPlanRow';
 import { drawnAt, drawnClockAt, drawnWhenLine, dueAsideText, laterWhen, placeView, savedPlacements } from '../features/plan/savedPlacement';
-import { composeToday, isPostponedAway, type Primary } from '../features/today/composeToday';
-import { nextEventEndAfter } from '../features/commitments/eventEnded';
+import { composeToday, isPostponedAway, nextRecomposeAt, type Primary } from '../features/today/composeToday';
 import { Btn, SaidWords, Txt } from '../ui/primitives';
 import { AvatarButton, SectionLabel, Tag, TextLink, priorityTagKind } from '../ui/chrome';
 import { CheckIcon } from '../ui/icons';
@@ -162,12 +161,11 @@ export function TodayScreen({ tabClearance = TAB_CLEARANCE }: { tabClearance?: n
   const [clockMs, setClockMs] = useState(() => Date.now());
   // …and at the next instant a postponed item comes back (CA2.1): then it is
   // the card again and its row stops saying «بترجع».
-  const nextEnd = useMemo(() => {
-    const open = [...groups.must, ...groups.should, ...groups.nice];
-    const ended = nextEventEndAfter([...open, ...upcomingViews], clockMs);
-    const back = nextPostponedReturnAfter(open, clockMs);
-    return ended === null ? back : back === null ? ended : Math.min(ended, back);
-  }, [groups, upcomingViews, clockMs]);
+  // …and when a step put off with «مش هلّق» may be the card again (V3-F11-04).
+  const deferredSteps = useDeferredNextSteps();
+  const nextEnd = useMemo(() => nextRecomposeAt({
+    open: [...groups.must, ...groups.should, ...groups.nice], upcoming: upcomingViews, deferredSteps, nowMs: clockMs,
+  }), [groups, upcomingViews, clockMs, deferredSteps]);
   useEffect(() => {
     if (nextEnd === null) return undefined;
     const wait = Math.min(Math.max(0, nextEnd - Date.now()) + EVENT_END_MARGIN_MS, MAX_TIMER_MS);
@@ -202,7 +200,8 @@ export function TodayScreen({ tabClearance = TAB_CLEARANCE }: { tabClearance?: n
     now: new Date(clockMs),
     listsLoaded,
     records,
-  }), [groups, recommendationsAllowed, next.data, next.isPending, next.isError, next.error, plan.data, plan.isPending, plan.isError, upcomingViews, clockMs, listsLoaded, records]);
+    deferredSteps,
+  }), [groups, recommendationsAllowed, next.data, next.isPending, next.isError, next.error, plan.data, plan.isPending, plan.isError, upcomingViews, clockMs, listsLoaded, records, deferredSteps]);
 
   const byId = useMemo(() => {
     const all = [...groups.must, ...groups.should, ...groups.nice, ...groups.finished];
@@ -661,17 +660,6 @@ const OpenPostponeSheet = React.createContext<(id: string) => void>(() => undefi
 
 /** The instant Today is composed for (`clockMs`), so a row reads the same clock as the card. */
 const TodayClock = React.createContext<number | null>(null);
-
-/** The earliest postponed return still ahead of `nowMs`, or null (CA2.1). */
-function nextPostponedReturnAfter(items: readonly CommitmentView[], nowMs: number): number | null {
-  let next: number | null = null;
-  for (const item of items) {
-    if (!item.postponedUntil || !isPostponedAway(item, nowMs)) continue;
-    const back = Date.parse(item.postponedUntil);
-    if (next === null || back < next) next = back;
-  }
-  return next;
-}
 
 const DAY_GROUP_PREVIEW = 3;
 

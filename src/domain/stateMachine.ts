@@ -818,9 +818,19 @@ export function applyCommand(state: DomainState, command: Command): StateTransit
         break;
       }
       ensureCommitmentStatus(commitment, ['active', 'deferred', 'missed'], command.type);
-      commitment.currentAckState = 'aware';
       commitment.updatedAt = command.now;
-      commitment.postponedUntil = null;
+      // Knowing about a thing is not taking it back (QA v3 V3-F11-01). A tap
+      // on a reminder that was still in the tray after a postpone used to
+      // clear the postponement and put the item back on today, silently. A
+      // postponement still ahead stays, with its state; one that has run out
+      // is over, and the item is simply known about.
+      const stillPostponed = commitment.currentAckState === 'postponed'
+        && commitment.postponedUntil !== null
+        && Date.parse(commitment.postponedUntil) > Date.parse(command.now);
+      if (!stillPostponed) {
+        commitment.currentAckState = 'aware';
+        commitment.postponedUntil = null;
+      }
 
       const reminders = command.reminderId
         ? [requireReminder(newState, command.reminderId)]
