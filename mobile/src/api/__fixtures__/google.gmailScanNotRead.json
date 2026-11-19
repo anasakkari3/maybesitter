@@ -5,9 +5,9 @@
   "items": [],
   "seeds": [],
   "provenance": {
-    "requestedEngine": "rules",
+    "requestedEngine": "model",
     "executedEngine": "rule-based",
-    "fallbackUsed": false
+    "fallbackUsed": true
   },
   "share": {
     "channel": "email",

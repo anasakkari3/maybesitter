@@ -119,7 +119,19 @@ export const documentPreprocessor: SharePreprocessor = {
     context: SharePreprocessContext,
   ): Promise<SharePreprocessResult> {
     const read = await readDocument(input, context);
-    const segments = read.items.map((item) => segmentFor(item, input.timezone));
+    // A short `.txt` the document read found nothing in goes on as the shared
+    // text it is (QA v3, V3-F07-02; `DocumentRead.asText`). One segment, the
+    // file's own words, attributed to the file as `plainText.ts` attributes one.
+    // The caption, when there was one, goes first and is attributed to the
+    // shared text (`null`), as `plainText.ts` attributes one.
+    const segments: ShareSegment[] = read.asText !== null
+      ? [
+        ...(read.asText.caption === null
+          ? []
+          : [{ text: read.asText.caption, evidence: { sourceIndex: null, excerpt: read.asText.caption.slice(0, MAX_EVIDENCE_CHARACTERS) } }]),
+        { text: read.asText.file, evidence: { sourceIndex: 0, excerpt: read.asText.file.slice(0, MAX_EVIDENCE_CHARACTERS) } },
+      ]
+      : read.items.map((item) => segmentFor(item, input.timezone));
 
     return segmentsToResult(segments, {
       /*
@@ -153,6 +165,7 @@ export const documentPreprocessor: SharePreprocessor = {
         hiddenTextDropped: read.injectedTranscript,
         captionDropped: read.injectedCaption,
         recurringSessions: read.recurringSessions.length,
+        readAsText: read.asText !== null ? 1 : 0,
       },
       document: {
         documentTitle: read.documentTitle,

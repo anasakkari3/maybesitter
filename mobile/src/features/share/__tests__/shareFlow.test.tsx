@@ -33,7 +33,7 @@ import { resetAuthForTests, setAuthRepository } from '../../../api/auth';
 import type { AuthUser } from '../../../auth/types';
 import { Root } from '../../../Root';
 import en from '../../../i18n/locales/en.json';
-import { NetworkError, UnsupportedShareError, UploadTooLargeError } from '../../../api/errors';
+import { NetworkError, TimeoutError, UnsupportedShareError, UploadTooLargeError } from '../../../api/errors';
 import * as shareEndpoints from '../../../api/endpoints/share';
 import * as captureEndpoints from '../../../api/endpoints/capture';
 import * as commitmentEndpoints from '../../../api/endpoints/commitments';
@@ -493,7 +493,12 @@ describe('what the user is told when it will not work', () => {
 
     await fireEvent.press(screen.getByTestId('share-analyze'));
     await waitFor(() => expect(screen.queryByTestId('share-problem')).not.toBeNull());
-    expect(screen.getByTestId('share-problem')).toHaveTextContent(en.errorsNetwork);
+    // QA v3 (V3-F07-05): an upload that did not get through says so, and does
+    // not tell the person to check a connection the rest of the app is using.
+    expect(screen.getByTestId('share-problem')).toHaveTextContent(en.shareUploadNotSent);
+    expect(screen.getByTestId('share-problem')).not.toHaveTextContent(en.errorsNetwork);
+    // Not a picture, so no advice about pictures (QA v3 review).
+    expect(screen.getByTestId('share-problem')).not.toHaveTextContent(/screenshot/i);
     // Deleting the copy here would make Retry a button that cannot work.
     expect(mockFiles.has('file:///tmp/share/chat.zip')).toBe(true);
 
@@ -501,6 +506,16 @@ describe('what the user is told when it will not work', () => {
     await waitFor(() => expect(screen.queryByTestId('review-item-i-1')).not.toBeNull());
     expect(propose).toHaveBeenCalledTimes(2);
     expect([...mockFiles]).toEqual([]);
+  });
+
+  it('an upload that ran out of time says the reading took too long, not that the connection is down', async () => {
+    jest.spyOn(shareEndpoints, 'proposeFromShare').mockRejectedValueOnce(new TimeoutError('the upload timed out'));
+    await openWithShare({ ...mockEmptyIntent, files: [sharedFile()], type: 'file' });
+
+    await fireEvent.press(screen.getByTestId('share-analyze'));
+    await waitFor(() => expect(screen.queryByTestId('share-problem')).not.toBeNull());
+    expect(screen.getByTestId('share-problem')).toHaveTextContent(en.shareUploadTimedOut);
+    expect(mockFiles.has('file:///tmp/share/chat.zip')).toBe(true);
   });
 
   it('with the feature flag off it shows the notice, sends nothing and keeps nothing', async () => {
@@ -784,6 +799,9 @@ describe('a picture is stripped before it is uploaded (UC-3.6, #190)', () => {
     });
     await fireEvent.press(screen.getByTestId('share-analyze'));
     await waitFor(() => expect(screen.queryByTestId('share-problem')).not.toBeNull());
+    // A picture that did not get through gets the one thing the person can
+    // change about a picture (QA v3, V3-F07-05).
+    expect(screen.getByTestId('share-problem')).toHaveTextContent(en.shareUploadNotSentImage);
     await fireEvent.press(screen.getByTestId('share-analyze'));
     await waitFor(() => expect(screen.queryByTestId('review-item-i-1')).not.toBeNull());
 

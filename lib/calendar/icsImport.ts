@@ -112,10 +112,28 @@ export interface BusyCandidate {
   readonly endAt: Instant;
 }
 
+/**
+ * A timed, single (non-recurring) event, with its title — read only for a
+ * shared `.ics` file (`ClassifyIcsOptions.events`), never for a feed.
+ */
+export interface EventCandidate {
+  readonly uid: string;
+  readonly title: string;
+  readonly startAt: Instant;
+  readonly endAt: Instant;
+}
+
 export interface IcsClassification {
   readonly deadlines: DeadlineCandidate[];
   readonly busy: BusyCandidate[];
   readonly skipped: { reason: SkipReason; count: number }[];
+  /** Present only when `ClassifyIcsOptions.events` asked for it. */
+  readonly events?: EventCandidate[];
+  /**
+   * How many events qualified for `events`, counted *before* any was dropped
+   * for its title. A timetable with two attacks in it is still a timetable.
+   */
+  readonly eventsSeen?: number;
 }
 
 export interface ClassifyIcsOptions {
@@ -128,6 +146,17 @@ export interface ClassifyIcsOptions {
    * can fail to terminate; see `icsExpand.mjs`.
    */
   readonly expansion?: RecurrenceExpansion;
+  /**
+   * Also list every timed, non-recurring event starting inside the deadline
+   * window, *with its title* (QA v3, V3-F07-04).
+   *
+   * For a shared `.ics` file only: a file somebody shared on purpose is most
+   * often one invitation, and read as busy time it proposed nothing. A feed
+   * never sets this, so a feed's busy blocks still carry no text at all. The
+   * titles are screened exactly as a deadline's are, and the busy and
+   * deadline lists and the tallies of a call without it are unchanged.
+   */
+  readonly events?: boolean;
 }
 
 export interface WallFields {
@@ -503,6 +532,17 @@ export function classifyIcs(text: string, options: ClassifyIcsOptions): IcsClass
 
   const deadlines: DeadlineCandidate[] = [];
   const busy: BusyCandidate[] = [];
+  const invites: EventCandidate[] = [];
+  let invitesSeen = 0;
+  /*
+   * A cancellation (METHOD:CANCEL) or somebody's answer to an invite
+   * (METHOD:REPLY) is not an invitation, and its events are nowhere to be.
+   * ATTENDEE — and so a PARTSTAT of DECLINED — is never read here, by the rule
+   * at the top of this file; a declined event exported from a calendar app
+   * carries STATUS:CANCELLED or is not exported, and CANCELLED is refused below.
+   */
+  const method = String(root.getFirstPropertyValue('method') ?? '').trim().toUpperCase();
+  const collectInvites = options.events === true && method !== 'CANCEL' && method !== 'REPLY';
 
   /* VTODO */
   for (const todo of root.getAllSubcomponents('vtodo')) {
@@ -615,6 +655,18 @@ export function classifyIcs(text: string, options: ClassifyIcsOptions): IcsClass
     }
 
     if (startResolved.isDate) { tally.add('all_day'); return; }
+    if (
+      collectInvites
+      && recurrenceId === null
+      && endMs > startResolved.epochMs
+      && startResolved.epochMs >= nowMs
+      && startResolved.epochMs <= deadlineEnd
+      // Free time is not somewhere to be: "Out of office", a holiday marker.
+      && textProp(item, 'transp').trim().toUpperCase() !== 'TRANSPARENT'
+    ) {
+      invitesSeen += 1;
+      pushEvent(invites, tally, { uid, rawTitle: summary, startMs: startResolved.epochMs, endMs });
+    }
     if (textProp(item, 'transp').trim().toUpperCase() === 'TRANSPARENT') { tally.add('transparent'); return; }
     if (endMs <= startResolved.epochMs) { tally.add('no_time'); return; }
     if (endMs <= nowMs || startResolved.epochMs >= busyEnd) { tally.add('outside_window'); return; }
@@ -640,7 +692,33 @@ export function classifyIcs(text: string, options: ClassifyIcsOptions): IcsClass
     deadlines: deadlines.slice(0, MAX_DEADLINES),
     busy: busy.slice(0, MAX_BUSY),
     skipped: tally.list(),
+    ...(options.events === true
+      ? {
+        events: invites.sort((a, b) => (a.startAt < b.startAt ? -1 : a.startAt > b.startAt ? 1 : 0)),
+        eventsSeen: invitesSeen,
+      }
+      : {}),
   };
+}
+
+/** An event with its title, screened as `pushDeadline` screens one (raw, then cleaned). */
+function pushEvent(
+  into: EventCandidate[],
+  tally: Tally,
+  input: { uid: string; rawTitle: string; startMs: number; endMs: number },
+): void {
+  if (detectPromptInjection(input.rawTitle) !== null) { tally.add('prompt_injection'); return; }
+  const title = cleanTitle(input.rawTitle);
+  if (title === '' || detectPromptInjection(title) !== null) {
+    tally.add(title === '' ? 'missing_title' : 'prompt_injection');
+    return;
+  }
+  into.push({
+    uid: input.uid,
+    title,
+    startAt: new Date(input.startMs).toISOString(),
+    endAt: new Date(input.endMs).toISOString(),
+  });
 }
 
 function pushDeadline(

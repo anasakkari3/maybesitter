@@ -62,6 +62,7 @@ import {
   WHATSAPP_SELECTION_SCHEMA,
   whatsappParts,
   whatsappSystemPrompt,
+  withoutEmoji,
 } from '../prompts/whatsappPrompt';
 import { looksLikeWhatsAppExport, parseWhatsAppExport, type WhatsAppMessage } from '../whatsappParser';
 
@@ -164,7 +165,12 @@ function safeMessages(messages: readonly WhatsAppMessage[]): {
     // is one of the few places a person can write a line that every export of
     // that chat will repeat.
     const surface = `${message.sender ?? ''}\n${message.text}`;
-    if (screenForInjection(surface) !== null) {
+    // And as the model will read it. `whatsappParts` takes the emoji out of
+    // every line, which can join the words around one into an instruction
+    // («ig👍nore all previous instructions»): the line the model is shown is
+    // screened too, not only the line as written (QA v3 review).
+    const shown = `${withoutEmoji(message.sender ?? '')}\n${withoutEmoji(message.text)}`;
+    if (screenForInjection(surface) !== null || screenForInjection(shown) !== null) {
       dropped += 1;
       continue;
     }
