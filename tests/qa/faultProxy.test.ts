@@ -102,6 +102,8 @@ function request(
       },
     );
     req.on('error', fail);
+    // A mutation that breaks the proxy must fail the test, not hang it.
+    req.setTimeout(5000, () => req.destroy(new Error('test request timed out')));
     if (options.body !== undefined) req.write(options.body);
     req.end();
   });
@@ -337,10 +339,7 @@ test('request bodies are written outside the repository, and a directory inside 
   assert.ok(dir.startsWith(resolve(tmpdir())), `bodies are not under the temp dir (${dir})`);
   assert.ok(existsSync(dir));
 
-  await assert.rejects(
-    startFaultProxy({ target: upstreamUrl, port: 0, controlPort: 0, bodyDir: join(ROOT, 'tmp-bodies') }),
-    /outside the repository/,
-  );
+  await expectBodyDirRefused(join(ROOT, 'tmp-bodies'));
 });
 
 // --- the target must be staging or local ------------------------------------
@@ -535,7 +534,7 @@ test('secret query parameters are hidden in the log and the body file', async ()
 
 test('secret-named fields are hidden in JSON and form-urlencoded bodies', async () => {
   const bodies = await control('POST', '/bodies', { enabled: true });
-  const secretFields = ['apiKey', 'api_key', 'oobCode', 'assertion', 'jwt', 'otp', 'session', 'password', 'secret'];
+  const secretFields = ['apiKey', 'api_key', 'oobCode', 'assertion', 'jwt', 'otp', 'smsOtp', 'session', 'password', 'secret'];
   const json: Record<string, string> = { title: 'keep me', idempotencyKey: 'idem-1' };
   for (const field of secretFields) json[field] = `${field}-VALUE`;
   await viaProxy('POST', '/api/mobile/one', { body: JSON.stringify(json), headers: { 'content-type': 'application/json' } });
@@ -560,16 +559,35 @@ test('a body directory reached through a symlink, another case, or a sibling che
   const sibling = join(dirname(ROOT), 'some-other-checkout', 'bodies');
   const shouted = join(ROOT.replace(/[a-z]/g, (c) => c.toUpperCase()), 'tmp-bodies');
   for (const bodyDir of [join(link, 'bodies'), join(link, 'new', 'deeper'), shouted, sibling]) {
-    await assert.rejects(
-      startFaultProxy({ target: upstreamUrl, port: 0, controlPort: 0, bodyDir }),
-      /outside the repository/,
-      `accepted ${bodyDir}`,
-    );
+    await expectBodyDirRefused(bodyDir);
   }
   const fine = join(outside, 'bodies');
   mkdirSync(fine);
   const ok = await startFaultProxy({ target: upstreamUrl, port: 0, controlPort: 0, bodyDir: fine });
   await ok.close();
+});
+
+const pendingTimeouts = () => process.getActiveResourcesInfo().filter((kind) => kind === 'Timeout').length;
+
+test('a delay timer is cleared at once when the client goes away', async () => {
+  await addRule({ action: 'delay', path: '^/api/mobile/slow$', ms: 5000 });
+  const baseline = pendingTimeouts();
+  const req = http.request({ host: '127.0.0.1', port: proxy!.port, method: 'GET', path: '/api/mobile/slow' });
+  req.on('error', () => {});
+  req.end();
+  await waitFor(async () => pendingTimeouts() > baseline);
+  req.destroy();
+  await waitFor(async () => pendingTimeouts() <= baseline, 1000);
+});
+
+test('a delay timer is cleared at once when the proxy closes', async () => {
+  await addRule({ action: 'delay', path: '^/api/mobile/slow$', ms: 5000 });
+  const baseline = pendingTimeouts();
+  viaProxy('GET', '/api/mobile/slow').catch(() => {});
+  await waitFor(async () => pendingTimeouts() > baseline);
+  await proxy!.close();
+  proxy = null;
+  await waitFor(async () => pendingTimeouts() <= baseline, 1000);
 });
 
 test('a delay is cancelled when the client goes away', async () => {
@@ -618,3 +636,17 @@ test('a target with a path keeps that path in front of every request', async () 
   await viaProxy('GET', '/api/mobile/today?x=1');
   assert.equal(hits[0]!.url, '/base/api/mobile/today?x=1');
 });
+
+/** Start must refuse `bodyDir`; a proxy that starts anyway is closed so the failure cannot hang the run. */
+async function expectBodyDirRefused(bodyDir: string): Promise<void> {
+  let started: Proxy | null = null;
+  try {
+    started = await startFaultProxy({ target: upstreamUrl, port: 0, controlPort: 0, bodyDir });
+  } catch (error) {
+    assert.match(String(error), /outside the repository/);
+  }
+  if (started) {
+    await started.close();
+    assert.fail(`accepted ${bodyDir}`);
+  }
+}

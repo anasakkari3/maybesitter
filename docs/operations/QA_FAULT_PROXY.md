@@ -12,23 +12,54 @@ and no build or deploy runs it.
 ## Safety (enforced in code, covered by `tests/qa/faultProxy.test.ts`)
 
 - **Target:** a local backend (`localhost`, `127.0.0.1`, `::1`) or the staging
-  Cloud Run service over https (`https://[tag---]maybesitter-api-staging-…run.app`).
-  The proxy refuses anything else at start-up and exits with a non-zero code.
-  That includes production.
+  service over https at exactly `maybesitter-api-staging-xw5vhndxxq-ew.a.run.app`.
+  Its revision tags `sha-…---` and `qa-…---` are also accepted. The proxy
+  refuses anything else at start-up and exits with a non-zero code. That
+  includes production. A path on the target (for example `http://localhost:3000/base`)
+  is kept in front of every request.
 - **Listening:** the proxy and its control API both listen on `127.0.0.1` only.
-  The control API also rejects any request whose `Host` header is not loopback.
+- **Control API:** a web page in a browser cannot drive it. Every request
+  needs:
+  - the per-run token in an `X-QA-Token` header. The proxy makes a new random
+    token at start-up, prints it, and writes it to
+    `$TMPDIR/maybesitter-fault-proxy-ctl/<control-port>.token` (mode 600). It
+    deletes the file on close.
+  - `content-type: application/json` on every write (`POST`, `DELETE`);
+  - a loopback `Host` header;
+  - no `Origin` header.
+
+  Rule expressions are capped at 500 characters, and there can be at most 100
+  rules at a time.
+- **Robustness:** a malformed request target answers 400. Any error inside a
+  handler answers 400 or 500, and the process stays up.
+  - A delay is cancelled when the client disconnects or the proxy closes.
+  - The request to the target is aborted when the client disconnects.
+  - A target that does not answer gets 504 after `--upstream-timeout-ms`
+    (default 30000).
 - **Tokens:** the `Authorization` header is never written to the log or to a
-  body file. The same goes for cookies, token-like headers, and body fields
-  whose names look like secrets (`*token*`, `password`, `secret`, `code`, …).
+  body file. The same goes for any header, JSON or form-urlencoded body field,
+  or query parameter whose name looks like a secret:
+  - names that contain `token`, `password`, `secret`, `session`, `cookie`,
+    `credential`, `apiKey`/`api_key`, `oobCode`, `assertion`, `jwt`,
+    `codeVerifier` or `signature`;
+  - names that are exactly `code`, `key`, `otp` or `sig`;
+  - names that end in `otp`.
+
   Each one reads «مخفي». Any body string that contains the bearer token is
-  replaced the same way.
+  replaced the same way. The target still receives the real values; the
+  hiding applies only to what the proxy writes down.
   - The log keeps `authUid`: the `user_id` claim decoded from the token's
     payload. It shows which account sent a request, which the account-switch
     findings need. The token itself is never written.
 - **Bodies:** request bodies are written only when you turn this on. They go to
   a new directory under the OS temp dir (`maybesitter-fault-proxy-*`), with
-  file mode 600. If you pass a `--body-dir` inside the repository, the proxy
-  refuses it. Delete the directory when you are done.
+  file mode 600. The proxy refuses a `--body-dir` inside any checkout:
+  - this one;
+  - the main checkout that owns the shared git directory;
+  - the folder that holds them both, which is all of `MaybeSitter/code`.
+
+  The check resolves symlinks through the nearest existing parent, and it
+  ignores case. Delete the directory when you are done.
 
 ## Run it
 
@@ -72,12 +103,26 @@ APP_ENV=development EXPO_PUBLIC_API_BASE_URL=http://localhost:8787 npx expo star
 
 ## Control it
 
-You can use the command-line tool (`scripts/qa/faultProxyCtl.mjs`, with
-`--control-port N` when the port is not 8788) or plain `curl`:
+You can use the command-line tool or plain `curl`.
+
+The command-line tool is `scripts/qa/faultProxyCtl.mjs`. Add
+`--control-port N` when the port is not 8788. It reads the token file by
+itself.
+
+For `curl`, set the token once and send the two headers on every call:
+
+```bash
+T=$(cat "$TMPDIR/maybesitter-fault-proxy-ctl/8788.token")
+H=(-H "X-QA-Token: $T" -H 'content-type: application/json')
+curl -s "${H[@]}" -XPOST 127.0.0.1:8788/rules -d '{"action":"fail","method":"^GET$","path":"^/api/mobile/football$","status":503}'
+```
+
+The `curl` column below lists only the route and the JSON body; send the
+headers above with each one.
 
 | What | Command line | curl |
 |---|---|---|
-| fail with a status | `faultProxyCtl.mjs fail GET '^/api/mobile/football$' --status 503` | `curl -s -XPOST 127.0.0.1:8788/rules -d '{"action":"fail","method":"^GET$","path":"^/api/mobile/football$","status":503}'` |
+| fail with a status (200–599) | `faultProxyCtl.mjs fail GET '^/api/mobile/football$' --status 503` | `POST /rules {"action":"fail","method":"^GET$","path":"^/api/mobile/football$","status":503}` |
 | fail with a body | `… fail PUT '^/api/mobile/football$' --status 409 --body '{"error":"provider_not_configured"}'` | same, with `"body":"…"` |
 | cut the connection | `… fail POST '^/api/mobile/recommendations/next-step/actions$' --drop` | `"drop":true` |
 | delay (ms) | `… delay '*' '^/api/mobile/commitments/' 4000` | `{"action":"delay","path":"…","ms":4000}` |
@@ -94,7 +139,7 @@ How the rules behave:
 - `method` and `path` are regular expressions. The command line turns `GET`
   into `^GET$` and `*` into `.*`.
 - `path` is matched against the path without its query string. The log shows
-  the path with its query string.
+  the path with its query string, with secret parameter values hidden.
 - The first matching rule that still has uses left applies. A rule with no
   `once` or `times` applies every time.
 - `fail` answers at once. The default status is 503. The request never reaches
@@ -107,7 +152,7 @@ How the rules behave:
 
 Each log entry has `time`, `method`, `path`, `status`, `durationMs`, `action`,
 `ruleId`, `outcome` (`forwarded`, `injected`, `dropped`, `held`, `released`,
-`upstream_error`) and `authUid`.
+`client_gone`, `upstream_error`) and `authUid`.
 
 ## Recipes for the audit findings
 

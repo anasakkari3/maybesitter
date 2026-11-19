@@ -14,9 +14,14 @@
 //
 // METHOD is a plain method (GET) or `*`; it becomes an anchored expression.
 // pathRegex is matched against the path without its query string.
+//
+// The control token is read from the 0600 file the proxy wrote for that
+// control port (see `controlTokenPath` in faultProxy.mjs).
 import http from 'node:http';
+import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { controlTokenPath } from './faultProxy.mjs';
 
 const RULE_COMMANDS = new Set(['fail', 'delay', 'hold']);
 const OTHER_COMMANDS = new Set(['rules', 'clear', 'remove', 'held', 'release', 'log', 'log-clear', 'bodies']);
@@ -76,16 +81,28 @@ export function parseCtlArgs(argv) {
   return { command, controlPort, rule: ordered };
 }
 
+/** The token the proxy on `controlPort` wrote at start-up. */
+export function readControlToken(controlPort) {
+  try {
+    return readFileSync(controlTokenPath(controlPort), 'utf8').trim();
+  } catch {
+    throw new Error(`no control token for port ${controlPort} (${controlTokenPath(controlPort)}); is the proxy running?`);
+  }
+}
+
 function call(controlPort, method, path, body) {
   return new Promise((done, fail) => {
-    const payload = body === undefined ? undefined : JSON.stringify(body);
+    const payload = JSON.stringify(body ?? {});
+    const token = readControlToken(controlPort);
     const req = http.request(
       {
         host: '127.0.0.1',
         port: controlPort,
         method,
         path,
-        headers: payload === undefined ? {} : { 'content-type': 'application/json', 'content-length': Buffer.byteLength(payload) },
+        headers: method === 'GET'
+          ? { 'x-qa-token': token }
+          : { 'x-qa-token': token, 'content-type': 'application/json', 'content-length': Buffer.byteLength(payload) },
       },
       (res) => {
         const chunks = [];
@@ -94,7 +111,7 @@ function call(controlPort, method, path, body) {
       },
     );
     req.on('error', fail);
-    req.end(payload);
+    req.end(method === 'GET' ? undefined : payload);
   });
 }
 
