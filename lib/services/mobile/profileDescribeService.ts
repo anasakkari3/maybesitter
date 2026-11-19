@@ -230,13 +230,19 @@ export async function confirmProfileSuggestions(
 ): Promise<ConfirmResult> {
   requireUserId(uid);
   const storage = storageOf(options);
-  const stored = await storage.get<StoredProposal>(proposalPath(uid, proposalId));
-  if (!stored) throw new ProposalNotFoundError();
-
+  // Claimed and removed in one transaction before anything is written
+  // (de7fcb84 audit CXA8.10): two confirms at once both wrote every row.
   // Expired proposals are refused, not silently written. The suggestions were
   // shown half an hour ago; the user may have forgotten what they said yes to.
-  const age = at.getTime() - Date.parse(stored.createdAt);
-  if (!Number.isFinite(age) || age > PROFILE_PROPOSAL_TTL_MS) throw new ProposalNotFoundError();
+  const stored = await storage.runTransaction(async (tx) => {
+    const found = await tx.get<StoredProposal>(proposalPath(uid, proposalId));
+    if (!found) return null;
+    const age = at.getTime() - Date.parse(found.createdAt);
+    if (!Number.isFinite(age) || age > PROFILE_PROPOSAL_TTL_MS) return null;
+    tx.delete(proposalPath(uid, proposalId));
+    return found;
+  });
+  if (!stored) throw new ProposalNotFoundError();
 
   const memory = options.memory ?? createStorageRuntimeMemoryStore(undefined, options.storage);
   // Fenced against a delete-all or a withdrawal that starts while this confirms (M5B2A-R34-001).
@@ -278,9 +284,7 @@ export async function confirmProfileSuggestions(
     kinds[suggestion.kind] = (kinds[suggestion.kind] ?? 0) + 1;
   }
 
-  // The proposal has done its job. Removing it is also the cheapest way to
-  // guarantee a second confirm cannot write the same facts twice.
-  await storage.delete(proposalPath(uid, proposalId));
+  // The proposal was removed when it was claimed, above.
 
   // Counts and kinds only. What the facts said is not in the audit trail.
   await appendAudit(createPilotAuditEvent({

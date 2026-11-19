@@ -360,11 +360,18 @@ export async function confirmAiContextImport(
 ): Promise<ImportApplyResult> {
   requireUserId(uid);
   const storage = storageOf(options);
-  const stored = await storage.get<StoredImportProposal>(proposalPath(uid, proposalId));
+  // Claimed and removed in one transaction before anything is written
+  // (de7fcb84 audit CXA8.10): two confirms sent at once both read the live
+  // proposal and both wrote every row. Now one of them finds it gone.
+  const stored = await storage.runTransaction(async (tx) => {
+    const found = await tx.get<StoredImportProposal>(proposalPath(uid, proposalId));
+    if (!found) return null;
+    const age = at.getTime() - Date.parse(found.createdAt);
+    if (!Number.isFinite(age) || age > AI_CONTEXT_IMPORT_TTL_MS) return null;
+    tx.delete(proposalPath(uid, proposalId));
+    return found;
+  });
   if (!stored) throw new ImportProposalNotFoundError();
-
-  const age = at.getTime() - Date.parse(stored.createdAt);
-  if (!Number.isFinite(age) || age > AI_CONTEXT_IMPORT_TTL_MS) throw new ImportProposalNotFoundError();
 
   const memory = memoryOf(options);
   // Fenced against a delete-all or a withdrawal that starts while this confirms (M5B2A-R34-001).
@@ -453,9 +460,8 @@ export async function confirmAiContextImport(
     result.kinds[candidate.kind] = (result.kinds[candidate.kind] ?? 0) + 1;
   }
 
-  // The proposal has done its job. Removing it is also the cheapest way to
-  // guarantee a second confirm cannot write the same facts twice.
-  await storage.delete(proposalPath(uid, proposalId));
+  // The proposal was removed when it was claimed, above: a second confirm
+  // cannot write the same facts twice.
 
   // Only when something was actually brought over. Reading a profile and
   // keeping none of it is not an import, and a date for it would claim the
