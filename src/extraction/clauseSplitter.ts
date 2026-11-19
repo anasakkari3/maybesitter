@@ -969,8 +969,9 @@ function segmentsOf(raw: string): SegmentPiece[] {
     const pieces = withDayCarried(line.flatMap((part) => splitTimedConjuncts(part.text)), head?.day ?? headOfLines);
     // The head's own point is on its day too (review of #872), when what
     // follows the colon names no day of its own: the boundary holds a model
-    // reading of it to the list's day as it does the others.
-    if (head && pieces[0] && !pieces[0].listDay && !namesDay(head.rest) && !readWeekdayReference(head.rest) && !namesExplicitDate(head.rest)) {
+    // reading of it to the list's day as it does the others. (A relative
+    // day there — «اليوم», «بعد بكرا» — is `namesExplicitDate`'s.)
+    if (head && pieces[0] && !pieces[0].listDay && !readWeekdayReference(head.rest) && !namesExplicitDate(head.rest)) {
       pieces[0] = { ...pieces[0], listDay: head.day };
     }
     segments.push(...pieces);
