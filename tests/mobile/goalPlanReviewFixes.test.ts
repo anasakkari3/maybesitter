@@ -279,6 +279,25 @@ test('#807 after a failed regenerate, a regenerate with source template supersed
   }, h);
 });
 
+test('QA v3 V3-F22-02: generate sent again with the same key replays the plan; a new key still answers stale', async () => {
+  const h = await setup();
+  await within(async () => {
+    const idempotencyKey = key('gen-replay');
+    const first = await call('goals/[goalId]/plan/generate', 'POST', { goalId: h.goalId }, { idempotencyKey });
+    assert.equal(first.status, 200, JSON.stringify(first.body));
+    const calls = h.modelCalls.length;
+    // The reply was lost and the phone sends the same request again.
+    const again = await call('goals/[goalId]/plan/generate', 'POST', { goalId: h.goalId }, { idempotencyKey });
+    assert.equal(again.status, 200, JSON.stringify(again.body));
+    assert.equal(again.body.plan.planId, first.body.plan.planId);
+    assert.equal(h.modelCalls.length, calls, 'a replay must not ask the model again');
+    // A different request is still told a draft already exists.
+    const other = await call('goals/[goalId]/plan/generate', 'POST', { goalId: h.goalId }, { idempotencyKey: key('gen-other') });
+    assert.equal(other.status, 409, JSON.stringify(other.body));
+    assert.equal(other.body.reason, 'stale');
+  }, h);
+});
+
 test('B-8 reading one goal ignores another goal\'s pending projection', async () => {
   const h = await setup({ model: false });
   await within(async () => {
