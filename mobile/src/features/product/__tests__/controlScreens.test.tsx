@@ -275,17 +275,17 @@ it.each(['completed', 'skipped', 'recovered'])('a %s day can be taken back, and 
 // so the region says what happened, the focus lands on «تمّت», and the old
 // error from the first press is gone.
 it('a successful «تراجع» is said, moves the focus to «تمّت», and clears the earlier error', async () => {
-  const focus = jest.spyOn(AccessibilityInfo, 'setAccessibilityFocus').mockImplementation(() => {});
+  const focus = jest.spyOn(AccessibilityInfo, 'sendAccessibilityEvent').mockImplementation(() => {});
   mockHabits = [walk];
   mockToday = { localDate: '2026-11-15', occurrences: [todayRow('completed')] };
-  mockUndo.mockImplementation((_ref: unknown, options: { onSuccess?: () => void } = {}) => options.onSuccess?.());
+  mockUndo.mockImplementation((...args: unknown[]) => (args[1] as { onSuccess?: () => void } | undefined)?.onSuccess?.());
   const view = await render(wrap(<HabitDetailScreen />));
   await fireEvent.press(screen.getByTestId('habit-today-undo-h1'));
   expect(mockDecideReset).toHaveBeenCalled();
   mockToday = { localDate: '2026-11-15', occurrences: [todayRow('pending')] };
   await view.rerender(wrap(<HabitDetailScreen />));
   expect(screen.getByTestId('habit-today-reopened-h1')).toHaveTextContent(strings.en.xHabitTodayReopened);
-  expect(focus).toHaveBeenCalled();
+  expect(focus).toHaveBeenCalledWith(expect.anything(), 'focus');
   focus.mockRestore();
 });
 

@@ -14,7 +14,7 @@ import {
   usePlanAction,
   useSetHabitStatus,
 } from '../../api/queries';
-import { PlanProposalRefusedError } from '../../api/errors';
+import { ConflictError, PlanProposalRefusedError } from '../../api/errors';
 import { QueryBoundary } from '../../api/ui/QueryBoundary';
 import { markErrorShown, userFacingMessage } from '../../api/ui/userFacingMessage';
 import { calendarReadEnabled, calendarWriteEnabled } from '../../config/env';
@@ -26,6 +26,7 @@ import { useTimeZone } from '../../i18n/timezone';
 import { BrandMark } from '../../ui/brand';
 import { Pill, Txt } from '../../ui/primitives';
 import { LiveRegion } from '../../ui/liveRegion';
+import { useAnnounceOnIos } from '../../ui/announce';
 import { fill } from '../../i18n/strings';
 import type { Habit, HabitOccurrence, HabitWeek } from '../../api/schemas/habits';
 import { Dialog } from '../../ui/dialog';
@@ -263,19 +264,44 @@ function HabitTodayRow({ habit, occurrence, anyDay }: { habit: Habit; occurrence
   const decide = useDecideHabitOccurrence();
   const undo = useUndoHabitOccurrence();
   const [madeUp, setMadeUp] = React.useState(false);
+  // «تراجع» succeeded: the decided line and its button are gone, so the
+  // region says the day is open and the focus moves to «تمّت» (review of #868).
+  const [reopened, setReopened] = React.useState(false);
+  const doneButton = React.useRef<View>(null);
   const open = occurrence.state === 'pending' || occurrence.state === 'scheduled';
   const busy = decide.isPending || undo.isPending;
   const title = isolateAuto(habit.title);
-  const press = (outcome: 'completed' | 'skipped') => decide.mutate(
-    { habitId: habit.habitId, occurrenceId: occurrence.occurrenceId, outcome },
-    { onSuccess: answer => setMadeUp(answer.recovery?.recovered === true), onError: markErrorShown },
+  // iOS has no live regions: VoiceOver is told the same line.
+  useAnnounceOnIos(reopened && open ? t.xHabitTodayReopened : null);
+  React.useEffect(() => {
+    if (!reopened || !open) return;
+    if (doneButton.current) AccessibilityInfo.sendAccessibilityEvent(doneButton.current, 'focus');
+  }, [reopened, open]);
+  const press = (outcome: 'completed' | 'skipped') => {
+    setReopened(false);
+    decide.mutate(
+      { habitId: habit.habitId, occurrenceId: occurrence.occurrenceId, outcome },
+      { onSuccess: answer => setMadeUp(answer.recovery?.recovered === true), onError: markErrorShown },
+    );
+  };
+  const takeBack = () => undo.mutate(
+    { habitId: habit.habitId, occurrenceId: occurrence.occurrenceId },
+    { onSuccess: () => { setMadeUp(false); decide.reset(); setReopened(true); }, onError: markErrorShown },
   );
+  // A 409 here is the one way undo is refused: the make-up day was decided.
+  let undoMessage: string | null = null;
+  if (undo.error instanceof ConflictError) {
+    markErrorShown(undo.error);
+    undoMessage = t.xHabitUndoMadeUpDecided;
+  } else if (undo.error) {
+    undoMessage = userFacingMessage(undo.error, t);
+  }
   const decided = occurrence.state === 'completed' ? t.xHabitTodayDone
     : occurrence.state === 'skipped' || occurrence.state === 'recovered' ? t.xHabitTodaySkipped : null;
   return <View testID={`habit-today-${habit.habitId}`} style={{ gap: 8 }}>
     <ProductRow title={t.today} body={tr('xMinutes', { count: occurrence.durationMinutes })} icon="check" />
     {open ? <ProductActions>
-      <Pill testID={`habit-today-done-${habit.habitId}`} label={t.done} accessibilityLabel={fill(t.xHabitTodayDoneA11y, { title })} disabled={busy} onPress={() => press('completed')} />
+      <Pill testID={`habit-today-done-${habit.habitId}`} nativeRef={doneButton} label={t.done} accessibilityLabel={fill(t.xHabitTodayDoneA11y, { title })} disabled={busy} onPress={() => press('completed')} />
       {/* «مش اليوم» means nothing on a day the habit never asked for. */}
       {anyDay ? null : <Pill testID={`habit-today-skip-${habit.habitId}`} label={t.planDismiss} accessibilityLabel={fill(t.xHabitTodaySkipA11y, { title })} kind="outline" disabled={busy} onPress={() => press('skipped')} />}
     </ProductActions> : null}
@@ -284,11 +310,12 @@ function HabitTodayRow({ habit, occurrence, anyDay }: { habit: Habit; occurrence
       {decided ? <Txt testID={`habit-today-state-${habit.habitId}`} role="supporting" color={occurrence.state === 'completed' ? p.success : p.mu}>{decided}</Txt> : null}
       {decided && madeUp ? <Txt role="supporting" color={p.mu}>{t.xHabitTodayMadeUp}</Txt> : null}
       {decide.error ? <Txt role="supporting" color={p.wm}>{userFacingMessage(decide.error, t)}</Txt> : null}
-      {undo.error ? <Txt role="supporting" color={p.wm}>{userFacingMessage(undo.error, t)}</Txt> : null}
+      {open && reopened ? <Txt testID={`habit-today-reopened-${habit.habitId}`} role="supporting" color={p.mu}>{t.xHabitTodayReopened}</Txt> : null}
+      {undoMessage ? <Txt role="supporting" color={p.wm}>{undoMessage}</Txt> : null}
     </LiveRegion>
     {decided ? <ProductActions>
       <Pill testID={`habit-today-undo-${habit.habitId}`} label={t.undo} accessibilityLabel={fill(t.xHabitTodayUndoA11y, { title })} kind="outline" disabled={busy}
-        onPress={() => undo.mutate({ habitId: habit.habitId, occurrenceId: occurrence.occurrenceId }, { onSuccess: () => setMadeUp(false), onError: markErrorShown })} />
+        onPress={takeBack} />
     </ProductActions> : null}
   </View>;
 }

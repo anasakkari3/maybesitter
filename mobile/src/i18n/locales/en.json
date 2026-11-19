@@ -1533,6 +1533,8 @@
   "xHabitTodayDoneA11y": "Done today: {title}",
   "xHabitTodaySkipA11y": "Not today: {title}",
   "xHabitTodayUndoA11y": "Undo today's answer: {title}",
+  "xHabitTodayReopened": "Today is open again.",
+  "xHabitUndoMadeUpDecided": "The make-up day is already decided, so this day can't be reopened.",
   "xHabitTodayAnyDay": "Not one of its days, but if you do it today it counts for the week.",
   "xHabitWeekCount": "{completed} of {target} this week",
   "xHabitWeekDone": "You've hit your count for this week",
