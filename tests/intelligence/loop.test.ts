@@ -18,6 +18,7 @@ import { answerIntelligenceQuestion } from '../../lib/intelligence/answerQuestio
 import { loadDomainState } from '../../lib/services/mobile/participantState.ts';
 import { createStorageRuntimeMemoryStore } from '../../lib/runtimeMemory/runtimeMemoryStore.ts';
 import { intelligenceEnabled } from '../../lib/intelligence/gate.ts';
+import { listMemory } from '../../lib/services/mobile/memoryService.ts';
 import { createPilotTrustState } from '../../lib/pilot/closedPilotControls.ts';
 
 const NOW = '2026-09-30T10:00:00.000Z';
@@ -357,5 +358,41 @@ test('accepting goal and question retries survive dismissal of outcomes they alr
     assert.equal(retriedQuestion?.status, 'accepted');
     const answerRows = await storage.list(`users/alice/intelligenceObservations`);
     assert.deepEqual(answerRows.filter((row) => row.id === answerEvidence!.id).map((row) => row.id), [answerEvidence!.id]);
+  } finally { resetStorageForTests(); }
+});
+
+test('a goal the person confirmed or accepted is stored as certain (QA CA7.7)', async () => {
+  // The model's confidence is its own uncalibrated guess: 0.5 is what the
+  // fallback observation carries when the model is down. Once the person says
+  // «آه، هيك صح» or accepts the goal, Memory must show «أكيد», which the phone
+  // draws for a confidence of 1 (memoryProvenance.confidenceBand).
+  const storage = createMemoryStorage();
+  setStorageForTests(storage);
+  try {
+    const [goal] = await putObservations('alice', 'manual', 'note-certain', NOW, [
+      { kind: 'goal', evidence: 'I want to read more books', confidence: 0.5 },
+    ], storage);
+    const confirmed = await reviewObservation('alice', goal!.id, 'confirmed', NOW, storage);
+    assert.ok(confirmed?.linkedMemoryId);
+
+    const [other] = await putObservations('alice', 'manual', 'note-certain-2', NOW, [
+      { kind: 'goal', evidence: 'I want more Pilates time', confidence: 1 },
+    ], storage);
+    const [suggestion] = await proposeFromObservations('alice', NOW, { storage, generate: async () => ({
+      text: JSON.stringify({ suggestions: [
+        { kind: 'goal', title: 'Practice Pilates more often', reason: 'You want more Pilates time', observationIds: [other!.id], confidence: 0.55, durationMinutes: 0 },
+      ] }), model: 'fake', latencyMs: 1, promptTokens: 1, outputTokens: 1,
+    }) });
+    const accepted = await reviewSuggestion('alice', suggestion!.id, 'accept', NOW, storage);
+    assert.ok(accepted?.linkedEntityId);
+
+    const listed = await listMemory('alice', NOW, { storage, memory: createStorageRuntimeMemoryStore(undefined, storage) });
+    const byId = new Map(listed.map(item => [item.id, item]));
+    for (const id of [confirmed!.linkedMemoryId!, accepted!.linkedEntityId!]) {
+      const item = byId.get(id);
+      assert.ok(item, `memory ${id} is not listed`);
+      assert.equal(item.confidence, 1, 'a goal the person confirmed must read «أكيد», not the model\'s guess');
+      assert.equal(item.sourceLabel, 'model_suggested_you_confirmed');
+    }
   } finally { resetStorageForTests(); }
 });
