@@ -192,7 +192,7 @@ function refused(r: Run, pattern: RegExp, what: string) {
   assert.match(r.stderr, pattern, `${what}: unexpected message:\n${r.stderr}`);
 }
 
-const CREATE = ['--name', 'memoff', '--set', 'MAYBESITTER_FEATURE_MEMORY=false', '--set', 'MAYBESITTER_FEATURE_GOAL_PLAN=true', '--dry-run'];
+const CREATE = ['--name', 'memoff', '--set', 'MAYBESITTER_FEATURE_MEMORY=false', '--set', 'MAYBESITTER_FEATURE_PLANNING=true', '--dry-run'];
 const CREATE_REAL = CREATE.filter((arg) => arg !== '--dry-run');
 
 test('a dry run deploys the serving revision by digest, behind a qa tag, with no traffic', () => {
@@ -261,9 +261,9 @@ test('the QA revision is the template settings with the overrides on top', () =>
     assert.equal(env.get(key), value, `${key} differs from the template`);
   }
   assert.equal(env.get('MAYBESITTER_FEATURE_MEMORY'), 'false', 'the override did not replace the template value');
-  assert.equal(env.get('MAYBESITTER_FEATURE_GOAL_PLAN'), 'true', 'a key the template does not set was not added');
+  assert.equal(env.get('MAYBESITTER_FEATURE_PLANNING'), 'true', 'a key the template does not set was not added');
   assert.deepEqual(keys.slice(0, template.length), template.map(([key]) => key), 'the template order is not kept');
-  assert.equal(keys[keys.length - 1], 'MAYBESITTER_FEATURE_GOAL_PLAN');
+  assert.equal(keys[keys.length - 1], 'MAYBESITTER_FEATURE_PLANNING');
   assert.ok(!env.has('MAYBESITTER_LLM_UID_SALT'), 'a secret-backed variable was copied as a plain value');
   // Only the env changes: every other setting stays as the template has it.
   const words = deploys(r)[0]!;
@@ -281,7 +281,7 @@ test('the restore puts the template back exactly and removes added keys', () => 
   assert.ok(!restore.some((word) => word.startsWith('--tag')), 'the restore revision must not be tagged');
   const template = defaultTemplateEnv().filter((entry) => entry.value !== undefined).map((entry) => [entry.name, entry.value!]);
   assert.deepEqual(envPairs(restore), template, 'the restore does not put back exactly the template env');
-  assert.ok(restore.includes('--remove-env-vars=MAYBESITTER_FEATURE_GOAL_PLAN'), 'a key the template does not have would leak into the next deploy');
+  assert.ok(restore.includes('--remove-env-vars=MAYBESITTER_FEATURE_PLANNING'), 'a key the template does not have would leak into the next deploy');
 });
 
 test('without overrides that add keys, the restore removes nothing', () => {

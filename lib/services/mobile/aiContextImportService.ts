@@ -38,6 +38,8 @@ import { compareByCodePoint } from '../../planning/shared/compare';
 import { createPilotAuditEvent } from '../../pilot/closedPilotControls';
 import { appendAudit } from '../../pilot/pilotTrustStore';
 import { shareLlmProvider, type ShareStructuredGenerator } from '../../llm/shareProvider';
+import { AiConsentRequiredError } from '../../llm/consentGatedProvider';
+import { LLMUnavailableError } from '../../../src/extraction/llm';
 import { createStorageRuntimeMemoryStore, MemoryWriteRefusedError, personalizationWriteGuard } from '../../runtimeMemory/runtimeMemoryStore';
 import {
   AI_CONTEXT_IMPORTS,
@@ -121,6 +123,31 @@ export interface ImportOptions {
   generate?: ShareStructuredGenerator;
   /** The phone's UI language (owner request 2026-09-30): the candidates are written in it. */
   locale?: 'ar' | 'en' | 'he';
+  /**
+   * Told when the model never read the paste (QA CA8.1), with whether the
+   * failure came before any request reached the provider. Only then is the
+   * day's import given back: a timeout or a malformed answer was sent, and
+   * may have been charged.
+   */
+  onUnread?: (beforeProvider: boolean) => void;
+}
+
+/**
+ * The refusals `shareLlmProvider` makes before it sends anything (review of
+ * QA CA8.1): the kill switch, no model, an input it will not send, a consent
+ * refusal, a locked feature, a spent budget or cap, or an unreadable guard.
+ * Anything else — a provider error, a timeout, an unparseable answer — came
+ * after the request left, so it is not given back.
+ */
+const BEFORE_PROVIDER_REASONS: ReadonlySet<string> = new Set([
+  'ai_disabled', 'provider_none', 'input_too_large', 'inline_data_unsupported', 'empty_request',
+  'feature_locked', 'usage_guard_unavailable',
+]);
+
+export function failedBeforeProvider(error: unknown): boolean {
+  if (error instanceof AiConsentRequiredError) return true;
+  if (!(error instanceof LLMUnavailableError)) return false;
+  return BEFORE_PROVIDER_REASONS.has(error.reason) || error.reason.startsWith('cost_cap:');
 }
 
 interface StoredImportProposal {
@@ -268,6 +295,7 @@ export async function importAiContext(
   const { system, user } = splitPrompt(built);
 
   let raw: unknown;
+  let reached = false;
   try {
     const response = await generate({
       system,
@@ -276,14 +304,18 @@ export async function importAiContext(
       maxOutputTokens: IMPORT_MAX_OUTPUT_TOKENS,
       timeoutMs: IMPORT_TIMEOUT_MS,
     });
+    reached = true;
     proposal.model = response.model;
     raw = JSON.parse(response.text);
-  } catch {
-    // No model, no consent, over a cap, a timeout, or a malformed answer. All
-    // of them mean the same thing to the user: nothing to bring over.
+  } catch (error) {
+    // No model, no consent, over a cap, a timeout, or a malformed answer. None
+    // of them read the paste, so the answer says so (QA CXA1.4, CA8.1) rather
+    // than passing for "nothing to bring over", and the route gives the day's
+    // import back.
     proposal.model = null;
     await save(uid, proposal, options, fence.epoch);
-    return freeze(proposal);
+    options.onUnread?.(!reached && failedBeforeProvider(error));
+    return freeze(proposal, true);
   }
 
   proposal.candidates = [...validateImportCandidates(raw, {
@@ -336,7 +368,7 @@ function summarise(candidates: readonly RawImportCandidate[]): ImportSummary {
 }
 
 /** The wire shape: indices resolved to ids, and no `existingIndex`. */
-function freeze(proposal: StoredImportProposal): AiContextImportProposal {
+function freeze(proposal: StoredImportProposal, degraded = false): AiContextImportProposal {
   const candidates: ImportCandidate[] = proposal.candidates.map(({ relatesTo, ...rest }) => Object.freeze({
     ...rest,
     relatesToId: relatesTo === null ? null : proposal.existingIndex[relatesTo - 1] ?? null,
@@ -353,6 +385,7 @@ function freeze(proposal: StoredImportProposal): AiContextImportProposal {
     createdAt: proposal.createdAt,
     promptVersion: proposal.promptVersion,
     model: proposal.model,
+    degraded,
   });
 }
 
@@ -429,7 +462,10 @@ export async function confirmAiContextImport(
       language: languageOf(content),
       // Once somebody has corrected a sentence about themselves, it is theirs.
       source: useEdit ? 'user_stated' : 'model_inferred',
-      confidence: useEdit ? 1 : candidate.confidence,
+      // The person kept it, edited or not, so it is certain (QA CA8.6). The
+      // model's confidence was its own uncalibrated guess, and it would have
+      // shown a row the person chose to keep as «لسّا مش متأكّد».
+      confidence: 1,
       // Staggered so the first row the user reviewed is the newest, and the
       // memory screen — which sorts `observedAt` descending — lists them in the
       // order they just read. Without the stagger a batch written at one instant

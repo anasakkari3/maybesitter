@@ -163,4 +163,9 @@ export interface AiContextImportProposal {
   readonly createdAt: string;
   readonly promptVersion: string;
   readonly model: string | null;
+  /**
+   * The model never read the paste (QA CXA1.4, CA8.1): the empty list means
+   * "busy, try again shortly", and the route gives the day's import back.
+   */
+  readonly degraded: boolean;
 }

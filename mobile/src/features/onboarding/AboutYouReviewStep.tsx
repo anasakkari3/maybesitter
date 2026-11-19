@@ -45,8 +45,11 @@ export function AboutYouReviewStep({
   onBack,
   saving = false,
   failure,
+  degraded = false,
 }: {
   suggestions: readonly ProfileSuggestion[];
+  /** The model never read the description (QA CXA1.4): say busy, not "nothing to suggest". */
+  degraded?: boolean;
   onSave: (accepted: AcceptedSuggestion[]) => void;
   onBack: () => void;
   saving?: boolean;
@@ -71,10 +74,14 @@ export function AboutYouReviewStep({
         title={t.obAboutReviewTitle}
         testID="onboarding-about-review-empty"
         primary={{ label: t.obContinue, onPress: () => onSave([]), disabled: saving }}
+        // Busy is worth a second try: back to the words, which are still there.
+        secondary={degraded ? { label: t.obBack, onPress: onBack } : undefined}
         footNote={failed ? t[userFacingMessageKey(failure)] : undefined}
       >
         <Card pad={18}>
-          <Txt size={15} color={p.mu} lh={1.5} testID="about-review-none">{t.obAboutReviewNone}</Txt>
+          {degraded
+            ? <Txt size={15} color={p.mu} lh={1.5} testID="about-review-busy">{t.obAboutReviewBusy}</Txt>
+            : <Txt size={15} color={p.mu} lh={1.5} testID="about-review-none">{t.obAboutReviewNone}</Txt>}
         </Card>
       </OnboardingChrome>
     );

@@ -244,6 +244,8 @@ test('an unedited suggestion is stored as the model’s, confirmed by the user',
 
     const record = (await createStorageRuntimeMemoryStore().listAll(UID))[0]!;
     assert.equal(record.source, 'model_inferred');
+    // Ticked by the person, so certain (QA CA8.6), not the model's own 0.9.
+    assert.equal(record.confidence, 1);
     assert.equal(record.provenance?.origin, 'self_description');
     assert.equal(record.provenance?.originRef, proposal.proposalId);
     assert.equal(record.provenance?.promptVersion, 'profile-v1');
@@ -403,6 +405,26 @@ test('the audit line carries counts, never the facts', async () => {
     const serialised = JSON.stringify(await listAuditEvents(UID));
     assert.ok(serialised.includes('memory_facts_confirmed_2'));
     assert.ok(!serialised.includes('thesis'), `the audit trail carries content: ${serialised}`);
+  } finally {
+    end();
+  }
+});
+
+test('a model that fails says so with degraded, and a real answer does not (QA CXA1.4)', async () => {
+  await begin();
+  try {
+    await grant();
+    const failed = await describeProfile(UID, 'I am a nursing student', AT, {
+      complete: async () => { throw new Error('over the cap'); },
+    });
+    assert.deepEqual(failed.suggestions, []);
+    assert.equal(failed.degraded, true);
+    const answered = await describeProfile(UID, 'text', AT, { complete: stubModel(THESIS).complete });
+    assert.equal(answered.degraded, false);
+    // The route carries it: no model is configured here, so the provider fails.
+    const response = await describePost(request('/api/mobile/profile/describe', { text: 'I am a nursing student' }));
+    assert.equal(response.status, 200);
+    assert.equal((await json(response)).degraded, true);
   } finally {
     end();
   }

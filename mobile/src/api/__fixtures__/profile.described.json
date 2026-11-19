@@ -4,5 +4,6 @@
   "suggestions": [],
   "createdAt": "2026-08-09T09:00:00.000Z",
   "promptVersion": "profile-v1",
-  "model": null
+  "model": null,
+  "degraded": true
 }

@@ -625,6 +625,33 @@ export async function reserveDailyAction(
   }
 }
 
+/**
+ * Gives back one action reserved by `reserveDailyAction` on the same UTC day,
+ * for a call that never reached its purpose: the AI import whose model never
+ * read the paste (QA CA8.1). Never below zero. Best effort: a refund that
+ * cannot be written leaves the reservation spent, which is the safe side.
+ */
+export async function releaseDailyAction(
+  uid: string,
+  action: string,
+  options: { now?: Date; storage?: StorageAdapter } = {},
+): Promise<void> {
+  const storage = options.storage ?? getStorage();
+  const now = options.now ?? new Date();
+  const day = utcDay(now);
+  const path = userDayPath(uid, `${action}-${day}`);
+  try {
+    await storage.runTransaction(async (tx) => {
+      const current = await tx.get<UsageDay>(path);
+      const calls = current?.calls ?? 0;
+      if (calls <= 0) return;
+      tx.set<UsageDay>(path, { ...current!, calls: calls - 1, updatedAt: now.toISOString() });
+    });
+  } catch (error) {
+    console.error(`[llm/usage] ${action} release unavailable: ${(error as Error).name}`);
+  }
+}
+
 /** What an action has been used for today, for tests and for answering "why". */
 export async function actionsToday(
   uid: string,

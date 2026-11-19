@@ -102,3 +102,11 @@ test('the documented module switches use the names the code derives', () => {
   assert.equal(envToken('recommendation'), 'RECOMMENDATION');
   assert.equal(envToken('goalPlan'), 'GOAL_PLAN');
 });
+
+test('goal plans are documented with the switch the deploy writes (QA CXA12.2)', () => {
+  // flags.sh writes MAYBESITTER_FEATURE_GOAL_PLAN for both services; an
+  // operator copying .env.example must see the same switch, off by default.
+  const example = readFileSync(join(ROOT, '.env.example'), 'utf8');
+  assert.match(example, /^MAYBESITTER_FEATURE_GOAL_PLAN=false$/m);
+  assert.match(example, /^MAYBESITTER_KILL_SWITCH_GOAL_PLAN=false$/m);
+});

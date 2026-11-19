@@ -178,7 +178,8 @@ export async function reviewSuggestion(
     const guard = await personalizationWriteGuard(storage, uid);
     const memory = await createStorageRuntimeMemoryStore(undefined, storage).putIdempotent({
       scopeId: uid, kind: 'goal', content: claimed.title, language: languageOf(claimed.title),
-      source: 'model_inferred', confidence: claimed.confidence, observedAt: now,
+      // Accepted by the person, so certain (QA CA7.7), not the model's guess.
+      source: 'model_inferred', confidence: 1, observedAt: now,
       evidenceIds: claimed.observationIds,
       provenance: { origin: 'proactive_suggestion', originRef: id, confirmedByUserAt: now },
     }, now, `proactive:${id}`, guard);

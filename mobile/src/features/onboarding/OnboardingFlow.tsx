@@ -101,7 +101,7 @@ export function OnboardingFlow({ onFinished }: { onFinished: () => void }) {
   // mid-review comes back to a blank description rather than to a stale
   // proposal, because the proposal expires in thirty minutes anyway and
   // resuming into an empty checklist would be worse than asking again.
-  const [proposal, setProposal] = useState<{ id: string; suggestions: ProfileSuggestion[] } | null>(null);
+  const [proposal, setProposal] = useState<{ id: string; suggestions: ProfileSuggestion[]; degraded: boolean } | null>(null);
   /** The import detour, and what it turned out to have covered. */
   const [importing, setImporting] = useState(false);
   const [imported, setImported] = useState<readonly SuggestionCategory[] | null>(null);
@@ -256,7 +256,7 @@ export function OnboardingFlow({ onFinished }: { onFinished: () => void }) {
     setDescribeFailed(false);
     try {
       const result = await describe.mutateAsync(text);
-      setProposal({ id: result.proposalId, suggestions: result.suggestions });
+      setProposal({ id: result.proposalId, suggestions: result.suggestions, degraded: result.degraded === true });
     } catch {
       // Includes a revoked consent and a model that is simply off. Either way
       // there is nothing to show, and nothing was written.
@@ -370,6 +370,7 @@ export function OnboardingFlow({ onFinished }: { onFinished: () => void }) {
       return (
         <AboutYouReviewStep
           suggestions={proposal.suggestions}
+          degraded={proposal.degraded}
           saving={confirmSuggestions.isPending}
           failure={confirmFailure}
           onBack={() => { setProposal(null); setDescribeFailed(false); setConfirmFailure(undefined); }}

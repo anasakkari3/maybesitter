@@ -8,7 +8,15 @@ import { LANGUAGE_RULE } from '../../intelligence/proposalEngine';
 import { isCanonicalRoutineFact } from '../../memory/routineFacts';
 import { consentGatedProvider } from '../../llm/consentGatedProvider';
 import { aiDisabled, commitUsage, reserveCall } from '../../llm/usageGuard';
+import { createHash } from 'node:crypto';
 import { getStorage } from '../../storage';
+import { MEMORY_SUMMARIES, userCol, userDoc } from '../../storage/paths';
+import { getAiConsent } from '../../consents/aiConsentService';
+import {
+  personalizationWriteGuard,
+  runtimeMemoryRecordPath,
+  runtimeMemoryRecordRetrievable,
+} from '../../runtimeMemory/runtimeMemoryStore';
 import { withSingleRetry, type LlmProvider } from '../../../src/extraction/llm';
 import { listMemory } from './memoryService';
 
@@ -326,6 +334,80 @@ export function memorySummaryPrompt(rows: readonly MemorySummaryInputRow[], lang
   ].join('\n');
 }
 
+/**
+ * Bumped when what a stored summary means changes (the prompt, the validator,
+ * the row selection), so an old paragraph is regenerated rather than served.
+ */
+export const MEMORY_SUMMARY_CACHE_VERSION = 'memory-summary-cache-v1';
+
+interface StoredMemorySummary {
+  readonly fingerprint: string;
+  readonly language: MemorySummaryLanguage;
+  readonly sentences: readonly { text: string; memoryIds: readonly string[] }[];
+  readonly coveredCount: number;
+  readonly totalCount: number;
+  readonly createdAt: string;
+}
+
+function summaryPath(uid: string, language: MemorySummaryLanguage): string {
+  return `${userCol(uid, MEMORY_SUMMARIES)}/${language}`;
+}
+
+/**
+ * What a summary was made from (QA CA8.7): the rows sent, in order, with
+ * their ids, kinds and words, and how many rows the account has in all —
+ * `totalCount` is in the answer. Any memory change moves it. A hash, so the
+ * stored document repeats no row it does not already quote.
+ */
+function fingerprintOf(rows: readonly MemorySummaryInputRow[], totalCount: number, language: MemorySummaryLanguage): string {
+  return createHash('sha256').update(JSON.stringify([
+    MEMORY_SUMMARY_CACHE_VERSION, language, totalCount, rows.map(({ id, kind, text }) => [id, kind, text]),
+  ])).digest('hex');
+}
+
+function cachedResult(value: unknown, fingerprint: string, language: MemorySummaryLanguage): MemorySummaryResult | null {
+  const stored = value as Partial<StoredMemorySummary> | null | undefined;
+  if (!stored || stored.fingerprint !== fingerprint || stored.language !== language) return null;
+  if (!Array.isArray(stored.sentences) || stored.sentences.length === 0) return null;
+  if (typeof stored.coveredCount !== 'number' || typeof stored.totalCount !== 'number') return null;
+  return {
+    status: 'ready', language,
+    sentences: stored.sentences.map((sentence) => ({ text: sentence.text, memoryIds: [...sentence.memoryIds] })),
+    coveredCount: stored.coveredCount, totalCount: stored.totalCount,
+  };
+}
+
+/**
+ * Kept only while the account is live and no delete-all or withdrawal began
+ * since this summary started (the guard's epoch), so a purge cannot be
+ * outlived by a paragraph about what it erased. Best effort: a summary that
+ * cannot be kept is still answered, and costs a call next time.
+ */
+async function keepSummary(
+  uid: string,
+  guard: Awaited<ReturnType<typeof personalizationWriteGuard>>,
+  rows: readonly MemorySummaryInputRow[],
+  stored: StoredMemorySummary,
+): Promise<void> {
+  try {
+    await getStorage().runTransaction(async (tx) => {
+      if (!guard.accepts(await tx.get(userDoc(uid)))) return;
+      // Every row it quotes is still there, unchanged, in the same transaction
+      // (review of QA CA8.7): a row deleted or edited while the model answered
+      // erased the kept summaries already, and this one must not bring its
+      // words back.
+      const now = new Date().toISOString();
+      for (const row of rows) {
+        const current = await tx.get(runtimeMemoryRecordPath(uid, row.id));
+        if (!runtimeMemoryRecordRetrievable(current, uid, now) || current.content !== row.text) return;
+      }
+      tx.set(summaryPath(uid, stored.language), stored);
+    });
+  } catch (error) {
+    void error;
+  }
+}
+
 export type MemorySummaryResult =
   | { readonly status: 'empty' | 'unavailable' }
   | { readonly status: 'ready'; readonly language: MemorySummaryLanguage; readonly sentences: readonly { text: string; memoryIds: readonly string[] }[]; readonly coveredCount: number; readonly totalCount: number };
@@ -334,6 +416,10 @@ export async function buildMemorySummary(input: { uid: string; language: MemoryS
   if (aiDisabled()) return { status: 'unavailable' };
   const provider = providerFor(input.uid);
   if (provider.name === 'none') return { status: 'unavailable' };
+  // Before the rows are read, so a delete-all that starts after this cannot
+  // be outlived by the paragraph kept below (QA CA8.7).
+  let guard: Awaited<ReturnType<typeof personalizationWriteGuard>> | null = null;
+  try { guard = await personalizationWriteGuard(getStorage(), input.uid); } catch { guard = null; }
   const listed = await listMemory(input.uid, new Date().toISOString());
   if (listed.length === 0) return { status: 'empty' };
   // The routine survey's rows are machine strings («quiet_hours:22:30-07:00»)
@@ -345,6 +431,16 @@ export async function buildMemorySummary(input: { uid: string; language: MemoryS
   const prose = listed.filter((row) => !(row.provenance?.origin === 'routine_survey' && isCanonicalRoutineFact(row.content)));
   if (prose.length === 0) return { status: 'empty' };
   const rows: MemorySummaryInputRow[] = newestThatFit(prose).map((row, index) => ({ ref: `r${index + 1}`, id: row.id, kind: row.kind, text: row.content }));
+  // An unchanged memory is answered from the kept summary: no model call and
+  // no reservation (QA CA8.7). Each GET used to be a paid call.
+  const fingerprint = fingerprintOf(rows, listed.length, input.language);
+  // The kept paragraph is a model's output: it is served only while the
+  // account may have its words read by a model (review of QA CA8.7). Always
+  // granted since the owner's decision of 2026-09-30, so this is the seam a
+  // future withdrawal would close, not a refusal any account meets today.
+  if ((await getAiConsent(input.uid)) !== 'granted') return { status: 'unavailable' };
+  const cached = cachedResult(await getStorage().get(summaryPath(input.uid, input.language)).catch(() => null), fingerprint, input.language);
+  if (cached) return cached;
   const remaining = MEMORY_SUMMARY_ROUTE_BUDGET_MS - (Date.now() - input.startedAt);
   if (remaining < MINIMUM_ATTEMPT_BUDGET_MS || input.signal.aborted) return { status: 'unavailable' };
   const prompt = memorySummaryPrompt(rows, input.language);
@@ -373,11 +469,18 @@ export async function buildMemorySummary(input: { uid: string; language: MemoryS
     const sentences = validateMemorySummary(parseJson(response.text), rows, input.language);
     if (!sentences) return { status: 'unavailable' };
     const ids = new Map(rows.map((row) => [row.ref, row.id]));
-    return {
-      status: 'ready', language: input.language,
+    const ready = {
+      status: 'ready' as const, language: input.language,
       sentences: sentences.map((sentence) => ({ text: sentence.text, memoryIds: sentence.refs.map((ref) => ids.get(ref)!) })),
       coveredCount: rows.length, totalCount: listed.length,
     };
+    if (guard) {
+      await keepSummary(input.uid, guard, rows, {
+        fingerprint, language: ready.language, sentences: ready.sentences,
+        coveredCount: ready.coveredCount, totalCount: ready.totalCount, createdAt: new Date().toISOString(),
+      });
+    }
+    return ready;
   } catch (error) {
     void error;
     if (!charged) await releaseProviderFeature(input.uid, feature, {}, new Date());

@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -182,6 +183,23 @@ test('capture follow-up (lane E3): its own switch, off unless exactly "true", an
     MAYBESITTER_FEATURE_CAPTURE_FOLLOW_UP: 'true', MAYBESITTER_KILL_SWITCH_CAPTURE: 'true',
   }), true);
   assert.equal(resolveCaptureFollowUp({ MAYBESITTER_FEATURE_CAPTURE_FOLLOW_UP: 'true', MAYBESITTER_ENV: 'production' }), false);
+});
+
+test('goal plans run on the staging deploy flags and never on production\'s (QA CXA12.2)', () => {
+  const repo = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
+  const envOf = (target: string): Record<string, string> => {
+    const printed = execFileSync('bash', [resolve(repo, 'infra/cloudrun/flags.sh'), target], { encoding: 'utf8' });
+    const word = printed.trim().split(/\s+/).find((part) => part.startsWith('--update-env-vars=^;^'));
+    assert.ok(word, 'flags.sh writes --update-env-vars');
+    return Object.fromEntries(word.slice('--update-env-vars=^;^'.length).split(';')
+      .map((pair) => [pair.slice(0, pair.indexOf('=')), pair.slice(pair.indexOf('=') + 1)]));
+  };
+  assert.equal(resolveModuleRuntime('goalPlan', readRuntimeControls(envOf('staging'))).mode, 'enabled');
+  assert.equal(resolveModuleRuntime('goalPlan', readRuntimeControls(envOf('production'))).mode, 'rules_only');
+  // The code refuses goal plans outside local, test and staging even if the
+  // flag were flipped on the production service by hand.
+  const forced = readRuntimeControls({ ...envOf('production'), MAYBESITTER_FEATURE_GOAL_PLAN: 'true' });
+  assert.equal(resolveModuleRuntime('goalPlan', forced).mode, 'rules_only');
 });
 
 test('a module kill switch selects rules-only fallback without disabling capture', () => {

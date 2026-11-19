@@ -43,6 +43,10 @@ describe('the real responses these routes return', () => {
       .toBe('ai-context-import-v2');
   });
 
+  it('keeps the degraded mark a model that never read the paste sends (QA CXA1.4)', () => {
+    expect(aiContextImportProposalSchema.parse(fixture('profile.imported')).degraded).toBe(true);
+  });
+
   it('parses a real confirm', () => {
     expect(aiContextImportConfirmedSchema.parse(fixture('profile.importConfirmed')).created).toBe(0);
   });

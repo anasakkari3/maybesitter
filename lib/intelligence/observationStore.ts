@@ -191,7 +191,9 @@ export async function reviewObservation(
   const guard = await personalizationWriteGuard(storage, uid);
   const memory = await createStorageRuntimeMemoryStore(undefined, storage).putIdempotent({
     scopeId: uid, kind: 'goal', content, language,
-    source: 'model_inferred', confidence: reviewed.confidence,
+    // The person confirmed it, so it is certain (QA CA7.7): the observation's
+    // confidence was the model's guess (0.5 when the model was down).
+    source: 'model_inferred', confidence: 1,
     observedAt: reviewed.observedAt, evidenceIds: [reviewed.id],
     provenance: { origin: 'proactive_suggestion', originRef: reviewed.id, confirmedByUserAt: reviewed.reviewedAt ?? at },
   }, reviewed.reviewedAt ?? at, `observation-goal:${reviewed.id}`, guard);

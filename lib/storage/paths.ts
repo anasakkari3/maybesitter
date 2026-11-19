@@ -153,6 +153,32 @@ export const AI_CONTEXT_IMPORTS = 'aiContextImports';
  * goes with the account.
  */
 export const MEMORY_DISMISSALS = 'memoryDismissals';
+
+/**
+ * The memory summary, kept (QA CA8.7, owner decision 2026-11-19).
+ *
+ * `users/{uid}/memorySummaries/{language}`: the last ready paragraph in that
+ * language and the fingerprint of the memory rows it summarized. A GET whose
+ * rows still have that fingerprint answers from here without a model call;
+ * any change to memory changes the fingerprint and regenerates it. It is a
+ * model's sentences about the person, derived from their memory, so it goes
+ * with "forget what you inferred about me", with the account, and comes with
+ * an export.
+ */
+export const MEMORY_SUMMARIES = 'memorySummaries';
+
+/** The languages a summary is kept in, one document each. */
+export const MEMORY_SUMMARY_LANGUAGES = ['ar', 'en', 'he'] as const;
+
+/**
+ * Every kept summary of an account. Erased with any change that removes or
+ * rewrites a memory row (`runtimeMemoryStore` supersede, revoke and delete),
+ * so a paragraph can never outlive the words it quotes, in the store or in an
+ * export (review of QA CA8.7).
+ */
+export function memorySummaryDocs(uid: string): string[] {
+  return MEMORY_SUMMARY_LANGUAGES.map((language) => `${userCol(uid, MEMORY_SUMMARIES)}/${language}`);
+}
 /** One document per UTC day: how many model calls this account has spent (#160). */
 export const USAGE = 'usage';
 /**
@@ -649,6 +675,7 @@ export const USER_SCOPED_COLLECTIONS = [
   PROFILE_PROPOSALS,
   AI_CONTEXT_IMPORTS,
   MEMORY_DISMISSALS,
+  MEMORY_SUMMARIES,
   USAGE,
   FEATURES,
   PLANS,

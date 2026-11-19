@@ -69,7 +69,10 @@ export function AiImportReviewStep({
     return (
       <View style={{ gap: 16 }}>
         <Txt size={20} weight={600}>{t.aiImportReviewTitle}</Txt>
-        <Notice text={t.aiImportReviewNothing} testID="ai-import-nothing" />
+        {/* A model that never read the paste is not "nothing found" (QA CXA1.4, CA8.1). */}
+        {proposal.degraded
+          ? <Notice text={t.aiImportReviewBusy} testID="ai-import-busy" />
+          : <Notice text={t.aiImportReviewNothing} testID="ai-import-nothing" />}
         <Footer>
           <PrimaryButton label={t.done} onPress={onCancel} testID="ai-import-nothing-done" />
         </Footer>

@@ -194,6 +194,17 @@ test('M6a-2 memory translation is staging-only and keeps an explicit kill switch
   assert.equal(production.get('MAYBESITTER_KILL_SWITCH_MEMORY_TRANSLATION'), 'false');
 });
 
+test('goal plans are on in staging only, with the kill switch written out off (QA CXA12.2)', () => {
+  // «الميزات» lists goal plans in staging, and every goal-plan route checks
+  // the module gate; unset, staging showed the feature and answered 404.
+  const staging = envVarsOf(flagsFor('staging'));
+  const production = envVarsOf(flagsFor('production'));
+  assert.equal(staging.get('MAYBESITTER_FEATURE_GOAL_PLAN'), 'true');
+  assert.equal(staging.get('MAYBESITTER_KILL_SWITCH_GOAL_PLAN'), 'false');
+  assert.equal(production.get('MAYBESITTER_FEATURE_GOAL_PLAN'), 'false');
+  assert.equal(production.get('MAYBESITTER_KILL_SWITCH_GOAL_PLAN'), 'false');
+});
+
 /** `--set-secrets` as KEY → secret:version; gcloud splits it on `,`. */
 function secretsOf(printed: string): Map<string, string> {
   const flag = printed.trim().split(/\s+/).filter((word) => word.startsWith('--set-secrets='));
@@ -387,8 +398,8 @@ test('switching the env list to a custom delimiter dropped none of the existing 
   assert.equal(staging.get('MAYBESITTER_FEATURE_CAPTURE_FOLLOW_UP'), 'true');
   assert.equal(production.get('MAYBESITTER_KILL_SWITCH_CAPTURE_FOLLOW_UP'), 'false');
   assert.equal(staging.get('MAYBESITTER_KILL_SWITCH_CAPTURE_FOLLOW_UP'), 'false');
-  assert.equal(production.size, 58);
-  assert.equal(staging.size, 57);
+  assert.equal(production.size, 60);
+  assert.equal(staging.size, 59);
 });
 
 // ── Same-digest production promotion ────────────────────────────────────

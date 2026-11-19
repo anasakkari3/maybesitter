@@ -98,6 +98,9 @@ interface StoredProposal {
   written?: number[];
 }
 
+/** Not stored: whether this answer came from a model that never read the text. */
+type Answered = StoredProposal & { degraded?: boolean };
+
 /** How long one confirm holds a proposal before another may take it over. */
 const CONFIRM_LEASE_MS = 60_000;
 
@@ -175,11 +178,12 @@ export async function describeProfile(
   try {
     raw = JSON.parse(await complete(buildProfilePrompt(description, locale)));
   } catch {
-    // No model, no consent, over the cap, or a malformed answer. All of them
-    // mean the same thing to the user: nothing to suggest. The consent refusal
-    // is surfaced by the route, which asks before calling this.
+    // No model, no consent, over the cap, or a malformed answer. None of them
+    // read the description, so the answer says so (QA CXA1.4) rather than
+    // passing for "nothing to suggest". The consent refusal is surfaced by
+    // the route, which asks before calling this.
     await save(uid, proposal, options);
-    return freeze(proposal);
+    return freeze({ ...proposal, degraded: true });
   }
 
   const suggestions = validateProfileSuggestions(
@@ -200,13 +204,14 @@ async function save(uid: string, proposal: StoredProposal, options: DescribeOpti
   });
 }
 
-function freeze(proposal: StoredProposal): ProfileProposal {
+function freeze(proposal: Answered): ProfileProposal {
   return Object.freeze({
     proposalId: proposal.proposalId,
     suggestions: Object.freeze([...proposal.suggestions]),
     createdAt: proposal.createdAt,
     promptVersion: proposal.promptVersion,
     model: proposal.model,
+    degraded: proposal.degraded === true,
   });
 }
 
@@ -290,7 +295,10 @@ export async function confirmProfileSuggestions(
       language: languageOf(content),
       // Once somebody has corrected a sentence about themselves, it is theirs.
       source: useEdit ? 'user_stated' : 'model_inferred',
-      confidence: useEdit ? 1 : suggestion.confidence,
+      // The person kept it, edited or not, so it is certain (QA CA8.6). The
+      // model's confidence was its own uncalibrated guess, and it would have
+      // shown a row the person chose to keep as «لسّا مش متأكّد».
+      confidence: 1,
       observedAt: isoAt,
       ttlMs: useEdit ? USER_STATED_MEMORY_TTL_MS : undefined,
       provenance: {

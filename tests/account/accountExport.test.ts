@@ -27,6 +27,7 @@ import {
   GOOGLE_PICKER_TICKETS,
   EXPORT_LEASES,
   MEMORY_CITATIONS,
+  MEMORY_SUMMARIES,
   USER_SCOPED_COLLECTIONS,
   userDoc,
   userSubDoc,
@@ -321,4 +322,16 @@ test('GET /api/mobile/account/export answers 413 export_too_large when the accou
   } finally {
     end();
   }
+});
+
+test('the kept memory summary comes with an export (QA CA8.7)', async () => {
+  // A model's paragraph about the person, kept so an unchanged memory costs no
+  // second call: the person's to download, like the memory it summarizes.
+  const storage = createMemoryStorage();
+  await storage.set(userDoc(OWNER), { uid: OWNER, trust: liveTrust(OWNER) });
+  const kept = { language: 'en', sentences: [{ text: 'Likes tea.', memoryIds: ['m1'] }], coveredCount: 1, totalCount: 1 };
+  await storage.set(userSubDoc(OWNER, MEMORY_SUMMARIES, 'en'), kept);
+  const { collections } = await buildAccountExport(OWNER, { storage });
+  const data = collections[MEMORY_SUMMARIES]?.[0]?.data as { sentences?: Array<{ text: string }> } | undefined;
+  assert.equal(data?.sentences?.[0]?.text, 'Likes tea.');
 });
