@@ -649,6 +649,28 @@ describe('the guided setup', () => {
     expect(describeProfile).not.toHaveBeenCalled();
   });
 
+  it('counts onboarding as completed only at its real end, not when consent is saved (CA1.1)', async () => {
+    await reachSetup(true);
+    // Three steps before the end, with analytics granted: nothing claims done.
+    expect(recordAnalyticsEvent).not.toHaveBeenCalledWith('onboarding_completed', expect.anything());
+    expect(recordAnalyticsEvent.mock.calls.map(call => call[0])).not.toContain('onboarding_completed');
+    await pressTestId('setup-skip');
+    await waitFor(() => expect(screen.queryByTestId('onboarding-notifications')).not.toBeNull());
+    expect(recordAnalyticsEvent.mock.calls.map(call => call[0])).not.toContain('onboarding_completed');
+    await pressTestId('onboarding-notifications-later');
+    await waitFor(() => expect(recordAnalyticsEvent.mock.calls.map(call => call[0])).toContain('onboarding_completed'));
+    expect(recordAnalyticsEvent.mock.calls.filter(call => call[0] === 'onboarding_completed')).toHaveLength(1);
+  });
+
+  it('never counts a completion without analytics consent (CA1.1)', async () => {
+    await reachSetup(false);
+    await pressTestId('setup-skip');
+    await waitFor(() => expect(screen.queryByTestId('onboarding-notifications')).not.toBeNull());
+    await pressTestId('onboarding-notifications-later');
+    await waitFor(() => expect(screen.queryByTestId('onboarding-notifications')).toBeNull());
+    expect(recordAnalyticsEvent.mock.calls.map(call => call[0])).not.toContain('onboarding_completed');
+  });
+
   it('saves nothing from the review without a tick', async () => {
     await reachSetup(false);
     await fireEvent.changeText(screen.getByTestId('setup-life-input'), 'Nursing student, night shifts, a thesis in March');
