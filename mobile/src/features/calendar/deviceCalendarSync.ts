@@ -42,7 +42,8 @@
 import type { Commitment, DeviceCalendarLink } from '../../api/schemas/common';
 import type { CalendarWriteTarget } from '../../api/schemas/calendar';
 import { DeviceCalendarError, type DeviceCalendar } from './deviceCalendar';
-import { draftFor, type EventDraft } from './eventDraft';
+import { OWN_EVENT_URL_PREFIX } from './busyBlocks';
+import { commitmentEventUrl, draftFor, type EventDraft } from './eventDraft';
 
 export type SyncPlan =
   | { kind: 'none'; because: NoReason }
@@ -385,7 +386,7 @@ export async function reconcile(input: ReconcileInput): Promise<SyncOutcome> {
           writerId,
           calendarId: input.calendarId,
           deviceTimeZone: input.deviceTimeZone,
-          eventStillThere: await ports.calendar.eventExists(link.eventId),
+          eventStillThere: await ports.calendar.eventExists(link.eventId, link.calendarId),
         })
         : plan;
       await apply(subject, settled, input, outcome);
@@ -400,6 +401,38 @@ export async function reconcile(input: ReconcileInput): Promise<SyncOutcome> {
     }
   }
   return outcome;
+}
+
+/** How far around a commitment's time an earlier copy of its event is looked for. */
+const COPY_LOOKUP_DAYS = 366;
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * The events already in the calendar for this commitment, sorted by id so every
+ * pass keeps the same one whatever order the calendar lists them in.
+ *
+ * Matched on the whole address, never the prefix: another commitment's event
+ * is not a copy of this one. A title edit keeps the time, and a moved time is
+ * within a year either side, which is the window looked in.
+ */
+async function copiesOf(ports: SyncPorts, calendarId: string, draft: EventDraft): Promise<string[]> {
+  if (!ports.calendar.findOwnEvents || draft.url === undefined) return [];
+  const found = await ports.calendar.findOwnEvents(
+    calendarId,
+    draft.url,
+    new Date(draft.startDate.getTime() - COPY_LOOKUP_DAYS * DAY_MS),
+    new Date(draft.endDate.getTime() + COPY_LOOKUP_DAYS * DAY_MS),
+  );
+  return [...new Set(found.filter((event) => event.url === draft.url).map((event) => event.id))].sort();
+}
+
+/** Takes the extra copies out, after the claim is ours. Answers how many went. */
+async function removeCopies(ports: SyncPorts, calendarId: string, extra: readonly string[]): Promise<number> {
+  for (const eventId of extra) {
+    await ports.calendar.deleteEvent(eventId, calendarId);
+    await ports.forgetEvent(eventId);
+  }
+  return extra.length;
 }
 
 async function apply(
@@ -420,6 +453,34 @@ async function apply(
       const calendarId = input.calendarId;
       if (calendarId === null) {
         outcome.skipped += 1;
+        return;
+      }
+      /*
+       * First, is it already there? (QA v3, V3-F18-04.) A write whose claim
+       * never landed — refused, offline, a killed app — leaves an event the
+       * account has no link to, and a pass that only looks at links writes
+       * the same event again on every refresh: 8 and 9 copies of each
+       * commitment on the QA phone. The address on the event is this
+       * commitment's own, so an earlier copy is found and adopted instead,
+       * and any further copies are taken out once the claim is ours.
+       */
+      const copies = await copiesOf(ports, calendarId, plan.draft);
+      if (copies.length > 0) {
+        const [keep, ...extra] = copies as [string, ...string[]];
+        await ports.calendar.updateEvent(keep, plan.draft, calendarId);
+        await ports.rememberEvent(keep);
+        // Not taken back if the claim fails: it was there before this pass,
+        // and it may be the one another device owns in a shared calendar. The
+        // next pass adopts it again, so a failing claim adds nothing.
+        await ports.putLink(commitmentId, {
+          writerId,
+          calendarId,
+          eventId: keep,
+          contentHash: plan.draft.contentHash,
+          state: 'linked',
+        });
+        outcome.updated += 1;
+        outcome.deleted += await removeCopies(ports, calendarId, extra);
         return;
       }
       /*
@@ -468,21 +529,28 @@ async function apply(
     }
 
     case 'update': {
-      await ports.calendar.updateEvent(plan.eventId, plan.draft);
+      const calendarId = subject.link?.calendarId ?? input.calendarId ?? '';
+      await ports.calendar.updateEvent(plan.eventId, plan.draft, subject.link?.calendarId);
       await ports.putLink(commitmentId, {
         writerId,
-        calendarId: subject.link?.calendarId ?? input.calendarId ?? '',
+        calendarId,
         eventId: plan.eventId,
         contentHash: plan.draft.contentHash,
         state: 'linked',
       });
       outcome.updated += 1;
+      // A cleanup an earlier pass did not finish (killed, or a delete that
+      // failed): the copies beside the linked event go now (review of #870).
+      if (calendarId !== '') {
+        const extra = (await copiesOf(ports, calendarId, plan.draft)).filter((id) => id !== plan.eventId);
+        outcome.deleted += await removeCopies(ports, calendarId, extra);
+      }
       return;
     }
 
     case 'delete': {
       await ports.noteUnlink?.(commitmentId, writerId);
-      await ports.calendar.deleteEvent(plan.eventId);
+      await ports.calendar.deleteEvent(plan.eventId, subject.link?.calendarId);
       await ports.forgetEvent(plan.eventId);
       // The row goes too, so a later re-confirm can link afresh rather than
       // being refused for ever by a tombstone that describes nothing.
@@ -525,11 +593,22 @@ export async function removeAllWrittenEvents(input: {
   subjects: readonly SyncSubject[];
   writerId: string;
   ports: SyncPorts;
+  /**
+   * Where to look for the copies no link names (QA v3, V3-F18-04): the
+   * calendar picked on this phone and the ones its links point at. Without
+   * it only linked events are removed, as before.
+   */
+  calendarIds?: readonly string[];
+  /** The middle of the range looked in. Injected for tests. */
+  now?: Date;
 }): Promise<{ removed: number; skipped: number; permissionDenied: boolean }> {
   const mine = input.subjects.filter(
     (subject) => subject.link && subject.link.writerId === input.writerId && subject.link.state === 'linked',
   );
-  if (mine.length === 0) return { removed: 0, skipped: 0, permissionDenied: false };
+  const strays = strayAddresses(input.subjects, input.writerId);
+  const calendarIds = [...new Set(input.calendarIds ?? [])];
+  const sweeps = Boolean(input.ports.calendar.findOwnEvents) && strays.size > 0 && calendarIds.length > 0;
+  if (mine.length === 0 && !sweeps) return { removed: 0, skipped: 0, permissionDenied: false };
 
   if ((await input.ports.calendar.getAccess()) !== 'granted') {
     return { removed: 0, skipped: mine.length, permissionDenied: true };
@@ -537,11 +616,14 @@ export async function removeAllWrittenEvents(input: {
 
   let removed = 0;
   let skipped = 0;
+  // An event the link walk already tried is not tried, or counted, twice.
+  const attempted = new Set<string>();
   for (const subject of mine) {
     const link = subject.link!;
+    attempted.add(link.eventId);
     try {
       await input.ports.noteUnlink?.(subject.commitmentId, input.writerId);
-      await input.ports.calendar.deleteEvent(link.eventId);
+      await input.ports.calendar.deleteEvent(link.eventId, link.calendarId);
       await input.ports.forgetEvent(link.eventId);
       await input.ports.deleteLink(subject.commitmentId, input.writerId);
       await input.ports.settleUnlink?.(subject.commitmentId);
@@ -553,5 +635,81 @@ export async function removeAllWrittenEvents(input: {
       skipped += 1;
     }
   }
+  if (!sweeps) return { removed, skipped, permissionDenied: false };
+
+  /*
+   * The copies no link names (QA v3, V3-F18-04). A build whose claims were all
+   * refused left up to nine copies of each commitment and not one link, so
+   * walking the links removed nothing and the screen said «انشالت».
+   *
+   * Only events that carry the address of a commitment this account holds,
+   * and is not written by another installation: the address is written by
+   * this app alone, so nothing the user made is a candidate; a commitment id is
+   * the account's own, so another account's events on this phone are not.
+   */
+  const now = (input.now ?? new Date()).getTime();
+  const from = new Date(now - SWEEP_DAYS_BACK * DAY_MS);
+  const to = new Date(now + SWEEP_DAYS_AHEAD * DAY_MS);
+  for (const calendarId of calendarIds) {
+    let found: readonly { id: string; url: string }[];
+    try {
+      found = await input.ports.calendar.findOwnEvents!(calendarId, OWN_EVENT_URL_PREFIX, from, to);
+    } catch (error) {
+      if (error instanceof DeviceCalendarError && error.reason === 'permission_denied') {
+        return { removed, skipped, permissionDenied: true };
+      }
+      skipped += 1;
+      continue;
+    }
+    for (const event of found) {
+      const stray = strays.get(event.url);
+      if (stray === undefined || attempted.has(event.id)) continue;
+      attempted.add(event.id);
+      try {
+        await input.ports.calendar.deleteEvent(event.id, calendarId);
+        await input.ports.forgetEvent(event.id);
+        // A claim can land after the lists were read and name this very event
+        // (review of #870); a link to an event that is gone is detached by the
+        // next pass, for ever. Our own link only: the server refuses another
+        // installation's, and forgetting one that is not there is not an error.
+        // Never a `detached` row: that is the record of an event the user
+        // removed by hand, and it stays.
+        if (stray.forgetLink) await input.ports.deleteLink(stray.commitmentId, input.writerId);
+        removed += 1;
+      } catch (error) {
+        if (error instanceof DeviceCalendarError && error.reason === 'permission_denied') {
+          return { removed, skipped, permissionDenied: true };
+        }
+        skipped += 1;
+      }
+    }
+  }
   return { removed, skipped, permissionDenied: false };
+}
+
+/** A year back and two ahead: inside EventKit's four-year limit on one range. */
+const SWEEP_DAYS_BACK = 366;
+const SWEEP_DAYS_AHEAD = 731;
+
+/**
+ * The addresses whose stray copies "Remove events MaybeSitter added" may take
+ * out: every commitment in hand, except one another installation writes.
+ */
+function strayAddresses(
+  subjects: readonly SyncSubject[],
+  writerId: string,
+): ReadonlyMap<string, { commitmentId: string; forgetLink: boolean }> {
+  const addresses = new Map<string, { commitmentId: string; forgetLink: boolean }>();
+  for (const subject of subjects) {
+    // Unknown is not "none" (second review of #870): a response that did not
+    // carry the link may be hiding another device's, and in a shared iCloud
+    // calendar its event carries this same address.
+    if (subject.link === undefined) continue;
+    if (subject.link && subject.link.writerId !== writerId) continue;
+    addresses.set(commitmentEventUrl(subject.commitmentId), {
+      commitmentId: subject.commitmentId,
+      forgetLink: subject.link?.state !== 'detached',
+    });
+  }
+  return addresses;
 }

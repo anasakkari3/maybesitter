@@ -183,3 +183,146 @@ describe('the two translations that matter', () => {
     });
   });
 });
+
+/*
+ * QA v3, V3-F18-04. On the iPhone the class API answered the new event without
+ * its id: the app stored `[null]` as every id it wrote, claimed the link with
+ * no `eventId` (400), and the repair that should have taken the event back out
+ * deleted "nothing" and called it done. These hold the native seam to what it
+ * must do about that.
+ */
+describe('an event the class API answers without its id', () => {
+  const OURS = { id: 'ITEM-1', url: DRAFT.url };
+
+  it('finds the id by the address the app wrote on it', async () => {
+    const listEvents = jest.fn<() => Promise<unknown[]>>()
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([OURS, { id: 'users-own', url: null }]);
+    mockCalendarGet.mockResolvedValue({
+      allowsModifications: true,
+      createEvent: async () => ({ id: undefined }),
+      listEvents,
+    });
+    expect(await deviceCalendar.createEvent('cal-1', DRAFT)).toBe('ITEM-1');
+  });
+
+  it('tells the new event from an older one at the same address', async () => {
+    // The weekly blocks share one address; a guess here links the wrong event.
+    const OLDER = { id: 'ITEM-0', url: DRAFT.url };
+    mockCalendarGet.mockResolvedValue({
+      allowsModifications: true,
+      createEvent: async () => ({ id: undefined }),
+      listEvents: jest.fn<() => Promise<unknown[]>>()
+        .mockResolvedValueOnce([OLDER])
+        .mockResolvedValueOnce([OLDER, OURS]),
+    });
+    expect(await deviceCalendar.createEvent('cal-1', DRAFT)).toBe('ITEM-1');
+  });
+
+  it('never answers an empty id: it takes the event back out and fails instead', async () => {
+    const remove = jest.fn<() => Promise<void>>().mockResolvedValue(undefined);
+    mockCalendarGet.mockResolvedValue({
+      allowsModifications: true,
+      createEvent: async () => ({ id: null, delete: remove }),
+      listEvents: async () => [],
+    });
+    await expect(deviceCalendar.createEvent('cal-1', DRAFT)).rejects.toMatchObject({ reason: 'unavailable' });
+    expect(remove).toHaveBeenCalled();
+  });
+
+  it('does not call deleting an event with no id "done"', async () => {
+    // `deleteEvent(undefined)` was answered "already gone", so the event the
+    // failed claim should have removed stayed in the calendar every time.
+    await expect(deviceCalendar.deleteEvent('')).rejects.toMatchObject({ reason: 'unavailable' });
+  });
+});
+
+describe('the events the app wrote, and only those', () => {
+  it('lists the ones with its address, and none of the user\'s own', async () => {
+    mockCalendarGet.mockResolvedValue({
+      listEvents: async () => [
+        { id: 'a', url: 'maybesitter://commitments/cmt-1' },
+        { id: 'b', url: 'https://example.com/meeting' },
+        { id: 'c', url: null },
+        { id: null, url: 'maybesitter://commitments/cmt-2' },
+      ],
+    });
+    const found = await deviceCalendar.findOwnEvents!(
+      'cal-1', 'maybesitter://commitments/', new Date('2026-06-01'), new Date('2026-07-01'),
+    );
+    expect(found).toEqual([{ id: 'a', url: 'maybesitter://commitments/cmt-1' }]);
+  });
+
+  it('finds an event by its calendar when the lookup by id says it is not there', async () => {
+    // The class API looks an id up with `event(withIdentifier:)`, which takes
+    // an event identifier, while the id it hands out is the calendar item
+    // identifier. Without this, a linked event reads as deleted by hand.
+    mockEventGet.mockRejectedValue(new Error('Event not found'));
+    const remove = jest.fn<() => Promise<void>>().mockResolvedValue(undefined);
+    mockCalendarGet.mockResolvedValue({
+      listEvents: async () => [{ id: 'ITEM-1', url: DRAFT.url, delete: remove }],
+    });
+    expect(await deviceCalendar.eventExists('ITEM-1', 'cal-1')).toBe(true);
+    await deviceCalendar.deleteEvent('ITEM-1', 'cal-1');
+    expect(remove).toHaveBeenCalled();
+  });
+});
+
+describe('a lookup that could not finish is not a deletion', () => {
+  it('does not answer "gone" when the calendar would not list', async () => {
+    // `false` detaches the link, for ever. A calendar that failed to answer
+    // has said nothing about whether the user deleted the event.
+    mockEventGet.mockRejectedValue(new Error('Event not found'));
+    mockCalendarGet.mockRejectedValue(new Error('the disk is on fire'));
+    await expect(deviceCalendar.eventExists('ITEM-1', 'cal-1')).rejects.toMatchObject({ reason: 'unavailable' });
+  });
+});
+
+describe('review of #870', () => {
+  it('finds the event whose id is the one asked for, not one it starts', async () => {
+    mockEventGet.mockRejectedValue(new Error('Event not found'));
+    const wrong = jest.fn<() => Promise<void>>().mockResolvedValue(undefined);
+    const right = jest.fn<() => Promise<void>>().mockResolvedValue(undefined);
+    mockCalendarGet.mockResolvedValue({
+      listEvents: async () => [
+        { id: 'ITEM-10', url: DRAFT.url, delete: wrong },
+        { id: 'ITEM-1', url: DRAFT.url, delete: right },
+      ],
+    });
+    await deviceCalendar.deleteEvent('ITEM-1', 'cal-1');
+    expect(right).toHaveBeenCalled();
+    expect(wrong).not.toHaveBeenCalled();
+  });
+
+  it('answers no id when two new events carry the address, and takes its own back out', async () => {
+    const remove = jest.fn<() => Promise<void>>().mockResolvedValue(undefined);
+    mockCalendarGet.mockResolvedValue({
+      allowsModifications: true,
+      createEvent: async () => ({ id: undefined, delete: remove }),
+      listEvents: jest.fn<() => Promise<unknown[]>>()
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([{ id: 'ITEM-1', url: DRAFT.url }, { id: 'ITEM-2', url: DRAFT.url }]),
+    });
+    await expect(deviceCalendar.createEvent('cal-1', DRAFT)).rejects.toMatchObject({ reason: 'unavailable' });
+    expect(remove).toHaveBeenCalled();
+  });
+
+  it('takes back a whole recurring series, not its first occurrence', async () => {
+    const occurrence = jest.fn<() => Promise<void>>().mockResolvedValue(undefined);
+    const series = jest.fn<() => Promise<void>>().mockResolvedValue(undefined);
+    mockCalendarGet.mockResolvedValue({
+      allowsModifications: true,
+      createEvent: async () => ({
+        id: undefined,
+        recurrenceRule: { frequency: 'weekly' },
+        delete: occurrence,
+        getOccurrenceSync: () => ({ delete: series }),
+      }),
+      listEvents: async () => [],
+    });
+    await expect(deviceCalendar.createEvent('cal-1', DRAFT)).rejects.toMatchObject({ reason: 'unavailable' });
+    expect(series).toHaveBeenCalled();
+    expect(occurrence).not.toHaveBeenCalled();
+  });
+});
+

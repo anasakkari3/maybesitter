@@ -14,6 +14,7 @@ import { useM5aCapabilitiesOnOpen } from '../m5a/capabilities';
 import { refreshM5aView, useM5aCalendarView } from '../calendar/m5aCalendar';
 import { M5aCalendarSections } from './M5aCalendarSections';
 import {
+  CalendarRemovalNotStartedError,
   useCalendarSettings,
   useDeviceCalendarSync,
 } from '../calendar/useDeviceCalendarSync';
@@ -154,7 +155,13 @@ export function CalendarSettingsScreen({ onBack, onFeeds }: { onBack: () => void
   const [phoneCalendars, setPhoneCalendars] = useState<DeviceEventCalendar[] | null>(null);
   const [excluded, setExcluded] = useState<string[]>([]);
   const [chosen, setChosen] = useState<string | null>(null);
-  const [removed, setRemoved] = useState<number | null>(null);
+  // What the removal did, so the line under the button is the true one:
+  // all of it, some of it, or nothing of ours was there (second review of #870).
+  const [removed, setRemoved] = useState<{ removed: number; skipped: number } | null>(null);
+  // The removal turns writing off first. If that could not be saved nothing
+  // was removed, and the switch's own failure line says so; a failure after it
+  // has its own line, because writing is off by then (review of #870).
+  const [removeFailed, setRemoveFailed] = useState<UserFacingKey | 'calendarRemoveIncomplete' | null>(null);
   const [busy, setBusy] = useState(false);
   const [disconnected, setDisconnected] = useState<null | 'done' | 'localOnly'>(null);
   const [disconnecting, setDisconnecting] = useState(false);
@@ -336,12 +343,17 @@ export function CalendarSettingsScreen({ onBack, onFeeds }: { onBack: () => void
   const removeAll = useCallback(async () => {
     setBusy(true);
     setRemoved(null);
+    setRemoveFailed(null);
     try {
       const result = await sync.removeAll();
       // The weekly blocks' recurring events are events MaybeSitter added too.
       const weekly = result.permissionDenied ? { removed: 0, permissionDenied: true } : await weeklySync.removeAll();
       if (result.permissionDenied || weekly.permissionDenied) setAccess('denied');
-      else setRemoved(result.removed + weekly.removed);
+      else setRemoved({ removed: result.removed + weekly.removed, skipped: result.skipped });
+    } catch (error: unknown) {
+      setRemoveFailed(error instanceof CalendarRemovalNotStartedError
+        ? toggleFailureKey(error.reason)
+        : 'calendarRemoveIncomplete');
     } finally {
       setBusy(false);
     }
@@ -644,8 +656,13 @@ export function CalendarSettingsScreen({ onBack, onFeeds }: { onBack: () => void
               : <Txt size={15} color={p.ac}>{t.calendarRemoveAction}</Txt>}
           </Btn>
           {removed === null ? null : (
-            <Txt size={13} color={p.mu} testID="calendar-removed-count">{t.calendarRemoveDone}</Txt>
+            <Txt size={13} color={removed.skipped > 0 ? p.wm : p.mu} testID="calendar-removed-count">
+              {removed.skipped > 0
+                ? t.calendarRemovePartial
+                : removed.removed === 0 ? t.calendarRemoveNone : t.calendarRemoveDone}
+            </Txt>
           )}
+          {removeFailed ? <Txt size={13} color={p.wm} testID="calendar-remove-failed">{t[removeFailed]}</Txt> : null}
         </Card>
 
         <ManualLectureTimes
