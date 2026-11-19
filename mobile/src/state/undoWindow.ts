@@ -8,8 +8,10 @@
  * action finally calls are the ones that already hold.
  *
  * Bounded both ways. The window is the toast's own length, and when the app
- * leaves the foreground everything pending is sent at once, so a person who
- * closes the app right after the tap does not lose what they chose.
+ * goes to the background everything pending is sent at once, so a person who
+ * closes the app right after the tap does not lose what they chose. Only
+ * `background`: iOS is `inactive` under the notification centre or a call,
+ * and sending then would take «رجّعها» away while the toast is still up.
  *
  * Module state on purpose: the screen that started an action is often gone
  * before the window closes (Details goes back as soon as Done is pressed).
@@ -52,7 +54,7 @@ export function deferWithUndo(commit: () => void, ms: number = UNDO_WINDOW_MS): 
   pending.set(id, { timer, commit });
   if (!subscription) {
     subscription = AppState.addEventListener('change', (state) => {
-      if (state !== 'active') flushPendingCommits();
+      if (state === 'background') void flushPendingCommits();
     });
   }
   return () => settle(id) !== null;
