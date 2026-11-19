@@ -376,9 +376,12 @@ function ProposalReview({ graph, proposals, checkpoints, selections, busy, error
   const { t, tr, p, lang } = useApp();
   // «اقترح غيرهم» is regenerate, behind the goal_plans add-on: for someone it
   // is not on for, it could only answer 404, so it is not offered. `enabled`
-  // is false exactly when the route refuses; an unknown or `off` list keeps it.
+  // is false when the route refuses; an unknown or `off` list keeps it. Past
+  // the daily model limit (`daily_cap_reached`) it stays: its press answers
+  // with the daily-limit words, which say when it comes back (QA v3 V3-F34-02).
   const features = useFeatures();
-  const canSuggestOthers = features.data?.features.find(feature => feature.id === 'goal_plans')?.enabled !== false;
+  const goalPlans = features.data?.features.find(feature => feature.id === 'goal_plans');
+  const canSuggestOthers = goalPlans?.enabled !== false || goalPlans.reason === 'daily_cap_reached';
   return <ProductSection title={t.xGoalProposalTitle} body={t.xGoalProposalNotSaved} icon="spark">
     {proposals.length === 0 ? <Txt testID="goal-proposal-empty" role="supporting" color={p.mu}>{t.xGoalProposalEmpty}</Txt> : proposals.map(node => {
       const selected = selections[node.nodeId];

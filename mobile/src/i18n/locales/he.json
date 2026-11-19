@@ -2245,6 +2245,7 @@
   "featuresStatusAlwaysOn": "תמיד פועלת",
   "featuresStatusNeedsSubscription": "דורשת מינוי",
   "featuresStatusAllowanceUsed": "המכסה של החודש נגמרה",
+  "featuresStatusPausedToday": "המכסה של היום נגמרה, חוזרת מחר",
   "featuresStatusOff": "כיבית אותה",
   "featuresStatusUnavailable": "לא זמינה כרגע",
   "featuresUsage": "נוצלו {percent} מהמכסה של החודש",

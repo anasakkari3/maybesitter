@@ -107,6 +107,8 @@ export function featureStatus(feature: FeatureCapability): { key: CopyKey; kind:
     case 'not_entitled': return { key: 'featuresStatusNeedsSubscription', kind: 'muted' };
     case 'budget_spent':
     case 'free_cap_spent': return { key: 'featuresStatusAllowanceUsed', kind: 'important' };
+    // The person's daily model limit (QA v3 V3-F34-02/06): back at the next UTC day.
+    case 'daily_cap_reached': return { key: 'featuresStatusPausedToday', kind: 'important' };
     default: return { key: 'featuresStatusUnavailable', kind: 'important' };
   }
 }

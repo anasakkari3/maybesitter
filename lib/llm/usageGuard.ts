@@ -680,6 +680,26 @@ export function aiDisabled(): boolean {
   return raw === 'true' || raw === '1' || raw === 'yes';
 }
 
+/**
+ * Whether `reserveCall` would refuse this person for the rest of the UTC day:
+ * the same daily call and token caps, read the same way (QA v3 V3-F34-02/06 —
+ * the features list said «شغّالة» while every call was refused). The minute
+ * cap clears by itself within the minute and the global cap is not this
+ * person's, so neither is reported. Throws when storage cannot be read.
+ */
+export async function userDailyCapReached(
+  uid: string,
+  options: { now?: Date; storage?: StorageAdapter } = {},
+): Promise<boolean> {
+  const storage = options.storage ?? getStorage();
+  const now = options.now ?? new Date();
+  const userDay = await storage.get<UsageDay>(userDayPath(uid, utcDay(now)));
+  const userCap = capFrom(process.env.MAYBESITTER_LLM_DAILY_CALL_CAP, DEFAULT_USER_DAILY_CAP);
+  const tokenCap = capFrom(process.env.MAYBESITTER_LLM_DAILY_TOKEN_CAP, DEFAULT_USER_DAILY_TOKEN_CAP);
+  const spentTokens = (userDay?.inputTokens ?? 0) + (userDay?.outputTokens ?? 0);
+  return (userDay?.calls ?? 0) >= userCap || spentTokens >= tokenCap;
+}
+
 /** What has been reserved today, for tests and for an operator answering "why". */
 export async function callsToday(
   uid: string,

@@ -23,6 +23,7 @@ import { resolveMemoryLearning } from '../release/m5bCapabilities';
 import { resolveMemoryTranslation, resolveSearchHistory } from '../release/m6Capabilities';
 import { footballProviderConfigured } from '../football/footballWatchers';
 import { readRuntimeControls, resolveModuleRuntime } from '../../src/contracts/v1/runtimeControls';
+import { userDailyCapReached } from '../llm/usageGuard';
 import { featureManifest, type FeatureId, type FeatureTier } from './catalog';
 import {
   gateMode,
@@ -62,11 +63,37 @@ export function featureAvailable(id: FeatureId, env: EnvLike = process.env): boo
   }
 }
 
+/**
+ * The features whose model calls count against the person's daily limit
+ * (`reserveCall` in `lib/llm/usageGuard.ts`). Gmail reading runs on its own
+ * counters (email triage's daily actions, M5a's permits); football and search
+ * history spend nothing.
+ */
+const DAILY_LIMITED: ReadonlySet<FeatureId> = new Set<FeatureId>([
+  'assistant', 'meeting_prep', 'goal_plans', 'memory_learning', 'memory_translation',
+]);
+
+/**
+ * Whether the person's daily model limit is reached. Unknown (storage could
+ * not be read) is reported as not reached: the list then says what it said
+ * before this check existed, and the call itself still meets the limit.
+ */
+async function dailyCapReached(uid: string, options: GateOptions): Promise<boolean> {
+  try {
+    return await userDailyCapReached(uid, { ...(options.now ? { now: options.now } : {}), ...(options.storage ? { storage: options.storage } : {}) });
+  } catch {
+    return false;
+  }
+}
+
+/** A reason the gate does not decide: the daily model limit, which refuses in every gate mode. */
+export type FeatureCapabilityReason = FeatureDecisionReason | 'daily_cap_reached';
+
 export interface FeatureCapability {
   readonly id: FeatureId;
   readonly tier: FeatureTier;
   readonly enabled: boolean;
-  readonly reason: FeatureDecisionReason;
+  readonly reason: FeatureCapabilityReason;
   readonly userCanDisable: boolean;
   /** This month's model allowance used, 0–100; `null` when the feature spends nothing or has no allowance. */
   readonly usedPercent: number | null;
@@ -80,20 +107,29 @@ export interface FeatureCapabilitiesBody {
 
 export async function featureCapabilities(uid: string, options: GateOptions = {}): Promise<FeatureCapabilitiesBody> {
   const decisions = await listFeatureDecisions(uid, options);
+  const mode = gateMode(options.env);
+  // QA v3 V3-F34-02/06: past the daily limit every call is refused (captures
+  // fall back to rules, goal plans answer 429 `daily_cap_reached`) whatever
+  // the gate's mode, so the list says so instead of «شغّالة». The gate mode is
+  // not touched; under `off` there is no list to show and nothing changes.
+  const pausedToday = mode !== 'off' && await dailyCapReached(uid, options);
   return {
     success: true,
-    mode: gateMode(options.env),
+    mode,
     features: decisions.filter(decision => featureAvailable(decision.featureId, options.env)).map(decision => {
       const manifest = featureManifest(decision.featureId);
       const budget = decision.monthlyBudgetCents;
       const usedPercent = manifest.purposes.length === 0 || decision.mode === 'off' || !budget
         ? null
         : Math.min(100, Math.round((decision.spentCents / budget) * 100));
+      const usable = !refuses(decision);
+      // A refusal the gate made keeps its own reason (the person's "off" first).
+      const paused = usable && pausedToday && DAILY_LIMITED.has(decision.featureId);
       return {
         id: decision.featureId,
         tier: decision.tier,
-        enabled: !refuses(decision),
-        reason: decision.reason,
+        enabled: usable && !paused,
+        reason: paused ? 'daily_cap_reached' : decision.reason,
         userCanDisable: manifest.userCanDisable,
         usedPercent,
       };
