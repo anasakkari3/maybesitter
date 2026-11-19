@@ -28,7 +28,8 @@ import { answerClarification } from '../../lib/services/captureBoundary/clarifyS
 import { TransactionalCapturePersistenceAdapter } from '../../lib/services/captureBoundary/persistenceAdapter.ts';
 import { guardedMobileExtract } from '../../lib/services/mobile/safety.ts';
 import { validateExtractionResult } from '../../src/extraction/schemaValidator.ts';
-import { instantFromLocal, localTimeSpecFor } from '../../src/extraction/timeLexicon.ts';
+import { instantFromLocal, localTimeSpecFor, readRelativeOffsetMinutes } from '../../src/extraction/timeLexicon.ts';
+import { isMissedObligation } from '../../src/extraction/extractionService.ts';
 import { splitCaptureClauses } from '../../src/extraction/clauseSplitter.ts';
 import { withoutUnsaidTime } from '../../lib/services/captureBoundary/chatEvidence.ts';
 import { buildChatPrompt } from '../../lib/services/captureChat/chatPrompt.ts';
@@ -373,3 +374,122 @@ test('chat prompt: states the person\'s clock now, the missed-thing rule and the
   assert.match(prompt, /never call it late, overdue or missed/);
   assert.match(prompt, /A time counted from now/);
 });
+
+/* ── Review of #872: precision of the missed-thing reading, and the gaps ── */
+
+for (const text of [
+  // Somebody else's obligation.
+  'كان لازم يبعتلي وما بعت',
+  'كان لازم تبعتلي الواجب وما بعتيه',
+  'كان لازم تيجي مبارح وما إجيت',
+  // No obligation of the speaker's that was left undone.
+  'كان لازم يكون هون بس ما كان',
+  'كان لازم أنام بدري، ما بعرف شو صار',
+  'مبارح كان لازم أشتغل بس ما تعبت',
+  'كان لازم أروح للدكتور ومش عارف ليش ما رحت',
+  // A question, or the obligation itself negated.
+  'هل كان لازم أبعت الواجب وما بعتته؟',
+  'مش كان لازم أبعت الواجب؟',
+  'ما كان لازم أبعت الواجب',
+  'ما نسيت أدفع الفاتورة',
+  'لسا ما نسيت أبعت الواجب',
+  "I didn't forget to pay",
+  // «نسيت» / «ما لحقت» before something that is not a thing to do.
+  'نسيت اسمه',
+  'نسيت إنو اليوم عيد ميلادها',
+  'نسيت شو كنت بدي أقول',
+  'ما لحقت الباص',
+  'بدي أنسى كل شي ما بدي أتذكر',
+  'I forgot to tell you thanks',
+  "I had to work yesterday and haven't slept",
+  'I needed to buy milk, never mind, my wife did',
+  // Something that happened.
+  'مبارح كان عندي اجتماع',
+]) {
+  test(`review #872: «${text}» is not a missed thing, and no to-do today is made of it`, async () => {
+    assert.equal(isMissedObligation(text), false);
+    const { contract } = await propose(text);
+    assert.ok(!contract.items.some((item) => item.resolvedDate === TODAY && item.resolvedTime === null && item.clarification?.questionKey === 'ask_time'
+      && !/لازم|نسيت|لحقت|forgot|had to|needed/i.test(text.replace(item.title, ''))), JSON.stringify(contract.items));
+  });
+}
+
+for (const [text, words] of [
+  ['كنت لازم أبعت الواجب مبارح وما بعتّه', /أبعت الواجب/],
+  ['كان لازم ابعت الواجب وما بعتتو', /ابعت الواجب/],
+  ['كان المفروض أدفع الفاتورة أمس وما دفعت', /أدفع الفاتورة/],
+  ['كان لازم أسلّم التقرير وما سلّمت', /أسلّم التقرير/],
+  ['ما لحقت أدفع الفاتورة', /أدفع الفاتورة/],
+  ['فاتني أتصل بالدكتور', /أتصل بالدكتور/],
+  ['نسيت أبعت الواجب للدكتور', /أبعت الواجب للدكتور/],
+  ['I should have called the bank this morning but I did not', /called the bank|call the bank/i],
+  ['I forgot to send the homework yesterday', /send the homework/i],
+] as const) {
+  test(`review #872: «${text}» is still a thing to do today`, async () => {
+    assert.equal(isMissedObligation(text), true);
+    assertToDoToday((await propose(text)).contract, words);
+  });
+}
+
+test('review #872 (M5): a missed thing beside a day ahead of the person\'s own is read as said, not as today', () => {
+  assert.equal(isMissedObligation('نسيت أبعت الواجب وبدي أبعته بكرا'), false);
+  assert.equal(isMissedObligation('كان لازم أبعت الواجب وما بعتته، يوم الأحد الساعة 5 بدي أبعته'), false);
+});
+
+test('review #872 (M1): a span is at most 24 hours; past it nothing is counted', async () => {
+  assert.equal(readRelativeOffsetMinutes('بعد 24 ساعة لازم أتصل'), 24 * 60);
+  for (const text of ['بعد 25 ساعة لازم أتصل', 'بعد 99 ساعة لازم أتصل', 'بعد 100 ساعة لازم أتصل']) assert.equal(readRelativeOffsetMinutes(text), null, text);
+  const { contract } = await propose('بعد 24 ساعة لازم أتصل بأمي');
+  assert.equal(when(contract.items[0]!.resolvedTime), `${TOMORROW} 07:12`);
+});
+
+test('review #872 (M3): «بعد ساعتين» to "what time on Sunday?" is not understood, never moved to today', async () => {
+  const { contract, store } = await propose('لازم آخد الدوا يوم الأحد');
+  const item = contract.items[0]!;
+  const question = item.clarification!;
+  assert.equal(question.questionKey, 'ask_time');
+  assert.equal(item.resolvedDate, '2026-11-22');
+  await assert.rejects(
+    answerClarification(
+      { proposalId: contract.proposalId, itemId: item.itemId, questionId: question.questionId, freeText: 'بعد ساعتين' },
+      { now: NOW, timezone: TZ, scopeId: 'qa-v3-time' },
+      { store, recordEvent: () => {} },
+    ),
+    (error: { failure?: string }) => error.failure === 'answer_not_understood',
+  );
+});
+
+test('review #872 (M7): a titleless model reading the rules cannot name either is no commitment, never rejected', async () => {
+  const { contract } = await propose('5', { provider: scripted(() => modelTask(null, TODAY, '17:00')) });
+  assert.equal(contract.status, 'no_commitment');
+});
+
+test('review #872 (M6): "next week" is the week after the person\'s own, whatever week the model took', () => {
+  for (const modelDate of ['2026-11-19', '2026-11-20', '2026-12-01']) {
+    const result = validateExtractionResult(modelTask('مقابلة شغل', modelDate, '10:00'), MONDAY_TEXT, { now: NOW, timezone: TZ });
+    assert.equal(result.localTimeSpec?.date, '2026-11-23', modelDate);
+  }
+});
+
+test('review #872 (M9): under «يوم الأحد:» a model reading on the Sunday after is left there (L4)', async () => {
+  const provider = scripted((clause) => /المحامي/.test(clause)
+    ? modelTask('اتصل بالمحامي', '2026-11-29', '12:00')
+    : modelTask('اجتماع مع المدير', '2026-11-22', '10:00'));
+  const { contract } = await propose('يوم الأحد: الساعة 10 الصبح اجتماع مع المدير، الساعة 12 اتصل بالمحامي', { provider });
+  const lawyer = contract.items.find((item) => /المحامي/.test(item.title))!;
+  assert.equal(when(lawyer.resolvedTime), '2026-11-29 12:00');
+});
+
+test('review #872: the first point of a «بكرا:» list read on today by the model is put on tomorrow too', async () => {
+  const provider = scripted((clause) => /دكتور/.test(clause) ? modelTask('موعد عند دكتور العيون', TODAY, '08:00') : modelTask('قدم طلب المنحة', TOMORROW, '10:00'));
+  const { contract } = await propose('بكرا: الساعة 8 الصبح موعد عند دكتور العيون، الساعة 10 قدم طلب المنحة', { provider });
+  assert.deepEqual(contract.items.map((item) => when(item.resolvedTime)), [`${TOMORROW} 08:00`, `${TOMORROW} 10:00`]);
+});
+
+for (const [label, provider] of [['rules', undefined], ['a model titled X', scripted(() => modelTask('X', TODAY, '09:12'))]] as const) {
+  test(`review #872 (F04-04): «بعد ساعتين» alone (${label}) asks what to do, its time kept`, async () => {
+    const { contract } = await propose('بعد ساعتين', provider ? { provider } : {});
+    assert.equal(contract.status, 'needs_clarification');
+    assert.equal(contract.items[0]!.clarification?.questionKey, 'ask_action');
+  });
+}
