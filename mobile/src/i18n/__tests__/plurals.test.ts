@@ -99,7 +99,7 @@ describe('Arabic duration and lookback counts', () => {
   const ar = tFor('ar');
 
   it('inflects minutes at the dual, few, and many boundaries', () => {
-    expect(ar('xMinutes', { count: 2 })).toBe('دقيقتان');
+    expect(ar('xMinutes', { count: 2 })).toBe('دقيقتين');
     expect(ar('xMinutes', { count: 5 })).toBe('5 دقائق');
     expect(ar('xMinutes', { count: 11 })).toBe('11 دقيقة');
     expect(ar('evidenceEffort', { minutes: 2 })).toBe('حوالي دقيقتين');
