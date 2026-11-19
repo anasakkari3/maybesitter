@@ -240,3 +240,30 @@ test('R3.1 bound 2: ownTextOf recognises quote headers in ar / en / he and Outlo
   const odd = await ownTextOf('Sure.\n\n=== earlier ===\nCome tomorrow at 10');
   assert.notEqual(odd.boundary, 'quote_header', 'an unrecognised delimiter must never certify a quote boundary');
 });
+
+/*
+ * Owner decision 2026-11-19, follow-up: an emailed agreement often names a
+ * real limit. The agreement sentence the item was read from is checked by the
+ * same deterministic reader capture uses, and only the mark is stored: no
+ * extra text, nothing logged.
+ */
+async function emailedAgreement(sentence: string) {
+  const escaped = new RegExp(sentence.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+  const { uid } = await scenario({ text: `${sentence}${QUOTE_EN}` }, escaped);
+  const saved = await savedCommitments(uid);
+  assert.equal(saved.length, 1, `expected one auto-added commitment for: ${sentence}`);
+  return saved[0]!;
+}
+
+test('2026-11-19: an emailed agreement that names a limit is a stated deadline, and only the mark is stored', async () => {
+  const saved = await emailedAgreement("Sure, I'll send the report by tomorrow at 10.");
+  assert.equal(saved.timeSpec.kind, 'due_by');
+  assert.equal(saved.timeSpec.deadline, 'explicit');
+  assert.deepEqual(Object.keys(saved.timeSpec).sort(), ['allDay', 'deadline', 'dueAt', 'endAt', 'kind', 'remindAt', 'timezone']);
+});
+
+test('2026-11-19: an emailed agreement with a time and no limit word is not a stated deadline', async () => {
+  const saved = await emailedAgreement("Sure, I'll send the report tomorrow morning.");
+  assert.equal(saved.timeSpec.kind, 'due_by');
+  assert.equal('deadline' in saved.timeSpec, false);
+});

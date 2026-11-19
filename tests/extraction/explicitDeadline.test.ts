@@ -182,9 +182,18 @@ test('only a due_by carries the mark: a time to be at is never a deadline', () =
   assert.equal('deadline' in spec, false);
 });
 
-test('outside capture (Gmail, goal steps) nothing is marked: the person did not say it', () => {
+test('outside capture and email (goal steps, plan slots) nothing is marked', () => {
   const spec = draftSpec(mapExtractionToCommand(dayOnly('Submit the report by Friday')));
   assert.equal('deadline' in spec, false);
+});
+
+test('an item read off an emailed agreement is marked when the sentence names a limit (2026-11-19)', () => {
+  const emailed = { emailed: true } as const;
+  assert.equal(draftSpec(mapExtractionToCommand(dayOnly('سلّم التقرير لحد الخميس'), undefined, undefined, emailed)).deadline, 'explicit');
+  assert.equal(draftSpec(mapExtractionToCommand(dayOnly("I'll send the report by Friday"), undefined, undefined, emailed)).deadline, 'explicit');
+  assert.equal('deadline' in draftSpec(mapExtractionToCommand(dayOnly("I'll send the report Friday"), undefined, undefined, emailed)), false);
+  // An email item is not a capture: no `unsure` kind is written for it.
+  assert.equal('itemKind' in draftSpec(mapExtractionToCommand(dayOnly("I'll send the report by Friday"), undefined, undefined, emailed)), false);
 });
 
 test('the review card: a new title or time keeps the mark', () => {
