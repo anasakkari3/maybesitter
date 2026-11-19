@@ -162,11 +162,25 @@ function publicRule(rule) {
   return rest;
 }
 
+/**
+ * The token of a `Bearer` Authorization header, or null. No regular
+ * expression: the header comes from outside, and this stays linear in its
+ * length (a backtracking pattern stalled on "bearer" + many spaces).
+ */
+export function bearerToken(header) {
+  if (typeof header !== 'string' || header.length < 7) return null;
+  if (header.slice(0, 6).toLowerCase() !== 'bearer') return null;
+  const separator = header.charCodeAt(6);
+  if (separator !== 32 && separator !== 9) return null;
+  const token = header.slice(7).trim();
+  return token === '' ? null : token;
+}
+
 /** Which account sent the request: the uid claim of a Firebase ID token. Never the token. */
 function bearerUid(header) {
-  const match = /^Bearer\s+([^\s]+)$/i.exec(header ?? '');
-  if (!match) return null;
-  const parts = match[1].split('.');
+  const token = bearerToken(header);
+  if (token === null || token.includes(' ') || token.includes('\t')) return null;
+  const parts = token.split('.');
   if (parts.length !== 3) return null;
   try {
     const payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8'));
@@ -250,32 +264,37 @@ function realPathOf(dir) {
  * checkout that owns the shared git directory, and the folder that holds them
  * both (all sibling worktrees).
  */
-function forbiddenRoots() {
-  const roots = [REPO_ROOT];
+function forbiddenRoots(repoRoot) {
+  const roots = [repoRoot];
   try {
     const common = execFileSync('git', ['rev-parse', '--path-format=absolute', '--git-common-dir'], {
-      cwd: REPO_ROOT,
+      cwd: repoRoot,
       encoding: 'utf8',
       stdio: ['ignore', 'pipe', 'ignore'],
     }).trim();
     const mainCheckout = dirname(common);
-    roots.push(mainCheckout);
-    // The deepest folder that contains both this checkout and the main one.
-    const a = realPathOf(REPO_ROOT).split(sep);
-    const b = realPathOf(mainCheckout).split(sep);
-    let i = 0;
-    while (i < a.length && i < b.length && a[i] === b[i]) i += 1;
-    const shared = a.slice(0, i).join(sep) || sep;
-    if (shared.split(sep).filter(Boolean).length >= 2) roots.push(shared);
+    // Only a worktree has sibling checkouts: then the main checkout and the
+    // deepest folder holding both are refused too. A plain checkout (CI) has
+    // nothing beside it that belongs to this repository.
+    if (realPathOf(mainCheckout).toLowerCase() !== realPathOf(repoRoot).toLowerCase()) {
+      roots.push(mainCheckout);
+      const a = realPathOf(repoRoot).split(sep);
+      const b = realPathOf(mainCheckout).split(sep);
+      let i = 0;
+      while (i < a.length && i < b.length && a[i].toLowerCase() === b[i].toLowerCase()) i += 1;
+      const shared = a.slice(0, i).join(sep) || sep;
+      if (shared.split(sep).filter(Boolean).length >= 2) roots.push(shared);
+    }
   } catch {
-    roots.push(dirname(REPO_ROOT));
+    // Not a git checkout (or no git): refusing the checkout itself is all that is known.
   }
   return roots.map((root) => realPathOf(root).toLowerCase());
 }
 
-function insideRepo(dir) {
+/** True when `dir` is inside `repoRoot`'s checkout or, for a worktree, its siblings. */
+export function insideCheckouts(dir, repoRoot = REPO_ROOT) {
   const real = realPathOf(dir).toLowerCase();
-  return forbiddenRoots().some((root) => real === root || real.startsWith(root.endsWith(sep) ? root : root + sep));
+  return forbiddenRoots(repoRoot).some((root) => real === root || real.startsWith(root.endsWith(sep) ? root : root + sep));
 }
 
 function listenOn(server, port) {
@@ -357,7 +376,7 @@ export async function startFaultProxy(options = {}) {
     throw new Error(`fault proxy listens on ${HOST} only`);
   }
   const target = assertSafeTarget(options.target);
-  if (options.bodyDir !== undefined && insideRepo(options.bodyDir)) {
+  if (options.bodyDir !== undefined && insideCheckouts(options.bodyDir)) {
     throw new Error(`body directory must be outside the repository (${resolve(options.bodyDir)})`);
   }
   const transport = target.protocol === 'https:' ? https : http;
@@ -454,7 +473,7 @@ export async function startFaultProxy(options = {}) {
       res.destroy();
       return;
     }
-    const token = /^Bearer\s+(.+)$/i.exec(req.headers.authorization ?? '')?.[1] ?? '';
+    const token = bearerToken(req.headers.authorization) ?? '';
     if (bodiesEnabled) {
       try {
         writeBodyRecord(entry, req.headers, body, [token]);

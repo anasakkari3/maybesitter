@@ -681,7 +681,7 @@ test('reading a bearer header is linear: 100k spaces after "bearer" take under 5
   assert.equal(bearerToken('Basic abc'), null);
   assert.equal(bearerToken('Bearer'), null);
   assert.equal(bearerToken(undefined), null);
-  for (const header of [`bearer ${' '.repeat(100_000)}`, `bearer ${' '.repeat(100_000)}x y`, `Bearer \t${'\t '.repeat(50_000)}!`]) {
+  for (const header of [`bearer ${' '.repeat(100_000)}`, `bearer ${' '.repeat(100_000)}\n`, `bearer ${' '.repeat(100_000)}\u2028`, `bearer ${' '.repeat(100_000)}x y`, `Bearer \t${'\t '.repeat(50_000)}!`]) {
     const started = performance.now();
     bearerToken(header);
     const took = performance.now() - started;
