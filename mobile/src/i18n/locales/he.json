@@ -1784,6 +1784,7 @@
   "wbErrNoDay": "צריך לבחור לפחות יום אחד.",
   "wbErrNoTitle": "צריך לכתוב מה זה.",
   "wbFixedTag": "קבוע",
+  "todayHabitsTitle": "ההרגלים של היום",
   "wbTodayTitle": "קבוע היום",
   "wbNextNow": "עכשיו זמן {title}. ההצעות חוזרות ב-{time}.",
   "wbNextNowGeneric": "עכשיו הזמן הקבוע השבועי שלך. ההצעות חוזרות ב-{time}.",

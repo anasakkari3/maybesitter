@@ -53,8 +53,14 @@ export function perWeekOf(draft: CadenceDraft): number {
   return draft.mode === 'days' ? draft.weekdays.length : draft.count;
 }
 
-/** A saved cadence, in words: «3× بالأسبوع», or «الثلاثاء · الخميس». */
-export function describeCadence(cadence: HabitCadence, t: { xTimesPerWeek: string; days: readonly string[] }, lang: string): string {
+/**
+ * A saved cadence, in words: «3× بالأسبوع», «الثلاثاء · الخميس», or «كل يوم»
+ * for all seven days — how «كل يوم» is stored since 2026-11-20, and what 7 a
+ * week from an older server means.
+ */
+export function describeCadence(cadence: HabitCadence, t: { xTimesPerWeek: string; xHabitEveryDay: string; days: readonly string[] }, lang: string): string {
+  const perWeek = cadence.kind === 'weekly_count' ? cadence.count : new Set(cadence.weekdays).size;
+  if (perWeek === 7) return t.xHabitEveryDay;
   if (cadence.kind === 'weekly_count') {
     return t.xTimesPerWeek.replace('{count}', formatNumber(cadence.count, { locale: lang as never }));
   }

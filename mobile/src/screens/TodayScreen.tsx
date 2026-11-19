@@ -49,6 +49,7 @@ import { PostponeSheetFor } from './Sheets';
 import { UnhandledEntry } from '../features/unhandled/UnhandledScreen';
 import { RescheduleCard } from '../features/reschedule/RescheduleCard';
 import { useFreshM4bCapability, useM4bCapabilities } from '../features/m4b/capabilities';
+import { TodayHabits } from '../features/today/HabitsToday';
 
 /**
  * Today (UC-2.R3 #173, ordering from UC-2.8 #169; Round 2, Phase C).
@@ -85,7 +86,7 @@ import { useFreshM4bCapability, useM4bCapabilities } from '../features/m4b/capab
  *
  * The conflict line when something clashes, the one next step, and «لازم»,
  * open. «مهم» and «حلو» fold to a line each that names their first item; the
- * plan, the weekly fixed time and what is finished come after. «مش هلّق»
+ * plan, today's habits, the weekly fixed time and what is finished come after. «مش هلّق»
  * asks when (the postpone sheet); the conflict line explains, it never
  * postpones. A football match is drawn with a ball, not a circle to tick.
  */
@@ -331,7 +332,8 @@ export function TodayScreen({ tabClearance = TAB_CLEARANCE }: { tabClearance?: n
             // No capture button here: the bar's own «احكيها» is the one way in,
             // and a second one competing with it was the audit's finding.
             <>
-              {/* A day with only a fixed block still has the block on it. */}
+              {/* A day with only habits or a fixed block still has them on it. */}
+              <TodayHabits />
               <WeeklyToday items={weeklyToday} />
               <EmptyDay />
               {/* A plan's later week, when it is near (M3a): on an empty day too. */}
@@ -361,6 +363,10 @@ export function TodayScreen({ tabClearance = TAB_CLEARANCE }: { tabClearance?: n
               {/* The rest of today, in the user's own groups, folded to one line each. */}
               <Group kind="should" items={restGroups.should} timezone={timezone} lang={lang} busy={busy} football={football} />
               <Group kind="nice" items={restGroups.nice} timezone={timezone} lang={lang} busy={busy} football={football} />
+
+              {/* Today's habits (V3-F23-06): small rows with «تمّت», after the
+                  commitments so they never crowd them, before the fixed time. */}
+              <TodayHabits />
 
               {/* Fixed today: taken time, not things to do. */}
               <WeeklyToday items={weeklyToday} />
