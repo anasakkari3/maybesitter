@@ -359,7 +359,7 @@ function unhandledFixtureState() {
   } as never;
   state.commitments['fixture-unhandled-deadline'] = {
     ...base, id: 'fixture-unhandled-deadline', title: 'Hand in the report',
-    timeSpec: { ...timeSpec, kind: 'due_by', dueAt: '2026-08-07T15:00:00.000Z' },
+    timeSpec: { ...timeSpec, kind: 'due_by', dueAt: '2026-08-07T15:00:00.000Z', deadline: 'explicit' },
   } as never;
   state.commitments['fixture-unhandled-task'] = {
     ...base, id: 'fixture-unhandled-task', title: 'Buy milk',

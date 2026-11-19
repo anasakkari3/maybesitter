@@ -68,6 +68,8 @@ export interface CaptureChatFollowUpItem {
   reason: UnhandledReason;
   /** When it ended, or when the deadline passed. */
   since: string;
+  /** The instant whose day the phone names: an all-day item's own day (`UnhandledAnchor.shownAt`). */
+  shownAt: string;
 }
 
 export interface CaptureChatFollowUp {
@@ -110,6 +112,7 @@ export async function followUpFor(
         title: item.commitment.title,
         reason: item.reason,
         since: item.since,
+        shownAt: item.shownAt,
       })),
     };
   } catch {

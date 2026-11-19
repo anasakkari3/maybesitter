@@ -52,6 +52,12 @@ Rolling unfinished work into today was the owner's decision of 2026-09-15 (#383)
 
   The proposal is computed deterministically from the free-slot and plan engines. A model may word it, but it never chooses the slots.
 
+### Owner decision of 2026-11-19
+
+- **Only a stated deadline is a passed deadline in «ما اتصرّفت فيها».** Capture stores `timeSpec.deadline = 'explicit'` on a `due_by` when the person's own words, or their typed answer to «إيمتى؟», name a limit: «قبل», «لحد», «لغاية», «آخر موعد», «أقصى موعد», «تسليم», «موعد التسليم»; "by", "due", "deadline", "before", "no later than"; «עד», «לפני», «דדליין», «הגשה». The check is deterministic code (`src/extraction/explicitDeadline.ts`). The model prompt does not change. It is conservative: «قبل», «لحد», «لغاية», "by", "before", "due", «עד» and «לפני» count only when a time follows them, so «قبل ما أنام», «قبل يومين», "before I leave" and «לפני שאני» name no limit. A task with only a day («بدي أدرس الثلاثاء»), a commitment stored before the mark, an import and a Gmail item stay #383 tasks and never appear in the place or in the follow-up question. `event_ended` is unchanged.
+- **Email items, same day.** An item auto-added from the person's own emailed agreement (Gmail) gets the same check on the agreement sentence it was read from. Only the mark is stored: no more email text, and nothing is logged. Items imported from other apps (Todoist and similar) carry no words of the person's, so they stay unmarked.
+- **Simulator findings, same day.** A scheduled work session (`windowRule: 'shift'`, «تحضير لـ…») or any other timed window is never a passed deadline. An all-day item is named by its own day: `shownAt`. `since` stays the midnight that closes the day, so existing «لا تسألني عنها» marks still match.
+
 ### Delivery order
 
 1. **Lane E1:** ended events leave every active surface (server lists, next step, plan, week plan; mobile Today composer, card fallback, widget snapshot), plus the football closure for everyone. Tests use the dates from the root-cause scratch test: a lecture 3 weeks ago, yesterday's all-day doctor appointment, and this morning's 09–10 meeting.

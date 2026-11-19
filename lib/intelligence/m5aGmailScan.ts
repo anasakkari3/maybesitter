@@ -569,7 +569,9 @@ async function autoAddCandidate(
   // Semantic/capture disagreement and model/rules date disagreement both keep
   // the observation pending. The model never gets authority to move the item.
   if (extracted.type !== rules.type || extracted.dueAt !== rules.dueAt || extracted.remindAt !== rules.remindAt) return null;
-  const mapped = mapExtractionToCommand(extracted, message.receivedAt);
+  // The agreement sentence is read for a limit («لحد الخميس», "by Friday")
+  // like a capture (owner decision 2026-11-19); only the mark is stored.
+  const mapped = mapExtractionToCommand(extracted, message.receivedAt, undefined, { emailed: true });
   const create = mapped.find((command): command is Extract<Command, { type: 'CreateDraft' }> => command.type === 'CreateDraft');
   return create ? { evidence: agreement.evidence, sentence: agreement.sentence, command: create, timezone } : null;
 }
