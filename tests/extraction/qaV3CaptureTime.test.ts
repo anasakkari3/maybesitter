@@ -520,3 +520,11 @@ test('review #872 (R4): a list head right before a digit is still a head — «�
   const { contract } = await propose('بكرا:5 المسا اتصل بأمي، الساعة 7 المسا اشتري خبز');
   assert.deepEqual(contract.items.map((item) => item.resolvedDate), [TOMORROW, TOMORROW]);
 });
+
+test('review #872 (R4): a clock with a colon is no list head — the appointment keeps its day to itself (B3)', async () => {
+  for (const text of ['Tomorrow 10:30 dentist appointment, call mom at 6pm', 'بكرا 10:30 موعد عند الدكتور، الساعة 6 المسا اتصل بأمي']) {
+    const { contract } = await propose(text);
+    const call = contract.items.find((item) => /mom|أمي/.test(item.title))!;
+    assert.equal(call.resolvedDate, TODAY, text);
+  }
+});
