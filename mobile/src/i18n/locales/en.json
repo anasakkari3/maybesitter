@@ -734,6 +734,7 @@
   "savedTitle": "Saved to your days",
   "savedFailedTitle": "Some didn’t save",
   "savedFailedBody": "These stayed out of your day. You can say them again.",
+  "chatSavedLeft": "Not saved: {titles} — it still needed an answer. Your words are back in the box below: finish and send them.",
   "savedCollision": "Heads up: this overlaps {title}, {when}.",
   "undoneTitle": "Undone. Nothing was kept.",
   "undonePartialTitle": "Partly undone",

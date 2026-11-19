@@ -734,6 +734,7 @@
   "savedTitle": "انحفظت بأيامك",
   "savedFailedTitle": "في إشي ما انحفظ",
   "savedFailedBody": "هدول ضلّوا برا يومك. بتقدر تحكيهم من جديد.",
+  "chatSavedLeft": "لسّا ما انحفظ: {titles} — كان ناقصه جواب. رجّعتلك كلامك عالخانة تحت، كمّله وابعته.",
   "savedCollision": "انتبه: هاد بيتعارض مع {title}، {when}.",
   "undoneTitle": "رجعناها. ما ضل إشي.",
   "undonePartialTitle": "رجعنا جزء منها",

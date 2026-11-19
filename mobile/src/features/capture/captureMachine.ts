@@ -160,7 +160,28 @@ export interface ChatSavedNote {
   habitsSaved?: NonNullable<CaptureConfirmation['habitsPersisted']>;
   goalsSaved?: NonNullable<CaptureConfirmation['goalsPersisted']>;
   seedsSaved?: NonNullable<CaptureConfirmation['seedsPersisted']>;
+  /** The points the confirm could not carry — still waiting for an answer — by their titles (QA v3 V3-F04-02). */
+  leftTitles?: string[];
   undone?: { stillSaved: string[] };
+}
+
+/**
+ * The chat's points a confirm leaves behind (QA v3, V3-F04-02): neither saved
+ * nor refused, and not a card the person took out — one that could not be
+ * selected because its question was still open. Each with its title and the
+ * person's own words for it (the «هيك فهمت» line), or its title without them.
+ */
+function leftBehind(state: CaptureState, confirmation: CaptureConfirmation): Array<{ title: string; words: string }> {
+  const proposal = state.proposal;
+  if (!proposal) return [];
+  const handled = new Set([...confirmation.persisted.map((item) => item.itemId), ...confirmation.failed.map((item) => item.itemId)]);
+  const selectable = new Set(confirmableItems(proposal, state.edits));
+  return proposal.items
+    .filter((item) => !handled.has(item.itemId) && !selectable.has(item.itemId) && item.title.trim().length > 0)
+    .map((item) => {
+      const said = (proposal.understood ?? []).find((point) => point.kind === 'commitment' && point.itemId === item.itemId)?.text;
+      return { title: item.title, words: said?.trim() || item.title };
+    });
 }
 
 /**
@@ -1394,6 +1415,14 @@ export function captureReducer(state: CaptureState, event: CaptureEvent): Captur
       // A review with no conversation — a share, a meeting prep, a Gmail
       // scan — ends on the saved screen, as it always did.
       if (state.conversationId === null) return { ...state, ...saved, status: 'saved' };
+      // What the confirm could not carry (QA v3, V3-F04-02): a point still
+      // waiting for its answer, saved neither then nor later, used to go with
+      // the conversation in silence. It is named on the saved line and its
+      // words are handed back to the field — unless the person is already
+      // typing something there. A card they took out themselves is their choice.
+      const left = leftBehind(state, event.confirmation);
+      const handBack = left.map((item) => item.words).join('\n');
+      const text = state.text.trim() || handBack.length > MAX_CAPTURE_LENGTH ? state.text : handBack;
       // The chat keeps the person in it (owner request 2026-09-30): the
       // conversation moves above, with a line saying what was saved, the
       // proposal goes, and the next message starts a new conversation. A
@@ -1401,7 +1430,8 @@ export function captureReducer(state: CaptureState, event: CaptureEvent): Captur
       return {
         ...state,
         ...saved,
-        status: state.text.trim() ? 'editing' : 'idle',
+        text,
+        status: text.trim() ? 'editing' : 'idle',
         earlier: [
           ...state.earlier,
           ...state.turns.map((turn): ChatEarlierEntry => ({
@@ -1416,6 +1446,7 @@ export function captureReducer(state: CaptureState, event: CaptureEvent): Captur
             ...(saved.otherSaved.habits.length > 0 ? { habitsSaved: saved.otherSaved.habits } : {}),
             ...(saved.otherSaved.goals.length > 0 ? { goalsSaved: saved.otherSaved.goals } : {}),
             ...(saved.otherSaved.seeds.length > 0 ? { seedsSaved: saved.otherSaved.seeds } : {}),
+            ...(left.length > 0 ? { leftTitles: left.map((item) => item.title) } : {}),
           },
         ],
         turns: [],

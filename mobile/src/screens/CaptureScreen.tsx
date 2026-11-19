@@ -136,6 +136,8 @@ function savedNoteText(note: ChatSavedNote, t: Strings, lang: Lang, timeZone: st
   if (note.failed.length > 0) {
     paragraphs.push(`${t.savedFailedTitle}${note.failedTitles.length > 0 ? `: ${list(note.failedTitles)}` : ''}. ${t.savedFailedBody}`);
   }
+  // A point still waiting for its answer, its words back in the field (QA v3, V3-F04-02).
+  if (note.leftTitles?.length) paragraphs.push(fill(t.chatSavedLeft, { titles: list(note.leftTitles) }));
   if (note.undone) {
     const still = note.undone.stillSaved.map((id) => note.persisted.find((item) => item.commitmentId === id)?.title ?? id);
     paragraphs.push(still.length === 0 ? t.undoneTitle : `${t.undonePartialTitle}. ${fill(t.undonePartialBody, { titles: list(still) })}`);
