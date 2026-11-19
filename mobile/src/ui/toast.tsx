@@ -58,24 +58,37 @@ export function ToastHost({ clearance }: {
       accessibilityLiveRegion="polite"
       style={{ position: 'absolute', start: 16, end: 16, bottom: clearance !== undefined ? clearance : Math.max(insets.bottom, 12) + 24, zIndex: 35, alignItems: 'center', opacity }}
     >
-      {toast ? <Btn
-        testID="toast"
-        // The undo window is said once, here; the ticking digits are hidden
-        // from screen readers, or the live region would change every second
-        // and TalkBack could say the toast again each time (review n6).
-        label={toast.undo ? `${toast.text}. ${tr('toastBringBackWithin', { s: TOAST_SECONDS })}` : toast.text}
-        onPress={() => { if (toast.undo) toast.undo(); actions.dismissToast(toast.id); }}
-        scaleTo={0.98}
-        // Stitch: a raised pill with a coral hairline, the app's own text on it.
-        style={{ backgroundColor: p.sf2, borderWidth: 1, borderColor: p.heroEdge, borderRadius: 999, paddingVertical: 12, paddingHorizontal: 16, minHeight: 48, flexDirection: 'row', alignItems: 'center', gap: 12, maxWidth: '100%', shadowColor: '#000', shadowOpacity: 0.3, shadowRadius: 20, shadowOffset: { width: 0, height: 10 }, elevation: 10 }}
-      >
-        <Txt size={14} weight={500} color={p.tx} style={{ flexShrink: 1 }} testID="toast-text">{toast.text}</Txt>
-        {toast.undo ? <Txt size={14} weight={700} color={p.acd} testID="toast-undo">{t.toastBringBack}</Txt> : null}
-        <View importantForAccessibility="no-hide-descendants" accessibilityElementsHidden style={{ width: 26, height: 26, alignItems: 'center', justifyContent: 'center' }}>
-          <UndoRing left={left} track={p.ln} color={p.acd} />
-          <Txt size={12} weight={600} color={p.mu} align="center" lh={1.2} latin>{String(left)}</Txt>
-        </View>
-      </Btn> : null}
+      {toast ? <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, maxWidth: '100%' }}>
+        <Btn
+          testID="toast"
+          // The undo window is said once, on the «رجّعها» button; the ticking
+          // digits are hidden from screen readers, or the live region would
+          // change every second and TalkBack could say it again (review n6).
+          // A tap on the message only dismisses it.
+          label={toast.text}
+          onPress={() => actions.dismissToast(toast.id)}
+          scaleTo={0.98}
+          // Stitch: a raised pill with a coral hairline, the app's own text on it.
+          style={{ flexShrink: 1, backgroundColor: p.sf2, borderWidth: 1, borderColor: p.heroEdge, borderRadius: 999, paddingVertical: 12, paddingHorizontal: 16, minHeight: 48, flexDirection: 'row', alignItems: 'center', gap: 12, shadowColor: '#000', shadowOpacity: 0.3, shadowRadius: 20, shadowOffset: { width: 0, height: 10 }, elevation: 10 }}
+        >
+          <Txt size={14} weight={500} color={p.tx} style={{ flexShrink: 1 }} testID="toast-text">{toast.text}</Txt>
+          <View importantForAccessibility="no-hide-descendants" accessibilityElementsHidden style={{ width: 26, height: 26, alignItems: 'center', justifyContent: 'center' }}>
+            <UndoRing left={left} track={p.ln} color={p.acd} />
+            <Txt size={12} weight={600} color={p.mu} align="center" lh={1.2} latin>{String(left)}</Txt>
+          </View>
+        </Btn>
+        {/* «رجّعها» as its own button (review 2026-11-19): a filled coral chip,
+            at least 44 × 44, and the only control that takes the action back. */}
+        {toast.undo ? <Btn
+          testID="toast-undo-button"
+          label={tr('toastBringBackWithin', { s: TOAST_SECONDS })}
+          onPress={() => { toast.undo?.(); actions.dismissToast(toast.id); }}
+          scaleTo={0.96}
+          style={{ minHeight: 48, minWidth: 48, paddingHorizontal: 16, borderRadius: 999, backgroundColor: p.ac, alignItems: 'center', justifyContent: 'center', shadowColor: '#000', shadowOpacity: 0.3, shadowRadius: 20, shadowOffset: { width: 0, height: 10 }, elevation: 10 }}
+        >
+          <Txt size={14} weight={700} color={p.onAccent} testID="toast-undo">{t.toastBringBack}</Txt>
+        </Btn> : null}
+      </View> : null}
     </Animated.View>
   );
 }
