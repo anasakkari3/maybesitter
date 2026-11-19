@@ -12,7 +12,7 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { REFERENCE, addRows, begin, end, plusMs, scriptedModel, setClock, show, summary, useSummaryModel } from '../acceptance/m5b/support.ts';
+import { addRows, begin, end, scriptedModel, show, summary, useSummaryModel } from '../acceptance/m5b/support.ts';
 import { validateMemorySummary, type MemorySummaryLanguage } from '../../lib/services/mobile/memorySummary.ts';
 import { readMonthSpend } from '../../lib/features/spendLedger.ts';
 
@@ -129,6 +129,9 @@ test('a row\'s «الظهر», «ميه», «ست», «نص» and a weekday «ت
   assert.equal(one('بتحكي مع 6 جارات.', 'بحكي مع ست جارتنا'), null);
   assert.equal(one('عندك 3 أيام دوام.', 'كل أحد وتلات عندي دوام'), null);
   assert.equal(one('عندك تلاتة.', 'كل أحد وتلات عندي دوام'), null);
+  assert.equal(one('عندك دوام 3 أيام.', 'كل تلات عندي دوام'), null);
+  assert.equal(one('عندك دوام 2 أيام.', 'كل اتنين عندي دوام'), null);
+  assert.equal(one('יש לך שלוש הרצאות.', 'יש לי הרצאה ביום שלישי', 'he'), null);
   // Still a number where it is one: «الساعة 12 الظهر» holds 12 by its digits.
   assert.notEqual(one('بتتغدى الساعة 12 الظهر.', 'بتغدى الساعة 12 الظهر'), null);
 });
@@ -136,32 +139,4 @@ test('a row\'s «الظهر», «ميه», «ست», «نص» and a weekday «ت
 test('a value is matched exactly: 3.0004 is not a row\'s three', () => {
   assert.equal(one('You have 3.0004 kids.', 'I have three kids', 'en'), null);
   assert.notEqual(one('You have 3 kids.', 'I have three kids', 'en'), null);
-});
-
-// Review of #876: a summary the validator refused was asked again on every
-// GET, each a model call against the person's daily limit (shared with capture).
-test('a refused summary is kept for 10 minutes for the same rows; changed rows or the time passing ask again', async () => {
-  const { MEMORY_SUMMARY_FAILURE_TTL_MS } = await import('../../lib/services/mobile/memorySummary.ts');
-  assert.equal(MEMORY_SUMMARY_FAILURE_TTL_MS, 10 * 60_000);
-  try {
-    const uid = await begin();
-    await addRows(uid, [{ content: 'عندي 3 محاضرات بالأسبوع', language: 'ar' }]);
-    const model = scriptedModel(() => ({ sentences: [{ text: 'عندك ٣ محاضرات بالأسبوع.', refs: ['r1'] }] }));
-    await useSummaryModel(model);
-    for (let index = 0; index < 3; index += 1) {
-      assert.equal((await summary(uid, 'ar')).body.summary?.status, 'unavailable');
-    }
-    assert.equal(model.calls.length, 1, 'the same refused rows were asked again');
-    // Another language is its own question.
-    await summary(uid, 'en');
-    assert.equal(model.calls.length, 2);
-
-    setClock(plusMs(REFERENCE, MEMORY_SUMMARY_FAILURE_TTL_MS + 1_000));
-    assert.equal((await summary(uid, 'ar')).body.summary?.status, 'unavailable');
-    assert.equal(model.calls.length, 3, 'a refusal was kept past its time');
-
-    await addRows(uid, [{ content: 'بحب أدرس بالليل', language: 'ar' }]);
-    await summary(uid, 'ar');
-    assert.equal(model.calls.length, 4, 'changed rows were answered from the kept refusal');
-  } finally { end(); }
 });

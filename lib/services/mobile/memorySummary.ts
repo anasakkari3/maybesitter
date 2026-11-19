@@ -198,7 +198,32 @@ const AMBIGUOUS_ORDINAL_VALUES: Readonly<Record<string, readonly number[]>> = {
   ראשון: [1], ראשונה: [1], שני: [2], שנייה: [2], שניה: [2],
 };
 
-function valueKey(value: number): string { return String(Math.round(value * 1000) / 1000); }
+/** Exact, except a third, which no digit token can write exactly (review of #876: "3.0004" is not 3). */
+function valueKey(value: number): string {
+  const thirds = value * 3;
+  return !Number.isInteger(value) && Math.abs(thirds - Math.round(thirds)) < 1e-9 ? `${Math.round(thirds)}/3` : String(value);
+}
+
+/**
+ * A row's everyday words that are also number words, read as the everyday
+ * word: «الظهر» (the back), «ميه» (water), «ست» (a lady), «نص» (a text).
+ * They give a row no number (review of #876); copied whole they still pass.
+ */
+const ROW_EVERYDAY_WORDS = new Set(['ظهر', 'ضهر', 'ميه', 'ست', 'نص']);
+
+function rowWordValues(rowWords: readonly string[], index: number): string[] {
+  const word = rowWords[index]!;
+  if (readingsOf(word).some((reading) => ROW_EVERYDAY_WORDS.has(reading))) return [];
+  // A weekday the row names («كل أحد وتلات», «الاثنين») is no number either.
+  if (DEFINITE_NUMBER_WEEKDAY.test(word)) return [];
+  // In a row «كل تلات» may be "every Tuesday": the row's own word is read the safe way.
+  const previous = rowWords[index - 1];
+  if (ARABIC_NUMBER_WEEKDAYS.some(([pattern]) => pattern.test(word))
+    && (previous === 'كل' || inArabicDayContext(previous, rowWords[index + 1]))) return [];
+  // «ביום שלישי» is Tuesday, not "third".
+  if (previous !== undefined && HEBREW_DAY_WORDS.has(previous) && Object.hasOwn(HEBREW_ORDINAL_DAY, word)) return [];
+  return wordValues(word, CARDINAL_VALUES);
+}
 
 function wordValues(word: string, table: Readonly<Record<string, readonly number[]>>): string[] {
   return readingsOf(word).flatMap((reading) => (Object.hasOwn(table, reading) ? table[reading]! : []).map(valueKey));
@@ -226,7 +251,10 @@ function citedValues(cited: readonly MemorySummaryInputRow[]): { spelled: Set<st
   for (const row of cited) {
     for (const token of numericTokens(row.text)) add(all, token);
     for (const token of numericTokens(latinDigits(row.text.replace(/[0-9]/g, ' ')))) { add(spelled, token); add(all, token); }
-    for (const word of words(row.text)) for (const value of wordValues(word, CARDINAL_VALUES)) { spelled.add(value); all.add(value); }
+    const rowWords = words(row.text);
+    for (let index = 0; index < rowWords.length; index += 1) {
+      for (const value of rowWordValues(rowWords, index)) { spelled.add(value); all.add(value); }
+    }
   }
   return { spelled, all };
 }
@@ -268,6 +296,7 @@ const ARABIC_DAY_STEMS: Readonly<Record<string, readonly string[]>> = {
   wednesday: ['اربعاء', 'اربعا'], thursday: ['خميس'], friday: ['جمعه'], saturday: ['سبت'],
 };
 const AMBIGUOUS_DAY_STEMS = new Set(['احد', 'اثنين', 'اتنين', 'تلات', 'ثلاث']);
+const DEFINITE_NUMBER_WEEKDAY = /^[وف]?(?:لل|[بلك]?ال)(اثنين|اتنين|تلات|ثلاث)$/;
 /** The word before a weekday that makes it one: «يوم/أيام/نهار الاثنين», «ביום שני» — never «كل»/«כל» alone (inspection MS-WEEKDAY-002). */
 const ARABIC_DAY_WORDS = new Set(['يوم', 'ايام', 'نهار', 'بيوم', 'ليوم', 'ويوم', 'وايام', 'بايام', 'كليوم']);
 const HEBREW_DAY_WORDS = new Set(['יום', 'ביום', 'בימי', 'ימי', 'מיום', 'ליום', 'וביום']);
@@ -418,7 +447,15 @@ function sentenceValid(sentence: MemorySummarySentence, supplied: readonly Memor
     const word = sentenceWords[index]!;
     if (!isNumberWord(word) || copiedWord(word, cited)) continue;
     const day = weekdayOf(word, sentenceWords[index - 1], sentenceWords[index + 1]);
-    if (day !== null && citedNamesDay(day, cited)) continue;
+    // A day is a day (review of #876): one no cited row names is invented,
+    // whatever numbers the rows hold («اجتماع الساعة 2» is no Monday).
+    if (day !== null) {
+      if (citedNamesDay(day, cited)) continue;
+      return false;
+    }
+    // «الاثنين/التلات» with the article read as Monday/Tuesday as often as
+    // "the two/three": never matched to a row's number by value.
+    if (DEFINITE_NUMBER_WEEKDAY.test(word)) return false;
     if (translatesArabicDual(word, sentenceWords[index + 1], cited, language)) continue;
     if (sentenceWordValues(word).some((value) => values.all.has(value))) continue;
     return false;
