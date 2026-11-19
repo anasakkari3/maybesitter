@@ -10,7 +10,7 @@ const seed = capture as Commitment;
 const item = (id: string, overrides: Partial<Commitment> = {}): Commitment => ({
   ...seed, id, title: id, status: 'active', completedAt: null,
   priority: { ...seed.priority, level: 'high', source: 'user_explicit' },
-  timeSpec: { ...seed.timeSpec, kind: 'due_by', dueAt: '2026-09-23T22:00:00.000Z' }, ...overrides,
+  timeSpec: { ...seed.timeSpec, kind: 'due_by', dueAt: '2026-09-23T22:00:00.000Z', deadline: 'explicit' }, ...overrides,
 });
 const plan = (status: DailyPlan['status'] = 'accepted'): DailyPlan => ({
   date, timezone: zone, status, generation: 1, inputDigest: '', generatedAt: '2026-09-23T00:00:00Z', acceptedAt: null,
@@ -105,8 +105,18 @@ describe('one evidenced deadline', () => {
       { status: 'completed' }, { status: 'cancelled' },
     ]) expect(importantDeadline([{ ...deadline, ...changed }], ['2026-09-24'], zone)).toBeNull();
   });
+  // V3-F08-04: «بكرا عندك موعد تسليم مهم. أشتري خبز.» — «لازم أشتري خبز»
+  // is the person's own Must on a day, but no limit was named, so it is not a
+  // «موعد تسليم». Only a due the person said with a limit is (the
+  // `deadline: 'explicit'` mark, owner decision 2026-11-19).
+  it('names only a due the person said with a limit', () => {
+    const named = item('report', { timeSpec: { ...seed.timeSpec, kind: 'due_by', dueAt: '2026-09-23T22:00:00.000Z', deadline: 'explicit' } });
+    const bread = item('bread', { timeSpec: { ...seed.timeSpec, kind: 'due_by', dueAt: '2026-09-23T21:00:00.000Z' } });
+    expect(importantDeadline([bread], ['2026-09-24'], zone)).toBeNull();
+    expect(importantDeadline([bread, named], ['2026-09-24'], zone)?.id).toBe('report');
+  });
   it('chooses one earliest deadline, never extrapolates outside queried days', () => {
-    expect(importantDeadline([item('later', { timeSpec: { ...seed.timeSpec, kind: 'due_by', dueAt: '2026-09-24T10:00:00Z' } }), item('first')], ['2026-09-24'], zone)?.id).toBe('first');
+    expect(importantDeadline([item('later', { timeSpec: { ...seed.timeSpec, kind: 'due_by', dueAt: '2026-09-24T10:00:00Z', deadline: 'explicit' } }), item('first')], ['2026-09-24'], zone)?.id).toBe('first');
     expect(importantDeadline([item('first')], [], zone)).toBeNull();
   });
 });
