@@ -595,6 +595,9 @@ export const captureChatSchema = z.object({
   proposal: captureProposalResponseSchema.nullable(),
   turns: z.array(captureChatTurnSchema),
   followUp: z.unknown().optional(),
+  // CA3.10: present (true) only when the day's model allowance is spent and
+  // this answer came from the rules; absent from an older server.
+  dailyAiLimitReached: z.literal(true).optional(),
 }).transform(({ asked, followUp: rawFollowUp, ...rest }): typeof rest & {
   asked?: CaptureChatAsked | null | undefined; followUp?: CaptureChatFollowUp;
 } => {

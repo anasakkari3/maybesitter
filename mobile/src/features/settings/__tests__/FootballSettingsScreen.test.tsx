@@ -24,7 +24,7 @@
  */
 import React from 'react';
 import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import { SafeAreaProvider, type Metrics } from 'react-native-safe-area-context';
 import { QueryClient, QueryClientProvider, onlineManager } from '@tanstack/react-query';
 import { AppProvider } from '../../../state/AppContext';
@@ -34,6 +34,8 @@ import { resetAuthForTests, setAuthRepository } from '../../../api/auth';
 import type { AuthUser } from '../../../auth/types';
 import ar from '../../../i18n/locales/ar.json';
 import { FootballSettingsScreen } from '../FootballSettingsScreen';
+import { ToastHost } from '../../../ui/toast';
+import { flushPendingCommits, pendingCommitCount } from '../../../state/undoWindow';
 import * as footballEndpoints from '../../../api/endpoints/football';
 import type { FootballSettingsResponse } from '../../../api/schemas/football';
 import { ConflictError } from '../../../api/errors';
@@ -84,6 +86,7 @@ beforeEach(() => {
 });
 
 afterEach(async () => {
+  await flushPendingCommits();
   await cleanup();
   // A real macrotask, not a microtask flush -- see calendarSettingsScreen.test.tsx's
   // identical comment: a save still settling when the tree comes down leaves
@@ -101,6 +104,7 @@ async function show() {
         <AuthProvider repository={repository} isDevBundle={false}>
           <QueryClientProvider client={client}>
             <FootballSettingsScreen onBack={() => {}} />
+            <ToastHost />
           </QueryClientProvider>
         </AuthProvider>
       </AppProvider>
@@ -175,7 +179,50 @@ describe('dismissing a match', () => {
 
     await waitFor(() => expect(screen.queryByTestId(`football-dismiss-${FIXTURE.commitmentId}`)).not.toBeNull());
     await fireEvent.press(screen.getByTestId(`football-dismiss-${FIXTURE.commitmentId}`));
-    await waitFor(() => expect(dismiss).toHaveBeenCalledWith(FIXTURE.commitmentId));
+    await act(async () => { await flushPendingCommits(); });
+    await waitFor(() => expect(dismiss).toHaveBeenCalledWith(FIXTURE.commitmentId, { asUid: USER.uid }));
+  });
+
+  /*
+   * CA11.2 (owner decision 2026-11-19): «مش هاي» was one tap, permanent, and
+   * gave no way back. It now hides the row and offers «رجّعها» for the toast's
+   * few seconds; the dismissal is only sent when that window closes.
+   */
+  it('hides the row, offers «رجّعها», and sends nothing until the window closes', async () => {
+    jest.spyOn(footballEndpoints, 'getFootballSettings').mockResolvedValue(
+      settingsResponse({ followedClubIds: ['barcelona'], fixtures: [{ ...FIXTURE, collisions: [] }] }),
+    );
+    const dismiss = jest.spyOn(footballEndpoints, 'dismissFixture')
+      .mockResolvedValue({ id: FIXTURE.commitmentId, dismissed: true });
+    await show();
+    await waitFor(() => expect(screen.queryByTestId(`football-dismiss-${FIXTURE.commitmentId}`)).not.toBeNull());
+    await fireEvent.press(screen.getByTestId(`football-dismiss-${FIXTURE.commitmentId}`));
+
+    await waitFor(() => expect(screen.queryByTestId('toast-undo')).not.toBeNull());
+    expect(screen.getByTestId('toast-undo').props.children).toBe(ar.toastBringBack);
+    expect(screen.queryByTestId(`football-dismiss-${FIXTURE.commitmentId}`)).toBeNull();
+    expect(dismiss).not.toHaveBeenCalled();
+
+    await act(async () => { await flushPendingCommits(); });
+    await waitFor(() => expect(dismiss).toHaveBeenCalledTimes(1));
+  });
+
+  it('«رجّعها» brings the match back and never sends the dismissal', async () => {
+    jest.spyOn(footballEndpoints, 'getFootballSettings').mockResolvedValue(
+      settingsResponse({ followedClubIds: ['barcelona'], fixtures: [{ ...FIXTURE, collisions: [] }] }),
+    );
+    const dismiss = jest.spyOn(footballEndpoints, 'dismissFixture')
+      .mockResolvedValue({ id: FIXTURE.commitmentId, dismissed: true });
+    await show();
+    await waitFor(() => expect(screen.queryByTestId(`football-dismiss-${FIXTURE.commitmentId}`)).not.toBeNull());
+    await fireEvent.press(screen.getByTestId(`football-dismiss-${FIXTURE.commitmentId}`));
+    await waitFor(() => expect(screen.queryByTestId('toast')).not.toBeNull());
+
+    await fireEvent.press(screen.getByTestId('toast-undo-button'));
+    await waitFor(() => expect(screen.queryByTestId(`football-dismiss-${FIXTURE.commitmentId}`)).not.toBeNull());
+    expect(pendingCommitCount()).toBe(0);
+    await act(async () => { await flushPendingCommits(); });
+    expect(dismiss).not.toHaveBeenCalled();
   });
 
   // Review of QA wave B9 (CXA11.3): a stale dismiss on a match completed
@@ -192,6 +239,7 @@ describe('dismissing a match', () => {
       await show();
       await waitFor(() => expect(screen.queryByTestId(`football-dismiss-${FIXTURE.commitmentId}`)).not.toBeNull());
       await fireEvent.press(screen.getByTestId(`football-dismiss-${FIXTURE.commitmentId}`));
+      await act(async () => { await flushPendingCommits(); });
       const line = await screen.findByTestId('football-dismiss-failed');
       expect([line.props.children].flat().join('')).toBe(ar.footballDismissGone);
       expect(ar.footballDismissGone).toBe('هاي المباراة خلصت.');

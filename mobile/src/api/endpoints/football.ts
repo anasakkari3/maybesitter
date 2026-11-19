@@ -41,8 +41,13 @@ export function putFollowedClubs(clubIds: readonly string[], locale: 'ar' | 'he'
  * is nothing left to dismiss, and `apiRequest` turns that into a
  * `NotFoundError` the same as any other 404.
  */
-export function dismissFixture(commitmentId: string): Promise<{ id: string; dismissed: boolean }> {
+export function dismissFixture(
+  commitmentId: string,
+  options: { asUid?: string } = {},
+): Promise<{ id: string; dismissed: boolean }> {
   return apiRequest('DELETE', `/api/mobile/football/fixtures/${encodeURIComponent(commitmentId)}`, {
     schema: footballFixtureDismissedSchema,
+    // Sent after the undo window (CA11.2): only as the account that tapped.
+    ...(options.asUid !== undefined ? { asUid: options.asUid } : {}),
   });
 }

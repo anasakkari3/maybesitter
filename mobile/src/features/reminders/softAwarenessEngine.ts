@@ -88,7 +88,9 @@ function contentFor(request: DesiredRequest, input: SyncInput): ScheduleRequest 
       at: new Date(request.at),
     };
   }
-  const copy = input.copy;
+  // A Later can move the gentle stage past the start (C13.9): it must not
+  // say the time is near when it has already begun.
+  const copy = request.afterStart && input.startedCopy ? input.startedCopy : input.copy;
   return {
     identifier: request.identifier,
     title: copy.title,

@@ -22,6 +22,9 @@ import { resetAuthForTests, setAuthRepository } from '../../../api/auth';
 import type { AuthUser } from '../../../auth/types';
 import { Root } from '../../../Root';
 import en from '../../../i18n/locales/en.json';
+import ar from '../../../i18n/locales/ar.json';
+import he from '../../../i18n/locales/he.json';
+import { captureChatSchema } from '../../../api/schemas/capture';
 import { LANGUAGE_STORAGE_KEY } from '../../../i18n/language';
 import * as captureEndpoints from '../../../api/endpoints/capture';
 import * as commitmentEndpoints from '../../../api/endpoints/commitments';
@@ -201,5 +204,46 @@ describe('the header claims only what is true', () => {
     await fireEvent.press(screen.getByTestId('chat-more'));
     await waitFor(() => expect(screen.queryByTestId('chat-menu')).not.toBeNull());
     expect(screen.queryByTestId('chat-menu-ai-off')).toBeNull();
+  });
+});
+
+/*
+ * CA3.10 (owner decision 2026-11-19): the chat kept answering by the rules
+ * once the day's model allowance was spent, and said nothing. It now says so
+ * in one calm line, only when the server's answer says the daily allowance is
+ * spent, and the schema keeps that flag.
+ */
+describe('the daily model allowance (CA3.10)', () => {
+  it('says the day’s allowance is spent when the answer says so', async () => {
+    const plain = chatServer(() => proposal());
+    jest.spyOn(captureEndpoints, 'chatCapture').mockImplementation((async (input: never) => ({
+      ...(await plain(input)), dailyAiLimitReached: true,
+    })) as never);
+    await openCapture();
+    await analyze();
+    await waitFor(() => expect(screen.queryByTestId('capture-ai-daily-limit')).not.toBeNull());
+    expect(screen.getByTestId('capture-ai-daily-limit').props.children).toBe(en.chatAiDailyLimit);
+  });
+
+  it('says nothing about an allowance on an ordinary rules answer', async () => {
+    await openCapture();
+    await analyze();
+    expect(screen.queryByTestId('capture-ai-daily-limit')).toBeNull();
+  });
+
+  it('keeps the flag through the schema, and an older server without it parses', () => {
+    const base = { conversationId: 'c', reply: 'r', engine: 'rules', proposal: null, turns: [] };
+    expect(captureChatSchema.parse({ ...base, dailyAiLimitReached: true }).dailyAiLimitReached).toBe(true);
+    expect(captureChatSchema.parse(base).dailyAiLimitReached).toBeUndefined();
+  });
+
+  // Review 2026-11-19: the same flag covers the person's daily cap and the
+  // service's (cost_cap:global_daily), so the line names no allowance of
+  // theirs — it fits both, and blames nobody.
+  it('is one line that fits both the person’s and the service’s daily limit', () => {
+    expect(ar.chatAiDailyLimit).toBe('الفهم الذكي واقف لليوم، رح أفهم بطريقة أبسط لبكرا.');
+    for (const line of [ar.chatAiDailyLimit, en.chatAiDailyLimit, he.chatAiDailyLimit]) {
+      expect(line).not.toMatch(/حصّة|حصة|quota|allowance|your|מכסה|שלך/i);
+    }
   });
 });

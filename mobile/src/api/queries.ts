@@ -1082,6 +1082,32 @@ export function useCommitmentAction() {
   });
 }
 
+/**
+ * «تمّت» while its «رجّعها» window is open (CX3.1): the lists show the item
+ * finished at once, from the cache only. Nothing is sent from here; the
+ * completion itself is sent when the window closes. `restore` reads the lists
+ * again, which is what the server still holds after an undo.
+ */
+export function useLocalCompletion() {
+  const client = useQueryClient();
+  const uid = useUid();
+  return {
+    mark: (id: string, now: Date = new Date()) => {
+      client.setQueriesData({ queryKey: ['user', uid, 'commitments'] }, (data: unknown) => {
+        if (!data || typeof data !== 'object' || !Array.isArray((data as { items?: unknown }).items)) return data;
+        const list = data as { items: { id?: unknown }[] };
+        return {
+          ...list,
+          items: list.items.map((item) => (item && item.id === id
+            ? { ...item, status: 'completed', completedAt: now.toISOString() }
+            : item)),
+        };
+      });
+    },
+    restore: (id: string) => invalidateCommitments(client, uid, id),
+  };
+}
+
 export function useDeleteCommitment() {
   const client = useQueryClient();
   const uid = useUid();
@@ -2268,7 +2294,9 @@ export function useDismissFixture() {
   const client = useQueryClient();
   const uid = useUid();
   return useMutation({
-    mutationFn: (commitmentId: string) => dismissFixture(commitmentId),
+    // The tap's account rides along (CA11.2): the request is sent after the
+    // undo window, and must not land on whoever is signed in by then.
+    mutationFn: (commitmentId: string) => dismissFixture(commitmentId, uid !== 'signed-out' ? { asUid: uid } : {}),
     onSettled: () => {
       void client.invalidateQueries({ queryKey: queryKeys.football(uid) });
       void client.invalidateQueries({ queryKey: ['user', uid, 'heldItems'] }); // M4b: what «يتابع لك» counts

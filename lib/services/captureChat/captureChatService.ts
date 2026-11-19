@@ -173,6 +173,9 @@ function addedPointIds(
   ].filter((id) => !prior.has(id));
 }
 
+/** The refusals that mean the day's model allowance is spent (CA3.10); a minute cap is not one. */
+const DAILY_CAP_REASONS: ReadonlySet<string> = new Set(['cost_cap:user_daily', 'cost_cap:global_daily']);
+
 export type CaptureChatErrorReason = 'message_required' | 'invalid_conversation_id' | 'conversation_not_found' | 'edit_invalid' | 'invalid_body';
 
 /** A request the chat refuses; the route answers with `status` and `reason`. */
@@ -222,6 +225,12 @@ export interface CaptureChatResponse {
    * (`chatFollowUp`). Present only on the one answer that asks it.
    */
   followUp?: CaptureChatFollowUp;
+  /**
+   * CA3.10: the day's model allowance (the person's daily cap or the
+   * service's) is spent, so this answer came from the rules. Present only
+   * then; never which counter, never a number.
+   */
+  dailyAiLimitReached?: true;
 }
 
 /** The edit lost its proposal revision; the route returns this answer verbatim in a 409. */
@@ -558,6 +567,8 @@ export async function chatMobileCapture(
   // The clashes the person was already shown, named by the reply that showed them.
   const alreadyShown = new Set((current?.items ?? []).flatMap((item) => (item.conflicts ?? []).map((conflict) => clashKey(item.title, conflict))));
   let modelKindHints: Array<'habit' | 'goal'> = [];
+  // CA3.10: set when the model was refused for a spent daily allowance.
+  let dailyAiLimitReached = false;
 
   /**
    * The answer: the proposal with its clashes on each item, and the reply
@@ -609,6 +620,7 @@ export async function chatMobileCapture(
       : null;
     const answer: CaptureChatResponse = {
       conversationId: conversation.conversationId, reply, asked, engine, proposal, turns: kept, ...(followUp ? { followUp } : {}),
+      ...(dailyAiLimitReached && engine === 'rules' ? { dailyAiLimitReached: true as const } : {}),
     };
     const receiptProposal = proposal ? await readMobileChatProposal(proposal.proposalId, uid) : null;
     await conversations.put(uid, {
@@ -697,6 +709,7 @@ export async function chatMobileCapture(
         // limit, a cap, or a request the provider refused. A failed call
         // produced nothing, so nothing is paid for twice.
         answer = null;
+        if (error instanceof LLMUnavailableError && DAILY_CAP_REASONS.has(error.reason)) dailyAiLimitReached = true;
         if (attempt > 0 || !(error instanceof LLMUnavailableError) || !CHAT_RETRY_REASONS.has(error.reason)) break;
       }
     }

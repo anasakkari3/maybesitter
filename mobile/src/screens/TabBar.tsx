@@ -31,14 +31,19 @@ export function TabBar({ onClearanceChange }: { onClearanceChange?: (height: num
   const insets = useSafeAreaInsets();
   const mode = useLayoutMode();
   const enlarged = mode !== 'normal';
-  const twoRows = mode === 'xl';
-  // Every item the same width in both rows: a third of the bar, never grown,
-  // with the second row's two centred (inspection M1A-R4-004). In one row,
-  // a fifth each — as `fillRow`, never `flex: 1`: coming back from the two
-  // rows, a `flex: 1` item kept its cached basis of a third (Yoga on Fabric,
-  // see `fillRow`), and five thirds pushed «احكيها» and «يتابع لك» off the
-  // screen after a live change from AX5 to the default size.
-  const slot = twoRows ? { width: '32%' as const, minWidth: 0 } : { ...fillRow, minWidth: 0 };
+  /*
+   * CX2.7 (owner decision 2026-11-19): at the accessibility (xl) sizes the bar
+   * is icons only. The two rows it used to become took about a third of the
+   * screen at AX5 and still broke «أشيائي» mid-word. Each item keeps its name
+   * as the button's accessibilityLabel, so a screen reader and a device flow
+   * find the same bar; only the painted word goes.
+   *
+   * One row of fifths at every size — as `fillRow`, never `flex: 1`: a
+   * `flex: 1` item keeps a cached basis across a live text-size change (Yoga
+   * on Fabric, see `fillRow`).
+   */
+  const iconsOnly = mode === 'xl';
+  const slot = { ...fillRow, minWidth: 0 };
 
   const tabs: { screen: NavTab; label: string; testID: string; icon: string }[] = [
     { screen: 'today', label: t.tabToday, testID: 'tab-today', icon: 'today' },
@@ -60,13 +65,10 @@ export function TabBar({ onClearanceChange }: { onClearanceChange?: (height: num
         {Platform.OS === 'ios' && !reduceTransparency ? (
           <BlurView intensity={40} tint={scheme === 'dark' ? 'dark' : 'light'} style={{ position: 'absolute', top: 0, start: 0, end: 0, bottom: 0 }} />
         ) : null}
-        {/* At the accessibility (xl) sizes five slots are too narrow for a
-            one-word label at its full size («الي / وم», device 2026-10-06), and
-            labels are never capped (IMPLEMENTATION_SPEC). So the bar becomes
-            two rows, three and two, each slot wide enough for its word. */}
         {/* A tab bar, not a row of buttons (de7fcb84 audit CX2.8): VoiceOver
-            says "tab, 2 of 5" inside a `tabbar`; TalkBack reads a `tablist`. */}
-        <View testID="tab-bar-row" accessibilityRole={Platform.OS === 'ios' ? 'tabbar' : 'tablist'} style={{ backgroundColor: p.sfBar, paddingTop: 6, paddingBottom: Math.max(insets.bottom, 8), paddingHorizontal: 6, flexDirection: 'row', flexWrap: twoRows ? 'wrap' : 'nowrap', justifyContent: 'center', alignItems: 'stretch', gap: 2 }}>
+            says "tab, 2 of 5" inside a `tabbar`; TalkBack reads a `tablist`.
+            The same at every text size, the icons-only bar (CX2.7) included. */}
+        <View testID="tab-bar-row" accessibilityRole={Platform.OS === 'ios' ? 'tabbar' : 'tablist'} style={{ backgroundColor: p.sfBar, paddingTop: 6, paddingBottom: Math.max(insets.bottom, 8), paddingHorizontal: 6, flexDirection: 'row', flexWrap: 'nowrap', justifyContent: 'center', alignItems: 'stretch', gap: 2 }}>
           {/* The labels are measured afresh after a live text-size change: within
               one layout mode (AX1 → AX5) nothing else about a label changes, so
               it kept the old size's measurement. Only the words are replaced;
@@ -84,7 +86,7 @@ export function TabBar({ onClearanceChange }: { onClearanceChange?: (height: num
             </View>
           </Btn>
           {tabs.map(tab => (
-            <TabItem key={tab.screen} {...tab} p={p} on={s.screen === tab.screen} enlarged={enlarged} slot={slot}
+            <TabItem key={tab.screen} {...tab} p={p} on={s.screen === tab.screen} enlarged={enlarged} iconsOnly={iconsOnly} slot={slot}
               onPress={() => actions.switchTab(tab.screen)} />
           ))}
           </RemeasureOnTextScale>
@@ -94,9 +96,11 @@ export function TabBar({ onClearanceChange }: { onClearanceChange?: (height: num
   );
 }
 
-function TabItem({ label, testID, icon, on, p, enlarged, slot, onPress }: {
+function TabItem({ label, testID, icon, on, p, enlarged, iconsOnly, slot, onPress }: {
   label: string; testID: string; icon: string; on: boolean; p: Palette; enlarged: boolean;
-  /** The slot's share of the bar: a fifth, or a third of a row at the xl sizes. */
+  /** At the xl sizes: the icon alone, the name only as the button's label (CX2.7). */
+  iconsOnly: boolean;
+  /** The slot's share of the bar: a fifth. */
   slot: ViewStyle;
   onPress: () => void;
 }) {
@@ -114,8 +118,10 @@ function TabItem({ label, testID, icon, on, p, enlarged, slot, onPress }: {
       style={[slot, { minHeight: 52, alignItems: 'center', justifyContent: 'center' }]}
     >
       <View style={{ flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 2, alignSelf: 'stretch', minHeight: 48, paddingVertical: 3, paddingHorizontal: 2, borderRadius: 14, overflow: 'hidden', backgroundColor: on ? p.acs : 'transparent' }}>
-        <ReferenceIcon name={icon} size={enlarged ? 20 : 22} color={color} />
-        <Txt testID={`${testID}-label`} size={enlarged ? 12 : 13} weight={on ? 700 : 500} color={color} align="center" lh={1.2} lines={2} style={{ flexShrink: 1 }}>{label}</Txt>
+        <ReferenceIcon name={icon} size={iconsOnly ? 28 : enlarged ? 20 : 22} color={color} />
+        {iconsOnly ? null : (
+          <Txt testID={`${testID}-label`} size={enlarged ? 12 : 13} weight={on ? 700 : 500} color={color} align="center" lh={1.2} lines={2} style={{ flexShrink: 1 }}>{label}</Txt>
+        )}
       </View>
     </Btn>
   );

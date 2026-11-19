@@ -8,7 +8,7 @@
  */
 import React from 'react';
 import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
-import { act, render, screen, waitFor, fireEvent } from '@testing-library/react-native';
+import { act, act as act_, render, screen, waitFor, fireEvent } from '@testing-library/react-native';
 import { SafeAreaProvider, type Metrics } from 'react-native-safe-area-context';
 import { QueryClient, QueryClientProvider, onlineManager } from '@tanstack/react-query';
 import { AppProvider, useApp } from '../../state/AppContext';
@@ -22,6 +22,10 @@ import { NotFoundError } from '../../api/errors';
 import type { Commitment } from '../../api/schemas/common';
 import { postponeTo } from '../../features/commitments/postpone';
 import en from '../../i18n/locales/en.json';
+import { ToastHost } from '../../ui/toast';
+import { flushPendingCommits, pendingCommitCount } from '../../state/undoWindow';
+import { runBeforeSignOut } from '../../auth/beforeSignOut';
+import { AccountChangedError } from '../../api/errors';
 
 import * as commitmentEndpoints from '../../api/endpoints/commitments';
 import * as nextStepEndpoints from '../../api/endpoints/nextStep';
@@ -90,7 +94,8 @@ beforeEach(() => {
   setAuthRepository(repository);
 });
 
-afterEach(() => {
+afterEach(async () => {
+  await flushPendingCommits();
   client.clear();
   resetAuthForTests();
   jest.restoreAllMocks();
@@ -109,6 +114,7 @@ async function show(data: Commitment | Error = commitment()) {
             <OpenDetails />
             <DetailsScreen />
             <SheetHost />
+            <ToastHost />
           </QueryClientProvider>
         </AuthProvider>
       </AppProvider>
@@ -154,9 +160,76 @@ describe('done', () => {
       .mockResolvedValue({ data: { success: true, id: ID, commitment: commitment({ status: 'completed' }) }, etag: 'W/"v2"' } as never);
     await show();
     await fireEvent.press(screen.getByTestId('details-done'));
+    await act_(async () => { await flushPendingCommits(); });
     await waitFor(() => expect(act).toHaveBeenCalled());
     expect(act.mock.calls[0]![1]).toBe('complete');
     expect(act.mock.calls[0]![2]).not.toHaveProperty('postponedUntil');
+  });
+
+  /*
+   * CX3.1 (owner decision 2026-11-19): «تمّت» offers «رجّعها» for the toast's
+   * few seconds. The completion is held for that window and sent once when
+   * it closes; «رجّعها» takes it back before anything reaches the server.
+   */
+  it('says it is done with «رجّعها», and sends complete only once the window closes', async () => {
+    const act = jest.spyOn(commitmentEndpoints, 'actOnCommitment')
+      .mockResolvedValue({ data: { success: true, id: ID, commitment: commitment({ status: 'completed' }) }, etag: 'W/"v2"' } as never);
+    await show();
+    await fireEvent.press(screen.getByTestId('details-done'));
+
+    await waitFor(() => expect(screen.queryByTestId('toast-undo')).not.toBeNull());
+    expect(screen.getByTestId('toast-text').props.children).toBe(en.toastDone);
+    expect(screen.getByTestId('toast-undo').props.children).toBe(en.toastBringBack);
+    expect(act).not.toHaveBeenCalled();
+
+    await act_(async () => { await flushPendingCommits(); });
+    await waitFor(() => expect(act).toHaveBeenCalledTimes(1));
+    expect(act.mock.calls[0]![2]).toMatchObject({ asUid: USER.uid });
+  });
+
+  it('«رجّعها» takes the completion back, and nothing is ever sent', async () => {
+    const act = jest.spyOn(commitmentEndpoints, 'actOnCommitment')
+      .mockResolvedValue({ data: { success: true, id: ID, commitment: commitment({ status: 'completed' }) }, etag: 'W/"v2"' } as never);
+    await show();
+    await fireEvent.press(screen.getByTestId('details-done'));
+    await waitFor(() => expect(screen.queryByTestId('toast')).not.toBeNull());
+
+    await fireEvent.press(screen.getByTestId('toast-undo-button'));
+    expect(pendingCommitCount()).toBe(0);
+    await act_(async () => { await flushPendingCommits(); });
+    expect(act).not.toHaveBeenCalled();
+  });
+});
+
+/*
+ * Review 2026-11-19: «تمّت», then signing out inside the five seconds. The
+ * held completion is sent before the session goes, as the account that
+ * pressed it; and a send that finds another account signed in says nothing
+ * on that account's screen.
+ */
+describe('done, then signing out inside the undo window', () => {
+  it('sends the held completion before the sign-out, as the same account', async () => {
+    const act = jest.spyOn(commitmentEndpoints, 'actOnCommitment')
+      .mockResolvedValue({ data: { success: true, id: ID, commitment: commitment({ status: 'completed' }) }, etag: 'W/"v2"' } as never);
+    await show();
+    await fireEvent.press(screen.getByTestId('details-done'));
+    await waitFor(() => expect(screen.queryByTestId('toast-undo')).not.toBeNull());
+    expect(act).not.toHaveBeenCalled();
+
+    await act_(async () => { await runBeforeSignOut('user'); });
+    expect(act).toHaveBeenCalledTimes(1);
+    expect(act.mock.calls[0]![2]).toMatchObject({ asUid: USER.uid });
+    expect(pendingCommitCount()).toBe(0);
+  });
+
+  it('says nothing when the send finds another account signed in', async () => {
+    jest.spyOn(commitmentEndpoints, 'actOnCommitment').mockRejectedValue(new AccountChangedError('another account') as never);
+    await show();
+    await fireEvent.press(screen.getByTestId('details-done'));
+    await waitFor(() => expect(screen.queryByTestId('toast-text')).not.toBeNull());
+    await act_(async () => { await flushPendingCommits(); });
+    await act_(async () => { await new Promise(resolve => setTimeout(resolve, 0)); });
+    expect(screen.getByTestId('toast-text').props.children).toBe(en.toastDone);
   });
 });
 

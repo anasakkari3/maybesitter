@@ -127,3 +127,24 @@ describe('a profile from somewhere else', () => {
     expect(toRoutinePayload(FULL, 'Europe/Berlin').timezone).toBe('Europe/Berlin');
   });
 });
+
+/*
+ * CA1.4 (owner decision 2026-11-19): «تخطّى» saves no sleep window and no
+ * quiet hours, whatever was tapped before it. Free slots, the daily plan and
+ * push quiet hours read those windows without checking `surveySkipped`, so a
+ * skipped survey used to shape them anyway.
+ */
+describe('skipping the survey (CA1.4)', () => {
+  it('sends no sleep window and no quiet hours, even after picks', () => {
+    const payload = toRoutinePayload(FULL, TZ, { skipped: true });
+    expect(payload.surveySkipped).toBe(true);
+    expect(payload.sleepWindow).toBeNull();
+    expect(payload.quietHours).toBeNull();
+  });
+
+  it('still sends both when the survey is saved, not skipped', () => {
+    const payload = toRoutinePayload(FULL, TZ, { skipped: false });
+    expect(payload.sleepWindow).not.toBeNull();
+    expect(payload.quietHours).not.toBeNull();
+  });
+});

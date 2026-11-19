@@ -15,7 +15,7 @@ import React from 'react';
 import { readdirSync, readFileSync, statSync } from 'fs';
 import { join, relative } from 'path';
 import { afterEach, describe, expect, it, jest } from '@jest/globals';
-import { act, render, screen } from '@testing-library/react-native';
+import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import { AccessibilityInfo, Animated, Platform, StyleSheet, Text } from 'react-native';
 import { SafeAreaProvider, type Metrics } from 'react-native-safe-area-context';
 import { LiveRegion } from '../liveRegion';
@@ -146,7 +146,7 @@ describe('the toast host', () => {
     jest.useFakeTimers({ now: new Date('2026-09-28T09:00:00.000Z') });
     await showHost();
     await act(async () => { app.current!.actions.toast('Marked done', () => undefined); });
-    const window = app.current!.tr('toastUndoWithin', { s: 5 });
+    const window = app.current!.tr('toastBringBackWithin', { s: 5 });
     const first = readable(screen.getByTestId('toast-live'));
     expect(first).toContain('Marked done');
     expect(first.split(window)).toHaveLength(2);
@@ -161,6 +161,31 @@ describe('the toast host', () => {
    * was. The fade runs on the native driver, which Jest does not animate, so
    * the reset itself is what is observed.
    */
+  /*
+   * Review 2026-11-19: «رجّعها» was a word inside the message pill. It is its
+   * own button now — a filled chip, at least 44 × 44 — and only it takes the
+   * action back; a tap on the message only dismisses.
+   */
+  it('offers «رجّعها» as its own 44-point button, and only that button takes the action back', async () => {
+    await showHost();
+    const undo = jest.fn();
+    await act(async () => { app.current!.actions.toast('Marked done', undo); });
+    const button = screen.getByTestId('toast-undo-button');
+    expect(button.props.accessibilityRole).toBe('button');
+    const style = StyleSheet.flatten(button.props.style) as { minHeight?: number; minWidth?: number; backgroundColor?: string };
+    expect(style.minHeight).toBeGreaterThanOrEqual(44);
+    expect(style.minWidth).toBeGreaterThanOrEqual(44);
+    expect(typeof style.backgroundColor).toBe('string');
+    expect(style.backgroundColor).not.toBe('transparent');
+
+    await fireEvent.press(screen.getByTestId('toast'));
+    expect(undo).not.toHaveBeenCalled();
+    await act(async () => { app.current!.actions.toast('Marked done', undo); });
+    await fireEvent.press(screen.getByTestId('toast-undo-button'));
+    expect(undo).toHaveBeenCalledTimes(1);
+    expect(screen.queryByTestId('toast')).toBeNull();
+  });
+
   it('puts the fade back to transparent when one toast gives way to the next', async () => {
     jest.useFakeTimers({ now: new Date('2026-09-28T09:00:00.000Z') });
     await showHost();

@@ -30,6 +30,7 @@ import he from '../../../i18n/locales/he.json';
 import * as seedEndpoints from '../../../api/endpoints/seeds';
 import type { Seed } from '../../../api/schemas/seeds';
 import { SeedsScreen } from '../SeedsScreen';
+import { liveSeeds } from '../seedDisplay';
 
 const METRICS: Metrics = {
   frame: { x: 0, y: 0, width: 390, height: 844 },
@@ -163,7 +164,11 @@ describe('the Considering / Waiting screen', () => {
     await waitFor(() => expect(screen.queryByTestId('seed-later-seed-1')).not.toBeNull());
 
     await fireEvent.press(screen.getByTestId('seed-later-seed-1'));
-    await waitFor(() => expect(seedEndpoints.patchSeed).toHaveBeenCalledWith('seed-1', { status: 'snoozed' }));
+    await waitFor(() => expect(screen.queryByTestId('seed-later-tomorrowMorning')).not.toBeNull());
+    await fireEvent.press(screen.getByTestId('seed-later-tomorrowMorning'));
+    await waitFor(() => expect(seedEndpoints.patchSeed).toHaveBeenCalledWith(
+      'seed-1', { status: 'snoozed', revisitAt: expect.any(String) },
+    ));
 
     await fireEvent.press(screen.getByTestId('seed-dismiss-seed-1'));
     await waitFor(() => expect(seedEndpoints.patchSeed).toHaveBeenCalledWith('seed-1', { status: 'dismissed' }));
@@ -234,5 +239,60 @@ describe('the empty list', () => {
 
   it('says «احكي فكرة» in Arabic', () => {
     expect(ar.seedsEmptyCta).toBe('احكي فكرة');
+  });
+});
+
+/**
+ * CA5.6 / CXA5.3 (owner decision 2026-11-19): «بعدين» asks «إمتى؟», sets the
+ * person's own revisit time, and the idea leaves the list until that time
+ * comes, then returns. It used to change the label only.
+ */
+describe('"Later" on an idea asks when, and brings it back then', () => {
+  it('asks when, and patches the chosen revisit time with the snooze', async () => {
+    await show();
+    await waitFor(() => expect(screen.queryByTestId('seed-later-seed-1')).not.toBeNull());
+    expect(seedEndpoints.patchSeed).not.toHaveBeenCalled();
+
+    await fireEvent.press(screen.getByTestId('seed-later-seed-1'));
+    await waitFor(() => expect(screen.queryByTestId('seed-later-sheet-title')).not.toBeNull());
+    expect(text('seed-later-sheet-title')).toBe(en.seedLaterWhen);
+    // Nothing is sent before the person picks a time.
+    expect(seedEndpoints.patchSeed).not.toHaveBeenCalled();
+
+    await fireEvent.press(screen.getByTestId('seed-later-nextWeek'));
+    await waitFor(() => expect(seedEndpoints.patchSeed).toHaveBeenCalled());
+    const [, patch] = (seedEndpoints.patchSeed as jest.Mock).mock.calls[0] as [string, { status: string; revisitAt: string }];
+    expect(patch.status).toBe('snoozed');
+    expect(Date.parse(patch.revisitAt)).toBeGreaterThan(Date.now() + 6 * 86_400_000);
+  });
+
+  it('keeps an idea off the list until its revisit time, and shows it again once that time has come', async () => {
+    const future = new Date(Date.now() + 3 * 86_400_000).toISOString();
+    const past = new Date(Date.now() - 60_000).toISOString();
+    jest.spyOn(seedEndpoints, 'listSeeds').mockResolvedValue({
+      items: [
+        seed({ seedId: 'away', status: 'snoozed', revisitAt: future }),
+        seed({ seedId: 'back', status: 'snoozed', revisitAt: past }),
+      ],
+    } as never);
+    await show();
+
+    await waitFor(() => expect(screen.queryByTestId('seed-back')).not.toBeNull());
+    expect(screen.queryByTestId('seed-away')).toBeNull();
+  });
+
+  it('liveSeeds, which the «أشيائي» count reads too, leaves out an idea snoozed into the future', () => {
+    const now = new Date('2026-11-19T10:00:00.000Z');
+    const kept = liveSeeds([
+      seed({ seedId: 'away', status: 'snoozed', revisitAt: '2026-11-20T09:00:00.000Z' }),
+      seed({ seedId: 'back', status: 'snoozed', revisitAt: '2026-11-19T09:00:00.000Z' }),
+      seed({ seedId: 'open' }),
+    ], now);
+    expect(kept.map(item => item.seedId)).toEqual(['back', 'open']);
+  });
+
+  it('asks «إمتى؟» in Arabic', () => {
+    expect(ar.seedLaterWhen).toBe('إمتى؟');
+    expect(he.seedLaterWhen.length).toBeGreaterThan(0);
   });
 });

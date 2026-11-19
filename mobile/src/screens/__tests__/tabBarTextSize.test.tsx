@@ -76,9 +76,14 @@ describe('the tab bar keeps its identity at every text size', () => {
     for (const name of painted(view)) expect(view.getAllByText(name).length).toBeGreaterThan(0);
   });
 
-  it('keeps visible names at the first accessibility size', async () => {
+  // CX2.7 (owner decision 2026-11-19): from the first accessibility size the
+  // bar is icons only, and each name stays the control's accessibilityLabel.
+  it('is icons only from the first accessibility size, each name kept as its label', async () => {
+    const small = names(await atFontScale(1));
     const view = await atFontScale(1.64);
-    for (const name of painted(view)) expect(view.getAllByText(name).length).toBeGreaterThan(0);
+    for (const name of painted(view)) expect(view.queryAllByText(name)).toHaveLength(0);
+    for (const id of TEXT_IDS) expect(view.queryByTestId(`${id}-label`)).toBeNull();
+    expect(names(view)).toEqual(small);
   });
 
   it('announces the same five names at 2.0× as at 1×, and every control is still there', async () => {
@@ -94,10 +99,12 @@ describe('the tab bar keeps its identity at every text size', () => {
     expect(view.getByTestId('floating-tab-bar').props.style).toEqual({ flexShrink: 0 });
   });
 
-  it('keeps names visible past the top of the platform ramp', async () => {
+  it('keeps every control, named, past the top of the platform ramp', async () => {
+    const small = names(await atFontScale(1));
     const view = await atFontScale(3.12);
     for (const id of IDS) expect(view.getByTestId(id)).toBeTruthy();
-    for (const name of painted(view)) expect(view.getAllByText(name).length).toBeGreaterThan(0);
+    expect(names(view)).toEqual(small);
+    for (const name of painted(view)) expect(view.queryAllByText(name)).toHaveLength(0);
   });
 
   it('is five items with «احكيها» first, shown as the mark and named for a screen reader', async () => {
@@ -131,17 +138,16 @@ describe('the tab bar keeps its identity at every text size', () => {
     }
   });
 
-  it('becomes two rows at the accessibility sizes instead of capping or breaking a label', async () => {
-    // Five slots at AX5 split «اليوم» into «الي / وم» on a device (2026-10-06);
-    // labels are never capped (IMPLEMENTATION_SPEC), so the bar wraps.
+  it('stays one row of five at the accessibility sizes, no word to break (CX2.7)', async () => {
+    // Two rows took ~313 of 874 pt at AX5 and still broke «أشيائي» mid-word
+    // (QA X2, CX2.7). Icons only keeps the bar one row and nothing breaks.
     const view = await atFontScale(2.0);
     const row = Object.assign({}, ...[view.getByTestId('tab-bar-row').props.style].flat(Infinity).filter(Boolean));
-    expect(row.flexWrap).toBe('wrap');
-    // The same width for all five, so the second row's two do not grow wider.
-    const widths = IDS.map((id) => Object.assign({}, ...[view.getByTestId(id).props.style].flat(Infinity).filter(Boolean)).width);
-    expect(new Set(widths).size).toBe(1);
-    expect(widths[0]).toBe('32%');
-    for (const id of TEXT_IDS) expect(view.getByTestId(`${id}-label`).props.maxFontSizeMultiplier).toBeUndefined();
+    expect(row.flexWrap).toBe('nowrap');
+    for (const id of IDS) {
+      const slot = Object.assign({}, ...[view.getByTestId(id).props.style].flat(Infinity).filter(Boolean));
+      expect(slot.width).not.toBe('32%');
+    }
     await view.unmount();
     const normal = await atFontScale(1);
     const one = Object.assign({}, ...[normal.getByTestId('tab-bar-row').props.style].flat(Infinity).filter(Boolean));

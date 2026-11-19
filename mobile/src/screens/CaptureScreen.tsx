@@ -835,6 +835,11 @@ export function CaptureScreen({ entryQuestion }: { entryQuestion?: { entry: Capt
             <Txt size={13} color={p.mu} testID="capture-ai-disclosure-body">{isolateLatinRuns(t.aiDisclosure)}</Txt>
             <Txt size={13} color={p.mu}>{t.aiDisclosureKept}</Txt>
           </View> : null}
+          {/* CA3.10: the day's model allowance is spent; said once, calmly,
+              while the rules keep answering. */}
+          <LiveRegion>{state.dailyAiLimitReached ? (
+            <Txt size={13} color={p.mu} lh={1.5} testID="capture-ai-daily-limit">{t.chatAiDailyLimit}</Txt>
+          ) : null}</LiveRegion>
         </View>}
         history={history}
         {...(state.status === 'analyzing' ? { typing: <ProcessingDots color={p.ac} />, typingLabel: t.understanding } : {})}

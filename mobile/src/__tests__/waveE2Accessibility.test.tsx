@@ -77,7 +77,9 @@ describe('CX2.1: a toast is told to VoiceOver', () => {
     const announce = spyAnnounce();
     await showHost();
     await act(async () => { app.current!.actions.toast('Postponed', () => undefined); });
-    expect(announce).toHaveBeenCalledWith(`Postponed. ${app.current!.tr('toastUndoWithin', { s: 5 })}`);
+    // The «رجّعها» window (wave E decisions), said once with the toast.
+    expect(announce).toHaveBeenCalledWith(`Postponed. ${app.current!.tr('toastBringBackWithin', { s: 5 })}`);
+    expect(announce).toHaveBeenCalledTimes(1);
   });
 
   it('leaves Android to the live region, so it is not said twice', async () => {

@@ -370,6 +370,12 @@ export function ReviewScreen({ onBackToChat }: { onBackToChat?: () => void } = {
             <Txt size={12} color={p.wm}>{t.reviewUntrusted}</Txt>
           </View>
         ) : null}
+        {/* CXA3.4 (owner decision 2026-11-19): part of the share was dropped
+            (an unsafe or unreadable segment). Said in one fixed line; what was
+            dropped is never shown, and the envelope does not carry it. */}
+        {state.source === 'share' && (share?.ignoredSegments ?? 0) > 0 ? (
+          <Txt role="supporting" color={p.mu} style={{ paddingHorizontal: 4 }} testID="review-share-ignored">{t.shareIgnoredPart}</Txt>
+        ) : null}
         {/* A Gmail scan stopped part-way (CL6a review I2): what is below came
             from some of the mail, and the rest was not read. "Try again" only
             when a retry could read it (round 2, N2). */}

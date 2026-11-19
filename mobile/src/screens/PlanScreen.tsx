@@ -634,14 +634,19 @@ function LoadedPlan({ plan, date, readOnly }: { plan: DailyPlan; date: string; r
               {regenerateButton}
             </View>
           ) : regenerateButton}
-          <Pill
-            label={t.planDismiss}
-            kind="ghost"
-            size={14}
-            testID="plan-dismiss"
-            disabled={readOnly || accept.isPending || plan.status === 'dismissed'}
-            onPress={() => send('dismiss')}
-          />
+          {/* Gone once the plan is accepted (CA4.11): setting aside a plan
+              the person just agreed to was one unconfirmed tap, and a second
+              accept then counted the plan twice. */}
+          {plan.status === 'accepted' ? null : (
+            <Pill
+              label={t.planDismiss}
+              kind="ghost"
+              size={14}
+              testID="plan-dismiss"
+              disabled={readOnly || accept.isPending || plan.status === 'dismissed'}
+              onPress={() => send('dismiss')}
+            />
+          )}
         </ActionRow>
         {capReached ? (
           <Txt size={13} color={p.mu} lh={1.5} testID="plan-regenerate-capped">{t.planRegenerateNoneLeft}</Txt>

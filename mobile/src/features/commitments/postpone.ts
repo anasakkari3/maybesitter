@@ -27,6 +27,7 @@
  * label the way Node does, and this file used to fall back to UTC on a device.
  */
 import { instantForWallClock } from '../../lib/time/zoneOffset';
+import type { Strings } from '../../i18n/strings';
 
 export type PostponePreset =
   | 'oneHour'
@@ -120,3 +121,12 @@ export function isPostponable(instant: string, now: Date): boolean {
   const ms = Date.parse(instant);
   return !Number.isNaN(ms) && ms > now.getTime();
 }
+
+/** The words for each preset, shared by the postpone sheet and an idea's «بعدين» (CA5.6). */
+export const postponePresetLabels = (t: Strings): Record<PostponePreset, string> => ({
+  oneHour: t.postponeOneHour,
+  threeHours: t.postponeThreeHours,
+  thisEvening: t.postponeThisEvening,
+  tomorrowMorning: t.postponeTomorrowMorning,
+  nextWeek: t.postponeNextWeek,
+});

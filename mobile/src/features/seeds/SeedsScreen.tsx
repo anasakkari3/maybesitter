@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { View } from 'react-native';
 import { useApp } from '../../state/AppContext';
-import { formatDate } from '../../i18n/format';
+import { formatDate, formatRelativeDay, formatTime } from '../../i18n/format';
+import { ltr } from '../../i18n/strings';
 import { isolateAuto } from '../../i18n/bidi';
 import { useTimeZone } from '../../i18n/timezone';
 import { Btn, Card, Pill, Txt } from '../../ui/primitives';
@@ -14,6 +15,15 @@ import type { Seed } from '../../api/schemas/seeds';
 import { SettingsHeader } from '../settings/SettingsChrome';
 import { hasRevisit, liveSeeds, seedKindLabel, seedStatusLabel } from './seedDisplay';
 import { markErrorShown } from '../../api/ui/userFacingMessage';
+import { BottomSheet, SheetChoice, SheetHeader } from '../../ui/bottomSheet';
+import { postponePresetLabels, postponeTo, type PostponePreset } from '../commitments/postpone';
+
+/**
+ * When «بعدين» brings an idea back (CA5.6 / CXA5.3). The commitment
+ * postpone presets, the longer ones: an idea is not a task, and an hour
+ * from now would only be the same card again.
+ */
+const LATER_PRESETS: readonly PostponePreset[] = ['thisEvening', 'tomorrowMorning', 'nextWeek'];
 
 /**
  * "Considering / Waiting" — the things the person has not decided on (#519).
@@ -102,6 +112,7 @@ function SeedCard({ seed, strings, lang }: { seed: Seed; strings: Record<string,
   const promote = usePromoteSeed();
   const remove = useDeleteSeed();
   const [failed, setFailed] = useState(false);
+  const [askingWhen, setAskingWhen] = useState(false);
   const busy = patch.isPending || promote.isPending || remove.isPending;
   const statusLine = seedStatusLabel(seed, strings);
 
@@ -149,7 +160,9 @@ function SeedCard({ seed, strings, lang }: { seed: Seed; strings: Record<string,
             testID={`seed-later-${seed.seedId}`}
             label={t.seedLater}
             disabled={busy}
-            onPress={() => run(() => patch.mutateAsync({ id: seed.seedId, status: 'snoozed' }))}
+            // «إمتى؟» first (CA5.6): Later is the person's own bring-back time,
+            // and nothing is sent until they pick one.
+            onPress={() => setAskingWhen(true)}
           />
           <SeedAction
             testID={`seed-dismiss-${seed.seedId}`}
@@ -163,6 +176,35 @@ function SeedCard({ seed, strings, lang }: { seed: Seed; strings: Record<string,
           />
         </View>
       </View>
+      <BottomSheet visible={askingWhen} onClose={() => setAskingWhen(false)} testID={`seed-later-sheet-${seed.seedId}`}>
+        <SheetHeader
+          title={t.seedLaterWhen}
+          icon="clock"
+          onClose={() => setAskingWhen(false)}
+          closeTestID="seed-later-sheet-close"
+          titleTestID="seed-later-sheet-title"
+        />
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
+          {LATER_PRESETS.map((preset) => {
+            const now = new Date();
+            const until = postponeTo(preset, now, timeZone);
+            const at = new Date(until);
+            return (
+              <SheetChoice
+                key={preset}
+                testID={`seed-later-${preset}`}
+                label={postponePresetLabels(t)[preset]}
+                sub={`${formatRelativeDay(at, { locale: lang as never, timeZone, now })} · ${ltr(formatTime(at, { locale: lang as never, timeZone }))}`}
+                disabled={busy}
+                onPress={() => {
+                  setAskingWhen(false);
+                  run(() => patch.mutateAsync({ id: seed.seedId, status: 'snoozed', revisitAt: until }));
+                }}
+              />
+            );
+          })}
+        </View>
+      </BottomSheet>
     </Card>
   );
 }

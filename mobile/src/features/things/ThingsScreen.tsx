@@ -19,6 +19,7 @@ import { AvoidKeyboard, useSoftKeyboardShown } from '../../ui/keyboard';
 import { rankByText, settledAt } from './searchModel';
 import type { Commitment } from '../../api/schemas/common';
 import { SearchServerLine } from './SearchServerLine';
+import { isAwayUntilRevisit } from '../seeds/seedDisplay';
 import { useCommitmentMatches } from './useSearch';
 
 /** Seeds that are still something the person is weighing up. */
@@ -54,7 +55,9 @@ export function ThingsScreen({ tabClearance = TAB_CLEARANCE }: { tabClearance?: 
 
   const goals = memory.data?.items.filter(item => item.kind === 'goal') ?? [];
   const habitItems = (habits.data ?? []).filter(habit => habit.status !== 'archived');
-  const seedItems = (seeds.data?.items ?? []).filter(seed => LIVE_SEED.has(seed.status));
+  // An idea snoozed to a later time is away until then, as on its own list (CA5.6).
+  const seedItems = (seeds.data?.items ?? [])
+    .filter(seed => LIVE_SEED.has(seed.status) && !isAwayUntilRevisit(seed, new Date()));
   const recent = [...views].sort((a, b) => b.record.createdAt.localeCompare(a.record.createdAt)).slice(0, RECENT);
 
   // Folded on both sides, word-start matches first, and — with the capability
