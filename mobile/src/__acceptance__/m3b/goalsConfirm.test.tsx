@@ -343,6 +343,18 @@ describe('M3b A5 confirm, receipt and recovery', () => {
     await screen.findByTestId(`seed-${SEED_ID}`);
   });
 
+  it('QA v3 V3-F24-04: a saved waiting-for is counted as one, never as a thought', async () => {
+    const raw = proposal({ entry: 'thought', seeds: [{ seedItemId: SEED_ITEM_ID, pointId: SEED_POINT_ID, kind: 'waiting_for', summary: 'Waiting for Dana to reply', suggestedTime: null }], understood: [{ kind: 'waiting_for', seedItemId: SEED_ITEM_ID, pointId: SEED_POINT_ID, text: 'Waiting for Dana to reply' }] });
+    const receipt = confirmation({ seedsPersisted: [{ seedItemId: SEED_ITEM_ID, pointId: SEED_POINT_ID, seedId: SEED_ID, kind: 'waiting_for', title: 'Waiting for Dana to reply' }] });
+    harness.server.handler = serve(raw, () => ({ status: 200, body: receipt }));
+    await show(raw);
+    await press('review-confirm');
+    await screen.findByTestId('capture-saved');
+
+    expect(screen.getByText(/Saved: 1 thing you’re waiting on/)).toBeTruthy();
+    expect(screen.queryByText(/1 thought/)).toBeNull();
+  });
+
   it('A5 R4-001/R5-001: confirmed proposal 409 shows the original finalized receipt', async () => {
     const raw = mixedProposal('thought');
     harness.server.handler = serve(raw, () => ({
