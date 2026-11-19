@@ -1,7 +1,6 @@
 import { ClarityConsent } from '../../clarity/ClarityConsent';
-import { useClarityConsent } from '../../clarity/ClarityProvider';
 import React, { useState } from 'react';
-import { Linking, Platform, View } from 'react-native';
+import { ActivityIndicator, Linking, Platform, View } from 'react-native';
 import { useApp } from '../../state/AppContext';
 import { Btn, Card, Pill, Txt } from '../../ui/primitives';
 import { Screen, ScreenScroll } from '../../ui/screen';
@@ -21,7 +20,9 @@ import { ServerToggle } from './ServerToggle';
 import { SettingsHeader, SettingsRow } from './SettingsChrome';
 import { Dialog } from '../../ui/dialog';
 import { SectionLabel, TextLink } from '../../ui/chrome';
-import { userFacingMessage } from '../../api/ui/userFacingMessage';
+import { toggleFailureKey, userFacingMessage, type UserFacingKey } from '../../api/ui/userFacingMessage';
+import { useAnnounceOnIos } from '../../ui/announce';
+import { LiveRegion } from '../../ui/liveRegion';
 import type { PilotIncidentInput } from '../../api/schemas/trust';
 import { deviceCalendar } from '../calendar/deviceCalendar';
 import { useCalendarConnection } from '../calendar/calendarConnection';
@@ -66,12 +67,20 @@ const INCIDENT_CATEGORIES: readonly PilotIncidentInput['category'][] = ['reliabi
  * ── Deleting an account is not a trust action ────────────────────
  *
  * The old pilot `delete` action is retired (it answers 400 `use_account_
- * deletion`). This screen sends `revoke`, which stops participation and keeps
- * the data, and routes deletion to UC-1.5 (#149)'s flow, which is the real
- * thing. A grep test asserts no screen here sends `{type:'delete'}`.
+ * deletion`), and deletion is UC-1.5 (#149)'s flow, which is the real thing.
+ * A grep test asserts no screen here sends `{type:'delete'}`.
+ *
+ * ── «وقّف» stops suggestions and learning, not the account ───────
+ *
+ * This card used to send the trust `revoke`, which stamped `revokedAt` and
+ * locked the whole account behind «هالحساب موقوف» with no way back, while
+ * its words only promised to stop suggesting and learning (QA v3, V3-F35-07).
+ * Owner decision 2026-11-19: it answers exactly those two questions — the
+ * next-step and the pattern-learning consents, through the same endpoints as
+ * the switches above — and once both are off it offers them back. It never
+ * sends `revoke`; the revoked screen stays for an account already locked.
  */
 export function TrustScreen({ onBack, onKnows }: { onBack: () => void; onKnows: () => void }) {
-  const replayConsent = useClarityConsent();
   const { t, p, lang, actions } = useApp();
   const consents = useConsents();
   const trust = useTrust();
@@ -82,6 +91,17 @@ export function TrustScreen({ onBack, onKnows }: { onBack: () => void; onKnows: 
   const report = useReportPilotIncident();
   const exportData = useExportMyData();
   const [confirmRevoke, setConfirmRevoke] = useState(false);
+  // The line under the stop card when a write failed: which words, from the
+  // same rule as a switch's (`toggleFailureKey`), or the partial line when the
+  // first answer landed and the second did not.
+  const [stopFailure, setStopFailure] = useState<UserFacingKey | null>(null);
+  // «موقّفين» / «رجّعناهم» are said out loud only as the answer to this
+  // card's own tap, not every time the screen opens on an account already off.
+  const [landed, setLanded] = useState<'stopped' | 'resumed' | null>(null);
+  // A turn-back-on the person asked for and that has not fully landed: the
+  // card keeps offering it — while it is on its way, after a partial one, and
+  // after a retry that failed — rather than flipping to «stop» (review of #873).
+  const [resumeOffered, setResumeOffered] = useState(false);
   const [reporting, setReporting] = useState(false);
   const [incidentSurface, setIncidentSurface] = useState<PilotIncidentInput['surface']>('capture');
   const [incidentCategory, setIncidentCategory] = useState<PilotIncidentInput['category']>('reliability');
@@ -100,11 +120,82 @@ export function TrustScreen({ onBack, onKnows }: { onBack: () => void; onKnows: 
   const calendarLine = calendar.line === null || calendar.line === 'denied' ? undefined : t[calendar.line];
   const policy = privacyPolicyUrl(lang);
 
+  // Off means both questions were answered, and neither with yes. Pattern
+  // learning only counts where this server names its version (an older API
+  // has no such question). A question never asked is not «stopped» — there is
+  // nothing to turn back on (review of #873) — and unknown, the answers could
+  // not be read, claims neither state.
+  const asksPersonalization = versions?.personalization !== undefined;
+  const answeredOff = (view: { state: string; asked?: boolean } | undefined) => view?.asked === true && view.state !== 'granted';
+  const stopped = consents.data !== undefined
+    && answeredOff(consents.data.recommendations)
+    && (!asksPersonalization || answeredOff(consents.data.personalization));
+  const answering = setRecommendations.isPending || setPersonalization.isPending;
+
+  /**
+   * Both answers, suggestions first: a failure between the two leaves less
+   * switched on than the person asked for when stopping, and says why.
+   */
+  const answerBoth = async (state: 'granted' | 'declined') => {
+    if (!versions) return;
+    setStopFailure(null);
+    setLanded(null);
+    setResumeOffered(state === 'granted');
+    const suggestions = () => setRecommendations.mutateAsync({ state, version: versions.recommendations, ...context });
+    const learning = () => asksPersonalization
+      ? setPersonalization.mutateAsync({ state, version: versions.personalization!, ...context })
+      : Promise.resolve(null);
+    // Stopping: suggestions first. Resuming: learning first. Either way a
+    // failure between the two leaves suggestions — the louder of the two —
+    // off, and the line under the card says which half did not land.
+    const [first, second, partial] = state === 'declined'
+      ? [suggestions, learning, 'trustStopPartial' as const]
+      : [learning, suggestions, 'trustResumePartial' as const];
+    try {
+      await first();
+    } catch (error) {
+      setStopFailure(toggleFailureKey(error));
+      return;
+    }
+    try {
+      await second();
+    } catch (error) {
+      // Marks the error as said (the failure bridge stays quiet); the words
+      // are the partial line, which names the half that did land.
+      toggleFailureKey(error);
+      setStopFailure(partial);
+      return;
+    }
+    if (state === 'declined') setLanded('stopped');
+    else {
+      setResumeOffered(false);
+      setLanded('resumed');
+      // A visit refused while suggestions were off waits six hours; a yes
+      // ends that wait, as the switch does (QA CA7.5).
+      if (uid) clearVisitWait(uid);
+    }
+  };
+  // After a turn-back-on that landed only its learning half, the card still
+  // offers what the person asked for, not «stop» (review of #873).
+  const showResume = stopped || resumeOffered;
+  const stopLine = stopFailure ? t[stopFailure]
+    : landed === 'stopped' && stopped ? t.trustRevoked
+      : landed === 'resumed' && !stopped ? t.trustResumed
+        : null;
+  // A live region for TalkBack, and VoiceOver told: the line appears away
+  // from the button, after the dialog closed (the switches' rule).
+  useAnnounceOnIos(stopLine);
+
   /**
    * True when the write landed. A failure is thrown on to `ServerToggle`, which
    * says which one it was — a refusal is not "didn't reach the server" (N9).
    */
   const record = async (run: Promise<unknown>): Promise<boolean> => {
+    // A switch moved by hand answers for itself; the stop card's old line no
+    // longer describes what is on.
+    setStopFailure(null);
+    setLanded(null);
+    setResumeOffered(false);
     await run;
     return true;
   };
@@ -121,11 +212,11 @@ export function TrustScreen({ onBack, onKnows }: { onBack: () => void; onKnows: 
           <Dialog
             testID="trust-revoke-dialog"
             title={t.trustRevokeConfirm}
-            body={t.trustRevokeBody}
+            body={t.trustRevokeConfirmBody}
             confirmLabel={t.trustRevoke}
             cancelLabel={t.cancel}
             tone="ink"
-            onConfirm={() => { replayConsent?.setConsent(false); setConfirmRevoke(false); void trustAction.mutateAsync({ type: 'revoke' }).catch(() => undefined); }}
+            onConfirm={() => { setConfirmRevoke(false); void answerBoth('declined'); }}
             onCancel={() => setConfirmRevoke(false)}
             confirmTestID="trust-revoke-confirm"
             cancelTestID="trust-revoke-cancel"
@@ -278,18 +369,45 @@ export function TrustScreen({ onBack, onKnows }: { onBack: () => void; onKnows: 
         <Card pad={18} style={{ gap: 10 }}>
           <Txt size={15} weight={600}>{t.trustRevoke}</Txt>
           <Txt size={13} color={p.mu} lh={1.5}>{t.trustRevokeBody}</Txt>
-          {state?.revokedAt ? (
-            <Txt size={13} color={p.mu} testID="trust-revoked">{t.trustRevoked}</Txt>
+          <Txt size={13} color={p.mu} lh={1.5} testID="trust-revoke-email">{t.trustRevokeEmail}</Txt>
+          {showResume ? (
+            <Btn
+              label={t.trustResume}
+              testID="trust-resume"
+              accessibilityState={{ busy: answering }}
+              disabled={answering}
+              onPress={answering ? undefined : () => void answerBoth('granted')}
+              style={{ minHeight: 44, alignItems: 'center', justifyContent: 'center', borderRadius: 999, borderWidth: 1, borderColor: p.ln, opacity: answering ? 0.5 : 1 }}
+            >
+              <Txt size={14} color={p.ac}>{t.trustResume}</Txt>
+            </Btn>
           ) : (
             <Btn
               label={t.trustRevoke}
               testID="trust-revoke"
-              onPress={() => setConfirmRevoke(true)}
-              style={{ minHeight: 44, alignItems: 'center', justifyContent: 'center', borderRadius: 999, borderWidth: 1, borderColor: p.ln }}
+              accessibilityState={{ busy: answering }}
+              disabled={versions === undefined || answering}
+              onPress={versions === undefined || answering ? undefined : () => setConfirmRevoke(true)}
+              style={{ minHeight: 44, alignItems: 'center', justifyContent: 'center', borderRadius: 999, borderWidth: 1, borderColor: p.ln, opacity: versions === undefined || answering ? 0.5 : 1 }}
             >
               <Txt size={14} color={p.wm}>{t.trustRevoke}</Txt>
             </Btn>
           )}
+          {answering ? <ActivityIndicator testID="trust-stop-busy" color={p.ac} /> : null}
+          {/* Mounted before anything fails, so TalkBack hears the line arrive. */}
+          {/* One line or none, so an empty region takes no room. */}
+          {/* The standing state, outside the live region: an account already
+              off is not announced every time the answers arrive (TalkBack). */}
+          {stopped && !stopFailure && landed !== 'stopped'
+            ? <Txt size={13} color={p.mu} testID="trust-revoked">{t.trustRevoked}</Txt> : null}
+          {/* What this card's own tap did, inside it. One line or none, so an
+              empty region takes no room. */}
+          <LiveRegion testID="trust-stop-live">
+            {stopFailure ? <Txt size={13} color={p.wm} testID="trust-stop-failed">{t[stopFailure]}</Txt>
+              : landed === 'stopped' && stopped ? <Txt size={13} color={p.mu} testID="trust-revoked">{t.trustRevoked}</Txt>
+                : landed === 'resumed' && !stopped ? <Txt size={13} color={p.mu} testID="trust-resumed">{t.trustResumed}</Txt>
+                  : null}
+          </LiveRegion>
         </Card>
 
         {/* The real export (#174 step 7): the server builds it from the same

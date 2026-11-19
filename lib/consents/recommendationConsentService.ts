@@ -74,4 +74,16 @@ export async function recommendationConsentView(
   return consentViewFor(RECOMMENDATION_CONSENT, uid, options);
 }
 
+/**
+ * The same yes/no as `getRecommendationConsent`, from a user document already
+ * read — inside a caller's transaction, where `getConsent`'s own read cannot
+ * go (review of #873: the Gmail proposal step re-checks it at commit). Granted
+ * only at a version this server still recognises, exactly as `readConsent`.
+ */
+export function recommendationGrantedIn(user: unknown): boolean {
+  const record = (user as { consents?: Record<string, { state?: unknown; version?: unknown } | undefined> } | null)
+    ?.consents?.[RECOMMENDATION_CONSENT.key];
+  return record?.state === 'granted' && RECOMMENDATION_CONSENT.isSupportedVersion(record.version);
+}
+
 export { RECOMMENDATION_CONSENT_VERSION };
