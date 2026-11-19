@@ -5,7 +5,7 @@ import type { GoalPlanEditOp } from '../../api/endpoints/goalPlan';
 import { GoalPlanRefusedError } from '../../api/errors';
 import { isolateAuto, isolateQuoted } from '../../i18n/bidi';
 import { civilDate, formatDate, formatTimeRange, formatClockRange, dayKey, formatDayKey } from '../../i18n/format';
-import { fill } from '../../i18n/strings';
+import { fill, type Lang } from '../../i18n/strings';
 import { useTimeZone } from '../../i18n/timezone';
 import { useApp } from '../../state/AppContext';
 import { useLayoutMode } from '../../theme/textScale';
@@ -14,6 +14,7 @@ import { useAnnounceOnIos } from '../../ui/announce';
 import { Btn, Card, Pill, Txt } from '../../ui/primitives';
 import { ProductActions, useRevealInPage } from '../../ui/product';
 import { ReferenceIcon } from '../../ui/referenceIcons';
+import { chipSeparator } from '../../ui/chipText';
 import { planFailureOf, recoveryLabel, type PlanRecovery } from './planFailures';
 import { AllTimesSheet } from './AllTimesSheet';
 import { habitStart, type HabitStart } from './habitStart';
@@ -138,9 +139,10 @@ function phaseLabel(phase: GoalPlanPhase, t: { xPlanPhaseDay: string; xPlanPhase
   return fill(phase.unit === 'day' ? t.xPlanPhaseDay : t.xPlanPhaseWeek, { n: phase.index });
 }
 
-function rhythmLine(rhythm: GoalPlanRhythm, tr: (key: 'xPlanTimesPerWeek', values: { n: number }) => string, t: { xPlanMorning: string; xPlanAfternoon: string; xPlanEvening: string }): string {
+function rhythmLine(rhythm: GoalPlanRhythm, tr: (key: 'xPlanTimesPerWeek', values: { n: number }) => string, t: { xPlanMorning: string; xPlanAfternoon: string; xPlanEvening: string }, lang: Lang): string {
   const when = rhythm.timeOfDay === 'morning' ? t.xPlanMorning : rhythm.timeOfDay === 'afternoon' ? t.xPlanAfternoon : rhythm.timeOfDay === 'evening' ? t.xPlanEvening : null;
-  return [tr('xPlanTimesPerWeek', { n: rhythm.timesPerWeek }), when].filter(Boolean).join('، ');
+  // The language's own list comma (QA v3, V3-F22-13: «3 times a week، mornings»).
+  return [tr('xPlanTimesPerWeek', { n: rhythm.timesPerWeek }), when].filter(Boolean).join(chipSeparator(lang));
 }
 
 function PlanStep({ flow, plan, linkedWork }: { flow: Flow; plan: GoalPlan; linkedWork?: React.ReactNode }) {
@@ -223,7 +225,7 @@ function StepCard({ step, plan, editing, busy, first, last, onEdit }: {
   last: boolean;
   onEdit: (op: GoalPlanEditOp) => void;
 }) {
-  const { t, tr, p } = useApp();
+  const { t, tr, p, lang } = useApp();
   const [open, setOpen] = React.useState(false);
   const editToggle = React.useRef<View>(null);
   const title = isolateAuto(isolateQuoted(step.title));
@@ -232,7 +234,7 @@ function StepCard({ step, plan, editing, busy, first, last, onEdit }: {
     <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
       <Txt role="metadata" color={p.mu} testID={`plan-step-kind-${step.stepId}`}>{step.kind === 'habit' ? t.xPlanKindHabit : t.xPlanKindOnce}</Txt>
       <Txt role="metadata" color={p.mu} testID={`plan-step-duration-${step.stepId}`}>{tr('xMinutes', { count: step.durationMinutes })}</Txt>
-      {step.kind === 'habit' && step.rhythm ? <Txt role="metadata" color={p.mu} testID={`plan-step-rhythm-${step.stepId}`}>{rhythmLine(step.rhythm, tr, t)}</Txt> : null}
+      {step.kind === 'habit' && step.rhythm ? <Txt role="metadata" color={p.mu} testID={`plan-step-rhythm-${step.stepId}`}>{rhythmLine(step.rhythm, tr, t, lang)}</Txt> : null}
     </View>
     {step.buildsOn ? <Reason id={`plan-step-why-${step.stepId}`} label={t.xPlanStepWhy} body={step.buildsOn} /> : null}
     {step.expectedOutcome ? <Reason id={`plan-step-outcome-${step.stepId}`} label={t.xPlanStepOutcome} body={step.expectedOutcome} /> : null}
@@ -421,7 +423,7 @@ function useSlotLine(): (slot: GoalPlanSlot) => string {
 function useWeeklyLine(): (weekly: GoalPlanWeekly, start?: HabitStart) => string {
   const { t, lang } = useApp();
   return React.useCallback((weekly: GoalPlanWeekly, start?: HabitStart) => {
-    const line = `${weekly.weekdays.map(day => weekdayName(day, lang)).join('، ')} · ${formatClockRange(weekly.start, weekly.end)}`;
+    const line = `${weekly.weekdays.map(day => weekdayName(day, lang)).join(chipSeparator(lang))} · ${formatClockRange(weekly.start, weekly.end)}`;
     if (!start || start.kind === 'now') return line;
     const from = start.kind === 'next_week' ? t.xPlanFromNextWeek
       : fill(t.xPlanFromDate, { date: isolateAuto(formatDate(civilDate(start.key), 'short', { locale: lang, timeZone: 'UTC' })) });

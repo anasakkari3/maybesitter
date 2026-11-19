@@ -295,3 +295,13 @@ it('has no page subtitle and keeps the add-goal explanation behind its arrow (ow
   await fireEvent.press(screen.getByTestId('goal-add-why'));
   expect(screen.getByTestId('goal-add-why-body')).toHaveTextContent(strings.ar.xAddGoalBody);
 });
+
+// QA v3 V3-F22-13: «Saved goal» in the singular above two or three goals, and
+// «Goal execution» as the page's name.
+it('names the list of saved goals in the plural and the page in plain words', () => {
+  expect(strings.en.xGoalSaved).toBe('Saved goals');
+  expect(strings.ar.xGoalSaved).toBe('أهدافك المحفوظة');
+  expect(strings.he.xGoalSaved).toBe('יעדים שמורים');
+  expect(strings.en.xGoals).toBe('Goals');
+  expect(strings.he.xGoals).toBe('יעדים');
+});

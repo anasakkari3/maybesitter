@@ -167,10 +167,28 @@ function requireSummary(value: unknown): string {
 function optionalRevisitAt(value: unknown): string | null | undefined {
   if (value === undefined) return undefined;
   if (value === null) return null;
-  if (typeof value !== 'string' || Number.isNaN(Date.parse(value))) {
+  if (typeof value !== 'string' || Number.isNaN(Date.parse(value)) || !namesARealDay(value)) {
     throw new SeedValidationError('revisitAt must be an ISO instant or null');
   }
   return new Date(value).toISOString();
+}
+
+/** The leading calendar day, as written. Fixed length, no repetition. */
+const LEADING_DAY = /^(\d{4})-(\d{2})-(\d{2})/;
+
+/**
+ * Whether the day the value names exists (QA v3, V3-F24-06). `Date.parse`
+ * accepts «2026-02-30» and rolls it into 2 March, so the person's own date
+ * became a different one silently. The written day is checked as written,
+ * before any offset moves it.
+ */
+function namesARealDay(value: string): boolean {
+  const match = LEADING_DAY.exec(value.trim());
+  if (!match) return true;
+  const [year, month, day] = [Number(match[1]), Number(match[2]), Number(match[3])];
+  // A day past the month's end rolls over, so it no longer reads back the
+  // same; a month or day out of range is already NaN to `Date.parse` above.
+  return new Date(Date.UTC(year, month - 1, day)).getUTCDate() === day;
 }
 
 function optionalStatus(value: unknown): SeedStatus | undefined {
@@ -223,6 +241,12 @@ export interface CreateSeedRequest {
   summary?: unknown;
   idempotencyKey?: unknown;
   revision?: unknown;
+  /**
+   * Not accepted on create (QA v3, V3-F24-02). A seed is created with no date;
+   * the person's own check-back marker is set afterwards through the patch.
+   * A create that names one is refused rather than saved with it dropped.
+   */
+  revisitAt?: unknown;
 }
 
 /**
@@ -246,6 +270,9 @@ export async function createSeed(
   at: string,
   options: SeedServiceOptions = {},
 ): Promise<{ seed: IntentSeed; replayed: boolean }> {
+  if (request.revisitAt !== undefined && request.revisitAt !== null) {
+    throw new SeedValidationError('revisitAt cannot be set on create; save the seed, then set it with PATCH');
+  }
   const proposalId = typeof request.proposalId === 'string' && request.proposalId.trim()
     ? request.proposalId.trim()
     : null;

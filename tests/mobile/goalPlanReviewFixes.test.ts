@@ -117,6 +117,31 @@ test('B-4 concurrent statement accepts with one key create and return one goal',
   }, h);
 });
 
+test('QA v3 V3-F22-04: a goal statement far past what the app can send is refused, at preview and at accept', async () => {
+  const h = await setup({ model: false });
+  await within(async () => {
+    const huge = 'هدف '.repeat(3000).trim();
+    const refused = await call('goals/from-statement/preview', 'POST', {}, { statement: huge, locale: 'ar' });
+    assert.equal(refused.status, 422, JSON.stringify(refused.body).slice(0, 200));
+    assert.equal(refused.body.reason, 'goal_too_long');
+    assert.equal(JSON.stringify(refused.body).includes(huge), false, 'the refusal must not echo the text');
+
+    // The app's longest path: a 2000-character statement, a newline and a
+    // 2000-character answer to the "too vague" question.
+    const longest = `${'أ'.repeat(2000)}\n${'ب'.repeat(2000)}`;
+    const accepted = await call('goals/from-statement/preview', 'POST', {}, { statement: longest, locale: 'ar' });
+    assert.equal(accepted.status, 200, JSON.stringify(accepted.body).slice(0, 200));
+
+    // The accept takes the understood text from the request: it is held to the same bound.
+    const small = await call('goals/from-statement/preview', 'POST', {}, { statement: 'بدي أرجع أركض', locale: 'ar' });
+    const swapped = await call('goals/from-statement/accept', 'POST', {}, {
+      summaryId: small.body.summaryId, revision: small.body.revision, understood: { goalText: huge }, idempotencyKey: key('accept-huge'),
+    });
+    assert.equal(swapped.status, 422, JSON.stringify(swapped.body).slice(0, 200));
+    assert.equal(swapped.body.reason, 'goal_too_long');
+  }, h);
+});
+
 test('S-1 statement acceptance reads a Firestore Timestamp-shaped expiry', async () => {
   const h = await setup({ model: false });
   await within(async () => {
@@ -276,6 +301,34 @@ test('#807 after a failed regenerate, a regenerate with source template supersed
     assert.equal(modelAgain.status, 200, JSON.stringify(modelAgain.body));
     assert.equal(modelAgain.body.plan.source, 'model');
     assert.equal(h.modelCalls.length, calls + 1);
+  }, h);
+});
+
+test('QA v3 V3-F22-02: generate sent again with the same key replays the plan; a new key still answers stale', async () => {
+  const h = await setup();
+  await within(async () => {
+    const idempotencyKey = key('gen-replay');
+    const first = await call('goals/[goalId]/plan/generate', 'POST', { goalId: h.goalId }, { idempotencyKey });
+    assert.equal(first.status, 200, JSON.stringify(first.body));
+    const calls = h.modelCalls.length;
+    // The reply was lost and the phone sends the same request again.
+    const again = await call('goals/[goalId]/plan/generate', 'POST', { goalId: h.goalId }, { idempotencyKey });
+    assert.equal(again.status, 200, JSON.stringify(again.body));
+    assert.equal(again.body.plan.planId, first.body.plan.planId);
+    assert.equal(h.modelCalls.length, calls, 'a replay must not ask the model again');
+    // A different request is still told a draft already exists.
+    const other = await call('goals/[goalId]/plan/generate', 'POST', { goalId: h.goalId }, { idempotencyKey: key('gen-other') });
+    assert.equal(other.status, 409, JSON.stringify(other.body));
+    assert.equal(other.body.reason, 'stale');
+    // A regenerate's key is not a generate's: sending it to generate does
+    // not replay the regenerate as if generate had made it.
+    const regenKey = key('regen-not-gen');
+    const regenerated = await call('goals/[goalId]/plan/regenerate', 'POST', { goalId: h.goalId },
+      { currentPlanId: first.body.plan.planId, revision: first.body.plan.revision, idempotencyKey: regenKey });
+    assert.equal(regenerated.status, 200, JSON.stringify(regenerated.body));
+    const crossed = await call('goals/[goalId]/plan/generate', 'POST', { goalId: h.goalId }, { idempotencyKey: regenKey });
+    assert.equal(crossed.status, 409, JSON.stringify(crossed.body));
+    assert.equal(crossed.body.reason, 'stale');
   }, h);
 });
 

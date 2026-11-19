@@ -412,6 +412,14 @@ export async function generateGoalPlan(uid: string, goalId: string, input: { ide
     await fence(tx, uid);
     const lineage = await requireCurrentGoal(tx, uid, goalId);
     const existing = await tx.get<GenerationClaim>(claimPath(uid, lineage.lineageId));
+    // The same request again (a lost reply, QA v3 V3-F22-02): the plan this
+    // key made is the answer, not a 409. A regenerate's claim names the plan
+    // it replaced, so a generate key can never replay one.
+    if (existing?.state === 'done' && existing.planId && !existing.replacesPlanId
+      && existing.idempotencyKey === input.idempotencyKey) {
+      const made = await tx.get<StoredGoalPlan>(planPath(uid, existing.planId));
+      if (made) return { kind: 'replay' as const, plan: made };
+    }
     if (lineage.activeDraftPlanId) {
       const current = await tx.get<StoredGoalPlan>(planPath(uid, lineage.activeDraftPlanId));
       if (current) return { kind: 'existing' as const, plan: current };
@@ -431,6 +439,7 @@ export async function generateGoalPlan(uid: string, goalId: string, input: { ide
     tx.set<GoalLineage>(linePath(uid, goalId), { ...lineage, updatedAt: nowIso });
     return { kind: 'claimed' as const, claimId, lineage };
   });
+  if (claim.kind === 'replay') return publicPlan(claim.plan);
   if (claim.kind === 'existing') apiError(409, 'stale', { plan: publicPlan(claim.plan) });
   if (claim.kind === 'waiting') {
     const settled = await waitForClaim(uid, claim.lineageId, claim.claimId, storage);
@@ -1302,10 +1311,25 @@ function looksLikeScheduledEvent(text: string): boolean {
   return hasClock || hasDayWord || hasWeekday;
 }
 
+/**
+ * The longest goal statement taken (QA v3, V3-F22-04: 15,000 characters were
+ * kept as the goal). Above the app's longest path — a 2,000-character
+ * statement, a newline and a 2,000-character answer to the vague question —
+ * so nothing the app sends is refused by it.
+ */
+export const GOAL_STATEMENT_MAX_CHARACTERS = 4_100;
+
+function refuseLongStatement(text: string): void {
+  if (Array.from(text).length > GOAL_STATEMENT_MAX_CHARACTERS) {
+    apiError(422, 'goal_too_long', { maxCharacters: GOAL_STATEMENT_MAX_CHARACTERS });
+  }
+}
+
 export async function previewGoalStatement(uid: string, statement: unknown, locale: unknown, storage = getStorage()) {
   const question = vagueGoalQuestion(locale);
   if (typeof statement !== 'string' || !statement.trim()) apiError(422, 'goal_too_vague', { question });
   const text = statement.trim();
+  refuseLongStatement(text);
   if (looksLikeScheduledEvent(text)) {
     apiError(422, 'not_a_goal', { classification: 'event', recovery: 'capture' });
   }
@@ -1327,6 +1351,7 @@ export async function acceptGoalStatement(uid: string, input: { summaryId: strin
   const expiresAt = storedInstantMs(preview?.expiresAt);
   if (!preview || !Number.isFinite(expiresAt) || expiresAt <= Date.now()) apiError(410, 'gone');
   if (preview.revision !== input.revision || !input.understood || typeof input.understood.goalText !== 'string') apiError(409, 'stale');
+  refuseLongStatement(input.understood.goalText.trim());
   const created = await createManualMemoryIdempotent(
     uid,
     { kind: 'goal', content: input.understood.goalText, language: preview.locale },
