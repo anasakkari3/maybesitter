@@ -288,7 +288,7 @@ describe('an imported fact names where it came from', () => {
     ['gemini', 'הבאת את זה מ-Gemini'],
     ['claude', 'הבאת את זה מ-Claude'],
     ['other', 'הבאת את זה מעוזר אחר'],
-  ] as const)('Hebrew: %s', (assistant, expected) => {
+  ] as Array<['chatgpt' | 'gemini' | 'claude' | 'other', string]>)('Hebrew: %s', (assistant, expected) => {
     expect(sourceLabelText(imported(assistant), LOCALES.he!)).toBe(expected);
   });
 

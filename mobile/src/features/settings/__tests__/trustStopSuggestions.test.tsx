@@ -353,7 +353,7 @@ describe('«وقّف مشاركتك» on the trust centre', () => {
     await show();
     await waitFor(() => expect(screen.queryByTestId('trust-revoke-email-autoadd')).not.toBeNull());
     expect(screen.getByTestId('trust-revoke-email-autoadd').props.children).toBe(en.trustRevokeEmailAutoAdd);
-    for (const copy of [ar, en, he] as Array<Record<string, string>>) {
+    for (const copy of [ar, en, he] as unknown as Array<Record<string, string>>) {
       expect(copy.trustRevokeEmailAutoAdd).toBeTruthy();
       // It names the switch it depends on, by the title the screen gives it.
       expect(copy.trustRevokeEmailAutoAdd).toContain(copy.trustCalendar);
