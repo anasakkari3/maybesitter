@@ -23,6 +23,7 @@ jest.mock('../../../api/queries', () => ({
     get error() { return mockImport.error; },
   }),
   useConfirmAiContextImport: () => ({ mutate: jest.fn(), isPending: false, error: null }),
+  useMemory: () => ({ data: undefined }),
 }));
 
 import React from 'react';

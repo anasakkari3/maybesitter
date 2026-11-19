@@ -33,6 +33,7 @@ jest.mock('../../../../modules/universal-link', () => ({
 jest.mock('../../../api/queries', () => ({
   useImportAiContext: () => ({ mutate: jest.fn(), isPending: false, error: null }),
   useConfirmAiContextImport: () => ({ mutate: jest.fn(), isPending: false, error: null }),
+  useMemory: () => ({ data: undefined }),
 }));
 
 const clipboard = setStringAsync as unknown as jest.Mock;

@@ -39,7 +39,11 @@ export function AiImportPasteStep({
   onBack: () => void;
 }) {
   const { t, p } = useApp();
-  const truncated = text.length >= MAX_IMPORT_LENGTH;
+  // The paste keeps one character past the limit, so a cut text and one that
+  // fits exactly are told apart (de7fcb84 audit CXA8.12: `>=` on an already
+  // sliced text warned about a cut that never happened).
+  const truncated = text.length > MAX_IMPORT_LENGTH;
+  const shown = truncated ? text.slice(0, MAX_IMPORT_LENGTH) : text;
 
   return (
     <View style={{ gap: 16 }}>
@@ -50,7 +54,7 @@ export function AiImportPasteStep({
 
       {text !== '' ? (
         <Card pad={16}>
-          <Txt size={14} color={p.mu} lh={1.55} testID="ai-import-paste-preview">{text}</Txt>
+          <Txt size={14} color={p.mu} lh={1.55} testID="ai-import-paste-preview">{shown}</Txt>
         </Card>
       ) : null}
 
