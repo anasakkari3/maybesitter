@@ -670,7 +670,7 @@
   "nextStepEditSave": "Use this",
   "postponeThisEvening": "This evening",
   "nextStepDeferTitle": "Bring it back when?",
-  "nextStepDeferBody": "The suggestion comes back at the time you pick. The item itself keeps its time.",
+  "nextStepDeferBody": "The suggestion comes back at the time you pick. The item itself stays as it is.",
   "evidenceImportanceEstimated": "it looks like a {level}",
   "evidenceFitsFocusTime": "in a time you set aside to focus",
   "todayWhyLead": "Why first: {reasons}",

@@ -461,7 +461,8 @@ function Ready({
       <BottomSheet visible={deferring} onClose={onCloseDefer} testID="next-step-defer-sheet">
         <SheetHeader title={t.nextStepDeferTitle} icon="clock" onClose={onCloseDefer} closeTestID="next-step-defer-close" />
         {/* Its own line (review of #874): the suggestion comes back, the item
-            keeps its time. The postpone sheet's line read as moving the item. */}
+            itself does not change — true with or without a time. The postpone
+            sheet's line read as moving the item. */}
         <Txt size={14} color={p.mu} lh={1.5}>{t.nextStepDeferBody}</Txt>
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
           {/* Only times before the item's own (V3-F11-04), worked out only

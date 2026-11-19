@@ -1199,9 +1199,11 @@ const DEFERRED_KEEP = { gcTime: Infinity, staleTime: Infinity } as const;
 /** Remembers a step put off until `until`, for this account (V3-F11-04). */
 export function recordDeferredNextStep(client: QueryClient, uid: string, commitmentId: string, until: string): void {
   const key = queryKeys.nextStepDeferred(uid);
-  // Before the write: a query built by `setQueryData` takes its gcTime from
-  // the defaults for its key, not from the hook that reads it later.
-  client.setQueryDefaults(key, DEFERRED_KEEP);
+  // Built with its own gcTime before the write: a query `setQueryData` builds
+  // takes the 5-minute default, whatever the hook that reads it later says.
+  // Not `setQueryDefaults`: `clear()` on an account change leaves defaults
+  // behind, one per account (review 2 of #874); the query itself goes.
+  client.getQueryCache().build(client, { queryKey: key, ...DEFERRED_KEEP });
   client.setQueryData<Record<string, string>>(key, (held) => ({ ...held, [commitmentId]: until }));
 }
 
