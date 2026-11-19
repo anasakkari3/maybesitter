@@ -178,6 +178,7 @@ import { POST as hardReceiptsPost } from '../../src/app/api/mobile/reminders/rec
 import { POST as devicesPost } from '../../src/app/api/mobile/devices/route.ts';
 import { DELETE as deviceDelete } from '../../src/app/api/mobile/devices/[installationId]/route.ts';
 import { GET as accountExportGet } from '../../src/app/api/mobile/account/export/route.ts';
+import { POST as accountResumePost } from '../../src/app/api/mobile/account/resume/route.ts';
 import { GET as googleStatusGet } from '../../src/app/api/mobile/integrations/google/route.ts';
 import { POST as googleConnectPost } from '../../src/app/api/mobile/integrations/google/connect/route.ts';
 import { POST as googleCallbackPost } from '../../src/app/api/mobile/integrations/google/callback/route.ts';
@@ -2505,6 +2506,16 @@ test('exports a fixture for every /api/mobile call the React Native client makes
     await record('trust.updated', 200, await trustPost(request('/api/mobile/pilot/trust', {
       body: { action: { type: 'set_analytics_consent', granted: true } },
     })));
+
+    // «رجّع حسابي» (QA v3): an account the old «وقّف» locked (before #873),
+    // on its own uid so no other trust fixture moves. The answer is the trust
+    // shape the revoked screen parses before it lets the app back in.
+    const RESUME_USER = uidFor('ResumeFixtureUser');
+    await applyTrustAction(RESUME_USER, { type: 'revoke', at: new Date(Date.now() - 1000).toISOString() });
+    const resumed = await record('account.resumed', 200, await accountResumePost(
+      request('/api/mobile/account/resume', { uid: RESUME_USER, method: 'POST' }),
+    ));
+    assert.equal((resumed.trust as { revokedAt: unknown }).revokedAt, null, 'the resume fixture is still revoked');
 
     const causeWatcherId = 'wtc_00000000-0000-4000-8000-000000000001';
     const causeEventId = 'evt_0000000000000001';

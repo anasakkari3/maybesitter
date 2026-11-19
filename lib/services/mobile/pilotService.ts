@@ -30,7 +30,7 @@ import {
 } from './nextStepDecisionLog';
 import { completeCommitment, patchCommitment } from './commitmentService';
 import { readRoutineProfile } from './routineProfileService';
-import { appendAudit, appendIncident, applyTrustAction } from '../../pilot/pilotTrustStore';
+import { appendAudit, appendIncident, applyTrustAction, readTrust } from '../../pilot/pilotTrustStore';
 import { getLiveNextStep, getLiveNextStepWithMetadata, prepareLiveNextStepDecision, type LiveContext } from '../nextStepLiveService';
 import {
   findParticipantDecision,
@@ -694,6 +694,53 @@ export async function updateMobilePilotTrust(participantId: string, input: Mobil
     participantId,
     trust,
     exposure,
+    whatKnows: buildWhatMaybeSitterKnows({
+      trust,
+      confirmedCommitmentCount: await confirmedCommitmentCount(participantId),
+    }),
+  };
+}
+
+/**
+ * «رجّع حسابي» — the way back for an account the old «وقّف» locked (QA v3).
+ *
+ * Before #873 the stop card sent `revoke`, which stamped `trust.revokedAt`, and
+ * every route but export and deletion has refused the account since. No mobile
+ * route stamps it any more, so this only ever undoes that old lock.
+ *
+ * The account comes back the way today's «وقّف» leaves one: the next-step and
+ * pattern-learning consents are declined first (a yes given before the lock is
+ * not silently back), then the stamp is cleared with its audit line in one
+ * transaction that requires a live account. A failure before the clear leaves
+ * the account locked and less switched on, never more.
+ *
+ * Deleted is not revoked: a deleted record is refused here, by the transaction
+ * fence, and by `applyPilotTrustAction`. An account that is not revoked is
+ * answered with its current state and nothing is written.
+ */
+export async function resumeRevokedAccount(participantId: string) {
+  requirePilotParticipantId(participantId);
+  const current = await readTrust(participantId);
+  if (!current || current.deletedAt) throw new MobilePilotError('this account was deleted', 403, 'deleted');
+  if (!current.revokedAt) return getMobilePilotTrust(participantId);
+  const at = new Date().toISOString();
+  await stopSuggestionsAndLearning(participantId, at);
+  const trust = await applyTrustAction(participantId, { type: 'resume', at }, {
+    stampAtApply: true,
+    audit: createPilotAuditEvent({
+      version: 'v1',
+      eventType: 'consent_changed',
+      participantId,
+      occurredAt: at,
+      outcome: 'recorded',
+      reasonCode: 'resume_account',
+    }),
+  });
+  return {
+    success: true,
+    participantId,
+    trust,
+    exposure: exposureFor(trust),
     whatKnows: buildWhatMaybeSitterKnows({
       trust,
       confirmedCommitmentCount: await confirmedCommitmentCount(participantId),

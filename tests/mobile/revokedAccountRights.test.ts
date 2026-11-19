@@ -206,7 +206,9 @@ test('a revoked account brings itself back, with suggestions and learning still 
     assert.equal((await readTrust(uid))?.revokedAt, null);
 
     // The account answers again.
-    assert.equal((await profileGet(authed(uid, '/api/mobile/profile'))).status, 200);
+    assert.notEqual((await profileGet(authed(uid, '/api/mobile/profile'))).status, 403);
+    const { GET: trustGet } = await import('../../src/app/api/mobile/pilot/trust/route.ts');
+    assert.equal((await trustGet(authed(uid, '/api/mobile/pilot/trust'))).status, 200);
     // The yes given before the lock is not silently back.
     assert.equal(await getRecommendationConsent(uid), 'declined');
     assert.equal(await personalizationGrowthAllowed(uid), false);

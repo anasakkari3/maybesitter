@@ -49,6 +49,12 @@ export type PilotTrustAction =
   | { type: 'set_calendar_consent'; granted: boolean; at: string }
   | { type: 'set_quiet_mode'; enabled: boolean; at: string }
   | { type: 'revoke'; at: string }
+  /**
+   * «رجّع حسابي» (QA v3): clears a `revokedAt` stamped by the old «وقّف»
+   * (before #873). Never reachable from `POST /api/mobile/pilot/trust`; only
+   * `POST /api/mobile/account/resume` sends it, for the caller's own account.
+   */
+  | { type: 'resume'; at: string }
   | { type: 'delete'; at: string };
 
 export interface PilotExposureDecision {
@@ -175,7 +181,11 @@ export function requirePilotTrustState(value: unknown): PilotTrustState {
 export function applyPilotTrustAction(state: PilotTrustState, action: PilotTrustAction): PilotTrustState {
   requireIsoTime(action.at);
   if (state.deletedAt) throw new Error('deleted pilot state cannot be changed');
-  if (state.revokedAt && action.type !== 'delete') throw new Error('revoked pilot state can only be deleted');
+  if (state.revokedAt && action.type !== 'delete' && action.type !== 'resume') {
+    throw new Error('revoked pilot state can only be deleted or resumed');
+  }
+  // Nothing to bring back: a second resume racing the first changes nothing.
+  if (action.type === 'resume' && !state.revokedAt) return state;
   // Recording a first value that is already recorded changes nothing, so it is
   // not a backdated write — it is a no-op, and the caller asked for a state
   // that already holds.
@@ -216,6 +226,15 @@ export function applyPilotTrustAction(state: PilotTrustState, action: PilotTrust
       return {
         ...state, recommendationConsent: false, analyticsConsent: false, calendarConsent: false,
         quietMode: true, revokedAt: action.at, updatedAt: action.at,
+      };
+    case 'resume':
+      // Back to a working account, with nothing switched on that the person
+      // did not turn on again themselves: the three consents stay off. Quiet
+      // mode goes back off because the old revoke forced it on, and it is what
+      // silences the reminders of the person's own commitments (pushAccess).
+      return {
+        ...state, recommendationConsent: false, analyticsConsent: false, calendarConsent: false,
+        quietMode: false, revokedAt: null, updatedAt: action.at,
       };
     case 'delete':
       return {

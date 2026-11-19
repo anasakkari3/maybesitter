@@ -247,7 +247,10 @@ test('every mobile route file exists and is enumerated', () => {
   // occurrences/{occurrenceId}/undo` («تراجع»): it reopens a decided day of
   // somebody's habit, and removes the make-up date a skip earned, so it must
   // never answer before the guard.
-  assert.equal(files.length, 141, `found:\n${files.join('\n')}`);
+  // QA v3 «رجّع حسابي» (2026-11-20) adds `POST /api/mobile/account/resume`:
+  // it clears a revoked account's lock, so the account it clears must be the
+  // verified token's and nobody else's.
+  assert.equal(files.length, 142, `found:\n${files.join('\n')}`);
 });
 
 test('every mobile route handler runs an authentication guard before anything else', () => {
