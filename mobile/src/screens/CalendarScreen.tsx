@@ -5,7 +5,7 @@ import { RefreshControl, View } from 'react-native';
 import { calendarReadEnabled } from '../config/env';
 import { useBusyBlocks, useDeviceBusy } from '../features/calendar/useBusyCalendar';
 import { useGoogleBusyRead } from '../features/google/useGoogle';
-import { dayBounds, dayWindow, freeMinutes, occupancyOf, type Interval } from '../features/calendar/freeTime';
+import { busyDayKeys, dayBounds, dayWindow, freeMinutes, occupancyOf, type Interval } from '../features/calendar/freeTime';
 import { dayFree, googleCovers, googleWindowIsNormal, knownTime, type DayFree, type FreeSources } from '../features/calendar/freeReadiness';
 import { WIDER_DAYS, probeRange, useDaysFrom, useLocalToday, usePlanSnapshot, useServerBusy } from '../features/calendar/usePlanFreeTime';
 import { FreeList, FreeStateLine, gapLength } from '../features/calendar/FreeTimeRows';
@@ -184,8 +184,7 @@ export function CalendarScreen({ tabClearance = TAB_CLEARANCE }: { tabClearance?
   const busyByDay = useMemo(() => {
     const map = new Map<string, DeviceBusyBlock[]>();
     for (const block of busy) {
-      const key = dayKey(new Date(block.startAt), timezone);
-      map.set(key, [...(map.get(key) ?? []), block]);
+      for (const key of busyDayKeys(block, timezone)) map.set(key, [...(map.get(key) ?? []), block]);
     }
     return map;
   }, [busy, timezone]);
@@ -233,8 +232,8 @@ export function CalendarScreen({ tabClearance = TAB_CLEARANCE }: { tabClearance?
       const same = `${Date.parse(block.startAt)}|${Date.parse(block.endAt)}|${block.allDay}`;
       if (drawn.has(same)) continue;
       drawn.add(same);
-      const key = dayKey(new Date(block.startAt), timezone);
-      map.set(key, [...(map.get(key) ?? []), { nativeId: `server:${block.blockId}`, startAt: block.startAt, endAt: block.endAt, allDay: block.allDay }]);
+      const row = { nativeId: `server:${block.blockId}`, startAt: block.startAt, endAt: block.endAt, allDay: block.allDay };
+      for (const key of busyDayKeys(block, timezone)) map.set(key, [...(map.get(key) ?? []), row]);
     }
     return map;
   }, [free, calendarConnected, busy, serverBusy, timezone]);
