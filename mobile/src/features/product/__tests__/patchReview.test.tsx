@@ -183,6 +183,35 @@ describe('the decision', () => {
     ]);
   });
 
+  it('says the changes were applied after a successful accept, not «no proposal» (CA4.6)', async () => {
+    // The accepted plan comes back with `proposal: null`; the screen used to
+    // fall to «ما في اقتراح تغيير متاح», which reads like a failure.
+    const announce = jest.spyOn(AccessibilityInfo, 'announceForAccessibility').mockImplementation(() => {});
+    mockAct.mockImplementation((_variables, options) => {
+      mockPlan = { ...RECORDED_PLAN, proposal: null };
+      (options as { onSuccess?: () => void }).onSuccess?.();
+    });
+    await show();
+    await fireEvent.press(screen.getByTestId('patch-accept'));
+    const t = language();
+    expect(screen.getByTestId('patch-applied')).toBeTruthy();
+    expect(screen.getByText(t.xPatchApplied)).toBeTruthy();
+    expect(screen.queryByText(t.xNoPatch)).toBeNull();
+    expect(announce).toHaveBeenCalledWith(t.xPatchApplied);
+  });
+
+  it('says the plan was kept after a successful «keep my plan» (CA4.6)', async () => {
+    mockAct.mockImplementation((_variables, options) => {
+      mockPlan = { ...RECORDED_PLAN, proposal: null };
+      (options as { onSuccess?: () => void }).onSuccess?.();
+    });
+    await show();
+    await fireEvent.press(screen.getByTestId('patch-reject'));
+    const t = language();
+    expect(screen.getByText(t.xPatchKeptPlan)).toBeTruthy();
+    expect(screen.queryByText(t.xNoPatch)).toBeNull();
+  });
+
   it('offers nothing to accept when there is no proposal', async () => {
     mockPlan = { ...RECORDED_PLAN, proposal: null };
     await show();
