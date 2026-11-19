@@ -335,6 +335,28 @@ test('QA v3 V3-F14-01: tomorrow\'s plan built this morning holds tomorrow\'s wor
   );
 });
 
+test('QA v3 review of #871: an item put off to 18:00 today is out of tomorrow\'s plan at 06:40 and in it at 19:00', () => {
+  // Its own date is last week; the postponement is what says when it is late.
+  const putOff = commitment({
+    id: 'c_put_off', title: 'Put off', status: 'deferred', postponedUntil: '2026-09-14T15:00:00.000Z',
+    timeSpec: { kind: 'due_by', dueAt: LAST_WEEK, endAt: null, remindAt: null, allDay: false, timezone: TZ },
+  });
+  const ids = (builtAt: string) => buildDailyPlanInput(args({ commitments: [putOff], builtAt })).constraints.items.map((item) => item.itemId);
+  assert.deepEqual(ids('2026-09-14T03:40:00.000Z'), []);
+  assert.deepEqual(ids('2026-09-14T16:00:00.000Z'), ['c_put_off']);
+});
+
+test('QA v3 review of #871: at the very instant an item falls due it is late, and rolls in', () => {
+  const sport = commitment({
+    id: 'c_sport', title: 'Sport',
+    timeSpec: { kind: 'due_by', dueAt: '2026-09-14T15:00:00.000Z', endAt: null, remindAt: null, allDay: false, timezone: TZ },
+  });
+  assert.deepEqual(
+    buildDailyPlanInput(args({ commitments: [sport], builtAt: '2026-09-14T15:00:00.000Z' })).constraints.items.map((item) => item.itemId),
+    ['c_sport'],
+  );
+});
+
 test('a start later today still pins, so the rule reaches only what is behind the horizon', () => {
   const input = buildDailyPlanInput(args({
     commitments: [commitment({

@@ -40,6 +40,7 @@ import {
 import { buildDailyPlanInput, type BusyBlockReader } from '../../lib/services/dailyPlan/buildDailyPlan.ts';
 import { buildAndStoreDailyPlan, readPlanSettings } from '../../lib/services/dailyPlan/dailyPlanService.ts';
 import { readStoredPlan } from '../../lib/services/dailyPlan/planStore.ts';
+import { readCurrentPlan } from '../../lib/services/dailyPlan/planRefresh.ts';
 import { acceptWeekDay, composeWeek, weekToDto, type WeekDto } from '../../lib/services/dailyPlan/weekPlan.ts';
 import {
   answerClarification,
@@ -322,6 +323,46 @@ test('QA v3 V3-F15-02: tomorrow built this evening does not take tonight\'s work
     const twice = Array.from(seen).filter(([, dates]) => dates.length > 1);
     assert.deepEqual(twice, [], 'a commitment is on two days of the week');
   });
+});
+
+test('QA v3 review of #871: tomorrow\'s plan stored this morning takes in tonight\'s work once it is late, when it is read the next morning', async () => {
+  const storage = createMemoryStorage();
+  setStorageForTests(storage);
+  try {
+    // UAT's account plus three Sunday items that are still ahead at 06:40:
+    // a deadline at 18:00, one at 23:30, and an older item put off to 18:00.
+    const extra: Seed[] = [
+      { id: 'sun_18', title: 'أبعت الفاتورة', level: 'normal', dueDay: WEEK[0]!,
+        timeSpec: { kind: 'due_by', dueAt: at(WEEK[0]!, '18:00'), endAt: null, remindAt: null, allDay: false } },
+      { id: 'sun_2330', title: 'أرد على ريم', level: 'normal', dueDay: WEEK[0]!,
+        timeSpec: { kind: 'due_by', dueAt: at(WEEK[0]!, '23:30'), endAt: null, remindAt: null, allDay: false } },
+      { id: 'put_off', title: 'أرتب الأوراق', level: 'normal', dueDay: '2026-09-26',
+        timeSpec: { kind: 'due_by', dueAt: at('2026-09-26', '12:00'), endAt: null, remindAt: null, allDay: false } },
+    ];
+    let state = seededState([...UAT, ...extra]);
+    state = applyDomainCommand(state, { type: 'Postpone', commitmentId: 'put_off', postponedUntil: at(WEEK[0]!, '18:00'), now: at(WEEK[0]!, '06:00') }).newState;
+    await seedLiveAccount(USER, storage);
+    await persistParticipantState(USER, state);
+    const user = await storage.get<Record<string, unknown>>(userDoc(USER));
+    await storage.set(userDoc(USER), { ...(user ?? {}), timezone: TZ, locale: 'ar' });
+
+    // Sunday 06:40: «خطة بكرا». Tonight's work is Sunday's, not Monday's.
+    const { stored } = await buildAndStoreDailyPlan(
+      { uid: USER, date: WEEK[1]!, settings: await readPlanSettings(USER, { storage }) },
+      { storage, now: () => new Date(at(WEEK[0]!, '06:40')), busyBlocks: MONDAY_MEETING, push: async () => undefined },
+    );
+    const built = new Set(stored.constraints.items.map((item) => item.itemId));
+    for (const itemId of ['sun_18', 'sun_2330', 'put_off', 'room']) assert.ok(!built.has(itemId), `${itemId} was on Monday at Sunday 06:40`);
+
+    // Monday 07:00, nothing done: all of it is late now and rolls in (#383).
+    const read = await readCurrentPlan(USER, WEEK[1]!, { storage, now: () => new Date(at(WEEK[1]!, '07:00')), busyBlocks: MONDAY_MEETING });
+    const onMonday = new Set(read!.stored.constraints.items.map((item) => item.itemId));
+    for (const itemId of ['sun_18', 'sun_2330', 'put_off', 'room']) {
+      assert.ok(onMonday.has(itemId), `${itemId}, late since Sunday, is still missing from Monday's plan: ${Array.from(onMonday).join(', ')}`);
+    }
+  } finally {
+    resetStorageForTests();
+  }
 });
 
 /* ── 3. «بدون وقت محدد» keeps the day the question named ────────────── */

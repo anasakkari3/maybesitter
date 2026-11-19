@@ -193,3 +193,26 @@ test('V3-F10-01 through patchCommitment: retitle (unsure, owner decision), clear
   assert.equal(reset.timeSpec.kind, 'scheduled_event', 'the reset meeting came back a deadline');
   assert.equal(reset.timeSpec.itemKind, 'unsure');
 });
+
+test('V3-F10-01 review of #871: one PATCH that retitles an untimed meeting to a task and gives it a time makes a deadline, read from the new title', async () => {
+  const { applyCommand: apply, configureCommandService } = await import('../../lib/services/commandService.ts');
+  const { patchCommitment } = await import('../../lib/services/mobile/commitmentService.ts');
+  configureCommandService({ initialState: createEmptyDomainState(), schedulerStore: null });
+  apply({
+    type: 'CreateDraft',
+    now: '2026-11-01T08:00:00.000Z',
+    commitment: {
+      id: 'cmt_meeting_to_task',
+      kind: 'task',
+      title: 'اجتماع مع فريق العمل',
+      priority: { level: 'normal', source: 'default', pressureAllowed: false, pressureLevel: 'none' },
+      timeSpec: { kind: 'unscheduled', dueAt: null, endAt: null, remindAt: null, allDay: false, timezone: TIMEZONE, itemKind: 'event' },
+    },
+    draftStatus: 'pending_confirmation',
+  } as Command);
+  apply({ type: 'ConfirmCommitment', commitmentId: 'cmt_meeting_to_task', now: '2026-11-01T08:01:00.000Z' } as Command);
+
+  const patched = await patchCommitment('cmt_meeting_to_task', { title: 'أبعت الملخص لسامي', dueDate: MEETING_AT }, CLOCK);
+  assert.equal(patched.timeSpec.itemKind, 'unsure', 'the owner\'s 2026-11-14 decision');
+  assert.equal(patched.timeSpec.kind, 'due_by', 'a task title read as the old meeting');
+});
