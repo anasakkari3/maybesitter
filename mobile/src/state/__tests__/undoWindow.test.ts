@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it, jest } from '@jest/globals';
 import { AppState } from 'react-native';
 import { TOAST_SECONDS } from '../../ui/toast';
-import { UNDO_WINDOW_MS, deferWithUndo, flushPendingCommits, pendingCommitCount } from '../undoWindow';
+import { SIGN_OUT_FLUSH_CAP_MS, UNDO_WINDOW_MS, deferWithUndo, flushPendingCommits, pendingCommitCount } from '../undoWindow';
+import { runBeforeSignOut } from '../../auth/beforeSignOut';
 
 /**
  * The undo window (CA11.2, CX3.1; owner decision 2026-11-19): an action with
@@ -87,5 +88,23 @@ describe('the undo window', () => {
     deferWithUndo(second);
     for (const listener of listeners) listener('background');
     expect(second).toHaveBeenCalledTimes(1);
+  });
+
+  /*
+   * Review 2026-11-19: the before-sign-out task waits for what is held, but a
+   * send that never answers (no signal) must not hold the sign-out for the
+   * client's 15 seconds. It waits at most SIGN_OUT_FLUSH_CAP_MS, then lets go.
+   */
+  it('lets a sign-out go after about three seconds when a held send never answers', async () => {
+    jest.useFakeTimers();
+    deferWithUndo(() => new Promise(() => {}));
+    let done = false;
+    const signingOut = runBeforeSignOut('user').then(() => { done = true; });
+    await jest.advanceTimersByTimeAsync(SIGN_OUT_FLUSH_CAP_MS - 1);
+    expect(done).toBe(false);
+    await jest.advanceTimersByTimeAsync(1);
+    await signingOut;
+    expect(done).toBe(true);
+    expect(SIGN_OUT_FLUSH_CAP_MS).toBe(3_000);
   });
 });
