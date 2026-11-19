@@ -1361,7 +1361,7 @@
   "xIntelligenceSlot": "وقت مقترح: {date} الساعة {time}. إذا وافقت، بنثبّت المهمة بهالوقت.",
   "xIntelligenceNoSlot": "ما لقيت وقت فاضي خلال اليومين الجايين. لساتك بتقدر تراجع الفكرة.",
   "xNoGoals": "لسّا ما حفظت أهداف",
-  "xGoalSaved": "هدف محفوظ",
+  "xGoalSaved": "أهدافك المحفوظة",
   "xAddGoal": "عندك هدف؟ احفظه",
   "xAddGoalBody": "MaybeSitter رح يقترح خطوات تراجعها بنفسك.",
   "xGoalPlaceholder": "شو حابب تحقق؟",
