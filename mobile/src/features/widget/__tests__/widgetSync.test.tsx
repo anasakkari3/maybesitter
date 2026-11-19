@@ -20,6 +20,7 @@ import { resetAuthForTests, setAuthRepository } from '../../../api/auth';
 import { resetBeforeSignOutForTests } from '../../../auth/beforeSignOut';
 import type { AuthUser } from '../../../auth/types';
 import { Root } from '../../../Root';
+import { useApp } from '../../../state/AppContext';
 import en from '../../../i18n/locales/en.json';
 import * as commitmentEndpoints from '../../../api/endpoints/commitments';
 import * as nextStepEndpoints from '../../../api/endpoints/nextStep';
@@ -91,6 +92,12 @@ function SignOutProbe() {
   return <Text testID="probe-sign-out" onPress={() => void auth.signOut()}>out</Text>;
 }
 
+/** A button outside `Root` that changes the app's theme the way Settings does. */
+function ThemeProbe() {
+  const { actions } = useApp();
+  return <Text testID="probe-theme-light" onPress={() => actions.setThemePref('light')}>light</Text>;
+}
+
 beforeEach(async () => {
   calls.length = 0;
   resetWidgetSettingsForTests();
@@ -130,6 +137,7 @@ async function openApp() {
         <AuthProvider repository={repository} isDevBundle={false}>
           <QueryClientProvider client={client}>
             <SignOutProbe />
+            <ThemeProbe />
             <Root />
           </QueryClientProvider>
         </AuthProvider>
@@ -163,6 +171,21 @@ async function openWidgetSettings() {
 }
 
 describe('the widget snapshot in the running app', () => {
+  it("rewrites the snapshot when the person changes the app's theme, without waiting for Today to change", async () => {
+    await openApp();
+    await settled();
+    expect(lastWrite().appearance).toBe('dark');
+
+    const before = writes().length;
+    await fireEvent.press(screen.getByTestId('probe-theme-light'));
+    await waitFor(() => {
+      expect(writes().length).toBeGreaterThan(before);
+      expect(lastWrite().appearance).toBe('light');
+    }, { timeout: 1000 });
+    // Still carries what the widget shows: nothing but the theme moved.
+    expect(lastWrite().items.map((i: { id: string }) => i.id)).toEqual(['c-next', 'c-today']);
+  });
+
   it("carries the app's appearance: navy dark when the person never chose, and what they chose when they did", async () => {
     await openApp();
     await settled();

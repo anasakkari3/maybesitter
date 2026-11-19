@@ -62,6 +62,7 @@ describe('the widget extension', () => {
     const view = readFileSync(join(TARGET, 'WidgetViews.swift'), 'utf8')
       .split('\n')
       .filter((line) => !/^\s*\/\//.test(line))
+      .map((line) => line.replace(/(^|[^:])\/\/.*$/, '$1'))
       .join('\n');
     expect(view).toMatch(/case \.accessoryInline, \.accessoryRectangular, \.accessoryCircular: return \.lockScreen/);
     expect(view).toContain('snapshot.safeItems(on: surface(for: family))');
