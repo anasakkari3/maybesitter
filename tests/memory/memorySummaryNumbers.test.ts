@@ -114,6 +114,9 @@ test('a weekday no cited row names is refused even when a row holds its number',
   assert.equal(one('יש לך הרצאה ביום שני.', 'יש לי 2 הרצאות', 'he'), null);
   assert.equal(one('יש לך הרצאה ביום שלישי.', 'יש לי 3 הרצאות', 'he'), null);
   assert.equal(one('عندك دوام يوم الاثنين.', 'كل أحد وثلاثاء عندي دوام الساعة 2'), null);
+  // A row's bare «تلات/اتنين» names a day only beside a day: «عندي تلات ولاد» names no Tuesday.
+  assert.equal(one('عندك ولاد يوم التلات.', 'عندي تلات ولاد'), null);
+  assert.equal(one('عندك ولاد يوم الاتنين.', 'عندي اتنين ولاد'), null);
   // The day a row names passes; a number a row holds passes outside a day.
   assert.notEqual(one('عندك دوام يوم الثلاثاء.', 'كل أحد وثلاثاء عندي دوام'), null);
   assert.notEqual(one('عندك دوام يوم التلات.', 'كل أحد وثلاثاء عندي دوام'), null);
