@@ -455,3 +455,29 @@ test('pause then resume (PATCH enabled:true or pause {paused:false}) answers act
     end();
   }
 });
+
+/* ── QA v3 V3-F28-03: a connection that is not yours is refused ──── */
+
+test('a watcher naming a connection this account does not have is refused; its own connection is accepted', async () => {
+  begin();
+  try {
+    const { userSubDoc, PROVIDER_CONNECTIONS } = await import('../../lib/storage/paths.ts');
+    await storage.set(userSubDoc(BOB, PROVIDER_CONNECTIONS, 'cnx_bob_whoop'), { connectionId: 'cnx_bob_whoop', state: 'connected' });
+    await storage.set(userSubDoc(ALICE, PROVIDER_CONNECTIONS, 'cnx_alice_whoop'), { connectionId: 'cnx_alice_whoop', state: 'connected' });
+    const readiness = (connectionId: string) => ({
+      source: { provider: 'whoop', connectionId, signalKind: 'readiness', subjectRef: 'self' },
+      condition: { kind: 'digest_changed' },
+      effect: 'notify',
+    });
+    for (const foreign of ['cnx_bob_whoop', 'cnx_made_up']) {
+      const refused = await createWatcher(request('/api/mobile/watchers', { uid: ALICE, body: readiness(foreign) }));
+      assert.equal(refused.status, 400, `${foreign} was accepted`);
+      assert.equal((await refused.json() as { reason: string }).reason, 'unknown_connection');
+    }
+    const listed = await (await listWatchers(request('/api/mobile/watchers', { uid: ALICE }))).json() as { items: unknown[] };
+    assert.deepEqual(listed.items, [], 'a refused watcher was stored');
+    await created(ALICE, readiness('cnx_alice_whoop'));
+  } finally {
+    end();
+  }
+});
