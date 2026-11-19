@@ -295,6 +295,34 @@ test('QA v3 V3-F24-02: a create that names a check-back date is refused, never s
   }
 });
 
+test('QA v3 V3-F24-06: an impossible check-back date is refused, not rolled into the next month', async () => {
+  const teardown = await setup();
+  try {
+    const seed = await keepOneSeed();
+    for (const revisitAt of ['2026-02-30T09:00:00Z', '2026-04-31', '2027-02-29T09:00:00.000Z', '2026-13-01T09:00:00Z']) {
+      const response = await seedPatch(
+        req('PATCH', `/api/mobile/seeds/${seed.seedId}`, { status: 'snoozed', revisitAt }),
+        params(seed.seedId as string),
+      );
+      assert.equal(response.status, 400, `${revisitAt}: ${await response.clone().text()}`);
+    }
+    // A real leap day and an offset that moves the UTC day are still fine.
+    for (const [revisitAt, stored] of [
+      ['2028-02-29T09:00:00Z', '2028-02-29T09:00:00.000Z'],
+      ['2026-03-01T01:00:00+03:00', '2026-02-28T22:00:00.000Z'],
+    ] as const) {
+      const response = await seedPatch(
+        req('PATCH', `/api/mobile/seeds/${seed.seedId}`, { status: 'snoozed', revisitAt }),
+        params(seed.seedId as string),
+      );
+      assert.equal(response.status, 200, `${revisitAt}: ${await response.clone().text()}`);
+      assert.equal(((await json(response)).seed as Record<string, unknown>).revisitAt, stored);
+    }
+  } finally {
+    await teardown();
+  }
+});
+
 test('no patch can mark a seed promoted — a seed cannot promote itself', async () => {
   const teardown = await setup();
   try {
