@@ -181,7 +181,14 @@ function wordsOf(text: string): string[] {
 function numberIsTime(words: readonly string[], at: number): boolean {
   const word = words[at]!;
   if (/^\d{1,2}:\d{2}$/.test(word) || /^\d{1,2}(?:am|pm)$/.test(word)) return true;
-  if (/[/.-]/.test(word)) return numericDate(word);
+  if (/[/.-]/.test(word)) {
+    // «5.5 كيلو», "12.5 kg": one dot is a decimal as often as a date, so it is
+    // a date only at the end or before a time. «5/12», «2026-12-05» and
+    // «5.12.2026» are dates wherever they stand.
+    const next = words[at + 1];
+    const decimalLike = /^\d+\.\d+$/.test(word);
+    return numericDate(word) && (!decimalLike || next === undefined || TIME.has(next) || HALF_OF_DAY.has(next));
+  }
   if (!/^\d+(?:st|nd|rd|th)?$/.test(word)) return false;
   const next = words[at + 1];
   if (next === 'oclock' || (next === 'o' && words[at + 2] === 'clock')) return true;
@@ -189,11 +196,21 @@ function numberIsTime(words: readonly string[], at: number): boolean {
   return next === undefined || HALF_OF_DAY.has(next) || TIME.has(next) || MONTH_AFTER_NUMBER.has(next);
 }
 
+/** A day of the month at `at`, closing the phrase or before a time: the "5" of "May 5". */
+function monthDayAt(words: readonly string[], at: number): boolean {
+  const day = /^(\d{1,2})(?:st|nd|rd|th)?$/.exec(words[at] ?? '');
+  if (!day || Number(day[1]) < 1 || Number(day[1]) > 31) return false;
+  const next = words[at + 1];
+  return next === undefined || TIME.has(next) || HALF_OF_DAY.has(next);
+}
+
 /** Whether a time starts at word `at`. */
 function timeAt(words: readonly string[], at: number): boolean {
   const word = words[at];
   if (word === undefined) return false;
   if (TIME.has(word)) return true;
+  // A month before its day: "by May 5", "May 5th", «قبل آذار 15».
+  if (MONTH_AFTER_NUMBER.has(word)) return monthDayAt(words, at + 1);
   // «עד שני בערב»: a half of the day after it makes it Monday too.
   if (HEBREW_NUMBER_DAYS.has(word)) return HEBREW_DAY_WORD.has(words[at - 1] ?? '') || HALF_OF_DAY.has(words[at + 1] ?? '');
   if (/^\d/.test(word)) return numberIsTime(words, at);

@@ -160,10 +160,10 @@ const DATE_LIMITS = [
 ];
 
 // Round 3: «a.b» is a date only at the end or before a time; a month may come first.
-for (const text of ['by May 5', 'Pay rent by May 5th', 'before 12.03', 'before 12.03 tomorrow', 'قبل 5.12 المسا']) {
+for (const text of ['by May 5', 'Pay rent by May 5th', 'before 12.03', 'before 12.03 tomorrow', 'قبل 5.12 المسا', 'Reply before 5.30 pm', 'Send it by 5/12 please']) {
   test(`date, round 3, a limit: ${text}`, () => assert.equal(namesExplicitDeadline(text), true));
 }
-for (const text of ['قبل 5.5 كيلو', 'قبل 2.5 ساعة', 'before 12.5 kg', 'by May', 'by may 5 people']) {
+for (const text of ['قبل 5.5 كيلو', 'قبل 2.5 ساعة', 'before 12.5 kg', 'by May', 'by may 5 people', 'by May 40']) {
   test(`date, round 3, no limit: ${text}`, () => assert.equal(namesExplicitDeadline(text), false));
 }
 
