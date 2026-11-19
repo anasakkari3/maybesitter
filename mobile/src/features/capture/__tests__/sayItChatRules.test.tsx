@@ -237,8 +237,13 @@ describe('the daily model allowance (CA3.10)', () => {
     expect(captureChatSchema.parse(base).dailyAiLimitReached).toBeUndefined();
   });
 
-  it('is the owner-approved Arabic line', () => {
-    expect(ar.chatAiDailyLimit).toBe('خلصت حصّة اليوم من الفهم الذكي، رح أفهم بطريقة أبسط لبكرا.');
-    expect(he.chatAiDailyLimit.length).toBeGreaterThan(0);
+  // Review 2026-11-19: the same flag covers the person's daily cap and the
+  // service's (cost_cap:global_daily), so the line names no allowance of
+  // theirs — it fits both, and blames nobody.
+  it('is one line that fits both the person’s and the service’s daily limit', () => {
+    expect(ar.chatAiDailyLimit).toBe('الفهم الذكي واقف لليوم، رح أفهم بطريقة أبسط لبكرا.');
+    for (const line of [ar.chatAiDailyLimit, en.chatAiDailyLimit, he.chatAiDailyLimit]) {
+      expect(line).not.toMatch(/حصّة|حصة|quota|allowance|your|מכסה|שלך/i);
+    }
   });
 });
