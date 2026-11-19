@@ -1571,6 +1571,7 @@
   "seedToTask": "Turn into a task",
   "seedToGoal": "Turn into a goal",
   "seedLater": "Later",
+  "seedLaterWhen": "When?",
   "seedResolvedElsewhere": "This one was already settled on another device, so it’s off this list.",
   "seedDismiss": "Dismiss",
   "seedKindConsideration": "Considering",

@@ -47,8 +47,16 @@ export function seedStatusLabel(seed: Seed, strings: Record<string, string>): st
  * this screen is for. A list that grew every dismissal for ever would make the
  * one thing the person is actually still turning over harder to find.
  */
-export function liveSeeds(seeds: readonly Seed[]): Seed[] {
-  return seeds.filter((seed) => seed.status !== 'promoted' && seed.status !== 'dismissed');
+export function liveSeeds(seeds: readonly Seed[], now: Date = new Date()): Seed[] {
+  return seeds.filter((seed) => seed.status !== 'promoted' && seed.status !== 'dismissed'
+    // «بعدين» with a time (CA5.6): away until that time, then back.
+    && !isAwayUntilRevisit(seed, now));
+}
+
+/** Snoozed to a revisit time that has not come yet (CA5.6 / CXA5.3). */
+export function isAwayUntilRevisit(seed: Seed, now: Date): boolean {
+  if (seed.status !== 'snoozed' || seed.revisitAt === null) return false;
+  return Date.parse(seed.revisitAt) > now.getTime();
 }
 
 /** True when this seed has a "bring it back" date the person set themselves. */

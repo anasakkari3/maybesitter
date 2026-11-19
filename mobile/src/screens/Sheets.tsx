@@ -15,7 +15,7 @@ import type { PostponeSlot } from '../api/schemas/m4b';
 import { useFreshM4bCapability, useM4bCapabilities } from '../features/m4b/capabilities';
 import { LiveRegion } from '../ui/liveRegion';
 import { useAnnounceOnIos } from '../ui/announce';
-import { POSTPONE_PRESETS, isPostponable, postponeTo, type PostponePreset } from '../features/commitments/postpone';
+import { POSTPONE_PRESETS, isPostponable, postponePresetLabels, postponeTo, type PostponePreset } from '../features/commitments/postpone';
 import { buildTimePatch } from '../features/commitments/timePatch';
 import { instantForLocalDateTime, localDateTimeFor } from '../features/capture/localInstant';
 import type { CommitmentPatch } from '../api/endpoints/commitments';
@@ -436,13 +436,7 @@ function useSmartPostpone(commitmentId: string | null) {
   };
 }
 
-const PRESET_LABEL = (t: Strings): Record<PostponePreset, string> => ({
-  oneHour: t.postponeOneHour,
-  threeHours: t.postponeThreeHours,
-  thisEvening: t.postponeThisEvening,
-  tomorrowMorning: t.postponeTomorrowMorning,
-  nextWeek: t.postponeNextWeek,
-});
+const PRESET_LABEL = postponePresetLabels;
 
 /**
  * Editing what a commitment is (UC-2.R3, #173).
