@@ -4,7 +4,7 @@ import { PastCommitmentTimeError } from '../mobile/safety';
 import { endOfRange, mapExtractionToCommand } from '../../../src/extraction/mapExtractionToCommand';
 import { recurrenceHintOf } from '../../../src/extraction/extractionService';
 import { withWeeklyBlockOffers } from '../../weeklyBlocks/offer';
-import { extractWithFallback, type ExtractAndMapOptions } from '../../../src/extraction/extractionService';
+import { extractWithFallback, statedRelativeTime, type ExtractAndMapOptions } from '../../../src/extraction/extractionService';
 import type { ExtractionResult } from '../../../src/extraction/extractionTypes';
 import { resolveModuleRuntime, type RuntimeControlSnapshot } from '../../../src/contracts/v1/runtimeControls';
 import {
@@ -494,6 +494,19 @@ async function readFreeTextAnswer(
   // and «بكرا الساعة 10» settled at 15:00 tomorrow. So the sentence is read
   // without its own times of day, its days kept.
   const replacesTime = TIME_FIELDS.has(question.field) && !forbidsResolvedTime(freeText);
+  // «بعد ساعتين» typed to "what time?" (QA v3, V3-F04-04): now plus that
+  // much, on the person's clock — read here, not re-read, so neither the
+  // sentence's own passed hour nor an engine's guess can stand in for it.
+  // On the item's own day only: «أي ساعة يوم الأحد؟» answered «بعد ساعتين»
+  // is not understood, never moved to today.
+  if (question.field === 'time') {
+    const counted = statedRelativeTime(freeText, options.now, options.timezone);
+    if (counted) {
+      const itemDate = result.localTimeSpec?.date ?? null;
+      if (itemDate && itemDate !== counted.date) throw new ClarifyError('answer_not_understood');
+      return notPast(withResolvedTime(result, { date: counted.date, time: counted.time }, options.timezone), options.now);
+    }
+  }
   // «الساعة 4» typed alone: the unlikely morning or a guess (FY1 re-review);
   // not understood, and the صبح/مسا buttons are still there.
   if (TIME_FIELDS.has(question.field) && isBareEarlyHourAnswer(freeText)) throw new ClarifyError('answer_not_understood');

@@ -1,0 +1,246 @@
+{
+  "source": "Review of PR #872, round 5 (2026-11-19): 60 of the reviewer's synthetic sentences (regret, a second subject, done in the same sentence, a past event, a recurrence, a general verb), with how origin/main (17da5091) read them at Thursday 19 November 2026 07:12 Asia/Jerusalem: on the rules, and with a model that answered nothing. Synthetic text only.",
+  "mainCommit": "17da5091",
+  "sentences": {
+    "كان لازم أدفع الفاتورة وما دفعت الشركة": {
+      "rules": "needs_clarification [كان لازم أدفع الفاتورة وما دفعت الشركة|-|-|ask_time]",
+      "modelNothing": "no_commitment:low_confidence []"
+    },
+    "كان لازم أسلم الواجب وما سلمت الدكتورة": {
+      "rules": "needs_clarification [كان لازم أسلم الواجب وما سلمت الدكتورة|-|-|ask_time]",
+      "modelNothing": "no_commitment:low_confidence []"
+    },
+    "كان لازم أرد على الإيميل وما ردت المديرة": {
+      "rules": "needs_clarification [كان لازم أرد على الإيميل وما ردت المديرة|-|-|ask_time]",
+      "modelNothing": "no_commitment:low_confidence []"
+    },
+    "كان لازم أوقع العقد وما وقعت الشركة": {
+      "rules": "needs_clarification [كان لازم أوقع العقد وما وقعت الشركة|-|-|ask_time]",
+      "modelNothing": "no_commitment:low_confidence []"
+    },
+    "كان لازم أتصل بالدكتور وما اتصلت السكرتيرة": {
+      "rules": "needs_clarification [كان لازم أتصل بالدكتور وما اتصلت السكرتيرة|-|-|ask_time]",
+      "modelNothing": "no_commitment:low_confidence []"
+    },
+    "كان لازم أدفع الفاتورة وما دفعتها بالوقت": {
+      "rules": "needs_clarification [كان لازم أدفع الفاتورة وما دفعتها بالوقت|-|-|ask_time]",
+      "modelNothing": "no_commitment:low_confidence []"
+    },
+    "كان لازم أدفع الفاتورة وما دفعتها بس دفعها أخوي عني": {
+      "rules": "needs_clarification [كان لازم أدفع الفاتورة وما دفعتها بس دفعها أخوي عني|-|-|ask_time]",
+      "modelNothing": "no_commitment:low_confidence []"
+    },
+    "كان لازم أسلم الواجب وما سلمته بس سلمته اليوم الصبح": {
+      "rules": "proposed [كان لازم أسلم الواجب وما سلمته بس سلمته|2026-11-19|2026-11-19T07:00:00.000Z|-]",
+      "modelNothing": "no_commitment:low_confidence []"
+    },
+    "كان لازم أبعت الإيميل وما بعتّه بس رديت عالتلفون": {
+      "rules": "needs_clarification [كان لازم أبعت الإيميل وما بعتّه بس رديت عالتلفون|-|-|ask_time]",
+      "modelNothing": "no_commitment:low_confidence []"
+    },
+    "كان لازم أتصل بالدكتور وما اتصلت بس هو اتصل": {
+      "rules": "needs_clarification [كان لازم أتصل بالدكتور وما اتصلت بس هو اتصل|-|-|ask_time]",
+      "modelNothing": "no_commitment:low_confidence []"
+    },
+    "كان لازم أدفع الفاتورة وما دفعت، وبعدين دفعتها الصبح": {
+      "rules": "needs_clarification [كان لازم أدفع الفاتورة وما دفعت|-|-|ask_time ; دفعتها|-|-|ask_time]",
+      "modelNothing": "needs_clarification [كان لازم أدفع الفاتورة وما دفعت|-|-|ask_time]"
+    },
+    "كان لازم أسلم الواجب وما سلمت، بس الدكتور قبله": {
+      "rules": "needs_clarification [كان لازم أسلم الواجب وما سلمت|-|-|ask_time ; بس الدكتور قبله|-|-|ask_time]",
+      "modelNothing": "needs_clarification [كان لازم أسلم الواجب وما سلمت|-|-|ask_time]"
+    },
+    "كان لازم أشتري بيتكوين وما اشتريت": {
+      "rules": "needs_clarification [كان لازم أشتري بيتكوين وما اشتريت|-|-|ask_time]",
+      "modelNothing": "no_commitment:low_confidence []"
+    },
+    "كان لازم أشتري الشقة وما اشتريتها": {
+      "rules": "needs_clarification [كان لازم أشتري الشقة وما اشتريتها|-|-|ask_time]",
+      "modelNothing": "no_commitment:low_confidence []"
+    },
+    "كان لازم أطلب إيدها وما طلبت": {
+      "rules": "needs_clarification [كان لازم أطلب إيدها وما طلبت|-|-|ask_time]",
+      "modelNothing": "no_commitment:low_confidence []"
+    },
+    "كان لازم أكتب كتاب وما كتبت": {
+      "rules": "needs_clarification [كان لازم أكتب كتاب وما كتبت|-|-|ask_time]",
+      "modelNothing": "no_commitment:low_confidence []"
+    },
+    "كان لازم أشتري تذكرة لوتو وما اشتريت": {
+      "rules": "needs_clarification [كان لازم أشتري تذكرة لوتو وما اشتريت|-|-|ask_time]",
+      "modelNothing": "no_commitment:low_confidence []"
+    },
+    "كان لازم أسجل هدف وما سجلت": {
+      "rules": "needs_clarification [كان لازم أسجل هدف وما سجلت|-|-|ask_time]",
+      "modelNothing": "no_commitment:low_confidence []"
+    },
+    "كان لازم أنزل الغسيل قبل المطر وما نزلت": {
+      "rules": "needs_clarification [كان لازم أنزل الغسيل قبل المطر وما نزلت|-|-|ask_time]",
+      "modelNothing": "no_commitment:low_confidence []"
+    },
+    "كان لازم أعمل رياضة وما عملت": {
+      "rules": "needs_clarification [كان لازم أعمل رياضة وما عملت|-|-|ask_time]",
+      "modelNothing": "no_commitment:low_confidence []"
+    },
+    "كنت لازم أدفع الفاتورة بالتقسيط وما دفعت": {
+      "rules": "needs_clarification [كنت لازم أدفع الفاتورة بالتقسيط وما دفعت|-|-|ask_time]",
+      "modelNothing": "no_commitment:low_confidence []"
+    },
+    "كنت لازم أسلم الواجب كل اثنين وما سلمت": {
+      "rules": "needs_clarification [كنت لازم أسلم الواجب كل اثنين وما سلمت|-|-|ask_time]",
+      "modelNothing": "no_commitment:low_confidence []"
+    },
+    "كنت لازم أدفع الفاتورة كل مرة وما دفعت": {
+      "rules": "needs_clarification [كنت لازم أدفع الفاتورة كل مرة وما دفعت|-|-|ask_time]",
+      "modelNothing": "no_commitment:low_confidence []"
+    },
+    "كنت لازم أدفع الفاتورة كل ما أستلمها وما دفعت": {
+      "rules": "needs_clarification [كنت لازم أدفع الفاتورة كل ما أستلمها وما دفعت|-|-|ask_time]",
+      "modelNothing": "no_commitment:low_confidence []"
+    },
+    "كان لازم أعمل مشكلة وما عملت": {
+      "rules": "needs_clarification [كان لازم أعمل مشكلة وما عملت|-|-|ask_time]",
+      "modelNothing": "no_commitment:low_confidence []"
+    },
+    "كان لازم أرجع الزمن وما رجعت": {
+      "rules": "needs_clarification [كان لازم أرجع الزمن وما رجعت|-|-|ask_time]",
+      "modelNothing": "no_commitment:low_confidence []"
+    },
+    "كان لازم أجيب علامة كاملة وما جبت": {
+      "rules": "needs_clarification [كان لازم أجيب علامة كاملة وما جبت|-|-|ask_time]",
+      "modelNothing": "no_commitment:low_confidence []"
+    },
+    "كان لازم أحط هدف وما حطيت": {
+      "rules": "needs_clarification [كان لازم أحط هدف وما حطيت|-|-|ask_time]",
+      "modelNothing": "no_commitment:low_confidence []"
+    },
+    "كان لازم أنظف سمعتي وما نظفت": {
+      "rules": "needs_clarification [كان لازم أنظف سمعتي وما نظفت|-|-|ask_time]",
+      "modelNothing": "no_commitment:low_confidence []"
+    },
+    "كان لازم أنهي العلاقة وما أنهيت": {
+      "rules": "needs_clarification [كان لازم أنهي العلاقة وما أنهيت|-|-|ask_time]",
+      "modelNothing": "no_commitment:low_confidence []"
+    },
+    "كان لازم أقدم اعتذار وما قدمت": {
+      "rules": "needs_clarification [كان لازم أقدم اعتذار وما قدمت|-|-|ask_time]",
+      "modelNothing": "no_commitment:low_confidence []"
+    },
+    "كان لازم أدفع الفاتورة وما دفعتلك": {
+      "rules": "needs_clarification [كان لازم أدفع الفاتورة وما دفعتلك|-|-|ask_time]",
+      "modelNothing": "no_commitment:low_confidence []"
+    },
+    "كان لازم أكلم أمي وما كلمتك": {
+      "rules": "needs_clarification [كان لازم أكلم أمي وما كلمتك|-|-|ask_time]",
+      "modelNothing": "no_commitment:low_confidence []"
+    },
+    "كان لازم أطبع الأوراق وما طبعتش": {
+      "rules": "needs_clarification [كان لازم أطبع الأوراق وما طبعتش|-|-|ask_time]",
+      "modelNothing": "no_commitment:low_confidence []"
+    },
+    "تقول لي كان لازم أدفع الفاتورة وما دفعت": {
+      "rules": "needs_clarification [تقول لي كان لازم أدفع الفاتورة وما دفعت|-|-|ask_time]",
+      "modelNothing": "no_commitment:low_confidence []"
+    },
+    "أيام المدرسة كان لازم أسلم الواجب وما سلمت": {
+      "rules": "needs_clarification [أيام المدرسة كان لازم أسلم الواجب وما سلمت|-|-|ask_time]",
+      "modelNothing": "no_commitment:low_confidence []"
+    },
+    "لو كان لازم أدفع الفاتورة وما دفعت": {
+      "rules": "needs_clarification [لو كان لازم أدفع الفاتورة وما دفعت|-|-|ask_time]",
+      "modelNothing": "no_commitment:low_confidence []"
+    },
+    "أخوي كان لازم أدفع الفاتورة وما دفعت": {
+      "rules": "needs_clarification [أخوي كان لازم أدفع الفاتورة وما دفعت|-|-|ask_time]",
+      "modelNothing": "no_commitment:low_confidence []"
+    },
+    "أنا كان لازم أدفع الفاتورة وهم ما دفعوا": {
+      "rules": "needs_clarification [أنا كان لازم أدفع الفاتورة وهم ما دفعوا|-|-|ask_time]",
+      "modelNothing": "no_commitment:low_confidence []"
+    },
+    "كان لازم أدفع الفاتورة وسارة ما دفعت": {
+      "rules": "needs_clarification [كان لازم أدفع الفاتورة وسارة ما دفعت|-|-|ask_time]",
+      "modelNothing": "no_commitment:low_confidence []"
+    },
+    "كان لازم أدفع الفاتورة ولا مرة دفعت": {
+      "rules": "needs_clarification [كان لازم أدفع الفاتورة ولا مرة دفعت|-|-|ask_time]",
+      "modelNothing": "no_commitment:low_confidence []"
+    },
+    "كان لازم أدفع الفاتورة وما رح أدفع": {
+      "rules": "needs_clarification [كان لازم أدفع الفاتورة وما رح أدفع|-|-|ask_time]",
+      "modelNothing": "no_commitment:low_confidence []"
+    },
+    "كان لازم أدفع الفاتورة وما بقدر": {
+      "rules": "needs_clarification [كان لازم أدفع الفاتورة وما بقدر|-|-|ask_time]",
+      "modelNothing": "no_commitment:low_confidence []"
+    },
+    "I should have bought bitcoin and I didn't": {
+      "rules": "needs_clarification [I should have bought bitcoin and I didn't|-|-|ask_time]",
+      "modelNothing": "no_commitment:low_confidence []"
+    },
+    "I should have written a book and I didn't": {
+      "rules": "needs_clarification [I should have written a book and I didn't|-|-|ask_time]",
+      "modelNothing": "no_commitment:low_confidence []"
+    },
+    "I had to pay the bill and I did not do my part": {
+      "rules": "no_commitment:informational []",
+      "modelNothing": "no_commitment:informational []"
+    },
+    "I should have emailed the boss and I didn't mean to ignore him": {
+      "rules": "needs_clarification [I should have emailed the boss and I didn't mean to ignore him|-|-|ask_time]",
+      "modelNothing": "no_commitment:low_confidence []"
+    },
+    "I was supposed to send the file and I didn't understand how": {
+      "rules": "no_commitment:informational []",
+      "modelNothing": "no_commitment:informational []"
+    },
+    "I was supposed to pay the bill and he didn't": {
+      "rules": "no_commitment:informational []",
+      "modelNothing": "no_commitment:informational []"
+    },
+    "We were supposed to pay the bill and we didn't": {
+      "rules": "no_commitment:informational []",
+      "modelNothing": "no_commitment:informational []"
+    },
+    "I was supposed to book flights and I never booked one before": {
+      "rules": "needs_clarification [I was supposed to book flights and I never booked one before|-|-|ask_time]",
+      "modelNothing": "no_commitment:low_confidence []"
+    },
+    "I wonder if I was supposed to pay the bill and I didn't": {
+      "rules": "no_commitment:informational []",
+      "modelNothing": "no_commitment:informational []"
+    },
+    "Because I was supposed to pay the bill and I didn't, I got a fine": {
+      "rules": "no_commitment:informational []",
+      "modelNothing": "no_commitment:informational []"
+    },
+    "I was supposed to call the bank and they didn't pick up": {
+      "rules": "no_commitment:informational []",
+      "modelNothing": "no_commitment:informational []"
+    },
+    "I had to pay the bill, and I didn't pay it twice": {
+      "rules": "no_commitment:informational []",
+      "modelNothing": "no_commitment:informational []"
+    },
+    "I had to book a hotel and I didn't book a hotel for him": {
+      "rules": "needs_clarification [I had to book a hotel and I didn't book a hotel for him|-|-|ask_time]",
+      "modelNothing": "no_commitment:low_confidence []"
+    },
+    "I should have cleaned the kitchen and I didn't clean the bathroom": {
+      "rules": "needs_clarification [I should have cleaned the kitchen and I didn't clean the bathroom|-|-|ask_time]",
+      "modelNothing": "no_commitment:low_confidence []"
+    },
+    "I had to sign the form and I didn't sign the other one": {
+      "rules": "no_commitment:informational []",
+      "modelNothing": "no_commitment:informational []"
+    },
+    "Why was I supposed to pay the bill and I didn't": {
+      "rules": "no_commitment:question []",
+      "modelNothing": "no_commitment:question []"
+    },
+    "I should have paid the bill and I didn't pay the late fee": {
+      "rules": "needs_clarification [I should have paid the bill and I didn't pay the late fee|-|-|ask_time]",
+      "modelNothing": "no_commitment:low_confidence []"
+    }
+  }
+}
