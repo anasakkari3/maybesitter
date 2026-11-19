@@ -24,6 +24,8 @@ import { postponeTo } from '../../features/commitments/postpone';
 import en from '../../i18n/locales/en.json';
 import { ToastHost } from '../../ui/toast';
 import { flushPendingCommits, pendingCommitCount } from '../../state/undoWindow';
+import { runBeforeSignOut } from '../../auth/beforeSignOut';
+import { AccountChangedError } from '../../api/errors';
 
 import * as commitmentEndpoints from '../../api/endpoints/commitments';
 import * as nextStepEndpoints from '../../api/endpoints/nextStep';
@@ -196,6 +198,38 @@ describe('done', () => {
     expect(pendingCommitCount()).toBe(0);
     await act_(async () => { flushPendingCommits(); });
     expect(act).not.toHaveBeenCalled();
+  });
+});
+
+/*
+ * Review 2026-11-19: «تمّت», then signing out inside the five seconds. The
+ * held completion is sent before the session goes, as the account that
+ * pressed it; and a send that finds another account signed in says nothing
+ * on that account's screen.
+ */
+describe('done, then signing out inside the undo window', () => {
+  it('sends the held completion before the sign-out, as the same account', async () => {
+    const act = jest.spyOn(commitmentEndpoints, 'actOnCommitment')
+      .mockResolvedValue({ data: { success: true, id: ID, commitment: commitment({ status: 'completed' }) }, etag: 'W/"v2"' } as never);
+    await show();
+    await fireEvent.press(screen.getByTestId('details-done'));
+    await waitFor(() => expect(screen.queryByTestId('toast-undo')).not.toBeNull());
+    expect(act).not.toHaveBeenCalled();
+
+    await act_(async () => { await runBeforeSignOut('user'); });
+    expect(act).toHaveBeenCalledTimes(1);
+    expect(act.mock.calls[0]![2]).toMatchObject({ asUid: USER.uid });
+    expect(pendingCommitCount()).toBe(0);
+  });
+
+  it('says nothing when the send finds another account signed in', async () => {
+    jest.spyOn(commitmentEndpoints, 'actOnCommitment').mockRejectedValue(new AccountChangedError('another account') as never);
+    await show();
+    await fireEvent.press(screen.getByTestId('details-done'));
+    await waitFor(() => expect(screen.queryByTestId('toast-text')).not.toBeNull());
+    await act_(async () => { await flushPendingCommits(); });
+    await act_(async () => { await new Promise(resolve => setTimeout(resolve, 0)); });
+    expect(screen.getByTestId('toast-text').props.children).toBe(en.toastDone);
   });
 });
 
