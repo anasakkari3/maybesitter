@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { TextInput, View } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { AccessibilityInfo, Platform, TextInput, View } from 'react-native';
 import { useApp } from '../../state/AppContext';
 import {
   useClearFinancialField,
@@ -182,6 +182,17 @@ export function FinancialContextScreen({ onBack }: { onBack: () => void }) {
   const [draft, setDraft] = useState('');
   const [failed, setFailed] = useState(false);
   /**
+   * A bill that did not save, said under the bill's own button (de7fcb84
+   * audit CXX2.2): the correction card's line sat ~1500 pt below it. A count,
+   * so a second failure in a row is told to VoiceOver again.
+   */
+  const [billFailures, setBillFailures] = useState(0);
+  const [billFailed, setBillFailed] = useState(false);
+  useEffect(() => {
+    if (billFailures > 0 && Platform.OS === 'ios') AccessibilityInfo.announceForAccessibility(t.financialSaveFailed);
+  }, [billFailures, t.financialSaveFailed]);
+  const failBill = () => { setBillFailed(true); setBillFailures(n => n + 1); };
+  /**
    * A figure was refused for want of a currency — by the server, or here
    * before sending. Sticky until a figure saves: picking a currency must not
    * take the picker away while the account still has none on record.
@@ -239,17 +250,17 @@ export function FinancialContextScreen({ onBack }: { onBack: () => void }) {
   };
 
   const saveBill = async () => {
-    setFailed(false);
+    setBillFailed(false);
     const amount = billAmount.trim();
     const currency = billCurrency.trim().toUpperCase();
     const due = billDate.trim();
     if (!billLabel.trim() || !/^\d+(\.\d{1,2})?$/.test(amount) || !/^[A-Z]{3}$/.test(currency) || !/^\d{4}-\d{2}-\d{2}$/.test(due)) {
-      setFailed(true);
+      failBill();
       return;
     }
     const dueAt = new Date(`${due}T12:00:00.000Z`);
     if (Number.isNaN(dueAt.getTime()) || dueAt.toISOString().slice(0, 10) !== due) {
-      setFailed(true);
+      failBill();
       return;
     }
     try {
@@ -268,7 +279,7 @@ export function FinancialContextScreen({ onBack }: { onBack: () => void }) {
     } catch (error) {
       // Said on this screen in its own words: the failure bridge stays quiet.
       markErrorShown(error);
-      setFailed(true);
+      failBill();
     }
   };
 
@@ -301,12 +312,12 @@ export function FinancialContextScreen({ onBack }: { onBack: () => void }) {
         <Card pad={18} style={{ gap: 10 }}>
           <Txt size={15} weight={600}>{t.financialAddBillTitle}</Txt>
           <Txt size={13} color={p.mu} lh={1.5}>{t.financialAddBillBody}</Txt>
-          <TextInput testID="financial-bill-label" value={billLabel} onChangeText={setBillLabel} placeholder={t.financialAddBillLabel} placeholderTextColor={p.mu}
+          <TextInput testID="financial-bill-label" accessibilityLabel={t.financialAddBillLabel} value={billLabel} onChangeText={setBillLabel} placeholder={t.financialAddBillLabel} placeholderTextColor={p.mu}
             style={{ minHeight: 44, borderRadius: 14, borderWidth: 1, borderColor: p.ln, paddingHorizontal: 14, color: p.tx, ...inputAlign }} />
           <View style={{ flexDirection: 'row', gap: 8 }}>
-            <TextInput testID="financial-bill-amount" value={billAmount} onChangeText={setBillAmount} keyboardType="decimal-pad" placeholder={t.financialAddBillAmount} placeholderTextColor={p.mu}
+            <TextInput testID="financial-bill-amount" accessibilityLabel={t.financialAddBillAmount} value={billAmount} onChangeText={setBillAmount} keyboardType="decimal-pad" placeholder={t.financialAddBillAmount} placeholderTextColor={p.mu}
               style={{ flex: 1, minHeight: 44, borderRadius: 14, borderWidth: 1, borderColor: p.ln, paddingHorizontal: 14, color: p.tx, ...inputAlign }} />
-            <TextInput testID="financial-bill-currency" value={billCurrency} onChangeText={setBillCurrencyTyped} autoCapitalize="characters" maxLength={3} placeholder="USD" placeholderTextColor={p.mu}
+            <TextInput testID="financial-bill-currency" accessibilityLabel={t.financialCurrencyTitle} value={billCurrency} onChangeText={setBillCurrencyTyped} autoCapitalize="characters" maxLength={3} placeholder="USD" placeholderTextColor={p.mu}
               style={{ width: 82, minHeight: 44, borderRadius: 14, borderWidth: 1, borderColor: p.ln, paddingHorizontal: 14, color: p.tx, ...inputAlign }} />
           </View>
           <Txt size={14} weight={600}>{t.financialAddBillDate}</Txt>
@@ -317,6 +328,9 @@ export function FinancialContextScreen({ onBack }: { onBack: () => void }) {
             style={{ minHeight: 44, borderRadius: 14, alignItems: 'center', justifyContent: 'center', backgroundColor: p.ac }}>
             <Txt size={15} weight={600} color={p.onAccent}>{t.financialAddBillSave}</Txt>
           </Btn>
+          <LiveRegion testID="financial-bill-failed-live">
+            {billFailed ? <Txt size={13} color={p.wm} testID="financial-bill-failed">{t.financialSaveFailed}</Txt> : null}
+          </LiveRegion>
         </Card>
 
         <Card pad={18} style={{ gap: 12 }}>
@@ -391,6 +405,7 @@ export function FinancialContextScreen({ onBack }: { onBack: () => void }) {
           ) : null}
           <TextInput
             testID="financial-correction-input"
+            accessibilityLabel={t.financialCorrectTitle}
             value={draft}
             onChangeText={setDraft}
             keyboardType="numeric"
