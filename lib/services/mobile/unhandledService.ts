@@ -42,7 +42,7 @@
  * being deleted (#772). Nothing here logs, and nothing calls a model.
  */
 import type { Commitment } from '../../../src/domain/stateMachine';
-import { normalizeStoredCommitment } from '../../../src/domain/stateMachine';
+import { isTimedWindow, normalizeStoredCommitment } from '../../../src/domain/stateMachine';
 import { assertLiveAccount } from '../../account/accountLiveness';
 import { fixtureCommitmentIds } from '../../football/projectFixtures';
 import { getStorage, UNHANDLED_MARKS, userCol, userDoc, userSubDoc, docIdForKey, requireDocId, requireUserId } from '../../storage';
@@ -57,8 +57,18 @@ export const MAX_UNHANDLED_ASKS = 2;
 
 export interface UnhandledAnchor {
   reason: UnhandledReason;
-  /** When it ended, or when the deadline passed. */
+  /**
+   * When it ended, or when the deadline passed. What «لا تسألني عنها» is
+   * dismissed for, so it never changes meaning: for an all-day item it stays
+   * the midnight closing its day.
+   */
   since: string;
+  /**
+   * The instant whose day the phone names («مبارح», «الأحد»). `since`, except
+   * for an all-day item ended at the midnight closing its day: that day's own
+   * start, so yesterday's appointment is not «خلص اليوم» (simulator, 2026-11-19).
+   */
+  shownAt: string;
 }
 
 export interface UnhandledItem extends UnhandledAnchor {
@@ -90,9 +100,21 @@ export class NotUnhandledError extends Error {
 function deadlinePassesAt(commitment: Commitment): string | null {
   const { timeSpec } = commitment;
   if (timeSpec.kind !== 'due_by' || timeSpec.deadline !== 'explicit') return null;
+  // A scheduled work session («تحضير لـ…», placed by a plan) is a time to
+  // work, not a limit: its start passing is the session beginning (simulator,
+  // 2026-11-19). Never a passed deadline, whatever mark it carries.
+  if (timeSpec.windowRule === 'shift' || isTimedWindow(timeSpec)) return null;
   if (commitment.postponedUntil) return commitment.postponedUntil;
   if (!timeSpec.dueAt) return null;
   return timeSpec.allDay ? addLocalDays(timeSpec.dueAt, 1, timeSpec.timezone) : timeSpec.dueAt;
+}
+
+/** `since`, or the start of the all-day item's own day when `since` is the midnight closing it. */
+function shownAtFor(commitment: Commitment, since: string): string {
+  const { timeSpec } = commitment;
+  if (!timeSpec.allDay || !timeSpec.dueAt) return since;
+  const closing = Date.parse(addLocalDays(timeSpec.dueAt, 1, timeSpec.timezone));
+  return closing === Date.parse(since) ? new Date(Date.parse(timeSpec.dueAt)).toISOString() : since;
 }
 
 /** Why `commitment` is in the place at `now`, or null when it is not. Pure. */
@@ -100,13 +122,14 @@ export function unhandledAnchor(commitment: Commitment, now: Date): UnhandledAnc
   if (!OPEN_STATUSES.has(commitment.status)) return null;
   if (hasEventEnded(commitment, now)) {
     const end = eventEndsAt(commitment);
-    return end ? { reason: 'event_ended', since: end } : null;
+    return end ? { reason: 'event_ended', since: end, shownAt: shownAtFor(commitment, end) } : null;
   }
   const passes = deadlinePassesAt(commitment);
   if (passes === null) return null;
   const passesMs = Date.parse(passes);
   if (!Number.isFinite(passesMs) || passesMs > now.getTime()) return null;
-  return { reason: 'deadline_passed', since: new Date(passesMs).toISOString() };
+  const since = new Date(passesMs).toISOString();
+  return { reason: 'deadline_passed', since, shownAt: shownAtFor(commitment, since) };
 }
 
 function markDocId(commitmentId: string): string {

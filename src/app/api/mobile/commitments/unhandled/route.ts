@@ -33,6 +33,7 @@ export async function GET(request: Request) {
     items: items.map((item) => ({
       reason: item.reason,
       since: item.since,
+      shownAt: item.shownAt,
       askCount: item.askCount,
       commitment: commitmentToMobileDto(item.commitment),
     })),

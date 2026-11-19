@@ -207,7 +207,7 @@ test('E2 projection: the most recent first, each saying since when', async () =>
 test('E2 projection: a deadline passes at its instant, not a millisecond later', () => {
   const due = commitment('d', { kind: 'due_by', dueAt: '2026-11-12T13:00:00.000Z', deadline: 'explicit' });
   assert.equal(unhandledAnchor(due, new Date('2026-11-12T12:59:59.999Z')), null);
-  assert.deepEqual(unhandledAnchor(due, NOW), { reason: 'deadline_passed', since: '2026-11-12T13:00:00.000Z' });
+  assert.deepEqual(unhandledAnchor(due, NOW), { reason: 'deadline_passed', since: '2026-11-12T13:00:00.000Z', shownAt: '2026-11-12T13:00:00.000Z' });
 });
 
 test('E2 projection: the status stays what it was — listing changes nothing', async () => {
@@ -233,7 +233,7 @@ test('E2 projection: only a limit the person named is a deadline here (owner dec
   assert.equal(unhandledAnchor(commitment('study', day), NOW), null);
   // «لازم أسلّم التقرير قبل الخميس»: the same day, said as a limit.
   assert.deepEqual(unhandledAnchor(commitment('report', { ...day, deadline: 'explicit' }), NOW), {
-    reason: 'deadline_passed', since: '2026-11-10T22:00:00.000Z',
+    reason: 'deadline_passed', since: '2026-11-10T22:00:00.000Z', shownAt: '2026-11-09T22:00:00.000Z',
   });
   // An old document with no mark, and one whose mark is not a value the read path knows.
   const legacy = commitment('legacy', { kind: 'due_by', dueAt: '2026-11-11T16:00:00.000Z' });
@@ -261,6 +261,10 @@ test('E2 projection: a scheduled work session (windowRule shift) is never a pass
   assert.equal(unhandledAnchor(commitment('prepMarked', { ...running, deadline: 'explicit' }), NOW), null);
   // Over too: a session is not a limit anybody named.
   assert.equal(unhandledAnchor(commitment('prepOver', { ...running, deadline: 'explicit' }), new Date('2026-11-12T18:00:00.000Z')), null);
+  // A session whose end was dropped is still a session; a prep window with no rule is still a window.
+  assert.equal(unhandledAnchor(commitment('noEnd', { ...running, endAt: null, deadline: 'explicit' }), NOW), null);
+  const { windowRule: _rule, ...legacyWindow } = running;
+  assert.equal(unhandledAnchor(commitment('legacyWindow', { ...legacyWindow, deadline: 'explicit' }), NOW), null);
 });
 
 test('E2 projection: an all-day item is shown on its own day, while since stays the midnight closing it', () => {
@@ -283,6 +287,11 @@ test('E2 projection: an all-day item is shown on its own day, while since stays 
   assert.deepEqual(unhandledAnchor(postponed, NOW), {
     reason: 'deadline_passed', since: '2026-11-11T09:00:00.000Z', shownAt: '2026-11-11T09:00:00.000Z',
   });
+  // A timed deadline at midnight, put off a day to midnight again: not all-day, so shown when it passed.
+  const midnight = commitment('m', { kind: 'due_by', dueAt: '2026-11-09T22:00:00.000Z', deadline: 'explicit' }, {
+    status: 'deferred', postponedUntil: '2026-11-10T22:00:00.000Z',
+  });
+  assert.equal(unhandledAnchor(midnight, NOW)?.shownAt, '2026-11-10T22:00:00.000Z');
 });
 
 test('E2 dismiss: a mark written for since before shownAt existed still hides the all-day item', async () => {

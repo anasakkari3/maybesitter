@@ -50,6 +50,8 @@ export const commitmentDeleteResultSchema = z.object({
 export const unhandledItemSchema = z.object({
   reason: z.enum(['event_ended', 'deadline_passed']),
   since: z.string(),
+  /** The instant whose day to name: an all-day item's own day, not the midnight after it. Absent from an older server: read `since`. */
+  shownAt: z.string().optional(),
   askCount: z.number().int().nonnegative(),
   commitment: commitmentSchema,
 });
