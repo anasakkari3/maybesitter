@@ -6,7 +6,7 @@ import { decideExtractionDisposition } from './extractionPolicy';
 import { decideEscalation, type EscalationReason } from './escalationGate';
 import { ARBITRATION_UNAVAILABLE, type ArbiterFunction, type ArbitrationVerdict } from './arbiter';
 import { mapExtractionToCommand } from './mapExtractionToCommand';
-import { asThingToDoToday, isMissedObligation } from './missedObligation';
+import { asThingToDoToday, isMissedObligation, trimEdgeCharacters } from './missedObligation';
 export { isMissedObligation } from './missedObligation';
 import { instantFromLocal, localTimeSpecFor, rangeEndInstant, rangeMinutesFrom, rangeStartTime, readClockRange, readRelativeOffsetMinutes, relativeDayOffset, statesClock, withoutRelativeOffset } from './timeLexicon';
 import { daysUntilWeekday, namesCalendarDate, namesExplicitDate, readRecurrence, readWeekdayMentions, readWeekdayReference, type StatedRecurrence } from './weekdayLexicon';
@@ -84,7 +84,17 @@ export function statedRelativeTime(rawText: string, now: Date, timeZone: string)
  */
 /** Words that name no thing to do: the span's own words, and a reminder or task as such. */
 const NO_THING_WORDS = new RegExp(`${B}(?:بعد|كمان|ساعة|ساعه|ساعتين|ساعات|دقيقة|دقايق|دقائق|تذكير|ذكرني|ذكّرني|مهمة|مهمه|موعد|شي|اشي|إشي|عندي|لازم)${A}|\\b(?:reminder|remind|me|task|todo|to-do|appointment|hours?|minutes?|later|in|after|something|thing)\\b`, 'giu');
-const EDGE_PUNCTUATION = new RegExp('^[\\s:：،,.\\-–—]+|[\\s:：،,.\\-–—]+$', 'gu');
+const LEADING_TO = new RegExp('^to\\s+', 'i');
+
+/**
+ * A title without its span counted from now, its edges («:», «،», "-") and a
+ * leading "to" ("remind me in 2 hours to call mom" → "call mom"). The edges
+ * go by a scan from each side: an edge pattern ending in `+$` was quadratic
+ * on a long run (review round 4: 6.9 s on 100,000 characters).
+ */
+export function spanTitle(text: string): string {
+  return trimEdgeCharacters(withoutRelativeOffset(text)).replace(LEADING_TO, '');
+}
 const NOT_A_LETTER = new RegExp('[^\\p{L}]+', 'gu');
 
 /** At least three letters of something to do, once the span-and-reminder words are gone. */
@@ -99,7 +109,7 @@ function onRelativeTime(result: ExtractionResult, rawText: string, context: Extr
   const tidy = (text: string | null): string | null => {
     if (!text) return text;
     // «بعد ساعتين: اتصل بأمي» leaves no «:» at the title's edge.
-    const without = withoutRelativeOffset(text).replace(EDGE_PUNCTUATION, '');
+    const without = spanTitle(text);
     return without.length >= 3 ? without : text;
   };
   // «بعد ساعتين» alone (review of #872): the span is all the person said, so
@@ -111,7 +121,9 @@ function onRelativeTime(result: ExtractionResult, rawText: string, context: Extr
   const { undatedTime: _undated, ...rest } = result;
   return {
     ...rest,
-    title: nothingToDo ? rawText.trim() : tidy(result.title),
+    // A model title that only restates the span («ساعتين») gives way to the
+    // person's words, when those name a thing to do (review round 4).
+    title: nothingToDo ? rawText.trim() : hasThingToDo(tidy(result.title) ?? '') ? tidy(result.title) : spanTitle(rawText),
     action: nothingToDo ? null : tidy(result.action),
     dueAt: result.dueAt || !result.remindAt ? stated.instant : null,
     remindAt: result.remindAt ? stated.instant : null,
@@ -323,15 +335,10 @@ export async function extractWithFallback(
   if (/תזכיר\s+לי/.test(rawText) && result.type === 'task') {
     result = { ...result, explicitReminderRequest: true };
   }
-  if (missed) {
-    // A model "nothing here" is the defect itself: the rules read the words.
-    if (result.type !== 'task' && result.type !== 'follow_up') {
-      result = ruleBasedExtract(rawText, context);
-      engine = 'rule-based';
-      fallbackReason ??= 'semantic_safety:missed_obligation';
-    }
-    result = asThingToDoToday(result, rawText, context);
-  }
+  // A model "nothing here" for the missed thing is the defect itself: the
+  // reading below makes the to-do from the words whatever the engine said
+  // (review round 4: a separate re-read by the rules came to the same card).
+  if (missed) result = asThingToDoToday(result, rawText, context);
   result = withStatedShape(result, rawText, context);
 
   return {

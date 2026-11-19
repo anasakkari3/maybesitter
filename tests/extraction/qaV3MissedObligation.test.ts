@@ -197,7 +197,6 @@ for (const [text, words] of [
   ['I should have called the bank this morning but I did not', /called the bank|call the bank/i],
   ['كان لازم أبعت الواجب للدكتور وما بعتّه', /^أبعت الواجب للدكتور$/],
   ['كنت لازم أسلّم التقرير مبارح وما سلّمته', /^أسلّم التقرير$/],
-  ['كان بدي أدفع الفاتورة وما دفعت', /^أدفع الفاتورة$/],
   ['I was supposed to call mom and didn\'t', /^call mom$/i],
 ] as const) {
   test(`review #872: «${text}» is still a thing to do today`, async () => {
@@ -228,6 +227,7 @@ for (const text of [
 
 const SENTENCES = JSON.parse(readFileSync(new URL('./fixtures/qaV3MissedSentences.json', import.meta.url), 'utf8')) as {
   negatives: string[]; disputed: string[]; positives: string[]; notRead: string[];
+  narrowedRound4: Record<string, string>; disputedStillRead: string[];
 };
 
 test('round 3: none of the reviewer\'s 337 non-missed sentences is read as a missed thing', () => {
@@ -235,16 +235,18 @@ test('round 3: none of the reviewer\'s 337 non-missed sentences is read as a mis
   assert.deepEqual(read, []);
 });
 
-test('round 3: the reviewer\'s sentences of the defect\'s own shape are still read (49)', () => {
+test('round 3: the reviewer\'s sentences of the defect\'s own shape are still read (39 since round 4)', () => {
   const unread = SENTENCES.positives.filter((text) => !isMissedObligation(text));
   assert.deepEqual(unread, []);
 });
 
-test('round 3: the seven the reviewer called not missed but which have the defect\'s exact shape stay read, pinned for the owner', () => {
-  // «كان المفروض أطلع من الشغل وما طلعت», «كان لازم أعمل واجبي ما عملته»…:
-  // the speaker's own action, left undone. Listed so any change is seen.
-  assert.equal(SENTENCES.disputed.length, 7);
-  assert.ok(SENTENCES.disputed.every((text) => isMissedObligation(text)));
+test('round 4: of the seven disputed in round 3, only «٣٠ دينار … وما دفعت…» — the positives\' own shape — is still read (coordinator: the others are not)', () => {
+  assert.deepEqual(SENTENCES.disputed.filter((text) => isMissedObligation(text)), SENTENCES.disputedStillRead);
+});
+
+test('round 4: the round-3 positives given up by the narrowing are not read, each for its stated reason', () => {
+  assert.equal(Object.keys(SENTENCES.narrowedRound4).length, 10);
+  assert.deepEqual(Object.keys(SENTENCES.narrowedRound4).filter((text) => isMissedObligation(text)), []);
 });
 
 for (const text of [

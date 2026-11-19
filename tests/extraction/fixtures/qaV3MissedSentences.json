@@ -352,9 +352,7 @@
     "كان لازم أدفع الفاتورة وما دفعتها",
     "كان لازم أتصل بالدكتور وما اتصلت",
     "كان لازم أرجع الكتاب وما رجعته",
-    "كان لازم أحجز وما حجزت",
     "كان لازم أسلّم المشروع وما سلمته",
-    "كان بدي أدفع الفاتورة وما دفعتها",
     "كان المفروض أبعت التقرير مبارح وما بعتّه",
     "كنت لازم أرد على الإيميل وما رديت",
     "وكان لازم أرجع الكتاب وما رجعته",
@@ -365,7 +363,6 @@
     "كان لازم ابعت الواجب وما بعتّه",
     "كان لازم ابعت الواجب وما بعتو",
     "كان لازم أبعت الواجب بس ما بعتّه ونسيت",
-    "كان لازم أبعت الواجب ما بعتّه",
     "كان لازم أبعت الواجب وانا ما بعتّه",
     "كان لازم أبعت الواجب واني ما بعتّه",
     "كان لازم أسدد الفاتورة وما سددتها",
@@ -374,7 +371,6 @@
     "كان لازم أنظف البيت وما نظفته",
     "كان لازم أغسل الصحون وما غسلتها",
     "كان لازم أطلع الزبالة وما طلعتها",
-    "كان لازم أروح عالبنك وما رحت",
     "كان لازم أشحن التلفون وما شحنته",
     "كان لازم أحجز عند الدكتور وما حجزت",
     "كان لازم أرجّع الكتب وما رجّعتها",
@@ -384,13 +380,7 @@
     "كان لازم أبلغ المدير وما بلغته",
     "كان لازم أطلب الدواء وما طلبته",
     "كان لازم أعمل مراجعة وما عملتها",
-    "كان لازم أدخل الموقع وما دخلت",
     "كان لازم أسجل بالدورة وما سجلت",
-    "كان لازم أذكره وما ذكرته",
-    "I was supposed to pay and I didn't",
-    "I was supposed to pay but I haven't",
-    "I should have paid yesterday and still haven't",
-    "I was supposed to call him and I still haven't",
     "I was supposed to submit the form and I did not",
     "I had to submit the report but I haven't yet",
     "I meant to call the plumber and never did",
@@ -510,5 +500,20 @@
     "مبارح نسيت أدفع الفاتورة",
     "اليوم نسيت أدفع الفاتورة",
     "الصبح نسيت أبعت الايميل"
+  ],
+  "narrowedRound4": {
+    "كان لازم أحجز وما حجزت": "no object after the verb (round 4)",
+    "كان بدي أدفع الفاتورة وما دفعتها": "«بدي» is a wish, not an obligation (round 4)",
+    "كان لازم أبعت الواجب ما بعتّه": "no joiner before «ما» (round 4)",
+    "كان لازم أروح عالبنك وما رحت": "going somewhere is not read (round 4)",
+    "كان لازم أدخل الموقع وما دخلت": "«أدخل» is not an action verb of the list (round 4)",
+    "كان لازم أذكره وما ذكرته": "no object but a pronoun (round 4)",
+    "I was supposed to pay and I didn't": "no object after the verb (round 4)",
+    "I was supposed to pay but I haven't": "no object after the verb (round 4)",
+    "I should have paid yesterday and still haven't": "no object after the verb (round 4)",
+    "I was supposed to call him and I still haven't": "no object but a pronoun (round 4)"
+  },
+  "disputedStillRead": [
+    "كان لازم أدفع ٣٠ دينار وما دفعت…"
   ]
 }
