@@ -57,6 +57,26 @@ describe('a habit\'s line on the times stage', () => {
     expect(screen.getByTestId('plan-times-alt-step-2-1').props.accessibilityLabel).toContain(en.xPlanFromNextWeek);
   });
 
+  // QA v3 V3-F22-13: «3 times a week، afternoons» and «Mon، Wed، Fri» in English.
+  it('joins the rhythm and the weekdays with the language\'s own comma', async () => {
+    harness = await prepare('en', serverWithHabitInWeek(1));
+    await openGoal(harness);
+    await screen.findByTestId('goal-plan-open');
+    await press('goal-plan-open');
+    const rhythm = String((await screen.findByTestId('plan-step-rhythm-step-2')).props.children);
+    expect(rhythm).not.toContain('،');
+    expect(rhythm).toContain(', ');
+    await press('plan-approve');
+    await waitFor(() => expect(screen.queryByTestId('plan-times-weekly-step-2')).not.toBeNull());
+    expect(lineOf()).not.toContain('،');
+    expect(lineOf()).toMatch(/^Mon, /);
+  });
+
+  it('keeps the Arabic comma in Arabic', async () => {
+    await openTimes('ar', 1);
+    expect(lineOf()).toContain('، ');
+  });
+
   it('says nothing more for a habit that begins this week', async () => {
     await openTimes('en', 1);
     expect(lineOf()).not.toContain(en.xPlanFromNextWeek);
