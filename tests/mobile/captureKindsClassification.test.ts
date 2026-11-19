@@ -83,3 +83,38 @@ test('habit entry keeps recurring training as a commitment', async () => {
     end();
   }
 });
+
+// QA v3, V3-F23-05: «بدي أقرأ 20 دقيقة كل يوم الساعة 10 بالليل» lost both the
+// twenty minutes (only 15/30/45/60 were read, so it asked «قديش بتاخد كل مرة؟»
+// without 20 among the answers) and the hour (only a bare part of the day was
+// read, so «الساعة 10 بالليل» saved «الأوقات المفضّلة: مش محدد»).
+for (const [text, locale] of [
+  ['بدي أقرأ 20 دقيقة كل يوم الساعة 10 بالليل', 'ar'],
+  ['I want to read 20 minutes every day at 10pm', 'en'],
+] as const) {
+  test(`V3-F23-05 a habit said with its minutes and its hour keeps both: ${text}`, async () => {
+    const uid = beginRules();
+    try {
+      const [habit] = habitsOf(await say(uid, text, { entry: 'habit', locale }));
+      assert.ok(habit, 'no habit proposed');
+      assert.equal(habit.durationMinutes, 20, 'the minutes the person said were dropped');
+      assert.equal(habit.question, null, 'it asked how long after being told');
+      assert.equal(habit.confirmable, true);
+      assert.deepEqual(habit.preferredWindow, { start: '22:00', end: '22:20' }, 'the hour the person said was dropped');
+    } finally {
+      end();
+    }
+  });
+}
+
+test('V3-F23-05 an hour without its half of the day is not guessed into a habit window', async () => {
+  const uid = beginRules();
+  try {
+    const [habit] = habitsOf(await say(uid, 'بدي أقرأ 20 دقيقة كل يوم الساعة 10', { entry: 'habit', locale: 'ar' }));
+    assert.ok(habit, 'no habit proposed');
+    assert.equal(habit.durationMinutes, 20);
+    assert.equal(habit.preferredWindow, null, '«الساعة 10» could be morning or night; it must not become one');
+  } finally {
+    end();
+  }
+});

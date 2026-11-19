@@ -761,3 +761,146 @@ test('two devices deciding a row that is not stored yet: the second never overwr
     restore();
   }
 });
+
+/* ── A day that has not come yet (QA v3, V3-F23-03) ──────────────── */
+
+function addDays(localDate: string, days: number): string {
+  const date = new Date(`${localDate}T00:00:00Z`);
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
+test('V3-F23-03 a day that has not come yet cannot be marked done, and stays open', async () => {
+  const restore = setup();
+  try {
+    const habitId = (await createHabit(DAILY)).habit.habitId as string;
+    const nextWeek = `${habitId}.${addDays(todayIn(TZ), 7)}.0`;
+    const services = createHabitServices();
+    assert.equal((await services.occurrences.get(USER, nextWeek))?.state, 'pending', 'the fixture did not store next week');
+
+    const response = await completePost(
+      req('POST', `${occurrencePath(habitId, nextWeek, 'complete')}?timezone=${TZ}`),
+      occurrenceParams(habitId, nextWeek),
+    );
+    assert.equal(response.status, 409, 'a day that has not happened yet was marked done');
+    const body = await json(response);
+    assert.equal(body.success, false);
+    assert.equal(body.occurrence.state, 'pending');
+    assert.equal((await services.occurrences.get(USER, nextWeek))?.state, 'pending');
+
+    // Today, in the same zone, is still a day that can be done.
+    const today = `${habitId}.${todayIn(TZ)}.0`;
+    const done = await completePost(
+      req('POST', `${occurrencePath(habitId, today, 'complete')}?timezone=${TZ}`),
+      occurrenceParams(habitId, today),
+    );
+    assert.equal(done.status, 200);
+  } finally {
+    restore();
+  }
+});
+
+/* ── Taking a decision back (QA v3, V3-F23-02) ───────────────────── */
+
+type RouteHandler = (request: Request, context: ReturnType<typeof occurrenceParams>) => Promise<Response>;
+
+/** Imported per call, so the rest of this file still runs where the route does not exist yet. */
+async function undoPost(request: Request, context: ReturnType<typeof occurrenceParams>): Promise<Response> {
+  const module = await import('../../src/app/api/mobile/habits/[id]/occurrences/[occurrenceId]/undo/route.ts') as { POST: RouteHandler };
+  return module.POST(request, context);
+}
+
+function undoPath(habitId: string, occurrenceId: string): string {
+  return `/api/mobile/habits/${habitId}/occurrences/${occurrenceId}/undo?timezone=${TZ}`;
+}
+
+for (const [first, then, firstRoute, thenRoute] of [
+  ['complete', 'skip', completePost, skipPost],
+  ['skip', 'complete', skipPost, completePost],
+] as const) {
+  test(`V3-F23-02 a mistaken «${first}» can be taken back, and the day answered again with «${then}»`, async () => {
+    const restore = setup();
+    try {
+      const habitId = (await createHabit(DAILY)).habit.habitId as string;
+      const occurrenceId = `${habitId}.${todayIn(TZ)}.0`;
+      const services = createHabitServices();
+      assert.equal((await firstRoute(req('POST', `${occurrencePath(habitId, occurrenceId, first)}?timezone=${TZ}`), occurrenceParams(habitId, occurrenceId))).status, 200);
+
+      const undone = await undoPost(req('POST', undoPath(habitId, occurrenceId)), occurrenceParams(habitId, occurrenceId));
+      assert.equal(undone.status, 200);
+      const body = await json(undone);
+      assert.equal(body.occurrence.state, 'pending');
+      assert.equal(body.changed, true);
+      assert.equal((await services.occurrences.get(USER, occurrenceId))?.state, 'pending');
+
+      // A retried undo is the same answer, not an error.
+      const again = await json(await undoPost(req('POST', undoPath(habitId, occurrenceId)), occurrenceParams(habitId, occurrenceId)));
+      assert.equal(again.changed, false);
+      assert.equal(again.occurrence.state, 'pending');
+
+      const answered = await thenRoute(req('POST', `${occurrencePath(habitId, occurrenceId, then)}?timezone=${TZ}`), occurrenceParams(habitId, occurrenceId));
+      assert.equal(answered.status, 200, 'after an undo the day must take a new answer');
+    } finally {
+      restore();
+    }
+  });
+}
+
+/** A skipped day the domain already gave a make-up date, written as recovery writes it. */
+async function recoveredPair(replacementState: 'pending' | 'completed'): Promise<{ habitId: string; skippedId: string; replacementId: string }> {
+  const habitId = (await createHabit(DAILY)).habit.habitId as string;
+  const today = todayIn(TZ);
+  const skippedId = `${habitId}.${today}.0`;
+  const replacementId = `${habitId}.${addDays(today, 1)}.1`;
+  await createHabitServices().occurrences.putMany(USER, [
+    { occurrenceId: skippedId, habitId, localDate: today, ordinal: 0, state: 'recovered', durationMinutes: 45, recoveredFromOccurrenceId: null },
+    { occurrenceId: replacementId, habitId, localDate: addDays(today, 1), ordinal: 1, state: replacementState, durationMinutes: 45, recoveredFromOccurrenceId: skippedId },
+  ]);
+  return { habitId, skippedId, replacementId };
+}
+
+test('V3-F23-02 undoing a skip that earned a make-up date takes the make-up date back too', async () => {
+  const restore = setup();
+  try {
+    const { habitId, skippedId, replacementId } = await recoveredPair('pending');
+    const response = await undoPost(req('POST', undoPath(habitId, skippedId)), occurrenceParams(habitId, skippedId));
+    assert.equal(response.status, 200);
+    const services = createHabitServices();
+    assert.equal((await services.occurrences.get(USER, skippedId))?.state, 'pending');
+    assert.equal(await services.occurrences.get(USER, replacementId), null, 'the make-up date outlived the skip it made up for');
+  } finally {
+    restore();
+  }
+});
+
+test('V3-F23-02 a skip whose make-up date was already done is not undone under it', async () => {
+  const restore = setup();
+  try {
+    const { habitId, skippedId, replacementId } = await recoveredPair('completed');
+    const response = await undoPost(req('POST', undoPath(habitId, skippedId)), occurrenceParams(habitId, skippedId));
+    assert.equal(response.status, 409);
+    const services = createHabitServices();
+    assert.equal((await services.occurrences.get(USER, skippedId))?.state, 'recovered');
+    assert.equal((await services.occurrences.get(USER, replacementId))?.state, 'completed');
+  } finally {
+    restore();
+  }
+});
+
+test('V3-F23-02 undo is scoped like every other decision: another account or another habit is a 404', async () => {
+  const restore = setup();
+  try {
+    const habitId = (await createHabit(DAILY)).habit.habitId as string;
+    const other = (await createHabit({ ...DAILY, title: 'Second habit' })).habit.habitId as string;
+    const occurrenceId = `${habitId}.${todayIn(TZ)}.0`;
+    await completePost(req('POST', `${occurrencePath(habitId, occurrenceId, 'complete')}?timezone=${TZ}`), occurrenceParams(habitId, occurrenceId));
+
+    assert.equal((await undoPost(req('POST', undoPath(habitId, occurrenceId), undefined, OTHER), occurrenceParams(habitId, occurrenceId))).status, 404);
+    assert.equal((await undoPost(req('POST', undoPath(other, occurrenceId)), occurrenceParams(other, occurrenceId))).status, 404);
+    assert.equal((await undoPost(anonymous('POST', undoPath(habitId, occurrenceId)), occurrenceParams(habitId, occurrenceId))).status, 401);
+    assert.equal((await undoPost(req('POST', undoPath(habitId, 'x')), occurrenceParams(habitId, '../../etc'))).status, 400);
+    assert.equal((await createHabitServices().occurrences.get(USER, occurrenceId))?.state, 'completed');
+  } finally {
+    restore();
+  }
+});
