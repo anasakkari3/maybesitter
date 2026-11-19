@@ -1332,7 +1332,7 @@
   "xProposalDismissed": "تمام، ما انضافت.",
   "xProposalGone": "هالاقتراح ما عاد موجود.",
   "xIntelligenceConfirm": "آه، هيك صح",
-  "xIntelligenceNoIdeas": "لسّا ما في اقتراحات. احكيلي شو عندك أو شو حابب تحقق.",
+  "xIntelligenceNoIdeas": "لسّا ما في اقتراحات. لما تطلع فكرة، بتلاقيها هون.",
   "xIntelligenceSlot": "وقت مقترح: {date} الساعة {time}. إذا وافقت، بنثبّت المهمة بهالوقت.",
   "xIntelligenceNoSlot": "ما لقيت وقت فاضي خلال اليومين الجايين. لساتك بتقدر تراجع الفكرة.",
   "xNoGoals": "لسّا ما حفظت أهداف",

@@ -1335,7 +1335,7 @@
   "xProposalDismissed": "בסדר, לא נוסף.",
   "xProposalGone": "ההצעה הזאת כבר לא זמינה.",
   "xIntelligenceConfirm": "כן, זה נכון",
-  "xIntelligenceNoIdeas": "אין הצעות עדיין. ספרו מה ידוע לכם או מה תרצו להשיג.",
+  "xIntelligenceNoIdeas": "אין הצעות עדיין. כשתעלה הצעה, היא תופיע כאן.",
   "xIntelligenceSlot": "זמן מוצע: {date} בשעה {time}. אישור יקבע את המשימה לזמן הזה.",
   "xIntelligenceNoSlot": "לא נמצא זמן פנוי ביומיים הקרובים. עדיין אפשר לבדוק את הרעיון.",
   "xNoGoals": "עדיין אין יעדים שמורים",

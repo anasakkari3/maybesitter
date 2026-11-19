@@ -1332,7 +1332,7 @@
   "xProposalDismissed": "OK, not added.",
   "xProposalGone": "This suggestion is no longer available.",
   "xIntelligenceConfirm": "Yes, that's right",
-  "xIntelligenceNoIdeas": "No suggestions yet. Add what you know or want to work toward.",
+  "xIntelligenceNoIdeas": "No suggestions yet. When one comes up, you'll find it here.",
   "xIntelligenceSlot": "Suggested time: {date} at {time}. Accept to schedule the task then.",
   "xIntelligenceNoSlot": "No free time found in the next two days. You can still review the idea.",
   "xNoGoals": "No saved goals yet",
