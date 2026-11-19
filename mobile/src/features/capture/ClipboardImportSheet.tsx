@@ -39,7 +39,7 @@ export function ClipboardImportSheet({
   onUse(text: string): void;
   onCancel(): void;
 }) {
-  const { t, p, ar } = useApp();
+  const { t, p } = useApp();
 
   if (result.kind === 'empty') {
     return (
@@ -65,7 +65,7 @@ export function ClipboardImportSheet({
         style={{ maxHeight: 260, backgroundColor: p.sf, borderWidth: 1, borderColor: p.ln, borderRadius: 24 }}
         contentContainerStyle={{ padding: 18 }}
       >
-        <Txt size={17} lh={1.5} style={{ writingDirection: ar ? 'rtl' : 'ltr' }}>{result.text}</Txt>
+        <Txt size={17} lh={1.5} dir="auto">{result.text}</Txt>
       </ScrollView>
 
       {/* Whole, never cut (CA3.6): said here, before the person uses it, so
