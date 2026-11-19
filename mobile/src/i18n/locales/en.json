@@ -1675,6 +1675,7 @@
   "aiImportSaving": "Saving",
   "aiImportSaved": "Saved",
   "aiImportFailed": "That didn't save. Nothing changed.",
+  "aiImportExpired": "This review was open too long to save from. If what you wanted isn’t in “What it knows about you”, paste the answer again.",
   "aiImportRateLimited": "You've brought context over a few times today. Try again tomorrow.",
   "aiImportPromptTemplate": "Write a structured profile of what you reliably know about me: my goals, my routines, my recurring commitments, my work or study, my current projects, my preferences, my constraints, and the people my responsibilities involve. Leave out one-off events, anything you are unsure about, and anything about my health, faith, politics or money. Write it as short plain sentences, one per line.",
   "obSetupAnythingElse": "Anything else we should know?",
