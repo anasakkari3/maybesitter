@@ -6,8 +6,6 @@ import { decideExtractionDisposition } from './extractionPolicy';
 import { decideEscalation, type EscalationReason } from './escalationGate';
 import { ARBITRATION_UNAVAILABLE, type ArbiterFunction, type ArbitrationVerdict } from './arbiter';
 import { mapExtractionToCommand } from './mapExtractionToCommand';
-import { asThingToDoToday, isMissedObligation, trimEdgeCharacters } from './missedObligation';
-export { isMissedObligation } from './missedObligation';
 import { instantFromLocal, localTimeSpecFor, rangeEndInstant, rangeMinutesFrom, rangeStartTime, readClockRange, readRelativeOffsetMinutes, relativeDayOffset, statesClock, withoutRelativeOffset } from './timeLexicon';
 import { daysUntilWeekday, namesCalendarDate, namesExplicitDate, readRecurrence, readWeekdayMentions, readWeekdayReference, type StatedRecurrence } from './weekdayLexicon';
 import type { Command } from '../domain/stateMachine';
@@ -85,6 +83,16 @@ export function statedRelativeTime(rawText: string, now: Date, timeZone: string)
 /** Words that name no thing to do: the span's own words, and a reminder or task as such. */
 const NO_THING_WORDS = new RegExp(`${B}(?:بعد|كمان|ساعة|ساعه|ساعتين|ساعات|دقيقة|دقايق|دقائق|تذكير|ذكرني|ذكّرني|مهمة|مهمه|موعد|شي|اشي|إشي|عندي|لازم)${A}|\\b(?:reminder|remind|me|task|todo|to-do|appointment|hours?|minutes?|later|in|after|something|thing)\\b`, 'giu');
 const LEADING_TO = new RegExp('^to\\s+', 'i');
+const TITLE_EDGE = new Set([' ', '\t', '\n', ',', '،', '.', ':', '：', ';', '-', '–', '—']);
+
+/** The text without the given characters at either edge, scanned once from each side (linear on any run). */
+export function trimEdgeCharacters(text: string, edge: ReadonlySet<string> = TITLE_EDGE): string {
+  let start = 0;
+  let end = text.length;
+  while (start < end && edge.has(text[start]!)) start += 1;
+  while (end > start && edge.has(text[end - 1]!)) end -= 1;
+  return text.slice(start, end);
+}
 
 /**
  * A title without its span counted from now, its edges («:», «،», "-") and a
@@ -313,9 +321,7 @@ export async function extractWithFallback(
   const past = /\b(yesterday|last night|last week|earlier)\b|مبارح|أمس|امبارح|אתמול|בשבוע שעבר/i.test(rawText)
     || isPastNarration(rawText);
   const request = /\b(remind|add|create|schedule|please|need to|must|tomorrow)\b|ذكرني|ضيف|أضف|لازم|بكرا|תזכיר|תוסיף|צריך|מחר/i.test(rawText);
-  // A thing that was to be done and was not is still to do (V3-F04-03).
-  const missed = isMissedObligation(rawText);
-  if (past && !request && !missed) {
+  if (past && !request) {
     return { result: safeNegativeResult(rawText, 'informational_context'), engine: 'rule-based', fallbackReason: 'semantic_safety:past_no_action' };
   }
   let result: ExtractionResult;
@@ -335,10 +341,6 @@ export async function extractWithFallback(
   if (/תזכיר\s+לי/.test(rawText) && result.type === 'task') {
     result = { ...result, explicitReminderRequest: true };
   }
-  // A model "nothing here" for the missed thing is the defect itself: the
-  // reading below makes the to-do from the words whatever the engine said
-  // (review round 4: a separate re-read by the rules came to the same card).
-  if (missed) result = asThingToDoToday(result, rawText, context);
   result = withStatedShape(result, rawText, context);
 
   return {

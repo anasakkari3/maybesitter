@@ -46,7 +46,6 @@ import {
 import { namesCalendarDate, readRecurrence, resolveWeekdayDates } from '../../../src/extraction/weekdayLexicon';
 import { isNegatedRequest } from '../mobile/safety';
 import { statedRelativeTime } from '../../../src/extraction/extractionService';
-import { isMissedObligation } from '../../../src/extraction/missedObligation';
 
 /** A clause that refuses a reminder, by either of the two checks the capture path makes. */
 function refuses(text: string): boolean {
@@ -536,8 +535,6 @@ export function chatTimeAllowance(turns: readonly string[], now: Date, timezone:
       allowance.minutes.add(Number(counted.time.slice(3, 5)));
       allowance.dates.add(counted.date);
     }
-    // A thing that was to be done and was not (V3-F04-03) is to do today.
-    if (today && isMissedObligation(turn)) allowance.dates.add(today);
   }
   return allowance;
 }

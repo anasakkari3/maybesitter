@@ -2,11 +2,10 @@
  * QA v3 (2026-11-19), text capture: reading days and times (V3-F04-03, -04,
  * -06, -07, -08).
  *
- *   F04-03  a thing the person was supposed to do and did not («مبارح الساعة 9
- *           الصبح كان لازم أبعت الواجب للدكتور وما بعتته») is captured as a
- *           thing to do today (owner decision 2026-11-19: "to-do now"), its
- *           hour asked; nothing "late" or "missed". Something that only
- *           happened («امبارح كان عندي اجتماع») still makes nothing.
+ *   F04-03  a thing the person was supposed to do and did not is to be
+ *           captured as a thing to do today (owner decision 2026-11-19), but
+ *           since review round 5 only the capture-chat prompt asks for it:
+ *           no deterministic reading is held here (qaV3NoMissedReading).
  *   F04-04  «بعد ساعة», «بعد ساعتين», «بعد نص ساعة», «بعد ربع ساعة», «بعد 3
  *           ساعات» (Arabic and Latin digits), "in 2 hours", «בעוד שעתיים» are
  *           now plus that much, on both engines (a model's 12-hour slip is
@@ -30,7 +29,6 @@ import { TransactionalCapturePersistenceAdapter } from '../../lib/services/captu
 import { guardedMobileExtract } from '../../lib/services/mobile/safety.ts';
 import { validateExtractionResult } from '../../src/extraction/schemaValidator.ts';
 import { instantFromLocal, localTimeSpecFor, readRelativeOffsetMinutes } from '../../src/extraction/timeLexicon.ts';
-import { isMissedObligation } from '../../src/extraction/extractionService.ts';
 import { splitCaptureClauseDetails, splitCaptureClauses } from '../../src/extraction/clauseSplitter.ts';
 import { withoutUnsaidTime } from '../../lib/services/captureBoundary/chatEvidence.ts';
 import { buildChatPrompt } from '../../lib/services/captureChat/chatPrompt.ts';
@@ -482,4 +480,7 @@ test('round 4: the chat prompt says what is not a missed thing — a feeling, an
   const prompt = buildChatPrompt([{ role: 'user', text: 'كان لازم أصبر وما صبرت' }], [], { now: NOW, timezone: TZ });
   assert.match(prompt, /كان لازم أصبر وما صبرت/);
   assert.match(prompt, /كان لازم أحضر الحفلة مبارح/);
+  // Review round 5: a regret about a gone chance, and a thing done after all.
+  assert.match(prompt, /كان لازم أشتري بيتكوين وما اشتريت/);
+  assert.match(prompt, /كان لازم أدفع بس دفعها أخوي/);
 });

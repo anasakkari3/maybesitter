@@ -341,72 +341,60 @@ test('E: a long chat never hands a regex more than the cap — the person’s tu
   }
 });
 
-// ── F. The QA v3 time readers stay linear (review of #872) ───────
+// ── F. The QA v3 relative-span reader stays linear (review of #872) ───────
 
-test('F: the missed-thing and relative-span readers read at most the cap, in a bounded number of regex runs, on hostile text', async () => {
+test('F: the relative-span reader reads at most the cap, in a bounded number of regex runs, on hostile text', async () => {
   /*
-   * Two readers added in QA v3 run on every capture clause and every chat
-   * turn: `isMissedObligation` (V3-F04-03) and `readRelativeOffsetMinutes`
-   * (V3-F04-04). Each is built from fixed words joined by `\s+`, with no
-   * nested quantifier; held here so a later edit cannot quietly make either
-   * scan beyond the cap, or run its patterns once per character. Clock-free,
-   * like the rest of this file: subjects and run counts, not milliseconds.
+   * A reader added in QA v3 runs on every capture clause and every chat
+   * turn: `readRelativeOffsetMinutes` (V3-F04-04). It is built from fixed
+   * words joined by `\s+`, with no nested quantifier; held here so a later
+   * edit cannot quietly make it scan beyond the cap, or run its patterns
+   * once per character. Clock-free, like the rest of this file: subjects and
+   * run counts, not milliseconds. (The missed-thing reader that sat beside it
+   * was removed in review round 5.)
    */
-  const { isMissedObligation } = await import('../../src/extraction/extractionService.ts');
   const { readRelativeOffsetMinutes } = await import('../../src/extraction/timeLexicon.ts');
   const fill = (unit: string) => unit.repeat(Math.ceil(CAPTURE_INPUT_MAX_CHARACTERS / unit.length)).slice(0, CAPTURE_INPUT_MAX_CHARACTERS);
   const hostile = [
     fill(' '),
-    fill('كان لازم أ'),
-    `كان لازم أبعت${' '.repeat(CAPTURE_INPUT_MAX_CHARACTERS - 30)}وما بعتته`,
-    fill('نسيت ا'),
     fill('ما ما ما '),
     fill('بعد ساعة '),
     fill('بعد '),
     `بعد${' '.repeat(CAPTURE_INPUT_MAX_CHARACTERS - 10)}ساعتين`,
-    fill('I was supposed to x and '),
     fill('in an hour '),
+    fill('in '),
     fill('، '),
-    // Hebrew (review round 3): the Hebrew branch with its unbounded gap is
-    // gone; held here so a Hebrew reader added again stays linear.
-    fill('הייתי צריך ל'),
-    `הייתי צריך להתקשר${' '.repeat(CAPTURE_INPUT_MAX_CHARACTERS - 30)}ולא`,
-    fill('שכחתי ל'),
-    // The narrow pattern's own words, repeated.
-    fill('كان لازم أبعت وما '),
+    fill('בעוד '),
+    `בעוד${' '.repeat(CAPTURE_INPUT_MAX_CHARACTERS - 10)}שעתיים`,
   ];
   for (const text of hostile) {
     assert.ok(text.length <= CAPTURE_INPUT_MAX_CHARACTERS);
     const { seen } = await withRecorder(async () => {
-      isMissedObligation(text);
       readRelativeOffsetMinutes(text);
     });
     assert.ok(seen.longestSubject <= CAPTURE_INPUT_MAX_CHARACTERS, `a reader scanned ${seen.longestSubject} characters`);
-    // One pass per clause at most: a clause-per-character split of the cap
-    // is 2,000 clauses, each read by a fixed handful of patterns.
     assert.ok(seen.operations <= 40_000, `${seen.operations} regex runs on ${JSON.stringify(text.slice(0, 20))}…`);
   }
 });
 
-// ── G. The QA v3 title clean-ups stay linear on 100,000 characters (review round 4) ──
+// ── G. The QA v3 span title stays linear on 100,000 characters (review round 4) ──
 
-test('G: the missed-thing title and the span title clean 100,000 hostile characters in well under a second', async () => {
+test('G: the span title cleans 100,000 hostile characters in well under a second', async () => {
   /*
    * The one place in this file that reads a clock, and only as a coarse
-   * ceiling: these two clean a title, which the cap already bounds to 2,000
-   * characters, but the review held them to linear time on 100,000 — a
-   * quadratic tail or edge trim took 7 to 15 seconds there. A second is far
-   * above linear and far below quadratic, so load cannot flip it.
+   * ceiling: the span title is bounded by the cap to 2,000 characters, but
+   * the review held it to linear time on 100,000 — an edge trim ending in
+   * `+$` took 6.9 seconds there. A second is far above linear and far below
+   * quadratic, so load cannot flip it.
    */
-  const missed = await import('../../src/extraction/missedObligation.ts') as Record<string, unknown>;
   const service = await import('../../src/extraction/extractionService.ts') as Record<string, unknown>;
-  const missedThingTitle = missed.missedThingTitle as ((text: string) => unknown) | undefined;
   const spanTitle = service.spanTitle as ((text: string) => unknown) | undefined;
-  assert.equal(typeof missedThingTitle, 'function', 'missedThingTitle is exported for this bound');
+  const trimEdgeCharacters = service.trimEdgeCharacters as ((text: string) => unknown) | undefined;
   assert.equal(typeof spanTitle, 'function', 'spanTitle is exported for this bound');
+  assert.equal(typeof trimEdgeCharacters, 'function', 'trimEdgeCharacters is exported for this bound');
   const big = (unit: string) => unit.repeat(Math.ceil(100_000 / unit.length)).slice(0, 100_000);
-  for (const text of [big(' '), big(' ،'), big(', '), big(' .'), big(' :'), `x${big(' ')}x`, big(' وما'), big(' and')]) {
-    for (const clean of [missedThingTitle!, spanTitle!]) {
+  for (const text of [big(' '), big(' ،'), big(', '), big(' .'), big(' :'), `x${big(' ')}x`, big(' بعد'), big(' in')]) {
+    for (const clean of [spanTitle!, trimEdgeCharacters!]) {
       const started = performance.now();
       clean(text);
       const took = performance.now() - started;
