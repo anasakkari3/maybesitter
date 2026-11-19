@@ -323,6 +323,47 @@ test('QA v3 V3-F24-06: an impossible check-back date is refused, not rolled into
   }
 });
 
+/**
+ * QA v3 follow-up of #879: the real-day check read only `YYYY-MM-DD` at the
+ * start, so any other shape `Date.parse` takes went around it and «Feb 30»
+ * became 2 March again. Only ISO is taken — a day, or a day and time with its
+ * offset — which is all the app sends (`toISOString`).
+ */
+test('QA v3: a check-back date in any shape but ISO is refused, whatever day it names', async () => {
+  const teardown = await setup();
+  try {
+    const seed = await keepOneSeed();
+    for (const revisitAt of [
+      '2026/02/30', 'Feb 30 2026', '2026-2-30', '+002026-02-30',
+      // The same shapes naming a real day are refused too: the shape is the rule.
+      '2026/03/01', 'Mar 1 2026', '2026-3-1', '+002026-03-01T09:00:00Z',
+      // A time without its offset means the server's own zone.
+      '2026-03-01T09:00:00', '2026-03-01 09:00:00Z', ' 2026-03-01T09:00:00Z', '2026-03-01t09:00:00z',
+    ]) {
+      const response = await seedPatch(
+        req('PATCH', `/api/mobile/seeds/${seed.seedId}`, { status: 'snoozed', revisitAt }),
+        params(seed.seedId as string),
+      );
+      assert.equal(response.status, 400, `${JSON.stringify(revisitAt)}: ${await response.clone().text()}`);
+    }
+    for (const [revisitAt, stored] of [
+      ['2026-11-25', '2026-11-25T00:00:00.000Z'],
+      ['2026-11-25T09:00Z', '2026-11-25T09:00:00.000Z'],
+      ['2026-11-25T09:00:00.000Z', '2026-11-25T09:00:00.000Z'],
+      ['2026-11-25T11:30:00-08:00', '2026-11-25T19:30:00.000Z'],
+    ] as const) {
+      const response = await seedPatch(
+        req('PATCH', `/api/mobile/seeds/${seed.seedId}`, { status: 'snoozed', revisitAt }),
+        params(seed.seedId as string),
+      );
+      assert.equal(response.status, 200, `${revisitAt}: ${await response.clone().text()}`);
+      assert.equal(((await json(response)).seed as Record<string, unknown>).revisitAt, stored);
+    }
+  } finally {
+    await teardown();
+  }
+});
+
 test('no patch can mark a seed promoted — a seed cannot promote itself', async () => {
   const teardown = await setup();
   try {
