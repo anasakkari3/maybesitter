@@ -915,3 +915,27 @@ test('V3-F23-02 undo is scoped like every other decision: another account or ano
     restore();
   }
 });
+
+test('V3-F23-02 a failed undo logs the error\'s name only, never the error or its message', async () => {
+  const { respondToOccurrenceUndo } = await import('../../lib/services/habits/occurrenceOutcome.ts');
+  const real = createHabitServices();
+  const failing = { habits: real.habits, occurrences: Object.create(real.occurrences) };
+  failing.occurrences.reopen = async () => { throw new Error('user content: «بدي أمشي»'); };
+  const logged: unknown[][] = [];
+  const original = console.error;
+  console.error = (...args: unknown[]) => { logged.push(args); };
+  try {
+    const habitId = '99999999-9999-4999-8999-999999999999';
+    const response = await respondToOccurrenceUndo(USER, { id: habitId, occurrenceId: `${habitId}.2026-03-02.0` }, { services: failing as any });
+    assert.equal(response.status, 500);
+  } finally {
+    console.error = original;
+  }
+  assert.ok(logged.length > 0, 'nothing was logged');
+  for (const args of logged) {
+    for (const arg of args) {
+      assert.ok(!(arg instanceof Error), 'the error object itself was logged');
+      assert.ok(!String(arg).includes('user content'), 'the error message was logged');
+    }
+  }
+});

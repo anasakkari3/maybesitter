@@ -136,3 +136,32 @@ test('V3-F23-05 an hour said before its minutes keeps a window as long as the mi
     end();
   }
 });
+
+// QA v3 F23-05 review: the minutes and the window have bounds, and each is pinned.
+for (const [text, why] of [
+  ['بدي أقرأ 2 دقيقة كل يوم', 'below the 5 minutes an edit accepts'],
+  ['بدي أقرأ 500 دقيقة كل يوم', 'above the 240 minutes an edit accepts'],
+] as const) {
+  test(`V3-F23-05 minutes ${why} are not read, and the duration is asked: ${text}`, async () => {
+    const uid = beginRules();
+    try {
+      const [habit] = habitsOf(await say(uid, text, { entry: 'habit', locale: 'ar' }));
+      assert.ok(habit, 'no habit proposed');
+      assert.equal(habit.durationMinutes, null);
+      assert.equal(habit.question?.field, 'duration');
+    } finally {
+      end();
+    }
+  });
+}
+
+test('V3-F23-05 a window near midnight ends at 23:59, never on a clock face past it', async () => {
+  const uid = beginRules();
+  try {
+    const [habit] = habitsOf(await say(uid, 'بدي أقرأ 20 دقيقة كل يوم الساعة 11:50 بالليل', { entry: 'habit', locale: 'ar' }));
+    assert.ok(habit, 'no habit proposed');
+    assert.deepEqual(habit.preferredWindow, { start: '23:50', end: '23:59' });
+  } finally {
+    end();
+  }
+});
