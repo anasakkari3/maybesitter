@@ -92,7 +92,7 @@ describe('CX2.1: a toast is told to VoiceOver', () => {
 describe('CX2.3: a failed load and going offline are said', () => {
   it('announces the load failure and marks it as an alert', async () => {
     const announce = spyAnnounce();
-    await render(<AppProvider><QueryBoundary isPending={false} error={new NetworkError()} onRetry={() => undefined}><></></QueryBoundary></AppProvider>);
+    await render(<AppProvider><QueryBoundary isPending={false} error={new NetworkError('offline')} onRetry={() => undefined}><></></QueryBoundary></AppProvider>);
     const box = screen.getByTestId('query-error');
     expect(box.props.accessibilityRole).toBe('alert');
     expect(announce).toHaveBeenCalledTimes(1);
@@ -111,14 +111,14 @@ describe('CX2.3: a failed load and going offline are said', () => {
 });
 
 describe('CX2.5: the widget preview says importance in a word', () => {
-  it.each([
+  it.each<['must' | 'should' | 'nice', string]>([
     ['must', en.todayGroupMust],
     ['should', en.todayGroupShould],
     ['nice', en.todayGroupNice],
-  ] as const)('a %s row carries «%s» on screen and in its name', async (priority, word) => {
+  ])('a %s row carries «%s» on screen and in its name', async (priority, word) => {
     await render(<AppProvider><WidgetPreviewRow index={1} item={{
       id: 'a', title: 'Call the bank', titleRedacted: false, redactionReason: null, priority, timeLabel: '10:00',
-      dueAt: null, category: 'personal', isNextStep: false, link: 'maybesitter://commitment/a',
+      dueAt: null, category: 'errands', isNextStep: false, link: 'maybesitter://commitment/a',
     }} /></AppProvider>);
     expect(screen.getByText(word)).toBeTruthy();
     expect(String(screen.getByTestId('widget-preview-row').props.accessibilityLabel)).toContain(word);
@@ -126,8 +126,13 @@ describe('CX2.5: the widget preview says importance in a word', () => {
 });
 
 describe('CX2.6: Reduce Motion is honoured from the first frame', () => {
-  it('does not start the entrance before the setting is known', async () => {
-    // The answer never comes back during this test: the first frames are what is asked about.
+  it('a screen entered once the setting is known does not start moving before it is read again', async () => {
+    // The person has Reduce Motion on; one screen has already learnt it.
+    jest.spyOn(AccessibilityInfo, 'isReduceMotionEnabled').mockResolvedValue(true);
+    const first = await render(<ScreenIn><></></ScreenIn>);
+    await act(async () => { await Promise.resolve(); });
+    await first.unmount();
+    // The next screen's own read has not come back yet: its first frames are what is asked about.
     jest.spyOn(AccessibilityInfo, 'isReduceMotionEnabled').mockReturnValue(new Promise<boolean>(() => undefined));
     const timing = jest.spyOn(Animated, 'timing');
     await render(<ScreenIn><></></ScreenIn>);
@@ -157,14 +162,17 @@ describe('CX2.9: the voice-language chip is a 44 pt target', () => {
 describe('CX2.10: the scrim that closes is a button', () => {
   beforeEach(() => { jest.spyOn(AccessibilityInfo, 'isReduceMotionEnabled').mockResolvedValue(true); });
 
+  // The panel is `accessibilityViewIsModal`, so on iOS VoiceOver skips the
+  // scrim anyway; TalkBack does not honour that prop and reads it, which is
+  // where the role is heard. Hidden elements are therefore included.
   it('in a bottom sheet', async () => {
     await render(<SafeAreaProvider initialMetrics={METRICS}><AppProvider><BottomSheet visible onClose={() => undefined}><></></BottomSheet></AppProvider></SafeAreaProvider>);
-    expect(screen.getAllByRole('button', { name: en.close }).length).toBeGreaterThan(0);
+    expect(screen.getAllByRole('button', { name: en.close, includeHiddenElements: true }).length).toBeGreaterThan(0);
   });
 
   it('in a dialog', async () => {
     await render(<AppProvider><Dialog title="Delete?" body="b" confirmLabel="Delete" cancelLabel="Keep it" onConfirm={() => undefined} onCancel={() => undefined} /></AppProvider>);
     // The scrim and the cancel button both say «Keep it»; both are buttons.
-    expect(screen.getAllByRole('button', { name: 'Keep it' })).toHaveLength(2);
+    expect(screen.getAllByRole('button', { name: 'Keep it', includeHiddenElements: true })).toHaveLength(2);
   });
 });
