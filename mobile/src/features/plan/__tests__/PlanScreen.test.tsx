@@ -435,6 +435,23 @@ describe('moving an item the plan will not allow', () => {
     expect(length).toBe(Date.parse(ITEM.endsAt) - Date.parse(ITEM.startsAt));
   });
 
+  it('opens the row fresh after a move, not on the time already sent (CA4.3)', async () => {
+    // A successful move left the picked time in the row: reopened, it read
+    // «غيّر الوقت · 18:00» with «حرّكها» enabled, and a tap re-sent the move.
+    jest.spyOn(planEndpoints, 'actOnPlan').mockResolvedValue(planWith() as never);
+    await openEditor();
+    await pickThreeHoursLater();
+    await fireEvent.press(screen.getByTestId(`plan-move-${ITEM.itemId}`));
+    await waitFor(() => expect(planEndpoints.actOnPlan).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(screen.queryByTestId(`plan-pick-${ITEM.itemId}`)).toBeNull());
+
+    await fireEvent.press(screen.getByTestId(`plan-open-${ITEM.itemId}`));
+    await waitFor(() => expect(screen.queryByTestId(`plan-pick-${ITEM.itemId}`)).not.toBeNull());
+    expect(screen.queryByTestId(`plan-picker-${ITEM.itemId}`)).toBeNull();
+    expect(screen.getByTestId(`plan-pick-${ITEM.itemId}`).props.accessibilityLabel ?? '').not.toContain(en.planChangeTime);
+    expect(screen.queryByText(new RegExp(en.planChangeTime))).toBeNull();
+  });
+
   it('sends one edit per tap, however many times it is tapped', async () => {
     // Two optimistic edits in flight would have rollbacks that restore each
     // other's intermediate state.
