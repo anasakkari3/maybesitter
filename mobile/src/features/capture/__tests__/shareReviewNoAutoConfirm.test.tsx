@@ -50,6 +50,9 @@ import * as calendarEndpoints from '../../../api/endpoints/calendar';
 import * as commitmentEndpoints from '../../../api/endpoints/commitments';
 import * as trustEndpoints from '../../../api/endpoints/trust';
 import * as analyticsEndpoints from '../../../api/endpoints/analytics';
+import en from '../../../i18n/locales/en.json';
+import ar from '../../../i18n/locales/ar.json';
+import he from '../../../i18n/locales/he.json';
 
 jest.mock('expo-localization', () => ({
   getCalendars: jest.fn(() => [{ timeZone: 'Asia/Jerusalem' }]),
@@ -317,5 +320,34 @@ describe('Review under a hostile share proposal (UC-3.9, #193 step 7)', () => {
     });
     expect(confirm).not.toHaveBeenCalled();
     expect(calendarEndpoints.postManualBusy).not.toHaveBeenCalled();
+  });
+});
+
+/*
+ * CXA3.4 (owner decision 2026-11-19): when the server dropped part of a share
+ * (`ignoredSegments > 0`), the review says so in one line. It never shows what
+ * was dropped — the envelope carries only the count, and the line is a fixed
+ * sentence with no count and no content in it.
+ */
+describe('a share with a part ignored (CXA3.4)', () => {
+  it('says part of the text was ignored, and shows none of it', async () => {
+    await renderHostileReview();
+    await waitFor(() => expect(screen.queryByTestId('review-share-ignored')).not.toBeNull());
+    expect(screen.getByTestId('review-share-ignored').props.children).toBe(en.shareIgnoredPart);
+  });
+
+  it('says nothing when nothing was ignored', async () => {
+    const proposal = createHostileProposal();
+    (proposal as unknown as { share: { ignoredSegments: number } }).share.ignoredSegments = 0;
+    await renderHostileReview(proposal);
+    await waitFor(() => expect(screen.getByTestId('review-note')).toBeTruthy());
+    expect(screen.queryByTestId('review-share-ignored')).toBeNull();
+  });
+
+  it('is the owner-approved Arabic line, with no slot for a count or content', () => {
+    expect(ar.shareIgnoredPart).toBe('تجاهلت جزء من النص.');
+    for (const line of [ar.shareIgnoredPart, en.shareIgnoredPart, he.shareIgnoredPart]) {
+      expect(line).not.toMatch(/[{}]/);
+    }
   });
 });
