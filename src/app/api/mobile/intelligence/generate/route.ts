@@ -5,7 +5,7 @@ import { intelligenceDisabledResponse } from '../../../../../../lib/intelligence
 import { learnOutcomesWithin } from '../../../../../../lib/intelligence/outcomeLearning';
 import {
   hideDismissedOutcomeSuggestions, hideSavedGoalProposals, intelligenceRunPath, nextVisitAt, proposeFromObservations, reuseRunForVisit,
-  suggestionToDto, type IntelligenceRun, type IntelligenceSuggestion,
+  suggestionToDto, isSuggestionLocale, type IntelligenceRun, type IntelligenceSuggestion, type SuggestionLocale,
 } from '../../../../../../lib/intelligence/proposalEngine';
 import { listObservations } from '../../../../../../lib/intelligence/observationStore';
 import { previewSuggestionSchedule } from '../../../../../../lib/intelligence/schedulePreview';
@@ -17,7 +17,7 @@ import { clientSupportsReadd, resolveReaddPolicy } from '../../../../../../lib/i
 
 export const dynamic = 'force-dynamic';
 
-/** The phone sends `{}` or `{ "trigger": "visit" }`; nothing legitimate is near this. */
+/** The phone sends `{}` or `{ "trigger": "visit" }`, each with its `locale`; nothing legitimate is near this. */
 const GENERATE_BODY_LIMIT_BYTES = 4 * 1024;
 
 type GenerateTrigger = 'visit' | 'explicit';
@@ -31,13 +31,17 @@ type GenerateTrigger = 'visit' | 'explicit';
  * Anything else — not JSON, not an object, a `trigger` that is not `visit` —
  * used to fall through to "explicit" and so skipped the visit floor.
  */
-function generateTriggerOf(text: string): GenerateTrigger | null {
-  if (text.trim() === '') return 'explicit';
+function generateTriggerOf(text: string): { trigger: GenerateTrigger; locale?: SuggestionLocale } | null {
+  if (text.trim() === '') return { trigger: 'explicit' };
   const body: unknown = JSON.parse(text);
   if (!body || typeof body !== 'object' || Array.isArray(body)) return null;
-  const { trigger } = body as { trigger?: unknown };
-  if (trigger === undefined) return 'explicit';
-  return trigger === 'visit' ? 'visit' : null;
+  const { trigger, locale } = body as { trigger?: unknown; locale?: unknown };
+  // The app's language (QA v3 V3-F27-04): the one the person chose, which the
+  // device's Accept-Language is not. Optional, and an unknown value is
+  // ignored rather than refused, so an older or newer phone still works.
+  const language = isSuggestionLocale(locale) ? { locale } : {};
+  if (trigger === undefined) return { trigger: 'explicit', ...language };
+  return trigger === 'visit' ? { trigger: 'visit', ...language } : null;
 }
 
 export async function POST(request: Request) {
@@ -48,13 +52,14 @@ export async function POST(request: Request) {
   // The body is read and judged before anything else is (CXA7.2): a body that
   // is not one of the two the phone sends is refused, never read as an
   // explicit request — which would skip the visit floor and reach the model.
-  let trigger: GenerateTrigger | null;
-  try { trigger = generateTriggerOf(await readBoundedText(request, { limitBytes: GENERATE_BODY_LIMIT_BYTES })); }
+  let parsed: ReturnType<typeof generateTriggerOf>;
+  try { parsed = generateTriggerOf(await readBoundedText(request, { limitBytes: GENERATE_BODY_LIMIT_BYTES })); }
   catch (error) {
     if (error instanceof RequestBodyTooLargeError) return requestBodyTooLargeResponse(error);
     return Response.json({ success: false, reason: 'invalid_body' }, { status: 400 });
   }
-  if (!trigger) return Response.json({ success: false, reason: 'invalid_body' }, { status: 400 });
+  if (!parsed) return Response.json({ success: false, reason: 'invalid_body' }, { status: 400 });
+  const { trigger, locale } = parsed;
   if (await getAiConsent(user.uid) !== 'granted') {
     return Response.json({ success: false, reason: 'consent_required' }, { status: 403 });
   }
@@ -70,7 +75,7 @@ export async function POST(request: Request) {
     let suggestions: IntelligenceSuggestion[] | null = visit ? await reuseRunForVisit(user.uid, now) : null;
     if (!suggestions) {
       await learnOutcomesWithin(user.uid);
-      suggestions = await proposeFromObservations(user.uid, now, { visit, readdClientSupported: readdSupported });
+      suggestions = await proposeFromObservations(user.uid, now, { visit, readdClientSupported: readdSupported, ...(locale ? { locale } : {}) });
     }
     // Answered through the same dismissed-outcome filter as the inbox, read
     // after the run committed (M5B2A-R20-004): an outcome dismissed in between

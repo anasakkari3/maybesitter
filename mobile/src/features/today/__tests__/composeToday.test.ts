@@ -5,7 +5,7 @@
  * name a different thing to do. These cases pin the reconciliation.
  */
 import { describe, expect, it } from '@jest/globals';
-import { composeToday, type NextStepInput, type PlanInput } from '../composeToday';
+import { composeToday, nextRecomposeAt, type NextStepInput, type PlanInput } from '../composeToday';
 import { nextEventEndAfter } from '../../commitments/eventEnded';
 import { groupForToday, type CommitmentView, type TodayGroups } from '../../commitments/model';
 import type { Commitment } from '../../../api/schemas/common';
@@ -93,6 +93,35 @@ describe('a postponed item is away until it comes back (CA2.1)', () => {
     });
     expect(m.primary).toEqual({ kind: 'none' });
     expect(m.openTotal).toBe(1);
+  });
+});
+
+/**
+ * QA v3 V3-F11-04: «مش هلّق» on the suggested step hides the suggestion until
+ * the time the person picked; the item itself keeps its time. The list's own
+ * top item stood in for the hidden suggestion and was that same item, so it
+ * came back as «خطوتك التالية» two minutes later.
+ */
+describe('a suggestion put off until later is not the fallback card either (V3-F11-04)', () => {
+  const NOW = new Date('2026-11-19T09:47:00.000Z');
+
+  it('the fallback card skips the step the person put off, and the item keeps its row', () => {
+    const m = composeToday({
+      groups: groups({ must: [item('a', 'must')], should: [item('b')] }),
+      next: next(), plan: plan(), upcoming: [], now: NOW,
+      deferredSteps: new Map([['a', '2026-11-19T15:00:00.000Z']]),
+    });
+    expect(m.primary).toMatchObject({ kind: 'fallback', item: { id: 'b' } });
+    expect(m.groups.must.map((c) => c.id)).toEqual(['a']);
+  });
+
+  it('at the time picked it may be the card again', () => {
+    const m = composeToday({
+      groups: groups({ must: [item('a', 'must')], should: [item('b')] }),
+      next: next(), plan: plan(), upcoming: [], now: NOW,
+      deferredSteps: new Map([['a', '2026-11-19T09:47:00.000Z']]),
+    });
+    expect(m.primary).toMatchObject({ kind: 'fallback', item: { id: 'a' } });
   });
 });
 
@@ -587,5 +616,28 @@ describe('a settled or vanished commitment keeps nothing alive (E1 review 3)', (
   it('while the lists are still loading, the pinned row counts as before', () => {
     const m = composeToday({ groups: groups({}), next: next(), plan: plan({ plan: cached() }), upcoming: [], now: NOW, records: [], listsLoaded: false });
     expect(m.plan).toEqual({ kind: 'accepted', placed: 1 });
+  });
+});
+
+/**
+ * Review of #874: Today recomposes by itself at the next instant something on
+ * it changes. A step put off with «مش هلّق» coming back is one of them, or the
+ * card stays wrong on an open screen until something else happens.
+ */
+describe('when Today recomposes by itself (V3-F11-04)', () => {
+  const NOW = Date.parse('2026-11-19T09:47:00.000Z');
+
+  it('at the time a step put off may come back', () => {
+    expect(nextRecomposeAt({ open: [item('a')], upcoming: [], deferredSteps: new Map([['a', '2026-11-19T10:47:00.000Z']]), nowMs: NOW }))
+      .toBe(Date.parse('2026-11-19T10:47:00.000Z'));
+  });
+
+  it('the earliest of a postponed return and a step put off, and nothing for one already back', () => {
+    const away = { ...item('b'), postponedUntil: '2026-11-19T11:00:00.000Z' };
+    expect(nextRecomposeAt({
+      open: [item('a'), away], upcoming: [],
+      deferredSteps: new Map([['a', '2026-11-19T09:00:00.000Z'], ['c', '2026-11-19T12:00:00.000Z']]), nowMs: NOW,
+    })).toBe(Date.parse('2026-11-19T11:00:00.000Z'));
+    expect(nextRecomposeAt({ open: [item('a')], upcoming: [], deferredSteps: new Map([['a', '2026-11-19T09:00:00.000Z']]), nowMs: NOW })).toBeNull();
   });
 });

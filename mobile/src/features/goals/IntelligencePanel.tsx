@@ -141,7 +141,14 @@ function IntelligencePanelForAccount({ onChanged, autoGenerate = false, whenOff 
     : { paddingHorizontal: 14 };
   const uid = useOptionalAuth()?.user?.uid ?? '';
   const consents = useConsents();
+  // Asking for new suggestions waits for a known yes.
   const recommendationsEnabled = consents.data?.recommendations.state === 'granted';
+  // Showing what the server sent does not (QA v3 V3-F27-05): the inbox route
+  // already returns no suggestion under a declined switch, and a consents
+  // read that failed or has not answered left «يتابع لك» empty while Today's
+  // banner — which draws what the server sends — showed the suggestion.
+  // Hidden only on a known "not granted".
+  const recommendationsShown = consents.data === undefined || recommendationsEnabled;
   const zone = useTimeZone();
   const planPathOn = usePlanPathAvailable();
   const plan = useGoalPlanFlow();
@@ -700,9 +707,9 @@ function IntelligencePanelForAccount({ onChanged, autoGenerate = false, whenOff 
   const schedule = new Map(inbox.schedule.filter(item => drawn.has(item.suggestionId)).map(item => [item.suggestionId, item]));
   return <><ProductSection title={t.xIntelligenceTitle} why={{ id: 'intelligence-panel', body: t.xIntelligenceBody }} icon="goal">
     {error && announced === null && errorCard === null ? <Txt role="supporting" color={p.wm} testID="m5b-suggestion-action-error">{userFacingMessage(error, t)}</Txt> : null}
-    {recommendationsEnabled && suggestionsShown && classifiedPending.length === 0
+    {recommendationsShown && suggestionsShown && classifiedPending.length === 0
       ? <Txt role="supporting">{t.xIntelligenceNoIdeas}</Txt> : null}
-    {recommendationsEnabled && pending.map(item => {
+    {recommendationsShown && pending.map(item => {
       const editedTitle = (editedTitles[item.id] ?? '').trim();
       const titleShort = (item.kind === 'action' || item.kind === 'goal') && editedTitle.length > 0 && editedTitle.length < TITLE_MIN;
       const answer = (answers[item.id] ?? '').trim();

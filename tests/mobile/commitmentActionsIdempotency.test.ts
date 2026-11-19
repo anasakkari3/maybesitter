@@ -277,6 +277,49 @@ test('aware records reminder_acknowledged once, and activity shows it', async ()
   }
 });
 
+/**
+ * QA v3 V3-F11-01: a tap on a reminder (`aware`) is "I know about it", not
+ * "bring it back now". The phone sends it for any tap on a notification's
+ * body, including a stale one still in the tray after the person postponed,
+ * so clearing the postponement there undid every postpone silently.
+ */
+test('aware keeps a postponement that is still ahead, and records the tap', async () => {
+  begin();
+  try {
+    await seed(OWNER, 'c1');
+    const until = new Date(Date.now() + 20 * 3_600_000).toISOString();
+    assert.equal((await post(OWNER, 'c1', { action: 'postpone', postponedUntil: until, clientActionId: ID_A })).status, 200);
+    const aware = await post(OWNER, 'c1', { action: 'aware', clientActionId: ID_B });
+    assert.equal(aware.status, 200);
+    const body = await aware.json() as Record<string, any>;
+    assert.equal(body.commitment.postponedUntil, until);
+    assert.equal(body.commitment.currentAckState, 'postponed');
+    // The tap itself is still recorded (#200/#201).
+    assert.equal((await eventsOfType(OWNER, 'reminder_acknowledged')).length, 1);
+    // And the same postpone again is not refused (V3-F11-02 followed from this).
+    assert.equal((await post(OWNER, 'c1', { action: 'postpone', postponedUntil: until })).status, 200);
+  } finally {
+    end();
+  }
+});
+
+test('aware after a postponement has run out still clears it', async () => {
+  begin();
+  try {
+    await seed(OWNER, 'c1');
+    const postponedAt = new Date();
+    const until = new Date(postponedAt.getTime() + 3_600_000);
+    await applyCommitmentAction('c1', 'postpone', { postponedUntil: until.toISOString(), participantId: OWNER, now: postponedAt });
+    const result = await applyCommitmentAction('c1', 'aware', {
+      participantId: OWNER, now: new Date(until.getTime() + 60_000),
+    });
+    assert.equal(result.commitment.postponedUntil, null);
+    assert.equal(result.commitment.currentAckState, 'aware');
+  } finally {
+    end();
+  }
+});
+
 test('without a clientActionId the route behaves as before', async () => {
   begin();
   try {

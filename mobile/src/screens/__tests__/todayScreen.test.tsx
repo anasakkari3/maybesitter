@@ -30,7 +30,7 @@ import he from '../../i18n/locales/he.json';
 import * as commitmentEndpoints from '../../api/endpoints/commitments';
 import * as nextStepEndpoints from '../../api/endpoints/nextStep';
 import * as consentEndpoints from '../../api/endpoints/consents';
-import { queryKeys } from '../../api/queries';
+import { queryKeys, recordDeferredNextStep } from '../../api/queries';
 import * as planEndpoints from '../../api/endpoints/plans';
 import * as profileEndpoints from '../../api/endpoints/profile';
 import * as footballEndpoints from '../../api/endpoints/football';
@@ -147,6 +147,25 @@ async function openGroups() {
     const toggle = screen.queryByTestId(`today-group-${kind}-toggle`);
     if (toggle) await fireEvent.press(toggle);
   }
+}
+
+/**
+ * Records the screen's timers without `jest.spyOn`: a spy taken over the
+ * fake clock is restored again by `restoreAllMocks` after the clock is gone,
+ * and leaves every later case on a dead `setTimeout`.
+ */
+function watchTimers() {
+  const realSet = globalThis.setTimeout;
+  const realClear = globalThis.clearTimeout;
+  const set: Array<{ ms: unknown; id: unknown }> = [];
+  const cleared: unknown[] = [];
+  globalThis.setTimeout = ((fn: () => void, ms?: number, ...rest: unknown[]) => {
+    const id = (realSet as (...args: unknown[]) => unknown)(fn, ms, ...rest);
+    set.push({ ms, id });
+    return id;
+  }) as unknown as typeof setTimeout;
+  globalThis.clearTimeout = ((id: unknown) => { cleared.push(id); return (realClear as (id: unknown) => void)(id); }) as unknown as typeof clearTimeout;
+  return { set, cleared, restore: () => { globalThis.setTimeout = realSet; globalThis.clearTimeout = realClear; } };
 }
 
 describe('the day comes from the account', () => {
@@ -838,6 +857,70 @@ describe('Stitch Today', () => {
       expect(screen.queryByTestId('today-postponed-away')).toBeNull();
       expect((commitmentEndpoints.listToday as unknown as jest.Mock).mock.calls.length).toBe(fetches);
     } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  /**
+   * QA v3 V3-F11-04, review of #874: the screen's own wiring of a step put off
+   * with «مش هلّق». `composeToday` and `nextRecomposeAt` are tested alone;
+   * this is the screen handing them the record — to the card, and to the
+   * timer that brings the step back at its time without a refetch.
+   */
+  it('V3-F11-04: a step put off leaves the card, and comes back at its time without a refetch', async () => {
+    jest.useFakeTimers({ now: Date.now(), advanceTimers: true });
+    try {
+      await show([withPriority('top', 'high', { rank: 0 }), withPriority('next', 'normal', { rank: 1 })]);
+      expect(within(screen.getByTestId('today-primary')).getByTestId('today-item-top')).toBeTruthy();
+      const until = new Date(Date.now() + 10 * 60 * 1000).toISOString();
+      await act(async () => { recordDeferredNextStep(client, USER.uid, 'top', until); });
+      await waitFor(() => expect(within(screen.getByTestId('today-primary')).queryByTestId('today-item-top')).toBeNull());
+      expect(within(screen.getByTestId('today-primary')).getByTestId('today-item-next')).toBeTruthy();
+      // Still a row on the day: nothing is lost.
+      expect(within(screen.getByTestId('today-group-must')).getByTestId('today-item-top')).toBeTruthy();
+      const fetches = (commitmentEndpoints.listToday as unknown as jest.Mock).mock.calls.length;
+      await act(async () => { jest.advanceTimersByTime(11 * 60 * 1000); });
+      await waitFor(() => expect(within(screen.getByTestId('today-primary')).queryByTestId('today-item-top')).not.toBeNull());
+      expect((commitmentEndpoints.listToday as unknown as jest.Mock).mock.calls.length).toBe(fetches);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('V3-F11-04: leaving Today cancels the timer for a step put off', async () => {
+    jest.useFakeTimers({ now: Date.now(), advanceTimers: true });
+    const timers = watchTimers();
+    try {
+      const view = await show([withPriority('top', 'high', { rank: 0 }), withPriority('next', 'normal', { rank: 1 })]);
+      const wait = 10 * 60 * 1000;
+      await act(async () => { recordDeferredNextStep(client, USER.uid, 'top', new Date(Date.now() + wait).toISOString()); });
+      await waitFor(() => expect(within(screen.getByTestId('today-primary')).queryByTestId('today-item-top')).toBeNull());
+      // The screen's own timer: set for the step's time, plus its margin.
+      const timer = timers.set.find(({ ms }) => typeof ms === 'number' && ms > wait - 5_000 && ms <= wait + 5_000);
+      expect(timer).toBeDefined();
+      await view.unmount();
+      expect(timers.cleared).toContain(timer!.id);
+    } finally {
+      timers.restore();
+      jest.useRealTimers();
+    }
+  });
+
+  it('V3-F11-04: a step put off far ahead never sets a timer past the platform limit', async () => {
+    jest.useFakeTimers({ now: Date.now(), advanceTimers: true });
+    const timers = watchTimers();
+    try {
+      await show([withPriority('top', 'high', { rank: 0 }), withPriority('next', 'normal', { rank: 1 })]);
+      const farAhead = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(); // past 2^31 ms
+      await act(async () => { recordDeferredNextStep(client, USER.uid, 'top', farAhead); });
+      await waitFor(() => expect(within(screen.getByTestId('today-primary')).queryByTestId('today-item-top')).toBeNull());
+      // The screen did set one for it, at the limit and not past it.
+      expect(timers.set.some(({ ms }) => ms === 2_147_483_647)).toBe(true);
+      for (const { ms } of timers.set) {
+        if (typeof ms === 'number') expect(ms).toBeLessThanOrEqual(2_147_483_647);
+      }
+    } finally {
+      timers.restore();
       jest.useRealTimers();
     }
   });

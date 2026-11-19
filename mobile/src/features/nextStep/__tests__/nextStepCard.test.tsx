@@ -446,6 +446,71 @@ describe('later, and when', () => {
     expect(until).toBeLessThan(before + 61 * 60 * 1000);
   });
 
+  /**
+   * QA v3 V3-F11-04: a suggestion brought back after the item's own time is
+   * no use — «المسا · 18:00» for a 16:00 call, «بكرا الصبح» for one in half
+   * an hour.
+   */
+  it('offers no time at or after the item\'s own time', async () => {
+    const soon: CommitmentView = {
+      id: 'c-1', title: 'Call the dentist', importance: 'must', status: 'active',
+      shownAt: new Date(Date.now() + 30 * 60 * 1000).toISOString(), isPast: false,
+      importanceIsStated: true, rank: undefined, reasonCodes: [],
+    };
+    await show(response(), new Map([['c-1', soon]]));
+    await fireEvent.press(screen.getByTestId('next-step-defer'));
+    await waitFor(() => expect(screen.queryByTestId('next-step-defer-oneHour')).not.toBeNull());
+    expect(screen.queryByTestId('next-step-defer-thisEvening')).toBeNull();
+    expect(screen.queryByTestId('next-step-defer-tomorrowMorning')).toBeNull();
+  });
+
+  /**
+   * And the step put off stays off Today's card until then (V3-F11-04): the
+   * decision is remembered for this account, by commitment, with its time.
+   */
+  it('remembers the step put off, until the time chosen', async () => {
+    mockDecision();
+    await show();
+    await fireEvent.press(screen.getByTestId('next-step-defer'));
+    await waitFor(() => expect(screen.queryByTestId('next-step-defer-oneHour')).not.toBeNull());
+    await fireEvent.press(screen.getByTestId('next-step-defer-oneHour'));
+    await waitFor(() => {
+      const held = client.getQueryData<Record<string, string>>(['user', USER.uid, 'nextStepDeferred']);
+      expect(held?.['c-1']).toBeDefined();
+    });
+  });
+
+  /** A preparation is deferred, never the event it prepares for (review of #874). */
+  it('does not remember a preparation step as the event put off', async () => {
+    const decide = mockDecision();
+    await show(response({ primaryStep: { commitmentId: 'c-1', title: 'Prepare for the exam', purpose: 'prepare' } }));
+    await fireEvent.press(screen.getByTestId('next-step-defer'));
+    await waitFor(() => expect(screen.queryByTestId('next-step-defer-oneHour')).not.toBeNull());
+    await fireEvent.press(screen.getByTestId('next-step-defer-oneHour'));
+    await waitFor(() => expect(decide).toHaveBeenCalled());
+    await waitFor(() => expect(screen.queryByTestId('next-step-defer-sheet')).toBeNull());
+    const held = client.getQueryData<Record<string, string>>(['user', USER.uid, 'nextStepDeferred']);
+    expect(held?.['c-1']).toBeUndefined();
+  });
+
+  /**
+   * The sheet says what «مش هلّق» does here (review of #874, coordinator's
+   * call): the suggestion comes back, the item keeps its time. Not the
+   * postpone sheet's line, which reads as moving the item.
+   */
+  it('says the suggestion comes back and the item itself stays as it is', async () => {
+    await show();
+    await fireEvent.press(screen.getByTestId('next-step-defer'));
+    await waitFor(() => expect(screen.queryByTestId('next-step-defer-oneHour')).not.toBeNull());
+    expect(screen.queryByText(en.nextStepDeferBody)).not.toBeNull();
+    // True for an item with no time too (review of #874): it does not claim
+    // the item has a time to keep.
+    expect(en.nextStepDeferBody).toBe('The suggestion comes back at the time you pick. The item itself stays as it is.');
+    expect(screen.queryByText(en.postponeBody)).toBeNull();
+    // Still said to be a suggestion.
+    expect(screen.queryByText(en.suggestionNote)).not.toBeNull();
+  });
+
   it('is not offered when the server did not offer defer', async () => {
     await show(response({ availableActions: ['accept', 'dismiss'] }));
     expect(screen.queryByTestId('next-step-defer')).toBeNull();
