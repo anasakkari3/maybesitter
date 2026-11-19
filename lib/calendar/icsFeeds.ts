@@ -1088,7 +1088,7 @@ export async function refreshIcsFeed(
   }
   feed = paused.feed;
 
-  const fail = async (code: string): Promise<{ outcome: RefreshOutcome; feed: IcsFeedView }> => {
+  const fail = async (code: string, httpStatus: number | null = null): Promise<{ outcome: RefreshOutcome; feed: IcsFeedView }> => {
     const committed = await commitFeedPatch(uid, feedId, (current) => {
       const failures = current.consecutiveFailures + 1;
       return {
@@ -1100,7 +1100,9 @@ export async function refreshIcsFeed(
     }, guard, deps);
     if ('refused' in committed) return gone(committed.refused);
     await syncDueIndex(uid, deps);
-    log(`[ics] refresh failed feed=${feedId} host=${feed.hostHash} code=${code} failures=${committed.feed.consecutiveFailures}`);
+    // The status number only, as at subscribe (QA v3 V3-F19-01).
+    const status = httpStatus === null ? '' : ` status=${httpStatus}`;
+    log(`[ics] refresh failed feed=${feedId} host=${feed.hostHash} code=${code}${status} failures=${committed.feed.consecutiveFailures}`);
     return { outcome: 'failed', feed: await view(committed.feed) };
   };
 
@@ -1126,7 +1128,7 @@ export async function refreshIcsFeed(
   try {
     fetched = await fetchWith(deps)(url, conditional ? { etag: feed.etag, lastModified: feed.lastModified } : {});
   } catch (error) {
-    return fail(error instanceof SafeFetchError ? error.code : 'network');
+    return fail(error instanceof SafeFetchError ? error.code : 'network', error instanceof SafeFetchError ? error.status : null);
   }
 
   if (fetched.notModified) {

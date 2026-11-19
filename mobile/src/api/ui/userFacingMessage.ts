@@ -158,10 +158,13 @@ export function userFacingMessageKey(error: unknown): UserFacingKey {
   // calendar" and "cannot be fetched" are both 422 and ask different things
   // of the user.
   if (error instanceof IcsFeedRefusedError) {
-    // A site that refused or did not answer is not a wrong link (QA v3
-    // V3-F19-01): the detail picks the sentence and never reaches the screen.
+    // QA v3 V3-F19-01: the detail picks the sentence and never reaches the
+    // screen. A refusal (`http_status`) may be a wrong or expired link too,
+    // and `network` is also a host typed wrong (DNS), so both still ask to
+    // check the link; only a site that did not answer in time does not.
     if (error.reason === 'fetch_failed' && error.detail === 'http_status') return 'icsFeedsErrSiteRefused';
-    if (error.reason === 'fetch_failed' && (error.detail === 'timeout' || error.detail === 'network')) return 'icsFeedsErrNoAnswer';
+    if (error.reason === 'fetch_failed' && error.detail === 'timeout') return 'icsFeedsErrNoAnswer';
+    if (error.reason === 'fetch_failed' && error.detail === 'network') return 'icsFeedsErrUnreachable';
     return ICS_FEED_KEYS[error.reason] ?? 'errorsGeneric';
   }
   if (error instanceof GoogleRefusedError) return GOOGLE_KEYS[error.reason];

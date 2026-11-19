@@ -596,13 +596,16 @@ function ResultStep({ result, onOpenToday }: { result: import('../../api/schemas
   const slotLine = useSlotLine();
   const weeklyLine = useWeeklyLine();
   // Where each kind went (QA v3 V3-F22-06): a one-time step is a commitment
-  // and is on Today; a repeating step is a habit and is under My things ›
+  // and is on Today, or among the days ahead when its time is later; a repeating step is a habit and is under My things ›
   // Habits, which Today does not show. Neither is promised on Plan: saving a
   // goal plan builds no day plan.
   const steps = result.saved.filter(item => item.entity === 'commitment').length;
   const habits = result.saved.filter(item => item.entity === 'habit').length;
+  // Every step can stay for a later week and the confirm still runs; then
+  // nothing was saved and the title must not say «saved» (review of #875).
+  const nothing = steps + habits === 0;
   return <Card testID="plan-result" style={{ gap: 10 }}>
-    <StepHeading color={p.success}>{t.xPlanSavedTitle}</StepHeading>
+    <StepHeading testID="plan-result-title" {...(nothing ? {} : { color: p.success })}>{nothing ? t.xPlanNothingSavedTitle : t.xPlanSavedTitle}</StepHeading>
     {steps > 0 ? <Txt testID="plan-result-where-steps" role="supporting">{tr('xPlanSavedStepsN', { n: steps })}</Txt> : null}
     {habits > 0 ? <Txt testID="plan-result-where-habits" role="supporting">{tr('xPlanSavedHabitsN', { n: habits })}</Txt> : null}
     {result.saved.map(item => <View key={item.stepId} testID={`plan-result-saved-${item.stepId}`} style={{ gap: 2 }}>
