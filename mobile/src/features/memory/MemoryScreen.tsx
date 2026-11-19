@@ -31,7 +31,7 @@ import {
   CONFIDENCE_STRING,
   GROUP_STRING,
   MEMORY_GROUP_ORDER,
-  SOURCE_LABEL_STRING,
+  sourceLabelText,
   confidenceBand,
   durationText,
   evidenceLines,
@@ -508,12 +508,15 @@ function MemoryGroupCard({
   // say it once on the header instead of on each row (condition 53). A group
   // that mixes, say, "AI suggested" and "AI suggested and you confirmed" keeps
   // the label on each row, because that difference is the point (M6A-009).
-  const shared = rows.length > 0 && rows.every(row => row.sourceLabel === rows[0]!.sourceLabel) ? rows[0]!.sourceLabel : null;
+  // Compared in words, so imported rows from two assistants each keep their own (QA v3 V3-F26-05).
+  const shared = rows.length > 0 && rows.every(row => sourceLabelText(row, strings) === sourceLabelText(rows[0]!, strings))
+    ? sourceLabelText(rows[0]!, strings)
+    : null;
   return (
     <Card pad={0} style={{ overflow: 'hidden' }} testID={`memory-group-${group}`}>
       <View style={{ paddingHorizontal: 18, paddingTop: 16, paddingBottom: 4, flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', columnGap: 8, rowGap: 4 }}>
         <Txt size={13} weight={600} color={p.mu}>{strings[GROUP_STRING[group]]}</Txt>
-        {shared ? <Chip label={strings[SOURCE_LABEL_STRING[shared]] ?? ''} testID={`m6-memory-group-source-${group}`} /> : null}
+        {shared ? <Chip label={shared} testID={`m6-memory-group-source-${group}`} /> : null}
       </View>
       {rows.map(item => (
         <MemoryDetailRow
@@ -621,7 +624,7 @@ function MemoryDetailRow({
       </Txt>
 
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-        {sourceOnRow ? <Chip label={strings[SOURCE_LABEL_STRING[item.sourceLabel]] ?? ''} testID={`memory-screen-source-${item.id}`} /> : null}
+        {sourceOnRow ? <Chip label={sourceLabelText(item, strings)} testID={`memory-screen-source-${item.id}`} /> : null}
         {/* Words, never the number. A confidence printed as 0.62 invites the
             reader to treat a threshold as a measurement of themselves. */}
         <Chip

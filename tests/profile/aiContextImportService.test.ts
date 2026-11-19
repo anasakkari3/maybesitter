@@ -215,14 +215,24 @@ test('an update whose target was revoked meanwhile becomes a plain write', async
   assert.equal((await memory.get(old.id))!.status, 'revoked', 'a revoked record was resurrected');
 });
 
-test('a second confirm of the same proposal writes nothing', async () => {
-  const { proposal } = await propose([candidate()]);
-  await confirmAiContextImport(UID, proposal.proposalId, [{ index: 0 }], AT, { memory });
+// QA v3 V3-F26-07 (CA1.5): a confirm whose reply was lost is sent again; the
+// second answer is the first one replayed, not a 404, and writes nothing.
+test('a second confirm of the same proposal replays the first answer and writes nothing', async () => {
+  const { proposal } = await propose([candidate(), candidate({ content: 'Wants to run a 10k', kind: 'goal' })]);
+  const first = await confirmAiContextImport(UID, proposal.proposalId, [{ index: 0 }, { index: 1 }], AT, { memory });
+  assert.equal(first.created, 2);
+  const again = await confirmAiContextImport(UID, proposal.proposalId, [{ index: 0 }, { index: 1 }], AT, { memory });
+  assert.deepEqual(again, first);
+  assert.equal((await memory.retrieve({ scopeId: UID, now: AT.toISOString() })).length, 2);
+  // What is kept for the replay is the answer, never the candidates' words.
+  const stored = await (await import('../../lib/storage/index.ts')).getStorage()
+    .get<Record<string, unknown>>(`users/${UID}/aiContextImports/${proposal.proposalId}`);
+  assert.ok(!JSON.stringify(stored ?? {}).includes('nursing student'), 'a confirmed proposal kept its candidates');
+  // Past the proposal's life the replay is gone too.
   await assert.rejects(
-    () => confirmAiContextImport(UID, proposal.proposalId, [{ index: 0 }], AT, { memory }),
+    () => confirmAiContextImport(UID, proposal.proposalId, [{ index: 0 }], new Date(AT.getTime() + AI_CONTEXT_IMPORT_TTL_MS + 1), { memory }),
     ImportProposalNotFoundError,
   );
-  assert.equal((await memory.retrieve({ scopeId: UID, now: AT.toISOString() })).length, 1);
 });
 
 // de7fcb84 audit CXA8.10: two confirms sent at the same moment both read the

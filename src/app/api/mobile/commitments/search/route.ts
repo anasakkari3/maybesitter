@@ -33,8 +33,12 @@ export async function POST(request: Request): Promise<Response> {
       { status: 404 },
     );
   }
+  // The add-on is «البحث بالقديم»: finished and dropped items. Current items
+  // stay searchable when it is off or not bought (owner decision 5,
+  // 2026-11-19; QA v3 V3-F34-10). Only an unreadable gate still refuses.
   const locked = await featureLockedResponse(user.uid, 'search_history');
-  if (locked) return locked;
+  if (locked && locked.status !== 404) return locked;
+  const includeSettled = !locked;
 
   let body: { q?: unknown; limit?: unknown };
   try {
@@ -59,7 +63,7 @@ export async function POST(request: Request): Promise<Response> {
     return invalid('invalid_limit');
   }
 
-  const matches = await searchCommitments({ participantId: user.uid, foldedQuery });
+  const matches = await searchCommitments({ participantId: user.uid, foldedQuery, includeSettled });
   const shown = matches.slice(0, limit as number);
   return Response.json({
     success: true,

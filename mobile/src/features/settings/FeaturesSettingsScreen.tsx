@@ -135,7 +135,10 @@ function FeatureRow({ feature, first }: { feature: FeatureCapability; first: boo
               value={value}
               disabled={busy}
               trackColor={{ false: p.ln, true: blocked ? p.wm : p.ac }}
-              thumbColor={value ? (blocked ? p.wm : p.ac) : p.sf}
+              // The thumb in its own colour, never the track's or the card's: the
+              // text-on-accent role on the coral or amber track, the muted role on
+              // the off track (QA v3 V3-F34-08: a coral pill with no thumb).
+              thumbColor={value ? p.onAccent : p.mu}
               onValueChange={onValueChange}
             />
           </View>

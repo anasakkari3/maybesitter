@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { afterEach, test } from 'node:test';
 import {
-  REFERENCE, addAt, addCommitment, at, begin, end, idsOf, loadModule, minusDays, minusMs, postpone, search, searchOk, settleAt, show,
+  REFERENCE, TOMORROW, addAt, addCommitment, at, begin, call, end, idsOf, loadModule, minusDays, minusMs, postpone, search, searchOk, settleAt, show,
 } from './support.ts';
 
 afterEach(() => end());
@@ -182,3 +182,41 @@ test('R54.1 off, killed, or production: 404 feature_unavailable and nothing read
     end();
   }
 });
+
+/* ── QA v3 V3-F34-10: «البحث بالقديم» off keeps current items searchable ── */
+
+// Owner decision 5 (2026-11-19): searching current items is free; only the
+// add-on «البحث بالقديم» (finished and dropped items) is paid. Switched off by
+// the person, the route used to answer 404 and the app showed a failure line.
+for (const mode of ['shadow', 'enforce'] as const) {
+  test(`QA v3 V3-F34-10 (${mode}): search_history off still finds live items, never finished or dropped ones`, async () => {
+    const previous = process.env.MAYBESITTER_ADDON_GATE_MODE;
+    const [warn, error] = [console.warn, console.error];
+    process.env.MAYBESITTER_ADDON_GATE_MODE = mode;
+    console.warn = () => {};
+    console.error = () => {};
+    try {
+      const uid = await begin();
+      const live = await addCommitment(uid, 'Dentist booking', { kind: 'due_by', dueAt: at(TOMORROW, '12:00') });
+      const done = await addAt(uid, minusDays(REFERENCE, 10), 'Dentist visit', { kind: 'due_by', dueAt: minusDays(REFERENCE, 9) });
+      await settleAt(uid, done, 'Complete', minusDays(REFERENCE, 9));
+      const dropped = await addAt(uid, minusDays(REFERENCE, 8), 'Dentist call', { kind: 'due_by', dueAt: minusDays(REFERENCE, 7) });
+      await settleAt(uid, dropped, 'Drop', minusDays(REFERENCE, 7));
+
+      const off = await call(uid, 'capabilities/features/[id]', 'PUT', { params: { id: 'search_history' }, body: { enabled: false } });
+      assert.equal(off.status, 200, show(off.body));
+      const result = await search(uid, { q: 'dentist' });
+      assert.equal(result.status, 200, `search of current items was refused: ${show(result.body)}`);
+      assert.deepEqual(idsOf(result.body), [live], show(result.body));
+
+      const on = await call(uid, 'capabilities/features/[id]', 'PUT', { params: { id: 'search_history' }, body: { enabled: true } });
+      assert.equal(on.status, 200, show(on.body));
+      assert.deepEqual(new Set(idsOf(await searchOk(uid, 'dentist'))), new Set([live, done, dropped]));
+    } finally {
+      console.warn = warn;
+      console.error = error;
+      if (previous === undefined) delete process.env.MAYBESITTER_ADDON_GATE_MODE;
+      else process.env.MAYBESITTER_ADDON_GATE_MODE = previous;
+    }
+  });
+}

@@ -104,9 +104,15 @@ function localeFrom(value: unknown): NextStepLocale {
   return value === 'ar' || value === 'he' ? value : 'en';
 }
 
+/**
+ * «التزامات أكّدتها»: confirmed, and not deleted by the person (`archived`,
+ * «احذفها»). Finished and dropped ones were confirmed and still count; a
+ * deleted one is gone from «أشيائي» and is not counted here either (QA v3
+ * V3-F35-08).
+ */
 async function confirmedCommitmentCount(participantId: string): Promise<number> {
   return Object.values((await readParticipantState(participantId)).commitments)
-    .filter((commitment) => Boolean(commitment.confirmedAt)).length;
+    .filter((commitment) => Boolean(commitment.confirmedAt) && commitment.status !== 'archived').length;
 }
 
 function trustAction(value: unknown, at: string): PilotTrustAction {

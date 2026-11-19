@@ -145,3 +145,33 @@ test('a value is matched exactly: 3.0004 is not a row\'s three', () => {
   assert.equal(one('You have 3.0004 kids.', 'I have three kids', 'en'), null);
   assert.notEqual(one('You have 3 kids.', 'I have three kids', 'en'), null);
 });
+
+// Review of #876 (follow-up): «كل» before «تلات/ثلاث/اتنين» is "every Tuesday /
+// Monday" only when no counted unit follows. «كل ثلاث ساعات» (medicine every
+// three hours) holds a 3, and a summary that says it back is not an invention.
+test('«كل ثلاث ساعات» holds a 3; «كل تلات» with no unit after it is a day, never a row\'s 3', () => {
+  const pills = 'باخد الدوا كل ثلاث ساعات';
+  assert.notEqual(one('بتاخد الدوا كل 3 ساعات.', pills), null);
+  assert.notEqual(one('بتاخد الدوا كل تلات ساعات.', pills), null);
+  assert.notEqual(one('بتاخد الدوا كل ثلاث ساعات.', pills), null);
+  assert.notEqual(one('بتاخد الدوا كل 2 أيام.', 'باخد الدوا كل اتنين أيام'), null);
+  assert.equal(one('بتاخد الدوا كل 4 ساعات.', pills), null);
+  // The sentence's «كل تلات/كل اتنين» with no unit after it is a weekday, so a
+  // row's 3 or 2 does not let it through; a row that names that day does.
+  assert.equal(one('عندك محاضرات كل تلات.', 'عندي 3 محاضرات'), null);
+  assert.equal(one('عندك ولاد كل اتنين.', 'عندي 2 ولاد'), null);
+  assert.notEqual(one('بتروح عالجيم كل تلات.', 'بروح عالجيم كل ثلاثاء'), null);
+  // The row's «كل تلات» with no unit is still a day: it holds no 3 (unchanged).
+  assert.equal(one('عندك دوام 3 أيام.', 'كل تلات عندي دوام'), null);
+});
+
+// Review of #876 (follow-up): pinned values the review asked for.
+test('«نص» in a row is the everyday word; a third and 3.0004 are matched exactly', () => {
+  // «نص» (a text) gives a row no half; copied whole it still passes.
+  assert.equal(one('عندك 0.5 شغلة.', 'بكتب نص كل يوم'), null);
+  assert.notEqual(one('بتكتب نص كل يوم.', 'بكتب نص كل يوم'), null);
+  // A third is a third: «تلت ساعة» is 1/3, and 0.333 is not it.
+  assert.equal(one('You rest for 0.333 hours.', 'برتاح تلت ساعة', 'en'), null);
+  assert.equal(one('You have 3.0004 lectures.', 'عندي 3 محاضرات', 'en'), null);
+  assert.notEqual(one('You have 3 lectures.', 'عندي 3 محاضرات', 'en'), null);
+});

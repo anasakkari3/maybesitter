@@ -10,6 +10,8 @@ export interface CommitmentSearchOptions {
   participantId: string;
   foldedQuery: string;
   now?: Date;
+  /** Finished and dropped items (the «البحث بالقديم» add-on); live items are always searched. */
+  includeSettled?: boolean;
 }
 
 interface SearchMatch {
@@ -40,6 +42,7 @@ export async function searchCommitments(options: CommitmentSearchOptions): Promi
 
   for (const commitment of Object.values(state.commitments)) {
     const live = LIVE_STATUSES.has(commitment.status);
+    if (!live && options.includeSettled === false) continue;
     const settledAt = live ? null : eligibleSettlement(commitment, cutoff);
     if (!live && (!settledAt || finiteInstant(settledAt, commitment.updatedAt) < cutoff)) continue;
 

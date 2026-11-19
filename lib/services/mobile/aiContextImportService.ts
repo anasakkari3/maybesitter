@@ -169,6 +169,12 @@ interface StoredImportProposal {
   claim?: ProposalClaim;
   /** Indexes already written by a confirm that failed part way, never written twice. */
   written?: number[];
+  /**
+   * The answer of the confirm that finished (QA v3 V3-F26-07, CA1.5): a repeat
+   * whose first reply was lost is answered with it instead of a 404. Kept with
+   * the candidates and the index emptied, so no sentence outlives the confirm.
+   */
+  completed?: ImportApplyResult;
 }
 
 interface ProposalClaim {
@@ -415,16 +421,21 @@ export async function confirmAiContextImport(
    */
   const path = proposalPath(uid, proposalId);
   const claimId = randomUUID();
+  let replay: ImportApplyResult | null = null;
   const stored = await storage.runTransaction(async (tx) => {
+    replay = null;
     const found = await tx.get<StoredImportProposal>(path);
     if (!found) return null;
     const age = at.getTime() - Date.parse(found.createdAt);
     if (!Number.isFinite(age) || age > AI_CONTEXT_IMPORT_TTL_MS) return null;
+    if (found.completed) { replay = found.completed; return null; }
     if (found.claim && Date.parse(found.claim.reservedUntil) > Date.now()) return null;
     const claimed: StoredImportProposal = { ...found, claim: { claimId, reservedUntil: new Date(Date.now() + CONFIRM_LEASE_MS).toISOString() } };
     tx.set<StoredImportProposal>(path, claimed);
     return claimed;
   });
+  // Already confirmed: the same answer again, nothing written (V3-F26-07).
+  if (replay) return replay;
   if (!stored) throw new ImportProposalNotFoundError();
   const stillMine = async (change: (tx: StorageTransaction, current: StoredImportProposal) => void) => {
     await storage.runTransaction(async (tx) => {
@@ -536,8 +547,15 @@ export async function confirmAiContextImport(
     throw error;
   }
 
-  // Done: removed only by the confirm that held it.
-  await stillMine((tx) => tx.delete(path));
+  // Done: only the answer is kept, by the confirm that held it, so a repeat
+  // replays it until the proposal's life ends (V3-F26-07). The candidates and
+  // the record index go now, as the delete used to take them.
+  await stillMine((tx, current) => {
+    const { claim: _done, written: _written, ...rest } = current;
+    tx.set<StoredImportProposal>(path, {
+      ...rest, candidates: [], existingIndex: [], completed: result,
+    });
+  });
 
   // Only when something was actually brought over. Reading a profile and
   // keeping none of it is not an import, and a date for it would claim the

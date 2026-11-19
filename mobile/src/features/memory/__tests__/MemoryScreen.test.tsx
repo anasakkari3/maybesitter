@@ -223,6 +223,34 @@ describe('what the screen shows', () => {
     expect(screen.queryByTestId('memory-screen-source-mem_told')).toBeNull();
   });
 
+  // QA v3 V3-F26-05: an imported fact's chip read «إنت جبته من {assistant}».
+  it('names the assistant an imported fact came from, never the raw template', async () => {
+    const imported = (id: string, assistant: 'chatgpt' | 'gemini') => item({
+      id, sourceLabel: 'you_brought_from_ai', source: 'model_inferred',
+      provenance: { origin: 'ai_context_import', assistant, confirmedByUserAt: RECORDED },
+    });
+    listing([imported('mem_a', 'chatgpt'), imported('mem_b', 'chatgpt')]);
+    await show(<MemoryScreen onBack={() => {}} />);
+    await waitFor(() => expect(screen.queryByTestId('m6-memory-group-source-suggested')).not.toBeNull());
+    expect(screen.getByTestId('m6-memory-group-source-suggested').props.children)
+      .toBe(en.memorySourceBroughtFromAi.replace('{assistant}', en.aiImportAssistantChatgpt));
+  });
+
+  it('gives each imported row its own assistant when the rows came from different ones', async () => {
+    const imported = (id: string, assistant: 'chatgpt' | 'gemini') => item({
+      id, sourceLabel: 'you_brought_from_ai', source: 'model_inferred',
+      provenance: { origin: 'ai_context_import', assistant, confirmedByUserAt: RECORDED },
+    });
+    listing([imported('mem_a', 'chatgpt'), imported('mem_b', 'gemini')]);
+    await show(<MemoryScreen onBack={() => {}} />);
+    await waitFor(() => expect(screen.queryByTestId('memory-screen-source-mem_a')).not.toBeNull());
+    expect(screen.getByTestId('memory-screen-source-mem_a').props.children)
+      .toBe(en.memorySourceBroughtFromAi.replace('{assistant}', en.aiImportAssistantChatgpt));
+    expect(screen.getByTestId('memory-screen-source-mem_b').props.children)
+      .toBe(en.memorySourceBroughtFromAi.replace('{assistant}', en.aiImportAssistantGemini));
+    expect(screen.queryByTestId('m6-memory-group-source-suggested')).toBeNull();
+  });
+
   it('says how sure it is in words, and never shows the number', async () => {
     listing([item(), NOTICED]);
     await show(<MemoryScreen onBack={() => {}} />);

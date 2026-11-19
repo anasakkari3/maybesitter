@@ -16,6 +16,8 @@ import {
   isFootballWatcherSource,
 } from '../../../../../lib/football/footballWatchers';
 import { RequestBodyTooLargeError, readJsonBody, requestBodyTooLargeResponse } from '../../../../../lib/net/requestBody';
+import { getStorage } from '../../../../../lib/storage';
+import { PROVIDER_CONNECTIONS, userSubDoc } from '../../../../../lib/storage/paths';
 
 export const dynamic = 'force-dynamic';
 
@@ -70,6 +72,14 @@ export async function POST(request: Request) {
 
   try {
     const input = parseNewWatcher(body);
+    // A connection is read from this account's own records only, so one that
+    // is not there — another account's, or none at all — could never feed the
+    // watcher: refused, rather than stored as `active` here while the trust
+    // screen says `blocked_permission` (QA v3 V3-F28-03). A connection that
+    // exists but was revoked is kept: reconnecting resumes it.
+    if (input.source.connectionId !== null && !(await ownsConnection(user.uid, input.source.connectionId))) {
+      throw new WatcherValidationError('source.connectionId is not one of your connections', 'unknown_connection');
+    }
     const now = new Date().toISOString();
     // Following a club is a watcher *and* a follow (closure CL7): the club's
     // matches go on the calendar and the watcher notices when one moves. It
@@ -104,4 +114,15 @@ export async function POST(request: Request) {
     console.error('[watchers] creating a watcher failed', error);
     return mobileError('could not create the watcher', 500);
   }
+}
+
+/** Whether this account holds a connection record under that id; an id no document can have is not one. */
+async function ownsConnection(uid: string, connectionId: string): Promise<boolean> {
+  let path: string;
+  try {
+    path = userSubDoc(uid, PROVIDER_CONNECTIONS, connectionId);
+  } catch {
+    return false;
+  }
+  return Boolean(await getStorage().get(path));
 }

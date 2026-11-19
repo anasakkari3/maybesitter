@@ -256,13 +256,21 @@ export function applyWatcherPatch(current: StoredWatcher, patch: WatcherPatch, n
     updatedAt: now,
   };
   const disabled = patch.enabled === false;
+  // Resuming a paused watcher makes it active-but-unprimed at once, the same
+  // state a new watcher is born in: the API never answers `enabled: true` with
+  // `status: paused` (QA v3 V3-F28-02, NA6.4, CXA6.7). The baseline is cleared
+  // just below, so the first sweep primes and nothing from the pause fires; a
+  // connection or a source that cannot run is still the sweep's to block.
+  const resumed = patch.enabled === true && current.runtime.status === 'paused';
   const rePrimes = patch.enabled === true || patch.condition !== undefined || patch.effect !== undefined;
   const runtime = rePrimes ? unprimedRuntime(current.runtime, now) : { ...current.runtime, updatedAt: now };
   return {
     definition,
     runtime: disabled
       ? { ...runtime, status: 'paused', blockedReason: null }
-      : runtime,
+      : resumed
+        ? { ...runtime, status: 'active', blockedReason: null }
+        : runtime,
   };
 }
 

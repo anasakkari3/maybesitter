@@ -17,6 +17,7 @@ import { apiLocale } from '../../i18n/locale';
 import { isolateLatinRuns } from '../../i18n/bidi';
 import { openLegal, privacyPolicyUrl } from '../../config/legalLinks';
 import { ServerToggle } from './ServerToggle';
+import { QueryBoundary } from '../../api/ui/QueryBoundary';
 import { SettingsHeader, SettingsRow } from './SettingsChrome';
 import { Dialog } from '../../ui/dialog';
 import { SectionLabel, TextLink } from '../../ui/chrome';
@@ -237,6 +238,10 @@ export function TrustScreen({ onBack, onKnows }: { onBack: () => void; onKnows: 
 
         <SectionLabel>{t.settingsGroupYou}</SectionLabel>
         <Card pad={0} style={{ overflow: 'hidden' }}>
+          {/* A switch whose position the server did not answer is not drawn:
+              off would claim "nothing is shared" on no authority (QA v3
+              V3-F35-09, CXA12.5). The read's failure and a retry instead. */}
+          <QueryBoundary isPending={consents.isPending} error={consents.data ? null : consents.error} onRetry={() => void consents.refetch()}>
           <ServerToggle
             testID="trust-recommendations"
             title={t.obRecTitle}
@@ -264,10 +269,12 @@ export function TrustScreen({ onBack, onKnows }: { onBack: () => void; onKnows: 
               state: next ? 'granted' : 'declined', version: versions!.personalization!, ...context,
             }))}
           />
+          </QueryBoundary>
         </Card>
 
         <SectionLabel>{t.settingsGroupTrust}</SectionLabel>
         <Card pad={0} style={{ overflow: 'hidden' }}>
+          <QueryBoundary isPending={trust.isPending} error={state ? null : trust.error} onRetry={() => void trust.refetch()}>
           <ServerToggle
             testID="trust-analytics"
             title={t.obAnalyticsTitle}
@@ -285,10 +292,14 @@ export function TrustScreen({ onBack, onKnows }: { onBack: () => void; onKnows: 
             disabled={state === undefined}
             onChange={next => record(trustAction.mutateAsync({ type: 'set_quiet_mode', enabled: next }))}
           />
+          </QueryBoundary>
         </Card>
 
         <SectionLabel>{t.settingsGroupConnections}</SectionLabel>
         <Card pad={0} style={{ overflow: 'hidden' }}>
+          {/* The same trust read as the card above, which already says it
+              failed: the switch waits for it rather than claiming off. */}
+          {state ? (
           <ServerToggle
             testID="trust-calendar"
             title={t.trustCalendar}
@@ -313,6 +324,7 @@ export function TrustScreen({ onBack, onKnows }: { onBack: () => void; onKnows: 
               return record(trustAction.mutateAsync({ type: 'set_calendar_consent', granted: next }));
             }}
           />
+          ) : null}
           {calendar.access === 'denied' ? (
             <View style={{ paddingHorizontal: 18, paddingTop: 12, gap: 10 }}>
               <Txt size={13} color={p.mu} lh={1.5} testID="trust-calendar-denied">{t.calendarPermissionDenied}</Txt>

@@ -5,7 +5,7 @@
       "watcherId": "wtc_00000000-0000-4000-8000-000000000001",
       "enabled": true,
       "label": null,
-      "status": "paused",
+      "status": "active",
       "blockedReason": null,
       "source": {
         "provider": "maybesitter",
