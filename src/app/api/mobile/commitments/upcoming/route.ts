@@ -1,6 +1,6 @@
 import { mobileAuthErrorResponse, requireMobileUser } from '../../../../../../lib/auth/mobileAuth';
 import { listUpcomingRanked } from '../../../../../../lib/services/mobile/commitmentService';
-import { commitmentListResponse } from '../../../../../../lib/services/mobile/response';
+import { commitmentListResponse, mobileError } from '../../../../../../lib/services/mobile/response';
 import { listDeviceCalendarLinks } from '../../../../../../lib/services/calendar/deviceCalendarLinks';
 import { dateFromOptionalIso } from '../../../../../../lib/services/mobile/time';
 import { addedFromByCommitment } from '../../../../../../lib/intelligence/autoAdds';
@@ -16,8 +16,15 @@ export async function GET(request: Request) {
   }
 
   const { searchParams } = new URL(request.url);
+  // A bad client value is the client's to fix: 400 naming it, not a 500 (QA CA2.9).
+  let now: Date;
+  try {
+    now = dateFromOptionalIso(searchParams.get('referenceTime'), new Date(), 'referenceTime');
+  } catch (error) {
+    return mobileError(error instanceof Error ? error.message : 'referenceTime must be a valid ISO date string');
+  }
   const ranked = await listUpcomingRanked({
-    now: dateFromOptionalIso(searchParams.get('referenceTime'), new Date(), 'referenceTime'),
+    now,
     timezone: searchParams.get('timezone') ?? undefined,
     participantId: user.uid,
   });
