@@ -89,3 +89,29 @@ describe('a crowded commitment list', () => {
     expect(screen.getByTestId('commitments-search')).toBeTruthy();
   });
 });
+
+/**
+ * V3-F08-01: «الكل» showed active and done, and the item dropped on purpose
+ * only turned up in a search. «أسقطه بوعي» has the same weight as «تمّت», so
+ * «الكل» holds it too; the open and done filters still leave it out.
+ */
+describe('the «all» filter', () => {
+  it('holds an item dropped on purpose; open and done do not', async () => {
+    const at = (day: number) => new Date(Date.UTC(2099, 0, day, 10)).toISOString();
+    mockDenseItems = [
+      { ...one, id: 'open-1', title: 'Open one', timeSpec: { ...one.timeSpec, dueAt: at(1) } },
+      { ...one, id: 'done-1', title: 'Done one', status: 'completed', completedAt: at(2), timeSpec: { ...one.timeSpec, dueAt: at(2) } },
+      { ...one, id: 'dropped-1', title: 'Dropped one', status: 'dropped', droppedAt: at(3), timeSpec: { ...one.timeSpec, dueAt: at(3) } },
+    ];
+    await show('en', <CommitmentsScreen />);
+    await fireEvent.press(screen.getByTestId('commitments-filter-all'));
+    expect(screen.getByTestId('commitments-item-open-1')).toBeTruthy();
+    expect(screen.getByTestId('commitments-item-done-1')).toBeTruthy();
+    expect(screen.getByTestId('commitments-item-dropped-1')).toBeTruthy();
+    await fireEvent.press(screen.getByTestId('commitments-filter-active'));
+    expect(screen.queryByTestId('commitments-item-dropped-1')).toBeNull();
+    await fireEvent.press(screen.getByTestId('commitments-filter-done'));
+    expect(screen.queryByTestId('commitments-item-dropped-1')).toBeNull();
+    expect(screen.getByTestId('commitments-item-done-1')).toBeTruthy();
+  });
+});
