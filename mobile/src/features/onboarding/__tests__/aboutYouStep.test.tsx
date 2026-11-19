@@ -243,3 +243,16 @@ describe('when the checklist cannot be saved', () => {
     expect(screen.queryByText(en.errorsNetwork)).toBeNull();
   });
 });
+
+describe('a model that never read the answers (QA CXA1.4)', () => {
+  it('says busy rather than "nothing to suggest", and offers the way back to the words', async () => {
+    describeProfile.mockResolvedValueOnce({ ...PROPOSAL, suggestions: [], model: null, degraded: true } as never);
+    await reachAboutYou();
+    await answerAndRead('I want to swim again');
+    await waitFor(() => expect(screen.queryByTestId('about-review-busy')).not.toBeNull());
+    expect(screen.queryByText(en.obAboutReviewBusy)).not.toBeNull();
+    expect(screen.queryByTestId('about-review-none')).toBeNull();
+    await press(en.obBack);
+    await waitFor(() => expect(screen.queryByTestId('onboarding-setup')).not.toBeNull());
+  });
+});
