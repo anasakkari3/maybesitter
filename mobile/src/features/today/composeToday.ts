@@ -2,7 +2,7 @@ import type { CommitmentView, TodayGroups } from '../commitments/model';
 import type { NextStepRecommendation } from '../../api/schemas/nextStep';
 import type { DailyPlan } from '../../api/schemas/plan';
 import { planRows } from '../plan/lateDay';
-import { hasEventEnded } from '../commitments/eventEnded';
+import { hasEventEnded, nextEventEndAfter } from '../commitments/eventEnded';
 
 /**
  * One answer to "what matters now" (Round 2, Phase C).
@@ -133,6 +133,36 @@ export function isPostponedAway(item: Pick<CommitmentView, 'postponedUntil'>, no
   return Number.isFinite(back) && back > nowMs;
 }
 
+/** The earliest postponed return still ahead of `nowMs`, or null (CA2.1). */
+function nextPostponedReturnAfter(items: readonly CommitmentView[], nowMs: number): number | null {
+  let next: number | null = null;
+  for (const item of items) {
+    if (!item.postponedUntil || !isPostponedAway(item, nowMs)) continue;
+    const back = Date.parse(item.postponedUntil);
+    if (next === null || back < next) next = back;
+  }
+  return next;
+}
+
+/**
+ * The next instant Today must recompose by itself, or null (lane E1, CA2.1):
+ * an appointment on it ends, a postponed item comes back, or a step put off
+ * with «مش هلّق» may be the card again (V3-F11-04, review of #874).
+ */
+export function nextRecomposeAt(input: {
+  open: readonly CommitmentView[];
+  upcoming: readonly CommitmentView[];
+  deferredSteps: ReadonlyMap<string, string>;
+  nowMs: number;
+}): number | null {
+  const { open, upcoming, deferredSteps, nowMs } = input;
+  const ended = nextEventEndAfter([...open, ...upcoming], nowMs);
+  const back = nextPostponedReturnAfter(open, nowMs);
+  const deferredBack = [...deferredSteps.values()].map((until) => Date.parse(until)).filter((at) => at > nowMs);
+  const times = [ended, back, ...deferredBack].filter((at): at is number => at !== null && Number.isFinite(at));
+  return times.length === 0 ? null : Math.min(...times);
+}
+
 function openItems(groups: TodayGroups): CommitmentView[] {
   return OPEN_KEYS.flatMap((k) => groups[k]);
 }
@@ -167,6 +197,11 @@ export function composeToday(input: {
    * the groups and Upcoming as given.
    */
   records?: readonly CommitmentView[];
+  /**
+   * Suggested steps the person put off with «مش هلّق», id → until (V3-F11-04).
+   * The suggestion is hidden until then; so is the same item as the fallback.
+   */
+  deferredSteps?: ReadonlyMap<string, string>;
 }): TodayModel {
   const { next, plan, laterLimit = 3 } = input;
   const nowMs = (input.now ?? new Date()).getTime();
@@ -229,7 +264,13 @@ export function composeToday(input: {
     // exam tomorrow at 10:00, the night out at 21:00 (audit 2026-10-03 #2):
     // the server holds them back the same way (`nextStepPreparation.ts`).
     // Nor is something postponed until later (CA2.1): it is back at its time.
-    const top = open.find((c) => !c.allDayEvent && !eventNotYetClose(c, nowMs) && !isPostponedAway(c, nowMs)) ?? null;
+    // Nor is a suggested step the person just put off (V3-F11-04): it was the
+    // card, they said «مش هلّق», and it stays a row until the time they chose.
+    const putOff = (c: CommitmentView): boolean => {
+      const until = input.deferredSteps?.get(c.id);
+      return until !== undefined && Date.parse(until) > nowMs;
+    };
+    const top = open.find((c) => !c.allDayEvent && !eventNotYetClose(c, nowMs) && !isPostponedAway(c, nowMs) && !putOff(c)) ?? null;
     primary = top ? { kind: 'fallback', item: top } : { kind: 'none' };
   }
 

@@ -25,6 +25,8 @@ const mockSetMonitor = jest.fn<any>();
 const onChanged = jest.fn();
 let currentInbox: any;
 let mockRecommendationState: 'granted' | 'declined' = 'granted';
+/** The consents read did not answer (failed, or not yet): V3-F27-05. */
+let mockConsentsUnknown = false;
 
 let mockPlanPath: { isPending: boolean; error: unknown; data: unknown[] | undefined } = { isPending: false, error: null, data: [] };
 // M5a's panel parts read through TanStack Query; this suite renders the panel
@@ -57,7 +59,7 @@ jest.mock('../../m5a/emailScan', () => ({
 jest.mock('../../m5a/AddedCard', () => ({ AddedCard: () => null }));
 
 jest.mock('../../../api/queries', () => ({
-  useConsents: () => ({ data: { recommendations: { state: mockRecommendationState } } }),
+  useConsents: () => (mockConsentsUnknown ? { data: undefined, isError: true } : { data: { recommendations: { state: mockRecommendationState } } }),
   // The plan path (M3a) learns whether it is on from Today's later-week read.
   useUpcomingPlans: () => mockPlanPath,
   useUid: () => 'panel-user',
@@ -106,6 +108,7 @@ const settle = () => act(async () => { await new Promise(resolve => setTimeout(r
 beforeEach(async () => {
   jest.clearAllMocks();
   mockRecommendationState = 'granted';
+  mockConsentsUnknown = false;
   // The production build (review of 2026-10-03): the loop was released to
   // production on 2026-10-01, and whether it shows is the server's answer.
   process.env.EXPO_PUBLIC_APP_ENV = 'production';
@@ -224,6 +227,23 @@ it('keeps evidence review available but does not show or generate suggestions wh
   await waitFor(() => expect(screen.queryByTestId('intelligence-observation-obs-1')).not.toBeNull());
   expect(screen.queryByTestId('intelligence-suggestion-proposal-1')).toBeNull();
   expect(screen.queryByTestId('intelligence-generate')).toBeNull();
+  await settle();
+  expect(mockGenerate).not.toHaveBeenCalled();
+});
+
+/**
+ * QA v3 V3-F27-05: «راجع هالأفكار» on Today opened «يتابع لك» with the panel
+ * empty — no card, and not even «no ideas». Today's banner draws what the
+ * server sends; the panel drew nothing unless the phone's own consents read
+ * had answered "granted". The server already returns no suggestion under a
+ * declined switch, so a read that has not answered must not hide what the
+ * server sent. Generating still waits for a known yes.
+ */
+it('V3-F27-05 shows the waiting suggestion when the consents read has not answered, and asks for nothing new', async () => {
+  mockConsentsUnknown = true;
+  currentInbox = { success: true, observations: [evidence], suggestions: [suggestion], schedule: [] };
+  await render(watching());
+  await waitFor(() => expect(screen.queryByTestId('intelligence-suggestion-proposal-1')).not.toBeNull());
   await settle();
   expect(mockGenerate).not.toHaveBeenCalled();
 });

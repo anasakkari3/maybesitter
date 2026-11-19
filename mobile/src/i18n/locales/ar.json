@@ -670,6 +670,7 @@
   "nextStepEditSave": "احفظ",
   "postponeThisEvening": "المسا",
   "nextStepDeferTitle": "إمتى نرجّعها؟",
+  "nextStepDeferBody": "الاقتراح بيرجعلك بالوقت اللي بتختاره، والإشي نفسه ما بيتغيّر.",
   "evidenceImportanceEstimated": "مبيّن إنها {level}",
   "evidenceFitsFocusTime": "بوقت حاططه للتركيز",
   "todayWhyLead": "ليش أول: {reasons}",
