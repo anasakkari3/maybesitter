@@ -157,7 +157,13 @@ export function userFacingMessageKey(error: unknown): UserFacingKey {
   // carried at statuses the generic branches below would flatten: "not a
   // calendar" and "cannot be fetched" are both 422 and ask different things
   // of the user.
-  if (error instanceof IcsFeedRefusedError) return ICS_FEED_KEYS[error.reason] ?? 'errorsGeneric';
+  if (error instanceof IcsFeedRefusedError) {
+    // A site that refused or did not answer is not a wrong link (QA v3
+    // V3-F19-01): the detail picks the sentence and never reaches the screen.
+    if (error.reason === 'fetch_failed' && error.detail === 'http_status') return 'icsFeedsErrSiteRefused';
+    if (error.reason === 'fetch_failed' && (error.detail === 'timeout' || error.detail === 'network')) return 'icsFeedsErrNoAnswer';
+    return ICS_FEED_KEYS[error.reason] ?? 'errorsGeneric';
+  }
   if (error instanceof GoogleRefusedError) return GOOGLE_KEYS[error.reason];
   // Before the generic ConflictError branch: both are conflicts, and both are
   // something another device did rather than something the user got wrong.

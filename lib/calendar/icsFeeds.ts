@@ -951,7 +951,11 @@ export async function createIcsFeed(uid: string, body: unknown, deps: IcsFeedDep
     fetched = await fetchWith(deps)(url.href, {});
   } catch (error) {
     const code = error instanceof SafeFetchError ? error.code : 'network';
-    log(`[ics] subscribe fetch refused feed=${feedId} host=${hostHash} code=${code}`);
+    // The status number only (QA v3 V3-F19-01): a 404, a 403/429 and a 5xx
+    // from a calendar site need different fixes, and the number carries no
+    // part of the URL, the host or the body.
+    const status = error instanceof SafeFetchError && error.status !== null ? ` status=${error.status}` : '';
+    log(`[ics] subscribe fetch refused feed=${feedId} host=${hostHash} code=${code}${status}`);
     if (error instanceof SafeFetchError && error.code.startsWith('blocked_')) throw new IcsFeedError('invalid_url', code);
     throw new IcsFeedError('fetch_failed', code);
   }

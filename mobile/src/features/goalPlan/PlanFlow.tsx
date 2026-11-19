@@ -595,9 +595,16 @@ function ResultStep({ result, onOpenToday }: { result: import('../../api/schemas
   const { t, tr, p } = useApp();
   const slotLine = useSlotLine();
   const weeklyLine = useWeeklyLine();
+  // Where each kind went (QA v3 V3-F22-06): a one-time step is a commitment
+  // and is on Today; a repeating step is a habit and is under My things ›
+  // Habits, which Today does not show. Neither is promised on Plan: saving a
+  // goal plan builds no day plan.
+  const steps = result.saved.filter(item => item.entity === 'commitment').length;
+  const habits = result.saved.filter(item => item.entity === 'habit').length;
   return <Card testID="plan-result" style={{ gap: 10 }}>
     <StepHeading color={p.success}>{t.xPlanSavedTitle}</StepHeading>
-    <Txt role="supporting">{tr('xPlanSavedBodyN', { n: result.saved.length })}</Txt>
+    {steps > 0 ? <Txt testID="plan-result-where-steps" role="supporting">{tr('xPlanSavedStepsN', { n: steps })}</Txt> : null}
+    {habits > 0 ? <Txt testID="plan-result-where-habits" role="supporting">{tr('xPlanSavedHabitsN', { n: habits })}</Txt> : null}
     {result.saved.map(item => <View key={item.stepId} testID={`plan-result-saved-${item.stepId}`} style={{ gap: 2 }}>
       <Txt role="body" dir="auto">{isolateQuoted(item.title)}</Txt>
       <Txt role="metadata" color={p.mu}>{item.when.kind === 'slot' ? slotLine(item.when)
