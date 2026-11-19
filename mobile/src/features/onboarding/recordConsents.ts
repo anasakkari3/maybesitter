@@ -21,12 +21,11 @@
  * that leads to the right action — press Retry — and it is safe, because every
  * write here is a whole-value `PUT` and re-sending them all is idempotent.
  *
- * ── The analytics event obeys the answer it is reporting ─────────
+ * ── The completion event is not sent from here ───────────────────
  *
- * `onboarding_completed` fires only when analytics consent was granted, and
- * from the answer the user just gave rather than from a refetch that may not
- * have landed. It is also fire-and-forget: a dropped ping must not be able to
- * hold somebody on the consent screen.
+ * `onboarding_completed` used to fire from this function, i.e. when the
+ * consent step saved — three steps before onboarding ends (QA CA1.1). It is
+ * now sent by `OnboardingFlow` when the last step finishes.
  */
 import type { ConsentLocale, ConsentPlatformName } from './consentTypes';
 
@@ -50,8 +49,6 @@ export interface ConsentVersions {
 export interface RecordConsentsDeps {
   setRecommendationConsent: (input: { state: 'granted' | 'declined'; version: string; locale: ConsentLocale; platform: ConsentPlatformName }) => Promise<unknown>;
   setAnalyticsConsent: (granted: boolean) => Promise<unknown>;
-  /** Fire-and-forget. Never awaited into the failure path. */
-  reportCompleted: () => void;
 }
 
 export type RecordConsentsResult =
@@ -88,16 +85,5 @@ export async function recordConsents(
     return { ok: false, at: 'analytics' };
   }
 
-  if (answers.analytics) {
-    // Genuinely fire-and-forget, including if it throws on the way out. Every
-    // answer is already on the server by this point; turning a recorded set of
-    // consents into a "nothing was changed" retry because a metrics ping fell
-    // over would be the tail wagging the dog.
-    try {
-      deps.reportCompleted();
-    } catch {
-      // Nothing to do, and nothing the user could do either.
-    }
-  }
   return { ok: true };
 }

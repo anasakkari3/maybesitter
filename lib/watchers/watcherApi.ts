@@ -266,6 +266,20 @@ export function applyWatcherPatch(current: StoredWatcher, patch: WatcherPatch, n
   };
 }
 
+/**
+ * What a repeated create asks of the watcher that already answers it: the
+ * effect just chosen, and — for a user's own watcher — running again if it was
+ * paused. Null when nothing differs. A pack's watcher is never re-enabled here;
+ * that is the pack's decision (#528). QA CA6.3: the new choice used to be
+ * dropped while the create answered 201.
+ */
+export function repeatedCreatePatch(existing: StoredWatcher, input: NewWatcherInput): WatcherPatch | null {
+  const effect = existing.definition.effect !== input.effect ? input.effect : undefined;
+  const enable = input.enabled && !existing.definition.enabled && existing.definition.createdBy === 'user';
+  if (effect === undefined && !enable) return null;
+  return { ...(effect === undefined ? {} : { effect }), ...(enable ? { enabled: true } : {}) };
+}
+
 /* ── Presentation ────────────────────────────────────────────────── */
 
 /**

@@ -60,6 +60,11 @@ export async function POST(request: Request) {
       ...resolveOf(entry.resolve),
     }))
     .filter((entry) => Number.isInteger(entry.index) && entry.index >= 0);
+  // One tick per row: a repeated index wrote the same fact twice (QA CA1.10,
+  // CXA1.7). The app never sends one, so it is refused, not silently merged.
+  if (new Set(accepted.map((entry) => entry.index)).size !== accepted.length) {
+    return mobileError('accepted lists an index more than once');
+  }
 
   try {
     const result = await confirmAiContextImport(user.uid, body.proposalId, accepted, new Date());

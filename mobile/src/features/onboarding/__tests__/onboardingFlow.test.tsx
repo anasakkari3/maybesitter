@@ -41,6 +41,18 @@ import * as profileEndpoints from '../../../api/endpoints/profile';
 import * as trustEndpoints from '../../../api/endpoints/trust';
 import * as analyticsEndpoints from '../../../api/endpoints/analytics';
 
+// The AI import detour, stood in for: it answers with the categories its saved
+// rows had. The real flow is covered in features/aiImport (CA1.2 needs only
+// what the setup chat does with the answer).
+jest.mock('../AiImportFlowStep', () => {
+  const { Pressable, Text: RNText } = jest.requireActual<typeof import('react-native')>('react-native');
+  return {
+    AiImportFlowStep: ({ onDone }: { onDone: (categories: readonly string[]) => void }) => (
+      <Pressable testID="fake-import-done" onPress={() => onDone(['schedule', 'schedule'])}><RNText>import</RNText></Pressable>
+    ),
+  };
+});
+
 const USER: AuthUser = {
   uid: 'onboarding-user',
   email: 'someone@example.com',
@@ -647,6 +659,50 @@ describe('the guided setup', () => {
     await waitFor(() => expect(screen.queryByTestId('onboarding-notifications')).not.toBeNull());
     expect(recordAnalyticsEvent).not.toHaveBeenCalledWith('onboarding_setup_answered', expect.anything());
     expect(describeProfile).not.toHaveBeenCalled();
+  });
+
+  it('counts onboarding as completed only at its real end, not when consent is saved (CA1.1)', async () => {
+    await reachSetup(true);
+    // Three steps before the end, with analytics granted: nothing claims done.
+    expect(recordAnalyticsEvent).not.toHaveBeenCalledWith('onboarding_completed', expect.anything());
+    expect(recordAnalyticsEvent.mock.calls.map(call => call[0])).not.toContain('onboarding_completed');
+    await pressTestId('setup-skip');
+    await waitFor(() => expect(screen.queryByTestId('onboarding-notifications')).not.toBeNull());
+    expect(recordAnalyticsEvent.mock.calls.map(call => call[0])).not.toContain('onboarding_completed');
+    await pressTestId('onboarding-notifications-later');
+    await waitFor(() => expect(recordAnalyticsEvent.mock.calls.map(call => call[0])).toContain('onboarding_completed'));
+    expect(recordAnalyticsEvent.mock.calls.filter(call => call[0] === 'onboarding_completed')).toHaveLength(1);
+  });
+
+  it('never counts a completion without analytics consent (CA1.1)', async () => {
+    await reachSetup(false);
+    await pressTestId('setup-skip');
+    await waitFor(() => expect(screen.queryByTestId('onboarding-notifications')).not.toBeNull());
+    await pressTestId('onboarding-notifications-later');
+    await waitFor(() => expect(screen.queryByTestId('onboarding-notifications')).toBeNull());
+    expect(recordAnalyticsEvent.mock.calls.map(call => call[0])).not.toContain('onboarding_completed');
+  });
+
+  it('sends describe only the questions still shown after an import removed one (CA1.2)', async () => {
+    await reachSetup(false);
+    await fireEvent.changeText(screen.getByTestId('setup-life-input'), 'Nursing student');
+    await press(en.obSetupLifeCta);
+    await waitFor(() => expect(screen.queryByText(en.obSetupDayPrompt)).not.toBeNull());
+    await fireEvent.changeText(screen.getByTestId('setup-answer-input'), 'Chess club at four in the morning');
+    await press(en.obBack);
+    await pressTestId('setup-ai-import');
+    await pressTestId('fake-import-done');
+    // The day question is gone from what is asked…
+    await waitFor(() => expect(screen.queryByTestId('setup-life-input')).not.toBeNull());
+    await press(en.obSetupLifeCta);
+    expect(screen.queryByText(en.obSetupDayPrompt)).toBeNull();
+    for (let i = 0; i < 2; i += 1) await press(en.obSetupNext);
+    await press(en.obSetupRead);
+    await waitFor(() => expect(describeProfile).toHaveBeenCalledTimes(1));
+    // …so its hidden answer is not sent either.
+    expect(describeProfile.mock.calls[0]![0]).toContain('Nursing student');
+    expect(describeProfile.mock.calls[0]![0]).not.toContain('Chess club');
+    expect(describeProfile.mock.calls[0]![0]).not.toContain(en.obSetupDayLabel);
   });
 
   it('saves nothing from the review without a tick', async () => {

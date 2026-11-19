@@ -166,9 +166,14 @@ export function projectBackgroundMonitor(
   connection: IntegrationConnectionRecord | null,
   now: string,
   sourceHealth: SourceHealth = SOURCE_OK,
+  globallyPaused = false,
 ): BackgroundMonitorView {
   const { definition, runtime } = stored;
-  const status = backgroundMonitorStatusOf(stored, connection, sourceHealth);
+  const own = backgroundMonitorStatusOf(stored, connection, sourceHealth);
+  // «وقّف كل المتابعة مؤقتًا» stops every effect, so no row may still say it
+  // is live with a check one minute ahead (QA CA6.4). Problems the user can
+  // fix (re-auth, permission) still show; `canPause` stays the watcher's own.
+  const status = globallyPaused && own === 'active' ? 'paused' : own;
   return {
     monitorId: monitorIdForWatcher(definition.watcherId),
     watcherId: definition.watcherId,
@@ -244,6 +249,7 @@ export async function listBackgroundActivity(
         : connections.get(watcher.definition.source.connectionId) ?? null,
       now,
       health.get(watcher.definition.watcherId) ?? SOURCE_OK,
+      settings.paused,
     ))
     .sort((left, right) => left.monitorId.localeCompare(right.monitorId));
 

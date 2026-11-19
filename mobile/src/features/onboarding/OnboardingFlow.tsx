@@ -68,9 +68,9 @@ import { EMPTY_ANSWERS } from '../routine/routineProfile';
  *
  * ── The analytics event obeys the answer it just recorded ────────
  *
- * `onboarding_completed` fires only when analytics consent was granted. It is
- * read from the choice the user made on this screen, not from a refetch that
- * might not have landed yet.
+ * `onboarding_completed` fires only when analytics consent was granted, and
+ * only when the last step finishes (QA CA1.1). The grant is read from the
+ * choice the user made on the consent screen, not from a refetch.
  */
 export function OnboardingFlow({ onFinished }: { onFinished: () => void }) {
   // The survey answers are the account's, not the device's (#148): every read
@@ -185,9 +185,15 @@ export function OnboardingFlow({ onFinished }: { onFinished: () => void }) {
     // State first, in the same tick as the press that asked for it; nothing
     // the person sees waits on the device write. See the header.
     setStep(next);
-    if (next === 'done') { replayEvent('onboarding_completed'); onFinished(); }
+    if (next === 'done') {
+      replayEvent('onboarding_completed');
+      // Counted here, at the real end, and only with this run's analytics
+      // grant — not when the consent step saved (QA CA1.1). Fire-and-forget.
+      if (choices.analytics) recordAnalytics.mutate({ eventName: 'onboarding_completed' });
+      onFinished();
+    }
     await saveOnboardingProgress(next);
-  }, [onFinished, replayEvent]);
+  }, [choices.analytics, onFinished, recordAnalytics, replayEvent]);
 
   const goBack = useCallback((from: OnboardingStep) => {
     const back = previousStep(from);
@@ -210,7 +216,6 @@ export function OnboardingFlow({ onFinished }: { onFinished: () => void }) {
       {
         setRecommendationConsent: input => setRecommendations.mutateAsync(input),
         setAnalyticsConsent: granted => trustAction.mutateAsync({ type: 'set_analytics_consent', granted }),
-        reportCompleted: () => recordAnalytics.mutate({ eventName: 'onboarding_completed' }),
       },
     );
     if (!result.ok) {
@@ -218,7 +223,7 @@ export function OnboardingFlow({ onFinished }: { onFinished: () => void }) {
       return;
     }
     await advance('consent');
-  }, [advance, choices, consents.data, recordAnalytics, setRecommendations, trustAction]);
+  }, [advance, choices, consents.data, setRecommendations, trustAction]);
 
   const saveRoutine = useCallback(async (skipped: boolean) => {
     const payload = toRoutinePayload(answers, timezone, { skipped });
@@ -381,7 +386,7 @@ export function OnboardingFlow({ onFinished }: { onFinished: () => void }) {
         {...(imported === null ? { onImport: () => setImporting(true) } : {})}
         onChange={(update) => setSetup(previous => ({ ...previous, answers: update(previous.answers) }))}
         onIndexChange={(index) => setSetup(previous => ({ ...previous, index }))}
-        onRead={() => void readDescription(composeDescription(setup.answers, t))}
+        onRead={() => void readDescription(composeDescription(setup.answers, t, questions))}
         onSkip={() => void finishSetup('skipped')}
         onBack={() => goBack('about')}
         reading={describe.isPending}

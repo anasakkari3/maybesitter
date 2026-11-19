@@ -43,7 +43,7 @@ import {
   type SourceHealth,
 } from './backgroundMonitors';
 import { readMonitoringSettings } from './monitoringSettings';
-import { createWatcherStore, type StoredWatcher } from './watcherStore';
+import { createWatcherStore, isCurrentGeneration, type StoredWatcher } from './watcherStore';
 
 export const HISTORY_DEFAULT_LIMIT = 50;
 export const HISTORY_MAX_LIMIT = 200;
@@ -110,8 +110,12 @@ export async function listBackgroundActivityHistory(
   }
   const healthOf = (watcher: StoredWatcher) => healthById.get(watcher.definition.watcherId) ?? SOURCE_OK;
 
-  // 2. Read firings
+  // 2. Read firings. A request for one watcher reads that watcher's firings,
+  // not the account's newest 200 filtered afterwards (QA CXA6.6). The id may
+  // be the watcher's or its monitor's (`mon_<watcherId>`).
+  const filterWatcherId = options.watcherId?.startsWith('mon_') ? options.watcherId.slice('mon_'.length) : options.watcherId;
   const firingsRows = await storage.list<WatcherFireEvent>(userCol(uid, WATCHER_EVENTS), {
+    ...(filterWatcherId ? { where: [['watcherId', '==', filterWatcherId]] } : {}),
     orderBy: { field: 'firedAt', direction: 'desc' },
     limit: HISTORY_MAX_LIMIT,
   });
@@ -154,6 +158,9 @@ export async function listBackgroundActivityHistory(
   // Row Type 1 & 2: From firings
   for (const event of firings) {
     const watcher = watchersById.get(event.watcherId);
+    // A firing of an earlier watcher under the same stable id is not this
+    // watcher's history (E3 review).
+    if (!isCurrentGeneration(event, watcher)) continue;
     const connection = watcher?.definition.source.connectionId
       ? connections.get(watcher.definition.source.connectionId) ?? null
       : null;
@@ -203,6 +210,10 @@ export async function listBackgroundActivityHistory(
       if (!matchedAttribution) continue;
 
       const watcher = watchersById.get(matchedAttribution.watcherId);
+      if (watcher) {
+        const firing = await storage.get<WatcherFireEvent>(userSubDoc(uid, WATCHER_EVENTS, matchedAttribution.actionId));
+        if (firing && !isCurrentGeneration(firing, watcher)) continue;
+      }
       const connection = watcher?.definition.source.connectionId
         ? connections.get(watcher.definition.source.connectionId) ?? null
         : null;

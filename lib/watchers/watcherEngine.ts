@@ -165,8 +165,12 @@ async function readConnection(
  * from, so two sweeps evaluating the same transition share one id and a
  * later return to the same state does not (QA CXA6.1).
  */
-export function watcherEventIdFor(watcherId: string, signalId: string, fireCount: number): string {
-  return docIdForKey(`watcher-fire:${watcherId}:${signalId}:${fireCount}`);
+export function watcherEventIdFor(watcherId: string, signalId: string, fireCount: number, createdAt: string): string {
+  // `createdAt` is the watcher's generation: a watcher deleted and made again
+  // under its stable id (QA CXA6.4, CA6.7) starts at fireCount 0 again, and
+  // without it its first firing would match the old one's event and be
+  // swallowed as a duplicate (E3 review).
+  return docIdForKey(`watcher-fire:${watcherId}:${createdAt}:${signalId}:${fireCount}`);
 }
 
 function fireEvent(
@@ -198,6 +202,7 @@ function fireEvent(
     policyDecision,
     provenanceRef: signal.provenanceRef,
     effectRef,
+    watcherCreatedAt: definition.createdAt,
   };
 }
 
@@ -310,7 +315,7 @@ async function commitFiring(
   storage: StorageAdapter,
 ): Promise<FireOutcome> {
   const { definition } = stored;
-  const eventId = watcherEventIdFor(definition.watcherId, signal.signalId, stored.runtime.fireCount);
+  const eventId = watcherEventIdFor(definition.watcherId, signal.signalId, stored.runtime.fireCount, definition.createdAt);
   const eventPath = userSubDoc(definition.scopeId, WATCHER_EVENTS, eventId);
   const watcherPath = userSubDoc(definition.scopeId, WATCHERS, definition.watcherId);
   const connectionPath = definition.source.connectionId === null

@@ -24,7 +24,7 @@
  * must not re-create a watcher the per-minute sweep would then keep finding.
  * `remove` is left plain: a delete re-creates nothing.
  */
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { requireLiveAccount } from '../account/accountLiveness';
 import {
   type WatcherFireEvent,
@@ -84,9 +84,9 @@ export class WatcherStore {
     return userSubDoc(this.uid, WATCHERS, watcherId);
   }
 
-  async create(input: NewWatcherInput, now: string): Promise<StoredWatcher> {
-    const watcherId = `wtc_${randomUUID()}`;
-    const stored: StoredWatcher = {
+  private build(input: NewWatcherInput, now: string, watcherId: string): StoredWatcher {
+    const runtime = initialWatcherRuntime(watcherId, this.uid, now);
+    return {
       definition: {
         version: WATCHER_CONTRACT_VERSION,
         schemaVersion: WATCHER_SCHEMA_VERSION,
@@ -101,13 +101,40 @@ export class WatcherStore {
         createdAt: now,
         updatedAt: now,
       },
-      runtime: initialWatcherRuntime(watcherId, this.uid, now),
+      // A watcher created off is paused from its first read, not `active`
+      // until a sweep notices (QA CXA6.7).
+      runtime: input.enabled ? runtime : { ...runtime, status: 'paused' },
     };
+  }
+
+  async create(input: NewWatcherInput, now: string): Promise<StoredWatcher> {
+    const stored = this.build(input, now, `wtc_${randomUUID()}`);
     await this.storage.runTransaction(async (tx) => {
       await requireLiveAccount(tx, this.uid);
-      tx.set(this.path(watcherId), stored);
+      tx.set(this.path(stored.definition.watcherId), stored);
     });
     return stored;
+  }
+
+  /**
+   * Creates the watcher under a fixed id unless that document already exists,
+   * in one transaction: two requests racing to create "the same" watcher end
+   * with one document (QA CXA6.4, CA6.7). Answers the stored one either way.
+   */
+  async createOnce(
+    input: NewWatcherInput,
+    now: string,
+    watcherId: string,
+  ): Promise<{ watcher: StoredWatcher; created: boolean }> {
+    const path = this.path(watcherId);
+    return this.storage.runTransaction(async (tx) => {
+      await requireLiveAccount(tx, this.uid);
+      const existing = await tx.get<StoredWatcher>(path);
+      if (existing) return { watcher: existing, created: false };
+      const stored = this.build(input, now, watcherId);
+      tx.set(path, stored);
+      return { watcher: stored, created: true };
+    });
   }
 
   async get(watcherId: string): Promise<StoredWatcher | null> {
@@ -156,7 +183,11 @@ export class WatcherStore {
       orderBy: { field: 'firedAt', direction: 'desc' },
       limit,
     });
-    return rows.map((row) => row.data);
+    // Only this generation's: a watcher made again under its stable id does
+    // not inherit the firings of the one deleted before it (E3 review). Old
+    // firings are older, so they sit at the tail the limit cuts first.
+    const current = await this.get(watcherId);
+    return rows.map((row) => row.data).filter((event) => isCurrentGeneration(event, current));
   }
 
   async remove(watcherId: string): Promise<boolean> {
@@ -168,6 +199,27 @@ export class WatcherStore {
       return true;
     });
   }
+}
+
+/**
+ * A `wtc_<uuid>`-shaped id derived from what makes two watchers "the same"
+ * (QA CXA6.4, CA6.7), within one account. The uid is part of the hash so two
+ * accounts never share an id: a request naming another account's watcher id
+ * must keep finding nothing. A watcher deleted and made again gets its id back.
+ */
+export function stableWatcherId(uid: string, key: string): string {
+  const hex = createHash('sha256').update(`${uid}\u0000${key}`).digest('hex');
+  return `wtc_${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`;
+}
+
+/**
+ * Whether a firing belongs to the watcher now under its id. An event without
+ * `watcherCreatedAt` predates stable ids and so cannot belong to an earlier
+ * generation; one with it must match (E3 review).
+ */
+export function isCurrentGeneration(event: WatcherFireEvent, watcher: StoredWatcher | null | undefined): boolean {
+  if (!watcher || event.watcherCreatedAt === undefined) return true;
+  return event.watcherCreatedAt === watcher.definition.createdAt;
 }
 
 export function createWatcherStore(uid: string, storage?: StorageAdapter): WatcherStore {

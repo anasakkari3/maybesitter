@@ -5,7 +5,7 @@ import { View } from 'react-native';
 import { useApp } from '../../state/AppContext';
 import { fill } from '../../i18n/strings';
 import { Notice } from '../../ui/chrome';
-import { InputTooLargeError, QuotaExceededError } from '../../api/errors';
+import { InputTooLargeError, NotFoundError, QuotaExceededError } from '../../api/errors';
 import { useConfirmAiContextImport, useImportAiContext } from '../../api/queries';
 import { readClipboardText } from '../capture/clipboardImport';
 import type { SuggestionCategory } from '../../api/schemas/profile';
@@ -114,8 +114,9 @@ export function AiImportFlow({
           onDone(accepted.map(({ index }) => proposal.candidates[index]!.category as SuggestionCategory));
         },
         // Nothing was written and nobody has been told otherwise. The choices
-        // stay exactly as they were and the primary button re-sends them.
-        onError: () => dispatch({ type: 'saveFailed' }),
+        // stay exactly as they were and the primary button re-sends them —
+        // unless the proposal itself is gone, which no retry fixes (CA1.5).
+        onError: (error) => dispatch(error instanceof NotFoundError ? { type: 'expired' } : { type: 'saveFailed' }),
       },
     );
   }, [confirming, onDone, state, replayEvent]);
@@ -155,6 +156,7 @@ export function AiImportFlow({
           text={state.text}
           pasteEmpty={state.pasteEmpty}
           readFailed={state.readFailed}
+          expired={state.expired}
           reading={state.status === 'reading'}
           onPaste={() => void paste()}
           onRead={read}
