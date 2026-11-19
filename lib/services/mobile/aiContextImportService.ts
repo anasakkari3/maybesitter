@@ -47,6 +47,7 @@ import {
   userCol,
   userDoc,
   type StorageAdapter,
+  type StorageTransaction,
 } from '../../storage';
 import { toVertexSchema } from '../../../src/extraction/llm/vertexSchema';
 import { detectPromptInjection } from '../../../src/extraction/ollamaExtractor';
@@ -137,7 +138,19 @@ interface StoredImportProposal {
   createdAt: string;
   promptVersion: string;
   model: string | null;
+  /** Held by one confirm while it writes (CXA8.10); a lapsed lease is free again. */
+  claim?: ProposalClaim;
+  /** Indexes already written by a confirm that failed part way, never written twice. */
+  written?: number[];
 }
+
+interface ProposalClaim {
+  claimId: string;
+  reservedUntil: string;
+}
+
+/** How long one confirm holds a proposal before another may take it over. */
+const CONFIRM_LEASE_MS = 60_000;
 
 export interface AcceptedImportCandidate {
   index: number;
@@ -360,22 +373,35 @@ export async function confirmAiContextImport(
 ): Promise<ImportApplyResult> {
   requireUserId(uid);
   const storage = storageOf(options);
-  // Claimed and removed in one transaction before anything is written
-  // (de7fcb84 audit CXA8.10): two confirms sent at once both read the live
-  // proposal and both wrote every row. Now one of them finds it gone.
+  /*
+   * Claimed in one transaction before anything is written (de7fcb84 audit
+   * CXA8.10): two confirms sent at once both read the live proposal and both
+   * wrote every row. The claim is a short lease, not a delete: a confirm whose
+   * write fails gives it back, so pressing save again works, and the rows it
+   * did write are recorded so the retry does not write them twice.
+   */
+  const path = proposalPath(uid, proposalId);
+  const claimId = randomUUID();
   const stored = await storage.runTransaction(async (tx) => {
-    const found = await tx.get<StoredImportProposal>(proposalPath(uid, proposalId));
+    const found = await tx.get<StoredImportProposal>(path);
     if (!found) return null;
     const age = at.getTime() - Date.parse(found.createdAt);
     if (!Number.isFinite(age) || age > AI_CONTEXT_IMPORT_TTL_MS) return null;
-    tx.delete(proposalPath(uid, proposalId));
-    return found;
+    if (found.claim && Date.parse(found.claim.reservedUntil) > Date.now()) return null;
+    const claimed: StoredImportProposal = { ...found, claim: { claimId, reservedUntil: new Date(Date.now() + CONFIRM_LEASE_MS).toISOString() } };
+    tx.set<StoredImportProposal>(path, claimed);
+    return claimed;
   });
   if (!stored) throw new ImportProposalNotFoundError();
+  const stillMine = async (change: (tx: StorageTransaction, current: StoredImportProposal) => void) => {
+    await storage.runTransaction(async (tx) => {
+      const current = await tx.get<StoredImportProposal>(path);
+      if (current?.claim?.claimId === claimId) change(tx, current);
+    });
+  };
+  const written = new Set(stored.written ?? []);
 
   const memory = memoryOf(options);
-  // Fenced against a delete-all or a withdrawal that starts while this confirms (M5B2A-R34-001).
-  const guard = await personalizationWriteGuard(storage, uid);
   const isoAt = at.toISOString();
   const result: ImportApplyResult = {
     created: 0, superseded: 0, unchanged: 0, conflicts: 0, demoted: 0, kinds: {},
@@ -383,10 +409,14 @@ export async function confirmAiContextImport(
 
   const choices = [...accepted ?? []].sort((a, b) => a.index - b.index);
 
+  try {
+  // Fenced against a delete-all or a withdrawal that starts while this confirms (M5B2A-R34-001).
+  const guard = await personalizationWriteGuard(storage, uid);
+
   for (let position = 0; position < choices.length; position += 1) {
     const choice = choices[position]!;
     const candidate = stored.candidates[choice.index];
-    if (!candidate) continue;
+    if (!candidate || written.has(choice.index)) continue;
 
     const edited = typeof choice.content === 'string' ? choice.content.trim() : '';
     const useEdit = edited !== '' && edited !== candidate.content;
@@ -458,10 +488,20 @@ export async function confirmAiContextImport(
     }
 
     result.kinds[candidate.kind] = (result.kinds[candidate.kind] ?? 0) + 1;
+    written.add(choice.index);
+    await stillMine((tx, current) => tx.set<StoredImportProposal>(path, { ...current, written: Array.from(written) }));
+  }
+  } catch (error) {
+    // Given back, with what was written kept: the person can press save again.
+    await stillMine((tx, current) => {
+      const { claim: _released, ...rest } = current;
+      tx.set<StoredImportProposal>(path, { ...rest, written: Array.from(written) });
+    });
+    throw error;
   }
 
-  // The proposal was removed when it was claimed, above: a second confirm
-  // cannot write the same facts twice.
+  // Done: removed only by the confirm that held it.
+  await stillMine((tx) => tx.delete(path));
 
   // Only when something was actually brought over. Reading a profile and
   // keeping none of it is not an import, and a date for it would claim the
