@@ -191,6 +191,13 @@ export interface ShareContextValue {
   analyze(): Promise<void>;
   /** Deletes the copies, forgets the share and goes home. Persists nothing. */
   discard(): void;
+  /**
+   * Back: deletes the copies and forgets the share, then takes the history's
+   * step back. Back used to change only the screen, so the shared file and the
+   * native record stayed for as long as the app was open (de7fcb84 audit
+   * CXA3.1); nothing offers that share again once its screen is left.
+   */
+  leave(): void;
 }
 
 const ShareContext = createContext<ShareContextValue | null>(null);
@@ -370,7 +377,12 @@ function ShareIntake({ children }: { children: React.ReactNode }) {
     actions.go('today');
   }, [actions, clear]);
 
-  const value = useMemo<ShareContextValue>(() => ({ state, analyze, discard }), [state, analyze, discard]);
+  const leave = useCallback(() => {
+    clear();
+    actions.back();
+  }, [actions, clear]);
+
+  const value = useMemo<ShareContextValue>(() => ({ state, analyze, discard, leave }), [state, analyze, discard, leave]);
   return <ShareContext.Provider value={value}>{children}</ShareContext.Provider>;
 }
 
