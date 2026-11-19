@@ -135,6 +135,8 @@ test('a row\'s «الظهر», «ميه», «ست», «نص» and a weekday «ت
   assert.equal(one('عندك دوام 3 أيام.', 'كل تلات عندي دوام'), null);
   assert.equal(one('عندك دوام 2 أيام.', 'كل اتنين عندي دوام'), null);
   assert.equal(one('יש לך שלוש הרצאות.', 'יש לי הרצאה ביום שלישי', 'he'), null);
+  // A row's «الاثنين/التلات» with the article holds no 2 or 3, even with no day word beside it.
+  assert.equal(one('عندك 2 ولاد.', 'بروح عالنادي الاثنين'), null);
   // Still a number where it is one: «الساعة 12 الظهر» holds 12 by its digits.
   assert.notEqual(one('بتتغدى الساعة 12 الظهر.', 'بتغدى الساعة 12 الظهر'), null);
 });
