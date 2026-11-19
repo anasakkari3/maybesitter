@@ -36,6 +36,29 @@ export const SOURCE_LABEL_STRING: Record<MemorySourceLabel, string> = {
   you_brought_from_ai: 'memorySourceBroughtFromAi',
 };
 
+/** The words for the assistant an imported fact came from (`provenance.assistant`). */
+const ASSISTANT_STRING: Record<NonNullable<NonNullable<MemoryItem['provenance']>['assistant']>, string> = {
+  chatgpt: 'aiImportAssistantChatgpt',
+  gemini: 'aiImportAssistantGemini',
+  claude: 'aiImportAssistantClaude',
+  other: 'aiImportAssistantOther',
+};
+
+/**
+ * The source chip, in words. «إنت جبته من {assistant}» names the assistant
+ * the fact was brought from; a record that does not say which reads as
+ * "another assistant" rather than showing the placeholder (QA v3 V3-F26-05).
+ */
+export function sourceLabelText(
+  item: Pick<MemoryItem, 'sourceLabel' | 'provenance'>,
+  strings: Record<string, string>,
+): string {
+  const template = strings[SOURCE_LABEL_STRING[item.sourceLabel]] ?? '';
+  if (item.sourceLabel !== 'you_brought_from_ai') return template;
+  const assistant = strings[ASSISTANT_STRING[item.provenance?.assistant ?? 'other']] ?? '';
+  return fill(template, { assistant });
+}
+
 /**
  * The three groups the list is cut into.
  *
