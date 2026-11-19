@@ -220,3 +220,40 @@ for (const mode of ['shadow', 'enforce'] as const) {
     }
   });
 }
+
+/* ── Review of #880: an unreadable gate still refuses under enforce ── */
+
+// Only «not bought / switched off» (404) lets current items through. A gate
+// that cannot read what was bought or spent must not be read as "off": under
+// enforce it answers 503 and searches nothing, current items included.
+test('QA v3 V3-F34-10 (enforce): an unreadable gate is 503, never a current-items search', async () => {
+  const previous = process.env.MAYBESITTER_ADDON_GATE_MODE;
+  const [warn, error] = [console.warn, console.error];
+  process.env.MAYBESITTER_ADDON_GATE_MODE = 'enforce';
+  console.warn = () => {};
+  console.error = () => {};
+  const { getStorage } = await import('../../../lib/storage/index.ts');
+  let storage: ReturnType<typeof getStorage> | null = null;
+  let get: ReturnType<typeof getStorage>['get'] | null = null;
+  try {
+    const uid = await begin();
+    storage = getStorage();
+    get = storage.get.bind(storage);
+    await addCommitment(uid, 'Dentist booking', { kind: 'due_by', dueAt: at(TOMORROW, '12:00') });
+    const read = get;
+    (storage as { get: typeof read }).get = (async (path: string) => {
+      if (path.endsWith('/features/entitlements') || path.endsWith('/features/preferences')) throw new Error('unavailable');
+      return read(path);
+    }) as typeof read;
+    const result = await search(uid, { q: 'dentist' });
+    assert.equal(result.status, 503, `an unreadable gate was not refused: ${show(result.body)}`);
+    assert.equal((result.body as { reason?: string }).reason, 'feature_gate_unavailable');
+    assert.equal((result.body as { items?: unknown }).items, undefined, 'items were sent while the gate was unreadable');
+  } finally {
+    if (storage && get) (storage as { get: typeof get }).get = get;
+    console.warn = warn;
+    console.error = error;
+    if (previous === undefined) delete process.env.MAYBESITTER_ADDON_GATE_MODE;
+    else process.env.MAYBESITTER_ADDON_GATE_MODE = previous;
+  }
+});
