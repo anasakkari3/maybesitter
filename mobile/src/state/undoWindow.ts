@@ -22,6 +22,13 @@ import { onBeforeSignOut } from '../auth/beforeSignOut';
 /** Five seconds, the toast's `TOAST_SECONDS`; a test binds the two together. */
 export const UNDO_WINDOW_MS = 5_000;
 
+/**
+ * How long a sign-out waits for what is held (review 2026-11-19). The sends
+ * start at once; with no signal one can take the client's 15 s to fail, and
+ * leaving is never held that long — after this the sign-out goes on.
+ */
+export const SIGN_OUT_FLUSH_CAP_MS = 3_000;
+
 interface Pending {
   readonly timer: ReturnType<typeof setTimeout>;
   readonly commit: () => unknown;
@@ -63,7 +70,14 @@ export function deferWithUndo(commit: () => unknown, ms: number = UNDO_WINDOW_MS
   }
   // A sign-out inside the window sends what is held first, while the session
   // that pressed it is still the one signed in (review 2026-11-19).
-  if (!signOutTask) signOutTask = onBeforeSignOut(async () => { await flushPendingCommits(); });
+  if (!signOutTask) {
+    signOutTask = onBeforeSignOut(async () => {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const cap = new Promise<void>((resolve) => { timer = setTimeout(resolve, SIGN_OUT_FLUSH_CAP_MS); });
+      await Promise.race([flushPendingCommits(), cap]);
+      clearTimeout(timer);
+    });
+  }
   return () => settle(id) !== null;
 }
 
