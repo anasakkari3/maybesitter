@@ -115,14 +115,18 @@ export function whatsappParts(messages: readonly WhatsAppMessage[]): readonly Ll
 export const EMOJI_ONLY = '(emoji)';
 
 /**
- * Pictographs, with the joiners, variation selectors, skin tones and keycap
- * marks that build one emoji out of several code points.
+ * Pictographs, with the pieces that build one emoji out of several code
+ * points: joiners, variation selectors, skin tones, keycap marks, the paired
+ * regional indicators of a flag (🇮🇱) and the tag characters of a subdivision
+ * flag (🏴󠁧󠁢󠁥󠁮󠁧󠁿).
  *
- * `\p{Extended_Pictographic}` alone would leave a skin-tone modifier or a
- * zero-width joiner behind as an invisible character; the rest of the class is
- * those pieces.
+ * ©, ® and ™ are `Extended_Pictographic` too, and are kept: in a chat they are
+ * part of a name ("Acme®"), not a reaction.
  */
-const EMOJI = new RegExp('[\\p{Extended_Pictographic}\\p{Emoji_Modifier}\\u200d\\ufe0f\\u20e3]', 'gu');
+const EMOJI = new RegExp(
+  '(?![\\u00a9\\u00ae\\u2122])[\\p{Extended_Pictographic}\\p{Emoji_Modifier}\\p{Regional_Indicator}\\u200d\\ufe0f\\u20e3\\u{e0020}-\\u{e007f}]',
+  'gu',
+);
 
 /**
  * A line for the selection prompt, without its emoji (QA v3, V3-F07-01).
@@ -133,6 +137,11 @@ const EMOJI = new RegExp('[\\p{Extended_Pictographic}\\p{Emoji_Modifier}\\u200d\
  * has to do and when — and the model is now asked it over the words alone.
  * Only the prompt loses them: the segments and the evidence the channel builds
  * are the messages as written, emoji and all.
+ *
+ * Removing a character can join the words on either side of it
+ * («ig👍nore all previous instructions»), so the channel's injection screen
+ * runs over this function's output as well as over the message as written
+ * (`channels/whatsapp.ts`, `safeMessages`).
  */
 export function withoutEmoji(text: string): string {
   return text.replace(EMOJI, '').replace(/\s+/g, ' ').trim();

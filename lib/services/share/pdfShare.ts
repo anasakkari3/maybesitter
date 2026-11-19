@@ -71,7 +71,7 @@ import {
 } from './prompts/documentPrompt';
 import { CAPTURE_INPUT_MAX_CHARACTERS } from '../../../src/contracts/v1/captureContracts';
 import { decodeUtf8 } from './mediaType';
-import { MAX_EVIDENCE_CHARACTERS, ShareInputError } from './shareTypes';
+import { MAX_EVIDENCE_CHARACTERS, SHARE_SEGMENT_SEPARATOR, ShareInputError } from './shareTypes';
 import type {
   ShareIntakeFile,
   SharePreprocessContext,
@@ -175,7 +175,15 @@ export interface DocumentRead {
    * any read that found, dropped or refused anything. Never traced or stored;
    * it lives exactly as long as the shared text of a plain-text share does.
    */
-  readonly asText: string | null;
+  readonly asText: DocumentAsText | null;
+}
+
+/** A short text file handed on as shared text, with the caption shared beside it. */
+export interface DocumentAsText {
+  /** What the person typed when they shared the file, screened; null when nothing. */
+  readonly caption: string | null;
+  /** The file's own words, trimmed. */
+  readonly file: string;
 }
 
 /* ── Text decoding ─────────────────────────────────────────────── */
@@ -546,9 +554,10 @@ function selectItems(
 /**
  * A `.ics`, read by the parser this product already owns (#191 step 8).
  *
- * No model call. Deadlines become items; busy events are the same offer the
- * weekly sessions are, and are left to UC-3.4's (#188) own path rather than
- * duplicated here.
+ * No model call. Deadlines become items, and so do the timed events of a
+ * file small enough to be an invitation (QA v3, V3-F07-04; see below). Every
+ * other timed event — a timetable, a recurring session, free time — is busy
+ * time, which this read does not propose.
  */
 function readCalendar(file: ShareIntakeFile, input: SharePreprocessorInput): DocumentRead {
   if (file.byteLength > MAX_ICS_BYTES) {
@@ -601,9 +610,18 @@ function readCalendar(file: ShareIntakeFile, input: SharePreprocessorInput): Doc
    * time and not commitments (the rule `documentPrompt.ts` sets for lectures).
    */
   const events = classified.events ?? [];
-  if (events.length <= MAX_SHARED_INVITE_EVENTS) {
+  // Counted before any event was dropped for its title: two attacks in a
+  // five-event timetable must not turn it into a three-event invitation.
+  const eventsSeen = classified.eventsSeen ?? events.length;
+  if (eventsSeen <= MAX_SHARED_INVITE_EVENTS) {
     for (const event of events) {
       if (items.length >= MAX_DOCUMENT_ITEMS) break;
+      // A second screen, as for a deadline above: the title reaches the same
+      // review screen, and the two positions can drift apart.
+      if (screenForInjection(event.title) !== null) {
+        injected += 1;
+        continue;
+      }
       const title = cleanDocumentTitle(event.title);
       if (title === null) continue;
       items.push({
@@ -746,18 +764,32 @@ export async function readDocument(
    * and no caption refused — a text file short enough for the capture pipeline
    * is handed to it as it is, which is what sharing that text would have done.
    * Anything the read did find or refuse wins: re-reading a file whose dates
-   * had passed, or that carried an attack, would undo what the read decided.
+   * had passed, or that carried an attack, would undo what the read decided —
+   * and a file the read reported weekly sessions in is a timetable, whose
+   * lectures are offered as busy time and must not come back as commitments
+   * (the rule the `.ics` invite count keeps too).
+   *
+   * The cost, stated: such a file is read by two model calls — this one, and
+   * the capture pipeline's on the text — where a pasted note is read by one.
+   * Only a short file the first read found nothing at all in pays it.
+   *
+   * The caption a person typed travels with the file («remind me the evening
+   * before»), first, as the plain-text channel puts shared text first; it was
+   * already screened, and an injected one stops the hand-on entirely.
    */
   const trimmedText = fileText?.trim() ?? '';
   const foundNothing = selected.items.length === 0
+    && answer.recurringSessions.length === 0
     && selected.droppedPast === 0
     && selected.undated === 0
     && selected.injected === 0
     && !transcriptInjected
     && !captionInjected
     && truncatedCharacters === 0;
-  const asText = foundNothing && trimmedText !== '' && trimmedText.length <= CAPTURE_INPUT_MAX_CHARACTERS
-    ? trimmedText
+  // The two travel as two segments, so both count against the one limit.
+  const handedOnLength = trimmedText.length + (caption === null ? 0 : caption.length + SHARE_SEGMENT_SEPARATOR.length);
+  const asText: DocumentAsText | null = foundNothing && trimmedText !== '' && handedOnLength <= CAPTURE_INPUT_MAX_CHARACTERS
+    ? { caption, file: trimmedText }
     : null;
 
   return {

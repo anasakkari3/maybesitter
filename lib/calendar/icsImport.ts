@@ -129,6 +129,11 @@ export interface IcsClassification {
   readonly skipped: { reason: SkipReason; count: number }[];
   /** Present only when `ClassifyIcsOptions.events` asked for it. */
   readonly events?: EventCandidate[];
+  /**
+   * How many events qualified for `events`, counted *before* any was dropped
+   * for its title. A timetable with two attacks in it is still a timetable.
+   */
+  readonly eventsSeen?: number;
 }
 
 export interface ClassifyIcsOptions {
@@ -528,6 +533,16 @@ export function classifyIcs(text: string, options: ClassifyIcsOptions): IcsClass
   const deadlines: DeadlineCandidate[] = [];
   const busy: BusyCandidate[] = [];
   const invites: EventCandidate[] = [];
+  let invitesSeen = 0;
+  /*
+   * A cancellation (METHOD:CANCEL) or somebody's answer to an invite
+   * (METHOD:REPLY) is not an invitation, and its events are nowhere to be.
+   * ATTENDEE — and so a PARTSTAT of DECLINED — is never read here, by the rule
+   * at the top of this file; a declined event exported from a calendar app
+   * carries STATUS:CANCELLED or is not exported, and CANCELLED is refused below.
+   */
+  const method = String(root.getFirstPropertyValue('method') ?? '').trim().toUpperCase();
+  const collectInvites = options.events === true && method !== 'CANCEL' && method !== 'REPLY';
 
   /* VTODO */
   for (const todo of root.getAllSubcomponents('vtodo')) {
@@ -641,12 +656,15 @@ export function classifyIcs(text: string, options: ClassifyIcsOptions): IcsClass
 
     if (startResolved.isDate) { tally.add('all_day'); return; }
     if (
-      options.events === true
+      collectInvites
       && recurrenceId === null
       && endMs > startResolved.epochMs
       && startResolved.epochMs >= nowMs
       && startResolved.epochMs <= deadlineEnd
+      // Free time is not somewhere to be: "Out of office", a holiday marker.
+      && textProp(item, 'transp').trim().toUpperCase() !== 'TRANSPARENT'
     ) {
+      invitesSeen += 1;
       pushEvent(invites, tally, { uid, rawTitle: summary, startMs: startResolved.epochMs, endMs });
     }
     if (textProp(item, 'transp').trim().toUpperCase() === 'TRANSPARENT') { tally.add('transparent'); return; }
@@ -674,7 +692,12 @@ export function classifyIcs(text: string, options: ClassifyIcsOptions): IcsClass
     deadlines: deadlines.slice(0, MAX_DEADLINES),
     busy: busy.slice(0, MAX_BUSY),
     skipped: tally.list(),
-    ...(options.events === true ? { events: invites.sort((a, b) => (a.startAt < b.startAt ? -1 : a.startAt > b.startAt ? 1 : 0)) } : {}),
+    ...(options.events === true
+      ? {
+        events: invites.sort((a, b) => (a.startAt < b.startAt ? -1 : a.startAt > b.startAt ? 1 : 0)),
+        eventsSeen: invitesSeen,
+      }
+      : {}),
   };
 }
 

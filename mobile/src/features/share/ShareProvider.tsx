@@ -192,18 +192,21 @@ function archiveRefusal(payload: SharedPayload): UserFacingKey | null {
  * The app-wide words for a request that got no answer are «… شوف اتصالك»,
  * which is right for a 15-second lookup and wrong here: a share is one large
  * upload and up to a minute of reading, and on the QA's simulator it failed
- * three times while every other screen was loading. What this phone knows is
- * that the upload got no answer — never that the connection is down — so
- * that is what it says: that it did not get through (with the one thing the
- * person can change, a smaller picture), or that the reading ran out of time.
+ * three times while every other screen was loading. The cause there is still
+ * not known. What this phone knows is that no answer came back — not that the
+ * connection is down, and not that the share never arrived (a thrown `fetch`
+ * can come after the server read it). So it says it could not confirm the
+ * share arrived; a picture also gets the one thing the person can change, a
+ * smaller screenshot; and a share that ran out of time says it may have
+ * arrived, because trying again spends another of the day's shares.
  * Every other failure keeps its own sentence.
  */
-function shareFailureKey(error: unknown): UserFacingKey {
+function shareFailureKey(error: unknown, kind: SharedPayload['kind']): UserFacingKey {
   // Asked first for every error: it marks the error as said, so the
   // unhandled-failure bridge stays quiet whichever sentence is shown.
   const key = userFacingMessageKey(error);
   if (error instanceof TimeoutError) return 'shareUploadTimedOut';
-  if (error instanceof NetworkError) return 'shareUploadNotSent';
+  if (error instanceof NetworkError) return kind === 'images' ? 'shareUploadNotSentImage' : 'shareUploadNotSent';
   return key;
 }
 
@@ -407,7 +410,7 @@ function ShareIntake({ children }: { children: React.ReactNode }) {
       // The payload is kept so the user can try again on a network failure.
       // `userFacingMessageKey` never interpolates the error's message, which on
       // this route could quote what was shared.
-      setPhase({ kind: 'failed', messageKey: shareFailureKey(error) });
+      setPhase({ kind: 'failed', messageKey: shareFailureKey(error, sending.kind) });
     }
   }, [clear, propose]);
 
