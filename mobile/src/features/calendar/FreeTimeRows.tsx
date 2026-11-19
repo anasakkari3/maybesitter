@@ -87,7 +87,8 @@ export function FreeList({ day, gaps, state, empty }: { day: string; gaps: reado
   const { t, p } = useApp();
   return (
     <View testID="calendar-free-list" style={{ gap: 8 }}>
-      {state === 'full' && empty ? <Txt size={15} color={p.mu} testID="calendar-free-all">{t.yDayAllFree}</Txt> : null}
+      {/* An empty day with no gap left is not free (CA4.2): only «ما في وقت فاضي» is true. */}
+      {state === 'full' && empty && gaps.length > 0 ? <Txt size={15} color={p.mu} testID="calendar-free-all">{t.yDayAllFree}</Txt> : null}
       {state === 'full' && gaps.length === 0 ? <Txt size={15} color={p.mu} testID="calendar-free-none">{t.yDayNoFree}</Txt> : null}
       {gaps.map((gap) => <GapRow key={gap.start} gap={gap} day={day} />)}
     </View>
