@@ -470,6 +470,30 @@ describe('Round 3 progressive density', () => {
   });
 });
 
+/*
+ * CA2.6 (owner decision 2026-11-19): a plan that was only proposed takes no
+ * rows out of «لازم» / «يفضّل». The preview lines show it, and the items stay
+ * rows with their done circle, swipe and tap. Only an accepted plan moves them.
+ */
+describe('a proposed plan keeps its items as rows (CA2.6)', () => {
+  it('previews the proposed slots but leaves every item in its group', async () => {
+    const records = ['primary', 'second', 'third', 'fourth', 'overflow'].map(id => withPriority(id, id === 'primary' ? 'high' : 'normal'));
+    jest.spyOn(planEndpoints, 'getPlan').mockResolvedValue({
+      date: '2026-09-23', timezone: 'UTC', status: 'proposed', generation: 1, inputDigest: '',
+      generatedAt: '2026-09-23T00:00:00Z', acceptedAt: null,
+      explanation: { text: '', locale: 'en', source: 'template' }, edited: false, unscheduled: [],
+      scheduled: records.map((record, i) => ({ itemId: record.id, title: record.title, startsAt: `2026-09-23T0${i + 4}:00:00Z`, endsAt: `2026-09-23T0${i + 4}:30:00Z`, blockId: null })),
+      protections: [],
+    });
+    await show(records);
+    await waitFor(() => expect(screen.queryByTestId('today-plan-preview')).not.toBeNull());
+    await openGroups();
+    expect(screen.getAllByTestId(/^today-plan-preview-/)).toHaveLength(4);
+    const rows = screen.getAllByTestId(/^today-item-/).map(node => node.props.testID);
+    for (const id of ['primary', 'second', 'third', 'fourth', 'overflow']) expect(rows).toContain(`today-item-${id}`);
+  });
+});
+
 /**
  * UAT round 6 N-h (app 73b3e4dc): «اليوم الساعة 8 المسا لازم أحضّر العشا»,
  * confirmed at 20:00, planned as «أحضّر العشا 20:00–20:30 ثابت», plan
