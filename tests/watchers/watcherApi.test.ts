@@ -413,3 +413,45 @@ test('a path segment that is not a watcher id is refused before any read', async
     end();
   }
 });
+
+/* ── QA v3 V3-F28-02: resuming says it runs ──────────────────────── */
+
+test('pause then resume (PATCH enabled:true or pause {paused:false}) answers active, not enabled-and-paused', async () => {
+  begin();
+  try {
+    for (const resume of ['patch', 'pause-route'] as const) {
+      const watcher = await created(ALICE, newWatcher({ label: `resume via ${resume}` }));
+      const paused = await pauseWatcher(
+        request(`/api/mobile/watchers/${watcher.watcherId}/pause`, { uid: ALICE, method: 'POST', body: {} }),
+        params(watcher.watcherId),
+      );
+      assert.equal((await paused.json() as { watcher: { status: string } }).watcher.status, 'paused');
+
+      const resumed = resume === 'patch'
+        ? await patchWatcher(
+          request(`/api/mobile/watchers/${watcher.watcherId}`, { uid: ALICE, method: 'PATCH', body: { enabled: true } }),
+          params(watcher.watcherId),
+        )
+        : await pauseWatcher(
+          request(`/api/mobile/watchers/${watcher.watcherId}/pause`, { uid: ALICE, method: 'POST', body: { paused: false } }),
+          params(watcher.watcherId),
+        );
+      assert.equal(resumed.status, 200);
+      const body = await resumed.json() as { watcher: { enabled: boolean; status: string } };
+      assert.equal(body.watcher.enabled, true, resume);
+      assert.equal(body.watcher.status, 'active', `${resume}: a resumed watcher still says paused`);
+      const listed = await (await listWatchers(request('/api/mobile/watchers', { uid: ALICE }))).json() as {
+        items: Array<{ watcherId: string; status: string }>;
+      };
+      assert.equal(listed.items.find((item) => item.watcherId === watcher.watcherId)?.status, 'active', resume);
+
+      // Resuming re-primes: the first sweep after it absorbs, never fires.
+      syntheticDigest = `moved-while-paused-${resume}`;
+      await sweep('2026-09-20T10:00:00.000Z');
+      const after = await createWatcherStore(ALICE).get(watcher.watcherId);
+      assert.equal(after?.runtime.fireCount, 0, `${resume}: resuming fired on what changed while paused`);
+    }
+  } finally {
+    end();
+  }
+});
