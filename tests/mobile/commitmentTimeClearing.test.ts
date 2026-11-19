@@ -166,3 +166,30 @@ test('V3-F10-01: tomorrow\'s plan keeps the edited 17:00 meeting at 17:00, as a 
   assert.deepEqual(reset.items.map((item) => item.itemId), [], 'the meeting floated as a task the planner may put at 08:00');
   assert.equal(reset.fixedEvents[0]?.interval.startsAt, MEETING_AT);
 });
+
+test('V3-F10-01 through patchCommitment: retitle (unsure, owner decision), clear the time, set it again — still pinned at its hour', async () => {
+  const { applyCommand: apply, configureCommandService } = await import('../../lib/services/commandService.ts');
+  const { patchCommitment } = await import('../../lib/services/mobile/commitmentService.ts');
+  configureCommandService({ initialState: createEmptyDomainState(), schedulerStore: null });
+  apply({
+    type: 'CreateDraft',
+    now: '2026-11-01T08:00:00.000Z',
+    commitment: {
+      id: 'cmt_meeting_e2e',
+      kind: 'task',
+      title: 'اجتماع مع فريق العمل',
+      priority: { level: 'normal', source: 'default', pressureAllowed: false, pressureLevel: 'none' },
+      timeSpec: { kind: 'scheduled_event', dueAt: MEETING_AT, endAt: null, remindAt: null, allDay: false, timezone: TIMEZONE, itemKind: 'event' },
+    },
+    draftStatus: 'pending_confirmation',
+  } as Command);
+  apply({ type: 'ConfirmCommitment', commitmentId: 'cmt_meeting_e2e', now: '2026-11-01T08:01:00.000Z' } as Command);
+
+  const retitled = await patchCommitment('cmt_meeting_e2e', { title: MEETING }, CLOCK);
+  assert.equal(retitled.timeSpec.itemKind, 'unsure', 'the owner\'s 2026-11-14 decision');
+  assert.equal(retitled.timeSpec.kind, 'scheduled_event');
+  await patchCommitment('cmt_meeting_e2e', { dueDate: null, reminderTime: null }, CLOCK);
+  const reset = await patchCommitment('cmt_meeting_e2e', { dueDate: MEETING_AT }, CLOCK);
+  assert.equal(reset.timeSpec.kind, 'scheduled_event', 'the reset meeting came back a deadline');
+  assert.equal(reset.timeSpec.itemKind, 'unsure');
+});

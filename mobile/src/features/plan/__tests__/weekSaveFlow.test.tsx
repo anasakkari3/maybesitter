@@ -80,4 +80,31 @@ describe('«احفظ هاليوم» (V3-F15-01)', () => {
     expect(screen.queryByTestId(`week-error-${day}`)).toBeNull();
     expect(routes.saves()).toBe(1);
   });
+
+  it('the guard lets go once a save settles: after a failure the day can be saved again', async () => {
+    let saves = 0;
+    const handler: RouteHandler = request => {
+      if (request.path === '/api/mobile/plans/week' && request.method === 'POST') return { status: 200, body: weekFixture };
+      if (request.path === '/api/mobile/plans/week/accept' && request.method === 'POST') {
+        saves += 1;
+        return saves === 1 ? { status: 500, body: { success: false, error: 'offline' } } : { status: 200, body: acceptedFixture };
+      }
+      return undefined;
+    };
+    harness = await prepare('ar', initialState(), handler);
+    await render(<Providers harness={harness}><WeekScreen /></Providers>);
+    const t = strings.ar;
+    await waitFor(() => expect(screen.getAllByText(t.weekSaveDay).length).toBeGreaterThan(0));
+    const day = (screen.getAllByTestId(/^week-save-/)[0]!.props.testID as string).replace('week-save-', '');
+    const press = async () => {
+      const click = screen.getByTestId(`week-save-${day}`).props.onClick as (event: object) => void;
+      await act(async () => { click({ nativeEvent: {}, persist: () => undefined }); await Promise.resolve(); });
+    };
+
+    await press();
+    await waitFor(() => expect(screen.getByTestId(`week-error-${day}`)).toBeTruthy());
+    await press();
+    await waitFor(() => expect(saves).toBe(2));
+    await waitFor(() => expect(screen.getByTestId(`week-saved-${day}`).props.children).toBe(t.weekSavedToast));
+  });
 });
