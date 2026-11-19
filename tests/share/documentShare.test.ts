@@ -660,7 +660,9 @@ test('an invite already over, or a recurring one, stays out of the proposal', as
   const past = await readCalendarShare(invite('20260901T133000Z', '20260901T143000Z', 'Old meeting'));
   assert.deepEqual(past.segments, []);
   const weekly = await readCalendarShare(
-    invite('20261002T133000Z', '20261002T143000Z', 'Weekly lecture', ['RRULE:FREQ=WEEKLY;COUNT=10']),
+    invite('20261002T133000Z', '20261002T143000Z', 'Weekly lecture', // Two occurrences: under the timetable cap, so the recurrence rule
+    // alone is what keeps a weekly session out.
+    ['RRULE:FREQ=WEEKLY;COUNT=2']),
   );
   assert.deepEqual(weekly.segments, [], 'a weekly session became a stack of commitments');
 });
