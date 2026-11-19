@@ -1405,6 +1405,7 @@
   "googleNotConfigured": "ربط Google بستنّى إعداد من صاحب التطبيق",
   "googleCalendarBody": "أوقاتك المشغولة بس، بلا عناوين.",
   "googleGmailBody": "آخر 7 أيام من البريد الرئيسي، بس لما تطلب.",
+  "googleGmailBodyAllMail": "آخر 7 أيام من كل الإيميلات، مش بس الرئيسي، بس لما تطلب.",
   "googleDriveBody": "بيشوف بس الملف اللي بتختاره.",
   "googleConnect": "اربط Google",
   "googleConnectedAs": "مربوط · {email}",

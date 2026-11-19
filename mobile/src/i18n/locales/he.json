@@ -1408,6 +1408,7 @@
   "googleNotConfigured": "החיבור ל-Google ממתין להגדרה של בעלי האפליקציה",
   "googleCalendarBody": "רק זמנים תפוסים, בלי כותרות.",
   "googleGmailBody": "7 הימים האחרונים בראשי, רק כשמבקשים.",
+  "googleGmailBodyAllMail": "7 הימים האחרונים מכל המיילים, לא רק מהראשי, רק כשמבקשים.",
   "googleDriveBody": "רואה רק את הקובץ שבוחרים.",
   "googleConnect": "חיבור",
   "googleConnectedAs": "מחובר · {email}",

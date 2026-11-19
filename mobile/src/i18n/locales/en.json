@@ -1405,6 +1405,7 @@
   "googleNotConfigured": "Connecting Google is waiting on setup by the app's owner",
   "googleCalendarBody": "Busy times only, no titles.",
   "googleGmailBody": "The last 7 days of Primary, only when you ask.",
+  "googleGmailBodyAllMail": "The last 7 days of all your email, not just Primary, only when you ask.",
   "googleDriveBody": "Sees only the file you pick.",
   "googleConnect": "Connect",
   "googleConnectedAs": "Connected · {email}",

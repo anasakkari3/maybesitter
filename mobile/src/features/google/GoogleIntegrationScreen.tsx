@@ -210,7 +210,7 @@ export function GoogleIntegrationScreen() {
       </View>
       : null}
     {row('calendar', t.googleCalendarBody)}
-    {row('gmail', t.googleGmailBody)}
+    {row('gmail', emailM5 ? t.googleGmailBodyAllMail : t.googleGmailBody)}
     {row('drive', t.googleDriveBody)}
     <View accessibilityLiveRegion="polite" style={{ gap: 8 }}>
       {busy ? <Txt role="supporting" color={p.mu} testID="google-working">{t.googleWorking}</Txt> : null}
