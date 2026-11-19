@@ -8,7 +8,7 @@
  */
 import React from 'react';
 import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
-import { act, render, screen, waitFor, fireEvent } from '@testing-library/react-native';
+import { act, act as act_, render, screen, waitFor, fireEvent } from '@testing-library/react-native';
 import { SafeAreaProvider, type Metrics } from 'react-native-safe-area-context';
 import { QueryClient, QueryClientProvider, onlineManager } from '@tanstack/react-query';
 import { AppProvider, useApp } from '../../state/AppContext';
@@ -22,6 +22,8 @@ import { NotFoundError } from '../../api/errors';
 import type { Commitment } from '../../api/schemas/common';
 import { postponeTo } from '../../features/commitments/postpone';
 import en from '../../i18n/locales/en.json';
+import { ToastHost } from '../../ui/toast';
+import { flushPendingCommits, pendingCommitCount } from '../../state/undoWindow';
 
 import * as commitmentEndpoints from '../../api/endpoints/commitments';
 import * as nextStepEndpoints from '../../api/endpoints/nextStep';
@@ -91,6 +93,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  flushPendingCommits();
   client.clear();
   resetAuthForTests();
   jest.restoreAllMocks();
@@ -109,6 +112,7 @@ async function show(data: Commitment | Error = commitment()) {
             <OpenDetails />
             <DetailsScreen />
             <SheetHost />
+            <ToastHost />
           </QueryClientProvider>
         </AuthProvider>
       </AppProvider>
@@ -154,9 +158,44 @@ describe('done', () => {
       .mockResolvedValue({ data: { success: true, id: ID, commitment: commitment({ status: 'completed' }) }, etag: 'W/"v2"' } as never);
     await show();
     await fireEvent.press(screen.getByTestId('details-done'));
+    await act_(async () => { flushPendingCommits(); });
     await waitFor(() => expect(act).toHaveBeenCalled());
     expect(act.mock.calls[0]![1]).toBe('complete');
     expect(act.mock.calls[0]![2]).not.toHaveProperty('postponedUntil');
+  });
+
+  /*
+   * CX3.1 (owner decision 2026-11-19): «تمّت» offers «رجّعها» for the toast's
+   * few seconds. The completion is held for that window and sent once when
+   * it closes; «رجّعها» takes it back before anything reaches the server.
+   */
+  it('says it is done with «رجّعها», and sends complete only once the window closes', async () => {
+    const act = jest.spyOn(commitmentEndpoints, 'actOnCommitment')
+      .mockResolvedValue({ data: { success: true, id: ID, commitment: commitment({ status: 'completed' }) }, etag: 'W/"v2"' } as never);
+    await show();
+    await fireEvent.press(screen.getByTestId('details-done'));
+
+    await waitFor(() => expect(screen.queryByTestId('toast-undo')).not.toBeNull());
+    expect(screen.getByTestId('toast-text').props.children).toBe(en.toastDone);
+    expect(screen.getByTestId('toast-undo').props.children).toBe(en.toastBringBack);
+    expect(act).not.toHaveBeenCalled();
+
+    await act_(async () => { flushPendingCommits(); });
+    await waitFor(() => expect(act).toHaveBeenCalledTimes(1));
+    expect(act.mock.calls[0]![2]).toMatchObject({ asUid: USER.uid });
+  });
+
+  it('«رجّعها» takes the completion back, and nothing is ever sent', async () => {
+    const act = jest.spyOn(commitmentEndpoints, 'actOnCommitment')
+      .mockResolvedValue({ data: { success: true, id: ID, commitment: commitment({ status: 'completed' }) }, etag: 'W/"v2"' } as never);
+    await show();
+    await fireEvent.press(screen.getByTestId('details-done'));
+    await waitFor(() => expect(screen.queryByTestId('toast')).not.toBeNull());
+
+    await fireEvent.press(screen.getByTestId('toast'));
+    expect(pendingCommitCount()).toBe(0);
+    await act_(async () => { flushPendingCommits(); });
+    expect(act).not.toHaveBeenCalled();
   });
 });
 
