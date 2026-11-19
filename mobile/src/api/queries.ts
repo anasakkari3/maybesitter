@@ -123,6 +123,8 @@ import {
   StaleCommitmentError,
   WeekConflictError, WeekEmptyDayError,
   IcsItemChangedError,
+  NotFoundError,
+  FeatureUnavailableError,
 } from './errors';
 import { icsFeedsEnabled, safeCommitmentPatchEnabled } from '../config/env';
 import {
@@ -2897,6 +2899,14 @@ export function useSeeds() {
  * that showed the seed as promoted while Today still had nothing on it would
  * be the app disagreeing with itself about what just happened.
  */
+/**
+ * The seed was settled or removed elsewhere (CA5.5): a 409 `seed_resolved`, or
+ * a 404 for the seed itself — not a module that is off, which is a 404 too.
+ */
+export function isSeedGoneElsewhere(error: unknown): boolean {
+  return error instanceof ConflictError || (error instanceof NotFoundError && !(error instanceof FeatureUnavailableError));
+}
+
 function useSeedMutation<TInput, TResult>(mutationFn: (input: TInput) => Promise<TResult>) {
   const client = useQueryClient();
   const uid = useUid();
@@ -2905,6 +2915,11 @@ function useSeedMutation<TInput, TResult>(mutationFn: (input: TInput) => Promise
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: queryKeys.seeds(uid) });
       void client.invalidateQueries({ queryKey: ['user', uid, 'commitments'] });
+    },
+    // The list on screen is stale: re-read it, so the card leaves instead of
+    // failing the same way on every retry (CA5.5).
+    onError: error => {
+      if (isSeedGoneElsewhere(error)) void client.invalidateQueries({ queryKey: queryKeys.seeds(uid) });
     },
     // A seed promoted to a goal is a memory record.
     onSettled: (_result, error) => settleMemoryWrite(client, uid, error),
