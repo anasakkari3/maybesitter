@@ -248,6 +248,45 @@ test('a postpone reaches the model as a postpone, and the model is told it is no
   } finally { h.restore(); }
 });
 
+/**
+ * QA v3 V3-F27-04: an English account got «حدد أيام الجيم». The prompt said
+ * only "write in the language of the observations", with Arabic examples, and
+ * the server never knew the app's language (no route reads Accept-Language;
+ * the phone's header is the device's anyway). The phone now sends the app's
+ * language in the body, and the model is told to answer in it.
+ */
+test('V3-F27-04: suggestions are asked for in the app\'s language, and a language change is a new run', async () => {
+  const h = begin();
+  try {
+    await setRecommendations(h.storage, 'granted');
+    await putObservations(UID, 'manual', 'note-gym', new Date().toISOString(), [
+      { kind: 'goal', evidence: 'Goes to the gym three times a week', confidence: 0.9 },
+    ], h.storage);
+    assert.equal((await generatePost(req('/api/mobile/intelligence/generate', 'POST', { locale: 'en' }))).status, 200);
+    assert.equal(h.calls.length, 1);
+    assert.match(h.calls[0]!.system, /The person reads the app in English\. Write every title, reason and question in English/);
+    // Same evidence, the app switched to Hebrew: not the English run again.
+    assert.equal((await generatePost(req('/api/mobile/intelligence/generate', 'POST', { trigger: 'visit', locale: 'he' }))).status, 200);
+    assert.ok(h.calls.length >= 2, 'a different language asks again');
+    assert.match(h.calls[h.calls.length - 1]!.system, /The person reads the app in Hebrew\./);
+    // An unknown language is ignored, never refused, and adds no line.
+    assert.equal((await generatePost(req('/api/mobile/intelligence/generate', 'POST', { locale: 'xx' }))).status, 200);
+  } finally { h.restore(); }
+});
+
+test('V3-F27-04: without a language the request is what it was (pinned digests)', async () => {
+  const h = begin();
+  try {
+    await setRecommendations(h.storage, 'granted');
+    await putObservations(UID, 'manual', 'note-gym', new Date().toISOString(), [
+      { kind: 'goal', evidence: 'Goes to the gym three times a week', confidence: 0.9 },
+    ], h.storage);
+    assert.equal((await generatePost(req('/api/mobile/intelligence/generate', 'POST', {}))).status, 200);
+    assert.equal(h.calls.length, 1);
+    assert.doesNotMatch(h.calls[0]!.system, /The person reads the app in/);
+  } finally { h.restore(); }
+});
+
 test('CA2.3: a deletion reaches the model with its guard, and only then', async () => {
   const h = begin();
   try {

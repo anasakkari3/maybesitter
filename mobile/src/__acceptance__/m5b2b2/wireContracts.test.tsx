@@ -142,6 +142,31 @@ describe('M5b-2b-2 wire contracts', () => {
     }
   });
 
+  /**
+   * QA v3 V3-F27-04: the language suggestions are written in is the app's,
+   * the one the person chose, not the phone's (`Accept-Language` is the
+   * device's: Arabic on a Hebrew account). Here the phone is English and the
+   * app Hebrew.
+   */
+  it('V3-F27-04 every generate request names the app\'s language in its body', async () => {
+    const state = panelState();
+    harness = await prepare('he', initialState(), panelHandler(state));
+    await render(<Providers harness={harness}><HeaderProbe /></Providers>);
+
+    await fireEvent.press(screen.getByTestId('gate-readd-headers'));
+    await waitFor(() => expect(screen.getByTestId('gate-readd-headers-done')).toHaveTextContent('true'));
+
+    const fetchMock = globalThis.fetch as jest.MockedFunction<typeof fetch>;
+    const generateCalls = fetchMock.mock.calls.filter(([input]) => {
+      const raw = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+      return new URL(raw, 'http://localhost').pathname === '/api/mobile/intelligence/generate';
+    });
+    expect(generateCalls).toHaveLength(2);
+    for (const [, init] of generateCalls) {
+      expect(JSON.parse(String(init?.body))).toMatchObject({ locale: 'he' });
+    }
+  });
+
   it('REV-005 GA-M5B2B2-AMEND-1 every review, decision and answer request carries the re-add capability header', async () => {
     const state = panelState({ observations: [readdMarker('claim-obs')] });
     harness = await prepare('en', initialState(), panelHandler(state));
