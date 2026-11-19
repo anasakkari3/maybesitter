@@ -150,3 +150,15 @@ describe('when a suggestion can come back, against the item\'s own time', () => 
     expect(deferChoices(now, JERUSALEM, '2026-11-19T06:00:00.000Z')).toEqual(DEFER_PRESETS);
   });
 });
+
+describe('the defer choices, nearest first (review of #874)', () => {
+  const four = new Date('2026-11-19T14:00:00.000Z'); // 16:00 in Jerusalem
+
+  it('a 20:00 item gets 17:00, 18:00, 19:00, in that order', () => {
+    expect(deferChoices(four, JERUSALEM, '2026-11-19T18:00:00.000Z')).toEqual(['oneHour', 'thisEvening', 'threeHours']);
+  });
+
+  it('never more than three, the nearest kept', () => {
+    expect(deferChoices(four, JERUSALEM, '2026-11-20T10:00:00.000Z')).toEqual(['oneHour', 'thisEvening', 'threeHours']);
+  });
+});

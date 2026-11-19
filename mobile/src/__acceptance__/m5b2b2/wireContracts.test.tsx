@@ -165,6 +165,14 @@ describe('M5b-2b-2 wire contracts', () => {
     for (const [, init] of generateCalls) {
       expect(JSON.parse(String(init?.body))).toMatchObject({ locale: 'he' });
     }
+    // A screen's visit too (review of #874), with its trigger.
+    fetchMock.mockClear();
+    await generateIntelligenceSuggestions({ visit: true });
+    const visit = fetchMock.mock.calls.find(([input]) => {
+      const raw = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+      return new URL(raw, 'http://localhost').pathname === '/api/mobile/intelligence/generate';
+    });
+    expect(JSON.parse(String(visit?.[1]?.body))).toEqual({ trigger: 'visit', locale: 'he' });
   });
 
   it('REV-005 GA-M5B2B2-AMEND-1 every review, decision and answer request carries the re-add capability header', async () => {

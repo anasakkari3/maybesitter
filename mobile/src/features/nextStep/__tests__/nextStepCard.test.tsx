@@ -480,6 +480,35 @@ describe('later, and when', () => {
     });
   });
 
+  /** A preparation is deferred, never the event it prepares for (review of #874). */
+  it('does not remember a preparation step as the event put off', async () => {
+    const decide = mockDecision();
+    await show(response({ primaryStep: { commitmentId: 'c-1', title: 'Prepare for the exam', purpose: 'prepare' } }));
+    await fireEvent.press(screen.getByTestId('next-step-defer'));
+    await waitFor(() => expect(screen.queryByTestId('next-step-defer-oneHour')).not.toBeNull());
+    await fireEvent.press(screen.getByTestId('next-step-defer-oneHour'));
+    await waitFor(() => expect(decide).toHaveBeenCalled());
+    await waitFor(() => expect(screen.queryByTestId('next-step-defer-sheet')).toBeNull());
+    const held = client.getQueryData<Record<string, string>>(['user', USER.uid, 'nextStepDeferred']);
+    expect(held?.['c-1']).toBeUndefined();
+  });
+
+  /**
+   * The sheet says what «مش هلّق» does here (review of #874, coordinator's
+   * call): the suggestion comes back, the item keeps its time. Not the
+   * postpone sheet's line, which reads as moving the item.
+   */
+  it('says the suggestion comes back and the item keeps its time', async () => {
+    await show();
+    await fireEvent.press(screen.getByTestId('next-step-defer'));
+    await waitFor(() => expect(screen.queryByTestId('next-step-defer-oneHour')).not.toBeNull());
+    expect(typeof (en as Record<string, unknown>).nextStepDeferBody).toBe('string');
+    expect(screen.queryByText((en as Record<string, string>).nextStepDeferBody!)).not.toBeNull();
+    expect(screen.queryByText(en.postponeBody)).toBeNull();
+    // Still said to be a suggestion.
+    expect(screen.queryByText(en.suggestionNote)).not.toBeNull();
+  });
+
   it('is not offered when the server did not offer defer', async () => {
     await show(response({ availableActions: ['accept', 'dismiss'] }));
     expect(screen.queryByTestId('next-step-defer')).toBeNull();

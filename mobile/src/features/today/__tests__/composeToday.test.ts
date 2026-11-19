@@ -5,7 +5,7 @@
  * name a different thing to do. These cases pin the reconciliation.
  */
 import { describe, expect, it } from '@jest/globals';
-import { composeToday, type NextStepInput, type PlanInput } from '../composeToday';
+import { composeToday, nextRecomposeAt, type NextStepInput, type PlanInput } from '../composeToday';
 import { nextEventEndAfter } from '../../commitments/eventEnded';
 import { groupForToday, type CommitmentView, type TodayGroups } from '../../commitments/model';
 import type { Commitment } from '../../../api/schemas/common';
@@ -616,5 +616,28 @@ describe('a settled or vanished commitment keeps nothing alive (E1 review 3)', (
   it('while the lists are still loading, the pinned row counts as before', () => {
     const m = composeToday({ groups: groups({}), next: next(), plan: plan({ plan: cached() }), upcoming: [], now: NOW, records: [], listsLoaded: false });
     expect(m.plan).toEqual({ kind: 'accepted', placed: 1 });
+  });
+});
+
+/**
+ * Review of #874: Today recomposes by itself at the next instant something on
+ * it changes. A step put off with «مش هلّق» coming back is one of them, or the
+ * card stays wrong on an open screen until something else happens.
+ */
+describe('when Today recomposes by itself (V3-F11-04)', () => {
+  const NOW = Date.parse('2026-11-19T09:47:00.000Z');
+
+  it('at the time a step put off may come back', () => {
+    expect(nextRecomposeAt({ open: [item('a')], upcoming: [], deferredSteps: new Map([['a', '2026-11-19T10:47:00.000Z']]), nowMs: NOW }))
+      .toBe(Date.parse('2026-11-19T10:47:00.000Z'));
+  });
+
+  it('the earliest of a postponed return and a step put off, and nothing for one already back', () => {
+    const away = { ...item('b'), postponedUntil: '2026-11-19T11:00:00.000Z' };
+    expect(nextRecomposeAt({
+      open: [item('a'), away], upcoming: [],
+      deferredSteps: new Map([['a', '2026-11-19T09:00:00.000Z'], ['c', '2026-11-19T12:00:00.000Z']]), nowMs: NOW,
+    })).toBe(Date.parse('2026-11-19T11:00:00.000Z'));
+    expect(nextRecomposeAt({ open: [item('a')], upcoming: [], deferredSteps: new Map([['a', '2026-11-19T09:00:00.000Z']]), nowMs: NOW })).toBeNull();
   });
 });
