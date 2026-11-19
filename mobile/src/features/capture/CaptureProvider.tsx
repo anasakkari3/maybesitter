@@ -103,6 +103,8 @@ interface CaptureContextValue {
   toggleItem(itemId: string): void;
   /** Take a habit, goal or thought-entry thought out of the save, or put it back (M3b). */
   togglePoint(pointId: string): void;
+  /** A thought kept («خلّيه») or set aside («مش هلّق») on its own card (QA v3 V3-F24-01). */
+  decideSeed(seedItemId: string): void;
   /** A refusal's recovery (M3b, R2-010): take whole families out of the save. */
   dropFamilies(families: readonly ('habit' | 'goal' | 'seed')[]): void;
   selectAll(): void;
@@ -357,6 +359,7 @@ export function CaptureProvider({ children }: { children: React.ReactNode }) {
 
   const toggleItem = useCallback((itemId: string) => dispatch({ type: 'toggleItem', itemId }), []);
   const togglePoint = useCallback((pointId: string) => dispatch({ type: 'togglePoint', pointId }), []);
+  const decideSeed = useCallback((seedItemId: string) => dispatch({ type: 'seedDecided', seedItemId }), []);
   const dropFamilies = useCallback((families: readonly ('habit' | 'goal' | 'seed')[]) => dispatch({ type: 'familiesDropped', families }), []);
   const selectAll = useCallback(() => dispatch({ type: 'selectAll' }), []);
   const deselectAll = useCallback(() => dispatch({ type: 'deselectAll' }), []);
@@ -647,9 +650,9 @@ export function CaptureProvider({ children }: { children: React.ReactNode }) {
   const acceptUnderstood = useCallback(() => dispatch({ type: 'understoodAccepted' }), []);
   const reopenUnderstood = useCallback(() => dispatch({ type: 'understoodReopened' }), []);
   const value = useMemo<CaptureContextValue>(() => ({
-    state, open, changeEntry, setText, analyze, dismissFailure, startOver, adoptProposal, toggleItem, togglePoint, dropFamilies, selectAll, deselectAll, editItem, setWeekly, setGoalLink, clarify, answerReadiness, confirm, undo, backToComposer, acceptUnderstood, reopenUnderstood, close,
+    state, open, changeEntry, setText, analyze, dismissFailure, startOver, adoptProposal, toggleItem, togglePoint, decideSeed, dropFamilies, selectAll, deselectAll, editItem, setWeekly, setGoalLink, clarify, answerReadiness, confirm, undo, backToComposer, acceptUnderstood, reopenUnderstood, close,
     dictate, chooseAlternative, editPoint, adoptCurrent, dictationStarted, takeRefusedEdit, writing, guardWrite, skipFollowUp, answerFollowUp,
-  }), [state, open, changeEntry, setText, analyze, dismissFailure, startOver, adoptProposal, toggleItem, togglePoint, dropFamilies, selectAll, deselectAll, editItem, setWeekly, setGoalLink, clarify, answerReadiness, confirm, undo, backToComposer, acceptUnderstood, reopenUnderstood, close,
+  }), [state, open, changeEntry, setText, analyze, dismissFailure, startOver, adoptProposal, toggleItem, togglePoint, decideSeed, dropFamilies, selectAll, deselectAll, editItem, setWeekly, setGoalLink, clarify, answerReadiness, confirm, undo, backToComposer, acceptUnderstood, reopenUnderstood, close,
     dictate, chooseAlternative, editPoint, adoptCurrent, dictationStarted, takeRefusedEdit, writing, guardWrite, skipFollowUp, answerFollowUp]);
 
   return <CaptureContext.Provider value={value}>{children}</CaptureContext.Provider>;

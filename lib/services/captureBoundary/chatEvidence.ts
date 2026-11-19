@@ -645,6 +645,46 @@ export function withoutUnsaidTime(
 }
 
 /*
+ * ══ «وبعدها»: THE DAY OF THE POINT BEFORE (QA v3, V3-F04-10) ══
+ *
+ * «بكرا لازم أشتري خبز، وبعدها بدي أتصل بأحمد»: the call is after the bread,
+ * so on its day. The model put the call tomorrow; read against its own words
+ * alone, which name no day, `withoutUnsaidTime` took tomorrow off and the
+ * card offered today's hours, and a skip saved it «بدون يوم محدّد». A point
+ * whose words open with "after it" — «وبعدها», «وبعدين», «بعد هيك», "and
+ * then", "after that", «ואחר כך» — and name no day of their own may keep the
+ * one day the words just before it name. Only a day, never an hour, and only
+ * one the model also gave: nothing here sets a day, it only stops one being
+ * taken off. Without the opening word nothing is carried, as before.
+ */
+const SEQUENCE_LEAD = new RegExp([
+  '^(?:و\\s*)?(?:بعدها|بعديها|بعدين|بعد\\s+هيك|بعد\\s+هيدا|بعد\\s+ذلك|ثم)(?=\\s|$|[،,])',
+  '^(?:and\\s+)?(?:then|after\\s+that|afterwards)\\b',
+  '^ו?(?:אחר\\s+כך|אחרי\\s+זה|אז)(?=\\s|$|[,])',
+].join('|'), 'iu');
+
+/** The one day the words before `source` in `message` name, when `source` opens with "after it" and names none. */
+export function sequencedDay(source: string, message: string, now: Date, timezone: string): string | null {
+  const own = source.trim();
+  if (!own || !SEQUENCE_LEAD.test(own)) return null;
+  const ownAllowance = chatTimeAllowance([own], now, timezone);
+  if (ownAllowance.namedDates.size > 0 || ownAllowance.anyDate) return null;
+  const at = message.indexOf(own);
+  if (at <= 0) return null;
+  const earlier = splitCaptureClauseDetails(message.slice(0, at)).map((clause) => clause.text.trim()).filter(Boolean);
+  // The clause right before, only. A chain («بكرا A، وبعدها B، وبعدها C») is
+  // not followed: the split drops B's «وبعدها», so C keeps no day (review of
+  // #877, left as it is).
+  for (let index = earlier.length - 1; index >= 0; index -= 1) {
+    const allowance = chatTimeAllowance([earlier[index]!], now, timezone);
+    if (allowance.anyDate) return null;
+    if (allowance.namedDates.size === 1) return Array.from(allowance.namedDates)[0]!;
+    if (allowance.namedDates.size > 1 || !SEQUENCE_LEAD.test(earlier[index]!)) return null;
+  }
+  return null;
+}
+
+/*
  * ══ AN HOUR THE PERSON ACCEPTED (owner request 2026-09-30) ══
  *
  * When the proposed time clashes with something the person already has, the

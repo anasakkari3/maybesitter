@@ -1510,6 +1510,8 @@ export async function proposeMobileChatTurn(
     operationEvidenceSources?: readonly string[];
     /** Exact clocks selected by chat answers to a pending AM/PM question. */
     answeredAmPmClocks?: readonly (string | null)[];
+    /** The model answered action "chat": its informational entries are not points (review of #877). */
+    modelSaysChat?: boolean;
     /** Current proposal whose server refs form this new proposal's base. */
     baseProposalId?: string;
     /** Parsed model operations. Absent on the append-only rules path. */
@@ -1548,6 +1550,7 @@ export async function proposeMobileChatTurn(
       ...(input.operationSources ? { operationSources: input.operationSources } : {}),
       ...(input.operationEvidenceSources ? { operationEvidenceSources: input.operationEvidenceSources } : {}),
       ...(input.answeredAmPmClocks ? { answeredAmPmClocks: input.answeredAmPmClocks } : {}),
+      ...(input.modelSaysChat ? { modelSaysChat: true } : {}),
     } } : {}),
     titleWithoutLeadIn: true,
     guardUnresolvedIntentWithSchedule: true,

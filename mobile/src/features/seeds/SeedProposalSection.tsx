@@ -35,7 +35,7 @@ import { markErrorShown } from '../../api/ui/userFacingMessage';
  * the one thing a proposal is not allowed to do: persist.
  */
 export function SeedProposalSection({
-  proposalId, seeds, onAnchor, revision, onProposalChanged, writing = false, guardWrite, renderAction,
+  proposalId, seeds, onAnchor, revision, onProposalChanged, writing = false, guardWrite, renderAction, onDecided,
 }: {
   proposalId: string;
   seeds: readonly CaptureSeedProposal[];
@@ -55,6 +55,8 @@ export function SeedProposalSection({
    * and to the screen reader — a line of the chat's «هيك فهمت» (M2a).
    */
   onAnchor?: (seedItemId: string, part: 'card' | 'focus', node: View | null) => void;
+  /** A thought was kept or set aside here (QA v3, V3-F24-01): a later save does not name it. */
+  onDecided?: (seedItemId: string) => void;
   /** One more action under a seed's words — «حطّها التزام» on a timed thought (M3b, D3). */
   renderAction?: ((seed: CaptureSeedProposal) => React.ReactNode) | undefined;
 }) {
@@ -107,7 +109,11 @@ export function SeedProposalSection({
                   setFailed((current) => current.filter((id) => id !== seed.seedItemId));
                   const run = () => keep.mutateAsync({ proposalId, seedItemId: seed.seedItemId, ...(revision !== undefined ? { revision } : {}) });
                   void (guardWrite ? guardWrite(run) : run())
-                    .then((result) => { if (result !== undefined) setKept((current) => [...current, seed.seedItemId]); })
+                    .then((result) => {
+                      if (result === undefined) return;
+                      setKept((current) => [...current, seed.seedItemId]);
+                      onDecided?.(seed.seedItemId);
+                    })
                     .catch((error: unknown) => {
                       if (error instanceof ProposalChangedError && error.current.kind === 'proposal' && onProposalChanged) {
                         onProposalChanged(error.current.proposal, error.current.state === 'confirmed');
@@ -127,7 +133,7 @@ export function SeedProposalSection({
                 label={t.seedNotNow}
                 // Not while its keep is on its way: that keep may still save it (M2B-A-R4-REVIEW-002).
                 disabled={keep.isPending || writing}
-                onPress={() => setHidden((current) => [...current, seed.seedItemId])}
+                onPress={() => { setHidden((current) => [...current, seed.seedItemId]); onDecided?.(seed.seedItemId); }}
                 scaleTo={0.97}
                 style={{ borderRadius: 14, paddingVertical: 9, paddingHorizontal: 16, alignItems: 'flex-start' }}
               >

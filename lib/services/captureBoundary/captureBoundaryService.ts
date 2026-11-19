@@ -3,7 +3,7 @@ import { extractWithFallback, recurrenceHintOf, type ExtractAndMapOptions, type 
 import { screenForInjection } from '../../../src/extraction/injectionBoundary';
 import { buildBatchPrompt } from '../../../src/extraction/ollamaExtractor';
 import { CAPTURE_BATCH_TIMEOUT_MS, CAPTURE_MIN_CALL_TIMEOUT_MS, LLMUnavailableError, RETRY_BACKOFF_MAX_MS } from '../../../src/extraction/llm/llmProvider';
-import { decideExtractionDisposition } from '../../../src/extraction/extractionPolicy';
+import { decideExtractionDisposition, MEDIUM_CONFIDENCE } from '../../../src/extraction/extractionPolicy';
 import { endOfRange, mapExtractionToCommand } from '../../../src/extraction/mapExtractionToCommand';
 import { countTimeExpressions } from '../../../src/extraction/ruleBasedExtractor';
 import { classifyMessageKind } from '../../../src/extraction/messageKind';
@@ -43,6 +43,7 @@ import {
   chatTimeAllowance,
   isPlainYes,
   withInstantFromWallClock,
+  sequencedDay,
   withoutUnsaidTime,
   type ChatPreviousItem,
 } from './chatEvidence';
@@ -142,6 +143,12 @@ export interface ProposeCaptureOptions {
     operationEvidenceSources?: readonly string[];
     /** Exact clocks selected by chat answers to a pending AM/PM question. */
     answeredAmPmClocks?: readonly (string | null)[];
+    /**
+     * The model called the message chat — "change nothing" (review of #877):
+     * its informational or low-confidence entries are not read as listed
+     * points (`asListedChatPoint`). A task it listed anyway still stands.
+     */
+    modelSaysChat?: boolean;
   };
   /**
    * Titles without the possession lead-in ("I have a", «عندي»), as a weekly
@@ -695,6 +702,31 @@ function semanticFailure(result: ExtractionResult, now: Date): string | null {
   // day (FX3): due today is not past.
   if (isPastReading(result, now)) return 'past_time';
   return null;
+}
+
+/**
+ * A point the capture chat's model put on the list, read as the point it is
+ * (QA v3, V3-F04-01, V3-F22-03). In the chat the model answers with the list
+ * itself: an entry in `added` (or an update) is the model saying "this is a
+ * thing to keep", and its reply names it. Gemini still filled `type` with
+ * informational_context or unknown for «عندي امتحان … الساعة 9» or «عشا مع
+ * العيلة الساعة 8», or a confidence under the note line, and
+ * `semanticFailure` read that as "nothing here": the point was dropped
+ * without a word while the reply named it, and a goal from the goal entry
+ * left the turn with no card at all («ما قدرت أطبّق التعديل… عدّله من الكرت
+ * تحت.» with no card). A contradiction inside one object is not the model's
+ * "nothing" — that is not listing it — so the point is kept as a task, to be
+ * confirmed like every chat card. Never one with no usable title, and never
+ * a refusal: `semanticFailure` is asked again, injection and past hour first.
+ */
+function asListedChatPoint(result: ExtractionResult): ExtractionResult | null {
+  const title = (result.title || result.action || '').trim();
+  if (title.length < 3 || result.ambiguityFlags.includes('negated_request')) return null;
+  return {
+    ...result,
+    type: result.type === 'informational_context' || result.type === 'unknown' ? 'task' : result.type,
+    confidence: { ...result.confidence, overall: Math.max(result.confidence.overall, MEDIUM_CONFIDENCE) },
+  };
 }
 
 /**
@@ -1344,12 +1376,15 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
           stillAsked = false;
         }
         const changedFieldEvidence = before && evidence.touchedNow ? chatChangedFieldEvidences[index]! : evidence;
+        // A new point opening with «وبعدها» / "and then" may keep the day of
+        // the words before it (QA v3, V3-F04-10; `sequencedDay`): a day only.
+        const sequenced = before ? null : sequencedDay(chat.operationSources?.[index] ?? evidence.clause.text, raw, options.now, options.timezone);
         const guarded = withoutUnsaidTime(
           extracted.result,
           changedFieldEvidence.turns,
           options.now,
           options.timezone,
-          answeredAmPmClock && before ? { ...before, time: answeredAmPmClock } : before,
+          answeredAmPmClock && before ? { ...before, time: answeredAmPmClock } : before ?? (sequenced ? { date: sequenced, time: null } : undefined),
         );
         extracted = { ...extracted, result: guarded.result };
         unsaid = guarded.fired;
@@ -1425,6 +1460,15 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
           failure = recoveredFailure;
           passedHour ||= recoveredPassedHour;
           standIn = true;
+        }
+      }
+      // A point the chat's model put on the list itself is never read as
+      // "nothing" for its type or its confidence (`asListedChatPoint`).
+      if (failure === 'no_commitment' && chat && !chat.modelSaysChat && extracted.engine !== 'rule-based') {
+        const listed = asListedChatPoint(extracted.result);
+        if (listed) {
+          extracted = { ...extracted, result: listed };
+          failure = semanticFailure(listed, options.now);
         }
       }
       /*

@@ -160,7 +160,41 @@ export interface ChatSavedNote {
   habitsSaved?: NonNullable<CaptureConfirmation['habitsPersisted']>;
   goalsSaved?: NonNullable<CaptureConfirmation['goalsPersisted']>;
   seedsSaved?: NonNullable<CaptureConfirmation['seedsPersisted']>;
+  /** The points the confirm could not carry — still waiting for an answer — by their titles (QA v3 V3-F04-02). */
+  leftTitles?: string[];
+  /** The thoughts nobody kept or set aside, by their words (QA v3 V3-F24-01). */
+  leftThoughts?: string[];
+  /** Whether the words of what was left behind went back to the field (they do not when it already held a message). */
+  leftHandedBack?: boolean;
   undone?: { stillSaved: string[] };
+}
+
+/**
+ * The chat's points a confirm leaves behind (QA v3, V3-F04-02): neither saved
+ * nor refused, and not a card the person took out — one that could not be
+ * selected because its question was still open. Each with its title and the
+ * person's own words for it (the «هيك فهمت» line), or its title without them.
+ */
+function leftBehind(state: CaptureState, confirmation: CaptureConfirmation): Array<{ title: string; words: string; thought: boolean }> {
+  const proposal = state.proposal;
+  if (!proposal) return [];
+  const handled = new Set([...confirmation.persisted.map((item) => item.itemId), ...confirmation.failed.map((item) => item.itemId)]);
+  const selectable = new Set(confirmableItems(proposal, state.edits));
+  const items = proposal.items
+    .filter((item) => !handled.has(item.itemId) && !selectable.has(item.itemId) && item.title.trim().length > 0)
+    .map((item) => {
+      const said = (proposal.understood ?? []).find((point) => point.kind === 'commitment' && point.itemId === item.itemId)?.text;
+      return { title: item.title, words: said?.trim() || item.title, thought: false };
+    });
+  // A thought outside the thought entry is kept only by its own «خلّيه»
+  // (R002: the confirm cannot carry it). One the person neither kept nor set
+  // aside is left behind too (QA v3, V3-F24-01). From the thought entry the
+  // confirm saves thoughts itself, and one taken out is the person's choice.
+  const savedSeeds = new Set((confirmation.seedsPersisted ?? []).map((seed) => seed.seedItemId));
+  const thoughts = proposal.entry === 'thought' ? [] : (proposal.seeds ?? [])
+    .filter((seed) => !state.decidedSeeds.includes(seed.seedItemId) && !savedSeeds.has(seed.seedItemId) && seed.summary.trim().length > 0)
+    .map((seed) => ({ title: seed.summary.trim(), words: seed.summary.trim(), thought: true }));
+  return [...items, ...thoughts];
 }
 
 /**
@@ -348,6 +382,12 @@ export interface CaptureState {
    * starts selected; a choice follows the point when it changes family.
    */
   deselectedPoints: string[];
+  /**
+   * The thoughts the person decided on with their own buttons — kept
+   * («خلّيه») or set aside («مش هلّق») — by seed id (QA v3, V3-F24-01). A save
+   * names the undecided ones it leaves behind (`leftBehind`).
+   */
+  decidedSeeds: string[];
   /** What the last confirm saved of the other families (M3b), for the saved screen. */
   otherSaved: {
     habits: NonNullable<CaptureConfirmation['habitsPersisted']>;
@@ -366,6 +406,8 @@ export type CaptureEvent =
   | { type: 'entryChanged'; entry: CaptureEntry | null }
   /** Take a habit, goal or thought-entry thought out of the save, or put it back (M3b). */
   | { type: 'togglePoint'; pointId: string }
+  /** A thought kept with «خلّيه» or set aside with «مش هلّق» (QA v3 V3-F24-01). */
+  | { type: 'seedDecided'; seedItemId: string }
   | { type: 'textChanged'; text: string }
   /**
    * A dictation is starting: the chips of the previous one go at once, and a
@@ -509,6 +551,7 @@ export function initialCaptureState(
     refusedEdit: null,
     entry: null,
     deselectedPoints: [],
+    decidedSeeds: [],
     otherSaved: { habits: [], goals: [], seeds: [] },
   };
 }
@@ -1085,6 +1128,9 @@ export function captureReducer(state: CaptureState, event: CaptureEvent): Captur
       // Only between conversations: one in progress keeps the hint it started with.
       return state.entry === event.entry || state.conversationId !== null ? state : { ...state, entry: event.entry };
 
+    case 'seedDecided':
+      return state.decidedSeeds.includes(event.seedItemId) ? state : { ...state, decidedSeeds: [...state.decidedSeeds, event.seedItemId] };
+
     case 'togglePoint': {
       const confirmable = [...confirmableHabits(state.proposal), ...confirmableGoals(state.proposal), ...confirmableThoughts(state.proposal)];
       if (!confirmable.includes(event.pointId)) return state;
@@ -1394,6 +1440,14 @@ export function captureReducer(state: CaptureState, event: CaptureEvent): Captur
       // A review with no conversation — a share, a meeting prep, a Gmail
       // scan — ends on the saved screen, as it always did.
       if (state.conversationId === null) return { ...state, ...saved, status: 'saved' };
+      // What the confirm could not carry (QA v3, V3-F04-02): a point still
+      // waiting for its answer, saved neither then nor later, used to go with
+      // the conversation in silence. It is named on the saved line and its
+      // words are handed back to the field — unless the person is already
+      // typing something there. A card they took out themselves is their choice.
+      const left = leftBehind(state, event.confirmation);
+      const handBack = left.map((item) => item.words).join('\n');
+      const text = state.text.trim() || handBack.length > MAX_CAPTURE_LENGTH ? state.text : handBack;
       // The chat keeps the person in it (owner request 2026-09-30): the
       // conversation moves above, with a line saying what was saved, the
       // proposal goes, and the next message starts a new conversation. A
@@ -1401,7 +1455,8 @@ export function captureReducer(state: CaptureState, event: CaptureEvent): Captur
       return {
         ...state,
         ...saved,
-        status: state.text.trim() ? 'editing' : 'idle',
+        text,
+        status: text.trim() ? 'editing' : 'idle',
         earlier: [
           ...state.earlier,
           ...state.turns.map((turn): ChatEarlierEntry => ({
@@ -1416,13 +1471,16 @@ export function captureReducer(state: CaptureState, event: CaptureEvent): Captur
             ...(saved.otherSaved.habits.length > 0 ? { habitsSaved: saved.otherSaved.habits } : {}),
             ...(saved.otherSaved.goals.length > 0 ? { goalsSaved: saved.otherSaved.goals } : {}),
             ...(saved.otherSaved.seeds.length > 0 ? { seedsSaved: saved.otherSaved.seeds } : {}),
+            ...(left.some((item) => !item.thought) ? { leftTitles: left.filter((item) => !item.thought).map((item) => item.title) } : {}),
+            ...(left.some((item) => item.thought) ? { leftThoughts: left.filter((item) => item.thought).map((item) => item.title) } : {}),
+            ...(left.length > 0 ? { leftHandedBack: text === handBack } : {}),
           },
         ],
         turns: [],
         replyArrival: state.replyArrival + 1,
         conversationId: null,
         proposal: null, original: null, selected: [], edits: {}, onceOnly: [], goalUnlinked: [], errorReason: null, messageKey: null,
-        reviewOf: null, deselectedPoints: [],
+        reviewOf: null, deselectedPoints: [], decidedSeeds: [],
       };
     }
 

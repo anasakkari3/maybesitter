@@ -910,6 +910,7 @@ export async function chatMobileCapture(
           responseLocale: language,
           spoken: input.spoken === true,
           ...(appLanguage ? { locale: appLanguage } : {}),
+          ...(answer.action === 'chat' ? { modelSaysChat: true } : {}),
         },
         { participantId: uid, requestStartedAt },
       );
@@ -1012,7 +1013,10 @@ export async function chatMobileCapture(
         language,
         proposal: listChanged ? proposal : current,
         updated: listChanged,
-        editFailed: !listChanged,
+        // "Edit it on the card below" only when there is a card (QA v3,
+        // V3-F04-05, V3-F22-03): a first turn whose points the boundary could
+        // not keep has nothing to edit, and is asked what to do instead.
+        editFailed: !listChanged && Boolean(current),
       })
       : reply;
     // The list the boundary proposes may not be the model's (`proposalShape`:
