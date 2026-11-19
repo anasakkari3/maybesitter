@@ -11,6 +11,7 @@ import { formatDate, formatDayKey, formatRelativeDay, formatTime } from '../../i
 import { deviceTimeZone, useTimeZone } from '../../i18n/timezone';
 import { useUid } from '../../api/queries';
 import { getEmailScanOverview, postEmailScan } from '../../api/endpoints/m5a';
+import { getGmailIntelligenceMonitor } from '../../api/endpoints/intelligence';
 import { M5A_NOT_NOW, useFreshM5aCapability } from './capabilities';
 import type { DailyStatus, EmailScanOverview, QueuedScan, ScanFailure, ScanStatus, ScanWait } from '../../api/schemas/m5a';
 import { userFacingMessage } from '../../api/ui/userFacingMessage';
@@ -45,6 +46,23 @@ export function useEmailScanOverview(enabled: boolean) {
     refetchInterval: (query) => (active(query.state.data) ? POLL_MS : false),
     retry: false,
   });
+}
+
+/**
+ * Whether Gmail monitoring is on (review 3): then mail is also read as it
+ * arrives and swept once a day, so a line saying "only when you ask" is untrue.
+ * Read fresh on every mount; a failed read says nothing either way (`null`).
+ */
+export function useGmailMonitorOn(enabled: boolean): boolean | null {
+  const uid = useUid();
+  const query = useQuery({
+    queryKey: ['user', uid, 'gmailMonitor'] as const,
+    queryFn: () => getGmailIntelligenceMonitor({ asUid: uid }),
+    enabled: enabled && uid !== 'signed-out',
+    staleTime: 0,
+    retry: false,
+  });
+  return query.data ? query.data.enabled === true : null;
 }
 
 /** «افحص إيميلي (آخر 7 أيام)»: explained first, sent only on «كمّل». */

@@ -35,6 +35,7 @@ import { useCaptureKinds } from '../capture/useCaptureKinds';
 import { ShareGuideSheet, type ShareGuideKind } from './ShareGuideSheet';
 import { useGoogleStatus } from '../google/useGoogle';
 import { useM5aCapabilities } from '../m5a/capabilities';
+import { useGmailMonitorOn } from '../m5a/emailScan';
 
 export function MyMaybeSitterScreen() {
   const { t, actions, lang } = useApp();
@@ -67,6 +68,7 @@ export function IntegrationsScreen() {
   const google = useGoogleStatus().data;
   // The scan behind the Gmail row reads every tab under M5a, Primary otherwise.
   const emailM5 = useM5aCapabilities()?.emailSources === true;
+  const monitorOn = useGmailMonitorOn(emailM5) === true;
   // One Google page holds all three rows and their real state (CL6a). Here a
   // row says only what is true of its feature: the owner has not set Google
   // up yet, it needs reconnecting, or it is connected.
@@ -85,7 +87,7 @@ export function IntegrationsScreen() {
     <ProductRow id="integration-google" title="Google Calendar" body={googleLine('calendar', t.googleCalendarBody)} icon="calendar" onPress={openGoogle} />
     <ProductRow title={t.xHealth} icon="habit" onPress={() => actions.go('readinessSettings')} />
     {sources.any ? <ProductRow id="integration-sources" title={t.settingsSources} body={t[sourcesSubKey(sources)]} icon="link" onPress={() => actions.go('sources')} /> : null}
-    <ProductRow id="integration-gmail" title="Gmail" body={googleLine('gmail', emailM5 ? t.googleGmailBodyAllMail : t.googleGmailBody)} icon="file" onPress={openGoogle} />
+    <ProductRow id="integration-gmail" title="Gmail" body={googleLine('gmail', !emailM5 ? t.googleGmailBody : monitorOn ? t.googleGmailBodyAllMailMonitoring : t.googleGmailBodyAllMail)} icon="file" onPress={openGoogle} />
     <ProductRow id="integration-drive" title="Google Drive" body={googleLine('drive', t.googleDriveBody)} icon="file" onPress={openGoogle} />
     <ProductRow id="integration-location" title={t.xLocation} body={t.placesRowSub} icon="goal" status={cap.location} onPress={() => actions.go('places')} />
   </ProductPage>;
