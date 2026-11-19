@@ -1,5 +1,5 @@
-import React, { useContext, useEffect, useState } from 'react';
-import { View } from 'react-native';
+import React, { useContext, useEffect, useRef, useState } from 'react';
+import { AccessibilityInfo, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import NetInfo from '@react-native-community/netinfo';
 import { onlineManager } from '@tanstack/react-query';
@@ -36,6 +36,14 @@ export function OfflineBanner({ children }: { children?: React.ReactNode }) {
   const stacked = useLayoutMode() !== 'normal';
 
   useEffect(() => onlineManager.subscribe(setOnline), []);
+
+  // Going offline is said once, on both platforms (de7fcb84 audit CX2.3):
+  // the banner mounts with its sentence, which no live region can carry.
+  const wasOnline = useRef(online);
+  useEffect(() => {
+    if (wasOnline.current && !online) AccessibilityInfo.announceForAccessibility(t.offline);
+    wasOnline.current = online;
+  }, [online, t.offline]);
 
   return (
     <>

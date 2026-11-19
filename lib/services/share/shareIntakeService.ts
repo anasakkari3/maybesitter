@@ -449,6 +449,14 @@ export async function proposeFromShare(
       throw new ShareInputError(415, 'unsupported_share', 'nothing here can read that yet');
     }
 
+    // Plain text is what it is: its length is known now, so an over-long one
+    // is refused before a daily share is spent on it (de7fcb84 audit CA3.2:
+    // 2,001–20,000 characters took a slot and then failed 413). Other channels
+    // shape their text first and are measured after, as before.
+    if (channel.id === 'plain-text' && files.length === 0 && (sharedText ?? '').trim().length > MAX_SHARE_TEXT_CHARACTERS) {
+      throw new CaptureInputTooLargeError(MAX_SHARE_TEXT_CHARACTERS);
+    }
+
     // The daily limit, claimed before any work and before any model call. It is
     // counted per *share*, not per model call: a channel that makes two calls
     // still spent one of the user's thirty.

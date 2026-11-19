@@ -302,6 +302,33 @@ describe('correcting a figure', () => {
 
     await waitFor(() => expect(screen.getByTestId('financial-save-failed')).toBeTruthy());
   });
+
+  /*
+   * de7fcb84 audit CXX2.2: a bill that did not save said so only at the
+   * bottom of the correction card, ~1500 pt down, and told no screen reader.
+   * The line now sits under the bill's own button, in a live region, and
+   * VoiceOver is told.
+   */
+  it('says a failed bill under the bill\'s own button and tells VoiceOver', async () => {
+    const { AccessibilityInfo } = jest.requireActual<typeof import('react-native')>('react-native');
+    const announce = jest.spyOn(AccessibilityInfo, 'announceForAccessibility').mockImplementation(() => undefined);
+    announce.mockClear();
+    await show();
+    await waitFor(() => expect(screen.getByTestId('financial-bill-label')).toBeTruthy());
+    await fireEvent.changeText(screen.getByTestId('financial-bill-label'), 'QA bill');
+    await fireEvent.changeText(screen.getByTestId('financial-bill-amount'), '10');
+    await fireEvent.changeText(screen.getByTestId('financial-bill-currency'), 'USD');
+    // An impossible day: refused before any request, as on the device.
+    await fireEvent.changeText(screen.getByTestId('financial-bill-date'), '2026-02-30');
+    await waitFor(() => expect(screen.getByTestId('financial-bill-date').props.value).toBe('2026-02-30'));
+    await fireEvent.press(screen.getByTestId('financial-bill-save'));
+
+    await waitFor(() => expect(screen.getByTestId('financial-bill-failed')).toBeTruthy());
+    expect(screen.getByTestId('financial-bill-failed-live').props.accessibilityLiveRegion).toBe('polite');
+    expect(announce).toHaveBeenCalledWith(en.financialSaveFailed);
+    // The correction card's line is about the correction, not the bill.
+    expect(screen.queryByTestId('financial-save-failed')).toBeNull();
+  });
 });
 
 /*

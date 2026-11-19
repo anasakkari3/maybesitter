@@ -38,6 +38,7 @@ import {
   fill,
   groupOf,
   type MemoryGroup,
+  suggestionEvidenceText,
 } from './memoryProvenance';
 
 /**
@@ -131,13 +132,30 @@ export function MemoryScreen({ onBack, focusId = null }: {
   const removeRef = useRef(remove);
   useEffect(() => { removeRef.current = remove; });
 
+  /**
+   * Rows whose delete has been sent and not refused. The undo window hid the
+   * row by `undoable`; when the window closed that went, and the cached row
+   * came back until the DELETE and the re-read landed (de7fcb84 audit
+   * CXA8.3). A refused delete shows its row again.
+   */
+  const [sending, setSending] = useState<ReadonlySet<string>>(() => new Set());
+  const send = useCallback((id: string) => {
+    setSending(current => new Set(current).add(id));
+    // Each delete answers for its own row: `mutate`'s own onError runs only
+    // for the latest call, so an earlier refused delete kept its row hidden.
+    removeRef.current.mutateAsync(id).catch((error: unknown) => {
+      markErrorShown(error);
+      setSending(current => { const next = new Set(current); next.delete(id); return next; });
+    });
+  }, []);
+
   const flush = useCallback(() => {
     const job = scheduled.current;
     if (!job) return;
     clearTimeout(job.timer);
     scheduled.current = null;
-    removeRef.current.mutate(job.id, { onError: markErrorShown });
-  }, []);
+    send(job.id);
+  }, [send]);
 
   useEffect(() => flush, [flush]);
 
@@ -163,11 +181,11 @@ export function MemoryScreen({ onBack, focusId = null }: {
     const timer = setTimeout(() => {
       scheduled.current = null;
       setUndoable(null);
-      removeRef.current.mutate(id, { onError: markErrorShown });
+      send(id);
     }, UNDO_WINDOW_MS);
     scheduled.current = { id, timer };
     setUndoable(id);
-  }, [flush]);
+  }, [flush, send]);
 
   const undo = useCallback(() => {
     const job = scheduled.current;
@@ -196,7 +214,7 @@ export function MemoryScreen({ onBack, focusId = null }: {
   // once. The suggestions and the adaptive card go too: Keep and Dismiss are
   // writes the purge would race (R30-001). Seen from any screen (R32-003).
   const purging = useMemoryPurging(memory.data);
-  const items = purging ? [] : (memory.data?.items ?? []).filter(item => item.id !== undoable);
+  const items = purging ? [] : (memory.data?.items ?? []).filter(item => item.id !== undoable && !sending.has(item.id));
   // The row of a refused edit is gone from the re-read (another device
   // replaced or deleted it): the typed words stay on screen (CA8.2).
   if (keptEdit && !purging && memory.data && !memory.data.items.some(item => item.id === keptEdit.id)) {
@@ -438,21 +456,7 @@ function SuggestionsCard({
                 }))}
           </Txt>
           <Txt size={13} color={p.mu} lh={1.5} testID={`memory-suggestion-evidence-${suggestion.fingerprint}`}>
-            {isolateAuto(suggestion.ruleId === 'R2_defer_default'
-              ? fill(strings.memorySuggestionDeferEvidence ?? '', {
-                total: String(suggestion.evidence.totalCount),
-                matching: String(suggestion.evidence.matchingCount),
-              })
-              : suggestion.ruleId === 'R3_plan_time'
-                ? fill(strings.memorySuggestionPlanTimeEvidence ?? '', {
-                  total: String(suggestion.evidence.totalCount),
-                  matching: String(suggestion.evidence.matchingCount),
-                })
-                : translateCount('memorySuggestionEvidence', {
-                  days: suggestion.evidence.lookbackDays,
-                  total: suggestion.evidence.totalCount,
-                  matching: suggestion.evidence.matchingCount,
-                }))}
+            {isolateAuto(suggestionEvidenceText(suggestion, strings, translateCount))}
           </Txt>
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 14 }}>
             <Action
@@ -695,3 +699,4 @@ function Action({
     </Btn>
   );
 }
+

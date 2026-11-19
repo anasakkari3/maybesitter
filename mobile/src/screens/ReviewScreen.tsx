@@ -102,6 +102,16 @@ export function ReviewScreen({ onBackToChat }: { onBackToChat?: () => void } = {
     }
   };
 
+  /**
+   * Back with no chat underneath. A share or a meeting prep has no sentence
+   * to go back to, so Back throws the proposal away: with changes on it, it
+   * asks first, as «إلغاء الكل» does (de7fcb84 audit CA3.7).
+   */
+  const backFromReview = () => {
+    if ((state.source === 'share' || state.source === 'meeting') && wantsDiscardConfirmation(state)) setConfirmingDiscard(true);
+    else flow.backToComposer();
+  };
+
   const confirmable = confirmableItems(state.proposal, state.edits);
 
   const timezone = useTimeZone();
@@ -304,7 +314,7 @@ export function ReviewScreen({ onBackToChat }: { onBackToChat?: () => void } = {
         pill={t.back}
         onPill={confirmingDiscard ? () => setConfirmingDiscard(false)
           : editingItem ? () => setEditingItemId(null)
-            : onBackToChat ?? (() => flow.backToComposer())}
+            : onBackToChat ?? backFromReview}
         title={!asking && scrollActions ? t.reviewConfirmationHeading : t.reviewTitle}
         pillTestID="review-back"
       />

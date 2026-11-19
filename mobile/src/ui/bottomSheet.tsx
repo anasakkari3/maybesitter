@@ -137,7 +137,7 @@ function SheetBody({ onClose, testID, children }: { onClose: () => void; testID?
   return (
     <View style={{ flex: 1, justifyContent: 'flex-end' }}>
       <Animated.View style={[{ position: 'absolute', top: 0, bottom: 0, start: 0, end: 0, backgroundColor: p.scrim }, m.scrim]}>
-        <Pressable style={{ flex: 1 }} onPress={onClose} accessibilityLabel={t.close} />
+        <Pressable style={{ flex: 1 }} onPress={onClose} accessibilityRole="button" accessibilityLabel={t.close} />
       </Animated.View>
       <Animated.View
         testID={testID}

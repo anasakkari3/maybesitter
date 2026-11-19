@@ -90,7 +90,10 @@ function declaredTooLarge(request: Request): boolean {
   const raw = request.headers.get('content-length');
   if (!raw) return false;
   const length = Number.parseInt(raw, 10);
-  return Number.isFinite(length) && length > MAX_TOTAL_BYTES;
+  // The files may total MAX_TOTAL_BYTES; their boundary lines and the text
+  // fields come on top, as the stream bound below allows (de7fcb84 audit
+  // CXA3.6: files under the limit were refused for their framing).
+  return Number.isFinite(length) && length > MAX_TOTAL_BYTES + MULTIPART_OVERHEAD_BYTES;
 }
 
 async function filesFrom(form: FormData): Promise<ShareIntakeRawFile[]> {

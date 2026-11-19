@@ -44,7 +44,12 @@ async function show(fontScale = 1) {
 }
 
 function barItems() {
-  return within(screen.getByTestId('tab-bar')).getAllByRole('button');
+  // «احكيها» is an action (button); the four screens are tabs (de7fcb84 audit
+  // CX2.8). In the bar's order, whichever role each carries.
+  const bar = within(screen.getByTestId('tab-bar'));
+  const items = [...bar.queryAllByRole('button'), ...bar.queryAllByRole('tab')];
+  const order = (id: unknown) => ['tab-capture', 'tab-today', 'tab-calendar', 'tab-things', 'tab-watching'].indexOf(String(id));
+  return items.sort((a, b) => order(a.props.testID) - order(b.props.testID));
 }
 
 function renderedLabel(button: ReturnType<typeof screen.getByTestId>) {

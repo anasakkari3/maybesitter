@@ -58,15 +58,15 @@ function FileRow({ file, index }: { file: SharedFile; index: number }) {
 }
 
 export function ShareScreen() {
-  const { t, p, actions } = useApp();
-  const { state, analyze, discard } = useShareIntake();
+  const { t, p } = useApp();
+  const { state, analyze, discard, leave } = useShareIntake();
   const busy = state.status === 'analyzing';
   const problem = state.messageKey ? t[state.messageKey] : null;
 
   if (state.status === 'unavailable') {
     return (
       <View testID="share-screen" style={{ flex: 1, backgroundColor: p.bg }}>
-        <TaskHeader pill={t.back} onPill={() => actions.back()} title={t.shareTitle} pillTestID="share-back" />
+        <TaskHeader pill={t.back} onPill={leave} title={t.shareTitle} pillTestID="share-back" />
         <ScrollView contentContainerStyle={{ padding: 16, gap: 18, flexGrow: 1, justifyContent: 'center' }}>
           <Txt size={20} weight={600}>{t.shareTitle}</Txt>
           <Txt size={15} color={p.mu} lh={1.5} testID="share-notice">{t.shareUnavailable}</Txt>
@@ -81,7 +81,7 @@ export function ShareScreen() {
     <View testID="share-screen" style={{ flex: 1, backgroundColor: p.bg }}>
       {/* Back is the history's back, the same step as Android's: it closes
           this task and leaves the tab underneath exactly as it was. */}
-      <TaskHeader pill={t.back} onPill={() => actions.back()} title={t.shareTitle} pillTestID="share-back" />
+      <TaskHeader pill={t.back} onPill={leave} title={t.shareTitle} pillTestID="share-back" />
       <ScrollView contentContainerStyle={{ padding: 16, gap: 14, flexGrow: 1 }}>
         <Txt size={15} color={p.mu} lh={1.5}>{t.shareNothingSentYet}</Txt>
 

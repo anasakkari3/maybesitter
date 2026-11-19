@@ -1,12 +1,12 @@
 import { useClarityStage, useReplayEvent } from '../../clarity/ClarityProvider';
-import React, { useCallback, useReducer, useRef } from 'react';
+import React, { useCallback, useMemo, useReducer, useRef } from 'react';
 import * as Clipboard from 'expo-clipboard';
 import { View } from 'react-native';
 import { useApp } from '../../state/AppContext';
 import { fill } from '../../i18n/strings';
 import { Notice } from '../../ui/chrome';
 import { InputTooLargeError, NotFoundError, QuotaExceededError } from '../../api/errors';
-import { useConfirmAiContextImport, useImportAiContext } from '../../api/queries';
+import { useConfirmAiContextImport, useImportAiContext, useMemory } from '../../api/queries';
 import { readClipboardText } from '../capture/clipboardImport';
 import type { SuggestionCategory } from '../../api/schemas/profile';
 import { ASSISTANTS, type ImportAssistant } from './assistants';
@@ -42,6 +42,13 @@ export function AiImportFlow({
   const [state, dispatch] = useReducer(reduceImport, initialImport);
   const importing = useImportAiContext();
   const confirming = useConfirmAiContextImport();
+  // The person's own rows, already on the phone: a conflict card shows the
+  // line it would replace (de7fcb84 audit CXA8.9).
+  const memory = useMemory();
+  const existing = useMemo(
+    () => new Map((memory.data?.items ?? []).map(item => [item.id, item.content] as const)),
+    [memory.data],
+  );
   useClarityStage(`ai_import_${state.status}`);
 
   const copyPrompt = useCallback(async () => {
@@ -83,7 +90,7 @@ export function AiImportFlow({
   }, [copyPrompt, state.assistant]);
 
   const paste = useCallback(async () => {
-    const result = await readClipboardText(undefined, { maxLength: MAX_IMPORT_LENGTH });
+    const result = await readClipboardText(undefined, { maxLength: MAX_IMPORT_LENGTH + 1 });
     if (result.kind === 'empty') dispatch({ type: 'pasteEmpty' });
     else dispatch({ type: 'pasted', text: result.text });
   }, []);
@@ -92,7 +99,7 @@ export function AiImportFlow({
     if (!state.assistant || state.text.trim() === '') return;
     dispatch({ type: 'read' });
     importing.mutate(
-      { text: state.text, assistant: state.assistant },
+      { text: state.text.slice(0, MAX_IMPORT_LENGTH), assistant: state.assistant },
       {
         onSuccess: (proposal) => dispatch({ type: 'proposed', proposal }),
         onError: () => dispatch({ type: 'readFailed' }),
@@ -155,7 +162,9 @@ export function AiImportFlow({
         <AiImportPasteStep
           text={state.text}
           pasteEmpty={state.pasteEmpty}
-          readFailed={state.readFailed}
+          // A named refusal already says what happened; «ما انحفظ» under it
+          // told the person a step that saves nothing did not save (CA8.5).
+          readFailed={state.readFailed && refusal === null}
           expired={state.expired}
           reading={state.status === 'reading'}
           onPaste={() => void paste()}
@@ -171,6 +180,7 @@ export function AiImportFlow({
           kept={state.kept}
           edits={state.edits}
           resolutions={state.resolutions}
+          existing={existing}
           expanded={state.expanded}
           saving={state.status === 'saving'}
           saveFailed={state.saveFailed}

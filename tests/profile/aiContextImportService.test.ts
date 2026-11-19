@@ -221,6 +221,50 @@ test('a second confirm of the same proposal writes nothing', async () => {
   assert.equal((await memory.retrieve({ scopeId: UID, now: AT.toISOString() })).length, 1);
 });
 
+// de7fcb84 audit CXA8.10: two confirms sent at the same moment both read the
+// live proposal and both wrote; memory grew by 6 for 3 facts, 4 of 4 tries.
+test('two confirms sent at once write the facts once', async () => {
+  const { proposal } = await propose([candidate(), candidate({ content: 'Wants to run a 10k', kind: 'goal' })]);
+  const results = await Promise.allSettled([
+    confirmAiContextImport(UID, proposal.proposalId, [{ index: 0 }, { index: 1 }], AT, { memory }),
+    confirmAiContextImport(UID, proposal.proposalId, [{ index: 0 }, { index: 1 }], AT, { memory }),
+  ]);
+  assert.equal(results.filter((r) => r.status === 'fulfilled').length, 1);
+  const refused = results.find((r) => r.status === 'rejected') as PromiseRejectedResult;
+  assert.ok(refused.reason instanceof ImportProposalNotFoundError);
+  assert.equal((await memory.retrieve({ scopeId: UID, now: AT.toISOString() })).length, 2);
+});
+
+// Review of CXA8.10: the claim must not lose the proposal when a write fails
+// after it; the person presses save again and it works.
+test('a confirm whose write fails can be pressed again, and writes once', async () => {
+  const { proposal } = await propose([candidate(), candidate({ content: 'Wants to run a 10k', kind: 'goal' })]);
+  let failNext = true;
+  const flaky = Object.create(memory) as RuntimeMemoryStore;
+  flaky.put = async (...args: Parameters<RuntimeMemoryStore['put']>) => {
+    if (failNext) { failNext = false; throw new Error('storage hiccup'); }
+    return memory.put(...args);
+  };
+  await assert.rejects(() => confirmAiContextImport(UID, proposal.proposalId, [{ index: 0 }, { index: 1 }], AT, { memory: flaky }));
+  const result = await confirmAiContextImport(UID, proposal.proposalId, [{ index: 0 }, { index: 1 }], AT, { memory });
+  assert.equal(result.created, 2);
+  assert.equal((await memory.retrieve({ scopeId: UID, now: AT.toISOString() })).length, 2);
+});
+
+test('a confirm that failed part way does not write its first rows again on the retry', async () => {
+  const { proposal } = await propose([candidate(), candidate({ content: 'Wants to run a 10k', kind: 'goal' })]);
+  let puts = 0;
+  const flaky = Object.create(memory) as RuntimeMemoryStore;
+  flaky.put = async (...args: Parameters<RuntimeMemoryStore['put']>) => {
+    puts += 1;
+    if (puts === 2) throw new Error('storage hiccup');
+    return memory.put(...args);
+  };
+  await assert.rejects(() => confirmAiContextImport(UID, proposal.proposalId, [{ index: 0 }, { index: 1 }], AT, { memory: flaky }));
+  await confirmAiContextImport(UID, proposal.proposalId, [{ index: 0 }, { index: 1 }], AT, { memory });
+  assert.equal((await memory.retrieve({ scopeId: UID, now: AT.toISOString() })).length, 2);
+});
+
 test('an expired proposal is refused rather than quietly written', async () => {
   const { proposal } = await propose([candidate()]);
   const late = new Date(AT.getTime() + AI_CONTEXT_IMPORT_TTL_MS + 1);

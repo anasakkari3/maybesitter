@@ -24,6 +24,7 @@ jest.mock('../../../../modules/universal-link', () => ({
 let mockConfirmError: unknown = null;
 const mockConfirm = jest.fn();
 jest.mock('../../../api/queries', () => ({
+  useMemory: () => ({ data: undefined }),
   useImportAiContext: () => ({
     isPending: false, error: null,
     mutate: (_vars: unknown, handlers: { onSuccess: (proposal: unknown) => void }) => handlers.onSuccess({
