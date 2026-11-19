@@ -41,6 +41,7 @@ export {
   resyncHabitOccurrences,
   todayLocalDateFor,
   todaysOccurrences,
+  undoOccurrenceOutcome,
   type CreatedHabit,
   type HabitServices,
   type OccurrenceOutcomeResult,

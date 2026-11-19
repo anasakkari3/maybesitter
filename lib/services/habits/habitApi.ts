@@ -48,13 +48,22 @@ export function habitValidationResponse(error: HabitValidationError): Response {
 }
 
 /**
- * The habit id shape, which is `randomUUID()` exactly.
+ * The habit id shapes, which are exactly the two this system mints.
  *
- * Checked against what `StorageHabitStore.create` mints rather than against
- * "a non-empty string", so a path segment that was never an id this system
- * produced is refused before it reaches a document path.
+ * `randomUUID()` is what `StorageHabitStore.create` mints. The 64-hex form is
+ * `docIdForKey(...)`, a sha256 digest, which is what a habit confirmed in the
+ * chat is stored under (`buildCaptureHabit`): a digest so a retried confirm
+ * writes the same document instead of a second habit. Before QA v3
+ * (V3-F23-01) only the first shape was accepted, so every chat habit — already
+ * stored that way in production — answered 400 "not a habit id" on «تمّت»,
+ * «مش اليوم», pause and delete. The mint is left alone and both shapes are read.
+ *
+ * Still checked against what the system mints rather than against "a
+ * non-empty string", so a path segment that was never an id this system
+ * produced is refused before it reaches a document path. Neither shape can
+ * hold a slash, a dot or anything else a path could be steered with.
  */
-const HABIT_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const HABIT_ID = /^(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|[0-9a-f]{64})$/i;
 
 /**
  * The occurrence id shape: `{habitId}.{localDate}.{ordinal}`.

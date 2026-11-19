@@ -108,6 +108,9 @@ const VALID = {
   },
 };
 
+/** Every day of the week, so "today" always has a demand date. */
+const DAILY = { ...VALID, cadence: { kind: 'weekdays', weekdays: [0, 1, 2, 3, 4, 5, 6] }, minimumOccurrences: 7, maximumOccurrences: 7, recoveryPolicy: 'skip' };
+
 function setup(): () => void {
   auth = installFakeAuth();
   setStorageForTests(createMemoryStorage());
@@ -322,7 +325,8 @@ test('a patch changes what it names and nothing else', async () => {
 test('pausing a habit withdraws its future demand and keeps what the person answered', async () => {
   const restore = setup();
   try {
-    const created = await createHabit();
+    // Every day, so the first date is today and can be marked done (V3-F23-03).
+    const created = await createHabit(DAILY);
     const habitId = created.habit.habitId as string;
     const services = createHabitServices();
     const before = await services.occurrences.listForHabit(USER, habitId);
@@ -416,9 +420,18 @@ test('deleting a habit takes its occurrences with it', async () => {
 
 /* ── Occurrence transitions ──────────────────────────────────────── */
 
-/** The habit, and the id of its first materialized date. */
+/**
+ * The habit, and the id of its first materialized date.
+ *
+ * A fixed-weekday body is asked for every day, so that first date is today:
+ * a later day cannot be marked done (V3-F23-03), and these tests are about
+ * the transition, not the calendar. Weekly-count bodies are left as given.
+ */
 async function habitWithOccurrence(body: Record<string, unknown> = VALID): Promise<{ habitId: string; occurrenceId: string }> {
-  const created = await createHabit(body);
+  const everyDay = (body.cadence as { kind: string }).kind === 'weekdays'
+    ? { ...body, cadence: DAILY.cadence, minimumOccurrences: 7, maximumOccurrences: 7 }
+    : body;
+  const created = await createHabit(everyDay);
   const habitId = created.habit.habitId as string;
   const occurrences = await createHabitServices().occurrences.listForHabit(USER, habitId);
   assert.ok(occurrences.length > 0, 'the fixture materialized nothing');
@@ -639,8 +652,6 @@ test('a retried skip does not mint a second replacement date', async () => {
 
 /* ── Today's occurrences, as the app reads and decides them (CA5.4) ── */
 
-/** Every day of the week, so "today" always has a demand date. */
-const DAILY = { ...VALID, cadence: { kind: 'weekdays', weekdays: [0, 1, 2, 3, 4, 5, 6] }, minimumOccurrences: 7, maximumOccurrences: 7, recoveryPolicy: 'skip' };
 
 function todayIn(timezone: string): string {
   return new Intl.DateTimeFormat('en-CA', { timeZone: timezone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());

@@ -236,21 +236,21 @@ export async function applyOccurrenceOutcome(
   outcome: HabitOccurrenceOutcome,
   todayLocalDate: string,
 ): Promise<OccurrenceOutcomeResult> {
-  let transition = await services.occurrences.transition(scopeId, habitId, occurrenceId, outcome);
+  let transition = await services.occurrences.transition(scopeId, habitId, occurrenceId, outcome, todayLocalDate);
   // Today's demand date, offered by the habits list but never stored because
   // the horizon written at create or patch has run out (CA5.4). Minted here,
   // at its deterministic id, and decided — exactly the row the planner already
   // reads for today. Only today, and only a date the cadence asks for: any
   // other id still answers not_found.
   if (transition.kind === 'not_found' && await mintTodaysDemand(services, scopeId, habitId, occurrenceId, todayLocalDate)) {
-    transition = await services.occurrences.transition(scopeId, habitId, occurrenceId, outcome);
+    transition = await services.occurrences.transition(scopeId, habitId, occurrenceId, outcome, todayLocalDate);
   } else if (transition.kind === 'not_found' && outcome === 'completed') {
     // A weekly-count habit done on a day it did not ask for (owner decision
     // 2026-11-15). «مش اليوم» has no such path: on an off day it means nothing.
     // Not today's off-day row (any more): another device may have written it
     // meanwhile, so the answer is read again rather than assumed absent.
     transition = await completeOnAnyDay(services, scopeId, habitId, occurrenceId, todayLocalDate)
-      ?? await services.occurrences.transition(scopeId, habitId, occurrenceId, outcome);
+      ?? await services.occurrences.transition(scopeId, habitId, occurrenceId, outcome, todayLocalDate);
   }
   if (transition.kind !== 'applied' || outcome !== 'skipped') {
     return { transition, recovery: null };
@@ -279,6 +279,24 @@ export async function applyOccurrenceOutcome(
     entry.occurrenceId === recovery.replacement.occurrenceId || entry.occurrenceId === occurrenceId);
   await services.occurrences.putMany(scopeId, changed);
   return { transition, recovery };
+}
+
+/**
+ * Takes back «تمّت» or «مش اليوم» on one day (QA v3, V3-F23-02).
+ *
+ * A mis-tap used to be permanent: a second, different answer is a 409 by
+ * design, so a stale phone cannot overwrite a decision. Undo is that same
+ * protection's way out — an explicit request to reopen the day, never a side
+ * effect of pressing the other button. The rules (scope, the make-up date a
+ * skip earned, retries) are the store's `reopen`, in one transaction.
+ */
+export async function undoOccurrenceOutcome(
+  services: HabitServices,
+  scopeId: string,
+  habitId: string,
+  occurrenceId: string,
+): Promise<OccurrenceTransition> {
+  return services.occurrences.reopen(scopeId, habitId, occurrenceId);
 }
 
 /**
