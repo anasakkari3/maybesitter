@@ -288,8 +288,8 @@ describe('the week', () => {
   it('draws the no-room rows and the waiting count when nothing could be placed (CXA4.3)', async () => {
     // A task due today, saved after working hours: the server sends it in
     // `days[0].unplaced` and nothing else. The early empty state hid it.
-    const blank = RECORDED.days.map(day => ({ ...day, state: 'proposed' as const, items: [], fixed: [], allDay: [], unplaced: [] }));
-    blank[0] = { ...blank[0]!, unplaced: [{ itemId: 'late-task', title: 'Send the email', reasonCode: 'NO_FEASIBLE_SLOT', blockId: null }] };
+    const blank: Week['days'] = RECORDED.days.map(day => ({ ...day, state: 'proposed' as const, items: [], fixed: [], allDay: [], unplaced: [] }));
+    blank[0] = { ...blank[0]!, unplaced: [{ itemId: 'late-task', title: 'Send the email' }] };
     mockWeek = { ...RECORDED, days: blank, drops: [], waiting: 2 };
     await show();
     expect(screen.queryByTestId('week-empty')).toBeNull();
@@ -300,9 +300,9 @@ describe('the week', () => {
   });
 
   it('is not empty with only a no-room step, or only waiting work (CXA4.3)', async () => {
-    const blank = RECORDED.days.map(day => ({ ...day, state: 'proposed' as const, items: [], fixed: [], allDay: [], unplaced: [] }));
+    const blank: Week['days'] = RECORDED.days.map(day => ({ ...day, state: 'proposed' as const, items: [], fixed: [], allDay: [], unplaced: [] }));
     const one = [...blank];
-    one[0] = { ...blank[0]!, unplaced: [{ itemId: 'late-task', title: 'Send the email', reasonCode: 'NO_FEASIBLE_SLOT', blockId: null }] };
+    one[0] = { ...blank[0]!, unplaced: [{ itemId: 'late-task', title: 'Send the email' }] };
     mockWeek = { ...RECORDED, days: one, drops: [], waiting: 0 };
     await show();
     expect(screen.queryByTestId('week-empty')).toBeNull();

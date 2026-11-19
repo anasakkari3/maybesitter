@@ -782,10 +782,13 @@ function PlannedRow({
   const [picking, setPicking] = useState(false);
   const [picked, setPicked] = useState<Date | null>(null);
   // A closed row forgets its wheel (CA4.3): after a successful move it closes,
-  // and reopened it must not offer «حرّكها» on the time already sent.
-  useEffect(() => {
+  // and reopened it must not offer «حرّكها» on the time already sent. Adjusted
+  // while rendering, when `open` changes, rather than in an effect.
+  const [wasOpen, setWasOpen] = useState(open);
+  if (wasOpen !== open) {
+    setWasOpen(open);
     if (!open) { setPicked(null); setPicking(false); }
-  }, [open]);
+  }
 
   const start = new Date(item.startsAt);
   const end = new Date(item.endsAt);

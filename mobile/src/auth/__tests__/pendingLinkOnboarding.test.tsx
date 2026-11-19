@@ -24,7 +24,7 @@ const USER: AuthUser = {
   uid: 'onboarding-user', email: 'a@b.c', emailVerified: true, displayName: null, providerIds: ['password'],
 };
 
-afterEach(() => jest.restoreAllMocks());
+afterEach(() => { jest.restoreAllMocks(); });
 
 function captureLinkListeners() {
   const listeners = new Set<(event: { url: string }) => void>();

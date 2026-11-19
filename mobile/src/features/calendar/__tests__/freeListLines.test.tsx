@@ -12,7 +12,7 @@ import { render, screen } from '@testing-library/react-native';
 import { AppProvider } from '../../../state/AppContext';
 import { FreeList } from '../FreeTimeRows';
 
-async function show(gaps: { start: string; end: string }[], empty: boolean) {
+async function show(gaps: { start: number; end: number }[], empty: boolean) {
   await render(<AppProvider><FreeList day="2026-11-12" gaps={gaps} state="full" empty={empty} /></AppProvider>);
 }
 
@@ -24,7 +24,7 @@ describe('the free list on an empty day', () => {
   });
 
   it('with its gaps still ahead says the day is free', async () => {
-    await show([{ start: '2026-11-12T18:00:00.000Z', end: '2026-11-12T20:00:00.000Z' }], true);
+    await show([{ start: Date.parse('2026-11-12T18:00:00.000Z'), end: Date.parse('2026-11-12T20:00:00.000Z') }], true);
     expect(screen.queryByTestId('calendar-free-all')).not.toBeNull();
     expect(screen.queryByTestId('calendar-free-none')).toBeNull();
   });

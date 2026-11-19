@@ -44,7 +44,7 @@ describe('the launch URL', () => {
     expect(open).toHaveBeenLastCalledWith('a-item-1');
 
     // Sign-out unmounts Root; B signs in and Root mounts again in the same process.
-    first.unmount();
+    await first.unmount();
     await render(<Consumer open={open} />);
     await act(async () => {});
     expect(open).toHaveBeenCalledTimes(1);
