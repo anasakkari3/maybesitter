@@ -66,8 +66,12 @@ export function MeetingPrepSheet() {
 
   const submit = () => {
     if (!trimmed || tooLong || prepare.isPending) return;
-    prepare.mutate({ notes: trimmed, startAt: target.startAt, endAt: target.endAt, ...(target.commitmentId ? { commitmentId: target.commitmentId } : {}) }, {
-      onSuccess: (result) => {
+    // `mutateAsync`, not `mutate`'s per-call `onSuccess`: that callback is
+    // dropped once the sheet unmounts, so «إغلاق» pressed while «عم نحضّر…»
+    // left a stored proposal (and a spent model call) nobody ever saw (QA
+    // known issue). The answer opens review whether or not the sheet is up.
+    prepare.mutateAsync({ notes: trimmed, startAt: target.startAt, endAt: target.endAt, ...(target.commitmentId ? { commitmentId: target.commitmentId } : {}) }).then(
+      (result) => {
         // Into review, as a share arrives there: the flow is reset and holds
         // this proposal before the capture task opens, so it does not start
         // on an empty composer.
@@ -82,7 +86,9 @@ export function MeetingPrepSheet() {
         });
         actions.go('capture');
       },
-    });
+      // Said on the sheet from `prepare.error` while it is open.
+      () => undefined,
+    );
   };
 
   return (
