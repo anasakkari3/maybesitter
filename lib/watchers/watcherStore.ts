@@ -199,11 +199,12 @@ export class WatcherStore {
 
 /**
  * A `wtc_<uuid>`-shaped id derived from what makes two watchers "the same"
- * (QA CXA6.4, CA6.7). Ids are per account (`users/{uid}/watchers`), so the key
- * needs no uid. A watcher deleted and made again gets the same id back.
+ * (QA CXA6.4, CA6.7), within one account. The uid is part of the hash so two
+ * accounts never share an id: a request naming another account's watcher id
+ * must keep finding nothing. A watcher deleted and made again gets its id back.
  */
-export function stableWatcherId(key: string): string {
-  const hex = createHash('sha256').update(key).digest('hex');
+export function stableWatcherId(uid: string, key: string): string {
+  const hex = createHash('sha256').update(`${uid}\u0000${key}`).digest('hex');
   return `wtc_${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`;
 }
 

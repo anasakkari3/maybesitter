@@ -110,8 +110,12 @@ export async function listBackgroundActivityHistory(
   }
   const healthOf = (watcher: StoredWatcher) => healthById.get(watcher.definition.watcherId) ?? SOURCE_OK;
 
-  // 2. Read firings
+  // 2. Read firings. A request for one watcher reads that watcher's firings,
+  // not the account's newest 200 filtered afterwards (QA CXA6.6). The id may
+  // be the watcher's or its monitor's (`mon_<watcherId>`).
+  const filterWatcherId = options.watcherId?.startsWith('mon_') ? options.watcherId.slice('mon_'.length) : options.watcherId;
   const firingsRows = await storage.list<WatcherFireEvent>(userCol(uid, WATCHER_EVENTS), {
+    ...(filterWatcherId ? { where: [['watcherId', '==', filterWatcherId]] } : {}),
     orderBy: { field: 'firedAt', direction: 'desc' },
     limit: HISTORY_MAX_LIMIT,
   });

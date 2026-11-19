@@ -89,7 +89,7 @@ export async function POST(request: Request) {
     const existing = (await store.list()).find(sameAs);
     const { watcher } = existing
       ? { watcher: existing }
-      : await store.createOnce(input, now, stableWatcherId(JSON.stringify([input.createdBy, input.source, input.condition, input.effect])));
+      : await store.createOnce(input, now, stableWatcherId(user.uid, JSON.stringify([input.createdBy, input.source, input.condition, input.effect])));
     const patch = repeatedCreatePatch(watcher, input);
     const answer = patch
       ? (await store.update(watcher.definition.watcherId, (current) => applyWatcherPatch(current, patch, now))) ?? watcher

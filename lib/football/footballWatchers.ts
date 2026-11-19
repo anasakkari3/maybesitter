@@ -151,7 +151,7 @@ export async function followClubWithWatcher(
   if (!followed.includes(clubId)) await setFollowedClubs(uid, [...followed, clubId], now);
   // One id per club, so two follows racing past the check above still make
   // one watcher (QA CXA6.4).
-  const once = await store.createOnce(input, now, stableWatcherId(`football_team:${clubId}`));
+  const once = await store.createOnce(input, now, stableWatcherId(uid, `football_team:${clubId}`));
   if (!once.created) return { watcher: await adopt(once.watcher), created: false };
   const watcher = once.watcher;
   if (!resolveExternalClashHold()) {

@@ -24,6 +24,7 @@ import { POST as pauseWatcher } from '../../src/app/api/mobile/watchers/[id]/pau
 import { GET as getBackgroundActivity } from '../../src/app/api/mobile/trust/background-activity/route.ts';
 import { GET as getHistory } from '../../src/app/api/mobile/trust/background-activity/history/route.ts';
 import { saveMonitoringSettings } from '../../lib/watchers/monitoringSettings.ts';
+import { createWatcherStore } from '../../lib/watchers/watcherStore.ts';
 import type { WatcherFireEvent } from '../../src/contracts/v1/watcherContracts.ts';
 
 const BASE = 'https://api.maybesitter.test';
@@ -96,7 +97,7 @@ async function created(response: Response): Promise<WireWatcher> {
 async function all(): Promise<WireWatcher[]> {
   const response = await listWatchers(request('/api/mobile/watchers'));
   assert.equal(response.status, 200);
-  return (await response.json() as { watchers: WireWatcher[] }).watchers;
+  return (await response.json() as { items: WireWatcher[] }).items;
 }
 
 test('CA6.3: following a followed club with another effect changes the effect and resumes it', async () => {
@@ -172,6 +173,24 @@ test('CXA6.7: a watcher created disabled says paused at once, not active', async
   }
 });
 
+test('CA6.7: a readiness watch made before this fix (random id) is found, not doubled', async () => {
+  await begin();
+  try {
+    const legacy = await createWatcherStore(ALICE).create({
+      enabled: true,
+      source: { provider: 'maybesitter', connectionId: null, signalKind: 'readiness', subjectRef: 'self' },
+      condition: { kind: 'digest_changed' },
+      effect: 'notify',
+      createdBy: 'user',
+    }, '2026-11-01T00:00:00.000Z');
+    const again = await created(await createWatcher(request('/api/mobile/watchers', readinessBody())));
+    assert.equal(again.watcherId, legacy.definition.watcherId);
+    assert.equal((await all()).length, 1);
+  } finally {
+    end();
+  }
+});
+
 interface Monitor { watcherId: string; status: string; nextCheckAt: string | null; canPause: boolean }
 
 test('CA6.4: with pause-all on, no monitor says it is live or names a next check', async () => {
@@ -234,6 +253,29 @@ test('CXA6.6: history filtered by watcher reaches that watcher behind 200 newer 
       assert.equal(body.items.length, 2, `filter by ${id}`);
       assert.ok(body.items.every((item) => item.watcherId === old.watcherId));
     }
+  } finally {
+    end();
+  }
+});
+
+test('CXA6.4: createOnce never overwrites the watcher already under that id', async () => {
+  await begin();
+  try {
+    const store = createWatcherStore(ALICE);
+    const input = {
+      enabled: true,
+      source: { provider: 'maybesitter', connectionId: null, signalKind: 'readiness', subjectRef: 'self' },
+      condition: { kind: 'digest_changed' },
+      effect: 'notify',
+      createdBy: 'user',
+    } as const;
+    const first = await store.createOnce(input, '2026-11-01T00:00:00.000Z', 'wtc_00000000-0000-0000-0000-000000000001');
+    assert.equal(first.created, true);
+    await store.update(first.watcher.definition.watcherId, (current) => ({ ...current, runtime: { ...current.runtime, fireCount: 3 } }));
+    const second = await store.createOnce(input, '2026-11-02T00:00:00.000Z', 'wtc_00000000-0000-0000-0000-000000000001');
+    assert.equal(second.created, false);
+    assert.equal(second.watcher.runtime.fireCount, 3);
+    assert.equal((await store.get(first.watcher.definition.watcherId))!.runtime.fireCount, 3);
   } finally {
     end();
   }
