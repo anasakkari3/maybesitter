@@ -13,6 +13,7 @@ import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals
 import { fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import { AccessibilityInfo } from 'react-native';
 import { NetworkError } from '../../../api/errors';
+import { claimVisit, recordVisitFailure, resetVisitThrottleForTests } from '../../../lib/deviceSettings/visitThrottle';
 import en from '../../../i18n/locales/en.json';
 import { SafeAreaProvider, type Metrics } from 'react-native-safe-area-context';
 import { QueryClient, QueryClientProvider, onlineManager } from '@tanstack/react-query';
@@ -66,6 +67,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  resetVisitThrottleForTests();
   client.clear();
   resetAuthForTests();
   jest.restoreAllMocks();
@@ -132,6 +134,7 @@ describe('«وقّف مشاركتك» on the trust centre', () => {
     jest.spyOn(consentEndpoints, 'getConsents').mockResolvedValue(BOTH_ON as never);
     jest.spyOn(consentEndpoints, 'putPersonalizationConsent').mockRejectedValue(new NetworkError('offline') as never);
     const announce = jest.spyOn(AccessibilityInfo, 'announceForAccessibility');
+    announce.mockClear();
     await show();
     await waitFor(() => expect(screen.getByTestId('trust-revoke').props.accessibilityState?.disabled).not.toBe(true));
     await fireEvent.press(screen.getByTestId('trust-revoke'));
@@ -201,5 +204,83 @@ describe('«وقّف مشاركتك» on the trust centre', () => {
     await waitFor(() => expect(screen.getByTestId('trust-revoke').props.accessibilityState?.disabled).not.toBe(true));
     expect(screen.queryByTestId('trust-revoked')).toBeNull();
     expect(screen.queryByTestId('trust-resume')).toBeNull();
+  });
+
+  /**
+   * A server that remembers: each answer written is what the next read says,
+   * so the card follows the writes the way it does on a phone.
+   */
+  function rememberingServer(start: typeof BOTH_ON | typeof BOTH_OFF, failSuggestions = false) {
+    let current = JSON.parse(JSON.stringify(start)) as typeof BOTH_ON;
+    jest.spyOn(consentEndpoints, 'getConsents').mockImplementation(async () => JSON.parse(JSON.stringify(current)) as never);
+    jest.spyOn(consentEndpoints, 'putPersonalizationConsent').mockImplementation(async (answer) => {
+      current = { ...current, personalization: { ...current.personalization, state: answer.state, asked: true } };
+      return { success: true, personalization: current.personalization } as never;
+    });
+    jest.spyOn(consentEndpoints, 'putRecommendationConsent').mockImplementation(async (answer) => {
+      if (failSuggestions) throw new NetworkError('offline');
+      current = { ...current, recommendations: { ...current.recommendations, state: answer.state, asked: true } };
+      return { success: true, recommendations: current.recommendations } as never;
+    });
+  }
+
+  it('a turn-back-on whose suggestions half fails says so, and still offers to turn them back on', async () => {
+    rememberingServer(BOTH_OFF, true);
+    const announce = jest.spyOn(AccessibilityInfo, 'announceForAccessibility');
+    announce.mockClear();
+    await show();
+    await waitFor(() => expect(screen.queryByTestId('trust-resume')).not.toBeNull());
+    await fireEvent.press(screen.getByTestId('trust-resume'));
+    await waitFor(() => expect(screen.queryByTestId('trust-stop-failed')).not.toBeNull());
+    expect(screen.getByText(en.trustResumePartial)).toBeTruthy();
+    expect(announce).toHaveBeenCalledWith(en.trustResumePartial);
+    // Learning came back, suggestions did not: the card still offers what the
+    // person asked for, not «stop».
+    await waitFor(() => expect(screen.getByTestId('trust-resume').props.accessibilityState?.disabled).not.toBe(true));
+    expect(screen.queryByTestId('trust-revoke')).toBeNull();
+  });
+
+  it('turning suggestions back on ends the six-hour wait a refused visit set (QA CA7.5)', async () => {
+    rememberingServer(BOTH_OFF);
+    recordVisitFailure(USER.uid, true);
+    expect(await claimVisit(USER.uid)).toBe(false);
+    await show();
+    await waitFor(() => expect(screen.queryByTestId('trust-resume')).not.toBeNull());
+    await fireEvent.press(screen.getByTestId('trust-resume'));
+    await waitFor(() => expect(sentStates(consentEndpoints.putRecommendationConsent)).toEqual(['granted']));
+    await waitFor(async () => expect(await claimVisit(USER.uid)).toBe(true));
+  });
+
+  it('turning them back on is said out loud once it landed', async () => {
+    rememberingServer(BOTH_OFF);
+    const announce = jest.spyOn(AccessibilityInfo, 'announceForAccessibility');
+    announce.mockClear();
+    await show();
+    await waitFor(() => expect(screen.queryByTestId('trust-resume')).not.toBeNull());
+    await fireEvent.press(screen.getByTestId('trust-resume'));
+    await waitFor(() => expect(screen.queryByTestId('trust-resumed')).not.toBeNull());
+    expect(announce).toHaveBeenCalledWith(en.trustResumed);
+    expect(screen.queryByTestId('trust-stop-failed')).toBeNull();
+  });
+
+  it('stopping is said out loud once it landed', async () => {
+    rememberingServer(BOTH_ON);
+    const announce = jest.spyOn(AccessibilityInfo, 'announceForAccessibility');
+    announce.mockClear();
+    await show();
+    await waitFor(() => expect(screen.getByTestId('trust-revoke').props.accessibilityState?.disabled).not.toBe(true));
+    await fireEvent.press(screen.getByTestId('trust-revoke'));
+    await fireEvent.press(screen.getByTestId('trust-revoke-confirm'));
+    await waitFor(() => expect(screen.queryByTestId('trust-revoked')).not.toBeNull());
+    await waitFor(() => expect(announce).toHaveBeenCalledWith(en.trustRevoked));
+  });
+
+  it('opening the screen on an account already off does not announce «off»', async () => {
+    rememberingServer(BOTH_OFF);
+    const announce = jest.spyOn(AccessibilityInfo, 'announceForAccessibility');
+    announce.mockClear();
+    await show();
+    await waitFor(() => expect(screen.queryByTestId('trust-revoked')).not.toBeNull());
+    expect(announce).not.toHaveBeenCalledWith(en.trustRevoked);
   });
 });

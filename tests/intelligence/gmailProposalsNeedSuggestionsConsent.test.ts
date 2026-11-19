@@ -12,7 +12,7 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { PROVIDER_CONNECTIONS, createMemoryStorage, userCol, userSubDoc } from '../../lib/storage';
+import { PROVIDER_CONNECTIONS, USAGE, createMemoryStorage, userCol, userSubDoc } from '../../lib/storage';
 import type { GoogleRuntime } from '../../lib/integrations/google/googleRuntime';
 import { GOOGLE_FEATURE_SCOPES } from '../../lib/integrations/google/googleConfig';
 import { connectionIdFor } from '../../lib/integrations/providers/production/storedConnectionStore';
@@ -45,12 +45,13 @@ async function monitoredAccount(uid: string, suggestions: 'granted' | 'declined'
     m5: { v: 1, providerAccountId: 'acct', enabledAt: NOW, timezone: 'UTC', at: NOW,
       pauseEpoch: 0, pausedSince: null, excluded: [] },
   });
-  const calls = { model: 0 };
+  const calls = { model: 0, onModel: null as null | (() => Promise<void>) };
   const provider: LlmProvider = {
     name: 'gemini',
     generateJson: async () => { throw new Error('wrong provider verb'); },
     generateStructured: async () => {
       calls.model += 1;
+      await calls.onModel?.();
       return { text: JSON.stringify({ suggestions: [{
         kind: 'action', title: 'Send the form', reason: 'The form was requested',
         observationIds: [observation!.id], confidence: 0.9, durationMinutes: 10,
@@ -76,6 +77,7 @@ for (const state of ['declined', 'never'] as const) {
     assert.equal(monitor.proposalsDoneVersion, 0);
     assert.ok(Date.parse(monitor.proposalNextEligibleAt) > Date.parse(NOW), 'the turn was not deferred');
     assert.equal(monitor.enabled, true, 'stopping suggestions switched Gmail monitoring off');
+    assert.deepEqual(await storage.list(userCol(uid, USAGE)), [], 'model budget was reserved for suggestions the person stopped');
   });
 }
 
@@ -87,4 +89,18 @@ test('suggestions on: the proposal step runs as before', async () => {
   const monitor = await storage.get<any>(`users/${uid}/intelligenceMonitors/gmail`);
   assert.equal(monitor.proposalsDoneVersion, 1);
   assert.equal(monitor.proposalsPending, false);
+});
+
+test('suggestions stopped while the step is running: nothing it asked for is stored', async () => {
+  const uid = 'proposal-stopped-midway';
+  const { storage, runtime, calls } = await monitoredAccount(uid, 'granted');
+  // «وقّف» lands while the model is answering.
+  calls.onModel = async () => {
+    calls.onModel = null;
+    await setRecommendationConsent(uid, { state: 'declined', version: RECOMMENDATION_CONSENT_VERSION, at: new Date(Date.parse(NOW) + 1000) }, { storage });
+  };
+  await runGmailJobTick('live', { runtime, ensureReadable: async () => undefined });
+  assert.equal((await storage.list(userCol(uid, 'intelligenceSuggestions'))).length, 0, 'a suggestion was stored after «وقّف»');
+  const monitor = await storage.get<any>(`users/${uid}/intelligenceMonitors/gmail`);
+  assert.equal(monitor.proposalsDoneVersion, 0, 'the stopped run was recorded as done');
 });
