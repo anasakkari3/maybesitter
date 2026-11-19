@@ -93,7 +93,8 @@ function HabitRow({ row: { habit, occurrence } }: { row: TodayHabitRow }) {
     ? `${formatClockRange(window.start, window.end)} · ${tr('xMinutes', { count: occurrence.durationMinutes })}`
     : tr('xMinutes', { count: occurrence.durationMinutes });
   return (
-    <View testID={`today-habit-${habit.habitId}`} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 2 }}>
+    // Wraps at large text: «تراجع» drops under the words instead of squeezing them.
+    <View testID={`today-habit-${habit.habitId}`} style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 6, paddingVertical: 2 }}>
       {open ? (
         <Btn testID={`today-habit-done-${habit.habitId}`} nativeRef={doneButton} label={fill(t.xHabitTodayDoneA11y, { title })}
           disabled={busy} onPress={markDone} style={{ minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' }}>
@@ -111,7 +112,7 @@ function HabitRow({ row: { habit, occurrence } }: { row: TodayHabitRow }) {
           </View>
         </View>
       )}
-      <View style={{ flex: 1, gap: 2, alignItems: 'flex-start' }}>
+      <View style={{ flexGrow: 1, flexShrink: 1, flexBasis: 160, gap: 2, alignItems: 'flex-start' }}>
         <Txt size={15} weight={600} color={p.tx} dir="auto" testID={`today-habit-title-${habit.habitId}`}>{habit.title}</Txt>
         <Txt size={13} color={p.mu}>{detail}</Txt>
         <LiveRegion testID={`today-habit-live-${habit.habitId}`}>

@@ -7,7 +7,7 @@ import { useApp } from '../state/AppContext';
 import { isValidTimeZone, useTimeZone } from '../i18n/timezone';
 import { dayKey, formatDate, formatRelativeDay, formatTime } from '../i18n/format';
 import { fill, ltr, type Lang } from '../i18n/strings';
-import { useCategoryPreferences, useCommitmentAction, useConsents, useDeferredNextSteps, useNextStep, usePlan, useProfile, useSavedWeek, useToday, useUpcoming } from '../api/queries';
+import { useCategoryPreferences, useCommitmentAction, useConsents, useDeferredNextSteps, useHabits, useHabitsToday, useNextStep, usePlan, useProfile, useSavedWeek, useToday, useUpcoming } from '../api/queries';
 import { quietHoursEndAt } from '../features/today/quietHoursEnd';
 import { QueryBoundary } from '../api/ui/QueryBoundary';
 import { ForbiddenError } from '../api/errors';
@@ -124,6 +124,10 @@ export function TodayScreen({ tabClearance = TAB_CLEARANCE }: { tabClearance?: n
     [readBusy, weeklyEventIds, weeklyToday],
   );
   const [refreshing, setRefreshing] = useState(false);
+  // The same reads the habits block draws from (shared by key), so a pull
+  // refreshes it with the day.
+  const habits = useHabits();
+  const habitsToday = useHabitsToday();
 
   // Off unless the account says otherwise, and off when the preference will not
   // load: a filter bar is not worth an error (#415).
@@ -273,7 +277,7 @@ export function TodayScreen({ tabClearance = TAB_CLEARANCE }: { tabClearance?: n
 
   const refresh = () => {
     setRefreshing(true);
-    void Promise.all([today.refetch(), next.refetch(), plan.refetch(), upcoming.refetch(), savedWeek.refetch()]).finally(() => setRefreshing(false));
+    void Promise.all([today.refetch(), next.refetch(), plan.refetch(), upcoming.refetch(), savedWeek.refetch(), habits.refetch(), habitsToday.refetch()]).finally(() => setRefreshing(false));
   };
 
   const conflict = useMemo(
