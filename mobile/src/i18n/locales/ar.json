@@ -1602,6 +1602,8 @@
   "seedLater": "بعدين",
   "seedLaterWhen": "إمتى؟",
   "seedResolvedElsewhere": "هاي الفكرة انحسمت من جهاز تاني، فما عادت بهالقائمة.",
+  "seedPromotedToTask": "تحوّلت لمهمة بدون وقت. بتلاقيها مع التزاماتك.",
+  "seedPromotedToGoal": "تحوّلت لهدف. بتلاقيه بالأهداف.",
   "seedDismiss": "شيله",
   "seedKindConsideration": "عم تفكّر فيه",
   "seedKindWaitingFor": "مستني",

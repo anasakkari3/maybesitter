@@ -148,13 +148,16 @@ function SeedCard({ seed, strings, lang }: { seed: Seed; strings: Record<string,
             testID={`seed-to-task-${seed.seedId}`}
             label={t.seedToTask}
             disabled={busy}
-            onPress={() => run(() => promote.mutateAsync({ id: seed.seedId, target: 'commitment' }))}
+            // The card leaves the list, so the toast says where it went (QA v3, V3-F24-05).
+            onPress={() => run(() => promote.mutateAsync({ id: seed.seedId, target: 'commitment' })
+              .then(() => actions.toast(t.seedPromotedToTask)))}
           />
           <SeedAction
             testID={`seed-to-goal-${seed.seedId}`}
             label={t.seedToGoal}
             disabled={busy}
-            onPress={() => run(() => promote.mutateAsync({ id: seed.seedId, target: 'goal' }))}
+            onPress={() => run(() => promote.mutateAsync({ id: seed.seedId, target: 'goal' })
+              .then(() => actions.toast(t.seedPromotedToGoal)))}
           />
           <SeedAction
             testID={`seed-later-${seed.seedId}`}

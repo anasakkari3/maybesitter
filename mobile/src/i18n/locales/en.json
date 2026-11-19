@@ -1602,6 +1602,8 @@
   "seedLater": "Later",
   "seedLaterWhen": "When?",
   "seedResolvedElsewhere": "This one was already settled on another device, so it’s off this list.",
+  "seedPromotedToTask": "Turned into a task with no time yet. You’ll find it with your commitments.",
+  "seedPromotedToGoal": "Turned into a goal. You’ll find it under Goals.",
   "seedDismiss": "Dismiss",
   "seedKindConsideration": "Considering",
   "seedKindWaitingFor": "Waiting for",

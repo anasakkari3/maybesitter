@@ -1605,6 +1605,8 @@
   "seedLater": "אחר כך",
   "seedLaterWhen": "מתי?",
   "seedResolvedElsewhere": "הרעיון הזה כבר טופל במכשיר אחר, אז הוא ירד מהרשימה.",
+  "seedPromotedToTask": "הפך למשימה בלי שעה. תמצא אותה עם ההתחייבויות שלך.",
+  "seedPromotedToGoal": "הפך ליעד. תמצא אותו ביעדים.",
   "seedDismiss": "הסר",
   "seedKindConsideration": "שוקל",
   "seedKindWaitingFor": "ממתין",
