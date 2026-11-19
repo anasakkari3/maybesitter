@@ -17,6 +17,8 @@ import { getAnalyticsEventsFor } from '../../../lib/analytics/eventStore.ts';
 import { applyTrustAction, getOrCreateTrust } from '../../../lib/pilot/pilotTrustStore.ts';
 import { deleteAccount } from '../../../lib/account/accountDeletion.ts';
 import { uidFor } from '../../support/fakeAuth.ts';
+import { createHabitServices, todayLocalDateFor } from '../../../lib/services/habits/habitService.ts';
+import { buildHabitPlanningRequest } from '../../../lib/services/habits/habitPlanningAdapter.ts';
 import {
   beginRules,
   confirm,
@@ -34,6 +36,7 @@ import {
   say,
   setSwitches,
   show,
+  TZ,
   type Answer,
 } from './support.ts';
 
@@ -65,12 +68,42 @@ test('R001 R005 a habit-only proposal is confirmable and saves a capture_chat ha
     assert.equal(saved!.durationMinutes, 30);
     assert.equal(saved!.minimumOccurrences, 7);
     assert.equal(saved!.maximumOccurrences, 7);
-    assert.equal(saved!.flexibility, 'flexible');
+    // Owner decision 2026-11-20: a chat habit holds its time like a goal plan's.
+    assert.equal(saved!.flexibility, 'protected_flexible');
     assert.equal(saved!.recoveryPolicy, 'skip');
     assert.deepEqual(saved!.preferredWindows, [{ start: '06:00', end: '12:00' }]);
     assert.equal(saved!.confirmation.sourceRef, answer.proposal!.proposalId);
     assert.equal(saved!.confirmation.acceptedSuggestedValues, true);
     assert.deepEqual(await savedCommitments(uid), [], 'a habit save wrote a commitment');
+  } finally { end(); }
+});
+
+test('owner 2026-11-20: a chat habit\'s preferred time is protected when the day is planned', async () => {
+  const uid = beginRules();
+  try {
+    const answer = await say(uid, WALK, { locale: 'ar' });
+    const result = await confirm(uid, answer.proposal!, { habits: [habitsOf(answer)[0]!.habitItemId] });
+    assert.equal(result.status, 200, show(result.body));
+    const services = createHabitServices();
+    const [definition] = await services.habits.list(uid);
+    assert.ok(definition, 'no habit stored');
+    // The confirm materializes from the wall clock, so "today" is the real one.
+    const localDate = todayLocalDateFor(new Date(), TZ);
+    const occurrences = await services.occurrences.listInRange(uid, localDate, localDate);
+    assert.equal(occurrences.length, 1, show(occurrences));
+    const request = buildHabitPlanningRequest({
+      definitions: [definition!], occurrences, localDate, timezone: TZ, earliestStartAt: null,
+    });
+    assert.equal(request.items.length, 1, show(request.items));
+    const protection = request.items[0]!.protection;
+    assert.ok(protection, 'the chat habit reached the planner with no protection: its time is not held');
+    assert.equal(protection!.ownership, 'protected_flexible');
+    assert.equal(protection!.origin, 'habit_policy');
+    // «الصبح» is 06:00-12:00 on the person's clock: the window the planner tries first.
+    const clock = new Intl.DateTimeFormat('en-GB', { timeZone: TZ, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
+    assert.ok(protection!.preferredInterval, 'no preferred interval to hold');
+    assert.equal(clock.format(new Date(protection!.preferredInterval!.startsAt)), '06:00');
+    assert.equal(clock.format(new Date(protection!.preferredInterval!.endsAt)), '12:00');
   } finally { end(); }
 });
 
