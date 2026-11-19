@@ -96,6 +96,35 @@ describe('a postponed item is away until it comes back (CA2.1)', () => {
   });
 });
 
+/**
+ * QA v3 V3-F11-04: «مش هلّق» on the suggested step hides the suggestion until
+ * the time the person picked; the item itself keeps its time. The list's own
+ * top item stood in for the hidden suggestion and was that same item, so it
+ * came back as «خطوتك التالية» two minutes later.
+ */
+describe('a suggestion put off until later is not the fallback card either (V3-F11-04)', () => {
+  const NOW = new Date('2026-11-19T09:47:00.000Z');
+
+  it('the fallback card skips the step the person put off, and the item keeps its row', () => {
+    const m = composeToday({
+      groups: groups({ must: [item('a', 'must')], should: [item('b')] }),
+      next: next(), plan: plan(), upcoming: [], now: NOW,
+      deferredSteps: new Map([['a', '2026-11-19T15:00:00.000Z']]),
+    });
+    expect(m.primary).toMatchObject({ kind: 'fallback', item: { id: 'b' } });
+    expect(m.groups.must.map((c) => c.id)).toEqual(['a']);
+  });
+
+  it('at the time picked it may be the card again', () => {
+    const m = composeToday({
+      groups: groups({ must: [item('a', 'must')], should: [item('b')] }),
+      next: next(), plan: plan(), upcoming: [], now: NOW,
+      deferredSteps: new Map([['a', '2026-11-19T09:47:00.000Z']]),
+    });
+    expect(m.primary).toMatchObject({ kind: 'fallback', item: { id: 'a' } });
+  });
+});
+
 describe('exactly one primary', () => {
   it('the recommendation wins, and its item leaves the list', () => {
     const m = composeToday({ groups: groups({ must: [item('a', 'must')], should: [item('b')] }), next: next({ recommendation: rec('b') }), plan: plan(), upcoming: [] });

@@ -7,7 +7,7 @@
  * arrives after the thing it was for.
  */
 import { describe, expect, it } from '@jest/globals';
-import { POSTPONE_PRESETS, isPostponable, postponeTo } from '../postpone';
+import { DEFER_PRESETS, POSTPONE_PRESETS, deferChoices, isPostponable, postponeTo } from '../postpone';
 
 /** What an instant reads as on a wall clock in a zone. */
 function wallClock(iso: string, timeZone: string): string {
@@ -122,5 +122,31 @@ describe('a chosen time', () => {
 
   it('is refused when it is not a time at all', () => {
     expect(isPostponable('soon', new Date('2026-09-13T09:00:00.000Z'))).toBe(false);
+  });
+});
+
+/**
+ * QA v3 V3-F11-04: the suggested step's «مش هلّق» brings the *suggestion*
+ * back at the time chosen. A time at or after the item's own time is no use —
+ * «المسا · 18:00» for a 16:00 call hides the suggestion until the call is over.
+ */
+describe('when a suggestion can come back, against the item\'s own time', () => {
+  const now = new Date('2026-11-19T07:47:00.000Z'); // 09:47 in Jerusalem
+
+  it('offers only times before a 16:00 item, the three-hour one included', () => {
+    expect(deferChoices(now, JERUSALEM, '2026-11-19T14:00:00.000Z')).toEqual(['oneHour', 'threeHours']);
+  });
+
+  it('a 19:00 item keeps the evening, and never more than three', () => {
+    expect(deferChoices(now, JERUSALEM, '2026-11-19T17:00:00.000Z')).toEqual(['oneHour', 'threeHours', 'thisEvening']);
+  });
+
+  it('an item within the hour still has one choice, the nearest', () => {
+    expect(deferChoices(now, JERUSALEM, '2026-11-19T08:17:00.000Z')).toEqual(['oneHour']);
+  });
+
+  it('an item with no time, or whose time has passed, keeps the usual three', () => {
+    expect(deferChoices(now, JERUSALEM, null)).toEqual(DEFER_PRESETS);
+    expect(deferChoices(now, JERUSALEM, '2026-11-19T06:00:00.000Z')).toEqual(DEFER_PRESETS);
   });
 });
