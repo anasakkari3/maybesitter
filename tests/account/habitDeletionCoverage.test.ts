@@ -106,8 +106,10 @@ async function seedHabitAccount(uid: string): Promise<string> {
   // would fail for a fixture reason rather than a deletion one.
   const history = occurrences[occurrences.length - 1];
   assert.notEqual(history.localDate, TODAY);
+  // Answered on its own day: «تمّت» on a day that has not come yet is
+  // refused (QA v3, V3-F23-03), and history is a day that was lived.
   const answered = await applyOccurrenceOutcome(
-    services, uid, habit.habitId, history.occurrenceId, 'completed', TODAY,
+    services, uid, habit.habitId, history.occurrenceId, 'completed', history.localDate,
   );
   assert.equal(answered.transition.kind, 'applied', 'the fixture recorded no history');
   return habit.habitId;

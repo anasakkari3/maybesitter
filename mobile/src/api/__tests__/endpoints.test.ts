@@ -17,7 +17,7 @@ import { nextStepResponseSchema } from '../schemas/nextStep';
 import { createReadinessWatcher, pauseWatcher } from '../endpoints/watchers';
 import watcherResponse from '../__fixtures__/watchers.created.json';
 import { createMemory, keepMemorySuggestion } from '../endpoints/profile';
-import { createHabit, decideHabitOccurrence, listHabitsToday } from '../endpoints/habits';
+import { createHabit, decideHabitOccurrence, listHabitsToday, undoHabitOccurrence } from '../endpoints/habits';
 
 /**
  * Each endpoint, against the fixture its own route produced.
@@ -195,6 +195,17 @@ describe('habits', () => {
     expect(decided.occurrence.state).toBe('skipped');
     expect(requests[1]?.method).toBe('POST');
     expect(requests[1]?.url).toContain('/api/mobile/habits/h1/occurrences/h1.2026-11-15.0/skip?timezone=Asia%2FHebron');
+  });
+
+  // QA v3 V3-F23-02: «تراجع» reopens the day through its own route.
+  it('takes a decided day back through the undo route, in the caller\'s zone', async () => {
+    const occurrence = { occurrenceId: 'h1.2026-11-15.0', habitId: 'h1', localDate: '2026-11-15', ordinal: 0, state: 'pending', durationMinutes: 30, recoveredFromOccurrenceId: null };
+    serve({ success: true, occurrence, changed: true });
+    const undone = await undoHabitOccurrence({ habitId: 'h1', occurrenceId: occurrence.occurrenceId }, 'Asia/Hebron');
+    expect(undone.occurrence.state).toBe('pending');
+    expect(undone.changed).toBe(true);
+    expect(requests[0]?.method).toBe('POST');
+    expect(requests[0]?.url).toContain('/api/mobile/habits/h1/occurrences/h1.2026-11-15.0/undo?timezone=Asia%2FHebron');
   });
 
   it("carries the weekly counts and the off-day rows (owner decision 2026-11-15)", async () => {

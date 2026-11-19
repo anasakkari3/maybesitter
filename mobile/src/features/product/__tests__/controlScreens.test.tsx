@@ -1,4 +1,6 @@
 import React from 'react';
+import { AccessibilityInfo } from 'react-native';
+import { ConflictError } from '../../../api/errors';
 import { afterEach, beforeEach, expect, it, jest } from '@jest/globals';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
@@ -14,6 +16,10 @@ const mockRegenerate = jest.fn();
 const mockUnlink = jest.fn();
 let mockHabits: unknown[] = [];
 const mockDecide = jest.fn();
+const mockUndo = jest.fn();
+const mockDecideReset = jest.fn();
+let mockUndoError: unknown = null;
+let mockDecideError: unknown = null;
 let mockToday: unknown = null;
 let mockTodayPending = false;
 
@@ -73,7 +79,8 @@ jest.mock('../../../api/queries', () => ({
   useHabits: () => ({ data: mockHabits, isPending: false, error: null, refetch: jest.fn() }),
   useCreateHabit: () => ({ mutate: mockCreateHabit, isPending: false, error: null }),
   useHabitsToday: () => ({ data: mockToday, isPending: mockTodayPending, error: null, refetch: jest.fn() }),
-  useDecideHabitOccurrence: () => ({ mutate: mockDecide, isPending: false, error: null, variables: undefined }),
+  useDecideHabitOccurrence: () => ({ mutate: mockDecide, reset: mockDecideReset, isPending: false, error: mockDecideError, variables: undefined }),
+  useUndoHabitOccurrence: () => ({ mutate: mockUndo, isPending: false, error: mockUndoError, variables: undefined }),
   useSetHabitStatus: () => ({ mutate: jest.fn(), isPending: false, error: null }),
   useDeleteHabit: () => ({ mutate: jest.fn(), isPending: false, error: null }),
   usePlan: () => ({ data: null, isPending: false, error: null, refetch: jest.fn() }),
@@ -95,6 +102,8 @@ beforeEach(() => {
   mockHabits = [];
   mockToday = null;
   mockTodayPending = false;
+  mockUndoError = null;
+  mockDecideError = null;
   mockGenerate.mockImplementation((_input, options: any) => options.onSuccess({
     generation: 1,
     nodes: [
@@ -247,6 +256,52 @@ it.each<[string, 'xHabitTodayDone' | 'xHabitTodaySkipped']>([
   expect(screen.getByTestId('habit-today-state-h1')).toHaveTextContent(strings.en[key]);
   expect(screen.queryByTestId('habit-today-done-h1')).toBeNull();
   expect(screen.queryByTestId('habit-today-skip-h1')).toBeNull();
+});
+
+// QA v3 V3-F23-02: a mis-tap was permanent. A decided day offers «تراجع».
+it.each(['completed', 'skipped', 'recovered'])('a %s day can be taken back, and the button names the habit', async (state) => {
+  mockHabits = [walk];
+  mockToday = { localDate: '2026-11-15', occurrences: [todayRow(state)] };
+  await render(wrap(<HabitDetailScreen />));
+  const undo = screen.getByTestId('habit-today-undo-h1');
+  expect(undo).toHaveTextContent(strings.en.undo);
+  // The title is bidi-isolated (isolateAuto), so it is matched inside the label.
+  expect(screen.getByLabelText(new RegExp(`^${strings.en.xHabitTodayUndoA11y.replace('{title}', '.?Walk.?')}$`))).toBe(undo);
+  await fireEvent.press(undo);
+  expect(mockUndo).toHaveBeenLastCalledWith({ habitId: 'h1', occurrenceId: 'h1.2026-11-15.0' }, expect.any(Object));
+});
+
+// QA v3 F23-02 review: after «تراجع» the decided line and the button leave,
+// so the region says what happened, the focus lands on «تمّت», and the old
+// error from the first press is gone.
+it('a successful «تراجع» is said, moves the focus to «تمّت», and clears the earlier error', async () => {
+  const focus = jest.spyOn(AccessibilityInfo, 'sendAccessibilityEvent').mockImplementation(() => {});
+  mockHabits = [walk];
+  mockToday = { localDate: '2026-11-15', occurrences: [todayRow('completed')] };
+  mockUndo.mockImplementation((...args: unknown[]) => (args[1] as { onSuccess?: () => void } | undefined)?.onSuccess?.());
+  const view = await render(wrap(<HabitDetailScreen />));
+  await fireEvent.press(screen.getByTestId('habit-today-undo-h1'));
+  expect(mockDecideReset).toHaveBeenCalled();
+  mockToday = { localDate: '2026-11-15', occurrences: [todayRow('pending')] };
+  await view.rerender(wrap(<HabitDetailScreen />));
+  expect(screen.getByTestId('habit-today-reopened-h1')).toHaveTextContent(strings.en.xHabitTodayReopened);
+  expect(focus).toHaveBeenCalledWith(expect.anything(), 'focus');
+  focus.mockRestore();
+});
+
+it('a refused «تراجع» (the make-up day was already decided) says so, not the generic conflict', async () => {
+  mockHabits = [walk];
+  mockToday = { localDate: '2026-11-15', occurrences: [todayRow('recovered')] };
+  mockUndoError = new ConflictError('the make-up date for this occurrence is already decided');
+  await render(wrap(<HabitDetailScreen />));
+  expect(screen.getByText(strings.en.xHabitUndoMadeUpDecided)).toBeTruthy();
+});
+
+it('an open day offers no «تراجع»: there is nothing to take back', async () => {
+  mockHabits = [walk];
+  mockToday = { localDate: '2026-11-15', occurrences: [todayRow('pending')] };
+  await render(wrap(<HabitDetailScreen />));
+  expect(screen.queryByTestId('habit-today-undo-h1')).toBeNull();
 });
 
 it('a habit with nothing due today shows no today row', async () => {

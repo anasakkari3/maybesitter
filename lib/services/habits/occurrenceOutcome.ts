@@ -44,6 +44,7 @@ import {
   applyOccurrenceOutcome as applyOutcome,
   createHabitServices,
   todayLocalDateFor,
+  undoOccurrenceOutcome,
   type HabitServices,
 } from './habitService';
 import type { HabitOccurrenceOutcome } from './habitOccurrenceStore';
@@ -91,6 +92,15 @@ export async function respondToOccurrenceOutcome(
     );
 
     if (transition.kind === 'not_found') return mobileError('no such occurrence', 404);
+    if (transition.kind === 'not_yet') {
+      // V3-F23-03: a coming day cannot have been done. 409 like a conflict —
+      // the row's state, not the request's shape, is what refuses it.
+      return Response.json({
+        success: false,
+        error: 'this occurrence is not due yet',
+        occurrence: presentOccurrence(transition.occurrence),
+      }, { status: 409 });
+    }
     if (transition.kind === 'conflict') {
       return Response.json({
         success: false,
@@ -117,7 +127,48 @@ export async function respondToOccurrenceOutcome(
   } catch (error) {
     if (error instanceof AccountUnavailableError) return accountUnavailableResponse();
     if (error instanceof HabitValidationError) return habitValidationResponse(error);
-    console.error(`[habits] marking an occurrence ${outcome} failed`, error);
+    console.error(`[habits] marking an occurrence ${outcome} failed`, error instanceof Error ? error.name : 'unknown');
     return mobileError(`could not mark the occurrence ${outcome}`, 500);
+  }
+}
+
+/**
+ * Takes a decision back, already authenticated (QA v3, V3-F23-02).
+ *
+ * `uid` is the verified token's, as above, and the store joins the two path
+ * ids on the pair, so a day cannot be reopened through another habit or in
+ * another account (both 404, the same answer as a day that does not exist).
+ * A day still open answers 200 `changed: false`, so a retried undo is safe; a
+ * skip whose make-up date was already decided answers 409 and nothing changes.
+ */
+export async function respondToOccurrenceUndo(
+  uid: string,
+  params: OccurrenceParams,
+  options: Pick<OccurrenceOutcomeOptions, 'services'> = {},
+): Promise<Response> {
+  try {
+    const habitId = parseHabitId(params.id);
+    const occurrenceId = parseOccurrenceId(params.occurrenceId);
+    const services = options.services ?? createHabitServices();
+    const transition = await undoOccurrenceOutcome(services, uid, habitId, occurrenceId);
+    if (transition.kind === 'not_found') return mobileError('no such occurrence', 404);
+    if (transition.kind === 'conflict' || transition.kind === 'not_yet') {
+      return Response.json({
+        success: false,
+        error: 'the make-up date for this occurrence is already decided',
+        occurrence: presentOccurrence(transition.occurrence),
+      }, { status: 409 });
+    }
+    return Response.json({
+      success: true,
+      occurrence: presentOccurrence(transition.occurrence),
+      changed: transition.kind === 'applied',
+    });
+  } catch (error) {
+    if (error instanceof AccountUnavailableError) return accountUnavailableResponse();
+    if (error instanceof HabitValidationError) return habitValidationResponse(error);
+    // The name only: a message or a stack can carry what the person wrote.
+    console.error('[habits] undoing an occurrence decision failed', error instanceof Error ? error.name : 'unknown');
+    return mobileError('could not undo the occurrence decision', 500);
   }
 }

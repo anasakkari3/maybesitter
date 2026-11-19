@@ -176,6 +176,20 @@ test('completing a linked commitment changes the progress this route returns', a
   assert.equal(node?.completed, true);
 });
 
+/**
+ * Runs `press` with the clock at noon UTC on `localDate` — the same civil date
+ * in the route's default zone — so a materialized date is pressed on its own
+ * day through the real route rather than written into the store.
+ */
+async function onDay<T>(t: { mock: { timers: { enable(options: { apis: ['Date']; now: number }): void; reset(): void } } }, localDate: string, press: () => Promise<T>): Promise<T> {
+  t.mock.timers.enable({ apis: ['Date'], now: Date.parse(`${localDate}T12:00:00.000Z`) });
+  try {
+    return await press();
+  } finally {
+    t.mock.timers.reset();
+  }
+}
+
 test('the read route derives a habit node over the period the caller names', async (t) => {
   const { goalId, teardown } = await setup();
   t.after(teardown);
@@ -201,10 +215,12 @@ test('the read route derives a habit node over the period the caller names', asy
   assert.ok(materialized.length >= 2, 'the habit materialized nothing to complete');
   const [one, two] = materialized;
   for (const occurrence of [one, two]) {
-    const response = await occurrenceCompletePost(
+    // Pressed on its own day: «تمّت» on a day that has not come yet is a 409
+    // (QA v3, V3-F23-03), and these dates run into the coming weeks.
+    const response = await onDay(t, occurrence.localDate, () => occurrenceCompletePost(
       post(`/api/mobile/habits/${habitId}/occurrences/${occurrence.occurrenceId}/complete`),
       { params: Promise.resolve({ id: habitId, occurrenceId: occurrence.occurrenceId }) },
-    );
+    ));
     assert.equal(response.status, 200);
   }
 
@@ -243,10 +259,11 @@ test('an unscoped read says it is unscoped rather than reporting zero as a resul
   ));
   const habitId = (confirmed.created as { entityId: string }[])[0].entityId;
   const occurrence = (await createHabitServices().occurrences.listForHabit(USER, habitId))[0];
-  await occurrenceCompletePost(
+  // On its own day, as above (V3-F23-03).
+  await onDay(t, occurrence.localDate, () => occurrenceCompletePost(
     post(`/api/mobile/habits/${habitId}/occurrences/${occurrence.occurrenceId}/complete`),
     { params: Promise.resolve({ id: habitId, occurrenceId: occurrence.occurrenceId }) },
-  );
+  ));
 
   // The cheap read a goal screen opens with carries no period, so the count is
   // zero — and the count alone is byte-identical to a user who has done

@@ -51,7 +51,7 @@ import {
   type HabitStore,
 } from '../../../src/contracts/v1/habitContracts';
 import { addDays } from '../../habits/civilDate';
-import { materializeHabitOccurrences, type MaterializationResult } from '../../habits/materialize';
+import { demandDates, materializeHabitOccurrences, type MaterializationResult } from '../../habits/materialize';
 import { recoverSkippedOccurrence, type HabitRecoveryOutcome } from '../../habits/recovery';
 import { coveredInAdvance, countsOnAnyDay, planAnyDay, weekOf, type WeekTally } from '../../habits/weeklyAnyDay';
 import { createStorageHabitStore } from '../../habits/habitStore';
@@ -236,21 +236,21 @@ export async function applyOccurrenceOutcome(
   outcome: HabitOccurrenceOutcome,
   todayLocalDate: string,
 ): Promise<OccurrenceOutcomeResult> {
-  let transition = await services.occurrences.transition(scopeId, habitId, occurrenceId, outcome);
+  let transition = await services.occurrences.transition(scopeId, habitId, occurrenceId, outcome, todayLocalDate);
   // Today's demand date, offered by the habits list but never stored because
   // the horizon written at create or patch has run out (CA5.4). Minted here,
   // at its deterministic id, and decided — exactly the row the planner already
   // reads for today. Only today, and only a date the cadence asks for: any
   // other id still answers not_found.
   if (transition.kind === 'not_found' && await mintTodaysDemand(services, scopeId, habitId, occurrenceId, todayLocalDate)) {
-    transition = await services.occurrences.transition(scopeId, habitId, occurrenceId, outcome);
+    transition = await services.occurrences.transition(scopeId, habitId, occurrenceId, outcome, todayLocalDate);
   } else if (transition.kind === 'not_found' && outcome === 'completed') {
     // A weekly-count habit done on a day it did not ask for (owner decision
     // 2026-11-15). «مش اليوم» has no such path: on an off day it means nothing.
     // Not today's off-day row (any more): another device may have written it
     // meanwhile, so the answer is read again rather than assumed absent.
     transition = await completeOnAnyDay(services, scopeId, habitId, occurrenceId, todayLocalDate)
-      ?? await services.occurrences.transition(scopeId, habitId, occurrenceId, outcome);
+      ?? await services.occurrences.transition(scopeId, habitId, occurrenceId, outcome, todayLocalDate);
   }
   if (transition.kind !== 'applied' || outcome !== 'skipped') {
     return { transition, recovery: null };
@@ -279,6 +279,70 @@ export async function applyOccurrenceOutcome(
     entry.occurrenceId === recovery.replacement.occurrenceId || entry.occurrenceId === occurrenceId);
   await services.occurrences.putMany(scopeId, changed);
   return { transition, recovery };
+}
+
+/**
+ * Takes back «تمّت» or «مش اليوم» on one day (QA v3, V3-F23-02).
+ *
+ * A mis-tap used to be permanent: a second, different answer is a 409 by
+ * design, so a stale phone cannot overwrite a decision. Undo is that same
+ * protection's way out — an explicit request to reopen the day, never a side
+ * effect of pressing the other button.
+ *
+ * Two kinds of completed row point at a `recovered` one, and undo must tell
+ * them apart, by the direction `weeklyAnyDay` already uses:
+ *
+ *  - a **make-up date** (recovery after a skip) is dated on or after the skip
+ *    it made up for. It is real demand: undo reopens it and leaves the skip.
+ *  - an **off-day stand-in** (a weekly-count «تمّت» on a day not asked for) is
+ *    dated before the asked-for day it took, or took none and is on a day the
+ *    cadence never asks for. It was never demand: undo removes it and gives
+ *    the taken day back (`reopenStandIn`), so the week reads as before.
+ *
+ * Every other row is the store's `reopen`. A stand-in already removed answers
+ * `unchanged` with the off-day row the week offers again, so a retry is safe.
+ */
+export async function undoOccurrenceOutcome(
+  services: HabitServices,
+  scopeId: string,
+  habitId: string,
+  occurrenceId: string,
+): Promise<OccurrenceTransition> {
+  const stored = await services.occurrences.get(scopeId, occurrenceId);
+  if (stored === null || stored.habitId !== habitId) {
+    const date = localDateOfOccurrenceId(occurrenceId);
+    const habit = stored === null && date !== null ? await services.habits.get(scopeId, habitId) : null;
+    if (habit !== null && date !== null) {
+      const plan = planAnyDay(habit, await services.occurrences.listForHabit(scopeId, habitId), date);
+      if (plan.kind === 'any_day' && plan.row.occurrenceId === occurrenceId) return { kind: 'unchanged', occurrence: plan.row };
+    }
+    return { kind: 'not_found' };
+  }
+  if (stored.state === 'completed' && await isOffDayStandIn(services, scopeId, stored)) {
+    return services.occurrences.reopenStandIn(scopeId, habitId, occurrenceId);
+  }
+  return services.occurrences.reopen(scopeId, habitId, occurrenceId);
+}
+
+/** `{habitId}.{localDate}.{ordinal}` → `localDate`, or null for any other shape. */
+function localDateOfOccurrenceId(occurrenceId: string): string | null {
+  return /\.(\d{4}-\d{2}-\d{2})\.\d+$/.exec(occurrenceId)?.[1] ?? null;
+}
+
+/** A completed off-day «تمّت» on a weekly-count habit, as opposed to a make-up date or a cadence day. */
+async function isOffDayStandIn(services: HabitServices, scopeId: string, row: HabitOccurrence): Promise<boolean> {
+  if (row.recoveredFromOccurrenceId !== null) {
+    // The direction rule (`coveredInAdvance`): a stand-in is dated before the day it took.
+    const taken = localDateOfOccurrenceId(row.recoveredFromOccurrenceId);
+    return taken !== null && taken > row.localDate;
+  }
+  // No day taken (none was left open that week): a stand-in is then a row the
+  // cadence never asks for. Read against the rule as if active, so a pause
+  // does not make every row look like one.
+  const habit = await services.habits.get(scopeId, row.habitId);
+  if (habit === null || habit.cadence.kind !== 'weekly_count') return false;
+  const asked = demandDates({ ...habit, status: 'active' }, { fromLocalDate: row.localDate, toLocalDate: row.localDate });
+  return !(asked.includes(row.localDate) && row.ordinal === 0);
 }
 
 /**

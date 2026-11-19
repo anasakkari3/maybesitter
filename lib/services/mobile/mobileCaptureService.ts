@@ -34,6 +34,7 @@ import { hasRequestEvidence, splitCaptureClauseDetails } from '../../../src/extr
 import { isEventOnDay } from '../../../src/extraction/priorityLexicon';
 import { thoughtCommitmentTitle, withoutLeadingThoughtLeadIn } from '../../../src/extraction/thoughtCommitmentTitle';
 import { stripTimeExpressions } from '../../../src/extraction/ruleBasedExtractor';
+import { hourWithDayPart, normalizeArabicDigits } from '../../../src/extraction/timeLexicon';
 import { applyEditToCommands, eventDayOf } from '../captureBoundary/applyEdits';
 import {
   appendClarificationEvent,
@@ -330,9 +331,11 @@ function habitExplanation(
   if (!habit.cadence || !habit.durationMinutes) return null;
   const count = habit.cadence.kind === 'weekly_count' ? habit.cadence.count : habit.cadence.weekdays.length;
   const window = typeof habit.preferredWindow === 'string' ? habit.preferredWindow : null;
-  if (locale === 'en') return `${count} times a week${window ? `, ${window}` : ''}, ${habit.durationMinutes} minutes each time.`;
-  if (locale === 'he') return `${count} פעמים בשבוע${window ? `, ${window}` : ''}, ${habit.durationMinutes} דקות בכל פעם.`;
-  const part = window === 'morning' ? '، الصبح' : window === 'afternoon' ? '، بعد الظهر' : window === 'evening' ? '، المسا' : '';
+  // The hour the person said (V3-F23-05), shown back so the card proves it was heard.
+  const at = habit.preferredWindow !== null && typeof habit.preferredWindow === 'object' ? habit.preferredWindow.start : null;
+  if (locale === 'en') return `${count} times a week${window ? `, ${window}` : ''}${at ? `, at ${at}` : ''}, ${habit.durationMinutes} minutes each time.`;
+  if (locale === 'he') return `${count} פעמים בשבוע${window ? `, ${window}` : ''}${at ? `, ב-${at}` : ''}, ${habit.durationMinutes} דקות בכל פעם.`;
+  const part = window === 'morning' ? '، الصبح' : window === 'afternoon' ? '، بعد الظهر' : window === 'evening' ? '، المسا' : at ? `، الساعة ${at}` : '';
   return `${count} مرات بالأسبوع${part}، ${habit.durationMinutes} دقيقة كل مرة.`;
 }
 
@@ -340,6 +343,7 @@ function completeHabit(habit: CaptureHabitProposalContract, locale: CaptureAppLo
   const question = habitQuestion(habit);
   return {
     ...habit,
+    preferredWindow: windowThatFits(habit.preferredWindow, habit.durationMinutes),
     question,
     explanation: question ? null : habitExplanation(habit, locale),
     confirmable: question === null,
@@ -352,17 +356,64 @@ function numberIn(text: string): number | null {
   return match ? Number(match[1]) : null;
 }
 
+/** The duration bounds a habit edit accepts (`applyCaptureProposalEdit`). */
+const HABIT_MIN_MINUTES = 5;
+const HABIT_MAX_MINUTES = 240;
+/** A window's end when the hour is known and the minutes are not yet: an hour. */
+const HABIT_WINDOW_DEFAULT_MINUTES = 60;
+/** The last minute a preferred window may end on: one that wraps midnight places nothing. */
+const LAST_MINUTE_OF_DAY = 23 * 60 + 59;
+
+function clockAfter(start: string, minutes: number): string | null {
+  const [hours, mins] = start.split(':').map(Number);
+  const from = hours! * 60 + mins!;
+  const to = Math.min(from + minutes, LAST_MINUTE_OF_DAY);
+  if (to <= from) return null;
+  return `${String(Math.floor(to / 60)).padStart(2, '0')}:${String(to % 60).padStart(2, '0')}`;
+}
+
+/**
+ * A stated hour's window, kept at least as long as one session (V3-F23-05).
+ *
+ * The window starts at the hour the person said and ends one session later —
+ * an hour while the minutes are still being asked, then extended once they
+ * are answered, so a session never outgrows the window it is preferred in.
+ * Named parts of the day pass through untouched.
+ */
+function windowThatFits(window: CapturePreferredWindow | null, durationMinutes: number | null): CapturePreferredWindow | null {
+  if (window === null || typeof window !== 'object' || !durationMinutes) return window;
+  const [startHours, startMinutes] = window.start.split(':').map(Number);
+  const [endHours, endMinutes] = window.end.split(':').map(Number);
+  if ((endHours! * 60 + endMinutes!) - (startHours! * 60 + startMinutes!) >= durationMinutes) return window;
+  const end = clockAfter(window.start, durationMinutes);
+  return end === null ? window : { start: window.start, end };
+}
+
 function habitFields(text: string): Pick<CaptureHabitProposalContract, 'cadence' | 'durationMinutes' | 'preferredWindow'> {
   const daily = /كل\s*يوم|every\s+(?:day|morning|evening)|כל\s*יום/i.test(text);
   const count = daily ? 7 : numberIn(text);
   const halfHour = /نص\s*ساعة|half\s+an?\s+hour|חצי\s*שעה/i.test(text);
-  const minutes = /(?:^|\s)(15|30|45|60)\s*(?:دقيقة|minutes?|דקות)(?=\s|$)/i.exec(text);
-  const preferredWindow: CapturePreferredWindow | null = /الصبح|morning|בבוקר/i.test(text) ? 'morning'
-    : /بعد\s*الظهر|afternoon|אחר\s*הצהריים/i.test(text) ? 'afternoon'
-      : /المسا|المساء|evening|בערב/i.test(text) ? 'evening' : null;
+  // Any whole number of minutes an edit would accept, not only the four the
+  // question offers (V3-F23-05: «20 دقيقة» was dropped and then asked for).
+  const minutes = /(?:^|\s)(\d{1,3})\s*(?:دقيقة|دقايق|دقائق|minutes?|mins?|דקות)(?=\s|$|[.,،])/i.exec(normalizeArabicDigits(text));
+  const said = minutes ? Number(minutes[1]) : null;
+  const durationMinutes = halfHour ? 30
+    : said !== null && said >= HABIT_MIN_MINUTES && said <= HABIT_MAX_MINUTES ? said : null;
+  // An hour said with its half of the day («الساعة 10 بالليل», "at 10pm") is
+  // the person's hour, read the way a commitment's is. A bare «الساعة 10» is
+  // ambiguous and, as for a commitment, is not guessed into one.
+  const clock = hourWithDayPart(text);
+  const clockEnd = clock !== null && clock !== 'ambiguous'
+    ? clockAfter(clock, durationMinutes ?? HABIT_WINDOW_DEFAULT_MINUTES)
+    : null;
+  const preferredWindow: CapturePreferredWindow | null = clock !== null && clock !== 'ambiguous' && clockEnd !== null
+    ? { start: clock, end: clockEnd }
+    : /الصبح|morning|בבוקר/i.test(text) ? 'morning'
+      : /بعد\s*الظهر|afternoon|אחר\s*הצהריים/i.test(text) ? 'afternoon'
+        : /المسا|المساء|evening|בערב/i.test(text) ? 'evening' : null;
   return {
     cadence: count ? { kind: 'weekly_count', count } : null,
-    durationMinutes: halfHour ? 30 : minutes ? Number(minutes[1]) : null,
+    durationMinutes,
     preferredWindow,
   };
 }

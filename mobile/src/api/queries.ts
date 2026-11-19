@@ -147,8 +147,8 @@ import {
 import type { GoalConfirmationSelection } from './endpoints/goals';
 import { getMemorySummary } from './endpoints/m5b';
 import type { GoalProgressPeriod } from './schemas/goals';
-import { createHabit, decideHabitOccurrence, deleteHabit, listHabits, listHabitsToday, setHabitStatus } from './endpoints/habits';
-import type { Habit, HabitOccurrenceDecision, NewHabitInput } from './schemas/habits';
+import { createHabit, decideHabitOccurrence, deleteHabit, listHabits, listHabitsToday, setHabitStatus, undoHabitOccurrence } from './endpoints/habits';
+import type { Habit, HabitOccurrenceDecision, HabitOccurrenceRef, NewHabitInput } from './schemas/habits';
 
 /**
  * The hooks screens use, and the invalidation rules that keep them honest.
@@ -610,6 +610,12 @@ export function useHabitsToday(enabled = true) {
 export function useDecideHabitOccurrence() {
   const timezone = useTimeZone();
   return useHabitMutation((decision: HabitOccurrenceDecision) => decideHabitOccurrence(decision, timezone));
+}
+
+/** «تراجع» on a decided day (V3-F23-02); refreshes the habits, so today's row reopens. */
+export function useUndoHabitOccurrence() {
+  const timezone = useTimeZone();
+  return useHabitMutation((ref: HabitOccurrenceRef) => undoHabitOccurrence(ref, timezone));
 }
 
 /**

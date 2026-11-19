@@ -63,6 +63,8 @@ export const habitOutcomeSchema = z.object({
     z.object({ recovered: z.literal(false), reason: z.string() }),
   ]).optional(),
 });
+// QA v3 V3-F23-02: «تراجع» on a decided day answers the reopened row.
+export const habitUndoSchema = z.object({ success: z.literal(true), occurrence: habitOccurrenceSchema, changed: z.boolean() });
 export const habitChangedSchema = z.object({ success: z.literal(true), habit: habitSchema, occurrences: z.array(habitOccurrenceSchema) });
 export const habitDeletedSchema = z.object({ success: z.literal(true), habitId: z.string(), deleted: z.literal(true) });
 
@@ -71,6 +73,8 @@ export type HabitOccurrence = z.infer<typeof habitOccurrenceSchema>;
 export type HabitToday = z.infer<typeof habitTodaySchema>;
 export type HabitWeek = z.infer<typeof habitWeekSchema>;
 export type HabitOutcome = z.infer<typeof habitOutcomeSchema>;
+export type HabitUndo = z.infer<typeof habitUndoSchema>;
+export type HabitOccurrenceRef = { habitId: string; occurrenceId: string };
 export type HabitOccurrenceDecision = { habitId: string; occurrenceId: string; outcome: 'completed' | 'skipped' };
 export type NewHabitInput = {
   title: string;

@@ -23,6 +23,7 @@ import {
   patchHabitWithOccurrences,
   todayLocalDateFor,
   todaysOccurrences,
+  undoOccurrenceOutcome,
   type HabitServices,
 } from '../../lib/services/habits/habitService.ts';
 import { materializeHabitOccurrences } from '../../lib/habits/materialize.ts';
@@ -324,6 +325,77 @@ test('with make-ups on: a skip that earned one, then an off-day «done», still 
     assert.equal(await completedThisWeek(habitId), 3);
     const sunday = await todaysOccurrences(services, USER, SUN);
     assert.deepEqual(sunday.weeks.find((week) => week.habitId === habitId), { habitId, completed: 3, target: 3 });
+  } finally {
+    restore();
+  }
+});
+
+/* ── Taking an off-day «تمّت» back (QA v3, V3-F23-02 review) ─────── */
+
+test('V3-F23-02 undoing an off-day «تمّت» gives the taken day back and leaves no stray row', async () => {
+  const restore = await setup();
+  try {
+    const habitId = await gym();
+    assert.equal((await decide(habitId, id(habitId, TUE), 'completed', TUE)).kind, 'applied');
+    assert.equal(await stateOf(id(habitId, WED)), 'recovered');
+
+    const undone = await undoOccurrenceOutcome(services, USER, habitId, id(habitId, TUE));
+    assert.equal(undone.kind, 'applied');
+    assert.equal(await stateOf(id(habitId, TUE)), undefined, 'the off-day row was never asked for; it must not stay stored');
+    assert.equal(await stateOf(id(habitId, WED)), 'pending', 'Wednesday stayed taken by a «تمّت» that was undone');
+
+    // Tuesday reads as it did before the press: an off day, «تمّت» only.
+    const tuesday = await todaysOccurrences(services, USER, TUE);
+    assert.deepEqual(tuesday.anyDay, [id(habitId, TUE)]);
+    assert.deepEqual(tuesday.weeks.find((week) => week.habitId === habitId), { habitId, completed: 0, target: 3 });
+    // And Wednesday asks for its own row again.
+    const wednesday = await todaysOccurrences(services, USER, WED);
+    assert.deepEqual(
+      wednesday.occurrences.filter((entry) => entry.habitId === habitId).map((entry) => [entry.occurrenceId, entry.state]),
+      [[id(habitId, WED), 'pending']],
+    );
+
+    // A retried undo is the same answer, not a 404 and not a second change.
+    assert.equal((await undoOccurrenceOutcome(services, USER, habitId, id(habitId, TUE))).kind, 'unchanged');
+    assert.equal(await stateOf(id(habitId, WED)), 'pending');
+  } finally {
+    restore();
+  }
+});
+
+test('V3-F23-02 undoing a completed make-up date reopens it and leaves the skip it made up for alone', async () => {
+  const restore = await setup();
+  try {
+    // Same shape as an off-day row (completed, pointing at a recovered row),
+    // told apart by direction: a make-up is dated on or after its skip.
+    const habitId = await gym('recover_within_period');
+    const skipped = await applyOccurrenceOutcome(services, USER, habitId, id(habitId, MON), 'skipped', MON);
+    assert.equal(skipped.recovery?.kind, 'recovered', 'the fixture minted no make-up date');
+    const makeUp = (skipped.recovery as { replacement: { occurrenceId: string; localDate: string } }).replacement;
+    assert.ok(makeUp.localDate >= MON);
+    assert.equal((await decide(habitId, makeUp.occurrenceId, 'completed', makeUp.localDate)).kind, 'applied');
+
+    assert.equal((await undoOccurrenceOutcome(services, USER, habitId, makeUp.occurrenceId)).kind, 'applied');
+    assert.equal(await stateOf(makeUp.occurrenceId), 'pending', 'a make-up date is real demand and stays');
+    assert.equal(await stateOf(id(habitId, MON)), 'recovered');
+  } finally {
+    restore();
+  }
+});
+
+test('V3-F23-02 undoing an off-day «تمّت» that took no day (none left open) removes it and touches nothing else', async () => {
+  const restore = await setup();
+  try {
+    const habitId = await gym();
+    assert.equal((await decide(habitId, id(habitId, MON), 'completed', MON)).kind, 'applied');
+    // Sunday: no asked-for day is left after it, so the stand-in takes none.
+    assert.equal((await decide(habitId, id(habitId, SUN), 'completed', SUN)).kind, 'applied');
+    assert.equal((await services.occurrences.get(USER, id(habitId, SUN)))?.recoveredFromOccurrenceId, null);
+
+    assert.equal((await undoOccurrenceOutcome(services, USER, habitId, id(habitId, SUN))).kind, 'applied');
+    assert.equal(await stateOf(id(habitId, SUN)), undefined, 'a Sunday the cadence never asked for stayed stored');
+    assert.equal(await stateOf(id(habitId, MON)), 'completed');
+    assert.equal(await stateOf(id(habitId, SAT)), 'pending');
   } finally {
     restore();
   }
