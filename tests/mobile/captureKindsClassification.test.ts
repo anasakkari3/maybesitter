@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { resolveCaptureKinds } from '../../lib/services/captureKinds/runtime.ts';
 import { readsAsDoubt } from '../../lib/services/mobile/mobileCaptureService.ts';
-import { beginRules, end, habitsOf, say } from '../acceptance/m3b/support.ts';
+import { beginRules, editPoint, end, habitsOf, say, show, type Answer } from '../acceptance/m3b/support.ts';
 
 test('capture-kind doubt markers distinguish first-person uncertainty from requests in ar/en/he', () => {
   for (const [text, expected] of [
@@ -114,6 +114,24 @@ test('V3-F23-05 an hour without its half of the day is not guessed into a habit 
     assert.ok(habit, 'no habit proposed');
     assert.equal(habit.durationMinutes, 20);
     assert.equal(habit.preferredWindow, null, '«الساعة 10» could be morning or night; it must not become one');
+  } finally {
+    end();
+  }
+});
+
+test('V3-F23-05 an hour said before its minutes keeps a window as long as the minutes answered later', async () => {
+  const uid = beginRules();
+  try {
+    const answer = await say(uid, 'بدي أقرأ كل يوم الساعة 10 بالليل', { entry: 'habit', locale: 'ar' });
+    const [habit] = habitsOf(answer);
+    assert.ok(habit, 'no habit proposed');
+    assert.equal(habit.question?.field, 'duration');
+    assert.deepEqual(habit.preferredWindow, { start: '22:00', end: '23:00' });
+    const result = await editPoint(uid, answer, { habitItemId: habit.habitItemId }, { durationMinutes: 90 });
+    assert.equal(result.status, 200, show(result.body));
+    const [edited] = habitsOf(result.body as Answer);
+    assert.equal(edited!.durationMinutes, 90);
+    assert.deepEqual(edited!.preferredWindow, { start: '22:00', end: '23:30' }, 'a session outgrew the window it is preferred in');
   } finally {
     end();
   }
