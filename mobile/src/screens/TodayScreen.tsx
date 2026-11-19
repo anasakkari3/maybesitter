@@ -28,7 +28,7 @@ import { useConflictBusyBlocks } from '../features/google/useGoogle';
 import { busyAt } from '../features/calendar/conflicts';
 import type { DeviceBusyBlock } from '../features/calendar/busyBlocks';
 import { TodayPlanRow } from '../features/plan/TodayPlanRow';
-import { drawnAt, drawnClockAt, drawnWhenLine, dueAsideText, laterWhen, placeView, savedPlacements } from '../features/plan/savedPlacement';
+import { drawnAt, drawnClockAt, drawnWhenLine, dueAsideText, laterWhen, placeView, savedPlacements, withAcceptedPlan } from '../features/plan/savedPlacement';
 import { composeToday, isPostponedAway, nextRecomposeAt, type Primary } from '../features/today/composeToday';
 import { Btn, SaidWords, Txt } from '../ui/primitives';
 import { AvatarButton, SectionLabel, Tag, TextLink, priorityTagKind } from '../ui/chrome';
@@ -106,7 +106,8 @@ export function TodayScreen({ tabClearance = TAB_CLEARANCE }: { tabClearance?: n
   // Where the saved week days put things (FX1): a row shows that, and its own
   // due beside it, as the Calendar and Details do.
   const savedWeek = useSavedWeek();
-  const placements = useMemo(() => savedPlacements(savedWeek.data), [savedWeek.data]);
+  // …and where today's accepted plan put it (V3-F14-03).
+  const placements = useMemo(() => withAcceptedPlan(savedPlacements(savedWeek.data), plan.data), [savedWeek.data, plan.data]);
   // From the local cache (UC-3.2, #186). Today renders before any request has
   // finished, and a chip that arrived after the list would move rows about.
   // The phone's busy time and Google's (CL6a review I1).

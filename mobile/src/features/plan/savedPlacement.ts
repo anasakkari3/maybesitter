@@ -1,4 +1,4 @@
-import type { SavedWeek } from '../../api/schemas/plan';
+import type { DailyPlan, SavedWeek } from '../../api/schemas/plan';
 import { clockOf, type CommitmentView } from '../commitments/model';
 import { dayKey, formatRelativeDay, formatTime } from '../../i18n/format';
 import { fill, ltr, type Lang } from '../../i18n/strings';
@@ -37,6 +37,23 @@ export function savedPlacements(saved: SavedWeek | undefined): ReadonlyMap<strin
   for (const day of saved?.saved ?? []) {
     for (const step of day.items) map.set(step.itemId, { date: day.date, startsAt: step.startsAt, endsAt: step.endsAt });
   }
+  return map;
+}
+
+/**
+ * The saved week's placements, with today's accepted daily plan over them
+ * (V3-F14-03). «اقبل الخطة» is the same kind of decision as «احفظ هاليوم»:
+ * the plan card previews four rows, and the rest kept their own due while the
+ * plan had moved them («أسلّم المشروع · 12:00» with the plan at 10:00). A
+ * proposal moves nothing; a fixed row is at its own time already.
+ */
+export function withAcceptedPlan(
+  placements: ReadonlyMap<string, SavedPlacement>,
+  plan: Pick<DailyPlan, 'date' | 'status' | 'scheduled'> | null | undefined,
+): ReadonlyMap<string, SavedPlacement> {
+  if (!plan || plan.status !== 'accepted') return placements;
+  const map = new Map(placements);
+  for (const step of plan.scheduled) map.set(step.itemId, { date: plan.date, startsAt: step.startsAt, endsAt: step.endsAt });
   return map;
 }
 
