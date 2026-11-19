@@ -309,7 +309,11 @@ export function HabitDetailScreen() {
   const [duration, setDuration] = React.useState(30);
   const [flexibility, setFlexibility] = React.useState<'flexible'|'protected_flexible'>('flexible');
   const [recovery, setRecovery] = React.useState<'skip'|'retry_same_day'|'recover_within_period'>('skip');
-  const items = query.data ?? [];
+  // The hub («أشيائي») counts habits that are not archived; the page lists the
+  // same ones (CA5.9). An archived habit has no action left here.
+  const items = (query.data ?? []).filter(habit => habit.status !== 'archived');
+  // A failed pause or delete is said under the habit it was for (CA5.8).
+  const failedHabitId = status.error ? status.variables?.id ?? null : remove.error ? remove.variables ?? null : null;
   const perWeek = perWeekOf(cadence);
   const save = () => create.mutate({
     title: title.trim(),
@@ -349,7 +353,7 @@ export function HabitDetailScreen() {
         {(today.data?.occurrences ?? []).filter(occurrence => occurrence.habitId === habit.habitId).map(occurrence =>
           <HabitTodayRow key={occurrence.occurrenceId} habit={habit} occurrence={occurrence} anyDay={(today.data?.anyDay ?? []).includes(occurrence.occurrenceId)} />)}
         <HabitWeekLine week={today.data?.weeks?.find(week => week.habitId === habit.habitId)} habitId={habit.habitId} />
-        {status.error || remove.error ? <Txt role="supporting" color={p.wm}>{userFacingMessage(status.error ?? remove.error, t)}</Txt> : null}
+        {failedHabitId === habit.habitId ? <Txt testID={`habit-error-${habit.habitId}`} role="supporting" color={p.wm}>{userFacingMessage(status.error ?? remove.error, t)}</Txt> : null}
         <ProductActions>
           <Pill testID={`habit-toggle-${habit.habitId}`} label={habit.status === 'paused' ? t.xResume : t.xPause} kind="outline" disabled={status.isPending || habit.status === 'archived'} onPress={() => status.mutate({ id: habit.habitId, status: habit.status === 'paused' ? 'active' : 'paused' })} />
           <Pill testID={`habit-delete-${habit.habitId}`} label={t.memoryDelete} kind="outline" disabled={remove.isPending} onPress={() => setDeleting(habit.habitId)} />
