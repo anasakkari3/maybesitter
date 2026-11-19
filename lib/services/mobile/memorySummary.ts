@@ -139,8 +139,17 @@ const ARABIC_DAY_WORDS = new Set(['يوم', 'ايام', 'نهار', 'بيوم', 
 const HEBREW_DAY_WORDS = new Set(['יום', 'ביום', 'בימי', 'ימי', 'מיום', 'ליום', 'וביום']);
 const HEBREW_ORDINAL_DAY: Readonly<Record<string, string>> = { ראשון: 'sunday', שני: 'monday', שלישי: 'tuesday', רביעי: 'wednesday', חמישי: 'thursday', שישי: 'friday' };
 
+/**
+ * Another weekday right before it makes «الاثنين» one too: «أيام الأحد
+ * والاثنين» is a list of days (de7fcb84 audit CA8.4). The days that never
+ * read as a number, with an optional «و».
+ */
+const ARABIC_OTHER_WEEKDAY = /^[و]?(?:ال)(احد|ثلاثاء|تلات|اربعاء|اربعا|خميس|جمعه|سبت)$/;
+
 function weekdayOf(word: string, previous: string | undefined): string | null {
-  if (ARABIC_WEEKDAY_WORD.test(word)) return previous !== undefined && ARABIC_DAY_WORDS.has(previous) ? 'monday' : null;
+  if (ARABIC_WEEKDAY_WORD.test(word)) {
+    return previous !== undefined && (ARABIC_DAY_WORDS.has(previous) || ARABIC_OTHER_WEEKDAY.test(previous)) ? 'monday' : null;
+  }
   if (previous !== undefined && HEBREW_DAY_WORDS.has(previous)) return HEBREW_ORDINAL_DAY[word] ?? null;
   return null;
 }

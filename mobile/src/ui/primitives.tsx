@@ -266,7 +266,7 @@ export function Btn({
    * UC-2.5 (#165)'s clarification options are a single choice, and a screen
    * reader announcing four buttons does not say that only one may be picked.
    */
-  accessibilityRole?: 'button' | 'radio' | 'checkbox' | 'link';
+  accessibilityRole?: 'button' | 'radio' | 'checkbox' | 'link' | 'tab';
   accessibilityState?: AccessibilityState;
   /**
    * Actions a screen reader or switch control can perform on this row.

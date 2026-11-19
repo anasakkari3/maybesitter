@@ -386,6 +386,25 @@ describe('analyze', () => {
     expect(screen.queryByTestId('share-screen')).toBeNull();
   });
 
+  // de7fcb84 audit CA3.7: Back from a share's review threw the proposal and
+  // the person's changes away with no question, onto an empty composer (a
+  // share has no sentence to go back to); «إلغاء الكل» on the same screen asked.
+  it('Back from a changed share review asks before throwing the changes away', async () => {
+    jest.spyOn(shareEndpoints, 'proposeFromShare').mockResolvedValue(shareProposal() as never);
+    await openWithShare({ ...mockEmptyIntent, text: 'Pay the nursery on Thursday', type: 'text' });
+    await fireEvent.press(screen.getByTestId('share-analyze'));
+    await waitFor(() => expect(screen.queryByTestId('review-item-i-1')).not.toBeNull());
+
+    await fireEvent.press(screen.getByTestId('review-item-i-1'));
+    await fireEvent.press(screen.getByTestId('review-back'));
+
+    expect(screen.queryByTestId('capture-discard')).not.toBeNull();
+    expect(screen.queryByTestId('review-item-i-1')).toBeNull();
+    // «كمّل» keeps the review exactly as it was.
+    await fireEvent.press(screen.getByTestId('capture-discard-keep'));
+    expect(screen.queryByTestId('review-item-i-1')).not.toBeNull();
+  });
+
   it('sends the text, the file descriptor and the source hint, and no kind', async () => {
     const propose = jest.spyOn(shareEndpoints, 'proposeFromShare').mockResolvedValue(shareProposal() as never);
     await openWithShare({ ...mockEmptyIntent, files: [sharedFile()], type: 'file' });
@@ -619,6 +638,21 @@ describe('back', () => {
     // Back to the tab the share arrived over, not Today's root.
     await waitFor(() => expect(screen.getByTestId('tab-calendar').props.accessibilityState).toMatchObject({ selected: true }));
   });
+
+  // de7fcb84 audit CXA3.1: Back left the shared PDF in the app's container and
+  // the native share record set, for as long as the app stayed signed in;
+  // only Discard, Analyze or an unmount cleared them. Back leaves nothing.
+  it('Back deletes the shared copies and resets the native share, as Discard does', async () => {
+    await openWithShare({ ...mockEmptyIntent, files: [sharedFile()], type: 'file' });
+    expect(mockFiles.size).toBeGreaterThan(0);
+    const resets = mockShareIntent.resets;
+
+    await fireEvent.press(screen.getByTestId('share-back'));
+    await waitFor(() => expect(screen.queryByTestId('share-screen')).toBeNull());
+
+    expect([...mockFiles]).toEqual([]);
+    expect(mockShareIntent.resets).toBeGreaterThan(resets);
+  });
 });
 
 describe('discard', () => {
@@ -779,6 +813,42 @@ describe('a picture is stripped before it is uploaded (UC-3.6, #190)', () => {
     expect(mockManipulator.saves).toHaveLength(1);
     expect(propose).not.toHaveBeenCalled();
     expect([...mockFiles]).toEqual([]);
+  });
+
+  // Review of CXA3.1: Back while a picture is being prepared left the
+  // stripped copy on disk (it was recorded after Back cleared), and the
+  // upload that followed took the person back into review.
+  it('Back while a picture is being prepared deletes what it wrote, uploads nothing and stays out of review', async () => {
+    const propose = jest.spyOn(shareEndpoints, 'proposeFromShare');
+    let open: () => void = () => {};
+    mockManipulator.gate = new Promise<void>((resolve) => { open = resolve; });
+    await openWithShare({
+      ...mockEmptyIntent,
+      files: [photograph('poster_ar', 'image/jpeg', 'file:///tmp/share/poster.jpg')],
+      type: 'media',
+    });
+    await fireEvent.press(screen.getByTestId('share-analyze'));
+    await fireEvent.press(screen.getByTestId('share-back'));
+    await act(async () => {
+      open();
+      for (let tick = 0; tick < 20; tick += 1) await Promise.resolve();
+    });
+
+    expect(propose).not.toHaveBeenCalled();
+    expect([...mockFiles]).toEqual([]);
+    expect(screen.queryByTestId('share-screen')).toBeNull();
+  });
+
+  it('Back while the upload is on its way does not land in review when it answers', async () => {
+    let answer: (value: unknown) => void = () => {};
+    jest.spyOn(shareEndpoints, 'proposeFromShare').mockImplementation(() => new Promise((resolve) => { answer = resolve; }) as never);
+    await openWithShare({ ...mockEmptyIntent, text: 'Pay the nursery on Thursday', type: 'text' });
+    await fireEvent.press(screen.getByTestId('share-analyze'));
+    await fireEvent.press(screen.getByTestId('share-back'));
+    await act(async () => { answer(shareProposal()); for (let tick = 0; tick < 20; tick += 1) await Promise.resolve(); });
+
+    expect(screen.queryByTestId('review-item-i-1')).toBeNull();
+    expect(screen.queryByTestId('share-screen')).toBeNull();
   });
 
   it('a picture the phone cannot open is refused here with what to do instead, not uploaded', async () => {

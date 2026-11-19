@@ -3,11 +3,27 @@ import { AccessibilityInfo, Animated, Easing, type StyleProp, type ViewStyle, Vi
 
 const ease = Easing.bezier(0.2, 0.8, 0.2, 1);
 
+/**
+ * The last answer the OS gave, shared by every mount. `undefined` until the
+ * first one arrives.
+ */
+let lastKnownReduced: boolean | undefined;
+
+/**
+ * Whether the person asked for less motion.
+ *
+ * The OS answers asynchronously, so a mount used to start at `false` and run
+ * its first frames of motion before the answer came (de7fcb84 audit CX2.6: a
+ * blank frame on every screen entry with Reduce Motion on). A mount now starts
+ * from the last answer any mount received, and before there was any answer it
+ * starts *reduced*: still is always safe, motion is not.
+ */
 export function useReducedMotion(): boolean {
-  const [reduced, setReduced] = useState(false);
+  const [reduced, setReduced] = useState(() => lastKnownReduced ?? true);
   useEffect(() => {
-    AccessibilityInfo.isReduceMotionEnabled().then(setReduced).catch(() => {});
-    const sub = AccessibilityInfo.addEventListener('reduceMotionChanged', setReduced);
+    const learn = (value: boolean) => { lastKnownReduced = value; setReduced(value); };
+    AccessibilityInfo.isReduceMotionEnabled().then(learn).catch(() => setReduced(false));
+    const sub = AccessibilityInfo.addEventListener('reduceMotionChanged', learn);
     return () => sub.remove();
   }, []);
   return reduced;

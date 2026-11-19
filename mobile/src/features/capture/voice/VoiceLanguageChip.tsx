@@ -45,7 +45,7 @@ export function VoiceLanguageChip({
       // "عربي" alone tells a screen-reader user nothing about the control.
       label={`${ENDONYM[value]} → ${ENDONYM[next]}`}
       onPress={() => onChange(next)}
-      style={{ backgroundColor: p.sf2, borderRadius: 999, paddingVertical: 8, paddingHorizontal: 14, minHeight: 40, justifyContent: 'center' }}
+      style={{ backgroundColor: p.sf2, borderRadius: 999, paddingVertical: 8, paddingHorizontal: 14, minHeight: 44, justifyContent: 'center' }}
     >
       <Txt size={13} weight={600}>{ENDONYM[value]}</Txt>
     </Btn>

@@ -13,7 +13,7 @@ import { resolveTimeZone, useTimeZone } from '../../i18n/timezone';
 import { isolateAuto } from '../../i18n/bidi';
 import { fill } from '../../i18n/strings';
 import { memorySentence } from '../memory/memoryDisplay';
-import { durationText } from '../memory/memoryProvenance';
+import { durationText, suggestionEvidenceText } from '../memory/memoryProvenance';
 import { toViewModel, type CommitmentView } from '../commitments/model';
 import { ServerToggle } from '../settings/ServerToggle';
 import { Btn, Card, Pill, Txt } from '../../ui/primitives';
@@ -108,14 +108,20 @@ export function PersonalizationScreen() {
             : suggestion.ruleId === 'R3_plan_time'
               ? fill(t.memorySuggestionPlanTime, { time: suggestion.planTime })
               : fill(t.memorySuggestionFocusWindow, suggestion.window))}</Txt>
-          <Txt role="supporting" color={p.mu}>{isolateAuto(tr('memorySuggestionEvidence', { days: suggestion.evidence.lookbackDays, total: suggestion.evidence.totalCount, matching: suggestion.evidence.matchingCount }))}</Txt>
+          <Txt role="supporting" color={p.mu}>{isolateAuto(suggestionEvidenceText(suggestion, t as unknown as Record<string, string>, (key, values) => tr(key, values)))}</Txt>
           {editing === suggestion.fingerprint ? <View style={{ gap: 12 }}>
             <Txt role="supporting" color={p.mu}>{t.xEditLearningBody}</Txt>
             <TextInput testID="personalization-edit-input" accessibilityLabel={t.memoryEdit} value={draft} onChangeText={setDraft} maxLength={200} multiline
               style={{ color: p.tx, backgroundColor: p.bg, padding: 14, minHeight: 60, borderRadius: 14, fontSize: 17, textAlign: rtl ? 'right' : 'left', writingDirection: rtl ? 'rtl' : 'ltr' }} />
             {create.error ? <Txt color={p.wm}>{userFacingMessage(create.error, t)}</Txt> : null}
             <ProductActions><Pill label={t.memorySave} testID="personalization-edit-save" disabled={create.isPending || !draft.trim()} onPress={() => {
-              create.mutate({ kind: 'preference', content: draft.trim(), language: lang }, { onSuccess: () => { setEditing(null); setDraft(''); actions.toast(t.xPreferenceSaved); } });
+              create.mutate({ kind: 'preference', content: draft.trim(), language: lang }, { onSuccess: () => {
+                setEditing(null); setDraft(''); actions.toast(t.xPreferenceSaved);
+                // The person's own words now hold what the suggestion offered:
+                // it is settled, so the card goes and «خليه» cannot store the
+                // same meaning twice (de7fcb84 audit CA8.3).
+                decide.mutate({ suggestion, decision: 'dismiss', language: lang });
+              } });
             }} /><Pill label={t.cancel} kind="outline" disabled={create.isPending} onPress={() => setEditing(null)} /></ProductActions>
           </View> : <ProductActions>
             <Pill label={t.memoryEdit} kind="outline" disabled={decide.isPending} onPress={() => {

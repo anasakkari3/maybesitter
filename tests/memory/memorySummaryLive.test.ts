@@ -166,6 +166,18 @@ test('«الاثنين» is a weekday only after a day word, even beside a row t
   assert.equal(both('כל שני פרקים אתה הולך לחדר כושר ויש לך ילדים בבית הספר.', 'he'), null);
 });
 
+// de7fcb84 audit CA8.4: «أيام الأحد والاثنين» was refused as an invented
+// number (and the refused summary was still paid for). A weekday right after
+// another weekday is a list of days; still only where a cited row names it.
+test('«الاثنين» after another weekday is a day in a list, still only beside a row that names Monday', async () => {
+  const { validateMemorySummary } = await import('../../lib/services/mobile/memorySummary.ts');
+  const gym = { ref: 'r1', id: 'a', kind: 'fact', text: 'I go to the gym on Sundays and Mondays' };
+  const kids = { ref: 'r1', id: 'b', kind: 'fact', text: 'عندي ولاد بالمدرسة' };
+  const one = (text: string, row: typeof gym) => validateMemorySummary({ sentences: [{ text, refs: ['r1'] }] }, [row], 'ar');
+  assert.notEqual(one('بتروح عالجيم أيام الأحد والاثنين.', gym), null);
+  assert.equal(one('عندك ولاد يوم الأحد والاثنين بالمدرسة.', kids), null);
+});
+
 // Inspection round 3: the duals kept from the first list, the Hebrew article,
 // and a window no survey writes.
 test('friends, neighbours, schools and the Hebrew article pass; a zero-length window is not a survey row', async () => {

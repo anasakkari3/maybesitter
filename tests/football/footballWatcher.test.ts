@@ -57,8 +57,14 @@ const TEMPLATE = RECORDED.matches.find((match) => match.id === 419471)!;
 const T0 = Math.ceil((Date.now() + 2 * DAY) / HOUR) * HOUR - 2 * DAY;
 const at = (ms: number) => new Date(ms);
 const iso = (ms: number) => new Date(ms).toISOString();
-const KICKOFF_1 = T0 + 2 * DAY + 17 * HOUR;
-const KICKOFF_2 = T0 + 9 * DAY + 17 * HOUR;
+/**
+ * Kickoffs sit at a fixed 15:00 UTC (17:00-18:00 in Jerusalem), so the two-hour
+ * block never crosses local midnight whatever hour the suite runs at. Anchored on
+ * T0's UTC day, they stay 2-3 days ahead of the wall clock.
+ */
+const DAY0 = Math.floor(T0 / DAY) * DAY;
+const KICKOFF_1 = DAY0 + 3 * DAY + 15 * HOUR;
+const KICKOFF_2 = DAY0 + 10 * DAY + 15 * HOUR;
 
 function vendorBody(kickoff1: number): string {
   return JSON.stringify({

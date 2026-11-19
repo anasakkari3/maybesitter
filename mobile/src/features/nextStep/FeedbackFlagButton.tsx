@@ -125,6 +125,7 @@ export function FeedbackFlagButton({ proposalId, commitmentId }: {
       </View>
       <TextInput
         testID="next-step-flag-note"
+        accessibilityLabel={t.flagNote}
         value={note}
         onChangeText={setNote}
         maxLength={MAX_NOTE}
