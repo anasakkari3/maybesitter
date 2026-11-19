@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Animated, View } from 'react-native';
+import { AccessibilityInfo, Animated, Platform, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useApp } from '../state/AppContext';
 import { Btn, Txt } from './primitives';
@@ -38,10 +38,15 @@ export function ToastHost({ clearance }: {
   const opacity = useRef(new Animated.Value(0)).current;
   const toast = s.toast;
   const left = toast && count?.id === toast.id ? count.left : TOAST_SECONDS;
+  const spoken = toast ? (toast.undo ? `${toast.text}. ${tr('toastUndoWithin', { s: TOAST_SECONDS })}` : toast.text) : '';
 
   useEffect(() => {
     if (!toast) return;
     const id = toast.id;
+    // iOS has no live regions: VoiceOver hears a toast only when told
+    // (de7fcb84 audit CX2.1). Keyed on the toast, so the same words twice
+    // are said twice. Android hears the region, so it is not told twice.
+    if (Platform.OS === 'ios') AccessibilityInfo.announceForAccessibility(spoken);
     Animated.timing(opacity, { toValue: 1, duration: reduced ? 0 : 180, useNativeDriver: true }).start();
     const tick = setInterval(() => setCount((c) => ({ id, left: Math.max(0, (c?.id === id ? c.left : TOAST_SECONDS) - 1) })), 1000);
     const hide = setTimeout(() => actions.dismissToast(id), TOAST_SECONDS * 1000);
@@ -63,7 +68,7 @@ export function ToastHost({ clearance }: {
         // The undo window is said once, here; the ticking digits are hidden
         // from screen readers, or the live region would change every second
         // and TalkBack could say the toast again each time (review n6).
-        label={toast.undo ? `${toast.text}. ${tr('toastUndoWithin', { s: TOAST_SECONDS })}` : toast.text}
+        label={spoken}
         onPress={() => { if (toast.undo) toast.undo(); actions.dismissToast(toast.id); }}
         scaleTo={0.98}
         // Stitch: a raised pill with a coral hairline, the app's own text on it.
