@@ -367,6 +367,13 @@ test('F: the missed-thing and relative-span readers read at most the cap, in a b
     fill('I was supposed to x and '),
     fill('in an hour '),
     fill('، '),
+    // Hebrew (review round 3): the Hebrew branch with its unbounded gap is
+    // gone; held here so a Hebrew reader added again stays linear.
+    fill('הייתי צריך ל'),
+    `הייתי צריך להתקשר${' '.repeat(CAPTURE_INPUT_MAX_CHARACTERS - 30)}ולא`,
+    fill('שכחתי ל'),
+    // The narrow pattern's own words, repeated.
+    fill('كان لازم أبعت وما '),
   ];
   for (const text of hostile) {
     assert.ok(text.length <= CAPTURE_INPUT_MAX_CHARACTERS);
