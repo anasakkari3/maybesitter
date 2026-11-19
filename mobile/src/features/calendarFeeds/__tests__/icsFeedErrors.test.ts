@@ -47,7 +47,13 @@ describe('feed refusals keep their reason', () => {
     // A server without ICS_FEEDS_ENABLED, as recorded from the real handler.
     [404, disabled, 'feature_disabled', 'icsFeedsUnavailable'],
     [422, { success: false, error: 'not_a_calendar', reason: 'not_a_calendar' }, 'not_a_calendar', 'icsFeedsErrNotCalendar'],
-    [422, { success: false, error: 'fetch_failed', reason: 'fetch_failed', detail: 'timeout' }, 'fetch_failed', 'icsFeedsErrFetch'],
+    // QA v3 V3-F19-01: a site that refused or did not answer is not a wrong
+    // link, so neither one tells the person to check the link.
+    [422, { success: false, error: 'fetch_failed', reason: 'fetch_failed', detail: 'http_status' }, 'fetch_failed', 'icsFeedsErrSiteRefused'],
+    [422, { success: false, error: 'fetch_failed', reason: 'fetch_failed', detail: 'timeout' }, 'fetch_failed', 'icsFeedsErrNoAnswer'],
+    [422, { success: false, error: 'fetch_failed', reason: 'fetch_failed', detail: 'network' }, 'fetch_failed', 'icsFeedsErrNoAnswer'],
+    [422, { success: false, error: 'fetch_failed', reason: 'fetch_failed', detail: 'too_large' }, 'fetch_failed', 'icsFeedsErrFetch'],
+    [422, { success: false, error: 'fetch_failed', reason: 'fetch_failed' }, 'fetch_failed', 'icsFeedsErrFetch'],
     [409, { success: false, error: 'too_many_feeds', reason: 'too_many_feeds' }, 'too_many_feeds', 'icsFeedsErrTooMany'],
     [503, { success: false, error: 'encryption_unavailable', reason: 'encryption_unavailable' }, 'encryption_unavailable', 'icsFeedsErrUnavailable'],
   ];
@@ -56,6 +62,7 @@ describe('feed refusals keep their reason', () => {
     expect(error).toBeInstanceOf(IcsFeedRefusedError);
     expect((error as IcsFeedRefusedError).reason).toBe(reason);
     for (const lang of ['ar', 'en', 'he'] as const) {
+      expect(typeof strings[lang][key]).toBe('string');
       expect(userFacingMessage(error, strings[lang])).toBe(strings[lang][key]);
     }
   });

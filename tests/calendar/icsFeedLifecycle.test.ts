@@ -371,6 +371,31 @@ test('a page that is not a calendar, a failed fetch, an unknown key and missing 
   });
 });
 
+// QA v3 V3-F19-01: Google public calendars answer the server with `http_status`
+// and nobody can tell which status — a 404 (not public), a 403/429 (refused)
+// or a 5xx are different fixes. The subscribe log line now carries the number,
+// and still nothing else: no URL, no host, no body.
+test('a refused subscribe logs the HTTP status the calendar site answered with, and only that', async () => {
+  await withWorld(async (h) => {
+    for (const status of [404, 403, 429, 503]) {
+      h.logs.length = 0;
+      h.failNext = new SafeFetchError('http_status', status);
+      const failed = await subscribe(h);
+      assert.deepEqual([failed.status, failed.body.error, failed.body.detail], [422, 'fetch_failed', 'http_status']);
+      const line = h.logs.find((entry) => entry.startsWith('[ics] subscribe fetch refused'));
+      assert.ok(line, `no subscribe log line for ${status}`);
+      assert.match(line, new RegExp(` code=http_status status=${status}$`));
+      assert.ok(!line.includes(HOST) && !line.includes(SECRET) && !line.includes('https://'), line);
+    }
+    // A refusal with no status says so rather than inventing one.
+    h.logs.length = 0;
+    h.failNext = new SafeFetchError('timeout');
+    await subscribe(h);
+    assert.match(h.logs.find((entry) => entry.startsWith('[ics] subscribe fetch refused'))!, / code=timeout$/);
+    assert.deepEqual(await feeds(), []);
+  });
+});
+
 // A rule ical.js takes seconds to give up on (every 1461 days never lands on a
 // 29 February). Finite on purpose: an unbounded regression makes these tests
 // fail on the status rather than hang the suite; the never-terminating rule is
