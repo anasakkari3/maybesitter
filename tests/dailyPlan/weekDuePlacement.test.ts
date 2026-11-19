@@ -41,6 +41,7 @@ import { buildDailyPlanInput, type BusyBlockReader } from '../../lib/services/da
 import { buildAndStoreDailyPlan, readPlanSettings } from '../../lib/services/dailyPlan/dailyPlanService.ts';
 import { readStoredPlan } from '../../lib/services/dailyPlan/planStore.ts';
 import { readCurrentPlan } from '../../lib/services/dailyPlan/planRefresh.ts';
+import { acceptPlan } from '../../lib/services/dailyPlan/planActions.ts';
 import { acceptWeekDay, composeWeek, weekToDto, type WeekDto } from '../../lib/services/dailyPlan/weekPlan.ts';
 import {
   answerClarification,
@@ -360,6 +361,31 @@ test('QA v3 review of #871: tomorrow\'s plan stored this morning takes in tonigh
     for (const itemId of ['sun_18', 'sun_2330', 'put_off', 'room']) {
       assert.ok(onMonday.has(itemId), `${itemId}, late since Sunday, is still missing from Monday's plan: ${Array.from(onMonday).join(', ')}`);
     }
+  } finally {
+    resetStorageForTests();
+  }
+});
+
+test('QA v3 review of #871: an accepted plan is kept as the person saved it, and only says something new landed', async () => {
+  const storage = createMemoryStorage();
+  setStorageForTests(storage);
+  try {
+    const extra: Seed = { id: 'sun_18', title: 'أبعت الفاتورة', level: 'normal', dueDay: WEEK[0]!,
+      timeSpec: { kind: 'due_by', dueAt: at(WEEK[0]!, '18:00'), endAt: null, remindAt: null, allDay: false } };
+    await seedLiveAccount(USER, storage);
+    await persistParticipantState(USER, seededState([...UAT, extra]));
+    const user = await storage.get<Record<string, unknown>>(userDoc(USER));
+    await storage.set(userDoc(USER), { ...(user ?? {}), timezone: TZ, locale: 'ar' });
+    await buildAndStoreDailyPlan(
+      { uid: USER, date: WEEK[1]!, settings: await readPlanSettings(USER, { storage }) },
+      { storage, now: () => new Date(at(WEEK[0]!, '06:40')), busyBlocks: MONDAY_MEETING, push: async () => undefined },
+    );
+    const accepted = await acceptPlan(USER, WEEK[1]!, { storage, now: () => new Date(at(WEEK[0]!, '06:45')) });
+    assert.ok(accepted);
+
+    const read = await readCurrentPlan(USER, WEEK[1]!, { storage, now: () => new Date(at(WEEK[1]!, '07:00')), busyBlocks: MONDAY_MEETING });
+    assert.equal(read!.stored.generation, accepted!.generation, 'the accepted plan was rebuilt under the person');
+    assert.equal(read!.inputsChanged, true, 'Sunday\'s late work landed on Monday and the plan did not say so');
   } finally {
     resetStorageForTests();
   }
