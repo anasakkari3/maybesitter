@@ -194,6 +194,7 @@ function currentRequestOf(
   stored: StoredDailyPlan,
   commitments: readonly Commitment[],
   today: string | null,
+  now: string | null,
 ): PlanningConstraints {
   const assignment = storedWeekAssignment(stored, today);
   return buildDailyPlanInput({
@@ -207,6 +208,10 @@ function currentRequestOf(
     profile: null,
     focusHint: null,
     builtAt: stored.generatedAt,
+    // An earlier day's work is late *now* or not (review of #871): read at
+    // `generatedAt`, tomorrow's plan stored this morning never took in
+    // tonight's work once it was late. Everything else stays as built.
+    ...(now ? { lateAsOf: now } : {}),
     ...(assignment ? { assignment } : {}),
   }).constraints;
 }
@@ -222,8 +227,9 @@ export function planInputsChanged(
   stored: StoredDailyPlan,
   commitments: readonly Commitment[],
   today: string | null = null,
+  now: string | null = null,
 ): boolean {
-  const current = currentRequestOf(uid, stored, commitments, today);
+  const current = currentRequestOf(uid, stored, commitments, today, now);
   return commitmentDigest(stored, current) !== commitmentDigest(stored, stored.constraints);
 }
 
@@ -244,8 +250,9 @@ export function dayGainedOrMoved(
   stored: StoredDailyPlan,
   commitments: readonly Commitment[],
   today: string | null = null,
+  now: string | null = null,
 ): boolean {
-  const current = currentRequestOf(uid, stored, commitments, today);
+  const current = currentRequestOf(uid, stored, commitments, today, now);
   const floatingBefore = new Map(stored.constraints.items.map((item) => [item.itemId, item.deadlineAt] as const));
   for (const item of current.items) {
     if (!floatingBefore.has(item.itemId)) return true;
@@ -331,12 +338,12 @@ export async function refreshStalePlan(
     && planSolveEpochMoved(stored, user ?? await storage.get<Record<string, unknown>>(userDoc(uid)));
   const memoryChanged = fenceMoved || (memoryProjection !== null && memoryProjection.mode !== 'off'
     && (memoryProjection.markerUnknown || memoryProjection.memoryBasisChanged));
-  const commitmentChanged = normallyRefreshable && planInputsChanged(uid, stored, commitments, today);
+  const commitmentChanged = normallyRefreshable && planInputsChanged(uid, stored, commitments, today, now.toISOString());
   if (!commitmentChanged && !readinessChanged && !memoryChanged) return { stored, inputsChanged: false, basisChanged: false };
   if (!planIsUntouched(stored, now)) {
     return {
       stored,
-      inputsChanged: commitmentChanged && dayGainedOrMoved(uid, stored, commitments, today),
+      inputsChanged: commitmentChanged && dayGainedOrMoved(uid, stored, commitments, today, now.toISOString()),
       basisChanged: readinessChanged,
     };
   }
