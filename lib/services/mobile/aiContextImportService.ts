@@ -266,11 +266,13 @@ export async function importAiContext(
     proposal.model = response.model;
     raw = JSON.parse(response.text);
   } catch {
-    // No model, no consent, over a cap, a timeout, or a malformed answer. All
-    // of them mean the same thing to the user: nothing to bring over.
+    // No model, no consent, over a cap, a timeout, or a malformed answer. None
+    // of them read the paste, so the answer says so (QA CXA1.4, CA8.1) rather
+    // than passing for "nothing to bring over", and the route gives the day's
+    // import back.
     proposal.model = null;
     await save(uid, proposal, options, fence.epoch);
-    return freeze(proposal);
+    return freeze(proposal, true);
   }
 
   proposal.candidates = [...validateImportCandidates(raw, {
@@ -323,7 +325,7 @@ function summarise(candidates: readonly RawImportCandidate[]): ImportSummary {
 }
 
 /** The wire shape: indices resolved to ids, and no `existingIndex`. */
-function freeze(proposal: StoredImportProposal): AiContextImportProposal {
+function freeze(proposal: StoredImportProposal, degraded = false): AiContextImportProposal {
   const candidates: ImportCandidate[] = proposal.candidates.map(({ relatesTo, ...rest }) => Object.freeze({
     ...rest,
     relatesToId: relatesTo === null ? null : proposal.existingIndex[relatesTo - 1] ?? null,
@@ -340,6 +342,7 @@ function freeze(proposal: StoredImportProposal): AiContextImportProposal {
     createdAt: proposal.createdAt,
     promptVersion: proposal.promptVersion,
     model: proposal.model,
+    degraded,
   });
 }
 

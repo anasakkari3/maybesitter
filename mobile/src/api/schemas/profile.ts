@@ -283,6 +283,12 @@ export const profileProposalSchema = z.object({
   createdAt: isoDateTime,
   promptVersion: z.string(),
   model: z.string().nullable(),
+  /**
+   * The model never read the description (QA CXA1.4): the empty list means
+   * "busy, try again shortly", not "nothing to suggest". Optional so a server
+   * from before the field reads as not degraded.
+   */
+  degraded: z.boolean().optional(),
 });
 
 export const profileConfirmedSchema = z.object({

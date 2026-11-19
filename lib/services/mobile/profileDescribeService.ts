@@ -93,6 +93,9 @@ interface StoredProposal {
   model: string | null;
 }
 
+/** Not stored: whether this answer came from a model that never read the text. */
+type Answered = StoredProposal & { degraded?: boolean };
+
 function storageOf(options: DescribeOptions): StorageAdapter {
   return options.storage ?? getStorage();
 }
@@ -167,11 +170,12 @@ export async function describeProfile(
   try {
     raw = JSON.parse(await complete(buildProfilePrompt(description, locale)));
   } catch {
-    // No model, no consent, over the cap, or a malformed answer. All of them
-    // mean the same thing to the user: nothing to suggest. The consent refusal
-    // is surfaced by the route, which asks before calling this.
+    // No model, no consent, over the cap, or a malformed answer. None of them
+    // read the description, so the answer says so (QA CXA1.4) rather than
+    // passing for "nothing to suggest". The consent refusal is surfaced by
+    // the route, which asks before calling this.
     await save(uid, proposal, options);
-    return freeze(proposal);
+    return freeze({ ...proposal, degraded: true });
   }
 
   const suggestions = validateProfileSuggestions(
@@ -192,13 +196,14 @@ async function save(uid: string, proposal: StoredProposal, options: DescribeOpti
   });
 }
 
-function freeze(proposal: StoredProposal): ProfileProposal {
+function freeze(proposal: Answered): ProfileProposal {
   return Object.freeze({
     proposalId: proposal.proposalId,
     suggestions: Object.freeze([...proposal.suggestions]),
     createdAt: proposal.createdAt,
     promptVersion: proposal.promptVersion,
     model: proposal.model,
+    degraded: proposal.degraded === true,
   });
 }
 

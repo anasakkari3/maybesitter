@@ -66,6 +66,12 @@ export const aiContextImportProposalSchema = z.object({
   createdAt: isoDateTime,
   promptVersion: z.string(),
   model: z.string().nullable(),
+  /**
+   * The model never read the paste (QA CXA1.4, CA8.1): "busy, try again
+   * shortly", not "nothing to bring over"; the server gave the day's import
+   * back. Optional so a server from before the field reads as not degraded.
+   */
+  degraded: z.boolean().optional(),
 });
 
 /** What actually happened, as opposed to what was offered. */

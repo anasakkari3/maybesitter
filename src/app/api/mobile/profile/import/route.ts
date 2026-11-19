@@ -1,6 +1,6 @@
 import { mobileAuthErrorResponse, requireMobileUser } from '../../../../../../lib/auth/mobileAuth';
 import { getAiConsent } from '../../../../../../lib/consents/aiConsentService';
-import { reserveDailyAction } from '../../../../../../lib/llm/usageGuard';
+import { releaseDailyAction, reserveDailyAction } from '../../../../../../lib/llm/usageGuard';
 import { moduleDisabledResponse } from '../../../../../../lib/services/mobile/moduleGate';
 import {
   ImportTextTooLongError,
@@ -80,7 +80,8 @@ export async function POST(request: Request) {
 
   // Fails closed: an unreadable counter refuses rather than waves the call
   // through, which is what the guard does everywhere else.
-  const reservation = await reserveDailyAction(user.uid, 'ai_context_import', MAX_IMPORTS_PER_DAY);
+  const reservedAt = new Date();
+  const reservation = await reserveDailyAction(user.uid, 'ai_context_import', MAX_IMPORTS_PER_DAY, { now: reservedAt });
   if (reservation !== 'ok') {
     return Response.json(
       {
@@ -97,6 +98,9 @@ export async function POST(request: Request) {
     // The phone's UI language (owner request 2026-09-30): the candidates are written in it.
     const locale = captureAppLocaleFrom(body.locale);
     const proposal = await importAiContext(user.uid, text, body.assistant, new Date(), locale ? { locale } : {});
+    // The model never read the paste (QA CA8.1): the attempt is given back,
+    // so a busy model cannot use up the person's three imports for the day.
+    if (proposal.degraded) await releaseDailyAction(user.uid, 'ai_context_import', { now: reservedAt });
     return Response.json({ success: true, ...proposal });
   } catch (error) {
     if (error instanceof ImportTextTooLongError) return tooLongResponse();

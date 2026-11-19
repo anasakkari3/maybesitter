@@ -2712,12 +2712,13 @@ test('exports a fixture for every /api/mobile call the React Native client makes
     }
 
     // ── the self-description pair (#168) ───────────────────────────
-    // No model is configured here, so the suggestion list comes back empty —
-    // which is the shape the client must handle anyway, and the honest record
-    // of what this handler returns without one.
+    // No model is configured here, so the suggestion list comes back empty and
+    // marked `degraded: true` (QA CXA1.4) — the shape the client must handle
+    // anyway, and the honest record of what this handler returns without one.
     const described = await record('profile.described', 200, await describePost(request('/api/mobile/profile/describe', {
       body: { text: 'I am a nursing student and my thesis is due in March.' },
     })));
+    assert.equal((described as { degraded?: unknown }).degraded, true, 'a model that never read the text must say so');
 
     await record('profile.describeConfirmed', 200, await describeConfirmPost(
       request('/api/mobile/profile/describe/confirm', {
@@ -2734,14 +2735,15 @@ test('exports a fixture for every /api/mobile call the React Native client makes
     ));
 
     // ── the AI context import pair ────────────────────────────────
-    // No model here either, so the candidate list comes back empty — again the
-    // shape the review screen has to handle, and the honest record of this
-    // handler without one. What matters in the fixture is the fields around it:
+    // No model here either, so the candidate list comes back empty and
+    // `degraded: true` (QA CXA1.4, CA8.1) — again the shape the review screen
+    // has to handle, and the honest record of this handler without one. What matters in the fixture is the fields around it:
     // the summary the screen reads before the user commits, and how many
     // existing records the comparison actually covered.
     const imported = await record('profile.imported', 200, await importPost(request('/api/mobile/profile/import', {
       body: { text: 'They are a nursing student who wants to run a 10k.', assistant: 'chatgpt' },
     })));
+    assert.equal((imported as { degraded?: unknown }).degraded, true, 'a model that never read the paste must say so');
 
     await record('profile.importConfirmed', 200, await importConfirmPost(
       request('/api/mobile/profile/import/confirm', {

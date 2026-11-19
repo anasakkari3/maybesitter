@@ -71,6 +71,13 @@ export interface ProfileProposal {
   readonly createdAt: string;
   readonly promptVersion: string;
   readonly model: string | null;
+  /**
+   * The model never read the description: unavailable, over a cap, timed
+   * out, or answered something unparseable (QA CXA1.4). The list is empty
+   * because nothing was read, not because the description held nothing, and
+   * the screen says "busy, try again shortly" rather than "nothing to suggest".
+   */
+  readonly degraded: boolean;
 }
 
 /** Why a suggestion was dropped. Counted, never attached to content. */
