@@ -53,6 +53,22 @@ describe('a step put off, across Today unmounting and an account change', () => 
     expect(screen.getByTestId('held')).toHaveTextContent('c-1');
   });
 
+  it('outlives five minutes even when recorded with nothing reading it', async () => {
+    jest.useFakeTimers();
+    const repository = createFakeAuthRepository({ initialUser: user('account-a') });
+    const client = createAppQueryClient();
+    recordDeferredNextStep(client, 'account-a', 'c-1', '2030-01-01T00:00:00.000Z');
+    await act(async () => { jest.advanceTimersByTime(6 * 60 * 1000); });
+    await render(
+      <AppProvider>
+        <AuthProvider repository={repository} isDevBundle={false}>
+          <ApiProvider client={client}><Probe /></ApiProvider>
+        </AuthProvider>
+      </AppProvider>,
+    );
+    expect(screen.getByTestId('held')).toHaveTextContent('c-1');
+  });
+
   it('is not carried to another account', async () => {
     const repository = createFakeAuthRepository({ initialUser: user('account-a') });
     const client = createAppQueryClient();
