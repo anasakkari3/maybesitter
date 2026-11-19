@@ -562,6 +562,8 @@ export const captureChatFollowUpSchema = z.object({
     title: z.string(),
     reason: z.enum(['event_ended', 'deadline_passed']),
     since: z.string().datetime({ offset: true }),
+    /** The instant whose day to name (an all-day item's own day). Absent on an answer saved before it: read `since`. */
+    shownAt: z.string().datetime({ offset: true }).optional(),
   })).min(1).max(1),
 });
 

@@ -118,6 +118,15 @@ describe('the «ما اتصرّفت فيها» screen', () => {
     expect(due).not.toEqual(ended);
   });
 
+  it('an all-day item is named by its own day, not the midnight after it', () => {
+    // The appointment on Sun 2026-08-09, all day, in Jerusalem: over at Mon 00:00, which is today.
+    const now = new Date('2026-08-10T09:00:00.000Z');
+    const item = { reason: 'event_ended' as const, since: '2026-08-09T21:00:00.000Z', shownAt: '2026-08-08T21:00:00.000Z' };
+    expect(unhandledReasonLine(item, en, 'en', 'Asia/Jerusalem', now)).toContain(en.yesterday);
+    // A server that sends no `shownAt` is read by its `since`, as before.
+    expect(unhandledReasonLine({ reason: 'event_ended', since: item.since }, en, 'en', 'Asia/Jerusalem', now)).not.toContain(en.yesterday);
+  });
+
   it('done and «أسقطه بوعي» are the commitment’s own actions', async () => {
     await show(<UnhandledScreen onBack={() => {}} />);
     await waitFor(() => expect(screen.queryByTestId(`unhandled-done-${MEETING_ID}`)).not.toBeNull());

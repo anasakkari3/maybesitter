@@ -76,13 +76,13 @@ function UnhandledEmpty() {
 
 /** "Ended yesterday" / "Was due Monday": when, never how late. */
 export function unhandledReasonLine(
-  item: Pick<UnhandledItem, 'reason' | 'since'>,
+  item: Pick<UnhandledItem, 'reason' | 'since' | 'shownAt'>,
   t: { unhandledEventEnded: string; unhandledDeadlinePassed: string },
   lang: string,
   timeZone: string,
   now: Date = new Date(),
 ): string {
-  const when = isolateAuto(formatRelativeDay(new Date(item.since), { locale: lang as never, timeZone, now }));
+  const when = isolateAuto(formatRelativeDay(new Date(item.shownAt ?? item.since), { locale: lang as never, timeZone, now }));
   return fill(item.reason === 'event_ended' ? t.unhandledEventEnded : t.unhandledDeadlinePassed, { when });
 }
 

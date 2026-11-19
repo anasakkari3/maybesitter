@@ -86,7 +86,16 @@ function commitment(
 function scenario(): Commitment[] {
   return [
     commitment('meeting', 'Meeting with Sami', { kind: 'scheduled_event', dueAt: '2026-11-12T07:00:00.000Z', endAt: '2026-11-12T08:00:00.000Z' }),
-    commitment('report', 'Hand in the report', { kind: 'due_by', dueAt: '2026-11-11T16:00:00.000Z' }),
+    commitment('report', 'Hand in the report', { kind: 'due_by', dueAt: '2026-11-11T16:00:00.000Z', deadline: 'explicit' }),
+    // «بدي أدرس الثلاثاء»: a day and no limit word, yesterday. A task (#383), never asked about
+    // (owner decision 2026-11-19), though it is more recent than the report.
+    commitment('studyDay', 'Study', { kind: 'due_by', dueAt: '2026-11-10T22:00:00.000Z', allDay: true }),
+    // Stored before the mark: not a limit anybody is known to have named.
+    commitment('legacy', 'Old hand-in', { kind: 'due_by', dueAt: '2026-11-12T10:00:00.000Z' }),
+    // «تحضير لـ…» from the evening's impact pass, running now (14:30–16:00): never asked about.
+    commitment('prep', 'Prepare for the review', {
+      kind: 'due_by', dueAt: '2026-11-12T12:30:00.000Z', endAt: '2026-11-12T14:00:00.000Z', windowRule: 'shift', deadline: 'explicit',
+    }),
     commitment('doctor', 'Doctor', { kind: 'scheduled_event', dueAt: '2026-11-09T22:00:00.000Z', allDay: true }),
     commitment('lecture', 'Lecture', { kind: 'scheduled_event', dueAt: '2026-10-22T08:00:00.000Z', endAt: '2026-10-22T10:00:00.000Z' }),
     // A task keeps #383: never in the place, never asked about.
@@ -210,6 +219,7 @@ test('E3: a finished turn carries one item, the most recent, and only it is coun
     const followUp = (answer as unknown as { followUp: { items: Array<Record<string, unknown>> } }).followUp;
     assert.deepEqual(followUp.items, [{
       commitmentId: 'meeting', title: 'Meeting with Sami', reason: 'event_ended', since: '2026-11-12T08:00:00.000Z',
+      shownAt: '2026-11-12T08:00:00.000Z',
     }]);
     assert.deepEqual(await askCounts(), { meeting: 1 });
   });
@@ -221,7 +231,32 @@ test('E3: a deadline is asked about as a deadline', async () => {
     const followUp = (await say('hello') as unknown as { followUp: { items: Array<Record<string, unknown>> } }).followUp;
     assert.deepEqual(followUp.items, [{
       commitmentId: 'report', title: 'Hand in the report', reason: 'deadline_passed', since: '2026-11-11T16:00:00.000Z',
+      shownAt: '2026-11-11T16:00:00.000Z',
     }]);
+  });
+});
+
+test('E3: an all-day appointment is asked about on its own day, not the midnight after it', async () => {
+  await run(async () => {
+    await dismissUnhandled(UID, 'meeting', { now: NOW });
+    await dismissUnhandled(UID, 'report', { now: NOW });
+    const followUp = (await say('hello') as unknown as { followUp: { items: Array<Record<string, unknown>> } }).followUp;
+    // The doctor was Mon 2026-11-10 (all day): over at Tue 00:00, shown on Monday.
+    assert.deepEqual(followUp.items, [{
+      commitmentId: 'doctor', title: 'Doctor', reason: 'event_ended', since: '2026-11-10T22:00:00.000Z',
+      shownAt: '2026-11-09T22:00:00.000Z',
+    }]);
+  });
+});
+
+test('E3: a due_by with no limit the person named is never asked about (owner decision 2026-11-19)', async () => {
+  await run(async () => {
+    await dismissUnhandled(UID, 'meeting', { now: NOW });
+    await dismissUnhandled(UID, 'report', { now: NOW });
+    // Left in the place: the doctor and the lecture. The day-only study and the legacy hand-in never were.
+    assert.deepEqual(followUpIds(await say('hello')), ['doctor']);
+    assert.equal((await askCounts()).studyDay, undefined);
+    assert.equal((await askCounts()).legacy, undefined);
   });
 });
 
@@ -248,7 +283,7 @@ test('E3: an item dismissed with «لا تسألني عنها» is never asked a
 
 test('E3 pick: pure, bounded, and skips what was asked enough', () => {
   const item = (id: string, askCount: number) => ({
-    reason: 'event_ended' as const, since: '2026-11-12T08:00:00.000Z', askCount,
+    reason: 'event_ended' as const, since: '2026-11-12T08:00:00.000Z', shownAt: '2026-11-12T08:00:00.000Z', askCount,
     commitment: { id, title: id } as Commitment,
   });
   assert.deepEqual(

@@ -341,4 +341,14 @@ describe('the words', () => {
       expect(copy[key]).not.toMatch(LATENESS);
     }
   });
+
+  it('an all-day item is named by its own day, not the midnight after it', () => {
+    // The doctor on Sun 2026-08-09, all day, in Jerusalem: over at Mon 00:00 (since), shown on Sunday.
+    const doctor = { commitmentId: 'd', title: 'Doctor', reason: 'event_ended' as const, since: '2026-08-09T21:00:00.000Z', shownAt: '2026-08-08T21:00:00.000Z' };
+    const line = stripIsolates(followUpText({ items: [doctor] }, en, 'en', 'Asia/Jerusalem', NOW));
+    expect(line).toContain(en.yesterday);
+    // An answer saved before `shownAt` existed still reads: its `since`.
+    const { shownAt: _old, ...stored } = doctor;
+    expect(stripIsolates(followUpText({ items: [stored] }, en, 'en', 'Asia/Jerusalem', NOW))).not.toContain(en.yesterday);
+  });
 });

@@ -99,6 +99,16 @@ export interface TimeSpec {
    * other paths make (Gmail, fixtures) — and the title heuristic answers.
    */
   itemKind?: 'event' | 'task' | 'unsure';
+  /**
+   * The person named a limit when they said it: «قبل الخميس», "by Friday",
+   * «עד יום חמישי» (owner decision 2026-11-19, `namesExplicitDeadline`).
+   * Only capture writes it, and only on a `due_by`. «ما اتصرّفت فيها» lists
+   * a passed `due_by` only with it: a day and nothing else («بدي أدرس
+   * الثلاثاء») is a task that rolls into Today (#383). Absent means nobody
+   * named a limit, or nobody knows — every commitment stored before it, and
+   * those other paths make (Gmail, imports, plan steps).
+   */
+  deadline?: 'explicit';
 }
 
 /**
@@ -520,6 +530,8 @@ export function normalizeStoredTimeSpec(timeSpec?: Partial<TimeSpec>): TimeSpec 
     ...(timeSpec?.itemKind === 'event' || timeSpec?.itemKind === 'task' || timeSpec?.itemKind === 'unsure'
       ? { itemKind: timeSpec.itemKind }
       : {}),
+    // Only the one value: anything else a document holds reads as "no limit named".
+    ...(timeSpec?.deadline === 'explicit' ? { deadline: 'explicit' as const } : {}),
   };
 }
 

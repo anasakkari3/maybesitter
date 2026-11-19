@@ -22,7 +22,7 @@ import { rescheduleDecisionSchema, rescheduleListSchema, rescheduleRefusedSchema
 import { join } from 'path';
 import { z } from 'zod';
 import type { CalendarBusyUpload } from '../endpoints/calendar';
-import { commitmentListSchema, commitmentSchema, errorBodySchema, importanceOf } from '../schemas/common';
+import { commitmentListSchema, commitmentSchema, errorBodySchema, importanceOf, timeSpecSchema } from '../schemas/common';
 import {
   commitmentActionResultSchema,
   commitmentDeleteResultSchema,
@@ -1001,5 +1001,16 @@ describe('capture chat asked', () => {
     const parsed = captureChatSchema.parse({ ...older, turns: olderTurns });
     expect(parsed).not.toHaveProperty('asked');
     expect(parsed.turns[last]).not.toHaveProperty('asked');
+  });
+});
+
+describe('timeSpec.deadline (owner decision 2026-11-19)', () => {
+  const base = { kind: 'due_by', dueAt: '2026-11-18T22:00:00.000Z', endAt: null, remindAt: null, allDay: true, timezone: 'Asia/Jerusalem' };
+  it('keeps a limit the person named', () => {
+    expect(timeSpecSchema.parse({ ...base, deadline: 'explicit' }).deadline).toBe('explicit');
+  });
+  it('reads a value this build does not know, or none, as no limit — never as an unparseable row', () => {
+    expect(timeSpecSchema.parse({ ...base, deadline: 'soft' }).deadline).toBeUndefined();
+    expect(timeSpecSchema.parse(base).deadline).toBeUndefined();
   });
 });

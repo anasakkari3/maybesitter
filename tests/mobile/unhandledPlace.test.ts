@@ -6,7 +6,10 @@
  *
  *   - an appointment or meeting that is over and still active: the person
  *     never said what came of it (`hasEventEnded`, lane E1);
- *   - a deadline (`due_by`) whose time passed while the item was still open.
+ *   - a deadline the person named (`due_by` marked `deadline: 'explicit'` at
+ *     capture: «قبل», "by", «עד»…) whose time passed while it was still open.
+ *     A `due_by` with a day and nothing else is a task (owner decision
+ *     2026-11-19), and so is every one stored before the mark.
  *
  * A task keeps #383: it rolls into Today until the person acts on it, and it
  * never comes here. A football match is closed by the maintenance pass for
@@ -22,7 +25,7 @@ import { createMemoryStorage } from '../../lib/storage/memoryAdapter.ts';
 import { getStorage, resetStorageForTests, setStorageForTests } from '../../lib/storage/index.ts';
 import { UNHANDLED_MARKS, userCol, userDoc } from '../../lib/storage/paths.ts';
 import { persistParticipantState, readParticipantState } from '../../lib/services/mobile/participantState.ts';
-import { createEmptyDomainState, type Commitment, type DomainState } from '../../src/domain/stateMachine.ts';
+import { createEmptyDomainState, normalizeStoredCommitment, type Commitment, type DomainState } from '../../src/domain/stateMachine.ts';
 import { applyCommitmentAction } from '../../lib/services/mobile/commitmentService.ts';
 import {
   dismissUnhandled,
@@ -82,8 +85,6 @@ const EXPECTED: Record<string, 'event_ended' | 'deadline_passed'> = {
   deadline: 'deadline_passed',
   allDayDeadline: 'deadline_passed',
   postponedEnded: 'event_ended',
-  // From another provider's task feed: a deadline like any other, not a match.
-  importedDeadline: 'deadline_passed',
 };
 
 function scenario(): Commitment[] {
@@ -93,9 +94,9 @@ function scenario(): Commitment[] {
     commitment('doctor', { kind: 'scheduled_event', dueAt: '2026-11-10T22:00:00.000Z', allDay: true }),
     commitment('meeting', { kind: 'scheduled_event', dueAt: '2026-11-12T07:00:00.000Z', endAt: '2026-11-12T08:00:00.000Z' }),
     // A hand-in due yesterday at 18:00, still open.
-    commitment('deadline', { kind: 'due_by', dueAt: '2026-11-11T16:00:00.000Z' }),
+    commitment('deadline', { kind: 'due_by', dueAt: '2026-11-11T16:00:00.000Z', deadline: 'explicit' }),
     // A deadline named by a day, the day before yesterday: it closed at that day's midnight.
-    commitment('allDayDeadline', { kind: 'due_by', dueAt: '2026-11-09T22:00:00.000Z', allDay: true }),
+    commitment('allDayDeadline', { kind: 'due_by', dueAt: '2026-11-09T22:00:00.000Z', allDay: true, deadline: 'explicit' }),
     // A meeting put off once («لسّا») to this morning, and over again.
     commitment('postponedEnded', { kind: 'scheduled_event', dueAt: '2026-11-10T07:00:00.000Z', endAt: '2026-11-10T08:00:00.000Z' }, {
       status: 'deferred', postponedUntil: '2026-11-12T09:00:00.000Z',
@@ -103,9 +104,9 @@ function scenario(): Commitment[] {
 
     // ── None of these belongs here ──
     // A deadline named by today: it is still open until tonight's midnight.
-    commitment('todayDeadline', { kind: 'due_by', dueAt: '2026-11-11T22:00:00.000Z', allDay: true }),
+    commitment('todayDeadline', { kind: 'due_by', dueAt: '2026-11-11T22:00:00.000Z', allDay: true, deadline: 'explicit' }),
     // A deadline put off to tomorrow.
-    commitment('postponedDeadline', { kind: 'due_by', dueAt: '2026-11-11T16:00:00.000Z' }, {
+    commitment('postponedDeadline', { kind: 'due_by', dueAt: '2026-11-11T16:00:00.000Z', deadline: 'explicit' }, {
       status: 'deferred', postponedUntil: '2026-11-13T09:00:00.000Z',
     }),
     // A meeting later today.
@@ -123,6 +124,11 @@ function scenario(): Commitment[] {
       status: 'dropped', droppedAt: '2026-11-11T17:00:00.000Z',
     }),
     commitment('deleted', { kind: 'due_by', dueAt: '2026-11-11T16:00:00.000Z' }, { status: 'archived' }),
+    // «بدي أدرس الثلاثاء»: a day and no limit word. #383 keeps it on Today (owner decision 2026-11-19).
+    commitment('studyTuesday', { kind: 'due_by', dueAt: '2026-11-09T22:00:00.000Z', allDay: true }),
+    // Stored before the mark existed: nobody knows the person named a limit, so it is not one.
+    commitment('legacyDeadline', { kind: 'due_by', dueAt: '2026-11-11T16:00:00.000Z' }),
+    // From another provider's task feed: the person said no limit here either.
     commitment('importedDeadline', { kind: 'due_by', dueAt: '2026-11-11T10:00:00.000Z' }),
     // Saturday's match, ended: closed for everyone by the maintenance pass.
     commitment('match', { kind: 'scheduled_event', dueAt: '2026-11-11T18:00:00.000Z', endAt: '2026-11-11T20:00:00.000Z' }),
@@ -187,7 +193,7 @@ test('E2 projection: the most recent first, each saying since when', async () =>
   await withSeeded(async () => {
     const { items } = await listUnhandled(UID, { now: NOW });
     assert.deepEqual(items.map((item) => item.commitment.id), [
-      'postponedEnded', 'meeting', 'doctor', 'deadline', 'importedDeadline', 'allDayDeadline', 'lecture',
+      'postponedEnded', 'meeting', 'doctor', 'deadline', 'allDayDeadline', 'lecture',
     ]);
     const since = Object.fromEntries(items.map((item) => [item.commitment.id, item.since]));
     // The meeting ended at its own end; the all-day appointment at the midnight closing its day.
@@ -199,9 +205,9 @@ test('E2 projection: the most recent first, each saying since when', async () =>
 });
 
 test('E2 projection: a deadline passes at its instant, not a millisecond later', () => {
-  const due = commitment('d', { kind: 'due_by', dueAt: '2026-11-12T13:00:00.000Z' });
+  const due = commitment('d', { kind: 'due_by', dueAt: '2026-11-12T13:00:00.000Z', deadline: 'explicit' });
   assert.equal(unhandledAnchor(due, new Date('2026-11-12T12:59:59.999Z')), null);
-  assert.deepEqual(unhandledAnchor(due, NOW), { reason: 'deadline_passed', since: '2026-11-12T13:00:00.000Z' });
+  assert.deepEqual(unhandledAnchor(due, NOW), { reason: 'deadline_passed', since: '2026-11-12T13:00:00.000Z', shownAt: '2026-11-12T13:00:00.000Z' });
 });
 
 test('E2 projection: the status stays what it was — listing changes nothing', async () => {
@@ -215,9 +221,86 @@ test('E2 projection: the status stays what it was — listing changes nothing', 
 
 test('E2 projection: one account never sees another account’s items', async () => {
   await withSeeded(async () => {
-    await seedAccount(OTHER, [commitment('theirs', { kind: 'due_by', dueAt: '2026-11-11T16:00:00.000Z' })]);
+    await seedAccount(OTHER, [commitment('theirs', { kind: 'due_by', dueAt: '2026-11-11T16:00:00.000Z', deadline: 'explicit' })]);
     assert.deepEqual(ids((await listUnhandled(UID, { now: NOW })).items), Object.keys(EXPECTED).sort());
     assert.deepEqual(ids((await listUnhandled(OTHER, { now: NOW })).items), ['theirs']);
+  });
+});
+
+test('E2 projection: only a limit the person named is a deadline here (owner decision 2026-11-19)', () => {
+  const day = { kind: 'due_by' as const, dueAt: '2026-11-09T22:00:00.000Z', allDay: true };
+  // «بدي أدرس الثلاثاء»: a day, no limit word.
+  assert.equal(unhandledAnchor(commitment('study', day), NOW), null);
+  // «لازم أسلّم التقرير قبل الخميس»: the same day, said as a limit.
+  assert.deepEqual(unhandledAnchor(commitment('report', { ...day, deadline: 'explicit' }), NOW), {
+    reason: 'deadline_passed', since: '2026-11-10T22:00:00.000Z', shownAt: '2026-11-09T22:00:00.000Z',
+  });
+  // An old document with no mark, and one whose mark is not a value the read path knows.
+  const legacy = commitment('legacy', { kind: 'due_by', dueAt: '2026-11-11T16:00:00.000Z' });
+  assert.equal(unhandledAnchor(legacy, NOW), null);
+  assert.equal(unhandledAnchor(normalizeStoredCommitment({ ...legacy, timeSpec: { ...legacy.timeSpec, deadline: 'yes' as never } }), NOW), null);
+});
+
+test('E2 projection: a marked item that is not a due_by is judged as what it is', () => {
+  // A meeting is in the place when it is over, mark or not; a task with an hour never is.
+  const clockTask = commitment('t', { kind: 'scheduled_event', dueAt: '2026-11-11T15:00:00.000Z', itemKind: 'task', deadline: 'explicit' });
+  assert.equal(unhandledAnchor(clockTask, NOW), null);
+});
+
+test('E2 dismiss: refused for a day-only task and a legacy due_by — they are not in the place', async () => {
+  await withSeeded(async () => {
+    await assert.rejects(dismissUnhandled(UID, 'studyTuesday', { now: NOW }), NotUnhandledError);
+    await assert.rejects(dismissUnhandled(UID, 'legacyDeadline', { now: NOW }), NotUnhandledError);
+  });
+});
+
+test('E2 projection: a scheduled work session (windowRule shift) is never a passed deadline, mark or not', () => {
+  // «تحضير لـ…» placed by the evening's impact pass: 14:30–16:00 today, still running at 15:00.
+  const running = { kind: 'due_by' as const, dueAt: '2026-11-12T12:30:00.000Z', endAt: '2026-11-12T14:00:00.000Z', windowRule: 'shift' as const };
+  assert.equal(unhandledAnchor(commitment('prep', running), NOW), null);
+  assert.equal(unhandledAnchor(commitment('prepMarked', { ...running, deadline: 'explicit' }), NOW), null);
+  // Over too: a session is not a limit anybody named.
+  assert.equal(unhandledAnchor(commitment('prepOver', { ...running, deadline: 'explicit' }), new Date('2026-11-12T18:00:00.000Z')), null);
+  // A session whose end was dropped is still a session; a prep window with no rule is still a window.
+  assert.equal(unhandledAnchor(commitment('noEnd', { ...running, endAt: null, deadline: 'explicit' }), NOW), null);
+  const { windowRule: _rule, ...legacyWindow } = running;
+  assert.equal(unhandledAnchor(commitment('legacyWindow', { ...legacyWindow, deadline: 'explicit' }), NOW), null);
+});
+
+test('E2 projection: an all-day item is shown on its own day, while since stays the midnight closing it', () => {
+  // The doctor on Tue 2026-11-11 (all day): it ended at Wed 00:00, but its day is Tuesday.
+  const doctor = commitment('doctor', { kind: 'scheduled_event', dueAt: '2026-11-10T22:00:00.000Z', allDay: true });
+  assert.deepEqual(unhandledAnchor(doctor, NOW), {
+    reason: 'event_ended', since: '2026-11-11T22:00:00.000Z', shownAt: '2026-11-10T22:00:00.000Z',
+  });
+  const due = commitment('due', { kind: 'due_by', dueAt: '2026-11-09T22:00:00.000Z', allDay: true, deadline: 'explicit' });
+  assert.deepEqual(unhandledAnchor(due, NOW), {
+    reason: 'deadline_passed', since: '2026-11-10T22:00:00.000Z', shownAt: '2026-11-09T22:00:00.000Z',
+  });
+  // A timed item is shown when it ended or passed.
+  const meeting = commitment('meeting', { kind: 'scheduled_event', dueAt: '2026-11-12T07:00:00.000Z', endAt: '2026-11-12T08:00:00.000Z' });
+  assert.equal(unhandledAnchor(meeting, NOW)?.shownAt, '2026-11-12T08:00:00.000Z');
+  // An all-day deadline put off to an hour passes, and is shown, at that hour.
+  const postponed = commitment('p', { kind: 'due_by', dueAt: '2026-11-09T22:00:00.000Z', allDay: true, deadline: 'explicit' }, {
+    status: 'deferred', postponedUntil: '2026-11-11T09:00:00.000Z',
+  });
+  assert.deepEqual(unhandledAnchor(postponed, NOW), {
+    reason: 'deadline_passed', since: '2026-11-11T09:00:00.000Z', shownAt: '2026-11-11T09:00:00.000Z',
+  });
+  // A timed deadline at midnight, put off a day to midnight again: not all-day, so shown when it passed.
+  const midnight = commitment('m', { kind: 'due_by', dueAt: '2026-11-09T22:00:00.000Z', deadline: 'explicit' }, {
+    status: 'deferred', postponedUntil: '2026-11-10T22:00:00.000Z',
+  });
+  assert.equal(unhandledAnchor(midnight, NOW)?.shownAt, '2026-11-10T22:00:00.000Z');
+});
+
+test('E2 dismiss: a mark written for since before shownAt existed still hides the all-day item', async () => {
+  await withSeeded(async () => {
+    await getStorage().set(`${userCol(UID, UNHANDLED_MARKS)}/doctor`, {
+      commitmentId: 'doctor', askCount: 0, lastAskedAt: null, dismissedFor: '2026-11-11T22:00:00.000Z', dismissedAt: NOW.toISOString(),
+    });
+    assert.ok(!ids((await listUnhandled(UID, { now: NOW })).items).includes('doctor'));
+    assert.deepEqual(await dismissUnhandled(UID, 'doctor', { now: NOW }), { replayed: true });
   });
 });
 
@@ -229,7 +312,7 @@ test('E2 actions: done, a new date and dropped on purpose each take the item out
     await applyCommitmentAction('deadline', 'postpone', { participantId: UID, now: NOW, postponedUntil: '2026-11-14T08:00:00.000Z' });
     await applyCommitmentAction('doctor', 'cancel', { participantId: UID, now: NOW });
     const left = ids((await listUnhandled(UID, { now: NOW })).items);
-    assert.deepEqual(left, ['allDayDeadline', 'importedDeadline', 'meeting', 'postponedEnded']);
+    assert.deepEqual(left, ['allDayDeadline', 'meeting', 'postponedEnded']);
     const state = await readParticipantState(UID);
     assert.equal(state.commitments.lecture.status, 'completed');
     assert.equal(state.commitments.doctor.status, 'dropped');
@@ -272,7 +355,7 @@ test('E2 dismiss: refused for an item that is not in the place, and for another 
   await withSeeded(async () => {
     await assert.rejects(dismissUnhandled(UID, 'evening', { now: NOW }), NotUnhandledError);
     await assert.rejects(dismissUnhandled(UID, 'clockTask', { now: NOW }), NotUnhandledError);
-    await seedAccount(OTHER, [commitment('theirs', { kind: 'due_by', dueAt: '2026-11-11T16:00:00.000Z' })]);
+    await seedAccount(OTHER, [commitment('theirs', { kind: 'due_by', dueAt: '2026-11-11T16:00:00.000Z', deadline: 'explicit' })]);
     await assert.rejects(dismissUnhandled(UID, 'theirs', { now: NOW }), /Commitment not found/);
     assert.deepEqual(await getStorage().list(userCol(UID, UNHANDLED_MARKS)), []);
   });
@@ -301,7 +384,7 @@ test('E2 marks: an export carries them, and account deletion removes them', asyn
   await withSeeded(async () => {
     await recordUnhandledAsked(UID, ['lecture'], { now: NOW });
     await dismissUnhandled(UID, 'deadline', { now: NOW });
-    await seedAccount(OTHER, [commitment('theirs', { kind: 'due_by', dueAt: '2026-11-11T16:00:00.000Z' })]);
+    await seedAccount(OTHER, [commitment('theirs', { kind: 'due_by', dueAt: '2026-11-11T16:00:00.000Z', deadline: 'explicit' })]);
     await recordUnhandledAsked(OTHER, ['theirs'], { now: NOW });
 
     const exported = await buildAccountExport(UID);
@@ -388,6 +471,11 @@ test('E2 route: GET answers the items with their reason, since and ask count', a
     assert.equal(lecture.since, '2026-10-22T10:00:00.000Z');
     assert.equal(lecture.askCount, 0);
     assert.equal(lecture.commitment.status, 'active');
+    // The day the phone shows: the all-day doctor on its own day, not the midnight after it.
+    const doctor = (body.items as Array<{ commitment: { id: string }; since: string; shownAt?: string }>).find((item) => item.commitment.id === 'doctor')!;
+    assert.equal(doctor.since, '2026-11-11T22:00:00.000Z');
+    assert.equal(doctor.shownAt, '2026-11-10T22:00:00.000Z');
+    assert.equal((lecture as { shownAt?: string }).shownAt, '2026-10-22T10:00:00.000Z');
   });
 });
 
@@ -406,7 +494,7 @@ test('E2 route: POST dismiss takes the item out once, and a repeat is a replay',
 
 test('E2 route: POST answers 404 for another account’s item and 409 for one not in the place', async () => {
   await withSeeded(async () => {
-    await seedAccount(OTHER, [commitment('theirs', { kind: 'due_by', dueAt: '2026-11-11T16:00:00.000Z' })]);
+    await seedAccount(OTHER, [commitment('theirs', { kind: 'due_by', dueAt: '2026-11-11T16:00:00.000Z', deadline: 'explicit' })]);
     assert.equal((await post(UID, { action: 'dismiss', commitmentId: 'theirs' })).status, 404);
     // A task is never in the place, whatever the clock says (#383).
     const notHere = await post(UID, { action: 'dismiss', commitmentId: 'clockTask' });
