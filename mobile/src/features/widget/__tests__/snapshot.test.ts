@@ -121,7 +121,7 @@ describe('buildSnapshot — exactly these fields leave the app', () => {
       const snapshot = buildSnapshot(input({ titlesAllowed }));
       for (const item of snapshot.items) expect(Object.keys(item).sort()).toEqual(ITEM_KEYS);
       expect(Object.keys(snapshot).sort()).toEqual([
-        'contract', 'direction', 'expiresAt', 'generatedAt', 'items', 'labels', 'links', 'locale', 'schemaVersion', 'surface', 'titlePrivacy',
+        'appearance', 'contract', 'direction', 'expiresAt', 'generatedAt', 'items', 'labels', 'links', 'locale', 'schemaVersion', 'surface', 'titlePrivacy',
       ]);
     }
   });

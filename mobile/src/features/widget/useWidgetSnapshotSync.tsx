@@ -5,7 +5,7 @@
  *
  *  - whenever Today or the next step change — which covers every commitment
  *    mutation, because they all invalidate both queries;
- *  - whenever the title setting, the language or the zone change — so turning
+ *  - whenever the title setting, the language, the appearance or the zone change — so turning
  *    titles off rewrites the widget from the switch's own render, not at the
  *    next launch;
  *  - when the app goes to the background, so the snapshot the widget keeps
@@ -82,7 +82,7 @@ export function useWidgetTitlesAllowed(uid: string | null): {
 
 export function useWidgetSnapshotSync(options: { bridge?: WidgetBridge; now?: () => Date } = {}): void {
   const uid = useAuth().user?.uid ?? null;
-  const { t, lang } = useApp();
+  const { t, lang, themePref } = useApp();
   const timeZone = useTimeZone();
   const today = useToday();
   const upcoming = useUpcoming();
@@ -115,12 +115,13 @@ export function useWidgetSnapshotSync(options: { bridge?: WidgetBridge; now?: ()
       titlesAllowed: allowed,
       surface: 'widget',
       locale: lang,
+      appearance: themePref,
       labels: widgetLabelsFor(t),
       now: nowRef.current(),
       formatTime: (date) => formatTime(date, { locale: lang, timeZone }),
     });
     void bridge.write(JSON.stringify(snapshot));
-  }, [uid, todayItems, upcomingItems, primaryStep, allowed, resolved, lang, t, timeZone, bridge, backgrounded]);
+  }, [uid, todayItems, upcomingItems, primaryStep, allowed, resolved, lang, themePref, t, timeZone, bridge, backgrounded]);
 
   useEffect(() => {
     const subscription = AppState.addEventListener('change', (next) => {

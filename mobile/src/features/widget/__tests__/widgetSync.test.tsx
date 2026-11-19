@@ -32,6 +32,7 @@ import {
   widgetTitlesKey,
 } from '../../../lib/deviceSettings/widget';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { THEME_STORAGE_KEY } from '../../../lib/deviceSettings/theme';
 import type { Commitment } from '../../../api/schemas/common';
 
 type Call = { op: 'write'; json: string } | { op: 'clear' };
@@ -162,6 +163,18 @@ async function openWidgetSettings() {
 }
 
 describe('the widget snapshot in the running app', () => {
+  it("carries the app's appearance: navy dark when the person never chose, and what they chose when they did", async () => {
+    await openApp();
+    await settled();
+    expect(lastWrite().appearance).toBe('dark');
+    await cleanup();
+
+    await AsyncStorage.setItem(THEME_STORAGE_KEY, 'light');
+    calls.length = 0;
+    await openApp();
+    await waitFor(() => expect(lastWrite()?.appearance).toBe('light'));
+  });
+
   it('writes no title into shared storage by default — not one, in any write', async () => {
     await openApp();
     await settled();

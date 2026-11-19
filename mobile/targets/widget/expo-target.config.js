@@ -13,6 +13,10 @@
  * requires it there. On 16.x the app installs and the widget is simply not
  * offered.
  *
+ * No `colors` here on purpose: the widget's palette is `WidgetPalette.swift`,
+ * which a test holds to `src/theme/tokens.ts`. A second copy in an asset
+ * catalog is how the widget stayed teal after the app moved on.
+ *
  * @type {import('@bacons/apple-targets/app.plugin').ConfigFunction}
  */
 module.exports = () => ({
@@ -24,13 +28,5 @@ module.exports = () => ({
   frameworks: ['SwiftUI', 'WidgetKit'],
   entitlements: {
     'com.apple.security.application-groups': ['group.com.maybesitter.app'],
-  },
-  colors: {
-    $widgetBackground: { light: '#FFFFFF', dark: '#1A2023' },
-    textPrimary: { light: '#14181B', dark: '#ECEFF1' },
-    textMuted: { light: '#5F6B70', dark: '#9AA6AB' },
-    brand: { light: '#1F7A8C', dark: '#6FC3D6' },
-    onBrand: { light: '#FFFFFF', dark: '#101416' },
-    must: { light: '#8A6A2E', dark: '#D9B06B' },
   },
 });
