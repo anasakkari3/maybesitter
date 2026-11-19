@@ -141,6 +141,16 @@ describe('the screen the person actually reads', () => {
     expect(screen.getByTestId('crash-fallback').props.style.direction).toBe('rtl');
   });
 
+  it('CX1.4: in Arabic the title and body sit at the start, through the Fabric-aware alignment', async () => {
+    // Under an RTL Yoga direction Fabric swaps a physical left and right on
+    // iOS and Android (primitives.tsx \`textAlignment\`), so a physical 'right'
+    // lands flush left. Start is 'left' on both platforms, swapped to the right.
+    await changeLanguage('ar');
+    await render(<ErrorBoundary><Boom /></ErrorBoundary>);
+    expect(screen.getByTestId('crash-title').props.style.textAlign).toBe('left');
+    expect(screen.getByTestId('crash-body').props.style.textAlign).toBe('left');
+  });
+
   it('is not red, and does not invent a colour', async () => {
     // The design has no danger role at all (mobile/AGENTS.md). Every colour on
     // this screen comes from the token palette.
