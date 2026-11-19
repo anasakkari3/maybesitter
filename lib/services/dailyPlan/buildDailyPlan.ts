@@ -142,6 +142,17 @@ export interface DailyPlanInputArgs {
    */
   readonly builtAt: Instant;
   /**
+   * The clock that decides which of an earlier day's work is late enough to
+   * roll into this day (`stillAheadOnEarlierDay`); `builtAt` when absent.
+   *
+   * Only the staleness check of a stored plan passes it (review of #871): it
+   * compares against the request as of *now* while keeping the rest of the
+   * request at the plan's own `generatedAt`. Tomorrow's plan stored this
+   * morning must notice, the next morning, that tonight's work is late now —
+   * judged at `generatedAt` it never would, and the work stayed off the day.
+   */
+  readonly lateAsOf?: Instant;
+  /**
    * What the week view (CL5b) decided about this one day, on top of the
    * daily rule. Absent everywhere else: a day planned on its own is exactly
    * the daily planner's day.
@@ -513,7 +524,7 @@ export function buildDailyPlanInput(args: DailyPlanInputArgs): DailyPlanInput {
   const exclude = new Set(args.assignment?.exclude ?? []);
   const onThisDay = (commitment: Commitment): boolean => include.has(commitment.id)
     || (belongsToDay(commitment, endsAt)
-      && !stillAheadOnEarlierDay(commitment, startsAt, args.builtAt)
+      && !stillAheadOnEarlierDay(commitment, startsAt, args.lateAsOf ?? args.builtAt)
       && !exclude.has(commitment.id));
 
   // #383 rolls a *task* whose time has gone into the day. An event whose

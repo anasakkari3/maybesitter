@@ -719,7 +719,9 @@ export async function patchCommitment(
     ...categoryPatchFrom(input.category),
     ...locationTriggerPatchFrom(input.locationTrigger),
     timeSpec: retitled(current, input)
-      ? { ...(patchTimeSpec(current.timeSpec, input, now, input.title as string) ?? {}), itemKind: 'unsure' as const }
+      // Judged as what it becomes — `unsure`, under the new title — so a
+      // meeting renamed to a task in the same request is given a deadline.
+      ? { ...(patchTimeSpec({ ...current.timeSpec, itemKind: 'unsure' }, input, now, input.title as string) ?? {}), itemKind: 'unsure' as const }
       : patchTimeSpec(current.timeSpec, input, now, current.title),
   };
 
