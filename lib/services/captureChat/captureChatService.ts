@@ -910,6 +910,7 @@ export async function chatMobileCapture(
           responseLocale: language,
           spoken: input.spoken === true,
           ...(appLanguage ? { locale: appLanguage } : {}),
+          ...(answer.action === 'chat' ? { modelSaysChat: true } : {}),
         },
         { participantId: uid, requestStartedAt },
       );

@@ -143,6 +143,12 @@ export interface ProposeCaptureOptions {
     operationEvidenceSources?: readonly string[];
     /** Exact clocks selected by chat answers to a pending AM/PM question. */
     answeredAmPmClocks?: readonly (string | null)[];
+    /**
+     * The model called the message chat — "change nothing" (review of #877):
+     * its informational or low-confidence entries are not read as listed
+     * points (`asListedChatPoint`). A task it listed anyway still stands.
+     */
+    modelSaysChat?: boolean;
   };
   /**
    * Titles without the possession lead-in ("I have a", «عندي»), as a weekly
@@ -1458,7 +1464,7 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
       }
       // A point the chat's model put on the list itself is never read as
       // "nothing" for its type or its confidence (`asListedChatPoint`).
-      if (failure === 'no_commitment' && chat && extracted.engine !== 'rule-based') {
+      if (failure === 'no_commitment' && chat && !chat.modelSaysChat && extracted.engine !== 'rule-based') {
         const listed = asListedChatPoint(extracted.result);
         if (listed) {
           extracted = { ...extracted, result: listed };

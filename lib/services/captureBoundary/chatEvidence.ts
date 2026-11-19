@@ -672,7 +672,9 @@ export function sequencedDay(source: string, message: string, now: Date, timezon
   const at = message.indexOf(own);
   if (at <= 0) return null;
   const earlier = splitCaptureClauseDetails(message.slice(0, at)).map((clause) => clause.text.trim()).filter(Boolean);
-  // Back over a chain («بكرا A، وبعدها B، وبعدها C»): the nearest day before.
+  // The clause right before, only. A chain («بكرا A، وبعدها B، وبعدها C») is
+  // not followed: the split drops B's «وبعدها», so C keeps no day (review of
+  // #877, left as it is).
   for (let index = earlier.length - 1; index >= 0; index -= 1) {
     const allowance = chatTimeAllowance([earlier[index]!], now, timezone);
     if (allowance.anyDate) return null;
