@@ -380,7 +380,8 @@ export async function startFaultProxy(options = {}) {
     throw new Error(`body directory must be outside the repository (${resolve(options.bodyDir)})`);
   }
   const transport = target.protocol === 'https:' ? https : http;
-  const basePath = target.pathname.replace(/\/+$/, '');
+  let basePath = target.pathname;
+  while (basePath.endsWith('/')) basePath = basePath.slice(0, -1);
   const upstreamTimeoutMs = options.upstreamTimeoutMs ?? DEFAULT_UPSTREAM_TIMEOUT_MS;
   const controlToken = randomBytes(24).toString('hex');
   const controlTokenBuffer = Buffer.from(controlToken);
