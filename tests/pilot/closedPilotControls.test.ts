@@ -192,3 +192,25 @@ test('closed pilot: trust state, audit, and incidents persist and read back with
     resetStorageForTests();
   }
 });
+
+// «رجّع حسابي» (QA v3): the action that undoes the old «وقّف» lock.
+test('resume: clears a revoke with everything still off, is a no-op when not revoked, and never undoes a delete', () => {
+  const initial = createPilotTrustState('pilot-1', AT);
+  const later = new Date(Date.parse(AT) + 60_000).toISOString();
+  const after = new Date(Date.parse(AT) + 120_000).toISOString();
+  const granted = applyPilotTrustAction(initial, { type: 'set_recommendation_consent', granted: true, at: AT });
+  const revoked = applyPilotTrustAction(granted, { type: 'revoke', at: later });
+  const resumed = applyPilotTrustAction(revoked, { type: 'resume', at: after });
+  assert.equal(resumed.revokedAt, null);
+  assert.equal(resumed.deletedAt, null);
+  assert.deepEqual(
+    [resumed.recommendationConsent, resumed.analyticsConsent, resumed.calendarConsent, resumed.quietMode],
+    [false, false, false, false],
+  );
+  // A second resume racing the first changes nothing — not even the stamp.
+  const quiet = applyPilotTrustAction(initial, { type: 'set_quiet_mode', enabled: true, at: later });
+  assert.equal(applyPilotTrustAction(quiet, { type: 'resume', at: after }), quiet);
+  // Deleted is not revoked.
+  const deleted = applyPilotTrustAction(revoked, { type: 'delete', at: after });
+  assert.throws(() => applyPilotTrustAction(deleted, { type: 'resume', at: after }), /deleted pilot state/);
+});
