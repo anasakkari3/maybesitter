@@ -18,6 +18,7 @@ import { Screen, ScreenScroll, TAB_CLEARANCE, FLOATING_GAP } from '../../ui/scre
 import { AvoidKeyboard, useSoftKeyboardShown } from '../../ui/keyboard';
 import { rankByText, settledAt } from './searchModel';
 import type { Commitment } from '../../api/schemas/common';
+import { SearchServerLine } from './SearchServerLine';
 import { useCommitmentMatches } from './useSearch';
 
 /** Seeds that are still something the person is weighing up. */
@@ -119,8 +120,11 @@ export function ThingsScreen({ tabClearance = TAB_CLEARANCE }: { tabClearance?: 
               style={{ flex: 1, marginBottom: Math.max(0, tabClearance - FLOATING_GAP) }}
               contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 12, paddingBottom: FLOATING_GAP, gap: 10 }}
               keyboardShouldPersistTaps="handled" initialNumToRender={10} maxToRenderPerBatch={10} windowSize={7}
-              ListEmptyComponent={<Txt role="supporting" color={p.mu} testID="m6-search-no-results">{t.m6SearchNoResults}</Txt>}
-              ListFooterComponent={search$.truncated ? <Txt role="supporting" color={p.mu} testID="m6-search-more">{t.m6SearchMore}</Txt> : null}
+              ListEmptyComponent={<SearchServerLine search={search$} empty noResultsTestID="m6-search-no-results" noResultsText={t.m6SearchNoResults} />}
+              ListFooterComponent={<>
+                {results.length > 0 ? <SearchServerLine search={search$} empty={false} noResultsTestID="m6-search-no-results" noResultsText={t.m6SearchNoResults} /> : null}
+                {search$.truncated ? <Txt role="supporting" color={p.mu} testID="m6-search-more">{t.m6SearchMore}</Txt> : null}
+              </>}
               renderItem={({ item }) => item.kind === 'header'
                 ? <View testID={`m6-search-section-${item.id}`} style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingTop: 4 }}>
                     <HubHeading title={item.title} />

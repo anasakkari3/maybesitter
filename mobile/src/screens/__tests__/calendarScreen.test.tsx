@@ -7,7 +7,8 @@
  */
 import React from 'react';
 import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
-import { render, screen, waitFor, fireEvent, act, within } from '@testing-library/react-native';
+import { cleanup, render, screen, waitFor, fireEvent, act, within } from '@testing-library/react-native';
+import { resetLaterOffersForTests } from '../../features/plan/laterOffers';
 import { SafeAreaProvider, type Metrics } from 'react-native-safe-area-context';
 import { QueryClient, QueryClientProvider, onlineManager } from '@tanstack/react-query';
 import { StyleSheet, Text } from 'react-native';
@@ -95,6 +96,7 @@ beforeEach(() => {
 let savedWeek: SavedWeek;
 
 afterEach(() => {
+  resetLaterOffersForTests();
   client.clear();
   resetAuthForTests();
   jest.restoreAllMocks();
@@ -561,6 +563,26 @@ describe('a pending change to today\'s plan (Stitch proposal)', () => {
     await fireEvent.press(screen.getByTestId('calendar-proposal-later'));
     expect(screen.queryByTestId('calendar-proposal')).toBeNull();
     expect(act).not.toHaveBeenCalled();
+  });
+
+  it('«not now» still holds when the Calendar is drawn again (CA4.10)', async () => {
+    // «شوف أبعد» pushes a second Calendar; a tab reset remounts it. The
+    // offer put away with «مش هلّق» came back on the new copy.
+    await showWithProposal();
+    await fireEvent.press(screen.getByTestId('calendar-proposal-later'));
+    await cleanup();
+    await render(
+      <SafeAreaProvider initialMetrics={METRICS}>
+        <AppProvider>
+          <AuthProvider repository={repository} isDevBundle={false}>
+            <QueryClientProvider client={client}><CalendarScreen /></QueryClientProvider>
+          </AuthProvider>
+        </AppProvider>
+      </SafeAreaProvider>,
+    );
+    await waitFor(() => expect(screen.queryByTestId(`calendar-day-${TODAY_KEY}`)).not.toBeNull());
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 50)); });
+    expect(screen.queryByTestId('calendar-proposal')).toBeNull();
   });
 
   it('is not drawn when nothing is pending', async () => {

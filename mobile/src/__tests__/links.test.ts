@@ -78,6 +78,30 @@ describe('what a link opens', () => {
     }
   });
 
+  it('refuses a plan link whose date does not exist (CXA13.7)', () => {
+    // The shape alone let 2026-02-30 through to an authenticated GET that the
+    // server then refused with 400, leaving Plan on an error. The notification
+    // router already round-trips the date; the link parser now does too.
+    for (const bad of [
+      'maybesitter://plan/2026-02-30',
+      'maybesitter://plan/2026-13-01',
+      'maybesitter://plan/2026-04-31',
+      'maybesitter://plan/2026-00-10',
+    ]) {
+      expect({ bad, parsed: parseLink(bad) }).toEqual({ bad, parsed: null });
+    }
+    expect(parseLink('maybesitter://plan/2028-02-29')?.target).toEqual({ kind: 'plan', date: '2028-02-29' });
+  });
+
+  it('refuses the design gallery’s fixture jumps (C13.1)', () => {
+    // `details` and `postpone` named no commitment: both opened the fixture id
+    // `c3`, which on a real account is «هاي ما عادت موجودة», and `postpone`
+    // offered to retry a postpone of it. The real form carries an id.
+    expect(parseLink('maybesitter://details')).toBeNull();
+    expect(parseLink('maybesitter://postpone')).toBeNull();
+    expect(parseLink('maybesitter://details?lang=en')).toBeNull();
+  });
+
   it('treats a bare link as Today', () => {
     expect(parseLink('maybesitter://')?.target).toEqual({ kind: 'screen', name: 'today' });
     expect(parseLink('maybesitter:///')?.target).toEqual({ kind: 'screen', name: 'today' });

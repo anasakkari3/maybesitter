@@ -381,6 +381,8 @@ describe('My places', () => {
     // A screen reader hears which place each "Remove" removes.
     expect(screen.getByTestId(`places-remove-${gym!.id}`).props.accessibilityLabel).toBe('Remove Gym');
     await fireEvent.press(screen.getByTestId(`places-remove-${gym!.id}`));
+    // Asked first (C13.12): removing a place stops its reminders.
+    await fireEvent.press(screen.getByTestId('places-remove-confirm'));
     await waitFor(() => expect(screen.queryByText('Gym')).toBeNull());
     expect(await loadPlaces(USER.uid)).toEqual([]);
   });

@@ -30,8 +30,13 @@ export interface AuthModel {
   reloadUser(): Promise<void>;
   /** True while the local dev override is standing in for a real session. */
   devBypass: boolean;
-  /** A deep link that arrived while signed out, taken exactly once. */
+  /** A deep link that arrived while nothing handled links, taken exactly once. */
   takePendingLink(): string | null;
+  /**
+   * Called by the link handler (`Root`) while it is mounted; links are held
+   * only while no handler is attached. Returns the detach.
+   */
+  attachLinkHandler(): () => void;
   repository: AuthRepository;
 }
 
@@ -78,6 +83,7 @@ export function AuthProvider({ children, repository, isDevBundle = __DEV__ }: Au
   const [resolved, setResolved] = useState(bypassToken !== null);
   const [lastSignOutReason, setLastSignOutReason] = useState<SignOutReason | null>(null);
   const pendingLink = useRef<string | null>(null);
+  const linkHandlers = useRef(0);
 
   useEffect(() => {
     // The override answers for the whole session; subscribing to Firebase as
@@ -98,6 +104,8 @@ export function AuthProvider({ children, repository, isDevBundle = __DEV__ }: Au
       if (!next && signedIn && repo.lastSignOutReason() === null) {
         void runBeforeSignOut('session_expired');
       }
+      // A link held during this session (onboarding) belongs to it (C13.2).
+      if (!next && signedIn) pendingLink.current = null;
       signedIn = next !== null;
       setUser(next);
       setResolved(true);
@@ -111,13 +119,15 @@ export function AuthProvider({ children, repository, isDevBundle = __DEV__ }: Au
 
   const status: AuthStatus = !resolved ? 'loading' : user ? 'signedIn' : 'signedOut';
 
-  // A link that arrives while the sign-in screen is up would otherwise be lost:
-  // `Root` — which owns link handling — is not mounted yet. Held in memory and
-  // replayed once, so it never outlives the session that received it.
+  // A link that arrives while the sign-in screen or onboarding is up would
+  // otherwise be lost: `Root` — which owns link handling — is not mounted yet
+  // (C13.2: a link during onboarding was dropped). Held in memory only while no
+  // handler is attached, and replayed once, so it never outlives the session
+  // that received it.
   useEffect(() => {
-    if (status !== 'signedOut') return;
+    if (status === 'loading') return;
     const subscription = Linking.addEventListener('url', event => {
-      pendingLink.current = event.url;
+      if (linkHandlers.current === 0) pendingLink.current = event.url;
     });
     return () => subscription.remove();
   }, [status]);
@@ -160,6 +170,15 @@ export function AuthProvider({ children, repository, isDevBundle = __DEV__ }: Au
         const url = pendingLink.current;
         pendingLink.current = null;
         return url;
+      },
+      attachLinkHandler: () => {
+        linkHandlers.current += 1;
+        let attached = true;
+        return () => {
+          if (!attached) return;
+          attached = false;
+          linkHandlers.current -= 1;
+        };
       },
       repository: apiRepository,
     }),
