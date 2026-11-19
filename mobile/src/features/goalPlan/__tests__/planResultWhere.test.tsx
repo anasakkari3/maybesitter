@@ -30,19 +30,49 @@ const textOf = (testID: string): string => {
   return Array.isArray(children) ? children.join('') : String(children);
 };
 
-async function confirmWith(language: 'en' | 'ar', saved: readonly unknown[]): Promise<void> {
+type Saved = (typeof RESULT.saved)[number];
+
+/**
+ * The times the person reviews, with every step not in `saved` moved to a
+ * later week, so the confirm answer below is the one the client accepts for
+ * them (the client holds the answer to the reviewed times).
+ */
+function laterExcept(body: unknown, keep: ReadonlySet<string>, moved: ReadonlySet<string>): unknown {
+  if (Array.isArray(body)) return body.map((item) => laterExcept(item, keep, moved));
+  if (!body || typeof body !== 'object') return body;
+  const record = body as Record<string, unknown>;
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(record)) out[key] = laterExcept(value, keep, moved);
+  if ('timesId' in record && Array.isArray(record.steps)) {
+    out.steps = (record.steps as Array<{ stepId: string; kind: string }>).map((step) => (moved.has(step.stepId)
+      ? { stepId: step.stepId, kind: step.kind, later: { weekIndex: 2 } } : step));
+  }
+  return out;
+}
+
+async function confirmWith(language: 'en' | 'ar', saved: readonly Saved[]): Promise<void> {
+  const keep = new Set(saved.map((item) => item.stepId));
+  const moved = new Set(RESULT.saved.filter((item) => !keep.has(item.stepId)).map((item) => item.stepId));
+  const stayed = [
+    ...RESULT.saved.filter((item) => moved.has(item.stepId))
+      .map((item) => ({ stepId: item.stepId, title: item.title, why: { kind: 'later_week', weekIndex: 2 } })),
+    ...RESULT.stayed,
+  ];
   harness = await prepare(language, new M3aServer(async (request) => {
-    if (request.path.endsWith('/confirm')) return { status: 200, body: { success: true, ...RESULT, saved } };
-    return defaultReply(request);
+    if (request.path.endsWith('/confirm')) return { status: 200, body: { success: true, ...RESULT, saved, stayed } };
+    const reply = defaultReply(request);
+    return { ...reply, body: laterExcept(reply.body, keep, moved) };
   }));
   await openGoal(harness);
   await screen.findByTestId('goal-plan-open');
   await press('goal-plan-open');
   await waitFor(() => expect(screen.queryByTestId('plan-approve')).not.toBeNull());
   await press('plan-approve');
-  await waitFor(() => expect(screen.queryByTestId('plan-times-step-step-1')).not.toBeNull());
-  await press('plan-times-none-step-none');
-  await waitFor(() => expect(harness!.server.matching('PATCH', /\/times\/step-none$/)).toHaveLength(1));
+  await waitFor(() => expect(screen.queryByTestId('plan-times-next')).not.toBeNull());
+  if (keep.has('step-none')) {
+    await press('plan-times-none-step-none');
+    await waitFor(() => expect(harness!.server.matching('PATCH', /\/times\/step-none$/)).toHaveLength(1));
+  }
   await press('plan-times-next');
   await waitFor(() => expect(screen.queryByTestId('plan-confirm')).not.toBeNull());
   await press('plan-confirm');
