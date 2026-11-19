@@ -295,7 +295,7 @@
   "accountReauthAppleAction": "أكّد بـApple",
   "accountReauthFailed": "ما طابقت. جرّب كمان مرّة.",
   "accountDeletedTitle": "حسابك انحذف.",
-  "accountDeletedBody": "كل اللي بحسابك انمسح. بس النسخ الاحتياطية المشفّرة بتضل لحد 30 يوم، وبعدها بتنمسح. احفظ الإيصال تحت إذا احتجته إثبات.",
+  "accountDeletedBody": "كل اللي بحسابك انمسح. النسخ الاحتياطية المشفّرة بتضل لحد 30 يوم، وبعدها بتنمسح. احفظ الإيصال تحت إذا احتجته إثبات.",
   "accountDeletedReceiptLabel": "الإيصال",
   "accountDeletedCopy": "انسخ الإيصال",
   "accountDeletedCopied": "انتسخ.",

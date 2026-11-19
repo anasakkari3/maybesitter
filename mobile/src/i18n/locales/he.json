@@ -298,7 +298,7 @@
   "accountReauthAppleAction": "אישור עם Apple",
   "accountReauthFailed": "לא תואם. נסה שוב.",
   "accountDeletedTitle": "החשבון שלך נמחק.",
-  "accountDeletedBody": "כל מה שבחשבון שלך נמחק. נשארים רק גיבויים מוצפנים, והם נמחקים בתוך 30 יום. שמור את האישור למטה אם תצטרך הוכחה.",
+  "accountDeletedBody": "כל מה שבחשבון שלך נמחק. נשארים גיבויים מוצפנים, והם נמחקים בתוך 30 יום. שמור את האישור למטה אם תצטרך הוכחה.",
   "accountDeletedReceiptLabel": "אישור",
   "accountDeletedCopy": "העתק אישור",
   "accountDeletedCopied": "הועתק.",
