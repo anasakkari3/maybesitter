@@ -30,6 +30,8 @@ import { guardedMobileExtract } from '../../lib/services/mobile/safety.ts';
 import { validateExtractionResult } from '../../src/extraction/schemaValidator.ts';
 import { instantFromLocal, localTimeSpecFor } from '../../src/extraction/timeLexicon.ts';
 import { splitCaptureClauses } from '../../src/extraction/clauseSplitter.ts';
+import { withoutUnsaidTime } from '../../lib/services/captureBoundary/chatEvidence.ts';
+import { buildChatPrompt } from '../../lib/services/captureChat/chatPrompt.ts';
 
 const TZ = 'Asia/Jerusalem';
 /** Thursday 19 November 2026, 07:12 in Jerusalem (the device time in the report). */
@@ -207,7 +209,10 @@ test('F04-06 (model path): «اليوم:» rent read as tomorrow by the model is
     : /خضرة/.test(clause) ? modelTask('اشتري خضرة', TODAY, '09:00') : modelTask('رياضة', TODAY, '18:00'));
   const { contract } = await propose(TODAY_LIST, { provider });
   const rent = contract.items.find((item) => /الإيجار/.test(item.title))!;
-  assert.equal(when(rent.resolvedTime), `${TODAY} 13:00`);
+  // The day is the list's. A model day of tomorrow under words that say today
+  // has its hour asked again (FZ1 N10, unchanged): never settled tomorrow.
+  assert.equal(rent.resolvedDate, TODAY);
+  assert.ok(rent.resolvedTime === null || when(rent.resolvedTime) === `${TODAY} 13:00`, String(rent.resolvedTime));
 });
 
 /* ── V3-F04-04: «بعد ساعتين» is now plus two hours ────────────────────── */
@@ -340,4 +345,31 @@ for (const text of ['امبارح كان عندي اجتماع مع المدير
 test('F04-03: a missed thing the person puts on a day of their own keeps that day', async () => {
   const { contract } = await propose('نسيت أتصل بأمي مبارح، بدي أتصل فيها بكرا الساعة 5 المسا');
   assert.ok(contract.items.some((item) => when(item.resolvedTime) === `${TOMORROW} 17:00`), JSON.stringify(contract.items));
+});
+
+/* ── The capture chat: the same readings survive its unsaid-time guard ─── */
+
+/** A chat item's reading as the model gave it, before the guard. */
+const chatReading = (date: string, time: string | null) => ({ ...modelTask('آخد الدوا', date, time), rawText: 'آخد الدوا' }) as unknown as Parameters<typeof withoutUnsaidTime>[0];
+
+test('chat: now plus two hours is a time the person said; the guard keeps it', () => {
+  const kept = withoutUnsaidTime(chatReading(TODAY, '09:12'), ['بعد ساعتين لازم آخد الدوا'], NOW, TZ);
+  assert.equal(kept.fired, false);
+  assert.equal(kept.result.localTimeSpec?.time, '09:12');
+  // The model's 12-hour slip is still taken off.
+  assert.equal(withoutUnsaidTime(chatReading(TODAY, '19:12'), ['بعد ساعتين لازم آخد الدوا'], NOW, TZ).fired, true);
+});
+
+test('chat: a missed thing keeps today, the day the owner decided for it', () => {
+  const kept = withoutUnsaidTime(chatReading(TODAY, null), [MISSED.replace('الساعة 9 الصبح ', '')], NOW, TZ);
+  assert.equal(kept.result.localTimeSpec?.date, TODAY);
+});
+
+test('chat prompt: states the person\'s clock now, the missed-thing rule and the counted-span rule', () => {
+  const prompt = buildChatPrompt([{ role: 'user', text: 'بعد ساعتين لازم آخد الدوا' }], [], { now: NOW, timezone: TZ });
+  assert.match(prompt, /NOW ON THE USER'S CLOCK: 2026-11-19 07:12\./);
+  assert.match(prompt, /PROMPT VERSION: capture-chat-v10/);
+  assert.match(prompt, /supposed to do earlier and did not/);
+  assert.match(prompt, /never call it late, overdue or missed/);
+  assert.match(prompt, /A time counted from now/);
 });
