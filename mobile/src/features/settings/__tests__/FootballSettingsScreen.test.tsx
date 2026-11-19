@@ -218,7 +218,7 @@ describe('dismissing a match', () => {
     await fireEvent.press(screen.getByTestId(`football-dismiss-${FIXTURE.commitmentId}`));
     await waitFor(() => expect(screen.queryByTestId('toast')).not.toBeNull());
 
-    await fireEvent.press(screen.getByTestId('toast'));
+    await fireEvent.press(screen.getByTestId('toast-undo-button'));
     await waitFor(() => expect(screen.queryByTestId(`football-dismiss-${FIXTURE.commitmentId}`)).not.toBeNull());
     expect(pendingCommitCount()).toBe(0);
     await act(async () => { flushPendingCommits(); });

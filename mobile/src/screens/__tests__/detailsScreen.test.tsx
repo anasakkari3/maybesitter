@@ -194,7 +194,7 @@ describe('done', () => {
     await fireEvent.press(screen.getByTestId('details-done'));
     await waitFor(() => expect(screen.queryByTestId('toast')).not.toBeNull());
 
-    await fireEvent.press(screen.getByTestId('toast'));
+    await fireEvent.press(screen.getByTestId('toast-undo-button'));
     expect(pendingCommitCount()).toBe(0);
     await act_(async () => { flushPendingCommits(); });
     expect(act).not.toHaveBeenCalled();
