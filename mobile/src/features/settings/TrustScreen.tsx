@@ -1,5 +1,4 @@
 import { ClarityConsent } from '../../clarity/ClarityConsent';
-import { useClarityConsent } from '../../clarity/ClarityProvider';
 import React, { useState } from 'react';
 import { Linking, Platform, View } from 'react-native';
 import { useApp } from '../../state/AppContext';
@@ -66,12 +65,20 @@ const INCIDENT_CATEGORIES: readonly PilotIncidentInput['category'][] = ['reliabi
  * ── Deleting an account is not a trust action ────────────────────
  *
  * The old pilot `delete` action is retired (it answers 400 `use_account_
- * deletion`). This screen sends `revoke`, which stops participation and keeps
- * the data, and routes deletion to UC-1.5 (#149)'s flow, which is the real
- * thing. A grep test asserts no screen here sends `{type:'delete'}`.
+ * deletion`), and deletion is UC-1.5 (#149)'s flow, which is the real thing.
+ * A grep test asserts no screen here sends `{type:'delete'}`.
+ *
+ * ── «وقّف» stops suggestions and learning, not the account ───────
+ *
+ * This card used to send the trust `revoke`, which stamped `revokedAt` and
+ * locked the whole account behind «هالحساب موقوف» with no way back, while
+ * its words only promised to stop suggesting and learning (QA v3, V3-F35-07).
+ * Owner decision 2026-11-19: it answers exactly those two questions — the
+ * next-step and the pattern-learning consents, through the same endpoints as
+ * the switches above — and once both are off it offers them back. It never
+ * sends `revoke`; the revoked screen stays for an account already locked.
  */
 export function TrustScreen({ onBack, onKnows }: { onBack: () => void; onKnows: () => void }) {
-  const replayConsent = useClarityConsent();
   const { t, p, lang, actions } = useApp();
   const consents = useConsents();
   const trust = useTrust();
@@ -82,6 +89,7 @@ export function TrustScreen({ onBack, onKnows }: { onBack: () => void; onKnows: 
   const report = useReportPilotIncident();
   const exportData = useExportMyData();
   const [confirmRevoke, setConfirmRevoke] = useState(false);
+  const [stopError, setStopError] = useState<unknown>(null);
   const [reporting, setReporting] = useState(false);
   const [incidentSurface, setIncidentSurface] = useState<PilotIncidentInput['surface']>('capture');
   const [incidentCategory, setIncidentCategory] = useState<PilotIncidentInput['category']>('reliability');
@@ -99,6 +107,37 @@ export function TrustScreen({ onBack, onKnows }: { onBack: () => void; onKnows: 
   const calendarWritePending = useCalendarConsentWritePending();
   const calendarLine = calendar.line === null || calendar.line === 'denied' ? undefined : t[calendar.line];
   const policy = privacyPolicyUrl(lang);
+
+  // Off means neither question is answered yes. Pattern learning only counts
+  // where this server names its version (an older API has no such question).
+  // Unknown — the answers could not be read — claims neither state.
+  const asksPersonalization = versions?.personalization !== undefined;
+  const stopped = consents.data !== undefined
+    && consents.data.recommendations.state !== 'granted'
+    && (!asksPersonalization || consents.data.personalization?.state !== 'granted');
+  const answering = setRecommendations.isPending || setPersonalization.isPending;
+
+  /**
+   * Both answers, suggestions first: a failure between the two leaves less
+   * switched on than the person asked for when stopping, and says why.
+   */
+  const answerBoth = async (state: 'granted' | 'declined') => {
+    if (!versions) return;
+    setStopError(null);
+    try {
+      if (state === 'declined') {
+        await setRecommendations.mutateAsync({ state, version: versions.recommendations, ...context });
+        if (asksPersonalization) await setPersonalization.mutateAsync({ state, version: versions.personalization!, ...context });
+      } else {
+        if (asksPersonalization) await setPersonalization.mutateAsync({ state, version: versions.personalization!, ...context });
+        await setRecommendations.mutateAsync({ state, version: versions.recommendations, ...context }).then((saved) => {
+          if (saved.recommendations.state === 'granted' && uid) clearVisitWait(uid);
+        });
+      }
+    } catch (error) {
+      setStopError(error);
+    }
+  };
 
   /**
    * True when the write landed. A failure is thrown on to `ServerToggle`, which
@@ -125,7 +164,7 @@ export function TrustScreen({ onBack, onKnows }: { onBack: () => void; onKnows: 
             confirmLabel={t.trustRevoke}
             cancelLabel={t.cancel}
             tone="ink"
-            onConfirm={() => { replayConsent?.setConsent(false); setConfirmRevoke(false); void trustAction.mutateAsync({ type: 'revoke' }).catch(() => undefined); }}
+            onConfirm={() => { setConfirmRevoke(false); void answerBoth('declined'); }}
             onCancel={() => setConfirmRevoke(false)}
             confirmTestID="trust-revoke-confirm"
             cancelTestID="trust-revoke-cancel"
@@ -278,18 +317,31 @@ export function TrustScreen({ onBack, onKnows }: { onBack: () => void; onKnows: 
         <Card pad={18} style={{ gap: 10 }}>
           <Txt size={15} weight={600}>{t.trustRevoke}</Txt>
           <Txt size={13} color={p.mu} lh={1.5}>{t.trustRevokeBody}</Txt>
-          {state?.revokedAt ? (
-            <Txt size={13} color={p.mu} testID="trust-revoked">{t.trustRevoked}</Txt>
+          {stopped ? (
+            <>
+              <Txt size={13} color={p.mu} testID="trust-revoked">{t.trustRevoked}</Txt>
+              <Btn
+                label={t.trustResume}
+                testID="trust-resume"
+                disabled={answering}
+                onPress={answering ? undefined : () => void answerBoth('granted')}
+                style={{ minHeight: 44, alignItems: 'center', justifyContent: 'center', borderRadius: 999, borderWidth: 1, borderColor: p.ln, opacity: answering ? 0.5 : 1 }}
+              >
+                <Txt size={14} color={p.ac}>{t.trustResume}</Txt>
+              </Btn>
+            </>
           ) : (
             <Btn
               label={t.trustRevoke}
               testID="trust-revoke"
-              onPress={() => setConfirmRevoke(true)}
-              style={{ minHeight: 44, alignItems: 'center', justifyContent: 'center', borderRadius: 999, borderWidth: 1, borderColor: p.ln }}
+              disabled={versions === undefined || answering}
+              onPress={versions === undefined || answering ? undefined : () => setConfirmRevoke(true)}
+              style={{ minHeight: 44, alignItems: 'center', justifyContent: 'center', borderRadius: 999, borderWidth: 1, borderColor: p.ln, opacity: versions === undefined || answering ? 0.5 : 1 }}
             >
               <Txt size={14} color={p.wm}>{t.trustRevoke}</Txt>
             </Btn>
           )}
+          {stopError ? <Txt size={13} color={p.wm} testID="trust-stop-failed">{userFacingMessage(stopError, t)}</Txt> : null}
         </Card>
 
         {/* The real export (#174 step 7): the server builds it from the same
