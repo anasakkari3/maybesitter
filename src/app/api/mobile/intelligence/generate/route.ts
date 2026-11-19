@@ -4,7 +4,7 @@ import { getRecommendationConsent } from '../../../../../../lib/consents/recomme
 import { intelligenceDisabledResponse } from '../../../../../../lib/intelligence/gate';
 import { learnOutcomesWithin } from '../../../../../../lib/intelligence/outcomeLearning';
 import {
-  hideDismissedOutcomeSuggestions, intelligenceRunPath, nextVisitAt, proposeFromObservations, reuseRunForVisit,
+  hideDismissedOutcomeSuggestions, hideSavedGoalProposals, intelligenceRunPath, nextVisitAt, proposeFromObservations, reuseRunForVisit,
   suggestionToDto, type IntelligenceRun, type IntelligenceSuggestion,
 } from '../../../../../../lib/intelligence/proposalEngine';
 import { listObservations } from '../../../../../../lib/intelligence/observationStore';
@@ -76,7 +76,9 @@ export async function POST(request: Request) {
     // after the run committed (M5B2A-R20-004): an outcome dismissed in between
     // never comes back as a suggestion on Today's banner.
     const observations = await listObservations(user.uid);
-    suggestions = hideDismissedOutcomeSuggestions(suggestions, observations);
+    // …and the saved-goal filter too (QA CA7.10): a goal confirmed into memory
+    // after the run never shows on the banner while «يتابع لك» hides it.
+    suggestions = hideDismissedOutcomeSuggestions(hideSavedGoalProposals(suggestions, observations), observations);
     const readdPolicy = await resolveReaddPolicy(user.uid, observations, readdSupported);
     suggestions = suggestions.filter(readdPolicy.allowsSuggestion);
     const mode = m5bBasisMode();
