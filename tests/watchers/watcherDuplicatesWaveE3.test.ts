@@ -25,7 +25,9 @@ import { GET as getBackgroundActivity } from '../../src/app/api/mobile/trust/bac
 import { GET as getHistory } from '../../src/app/api/mobile/trust/background-activity/history/route.ts';
 import { saveMonitoringSettings } from '../../lib/watchers/monitoringSettings.ts';
 import { createWatcherStore } from '../../lib/watchers/watcherStore.ts';
-import type { WatcherFireEvent } from '../../src/contracts/v1/watcherContracts.ts';
+import { WATCHER_SIGNAL_SCHEMA_VERSION, type WatcherFireEvent } from '../../src/contracts/v1/watcherContracts.ts';
+import { runWatcherSweep } from '../../lib/watchers/watcherEngine.ts';
+import { createWatcherSignalRegistry, type WatcherSignalObserver } from '../../lib/watchers/signals.ts';
 
 const BASE = 'https://api.maybesitter.test';
 const ALICE = uidFor('WatcherWaveE3Alice');
@@ -276,6 +278,77 @@ test('CXA6.4: createOnce never overwrites the watcher already under that id', as
     assert.equal(second.created, false);
     assert.equal(second.watcher.runtime.fireCount, 3);
     assert.equal((await store.get(first.watcher.definition.watcherId))!.runtime.fireCount, 3);
+  } finally {
+    end();
+  }
+});
+
+/* ── Review of E3: a watcher made again under its stable id ─────────── */
+
+const flightState = new Map<string, string>();
+const flightObserver: WatcherSignalObserver = {
+  supports: (source) => source.signalKind === 'flight',
+  async observe(source, context) {
+    const state = flightState.get(source.subjectRef);
+    if (!state) return null;
+    return {
+      schemaVersion: WATCHER_SIGNAL_SCHEMA_VERSION,
+      signalId: `flight:${source.subjectRef}:${state}`,
+      provider: source.provider,
+      signalKind: 'flight',
+      subjectRef: source.subjectRef,
+      observedAt: context.now,
+      stateDigest: state,
+      provenanceRef: `flights/${source.subjectRef}`,
+      measures: [],
+    };
+  },
+};
+
+test('a watcher deleted and made again under the same id fires the same signal again, and shows none of the old history', async () => {
+  await begin();
+  try {
+    const registry = createWatcherSignalRegistry([flightObserver]);
+    const store = createWatcherStore(ALICE, storage);
+    const id = 'wtc_00000000-0000-4000-8000-0000000000aa';
+    const input = {
+      enabled: true,
+      source: { provider: 'aviation', connectionId: null, signalKind: 'flight', subjectRef: 'ba162' },
+      condition: { kind: 'digest_changed' },
+      effect: 'notify',
+      createdBy: 'user',
+    } as const;
+    const sweep = (at: string) => runWatcherSweep({ storage, registry, now: new Date(at) });
+
+    // 1) It fires once: primes on A, fires on B.
+    flightState.set('ba162', 'A');
+    await store.createOnce(input, '2026-11-01T09:00:00.000Z', id);
+    await sweep('2026-11-01T09:00:00.000Z');
+    flightState.set('ba162', 'B');
+    assert.equal((await sweep('2026-11-01T09:01:00.000Z')).fired, 1);
+    assert.equal((await store.listEvents(id, 50)).length, 1);
+
+    // 2) Deleted. 3) Made again — the same id comes back.
+    assert.equal(await store.remove(id), true);
+    flightState.set('ba162', 'A');
+    const again = await store.createOnce(input, '2026-11-02T09:00:00.000Z', id);
+    assert.equal(again.created, true);
+    await sweep('2026-11-02T09:00:00.000Z');
+
+    // 4) The same signal (A → B) is a new transition for the new watcher.
+    flightState.set('ba162', 'B');
+    const totals = await sweep('2026-11-02T09:01:00.000Z');
+    assert.equal(totals.fired, 1, JSON.stringify(totals));
+    assert.equal(totals.duplicates, 0);
+
+    // 5) Its history is its own: the old firing does not show.
+    const events = await store.listEvents(id, 50);
+    assert.equal(events.length, 1);
+    assert.ok(events[0]!.firedAt >= '2026-11-02T09:00:00.000Z');
+    const response = await getHistory(request(`/api/mobile/trust/background-activity/history?watcherId=${id}&limit=50`));
+    const body = await response.json() as { items: { occurredAt: string }[] };
+    assert.equal(body.items.length, 1);
+    assert.ok(body.items[0]!.occurredAt >= '2026-11-02T09:00:00.000Z');
   } finally {
     end();
   }
