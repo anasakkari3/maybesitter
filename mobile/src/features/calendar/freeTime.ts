@@ -25,7 +25,7 @@
  * midnight is clipped to each day it touches rather than to the day it began.
  */
 import { instantForLocalDateTime, localDateTimeFor } from '../capture/localInstant';
-import { shiftDayKey } from '../../i18n/format';
+import { dayKey, shiftDayKey } from '../../i18n/format';
 
 /** Occupied or free time, in epoch milliseconds, `[start, end)`. */
 export interface Interval {
@@ -228,4 +228,26 @@ export function covers(covered: readonly Interval[], interval: Interval): boolea
 /** Whether `interval` meets any of `unknown`. */
 export function touches(unknown: readonly Interval[], interval: Interval): boolean {
   return unknown.some((range) => range.start < interval.end && interval.start < range.end);
+}
+
+/**
+ * Every day a busy block occupies, in `timeZone` (CXA4.6 / CXA10.2).
+ *
+ * A timed block is listed under each day it touches, so a 23:30–01:00 shift is
+ * a row on both days and a 00:30 commitment inside it gets its conflict chip.
+ * An all-day block keeps its own day. Bounded to two weeks: a block longer
+ * than that is not a row anybody reads day by day.
+ */
+export function busyDayKeys(block: { startAt: string; endAt: string; allDay: boolean }, timeZone: string): string[] {
+  const start = Date.parse(block.startAt);
+  const first = dayKey(new Date(start), timeZone);
+  const end = Date.parse(block.endAt);
+  if (block.allDay || !(end > start)) return [first];
+  const last = dayKey(new Date(end - 1), timeZone);
+  const keys = [first];
+  for (let key = first; key < last && keys.length < 14;) {
+    key = shiftDayKey(key, 1);
+    keys.push(key);
+  }
+  return keys;
 }

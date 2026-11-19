@@ -1,4 +1,5 @@
 import { useCommitmentMatches } from '../things/useSearch';
+import { SearchServerLine } from '../things/SearchServerLine';
 import { settledAt } from '../things/searchModel';
 import React, { useState } from 'react';
 import { FlatList, Platform, TextInput, View } from 'react-native';
@@ -179,12 +180,14 @@ export function CommitmentsScreen() {
     {keyboardShown ? null : <BackHeader title={t.xCommitments} onBack={() => actions.back()} />}
     <TextInput testID="commitments-search" accessibilityLabel={t.xSearch} placeholder={t.xSearch} placeholderTextColor={p.mu}
       value={search} onChangeText={setSearch} style={{ backgroundColor: p.sf, borderColor: p.lnStrong, borderWidth: 1, borderRadius: 16, paddingHorizontal: 14, paddingVertical: 0, minHeight: 44, fontSize: 14, color: p.tx, textAlign: rtl ? 'right' : 'left', writingDirection: rtl ? 'rtl' : 'ltr' }} />
-    <View style={{ flexDirection: 'row', gap: 8 }}>
-      {(['active','done','all'] as const).map(key => <Btn key={key} label={key === 'all' ? t.xAll : key === 'active' ? t.xOpen : t.xDone} accessibilityRole="radio" accessibilityState={{ checked: filter === key }}
+    {/* Browse controls (CA5.7): a search looks everywhere and keeps its rank,
+        so neither the filter nor the sort would change it. Not offered during one. */}
+    {needle ? null : <View style={{ flexDirection: 'row', gap: 8 }}>
+      {(['active','done','all'] as const).map(key => <Btn key={key} testID={`commitments-filter-${key}`} label={key === 'all' ? t.xAll : key === 'active' ? t.xOpen : t.xDone} accessibilityRole="radio" accessibilityState={{ checked: filter === key }}
         onPress={() => setFilter(key)} style={{ backgroundColor: filter === key ? p.acs : p.sf, borderRadius: 14, paddingHorizontal: 8, minHeight: 44, flex: 1, alignItems: 'center', justifyContent: 'center' }}>
         <Txt role="label" color={filter === key ? p.ac : p.tx}>{key === 'all' ? t.xAll : key === 'active' ? t.xOpen : t.xDone}</Txt>
       </Btn>)}
-    </View>
+    </View>}
   </View>}>
     <AvoidKeyboard>
       <QueryBoundary isPending={today.isPending || upcoming.isPending} error={today.error ?? upcoming.error} onRetry={() => { void today.refetch(); void upcoming.refetch(); }}>
@@ -202,10 +205,10 @@ export function CommitmentsScreen() {
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
               <Txt size={13} color={p.mu} testID="commitments-result-count">{`${t.xCurrentHorizon} · ${views.length}`}</Txt>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                <Btn label={reverse ? t.xSortLatest : t.xSortEarliest} testID="commitments-sort" onPress={() => setReverse(value => !value)}
+                {!needle ? <Btn label={reverse ? t.xSortLatest : t.xSortEarliest} testID="commitments-sort" onPress={() => setReverse(value => !value)}
                   style={{ minHeight: 44, justifyContent: 'center', paddingHorizontal: 10, borderRadius: 12, backgroundColor: p.sf, borderWidth: 1, borderColor: p.ln }}>
                   <Txt size={13} color={p.tx}>{reverse ? t.xSortLatest : t.xSortEarliest}</Txt>
-                </Btn>
+                </Btn> : null}
                 {!needle ? <Btn label={t.xAdd} testID="commitments-add" onPress={() => actions.go('addToMaybeSitter')}
                   style={{ width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center', backgroundColor: p.acs, borderWidth: 1, borderColor: p.ac }}>
                   <ReferenceIcon name="plus" size={20} color={p.acd} />
@@ -213,8 +216,11 @@ export function CommitmentsScreen() {
               </View>
             </View>
           </View>}
-          ListEmptyComponent={<View style={{ paddingVertical: 28 }}><Txt role="supporting" color={p.mu} testID="commitments-no-results">{t.xNoResults}</Txt></View>}
-          ListFooterComponent={search$.truncated ? <Txt role="supporting" color={p.mu} testID="commitments-search-more">{t.m6SearchMore}</Txt> : null}
+          ListEmptyComponent={<View style={{ paddingVertical: 28 }}><SearchServerLine search={search$} empty noResultsTestID="commitments-no-results" noResultsText={t.xNoResults} /></View>}
+          ListFooterComponent={<>
+            {views.length > 0 ? <SearchServerLine search={search$} empty={false} noResultsTestID="commitments-no-results" noResultsText={t.xNoResults} /> : null}
+            {search$.truncated ? <Txt role="supporting" color={p.mu} testID="commitments-search-more">{t.m6SearchMore}</Txt> : null}
+          </>}
           renderItem={({ item }) => <Btn testID={`commitments-item-${item.id}`} label={`${item.title}. ${(needle ? settledLine(item.id) : null) ?? when(item)}`} onPress={() => actions.openDetail(item.id)}
             style={{ minHeight: 56, borderRadius: 14, borderWidth: 1, borderColor: p.ln, backgroundColor: p.sf, paddingHorizontal: 12, paddingVertical: 7, justifyContent: 'center', gap: 2 }}>
             <Txt size={15} weight={600} lines={2} testID={`m6-user-text-commitments-${item.id}`}>{isolateAuto(item.title)}</Txt>

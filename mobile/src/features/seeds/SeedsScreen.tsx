@@ -7,7 +7,7 @@ import { useTimeZone } from '../../i18n/timezone';
 import { Btn, Card, Pill, Txt } from '../../ui/primitives';
 import { Screen, ScreenScroll } from '../../ui/screen';
 import { QueryBoundary } from '../../api/ui/QueryBoundary';
-import { useDeleteSeed, usePatchSeed, usePromoteSeed, useSeeds } from '../../api/queries';
+import { isSeedGoneElsewhere, useDeleteSeed, usePatchSeed, usePromoteSeed, useSeeds } from '../../api/queries';
 import { ChatEntryButton, ChatEntryPlaceholder } from '../capture/ChatEntryButton';
 import { useCaptureKinds } from '../capture/useCaptureKinds';
 import type { Seed } from '../../api/schemas/seeds';
@@ -96,7 +96,7 @@ export function SeedsScreen({ onBack }: { onBack: () => void }) {
 }
 
 function SeedCard({ seed, strings, lang }: { seed: Seed; strings: Record<string, string>; lang: string }) {
-  const { t, p } = useApp();
+  const { t, p, actions } = useApp();
   const timeZone = useTimeZone();
   const patch = usePatchSeed();
   const promote = usePromoteSeed();
@@ -107,7 +107,13 @@ function SeedCard({ seed, strings, lang }: { seed: Seed; strings: Record<string,
 
   const run = (work: () => Promise<unknown>) => {
     setFailed(false);
-    void work().catch((error: unknown) => { markErrorShown(error); setFailed(true); });
+    void work().catch((error: unknown) => {
+      markErrorShown(error);
+      // Settled on another device (CA5.5): the list is re-read and this card
+      // leaves, so the line goes in a toast, not on the card.
+      if (isSeedGoneElsewhere(error)) actions.toast(t.seedResolvedElsewhere);
+      else setFailed(true);
+    });
   };
 
   return (

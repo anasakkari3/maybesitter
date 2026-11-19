@@ -244,7 +244,8 @@ describe('M6 mixed search', () => {
     await searchThings('nothing-here');
     await waitFor(() => expect(searchRequests(harness!)).toHaveLength(1));
 
-    expect(screen.queryByTestId('m6-search-no-results')).not.toBeNull();
+    // CA5.2: until the server answers the line says it is still looking.
+    await waitFor(() => expect(screen.queryByTestId('m6-search-no-results')).not.toBeNull());
     expect(screen.queryByTestId('things-no-results')).toBeNull();
   });
 
