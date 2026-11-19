@@ -31,7 +31,7 @@ import { guardedMobileExtract } from '../../lib/services/mobile/safety.ts';
 import { validateExtractionResult } from '../../src/extraction/schemaValidator.ts';
 import { instantFromLocal, localTimeSpecFor, readRelativeOffsetMinutes } from '../../src/extraction/timeLexicon.ts';
 import { isMissedObligation } from '../../src/extraction/extractionService.ts';
-import { splitCaptureClauses } from '../../src/extraction/clauseSplitter.ts';
+import { splitCaptureClauseDetails, splitCaptureClauses } from '../../src/extraction/clauseSplitter.ts';
 import { withoutUnsaidTime } from '../../lib/services/captureBoundary/chatEvidence.ts';
 import { buildChatPrompt } from '../../lib/services/captureChat/chatPrompt.ts';
 
@@ -614,5 +614,43 @@ for (const [text, label] of [
     const { contract } = await propose(text, { provider });
     const meeting = contract.items.find((item) => /المدير/.test(item.title))!;
     assert.notEqual(meeting.resolvedDate, TOMORROW);
+  });
+}
+
+test('round 3: the not-done verb in somebody else\'s past, or with its subject after it, is not the speaker\'s', () => {
+  assert.equal(isMissedObligation('كان لازم أدفع الفاتورة وما دفع'), false);
+  assert.equal(isMissedObligation('كان لازم أبعت الواجب بس ما بعته حدا'), false);
+});
+
+test('round 3: the card of a missed thing never says it is late', async () => {
+  const { contract } = await propose(MISSED, { provider: scripted(() => modelTask('أبعت الواجب متأخر', '2026-11-18', '09:00')) });
+  assert.ok(!/متأخر|فات/.test(contract.items[0]!.title), contract.items[0]!.title);
+});
+
+test('round 3 (M9/C11): a head whose own point names a day of its own gives that point no list day', () => {
+  for (const text of [
+    'بكرا: يوم الأحد الساعة 10 الصبح اجتماع مع المدير، الساعة 12 اتصل بالمحامي',
+    'بكرا: الأحد الجاي الساعة 10 الصبح اجتماع مع المدير، الساعة 12 اتصل بالمحامي',
+    'بكرا: 25 نوفمبر الساعة 10 الصبح اجتماع مع المدير، الساعة 12 اتصل بالمحامي',
+    'بكرا: 25/11 الساعة 10 الصبح اجتماع مع المدير، الساعة 12 اتصل بالمحامي',
+    'Tomorrow: Sunday at 10am meeting with the manager, call the lawyer at 12pm',
+  ]) {
+    const [first, second] = splitCaptureClauseDetails(text);
+    assert.equal(first!.listDay, undefined, text);
+    assert.ok(second!.listDay, text);
+  }
+  assert.equal(splitCaptureClauseDetails('بكرا: الساعة 10 اجتماع مع المدير')[0]!.listDay, 'بكرا');
+});
+
+test('round 3: a filler before the obligation does not hide it («أنا كان لازم…»)', () => {
+  assert.equal(isMissedObligation('أنا كان لازم أبعت الواجب وما بعتته'), true);
+  assert.equal(isMissedObligation('والله كان لازم أدفع الفاتورة وما دفعتها'), true);
+});
+
+for (const text of ['بعد ساعتين', 'تذكير بعد ساعتين', 'Reminder in 2 hours', 'بعد ساعتين مهمة']) {
+  test(`round 3 (F04-04): «${text}» with a model inventing «اتصل بأمي» asks what to do and shows the words as said`, async () => {
+    const { contract } = await propose(text, { provider: scripted(() => modelTask('اتصل بأمي', TODAY, '09:12')) });
+    assert.equal(contract.items[0]!.clarification?.questionKey, 'ask_action');
+    assert.equal(contract.items[0]!.title, text);
   });
 }
