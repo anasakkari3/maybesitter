@@ -29,7 +29,8 @@
  * because they share a mistake.
  */
 import { seedLiveAccount } from '../support/liveAccount.ts';
-import test from 'node:test';
+import test, { mock } from 'node:test';
+import { readFileSync } from 'node:fs';
 import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -39,7 +40,8 @@ import { resetStorageForTests, setStorageForTests } from '../../lib/storage/inde
 import { configureCommandService } from '../../lib/services/commandService.ts';
 import { createEmptyDomainState } from '../../src/domain/stateMachine.ts';
 import { getParticipantStateSnapshot } from '../../lib/services/mobile/participantState.ts';
-import { LLMUnavailableError } from '../../src/extraction/llm/index.ts';
+import { DEFAULT_STRUCTURED_TIMEOUT_MS, LLMUnavailableError } from '../../src/extraction/llm/index.ts';
+import { CAPTURE_SERVER_BUDGET_MS } from '../../lib/services/captureBoundary/captureBoundaryService.ts';
 import { screenForInjection } from '../../src/extraction/injectionBoundary.ts';
 import { proposeMobileCapture } from '../../lib/services/mobile/mobileCaptureService.ts';
 import { proposeFromShare } from '../../lib/services/share/shareIntakeService.ts';
@@ -1025,4 +1027,91 @@ test('an empty picture share says which engine read it, and a model that never a
     assert.equal(unanswered.status, 'no_commitment');
     assert.deepEqual(unanswered.provenance, { requestedEngine: 'model', executedEngine: 'rule-based', fallbackUsed: true });
   });
+});
+
+
+/*
+ * QA v3 (owner decision: the server gives up first). The image read allowed
+ * 45 s a call and the provider's one retry — 90 s for each picture — while the
+ * phone gives up on the whole upload at 60 s and Cloud Run at 60 s too. So a
+ * slow model was cut off by the phone with «القراية طوّلت» instead of the
+ * server saying, in time, that the model did not answer.
+ *
+ * The model here behaves as the provider does: each attempt waits its own
+ * `timeoutMs` (the 45 s default when none is given), one retry follows a
+ * timeout unless `retry: false`, and the caller's signal ends it at once.
+ */
+function stalledModel() {
+  const calls: { timeoutMs: number | undefined; signalled: boolean }[] = [];
+  const generate = async (request: { timeoutMs?: number; signal?: AbortSignal; retry?: boolean }) => {
+    calls.push({ timeoutMs: request.timeoutMs, signalled: request.signal !== undefined });
+    for (let attempt = 0; attempt < (request.retry === false ? 1 : 2); attempt += 1) {
+      if (request.signal?.aborted) throw new LLMUnavailableError('aborted');
+      const outcome = await new Promise<'timeout' | 'aborted'>((resolve) => {
+        const timer = setTimeout(() => resolve('timeout'), request.timeoutMs ?? DEFAULT_STRUCTURED_TIMEOUT_MS);
+        request.signal?.addEventListener('abort', () => { clearTimeout(timer); resolve('aborted'); }, { once: true });
+      });
+      if (outcome === 'aborted') throw new LLMUnavailableError('aborted');
+    }
+    throw new LLMUnavailableError('timeout');
+  };
+  return { calls, generate };
+}
+
+/** A number the phone or Cloud Run holds the share request to, read from its own file. */
+function secondsOrMs(file: string, pattern: RegExp): number {
+  const match = pattern.exec(readFileSync(new URL(`../../${file}`, import.meta.url), 'utf8'));
+  assert.ok(match, `${file} no longer says ${pattern}`);
+  return Number(match[1]!.replace(/_/g, ''));
+}
+
+test('QA v3: a model that never answers ends the image read in time for the server to answer before the phone gives up', async () => {
+  const phoneGivesUpMs = secondsOrMs('mobile/src/api/client.ts', /export const UPLOAD_TIMEOUT_MS = ([\d_]+);/);
+  const cloudRunGivesUpMs = secondsOrMs('infra/cloudrun/flags.sh', /"--timeout=(\d+)"/) * 1000;
+  assert.equal(phoneGivesUpMs, 60_000);
+  assert.equal(cloudRunGivesUpMs, 60_000);
+
+  mock.timers.enable({ apis: ['setTimeout', 'Date'], now: READING_AT.getTime() });
+  try {
+    const model = stalledModel();
+    const startedAt = Date.now();
+    let settledAt: number | null = null;
+    const reading = imagePreprocessor.preprocess(inputFor(POSTERS.slice(0, 3)), {
+      uid: READER,
+      uidHash: 'hashed',
+      generateStructured: model.generate as never,
+      readAiConsent: async () => ({ granted: true } as never),
+      limits: { maxTotalBytes: 25 * 1024 * 1024, maxFileBytes: 15 * 1024 * 1024, maxFiles: 5, maxTextCharacters: 20_000 },
+    }).finally(() => { settledAt = Date.now(); });
+    // Fake time, a quarter second at a time, until the read ends or plainly never would.
+    for (let step = 0; settledAt === null && step < 4 * 600; step += 1) {
+      mock.timers.tick(250);
+      for (let flush = 0; flush < 10; flush += 1) await Promise.resolve();
+    }
+    assert.notEqual(settledAt, null, 'the read was still waiting after ten minutes');
+    const result = await reading;
+    const spent = settledAt! - startedAt;
+    // After the pictures the capture itself may wait on the model for its own
+    // budget; both have to end before the phone or Cloud Run cuts the request.
+    assert.ok(spent + CAPTURE_SERVER_BUDGET_MS < Math.min(phoneGivesUpMs, cloudRunGivesUpMs),
+      `the image read took ${spent} ms; with the capture's ${CAPTURE_SERVER_BUDGET_MS} ms that passes 60 s`);
+    // Said honestly: the model did not answer, and nothing was made up.
+    assert.equal(result.text, '');
+    assert.equal(result.metrics?.imagesRead, 0);
+    assert.ok((result.metrics?.modelUnavailable ?? 0) >= 1);
+    // Every call that was made was bounded and could be cut.
+    assert.ok(model.calls.length >= 1);
+    for (const call of model.calls) {
+      assert.equal(call.signalled, true);
+      assert.ok(call.timeoutMs !== undefined && call.timeoutMs <= spent + 1, `a call was given ${call.timeoutMs} ms`);
+    }
+  } finally {
+    mock.timers.reset();
+  }
+});
+
+test('QA v3: a model that answers in time still reads every picture under the deadline', async () => {
+  const read = await readImages(POSTERS.slice(0, 3));
+  assert.equal(read.result.metrics?.imagesRead, 3);
+  assert.equal(read.result.metrics?.modelUnavailable, 0);
 });
