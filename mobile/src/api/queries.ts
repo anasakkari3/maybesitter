@@ -2268,7 +2268,9 @@ export function useDismissFixture() {
   const client = useQueryClient();
   const uid = useUid();
   return useMutation({
-    mutationFn: (commitmentId: string) => dismissFixture(commitmentId),
+    // The tap's account rides along (CA11.2): the request is sent after the
+    // undo window, and must not land on whoever is signed in by then.
+    mutationFn: (commitmentId: string) => dismissFixture(commitmentId, uid !== 'signed-out' ? { asUid: uid } : {}),
     onSettled: () => {
       void client.invalidateQueries({ queryKey: queryKeys.football(uid) });
       void client.invalidateQueries({ queryKey: ['user', uid, 'heldItems'] }); // M4b: what «يتابع لك» counts

@@ -146,7 +146,7 @@ describe('the toast host', () => {
     jest.useFakeTimers({ now: new Date('2026-09-28T09:00:00.000Z') });
     await showHost();
     await act(async () => { app.current!.actions.toast('Marked done', () => undefined); });
-    const window = app.current!.tr('toastUndoWithin', { s: 5 });
+    const window = app.current!.tr('toastBringBackWithin', { s: 5 });
     const first = readable(screen.getByTestId('toast-live'));
     expect(first).toContain('Marked done');
     expect(first.split(window)).toHaveLength(2);

@@ -1,4 +1,4 @@
-import React, { useCallback } from 'react';
+import React, { useCallback, useState } from 'react';
 import { ActivityIndicator, View } from 'react-native';
 import { useApp } from '../../state/AppContext';
 import { useTimeZone } from '../../i18n/timezone';
@@ -20,6 +20,7 @@ import { useDecideHeldFixture } from '../m4b/heldFixtures';
 import { clashLine } from '../m4b/clashLine';
 import { LiveRegion } from '../../ui/liveRegion';
 import { useAnnounceOnIos } from '../../ui/announce';
+import { deferWithUndo } from '../../state/undoWindow';
 
 /**
  * Settings → Football (football fixtures MVP, Task 11).
@@ -54,7 +55,7 @@ import { useAnnounceOnIos } from '../../ui/announce';
  * route is the second line of defence: it 404s if this ever raced anyway.
  */
 export function FootballSettingsScreen({ onBack }: { onBack: () => void }) {
-  const { t, p, lang } = useApp();
+  const { t, p, lang, actions } = useApp();
   const timezone = useTimeZone();
   const settings = useFootballSettings();
   const setFollowed = useSetFollowedClubs();
@@ -76,7 +77,9 @@ export function FootballSettingsScreen({ onBack }: { onBack: () => void }) {
   const followedClubIds = settings.data?.followedClubIds ?? [];
   const followedSet = new Set(followedClubIds);
   const clubs = settings.data?.clubs ?? [];
-  const fixtures = settings.data?.fixtures ?? [];
+  // Matches set aside while their «رجّعها» window is open (CA11.2).
+  const [settingAside, setSettingAside] = useState<ReadonlySet<string>>(new Set());
+  const fixtures = (settings.data?.fixtures ?? []).filter((fixture) => !settingAside.has(fixture.commitmentId));
 
   // The next list is built from the latest saved answer inside the mutation,
   // not from what this render shows -- see `useSetFollowedClubs`. The error
@@ -87,9 +90,21 @@ export function FootballSettingsScreen({ onBack }: { onBack: () => void }) {
 
   // `mutate`, not `mutateAsync`: a refusal lands in `dismiss.error` and is
   // said below the list, never as an unhandled rejection (review of B9).
+  //
+  // CA11.2 (owner decision 2026-11-19): the row goes at once, and the toast
+  // offers «رجّعها» for its few seconds. The dismissal is sent only when that
+  // window closes, so taking it back never needs the server; a failure brings
+  // the row back with the line below.
   const dismissMatch = useCallback((commitmentId: string) => {
-    dismiss.mutate(commitmentId);
-  }, [dismiss]);
+    const restore = () => setSettingAside((current) => {
+      const next = new Set(current);
+      next.delete(commitmentId);
+      return next;
+    });
+    setSettingAside((current) => new Set(current).add(commitmentId));
+    const undo = deferWithUndo(() => dismiss.mutate(commitmentId, { onError: restore }));
+    actions.toast(t.footballDismissedToast, () => { if (undo()) restore(); });
+  }, [actions, dismiss, t.footballDismissedToast]);
   // 409: the match was completed elsewhere, or is gone (CXA11.3).
   const dismissFailure = dismiss.error instanceof ConflictError ? t.footballDismissGone
     : dismiss.error ? userFacingMessage(dismiss.error, t) : null;

@@ -17,7 +17,7 @@ export const TOAST_SECONDS = 5;
  * sentence at the bottom of whatever screen they are on and gets out of the
  * way: it fades after five seconds, a ring counts them down, and a tap
  * dismisses it sooner. When the write can be taken back within that window,
- * the same pill carries «تراجع»; when it cannot — the server has no way to
+ * the same pill carries «رجّعها» (owner decision 2026-11-19); when it cannot — the server has no way to
  * un-complete a commitment — it says only what happened.
  */
 export function ToastHost({ clearance }: {
@@ -63,14 +63,14 @@ export function ToastHost({ clearance }: {
         // The undo window is said once, here; the ticking digits are hidden
         // from screen readers, or the live region would change every second
         // and TalkBack could say the toast again each time (review n6).
-        label={toast.undo ? `${toast.text}. ${tr('toastUndoWithin', { s: TOAST_SECONDS })}` : toast.text}
+        label={toast.undo ? `${toast.text}. ${tr('toastBringBackWithin', { s: TOAST_SECONDS })}` : toast.text}
         onPress={() => { if (toast.undo) toast.undo(); actions.dismissToast(toast.id); }}
         scaleTo={0.98}
         // Stitch: a raised pill with a coral hairline, the app's own text on it.
         style={{ backgroundColor: p.sf2, borderWidth: 1, borderColor: p.heroEdge, borderRadius: 999, paddingVertical: 12, paddingHorizontal: 16, minHeight: 48, flexDirection: 'row', alignItems: 'center', gap: 12, maxWidth: '100%', shadowColor: '#000', shadowOpacity: 0.3, shadowRadius: 20, shadowOffset: { width: 0, height: 10 }, elevation: 10 }}
       >
         <Txt size={14} weight={500} color={p.tx} style={{ flexShrink: 1 }} testID="toast-text">{toast.text}</Txt>
-        {toast.undo ? <Txt size={14} weight={700} color={p.acd} testID="toast-undo">{t.undo}</Txt> : null}
+        {toast.undo ? <Txt size={14} weight={700} color={p.acd} testID="toast-undo">{t.toastBringBack}</Txt> : null}
         <View importantForAccessibility="no-hide-descendants" accessibilityElementsHidden style={{ width: 26, height: 26, alignItems: 'center', justifyContent: 'center' }}>
           <UndoRing left={left} track={p.ln} color={p.acd} />
           <Txt size={12} weight={600} color={p.mu} align="center" lh={1.2} latin>{String(left)}</Txt>
