@@ -56,15 +56,22 @@ export interface MapExtractionOptions {
   capture?: boolean;
   /** What the person typed to answer «إيمتى؟», read for a limit beside `rawText`. */
   answer?: string;
+  /**
+   * Read off the person's own emailed agreement (Gmail): `rawText` is that
+   * sentence, read for a limit like a capture (2026-11-19). Only the mark is
+   * stored; nothing else of the email.
+   */
+  emailed?: boolean;
 }
 
 /**
- * Whether capture stores `deadline: 'explicit'` (owner decision 2026-11-19):
- * a `due_by` the person said with a limit word, in what they said or typed
- * as the answer. Other paths (Gmail, goal steps) did not hear the person.
+ * Whether `deadline: 'explicit'` is stored (owner decision 2026-11-19): a
+ * `due_by` the person said with a limit word, in what they said, typed as the
+ * answer, or wrote in an emailed agreement. Other paths (goal steps, plan
+ * slots, imported tasks) carry no words of the person's to read.
  */
 function namedLimit(result: ExtractionResult, options: MapExtractionOptions): boolean {
-  if (options.capture !== true) return false;
+  if (options.capture !== true && options.emailed !== true) return false;
   return namesExplicitDeadline(result.rawText) || namesExplicitDeadline(options.answer);
 }
 

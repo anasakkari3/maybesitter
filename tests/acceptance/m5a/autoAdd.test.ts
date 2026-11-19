@@ -252,7 +252,8 @@ async function emailedAgreement(sentence: string) {
   const { uid } = await scenario({ text: `${sentence}${QUOTE_EN}` }, escaped);
   const saved = await savedCommitments(uid);
   assert.equal(saved.length, 1, `expected one auto-added commitment for: ${sentence}`);
-  return saved[0]!;
+  // The saved document as stored, every key of it (the support helper types only some).
+  return saved[0]! as unknown as { timeSpec: Record<string, unknown> };
 }
 
 test('2026-11-19: an emailed agreement that names a limit is a stated deadline, and only the mark is stored', async () => {
