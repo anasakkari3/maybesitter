@@ -44,11 +44,11 @@ function Writers() {
 const SERVER_BUSY = ['user', ACCOUNT_A.uid, 'calendar', 'serverBusy'];
 
 describe('CA10.11: a feed change rereads the plan\'s server busy time', () => {
-  it.each([
+  it.each<['remove' | 'refresh' | 'create', 'deleteIcsFeed' | 'refreshIcsFeed' | 'createIcsFeed']>([
     ['remove', 'deleteIcsFeed'],
     ['refresh', 'refreshIcsFeed'],
     ['create', 'createIcsFeed'],
-  ] as const)('%s invalidates the serverBusy queries', async (testID, endpoint) => {
+  ])('%s invalidates the serverBusy queries', async (testID, endpoint) => {
     const call = jest.spyOn(icsEndpoints, endpoint).mockResolvedValue({ success: true } as never);
     harness = await prepare('en', initialState());
     await render(<Providers harness={harness}><Writers /></Providers>);

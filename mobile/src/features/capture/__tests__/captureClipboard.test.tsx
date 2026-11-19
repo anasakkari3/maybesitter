@@ -177,10 +177,10 @@ describe('the clipboard is read only when asked', () => {
 });
 
 describe('CXX1.8: the preview reads in the pasted text\'s own direction', () => {
-  it.each([
+  it.each<['ar' | 'en', string, 'ltr' | 'rtl']>([
     ['ar', 'Call the dentist about the 3pm appointment', 'ltr'],
     ['en', 'اتصل بطبيب الأسنان عن موعد الساعة 3', 'rtl'],
-  ] as const)('%s UI: a pasted paragraph is set by its own first strong character', async (lang, pasted, expected) => {
+  ])('%s UI: a pasted paragraph is set by its own first strong character', async (lang, pasted, expected) => {
     await AsyncStorage.setItem(LANGUAGE_STORAGE_KEY, lang);
     clipboard.mockResolvedValue(pasted);
     await openComposer();
