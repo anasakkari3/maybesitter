@@ -370,3 +370,23 @@ test('the audit line carries counts, never the facts', async () => {
     end();
   }
 });
+
+test('a model that fails says so with degraded, and a real answer does not (QA CXA1.4)', async () => {
+  await begin();
+  try {
+    await grant();
+    const failed = await describeProfile(UID, 'I am a nursing student', AT, {
+      complete: async () => { throw new Error('over the cap'); },
+    });
+    assert.deepEqual(failed.suggestions, []);
+    assert.equal(failed.degraded, true);
+    const answered = await describeProfile(UID, 'text', AT, { complete: stubModel(THESIS).complete });
+    assert.equal(answered.degraded, false);
+    // The route carries it: no model is configured here, so the provider fails.
+    const response = await describePost(request('/api/mobile/profile/describe', { text: 'I am a nursing student' }));
+    assert.equal(response.status, 200);
+    assert.equal((await json(response)).degraded, true);
+  } finally {
+    end();
+  }
+});

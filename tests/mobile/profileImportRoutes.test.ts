@@ -25,6 +25,7 @@ import { createStorageRuntimeMemoryStore } from '../../lib/runtimeMemory/runtime
 import { MAX_IMPORTS_PER_DAY, MAX_IMPORT_LENGTH } from '../../src/profile/aiContextImportContracts.ts';
 import { confirmAiContextImport, importAiContext } from '../../lib/services/mobile/aiContextImportService.ts';
 import { POST as importPost } from '../../src/app/api/mobile/profile/import/route.ts';
+import { actionsToday, reserveDailyAction } from '../../lib/llm/usageGuard.ts';
 import { POST as confirmPost } from '../../src/app/api/mobile/profile/import/confirm/route.ts';
 
 const BASE = 'http://127.0.0.1:4321';
@@ -149,9 +150,11 @@ test('a fourth import in one day is refused', async () => {
   begin();
   await grant();
   try {
+    // Spent by imports the model answered. No model is configured here, and a
+    // failed model gives its reservation back (QA CA8.1), so the three are
+    // reserved directly rather than through the route.
     for (let i = 0; i < MAX_IMPORTS_PER_DAY; i += 1) {
-      const ok = await importPost(request('/api/mobile/profile/import', { text: `profile ${i}`, assistant: 'chatgpt' }));
-      assert.equal(ok.status, 200, `import ${i} was refused`);
+      assert.equal(await reserveDailyAction(UID, 'ai_context_import', MAX_IMPORTS_PER_DAY), 'ok', `import ${i} was refused`);
     }
     const refused = await importPost(request('/api/mobile/profile/import', { text: 'again', assistant: 'chatgpt' }));
     assert.equal(refused.status, 429);
@@ -247,5 +250,24 @@ test('a confirm with a bad accepted list is refused', async () => {
       proposalId: 'p', accepted: 'all of them',
     }));
     assert.equal(response.status, 400);
+  } finally { end(); }
+});
+
+test('a model that fails answers degraded and gives the day\'s import back (QA CXA1.4, CA8.1)', async () => {
+  begin();
+  await grant();
+  try {
+    // No model is configured here, so every provider call fails.
+    const response = await importPost(request('/api/mobile/profile/import', { text: 'a full profile', assistant: 'chatgpt' }));
+    assert.equal(response.status, 200);
+    const body = await json(response);
+    assert.equal(body.degraded, true);
+    assert.deepEqual(body.candidates, []);
+    assert.equal(await actionsToday(UID, 'ai_context_import'), 0, 'a failed read still spent one of the three daily imports');
+    // So the person can try again three more times once the model is back.
+    for (let i = 0; i < MAX_IMPORTS_PER_DAY; i += 1) {
+      const again = await importPost(request('/api/mobile/profile/import', { text: `profile ${i}`, assistant: 'chatgpt' }));
+      assert.equal(again.status, 200, `retry ${i} was refused`);
+    }
   } finally { end(); }
 });
