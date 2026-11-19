@@ -110,6 +110,7 @@ const PRECISE_NOT_LIMITS = [
   // A number that counts something.
   'اشتري قبل 20 شيكل',
   'قبل 2 كيلو',
+  'اشتري رز قبل 2كيلو', // a number glued to its unit is not a clock
   'before 20 dollars',
   'by 3 of them',
   'أكلت قبل 3 مرات',
