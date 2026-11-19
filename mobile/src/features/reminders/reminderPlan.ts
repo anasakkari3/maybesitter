@@ -35,6 +35,11 @@ export interface SyncInput {
   readonly timeZone: string;
   readonly awareness: AwarenessCache;
   readonly copy: ReminderCopy;
+  /**
+   * The gentle sentence for a stage that fires at or after the start — only a
+   * Later can put it there (C13.9). Optional so callers without it keep `copy`.
+   */
+  readonly startedCopy?: ReminderCopy;
   /** The Must reminder's sentence — also generic, also from the bundle. */
   readonly hardCopy: ReminderCopy;
   /**
@@ -58,6 +63,8 @@ export interface DesiredRequest {
    * wherever quiet hours happened to put it.
    */
   readonly plannedAt: number;
+  /** The stage fires at or after the commitment's start (C13.9). */
+  readonly afterStart: boolean;
 }
 
 /**
@@ -115,6 +122,7 @@ export function desiredRequests(input: SyncInput): {
         stage: entry.stage,
         at: entry.at,
         plannedAt: entry.plannedAt,
+        afterStart: entry.at >= startsAt,
       });
     }
   }

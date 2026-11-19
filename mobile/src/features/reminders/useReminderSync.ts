@@ -179,6 +179,7 @@ export function useReminderSync(options: ReminderSyncOptions = {}): { resync: ()
         timeZone: quietTimeZone(settingsData),
         awareness,
         copy: { title: t.notifSoftTitle, body: t.notifSoftBody },
+        startedCopy: { title: t.notifSoftTitle, body: t.notifSoftStartedBody },
         hardCopy: { title: t.notifHardTitle, body: t.notifHardBody },
         // Asked on every sync, not once: "Alarms & reminders" can be granted or
         // revoked from system settings while the app is backgrounded (#197).

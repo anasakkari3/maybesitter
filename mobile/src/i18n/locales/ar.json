@@ -453,6 +453,7 @@
   "notifChannelAwareness": "تذكيرات خفيفة",
   "notifSoftTitle": "تنبيه خفيف",
   "notifSoftBody": "في إشي طلبت نذكّرك فيه وقرّب وقته. افتح MaybeSitter تشوفه.",
+  "notifSoftStartedBody": "في إشي طلبت نذكّرك فيه، وقته بلّش.",
   "notifGentleTitle": "التذكيرات الخفيفة",
   "notifGentleBody": "تنبيه هادي قبل إشي حاططله وقت. بيوقف أول ما تقول إنك عارف.",
   "notifGentleOn": "التذكيرات الخفيفة",

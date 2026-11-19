@@ -456,6 +456,7 @@
   "notifChannelAwareness": "תזכורות עדינות",
   "notifSoftTitle": "תזכורת קטנה",
   "notifSoftBody": "משהו שביקשת שנזכיר לך עליו מתקרב. פתח את MaybeSitter כדי לראות.",
+  "notifSoftStartedBody": "משהו שביקשת שנזכיר לך עליו כבר התחיל.",
   "notifGentleTitle": "תזכורות עדינות",
   "notifGentleBody": "תזכורת שקטה לפני משהו שקבעת לו זמן. היא נפסקת ברגע שאתה אומר שאתה יודע.",
   "notifGentleOn": "תזכורות עדינות",

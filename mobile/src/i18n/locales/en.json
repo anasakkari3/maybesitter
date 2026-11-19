@@ -453,6 +453,7 @@
   "notifChannelAwareness": "Gentle reminders",
   "notifSoftTitle": "A heads-up",
   "notifSoftBody": "Something you asked to be reminded about is coming up. Open MaybeSitter to see it.",
+  "notifSoftStartedBody": "Something you asked to be reminded about has started.",
   "notifGentleTitle": "Gentle reminders",
   "notifGentleBody": "A quiet heads-up before something you chose a time for. It stops as soon as you say you know.",
   "notifGentleOn": "Gentle reminders",
