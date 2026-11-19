@@ -28,6 +28,7 @@ import {
   applyHabitPatch,
   buildHabitDefinition,
   isHabitDefinition,
+  normalizeStoredHabit,
   parseHabitDefinitionInput,
   type HabitDefinition,
   type HabitDefinitionInput,
@@ -90,12 +91,12 @@ export class StorageHabitStore implements HabitStore {
     // A hand-edited or half-migrated document reads as absent rather than as a
     // habit with a cadence nothing validated — which would go on to materialize
     // occurrences from whatever is in the field.
-    return stored && isHabitDefinition(stored) ? stored : null;
+    return stored && isHabitDefinition(stored) ? normalizeStoredHabit(stored) : null;
   }
 
   async list(scopeId: string): Promise<readonly HabitDefinition[]> {
     const rows = await this.storage.list<StoredHabit>(userCol(requireUserId(scopeId), HABITS));
-    return rows.map((row) => row.data).filter(isHabitDefinition).sort(byNewest);
+    return rows.map((row) => row.data).filter(isHabitDefinition).map(normalizeStoredHabit).sort(byNewest);
   }
 
   async patch(
@@ -114,7 +115,7 @@ export class StorageHabitStore implements HabitStore {
       // Throws rather than returning null when the patch is incoherent — "not
       // found" and "minimumOccurrences above the ceiling" are different answers
       // and a route that conflated them would return 404 for a typo.
-      const updated = applyHabitPatch(existing, patch, now);
+      const updated = applyHabitPatch(normalizeStoredHabit(existing), patch, now);
       tx.set<StoredHabit>(path, updated);
       return updated;
     });
