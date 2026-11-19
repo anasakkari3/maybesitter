@@ -11,6 +11,9 @@
 import React from 'react';
 import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react-native';
+import { AccessibilityInfo } from 'react-native';
+import { NetworkError } from '../../../api/errors';
+import en from '../../../i18n/locales/en.json';
 import { SafeAreaProvider, type Metrics } from 'react-native-safe-area-context';
 import { QueryClient, QueryClientProvider, onlineManager } from '@tanstack/react-query';
 import { AppProvider } from '../../../state/AppContext';
@@ -123,5 +126,80 @@ describe('«وقّف مشاركتك» on the trust centre', () => {
     expect(screen.getByTestId('trust-revoke').props.accessibilityState?.disabled).toBe(true);
     expect(screen.queryByTestId('trust-resume')).toBeNull();
     expect(screen.queryByTestId('trust-revoked')).toBeNull();
+  });
+
+  it('a stop whose learning half fails says exactly that, and says it out loud', async () => {
+    jest.spyOn(consentEndpoints, 'getConsents').mockResolvedValue(BOTH_ON as never);
+    jest.spyOn(consentEndpoints, 'putPersonalizationConsent').mockRejectedValue(new NetworkError('offline') as never);
+    const announce = jest.spyOn(AccessibilityInfo, 'announceForAccessibility');
+    await show();
+    await waitFor(() => expect(screen.getByTestId('trust-revoke').props.accessibilityState?.disabled).not.toBe(true));
+    await fireEvent.press(screen.getByTestId('trust-revoke'));
+    await fireEvent.press(screen.getByTestId('trust-revoke-confirm'));
+
+    await waitFor(() => expect(screen.queryByTestId('trust-stop-failed')).not.toBeNull());
+    expect(screen.getByText(en.trustStopPartial)).toBeTruthy();
+    expect(screen.getByTestId('trust-stop-live').props.accessibilityLiveRegion).toBe('polite');
+    expect(announce).toHaveBeenCalledWith(en.trustStopPartial);
+    expect(sentStates(consentEndpoints.putRecommendationConsent)).toEqual(['declined']);
+  });
+
+  it('a stop that fails at its first write says nothing changed, and does not go on to the second', async () => {
+    jest.spyOn(consentEndpoints, 'getConsents').mockResolvedValue(BOTH_ON as never);
+    jest.spyOn(consentEndpoints, 'putRecommendationConsent').mockRejectedValue(new NetworkError('offline') as never);
+    await show();
+    await waitFor(() => expect(screen.getByTestId('trust-revoke').props.accessibilityState?.disabled).not.toBe(true));
+    await fireEvent.press(screen.getByTestId('trust-revoke'));
+    await fireEvent.press(screen.getByTestId('trust-revoke-confirm'));
+    await waitFor(() => expect(screen.queryByTestId('trust-stop-failed')).not.toBeNull());
+    expect(screen.getByText(en.trustActionFailed)).toBeTruthy();
+    expect(consentEndpoints.putPersonalizationConsent).not.toHaveBeenCalled();
+  });
+
+  it('stops suggestions before learning', async () => {
+    jest.spyOn(consentEndpoints, 'getConsents').mockResolvedValue(BOTH_ON as never);
+    await show();
+    await waitFor(() => expect(screen.getByTestId('trust-revoke').props.accessibilityState?.disabled).not.toBe(true));
+    await fireEvent.press(screen.getByTestId('trust-revoke'));
+    await fireEvent.press(screen.getByTestId('trust-revoke-confirm'));
+    await waitFor(() => expect(consentEndpoints.putPersonalizationConsent).toHaveBeenCalled());
+    const suggestionsAt = (consentEndpoints.putRecommendationConsent as jest.Mock).mock.invocationCallOrder[0]!;
+    const learningAt = (consentEndpoints.putPersonalizationConsent as jest.Mock).mock.invocationCallOrder[0]!;
+    expect(suggestionsAt).toBeLessThan(learningAt);
+  });
+
+  it('the failure line goes away once a switch is moved by hand', async () => {
+    jest.spyOn(consentEndpoints, 'getConsents').mockResolvedValue(BOTH_ON as never);
+    jest.spyOn(consentEndpoints, 'putPersonalizationConsent').mockRejectedValueOnce(new NetworkError('offline') as never);
+    await show();
+    await waitFor(() => expect(screen.getByTestId('trust-revoke').props.accessibilityState?.disabled).not.toBe(true));
+    await fireEvent.press(screen.getByTestId('trust-revoke'));
+    await fireEvent.press(screen.getByTestId('trust-revoke-confirm'));
+    await waitFor(() => expect(screen.queryByTestId('trust-stop-failed')).not.toBeNull());
+    await waitFor(() => expect(screen.getByTestId('trust-personalization').props.disabled).not.toBe(true));
+    await fireEvent(screen.getByTestId('trust-personalization'), 'valueChange', false);
+    await waitFor(() => expect(screen.queryByTestId('trust-stop-failed')).toBeNull());
+  });
+
+  it('is not «off» while only one of the two is off', async () => {
+    jest.spyOn(consentEndpoints, 'getConsents').mockResolvedValue({
+      ...BOTH_ON, recommendations: { ...answered.recommendations, state: 'declined' },
+    } as never);
+    await show();
+    await waitFor(() => expect(screen.getByTestId('trust-revoke').props.accessibilityState?.disabled).not.toBe(true));
+    expect(screen.queryByTestId('trust-revoked')).toBeNull();
+    expect(screen.queryByTestId('trust-resume')).toBeNull();
+  });
+
+  it('does not call an account that was never asked «stopped», nor offer to turn things back on', async () => {
+    jest.spyOn(consentEndpoints, 'getConsents').mockResolvedValue({
+      ...BOTH_OFF,
+      recommendations: { ...BOTH_OFF.recommendations, asked: false, changedAt: '' },
+      personalization: { ...BOTH_OFF.personalization, asked: false, changedAt: '' },
+    } as never);
+    await show();
+    await waitFor(() => expect(screen.getByTestId('trust-revoke').props.accessibilityState?.disabled).not.toBe(true));
+    expect(screen.queryByTestId('trust-revoked')).toBeNull();
+    expect(screen.queryByTestId('trust-resume')).toBeNull();
   });
 });

@@ -117,3 +117,24 @@ test('there is a way back: suggestions can be switched on again after stopping',
     end();
   }
 });
+
+test('a learning withdrawal that cannot be recorded is a 503, never a 200 with learning still on — and suggestions are already off', async () => {
+  begin();
+  try {
+    const uid = await agreed('StopLearningBusy');
+    // A personalization purge owns the fence: the withdrawal waits for it,
+    // then refuses (M5B2A-R8-003). The stop must say so, not answer success.
+    const { getStorage } = await import('../../lib/storage/index.ts');
+    const { userDoc } = await import('../../lib/storage/paths.ts');
+    const user = await getStorage().get<Record<string, unknown>>(userDoc(uid));
+    await getStorage().set(userDoc(uid), { ...user, personalizationPurge: { state: 'purging', epoch: 3 } });
+    const response = await stop(uid);
+    assert.equal(response.status, 503, 'a stop whose learning half failed answered success');
+    assert.equal((await response.json() as { reason?: string }).reason, 'purge_running');
+    // Suggestions first: what failed leaves less switched on, never more.
+    assert.equal(await getRecommendationConsent(uid), 'declined', 'suggestions were not stopped first');
+    assert.equal((await readTrust(uid))?.revokedAt ?? null, null);
+  } finally {
+    end();
+  }
+});
