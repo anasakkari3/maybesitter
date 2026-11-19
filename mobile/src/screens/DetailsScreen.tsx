@@ -1,5 +1,7 @@
 import React from 'react';
 import { ScrollView, View } from 'react-native';
+import { onlineManager } from '@tanstack/react-query';
+import { deferWithUndo } from '../state/undoWindow';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLayoutMode } from '../theme/textScale';
 import { useApp } from '../state/AppContext';
@@ -8,7 +10,7 @@ import { formatRelativeDay, formatTime } from '../i18n/format';
 import { fill, ltr } from '../i18n/strings';
 import { isolateAuto } from '../i18n/bidi';
 import { userFacingMessage } from '../api/ui/userFacingMessage';
-import { useActivity, useCategoryPreferences, useCommitment, useCommitmentAction, useNextStep, useNextStepDecision, usePatchCommitment, useSavedWeek } from '../api/queries';
+import { useActivity, useCategoryPreferences, useCommitment, useCommitmentAction, useLocalCompletion, useNextStep, useNextStepDecision, usePatchCommitment, useSavedWeek } from '../api/queries';
 import { safeCommitmentPatchEnabled } from '../config/env';
 import { QueryBoundary } from '../api/ui/QueryBoundary';
 import { NotFoundError } from '../api/errors';
@@ -78,6 +80,7 @@ export function DetailsScreen() {
   const timezone = useTimeZone();
   const query = useCommitment(s.detailId);
   const act = useCommitmentAction();
+  const localCompletion = useLocalCompletion();
   // M4b: read with the screen, so «مش هلّق» knows whether to offer free times.
   useM4bCapabilities();
   // The phone's busy time and Google's (CL6a review I1).
@@ -122,6 +125,27 @@ export function DetailsScreen() {
 
   const complete = () => {
     if (!view) return;
+    /*
+     * CX3.1 (owner decision 2026-11-19): «تمّت» offers «رجّعها» for the
+     * toast's few seconds. The completion is held in the undo window and sent
+     * once it closes; «رجّعها» takes it back before anything is sent, so no
+     * server reversal exists to get wrong. The lists show it done meanwhile.
+     * With no signal it is still tried now and fails now (CX3.5): holding a
+     * press that cannot be sent would only move the failure out of sight.
+     */
+    if (onlineManager.isOnline()) {
+      const id = view.id;
+      actions.back();
+      localCompletion.mark(id);
+      const undo = deferWithUndo(() => {
+        act.mutateAsync({ id, action: 'complete' }).catch((error: unknown) => {
+          localCompletion.restore(id);
+          actions.toast(userFacingMessage(error, t));
+        });
+      });
+      actions.toast(t.toastDone, () => { if (undo()) localCompletion.restore(id); });
+      return;
+    }
     // Back to the list, then the line at the bottom says it is done (Round 2).
     act.mutate({ id: view.id, action: 'complete' }, {
       onSuccess: () => { actions.back(); actions.toast(t.toastDone); },
