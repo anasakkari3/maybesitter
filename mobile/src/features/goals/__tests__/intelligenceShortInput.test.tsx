@@ -91,7 +91,6 @@ describe('a refusal on the card (NA7.1)', () => {
       ? { status: 400, body: { success: false, error: 'request refused', reason: 'invalid_title' } }
       : undefined);
     await fireEvent.press(card.getAllByRole('button')[0]!);
-    await waitFor(() => expect(screen.getByTestId(`intelligence-card-error-${SUGGESTION_ID}`)).toBeTruthy());
-    expect(screen.getByText(en.xIntelligenceTitleTooShort)).toBeTruthy();
+    await waitFor(() => expect(within(screen.getByTestId(`intelligence-card-error-${SUGGESTION_ID}`)).getByText(en.xIntelligenceTitleTooShort)).toBeTruthy());
   });
 });

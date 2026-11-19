@@ -1311,6 +1311,8 @@
   "xIntelligenceAnswer": "خلّيه يعرف جوابي",
   "xIntelligenceAcknowledge": "فهمت عليك",
   "xIntelligenceAnswerPlaceholder": "شو وضعك معها؟",
+  "xIntelligenceTitleTooShort": "اكتب عنوان أطول شوي، 4 أحرف أو أكثر.",
+  "xIntelligenceAnswerTooShort": "زيد كلمة على جوابك، مثلاً «3 مرّات».",
   "xIntelligenceDismiss": "مش مناسب إلي",
   "xProposalsTitle": "اقتراحات من متابعاتك",
   "xProposalFromReadiness": "من متابعة الطاقة والجاهزية",

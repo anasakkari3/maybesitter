@@ -1311,6 +1311,8 @@
   "xIntelligenceAnswer": "Use my answer",
   "xIntelligenceAcknowledge": "I understand",
   "xIntelligenceAnswerPlaceholder": "How is it going?",
+  "xIntelligenceTitleTooShort": "Make the title a little longer: 4 characters or more.",
+  "xIntelligenceAnswerTooShort": "Add a word to your answer, e.g. “3 times”.",
   "xIntelligenceDismiss": "Not for me",
   "xProposalsTitle": "Suggestions from your watches",
   "xProposalFromReadiness": "From your readiness watch",
