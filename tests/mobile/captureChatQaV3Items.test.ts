@@ -24,6 +24,11 @@ import { beginModel, end, say, show, goalsOf, type Answer } from '../acceptance/
 const TOMORROW = '2026-10-08';
 const EDIT_FAILED = /ما قدرت أطبّق التعديل|couldn't apply that change/;
 
+type Card = { title: string; resolvedTime?: string | null; resolvedDate?: string };
+function cards(answer: Answer): Card[] {
+  return (answer.proposal?.items ?? []) as Card[];
+}
+
 function titles(answer: Answer): string[] {
   return (answer.proposal?.items ?? []).map((item) => item.title);
 }
@@ -71,7 +76,11 @@ test('V3-F04-01 the API text: the family dinner, the only timed point, keeps its
     const answer = await say(uid, text, { locale: 'ar' });
     const dinner = (answer.proposal?.items ?? []).find((item) => item.title.includes('عشا'));
     assert.ok(dinner, `the dinner has no card: ${show(answer.proposal)}`);
-    assert.equal(dinner!.resolvedTime, at(TOMORROW, '20:00'), `the dinner is not tomorrow at 20:00: ${show(dinner)}`);
+    // «وبالليل» names no day of its own (no «بعدها»): its 20:00 is kept and
+    // only the day is asked, with tomorrow at 20:00 one tap away.
+    const tomorrowAt8 = (dinner as unknown as { clarification?: { options?: Array<{ value?: { localDate?: string; localTime?: string } }> } })
+      .clarification?.options?.some((option) => option.value?.localDate === TOMORROW && option.value?.localTime === '20:00');
+    assert.ok(dinner!.resolvedTime === at(TOMORROW, '20:00') || tomorrowAt8, `the dinner lost its 20:00: ${show(dinner)}`);
   } finally { end(); }
 });
 
@@ -129,7 +138,7 @@ test('V3-F04-10 «وبعدها بدي أتصل بأحمد» after «بكرا»: 
   const uid = beginModel({}, modelFirstAnswer('تمام: خبز بكرا وبعدها تتصل بأحمد. أي ساعة؟', 'ask', [BREAD, AHMAD]));
   try {
     const answer = await say(uid, 'بكرا لازم أشتري خبز، وبعدها بدي أتصل بأحمد', { locale: 'ar' });
-    const call = (answer.proposal?.items ?? []).find((item) => item.title.includes('أحمد'));
+    const call = cards(answer).find((item) => item.title.includes('أحمد'));
     assert.ok(call, `no card for the call: ${show(answer.proposal)}`);
     assert.equal(call!.resolvedDate, TOMORROW, `the call lost «بكرا»: ${show(call)}`);
   } finally { end(); }
@@ -142,7 +151,7 @@ test('V3-F04-10 "and then" in English keeps the day too', async () => {
   ]));
   try {
     const answer = await say(uid, 'Tomorrow I need to buy bread, and then call Ahmad', { locale: 'en' });
-    const call = (answer.proposal?.items ?? []).find((item) => item.title.includes('Ahmad'));
+    const call = cards(answer).find((item) => item.title.includes('Ahmad'));
     assert.ok(call, `no card for the call: ${show(answer.proposal)}`);
     assert.equal(call!.resolvedDate, TOMORROW, `the call lost "tomorrow": ${show(call)}`);
   } finally { end(); }
@@ -156,7 +165,7 @@ test('V3-F04-10 the carry is only a day: no connective, no day carried; and neve
   ]));
   try {
     const answer = await say(uid, 'بكرا لازم أشتري خبز، وبدي أتصل بأحمد', { locale: 'ar' });
-    const call = (answer.proposal?.items ?? []).find((item) => item.title.includes('أحمد'));
+    const call = cards(answer).find((item) => item.title.includes('أحمد'));
     assert.ok(call, show(answer.proposal));
     assert.equal(call!.resolvedDate ?? null, null, `a day carried with no «بعدها»: ${show(call)}`);
   } finally { end(); }
@@ -167,7 +176,7 @@ test('V3-F04-10 the carry is only a day: no connective, no day carried; and neve
   ]));
   try {
     const answer = await say(uid, 'بكرا الساعة 5 المسا لازم أشتري خبز، وبعدها بدي أتصل بأحمد', { locale: 'ar' });
-    const call = (answer.proposal?.items ?? []).find((item) => item.title.includes('أحمد'));
+    const call = cards(answer).find((item) => item.title.includes('أحمد'));
     assert.ok(call, show(answer.proposal));
     assert.equal(call!.resolvedDate, TOMORROW, `the day was not carried: ${show(call)}`);
     assert.equal(call!.resolvedTime, null, `the bread's hour was carried: ${show(call)}`);
