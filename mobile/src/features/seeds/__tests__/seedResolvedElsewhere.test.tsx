@@ -78,3 +78,30 @@ it('re-reads the list, drops the card and says it was settled elsewhere', async 
   await waitFor(() => expect(screen.queryByTestId('seed-seed-1')).toBeNull());
   expect(screen.getByTestId('probe-toast').props.children).toBe(en.seedResolvedElsewhere);
 });
+
+// QA v3 V3-F24-05: «حوّله لمهمة» made the idea vanish with no word about where it went.
+it.each([
+  ['seed-to-task-seed-1', 'commitment', 'seedPromotedToTask'],
+  ['seed-to-goal-seed-1', 'goal', 'seedPromotedToGoal'],
+] as const)('%s says what the idea became once it leaves the list', async (button, kind, message) => {
+  jest.mocked(seedEndpoints.promoteSeed).mockReset();
+  jest.mocked(seedEndpoints.promoteSeed).mockResolvedValue({
+    success: true, replayed: false, seed: { ...SEED, status: 'promoted', promotedTo: { kind, id: 'made-1' } },
+  } as never);
+  await render(
+    <SafeAreaProvider initialMetrics={METRICS}>
+      <AppProvider>
+        <AuthProvider repository={createFakeAuthRepository({ initialUser: USER })} isDevBundle={false}>
+          <QueryClientProvider client={client}><SeedsScreen onBack={() => {}} /><ToastProbe /></QueryClientProvider>
+        </AuthProvider>
+      </AppProvider>
+    </SafeAreaProvider>,
+  );
+  await waitFor(() => expect(screen.queryByTestId(button)).not.toBeNull());
+  await act(async () => { await fireEvent.press(screen.getByTestId(button)); });
+
+  await waitFor(() => expect(screen.queryByTestId('seed-seed-1')).toBeNull());
+  const expected = (en as Record<string, string>)[message];
+  expect(expected).toBeTruthy();
+  expect(screen.getByTestId('probe-toast').props.children).toBe(expected);
+});
