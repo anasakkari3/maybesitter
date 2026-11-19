@@ -295,6 +295,15 @@ test('QA v3 V3-F22-02: generate sent again with the same key replays the plan; a
     const other = await call('goals/[goalId]/plan/generate', 'POST', { goalId: h.goalId }, { idempotencyKey: key('gen-other') });
     assert.equal(other.status, 409, JSON.stringify(other.body));
     assert.equal(other.body.reason, 'stale');
+    // A regenerate's key is not a generate's: sending it to generate does
+    // not replay the regenerate as if generate had made it.
+    const regenKey = key('regen-not-gen');
+    const regenerated = await call('goals/[goalId]/plan/regenerate', 'POST', { goalId: h.goalId },
+      { currentPlanId: first.body.plan.planId, revision: first.body.plan.revision, idempotencyKey: regenKey });
+    assert.equal(regenerated.status, 200, JSON.stringify(regenerated.body));
+    const crossed = await call('goals/[goalId]/plan/generate', 'POST', { goalId: h.goalId }, { idempotencyKey: regenKey });
+    assert.equal(crossed.status, 409, JSON.stringify(crossed.body));
+    assert.equal(crossed.body.reason, 'stale');
   }, h);
 });
 

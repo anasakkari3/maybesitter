@@ -412,6 +412,14 @@ export async function generateGoalPlan(uid: string, goalId: string, input: { ide
     await fence(tx, uid);
     const lineage = await requireCurrentGoal(tx, uid, goalId);
     const existing = await tx.get<GenerationClaim>(claimPath(uid, lineage.lineageId));
+    // The same request again (a lost reply, QA v3 V3-F22-02): the plan this
+    // key made is the answer, not a 409. A regenerate's claim names the plan
+    // it replaced, so a generate key can never replay one.
+    if (existing?.state === 'done' && existing.planId && !existing.replacesPlanId
+      && existing.idempotencyKey === input.idempotencyKey) {
+      const made = await tx.get<StoredGoalPlan>(planPath(uid, existing.planId));
+      if (made) return { kind: 'replay' as const, plan: made };
+    }
     if (lineage.activeDraftPlanId) {
       const current = await tx.get<StoredGoalPlan>(planPath(uid, lineage.activeDraftPlanId));
       if (current) return { kind: 'existing' as const, plan: current };
@@ -431,6 +439,7 @@ export async function generateGoalPlan(uid: string, goalId: string, input: { ide
     tx.set<GoalLineage>(linePath(uid, goalId), { ...lineage, updatedAt: nowIso });
     return { kind: 'claimed' as const, claimId, lineage };
   });
+  if (claim.kind === 'replay') return publicPlan(claim.plan);
   if (claim.kind === 'existing') apiError(409, 'stale', { plan: publicPlan(claim.plan) });
   if (claim.kind === 'waiting') {
     const settled = await waitForClaim(uid, claim.lineageId, claim.claimId, storage);
