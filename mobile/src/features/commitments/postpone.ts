@@ -52,6 +52,28 @@ export const DEFER_PRESETS: readonly PostponePreset[] = [
   'oneHour', 'thisEvening', 'tomorrowMorning',
 ];
 
+/**
+ * What the next step's «مش هلّق» offers, against the item's own time (QA v3
+ * V3-F11-04).
+ *
+ * Deferring the suggestion brings the *suggestion* back at the time chosen;
+ * the item keeps its time. A choice at or after that time is no use — «المسا ·
+ * 18:00» for a 16:00 call hides the suggestion until the call is over — so an
+ * item with a time still ahead is offered only the times before it, nearest
+ * first, at most three. When none is before it (the item is within the hour),
+ * the nearest stays, so the sheet is never empty. An item with no time, or
+ * whose time has passed, keeps the usual three.
+ */
+export function deferChoices(now: Date, timeZone: string, itemAt: string | null): readonly PostponePreset[] {
+  const at = itemAt === null ? NaN : Date.parse(itemAt);
+  if (!Number.isFinite(at) || at <= now.getTime()) return DEFER_PRESETS;
+  const before = DEFER_CANDIDATES.filter((preset) => Date.parse(postponeTo(preset, now, timeZone)) < at);
+  return before.length > 0 ? before.slice(0, DEFER_PRESETS.length) : [DEFER_CANDIDATES[0]!];
+}
+
+/** The defer choices in order of distance, the three-hour one included for an item later today. */
+const DEFER_CANDIDATES: readonly PostponePreset[] = ['oneHour', 'threeHours', 'thisEvening', 'tomorrowMorning'];
+
 /** 09:00 is the design's "morning": late enough to be awake, early enough to act. */
 const MORNING_HOUR = 9;
 /** 18:00 is "this evening": after a working day, before it is too late to act. */

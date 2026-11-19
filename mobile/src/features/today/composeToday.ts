@@ -167,6 +167,11 @@ export function composeToday(input: {
    * the groups and Upcoming as given.
    */
   records?: readonly CommitmentView[];
+  /**
+   * Suggested steps the person put off with «مش هلّق», id → until (V3-F11-04).
+   * The suggestion is hidden until then; so is the same item as the fallback.
+   */
+  deferredSteps?: ReadonlyMap<string, string>;
 }): TodayModel {
   const { next, plan, laterLimit = 3 } = input;
   const nowMs = (input.now ?? new Date()).getTime();
@@ -229,7 +234,13 @@ export function composeToday(input: {
     // exam tomorrow at 10:00, the night out at 21:00 (audit 2026-10-03 #2):
     // the server holds them back the same way (`nextStepPreparation.ts`).
     // Nor is something postponed until later (CA2.1): it is back at its time.
-    const top = open.find((c) => !c.allDayEvent && !eventNotYetClose(c, nowMs) && !isPostponedAway(c, nowMs)) ?? null;
+    // Nor is a suggested step the person just put off (V3-F11-04): it was the
+    // card, they said «مش هلّق», and it stays a row until the time they chose.
+    const putOff = (c: CommitmentView): boolean => {
+      const until = input.deferredSteps?.get(c.id);
+      return until !== undefined && Date.parse(until) > nowMs;
+    };
+    const top = open.find((c) => !c.allDayEvent && !eventNotYetClose(c, nowMs) && !isPostponedAway(c, nowMs) && !putOff(c)) ?? null;
     primary = top ? { kind: 'fallback', item: top } : { kind: 'none' };
   }
 

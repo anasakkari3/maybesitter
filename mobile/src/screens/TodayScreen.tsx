@@ -7,7 +7,7 @@ import { useApp } from '../state/AppContext';
 import { isValidTimeZone, useTimeZone } from '../i18n/timezone';
 import { dayKey, formatDate, formatRelativeDay, formatTime } from '../i18n/format';
 import { fill, ltr, type Lang } from '../i18n/strings';
-import { useCategoryPreferences, useCommitmentAction, useConsents, useNextStep, usePlan, useProfile, useSavedWeek, useToday, useUpcoming } from '../api/queries';
+import { useCategoryPreferences, useCommitmentAction, useConsents, useDeferredNextSteps, useNextStep, usePlan, useProfile, useSavedWeek, useToday, useUpcoming } from '../api/queries';
 import { quietHoursEndAt } from '../features/today/quietHoursEnd';
 import { QueryBoundary } from '../api/ui/QueryBoundary';
 import { ForbiddenError } from '../api/errors';
@@ -162,12 +162,16 @@ export function TodayScreen({ tabClearance = TAB_CLEARANCE }: { tabClearance?: n
   const [clockMs, setClockMs] = useState(() => Date.now());
   // …and at the next instant a postponed item comes back (CA2.1): then it is
   // the card again and its row stops saying «بترجع».
+  // …and when a step put off with «مش هلّق» may be the card again (V3-F11-04).
+  const deferredSteps = useDeferredNextSteps();
   const nextEnd = useMemo(() => {
     const open = [...groups.must, ...groups.should, ...groups.nice];
     const ended = nextEventEndAfter([...open, ...upcomingViews], clockMs);
     const back = nextPostponedReturnAfter(open, clockMs);
-    return ended === null ? back : back === null ? ended : Math.min(ended, back);
-  }, [groups, upcomingViews, clockMs]);
+    const deferredBack = [...deferredSteps.values()].map((until) => Date.parse(until)).filter((at) => at > clockMs);
+    const times = [ended, back, ...deferredBack].filter((at): at is number => at !== null && Number.isFinite(at));
+    return times.length === 0 ? null : Math.min(...times);
+  }, [groups, upcomingViews, clockMs, deferredSteps]);
   useEffect(() => {
     if (nextEnd === null) return undefined;
     const wait = Math.min(Math.max(0, nextEnd - Date.now()) + EVENT_END_MARGIN_MS, MAX_TIMER_MS);
@@ -202,7 +206,8 @@ export function TodayScreen({ tabClearance = TAB_CLEARANCE }: { tabClearance?: n
     now: new Date(clockMs),
     listsLoaded,
     records,
-  }), [groups, recommendationsAllowed, next.data, next.isPending, next.isError, next.error, plan.data, plan.isPending, plan.isError, upcomingViews, clockMs, listsLoaded, records]);
+    deferredSteps,
+  }), [groups, recommendationsAllowed, next.data, next.isPending, next.isError, next.error, plan.data, plan.isPending, plan.isError, upcomingViews, clockMs, listsLoaded, records, deferredSteps]);
 
   const byId = useMemo(() => {
     const all = [...groups.must, ...groups.should, ...groups.nice, ...groups.finished];

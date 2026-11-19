@@ -15,12 +15,12 @@ import { Btn, Pill, SaidWords, Txt } from '../../ui/primitives';
 import { Tag, TextLink, priorityTagKind } from '../../ui/chrome';
 import { evidencePhrases } from './evidence';
 import { FeedbackFlagButton } from './FeedbackFlagButton';
-import { DEFER_PRESETS, postponeTo, type PostponePreset } from '../commitments/postpone';
+import { deferChoices, postponeTo, type PostponePreset } from '../commitments/postpone';
 import type { CommitmentView } from '../commitments/model';
 import { useTimeZone } from '../../i18n/timezone';
 import { formatRelativeDay, formatTime } from '../../i18n/format';
 import { ltr } from '../../i18n/strings';
-import { drawnWhenLine, dueAsideText } from '../plan/savedPlacement';
+import { drawnClockAt, drawnWhenLine, dueAsideText } from '../plan/savedPlacement';
 import type { NextStepDecisionKind, NextStepRecommendation } from '../../api/schemas/nextStep';
 import { ReferenceIcon, useReferencePalette } from '../../ui/referenceDesign';
 import { BottomSheet, SheetChoice, SheetFootnote, SheetHeader } from '../../ui/bottomSheet';
@@ -451,8 +451,9 @@ function Ready({
 
 
       {/*
-        «مش هلّق» asks when, in a sheet (Stitch: «إمتى نرجّعها؟»). Three
-        choices, each showing the time it means (UC-2.9, #170). Fewer than the
+        «مش هلّق» asks when, in a sheet (Stitch: «إمتى نرجّعها؟»). Up to three
+        choices, each showing the time it means (UC-2.9, #170), and only times
+        before the item's own (`deferChoices`, V3-F11-04). Fewer than the
         details sheet's four: deferring a *suggestion* is a small "not right
         now", and offering to push it a week would turn one tap into a decision
         about the rest of the month.
@@ -461,7 +462,8 @@ function Ready({
         <SheetHeader title={t.nextStepDeferTitle} icon="clock" onClose={onCloseDefer} closeTestID="next-step-defer-close" />
         <Txt size={14} color={p.mu} lh={1.5}>{t.postponeBody}</Txt>
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
-          {DEFER_PRESETS.map((preset) => {
+          {/* Only times before the item's own (V3-F11-04). */}
+          {deferChoices(new Date(), timezone, item ? drawnClockAt(item) : null).map((preset) => {
             const until = new Date(postponeTo(preset, new Date(), timezone));
             return (
               <SheetChoice

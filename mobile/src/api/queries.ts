@@ -176,6 +176,8 @@ export const queryKeys = {
   /** «ما اتصرّفت فيها» (lane E2). Under `commitments`, so every commitment change refreshes it. */
   unhandled: (uid: string) => ['user', uid, 'commitments', 'unhandled'] as const,
   nextStep: (uid: string, locale: string) => ['user', uid, 'nextStep', locale] as const,
+  /** Steps the person put off with «مش هلّق», by commitment id → until (V3-F11-04). Memory only. */
+  nextStepDeferred: (uid: string) => ['user', uid, 'nextStepDeferred'] as const,
   trust: (uid: string) => ['user', uid, 'trust'] as const,
   feedbackHistory: (uid: string) => ['user', uid, 'feedbackHistory'] as const,
   profile: (uid: string) => ['user', uid, 'profile'] as const,
@@ -1163,6 +1165,18 @@ export function useNextStepDecision() {
      * the proposal needed refreshing; now a completed item would keep sitting
      * on Today until something else happened to invalidate it.
      */
+    /**
+     * A step put off (QA v3 V3-F11-04). The server hides the suggestion until
+     * then, but Today's fallback card — the list's own top item — knew nothing
+     * of it and drew the same item as «خطوتك التالية» minutes later. Kept here,
+     * in memory and per account, for `composeToday`. Not a preparation: that
+     * defers the preparation, never the event (review of audit #2).
+     */
+    onSuccess: (_result, input) => {
+      const id = input.proposal.primaryStep?.commitmentId;
+      if (input.decision !== 'defer' || !input.deferUntil || !id || input.proposal.primaryStep?.purpose === 'prepare') return;
+      client.setQueryData<Record<string, string>>(queryKeys.nextStepDeferred(uid), (held) => ({ ...held, [id]: input.deferUntil! }));
+    },
     onSettled: (_result, _error, input) => {
       if (input.decision === 'done' || input.decision === 'edit') {
         invalidateCommitments(client, uid, input.proposal.primaryStep?.commitmentId);
@@ -1171,6 +1185,24 @@ export function useNextStepDecision() {
       }
     },
   });
+}
+
+/**
+ * The steps put off with «مش هلّق», commitment id → until (V3-F11-04). Never
+ * fetched: only `useNextStepDecision` writes it, and it goes with the cache on
+ * an account change.
+ */
+export function useDeferredNextSteps(): ReadonlyMap<string, string> {
+  const client = useQueryClient();
+  const uid = useUid();
+  const key = queryKeys.nextStepDeferred(uid);
+  const query = useQuery({
+    queryKey: key,
+    queryFn: () => client.getQueryData<Record<string, string>>(key) ?? {},
+    initialData: {} as Record<string, string>,
+    staleTime: Infinity,
+  });
+  return useMemo(() => new Map(Object.entries(query.data)), [query.data]);
 }
 
 /**
