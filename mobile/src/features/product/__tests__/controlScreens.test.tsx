@@ -14,6 +14,7 @@ const mockRegenerate = jest.fn();
 const mockUnlink = jest.fn();
 let mockHabits: unknown[] = [];
 const mockDecide = jest.fn();
+const mockUndo = jest.fn();
 let mockToday: unknown = null;
 let mockTodayPending = false;
 
@@ -74,6 +75,7 @@ jest.mock('../../../api/queries', () => ({
   useCreateHabit: () => ({ mutate: mockCreateHabit, isPending: false, error: null }),
   useHabitsToday: () => ({ data: mockToday, isPending: mockTodayPending, error: null, refetch: jest.fn() }),
   useDecideHabitOccurrence: () => ({ mutate: mockDecide, isPending: false, error: null, variables: undefined }),
+  useUndoHabitOccurrence: () => ({ mutate: mockUndo, isPending: false, error: null, variables: undefined }),
   useSetHabitStatus: () => ({ mutate: jest.fn(), isPending: false, error: null }),
   useDeleteHabit: () => ({ mutate: jest.fn(), isPending: false, error: null }),
   usePlan: () => ({ data: null, isPending: false, error: null, refetch: jest.fn() }),
@@ -247,6 +249,25 @@ it.each<[string, 'xHabitTodayDone' | 'xHabitTodaySkipped']>([
   expect(screen.getByTestId('habit-today-state-h1')).toHaveTextContent(strings.en[key]);
   expect(screen.queryByTestId('habit-today-done-h1')).toBeNull();
   expect(screen.queryByTestId('habit-today-skip-h1')).toBeNull();
+});
+
+// QA v3 V3-F23-02: a mis-tap was permanent. A decided day offers «تراجع».
+it.each(['completed', 'skipped', 'recovered'])('a %s day can be taken back, and the button names the habit', async (state) => {
+  mockHabits = [walk];
+  mockToday = { localDate: '2026-11-15', occurrences: [todayRow(state)] };
+  await render(wrap(<HabitDetailScreen />));
+  const undo = screen.getByTestId('habit-today-undo-h1');
+  expect(undo).toHaveTextContent(strings.en.undo);
+  expect(screen.getByLabelText(strings.en.xHabitTodayUndoA11y.replace('{title}', 'Walk'))).toBeTruthy();
+  await fireEvent.press(undo);
+  expect(mockUndo).toHaveBeenLastCalledWith({ habitId: 'h1', occurrenceId: 'h1.2026-11-15.0' }, expect.any(Object));
+});
+
+it('an open day offers no «تراجع»: there is nothing to take back', async () => {
+  mockHabits = [walk];
+  mockToday = { localDate: '2026-11-15', occurrences: [todayRow('pending')] };
+  await render(wrap(<HabitDetailScreen />));
+  expect(screen.queryByTestId('habit-today-undo-h1')).toBeNull();
 });
 
 it('a habit with nothing due today shows no today row', async () => {
