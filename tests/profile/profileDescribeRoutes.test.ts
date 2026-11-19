@@ -178,6 +178,23 @@ test('an unticked suggestion is discarded with the proposal', async () => {
   }
 });
 
+// de7fcb84 audit CXA8.10: two confirms at once both wrote every row.
+test('two confirms sent at once write the ticked suggestions once', async () => {
+  await begin();
+  try {
+    await grant();
+    const proposal = await describeProfile(UID, 'text', AT, { complete: stubModel(THESIS).complete });
+    const results = await Promise.allSettled([
+      confirmProfileSuggestions(UID, proposal.proposalId, [{ index: 0 }, { index: 1 }, { index: 2 }], AT),
+      confirmProfileSuggestions(UID, proposal.proposalId, [{ index: 0 }, { index: 1 }, { index: 2 }], AT),
+    ]);
+    assert.equal(results.filter((r) => r.status === 'fulfilled').length, 1);
+    assert.equal((await createStorageRuntimeMemoryStore().listAll(UID)).length, 3);
+  } finally {
+    end();
+  }
+});
+
 test('an expired proposal is refused rather than written', async () => {
   await begin();
   try {

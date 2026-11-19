@@ -221,6 +221,20 @@ test('a second confirm of the same proposal writes nothing', async () => {
   assert.equal((await memory.retrieve({ scopeId: UID, now: AT.toISOString() })).length, 1);
 });
 
+// de7fcb84 audit CXA8.10: two confirms sent at the same moment both read the
+// live proposal and both wrote; memory grew by 6 for 3 facts, 4 of 4 tries.
+test('two confirms sent at once write the facts once', async () => {
+  const { proposal } = await propose([candidate(), candidate({ content: 'Wants to run a 10k', kind: 'goal' })]);
+  const results = await Promise.allSettled([
+    confirmAiContextImport(UID, proposal.proposalId, [{ index: 0 }, { index: 1 }], AT, { memory }),
+    confirmAiContextImport(UID, proposal.proposalId, [{ index: 0 }, { index: 1 }], AT, { memory }),
+  ]);
+  assert.equal(results.filter((r) => r.status === 'fulfilled').length, 1);
+  const refused = results.find((r) => r.status === 'rejected') as PromiseRejectedResult;
+  assert.ok(refused.reason instanceof ImportProposalNotFoundError);
+  assert.equal((await memory.retrieve({ scopeId: UID, now: AT.toISOString() })).length, 2);
+});
+
 test('an expired proposal is refused rather than quietly written', async () => {
   const { proposal } = await propose([candidate()]);
   const late = new Date(AT.getTime() + AI_CONTEXT_IMPORT_TTL_MS + 1);

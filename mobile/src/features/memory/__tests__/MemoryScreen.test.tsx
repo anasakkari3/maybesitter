@@ -364,6 +364,36 @@ describe('delete, and the five seconds after it', () => {
 
     expect(profileEndpoints.deleteMemory).toHaveBeenCalledWith('mem_told', { asUid: 'memory-user' });
   });
+
+  /*
+   * de7fcb84 audit CXA8.3: at the five-second mark the undo bar went and the
+   * deleted row came back, for as long as the DELETE and the re-read took.
+   */
+  it('keeps the row hidden while its delete is on its way', async () => {
+    jest.useFakeTimers();
+    (profileEndpoints.deleteMemory as unknown as jest.Mock).mockImplementation(() => new Promise(() => undefined));
+    await show(<MemoryScreen onBack={() => {}} />);
+    await waitFor(() => expect(screen.queryByTestId('memory-screen-delete-mem_told')).not.toBeNull());
+
+    await fireEvent.press(screen.getByTestId('memory-screen-delete-mem_told'));
+    await act(async () => { jest.advanceTimersByTime(UNDO_WINDOW_MS + 500); });
+
+    expect(profileEndpoints.deleteMemory).toHaveBeenCalled();
+    expect(screen.queryByTestId('memory-undo-bar')).toBeNull();
+    expect(screen.queryByTestId('memory-screen-item-mem_told')).toBeNull();
+  });
+
+  it('shows the row again when its delete is refused', async () => {
+    jest.useFakeTimers();
+    (profileEndpoints.deleteMemory as unknown as jest.Mock).mockImplementation(async () => { throw new Error('refused'); });
+    await show(<MemoryScreen onBack={() => {}} />);
+    await waitFor(() => expect(screen.queryByTestId('memory-screen-delete-mem_told')).not.toBeNull());
+
+    await fireEvent.press(screen.getByTestId('memory-screen-delete-mem_told'));
+    await act(async () => { await jest.advanceTimersByTimeAsync(UNDO_WINDOW_MS + 500); });
+
+    await waitFor(() => expect(screen.queryByTestId('memory-screen-item-mem_told')).not.toBeNull());
+  });
 });
 
 describe('delete everything', () => {
