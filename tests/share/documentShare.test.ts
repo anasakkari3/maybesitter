@@ -922,3 +922,16 @@ test('a cancellation or a reply is not an invitation', async () => {
   );
   assert.deepEqual(cancelled.segments, []);
 });
+
+test('a caption and a .txt that fit apart but not together are not handed on as text', async () => {
+  // Under the capture limit alone, over it with the caption beside it: handed
+  // on, the capture pipeline would refuse the whole share as too long.
+  const file = `${'Notes. '.repeat(280)}${DENTIST_NOTE}`.slice(0, 1990);
+  const read = await readDocumentShare(encoder.encode(file), {
+    kind: 'textFile',
+    mediaType: 'text/plain',
+    text: 'remind me the evening before',
+    override: () => ({ items: [], recurringSessions: [], transcriptSample: null }),
+  });
+  assert.deepEqual(read.segments, []);
+});
