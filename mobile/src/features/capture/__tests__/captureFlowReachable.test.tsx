@@ -306,6 +306,24 @@ describe('success shows what the server saved, in the chat', () => {
     expect(savedLine()).not.toContain('Call Sami');
   });
 
+  it('names a point still waiting for its answer, and hands its words back to the field (QA v3 V3-F04-02)', async () => {
+    const asking = proposal({
+      items: [
+        proposal().items[0],
+        { itemId: 'i-2', title: 'Call Sami', resolvedTime: null, needsClarification: true },
+      ],
+    });
+    jest.spyOn(captureEndpoints, 'chatCapture').mockImplementation(chatServer(() => asking) as never);
+    jest.spyOn(captureEndpoints, 'confirmCapture').mockResolvedValue(confirmation() as never);
+    await openApp();
+    await enterCapture();
+    await typeAndAnalyze();
+    await fireEvent.press(screen.getByTestId('review-confirm'));
+    await waitFor(() => expect(savedLine()).toContain('Hand in the report'));
+    expect(savedLine()).toContain(en.chatSavedLeft.replace('{titles}', '"Call Sami"'));
+    expect(screen.getByTestId('capture-input').props.value).toBe('Call Sami');
+  });
+
   it('shows refused items apart from saved ones', async () => {
     jest.spyOn(captureEndpoints, 'chatCapture').mockImplementation(chatServer(() => (proposal())) as never);
     jest.spyOn(captureEndpoints, 'confirmCapture').mockResolvedValue(
