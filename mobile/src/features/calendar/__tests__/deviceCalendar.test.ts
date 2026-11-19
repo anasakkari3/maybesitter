@@ -277,3 +277,52 @@ describe('a lookup that could not finish is not a deletion', () => {
     await expect(deviceCalendar.eventExists('ITEM-1', 'cal-1')).rejects.toMatchObject({ reason: 'unavailable' });
   });
 });
+
+describe('review of #870', () => {
+  it('finds the event whose id is the one asked for, not one it starts', async () => {
+    mockEventGet.mockRejectedValue(new Error('Event not found'));
+    const wrong = jest.fn<() => Promise<void>>().mockResolvedValue(undefined);
+    const right = jest.fn<() => Promise<void>>().mockResolvedValue(undefined);
+    mockCalendarGet.mockResolvedValue({
+      listEvents: async () => [
+        { id: 'ITEM-10', url: DRAFT.url, delete: wrong },
+        { id: 'ITEM-1', url: DRAFT.url, delete: right },
+      ],
+    });
+    await deviceCalendar.deleteEvent('ITEM-1', 'cal-1');
+    expect(right).toHaveBeenCalled();
+    expect(wrong).not.toHaveBeenCalled();
+  });
+
+  it('answers no id when two new events carry the address, and takes its own back out', async () => {
+    const remove = jest.fn<() => Promise<void>>().mockResolvedValue(undefined);
+    mockCalendarGet.mockResolvedValue({
+      allowsModifications: true,
+      createEvent: async () => ({ id: undefined, delete: remove }),
+      listEvents: jest.fn<() => Promise<unknown[]>>()
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([{ id: 'ITEM-1', url: DRAFT.url }, { id: 'ITEM-2', url: DRAFT.url }]),
+    });
+    await expect(deviceCalendar.createEvent('cal-1', DRAFT)).rejects.toMatchObject({ reason: 'unavailable' });
+    expect(remove).toHaveBeenCalled();
+  });
+
+  it('takes back a whole recurring series, not its first occurrence', async () => {
+    const occurrence = jest.fn<() => Promise<void>>().mockResolvedValue(undefined);
+    const series = jest.fn<() => Promise<void>>().mockResolvedValue(undefined);
+    mockCalendarGet.mockResolvedValue({
+      allowsModifications: true,
+      createEvent: async () => ({
+        id: undefined,
+        recurrenceRule: { frequency: 'weekly' },
+        delete: occurrence,
+        getOccurrenceSync: () => ({ delete: series }),
+      }),
+      listEvents: async () => [],
+    });
+    await expect(deviceCalendar.createEvent('cal-1', DRAFT)).rejects.toMatchObject({ reason: 'unavailable' });
+    expect(series).toHaveBeenCalled();
+    expect(occurrence).not.toHaveBeenCalled();
+  });
+});
+

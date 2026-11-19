@@ -728,3 +728,51 @@ describe('remove events MaybeSitter added, after a build that never linked them 
   });
 });
 
+/* ── Review of #870: the cleanup is ordered, and repeated ───────────── */
+
+describe('extra copies (review of #870)', () => {
+  it('stay where they are while the claim is refused', async () => {
+    // Removing them before the claim lands would leave the commitment with one
+    // copy that may be another device's, and nothing of ours to link.
+    const rec = recorder({ failLink: new Error('409') });
+    for (const id of ['copy-1', 'copy-2', 'copy-3']) seedCopy(rec, id);
+    await run([subject(commitment(), null)], rec);
+    expect([...rec.events.keys()].sort()).toEqual(['copy-1', 'copy-2', 'copy-3']);
+  });
+
+  it('keeps the same copy whatever order the calendar lists them in', async () => {
+    const rec = recorder();
+    for (const id of ['copy-c', 'copy-a', 'copy-b']) seedCopy(rec, id);
+    await run([subject(commitment(), null)], rec);
+    expect(rec.links.get('cmt-1')?.eventId).toBe('copy-a');
+    expect([...rec.events.keys()]).toEqual(['copy-a']);
+  });
+
+  it('are taken out on an update too, for a cleanup an earlier pass did not finish', async () => {
+    const rec = recorder();
+    seedCopy(rec, 'evt-1');
+    seedCopy(rec, 'left-over');
+    await run([subject(commitment({ title: 'Dentist, moved' }), link())], rec);
+    expect(rec.calls).toContain('updateEvent:evt-1');
+    expect([...rec.events.keys()]).toEqual(['evt-1']);
+  });
+});
+
+describe('remove events MaybeSitter added, racing a pass (review of #870)', () => {
+  it('forgets the link of a commitment whose stray copy it removed', async () => {
+    // The pass's claim can land after the button read the lists: the link then
+    // names the event the sweep just removed, and the next pass would detach
+    // it for ever. Forgetting our own link for that commitment is the repair.
+    const rec = recorder();
+    seedCopy(rec, 'a-1', commitment({ id: 'a' }));
+    await removeAllWrittenEvents({
+      subjects: [subject(commitment({ id: 'a' }), null)],
+      writerId: MINE,
+      calendarIds: ['cal-1'],
+      now: new Date('2026-06-10T00:00:00.000Z'),
+      ports: rec.ports,
+    });
+    expect(rec.calls).toContain('deleteLink:a');
+  });
+});
+
