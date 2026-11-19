@@ -302,7 +302,7 @@ describe('when it arrives', () => {
       type: 'set',
       nativeEvent: { timestamp: timeShowing('07:45').getTime() },
     });
-    await waitFor(() => expect((screen.getByTestId('plan-delivery-picker').props.value as Date).getTime())
+    await waitFor(() => expect((screen.getByTestId('plan-delivery-picker').props.date as number))
       .toBe(timeShowing('07:45').getTime()));
   });
 

@@ -131,7 +131,10 @@ export function NotificationsSettingsScreen({ onBack }: { onBack: () => void }) 
   const [picking, setPicking] = useState(false);
   // iOS draws the wheel inline and reports every stop: the stops are a draft,
   // saved once when the person closes it (C12.9 a/b).
-  const [draftTime, setDraftTime] = useState<string | null>(null);
+  const [draftTime, setDraftTimeState] = useState<string | null>(null);
+  // Mirrored in a ref so leaving the screen can still save it (review 2).
+  const draftRef = useRef<string | null>(null);
+  const setDraftTime = (value: string | null) => { draftRef.current = value; setDraftTimeState(value); };
   const [timeFailed, setTimeFailed] = useState(false);
   useAnnounceOnIos(timeFailed ? t.notifSaveFailed : null);
   const [explainingHard, setExplainingHard] = useState(false);
@@ -213,9 +216,27 @@ export function NotificationsSettingsScreen({ onBack }: { onBack: () => void }) 
   const openTimePicker = () => { setDraftTime(null); setPicking(true); };
   const closeTimePicker = () => {
     setPicking(false);
-    if (draftTime !== null) saveTime(draftTime);
+    const draft = draftRef.current;
     setDraftTime(null);
+    if (draft !== null) saveTime(draft);
   };
+  // Back with the wheel open closes it the way «تمام» does: a time the person
+  // turned to is saved, never dropped in silence (review 2).
+  const back = () => {
+    if (draftRef.current !== null) closeTimePicker();
+    onBack();
+  };
+  // And when the screen goes away some other way (a hardware back, a tab
+  // switch), the pending draft is saved once on the way out.
+  const leaving = useRef({ savePlan, deliveryLocalTime });
+  useEffect(() => { leaving.current = { savePlan, deliveryLocalTime }; });
+  useEffect(() => () => {
+    const draft = draftRef.current;
+    draftRef.current = null;
+    if (draft !== null && draft !== leaving.current.deliveryLocalTime) {
+      leaving.current.savePlan.mutate({ deliveryLocalTime: draft });
+    }
+  }, []);
 
   const next = plan?.nextRunAt
     // Only the time is left-to-right: the whole line in `ltr()` read
@@ -374,7 +395,7 @@ export function NotificationsSettingsScreen({ onBack }: { onBack: () => void }) 
 
   const notificationStatus = permissionDenied || needsAsking || osPermission === null || osPermission === 'undetermined';
   return (
-    <Screen pinned={<SettingsHeader title={t.notifTitle} onBack={onBack} />}>
+    <Screen pinned={<SettingsHeader title={t.notifTitle} onBack={back} />}>
       <ScreenScroll>
         {/* What the phone allows, first (CL2b #18). */}
         {/* The card's words are measured afresh after a live text-size change:
@@ -661,7 +682,8 @@ export function NotificationsSettingsScreen({ onBack }: { onBack: () => void }) 
         {picking && deliveryLocalTime ? (
           <DateTimePicker
             testID="plan-delivery-picker"
-            value={timeShowing(deliveryLocalTime)}
+            // The wheel follows the draft between stops (review 1).
+            value={timeShowing(draftTime ?? deliveryLocalTime)}
             mode="time"
             minuteInterval={15}
             // `deliveryLocalTime` is `HH:mm` on the user's own clock face and
