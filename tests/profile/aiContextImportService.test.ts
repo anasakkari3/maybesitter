@@ -31,6 +31,7 @@ import {
   confirmAiContextImport,
   importAiContext,
 } from '../../lib/services/mobile/aiContextImportService.ts';
+import { LLMUnavailableError } from '../../src/extraction/llm/index.ts';
 import { AI_CONTEXT_IMPORT_TTL_MS, MAX_IMPORT_LENGTH } from '../../src/profile/aiContextImportContracts.ts';
 
 const UID = 'uid_import_1';
@@ -292,4 +293,23 @@ test('a malformed answer is degraded too, and a real answer is not (QA CXA1.4)',
     memory, generate: (async () => { throw new Error('never called'); }) as never,
   });
   assert.equal(injected.degraded, false);
+});
+
+test('the day\'s import is given back only when the model was never asked (review of CA8.1)', async () => {
+  const outcomes: Array<[string, () => Promise<never | { text: string }>, boolean]> = [
+    ['a cap refused before the call', async () => { throw new LLMUnavailableError('cost_cap:user_daily'); }, true],
+    ['no model configured', async () => { throw new LLMUnavailableError('provider_none'); }, true],
+    ['the AI kill switch', async () => { throw new LLMUnavailableError('ai_disabled'); }, true],
+    ['a provider error after the call was sent', async () => { throw new LLMUnavailableError('provider_error'); }, false],
+    ['a timeout', async () => { throw new LLMUnavailableError('timeout'); }, false],
+    ['a malformed answer the provider charged for', async () => ({ text: 'not json', model: 'm', latencyMs: 1, promptTokens: 1, outputTokens: 1 } as never), false],
+  ];
+  for (const [label, generate, refundable] of outcomes) {
+    let seen: boolean | null = null;
+    const proposal = await importAiContext(UID, PASTE, 'chatgpt', AT, {
+      memory, generate: generate as never, onUnread: (beforeProvider: boolean) => { seen = beforeProvider; },
+    } as never);
+    assert.equal(proposal.degraded, true, label);
+    assert.equal(seen, refundable, `${label}: refundable`);
+  }
 });

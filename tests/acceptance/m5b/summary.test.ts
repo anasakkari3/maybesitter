@@ -25,7 +25,9 @@ import { setPersonalizationConsent, PERSONALIZATION_CONSENT_VERSION } from '../.
 import { setConsent } from '../../../lib/consents/consentService.ts';
 import { PERSONALIZATION_CONSENT } from '../../../src/contracts/v1/consentContracts.ts';
 import { createStoragePersonalizationConsentStore } from '../../../lib/personalizationControls/consentStore.ts';
-import { createManualMemory } from '../../../lib/services/mobile/memoryService.ts';
+import { createManualMemory, deleteMemory, patchMemory } from '../../../lib/services/mobile/memoryService.ts';
+import { createStorageRuntimeMemoryStore } from '../../../lib/runtimeMemory/runtimeMemoryStore.ts';
+import { buildAccountExport } from '../../../lib/account/accountExport.ts';
 import {
   addRows,
   begin,
@@ -643,4 +645,63 @@ test('M5B-037 a Han run copied from a cited row passes within 32 letters and rej
 /** One more row, a minute after the newest the fixture added. */
 async function createManualMemoryRow(uid: string, content: string): Promise<void> {
   await createManualMemory(uid, { kind: 'fact', content, language: 'en' }, new Date().toISOString());
+}
+
+/* ── the kept summary never outlives the rows it quotes (review of CA8.7) ── */
+
+function keptSummaries(uid: string): string[] {
+  return ((currentStorage() as any).pathsForTests() as string[]).filter((path) => path.startsWith(`users/${uid}/memorySummaries/`));
+}
+
+async function keepTwoRowSummary(): Promise<{ uid: string; listed: Listed }> {
+  const uid = await begin();
+  const listed = await addRows(uid, [{ content: 'Likes tea' }, { content: 'Works from home' }]);
+  await useSummaryModel(scriptedModel(() => ({ sentences: [{ text: 'Likes tea.', refs: ['r2'] }, { text: 'Works from home.', refs: ['r1'] }] })));
+  assert.equal((await summary(uid)).body.summary?.status, 'ready');
+  assert.equal((await summary(uid, 'he')).body.summary?.status === undefined, false);
+  assert.ok(keptSummaries(uid).length > 0, 'fixture: nothing was kept');
+  return { uid, listed };
+}
+
+test('CA8.7 review: deleting one row erases every kept summary, and the export no longer carries it', async () => {
+  const { uid, listed } = await keepTwoRowSummary();
+  await deleteMemory(uid, ref2id(listed, 'Likes tea'), new Date().toISOString(), { storage: currentStorage() as any });
+  assert.deepEqual(keptSummaries(uid), [], 'a deleted row is still quoted by a kept summary');
+  const exported = await buildAccountExport(uid, { storage: currentStorage() as any });
+  assert.ok(!JSON.stringify(exported.collections.memorySummaries ?? []).includes('Likes tea'), 'the export still carries the deleted row');
+});
+
+test('CA8.7 review: editing a row erases every kept summary', async () => {
+  const { uid, listed } = await keepTwoRowSummary();
+  await patchMemory(uid, ref2id(listed, 'Likes tea'), 'Likes coffee', new Date().toISOString(), { storage: currentStorage() as any });
+  assert.deepEqual(keptSummaries(uid), [], 'an edited row\'s old words are still in a kept summary');
+});
+
+test('CA8.7 review: revoking a row erases every kept summary', async () => {
+  const { uid, listed } = await keepTwoRowSummary();
+  const store = createStorageRuntimeMemoryStore(undefined, currentStorage() as any);
+  assert.equal(await store.revoke(ref2id(listed, 'Likes tea'), new Date().toISOString()), true);
+  assert.deepEqual(keptSummaries(uid), [], 'a revoked row is still quoted by a kept summary');
+});
+
+test('CA8.7 review: a summary whose row was deleted while the model answered is not kept', async () => {
+  const uid = await begin();
+  const listed = await addRows(uid, [{ content: 'Likes tea' }, { content: 'Works from home' }]);
+  const model = scriptedModel(() => ({ sentences: [{ text: 'Likes tea.', refs: ['r2'] }, { text: 'Works from home.', refs: ['r1'] }] }));
+  const racing = {
+    ...model,
+    async generateStructured(request: any) {
+      await deleteMemory(uid, ref2id(listed, 'Likes tea'), new Date().toISOString(), { storage: currentStorage() as any });
+      return model.generateStructured(request);
+    },
+  };
+  await useSummaryModel(racing as any);
+  await summary(uid);
+  assert.deepEqual(keptSummaries(uid), [], 'a summary of a row deleted mid-call was kept');
+});
+
+function ref2id(listed: Listed, content: string): string {
+  const row = listed.find((candidate) => candidate.content === content);
+  assert.ok(row, `fixture: no row «${content}»`);
+  return row!.id;
 }
