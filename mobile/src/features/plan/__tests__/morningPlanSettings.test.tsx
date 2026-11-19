@@ -293,6 +293,47 @@ describe('when it arrives', () => {
     expect(planEndpoints.putPlanSettings).toHaveBeenCalledWith({ deliveryLocalTime: '08:15' });
   });
 
+  it('review 1: the iOS wheel follows the draft, not the stored time, between stops', async () => {
+    stored = ON;
+    await settled();
+    await fireEvent.press(screen.getByTestId('plan-delivery-time'));
+    await waitFor(() => expect(screen.queryByTestId('plan-delivery-picker')).not.toBeNull());
+    await fireEvent(screen.getByTestId('plan-delivery-picker'), 'change', {
+      type: 'set',
+      nativeEvent: { timestamp: timeShowing('07:45').getTime() },
+    });
+    await waitFor(() => expect((screen.getByTestId('plan-delivery-picker').props.value as Date).getTime())
+      .toBe(timeShowing('07:45').getTime()));
+  });
+
+  it('review 2: leaving with Back while the wheel is open saves the draft', async () => {
+    stored = ON;
+    await settled();
+    await fireEvent.press(screen.getByTestId('plan-delivery-time'));
+    await waitFor(() => expect(screen.queryByTestId('plan-delivery-picker')).not.toBeNull());
+    await fireEvent(screen.getByTestId('plan-delivery-picker'), 'change', {
+      type: 'set',
+      nativeEvent: { timestamp: timeShowing('06:45').getTime() },
+    });
+    await fireEvent.press(screen.getByTestId('header-back'));
+    await waitFor(() => expect(planEndpoints.putPlanSettings).toHaveBeenCalledWith({ deliveryLocalTime: '06:45' }));
+    expect(planEndpoints.putPlanSettings).toHaveBeenCalledTimes(1);
+  });
+
+  it('review 2: the screen going away with the wheel open saves the draft once', async () => {
+    stored = ON;
+    await settled();
+    await fireEvent.press(screen.getByTestId('plan-delivery-time'));
+    await waitFor(() => expect(screen.queryByTestId('plan-delivery-picker')).not.toBeNull());
+    await fireEvent(screen.getByTestId('plan-delivery-picker'), 'change', {
+      type: 'set',
+      nativeEvent: { timestamp: timeShowing('06:30').getTime() },
+    });
+    await act(async () => { screen.unmount(); });
+    await waitFor(() => expect(planEndpoints.putPlanSettings).toHaveBeenCalledWith({ deliveryLocalTime: '06:30' }));
+    expect(planEndpoints.putPlanSettings).toHaveBeenCalledTimes(1);
+  });
+
   it('C12.9 (c) / CXA12.4: a failed time save is said, not silent', async () => {
     stored = ON;
     await settled();
