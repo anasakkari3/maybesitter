@@ -340,3 +340,43 @@ test('E: a long chat never hands a regex more than the cap — the person’s tu
     resetStorageForTests();
   }
 });
+
+// ── F. The QA v3 time readers stay linear (review of #872) ───────
+
+test('F: the missed-thing and relative-span readers read at most the cap, in a bounded number of regex runs, on hostile text', async () => {
+  /*
+   * Two readers added in QA v3 run on every capture clause and every chat
+   * turn: `isMissedObligation` (V3-F04-03) and `readRelativeOffsetMinutes`
+   * (V3-F04-04). Each is built from fixed words joined by `\s+`, with no
+   * nested quantifier; held here so a later edit cannot quietly make either
+   * scan beyond the cap, or run its patterns once per character. Clock-free,
+   * like the rest of this file: subjects and run counts, not milliseconds.
+   */
+  const { isMissedObligation } = await import('../../src/extraction/extractionService.ts');
+  const { readRelativeOffsetMinutes } = await import('../../src/extraction/timeLexicon.ts');
+  const fill = (unit: string) => unit.repeat(Math.ceil(CAPTURE_INPUT_MAX_CHARACTERS / unit.length)).slice(0, CAPTURE_INPUT_MAX_CHARACTERS);
+  const hostile = [
+    fill(' '),
+    fill('كان لازم أ'),
+    `كان لازم أبعت${' '.repeat(CAPTURE_INPUT_MAX_CHARACTERS - 30)}وما بعتته`,
+    fill('نسيت ا'),
+    fill('ما ما ما '),
+    fill('بعد ساعة '),
+    fill('بعد '),
+    `بعد${' '.repeat(CAPTURE_INPUT_MAX_CHARACTERS - 10)}ساعتين`,
+    fill('I was supposed to x and '),
+    fill('in an hour '),
+    fill('، '),
+  ];
+  for (const text of hostile) {
+    assert.ok(text.length <= CAPTURE_INPUT_MAX_CHARACTERS);
+    const { seen } = await withRecorder(async () => {
+      isMissedObligation(text);
+      readRelativeOffsetMinutes(text);
+    });
+    assert.ok(seen.longestSubject <= CAPTURE_INPUT_MAX_CHARACTERS, `a reader scanned ${seen.longestSubject} characters`);
+    // One pass per clause at most: a clause-per-character split of the cap
+    // is 2,000 clauses, each read by a fixed handful of patterns.
+    assert.ok(seen.operations <= 40_000, `${seen.operations} regex runs on ${JSON.stringify(text.slice(0, 20))}…`);
+  }
+});
