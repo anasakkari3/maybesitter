@@ -285,6 +285,20 @@ describe('the week', () => {
     expect(screen.getByTestId('week-allday-dentist')).toBeTruthy();
   });
 
+  it('draws the no-room rows and the waiting count when nothing could be placed (CXA4.3)', async () => {
+    // A task due today, saved after working hours: the server sends it in
+    // `days[0].unplaced` and nothing else. The early empty state hid it.
+    const blank = RECORDED.days.map(day => ({ ...day, state: 'proposed' as const, items: [], fixed: [], allDay: [], unplaced: [] }));
+    blank[0] = { ...blank[0]!, unplaced: [{ itemId: 'late-task', title: 'Send the email', reasonCode: 'NO_FEASIBLE_SLOT', blockId: null }] };
+    mockWeek = { ...RECORDED, days: blank, drops: [], waiting: 2 };
+    await show();
+    expect(screen.queryByTestId('week-empty')).toBeNull();
+    expect(screen.getByTestId('week-noroom-late-task')).toBeTruthy();
+    expect(screen.getByTestId('week-waiting')).toBeTruthy();
+    // A day holding a step with no room is not «a free day» (CA4.5, the unplaced half).
+    expect(screen.queryByTestId(`week-free-${blank[0]!.date}`)).toBeNull();
+  });
+
   it('says so when there is nothing to place this week', async () => {
     mockWeek = { ...RECORDED, days: RECORDED.days.map(day => ({ ...day, state: 'proposed' as const, items: [], fixed: [], allDay: [], unplaced: [] })), drops: [], waiting: 0 };
     await show();
