@@ -386,6 +386,25 @@ describe('analyze', () => {
     expect(screen.queryByTestId('share-screen')).toBeNull();
   });
 
+  // de7fcb84 audit CA3.7: Back from a share's review threw the proposal and
+  // the person's changes away with no question, onto an empty composer (a
+  // share has no sentence to go back to); «إلغاء الكل» on the same screen asked.
+  it('Back from a changed share review asks before throwing the changes away', async () => {
+    jest.spyOn(shareEndpoints, 'proposeFromShare').mockResolvedValue(shareProposal() as never);
+    await openWithShare({ ...mockEmptyIntent, text: 'Pay the nursery on Thursday', type: 'text' });
+    await fireEvent.press(screen.getByTestId('share-analyze'));
+    await waitFor(() => expect(screen.queryByTestId('review-item-i-1')).not.toBeNull());
+
+    await fireEvent.press(screen.getByTestId('review-item-i-1'));
+    await fireEvent.press(screen.getByTestId('review-back'));
+
+    expect(screen.queryByTestId('capture-discard')).not.toBeNull();
+    expect(screen.queryByTestId('review-item-i-1')).toBeNull();
+    // «كمّل» keeps the review exactly as it was.
+    await fireEvent.press(screen.getByTestId('capture-discard-keep'));
+    expect(screen.queryByTestId('review-item-i-1')).not.toBeNull();
+  });
+
   it('sends the text, the file descriptor and the source hint, and no kind', async () => {
     const propose = jest.spyOn(shareEndpoints, 'proposeFromShare').mockResolvedValue(shareProposal() as never);
     await openWithShare({ ...mockEmptyIntent, files: [sharedFile()], type: 'file' });
@@ -618,6 +637,21 @@ describe('back', () => {
     await waitFor(() => expect(screen.queryByTestId('share-screen')).toBeNull());
     // Back to the tab the share arrived over, not Today's root.
     await waitFor(() => expect(screen.getByTestId('tab-calendar').props.accessibilityState).toMatchObject({ selected: true }));
+  });
+
+  // de7fcb84 audit CXA3.1: Back left the shared PDF in the app's container and
+  // the native share record set, for as long as the app stayed signed in;
+  // only Discard, Analyze or an unmount cleared them. Back leaves nothing.
+  it('Back deletes the shared copies and resets the native share, as Discard does', async () => {
+    await openWithShare({ ...mockEmptyIntent, files: [sharedFile()], type: 'file' });
+    expect(mockFiles.size).toBeGreaterThan(0);
+    const resets = mockShareIntent.resets;
+
+    await fireEvent.press(screen.getByTestId('share-back'));
+    await waitFor(() => expect(screen.queryByTestId('share-screen')).toBeNull());
+
+    expect([...mockFiles]).toEqual([]);
+    expect(mockShareIntent.resets).toBeGreaterThan(resets);
   });
 });
 

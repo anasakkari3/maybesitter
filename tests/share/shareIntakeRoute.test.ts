@@ -313,6 +313,42 @@ test('a body that declares itself over the limit is refused from the header alon
   }
 });
 
+// de7fcb84 audit CXA3.6: the header check counted the multipart framing
+// against the file limit, so files under 25 MiB with their boundary lines
+// were refused 413 before parsing; the stream itself allows the framing.
+test('a body whose declared length is over the file limit only by the multipart framing is not refused from the header', async () => {
+  const teardown = setup();
+  try {
+    const response = await sharePost(shareRequest({
+      text: 'Call the dentist tomorrow at 3pm',
+      contentLength: MAX_TOTAL_BYTES + 300,
+    }));
+    assert.notEqual(response.status, 413);
+  } finally {
+    teardown();
+  }
+});
+
+// de7fcb84 audit CA3.2: a shared text of 2,001–20,000 characters reserved one
+// of the 30 daily shares and was then refused 413 `text_too_long`; the slot
+// was never given back. Plain text is measured before the slot is taken.
+test('plain shared text over the content limit is refused before a daily share is spent', async () => {
+  const teardown = setup();
+  try {
+    let reserved = 0;
+    await assert.rejects(
+      () => proposeFromShare(
+        { text: 'ب'.repeat(MAX_SHARE_TEXT_CHARACTERS + 1000), timezone: 'Asia/Jerusalem', referenceTime: REFERENCE_TIME },
+        { uid: USER, reserve: async () => { reserved += 1; return 'ok'; } },
+      ),
+      CaptureInputTooLargeError,
+    );
+    assert.equal(reserved, 0);
+  } finally {
+    teardown();
+  }
+});
+
 test('a PNG renamed .pdf and declared application/pdf is a 415', async () => {
   const teardown = setup();
   try {
