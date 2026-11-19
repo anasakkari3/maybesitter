@@ -329,7 +329,7 @@ describe('when it arrives', () => {
       type: 'set',
       nativeEvent: { timestamp: timeShowing('06:30').getTime() },
     });
-    await act(async () => { screen.unmount(); });
+    await act(async () => { await screen.unmount(); });
     await waitFor(() => expect(planEndpoints.putPlanSettings).toHaveBeenCalledWith({ deliveryLocalTime: '06:30' }));
     expect(planEndpoints.putPlanSettings).toHaveBeenCalledTimes(1);
   });
