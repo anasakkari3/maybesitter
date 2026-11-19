@@ -65,12 +65,15 @@ import { BackgroundActivityScreen, WatchBuilderScreen } from './features/product
 
 export function Root() {
   const { s, p, rtl, scheme, actions } = useApp();
-  const { takePendingLink, user } = useAuth();
+  const { takePendingLink, attachLinkHandler, user } = useAuth();
   const [toastClearance, setToastClearance] = useState(TAB_CLEARANCE);
   const latest = useRef(actions);
   latest.current = actions;
   const pending = useRef(takePendingLink);
   pending.current = takePendingLink;
+  // Declared before `useLinks` so the provider stops holding links (C13.2)
+  // before this handler subscribes; a held link would replay on a later mount.
+  useEffect(() => attachLinkHandler(), [attachLinkHandler]);
   useLinks(
     {
       jump: name => latest.current.jump(name),

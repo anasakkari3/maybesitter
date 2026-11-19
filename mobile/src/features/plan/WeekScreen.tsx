@@ -123,7 +123,10 @@ function WeekBody({ week, decisions, redrawing, onMove, onDrop, onUndrop }: {
   const [moving, setMoving] = useState<string | null>(null);
   const [savedDate, setSavedDate] = useState<string | null>(null);
 
-  const empty = week.days.every(day => day.items.length === 0 && day.fixed.length === 0 && day.allDay.length === 0) && week.drops.length === 0;
+  // A step with no room, or work waiting for a later week, is something to
+  // arrange: the empty state would hide it (CXA4.3).
+  const empty = week.days.every(day => day.items.length === 0 && day.fixed.length === 0 && day.allDay.length === 0 && day.unplaced.length === 0)
+    && week.drops.length === 0 && week.waiting === 0;
   if (empty) return <EmptyState testID="week-empty" title={t.weekEmpty} body={t.weekEmptyBody} top={24} />;
 
   // Only a day that is still a suggestion can take a step; a stored day is
@@ -231,7 +234,8 @@ function DayCard({
         {day.state === 'accepted' ? <Tag kind="started" label={t.weekSaved} testID={`week-state-${day.date}`} /> : null}
       </View>
 
-      {rows.length === 0 && day.allDay.length === 0 ? <Txt role="supporting" color={p.mu} testID={`week-free-${day.date}`}>{t.weekFreeDay}</Txt> : null}
+      {/* Not «free» while a step is listed under it with no room (CA4.5). */}
+      {rows.length === 0 && day.allDay.length === 0 && day.unplaced.length === 0 ? <Txt role="supporting" color={p.mu} testID={`week-free-${day.date}`}>{t.weekFreeDay}</Txt> : null}
       {/* An appointment with no hour opens its day, as a calendar puts an
           all-day event (UAT round 3, N13). A day holding one is not free. */}
       {day.allDay.map(row => <AllDayWeekRow key={`allday-${row.itemId}`} row={row} />)}

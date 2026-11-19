@@ -286,8 +286,6 @@ function useAppModel() {
         // reducer's and are reached by using the flow (UC-2.R2, #172).
         case 'capture': move(n => nav.arrive(n, { name: 'capture' }), { captureSource: 'tab', captureInput: 'text', captureEntry: null }); return;
         case 'aiImport': move(n => nav.arrive(n, { name: 'aiImport' })); return;
-        case 'details': move(n => nav.arrive(n, { name: 'details', detailId: 'c3' })); return;
-        case 'postpone': move(n => nav.arrive(n, { name: 'details', detailId: 'c3' }), { sheet: 'postpone' }); return;
       }
     },
   };

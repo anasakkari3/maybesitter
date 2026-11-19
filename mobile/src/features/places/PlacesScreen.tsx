@@ -27,6 +27,7 @@ import { openLocationSettings } from './nativeLocation';
 import { resolveFailureText } from './PlaceReminderEditor';
 import { LiveRegion } from '../../ui/liveRegion';
 import { useAnnounceOnIos } from '../../ui/announce';
+import { Dialog } from '../../ui/dialog';
 
 export function PlacesScreen({ onBack }: { onBack: () => void }) {
   const { t, p, ar, lang } = useApp();
@@ -35,7 +36,10 @@ export function PlacesScreen({ onBack }: { onBack: () => void }) {
   const { places } = usePlaces(accountId);
   const access = useLocationAccess();
   const [busy, setBusy] = React.useState<string | null>(null);
-  const [feedback, setFeedback] = React.useState<{ text: string; problem: boolean; placeId: string } | null>(null);
+  const [feedback, setFeedback] = React.useState<{ text: string; problem: boolean; placeId: string; removed?: boolean } | null>(null);
+  // Removing stops every reminder that named the place, so it is asked first
+  // (C13.12), like every other deletion.
+  const [confirming, setConfirming] = React.useState<{ id: string; label: string } | null>(null);
   const [name, setName] = React.useState('');
 
   const pin = async (id: string, kind: PlaceKind, label: string) => {
@@ -55,12 +59,17 @@ export function PlacesScreen({ onBack }: { onBack: () => void }) {
     }
   };
 
-  const remove = async (id: string) => {
+  const remove = async (id: string, label: string) => {
+    setConfirming(null);
     if (!accountId || busy) return;
     setBusy(id);
     setFeedback(null);
     try {
       await removePlace(accountId, id);
+      setFeedback({ text: fill(t.placeRemovedConfirm, { place: label }), problem: false, placeId: id, removed: true });
+    } catch {
+      // Said, not swallowed (C13.12): the place is still on the list.
+      setFeedback({ text: t.placeRemoveFailed, problem: true, placeId: id });
     } finally {
       setBusy(null);
     }
@@ -71,7 +80,7 @@ export function PlacesScreen({ onBack }: { onBack: () => void }) {
   const others = places.filter(place => place.id !== HOME_ID && place.id !== WORK_ID);
   // A save confirmation belongs to that saved record. If another local
   // consumer removes it, the event is no longer visible or announced.
-  const visibleFeedback = feedback && (feedback.problem || places.some(place => place.id === feedback.placeId))
+  const visibleFeedback = feedback && (feedback.problem || feedback.removed === true || places.some(place => place.id === feedback.placeId))
     ? feedback
     : null;
   useAnnounceOnIos(visibleFeedback?.text ?? null);
@@ -94,7 +103,19 @@ export function PlacesScreen({ onBack }: { onBack: () => void }) {
   const workMap = work ? openPlaceInMaps(work) : null;
 
   return (
-    <Screen pinned={<SettingsHeader title={t.placesTitle} onBack={onBack} />}>
+    <Screen pinned={<SettingsHeader title={t.placesTitle} onBack={onBack} />} overlay={confirming ? (
+      <Dialog
+        testID="places-remove-dialog"
+        title={fill(t.placeRemoveTitle, { place: confirming.label })}
+        body={t.placeRemoveBody}
+        confirmLabel={t.placeRemove}
+        cancelLabel={t.confirmKeep}
+        onConfirm={() => void remove(confirming.id, confirming.label)}
+        onCancel={() => setConfirming(null)}
+        confirmTestID="places-remove-confirm"
+        cancelTestID="places-remove-cancel"
+      />
+    ) : null}>
       <ScreenScroll bottom={130} testID="places-screen" keyboardShouldPersistTaps="handled">
         <Txt size={14} color={p.mu} lh={1.5}>{t.placesBody}</Txt>
 
@@ -112,10 +133,10 @@ export function PlacesScreen({ onBack }: { onBack: () => void }) {
 
         <NamedPlace testID="places-home" title={t.placeHome} place={home} busy={busy === HOME_ID} disabled={busy !== null}
           savedAt={home ? savedAt(home) : null} onMap={home && homeMap ? () => showOnMap(home, homeMap) : undefined}
-          onPin={() => void pin(HOME_ID, 'home', t.placeHome)} onRemove={() => void remove(HOME_ID)} />
+          onPin={() => void pin(HOME_ID, 'home', t.placeHome)} onRemove={() => setConfirming({ id: HOME_ID, label: t.placeHome })} />
         <NamedPlace testID="places-work" title={t.placeWork} place={work} busy={busy === WORK_ID} disabled={busy !== null}
           savedAt={work ? savedAt(work) : null} onMap={work && workMap ? () => showOnMap(work, workMap) : undefined}
-          onPin={() => void pin(WORK_ID, 'work', t.placeWork)} onRemove={() => void remove(WORK_ID)} />
+          onPin={() => void pin(WORK_ID, 'work', t.placeWork)} onRemove={() => setConfirming({ id: WORK_ID, label: t.placeWork })} />
 
         <Card style={{ gap: 12 }} testID="places-others">
           <Txt role="card">{t.placeOther}</Txt>
@@ -127,7 +148,7 @@ export function PlacesScreen({ onBack }: { onBack: () => void }) {
                   <Txt size={15}>{place.label}</Txt>
                   <Txt size={13} color={p.mu}>{savedAt(place)}</Txt>
                 </View>
-                <Pill testID={`places-remove-${place.id}`} label={t.placeRemove} accessibilityLabel={fill(t.placeRemoveNamed, { place: place.label })} kind="ghost" size={14} pad={10} disabled={busy !== null} onPress={() => void remove(place.id)} />
+                <Pill testID={`places-remove-${place.id}`} label={t.placeRemove} accessibilityLabel={fill(t.placeRemoveNamed, { place: place.label })} kind="ghost" size={14} pad={10} disabled={busy !== null} onPress={() => setConfirming({ id: place.id, label: place.label })} />
               </View>
               <Pill testID={`places-map-${place.id}`} label={t.placeViewMap} kind="outline" size={14} pad={10} disabled={busy !== null} onPress={() => void showOnMap(place, openMap)} />
             </View>
@@ -148,7 +169,7 @@ export function PlacesScreen({ onBack }: { onBack: () => void }) {
 
         <LiveRegion testID="places-feedback-live">
           {visibleFeedback ? (
-            <Txt size={13} color={visibleFeedback.problem ? p.wm : p.success} testID={visibleFeedback.problem ? 'places-problem' : 'places-saved'}>
+            <Txt size={13} color={visibleFeedback.problem ? p.wm : p.success} testID={visibleFeedback.problem ? 'places-problem' : visibleFeedback.removed ? 'places-removed' : 'places-saved'}>
               {visibleFeedback.text}
             </Txt>
           ) : null}
