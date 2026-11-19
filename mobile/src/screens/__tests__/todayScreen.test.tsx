@@ -477,7 +477,7 @@ describe('Round 3 progressive density', () => {
  */
 describe('a proposed plan keeps its items as rows (CA2.6)', () => {
   it('previews the proposed slots but leaves every item in its group', async () => {
-    const records = ['primary', 'second', 'third', 'fourth', 'overflow'].map(id => withPriority(id, id === 'primary' ? 'high' : 'normal'));
+    const records = ['primary', 'second', 'third'].map(id => withPriority(id, id === 'primary' ? 'high' : 'normal'));
     jest.spyOn(planEndpoints, 'getPlan').mockResolvedValue({
       date: '2026-09-23', timezone: 'UTC', status: 'proposed', generation: 1, inputDigest: '',
       generatedAt: '2026-09-23T00:00:00Z', acceptedAt: null,
@@ -488,9 +488,10 @@ describe('a proposed plan keeps its items as rows (CA2.6)', () => {
     await show(records);
     await waitFor(() => expect(screen.queryByTestId('today-plan-preview')).not.toBeNull());
     await openGroups();
-    expect(screen.getAllByTestId(/^today-plan-preview-/)).toHaveLength(4);
+    // Three: a group draws at most three rows before «كل», and all three fit.
+    expect(screen.getAllByTestId(/^today-plan-preview-/)).toHaveLength(3);
     const rows = screen.getAllByTestId(/^today-item-/).map(node => node.props.testID);
-    for (const id of ['primary', 'second', 'third', 'fourth', 'overflow']) expect(rows).toContain(`today-item-${id}`);
+    for (const id of ['primary', 'second', 'third']) expect(rows).toContain(`today-item-${id}`);
   });
 });
 

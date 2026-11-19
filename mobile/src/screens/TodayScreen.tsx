@@ -212,7 +212,10 @@ export function TodayScreen({ tabClearance = TAB_CLEARANCE }: { tabClearance?: n
   const visibleRecords = showBar ? filterByCategory(today.data?.items ?? [], chip) : today.data?.items ?? [];
   // The same clock Today is composed for (lane E1), or later: never earlier.
   const preview = planPreview(plan.data, visibleRecords, new Date(Math.max(clockMs, Date.parse(now))));
-  const previewIds = new Set(preview.map(item => item.id));
+  // Only an accepted plan takes its items out of the groups (CA2.6, owner
+  // decision 2026-11-19). A proposal is previewed, and its items stay rows
+  // with their done circle, swipe and tap: nobody arranged them yet.
+  const previewIds = new Set(plan.data?.status === 'accepted' ? preview.map(item => item.id) : []);
   const progress = dayProgress(visibleRecords, dayKey(new Date(), timezone), timezone);
   const futureRecords = showBar ? filterByCategory(upcoming.data?.items ?? [], chip) : upcoming.data?.items ?? [];
   const insight = importantDeadline(futureRecords, [weekStripKeys(new Date(), timezone)[1]!], timezone);
