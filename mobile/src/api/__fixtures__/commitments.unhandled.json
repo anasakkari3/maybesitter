@@ -3,6 +3,7 @@
     {
       "reason": "event_ended",
       "since": "2026-08-09T09:00:00.000Z",
+      "shownAt": "2026-08-09T09:00:00.000Z",
       "askCount": 0,
       "commitment": {
         "id": "fixture-unhandled-meeting",
@@ -40,6 +41,7 @@
     {
       "reason": "deadline_passed",
       "since": "2026-08-09T09:00:00.000Z",
+      "shownAt": "2026-08-09T09:00:00.000Z",
       "askCount": 0,
       "commitment": {
         "id": "fixture-unhandled-deadline",
@@ -62,7 +64,8 @@
           "endAt": null,
           "remindAt": null,
           "allDay": false,
-          "timezone": "Asia/Jerusalem"
+          "timezone": "Asia/Jerusalem",
+          "deadline": "explicit"
         },
         "currentAckState": "not_seen",
         "postponedUntil": null,

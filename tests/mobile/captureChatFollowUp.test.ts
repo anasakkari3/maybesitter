@@ -283,7 +283,7 @@ test('E3: an item dismissed with «لا تسألني عنها» is never asked a
 
 test('E3 pick: pure, bounded, and skips what was asked enough', () => {
   const item = (id: string, askCount: number) => ({
-    reason: 'event_ended' as const, since: '2026-11-12T08:00:00.000Z', askCount,
+    reason: 'event_ended' as const, since: '2026-11-12T08:00:00.000Z', shownAt: '2026-11-12T08:00:00.000Z', askCount,
     commitment: { id, title: id } as Commitment,
   });
   assert.deepEqual(

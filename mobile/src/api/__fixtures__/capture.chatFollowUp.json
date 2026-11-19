@@ -20,7 +20,8 @@
         "commitmentId": "fixture-unhandled-meeting",
         "title": "Meeting with Sami",
         "reason": "event_ended",
-        "since": "2026-08-09T09:00:00.000Z"
+        "since": "2026-08-09T09:00:00.000Z",
+        "shownAt": "2026-08-09T09:00:00.000Z"
       }
     ]
   }
