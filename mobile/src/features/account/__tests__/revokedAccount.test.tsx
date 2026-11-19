@@ -21,6 +21,7 @@ import type { AuthUser } from '../../../auth/types';
 import { z } from 'zod';
 import en from '../../../i18n/locales/en.json';
 import exported from '../../../api/__fixtures__/account.export.json';
+import resumed from '../../../api/__fixtures__/account.resumed.json';
 
 /**
  * A revoked account, in the app (C12.1, owner decision (a)).
@@ -52,6 +53,8 @@ const RECEIPT = {
 const EXPORT = exported;
 
 let requests: { method: string; url: string }[] = [];
+/** What `POST /api/mobile/account/resume` answers; the recorded fixture unless a test says otherwise. */
+let resumeAnswer: { status: number; body: unknown } = { status: 200, body: resumed };
 let repository: FakeAuthRepository;
 let alertButtons: { text?: string; style?: string; onPress?: () => void }[] = [];
 
@@ -63,6 +66,7 @@ function serveRevoked(): void {
     const path = new URL(url).pathname;
     const body = path === '/api/mobile/account/export' && method === 'GET' ? { status: 200, body: EXPORT }
       : path === '/api/mobile/account' && method === 'DELETE' ? { status: 200, body: RECEIPT }
+        : path === '/api/mobile/account/resume' && method === 'POST' ? resumeAnswer
         : { status: 403, body: { success: false, error: 'this account was revoked', reason: 'revoked' } };
     return {
       status: body.status,
@@ -107,6 +111,7 @@ async function firstRequestRefused() {
 beforeEach(() => {
   requests = [];
   alertButtons = [];
+  resumeAnswer = { status: 200, body: resumed };
   onlineManager.setOnline(true);
   process.env.EXPO_PUBLIC_API_BASE_URL = 'http://localhost:3000';
   repository = createFakeAuthRepository({ initialUser: A });
@@ -135,12 +140,55 @@ describe('a revoked account (C12.1)', () => {
     expect(screen.getByText(en.revokedAccountLine)).toBeTruthy();
   });
 
-  it('offers nothing but export, delete and sign out', async () => {
+  it('offers nothing but the way back, export, delete and sign out', async () => {
     await mount();
     await firstRequestRefused();
     await waitFor(() => expect(screen.getByTestId('revoked-account')).toBeTruthy());
     const buttons = screen.getAllByRole('button').map(b => b.props.accessibilityLabel ?? '');
-    expect(buttons.sort()).toEqual([en.revokedAccountDelete, en.revokedAccountExport, en.revokedAccountSignOut].sort());
+    expect(buttons.sort()).toEqual([
+      en.revokedAccountResume, en.revokedAccountDelete, en.revokedAccountExport, en.revokedAccountSignOut,
+    ].sort());
+    // What coming back means is said before it is pressed.
+    expect(screen.getByText(en.revokedAccountResumeBody)).toBeTruthy();
+  });
+
+  // QA v3: an account the old «وقّف» locked (before #873) had no way back.
+  it('brings the account back through POST /api/mobile/account/resume, and the app returns', async () => {
+    await mount();
+    await firstRequestRefused();
+    requests = [];
+    await waitFor(() => expect(screen.getByTestId('revoked-account')).toBeTruthy());
+
+    await act(async () => {
+      await fireEvent.press(screen.getByLabelText(en.revokedAccountResume));
+    });
+
+    await waitFor(() => expect(screen.getByTestId('the-app')).toBeTruthy());
+    expect(screen.queryByTestId('revoked-account')).toBeNull();
+    expect(requests).toEqual([{ method: 'POST', url: 'http://localhost:3000/api/mobile/account/resume' }]);
+    expect(revokedAccount()).toBeNull();
+    expect(repository.signOutReasons).toEqual([]);
+  });
+
+  it('says a failed resume out loud and keeps the revoked screen and its other actions', async () => {
+    resumeAnswer = { status: 503, body: { success: false, error: 'unavailable' } };
+    await mount();
+    await firstRequestRefused();
+    await waitFor(() => expect(screen.getByTestId('revoked-account')).toBeTruthy());
+
+    await act(async () => {
+      await fireEvent.press(screen.getByLabelText(en.revokedAccountResume));
+    });
+
+    await waitFor(() => expect(screen.getByText(en.revokedAccountResumeFailed)).toBeTruthy());
+    const region = screen.getByTestId('revoked-resume-status');
+    expect(region.props.accessibilityLiveRegion).toBe('assertive');
+    expect(region.props.accessibilityRole).toBe('alert');
+    expect(screen.getByTestId('revoked-account')).toBeTruthy();
+    expect(revokedAccount()).toBe(A.uid);
+    // The button is offered again, for «كمان مرّة».
+    expect(screen.getByLabelText(en.revokedAccountResume).props.accessibilityState?.disabled).not.toBe(true);
+    expect(screen.getByLabelText(en.revokedAccountExport)).toBeTruthy();
   });
 
   it('exports through GET /api/mobile/account/export', async () => {

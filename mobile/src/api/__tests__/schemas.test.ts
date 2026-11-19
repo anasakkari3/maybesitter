@@ -322,6 +322,8 @@ const CASES: [string, z.ZodType][] = [
   ['commitments.unhandledNotHere', notUnhandledSchema],
   // "Export my data" (#174 step 7): the envelope the share sheet is handed.
   ['account.export', accountExportSchema],
+  // «رجّع حسابي» (QA v3): the revoked screen's way back answers the trust shape.
+  ['account.resumed', trustResponseSchema],
   // Health → energy: the POST the energy screen sends from HealthKit, and the
   // read after it, whose source is now the device's summary.
   ['readiness.healthSaved', readinessSavedSchema],
