@@ -15,9 +15,9 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, statSync
 import net from 'node:net';
 import { networkInterfaces, tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
-import { spawnSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { assertSafeTarget, controlTokenPath, startFaultProxy } from '../../scripts/qa/faultProxy.mjs';
+import { assertSafeTarget, bearerToken, controlTokenPath, insideCheckouts, startFaultProxy } from '../../scripts/qa/faultProxy.mjs';
 import { parseCtlArgs, readControlToken } from '../../scripts/qa/faultProxyCtl.mjs';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -552,13 +552,12 @@ test('secret-named fields are hidden in JSON and form-urlencoded bodies', async 
   assert.equal(second.body.grant_type, 'jwt-bearer');
 });
 
-test('a body directory reached through a symlink, another case, or a sibling checkout is refused', async () => {
+test('a body directory reached through a symlink or another case is refused', async () => {
   const outside = mkdtempSync(join(tmpdir(), 'fp-link-'));
   const link = join(outside, 'into-repo');
   symlinkSync(ROOT, link);
-  const sibling = join(dirname(ROOT), 'some-other-checkout', 'bodies');
   const shouted = join(ROOT.replace(/[a-z]/g, (c) => c.toUpperCase()), 'tmp-bodies');
-  for (const bodyDir of [join(link, 'bodies'), join(link, 'new', 'deeper'), shouted, sibling]) {
+  for (const bodyDir of [join(link, 'bodies'), join(link, 'new', 'deeper'), shouted]) {
     await expectBodyDirRefused(bodyDir);
   }
   const fine = join(outside, 'bodies');
@@ -650,3 +649,42 @@ async function expectBodyDirRefused(bodyDir: string): Promise<void> {
     assert.fail(`accepted ${bodyDir}`);
   }
 }
+
+test('a sibling worktree folder is refused only when the checkout really is a worktree', () => {
+  // Built here rather than read from this machine: CI checks out a plain
+  // repository, a laptop may use worktrees.
+  const base = mkdtempSync(join(tmpdir(), 'fp-git-'));
+  const code = join(base, 'code');
+  const main = join(code, 'main');
+  mkdirSync(main, { recursive: true });
+  const git = (cwd: string, ...args: string[]) =>
+    execFileSync('git', ['-c', 'user.name=qa', '-c', 'user.email=qa@example.invalid', ...args], { cwd, stdio: 'ignore' });
+  git(main, 'init', '-q');
+  git(main, 'commit', '-q', '--allow-empty', '-m', 'root');
+  git(main, 'worktree', 'add', '-q', join(code, 'wt'), '-b', 'wt');
+  const worktree = join(code, 'wt');
+
+  // From the worktree: itself, the main checkout and the folder of both are refused.
+  assert.equal(insideCheckouts(join(worktree, 'bodies'), worktree), true);
+  assert.equal(insideCheckouts(join(main, 'bodies'), worktree), true);
+  assert.equal(insideCheckouts(join(code, 'another-checkout', 'bodies'), worktree), true);
+  assert.equal(insideCheckouts(join(base, 'outside', 'bodies'), worktree), false);
+
+  // A plain checkout has no sibling worktrees: only the checkout itself is refused.
+  assert.equal(insideCheckouts(join(main, 'bodies'), main), true);
+  assert.equal(insideCheckouts(join(code, 'another-checkout', 'bodies'), main), false);
+});
+
+test('reading a bearer header is linear: 100k spaces after "bearer" take under 50 ms', () => {
+  assert.equal(bearerToken('Bearer abc.def.ghi'), 'abc.def.ghi');
+  assert.equal(bearerToken('bearer   abc'), 'abc');
+  assert.equal(bearerToken('Basic abc'), null);
+  assert.equal(bearerToken('Bearer'), null);
+  assert.equal(bearerToken(undefined), null);
+  for (const header of [`bearer ${' '.repeat(100_000)}`, `bearer ${' '.repeat(100_000)}x y`, `Bearer \t${'\t '.repeat(50_000)}!`]) {
+    const started = performance.now();
+    bearerToken(header);
+    const took = performance.now() - started;
+    assert.ok(took < 50, `took ${took.toFixed(1)} ms`);
+  }
+});
