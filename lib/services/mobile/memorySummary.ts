@@ -211,15 +211,32 @@ function valueKey(value: number): string {
  */
 const ROW_EVERYDAY_WORDS = new Set(['ظهر', 'ضهر', 'ميه', 'ست', 'نص']);
 
+/**
+ * The counted units that make «كل تلات/ثلاث/اتنين» a number, not a weekday:
+ * «كل ثلاث ساعات» is every three hours (medicine, a habit), «كل تلات» alone
+ * is every Tuesday (review of #876). Normalized spellings (ة → ه, أ → ا).
+ */
+const EVERY_N_UNITS = new Set([
+  'ساعات', 'ساعه', 'دقايق', 'دقائق', 'دقيقه', 'ايام', 'يوم', 'ليالي', 'ليله',
+  'اسابيع', 'اسبوع', 'جمعات', 'شهور', 'اشهر', 'شهر', 'سنين', 'سنوات', 'سنه', 'مرات', 'مره',
+]);
+
+/** «كل» right before the word with no counted unit after it: «كل تلات» is a day. */
+function everyDayReading(previous: string | undefined, next: string | undefined): boolean {
+  return previous === 'كل' && (next === undefined || !EVERY_N_UNITS.has(next));
+}
+
 function rowWordValues(rowWords: readonly string[], index: number): string[] {
   const word = rowWords[index]!;
   if (readingsOf(word).some((reading) => ROW_EVERYDAY_WORDS.has(reading))) return [];
   // A weekday the row names («كل أحد وتلات», «الاثنين») is no number either.
   if (DEFINITE_NUMBER_WEEKDAY.test(word)) return [];
-  // In a row «كل تلات» may be "every Tuesday": the row's own word is read the safe way.
+  // In a row «كل تلات» may be "every Tuesday": the row's own word is read the
+  // safe way, unless a counted unit follows («كل ثلاث ساعات» holds a 3).
   const previous = rowWords[index - 1];
+  const next = rowWords[index + 1];
   if (ARABIC_NUMBER_WEEKDAYS.some(([pattern]) => pattern.test(word))
-    && (previous === 'كل' || inArabicDayContext(previous, rowWords[index + 1]))) return [];
+    && (everyDayReading(previous, next) || inArabicDayContext(previous, next))) return [];
   // «ביום שלישי» is Tuesday, not "third".
   if (previous !== undefined && HEBREW_DAY_WORDS.has(previous) && Object.hasOwn(HEBREW_ORDINAL_DAY, word)) return [];
   return wordValues(word, CARDINAL_VALUES);
@@ -316,7 +333,9 @@ function inArabicDayContext(previous: string | undefined, next: string | undefin
 
 function weekdayOf(word: string, previous: string | undefined, next: string | undefined): string | null {
   for (const [pattern, day] of ARABIC_NUMBER_WEEKDAYS) {
-    if (pattern.test(word)) return inArabicDayContext(previous, next) ? day : null;
+    // A sentence's «كل تلات» with no unit after it is every Tuesday: checked
+    // as a day, so a row's 3 alone does not let it through (review of #876).
+    if (pattern.test(word)) return everyDayReading(previous, next) || inArabicDayContext(previous, next) ? day : null;
   }
   if (previous !== undefined && HEBREW_DAY_WORDS.has(previous)) return HEBREW_ORDINAL_DAY[word] ?? null;
   return null;
