@@ -21,6 +21,14 @@ export interface CommitmentMatches {
   commitments: Commitment[];
   /** The server had more than it sent: the person should narrow the search (R4-006). */
   truncated: boolean;
+  /**
+   * Where the server half stands (CA5.2): `pending` while the typing settles
+   * or the answer is out, `failed` when it refused or could not be reached.
+   * Either way the list holds only what this screen had loaded, and «nothing
+   * found» would be a claim the app cannot make.
+   */
+  server: 'idle' | 'pending' | 'failed';
+  retry: () => void;
 }
 
 /**
@@ -35,9 +43,12 @@ export function useCommitmentMatches(raw: string, local: readonly Commitment[]):
   const ask = on && settled.searchable && searchableCount(settled.folded) >= MIN_SERVER_QUERY && settled.folded === needle.folded;
   const server = useCommitmentSearch(settled.folded, settled.raw, ask);
   const serverItems = ask && server.data ? server.data.items : [];
+  const wanted = on && needle.searchable && searchableCount(needle.folded) >= MIN_SERVER_QUERY;
   return {
     needle,
     commitments: needle.searchable ? rankCommitments(local, serverItems, needle, Date.now()) : [],
     truncated: ask && server.data?.truncated === true,
+    server: !wanted ? 'idle' : !ask || server.isPending ? 'pending' : server.isError ? 'failed' : 'idle',
+    retry: () => { void server.refetch(); },
   };
 }

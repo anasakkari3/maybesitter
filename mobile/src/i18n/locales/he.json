@@ -2161,6 +2161,8 @@
   "m5bEnergyHideTodayA11y": "להסתיר את שאלת האנרגיה לשאר היום",
   "m5bEnergyLevelA11y": "אנרגיה {energy} מתוך 5",
   "m6SearchNoResults": "לא מצאנו כלום בשם הזה",
+  "m6SearchPending": "מחפשים…",
+  "m6SearchFailed": "לא הצלחנו לחפש בכל הדברים שלך כרגע, אז מוצג רק מה שכבר בטלפון.",
   "m6SearchMore": "יש עוד תוצאות. הוסיפו מילה כדי לצמצם.",
   "m6PlanKeptGroup": "{count, plural, one{דבר אחד} two{שני דברים} other{# דברים}}",
   "m6SearchDone": "בוצע {date}",
