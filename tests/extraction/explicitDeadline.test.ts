@@ -86,6 +86,57 @@ const NOT_LIMITS = [
   '',
 ];
 
+// ── Review precision (2026-11-19) ──────────────────────────────────────
+
+const PRECISE_LIMITS = [
+  // A number after the marker is a time only alone, with a half of the day, a month or a day, or as H:MM.
+  'أبعت الملف قبل 5 المسا',
+  'لازم أخلص قبل 9 الصبح',
+  'Send it before 5:30',
+  'Reply by 5 pm',
+  'Pay by 15 March',
+  'Done before 3 Friday',
+  // The added markers, with a time after them.
+  'أخلص التقرير حتى الخميس',
+  'أسلّم المشروع بحلول الأحد',
+  'Submit it until Friday',
+  'Send it not later than Monday',
+  // «שני» / «שלישי» are days after «יום» or as «בשני».
+  'להגיש עד יום שני',
+  'לסיים לפני בשלישי',
+];
+
+const PRECISE_NOT_LIMITS = [
+  // A number that counts something.
+  'اشتري قبل 20 شيكل',
+  'قبل 2 كيلو',
+  'before 20 dollars',
+  'by 3 of them',
+  'أكلت قبل 3 مرات',
+  // «שני» / «שלישי» as "two" / "third".
+  'לפני שני ילדים',
+  'עד שלישי בתור',
+  // «تسليم» beside delivery words is a hand-over, not a limit.
+  'تسليم الطرد الخميس',
+  'استلم وتسليم الأكل الجمعة',
+  'توصيل وتسليم الأحد',
+  // «حتى» as "even", and markers with no time after them.
+  'حتى أنا ما بعرف',
+  'حتى اليوم ما خلصت',
+  'حتى بكرة بدي أرتاح',
+  'حتى لو تأخرت',
+  'بحلول الوقت المناسب',
+  'Wait until I call',
+];
+
+for (const text of PRECISE_LIMITS) {
+  test(`precision, a limit: ${text}`, () => assert.equal(namesExplicitDeadline(text), true));
+}
+
+for (const text of PRECISE_NOT_LIMITS) {
+  test(`precision, no limit: ${text}`, () => assert.equal(namesExplicitDeadline(text), false));
+}
+
 for (const text of LIMITS) {
   test(`a limit: ${text}`, () => assert.equal(namesExplicitDeadline(text), true));
 }
