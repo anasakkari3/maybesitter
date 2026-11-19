@@ -2247,6 +2247,7 @@
   "featuresStatusAlwaysOn": "Always on",
   "featuresStatusNeedsSubscription": "Needs a subscription",
   "featuresStatusAllowanceUsed": "This month's allowance is used up",
+  "featuresStatusPausedToday": "Today's allowance is used up, back tomorrow",
   "featuresStatusOff": "You turned it off",
   "featuresStatusUnavailable": "Not available right now",
   "featuresUsage": "{percent} of this month's allowance used",

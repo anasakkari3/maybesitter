@@ -2247,6 +2247,7 @@
   "featuresStatusAlwaysOn": "دايمًا شغّالة",
   "featuresStatusNeedsSubscription": "بدها اشتراك",
   "featuresStatusAllowanceUsed": "خلصت حصة هالشهر",
+  "featuresStatusPausedToday": "خلصت حصة اليوم، بترجع بكرا",
   "featuresStatusOff": "طفّيتها",
   "featuresStatusUnavailable": "مش متاحة هلّق",
   "featuresUsage": "استعملت {percent} من حصة هالشهر",
