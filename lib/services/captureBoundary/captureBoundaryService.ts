@@ -43,6 +43,7 @@ import {
   chatTimeAllowance,
   isPlainYes,
   withInstantFromWallClock,
+  sequencedDay,
   withoutUnsaidTime,
   type ChatPreviousItem,
 } from './chatEvidence';
@@ -1369,12 +1370,15 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
           stillAsked = false;
         }
         const changedFieldEvidence = before && evidence.touchedNow ? chatChangedFieldEvidences[index]! : evidence;
+        // A new point opening with «وبعدها» / "and then" may keep the day of
+        // the words before it (QA v3, V3-F04-10; `sequencedDay`): a day only.
+        const sequenced = before ? null : sequencedDay(chat.operationSources?.[index] ?? evidence.clause.text, raw, options.now, options.timezone);
         const guarded = withoutUnsaidTime(
           extracted.result,
           changedFieldEvidence.turns,
           options.now,
           options.timezone,
-          answeredAmPmClock && before ? { ...before, time: answeredAmPmClock } : before,
+          answeredAmPmClock && before ? { ...before, time: answeredAmPmClock } : before ?? (sequenced ? { date: sequenced, time: null } : undefined),
         );
         extracted = { ...extracted, result: guarded.result };
         unsaid = guarded.fired;
