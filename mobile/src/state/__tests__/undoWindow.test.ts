@@ -65,4 +65,27 @@ describe('the undo window', () => {
     jest.advanceTimersByTime(UNDO_WINDOW_MS);
     expect(commit).toHaveBeenCalledTimes(1);
   });
+
+  /*
+   * Review 2026-11-19: iOS goes `inactive` for a pulled-down notification
+   * centre or an incoming call. That is not leaving the app, and sending then
+   * made «رجّعها» useless. Only `background` sends what is held.
+   */
+  it('keeps holding while the app is only inactive, and sends on background', () => {
+    const listeners: ((state: string) => void)[] = [];
+    jest.spyOn(AppState, 'addEventListener').mockImplementation(((_type: string, listener: (state: string) => void) => {
+      listeners.push(listener);
+      return { remove: () => {} };
+    }) as never);
+    jest.useFakeTimers();
+    const commit = jest.fn();
+    const undo = deferWithUndo(commit);
+    for (const listener of listeners) listener('inactive');
+    expect(commit).not.toHaveBeenCalled();
+    expect(undo()).toBe(true);
+    const second = jest.fn();
+    deferWithUndo(second);
+    for (const listener of listeners) listener('background');
+    expect(second).toHaveBeenCalledTimes(1);
+  });
 });
