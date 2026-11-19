@@ -199,3 +199,25 @@ describe('the button pressed while a pass is claiming an event', () => {
     expect(serverLink).toBeNull();
   });
 });
+
+describe('a pass asked for while the button is working', () => {
+  it('does not start, so it cannot write back what is being removed', async () => {
+    let releaseOff: () => void = () => undefined;
+    (calendarEndpoints.putCalendarWriteTarget as jest.MockedFunction<typeof calendarEndpoints.putCalendarWriteTarget>)
+      .mockImplementation(async (target) => {
+        await new Promise<void>((resolve) => { releaseOff = resolve; });
+        serverTarget = target;
+        return { calendarSettings: { writeTarget: target } };
+      });
+    jest.spyOn(deviceCalendar, 'createEvent').mockResolvedValue('evt-1');
+    jest.spyOn(calendarEndpoints, 'putDeviceCalendarLink').mockResolvedValue(undefined as never);
+    await mount();
+    await waitFor(() => expect(hook).not.toBeNull());
+    await settle();
+    const removing = hook!.removeAll();
+    await settle();
+    expect(await hook!.runNow()).toBeNull();
+    releaseOff();
+    await removing;
+  });
+});
