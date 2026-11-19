@@ -21,7 +21,7 @@ import { calendarReadEnabled, calendarWriteEnabled } from '../../config/env';
 import { sourcesSubKey, useSourcesAvailability } from '../settings/sourcesAvailability';
 import { LANGUAGE_ENDONYM } from '../../i18n/language';
 import { isolate, isolateAuto } from '../../i18n/bidi';
-import { dayKey, formatNumber, formatTimeRange } from '../../i18n/format';
+import { dayKey, formatClockRange, formatNumber, formatTimeRange } from '../../i18n/format';
 import { useTimeZone } from '../../i18n/timezone';
 import { BrandMark } from '../../ui/brand';
 import { Pill, Txt } from '../../ui/primitives';
@@ -378,7 +378,7 @@ export function HabitDetailScreen() {
     source: 'user_created',
     confirmation: { confirmedByUserAt: new Date().toISOString(), sourceRef: null, acceptedSuggestedValues: true },
   }, { onSuccess: () => { setAdding(false); setTitle(''); setCadence(DEFAULT_CADENCE_DRAFT); } });
-  return <ProductPage id="habit" title={t.xHabits} subtitle={t.xHabitBody} overlay={deleting ? <Dialog
+  return <ProductPage id="habit" title={t.thingsHabits} subtitle={t.xHabitBody} overlay={deleting ? <Dialog
     title={t.confirmDeleteTitle}
     body={t.xDeleteHabitBody}
     confirmLabel={t.memoryDelete}
@@ -394,11 +394,11 @@ export function HabitDetailScreen() {
     <QueryBoundary isPending={query.isPending || today.isPending} error={query.error} onRetry={() => void query.refetch()}>
       {items.length === 0 ? (chatHabits
         ? <ProductSection title={t.xHabitsEmptyTitle} body={t.xHabitsEmptyBody} icon="habit" />
-        : <ProductSection title={t.xHabits} body={t.xNoOccurrences} icon="habit" />) : null}
+        : <ProductSection title={t.thingsHabits} body={t.xNoOccurrences} icon="habit" />) : null}
       {items.map(habit => <ProductSection key={habit.habitId} title={isolateAuto(habit.title)} icon="habit" status={habit.status === 'active' ? 'LIVE' : 'BLOCKED'}>
         <ProductRow title={t.xCadence} body={describeCadence(habit.cadence, t, lang)} icon="calendar" />
         <ProductRow title={t.xDuration} body={tr('xMinutes', { count: habit.durationMinutes })} icon="watch" />
-        <ProductRow title={t.xWindows} body={habit.preferredWindows.length > 0 ? habit.preferredWindows.map(window => `${window.start}–${window.end}`).join(' · ') : t.xNotSet} icon="watch" />
+        <ProductRow title={t.xWindows} body={habit.preferredWindows.length > 0 ? habit.preferredWindows.map(window => formatClockRange(window.start, window.end)).join(' · ') : t.xNotSet} icon="watch" />
         <ProductRow title={t.xFlexibility} body={habit.flexibility === 'protected_flexible' ? t.xProtectedFlexible : t.xFlexible} icon="shield" />
         <ProductRow title={t.xRecovery} body={habit.recoveryPolicy === 'retry_same_day' ? t.xRetrySameDay : habit.recoveryPolicy === 'recover_within_period' ? t.xRecoverThisWeek : t.xLetItGo} icon="check" />
         {(today.data?.occurrences ?? []).filter(occurrence => occurrence.habitId === habit.habitId).map(occurrence =>
