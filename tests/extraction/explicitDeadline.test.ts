@@ -42,6 +42,7 @@ const LIMITS = [
   'أبعت الملف قبل الساعة 5',
   'قبل يوم الخميس لازم أخلص',
   'وقبل ٣ الظهر بدي أخلص', // Arabic digits, and «و» on the word
+  'أبعت الملف قبل ٥', // an Arabic digit is the only time
   'ديدلاين التقرير الخميس',
   // English.
   'Submit the report by Friday',

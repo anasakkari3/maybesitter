@@ -9,13 +9,17 @@
  *   - `event_ended` — an appointment or meeting that is over (`hasEventEnded`,
  *     lane E1). It already left every active surface; the person never said
  *     what came of it.
- *   - `deadline_passed` — a `due_by` whose time passed. The time is the one the
+ *   - `deadline_passed` — a `due_by` the person said with a limit (`deadline:
+ *     'explicit'`, owner decision 2026-11-19: «قبل», «لحد», «تسليم», "by",
+ *     "due", «עד»…) whose time passed. The time is the one the
  *     person last chose: `postponedUntil` when they put it off, otherwise
  *     `dueAt`; a deadline named by a day closes at the midnight ending that
  *     day, in the zone it was named in.
  *
- * A task keeps #383 and is never here: a clock-time task, an `unsure` item and
- * an undated one roll into Today until the person acts on them. A football
+ * A task keeps #383 and is never here: a clock-time task, an `unsure` item, an
+ * undated one and a `due_by` with a day and no limit («بدي أدرس الثلاثاء», and
+ * every one stored before the mark) roll into Today until the person acts on
+ * them. A football
  * match is never here either (`fixtureCommitmentIds`): the maintenance pass
  * closes an ended one for every account.
  *
@@ -85,7 +89,7 @@ export class NotUnhandledError extends Error {
 
 function deadlinePassesAt(commitment: Commitment): string | null {
   const { timeSpec } = commitment;
-  if (timeSpec.kind !== 'due_by') return null;
+  if (timeSpec.kind !== 'due_by' || timeSpec.deadline !== 'explicit') return null;
   if (commitment.postponedUntil) return commitment.postponedUntil;
   if (!timeSpec.dueAt) return null;
   return timeSpec.allDay ? addLocalDays(timeSpec.dueAt, 1, timeSpec.timezone) : timeSpec.dueAt;

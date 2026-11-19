@@ -63,6 +63,13 @@ export const timeSpecSchema = z.object({
    * commitment: one such row would blank Today.
    */
   itemKind: z.enum(['event', 'task', 'unsure']).optional().catch(undefined),
+  /**
+   * The person named a limit when they said it («قبل الخميس», "by Friday",
+   * «עד יום חמישי»; owner decision 2026-11-19). Only such a `due_by` is ever
+   * «ما اتصرّفت فيها» as a passed deadline. Absent: nobody named one. A value
+   * this build does not know reads as none, never as an unparseable row.
+   */
+  deadline: z.enum(['explicit']).optional().catch(undefined),
 });
 
 /**

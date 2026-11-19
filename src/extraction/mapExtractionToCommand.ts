@@ -3,6 +3,7 @@ import type { Command, CommitmentKind, ReminderType } from '../domain/stateMachi
 import { decideExtractionDisposition } from './extractionPolicy';
 import type { ExtractionResult } from './extractionTypes';
 import { rangeEndInstant } from './timeLexicon';
+import { namesExplicitDeadline } from './explicitDeadline';
 import {
   DEFAULT_CATEGORY_PREFERENCES,
   resolveCategory,
@@ -53,6 +54,18 @@ function itemKindFor(result: ExtractionResult, capture: boolean): 'event' | 'tas
 export interface MapExtractionOptions {
   /** Capture made this item, so an unsure model answer is stored as `unsure`. */
   capture?: boolean;
+  /** What the person typed to answer «إيمتى؟», read for a limit beside `rawText`. */
+  answer?: string;
+}
+
+/**
+ * Whether capture stores `deadline: 'explicit'` (owner decision 2026-11-19):
+ * a `due_by` the person said with a limit word, in what they said or typed
+ * as the answer. Other paths (Gmail, goal steps) did not hear the person.
+ */
+function namedLimit(result: ExtractionResult, options: MapExtractionOptions): boolean {
+  if (options.capture !== true) return false;
+  return namesExplicitDeadline(result.rawText) || namesExplicitDeadline(options.answer);
 }
 
 /** `dueAt` plus the range the words gave, for a timed event; otherwise null. */
@@ -88,6 +101,9 @@ export function mapExtractionToCommand(
   const commitmentId = randomUUID();
   const title = result.title || result.action || result.rawText;
   const itemKind = itemKindFor(result, options.capture === true);
+  const kind = !result.dueAt
+    ? 'unscheduled' as const
+    : result.timeAnchor === 'event' ? 'scheduled_event' as const : 'due_by' as const;
   const commitment = {
     id: commitmentId,
     kind: kindFromExtraction(result),
@@ -105,9 +121,7 @@ export function mapExtractionToCommand(
       // «أشتري دوا … الساعة 5» is to be done at 17:00, not by it (CL1, D2).
       // Written as a `due_by`, the planner floated it ahead as a deadline and
       // placed it at 15:30; a `scheduled_event` is one it keeps where it is.
-      kind: !result.dueAt
-        ? 'unscheduled' as const
-        : result.timeAnchor === 'event' ? 'scheduled_event' as const : 'due_by' as const,
+      kind,
       dueAt: result.dueAt,
       // The end the words gave — «من 10 لـ 4», "10 to 4", «מ-10 עד 4» —
       // counted from the start actually resolved (FIX-R8-CAPTURE), so a
@@ -124,6 +138,9 @@ export function mapExtractionToCommand(
       // Event or task, when the model was sure (lane E1): it wins over the
       // title heuristic wherever the product asks. `unsure` from capture.
       ...(itemKind ? { itemKind } : {}),
+      // A limit the person named (owner decision 2026-11-19): only these are
+      // listed in «ما اتصرّفت فيها» once they pass.
+      ...(kind === 'due_by' && namedLimit(result, options) ? { deadline: 'explicit' as const } : {}),
     },
   };
 
