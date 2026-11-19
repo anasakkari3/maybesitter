@@ -46,6 +46,7 @@ import {
   MEMORY,
   MEMORY_CITATIONS,
   MEMORY_DISMISSALS,
+  MEMORY_SUMMARIES,
   PROFILE_PROPOSALS,
   USER_SCOPED_COLLECTIONS,
   userDoc,
@@ -90,6 +91,9 @@ const PURGED: ReadonlySet<string> = new Set([
   INTELLIGENCE_AUTO_ADDS,
   GMAIL_SENDER_STATS,
   MEMORY_CITATIONS,
+  // The cached memory summary (QA CA8.7): a model's paragraph about the
+  // person, derived from the memory this button erases.
+  MEMORY_SUMMARIES,
 ]);
 
 /**

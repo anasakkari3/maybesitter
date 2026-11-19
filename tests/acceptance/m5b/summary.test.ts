@@ -25,6 +25,7 @@ import { setPersonalizationConsent, PERSONALIZATION_CONSENT_VERSION } from '../.
 import { setConsent } from '../../../lib/consents/consentService.ts';
 import { PERSONALIZATION_CONSENT } from '../../../src/contracts/v1/consentContracts.ts';
 import { createStoragePersonalizationConsentStore } from '../../../lib/personalizationControls/consentStore.ts';
+import { createManualMemory } from '../../../lib/services/mobile/memoryService.ts';
 import {
   addRows,
   begin,
@@ -294,19 +295,71 @@ test('M5B1-008: no personalization consent is read — every consent state gives
   for (const answer of answers) assert.deepEqual(answer, answers[0]);
 });
 
-test('R1.1 nothing is persisted: storage is byte-identical after a ready and after a rejected summary (usage counters excepted)', async () => {
+test('R1.1 / CA8.7 what is persisted: a rejected summary writes nothing, a ready one writes only its own cache document', async () => {
+  // The owner decision of 2026-11-19 (QA CA8.7) replaced "nothing stored":
+  // a ready summary is kept per account and language, on the fingerprint of
+  // the rows it summarized, so an unchanged memory costs no second model call.
   const uid = await begin();
   await addRows(uid, [{ content: 'Likes tea' }]);
-  let text = 'Likes tea.';
+  let text = 'Likes tea at 7.';
   await useSummaryModel(scriptedModel(() => ({ sentences: one(text) })));
   const before = await snapshotStorage(isUsagePath);
-  const ready = await summary(uid);
-  assert.equal(ready.body.summary?.status, 'ready', show(ready.body));
-  assert.deepEqual(diffSnapshots(before, await snapshotStorage(isUsagePath)), [], 'a ready summary wrote something');
-  text = 'Likes tea at 7.';
   const rejected = await summary(uid);
   assert.deepEqual(rejected.body.summary, { status: 'unavailable' }, show(rejected.body));
   assert.deepEqual(diffSnapshots(before, await snapshotStorage(isUsagePath)), [], 'a rejected summary wrote something');
+  text = 'Likes tea.';
+  const ready = await summary(uid);
+  assert.equal(ready.body.summary?.status, 'ready', show(ready.body));
+  assert.deepEqual(diffSnapshots(before, await snapshotStorage(isUsagePath)), [`added users/${uid}/memorySummaries/en`], 'a ready summary wrote something besides its cache');
+  const stored = JSON.stringify(await (currentStorage() as any).get(`users/${uid}/memorySummaries/en`));
+  assert.ok(!stored.includes('r1'), 'the model\'s refs were stored instead of the memory ids');
+});
+
+test('CA8.7 an unchanged memory answers from the cache: no model call and no reservation', async () => {
+  const uid = await begin();
+  await addRows(uid, [{ content: 'Likes tea' }]);
+  const model = scriptedModel(() => ({ sentences: one('Likes tea.') }));
+  await useSummaryModel(model);
+  const first = await summary(uid);
+  assert.equal(first.body.summary?.status, 'ready', show(first.body));
+  const before = await callsToday(uid, { storage: currentStorage() as any });
+  const second = await summary(uid);
+  assert.deepEqual(second.body, first.body, 'the cached answer differs from the one it was cached from');
+  assert.equal(model.calls.length, 1, 'an unchanged memory paid for a second summary');
+  assert.deepEqual(await callsToday(uid, { storage: currentStorage() as any }), before, 'a cached answer spent a reservation');
+});
+
+test('CA8.7 a memory change regenerates the summary', async () => {
+  const uid = await begin();
+  await addRows(uid, [{ content: 'Likes tea' }]);
+  const model = scriptedModel((request) => {
+    const prompt = promptOf(request);
+    return prompt.includes('Works from home')
+      ? { sentences: [{ text: 'Likes tea.', refs: ['r2'] }, { text: 'Works from home.', refs: ['r1'] }] }
+      : { sentences: one('Likes tea.') };
+  });
+  await useSummaryModel(model);
+  assert.equal((await summary(uid)).body.summary?.status, 'ready');
+  await createManualMemoryRow(uid, 'Works from home');
+  const after = await summary(uid);
+  assert.equal(after.body.summary?.status, 'ready', show(after.body));
+  assert.equal(model.calls.length, 2, 'a changed memory was answered from the old cache');
+  assert.equal(after.body.summary.sentences.length, 2);
+});
+
+test('CA8.7 the cache is per language and per account', async () => {
+  const uid = await begin();
+  await addRows(uid, [{ content: 'Likes tea' }]);
+  const model = scriptedModel((request) => ({ sentences: one(promptOf(request).includes('Requested language: he') ? 'אוהב תה.' : 'Likes tea.') }));
+  await useSummaryModel(model);
+  assert.equal((await summary(uid, 'en')).body.summary?.status, 'ready');
+  const hebrew = await summary(uid, 'he');
+  assert.equal(hebrew.body.summary?.status, 'ready', show(hebrew.body));
+  assert.equal(hebrew.body.summary.language, 'he');
+  assert.equal(model.calls.length, 2, 'one language was answered from another\'s cache');
+  const storage = currentStorage() as any;
+  const paths: string[] = storage.pathsForTests().filter((path: string) => path.includes('/memorySummaries/'));
+  assert.ok(paths.length > 0 && paths.every((path) => path.startsWith(`users/${uid}/memorySummaries/`)), `a summary was stored outside its own account: ${paths.join(', ')}`);
 });
 
 /* ── shape rules ───────────────────────────────────────────────────── */
@@ -586,3 +639,8 @@ test('M5B-037 a Han run copied from a cited row passes within 32 letters and rej
   end();
   await expectRejected([{ content: `Tea shop ${han(33)}` }], one(sentence(33)), 'en');
 });
+
+/** One more row, a minute after the newest the fixture added. */
+async function createManualMemoryRow(uid: string, content: string): Promise<void> {
+  await createManualMemory(uid, { kind: 'fact', content, language: 'en' }, new Date().toISOString());
+}
