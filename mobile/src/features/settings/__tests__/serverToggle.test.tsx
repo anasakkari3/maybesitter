@@ -256,9 +256,11 @@ describe('the thumb is always visible', () => {
     ['off', { value: false }],
   ] as const)('%s: the thumb differs from its track and from the card', async (_name, props) => {
     await show(props);
+    // The native iOS props the Switch maps its colours to.
     const toggle = screen.getByTestId('toggle');
-    const track = props.value ? toggle.props.trackColor.true : toggle.props.trackColor.false;
-    expect(toggle.props.thumbColor).not.toBe(track);
-    expect(cards).not.toContain(toggle.props.thumbColor);
+    const track = props.value ? toggle.props.onTintColor : toggle.props.tintColor;
+    expect(typeof toggle.props.thumbTintColor).toBe('string');
+    expect(toggle.props.thumbTintColor).not.toBe(track);
+    expect(cards).not.toContain(toggle.props.thumbTintColor);
   });
 });

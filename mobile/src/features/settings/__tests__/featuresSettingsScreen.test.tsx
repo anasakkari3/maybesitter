@@ -177,10 +177,12 @@ describe('the status in a word', () => {
   it('draws a thumb that differs from its track, on and off', async () => {
     await showScreen(switched);
     for (const id of ['football', 'gmail_reading']) {
+      // The native iOS props the Switch maps its colours to.
       const toggle = screen.getByTestId(`feature-${id}-switch`);
-      const track = toggle.props.value ? toggle.props.trackColor.true : toggle.props.trackColor.false;
-      expect(toggle.props.thumbColor).not.toBe(track);
-      expect([palettes.light.sf, palettes.dark.sf]).not.toContain(toggle.props.thumbColor);
+      const track = toggle.props.value ? toggle.props.onTintColor : toggle.props.tintColor;
+      expect(typeof toggle.props.thumbTintColor).toBe('string');
+      expect(toggle.props.thumbTintColor).not.toBe(track);
+      expect([palettes.light.sf, palettes.dark.sf]).not.toContain(toggle.props.thumbTintColor);
     }
   });
 
