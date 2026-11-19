@@ -34,8 +34,8 @@ import {
   FOOTBALL_WATCHER_PROVIDER,
 } from '../../src/contracts/v1/fixtureContracts';
 import type { WatcherEffect, WatcherSourceRef } from '../../src/contracts/v1/watcherContracts';
-import { WatcherValidationError } from '../watchers/watcherApi';
-import { createWatcherStore, type NewWatcherInput, type StoredWatcher } from '../watchers/watcherStore';
+import { applyWatcherPatch, repeatedCreatePatch, WatcherValidationError } from '../watchers/watcherApi';
+import { createWatcherStore, stableWatcherId, type NewWatcherInput, type StoredWatcher } from '../watchers/watcherStore';
 import { clubById, type ClubLanguage } from './clubs';
 import { getFollowedClubs, setFollowedClubs } from './followedClubs';
 import { projectFixturesForUser, titleLanguageFor } from './projectFixtures';
@@ -136,12 +136,24 @@ export async function followClubWithWatcher(
   assertFootballWatcherInput(input);
   const clubId = input.source.subjectRef;
 
+  const store = createWatcherStore(uid);
+  // A second follow is the same follow, carrying the effect just chosen and
+  // resuming a paused one (QA CA6.3).
+  const adopt = async (existing: StoredWatcher) => {
+    const patch = repeatedCreatePatch(existing, input);
+    if (!patch) return existing;
+    return (await store.update(existing.definition.watcherId, (current) => applyWatcherPatch(current, patch, now))) ?? existing;
+  };
   const existing = (await footballWatchers(uid)).find((stored) => isWatcherFor(stored, clubId));
-  if (existing) return { watcher: existing, created: false };
+  if (existing) return { watcher: await adopt(existing), created: false };
 
   const followed = await getFollowedClubs(uid);
   if (!followed.includes(clubId)) await setFollowedClubs(uid, [...followed, clubId], now);
-  const watcher = await createWatcherStore(uid).create(input, now);
+  // One id per club, so two follows racing past the check above still make
+  // one watcher (QA CXA6.4).
+  const once = await store.createOnce(input, now, stableWatcherId(`football_team:${clubId}`));
+  if (!once.created) return { watcher: await adopt(once.watcher), created: false };
+  const watcher = once.watcher;
   if (!resolveExternalClashHold()) {
     await projectFixturesForUser(uid, now);
     return { watcher, created: true };
