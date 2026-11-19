@@ -497,6 +497,8 @@ describe('what the user is told when it will not work', () => {
     // not tell the person to check a connection the rest of the app is using.
     expect(screen.getByTestId('share-problem')).toHaveTextContent(en.shareUploadNotSent);
     expect(screen.getByTestId('share-problem')).not.toHaveTextContent(en.errorsNetwork);
+    // Not a picture, so no advice about pictures (QA v3 review).
+    expect(screen.getByTestId('share-problem')).not.toHaveTextContent(/screenshot/i);
     // Deleting the copy here would make Retry a button that cannot work.
     expect(mockFiles.has('file:///tmp/share/chat.zip')).toBe(true);
 
@@ -797,6 +799,9 @@ describe('a picture is stripped before it is uploaded (UC-3.6, #190)', () => {
     });
     await fireEvent.press(screen.getByTestId('share-analyze'));
     await waitFor(() => expect(screen.queryByTestId('share-problem')).not.toBeNull());
+    // A picture that did not get through gets the one thing the person can
+    // change about a picture (QA v3, V3-F07-05).
+    expect(screen.getByTestId('share-problem')).toHaveTextContent(en.shareUploadNotSentImage);
     await fireEvent.press(screen.getByTestId('share-analyze'));
     await waitFor(() => expect(screen.queryByTestId('review-item-i-1')).not.toBeNull());
 
