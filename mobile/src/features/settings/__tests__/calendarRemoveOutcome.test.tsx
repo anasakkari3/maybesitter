@@ -34,7 +34,7 @@ const USER: AuthUser = {
   uid: 'remove-outcome-user', email: 'a@b.c', emailVerified: true, displayName: null, providerIds: ['password'],
 };
 const ZONE = 'Asia/Jerusalem';
-const strings = en as Record<string, string>;
+const strings = en as unknown as Record<string, string>;
 
 let client: QueryClient;
 let repository: ReturnType<typeof createFakeAuthRepository>;
@@ -155,9 +155,12 @@ describe('what the button says', () => {
   it('says writing is off but the removal did not finish when it failed afterwards', async () => {
     await oneLinked();
     // Writing off is saved; the removal then fails on the phone.
-    jest.spyOn(deviceCalendar, 'getAccess')
-      .mockResolvedValueOnce('granted')
-      .mockRejectedValue(new Error('the calendar went away'));
+    jest.spyOn(deviceCalendar, 'getAccess').mockImplementation(async () => {
+      if ((calendarEndpoints.putCalendarWriteTarget as jest.Mock).mock.calls.length > 0) {
+        throw new Error('the calendar went away');
+      }
+      return 'granted';
+    });
     await pressRemove();
     await waitFor(() => expect(screen.getByTestId('calendar-remove-failed')).toHaveTextContent(strings.calendarRemoveIncomplete!));
   });

@@ -91,11 +91,47 @@ let currentPass: Promise<void> | null = null;
 /** While a removal runs no pass starts: it would write back what is being removed. */
 let removalInFlight = false;
 
+/** How long the removal waits for a pass in flight before it gives up, honestly. */
+const REMOVAL_WAIT_MS = 30_000;
+let removalWaitMs = REMOVAL_WAIT_MS;
+
+/** For tests: a shorter wait than half a minute. */
+export function setRemovalWaitForTests(ms: number): void {
+  removalWaitMs = ms;
+}
+
+/**
+ * The removal did not start: writing could not be turned off, or a pass did
+ * not finish in time. Nothing in the calendar was touched, and the screen may
+ * say so — unlike a failure after writing was turned off.
+ */
+export class CalendarRemovalNotStartedError extends Error {
+  constructor(readonly reason: unknown) {
+    super('the removal did not start');
+    this.name = 'CalendarRemovalNotStartedError';
+  }
+}
+
+async function waitForPass(): Promise<void> {
+  const deadline = Date.now() + removalWaitMs;
+  while (currentPass) {
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) throw new Error('a calendar pass did not finish in time');
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    await Promise.race([
+      currentPass,
+      new Promise<void>((resolve) => { timer = setTimeout(resolve, remaining); }),
+    ]);
+    clearTimeout(timer);
+  }
+}
+
 /** For tests, which must not inherit a flag from a pass they did not run. */
 export function resetCalendarSyncForTests(): void {
   passInFlight = false;
   currentPass = null;
   removalInFlight = false;
+  removalWaitMs = REMOVAL_WAIT_MS;
 }
 
 /**
@@ -210,7 +246,12 @@ export interface CalendarSyncState {
   /** Runs a pass now. Returns the outcome, or null when one was already running. */
   runNow(): Promise<SyncOutcome | null>;
   /** "Remove events MaybeSitter added". */
-  removeAll(): Promise<{ removed: number; permissionDenied: boolean }>;
+  /**
+   * "Remove events MaybeSitter added". `skipped` counts what could not be
+   * removed. Rejects with `CalendarRemovalNotStartedError` when nothing was
+   * touched, and with anything else when writing was already turned off.
+   */
+  removeAll(): Promise<{ removed: number; skipped: number; permissionDenied: boolean }>;
 }
 
 /**
@@ -340,13 +381,21 @@ export function useDeviceCalendarSync(
    * stay removed. The person turns it back on whenever they like.
    */
   const removeAll = useCallback(async () => {
-    const removeEverything = async () => {
-      const current = latest.current;
-      if (current.writeTarget === 'device') {
-        const answered = await putCalendarWriteTarget('off', { asUid: current.uid });
-        client.setQueryData(calendarQueryKeys.settings(current.uid), answered);
-        latest.current = { ...latest.current, writeTarget: 'off' };
+    removalInFlight = true;
+    try {
+      // Nothing is removed until writing is known to be off. A failure here
+      // has changed nothing, and says so (`CalendarRemovalNotStartedError`).
+      try {
+        // A pass between its write and its claim is let finish first, so its
+        // event is either linked or taken back before anything here looks —
+        // but not for ever: a pass stuck on the network must not hold the
+        // button, or every later pass, hostage.
+        await waitForPass();
+        await turnWritingOff();
+      } catch (error) {
+        throw new CalendarRemovalNotStartedError(error);
       }
+      const current = latest.current;
       const writerId = await resolveWriterId();
       // Where the copies no link names are looked for (QA v3, V3-F18-04): the
       // calendar picked on this phone, and every calendar one of its links names.
@@ -365,16 +414,31 @@ export function useDeviceCalendarSync(
           && getAuthRepository()?.currentUser()?.uid === current.uid),
       });
       void client.invalidateQueries({ queryKey: ['user', current.uid, 'commitments'] });
-      return { removed: result.removed, permissionDenied: result.permissionDenied };
-    };
-    removalInFlight = true;
-    try {
-      // A pass between its write and its claim is let finish first, so its
-      // event is either linked or taken back before anything here looks.
-      while (currentPass) await currentPass;
-      return await removeEverything();
+      // `skipped` is carried, not dropped: «انشالت» is said only when nothing
+      // was left behind (second review of #870).
+      return { removed: result.removed, skipped: result.skipped, permissionDenied: result.permissionDenied };
     } finally {
       removalInFlight = false;
+    }
+
+    /**
+     * Saves writing off on the account (owner decision, review of #870).
+     *
+     * The switch's state is read from the cache only once nothing in flight
+     * can overwrite it, and from the server when the cache does not have it:
+     * a screen that has not loaded the setting yet must not read as "off" and
+     * go on to remove events the next pass writes straight back.
+     */
+    async function turnWritingOff(): Promise<void> {
+      const uid = latest.current.uid;
+      const key = calendarQueryKeys.settings(uid);
+      await client.cancelQueries({ queryKey: key });
+      const cached = client.getQueryData<{ calendarSettings: { writeTarget: CalendarWriteTarget } }>(key);
+      const target = cached?.calendarSettings.writeTarget ?? (await getCalendarSettings()).calendarSettings.writeTarget;
+      if (target !== 'device') return;
+      const answered = await putCalendarWriteTarget('off', { asUid: uid });
+      client.setQueryData(key, answered);
+      latest.current = { ...latest.current, writeTarget: 'off' };
     }
   }, [client]);
 

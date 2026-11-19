@@ -616,8 +616,11 @@ export async function removeAllWrittenEvents(input: {
 
   let removed = 0;
   let skipped = 0;
+  // An event the link walk already tried is not tried, or counted, twice.
+  const attempted = new Set<string>();
   for (const subject of mine) {
     const link = subject.link!;
+    attempted.add(link.eventId);
     try {
       await input.ports.noteUnlink?.(subject.commitmentId, input.writerId);
       await input.ports.calendar.deleteEvent(link.eventId, link.calendarId);
@@ -660,7 +663,8 @@ export async function removeAllWrittenEvents(input: {
     }
     for (const event of found) {
       const stray = strays.get(event.url);
-      if (stray === undefined) continue;
+      if (stray === undefined || attempted.has(event.id)) continue;
+      attempted.add(event.id);
       try {
         await input.ports.calendar.deleteEvent(event.id, calendarId);
         await input.ports.forgetEvent(event.id);
@@ -697,6 +701,10 @@ function strayAddresses(
 ): ReadonlyMap<string, { commitmentId: string; forgetLink: boolean }> {
   const addresses = new Map<string, { commitmentId: string; forgetLink: boolean }>();
   for (const subject of subjects) {
+    // Unknown is not "none" (second review of #870): a response that did not
+    // carry the link may be hiding another device's, and in a shared iCloud
+    // calendar its event carries this same address.
+    if (subject.link === undefined) continue;
     if (subject.link && subject.link.writerId !== writerId) continue;
     addresses.set(commitmentEventUrl(subject.commitmentId), {
       commitmentId: subject.commitmentId,
