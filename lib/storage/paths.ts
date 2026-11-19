@@ -166,6 +166,19 @@ export const MEMORY_DISMISSALS = 'memoryDismissals';
  * an export.
  */
 export const MEMORY_SUMMARIES = 'memorySummaries';
+
+/** The languages a summary is kept in, one document each. */
+export const MEMORY_SUMMARY_LANGUAGES = ['ar', 'en', 'he'] as const;
+
+/**
+ * Every kept summary of an account. Erased with any change that removes or
+ * rewrites a memory row (`runtimeMemoryStore` supersede, revoke and delete),
+ * so a paragraph can never outlive the words it quotes, in the store or in an
+ * export (review of QA CA8.7).
+ */
+export function memorySummaryDocs(uid: string): string[] {
+  return MEMORY_SUMMARY_LANGUAGES.map((language) => `${userCol(uid, MEMORY_SUMMARIES)}/${language}`);
+}
 /** One document per UTC day: how many model calls this account has spent (#160). */
 export const USAGE = 'usage';
 /**

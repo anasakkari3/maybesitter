@@ -69,6 +69,7 @@ import {
   MEMORY,
   createMemoryStorage,
   getStorage,
+  memorySummaryDocs,
   requireDocId,
   userCol,
   userDoc,
@@ -519,6 +520,8 @@ export class StorageRuntimeMemoryStore implements RuntimeMemoryStore {
         supersededById: replacement.id,
         updatedAt: now,
       }));
+      // A kept summary quotes the words just replaced (review of QA CA8.7).
+      for (const path of memorySummaryDocs(userIdForKey(prior.scopeId))) tx.delete(path);
       return replacement;
     });
   }
@@ -534,6 +537,7 @@ export class StorageRuntimeMemoryStore implements RuntimeMemoryStore {
         held.path,
         withStatus(held.record, { status: 'revoked', revokedAt: at, updatedAt: at }),
       );
+      await this.forgetSummaries(held.record.scopeId);
       return true;
     }
     // Guarded (Q772C-001): the record and the account are re-read in the
@@ -547,6 +551,7 @@ export class StorageRuntimeMemoryStore implements RuntimeMemoryStore {
       if (!guard.accepts(await tx.get(userDoc(userIdForKey(record.scopeId))))) throw new MemoryWriteRefusedError();
       if (record.status === 'revoked') return true;
       tx.set<RuntimeMemoryRecord>(held.path, withStatus(record, { status: 'revoked', revokedAt: at, updatedAt: at }));
+      for (const path of memorySummaryDocs(userIdForKey(record.scopeId))) tx.delete(path);
       return true;
     });
   }
@@ -555,7 +560,20 @@ export class StorageRuntimeMemoryStore implements RuntimeMemoryStore {
     const held = await this.findById(id);
     if (!held) return false;
     await this.storage.delete(held.path);
+    await this.forgetSummaries(held.record.scopeId);
     return true;
+  }
+
+  /**
+   * Every kept memory summary of the scope's account goes when a row is
+   * removed or rewritten (review of QA CA8.7): a summary is a model's
+   * paraphrase of the rows, and it must not outlive one of them in the store
+   * or in an export. After the row write, so a failure here leaves the row
+   * change done and the summary to be erased by the next change; the
+   * fingerprint already stops it being served.
+   */
+  private async forgetSummaries(scopeId: string): Promise<void> {
+    for (const path of memorySummaryDocs(userIdForKey(scopeId))) await this.storage.delete(path);
   }
 
   async deleteScope(scopeId: string): Promise<number> {

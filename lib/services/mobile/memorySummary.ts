@@ -11,7 +11,12 @@ import { aiDisabled, commitUsage, reserveCall } from '../../llm/usageGuard';
 import { createHash } from 'node:crypto';
 import { getStorage } from '../../storage';
 import { MEMORY_SUMMARIES, userCol, userDoc } from '../../storage/paths';
-import { personalizationWriteGuard } from '../../runtimeMemory/runtimeMemoryStore';
+import { getAiConsent } from '../../consents/aiConsentService';
+import {
+  personalizationWriteGuard,
+  runtimeMemoryRecordPath,
+  runtimeMemoryRecordRetrievable,
+} from '../../runtimeMemory/runtimeMemoryStore';
 import { withSingleRetry, type LlmProvider } from '../../../src/extraction/llm';
 import { listMemory } from './memoryService';
 
@@ -369,10 +374,24 @@ function cachedResult(value: unknown, fingerprint: string, language: MemorySumma
  * outlived by a paragraph about what it erased. Best effort: a summary that
  * cannot be kept is still answered, and costs a call next time.
  */
-async function keepSummary(uid: string, guard: Awaited<ReturnType<typeof personalizationWriteGuard>>, stored: StoredMemorySummary): Promise<void> {
+async function keepSummary(
+  uid: string,
+  guard: Awaited<ReturnType<typeof personalizationWriteGuard>>,
+  rows: readonly MemorySummaryInputRow[],
+  stored: StoredMemorySummary,
+): Promise<void> {
   try {
     await getStorage().runTransaction(async (tx) => {
       if (!guard.accepts(await tx.get(userDoc(uid)))) return;
+      // Every row it quotes is still there, unchanged, in the same transaction
+      // (review of QA CA8.7): a row deleted or edited while the model answered
+      // erased the kept summaries already, and this one must not bring its
+      // words back.
+      const now = new Date().toISOString();
+      for (const row of rows) {
+        const current = await tx.get(runtimeMemoryRecordPath(uid, row.id));
+        if (!runtimeMemoryRecordRetrievable(current, uid, now) || current.content !== row.text) return;
+      }
       tx.set(summaryPath(uid, stored.language), stored);
     });
   } catch (error) {
@@ -406,6 +425,11 @@ export async function buildMemorySummary(input: { uid: string; language: MemoryS
   // An unchanged memory is answered from the kept summary: no model call and
   // no reservation (QA CA8.7). Each GET used to be a paid call.
   const fingerprint = fingerprintOf(rows, listed.length, input.language);
+  // The kept paragraph is a model's output: it is served only while the
+  // account may have its words read by a model (review of QA CA8.7). Always
+  // granted since the owner's decision of 2026-09-30, so this is the seam a
+  // future withdrawal would close, not a refusal any account meets today.
+  if ((await getAiConsent(input.uid)) !== 'granted') return { status: 'unavailable' };
   const cached = cachedResult(await getStorage().get(summaryPath(input.uid, input.language)).catch(() => null), fingerprint, input.language);
   if (cached) return cached;
   const remaining = MEMORY_SUMMARY_ROUTE_BUDGET_MS - (Date.now() - input.startedAt);
@@ -442,7 +466,7 @@ export async function buildMemorySummary(input: { uid: string; language: MemoryS
       coveredCount: rows.length, totalCount: listed.length,
     };
     if (guard) {
-      await keepSummary(input.uid, guard, {
+      await keepSummary(input.uid, guard, rows, {
         fingerprint, language: ready.language, sentences: ready.sentences,
         coveredCount: ready.coveredCount, totalCount: ready.totalCount, createdAt: new Date().toISOString(),
       });
