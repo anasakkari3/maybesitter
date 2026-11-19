@@ -387,3 +387,30 @@ test('F: the missed-thing and relative-span readers read at most the cap, in a b
     assert.ok(seen.operations <= 40_000, `${seen.operations} regex runs on ${JSON.stringify(text.slice(0, 20))}…`);
   }
 });
+
+// ── G. The QA v3 title clean-ups stay linear on 100,000 characters (review round 4) ──
+
+test('G: the missed-thing title and the span title clean 100,000 hostile characters in well under a second', async () => {
+  /*
+   * The one place in this file that reads a clock, and only as a coarse
+   * ceiling: these two clean a title, which the cap already bounds to 2,000
+   * characters, but the review held them to linear time on 100,000 — a
+   * quadratic tail or edge trim took 7 to 15 seconds there. A second is far
+   * above linear and far below quadratic, so load cannot flip it.
+   */
+  const missed = await import('../../src/extraction/missedObligation.ts') as Record<string, unknown>;
+  const service = await import('../../src/extraction/extractionService.ts') as Record<string, unknown>;
+  const missedThingTitle = missed.missedThingTitle as ((text: string) => unknown) | undefined;
+  const spanTitle = service.spanTitle as ((text: string) => unknown) | undefined;
+  assert.equal(typeof missedThingTitle, 'function', 'missedThingTitle is exported for this bound');
+  assert.equal(typeof spanTitle, 'function', 'spanTitle is exported for this bound');
+  const big = (unit: string) => unit.repeat(Math.ceil(100_000 / unit.length)).slice(0, 100_000);
+  for (const text of [big(' '), big(' ،'), big(', '), big(' .'), big(' :'), `x${big(' ')}x`, big(' وما'), big(' and')]) {
+    for (const clean of [missedThingTitle!, spanTitle!]) {
+      const started = performance.now();
+      clean(text);
+      const took = performance.now() - started;
+      assert.ok(took < 1_000, `${took.toFixed(0)} ms on ${JSON.stringify(text.slice(0, 6))}…`);
+    }
+  }
+});

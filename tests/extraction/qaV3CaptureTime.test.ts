@@ -455,3 +455,31 @@ for (const text of ['بعد ساعتين', 'تذكير بعد ساعتين', 'Re
     assert.equal(contract.items[0]!.title, text);
   });
 }
+
+/* ── Review round 4: the span's title ─────────────────────────────────── */
+
+test('round 4 (F04-04): a model title that only restates the span gives way to the words («بعد ساعتين اتصل بأمي»)', async () => {
+  const { contract } = await propose('بعد ساعتين اتصل بأمي', { provider: scripted(() => modelTask('ساعتين', TODAY, '09:12')) });
+  assert.equal(contract.items[0]!.title, 'اتصل بأمي');
+});
+
+test('round 4 (F04-04): "remind me in 2 hours to call mom" is titled "call mom"', async () => {
+  const { contract } = await propose('remind me in 2 hours to call mom');
+  assert.equal(contract.items[0]!.title.toLowerCase(), 'call mom');
+});
+
+test('round 4 (F04-04): two letters after the span are not a thing to do («بعد ساعتين رد»)', async () => {
+  const { contract } = await propose('بعد ساعتين رد');
+  assert.equal(contract.items[0]!.clarification?.questionKey, 'ask_action');
+});
+
+test('round 4 (F04-04): a span beside a calendar date of its own is not counted from now', async () => {
+  const { contract } = await propose('بعد ساعتين يوم 25 نوفمبر لازم أتصل بأمي');
+  assert.ok(contract.items.every((item) => when(item.resolvedTime) !== `${TODAY} 09:12`), JSON.stringify(contract.items));
+});
+
+test('round 4: the chat prompt says what is not a missed thing — a feeling, and an event whose time has gone', () => {
+  const prompt = buildChatPrompt([{ role: 'user', text: 'كان لازم أصبر وما صبرت' }], [], { now: NOW, timezone: TZ });
+  assert.match(prompt, /كان لازم أصبر وما صبرت/);
+  assert.match(prompt, /كان لازم أحضر الحفلة مبارح/);
+});

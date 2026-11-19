@@ -290,3 +290,77 @@ test('round 3: a filler before the obligation does not hide it («أنا كان 
   assert.equal(isMissedObligation('أنا كان لازم أبعت الواجب وما بعتته'), true);
   assert.equal(isMissedObligation('والله كان لازم أدفع الفاتورة وما دفعتها'), true);
 });
+
+/* ── Review round 4: an action verb onto a real object, said by the speaker ── */
+
+const ROUND4 = JSON.parse(readFileSync(new URL('./fixtures/qaV3MissedRound4.json', import.meta.url), 'utf8')) as {
+  negatives: Record<'neg' | 'neg2' | 'dis' | 'misc' | 'guard', string[]>;
+  pinned: string[]; positives: string[]; narrowedPositives: Record<string, string>;
+};
+
+for (const group of ['neg', 'neg2', 'dis', 'misc', 'guard'] as const) {
+  test(`round 4: none of the reviewer's «${group}» sentences is read as a missed thing`, () => {
+    assert.deepEqual(ROUND4.negatives[group].filter((text) => isMissedObligation(text)), []);
+  });
+}
+
+/** Framing, lateness or an English past form left in a card title. */
+const UNCLEAN_TITLE = /كان|كنت|لازم|المفروض|علي |بدي|فاتني|متأخر|supposed|should|had to|needed|meant|didn|haven|never|^to |late|ed\b/i;
+
+test('round 4: the reviewer\'s 48 positives are still read, each a to-do today with a clean title', async () => {
+  const unread = ROUND4.positives.filter((text) => !isMissedObligation(text));
+  assert.deepEqual(unread, []);
+  for (const text of ROUND4.positives) {
+    const { contract } = await propose(text);
+    const item = contract.items[0]!;
+    assert.equal(item.resolvedDate, TODAY, text);
+    assert.equal(item.resolvedTime, null, text);
+    assert.ok(!UNCLEAN_TITLE.test(item.title), `${text} → ${item.title}`);
+  }
+});
+
+test('round 4: the two positives given up on purpose are not read (going somewhere; «بدي» is a wish)', () => {
+  assert.deepEqual(Object.keys(ROUND4.narrowedPositives).filter((text) => isMissedObligation(text)), []);
+});
+
+test('round 4: «٣٠ دينار … وما دفعت…» keeps the positives\' exact shape and is read, pinned', () => {
+  assert.ok(ROUND4.pinned.every((text) => isMissedObligation(text)));
+});
+
+test('round 4: an English title in the past is put back to the verb («should have renewed» → «renew»)', async () => {
+  const { contract } = await propose("I should have renewed my license and I didn't");
+  assert.equal(contract.items[0]!.title, 'renew my license');
+});
+
+test('round 4: a feeling the model rightly called nothing stays nothing — the reading never overrides it', async () => {
+  for (const text of ['كان لازم أصبر وما صبرت', "I should have known and I didn't", 'كان لازم أحضر الحفلة مبارح وما حضرت']) {
+    const { contract } = await propose(text, { provider: scripted(() => modelTask(null, null, null, { type: 'unknown' })) });
+    assert.equal(contract.items.length, 0, text);
+  }
+});
+
+for (const [text, label] of [
+  ['كان لازم أدفع الفاتورة وأمي ما دفعت', 'somebody named before «ما»'],
+  ['كان لازم أسلم الواجب بس الدكتورة ما سلمت', 'somebody after «بس»'],
+  ['كان لازم أبعت الواجب وما بلغت', 'another verb with the same first and last letter'],
+  ['كان لازم أصبر وما صبرت', 'a verb with no object'],
+  ['كان لازم أكون هناك وما كنت', 'a place word as the only object'],
+  ['كان لازم أرد عليه بقسوة وما رديت', 'a pronoun as the only object'],
+  ['كان لازم أحضر الحفلة مبارح وما حضرت', 'an event whose time has gone'],
+  ['كنت بدي أسافر وما سافرت', 'a wish («بدي»)'],
+  ['كان لازم أدفع كل شهر وما دفعت', 'a recurrence'],
+  ['كان لازم أدفع الفاتورة يوم ٢٥ نوفمبر وما دفعت', 'a calendar date of its own'],
+  ['كان لازم أعمل واجبي ما عملته', 'no joiner before «ما»'],
+  ['I was supposed to win and I didn\'t', 'an English verb with no object'],
+  ['I had to forgive him and I didn\'t', 'an English pronoun object'],
+  ['I was supposed to attend the meeting and I didn\'t', 'an English event'],
+] as const) {
+  test(`round 4: «${text}» (${label}) is not a missed thing`, () => {
+    assert.equal(isMissedObligation(text), false);
+  });
+}
+
+test('round 4: an opening filler is still allowed («So I was supposed to…»)', () => {
+  assert.equal(isMissedObligation("So I was supposed to call the bank and I didn't"), true);
+  assert.equal(isMissedObligation("Today I was supposed to call the bank and I didn't"), true);
+});
