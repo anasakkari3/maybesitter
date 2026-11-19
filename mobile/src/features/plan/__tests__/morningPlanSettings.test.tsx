@@ -145,7 +145,9 @@ describe('the switch is the server’s record', () => {
     await fireEvent(screen.getByTestId('plan-morning-toggle'), 'valueChange', true);
 
     await waitFor(() => expect(screen.getByTestId('plan-morning-toggle').props.value).toBe(true));
-    expect(planEndpoints.putPlanSettings).toHaveBeenCalledWith({ enabled: true, deliveryLocalTime: '07:30' });
+    // The switch alone (CXA4.7): re-sending the cached hour would undo a time
+    // another device set since this screen loaded.
+    expect(planEndpoints.putPlanSettings).toHaveBeenCalledWith({ enabled: true });
   });
 
   it('shows the server’s own next delivery rather than recomputing one', async () => {
@@ -337,7 +339,7 @@ describe('the OS prompt, from this switch', () => {
 
     await waitFor(() => expect(permission.requestNotificationPermission).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(planEndpoints.putPlanSettings)
-      .toHaveBeenCalledWith({ enabled: true, deliveryLocalTime: '07:30' }));
+      .toHaveBeenCalledWith({ enabled: true }));
   });
 
   it('is not asked on the way off', async () => {
@@ -345,7 +347,7 @@ describe('the OS prompt, from this switch', () => {
     await settled();
     await fireEvent(screen.getByTestId('plan-morning-toggle'), 'valueChange', false);
     await waitFor(() => expect(planEndpoints.putPlanSettings)
-      .toHaveBeenCalledWith({ enabled: false, deliveryLocalTime: '07:30' }));
+      .toHaveBeenCalledWith({ enabled: false }));
     expect(permission.requestNotificationPermission).not.toHaveBeenCalled();
   });
 
