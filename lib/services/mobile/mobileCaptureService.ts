@@ -939,7 +939,9 @@ function buildCaptureHabit(
     preferredWindows: preferredWindows(point.preferredWindow),
     minimumOccurrences: count,
     maximumOccurrences: count,
-    flexibility: 'flexible',
+    // Held like a goal plan's habit (owner decision 2026-11-20): the window the
+    // person said is the planner's first try, yielded only to something harder.
+    flexibility: 'protected_flexible',
     recoveryPolicy: 'skip',
     source: 'capture_chat',
     confirmation: {
