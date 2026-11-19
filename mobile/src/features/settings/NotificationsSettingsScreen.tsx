@@ -610,12 +610,10 @@ export function NotificationsSettingsScreen({ onBack }: { onBack: () => void }) 
               if (next_) await askForPermission();
               // A throw is left to `ServerToggle`, which says which failure it
               // was: a refusal is not "didn't reach the server" (UAT round 3, N9).
-              const saved = await savePlan.mutateAsync({
-                enabled: next_,
-                // The hour is only sent when the user has one. Omitting it
-                // leaves the stored value alone rather than re-asserting it.
-                ...(deliveryLocalTime ? { deliveryLocalTime } : {}),
-              });
+              // The switch alone (CXA4.7): the hour is left out so the stored
+              // one stays, rather than this screen's cached copy re-asserting
+              // a time another device has since changed.
+              const saved = await savePlan.mutateAsync({ enabled: next_ });
               return saved.enabled === next_;
             }}
           />
