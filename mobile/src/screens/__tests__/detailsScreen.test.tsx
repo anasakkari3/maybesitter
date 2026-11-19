@@ -152,6 +152,18 @@ describe('what it shows', () => {
     // Delete stays: a finished item can still be removed from the lists.
     expect(screen.getByTestId('details-delete').props.accessibilityState.disabled).toBeFalsy();
   });
+
+  // V3-F12-03: a dropped item's details said «هاي خلصت» (this one is done).
+  it('says a dropped item was dropped on purpose, not that it is done', async () => {
+    await show(commitment({ status: 'dropped', droppedAt: '2026-09-13T16:00:00.000Z' }));
+    expect(screen.getByTestId('details-closed-note').props.children).toBe(en.detailsDroppedNote);
+    expect(screen.getByTestId('details-closed-note').props.children).not.toBe(en.detailsClosedNote);
+  });
+
+  it('says a finished item is finished', async () => {
+    await show(commitment({ status: 'completed', completedAt: '2026-09-13T16:00:00.000Z' }));
+    expect(screen.getByTestId('details-closed-note').props.children).toBe(en.detailsClosedNote);
+  });
 });
 
 describe('done', () => {
