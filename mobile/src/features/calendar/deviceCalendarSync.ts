@@ -408,7 +408,8 @@ const COPY_LOOKUP_DAYS = 366;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 /**
- * The events already in the calendar for this commitment, oldest id first.
+ * The events already in the calendar for this commitment, sorted by id so every
+ * pass keeps the same one whatever order the calendar lists them in.
  *
  * Matched on the whole address, never the prefix: another commitment's event
  * is not a copy of this one. A title edit keeps the time, and a moved time is
@@ -422,7 +423,16 @@ async function copiesOf(ports: SyncPorts, calendarId: string, draft: EventDraft)
     new Date(draft.startDate.getTime() - COPY_LOOKUP_DAYS * DAY_MS),
     new Date(draft.endDate.getTime() + COPY_LOOKUP_DAYS * DAY_MS),
   );
-  return [...new Set(found.filter((event) => event.url === draft.url).map((event) => event.id))];
+  return [...new Set(found.filter((event) => event.url === draft.url).map((event) => event.id))].sort();
+}
+
+/** Takes the extra copies out, after the claim is ours. Answers how many went. */
+async function removeCopies(ports: SyncPorts, calendarId: string, extra: readonly string[]): Promise<number> {
+  for (const eventId of extra) {
+    await ports.calendar.deleteEvent(eventId, calendarId);
+    await ports.forgetEvent(eventId);
+  }
+  return extra.length;
 }
 
 async function apply(
@@ -469,12 +479,8 @@ async function apply(
           contentHash: plan.draft.contentHash,
           state: 'linked',
         });
-        for (const eventId of extra) {
-          await ports.calendar.deleteEvent(eventId, calendarId);
-          await ports.forgetEvent(eventId);
-        }
         outcome.updated += 1;
-        outcome.deleted += extra.length;
+        outcome.deleted += await removeCopies(ports, calendarId, extra);
         return;
       }
       /*
@@ -523,15 +529,22 @@ async function apply(
     }
 
     case 'update': {
+      const calendarId = subject.link?.calendarId ?? input.calendarId ?? '';
       await ports.calendar.updateEvent(plan.eventId, plan.draft, subject.link?.calendarId);
       await ports.putLink(commitmentId, {
         writerId,
-        calendarId: subject.link?.calendarId ?? input.calendarId ?? '',
+        calendarId,
         eventId: plan.eventId,
         contentHash: plan.draft.contentHash,
         state: 'linked',
       });
       outcome.updated += 1;
+      // A cleanup an earlier pass did not finish (killed, or a delete that
+      // failed): the copies beside the linked event go now (review of #870).
+      if (calendarId !== '') {
+        const extra = (await copiesOf(ports, calendarId, plan.draft)).filter((id) => id !== plan.eventId);
+        outcome.deleted += await removeCopies(ports, calendarId, extra);
+      }
       return;
     }
 
@@ -646,10 +659,18 @@ export async function removeAllWrittenEvents(input: {
       continue;
     }
     for (const event of found) {
-      if (!strays.has(event.url)) continue;
+      const stray = strays.get(event.url);
+      if (stray === undefined) continue;
       try {
         await input.ports.calendar.deleteEvent(event.id, calendarId);
         await input.ports.forgetEvent(event.id);
+        // A claim can land after the lists were read and name this very event
+        // (review of #870); a link to an event that is gone is detached by the
+        // next pass, for ever. Our own link only: the server refuses another
+        // installation's, and forgetting one that is not there is not an error.
+        // Never a `detached` row: that is the record of an event the user
+        // removed by hand, and it stays.
+        if (stray.forgetLink) await input.ports.deleteLink(stray.commitmentId, input.writerId);
         removed += 1;
       } catch (error) {
         if (error instanceof DeviceCalendarError && error.reason === 'permission_denied') {
@@ -670,11 +691,17 @@ const SWEEP_DAYS_AHEAD = 731;
  * The addresses whose stray copies "Remove events MaybeSitter added" may take
  * out: every commitment in hand, except one another installation writes.
  */
-function strayAddresses(subjects: readonly SyncSubject[], writerId: string): ReadonlySet<string> {
-  const addresses = new Set<string>();
+function strayAddresses(
+  subjects: readonly SyncSubject[],
+  writerId: string,
+): ReadonlyMap<string, { commitmentId: string; forgetLink: boolean }> {
+  const addresses = new Map<string, { commitmentId: string; forgetLink: boolean }>();
   for (const subject of subjects) {
     if (subject.link && subject.link.writerId !== writerId) continue;
-    addresses.add(commitmentEventUrl(subject.commitmentId));
+    addresses.set(commitmentEventUrl(subject.commitmentId), {
+      commitmentId: subject.commitmentId,
+      forgetLink: subject.link?.state !== 'detached',
+    });
   }
   return addresses;
 }

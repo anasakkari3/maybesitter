@@ -776,3 +776,19 @@ describe('remove events MaybeSitter added, racing a pass (review of #870)', () =
   });
 });
 
+describe('remove events MaybeSitter added, and a row the user made by hand (review of #870)', () => {
+  it('removes the stray copies of a detached commitment and keeps its tombstone', async () => {
+    const rec = recorder();
+    seedCopy(rec, 'a-1', commitment({ id: 'a' }));
+    await removeAllWrittenEvents({
+      subjects: [subject(commitment({ id: 'a' }), link({ state: 'detached', eventId: 'gone' }))],
+      writerId: MINE,
+      calendarIds: ['cal-1'],
+      now: new Date('2026-06-10T00:00:00.000Z'),
+      ports: rec.ports,
+    });
+    expect(rec.events.size).toBe(0);
+    expect(rec.calls).not.toContain('deleteLink:a');
+  });
+});
+

@@ -515,7 +515,9 @@ export const deviceCalendar: DeviceCalendar = {
       if (found !== '') return found;
       // An event nothing can name cannot be claimed, updated or removed later:
       // take it back out now, through the object that still holds it.
-      if (typeof event.delete === 'function') await event.delete();
+      // The whole series: a weekly block's first occurrence alone is `thisEvent`.
+      const written = wholeSeries(event);
+      if (typeof written.delete === 'function') await written.delete();
       throw new DeviceCalendarError('unavailable', 'the calendar did not say which event it wrote');
     } catch (error) {
       throw failureFrom(error, 'unavailable');

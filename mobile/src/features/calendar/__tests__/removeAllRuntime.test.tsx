@@ -72,7 +72,9 @@ let phone = new Map<string, string>();
 function Host() {
   const today = useToday();
   const upcoming = useUpcoming();
-  hook = useDeviceCalendarSync([today.data, upcoming.data]);
+  const state = useDeviceCalendarSync([today.data, upcoming.data]);
+  // Handed out after render, not during it.
+  React.useEffect(() => { hook = state; });
   return null;
 }
 

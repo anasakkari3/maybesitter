@@ -155,6 +155,9 @@ export function CalendarSettingsScreen({ onBack, onFeeds }: { onBack: () => void
   const [excluded, setExcluded] = useState<string[]>([]);
   const [chosen, setChosen] = useState<string | null>(null);
   const [removed, setRemoved] = useState<number | null>(null);
+  // The removal turns writing off first; if that could not be saved, nothing
+  // was removed, and the line says so (review of #870).
+  const [removeFailed, setRemoveFailed] = useState<UserFacingKey | null>(null);
   const [busy, setBusy] = useState(false);
   const [disconnected, setDisconnected] = useState<null | 'done' | 'localOnly'>(null);
   const [disconnecting, setDisconnecting] = useState(false);
@@ -336,12 +339,15 @@ export function CalendarSettingsScreen({ onBack, onFeeds }: { onBack: () => void
   const removeAll = useCallback(async () => {
     setBusy(true);
     setRemoved(null);
+    setRemoveFailed(null);
     try {
       const result = await sync.removeAll();
       // The weekly blocks' recurring events are events MaybeSitter added too.
       const weekly = result.permissionDenied ? { removed: 0, permissionDenied: true } : await weeklySync.removeAll();
       if (result.permissionDenied || weekly.permissionDenied) setAccess('denied');
       else setRemoved(result.removed + weekly.removed);
+    } catch (error: unknown) {
+      setRemoveFailed(toggleFailureKey(error));
     } finally {
       setBusy(false);
     }
@@ -646,6 +652,7 @@ export function CalendarSettingsScreen({ onBack, onFeeds }: { onBack: () => void
           {removed === null ? null : (
             <Txt size={13} color={p.mu} testID="calendar-removed-count">{t.calendarRemoveDone}</Txt>
           )}
+          {removeFailed ? <Txt size={13} color={p.wm} testID="calendar-remove-failed">{t[removeFailed]}</Txt> : null}
         </Card>
 
         <ManualLectureTimes

@@ -32,6 +32,7 @@ import { useToday, useUid, useUpcoming } from '../../api/queries';
 import {
   deleteDeviceCalendarLink,
   getCalendarSettings,
+  putCalendarWriteTarget,
   putDeviceCalendarLink,
 } from '../../api/endpoints/calendar';
 import type { CommitmentList, DeviceCalendarLink } from '../../api/schemas/common';
@@ -79,9 +80,22 @@ export const calendarQueryKeys = {
  */
 let passInFlight = false;
 
+/**
+ * The pass in flight, so "Remove events MaybeSitter added" can wait for it
+ * (review of #870). Pressed between a pass's write and its claim, the removal
+ * took the event out and the claim landed afterwards, naming an event that was
+ * gone — which the next pass records as deleted by hand, for ever.
+ */
+let currentPass: Promise<void> | null = null;
+
+/** While a removal runs no pass starts: it would write back what is being removed. */
+let removalInFlight = false;
+
 /** For tests, which must not inherit a flag from a pass they did not run. */
 export function resetCalendarSyncForTests(): void {
   passInFlight = false;
+  currentPass = null;
+  removalInFlight = false;
 }
 
 /**
@@ -229,7 +243,7 @@ export function useDeviceCalendarSync(
   });
 
   const runNow = useCallback(async (): Promise<SyncOutcome | null> => {
-    if (passInFlight) return null;
+    if (passInFlight || removalInFlight) return null;
     // The build-level switch, consulted here rather than on a screen: this is
     // the one place a calendar write is initiated, so "this build writes no
     // events" is a claim the code keeps however the sync is reached.
@@ -237,6 +251,8 @@ export function useDeviceCalendarSync(
     const current = latest.current;
     if (current.uid === 'signed-out') return null;
     passInFlight = true;
+    let finishPass: () => void = () => undefined;
+    currentPass = new Promise<void>((resolve) => { finishPass = resolve; });
     setIsRunning(true);
     try {
       const writerId = await resolveWriterId();
@@ -288,6 +304,8 @@ export function useDeviceCalendarSync(
       return result;
     } finally {
       passInFlight = false;
+      currentPass = null;
+      finishPass();
       setIsRunning(false);
     }
   }, [client]);
@@ -312,27 +330,52 @@ export function useDeviceCalendarSync(
     return () => subscription.remove();
   }, [runNow]);
 
+  /**
+   * Writing off first, then the removal (owner decision, review of #870).
+   *
+   * With «حطّ التزاماتي بتقويمي» still on, the removal's own refresh brought
+   * the links back null and the next pass wrote every event again within
+   * seconds. Off is saved on the account before a single event is touched;
+   * if it cannot be saved nothing is removed, because the removal would not
+   * stay removed. The person turns it back on whenever they like.
+   */
   const removeAll = useCallback(async () => {
-    const current = latest.current;
-    const writerId = await resolveWriterId();
-    // Where the copies no link names are looked for (QA v3, V3-F18-04): the
-    // calendar picked on this phone, and every calendar one of its links names.
-    const chosen = await loadChosenCalendarId(current.uid);
-    const calendarIds = [
-      ...(chosen === null ? [] : [chosen]),
-      ...current.subjects.flatMap((subject) =>
-        subject.link && subject.link.writerId === writerId ? [subject.link.calendarId] : []),
-    ];
-    const result = await removeAllWrittenEvents({
-      subjects: current.subjects,
-      writerId,
-      calendarIds,
-      // Bound to the account it began for: a switch stops the removal (M5A-R21-001).
-      ports: apiSyncPorts(current.uid, () => latest.current.uid === current.uid
-        && getAuthRepository()?.currentUser()?.uid === current.uid),
-    });
-    void client.invalidateQueries({ queryKey: ['user', current.uid, 'commitments'] });
-    return { removed: result.removed, permissionDenied: result.permissionDenied };
+    const removeEverything = async () => {
+      const current = latest.current;
+      if (current.writeTarget === 'device') {
+        const answered = await putCalendarWriteTarget('off', { asUid: current.uid });
+        client.setQueryData(calendarQueryKeys.settings(current.uid), answered);
+        latest.current = { ...latest.current, writeTarget: 'off' };
+      }
+      const writerId = await resolveWriterId();
+      // Where the copies no link names are looked for (QA v3, V3-F18-04): the
+      // calendar picked on this phone, and every calendar one of its links names.
+      const chosen = await loadChosenCalendarId(current.uid);
+      const calendarIds = [
+        ...(chosen === null ? [] : [chosen]),
+        ...current.subjects.flatMap((subject) =>
+          subject.link && subject.link.writerId === writerId ? [subject.link.calendarId] : []),
+      ];
+      const result = await removeAllWrittenEvents({
+        subjects: current.subjects,
+        writerId,
+        calendarIds,
+        // Bound to the account it began for: a switch stops the removal (M5A-R21-001).
+        ports: apiSyncPorts(current.uid, () => latest.current.uid === current.uid
+          && getAuthRepository()?.currentUser()?.uid === current.uid),
+      });
+      void client.invalidateQueries({ queryKey: ['user', current.uid, 'commitments'] });
+      return { removed: result.removed, permissionDenied: result.permissionDenied };
+    };
+    removalInFlight = true;
+    try {
+      // A pass between its write and its claim is let finish first, so its
+      // event is either linked or taken back before anything here looks.
+      while (currentPass) await currentPass;
+      return await removeEverything();
+    } finally {
+      removalInFlight = false;
+    }
   }, [client]);
 
   return { outcome, running: isRunning, runNow, removeAll };
