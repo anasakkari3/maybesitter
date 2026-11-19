@@ -11,7 +11,10 @@
 import { describe, expect, it } from '@jest/globals';
 import { readdirSync, readFileSync, statSync } from 'fs';
 import { join, relative } from 'path';
-import he from '../locales/he.json';
+import heJson from '../locales/he.json';
+
+/** The strings only: `_meta` is not copy. */
+const he = Object.fromEntries(Object.entries(heJson).filter(([, value]) => typeof value === 'string')) as Record<string, string>;
 
 const SRC = join(__dirname, '..', '..');
 
@@ -35,10 +38,10 @@ describe('Hebrew wording', () => {
 
   it('a goal is «מטרה» everywhere; «יעד» is left only for a due date', () => {
     const DUE_DATE_KEYS = new Set(['financialAddBillDate']);
-    const stray = Object.entries(he as Record<string, string>)
+    const stray = Object.entries(he)
       .filter(([key, value]) => /יעד/.test(value) && !DUE_DATE_KEYS.has(key))
       .map(([key]) => key);
     expect(stray).toEqual([]);
-    expect((he as Record<string, string>).financialAddBillDate).toContain('תאריך יעד');
+    expect(he.financialAddBillDate).toContain('תאריך יעד');
   });
 });
