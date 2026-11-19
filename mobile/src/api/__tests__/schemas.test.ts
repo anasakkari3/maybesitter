@@ -286,6 +286,8 @@ const CASES: [string, z.ZodType][] = [
   // The goal link kept at confirm (audit 2026-10-03 #6).
   ['capture.chatGoalLinkConfirmation', captureConfirmationSchema],
   ['capture.chatRules', captureChatSchema],
+  // CA3.10: the rules' answer once the day's model allowance is spent.
+  ['capture.chatDailyLimit', captureChatSchema],
   ['capture.chatQuestion', captureChatSchema],
   ['capture.chatFollowUp', captureChatSchema],
   ['capture.chatUnderstoodMany', captureChatSchema],

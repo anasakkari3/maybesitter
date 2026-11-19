@@ -207,7 +207,8 @@ import {
   POST as readinessHealthPost,
 } from '../../src/app/api/mobile/readiness/route.ts';
 import { buildHealthKitReadinessSnapshot } from '../../lib/integrations/readiness/healthkit.ts';
-import { resetProviderForTests } from '../../src/extraction/llm/index.ts';
+import { LLMUnavailableError, resetProviderForTests } from '../../src/extraction/llm/index.ts';
+import { setCaptureChatDependenciesForTests } from '../../lib/services/captureChat/captureChatService.ts';
 import {
   buildAndStoreDailyPlan,
   claimDueDelivery,
@@ -1819,6 +1820,28 @@ test('exports a fixture for every /api/mobile call the React Native client makes
     })));
     assert.equal(chatRules.engine, 'rules');
     assert.equal((chatRules.proposal as { items: unknown[] }).items.length, 1);
+    // CA3.10: the day's model allowance spent. The model is refused with the
+    // daily cap (scripted, no network), the rules answer, and the answer says
+    // so with `dailyAiLimitReached: true` — never which counter, never a number.
+    const dailyLimitUser = uidFor('ChatDailyLimitFixture');
+    await aiConsentPut(request('/api/mobile/consents/ai-processing', {
+      method: 'PUT',
+      body: { state: 'granted', version: AI_CONSENT_VERSION, locale: 'ar', platform: 'ios' },
+      uid: dailyLimitUser,
+    }));
+    setCaptureChatDependenciesForTests({
+      llmProviderFor: () => async () => { throw new LLMUnavailableError('cost_cap:user_daily'); },
+    });
+    try {
+      const chatDailyLimit = await record('capture.chatDailyLimit', 200, await chatPost(request('/api/mobile/capture/chat', {
+        body: { message: 'ذكرني بكرا الساعة 5 المسا أحكي مع الدكتور', timezone: 'Asia/Jerusalem', referenceTime: REFERENCE_TIME },
+        uid: dailyLimitUser,
+      })));
+      assert.equal(chatDailyLimit.engine, 'rules');
+      assert.equal(chatDailyLimit.dailyAiLimitReached, true);
+    } finally {
+      setCaptureChatDependenciesForTests(null);
+    }
     const chatQuestion = await record('capture.chatQuestion', 200, await chatPost(request('/api/mobile/capture/chat', {
       body: { message: 'بدي روح عالبنك بكرا', timezone: 'Asia/Jerusalem', referenceTime: REFERENCE_TIME },
       uid: uidFor('ChatQuestionFixture'),

@@ -305,6 +305,8 @@ export interface CaptureState {
    * server, `followUpShown`).
    */
   followUp: ChatFollowUpState | null;
+  /** CA3.10: the latest chat answer said the day's model allowance is spent. */
+  dailyAiLimitReached: boolean;
   /**
    * The proposal whose cards the person opened from «هيك فهمت» (audit
    * 2026-10-06 #5/#6), by id. A chat answer that carries `understood` shows
@@ -498,6 +500,7 @@ export function initialCaptureState(
     earlier: [],
     replyArrival: 0,
     followUp: null,
+    dailyAiLimitReached: false,
     reviewOf: null,
     spoken: false,
     alternatives: [],
@@ -1179,6 +1182,7 @@ export function captureReducer(state: CaptureState, event: CaptureEvent): Captur
         replyArrival: state.replyArrival + 1,
         errorReason: null,
         messageKey: null,
+        dailyAiLimitReached: answer.dailyAiLimitReached === true,
         // One per session: a second one from the server is never shown.
         followUp: state.followUp ?? (answer.followUp
           ? { items: answer.followUp.items, at: state.earlier.length + answer.turns.length, open: true, answered: [] }

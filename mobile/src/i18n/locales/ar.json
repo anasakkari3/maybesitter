@@ -1777,6 +1777,7 @@
   "chatReviewTools": "كل خيارات المراجعة",
   "aiDisclosureTitle": "مين بيفهم كلامك",
   "aiDisclosure": "اللي بتكتبه أو بتحكيه بيبعته سيرفرنا لـGemini من Google (Vertex AI) بالاتحاد الأوروبي، عشان يفهمه.",
+  "chatAiDailyLimit": "خلصت حصّة اليوم من الفهم الذكي، رح أفهم بطريقة أبسط لبكرا.",
   "aiDisclosureKept": "ما بنخلّي المحادثة عنا إلا لوقت قصير، وما بينحفظ بقائمتك إلا اللي بتأكّده.",
   "chatUnscheduled": "بدون يوم محدّد",
   "chatConflictWith": "بيتعارض مع «{title}» {when}",

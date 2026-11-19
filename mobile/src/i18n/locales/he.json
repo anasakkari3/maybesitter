@@ -1780,6 +1780,7 @@
   "chatReviewTools": "כל אפשרויות הסקירה",
   "aiDisclosureTitle": "מי מבין את מה שאתה אומר",
   "aiDisclosure": "מה שאתה כותב או אומר נשלח מהשרת שלנו ל־Gemini של Google‏ (Vertex AI) באיחוד האירופי, כדי להבין אותו.",
+  "chatAiDailyLimit": "ההבנה החכמה של היום נגמרה. עד מחר אבין בצורה פשוטה יותר.",
   "aiDisclosureKept": "אנחנו שומרים את השיחה רק לזמן קצר, ורק מה שאתה מאשר נשמר ברשימה שלך.",
   "chatUnscheduled": "בלי יום קבוע",
   "chatConflictWith": "מתנגש עם \"{title}\" {when}",
