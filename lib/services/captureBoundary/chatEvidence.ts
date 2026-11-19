@@ -45,6 +45,7 @@ import {
 } from '../../../src/extraction/timeLexicon';
 import { namesCalendarDate, readRecurrence, resolveWeekdayDates } from '../../../src/extraction/weekdayLexicon';
 import { isNegatedRequest } from '../mobile/safety';
+import { statedRelativeTime } from '../../../src/extraction/extractionService';
 
 /** A clause that refuses a reminder, by either of the two checks the capture path makes. */
 function refuses(text: string): boolean {
@@ -526,6 +527,14 @@ export function chatTimeAllowance(turns: readonly string[], now: Date, timezone:
     // A clock or a part of the day with no day of its own is today's, as the
     // capture path reads it — never a later day picked for the person.
     if (today && (statesClock(turn) || part !== null)) allowance.dates.add(today);
+    // «بعد ساعتين» (QA v3, V3-F04-04): now plus that much is a time the
+    // person said, its day and its minute with it.
+    const counted = statedRelativeTime(turn, now, timezone);
+    if (counted) {
+      allowance.hours.add(Number(counted.time.slice(0, 2)) % 12);
+      allowance.minutes.add(Number(counted.time.slice(3, 5)));
+      allowance.dates.add(counted.date);
+    }
   }
   return allowance;
 }

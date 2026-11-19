@@ -371,6 +371,58 @@ test('a page that is not a calendar, a failed fetch, an unknown key and missing 
   });
 });
 
+// QA v3 V3-F19-01: Google public calendars answer the server with `http_status`
+// and nobody can tell which status — a 404 (not public), a 403/429 (refused)
+// or a 5xx are different fixes. The subscribe log line now carries the number,
+// and still nothing else: no URL, no host, no body.
+// A Google secret iCal address carries its token in the path, not the query.
+const PATH_TOKEN = 'PATHSECRET9876543210fedcba';
+const PATH_FEED_URL = `https://calendar.google.example/calendar/ical/team%40group.example/private-${PATH_TOKEN}/basic.ics`;
+
+test('a refused subscribe logs the HTTP status the calendar site answered with, and only that', async () => {
+  await withWorld(async (h) => {
+    for (const url of [FEED_URL, PATH_FEED_URL]) {
+      for (const status of [404, 403, 429, 503]) {
+        h.logs.length = 0;
+        h.failNext = new SafeFetchError('http_status', status);
+        const failed = await subscribe(h, { url });
+        assert.deepEqual([failed.status, failed.body.error, failed.body.detail], [422, 'fetch_failed', 'http_status']);
+        const lines = h.logs.filter((entry) => entry.startsWith('[ics] subscribe fetch refused'));
+        assert.equal(lines.length, 1, `one subscribe log line for ${status}`);
+        // The whole line, so nothing — a path, a token, a host — fits anywhere in it.
+        assert.match(lines[0]!, new RegExp(`^\\[ics\\] subscribe fetch refused feed=[0-9a-f-]{36} host=[0-9a-f]{12} code=http_status status=${status}$`));
+      }
+    }
+    // A refusal with no status says so rather than inventing one.
+    h.logs.length = 0;
+    h.failNext = new SafeFetchError('timeout');
+    await subscribe(h, { url: PATH_FEED_URL });
+    assert.match(h.logs.find((entry) => entry.startsWith('[ics] subscribe fetch refused'))!,
+      /^\[ics\] subscribe fetch refused feed=[0-9a-f-]{36} host=[0-9a-f]{12} code=timeout$/);
+    assert.deepEqual(await feeds(), []);
+  });
+});
+
+test('a failed refresh logs the HTTP status the calendar site answered with, and only that', async () => {
+  await withWorld(async (h) => {
+    h.bodies.set(PATH_FEED_URL, calendar([]));
+    const feedId = (await subscribe(h, { url: PATH_FEED_URL })).body.feed.feedId as string;
+    for (const status of [404, 403, 429, 503]) {
+      h.logs.length = 0;
+      h.failNext = new SafeFetchError('http_status', status);
+      assert.equal((await refresh(h, feedId)).outcome, 'failed');
+      const lines = h.logs.filter((entry) => entry.startsWith('[ics] refresh failed'));
+      assert.equal(lines.length, 1, `one refresh log line for ${status}`);
+      assert.match(lines[0]!, new RegExp(`^\\[ics\\] refresh failed feed=${feedId} host=[0-9a-f]{12} code=http_status status=${status} failures=\\d+$`));
+    }
+    h.logs.length = 0;
+    h.failNext = new SafeFetchError('timeout');
+    await refresh(h, feedId);
+    assert.match(h.logs.find((entry) => entry.startsWith('[ics] refresh failed'))!,
+      new RegExp(`^\\[ics\\] refresh failed feed=${feedId} host=[0-9a-f]{12} code=timeout failures=\\d+$`));
+  });
+});
+
 // A rule ical.js takes seconds to give up on (every 1461 days never lands on a
 // 29 February). Finite on purpose: an unbounded regression makes these tests
 // fail on the status rather than hang the suite; the never-terminating rule is

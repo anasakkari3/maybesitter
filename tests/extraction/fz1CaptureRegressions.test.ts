@@ -171,11 +171,13 @@ async function answerN10OnModel(freeText: string, reread?: object) {
   return { refused, items, after, calls: model.calls() };
 }
 
-test('FZ1 N10: on the model path the literal «بعد ساعة» (Gemini re-read it as Tuesday 02:00) is not understood, and the buttons still answer', async () => {
+test('FZ1 N10: on the model path the literal «بعد ساعة» (Gemini re-read it as Tuesday 02:00) is now plus one hour, never the re-read', async () => {
+  // QA v3 (V3-F04-04): the span is read as now plus one hour — 03:22 + 1 h —
+  // without a re-read, so Gemini's Tuesday 02:00 never reaches the item.
   const later = await answerN10OnModel('بعد ساعة');
   assert.deepEqual(
-    { refused: later.refused, items: later.items, after: later.after },
-    { refused: 'answer_not_understood', items: null, after: ['أبعت الإيميل للمدير | 2026-09-28 19:00 | settled'] },
+    { refused: later.refused, items: later.items },
+    { refused: null, items: ['أبعت الإيميل للمدير | 2026-09-28 04:22 | settled'] },
   );
 });
 
@@ -183,7 +185,8 @@ test('FZ1 N10: a typed answer to "what time?" with no time of day and no day tak
   // Scripted re-reads: what a model could make of words that give no hour —
   // «بعد ساعة» as 04:22, «بعد شوي» as 05:00, "later" as tonight. None is an
   // hour the person typed; the question stays.
-  for (const [freeText, date, time] of [['بعد ساعة', '2026-09-28', '04:22'], ['بعد شوي', '2026-09-28', '05:00'], ['later', '2026-09-28', '20:00'], ['אחר כך', '2026-09-28', '09:00'], ['هلأ', '2026-09-28', '03:30'], ['now', '2026-09-28', '03:23']] as const) {
+  // («بعد ساعة» is now plus one hour since QA v3, V3-F04-04: tested above.)
+  for (const [freeText, date, time] of [['بعد شوي', '2026-09-28', '05:00'], ['later', '2026-09-28', '20:00'], ['אחר כך', '2026-09-28', '09:00'], ['هلأ', '2026-09-28', '03:30'], ['now', '2026-09-28', '03:23']] as const) {
     const result = await answerN10OnModel(freeText, modelAnswer(date, time));
     assert.deepEqual({ refused: result.refused, after: result.after }, { refused: 'answer_not_understood', after: ['أبعت الإيميل للمدير | 2026-09-28 19:00 | settled'] }, freeText);
   }
@@ -219,8 +222,9 @@ async function answerN10OnRules(freeText: string) {
   });
 }
 
-test('FZ1 N10: on the rules path «بعد ساعة» is not understood and the buttons still answer; a typed time still works', async () => {
-  const later = await answerN10OnRules('بعد ساعة');
+test('FZ1 N10: on the rules path «بعد ساعة» is now plus one hour (QA v3, V3-F04-04); «بعد شوي» is not understood and the buttons still answer; a typed time still works', async () => {
+  assert.deepEqual(await answerN10OnRules('بعد ساعة'), { refused: null, items: ['أبعت الإيميل للمدير | 2026-09-28 04:22 | settled'], after: null });
+  const later = await answerN10OnRules('بعد شوي');
   assert.deepEqual(later, { refused: 'answer_not_understood', items: null, after: ['أبعت الإيميل للمدير | 2026-09-28 19:00 | settled'] });
   assert.deepEqual((await answerN10OnRules('الساعة 7 المسا')).items, ['أبعت الإيميل للمدير | 2026-09-28 19:00 | settled']);
   assert.deepEqual((await answerN10OnRules('بكرا الساعة 10')).items, ['أبعت الإيميل للمدير | 2026-09-29 10:00 | settled']);

@@ -361,6 +361,36 @@ export function namesCalendarDate(rawText: string): boolean {
 }
 
 /*
+ * ══ "NEXT WEEK" BESIDE ITS WEEKDAY (QA v3, V3-F04-07) ══
+ *
+ * «الأسبوع الجاي: يوم الاثنين الساعة 10 الصبح مقابلة شغل», said on Thursday
+ * 19 November, was saved on Tuesday the 24th, 3 runs of 3: «الأسبوع الجاي»
+ * is a date phrase of its own (`EXPLICIT_DATE`), so the NA2.3 correction of
+ * a model date off the named weekday never ran. Beside a weekday, "next
+ * week" says which week that weekday is in; it is not a second date. Only
+ * the week words themselves — «الأسبوع/الاسبوع الجاي/القادم», "next week",
+ * «בשבוע הבא» — never «الجمعة الجاي», which is also a Friday.
+ */
+const NEXT_WEEK_SOURCES: readonly string[] = [
+  `${NOT_LETTER_BEFORE}[وب]?(?:الأسبوع|الاسبوع|الإسبوع)\\s+(?:الجاي|الجاية|الجايه|الجّاي|القادم|القادمة)${NOT_LETTER_AFTER}`,
+  '\\b(?:next|the\\s+following|the\\s+coming|coming)\\s+week\\b',
+  `${NOT_LETTER_BEFORE}ו?ב?שבוע\\s+הבא${NOT_LETTER_AFTER}`,
+];
+const NEXT_WEEK = new RegExp(NEXT_WEEK_SOURCES.join('|'), 'iu');
+const NEXT_WEEK_ALL = new RegExp(NEXT_WEEK_SOURCES.join('|'), 'giu');
+
+/** The text says "next week" in so many words. */
+export function namesNextWeek(rawText: string): boolean {
+  return typeof rawText === 'string' && NEXT_WEEK.test(rawText.toLowerCase());
+}
+
+/** `namesCalendarDate` with "next week" read as the week of a weekday, not a date of its own. */
+export function namesCalendarDateBesidesNextWeek(rawText: string): boolean {
+  if (typeof rawText !== 'string' || !rawText.trim()) return false;
+  return EXPLICIT_DATE.test(withoutFollowingWeekPhrases(foldDigits(rawText.toLowerCase())).replace(NEXT_WEEK_ALL, ' '));
+}
+
+/*
  * ══ A RECURRENCE IS SAID, NOT A DATE (FIX-R8-CAPTURE) ══
  *
  * «عندي تدريب كل سبت من الساعة 10 لـ 4» on the owner's phone became one event

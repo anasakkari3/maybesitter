@@ -1,12 +1,12 @@
 import { LLMUnavailableError } from './llm/llmProvider';
 import { extractWithOllama, type LLMProviderFunction } from './ollamaExtractor';
 import { screenForInjection } from './injectionBoundary';
-import { extract as ruleBasedExtract } from './ruleBasedExtractor';
+import { extract as ruleBasedExtract, stripTimeExpressions } from './ruleBasedExtractor';
 import { decideExtractionDisposition } from './extractionPolicy';
 import { decideEscalation, type EscalationReason } from './escalationGate';
 import { ARBITRATION_UNAVAILABLE, type ArbiterFunction, type ArbitrationVerdict } from './arbiter';
 import { mapExtractionToCommand } from './mapExtractionToCommand';
-import { instantFromLocal, localTimeSpecFor, rangeEndInstant, rangeMinutesFrom, rangeStartTime, readClockRange, relativeDayOffset } from './timeLexicon';
+import { instantFromLocal, localTimeSpecFor, rangeEndInstant, rangeMinutesFrom, rangeStartTime, readClockRange, readRelativeOffsetMinutes, relativeDayOffset, statesClock, withoutRelativeOffset } from './timeLexicon';
 import { daysUntilWeekday, namesCalendarDate, namesExplicitDate, readRecurrence, readWeekdayMentions, readWeekdayReference, type StatedRecurrence } from './weekdayLexicon';
 import type { Command } from '../domain/stateMachine';
 import type { ExtractionContext, ExtractionDisposition, ExtractionResult, RecurrenceHint } from './extractionTypes';
@@ -59,6 +59,94 @@ function isPastNarration(rawText: string): boolean {
   if (!PAST_EVENT_NARRATION.test(rawText) || NOT_NARRATION.test(rawText)) return false;
   // A day ahead of today, said in the same clause, is a plan being told.
   return readWeekdayReference(rawText) === null && (relativeDayOffset(rawText) ?? 0) < 1;
+}
+
+const B = '(?<![\\p{L}\\p{M}])';
+const A = '(?![\\p{L}\\p{M}])';
+
+/** A span counted from now, on the person's clock, when the words state no clock or other day of their own. */
+export function statedRelativeTime(rawText: string, now: Date, timeZone: string): { instant: string; date: string; time: string } | null {
+  const minutes = readRelativeOffsetMinutes(rawText);
+  if (minutes === null) return null;
+  if (statesClock(rawText) || readRecurrence(rawText) || readWeekdayReference(rawText) || namesCalendarDate(rawText)) return null;
+  if ((relativeDayOffset(rawText) ?? 0) !== 0) return null;
+  const at = new Date(Math.floor((now.getTime() + minutes * 60_000) / 60_000) * 60_000);
+  const local = localTimeSpecFor(at, timeZone);
+  return local ? { instant: at.toISOString(), date: local.date, time: local.time } : null;
+}
+
+/**
+ * The span counted from now is the time, on either engine (V3-F04-04): the
+ * rules asked «إيمتى؟» and a model once put «بعد ساعتين» at 19:12 when it was
+ * 07:12. The span leaves the title.
+ */
+/** Words that name no thing to do: the span's own words, and a reminder or task as such. */
+const NO_THING_WORDS = new RegExp(`${B}(?:بعد|كمان|ساعة|ساعه|ساعتين|ساعات|دقيقة|دقايق|دقائق|تذكير|ذكرني|ذكّرني|مهمة|مهمه|موعد|شي|اشي|إشي|عندي|لازم)${A}|\\b(?:reminder|remind|me|task|todo|to-do|appointment|hours?|minutes?|later|in|after|something|thing)\\b`, 'giu');
+const LEADING_TO = new RegExp('^to\\s+', 'i');
+const TITLE_EDGE = new Set([' ', '\t', '\n', ',', '،', '.', ':', '：', ';', '-', '–', '—']);
+
+/** The text without the given characters at either edge, scanned once from each side (linear on any run). */
+export function trimEdgeCharacters(text: string, edge: ReadonlySet<string> = TITLE_EDGE): string {
+  let start = 0;
+  let end = text.length;
+  while (start < end && edge.has(text[start]!)) start += 1;
+  while (end > start && edge.has(text[end - 1]!)) end -= 1;
+  return text.slice(start, end);
+}
+
+/**
+ * A title without its span counted from now, its edges («:», «،», "-") and a
+ * leading "to" ("remind me in 2 hours to call mom" → "call mom"). The edges
+ * go by a scan from each side: an edge pattern ending in `+$` was quadratic
+ * on a long run (review round 4: 6.9 s on 100,000 characters).
+ */
+export function spanTitle(text: string): string {
+  return trimEdgeCharacters(withoutRelativeOffset(text)).replace(LEADING_TO, '');
+}
+const NOT_A_LETTER = new RegExp('[^\\p{L}]+', 'gu');
+
+/** At least three letters of something to do, once the span-and-reminder words are gone. */
+function hasThingToDo(words: string): boolean {
+  return words.replace(NO_THING_WORDS, ' ').replace(NOT_A_LETTER, '').length >= 3;
+}
+
+function onRelativeTime(result: ExtractionResult, rawText: string, context: ExtractionContext): ExtractionResult {
+  const timeZone = context.timezone || result.localTimeSpec?.timezone || 'UTC';
+  const stated = statedRelativeTime(rawText, context.now, timeZone);
+  if (!stated) return result;
+  const tidy = (text: string | null): string | null => {
+    if (!text) return text;
+    // «بعد ساعتين: اتصل بأمي» leaves no «:» at the title's edge.
+    const without = spanTitle(text);
+    return without.length >= 3 ? without : text;
+  };
+  // «بعد ساعتين» alone (review of #872): the span is all the person said, so
+  // there is nothing to do in it — asked «شو بدك تعمل؟», as «بكرا الساعة 5»
+  // is, its time kept. Judged on the person's words, never on a model title
+  // («ساعتين», "Reminder", «مهمة») that only restates them; the card then
+  // shows the words as said.
+  const nothingToDo = !hasThingToDo(withoutRelativeOffset(rawText));
+  const { undatedTime: _undated, ...rest } = result;
+  return {
+    ...rest,
+    // A model title that only restates the span («ساعتين») gives way to the
+    // person's words, when those name a thing to do (review round 4).
+    title: nothingToDo ? rawText.trim() : hasThingToDo(tidy(result.title) ?? '') ? tidy(result.title) : spanTitle(rawText),
+    action: nothingToDo ? null : tidy(result.action),
+    dueAt: result.dueAt || !result.remindAt ? stated.instant : null,
+    remindAt: result.remindAt ? stated.instant : null,
+    allDay: false,
+    localTimeSpec: { date: stated.date, time: stated.time, timezone: timeZone },
+    timeEvidence: 'hhmm',
+    dateInferred: false,
+    missingFields: nothingToDo
+      ? [...result.missingFields.filter((field) => field !== 'time' && field !== 'action'), 'action']
+      : result.missingFields.filter((field) => field !== 'time'),
+    ambiguityFlags: nothingToDo
+      ? [...result.ambiguityFlags.filter((flag) => flag !== 'vague_time' && flag !== 'no_action_verb'), 'no_action_verb']
+      : result.ambiguityFlags.filter((flag) => flag !== 'vague_time'),
+    confidence: { ...result.confidence, time: Math.max(result.confidence.time, 0.9) },
+  };
 }
 
 export interface ExtractAndMapOptions {
@@ -362,7 +450,7 @@ function withPhraseInTitle(result: ExtractionResult, phrases: readonly string[])
 function withStatedShape(result: ExtractionResult, rawText: string, context: ExtractionContext): ExtractionResult {
   if (result.type !== 'task' && result.type !== 'follow_up') return result;
   const timeZone = context.timezone || result.localTimeSpec?.timezone || 'UTC';
-  let shaped = result;
+  let shaped = onRelativeTime(result, rawText, context);
   let recurrence = readRecurrence(rawText);
   // An item whose own words put it on a day outside the list is not the
   // list's (audit 2026-10-03 review, round 2): "gym every Tuesday and Thursday

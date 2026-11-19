@@ -340,3 +340,65 @@ test('E: a long chat never hands a regex more than the cap — the person’s tu
     resetStorageForTests();
   }
 });
+
+// ── F. The QA v3 relative-span reader stays linear (review of #872) ───────
+
+test('F: the relative-span reader reads at most the cap, in a bounded number of regex runs, on hostile text', async () => {
+  /*
+   * A reader added in QA v3 runs on every capture clause and every chat
+   * turn: `readRelativeOffsetMinutes` (V3-F04-04). It is built from fixed
+   * words joined by `\s+`, with no nested quantifier; held here so a later
+   * edit cannot quietly make it scan beyond the cap, or run its patterns
+   * once per character. Clock-free, like the rest of this file: subjects and
+   * run counts, not milliseconds. (The missed-thing reader that sat beside it
+   * was removed in review round 5.)
+   */
+  const { readRelativeOffsetMinutes } = await import('../../src/extraction/timeLexicon.ts');
+  const fill = (unit: string) => unit.repeat(Math.ceil(CAPTURE_INPUT_MAX_CHARACTERS / unit.length)).slice(0, CAPTURE_INPUT_MAX_CHARACTERS);
+  const hostile = [
+    fill(' '),
+    fill('ما ما ما '),
+    fill('بعد ساعة '),
+    fill('بعد '),
+    `بعد${' '.repeat(CAPTURE_INPUT_MAX_CHARACTERS - 10)}ساعتين`,
+    fill('in an hour '),
+    fill('in '),
+    fill('، '),
+    fill('בעוד '),
+    `בעוד${' '.repeat(CAPTURE_INPUT_MAX_CHARACTERS - 10)}שעתיים`,
+  ];
+  for (const text of hostile) {
+    assert.ok(text.length <= CAPTURE_INPUT_MAX_CHARACTERS);
+    const { seen } = await withRecorder(async () => {
+      readRelativeOffsetMinutes(text);
+    });
+    assert.ok(seen.longestSubject <= CAPTURE_INPUT_MAX_CHARACTERS, `a reader scanned ${seen.longestSubject} characters`);
+    assert.ok(seen.operations <= 40_000, `${seen.operations} regex runs on ${JSON.stringify(text.slice(0, 20))}…`);
+  }
+});
+
+// ── G. The QA v3 span title stays linear on 100,000 characters (review round 4) ──
+
+test('G: the span title cleans 100,000 hostile characters in well under a second', async () => {
+  /*
+   * The one place in this file that reads a clock, and only as a coarse
+   * ceiling: the span title is bounded by the cap to 2,000 characters, but
+   * the review held it to linear time on 100,000 — an edge trim ending in
+   * `+$` took 6.9 seconds there. A second is far above linear and far below
+   * quadratic, so load cannot flip it.
+   */
+  const service = await import('../../src/extraction/extractionService.ts') as Record<string, unknown>;
+  const spanTitle = service.spanTitle as ((text: string) => unknown) | undefined;
+  const trimEdgeCharacters = service.trimEdgeCharacters as ((text: string) => unknown) | undefined;
+  assert.equal(typeof spanTitle, 'function', 'spanTitle is exported for this bound');
+  assert.equal(typeof trimEdgeCharacters, 'function', 'trimEdgeCharacters is exported for this bound');
+  const big = (unit: string) => unit.repeat(Math.ceil(100_000 / unit.length)).slice(0, 100_000);
+  for (const text of [big(' '), big(' ،'), big(', '), big(' .'), big(' :'), `x${big(' ')}x`, big(' بعد'), big(' in')]) {
+    for (const clean of [spanTitle!, trimEdgeCharacters!]) {
+      const started = performance.now();
+      clean(text);
+      const took = performance.now() - started;
+      assert.ok(took < 1_000, `${took.toFixed(0)} ms on ${JSON.stringify(text.slice(0, 6))}…`);
+    }
+  }
+});

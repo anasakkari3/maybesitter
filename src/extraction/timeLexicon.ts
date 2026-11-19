@@ -1078,6 +1078,99 @@ export function relativeDayOffset(rawText: string): number | null {
   return null;
 }
 
+/*
+ * ══ AN HOUR COUNTED FROM NOW (QA v3, V3-F04-04) ══
+ *
+ * «بعد ساعتين لازم آخد الدوا» was asked «إيمتى؟» on both engines, and one
+ * model run put it 12 hours off. A span counted from now — «بعد ساعة»,
+ * «كمان ساعتين», «بعد نص ساعة», «بعد ربع ساعة», «بعد 3 ساعات», «بعد ساعة
+ * ونص», «بعد 10 دقايق», "in 2 hours", "in half an hour", «בעוד שעתיים» — is
+ * read here as minutes; the caller adds them to its clock.
+ *
+ * Only a span whose next word does not tie it to something else: «بعد ساعة
+ * الغدا» (after lunch hour) and «بعد ساعة من الاجتماع» (an hour after the
+ * meeting) are not counted from now. «بعد الساعة 5» has the article and is a
+ * clock, not a span. Each source is a fixed word, then `\s+` and fixed words:
+ * no nested quantifier, so a long text is read in linear time.
+ */
+const SPAN_DIGITS = '[0-9\u0660-\u0669\u06F0-\u06F9]{1,3}';
+const AR_SPAN_COUNT = `(?:${SPAN_DIGITS}|نص|نصف|ربع|تلت|ثلث|تلات|تلاته|تلاتة|ثلاث|ثلاثه|ثلاثة|اربع|أربع|اربعه|أربعه|اربعة|أربعة|خمس|خمسه|خمسة)`;
+const AR_SPAN_UNIT = '(?:ساعتين|ساعتان|ساعات|ساعة|ساعه|دقيقتين|دقايق|دقائق|دقيقة|دقيقه)';
+const RELATIVE_OFFSET_SOURCES: readonly string[] = [
+  `${NOT_LETTER_BEFORE}(?:بعد|كمان)\\s+(?:(${AR_SPAN_COUNT})\\s*)?(${AR_SPAN_UNIT})(?:\\s+(و\\s*(?:نص|نصف|ربع)|إلا\\s+ربع|الا\\s+ربع))?${NOT_LETTER_AFTER}(?!\\s+(?:من${NOT_LETTER_AFTER}|ال))`,
+  `\\bin\\s+(an?|one|two|three|four|five|half\\s+an|a\\s+quarter\\s+of\\s+an|${SPAN_DIGITS})\\s+(hours?|hrs?|minutes?|mins?)(\\s+and\\s+a\\s+half)?\\b`,
+  `${NOT_LETTER_BEFORE}בעוד\\s+(?:(${SPAN_DIGITS}|חצי|רבע|שלוש|ארבע|חמש)\\s+)?(שעתיים|שעות|שעה|דקות|דקה)${NOT_LETTER_AFTER}`,
+];
+const RELATIVE_OFFSET_PATTERNS = RELATIVE_OFFSET_SOURCES.map((source) => new RegExp(source, 'giu'));
+
+const SPAN_COUNT_WORDS: Readonly<Record<string, number>> = {
+  'نص': 0.5, 'نصف': 0.5, 'ربع': 0.25, 'تلت': 1 / 3, 'ثلث': 1 / 3,
+  'تلات': 3, 'تلاته': 3, 'تلاتة': 3, 'ثلاث': 3, 'ثلاثه': 3, 'ثلاثة': 3,
+  'اربع': 4, 'أربع': 4, 'اربعه': 4, 'أربعه': 4, 'اربعة': 4, 'أربعة': 4,
+  'خمس': 5, 'خمسه': 5, 'خمسة': 5,
+  a: 1, an: 1, one: 1, two: 2, three: 3, four: 4, five: 5,
+  'חצי': 0.5, 'רבע': 0.25, 'שלוש': 3, 'ארבע': 4, 'חמש': 5,
+};
+
+function spanCount(word: string | undefined): number | null {
+  if (word === undefined) return null;
+  const folded = normalizeArabicDigits(word).replace(/\s+/g, ' ').toLowerCase();
+  if (/^\d+$/.test(folded)) return Number(folded);
+  if (folded === 'half an') return 0.5;
+  if (folded === 'a quarter of an') return 0.25;
+  return SPAN_COUNT_WORDS[folded] ?? null;
+}
+
+/** Minutes one matched span stands for, or null when its words do not add up. */
+function spanMinutes(count: string | undefined, unit: string, extra: string | undefined): number | null {
+  const n = spanCount(count);
+  if (count !== undefined && n === null) return null;
+  const word = unit.toLowerCase();
+  let minutes: number | null;
+  if (/^(?:ساعتين|ساعتان|שעתיים)$/.test(word)) minutes = n === null ? 120 : null;
+  else if (/^(?:ساعة|ساعه|hours?|hrs?|שעה)$/.test(word)) minutes = (n ?? 1) * 60;
+  else if (/^(?:ساعات|שעות)$/.test(word)) minutes = n !== null && n >= 2 ? n * 60 : null;
+  else if (/^(?:دقيقتين)$/.test(word)) minutes = n === null ? 2 : null;
+  else if (/^(?:دقيقة|دقيقه|minutes?|mins?|דקה)$/.test(word)) minutes = n ?? 1;
+  else if (/^(?:دقايق|دقائق|דקות)$/.test(word)) minutes = n !== null && n >= 2 ? n : null;
+  else minutes = null;
+  if (minutes === null) return null;
+  const tail = extra?.replace(/\s+/g, ' ').trim().toLowerCase();
+  if (tail) {
+    if (minutes % 60 !== 0) return null;
+    if (/(?:نص|نصف)$/.test(tail) || tail === 'and a half') minutes += 30;
+    else if (/^و\s*ربع$/.test(tail)) minutes += 15;
+    else if (/ربع$/.test(tail)) minutes -= 15;
+  }
+  return Number.isInteger(minutes) && minutes > 0 && minutes <= 24 * 60 ? minutes : null;
+}
+
+/**
+ * The minutes the text counts from now — «بعد ساعتين» is 120 — or null when
+ * it counts none, or two spans that disagree.
+ */
+export function readRelativeOffsetMinutes(rawText: string): number | null {
+  if (typeof rawText !== 'string' || !rawText.trim()) return null;
+  const text = rawText;
+  const found = new Set<number>();
+  for (const pattern of RELATIVE_OFFSET_PATTERNS) {
+    pattern.lastIndex = 0;
+    for (const match of Array.from(text.matchAll(pattern))) {
+      const minutes = spanMinutes(match[1], match[2]!, match[3]);
+      if (minutes === null) return null;
+      found.add(minutes);
+    }
+  }
+  return found.size === 1 ? Array.from(found)[0]! : null;
+}
+
+/** The text without its spans counted from now, for a title. */
+export function withoutRelativeOffset(text: string): string {
+  let out = text;
+  for (const pattern of RELATIVE_OFFSET_PATTERNS) out = out.replace(pattern, ' ');
+  return out.replace(/\s+/g, ' ').trim();
+}
+
 /**
  * One relative day as a single source — 0 today, 1 tomorrow, 2 the day after
  * — for the other readers of day words (the email-share anchor, memory

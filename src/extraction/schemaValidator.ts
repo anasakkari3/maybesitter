@@ -46,7 +46,7 @@ import {
   unsettledRelativeDayPhrase,
 } from './timeLexicon';
 import { isCommitmentCategory } from '../contracts/v1/categoryContracts';
-import { modelDateIsWeekdayGuess, namesCalendarDate, namesExplicitDate, readRecurrence, readWeekdayMentions, readWeekdayReference, resolveWeekdayDate } from './weekdayLexicon';
+import { modelDateIsWeekdayGuess, namesCalendarDate, namesCalendarDateBesidesNextWeek, namesExplicitDate, namesNextWeek, readRecurrence, readWeekdayMentions, readWeekdayReference, resolveWeekdayDate } from './weekdayLexicon';
 import { isFixedAppointment, statedObligation } from './priorityLexicon';
 import { stripCaptureCommand } from './captureCommand';
 
@@ -452,7 +452,12 @@ function onNamedWeekday(time: ReconciledTime, rawText: string, now: Date, fallba
   if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return null;
   const reference = readWeekdayReference(rawText);
   if (!reference || readWeekdayMentions(rawText).length !== 1 || readRecurrence(rawText)) return null;
-  if (namesCalendarDate(rawText) || relativeDayOffset(rawText) !== null) return null;
+  // "Next week" beside the weekday says which week it is in, not another
+  // date (QA v3, V3-F04-07): «الأسبوع الجاي: يوم الاثنين» dated a Tuesday is
+  // moved to the Monday of next week on the person's clock. Any other date phrase still
+  // leaves the model's reading alone.
+  const nextWeek = namesNextWeek(rawText);
+  if ((nextWeek ? namesCalendarDateBesidesNextWeek(rawText) : namesCalendarDate(rawText)) || relativeDayOffset(rawText) !== null) return null;
   // «الاثنين» is also "the two" («اشتري الاثنين الساعة 5»): only «يوم
   // الاثنين» or «الاثنين الجاي» is surely Monday enough to move a date for.
   if (ARABIC_MONDAY.test(rawText) && !SURELY_ARABIC_MONDAY.test(rawText)) return null;
@@ -461,7 +466,7 @@ function onNamedWeekday(time: ReconciledTime, rawText: string, now: Date, fallba
   if (WEEKDAY_IN_A_NAME.test(rawText) || WEEKDAY_AS_MODIFIER.test(rawText)) return null;
   if (new Date(`${date}T12:00:00Z`).getUTCDay() === reference.weekday) return null;
   const zone = time.localTimeSpec?.timezone || fallbackZone;
-  const target = resolveWeekdayDate(rawText, now, zone)?.date;
+  const target = (nextWeek ? weekdayOfNextWeek(reference.weekday, now, zone) : null) ?? resolveWeekdayDate(rawText, now, zone)?.date;
   if (!target || target === date) return null;
   const days = Math.round((Date.parse(`${target}T12:00:00Z`) - Date.parse(`${date}T12:00:00Z`)) / 86_400_000);
   const moved = (iso: string | null): string | null => {
@@ -470,6 +475,20 @@ function onNamedWeekday(time: ReconciledTime, rawText: string, now: Date, fallba
     return local ? instantFromLocal(shiftLocalDate(local.date, days), local.time, zone)?.toISOString() ?? null : null;
   };
   return { ...time, dueAt: moved(time.dueAt), remindAt: moved(time.remindAt), localTimeSpec: { ...time.localTimeSpec!, date: target } };
+}
+
+/**
+ * The `weekday` of next week on the person's own clock: the Sunday-to-
+ * Saturday week after the one today is in (the person's week; `calendarLines`
+ * lists the days the same way). Computed from their clock, never from the
+ * model's date (review of #872: a model 1 December for «الأسبوع الجاي:
+ * الاثنين» said on 19 November was put on 30 November, the model's week).
+ */
+function weekdayOfNextWeek(weekday: number, now: Date, zone: string): string | null {
+  const today = localTimeSpecFor(now, zone)?.date;
+  if (!today) return null;
+  const current = new Date(`${today}T12:00:00Z`).getUTCDay();
+  return shiftLocalDate(today, 7 - current + weekday);
 }
 
 /** A `YYYY-MM-DD` date `days` days on (or back). */
