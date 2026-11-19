@@ -142,6 +142,8 @@ describe('the status in a word', () => {
     ['the add-on spent its month', { enabled: false, reason: 'budget_spent' }, 'featuresStatusAllowanceUsed'],
     ['the free month spent', { enabled: false, reason: 'free_cap_spent' }, 'featuresStatusAllowanceUsed'],
     ['switched off by the person', { enabled: false, reason: 'user_off' }, 'featuresStatusOff'],
+    // QA v3 V3-F34-02/06: past the daily model limit the list says so, not «شغّالة».
+    ['the daily model limit reached', { enabled: false, reason: 'daily_cap_reached' }, 'featuresStatusPausedToday'],
     ['the gate could not read its state', { enabled: false, reason: 'gate_unavailable' }, 'featuresStatusUnavailable'],
     ['a reason this build does not know, refused', { enabled: false, reason: 'solar_flare' }, 'featuresStatusUnavailable'],
     ['a reason this build does not know, usable', { enabled: true, reason: 'solar_flare' }, 'featuresStatusOn'],
@@ -150,6 +152,16 @@ describe('the status in a word', () => {
   it.each(cases)('%s', async (_name, over, key) => {
     await showScreen(withFeature(enforce, 'gmail_reading', over));
     expect(statusOf('gmail_reading')).toBe(en[key]);
+  });
+
+  it('QA v3 V3-F34-06: the core assistant past the daily limit says it is paused for today, not «always on»', async () => {
+    await showScreen(withFeature(enforce, 'assistant', { enabled: false, reason: 'daily_cap_reached' }));
+    expect(statusOf('assistant')).toBe(en.featuresStatusPausedToday);
+  });
+
+  it('V3-F34-01: a spent month that still runs (shadow) says it is on, never that the limit stops it', async () => {
+    await showScreen(withFeature(enforce, 'goal_plans', { enabled: true, reason: 'budget_spent', usedPercent: 100 }));
+    expect(statusOf('goal_plans')).toBe(en.featuresStatusOn);
   });
 
   it('keeps the switch on for an add-on the person wants but cannot use yet, and says why', async () => {

@@ -234,6 +234,14 @@ describe('with the plan path off', () => {
     expect(screen.queryByTestId('goal-review-regenerate')).toBeNull();
   });
 
+  it('QA v3 V3-F34-02: past the daily limit «suggest others» stays, so its press answers with the daily-limit words', async () => {
+    mockFeatures = { status: 'success', data: { success: true, mode: 'shadow', features: [
+      { id: 'goal_plans', tier: 'addon', enabled: false, reason: 'daily_cap_reached', userCanDisable: true, usedPercent: 40 },
+    ] } };
+    await openGoal();
+    expect(screen.getByTestId('goal-review-regenerate')).toBeTruthy();
+  });
+
   it('asks for other steps only when the person presses for them', async () => {
     await openGoal();
     await fireEvent.press(screen.getByTestId('goal-review-regenerate'));
