@@ -321,7 +321,7 @@ describe('success shows what the server saved, in the chat', () => {
     await typeAndAnalyze();
     await fireEvent.press(screen.getByTestId('review-confirm'));
     await waitFor(() => expect(savedLine()).toContain('Hand in the report'));
-    expect(savedLine()).toContain(en.chatSavedLeft.replace('{titles}', '"Call Sami"'));
+    expect(savedLine()).toContain('"Call Sami" wasn’t saved: its question is still open. The words are back in the box below: finish and send them.');
     expect(screen.getByTestId('capture-input').props.value).toBe('Call Sami');
   });
 
@@ -337,8 +337,47 @@ describe('success shows what the server saved, in the chat', () => {
     await typeAndAnalyze();
     await fireEvent.press(screen.getByTestId('review-confirm'));
     await waitFor(() => expect(savedLine()).toContain('Hand in the report'));
-    expect(savedLine()).toContain(en.chatSavedLeft.replace('{titles}', '"Maybe learn the guitar this summer"'));
+    expect(savedLine()).toContain('"Maybe learn the guitar this summer" wasn’t saved: it’s something you’re thinking about, kept only with "Keep". The words are back in the box below: finish and send them.');
     expect(screen.getByTestId('capture-input').props.value).toBe('Maybe learn the guitar this summer');
+  });
+
+  it('a message already in the field: the points are named, plural, and nothing claims their words came back (review of #877)', async () => {
+    const asking = proposal({
+      items: [
+        proposal().items[0],
+        { itemId: 'i-2', title: 'Call Sami', resolvedTime: null, needsClarification: true },
+        { itemId: 'i-3', title: 'Pay the bill', resolvedTime: null, needsClarification: true },
+      ],
+    });
+    jest.spyOn(captureEndpoints, 'chatCapture').mockImplementation(chatServer(() => asking) as never);
+    jest.spyOn(captureEndpoints, 'confirmCapture').mockResolvedValue(confirmation() as never);
+    await openApp();
+    await enterCapture();
+    await typeAndAnalyze();
+    await fireEvent.changeText(screen.getByTestId('capture-input'), 'one more thing');
+    await fireEvent.press(screen.getByTestId('review-confirm'));
+    await waitFor(() => expect(savedLine()).toContain('Hand in the report'));
+    expect(savedLine()).toContain('"Call Sami", "Pay the bill" weren’t saved: their questions are still open.');
+    expect(savedLine()).not.toContain('back in the box');
+    expect(screen.getByTestId('capture-input').props.value).toBe('one more thing');
+  });
+
+  it('a thought set aside with Not now is not named after the save (QA v3 V3-F24-01, review of #877)', async () => {
+    const withThought = proposal({ seeds: [{ seedItemId: 's-1', kind: 'idea', summary: 'Maybe learn the guitar this summer' }] });
+    jest.spyOn(captureEndpoints, 'chatCapture').mockImplementation(chatServer(() => withThought) as never);
+    jest.spyOn(captureEndpoints, 'confirmCapture').mockResolvedValue(confirmation({ persisted: [
+      { itemId: 'i-1', commitmentId: 'c-1', title: 'Hand in the report', resolvedTime: SOON },
+      { itemId: 'i-2', commitmentId: 'c-2', title: 'Call Sami', resolvedTime: null },
+    ] }) as never);
+    await openApp();
+    await enterCapture();
+    await typeAndAnalyze();
+    await fireEvent.press(screen.getByTestId('review-seed-skip-s-1'));
+    await waitFor(() => expect(screen.queryByTestId('review-seed-skip-s-1')).toBeNull());
+    await fireEvent.press(screen.getByTestId('review-confirm'));
+    await waitFor(() => expect(savedLine()).toContain('Hand in the report'));
+    expect(savedLine()).not.toContain('guitar');
+    expect(screen.getByTestId('capture-input').props.value).toBe('');
   });
 
   it('a thought kept with its own Keep is not named after the save (QA v3 V3-F24-01)', async () => {

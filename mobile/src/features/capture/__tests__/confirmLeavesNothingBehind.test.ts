@@ -39,6 +39,7 @@ describe('V3-F04-02 a save leaves nothing behind in silence', () => {
   it('names the point still asking, and puts its words back in the field', () => {
     const state = run(shown(), { type: 'confirmStarted' }, { type: 'confirmSucceeded', confirmation: saved('i1', 'i2') });
     expect(lastSaved(state).leftTitles).toEqual(['إيميل للدكتور سمير']);
+    expect(lastSaved(state).leftHandedBack).toBe(true);
     expect(state.text).toBe('لازم أبعت إيميل للدكتور سمير');
     expect(state.status).toBe('editing');
   });
@@ -53,6 +54,8 @@ describe('V3-F04-02 a save leaves nothing behind in silence', () => {
     const state = run(shown(), { type: 'textChanged', text: 'وكمان شي' }, { type: 'confirmStarted' }, { type: 'confirmSucceeded', confirmation: saved('i1', 'i2') });
     expect(state.text).toBe('وكمان شي');
     expect(lastSaved(state).leftTitles).toEqual(['إيميل للدكتور سمير']);
+    // Nothing was handed back, so the line must not say it was (review of #877).
+    expect(lastSaved(state).leftHandedBack).toBe(false);
   });
 
   it('when everything was saved, nothing is named and the field stays empty', () => {
@@ -84,7 +87,10 @@ const shownMixed = (entry: 'thought' | null = null) => run(initialCaptureState()
 describe('V3-F24-01 a save never takes an undecided thought with it in silence', () => {
   it('names the thoughts nobody kept or set aside, and hands their words back', () => {
     const state = run(shownMixed(), { type: 'confirmStarted' }, { type: 'confirmSucceeded', confirmation: saved('i1') });
-    expect(lastSaved(state).leftTitles).toEqual(['وبفكر يمكن أتعلم جيتار بالصيف', 'وناطر رد من شركة التدريب']);
+    // A thought is named as a thought, not as a point with an open question (review of #877).
+    expect(lastSaved(state).leftTitles ?? []).toEqual([]);
+    expect(lastSaved(state).leftThoughts).toEqual(['وبفكر يمكن أتعلم جيتار بالصيف', 'وناطر رد من شركة التدريب']);
+    expect(lastSaved(state).leftHandedBack).toBe(true);
     expect(state.text).toBe('وبفكر يمكن أتعلم جيتار بالصيف\nوناطر رد من شركة التدريب');
   });
 
@@ -92,11 +98,33 @@ describe('V3-F24-01 a save never takes an undecided thought with it in silence',
     const state = run(shownMixed(), { type: 'seedDecided', seedItemId: 's1' }, { type: 'seedDecided', seedItemId: 's2' },
       { type: 'confirmStarted' }, { type: 'confirmSucceeded', confirmation: saved('i1') });
     expect(lastSaved(state).leftTitles ?? []).toEqual([]);
+    expect(lastSaved(state).leftThoughts ?? []).toEqual([]);
     expect(state.text).toBe('');
   });
 
   it('from the thought entry the confirm saves thoughts itself: one taken out is the person\'s choice', () => {
     const state = run(shownMixed('thought'), { type: 'confirmStarted' }, { type: 'confirmSucceeded', confirmation: { ...saved('i1'), seedsPersisted: [{ seedItemId: 's1', pointId: 's1', seedId: 'x1', kind: 'idea', title: 'جيتار' }] } as CaptureConfirmation });
     expect(lastSaved(state).leftTitles ?? []).toEqual([]);
+    expect(lastSaved(state).leftThoughts ?? []).toEqual([]);
+  });
+});
+
+/* The saved line's words (review of #877): one or several, a point or a thought, handed back or not. */
+describe('the left-behind copy', () => {
+  // Imported here so the reducer cases above stay free of i18next.
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { tFor } = require('../../../i18n') as typeof import('../../../i18n');
+  const ar = tFor('ar');
+  const he = tFor('he');
+  it('Arabic: one point, several points, one thought, several thoughts', () => {
+    expect(ar('chatSavedLeftAsking', { n: 1, titles: '«أ»' })).toBe('ما انحفظ «أ»: سؤاله لسّا ما انجاوب.');
+    expect(ar('chatSavedLeftAsking', { n: 2, titles: '«أ»، «ب»' })).toBe('ما انحفظوا «أ»، «ب»: أسئلتهم لسّا ما انجاوبت.');
+    expect(ar('chatSavedLeftThoughts', { n: 1, titles: '«أ»' })).toBe('ما انحفظ «أ»: هاد إشي عم تفكّر فيه، وبينحفظ بس بـ«خلّيه».');
+    expect(ar('chatSavedLeftThoughts', { n: 3, titles: '«أ»، «ب»، «ج»' })).toBe('ما انحفظوا «أ»، «ب»، «ج»: هدول أشياء عم تفكّر فيها، وبينحفظوا بس بـ«خلّيه».');
+    expect(ar('chatSavedLeftBack')).toBe('رجّعت الكلام عالخانة تحت: كمّله وابعته.');
+  });
+  it('Hebrew: one and several', () => {
+    expect(he('chatSavedLeftAsking', { n: 1, titles: '"א"' })).toBe('"א" לא נשמר: השאלה שלו לא נענתה.');
+    expect(he('chatSavedLeftAsking', { n: 2, titles: '"א", "ב"' })).toBe('"א", "ב" לא נשמרו: השאלות שלהם לא נענו.');
   });
 });

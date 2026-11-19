@@ -20,6 +20,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { TZ, at, modelFirstAnswer, modelItem, modelRefAnswer } from '../acceptance/m2b/support.ts';
 import { beginModel, end, say, show, goalsOf, type Answer } from '../acceptance/m3b/support.ts';
+import { MemoryCaptureProposalStore, proposeCapture, TransactionalCapturePersistenceAdapter } from '../../lib/services/captureBoundary/index.ts';
+import { validateExtractionResult } from '../../src/extraction/schemaValidator.ts';
+import { createEmptyDomainState } from '../../src/domain/stateMachine.ts';
 
 const TOMORROW = '2026-10-08';
 const EDIT_FAILED = /ما قدرت أطبّق التعديل|couldn't apply that change/;
@@ -183,4 +186,45 @@ test('V3-F04-10 the carry is only a day: no connective, no day carried; and neve
   } finally { end(); }
 });
 
-void TZ;
+/* ── review of #877: where a model "nothing" still stands ─────────── */
+
+for (const [text, title] of [['صباح الخير', 'صباح الخير'], ['بحب القهوة', 'بحب القهوة'], ['الجو حلو اليوم', 'الجو حلو اليوم']] as const) {
+  test(`a capture outside the chat: the model's informational «${text}» stays no_commitment`, async () => {
+    const now = new Date('2026-10-07T07:00:00.000Z');
+    const reading = validateExtractionResult({
+      ...modelItem(title, null, null), type: 'informational_context', explicitReminderRequest: false,
+      confidence: { overall: 0.9, type: 0.9, action: 0.2, time: 0, priority: 0.5 },
+    }, text, { now, timezone: TZ });
+    const proposal = await proposeCapture(text, { now, timezone: TZ, scopeId: 'not-chat' }, {
+      store: new MemoryCaptureProposalStore(),
+      persistence: new TransactionalCapturePersistenceAdapter(createEmptyDomainState()),
+      extractor: async () => ({ result: reading, engine: 'gemini', fallbackReason: null }),
+    });
+    assert.equal(proposal.status, 'no_commitment', `a card was made: ${show(proposal)}`);
+    assert.equal(proposal.items.length, 0);
+  });
+}
+
+test('action "chat": an informational line the model also listed makes no card', async () => {
+  const text = 'صباح الخير، الجو حلو اليوم';
+  const uid = beginModel({}, modelFirstAnswer('صباح النور! شو عندك اليوم؟', 'chat', [
+    { ...modelItem('الجو حلو اليوم', null, null), type: 'informational_context', explicitReminderRequest: false, source: 'الجو حلو اليوم' },
+  ]));
+  try {
+    const answer = await say(uid, text, { locale: 'ar' });
+    assert.equal(answer.proposal, null, `a chat line became a card: ${show(answer.proposal)}`);
+  } finally { end(); }
+});
+
+test('action "chat" said by mistake: a clear commitment the model listed as a task is still a card', async () => {
+  const text = 'بكرا الساعة 5 المسا عندي اجتماع مع فريق العمل';
+  const uid = beginModel({}, modelFirstAnswer('تمام!', 'chat', [
+    { ...modelItem('اجتماع مع فريق العمل', TOMORROW, '17:00'), source: text },
+  ]));
+  try {
+    const answer = await say(uid, text, { locale: 'ar' });
+    const card = cards(answer).find((item) => item.title.includes('اجتماع'));
+    assert.ok(card, `a real commitment was lost to action "chat": ${show(answer.proposal)}`);
+    assert.equal(card!.resolvedTime, at(TOMORROW, '17:00'));
+  } finally { end(); }
+});
