@@ -258,7 +258,8 @@ it.each(['completed', 'skipped', 'recovered'])('a %s day can be taken back, and 
   await render(wrap(<HabitDetailScreen />));
   const undo = screen.getByTestId('habit-today-undo-h1');
   expect(undo).toHaveTextContent(strings.en.undo);
-  expect(screen.getByLabelText(strings.en.xHabitTodayUndoA11y.replace('{title}', 'Walk'))).toBeTruthy();
+  // The title is bidi-isolated (isolateAuto), so it is matched inside the label.
+  expect(screen.getByLabelText(new RegExp(`^${strings.en.xHabitTodayUndoA11y.replace('{title}', '.?Walk.?')}$`))).toBe(undo);
   await fireEvent.press(undo);
   expect(mockUndo).toHaveBeenLastCalledWith({ habitId: 'h1', occurrenceId: 'h1.2026-11-15.0' }, expect.any(Object));
 });

@@ -1532,6 +1532,7 @@
   "xHabitTodayMadeUp": "حطّيناها مرّة تانية هالأسبوع.",
   "xHabitTodayDoneA11y": "تمّت اليوم: {title}",
   "xHabitTodaySkipA11y": "مش اليوم: {title}",
+  "xHabitTodayUndoA11y": "تراجع عن جواب اليوم: {title}",
   "xHabitTodayAnyDay": "مش من أيامها، بس إذا عملتها اليوم بتنحسبلك من الأسبوع.",
   "xHabitWeekCount": "{completed} من {target} هالأسبوع",
   "xHabitWeekDone": "خلّصت عدّك لهالأسبوع",

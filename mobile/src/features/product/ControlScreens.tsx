@@ -6,6 +6,7 @@ import { useAuth } from '../../auth/AuthProvider';
 import {
   useCreateHabit,
   useDecideHabitOccurrence,
+  useUndoHabitOccurrence,
   useDeleteHabit,
   useHabits,
   useHabitsToday,
@@ -253,14 +254,17 @@ export function PatchReviewScreen() {
 /**
  * Today's occurrence of one habit, decided here (CA5.4): «تمّت» or «مش اليوم».
  * Both answers have the same weight. Once the server holds a decision the row
- * says it in words and offers no second one — a reversal is a 409 by design.
+ * says it in words and offers no second one — pressing the other answer is a
+ * 409 by design. «تراجع» (V3-F23-02) is the explicit way back: it reopens the
+ * day, which can then take either answer.
  */
 function HabitTodayRow({ habit, occurrence, anyDay }: { habit: Habit; occurrence: HabitOccurrence; anyDay: boolean }) {
   const { t, tr, p } = useApp();
   const decide = useDecideHabitOccurrence();
+  const undo = useUndoHabitOccurrence();
   const [madeUp, setMadeUp] = React.useState(false);
   const open = occurrence.state === 'pending' || occurrence.state === 'scheduled';
-  const busy = decide.isPending;
+  const busy = decide.isPending || undo.isPending;
   const title = isolateAuto(habit.title);
   const press = (outcome: 'completed' | 'skipped') => decide.mutate(
     { habitId: habit.habitId, occurrenceId: occurrence.occurrenceId, outcome },
@@ -280,7 +284,12 @@ function HabitTodayRow({ habit, occurrence, anyDay }: { habit: Habit; occurrence
       {decided ? <Txt testID={`habit-today-state-${habit.habitId}`} role="supporting" color={occurrence.state === 'completed' ? p.success : p.mu}>{decided}</Txt> : null}
       {decided && madeUp ? <Txt role="supporting" color={p.mu}>{t.xHabitTodayMadeUp}</Txt> : null}
       {decide.error ? <Txt role="supporting" color={p.wm}>{userFacingMessage(decide.error, t)}</Txt> : null}
+      {undo.error ? <Txt role="supporting" color={p.wm}>{userFacingMessage(undo.error, t)}</Txt> : null}
     </LiveRegion>
+    {decided ? <ProductActions>
+      <Pill testID={`habit-today-undo-${habit.habitId}`} label={t.undo} accessibilityLabel={fill(t.xHabitTodayUndoA11y, { title })} kind="outline" disabled={busy}
+        onPress={() => undo.mutate({ habitId: habit.habitId, occurrenceId: occurrence.occurrenceId }, { onSuccess: () => setMadeUp(false), onError: markErrorShown })} />
+    </ProductActions> : null}
   </View>;
 }
 
