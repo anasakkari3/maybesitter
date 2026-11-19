@@ -9,7 +9,7 @@
  * - CXA9.5: «كمّل من وين وقفت» fails → nothing was said.
  */
 import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
-import { screen, waitFor } from '@testing-library/react-native';
+import { act, screen, waitFor } from '@testing-library/react-native';
 import {
   NOW,
   failedScan,
@@ -70,7 +70,24 @@ describe('CXA9.3: a failed status read is said, with a way to try again', () => 
   });
 });
 
-describe('CXA9.4: a lost start answer does not contradict a scan the server is running', () => {
+describe('CXA9.3: a failed poll does not leave a stale line frozen in silence', () => {
+  it('a running scan whose next poll fails keeps its line and says the status could not be read', async () => {
+    harness = await prepare('en', initialState({ scanManual: runningScan({ messagesRead: 33 }) }));
+    await showIntelligence(harness);
+    await waitFor(() => expect(screen.queryByTestId('email-scan-status')).not.toBeNull());
+    expect(screen.queryByTestId('email-scan-status-failed')).toBeNull();
+    harness.server.handler = request => (
+      request.method === 'GET' && SCAN.test(request.path)
+        ? { status: 500, body: { success: false, error: 'internal' } }
+        : undefined
+    );
+    await act(async () => { await jest.advanceTimersByTimeAsync(5_500); });
+    await waitFor(() => expect(screen.queryByTestId('email-scan-status-failed')).not.toBeNull());
+    expect(screen.getByTestId('email-scan-status')).toHaveTextContent(/33/);
+  });
+});
+
+describe('CXA9.4:a lost start answer does not contradict a scan the server is running', () => {
   it('a network failure on the start, with the scan running on the server, shows the scan and no error', async () => {
     harness = await prepare('en', initialState(), request => {
       if (request.method === 'POST' && SCAN.test(request.path)) {

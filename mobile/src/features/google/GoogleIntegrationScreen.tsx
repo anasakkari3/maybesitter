@@ -168,7 +168,7 @@ export function GoogleIntegrationScreen() {
         action = emailM5
           ? <View style={{ gap: 10, alignSelf: 'stretch' }}>
             <EmailScanEntry />
-            <EmailScanStatus overview={scanOverview.data} onReconnect={() => onConnect('gmail')} />
+            <EmailScanStatus overview={scanOverview.data} failed={scanOverview.isError} onRetry={() => void scanOverview.refetch()} onReconnect={() => onConnect('gmail')} />
           </View>
           : <Pill testID="google-gmail-scan" label={t.googleGmailScan} kind="accent" disabled={busy} onPress={() => void onScan()} />;
       } else if (google!.pickerAvailable) {

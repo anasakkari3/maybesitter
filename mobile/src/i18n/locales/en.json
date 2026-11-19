@@ -2108,6 +2108,7 @@
   "m5ScanFailedOff": "Stopped partway: email checking is switched off right now",
   "m5ScanFailedCount": "I read {n} before stopping",
   "m5ScanResume": "Continue where I stopped",
+  "m5ScanStatusUnavailable": "Couldn't load the scan's status right now. It may still be running.",
   "m5ScanReconnect": "Connect Google",
   "m5ScanDailyNoTimezone": "The daily check is paused because I don't know your time zone. Open the app on your phone and it'll resume",
   "m5ScanQuotaWait": "I've hit the daily limit for reading email. I'll carry on by myself {when}",
