@@ -574,6 +574,32 @@ test('auto-accept off: nothing is a commitment until accepted, an accept is idem
   });
 });
 
+test('CA10.9: an accepted deadline keeps its all-day shape and is stored in the account time zone, not UTC', async () => {
+  await withWorld(async (h) => {
+    h.bodies.set(FEED_URL, calendar([
+      { uid: 'allday', title: 'Report due', dueInHours: 48 },
+      { uid: 'timed', title: 'Quiz due', dueInHours: 72 },
+    ]));
+    const feedId = (await subscribe(h)).body.feed.feedId as string;
+    await refresh(h, feedId);
+    const user = await getStorage().get<Record<string, unknown>>(userDoc(USER));
+    await getStorage().set(userDoc(USER), { ...user, timezone: 'Asia/Jerusalem' });
+    // The classifier marks a date-only deadline all-day; the row is what accept reads.
+    const allDay = byTitle(await items(), 'Report due');
+    await getStorage().set(userSubDoc(USER, ICS_FEED_ITEMS, allDay.itemKey), { ...allDay, allDay: true });
+
+    assert.equal((await decide(h, feedId, allDay.itemKey, 'accept')).status, 200);
+    assert.equal((await decide(h, feedId, byTitle(await items(), 'Quiz due').itemKey, 'accept')).status, 200);
+    const made = await commitments();
+    const report = made.find((c) => c.title === 'Report due')!;
+    const quiz = made.find((c) => c.title === 'Quiz due')!;
+    assert.equal((report.timeSpec as { allDay?: boolean }).allDay, true, 'an all-day deadline became a timed task at its end');
+    assert.equal((quiz.timeSpec as { allDay?: boolean }).allDay ?? false, false);
+    assert.equal((report.timeSpec as { timezone?: string }).timezone, 'Asia/Jerusalem');
+    assert.equal((quiz.timeSpec as { timezone?: string }).timezone, 'Asia/Jerusalem');
+  });
+});
+
 test('two accepts of the same deadline arriving together make one commitment', async () => {
   await withWorld(async (h) => {
     h.bodies.set(FEED_URL, calendar([{ uid: 'essay', title: 'Essay due', dueInHours: 48 }]));
