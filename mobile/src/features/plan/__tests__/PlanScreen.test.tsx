@@ -1,3 +1,4 @@
+import { deviceTimeZone } from '../../../i18n/timezone';
 import React from 'react';
 import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
@@ -16,7 +17,7 @@ import type { DailyPlan, PlanSettings } from '../../../api/schemas/plan';
 import { LANGUAGE_STORAGE_KEY } from '../../../i18n/language';
 import { withHermesIntl } from '../../../testing/hermesIntl';
 import { deferred } from '../../../testing/deferred';
-import { dayKey } from '../../../i18n/format';
+import { dayKey, shiftDayKey } from '../../../i18n/format';
 import { isolateAuto } from '../../../i18n/bidi';
 import en from '../../../i18n/locales/en.json';
 import ar from '../../../i18n/locales/ar.json';
@@ -602,11 +603,23 @@ describe('when there is no plan for the day', () => {
   });
 
   /** The empty state, once the settings answer has landed too. */
-  async function empty() {
-    await show();
+  async function empty(date = DATE) {
+    await show(date);
     await waitFor(() => expect(screen.queryByTestId('plan-empty')).not.toBeNull());
     await waitFor(() => expect(planEndpoints.getPlanSettings).toHaveBeenCalled());
   }
+
+  it('names the day it is about on any other date, never «today» (CA4.8)', async () => {
+    // maybesitter://plan/<tomorrow> read «خطة اليوم», «ما في خطة لليوم» and
+    // «اعمل خطة اليوم» with nothing naming the day on screen.
+    const tomorrow = shiftDayKey(dayKey(new Date(), deviceTimeZone()), 1);
+    await empty(tomorrow);
+    expect(screen.queryByText(en.planTitle)).toBeNull();
+    expect(screen.queryByText(en.planEmptyTitle)).toBeNull();
+    expect(screen.queryByText(en.planEmptyBuildCta)).toBeNull();
+    expect(screen.queryByText(en.planTitleFor.replace('{day}', en.tomorrow))).not.toBeNull();
+    expect(screen.queryByText(en.planEmptyBuildCtaOther)).not.toBeNull();
+  });
 
   it('says so instead of showing an error with a Retry that cannot help', async () => {
     await empty();
@@ -614,7 +627,7 @@ describe('when there is no plan for the day', () => {
   });
 
   it('offers to build today’s plan, and does not tell somebody to turn on what they already have on', async () => {
-    await empty();
+    await empty(dayKey(new Date(), deviceTimeZone()));
     await waitFor(() => expect(screen.queryByText(en.planEmptyBodyReady)).not.toBeNull());
     expect(screen.queryByTestId('plan-build')).not.toBeNull();
     expect(screen.queryByText(en.planEmptyBuildCta)).not.toBeNull();
@@ -704,7 +717,7 @@ describe('when there is no plan for the day', () => {
 
   it('says it in Arabic too, without telling anyone to switch on what is on', async () => {
     await AsyncStorage.setItem(LANGUAGE_STORAGE_KEY, 'ar');
-    await empty();
+    await empty(dayKey(new Date(), deviceTimeZone()));
     await waitFor(() => expect(screen.queryByText(ar.planEmptyBuildCta)).not.toBeNull());
     expect(screen.queryByText(ar.planEmptyBodyReady)).not.toBeNull();
     expect(screen.queryByText(ar.planEmptyBody)).toBeNull();
