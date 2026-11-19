@@ -117,6 +117,31 @@ test('B-4 concurrent statement accepts with one key create and return one goal',
   }, h);
 });
 
+test('QA v3 V3-F22-04: a goal statement far past what the app can send is refused, at preview and at accept', async () => {
+  const h = await setup({ model: false });
+  await within(async () => {
+    const huge = 'هدف '.repeat(3000).trim();
+    const refused = await call('goals/from-statement/preview', 'POST', {}, { statement: huge, locale: 'ar' });
+    assert.equal(refused.status, 422, JSON.stringify(refused.body).slice(0, 200));
+    assert.equal(refused.body.reason, 'goal_too_long');
+    assert.equal(JSON.stringify(refused.body).includes(huge), false, 'the refusal must not echo the text');
+
+    // The app's longest path: a 2000-character statement, a newline and a
+    // 2000-character answer to the "too vague" question.
+    const longest = `${'أ'.repeat(2000)}\n${'ب'.repeat(2000)}`;
+    const accepted = await call('goals/from-statement/preview', 'POST', {}, { statement: longest, locale: 'ar' });
+    assert.equal(accepted.status, 200, JSON.stringify(accepted.body).slice(0, 200));
+
+    // The accept takes the understood text from the request: it is held to the same bound.
+    const small = await call('goals/from-statement/preview', 'POST', {}, { statement: 'بدي أرجع أركض', locale: 'ar' });
+    const swapped = await call('goals/from-statement/accept', 'POST', {}, {
+      summaryId: small.body.summaryId, revision: small.body.revision, understood: { goalText: huge }, idempotencyKey: key('accept-huge'),
+    });
+    assert.equal(swapped.status, 422, JSON.stringify(swapped.body).slice(0, 200));
+    assert.equal(swapped.body.reason, 'goal_too_long');
+  }, h);
+});
+
 test('S-1 statement acceptance reads a Firestore Timestamp-shaped expiry', async () => {
   const h = await setup({ model: false });
   await within(async () => {
