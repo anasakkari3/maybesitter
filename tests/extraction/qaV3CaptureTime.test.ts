@@ -30,6 +30,7 @@ import { guardedMobileExtract } from '../../lib/services/mobile/safety.ts';
 import { validateExtractionResult } from '../../src/extraction/schemaValidator.ts';
 import { instantFromLocal, localTimeSpecFor, readRelativeOffsetMinutes } from '../../src/extraction/timeLexicon.ts';
 import { splitCaptureClauseDetails, splitCaptureClauses } from '../../src/extraction/clauseSplitter.ts';
+import { spanTitle } from '../../src/extraction/extractionService.ts';
 import { withoutUnsaidTime } from '../../lib/services/captureBoundary/chatEvidence.ts';
 import { buildChatPrompt } from '../../lib/services/captureChat/chatPrompt.ts';
 
@@ -483,4 +484,9 @@ test('round 4: the chat prompt says what is not a missed thing — a feeling, an
   // Review round 5: a regret about a gone chance, and a thing done after all.
   assert.match(prompt, /كان لازم أشتري بيتكوين وما اشتريت/);
   assert.match(prompt, /كان لازم أدفع بس دفعها أخوي/);
+});
+
+test('round 5 (F04-04): the span title loses punctuation at both edges, not only the start', () => {
+  assert.equal(spanTitle('اتصل بأمي بعد ساعتين، '), 'اتصل بأمي');
+  assert.equal(spanTitle(': call mom in 2 hours.'), 'call mom');
 });
