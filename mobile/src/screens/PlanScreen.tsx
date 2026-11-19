@@ -28,8 +28,9 @@ import { ConflictError, QuotaExceededError } from '../api/errors';
 import { markPlanOpened } from '../api/endpoints/plans';
 import { userFacingMessage } from '../api/ui/userFacingMessage';
 import type { DailyPlan, PlanItem } from '../api/schemas/plan';
-import { CIVIL_ZONE, civilDate, dayKey, formatClockRange, formatRelativeDay, formatTime, formatTimeRange } from '../i18n/format';
+import { CIVIL_ZONE, civilDate, dayKey, formatClockRange, formatDayKey, formatRelativeDay, formatTime, formatTimeRange } from '../i18n/format';
 import { isolateAuto } from '../i18n/bidi';
+import { useTimeZone } from '../i18n/timezone';
 import { fill, ltr } from '../i18n/strings';
 import { planItemPrepTarget } from '../features/meetings/prepTargets';
 import { instantForLocalDateTime, localDateTimeFor } from '../features/capture/localInstant';
@@ -87,7 +88,11 @@ import {
  * (#157). Nothing is written to storage on either path.
  */
 export function PlanScreen({ date, onBack }: { date: string; onBack: () => void }) {
-  const { t, p } = useApp();
+  const { t, p, lang } = useApp();
+  const zone = useTimeZone();
+  // Another day's plan names its day (CA4.8): «الخطة · بكرا», never «خطة اليوم».
+  const isToday = date === dayKey(new Date(), zone);
+  const title = isToday ? t.planTitle : fill(t.planTitleFor, { day: isolateAuto(formatDayKey(date, { locale: lang, timeZone: zone })) });
   const online = useIsOnline();
   const query = usePlan(date);
   const settings = usePlanSettings();
@@ -104,7 +109,7 @@ export function PlanScreen({ date, onBack }: { date: string; onBack: () => void 
   // a train.
   if (!online && !answered) {
     return (
-      <PlanFrame title={t.planTitle} onBack={onBack}>
+      <PlanFrame title={title} onBack={onBack}>
         <Card pad={18}>
           <Txt size={15} color={p.mu} lh={1.5} testID="plan-offline-cold">{t.planOfflineCold}</Txt>
         </Card>
@@ -113,12 +118,12 @@ export function PlanScreen({ date, onBack }: { date: string; onBack: () => void 
   }
 
   return (
-    <PlanFrame title={t.planTitle} onBack={onBack}>
+    <PlanFrame title={title} onBack={onBack}>
       <QueryBoundary isPending={query.isPending} error={query.error} onRetry={() => void query.refetch()}>
         {plan ? (
           <LoadedPlan plan={plan} date={date} readOnly={!online} />
         ) : (
-          <EmptyPlan date={date} online={online} deliveryOn={settings.data?.enabled} />
+          <EmptyPlan date={date} isToday={isToday} online={online} deliveryOn={settings.data?.enabled} />
         )}
       </QueryBoundary>
     </PlanFrame>
@@ -141,7 +146,7 @@ export function PlanScreen({ date, onBack }: { date: string; onBack: () => void 
  * nothing. `LoadedPlan` replaces this in place when the answer lands, because
  * `useBuildPlan` writes it into the plan query this screen is reading.
  */
-function EmptyPlan({ date, online, deliveryOn }: { date: string; online: boolean; deliveryOn: boolean | undefined }) {
+function EmptyPlan({ date, isToday, online, deliveryOn }: { date: string; isToday: boolean; online: boolean; deliveryOn: boolean | undefined }) {
   const { t, p, actions } = useApp();
   const build = useBuildPlan(date);
   const building = useOneAtATime();
@@ -153,13 +158,13 @@ function EmptyPlan({ date, online, deliveryOn }: { date: string; online: boolean
     <EmptyState
       testID="plan-empty"
       top={40}
-      title={t.planEmptyTitle}
+      title={isToday ? t.planEmptyTitle : t.planEmptyTitleOther}
       body={online ? (deliveryOff ? t.planEmptyBody : t.planEmptyBodyReady) : t.planOfflineCold}
       action={online ? (
         <View style={{ alignItems: 'center', gap: 6, marginTop: 6 }}>
           {m5bOn === true ? <PlanEnergyAsk /> : null}
           <Pill
-            label={t.planEmptyBuildCta}
+            label={isToday ? t.planEmptyBuildCta : t.planEmptyBuildCtaOther}
             size={15}
             pad={12}
             testID="plan-build"
@@ -776,6 +781,14 @@ function PlannedRow({
   const stacked = useLayoutMode() !== 'normal';
   const [picking, setPicking] = useState(false);
   const [picked, setPicked] = useState<Date | null>(null);
+  // A closed row forgets its wheel (CA4.3): after a successful move it closes,
+  // and reopened it must not offer «حرّكها» on the time already sent. Adjusted
+  // while rendering, when `open` changes, rather than in an effect.
+  const [wasOpen, setWasOpen] = useState(open);
+  if (wasOpen !== open) {
+    setWasOpen(open);
+    if (!open) { setPicked(null); setPicking(false); }
+  }
 
   const start = new Date(item.startsAt);
   const end = new Date(item.endsAt);

@@ -54,6 +54,12 @@ export interface ImportState {
   readonly pasteEmpty: boolean;
   readonly readFailed: boolean;
   readonly saveFailed: boolean;
+  /**
+   * The server no longer has the proposal (404 `proposal_not_found`): past its
+   * thirty minutes, or already saved by a confirm whose answer was lost. A
+   * retry can never work, so the flow is back at paste (QA CA1.5).
+   */
+  readonly expired: boolean;
 }
 
 export type ImportAction =
@@ -72,6 +78,7 @@ export type ImportAction =
   | { type: 'save' }
   | { type: 'saved' }
   | { type: 'saveFailed' }
+  | { type: 'expired' }
   | { type: 'restart' };
 
 export const initialImport: ImportState = {
@@ -87,6 +94,7 @@ export const initialImport: ImportState = {
   pasteEmpty: false,
   readFailed: false,
   saveFailed: false,
+  expired: false,
 };
 
 function replaceAt<T>(list: readonly T[], index: number, value: T): readonly T[] {
@@ -110,7 +118,7 @@ export function reduceImport(state: ImportState, action: ImportAction): ImportSt
       // Text arriving before the handoff is a bug in a caller: the paste button
       // does not exist yet. Ignored rather than trusted.
       if (state.status !== 'paste') return state;
-      return { ...state, text: action.text, pasteEmpty: false, readFailed: false };
+      return { ...state, text: action.text, pasteEmpty: false, readFailed: false, expired: false };
 
     case 'pasteEmpty':
       if (state.status !== 'paste') return state;
@@ -165,6 +173,13 @@ export function reduceImport(state: ImportState, action: ImportAction): ImportSt
       // Back to the choices, with them intact, so the primary button re-sends
       // the very same ones. Nothing was written.
       return { ...state, status: 'review', saveFailed: true };
+
+    case 'expired':
+      if (state.status !== 'saving' && state.status !== 'review') return state;
+      return {
+        ...state, status: 'paste', proposal: null, kept: [], edits: [], resolutions: [],
+        expanded: false, saveFailed: false, readFailed: false, pasteEmpty: false, expired: true,
+      };
 
     case 'restart':
       return initialImport;

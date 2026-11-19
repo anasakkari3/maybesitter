@@ -5,7 +5,8 @@ import { RefreshControl, View } from 'react-native';
 import { calendarReadEnabled } from '../config/env';
 import { useBusyBlocks, useDeviceBusy } from '../features/calendar/useBusyCalendar';
 import { useGoogleBusyRead } from '../features/google/useGoogle';
-import { dayBounds, dayWindow, freeMinutes, occupancyOf, type Interval } from '../features/calendar/freeTime';
+import { putOfferAway, useOfferPutAway } from '../features/plan/laterOffers';
+import { busyDayKeys, dayBounds, dayWindow, freeMinutes, occupancyOf, type Interval } from '../features/calendar/freeTime';
 import { dayFree, googleCovers, googleWindowIsNormal, knownTime, type DayFree, type FreeSources } from '../features/calendar/freeReadiness';
 import { WIDER_DAYS, probeRange, useDaysFrom, useLocalToday, usePlanSnapshot, useServerBusy } from '../features/calendar/usePlanFreeTime';
 import { FreeList, FreeStateLine, gapLength } from '../features/calendar/FreeTimeRows';
@@ -116,7 +117,6 @@ export function CalendarScreen({ tabClearance = TAB_CLEARANCE }: { tabClearance?
     return onCalendarWiderRequest(open);
   }, []);
   // «مش هلّق» on a proposal: out of the way for now, answered nowhere.
-  const [laterProposal, setLaterProposal] = useState<string | null>(null);
   // Where the scrolling strip is: it opens at its end (today) until scrolled.
   const [strip, setStrip] = useState<{ offset: number | null; content: number; viewport: number }>({ offset: null, content: 0, viewport: 0 });
   const stripFade = stripFadeFor(strip.offset ?? strip.content - strip.viewport, strip.content, strip.viewport);
@@ -128,6 +128,8 @@ export function CalendarScreen({ tabClearance = TAB_CLEARANCE }: { tabClearance?
   // Today's plan, for a pending change to it (#523): the same query Today reads.
   const plan = usePlan(todayKey);
   const proposal = plan.data?.proposal ?? null;
+  // «مش هلّق» holds across every Calendar drawn in this run (CA4.10).
+  const proposalPutAway = useOfferPutAway(proposal?.proposalId);
 
   // The free-time probe (M4a): the server's busy read. Until it answers 200
   // the tab is exactly what it was, and nothing more is read for free time.
@@ -184,8 +186,7 @@ export function CalendarScreen({ tabClearance = TAB_CLEARANCE }: { tabClearance?
   const busyByDay = useMemo(() => {
     const map = new Map<string, DeviceBusyBlock[]>();
     for (const block of busy) {
-      const key = dayKey(new Date(block.startAt), timezone);
-      map.set(key, [...(map.get(key) ?? []), block]);
+      for (const key of busyDayKeys(block, timezone)) map.set(key, [...(map.get(key) ?? []), block]);
     }
     return map;
   }, [busy, timezone]);
@@ -233,8 +234,8 @@ export function CalendarScreen({ tabClearance = TAB_CLEARANCE }: { tabClearance?
       const same = `${Date.parse(block.startAt)}|${Date.parse(block.endAt)}|${block.allDay}`;
       if (drawn.has(same)) continue;
       drawn.add(same);
-      const key = dayKey(new Date(block.startAt), timezone);
-      map.set(key, [...(map.get(key) ?? []), { nativeId: `server:${block.blockId}`, startAt: block.startAt, endAt: block.endAt, allDay: block.allDay }]);
+      const row = { nativeId: `server:${block.blockId}`, startAt: block.startAt, endAt: block.endAt, allDay: block.allDay };
+      for (const key of busyDayKeys(block, timezone)) map.set(key, [...(map.get(key) ?? []), row]);
     }
     return map;
   }, [free, calendarConnected, busy, serverBusy, timezone]);
@@ -470,12 +471,12 @@ export function CalendarScreen({ tabClearance = TAB_CLEARANCE }: { tabClearance?
             })}
           </DirectionalScrollRow> : null}
 
-          {proposal && laterProposal !== proposal.proposalId ? (
+          {proposal && !proposalPutAway ? (
             <ProposalCard
               proposal={proposal}
               zone={plan.data?.timezone ?? timezone}
               onReview={() => actions.go('patchReview')}
-              onLater={() => setLaterProposal(proposal.proposalId)}
+              onLater={() => putOfferAway(proposal.proposalId)}
             />
           ) : null}
 

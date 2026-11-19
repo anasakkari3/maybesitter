@@ -26,11 +26,13 @@ import { Footer, PrimaryButton, SecondaryButton } from './AiImportButtons';
  * candidates are editable, and that is where an edit means something.
  */
 export function AiImportPasteStep({
-  text, pasteEmpty, readFailed, reading, onPaste, onRead, onCopyAgain, onBack,
+  text, pasteEmpty, readFailed, expired = false, reading, onPaste, onRead, onCopyAgain, onBack,
 }: {
   text: string;
   pasteEmpty: boolean;
   readFailed: boolean;
+  /** The last review could no longer be saved from (CA1.5). */
+  expired?: boolean;
   reading: boolean;
   onPaste: () => void;
   onRead: () => void;
@@ -66,6 +68,7 @@ export function AiImportPasteStep({
       ) : null}
       {pasteEmpty ? <Notice text={t.aiImportPasteEmpty} testID="ai-import-paste-empty" /> : null}
       {readFailed ? <Notice text={t.aiImportFailed} testID="ai-import-read-failed" /> : null}
+      {expired ? <Notice text={t.aiImportExpired} testID="ai-import-expired" /> : null}
 
       <Footer>
         <SecondaryButton label={t.aiImportPasteButton} onPress={onPaste} testID="ai-import-paste" />

@@ -97,7 +97,11 @@ export function AboutYouReviewStep({
 
       {suggestions.map((suggestion, index) => {
         const choice = choices[index]!;
-        const edited = choice.edited !== null;
+        // Rewritten only when `acceptedFrom` would send the words: an emptied
+        // field or the same words back saves the model's sentence, so the row
+        // shows it and keeps the label (QA CA1.6).
+        const rewrite = choice.edited?.trim() ?? '';
+        const edited = rewrite !== '' && rewrite !== suggestion.content;
         return (
           <Card key={`${suggestion.content}-${index}`} pad={16} style={{ gap: 10 }}>
             <View style={{ flexDirection: 'row', gap: 12, alignItems: 'flex-start' }}>
@@ -130,7 +134,7 @@ export function AboutYouReviewStep({
                   />
                 ) : (
                   <Txt size={15} lh={1.5} testID={`about-review-content-${index}`}>
-                    {isolateAuto(choice.edited ?? suggestion.content)}
+                    {isolateAuto(edited ? rewrite : suggestion.content)}
                   </Txt>
                 )}
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>

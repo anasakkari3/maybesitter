@@ -61,6 +61,16 @@ export function recordVisitFailure(uid: string, off: boolean, now: number = Date
   writeNext(uid, now + (off ? DEFAULT_WAIT_MS : FAILURE_WAIT_MS));
 }
 
+/**
+ * Recommendations were just turned on. A visit refused while they were off
+ * (403) set the default six-hour wait; that wait answered a question that no
+ * longer stands, so the next screen may ask at once (QA CA7.5).
+ */
+export function clearVisitWait(uid: string): void {
+  if (!uid || uid === 'signed-out') return;
+  writeNext(uid, 0);
+}
+
 export function resetVisitThrottleForTests(): void {
   nextAllowed.clear();
 }

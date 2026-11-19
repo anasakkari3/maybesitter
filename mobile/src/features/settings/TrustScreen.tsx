@@ -26,6 +26,8 @@ import type { PilotIncidentInput } from '../../api/schemas/trust';
 import { deviceCalendar } from '../calendar/deviceCalendar';
 import { useCalendarConnection } from '../calendar/calendarConnection';
 import { exportPhaseCopy, useExportMyData } from '../account/useExportMyData';
+import { useAuth } from '../../auth/AuthProvider';
+import { clearVisitWait } from '../../lib/deviceSettings/visitThrottle';
 
 const INCIDENT_SURFACES: readonly PilotIncidentInput['surface'][] = ['capture', 'recommendation', 'calendar', 'analytics', 'account'];
 const INCIDENT_CATEGORIES: readonly PilotIncidentInput['category'][] = ['reliability', 'privacy', 'safety', 'consent', 'other'];
@@ -74,6 +76,7 @@ export function TrustScreen({ onBack, onKnows }: { onBack: () => void; onKnows: 
   const consents = useConsents();
   const trust = useTrust();
   const setRecommendations = useSetRecommendationConsent();
+  const uid = useAuth().user?.uid ?? null;
   const setPersonalization = useSetPersonalizationConsent();
   const trustAction = useTrustAction();
   const report = useReportPilotIncident();
@@ -151,6 +154,10 @@ export function TrustScreen({ onBack, onKnows }: { onBack: () => void; onKnows: 
             disabled={versions === undefined}
             onChange={next => record(setRecommendations.mutateAsync({
               state: next ? 'granted' : 'declined', version: versions!.recommendations, ...context,
+            }).then((saved) => {
+              // A visit refused while they were off waits six hours; a yes
+              // ends that wait, so «يتابع لك» can ask now (QA CA7.5).
+              if (saved.recommendations.state === 'granted' && uid) clearVisitWait(uid);
             }))}
           />
           <ServerToggle

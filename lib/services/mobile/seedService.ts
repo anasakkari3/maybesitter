@@ -33,7 +33,7 @@
  * constructed by exactly the code every captured one is, and cannot drift
  * from it.
  *
- * "Turn into a goal" calls `createManualMemory` with kind `goal`: #168's
+ * "Turn into a goal" calls `createManualMemoryIdempotent` (keyed by the seed) with kind `goal`: #168's
  * confirmed-goal representation, user-stated, confidence 1. There is no
  * second goal store.
  *
@@ -98,7 +98,7 @@ import {
   type StorageAdapter,
 } from '../../storage';
 import { requireLiveAccount } from '../../account/accountLiveness';
-import { createManualMemory } from './memoryService';
+import { createManualMemoryIdempotent } from './memoryService';
 import { applyParticipantCommand, applyParticipantCommands } from './participantState';
 
 export class SeedNotFoundError extends Error {
@@ -573,11 +573,16 @@ export async function promoteSeed(
    * a goal created whose claim then fails leaves a confirmed goal the user can
    * see on the memory screen and delete, which is recoverable — a commitment
    * created twice is not.
+   *
+   * The goal is keyed by the seed (CXA5.7): two taps racing past the status
+   * check write the same record, so the loser's 409 leaves no orphan goal
+   * behind — on staging it left one per race, 3 of 3.
    */
-  const goal = await createManualMemory(
+  const goal = await createManualMemoryIdempotent(
     uid,
     { kind: 'goal', content: existing.summary, language: requireLanguage(undefined) },
     at,
+    `seed-promotion:${seedId}`,
   );
   const settled = await store.claimPromotion(uid, seedId, { kind: 'goal', id: goal.id }, at);
   if (!settled) throw new SeedAlreadyResolvedError();

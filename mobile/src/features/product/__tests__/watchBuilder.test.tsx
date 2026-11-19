@@ -132,3 +132,17 @@ it('sends one create however often the button is pressed while it is in flight',
   expect(create).toHaveBeenCalledTimes(1);
   finish(response);
 });
+
+it('finds a club typed without hamza or madda, the way phones spell it (CA6.2)', async () => {
+  jest.spyOn(footballEndpoints, 'getFootballSettings').mockResolvedValue(footballOn as never);
+  await show();
+  await waitFor(() => expect(screen.getByTestId('watch-source-football')).toBeTruthy());
+  await fireEvent.press(screen.getByTestId('watch-source-football'));
+  await fireEvent.changeText(screen.getByTestId('watch-team-search'), 'ارسنال');
+  expect(screen.getByTestId('watch-team-arsenal')).toBeTruthy();
+  await fireEvent.changeText(screen.getByTestId('watch-team-search'), 'انتر');
+  expect(screen.getByTestId('watch-team-inter-milan')).toBeTruthy();
+  await fireEvent.changeText(screen.getByTestId('watch-team-search'), 'اتلتيكو');
+  expect(screen.getByTestId('watch-team-atletico-madrid')).toBeTruthy();
+  expect(screen.queryByTestId('watch-team-none')).toBeNull();
+});

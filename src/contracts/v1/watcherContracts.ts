@@ -180,6 +180,12 @@ export interface WatcherFireEvent {
   readonly provenanceRef: string;
   /** The artifact the effect produced (state-change, proposal or notification id), if any. */
   readonly effectRef: string | null;
+  /**
+   * The firing watcher's `createdAt`: which generation of a stable watcher id
+   * fired it (E3 review). Absent on events written before it existed, which
+   * all belong to watchers whose ids were never reused.
+   */
+  readonly watcherCreatedAt?: string;
 }
 
 /* ── Effect artifacts ────────────────────────────────────────────── */

@@ -394,6 +394,8 @@ test('a provider payload cannot reach a watcher contract, a history row or an ef
       'effect', 'effectRef', 'eventId', 'firedAt', 'observedAt', 'outcome', 'policyDecision',
       'provenanceRef', 'provider', 'reason', 'scopeId', 'schemaVersion', 'signalId', 'signalKind',
       'subjectRef', 'version', 'watcherId',
+      // The firing watcher's own createdAt (its generation, E3 review): ours, not the provider's.
+      'watcherCreatedAt',
     ].sort());
   } finally {
     end();
@@ -959,7 +961,7 @@ test('a slow sweep that meets a duplicate never rolls a newer baseline back (CXA
     current = 'B';
     onObserve = async () => {
       const row = (await createWatcherStore(ALICE, storage).get(watcher.definition.watcherId))!;
-      const eventId = watcherEventIdFor(watcher.definition.watcherId, signalFor('B', '').signalId, 0);
+      const eventId = watcherEventIdFor(watcher.definition.watcherId, signalFor('B', '').signalId, 0, watcher.definition.createdAt);
       await storage.set(userSubDoc(ALICE, WATCHER_EVENTS, eventId), { eventId });
       await storage.set(path, {
         ...row,

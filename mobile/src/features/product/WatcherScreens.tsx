@@ -6,6 +6,7 @@ import { userFacingMessage } from '../../api/ui/userFacingMessage';
 import { useTimeZone } from '../../i18n/timezone';
 import { formatDate, formatTime } from '../../i18n/format';
 import { isolateAuto } from '../../i18n/bidi';
+import { foldForSearch } from '../../text/foldForSearch';
 import { fill } from '../../i18n/strings';
 import { useFootballSettings } from '../../api/queries';
 import type { FootballClub } from '../../api/schemas/football';
@@ -127,9 +128,10 @@ export function WatchBuilderScreen() {
   const footballAvailable = football.data?.providerConfigured === true;
   const clubs = football.data?.clubs ?? [];
   const club: FootballClub | null = clubs.find(candidate => candidate.clubId === clubId) ?? null;
-  const needle = search.trim().toLocaleLowerCase(lang);
+  // Folded like «أشيائي»: «ارسنال» finds «آرسنال» (CA6.2).
+  const needle = foldForSearch(search.trim());
   const matching = needle.length === 0 ? clubs : clubs.filter(candidate =>
-    [candidate.names.ar, candidate.names.he, candidate.names.en, candidate.clubId].some(name => name.toLocaleLowerCase(lang).includes(needle)));
+    [candidate.names.ar, candidate.names.he, candidate.names.en, candidate.clubId].some(name => foldForSearch(name).includes(needle)));
   const isFootball = source === 'football' && footballAvailable;
   const effects = isFootball ? footballEffects : (Object.keys(effectKeys) as Effect[]);
   const pending = isFootball ? follow.isPending : create.isPending;

@@ -86,6 +86,25 @@ const COMMITMENT_ID = /^[A-Za-z0-9_-]{1,128}$/;
  */
 const PLAN_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
+/**
+ * The shape, and that the day exists (CXA13.7): the same round trip as the
+ * server's `isPlanDate`. A shape-only check let `2026-02-30` through to a GET
+ * the server refused with 400, and Plan opened on an error.
+ */
+function isCivilDate(value: string): boolean {
+  if (!PLAN_DATE.test(value)) return false;
+  const [year, month, day] = value.split('-').map(Number) as [number, number, number];
+  const round = new Date(Date.UTC(year, month - 1, day));
+  return round.getUTCFullYear() === year && round.getUTCMonth() + 1 === month && round.getUTCDate() === day;
+}
+
+/**
+ * Names the design gallery used to jump to a fixture commitment (`c3`). On a
+ * real account they opened «هاي ما عادت موجودة» (C13.1); a commitment link
+ * carries its id (`commitments/<id>`).
+ */
+const FIXTURE_JUMPS: readonly string[] = ['details', 'postpone'];
+
 /** Only these names route by name; anything else is not a screen. */
 function screenTarget(name: string): LinkTarget | null {
   return name.length > 0 && /^[a-z][a-zA-Z0-9]{0,32}$/.test(name)
@@ -143,7 +162,7 @@ function targetFor(segments: string[], params: URLSearchParams): LinkTarget | nu
     // is not "today's plan": the notification names the day it is about, and a
     // client that substituted its own idea of today would open a different
     // plan for anyone tapping just after midnight.
-    if (segments.length !== 2 || !second || !PLAN_DATE.test(second)) return null;
+    if (segments.length !== 2 || !second || !isCivilDate(second)) return null;
     return { kind: 'plan', date: second };
   }
   if (first === 'commitments' || first === 'item') {
@@ -155,7 +174,22 @@ function targetFor(segments: string[], params: URLSearchParams): LinkTarget | nu
   if (segments.length !== 1) return null;
   // The widget's own name for "open whatever I should do now".
   if (first === 'next') return { kind: 'nextStep' };
+  if (FIXTURE_JUMPS.includes(first!)) return null;
   return screenTarget(first!);
+}
+
+/**
+ * Whether this process has already acted on its launch URL (C13.3).
+ *
+ * `Linking.getInitialURL()` returns the URL the process was started with for
+ * as long as it lives. `Root` unmounts on sign-out and mounts again on the next
+ * sign-in, so asking again replayed account A's link to account B.
+ */
+let initialLinkTaken = false;
+
+/** Tests only: a fresh process. */
+export function resetInitialLinkForTests(): void {
+  initialLinkTaken = false;
 }
 
 export function useLinks(
@@ -190,7 +224,8 @@ export function useLinks(
     };
     const pending = takePendingLink?.() ?? null;
     if (pending) apply(pending);
-    else Linking.getInitialURL().then(apply).catch(() => {});
+    else if (!initialLinkTaken) Linking.getInitialURL().then(apply).catch(() => {});
+    initialLinkTaken = true;
     const sub = Linking.addEventListener('url', e => apply(e.url));
     return () => sub.remove();
     // handlers are recreated each render; the subscription only needs to exist once
