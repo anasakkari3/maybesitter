@@ -19,11 +19,10 @@ function deps(overrides: Partial<RecordConsentsDeps> = {}) {
   return {
     setRecommendationConsent: jest.fn(async () => ({})),
     setAnalyticsConsent: jest.fn(async () => ({})),
-    reportCompleted: jest.fn(),
     ...overrides,
   } as unknown as RecordConsentsDeps & {
     setRecommendationConsent: jest.Mock;
-    setAnalyticsConsent: jest.Mock; reportCompleted: jest.Mock;
+    setAnalyticsConsent: jest.Mock;
   };
 }
 
@@ -34,7 +33,7 @@ describe('when every write lands', () => {
     const d = deps();
     expect(await recordConsents(ALLOW_ALL, VERSIONS, CONTEXT, d)).toEqual({ ok: true });
     // Exactly these two writers, and no third: the deps carry no AI writer.
-    expect(Object.keys(d).sort()).toEqual(['reportCompleted', 'setAnalyticsConsent', 'setRecommendationConsent']);
+    expect(Object.keys(d).sort()).toEqual(['setAnalyticsConsent', 'setRecommendationConsent']);
     expect(d.setRecommendationConsent).toHaveBeenCalledWith({
       state: 'granted', version: 'rec-consent-v1', locale: 'ar', platform: 'ios',
     });
@@ -82,12 +81,6 @@ describe('when one write does not land', () => {
     expect(await recordConsents(ALLOW_ALL, VERSIONS, CONTEXT, d)).toEqual({ ok: false, at: 'recommendations' });
     expect(d.setAnalyticsConsent).not.toHaveBeenCalled();
   });
-
-  it('does not report the completion when the run failed', async () => {
-    const d = deps({ setRecommendationConsent: jest.fn(async () => { throw new Error('offline'); }) as never });
-    await recordConsents(ALLOW_ALL, VERSIONS, CONTEXT, d);
-    expect(d.reportCompleted).not.toHaveBeenCalled();
-  });
 });
 
 describe('when the server has not said which versions it knows', () => {
@@ -100,21 +93,5 @@ describe('when the server has not said which versions it knows', () => {
   });
 });
 
-describe('the completion event', () => {
-  it('fires only when analytics consent was granted', async () => {
-    const granted = deps();
-    await recordConsents(ALLOW_ALL, VERSIONS, CONTEXT, granted);
-    expect(granted.reportCompleted).toHaveBeenCalledTimes(1);
-
-    const declined = deps();
-    await recordConsents({ ...ALLOW_ALL, analytics: false }, VERSIONS, CONTEXT, declined);
-    expect(declined.reportCompleted).not.toHaveBeenCalled();
-  });
-
-  it('is fire-and-forget: a dropped ping does not fail the run', async () => {
-    const d = deps({ reportCompleted: jest.fn(() => { throw new Error('dropped'); }) as never });
-    // Every answer is already on the server by this point. A metrics ping that
-    // falls over must not turn that into a "nothing was changed" retry.
-    expect(await recordConsents(ALLOW_ALL, VERSIONS, CONTEXT, d)).toEqual({ ok: true });
-  });
-});
+// The completion event left this function (QA CA1.1): it is sent at the end
+// of onboarding, see onboardingFlow.test.tsx.
