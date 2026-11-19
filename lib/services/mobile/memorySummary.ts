@@ -84,6 +84,16 @@ function normalize(value: string): string {
     .replace(/[\u0591-\u05C7]/g, '');
 }
 
+/**
+ * Arabic-Indic («٣») and Extended Arabic-Indic («۳») digits read as the Latin
+ * digits they are (QA v3 V3-F26-01): «عندك ٣ محاضرات» says what «عندي 3
+ * محاضرات» says. Any other numeral system is still refused below.
+ */
+function latinDigits(value: string): string {
+  return value.replace(/[٠-٩]/g, (digit) => String(digit.charCodeAt(0) - 0x0660))
+    .replace(/[۰-۹]/g, (digit) => String(digit.charCodeAt(0) - 0x06F0));
+}
+
 function words(value: string): string[] { return normalize(value).match(WORD) ?? []; }
 function rawLetterTokens(value: string): string[] { return value.match(RAW_LETTERS) ?? []; }
 function numericTokens(value: string): string[] { return value.match(NUMBER) ?? []; }
@@ -111,10 +121,112 @@ function HebrewReadings(word: string): string[] {
   return out;
 }
 
-function isNumberWord(word: string): boolean {
+function readingsOf(word: string): string[] {
   const possessive = word.endsWith("'s") ? word.slice(0, -2) : word;
-  return [possessive, ...ArabicReadings(possessive), ...HebrewReadings(possessive)]
-    .some((candidate) => MEMORY_SUMMARY_NUMBER_WORDS.has(candidate));
+  return [possessive, ...ArabicReadings(possessive), ...HebrewReadings(possessive)];
+}
+
+function isNumberWord(word: string): boolean {
+  return readingsOf(word).some((candidate) => MEMORY_SUMMARY_NUMBER_WORDS.has(candidate));
+}
+
+/**
+ * What a number word is worth, so a sentence may say a row's number in other
+ * words: «تلات» or "three" for a row's 3, "10" for a row's «العاشرة» (QA v3
+ * V3-F26-01; the prompt asks for digits, so a row that spells a time out could
+ * never be said back). Only the value is compared, never the spelling; a value
+ * no cited row holds is still an invention.
+ *
+ * Cardinals, plain ordinals and fractions only. The duals («ساعتين», "twice")
+ * stay bound to their own noun (MS-DUAL-001/007), and "first"/"second" (also
+ * "another", "a moment") and the Hebrew «שני» (also Monday) give a row no value.
+ */
+const CARDINAL_VALUES: Readonly<Record<string, readonly number[]>> = (() => {
+  const table: Array<[string, number[]]> = [
+    ['zero صفر אפס', [0]],
+    ['one واحد واحده وحده אחת אחד', [1]],
+    ['two اثنين اثنان اتنين ثنتين تنتين שתיים שתים שניים שנים שתי', [2]],
+    ['three ثلاث ثلاثه تلات تلاته שלוש שלושה שלש', [3]],
+    ['تلت', [3, 1 / 3]],
+    ['four اربع اربعه ארבע ארבעה', [4]],
+    ['five خمس خمسه חמש חמישה', [5]],
+    ['six ست سته שש שישה', [6]],
+    ['seven سبع سبعه שבע שבעה', [7]],
+    ['eight ثمان ثماني ثمانيه تمن تمنه تمانيه שמונה', [8]],
+    ['nine تسع تسعه תשע תשעה', [9]],
+    ['ten عشر عشره עשר עשרה', [10]],
+    ['eleven حداش احداش', [11]],
+    ['twelve اطناش طناش dozen', [12]],
+    ['thirteen تلطاش تلتطاش', [13]],
+    ['fourteen اربعطاش', [14]],
+    ['fifteen خمسطاش', [15]],
+    ['sixteen ستاش سطاش', [16]],
+    ['seventeen سبعطاش', [17]],
+    ['eighteen تمنطاش', [18]],
+    ['nineteen تسعطاش', [19]],
+    ['twenty عشرين عشرون עשרים', [20]],
+    ['thirty ثلاثين تلاتين שלושים', [30]],
+    ['forty اربعين ארבעים', [40]],
+    ['fifty خمسين חמישים', [50]],
+    ['sixty ستين שישים', [60]],
+    ['seventy سبعين שבעים', [70]],
+    ['eighty ثمانين تمانين שמונים', [80]],
+    ['ninety تسعين תשעים', [90]],
+    ['hundred ميه مئه مائه מאה', [100]],
+    ['thousand الف אלף', [1000]],
+    ['million مليون מיליון', [1_000_000]],
+    ['half نص نصف חצי', [0.5]],
+    ['quarter ربع רבע', [0.25]],
+    ['ثلث שליש', [1 / 3]],
+    ['noon midday ظهر ضهر צהריים צהרים', [12]],
+    ['third ثالث ثالثه تالت تالته שלישי שלישית', [3]],
+    ['fourth رابع رابعه רביעי רביעית', [4]],
+    ['fifth خامس خامسه חמישי חמישית', [5]],
+    ['sixth سادس سادسه שישי שישית', [6]],
+    ['seventh سابع سابعه שביעי שביעית', [7]],
+    ['eighth ثامن ثامنه تامن تامنه שמיני שמינית', [8]],
+    ['ninth تاسع تاسعه תשיעי תשיעית', [9]],
+    ['tenth عاشر عاشره עשירי עשירית', [10]],
+    ['eleventh', [11]],
+    ['twelfth', [12]],
+  ];
+  return Object.fromEntries(table.flatMap(([names, values]) => names.split(' ').map((name) => [name, values] as const)));
+})();
+/** Said in a sentence, these may stand for a row's 1 or 2; a row that says them holds no number. */
+const AMBIGUOUS_ORDINAL_VALUES: Readonly<Record<string, readonly number[]>> = {
+  first: [1], second: [2], اول: [1], اولي: [1], ثاني: [2], ثانيه: [2], تاني: [2], تانيه: [2],
+  ראשון: [1], ראשונה: [1], שני: [2], שנייה: [2], שניה: [2],
+};
+
+function valueKey(value: number): string { return String(Math.round(value * 1000) / 1000); }
+
+function wordValues(word: string, table: Readonly<Record<string, readonly number[]>>): string[] {
+  return readingsOf(word).flatMap((reading) => (Object.hasOwn(table, reading) ? table[reading]! : []).map(valueKey));
+}
+
+function tokenValue(token: string): string | null {
+  const parts = token.split(':');
+  if (parts.length === 2) return valueKey(Number(parts[0]) + Number(parts[1]) / 60);
+  if (parts.length > 2) return null;
+  const value = Number(token);
+  return Number.isFinite(value) ? valueKey(value) : null;
+}
+
+/** Every number the cited rows hold, by value: their digits and their number words. */
+function citedValues(cited: readonly MemorySummaryInputRow[]): Set<string> {
+  const values = new Set<string>();
+  for (const row of cited) {
+    for (const token of numericTokens(latinDigits(row.text))) {
+      const value = tokenValue(token);
+      if (value !== null) values.add(value);
+    }
+    for (const word of words(row.text)) for (const value of wordValues(word, CARDINAL_VALUES)) values.add(value);
+  }
+  return values;
+}
+
+function sentenceWordValues(word: string): string[] {
+  return [...wordValues(word, CARDINAL_VALUES), ...wordValues(word, AMBIGUOUS_ORDINAL_VALUES)];
 }
 
 /**
@@ -133,7 +245,23 @@ const WEEKDAY_NAMES: Readonly<Record<string, readonly string[]>> = {
   thursday: ['thursday', 'thursdays', 'الخميس', 'יום חמישי'],
   friday: ['friday', 'fridays', 'الجمعه', 'יום שישי'],
 };
-const ARABIC_WEEKDAY_WORD = /^[وف]?(?:لل|[بلك]?ال)(اثنين|اتنين)$/;
+/**
+ * The Arabic weekdays that read as numbers: Monday «(ال)اثنين/اتنين» ("two")
+ * and the Levantine Tuesday «(ال)تلات» ("three"; QA v3 V3-F26-01, «كل أحد
+ * وتلات» for a row's «كل أحد وثلاثاء»), with or without «ال».
+ */
+const ARABIC_NUMBER_WEEKDAYS: ReadonlyArray<readonly [RegExp, string]> = [
+  [/^[وف]?(?:لل|[بلك]?ال)?(اثنين|اتنين)$/, 'monday'],
+  [/^[وف]?(?:لل|[بلك]?ال)?(تلات|ثلاث)$/, 'tuesday'],
+];
+/** Any Arabic weekday name, with or without «ال» and «و»: the neighbour that makes a list of days. */
+const ARABIC_ANY_WEEKDAY = /^[وف]?(?:لل|[بلك]?ال)?(احد|اثنين|اتنين|ثلاثاء|تلاتا|تلات|ثلاث|اربعاء|اربعا|خميس|جمعه|سبت)$/;
+/** The same names by day, for what a row names; the ones that also read as a number need a day beside them. */
+const ARABIC_DAY_STEMS: Readonly<Record<string, readonly string[]>> = {
+  sunday: ['احد'], monday: ['اثنين', 'اتنين'], tuesday: ['ثلاثاء', 'تلاتا', 'تلات', 'ثلاث'],
+  wednesday: ['اربعاء', 'اربعا'], thursday: ['خميس'], friday: ['جمعه'], saturday: ['سبت'],
+};
+const AMBIGUOUS_DAY_STEMS = new Set(['احد', 'اثنين', 'اتنين', 'تلات', 'ثلاث']);
 /** The word before a weekday that makes it one: «يوم/أيام/نهار الاثنين», «ביום שני» — never «كل»/«כל» alone (inspection MS-WEEKDAY-002). */
 const ARABIC_DAY_WORDS = new Set(['يوم', 'ايام', 'نهار', 'بيوم', 'ليوم', 'ويوم', 'وايام', 'بايام', 'كليوم']);
 const HEBREW_DAY_WORDS = new Set(['יום', 'ביום', 'בימי', 'ימי', 'מיום', 'ליום', 'וביום']);
@@ -144,21 +272,40 @@ const HEBREW_ORDINAL_DAY: Readonly<Record<string, string>> = { ראשון: 'sund
  * والاثنين» is a list of days (de7fcb84 audit CA8.4). The days that never
  * read as a number, with an optional «و».
  */
-const ARABIC_OTHER_WEEKDAY = /^[و]?(?:ال)(احد|ثلاثاء|تلات|اربعاء|اربعا|خميس|جمعه|سبت)$/;
+function inArabicDayContext(previous: string | undefined, next: string | undefined): boolean {
+  // A day word before it, or another weekday beside it («أحد وتلات»,
+  // «الاتنين والخميس»); never «كل» alone (MS-WEEKDAY-002).
+  return (previous !== undefined && (ARABIC_DAY_WORDS.has(previous) || ARABIC_ANY_WEEKDAY.test(previous)))
+    || (next !== undefined && ARABIC_ANY_WEEKDAY.test(next));
+}
 
-function weekdayOf(word: string, previous: string | undefined): string | null {
-  if (ARABIC_WEEKDAY_WORD.test(word)) {
-    return previous !== undefined && (ARABIC_DAY_WORDS.has(previous) || ARABIC_OTHER_WEEKDAY.test(previous)) ? 'monday' : null;
+function weekdayOf(word: string, previous: string | undefined, next: string | undefined): string | null {
+  for (const [pattern, day] of ARABIC_NUMBER_WEEKDAYS) {
+    if (pattern.test(word)) return inArabicDayContext(previous, next) ? day : null;
   }
   if (previous !== undefined && HEBREW_DAY_WORDS.has(previous)) return HEBREW_ORDINAL_DAY[word] ?? null;
   return null;
 }
 
+/** Whether a row names the day in Arabic, «ال» or not: «كل أحد وثلاثاء» names Sunday and Tuesday. */
+function rowNamesArabicDay(day: string, rowWords: readonly string[]): boolean {
+  const stems = ARABIC_DAY_STEMS[day] ?? [];
+  return rowWords.some((word, index) => {
+    const stem = word.match(ARABIC_ANY_WEEKDAY)?.[1];
+    if (stem === undefined || !stems.includes(stem)) return false;
+    // With «ال» it is a day, as before; a bare «أحد/اتنين/تلات» needs a day beside it.
+    return /^[وف]?(?:لل|[بلك]?ال)/.test(word) || !AMBIGUOUS_DAY_STEMS.has(stem)
+      || inArabicDayContext(rowWords[index - 1], rowWords[index + 1]);
+  });
+}
+
 function citedNamesDay(day: string, cited: readonly MemorySummaryInputRow[]): boolean {
   const names = WEEKDAY_NAMES[day] ?? [];
   return cited.some((row) => {
-    const text = words(row.text).join(' ');
-    return names.some((name) => ` ${text} `.includes(` ${name} `) || text.split(' ').some((word) => word.endsWith(name) && name.startsWith('ال')));
+    const rowWords = words(row.text);
+    const text = rowWords.join(' ');
+    return names.some((name) => ` ${text} `.includes(` ${name} `) || text.split(' ').some((word) => word.endsWith(name) && name.startsWith('ال')))
+      || rowNamesArabicDay(day, rowWords);
   });
 }
 
@@ -249,18 +396,23 @@ function sentenceValid(sentence: MemorySummarySentence, supplied: readonly Memor
   if (typeof sentence.text !== 'string' || sentence.text.length < 1 || sentence.text.length > MEMORY_SUMMARY_MAX_SENTENCE_CHARS) return false;
   if (!Array.isArray(sentence.refs) || sentence.refs.length === 0 || sentence.refs.some((ref) => !supplied.some((row) => row.ref === ref))) return false;
   const cited = supplied.filter((row) => sentence.refs.includes(row.ref));
-  const allowedNumbers = new Set(cited.flatMap((row) => numericTokens(row.text)));
-  if (numericTokens(sentence.text).some((token) => !allowedNumbers.has(token))) return false;
-  const withoutAsciiNumbers = sentence.text.replace(NUMBER, '');
+  // Numbers are compared by value with what the cited rows hold, never refused
+  // for being numbers (QA v3 V3-F26-01): a value no cited row holds is invented.
+  const allowedNumbers = new Set(cited.flatMap((row) => numericTokens(latinDigits(row.text))));
+  const values = citedValues(cited);
+  const text = latinDigits(sentence.text);
+  if (numericTokens(text).some((token) => !allowedNumbers.has(token) && !values.has(tokenValue(token) ?? ''))) return false;
+  const withoutAsciiNumbers = text.replace(NUMBER, '');
   if (ANY_NUMBER.test(withoutAsciiNumbers)) return false;
 
   const sentenceWords = words(sentence.text);
   for (let index = 0; index < sentenceWords.length; index += 1) {
     const word = sentenceWords[index]!;
     if (!isNumberWord(word) || copiedWord(word, cited)) continue;
-    const day = weekdayOf(word, sentenceWords[index - 1]);
+    const day = weekdayOf(word, sentenceWords[index - 1], sentenceWords[index + 1]);
     if (day !== null && citedNamesDay(day, cited)) continue;
     if (translatesArabicDual(word, sentenceWords[index + 1], cited, language)) continue;
+    if (sentenceWordValues(word).some((value) => values.has(value))) continue;
     return false;
   }
   const citedRaw = cited.flatMap((row) => rawLetterTokens(row.text));
@@ -455,7 +607,7 @@ export async function buildMemorySummary(input: { uid: string; language: MemoryS
   }
   const timeoutMs = Math.min(MEMORY_SUMMARY_ATTEMPT_TIMEOUT_MS, remaining);
   const attemptTimer = setTimeout(input.abort, timeoutMs);
-  let charged = false;
+  let settled = false;
   try {
     const response = await provider.generateStructured({
       system: 'Summarize only the supplied rows. Return JSON matching the schema.',
@@ -463,11 +615,20 @@ export async function buildMemorySummary(input: { uid: string; language: MemoryS
       responseSchema: RESPONSE_SCHEMA,
       purpose: 'memory_summary', uid: input.uid, retry: false, timeoutMs, signal: input.signal,
     });
+    // The day's call and tokens still count: they are the spend brake on a
+    // client that asks again and again, not the person's allowance.
     await commitUsage(input.uid, { promptTokens: response.promptTokens, outputTokens: response.outputTokens }, { storage: getStorage() });
-    await chargeProviderFeature(input.uid, feature, response, {}, new Date());
-    charged = true;
     const sentences = validateMemorySummary(parseJson(response.text), rows, input.language);
-    if (!sentences) return { status: 'unavailable' };
+    if (!sentences) {
+      // An answer that cannot be shown is not charged to the memory add-on
+      // (QA v3 V3-F26-01: its usage rose 0 → 6 % on `unavailable`): the hold
+      // is given back and nothing is recorded.
+      settled = true;
+      await releaseProviderFeature(input.uid, feature, {}, new Date());
+      return { status: 'unavailable' };
+    }
+    await chargeProviderFeature(input.uid, feature, response, {}, new Date());
+    settled = true;
     const ids = new Map(rows.map((row) => [row.ref, row.id]));
     const ready = {
       status: 'ready' as const, language: input.language,
@@ -483,7 +644,7 @@ export async function buildMemorySummary(input: { uid: string; language: MemoryS
     return ready;
   } catch (error) {
     void error;
-    if (!charged) await releaseProviderFeature(input.uid, feature, {}, new Date());
+    if (!settled) await releaseProviderFeature(input.uid, feature, {}, new Date());
     return { status: 'unavailable' };
   } finally {
     clearTimeout(attemptTimer);
