@@ -16,6 +16,7 @@
  * storage, and nothing reaches the server before the user asks for it.
  */
 import React from 'react';
+import { StyleSheet } from 'react-native';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
@@ -172,6 +173,20 @@ describe('the clipboard is read only when asked', () => {
     await fireEvent.press(screen.getByTestId('capture-clipboard-cancel'));
     await waitFor(() => expect(screen.queryByTestId('capture-input')).not.toBeNull());
     expect(fieldText()).toBe('what I was writing');
+  });
+});
+
+describe('CXX1.8: the preview reads in the pasted text\'s own direction', () => {
+  it.each([
+    ['ar', 'Call the dentist about the 3pm appointment', 'ltr'],
+    ['en', 'اتصل بطبيب الأسنان عن موعد الساعة 3', 'rtl'],
+  ] as const)('%s UI: a pasted paragraph is set by its own first strong character', async (lang, pasted, expected) => {
+    await AsyncStorage.setItem(LANGUAGE_STORAGE_KEY, lang);
+    clipboard.mockResolvedValue(pasted);
+    await openComposer();
+    await pressPaste();
+    const style = StyleSheet.flatten(screen.getByText(pasted).props.style) as { writingDirection?: string };
+    expect(style.writingDirection).toBe(expected);
   });
 });
 
