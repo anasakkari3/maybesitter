@@ -291,7 +291,7 @@
   "accountReauthAppleAction": "Confirm with Apple",
   "accountReauthFailed": "That didn't match. Try again.",
   "accountDeletedTitle": "Your account was deleted.",
-  "accountDeletedBody": "Nothing of yours is left on our servers. Keep the receipt below if you ever need proof.",
+  "accountDeletedBody": "Everything in your account is gone. Only encrypted backups remain, and they roll off within 30 days. Keep the receipt below if you ever need proof.",
   "accountDeletedReceiptLabel": "Receipt",
   "accountDeletedCopy": "Copy receipt",
   "accountDeletedCopied": "Copied.",
