@@ -11,7 +11,7 @@ import { AccountUnavailableError, accountUnavailableResponse } from '../../accou
 import { CaptureInputTooLargeError } from '../../services/captureBoundary/captureBoundaryService';
 import { ShareQuotaError } from '../../services/share/shareIntakeService';
 import { ShareInputError, ShareTextTooLongError } from '../../services/share/shareTypes';
-import { googleErrorResponse } from './googleConnectService';
+import { GoogleConnectError, googleErrorResponse } from './googleConnectService';
 import { GoogleCalendarConsentError } from './googleCalendarBusy';
 import { DriveImportInputError } from './googleDrive';
 import { LLMUnavailableError } from '../../../src/extraction/llm';
@@ -49,6 +49,14 @@ export function googleFailureResponse(error: unknown): Response {
     );
   }
   if (error instanceof DriveImportInputError) return invalidGoogleRequest();
+  // A time zone the server cannot read is the request's fault, not Google's
+  // (CA9.5): 400, never 502 `google_unavailable`.
+  if (error instanceof Error && error.message === 'invalid_timezone') return invalidGoogleRequest();
+  // No live Gmail connection behind an M5a scan or a monitor enrolment
+  // (CA9.4): the same 409 the legacy scan and the monitor already answer.
+  if (error instanceof Error && error.message === 'reconnect_needed') {
+    return googleErrorResponse(new GoogleConnectError('google_not_connected'));
+  }
   if (error instanceof CaptureInputTooLargeError || error instanceof ShareTextTooLongError) {
     return Response.json(
       { success: false, error: error.message, reason: 'text_too_long', maxCharacters: error.maxCharacters },
