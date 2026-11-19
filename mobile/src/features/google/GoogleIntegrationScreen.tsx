@@ -46,7 +46,7 @@ import {
   useGoogleStatus,
 } from './useGoogle';
 import { useFreshM5aCapability, useM5aCapabilities } from '../m5a/capabilities';
-import { EmailScanEntry, EmailScanStatus, useEmailScanOverview } from '../m5a/emailScan';
+import { EmailScanEntry, EmailScanStatus, useEmailScanOverview, useGmailMonitorOn } from '../m5a/emailScan';
 
 /** What the page says under the rows after the last action. A key (and its numbers), never a sentence. */
 type Notice = { key: UserFacingKey; tone: 'info' | 'problem'; values?: Record<string, number> } | null;
@@ -67,6 +67,7 @@ export function GoogleIntegrationScreen() {
   const emailM5 = useM5aCapabilities()?.emailSources === true;
   const freshCapability = useFreshM5aCapability();
   const scanOverview = useEmailScanOverview(emailM5);
+  const monitorOn = useGmailMonitorOn(emailM5) === true;
   const [notice, setNotice] = React.useState<Notice>(null);
   const [confirming, setConfirming] = React.useState(false);
   // The live region below speaks on Android only; VoiceOver has to be told.
@@ -168,7 +169,7 @@ export function GoogleIntegrationScreen() {
         action = emailM5
           ? <View style={{ gap: 10, alignSelf: 'stretch' }}>
             <EmailScanEntry />
-            <EmailScanStatus overview={scanOverview.data} onReconnect={() => onConnect('gmail')} />
+            <EmailScanStatus overview={scanOverview.data} failed={scanOverview.isError} onRetry={() => void scanOverview.refetch()} onReconnect={() => onConnect('gmail')} />
           </View>
           : <Pill testID="google-gmail-scan" label={t.googleGmailScan} kind="accent" disabled={busy} onPress={() => void onScan()} />;
       } else if (google!.pickerAvailable) {
@@ -210,7 +211,7 @@ export function GoogleIntegrationScreen() {
       </View>
       : null}
     {row('calendar', t.googleCalendarBody)}
-    {row('gmail', t.googleGmailBody)}
+    {row('gmail', !emailM5 ? t.googleGmailBody : monitorOn ? t.googleGmailBodyAllMailMonitoring : t.googleGmailBodyAllMail)}
     {row('drive', t.googleDriveBody)}
     <View accessibilityLiveRegion="polite" style={{ gap: 8 }}>
       {busy ? <Txt role="supporting" color={p.mu} testID="google-working">{t.googleWorking}</Txt> : null}

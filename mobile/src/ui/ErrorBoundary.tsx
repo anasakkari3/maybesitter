@@ -1,11 +1,12 @@
 import React from 'react';
-import { Pressable, Text, View, useColorScheme } from 'react-native';
+import { Platform, Pressable, Text, View, useColorScheme } from 'react-native';
 import i18next from 'i18next';
 import { tFor } from '../i18n';
 import { apiLocale, isRtl, scriptFor } from '../i18n/locale';
 import { family, LINE_HEIGHT, type Script } from '../theme/fonts';
 import { palettes, radius, space, typeScale } from '../theme/tokens';
 import { recordError } from '../lib/crash';
+import { textAlignment } from './primitives';
 
 /**
  * The app-wide error boundary (UC-4.4, #180 step 4).
@@ -131,7 +132,9 @@ export function CrashFallback({ onRetry }: { onRetry: () => void }) {
             fontSize: typeScale.title2,
             lineHeight: Math.round(typeScale.title2 * TITLE_LINE[script]),
             color: p.tx,
-            textAlign: rtl ? 'right' : 'left',
+            // Start, the Fabric-aware way (CX1.4): a physical 'right' under an
+            // RTL direction is swapped back to the left on iOS and Android.
+            textAlign: textAlignment('start', rtl, Platform.OS),
             writingDirection: rtl ? 'rtl' : 'ltr',
           }}
         >
@@ -144,7 +147,9 @@ export function CrashFallback({ onRetry }: { onRetry: () => void }) {
             fontSize: typeScale.bodyLarge,
             lineHeight: Math.round(typeScale.bodyLarge * LINE_HEIGHT[script]),
             color: p.mu,
-            textAlign: rtl ? 'right' : 'left',
+            // Start, the Fabric-aware way (CX1.4): a physical 'right' under an
+            // RTL direction is swapped back to the left on iOS and Android.
+            textAlign: textAlignment('start', rtl, Platform.OS),
             writingDirection: rtl ? 'rtl' : 'ltr',
           }}
         >

@@ -287,7 +287,7 @@ function FeedRow({ feed, consented }: { feed: IcsFeed; consented: boolean }) {
       testID={`ics-feed-${feed.feedId}`}
       style={{ paddingVertical: 14, paddingHorizontal: 18, gap: 8, borderTopWidth: 1, borderTopColor: p.ln }}
     >
-      <Txt size={15}>{feed.label ? isolate(feed.label, 'rtl') : t.icsFeedsUrlLabel}</Txt>
+      <Txt size={15}>{feed.label ? isolateAuto(feed.label) : t.icsFeedsUrlLabel}</Txt>
       {!consented || feed.status === 'paused' ? (
         <Txt size={13} color={p.mu} testID={`ics-feed-paused-${feed.feedId}`}>{t.icsFeedsStatusPaused}</Txt>
       ) : feed.status === 'error' ? (
@@ -427,7 +427,7 @@ function DeadlineRow({ deadline, consented }: { deadline: IcsDeadline; consented
 
   return (
     <View testID={`ics-deadline-${id}`} style={{ paddingVertical: 14, paddingHorizontal: 18, gap: 8, borderTopWidth: 1, borderTopColor: p.ln }}>
-      <Txt size={15}>{isolate(deadline.title, 'rtl')}</Txt>
+      <Txt size={15}>{isolateAuto(deadline.title)}</Txt>
       <Txt size={13} color={p.mu}>{fill(t.icsFeedsDue, { when: when(deadline.dueAt, deadline.allDay) })}</Txt>
       {held}
       {status}

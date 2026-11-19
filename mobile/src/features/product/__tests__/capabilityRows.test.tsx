@@ -55,6 +55,7 @@ jest.mock('../../m5b/suggestionBasis', () => {
 });
 jest.mock('../../m5a/emailScan', () => ({
   useEmailScanOverview: () => ({ data: undefined, refetch: async () => undefined }),
+  useGmailMonitorOn: () => null,
   EmailScanEntry: () => null,
   EmailScanStatus: () => null,
   WaitLine: () => null,

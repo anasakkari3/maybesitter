@@ -573,6 +573,7 @@ function commitmentCommands(
   item: Pick<IcsFeedItemDocument, 'title' | 'dueAt'>,
   now: Date,
   ids: { commitmentId: string; reminderId: string },
+  timezone: string,
 ): { commitmentId: string; commands: Command[] } {
   const commitmentId = ids.commitmentId;
   const at = now.toISOString();
@@ -591,7 +592,9 @@ function commitmentCommands(
           person: null,
           priority: { level: 'normal', source: 'default', pressureAllowed: false, pressureLevel: 'none' },
           category: null,
-          timeSpec: { kind: 'due_by', dueAt: item.dueAt, remindAt, timezone: 'UTC' },
+          // Read in the account's zone, never UTC (CA10.9): the next-step
+          // card takes the local hour from here.
+          timeSpec: { kind: 'due_by', dueAt: item.dueAt, remindAt, timezone },
         },
         draftStatus: 'pending_confirmation',
       },
@@ -672,7 +675,8 @@ async function acceptItem(
     // The title and the time come from the row *this transaction* read. A
     // refresh that moved the deadline between the caller's read and this write
     // would otherwise make a commitment for the time the feed no longer says.
-    const { commands } = commitmentCommands(claim, now, ids);
+    const zone = typeof user?.timezone === 'string' && user.timezone ? user.timezone : DEFAULT_MOBILE_TIMEZONE;
+    const { commands } = commitmentCommands(claim, now, ids, zone);
     return {
       commands,
       patch: {
@@ -1349,7 +1353,10 @@ export async function decideIcsDeadline(
             type: 'UpdateCommitment',
             commitmentId: row.commitmentId,
             now: at,
-            updates: { timeSpec: { kind: 'due_by', dueAt: row.proposedDueAt, remindAt, allDay: row.proposedAllDay ?? false } },
+            // The same shape accept wrote (CA10.9): an all-day deadline is
+            // due at 23:59 local, a time, so `allDay` is never set here; true
+            // with a 23:59 dueAt is refused by the domain as a contradiction.
+            updates: { timeSpec: { kind: 'due_by', dueAt: row.proposedDueAt, remindAt, allDay: false } },
           }],
           patch: { dueAt: row.proposedDueAt, allDay: row.proposedAllDay ?? false, notice: null, proposedDueAt: null, proposedAllDay: undefined, proposedClashes: undefined, updatedAt: at },
         };

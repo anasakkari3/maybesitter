@@ -574,6 +574,37 @@ test('auto-accept off: nothing is a commitment until accepted, an accept is idem
   });
 });
 
+test('CA10.9: an all-day deadline has one shape after accept and after a move, read in the account time zone', async () => {
+  await withWorld(async (h) => {
+    h.bodies.set(FEED_URL, calendar([{ uid: 'allday', title: 'Report due', dueInHours: 48 }]));
+    const feedId = (await subscribe(h)).body.feed.feedId as string;
+    await refresh(h, feedId);
+    const user = await getStorage().get<Record<string, unknown>>(userDoc(USER));
+    await getStorage().set(userDoc(USER), { ...user, timezone: 'Asia/Jerusalem' });
+    // The importer marks a date-only deadline all-day, due at 23:59 local;
+    // the row is what accept and apply_move read.
+    const row = byTitle(await items(), 'Report due');
+    await getStorage().set(userSubDoc(USER, ICS_FEED_ITEMS, row.itemKey), { ...row, allDay: true });
+
+    assert.equal((await decide(h, feedId, row.itemKey, 'accept')).status, 200);
+    const accepted = (await commitments())[0]!;
+    assert.equal((accepted.timeSpec as { timezone?: string }).timezone, 'Asia/Jerusalem', 'the local hour was read in UTC');
+    const acceptedAllDay = (accepted.timeSpec as { allDay?: boolean }).allDay ?? false;
+
+    // The feed moves it to another all-day date; applying the move keeps the shape.
+    const moved = new Date(NOW.getTime() + 96 * HOUR).toISOString();
+    const accRow = byTitle(await items(), 'Report due');
+    await getStorage().set(userSubDoc(USER, ICS_FEED_ITEMS, accRow.itemKey), {
+      ...accRow, notice: 'moved', proposedDueAt: moved, proposedAllDay: true,
+    });
+    assert.equal((await decide(h, feedId, accRow.itemKey, 'apply_move')).status, 200);
+    const after = (await commitments())[0]!;
+    assert.equal(after.timeSpec.dueAt, moved);
+    assert.equal((after.timeSpec as { allDay?: boolean }).allDay ?? false, acceptedAllDay, 'the same deadline changed shape on a move');
+    assert.equal((after.timeSpec as { timezone?: string }).timezone, 'Asia/Jerusalem');
+  });
+});
+
 test('two accepts of the same deadline arriving together make one commitment', async () => {
   await withWorld(async (h) => {
     h.bodies.set(FEED_URL, calendar([{ uid: 'essay', title: 'Essay due', dueInHours: 48 }]));

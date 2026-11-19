@@ -25,6 +25,7 @@ const MSA: readonly RegExp[] = [
   /(^|\s)[وف]?(يتم|سيتم|تم)\s/, // «تم» without the shadda is the formal passive
   /(^|[\s«({])جاري\s/, // «جاري التحديث»
   /(اثنان|اثنتان|شيئان|شيئًا)/, // formal numerals and duals
+  /(دقيقتان|ساعتان)/, // CX1.6: the spoken dual is «دقيقتين», «ساعتين»
 ];
 
 /**

@@ -623,9 +623,45 @@ test('a replanning-only write leaves the morning delivery exactly as stored, on 
     assert.equal(afterOn.enabled, false, 'a replanning write must not switch the morning plan on');
     assert.equal(afterOn.nextRunAt, undefined);
 
-    // A PUT that names neither switch is still refused.
+    // A PUT that names neither switch nor a time is still refused.
     assert.equal((await settingsPut(request({}))).status, 400);
-    assert.equal((await settingsPut(request({ deliveryLocalTime: '08:00' }))).status, 400);
+  } finally {
+    auth.restore();
+    resetStorageForTests();
+  }
+});
+
+test('C12.9 (d): a time-only write moves the delivery and leaves the morning switch as stored, on or off', async () => {
+  // The time wheel used to re-send the cached `enabled` with the new time; a
+  // phone that had not seen another device switch the morning plan on or off
+  // turned it back (QA audit de7fcb8, confirmed on device). Like the
+  // replanning switch, the time is now written alone.
+  const storage = createMemoryStorage();
+  setStorageForTests(storage);
+  const auth = installFakeAuth();
+  const uid = uidFor('PlanTimeOnlyWriter');
+  const request = (body: unknown): Request => new Request(`${BASE}/api/mobile/settings/plan`, {
+    method: 'PUT',
+    headers: new Headers({ authorization: `Bearer ${tokenFor(uid)}`, 'content-type': 'application/json' }),
+    body: JSON.stringify(body),
+  });
+  try {
+    await seedLiveAccount(uid, storage);
+    await savePlanSettings(uid, { enabled: true, deliveryLocalTime: '07:30' }, new Date('2026-08-08T12:00:00.000Z'), { storage });
+    const on = await settingsPut(request({ deliveryLocalTime: '08:00' }));
+    assert.equal(on.status, 200);
+    const afterOn = await readPlanSettings(uid, { storage });
+    assert.equal(afterOn.enabled, true, 'a time write switched the morning plan off');
+    assert.equal(afterOn.deliveryLocalTime, '08:00');
+    assert.ok(afterOn.nextRunAt, 'a moved delivery must be re-armed');
+
+    await savePlanSettings(uid, { enabled: false }, new Date('2026-08-09T12:00:00.000Z'), { storage });
+    assert.equal((await settingsPut(request({ deliveryLocalTime: '09:15' }))).status, 200);
+    const afterOff = await readPlanSettings(uid, { storage });
+    assert.equal(afterOff.enabled, false, 'a time write switched the morning plan on');
+    assert.equal(afterOff.deliveryLocalTime, '09:15');
+
+    assert.equal((await settingsPut(request({ deliveryLocalTime: 7 }))).status, 400);
   } finally {
     auth.restore();
     resetStorageForTests();

@@ -1,4 +1,4 @@
-import { apiRequest } from '../client';
+import { UPLOAD_TIMEOUT_MS, apiRequest } from '../client';
 import { accountExportSchema, type AccountExport } from '../schemas/accountExport';
 
 /**
@@ -10,5 +10,8 @@ import { accountExportSchema, type AccountExport } from '../schemas/accountExpor
  * back as `InputTooLargeError` when the account is over the server's cap.
  */
 export function getAccountExport(): Promise<AccountExport> {
-  return apiRequest('GET', '/api/mobile/account/export', { schema: accountExportSchema });
+  // A dense account takes longer than a JSON request's 15 s, and the server
+  // counts the day's export once it has built it (C12.15): cutting the wait
+  // short used up an export and still said it failed.
+  return apiRequest('GET', '/api/mobile/account/export', { schema: accountExportSchema, timeoutMs: UPLOAD_TIMEOUT_MS });
 }

@@ -31,6 +31,8 @@ import type { EscalationCeiling } from '../reminders/policy';
 import { SettingsHeader, SettingsRow } from './SettingsChrome';
 import { Disclosure } from '../../ui/Disclosure';
 import { markErrorShown } from '../../api/ui/userFacingMessage';
+import { LiveRegion } from '../../ui/liveRegion';
+import { useAnnounceOnIos } from '../../ui/announce';
 
 /**
  * Everything this app may put on somebody's lock screen, in one place:
@@ -127,6 +129,14 @@ export function NotificationsSettingsScreen({ onBack }: { onBack: () => void }) 
   const permissionRead = useRef(0);
   const [failed, setFailed] = useState(false);
   const [picking, setPicking] = useState(false);
+  // iOS draws the wheel inline and reports every stop: the stops are a draft,
+  // saved once when the person closes it (C12.9 a/b).
+  const [draftTime, setDraftTimeState] = useState<string | null>(null);
+  // Mirrored in a ref so leaving the screen can still save it (review 2).
+  const draftRef = useRef<string | null>(null);
+  const setDraftTime = (value: string | null) => { draftRef.current = value; setDraftTimeState(value); };
+  const [timeFailed, setTimeFailed] = useState(false);
+  useAnnounceOnIos(timeFailed ? t.notifSaveFailed : null);
   const [explainingHard, setExplainingHard] = useState(false);
   // Bumped when the app comes back to the foreground, so the exact-alarm note
   // re-reads a permission the user may just have granted in system settings.
@@ -196,6 +206,37 @@ export function NotificationsSettingsScreen({ onBack }: { onBack: () => void }) 
   const plan = planSettings.data ?? null;
   const zone = plan?.timezone ?? device;
   const deliveryLocalTime = plan?.deliveryLocalTime ?? null;
+  // The time is written alone (C12.9 d): re-sending the cached `enabled` would
+  // undo another device's switch. A failure is said, not swallowed (c).
+  const saveTime = (chosen: string) => {
+    if (chosen === deliveryLocalTime) return;
+    setTimeFailed(false);
+    savePlan.mutate({ deliveryLocalTime: chosen }, { onError: () => setTimeFailed(true) });
+  };
+  const openTimePicker = () => { setDraftTime(null); setPicking(true); };
+  const closeTimePicker = () => {
+    setPicking(false);
+    const draft = draftRef.current;
+    setDraftTime(null);
+    if (draft !== null) saveTime(draft);
+  };
+  // Back with the wheel open closes it the way «تمام» does: a time the person
+  // turned to is saved, never dropped in silence (review 2).
+  const back = () => {
+    if (draftRef.current !== null) closeTimePicker();
+    onBack();
+  };
+  // And when the screen goes away some other way (a hardware back, a tab
+  // switch), the pending draft is saved once on the way out.
+  const leaving = useRef({ savePlan, deliveryLocalTime });
+  useEffect(() => { leaving.current = { savePlan, deliveryLocalTime }; });
+  useEffect(() => () => {
+    const draft = draftRef.current;
+    draftRef.current = null;
+    if (draft !== null && draft !== leaving.current.deliveryLocalTime) {
+      leaving.current.savePlan.mutate({ deliveryLocalTime: draft });
+    }
+  }, []);
 
   const next = plan?.nextRunAt
     // Only the time is left-to-right: the whole line in `ltr()` read
@@ -354,7 +395,7 @@ export function NotificationsSettingsScreen({ onBack }: { onBack: () => void }) 
 
   const notificationStatus = permissionDenied || needsAsking || osPermission === null || osPermission === 'undetermined';
   return (
-    <Screen pinned={<SettingsHeader title={t.notifTitle} onBack={onBack} />}>
+    <Screen pinned={<SettingsHeader title={t.notifTitle} onBack={back} />}>
       <ScreenScroll>
         {/* What the phone allows, first (CL2b #18). */}
         {/* The card's words are measured afresh after a live text-size change:
@@ -590,12 +631,10 @@ export function NotificationsSettingsScreen({ onBack }: { onBack: () => void }) 
               if (next_) await askForPermission();
               // A throw is left to `ServerToggle`, which says which failure it
               // was: a refusal is not "didn't reach the server" (UAT round 3, N9).
-              const saved = await savePlan.mutateAsync({
-                enabled: next_,
-                // The hour is only sent when the user has one. Omitting it
-                // leaves the stored value alone rather than re-asserting it.
-                ...(deliveryLocalTime ? { deliveryLocalTime } : {}),
-              });
+              // The switch alone (CXA4.7): the hour is left out so the stored
+              // one stays, rather than this screen's cached copy re-asserting
+              // a time another device has since changed.
+              const saved = await savePlan.mutateAsync({ enabled: next_ });
               return saved.enabled === next_;
             }}
           />
@@ -603,7 +642,7 @@ export function NotificationsSettingsScreen({ onBack }: { onBack: () => void }) 
             label={t.planMorningTime}
             value={deliveryLocalTime ? ltr(deliveryLocalTime) : t.planMorningOff}
             testID="plan-delivery-time"
-            onPress={plan === null ? undefined : () => setPicking(true)}
+            onPress={plan === null ? undefined : () => (picking ? closeTimePicker() : openTimePicker())}
           />
           {next ? (
             <View style={{ paddingHorizontal: 18, paddingBottom: 14 }}>
@@ -643,7 +682,8 @@ export function NotificationsSettingsScreen({ onBack }: { onBack: () => void }) 
         {picking && deliveryLocalTime ? (
           <DateTimePicker
             testID="plan-delivery-picker"
-            value={timeShowing(deliveryLocalTime)}
+            // The wheel follows the draft between stops (review 1).
+            value={timeShowing(draftTime ?? deliveryLocalTime)}
             mode="time"
             minuteInterval={15}
             // `deliveryLocalTime` is `HH:mm` on the user's own clock face and
@@ -656,14 +696,24 @@ export function NotificationsSettingsScreen({ onBack }: { onBack: () => void }) 
             negativeButton={{ label: t.cancel, textColor: p.mu }}
             display="spinner"
             onChange={(event, value) => {
-              setPicking(Platform.OS === 'ios');
+              if (Platform.OS === 'ios') {
+                if (event.type !== 'dismissed' && value) setDraftTime(timeShown(value));
+                return;
+              }
+              setPicking(false);
               if (event.type === 'dismissed' || !value) return;
-              const chosen = timeShown(value);
-              if (chosen === deliveryLocalTime) return;
-              savePlan.mutate({ enabled: plan?.enabled === true, deliveryLocalTime: chosen });
+              saveTime(timeShown(value));
             }}
           />
         ) : null}
+        {picking && deliveryLocalTime && Platform.OS === 'ios' ? (
+          <View style={{ alignItems: 'flex-start' }}>
+            <Pill testID="plan-delivery-done" label={t.ok} kind="accent" onPress={closeTimePicker} />
+          </View>
+        ) : null}
+        <LiveRegion assertive>
+          {timeFailed ? <Txt size={13} color={p.wm} testID="plan-delivery-time-failed">{t.notifSaveFailed}</Txt> : null}
+        </LiveRegion>
 
         {failed ? (
           <Txt size={13} color={p.wm} testID="notifications-save-failed">{t.notifSaveFailed}</Txt>

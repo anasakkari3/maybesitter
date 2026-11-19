@@ -75,12 +75,14 @@ beforeEach(() => {
   jest.spyOn(profileEndpoints, 'getProfile').mockResolvedValue({ success: true, routine: null } as never);
   jest.spyOn(permission, 'requestNotificationPermission').mockResolvedValue('granted');
   jest.spyOn(planEndpoints, 'getPlanSettings').mockImplementation((async () => stored) as never);
-  jest.spyOn(planEndpoints, 'putPlanSettings').mockImplementation((async (input: { enabled: boolean; deliveryLocalTime?: string }) => {
+  jest.spyOn(planEndpoints, 'putPlanSettings').mockImplementation((async (input: { enabled?: boolean; deliveryLocalTime?: string }) => {
+    // Like the route: a time-only write leaves the switch as stored (C12.9 d).
+    const enabled = input.enabled ?? stored.enabled;
     stored = {
       ...stored,
-      enabled: input.enabled,
+      enabled,
       ...(input.deliveryLocalTime ? { deliveryLocalTime: input.deliveryLocalTime } : {}),
-      nextRunAt: input.enabled ? ON.nextRunAt : null,
+      nextRunAt: enabled ? ON.nextRunAt : null,
     };
     return stored;
   }) as never);
@@ -143,7 +145,9 @@ describe('the switch is the server’s record', () => {
     await fireEvent(screen.getByTestId('plan-morning-toggle'), 'valueChange', true);
 
     await waitFor(() => expect(screen.getByTestId('plan-morning-toggle').props.value).toBe(true));
-    expect(planEndpoints.putPlanSettings).toHaveBeenCalledWith({ enabled: true, deliveryLocalTime: '07:30' });
+    // The switch alone (CXA4.7): re-sending the cached hour would undo a time
+    // another device set since this screen loaded.
+    expect(planEndpoints.putPlanSettings).toHaveBeenCalledWith({ enabled: true });
   });
 
   it('shows the server’s own next delivery rather than recomputing one', async () => {
@@ -229,9 +233,12 @@ describe('when it arrives', () => {
       type: 'set',
       nativeEvent: { timestamp: timeShowing('06:45').getTime() },
     });
+    // iOS: the inline wheel saves once, on «تمام» (C12.9 a/b).
+    await fireEvent.press(screen.getByTestId('plan-delivery-done'));
 
+    // The time alone: never the cached switch with it (C12.9 d).
     await waitFor(() => expect(planEndpoints.putPlanSettings)
-      .toHaveBeenCalledWith({ enabled: true, deliveryLocalTime: '06:45' }));
+      .toHaveBeenCalledWith({ deliveryLocalTime: '06:45' }));
     await waitFor(() => expect(screen.queryByText(ltr('06:45'))).not.toBeNull());
     expect(screen.getByTestId('plan-morning-toggle').props.value).toBe(true);
   });
@@ -252,6 +259,8 @@ describe('when it arrives', () => {
       type: 'set',
       nativeEvent: { timestamp: timeShowing('07:30').getTime() },
     });
+    await fireEvent.press(screen.getByTestId('plan-delivery-done'));
+    await waitFor(() => expect(screen.queryByTestId('plan-delivery-picker')).toBeNull());
 
     await fireEvent.press(screen.getByTestId('plan-delivery-time'));
     await waitFor(() => expect(screen.queryByTestId('plan-delivery-picker')).not.toBeNull());
@@ -259,10 +268,84 @@ describe('when it arrives', () => {
       type: 'set',
       nativeEvent: { timestamp: timeShowing('06:45').getTime() },
     });
+    await fireEvent.press(screen.getByTestId('plan-delivery-done'));
 
     await waitFor(() => expect(planEndpoints.putPlanSettings).toHaveBeenCalled());
     expect(planEndpoints.putPlanSettings).toHaveBeenCalledTimes(1);
-    expect(planEndpoints.putPlanSettings).toHaveBeenCalledWith({ enabled: true, deliveryLocalTime: '06:45' });
+    expect(planEndpoints.putPlanSettings).toHaveBeenCalledWith({ deliveryLocalTime: '06:45' });
+  });
+
+  it('C12.9 (a, b): on iOS every wheel stop is one draft, saved once on OK, and the wheel closes', async () => {
+    stored = ON;
+    await settled();
+    await fireEvent.press(screen.getByTestId('plan-delivery-time'));
+    await waitFor(() => expect(screen.queryByTestId('plan-delivery-picker')).not.toBeNull());
+    for (const stop of ['07:45', '08:00', '08:15']) {
+      await fireEvent(screen.getByTestId('plan-delivery-picker'), 'change', {
+        type: 'set',
+        nativeEvent: { timestamp: timeShowing(stop).getTime() },
+      });
+    }
+    expect(planEndpoints.putPlanSettings).not.toHaveBeenCalled();
+    await fireEvent.press(screen.getByTestId('plan-delivery-done'));
+    await waitFor(() => expect(screen.queryByTestId('plan-delivery-picker')).toBeNull());
+    await waitFor(() => expect(planEndpoints.putPlanSettings).toHaveBeenCalledTimes(1));
+    expect(planEndpoints.putPlanSettings).toHaveBeenCalledWith({ deliveryLocalTime: '08:15' });
+  });
+
+  it('review 1: the iOS wheel follows the draft, not the stored time, between stops', async () => {
+    stored = ON;
+    await settled();
+    await fireEvent.press(screen.getByTestId('plan-delivery-time'));
+    await waitFor(() => expect(screen.queryByTestId('plan-delivery-picker')).not.toBeNull());
+    await fireEvent(screen.getByTestId('plan-delivery-picker'), 'change', {
+      type: 'set',
+      nativeEvent: { timestamp: timeShowing('07:45').getTime() },
+    });
+    await waitFor(() => expect((screen.getByTestId('plan-delivery-picker').props.date as number))
+      .toBe(timeShowing('07:45').getTime()));
+  });
+
+  it('review 2: leaving with Back while the wheel is open saves the draft', async () => {
+    stored = ON;
+    await settled();
+    await fireEvent.press(screen.getByTestId('plan-delivery-time'));
+    await waitFor(() => expect(screen.queryByTestId('plan-delivery-picker')).not.toBeNull());
+    await fireEvent(screen.getByTestId('plan-delivery-picker'), 'change', {
+      type: 'set',
+      nativeEvent: { timestamp: timeShowing('06:45').getTime() },
+    });
+    await fireEvent.press(screen.getByTestId('header-back'));
+    await waitFor(() => expect(planEndpoints.putPlanSettings).toHaveBeenCalledWith({ deliveryLocalTime: '06:45' }));
+    expect(planEndpoints.putPlanSettings).toHaveBeenCalledTimes(1);
+  });
+
+  it('review 2: the screen going away with the wheel open saves the draft once', async () => {
+    stored = ON;
+    await settled();
+    await fireEvent.press(screen.getByTestId('plan-delivery-time'));
+    await waitFor(() => expect(screen.queryByTestId('plan-delivery-picker')).not.toBeNull());
+    await fireEvent(screen.getByTestId('plan-delivery-picker'), 'change', {
+      type: 'set',
+      nativeEvent: { timestamp: timeShowing('06:30').getTime() },
+    });
+    await act(async () => { await screen.unmount(); });
+    await waitFor(() => expect(planEndpoints.putPlanSettings).toHaveBeenCalledWith({ deliveryLocalTime: '06:30' }));
+    expect(planEndpoints.putPlanSettings).toHaveBeenCalledTimes(1);
+  });
+
+  it('C12.9 (c) / CXA12.4: a failed time save is said, not silent', async () => {
+    stored = ON;
+    await settled();
+    jest.spyOn(planEndpoints, 'putPlanSettings').mockRejectedValue(new ValidationError('refused') as never);
+    await fireEvent.press(screen.getByTestId('plan-delivery-time'));
+    await waitFor(() => expect(screen.queryByTestId('plan-delivery-picker')).not.toBeNull());
+    await fireEvent(screen.getByTestId('plan-delivery-picker'), 'change', {
+      type: 'set',
+      nativeEvent: { timestamp: timeShowing('06:45').getTime() },
+    });
+    await fireEvent.press(screen.getByTestId('plan-delivery-done'));
+    await waitFor(() => expect(screen.queryByTestId('plan-delivery-time-failed')).not.toBeNull());
   });
 });
 
@@ -297,7 +380,7 @@ describe('the OS prompt, from this switch', () => {
 
     await waitFor(() => expect(permission.requestNotificationPermission).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(planEndpoints.putPlanSettings)
-      .toHaveBeenCalledWith({ enabled: true, deliveryLocalTime: '07:30' }));
+      .toHaveBeenCalledWith({ enabled: true }));
   });
 
   it('is not asked on the way off', async () => {
@@ -305,7 +388,7 @@ describe('the OS prompt, from this switch', () => {
     await settled();
     await fireEvent(screen.getByTestId('plan-morning-toggle'), 'valueChange', false);
     await waitFor(() => expect(planEndpoints.putPlanSettings)
-      .toHaveBeenCalledWith({ enabled: false, deliveryLocalTime: '07:30' }));
+      .toHaveBeenCalledWith({ enabled: false }));
     expect(permission.requestNotificationPermission).not.toHaveBeenCalled();
   });
 

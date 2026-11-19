@@ -810,7 +810,7 @@ function IntelligencePanelForAccount({ onChanged, autoGenerate = false, whenOff 
         disabled={busy} onPress={() => openConfirm('scan')} />}
     </View>
     {emailM5 ? <EmailScanEntry /> : null}
-    {emailM5 ? <EmailScanStatus overview={scanOverview.data} onReconnect={() => actions.go('googleIntegration')} /> : null}
+    {emailM5 ? <EmailScanStatus overview={scanOverview.data} failed={scanOverview.isError} onRetry={() => void scanOverview.refetch()} onReconnect={() => actions.go('googleIntegration')} /> : null}
     {confirming ? <View testID="intelligence-confirm" style={{ gap: 10, backgroundColor: p.sf2, borderRadius: 14, padding: 12 }}>
       <View ref={explainRef} accessible testID="intelligence-confirm-explain"><Txt role="supporting">{confirming === 'analyze' ? t.xIntelligenceAnalyzeExplain : t.xIntelligenceGmailScanExplain}</Txt></View>
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>

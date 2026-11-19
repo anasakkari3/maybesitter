@@ -769,7 +769,11 @@ async function applyCommitmentCommand(
           : { commitmentId: id, validator: options.expectedValidator },
       )
     : applyCommand(command);
-  if (result.result === 'rejected') throw new Error(rejection);
+  if (result.result === 'rejected') {
+    // An id this account does not have is "not found" (CX4.5), the same
+    // answer for a foreign id and a random one; the route maps it to 404.
+    throw new Error(await getCommitment(id, options) ? rejection : 'Commitment not found');
+  }
   if (result.result === 'invalid_transition') throw new InvalidTransitionError();
 }
 

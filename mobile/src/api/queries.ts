@@ -2800,6 +2800,8 @@ export function useCreateIcsFeed() {
     onSettled: () => {
       void client.invalidateQueries({ queryKey: queryKeys.icsFeeds(uid) });
       void client.invalidateQueries({ queryKey: ['user', uid, 'heldItems'] }); // M4b: what «يتابع لك» counts
+      // A new feed's lectures are busy time in «الخطة» (CA10.11).
+      void client.invalidateQueries({ queryKey: ['user', uid, 'calendar', 'serverBusy'] });
     },
   });
 }
@@ -2829,6 +2831,8 @@ export function useRefreshIcsFeed() {
       void client.invalidateQueries({ queryKey: ['user', uid, 'heldItems'] }); // M4b: what «يتابع لك» counts
       // Lectures are busy time, and busy time shapes the plan and the lists.
       void client.invalidateQueries({ queryKey: ['user', uid, 'commitments'] });
+      // «الخطة» reads the server's busy time under its own key (CA10.11).
+      void client.invalidateQueries({ queryKey: ['user', uid, 'calendar', 'serverBusy'] });
     },
   });
 }
@@ -2842,6 +2846,8 @@ export function useDeleteIcsFeed() {
       void client.invalidateQueries({ queryKey: queryKeys.icsFeeds(uid) });
       void client.invalidateQueries({ queryKey: ['user', uid, 'heldItems'] }); // M4b: what «يتابع لك» counts
       void client.invalidateQueries({ queryKey: ['user', uid, 'commitments'] });
+      // The removed feed's lectures leave «الخطة» now, not at the next probe (CA10.11).
+      void client.invalidateQueries({ queryKey: ['user', uid, 'calendar', 'serverBusy'] });
     },
   });
 }

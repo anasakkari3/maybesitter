@@ -4,15 +4,18 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useApp } from '../../state/AppContext';
 import { Pill, Txt } from '../../ui/primitives';
 import { LiveRegion } from '../../ui/liveRegion';
+import { useAnnounceOnIos } from '../../ui/announce';
 import { fill, ltr } from '../../i18n/strings';
 import { isolateAuto } from '../../i18n/bidi';
 import { formatDate, formatDayKey, formatRelativeDay, formatTime } from '../../i18n/format';
 import { deviceTimeZone, useTimeZone } from '../../i18n/timezone';
 import { useUid } from '../../api/queries';
 import { getEmailScanOverview, postEmailScan } from '../../api/endpoints/m5a';
+import { getGmailIntelligenceMonitor } from '../../api/endpoints/intelligence';
 import { M5A_NOT_NOW, useFreshM5aCapability } from './capabilities';
 import type { DailyStatus, EmailScanOverview, QueuedScan, ScanFailure, ScanStatus, ScanWait } from '../../api/schemas/m5a';
 import { userFacingMessage } from '../../api/ui/userFacingMessage';
+import { NetworkError, TimeoutError } from '../../api/errors';
 import type { Strings } from '../../i18n/strings';
 
 /**
@@ -43,6 +46,23 @@ export function useEmailScanOverview(enabled: boolean) {
     refetchInterval: (query) => (active(query.state.data) ? POLL_MS : false),
     retry: false,
   });
+}
+
+/**
+ * Whether Gmail monitoring is on (review 3): then mail is also read as it
+ * arrives and swept once a day, so a line saying "only when you ask" is untrue.
+ * Read fresh on every mount; a failed read says nothing either way (`null`).
+ */
+export function useGmailMonitorOn(enabled: boolean): boolean | null {
+  const uid = useUid();
+  const query = useQuery({
+    queryKey: ['user', uid, 'gmailMonitor'] as const,
+    queryFn: () => getGmailIntelligenceMonitor({ asUid: uid }),
+    enabled: enabled && uid !== 'signed-out',
+    staleTime: 0,
+    retry: false,
+  });
+  return query.data ? query.data.enabled === true : null;
 }
 
 /** «افحص إيميلي (آخر 7 أيام)»: explained first, sent only on «كمّل». */
@@ -87,6 +107,19 @@ export function EmailScanEntry({ onStarted }: { onStarted?: () => void }) {
       setConfirming(false);
       onStarted?.();
     } catch (cause) {
+      // The answer was lost, not necessarily the scan (CXA9.4): the server may
+      // have admitted it before the request timed out. Read the status once;
+      // a scan running there is not "we could not reach you".
+      if (cause instanceof TimeoutError || cause instanceof NetworkError) {
+        const now = await client.fetchQuery({
+          queryKey: emailScanKey(uid), queryFn: () => getEmailScanOverview({ asUid: uid }), staleTime: 0,
+        }).catch(() => null);
+        if (now && (now.manual?.status === 'running' || (now.queuedManual ?? null) !== null)) {
+          setConfirming(false);
+          onStarted?.();
+          return;
+        }
+      }
       setError(cause);
     } finally {
       starting.current = false;
@@ -119,16 +152,35 @@ export function EmailScanEntry({ onStarted }: { onStarted?: () => void }) {
  * answer, so TalkBack hears each later line arrive (the live-region census);
  * the one action that helps sits below it.
  */
-export function EmailScanStatus({ overview, onReconnect }: { overview: EmailScanOverview | undefined; onReconnect: () => void }) {
+export function EmailScanStatus({ overview, onReconnect, failed = false, onRetry }: {
+  overview: EmailScanOverview | undefined;
+  onReconnect: () => void;
+  /** The last status read failed (CXA9.3): said, with a retry, never a silent gap. */
+  failed?: boolean;
+  onRetry?: () => void;
+}) {
+  const { t, p } = useApp();
+  useAnnounceOnIos(failed ? t.m5ScanStatusUnavailable : null);
+  // Always mounted once there is a block, so a later failure is heard; the
+  // retry sits below it.
+  const unavailable = (
+    <>
+      <LiveRegion style={{ alignSelf: 'stretch' }} alert={failed}>
+        {failed ? <Txt role="supporting" color={p.wm} testID="email-scan-status-failed">{t.m5ScanStatusUnavailable}</Txt> : null}
+      </LiveRegion>
+      {failed && onRetry ? <Pill testID="email-scan-status-retry" label={t.errorsRetry} kind="outline" size={14} pad={12} onPress={onRetry} /> : null}
+    </>
+  );
   // Mounted with the first answer and kept from then on: what is already
   // there when the screen opens is read as the screen, and every later
   // change is heard.
-  if (!overview) return null;
+  if (!overview) return failed ? <View style={{ gap: 8, alignItems: 'flex-start' }}>{unavailable}</View> : null;
   const manual = overview.manual ?? null;
   const queued = overview.queuedManual ?? null;
   const daily = overview.daily ?? null;
   return (
     <View style={{ gap: 8, alignItems: 'flex-start' }}>
+      {unavailable}
       <LiveRegion testID="email-scan-status" style={{ gap: 6, alignSelf: 'stretch' }}>
         {manual ? <ScanText scan={manual} /> : null}
         {manual?.status === 'running' && manual.waiting ? <WaitLine wait={manual.waiting} /> : null}
@@ -194,13 +246,16 @@ function ScanText({ scan }: { scan: ScanStatus }) {
 
 /** A failed scan's one action: reconnect Google, or carry on where it stopped. */
 function Recovery({ scan, onReconnect }: { scan: ScanStatus & { status: 'failed' }; onReconnect: () => void }) {
-  const { t } = useApp();
+  const { t, p } = useApp();
   const uid = useUid();
   const client = useQueryClient();
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<unknown>(null);
   const freshCapability = useFreshM5aCapability();
+  useAnnounceOnIos(error ? userFacingMessage(error, t) : null);
   const resume = useCallback(async () => {
     setBusy(true);
+    setError(null);
     try {
       // Asked fresh right before the tap acts (M5A-R10-001); not available now
       // leaves the line as it is.
@@ -209,17 +264,27 @@ function Recovery({ scan, onReconnect }: { scan: ScanStatus & { status: 'failed'
       client.setQueryData<EmailScanOverview>(emailScanKey(uid), (previous) => ({
         success: true, manual: answer.scan, queuedManual: answer.queuedManual ?? previous?.queuedManual ?? null, daily: previous?.daily ?? null,
       }));
-    } catch {
-      // The line still shows where it stopped; the button stays.
+    } catch (cause) {
+      // The line still shows where it stopped and the button stays; what
+      // failed is said under it (CXA9.5), never swallowed.
+      setError(cause);
     } finally {
       setBusy(false);
       void client.invalidateQueries({ queryKey: emailScanKey(uid) });
     }
   }, [client, freshCapability, scan.scanId, uid]);
   if (scan.failure === 'daily_limit') return null;
-  return scan.failure === 'reconnect_needed'
-    ? <Pill testID="email-scan-reconnect" label={t.m5ScanReconnect} kind="accent" size={14} pad={12} onPress={onReconnect} />
-    : <Pill testID="email-scan-resume" label={t.m5ScanResume} kind="accent" size={14} pad={12} disabled={busy} onPress={() => void resume()} />;
+  if (scan.failure === 'reconnect_needed') {
+    return <Pill testID="email-scan-reconnect" label={t.m5ScanReconnect} kind="accent" size={14} pad={12} onPress={onReconnect} />;
+  }
+  return (
+    <View style={{ gap: 8, alignItems: 'flex-start' }}>
+      <Pill testID="email-scan-resume" label={t.m5ScanResume} kind="accent" size={14} pad={12} disabled={busy} onPress={() => void resume()} />
+      <LiveRegion style={{ alignSelf: 'stretch' }} assertive>
+        {error ? <Txt role="supporting" color={p.wm} testID="email-scan-resume-error">{userFacingMessage(error, t)}</Txt> : null}
+      </LiveRegion>
+    </View>
+  );
 }
 
 /**
