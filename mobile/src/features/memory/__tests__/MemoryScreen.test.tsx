@@ -394,6 +394,27 @@ describe('delete, and the five seconds after it', () => {
 
     await waitFor(() => expect(screen.queryByTestId('memory-screen-item-mem_told')).not.toBeNull());
   });
+
+  // Review of CXA8.3: `mutate`'s own onError runs only for the latest call, so
+  // a refused delete sent earlier (a second delete commits the first) kept its
+  // row hidden for good. Each delete answers for its own row.
+  it('two refused deletes both show their rows again', async () => {
+    jest.useFakeTimers();
+    listing([item(), item({ id: 'mem_two', content: 'I swim on Sundays' })]);
+    // Each refusal arrives only after the next delete has been sent.
+    (profileEndpoints.deleteMemory as unknown as jest.Mock).mockImplementation(() => new Promise((_, reject) => { setTimeout(() => reject(new Error('refused')), 3 * UNDO_WINDOW_MS); }));
+    await show(<MemoryScreen onBack={() => {}} />);
+    await waitFor(() => expect(screen.queryByTestId('memory-screen-delete-mem_two')).not.toBeNull());
+
+    await fireEvent.press(screen.getByTestId('memory-screen-delete-mem_told'));
+    // The second delete sends the first at once.
+    await fireEvent.press(screen.getByTestId('memory-screen-delete-mem_two'));
+    await act(async () => { await jest.advanceTimersByTimeAsync(UNDO_WINDOW_MS + 500); });
+    await act(async () => { await jest.advanceTimersByTimeAsync(4 * UNDO_WINDOW_MS); });
+
+    await waitFor(() => expect(screen.queryByTestId('memory-screen-item-mem_two')).not.toBeNull());
+    expect(screen.queryByTestId('memory-screen-item-mem_told')).not.toBeNull();
+  });
 });
 
 describe('delete everything', () => {

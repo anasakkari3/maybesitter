@@ -235,6 +235,22 @@ test('two confirms sent at once write the facts once', async () => {
   assert.equal((await memory.retrieve({ scopeId: UID, now: AT.toISOString() })).length, 2);
 });
 
+// Review of CXA8.10: the claim must not lose the proposal when a write fails
+// after it; the person presses save again and it works.
+test('a confirm whose write fails can be pressed again, and writes once', async () => {
+  const { proposal } = await propose([candidate(), candidate({ content: 'Wants to run a 10k', kind: 'goal' })]);
+  let failNext = true;
+  const flaky = Object.create(memory) as RuntimeMemoryStore;
+  flaky.put = async (...args: Parameters<RuntimeMemoryStore['put']>) => {
+    if (failNext) { failNext = false; throw new Error('storage hiccup'); }
+    return memory.put(...args);
+  };
+  await assert.rejects(() => confirmAiContextImport(UID, proposal.proposalId, [{ index: 0 }, { index: 1 }], AT, { memory: flaky }));
+  const result = await confirmAiContextImport(UID, proposal.proposalId, [{ index: 0 }, { index: 1 }], AT, { memory });
+  assert.equal(result.created, 2);
+  assert.equal((await memory.retrieve({ scopeId: UID, now: AT.toISOString() })).length, 2);
+});
+
 test('an expired proposal is refused rather than quietly written', async () => {
   const { proposal } = await propose([candidate()]);
   const late = new Date(AT.getTime() + AI_CONTEXT_IMPORT_TTL_MS + 1);

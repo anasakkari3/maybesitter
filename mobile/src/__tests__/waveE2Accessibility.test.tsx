@@ -142,9 +142,24 @@ describe('CX2.6: Reduce Motion is honoured from the first frame', () => {
 });
 
 describe('CX2.8: the bar is a tab bar', () => {
-  it('names the bar as a tab list and each screen as a tab', async () => {
+  async function bar(os: 'ios' | 'android') {
+    setOs(os);
     await render(<SafeAreaProvider initialMetrics={METRICS}><AppProvider><TabBar /></AppProvider></SafeAreaProvider>);
-    expect(['tabbar', 'tablist']).toContain(screen.getByTestId('tab-bar-row').props.accessibilityRole);
+  }
+
+  // Each platform's own word: VoiceOver reads a `tabbar`, TalkBack a `tablist`.
+  it('is a tabbar on iOS', async () => {
+    await bar('ios');
+    expect(screen.getByTestId('tab-bar-row').props.accessibilityRole).toBe('tabbar');
+  });
+
+  it('is a tablist on Android', async () => {
+    await bar('android');
+    expect(screen.getByTestId('tab-bar-row').props.accessibilityRole).toBe('tablist');
+  });
+
+  it('names each screen as a tab', async () => {
+    await bar('ios');
     for (const id of ['tab-today', 'tab-calendar', 'tab-things', 'tab-watching']) {
       expect(screen.getByTestId(id).props.accessibilityRole).toBe('tab');
     }

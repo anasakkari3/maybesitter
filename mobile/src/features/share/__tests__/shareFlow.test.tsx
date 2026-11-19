@@ -815,6 +815,42 @@ describe('a picture is stripped before it is uploaded (UC-3.6, #190)', () => {
     expect([...mockFiles]).toEqual([]);
   });
 
+  // Review of CXA3.1: Back while a picture is being prepared left the
+  // stripped copy on disk (it was recorded after Back cleared), and the
+  // upload that followed took the person back into review.
+  it('Back while a picture is being prepared deletes what it wrote, uploads nothing and stays out of review', async () => {
+    const propose = jest.spyOn(shareEndpoints, 'proposeFromShare');
+    let open: () => void = () => {};
+    mockManipulator.gate = new Promise<void>((resolve) => { open = resolve; });
+    await openWithShare({
+      ...mockEmptyIntent,
+      files: [photograph('poster_ar', 'image/jpeg', 'file:///tmp/share/poster.jpg')],
+      type: 'media',
+    });
+    await fireEvent.press(screen.getByTestId('share-analyze'));
+    await fireEvent.press(screen.getByTestId('share-back'));
+    await act(async () => {
+      open();
+      for (let tick = 0; tick < 20; tick += 1) await Promise.resolve();
+    });
+
+    expect(propose).not.toHaveBeenCalled();
+    expect([...mockFiles]).toEqual([]);
+    expect(screen.queryByTestId('share-screen')).toBeNull();
+  });
+
+  it('Back while the upload is on its way does not land in review when it answers', async () => {
+    let answer: (value: unknown) => void = () => {};
+    jest.spyOn(shareEndpoints, 'proposeFromShare').mockImplementation(() => new Promise((resolve) => { answer = resolve; }) as never);
+    await openWithShare({ ...mockEmptyIntent, text: 'Pay the nursery on Thursday', type: 'text' });
+    await fireEvent.press(screen.getByTestId('share-analyze'));
+    await fireEvent.press(screen.getByTestId('share-back'));
+    await act(async () => { answer(shareProposal()); for (let tick = 0; tick < 20; tick += 1) await Promise.resolve(); });
+
+    expect(screen.queryByTestId('review-item-i-1')).toBeNull();
+    expect(screen.queryByTestId('share-screen')).toBeNull();
+  });
+
   it('a picture the phone cannot open is refused here with what to do instead, not uploaded', async () => {
     const propose = jest.spyOn(shareEndpoints, 'proposeFromShare');
     await openWithShare({

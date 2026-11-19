@@ -195,6 +195,28 @@ test('two confirms sent at once write the ticked suggestions once', async () => 
   }
 });
 
+// Review of CXA8.10: a failed write after the claim leaves the proposal to try again.
+test('a confirm whose write fails can be pressed again, and writes once', async () => {
+  await begin();
+  try {
+    await grant();
+    const proposal = await describeProfile(UID, 'text', AT, { complete: stubModel(THESIS).complete });
+    const store = createStorageRuntimeMemoryStore();
+    let failNext = true;
+    const flaky = Object.create(store) as typeof store;
+    flaky.put = async (...args: Parameters<typeof store.put>) => {
+      if (failNext) { failNext = false; throw new Error('storage hiccup'); }
+      return store.put(...args);
+    };
+    await assert.rejects(() => confirmProfileSuggestions(UID, proposal.proposalId, [{ index: 0 }, { index: 2 }], AT, { memory: flaky }));
+    const result = await confirmProfileSuggestions(UID, proposal.proposalId, [{ index: 0 }, { index: 2 }], AT);
+    assert.equal(result.saved, 2);
+    assert.equal((await store.listAll(UID)).length, 2);
+  } finally {
+    end();
+  }
+});
+
 test('an expired proposal is refused rather than written', async () => {
   await begin();
   try {
