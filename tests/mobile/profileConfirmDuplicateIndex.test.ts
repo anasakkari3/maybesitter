@@ -21,6 +21,8 @@ for (const [name, route, path] of [
   test(`${name} confirm refuses an index listed twice, and still reads a proposal for a clean list`, async () => {
     setStorageForTests(createMemoryStorage());
     const auth = installFakeAuth();
+    const previousFlag = process.env.MAYBESITTER_FEATURE_MEMORY;
+    process.env.MAYBESITTER_FEATURE_MEMORY = 'true';
     try {
       await seedLiveAccount(ALICE);
       const send = (accepted: unknown[]) => route(new Request(`https://api.maybesitter.test${path}`, {
@@ -31,9 +33,13 @@ for (const [name, route, path] of [
       const refused = await send([{ index: 0 }, { index: 0 }]);
       assert.equal(refused.status, 400);
       assert.match((await refused.json() as { error: string }).error, /more than once/);
-      // A clean list reaches the proposal lookup (none here: 404).
-      assert.equal((await send([{ index: 0 }, { index: 1 }])).status, 404);
+      // A clean list reaches the proposal lookup (none here).
+      const clean = await send([{ index: 0 }, { index: 1 }]);
+      assert.equal(clean.status, 404);
+      assert.equal((await clean.json() as { reason: string }).reason, 'proposal_not_found');
     } finally {
+      if (previousFlag === undefined) delete process.env.MAYBESITTER_FEATURE_MEMORY;
+      else process.env.MAYBESITTER_FEATURE_MEMORY = previousFlag;
       auth.restore();
       resetStorageForTests();
     }
