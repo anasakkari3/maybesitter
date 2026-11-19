@@ -2,6 +2,7 @@ import React from 'react';
 import { TextInput, View } from 'react-native';
 import { useApp } from '../../state/AppContext';
 import { fill } from '../../i18n/strings';
+import { isolateAuto } from '../../i18n/bidi';
 import { Btn, Card, Txt } from '../../ui/primitives';
 import { Notice, SectionLabel, Tag } from '../../ui/chrome';
 import type { AiContextImportProposal, ImportCandidate } from '../../api/schemas/aiContextImport';
@@ -35,7 +36,7 @@ import { Footer, PrimaryButton, SecondaryButton } from './AiImportButtons';
  * believes was complete.
  */
 export function AiImportReviewStep({
-  proposal, kept, edits, resolutions, expanded, saving, saveFailed,
+  proposal, kept, edits, resolutions, expanded, saving, saveFailed, existing,
   onExpand, onToggle, onEdit, onResolve, onSave, onCancel,
 }: {
   proposal: AiContextImportProposal;
@@ -45,6 +46,12 @@ export function AiImportReviewStep({
   expanded: boolean;
   saving: boolean;
   saveFailed: boolean;
+  /**
+   * The person's saved rows by id. A conflict names the row it is about
+   * (`relatesToId`); without its words, «استعمل الجديد» asked them to
+   * replace a sentence they could not see (de7fcb84 audit CXA8.9).
+   */
+  existing?: ReadonlyMap<string, string> | undefined;
   onExpand: () => void;
   onToggle: (index: number) => void;
   onEdit: (index: number, content: string) => void;
@@ -92,6 +99,11 @@ export function AiImportReviewStep({
           {conflicts.map(({ candidate, index }) => (
             <Card key={index} pad={16} style={{ gap: 10 }} testID={`ai-import-conflict-${index}`}>
               <Txt size={15} lh={1.5}>{candidate.content}</Txt>
+              {candidate.relatesToId !== null && existing?.get(candidate.relatesToId) !== undefined ? (
+                <Txt size={14} color={p.mu} lh={1.5} testID={`ai-import-conflict-${index}-existing`}>
+                  {fill(t.aiImportConflictsWith, { content: isolateAuto(existing.get(candidate.relatesToId)!) })}
+                </Txt>
+              ) : null}
               <ConflictChoice
                 index={index}
                 resolve={resolutions[index] ?? 'keep_both'}
@@ -230,6 +242,7 @@ function CandidateRow({
           onChangeText={(value) => onEdit(index, value)}
           multiline
           testID={`ai-import-candidate-${index}-input`}
+          accessibilityLabel={t.memoryEdit}
           style={{ color: p.tx, fontSize: 15, minHeight: 44, borderWidth: 1, borderColor: p.ln, borderRadius: 12, padding: 10, textAlign: rtl ? 'right' : 'left', writingDirection: rtl ? 'rtl' : 'ltr' }}
         />
       ) : (

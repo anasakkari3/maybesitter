@@ -24,7 +24,7 @@
  * the user is owed. So the two are worded apart, on the TTL, not on `source`:
  * the boundary that matters is how long it is kept, whoever said it.
  */
-import type { MemoryAdaptive, MemoryItem, MemorySourceLabel } from '../../api/schemas/profile';
+import type { MemoryAdaptive, MemoryItem, MemorySourceLabel, MemorySuggestion } from '../../api/schemas/profile';
 
 /** The i18n key for each label the server can send. */
 export const SOURCE_LABEL_STRING: Record<MemorySourceLabel, string> = {
@@ -253,4 +253,25 @@ export function evidenceLines(item: MemoryItem, copy: EvidenceCopy): EvidenceLin
   });
 
   return lines.filter(line => line.text !== '');
+}
+
+/**
+ * What a suggestion was read from, in the words of its own rule: defers for
+ * R2, plan opens for R3, finished items in a window for R1. One function for
+ * every surface that explains a suggestion — Personalization used R1's words
+ * for all three (de7fcb84 audit CXA8.5: six defers read «أشياء خلّصتها…: 6»).
+ */
+export function suggestionEvidenceText(
+  suggestion: MemorySuggestion,
+  strings: Record<string, string>,
+  translateCount: (key: 'memorySuggestionEvidence', values: Record<string, number>) => string,
+): string {
+  const counts = { total: String(suggestion.evidence.totalCount), matching: String(suggestion.evidence.matchingCount) };
+  if (suggestion.ruleId === 'R2_defer_default') return fill(strings.memorySuggestionDeferEvidence ?? '', counts);
+  if (suggestion.ruleId === 'R3_plan_time') return fill(strings.memorySuggestionPlanTimeEvidence ?? '', counts);
+  return translateCount('memorySuggestionEvidence', {
+    days: suggestion.evidence.lookbackDays,
+    total: suggestion.evidence.totalCount,
+    matching: suggestion.evidence.matchingCount,
+  });
 }

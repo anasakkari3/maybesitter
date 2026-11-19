@@ -53,6 +53,7 @@ import {
   userCol,
   userDoc,
   type StorageAdapter,
+  type StorageTransaction,
 } from '../../storage';
 import { requireLiveAccount } from '../../account/accountLiveness';
 import {
@@ -91,7 +92,14 @@ interface StoredProposal {
   createdAt: string;
   promptVersion: string;
   model: string | null;
+  /** Held by one confirm while it writes (CXA8.10); a lapsed lease is free again. */
+  claim?: { claimId: string; reservedUntil: string };
+  /** Indexes already written by a confirm that failed part way, never written twice. */
+  written?: number[];
 }
+
+/** How long one confirm holds a proposal before another may take it over. */
+const CONFIRM_LEASE_MS = 60_000;
 
 function storageOf(options: DescribeOptions): StorageAdapter {
   return options.storage ?? getStorage();
@@ -230,24 +238,46 @@ export async function confirmProfileSuggestions(
 ): Promise<ConfirmResult> {
   requireUserId(uid);
   const storage = storageOf(options);
-  const stored = await storage.get<StoredProposal>(proposalPath(uid, proposalId));
+  /*
+   * Claimed in one transaction before anything is written (de7fcb84 audit
+   * CXA8.10): two confirms at once both wrote every row. A short lease, not a
+   * delete: a confirm whose write fails gives it back with what it wrote, so
+   * save can be pressed again without a row written twice.
+   * Expired proposals are refused, not silently written. The suggestions were
+   * shown half an hour ago; the user may have forgotten what they said yes to.
+   */
+  const path = proposalPath(uid, proposalId);
+  const claimId = randomUUID();
+  const stored = await storage.runTransaction(async (tx) => {
+    const found = await tx.get<StoredProposal>(path);
+    if (!found) return null;
+    const age = at.getTime() - Date.parse(found.createdAt);
+    if (!Number.isFinite(age) || age > PROFILE_PROPOSAL_TTL_MS) return null;
+    if (found.claim && Date.parse(found.claim.reservedUntil) > Date.now()) return null;
+    const claimed: StoredProposal = { ...found, claim: { claimId, reservedUntil: new Date(Date.now() + CONFIRM_LEASE_MS).toISOString() } };
+    tx.set<StoredProposal>(path, claimed);
+    return claimed;
+  });
   if (!stored) throw new ProposalNotFoundError();
-
-  // Expired proposals are refused, not silently written. The suggestions were
-  // shown half an hour ago; the user may have forgotten what they said yes to.
-  const age = at.getTime() - Date.parse(stored.createdAt);
-  if (!Number.isFinite(age) || age > PROFILE_PROPOSAL_TTL_MS) throw new ProposalNotFoundError();
+  const stillMine = async (change: (tx: StorageTransaction, current: StoredProposal) => void) => {
+    await storage.runTransaction(async (tx) => {
+      const current = await tx.get<StoredProposal>(path);
+      if (current?.claim?.claimId === claimId) change(tx, current);
+    });
+  };
+  const written = new Set(stored.written ?? []);
 
   const memory = options.memory ?? createStorageRuntimeMemoryStore(undefined, options.storage);
-  // Fenced against a delete-all or a withdrawal that starts while this confirms (M5B2A-R34-001).
-  const guard = await personalizationWriteGuard(storage, uid);
   const isoAt = at.toISOString();
   const kinds: Record<string, number> = {};
   let saved = 0;
 
+  try {
+  // Fenced against a delete-all or a withdrawal that starts while this confirms (M5B2A-R34-001).
+  const guard = await personalizationWriteGuard(storage, uid);
   for (const choice of accepted ?? []) {
     const suggestion = stored.suggestions[choice.index];
-    if (!suggestion) continue;
+    if (!suggestion || written.has(choice.index)) continue;
 
     const edited = typeof choice.content === 'string' ? choice.content.trim() : '';
     const useEdit = edited !== '' && edited !== suggestion.content;
@@ -276,11 +306,20 @@ export async function confirmProfileSuggestions(
     await memory.put(stripUndefined(input), isoAt, guard);
     saved += 1;
     kinds[suggestion.kind] = (kinds[suggestion.kind] ?? 0) + 1;
+    written.add(choice.index);
+    await stillMine((tx, current) => tx.set<StoredProposal>(path, { ...current, written: Array.from(written) }));
+  }
+  } catch (error) {
+    // Given back, with what was written kept: the person can press save again.
+    await stillMine((tx, current) => {
+      const { claim: _released, ...rest } = current;
+      tx.set<StoredProposal>(path, { ...rest, written: Array.from(written) });
+    });
+    throw error;
   }
 
-  // The proposal has done its job. Removing it is also the cheapest way to
-  // guarantee a second confirm cannot write the same facts twice.
-  await storage.delete(proposalPath(uid, proposalId));
+  // Done: removed only by the confirm that held it.
+  await stillMine((tx) => tx.delete(path));
 
   // Counts and kinds only. What the facts said is not in the audit trail.
   await appendAudit(createPilotAuditEvent({

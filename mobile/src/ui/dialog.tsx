@@ -36,7 +36,7 @@ export function Dialog({ title, body, confirmLabel, cancelLabel, onConfirm, onCa
   return (
     <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 40, alignItems: 'center', justifyContent: 'center', padding: 24 }}>
       <Animated.View style={[{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: p.scrim }, m.scrim]}>
-        <Pressable style={{ flex: 1 }} onPress={onCancel} accessibilityLabel={cancelLabel} />
+        <Pressable style={{ flex: 1 }} onPress={onCancel} accessibilityRole="button" accessibilityLabel={cancelLabel} />
       </Animated.View>
       <Animated.View
         accessibilityViewIsModal

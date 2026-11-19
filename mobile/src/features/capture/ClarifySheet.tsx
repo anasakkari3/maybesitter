@@ -133,6 +133,7 @@ export function ClarifySheet({
           <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
             <TextInput
               testID="clarify-free-text"
+              accessibilityLabel={t.clarifyOwnWords}
               value={freeText}
               onChangeText={setFreeText}
               editable={!busy}

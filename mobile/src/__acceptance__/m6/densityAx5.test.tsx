@@ -111,7 +111,8 @@ describe('M6 AX5 verification banner and tab bar', () => {
       expect(['wrap', 'nowrap']).toContain(flatStyle(screen.getByTestId('tab-bar-row')).flexWrap);
       for (const testID of ['tab-capture', 'tab-today', 'tab-calendar', 'tab-things', 'tab-watching']) {
         const tab = screen.getByTestId(testID);
-        expect(tab.props.accessibilityRole).toBe('button');
+        // «احكيها» is an action; the four screens are tabs (de7fcb84 audit CX2.8).
+        expect(tab.props.accessibilityRole).toBe(testID === 'tab-capture' ? 'button' : 'tab');
         expect(typeof tab.props.accessibilityLabel).toBe('string');
         expect(tab.props.accessibilityLabel.length).toBeGreaterThan(0);
       }

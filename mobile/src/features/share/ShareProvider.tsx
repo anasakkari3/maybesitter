@@ -191,6 +191,13 @@ export interface ShareContextValue {
   analyze(): Promise<void>;
   /** Deletes the copies, forgets the share and goes home. Persists nothing. */
   discard(): void;
+  /**
+   * Back: deletes the copies and forgets the share, then takes the history's
+   * step back. Back used to change only the screen, so the shared file and the
+   * native record stayed for as long as the app was open (de7fcb84 audit
+   * CXA3.1); nothing offers that share again once its screen is left.
+   */
+  leave(): void;
 }
 
 const ShareContext = createContext<ShareContextValue | null>(null);
@@ -270,8 +277,18 @@ function ShareIntake({ children }: { children: React.ReactNode }) {
     if (!enabled || !normalized.ok) deleteSharedFiles(urisOfIntent(shareIntent));
   }, [enabled, normalized, shareIntent]);
 
+  /**
+   * Which Analyze is still wanted. `clear` moves it on, so an Analyze that was
+   * awaiting when the person left (Back, Discard) sees it changed after each
+   * await: it deletes what it made and goes nowhere (review of CXA3.1 — the
+   * stripped copy was recorded after Back had cleared, and the upload's answer
+   * took the person back into review).
+   */
+  const attempt = useRef(0);
+
   /** Deletes the copies this share left behind and forgets it. Idempotent. */
   const clear = useCallback(() => {
+    attempt.current += 1;
     // Both sets: the copy the OS made, and the stripped copy `prepareImages`
     // wrote beside it. Missing the second would leave a photograph in the cache
     // directory for the life of the install (UC-3.6, #190).
@@ -301,6 +318,8 @@ function ShareIntake({ children }: { children: React.ReactNode }) {
       return;
     }
     setPhase({ kind: 'analyzing' });
+    const ticket = attempt.current;
+    const cancelled = () => !mounted.current || attempt.current !== ticket;
 
     /*
      * Pictures are rewritten before anything leaves the phone (UC-3.6, #190, #404).
@@ -323,7 +342,8 @@ function ShareIntake({ children }: { children: React.ReactNode }) {
       // Signed out while the pictures were being prepared: the unmount cleanup
       // has already run and cannot see these files, and nothing may be uploaded
       // for a session that has ended.
-      if (!mounted.current) {
+      // Or left with Back or Discard: their `clear` could not see these either.
+      if (cancelled()) {
         deleteSharedFiles(stripped.ok ? stripped.prepared.created : stripped.created);
         return;
       }
@@ -351,6 +371,9 @@ function ShareIntake({ children }: { children: React.ReactNode }) {
         })),
         sourceHint: sending.sourceHint,
       });
+      // Left while it was on its way: the share is already cleared, and the
+      // answer is for a screen the person walked away from.
+      if (cancelled()) return;
       // The copies go before review opens, not after it closes: the share has
       // been read, the proposal is in memory, and there is nothing left the
       // files are needed for.
@@ -358,6 +381,7 @@ function ShareIntake({ children }: { children: React.ReactNode }) {
       latest.current.adoptProposal(proposal);
       latest.current.go('capture');
     } catch (error) {
+      if (cancelled()) return;
       // The payload is kept so the user can try again on a network failure.
       // `userFacingMessageKey` never interpolates the error's message, which on
       // this route could quote what was shared.
@@ -370,7 +394,12 @@ function ShareIntake({ children }: { children: React.ReactNode }) {
     actions.go('today');
   }, [actions, clear]);
 
-  const value = useMemo<ShareContextValue>(() => ({ state, analyze, discard }), [state, analyze, discard]);
+  const leave = useCallback(() => {
+    clear();
+    actions.back();
+  }, [actions, clear]);
+
+  const value = useMemo<ShareContextValue>(() => ({ state, analyze, discard, leave }), [state, analyze, discard, leave]);
   return <ShareContext.Provider value={value}>{children}</ShareContext.Provider>;
 }
 
