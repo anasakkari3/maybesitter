@@ -351,3 +351,49 @@ describe('a due on another day says its day (owner\'s Redmi, 2026-09-29)', () =>
     }
   });
 });
+
+/**
+ * V3-F14-03: after «اقبل الخطة», Today's rows kept their own times. The plan
+ * card previews four rows; a fifth thing the accepted plan placed stayed a
+ * row at its due («أسلّم المشروع · 12:00» while the plan had it at 10:00).
+ * An accepted daily plan is a placement like a saved week day: the row says
+ * the planned time, and its due beside it.
+ */
+describe('an accepted daily plan, after «اقبل الخطة»', () => {
+  const ids = ['p1', 'p2', 'p3', 'p4', 'p5'];
+  const slot = (index: number) => ({ start: at(0, 18 + index), end: instantAt(`${TODAY_KEY}T${18 + index}:30:00`, ZONE) });
+  const item = (id: string): Commitment => ({
+    ...market(), id, title: `Task ${id}`,
+    // «لازم» is always open on Today (the other groups fold to one line).
+    priority: { level: 'high', source: 'user_explicit', pressureAllowed: false, pressureLevel: 'none' },
+    timeSpec: { ...market().timeSpec, dueAt: at(0, 23), remindAt: null },
+  } as Commitment);
+  const accepted = (status: 'accepted' | 'proposed') => ({
+    date: TODAY_KEY, timezone: ZONE, status, generation: 1, inputDigest: '', generatedAt: at(0, 8), acceptedAt: status === 'accepted' ? at(0, 8) : null,
+    explanation: { text: '', locale: 'en', source: 'template' }, edited: false, unscheduled: [], protections: [],
+    scheduled: ids.map((itemId, index) => ({ itemId, title: `Task ${itemId}`, startsAt: slot(index).start, endsAt: slot(index).end, blockId: null })),
+  });
+
+  beforeEach(() => {
+    savedWeek = { today: TODAY_KEY, saved: [] };
+    jest.spyOn(commitmentEndpoints, 'listToday').mockResolvedValue({ items: ids.map(item) } as never);
+    jest.spyOn(commitmentEndpoints, 'listUpcoming').mockResolvedValue({ items: [] } as never);
+  });
+
+  it('a row the plan card does not preview says the planned time, and its due beside it', async () => {
+    jest.spyOn(planEndpoints, 'getPlan').mockResolvedValue(accepted('accepted') as never);
+    await show(<TodayScreen />);
+    await waitFor(() => expect(screen.queryByTestId('today-time-p5')).not.toBeNull());
+    await waitFor(() => expect(screen.getByTestId('today-time-p5').props.children).toBe(ltr(formatTime(new Date(slot(4).start), { locale: 'en', timeZone: ZONE }))));
+    expect(screen.getByTestId('today-due-p5').props.children).toBe(fill(en.plannedDueAside, { when: when(at(0, 23)) }));
+  });
+
+  it('a proposal that nobody accepted moves nothing: the row keeps its own time', async () => {
+    jest.spyOn(planEndpoints, 'getPlan').mockResolvedValue(accepted('proposed') as never);
+    await show(<TodayScreen />);
+    await waitFor(() => expect(planEndpoints.getPlan).toHaveBeenCalled());
+    await waitFor(() => expect(screen.queryByTestId('today-plan-preview-p4')).not.toBeNull());
+    expect(screen.getByTestId('today-time-p4').props.children).toBe(ltr(formatTime(new Date(at(0, 23)), { locale: 'en', timeZone: ZONE })));
+    expect(screen.queryByTestId('today-due-p4')).toBeNull();
+  });
+});
