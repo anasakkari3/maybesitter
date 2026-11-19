@@ -38,7 +38,7 @@ import * as language from '../../i18n/language';
 import { fill, ltr } from '../../i18n/strings';
 import { Txt } from '../../ui/primitives';
 import { createAppQueryClient } from '../../api/queryClient';
-import { NetworkError } from '../../api/errors';
+import { NetworkError, ServerError } from '../../api/errors';
 import { MutationFailureToasts } from '../../api/ui/MutationFailureToasts';
 import quietHoursFixture from '../../api/__fixtures__/nextStep.quietHours.json';
 import profileFixture from '../../api/__fixtures__/profile.one.json';
@@ -1079,4 +1079,38 @@ describe('Today actions with no signal say they did not go through', () => {
     expect(said).toEqual([en.errorsNetwork]);
     onlineManager.setOnline(true);
   }, 10_000);
+});
+
+/**
+ * V3-F08-02: a failed refresh blanked the day. With the list already loaded,
+ * a 500 on the next fetch replaced every row with «في إشي عنا ما ردّ» — the
+ * person's day vanished until the server came back. The rows stay; the
+ * failure is said above them, with Retry.
+ */
+describe('a refresh that fails after the day loaded', () => {
+  it('keeps the rows and says the refresh failed, with retry', async () => {
+    await show([item({ id: 'kept' })]);
+    await waitFor(() => expect(screen.queryByTestId('today-item-kept')).not.toBeNull());
+    jest.spyOn(commitmentEndpoints, 'listToday').mockRejectedValue(new ServerError('down', 500) as never);
+    await act(async () => { await client.refetchQueries(); });
+    await waitFor(() => expect(screen.queryByTestId('today-refresh-failed')).not.toBeNull());
+    expect(screen.queryByTestId('today-item-kept')).not.toBeNull();
+    expect(screen.queryByTestId('query-error')).toBeNull();
+    expect(within(screen.getByTestId('today-refresh-failed')).getByText(en.errorsRetry)).toBeTruthy();
+  });
+
+  it('a first load that fails still says only the failure', async () => {
+    jest.spyOn(commitmentEndpoints, 'listToday').mockRejectedValue(new ServerError('down', 500) as never);
+    await render(
+      <SafeAreaProvider initialMetrics={METRICS}>
+        <AppProvider>
+          <AuthProvider repository={repository} isDevBundle={false}>
+            <QueryClientProvider client={client}><TodayScreen /></QueryClientProvider>
+          </AuthProvider>
+        </AppProvider>
+      </SafeAreaProvider>,
+    );
+    await waitFor(() => expect(screen.queryByTestId('query-error')).not.toBeNull());
+    expect(screen.queryByTestId('today-refresh-failed')).toBeNull();
+  });
 });
