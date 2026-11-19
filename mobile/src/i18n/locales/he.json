@@ -2020,6 +2020,7 @@
   "xSavedHabitsN": "{n, plural, one{הרגל אחד} two{שני הרגלים} other{# הרגלים}}",
   "xSavedGoalsN": "{n, plural, one{מטרה אחת} two{שתי מטרות} other{# מטרות}}",
   "xSavedThoughtsN": "{n, plural, one{מחשבה אחת} two{שתי מחשבות} other{# מחשבות}}",
+  "xSavedWaitingN": "{n, plural, one{דבר אחד שממתינים לו} two{שני דברים שממתינים להם} other{# דברים שממתינים להם}}",
   "xOpenHabit": "פתח הרגל",
   "xOpenGoal": "פתח מטרה",
   "xOpenThoughts": "פתח מחשבות",

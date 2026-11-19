@@ -2017,6 +2017,7 @@
   "xSavedHabitsN": "{n, plural, one{1 habit} other{# habits}}",
   "xSavedGoalsN": "{n, plural, one{1 goal} other{# goals}}",
   "xSavedThoughtsN": "{n, plural, one{1 thought} other{# thoughts}}",
+  "xSavedWaitingN": "{n, plural, one{1 thing you’re waiting on} other{# things you’re waiting on}}",
   "xOpenHabit": "Open habit",
   "xOpenGoal": "Open goal",
   "xOpenThoughts": "Open thoughts",

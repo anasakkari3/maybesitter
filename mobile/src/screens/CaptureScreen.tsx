@@ -119,10 +119,14 @@ function savedNoteText(note: ChatSavedNote, t: Strings, lang: Lang, timeZone: st
   const paragraphs: string[] = [];
   if (note.persisted.length > 0) paragraphs.push(fill(t.chatSaved, { titles: list(note.persisted.map((item) => item.title)) }));
   // The other families the same confirm saved (M3b, R3-004), counted by kind.
+  // A waiting-for is counted as one, not as a thought (QA v3, V3-F24-04).
+  const waitingSaved = (note.seedsSaved ?? []).filter((seed) => seed.kind === 'waiting_for').length;
+  const thoughtsSaved = (note.seedsSaved?.length ?? 0) - waitingSaved;
   const families = [
     note.habitsSaved?.length ? tFor(lang)('xSavedHabitsN', { n: note.habitsSaved.length }) : null,
     note.goalsSaved?.length ? tFor(lang)('xSavedGoalsN', { n: note.goalsSaved.length }) : null,
-    note.seedsSaved?.length ? tFor(lang)('xSavedThoughtsN', { n: note.seedsSaved.length }) : null,
+    thoughtsSaved > 0 ? tFor(lang)('xSavedThoughtsN', { n: thoughtsSaved }) : null,
+    waitingSaved > 0 ? tFor(lang)('xSavedWaitingN', { n: waitingSaved }) : null,
   ].filter((part): part is string => part !== null);
   if (families.length > 0) paragraphs.push(fill(t.xSavedFamilies, { list: families.join(lang === 'en' ? ', ' : '، ') }));
   if (note.weeklySaved.length > 0) {

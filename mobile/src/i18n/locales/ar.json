@@ -2017,6 +2017,7 @@
   "xSavedHabitsN": "{n, plural, one{عادة وحدة} two{عادتين} few{# عادات} many{# عادة} other{# عادة}}",
   "xSavedGoalsN": "{n, plural, one{هدف واحد} two{هدفين} few{# أهداف} many{# هدف} other{# هدف}}",
   "xSavedThoughtsN": "{n, plural, one{فكرة وحدة} two{فكرتين} few{# أفكار} many{# فكرة} other{# فكرة}}",
+  "xSavedWaitingN": "{n, plural, one{شغلة وحدة مستني عليها} two{شغلتين مستني عليهم} few{# شغلات مستني عليها} many{# شغلة مستني عليها} other{# شغلة مستني عليها}}",
   "xOpenHabit": "افتح العادة",
   "xOpenGoal": "افتح الهدف",
   "xOpenThoughts": "افتح الأفكار",
