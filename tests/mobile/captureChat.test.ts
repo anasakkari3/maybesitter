@@ -1655,6 +1655,31 @@ for (const [reason, retried] of [
   });
 }
 
+/*
+ * CA3.10 (owner decision 2026-11-19): when the day's model allowance is
+ * spent, the chat still answers by the rules and now says so in one calm
+ * line. The answer carries `dailyAiLimitReached: true` only for a daily cap
+ * (the person's or the service's), never for a minute cap or a provider
+ * failure, and never says which counter it was.
+ */
+for (const [reason, flagged] of [
+  ['cost_cap:user_daily', true], ['cost_cap:global_daily', true],
+  ['cost_cap:user_minute', false], ['timeout', false], ['rate_limited', false],
+] as const) {
+  test(`a chat refused by ${reason} ${flagged ? 'says the daily allowance is spent' : 'says nothing about an allowance'} (CA3.10)`, async () => {
+    const model = scripted(new LLMUnavailableError(reason));
+    begin({ llmProviderFor: () => model.provider });
+    try {
+      const body = await chat(uidFor(`ChatDailyCap${reason.length}${flagged}`), 'Remind me to call the dentist tomorrow at 5pm') as ChatBody & { dailyAiLimitReached?: boolean };
+      assert.equal(body.engine, 'rules');
+      if (flagged) assert.equal(body.dailyAiLimitReached, true);
+      else assert.equal('dailyAiLimitReached' in body, false);
+    } finally {
+      end();
+    }
+  });
+}
+
 test('the retry is one call, and only while the budget still has room for it', async () => {
   const twice = scripted(new LLMUnavailableError('server_error'), new LLMUnavailableError('server_error'), answer('unused', 'propose', []));
   begin({ llmProviderFor: () => twice.provider });
