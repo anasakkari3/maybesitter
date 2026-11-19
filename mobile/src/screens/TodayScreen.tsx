@@ -29,8 +29,7 @@ import { busyAt } from '../features/calendar/conflicts';
 import type { DeviceBusyBlock } from '../features/calendar/busyBlocks';
 import { TodayPlanRow } from '../features/plan/TodayPlanRow';
 import { drawnAt, drawnClockAt, drawnWhenLine, dueAsideText, laterWhen, placeView, savedPlacements } from '../features/plan/savedPlacement';
-import { composeToday, isPostponedAway, type Primary } from '../features/today/composeToday';
-import { nextEventEndAfter } from '../features/commitments/eventEnded';
+import { composeToday, isPostponedAway, nextRecomposeAt, type Primary } from '../features/today/composeToday';
 import { Btn, SaidWords, Txt } from '../ui/primitives';
 import { AvatarButton, SectionLabel, Tag, TextLink, priorityTagKind } from '../ui/chrome';
 import { CheckIcon } from '../ui/icons';
@@ -164,14 +163,9 @@ export function TodayScreen({ tabClearance = TAB_CLEARANCE }: { tabClearance?: n
   // the card again and its row stops saying «بترجع».
   // …and when a step put off with «مش هلّق» may be the card again (V3-F11-04).
   const deferredSteps = useDeferredNextSteps();
-  const nextEnd = useMemo(() => {
-    const open = [...groups.must, ...groups.should, ...groups.nice];
-    const ended = nextEventEndAfter([...open, ...upcomingViews], clockMs);
-    const back = nextPostponedReturnAfter(open, clockMs);
-    const deferredBack = [...deferredSteps.values()].map((until) => Date.parse(until)).filter((at) => at > clockMs);
-    const times = [ended, back, ...deferredBack].filter((at): at is number => at !== null && Number.isFinite(at));
-    return times.length === 0 ? null : Math.min(...times);
-  }, [groups, upcomingViews, clockMs, deferredSteps]);
+  const nextEnd = useMemo(() => nextRecomposeAt({
+    open: [...groups.must, ...groups.should, ...groups.nice], upcoming: upcomingViews, deferredSteps, nowMs: clockMs,
+  }), [groups, upcomingViews, clockMs, deferredSteps]);
   useEffect(() => {
     if (nextEnd === null) return undefined;
     const wait = Math.min(Math.max(0, nextEnd - Date.now()) + EVENT_END_MARGIN_MS, MAX_TIMER_MS);
@@ -666,17 +660,6 @@ const OpenPostponeSheet = React.createContext<(id: string) => void>(() => undefi
 
 /** The instant Today is composed for (`clockMs`), so a row reads the same clock as the card. */
 const TodayClock = React.createContext<number | null>(null);
-
-/** The earliest postponed return still ahead of `nowMs`, or null (CA2.1). */
-function nextPostponedReturnAfter(items: readonly CommitmentView[], nowMs: number): number | null {
-  let next: number | null = null;
-  for (const item of items) {
-    if (!item.postponedUntil || !isPostponedAway(item, nowMs)) continue;
-    const back = Date.parse(item.postponedUntil);
-    if (next === null || back < next) next = back;
-  }
-  return next;
-}
 
 const DAY_GROUP_PREVIEW = 3;
 

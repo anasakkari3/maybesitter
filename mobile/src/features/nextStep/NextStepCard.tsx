@@ -460,10 +460,13 @@ function Ready({
       */}
       <BottomSheet visible={deferring} onClose={onCloseDefer} testID="next-step-defer-sheet">
         <SheetHeader title={t.nextStepDeferTitle} icon="clock" onClose={onCloseDefer} closeTestID="next-step-defer-close" />
-        <Txt size={14} color={p.mu} lh={1.5}>{t.postponeBody}</Txt>
+        {/* Its own line (review of #874): the suggestion comes back, the item
+            keeps its time. The postpone sheet's line read as moving the item. */}
+        <Txt size={14} color={p.mu} lh={1.5}>{t.nextStepDeferBody}</Txt>
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
-          {/* Only times before the item's own (V3-F11-04). */}
-          {deferChoices(new Date(), timezone, item ? drawnClockAt(item) : null).map((preset) => {
+          {/* Only times before the item's own (V3-F11-04), worked out only
+              while the sheet is open (review of #874). */}
+          {(deferring ? deferChoices(new Date(), timezone, item ? drawnClockAt(item) : null) : []).map((preset) => {
             const until = new Date(postponeTo(preset, new Date(), timezone));
             return (
               <SheetChoice

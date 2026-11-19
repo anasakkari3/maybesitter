@@ -1175,7 +1175,7 @@ export function useNextStepDecision() {
     onSuccess: (_result, input) => {
       const id = input.proposal.primaryStep?.commitmentId;
       if (input.decision !== 'defer' || !input.deferUntil || !id || input.proposal.primaryStep?.purpose === 'prepare') return;
-      client.setQueryData<Record<string, string>>(queryKeys.nextStepDeferred(uid), (held) => ({ ...held, [id]: input.deferUntil! }));
+      recordDeferredNextStep(client, uid, id, input.deferUntil);
     },
     onSettled: (_result, _error, input) => {
       if (input.decision === 'done' || input.decision === 'edit') {
@@ -1185,6 +1185,24 @@ export function useNextStepDecision() {
       }
     },
   });
+}
+
+/**
+ * Kept while the account is (review of #874): with the default gcTime the
+ * record went five minutes after Today unmounted — another tab — and the
+ * fallback card brought the item back while the server still hid it. It is
+ * still memory only, and `ApiProvider` clears it with the rest of the cache
+ * on an account change.
+ */
+const DEFERRED_KEEP = { gcTime: Infinity, staleTime: Infinity } as const;
+
+/** Remembers a step put off until `until`, for this account (V3-F11-04). */
+export function recordDeferredNextStep(client: QueryClient, uid: string, commitmentId: string, until: string): void {
+  const key = queryKeys.nextStepDeferred(uid);
+  // Before the write: a query built by `setQueryData` takes its gcTime from
+  // the defaults for its key, not from the hook that reads it later.
+  client.setQueryDefaults(key, DEFERRED_KEEP);
+  client.setQueryData<Record<string, string>>(key, (held) => ({ ...held, [commitmentId]: until }));
 }
 
 /**
@@ -1200,7 +1218,7 @@ export function useDeferredNextSteps(): ReadonlyMap<string, string> {
     queryKey: key,
     queryFn: () => client.getQueryData<Record<string, string>>(key) ?? {},
     initialData: {} as Record<string, string>,
-    staleTime: Infinity,
+    ...DEFERRED_KEEP,
   });
   return useMemo(() => new Map(Object.entries(query.data)), [query.data]);
 }

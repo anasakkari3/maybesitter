@@ -502,8 +502,7 @@ describe('later, and when', () => {
     await show();
     await fireEvent.press(screen.getByTestId('next-step-defer'));
     await waitFor(() => expect(screen.queryByTestId('next-step-defer-oneHour')).not.toBeNull());
-    expect(typeof (en as Record<string, unknown>).nextStepDeferBody).toBe('string');
-    expect(screen.queryByText((en as Record<string, string>).nextStepDeferBody!)).not.toBeNull();
+    expect(screen.queryByText(en.nextStepDeferBody)).not.toBeNull();
     expect(screen.queryByText(en.postponeBody)).toBeNull();
     // Still said to be a suggestion.
     expect(screen.queryByText(en.suggestionNote)).not.toBeNull();

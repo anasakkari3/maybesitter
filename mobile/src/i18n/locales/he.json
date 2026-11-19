@@ -673,6 +673,7 @@
   "nextStepEditSave": "קח את זה",
   "postponeThisEvening": "הערב",
   "nextStepDeferTitle": "מתי להחזיר?",
+  "nextStepDeferBody": "ההצעה תחזור בזמן שתבחר. הפריט עצמו נשאר בזמן שלו.",
   "evidenceImportanceEstimated": "נראה שזה {level}",
   "evidenceFitsFocusTime": "בזמן שהקצית לריכוז",
   "todayWhyLead": "למה ראשון: {reasons}",

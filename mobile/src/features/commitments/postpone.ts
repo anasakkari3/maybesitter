@@ -67,7 +67,13 @@ export const DEFER_PRESETS: readonly PostponePreset[] = [
 export function deferChoices(now: Date, timeZone: string, itemAt: string | null): readonly PostponePreset[] {
   const at = itemAt === null ? NaN : Date.parse(itemAt);
   if (!Number.isFinite(at) || at <= now.getTime()) return DEFER_PRESETS;
-  const before = DEFER_CANDIDATES.filter((preset) => Date.parse(postponeTo(preset, now, timeZone)) < at);
+  // Nearest first by the time each means, not by the list's order: at 16:00
+  // «المسا» (18:00) comes before «بعد 3 ساعات» (19:00). Review of #874.
+  const before = DEFER_CANDIDATES
+    .map((preset) => ({ preset, at: Date.parse(postponeTo(preset, now, timeZone)) }))
+    .filter((choice) => choice.at < at)
+    .sort((a, b) => a.at - b.at)
+    .map((choice) => choice.preset);
   return before.length > 0 ? before.slice(0, DEFER_PRESETS.length) : [DEFER_CANDIDATES[0]!];
 }
 

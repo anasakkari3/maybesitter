@@ -2,7 +2,7 @@ import type { CommitmentView, TodayGroups } from '../commitments/model';
 import type { NextStepRecommendation } from '../../api/schemas/nextStep';
 import type { DailyPlan } from '../../api/schemas/plan';
 import { planRows } from '../plan/lateDay';
-import { hasEventEnded } from '../commitments/eventEnded';
+import { hasEventEnded, nextEventEndAfter } from '../commitments/eventEnded';
 
 /**
  * One answer to "what matters now" (Round 2, Phase C).
@@ -131,6 +131,36 @@ export function isPostponedAway(item: Pick<CommitmentView, 'postponedUntil'>, no
   if (!item.postponedUntil) return false;
   const back = Date.parse(item.postponedUntil);
   return Number.isFinite(back) && back > nowMs;
+}
+
+/** The earliest postponed return still ahead of `nowMs`, or null (CA2.1). */
+function nextPostponedReturnAfter(items: readonly CommitmentView[], nowMs: number): number | null {
+  let next: number | null = null;
+  for (const item of items) {
+    if (!item.postponedUntil || !isPostponedAway(item, nowMs)) continue;
+    const back = Date.parse(item.postponedUntil);
+    if (next === null || back < next) next = back;
+  }
+  return next;
+}
+
+/**
+ * The next instant Today must recompose by itself, or null (lane E1, CA2.1):
+ * an appointment on it ends, a postponed item comes back, or a step put off
+ * with «مش هلّق» may be the card again (V3-F11-04, review of #874).
+ */
+export function nextRecomposeAt(input: {
+  open: readonly CommitmentView[];
+  upcoming: readonly CommitmentView[];
+  deferredSteps: ReadonlyMap<string, string>;
+  nowMs: number;
+}): number | null {
+  const { open, upcoming, deferredSteps, nowMs } = input;
+  const ended = nextEventEndAfter([...open, ...upcoming], nowMs);
+  const back = nextPostponedReturnAfter(open, nowMs);
+  const deferredBack = [...deferredSteps.values()].map((until) => Date.parse(until)).filter((at) => at > nowMs);
+  const times = [ended, back, ...deferredBack].filter((at): at is number => at !== null && Number.isFinite(at));
+  return times.length === 0 ? null : Math.min(...times);
 }
 
 function openItems(groups: TodayGroups): CommitmentView[] {
