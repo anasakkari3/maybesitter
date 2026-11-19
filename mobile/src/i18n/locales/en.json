@@ -1116,6 +1116,7 @@
   "shareIgnoredPart": "I ignored part of the text.",
   "detailsHistory": "Its history",
   "detailsClosedNote": "This one is finished. It stays in your history.",
+  "detailsDroppedNote": "You dropped this on purpose. It stays in your history.",
   "planWhatHappens": "When you accept: the times land on your day, and reminders follow your settings.",
   "planGeneratingTitle": "Arranging your day…",
   "planGeneratingSub": "Around your appointments, within your hours",
