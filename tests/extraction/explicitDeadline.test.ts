@@ -130,6 +130,40 @@ const PRECISE_NOT_LIMITS = [
   'Wait until I call',
 ];
 
+// Real dates the precision pass dropped (review 2026-11-19, round 2): they are limits again.
+const DATE_LIMITS = [
+  'لغاية ٣ الشهر',
+  'حتى ٣ الشهر',
+  'قبل ١٥ تشرين',
+  'قبل 15 آذار',
+  'قبل 15 مارس',
+  'لازم أدفع قبل ٣ تموز',
+  ...['كانون', 'شباط', 'آذار', 'نيسان', 'أيار', 'حزيران', 'تموز', 'آب', 'أيلول', 'تشرين',
+    'يناير', 'فبراير', 'مارس', 'أبريل', 'إبريل', 'مايو', 'يونيو', 'يوليو', 'أغسطس', 'سبتمبر', 'أكتوبر', 'نوفمبر', 'ديسمبر']
+    .map((month) => `أسلّم البحث قبل 10 ${month}`),
+  'Send it by the 5th',
+  'pay by 5th',
+  'Rent due on the 5th',
+  'Pay by 5 May',
+  'by 5/12',
+  'before 12.03',
+  'by 2026-12-05',
+  'לשלם לפני ה-5 בדצמבר',
+  ...['בינואר', 'בפברואר', 'במרץ', 'באפריל', 'במאי', 'ביוני', 'ביולי', 'באוגוסט', 'בספטמבר', 'באוקטובר', 'בנובמבר', 'בדצמבר']
+    .map((month) => `להגיש עד ה-10 ${month}`),
+  "be there by 5 o'clock",
+  'עד שני בערב',
+];
+
+for (const text of DATE_LIMITS) {
+  test(`date, a limit: ${text}`, () => assert.equal(namesExplicitDeadline(text), true));
+}
+
+// The amounts the precision pass fixed stay amounts next to these dates.
+for (const text of ['before 20.50 shekels', 'by 3rd floor', 'قبل 3 شهور', 'before 13/40']) {
+  test(`date, no limit: ${text}`, () => assert.equal(namesExplicitDeadline(text), false));
+}
+
 for (const text of PRECISE_LIMITS) {
   test(`precision, a limit: ${text}`, () => assert.equal(namesExplicitDeadline(text), true));
 }
