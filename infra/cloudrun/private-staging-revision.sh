@@ -268,7 +268,7 @@ while [ "${i}" -lt "${#override_keys[@]}" ]; do
   j=0
   while [ "${j}" -lt "${#final_keys[@]}" ]; do
     if [ "${final_keys[$j]}" = "${key}" ]; then
-      final_values[$j]="${override_values[$i]}"
+      final_values[j]="${override_values[$i]}"
       found=1
     fi
     j=$((j + 1))
