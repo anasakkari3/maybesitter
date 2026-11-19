@@ -223,6 +223,12 @@ export interface CreateSeedRequest {
   summary?: unknown;
   idempotencyKey?: unknown;
   revision?: unknown;
+  /**
+   * Not accepted on create (QA v3, V3-F24-02). A seed is created with no date;
+   * the person's own check-back marker is set afterwards through the patch.
+   * A create that names one is refused rather than saved with it dropped.
+   */
+  revisitAt?: unknown;
 }
 
 /**
@@ -246,6 +252,9 @@ export async function createSeed(
   at: string,
   options: SeedServiceOptions = {},
 ): Promise<{ seed: IntentSeed; replayed: boolean }> {
+  if (request.revisitAt !== undefined && request.revisitAt !== null) {
+    throw new SeedValidationError('revisitAt cannot be set on create; save the seed, then set it with PATCH');
+  }
   const proposalId = typeof request.proposalId === 'string' && request.proposalId.trim()
     ? request.proposalId.trim()
     : null;
