@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { resolveCaptureKinds } from '../../lib/services/captureKinds/runtime.ts';
 import { readsAsDoubt } from '../../lib/services/mobile/mobileCaptureService.ts';
-import { beginRules, end, habitsOf, say } from '../acceptance/m3b/support.ts';
+import { beginRules, editPoint, end, habitsOf, say, show, type Answer } from '../acceptance/m3b/support.ts';
 
 test('capture-kind doubt markers distinguish first-person uncertainty from requests in ar/en/he', () => {
   for (const [text, expected] of [
@@ -79,6 +79,88 @@ test('habit entry keeps recurring training as a commitment', async () => {
     const answer = await say(uid, 'كل ثلاثاء الساعة 6 المسا عندي تدريب', { entry: 'habit', locale: 'ar' });
     assert.equal(answer.proposal?.items.length, 1);
     assert.deepEqual(habitsOf(answer), []);
+  } finally {
+    end();
+  }
+});
+
+// QA v3, V3-F23-05: «بدي أقرأ 20 دقيقة كل يوم الساعة 10 بالليل» lost both the
+// twenty minutes (only 15/30/45/60 were read, so it asked «قديش بتاخد كل مرة؟»
+// without 20 among the answers) and the hour (only a bare part of the day was
+// read, so «الساعة 10 بالليل» saved «الأوقات المفضّلة: مش محدد»).
+for (const [text, locale] of [
+  ['بدي أقرأ 20 دقيقة كل يوم الساعة 10 بالليل', 'ar'],
+  ['I want to read 20 minutes every day at 10pm', 'en'],
+] as const) {
+  test(`V3-F23-05 a habit said with its minutes and its hour keeps both: ${text}`, async () => {
+    const uid = beginRules();
+    try {
+      const [habit] = habitsOf(await say(uid, text, { entry: 'habit', locale }));
+      assert.ok(habit, 'no habit proposed');
+      assert.equal(habit.durationMinutes, 20, 'the minutes the person said were dropped');
+      assert.equal(habit.question, null, 'it asked how long after being told');
+      assert.equal(habit.confirmable, true);
+      assert.deepEqual(habit.preferredWindow, { start: '22:00', end: '22:20' }, 'the hour the person said was dropped');
+    } finally {
+      end();
+    }
+  });
+}
+
+test('V3-F23-05 an hour without its half of the day is not guessed into a habit window', async () => {
+  const uid = beginRules();
+  try {
+    const [habit] = habitsOf(await say(uid, 'بدي أقرأ 20 دقيقة كل يوم الساعة 10', { entry: 'habit', locale: 'ar' }));
+    assert.ok(habit, 'no habit proposed');
+    assert.equal(habit.durationMinutes, 20);
+    assert.equal(habit.preferredWindow, null, '«الساعة 10» could be morning or night; it must not become one');
+  } finally {
+    end();
+  }
+});
+
+test('V3-F23-05 an hour said before its minutes keeps a window as long as the minutes answered later', async () => {
+  const uid = beginRules();
+  try {
+    const answer = await say(uid, 'بدي أقرأ كل يوم الساعة 10 بالليل', { entry: 'habit', locale: 'ar' });
+    const [habit] = habitsOf(answer);
+    assert.ok(habit, 'no habit proposed');
+    assert.equal(habit.question?.field, 'duration');
+    assert.deepEqual(habit.preferredWindow, { start: '22:00', end: '23:00' });
+    const result = await editPoint(uid, answer, { habitItemId: habit.habitItemId }, { durationMinutes: 90 });
+    assert.equal(result.status, 200, show(result.body));
+    const [edited] = habitsOf(result.body as Answer);
+    assert.equal(edited!.durationMinutes, 90);
+    assert.deepEqual(edited!.preferredWindow, { start: '22:00', end: '23:30' }, 'a session outgrew the window it is preferred in');
+  } finally {
+    end();
+  }
+});
+
+// QA v3 F23-05 review: the minutes and the window have bounds, and each is pinned.
+for (const [text, why] of [
+  ['بدي أقرأ 2 دقيقة كل يوم', 'below the 5 minutes an edit accepts'],
+  ['بدي أقرأ 500 دقيقة كل يوم', 'above the 240 minutes an edit accepts'],
+] as const) {
+  test(`V3-F23-05 minutes ${why} are not read, and the duration is asked: ${text}`, async () => {
+    const uid = beginRules();
+    try {
+      const [habit] = habitsOf(await say(uid, text, { entry: 'habit', locale: 'ar' }));
+      assert.ok(habit, 'no habit proposed');
+      assert.equal(habit.durationMinutes, null);
+      assert.equal(habit.question?.field, 'duration');
+    } finally {
+      end();
+    }
+  });
+}
+
+test('V3-F23-05 a window near midnight ends at 23:59, never on a clock face past it', async () => {
+  const uid = beginRules();
+  try {
+    const [habit] = habitsOf(await say(uid, 'بدي أقرأ 20 دقيقة كل يوم الساعة 11:50 بالليل', { entry: 'habit', locale: 'ar' }));
+    assert.ok(habit, 'no habit proposed');
+    assert.deepEqual(habit.preferredWindow, { start: '23:50', end: '23:59' });
   } finally {
     end();
   }

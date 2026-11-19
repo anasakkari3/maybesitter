@@ -65,7 +65,8 @@
       "undatedItems": 0,
       "hiddenTextDropped": 0,
       "captionDropped": 0,
-      "recurringSessions": 0
+      "recurringSessions": 0,
+      "readAsText": 0
     },
     "document": {
       "documentTitle": null,

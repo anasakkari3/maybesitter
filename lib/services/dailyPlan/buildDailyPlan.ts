@@ -59,6 +59,7 @@ import type { ScheduleBlockSource } from '../../../src/contracts/v1/scheduleBloc
 import { instantFromResolution, intervalsOverlap, resolveLocalTime, toEpochMs, toInstant, weekdayAt } from '../../planning/shared/time';
 import { DEFAULT_FIXED_EVENT_MINUTES, fixedEndFor } from '../timeCollision';
 import { hasEventEnded, isEventCommitment } from '../commitments/eventEnded';
+import { latenessDeadline } from '../mobile/time';
 
 // Re-exported so existing callers (and `tests/dailyPlan/fixedEventDuration.test.ts`)
 // keep importing it from here. The value itself now lives in `../timeCollision`,
@@ -140,6 +141,17 @@ export interface DailyPlanInputArgs {
    * Two builds with the same `builtAt` produce the same request.
    */
   readonly builtAt: Instant;
+  /**
+   * The clock that decides which of an earlier day's work is late enough to
+   * roll into this day (`stillAheadOnEarlierDay`); `builtAt` when absent.
+   *
+   * Only the staleness check of a stored plan passes it (review of #871): it
+   * compares against the request as of *now* while keeping the rest of the
+   * request at the plan's own `generatedAt`. Tomorrow's plan stored this
+   * morning must notice, the next morning, that tonight's work is late now —
+   * judged at `generatedAt` it never would, and the work stayed off the day.
+   */
+  readonly lateAsOf?: Instant;
   /**
    * What the week view (CL5b) decided about this one day, on top of the
    * daily rule. Absent everywhere else: a day planned on its own is exactly
@@ -360,6 +372,31 @@ export function rollsIntoDay(instant: Instant, dayStartsAt: Instant): boolean {
 }
 
 /**
+ * Whether a floating commitment is an earlier day's work that is not late yet
+ * when the plan is built (QA v3, V3-F14-01).
+ *
+ * #383 rolls work whose time has *gone* into the day being planned. Tomorrow's
+ * plan built at 06:40 used to read "dated before tomorrow" as "gone", and took
+ * today's 12:00 lunch, today's 18:00 deadline and today's errand as tomorrow's
+ * tasks — and the week then showed them on both days (V3-F15-02). They are
+ * still today's: they roll in only once they are late at `builtAt`.
+ *
+ * Late is the item's own clock: a postponement's instant, a task given an hour
+ * at that hour, otherwise its deadline (`latenessDeadline`: a window's end, an
+ * all-day day's closing midnight). The day it belongs to is the day of that
+ * instant — an all-day item's own day — so today's own plan, and a prep window
+ * opened last night for this morning's meeting, are never touched.
+ */
+export function stillAheadOnEarlierDay(commitment: Commitment, dayStartsAt: Instant, builtAt: Instant): boolean {
+  const { timeSpec } = commitment;
+  const lateAt = commitment.postponedUntil
+    ?? (timeSpec.kind === 'scheduled_event' ? fixedStartOf(commitment) : latenessDeadline(timeSpec));
+  if (!lateAt) return false;
+  const dayOf = timeSpec.allDay && !commitment.postponedUntil && timeSpec.dueAt ? timeSpec.dueAt : lateAt;
+  return rollsIntoDay(dayOf, dayStartsAt) && toEpochMs(lateAt) > toEpochMs(builtAt);
+}
+
+/**
  * The instant an item has to be finished by, under #383's rule.
  *
  * A due date behind the horizon becomes the end of the day being planned.
@@ -486,7 +523,9 @@ export function buildDailyPlanInput(args: DailyPlanInputArgs): DailyPlanInput {
   const include = new Set(args.assignment?.include ?? []);
   const exclude = new Set(args.assignment?.exclude ?? []);
   const onThisDay = (commitment: Commitment): boolean => include.has(commitment.id)
-    || (belongsToDay(commitment, endsAt) && !exclude.has(commitment.id));
+    || (belongsToDay(commitment, endsAt)
+      && !stillAheadOnEarlierDay(commitment, startsAt, args.lateAsOf ?? args.builtAt)
+      && !exclude.has(commitment.id));
 
   // #383 rolls a *task* whose time has gone into the day. An event whose
   // start is behind the day is never floated in its place (lane E1): tonight's

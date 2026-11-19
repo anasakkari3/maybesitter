@@ -87,6 +87,7 @@ jest.mock('../../../api/queries', () => ({
   useCreateHabit: mutation(),
   useHabitsToday: query(null),
   useDecideHabitOccurrence: mutation(),
+  useUndoHabitOccurrence: mutation(),
   useSetHabitStatus: mutation(),
   useDeleteHabit: mutation(),
   usePlan: query(null),

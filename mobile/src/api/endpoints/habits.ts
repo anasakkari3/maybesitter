@@ -4,10 +4,13 @@ import {
   habitDeletedSchema,
   habitListSchema,
   habitOutcomeSchema,
+  habitUndoSchema,
   type Habit,
   type HabitOccurrenceDecision,
+  type HabitOccurrenceRef,
   type HabitOutcome,
   type HabitToday,
+  type HabitUndo,
   type NewHabitInput,
 } from '../schemas/habits';
 
@@ -33,6 +36,18 @@ export function decideHabitOccurrence(decision: HabitOccurrenceDecision, timezon
   return apiRequest('POST', `${path(decision.habitId)}/occurrences/${encodeURIComponent(decision.occurrenceId)}/${verb}?timezone=${encodeURIComponent(timezone)}`, {
     body: {},
     schema: habitOutcomeSchema,
+  });
+}
+
+/**
+ * «تراجع» on a decided day (QA v3, V3-F23-02): the day is open again and takes
+ * either answer. A repeat answers 200 unchanged; a skip whose make-up date was
+ * already decided answers 409 and is shown, not retried.
+ */
+export function undoHabitOccurrence(ref: HabitOccurrenceRef, timezone: string): Promise<HabitUndo> {
+  return apiRequest('POST', `${path(ref.habitId)}/occurrences/${encodeURIComponent(ref.occurrenceId)}/undo?timezone=${encodeURIComponent(timezone)}`, {
+    body: {},
+    schema: habitUndoSchema,
   });
 }
 

@@ -243,7 +243,11 @@ test('every mobile route file exists and is enumerated', () => {
   // so it must never answer before the guard.
   // Lane E2 (2026-11-17) adds `GET`/`POST /api/mobile/commitments/unhandled`
   // («ما اتصرّفت فيها»): it lists and dismisses the account's own commitments.
-  assert.equal(files.length, 140, `found:\n${files.join('\n')}`);
+  // QA v3 V3-F23-02 (2026-11-19) adds `POST /api/mobile/habits/{id}/
+  // occurrences/{occurrenceId}/undo` («تراجع»): it reopens a decided day of
+  // somebody's habit, and removes the make-up date a skip earned, so it must
+  // never answer before the guard.
+  assert.equal(files.length, 141, `found:\n${files.join('\n')}`);
 });
 
 test('every mobile route handler runs an authentication guard before anything else', () => {

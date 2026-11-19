@@ -337,6 +337,15 @@ function recorder(options: {
       calls.push(`eventExists:${eventId}`);
       return !(options.missing ?? []).includes(eventId);
     },
+    // What the app wrote, found by the address it writes on every event (QA v3,
+    // V3-F18-04). Users' own events (no url) are in the map too, and must
+    // never come back from this.
+    findOwnEvents: async (calendarId, urlPrefix) => {
+      calls.push(`findOwnEvents:${calendarId}`);
+      return [...events.entries()]
+        .filter(([, draft]) => typeof draft.url === 'string' && draft.url.startsWith(urlPrefix))
+        .map(([id, draft]) => ({ id, url: draft.url! }));
+    },
   };
   return {
     calls,
@@ -605,3 +614,225 @@ describe('a delete interrupted by an account switch (M5A-R6-002)', () => {
     expect(second.calls.filter((call) => call.startsWith('putLink:c-gone'))).toEqual([]);
   });
 });
+
+/* ── QA v3, V3-F18-04: a write is safe to repeat ───────────────────── */
+
+/** An event the app wrote for this commitment earlier, under the id the calendar gave it. */
+function seedCopy(rec: Recorder, id: string, value: Commitment = commitment()): void {
+  rec.events.set(id, draftFor(value, ZONE)!);
+}
+
+/** One of the user's own entries: no MaybeSitter address on it. */
+function seedUsersOwn(rec: Recorder, id: string): void {
+  const { url: _url, ...draft } = draftFor(commitment({ id: 'not-ours' }), ZONE)!;
+  rec.events.set(id, draft);
+}
+
+describe('a commitment whose event is already in the calendar (V3-F18-04)', () => {
+  it('adopts the copy that is there instead of writing another, and links it', async () => {
+    const rec = recorder();
+    seedCopy(rec, 'copy-1');
+    const outcome = await run([subject(commitment(), null)], rec);
+    expect(rec.calls.some((call) => call.startsWith('createEvent'))).toBe(false);
+    expect(rec.links.get('cmt-1')?.eventId).toBe('copy-1');
+    expect(rec.events.size).toBe(1);
+    expect(outcome.created).toBe(0);
+  });
+
+  it('keeps one of the duplicates an earlier build left and takes the rest out', async () => {
+    // The state of the phones the QA run found: 8–9 copies of each commitment.
+    const rec = recorder();
+    for (const id of ['copy-1', 'copy-2', 'copy-3']) seedCopy(rec, id);
+    seedUsersOwn(rec, 'users-own');
+    await run([subject(commitment(), null)], rec);
+    expect([...rec.events.keys()].sort()).toEqual(['copy-1', 'users-own']);
+    expect(rec.links.get('cmt-1')?.eventId).toBe('copy-1');
+    expect(rec.calls).toContain('deleteEvent:copy-2');
+    expect(rec.calls).toContain('deleteEvent:copy-3');
+    expect(rec.calls).not.toContain('deleteEvent:users-own');
+  });
+
+  it('adds nothing, pass after pass, while the claim keeps failing', async () => {
+    // The shape of the bug itself: the claim was refused every time and every
+    // refresh wrote the event again.
+    const rec = recorder({ failLink: new Error('400') });
+    seedCopy(rec, 'copy-1');
+    for (let pass = 0; pass < 3; pass += 1) {
+      await run([subject(commitment(), null)], rec);
+    }
+    expect(rec.calls.some((call) => call.startsWith('createEvent'))).toBe(false);
+    expect([...rec.events.keys()]).toEqual(['copy-1']);
+  });
+
+  it('never deletes the copy it adopted when the claim is refused', async () => {
+    // The event was there before this pass; it may be the one another device
+    // owns in a shared calendar. Only an event this pass wrote is taken back.
+    const rec = recorder({ failLink: new Error('409') });
+    seedCopy(rec, 'copy-1');
+    await run([subject(commitment(), null)], rec);
+    expect(rec.calls).not.toContain('deleteEvent:copy-1');
+  });
+
+  it('does not adopt a copy written for another commitment, even one whose id starts the same', async () => {
+    // The calendar is asked by prefix; `…/cmt-10` starts with `…/cmt-1`.
+    const rec = recorder();
+    seedCopy(rec, 'other-copy', commitment({ id: 'cmt-10' }));
+    await run([subject(commitment(), null)], rec);
+    expect(rec.calls).toContain('createEvent:cal-1');
+    expect(rec.links.get('cmt-1')?.eventId).toBe('evt-new-1');
+    expect(rec.events.has('other-copy')).toBe(true);
+  });
+});
+
+describe('remove events MaybeSitter added, after a build that never linked them (V3-F18-04)', () => {
+  it('finds the unlinked copies of this account\'s commitments and removes them', async () => {
+    const rec = recorder();
+    seedCopy(rec, 'a-1', commitment({ id: 'a' }));
+    seedCopy(rec, 'a-2', commitment({ id: 'a' }));
+    seedCopy(rec, 'evt-b', commitment({ id: 'b' }));
+    seedCopy(rec, 'b-stray', commitment({ id: 'b' }));
+    const result = await removeAllWrittenEvents({
+      subjects: [
+        subject(commitment({ id: 'a' }), null),
+        subject(commitment({ id: 'b' }), link({ eventId: 'evt-b' })),
+      ],
+      writerId: MINE,
+      calendarIds: ['cal-1'],
+      now: new Date('2026-06-10T00:00:00.000Z'),
+      ports: rec.ports,
+    });
+    expect(rec.events.size).toBe(0);
+    expect(result.removed).toBe(4);
+    expect(rec.calls).toContain('deleteLink:b');
+  });
+
+  it('touches nothing that is not this account\'s, and nothing another device owns', async () => {
+    const rec = recorder();
+    seedCopy(rec, 'theirs-1', commitment({ id: 'theirs' }));
+    // A commitment this account does not hold: another account on this phone.
+    seedCopy(rec, 'stranger-1', commitment({ id: 'stranger' }));
+    seedUsersOwn(rec, 'users-own');
+    const result = await removeAllWrittenEvents({
+      subjects: [
+        subject(commitment({ id: 'theirs' }), link({ eventId: 'theirs-1', writerId: THEIRS })),
+        // One commitment of this account's own, so the sweep does run.
+        subject(commitment({ id: 'held' }), null),
+      ],
+      writerId: MINE,
+      calendarIds: ['cal-1'],
+      now: new Date('2026-06-10T00:00:00.000Z'),
+      ports: rec.ports,
+    });
+    expect(result.removed).toBe(0);
+    expect([...rec.events.keys()].sort()).toEqual(['stranger-1', 'theirs-1', 'users-own']);
+  });
+});
+
+/* ── Review of #870: the cleanup is ordered, and repeated ───────────── */
+
+describe('extra copies (review of #870)', () => {
+  it('stay where they are while the claim is refused', async () => {
+    // Removing them before the claim lands would leave the commitment with one
+    // copy that may be another device's, and nothing of ours to link.
+    const rec = recorder({ failLink: new Error('409') });
+    for (const id of ['copy-1', 'copy-2', 'copy-3']) seedCopy(rec, id);
+    await run([subject(commitment(), null)], rec);
+    expect([...rec.events.keys()].sort()).toEqual(['copy-1', 'copy-2', 'copy-3']);
+  });
+
+  it('keeps the same copy whatever order the calendar lists them in', async () => {
+    const rec = recorder();
+    for (const id of ['copy-c', 'copy-a', 'copy-b']) seedCopy(rec, id);
+    await run([subject(commitment(), null)], rec);
+    expect(rec.links.get('cmt-1')?.eventId).toBe('copy-a');
+    expect([...rec.events.keys()]).toEqual(['copy-a']);
+  });
+
+  it('are taken out on an update too, for a cleanup an earlier pass did not finish', async () => {
+    const rec = recorder();
+    seedCopy(rec, 'evt-1');
+    seedCopy(rec, 'left-over');
+    await run([subject(commitment({ title: 'Dentist, moved' }), link())], rec);
+    expect(rec.calls).toContain('updateEvent:evt-1');
+    expect([...rec.events.keys()]).toEqual(['evt-1']);
+  });
+});
+
+describe('remove events MaybeSitter added, racing a pass (review of #870)', () => {
+  it('forgets the link of a commitment whose stray copy it removed', async () => {
+    // The pass's claim can land after the button read the lists: the link then
+    // names the event the sweep just removed, and the next pass would detach
+    // it for ever. Forgetting our own link for that commitment is the repair.
+    const rec = recorder();
+    seedCopy(rec, 'a-1', commitment({ id: 'a' }));
+    await removeAllWrittenEvents({
+      subjects: [subject(commitment({ id: 'a' }), null)],
+      writerId: MINE,
+      calendarIds: ['cal-1'],
+      now: new Date('2026-06-10T00:00:00.000Z'),
+      ports: rec.ports,
+    });
+    expect(rec.calls).toContain('deleteLink:a');
+  });
+});
+
+describe('remove events MaybeSitter added, and a row the user made by hand (review of #870)', () => {
+  it('removes the stray copies of a detached commitment and keeps its tombstone', async () => {
+    const rec = recorder();
+    seedCopy(rec, 'a-1', commitment({ id: 'a' }));
+    await removeAllWrittenEvents({
+      subjects: [subject(commitment({ id: 'a' }), link({ state: 'detached', eventId: 'gone' }))],
+      writerId: MINE,
+      calendarIds: ['cal-1'],
+      now: new Date('2026-06-10T00:00:00.000Z'),
+      ports: rec.ports,
+    });
+    expect(rec.events.size).toBe(0);
+    expect(rec.calls).not.toContain('deleteLink:a');
+  });
+});
+
+/* ── Second review of #870 ───────────────────────────────────────────── */
+
+describe('remove events MaybeSitter added, counted honestly (second review of #870)', () => {
+  it('counts a linked event it could not remove as skipped, not removed', async () => {
+    const rec = recorder({ failDelete: new DeviceCalendarError('unavailable', 'busy') });
+    const result = await removeAllWrittenEvents({
+      subjects: [subject(commitment(), link())],
+      writerId: MINE,
+      ports: rec.ports,
+    });
+    expect(result).toEqual({ removed: 0, skipped: 1, permissionDenied: false });
+  });
+
+  it('does not sweep a commitment whose link the response did not carry', async () => {
+    // `undefined` is "not looked up", not "no link": in a shared iCloud
+    // calendar the copy may be the event another device owns.
+    const rec = recorder();
+    seedCopy(rec, 'maybe-theirs', commitment({ id: 'a' }));
+    await removeAllWrittenEvents({
+      subjects: [subject(commitment({ id: 'a' }), undefined), subject(commitment({ id: 'b' }), null)],
+      writerId: MINE,
+      calendarIds: ['cal-1'],
+      now: new Date('2026-06-10T00:00:00.000Z'),
+      ports: rec.ports,
+    });
+    expect(rec.events.has('maybe-theirs')).toBe(true);
+    expect(rec.calls).not.toContain('deleteLink:a');
+  });
+
+  it('sweeps by the whole address: cmt-1 in hand does not take cmt-10\'s copy', async () => {
+    const rec = recorder();
+    seedCopy(rec, 'ten', commitment({ id: 'cmt-10' }));
+    seedCopy(rec, 'one', commitment({ id: 'cmt-1' }));
+    await removeAllWrittenEvents({
+      subjects: [subject(commitment({ id: 'cmt-1' }), null)],
+      writerId: MINE,
+      calendarIds: ['cal-1'],
+      now: new Date('2026-06-10T00:00:00.000Z'),
+      ports: rec.ports,
+    });
+    expect([...rec.events.keys()]).toEqual(['ten']);
+  });
+});
+

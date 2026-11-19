@@ -41,6 +41,7 @@
  */
 import type { Commitment } from '../../api/schemas/common';
 import { offsetMinutes } from '../../lib/time/zoneOffset';
+import { OWN_EVENT_URL_PREFIX } from './busyBlocks';
 
 /** How long an event is when the commitment names only a start. */
 export const DEFAULT_MINUTES = 30;
@@ -109,6 +110,16 @@ export function contentHashOf(parts: readonly string[]): string {
  * is *not* the device's current zone: a commitment made in Tel Aviv for 09:00
  * is at 09:00 there whatever airport its owner reads it in.
  */
+/**
+ * The address written on every event a commitment puts in a calendar, and the
+ * one thing that tells the app's events apart from the user's own: it is how
+ * the sync finds an earlier copy of a write that was never linked (QA v3,
+ * V3-F18-04), and how busy time skips our own entries.
+ */
+export function commitmentEventUrl(commitmentId: string): string {
+  return `${OWN_EVENT_URL_PREFIX}${encodeURIComponent(commitmentId)}`;
+}
+
 export function draftFor(commitment: Commitment, deviceTimeZone: string): EventDraft | null {
   const { timeSpec } = commitment;
   const start = timeSpec.dueAt ?? timeSpec.remindAt;
@@ -121,7 +132,7 @@ export function draftFor(commitment: Commitment, deviceTimeZone: string): EventD
   const { startDate, endDate, allDay } = boundsFor(timeSpec, startInstant, timeZone);
 
   const title = commitment.title;
-  const url = `maybesitter://commitments/${encodeURIComponent(commitment.id)}`;
+  const url = commitmentEventUrl(commitment.id);
   return {
     title,
     notes: EVENT_NOTES,

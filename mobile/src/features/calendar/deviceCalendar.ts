@@ -149,14 +149,30 @@ export interface DeviceCalendar {
   listWritableCalendars(): Promise<WritableCalendar[]>;
   /** Every event calendar on the phone, writable or not, with its account. */
   listEventCalendars(): Promise<DeviceEventCalendar[]>;
-  /** Creates the event and answers with its id. */
+  /** Creates the event and answers with its id — never an empty one. */
   createEvent(calendarId: string, draft: CalendarEventDraft): Promise<string>;
-  /** Moves or retitles an existing event. `not_found` when it is gone. */
-  updateEvent(eventId: string, draft: CalendarEventDraft): Promise<void>;
+  /**
+   * Moves or retitles an existing event. `not_found` when it is gone.
+   *
+   * `calendarId`, when the caller knows it, is where the event is looked for
+   * if the lookup by id does not find it (see `locate`).
+   */
+  updateEvent(eventId: string, draft: CalendarEventDraft, calendarId?: string): Promise<void>;
   /** Removes it. Removing one that is already gone is not an error. */
-  deleteEvent(eventId: string): Promise<void>;
+  deleteEvent(eventId: string, calendarId?: string): Promise<void>;
   /** Whether the event is still in the calendar. Never throws `not_found`. */
-  eventExists(eventId: string): Promise<boolean>;
+  eventExists(eventId: string, calendarId?: string): Promise<boolean>;
+  /**
+   * The events in one calendar whose address starts with `urlPrefix` — the ones
+   * this app wrote, since it puts `maybesitter://…` on every event and the user
+   * never does (QA v3, V3-F18-04). Ids and addresses only: nothing a caller
+   * gets from this has a title in it.
+   *
+   * Optional so a test calendar need not have it; without it a write cannot
+   * find an earlier copy of itself, which is how the duplicates were made.
+   * iOS only in effect: Android's events carry no url, and answer none.
+   */
+  findOwnEvents?(calendarId: string, urlPrefix: string, from: Date, to: Date): Promise<OwnCalendarEvent[]>;
   /**
    * When the user is busy over the next few weeks (UC-3.2, #186).
    *
@@ -165,6 +181,20 @@ export interface DeviceCalendar {
    */
   fetchBusyBlocks(options?: BusyReadOptions): Promise<DeviceBusyBlock[]>;
 }
+
+/** An event this app wrote, as `findOwnEvents` names it. */
+export interface OwnCalendarEvent {
+  id: string;
+  url: string;
+}
+
+/**
+ * How far an event is looked for when its id alone does not find it: a year
+ * back and two ahead. EventKit answers a range of at most four years.
+ */
+const LOOKUP_DAYS_BACK = 366;
+const LOOKUP_DAYS_AHEAD = 731;
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 /**
  * How far ahead busy time is read.
@@ -322,6 +352,100 @@ async function declinedBy(events: readonly { id?: unknown; getAttendees?: unknow
   return declined;
 }
 
+function textOf(value: unknown): string {
+  return typeof value === 'string' ? value : '';
+}
+
+interface NativeEvent {
+  id?: unknown;
+  url?: unknown;
+  recurrenceRule?: unknown;
+  getOccurrenceSync?: unknown;
+  update(details: Record<string, unknown>): Promise<void>;
+  delete(): Promise<void>;
+}
+
+/** The events of one calendar in a range, as the class API answers them. */
+async function eventsIn(calendarId: string, from: Date, to: Date): Promise<NativeEvent[]> {
+  const calendar = await Calendar.ExpoCalendar.get(calendarId);
+  return (await calendar.listEvents(from, to)) as unknown as NativeEvent[];
+}
+
+/**
+ * The event with this id, ready to change or remove.
+ *
+ * `ExpoCalendarEvent.get(id)` first. On iOS that looks the id up with
+ * `event(withIdentifier:)`, which expects an *event* identifier, while the id
+ * the class API hands out is the *calendar item* identifier (expo-calendar 57,
+ * `CalendarNextModule.swift`). Whether the two agree for a given calendar is
+ * the platform's business; if they did not, a linked event would read as one
+ * the user deleted and be detached for ever. So when the lookup says "not
+ * found" and the caller knows the calendar, the event is looked for there by
+ * its id before that answer is believed (QA v3, V3-F18-04).
+ */
+async function locate(eventId: string, calendarId: string | undefined): Promise<NativeEvent> {
+  if (eventId === '') {
+    // The defect this guards: `deleteEvent(undefined)` was answered "already
+    // gone", so the repair of a refused claim removed nothing and said done.
+    throw new DeviceCalendarError('unavailable', 'an event with no id cannot be looked up');
+  }
+  let failure: DeviceCalendarError;
+  try {
+    return wholeSeries((await Calendar.ExpoCalendarEvent.get(eventId)) as unknown as NativeEvent);
+  } catch (error) {
+    failure = failureFrom(error, 'not_found');
+  }
+  if (failure.reason !== 'not_found' || calendarId === undefined) throw failure;
+  const now = Date.now();
+  let listed: NativeEvent[];
+  try {
+    listed = await eventsIn(calendarId, new Date(now - LOOKUP_DAYS_BACK * DAY_MS), new Date(now + LOOKUP_DAYS_AHEAD * DAY_MS));
+  } catch (error) {
+    // A calendar that will not list is not evidence the event is gone.
+    throw failureFrom(error, 'unavailable');
+  }
+  const match = listed.find((event) => textOf(event.id) === eventId);
+  if (!match) throw failure;
+  return match;
+}
+
+/** The range an event written for this draft is looked for in. */
+function rangeOf(draft: CalendarEventDraft): [Date, Date] {
+  return [new Date(draft.startDate.getTime() - DAY_MS), new Date(draft.endDate.getTime() + DAY_MS)];
+}
+
+/** The ids of the events with this address in the draft's range, or null when the calendar would not list. */
+async function idsAt(calendarId: string, draft: CalendarEventDraft): Promise<Set<string> | null> {
+  if (draft.url === undefined) return null;
+  try {
+    const events = await eventsIn(calendarId, ...rangeOf(draft));
+    const ids = new Set(events.filter((event) => textOf(event.url) === draft.url).map((event) => textOf(event.id)));
+    ids.delete('');
+    return ids;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The id of the event just written, when the class API answered it without one.
+ *
+ * On the QA iPhone simulator `calendar.createEvent(…)` resolved to an event
+ * whose `id` was undefined (the app recorded `[null]` for every event it wrote),
+ * so the link claim went out with no `eventId` and the server answered 400 every
+ * time (QA v3, V3-F18-04). The event is found again by the address written on
+ * it, in the range it was written for: the one id that was not there before the
+ * write. The weekly blocks share one address, so "the only match" is not enough
+ * on its own; it is the answer only when the earlier listing is missing. More
+ * than one candidate is no answer — guessing is how a link names the wrong one.
+ */
+async function idOfNew(calendarId: string, draft: CalendarEventDraft, before: Set<string> | null): Promise<string> {
+  const after = await idsAt(calendarId, draft);
+  if (after === null) return '';
+  const fresh = [...after].filter((id) => before === null || !before.has(id));
+  return fresh.length === 1 ? fresh[0]! : '';
+}
+
 export const deviceCalendar: DeviceCalendar = {
   async getAccess() {
     try {
@@ -381,25 +505,37 @@ export const deviceCalendar: DeviceCalendar = {
       if (!calendar.allowsModifications) {
         throw new DeviceCalendarError('calendar_read_only', 'that calendar cannot be written to');
       }
-      const event = await calendar.createEvent(eventFrom(draft));
-      return event.id;
+      // Listed first, so the event this call writes can be told from earlier
+      // ones with the same address if the answer comes back without an id.
+      const before = await idsAt(calendarId, draft);
+      const event = (await calendar.createEvent(eventFrom(draft))) as unknown as Partial<NativeEvent>;
+      const answered = textOf(event.id);
+      if (answered !== '') return answered;
+      const found = await idOfNew(calendarId, draft, before);
+      if (found !== '') return found;
+      // An event nothing can name cannot be claimed, updated or removed later:
+      // take it back out now, through the object that still holds it.
+      // The whole series: a weekly block's first occurrence alone is `thisEvent`.
+      const written = wholeSeries(event);
+      if (typeof written.delete === 'function') await written.delete();
+      throw new DeviceCalendarError('unavailable', 'the calendar did not say which event it wrote');
     } catch (error) {
       throw failureFrom(error, 'unavailable');
     }
   },
 
-  async updateEvent(eventId, draft) {
+  async updateEvent(eventId, draft, calendarId) {
     try {
-      const event = wholeSeries(await Calendar.ExpoCalendarEvent.get(eventId));
+      const event = await locate(eventId, calendarId);
       await event.update(eventFrom(draft));
     } catch (error) {
       throw failureFrom(error, 'not_found');
     }
   },
 
-  async deleteEvent(eventId) {
+  async deleteEvent(eventId, calendarId) {
     try {
-      const event = wholeSeries(await Calendar.ExpoCalendarEvent.get(eventId));
+      const event = await locate(eventId, calendarId);
       await event.delete();
     } catch (error) {
       const failure = failureFrom(error, 'not_found');
@@ -452,16 +588,33 @@ export const deviceCalendar: DeviceCalendar = {
     }
   },
 
-  async eventExists(eventId) {
+  async findOwnEvents(calendarId, urlPrefix, from, to) {
     try {
-      await Calendar.ExpoCalendarEvent.get(eventId);
+      const byId = new Map<string, OwnCalendarEvent>();
+      for (const event of await eventsIn(calendarId, from, to)) {
+        const id = textOf(event.id);
+        const url = textOf(event.url);
+        // A recurring event comes back once per occurrence, under one id.
+        if (id !== '' && url.startsWith(urlPrefix) && !byId.has(id)) byId.set(id, { id, url });
+      }
+      return [...byId.values()];
+    } catch (error) {
+      throw failureFrom(error, 'unavailable');
+    }
+  },
+
+  async eventExists(eventId, calendarId) {
+    try {
+      await locate(eventId, calendarId);
       return true;
     } catch (error) {
       const failure = failureFrom(error, 'not_found');
       // A permission problem is not evidence that the event is gone, and
       // answering `false` to it is how the sync service would detach every link
       // on the day somebody revoked access in Settings.
-      if (failure.reason === 'permission_denied') throw failure;
+      // Nor is a calendar that would not list, or an id that cannot be looked
+      // up: only "not found" detaches, because detaching is permanent.
+      if (failure.reason !== 'not_found') throw failure;
       return false;
     }
   },

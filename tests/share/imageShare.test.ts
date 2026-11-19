@@ -48,7 +48,7 @@ import {
   MAX_SHARE_PROMPT_TOKENS,
   imagePreprocessor,
 } from '../../lib/services/share/channels/image.ts';
-import { MAX_IMAGE_ITEMS, MAX_ITEMS_PER_IMAGE } from '../../lib/services/share/prompts/imagePrompt.ts';
+import { IMAGE_SYSTEM_INSTRUCTION, MAX_IMAGE_ITEMS, MAX_ITEMS_PER_IMAGE } from '../../lib/services/share/prompts/imagePrompt.ts';
 import { resolveSharePreprocessor } from '../../lib/services/share/shareRegistry.ts';
 import {
   MAX_EVIDENCE_CHARACTERS,
@@ -982,5 +982,47 @@ test('and for Arabic and English that day is the one a calendar says', async () 
       assert.ok(days.length > 0, `${poster.name}: the proposal offered no day at all`);
       assert.deepEqual(days, [day], poster.name);
     }
+  });
+});
+
+/* ── QA v3 (2026-11-19): a screenshot of an appointment ──────────── */
+
+/**
+ * V3-F07-03: a PNG reading «Dentist appointment / Friday, November 21, 2026 at
+ * 10:30 AM» came back empty three times out of three (5 output tokens): the
+ * instruction asked only for things the picture *asks* of the reader, and an
+ * appointment asks nothing — it is somewhere the reader is going. This holds
+ * the instruction to the cases it has to cover. What the model then answers
+ * is checked on staging, not here: no test in this suite calls a model.
+ */
+test('the image instruction covers an appointment the reader is going to, with its time', () => {
+  const instruction = IMAGE_SYSTEM_INSTRUCTION.toLowerCase();
+  assert.match(instruction, /appointment/);
+  assert.match(instruction, /booking|reservation/);
+  // The day and the time are often on separate lines of a confirmation screen.
+  // The quoted line may join them, or the time is lost to the "copied from the
+  // line" rule in `channels/image.ts`.
+  assert.match(instruction, /evidenceline: [^\n]*(?:two|lines)/);
+  assert.match(instruction, /duedayphrase: [^\n]*time/);
+});
+
+
+/**
+ * QA v3 (V3-F07-02, the provenance half), for the two ends a picture can come
+ * to: the model read it and found nothing, or the model never answered.
+ */
+test('an empty picture share says which engine read it, and a model that never answered is a fallback', async () => {
+  await withStorage(async () => {
+    const read = await shareOf(
+      [uploadOf(posterNamed('poster_en'))],
+      imageModelStub({ override: () => ({ items: [] }) }).generate,
+    );
+    assert.deepEqual(read.provenance, { requestedEngine: 'model', executedEngine: 'gemini', fallbackUsed: false });
+    const unanswered = await shareOf(
+      [uploadOf(posterNamed('poster_en'))],
+      async () => { throw new LLMUnavailableError('provider_error'); },
+    );
+    assert.equal(unanswered.status, 'no_commitment');
+    assert.deepEqual(unanswered.provenance, { requestedEngine: 'model', executedEngine: 'rule-based', fallbackUsed: true });
   });
 });

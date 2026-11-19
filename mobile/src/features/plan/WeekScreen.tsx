@@ -1,7 +1,7 @@
 import { useTimeZone } from '../../i18n/timezone';
 import { probeRange, useLocalToday, useServerBusy } from '../calendar/usePlanFreeTime';
 import { requestCalendarWider } from '../calendar/widerIntent';
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import { AccessibilityInfo, View } from 'react-native';
 import { useApp } from '../../state/AppContext';
 import { useAcceptWeekDay, useWeek } from '../../api/queries';
@@ -122,6 +122,12 @@ function WeekBody({ week, decisions, redrawing, onMove, onDrop, onUndrop }: {
   const save = useAcceptWeekDay(decisions);
   const [moving, setMoving] = useState<string | null>(null);
   const [savedDate, setSavedDate] = useState<string | null>(null);
+  // `save.isPending` is the last render's answer: a second tap before React
+  // redraws read it as false and sent the save again. The first stored the
+  // day, the second came back «هاليوم صار إلو خطة», and the first answer's
+  // «حفظنا خطة هاليوم» was dropped with it (QA v3, V3-F15-01). Held here,
+  // synchronously, until the save settles.
+  const sending = useRef(false);
 
   // A step with no room, or work waiting for a later week, is something to
   // arrange: the empty state would hide it (CXA4.3).
@@ -134,7 +140,8 @@ function WeekBody({ week, decisions, redrawing, onMove, onDrop, onUndrop }: {
   const targets = week.days.filter(day => day.state === 'proposed').map(day => day.date);
 
   const saveDay = (day: WeekDay) => {
-    if (save.isPending || redrawing) return;
+    if (sending.current || save.isPending || redrawing) return;
+    sending.current = true;
     const shown = [...day.items.map(item => item.itemId), ...day.unplaced.map(item => item.itemId)];
     save.mutate({ date: day.date, shown, layoutDigest: day.layoutDigest }, {
       onSuccess: () => {
@@ -142,6 +149,7 @@ function WeekBody({ week, decisions, redrawing, onMove, onDrop, onUndrop }: {
         AccessibilityInfo.announceForAccessibility(t.weekSavedToast);
       },
       onError: error => AccessibilityInfo.announceForAccessibility(saveErrorText(error, t)),
+      onSettled: () => { sending.current = false; },
     });
   };
 
