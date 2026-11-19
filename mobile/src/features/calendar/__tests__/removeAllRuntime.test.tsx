@@ -313,3 +313,31 @@ describe('the count the button reports (second review of #870)', () => {
   });
 });
 
+
+describe('a settings read in flight when the button is pressed (second review of #870)', () => {
+  it('cannot land afterwards and turn writing back on in the cache', async () => {
+    await linkedOnPhone();
+    let calls = 0;
+    let releaseStale: () => void = () => undefined;
+    (calendarEndpoints.getCalendarSettings as jest.MockedFunction<typeof calendarEndpoints.getCalendarSettings>)
+      .mockImplementation(async () => {
+        calls += 1;
+        if (calls === 2) {
+          // Read before the switch was saved off; it answers after.
+          await new Promise<void>((resolve) => { releaseStale = resolve; });
+          return { calendarSettings: { writeTarget: 'device' } };
+        }
+        return { calendarSettings: { writeTarget: serverTarget } };
+      });
+    await mount();
+    await waitFor(() => expect(hook).not.toBeNull());
+    await settle();
+    void client.invalidateQueries({ queryKey: ['user', USER.uid, 'calendarSettings'] });
+    await settle();
+    await hook!.removeAll();
+    releaseStale();
+    await settle();
+    expect(client.getQueryData<{ calendarSettings: { writeTarget: string } }>(['user', USER.uid, 'calendarSettings'])
+      ?.calendarSettings.writeTarget).toBe('off');
+  });
+});
