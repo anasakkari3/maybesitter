@@ -1099,8 +1099,10 @@ test('QA v3: a model that never answers ends the image read in time for the serv
     assert.equal(result.text, '');
     assert.equal(result.metrics?.imagesRead, 0);
     assert.ok((result.metrics?.modelUnavailable ?? 0) >= 1);
-    // Every call that was made was bounded and could be cut.
-    assert.ok(model.calls.length >= 1);
+    // Every call that was made was bounded and could be cut, and once the
+    // time was spent no further picture was sent: they are counted instead.
+    assert.equal(model.calls.length, 1);
+    assert.equal(result.metrics?.deadlineSkipped, 2);
     for (const call of model.calls) {
       assert.equal(call.signalled, true);
       assert.ok(call.timeoutMs !== undefined && call.timeoutMs <= spent + 1, `a call was given ${call.timeoutMs} ms`);
