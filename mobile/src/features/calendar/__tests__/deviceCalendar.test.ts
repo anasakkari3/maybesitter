@@ -206,6 +206,19 @@ describe('an event the class API answers without its id', () => {
     expect(await deviceCalendar.createEvent('cal-1', DRAFT)).toBe('ITEM-1');
   });
 
+  it('tells the new event from an older one at the same address', async () => {
+    // The weekly blocks share one address; a guess here links the wrong event.
+    const OLDER = { id: 'ITEM-0', url: DRAFT.url };
+    mockCalendarGet.mockResolvedValue({
+      allowsModifications: true,
+      createEvent: async () => ({ id: undefined }),
+      listEvents: jest.fn<() => Promise<unknown[]>>()
+        .mockResolvedValueOnce([OLDER])
+        .mockResolvedValueOnce([OLDER, OURS]),
+    });
+    expect(await deviceCalendar.createEvent('cal-1', DRAFT)).toBe('ITEM-1');
+  });
+
   it('never answers an empty id: it takes the event back out and fails instead', async () => {
     const remove = jest.fn<() => Promise<void>>().mockResolvedValue(undefined);
     mockCalendarGet.mockResolvedValue({

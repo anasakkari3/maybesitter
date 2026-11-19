@@ -673,9 +673,10 @@ describe('a commitment whose event is already in the calendar (V3-F18-04)', () =
     expect(rec.calls).not.toContain('deleteEvent:copy-1');
   });
 
-  it('does not adopt a copy written for another commitment', async () => {
+  it('does not adopt a copy written for another commitment, even one whose id starts the same', async () => {
+    // The calendar is asked by prefix; `…/cmt-10` starts with `…/cmt-1`.
     const rec = recorder();
-    seedCopy(rec, 'other-copy', commitment({ id: 'cmt-2' }));
+    seedCopy(rec, 'other-copy', commitment({ id: 'cmt-10' }));
     await run([subject(commitment(), null)], rec);
     expect(rec.calls).toContain('createEvent:cal-1');
     expect(rec.links.get('cmt-1')?.eventId).toBe('evt-new-1');
@@ -712,7 +713,11 @@ describe('remove events MaybeSitter added, after a build that never linked them 
     seedCopy(rec, 'stranger-1', commitment({ id: 'stranger' }));
     seedUsersOwn(rec, 'users-own');
     const result = await removeAllWrittenEvents({
-      subjects: [subject(commitment({ id: 'theirs' }), link({ eventId: 'theirs-1', writerId: THEIRS }))],
+      subjects: [
+        subject(commitment({ id: 'theirs' }), link({ eventId: 'theirs-1', writerId: THEIRS })),
+        // One commitment of this account's own, so the sweep does run.
+        subject(commitment({ id: 'held' }), null),
+      ],
       writerId: MINE,
       calendarIds: ['cal-1'],
       now: new Date('2026-06-10T00:00:00.000Z'),
