@@ -190,21 +190,18 @@ describe('the tab bar after a live text-size change (its own boundary)', () => {
       expect(style.flexBasis).toBeUndefined();
     }
 
+    // CX2.7 (owner decision 2026-11-19): at AX5 the bar is one row of icons,
+    // each slot as at the default size, and no painted word at all.
     await act(async () => { setFontScale(AX5); });
-    expect(StyleSheet.flatten(screen.getByTestId('tab-bar-row').props.style).flexWrap).toBe('wrap');
-    for (const style of slotStyles()) {
-      expect(style.width).toBe('32%');
-      expect(style.flex).toBeUndefined();
-      expect(style.flexBasis).toBeUndefined();
-    }
-    const atAx5 = LABEL_IDS.map((id) => screen.getByTestId(id));
-    atAx5.forEach((node, i) => expect(node).not.toBe(labels[i]));
+    expect(StyleSheet.flatten(screen.getByTestId('tab-bar-row').props.style).flexWrap).toBe('nowrap');
+    expect(slotStyles()).toEqual(fresh);
+    for (const id of LABEL_IDS) expect(screen.queryByTestId(id)).toBeNull();
 
     await act(async () => { setFontScale(1); });
     // One row again, each slot exactly as it was opened at the default size.
     expect(StyleSheet.flatten(screen.getByTestId('tab-bar-row').props.style).flexWrap).toBe('nowrap');
     expect(slotStyles()).toEqual(fresh);
-    LABEL_IDS.map((id) => screen.getByTestId(id)).forEach((node, i) => expect(node).not.toBe(atAx5[i]));
+    LABEL_IDS.map((id) => screen.getByTestId(id)).forEach((node, i) => expect(node).not.toBe(labels[i]));
     // The buttons — what a screen reader is on — are the same ones throughout.
     TAB_IDS.forEach((id, i) => expect(screen.getByTestId(id)).toBe(items[i]));
     // …and still read their names.
