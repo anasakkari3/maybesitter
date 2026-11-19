@@ -9,7 +9,7 @@ import {
 } from '../../api/endpoints/intelligence';
 import type { IntelligenceInbox, IntelligenceObservation, IntelligenceSuggestion } from '../../api/schemas/intelligence';
 import type { MemoryItem } from '../../api/schemas/profile';
-import { SuggestionUnavailableError } from '../../api/errors';
+import { SuggestionUnavailableError, ValidationError } from '../../api/errors';
 import type { IntelligenceChange } from '../../api/queries';
 import { basisClassVisible, useBasisStamp, useSuggestionBasisSignals, type BasisClass } from '../m5b/suggestionBasis';
 import type { z } from 'zod';
@@ -45,6 +45,13 @@ import { loadMonitorUpgradeDismissed, saveMonitorUpgradeDismissed } from '../../
 /** What the panel can do for a plan failure (inspection A-009); «ارجع للأهداف» closes the flow, because the goals are right here. */
 /** A day, for the backfill offer's «not while a scan of the last day exists». */
 const DAY_MS = 24 * 60 * 60_000;
+/**
+ * The server's floors (suggestions/[id] and …/answer routes): an edited title
+ * of at least 4 characters, an answer of at least 2. Said on the card before
+ * the press rather than refused after it (QA CA7.3, CA7.4).
+ */
+const TITLE_MIN = 4;
+const ANSWER_MIN = 2;
 
 const PANEL_RECOVERIES: readonly PlanRecovery[] = ['capture', 'thoughts', 'see_saved', 'open_new_goal', 'back_to_goals'];
 
@@ -217,6 +224,9 @@ function IntelligencePanelForAccount({ onChanged, autoGenerate = false, whenOff 
   const backfillAnswering = React.useRef(false);
   const [gmailMonitor, setGmailMonitor] = React.useState<z.infer<typeof intelligenceGmailMonitorSchema> | null>(null);
   const [error, setError] = React.useState<unknown>(null);
+  // Which card the last action error belongs to: it is said under that card,
+  // where the press was, not at the top of a long panel (QA NA7.1).
+  const [errorCard, setErrorCard] = React.useState<string | null>(null);
   // M5a (R2.3, R4.1): one email scan shared with the Google screen, and
   // monitoring that says what it reads. Unknown or off is today's panel.
   const emailM5 = useM5aCapabilities()?.emailSources === true;
@@ -382,6 +392,7 @@ function IntelligencePanelForAccount({ onChanged, autoGenerate = false, whenOff 
     inFlight.current = true;
     setBusy(true);
     setError(null);
+    setErrorCard(null);
     say(null);
     // One action's status at a time in the panel's region (M5B2A-R4-002).
     setLearnedStatus(null);
@@ -409,6 +420,9 @@ function IntelligencePanelForAccount({ onChanged, autoGenerate = false, whenOff 
           return;
         }
         setError(cause);
+        setErrorCard(suggestionId ?? null);
+        // VoiceOver has no live regions: the card's line is said once here.
+        if (suggestionId !== undefined && Platform.OS === 'ios') AccessibilityInfo.announceForAccessibility(cardErrorLine(cause, t));
         try { await refresh(); } catch { /* Keep the original action error visible. */ }
         return;
       }
@@ -685,10 +699,16 @@ function IntelligencePanelForAccount({ onChanged, autoGenerate = false, whenOff 
   const drawn = new Set(pending.map(item => item.id));
   const schedule = new Map(inbox.schedule.filter(item => drawn.has(item.suggestionId)).map(item => [item.suggestionId, item]));
   return <><ProductSection title={t.xIntelligenceTitle} why={{ id: 'intelligence-panel', body: t.xIntelligenceBody }} icon="goal">
-    {error && announced === null ? <Txt role="supporting" color={p.wm} testID="m5b-suggestion-action-error">{userFacingMessage(error, t)}</Txt> : null}
+    {error && announced === null && errorCard === null ? <Txt role="supporting" color={p.wm} testID="m5b-suggestion-action-error">{userFacingMessage(error, t)}</Txt> : null}
     {recommendationsEnabled && suggestionsShown && classifiedPending.length === 0
       ? <Txt role="supporting">{t.xIntelligenceNoIdeas}</Txt> : null}
-    {recommendationsEnabled && pending.map(item => <View key={item.id} testID={`intelligence-suggestion-${item.id}`}>
+    {recommendationsEnabled && pending.map(item => {
+      const editedTitle = (editedTitles[item.id] ?? '').trim();
+      const titleShort = (item.kind === 'action' || item.kind === 'goal') && editedTitle.length > 0 && editedTitle.length < TITLE_MIN;
+      const answer = (answers[item.id] ?? '').trim();
+      const answerShort = item.kind === 'question' && answer.length > 0 && answer.length < ANSWER_MIN;
+      const cardError = errorCard === item.id && error ? cardErrorLine(error, t) : null;
+      return <View key={item.id} testID={`intelligence-suggestion-${item.id}`}>
       <Txt role="body">{isolateAuto(item.title)}</Txt>
       <Txt role="supporting">{isolateAuto(item.reason)}</Txt>
       {(item.kind === 'action' || item.kind === 'goal') ? <TextInput
@@ -701,6 +721,7 @@ function IntelligencePanelForAccount({ onChanged, autoGenerate = false, whenOff 
         maxLength={100}
         style={{ color: p.tx, backgroundColor: p.bg, padding: 12, borderRadius: 12, fontSize: 16, textAlign: rtl ? 'right' : 'left' }}
       /> : null}
+      {titleShort ? <Txt role="supporting" color={p.wm} testID={`intelligence-edit-short-${item.id}`}>{t.xIntelligenceTitleTooShort}</Txt> : null}
       <Txt role="supporting">{fill(t.xIntelligenceEvidence, { evidence: item.observationIds.map(id => evidence.get(id) ?? '').filter(Boolean).map(isolateAuto).join(' · ') })}</Txt>
       {item.kind === 'action' && schedule.get(item.id)?.slot ? <Txt role="supporting" testID={`m5b-suggestion-schedule-${item.id}`}>{fill(t.xIntelligenceSlot, {
         date: formatDate(new Date(schedule.get(item.id)!.slot!.startsAt), 'short', { locale: lang, timeZone: zone }),
@@ -719,18 +740,21 @@ function IntelligencePanelForAccount({ onChanged, autoGenerate = false, whenOff 
         multiline
         style={{ color: p.tx, backgroundColor: p.bg, padding: 12, minHeight: 48, borderRadius: 12, textAlign: rtl ? 'right' : 'left' }}
       /> : null}
+      {answerShort ? <Txt role="supporting" color={p.wm} testID={`intelligence-answer-short-${item.id}`}>{t.xIntelligenceAnswerTooShort}</Txt> : null}
       <View style={{ flexDirection: rtl ? 'row-reverse' : 'row', gap: 8 }}>
         <Pill label={item.kind === 'question' ? t.xIntelligenceAnswer : item.kind === 'warning' ? t.xIntelligenceAcknowledge : t.xIntelligenceAccept}
-          disabled={busy || (item.kind === 'question' && !(answers[item.id] ?? '').trim())}
+          disabled={busy || titleShort || answerShort || (item.kind === 'question' && !answer)}
           onPress={() => void run(() => item.kind === 'question'
-            ? answerIntelligenceQuestion(item.id, (answers[item.id] ?? '').trim(), bound)
-            : decideIntelligenceSuggestion(item.id, 'accept', (editedTitles[item.id] ?? '').trim() || undefined,
+            ? answerIntelligenceQuestion(item.id, answer, bound)
+            : decideIntelligenceSuggestion(item.id, 'accept', editedTitle || undefined,
               item.kind === 'action' ? schedule.get(item.id)?.slot ?? undefined : undefined, bound),
             // A warning acknowledged writes nothing; an accepted goal or
             // action, or an answer, may write memory or a commitment.
             { suggestionId: item.id, memory: item.kind !== 'warning' })} />
         <Pill label={t.xIntelligenceDismiss} kind="outline" disabled={busy} onPress={() => void run(() => decideIntelligenceSuggestion(item.id, 'dismiss', undefined, undefined, bound), { suggestionId: item.id, memory: false })} />
       </View>
+      {/* The same `m5b-suggestion-action-error` line as before, moved to the card it belongs to. */}
+      <LiveRegion testID={`intelligence-card-error-${item.id}`}>{cardError ? <Txt role="supporting" color={p.wm} testID="m5b-suggestion-action-error">{cardError}</Txt> : null}</LiveRegion>
       {item.kind !== 'question' ? <Txt role="supporting" color={p.mu}>{t.suggestionNote}</Txt> : null}
       {/* M5b-2b-1 (R3): which remembered fact shaped it, and the way to
           correct that fact. After the decision row, so the card's own
@@ -741,7 +765,8 @@ function IntelligencePanelForAccount({ onChanged, autoGenerate = false, whenOff 
         hidden={memoryId => signals.basisHidden(memoryId, basis.startedAt)}
         onFix={memoryId => actions.openMemoryFocused(memoryId)}
       /> : null}
-    </View>)}
+    </View>;
+    })}
     {inbox.observations.filter(item => item.review === 'pending' && !SELF_CONFIRMED_SOURCES.has(item.source)).slice(0, MAX_CONFIRM_CARDS).map(item => <View key={item.id} testID={`intelligence-observation-${item.id}`}>
       <Txt role="supporting">{fill(t[UNDERSTOOD_KEY[item.kind]], { evidence: isolateAuto(item.evidence) })}</Txt>
       <View style={{ flexDirection: rtl ? 'row-reverse' : 'row', gap: 8 }}>
@@ -864,6 +889,13 @@ function visitSignature(
 }
 
 /** At most this many basis lines on a card, as the wire allows. */
+/** A card's refusal in words: the two floors by name, else the shared table. */
+function cardErrorLine(error: unknown, t: Strings): string {
+  if (error instanceof ValidationError && error.reason === 'invalid_title') return t.xIntelligenceTitleTooShort;
+  if (error instanceof ValidationError && error.reason === 'invalid_answer') return t.xIntelligenceAnswerTooShort;
+  return userFacingMessage(error, t);
+}
+
 const BASIS_LIMIT = 3;
 
 /**

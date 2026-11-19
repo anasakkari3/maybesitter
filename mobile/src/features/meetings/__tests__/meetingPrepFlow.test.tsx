@@ -289,6 +289,23 @@ describe('review and confirm', () => {
   });
 });
 
+describe('closing the sheet while it prepares (QA known issue)', () => {
+  it('still opens the review when the answer lands, so the prepared steps are not lost', async () => {
+    let answer: (value: ReturnType<typeof prepared>) => void = () => undefined;
+    jest.spyOn(meetingEndpoints, 'prepareMeeting').mockImplementation(() => new Promise(resolve => { answer = resolve as never; }) as never);
+    await show({ aiGranted: true });
+    await fireEvent.press(screen.getByTestId('calendar-busy-prepare'));
+    await waitFor(() => expect(screen.getByTestId('meeting-prep-notes')).toBeTruthy());
+    await fireEvent.changeText(screen.getByTestId('meeting-prep-notes'), NOTES);
+    await fireEvent.press(screen.getByTestId('meeting-prep-submit'));
+    await waitFor(() => expect(meetingEndpoints.prepareMeeting).toHaveBeenCalledTimes(1));
+    await fireEvent.press(screen.getByTestId('sheet-close'));
+    await waitFor(() => expect(screen.queryByTestId('meeting-prep-sheet')).toBeNull());
+    answer(prepared());
+    await waitFor(() => expect(screen.getByTestId('review-source-meeting')).toBeTruthy());
+  });
+});
+
 describe('an appointment, and a step moved by quiet hours', () => {
   it('a dentist is «the appointment» in the sheet and in review, not «the meeting»', async () => {
     const dentist = meeting({ id: 'c-dentist', title: 'dentist 4pm' });

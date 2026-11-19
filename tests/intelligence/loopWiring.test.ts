@@ -25,7 +25,7 @@ import { setPersonalizationConsent } from '../../lib/consents/personalizationCon
 import { setRecommendationConsent } from '../../lib/consents/recommendationConsentService.ts';
 import { PERSONALIZATION_CONSENT_VERSION, RECOMMENDATION_CONSENT_VERSION } from '../../src/contracts/v1/consentContracts.ts';
 import { learnFromCommitmentEvents } from '../../lib/intelligence/outcomeLearning.ts';
-import { putObservations, type StoredObservation } from '../../lib/intelligence/observationStore.ts';
+import { putObservations, reviewObservation, type StoredObservation } from '../../lib/intelligence/observationStore.ts';
 import {
   VISIT_POLICY, proposeFromObservations, setIntelligenceGeneratorForTests,
 } from '../../lib/intelligence/proposalEngine.ts';
@@ -317,6 +317,31 @@ test('switching recommendations off stops generation and hides old proposals wit
     assert.ok(hidden.observations.length > 0);
     assert.equal((await generatePost(req('/api/mobile/intelligence/generate', 'POST', {}))).status, 403);
     assert.equal((await decisionPost(req(`/api/mobile/intelligence/suggestions/${shown.suggestions[0]!.id}`, 'POST', { decision: 'accept' }), params(shown.suggestions[0]!.id))).status, 403);
+  } finally { h.restore(); }
+});
+
+test('CA7.10: a goal confirmed into memory after the run is hidden from a reused visit, as the inbox hides it', async () => {
+  const h = begin(call => ({ suggestions: [{
+    kind: 'goal', title: 'Learn to play the oud', reason: 'You said you want to',
+    observationIds: [call.context.observations.find(item => item.kind === 'goal')!.id], confidence: 0.9, durationMinutes: 0,
+  }] }));
+  try {
+    await setRecommendations(h.storage, 'granted');
+    await grantPersonalization(h.storage);
+    const [goal] = await putObservations(UID, 'manual', 'note-oud', new Date().toISOString(), [
+      { kind: 'goal', evidence: 'I want to learn the oud', confidence: 0.9 },
+    ], h.storage);
+    const visit = async () => (await (await generatePost(req('/api/mobile/intelligence/generate', 'POST', { trigger: 'visit' }))).json()) as { suggestions: Array<{ kind: string }> };
+    assert.deepEqual((await visit()).suggestions.map(item => item.kind), ['goal']);
+    assert.equal(h.calls.length, 1);
+
+    // Confirmed into memory after the run: the inbox hides the proposal…
+    await reviewObservation(UID, goal!.id, 'confirmed', new Date().toISOString(), h.storage);
+    const inbox = await (await inboxGet(req('/api/mobile/intelligence'))).json() as { suggestions: unknown[] };
+    assert.equal(inbox.suggestions.length, 0);
+    // …and so does the reused visit Today's banner reads.
+    assert.deepEqual((await visit()).suggestions, []);
+    assert.equal(h.calls.length, 1, 'the visit reused the run');
   } finally { h.restore(); }
 });
 

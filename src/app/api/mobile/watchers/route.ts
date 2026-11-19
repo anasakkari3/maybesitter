@@ -2,12 +2,14 @@ import { AccountUnavailableError, accountUnavailableResponse } from '../../../..
 import { mobileAuthErrorResponse, requireMobileUser } from '../../../../../lib/auth/mobileAuth';
 import { mobileError } from '../../../../../lib/services/mobile/response';
 import {
+  applyWatcherPatch,
   parseNewWatcher,
   presentWatcher,
+  repeatedCreatePatch,
   WatcherValidationError,
   watcherValidationResponse,
 } from '../../../../../lib/watchers/watcherApi';
-import { createWatcherStore } from '../../../../../lib/watchers/watcherStore';
+import { createWatcherStore, stableWatcherId, type StoredWatcher } from '../../../../../lib/watchers/watcherStore';
 import {
   FootballNotConfiguredError,
   followClubWithWatcher,
@@ -77,8 +79,22 @@ export async function POST(request: Request) {
       const { watcher, fixturesDeferred } = await followClubWithWatcher(user.uid, input, now);
       return Response.json({ success: true, watcher: presentWatcher(watcher), ...(fixturesDeferred ? { fixturesDeferred: true } : {}) }, { status: 201 });
     }
-    const created = await createWatcherStore(user.uid).create(input, now);
-    return Response.json({ success: true, watcher: presentWatcher(created) }, { status: 201 });
+    // The same watch made twice is one watcher (QA CA6.7): an identical one
+    // already there answers, resumed if the user asks for it running.
+    const store = createWatcherStore(user.uid);
+    const sameAs = (stored: StoredWatcher) => stored.definition.createdBy === input.createdBy
+      && stored.definition.effect === input.effect
+      && JSON.stringify(stored.definition.source) === JSON.stringify(input.source)
+      && JSON.stringify(stored.definition.condition) === JSON.stringify(input.condition);
+    const existing = (await store.list()).find(sameAs);
+    const { watcher } = existing
+      ? { watcher: existing }
+      : await store.createOnce(input, now, stableWatcherId(user.uid, JSON.stringify([input.createdBy, input.source, input.condition, input.effect])));
+    const patch = repeatedCreatePatch(watcher, input);
+    const answer = patch
+      ? (await store.update(watcher.definition.watcherId, (current) => applyWatcherPatch(current, patch, now))) ?? watcher
+      : watcher;
+    return Response.json({ success: true, watcher: presentWatcher(answer) }, { status: 201 });
   } catch (error) {
     if (error instanceof AccountUnavailableError) return accountUnavailableResponse();
     if (error instanceof FootballNotConfiguredError) {

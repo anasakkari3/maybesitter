@@ -3,8 +3,10 @@ import { TextInput, View } from 'react-native';
 import { useApp } from '../../state/AppContext';
 import { useAlphaFlag } from '../../api/queries';
 import { ForbiddenError } from '../../api/errors';
+import { markErrorShown, userFacingMessage } from '../../api/ui/userFacingMessage';
 import { family } from '../../theme/fonts';
 import { Btn, Pill, Txt } from '../../ui/primitives';
+import { LiveRegion } from '../../ui/liveRegion';
 import type { AlphaFeedbackCategory } from '../../api/schemas/feedback';
 
 /** The five the route accepts. A sixth would be refused. */
@@ -52,18 +54,30 @@ export function FeedbackFlagButton({ proposalId, commitmentId }: {
   const flag = useAlphaFlag();
   const [open, setOpen] = useState(false);
   const [note, setNote] = useState('');
-  const [outcome, setOutcome] = useState<'sent' | 'disabled' | null>(null);
+  // Whose outcome it is: the card swaps proposals under one mounted button,
+  // and «شكراً. سجّلناها.» for A must not sit on B (QA CA2.5).
+  const [result, setResult] = useState<{ proposalId: string; outcome: 'sent' | 'disabled' } | null>(null);
+  const outcome = result?.proposalId === proposalId ? result.outcome : null;
+  const [failure, setFailure] = useState<unknown>(null);
   const strings = t as unknown as Record<string, string>;
 
   const send = (category: AlphaFeedbackCategory) => {
     if (flag.isPending) return;
+    setFailure(null);
     flag.mutate(
       { proposalId, category, ...(note.trim() ? { note: note.trim() } : {}), ...(commitmentId ? { commitmentId } : {}) },
       {
-        onSuccess: () => { setOutcome('sent'); setOpen(false); },
+        onSuccess: () => { setResult({ proposalId, outcome: 'sent' }); setFailure(null); setOpen(false); },
         onError: (error) => {
-          setOutcome(error instanceof ForbiddenError ? 'disabled' : null);
-          setOpen(false);
+          if (error instanceof ForbiddenError) {
+            setResult({ proposalId, outcome: 'disabled' });
+            setOpen(false);
+            return;
+          }
+          // Any other refusal is said, and the panel and the note stay so
+          // the same press can be tried again (QA CA2.5).
+          markErrorShown(error);
+          setFailure(error);
         },
       },
     );
@@ -119,6 +133,7 @@ export function FeedbackFlagButton({ proposalId, commitmentId }: {
         multiline
         style={{ backgroundColor: p.sf2, borderRadius: 18, paddingVertical: 10, paddingHorizontal: 14, fontSize: 13, minHeight: 44, color: p.tx, fontFamily: family(400, script), textAlign: rtl ? 'right' : 'left' }}
       />
+      <LiveRegion>{failure ? <Txt size={12} color={p.wm} testID="next-step-flag-error">{userFacingMessage(failure, t)}</Txt> : null}</LiveRegion>
       <Pill testID="next-step-flag-close" label={t.back} onPress={() => setOpen(false)} kind="ghost" size={13} weight={400} pad={6} />
     </View>
   );
