@@ -1311,10 +1311,25 @@ function looksLikeScheduledEvent(text: string): boolean {
   return hasClock || hasDayWord || hasWeekday;
 }
 
+/**
+ * The longest goal statement taken (QA v3, V3-F22-04: 15,000 characters were
+ * kept as the goal). Above the app's longest path — a 2,000-character
+ * statement, a newline and a 2,000-character answer to the vague question —
+ * so nothing the app sends is refused by it.
+ */
+export const GOAL_STATEMENT_MAX_CHARACTERS = 4_100;
+
+function refuseLongStatement(text: string): void {
+  if (Array.from(text).length > GOAL_STATEMENT_MAX_CHARACTERS) {
+    apiError(422, 'goal_too_long', { maxCharacters: GOAL_STATEMENT_MAX_CHARACTERS });
+  }
+}
+
 export async function previewGoalStatement(uid: string, statement: unknown, locale: unknown, storage = getStorage()) {
   const question = vagueGoalQuestion(locale);
   if (typeof statement !== 'string' || !statement.trim()) apiError(422, 'goal_too_vague', { question });
   const text = statement.trim();
+  refuseLongStatement(text);
   if (looksLikeScheduledEvent(text)) {
     apiError(422, 'not_a_goal', { classification: 'event', recovery: 'capture' });
   }
@@ -1336,6 +1351,7 @@ export async function acceptGoalStatement(uid: string, input: { summaryId: strin
   const expiresAt = storedInstantMs(preview?.expiresAt);
   if (!preview || !Number.isFinite(expiresAt) || expiresAt <= Date.now()) apiError(410, 'gone');
   if (preview.revision !== input.revision || !input.understood || typeof input.understood.goalText !== 'string') apiError(409, 'stale');
+  refuseLongStatement(input.understood.goalText.trim());
   const created = await createManualMemoryIdempotent(
     uid,
     { kind: 'goal', content: input.understood.goalText, language: preview.locale },
