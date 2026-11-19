@@ -250,11 +250,12 @@ describe('accessibility', () => {
 // pill with no thumb), and off in the card's colour (no thumb on a dark card).
 describe('the thumb is always visible', () => {
   const cards = [palettes.light.sf, palettes.dark.sf];
-  it.each([
+  const cases: Array<[string, { value: boolean; blockedNote?: string }]> = [
     ['on', { value: true }],
     ['on but blocked by the phone', { value: true, blockedNote: 'Blocked in phone settings' }],
     ['off', { value: false }],
-  ] as const)('%s: the thumb differs from its track and from the card', async (_name, props) => {
+  ];
+  it.each(cases)('%s: the thumb differs from its track and from the card', async (_name, props) => {
     await show(props);
     // The native iOS props the Switch maps its colours to.
     const toggle = screen.getByTestId('toggle');
