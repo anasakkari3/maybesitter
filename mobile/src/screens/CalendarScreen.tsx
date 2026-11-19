@@ -486,7 +486,9 @@ export function CalendarScreen({ tabClearance = TAB_CLEARANCE }: { tabClearance?
               <Txt role="section" size={17} weight={700} color={p.tx} testID="calendar-selected-day" style={{ flexShrink: 1 }}>
                 {formatRelativeDay(civilDate(selectedKey), { locale: lang, timeZone: CIVIL_ZONE, now: civilDate(todayKey) })}
               </Txt>
-              {!stacked ? <CalendarLegend color={p.ac} label={t.legendCommit} /> : null}
+              {/* The key names a dot on the day; an empty day has none, and a
+                  lone «التزام» there read as "one commitment" (V3-F16-04). */}
+              {!stacked && dayRows.some(row => row.kind === 'commitment') ? <CalendarLegend color={p.ac} label={t.legendCommit} testID="calendar-legend-commit" /> : null}
               {/* A must draws in the coral; keep its key beside the selected
                   day instead of spending a full row below the week strip. */}
               {!stacked && weekHasMust ? <CalendarLegend color={p.acd} label={t.todayGroupMust} testID="calendar-legend-must" /> : null}

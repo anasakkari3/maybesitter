@@ -435,7 +435,9 @@ describe('the legend names the must colour', () => {
 
   it('a week without one does not', async () => {
     await show([], [item('Call mom', onDay(2, 18))]);
-    await waitFor(() => expect(screen.queryByText(en.legendCommit)).not.toBeNull());
+    // The week has loaded: its one item has its bar (the «التزام» key is drawn
+    // only on a day with a commitment, V3-F16-04).
+    await waitFor(() => expect(screen.queryAllByTestId(`calendar-bar-${shiftDayKey(TODAY_KEY, 2)}`)).toHaveLength(1));
     expect(screen.queryByTestId('calendar-legend-must')).toBeNull();
   });
 });
