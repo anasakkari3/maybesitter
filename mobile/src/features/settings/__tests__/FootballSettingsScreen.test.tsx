@@ -86,7 +86,7 @@ beforeEach(() => {
 });
 
 afterEach(async () => {
-  flushPendingCommits();
+  await flushPendingCommits();
   await cleanup();
   // A real macrotask, not a microtask flush -- see calendarSettingsScreen.test.tsx's
   // identical comment: a save still settling when the tree comes down leaves
@@ -179,7 +179,7 @@ describe('dismissing a match', () => {
 
     await waitFor(() => expect(screen.queryByTestId(`football-dismiss-${FIXTURE.commitmentId}`)).not.toBeNull());
     await fireEvent.press(screen.getByTestId(`football-dismiss-${FIXTURE.commitmentId}`));
-    await act(async () => { flushPendingCommits(); });
+    await act(async () => { await flushPendingCommits(); });
     await waitFor(() => expect(dismiss).toHaveBeenCalledWith(FIXTURE.commitmentId, { asUid: USER.uid }));
   });
 
@@ -203,7 +203,7 @@ describe('dismissing a match', () => {
     expect(screen.queryByTestId(`football-dismiss-${FIXTURE.commitmentId}`)).toBeNull();
     expect(dismiss).not.toHaveBeenCalled();
 
-    await act(async () => { flushPendingCommits(); });
+    await act(async () => { await flushPendingCommits(); });
     await waitFor(() => expect(dismiss).toHaveBeenCalledTimes(1));
   });
 
@@ -221,7 +221,7 @@ describe('dismissing a match', () => {
     await fireEvent.press(screen.getByTestId('toast-undo-button'));
     await waitFor(() => expect(screen.queryByTestId(`football-dismiss-${FIXTURE.commitmentId}`)).not.toBeNull());
     expect(pendingCommitCount()).toBe(0);
-    await act(async () => { flushPendingCommits(); });
+    await act(async () => { await flushPendingCommits(); });
     expect(dismiss).not.toHaveBeenCalled();
   });
 
@@ -239,7 +239,7 @@ describe('dismissing a match', () => {
       await show();
       await waitFor(() => expect(screen.queryByTestId(`football-dismiss-${FIXTURE.commitmentId}`)).not.toBeNull());
       await fireEvent.press(screen.getByTestId(`football-dismiss-${FIXTURE.commitmentId}`));
-      await act(async () => { flushPendingCommits(); });
+      await act(async () => { await flushPendingCommits(); });
       const line = await screen.findByTestId('football-dismiss-failed');
       expect([line.props.children].flat().join('')).toBe(ar.footballDismissGone);
       expect(ar.footballDismissGone).toBe('هاي المباراة خلصت.');

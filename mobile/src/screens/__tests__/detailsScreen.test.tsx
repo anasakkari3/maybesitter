@@ -94,8 +94,8 @@ beforeEach(() => {
   setAuthRepository(repository);
 });
 
-afterEach(() => {
-  flushPendingCommits();
+afterEach(async () => {
+  await flushPendingCommits();
   client.clear();
   resetAuthForTests();
   jest.restoreAllMocks();
@@ -160,7 +160,7 @@ describe('done', () => {
       .mockResolvedValue({ data: { success: true, id: ID, commitment: commitment({ status: 'completed' }) }, etag: 'W/"v2"' } as never);
     await show();
     await fireEvent.press(screen.getByTestId('details-done'));
-    await act_(async () => { flushPendingCommits(); });
+    await act_(async () => { await flushPendingCommits(); });
     await waitFor(() => expect(act).toHaveBeenCalled());
     expect(act.mock.calls[0]![1]).toBe('complete');
     expect(act.mock.calls[0]![2]).not.toHaveProperty('postponedUntil');
@@ -182,7 +182,7 @@ describe('done', () => {
     expect(screen.getByTestId('toast-undo').props.children).toBe(en.toastBringBack);
     expect(act).not.toHaveBeenCalled();
 
-    await act_(async () => { flushPendingCommits(); });
+    await act_(async () => { await flushPendingCommits(); });
     await waitFor(() => expect(act).toHaveBeenCalledTimes(1));
     expect(act.mock.calls[0]![2]).toMatchObject({ asUid: USER.uid });
   });
@@ -196,7 +196,7 @@ describe('done', () => {
 
     await fireEvent.press(screen.getByTestId('toast-undo-button'));
     expect(pendingCommitCount()).toBe(0);
-    await act_(async () => { flushPendingCommits(); });
+    await act_(async () => { await flushPendingCommits(); });
     expect(act).not.toHaveBeenCalled();
   });
 });

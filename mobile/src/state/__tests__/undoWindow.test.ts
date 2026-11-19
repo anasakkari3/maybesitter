@@ -10,7 +10,7 @@ import { runBeforeSignOut } from '../../auth/beforeSignOut';
  * cancels it, so nothing reaches the server and nothing needs reversing there.
  */
 afterEach(() => {
-  flushPendingCommits();
+  void flushPendingCommits();
   jest.useRealTimers();
 });
 
@@ -39,7 +39,7 @@ describe('the undo window', () => {
     expect(undo()).toBe(true);
     expect(undo()).toBe(false);
     jest.advanceTimersByTime(UNDO_WINDOW_MS * 2);
-    flushPendingCommits();
+    void flushPendingCommits();
     expect(commit).not.toHaveBeenCalled();
   });
 
