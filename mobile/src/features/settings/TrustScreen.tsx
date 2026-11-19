@@ -382,6 +382,11 @@ export function TrustScreen({ onBack, onKnows }: { onBack: () => void; onKnows: 
           <Txt size={15} weight={600}>{t.trustRevoke}</Txt>
           <Txt size={13} color={p.mu} lh={1.5}>{t.trustRevokeBody}</Txt>
           <Txt size={13} color={p.mu} lh={1.5} testID="trust-revoke-email">{t.trustRevokeEmail}</Txt>
+          {/* Stopping declines suggestions and learning only. The auto-add from
+              the person's own sent reply is gated on Gmail monitoring and the
+              calendar consent (lib/intelligence/m5aGmailScan.ts), so it can
+              still add after «وقّف»; said here rather than discovered. */}
+          <Txt size={13} color={p.mu} lh={1.5} testID="trust-revoke-email-autoadd">{t.trustRevokeEmailAutoAdd}</Txt>
           {showResume ? (
             <Btn
               label={t.trustResume}
