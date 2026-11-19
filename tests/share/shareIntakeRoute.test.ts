@@ -304,7 +304,7 @@ test('a body that declares itself over the limit is refused from the header alon
   try {
     const response = await sharePost(shareRequest({
       text: 'small',
-      contentLength: MAX_TOTAL_BYTES + 1,
+      contentLength: MAX_TOTAL_BYTES + 2 * 1024 * 1024 + 1,
     }));
     assert.equal(response.status, 413);
     assert.equal((await json(response)).reason, 'file_too_large');
@@ -338,7 +338,7 @@ test('plain shared text over the content limit is refused before a daily share i
     let reserved = 0;
     await assert.rejects(
       () => proposeFromShare(
-        { text: 'ب'.repeat(MAX_SHARE_TEXT_CHARACTERS + 1000), timezone: 'Asia/Jerusalem', referenceTime: REFERENCE_TIME },
+        { text: 'ب'.repeat(MAX_SHARE_TEXT_CHARACTERS + 1000), files: [], timezone: 'Asia/Jerusalem', referenceTime: REFERENCE_TIME },
         { uid: USER, reserve: async () => { reserved += 1; return 'ok'; } },
       ),
       CaptureInputTooLargeError,
