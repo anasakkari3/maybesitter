@@ -64,7 +64,9 @@ export function TabBar({ onClearanceChange }: { onClearanceChange?: (height: num
             one-word label at its full size («الي / وم», device 2026-10-06), and
             labels are never capped (IMPLEMENTATION_SPEC). So the bar becomes
             two rows, three and two, each slot wide enough for its word. */}
-        <View testID="tab-bar-row" style={{ backgroundColor: p.sfBar, paddingTop: 6, paddingBottom: Math.max(insets.bottom, 8), paddingHorizontal: 6, flexDirection: 'row', flexWrap: twoRows ? 'wrap' : 'nowrap', justifyContent: 'center', alignItems: 'stretch', gap: 2 }}>
+        {/* A tab bar, not a row of buttons (de7fcb84 audit CX2.8): VoiceOver
+            says "tab, 2 of 5" inside a `tabbar`; TalkBack reads a `tablist`. */}
+        <View testID="tab-bar-row" accessibilityRole={Platform.OS === 'ios' ? 'tabbar' : 'tablist'} style={{ backgroundColor: p.sfBar, paddingTop: 6, paddingBottom: Math.max(insets.bottom, 8), paddingHorizontal: 6, flexDirection: 'row', flexWrap: twoRows ? 'wrap' : 'nowrap', justifyContent: 'center', alignItems: 'stretch', gap: 2 }}>
           {/* The labels are measured afresh after a live text-size change: within
               one layout mode (AX1 → AX5) nothing else about a label changes, so
               it kept the old size's measurement. Only the words are replaced;
@@ -107,6 +109,7 @@ function TabItem({ label, testID, icon, on, p, enlarged, slot, onPress }: {
       label={label}
       testID={testID}
       scaleTo={0.92}
+      accessibilityRole="tab"
       accessibilityState={{ selected: on }}
       style={[slot, { minHeight: 52, alignItems: 'center', justifyContent: 'center' }]}
     >
