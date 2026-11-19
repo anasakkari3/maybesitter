@@ -92,6 +92,10 @@ function scenario(): Commitment[] {
     commitment('studyDay', 'Study', { kind: 'due_by', dueAt: '2026-11-10T22:00:00.000Z', allDay: true }),
     // Stored before the mark: not a limit anybody is known to have named.
     commitment('legacy', 'Old hand-in', { kind: 'due_by', dueAt: '2026-11-12T10:00:00.000Z' }),
+    // «تحضير لـ…» from the evening's impact pass, running now (14:30–16:00): never asked about.
+    commitment('prep', 'Prepare for the review', {
+      kind: 'due_by', dueAt: '2026-11-12T12:30:00.000Z', endAt: '2026-11-12T14:00:00.000Z', windowRule: 'shift', deadline: 'explicit',
+    }),
     commitment('doctor', 'Doctor', { kind: 'scheduled_event', dueAt: '2026-11-09T22:00:00.000Z', allDay: true }),
     commitment('lecture', 'Lecture', { kind: 'scheduled_event', dueAt: '2026-10-22T08:00:00.000Z', endAt: '2026-10-22T10:00:00.000Z' }),
     // A task keeps #383: never in the place, never asked about.
@@ -215,6 +219,7 @@ test('E3: a finished turn carries one item, the most recent, and only it is coun
     const followUp = (answer as unknown as { followUp: { items: Array<Record<string, unknown>> } }).followUp;
     assert.deepEqual(followUp.items, [{
       commitmentId: 'meeting', title: 'Meeting with Sami', reason: 'event_ended', since: '2026-11-12T08:00:00.000Z',
+      shownAt: '2026-11-12T08:00:00.000Z',
     }]);
     assert.deepEqual(await askCounts(), { meeting: 1 });
   });
@@ -226,6 +231,20 @@ test('E3: a deadline is asked about as a deadline', async () => {
     const followUp = (await say('hello') as unknown as { followUp: { items: Array<Record<string, unknown>> } }).followUp;
     assert.deepEqual(followUp.items, [{
       commitmentId: 'report', title: 'Hand in the report', reason: 'deadline_passed', since: '2026-11-11T16:00:00.000Z',
+      shownAt: '2026-11-11T16:00:00.000Z',
+    }]);
+  });
+});
+
+test('E3: an all-day appointment is asked about on its own day, not the midnight after it', async () => {
+  await run(async () => {
+    await dismissUnhandled(UID, 'meeting', { now: NOW });
+    await dismissUnhandled(UID, 'report', { now: NOW });
+    const followUp = (await say('hello') as unknown as { followUp: { items: Array<Record<string, unknown>> } }).followUp;
+    // The doctor was Mon 2026-11-10 (all day): over at Tue 00:00, shown on Monday.
+    assert.deepEqual(followUp.items, [{
+      commitmentId: 'doctor', title: 'Doctor', reason: 'event_ended', since: '2026-11-10T22:00:00.000Z',
+      shownAt: '2026-11-09T22:00:00.000Z',
     }]);
   });
 });

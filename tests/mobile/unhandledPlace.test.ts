@@ -254,6 +254,47 @@ test('E2 dismiss: refused for a day-only task and a legacy due_by — they are n
   });
 });
 
+test('E2 projection: a scheduled work session (windowRule shift) is never a passed deadline, mark or not', () => {
+  // «تحضير لـ…» placed by the evening's impact pass: 14:30–16:00 today, still running at 15:00.
+  const running = { kind: 'due_by' as const, dueAt: '2026-11-12T12:30:00.000Z', endAt: '2026-11-12T14:00:00.000Z', windowRule: 'shift' as const };
+  assert.equal(unhandledAnchor(commitment('prep', running), NOW), null);
+  assert.equal(unhandledAnchor(commitment('prepMarked', { ...running, deadline: 'explicit' }), NOW), null);
+  // Over too: a session is not a limit anybody named.
+  assert.equal(unhandledAnchor(commitment('prepOver', { ...running, deadline: 'explicit' }), new Date('2026-11-12T18:00:00.000Z')), null);
+});
+
+test('E2 projection: an all-day item is shown on its own day, while since stays the midnight closing it', () => {
+  // The doctor on Tue 2026-11-11 (all day): it ended at Wed 00:00, but its day is Tuesday.
+  const doctor = commitment('doctor', { kind: 'scheduled_event', dueAt: '2026-11-10T22:00:00.000Z', allDay: true });
+  assert.deepEqual(unhandledAnchor(doctor, NOW), {
+    reason: 'event_ended', since: '2026-11-11T22:00:00.000Z', shownAt: '2026-11-10T22:00:00.000Z',
+  });
+  const due = commitment('due', { kind: 'due_by', dueAt: '2026-11-09T22:00:00.000Z', allDay: true, deadline: 'explicit' });
+  assert.deepEqual(unhandledAnchor(due, NOW), {
+    reason: 'deadline_passed', since: '2026-11-10T22:00:00.000Z', shownAt: '2026-11-09T22:00:00.000Z',
+  });
+  // A timed item is shown when it ended or passed.
+  const meeting = commitment('meeting', { kind: 'scheduled_event', dueAt: '2026-11-12T07:00:00.000Z', endAt: '2026-11-12T08:00:00.000Z' });
+  assert.equal(unhandledAnchor(meeting, NOW)?.shownAt, '2026-11-12T08:00:00.000Z');
+  // An all-day deadline put off to an hour passes, and is shown, at that hour.
+  const postponed = commitment('p', { kind: 'due_by', dueAt: '2026-11-09T22:00:00.000Z', allDay: true, deadline: 'explicit' }, {
+    status: 'deferred', postponedUntil: '2026-11-11T09:00:00.000Z',
+  });
+  assert.deepEqual(unhandledAnchor(postponed, NOW), {
+    reason: 'deadline_passed', since: '2026-11-11T09:00:00.000Z', shownAt: '2026-11-11T09:00:00.000Z',
+  });
+});
+
+test('E2 dismiss: a mark written for since before shownAt existed still hides the all-day item', async () => {
+  await withSeeded(async () => {
+    await getStorage().set(`${userCol(UID, UNHANDLED_MARKS)}/doctor`, {
+      commitmentId: 'doctor', askCount: 0, lastAskedAt: null, dismissedFor: '2026-11-11T22:00:00.000Z', dismissedAt: NOW.toISOString(),
+    });
+    assert.ok(!ids((await listUnhandled(UID, { now: NOW })).items).includes('doctor'));
+    assert.deepEqual(await dismissUnhandled(UID, 'doctor', { now: NOW }), { replayed: true });
+  });
+});
+
 /* ── The status actions go through the existing commands ─────────── */
 
 test('E2 actions: done, a new date and dropped on purpose each take the item out', async () => {
@@ -421,6 +462,11 @@ test('E2 route: GET answers the items with their reason, since and ask count', a
     assert.equal(lecture.since, '2026-10-22T10:00:00.000Z');
     assert.equal(lecture.askCount, 0);
     assert.equal(lecture.commitment.status, 'active');
+    // The day the phone shows: the all-day doctor on its own day, not the midnight after it.
+    const doctor = (body.items as Array<{ commitment: { id: string }; since: string; shownAt?: string }>).find((item) => item.commitment.id === 'doctor')!;
+    assert.equal(doctor.since, '2026-11-11T22:00:00.000Z');
+    assert.equal(doctor.shownAt, '2026-11-10T22:00:00.000Z');
+    assert.equal((lecture as { shownAt?: string }).shownAt, '2026-10-22T10:00:00.000Z');
   });
 });
 
