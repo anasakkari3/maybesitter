@@ -205,6 +205,8 @@ test('an unedited suggestion is stored as the model’s, confirmed by the user',
 
     const record = (await createStorageRuntimeMemoryStore().listAll(UID))[0]!;
     assert.equal(record.source, 'model_inferred');
+    // Ticked by the person, so certain (QA CA8.6), not the model's own 0.9.
+    assert.equal(record.confidence, 1);
     assert.equal(record.provenance?.origin, 'self_description');
     assert.equal(record.provenance?.originRef, proposal.proposalId);
     assert.equal(record.provenance?.promptVersion, 'profile-v1');

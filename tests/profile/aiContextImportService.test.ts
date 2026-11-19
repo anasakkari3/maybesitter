@@ -131,7 +131,10 @@ test('an unedited candidate is stored as model inferred, confirmed, with its ass
 
   const [record] = await memory.retrieve({ scopeId: UID, now: AT.toISOString() });
   assert.equal(record!.source, 'model_inferred');
-  assert.equal(record!.confidence, 0.9);
+  // Kept by the person, so it is certain (QA CA8.6): the model's 0.9 was its
+  // own guess, and a row the person chose to keep must read «أكيد» exactly as
+  // the same row edited by one character does.
+  assert.equal(record!.confidence, 1);
   assert.equal(record!.provenance?.origin, 'ai_context_import');
   assert.equal(record!.provenance?.originRef, proposal.proposalId);
   assert.equal(record!.provenance?.assistant, 'chatgpt');
