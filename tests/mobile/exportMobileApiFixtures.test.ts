@@ -1475,6 +1475,10 @@ test('exports a fixture for every /api/mobile call the React Native client makes
     await record('goalPlan.refusedStatementEvent', 422, await goalStatementPreviewPost(
       request('/api/mobile/goals/from-statement/preview', { body: { statement: 'doctor appointment tomorrow at 4', locale: 'en' }, uid: GOAL_USER }),
     ));
+    // A goal past the 200 characters a goal memory holds (QA v3, after #879).
+    await record('goalPlan.refusedStatementTooLong', 422, await goalStatementPreviewPost(
+      request('/api/mobile/goals/from-statement/preview', { body: { statement: 'I want to learn Spanish '.repeat(9), locale: 'en' }, uid: GOAL_USER }),
+    ));
     await record('goalPlan.statementAccepted', 200, await goalStatementAcceptPost(
       request('/api/mobile/goals/from-statement/accept', {
         body: { summaryId: statement.summaryId, revision: statement.revision, understood: statement.understood, idempotencyKey: 'fixture-statement-accept' }, uid: GOAL_USER,

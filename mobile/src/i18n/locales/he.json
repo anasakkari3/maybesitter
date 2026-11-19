@@ -1959,6 +1959,7 @@
   "xPlanFailOffline": "אין אינטרנט. שום דבר לא נשמר.",
   "xPlanActionWhenOnline": "נסה כשהאינטרנט יחזור",
   "xPlanFailVague": "אני צריך עוד קצת",
+  "xPlanFailTooLong": "המטרה ארוכה מדי. נסח אותה במשפט קצר יותר, עד 200 תווים.",
   "xPlanActionAnswer": "ענה",
   "xPlanFailEvent": "זו פגישה, לא מטרה.",
   "xPlanFailTask": "זו משימה אחת, לא מטרה.",

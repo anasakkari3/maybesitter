@@ -1956,6 +1956,7 @@
   "xPlanFailOffline": "No internet. Nothing was saved.",
   "xPlanActionWhenOnline": "Try when you're back online",
   "xPlanFailVague": "I need a bit more",
+  "xPlanFailTooLong": "That goal is too long. Say it in a shorter sentence, up to 200 characters.",
   "xPlanActionAnswer": "Answer",
   "xPlanFailEvent": "That's an appointment, not a goal.",
   "xPlanFailTask": "That's a single task, not a goal.",
