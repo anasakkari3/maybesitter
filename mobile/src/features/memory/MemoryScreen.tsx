@@ -141,11 +141,11 @@ export function MemoryScreen({ onBack, focusId = null }: {
   const [sending, setSending] = useState<ReadonlySet<string>>(() => new Set());
   const send = useCallback((id: string) => {
     setSending(current => new Set(current).add(id));
-    removeRef.current.mutate(id, {
-      onError: (error: unknown) => {
-        markErrorShown(error);
-        setSending(current => { const next = new Set(current); next.delete(id); return next; });
-      },
+    // Each delete answers for its own row: `mutate`'s own onError runs only
+    // for the latest call, so an earlier refused delete kept its row hidden.
+    removeRef.current.mutateAsync(id).catch((error: unknown) => {
+      markErrorShown(error);
+      setSending(current => { const next = new Set(current); next.delete(id); return next; });
     });
   }, []);
 
