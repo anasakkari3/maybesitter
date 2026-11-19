@@ -296,6 +296,30 @@ describe('“Looks good”', () => {
   });
 });
 
+/**
+ * CA4.11 (owner decision 2026-11-19): once the plan is accepted, «مش اليوم»
+ * is gone from it. It used to stay enabled and dismiss the accepted plan with
+ * no question, and a second accept then counted the plan twice.
+ */
+describe('an accepted plan (CA4.11)', () => {
+  it('no longer offers to set it aside, from the server record', async () => {
+    jest.spyOn(planEndpoints, 'getPlan')
+      .mockResolvedValue(planWith({ status: 'accepted', acceptedAt: '2026-08-09T06:00:00.000Z' }) as never);
+    await loaded();
+    expect(screen.queryByText(en.planAcceptedStatus)).not.toBeNull();
+    expect(screen.queryByTestId('plan-dismiss')).toBeNull();
+  });
+
+  it('drops «مش اليوم» right after the accept lands', async () => {
+    jest.spyOn(planEndpoints, 'actOnPlan').mockResolvedValue(planWith({ status: 'accepted', acceptedAt: '2026-08-09T06:00:00.000Z' }) as never);
+    await loaded();
+    expect(screen.queryByTestId('plan-dismiss')).not.toBeNull();
+    await fireEvent.press(screen.getByTestId('plan-accept'));
+    await waitFor(() => expect(screen.queryByTestId('plan-accepted')).not.toBeNull());
+    expect(screen.queryByTestId('plan-dismiss')).toBeNull();
+  });
+});
+
 describe('moving an item the plan will not allow', () => {
   const ITEM = BASE.scheduled[0]!;
 
