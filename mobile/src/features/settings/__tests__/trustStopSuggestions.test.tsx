@@ -10,11 +10,13 @@
  */
 import React from 'react';
 import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react-native';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react-native';
 import { AccessibilityInfo } from 'react-native';
 import { NetworkError } from '../../../api/errors';
 import { claimVisit, recordVisitFailure, resetVisitThrottleForTests } from '../../../lib/deviceSettings/visitThrottle';
 import en from '../../../i18n/locales/en.json';
+import ar from '../../../i18n/locales/ar.json';
+import he from '../../../i18n/locales/he.json';
 import { SafeAreaProvider, type Metrics } from 'react-native-safe-area-context';
 import { QueryClient, QueryClientProvider, onlineManager } from '@tanstack/react-query';
 import { AppProvider } from '../../../state/AppContext';
@@ -282,5 +284,63 @@ describe('«وقّف مشاركتك» on the trust centre', () => {
     await show();
     await waitFor(() => expect(screen.queryByTestId('trust-revoked')).not.toBeNull());
     expect(announce).not.toHaveBeenCalledWith(en.trustRevoked);
+  });
+
+  it('a second turn-back-on after a partial one, whose learning half fails offline, still offers to turn them back on', async () => {
+    rememberingServer(BOTH_OFF, true);
+    await show();
+    await waitFor(() => expect(screen.queryByTestId('trust-resume')).not.toBeNull());
+    await fireEvent.press(screen.getByTestId('trust-resume'));
+    await waitFor(() => expect(screen.queryByText(en.trustResumePartial)).not.toBeNull());
+    jest.spyOn(consentEndpoints, 'putPersonalizationConsent').mockRejectedValue(new NetworkError('offline') as never);
+    await fireEvent.press(screen.getByTestId('trust-resume'));
+    await waitFor(() => expect(screen.queryByText(en.trustActionFailed)).not.toBeNull());
+    expect(screen.queryByTestId('trust-resume')).not.toBeNull();
+    expect(screen.queryByTestId('trust-revoke')).toBeNull();
+  });
+
+  it('while that second try is on its way, the button does not turn into «stop»', async () => {
+    rememberingServer(BOTH_OFF, true);
+    await show();
+    await waitFor(() => expect(screen.queryByTestId('trust-resume')).not.toBeNull());
+    await fireEvent.press(screen.getByTestId('trust-resume'));
+    await waitFor(() => expect(screen.queryByText(en.trustResumePartial)).not.toBeNull());
+    let release!: () => void;
+    jest.spyOn(consentEndpoints, 'putPersonalizationConsent').mockImplementation(() => new Promise(resolve => { release = () => resolve(recorded as never); }) as never);
+    await fireEvent.press(screen.getByTestId('trust-resume'));
+    await waitFor(() => expect(screen.queryByTestId('trust-stop-busy')).not.toBeNull());
+    expect(screen.queryByTestId('trust-revoke')).toBeNull();
+    expect(screen.queryByTestId('trust-resume')).not.toBeNull();
+    release();
+  });
+
+  it('opening an account that is on shows neither «off» nor «back on»', async () => {
+    rememberingServer(BOTH_ON);
+    await show();
+    await waitFor(() => expect(screen.getByTestId('trust-revoke').props.accessibilityState?.disabled).not.toBe(true));
+    expect(screen.queryByTestId('trust-resumed')).toBeNull();
+    expect(screen.queryByTestId('trust-revoked')).toBeNull();
+  });
+
+  it('the standing «off» line sits outside the live region, so opening the screen announces nothing', async () => {
+    rememberingServer(BOTH_OFF);
+    await show();
+    await waitFor(() => expect(screen.queryByTestId('trust-revoked')).not.toBeNull());
+    expect(within(screen.getByTestId('trust-stop-live')).queryByTestId('trust-revoked')).toBeNull();
+  });
+
+  it('the card says what keeps going, and says email is still read and analysed', async () => {
+    rememberingServer(BOTH_ON);
+    await show();
+    await waitFor(() => expect(screen.queryByTestId('trust-revoke-email')).not.toBeNull());
+    expect(screen.getByText(en.trustRevokeEmail)).toBeTruthy();
+    for (const copy of [ar, en, he]) {
+      // The watches' own cards keep coming: the card names them by their title.
+      expect(copy.trustRevokeBody).toContain(copy.xProposalsTitle);
+      // It does not claim Watching goes quiet: those cards live there.
+      expect(copy.trustRevokeBody).not.toContain(copy.tabWatching);
+    }
+    // The confirmation says what stays, without repeating the card.
+    expect(en.trustRevokeConfirmBody).not.toBe(en.trustRevokeBody);
   });
 });

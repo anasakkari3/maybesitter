@@ -104,3 +104,13 @@ test('suggestions stopped while the step is running: nothing it asked for is sto
   const monitor = await storage.get<any>(`users/${uid}/intelligenceMonitors/gmail`);
   assert.equal(monitor.proposalsDoneVersion, 0, 'the stopped run was recorded as done');
 });
+
+test('suggestions stopped between the early check and the model call: the model is not called', async () => {
+  const uid = 'proposal-stopped-before-model';
+  const { storage, runtime, calls } = await monitoredAccount(uid, 'granted');
+  await runGmailJobTick('live', { runtime, ensureReadable: async () => {
+    await setRecommendationConsent(uid, { state: 'declined', version: RECOMMENDATION_CONSENT_VERSION, at: new Date(Date.parse(NOW) + 1000) }, { storage });
+  } });
+  assert.equal(calls.model, 0, 'the model was called after «وقّف»');
+  assert.equal((await storage.list(userCol(uid, 'intelligenceSuggestions'))).length, 0);
+});
