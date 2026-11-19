@@ -265,8 +265,9 @@ test('V3-F27-04: suggestions are asked for in the app\'s language, and a languag
     assert.equal((await generatePost(req('/api/mobile/intelligence/generate', 'POST', { locale: 'en' }))).status, 200);
     assert.equal(h.calls.length, 1);
     assert.match(h.calls[0]!.system, /The person reads the app in English\. Write every title, reason and question in English/);
-    // Same evidence, the app switched to Hebrew: not the English run again.
-    assert.equal((await generatePost(req('/api/mobile/intelligence/generate', 'POST', { trigger: 'visit', locale: 'he' }))).status, 200);
+    // Same evidence, the app switched to Hebrew: the button does not get the
+    // English run back. (A visit still waits for its floors: cost first.)
+    assert.equal((await generatePost(req('/api/mobile/intelligence/generate', 'POST', { locale: 'he' }))).status, 200);
     assert.ok(h.calls.length >= 2, 'a different language asks again');
     assert.match(h.calls[h.calls.length - 1]!.system, /The person reads the app in Hebrew\./);
     // An unknown language is ignored, never refused, and adds no line.

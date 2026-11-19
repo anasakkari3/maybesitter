@@ -1,4 +1,5 @@
 import { apiRequest } from '../client';
+import { apiLocale } from '../../i18n/locale';
 import {
   intelligenceAnalyzeSchema, intelligenceGenerateSchema, intelligenceInboxSchema,
   intelligenceObservationReviewSchema, intelligenceSuggestionDecisionSchema,
@@ -24,8 +25,12 @@ export function analyzeIntelligenceStatement(text: string, options: { asUid?: st
  * predates the floor ignores the body.
  */
 export function generateIntelligenceSuggestions(options: { signal?: AbortSignal; visit?: boolean; asUid?: string } = {}) {
+  // The app's language, the one the person chose (QA v3 V3-F27-04): the
+  // phone's own Accept-Language is the device's, Arabic on a Hebrew account,
+  // and the server had nothing else to go on.
+  const locale = apiLocale();
   return apiRequest('POST', '/api/mobile/intelligence/generate', {
-    body: options.visit ? { trigger: 'visit' } : {}, schema: intelligenceGenerateSchema,
+    body: options.visit ? { trigger: 'visit', locale } : { locale }, schema: intelligenceGenerateSchema,
     ...(options.signal ? { signal: options.signal } : {}),
     ...(options.asUid !== undefined ? { asUid: options.asUid } : {}),
   });

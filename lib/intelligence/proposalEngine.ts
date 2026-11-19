@@ -196,6 +196,28 @@ export const LANGUAGE_RULE = [
   'Example title: «حضّر لامتحان الرياضيات» — example reason: «عندك امتحان رياضيات بكرا الساعة 9 الصبح، والسهرة الليلة ممكن تقصّر نومك.»',
 ].join(' ');
 
+/** The app languages a suggestion can be asked for in (QA v3 V3-F27-04). */
+export type SuggestionLocale = 'ar' | 'en' | 'he';
+
+export function isSuggestionLocale(value: unknown): value is SuggestionLocale {
+  return value === 'ar' || value === 'en' || value === 'he';
+}
+
+const LANGUAGE_NAME: Record<SuggestionLocale, string> = { ar: 'Arabic', en: 'English', he: 'Hebrew' };
+
+/**
+ * The app's language, when the phone sends it (QA v3 V3-F27-04). An English
+ * account was answered in Arabic: «the language of the observations» is a
+ * guess, made beside Arabic examples, and the server never knew which
+ * language the person reads the app in. Sent only with a language, as
+ * `DELETED_PROMPT_LINE` is only with a deletion, so a request without one
+ * keeps the exact bytes the parity digests pin.
+ */
+export function outputLanguageLine(locale: SuggestionLocale): string {
+  const name = LANGUAGE_NAME[locale];
+  return `The person reads the app in ${name}. Write every title, reason and question in ${name}, even when an observation is in another language; keep names and places as written.`;
+}
+
 /**
  * The deletion guard (CA2.3), sent only when a Deleted outcome is among the
  * evidence — as `READD_PROMPT_LINE` is only with a re-add — so every request
@@ -503,6 +525,8 @@ export async function proposeFromObservations<TransactionGuardState = undefined>
     visit?: boolean;
     /** The requesting app declared that it can render and review re-adds. */
     readdClientSupported?: boolean;
+    /** The app's language (V3-F27-04); absent keeps today's request bytes. */
+    locale?: SuggestionLocale;
     /** Scheduler turns must remain due when generation fails. */
     throwOnGenerateFailure?: boolean;
     /** Re-read caller authority in the same transaction as every proposal. */
@@ -606,10 +630,17 @@ export async function proposeFromObservations<TransactionGuardState = undefined>
   const modelContext = { currentTime, ...content };
   const withReadd = observations.some(item => readdPolicy.projections.has(item.id))
     ? `${SYSTEM}\n${READD_PROMPT_LINE}` : SYSTEM;
-  const modelSystem = observations.some(item => item.kind === 'outcome' && item.evidence.startsWith('Deleted: '))
+  const withDeleted = observations.some(item => item.kind === 'outcome' && item.evidence.startsWith('Deleted: '))
     ? `${withReadd}\n${DELETED_PROMPT_LINE}` : withReadd;
-  const digest = createHash('sha256').update(JSON.stringify(modelContext)).digest('hex');
-  const contentDigest = createHash('sha256').update(JSON.stringify(content)).digest('hex');
+  // Every pass answers in the app's language when it is known (V3-F27-04).
+  const inLanguage = (system: string) => options.locale ? `${system}\n${outputLanguageLine(options.locale)}` : system;
+  const modelSystem = inLanguage(withDeleted);
+  // The language is part of what a run answered: switching it is a change,
+  // so neither the button's digest rule nor a visit's day of reuse hands back
+  // a run in the other language. Absent, the digests are today's.
+  const languageTag = options.locale ? `\nlocale:${options.locale}` : '';
+  const digest = createHash('sha256').update(JSON.stringify(modelContext) + languageTag).digest('hex');
+  const contentDigest = createHash('sha256').update(JSON.stringify(content) + languageTag).digest('hex');
   const claimId = options._memoryFreeRetry?.claimId ?? randomUUID();
   const today = now.slice(0, 10);
   const claimed = await storage.runTransaction(async tx => {
@@ -670,7 +701,7 @@ export async function proposeFromObservations<TransactionGuardState = undefined>
       try {
         usedSecondPass = true;
         const preparation = await generate({
-          system: EVENT_PREPARATION_SYSTEM,
+          system: inLanguage(EVENT_PREPARATION_SYSTEM),
           parts: [wrapUntrustedShared(JSON.stringify(modelContext))],
           responseSchema: toVertexSchema(schemaForMode(mode) as typeof SCHEMA),
           maxOutputTokens: 600,
@@ -705,7 +736,7 @@ export async function proposeFromObservations<TransactionGuardState = undefined>
         && item.observationIds.some(id => confirmedGoalIds.has(id)))) {
       try {
         const steps = await generate({
-          system: GOAL_STEPS_SYSTEM,
+          system: inLanguage(GOAL_STEPS_SYSTEM),
           parts: [wrapUntrustedShared(JSON.stringify(modelContext))],
           responseSchema: toVertexSchema(schemaForMode(mode) as typeof SCHEMA),
           maxOutputTokens: 900,
