@@ -1117,3 +1117,24 @@ test('QA v3: a model that answers in time still reads every picture under the de
   assert.equal(read.result.metrics?.imagesRead, 3);
   assert.equal(read.result.metrics?.modelUnavailable, 0);
 });
+
+test('QA v3: a share the person backed out of stops the call in flight and sends no further picture', async () => {
+  const model = stalledModel();
+  const request = new AbortController();
+  const reading = imagePreprocessor.preprocess(inputFor(POSTERS.slice(0, 3)), {
+    uid: READER,
+    uidHash: 'hashed',
+    generateStructured: model.generate as never,
+    readAiConsent: async () => ({ granted: true } as never),
+    limits: { maxTotalBytes: 25 * 1024 * 1024, maxFileBytes: 15 * 1024 * 1024, maxFiles: 5, maxTextCharacters: 20_000 },
+    signal: request.signal,
+  });
+  await new Promise((resolve) => setImmediate(resolve));
+  const abortedAt = Date.now();
+  request.abort();
+  const result = await reading;
+  assert.ok(Date.now() - abortedAt < 5_000, 'the read waited for its own deadline instead of the request');
+  assert.equal(model.calls.length, 1);
+  assert.equal(result.metrics?.modelUnavailable, 1);
+  assert.equal(result.metrics?.deadlineSkipped, 2);
+});
