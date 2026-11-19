@@ -535,3 +535,38 @@ describe('Must reminders and quiet hours', () => {
     });
   });
 });
+
+describe('a gentle reminder that a Later pushed past the start (C13.9)', () => {
+  const started = { title: 'A heads-up', body: 'Its time has started.' };
+
+  it('says the time has started, not that it is near', async () => {
+    const gateway = fakeGateway();
+    await syncCommitments(input({
+      settings: settingsWith({ softLeadMinutes: 15 }),
+      startedCopy: started,
+      commitments: [{
+        id: 'c1', startsAt: minutesFromNow(30), status: 'active', priority: 'must',
+        allDay: false, postponedUntil: minutesFromNow(40),
+      }],
+    }), gateway);
+
+    const soft = gateway.scheduledRequests.find(request => request.identifier === 'c1:soft');
+    expect(soft?.at.getTime()).toBe(Date.parse(minutesFromNow(40)));
+    expect(soft?.body).toBe('Its time has started.');
+  });
+
+  it('keeps the coming-up sentence while the start is still ahead', async () => {
+    const gateway = fakeGateway();
+    await syncCommitments(input({
+      settings: settingsWith({ softLeadMinutes: 15 }),
+      startedCopy: started,
+      commitments: [{
+        id: 'c1', startsAt: minutesFromNow(30), status: 'active', priority: 'must',
+        allDay: false, postponedUntil: minutesFromNow(20),
+      }],
+    }), gateway);
+
+    const soft = gateway.scheduledRequests.find(request => request.identifier === 'c1:soft');
+    expect(soft?.body).toBe('Something is coming up.');
+  });
+});
