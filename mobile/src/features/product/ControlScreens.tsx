@@ -165,11 +165,19 @@ export function PatchReviewScreen() {
   // only be refused again, so that one offer's Accept is held; declining it
   // is still honest and still allowed.
   const [staleOfferId, setStaleOfferId] = React.useState<string | null>(null);
+  // What the person just decided, said once the offer is gone (CA4.6): the
+  // answer carries `proposal: null`, and «ما في اقتراح» read like a failure.
+  const [decided, setDecided] = React.useState<'accept_proposal' | 'reject_proposal' | null>(null);
   const decide = (decision: 'accept_proposal' | 'reject_proposal') => {
+    setDecided(null);
     // The offer being answered is named, so an accept cannot install a newer
     // offer the person has not seen.
     const proposalId = proposal?.proposalId;
     action.mutate(proposalId ? { action: decision, proposalId } : { action: decision }, {
+      onSuccess: () => {
+        setDecided(decision);
+        AccessibilityInfo.announceForAccessibility(decision === 'accept_proposal' ? t.xPatchApplied : t.xPatchKeptPlan);
+      },
       onError: error => {
         if (!(error instanceof PlanProposalRefusedError)) return;
         if (error.reason === 'stale_proposal' && proposalId) setStaleOfferId(proposalId);
@@ -229,7 +237,9 @@ export function PatchReviewScreen() {
         {action.error && !refused ? <Txt role="supporting" color={p.wm}>{userFacingMessage(action.error, t)}</Txt> : null}
         <Pill testID="patch-accept" label={t.xAcceptChanges} disabled={busy || proposal.proposalId === staleOfferId} onPress={() => decide('accept_proposal')} />
         <Pill testID="patch-reject" label={t.xKeepPlan} kind="outline" disabled={busy} onPress={() => decide('reject_proposal')} />
-      </> : <ProductSection title={t.xNoPatch} icon="calendar" />}
+      </> : decided ? <View testID="patch-applied">
+        <ProductSection title={decided === 'accept_proposal' ? t.xPatchApplied : t.xPatchKeptPlan} icon="check" />
+      </View> : <ProductSection title={t.xNoPatch} icon="calendar" />}
     </QueryBoundary>
     <Pill testID="patch-open-plan" label={t.xPlanner} kind="soft" onPress={() => actions.openPlan(dayKey(new Date(), zone))} />
   </ProductPage>;

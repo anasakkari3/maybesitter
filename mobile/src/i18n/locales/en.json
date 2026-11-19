@@ -1392,6 +1392,8 @@
   "xBefore": "Before",
   "xAfter": "Proposed",
   "xNoPatch": "No change proposal is available",
+  "xPatchApplied": "The changes are in today's plan.",
+  "xPatchKeptPlan": "Your plan stays as it was.",
   "xPatchWhyConfirm": "You asked to approve every change to your plan.",
   "xPatchWhyRemovals": "Something no longer fits today, so this waits for your OK.",
   "xPatchWhyAdditions": "This adds something to your day, so it waits for your OK.",
