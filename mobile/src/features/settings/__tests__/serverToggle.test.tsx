@@ -13,6 +13,7 @@ import { AccessibilityInfo } from 'react-native';
 import { SafeAreaProvider, type Metrics } from 'react-native-safe-area-context';
 import { AppProvider } from '../../../state/AppContext';
 import { ServerToggle } from '../ServerToggle';
+import { palettes } from '../../../theme/tokens';
 import { Disclosure } from '../../../ui/Disclosure';
 import en from '../../../i18n/locales/en.json';
 import ar from '../../../i18n/locales/ar.json';
@@ -242,5 +243,22 @@ describe('accessibility', () => {
     // The accessory composes the title and its why. If it wraps the bordered
     // row instead, this shared host also becomes an ancestor of the switch.
     expect(ancestors(control)).not.toContain(nearestSharedHost);
+  });
+});
+
+// QA v3 V3-F34-08: the thumb was drawn in the on track's own colour (a coral
+// pill with no thumb), and off in the card's colour (no thumb on a dark card).
+describe('the thumb is always visible', () => {
+  const cards = [palettes.light.sf, palettes.dark.sf];
+  it.each([
+    ['on', { value: true }],
+    ['on but blocked by the phone', { value: true, blockedNote: 'Blocked in phone settings' }],
+    ['off', { value: false }],
+  ] as const)('%s: the thumb differs from its track and from the card', async (_name, props) => {
+    await show(props);
+    const toggle = screen.getByTestId('toggle');
+    const track = props.value ? toggle.props.trackColor.true : toggle.props.trackColor.false;
+    expect(toggle.props.thumbColor).not.toBe(track);
+    expect(cards).not.toContain(toggle.props.thumbColor);
   });
 });

@@ -27,6 +27,7 @@ import * as featuresEndpoints from '../../../api/endpoints/features';
 import { NetworkError, NotFoundError, ServerError } from '../../../api/errors';
 import type { FeatureCapabilities, FeatureCapability } from '../../../api/schemas/features';
 import { featuresKey } from '../featureSettings';
+import { palettes } from '../../../theme/tokens';
 import en from '../../../i18n/locales/en.json';
 import ar from '../../../i18n/locales/ar.json';
 import enforceFixture from '../../../api/__fixtures__/capabilities.features.enforce.json';
@@ -170,6 +171,17 @@ describe('the status in a word', () => {
     expect(toggle.props.value).toBe(true);
     expect(toggle.props.accessibilityHint).toBe(en.featuresStatusNeedsSubscription);
     expect(toggle.props.accessibilityLabel).toBe(en.featureMemoryTranslationName);
+  });
+
+  // QA v3 V3-F34-08: an on switch was a coral pill with no thumb.
+  it('draws a thumb that differs from its track, on and off', async () => {
+    await showScreen(switched);
+    for (const id of ['football', 'gmail_reading']) {
+      const toggle = screen.getByTestId(`feature-${id}-switch`);
+      const track = toggle.props.value ? toggle.props.trackColor.true : toggle.props.trackColor.false;
+      expect(toggle.props.thumbColor).not.toBe(track);
+      expect([palettes.light.sf, palettes.dark.sf]).not.toContain(toggle.props.thumbColor);
+    }
   });
 
   it('shows the switch off only when the person turned it off', async () => {
