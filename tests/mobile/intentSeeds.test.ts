@@ -267,6 +267,34 @@ test('"Later" records a revisit marker the user chose, and nothing schedules it'
   }
 });
 
+test('QA v3 V3-F24-02: a create that names a check-back date is refused, never saved with the date dropped', async () => {
+  const teardown = await setup();
+  try {
+    const revisitAt = '2026-11-25T09:00:00.000Z';
+    const manual = await seedsPost(req('POST', '/api/mobile/seeds', {
+      kind: 'waiting_for', summary: 'Waiting for the landlord reply', revisitAt,
+    }));
+    assert.equal(manual.status, 400, await manual.clone().text());
+    assert.equal((await json(manual)).reason, 'invalid_seed');
+
+    const proposal = await proposeMaybe();
+    const offered = (proposal.seeds as Array<{ seedItemId: string }>)[0]!;
+    const kept = await seedsPost(req('POST', '/api/mobile/seeds', {
+      proposalId: proposal.proposalId, seedItemId: offered.seedItemId, revisitAt,
+    }));
+    assert.equal(kept.status, 400, await kept.clone().text());
+    assert.equal(await seedRows(), 0, 'nothing may be stored when the date it named would be dropped');
+
+    // Without a date (or with an explicit null) the create still works.
+    const plain = await seedsPost(req('POST', '/api/mobile/seeds', {
+      kind: 'waiting_for', summary: 'Waiting for the landlord reply', revisitAt: null,
+    }));
+    assert.equal(plain.status, 201, await plain.clone().text());
+  } finally {
+    await teardown();
+  }
+});
+
 test('no patch can mark a seed promoted — a seed cannot promote itself', async () => {
   const teardown = await setup();
   try {
