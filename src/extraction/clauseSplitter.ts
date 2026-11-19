@@ -990,10 +990,10 @@ function segmentsOf(raw: string): SegmentPiece[] {
  * is the day of every point on its list that names no day of its own.
  *
  * Read on the line's first forty characters, before its first colon; the
- * head ends in no digit and no digit follows the colon, so «الساعة 10:30» and
- * «بكرا 10:30» are clocks, not heads.
+ * head ends in no digit, so «الساعة 10:30» and «بكرا 10:30» are clocks, not
+ * heads, while «بكرا:5 المسا …» is a head before its first point's hour.
  */
-const LIST_HEAD = new RegExp('^\\s*([^:：\\n]{0,39}[^:：\\n0-9٠-٩])\\s*[:：](?![0-9٠-٩])(.*)$', 'su');
+const LIST_HEAD = new RegExp('^\\s*([^:：\\n]{0,39}[^:：\\n0-9٠-٩])\\s*[:：](.*)$', 'su');
 
 function listHeadDay(lineText: string): { day: string; alone: boolean; rest: string } | null {
   const head = LIST_HEAD.exec(lineText);
