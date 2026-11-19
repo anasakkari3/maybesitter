@@ -12,7 +12,8 @@ import he from '../locales/he.json';
 const daysIn = (text: string) => text.match(/\d+/g) ?? [];
 
 describe('the account-deleted message agrees with what stays', () => {
-  it.each([['ar', ar], ['en', en], ['he', he]] as const)('%s names the backup window the list gave', (_lang, strings) => {
+  const locales: Array<[string, { accountDeleteWhatStaysBackups: string; accountDeletedBody: string }]> = [['ar', ar], ['en', en], ['he', he]];
+  it.each(locales)('%s names the backup window the list gave', (_lang, strings) => {
     const backupDays = daysIn(strings.accountDeleteWhatStaysBackups);
     expect(backupDays.length).toBe(1);
     expect(daysIn(strings.accountDeletedBody)).toContain(backupDays[0]);
