@@ -136,8 +136,17 @@ function savedNoteText(note: ChatSavedNote, t: Strings, lang: Lang, timeZone: st
   if (note.failed.length > 0) {
     paragraphs.push(`${t.savedFailedTitle}${note.failedTitles.length > 0 ? `: ${list(note.failedTitles)}` : ''}. ${t.savedFailedBody}`);
   }
-  // A point still waiting for its answer, its words back in the field (QA v3, V3-F04-02).
-  if (note.leftTitles?.length) paragraphs.push(fill(t.chatSavedLeft, { titles: list(note.leftTitles) }));
+  // What the save left behind (QA v3, V3-F04-02 / V3-F24-01): a point whose
+  // question was still open, a thought nobody kept — and, only when it is
+  // true, that their words are back in the field.
+  const leftPoints = note.leftTitles ?? [];
+  const leftThoughts = note.leftThoughts ?? [];
+  const left = [
+    leftPoints.length ? tFor(lang)('chatSavedLeftAsking', { n: leftPoints.length, titles: list(leftPoints) }) : null,
+    leftThoughts.length ? tFor(lang)('chatSavedLeftThoughts', { n: leftThoughts.length, titles: list(leftThoughts) }) : null,
+    (leftPoints.length || leftThoughts.length) && note.leftHandedBack ? t.chatSavedLeftBack : null,
+  ].filter((part): part is string => part !== null);
+  if (left.length > 0) paragraphs.push(left.join(' '));
   if (note.undone) {
     const still = note.undone.stillSaved.map((id) => note.persisted.find((item) => item.commitmentId === id)?.title ?? id);
     paragraphs.push(still.length === 0 ? t.undoneTitle : `${t.undonePartialTitle}. ${fill(t.undonePartialBody, { titles: list(still) })}`);

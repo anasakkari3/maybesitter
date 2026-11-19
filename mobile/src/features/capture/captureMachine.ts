@@ -162,6 +162,10 @@ export interface ChatSavedNote {
   seedsSaved?: NonNullable<CaptureConfirmation['seedsPersisted']>;
   /** The points the confirm could not carry — still waiting for an answer — by their titles (QA v3 V3-F04-02). */
   leftTitles?: string[];
+  /** The thoughts nobody kept or set aside, by their words (QA v3 V3-F24-01). */
+  leftThoughts?: string[];
+  /** Whether the words of what was left behind went back to the field (they do not when it already held a message). */
+  leftHandedBack?: boolean;
   undone?: { stillSaved: string[] };
 }
 
@@ -171,7 +175,7 @@ export interface ChatSavedNote {
  * selected because its question was still open. Each with its title and the
  * person's own words for it (the «هيك فهمت» line), or its title without them.
  */
-function leftBehind(state: CaptureState, confirmation: CaptureConfirmation): Array<{ title: string; words: string }> {
+function leftBehind(state: CaptureState, confirmation: CaptureConfirmation): Array<{ title: string; words: string; thought: boolean }> {
   const proposal = state.proposal;
   if (!proposal) return [];
   const handled = new Set([...confirmation.persisted.map((item) => item.itemId), ...confirmation.failed.map((item) => item.itemId)]);
@@ -180,7 +184,7 @@ function leftBehind(state: CaptureState, confirmation: CaptureConfirmation): Arr
     .filter((item) => !handled.has(item.itemId) && !selectable.has(item.itemId) && item.title.trim().length > 0)
     .map((item) => {
       const said = (proposal.understood ?? []).find((point) => point.kind === 'commitment' && point.itemId === item.itemId)?.text;
-      return { title: item.title, words: said?.trim() || item.title };
+      return { title: item.title, words: said?.trim() || item.title, thought: false };
     });
   // A thought outside the thought entry is kept only by its own «خلّيه»
   // (R002: the confirm cannot carry it). One the person neither kept nor set
@@ -189,7 +193,7 @@ function leftBehind(state: CaptureState, confirmation: CaptureConfirmation): Arr
   const savedSeeds = new Set((confirmation.seedsPersisted ?? []).map((seed) => seed.seedItemId));
   const thoughts = proposal.entry === 'thought' ? [] : (proposal.seeds ?? [])
     .filter((seed) => !state.decidedSeeds.includes(seed.seedItemId) && !savedSeeds.has(seed.seedItemId) && seed.summary.trim().length > 0)
-    .map((seed) => ({ title: seed.summary.trim(), words: seed.summary.trim() }));
+    .map((seed) => ({ title: seed.summary.trim(), words: seed.summary.trim(), thought: true }));
   return [...items, ...thoughts];
 }
 
@@ -1467,7 +1471,9 @@ export function captureReducer(state: CaptureState, event: CaptureEvent): Captur
             ...(saved.otherSaved.habits.length > 0 ? { habitsSaved: saved.otherSaved.habits } : {}),
             ...(saved.otherSaved.goals.length > 0 ? { goalsSaved: saved.otherSaved.goals } : {}),
             ...(saved.otherSaved.seeds.length > 0 ? { seedsSaved: saved.otherSaved.seeds } : {}),
-            ...(left.length > 0 ? { leftTitles: left.map((item) => item.title) } : {}),
+            ...(left.some((item) => !item.thought) ? { leftTitles: left.filter((item) => !item.thought).map((item) => item.title) } : {}),
+            ...(left.some((item) => item.thought) ? { leftThoughts: left.filter((item) => item.thought).map((item) => item.title) } : {}),
+            ...(left.length > 0 ? { leftHandedBack: text === handBack } : {}),
           },
         ],
         turns: [],
