@@ -28,7 +28,9 @@ import * as commitmentEndpoints from '../../../api/endpoints/commitments';
 import { deviceCalendar } from '../deviceCalendar';
 import { draftFor } from '../eventDraft';
 import { resetWriterIdCache, resolveWriterId, saveChosenCalendarId } from '../../../lib/deviceSettings/calendarDevice';
-import { resetCalendarSyncForTests, useDeviceCalendarSync, type CalendarSyncState } from '../useDeviceCalendarSync';
+import { resetCalendarSyncForTests, setRemovalWaitForTests, useDeviceCalendarSync, type CalendarSyncState } from '../useDeviceCalendarSync';
+import { DeviceCalendarError } from '../deviceCalendar';
+import { NetworkError } from '../../../api/errors';
 import { useToday, useUpcoming } from '../../../api/queries';
 
 const USER: AuthUser = {
@@ -221,3 +223,93 @@ describe('a pass asked for while the button is working', () => {
     await removing;
   });
 });
+
+/* ── Second review of #870 ───────────────────────────────────────────── */
+
+async function linkedOnPhone() {
+  const writerId = await resolveWriterId();
+  const draft = draftFor(dated(null), ZONE)!;
+  phone.set('evt-1', draft.url!);
+  serverLink = {
+    writerId, calendarId: 'cal-1', eventId: 'evt-1',
+    contentHash: draft.contentHash, state: 'linked', writtenAt: new Date().toISOString(),
+  };
+}
+
+describe('when writing could not be turned off (second review of #870)', () => {
+  it('removes nothing and says so', async () => {
+    await linkedOnPhone();
+    (calendarEndpoints.putCalendarWriteTarget as jest.MockedFunction<typeof calendarEndpoints.putCalendarWriteTarget>)
+      .mockRejectedValue(new NetworkError('offline'));
+    await mount();
+    await waitFor(() => expect(hook).not.toBeNull());
+    await settle();
+    await expect(hook!.removeAll()).rejects.toBeTruthy();
+    expect(deviceCalendar.deleteEvent).not.toHaveBeenCalled();
+    expect(calendarEndpoints.deleteDeviceCalendarLink).not.toHaveBeenCalled();
+    expect(phone.has('evt-1')).toBe(true);
+  });
+
+  it('lets passes run again after a removal that failed and after one that worked', async () => {
+    await linkedOnPhone();
+    const put = calendarEndpoints.putCalendarWriteTarget as jest.MockedFunction<typeof calendarEndpoints.putCalendarWriteTarget>;
+    put.mockRejectedValueOnce(new NetworkError('offline'));
+    await mount();
+    await waitFor(() => expect(hook).not.toBeNull());
+    await settle();
+    await hook!.removeAll().catch(() => undefined);
+    expect(await hook!.runNow()).not.toBeNull();
+    await hook!.removeAll();
+    expect(await hook!.runNow()).not.toBeNull();
+  });
+});
+
+describe('the switch\'s state not loaded yet (second review of #870)', () => {
+  it('asks the server rather than assuming writing is off', async () => {
+    await linkedOnPhone();
+    let first = true;
+    (calendarEndpoints.getCalendarSettings as jest.MockedFunction<typeof calendarEndpoints.getCalendarSettings>)
+      .mockImplementation(async () => {
+        if (first) {
+          first = false;
+          await new Promise(() => undefined);
+        }
+        return { calendarSettings: { writeTarget: serverTarget } };
+      });
+    await mount();
+    await waitFor(() => expect(hook).not.toBeNull());
+    await settle();
+    await hook!.removeAll();
+    expect(calendarEndpoints.putCalendarWriteTarget).toHaveBeenCalledWith('off', expect.anything());
+  });
+});
+
+describe('a pass that never finishes (second review of #870)', () => {
+  it('gives up waiting, removes nothing, and does not block passes for ever', async () => {
+    setRemovalWaitForTests(50);
+    jest.spyOn(deviceCalendar, 'createEvent').mockImplementation(async () => {
+      phone.set('evt-1', draftFor(dated(null), ZONE)!.url!);
+      return 'evt-1';
+    });
+    jest.spyOn(calendarEndpoints, 'putDeviceCalendarLink').mockImplementation(() => new Promise(() => undefined));
+    await mount();
+    await waitFor(() => expect(deviceCalendar.createEvent).toHaveBeenCalled());
+    await expect(hook!.removeAll()).rejects.toBeTruthy();
+    expect(calendarEndpoints.putCalendarWriteTarget).not.toHaveBeenCalled();
+    expect(deviceCalendar.deleteEvent).not.toHaveBeenCalled();
+  });
+});
+
+describe('the count the button reports (second review of #870)', () => {
+  it('carries what could not be removed', async () => {
+    await linkedOnPhone();
+    (deviceCalendar.deleteEvent as jest.MockedFunction<typeof deviceCalendar.deleteEvent>)
+      .mockRejectedValue(new DeviceCalendarError('unavailable', 'busy'));
+    await mount();
+    await waitFor(() => expect(hook).not.toBeNull());
+    await settle();
+    const result = await hook!.removeAll();
+    expect(result).toMatchObject({ removed: 0, skipped: 1, permissionDenied: false });
+  });
+});
+

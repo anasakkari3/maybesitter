@@ -792,3 +792,47 @@ describe('remove events MaybeSitter added, and a row the user made by hand (revi
   });
 });
 
+/* ── Second review of #870 ───────────────────────────────────────────── */
+
+describe('remove events MaybeSitter added, counted honestly (second review of #870)', () => {
+  it('counts a linked event it could not remove as skipped, not removed', async () => {
+    const rec = recorder({ failDelete: new DeviceCalendarError('unavailable', 'busy') });
+    const result = await removeAllWrittenEvents({
+      subjects: [subject(commitment(), link())],
+      writerId: MINE,
+      ports: rec.ports,
+    });
+    expect(result).toEqual({ removed: 0, skipped: 1, permissionDenied: false });
+  });
+
+  it('does not sweep a commitment whose link the response did not carry', async () => {
+    // `undefined` is "not looked up", not "no link": in a shared iCloud
+    // calendar the copy may be the event another device owns.
+    const rec = recorder();
+    seedCopy(rec, 'maybe-theirs', commitment({ id: 'a' }));
+    await removeAllWrittenEvents({
+      subjects: [subject(commitment({ id: 'a' }), undefined), subject(commitment({ id: 'b' }), null)],
+      writerId: MINE,
+      calendarIds: ['cal-1'],
+      now: new Date('2026-06-10T00:00:00.000Z'),
+      ports: rec.ports,
+    });
+    expect(rec.events.has('maybe-theirs')).toBe(true);
+    expect(rec.calls).not.toContain('deleteLink:a');
+  });
+
+  it('sweeps by the whole address: cmt-1 in hand does not take cmt-10\'s copy', async () => {
+    const rec = recorder();
+    seedCopy(rec, 'ten', commitment({ id: 'cmt-10' }));
+    seedCopy(rec, 'one', commitment({ id: 'cmt-1' }));
+    await removeAllWrittenEvents({
+      subjects: [subject(commitment({ id: 'cmt-1' }), null)],
+      writerId: MINE,
+      calendarIds: ['cal-1'],
+      now: new Date('2026-06-10T00:00:00.000Z'),
+      ports: rec.ports,
+    });
+    expect([...rec.events.keys()]).toEqual(['ten']);
+  });
+});
+
