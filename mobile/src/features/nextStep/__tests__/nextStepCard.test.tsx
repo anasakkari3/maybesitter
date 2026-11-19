@@ -498,7 +498,7 @@ describe('later, and when', () => {
    * call): the suggestion comes back, the item keeps its time. Not the
    * postpone sheet's line, which reads as moving the item.
    */
-  it('says the suggestion comes back and the item keeps its time', async () => {
+  it('says the suggestion comes back and the item itself stays as it is', async () => {
     await show();
     await fireEvent.press(screen.getByTestId('next-step-defer'));
     await waitFor(() => expect(screen.queryByTestId('next-step-defer-oneHour')).not.toBeNull());
