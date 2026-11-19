@@ -71,7 +71,7 @@ describe('a model that never read the text (QA CXA1.4, CA8.1)', () => {
   });
 
   it('the busy lines exist in all three languages and blame nobody', () => {
-    for (const locale of [ar, en, he] as Array<Record<string, string>>) {
+    for (const locale of [ar, en, he]) {
       expect(locale.aiImportReviewBusy).toBeTruthy();
       expect(locale.obAboutReviewBusy).toBeTruthy();
     }
