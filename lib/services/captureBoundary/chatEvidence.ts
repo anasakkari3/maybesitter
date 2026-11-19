@@ -45,7 +45,8 @@ import {
 } from '../../../src/extraction/timeLexicon';
 import { namesCalendarDate, readRecurrence, resolveWeekdayDates } from '../../../src/extraction/weekdayLexicon';
 import { isNegatedRequest } from '../mobile/safety';
-import { isMissedObligation, statedRelativeTime } from '../../../src/extraction/extractionService';
+import { statedRelativeTime } from '../../../src/extraction/extractionService';
+import { isMissedObligation } from '../../../src/extraction/missedObligation';
 
 /** A clause that refuses a reminder, by either of the two checks the capture path makes. */
 function refuses(text: string): boolean {
