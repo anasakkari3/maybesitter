@@ -75,12 +75,14 @@ beforeEach(() => {
   jest.spyOn(profileEndpoints, 'getProfile').mockResolvedValue({ success: true, routine: null } as never);
   jest.spyOn(permission, 'requestNotificationPermission').mockResolvedValue('granted');
   jest.spyOn(planEndpoints, 'getPlanSettings').mockImplementation((async () => stored) as never);
-  jest.spyOn(planEndpoints, 'putPlanSettings').mockImplementation((async (input: { enabled: boolean; deliveryLocalTime?: string }) => {
+  jest.spyOn(planEndpoints, 'putPlanSettings').mockImplementation((async (input: { enabled?: boolean; deliveryLocalTime?: string }) => {
+    // Like the route: a time-only write leaves the switch as stored (C12.9 d).
+    const enabled = input.enabled ?? stored.enabled;
     stored = {
       ...stored,
-      enabled: input.enabled,
+      enabled,
       ...(input.deliveryLocalTime ? { deliveryLocalTime: input.deliveryLocalTime } : {}),
-      nextRunAt: input.enabled ? ON.nextRunAt : null,
+      nextRunAt: enabled ? ON.nextRunAt : null,
     };
     return stored;
   }) as never);
@@ -229,9 +231,12 @@ describe('when it arrives', () => {
       type: 'set',
       nativeEvent: { timestamp: timeShowing('06:45').getTime() },
     });
+    // iOS: the inline wheel saves once, on «تمام» (C12.9 a/b).
+    await fireEvent.press(screen.getByTestId('plan-delivery-done'));
 
+    // The time alone: never the cached switch with it (C12.9 d).
     await waitFor(() => expect(planEndpoints.putPlanSettings)
-      .toHaveBeenCalledWith({ enabled: true, deliveryLocalTime: '06:45' }));
+      .toHaveBeenCalledWith({ deliveryLocalTime: '06:45' }));
     await waitFor(() => expect(screen.queryByText(ltr('06:45'))).not.toBeNull());
     expect(screen.getByTestId('plan-morning-toggle').props.value).toBe(true);
   });
@@ -252,6 +257,8 @@ describe('when it arrives', () => {
       type: 'set',
       nativeEvent: { timestamp: timeShowing('07:30').getTime() },
     });
+    await fireEvent.press(screen.getByTestId('plan-delivery-done'));
+    await waitFor(() => expect(screen.queryByTestId('plan-delivery-picker')).toBeNull());
 
     await fireEvent.press(screen.getByTestId('plan-delivery-time'));
     await waitFor(() => expect(screen.queryByTestId('plan-delivery-picker')).not.toBeNull());
@@ -259,10 +266,43 @@ describe('when it arrives', () => {
       type: 'set',
       nativeEvent: { timestamp: timeShowing('06:45').getTime() },
     });
+    await fireEvent.press(screen.getByTestId('plan-delivery-done'));
 
     await waitFor(() => expect(planEndpoints.putPlanSettings).toHaveBeenCalled());
     expect(planEndpoints.putPlanSettings).toHaveBeenCalledTimes(1);
-    expect(planEndpoints.putPlanSettings).toHaveBeenCalledWith({ enabled: true, deliveryLocalTime: '06:45' });
+    expect(planEndpoints.putPlanSettings).toHaveBeenCalledWith({ deliveryLocalTime: '06:45' });
+  });
+
+  it('C12.9 (a, b): on iOS every wheel stop is one draft, saved once on OK, and the wheel closes', async () => {
+    stored = ON;
+    await settled();
+    await fireEvent.press(screen.getByTestId('plan-delivery-time'));
+    await waitFor(() => expect(screen.queryByTestId('plan-delivery-picker')).not.toBeNull());
+    for (const stop of ['07:45', '08:00', '08:15']) {
+      await fireEvent(screen.getByTestId('plan-delivery-picker'), 'change', {
+        type: 'set',
+        nativeEvent: { timestamp: timeShowing(stop).getTime() },
+      });
+    }
+    expect(planEndpoints.putPlanSettings).not.toHaveBeenCalled();
+    await fireEvent.press(screen.getByTestId('plan-delivery-done'));
+    await waitFor(() => expect(screen.queryByTestId('plan-delivery-picker')).toBeNull());
+    await waitFor(() => expect(planEndpoints.putPlanSettings).toHaveBeenCalledTimes(1));
+    expect(planEndpoints.putPlanSettings).toHaveBeenCalledWith({ deliveryLocalTime: '08:15' });
+  });
+
+  it('C12.9 (c) / CXA12.4: a failed time save is said, not silent', async () => {
+    stored = ON;
+    await settled();
+    jest.spyOn(planEndpoints, 'putPlanSettings').mockRejectedValue(new ValidationError('refused') as never);
+    await fireEvent.press(screen.getByTestId('plan-delivery-time'));
+    await waitFor(() => expect(screen.queryByTestId('plan-delivery-picker')).not.toBeNull());
+    await fireEvent(screen.getByTestId('plan-delivery-picker'), 'change', {
+      type: 'set',
+      nativeEvent: { timestamp: timeShowing('06:45').getTime() },
+    });
+    await fireEvent.press(screen.getByTestId('plan-delivery-done'));
+    await waitFor(() => expect(screen.queryByTestId('plan-delivery-time-failed')).not.toBeNull());
   });
 });
 
