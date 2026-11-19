@@ -72,44 +72,86 @@ function isPastNarration(rawText: string): boolean {
  * person is asked when today, as for any task with no hour; nothing is saved
  * until they confirm.
  *
- * What it is, and only that: an obligation told in the past («كان لازم»,
- * «كان المفروض», "I was supposed to", «הייתי צריך») with the words saying it
- * was not done («وما بعتته», "and didn't", «ולא»), or "I forgot to" /
- * «نسيت أ…» / «ما لحقت» before a verb. «امبارح كان عندي اجتماع» told
- * something that happened and stays no commitment. A day ahead named in the
- * same words («…بدي أبعته بكرا») is the person's own plan and is read as said.
+ * What it is, and only that — precision over coverage (review of #872): a
+ * sentence it is unsure of is left to the ordinary reading, never made into
+ * a to-do. One clause (cut at «،», ",", ".", a line), not a question, with
+ * nothing negating the obligation itself before it, and either
+ *
+ *   - the speaker's obligation told in the past — «كان/كنت لازم», «كان
+ *     المفروض», «كان بدي», "I was supposed to", "I should have", "I had to",
+ *     «הייתי צריך ל…» — onto a verb of their own (first person: «أبعت»,
+ *     «ابعت»; "I …"), and the first not-done words after it about *that*
+ *     verb («وما بعتته», «بس ما سلّمت»; "and didn't", "but I did not"); or
+ *   - «نسيت» / «ما لحقت» / «فاتني» onto a first-person verb («نسيت أبعت»,
+ *     never «نسيت اسمه», «ما لحقت الباص», «نسيت إنو…»); "I forgot to …"
+ *     (not "to tell you"), "I didn't get to …"; «שכחתי ל…».
+ *
+ * «امبارح كان عندي اجتماع» told something that happened and stays no
+ * commitment; «كان لازم يبعتلي وما بعت» is somebody else's. A day ahead named
+ * in the same words («…بدي أبعته بكرا») is the person's own plan and is read
+ * as said.
+ *
+ * Known limit: «كان لازم أروح … ومش عارف ليش ما رحت» is not read (only the
+ * first not-done words after the obligation count), and a hollow verb whose
+ * past drops a letter may be missed; both fall back to the ordinary reading.
  */
 const B = '(?<![\\p{L}\\p{M}])';
 const A = '(?![\\p{L}\\p{M}])';
-const PAST_OBLIGATION = new RegExp(
-  [
-    `${B}[وف]?(?:كان|كانت)\\s+(?:لازم|لازمني|بدي|بدّي|المفروض|مفروض|عليّ|علي)${A}`,
-    "\\b(?:was|were)\\s+supposed\\s+to\\b|\\bshould\\s+have\\b|\\b(?:had|needed|meant)\\s+to\\b",
-    `${B}ו?(?:הייתי|היה)\\s+(?:צריך|צריכה|אמור|אמורה)${A}`,
-  ].join('|'),
-  'iu',
-);
-const NOT_DONE = new RegExp(
-  [
-    `${B}[وف]?(?:ما|مش|لسا|لسّا|لسه|لسّه)${A}`,
-    "\\b(?:didn'?t|didn’t|did\\s+not|haven'?t|have\\s+not|hasn'?t|never)\\b",
-    `${B}ו?לא${A}`,
-  ].join('|'),
-  'iu',
-);
-const FORGOT_TO = new RegExp(
-  [
-    `${B}[وف]?(?:نسيت|ما\\s+لحقت|مالحقت)\\s+(?:(?:إني|اني|انو|إنو)\\s+)?[أاإن][\\p{L}\\p{M}]{2,}`,
-    "\\b(?:forgot|forget)\\s+to\\b|\\bdidn'?t\\s+get\\s+to\\b|\\bnever\\s+got\\s+(?:around\\s+)?to\\b",
-    `${B}ו?(?:שכחתי|לא\\s+הספקתי)${A}`,
-  ].join('|'),
-  'iu',
-);
+const CLAUSE_CUT = new RegExp('[،,.;!\\n]+', 'u');
+const QUESTION = new RegExp(`[?؟]|^\\s*(?:هل${A}|(?:did|should|was|were|do)\\b)`, 'iu');
+/** A negation before the obligation: «ما كان لازم», «مش كان لازم», «لسا ما نسيت». */
+const NEGATION_BEFORE = new RegExp(`${B}[وف]?(?:ما|مش|مو|مب)${A}|\\b(?:didn'?t|did\\s+not|never|not)\\b|${B}ו?לא${A}`, 'iu');
+const AR_OBLIGED = new RegExp(`${B}[وف]?(?:كان|كانت|كنت)\\s+(?:لازم|لازمني|بدي|بدّي|المفروض|مفروض|عليّ|علي|ناوي|ناوية)\\s+([أا][\\p{L}\\p{M}]{2,})`, 'u');
+const AR_NOT_DONE = new RegExp(`${B}(?:(?:بس|لكن)\\s+)?[وف]?(?:(?:لسا|لسّا|لسه|لسّه)\\s+)?(?:ما|مش)\\s+([\\p{L}\\p{M}]+)`, 'u');
+const AR_FORGOT = new RegExp(`${B}[وف]?(?:نسيت|ما\\s+لحقت|مالحقت|فاتني|فاتتني)\\s+([أا][\\p{L}\\p{M}]{2,})`, 'u');
+/** Words after «نسيت» that start like a first-person verb and are not one. */
+const AR_NOT_A_VERB = ['ال', 'اسم', 'امتحان', 'اجتماع', 'اغراض', 'أغراض', 'اوراق', 'أوراق', 'اهل', 'أهل', 'اكل', 'أكل', 'اول', 'أول', 'امبارح', 'امس', 'أمس', 'اخو', 'أخو', 'اخت', 'أخت', 'ابو', 'أبو', 'امي', 'أمي', 'انو', 'انه', 'ايش', 'ايمتى'];
+const EN_OBLIGED = /\bI\s+(?:was\s+supposed\s+to|should\s+have|had\s+to|needed\s+to|meant\s+to)\s+([a-z]+)/i;
+const EN_NOT_DONE = /\b(?:and|but)\s+(?:I\s+)?(?:didn'?t|didn’t|did\s+not|never\s+did|haven'?t|have\s+not)\b(?:\s+([a-z]+))?/i;
+const EN_FORGOT = /\bI\s+(?:totally\s+|completely\s+|just\s+)?forgot\s+to\s+([a-z]+)|\bI\s+(?:didn'?t|never)\s+(?:get|got)\s+(?:around\s+)?to\s+([a-z]+)/i;
+const EN_NOT_A_TASK = new Set(['tell', 'say', 'mention', 'thank', 'ask']);
+const HE_FORGOT = new RegExp(`${B}ו?(?:שכחתי|לא\\s+הספקתי)\\s+ל[\\p{L}]{2,}`, 'u');
+const HE_OBLIGED = new RegExp(`${B}ו?הייתי\\s+(?:צריך|צריכה|אמור|אמורה)\\s+ל[\\p{L}]{2,}[^]*?${B}ו?לא${A}`, 'u');
 
-/** The words tell a thing that was to be done and was not, with no day ahead of their own. */
+const LEADING_ALEF = new RegExp('^[أاإ]', 'u');
+const ARABIC_MARKS = new RegExp('[\\u064B-\\u065F\\u0670\\u0640]', 'gu');
+/** «بعتته» is a not-done form of «أبعت»: same first letter, and the verb's last letter in it. */
+function sameArabicVerb(verb: string, negated: string): boolean {
+  const stem = verb.replace(ARABIC_MARKS, '').replace(LEADING_ALEF, '');
+  const done = negated.replace(ARABIC_MARKS, '').replace(LEADING_ALEF, '');
+  return stem.length >= 2 && done.length >= 2 && done[0] === stem[0] && done.slice(1).includes(stem[stem.length - 1]!);
+}
+
+function isArabicVerbAfterForgot(word: string): boolean {
+  const folded = word.replace(ARABIC_MARKS, '');
+  return !AR_NOT_A_VERB.some((noun) => folded.startsWith(noun));
+}
+
+function clauseIsMissedObligation(clause: string): boolean {
+  const ar = AR_OBLIGED.exec(clause);
+  if (ar && !NEGATION_BEFORE.test(clause.slice(0, ar.index))) {
+    const after = AR_NOT_DONE.exec(clause.slice(ar.index + ar[0].length));
+    if (after && sameArabicVerb(ar[1]!, after[1]!)) return true;
+  }
+  const forgot = AR_FORGOT.exec(clause);
+  if (forgot && !NEGATION_BEFORE.test(clause.slice(0, forgot.index)) && isArabicVerbAfterForgot(forgot[1]!)) return true;
+  const en = EN_OBLIGED.exec(clause);
+  if (en) {
+    const after = EN_NOT_DONE.exec(clause.slice(en.index + en[0].length));
+    const next = after?.[1]?.toLowerCase();
+    if (after && (!next || ['it', 'that', 'yet', 'do'].includes(next) || next.slice(0, 4) === en[1]!.toLowerCase().slice(0, 4))) return true;
+  }
+  const enForgot = EN_FORGOT.exec(clause);
+  if (enForgot && !EN_NOT_A_TASK.has((enForgot[1] ?? enForgot[2] ?? '').toLowerCase())) return true;
+  const he = HE_FORGOT.exec(clause);
+  if (he && !NEGATION_BEFORE.test(clause.slice(0, he.index))) return true;
+  return HE_OBLIGED.test(clause);
+}
+
+/** The words tell a thing the speaker was to do and did not, with no day ahead of their own. */
 export function isMissedObligation(rawText: string): boolean {
-  if (typeof rawText !== 'string' || !rawText.trim()) return false;
-  if (!(PAST_OBLIGATION.test(rawText) && NOT_DONE.test(rawText)) && !FORGOT_TO.test(rawText)) return false;
+  if (typeof rawText !== 'string' || !rawText.trim() || QUESTION.test(rawText)) return false;
+  if (!rawText.split(CLAUSE_CUT).some(clauseIsMissedObligation)) return false;
   return (relativeDayOffset(rawText) ?? 0) < 1 && readWeekdayReference(rawText) === null
     && !namesCalendarDate(rawText) && readRecurrence(rawText) === null;
 }
@@ -187,6 +229,8 @@ export function statedRelativeTime(rawText: string, now: Date, timeZone: string)
  * rules asked «إيمتى؟» and a model once put «بعد ساعتين» at 19:12 when it was
  * 07:12. The span leaves the title.
  */
+const NOT_A_WORD_CHARACTER = new RegExp('[^\\p{L}\\p{N}]+', 'gu');
+
 function onRelativeTime(result: ExtractionResult, rawText: string, context: ExtractionContext): ExtractionResult {
   const timeZone = context.timezone || result.localTimeSpec?.timezone || 'UTC';
   const stated = statedRelativeTime(rawText, context.now, timeZone);
@@ -196,19 +240,28 @@ function onRelativeTime(result: ExtractionResult, rawText: string, context: Extr
     const without = withoutRelativeOffset(text);
     return without.length >= 3 ? without : text;
   };
+  // «بعد ساعتين» alone (review of #872): the span is all there is, so there
+  // is nothing to do in it — asked «شو بدك تعمل؟», as «بكرا الساعة 5» is,
+  // its time kept. Never a card titled with the time.
+  const named = (result.title ?? result.action ?? '').trim();
+  const nothingToDo = named.length < 3 || withoutRelativeOffset(named).replace(NOT_A_WORD_CHARACTER, '').length < 3;
   const { undatedTime: _undated, ...rest } = result;
   return {
     ...rest,
     title: tidy(result.title),
-    action: tidy(result.action),
+    action: nothingToDo ? null : tidy(result.action),
     dueAt: result.dueAt || !result.remindAt ? stated.instant : null,
     remindAt: result.remindAt ? stated.instant : null,
     allDay: false,
     localTimeSpec: { date: stated.date, time: stated.time, timezone: timeZone },
     timeEvidence: 'hhmm',
     dateInferred: false,
-    missingFields: result.missingFields.filter((field) => field !== 'time'),
-    ambiguityFlags: result.ambiguityFlags.filter((flag) => flag !== 'vague_time'),
+    missingFields: nothingToDo
+      ? [...result.missingFields.filter((field) => field !== 'time' && field !== 'action'), 'action']
+      : result.missingFields.filter((field) => field !== 'time'),
+    ambiguityFlags: nothingToDo
+      ? [...result.ambiguityFlags.filter((flag) => flag !== 'vague_time' && flag !== 'no_action_verb'), 'no_action_verb']
+      : result.ambiguityFlags.filter((flag) => flag !== 'vague_time'),
     confidence: { ...result.confidence, time: Math.max(result.confidence.time, 0.9) },
   };
 }

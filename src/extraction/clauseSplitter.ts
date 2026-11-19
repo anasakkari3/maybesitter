@@ -966,7 +966,14 @@ function segmentsOf(raw: string): SegmentPiece[] {
       continue;
     }
     if (head) headOfLines = null;
-    segments.push(...withDayCarried(line.flatMap((part) => splitTimedConjuncts(part.text)), head?.day ?? headOfLines));
+    const pieces = withDayCarried(line.flatMap((part) => splitTimedConjuncts(part.text)), head?.day ?? headOfLines);
+    // The head's own point is on its day too (review of #872), when what
+    // follows the colon names no day of its own: the boundary holds a model
+    // reading of it to the list's day as it does the others.
+    if (head && pieces[0] && !pieces[0].listDay && !namesDay(head.rest) && !readWeekdayReference(head.rest) && !namesExplicitDate(head.rest)) {
+      pieces[0] = { ...pieces[0], listDay: head.day };
+    }
+    segments.push(...pieces);
   }
   return segments.length > 0 ? withTimeOnlyClausesMerged(segments) : [{ text: raw }];
 }
@@ -988,13 +995,13 @@ function segmentsOf(raw: string): SegmentPiece[] {
  */
 const LIST_HEAD = new RegExp('^\\s*([^:：\\n]{0,39}[^:：\\n0-9٠-٩])\\s*[:：](?![0-9٠-٩])(.*)$', 'su');
 
-function listHeadDay(lineText: string): { day: string; alone: boolean } | null {
+function listHeadDay(lineText: string): { day: string; alone: boolean; rest: string } | null {
   const head = LIST_HEAD.exec(lineText);
   if (!head) return null;
   const words = head[1]!;
   if (statesClock(words)) return null;
   const day = DAY_PHRASE.exec(words)?.[0]?.replace(/^\u0648/, '').trim();
-  return day ? { day, alone: head[2]!.trim().length === 0 } : null;
+  return day ? { day, alone: head[2]!.trim().length === 0, rest: head[2]! } : null;
 }
 
 const JOINED_DAY_WORD = new RegExp('^ويوم\\s', 'u');

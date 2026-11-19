@@ -454,7 +454,7 @@ function onNamedWeekday(time: ReconciledTime, rawText: string, now: Date, fallba
   if (!reference || readWeekdayMentions(rawText).length !== 1 || readRecurrence(rawText)) return null;
   // "Next week" beside the weekday says which week it is in, not another
   // date (QA v3, V3-F04-07): «الأسبوع الجاي: يوم الاثنين» dated a Tuesday is
-  // moved to the Monday of the model's own week. Any other date phrase still
+  // moved to the Monday of next week on the person's clock. Any other date phrase still
   // leaves the model's reading alone.
   const nextWeek = namesNextWeek(rawText);
   if ((nextWeek ? namesCalendarDateBesidesNextWeek(rawText) : namesCalendarDate(rawText)) || relativeDayOffset(rawText) !== null) return null;
@@ -466,7 +466,7 @@ function onNamedWeekday(time: ReconciledTime, rawText: string, now: Date, fallba
   if (WEEKDAY_IN_A_NAME.test(rawText) || WEEKDAY_AS_MODIFIER.test(rawText)) return null;
   if (new Date(`${date}T12:00:00Z`).getUTCDay() === reference.weekday) return null;
   const zone = time.localTimeSpec?.timezone || fallbackZone;
-  const target = (nextWeek ? weekdayInWeekOf(date, reference.weekday, now, zone) : null) ?? resolveWeekdayDate(rawText, now, zone)?.date;
+  const target = (nextWeek ? weekdayOfNextWeek(reference.weekday, now, zone) : null) ?? resolveWeekdayDate(rawText, now, zone)?.date;
   if (!target || target === date) return null;
   const days = Math.round((Date.parse(`${target}T12:00:00Z`) - Date.parse(`${date}T12:00:00Z`)) / 86_400_000);
   const moved = (iso: string | null): string | null => {
@@ -478,15 +478,17 @@ function onNamedWeekday(time: ReconciledTime, rawText: string, now: Date, fallba
 }
 
 /**
- * The `weekday` of the Sunday-to-Saturday week `date` falls in (the person's
- * week; `calendarLines` lists the days the same way), or null when that day
- * is not after today — then the rules' coming weekday is the answer.
+ * The `weekday` of next week on the person's own clock: the Sunday-to-
+ * Saturday week after the one today is in (the person's week; `calendarLines`
+ * lists the days the same way). Computed from their clock, never from the
+ * model's date (review of #872: a model 1 December for «الأسبوع الجاي:
+ * الاثنين» said on 19 November was put on 30 November, the model's week).
  */
-function weekdayInWeekOf(date: string, weekday: number, now: Date, zone: string): string | null {
-  const day = new Date(`${date}T12:00:00Z`).getUTCDay();
-  const target = shiftLocalDate(date, weekday - day);
+function weekdayOfNextWeek(weekday: number, now: Date, zone: string): string | null {
   const today = localTimeSpecFor(now, zone)?.date;
-  return today && target > today ? target : null;
+  if (!today) return null;
+  const current = new Date(`${today}T12:00:00Z`).getUTCDay();
+  return shiftLocalDate(today, 7 - current + weekday);
 }
 
 /** A `YYYY-MM-DD` date `days` days on (or back). */
