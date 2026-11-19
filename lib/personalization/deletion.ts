@@ -177,6 +177,7 @@ import {
   GMAIL_SENDER_STATS,
   MEMORY_CITATIONS,
   MEMORY_DISMISSALS,
+  MEMORY_SUMMARIES,
   PROFILE_PROPOSALS,
   userCol,
   userDoc,
@@ -416,6 +417,8 @@ export async function deletePersonalizationScope(
     await owned(() => clearUserCollection(storage, input.scopeId, GMAIL_SENDER_STATS));
     // The reverse index of which memory shaped which suggestion (M5b-2b-1): memory-derived, so it goes.
     await owned(() => clearUserCollection(storage, input.scopeId, MEMORY_CITATIONS));
+    // The cached summary is a model's paragraph about the memory just erased (QA CA8.7).
+    await owned(() => clearUserCollection(storage, input.scopeId, MEMORY_SUMMARIES));
     // With the follows gone, the matches they projected stop holding time: an
     // unfollow drop, never a dismissal, so following again brings them back.
     // The commitments themselves are kept as dropped history, like any other
