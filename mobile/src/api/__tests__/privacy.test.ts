@@ -89,6 +89,7 @@ describe('userFacingMessage is the only way an error becomes words', () => {
     ['feed not a calendar', new IcsFeedRefusedError('not_a_calendar', null), 'icsFeedsErrNotCalendar'],
     ['feed fetch failed', new IcsFeedRefusedError('fetch_failed', 'too_large'), 'icsFeedsErrFetch'],
     ['feed site did not answer', new IcsFeedRefusedError('fetch_failed', 'timeout'), 'icsFeedsErrNoAnswer'],
+    ['feed site unreachable', new IcsFeedRefusedError('fetch_failed', 'network'), 'icsFeedsErrUnreachable'],
     ['feed site refused', new IcsFeedRefusedError('fetch_failed', 'http_status'), 'icsFeedsErrSiteRefused'],
     ['feed too complex', new IcsFeedRefusedError('calendar_too_complex', null), 'icsFeedsErrTooComplex'],
     ['feed cap', new IcsFeedRefusedError('too_many_feeds', null), 'icsFeedsErrTooMany'],

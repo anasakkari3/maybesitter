@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, jest } from '@jest/globals';
-import { screen, waitFor } from '@testing-library/react-native';
+import { screen, waitFor, within } from '@testing-library/react-native';
 import {
   M3aServer, RESULT, defaultReply, openGoal, prepare, press, teardown, type M3aHarness,
 } from '../../../__acceptance__/m3a/harness';
@@ -85,7 +85,7 @@ const HABITS = RESULT.saved.filter((item) => item.entity === 'habit');
 describe('the saved-plan result says where each step went', () => {
   it('two one-time steps and one repeating step, in English', async () => {
     await confirmWith('en', RESULT.saved);
-    expect(textOf('plan-result-where-steps')).toBe('2 steps are now in Today.');
+    expect(textOf('plan-result-where-steps')).toBe('2 steps are now in Today or the days ahead.');
     expect(textOf('plan-result-where-habits')).toBe('1 repeating step is now under Habits in My things.');
     expect(screen.queryByText(/Today and Plan/)).toBeNull();
   });
@@ -99,15 +99,37 @@ describe('the saved-plan result says where each step went', () => {
 
   it('only one-time steps, in Arabic: no habits line, and no promise about the plan', async () => {
     await confirmWith('ar', COMMITMENTS);
-    expect(textOf('plan-result-where-steps')).toBe('خطوتين صاروا بيومك.');
+    expect(textOf('plan-result-where-steps')).toBe('خطوتين صاروا بيومك أو بالأيام الجاية.');
     expect(screen.queryByTestId('plan-result-where-habits')).toBeNull();
     expect(screen.queryByText(/وبالخطة/)).toBeNull();
+  });
+
+  // Reviewer of #875: when every step stays for a later week the confirm
+  // still runs, and the result said «Plan saved» over an empty list.
+  it('nothing saved: the title says so, and no where-line claims anything', async () => {
+    await confirmWith('en', []);
+    expect(within(screen.getByTestId('plan-result-title')).queryByText('Nothing saved yet')).not.toBeNull();
+    expect(screen.queryByText('Plan saved')).toBeNull();
+    expect(screen.queryByTestId('plan-result-where-steps')).toBeNull();
+    expect(screen.queryByTestId('plan-result-where-habits')).toBeNull();
+  });
+
+  it('nothing saved, in Arabic', async () => {
+    await confirmWith('ar', []);
+    expect(within(screen.getByTestId('plan-result-title')).queryByText('ما انحفظ إشي هلّق')).not.toBeNull();
+    expect(screen.queryByText(strings.ar.xPlanSavedTitle)).toBeNull();
+  });
+
+  it('something saved keeps the saved title', async () => {
+    await confirmWith('en', RESULT.saved);
+    expect(within(screen.getByTestId('plan-result-title')).queryByText('Plan saved')).not.toBeNull();
   });
 
   it('every language carries both sentences', () => {
     for (const lang of ['ar', 'en', 'he'] as const) {
       expect(typeof strings[lang].xPlanSavedStepsN).toBe('string');
       expect(typeof strings[lang].xPlanSavedHabitsN).toBe('string');
+      expect(typeof strings[lang].xPlanNothingSavedTitle).toBe('string');
     }
   });
 });
