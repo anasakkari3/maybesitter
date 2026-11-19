@@ -920,7 +920,8 @@ test('V3-F23-02 a failed undo logs the error\'s name only, never the error or it
   const { respondToOccurrenceUndo } = await import('../../lib/services/habits/occurrenceOutcome.ts');
   const real = createHabitServices();
   const failing = { habits: real.habits, occurrences: Object.create(real.occurrences) };
-  failing.occurrences.reopen = async () => { throw new Error('user content: «بدي أمشي»'); };
+  // The first read undo makes, so the failure is reached whatever path it takes.
+  failing.occurrences.get = async () => { throw new Error('user content: «بدي أمشي»'); };
   const logged: unknown[][] = [];
   const original = console.error;
   console.error = (...args: unknown[]) => { logged.push(args); };

@@ -152,6 +152,13 @@ export interface HabitOccurrenceStore {
    * written. An open row answers `unchanged`, so a retried undo is safe.
    */
   reopen(scopeId: string, habitId: string, occurrenceId: string): Promise<OccurrenceTransition>;
+  /**
+   * Takes back an off-day «تمّت» (V3-F23-02 review), in one transaction: the
+   * stand-in row is removed — it was never asked for — and the asked-for day it
+   * took (`recoveredFromOccurrenceId`) goes back to `pending` if it is still
+   * `recovered`. The caller decides that the row is a stand-in.
+   */
+  reopenStandIn(scopeId: string, habitId: string, occurrenceId: string): Promise<OccurrenceTransition>;
   /** Everything belonging to one habit. Used when the habit itself is removed. */
   deleteForHabit(scopeId: string, habitId: string): Promise<number>;
 }
@@ -351,6 +358,28 @@ export class StorageHabitOccurrenceStore implements HabitOccurrenceStore {
       const reopened: HabitOccurrence = { ...existing, state: 'pending' };
       tx.set<HabitOccurrence>(path, reopened);
       return { kind: 'applied', occurrence: reopened };
+    });
+  }
+
+  async reopenStandIn(scopeId: string, habitId: string, occurrenceId: string): Promise<OccurrenceTransition> {
+    const path = this.path(scopeId, occurrenceId);
+    return this.storage.runTransaction<OccurrenceTransition>(async (tx) => {
+      const [existing] = await Promise.all([
+        tx.get<HabitOccurrence>(path),
+        requireLiveAccount(tx, scopeId), // the deletion fence (#772)
+      ]);
+      if (!existing || !isHabitOccurrence(existing) || existing.habitId !== habitId) return { kind: 'not_found' };
+      // Only a completed stand-in is taken back here; anything else moved meanwhile.
+      if (existing.state !== 'completed') return { kind: 'conflict', occurrence: existing };
+      const takenPath = existing.recoveredFromOccurrenceId === null
+        ? null
+        : this.path(scopeId, existing.recoveredFromOccurrenceId);
+      const taken = takenPath ? await tx.get<HabitOccurrence>(takenPath) : null;
+      if (takenPath && taken && isHabitOccurrence(taken) && taken.habitId === habitId && taken.state === 'recovered') {
+        tx.set<HabitOccurrence>(takenPath, { ...taken, state: 'pending' });
+      }
+      tx.delete(path);
+      return { kind: 'applied', occurrence: { ...existing, state: 'pending' } };
     });
   }
 

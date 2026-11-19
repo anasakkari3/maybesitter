@@ -127,7 +127,7 @@ export async function respondToOccurrenceOutcome(
   } catch (error) {
     if (error instanceof AccountUnavailableError) return accountUnavailableResponse();
     if (error instanceof HabitValidationError) return habitValidationResponse(error);
-    console.error(`[habits] marking an occurrence ${outcome} failed`, error);
+    console.error(`[habits] marking an occurrence ${outcome} failed`, error instanceof Error ? error.name : 'unknown');
     return mobileError(`could not mark the occurrence ${outcome}`, 500);
   }
 }
@@ -167,7 +167,8 @@ export async function respondToOccurrenceUndo(
   } catch (error) {
     if (error instanceof AccountUnavailableError) return accountUnavailableResponse();
     if (error instanceof HabitValidationError) return habitValidationResponse(error);
-    console.error('[habits] undoing an occurrence decision failed', error);
+    // The name only: a message or a stack can carry what the person wrote.
+    console.error('[habits] undoing an occurrence decision failed', error instanceof Error ? error.name : 'unknown');
     return mobileError('could not undo the occurrence decision', 500);
   }
 }
