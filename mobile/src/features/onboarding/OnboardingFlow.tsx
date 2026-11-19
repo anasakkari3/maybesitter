@@ -386,7 +386,7 @@ export function OnboardingFlow({ onFinished }: { onFinished: () => void }) {
         {...(imported === null ? { onImport: () => setImporting(true) } : {})}
         onChange={(update) => setSetup(previous => ({ ...previous, answers: update(previous.answers) }))}
         onIndexChange={(index) => setSetup(previous => ({ ...previous, index }))}
-        onRead={() => void readDescription(composeDescription(setup.answers, t))}
+        onRead={() => void readDescription(composeDescription(setup.answers, t, questions))}
         onSkip={() => void finishSetup('skipped')}
         onBack={() => goBack('about')}
         reading={describe.isPending}
