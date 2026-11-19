@@ -21,6 +21,7 @@
  * Synthetic text only. No model is called: the "model" is a scripted provider.
  */
 import test from 'node:test';
+import { readFileSync } from 'node:fs';
 import assert from 'node:assert/strict';
 import { createEmptyDomainState } from '../../src/domain/stateMachine.ts';
 import { MemoryCaptureProposalStore, proposeCapture } from '../../lib/services/captureBoundary/index.ts';
@@ -315,9 +316,8 @@ test('F04-03 (rules): a missed thing is proposed for today, its hour asked', asy
   assertToDoToday(contract, /أبعت الواجب للدكتور/);
 });
 
-test('F04-03 (rules): «نسيت أتصل بأمي مبارح» is a call to make today', async () => {
-  const { contract } = await propose('نسيت أتصل بأمي مبارح');
-  assertToDoToday(contract, /أتصل بأمي/);
+test('F04-03 (narrowed, review round 3): «نسيت أتصل بأمي مبارح» is not read as a missed thing; the ordinary reading stands', async () => {
+  assert.equal(isMissedObligation('نسيت أتصل بأمي مبارح'), false);
 });
 
 test('F04-03 (rules): "I was supposed to call the bank yesterday and didn\'t" is to do today', async () => {
@@ -419,11 +419,11 @@ for (const [text, words] of [
   ['كان لازم ابعت الواجب وما بعتتو', /ابعت الواجب/],
   ['كان المفروض أدفع الفاتورة أمس وما دفعت', /أدفع الفاتورة/],
   ['كان لازم أسلّم التقرير وما سلّمت', /أسلّم التقرير/],
-  ['ما لحقت أدفع الفاتورة', /أدفع الفاتورة/],
-  ['فاتني أتصل بالدكتور', /أتصل بالدكتور/],
-  ['نسيت أبعت الواجب للدكتور', /أبعت الواجب للدكتور/],
   ['I should have called the bank this morning but I did not', /called the bank|call the bank/i],
-  ['I forgot to send the homework yesterday', /send the homework/i],
+  ['كان لازم أبعت الواجب للدكتور وما بعتّه', /^أبعت الواجب للدكتور$/],
+  ['كنت لازم أسلّم التقرير مبارح وما سلّمته', /^أسلّم التقرير$/],
+  ['كان بدي أدفع الفاتورة وما دفعت', /^أدفع الفاتورة$/],
+  ['I was supposed to call mom and didn\'t', /^call mom$/i],
 ] as const) {
   test(`review #872: «${text}» is still a thing to do today`, async () => {
     assert.equal(isMissedObligation(text), true);
@@ -528,3 +528,91 @@ test('review #872 (R4): a clock with a colon is no list head — the appointment
     assert.equal(call.resolvedDate, TODAY, text);
   }
 });
+
+
+/* ── Review round 3: one narrow pattern (coordinator decision) ────────── */
+
+const SENTENCES = JSON.parse(readFileSync(new URL('./fixtures/qaV3MissedSentences.json', import.meta.url), 'utf8')) as {
+  negatives: string[]; disputed: string[]; positives: string[]; notRead: string[];
+};
+
+test('round 3: none of the reviewer\'s 337 non-missed sentences is read as a missed thing', () => {
+  const read = SENTENCES.negatives.filter((text) => isMissedObligation(text));
+  assert.deepEqual(read, []);
+});
+
+test('round 3: the reviewer\'s sentences of the defect\'s own shape are still read (49)', () => {
+  const unread = SENTENCES.positives.filter((text) => !isMissedObligation(text));
+  assert.deepEqual(unread, []);
+});
+
+test('round 3: the seven the reviewer called not missed but which have the defect\'s exact shape stay read, pinned for the owner', () => {
+  // «كان المفروض أطلع من الشغل وما طلعت», «كان لازم أعمل واجبي ما عملته»…:
+  // the speaker's own action, left undone. Listed so any change is seen.
+  assert.equal(SENTENCES.disputed.length, 7);
+  assert.ok(SENTENCES.disputed.every((text) => isMissedObligation(text)));
+});
+
+for (const text of [
+  // The narrowed families: no longer read here (ordinary reading, chat prompt).
+  'نسيت أبعت الواجب للدكتور', 'ما لحقت أدفع الفاتورة', 'فاتني أتصل بالدكتور', 'كنت ناوي أبعت الواجب وما بعتته',
+  'I forgot to send the homework yesterday', "I didn't get to call the bank", 'I never got to call the bank',
+  'שכחתי לשלם את החשבון', 'הייתי צריך להתקשר ולא התקשרתי', 'לא הייתי צריך להתקשר ולא התקשרתי',
+  // Somebody else, or no speaker before the obligation (M13).
+  "She was supposed to call and didn't", 'كان لازم أبعت بس هو ما بعت', 'كان لازم أروح بس هي ما راحت', 'كان لازم ابعت الواجب بس ما بعتلي حدا الرابط',
+  // Negation, a question or a condition before it, with no question mark (M3, M16).
+  'هل كان لازم أبعت الواجب وما بعتته', 'مش كان لازم أبعت الواجب وما بعتته', 'مو كنت لازم أدفع وما دفعت', 'مب كان لازم أدفع وما دفعت',
+  'لو كان لازم أبعت الواجب وما بعتّه', 'ليش كان لازم أروح وما رحت', 'ممكن كان لازم أبعت الواجب وما بعتّه', 'قال كان لازم أبعت الواجب وما بعتّه',
+  "If I was supposed to pay and didn't, tell me", "Why I had to pay and didn't",
+  // A question mark alone (M15).
+  'كان لازم أبعت الواجب وما بعتته؟',
+  // Not the same verb (M1: first letter; C2: last letter).
+  'كان لازم أبعت الواجب بس ما قدرت', 'كان لازم أدفع الفاتورة وما دريت',
+  // Not the speaker's past: a bare «بعت» may be "he sent".
+  'كان لازم أبعت الواجب وما بعت',
+  // States, not things to do.
+  'كان بدي أنام بس ما نمت', 'كان لازم أتأخر وما تأخرت', "I had to cry and didn't",
+]) {
+  test(`round 3: «${text}» is not a missed thing`, () => {
+    assert.equal(isMissedObligation(text), false);
+  });
+}
+
+test('round 3: a vowelled verb is still the same verb («أبعَث … بعَثتُه»)', () => {
+  assert.equal(isMissedObligation('كان لازم أبعَت الواجب وما بعَتّه'), true);
+});
+
+for (const [title, label] of [['ساعتين', 'ساعتين'], ['2 hours later', 'English span'], ['بعد', 'بعد'], ['١٢٣', 'digits'], ['تذكير', 'تذكير'], ['Reminder', 'Reminder'], ['مهمة', 'مهمة'], ['موعد', 'موعد']] as const) {
+  test(`round 3 (F04-04): «بعد ساعتين» alone with a model titled ${label} asks what to do`, async () => {
+    const { contract } = await propose('بعد ساعتين', { provider: scripted(() => modelTask(title, TODAY, '09:12')) });
+    assert.equal(contract.status, 'needs_clarification');
+    assert.equal(contract.items[0]!.clarification?.questionKey, 'ask_action');
+  });
+}
+
+test('round 3 (F04-04): «بعد ساعتين: اتصل بأمي» is titled «اتصل بأمي», no colon left', async () => {
+  const { contract } = await propose('بعد ساعتين: اتصل بأمي');
+  assert.equal(contract.items[0]!.title, 'اتصل بأمي');
+  assert.equal(when(contract.items[0]!.resolvedTime), `${TODAY} 09:12`);
+});
+
+test('round 3 (M21/C9): "next week" is counted on the person\'s clock, not UTC — just after local midnight on Sunday', () => {
+  // Sunday 22 November 00:30 in Jerusalem is still Saturday 21 in UTC.
+  const sundayMidnight = { now: new Date('2026-11-21T22:30:00.000Z'), timezone: TZ };
+  const result = validateExtractionResult(modelTask('مقابلة شغل', '2026-12-01', '10:00'), MONDAY_TEXT, sundayMidnight);
+  assert.equal(result.localTimeSpec?.date, '2026-11-30');
+});
+
+for (const [text, label] of [
+  ['بكرا: يوم الأحد الساعة 10 الصبح اجتماع مع المدير، الساعة 12 اتصل بالمحامي', 'a weekday'],
+  ['بكرا: 25 نوفمبر الساعة 10 الصبح اجتماع مع المدير، الساعة 12 اتصل بالمحامي', 'a date'],
+] as const) {
+  test(`round 3 (M9/C11): the head\'s own point naming ${label} of its own keeps the model\'s reading of it`, async () => {
+    const provider = scripted((clause) => /المدير/.test(clause)
+      ? modelTask('اجتماع مع المدير', label === 'a weekday' ? '2026-11-22' : '2026-11-25', '10:00')
+      : modelTask('اتصل بالمحامي', TOMORROW, '12:00'));
+    const { contract } = await propose(text, { provider });
+    const meeting = contract.items.find((item) => /المدير/.test(item.title))!;
+    assert.notEqual(meeting.resolvedDate, TOMORROW);
+  });
+}
