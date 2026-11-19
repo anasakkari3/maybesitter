@@ -392,7 +392,10 @@ export async function confirmAiContextImport(
       language: languageOf(content),
       // Once somebody has corrected a sentence about themselves, it is theirs.
       source: useEdit ? 'user_stated' : 'model_inferred',
-      confidence: useEdit ? 1 : candidate.confidence,
+      // The person kept it, edited or not, so it is certain (QA CA8.6). The
+      // model's confidence was its own uncalibrated guess, and it would have
+      // shown a row the person chose to keep as «لسّا مش متأكّد».
+      confidence: 1,
       // Staggered so the first row the user reviewed is the newest, and the
       // memory screen — which sorts `observedAt` descending — lists them in the
       // order they just read. Without the stagger a batch written at one instant

@@ -260,7 +260,10 @@ export async function confirmProfileSuggestions(
       language: languageOf(content),
       // Once somebody has corrected a sentence about themselves, it is theirs.
       source: useEdit ? 'user_stated' : 'model_inferred',
-      confidence: useEdit ? 1 : suggestion.confidence,
+      // The person kept it, edited or not, so it is certain (QA CA8.6). The
+      // model's confidence was its own uncalibrated guess, and it would have
+      // shown a row the person chose to keep as «لسّا مش متأكّد».
+      confidence: 1,
       observedAt: isoAt,
       ttlMs: useEdit ? USER_STATED_MEMORY_TTL_MS : undefined,
       provenance: {
