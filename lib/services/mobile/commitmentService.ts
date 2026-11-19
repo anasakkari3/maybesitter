@@ -28,6 +28,7 @@ import {
   reminderLeadNoLongerFitsMessage,
 } from '../commitments/timeRules';
 import { hasEventEnded } from '../commitments/eventEnded';
+import { readsAsEvent } from '../../../src/extraction/lexicon/eventTitles';
 import {
   addLocalDays,
   isDateOnly,
@@ -475,7 +476,7 @@ function optionalInstant(value: unknown, field: string, now: Date): string | nul
  * moved with a reminder the user still believes tracks it — the silent
  * half-write this function exists to prevent.
  */
-function patchTimeSpec(current: TimeSpec, input: PatchCommitmentInput, now: Date): Partial<TimeSpec> | undefined {
+function patchTimeSpec(current: TimeSpec, input: PatchCommitmentInput, now: Date, title?: string): Partial<TimeSpec> | undefined {
   const hasDueDate = input.dueDate !== undefined;
   const hasReminderTime = input.reminderTime !== undefined;
   const hasEndDate = input.endDate !== undefined;
@@ -510,7 +511,7 @@ function patchTimeSpec(current: TimeSpec, input: PatchCommitmentInput, now: Date
   return {
     // Moving a fixed-time commitment keeps it fixed (CL1, D2); only clearing
     // its time makes it anything else.
-    kind: !(dueAt || remindAt) ? 'unscheduled' : current.kind === 'scheduled_event' ? 'scheduled_event' : 'due_by',
+    kind: !(dueAt || remindAt) ? 'unscheduled' : current.kind === 'scheduled_event' || givenItsTimeBack(current, title) ? 'scheduled_event' : 'due_by',
     dueAt,
     // A prep window keeps its deadline, not its length (FX1, ruling R2): moved
     // to any time before the meeting it is still done by it; moved to the
@@ -525,6 +526,20 @@ function patchTimeSpec(current: TimeSpec, input: PatchCommitmentInput, now: Date
     // What the item is does not change when it moves (lane E1).
     ...(current.itemKind ? { itemKind: current.itemKind } : {}),
   } as Partial<TimeSpec>;
+}
+
+/**
+ * An event whose time was cleared, being given a time again (QA v3,
+ * V3-F10-01): still a time to be at, not a deadline. Without this a meeting
+ * cleared and reset in Details came back a `due_by`, and the day plan floated
+ * the 17:00 meeting to 08:00 as a task. Read from what capture said it is
+ * (`itemKind`), and for an `unsure` item — retitled, owner decision
+ * 2026-11-14, which stays — from its title, the test `readsAsEvent` already
+ * answers for Today. A task, and anything capture never classed, keeps the
+ * old answer: a time on an untimed item is a deadline.
+ */
+function givenItsTimeBack(current: TimeSpec, title: string | undefined): boolean {
+  return current.kind === 'unscheduled' && !!current.itemKind && readsAsEvent(current.itemKind, title);
 }
 
 /**
@@ -704,8 +719,8 @@ export async function patchCommitment(
     ...categoryPatchFrom(input.category),
     ...locationTriggerPatchFrom(input.locationTrigger),
     timeSpec: retitled(current, input)
-      ? { ...(patchTimeSpec(current.timeSpec, input, now) ?? {}), itemKind: 'unsure' as const }
-      : patchTimeSpec(current.timeSpec, input, now),
+      ? { ...(patchTimeSpec(current.timeSpec, input, now, input.title as string) ?? {}), itemKind: 'unsure' as const }
+      : patchTimeSpec(current.timeSpec, input, now, current.title),
   };
 
   const command: Command = {
