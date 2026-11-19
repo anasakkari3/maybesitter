@@ -354,6 +354,23 @@ describe('the deadlines', () => {
   });
 });
 
+describe('CXX1.4: feed labels and deadline titles take their own direction', () => {
+  it.each(['en', 'ar'] as const)('%s: an English label and title are isolated by their first strong character, not forced RTL', async (lang) => {
+    const label = 'Quarterly report (Q4) 2026';
+    const title = 'Essay draft (v2) 2026';
+    jest.spyOn(feedEndpoints, 'listIcsFeeds').mockResolvedValue({
+      success: true, feeds: [{ ...FEED, label }], deadlines: [deadline({ itemKey: 'k1', state: 'pending', title })],
+    } as never);
+    await show(lang);
+    await waitFor(() => expect(screen.queryByTestId('ics-deadline-k1')).not.toBeNull());
+    // FSI (U+2068): the text's own first strong character decides. RLI (U+2067)
+    // forced right-to-left reorders the brackets and digits of a Latin label.
+    expect(screen.queryByText(`\u2068${label}\u2069`)).not.toBeNull();
+    expect(screen.queryByText(`\u2068${title}\u2069`)).not.toBeNull();
+    expect(screen.queryByText(`\u2067${label}\u2069`)).toBeNull();
+  });
+});
+
 describe('after calendar consent is withdrawn', () => {
   it('shows every feed paused, offers no refresh, auto-accept, add or move — and keeps remove, skip, undo and acknowledge', async () => {
     jest.spyOn(trustEndpoints, 'getTrust').mockResolvedValue(trustBody(false) as never);
