@@ -151,14 +151,18 @@ export function toRoutinePayload(
 ): RoutineProfilePayload {
   const focus = answers.focus ? FOCUS_WINDOWS[answers.focus] : null;
   const fixed = answers.fixed ? FIXED_WINDOWS[answers.fixed] : null;
+  // «تخطّى» keeps no sleep or quiet window (CA1.4, owner decision
+  // 2026-11-19): free slots, the plan and push quiet hours read them without
+  // looking at `surveySkipped`, so a pick before Skip would shape them anyway.
+  const skipped = options.skipped === true;
   return {
     timezone,
-    sleepWindow: answers.sleep ? SLEEP_WINDOWS[answers.sleep] : null,
+    sleepWindow: answers.sleep && !skipped ? SLEEP_WINDOWS[answers.sleep] : null,
     focusWindows: focus ? [focus] : [],
     fixedCommitmentWindows: fixed ? [fixed] : [],
     preferredReminderIntensity: answers.reminder ? REMINDER_INTENSITY[answers.reminder] : 'softAwareness',
-    quietHours: answers.quiet ? QUIET_WINDOWS[answers.quiet] : null,
-    surveySkipped: options.skipped === true,
+    quietHours: answers.quiet && !skipped ? QUIET_WINDOWS[answers.quiet] : null,
+    surveySkipped: skipped,
   };
 }
 
