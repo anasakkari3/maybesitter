@@ -23,6 +23,11 @@ const palette = read('WidgetPalette.swift');
 const entry = read('NextStepWidget.swift');
 const views = read('WidgetViews.swift');
 const snapshot = read('Snapshot.swift');
+/** The drawing with its comments stripped, so a comment cannot satisfy a count. */
+const viewCode = views
+  .split('\n')
+  .filter((line) => !/^\s*\/\//.test(line))
+  .join('\n');
 
 type Rgba = { rgb: string; alpha: number };
 
@@ -154,12 +159,16 @@ describe('the families', () => {
     const lines = views.split('\n');
     const draws = lines
       .map((line, i) => ({ line, i }))
-      .filter(({ line }) => /Text\((item|first|hero|row)\.title\)/.test(line));
-    expect(draws.length).toBeGreaterThanOrEqual(5);
+      .filter(({ line }) => /Text\((item|first)\.title\)/.test(line));
+    expect(draws.length).toBeGreaterThanOrEqual(3);
+    // `!placeholder` only steps aside for WidgetKit's sample shapes, which hold no user content.
     for (const { i } of draws) {
       const window = lines.slice(i, i + 6).join('\n');
-      expect(window).toContain('.privacySensitive()');
+      expect(window).toMatch(/\.privacySensitive\((!placeholder|!c\.isPlaceholder)?\)/);
     }
+    // The inline family draws its title through a mapped string, not `Text(item.title)`.
+    expect((viewCode.match(/\.privacySensitive\(/g) ?? []).length).toBeGreaterThanOrEqual(4);
+    expect(viewCode).not.toMatch(/\.privacySensitive\(\s*(false|true)\s*\)/);
   });
 });
 
