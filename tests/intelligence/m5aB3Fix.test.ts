@@ -33,6 +33,7 @@ import { proposeFromObservations } from '../../lib/intelligence/proposalEngine';
 import { loadAutoAddSnapshot } from '../../lib/intelligence/autoAddSnapshot';
 import { saveMonitoringSettings } from '../../lib/watchers/monitoringSettings';
 import { createPilotTrustState } from '../../lib/pilot/closedPilotControls.ts';
+import { RECOMMENDATION_CONSENT_VERSION, setRecommendationConsent } from '../../lib/consents/recommendationConsentService';
 
 const NOW = '2026-10-19T10:00:00.000Z';
 
@@ -710,6 +711,9 @@ test('H1 proposal scheduler reads every authority guard before writing proposal 
   const storage = createMemoryStorage({ enforceFirestoreReadOrder: true });
   const uid = 'proposal-read-order';
   await storage.set(`users/${uid}`, { monitoringSettings: { paused: false, updatedAt: NOW }, trust: createPilotTrustState(uid, NOW) });
+  // The proposal step asks the model for suggestions, so it needs the
+  // suggestions consent (V3-F35-07); this is the enabled path.
+  await setRecommendationConsent(uid, { state: 'granted', version: RECOMMENDATION_CONSENT_VERSION, at: new Date(NOW) }, { storage });
   const [observation] = await putObservations(uid, 'manual', 'note', NOW, [{
     kind: 'request', evidence: 'Please send the form', confidence: 0.9,
   }], storage);
