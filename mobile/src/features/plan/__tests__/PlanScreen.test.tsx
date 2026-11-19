@@ -617,7 +617,8 @@ describe('when there is no plan for the day', () => {
     expect(screen.queryByText(en.planTitle)).toBeNull();
     expect(screen.queryByText(en.planEmptyTitle)).toBeNull();
     expect(screen.queryByText(en.planEmptyBuildCta)).toBeNull();
-    expect(screen.queryByText(en.planTitleFor.replace('{day}', en.tomorrow))).not.toBeNull();
+    // The day sits in a bidi isolate inside the title.
+    expect(screen.queryByText(new RegExp(`^Plan · .*${en.tomorrow}`))).not.toBeNull();
     expect(screen.queryByText(en.planEmptyBuildCtaOther)).not.toBeNull();
   });
 
