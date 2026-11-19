@@ -94,12 +94,48 @@ export const MAX_PROMPTED_MESSAGES = 400;
  * every line it is shown really does begin with the index the channel assigned.
  */
 export function whatsappParts(messages: readonly WhatsAppMessage[]): readonly LlmPart[] {
-  const lines = messages.slice(0, MAX_PROMPTED_MESSAGES).map((message) => {
+  // Numbered by position in *this* list, not by `message.index`. The channel
+  // reads the answer as positions into the list it handed over, and the
+  // parser's index counts the messages the injection screen dropped too — so
+  // numbering by it made every choice after a dropped message name the one
+  // after it (QA v3, the share-in selection).
+  const lines = messages.slice(0, MAX_PROMPTED_MESSAGES).map((message, position) => {
     const stamp = message.timestamp ?? '';
-    const sender = (message.sender ?? '').replace(/[|\n]/g, ' ');
-    return `${message.index} | ${stamp} | ${sender} | ${message.text.replace(/[|\n]/g, ' ')}`;
+    const sender = withoutEmoji((message.sender ?? '').replace(/[|\n]/g, ' '));
+    const text = withoutEmoji(message.text.replace(/[|\n]/g, ' '));
+    return `${position} | ${stamp} | ${sender} | ${text === '' ? EMOJI_ONLY : text}`;
   });
   return [wrapUntrustedShared(lines.join('\n'))];
+}
+
+/**
+ * What an emoji-only message is shown as. A word, so the line still exists and
+ * the numbering still counts it, without putting the pictograph back.
+ */
+export const EMOJI_ONLY = '(emoji)';
+
+/**
+ * Pictographs, with the joiners, variation selectors, skin tones and keycap
+ * marks that build one emoji out of several code points.
+ *
+ * `\p{Extended_Pictographic}` alone would leave a skin-tone modifier or a
+ * zero-width joiner behind as an invisible character; the rest of the class is
+ * those pieces.
+ */
+const EMOJI = new RegExp('[\\p{Extended_Pictographic}\\p{Emoji_Modifier}\\u200d\\ufe0f\\u20e3]', 'gu');
+
+/**
+ * A line for the selection prompt, without its emoji (QA v3, V3-F07-01).
+ *
+ * An exported Arabic chat in which one reply was «تمام 👍» came back with no
+ * message chosen, four times in four; the same chat without the emoji gave
+ * both commitments. The selection is a judgement about words — what somebody
+ * has to do and when — and the model is now asked it over the words alone.
+ * Only the prompt loses them: the segments and the evidence the channel builds
+ * are the messages as written, emoji and all.
+ */
+export function withoutEmoji(text: string): string {
+  return text.replace(EMOJI, '').replace(/\s+/g, ' ').trim();
 }
 
 /**

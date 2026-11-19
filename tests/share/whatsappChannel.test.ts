@@ -674,8 +674,8 @@ test('emoji never reach the selection prompt, and a chosen message keeps its own
     const result = await share({ text: chat }, { generateStructured: spy.generate });
     assert.equal(spy.calls.length, 1);
     const shown = spy.calls[0]!.parts.map((part) => (part.kind === 'text' ? part.text : '')).join('\n');
-    assert.doesNotMatch(shown, /\p{Extended_Pictographic}/u, 'an emoji reached the selection prompt');
-    assert.doesNotMatch(shown, /[‍️\u{1f3fb}-\u{1f3ff}]/u, 'an emoji joiner or modifier reached the prompt');
+    assert.doesNotMatch(shown, new RegExp('\\p{Extended_Pictographic}', 'u'), 'an emoji reached the selection prompt');
+    assert.doesNotMatch(shown, new RegExp('[\\u200d\\ufe0f\\u{1f3fb}-\\u{1f3ff}]', 'u'), 'an emoji joiner or modifier reached the prompt');
     // Every message is still shown, the emoji-only one included, as one line each.
     assert.ok(shown.includes('تمام'));
     assert.equal(result.share.metrics.messagesKept, 4);

@@ -1006,3 +1006,23 @@ test('the image instruction covers an appointment the reader is going to, with i
   assert.match(instruction, /duedayphrase: [^\n]*time/);
 });
 
+
+/**
+ * QA v3 (V3-F07-02, the provenance half), for the two ends a picture can come
+ * to: the model read it and found nothing, or the model never answered.
+ */
+test('an empty picture share says which engine read it, and a model that never answered is a fallback', async () => {
+  await withStorage(async () => {
+    const read = await shareOf(
+      [uploadOf(posterNamed('poster_en'))],
+      imageModelStub({ override: () => ({ items: [] }) }).generate,
+    );
+    assert.deepEqual(read.provenance, { requestedEngine: 'model', executedEngine: 'gemini', fallbackUsed: false });
+    const unanswered = await shareOf(
+      [uploadOf(posterNamed('poster_en'))],
+      async () => { throw new LLMUnavailableError('provider_error'); },
+    );
+    assert.equal(unanswered.status, 'no_commitment');
+    assert.deepEqual(unanswered.provenance, { requestedEngine: 'model', executedEngine: 'rule-based', fallbackUsed: true });
+  });
+});

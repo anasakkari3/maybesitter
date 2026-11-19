@@ -802,6 +802,8 @@
   "shareTooLarge": "That’s too big to send. Share a smaller part of it.",
   "shareUnsupported": "MaybeSitter can't read that kind of file.",
   "shareImageUnreadable": "MaybeSitter couldn’t open that picture, so nothing was sent. Take a screenshot of it and share the screenshot instead.",
+  "shareUploadNotSent": "What you shared didn’t reach MaybeSitter. Try again, and if it keeps happening, share a smaller screenshot.",
+  "shareUploadTimedOut": "Reading it took too long and no answer came back. Try again in a moment.",
   "shareTooManyFiles": "Too many files at once. Share up to five images, or one file.",
   "shareTextTooLong": "That’s a lot of text. Share a shorter part of it.",
   "shareEmpty": "There was nothing in that to read.",

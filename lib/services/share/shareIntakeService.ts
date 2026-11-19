@@ -728,7 +728,7 @@ async function proposeFromPrepared(
    * is made here rather than by asking it to accept one.
    */
   const produced = screened.text === ''
-    ? emptyProposal()
+    ? emptyProposal(channelModelUse(prepared.metrics))
     : await propose(
       {
         text: screened.text,
@@ -829,14 +829,46 @@ function withoutInjectedLines(text: string): { text: string; dropped: number } {
  * to accept an empty string would weaken the typed-capture path to serve this
  * one.
  */
-function emptyProposal(): Proposal {
+function emptyProposal(model: ChannelModelUse): Proposal {
   return {
     version: 'v1',
     proposalId: randomUUID(),
     status: 'no_commitment',
     items: [],
-    provenance: { requestedEngine: 'rules', executedEngine: 'rule-based', fallbackUsed: false },
+    // Which engine read the share. A channel that asked the model and found
+    // nothing said `rules` here (QA v3, V3-F07-02), which sent the person
+    // looking for a fallback that never happened — and a channel whose model
+    // never answered is a fallback, and says so.
+    provenance: model === 'answered'
+      ? { requestedEngine: 'model', executedEngine: 'gemini', fallbackUsed: false }
+      : model === 'unanswered'
+        ? { requestedEngine: 'model', executedEngine: 'rule-based', fallbackUsed: true }
+        : { requestedEngine: 'rules', executedEngine: 'rule-based', fallbackUsed: false },
   } as unknown as Proposal;
+}
+
+type ChannelModelUse = 'not_asked' | 'answered' | 'unanswered';
+
+/**
+ * Whether a channel put this share in front of the model, and whether the
+ * model answered, from the channel's counts.
+ *
+ * Each channel names those counts its own way, and all are numbers in
+ * `metrics`, so this reads them rather than widening the frozen
+ * `SharePreprocessResult`: `modelUsed` (WhatsApp, 1 only on an answer),
+ * `imagesRead` (image, answers) beside `modelUnavailable` (refusals),
+ * `modelCalls` (document: answers; mailbox: attempts, with `messagesRead`
+ * and `modelUnavailable` saying how they went).
+ */
+function channelModelUse(metrics: Readonly<Record<string, number>> | undefined): ChannelModelUse {
+  if (!metrics) return 'not_asked';
+  const count = (key: string) => metrics[key] ?? 0;
+  const answered = count('modelUsed') > 0
+    || count('imagesRead') > 0
+    || count('messagesRead') > 0
+    || (count('modelCalls') > 0 && count('modelUnavailable') === 0);
+  if (answered) return 'answered';
+  return count('modelCalls') > 0 || count('modelUnavailable') > 0 ? 'unanswered' : 'not_asked';
 }
 
 /**

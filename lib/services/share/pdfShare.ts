@@ -69,6 +69,7 @@ import {
   type DocumentItemKind,
   type DocumentModelAnswer,
 } from './prompts/documentPrompt';
+import { CAPTURE_INPUT_MAX_CHARACTERS } from '../../../src/contracts/v1/captureContracts';
 import { decodeUtf8 } from './mediaType';
 import { MAX_EVIDENCE_CHARACTERS, ShareInputError } from './shareTypes';
 import type {
@@ -95,6 +96,12 @@ export const MAX_DOCUMENT_PROMPT_TOKENS = 150_000;
 
 /** The most characters of a text file that reach the model (#191 step 9). */
 export const MAX_DOCUMENT_TEXT_CHARACTERS = 20_000;
+
+/**
+ * The most single timed events a shared `.ics` may hold and still be read as
+ * invitations, one item each. More than this is a timetable (QA v3, V3-F07-04).
+ */
+export const MAX_SHARED_INVITE_EVENTS = 3;
 
 /** A date further away than this is asked about rather than believed (#191 step 4). */
 export const CLARIFY_MONTHS_AHEAD = 10;
@@ -161,6 +168,14 @@ export interface DocumentRead {
   readonly latencyMs: number;
   /** 1 when this document was read without a model call at all (an `.ics`). */
   readonly modelCalls: number;
+  /**
+   * A short text file's own words, when the document read found nothing at all
+   * in it (QA v3, V3-F07-02), so the channel can hand them to the capture
+   * pipeline the way shared text is. Null for a PDF, for a calendar, and for
+   * any read that found, dropped or refused anything. Never traced or stored;
+   * it lives exactly as long as the shared text of a plain-text share does.
+   */
+  readonly asText: string | null;
 }
 
 /* ── Text decoding ─────────────────────────────────────────────── */
@@ -416,6 +431,7 @@ function emptyRead(extra: Partial<DocumentRead> = {}): DocumentRead {
     outputTokens: 0,
     latencyMs: 0,
     modelCalls: 0,
+    asText: null,
     ...extra,
   };
 }
@@ -544,7 +560,7 @@ function readCalendar(file: ShareIntakeFile, input: SharePreprocessorInput): Doc
   }
   let classified;
   try {
-    classified = classifyIcs(text, { now: input.referenceTime, timeZone: input.timezone });
+    classified = classifyIcs(text, { now: input.referenceTime, timeZone: input.timezone, events: true });
   } catch (error) {
     if (error instanceof IcsParseError) {
       throw new ShareInputError(422, 'unreadable_calendar', 'that calendar file could not be read');
@@ -575,6 +591,31 @@ function readCalendar(file: ShareIntakeFile, input: SharePreprocessorInput): Doc
       confidence: 1,
       dateText: '',
     });
+  }
+  /*
+   * A shared invitation (QA v3, V3-F07-04). An ordinary meeting or appointment
+   * is a timed VEVENT, which the feed rules read as busy time with no title —
+   * so a shared invite proposed nothing and said nothing. A file holding a
+   * handful of single events is somebody's invitation and each becomes an item
+   * at its start; a file holding more is a timetable, whose sessions are busy
+   * time and not commitments (the rule `documentPrompt.ts` sets for lectures).
+   */
+  const events = classified.events ?? [];
+  if (events.length <= MAX_SHARED_INVITE_EVENTS) {
+    for (const event of events) {
+      if (items.length >= MAX_DOCUMENT_ITEMS) break;
+      const title = cleanDocumentTitle(event.title);
+      if (title === null) continue;
+      items.push({
+        title,
+        kind: 'other',
+        dueAt: event.startAt,
+        needsClarification: false,
+        page: 1,
+        confidence: 1,
+        dateText: '',
+      });
+    }
   }
   return emptyRead({
     items,
@@ -612,6 +653,7 @@ export async function readDocument(
 
   let parts;
   let truncatedCharacters = 0;
+  let fileText: string | null = null;
   if (file.mediaType === 'application/pdf') {
     // Before the call, so an oversized document costs nothing. The device
     // refuses the same number first; this is the half that is not a client's
@@ -628,6 +670,7 @@ export async function readDocument(
     if (decoded === null) {
       throw new ShareInputError(415, 'unsupported_media_type', 'that file is not text this app can read');
     }
+    fileText = decoded;
     const kept = decoded.slice(0, MAX_DOCUMENT_TEXT_CHARACTERS);
     truncatedCharacters = decoded.length - kept.length;
     parts = documentTextParts(kept, caption);
@@ -691,6 +734,32 @@ export async function readDocument(
   const courseName = cleanDocumentTitle(answer.courseName);
   const documentTitle = cleanDocumentTitle(answer.documentTitle);
 
+  /*
+   * A `.txt` that is not a syllabus (QA v3, V3-F07-02).
+   *
+   * The instruction above reads a document for a student's dated items, and a
+   * shared note — «Reminder: dentist appointment on Friday Nov 21 at 10:30 AM.
+   * Bring insurance card.» — has none of those, so the read answered, rightly
+   * by its own rules, with nothing: three times in three, while the same words
+   * pasted as text were proposed. When the read found *nothing at all* — no
+   * item kept, none dropped as past, undated or an instruction, no hidden text
+   * and no caption refused — a text file short enough for the capture pipeline
+   * is handed to it as it is, which is what sharing that text would have done.
+   * Anything the read did find or refuse wins: re-reading a file whose dates
+   * had passed, or that carried an attack, would undo what the read decided.
+   */
+  const trimmedText = fileText?.trim() ?? '';
+  const foundNothing = selected.items.length === 0
+    && selected.droppedPast === 0
+    && selected.undated === 0
+    && selected.injected === 0
+    && !transcriptInjected
+    && !captionInjected
+    && truncatedCharacters === 0;
+  const asText = foundNothing && trimmedText !== '' && trimmedText.length <= CAPTURE_INPUT_MAX_CHARACTERS
+    ? trimmedText
+    : null;
+
   return {
     items: selected.items,
     // Both go to the phone and nowhere else, and both came out of the page, so
@@ -709,5 +778,6 @@ export async function readDocument(
     outputTokens: response.outputTokens,
     latencyMs: response.latencyMs,
     modelCalls: 1,
+    asText,
   };
 }
