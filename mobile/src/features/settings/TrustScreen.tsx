@@ -1,6 +1,6 @@
 import { ClarityConsent } from '../../clarity/ClarityConsent';
 import React, { useState } from 'react';
-import { Linking, Platform, View } from 'react-native';
+import { ActivityIndicator, Linking, Platform, View } from 'react-native';
 import { useApp } from '../../state/AppContext';
 import { Btn, Card, Pill, Txt } from '../../ui/primitives';
 import { Screen, ScreenScroll } from '../../ui/screen';
@@ -20,7 +20,9 @@ import { ServerToggle } from './ServerToggle';
 import { SettingsHeader, SettingsRow } from './SettingsChrome';
 import { Dialog } from '../../ui/dialog';
 import { SectionLabel, TextLink } from '../../ui/chrome';
-import { userFacingMessage } from '../../api/ui/userFacingMessage';
+import { toggleFailureKey, userFacingMessage, type UserFacingKey } from '../../api/ui/userFacingMessage';
+import { useAnnounceOnIos } from '../../ui/announce';
+import { LiveRegion } from '../../ui/liveRegion';
 import type { PilotIncidentInput } from '../../api/schemas/trust';
 import { deviceCalendar } from '../calendar/deviceCalendar';
 import { useCalendarConnection } from '../calendar/calendarConnection';
@@ -89,7 +91,13 @@ export function TrustScreen({ onBack, onKnows }: { onBack: () => void; onKnows: 
   const report = useReportPilotIncident();
   const exportData = useExportMyData();
   const [confirmRevoke, setConfirmRevoke] = useState(false);
-  const [stopError, setStopError] = useState<unknown>(null);
+  // The line under the stop card when a write failed: which words, from the
+  // same rule as a switch's (`toggleFailureKey`), or the partial line when the
+  // first answer landed and the second did not.
+  const [stopFailure, setStopFailure] = useState<UserFacingKey | null>(null);
+  // «موقّفين» is said out loud only as the answer to this card's own tap,
+  // not every time the screen opens on an account that is already off.
+  const [stoppedByTap, setStoppedByTap] = useState(false);
   const [reporting, setReporting] = useState(false);
   const [incidentSurface, setIncidentSurface] = useState<PilotIncidentInput['surface']>('capture');
   const [incidentCategory, setIncidentCategory] = useState<PilotIncidentInput['category']>('reliability');
@@ -108,13 +116,16 @@ export function TrustScreen({ onBack, onKnows }: { onBack: () => void; onKnows: 
   const calendarLine = calendar.line === null || calendar.line === 'denied' ? undefined : t[calendar.line];
   const policy = privacyPolicyUrl(lang);
 
-  // Off means neither question is answered yes. Pattern learning only counts
-  // where this server names its version (an older API has no such question).
-  // Unknown — the answers could not be read — claims neither state.
+  // Off means both questions were answered, and neither with yes. Pattern
+  // learning only counts where this server names its version (an older API
+  // has no such question). A question never asked is not «stopped» — there is
+  // nothing to turn back on (review of #873) — and unknown, the answers could
+  // not be read, claims neither state.
   const asksPersonalization = versions?.personalization !== undefined;
+  const answeredOff = (view: { state: string; asked?: boolean } | undefined) => view?.asked === true && view.state !== 'granted';
   const stopped = consents.data !== undefined
-    && consents.data.recommendations.state !== 'granted'
-    && (!asksPersonalization || consents.data.personalization?.state !== 'granted');
+    && answeredOff(consents.data.recommendations)
+    && (!asksPersonalization || answeredOff(consents.data.personalization));
   const answering = setRecommendations.isPending || setPersonalization.isPending;
 
   /**
@@ -123,27 +134,48 @@ export function TrustScreen({ onBack, onKnows }: { onBack: () => void; onKnows: 
    */
   const answerBoth = async (state: 'granted' | 'declined') => {
     if (!versions) return;
-    setStopError(null);
+    setStopFailure(null);
+    setStoppedByTap(false);
+    const suggestions = () => setRecommendations.mutateAsync({ state, version: versions.recommendations, ...context });
+    const learning = () => asksPersonalization
+      ? setPersonalization.mutateAsync({ state, version: versions.personalization!, ...context })
+      : Promise.resolve(null);
+    // Stopping: suggestions first. Resuming: learning first. Either way a
+    // failure between the two leaves suggestions — the louder of the two —
+    // off, and the line under the card says which half did not land.
+    const [first, second, partial] = state === 'declined'
+      ? [suggestions, learning, 'trustStopPartial' as const]
+      : [learning, suggestions, 'trustResumePartial' as const];
     try {
-      if (state === 'declined') {
-        await setRecommendations.mutateAsync({ state, version: versions.recommendations, ...context });
-        if (asksPersonalization) await setPersonalization.mutateAsync({ state, version: versions.personalization!, ...context });
-      } else {
-        if (asksPersonalization) await setPersonalization.mutateAsync({ state, version: versions.personalization!, ...context });
-        await setRecommendations.mutateAsync({ state, version: versions.recommendations, ...context }).then((saved) => {
-          if (saved.recommendations.state === 'granted' && uid) clearVisitWait(uid);
-        });
-      }
+      await first();
     } catch (error) {
-      setStopError(error);
+      setStopFailure(toggleFailureKey(error));
+      return;
     }
+    try {
+      await second();
+    } catch (error) {
+      toggleFailureKey(error);
+      setStopFailure(partial);
+      return;
+    }
+    if (state === 'declined') setStoppedByTap(true);
+    else if (uid) clearVisitWait(uid);
   };
+  const stopLine = stopFailure ? t[stopFailure] : stoppedByTap && stopped ? t.trustRevoked : null;
+  // A live region for TalkBack, and VoiceOver told: the line appears away
+  // from the button, after the dialog closed (the switches' rule).
+  useAnnounceOnIos(stopLine);
 
   /**
    * True when the write landed. A failure is thrown on to `ServerToggle`, which
    * says which one it was — a refusal is not "didn't reach the server" (N9).
    */
   const record = async (run: Promise<unknown>): Promise<boolean> => {
+    // A switch moved by hand answers for itself; the stop card's old line no
+    // longer describes what is on.
+    setStopFailure(null);
+    setStoppedByTap(false);
     await run;
     return true;
   };
@@ -318,22 +350,21 @@ export function TrustScreen({ onBack, onKnows }: { onBack: () => void; onKnows: 
           <Txt size={15} weight={600}>{t.trustRevoke}</Txt>
           <Txt size={13} color={p.mu} lh={1.5}>{t.trustRevokeBody}</Txt>
           {stopped ? (
-            <>
-              <Txt size={13} color={p.mu} testID="trust-revoked">{t.trustRevoked}</Txt>
-              <Btn
-                label={t.trustResume}
-                testID="trust-resume"
-                disabled={answering}
-                onPress={answering ? undefined : () => void answerBoth('granted')}
-                style={{ minHeight: 44, alignItems: 'center', justifyContent: 'center', borderRadius: 999, borderWidth: 1, borderColor: p.ln, opacity: answering ? 0.5 : 1 }}
-              >
-                <Txt size={14} color={p.ac}>{t.trustResume}</Txt>
-              </Btn>
-            </>
+            <Btn
+              label={t.trustResume}
+              testID="trust-resume"
+              accessibilityState={{ busy: answering }}
+              disabled={answering}
+              onPress={answering ? undefined : () => void answerBoth('granted')}
+              style={{ minHeight: 44, alignItems: 'center', justifyContent: 'center', borderRadius: 999, borderWidth: 1, borderColor: p.ln, opacity: answering ? 0.5 : 1 }}
+            >
+              <Txt size={14} color={p.ac}>{t.trustResume}</Txt>
+            </Btn>
           ) : (
             <Btn
               label={t.trustRevoke}
               testID="trust-revoke"
+              accessibilityState={{ busy: answering }}
               disabled={versions === undefined || answering}
               onPress={versions === undefined || answering ? undefined : () => setConfirmRevoke(true)}
               style={{ minHeight: 44, alignItems: 'center', justifyContent: 'center', borderRadius: 999, borderWidth: 1, borderColor: p.ln, opacity: versions === undefined || answering ? 0.5 : 1 }}
@@ -341,7 +372,12 @@ export function TrustScreen({ onBack, onKnows }: { onBack: () => void; onKnows: 
               <Txt size={14} color={p.wm}>{t.trustRevoke}</Txt>
             </Btn>
           )}
-          {stopError ? <Txt size={13} color={p.wm} testID="trust-stop-failed">{userFacingMessage(stopError, t)}</Txt> : null}
+          {answering ? <ActivityIndicator testID="trust-stop-busy" color={p.ac} /> : null}
+          {/* Mounted before anything fails, so TalkBack hears the line arrive. */}
+          <LiveRegion testID="trust-stop-live" style={{ gap: 10 }}>
+            {stopped ? <Txt size={13} color={p.mu} testID="trust-revoked">{t.trustRevoked}</Txt> : null}
+            {stopFailure ? <Txt size={13} color={p.wm} testID="trust-stop-failed">{t[stopFailure]}</Txt> : null}
+          </LiveRegion>
         </Card>
 
         {/* The real export (#174 step 7): the server builds it from the same

@@ -1,4 +1,5 @@
 import { decideFeature, refuses } from '../features/featureGate';
+import { getRecommendationConsent } from '../consents/recommendationConsentService';
 import { featureHooksFor, msUntilNextMonth } from '../features/providerGate';
 import { randomUUID } from 'node:crypto';
 import { LLMUnavailableError } from '../../src/extraction/llm';
@@ -297,6 +298,13 @@ async function proposalStep(uid: string, runtime: GoogleRuntime, overrides: Gmai
   try {
     if (await isMonitoringPaused(uid, runtime.storage)
       || await connectedGmailAccount(uid, runtime) !== monitor.m5.providerAccountId) { await defer(5 * 60_000); return false; }
+    // Suggestions are the person's to stop (V3-F35-07, review of #873). This
+    // step asks the model for suggestions from their mail, so it waits for the
+    // next-step suggestions consent the screens already hide suggestions
+    // under: no model call, no budget, no hidden rows that surface the moment
+    // suggestions come back on. Monitoring itself keeps its own switch; the
+    // pending work stays pending and is looked at again within the hour.
+    if (await getRecommendationConsent(uid, { storage: runtime.storage }) !== 'granted') { await defer(60 * 60_000); return false; }
     await (overrides.ensureReadable?.(uid) ?? requireReadableFeature(uid, 'gmail', runtime));
     // The Gmail add-on's monthly budget, before a permit is reserved: a month
     // the person's plan has spent waits for the next one without spending.
