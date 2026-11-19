@@ -162,3 +162,11 @@ describe('the defer choices, nearest first (review of #874)', () => {
     expect(deferChoices(four, JERUSALEM, '2026-11-20T10:00:00.000Z')).toEqual(['oneHour', 'thisEvening', 'threeHours']);
   });
 });
+
+describe('a choice exactly at the item\'s time (review of #874)', () => {
+  it('is not before it, so it is not offered', () => {
+    const now = new Date('2026-11-19T07:47:00.000Z'); // 09:47 in Jerusalem
+    // The item at 12:47: «in three hours» lands on it exactly.
+    expect(deferChoices(now, JERUSALEM, '2026-11-19T10:47:00.000Z')).toEqual(['oneHour']);
+  });
+});

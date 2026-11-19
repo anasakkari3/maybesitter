@@ -69,7 +69,7 @@ describe('a step put off, across Today unmounting and an account change', () => 
     expect(screen.getByTestId('held')).toHaveTextContent('c-1');
   });
 
-  it('is not carried to another account', async () => {
+  it('another account does not see it, and the first account\'s record and defaults are gone', async () => {
     const repository = createFakeAuthRepository({ initialUser: user('account-a') });
     const client = createAppQueryClient();
     await render(
@@ -84,5 +84,9 @@ describe('a step put off, across Today unmounting and an account change', () => 
     await act(async () => { repository.emit(null); });
     await act(async () => { repository.emit(user('account-b')); });
     await waitFor(() => expect(screen.getByTestId('held')).toHaveTextContent('none'));
+    // Nothing of account A stays in memory: not the record, not a default
+    // for its key (review of #874).
+    expect(client.getQueryData(['user', 'account-a', 'nextStepDeferred'])).toBeUndefined();
+    expect(client.getQueryDefaults(['user', 'account-a', 'nextStepDeferred'])).toEqual({});
   });
 });

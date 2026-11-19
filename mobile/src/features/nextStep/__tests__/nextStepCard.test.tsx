@@ -503,6 +503,9 @@ describe('later, and when', () => {
     await fireEvent.press(screen.getByTestId('next-step-defer'));
     await waitFor(() => expect(screen.queryByTestId('next-step-defer-oneHour')).not.toBeNull());
     expect(screen.queryByText(en.nextStepDeferBody)).not.toBeNull();
+    // True for an item with no time too (review of #874): it does not claim
+    // the item has a time to keep.
+    expect(en.nextStepDeferBody).toBe('The suggestion comes back at the time you pick. The item itself stays as it is.');
     expect(screen.queryByText(en.postponeBody)).toBeNull();
     // Still said to be a suggestion.
     expect(screen.queryByText(en.suggestionNote)).not.toBeNull();
