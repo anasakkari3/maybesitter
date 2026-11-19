@@ -18,7 +18,8 @@
 import test, { afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { begin, call, end } from '../acceptance/m5b/support.ts';
-import { reserveCall } from '../../lib/llm/usageGuard.ts';
+import { commitUsage, reserveCall, userDailyCapReached } from '../../lib/llm/usageGuard.ts';
+import { featureCapabilities } from '../../lib/features/featureCapabilities.ts';
 import { recordFeatureSpend } from '../../lib/features/spendLedger.ts';
 
 const KEYS = ['MAYBESITTER_ADDON_GATE_MODE', 'MAYBESITTER_LLM_DAILY_CALL_CAP', 'MAYBESITTER_LLM_MINUTE_CALL_CAP'] as const;
@@ -94,4 +95,41 @@ test('V3-F34-01: under shadow a spent month still runs, so the list says enabled
   await recordFeatureSpend(uid, 'goal_plans', 10_000_000_000);
   const after = await listed(uid);
   assert.deepEqual(state(after.goal_plans), [true, 'budget_spent']);
+});
+
+// Review of #876: each of the five features the daily limit pauses, the token
+// cap as well as the call cap, and the UTC day boundary.
+test('all five daily-limited features pause at the token cap too, as reserveCall refuses', async () => {
+  env({ MAYBESITTER_ADDON_GATE_MODE: 'shadow', MAYBESITTER_LLM_MINUTE_CALL_CAP: '50' });
+  const keep = [process.env.MAYBESITTER_LLM_DAILY_TOKEN_CAP, process.env.MAYBESITTER_FEATURE_MEMORY_TRANSLATION, process.env.MAYBESITTER_KILL_SWITCH_MEMORY_TRANSLATION];
+  process.env.MAYBESITTER_LLM_DAILY_TOKEN_CAP = '100';
+  process.env.MAYBESITTER_FEATURE_MEMORY_TRANSLATION = 'true';
+  process.env.MAYBESITTER_KILL_SWITCH_MEMORY_TRANSLATION = 'false';
+  try {
+    const uid = await begin();
+    assert.equal(await reserveCall(uid, 'capture_extraction'), 'ok');
+    await commitUsage(uid, { promptTokens: 60, outputTokens: 60 });
+    assert.equal(await reserveCall(uid, 'capture_extraction'), 'user_token_cap');
+    assert.equal(await userDailyCapReached(uid), true);
+    const after = await listed(uid);
+    for (const id of ['assistant', 'meeting_prep', 'goal_plans', 'memory_learning', 'memory_translation']) {
+      assert.deepEqual(state(after[id]), [false, 'daily_cap_reached'], `${id} still says it works past the token cap`);
+    }
+  } finally {
+    const names = ['MAYBESITTER_LLM_DAILY_TOKEN_CAP', 'MAYBESITTER_FEATURE_MEMORY_TRANSLATION', 'MAYBESITTER_KILL_SWITCH_MEMORY_TRANSLATION'];
+    names.forEach((name, index) => { if (keep[index] === undefined) delete process.env[name]; else process.env[name] = keep[index]; });
+  }
+});
+
+test('the day turns at 00:00 UTC: reached at 23:59:59Z, clear (and reservable) at 00:00:00Z', async () => {
+  env({ MAYBESITTER_ADDON_GATE_MODE: 'shadow', MAYBESITTER_LLM_DAILY_CALL_CAP: '1', MAYBESITTER_LLM_MINUTE_CALL_CAP: '50' });
+  const uid = await begin();
+  const evening = new Date('2026-11-19T23:30:00Z');
+  assert.equal(await reserveCall(uid, 'capture_extraction', { now: evening }), 'ok');
+  const goalPlans = async (now: Date) => (await quietly(() => featureCapabilities(uid, { now }))).features.find(row => row.id === 'goal_plans');
+  assert.deepEqual(state(await goalPlans(new Date('2026-11-19T23:59:59Z'))), [false, 'daily_cap_reached']);
+  const midnight = new Date('2026-11-20T00:00:00Z');
+  assert.equal(await userDailyCapReached(uid, { now: midnight }), false);
+  assert.deepEqual(state(await goalPlans(midnight)), [true, 'free_allowance']);
+  assert.equal(await reserveCall(uid, 'capture_extraction', { now: midnight }), 'ok');
 });

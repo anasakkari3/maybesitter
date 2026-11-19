@@ -12,7 +12,7 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { addRows, begin, end, scriptedModel, show, summary, useSummaryModel } from '../acceptance/m5b/support.ts';
+import { REFERENCE, addRows, begin, end, plusMs, scriptedModel, setClock, show, summary, useSummaryModel } from '../acceptance/m5b/support.ts';
 import { validateMemorySummary, type MemorySummaryLanguage } from '../../lib/services/mobile/memorySummary.ts';
 import { readMonthSpend } from '../../lib/features/spendLedger.ts';
 
@@ -102,3 +102,66 @@ for (const mode of ['shadow', 'enforce'] as const) {
     } finally { end(); }
   });
 }
+
+// Review of #876: a weekday is a weekday. Where the context makes it a day
+// and no cited row names that day, it is refused, even when a row holds the
+// number it also reads as («اجتماع الساعة 2» is no Monday).
+test('a weekday no cited row names is refused even when a row holds its number', () => {
+  assert.equal(one('عندك اجتماع يوم الاثنين.', 'اجتماع الساعة 2'), null);
+  assert.equal(one('عندك محاضرات يوم التلات.', 'عندي 3 محاضرات'), null);
+  assert.equal(one('عندك محاضرات التلات.', 'عندي 3 محاضرات'), null);
+  assert.equal(one('عندك إشي يوم الاثنين.', 'عندي اثنين من الاولاد'), null);
+  assert.equal(one('יש לך הרצאה ביום שני.', 'יש לי 2 הרצאות', 'he'), null);
+  assert.equal(one('יש לך הרצאה ביום שלישי.', 'יש לי 3 הרצאות', 'he'), null);
+  assert.equal(one('عندك دوام يوم الاثنين.', 'كل أحد وثلاثاء عندي دوام الساعة 2'), null);
+  // The day a row names passes; a number a row holds passes outside a day.
+  assert.notEqual(one('عندك دوام يوم الثلاثاء.', 'كل أحد وثلاثاء عندي دوام'), null);
+  assert.notEqual(one('عندك دوام يوم التلات.', 'كل أحد وثلاثاء عندي دوام'), null);
+  assert.notEqual(one('عندك 3 محاضرات.', 'عندي 3 محاضرات'), null);
+  assert.notEqual(one('عندك تلات محاضرات.', 'عندي 3 محاضرات'), null);
+  assert.notEqual(one('عندك اثنين من الولاد.', 'عندي 2 ولاد'), null);
+});
+
+// Review of #876: a row's everyday words that also read as numbers give it no number.
+test('a row\'s «الظهر», «ميه», «ست», «نص» and a weekday «تلات» hold no number', () => {
+  assert.equal(one('عندك 12 مشكلة.', 'بوجعني الظهر'), null);
+  assert.equal(one('بتشرب 100 كاس.', 'بشرب ميه'), null);
+  assert.equal(one('بتحكي مع 6 جارات.', 'بحكي مع ست جارتنا'), null);
+  assert.equal(one('عندك 3 أيام دوام.', 'كل أحد وتلات عندي دوام'), null);
+  assert.equal(one('عندك تلاتة.', 'كل أحد وتلات عندي دوام'), null);
+  // Still a number where it is one: «الساعة 12 الظهر» holds 12 by its digits.
+  assert.notEqual(one('بتتغدى الساعة 12 الظهر.', 'بتغدى الساعة 12 الظهر'), null);
+});
+
+test('a value is matched exactly: 3.0004 is not a row\'s three', () => {
+  assert.equal(one('You have 3.0004 kids.', 'I have three kids', 'en'), null);
+  assert.notEqual(one('You have 3 kids.', 'I have three kids', 'en'), null);
+});
+
+// Review of #876: a summary the validator refused was asked again on every
+// GET, each a model call against the person's daily limit (shared with capture).
+test('a refused summary is kept for 10 minutes for the same rows; changed rows or the time passing ask again', async () => {
+  const { MEMORY_SUMMARY_FAILURE_TTL_MS } = await import('../../lib/services/mobile/memorySummary.ts');
+  assert.equal(MEMORY_SUMMARY_FAILURE_TTL_MS, 10 * 60_000);
+  try {
+    const uid = await begin();
+    await addRows(uid, [{ content: 'عندي 3 محاضرات بالأسبوع', language: 'ar' }]);
+    const model = scriptedModel(() => ({ sentences: [{ text: 'عندك ٣ محاضرات بالأسبوع.', refs: ['r1'] }] }));
+    await useSummaryModel(model);
+    for (let index = 0; index < 3; index += 1) {
+      assert.equal((await summary(uid, 'ar')).body.summary?.status, 'unavailable');
+    }
+    assert.equal(model.calls.length, 1, 'the same refused rows were asked again');
+    // Another language is its own question.
+    await summary(uid, 'en');
+    assert.equal(model.calls.length, 2);
+
+    setClock(plusMs(REFERENCE, MEMORY_SUMMARY_FAILURE_TTL_MS + 1_000));
+    assert.equal((await summary(uid, 'ar')).body.summary?.status, 'unavailable');
+    assert.equal(model.calls.length, 3, 'a refusal was kept past its time');
+
+    await addRows(uid, [{ content: 'بحب أدرس بالليل', language: 'ar' }]);
+    await summary(uid, 'ar');
+    assert.equal(model.calls.length, 4, 'changed rows were answered from the kept refusal');
+  } finally { end(); }
+});
