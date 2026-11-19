@@ -653,7 +653,7 @@ export function CaptureScreen({ entryQuestion }: { entryQuestion?: { entry: Capt
       busy={editBusy || flow.writing} onMakeCommitment={() => { void sendEdit({ seedItemId: seed.seedItemId }, { kind: 'commitment' }); }} />)
       : state.proposal?.seeds?.length ? <SeedProposalSection proposalId={state.proposal.proposalId} seeds={state.proposal.seeds} onAnchor={anchorSeed}
       {...(state.proposal.revision !== undefined ? { revision: state.proposal.revision } : {})} onProposalChanged={flow.adoptCurrent}
-      writing={flow.writing} guardWrite={flow.guardWrite}
+      writing={flow.writing} guardWrite={flow.guardWrite} onDecided={flow.decideSeed}
       renderAction={(seed) => <SeedCommitAction seed={seed} busy={editBusy || flow.writing}
         onPress={() => { void sendEdit({ seedItemId: seed.seedItemId }, { kind: 'commitment' }); }} />} /> : null}
   </View> : null;
