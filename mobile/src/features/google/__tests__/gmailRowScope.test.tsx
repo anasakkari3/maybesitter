@@ -38,6 +38,18 @@ describe('the Gmail row names what the scan reads', () => {
     expect(row.getByText(strings[language].googleGmailBodyAllMail)).toBeTruthy();
   });
 
+  it.each(['ar', 'en', 'he'] as const)('review 3, %s: with monitoring on, the row says it also reads new mail and once a day, not "only when you ask"', async (language) => {
+    harness = await prepare(language, initialState({
+      emailSources: true,
+      monitor: { enabled: true, lastSuccessAt: null, error: null, m5Enrolled: true, waiting: null },
+    }));
+    await showGoogle(harness);
+    await waitFor(() => expect(screen.queryByTestId('email-scan-button')).not.toBeNull());
+    const row = within(screen.getByTestId('google-row-gmail'));
+    await waitFor(() => expect(row.queryByText(strings[language].googleGmailBodyAllMailMonitoring)).not.toBeNull());
+    expect(row.queryByText(strings[language].googleGmailBodyAllMail)).toBeNull();
+  });
+
   it('en: with the legacy scan (Primary only), the Primary line stays', async () => {
     harness = await prepare('en', initialState({ emailSources: false }));
     await showGoogle(harness);

@@ -1406,6 +1406,7 @@
   "googleCalendarBody": "أوقاتك المشغولة بس، بلا عناوين.",
   "googleGmailBody": "آخر 7 أيام من البريد الرئيسي، بس لما تطلب.",
   "googleGmailBodyAllMail": "آخر 7 أيام من كل الإيميلات، مش بس الرئيسي، بس لما تطلب.",
+  "googleGmailBodyAllMailMonitoring": "كل الإيميلات، مش بس الرئيسي: الجديد أول بأول ومرة باليوم لأن المراقبة شغّالة، وآخر 7 أيام لما تطلب.",
   "googleDriveBody": "بيشوف بس الملف اللي بتختاره.",
   "googleConnect": "اربط Google",
   "googleConnectedAs": "مربوط · {email}",

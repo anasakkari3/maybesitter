@@ -1409,6 +1409,7 @@
   "googleCalendarBody": "רק זמנים תפוסים, בלי כותרות.",
   "googleGmailBody": "7 הימים האחרונים בראשי, רק כשמבקשים.",
   "googleGmailBodyAllMail": "7 הימים האחרונים מכל המיילים, לא רק מהראשי, רק כשמבקשים.",
+  "googleGmailBodyAllMailMonitoring": "כל המיילים, לא רק הראשי: מיילים חדשים כשהם מגיעים ופעם ביום כל עוד המעקב פעיל, ו-7 הימים האחרונים כשמבקשים.",
   "googleDriveBody": "רואה רק את הקובץ שבוחרים.",
   "googleConnect": "חיבור",
   "googleConnectedAs": "מחובר · {email}",
