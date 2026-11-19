@@ -4,7 +4,7 @@
     "@google/genai": "^2.22.0",
     "@grpc/grpc-js": "1.14.5",
     "firebase-admin": "^14.4.0",
-    "google-auth-library": "^10.9.1",
+    "google-auth-library": "^11.3.3",
     "ical.js": "^2.2.1",
     "ipaddr.js": "^2.5.0",
     "next": "15.5.29",
