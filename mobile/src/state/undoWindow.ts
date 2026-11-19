@@ -17,27 +17,31 @@
  * before the window closes (Details goes back as soon as Done is pressed).
  */
 import { AppState, type NativeEventSubscription } from 'react-native';
+import { onBeforeSignOut } from '../auth/beforeSignOut';
 
 /** Five seconds, the toast's `TOAST_SECONDS`; a test binds the two together. */
 export const UNDO_WINDOW_MS = 5_000;
 
 interface Pending {
   readonly timer: ReturnType<typeof setTimeout>;
-  readonly commit: () => void;
+  readonly commit: () => unknown;
 }
 
 const pending = new Map<number, Pending>();
 let nextId = 0;
 let subscription: NativeEventSubscription | null = null;
+let signOutTask: (() => void) | null = null;
 
 function settle(id: number): Pending | null {
   const entry = pending.get(id);
   if (!entry) return null;
   clearTimeout(entry.timer);
   pending.delete(id);
-  if (pending.size === 0 && subscription) {
-    subscription.remove();
+  if (pending.size === 0) {
+    subscription?.remove();
     subscription = null;
+    signOutTask?.();
+    signOutTask = null;
   }
   return entry;
 }
@@ -47,7 +51,7 @@ function settle(id: number): Pending | null {
  * when it took the action back, false when there was nothing left to take
  * back (already sent, or already undone).
  */
-export function deferWithUndo(commit: () => void, ms: number = UNDO_WINDOW_MS): () => boolean {
+export function deferWithUndo(commit: () => unknown, ms: number = UNDO_WINDOW_MS): () => boolean {
   nextId += 1;
   const id = nextId;
   const timer = setTimeout(() => { settle(id)?.commit(); }, ms);
@@ -57,12 +61,19 @@ export function deferWithUndo(commit: () => void, ms: number = UNDO_WINDOW_MS): 
       if (state === 'background') void flushPendingCommits();
     });
   }
+  // A sign-out inside the window sends what is held first, while the session
+  // that pressed it is still the one signed in (review 2026-11-19).
+  if (!signOutTask) signOutTask = onBeforeSignOut(async () => { await flushPendingCommits(); });
   return () => settle(id) !== null;
 }
 
-/** Sends everything still held, now. */
-export function flushPendingCommits(): void {
-  for (const id of [...pending.keys()]) settle(id)?.commit();
+/**
+ * Sends everything still held, now, and resolves once each send has settled.
+ * A failed send is the caller's to report; it never stops the others.
+ */
+export async function flushPendingCommits(): Promise<void> {
+  const sends = [...pending.keys()].map((id) => settle(id)?.commit());
+  await Promise.all(sends.map((send) => Promise.resolve(send).catch(() => undefined)));
 }
 
 export function pendingCommitCount(): number {

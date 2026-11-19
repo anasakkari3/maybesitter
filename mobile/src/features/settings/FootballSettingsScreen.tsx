@@ -11,7 +11,7 @@ import { SettingsHeader } from './SettingsChrome';
 import { useDismissFixture, useFootballSettings, useSetFollowedClubs } from '../../api/queries';
 import type { FootballFixture } from '../../api/schemas/football';
 import type { Clash, HeldFixture } from '../../api/schemas/m4b';
-import { ConflictError, HeldChangedError } from '../../api/errors';
+import { AccountChangedError, ConflictError, HeldChangedError } from '../../api/errors';
 import { userFacingMessage } from '../../api/ui/userFacingMessage';
 import { dayKey } from '../../i18n/format';
 import { isolateAuto, stripIsolates } from '../../i18n/bidi';
@@ -102,7 +102,9 @@ export function FootballSettingsScreen({ onBack }: { onBack: () => void }) {
       return next;
     });
     setSettingAside((current) => new Set(current).add(commitmentId));
-    const undo = deferWithUndo(() => dismiss.mutate(commitmentId, { onError: restore }));
+    const undo = deferWithUndo(() => dismiss.mutateAsync(commitmentId).catch((error: unknown) => {
+      if (!(error instanceof AccountChangedError)) restore();
+    }));
     actions.toast(t.footballDismissedToast, () => { if (undo()) restore(); });
   }, [actions, dismiss, t.footballDismissedToast]);
   // 409: the match was completed elsewhere, or is gone (CXA11.3).

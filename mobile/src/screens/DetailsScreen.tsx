@@ -13,7 +13,7 @@ import { userFacingMessage } from '../api/ui/userFacingMessage';
 import { useActivity, useCategoryPreferences, useCommitment, useCommitmentAction, useLocalCompletion, useNextStep, useNextStepDecision, usePatchCommitment, useSavedWeek } from '../api/queries';
 import { safeCommitmentPatchEnabled } from '../config/env';
 import { QueryBoundary } from '../api/ui/QueryBoundary';
-import { NotFoundError } from '../api/errors';
+import { AccountChangedError, NotFoundError } from '../api/errors';
 import { clockOf, toViewModel, type CommitmentView } from '../features/commitments/model';
 import { impLabel } from '../state/derive';
 import type { CommitmentCategory } from '../features/commitments/categoryFilter';
@@ -137,12 +137,13 @@ export function DetailsScreen() {
       const id = view.id;
       actions.back();
       localCompletion.mark(id);
-      const undo = deferWithUndo(() => {
-        act.mutateAsync({ id, action: 'complete' }).catch((error: unknown) => {
-          localCompletion.restore(id);
-          actions.toast(userFacingMessage(error, t));
-        });
-      });
+      const undo = deferWithUndo(() => act.mutateAsync({ id, action: 'complete' }).catch((error: unknown) => {
+        // Another account is signed in by now: nothing of this one is said
+        // on its screen, and its lists are not this one's to restore.
+        if (error instanceof AccountChangedError) return;
+        localCompletion.restore(id);
+        actions.toast(userFacingMessage(error, t));
+      }));
       actions.toast(t.toastDone, () => { if (undo()) localCompletion.restore(id); });
       return;
     }
