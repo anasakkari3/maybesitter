@@ -382,3 +382,21 @@ test('V3-F23-02 undoing a completed make-up date reopens it and leaves the skip 
     restore();
   }
 });
+
+test('V3-F23-02 undoing an off-day «تمّت» that took no day (none left open) removes it and touches nothing else', async () => {
+  const restore = await setup();
+  try {
+    const habitId = await gym();
+    assert.equal((await decide(habitId, id(habitId, MON), 'completed', MON)).kind, 'applied');
+    // Sunday: no asked-for day is left after it, so the stand-in takes none.
+    assert.equal((await decide(habitId, id(habitId, SUN), 'completed', SUN)).kind, 'applied');
+    assert.equal((await services.occurrences.get(USER, id(habitId, SUN)))?.recoveredFromOccurrenceId, null);
+
+    assert.equal((await undoOccurrenceOutcome(services, USER, habitId, id(habitId, SUN))).kind, 'applied');
+    assert.equal(await stateOf(id(habitId, SUN)), undefined, 'a Sunday the cadence never asked for stayed stored');
+    assert.equal(await stateOf(id(habitId, MON)), 'completed');
+    assert.equal(await stateOf(id(habitId, SAT)), 'pending');
+  } finally {
+    restore();
+  }
+});
