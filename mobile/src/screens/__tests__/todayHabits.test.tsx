@@ -6,7 +6,7 @@
  */
 import React from 'react';
 import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react-native';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react-native';
 import { SafeAreaProvider, type Metrics } from 'react-native-safe-area-context';
 import { QueryClient, QueryClientProvider, onlineManager } from '@tanstack/react-query';
 import { AppProvider } from '../../state/AppContext';
@@ -162,6 +162,15 @@ describe('habits on Today', () => {
     expect(screen.queryByTestId('today-empty')).toBeNull();
     // The count of open things is the commitments' alone.
     expect(screen.getByTestId('today-count').props.children).not.toContain('3');
+  });
+
+  it('pulling Today to refresh reads the habits again, so a habit done elsewhere shows done', async () => {
+    await show();
+    await waitFor(() => expect(screen.queryByTestId('today-habit-done-walk')).not.toBeNull());
+    todayAnswer = { ...todayAnswer, occurrences: todayAnswer.occurrences.map(row => row.habitId === 'walk' ? { ...row, state: 'completed' } : row) };
+    const scroll = screen.getByTestId('today-scroll');
+    await act(async () => { scroll.props.refreshControl.props.onRefresh(); });
+    await waitFor(() => expect(screen.queryByTestId('today-habit-undo-walk')).not.toBeNull());
   });
 
   it('draws no habit block when nothing is due', async () => {
