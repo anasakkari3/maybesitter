@@ -1,5 +1,5 @@
 import { decideFeature, refuses } from '../features/featureGate';
-import { getRecommendationConsent } from '../consents/recommendationConsentService';
+import { getRecommendationConsent, recommendationGrantedIn } from '../consents/recommendationConsentService';
 import { featureHooksFor, msUntilNextMonth } from '../features/providerGate';
 import { randomUUID } from 'node:crypto';
 import { LLMUnavailableError } from '../../src/extraction/llm';
@@ -7,7 +7,7 @@ import { requireReadableFeature } from '../integrations/google/googleConnectServ
 import { googleRuntime, type GoogleRuntime } from '../integrations/google/googleRuntime';
 import {
   BUSY_SOURCE_FENCES, INTELLIGENCE_GMAIL_SCANS, INTELLIGENCE_MONITORS,
-  INTELLIGENCE_SOURCE_MARKERS, PROVIDER_CONNECTIONS, userCol, userSubDoc, type StorageAdapter,
+  INTELLIGENCE_SOURCE_MARKERS, PROVIDER_CONNECTIONS, userCol, userDoc, userSubDoc, type StorageAdapter,
 } from '../storage';
 import type { BusySourceReplacementFence } from '../calendar/busyBlocks';
 import { parseM5aControls, M5A_CONTROLS_PATH, m5aEnvironmentCapability } from '../release/m5aControls';
@@ -276,13 +276,17 @@ async function proposalStep(uid: string, runtime: GoogleRuntime, overrides: Gmai
   const emailEpoch = controlsAtClaim.email.epoch;
   const assertAuthority = async (tx?: StorageTransaction): Promise<GmailMonitor> => {
     const reader = tx ?? runtime.storage;
-    const [current, controls, connection, paused] = await Promise.all([
+    const [current, controls, connection, paused, user] = await Promise.all([
       reader.get<GmailMonitor>(path),
       reader.get<unknown>(M5A_CONTROLS_PATH),
       reader.get<IntegrationConnectionRecord>(userSubDoc(uid, PROVIDER_CONNECTIONS, connectionIdFor('google'))),
       isMonitoringPaused(uid, runtime.storage, tx),
+      reader.get<unknown>(userDoc(uid)),
     ]);
     const parsed = parseM5aControls(controls);
+    // «وقّف» while this step runs (review of #873): suggestions stopped is an
+    // authority change like a pause — no further model call, nothing stored.
+    if (!recommendationGrantedIn(user)) throw new Error('proposal_guard_changed');
     if (!current?.enabled || !current.proposalsPending || current.generation !== monitor.generation
       || current.m5?.providerAccountId !== monitor.m5!.providerAccountId || paused
       || !parsed?.email.enabled || parsed.email.epoch !== emailEpoch

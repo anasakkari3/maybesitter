@@ -95,9 +95,9 @@ export function TrustScreen({ onBack, onKnows }: { onBack: () => void; onKnows: 
   // same rule as a switch's (`toggleFailureKey`), or the partial line when the
   // first answer landed and the second did not.
   const [stopFailure, setStopFailure] = useState<UserFacingKey | null>(null);
-  // «موقّفين» is said out loud only as the answer to this card's own tap,
-  // not every time the screen opens on an account that is already off.
-  const [stoppedByTap, setStoppedByTap] = useState(false);
+  // «موقّفين» / «رجّعناهم» are said out loud only as the answer to this
+  // card's own tap, not every time the screen opens on an account already off.
+  const [landed, setLanded] = useState<'stopped' | 'resumed' | null>(null);
   const [reporting, setReporting] = useState(false);
   const [incidentSurface, setIncidentSurface] = useState<PilotIncidentInput['surface']>('capture');
   const [incidentCategory, setIncidentCategory] = useState<PilotIncidentInput['category']>('reliability');
@@ -135,7 +135,7 @@ export function TrustScreen({ onBack, onKnows }: { onBack: () => void; onKnows: 
   const answerBoth = async (state: 'granted' | 'declined') => {
     if (!versions) return;
     setStopFailure(null);
-    setStoppedByTap(false);
+    setLanded(null);
     const suggestions = () => setRecommendations.mutateAsync({ state, version: versions.recommendations, ...context });
     const learning = () => asksPersonalization
       ? setPersonalization.mutateAsync({ state, version: versions.personalization!, ...context })
@@ -155,14 +155,27 @@ export function TrustScreen({ onBack, onKnows }: { onBack: () => void; onKnows: 
     try {
       await second();
     } catch (error) {
+      // Marks the error as said (the failure bridge stays quiet); the words
+      // are the partial line, which names the half that did land.
       toggleFailureKey(error);
       setStopFailure(partial);
       return;
     }
-    if (state === 'declined') setStoppedByTap(true);
-    else if (uid) clearVisitWait(uid);
+    if (state === 'declined') setLanded('stopped');
+    else {
+      setLanded('resumed');
+      // A visit refused while suggestions were off waits six hours; a yes
+      // ends that wait, as the switch does (QA CA7.5).
+      if (uid) clearVisitWait(uid);
+    }
   };
-  const stopLine = stopFailure ? t[stopFailure] : stoppedByTap && stopped ? t.trustRevoked : null;
+  // After a turn-back-on that landed only its learning half, the card still
+  // offers what the person asked for, not «stop» (review of #873).
+  const showResume = stopped || stopFailure === 'trustResumePartial';
+  const stopLine = stopFailure ? t[stopFailure]
+    : landed === 'stopped' && stopped ? t.trustRevoked
+      : landed === 'resumed' && !stopped ? t.trustResumed
+        : null;
   // A live region for TalkBack, and VoiceOver told: the line appears away
   // from the button, after the dialog closed (the switches' rule).
   useAnnounceOnIos(stopLine);
@@ -175,7 +188,7 @@ export function TrustScreen({ onBack, onKnows }: { onBack: () => void; onKnows: 
     // A switch moved by hand answers for itself; the stop card's old line no
     // longer describes what is on.
     setStopFailure(null);
-    setStoppedByTap(false);
+    setLanded(null);
     await run;
     return true;
   };
@@ -349,7 +362,7 @@ export function TrustScreen({ onBack, onKnows }: { onBack: () => void; onKnows: 
         <Card pad={18} style={{ gap: 10 }}>
           <Txt size={15} weight={600}>{t.trustRevoke}</Txt>
           <Txt size={13} color={p.mu} lh={1.5}>{t.trustRevokeBody}</Txt>
-          {stopped ? (
+          {showResume ? (
             <Btn
               label={t.trustResume}
               testID="trust-resume"
@@ -374,9 +387,12 @@ export function TrustScreen({ onBack, onKnows }: { onBack: () => void; onKnows: 
           )}
           {answering ? <ActivityIndicator testID="trust-stop-busy" color={p.ac} /> : null}
           {/* Mounted before anything fails, so TalkBack hears the line arrive. */}
-          <LiveRegion testID="trust-stop-live" style={{ gap: 10 }}>
-            {stopped ? <Txt size={13} color={p.mu} testID="trust-revoked">{t.trustRevoked}</Txt> : null}
-            {stopFailure ? <Txt size={13} color={p.wm} testID="trust-stop-failed">{t[stopFailure]}</Txt> : null}
+          {/* One line or none, so an empty region takes no room. */}
+          <LiveRegion testID="trust-stop-live">
+            {stopFailure ? <Txt size={13} color={p.wm} testID="trust-stop-failed">{t[stopFailure]}</Txt>
+              : stopped ? <Txt size={13} color={p.mu} testID="trust-revoked">{t.trustRevoked}</Txt>
+                : landed === 'resumed' ? <Txt size={13} color={p.mu} testID="trust-resumed">{t.trustResumed}</Txt>
+                  : null}
           </LiveRegion>
         </Card>
 
