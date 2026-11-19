@@ -301,6 +301,40 @@ test('a postponement into a day that has passed also rolls forward', () => {
   assert.deepEqual(input.constraints.items.map((item) => item.itemId), ['c_postponed']);
 });
 
+test('QA v3 V3-F14-01: tomorrow\'s plan built this morning holds tomorrow\'s work and what is already overdue, not today\'s later work', () => {
+  // Built at 06:40 on the 14th for the 15th. «#383» rolls in work whose time
+  // has *gone*; today's lunch at 12:00, today's 18:00 deadline and today's
+  // all-day errand are still ahead at 06:40 and are today's, not tomorrow's.
+  const builtAt = '2026-09-14T03:40:00.000Z';
+  const due = (id: string, dueAt: string, allDay = false) => commitment({
+    id, title: id, timeSpec: { kind: 'due_by', dueAt, endAt: null, remindAt: null, allDay, timezone: TZ },
+  });
+  const commitments = [
+    // A task given an hour today (capture's `scheduled_event` with no event word).
+    commitment({ id: 'c_lunch_today', title: 'Lunch with Layla', timeSpec: { kind: 'scheduled_event', dueAt: '2026-09-14T09:00:00.000Z', endAt: null, remindAt: null, allDay: false, timezone: TZ } }),
+    due('c_sport_today', '2026-09-14T15:00:00.000Z'),
+    // «اليوم» with no hour: the 14th's local midnight.
+    due('c_errand_today', '2026-09-13T21:00:00.000Z', true),
+    // Already overdue at 06:40: rolls into the 15th.
+    due('c_overdue', '2026-09-14T02:00:00.000Z'),
+    due('c_last_week', LAST_WEEK),
+    // Tomorrow's own.
+    due('c_tomorrow', '2026-09-15T12:00:00.000Z'),
+  ];
+  const input = buildDailyPlanInput(args({ commitments, builtAt }));
+  assert.deepEqual(
+    input.constraints.items.map((item) => item.itemId).sort(),
+    ['c_last_week', 'c_overdue', 'c_tomorrow'],
+    'today\'s not-yet-due work was moved into tomorrow\'s plan',
+  );
+  // The same day planned on the morning itself rolls every one of them in (#383).
+  const onTheDay = buildDailyPlanInput(args({ commitments }));
+  assert.deepEqual(
+    onTheDay.constraints.items.map((item) => item.itemId).sort(),
+    ['c_errand_today', 'c_last_week', 'c_lunch_today', 'c_overdue', 'c_sport_today', 'c_tomorrow'],
+  );
+});
+
 test('a start later today still pins, so the rule reaches only what is behind the horizon', () => {
   const input = buildDailyPlanInput(args({
     commitments: [commitment({

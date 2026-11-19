@@ -303,6 +303,27 @@ test('N3: the morning build for Monday places everything due Monday on Monday an
   });
 });
 
+test('QA v3 V3-F15-02: tomorrow built this evening does not take tonight\'s work, so the week shows nothing twice', async () => {
+  await withUat(async (storage) => {
+    // Sunday 18:30: «خطة بكرا» first, then «خطّط أسبوعي».
+    const { stored } = await buildAndStoreDailyPlan(
+      { uid: USER, date: WEEK[1]!, settings: await readPlanSettings(USER, { storage }) },
+      { storage, now: () => NOW, busyBlocks: MONDAY_MEETING, push: async () => undefined },
+    );
+    const onMonday = new Set(stored.constraints.items.map((item) => item.itemId));
+    // The room is due today and tonight's dinner is at 20:00: both still ahead.
+    assert.ok(!onMonday.has('room') && !onMonday.has('dinner'), `Monday took Sunday's work: ${Array.from(onMonday).join(', ')}`);
+
+    const dto = await week(storage);
+    const seen = new Map<string, string[]>();
+    for (const day of dto.days) {
+      for (const row of [...day.items, ...day.fixed]) seen.set(row.itemId, [...(seen.get(row.itemId) ?? []), day.date]);
+    }
+    const twice = Array.from(seen).filter(([, dates]) => dates.length > 1);
+    assert.deepEqual(twice, [], 'a commitment is on two days of the week');
+  });
+});
+
 /* ── 3. «بدون وقت محدد» keeps the day the question named ────────────── */
 
 test('N3: answering «بدون وقت محدد» to «أي ساعة يوم الاثنين؟» saves an all-day due date on Monday, as the review shows', async () => {
