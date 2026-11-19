@@ -59,7 +59,10 @@ describe('the widget extension', () => {
   });
 
   it('reads the lock-screen families as the lock-screen surface and hides titles while locked', () => {
-    const view = readFileSync(join(TARGET, 'WidgetViews.swift'), 'utf8');
+    const view = readFileSync(join(TARGET, 'WidgetViews.swift'), 'utf8')
+      .split('\n')
+      .filter((line) => !/^\s*\/\//.test(line))
+      .join('\n');
     expect(view).toMatch(/case \.accessoryInline, \.accessoryRectangular, \.accessoryCircular: return \.lockScreen/);
     expect(view).toContain('snapshot.safeItems(on: surface(for: family))');
     // Every place a title is drawn is privacy-sensitive.

@@ -80,6 +80,9 @@ struct WidgetSnapshot: Decodable {
   let titlePrivacy: WidgetTitlePrivacy
   let locale: String
   let direction: String
+  /// The app's own appearance setting: "dark" (its default), "light" or "system".
+  /// Optional: a snapshot written before this field existed still decodes.
+  let appearance: String?
   let labels: WidgetLabels
   let links: WidgetLinks
   let items: [WidgetSnapshotItem]
@@ -154,12 +157,12 @@ struct SafeItem: Identifiable {
 /// has ever written one. Picked from the phone's language, since there is no
 /// app language to read yet.
 enum FallbackCopy {
-  static func labels() -> (nextStep: String, stale: String, rtl: Bool) {
+  static func labels() -> (nextStep: String, stale: String, capture: String, rtl: Bool) {
     let language = Locale.preferredLanguages.first.map { String($0.prefix(2)) } ?? "en"
     switch language {
-    case "ar": return ("خطوتك التالية", "افتح MaybeSitter ليتحدّث.", true)
-    case "he", "iw": return ("הצעד הבא שלך", "פתח את MaybeSitter כדי לרענן.", true)
-    default: return ("Next step", "Open MaybeSitter to refresh.", false)
+    case "ar": return ("خطوتك التالية", "افتح MaybeSitter ليتحدّث.", "احكيها", true)
+    case "he", "iw": return ("הצעד הבא שלך", "פתח את MaybeSitter כדי לרענן.", "להגיד", true)
+    default: return ("Next step", "Open MaybeSitter to refresh.", "Say it", false)
     }
   }
 }

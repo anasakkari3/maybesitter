@@ -27,6 +27,11 @@ struct WidgetPalette {
   let success: UInt32
   let successContainer: UInt32
   let successContainerOpacity: Double
+  /// `false` in WidgetKit's accented and vibrant modes, where the system paints
+  /// every pixel of a view in one colour and keeps only its transparency. A solid
+  /// fill would then become a solid block hiding the text on it, so fills go flat
+  /// and translucent and the text keeps its own contrast.
+  var fullColor: Bool = true
 
   static let light = WidgetPalette(
     background: 0xF7F5F1,
@@ -60,8 +65,16 @@ struct WidgetPalette {
     successContainerOpacity: 0.15
   )
 
-  static func of(_ scheme: ColorScheme) -> WidgetPalette {
-    scheme == .dark ? dark : light
+  static func of(_ scheme: ColorScheme, fullColor: Bool = true) -> WidgetPalette {
+    var palette = scheme == .dark ? dark : light
+    palette.fullColor = fullColor
+    return palette
+  }
+
+  /// A soft fill behind text or an icon: the colour itself in full colour, a
+  /// faint wash of the foreground otherwise.
+  private func fill(_ color: Color) -> Color {
+    fullColor ? color : Color.primary.opacity(0.12)
   }
 
   private static func color(_ hex: UInt32, _ opacity: Double = 1) -> Color {
@@ -75,16 +88,15 @@ struct WidgetPalette {
   }
 
   var bg: Color { Self.color(background) }
-  var card: Color { Self.color(surface) }
-  var cardAlt: Color { Self.color(surfaceAlt) }
+  var card: Color { fill(Self.color(surface)) }
   var ink: Color { Self.color(textPrimary) }
   var muted: Color { Self.color(textMuted) }
   var accent: Color { Self.color(brand) }
-  var accentSoft: Color { Self.color(brandContainer, brandContainerOpacity) }
+  var accentSoft: Color { fill(Self.color(brandContainer, brandContainerOpacity)) }
   var onAccent: Color { Self.color(onBrand) }
   var attention: Color { Self.color(must) }
   var done: Color { Self.color(success) }
-  var doneSoft: Color { Self.color(successContainer, successContainerOpacity) }
+  var doneSoft: Color { fill(Self.color(successContainer, successContainerOpacity)) }
 
   /// The app's importance colours (`priorityTagKind` in `src/ui/chrome.tsx`):
   /// «لازم» coral, «مهم» amber, «حلو» green, and quiet grey when the step's

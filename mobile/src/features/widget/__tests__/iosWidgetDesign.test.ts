@@ -15,6 +15,10 @@ import { describe, expect, it } from '@jest/globals';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { color } from '../../../theme/tokens';
+import { buildSnapshot, type SnapshotInput } from '../snapshot';
+import { DEFAULT_THEME_PREF } from '../../../lib/deviceSettings/theme';
+import { widgetLabelsFor } from '../labels';
+import { strings } from '../../../i18n/strings';
 
 const TARGET = join(__dirname, '..', '..', '..', '..', 'targets', 'widget');
 const read = (file: string) => readFileSync(join(TARGET, file), 'utf8');
@@ -22,12 +26,15 @@ const read = (file: string) => readFileSync(join(TARGET, file), 'utf8');
 const palette = read('WidgetPalette.swift');
 const entry = read('NextStepWidget.swift');
 const views = read('WidgetViews.swift');
-const snapshot = read('Snapshot.swift');
-/** The drawing with its comments stripped, so a comment cannot satisfy a count. */
-const viewCode = views
-  .split('\n')
-  .filter((line) => !/^\s*\/\//.test(line))
-  .join('\n');
+const snapshotRaw = read('Snapshot.swift');
+/** Source with its comment lines stripped, so a comment cannot satisfy a check. */
+const code = (text: string) =>
+  text
+    .split('\n')
+    .filter((line) => !/^\s*\/\//.test(line))
+    .join('\n');
+const viewCode = code(views);
+const snapshot = code(snapshotRaw);
 
 type Rgba = { rgb: string; alpha: number };
 
@@ -181,5 +188,85 @@ describe('speed', () => {
 
   it('does not wake the widget on a fixed 30-minute beat once the snapshot is stale', () => {
     expect(entry).not.toMatch(/byAdding: \.minute, value: 30, to: entries\.last!\.date/);
+  });
+});
+
+describe("the widget wears the app's theme, not the phone's", () => {
+  const base: SnapshotInput = {
+    today: [],
+    nextStep: null,
+    titlesAllowed: false,
+    surface: 'widget',
+    locale: 'ar',
+    labels: widgetLabelsFor(strings.ar),
+    now: new Date('2026-09-13T09:00:00.000Z'),
+    formatTime: () => '',
+  };
+
+  it("writes the person's appearance into the snapshot, and the app's own default when there is none", () => {
+    expect(buildSnapshot({ ...base, appearance: 'light' }).appearance).toBe('light');
+    expect(buildSnapshot({ ...base, appearance: 'system' }).appearance).toBe('system');
+    // Nothing chosen means navy dark (Stitch, 2026-10-02) — the same constant the app reads.
+    expect(buildSnapshot(base).appearance).toBe(DEFAULT_THEME_PREF);
+    expect(DEFAULT_THEME_PREF).toBe('dark');
+  });
+
+  it('decodes the appearance as optional, so a snapshot written by an older app still draws', () => {
+    expect(snapshot).toMatch(/let appearance: String\?/);
+  });
+
+  it('draws dark unless told otherwise, light on request, and the phone only when the person chose "system"', () => {
+    const fn = views.split('func resolvedScheme')[1]!.split('\n}')[0]!;
+    expect(fn).toMatch(/case "light": return \.light/);
+    expect(fn).toMatch(/case "system": return system/);
+    expect(fn).toMatch(/default: return \.dark/);
+  });
+
+  it('hands the resolved scheme, not the phone\'s, to the palette and to the home-screen views', () => {
+    expect(views).toMatch(/WidgetPalette\.of\(resolved,/);
+    expect(views).toMatch(/\.environment\(\\\.colorScheme, content\.resolved\)/);
+  });
+});
+
+describe('privacy, checked in code and not in comments', () => {
+  it('reads each family from its own surface, so the lock screen never gets the home screen\'s titles', () => {
+    expect(viewCode).toContain('snapshot.safeItems(on: surface(for: family))');
+    expect(viewCode).not.toMatch(/safeItems\(on: \.widget\)/);
+  });
+
+  it('only WidgetKit\'s own placeholder switches the privacy marking off', () => {
+    expect(viewCode).toMatch(/isPlaceholder = entry\.isPlaceholder/);
+    expect(viewCode).not.toMatch(/isPlaceholder\s*[:=]\s*true/);
+  });
+
+  it('keeps the inline family\'s title marked privacy-sensitive', () => {
+    const lines = viewCode.split('\n');
+    const at = lines.findIndex((line) => line.includes('first.timeLabel.map'));
+    expect(at).toBeGreaterThan(-1);
+    expect(lines.slice(at, at + 4).join('\n')).toMatch(/\.privacySensitive\(!c\.isPlaceholder\)/);
+  });
+
+  it('SafeItem and the surface check redact in Swift, not only in the app', () => {
+    expect(snapshot).toMatch(/mode == "allowedSurfacesOnly" && allowedSurfaceIds\.contains\(surface\.rawValue\)/);
+    expect(snapshot).toMatch(/let show = allowed && !item\.titleRedacted && !item\.title\.isEmpty/);
+    expect(snapshot).toMatch(/title = show \? item\.title : redacted/);
+  });
+});
+
+describe('the tinted and clear icon modes (iOS 18)', () => {
+  it('reads the rendering mode and flattens its fills outside full colour', () => {
+    expect(viewCode).toMatch(/@Environment\(\\\.widgetRenderingMode\)/);
+    expect(viewCode).toMatch(/fullColor: renderingMode == \.fullColor/);
+    const palette = code(read('WidgetPalette.swift'));
+    expect(palette).toMatch(/fullColor \? color : Color\.primary\.opacity/);
+    // The three fills that sit under text or an icon go through it.
+    for (const role of ['card', 'accentSoft', 'doneSoft']) {
+      expect(palette).toMatch(new RegExp(`var ${role}: Color \\{ fill\\(`));
+    }
+  });
+
+  it('keeps the capture word legible when the capsule cannot be a solid fill', () => {
+    expect(viewCode).toMatch(/p\.fullColor \? p\.onAccent : p\.ink/);
+    expect(viewCode).toMatch(/strokeBorder/);
   });
 });

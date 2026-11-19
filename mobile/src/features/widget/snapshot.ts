@@ -34,6 +34,7 @@ import type { Commitment } from '../../api/schemas/common';
 import { isRtl, type Locale } from '../../i18n/locale';
 import { toViewModel, type Importance } from '../commitments/model';
 import { hasEventEnded } from '../commitments/eventEnded';
+import type { ThemePref } from '../../state/types';
 
 /** Thirty minutes, as the Flutter publisher had it. After that the widget says "stale". */
 export const SNAPSHOT_TTL_MS = 30 * 60 * 1000;
@@ -98,6 +99,13 @@ export type WidgetSnapshot = {
     | { mode: 'allowedSurfacesOnly'; allowedSurfaceIds: WidgetSurface[] };
   locale: Locale;
   direction: 'rtl' | 'ltr';
+  /**
+   * The app's own appearance setting. The iOS widget draws in it — navy dark,
+   * paper light, or the phone's choice when the person picked "system" — so the
+   * widget looks like the app and not like the phone. Optional on the native
+   * side: a snapshot written before this field existed still draws.
+   */
+  appearance: ThemePref;
   labels: WidgetLabels;
   links: { capture: string; today: string };
   items: WidgetItem[];
@@ -118,6 +126,8 @@ export type SnapshotInput = {
   titlesAllowed: boolean;
   surface: WidgetSurface;
   locale: Locale;
+  /** The app's `themePref`. Nothing chosen is the app's own default, navy dark. */
+  appearance?: ThemePref;
   labels: WidgetLabels;
   now: Date;
   /** Injected so this stays pure and Jest need not know the device's Intl. */
@@ -129,6 +139,9 @@ export type SnapshotInput = {
  * is left out rather than written with a link that opens nothing.
  */
 const LINKABLE_ID = /^[A-Za-z0-9_-]{1,128}$/;
+
+/** What a person who never chose a scheme gets in the app (`DEFAULT_THEME_PREF`); a test holds the two equal. */
+export const DEFAULT_APPEARANCE: ThemePref = 'dark';
 
 export const widgetLinks = {
   commitment: (id: string) => `maybesitter://commitments/${id}`,
@@ -220,6 +233,7 @@ export function buildSnapshot(input: SnapshotInput): WidgetSnapshot {
       : { mode: 'neverIncludeTitles', allowedSurfaceIds: [] },
     locale: input.locale,
     direction: isRtl(input.locale) ? 'rtl' : 'ltr',
+    appearance: input.appearance ?? DEFAULT_APPEARANCE,
     labels,
     links: { capture: widgetLinks.capture, today: widgetLinks.today },
     items,

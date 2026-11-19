@@ -45,6 +45,20 @@ func isAccessory(_ family: WidgetFamily) -> Bool {
   surface(for: family) == .lockScreen
 }
 
+/// The scheme the home-screen widget is drawn in: the app's, not the phone's.
+///
+/// The app's navy dark is its hero scheme and what a person who never chose gets
+/// (`DEFAULT_THEME_PREF`), so a snapshot with no appearance — or one this build
+/// does not know — is dark. The phone's setting decides only when the person
+/// chose "system" in the app.
+func resolvedScheme(appearance: String?, system: ColorScheme) -> ColorScheme {
+  switch appearance {
+  case "light": return .light
+  case "system": return system
+  default: return .dark
+  }
+}
+
 // MARK: - What a family draws
 
 /// Everything a view needs, resolved once per render from the entry, so no
@@ -60,14 +74,19 @@ struct WidgetContent {
   let todayURL: URL
   let rtl: Bool
   let p: WidgetPalette
+  /// The scheme the views are drawn in. The lock screen keeps the system's own.
+  let resolved: ColorScheme
   /// WidgetKit's placeholder: sample shapes, drawn redacted. Its words are not
   /// user content, so privacy marking steps aside and lets the redaction draw bars.
   let isPlaceholder: Bool
 
-  init(entry: NextStepEntry, family: WidgetFamily, scheme: ColorScheme) {
+  init(entry: NextStepEntry, family: WidgetFamily, scheme: ColorScheme, fullColor: Bool) {
     let fallback = FallbackCopy.labels()
+    fallbackCapture = fallback.capture
     let snapshot = entry.snapshot
-    p = WidgetPalette.of(scheme)
+    let resolved = isAccessory(family) ? scheme : resolvedScheme(appearance: snapshot?.appearance, system: scheme)
+    self.resolved = resolved
+    p = WidgetPalette.of(resolved, fullColor: fullColor)
     isPlaceholder = entry.isPlaceholder
     rtl = snapshot.map { $0.direction == "rtl" } ?? fallback.rtl
     nextStepLabel = snapshot?.labels.nextStep ?? fallback.nextStep
@@ -95,6 +114,9 @@ struct WidgetContent {
     }
   }
 
+  /// The words for the capture action when there is no snapshot to carry them.
+  let fallbackCapture: String
+
   var first: SafeItem? { items.first }
 
   /// Where a tap on the widget as a whole goes.
@@ -113,10 +135,11 @@ struct WidgetContent {
 struct NextStepWidgetView: View {
   @Environment(\.widgetFamily) private var family
   @Environment(\.colorScheme) private var scheme
+  @Environment(\.widgetRenderingMode) private var renderingMode
   let entry: NextStepEntry
 
   var body: some View {
-    FamilyView(entry: entry, family: family, scheme: scheme)
+    FamilyView(entry: entry, family: family, scheme: scheme, fullColor: renderingMode == .fullColor)
   }
 }
 
@@ -127,9 +150,10 @@ struct FamilyView: View {
   let entry: NextStepEntry
   let family: WidgetFamily
   let scheme: ColorScheme
+  var fullColor: Bool = true
 
   var body: some View {
-    let content = WidgetContent(entry: entry, family: family, scheme: scheme)
+    let content = WidgetContent(entry: entry, family: family, scheme: scheme, fullColor: fullColor)
     Group {
       switch family {
       case .systemSmall: SmallWidgetView(c: content)
@@ -141,6 +165,7 @@ struct FamilyView: View {
       }
     }
     .environment(\.layoutDirection, content.rtl ? .rightToLeft : .leftToRight)
+    .environment(\.colorScheme, content.resolved)
     .redacted(reason: entry.isPlaceholder ? RedactionReasons.placeholder : RedactionReasons())
     .containerBackground(for: .widget) {
       if isAccessory(family) { Color.clear } else { content.p.bg }
@@ -150,7 +175,8 @@ struct FamilyView: View {
 
 // MARK: - Pieces
 
-private let cardRadius: CGFloat = 18
+/// The app's cards are radius 20 (`radius.card`).
+private let cardRadius: CGFloat = 20
 
 private struct ImportanceDot: View {
   let priority: String?
@@ -167,6 +193,7 @@ private struct ImportanceDot: View {
 
 private struct TimeLabel: View {
   let time: String
+  let priority: String?
   let p: WidgetPalette
 
   var body: some View {
@@ -174,7 +201,7 @@ private struct TimeLabel: View {
       Image(systemName: "clock").font(.caption2.weight(.semibold)).accessibilityHidden(true)
       Text(time).font(.caption.weight(.semibold)).monospacedDigit()
     }
-    .foregroundStyle(p.accent)
+    .foregroundStyle(p.importance(priority))
   }
 }
 
@@ -205,7 +232,7 @@ private struct HeroBlock: View {
         .minimumScaleFactor(0.8)
         .multilineTextAlignment(.leading)
         .frame(maxWidth: .infinity, alignment: .leading)
-      if let time = item.timeLabel { TimeLabel(time: time, p: p) }
+      if let time = item.timeLabel { TimeLabel(time: time, priority: item.priority, p: p) }
     }
     .accessibilityElement(children: .combine)
   }
@@ -250,10 +277,14 @@ private struct CaptureButton: View {
         Image(systemName: "mic.fill").font(.caption.weight(.bold)).accessibilityHidden(true)
         Text(label).font(.footnote.weight(.semibold)).lineLimit(1).minimumScaleFactor(0.8)
       }
-      .foregroundStyle(p.onAccent)
+      .foregroundStyle(p.fullColor ? p.onAccent : p.ink)
       .padding(.horizontal, 12)
       .frame(maxWidth: fill ? .infinity : nil, minHeight: fill ? 44 : 40)
-      .background(Capsule().fill(p.accent))
+      .background {
+        // Accented mode paints a solid capsule and its word in one colour: an
+        // outline keeps the word readable there.
+        if p.fullColor { Capsule().fill(p.accent) } else { Capsule().strokeBorder(p.ink.opacity(0.6), lineWidth: 1.5) }
+      }
       .widgetAccentable()
     }
   }
@@ -443,7 +474,7 @@ struct CircularWidgetView: View {
       Image(systemName: "mic.fill").font(.title3.weight(.semibold)).widgetAccentable()
     }
     .accessibilityElement(children: .ignore)
-    .accessibilityLabel(c.captureLabel ?? c.nextStepLabel)
+    .accessibilityLabel(c.captureLabel ?? c.fallbackCapture)
     .widgetURL(c.captureURL)
   }
 }
@@ -453,7 +484,8 @@ struct InlineWidgetView: View {
 
   var body: some View {
     if let first = c.first {
-      Text(first.timeLabel.map { "\($0) · \(first.title)" } ?? first.title)
+      // The time is isolated left-to-right so Arabic does not reorder "10:30 · title".
+      Text(first.timeLabel.map { "\u{2066}\($0)\u{2069} · \(first.title)" } ?? first.title)
         .privacySensitive(!c.isPlaceholder)
         .widgetURL(c.primaryURL)
     } else {
