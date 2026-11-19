@@ -68,6 +68,10 @@ test('R001 R005 a habit-only proposal is confirmable and saves a capture_chat ha
     assert.equal(saved!.durationMinutes, 30);
     assert.equal(saved!.minimumOccurrences, 7);
     assert.equal(saved!.maximumOccurrences, 7);
+    // «كل يوم» is stored as the seven weekdays (owner decision 2026-11-20), not read into them.
+    assert.deepEqual(saved!.cadence, { kind: 'weekdays', weekdays: [0, 1, 2, 3, 4, 5, 6] });
+    const stored = await currentStorage().get<{ cadence: unknown }>(`users/${uid}/habits/${saved!.habitId}`);
+    assert.deepEqual(stored?.cadence, { kind: 'weekdays', weekdays: [0, 1, 2, 3, 4, 5, 6] });
     // Owner decision 2026-11-20: a chat habit holds its time like a goal plan's.
     assert.equal(saved!.flexibility, 'protected_flexible');
     assert.equal(saved!.recoveryPolicy, 'skip');
