@@ -371,6 +371,29 @@ test('promotion to a goal uses the existing confirmed-goal record', async () => 
   }
 });
 
+test('two concurrent goal promotions leave one goal, not an orphan (CXA5.7)', async () => {
+  // On staging, two «حوّله لهدف» at once gave one 200 and one 409 — and two
+  // goal memories, the loser's an orphan nothing pointed at (3 of 3).
+  const teardown = await setup({ memory: true });
+  try {
+    const seed = await keepOneSeed();
+    const id = seed.seedId as string;
+    const answers = await Promise.all([
+      promotePost(req('POST', `/api/mobile/seeds/${id}/promote`, { target: 'goal' }), params(id)),
+      promotePost(req('POST', `/api/mobile/seeds/${id}/promote`, { target: 'goal' }), params(id)),
+    ]);
+    assert.ok(answers.some((response) => response.status === 200));
+    const memory = await json(await memoryGet(req('GET', '/api/mobile/memory')));
+    const goals = (memory.items as Array<Record<string, unknown>>).filter((item) => item.kind === 'goal' && item.content === MAYBE);
+    assert.equal(goals.length, 1, `expected one goal for one seed, got ${goals.length}`);
+    const listed = (await json(await seedsGet(req('GET', '/api/mobile/seeds')))).items as Array<Record<string, unknown>>;
+    const promotedTo = listed.find((item) => item.seedId === id)?.promotedTo as { id: string } | undefined;
+    if (promotedTo) assert.equal(promotedTo.id, goals[0]!.id);
+  } finally {
+    await teardown();
+  }
+});
+
 test('promotion to a goal is refused when the memory module is off', async () => {
   const teardown = await setup();
   try {
