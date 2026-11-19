@@ -62,3 +62,41 @@ describe('V3-F04-02 a save leaves nothing behind in silence', () => {
     expect(state.text).toBe('');
   });
 });
+
+/*
+ * QA v3, V3-F24-01: an idea and a waiting-for inside a mixed capture.
+ * The chat showed «عم تفكّر فيه: وبفكر يمكن أتعلم جيتار بالصيف» and «وناطر
+ * رد…», the person saved, and neither was kept (ideas 0). Outside the
+ * thought entry a thought is kept only by its own «خلّيه» (R002, the server
+ * refuses it in the confirm); a save that ends the conversation used to take
+ * the undecided ones with it in silence.
+ */
+const mixed = (entry: 'thought' | null = null): CaptureProposal => ({
+  version: 'v1', proposalId: 'p2', status: 'proposed', revision: 1, entry,
+  items: [{ itemId: 'i1', title: 'أشتري خبز', resolvedTime: '2030-01-08T09:00:00.000Z', needsClarification: false }],
+  seeds: [
+    { seedItemId: 's1', kind: 'idea', summary: 'وبفكر يمكن أتعلم جيتار بالصيف' },
+    { seedItemId: 's2', kind: 'waiting_for', summary: 'وناطر رد من شركة التدريب' },
+  ],
+} as CaptureProposal);
+const shownMixed = (entry: 'thought' | null = null) => run(initialCaptureState(), { type: 'textChanged', text: 'x' }, { type: 'chatStarted' }, { type: 'chatAnswered', answer: { ...answer(mixed(entry)), conversationId: 'c2' } });
+
+describe('V3-F24-01 a save never takes an undecided thought with it in silence', () => {
+  it('names the thoughts nobody kept or set aside, and hands their words back', () => {
+    const state = run(shownMixed(), { type: 'confirmStarted' }, { type: 'confirmSucceeded', confirmation: saved('i1') });
+    expect(lastSaved(state).leftTitles).toEqual(['وبفكر يمكن أتعلم جيتار بالصيف', 'وناطر رد من شركة التدريب']);
+    expect(state.text).toBe('وبفكر يمكن أتعلم جيتار بالصيف\nوناطر رد من شركة التدريب');
+  });
+
+  it('a thought kept with «خلّيه» or set aside with «مش هلّق» is decided: not named', () => {
+    const state = run(shownMixed(), { type: 'seedDecided', seedItemId: 's1' }, { type: 'seedDecided', seedItemId: 's2' },
+      { type: 'confirmStarted' }, { type: 'confirmSucceeded', confirmation: saved('i1') });
+    expect(lastSaved(state).leftTitles ?? []).toEqual([]);
+    expect(state.text).toBe('');
+  });
+
+  it('from the thought entry the confirm saves thoughts itself: one taken out is the person\'s choice', () => {
+    const state = run(shownMixed('thought'), { type: 'confirmStarted' }, { type: 'confirmSucceeded', confirmation: { ...saved('i1'), seedsPersisted: [{ seedItemId: 's1', pointId: 's1', seedId: 'x1', kind: 'idea', title: 'جيتار' }] } as CaptureConfirmation });
+    expect(lastSaved(state).leftTitles ?? []).toEqual([]);
+  });
+});

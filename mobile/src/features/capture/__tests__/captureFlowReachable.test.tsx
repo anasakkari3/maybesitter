@@ -39,6 +39,7 @@ import * as captureEndpoints from '../../../api/endpoints/capture';
 import * as commitmentEndpoints from '../../../api/endpoints/commitments';
 import * as analyticsEndpoints from '../../../api/endpoints/analytics';
 import * as trustEndpoints from '../../../api/endpoints/trust';
+import * as seedEndpoints from '../../../api/endpoints/seeds';
 import { chatServer } from '../../../testing/captureChat';
 import { stripIsolates } from '../../../i18n/bidi';
 
@@ -322,6 +323,42 @@ describe('success shows what the server saved, in the chat', () => {
     await waitFor(() => expect(savedLine()).toContain('Hand in the report'));
     expect(savedLine()).toContain(en.chatSavedLeft.replace('{titles}', '"Call Sami"'));
     expect(screen.getByTestId('capture-input').props.value).toBe('Call Sami');
+  });
+
+  it('names a thought nobody kept, and hands its words back (QA v3 V3-F24-01)', async () => {
+    const withThought = proposal({ seeds: [{ seedItemId: 's-1', kind: 'idea', summary: 'Maybe learn the guitar this summer' }] });
+    jest.spyOn(captureEndpoints, 'chatCapture').mockImplementation(chatServer(() => withThought) as never);
+    jest.spyOn(captureEndpoints, 'confirmCapture').mockResolvedValue(confirmation({ persisted: [
+      { itemId: 'i-1', commitmentId: 'c-1', title: 'Hand in the report', resolvedTime: SOON },
+      { itemId: 'i-2', commitmentId: 'c-2', title: 'Call Sami', resolvedTime: null },
+    ] }) as never);
+    await openApp();
+    await enterCapture();
+    await typeAndAnalyze();
+    await fireEvent.press(screen.getByTestId('review-confirm'));
+    await waitFor(() => expect(savedLine()).toContain('Hand in the report'));
+    expect(savedLine()).toContain(en.chatSavedLeft.replace('{titles}', '"Maybe learn the guitar this summer"'));
+    expect(screen.getByTestId('capture-input').props.value).toBe('Maybe learn the guitar this summer');
+  });
+
+  it('a thought kept with its own Keep is not named after the save (QA v3 V3-F24-01)', async () => {
+    const withThought = proposal({ seeds: [{ seedItemId: 's-1', kind: 'idea', summary: 'Maybe learn the guitar this summer' }] });
+    jest.spyOn(captureEndpoints, 'chatCapture').mockImplementation(chatServer(() => withThought) as never);
+    jest.spyOn(captureEndpoints, 'confirmCapture').mockResolvedValue(confirmation({ persisted: [
+      { itemId: 'i-1', commitmentId: 'c-1', title: 'Hand in the report', resolvedTime: SOON },
+      { itemId: 'i-2', commitmentId: 'c-2', title: 'Call Sami', resolvedTime: null },
+    ] }) as never);
+    const keep = jest.spyOn(seedEndpoints, 'keepProposedSeed').mockResolvedValue({ success: true, replayed: false, seed: {} } as never);
+    await openApp();
+    await enterCapture();
+    await typeAndAnalyze();
+    await fireEvent.press(screen.getByTestId('review-seed-keep-s-1'));
+    await waitFor(() => expect(keep).toHaveBeenCalled());
+    await waitFor(() => expect(screen.queryByTestId('review-seed-keep-s-1')).toBeNull());
+    await fireEvent.press(screen.getByTestId('review-confirm'));
+    await waitFor(() => expect(savedLine()).toContain('Hand in the report'));
+    expect(savedLine()).not.toContain('guitar');
+    expect(screen.getByTestId('capture-input').props.value).toBe('');
   });
 
   it('shows refused items apart from saved ones', async () => {
