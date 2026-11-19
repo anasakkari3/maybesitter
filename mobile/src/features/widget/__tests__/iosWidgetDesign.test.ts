@@ -27,11 +27,15 @@ const palette = read('WidgetPalette.swift');
 const entry = read('NextStepWidget.swift');
 const views = read('WidgetViews.swift');
 const snapshotRaw = read('Snapshot.swift');
-/** Source with its comment lines stripped, so a comment cannot satisfy a check. */
+/**
+ * Source with its comments stripped — whole-line and trailing — so a comment
+ * cannot satisfy a check. `://` is kept: every deep link in the Swift has one.
+ */
 const code = (text: string) =>
   text
     .split('\n')
     .filter((line) => !/^\s*\/\//.test(line))
+    .map((line) => line.replace(/(^|[^:])\/\/.*$/, '$1'))
     .join('\n');
 const viewCode = code(views);
 const snapshot = code(snapshotRaw);
@@ -231,7 +235,7 @@ describe("the widget wears the app's theme, not the phone's", () => {
 describe('privacy, checked in code and not in comments', () => {
   it('reads each family from its own surface, so the lock screen never gets the home screen\'s titles', () => {
     expect(viewCode).toContain('snapshot.safeItems(on: surface(for: family))');
-    expect(viewCode).not.toMatch(/safeItems\(on: \.widget\)/);
+    expect(viewCode).not.toMatch(/safeItems\(on: (WidgetSurface)?\.widget\)/);
   });
 
   it('only WidgetKit\'s own placeholder switches the privacy marking off', () => {
@@ -265,8 +269,21 @@ describe('the tinted and clear icon modes (iOS 18)', () => {
     }
   });
 
+  it('hands the rendering mode on from the family view to the content, not a constant', () => {
+    expect(viewCode).toMatch(/WidgetContent\(entry: entry, family: family, scheme: scheme, fullColor: fullColor\)/);
+  });
+
   it('keeps the capture word legible when the capsule cannot be a solid fill', () => {
     expect(viewCode).toMatch(/p\.fullColor \? p\.onAccent : p\.ink/);
     expect(viewCode).toMatch(/strokeBorder/);
   });
 });
+
+/**
+ * A note on what these checks are. Xcode is not in the Jest loop, so every
+ * Swift check above reads text: it holds the shape of the code, not what the
+ * code does when it runs. A condition rewritten as `x || true` keeps the shape.
+ * The behavioural cover is `FamilyView` rendered per family and scheme to
+ * images (see the PR that introduced this file) and, one day, an XCTest target
+ * for `SafeItem` and `resolvedScheme`.
+ */
