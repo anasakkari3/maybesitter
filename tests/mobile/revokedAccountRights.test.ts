@@ -431,3 +431,24 @@ test('a resume that loses a race never turns off what the person turned on after
     end();
   }
 });
+
+test('the team stopping an account the person had already stopped is still the team\'s, and nothing is declined', async () => {
+  begin();
+  try {
+    const { revokeAccountAsOperator } = await import('../../lib/pilot/operatorRevoke.ts');
+    const { readTrust } = await import('../../lib/pilot/pilotTrustStore.ts');
+    const { getRecommendationConsent } = await import('../../lib/consents/recommendationConsentService.ts');
+    const { personalizationGrowthAllowed } = await import('../../lib/consents/personalizationConsentService.ts');
+    const uid = await lockedAfterAgreeing('OperatorOverSelfStop');
+    await revokeAccountAsOperator(uid, { revokeRefreshTokens: async () => {} });
+    assert.equal((await readTrust(uid))?.revokedBy, 'operator');
+    const response = await resume(uid);
+    assert.equal(response.status, 403);
+    assert.equal((await response.json() as { reason: string }).reason, 'operator_revoked');
+    // Refused before anything was written: the answers given before the lock are as they were.
+    assert.equal(await getRecommendationConsent(uid), 'granted');
+    assert.equal(await personalizationGrowthAllowed(uid), true);
+  } finally {
+    end();
+  }
+});
