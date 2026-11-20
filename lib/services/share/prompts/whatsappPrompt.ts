@@ -167,9 +167,9 @@ export function withoutEmoji(text: string): string {
 const ACCEPTANCE_WORDS: readonly string[] = [
   // ar
   'أكيد', 'اكيد', 'أكيدة', 'اكيدة', 'بالتأكيد', 'بالتاكيد', 'تمام', 'ماشي', 'طيب', 'حاضر', 'أوكي', 'اوكي', 'أوكيه', 'اوكيه', 'أوك', 'اوك',
-  'اتفقنا', 'موافق', 'موافقة', 'نعم', 'أيوه', 'ايوه', 'أيوا', 'ايوا', 'ولا يهمك', 'من عيوني', 'على راسي', 'علي راسي', 'إن شاء الله', 'ان شاء الله', 'انشالله', 'إنشالله', 'ما في مشكلة', 'مافي مشكلة',
+  'اتفقنا', 'موافق', 'موافقة', 'نعم', 'أيوه', 'ايوه', 'أيوا', 'ايوا', 'ولا يهمك', 'من عيوني', 'على راسي', 'علي راسي', 'إن شاء الله', 'ان شاء الله', 'انشالله', 'إنشالله', 'ما في مشكلة', 'مافي مشكلة', 'لا تقلق', 'ما تقلق',
   // en
-  'ok', 'okay', 'okey', 'sure', 'no worries', 'of course', 'yes', 'yeah', 'yep', 'yup', 'will do', 'no problem', 'deal', 'alright', 'all right', 'sounds good', 'got it', 'noted',
+  'ok', 'okay', 'okey', 'sure', 'no worries', "don't worry", 'of course', 'yes', 'yeah', 'yep', 'yup', 'will do', 'no problem', 'deal', 'alright', 'all right', 'sounds good', 'got it', 'noted',
   // he
   'בטח', 'סבבה', 'אוקיי', 'אוקי', 'בסדר', 'כן', 'אין בעיה', 'ברור', 'קיבלתי',
 ];
@@ -179,17 +179,42 @@ const BETWEEN_WORDS = /^[\s.,!?؟،؛:;…—–-]+/;
 /** Pictographs that accept, and the one that refuses. */
 const ACCEPTING_EMOJI = new RegExp('[\\u{1F44D}\\u{1F44C}\\u{2705}\\u{2714}\\u{2611}\\u{1F91D}\\u{1F64F}\\u{1F197}\\u{1F4AF}\\u{1F4AA}]', 'u');
 const REFUSING_EMOJI = new RegExp('\\u{1F44E}', 'u');
-/** A no that means yes, taken out before the refusal words are read. */
-const KIND_NEGATIONS = new RegExp('(?:ما\\s+في\\s+مشكلة|مافي\\s+مشكلة|ما\\s+في\\s+مشكل|لا\\s+تقلق|ما\\s+تقلق|ولا\\s+يهمك|no\\s+problem|no\\s+worries|not\\s+a\\s+problem|don[\'’]t\\s+worry|אין\\s+בעיה|אל\\s+תדאג)', 'giu');
-/** Words that take a yes back: «لأ», «مش», "no", "can't", «לא», «שלא». */
-const REFUSAL_WORDS: ReadonlySet<string> = new Set([
-  'لأ', 'لا', 'لاء', 'لئ', 'مش', 'مو', 'ما', 'مب', 'مستحيل', 'بلاش',
-  'no', 'not', 'nope', "can't", 'can’t', 'cannot', 'cant', "won't", 'won’t', 'wont', "don't", 'don’t', 'dont', 'never',
-  'לא', 'שלא', 'אין',
-]);
-/** How many words after the yes are read for one that takes it back. */
-const REFUSAL_WORDS_READ = 6;
-const NOT_A_WORD = /[\s.,!?؟،؛:;…—–-]+/;
+/**
+ * A "no" that is part of a yes, taken out before a refusal is looked for (QA
+ * v3 review round 2, 2026-11-20): «أكيد وما بنسى», "sure, I won't forget",
+ * «ok لا مشكلة», "I can't wait", «ما حدا غيري», «ברור שלא אשכח». A negation
+ * word alone never takes a yes back; only the refusals below do.
+ */
+const YES_WITH_A_NO = new RegExp([
+  'ما\\s+(?:بنسى|بنساش|رح\\s+[أا]نسى|راح\\s+[أا]نسى|عندي\\s+مشكل[ةه]?|في\\s+مشكل[ةه]?|حدا\\s+غيري|تقلق)',
+  'مافي\\s+مشكل[ةه]?', 'مش\\s+رح\\s+[أا]نسى',
+  'لا\\s+(?:مشكل[ةه]?|تقلق|[أا]حد\\s+غيري)', 'ولا\\s+يهمك',
+  "won['’]?t\\s+forget", 'will\\s+not\\s+forget', "(?:don['’]?t|do\\s+not)\\s+(?:mind|worry)",
+  'no\\s+(?:problem|worries|doubt|matter)', 'not\\s+a\\s+problem', 'never\\s+fear', "(?:can['’]?t|cannot)\\s+wait",
+  'שלא\\s+אשכח', 'לא\\s+אשכח', 'אין\\s+בעיה', 'אל\\s+תדאג',
+].join('|'), 'giu');
+
+/** A word boundary in any script: no letter or mark on that side. */
+const EDGE_BEFORE = '(?<![\\p{L}\\p{M}])';
+const EDGE_AFTER = '(?![\\p{L}\\p{M}])';
+/** The «و», «ف» or «بس» a refusal may lean on: «وما رح», «بس مش فاضي». */
+const LEAN = '(?:[وف]|بس\\s+)?';
+
+/**
+ * What takes a yes back, said outright: «لأ» or "no" first («أكيد لأ», "sure,
+ * no"), «مش رح/فاضي/قادر…», «ما رح/ما بقدر/ما فيني/ما بلحق», «مستحيل»,
+ * «بلاش», "can't/won't make it", "not sure", «לא יכול», «שלא». Every
+ * alternative is a fixed phrase; the text read is at most `ACCEPTANCE_SCAN`.
+ */
+const REFUSAL_FIRST = new RegExp(`^${LEAN}(?:لأ|لا|لاء|no|nope|לא)${EDGE_AFTER}`, 'iu');
+const REFUSAL_ANYWHERE = new RegExp([
+  `${EDGE_BEFORE}${LEAN}مش\\s+(?:رح|راح|ح|قادر|قادرة|فاضي|فاضية|متأكد|متأكدة|متاكد|جاي|جاية|رايح|ممكن|زابط|زابطة)${EDGE_AFTER}`,
+  `${EDGE_BEFORE}${LEAN}ما\\s+(?:رح|راح|بقدر|بقدرش|فيني|بلحق|بقدرش|بظن)${EDGE_AFTER}`,
+  `${EDGE_BEFORE}${LEAN}(?:مستحيل|بلاش)${EDGE_AFTER}`,
+  "\\b(?:can['’]?t|cannot|can\\s+not|won['’]?t|will\\s+not|not\\s+able\\s+to|unable\\s+to)(?:\\s+(?:make\\s+it|come|do\\s+it|do|go|attend|be\\s+there|join)\\b|\\s*[.!,]?\\s*$)",
+  '\\bnot\\s+(?:sure|really)\\b',
+  `${EDGE_BEFORE}(?:לא\\s+(?:יכול|יכולה|אוכל|אגיע|אצליח|מגיע|מגיעה)|שלא)${EDGE_AFTER}`,
+].join('|'), 'iu');
 /** An acceptance is in a message's first words; nothing past this is read for one. */
 const ACCEPTANCE_SCAN = 200;
 
@@ -221,12 +246,11 @@ export function acceptanceReply(text: string): 'only' | 'opens' | null {
   }
   if (!accepted) return null;
   // «أكيد لأ», «تمام بس مش رح أقدر», "ok but I can't", «בטח שלא»: the yes is
-  // taken back (QA v3 review, 2026-11-20). «ما في مشكلة» and "no worries" say
-  // yes with a no in them, and are read as the yes they are.
-  const said = rest.replace(KIND_NEGATIONS, ' ');
-  const tokens = said.split(NOT_A_WORD).filter(Boolean).slice(0, REFUSAL_WORDS_READ);
-  if (tokens.some((token) => REFUSAL_WORDS.has(token.toLowerCase()) || (token.startsWith('و') && REFUSAL_WORDS.has(token.slice(1))))) return null;
-  return said.trim() === '' ? 'only' : 'opens';
+  // taken back (QA v3 review, 2026-11-20) — by a refusal said outright, never
+  // by a negation word alone: «أكيد وما بنسى» is a yes.
+  const said = rest.replace(YES_WITH_A_NO, ' ').trim();
+  if (REFUSAL_FIRST.test(said) || REFUSAL_ANYWHERE.test(said)) return null;
+  return said === '' ? 'only' : 'opens';
 }
 
 /**

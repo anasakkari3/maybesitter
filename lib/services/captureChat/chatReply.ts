@@ -480,17 +480,44 @@ type HalfOfDay = 'morning' | 'noon' | 'afternoon' | 'night';
 const MARK_AFTER_DIGIT = /([0-9\u0660-\u0669\u06F0-\u06F9])([؟?!])/g;
 /** AM/PM right after the digits: "5 PM", "5pm", "5 a.m.". */
 const MERIDIEM_AFTER = /^\s?([ap])\.?\s?m(?![a-z])/i;
-/** The half of the day a clock is said in, nearest first; "after noon" before "noon". */
-const HALF_OF_DAY: ReadonlyArray<readonly [RegExp, HalfOfDay]> = [
-  [new RegExp('(?<![\\p{L}\\p{M}])(?:بعد\\s+(?:الضهر|الظهر)|العصر|المسا|المساء|مساء|مساءً|مساءا|بالمسا|afternoon|evening|tonight|בערב|אחה"צ|אחרי\\s+הצהריים)(?![\\p{L}\\p{M}])', 'iu'), 'afternoon'],
-  [new RegExp('(?<![\\p{L}\\p{M}])(?:الصبح|الصباح|صباحا|صباحاً|بالصبح|الفجر|morning|בבוקר|לפנה"צ)(?![\\p{L}\\p{M}])', 'iu'), 'morning'],
-  [new RegExp('(?<![\\p{L}\\p{M}])(?:الضهر|الظهر|noon|midday|בצהריים)(?![\\p{L}\\p{M}])', 'iu'), 'noon'],
-  [new RegExp('(?<![\\p{L}\\p{M}])(?:بالليل|الليل|بليل|الليلة|night|בלילה)(?![\\p{L}\\p{M}])', 'iu'), 'night'],
+/**
+ * The words for each half of the day. Where two overlap, the longer is listed
+ * first («بعد الضهر» before «الضهر») and wins at the same place.
+ */
+const HALF_OF_DAY_WORDS: ReadonlyArray<readonly [string, HalfOfDay]> = [
+  ['بعد\\s+(?:الضهر|الظهر)|العصر|المسا|المساء|مساء|مساءً|مساءا|بالمسا|afternoon|evening|tonight|בערב|אחה"צ|אחרי\\s+הצהריים', 'afternoon'],
+  ['الصبح|الصباح|صباحا|صباحاً|بالصبح|الفجر|morning|בבוקר|לפנה"צ', 'morning'],
+  ['الضهر|الظهر|noon|midday|בצהריים', 'noon'],
+  ['بالليل|الليل|بليل|الليلة|night|בלילה', 'night'],
 ];
+const WORD_EDGE_BEFORE = '(?<![\\p{L}\\p{M}])';
+const WORD_EDGE_AFTER = '(?![\\p{L}\\p{M}])';
+const HALF_OF_DAY: ReadonlyArray<readonly [RegExp, HalfOfDay]> = HALF_OF_DAY_WORDS
+  .map(([words, half]) => [new RegExp(`${WORD_EDGE_BEFORE}(?:${words})${WORD_EDGE_AFTER}`, 'giu'), half] as const);
+const ANY_HALF_OF_DAY = HALF_OF_DAY_WORDS.map(([words]) => `(?:${words})`).join('|');
+/** Where a clause ends: a half of the day past it belongs to the next clause. */
+const CLAUSE_MARK = /[،,;؛.]/;
+/** A spoken fraction after the half of the day: «5 المسا ونص». */
+const FRACTION_AFTER_HALF = /^\s*(?:(?:و\s*)?(نص|نصف|ربع|ثلث|تلت)|(?:إلا|الا|إلّا)\s*(ربع|ثلث|تلت))(?![؀-ۿ])/;
+/** A bare hour beside its half of the day, with no clock word: «الفجر 4», «2 بعد الضهر». */
+const COUNT_AFTER = '(?!\\s*(?:مرات|مرة|ساعات|ساعة|دقايق|دقيقة|دقائق|أيام|ايام|times|hours?|minutes?|days?)(?![\\p{L}\\p{M}]))';
+const BARE_HOUR_AFTER_HALF = new RegExp(`${WORD_EDGE_BEFORE}(${ANY_HALF_OF_DAY})${WORD_EDGE_AFTER}\\s{1,3}(\\d{1,2})(?![\\d:])${COUNT_AFTER}`, 'giu');
+const BARE_HOUR_BEFORE_HALF = new RegExp(`(?<![\\d:])(\\d{1,2})\\s{1,3}(${ANY_HALF_OF_DAY})${WORD_EDGE_AFTER}`, 'giu');
 
-function halfOfDayIn(window: string): HalfOfDay | null {
-  for (const [pattern, half] of HALF_OF_DAY) if (pattern.test(window)) return half;
-  return null;
+interface HalfFound { half: HalfOfDay; at: number; end: number }
+
+/** Every half-of-day word in a stretch of text, with where it is. */
+function halvesIn(window: string): HalfFound[] {
+  const found: HalfFound[] = [];
+  for (const [pattern, half] of HALF_OF_DAY) {
+    for (const match of Array.from(window.matchAll(pattern))) found.push({ half, at: match.index, end: match.index + match[0].length });
+  }
+  return found;
+}
+
+/** The half of the day a word names. */
+function halfOfWord(word: string): HalfOfDay | null {
+  return halvesIn(word)[0]?.half ?? null;
 }
 
 /** The hour on a 24-hour clock, when the half of the day settles it. */
@@ -511,26 +538,61 @@ const dialKey = (hour: number, minute: number): string => `D:${hour % 12}:${minu
  * The clocks a sentence states, each as the key it is compared by (QA v3
  * review, 2026-11-20). «3:39 الصبح» is 03:39 and «5:39 المسا» 17:39 — never
  * the other half — and «17:39» is 17:39; «3:39» alone is either. The half of
- * the day is the nearest after the clock (up to the next clock), or, for the
- * first clock only, just before it («الصبح الساعة 9»). A range's end is read
- * too («من 9 لـ 11»), on the dial.
+ * the day is the nearest after the clock, up to the next clock or the end of
+ * its clause; or, for the first clock only, the nearest before it in its
+ * clause («بكرا الصبح عندك اجتماع الساعة 10»). A bare hour beside its half of
+ * the day is a clock («الفجر 4»), minutes said after the half count («5 المسا
+ * ونص» is 17:30), and a range's end is read too («من 9 لـ 11»), on the dial.
  */
 function statedClockKeys(sentence: string): Array<{ key: string; hour: number; minute: number; exact: boolean }> {
   // «الساعة 4:20؟»: the shared clock patterns read no clock with a mark stuck
   // to its last digit, so the mark is set apart first.
   const spaced = sentence.slice(0, CHAT_REPLY_SCAN_LIMIT).replace(MARK_AFTER_DIGIT, '$1 $2');
-  const { text, mentions } = clockMentionsIn(spaced);
+  const read = clockMentionsIn(spaced);
+  const { text } = read;
+  // A bare hour beside its half of the day is a clock too: «الفجر 4».
+  const mentions: Array<{ hour: number; minute: number; at: number; end: number; half?: HalfOfDay }> = [...read.mentions];
+  const known = new Set(mentions.map((mention) => mention.at));
+  for (const match of Array.from(text.matchAll(BARE_HOUR_AFTER_HALF))) {
+    const at = match.index + match[0].length - match[2]!.length;
+    const half = halfOfWord(match[1]!);
+    if (!known.has(at) && half) mentions.push({ hour: Number(match[2]), minute: 0, at, end: at + match[2]!.length, half });
+  }
+  for (const match of Array.from(text.matchAll(BARE_HOUR_BEFORE_HALF))) {
+    const half = halfOfWord(match[2]!);
+    if (!known.has(match.index) && half) mentions.push({ hour: Number(match[1]), minute: 0, at: match.index, end: match.index + match[1]!.length, half });
+  }
+  mentions.sort((left, right) => left.at - right.at);
   const keys = mentions.map((mention, index) => {
-    const { hour, minute } = mention;
+    const { hour } = mention;
+    let { minute } = mention;
     if (hour >= 13 && hour <= 23) return { key: exactKey(hour, minute), hour, minute, exact: true };
+    // After the clock: the nearest half of the day, up to the next clock or the
+    // end of the clause («9 الصبح، المسا عندك تمرين» is the morning).
     const next = mentions[index + 1]?.at ?? text.length;
-    const after = text.slice(mention.end, Math.min(next, mention.end + HALF_OF_DAY_WINDOW));
+    let after = text.slice(mention.end, Math.min(next, mention.end + HALF_OF_DAY_WINDOW));
+    const clauseEnd = after.search(CLAUSE_MARK);
+    if (clauseEnd >= 0) after = after.slice(0, clauseEnd);
     const meridiem = MERIDIEM_AFTER.exec(after);
-    const half: HalfOfDay | null = meridiem
-      ? (meridiem[1]!.toLowerCase() === 'a' ? 'morning' : 'afternoon')
-      : halfOfDayIn(after) ?? (index === 0 ? halfOfDayIn(text.slice(Math.max(0, mention.at - HALF_OF_DAY_WINDOW), mention.at)) : null);
+    const nearestAfter = halvesIn(after).sort((left, right) => left.at - right.at || right.end - left.end)[0];
+    // Before the first clock only: the nearest half of the day in its clause
+    // («بكرا الصبح عندك اجتماع الساعة 10»).
+    const beforeText = text.slice(0, mention.at);
+    const clauseStart = Math.max(...['،', ',', ';', '؛', '.'].map((mark) => beforeText.lastIndexOf(mark))) + 1;
+    const nearestBefore = index === 0 ? halvesIn(beforeText.slice(clauseStart)).sort((left, right) => right.end - left.end)[0] : undefined;
+    const half: HalfOfDay | null = mention.half
+      ?? (meridiem ? (meridiem[1]!.toLowerCase() === 'a' ? 'morning' : 'afternoon') : nearestAfter?.half ?? nearestBefore?.half ?? null);
     if (half === null || hour > 12) return { key: dialKey(hour, minute), hour, minute, exact: false };
-    const resolved = onTheClock(hour, half);
+    let resolved = onTheClock(hour, half);
+    // «5 المسا ونص»: the minutes said after the half of the day.
+    if (minute === 0 && nearestAfter && !meridiem) {
+      const fraction = FRACTION_AFTER_HALF.exec(after.slice(nearestAfter.end));
+      if (fraction?.[1]) minute = /ربع/.test(fraction[1]) ? 15 : /ثلث|تلت/.test(fraction[1]) ? 20 : 30;
+      if (fraction?.[2]) {
+        resolved = (resolved + 23) % 24;
+        minute = /ربع/.test(fraction[2]) ? 45 : 40;
+      }
+    }
     return { key: exactKey(resolved, minute), hour: resolved, minute, exact: true };
   });
   const range = readClockRange(spaced);
