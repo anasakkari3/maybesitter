@@ -38,7 +38,7 @@ afterEach(async () => {
   jest.useRealTimers();
 });
 
-describe('the «التزام» key on the selected day', () => {
+describe('the commitment key on the selected day', () => {
   it('is not drawn on a day with only busy time and a fixed weekly block, and is drawn on a day with a commitment', async () => {
     harness = await prepareCalendar((scenario) => {
       // Today: a weekly block and a busy block from the server, no commitment.
