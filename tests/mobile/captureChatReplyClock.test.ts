@@ -286,3 +286,39 @@ test('review 7 (M22): a card with no time is not the card a wrong clock is about
   const items = [CARD, { itemId: 'i2', title: 'اتصل بأحمد', resolvedTime: null, needsClarification: false }];
   assert.equal(reply('الساعة 3:39 الصبح.', { items }), LINE('05:39'));
 });
+
+/* ── mutation round: each check below fails when its line is taken out ── */
+
+test('mutation: an offer that names the card is still an offer, and stays', () => {
+  const conflicts = [{ title: 'اجتماع', startsAt: '2026-11-20T03:00:00.000Z', endsAt: '2026-11-20T04:00:00.000Z', kind: 'commitment', inProposal: false }];
+  const offer = 'هاد بيتعارض مع «اجتماع» اليوم الساعة 5. بدك نخلي الدوا الساعة 7 الصبح؟';
+  assert.equal(reply(offer, { conflicts }), offer);
+});
+
+test('mutation: a half of the day said before the first clock counts — «الصبح الساعة 3:39» is not 15:39', () => {
+  assert.equal(reply('الدوا الصبح الساعة 3:39.', { items: cardAt('15:39') }), LINE('15:39'));
+});
+
+test('mutation: an hour the person said without its half is theirs in either half', () => {
+  const items = cardAt('15:00');
+  const text = 'الدوا الساعة 3 العصر، والتذكير الساعة 4 المسا.';
+  assert.equal(reply(text, { items, userTurns: ['ذكرني الساعة 4 بالدوا اللي الساعة 3'] }), text);
+});
+
+test('mutation: a range\'s end the card does not have takes the sentence out', () => {
+  const items = [{ ...cardAt('09:00')[0], title: 'اجتماع', endTime: new Date(Date.UTC(2026, 10, 20, 9, 0)).toISOString() }];
+  assert.equal(reply('الاجتماع من 9 لـ 12.', { items, userTurns: ['اجتماع'] }), `«اجتماع» اليوم الساعة ${LRI}09:00${PDI}.`);
+});
+
+const ASKED = { itemId: 'i2', title: 'اتصل بأحمد', resolvedTime: null, resolvedDate: '2026-11-20', needsClarification: true, clarification: { questionKey: 'ask_time', params: { date: '2026-11-20' } } };
+
+test('review 3: the ask for a missing hour is never checked, even when it names its item and offers hours', () => {
+  const text = reply('أي ساعة بدك «اتصل بأحمد»، 9 ولا 10؟', { items: [CARD, ASKED] });
+  assert.match(text, /أي ساعة بدك «اتصل بأحمد»، 9 ولا 10؟$/);
+});
+
+test('review 3: while another item is asked about, a question restating a card with a wrong clock is still checked', () => {
+  const text = reply('يعني الدوا الساعة 3:39 الصبح؟ أي ساعة بدك «اتصل بأحمد»؟', { items: [CARD, ASKED] });
+  assert.doesNotMatch(text, /3:39/);
+  assert.ok(text.includes(LINE('05:39')), text);
+});

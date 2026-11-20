@@ -336,3 +336,10 @@ test('review 6 + M19: «لا تنسى إنه …» loses «إنه»; "don\'t for
   assert.notEqual(extract("Don't forget to", context).title, 'to');
   assert.match(extract('اجتماع الفريق لا تنسى العرض بكرا', context).title ?? '', /لا تنسى/);
 });
+
+test('mutation: a kind "no" after other words is still a yes; a refusal past six words is not read; «وما» refuses', () => {
+  assert.equal(acceptanceReply("sure, and don't worry"), 'opens');
+  assert.equal(acceptanceReply('تمام وما تقلق'), 'opens');
+  assert.equal(acceptanceReply('أكيد بجيب العرض والكمبيوتر والشاحن والدفتر وبعدين ما بنسى'), 'opens');
+  assert.equal(acceptanceReply('تمام وما رح أقدر'), null);
+});
