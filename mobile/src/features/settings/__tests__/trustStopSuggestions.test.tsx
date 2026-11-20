@@ -361,6 +361,9 @@ describe('«وقّف مشاركتك» on the trust centre', () => {
       // And the one-tap removal the added item offers.
       expect(copy.trustRevokeEmailAutoAdd).not.toBe(copy.trustRevokeEmail);
     }
+    // Review of #883: «بردّك» read as «بتردّك»; the reply is said as a noun.
+    expect(ar.trustRevokeEmailAutoAdd).not.toContain('بردّك');
+    expect(ar.trustRevokeEmailAutoAdd).toContain('وافقت عليه بردّ منك');
   });
 
   it('the same sentence is there once both are off, beside «شغّلها من جديد»', async () => {
