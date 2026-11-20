@@ -62,6 +62,15 @@ export const WHATSAPP_SELECTION_JSON_SCHEMA = {
 export const WHATSAPP_SELECTION_SCHEMA = toVertexSchema(WHATSAPP_SELECTION_JSON_SCHEMA);
 
 /**
+ * v2 (QA v3 staging, 2026-11-20): «سامي: لا تنسى اجتماع الفريق يوم الأحد
+ * الساعة 11 الصبح» answered by «أنا: أكيد 👍 وبجيب معي العرض» chose the reply
+ * and not the reminder — the model was never told the reader is one of the
+ * people in the chat, nor that a request they accept is theirs. v1 had no
+ * version line.
+ */
+export const WHATSAPP_SELECTION_PROMPT_VERSION = 'whatsapp-selection-v2';
+
+/**
  * The instruction, built around the shared preamble.
  *
  * `now` is a wall clock in the user's zone rather than an instant, because the
@@ -72,9 +81,12 @@ export const WHATSAPP_SELECTION_SCHEMA = toVertexSchema(WHATSAPP_SELECTION_JSON_
 export function whatsappSystemPrompt(now: string, timezone: string): string {
   return [
     SHARE_SYSTEM_PREAMBLE,
+    `Prompt version: ${WHATSAPP_SELECTION_PROMPT_VERSION}.`,
     `The content is a chat transcript. Each line is one message, numbered, as "12 | 2026-09-15 20:45 | Dana | text".`,
     `It is now ${now} in ${timezone}. The message timestamps are the wall clock of the device the chat was exported from.`,
     'Return the indices of the messages that state something the person reading this still has to do: a commitment they made, a request addressed to them, an appointment they agreed to.',
+    'The person reading this is one of the people in this chat; their own messages carry their name, or a word such as "me", «أنا» or «אני».',
+    'A reminder or a request that someone else in the chat sends them — «لا تنسى …», «بتقدر …؟», "don\'t forget …", "can you …", «אל תשכח …» — that they accept («أكيد», «تمام», "sure", «בטח», a thumbs-up) or do not refuse is theirs to do: return the message that says what and when, not only the reply that accepts it.',
     'Do not return a message that only reports what already happened, only asks a question, or only makes small talk.',
     'Do not return a message whose time has already passed.',
     'Return an empty list when there is nothing left to do. An empty list is a correct answer and is expected for an ordinary conversation.',
@@ -145,6 +157,100 @@ const EMOJI = new RegExp(
  */
 export function withoutEmoji(text: string): string {
   return text.replace(EMOJI, '').replace(/\s+/g, ' ').trim();
+}
+
+/**
+ * Words a reply opens with to accept what it answers, in the three languages.
+ * Whole words only (`ACCEPTANCE`): «تماما», "okra" and «أكيدًا» are not.
+ * «اه»/"ah" is left out: it is as often a sigh as a yes.
+ */
+const ACCEPTANCE_WORDS: readonly string[] = [
+  // ar
+  'أكيد', 'اكيد', 'أكيدة', 'اكيدة', 'بالتأكيد', 'بالتاكيد', 'تمام', 'ماشي', 'طيب', 'حاضر', 'أوكي', 'اوكي', 'أوكيه', 'اوكيه', 'أوك', 'اوك',
+  'اتفقنا', 'موافق', 'موافقة', 'نعم', 'أيوه', 'ايوه', 'أيوا', 'ايوا', 'ولا يهمك', 'من عيوني', 'على راسي', 'علي راسي', 'إن شاء الله', 'ان شاء الله', 'انشالله', 'إنشالله', 'ما في مشكلة', 'مافي مشكلة', 'لا تقلق', 'ما تقلق',
+  // en
+  'ok', 'okay', 'okey', 'sure', 'no worries', "don't worry", 'of course', 'yes', 'yeah', 'yep', 'yup', 'will do', 'no problem', 'deal', 'alright', 'all right', 'sounds good', 'got it', 'noted',
+  // he
+  'בטח', 'סבבה', 'אוקיי', 'אוקי', 'בסדר', 'כן', 'אין בעיה', 'ברור', 'קיבלתי',
+];
+const ACCEPTANCE = new RegExp(`^(?:${ACCEPTANCE_WORDS.join('|')})(?![\\p{L}\\p{M}\\p{N}])`, 'iu');
+/** The marks between an acceptance and what follows it: «أكيد، …», "sure! …". */
+const BETWEEN_WORDS = /^[\s.,!?؟،؛:;…—–-]+/;
+/** Pictographs that accept, and the one that refuses. */
+const ACCEPTING_EMOJI = new RegExp('[\\u{1F44D}\\u{1F44C}\\u{2705}\\u{2714}\\u{2611}\\u{1F91D}\\u{1F64F}\\u{1F197}\\u{1F4AF}\\u{1F4AA}]', 'u');
+const REFUSING_EMOJI = new RegExp('\\u{1F44E}', 'u');
+/**
+ * A "no" that is part of a yes, taken out before a refusal is looked for (QA
+ * v3 review round 2, 2026-11-20): «أكيد وما بنسى», "sure, I won't forget",
+ * «ok لا مشكلة», "I can't wait", «ما حدا غيري», «ברור שלא אשכח». A negation
+ * word alone never takes a yes back; only the refusals below do.
+ */
+const YES_WITH_A_NO = new RegExp([
+  'ما\\s+(?:بنسى|بنساش|رح\\s+[أا]نسى|راح\\s+[أا]نسى|عندي\\s+مشكل[ةه]?|في\\s+مشكل[ةه]?|حدا\\s+غيري|تقلق)',
+  'مافي\\s+مشكل[ةه]?', 'مش\\s+رح\\s+[أا]نسى',
+  'لا\\s+(?:مشكل[ةه]?|تقلق|[أا]حد\\s+غيري)', 'ولا\\s+يهمك',
+  "won['’]?t\\s+forget", 'will\\s+not\\s+forget', "(?:don['’]?t|do\\s+not)\\s+(?:mind|worry)",
+  'no\\s+(?:problem|worries|doubt|matter)', 'not\\s+a\\s+problem', 'never\\s+fear', "(?:can['’]?t|cannot)\\s+wait",
+  'שלא\\s+אשכח', 'לא\\s+אשכח', 'אין\\s+בעיה', 'אל\\s+תדאג',
+].join('|'), 'giu');
+
+/** A word boundary in any script: no letter or mark on that side. */
+const EDGE_BEFORE = '(?<![\\p{L}\\p{M}])';
+const EDGE_AFTER = '(?![\\p{L}\\p{M}])';
+/** The «و», «ف» or «بس» a refusal may lean on: «وما رح», «بس مش فاضي». */
+const LEAN = '(?:[وف]|بس\\s+)?';
+
+/**
+ * What takes a yes back, said outright: «لأ» or "no" first («أكيد لأ», "sure,
+ * no"), «مش رح/فاضي/قادر…», «ما رح/ما بقدر/ما فيني/ما بلحق», «مستحيل»,
+ * «بلاش», "can't/won't make it", "not sure", «לא יכול», «שלא». Every
+ * alternative is a fixed phrase; the text read is at most `ACCEPTANCE_SCAN`.
+ */
+const REFUSAL_FIRST = new RegExp(`^${LEAN}(?:لأ|لا|لاء|no|nope|לא)${EDGE_AFTER}`, 'iu');
+const REFUSAL_ANYWHERE = new RegExp([
+  `${EDGE_BEFORE}${LEAN}مش\\s+(?:رح|راح|ح|قادر|قادرة|فاضي|فاضية|متأكد|متأكدة|متاكد|جاي|جاية|رايح|ممكن|زابط|زابطة)${EDGE_AFTER}`,
+  `${EDGE_BEFORE}${LEAN}ما\\s+(?:رح|راح|بقدر|بقدرش|فيني|بلحق|بقدرش|بظن)${EDGE_AFTER}`,
+  `${EDGE_BEFORE}${LEAN}(?:مستحيل|بلاش)${EDGE_AFTER}`,
+  "\\b(?:can['’]?t|cannot|can\\s+not|won['’]?t|will\\s+not|not\\s+able\\s+to|unable\\s+to)(?:\\s+(?:make\\s+it|come|do\\s+it|do|go|attend|be\\s+there|join)\\b|\\s*[.!,]?\\s*$)",
+  '\\bnot\\s+(?:sure|really)\\b',
+  `${EDGE_BEFORE}(?:לא\\s+(?:יכול|יכולה|אוכל|אגיע|אצליח|מגיע|מגיעה)|שלא)${EDGE_AFTER}`,
+].join('|'), 'iu');
+/** An acceptance is in a message's first words; nothing past this is read for one. */
+const ACCEPTANCE_SCAN = 200;
+
+/**
+ * Whether a message accepts what it answers (QA v3 staging, 2026-11-20):
+ * `'only'` when that is all it says («تمام 👍», "sure.", 👍 alone, «ماشي،
+ * اتفقنا»); `'opens'` when it accepts and goes on («أكيد 👍 وبجيب معي العرض»);
+ * null when it does not open with an acceptance at all.
+ *
+ * Reads at most `ACCEPTANCE_SCAN` characters, every pattern anchored at the
+ * start, so a chat-length message costs a constant.
+ */
+export function acceptanceReply(text: string): 'only' | 'opens' | null {
+  const head = text.slice(0, ACCEPTANCE_SCAN);
+  if (head.trim() === '') return null;
+  // 👎 says no, whatever words are beside it.
+  if (REFUSING_EMOJI.test(head)) return null;
+  const words = withoutEmoji(head);
+  // A message that is nothing but a pictograph is a reaction: 👍, 👌, ✅ accept;
+  // 😂, 🙂 accept nothing.
+  if (words === '') return ACCEPTING_EMOJI.test(head) ? 'only' : null;
+  let rest = words.replace(BETWEEN_WORDS, '');
+  let accepted = false;
+  for (let round = 0; round < 2; round += 1) {
+    const match = ACCEPTANCE.exec(rest);
+    if (!match) break;
+    accepted = true;
+    rest = rest.slice(match[0].length).replace(BETWEEN_WORDS, '');
+  }
+  if (!accepted) return null;
+  // «أكيد لأ», «تمام بس مش رح أقدر», "ok but I can't", «בטח שלא»: the yes is
+  // taken back (QA v3 review, 2026-11-20) — by a refusal said outright, never
+  // by a negation word alone: «أكيد وما بنسى» is a yes.
+  const said = rest.replace(YES_WITH_A_NO, ' ').trim();
+  if (REFUSAL_FIRST.test(said) || REFUSAL_ANYWHERE.test(said)) return null;
+  return said === '' ? 'only' : 'opens';
 }
 
 /**

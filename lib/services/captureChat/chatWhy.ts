@@ -212,7 +212,8 @@ const CLASH_WORDS: readonly RegExp[] = [
   new RegExp('(?:^|\\s)[ו]?(?:מתנגש|מתנגשת|מתנגשים|התנגשות|חופף|חופפת|חופפים|עסוק|עסוקה|תפוס|תפוסה)(?=\\s|$|[.,!?])', 'u'),
 ];
 
-const claimsClash = (sentence: string): boolean => CLASH_WORDS.some((pattern) => pattern.test(fold(sentence)));
+/** Whether a sentence says something clashes, or that the person is busy then. */
+export const claimsClash = (sentence: string): boolean => CLASH_WORDS.some((pattern) => pattern.test(fold(sentence)));
 
 /** Words quoted in a sentence: «…», "…", “…”. */
 const QUOTED = /«([^»]{1,120})»|"([^"]{1,120})"|“([^”]{1,120})”/g;
@@ -329,6 +330,18 @@ export function clashWhen(language: ChatLanguage, conflict: ConflictLike, now: D
   return ranged
     ? rangeIn(language, day, start.time, end.time)
     : WHEN[language].at.replace('{day}', day).replace('{time}', clockIn(language, start.time));
+}
+
+/**
+ * When a card is, from its own instant, on the person's clock: «اليوم الساعة
+ * 05:40», "tomorrow at 01:30". What the reply says in place of a clock the
+ * model wrote that the list does not hold (`chatReply`, QA v3 2026-11-20).
+ */
+export function cardWhen(language: ChatLanguage, instant: string, now: Date, timezone: string): string {
+  const local = localTimeSpecFor(new Date(instant), timezone);
+  if (!local) return '';
+  const day = dayLabel(language, local.date, now, timezone);
+  return WHEN[language].at.replace('{day}', day).replace('{time}', clockIn(language, local.time));
 }
 
 function rangeIn(language: ChatLanguage, day: string, start: string, end: string): string {

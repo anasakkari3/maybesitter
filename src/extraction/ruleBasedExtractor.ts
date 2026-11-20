@@ -556,6 +556,16 @@ function cleanCommand(raw: string, options: { monthEnd?: boolean } = {}): string
   // «سجّل», «حط لي», "note:" — an instruction to the app, not the task (L4).
   // A greeting it opens with is not the task: «בוקר טוב, להתקשר לאמא» (CL1).
   return stripCaptureCommand(stripTiming(stripLeadingGreetings(raw), options))
+    // «لا تنسى اجتماع الفريق», "don't forget to email the doctor": a reminder
+    // somebody wrote, often in a shared chat; the card is what is not to be
+    // forgotten (QA v3 staging, 2026-11-20). Hebrew never onto the object
+    // marker, as «תזכיר לי את…» below.
+    // "don't forget about the meeting", "… that I have the dentist": the joiner
+    // goes too, never alone — "Don't forget to!" keeps its words. The text is
+    // trimmed by now, so a joiner with a space after it has a word after it.
+    .replace(/^\s*(?:please\s+)?(?:don['’]t|dont|do not)\s+forget\s+(?:(?:to|about|that)\s+|(?!(?:to|about|that)\b))/i, '')
+    .replace(/^\s*(?:لا|ما)\s+(?:تنسى|تنسي|تنساش|تنسيش|تنسوا|تنسو)\s+(?:(?:إنو|انو|إنه|انه|إنك|انك|أنك|أن|ان|إن)\s+|(?!(?:إنو|انو|إنه|انه|إنك|انك|أنك|أن|ان|إن)\s*$))/, '')
+    .replace(/^\s*אל\s+(?:תשכח|תשכחי|תשכחו)\s+(?!את\s)/, '')
     .replace(/^\s*(please\s+)?(remind me to|remind me|remember to|i need to|need to|i have to|have to|todo:?|task:?)\s+/i, '')
     .replace(/^\s*(urgent|asap|critical|important|must|maybe|optional)[:\s-]+/i, '')
     .replace(/\s+(urgent|asap|critical|important|must|maybe|optional)\s*$/i, '')
@@ -843,16 +853,56 @@ export function countTimeExpressions(raw: string): number {
  * disagree about what a time looks like. A range gives its first time.
  */
 export function clockTimesIn(raw: string): Array<{ hour: number; minute: number }> {
-  if (typeof raw !== 'string' || !raw.trim()) return [];
-  const text = normalizeSpokenHours(normalizeArabicDigits(raw));
-  if (!hasClockDigit(text)) return [];
+  return clockMentionsIn(raw).mentions.map(({ hour, minute }) => ({ hour, minute }));
+}
+
+/** One clock a text names: the numbers written, and where they sit in `text`. */
+export interface ClockMention {
+  hour: number;
+  minute: number;
+  /** Index of the clock's first digit in the normalised text. */
+  at: number;
+  /** Index just past its digits («5:30» ends after the 0). */
+  end: number;
+}
+
+const EN_SPOKEN_HOUR_WORDS = ['one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten', 'eleven', 'twelve'];
+/**
+ * A spelled English hour where a clock is named (QA v3 review, 2026-11-20):
+ * after "at"/"by"/"around" or "half past"/"quarter to", and followed by the
+ * end of the clause, "o'clock", AM/PM, a part of the day or a day — "at five.",
+ * "half past five tonight". "at five people" is a count and stays words.
+ */
+const EN_SPOKEN_CLOCK = new RegExp(
+  `\\b(half\\s+past|(?:a\\s+)?quarter\\s+(?:past|to)|at|by|around)\\s+(${EN_SPOKEN_HOUR_WORDS.join('|')})`
+    + `(?=\\s*(?:$|[.,!?;:]|o['’]?clock\\b|[ap]\\.?m\\b|in\\s+the\\b|tonight\\b|today\\b|tomorrow\\b|on\\b|and\\b))`,
+  'gi',
+);
+const EN_ANY_SPOKEN_HOUR = new RegExp(`\\b(?:${EN_SPOKEN_HOUR_WORDS.join('|')})\\b`, 'i');
+
+function withSpokenEnglishClocks(text: string): string {
+  if (!EN_ANY_SPOKEN_HOUR.test(text)) return text;
+  return text.replace(EN_SPOKEN_CLOCK, (_, lead: string, word: string) => `${lead} ${EN_SPOKEN_HOUR_WORDS.indexOf(word.toLowerCase()) + 1}`);
+}
+
+/**
+ * The clocks a text names, with where they are, read after every rewrite a
+ * clock reader makes (`normalizeClockText`): spelled hours, and spoken
+ * minutes — «الساعة 5 ونص» is 5:30, «5 إلا ربع» 4:45, "half past five" 5:30
+ * (QA v3 review, 2026-11-20: the half hour was read as :00).
+ */
+export function clockMentionsIn(raw: string): { text: string; mentions: ClockMention[] } {
+  if (typeof raw !== 'string' || !raw.trim()) return { text: '', mentions: [] };
+  const text = normalizeClockText(withSpokenEnglishClocks(normalizeArabicDigits(raw)));
+  if (!hasClockDigit(text)) return { text, mentions: [] };
   const at = new Set<number>();
   forEachTimeMention(RANGE_PATTERN_SOURCES, text, (_start, _end, digitAt) => at.add(digitAt));
   forEachTimeMention(CLOCK_PATTERN_SOURCES, text, (_start, _end, digitAt) => at.add(digitAt));
-  return Array.from(at).sort((left, right) => left - right).flatMap((digitAt) => {
-    const clock = /^(\d{1,2})(?::(\d{2}))?/.exec(text.slice(digitAt));
-    return clock ? [{ hour: Number(clock[1]), minute: clock[2] ? Number(clock[2]) : 0 }] : [];
+  const mentions = Array.from(at).sort((left, right) => left - right).flatMap((digitAt) => {
+    const clock = /^(\d{1,2})(?::(\d{2}))?/.exec(text.slice(digitAt, digitAt + 5));
+    return clock ? [{ hour: Number(clock[1]), minute: clock[2] ? Number(clock[2]) : 0, at: digitAt, end: digitAt + clock[0].length }] : [];
   });
+  return { text, mentions };
 }
 
 function forEachTimeMention(

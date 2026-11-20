@@ -20,9 +20,10 @@
  */
 import { foldInjectionPattern, normalizeForInjectionScan } from '../../../src/extraction/ollamaExtractor';
 import type { CaptureProposalContract } from '../../../src/contracts/v1/captureContracts';
-import { localTimeSpecFor, statesClock } from '../../../src/extraction/timeLexicon';
-import { contentWords, namesOnlyItem, sameWord } from '../captureBoundary/chatEvidence';
-import { groundedReply, type ReplyGrounds } from './chatWhy';
+import { localTimeSpecFor, readClockRange, statesClock } from '../../../src/extraction/timeLexicon';
+import { clockMentionsIn } from '../../../src/extraction/ruleBasedExtractor';
+import { contentWords, namesOnlyItem, offerSentences, sameWord } from '../captureBoundary/chatEvidence';
+import { cardWhen, claimsClash, clashSentence, groundedReply, namedClash, type ReplyGrounds } from './chatWhy';
 
 export type ChatLanguage = 'ar' | 'en' | 'he';
 
@@ -179,7 +180,7 @@ const TIME_UNCLEAR: Readonly<Record<ChatLanguage, { lead: string; question: stri
   he: { lead: 'השעה לא הייתה ברורה.', question: 'באיזו שעה זה צריך להיות?' },
 };
 
-type ProposalItemLike = Pick<CaptureProposalContract['items'][number], 'title'> & Partial<Pick<CaptureProposalContract['items'][number], 'itemId' | 'needsClarification' | 'resolvedDate' | 'clarification' | 'resolvedTime' | 'timeEstimated'>>;
+type ProposalItemLike = Pick<CaptureProposalContract['items'][number], 'title'> & Partial<Pick<CaptureProposalContract['items'][number], 'itemId' | 'needsClarification' | 'resolvedDate' | 'clarification' | 'resolvedTime' | 'timeEstimated' | 'endTime'>>;
 type ProposalLike = { items: readonly ProposalItemLike[]; seeds?: readonly unknown[]; noCommitmentReason?: CaptureProposalContract['noCommitmentReason'] };
 
 /** The exact question suffix a reply asks about one proposal item. */
@@ -462,10 +463,259 @@ function alignedWithProposal(text: string, context: TemplateContext): string {
   return kept.join(' ');
 }
 
+/** A card's time said from the card itself: «"{title}" {when}.» (`cardWhen`). */
+const CARD_CLOCK: Readonly<Record<ChatLanguage, string>> = {
+  ar: '«{title}» {when}.',
+  en: '"{title}" is {when}.',
+  he: '"{title}" {when}.',
+};
+/** The most card lines one reply gets in place of wrong clocks. */
+const MAX_CARD_CLOCK_LINES = 3;
+/** How far from a clock its half of the day is looked for, in characters. */
+const HALF_OF_DAY_WINDOW = 24;
+
+type HalfOfDay = 'morning' | 'noon' | 'afternoon' | 'night';
+
+/** A sentence mark right after a digit: «4:20؟», "5?". */
+const MARK_AFTER_DIGIT = /([0-9\u0660-\u0669\u06F0-\u06F9])([؟?!])/g;
+/** AM/PM right after the digits: "5 PM", "5pm", "5 a.m.". */
+const MERIDIEM_AFTER = /^\s?([ap])\.?\s?m(?![a-z])/i;
+/**
+ * The words for each half of the day. Where two overlap, the longer is listed
+ * first («بعد الضهر» before «الضهر») and wins at the same place.
+ */
+const HALF_OF_DAY_WORDS: ReadonlyArray<readonly [string, HalfOfDay]> = [
+  ['بعد\\s+(?:الضهر|الظهر)|العصر|المسا|المساء|مساء|مساءً|مساءا|بالمسا|afternoon|evening|tonight|בערב|אחה"צ|אחרי\\s+הצהריים', 'afternoon'],
+  ['الصبح|الصباح|صباحا|صباحاً|بالصبح|الفجر|morning|בבוקר|לפנה"צ', 'morning'],
+  ['الضهر|الظهر|noon|midday|בצהריים', 'noon'],
+  ['بالليل|الليل|بليل|الليلة|night|בלילה', 'night'],
+];
+const WORD_EDGE_BEFORE = '(?<![\\p{L}\\p{M}])';
+const WORD_EDGE_AFTER = '(?![\\p{L}\\p{M}])';
+const HALF_OF_DAY: ReadonlyArray<readonly [RegExp, HalfOfDay]> = HALF_OF_DAY_WORDS
+  .map(([words, half]) => [new RegExp(`${WORD_EDGE_BEFORE}(?:${words})${WORD_EDGE_AFTER}`, 'giu'), half] as const);
+const ANY_HALF_OF_DAY = HALF_OF_DAY_WORDS.map(([words]) => `(?:${words})`).join('|');
+/** Where a clause ends: a half of the day past it belongs to the next clause. */
+const CLAUSE_MARK = /[،,;؛.]/;
+/** A spoken fraction after the half of the day: «5 المسا ونص». */
+const FRACTION_AFTER_HALF = /^\s*(?:(?:و\s*)?(نص|نصف|ربع|ثلث|تلت)|(?:إلا|الا|إلّا)\s*(ربع|ثلث|تلت))(?![؀-ۿ])/;
+/** A bare hour beside its half of the day, with no clock word: «الفجر 4», «2 بعد الضهر». */
+const COUNT_AFTER = '(?!\\s*(?:مرات|مرة|ساعات|ساعة|دقايق|دقيقة|دقائق|أيام|ايام|times|hours?|minutes?|days?)(?![\\p{L}\\p{M}]))';
+const BARE_HOUR_AFTER_HALF = new RegExp(`${WORD_EDGE_BEFORE}(${ANY_HALF_OF_DAY})${WORD_EDGE_AFTER}\\s{1,3}(\\d{1,2})(?![\\d:])${COUNT_AFTER}`, 'giu');
+const BARE_HOUR_BEFORE_HALF = new RegExp(`(?<![\\d:])(\\d{1,2})\\s{1,3}(${ANY_HALF_OF_DAY})${WORD_EDGE_AFTER}`, 'giu');
+
+interface HalfFound { half: HalfOfDay; at: number; end: number }
+
+/** Every half-of-day word in a stretch of text, with where it is. */
+function halvesIn(window: string): HalfFound[] {
+  const found: HalfFound[] = [];
+  for (const [pattern, half] of HALF_OF_DAY) {
+    for (const match of Array.from(window.matchAll(pattern))) found.push({ half, at: match.index, end: match.index + match[0].length });
+  }
+  return found;
+}
+
+/** The half of the day a word names. */
+function halfOfWord(word: string): HalfOfDay | null {
+  return halvesIn(word)[0]?.half ?? null;
+}
+
+/** The hour on a 24-hour clock, when the half of the day settles it. */
+function onTheClock(hour: number, half: HalfOfDay): number {
+  switch (half) {
+    case 'morning': return hour % 12;
+    case 'noon': return hour === 12 ? 12 : hour <= 5 ? hour + 12 : hour;
+    case 'afternoon': return hour === 12 ? 12 : hour + 12;
+    case 'night': return hour === 12 ? 0 : hour <= 4 ? hour : hour + 12;
+  }
+}
+
+/** A clock as compared: exact (`E:h:m`) when the words settle the half of the day, else on the twelve-hour dial (`D:h:m`). */
+const exactKey = (hour: number, minute: number): string => `E:${hour}:${minute}`;
+const dialKey = (hour: number, minute: number): string => `D:${hour % 12}:${minute}`;
+
+/**
+ * The clocks a sentence states, each as the key it is compared by (QA v3
+ * review, 2026-11-20). «3:39 الصبح» is 03:39 and «5:39 المسا» 17:39 — never
+ * the other half — and «17:39» is 17:39; «3:39» alone is either. The half of
+ * the day is the nearest after the clock, up to the next clock or the end of
+ * its clause; or, for the first clock only, the nearest before it in its
+ * clause («بكرا الصبح عندك اجتماع الساعة 10»). A bare hour beside its half of
+ * the day is a clock («الفجر 4»), minutes said after the half count («5 المسا
+ * ونص» is 17:30), and a range's end is read too («من 9 لـ 11»), on the dial.
+ */
+function statedClockKeys(sentence: string): Array<{ key: string; hour: number; minute: number; exact: boolean }> {
+  // «الساعة 4:20؟»: the shared clock patterns read no clock with a mark stuck
+  // to its last digit, so the mark is set apart first.
+  const spaced = sentence.slice(0, CHAT_REPLY_SCAN_LIMIT).replace(MARK_AFTER_DIGIT, '$1 $2');
+  const read = clockMentionsIn(spaced);
+  const { text } = read;
+  // A bare hour beside its half of the day is a clock too: «الفجر 4».
+  const mentions: Array<{ hour: number; minute: number; at: number; end: number; half?: HalfOfDay }> = [...read.mentions];
+  const known = new Set(mentions.map((mention) => mention.at));
+  for (const match of Array.from(text.matchAll(BARE_HOUR_AFTER_HALF))) {
+    const at = match.index + match[0].length - match[2]!.length;
+    const half = halfOfWord(match[1]!);
+    if (!known.has(at) && half) mentions.push({ hour: Number(match[2]), minute: 0, at, end: at + match[2]!.length, half });
+  }
+  for (const match of Array.from(text.matchAll(BARE_HOUR_BEFORE_HALF))) {
+    const half = halfOfWord(match[2]!);
+    if (!known.has(match.index) && half) mentions.push({ hour: Number(match[1]), minute: 0, at: match.index, end: match.index + match[1]!.length, half });
+  }
+  mentions.sort((left, right) => left.at - right.at);
+  const keys = mentions.map((mention, index) => {
+    const { hour } = mention;
+    let { minute } = mention;
+    if (hour >= 13 && hour <= 23) return { key: exactKey(hour, minute), hour, minute, exact: true };
+    // After the clock: the nearest half of the day, up to the next clock or the
+    // end of the clause («9 الصبح، المسا عندك تمرين» is the morning).
+    const next = mentions[index + 1]?.at ?? text.length;
+    let after = text.slice(mention.end, Math.min(next, mention.end + HALF_OF_DAY_WINDOW));
+    const clauseEnd = after.search(CLAUSE_MARK);
+    if (clauseEnd >= 0) after = after.slice(0, clauseEnd);
+    const meridiem = MERIDIEM_AFTER.exec(after);
+    const nearestAfter = halvesIn(after).sort((left, right) => left.at - right.at || right.end - left.end)[0];
+    // Before the first clock only: the nearest half of the day in its clause
+    // («بكرا الصبح عندك اجتماع الساعة 10»).
+    const beforeText = text.slice(0, mention.at);
+    const clauseStart = Math.max(...['،', ',', ';', '؛', '.'].map((mark) => beforeText.lastIndexOf(mark))) + 1;
+    const nearestBefore = index === 0 ? halvesIn(beforeText.slice(clauseStart)).sort((left, right) => right.end - left.end)[0] : undefined;
+    const half: HalfOfDay | null = mention.half
+      ?? (meridiem ? (meridiem[1]!.toLowerCase() === 'a' ? 'morning' : 'afternoon') : nearestAfter?.half ?? nearestBefore?.half ?? null);
+    if (half === null || hour > 12) return { key: dialKey(hour, minute), hour, minute, exact: false };
+    let resolved = onTheClock(hour, half);
+    // «5 المسا ونص»: the minutes said after the half of the day.
+    if (minute === 0 && nearestAfter && !meridiem) {
+      const fraction = FRACTION_AFTER_HALF.exec(after.slice(nearestAfter.end));
+      if (fraction?.[1]) minute = /ربع/.test(fraction[1]) ? 15 : /ثلث|تلت/.test(fraction[1]) ? 20 : 30;
+      if (fraction?.[2]) {
+        resolved = (resolved + 23) % 24;
+        minute = /ربع/.test(fraction[2]) ? 45 : 40;
+      }
+    }
+    return { key: exactKey(resolved, minute), hour: resolved, minute, exact: true };
+  });
+  const range = readClockRange(spaced);
+  if (range) keys.push({ key: dialKey(range.end.hour, range.end.minute), hour: range.end.hour, minute: range.end.minute, exact: false });
+  return keys;
+}
+
+/** Both keys of an instant on the person's clock: exact, and on the dial. */
+function instantKeys(instant: string | null | undefined, timezone: string): string[] {
+  if (!instant) return [];
+  const local = localTimeSpecFor(new Date(instant), timezone);
+  if (!local) return [];
+  const [hour, minute] = local.time.split(':').map(Number) as [number, number];
+  return [exactKey(hour, minute), dialKey(hour, minute)];
+}
+
+/** A question that restates the list rather than asking anything new: «يعني الساعة 5؟», "so 5pm, right?". */
+const CONFIRMS = new RegExp('^\\s*(?:يعني|تمام|صح|أوكي|اوكي|so|right|okay|ok|just\\s+to\\s+confirm|כלומר|אז|נכון)(?![\\p{L}\\p{M}])', 'iu');
+
+const mentionsTitle = (sentence: string, title: string): boolean => {
+  const said = contentWords(sentence);
+  return contentWords(title).some((word) => said.some((candidate) => sameWord(word, candidate)));
+};
+
+/**
+ * The reply with every clock it states on the list (QA v3 staging,
+ * 2026-11-20): «بعد ساعتين لازم آخد الدوا» at 03:39 in Jerusalem got a card at
+ * 05:40 and the reply «الساعة 3:39 الصبح» — the model's own hour, written on
+ * another clock, and nothing compared the two.
+ *
+ * A sentence that states a clock is kept when every clock in it is one the
+ * list holds: a card's start or end, a clash's, or one the person said
+ * themselves — the half of the day included when the sentence names one
+ * (`statedClockKeys`). Otherwise it goes, and in its place the card it was
+ * about is said from the card, on the person's clock (`cardWhen`): the card
+ * it names, or the only card with a time; unless the reply already says that
+ * card's right hour. A clash the sentence named is said again from the list
+ * (`clashSentence`), so it is not lost with the wrong hour beside it.
+ *
+ * A question is checked only when it restates the list — it opens «يعني»,
+ * "so", «כלומר», or names a card — and offers nothing (`offerSentences`);
+ * never the ask itself for what an item still lacks («أي ساعة بدك …، 9 ولا
+ * 10؟»), whose hours are choices, not the list.
+ */
+function withCardClocks(text: string, context: TemplateContext): string {
+  const grounds = context.grounds;
+  const timezone = context.timezone ?? grounds?.timezone;
+  if (!grounds || !timezone) return text;
+  const items = context.proposal?.items ?? [];
+  const onTheList = new Set<string>();
+  for (const item of items) {
+    for (const key of [...instantKeys(item.resolvedTime, timezone), ...instantKeys(item.endTime, timezone)]) onTheList.add(key);
+  }
+  for (const item of grounds.items) {
+    for (const conflict of item.conflicts ?? []) {
+      for (const key of [...instantKeys(conflict.startsAt, timezone), ...instantKeys(conflict.endsAt, timezone)]) onTheList.add(key);
+    }
+  }
+  for (const turn of grounds.userTurns) {
+    for (const stated of statedClockKeys(turn)) {
+      onTheList.add(stated.key);
+      if (stated.exact) {
+        onTheList.add(dialKey(stated.hour, stated.minute));
+      } else {
+        // An hour the person said without its half is theirs in either half.
+        onTheList.add(exactKey(stated.hour % 12, stated.minute));
+        onTheList.add(exactKey((stated.hour % 12) + 12, stated.minute));
+      }
+    }
+  }
+
+  const timed = items.filter((item) => item.resolvedTime && !item.needsClarification);
+  const asking = itemAskingForTime(context.proposal);
+  const checked = (sentence: string): boolean => !isQuestion(sentence)
+    || (!(asking && asksForMissing(sentence, asking)) && offerSentences(sentence).length === 0
+      && (CONFIRMS.test(sentence) || items.some((item) => mentionsTitle(sentence, item.title))));
+  const said = new Set<ProposalItemLike>();
+  const clashes: string[] = [];
+  let replacedAt = -1;
+  const kept: string[] = [];
+  for (const sentence of sentencesOf(text)) {
+    const clocks = checked(sentence) ? statedClockKeys(sentence) : [];
+    if (clocks.every(({ key }) => onTheList.has(key))) {
+      kept.push(sentence);
+      continue;
+    }
+    if (replacedAt < 0) replacedAt = kept.length;
+    // The only timed card is the one meant only when the sentence names no card:
+    // «يعني «اتصل بأحمد» الساعة 4:20؟» is not about the medicine.
+    const named = timed.filter((item) => mentionsTitle(sentence, item.title));
+    const namesACard = items.some((item) => mentionsTitle(sentence, item.title));
+    for (const item of named.length > 0 ? named : !namesACard && timed.length === 1 ? timed : []) said.add(item);
+    if (claimsClash(sentence)) {
+      const clashing = grounds.items.filter((item) => (item.conflicts?.length ?? 0) > 0);
+      const meant = clashing.filter((item) => mentionsTitle(sentence, item.title)
+        || (item.conflicts ?? []).some((conflict) => conflict.title !== null && mentionsTitle(sentence, conflict.title)));
+      for (const item of meant.length > 0 ? meant : clashing.length === 1 ? clashing : []) {
+        const conflict = namedClash(item);
+        const line = conflict ? clashSentence(context.language, item.title, conflict, grounds.now, timezone) : '';
+        if (line && !clashes.includes(line)) clashes.push(line);
+      }
+    }
+  }
+  if (replacedAt < 0) return text;
+  const alreadySaid = (item: ProposalItemLike): boolean => {
+    const keys = new Set(instantKeys(item.resolvedTime, timezone));
+    return kept.some((sentence) => (timed.length === 1 || mentionsTitle(sentence, item.title))
+      && statedClockKeys(sentence).some(({ key }) => keys.has(key)));
+  };
+  const lines = Array.from(said).filter((item) => !alreadySaid(item)).slice(0, MAX_CARD_CLOCK_LINES).flatMap((item) => {
+    const when = cardWhen(context.language, item.resolvedTime!, grounds.now, timezone);
+    if (!when) return [];
+    const title = item.title.length > TEMPLATE_TITLE_MAX ? `${item.title.slice(0, TEMPLATE_TITLE_MAX - 1)}…` : item.title;
+    return [CARD_CLOCK[context.language].replace('{title}', title).replace('{when}', when)];
+  });
+  return [...kept.slice(0, replacedAt), ...lines, ...clashes.slice(0, MAX_CARD_CLOCK_LINES), ...kept.slice(replacedAt)].join(' ');
+}
+
 /**
  * The reply the person sees: the model's when it passes, brought into line
- * with the proposal (`alignedWithProposal`); with the missing question added
- * when that is all it lacks; the template otherwise.
+ * with the proposal (`alignedWithProposal`) and its clocks with the cards
+ * (`withCardClocks`); with the missing question added when that is all it
+ * lacks; the template otherwise.
  */
 export function safeChatReply(reply: unknown, context: TemplateContext): { reply: string; replaced: boolean; asked: CaptureChatAsked | null } {
   const checked = checkModelReply(reply, context);
@@ -475,7 +725,7 @@ export function safeChatReply(reply: unknown, context: TemplateContext): { reply
     return { ...safe, replaced: true };
   }
   const aligned = alignedWithProposal(reply.trim(), context).trim();
-  let text = context.grounds ? groundedReply(aligned, context.grounds).trim() : aligned;
+  let text = withCardClocks(context.grounds ? groundedReply(aligned, context.grounds).trim() : aligned, context).trim();
   if (!text) {
     const safe = withAskedSuffix(templateReply(context), context.language, context.proposal, false);
     return { ...safe, replaced: true };
