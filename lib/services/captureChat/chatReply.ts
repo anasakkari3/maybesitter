@@ -476,6 +476,8 @@ const HALF_OF_DAY_WINDOW = 24;
 
 type HalfOfDay = 'morning' | 'noon' | 'afternoon' | 'night';
 
+/** A sentence mark right after a digit: «4:20؟», "5?". */
+const MARK_AFTER_DIGIT = /([0-9\u0660-\u0669\u06F0-\u06F9])([؟?!])/g;
 /** AM/PM right after the digits: "5 PM", "5pm", "5 a.m.". */
 const MERIDIEM_AFTER = /^\s?([ap])\.?\s?m(?![a-z])/i;
 /** The half of the day a clock is said in, nearest first; "after noon" before "noon". */
@@ -514,7 +516,10 @@ const dialKey = (hour: number, minute: number): string => `D:${hour % 12}:${minu
  * too («من 9 لـ 11»), on the dial.
  */
 function statedClockKeys(sentence: string): Array<{ key: string; hour: number; minute: number; exact: boolean }> {
-  const { text, mentions } = clockMentionsIn(sentence.slice(0, CHAT_REPLY_SCAN_LIMIT));
+  // «الساعة 4:20؟»: the shared clock patterns read no clock with a mark stuck
+  // to its last digit, so the mark is set apart first.
+  const spaced = sentence.slice(0, CHAT_REPLY_SCAN_LIMIT).replace(MARK_AFTER_DIGIT, '$1 $2');
+  const { text, mentions } = clockMentionsIn(spaced);
   const keys = mentions.map((mention, index) => {
     const { hour, minute } = mention;
     if (hour >= 13 && hour <= 23) return { key: exactKey(hour, minute), hour, minute, exact: true };
@@ -528,7 +533,7 @@ function statedClockKeys(sentence: string): Array<{ key: string; hour: number; m
     const resolved = onTheClock(hour, half);
     return { key: exactKey(resolved, minute), hour: resolved, minute, exact: true };
   });
-  const range = readClockRange(sentence.slice(0, CHAT_REPLY_SCAN_LIMIT));
+  const range = readClockRange(spaced);
   if (range) keys.push({ key: dialKey(range.end.hour, range.end.minute), hour: range.end.hour, minute: range.end.minute, exact: false });
   return keys;
 }
@@ -613,8 +618,11 @@ function withCardClocks(text: string, context: TemplateContext): string {
       continue;
     }
     if (replacedAt < 0) replacedAt = kept.length;
+    // The only timed card is the one meant only when the sentence names no card:
+    // «يعني «اتصل بأحمد» الساعة 4:20؟» is not about the medicine.
     const named = timed.filter((item) => mentionsTitle(sentence, item.title));
-    for (const item of named.length > 0 ? named : timed.length === 1 ? timed : []) said.add(item);
+    const namesACard = items.some((item) => mentionsTitle(sentence, item.title));
+    for (const item of named.length > 0 ? named : !namesACard && timed.length === 1 ? timed : []) said.add(item);
     if (claimsClash(sentence)) {
       const clashing = grounds.items.filter((item) => (item.conflicts?.length ?? 0) > 0);
       const meant = clashing.filter((item) => mentionsTitle(sentence, item.title)
