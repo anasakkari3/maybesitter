@@ -202,6 +202,9 @@ test('«كل تلات» names Tuesday only before nothing, a clause end or a wor
     assert.equal(one(tuesday, `باخد دوا كل تلات ${counted}`), null, `«كل تلات ${counted}» named Tuesday`);
   }
   assert.equal(one('بتروح يوم التلات.', 'بروح كل ثلاث'), null);
+  // Without «كل» a bare «تلات» at a clause end is a number: «ولادي تلات», «الساعة تلات».
+  assert.equal(one('عندك ولاد يوم التلات.', 'ولادي تلات'), null);
+  assert.equal(one('بتصحى يوم التلات.', 'بصحى الساعة تلات، وبنام بكير'), null);
   // Nothing after it, a clause end, or a word of time: Tuesday.
   assert.notEqual(one('بتروح عالجيم يوم التلات.', 'بروح عالجيم كل تلات'), null);
   assert.notEqual(one('بتروح عالجيم يوم التلات.', 'كل تلات، بروح عالجيم'), null);

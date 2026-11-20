@@ -104,7 +104,15 @@ describe('what each line means', () => {
 
 describe('a refusal with a reason is not a final answer', () => {
   it('busy_now asks once more after a minute, and only once', async () => {
-    harness = await prepare('en', initialState({ summary: { status: 'unavailable', reason: 'busy_now' } }));
+    // Every answer after the first takes 2 s, so the card shows its loading
+    // line in between and the busy line arrives anew: still only one retry.
+    let seen = 0;
+    const busy = { status: 200, body: { success: true, summary: { status: 'unavailable', reason: 'busy_now' } } };
+    harness = await prepare('en', initialState({ summary: { status: 'unavailable', reason: 'busy_now' } }), request => {
+      if (request.path !== '/api/mobile/memory/summary') return undefined;
+      seen += 1;
+      return seen === 1 ? busy : new Promise(resolve => { setTimeout(() => resolve(busy), 2_000); });
+    });
     await showKnows(harness);
     await waitFor(() => expect(screen.queryByTestId('memory-summary-unavailable')).not.toBeNull());
     expect(requests()).toBe(1);
@@ -112,7 +120,12 @@ describe('a refusal with a reason is not a final answer', () => {
     expect(requests()).toBe(1);
     await act(async () => { await jest.advanceTimersByTimeAsync(7_000); });
     await waitFor(() => expect(requests()).toBe(2));
-    await act(async () => { await jest.advanceTimersByTimeAsync(10 * 60_000); });
+    await act(async () => { await jest.advanceTimersByTimeAsync(3_000); });
+    await waitFor(() => expect(screen.queryByTestId('memory-summary-unavailable')).not.toBeNull());
+    // The second answer is busy_now again: still no third request, minute after minute.
+    for (let minute = 0; minute < 6; minute += 1) {
+      await act(async () => { await jest.advanceTimersByTimeAsync(66_000); });
+    }
     expect(requests()).toBe(2);
   });
 
