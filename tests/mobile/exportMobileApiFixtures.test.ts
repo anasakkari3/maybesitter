@@ -61,8 +61,8 @@ import {
 import { PUT as personalizationConsentPut } from '../../src/app/api/mobile/consents/personalization/route.ts';
 import { installFakeAuth, tokenFor, uidFor, type FakeAuthControls } from '../support/fakeAuth.ts';
 import { configureCommandService } from '../../lib/services/commandService.ts';
-import { applyCommand as applyDomainCommand, createEmptyDomainState } from '../../src/domain/stateMachine.ts';
-import { persistParticipantState, readParticipantState } from '../../lib/services/mobile/participantState.ts';
+import { applyCommand as applyDomainCommand, createEmptyDomainState, type Command } from '../../src/domain/stateMachine.ts';
+import { applyParticipantCommands, persistParticipantState, readParticipantState } from '../../lib/services/mobile/participantState.ts';
 import { POST as capturePost } from '../../src/app/api/mobile/capture/route.ts';
 import { POST as confirmPost } from '../../src/app/api/mobile/capture/confirm/route.ts';
 import { GET as captureKindsGet } from '../../src/app/api/mobile/capture/kinds/route.ts';
@@ -342,6 +342,8 @@ const CHAT_USER = uidFor('ChatFixtureUser');
 const CAPTURE_KINDS_USER = uidFor('CaptureKindsFixtureUser');
 /** «ما اتصرّفت فيها» (lane E2): its own account, so no other fixture reads its items. */
 const UNHANDLED_USER = uidFor('UnhandledFixtureUser');
+/** «الكل» (sim-1120 D): an account with one open commitment and one dropped today. */
+const DROPPED_LIST_USER = uidFor('DroppedListFixtureUser');
 
 /**
  * An appointment that ended and a deadline that passed before `REFERENCE_TIME`,
@@ -2191,6 +2193,25 @@ test('exports a fixture for every /api/mobile call the React Native client makes
     await record('commitments.unhandledNotHere', 409, await unhandledPost(request('/api/mobile/commitments/unhandled', {
       body: { action: 'dismiss', commitmentId: 'fixture-unhandled-task' }, uid: UNHANDLED_USER,
     })));
+
+    // ── «الكل» with what was dropped today (sim-1120 D) ───────────
+    // The commitments screen's one read of Today: the same list shape, a
+    // dropped item in it, on the day it was dropped.
+    await seedLiveAccount(DROPPED_LIST_USER);
+    await applyParticipantCommands(DROPPED_LIST_USER, [
+      { type: 'CreateDraft', now: '2026-08-08T08:00:00.000Z', commitment: { id: 'fixture-open', kind: 'task', title: 'Call the bank',
+        timeSpec: { kind: 'unscheduled', dueAt: null, remindAt: null, timezone: 'Asia/Jerusalem' } }, draftStatus: 'pending_confirmation' },
+      { type: 'ConfirmCommitment', commitmentId: 'fixture-open', now: '2026-08-08T08:01:00.000Z' },
+      { type: 'CreateDraft', now: '2026-08-08T08:02:00.000Z', commitment: { id: 'fixture-dropped', kind: 'task', title: 'Sort the university papers',
+        timeSpec: { kind: 'unscheduled', dueAt: null, remindAt: null, timezone: 'Asia/Jerusalem' } }, draftStatus: 'pending_confirmation' },
+      { type: 'ConfirmCommitment', commitmentId: 'fixture-dropped', now: '2026-08-08T08:03:00.000Z' },
+      { type: 'Drop', commitmentId: 'fixture-dropped', now: '2026-08-09T07:00:00.000Z' },
+    ] as Command[]);
+    const withDropped = await record('commitments.todayWithDropped', 200, await todayGet(
+      request(`/api/mobile/commitments/today?referenceTime=${REFERENCE_TIME}&timezone=Asia%2FJerusalem&include=dropped`, { uid: DROPPED_LIST_USER }),
+    ));
+    assert.deepEqual((withDropped.items as { id: string; status: string }[]).map((item) => [item.id, item.status]).sort(),
+      [['fixture-dropped', 'dropped'], ['fixture-open', 'active']]);
 
     // ── capture's gentle follow-up (lane E3) ──────────────────────
     // The same place under an account of its own, its newest item asked about on a

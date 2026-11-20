@@ -1,0 +1,77 @@
+{
+  "items": [
+    {
+      "id": "fixture-dropped",
+      "kind": "task",
+      "title": "Sort the university papers",
+      "description": null,
+      "person": null,
+      "status": "dropped",
+      "priority": {
+        "level": "normal",
+        "source": "default",
+        "pressureAllowed": false,
+        "pressureLevel": "none"
+      },
+      "category": null,
+      "categorySource": "inferred",
+      "timeSpec": {
+        "kind": "unscheduled",
+        "dueAt": null,
+        "endAt": null,
+        "remindAt": null,
+        "allDay": false,
+        "timezone": "Asia/Jerusalem"
+      },
+      "currentAckState": "completed",
+      "postponedUntil": null,
+      "createdAt": "2026-08-09T09:00:00.000Z",
+      "updatedAt": "2026-08-09T09:00:00.000Z",
+      "confirmedAt": "2026-08-09T09:00:00.000Z",
+      "completedAt": null,
+      "droppedAt": "2026-08-09T09:00:00.000Z",
+      "rank": 0,
+      "reasonCodes": [
+        "no_deadline"
+      ],
+      "deviceCalendarLink": null
+    },
+    {
+      "id": "fixture-open",
+      "kind": "task",
+      "title": "Call the bank",
+      "description": null,
+      "person": null,
+      "status": "active",
+      "priority": {
+        "level": "normal",
+        "source": "default",
+        "pressureAllowed": false,
+        "pressureLevel": "none"
+      },
+      "category": null,
+      "categorySource": "inferred",
+      "timeSpec": {
+        "kind": "unscheduled",
+        "dueAt": null,
+        "endAt": null,
+        "remindAt": null,
+        "allDay": false,
+        "timezone": "Asia/Jerusalem"
+      },
+      "currentAckState": "not_seen",
+      "postponedUntil": null,
+      "createdAt": "2026-08-09T09:00:00.000Z",
+      "updatedAt": "2026-08-09T09:00:00.000Z",
+      "confirmedAt": "2026-08-09T09:00:00.000Z",
+      "completedAt": null,
+      "droppedAt": null,
+      "rank": 1,
+      "reasonCodes": [
+        "no_deadline"
+      ],
+      "deviceCalendarLink": null
+    }
+  ],
+  "calendarOrphans": []
+}

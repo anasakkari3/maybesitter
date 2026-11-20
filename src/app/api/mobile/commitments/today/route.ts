@@ -26,10 +26,15 @@ export async function GET(request: Request) {
   } catch (error) {
     return mobileError(error instanceof Error ? error.message : 'referenceTime must be a valid ISO date string');
   }
+  // «الكل» on the commitments screen asks for what was dropped today too
+  // (sim-1120 D). One value is known; anything else is the client's to fix.
+  const include = searchParams.get('include');
+  if (include !== null && include !== 'dropped') return mobileError('include must be dropped');
   const ranked = await listTodayRanked({
     now,
     timezone: searchParams.get('timezone') ?? undefined,
     participantId: user.uid,
+    includeDropped: include === 'dropped',
   });
   // One read for the whole list (UC-3.1, #185). The calendar sync reconciles
   // against the same response the screens render, so the two can never

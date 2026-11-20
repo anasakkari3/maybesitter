@@ -69,7 +69,7 @@ async function commitment(id: string, dueAt: string | null, kind: 'task' | 'even
       id, kind, title: `Item ${id}`,
       timeSpec: dueAt === null
         ? { kind: 'unscheduled', dueAt: null, remindAt: null, timezone: ZONE }
-        : { kind: kind === 'event' ? 'scheduled_event' : 'due_by', dueAt, remindAt: null, timezone: ZONE },
+        : { kind: kind === 'event' ? 'scheduled_event' : 'due_by', dueAt, remindAt: null, timezone: ZONE, ...(kind === 'event' ? { itemKind: 'event' } : {}) },
     },
     draftStatus: 'pending_confirmation',
   } as Command);
@@ -85,7 +85,7 @@ async function seed(): Promise<void> {
   await act({ type: 'Drop', commitmentId: 'dropped-undated', now: EARLIER_TODAY });
   await commitment('dropped-tomorrow', TOMORROW);
   await act({ type: 'Drop', commitmentId: 'dropped-tomorrow', now: EARLIER_TODAY });
-  // An appointment that already ended, dropped today: dropped is settled, like done.
+  // An appointment that already ended (05:00 + the assumed hour < 09:00), dropped\n  // today: dropped is settled, like done, so it is on its day all the same.
   await commitment('dropped-ended-event', '2026-11-20T05:00:00.000Z', 'event');
   await act({ type: 'Drop', commitmentId: 'dropped-ended-event', now: EARLIER_TODAY });
   // Dropped yesterday: like something finished yesterday, it is no longer on a list.
