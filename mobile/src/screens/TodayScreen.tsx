@@ -330,7 +330,7 @@ export function TodayScreen({ tabClearance = TAB_CLEARANCE }: { tabClearance?: n
         {/* A refresh that fails after the day loaded keeps the day (V3-F08-02):
             the failure is said above the rows, which stay. Only a first load
             that fails is the failure alone. */}
-        {keptDay && today.error ? <RefreshFailed error={today.error} onRetry={() => void today.refetch()} /> : null}
+        {keptDay && today.error ? <RefreshFailed error={today.error} retrying={today.isFetching} onRetry={() => void today.refetch()} /> : null}
         <QueryBoundary isPending={today.isPending} error={keptDay ? null : today.error} onRetry={() => void today.refetch()}>
           {model.isEmpty ? (
             // No capture button here: the bar's own «احكيها» is the one way in,
@@ -502,8 +502,10 @@ function EmptyDay() {
  * The day could not be refreshed, and the last one loaded is still drawn
  * below (V3-F08-02). Said to both screen readers when it appears, as
  * QueryBoundary says a failure, with the same words and the same Retry.
+ * While a read is on its way the Retry is locked and says «عم نجرّب…», so a
+ * tap that started one does not look like a tap that did nothing (#878 review).
  */
-function RefreshFailed({ error, onRetry }: { error: unknown; onRetry: () => void }) {
+function RefreshFailed({ error, retrying, onRetry }: { error: unknown; retrying: boolean; onRetry: () => void }) {
   const { t } = useApp();
   const p = useReferencePalette();
   const message = userFacingMessage(error, t);
@@ -512,7 +514,8 @@ function RefreshFailed({ error, onRetry }: { error: unknown; onRetry: () => void
     <View testID="today-refresh-failed" accessibilityRole="alert"
       style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 10, padding: 14, borderRadius: 20, borderWidth: 1, borderColor: p.ln, backgroundColor: p.sf }}>
       <Txt size={14} color={p.tx} style={{ flexShrink: 1, flexGrow: 1 }}>{message}</Txt>
-      <Pill label={t.errorsRetry} kind="outline" size={14} onPress={onRetry} />
+      <Pill testID="today-refresh-retry" label={retrying ? t.errorsRetrying : t.errorsRetry} kind="outline" size={14}
+        disabled={retrying} onPress={onRetry} />
     </View>
   );
 }

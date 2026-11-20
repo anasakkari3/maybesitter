@@ -252,6 +252,7 @@
   "errorsNotFound": "זה כבר לא כאן.",
   "errorsGeneric": "זה לא עבד. נסה שוב.",
   "errorsRetry": "נסה שוב",
+  "errorsRetrying": "מתבצע ניסיון חוזר…",
   "crashTitle": "MaybeSitter נעצר לרגע",
   "crashBody": "שום דבר שאישרת לא אבד. נסה כשתהיה מוכן.",
   "errorsConsentRequired": "הפעל את זה בהגדרות כדי לראות הצעות.",

@@ -1142,13 +1142,14 @@ describe('a refresh that fails after the day loaded', () => {
     const reread = jest.spyOn(commitmentEndpoints, 'listToday').mockImplementation(() => new Promise(resolve => {
       answer = () => resolve({ items: [item({ id: 'kept' })] } as never);
     }));
+    const before = reread.mock.calls.length;
     await fireEvent.press(retry);
     await waitFor(() => expect(screen.getByTestId('today-refresh-retry')).toBeDisabled());
     expect(screen.getByTestId('today-refresh-retry')).toHaveTextContent(en.errorsRetrying);
     expect(screen.getByTestId('today-refresh-retry').props.accessibilityLabel).toBe(en.errorsRetrying);
     // A second tap while it runs asks nothing more.
     await fireEvent.press(screen.getByTestId('today-refresh-retry'));
-    expect(reread).toHaveBeenCalledTimes(1);
+    expect(reread.mock.calls.length).toBe(before + 1);
     await act(async () => { answer?.(); });
     await waitFor(() => expect(screen.queryByTestId('today-refresh-failed')).toBeNull());
   });
