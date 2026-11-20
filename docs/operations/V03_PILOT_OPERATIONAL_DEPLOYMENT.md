@@ -83,11 +83,21 @@ node --no-warnings --loader ./scripts/ts-resolver.mjs \
 
 Expected result: `revokeRefreshTokens` invalidates every ID token issued so far
 and stops the client minting a new one, and the trust state records
-`revokedAt`; recommendation, analytics and calendar consent become false; the
-client enters a terminal revoked state. A request carrying an already-issued
-token is denied with `401 token_revoked` within 60 seconds — immediately on the
-destructive paths, which force a fresh revocation read — and `403 revoked`
-once the trust record is read.
+`revokedAt` and `revokedBy: "operator"`; recommendation, analytics and calendar
+consent become false; the client enters a terminal revoked state. A request
+carrying an already-issued token is denied with `401 token_revoked` within 60
+seconds — immediately on the destructive paths, which force a fresh revocation
+read — and `403 revoked` (with `revokedBy: "operator"`) once the trust record
+is read.
+
+The person may sign in again, but the operator's stop is not theirs to lift:
+the app's «رجّع حسابي» (`POST /api/mobile/account/resume`) answers
+`403 operator_revoked` for it and the revoked screen tells them the team stopped
+the account and to contact us. Export and deletion stay available. That route
+lifts only a lock the old in-app «وقّف» wrote (before #873), recognised by the
+`revoked` / `revoke` audit line it wrote beside the lock; a lock written by an
+older copy of this script carries no such line and is refused too. Only an
+operator brings an operator-stopped account back.
 
 ## Participant Delete
 

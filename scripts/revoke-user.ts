@@ -1,14 +1,16 @@
 /**
  * Cut one user off, now (UC-1.0e, #144).
  *
- * Two steps, in this order and both required:
+ * Two steps, in this order and both required (`revokeAccountAsOperator`,
+ * lib/pilot/operatorRevoke.ts):
  *
  *   1. `revokeRefreshTokens` stamps the account's `tokensValidAfterTime`, so
  *      every ID token issued before this moment stops verifying and the
  *      client cannot mint a new one from its refresh token.
- *   2. The trust `revoke` action stamps `revokedAt` on `users/{uid}`, which is
- *      what `requireMobileUser` reads and what makes the refusal say `revoked`
- *      rather than `token_revoked`.
+ *   2. The trust `revoke` action, marked `by: 'operator'`, stamps `revokedAt`
+ *      and `revokedBy: 'operator'` on `users/{uid}`. `requireMobileUser` reads
+ *      the first and refuses with `revoked`; the mark is what stops the
+ *      account lifting it from the app with «رجّع حسابي» (review of #883).
  *
  * Step 1 alone would let an already-issued token keep working for up to the
  * 60 s revocation-cache window; step 2 alone would leave the credential live
@@ -24,7 +26,7 @@
  */
 import { getAuth } from 'firebase-admin/auth';
 import { getAdminApp } from '../lib/firebase/admin';
-import { applyTrustAction } from '../lib/pilot/pilotTrustStore';
+import { revokeAccountAsOperator } from '../lib/pilot/operatorRevoke';
 import { requireUserId } from '../lib/storage/paths';
 
 async function main() {
@@ -36,10 +38,9 @@ async function main() {
 
   try {
     requireUserId(uid);
-    await getAuth(getAdminApp()).revokeRefreshTokens(uid);
-    const at = new Date().toISOString();
-    const state = await applyTrustAction(uid, { type: 'revoke', at });
-    console.log(`Revoked refresh tokens and trust for [${uid}] at ${at}`);
+    const auth = getAuth(getAdminApp());
+    const state = await revokeAccountAsOperator(uid, { revokeRefreshTokens: (id) => auth.revokeRefreshTokens(id) });
+    console.log(`Revoked refresh tokens and trust for [${uid}] at ${state.revokedAt}`);
     console.log('Updated trust state:', state);
   } catch (error) {
     console.error('Error revoking user:', error instanceof Error ? error.message : error);

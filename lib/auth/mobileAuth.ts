@@ -54,7 +54,13 @@ export interface RequireMobileUserOptions {
 }
 
 export class MobileAuthError extends Error {
-  constructor(message: string, readonly status: 401 | 403 | 503, readonly reason: string) {
+  constructor(
+    message: string,
+    readonly status: 401 | 403 | 503,
+    readonly reason: string,
+    /** Codes only, sent beside `reason` (`revokedBy: 'operator'`). */
+    readonly detail?: Readonly<Record<string, string>>,
+  ) {
     super(message);
     this.name = 'MobileAuthError';
   }
@@ -79,7 +85,7 @@ const STATUS_FOR: Readonly<Record<TokenVerificationCode, 401 | 403 | 503>> = Obj
 export function mobileAuthErrorResponse(error: unknown): Response {
   if (error instanceof MobileAuthError) {
     return Response.json(
-      { success: false, error: error.message, reason: error.reason },
+      { success: false, error: error.message, reason: error.reason, ...(error.detail ?? {}) },
       { status: error.status },
     );
   }
@@ -138,7 +144,10 @@ export async function requireMobileUser(
   // conversation and for what UC-1.R4 (#157) renders.
   if (trust.deletedAt) throw new MobileAuthError('this account was deleted', 403, 'deleted');
   if (trust.revokedAt && options.allowRevoked !== true) {
-    throw new MobileAuthError('this account was revoked', 403, 'revoked');
+    // Still `revoked` for every installed build; the mark tells a new one the
+    // operator stopped it, so the revoked screen offers no «رجّع حسابي».
+    throw new MobileAuthError('this account was revoked', 403, 'revoked',
+      trust.revokedBy === 'operator' ? { revokedBy: 'operator' } : undefined);
   }
 
   return { uid: verified.uid, authTime: verified.authTime };

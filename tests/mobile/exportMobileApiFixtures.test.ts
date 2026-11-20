@@ -40,7 +40,8 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { applyTrustAction } from '../../lib/pilot/pilotTrustStore.ts';
+import { applyTrustAction, getOrCreateTrust } from '../../lib/pilot/pilotTrustStore.ts';
+import { createPilotAuditEvent } from '../../lib/pilot/closedPilotControls.ts';
 import { setRecommendationConsent } from '../../lib/consents/recommendationConsentService.ts';
 import { createStorageFeedbackEventStore } from '../../lib/feedback/feedbackEventStore.ts';
 import { createMemoryStorage } from '../../lib/storage/memoryAdapter.ts';
@@ -2510,8 +2511,16 @@ test('exports a fixture for every /api/mobile call the React Native client makes
     // «رجّع حسابي» (QA v3): an account the old «وقّف» locked (before #873),
     // on its own uid so no other trust fixture moves. The answer is the trust
     // shape the revoked screen parses before it lets the app back in.
+    // The lock and the audit line the old mobile «وقّف» wrote together: what
+    // tells it apart from an operator's revoke, which the route refuses.
     const RESUME_USER = uidFor('ResumeFixtureUser');
-    await applyTrustAction(RESUME_USER, { type: 'revoke', at: new Date(Date.now() - 1000).toISOString() });
+    const resumeLockedAt = new Date(Date.now() - 1000).toISOString();
+    await getOrCreateTrust(RESUME_USER, new Date(Date.now() - 2000).toISOString());
+    await applyTrustAction(RESUME_USER, { type: 'revoke', at: resumeLockedAt }, {
+      audit: createPilotAuditEvent({
+        version: 'v1', eventType: 'revoked', participantId: RESUME_USER, occurredAt: resumeLockedAt, outcome: 'recorded', reasonCode: 'revoke',
+      }),
+    });
     const resumed = await record('account.resumed', 200, await accountResumePost(
       request('/api/mobile/account/resume', { uid: RESUME_USER, method: 'POST' }),
     ));

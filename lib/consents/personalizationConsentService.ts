@@ -68,6 +68,14 @@ export interface PersonalizationConsentOptions {
   consent?: PersonalizationConsentStore;
   /** How long a withdrawal waits behind a running purge (tests shorten it). */
   purgeWait?: { readonly attempts: number; readonly delayMs: number };
+  /**
+   * A withdrawal only while this holds for the account's document, checked in
+   * the transactions that write the store and the answer
+   * (`PersonalizationWithdrawalSupersededError` when it does not). For
+   * «رجّع حسابي»: its decline must not turn off a yes given once the account
+   * was live again. Declines only.
+   */
+  onlyWhile?: (user: unknown) => boolean;
 }
 
 /**
@@ -330,8 +338,12 @@ export async function setPersonalizationConsent(
     // stalled past its lease and was superseded by a grant must not write its
     // older "declined" over the newer answer.
     let record: ConsentRecord | null = null;
+    const onlyWhile = options.onlyWhile;
+    // Before any fence moves: a condition already false changes nothing.
+    if (onlyWhile && !onlyWhile(await storage.get(userDoc(uid)))) throw new PersonalizationWithdrawalSupersededError();
     await withdrawFenced(uid, at.toISOString(), { ...options, storage, consent: store }, async (held) => {
-      record = await setConsentWhile(PERSONALIZATION_CONSENT, uid, { ...input, at }, (user) => ownsFence(user, held), { storage });
+      record = await setConsentWhile(PERSONALIZATION_CONSENT, uid, { ...input, at },
+        (user) => ownsFence(user, held) && (!onlyWhile || onlyWhile(user)), { storage });
       if (record === null) throw new PersonalizationWithdrawalSupersededError();
     });
     return record!;
@@ -387,11 +399,16 @@ async function withdrawFenced(
     // Written only while this withdrawal still owns the fence (M5B2A-R20-002):
     // one that outlived its lease, superseded by a grant, must not turn the
     // newer grant off. A store that cannot guard writes as before.
+    const onlyWhile = options.onlyWhile;
+    if (onlyWhile && !store.writeGuarded && !onlyWhile(await storage.get(userDoc(uid)))) {
+      throw new PersonalizationWithdrawalSupersededError();
+    }
     const written = !store.writeGuarded ? await store.write(uid, 'disabled', at) : await store.writeGuarded(uid, 'disabled', at, {
       path: userDoc(uid),
       accepts: liveFence((value) => {
         const fence = (value as { personalizationPurge?: FenceDocument } | null)?.personalizationPurge;
-        return fence?.state === 'withdrawing' && fence.epoch === held.epoch && fence.withdrawalOwner === held.owner;
+        return fence?.state === 'withdrawing' && fence.epoch === held.epoch && fence.withdrawalOwner === held.owner
+          && (!onlyWhile || onlyWhile(value));
       }),
     });
     if (written === null) throw new PersonalizationWithdrawalSupersededError();
