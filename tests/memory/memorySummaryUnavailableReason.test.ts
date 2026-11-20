@@ -16,7 +16,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { reserveCall } from '../../lib/llm/usageGuard.ts';
-import { recordFeatureSpend } from '../../lib/features/spendLedger.ts';
+import { readMonthSpend, recordFeatureSpend } from '../../lib/features/spendLedger.ts';
 import { setFeaturePreference } from '../../lib/features/accountFeatures.ts';
 import { addRows, begin, currentStorage, end, scriptedModel, show, summary, useSummaryModel } from '../acceptance/m5b/support.ts';
 
@@ -162,4 +162,64 @@ test('a ready summary is logged as ok, with no reason anywhere', async () => {
   const line = summaryLine(lines, uid);
   assert.equal(line.outcome, 'ok');
   assert.equal(line.fallbackReason, undefined);
+});
+
+// Review of #885: every exit code against its reason, as a table, so no
+// mapping line can change unseen; the codes the person cannot act on have none.
+test('each exit code maps to its reason; the rest carry none', async () => {
+  const module = await import('../../lib/services/mobile/memorySummary.ts') as Record<string, unknown>;
+  const reasonFor = module.memorySummaryUnavailableReasonFor as ((code: string) => string | undefined) | undefined;
+  assert.equal(typeof reasonFor, 'function', 'memorySummaryUnavailableReasonFor is not exported');
+  const table: Array<[string, string | undefined]> = [
+    ['user_minute_cap', 'busy_now'],
+    ['user_cap', 'daily_cap'],
+    ['user_token_cap', 'daily_cap'],
+    ['global_cap', 'daily_cap'],
+    ['feature_budget', 'monthly_cap'],
+    ['cost_cap:user_monthly', 'monthly_cap'],
+    ['feature_locked', 'not_included'],
+    ['unavailable', undefined],
+    ['usage_guard_unavailable', undefined],
+    ['route_budget', undefined],
+    ['ai_consent', undefined],
+    ['ai_disabled', undefined],
+    ['provider_none', undefined],
+    ['provider_error', undefined],
+    ['timeout', undefined],
+    ['validator_refused', undefined],
+    ['unparseable', undefined],
+    ['toString', undefined],
+  ];
+  for (const [code, reason] of table) assert.equal(reasonFor!(code), reason, code);
+});
+
+test('a call cut by the deadline is logged as timeout, with no reason', async () => {
+  const uid = await begin();
+  await addRows(uid, [{ content: ROW, language: 'ar' }]);
+  const controller = new AbortController();
+  const model = scriptedModel(() => { controller.abort(); throw new Error('aborted'); });
+  await useSummaryModel(model);
+  const { buildMemorySummary } = await import('../../lib/services/mobile/memorySummary.ts');
+  const { value: result, lines } = await logged(() => buildMemorySummary({
+    uid, language: 'ar', signal: controller.signal, abort: () => controller.abort(), startedAt: Date.now(),
+  }));
+  assert.deepEqual(result, { status: 'unavailable' });
+  const line = summaryLine(lines, uid);
+  assert.equal(line.outcome, 'unavailable');
+  assert.equal(line.fallbackReason, 'timeout');
+});
+
+test('a reservation refused after the add-on hold gives the hold back (enforce)', async () => {
+  await withEnv({ MAYBESITTER_ADDON_GATE_MODE: 'enforce' }, async () => {
+    const uid = await begin();
+    await addRows(uid, [{ content: ROW, language: 'ar' }]);
+    const model = honest();
+    await useSummaryModel(model);
+    for (let index = 0; index < 8; index += 1) await reserveCall(uid, 'capture_extraction', { storage: currentStorage() as any });
+    const { value: answer } = await logged(() => summary(uid, 'ar'));
+    assert.deepEqual(answer.body.summary, { status: 'unavailable', reason: 'busy_now' }, show(answer.body));
+    const month = await readMonthSpend(uid);
+    assert.deepEqual(month.holds ?? {}, {}, 'the memory add-on hold was kept after the minute cap refused');
+    assert.equal(month.features.memory_learning ?? 0, 0);
+  });
 });
