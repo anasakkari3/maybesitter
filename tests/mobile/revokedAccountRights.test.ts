@@ -452,3 +452,24 @@ test('the team stopping an account the person had already stopped is still the t
     end();
   }
 });
+
+test('a resume whose lock lifts between its two declines never turns learning off again', async () => {
+  begin();
+  try {
+    const { resumeRevokedAccount } = await import('../../lib/services/mobile/pilotService.ts');
+    const { setPersonalizationConsent, personalizationGrowthAllowed, PERSONALIZATION_CONSENT_VERSION } = await import('../../lib/consents/personalizationConsentService.ts');
+    const uid = await lockedAfterAgreeing('RaceBetweenDeclines');
+    // Suggestions were declined under the lock; before learning is, the other
+    // press finishes and the person turns learning back on.
+    const result = await resumeRevokedAccount(uid, {
+      beforeLearning: async () => {
+        assert.equal((await resume(uid)).status, 200);
+        await setPersonalizationConsent(uid, { state: 'granted', version: PERSONALIZATION_CONSENT_VERSION });
+      },
+    });
+    assert.equal(result.trust.revokedAt, null);
+    assert.equal(await personalizationGrowthAllowed(uid), true, 'the late resume turned learning off again');
+  } finally {
+    end();
+  }
+});
