@@ -1549,7 +1549,7 @@
   "xHabitTodayDone": "تمّت اليوم",
   "xHabitTodaySkipped": "قلت: مش اليوم",
   "xHabitTodayMadeUp": "حطّيناها مرّة تانية هالأسبوع.",
-  "xHabitTodayDoneA11y": "تمّت اليوم: {title}",
+  "xHabitTodayMarkDoneA11y": "علّم {title} إنها تمّت اليوم",
   "xHabitTodaySkipA11y": "مش اليوم: {title}",
   "xHabitTodayUndoA11y": "تراجع عن جواب اليوم: {title}",
   "xHabitTodayReopened": "رجّعنا اليوم مفتوح.",

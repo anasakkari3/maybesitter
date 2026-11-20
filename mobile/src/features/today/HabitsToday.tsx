@@ -1,5 +1,5 @@
 import React from 'react';
-import { AccessibilityInfo, View } from 'react-native';
+import { View } from 'react-native';
 import { useApp } from '../../state/AppContext';
 import { useDecideHabitOccurrence, useHabits, useHabitsToday, useUndoHabitOccurrence } from '../../api/queries';
 import { ConflictError } from '../../api/errors';
@@ -11,6 +11,7 @@ import { Btn, Pill, Txt } from '../../ui/primitives';
 import { CheckIcon } from '../../ui/icons';
 import { LiveRegion } from '../../ui/liveRegion';
 import { useAnnounceOnIos } from '../../ui/announce';
+import { focusForAccessibility } from '../../ui/accessibilityFocus';
 import { ReferenceIcon, useReferencePalette } from '../../ui/referenceDesign';
 import { todayHabitRows, type TodayHabitRow } from './todayHabits';
 
@@ -58,23 +59,35 @@ function HabitRow({ row: { habit, occurrence } }: { row: TodayHabitRow }) {
   // «تراجع» succeeded: the region says the day is open, and the focus goes
   // back to the circle that took the place of the undo button.
   const [reopened, setReopened] = React.useState(false);
+  // «تمّت» succeeded (#881 review): the circle is gone, so the line is said
+  // and the focus moves to «تراجع», which took its place.
+  const [justDone, setJustDone] = React.useState(false);
   const doneButton = React.useRef<View>(null);
+  const undoButton = React.useRef<View>(null);
   const open = occurrence.state === 'pending' || occurrence.state === 'scheduled';
+  const done = justDone && occurrence.state === 'completed';
   const busy = decide.isPending || undo.isPending;
   const title = isolateAuto(habit.title);
-  useAnnounceOnIos(reopened && open ? t.xHabitTodayReopened : null);
+  // iOS has no live regions: VoiceOver is told what TalkBack hears below.
+  useAnnounceOnIos(reopened && open ? t.xHabitTodayReopened : done ? t.xHabitTodayDone : null);
   React.useEffect(() => {
-    if (!reopened || !open) return;
-    if (doneButton.current) AccessibilityInfo.sendAccessibilityEvent(doneButton.current, 'focus');
+    if (reopened && open) focusForAccessibility(doneButton.current);
   }, [reopened, open]);
+  React.useEffect(() => {
+    if (done) focusForAccessibility(undoButton.current);
+  }, [done]);
   const markDone = () => {
     setReopened(false);
+    setJustDone(false);
     undo.reset();
-    decide.mutate({ habitId: habit.habitId, occurrenceId: occurrence.occurrenceId, outcome: 'completed' }, { onError: markErrorShown });
+    decide.mutate(
+      { habitId: habit.habitId, occurrenceId: occurrence.occurrenceId, outcome: 'completed' },
+      { onSuccess: () => setJustDone(true), onError: markErrorShown },
+    );
   };
   const takeBack = () => undo.mutate(
     { habitId: habit.habitId, occurrenceId: occurrence.occurrenceId },
-    { onSuccess: () => { decide.reset(); setReopened(true); }, onError: markErrorShown },
+    { onSuccess: () => { decide.reset(); setJustDone(false); setReopened(true); }, onError: markErrorShown },
   );
   // A 409 is the one way undo is refused: the make-up day was already decided.
   let failure: string | null = null;
@@ -96,7 +109,7 @@ function HabitRow({ row: { habit, occurrence } }: { row: TodayHabitRow }) {
     // Wraps at large text: «تراجع» drops under the words instead of squeezing them.
     <View testID={`today-habit-${habit.habitId}`} style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 6, paddingVertical: 2 }}>
       {open ? (
-        <Btn testID={`today-habit-done-${habit.habitId}`} nativeRef={doneButton} label={fill(t.xHabitTodayDoneA11y, { title })}
+        <Btn testID={`today-habit-done-${habit.habitId}`} nativeRef={doneButton} label={fill(t.xHabitTodayMarkDoneA11y, { title })}
           disabled={busy} onPress={markDone} style={{ minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' }}>
           <View style={{ width: 22, height: 22, borderRadius: 11, borderWidth: 2, borderColor: p.lnStrong }} />
         </Btn>
@@ -122,7 +135,7 @@ function HabitRow({ row: { habit, occurrence } }: { row: TodayHabitRow }) {
         </LiveRegion>
       </View>
       {decided ? (
-        <Pill testID={`today-habit-undo-${habit.habitId}`} label={t.undo} accessibilityLabel={fill(t.xHabitTodayUndoA11y, { title })}
+        <Pill testID={`today-habit-undo-${habit.habitId}`} nativeRef={undoButton} label={t.undo} accessibilityLabel={fill(t.xHabitTodayUndoA11y, { title })}
           kind="outline" size={14} pad={8} disabled={busy} onPress={takeBack} />
       ) : null}
     </View>

@@ -1549,7 +1549,7 @@
   "xHabitTodayDone": "Done today",
   "xHabitTodaySkipped": "You said: not today",
   "xHabitTodayMadeUp": "Added another time for it this week.",
-  "xHabitTodayDoneA11y": "Done today: {title}",
+  "xHabitTodayMarkDoneA11y": "Mark {title} done for today",
   "xHabitTodaySkipA11y": "Not today: {title}",
   "xHabitTodayUndoA11y": "Undo today's answer: {title}",
   "xHabitTodayReopened": "Today is open again.",
