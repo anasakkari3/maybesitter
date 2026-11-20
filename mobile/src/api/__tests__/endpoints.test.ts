@@ -239,6 +239,14 @@ describe('commitments', () => {
     serve(fixture('commitments.upcoming'));
     await listUpcoming({ timezone: 'Asia/Jerusalem' });
     expect(requests[1]!.url).toContain('/api/mobile/commitments/upcoming');
+    expect(requests[0]!.url).not.toContain('include=');
+  });
+
+  it('asks Today for what was dropped today only when told to («الكل», sim-1120 D)', async () => {
+    serve(fixture('commitments.todayWithDropped'));
+    const list = await listToday({ timezone: 'Asia/Jerusalem', includeDropped: true });
+    expect(requests[0]!.url).toContain('include=dropped');
+    expect(list.items.some(item => item.status === 'dropped')).toBe(true);
   });
 
   it('escapes the id in the path', async () => {

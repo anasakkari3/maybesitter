@@ -166,6 +166,44 @@ describe('switching accounts on one device', () => {
   });
 });
 
+/**
+ * «الكل» reads Today with what was dropped today (sim-1120 D): its own query,
+ * keyed under Today's so every write that refreshes Today refreshes it, and
+ * Today's own read never asks for a dropped item.
+ */
+describe('Today with what was dropped today', () => {
+  function Probes() {
+    const plain = useToday();
+    const withDropped = useToday({ includeDropped: true });
+    return <Text testID="probes">{plain.data && withDropped.data ? 'both' : 'waiting'}</Text>;
+  }
+
+  it('asks once with include=dropped and once without, under one Today key', async () => {
+    const urls: string[] = [];
+    (globalThis as { fetch: unknown }).fetch = jest.fn(async (url: unknown) => {
+      urls.push(String(url));
+      return { status: 200, text: async () => JSON.stringify(listWithRows) };
+    }) as never;
+    await render(
+      <SafeAreaProvider initialMetrics={METRICS}>
+        <AppProvider>
+          <AuthProvider repository={repository} isDevBundle={false}>
+            <ApiProvider client={client}><Probes /></ApiProvider>
+          </AuthProvider>
+        </AppProvider>
+      </SafeAreaProvider>,
+    );
+    await waitFor(() => expect(screen.getByTestId('probes')).toHaveTextContent('both'));
+    const today = urls.filter(url => url.includes('/api/mobile/commitments/today'));
+    expect(today.filter(url => url.includes('include=dropped'))).toHaveLength(1);
+    expect(today.filter(url => !url.includes('include='))).toHaveLength(1);
+    const keys = client.getQueryCache().findAll().map(query => query.queryKey);
+    const plainKey = keys.find(key => key.includes('today') && !key.includes('dropped'))!;
+    const droppedKey = keys.find(key => key.includes('dropped'))!;
+    expect(droppedKey.slice(0, plainKey.length)).toEqual(plainKey);
+  });
+});
+
 describe('the validator store (#148)', () => {
   afterEach(() => forgetValidators());
 

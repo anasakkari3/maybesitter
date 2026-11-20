@@ -154,7 +154,9 @@ export function PersonalizationScreen() {
 export function CommitmentsScreen() {
   const { t, tr, p, rtl, lang, actions } = useApp();
   const zone = useTimeZone();
-  const today = useToday();
+  // With what was dropped today (sim-1120 D): the server leaves it out of
+  // Today unless asked, and «الكل» below is the one place that shows it.
+  const today = useToday({ includeDropped: true });
   const upcoming = useUpcoming();
   const keyboardShown = useSoftKeyboardShown();
   const [search, setSearch] = useState('');

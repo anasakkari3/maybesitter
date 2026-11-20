@@ -365,13 +365,16 @@ export function useDeleteWeeklyBlock() {
  * commitment. Its key carries the instant; every other screen's read is the
  * same as before.
  */
-export function useToday(options: { referenceTime?: string } = {}) {
+export function useToday(options: { referenceTime?: string; includeDropped?: boolean } = {}) {
   const uid = useUid();
   const timezone = useTimeZone();
-  const { referenceTime } = options;
+  const { referenceTime, includeDropped } = options;
+  // A key of its own under Today's (sim-1120 D): every write that refreshes
+  // Today refreshes it too, and Today's own read never holds a dropped item.
+  const base = includeDropped ? [...queryKeys.today(uid, timezone), 'dropped'] as const : queryKeys.today(uid, timezone);
   return useQuery({
-    queryKey: referenceTime ? [...queryKeys.today(uid, timezone), referenceTime] : queryKeys.today(uid, timezone),
-    queryFn: () => listToday(referenceTime ? { timezone, referenceTime } : { timezone }),
+    queryKey: referenceTime ? [...base, referenceTime] : base,
+    queryFn: () => listToday({ timezone, ...(referenceTime ? { referenceTime } : {}), ...(includeDropped ? { includeDropped } : {}) }),
     enabled: uid !== 'signed-out',
     ...(referenceTime ? { placeholderData: keepSameAccountData(uid) } : {}),
   });

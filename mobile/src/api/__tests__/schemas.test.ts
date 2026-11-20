@@ -307,6 +307,7 @@ const CASES: [string, z.ZodType][] = [
   ['capture.chatNotFound', captureChatRefusalSchema],
   ['capture.chatTooLong', captureChatRefusalSchema],
   ['commitments.today', commitmentListSchema],
+  ['commitments.todayWithDropped', commitmentListSchema],
   ['commitments.upcoming', commitmentListSchema],
   ['commitments.one', commitmentSchema],
   ['commitments.patched', commitmentSchema],

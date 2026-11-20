@@ -132,7 +132,10 @@ function instantForOrder(commitment: Commitment): number {
   return resolved ? Date.parse(resolved) : Number.POSITIVE_INFINITY;
 }
 
-function isVisibleInLists(commitment: Commitment): boolean {
+function isVisibleInLists(commitment: Commitment, includeDropped = false): boolean {
+  // «الكل» asks for what was dropped on purpose too (sim-1120 D, V3-F08-01):
+  // only that caller, and only `dropped` — an archived item stays out.
+  if (includeDropped && commitment.status === 'dropped') return true;
   return !HIDDEN_LIST_STATUSES.has(commitment.status);
 }
 
@@ -239,7 +242,10 @@ function dayOf(commitment: Commitment, timezone: string): string | null {
     const resolved = resolvedCommitmentTime(commitment);
     return resolved ? localDayKey(resolved, timezone) : null;
   }
-  const settled = commitment.completedAt ?? resolvedCommitmentTime(commitment) ?? commitment.updatedAt;
+  // Dropped on purpose is on the day it was dropped, as done is on the day it
+  // was done (only `includeDropped` lets a dropped commitment get this far).
+  const dropped = commitment.status === 'dropped' ? commitment.droppedAt : null;
+  const settled = dropped ?? commitment.completedAt ?? resolvedCommitmentTime(commitment) ?? commitment.updatedAt;
   return settled ? localDayKey(settled, timezone) : null;
 }
 
@@ -327,10 +333,11 @@ type ListPlacement = 'today' | 'upcoming' | null;
  * This is not a "missed" or "overdue" state. It is yesterday's work, on today's
  * list, until the user acts on it.
  */
-function placeInList(commitment: Commitment, today: string, timezone: string, now: Date): ListPlacement {
+function placeInList(commitment: Commitment, today: string, timezone: string, now: Date, includeDropped = false): ListPlacement {
   // Dropped on purpose or archived: the user closed it, and closing it is a
   // first-class outcome in this product rather than a gap in the lists.
-  if (!isVisibleInLists(commitment)) return null;
+  // `includeDropped` («الكل», sim-1120 D) places a dropped one like a done one.
+  if (!isVisibleInLists(commitment, includeDropped)) return null;
   // An appointment that is over is not work anybody still owes (owner
   // decision 2026-11-12, lane E1): #383's roll-forward is for tasks, and it
   // kept a lecture from three weeks ago on Today for ever. It leaves both
@@ -338,7 +345,7 @@ function placeInList(commitment: Commitment, today: string, timezone: string, no
   // «ما اتصرّفت فيها» reads the same `hasEventEnded`. A *finished* event is
   // the exception: it is on the day it happened, in the Finished group, like
   // any settled commitment.
-  if (commitment.status !== 'completed' && hasEventEnded(commitment, now)) return null;
+  if (commitment.status !== 'completed' && commitment.status !== 'dropped' && hasEventEnded(commitment, now)) return null;
   const day = dayOf(commitment, timezone);
 
   if (isLive(commitment)) {
@@ -356,13 +363,20 @@ function placeInList(commitment: Commitment, today: string, timezone: string, no
   return day > today ? 'upcoming' : null;
 }
 
-export async function listTodayRanked(options: CommitmentQueryOptions = {}): Promise<RankedCommitments> {
+export async function listTodayRanked(options: CommitmentQueryOptions & {
+  /**
+   * Also what was dropped on purpose today (`/today?include=dropped`): the
+   * commitments screen's «الكل» only (sim-1120 D). Today, the plan, the counts
+   * and the calendar sync never pass it.
+   */
+  includeDropped?: boolean;
+} = {}): Promise<RankedCommitments> {
   const now = options.now ?? new Date();
   const timezone = normalizeTimezone(options.timezone);
   const today = localDayKey(now, timezone);
   const state = await stateFor(options);
   const items = Object.values(state.commitments)
-    .filter((commitment) => placeInList(commitment, today, timezone, now) === 'today');
+    .filter((commitment) => placeInList(commitment, today, timezone, now, options.includeDropped === true) === 'today');
   return {
     ...orderForLists(items, Object.values(state.reminders), now),
     calendarEligibleIds: calendarEligibleIdsOf(state),

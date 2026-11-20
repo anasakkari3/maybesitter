@@ -21,6 +21,7 @@ import ar from '../../../i18n/locales/ar.json';
 import one from '../../../api/__fixtures__/commitments.one.json';
 
 let mockDenseItems: unknown[] = [];
+let mockTodayOptions: unknown[] = [];
 
 // M6a-1: the server search capability, off here (these screens render without a QueryClient).
 jest.mock('../../m6/capabilities', () => ({ useSearchHistoryOn: () => false }));
@@ -28,7 +29,7 @@ jest.mock('../../../api/queries', () => ({
   useUid: () => 'u',
   // M6a-1: the server search; off in these tests (no capability answer).
   useCommitmentSearch: () => ({ data: undefined, isPending: false, error: null }),
-  useToday: () => ({ data: { items: mockDenseItems }, isPending: false, error: null, refetch: jest.fn() }),
+  useToday: (options?: unknown) => { mockTodayOptions.push(options); return { data: { items: mockDenseItems }, isPending: false, error: null, refetch: jest.fn() }; },
   useUpcoming: () => ({ data: { items: [] }, isPending: false, error: null, refetch: jest.fn() }),
   useIntelligenceDecided: () => () => undefined,
   useMemory: () => ({ data: mockFixture, isPending: false, error: null, refetch: jest.fn() }),
@@ -103,7 +104,12 @@ describe('the «all» filter', () => {
       { ...one, id: 'done-1', title: 'Done one', status: 'completed', completedAt: at(2), timeSpec: { ...one.timeSpec, dueAt: at(2) } },
       { ...one, id: 'dropped-1', title: 'Dropped one', status: 'dropped', droppedAt: at(3), timeSpec: { ...one.timeSpec, dueAt: at(3) } },
     ];
+    mockTodayOptions = [];
     await show('en', <CommitmentsScreen />);
+    // The server leaves a dropped item out of Today unless asked (sim-1120 D):
+    // the screen asks, and only the screen — Today's own read never does.
+    expect(mockTodayOptions.length).toBeGreaterThan(0);
+    for (const options of mockTodayOptions) expect(options).toEqual({ includeDropped: true });
     await fireEvent.press(screen.getByTestId('commitments-filter-all'));
     expect(screen.getByTestId('commitments-item-open-1')).toBeTruthy();
     expect(screen.getByTestId('commitments-item-done-1')).toBeTruthy();
