@@ -14,6 +14,7 @@ import {
   type M3aHarness,
 } from '../m3a/harness';
 import { NOW } from './harness';
+import he from '../../i18n/locales/he.json';
 
 jest.mock('expo-localization', () => ({
   getCalendars: jest.fn(() => [{ timeZone: 'Asia/Jerusalem' }]),
@@ -90,6 +91,29 @@ describe('M4a batch goal-plan times', () => {
     const notice = await screen.findByTestId('plan-times-unplaced');
     expect(notice).toHaveTextContent(PLAN.steps.find((step) => step.stepId === 'step-4')!.title, { exact: false });
     expect(screen.queryByTestId('plan-times-reason-step-4')).toBeNull();
+  });
+
+  // #879/#882 review: the steps named in this line were joined with the
+  // Arabic comma «،» in Hebrew too. Hebrew takes the Latin comma.
+  it('names two unplaced steps in Hebrew with the Latin comma, never the Arabic one', async () => {
+    await teardown(harness);
+    harness = await prepare('he');
+    harness.server.handler = (request) => request.path.endsWith('/times/batch')
+      ? { status: 200, body: batchTimes(['step-3', 'step-4']) }
+      : defaultReply(request);
+    await openTimes();
+    await press('plan-times-all');
+    await press('plan-times-all-part-morning');
+    await press('plan-times-all-apply');
+
+    const notice = await screen.findByTestId('plan-times-unplaced');
+    const text = String([notice.props.children].flat().join(''));
+    const [third, fourth] = ['step-3', 'step-4'].map((id) => PLAN.steps.find((step) => step.stepId === id)!.title);
+    expect(text).toContain(third!);
+    expect(text).toContain(fourth!);
+    expect(text).toContain(he.yUnplaced.split('{titles}')[0]!);
+    expect(text).not.toContain('،');
+    expect(text).toMatch(/, /);
   });
 
   it('M4A-R4-001 times_changed adopts the carried proposal before the next batch CAS', async () => {

@@ -47,6 +47,7 @@ import { proposeMobileCapture } from '../../lib/services/mobile/mobileCaptureSer
 import { proposeFromShare } from '../../lib/services/share/shareIntakeService.ts';
 import { metadataSegmentsIn } from '../../lib/services/share/imageMetadata.ts';
 import {
+  IMAGE_READ_BUDGET_MS,
   MAX_SHARE_PROMPT_TOKENS,
   imagePreprocessor,
 } from '../../lib/services/share/channels/image.ts';
@@ -1136,5 +1137,152 @@ test('QA v3: a share the person backed out of stops the call in flight and sends
   assert.ok(Date.now() - abortedAt < 5_000, 'the read waited for its own deadline instead of the request');
   assert.equal(model.calls.length, 1);
   assert.equal(result.metrics?.modelUnavailable, 1);
+  assert.equal(result.metrics?.deadlineSkipped, 2);
+});
+
+
+/*
+ * #882 review: what the one image deadline leaves behind, and its 2 s floor.
+ * The read sets a 40 s timer and listens on the request's signal; both must
+ * be gone when the read ends however it ended, or every share leaves a
+ * timer holding the request's memory for 40 s and a listener on a signal
+ * that outlives it.
+ */
+const IMAGE_LIMITS = { maxTotalBytes: 25 * 1024 * 1024, maxFileBytes: 15 * 1024 * 1024, maxFiles: 5, maxTextCharacters: 20_000 };
+
+/** Every timer started and cleared while `run` runs, in order. */
+async function watchingTimers<T>(run: () => Promise<T>): Promise<{ value: T; started: { handle: unknown; ms: number | undefined }[]; cleared: Set<unknown> }> {
+  const realSet = globalThis.setTimeout;
+  const realClear = globalThis.clearTimeout;
+  const started: { handle: unknown; ms: number | undefined }[] = [];
+  const cleared = new Set<unknown>();
+  globalThis.setTimeout = ((callback: (...args: unknown[]) => void, ms?: number, ...rest: unknown[]) => {
+    const handle = realSet(callback, ms, ...rest);
+    started.push({ handle, ms });
+    return handle;
+  }) as typeof setTimeout;
+  globalThis.clearTimeout = ((handle: Parameters<typeof clearTimeout>[0]) => {
+    cleared.add(handle);
+    realClear(handle);
+  }) as typeof clearTimeout;
+  try {
+    return { value: await run(), started, cleared };
+  } finally {
+    globalThis.setTimeout = realSet;
+    globalThis.clearTimeout = realClear;
+  }
+}
+
+/** The request's signal, counting the listeners put on it and taken off. */
+function countedSignal(signal: AbortSignal): { signal: AbortSignal; live: () => number } {
+  const listening = new Set<unknown>();
+  const add = signal.addEventListener.bind(signal);
+  const remove = signal.removeEventListener.bind(signal);
+  signal.addEventListener = ((type: string, listener: unknown, options?: unknown) => {
+    if (type === 'abort') listening.add(listener);
+    add(type, listener as never, options as never);
+  }) as typeof signal.addEventListener;
+  signal.removeEventListener = ((type: string, listener: unknown, options?: unknown) => {
+    if (type === 'abort') listening.delete(listener);
+    remove(type, listener as never, options as never);
+  }) as typeof signal.removeEventListener;
+  return { signal, live: () => listening.size };
+}
+
+test('QA v3: a share the person backed out of leaves no deadline timer running', async () => {
+  const model = stalledModel();
+  const request = new AbortController();
+  const { value: result, started, cleared } = await watchingTimers(async () => {
+    const reading = imagePreprocessor.preprocess(inputFor(POSTERS.slice(0, 3)), {
+      uid: READER,
+      uidHash: 'hashed',
+      generateStructured: model.generate as never,
+      readAiConsent: async () => ({ granted: true } as never),
+      limits: IMAGE_LIMITS,
+      signal: request.signal,
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+    request.abort();
+    return await reading;
+  });
+  assert.equal(result.metrics?.modelUnavailable, 1);
+  // The read's own 40 s timer is the first one it starts, before any call.
+  const deadline = started[0];
+  assert.ok(deadline, 'the read started no timer at all');
+  assert.equal(deadline.ms, IMAGE_READ_BUDGET_MS);
+  assert.ok(cleared.has(deadline.handle), 'the 40 s deadline was left running after the read ended');
+});
+
+test('QA v3: a read cut by its own deadline takes its listener off the request', async () => {
+  const request = new AbortController();
+  const counted = countedSignal(request.signal);
+  mock.timers.enable({ apis: ['setTimeout', 'Date'], now: READING_AT.getTime() });
+  try {
+    const model = stalledModel();
+    let settled = false;
+    const reading = imagePreprocessor.preprocess(inputFor(POSTERS.slice(0, 3)), {
+      uid: READER,
+      uidHash: 'hashed',
+      generateStructured: model.generate as never,
+      readAiConsent: async () => ({ granted: true } as never),
+      limits: IMAGE_LIMITS,
+      signal: counted.signal,
+    }).finally(() => { settled = true; });
+    assert.equal(counted.live(), 1, 'the read listens on the request while it runs');
+    for (let step = 0; !settled && step < 4 * 600; step += 1) {
+      mock.timers.tick(250);
+      for (let flush = 0; flush < 10; flush += 1) await Promise.resolve();
+    }
+    const result = await reading;
+    // Cut by the deadline, not by the request, which never ended.
+    assert.equal(request.signal.aborted, false);
+    assert.equal(result.metrics?.deadlineSkipped, 2);
+    assert.equal(counted.live(), 0, 'the read left its listener on a request that outlives it');
+  } finally {
+    mock.timers.reset();
+  }
+});
+
+/*
+ * The 2 s floor: a picture is sent only while at least 2 s of the 40 s are
+ * left. A first picture that took 38 s leaves exactly 2 s, and the rest are
+ * read; one that took a millisecond longer leaves 1.999 s, and they are not.
+ */
+const IMAGE_CALL_FLOOR_MS = 2_000;
+
+async function readWithFirstCallTaking(firstMs: number): Promise<{ result: SharePreprocessResult; timeouts: (number | undefined)[] }> {
+  const stub = imageModelStub();
+  const timeouts: (number | undefined)[] = [];
+  mock.timers.enable({ apis: ['setTimeout', 'Date'], now: READING_AT.getTime() });
+  try {
+    const result = await imagePreprocessor.preprocess(inputFor(POSTERS.slice(0, 3)), {
+      uid: READER,
+      uidHash: 'hashed',
+      generateStructured: (async (request: Parameters<typeof stub.generate>[0]) => {
+        timeouts.push(request.timeoutMs);
+        if (timeouts.length === 1) mock.timers.tick(firstMs);
+        return await stub.generate(request);
+      }) as typeof stub.generate,
+      readAiConsent: async () => ({ granted: true } as never),
+      limits: IMAGE_LIMITS,
+    });
+    return { result, timeouts };
+  } finally {
+    mock.timers.reset();
+  }
+}
+
+test('QA v3: with exactly 2 s of the image deadline left, the next picture is still read', async () => {
+  const { result, timeouts } = await readWithFirstCallTaking(IMAGE_READ_BUDGET_MS - IMAGE_CALL_FLOOR_MS);
+  assert.equal(result.metrics?.imagesRead, 3);
+  assert.equal(result.metrics?.deadlineSkipped, 0);
+  // Each later call is bounded by what is left of the deadline.
+  assert.deepEqual(timeouts.slice(1), [IMAGE_CALL_FLOOR_MS, IMAGE_CALL_FLOOR_MS]);
+});
+
+test('QA v3: with a millisecond under 2 s of the image deadline left, no further picture is sent', async () => {
+  const { result, timeouts } = await readWithFirstCallTaking(IMAGE_READ_BUDGET_MS - IMAGE_CALL_FLOOR_MS + 1);
+  assert.equal(timeouts.length, 1);
+  assert.equal(result.metrics?.imagesRead, 1);
   assert.equal(result.metrics?.deadlineSkipped, 2);
 });
