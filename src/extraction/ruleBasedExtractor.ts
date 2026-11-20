@@ -556,6 +556,13 @@ function cleanCommand(raw: string, options: { monthEnd?: boolean } = {}): string
   // «سجّل», «حط لي», "note:" — an instruction to the app, not the task (L4).
   // A greeting it opens with is not the task: «בוקר טוב, להתקשר לאמא» (CL1).
   return stripCaptureCommand(stripTiming(stripLeadingGreetings(raw), options))
+    // «لا تنسى اجتماع الفريق», "don't forget to email the doctor": a reminder
+    // somebody wrote, often in a shared chat; the card is what is not to be
+    // forgotten (QA v3 staging, 2026-11-20). Hebrew never onto the object
+    // marker, as «תזכיר לי את…» below.
+    .replace(/^\s*(?:please\s+)?(?:don['’]t|dont|do not)\s+forget\s+(?:to\s+)?/i, '')
+    .replace(/^\s*(?:لا|ما)\s+(?:تنسى|تنسي|تنساش|تنسيش|تنسوا|تنسو)\s+(?:(?:إنو|انو|إنك|انك)\s+)?/, '')
+    .replace(/^\s*אל\s+(?:תשכח|תשכחי|תשכחו)\s+(?!את\s)/, '')
     .replace(/^\s*(please\s+)?(remind me to|remind me|remember to|i need to|need to|i have to|have to|todo:?|task:?)\s+/i, '')
     .replace(/^\s*(urgent|asap|critical|important|must|maybe|optional)[:\s-]+/i, '')
     .replace(/\s+(urgent|asap|critical|important|must|maybe|optional)\s*$/i, '')

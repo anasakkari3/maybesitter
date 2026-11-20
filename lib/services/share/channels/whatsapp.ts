@@ -57,6 +57,7 @@ import type {
   ShareSegment,
 } from '../shareTypes';
 import {
+  acceptanceReply,
   MAX_PROMPTED_MESSAGES,
   selectedIndices,
   WHATSAPP_SELECTION_SCHEMA,
@@ -222,6 +223,58 @@ async function chooseMessages(
   }
 }
 
+/** How many messages back a reply that accepts looks for the one it answers. */
+const ACCEPTANCE_LOOKBACK = 3;
+
+/**
+ * The message a reply that accepts answers: the nearest one before it, within
+ * `ACCEPTANCE_LOOKBACK`, from somebody else — past the replier's own second
+ * «👍» — unless that one is only an acceptance itself. Null when there is none.
+ */
+function answeredMessage(messages: readonly WhatsAppMessage[], index: number): number | null {
+  const sender = messages[index]!.sender;
+  for (let back = index - 1; back >= Math.max(0, index - ACCEPTANCE_LOOKBACK); back -= 1) {
+    const candidate = messages[back]!;
+    if (candidate.sender === sender) continue;
+    return acceptanceReply(candidate.text) === 'only' ? null : back;
+  }
+  return null;
+}
+
+/**
+ * The chosen messages, with a reply that accepts read through what it
+ * accepts (QA v3 staging, 2026-11-20).
+ *
+ * «سامي: لا تنسى اجتماع الفريق يوم الأحد الساعة 11 الصبح» answered by «أنا:
+ * أكيد 👍 وبجيب معي العرض»: the selection chose the reply, and the reply alone
+ * says neither the meeting nor Sunday. So a chosen reply that accepts brings
+ * the message it answers — the one that says what and when — with it.
+ *
+ * The reply's own words stay only when the model chose them and they say more
+ * than the acceptance: the model's capture titles them. Without a model the
+ * rules title a card with the words of the line they read, and a reply read
+ * alone has lost what it answered («أكيد وبجيب معي العرض» was a card), so a
+ * reply that accepts is never a segment of its own there.
+ */
+function withAcceptedRequests(
+  chosen: readonly number[],
+  messages: readonly WhatsAppMessage[],
+  modelChose: boolean,
+): readonly number[] {
+  const read = new Set<number>();
+  for (const index of chosen) {
+    const accepts = acceptanceReply(messages[index]!.text);
+    const answered = accepts === null ? null : answeredMessage(messages, index);
+    if (answered === null) {
+      read.add(index);
+      continue;
+    }
+    read.add(answered);
+    if (modelChose && accepts === 'opens') read.add(index);
+  }
+  return Array.from(read).sort((left, right) => left - right);
+}
+
 /** The last `MAX_UNASSISTED_SEGMENTS` indices of a list, oldest first. */
 function recent(length: number): readonly number[] {
   const from = Math.max(0, length - MAX_UNASSISTED_SEGMENTS);
@@ -258,7 +311,9 @@ export const whatsappPreprocessor: SharePreprocessor = {
       return segmentsToResult([], { ignoredSegments, metrics: { ...metrics, modelUsed: 0 } });
     }
 
-    const { chosen, modelUsed } = await chooseMessages(kept, input, context);
+    const choice = await chooseMessages(kept, input, context);
+    const { modelUsed } = choice;
+    const chosen = withAcceptedRequests(choice.chosen, kept, modelUsed);
     const segments: ShareSegment[] = chosen.map((index) => {
       const message = kept[index]!;
       return {

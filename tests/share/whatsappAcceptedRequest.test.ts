@@ -42,7 +42,7 @@ import { proposeFromShare, type ShareIntakeContext } from '../../lib/services/sh
 import { registerSharePreprocessor, resetSharePreprocessorsForTests } from '../../lib/services/share/shareRegistry.ts';
 import { plainTextPreprocessor, whatsappPreprocessor } from '../../lib/services/share/channels/index.ts';
 import type { LlmPart, ShareStructuredGenerator } from '../../lib/services/share/shareTypes.ts';
-import * as whatsappPrompt from '../../lib/services/share/prompts/whatsappPrompt.ts';
+import { acceptanceReply, WHATSAPP_SELECTION_PROMPT_VERSION } from '../../lib/services/share/prompts/whatsappPrompt.ts';
 import { extract } from '../../src/extraction/ruleBasedExtractor.ts';
 
 const USER = uidFor('WhatsAppAcceptedRequestUser');
@@ -220,8 +220,8 @@ test('V3-F07: the selection prompt is versioned and says an accepted request is 
     const model = selection(() => []);
     await shareFile(SAMI_CHAT, { generateStructured: model.generate });
     const system = model.calls[0]!.system;
-    assert.equal((whatsappPrompt as Record<string, unknown>).WHATSAPP_SELECTION_PROMPT_VERSION, 'whatsapp-selection-v2');
-    assert.ok(system.includes(`Prompt version: ${(whatsappPrompt as Record<string, unknown>).WHATSAPP_SELECTION_PROMPT_VERSION}.`), system);
+    assert.equal(WHATSAPP_SELECTION_PROMPT_VERSION, 'whatsapp-selection-v2');
+    assert.ok(system.includes(`Prompt version: ${WHATSAPP_SELECTION_PROMPT_VERSION}.`), system);
     assert.match(system, /one of the people in this chat/);
     assert.match(system, /«لا تنسى …»/);
     assert.match(system, /return the message that says what and when/);
@@ -234,20 +234,20 @@ test('V3-F07: the selection prompt is versioned and says an accepted request is 
 
 test('acceptanceReply: what opens with an acceptance, what is only one, what is neither', () => {
   for (const only of ['تمام 👍', 'أكيد', 'اكيد!', '👍🏽', 'ok', 'Sure.', 'בטח', 'סבבה 👌', 'ماشي، اتفقنا', 'من عيوني']) {
-    assert.equal(whatsappPrompt.acceptanceReply?.(only), 'only', only);
+    assert.equal(acceptanceReply(only), 'only', only);
   }
   for (const opens of [REPLY, 'sure, and I will bring the slides', 'בסדר, אביא את המצגת', 'تمام بس بتأخر شوي']) {
-    assert.equal(whatsappPrompt.acceptanceReply?.(opens), 'opens', opens);
+    assert.equal(acceptanceReply(opens), 'opens', opens);
   }
   for (const neither of ['تماما مثل امبارح', 'okayish plan', 'اجتماع الفريق الأحد', 'أكيدًا بكرا', 'شو رأيك؟', 'Okra soup tomorrow']) {
-    assert.equal(whatsappPrompt.acceptanceReply?.(neither), null, neither);
+    assert.equal(acceptanceReply(neither), null, neither);
   }
 });
 
 test('acceptanceReply reads a long message in bounded time', () => {
   const started = performance.now();
-  assert.equal(whatsappPrompt.acceptanceReply?.(`تمام ${'و'.repeat(20_000)}`), 'opens');
-  assert.equal(whatsappPrompt.acceptanceReply?.(`${'ت'.repeat(20_000)}`), null);
+  assert.equal(acceptanceReply(`تمام ${'و'.repeat(20_000)}`), 'opens');
+  assert.equal(acceptanceReply(`${'ت'.repeat(20_000)}`), null);
   assert.ok(performance.now() - started < 200);
 });
 
