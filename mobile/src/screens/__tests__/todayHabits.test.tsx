@@ -5,6 +5,7 @@
  * the rows are for is the server's `localDate`, so no device clock is read.
  */
 import React from 'react';
+import { AccessibilityInfo } from 'react-native';
 import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react-native';
 import { SafeAreaProvider, type Metrics } from 'react-native-safe-area-context';
@@ -113,9 +114,12 @@ describe('habits on Today', () => {
     // Walk prefers 07:00, Read has no hour: Walk first.
     const rows = within(block).getAllByTestId(/^today-habit-(walk|read)$/).map(node => node.props.testID);
     expect(rows).toEqual(['today-habit-walk', 'today-habit-read']);
-    // «تمّت», named for the habit, 44 points to press.
+    // «تمّت», named for the habit as an action, 44 points to press. Not «Done
+    // today: Walk», which a screen reader heard as a habit already done (#881 review).
     const done = screen.getByTestId('today-habit-done-walk');
-    expect(done.props.accessibilityLabel).toBe(fill(en.xHabitTodayDoneA11y, { title: isolateAuto('Walk') }));
+    expect(done.props.accessibilityLabel).toBe(fill(en.xHabitTodayMarkDoneA11y, { title: isolateAuto('Walk') }));
+    expect(done.props.accessibilityLabel).toBe(`Mark ${isolateAuto('Walk')} done for today`);
+    expect(done.props.accessibilityRole).toBe('button');
     expect(done.props.style).toEqual(expect.objectContaining({ minWidth: 44, minHeight: 44 }));
     // The day stays empty of commitments, and says so.
     expect(screen.queryByTestId('today-empty')).not.toBeNull();
@@ -142,6 +146,72 @@ describe('habits on Today', () => {
     expect(undo).toHaveBeenCalledWith({ habitId: 'walk', occurrenceId: `walk.${DAY}.0` }, 'Asia/Jerusalem');
     await waitFor(() => expect(screen.queryByTestId('today-habit-done-walk')).not.toBeNull());
     expect(within(screen.getByTestId('today-habit-walk')).getByText(en.xHabitTodayReopened)).toBeTruthy();
+  });
+
+  // #881 review: after «تمّت» the circle is gone. VoiceOver had no live region
+  // to hear «تمّت اليوم» and its focus fell off the page; TalkBack hears the
+  // region. Now iOS is told the line and the focus moves to «تراجع».
+  it('a «تمّت» that went through is said to VoiceOver once, and the focus moves to «تراجع»', async () => {
+    jest.spyOn(habitEndpoints, 'decideHabitOccurrence').mockImplementation(async decision => {
+      todayAnswer = { ...todayAnswer, occurrences: todayAnswer.occurrences.map(row => row.occurrenceId === decision.occurrenceId ? { ...row, state: 'completed' } : row) };
+      return { success: true, occurrence: { ...occurrence('walk'), state: 'completed' }, changed: true };
+    });
+    const announce = jest.spyOn(AccessibilityInfo, 'announceForAccessibility').mockImplementation(() => {});
+    const focus = jest.spyOn(AccessibilityInfo, 'sendAccessibilityEvent').mockImplementation(() => {});
+    await show();
+    await waitFor(() => expect(screen.queryByTestId('today-habit-done-walk')).not.toBeNull());
+    // A spy keeps the calls made before it in this file's run: start from none.
+    announce.mockClear();
+    focus.mockClear();
+    await fireEvent.press(screen.getByTestId('today-habit-done-walk'));
+    await waitFor(() => expect(screen.queryByTestId('today-habit-undo-walk')).not.toBeNull());
+    await waitFor(() => expect(focus).toHaveBeenCalledWith(expect.anything(), 'focus'));
+    expect(announce.mock.calls.filter(([line]) => line === en.xHabitTodayDone)).toHaveLength(1);
+    // TalkBack hears the same words from the row's live region.
+    expect(within(screen.getByTestId('today-habit-live-walk')).getByText(en.xHabitTodayDone)).toBeTruthy();
+    // One move of the focus, not one per read that follows.
+    expect(focus).toHaveBeenCalledTimes(1);
+  });
+
+  it('a habit already done when Today opens says nothing and moves no focus', async () => {
+    todayAnswer = { ...todayAnswer, occurrences: todayAnswer.occurrences.map(row => row.habitId === 'walk' ? { ...row, state: 'completed' } : row) };
+    const announce = jest.spyOn(AccessibilityInfo, 'announceForAccessibility').mockImplementation(() => {});
+    const focus = jest.spyOn(AccessibilityInfo, 'sendAccessibilityEvent').mockImplementation(() => {});
+    announce.mockClear();
+    focus.mockClear();
+    await show();
+    await waitFor(() => expect(screen.queryByTestId('today-habit-undo-walk')).not.toBeNull());
+    expect(announce).not.toHaveBeenCalledWith(en.xHabitTodayDone);
+    expect(focus).not.toHaveBeenCalled();
+  });
+
+  it('the circle is locked while its «تمّت» is on the way, so a second tap sends nothing', async () => {
+    let answer: (() => void) | undefined;
+    const decide = jest.spyOn(habitEndpoints, 'decideHabitOccurrence').mockImplementation(() => new Promise(resolve => {
+      answer = () => resolve({ success: true, occurrence: { ...occurrence('walk'), state: 'completed' }, changed: true });
+    }));
+    await show();
+    await waitFor(() => expect(screen.queryByTestId('today-habit-done-walk')).not.toBeNull());
+    await fireEvent.press(screen.getByTestId('today-habit-done-walk'));
+    await waitFor(() => expect(screen.getByTestId('today-habit-done-walk').props.accessibilityState).toEqual(expect.objectContaining({ disabled: true })));
+    await fireEvent.press(screen.getByTestId('today-habit-done-walk'));
+    expect(decide).toHaveBeenCalledTimes(1);
+    await act(async () => { answer?.(); });
+  });
+
+  it('«تراجع» is locked while it is on the way', async () => {
+    todayAnswer = { ...todayAnswer, occurrences: todayAnswer.occurrences.map(row => row.habitId === 'walk' ? { ...row, state: 'completed' } : row) };
+    let answer: (() => void) | undefined;
+    const undo = jest.spyOn(habitEndpoints, 'undoHabitOccurrence').mockImplementation(() => new Promise(resolve => {
+      answer = () => resolve({ success: true, occurrence: occurrence('walk'), changed: true });
+    }));
+    await show();
+    await waitFor(() => expect(screen.queryByTestId('today-habit-undo-walk')).not.toBeNull());
+    await fireEvent.press(screen.getByTestId('today-habit-undo-walk'));
+    await waitFor(() => expect(screen.getByTestId('today-habit-undo-walk').props.accessibilityState).toEqual(expect.objectContaining({ disabled: true })));
+    await fireEvent.press(screen.getByTestId('today-habit-undo-walk'));
+    expect(undo).toHaveBeenCalledTimes(1);
+    await act(async () => { answer?.(); });
   });
 
   it('says an undo the server refuses, in place, and keeps the day decided', async () => {
