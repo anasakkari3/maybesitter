@@ -441,3 +441,10 @@ test('mutation D19: «لا تنسى إنه» with a day taken off its end keeps 
   assert.notEqual(extract('لا تنسى إنه بكرا', context).title ?? '', '');
   assert.notEqual(extract('لا تنسى أن بكرا', context).title ?? '', '');
 });
+
+test('mutation D2/D19: a joiner before a mark, after a space, stays — the title is never the mark alone', () => {
+  const context = { now: new Date(REFERENCE_TIME), timezone: ZONE };
+  assert.notEqual(extract("Don't forget to !", context).title, '!');
+  assert.notEqual(extract('لا تنسى إنه !', context).title, '!');
+  assert.notEqual(extract('لا تنسى !', context).title, '!');
+});

@@ -561,9 +561,10 @@ function cleanCommand(raw: string, options: { monthEnd?: boolean } = {}): string
     // forgotten (QA v3 staging, 2026-11-20). Hebrew never onto the object
     // marker, as «תזכיר לי את…» below.
     // "don't forget about the meeting", "… that I have the dentist": the joiner
-    // goes too, but only before a word — "Don't forget to!" keeps its words.
-    .replace(/^\s*(?:please\s+)?(?:don['’]t|dont|do not)\s+forget\s+(?:(?:to|about|that)\s+(?=[a-z0-9\u0080-\uFFFF])|(?!(?:to|about|that)\b))/i, '')
-    .replace(/^\s*(?:لا|ما)\s+(?:تنسى|تنسي|تنساش|تنسيش|تنسوا|تنسو)\s+(?:(?:إنو|انو|إنه|انه|إنك|انك|أنك|أن|ان|إن)\s+(?=\S)|(?!(?:إنو|انو|إنه|انه|إنك|انك|أنك|أن|ان|إن)\s*$))/, '')
+    // goes too, never alone — "Don't forget to!" keeps its words. The text is
+    // trimmed by now, so a joiner with a space after it has a word after it.
+    .replace(/^\s*(?:please\s+)?(?:don['’]t|dont|do not)\s+forget\s+(?:(?:to|about|that)\s+|(?!(?:to|about|that)\b))/i, '')
+    .replace(/^\s*(?:لا|ما)\s+(?:تنسى|تنسي|تنساش|تنسيش|تنسوا|تنسو)\s+(?:(?:إنو|انو|إنه|انه|إنك|انك|أنك|أن|ان|إن)\s+|(?!(?:إنو|انو|إنه|انه|إنك|انك|أنك|أن|ان|إن)\s*$))/, '')
     .replace(/^\s*אל\s+(?:תשכח|תשכחי|תשכחו)\s+(?!את\s)/, '')
     .replace(/^\s*(please\s+)?(remind me to|remind me|remember to|i need to|need to|i have to|have to|todo:?|task:?)\s+/i, '')
     .replace(/^\s*(urgent|asap|critical|important|must|maybe|optional)[:\s-]+/i, '')
