@@ -313,12 +313,17 @@ test('mutation: a range\'s end the card does not have takes the sentence out', (
 const ASKED = { itemId: 'i2', title: 'اتصل بأحمد', resolvedTime: null, resolvedDate: '2026-11-20', needsClarification: true, clarification: { questionKey: 'ask_time', params: { date: '2026-11-20' } } };
 
 test('review 3: the ask for a missing hour is never checked, even when it names its item and offers hours', () => {
-  const text = reply('أي ساعة بدك «اتصل بأحمد»، 9 ولا 10؟', { items: [CARD, ASKED] });
-  assert.match(text, /أي ساعة بدك «اتصل بأحمد»، 9 ولا 10؟$/);
+  const text = reply('أي ساعة لـ«اتصل بأحمد»، 9 ولا 10؟', { items: [CARD, ASKED] });
+  assert.match(text, /أي ساعة لـ«اتصل بأحمد»، 9 ولا 10؟$/);
 });
 
 test('review 3: while another item is asked about, a question restating a card with a wrong clock is still checked', () => {
   const text = reply('يعني الدوا الساعة 3:39 الصبح؟ أي ساعة بدك «اتصل بأحمد»؟', { items: [CARD, ASKED] });
   assert.doesNotMatch(text, /3:39/);
   assert.ok(text.includes(LINE('05:39')), text);
+});
+
+test('review 3: a question restating a card with no time is checked, and never answered with another card\'s hour', () => {
+  const untimed = { itemId: 'i2', title: 'اتصل بأحمد', resolvedTime: null, needsClarification: false };
+  assert.equal(reply('يعني «اتصل بأحمد» الساعة 4:20؟ أكّد من تحت.', { items: [CARD, untimed] }), 'أكّد من تحت.');
 });
