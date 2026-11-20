@@ -391,7 +391,7 @@ function windowThatFits(window: CapturePreferredWindow | null, durationMinutes: 
 
 function habitFields(text: string): Pick<CaptureHabitProposalContract, 'cadence' | 'durationMinutes' | 'preferredWindow'> {
   const daily = /كل\s*يوم|every\s+(?:day|morning|evening)|כל\s*יום/i.test(text);
-  const count = daily ? 7 : numberIn(text);
+  const count = daily ? null : numberIn(text);
   const halfHour = /نص\s*ساعة|half\s+an?\s+hour|חצי\s*שעה/i.test(text);
   // Any whole number of minutes an edit would accept, not only the four the
   // question offers (V3-F23-05: «20 دقيقة» was dropped and then asked for).
@@ -412,7 +412,10 @@ function habitFields(text: string): Pick<CaptureHabitProposalContract, 'cadence'
       : /بعد\s*الظهر|afternoon|אחר\s*הצהריים/i.test(text) ? 'afternoon'
         : /المسا|المساء|evening|בערב/i.test(text) ? 'evening' : null;
   return {
-    cadence: count ? { kind: 'weekly_count', count } : null,
+    // «كل يوم» names the days, all seven (owner decision 2026-11-20); a count
+    // leaves them to the planner.
+    cadence: daily ? { kind: 'weekdays', weekdays: [0, 1, 2, 3, 4, 5, 6] }
+      : count ? parseHabitCadence({ kind: 'weekly_count', count }) : null,
     durationMinutes,
     preferredWindow,
   };
@@ -939,7 +942,9 @@ function buildCaptureHabit(
     preferredWindows: preferredWindows(point.preferredWindow),
     minimumOccurrences: count,
     maximumOccurrences: count,
-    flexibility: 'flexible',
+    // Held like a goal plan's habit (owner decision 2026-11-20): the window the
+    // person said is the planner's first try, yielded only to something harder.
+    flexibility: 'protected_flexible',
     recoveryPolicy: 'skip',
     source: 'capture_chat',
     confirmation: {

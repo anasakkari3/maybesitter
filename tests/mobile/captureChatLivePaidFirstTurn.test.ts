@@ -262,7 +262,7 @@ test('live paid first turns keep each cited point inside its own evidence span, 
               preferredWindow: habit.preferredWindow,
               confirmable: habit.confirmable,
             })), [{
-              title: 'أمشي نص ساعة', cadence: { kind: 'weekly_count', count: 7 },
+              title: 'أمشي نص ساعة', cadence: { kind: 'weekdays', weekdays: [0, 1, 2, 3, 4, 5, 6] }, // «كل يوم» (owner 2026-11-20)
               durationMinutes: 30, preferredWindow: null, confirmable: true,
             }]);
           } else {

@@ -101,6 +101,22 @@ test('a document nothing wrote reads as absent rather than as a habit', async ()
   assert.deepEqual(await habits.list(SCOPE), []);
 });
 
+test('a habit an older server stored as 7 a week reads, lists and patches as every day', async () => {
+  const storage = await liveStorage();
+  const habits = new StorageHabitStore(storage);
+  const created = await habits.create(habitInput({ cadence: { kind: 'weekdays', weekdays: [1] }, minimumOccurrences: 1, maximumOccurrences: 1 }), NOW);
+  // What a chat «كل يوم» was saved as before 2026-11-20: no forced migration.
+  const old = { ...created, cadence: { kind: 'weekly_count', count: 7 }, minimumOccurrences: 7, maximumOccurrences: 7, flexibility: 'flexible', source: 'capture_chat' };
+  await storage.set(`users/${SCOPE}/habits/${created.habitId}`, old);
+  const everyDay = { kind: 'weekdays', weekdays: [0, 1, 2, 3, 4, 5, 6] };
+  const read = await habits.get(SCOPE, created.habitId);
+  assert.deepEqual(read?.cadence, everyDay);
+  assert.equal(read?.flexibility, 'flexible', 'an old flexible chat habit stays flexible');
+  assert.deepEqual((await habits.list(SCOPE)).map((entry) => entry.cadence), [everyDay]);
+  const paused = await habits.patch(SCOPE, created.habitId, parseHabitPatchInput({ status: 'paused' }), LATER);
+  assert.deepEqual(paused?.cadence, everyDay);
+});
+
 test('remove and deleteScope take this account’s habits and nobody else’s', async () => {
   const habits = await store();
   const mine = await habits.create(habitInput(), NOW);

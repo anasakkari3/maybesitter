@@ -1781,6 +1781,7 @@
   "wbErrNoDay": "اختار يوم واحد على الأقل.",
   "wbErrNoTitle": "اكتب شو هو.",
   "wbFixedTag": "ثابت",
+  "todayHabitsTitle": "عادات اليوم",
   "wbTodayTitle": "ثابت اليوم",
   "wbNextNow": "هلّق وقت {title}. بنرجع نقترح الساعة {time}.",
   "wbNextNowGeneric": "هلّق وقت ثابتك الأسبوعي. بنرجع نقترح الساعة {time}.",

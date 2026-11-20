@@ -1781,6 +1781,7 @@
   "wbErrNoDay": "Pick at least one day.",
   "wbErrNoTitle": "Say what it is.",
   "wbFixedTag": "Fixed",
+  "todayHabitsTitle": "Today's habits",
   "wbTodayTitle": "Fixed today",
   "wbNextNow": "It's {title} time now. Suggestions are back at {time}.",
   "wbNextNowGeneric": "It's your weekly fixed time now. Suggestions are back at {time}.",
