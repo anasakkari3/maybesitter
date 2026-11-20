@@ -365,3 +365,41 @@ test('review 2 (e) D3: «3 بالليل» and «4 بالليل» are before dawn
   assert.equal(reply('الدوا الساعة 4 بالليل.', { items: cardAt('04:00') }), 'الدوا الساعة 4 بالليل.');
   assert.equal(reply('الدوا الساعة 4 بالليل.', { items: cardAt('16:00') }), LINE('16:00'));
 });
+
+/* ── mutation round 2: where the half of the day is looked for ─────── */
+
+const MEETING_AT = (time: string) => [{ ...cardAt(time)[0], title: 'اجتماع' }];
+
+test('mutation: nearest after the clock wins, even without a comma', () => {
+  const text = 'اجتماع الساعة 9 الصبح بس المسا عندك تمرين.';
+  assert.equal(reply(text, { items: MEETING_AT('09:00'), userTurns: ['اجتماع'] }), text);
+});
+
+test('mutation: a half of the day past the end of the clause is not the clock\'s', () => {
+  const text = 'اجتماع الساعة 9، المسا عندك تمرين.';
+  assert.equal(reply(text, { items: MEETING_AT('09:00'), userTurns: ['اجتماع'] }), text);
+});
+
+test('mutation: nearest before the first clock wins', () => {
+  const text = 'اليوم المسا بعد ما تصحى الصبح الدوا الساعة 9.';
+  assert.equal(reply(text, { items: cardAt('09:00') }), text);
+});
+
+test('mutation: a half of the day in an earlier clause is not the first clock\'s', () => {
+  const text = 'المسا عندك تمرين، الدوا الساعة 9.';
+  assert.equal(reply(text, { items: cardAt('09:00') }), text);
+});
+
+test('mutation: only the first clock looks back', () => {
+  const items = [CARD, { itemId: 'i2', title: 'اتصل بأحمد', resolvedTime: new Date(Date.UTC(2026, 10, 20, 15, 0)).toISOString(), resolvedDate: '2026-11-20', needsClarification: false }];
+  const text = 'الدوا الساعة 5:39 الصبح وأحمد الساعة 5.';
+  assert.equal(reply(text, { items, userTurns: ['اتصل بأحمد'] }), text);
+});
+
+test('mutation: a bare hour before its half of the day is a clock — «4 الفجر» is not 16:00', () => {
+  assert.equal(reply('الدوا 4 الفجر.', { items: cardAt('16:00') }), LINE('16:00'));
+});
+
+test('mutation: «الصبح 3 مرات» is a count, not a clock', () => {
+  assert.equal(reply('خد الدوا الصبح 3 مرات.'), 'خد الدوا الصبح 3 مرات.');
+});

@@ -435,3 +435,9 @@ test('review 3 (d) + D19: "don\'t forget about/that …" lose their joiner; a jo
   assert.match(extract('لا تنسى إنه بكرا', context).title ?? '', /تنسى/);
   assert.match(extract("don't forget to tomorrow", context).title ?? '', /forget/i);
 });
+
+test('mutation D19: «لا تنسى إنه» with a day taken off its end keeps its words; «لا تنسى إنه تدفع» loses them', () => {
+  const context = { now: new Date(REFERENCE_TIME), timezone: ZONE };
+  assert.notEqual(extract('لا تنسى إنه بكرا', context).title ?? '', '');
+  assert.notEqual(extract('لا تنسى أن بكرا', context).title ?? '', '');
+});
