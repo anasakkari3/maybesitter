@@ -262,3 +262,77 @@ test('rules: «لا تنسى …», "don\'t forget to …" and «אל תשכח �
   // Never onto the object marker, as «תזכיר לי את…» keeps its verb.
   assert.match(extract('אל תשכח את הפגישה ביום ראשון', context).title ?? '', /^אל תשכח את הפגישה/);
 });
+
+/* ── review round (2026-11-20): refusals, the window, the bounds, «لا تنسى إنه» ── */
+
+test('review 5: «أكيد لأ», "sure, no", «בטח שלא» and 👎 refuse; 😂 and 🙂 accept nothing', () => {
+  for (const refusal of ['أكيد لأ', 'تمام بس مش رح أقدر', 'أكيد لا', 'sure, no', "ok but I can't", 'okay, I won\'t make it', 'ברור שלא', 'בטח שלא', 'בסדר, לא אוכל', '👎', 'تمام 👎', '😂', '🙂']) {
+    assert.equal(acceptanceReply(refusal), null, refusal);
+  }
+  for (const yes of ['أكيد، ما في مشكلة', 'sure, no problem', 'ok, no worries', 'אין בעיה', 'تمام ولا يهمك', '👌', '✅']) {
+    assert.equal(acceptanceReply(yes), 'only', yes);
+  }
+});
+
+test('review 5: a refusal of the reminder does not bring the reminder in', async () => {
+  const teardown = setup();
+  try {
+    const chat = [
+      `[19/11/2026, 20:16:42] سامي: ${REQUEST}`,
+      '[19/11/2026, 20:17:05] أنا: أكيد لأ، مش فاضي',
+    ].join('\n');
+    const result = await shareFile(chat, { generateStructured: selection(() => [1]).generate });
+    assert.equal(result.share.metrics.messagesChosen, 1);
+    assert.equal(meeting(result.items), undefined, `a refused reminder became a card: ${JSON.stringify(result.items.map((item) => item.title))}`);
+  } finally {
+    teardown();
+  }
+});
+
+test('review 7 (M9): the request is looked for three messages back, not four', async () => {
+  for (const [between, folded] of [[2, true], [3, false]] as const) {
+    const teardown = setup();
+    try {
+      const mine = Array.from({ length: between }, (_, index) => `[19/11/2026, 20:17:0${index}] أنا: رسالة رقم ${index + 1} عن الطقس`);
+      const chat = [`[19/11/2026, 20:16:42] سامي: ${REQUEST}`, ...mine, '[19/11/2026, 20:18:00] أنا: تمام 👍'].join('\n');
+      const last = between + 1;
+      const result = await shareFile(chat, { generateStructured: selection(() => [last]).generate });
+      const excerpts = result.share.evidence.map((entry) => entry.excerpt);
+      assert.equal(result.share.metrics.messagesChosen, 1, `between ${between}`);
+      if (folded) assert.ok(excerpts.length === 0 || excerpts.includes(REQUEST), `between ${between}: ${JSON.stringify(excerpts)}`);
+      assert.equal(meeting(result.items) !== undefined, folded, `between ${between}: ${JSON.stringify(result.items.map((item) => item.title))}`);
+    } finally {
+      teardown();
+    }
+  }
+});
+
+test('review 7 (M11): an acceptance answering an acceptance brings nothing in', async () => {
+  const teardown = setup();
+  try {
+    const chat = [
+      `[19/11/2026, 20:16:00] أنا: ${REQUEST}`,
+      '[19/11/2026, 20:16:42] سامي: تمام',
+      '[19/11/2026, 20:17:05] أنا: أكيد 👍',
+    ].join('\n');
+    const result = await shareFile(chat, { generateStructured: selection(() => [2]).generate });
+    assert.equal(result.share.metrics.messagesChosen, 1);
+    assert.equal(meeting(result.items), undefined);
+  } finally {
+    teardown();
+  }
+});
+
+test('review 7 (M14): an acceptance is looked for in the first 200 characters only', () => {
+  assert.equal(acceptanceReply(`${' '.repeat(250)}تمام`), null);
+  assert.equal(acceptanceReply(`تمام ${'ب'.repeat(300)} لأ`), 'opens');
+});
+
+test('review 6 + M19: «لا تنسى إنه …» loses «إنه»; "don\'t forget to" alone is not "to"; only at the start', () => {
+  const context = { now: new Date(REFERENCE_TIME), timezone: ZONE };
+  for (const text of ['لا تنسى إنه تدفع الفاتورة بكرا', 'لا تنسى انه تدفع الفاتورة بكرا', 'لا تنسى أن تدفع الفاتورة بكرا', 'لا تنسى إن تدفع الفاتورة بكرا']) {
+    assert.equal(extract(text, context).title, 'تدفع الفاتورة', text);
+  }
+  assert.notEqual(extract("Don't forget to", context).title, 'to');
+  assert.match(extract('اجتماع الفريق لا تنسى العرض بكرا', context).title ?? '', /لا تنسى/);
+});
