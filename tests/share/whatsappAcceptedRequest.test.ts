@@ -343,3 +343,95 @@ test('mutation: a kind "no" after other words is still a yes; a refusal past six
   assert.equal(acceptanceReply('أكيد بجيب العرض والكمبيوتر والشاحن والدفتر وبعدين ما بنسى'), 'opens');
   assert.equal(acceptanceReply('تمام وما رح أقدر'), null);
 });
+
+/* ── review round 2 (2026-11-20): a "no" inside a yes is not a refusal ── */
+
+/** Yes, with a negation word inside it: none of these takes the yes back. */
+const STILL_YES = [
+  'تمام ما بنسى',
+  'أكيد وما بنسى',
+  'تمام ما رح أنسى',
+  'تمام بكرا الساعة 5 ما بنسى',
+  "sure, I won't forget",
+  'ok I will not forget',
+  "ok I don't mind",
+  'ok لا مشكلة',
+  'تمام ما عندي مشكلة',
+  "sure, I can't wait",
+  'yes, never fear',
+  "ok, I'll be there no matter what",
+  'sure, no doubt',
+  'تمام انا موجود ما حدا غيري',
+  'أكيد، لا أحد غيري بيقدر',
+  'لا تقلق رح أجي',
+  'أكيد، ما في مشكلة',
+  'sure, no problem',
+  'ok, no worries',
+  'אין בעיה',
+  'تمام ولا يهمك',
+  'ברור שלא אשכח',
+  '👌',
+  '✅',
+];
+
+/** A yes taken back, or no yes at all. */
+const REFUSED = [
+  'أكيد لأ',
+  'أكيد لا',
+  'أكيد، لا والله',
+  'تمام بس مش رح أقدر',
+  'تمام بس مش فاضي',
+  'مش متأكد بس تمام',
+  'تمام وما رح أقدر',
+  'أكيد ما بقدر',
+  'تمام بس ما بلحق',
+  'أكيد مستحيل',
+  'تمام بلاش',
+  'sure, no',
+  'sure no.',
+  "ok but I can't",
+  "okay, I won't make it",
+  'ok, not sure',
+  'ברור שלא',
+  'בטח שלא',
+  'בטח אני לא יכול',
+  'בסדר, לא אוכל',
+  '👍👎',
+  'sure 👎',
+  '👎',
+  '😂',
+  '🙂',
+];
+
+test('review 2 (40+ cases): a negation word alone never takes a yes back', () => {
+  for (const yes of STILL_YES) assert.notEqual(acceptanceReply(yes), null, yes);
+});
+
+test('review 2 (40+ cases): an explicit refusal, 👎, or a face that says nothing is no acceptance', () => {
+  for (const no of REFUSED) assert.equal(acceptanceReply(no), null, no);
+});
+
+test('review 2: «لا تنسى …» answered «أكيد وما بنسى» brings the reminder in — the original defect', async () => {
+  const teardown = setup();
+  try {
+    const chat = [
+      `[19/11/2026, 20:16:42] سامي: ${REQUEST}`,
+      '[19/11/2026, 20:17:05] أنا: أكيد وما بنسى 👍',
+    ].join('\n');
+    const result = await shareFile(chat, { generateStructured: selection(() => [1]).generate });
+    assert.equal(meeting(result.items)?.resolvedTime, SUNDAY_11);
+  } finally {
+    teardown();
+  }
+});
+
+test('review 3 (d) + D19: "don\'t forget about/that …" lose their joiner; a joiner alone or before a mark stays', () => {
+  const context = { now: new Date(REFERENCE_TIME), timezone: ZONE };
+  assert.equal(extract("don't forget about the meeting", context).title, 'the meeting');
+  assert.equal(extract("don't forget that I have dentist", context).title, 'I have dentist');
+  assert.notEqual(extract("Don't forget to!", context).title, 'to!');
+  assert.notEqual(extract("Don't forget to!", context).title, 'to');
+  // A day taken off the end leaves the joiner last: it is not stripped to nothing.
+  assert.match(extract('لا تنسى إنه بكرا', context).title ?? '', /تنسى/);
+  assert.match(extract("don't forget to tomorrow", context).title ?? '', /forget/i);
+});

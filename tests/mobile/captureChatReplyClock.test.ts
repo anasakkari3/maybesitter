@@ -332,3 +332,36 @@ test('mutation: a question naming a card with no time, without «يعني», is 
   const untimed = { itemId: 'i2', title: 'اتصل بأحمد', resolvedTime: null, needsClarification: false };
   assert.equal(reply('«اتصل بأحمد» الساعة 4:20؟ أكّد من تحت.', { items: [CARD, untimed] }), 'أكّد من تحت.');
 });
+
+/* ── review round 2 (2026-11-20) ─────────────────────────────────────── */
+
+test('review 2 (a): the half of the day is the nearest to the clock, not the first pattern', () => {
+  const text = 'اجتماع الساعة 9 الصبح، المسا عندك تمرين.';
+  assert.equal(reply(text, { items: [{ ...cardAt('09:00')[0], title: 'اجتماع' }], userTurns: ['اجتماع'] }), text);
+});
+
+test('review 2 (b): «5 المسا ونص» is 17:30', () => {
+  assert.equal(reply('الدوا الساعة 5 المسا ونص.', { items: cardAt('17:30') }), 'الدوا الساعة 5 المسا ونص.');
+  assert.equal(reply('الدوا الساعة 5 المسا ونص.', { items: cardAt('17:00') }), LINE('17:00'));
+});
+
+test('review 2 (c): a bare hour beside its half of the day is a clock', () => {
+  assert.equal(reply('الدوا الفجر 4.', { items: cardAt('16:00') }), LINE('16:00'));
+  assert.equal(reply('الدوا بعد الضهر 2.', { items: cardAt('02:00') }), LINE('02:00'));
+  assert.equal(reply('الدوا الفجر 4.', { items: cardAt('04:00') }), 'الدوا الفجر 4.');
+});
+
+test('review 2 (c): a half of the day earlier in the same clause counts for the first clock', () => {
+  assert.equal(reply('بكرا الصبح عندك اجتماع الدوا الساعة 10.', { items: cardAt('22:00') }), LINE('22:00'));
+});
+
+test('review 2 (e) D1: 13:00 is a 24-hour clock', () => {
+  assert.equal(reply('الدوا الساعة 13:00.', { items: cardAt('13:00') }), 'الدوا الساعة 13:00.');
+  assert.equal(reply('الدوا الساعة 13:00.', { items: cardAt('01:00') }), LINE('01:00'));
+});
+
+test('review 2 (e) D3: «3 بالليل» and «4 بالليل» are before dawn', () => {
+  assert.equal(reply('الدوا الساعة 3 بالليل.', { items: cardAt('03:00') }), 'الدوا الساعة 3 بالليل.');
+  assert.equal(reply('الدوا الساعة 4 بالليل.', { items: cardAt('04:00') }), 'الدوا الساعة 4 بالليل.');
+  assert.equal(reply('الدوا الساعة 4 بالليل.', { items: cardAt('16:00') }), LINE('16:00'));
+});
