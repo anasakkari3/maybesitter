@@ -9,9 +9,14 @@ import {
 } from '../schemas/commitments';
 import type { TimePatch } from '../../features/commitments/timePatch';
 
-export function listToday(input: { timezone: string; referenceTime?: string }): Promise<CommitmentList> {
+/**
+ * Today's list. `includeDropped` also brings what was dropped on purpose
+ * today (`include=dropped`): the commitments screen's «الكل» only (sim-1120
+ * D). Today, the plan and the counts read it without.
+ */
+export function listToday(input: { timezone: string; referenceTime?: string; includeDropped?: boolean }): Promise<CommitmentList> {
   return apiRequest('GET', '/api/mobile/commitments/today', {
-    query: { timezone: input.timezone, referenceTime: input.referenceTime },
+    query: { timezone: input.timezone, referenceTime: input.referenceTime, include: input.includeDropped ? 'dropped' : undefined },
     schema: commitmentListSchema,
   });
 }
