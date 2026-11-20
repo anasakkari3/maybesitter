@@ -473,3 +473,23 @@ test('a resume whose lock lifts between its two declines never turns learning of
     end();
   }
 });
+
+test('the team stopping the account while a resume is on its way wins, and nothing is declined', async () => {
+  begin();
+  try {
+    const { resumeRevokedAccount, MobilePilotError } = await import('../../lib/services/mobile/pilotService.ts');
+    const { revokeAccountAsOperator } = await import('../../lib/pilot/operatorRevoke.ts');
+    const { readTrust } = await import('../../lib/pilot/pilotTrustStore.ts');
+    const { getRecommendationConsent } = await import('../../lib/consents/recommendationConsentService.ts');
+    const { personalizationGrowthAllowed } = await import('../../lib/consents/personalizationConsentService.ts');
+    const uid = await lockedAfterAgreeing('OperatorDuringResume');
+    await assert.rejects(resumeRevokedAccount(uid, {
+      afterRead: async () => { await revokeAccountAsOperator(uid, { revokeRefreshTokens: async () => {} }); },
+    }), (error: unknown) => error instanceof MobilePilotError && error.reason === 'operator_revoked');
+    assert.equal((await readTrust(uid))?.revokedBy, 'operator');
+    assert.equal(await getRecommendationConsent(uid), 'granted', 'suggestions were declined under the team\'s stop');
+    assert.equal(await personalizationGrowthAllowed(uid), true, 'learning was turned off under the team\'s stop');
+  } finally {
+    end();
+  }
+});
