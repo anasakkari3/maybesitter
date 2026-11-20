@@ -23,6 +23,7 @@ import {
   evidenceLines,
   groupOf,
   keptIndefinitely,
+  sourceLabelText,
 } from '../memoryProvenance';
 import ar from '../../../i18n/locales/ar.json';
 import en from '../../../i18n/locales/en.json';
@@ -257,5 +258,46 @@ describe('a kept R2 pattern (#532)', () => {
   it('does not claim the plan uses it, because nothing does', () => {
     const lines = evidenceLines(deferred, copy);
     expect(lines.find(line => line.key === 'plan')?.text).toBe(en.memoryWhyDeferNoPlanUse);
+  });
+});
+
+/* ── «إنت جبته من …» for every assistant, in every language (QA v3) ── */
+
+describe('an imported fact names where it came from', () => {
+  const imported = (assistant?: 'chatgpt' | 'gemini' | 'claude' | 'other') => ({
+    sourceLabel: 'you_brought_from_ai' as const,
+    provenance: assistant === undefined
+      ? { origin: 'ai_context_import', confirmedByUserAt: '2026-08-09T09:00:00.000Z' }
+      : { origin: 'ai_context_import', assistant, confirmedByUserAt: '2026-08-09T09:00:00.000Z' },
+  }) as unknown as Pick<MemoryItem, 'sourceLabel' | 'provenance'>;
+
+  // Review of #880: a record that names no assistant must read as another
+  // assistant, never as the raw template or an empty name.
+  it('a record with no assistant reads «مساعد تاني»', () => {
+    expect(sourceLabelText(imported(), LOCALES.ar!)).toBe('إنت جبته من مساعد تاني');
+    expect(sourceLabelText({ sourceLabel: 'you_brought_from_ai', provenance: null } as unknown as Pick<MemoryItem, 'sourceLabel' | 'provenance'>, LOCALES.ar!))
+      .toBe('إنت جبته من مساعد تاني');
+    expect(sourceLabelText(imported(), LOCALES.en!)).toBe('You brought this from another assistant');
+  });
+
+  // «הבאת את זה מ{assistant}» glued the prefix to a Latin name: «מChatGPT».
+  // Hebrew writes מ- before a Latin name, as the rest of he.json does
+  // («מ-Google», «מ-Drive»), and joins it to a Hebrew word: «מעוזר אחר».
+  it.each([
+    ['chatgpt', 'הבאת את זה מ-ChatGPT'],
+    ['gemini', 'הבאת את זה מ-Gemini'],
+    ['claude', 'הבאת את זה מ-Claude'],
+    ['other', 'הבאת את זה מעוזר אחר'],
+  ] as Array<['chatgpt' | 'gemini' | 'claude' | 'other', string]>)('Hebrew: %s', (assistant, expected) => {
+    expect(sourceLabelText(imported(assistant), LOCALES.he!)).toBe(expected);
+  });
+
+  it.each(['ar', 'en', 'he'])('%s: every assistant has its own whole sentence, with no placeholder left', (locale) => {
+    for (const assistant of ['chatgpt', 'gemini', 'claude', 'other', undefined] as const) {
+      const text = sourceLabelText(imported(assistant), LOCALES[locale]!);
+      expect(text).not.toMatch(/[{}]/);
+      expect(text).not.toMatch(/מ[A-Za-z]/);
+      expect(text.length).toBeGreaterThan(8);
+    }
   });
 });

@@ -8,6 +8,7 @@ import {
   createPilotTrustIncident,
   decidePilotExposure,
   requirePilotParticipantId,
+  requirePilotTrustState,
 } from '../../lib/pilot/closedPilotControls.ts';
 import {
   appendAudit,
@@ -191,4 +192,53 @@ test('closed pilot: trust state, audit, and incidents persist and read back with
   } finally {
     resetStorageForTests();
   }
+});
+
+// «رجّع حسابي» (QA v3): the action that undoes the old «وقّف» lock.
+test('resume: clears a revoke with everything still off, is a no-op when not revoked, and never undoes a delete', () => {
+  const initial = createPilotTrustState('pilot-1', AT);
+  const later = new Date(Date.parse(AT) + 60_000).toISOString();
+  const after = new Date(Date.parse(AT) + 120_000).toISOString();
+  const granted = applyPilotTrustAction(initial, { type: 'set_recommendation_consent', granted: true, at: AT });
+  const revoked = applyPilotTrustAction(granted, { type: 'revoke', at: later });
+  const resumed = applyPilotTrustAction(revoked, { type: 'resume', at: after });
+  assert.equal(resumed.revokedAt, null);
+  assert.equal(resumed.deletedAt, null);
+  assert.deepEqual(
+    [resumed.recommendationConsent, resumed.analyticsConsent, resumed.calendarConsent, resumed.quietMode],
+    [false, false, false, false],
+  );
+  // A second resume racing the first changes nothing — not even the stamp.
+  const quiet = applyPilotTrustAction(initial, { type: 'set_quiet_mode', enabled: true, at: later });
+  assert.equal(applyPilotTrustAction(quiet, { type: 'resume', at: after }), quiet);
+  // Deleted is not revoked.
+  const deleted = applyPilotTrustAction(revoked, { type: 'delete', at: after });
+  assert.throws(() => applyPilotTrustAction(deleted, { type: 'resume', at: after }), /deleted pilot state/);
+});
+
+// Review of #883: the operator's revoke is marked, and the account cannot undo it.
+test('operator revoke: marked, kept by the reader, upgrades a self-stop, and refuses a resume', () => {
+  const initial = createPilotTrustState('pilot-1', AT);
+  const later = new Date(Date.parse(AT) + 60_000).toISOString();
+  const after = new Date(Date.parse(AT) + 120_000).toISOString();
+  const byOperator = applyPilotTrustAction(initial, { type: 'revoke', at: later, by: 'operator' });
+  assert.equal(byOperator.revokedBy, 'operator');
+  assert.equal(byOperator.revokedAt, later);
+  assert.equal(requirePilotTrustState(JSON.parse(JSON.stringify(byOperator))).revokedBy, 'operator');
+  assert.throws(() => applyPilotTrustAction(byOperator, { type: 'resume', at: after }), /operator/);
+  // Deleting stays available.
+  assert.ok(applyPilotTrustAction(byOperator, { type: 'delete', at: after }).deletedAt);
+
+  // An operator stop on an account the person had already stopped is still the operator's.
+  const selfStopped = applyPilotTrustAction(initial, { type: 'revoke', at: later });
+  assert.equal(selfStopped.revokedBy, undefined);
+  const upgraded = applyPilotTrustAction(selfStopped, { type: 'revoke', at: after, by: 'operator' });
+  assert.equal(upgraded.revokedBy, 'operator');
+  assert.equal(upgraded.revokedAt, later);
+  assert.throws(() => applyPilotTrustAction(upgraded, { type: 'resume', at: after }), /operator/);
+
+  // Anything else in the mark is not a trust record this server wrote.
+  assert.throws(() => requirePilotTrustState({ ...byOperator, revokedBy: 'user' }), /revokedBy/);
+  // A record with no mark reads without one, so nothing that already exists changes shape.
+  assert.equal('revokedBy' in requirePilotTrustState(JSON.parse(JSON.stringify(selfStopped))), false);
 });

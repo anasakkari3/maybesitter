@@ -481,3 +481,54 @@ test('a watcher naming a connection this account does not have is refused; its o
     end();
   }
 });
+
+/* ── Review of #880: two gaps around F28-02 and F28-03 ─────────────── */
+
+test('a connection id with a path separator is refused by the ownership check, never read across', async () => {
+  begin();
+  try {
+    const { userSubDoc, PROVIDER_CONNECTIONS } = await import('../../lib/storage/paths.ts');
+    await storage.set(userSubDoc(BOB, PROVIDER_CONNECTIONS, 'cnx_bob_whoop'), { connectionId: 'cnx_bob_whoop', state: 'connected' });
+    await storage.set(userSubDoc(ALICE, PROVIDER_CONNECTIONS, 'cnx_alice_whoop'), { connectionId: 'cnx_alice_whoop', state: 'connected' });
+    const readiness = (connectionId: string) => ({
+      source: { provider: 'whoop', connectionId, signalKind: 'readiness', subjectRef: 'self' },
+      condition: { kind: 'digest_changed' },
+      effect: 'notify',
+    });
+    for (const crafted of [
+      'cnx_alice_whoop/extra',
+      `../../${BOB}/${PROVIDER_CONNECTIONS}/cnx_bob_whoop`,
+      `cnx_alice_whoop/../cnx_alice_whoop`,
+    ]) {
+      const refused = await createWatcher(request('/api/mobile/watchers', { uid: ALICE, body: readiness(crafted) }));
+      assert.equal(refused.status, 400, `${crafted} was accepted`);
+    }
+    const listed = await (await listWatchers(request('/api/mobile/watchers', { uid: ALICE }))).json() as { items: unknown[] };
+    assert.deepEqual(listed.items, [], 'a refused watcher was stored');
+  } finally {
+    end();
+  }
+});
+
+test('a blocked watcher sent PATCH enabled:true stays blocked, never reported active', async () => {
+  begin();
+  try {
+    const watcher = await created(ALICE);
+    // No observer for its signal: the sweep blocks it.
+    await runWatcherSweep({ storage, now: new Date('2026-09-20T09:00:00.000Z'), registry: createWatcherSignalRegistry([]) });
+    const before = await createWatcherStore(ALICE).get(watcher.watcherId);
+    assert.equal(before?.runtime.status, 'blocked');
+
+    const patched = await patchWatcher(
+      request(`/api/mobile/watchers/${watcher.watcherId}`, { uid: ALICE, method: 'PATCH', body: { enabled: true } }),
+      params(watcher.watcherId),
+    );
+    assert.equal(patched.status, 200);
+    const body = await patched.json() as { watcher: { enabled: boolean; status: string } };
+    assert.equal(body.watcher.enabled, true);
+    assert.equal(body.watcher.status, 'blocked', 'PATCH enabled:true turned a blocked watcher active');
+    assert.equal((await createWatcherStore(ALICE).get(watcher.watcherId))?.runtime.status, 'blocked');
+  } finally {
+    end();
+  }
+});

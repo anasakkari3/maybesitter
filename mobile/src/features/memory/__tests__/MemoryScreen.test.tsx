@@ -233,7 +233,7 @@ describe('what the screen shows', () => {
     await show(<MemoryScreen onBack={() => {}} />);
     await waitFor(() => expect(screen.queryByTestId('m6-memory-group-source-suggested')).not.toBeNull());
     expect(screen.getByTestId('m6-memory-group-source-suggested').props.children)
-      .toBe(en.memorySourceBroughtFromAi.replace('{assistant}', en.aiImportAssistantChatgpt));
+      .toBe(en.memorySourceBroughtFromChatgpt);
   });
 
   it('gives each imported row its own assistant when the rows came from different ones', async () => {
@@ -245,9 +245,9 @@ describe('what the screen shows', () => {
     await show(<MemoryScreen onBack={() => {}} />);
     await waitFor(() => expect(screen.queryByTestId('memory-screen-source-mem_a')).not.toBeNull());
     expect(screen.getByTestId('memory-screen-source-mem_a').props.children)
-      .toBe(en.memorySourceBroughtFromAi.replace('{assistant}', en.aiImportAssistantChatgpt));
+      .toBe(en.memorySourceBroughtFromChatgpt);
     expect(screen.getByTestId('memory-screen-source-mem_b').props.children)
-      .toBe(en.memorySourceBroughtFromAi.replace('{assistant}', en.aiImportAssistantGemini));
+      .toBe(en.memorySourceBroughtFromGemini);
     expect(screen.queryByTestId('m6-memory-group-source-suggested')).toBeNull();
   });
 

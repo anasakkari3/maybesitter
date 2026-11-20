@@ -127,7 +127,8 @@ describe('«وقّف مشاركتك» on the trust centre', () => {
     jest.spyOn(consentEndpoints, 'getConsents').mockRejectedValue(new Error('unreachable') as never);
     await show();
     await waitFor(() => expect(screen.queryByTestId('trust-revoke')).not.toBeNull());
-    expect(screen.getByTestId('trust-revoke').props.accessibilityState?.disabled).toBe(true);
+    // Still offered: pressing it reads again (trustReadFailure.test.tsx).
+    await waitFor(() => expect(screen.getByTestId('trust-revoke').props.accessibilityState?.disabled).not.toBe(true));
     expect(screen.queryByTestId('trust-resume')).toBeNull();
     expect(screen.queryByTestId('trust-revoked')).toBeNull();
   });
@@ -342,5 +343,33 @@ describe('«وقّف مشاركتك» on the trust centre', () => {
     }
     // The confirmation says what stays, without repeating the card.
     expect(en.trustRevokeConfirmBody).not.toBe(en.trustRevokeBody);
+  });
+
+  // QA v3 (#873 follow-up): stopping declines the suggestions and learning
+  // consents only. The email auto-add from the person's own sent reply is gated
+  // on Gmail monitoring and the calendar consent (lib/intelligence/
+  // m5aGmailScan.ts), so it keeps adding after «وقّف». The card says so.
+  it('the card says a commitment agreed to in your own email reply is still added by itself', async () => {
+    rememberingServer(BOTH_ON);
+    await show();
+    await waitFor(() => expect(screen.queryByTestId('trust-revoke-email-autoadd')).not.toBeNull());
+    expect(screen.getByTestId('trust-revoke-email-autoadd').props.children).toBe(en.trustRevokeEmailAutoAdd);
+    for (const copy of [ar, en, he] as unknown as Array<Record<string, string>>) {
+      expect(copy.trustRevokeEmailAutoAdd).toBeTruthy();
+      // It names the switch it depends on, by the title the screen gives it.
+      expect(copy.trustRevokeEmailAutoAdd).toContain(copy.trustCalendar);
+      // And the one-tap removal the added item offers.
+      expect(copy.trustRevokeEmailAutoAdd).not.toBe(copy.trustRevokeEmail);
+    }
+    // Review of #883: «بردّك» read as «بتردّك»; the reply is said as a noun.
+    expect(ar.trustRevokeEmailAutoAdd).not.toContain('بردّك');
+    expect(ar.trustRevokeEmailAutoAdd).toContain('وافقت عليه بردّ منك');
+  });
+
+  it('the same sentence is there once both are off, beside «شغّلها من جديد»', async () => {
+    rememberingServer(BOTH_OFF);
+    await show();
+    await waitFor(() => expect(screen.queryByTestId('trust-resume')).not.toBeNull());
+    expect(screen.queryByTestId('trust-revoke-email-autoadd')).not.toBeNull();
   });
 });

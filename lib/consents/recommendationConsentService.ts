@@ -36,6 +36,7 @@ import {
   getConsent,
   readConsent,
   setConsent,
+  setConsentWhile,
   type ConsentOptions,
   type ConsentView,
   type SetConsentInput,
@@ -65,6 +66,20 @@ export async function setRecommendationConsent(
   options: ConsentOptions = {},
 ): Promise<ConsentRecord> {
   return setConsent(RECOMMENDATION_CONSENT, uid, input, options);
+}
+
+/**
+ * `setRecommendationConsent`, written only while `accepts` holds for the
+ * account's document in the same transaction; null when it did not. For
+ * «رجّع حسابي», whose decline must not land once the account is live again.
+ */
+export async function setRecommendationConsentWhile(
+  uid: string,
+  input: SetConsentInput,
+  accepts: (user: unknown) => boolean,
+  options: ConsentOptions = {},
+): Promise<ConsentRecord | null> {
+  return setConsentWhile(RECOMMENDATION_CONSENT, uid, input, accepts, options);
 }
 
 export async function recommendationConsentView(

@@ -37,6 +37,15 @@ export interface PilotTrustState {
   firstValueAt: string | null;
   quietMode: boolean;
   revokedAt: string | null;
+  /**
+   * Who stopped the account, when it was the operator (`scripts/revoke-user.ts`,
+   * docs/operations/V03_PILOT_OPERATIONAL_DEPLOYMENT.md «Participant Revoke»).
+   * Absent otherwise — never written as null — so every record that already
+   * exists, and every answer the phone already parses, keeps its shape. An
+   * operator's stop is an end of access the account cannot lift
+   * (`resume` refuses it); the person's own old «وقّف» carried no mark.
+   */
+  revokedBy?: 'operator';
   deletedAt: string | null;
   updatedAt: string;
 }
@@ -48,7 +57,14 @@ export type PilotTrustAction =
   | { type: 'record_first_value'; at: string }
   | { type: 'set_calendar_consent'; granted: boolean; at: string }
   | { type: 'set_quiet_mode'; enabled: boolean; at: string }
-  | { type: 'revoke'; at: string }
+  /** `by: 'operator'` only from `revokeAccountAsOperator` (lib/pilot/operatorRevoke.ts). */
+  | { type: 'revoke'; at: string; by?: 'operator' }
+  /**
+   * «رجّع حسابي» (QA v3): clears a `revokedAt` stamped by the old «وقّف»
+   * (before #873). Never reachable from `POST /api/mobile/pilot/trust`; only
+   * `POST /api/mobile/account/resume` sends it, for the caller's own account.
+   */
+  | { type: 'resume'; at: string }
   | { type: 'delete'; at: string };
 
 export interface PilotExposureDecision {
@@ -163,11 +179,14 @@ export function requirePilotTrustState(value: unknown): PilotTrustState {
     if (state[field] !== null) requireIsoTime(state[field]);
   }
   requireIsoTime(state.updatedAt);
+  if (state.revokedBy !== undefined && state.revokedBy !== 'operator') throw new Error('revokedBy must be operator when present');
   return {
     version: 'v1', participantId: state.participantId,
     recommendationConsent: state.recommendationConsent, analyticsConsent: state.analyticsConsent,
     calendarConsent: state.calendarConsent, firstValueAt: state.firstValueAt,
-    quietMode: state.quietMode, revokedAt: state.revokedAt, deletedAt: state.deletedAt,
+    quietMode: state.quietMode, revokedAt: state.revokedAt,
+    ...(state.revokedBy === 'operator' ? { revokedBy: 'operator' as const } : {}),
+    deletedAt: state.deletedAt,
     updatedAt: state.updatedAt,
   };
 }
@@ -175,7 +194,17 @@ export function requirePilotTrustState(value: unknown): PilotTrustState {
 export function applyPilotTrustAction(state: PilotTrustState, action: PilotTrustAction): PilotTrustState {
   requireIsoTime(action.at);
   if (state.deletedAt) throw new Error('deleted pilot state cannot be changed');
-  if (state.revokedAt && action.type !== 'delete') throw new Error('revoked pilot state can only be deleted');
+  // An operator's stop over the person's own: still the operator's, so the
+  // mark is added and the first `revokedAt` kept.
+  const operatorOverStop = action.type === 'revoke' && action.by === 'operator' && Boolean(state.revokedAt);
+  if (state.revokedAt && action.type !== 'delete' && action.type !== 'resume' && !operatorOverStop) {
+    throw new Error('revoked pilot state can only be deleted or resumed');
+  }
+  if (action.type === 'resume' && state.revokedBy === 'operator') {
+    throw new Error('an operator revocation cannot be resumed by the account');
+  }
+  // Nothing to bring back: a second resume racing the first changes nothing.
+  if (action.type === 'resume' && !state.revokedAt) return state;
   // Recording a first value that is already recorded changes nothing, so it is
   // not a backdated write — it is a no-op, and the caller asked for a state
   // that already holds.
@@ -215,7 +244,17 @@ export function applyPilotTrustAction(state: PilotTrustState, action: PilotTrust
     case 'revoke':
       return {
         ...state, recommendationConsent: false, analyticsConsent: false, calendarConsent: false,
-        quietMode: true, revokedAt: action.at, updatedAt: action.at,
+        quietMode: true, revokedAt: state.revokedAt ?? action.at, updatedAt: action.at,
+        ...(action.by === 'operator' ? { revokedBy: 'operator' as const } : {}),
+      };
+    case 'resume':
+      // Back to a working account, with nothing switched on that the person
+      // did not turn on again themselves: the three consents stay off. Quiet
+      // mode goes back off because the old revoke forced it on, and it is what
+      // silences the reminders of the person's own commitments (pushAccess).
+      return {
+        ...state, recommendationConsent: false, analyticsConsent: false, calendarConsent: false,
+        quietMode: false, revokedAt: null, updatedAt: action.at,
       };
     case 'delete':
       return {

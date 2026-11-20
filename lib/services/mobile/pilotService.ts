@@ -30,7 +30,7 @@ import {
 } from './nextStepDecisionLog';
 import { completeCommitment, patchCommitment } from './commitmentService';
 import { readRoutineProfile } from './routineProfileService';
-import { appendAudit, appendIncident, applyTrustAction } from '../../pilot/pilotTrustStore';
+import { appendAudit, appendIncident, applyTrustAction, listAuditEvents, readTrust } from '../../pilot/pilotTrustStore';
 import { getLiveNextStep, getLiveNextStepWithMetadata, prepareLiveNextStepDecision, type LiveContext } from '../nextStepLiveService';
 import {
   findParticipantDecision,
@@ -49,11 +49,16 @@ import { resolveFreshReadiness } from '../../integrations/readiness/freshReadine
 import { storedReadinessContext } from '../../userState/userStateService';
 import { getStorage } from '../../storage';
 import { userDoc } from '../../storage/paths';
-import { RECOMMENDATION_CONSENT_VERSION, setRecommendationConsent } from '../../consents/recommendationConsentService';
+import {
+  RECOMMENDATION_CONSENT_VERSION,
+  setRecommendationConsent,
+  setRecommendationConsentWhile,
+} from '../../consents/recommendationConsentService';
 import {
   PERSONALIZATION_CONSENT_VERSION,
   PersonalizationConsentNotRecordedError,
   PersonalizationWithdrawalBusyError,
+  PersonalizationWithdrawalSupersededError,
   setPersonalizationConsent,
 } from '../../consents/personalizationConsentService';
 
@@ -694,6 +699,139 @@ export async function updateMobilePilotTrust(participantId: string, input: Mobil
     participantId,
     trust,
     exposure,
+    whatKnows: buildWhatMaybeSitterKnows({
+      trust,
+      confirmedCommitmentCount: await confirmedCommitmentCount(participantId),
+    }),
+  };
+}
+
+/**
+ * How close the old «وقّف»'s audit line sits to the lock it wrote. The mobile
+ * route wrote both in one request — one transaction since #772, the line
+ * straight after before it — so they are milliseconds apart; ten minutes only
+ * absorbs a slow transaction, and is far from any later, separate revoke.
+ */
+const SELF_STOP_LINE_WINDOW_MS = 10 * 60_000;
+
+/**
+ * Whether an unmarked lock was the person's own «وقّف» (review of #883).
+ *
+ * Before the operator mark existed, `scripts/revoke-user.ts` and the old
+ * mobile «وقّف» stamped the same `revokedAt`. What tells them apart is the
+ * audit trail: since d7c8007d (2026-08-09) the mobile route always wrote
+ * `revoked` / `revoke` with its lock, and the operator script never wrote a
+ * line. So a lock is the person's only with that line beside it; with none
+ * (or a line from another time) it is treated as the operator's, which only
+ * ever errs towards keeping a stop in place.
+ */
+async function stoppedByTheAccount(participantId: string, revokedAt: string): Promise<boolean> {
+  const lockedAt = Date.parse(revokedAt);
+  return (await listAuditEvents(participantId)).some((event) => event.eventType === 'revoked'
+    && event.reasonCode === 'revoke'
+    && Math.abs(lockedAt - Date.parse(event.occurredAt)) <= SELF_STOP_LINE_WINDOW_MS);
+}
+
+function operatorRevoked(): MobilePilotError {
+  return new MobilePilotError('this account was stopped by an operator', 403, 'operator_revoked');
+}
+
+/** The answer once another request changed the account first. */
+async function settledAfterRace(participantId: string) {
+  const now = await readTrust(participantId);
+  if (!now || now.deletedAt) throw new MobilePilotError('this account was deleted', 403, 'deleted');
+  if (now.revokedBy === 'operator') throw operatorRevoked();
+  return getMobilePilotTrust(participantId);
+}
+
+export interface ResumeRevokedAccountOptions {
+  /** Test seam: runs after the lock was read, before anything is written. */
+  readonly afterRead?: () => Promise<void>;
+  /** Test seam: runs after suggestions were declined, before learning is. */
+  readonly beforeLearning?: () => Promise<void>;
+}
+
+/**
+ * «رجّع حسابي» — the way back for an account the old «وقّف» locked (QA v3).
+ *
+ * Before #873 the stop card sent `revoke`, which stamped `trust.revokedAt`, and
+ * every route but export and deletion has refused the account since. No mobile
+ * route stamps it any more, so this only ever undoes that old lock — never an
+ * operator's (`revokedBy: 'operator'`, or an unmarked lock without the old
+ * «وقّف»'s audit line): those answer 403 `operator_revoked`.
+ *
+ * The account comes back the way today's «وقّف» leaves one: the next-step and
+ * pattern-learning consents are declined first (a yes given before the lock is
+ * not silently back), then the stamp is cleared with its audit line in one
+ * transaction that requires a live account. A failure before the clear leaves
+ * the account locked and less switched on, never more.
+ *
+ * Each decline is written only while the account is still under the same
+ * lock, checked in the transaction that writes it: a second press that read
+ * the lock and lost the race to the first never turns off what the person
+ * turned on once the account was live again.
+ *
+ * Deleted is not revoked: a deleted record is refused here, by the transaction
+ * fence, and by `applyPilotTrustAction`. An account that is not revoked is
+ * answered with its current state and nothing is written.
+ */
+export async function resumeRevokedAccount(participantId: string, options: ResumeRevokedAccountOptions = {}) {
+  requirePilotParticipantId(participantId);
+  const current = await readTrust(participantId);
+  if (!current || current.deletedAt) throw new MobilePilotError('this account was deleted', 403, 'deleted');
+  if (!current.revokedAt) return getMobilePilotTrust(participantId);
+  if (current.revokedBy === 'operator' || !(await stoppedByTheAccount(participantId, current.revokedAt))) {
+    throw operatorRevoked();
+  }
+  await options.afterRead?.();
+  const lockedAt = current.revokedAt;
+  const stillLocked = (user: unknown): boolean => {
+    const trust = (user as { trust?: Partial<PilotTrustState> } | null)?.trust;
+    return trust?.revokedAt === lockedAt && trust.revokedBy !== 'operator' && !trust.deletedAt;
+  };
+  const at = new Date().toISOString();
+  const when = new Date(at);
+  const declined = await setRecommendationConsentWhile(participantId, {
+    state: 'declined', version: RECOMMENDATION_CONSENT_VERSION, at: when,
+  }, stillLocked);
+  if (!declined) return settledAfterRace(participantId);
+  await options.beforeLearning?.();
+  try {
+    await setPersonalizationConsent(participantId, {
+      state: 'declined', version: PERSONALIZATION_CONSENT_VERSION, at: when,
+    }, { onlyWhile: stillLocked });
+  } catch (error) {
+    if (error instanceof PersonalizationWithdrawalSupersededError) return settledAfterRace(participantId);
+    if (error instanceof PersonalizationWithdrawalBusyError) {
+      throw new MobilePilotError('a deletion is still running', 503, 'purge_running');
+    }
+    if (error instanceof PersonalizationConsentNotRecordedError) {
+      throw new MobilePilotError('consent could not be recorded', 503, 'consent_not_recorded');
+    }
+    throw error;
+  }
+  let trust: PilotTrustState;
+  try {
+    trust = await applyTrustAction(participantId, { type: 'resume', at }, {
+      stampAtApply: true,
+      audit: createPilotAuditEvent({
+        version: 'v1',
+        eventType: 'consent_changed',
+        participantId,
+        occurredAt: at,
+        outcome: 'recorded',
+        reasonCode: 'resume_account',
+      }),
+    });
+  } catch (error) {
+    if (error instanceof Error && /operator revocation/.test(error.message)) throw operatorRevoked();
+    throw error;
+  }
+  return {
+    success: true,
+    participantId,
+    trust,
+    exposure: exposureFor(trust),
     whatKnows: buildWhatMaybeSitterKnows({
       trust,
       confirmedCommitmentCount: await confirmedCommitmentCount(participantId),

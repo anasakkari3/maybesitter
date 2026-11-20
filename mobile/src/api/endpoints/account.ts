@@ -1,5 +1,6 @@
 import { apiRequest } from '../client';
 import { accountDeletionResponseSchema, DELETION_CONFIRMATION, type DeletionReceipt } from '../schemas/account';
+import { trustResponseSchema, type TrustResponse } from '../schemas/trust';
 
 /**
  * Deletes the account, permanently (UC-1.5 #149).
@@ -23,4 +24,15 @@ export async function deleteAccount(): Promise<DeletionReceipt> {
     schema: accountDeletionResponseSchema,
   });
   return result.receipt;
+}
+
+/**
+ * «رجّع حسابي» (QA v3): brings back an account the old «وقّف» locked before
+ * #873. The server admits a revoked session on this route only, clears the
+ * lock for the token's own account, and answers the trust shape; suggestions
+ * and learning stay off until the person turns them on. Never retried
+ * automatically: the person presses it again.
+ */
+export function resumeAccount(): Promise<TrustResponse> {
+  return apiRequest('POST', '/api/mobile/account/resume', { schema: trustResponseSchema });
 }

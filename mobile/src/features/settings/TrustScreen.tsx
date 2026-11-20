@@ -103,6 +103,9 @@ export function TrustScreen({ onBack, onKnows }: { onBack: () => void; onKnows: 
   // card keeps offering it — while it is on its way, after a partial one, and
   // after a retry that failed — rather than flipping to «stop» (review of #873).
   const [resumeOffered, setResumeOffered] = useState(false);
+  // «وقّف» pressed while the consent read had failed: the read is asked again
+  // before anything is offered (QA v3, #880 follow-up).
+  const [checkingStop, setCheckingStop] = useState(false);
   const [reporting, setReporting] = useState(false);
   const [incidentSurface, setIncidentSurface] = useState<PilotIncidentInput['surface']>('capture');
   const [incidentCategory, setIncidentCategory] = useState<PilotIncidentInput['category']>('reliability');
@@ -128,10 +131,23 @@ export function TrustScreen({ onBack, onKnows }: { onBack: () => void; onKnows: 
   // not be read, claims neither state.
   const asksPersonalization = versions?.personalization !== undefined;
   const answeredOff = (view: { state: string; asked?: boolean } | undefined) => view?.asked === true && view.state !== 'granted';
-  const stopped = consents.data !== undefined
-    && answeredOff(consents.data.recommendations)
-    && (!asksPersonalization || answeredOff(consents.data.personalization));
+  const isStopped = (data: typeof consents.data) => data !== undefined
+    && answeredOff(data.recommendations)
+    && (data.currentVersions?.personalization === undefined || answeredOff(data.personalization));
+  const stopped = isStopped(consents.data);
   const answering = setRecommendations.isPending || setPersonalization.isPending;
+  // While the first read is still on its way the button waits; after it
+  // failed the button stays, and pressing it reads again (`askToStop`).
+  const stopBusy = answering || checkingStop;
+  const stopBlocked = stopBusy || consents.isPending;
+  // Both reads failed: one alert and one retry for the two, not two identical
+  // alerts with two identical buttons (QA v3).
+  const bothReadsFailed = !consents.data && !consents.isPending && Boolean(consents.error)
+    && !state && !trust.isPending && Boolean(trust.error);
+  const retryReads = () => {
+    void consents.refetch();
+    if (!state) void trust.refetch();
+  };
 
   /**
    * Both answers, suggestions first: a failure between the two leaves less
@@ -175,6 +191,29 @@ export function TrustScreen({ onBack, onKnows }: { onBack: () => void; onKnows: 
       // ends that wait, as the switch does (QA CA7.5).
       if (uid) clearVisitWait(uid);
     }
+  };
+  /**
+   * «وقّف» needs the consent versions the server named. When the read that
+   * carries them failed, the button stays offered and reads again: the
+   * confirmation opens once they arrive, and otherwise the card says why
+   * nothing was stopped, instead of a disabled button with no reason.
+   */
+  const askToStop = async () => {
+    if (versions) {
+      setConfirmRevoke(true);
+      return;
+    }
+    setStopFailure(null);
+    setLanded(null);
+    setCheckingStop(true);
+    const read = await consents.refetch();
+    setCheckingStop(false);
+    if (!read.data?.currentVersions) {
+      setStopFailure('trustStopUnreadable');
+      return;
+    }
+    // Already off by the answers just read: the card now offers the way back.
+    if (!isStopped(read.data)) setConfirmRevoke(true);
   };
   // After a turn-back-on that landed only its learning half, the card still
   // offers what the person asked for, not «stop» (review of #873).
@@ -241,7 +280,7 @@ export function TrustScreen({ onBack, onKnows }: { onBack: () => void; onKnows: 
           {/* A switch whose position the server did not answer is not drawn:
               off would claim "nothing is shared" on no authority (QA v3
               V3-F35-09, CXA12.5). The read's failure and a retry instead. */}
-          <QueryBoundary isPending={consents.isPending} error={consents.data ? null : consents.error} onRetry={() => void consents.refetch()}>
+          <QueryBoundary isPending={consents.isPending} error={consents.data ? null : consents.error} onRetry={bothReadsFailed ? retryReads : () => void consents.refetch()}>
           <ServerToggle
             testID="trust-recommendations"
             title={t.obRecTitle}
@@ -272,6 +311,8 @@ export function TrustScreen({ onBack, onKnows }: { onBack: () => void; onKnows: 
           </QueryBoundary>
         </Card>
 
+        {/* Said once above when both reads failed: the retry there asks for both. */}
+        {bothReadsFailed ? null : <>
         <SectionLabel>{t.settingsGroupTrust}</SectionLabel>
         <Card pad={0} style={{ overflow: 'hidden' }}>
           <QueryBoundary isPending={trust.isPending} error={state ? null : trust.error} onRetry={() => void trust.refetch()}>
@@ -294,6 +335,7 @@ export function TrustScreen({ onBack, onKnows }: { onBack: () => void; onKnows: 
           />
           </QueryBoundary>
         </Card>
+        </>}
 
         <SectionLabel>{t.settingsGroupConnections}</SectionLabel>
         <Card pad={0} style={{ overflow: 'hidden' }}>
@@ -382,6 +424,11 @@ export function TrustScreen({ onBack, onKnows }: { onBack: () => void; onKnows: 
           <Txt size={15} weight={600}>{t.trustRevoke}</Txt>
           <Txt size={13} color={p.mu} lh={1.5}>{t.trustRevokeBody}</Txt>
           <Txt size={13} color={p.mu} lh={1.5} testID="trust-revoke-email">{t.trustRevokeEmail}</Txt>
+          {/* Stopping declines suggestions and learning only. The auto-add from
+              the person's own sent reply is gated on Gmail monitoring and the
+              calendar consent (lib/intelligence/m5aGmailScan.ts), so it can
+              still add after «وقّف»; said here rather than discovered. */}
+          <Txt size={13} color={p.mu} lh={1.5} testID="trust-revoke-email-autoadd">{t.trustRevokeEmailAutoAdd}</Txt>
           {showResume ? (
             <Btn
               label={t.trustResume}
@@ -397,15 +444,15 @@ export function TrustScreen({ onBack, onKnows }: { onBack: () => void; onKnows: 
             <Btn
               label={t.trustRevoke}
               testID="trust-revoke"
-              accessibilityState={{ busy: answering }}
-              disabled={versions === undefined || answering}
-              onPress={versions === undefined || answering ? undefined : () => setConfirmRevoke(true)}
-              style={{ minHeight: 44, alignItems: 'center', justifyContent: 'center', borderRadius: 999, borderWidth: 1, borderColor: p.ln, opacity: versions === undefined || answering ? 0.5 : 1 }}
+              accessibilityState={{ busy: stopBusy }}
+              disabled={stopBlocked}
+              onPress={stopBlocked ? undefined : () => void askToStop()}
+              style={{ minHeight: 44, alignItems: 'center', justifyContent: 'center', borderRadius: 999, borderWidth: 1, borderColor: p.ln, opacity: stopBlocked ? 0.5 : 1 }}
             >
               <Txt size={14} color={p.wm}>{t.trustRevoke}</Txt>
             </Btn>
           )}
-          {answering ? <ActivityIndicator testID="trust-stop-busy" color={p.ac} /> : null}
+          {stopBusy ? <ActivityIndicator testID="trust-stop-busy" color={p.ac} /> : null}
           {/* Mounted before anything fails, so TalkBack hears the line arrive. */}
           {/* One line or none, so an empty region takes no room. */}
           {/* The standing state, outside the live region: an account already

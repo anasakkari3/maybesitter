@@ -26,37 +26,46 @@
  */
 import type { MemoryAdaptive, MemoryItem, MemorySourceLabel, MemorySuggestion } from '../../api/schemas/profile';
 
-/** The i18n key for each label the server can send. */
+/**
+ * The i18n key for each label the server can send. An imported fact's words
+ * depend on the assistant (`BROUGHT_FROM_STRING`); its entry here is the
+ * sentence for an assistant the record does not name.
+ */
 export const SOURCE_LABEL_STRING: Record<MemorySourceLabel, string> = {
   you_told_us: 'memorySourceYouTold',
   you_answered_onboarding: 'memorySourceOnboarding',
   noticed_from_confirmed: 'memorySourceNoticed',
   model_suggested_you_confirmed: 'memorySourceAiConfirmed',
   model_suggested: 'memorySourceAi',
-  you_brought_from_ai: 'memorySourceBroughtFromAi',
-};
-
-/** The words for the assistant an imported fact came from (`provenance.assistant`). */
-const ASSISTANT_STRING: Record<NonNullable<NonNullable<MemoryItem['provenance']>['assistant']>, string> = {
-  chatgpt: 'aiImportAssistantChatgpt',
-  gemini: 'aiImportAssistantGemini',
-  claude: 'aiImportAssistantClaude',
-  other: 'aiImportAssistantOther',
+  you_brought_from_ai: 'memorySourceBroughtFromOther',
 };
 
 /**
- * The source chip, in words. «إنت جبته من {assistant}» names the assistant
- * the fact was brought from; a record that does not say which reads as
- * "another assistant" rather than showing the placeholder (QA v3 V3-F26-05).
+ * «إنت جبته من …», one whole sentence per assistant (`provenance.assistant`).
+ *
+ * Not a template with the name filled in: Hebrew joins «מ» to a Hebrew word
+ * («מעוזר אחר») but writes «מ-» before a Latin name («מ-ChatGPT»), and English
+ * says "another assistant" in lower case mid-sentence. A filled template got
+ * both wrong (QA v3: «מChatGPT»).
+ */
+const BROUGHT_FROM_STRING: Record<NonNullable<NonNullable<MemoryItem['provenance']>['assistant']>, string> = {
+  chatgpt: 'memorySourceBroughtFromChatgpt',
+  gemini: 'memorySourceBroughtFromGemini',
+  claude: 'memorySourceBroughtFromClaude',
+  other: 'memorySourceBroughtFromOther',
+};
+
+/**
+ * The source chip, in words. An imported fact names the assistant it was
+ * brought from; a record that does not say which reads as "another
+ * assistant" rather than showing a placeholder (QA v3 V3-F26-05).
  */
 export function sourceLabelText(
   item: Pick<MemoryItem, 'sourceLabel' | 'provenance'>,
   strings: Record<string, string>,
 ): string {
-  const template = strings[SOURCE_LABEL_STRING[item.sourceLabel]] ?? '';
-  if (item.sourceLabel !== 'you_brought_from_ai') return template;
-  const assistant = strings[ASSISTANT_STRING[item.provenance?.assistant ?? 'other']] ?? '';
-  return fill(template, { assistant });
+  if (item.sourceLabel !== 'you_brought_from_ai') return strings[SOURCE_LABEL_STRING[item.sourceLabel]] ?? '';
+  return strings[BROUGHT_FROM_STRING[item.provenance?.assistant ?? 'other']] ?? '';
 }
 
 /**

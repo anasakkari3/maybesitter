@@ -20,7 +20,10 @@ import * as dataExportFile from '../../../lib/dataExportFile';
 import type { AuthUser } from '../../../auth/types';
 import { z } from 'zod';
 import en from '../../../i18n/locales/en.json';
+import ar from '../../../i18n/locales/ar.json';
+import he from '../../../i18n/locales/he.json';
 import exported from '../../../api/__fixtures__/account.export.json';
+import resumed from '../../../api/__fixtures__/account.resumed.json';
 
 /**
  * A revoked account, in the app (C12.1, owner decision (a)).
@@ -52,6 +55,10 @@ const RECEIPT = {
 const EXPORT = exported;
 
 let requests: { method: string; url: string }[] = [];
+/** What `POST /api/mobile/account/resume` answers; the recorded fixture unless a test says otherwise. */
+let resumeAnswer: { status: number; body: unknown } = { status: 200, body: resumed };
+/** What every other route's 403 says; `revokedBy: 'operator'` when the team stopped the account. */
+let refusalBody: Record<string, unknown> = { success: false, error: 'this account was revoked', reason: 'revoked' };
 let repository: FakeAuthRepository;
 let alertButtons: { text?: string; style?: string; onPress?: () => void }[] = [];
 
@@ -63,7 +70,8 @@ function serveRevoked(): void {
     const path = new URL(url).pathname;
     const body = path === '/api/mobile/account/export' && method === 'GET' ? { status: 200, body: EXPORT }
       : path === '/api/mobile/account' && method === 'DELETE' ? { status: 200, body: RECEIPT }
-        : { status: 403, body: { success: false, error: 'this account was revoked', reason: 'revoked' } };
+        : path === '/api/mobile/account/resume' && method === 'POST' ? resumeAnswer
+        : { status: 403, body: refusalBody };
     return {
       status: body.status,
       text: async () => JSON.stringify(body.body),
@@ -107,6 +115,8 @@ async function firstRequestRefused() {
 beforeEach(() => {
   requests = [];
   alertButtons = [];
+  resumeAnswer = { status: 200, body: resumed };
+  refusalBody = { success: false, error: 'this account was revoked', reason: 'revoked' };
   onlineManager.setOnline(true);
   process.env.EXPO_PUBLIC_API_BASE_URL = 'http://localhost:3000';
   repository = createFakeAuthRepository({ initialUser: A });
@@ -135,12 +145,91 @@ describe('a revoked account (C12.1)', () => {
     expect(screen.getByText(en.revokedAccountLine)).toBeTruthy();
   });
 
-  it('offers nothing but export, delete and sign out', async () => {
+  it('offers nothing but the way back, export, delete and sign out', async () => {
     await mount();
     await firstRequestRefused();
     await waitFor(() => expect(screen.getByTestId('revoked-account')).toBeTruthy());
     const buttons = screen.getAllByRole('button').map(b => b.props.accessibilityLabel ?? '');
+    expect(buttons.sort()).toEqual([
+      en.revokedAccountResume, en.revokedAccountDelete, en.revokedAccountExport, en.revokedAccountSignOut,
+    ].sort());
+    // What coming back means is said before it is pressed.
+    expect(screen.getByText(en.revokedAccountResumeBody)).toBeTruthy();
+  });
+
+  // QA v3: an account the old «وقّف» locked (before #873) had no way back.
+  it('brings the account back through POST /api/mobile/account/resume, and the app returns', async () => {
+    await mount();
+    await firstRequestRefused();
+    requests = [];
+    await waitFor(() => expect(screen.getByTestId('revoked-account')).toBeTruthy());
+
+    await act(async () => {
+      await fireEvent.press(screen.getByLabelText(en.revokedAccountResume));
+    });
+
+    await waitFor(() => expect(screen.getByTestId('the-app')).toBeTruthy());
+    expect(screen.queryByTestId('revoked-account')).toBeNull();
+    expect(requests).toEqual([{ method: 'POST', url: 'http://localhost:3000/api/mobile/account/resume' }]);
+    expect(revokedAccount()).toBeNull();
+    expect(repository.signOutReasons).toEqual([]);
+  });
+
+  // Review of #883: the team's stop (scripts/revoke-user.ts) is not the
+  // person's to lift. The screen says who stopped it and offers no way back.
+  it('an account the team stopped says so, and offers no «رجّع حسابي»', async () => {
+    refusalBody = { ...refusalBody, revokedBy: 'operator' };
+    await mount();
+    await firstRequestRefused();
+    await waitFor(() => expect(screen.getByTestId('revoked-account')).toBeTruthy());
+    expect(screen.getByText(en.revokedAccountOperatorLine)).toBeTruthy();
+    expect(screen.queryByText(en.revokedAccountLine)).toBeNull();
+    expect(screen.queryByText(en.revokedAccountResumeBody)).toBeNull();
+    const buttons = screen.getAllByRole('button').map(b => b.props.accessibilityLabel ?? '');
     expect(buttons.sort()).toEqual([en.revokedAccountDelete, en.revokedAccountExport, en.revokedAccountSignOut].sort());
+    expect(repository.signOutReasons).toEqual([]);
+  });
+
+  it('a resume the server refuses as the team\'s stop turns the screen into the team\'s, without signing out', async () => {
+    resumeAnswer = { status: 403, body: { success: false, error: 'this account was stopped by an operator', reason: 'operator_revoked' } };
+    await mount();
+    await firstRequestRefused();
+    await waitFor(() => expect(screen.getByTestId('revoked-account')).toBeTruthy());
+    await act(async () => {
+      await fireEvent.press(screen.getByLabelText(en.revokedAccountResume));
+    });
+    await waitFor(() => expect(screen.getByText(en.revokedAccountOperatorLine)).toBeTruthy());
+    expect(screen.queryByLabelText(en.revokedAccountResume)).toBeNull();
+    expect(screen.queryByText(en.revokedAccountResumeFailed)).toBeNull();
+    expect(revokedAccount()).toBe(A.uid);
+    expect(repository.signOutReasons).toEqual([]);
+  });
+
+  it('says reminders come back, and what stays off, before «رجّع حسابي» is pressed', () => {
+    for (const [copy, reminders] of [[ar, 'التذكيرات'], [en, 'reminders'], [he, 'התזכורות']] as const) {
+      expect(copy.revokedAccountResumeBody).toContain(reminders);
+    }
+  });
+
+  it('says a failed resume out loud and keeps the revoked screen and its other actions', async () => {
+    resumeAnswer = { status: 503, body: { success: false, error: 'unavailable' } };
+    await mount();
+    await firstRequestRefused();
+    await waitFor(() => expect(screen.getByTestId('revoked-account')).toBeTruthy());
+
+    await act(async () => {
+      await fireEvent.press(screen.getByLabelText(en.revokedAccountResume));
+    });
+
+    await waitFor(() => expect(screen.getByText(en.revokedAccountResumeFailed)).toBeTruthy());
+    const region = screen.getByTestId('revoked-resume-status');
+    expect(region.props.accessibilityLiveRegion).toBe('assertive');
+    expect(region.props.accessibilityRole).toBe('alert');
+    expect(screen.getByTestId('revoked-account')).toBeTruthy();
+    expect(revokedAccount()).toBe(A.uid);
+    // The button is offered again, for «كمان مرّة».
+    expect(screen.getByLabelText(en.revokedAccountResume).props.accessibilityState?.disabled).not.toBe(true);
+    expect(screen.getByLabelText(en.revokedAccountExport)).toBeTruthy();
   });
 
   it('exports through GET /api/mobile/account/export', async () => {

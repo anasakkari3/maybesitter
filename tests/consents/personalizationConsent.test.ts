@@ -403,3 +403,60 @@ test('a grant whose store write fails is rolled back to declined and answered 50
     end();
   }
 });
+
+/* ── onlyWhile: a withdrawal that only lands while a condition holds (review of #883) ── */
+
+// «رجّع حسابي» declines learning only while the account is still under the
+// lock it read. The condition is checked where each record is written; once
+// it is false, neither the store nor the answer moves.
+test('onlyWhile false at the store write: nothing is disabled', async () => {
+  begin();
+  try {
+    const { PersonalizationWithdrawalSupersededError } = await import('../../lib/consents/personalizationConsentService.ts');
+    const uid = uidFor('OnlyWhileStore');
+    await answer(uid, 'granted');
+    let checks = 0;
+    await assert.rejects(setPersonalizationConsent(uid, { state: 'declined', version: PERSONALIZATION_CONSENT_VERSION }, {
+      onlyWhile: () => (checks += 1) <= 1,
+    }), PersonalizationWithdrawalSupersededError);
+    assert.equal((await createStoragePersonalizationConsentStore().read(uid)).state, 'enabled', 'the store was disabled after the condition failed');
+    assert.equal(await getConsent(PERSONALIZATION_CONSENT, uid), 'granted');
+    assert.equal(await personalizationGrowthAllowed(uid), true);
+  } finally {
+    end();
+  }
+});
+
+test('onlyWhile false at the answer: the answer stays as it was', async () => {
+  begin();
+  try {
+    const { PersonalizationWithdrawalSupersededError } = await import('../../lib/consents/personalizationConsentService.ts');
+    const uid = uidFor('OnlyWhileAnswer');
+    await answer(uid, 'granted');
+    // True for the check before the fence and for the store write, false for the answer.
+    let checks = 0;
+    await assert.rejects(setPersonalizationConsent(uid, { state: 'declined', version: PERSONALIZATION_CONSENT_VERSION }, {
+      onlyWhile: () => (checks += 1) <= 2,
+    }), PersonalizationWithdrawalSupersededError);
+    assert.equal(await getConsent(PERSONALIZATION_CONSENT, uid), 'granted', 'the answer was declined after the condition failed');
+  } finally {
+    end();
+  }
+});
+
+test('onlyWhile false before anything: the fence never moves', async () => {
+  begin();
+  try {
+    const { PersonalizationWithdrawalSupersededError } = await import('../../lib/consents/personalizationConsentService.ts');
+    const uid = uidFor('OnlyWhileBefore');
+    await answer(uid, 'granted');
+    const before = await getStorage().get<{ personalizationPurge?: unknown }>(userDoc(uid));
+    await assert.rejects(setPersonalizationConsent(uid, { state: 'declined', version: PERSONALIZATION_CONSENT_VERSION }, {
+      onlyWhile: () => false,
+    }), PersonalizationWithdrawalSupersededError);
+    const after = await getStorage().get<{ personalizationPurge?: unknown }>(userDoc(uid));
+    assert.deepEqual(after?.personalizationPurge, before?.personalizationPurge, 'the fence moved for a withdrawal that was never going to land');
+  } finally {
+    end();
+  }
+});
