@@ -167,15 +167,29 @@ export function withoutEmoji(text: string): string {
 const ACCEPTANCE_WORDS: readonly string[] = [
   // ar
   'أكيد', 'اكيد', 'أكيدة', 'اكيدة', 'بالتأكيد', 'بالتاكيد', 'تمام', 'ماشي', 'طيب', 'حاضر', 'أوكي', 'اوكي', 'أوكيه', 'اوكيه', 'أوك', 'اوك',
-  'اتفقنا', 'موافق', 'موافقة', 'نعم', 'أيوه', 'ايوه', 'أيوا', 'ايوا', 'ولا يهمك', 'من عيوني', 'على راسي', 'علي راسي', 'إن شاء الله', 'ان شاء الله', 'انشالله', 'إنشالله',
+  'اتفقنا', 'موافق', 'موافقة', 'نعم', 'أيوه', 'ايوه', 'أيوا', 'ايوا', 'ولا يهمك', 'من عيوني', 'على راسي', 'علي راسي', 'إن شاء الله', 'ان شاء الله', 'انشالله', 'إنشالله', 'ما في مشكلة', 'مافي مشكلة',
   // en
-  'ok', 'okay', 'okey', 'sure', 'of course', 'yes', 'yeah', 'yep', 'yup', 'will do', 'no problem', 'deal', 'alright', 'all right', 'sounds good', 'got it', 'noted',
+  'ok', 'okay', 'okey', 'sure', 'no worries', 'of course', 'yes', 'yeah', 'yep', 'yup', 'will do', 'no problem', 'deal', 'alright', 'all right', 'sounds good', 'got it', 'noted',
   // he
   'בטח', 'סבבה', 'אוקיי', 'אוקי', 'בסדר', 'כן', 'אין בעיה', 'ברור', 'קיבלתי',
 ];
 const ACCEPTANCE = new RegExp(`^(?:${ACCEPTANCE_WORDS.join('|')})(?![\\p{L}\\p{M}\\p{N}])`, 'iu');
 /** The marks between an acceptance and what follows it: «أكيد، …», "sure! …". */
 const BETWEEN_WORDS = /^[\s.,!?؟،؛:;…—–-]+/;
+/** Pictographs that accept, and the one that refuses. */
+const ACCEPTING_EMOJI = new RegExp('[\\u{1F44D}\\u{1F44C}\\u{2705}\\u{2714}\\u{2611}\\u{1F91D}\\u{1F64F}\\u{1F197}\\u{1F4AF}\\u{1F4AA}]', 'u');
+const REFUSING_EMOJI = new RegExp('\\u{1F44E}', 'u');
+/** A no that means yes, taken out before the refusal words are read. */
+const KIND_NEGATIONS = new RegExp('(?:ما\\s+في\\s+مشكلة|مافي\\s+مشكلة|ما\\s+في\\s+مشكل|لا\\s+تقلق|ما\\s+تقلق|ولا\\s+يهمك|no\\s+problem|no\\s+worries|not\\s+a\\s+problem|don[\'’]t\\s+worry|אין\\s+בעיה|אל\\s+תדאג)', 'giu');
+/** Words that take a yes back: «لأ», «مش», "no", "can't", «לא», «שלא». */
+const REFUSAL_WORDS: ReadonlySet<string> = new Set([
+  'لأ', 'لا', 'لاء', 'لئ', 'مش', 'مو', 'ما', 'مب', 'مستحيل', 'بلاش',
+  'no', 'not', 'nope', "can't", 'can’t', 'cannot', 'cant', "won't", 'won’t', 'wont', "don't", 'don’t', 'dont', 'never',
+  'לא', 'שלא', 'אין',
+]);
+/** How many words after the yes are read for one that takes it back. */
+const REFUSAL_WORDS_READ = 6;
+const NOT_A_WORD = /[\s.,!?؟،؛:;…—–-]+/;
 /** An acceptance is in a message's first words; nothing past this is read for one. */
 const ACCEPTANCE_SCAN = 200;
 
@@ -191,9 +205,12 @@ const ACCEPTANCE_SCAN = 200;
 export function acceptanceReply(text: string): 'only' | 'opens' | null {
   const head = text.slice(0, ACCEPTANCE_SCAN);
   if (head.trim() === '') return null;
-  // A message that is nothing but a pictograph (👍, 👌) is a reaction.
+  // 👎 says no, whatever words are beside it.
+  if (REFUSING_EMOJI.test(head)) return null;
   const words = withoutEmoji(head);
-  if (words === '') return 'only';
+  // A message that is nothing but a pictograph is a reaction: 👍, 👌, ✅ accept;
+  // 😂, 🙂 accept nothing.
+  if (words === '') return ACCEPTING_EMOJI.test(head) ? 'only' : null;
   let rest = words.replace(BETWEEN_WORDS, '');
   let accepted = false;
   for (let round = 0; round < 2; round += 1) {
@@ -203,7 +220,13 @@ export function acceptanceReply(text: string): 'only' | 'opens' | null {
     rest = rest.slice(match[0].length).replace(BETWEEN_WORDS, '');
   }
   if (!accepted) return null;
-  return rest === '' ? 'only' : 'opens';
+  // «أكيد لأ», «تمام بس مش رح أقدر», "ok but I can't", «בטח שלא»: the yes is
+  // taken back (QA v3 review, 2026-11-20). «ما في مشكلة» and "no worries" say
+  // yes with a no in them, and are read as the yes they are.
+  const said = rest.replace(KIND_NEGATIONS, ' ');
+  const tokens = said.split(NOT_A_WORD).filter(Boolean).slice(0, REFUSAL_WORDS_READ);
+  if (tokens.some((token) => REFUSAL_WORDS.has(token.toLowerCase()) || (token.startsWith('و') && REFUSAL_WORDS.has(token.slice(1))))) return null;
+  return said.trim() === '' ? 'only' : 'opens';
 }
 
 /**

@@ -212,7 +212,8 @@ const CLASH_WORDS: readonly RegExp[] = [
   new RegExp('(?:^|\\s)[ו]?(?:מתנגש|מתנגשת|מתנגשים|התנגשות|חופף|חופפת|חופפים|עסוק|עסוקה|תפוס|תפוסה)(?=\\s|$|[.,!?])', 'u'),
 ];
 
-const claimsClash = (sentence: string): boolean => CLASH_WORDS.some((pattern) => pattern.test(fold(sentence)));
+/** Whether a sentence says something clashes, or that the person is busy then. */
+export const claimsClash = (sentence: string): boolean => CLASH_WORDS.some((pattern) => pattern.test(fold(sentence)));
 
 /** Words quoted in a sentence: «…», "…", “…”. */
 const QUOTED = /«([^»]{1,120})»|"([^"]{1,120})"|“([^”]{1,120})”/g;
