@@ -27,6 +27,7 @@ import { BrandMark } from '../../ui/brand';
 import { Pill, Txt } from '../../ui/primitives';
 import { LiveRegion } from '../../ui/liveRegion';
 import { useAnnounceOnIos } from '../../ui/announce';
+import { focusForAccessibility } from '../../ui/accessibilityFocus';
 import { fill } from '../../i18n/strings';
 import type { Habit, HabitOccurrence, HabitWeek } from '../../api/schemas/habits';
 import { Dialog } from '../../ui/dialog';
@@ -267,26 +268,36 @@ function HabitTodayRow({ habit, occurrence, anyDay }: { habit: Habit; occurrence
   // «تراجع» succeeded: the decided line and its button are gone, so the
   // region says the day is open and the focus moves to «تمّت» (review of #868).
   const [reopened, setReopened] = React.useState(false);
+  // An answer went through (#881 review): its buttons are gone, so the
+  // decided line is said and the focus moves to «تراجع», which took their place.
+  const [justDecided, setJustDecided] = React.useState(false);
   const doneButton = React.useRef<View>(null);
+  const undoButton = React.useRef<View>(null);
   const open = occurrence.state === 'pending' || occurrence.state === 'scheduled';
   const busy = decide.isPending || undo.isPending;
   const title = isolateAuto(habit.title);
+  const decided = occurrence.state === 'completed' ? t.xHabitTodayDone
+    : occurrence.state === 'skipped' || occurrence.state === 'recovered' ? t.xHabitTodaySkipped : null;
+  const saidDecided = justDecided ? decided : null;
   // iOS has no live regions: VoiceOver is told the same line.
-  useAnnounceOnIos(reopened && open ? t.xHabitTodayReopened : null);
+  useAnnounceOnIos(reopened && open ? t.xHabitTodayReopened : saidDecided);
   React.useEffect(() => {
-    if (!reopened || !open) return;
-    if (doneButton.current) AccessibilityInfo.sendAccessibilityEvent(doneButton.current, 'focus');
+    if (reopened && open) focusForAccessibility(doneButton.current);
   }, [reopened, open]);
+  React.useEffect(() => {
+    if (saidDecided) focusForAccessibility(undoButton.current);
+  }, [saidDecided]);
   const press = (outcome: 'completed' | 'skipped') => {
     setReopened(false);
+    setJustDecided(false);
     decide.mutate(
       { habitId: habit.habitId, occurrenceId: occurrence.occurrenceId, outcome },
-      { onSuccess: answer => setMadeUp(answer.recovery?.recovered === true), onError: markErrorShown },
+      { onSuccess: answer => { setMadeUp(answer.recovery?.recovered === true); setJustDecided(true); }, onError: markErrorShown },
     );
   };
   const takeBack = () => undo.mutate(
     { habitId: habit.habitId, occurrenceId: occurrence.occurrenceId },
-    { onSuccess: () => { setMadeUp(false); decide.reset(); setReopened(true); }, onError: markErrorShown },
+    { onSuccess: () => { setMadeUp(false); setJustDecided(false); decide.reset(); setReopened(true); }, onError: markErrorShown },
   );
   // A 409 here is the one way undo is refused: the make-up day was decided.
   let undoMessage: string | null = null;
@@ -296,12 +307,10 @@ function HabitTodayRow({ habit, occurrence, anyDay }: { habit: Habit; occurrence
   } else if (undo.error) {
     undoMessage = userFacingMessage(undo.error, t);
   }
-  const decided = occurrence.state === 'completed' ? t.xHabitTodayDone
-    : occurrence.state === 'skipped' || occurrence.state === 'recovered' ? t.xHabitTodaySkipped : null;
   return <View testID={`habit-today-${habit.habitId}`} style={{ gap: 8 }}>
     <ProductRow title={t.today} body={tr('xMinutes', { count: occurrence.durationMinutes })} icon="check" />
     {open ? <ProductActions>
-      <Pill testID={`habit-today-done-${habit.habitId}`} nativeRef={doneButton} label={t.done} accessibilityLabel={fill(t.xHabitTodayDoneA11y, { title })} disabled={busy} onPress={() => press('completed')} />
+      <Pill testID={`habit-today-done-${habit.habitId}`} nativeRef={doneButton} label={t.done} accessibilityLabel={fill(t.xHabitTodayMarkDoneA11y, { title })} disabled={busy} onPress={() => press('completed')} />
       {/* «مش اليوم» means nothing on a day the habit never asked for. */}
       {anyDay ? null : <Pill testID={`habit-today-skip-${habit.habitId}`} label={t.planDismiss} accessibilityLabel={fill(t.xHabitTodaySkipA11y, { title })} kind="outline" disabled={busy} onPress={() => press('skipped')} />}
     </ProductActions> : null}
@@ -314,7 +323,7 @@ function HabitTodayRow({ habit, occurrence, anyDay }: { habit: Habit; occurrence
       {undoMessage ? <Txt role="supporting" color={p.wm}>{undoMessage}</Txt> : null}
     </LiveRegion>
     {decided ? <ProductActions>
-      <Pill testID={`habit-today-undo-${habit.habitId}`} label={t.undo} accessibilityLabel={fill(t.xHabitTodayUndoA11y, { title })} kind="outline" disabled={busy}
+      <Pill testID={`habit-today-undo-${habit.habitId}`} nativeRef={undoButton} label={t.undo} accessibilityLabel={fill(t.xHabitTodayUndoA11y, { title })} kind="outline" disabled={busy}
         onPress={takeBack} />
     </ProductActions> : null}
   </View>;

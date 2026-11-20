@@ -24,6 +24,8 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   HABIT_HORIZON_MAX_DAYS,
+  normalizeStoredHabit,
+  type HabitDefinition,
   type HabitOccurrence,
 } from '../../src/contracts/v1/habitContracts.ts';
 import {
@@ -123,6 +125,49 @@ test('a horizon that starts mid-week reuses the ids of the week it joins', () =>
       `${occurrence.occurrenceId} (${occurrence.localDate}) was not produced by the aligned horizon`,
     );
   }
+});
+
+/*
+ * «كل يوم» was stored as `weekly_count` 7 until 2026-11-20 and is stored as
+ * the seven weekdays since (#881); an old document is read as every day with
+ * no migration. The rows an old habit already wrote must be the rows the new
+ * shape asks for, under the same ids — or the first read after the change
+ * writes a second row for every day beside the first.
+ */
+test('an old 7-a-week habit and a new every-day one ask for the same days under the same ids', () => {
+  const everyDay = habit({
+    cadence: { kind: 'weekdays', weekdays: [0, 1, 2, 3, 4, 5, 6] },
+    minimumOccurrences: 7,
+    maximumOccurrences: 7,
+  });
+  // The old stored shape, built by hand: the write path no longer makes it.
+  const old: HabitDefinition = Object.freeze({
+    ...everyDay,
+    cadence: Object.freeze({ kind: 'weekly_count' as const, count: 7 }),
+  });
+  // From a Thursday, so a part week sits at each end of the horizon.
+  const horizon = { fromLocalDate: '2026-03-05', toLocalDate: MARCH_SUNDAY };
+  const fromOld = materializeHabitOccurrences(old, horizon);
+  const fromNew = materializeHabitOccurrences(everyDay, horizon);
+
+  assert.equal(fromNew.occurrences.length, 25, 'every day of the horizon, once');
+  assert.deepEqual(
+    fromNew.occurrences.map((entry) => entry.occurrenceId),
+    fromOld.occurrences.map((entry) => entry.occurrenceId),
+  );
+  assert.equal(fromNew.occurrences[0]!.occurrenceId, `${everyDay.habitId}.2026-03-05.0`);
+  // The rows the old shape wrote are found by the new one: nothing added,
+  // nothing withdrawn.
+  const carried = materializeHabitOccurrences(everyDay, horizon, fromOld.occurrences);
+  assert.deepEqual(carried.created, []);
+  assert.deepEqual(carried.withdrawn, []);
+  // And what the store reads an old document as asks for those same rows.
+  const read = normalizeStoredHabit(old);
+  assert.deepEqual(read.cadence, everyDay.cadence);
+  assert.deepEqual(
+    materializeHabitOccurrences(read, horizon, fromOld.occurrences).created,
+    [],
+  );
 });
 
 test('a horizon containing two spring-forward dates yields one row per date', () => {

@@ -23,6 +23,8 @@ let mockUndoError: unknown = null;
 let mockDecideError: unknown = null;
 let mockToday: unknown = null;
 let mockTodayPending = false;
+let mockDecidePending = false;
+let mockUndoPending = false;
 
 // M5a's email parts read through TanStack Query; these screens render here
 // without a client, on a server whose M5a capability is off (today's screens).
@@ -80,8 +82,8 @@ jest.mock('../../../api/queries', () => ({
   useHabits: () => ({ data: mockHabits, isPending: false, error: null, refetch: jest.fn() }),
   useCreateHabit: () => ({ mutate: mockCreateHabit, isPending: false, error: null }),
   useHabitsToday: () => ({ data: mockToday, isPending: mockTodayPending, error: null, refetch: jest.fn() }),
-  useDecideHabitOccurrence: () => ({ mutate: mockDecide, reset: mockDecideReset, isPending: false, error: mockDecideError, variables: undefined }),
-  useUndoHabitOccurrence: () => ({ mutate: mockUndo, isPending: false, error: mockUndoError, variables: undefined }),
+  useDecideHabitOccurrence: () => ({ mutate: mockDecide, reset: mockDecideReset, isPending: mockDecidePending, error: mockDecideError, variables: undefined }),
+  useUndoHabitOccurrence: () => ({ mutate: mockUndo, isPending: mockUndoPending, error: mockUndoError, variables: undefined }),
   useSetHabitStatus: () => ({ mutate: jest.fn(), isPending: false, error: null }),
   useDeleteHabit: () => ({ mutate: jest.fn(), isPending: false, error: null }),
   usePlan: () => ({ data: null, isPending: false, error: null, refetch: jest.fn() }),
@@ -103,6 +105,8 @@ beforeEach(() => {
   mockHabits = [];
   mockToday = null;
   mockTodayPending = false;
+  mockDecidePending = false;
+  mockUndoPending = false;
   mockUndoError = null;
   mockDecideError = null;
   mockGenerate.mockImplementation((_input, options: any) => options.onSuccess({
@@ -288,6 +292,94 @@ it('a successful «تراجع» is said, moves the focus to «تمّت», and cl
   expect(screen.getByTestId('habit-today-reopened-h1')).toHaveTextContent(strings.en.xHabitTodayReopened);
   expect(focus).toHaveBeenCalledWith(expect.anything(), 'focus');
   focus.mockRestore();
+});
+
+// #881 review: «تمّت» is an action, not a state: the button says what it does.
+it('«تمّت» is named as the action it takes on the habit', async () => {
+  mockHabits = [walk];
+  mockToday = { localDate: '2026-11-15', occurrences: [todayRow('pending')] };
+  await render(wrap(<HabitDetailScreen />));
+  const done = screen.getByTestId('habit-today-done-h1');
+  expect(done).toHaveTextContent(strings.en.done);
+  expect(screen.getByLabelText(new RegExp(`^${strings.en.xHabitTodayMarkDoneA11y.replace('{title}', '.?Walk.?')}$`))).toBe(done);
+});
+
+// #881 review: VoiceOver heard nothing after «تمّت», and the focus was lost
+// with the button. iOS is told the line; the focus moves to «تراجع».
+it('a «تمّت» that went through is said once, and the focus moves to «تراجع»', async () => {
+  const announce = jest.spyOn(AccessibilityInfo, 'announceForAccessibility').mockImplementation(() => {});
+  const focus = jest.spyOn(AccessibilityInfo, 'sendAccessibilityEvent').mockImplementation(() => {});
+  mockHabits = [walk];
+  mockToday = { localDate: '2026-11-15', occurrences: [todayRow('pending')] };
+  mockDecide.mockImplementation((...args: unknown[]) => (args[1] as { onSuccess?: (answer: unknown) => void } | undefined)?.onSuccess?.({}));
+  const view = await render(wrap(<HabitDetailScreen />));
+  announce.mockClear();
+  focus.mockClear();
+  await fireEvent.press(screen.getByTestId('habit-today-done-h1'));
+  mockToday = { localDate: '2026-11-15', occurrences: [todayRow('completed')] };
+  await view.rerender(wrap(<HabitDetailScreen />));
+  expect(screen.getByTestId('habit-today-state-h1')).toHaveTextContent(strings.en.xHabitTodayDone);
+  expect(announce.mock.calls.filter(([line]) => line === strings.en.xHabitTodayDone)).toHaveLength(1);
+  expect(focus).toHaveBeenCalledTimes(1);
+  expect(focus).toHaveBeenCalledWith(expect.anything(), 'focus');
+  announce.mockRestore();
+  focus.mockRestore();
+});
+
+it('a «مش اليوم» that went through is said the same way', async () => {
+  const announce = jest.spyOn(AccessibilityInfo, 'announceForAccessibility').mockImplementation(() => {});
+  const focus = jest.spyOn(AccessibilityInfo, 'sendAccessibilityEvent').mockImplementation(() => {});
+  mockHabits = [walk];
+  mockToday = { localDate: '2026-11-15', occurrences: [todayRow('pending')] };
+  mockDecide.mockImplementation((...args: unknown[]) => (args[1] as { onSuccess?: (answer: unknown) => void } | undefined)?.onSuccess?.({}));
+  const view = await render(wrap(<HabitDetailScreen />));
+  announce.mockClear();
+  focus.mockClear();
+  await fireEvent.press(screen.getByTestId('habit-today-skip-h1'));
+  mockToday = { localDate: '2026-11-15', occurrences: [todayRow('skipped')] };
+  await view.rerender(wrap(<HabitDetailScreen />));
+  expect(announce.mock.calls.filter(([line]) => line === strings.en.xHabitTodaySkipped)).toHaveLength(1);
+  expect(focus).toHaveBeenCalledWith(expect.anything(), 'focus');
+  announce.mockRestore();
+  focus.mockRestore();
+});
+
+it('a day already decided when the page opens is not said again', async () => {
+  const announce = jest.spyOn(AccessibilityInfo, 'announceForAccessibility').mockImplementation(() => {});
+  const focus = jest.spyOn(AccessibilityInfo, 'sendAccessibilityEvent').mockImplementation(() => {});
+  announce.mockClear();
+  focus.mockClear();
+  mockHabits = [walk];
+  mockToday = { localDate: '2026-11-15', occurrences: [todayRow('completed')] };
+  await render(wrap(<HabitDetailScreen />));
+  expect(announce).not.toHaveBeenCalledWith(strings.en.xHabitTodayDone);
+  expect(focus).not.toHaveBeenCalled();
+  announce.mockRestore();
+  focus.mockRestore();
+});
+
+// Review of #868/#881 (mutations M6/M7 survived): each answer is locked
+// while one is on its way, so a second tap sends nothing.
+it('«تمّت» and «مش اليوم» are locked while an answer is on its way', async () => {
+  mockHabits = [walk];
+  mockToday = { localDate: '2026-11-15', occurrences: [todayRow('pending')] };
+  mockDecidePending = true;
+  await render(wrap(<HabitDetailScreen />));
+  expect(screen.getByTestId('habit-today-done-h1')).toBeDisabled();
+  expect(screen.getByTestId('habit-today-skip-h1')).toBeDisabled();
+  await fireEvent.press(screen.getByTestId('habit-today-done-h1'));
+  await fireEvent.press(screen.getByTestId('habit-today-skip-h1'));
+  expect(mockDecide).not.toHaveBeenCalled();
+});
+
+it('«تراجع» is locked while it is on its way', async () => {
+  mockHabits = [walk];
+  mockToday = { localDate: '2026-11-15', occurrences: [todayRow('completed')] };
+  mockUndoPending = true;
+  await render(wrap(<HabitDetailScreen />));
+  expect(screen.getByTestId('habit-today-undo-h1')).toBeDisabled();
+  await fireEvent.press(screen.getByTestId('habit-today-undo-h1'));
+  expect(mockUndo).not.toHaveBeenCalled();
 });
 
 it('a refused «تراجع» (the make-up day was already decided) says so, not the generic conflict', async () => {

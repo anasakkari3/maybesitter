@@ -406,7 +406,7 @@ export interface M3aHarness {
   server: M3aServer;
 }
 
-export async function prepare(language: 'ar' | 'en' = 'en', server = new M3aServer()): Promise<M3aHarness> {
+export async function prepare(language: 'ar' | 'en' | 'he' = 'en', server = new M3aServer()): Promise<M3aHarness> {
   mockLinked = false;
   onlineManager.setOnline(true);
   await AsyncStorage.clear();

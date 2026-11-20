@@ -10,6 +10,7 @@
  *     explanation at all.
  */
 import React from 'react';
+import { AccessibilityInfo } from 'react-native';
 import { readFileSync } from 'fs';
 import { join } from 'path';
 import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
@@ -40,6 +41,7 @@ import { Txt } from '../../ui/primitives';
 import { createAppQueryClient } from '../../api/queryClient';
 import { ForbiddenError, NetworkError, ServerError } from '../../api/errors';
 import { MutationFailureToasts } from '../../api/ui/MutationFailureToasts';
+import { userFacingMessage } from '../../api/ui/userFacingMessage';
 import quietHoursFixture from '../../api/__fixtures__/nextStep.quietHours.json';
 import profileFixture from '../../api/__fixtures__/profile.one.json';
 import consentsFixture from '../../api/__fixtures__/consents.answered.json';
@@ -1097,6 +1099,59 @@ describe('a refresh that fails after the day loaded', () => {
     expect(screen.queryByTestId('today-item-kept')).not.toBeNull();
     expect(screen.queryByTestId('query-error')).toBeNull();
     expect(within(screen.getByTestId('today-refresh-failed')).getByText(en.errorsRetry)).toBeTruthy();
+  });
+
+  // #878 review: the bar is said to the screen reader when it appears, once:
+  // a later read that changes nothing about the failure says nothing again.
+  it('says the failure to the screen reader once when the bar appears', async () => {
+    const announce = jest.spyOn(AccessibilityInfo, 'announceForAccessibility').mockImplementation(() => {});
+    await show([item({ id: 'kept' })]);
+    await waitFor(() => expect(screen.queryByTestId('today-item-kept')).not.toBeNull());
+    // A spy keeps the calls made before it in this run: start from none.
+    announce.mockClear();
+    const failure = new ServerError('down', 500);
+    const reads = jest.spyOn(commitmentEndpoints, 'listToday').mockRejectedValue(failure as never);
+    await act(async () => { await client.refetchQueries(); });
+    await waitFor(() => expect(screen.queryByTestId('today-refresh-failed')).not.toBeNull());
+    const message = userFacingMessage(failure, en as never);
+    expect(within(screen.getByTestId('today-refresh-failed')).getByText(message)).toBeTruthy();
+    const said = () => announce.mock.calls.filter(([line]) => line === message).length;
+    expect(said()).toBe(1);
+    // Another read that fails the same way redraws the screen, not the news.
+    const before = reads.mock.calls.length;
+    await act(async () => { await client.refetchQueries(); });
+    await waitFor(() => expect(reads.mock.calls.length).toBeGreaterThan(before));
+    expect(screen.queryByTestId('today-refresh-failed')).not.toBeNull();
+    expect(said()).toBe(1);
+    announce.mockRestore();
+  });
+
+  // #878 review: «جرّب كمان مرّة» showed nothing while it ran, so it read as
+  // a tap that did nothing. While the read is on its way the button is locked
+  // and says so.
+  it('the retry is locked and says it is trying while the read is on its way', async () => {
+    await show([item({ id: 'kept' })]);
+    await waitFor(() => expect(screen.queryByTestId('today-item-kept')).not.toBeNull());
+    jest.spyOn(commitmentEndpoints, 'listToday').mockRejectedValue(new ServerError('down', 500) as never);
+    await act(async () => { await client.refetchQueries(); });
+    await waitFor(() => expect(screen.queryByTestId('today-refresh-failed')).not.toBeNull());
+    const retry = screen.getByTestId('today-refresh-retry');
+    expect(retry).not.toBeDisabled();
+    expect(retry).toHaveTextContent(en.errorsRetry);
+    let answer: (() => void) | undefined;
+    const reread = jest.spyOn(commitmentEndpoints, 'listToday').mockImplementation(() => new Promise(resolve => {
+      answer = () => resolve({ items: [item({ id: 'kept' })] } as never);
+    }));
+    const before = reread.mock.calls.length;
+    await fireEvent.press(retry);
+    await waitFor(() => expect(screen.getByTestId('today-refresh-retry')).toBeDisabled());
+    expect(screen.getByTestId('today-refresh-retry')).toHaveTextContent(en.errorsRetrying);
+    expect(screen.getByTestId('today-refresh-retry').props.accessibilityLabel).toBe(en.errorsRetrying);
+    // A second tap while it runs asks nothing more.
+    await fireEvent.press(screen.getByTestId('today-refresh-retry'));
+    expect(reread.mock.calls.length).toBe(before + 1);
+    await act(async () => { answer?.(); });
+    await waitFor(() => expect(screen.queryByTestId('today-refresh-failed')).toBeNull());
   });
 
   it('a refusal that is the account\'s own state still replaces the day, with no retry', async () => {
